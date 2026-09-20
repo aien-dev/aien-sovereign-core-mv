@@ -102,6 +102,10 @@ impl AienScheduler {
         &mut self.completion_router
     }
 
+    pub fn register_completion_sink(&mut self, sink: Arc<dyn CompletionSink>) -> CompletionSinkId {
+        self.completion_router.register(sink)
+    }
+
     pub fn waiting_count(&self) -> usize {
         self.waiting_queue.len()
     }
@@ -626,7 +630,7 @@ impl AienScheduler {
                                 } else if seq.tokens_generated >= seq.sampling_params.max_tokens {
                                     is_finished = true;
                                     finish_reason = FinishReason::LengthLimit;
-                                } else {
+                                } else if !backend.manages_kv_cache() {
                                     let append_result =
                                         self.kv_manager.write().append_token(request_id);
                                     if append_result.is_err() {
