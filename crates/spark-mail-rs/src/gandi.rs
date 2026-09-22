@@ -113,7 +113,7 @@ pub fn list(account: Account, limit: usize) -> Result<Vec<MailSummary>, Error> {
     let mut session = imap_session(account)?;
     session
         .examine("INBOX")
-        .map_err(|_| Error::other("cannot open inbox"))?;
+        .map_err(|error| Error::other(format!("cannot open inbox: {error}")))?;
     let mut uids: Vec<u32> = session
         .uid_search("ALL")
         .map_err(|_| Error::other("cannot search inbox"))?
@@ -144,7 +144,7 @@ pub fn read(account: Account, uid: u32) -> Result<MailDetail, Error> {
     let mut session = imap_session(account)?;
     session
         .examine("INBOX")
-        .map_err(|_| Error::other("cannot open inbox"))?;
+        .map_err(|error| Error::other(format!("cannot open inbox: {error}")))?;
     let fetched = session
         .uid_fetch(uid.to_string(), "BODY.PEEK[]")
         .map_err(|_| Error::other("cannot fetch message"))?;
