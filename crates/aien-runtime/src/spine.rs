@@ -14,6 +14,7 @@ use aien_inference_abi::{AienInferenceBackend, SamplingParams, StepMetrics};
 use aien_kv_cache::AienKvManager;
 use aien_scheduler::{
     AienScheduler, CompletionSink, CompletionSinkId, PromptHandle, SchedulerConfig,
+    SequenceId as SchedSequenceId,
 };
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -55,7 +56,7 @@ impl AienRuntimeSpine {
         prompt: PromptHandle,
         sampling_params: Option<SamplingParams>,
         sink_id: Option<CompletionSinkId>,
-    ) -> Result<(), String> {
+    ) -> Result<SchedSequenceId, String> {
         self.scheduler
             .submit_work(work, prompt, sampling_params, sink_id)
     }
@@ -67,7 +68,7 @@ impl AienRuntimeSpine {
         sampling_params: SamplingParams,
         priority: u8,
         sink_id: Option<CompletionSinkId>,
-    ) -> Result<u64, String> {
+    ) -> Result<SchedSequenceId, String> {
         self.step_counter += 1;
         let seq_id = self.step_counter;
         let plat_priority = match priority {
@@ -86,8 +87,7 @@ impl AienRuntimeSpine {
             next_token_budget: sampling_params.max_tokens as u32,
         };
         self.scheduler
-            .submit_work(work, prompt, Some(sampling_params), sink_id)?;
-        Ok(seq_id)
+            .submit_work(work, prompt, Some(sampling_params), sink_id)
     }
 
     /// Registers a completion sink for streaming output events.
@@ -98,12 +98,10 @@ impl AienRuntimeSpine {
     /// Zero-copy subagent sequence branching with completion sink routing.
     pub fn fork_subagent(
         &mut self,
-        parent_id: u64,
-        child_id: u64,
+        parent_id: SchedSequenceId,
         sink_id: Option<CompletionSinkId>,
-    ) -> Result<(), String> {
-        self.scheduler
-            .fork_subagent_with_sink(parent_id, child_id, sink_id)
+    ) -> Result<SchedSequenceId, String> {
+        self.scheduler.fork_sequence(parent_id, sink_id)
     }
 
     /// Executes runtime steps in a closed loop until all active requests complete or max_steps is reached.

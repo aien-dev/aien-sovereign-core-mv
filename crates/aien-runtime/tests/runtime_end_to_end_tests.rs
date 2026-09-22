@@ -187,18 +187,12 @@ async fn test_end_to_end_subagent_branching_with_independent_sinks() {
     // Fork subagent 1 with independent sink
     let (sink_child1, mut rx_child1) = ChannelCompletionSink::channel();
     let sink_c1_id = spine.register_completion_sink(Arc::new(sink_child1));
-    let child1_id = parent_id + 100;
-    spine
-        .fork_subagent(parent_id, child1_id, Some(sink_c1_id))
-        .unwrap();
+    let _child1_id = spine.fork_subagent(parent_id, Some(sink_c1_id)).unwrap();
 
     // Fork subagent 2 with independent sink
     let (sink_child2, mut rx_child2) = ChannelCompletionSink::channel();
     let sink_c2_id = spine.register_completion_sink(Arc::new(sink_child2));
-    let child2_id = parent_id + 200;
-    spine
-        .fork_subagent(parent_id, child2_id, Some(sink_c2_id))
-        .unwrap();
+    let _child2_id = spine.fork_subagent(parent_id, Some(sink_c2_id)).unwrap();
 
     // Verify prefix sharing in physical KV pool right after fork
     {

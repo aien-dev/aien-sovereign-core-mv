@@ -652,6 +652,16 @@ impl AienScheduler {
                         }
 
                         if is_finished {
+                            if let Some(sink_id) = self.arena.get(seq_id).and_then(|s| s.sink_id) {
+                                self.completion_router.emit(
+                                    sink_id,
+                                    CompletionEvent::Finished {
+                                        seq_id,
+                                        finish_reason,
+                                        total_tokens,
+                                    },
+                                );
+                            }
                             if let Some(pos) =
                                 self.running_sequences.iter().position(|&x| x == seq_id)
                             {
@@ -692,6 +702,16 @@ impl AienScheduler {
                     total_tokens,
                 } => {
                     if let Ok(seq_id) = SequenceId::from_u64(request_id) {
+                        if let Some(sink_id) = self.arena.get(seq_id).and_then(|s| s.sink_id) {
+                            self.completion_router.emit(
+                                sink_id,
+                                CompletionEvent::Finished {
+                                    seq_id,
+                                    finish_reason: reason,
+                                    total_tokens,
+                                },
+                            );
+                        }
                         if let Some(pos) = self.running_sequences.iter().position(|&x| x == seq_id)
                         {
                             self.running_sequences.remove(pos);
