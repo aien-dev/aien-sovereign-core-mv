@@ -70,7 +70,7 @@ impl ProviderType {
             ProviderType::Mistral => "https://api.mistral.ai/v1/chat/completions",
             ProviderType::ChatGPTWeb => "https://chatgpt.com/backend-api/conversation",
             ProviderType::ClaudeWeb => "https://claude.ai/api/organizations/chat_conversations",
-            ProviderType::LocalMax => "http://127.0.0.1:18006/v1/chat/completions",
+            ProviderType::LocalMax => "http://127.0.0.1:18007/v1/chat/completions",
             ProviderType::EmbeddedNative => "in-process://native-transformer",
         }
     }

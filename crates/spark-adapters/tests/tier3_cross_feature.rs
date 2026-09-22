@@ -24,7 +24,7 @@ fn test_t3_01_sanitizer_router_dispatch_interaction() {
     let router = AdapterRouter::new();
     let (provider, endpoint, model, key) = router.resolve_route("atlas-lightning-omni");
     assert_eq!(provider, ProviderType::LocalMax);
-    assert_eq!(endpoint, "http://127.0.0.1:18006/v1/chat/completions");
+    assert_eq!(endpoint, "http://127.0.0.1:18007/v1/chat/completions");
     assert_eq!(model, "atlas-lightning-omni");
     assert!(key.is_none());
 

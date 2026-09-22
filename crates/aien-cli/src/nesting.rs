@@ -67,13 +67,16 @@ pub async fn perform_nesting_ritual(session_id: &str, print_tui: bool) -> Nestin
 
     // Check service seats
     let mut seats_status = Vec::new();
-    let seat_18006 = client
-        .get("http://127.0.0.1:18006/v1/models")
+    let mut model_probe = client.get("http://127.0.0.1:18007/v1/models");
+    if let Ok(token) = std::env::var("AIEN_GATEWAY_TOKEN_OPENCODE") {
+        model_probe = model_probe.bearer_auth(token);
+    }
+    let seat_18007 = model_probe
         .send()
         .await
         .map(|r| r.status().is_success())
         .unwrap_or(false);
-    seats_status.push(("Model (18006)".to_string(), seat_18006));
+    seats_status.push(("Model Gateway (18007)".to_string(), seat_18007));
 
     let judge_18082 = client
         .get("http://127.0.0.1:18082/v1/models")
@@ -105,9 +108,10 @@ pub async fn perform_nesting_ritual(session_id: &str, print_tui: bool) -> Nestin
         if user != "drakestapleton" && user != "root" {
             critical_failures.push(format!("DGX Spark workstation policy: running as {}, must operate as drakestapleton on spark hardware", user));
         }
-        if !seat_18006 {
+        if !seat_18007 {
             critical_failures.push(
-                "Critical Seat Down: Model Seat (port 18006 / Nemotron-3.5) is offline".to_string(),
+                "Critical Seat Down: Model Gateway (port 18007 / Nemotron-3.5) is offline"
+                    .to_string(),
             );
         }
         if !judge_18082 {
@@ -239,14 +243,14 @@ pub async fn perform_nesting_ritual(session_id: &str, print_tui: bool) -> Nestin
         "[NESTING RITUAL RECORD - GROUNDING SEQUENCE]\n\
          Host: {} | Operator: {} | Disk Free: {}\n\
          GPU: {}\n\
-         Seats Verified: Model(18006)={}, Judge(18082)={}, Cortex(18080)={}, Dream(18085)={}\n\
+         Seats Verified: ModelGateway(18007)={}, Judge(18082)={}, Cortex(18080)={}, Dream(18085)={}\n\
          Swarm Status: {} active peer cell(s) | Pending Park Notes: {}\n\
          Hive Pulse & Vibe: Coherence={}%, Vibe={}\n\
          Scent Registered: basecamp/events.jsonl ({})\n\n\
          {}\n\n\
          Operating Rule: Consult the directory crumb topography above. Before modifying files, declare your vector and verify boundaries.",
         hostname, user, disk_free, gpu_info,
-        seat_18006, judge_18082, cortex_18080, dream_18085,
+        seat_18007, judge_18082, cortex_18080, dream_18085,
         hive_active_count, pending_parks_count,
         pulse_coherence.unwrap_or(95), pulse_vibe.as_deref().unwrap_or("Aligned and focused"),
         session_id, crumb_topography

@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use std::io::{stdout, Write};
 use std::time::Duration;
 
-pub const DEFAULT_ENDPOINT: &str = "http://127.0.0.1:18006/v1/chat/completions";
+pub const DEFAULT_ENDPOINT: &str = "http://127.0.0.1:18007/v1/chat/completions";
 pub const DEFAULT_MODEL: &str = "atlas-lightning-omni";
 
 pub fn get_system_prompt() -> String {
@@ -91,6 +91,7 @@ pub struct ChatClient {
     client: Client,
     endpoint: String,
     model: String,
+    token: Option<String>,
 }
 
 impl ChatClient {
@@ -101,6 +102,7 @@ impl ChatClient {
         let md = model
             .or_else(|| std::env::var("AIEN_MODEL_NAME").ok())
             .unwrap_or_else(|| DEFAULT_MODEL.to_string());
+        let token = std::env::var("AIEN_GATEWAY_TOKEN_OPENCODE").ok();
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(10))
             .read_timeout(Duration::from_secs(120))
@@ -110,6 +112,7 @@ impl ChatClient {
             client,
             endpoint: ep,
             model: md,
+            token,
         }
     }
 
@@ -136,10 +139,14 @@ impl ChatClient {
             "max_tokens": max_tokens
         });
 
-        let res = self
+        let mut request = self
             .client
             .post(&self.endpoint)
-            .header("Content-Type", "application/json")
+            .header("Content-Type", "application/json");
+        if let Some(token) = &self.token {
+            request = request.bearer_auth(token);
+        }
+        let res = request
             .json(&payload)
             .send()
             .await

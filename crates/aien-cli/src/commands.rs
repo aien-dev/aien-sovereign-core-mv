@@ -458,15 +458,19 @@ pub async fn run_doctor() {
         );
     }
 
-    // 2. Model Seat 18006
-    match client.get("http://127.0.0.1:18006/v1/models").send().await {
+    // 2. Bounded model gateway 18007
+    let mut model_probe = client.get("http://127.0.0.1:18007/v1/models");
+    if let Ok(token) = std::env::var("AIEN_GATEWAY_TOKEN_OPENCODE") {
+        model_probe = model_probe.bearer_auth(token);
+    }
+    match model_probe.send().await {
         Ok(r) if r.status().is_success() => println!(
             "{}",
-            "✓ Model Seat (Port 18006): Online (Nemotron-3.5-Lightning-30B-A3B BF16)".green()
+            "✓ Model Gateway (Port 18007): Online (Nemotron-3.5-Lightning-30B-A3B BF16)".green()
         ),
         _ => println!(
             "{}",
-            "⚠ Model Seat (Port 18006): OFFLINE or unreachable".yellow()
+            "⚠ Model Gateway (Port 18007): OFFLINE or unreachable".yellow()
         ),
     }
 
@@ -1043,8 +1047,8 @@ pub async fn handle_status_command() {
     let checks = [
         (
             "Modular MAX Model Seat",
-            "http://127.0.0.1:18006/health",
-            18006,
+            "http://127.0.0.1:18007/healthz",
+            18007,
         ),
         (
             "Cortex Memory Store",

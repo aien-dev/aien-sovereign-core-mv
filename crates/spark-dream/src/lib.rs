@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 pub const DEFAULT_CORTEX_URL: &str = "http://127.0.0.1:18080";
-pub const DEFAULT_MODEL_URL: &str = "http://127.0.0.1:18006";
+pub const DEFAULT_MODEL_URL: &str = "http://127.0.0.1:18007";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DreamState {

@@ -1,0 +1,31 @@
+[package]
+name = "spark-model-gateway"
+version.workspace = true
+edition = "2021"
+license.workspace = true
+authors = ["Drake Stapleton <drake.aien@proton.me>"]
+description = "Bounded OpenAI compatible admission gateway for the replaceable AIEN inference provider"
+
+[[bin]]
+name = "spark-model-gateway"
+path = "src/main.rs"
+
+[dependencies]
+axum = { version = "0.7", features = ["json", "macros", "tokio"] }
+async-trait = "0.1"
+bytes = "1"
+futures-util = "0.3"
+http = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
+tokio = { version = "1.37", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }

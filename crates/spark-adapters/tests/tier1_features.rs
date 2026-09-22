@@ -278,7 +278,7 @@ fn test_t1_f18_resident_model_endpoint_resolution() {
     let router = AdapterRouter::new();
     let (prov, endpoint, model, key) = router.resolve_route("atlas-lightning-omni");
     assert_eq!(prov, ProviderType::LocalMax);
-    assert_eq!(endpoint, "http://127.0.0.1:18006/v1/chat/completions");
+    assert_eq!(endpoint, "http://127.0.0.1:18007/v1/chat/completions");
     assert_eq!(model, "atlas-lightning-omni");
     assert!(key.is_none());
 }
@@ -303,7 +303,7 @@ fn test_t1_f20_resident_live_model_availability() {
         return;
     }
     let output = Command::new("curl")
-        .args(["-s", "http://127.0.0.1:18006/v1/models"])
+        .args(["-s", "http://127.0.0.1:18007/v1/models"])
         .output()
         .expect("curl max");
     let body = String::from_utf8_lossy(&output.stdout);

@@ -101,11 +101,12 @@ sign_commits = false
 
 [engine]
 mode = "max"
-api_base_url = "http://127.0.0.1:18006/v1"
+    api_base_url = "http://127.0.0.1:18007/v1"
 api_key = ""
 model_id = "atlas-lightning-omni"
-max_port = 18006
-context_window = 32768
+    max_port = 18006
+    gateway_port = 18007
+    context_window = 49152
 temperature = 0.7
 CFG
     echo "[+] Generated default configuration at $CONFIG_DIR/operator.toml"

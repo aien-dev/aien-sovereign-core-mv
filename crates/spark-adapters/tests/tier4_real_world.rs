@@ -45,7 +45,7 @@ async fn test_t4_02_resident_max_live_inference_roundtrip() {
     });
 
     let res = client
-        .post("http://127.0.0.1:18006/v1/chat/completions")
+        .post("http://127.0.0.1:18007/v1/chat/completions")
         .json(&payload)
         .send()
         .await;

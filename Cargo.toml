@@ -29,6 +29,7 @@ members = [
     "crates/rad-id-sync",
     "crates/aien-inference-protocol",
     "crates/aien-inference-runtime",
+    "crates/spark-model-gateway",
 ]
 
 [workspace.package]

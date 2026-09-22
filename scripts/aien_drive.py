@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 AIEN Autonomous API Driver.
-Drives AIEN (atlas-lightning-omni on DGX Spark GB10, port 18006)
+Drives AIEN through the bounded Spark model gateway on port 18007.
 in a closed feedback loop with active tool dispatching.
 """
 
@@ -14,7 +14,7 @@ import subprocess
 import urllib.request
 import urllib.error
 
-ENDPOINT_LIGHTNING = "http://127.0.0.1:18006/v1/chat/completions"
+ENDPOINT_LIGHTNING = "http://127.0.0.1:18007/v1/chat/completions"
 MODEL_LIGHTNING = "atlas-lightning-omni"
 ENDPOINT_JUDGE = "http://127.0.0.1:18082/v1/chat/completions"
 MODEL_JUDGE = "unsloth/Llama-3.2-1B-Instruct"
