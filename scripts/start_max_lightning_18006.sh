@@ -21,7 +21,7 @@ exec /home/drakestapleton/max-env/bin/max serve \
   --custom-architectures /home/drakestapleton/nemotron_h_kvexp \
   --port 18006 \
   --max-batch-size 8 \
-  --max-length 32768 \
+  --max-length 49152 \
   --device-memory-utilization 0.85 \
   --quantization-encoding float4_e2m1fnx2 \
   --enable-structured-output \
