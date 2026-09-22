@@ -2,11 +2,13 @@ use clap::{Parser, Subcommand};
 use serde::Deserialize;
 use spark_mail::api::{ApiState, create_router};
 use spark_mail::cortex_sync::CortexSync;
+use spark_mail::gandi::{self, Account};
 use spark_mail::models::SendEmailRequest;
 use spark_mail::relay::MailRelay;
 use spark_mail::smtp_server::run_smtp_server;
 use spark_mail::store::MailStore;
 use std::fs;
+use std::io::Read;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -50,6 +52,24 @@ enum Commands {
         from: Option<String>,
     },
     IngestTest,
+    GandiList {
+        #[arg(long, value_enum)]
+        account: Account,
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
+    GandiRead {
+        #[arg(long, value_enum)]
+        account: Account,
+        #[arg(long)]
+        uid: u32,
+    },
+    GandiSend {
+        #[arg(long)]
+        to: String,
+        #[arg(long)]
+        subject: String,
+    },
 }
 
 #[derive(Deserialize, Default)]
@@ -92,6 +112,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .init();
 
     let cli = Cli::parse();
+    let command = cli.command.unwrap_or(Commands::Run);
+    match command {
+        Commands::GandiList { account, limit } => {
+            println!("{}", serde_json::to_string(&gandi::list(account, limit)?)?);
+            return Ok(());
+        }
+        Commands::GandiRead { account, uid } => {
+            println!("{}", serde_json::to_string(&gandi::read(account, uid)?)?);
+            return Ok(());
+        }
+        Commands::GandiSend { to, subject } => {
+            let mut body = String::new();
+            std::io::stdin().read_to_string(&mut body)?;
+            gandi::send_as_aien(&to, &subject, &body)?;
+            println!("Gandi SMTP accepted the message from aien@aienos.com");
+            return Ok(());
+        }
+        _ => {}
+    }
     let store = Arc::new(MailStore::new(cli.mail_dir));
     let cortex = Arc::new(CortexSync::new(None));
     let operator_email = load_operator_email();
@@ -104,7 +143,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         &operator_email,
     ));
 
-    match cli.command.unwrap_or(Commands::Run) {
+    match command {
         Commands::Run => {
             println!("📬 AIEN Sovereign Mail Engine starting...");
             println!("   Local NVMe Storage: {}", store.base_path.display());
@@ -203,6 +242,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             };
             let sent = relay.send_email(req).await.map_err(std::io::Error::other)?;
             println!("Test message saved and indexed into Cortex: {}", sent.id);
+        }
+        Commands::GandiList { .. } | Commands::GandiRead { .. } | Commands::GandiSend { .. } => {
+            unreachable!()
         }
     }
 

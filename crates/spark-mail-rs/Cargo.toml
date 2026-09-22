@@ -19,6 +19,10 @@ tower-http = { version = "0.7.1", features = ["cors"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 toml = "0.8"
+imap = "2.4"
+native-tls = "0.2"
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "native-tls", "hostname", "pool"] }
+mailparse = "0.15"
 
 [[bin]]
 name = "spark-mail"

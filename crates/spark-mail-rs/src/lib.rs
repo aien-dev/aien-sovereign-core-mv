@@ -1,5 +1,6 @@
 pub mod api;
 pub mod cortex_sync;
+pub mod gandi;
 pub mod models;
 pub mod relay;
 pub mod smtp_server;
