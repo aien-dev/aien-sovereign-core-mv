@@ -1,17 +1,17 @@
 use colored::*;
 use reqwest::Client;
 use serde_json::{json, Value};
-use std::fs;
+use std::process::Command;
 
 const CORTEX_BASE_URL: &str = "http://127.0.0.1:18080";
 pub fn get_cortex_token() -> String {
-    let platform = crate::platform::PlatformContext::detect();
-    let p = platform.home_dir.join(".config/cortex/token");
-    if p.exists() {
-        fs::read_to_string(p).unwrap_or_default().trim().to_string()
-    } else {
-        String::new()
-    }
+    Command::new("atlas-vault")
+        .args(["get", "CORTEX_TOKEN"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .unwrap_or_default()
 }
 
 pub async fn write_to_cortex(
@@ -22,7 +22,7 @@ pub async fn write_to_cortex(
 ) -> Result<Value, String> {
     let token = get_cortex_token();
     if token.is_empty() {
-        return Err("Missing Cortex token in ~/.config/cortex/token".to_string());
+        return Err("CORTEX_TOKEN is unavailable from atlas-vault".to_string());
     }
 
     let et = if entity_type.is_empty() {
@@ -67,28 +67,34 @@ pub async fn write_to_cortex(
 
 pub async fn search_cortex(query: &str, limit: usize) -> Result<Vec<Value>, String> {
     let token = get_cortex_token();
-    let url = format!(
-        "{}/api/cortex/search?q={}&space=atlas-memory&limit={}",
-        CORTEX_BASE_URL,
-        query.replace(" ", "%20"),
-        limit
-    );
-    let client = Client::new();
-    let mut req = client.get(&url).header("Accept", "application/json");
-    if !token.is_empty() {
-        req = req.header("Authorization", format!("Bearer {}", token));
+    if token.is_empty() {
+        return Err("CORTEX_TOKEN is unavailable from atlas-vault".to_string());
     }
-
-    let resp = req
+    let url = format!("{}/api/cortex/search", CORTEX_BASE_URL);
+    let client = Client::new();
+    let resp = client
+        .get(&url)
+        .header("Accept", "application/json")
+        .bearer_auth(token)
+        .query(&[
+            ("q", query),
+            ("space", "atlas-memory"),
+            ("limit", &limit.to_string()),
+        ])
         .send()
         .await
         .map_err(|e| format!("Cortex connection failed: {}", e))?;
-    if let Ok(data) = resp.json::<Value>().await {
-        if let Some(arr) = data.get("results").and_then(Value::as_array) {
-            return Ok(arr.clone());
-        }
-    }
-    Ok(Vec::new())
+    let resp = resp
+        .error_for_status()
+        .map_err(|e| format!("Cortex search failed: {}", e))?;
+    let data = resp
+        .json::<Value>()
+        .await
+        .map_err(|e| format!("Invalid Cortex search response: {}", e))?;
+    data.get("results")
+        .and_then(Value::as_array)
+        .cloned()
+        .ok_or_else(|| "Cortex search response lacks results array".to_string())
 }
 
 /// Automatically assembles relevant memories and procedures from Spark Cortex based on active task context.
