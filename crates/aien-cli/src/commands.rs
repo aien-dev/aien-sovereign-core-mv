@@ -1489,7 +1489,6 @@ pub async fn handle_cockpit_command() {
         "==================================================================".cyan()
     );
     println!("  Local:       http://127.0.0.1:18095");
-    println!("  Tailscale:   http://100.116.106.93:18095");
     println!("  Mascot:      AIEN Cosmic Monkey Warrior");
     println!("  Audio:       Natural Voice Response Enabled");
     println!(

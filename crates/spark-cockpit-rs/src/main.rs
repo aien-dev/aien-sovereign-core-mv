@@ -1,3 +1,5 @@
+mod access;
+
 use axum::{
     Router,
     extract::{
@@ -26,7 +28,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::process::Command;
-use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 
 const MAX_SEAT_URL: &str = "http://127.0.0.1:18006";
@@ -897,6 +898,10 @@ async fn handle_workshop_commit(
 
 #[tokio::main]
 async fn main() {
+    let access = Arc::new(access::Access::from_environment().unwrap_or_else(|error| {
+        eprintln!("Cockpit refused to start: {error}");
+        std::process::exit(1);
+    }));
     let patterns = Arc::new(build_patterns());
     let client = reqwest::Client::builder()
         .tcp_nodelay(true)
@@ -1028,20 +1033,22 @@ async fn main() {
         .route("/api/artifacts/{filename}", get(handle_get_artifact))
         .nest_service("/artifacts", ServeDir::new(artifacts_dir()))
         .fallback_service(ServeDir::new(static_dir()))
-        .layer(
-            CorsLayer::new()
-                .allow_origin([
-                    "http://127.0.0.1:18095".parse().unwrap(),
-                    "http://localhost:18095".parse().unwrap(),
-                    "http://192.168.1.108:18095".parse().unwrap(),
-                    "http://100.116.106.93:18095".parse().unwrap(),
-                ])
-                .allow_methods(Any)
-                .allow_headers(Any),
-        )
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&access),
+            access::require_access,
+        ))
+        .merge(
+            Router::new()
+                .route("/login", get(access::login))
+                .route("/auth/session", post(access::session))
+                .with_state(access),
+        );
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 18095));
+    let addr = access::bind_address().unwrap_or_else(|error| {
+        eprintln!("Cockpit refused to start: {error}");
+        std::process::exit(1);
+    });
     println!(
         "🚀 AIEN Native Sovereign Cockpit (Rust Axum) active on http://{}",
         addr
@@ -2984,21 +2991,8 @@ struct OperatorUpdatePayload {
 }
 
 async fn handle_post_operator(
-    headers: HeaderMap,
     Json(payload): Json<OperatorUpdatePayload>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    if let Some(token) = get_cortex_token()
-        && let Some(auth) = headers.get(axum::http::header::AUTHORIZATION)
-        && let Ok(auth_str) = auth.to_str()
-        && let Some(provided) = auth_str.strip_prefix("Bearer ")
-        && provided.trim() != token
-    {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Invalid bearer token"})),
-        ));
-    }
-
     let clean_name = payload.name.map(|n| {
         n.chars()
             .filter(|c| !c.is_control())
@@ -3160,10 +3154,22 @@ async fn handle_install_en2_imprint(
     })))
 }
 
+/// Mail API bearer token: environment, then the owner-only file shared with
+/// spark-mail (~/.config/aien/mail-api.token), then atlas-vault.
+fn mail_access_token() -> String {
+    if let Ok(value) = std::env::var("AIEN_MAIL_API_TOKEN")
+        && !value.trim().is_empty()
+    {
+        return value.trim().to_owned();
+    }
+    spark_adapters::vault::resolve_secret("AIEN_MAIL_API_TOKEN").unwrap_or_default()
+}
+
 async fn handle_mail_status(State(state): State<AppState>) -> Json<Value> {
     let res = state
         .client
         .get(format!("{}/api/mail/status", MAIL_API_URL))
+        .bearer_auth(mail_access_token())
         .timeout(Duration::from_millis(500))
         .send()
         .await;
@@ -3191,6 +3197,7 @@ async fn handle_mail_inbox(State(state): State<AppState>) -> Json<Value> {
     let res = state
         .client
         .get(format!("{}/api/mail/inbox", MAIL_API_URL))
+        .bearer_auth(mail_access_token())
         .timeout(Duration::from_millis(800))
         .send()
         .await;
@@ -3208,6 +3215,7 @@ async fn handle_mail_sent(State(state): State<AppState>) -> Json<Value> {
     let res = state
         .client
         .get(format!("{}/api/mail/sent", MAIL_API_URL))
+        .bearer_auth(mail_access_token())
         .timeout(Duration::from_millis(800))
         .send()
         .await;
@@ -3228,7 +3236,8 @@ async fn handle_mail_send(
     let res = state
         .client
         .post(format!("{}/api/mail/send", MAIL_API_URL))
-        .timeout(Duration::from_secs(3))
+        .bearer_auth(mail_access_token())
+        .timeout(Duration::from_secs(90))
         .json(&payload)
         .send()
         .await
@@ -3561,7 +3570,7 @@ mod tests {
             handle: Some("drake_ops-1".to_string()),
             sign_commits: Some(true),
         };
-        let res = handle_post_operator(HeaderMap::new(), Json(payload)).await;
+        let res = handle_post_operator(Json(payload)).await;
         assert!(res.is_ok());
         let Json(body) = res.unwrap();
         let op = body.get("operator").unwrap();

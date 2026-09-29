@@ -1,28 +1,10 @@
-const CACHE_NAME = "aien-cockpit-v1";
-const ASSETS = [
-  "/",
-  "/manifest.json",
-  "/icon-192.png",
-  "/icon-512.png"
-];
-
-self.addEventListener("install", (e) => {
-  e.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
-  );
-  self.skipWaiting();
-});
-
-self.addEventListener("activate", (e) => {
-  e.waitUntil(self.clients.claim());
-});
-
-self.addEventListener("fetch", (e) => {
-  // Pass dynamic API and stream calls directly through
-  if (e.request.url.includes("/api/")) {
-    return;
-  }
-  e.respondWith(
-    caches.match(e.request).then((res) => res || fetch(e.request))
-  );
+// Retire cached operator pages. Authentication always reaches the server.
+self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (event) => {
+  event.waitUntil((async () => {
+    for (const name of await caches.keys()) {
+      if (name.startsWith("aien-cockpit-")) await caches.delete(name);
+    }
+    await self.clients.claim();
+  })());
 });
