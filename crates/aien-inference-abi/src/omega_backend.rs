@@ -847,15 +847,45 @@ mod tests {
             .contains("native_fallbacks=[matmul_batch:1]"));
     }
 
+    /// Negative control for stub and native builds alike. The engine refuses a
+    /// claimed-native op before any launch (swiglu with unequal gate/up lengths; the
+    /// reference path accepts it and uses the shorter length). In a strict process that
+    /// refusal must be fatal; in a dev process it must be a counted fallback with the
+    /// reference result. This replaces a `should_panic` test whose skip branch panicked
+    /// with the expected text, so it passed without testing anything in dev and native runs.
     #[test]
-    #[should_panic(expected = "STRICT_REAL_MODEL_VIOLATION")]
-    fn chip_error_trips_strict_in_production() {
-        if aien_omega_gpu::is_native() || crate::strict::dev_fallback_active() {
-            panic!("STRICT_REAL_MODEL_VIOLATION (skipped: native or dev build)");
-        }
+    fn chip_refusal_is_fatal_in_strict_and_counted_in_dev() {
         let b = OmegaGb10Backend::new();
+        let gate = [0.5f32, 2.0, -1.0];
+        let up = [3.0f32, -0.25];
         let mut out = [0.0f32; 2];
-        b.matmul_vec(&mut out, &[1.0; 2], &[1.0; 4], 2, 2);
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            b.swiglu(&mut out, &gate, &up)
+        }));
+        assert_eq!(b.chip_errors(), 1, "{}", b.last_error());
+        assert_eq!(b.fallback_count(), 1);
+        assert!(
+            b.op_report().line().contains("native_fallbacks=[swiglu:1]"),
+            "{}",
+            b.op_report().line()
+        );
+        if crate::strict::production_strict() {
+            let err = r.expect_err("a strict process must refuse a claimed-native fallback");
+            let msg = err
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| err.downcast_ref::<&str>().map(|s| s.to_string()))
+                .unwrap_or_default();
+            assert!(
+                msg.contains(crate::strict::STRICT_VIOLATION_PREFIX) && msg.contains("swiglu"),
+                "{msg}"
+            );
+        } else {
+            r.expect("a dev process continues on the reference path");
+            let mut want = [0.0f32; 2];
+            ReferenceCpuBackend::new().swiglu(&mut want, &gate, &up);
+            assert_eq!(out, want);
+        }
     }
 
     /// The cached cos/sin table, applied on the host with the same f32 formulas as the

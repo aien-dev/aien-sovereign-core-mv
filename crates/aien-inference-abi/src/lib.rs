@@ -885,15 +885,21 @@ mod tests {
         assert!(metrics.step_latency_us > 0);
     }
 
+    /// The GB10 backend on reference weights, judged per build. head_dim 64 is the
+    /// geometry omega attention supports, so a native strict build can run every op on
+    /// the chip. Before this test was split, it used head_dim 16 and asserted success
+    /// unconditionally, so it only passed with AIEN_DEV_FALLBACK=1: a strict stub build
+    /// correctly refuses at the first op (no engine linked), and a strict native build
+    /// would refuse at attention (omega attention needs head_dim 64, see omega_backend.rs).
     #[tokio::test]
     async fn test_blackwell_inference_backend() {
         let config = ModelConfig {
             num_layers: 2,
             num_heads: 4,
             num_kv_heads: 2,
-            head_dim: 16,
-            hidden_dim: 64,
-            intermediate_dim: 128,
+            head_dim: 64,
+            hidden_dim: 256,
+            intermediate_dim: 512,
             vocab_size: 256,
             block_size: 16,
             ..Default::default()
@@ -925,9 +931,39 @@ mod tests {
             step_id: 1,
         };
 
-        let (outputs, metrics) = backend.execute_step(&batch).await.unwrap();
+        let run = tokio::spawn(async move {
+            let res = backend.execute_step(&batch).await;
+            (res, backend.inner.backend.tensor_backend.fallback_count())
+        })
+        .await;
+
+        let native = aien_omega_gpu::is_native();
+        if crate::strict::production_strict() && !native {
+            // Negative control: a strict build with no engine linked must refuse, not
+            // compute on the CPU behind the GPU backend's name.
+            let err = run.expect_err("a strict stub build must refuse the GPU backend");
+            assert!(err.is_panic(), "{err}");
+            let payload = err.into_panic();
+            let msg = payload
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
+                .unwrap_or_default();
+            assert!(
+                msg.contains(crate::strict::STRICT_VIOLATION_PREFIX),
+                "{msg}"
+            );
+            return;
+        }
+        let (res, fallbacks) = run.expect("execute_step must not panic here");
+        let (outputs, metrics) = res.unwrap();
         assert_eq!(outputs.len(), 1);
         assert_eq!(metrics.prefill_tokens_processed, 3);
+        if native {
+            assert_eq!(fallbacks, 0, "native build: every op must run on the chip");
+        } else {
+            assert!(fallbacks > 0, "dev stub build: fallbacks must be counted");
+        }
     }
 
     #[tokio::test]

@@ -46,6 +46,14 @@ jobs:
           AIEN_DEV_FALLBACK: "1"
         run: cargo test --workspace --verbose -- --test-threads=1
 
+      - name: Strict-Mode Controls (no AIEN_DEV_FALLBACK)
+        # The workspace test step above opts in to the dev fallback, which skips every
+        # strict branch of the GPU-backend tests. These targets must also pass in a strict
+        # process: a stub build must refuse the GPU backend instead of computing on the CPU.
+        run: |
+          cargo test -p aien-inference-abi --lib --test attention_wiring --test transformer_parity -- --test-threads=1
+          cargo test -p aien-inference-runtime --test strict_real_model -- --test-threads=1
+
       - name: Zero-CUDA Gate (aien-cli links no NVIDIA CUDA library or symbol)
         run: |
           bash scripts/zero-cuda-gate.sh --self-test

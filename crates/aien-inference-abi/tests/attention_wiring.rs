@@ -600,9 +600,23 @@ fn f_incompatible_kv_geometry_is_refused_before_reading() {
 }
 
 /// The chip backend refuses the same mismatches before any native call; in the CPU-stub build
-/// this is the only path that runs, and the refusal is counted as a chip error.
+/// this is the only path that runs, and the refusal is counted as a chip error. In a strict
+/// process the refusal surfaces as the strict violation for the op (the fallback itself is
+/// fatal); in a dev process the reference path then refuses with the geometry message.
 #[test]
 fn f_omega_backend_refuses_pool_mismatch_before_native_code() {
+    let strict = aien_inference_abi::strict::production_strict();
+    let refused = |msg: &str, op: &str, dev_text: &[&str]| {
+        if strict {
+            assert!(
+                msg.contains(aien_inference_abi::strict::STRICT_VIOLATION_PREFIX)
+                    && msg.contains(op),
+                "{msg}"
+            );
+        } else {
+            assert!(dev_text.iter().all(|t| msg.contains(t)), "{msg}");
+        }
+    };
     let be = OmegaGb10Backend::new();
     let (nq, nkv) = (8usize, 2usize);
     let (k, v) = banded_kv(2, nkv);
@@ -613,15 +627,20 @@ fn f_omega_backend_refuses_pool_mismatch_before_native_code() {
         let mut out = vec![0.0f32; nq * HD];
         be.paged_attention(&mut out, &q, &pool, &[0], 2, 0, nq, 4, HD);
     })));
-    assert!(msg.contains("pool is laid out for 2 kv heads"), "{msg}");
+    refused(
+        &msg,
+        "paged_attention",
+        &["pool is laid out for 2 kv heads"],
+    );
     assert!(be.chip_errors() > before, "the refusal must be counted");
     let msg = panic_message(catch_unwind(AssertUnwindSafe(|| {
         let mut out = vec![0.0f32; 6 * HD];
         be.gqa_attention(&mut out, &q[..6 * HD], &k, &v, 2, 6, 4, HD);
     })));
-    assert!(
-        msg.contains("6 is not a multiple of num_kv_heads 4"),
-        "{msg}"
+    refused(
+        &msg,
+        "gqa_attention",
+        &["6 is not a multiple of num_kv_heads 4"],
     );
 }
 
