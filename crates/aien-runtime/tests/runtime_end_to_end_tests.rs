@@ -1,6 +1,7 @@
 //! End-to-end integration tests: Scheduler ticket submission -> Omega GB10 transformer -> CompletionSink channel.
 //! Verifies zero socket, zero HTTP, and zero RPC boundaries in the entire execution path.
 
+use aien_inference_abi::native_ops::{NativeOpMask, OpReport, TensorOp};
 use aien_inference_abi::{
     ModelConfig, NativeTransformerBackend, OmegaGb10Backend, ReferenceCpuBackend, SamplingParams,
     TensorBackend, TransformerWeights,
@@ -8,6 +9,7 @@ use aien_inference_abi::{
 use aien_kv_cache::{create_shared_kv_manager, KvDType, KvPoolConfig};
 use aien_runtime::spine::AienRuntimeSpine;
 use aien_scheduler::{ChannelCompletionSink, CompletionEvent, PromptHandle, SchedulerConfig};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 fn checkpoint_identity() -> (String, Option<String>) {
@@ -77,6 +79,290 @@ fn test_micro_model_config() -> ModelConfig {
         rms_norm_eps: 1e-5,
         rope_theta: 10000.0,
     }
+}
+
+/// Micro model in a shape the native Omega engine accepts: attention needs head_dim 64 and a
+/// power-of-two q/kv head ratio, rmsnorm needs dim % 128 == 0 (omega
+/// omega_gpu_attention_api.c:603-604, omega_gpu_elementwise_api.c:527). The CPU micro shape
+/// above (head_dim 16, hidden 64) is refused by the engine, which in a production build is a
+/// strict violation, so the GB10 tests must not use it.
+fn gb10_micro_model_config() -> ModelConfig {
+    ModelConfig {
+        model_id: "aien-micro-gb10-v1".to_string(),
+        max_sequence_length: 512,
+        block_size: 16,
+        num_layers: 2,
+        num_heads: 4,
+        head_dim: 64,
+        num_kv_heads: 2,
+        hidden_dim: 256,
+        intermediate_dim: 512,
+        vocab_size: 256,
+        rms_norm_eps: 1e-5,
+        rope_theta: 10000.0,
+    }
+}
+
+/// Counts calls per op and delegates every op to the wrapped backend, so a test can show which
+/// ops the runtime really drove (fallback counts alone cannot show that an op ran at all).
+struct CountingBackend {
+    inner: Arc<dyn TensorBackend>,
+    calls: [AtomicU64; TensorOp::COUNT],
+    /// Largest `num_seqs` seen in one `paged_attention_batch` call.
+    max_batch_seqs: AtomicU64,
+}
+
+impl CountingBackend {
+    fn new(inner: Arc<dyn TensorBackend>) -> Self {
+        Self {
+            inner,
+            calls: Default::default(),
+            max_batch_seqs: AtomicU64::new(0),
+        }
+    }
+
+    fn hit(&self, op: TensorOp) {
+        self.calls[TensorOp::ALL.iter().position(|o| *o == op).unwrap()]
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn calls(&self, op: TensorOp) -> u64 {
+        self.calls[TensorOp::ALL.iter().position(|o| *o == op).unwrap()].load(Ordering::Relaxed)
+    }
+
+    fn line(&self) -> String {
+        let parts: Vec<String> = TensorOp::ALL
+            .into_iter()
+            .map(|op| format!("{}:{}", op.name(), self.calls(op)))
+            .collect();
+        format!(
+            "OP_CALLS {} max_batch_seqs={}",
+            parts.join(","),
+            self.max_batch_seqs.load(Ordering::Relaxed)
+        )
+    }
+}
+
+impl TensorBackend for CountingBackend {
+    fn name(&self) -> &'static str {
+        self.inner.name()
+    }
+    fn fallback_count(&self) -> u64 {
+        self.inner.fallback_count()
+    }
+    fn native_ops(&self) -> NativeOpMask {
+        self.inner.native_ops()
+    }
+    fn op_report(&self) -> OpReport {
+        self.inner.op_report()
+    }
+    fn rmsnorm(&self, out: &mut [f32], x: &[f32], weight: &[f32], eps: f32) {
+        self.hit(TensorOp::Rmsnorm);
+        self.inner.rmsnorm(out, x, weight, eps)
+    }
+    fn apply_rope(
+        &self,
+        q: &mut [f32],
+        k: &mut [f32],
+        pos: usize,
+        head_dim: usize,
+        num_q_heads: usize,
+        num_kv_heads: usize,
+        theta: f32,
+    ) {
+        self.hit(TensorOp::ApplyRope);
+        self.inner
+            .apply_rope(q, k, pos, head_dim, num_q_heads, num_kv_heads, theta)
+    }
+    fn matmul_vec(
+        &self,
+        out: &mut [f32],
+        x: &[f32],
+        weight: &[f32],
+        out_dim: usize,
+        in_dim: usize,
+    ) {
+        self.hit(TensorOp::MatmulVec);
+        self.inner.matmul_vec(out, x, weight, out_dim, in_dim)
+    }
+    fn matmul_batch(
+        &self,
+        out: &mut [f32],
+        x: &[f32],
+        weight: &[f32],
+        batch_size: usize,
+        in_dim: usize,
+        out_dim: usize,
+    ) {
+        self.hit(TensorOp::MatmulBatch);
+        self.inner
+            .matmul_batch(out, x, weight, batch_size, in_dim, out_dim)
+    }
+    fn swiglu(&self, out: &mut [f32], gate: &[f32], up: &[f32]) {
+        self.hit(TensorOp::Swiglu);
+        self.inner.swiglu(out, gate, up)
+    }
+    fn gqa_attention(
+        &self,
+        out: &mut [f32],
+        q: &[f32],
+        k_cache: &[f32],
+        v_cache: &[f32],
+        seq_len: usize,
+        num_q_heads: usize,
+        num_kv_heads: usize,
+        head_dim: usize,
+    ) {
+        self.hit(TensorOp::GqaAttention);
+        self.inner.gqa_attention(
+            out,
+            q,
+            k_cache,
+            v_cache,
+            seq_len,
+            num_q_heads,
+            num_kv_heads,
+            head_dim,
+        )
+    }
+    fn paged_attention(
+        &self,
+        out: &mut [f32],
+        q: &[f32],
+        pool: &aien_kv_cache::UnifiedKvTensorPool,
+        block_ids: &[usize],
+        context_len: usize,
+        layer_idx: usize,
+        num_q_heads: usize,
+        num_kv_heads: usize,
+        head_dim: usize,
+    ) {
+        self.hit(TensorOp::PagedAttention);
+        self.inner.paged_attention(
+            out,
+            q,
+            pool,
+            block_ids,
+            context_len,
+            layer_idx,
+            num_q_heads,
+            num_kv_heads,
+            head_dim,
+        )
+    }
+    fn paged_attention_batch(
+        &self,
+        out: &mut [f32],
+        q: &[f32],
+        pool: &aien_kv_cache::UnifiedKvTensorPool,
+        block_tables: &[i32],
+        context_lens: &[i32],
+        max_blocks_per_seq: usize,
+        num_seqs: usize,
+        layer_idx: usize,
+        num_q_heads: usize,
+        num_kv_heads: usize,
+        head_dim: usize,
+    ) {
+        self.hit(TensorOp::PagedAttentionBatch);
+        self.max_batch_seqs
+            .fetch_max(num_seqs as u64, Ordering::Relaxed);
+        self.inner.paged_attention_batch(
+            out,
+            q,
+            pool,
+            block_tables,
+            context_lens,
+            max_blocks_per_seq,
+            num_seqs,
+            layer_idx,
+            num_q_heads,
+            num_kv_heads,
+            head_dim,
+        )
+    }
+    fn compute_logits(
+        &self,
+        logits: &mut [f32],
+        hidden: &[f32],
+        embed_weight: &[f32],
+        vocab_size: usize,
+        hidden_dim: usize,
+    ) {
+        self.hit(TensorOp::ComputeLogits);
+        self.inner
+            .compute_logits(logits, hidden, embed_weight, vocab_size, hidden_dim)
+    }
+}
+
+/// Several sequences decoding together through the runtime spine on a shared bf16 KV tensor
+/// pool. Each decode step goes through `forward_decode_batch`, which calls
+/// `paged_attention_batch` once per layer for all running sequences. Returns the tokens
+/// emitted per sequence and checks every KV block is reclaimed.
+async fn run_decode_batch(
+    backend: Arc<dyn TensorBackend>,
+    config: &ModelConfig,
+    prompts: &[&[u32]],
+    max_tokens: usize,
+) -> Vec<usize> {
+    let (total_blocks, block_size) = (64usize, 16usize);
+    let pool_cfg = KvPoolConfig {
+        num_blocks: total_blocks,
+        block_size,
+        num_layers: config.num_layers,
+        num_kv_heads: config.num_kv_heads,
+        head_dim: config.head_dim,
+        dtype: KvDType::Bf16,
+    };
+    let kv_manager = create_shared_kv_manager(total_blocks, block_size);
+    kv_manager.write().attach_tensor_pool(pool_cfg).unwrap();
+    let sched_cfg = SchedulerConfig {
+        max_batch_size: 16,
+        max_batch_tokens: 512,
+        max_prefill_tokens: 256,
+        prefill_chunk_size: 64,
+        chunk_prefill: true,
+        watermark_blocks: 4,
+    };
+    let mut spine = AienRuntimeSpine::new(64, sched_cfg, kv_manager.clone());
+    let weights = TransformerWeights::reference_test_weights(config);
+    let mut runner =
+        NativeTransformerBackend::with_shared_kv_and_backend(weights, backend, kv_manager.clone());
+    let mut sinks = Vec::new();
+    for p in prompts {
+        let (sink, rx) = ChannelCompletionSink::channel();
+        let sink_id = spine.register_completion_sink(Arc::new(sink));
+        let sampling = SamplingParams {
+            temperature: 0.0,
+            top_p: 1.0,
+            max_tokens,
+            stop_token_ids: vec![],
+        };
+        spine
+            .submit_work(Arc::from(*p), sampling, 1, Some(sink_id))
+            .unwrap();
+        sinks.push(rx);
+    }
+    let _ = spine
+        .run_until_complete(&mut runner, 4 * (max_tokens + 4))
+        .await
+        .unwrap();
+    let mut emitted = Vec::new();
+    for mut rx in sinks {
+        let mut n = 0usize;
+        while let Ok(event) = rx.try_recv() {
+            if let CompletionEvent::Token { .. } = event {
+                n += 1;
+            }
+        }
+        emitted.push(n);
+    }
+    assert_eq!(
+        kv_manager.read().allocated_block_count(),
+        0,
+        "KV blocks must be reclaimed after the batch completes"
+    );
+    emitted
 }
 
 #[tokio::test]
@@ -336,7 +622,7 @@ async fn test_end_to_end_gb10_hardware_execution_if_available() {
         return;
     }
 
-    let config = test_micro_model_config();
+    let config = gb10_micro_model_config();
     let total_blocks = 64;
     let block_size = 16;
 
@@ -446,7 +732,7 @@ async fn release_golden_path_records_whether_gb10_ran() {
         return;
     }
 
-    let config = test_micro_model_config();
+    let config = gb10_micro_model_config();
     let total_blocks = 64;
     let block_size = 16;
     let pool_cfg = KvPoolConfig {
@@ -538,4 +824,85 @@ async fn release_golden_path_records_whether_gb10_ran() {
             "release run needs AIEN_CHECKPOINT_ID: {artifact}"
         );
     }
+}
+
+const BATCH_PROMPTS: [&[u32]; 3] = [&[5, 12, 33, 77], &[9, 2, 44], &[101, 7, 13, 21, 3]];
+const BATCH_TOKENS: usize = 6;
+
+/// Host wiring check for the GB10 case below: on the engine-supported shape, several
+/// sequences decoding together reach `paged_attention_batch` with more than one sequence
+/// per call. Runs on the CPU reference, so it holds on every build and in CI.
+#[tokio::test]
+async fn decode_batch_reaches_paged_attention_batch_on_reference() {
+    let counting = Arc::new(CountingBackend::new(Arc::new(ReferenceCpuBackend::new())));
+    let emitted = run_decode_batch(
+        counting.clone(),
+        &gb10_micro_model_config(),
+        &BATCH_PROMPTS,
+        BATCH_TOKENS,
+    )
+    .await;
+    eprintln!("{} emitted={emitted:?}", counting.line());
+    assert_eq!(emitted, vec![BATCH_TOKENS; BATCH_PROMPTS.len()]);
+    assert!(
+        counting.calls(TensorOp::PagedAttentionBatch) > 0,
+        "decode never reached paged_attention_batch: {}",
+        counting.line()
+    );
+    assert!(
+        counting.max_batch_seqs.load(Ordering::Relaxed) >= 2,
+        "decode batch never held more than one sequence: {}",
+        counting.line()
+    );
+}
+
+/// GB10 chip case: the same multi-sequence decode on the native Omega engine. Every
+/// `paged_attention_batch` call (and every other op) must run native: fallback count 0,
+/// no chip errors, an empty op report. In a production build a fallback is already fatal
+/// (strict.rs); the asserts also hold a dev build to zero.
+#[tokio::test]
+async fn gb10_decode_batch_runs_paged_attention_batch_natively() {
+    let gpu_backend = Arc::new(OmegaGb10Backend::new());
+    if !gpu_backend.is_available() {
+        eprintln!("Skipping GB10 test: Omega GPU engine not linked");
+        return;
+    }
+    let counting = Arc::new(CountingBackend::new(gpu_backend.clone()));
+    let emitted = run_decode_batch(
+        counting.clone(),
+        &gb10_micro_model_config(),
+        &BATCH_PROMPTS,
+        BATCH_TOKENS,
+    )
+    .await;
+    let report = gpu_backend.op_report();
+    eprintln!(
+        "GB10_PAGED_BATCH {} emitted={emitted:?} chip_calls={} chip_errors={} fallback_count={} report={} last_error={:?}",
+        counting.line(),
+        gpu_backend.chip_calls(),
+        gpu_backend.chip_errors(),
+        gpu_backend.fallback_count(),
+        report.line(),
+        gpu_backend.last_error()
+    );
+    assert_eq!(emitted, vec![BATCH_TOKENS; BATCH_PROMPTS.len()]);
+    assert!(
+        counting.calls(TensorOp::PagedAttentionBatch) > 0,
+        "{}",
+        counting.line()
+    );
+    assert!(
+        counting.max_batch_seqs.load(Ordering::Relaxed) >= 2,
+        "{}",
+        counting.line()
+    );
+    assert_eq!(gpu_backend.fallback_count(), 0, "{}", report.line());
+    assert_eq!(gpu_backend.chip_errors(), 0, "{}", gpu_backend.last_error());
+    assert!(
+        report.native_fallbacks.is_empty() && report.reference_runs.is_empty(),
+        "{}",
+        report.line()
+    );
+    assert!(gpu_backend.chip_calls() > 0);
+    eprintln!("GB10_PAGED_BATCH verdict: PASS");
 }
