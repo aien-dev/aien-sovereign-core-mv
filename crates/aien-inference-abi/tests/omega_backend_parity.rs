@@ -323,3 +323,50 @@ fn chip_attention_parity_on_tinyllama_shapes() {
     assert_eq!(omega.chip_errors(), 0, "{}", omega.last_error());
     println!("PARITY attention {}", omega.op_report().line());
 }
+
+/// Negative control on the chip build: an attention geometry the native engine does not
+/// support (head_dim 32; omega refuses head_dim != 64 with OMEGA_GPU_ATTN_TOO_LARGE in
+/// src/omega_gpu_attention_api.c before any launch) goes through the native library, is
+/// refused there, and in a strict process the refusal is fatal: no CPU answer appears behind
+/// the GPU backend. In a dev process it is a counted fallback. This is a library refusal, not
+/// an injected device fault; a device fault takes the same `fail` -> `reference_path` route.
+#[test]
+#[ignore = "chip test: needs a native build and the GB10; run through the heavy queue"]
+fn chip_unsupported_attention_is_refused() {
+    let omega = OmegaGb10Backend::new();
+    assert!(omega.is_available(), "native build required");
+    let (nq, nkv, hd, seq) = (4usize, 2usize, 32usize, 3usize);
+    let mut seed = 99u32;
+    let q: Vec<f32> = (0..nq * hd).map(|_| lcg(&mut seed)).collect();
+    let k: Vec<f32> = (0..seq * nkv * hd).map(|_| lcg(&mut seed)).collect();
+    let v: Vec<f32> = (0..seq * nkv * hd).map(|_| lcg(&mut seed)).collect();
+    let mut out = vec![0.0f32; nq * hd];
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        omega.gqa_attention(&mut out, &q, &k, &v, seq, nq, nkv, hd)
+    }));
+    println!(
+        "NEGATIVE unsupported head_dim={hd}: chip_errors={} fallback_count={} last_error={:?} strict={}",
+        omega.chip_errors(),
+        omega.fallback_count(),
+        omega.last_error(),
+        aien_inference_abi::strict::production_strict()
+    );
+    assert_eq!(omega.chip_errors(), 1, "the native library must refuse");
+    assert_eq!(omega.fallback_count(), 1);
+    if aien_inference_abi::strict::production_strict() {
+        let err = r.expect_err("strict: an unsupported native op must be fatal");
+        let msg = err
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| err.downcast_ref::<&str>().map(|s| s.to_string()))
+            .unwrap_or_default();
+        assert!(
+            msg.contains(aien_inference_abi::strict::STRICT_VIOLATION_PREFIX)
+                && msg.contains("gqa_attention"),
+            "{msg}"
+        );
+        println!("NEGATIVE strict refusal: {msg}");
+    } else {
+        r.expect("dev: counted fallback, run continues");
+    }
+}

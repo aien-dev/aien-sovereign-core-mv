@@ -10,7 +10,9 @@
 //!   cargo test -p aien-inference-runtime --release --test strict_real_model -- --ignored --nocapture
 
 mod drift;
+mod oracle;
 
+use aien_inference_abi::backend::TensorBackend;
 use aien_inference_abi::strict::{self, StrictModelReceipt};
 use aien_inference_abi::ExecutionSurface;
 use aien_inference_runtime::model::EmbeddedModel;
@@ -298,4 +300,203 @@ fn omega_vs_reference_real_model() {
         panic!("Omega backend logits disagree with the reference: {e}");
     }
     verdict.unwrap_or_else(|e| panic!("{e}"));
+}
+
+/// The oracle fixture is self-consistent: its recorded sha256 matches the file, the prompt is
+/// 46 tokens, the greedy decode is 16 tokens and starts with the oracle's argmax. Host test.
+#[test]
+fn oracle_fixture_is_intact() {
+    let o = oracle::load();
+    assert_eq!(
+        sha256_file_hex(&oracle::fixtures_dir().join("tinyllama_oracle.safetensors")),
+        o.safetensors_sha256
+    );
+    assert_eq!(o.prompt_tokens.len(), 46);
+    assert_eq!(o.greedy_tokens.len(), 16);
+    assert_eq!(
+        drift::top2(&o.last_token_logits).0 as u32,
+        o.greedy_tokens[0]
+    );
+}
+
+/// GB10 strict gate against the INDEPENDENT reference (Hugging Face FP32 oracle fixture), not
+/// our own CPU backend. The backend is chosen by the production runtime path
+/// (`EmbeddedModel::load_checkpoint`, use_gpu), then wrapped only to count calls per op.
+/// Judged with the frozen drift rule (`drift::MAX_ABS_DLOGIT`, near-tie flips only):
+/// step 0 compares all 32000 logits with the oracle's; steps 0..15 are teacher-forced with the
+/// oracle's greedy tokens and every argmax must equal the oracle token unless the oracle token
+/// is within 2 * MAX_ABS_DLOGIT of the Omega top logit (the same near-tie bound `drift::judge`
+/// uses). Every op that ran must have run natively (zero fallbacks, zero reference runs).
+///   AIEN_E2E_CHECKPOINT=<TinyLlama dir with model.safetensors + tokenizer.json> \
+///   AIEN_STRICT_RECEIPT=/path/receipt.json cargo test -p aien-inference-runtime --release \
+///     --test strict_real_model omega_vs_hf_oracle -- --ignored --nocapture
+#[test]
+#[ignore = "needs the real checkpoint and the GB10 with a native Omega build; heavy queue only"]
+fn omega_vs_hf_oracle() {
+    use aien_inference_abi::native_ops::TensorOp;
+    use std::sync::Arc;
+
+    let o = oracle::load();
+    let ckpt = PathBuf::from(std::env::var("AIEN_E2E_CHECKPOINT").expect("AIEN_E2E_CHECKPOINT"));
+    let receipt_path =
+        PathBuf::from(std::env::var("AIEN_STRICT_RECEIPT").expect("AIEN_STRICT_RECEIPT"));
+    let model_path = ckpt.join("model.safetensors");
+    let tokenizer_path = ckpt.join("tokenizer.json");
+    let model_sha = sha256_file_hex(&model_path);
+    let tokenizer_sha = sha256_file_hex(&tokenizer_path);
+    println!(
+        "ORACLE_GATE checkpoint {} sha256={model_sha}",
+        model_path.display()
+    );
+    println!(
+        "ORACLE_GATE tokenizer {} sha256={tokenizer_sha}",
+        tokenizer_path.display()
+    );
+    assert_eq!(
+        model_sha, o.model_sha256,
+        "checkpoint is not the oracle's model"
+    );
+    assert_eq!(
+        tokenizer_sha, o.tokenizer_sha256,
+        "tokenizer is not the oracle's"
+    );
+
+    let mut model = EmbeddedModel::load_checkpoint(&model_path, &tokenizer_path, true, true)
+        .unwrap_or_else(|e| panic!("STRICT: omega bind refused: {e}"));
+    let backend_identity = model.transformer.tensor_backend.name().to_string();
+    println!("ORACLE_GATE backend: {backend_identity}");
+    println!(
+        "ORACLE_GATE dev_fallback_active={}",
+        strict::dev_fallback_active()
+    );
+    let counting = Arc::new(oracle::CountingBackend::new(
+        model.transformer.tensor_backend.clone(),
+    ));
+    model.transformer.tensor_backend = counting.clone();
+
+    let steps = o.greedy_tokens.len();
+    let (logits, fed) = drift::logits_per_step(
+        &mut model.transformer,
+        &o.prompt_tokens,
+        steps,
+        &o.greedy_tokens,
+    );
+    assert_eq!(fed, o.greedy_tokens);
+    assert_eq!(logits.len(), steps);
+
+    // Step 0: the full logit vector against the oracle.
+    let cmp0 = drift::compare(std::slice::from_ref(&o.last_token_logits), &logits[..1]);
+    println!(
+        "ORACLE_GATE step0 max_abs_dlogit={:.4} oracle_tok={} omega_tok={} oracle_margin={:.4} bound={}",
+        cmp0[0].max_abs_dlogit,
+        cmp0[0].ref_tok,
+        cmp0[0].cand_tok,
+        cmp0[0].ref_margin,
+        drift::MAX_ABS_DLOGIT
+    );
+    let step0 = drift::judge(&cmp0);
+
+    // Steps 0..15: argmax against the oracle's greedy tokens, near-tie rule from the frozen bound.
+    let mut bad = Vec::new();
+    let mut flips = 0usize;
+    for (s, (l, &want)) in logits.iter().zip(&o.greedy_tokens).enumerate() {
+        let (top, top_v, _, _) = drift::top2(l);
+        let gap = top_v - l[want as usize];
+        if top as u32 != want {
+            println!("ORACLE_GATE flip step={s} oracle_tok={want} omega_tok={top} gap={gap:.4}");
+            if gap.is_nan() || gap > 2.0 * drift::MAX_ABS_DLOGIT {
+                bad.push(format!("step {s}: omega {top} vs oracle {want}, gap {gap}"));
+            }
+            flips += 1;
+        }
+    }
+    let text = model.tokenizer.decode(&fed).unwrap_or_default();
+    println!(
+        "ORACLE_GATE teacher_forced steps={steps} flips={flips} oracle_text={:?} fed_text={text:?}",
+        o.greedy_text
+    );
+
+    // Per-op accounting: every op that ran ran natively. "native" below is calls minus the
+    // backend's counted fallbacks and reference runs, so it only means native on a backend that
+    // counts them (OmegaGb10Backend); a CPU backend reports none and is refused by the receipt.
+    let native_engine = backend_identity.contains("native Omega engine");
+    println!(
+        "ORACLE_GATE {} native_engine={native_engine}",
+        counting.line()
+    );
+    let report = counting.op_report();
+    println!("ORACLE_GATE {}", report.line());
+    let mut op_problems = Vec::new();
+    if !native_engine {
+        op_problems.push(format!(
+            "backend is not the native Omega engine: {backend_identity}"
+        ));
+    }
+    for (op, calls, native) in counting.native_calls() {
+        if calls != native {
+            op_problems.push(format!("{}: {calls} calls, {native} native", op.name()));
+        }
+    }
+    if !report.native_fallbacks.is_empty() || !report.reference_runs.is_empty() {
+        op_problems.push(report.line());
+    }
+    for op in [
+        TensorOp::Rmsnorm,
+        TensorOp::ApplyRope,
+        TensorOp::Swiglu,
+        TensorOp::ComputeLogits,
+    ] {
+        if counting.calls(op) == 0 {
+            op_problems.push(format!("{} never ran", op.name()));
+        }
+    }
+    if counting.calls(TensorOp::MatmulVec) + counting.calls(TensorOp::MatmulBatch) == 0 {
+        op_problems.push("no matmul ran".into());
+    }
+    if counting.calls(TensorOp::GqaAttention)
+        + counting.calls(TensorOp::PagedAttention)
+        + counting.calls(TensorOp::PagedAttentionBatch)
+        == 0
+    {
+        op_problems.push("no attention ran".into());
+    }
+
+    let mut receipt = StrictModelReceipt {
+        checkpoint_path: model_path.display().to_string(),
+        checkpoint_sha256: model_sha,
+        tokenizer_path: tokenizer_path.display().to_string(),
+        tokenizer_sha256: tokenizer_sha,
+        backend_identity,
+        model_id: model.config.model_id.clone(),
+        model_config: serde_json::to_value(&model.config)
+            .unwrap_or(serde_json::json!({"model_id": model.config.model_id})),
+        fallback_count: counting.fallback_count(),
+        op_report: Some(report),
+        dev_fallback_build: strict::dev_fallback_active(),
+        verdict: String::new(),
+    };
+    let verdict = receipt.verify();
+    std::fs::write(
+        &receipt_path,
+        serde_json::to_string_pretty(&receipt).unwrap(),
+    )
+    .expect("write receipt");
+    println!(
+        "ORACLE_GATE receipt verdict: {} (receipt {})",
+        receipt.verdict,
+        receipt_path.display()
+    );
+    if let Err(e) = step0 {
+        panic!("Omega step-0 logits disagree with the HF oracle: {e}");
+    }
+    assert!(
+        bad.is_empty(),
+        "argmax disagreements beyond the near-tie bound: {bad:?}"
+    );
+    assert!(
+        op_problems.is_empty(),
+        "per-op native accounting: {op_problems:?}"
+    );
+    verdict.unwrap_or_else(|e| panic!("{e}"));
+    println!("ORACLE_GATE verdict: PASS");
 }
