@@ -1198,8 +1198,10 @@ impl<B: aien_platform::UnifiedBuffer> AienKvManager<B> {
 
         if blk.is_shared {
             if blk.num_tokens < self.block_size {
-                self.cow_faults += 1;
+                // Counted only once the copy has a block: a copy-on-write refused for
+                // an empty pool is not a fault that happened (L6-KV).
                 let new_blk = self.allocate_block()?;
+                self.cow_faults += 1;
                 if let Some(pool) = &mut self.tensor_pool {
                     pool.copy_block(last_blk_id, new_blk);
                 }
@@ -1266,15 +1268,22 @@ impl<B: aien_platform::UnifiedBuffer> AienKvManager<B> {
 
         if blk.is_shared {
             if blk.num_tokens < self.block_size {
-                self.cow_faults += 1;
                 let new_blk = self.allocate_block()?;
                 let mut fence = None;
                 if let Some(pool) = &mut self.tensor_pool {
-                    fence = pool
-                        .copy_block_device(device, last_blk_id, new_blk)
-                        .map_err(|e| format!("copy_block_device failed: {:?}", e))
-                        .map(Some)?;
+                    match pool.copy_block_device(device, last_blk_id, new_blk) {
+                        Ok(f) => fence = Some(f),
+                        Err(e) => {
+                            // Nothing references the new block yet: give it back so a
+                            // failed device copy neither leaks a block nor counts a
+                            // copy-on-write (L6-KV).
+                            self.blocks[new_blk].ref_count = 0;
+                            self.free_blocks.push(new_blk);
+                            return Err(format!("copy_block_device failed: {:?}", e));
+                        }
+                    }
                 }
+                self.cow_faults += 1;
                 let old_blk = &mut self.blocks[last_blk_id];
                 old_blk.ref_count -= 1;
                 if old_blk.ref_count == 1 {

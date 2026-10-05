@@ -876,3 +876,138 @@ async fn sampled_branches_diverge_and_each_matches_its_own_teacher_forced_contro
         }
     }
 }
+
+/// One branch of a sampled swarm run: id, sampling params, backend tokens just
+/// before its first decode, per-step decode logits, per-step sampled tokens.
+type BranchRun = (u64, SamplingParams, Vec<u32>, Vec<Vec<f32>>, Vec<u32>);
+
+/// Runs the C6 sampled swarm (reference weights, CPU, spine + scheduler + one
+/// pooled KV) in a fresh runtime to completion.
+async fn sampled_swarm_run(branch_count: usize, max_tokens: usize) -> Vec<BranchRun> {
+    let config = c4_config();
+    let weights = TransformerWeights::reference_test_weights(&config);
+    let (mut spine, backend) = build_shared_kv_runtime(
+        weights,
+        Arc::new(ReferenceCpuBackend::new()),
+        c4_scheduler(),
+        SharedKvSizing {
+            arena_capacity: 64,
+            total_blocks: 64,
+        },
+    )
+    .expect("build shared KV runtime");
+    let mut tap = LogitsTap {
+        inner: backend,
+        decode_logits: HashMap::new(),
+        decode_tokens: HashMap::new(),
+        decode_batches: Vec::new(),
+        first_decode_tokens: HashMap::new(),
+    };
+    let swarm_id = spine
+        .launch_swarm(c4_swarm_config(branch_count, max_tokens), &C4_PROMPT)
+        .expect("launch swarm");
+    let swarm = spine.swarm_manager.get_swarm(swarm_id).unwrap().clone();
+    let branches: Vec<u64> = swarm.branch_sequences.iter().map(|s| s.as_u64()).collect();
+    let mut steps = 0;
+    while (spine.scheduler.running_count() > 0 || spine.scheduler.waiting_count() > 0)
+        && steps < 100
+    {
+        steps += 1;
+        spine.step(&mut tap).await.expect("spine step");
+    }
+    assert_eq!(
+        spine.scheduler.metrics().finished_requests as usize,
+        branch_count,
+        "every branch must finish"
+    );
+    branches
+        .iter()
+        .map(|&b| {
+            (
+                b,
+                tap.inner
+                    .sampling_params(b)
+                    .cloned()
+                    .expect("branch sampling params"),
+                tap.first_decode_tokens
+                    .get(&b)
+                    .cloned()
+                    .expect("branch decoded"),
+                tap.decode_logits.get(&b).cloned().unwrap_or_default(),
+                tap.decode_tokens.get(&b).cloned().unwrap_or_default(),
+            )
+        })
+        .collect()
+}
+
+/// Branch-specific sampling follows the reproducibility contract in
+/// crates/aien-inference-abi/src/transformer_backend.rs `decode_sampling_seed`
+/// (PREFILL-E2E C6): each decode token is `sample_with_params(logits, the
+/// branch's own params, decode_sampling_seed(request id, token count before the
+/// new token))`; sibling branches draw from different seed streams; and "the
+/// same request replays the same stream": the same swarm in a fresh runtime
+/// gives the same ids, logits and tokens bit for bit. Marker SEED_CONTRACT_VIOLATION.
+#[tokio::test]
+async fn sampled_branches_follow_the_seed_contract_and_replay_bit_identically() {
+    let first = sampled_swarm_run(3, 8).await;
+    for (b, params, before, logits, gen) in &first {
+        assert!(params.temperature > 0.001, "branch {} must sample", b);
+        assert!(!gen.is_empty(), "branch {} never decoded", b);
+        assert_eq!(logits.len(), gen.len());
+        for (k, row) in logits.iter().enumerate() {
+            let seed = aien_inference_abi::decode_sampling_seed(*b, before.len() + k);
+            let (tok, _) = aien_inference_abi::sample_with_params(row, params, seed);
+            assert_eq!(
+                tok, gen[k],
+                "SEED_CONTRACT_VIOLATION: branch {} step {} sampled {} but the contract seed gives {}",
+                b, k + 1, gen[k], tok
+            );
+        }
+    }
+    // sibling branches use different seed streams at every position they share
+    for i in 0..first.len() {
+        for j in (i + 1)..first.len() {
+            let (bi, _, pi, _, gi) = &first[i];
+            let (bj, _, _, _, _) = &first[j];
+            assert_ne!(bi, bj);
+            for pos in pi.len()..pi.len() + gi.len() {
+                assert_ne!(
+                    aien_inference_abi::decode_sampling_seed(*bi, pos),
+                    aien_inference_abi::decode_sampling_seed(*bj, pos),
+                    "SEED_CONTRACT_VIOLATION: branches {} and {} share the seed for position {}",
+                    bi,
+                    bj,
+                    pos
+                );
+            }
+        }
+    }
+    // replay in a fresh runtime: identical ids, logits (bitwise) and tokens
+    let second = sampled_swarm_run(3, 8).await;
+    assert_eq!(first.len(), second.len());
+    for (a, b) in first.iter().zip(&second) {
+        assert_eq!(
+            a.0, b.0,
+            "SEED_CONTRACT_VIOLATION: replay assigned different branch ids"
+        );
+        assert_eq!(
+            a.2, b.2,
+            "SEED_CONTRACT_VIOLATION: branch {} context differs on replay",
+            a.0
+        );
+        assert_eq!(
+            a.4, b.4,
+            "SEED_CONTRACT_VIOLATION: branch {} tokens differ on replay",
+            a.0
+        );
+        let bits = |rows: &Vec<Vec<f32>>| -> Vec<u32> {
+            rows.iter().flatten().map(|x| x.to_bits()).collect()
+        };
+        assert_eq!(
+            bits(&a.3),
+            bits(&b.3),
+            "SEED_CONTRACT_VIOLATION: branch {} logits differ on replay",
+            a.0
+        );
+    }
+}
