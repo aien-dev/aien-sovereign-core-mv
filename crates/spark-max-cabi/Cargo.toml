@@ -12,3 +12,8 @@ tracing = "0.1"
 
 [dev-dependencies]
 tempfile = "3.17"
+
+[features]
+# OFF by default. Runs `mojo build` for libspark_max.so (the Modular MAX comparison bridge) and
+# records its build path in the binary. Never enable in a production or qualification build.
+mojo-bridge = []

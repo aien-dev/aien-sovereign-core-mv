@@ -1,8 +1,19 @@
+//! Builds `libspark_max.so` with Mojo, but ONLY when the `mojo-bridge` feature is on.
+//!
+//! The Modular MAX bridge is a comparison yardstick (Drake 2026-10-02: NVIDIA and MAX tools
+//! are for comparison runs only, never baked into AIEN). A default build therefore does not
+//! look for `mojo` on PATH, does not run it, does not copy anything into the source tree and
+//! does not export a build-directory path (`SPARK_MAX_SO_BUILT`) into the compiled code, so
+//! the same sources give the same binaries on any machine and in any directory.
 use std::path::Path;
 use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-changed=mojo/spark_max_bridge.mojo");
+    println!("cargo:rerun-if-changed=build.rs");
+    if std::env::var_os("CARGO_FEATURE_MOJO_BRIDGE").is_none() {
+        return;
+    }
     let out_dir = std::env::var("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("libspark_max.so");
 

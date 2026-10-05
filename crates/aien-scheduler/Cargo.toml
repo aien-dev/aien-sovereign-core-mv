@@ -11,7 +11,7 @@ aien-platform = { path = "../aien-platform" }
 aien-abi-core = { path = "../aien-abi-core" }
 aien-inference-abi = { path = "../aien-inference-abi" }
 aien-kv-cache = { path = "../aien-kv-cache" }
-spark-max-rs = { path = "../spark-max-rs" }
+spark-max-rs = { path = "../spark-max-rs", optional = true }
 tokio = { version = "1.37", features = ["full"] }
 parking_lot = "0.12"
 serde = { version = "1.0", features = ["derive"] }
@@ -26,6 +26,7 @@ sha2 = "0.10"
 [[bin]]
 name = "bench_inference_stack"
 path = "src/bin/bench_inference_stack.rs"
+required-features = ["max-yardstick"]
 
 [[bin]]
 name = "stress_aien_live"
@@ -42,3 +43,7 @@ prefill_mutant_no_check = []
 # decision differs with the tap on. tests/dual_observer_parity.rs must FAIL
 # with this feature on (negative control for the read-only tap).
 dual_observer_mutant_changes_decision = []
+# OFF by default. Pulls in the Modular MAX comparison bridge (spark-max-rs, spark-max-cabi) and
+# builds the `bench_inference_stack` yardstick binary. MAX is a comparison tool only
+# (Drake 2026-10-02); no production or qualification build may enable this.
+max-yardstick = ["dep:spark-max-rs", "spark-max-rs/mojo-bridge"]

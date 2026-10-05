@@ -34,7 +34,8 @@ Needs a Rust toolchain (1.85 or newer) on the DGX Spark or another Linux machine
 git clone https://github.com/aien-dev/aien-sovereign-core
 cd aien-sovereign-core
 cargo test --workspace
-cargo run -p aien-scheduler --bin bench_inference_stack   # measurement binary
+# Comparison yardstick only (Modular MAX bridge, needs `mojo`); not part of any default or qualified build:
+cargo run -p aien-scheduler --features max-yardstick --bin bench_inference_stack
 ```
 
 `install.sh` builds release binaries from source but performs no signature verification; signed releases are not yet available, so prefer building from a clone.

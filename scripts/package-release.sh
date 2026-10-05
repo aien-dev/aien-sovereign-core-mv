@@ -5,7 +5,7 @@ ARTIFACT="${1:?provide output archive path}"
 PACKAGE_DIR="$(mktemp -d)"
 trap 'rm -rf "$PACKAGE_DIR"' EXIT
 mkdir -p "$PACKAGE_DIR/bin"
-for binary in aien-cli spark-cockpit-rs spark-inquisitor cortex-encoder-rs cortex-rs spark-supervisor spark-debugger bench_inference_stack; do
+for binary in aien-cli spark-cockpit-rs spark-inquisitor cortex-encoder-rs cortex-rs spark-supervisor spark-debugger; do
     [[ -x "target/release/$binary" ]] || { echo "Missing release binary: $binary" >&2; exit 1; }
     name="$binary"
     [[ "$binary" != aien-cli ]] || name=aien

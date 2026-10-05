@@ -1,8 +1,17 @@
+//! Builds the optional Mojo `libsimd_matcher.so`, but ONLY when the `mojo-bridge` feature is on.
+//!
+//! A default build does not run `mojo`, does not copy into the source tree and does not export a
+//! build-directory path (`SPARK_AEGIS_SO_BUILT`), so the same sources give the same binaries in
+//! any directory. The pure Rust engine is the default and the fallback.
 use std::path::Path;
 use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-changed=mojo/simd_matcher.mojo");
+    println!("cargo:rerun-if-changed=build.rs");
+    if std::env::var_os("CARGO_FEATURE_MOJO_BRIDGE").is_none() {
+        return;
+    }
     let out_dir = match std::env::var("OUT_DIR") {
         Ok(d) => d,
         Err(_) => return,

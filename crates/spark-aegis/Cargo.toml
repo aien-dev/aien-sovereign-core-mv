@@ -21,3 +21,8 @@ libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3.17"
+
+[features]
+# OFF by default. Builds the optional Mojo matcher library with `mojo build` and records its
+# build path in the binary. The pure Rust engine is the default and the fallback.
+mojo-bridge = []
