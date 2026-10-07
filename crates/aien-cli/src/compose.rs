@@ -260,6 +260,18 @@ async fn step(sub: &str, m: &HashMap<String, String>) -> Result<Value, String> {
             let target = engine
                 .validate_path(ws.join(&path).to_str().ok_or("path is not UTF-8")?)
                 .map_err(|e| format!("CONFINEMENT DENIAL: {e}"))?;
+            // sovereign-core #249: the grant names the canonical workspace
+            // (symlinks resolved, whatever form --workspace took) and the
+            // target must be exactly <workspace>/<path>, as the daemon checks.
+            let wsc = std::fs::canonicalize(&ws)
+                .map_err(|e| format!("workspace {}: {e}", ws.display()))?;
+            if target != wsc.join(&path) {
+                return Err(format!(
+                    "CONFINEMENT DENIAL: target {} is not {}",
+                    target.display(),
+                    wsc.join(&path).display()
+                ));
+            }
             let csha = sha256_hex(content.as_bytes());
             // NEXT-PHASE-2: the grant names the target and the state it was
             // granted against; a changed target makes it stale.
@@ -275,7 +287,7 @@ async fn step(sub: &str, m: &HashMap<String, String>) -> Result<Value, String> {
             links.extend(constraint.unwrap_or_default().into_iter().take(2));
             let text = json!({"proposal_sha256": psha, "path": path, "content_sha256": csha,
                 "approver": approver, "receipt_sha256": rc["sha256"], "target": tgt,
-                "prior_sha256": prior, "workspace": ws.display().to_string()});
+                "prior_sha256": prior, "workspace": wsc.display().to_string()});
             let n = note("authorization", &text.to_string(), links).await?;
             Ok(json!({"step": "S4", "receipt": rc, "authorization": n, "approvals": 1}))
         }

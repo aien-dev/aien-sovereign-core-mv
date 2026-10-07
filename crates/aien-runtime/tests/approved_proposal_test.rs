@@ -669,3 +669,42 @@ fn approval_redirected_to_another_workspace_is_refused() {
         )
     );
 }
+
+/// 476ca4 c25: a journal-level byte copy of the daemon's grant (written past
+/// ComposeNote's reserved check, as only direct journal access could) gives
+/// one approval two grants: neither opens an intent, nothing is written.
+#[test]
+#[cfg_attr(not(compose_linked), ignore = "needs librx_compose.a: stub build")]
+fn copied_approved_grant_opens_nothing() {
+    let _turn = turn();
+    let (_tmp, b, hook, ws) = setup();
+    let r = committed(hook.submit(&sign(&b, unsigned("req-g", "appr-g")), &ws));
+    let a = r.approved_grant.unwrap();
+    let g = recalled(&b, &[a]);
+    let text = g.cited[0].text.clone().unwrap();
+    let copy = match b.note("authorization", &text, &g.cited[0].links) {
+        ControlResponse::ComposeNoted(n) => n.id,
+        other => panic!("bridge-level copy: {other:?}"),
+    };
+    let (pid, start) = effects::self_executor();
+    for id in [a, copy] {
+        let req = IntentRequest {
+            authorization: id,
+            proposal_sha256: r.compose_proposal_sha256.clone(),
+            path: r.path.clone(),
+            target: r.target.clone().unwrap(),
+            content_sha256: r.content_sha256.clone(),
+            executor_pid: pid,
+            executor_start: start,
+        };
+        match effects::open_intent(&b, &req) {
+            ControlResponse::Error(e) => {
+                assert!(e.contains("more than one approved grant"), "#{id}: {e}")
+            }
+            other => panic!("#{id} opened: {other:?}"),
+        }
+    }
+    let l = Ledger::from_records(&recalled(&b, &[]).host).unwrap();
+    assert!(l.intents.is_empty());
+    assert!(!Path::new(&r.target.unwrap()).exists());
+}

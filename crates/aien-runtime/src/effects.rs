@@ -108,7 +108,7 @@ pub struct Grant {
     /// grant without one opens no intent.
     pub workspace: Option<String>,
     /// Set on the grant the daemon writes after an approved compose (#249).
-    pub approved: Option<ApprovedLink>,
+    pub approved: Option<ApprovedGrant>,
     /// The record's links.
     pub links: Vec<u64>,
 }
@@ -125,6 +125,14 @@ pub struct ApprovedLink {
     pub replay_claim: u64,
     pub cx_promotion: u64,
     pub cx_evidence: u64,
+}
+
+/// What the ledger reads back from an approved grant: its link and the bound
+/// approval identity its text names (so the approval key can be recomputed).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApprovedGrant {
+    pub link: ApprovedLink,
+    pub identity: crate::approved_auth::ApprovalIdentity,
 }
 
 /// What an executor asks for before it touches the world.
@@ -161,6 +169,8 @@ pub struct IntentRow {
 #[derive(Debug, Default, Clone)]
 pub struct Ledger {
     pub grants: BTreeMap<u64, Grant>,
+    /// Approved grants by replay claim: more than one for a claim opens none.
+    pub approved_by_claim: BTreeMap<u64, Vec<u64>>,
     pub intents: BTreeMap<u64, IntentRow>,
     /// authorization id -> intent id (one intent per authorization).
     pub spent: BTreeMap<u64, u64>,
@@ -261,12 +271,32 @@ impl Ledger {
                     .map(str::to_string),
                 approved: match v.get(APPROVED_GRANT) {
                     None => None,
-                    Some(_) => Some(ApprovedLink {
-                        approval_key: s(&v, "approval_key", id)?,
-                        replay_claim: u(&v, "replay_claim", id)?,
-                        cx_promotion: u(&v, "cx_promotion", id)?,
-                        cx_evidence: u(&v, "cx_evidence", id)?,
-                    }),
+                    Some(_) => {
+                        let link = ApprovedLink {
+                            approval_key: s(&v, "approval_key", id)?,
+                            replay_claim: u(&v, "replay_claim", id)?,
+                            cx_promotion: u(&v, "cx_promotion", id)?,
+                            cx_evidence: u(&v, "cx_evidence", id)?,
+                        };
+                        self.approved_by_claim
+                            .entry(link.replay_claim)
+                            .or_default()
+                            .push(id);
+                        Some(ApprovedGrant {
+                            identity: crate::approved_auth::ApprovalIdentity {
+                                trace_id: s(&v, "trace_id", id)?,
+                                request_id: s(&v, "request_id", id)?,
+                                approval_id: s(&v, "approval_id", id)?,
+                                approver: s(&v, "approver", id)?,
+                                path: path.to_string(),
+                                content_sha256: c.to_string(),
+                                approved_proposal_sha256: s(&v, "approved_proposal_sha256", id)?,
+                                desk_key_id: s(&v, "desk_key_id", id)?,
+                                workspace: s(&v, "workspace", id)?,
+                            },
+                            link,
+                        })
+                    }
                 },
                 links: links.to_vec(),
             },
@@ -628,10 +658,15 @@ pub fn confine_target(workspace: &str, path: &str, target: &str) -> Result<(), R
 /// An approved grant must be backed by its COMMITTED replay claim: same
 /// approval key, commit evidence naming the grant's proposal, promotion and
 /// evidence, and the record linking all three.
-fn check_approved_backing(g: &Grant, host: &[ComposeRecordView]) -> Result<(), Refusal> {
-    let Some(a) = &g.approved else {
+fn check_approved_backing(
+    l: &Ledger,
+    g: &Grant,
+    host: &[ComposeRecordView],
+) -> Result<(), Refusal> {
+    let Some(ag) = &g.approved else {
         return Ok(());
     };
+    let a = &ag.link;
     let no = |w: &str| {
         Refusal::new(
             "NotAuthorized",
@@ -641,6 +676,21 @@ fn check_approved_backing(g: &Grant, host: &[ComposeRecordView]) -> Result<(), R
             ),
         )
     };
+    // One approval, one grant: a copy of the grant (same claim) opens nothing.
+    if l.approved_by_claim.get(&a.replay_claim).map(Vec::len) != Some(1) {
+        return Err(no("more than one approved grant names this replay claim"));
+    }
+    // The grant's fields are the bound approval: its identity hashes to the
+    // claim's approval key (path, content, workspace and ids all covered), and
+    // the target is the bound workspace plus path.
+    let id = &ag.identity;
+    let bound_target = Path::new(&id.workspace).join(&id.path);
+    if crate::approved_auth::approval_key(id) != a.approval_key
+        || g.target.as_deref().map(Path::new) != Some(bound_target.as_path())
+        || g.workspace.as_deref() != Some(id.workspace.as_str())
+    {
+        return Err(no("grant fields are not the bound approval"));
+    }
     let rl =
         crate::approved_replay::ReplayLedger::from_records(host).map_err(|r| no(&r.to_string()))?;
     let row = rl
@@ -650,6 +700,8 @@ fn check_approved_backing(g: &Grant, host: &[ComposeRecordView]) -> Result<(), R
     let ev = row.evidence.as_ref();
     if row.state != crate::approved_replay::ClaimState::Committed
         || row.keys.approval_key != a.approval_key
+        || (&row.keys.request_id, &row.keys.approval_id, &row.keys.trace_id)
+            != (&id.request_id, &id.approval_id, &id.trace_id)
         || ev.map(|e| {
             (
                 e.compose_proposal_sha256.as_str(),
@@ -787,7 +839,7 @@ pub fn open_intent(b: &ComposeBridge, req: &IntentRequest) -> ControlResponse {
             .to_string()
         })?;
         confine_target(ws, &req.path, &req.target).map_err(|r| r.to_string())?;
-        check_approved_backing(g, &views).map_err(|r| r.to_string())?;
+        check_approved_backing(&l, g, &views).map_err(|r| r.to_string())?;
         let text = json!({
             "phase": PHASE_INTENT, "tool": "write_file", "authorization": g.id,
             "proposal_sha256": req.proposal_sha256, "path": req.path, "target": req.target,
@@ -1331,27 +1383,61 @@ mod tests {
         no_ws.as_object_mut().unwrap().remove("workspace");
         assert!(check_reserved_note("authorization", &no_ws.to_string()).is_err());
 
-        // An approved grant with no committed replay claim behind it opens nothing.
+        // Approved grants (476ca4 c25): fields bound to the approval key, one per
+        // claim, and a COMMITTED claim behind it.
         let rec = |id: u64, links: Vec<u64>, text: String| ComposeRecordView {
             links,
             ..super::tests::rec(id, "authorization", serde_json::from_str(&text).unwrap())
         };
-        let fake = rec(
-            5,
-            vec![1, 2, 3],
-            g(
-                json!({"approved_grant": 1, "approval_key": "k", "replay_claim": 3,
-                "cx_promotion": 1, "cx_evidence": 2}),
-            ),
-        );
-        let l = Ledger::from_records(std::slice::from_ref(&fake)).unwrap();
-        let gr = &l.grants[&5];
-        assert_eq!(
-            check_approved_backing(gr, std::slice::from_ref(&fake))
-                .unwrap_err()
-                .name,
-            "NotAuthorized"
-        );
+        let ident = crate::approved_auth::ApprovalIdentity {
+            trace_id: "t".into(),
+            request_id: "r".into(),
+            approval_id: "a".into(),
+            approver: "x".into(),
+            path: "N.md".into(),
+            content_sha256: "c".into(),
+            approved_proposal_sha256: "s".into(),
+            desk_key_id: "k".into(),
+            workspace: w.into(),
+        };
+        let key = crate::approved_auth::approval_key(&ident);
+        let approved = |extra: Value| {
+            let mut e = json!({"approved_grant": 1, "approval_key": key, "replay_claim": 3,
+                "cx_promotion": 1, "cx_evidence": 2, "trace_id": "t", "request_id": "r",
+                "approval_id": "a", "approved_proposal_sha256": "s", "desk_key_id": "k"});
+            for (k, x) in extra.as_object().unwrap() {
+                e[k] = x.clone();
+            }
+            g(e)
+        };
+        let why = |recs: &[ComposeRecordView], id: u64| {
+            let l = Ledger::from_records(recs).unwrap();
+            let r = check_approved_backing(&l, &l.grants[&id], recs).unwrap_err();
+            assert_eq!(r.name, "NotAuthorized");
+            r.detail
+        };
+        // Bound fields, no claim behind it.
+        let one = rec(5, vec![1, 2, 3], approved(json!({})));
+        assert!(why(std::slice::from_ref(&one), 5).contains("no such replay claim"));
+        // Path, content, target or ids not the ones the approval key binds.
+        for bad in [
+            json!({"path": "O.md", "target": tg("O.md")}),
+            json!({"content_sha256": "other"}),
+            json!({"request_id": "r2"}),
+            json!({"approval_key": "0".repeat(64)}),
+        ] {
+            let r = rec(5, vec![1, 2, 3], approved(bad.clone()));
+            assert!(
+                why(std::slice::from_ref(&r), 5).contains("not the bound approval"),
+                "{bad}"
+            );
+        }
+        // A byte copy of the grant (same claim, same links): neither opens.
+        let copy = rec(6, vec![1, 2, 3], approved(json!({})));
+        let both = [one.clone(), copy];
+        for id in [5, 6] {
+            assert!(why(&both, id).contains("more than one approved grant"));
+        }
         // A grant without the marker needs no backing; the approved one without
         // its fields is a corrupt ledger, not a generic grant.
         assert!(Ledger::from_records(&[rec(6, vec![], g(json!({"approved_grant": 1})))]).is_err());
