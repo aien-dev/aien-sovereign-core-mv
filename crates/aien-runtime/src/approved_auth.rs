@@ -47,7 +47,7 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 /// Version tag inside every binding.
-pub const APPROVAL_BINDING_VERSION: &str = "aien.approval.v1";
+pub const APPROVAL_BINDING_VERSION: &str = "aien.approval.v2";
 /// File name of the desk key inside the compose home.
 pub const DESK_KEY_FILE: &str = "approval-desk.key";
 
@@ -70,11 +70,17 @@ pub struct ApprovalIdentity {
     pub content_sha256: String,
     pub approved_proposal_sha256: String,
     pub desk_key_id: String,
+    /// The canonical absolute workspace the approval is for (476ca4 c17): the
+    /// effect can land only here. The daemon canonicalises the submitted
+    /// workspace and binds that, so a valid approval presented with another
+    /// workspace fails the MAC (Unauthenticated, nothing consumed).
+    pub workspace: String,
 }
 
 impl ApprovalIdentity {
-    /// The identity of `p` under the desk key `desk_key_id`.
-    pub fn of(p: &crate::approved::ApprovedProposal, desk_key_id: &str) -> Self {
+    /// The identity of `p` for the canonical `workspace` under the desk key
+    /// `desk_key_id`.
+    pub fn of(p: &crate::approved::ApprovedProposal, workspace: &str, desk_key_id: &str) -> Self {
         Self {
             trace_id: p.trace_id.clone(),
             request_id: p.request_id.clone(),
@@ -84,11 +90,21 @@ impl ApprovalIdentity {
             content_sha256: p.content_sha256.clone(),
             approved_proposal_sha256: p.approved_proposal_sha256.clone(),
             desk_key_id: desk_key_id.to_string(),
+            workspace: workspace.to_string(),
         }
     }
 }
 
-/// Canonical binding: compact JSON, keys in sorted order, of the eight
+/// The canonical absolute workspace path (symlinks resolved), as bound.
+pub fn canonical_workspace(workspace: &Path) -> Result<String, String> {
+    let c = std::fs::canonicalize(workspace)
+        .map_err(|e| format!("workspace {}: {e}", workspace.display()))?;
+    c.to_str()
+        .map(str::to_string)
+        .ok_or_else(|| format!("workspace {} is not UTF-8", c.display()))
+}
+
+/// Canonical binding: compact JSON, keys in sorted order, of the nine
 /// identity fields plus `"v": APPROVAL_BINDING_VERSION`.
 pub fn binding_bytes(id: &ApprovalIdentity) -> Vec<u8> {
     // serde_json's Map is a BTreeMap here (no preserve_order feature), so
@@ -103,6 +119,7 @@ pub fn binding_bytes(id: &ApprovalIdentity) -> Vec<u8> {
         ("path", &id.path),
         ("request_id", &id.request_id),
         ("trace_id", &id.trace_id),
+        ("workspace", &id.workspace),
     ] {
         m.insert(k.into(), Value::String(v.clone()));
     }
@@ -282,9 +299,11 @@ impl DeskKey {
         hex(&hmac_sha256(&self.key, &binding_bytes(id)))
     }
 
-    /// Desk side: the MAC for a proposal under this key.
-    pub fn sign(&self, p: &crate::approved::ApprovedProposal) -> String {
-        self.mac(&ApprovalIdentity::of(p, &self.id))
+    /// Desk side: the MAC for a proposal under this key, for `workspace`
+    /// (canonicalised here as the daemon will).
+    pub fn sign(&self, p: &crate::approved::ApprovedProposal, workspace: &Path) -> String {
+        let ws = canonical_workspace(workspace).unwrap_or_else(|_| workspace.display().to_string());
+        self.mac(&ApprovalIdentity::of(p, &ws, &self.id))
     }
 
     /// Daemon side: Ok(identity) only when `p.approval_mac` is this key's MAC
@@ -292,8 +311,10 @@ impl DeskKey {
     pub fn authenticate(
         &self,
         p: &crate::approved::ApprovedProposal,
+        workspace: &Path,
     ) -> Result<ApprovalIdentity, String> {
-        let id = ApprovalIdentity::of(p, &self.id);
+        let ws = canonical_workspace(workspace).map_err(|e| refuse("Unauthenticated", e))?;
+        let id = ApprovalIdentity::of(p, &ws, &self.id);
         let want = hmac_sha256(&self.key, &binding_bytes(&id));
         let got = unhex32(&p.approval_mac);
         match got {
@@ -363,10 +384,11 @@ mod tests {
             content_sha256: "c".into(),
             approved_proposal_sha256: "s".into(),
             desk_key_id: "k".into(),
+            workspace: "/w".into(),
         };
         assert_eq!(
             String::from_utf8(binding_bytes(&id)).unwrap(),
-            r#"{"approval_id":"a","approved_proposal_sha256":"s","approver":"p","content_sha256":"c","desk_key_id":"k","path":"N.md","request_id":"r","trace_id":"t","v":"aien.approval.v1"}"#
+            r#"{"approval_id":"a","approved_proposal_sha256":"s","approver":"p","content_sha256":"c","desk_key_id":"k","path":"N.md","request_id":"r","trace_id":"t","v":"aien.approval.v2","workspace":"/w"}"#
         );
     }
 

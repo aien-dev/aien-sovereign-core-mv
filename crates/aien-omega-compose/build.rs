@@ -121,6 +121,7 @@ fn link(lib: &Path) {
     println!("cargo:rustc-link-lib=dylib=m");
     println!("cargo:rerun-if-changed={}", lib.display());
     println!("cargo:rustc-cfg=has_omega_compose");
+    println!("cargo:linked=1");
 }
 
 fn is_sha(s: &str) -> bool {

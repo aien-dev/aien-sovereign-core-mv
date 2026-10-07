@@ -104,6 +104,27 @@ pub struct Grant {
     /// `Some(None)`: authorized against an absent target. `None`: the grant
     /// predates NEXT-PHASE-2 and names no prior state (always stale).
     pub prior_sha256: Option<Option<String>>,
+    /// The workspace the target must stay inside (sovereign-core #249). A
+    /// grant without one opens no intent.
+    pub workspace: Option<String>,
+    /// Set on the grant the daemon writes after an approved compose (#249).
+    pub approved: Option<ApprovedLink>,
+    /// The record's links.
+    pub links: Vec<u64>,
+}
+
+/// Marker field of the grant the daemon itself writes after a COMMITTED
+/// approved compose (sovereign-core #249). Reserved: `ComposeNote` refuses it.
+pub const APPROVED_GRANT: &str = "approved_grant";
+
+/// What an approved grant must be backed by: a COMMITTED replay claim whose
+/// commit evidence names the grant's proposal, promotion and evidence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApprovedLink {
+    pub approval_key: String,
+    pub replay_claim: u64,
+    pub cx_promotion: u64,
+    pub cx_evidence: u64,
 }
 
 /// What an executor asks for before it touches the world.
@@ -192,7 +213,7 @@ impl Ledger {
                 continue;
             };
             match r.note.as_deref() {
-                Some("authorization") => l.read_authorization(r.id, text)?,
+                Some("authorization") => l.read_authorization(r.id, text, &r.links)?,
                 Some("effect") => l.read_effect(r.id, text)?,
                 _ => {}
             }
@@ -200,7 +221,7 @@ impl Ledger {
         Ok(l)
     }
 
-    fn read_authorization(&mut self, id: u64, text: &str) -> Result<(), Refusal> {
+    fn read_authorization(&mut self, id: u64, text: &str, links: &[u64]) -> Result<(), Refusal> {
         let v: Value = match serde_json::from_str(text) {
             Ok(v) => v,
             // An authorization that is not JSON authorizes nothing.
@@ -234,6 +255,20 @@ impl Ledger {
                 content_sha256: c.to_string(),
                 target: v.get("target").and_then(Value::as_str).map(str::to_string),
                 prior_sha256: opt_digest(&v, "prior_sha256", id)?,
+                workspace: v
+                    .get("workspace")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                approved: match v.get(APPROVED_GRANT) {
+                    None => None,
+                    Some(_) => Some(ApprovedLink {
+                        approval_key: s(&v, "approval_key", id)?,
+                        replay_claim: u(&v, "replay_claim", id)?,
+                        cx_promotion: u(&v, "cx_promotion", id)?,
+                        cx_evidence: u(&v, "cx_evidence", id)?,
+                    }),
+                },
+                links: links.to_vec(),
             },
         );
         Ok(())
@@ -512,6 +547,27 @@ pub fn check_reserved_note(kind: &str, text: &str) -> Result<(), String> {
         "authorization" if v.get("control").is_some() => {
             Err("ComposeNote: control records are written only by ComposeControl".into())
         }
+        // sovereign-core #249: the approved grant comes only from the daemon,
+        // after a COMMITTED approved compose.
+        "authorization" if v.get(APPROVED_GRANT).is_some() => Err(
+            "ComposeNote: approved_grant records are written only by ComposeApprovedProposal"
+                .into(),
+        ),
+        // sovereign-core #249: a grant names its workspace and a target inside it.
+        "authorization" if v.get("proposal_sha256").is_some() => {
+            let (Some(ws), Some(path), Some(target)) = (
+                v.get("workspace").and_then(Value::as_str),
+                v.get("path").and_then(Value::as_str),
+                v.get("target").and_then(Value::as_str),
+            ) else {
+                return Err(
+                    "ComposeNote: an authorization grant must name its workspace, path and target"
+                        .into(),
+                );
+            };
+            confine_target(ws, path, target)
+                .map_err(|r| format!("ComposeNote: authorization grant refused: {r}"))
+        }
         // ACCEPTANCE-v3 2.4: repair records come only from RecoverComposeHome.
         "constraint" if v.get("repair").is_some() => Err(
             "ComposeNote: constraint records with a \"repair\" field are written only by RecoverComposeHome"
@@ -521,7 +577,136 @@ pub fn check_reserved_note(kind: &str, text: &str) -> Result<(), String> {
     }
 }
 
-fn ledger(home: &mut ComposeHome) -> Result<Ledger, String> {
+/// Workspace confinement of an effect target (sovereign-core #249): the
+/// workspace is an absolute, canonical directory that is not `/`; `path` is
+/// relative with plain components only; `target` is exactly
+/// `workspace/path`; its parent resolves (symlinks followed) to
+/// `workspace/<parent of path>`; and the target itself, when present, is a
+/// regular file, never a symlink.
+pub fn confine_target(workspace: &str, path: &str, target: &str) -> Result<(), Refusal> {
+    use std::path::Component;
+    let out = |w: String| Refusal::new("OutsideWorkspace", w);
+    let ws = Path::new(workspace);
+    let canon =
+        std::fs::canonicalize(ws).map_err(|e| out(format!("workspace {workspace}: {e}")))?;
+    if !ws.is_absolute() || canon != ws || !canon.is_dir() || canon == Path::new("/") {
+        return Err(out(format!(
+            "workspace {workspace} is not an absolute canonical directory other than /"
+        )));
+    }
+    let rel = Path::new(path);
+    if path.is_empty() || !rel.components().all(|c| matches!(c, Component::Normal(_))) {
+        return Err(out(format!("path {path:?} is not a plain relative path")));
+    }
+    let want = ws.join(rel);
+    if Path::new(target) != want {
+        return Err(out(format!(
+            "target {target} is not {} (workspace {workspace} + path {path})",
+            want.display()
+        )));
+    }
+    let parent = want.parent().unwrap_or(ws);
+    let real = std::fs::canonicalize(parent)
+        .map_err(|e| out(format!("target directory {}: {e}", parent.display())))?;
+    if real != parent || !real.starts_with(&canon) {
+        return Err(out(format!(
+            "target directory {} resolves to {} (outside or through a symlink)",
+            parent.display(),
+            real.display()
+        )));
+    }
+    match std::fs::symlink_metadata(&want) {
+        Ok(m) if !m.file_type().is_file() => Err(out(format!(
+            "target {target} exists and is not a regular file (symlink or other)"
+        ))),
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(out(format!("target {target}: {e}"))),
+    }
+}
+
+/// An approved grant must be backed by its COMMITTED replay claim: same
+/// approval key, commit evidence naming the grant's proposal, promotion and
+/// evidence, and the record linking all three.
+fn check_approved_backing(g: &Grant, host: &[ComposeRecordView]) -> Result<(), Refusal> {
+    let Some(a) = &g.approved else {
+        return Ok(());
+    };
+    let no = |w: &str| {
+        Refusal::new(
+            "NotAuthorized",
+            format!(
+                "approved grant #{} is not backed by a committed approved compose: {w}",
+                g.id
+            ),
+        )
+    };
+    let rl =
+        crate::approved_replay::ReplayLedger::from_records(host).map_err(|r| no(&r.to_string()))?;
+    let row = rl
+        .claims
+        .get(&a.replay_claim)
+        .ok_or_else(|| no("no such replay claim"))?;
+    let ev = row.evidence.as_ref();
+    if row.state != crate::approved_replay::ClaimState::Committed
+        || row.keys.approval_key != a.approval_key
+        || ev.map(|e| {
+            (
+                e.compose_proposal_sha256.as_str(),
+                e.cx_promotion,
+                e.cx_evidence,
+            )
+        }) != Some((g.proposal_sha256.as_str(), a.cx_promotion, a.cx_evidence))
+        || ![a.cx_promotion, a.cx_evidence, a.replay_claim]
+            .iter()
+            .all(|x| g.links.contains(x))
+    {
+        return Err(no("claim state, key, evidence or links differ"));
+    }
+    Ok(())
+}
+
+/// The grant the daemon writes after a COMMITTED approved compose (#249):
+/// reserved (`approved_grant`), confined to `workspace`, linked to the
+/// promotion, evidence and replay claim. Returns (record id, target).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn write_approved_grant(
+    b: &ComposeBridge,
+    workspace: &str,
+    path: &str,
+    content_sha256: &str,
+    approver: &str,
+    ids: &Value,
+    link: &ApprovedLink,
+    proposal_sha256: &str,
+) -> Result<(u64, String), String> {
+    b.with_home(|home| {
+        let target = Path::new(workspace).join(path).display().to_string();
+        confine_target(workspace, path, &target).map_err(|r| r.to_string())?;
+        let prior = file_sha256(Path::new(&target))?;
+        let mut text = json!({
+            APPROVED_GRANT: 1, "proposal_sha256": proposal_sha256, "path": path,
+            "content_sha256": content_sha256, "approver": approver, "target": target,
+            "workspace": workspace, "prior_sha256": prior,
+            "approval_key": link.approval_key, "replay_claim": link.replay_claim,
+            "cx_promotion": link.cx_promotion, "cx_evidence": link.cx_evidence,
+        });
+        if let (Some(t), Some(i)) = (text.as_object_mut(), ids.as_object()) {
+            for (k, v) in i {
+                t.entry(k.clone()).or_insert(v.clone());
+            }
+        }
+        let n = append(
+            home,
+            NoteKind::Authorization,
+            &[link.cx_promotion, link.cx_evidence, link.replay_claim],
+            &text,
+        )?;
+        Ok((n.id, target))
+    })
+}
+
+fn host_views(home: &mut ComposeHome) -> Result<Vec<ComposeRecordView>, String> {
     let (recs, total) = home
         .compose
         .recall(aien_omega_compose::SUBJECT_HOST, HOST_RECALL_MAX)
@@ -535,11 +720,14 @@ fn ledger(home: &mut ComposeHome) -> Result<Ledger, String> {
             )
         ));
     }
-    let views: Vec<ComposeRecordView> = recs
+    Ok(recs
         .iter()
         .map(|r| record_view(&mut home.compose, r))
-        .collect();
-    Ledger::from_records(&views).map_err(|r| r.to_string())
+        .collect())
+}
+
+fn ledger(home: &mut ComposeHome) -> Result<Ledger, String> {
+    Ledger::from_records(&host_views(home)?).map_err(|r| r.to_string())
 }
 
 fn append(
@@ -585,10 +773,21 @@ pub fn open_intent(b: &ComposeBridge, req: &IntentRequest) -> ControlResponse {
         return ControlResponse::Error(e);
     }
     noted(b.with_home(|home| {
-        let l = ledger(home)?;
+        let views = host_views(home)?;
+        let l = Ledger::from_records(&views).map_err(|r| r.to_string())?;
         let current = file_sha256(Path::new(&req.target))
             .map_err(|e| Refusal::new("Stale", format!("target unreadable: {e}")).to_string())?;
         let g = l.check_intent(req, &current).map_err(|r| r.to_string())?;
+        // sovereign-core #249: confinement, and an approved grant's backing.
+        let ws = g.workspace.as_deref().ok_or_else(|| {
+            Refusal::new(
+                "NotAuthorized",
+                format!("authorization #{} names no workspace", g.id),
+            )
+            .to_string()
+        })?;
+        confine_target(ws, &req.path, &req.target).map_err(|r| r.to_string())?;
+        check_approved_backing(g, &views).map_err(|r| r.to_string())?;
         let text = json!({
             "phase": PHASE_INTENT, "tool": "write_file", "authorization": g.id,
             "proposal_sha256": req.proposal_sha256, "path": req.path, "target": req.target,
@@ -1085,5 +1284,76 @@ mod tests {
         assert!(check_reserved_note("authorization", r#"{"control":"resume"}"#).is_err());
         assert!(check_reserved_note("effect", r#"{"tool":"inspect"}"#).is_ok());
         assert!(check_reserved_note("constraint", "plain text").is_ok());
+    }
+
+    #[test]
+    fn grants_are_confined_and_the_approved_kind_is_reserved() {
+        let t = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(t.path()).unwrap();
+        let ws = root.join("ws");
+        std::fs::create_dir_all(ws.join("d")).unwrap();
+        let w = ws.to_str().unwrap();
+        let tg = |p: &str| ws.join(p).display().to_string();
+        assert!(confine_target(w, "N.md", &tg("N.md")).is_ok());
+        assert!(confine_target(w, "d/N.md", &tg("d/N.md")).is_ok());
+        let out = |ws: &str, p: &str, t: &str| confine_target(ws, p, t).unwrap_err().name;
+        assert_eq!(out(w, "N.md", "/etc/N.md"), "OutsideWorkspace");
+        assert_eq!(out(w, "../N.md", &tg("../N.md")), "OutsideWorkspace");
+        assert_eq!(out(w, "/etc/passwd", "/etc/passwd"), "OutsideWorkspace");
+        assert_eq!(out(w, "./N.md", &tg("./N.md")), "OutsideWorkspace");
+        assert_eq!(out(w, "", w), "OutsideWorkspace");
+        assert_eq!(out("/", "etc/passwd", "/etc/passwd"), "OutsideWorkspace");
+        assert_eq!(out("ws", "N.md", "ws/N.md"), "OutsideWorkspace");
+        assert_eq!(
+            out(&format!("{w}/d/.."), "N.md", &format!("{w}/d/../N.md")),
+            "OutsideWorkspace"
+        );
+        std::os::unix::fs::symlink(&root, ws.join("up")).unwrap();
+        assert_eq!(out(w, "up/x", &tg("up/x")), "OutsideWorkspace");
+        std::os::unix::fs::symlink("/etc/hostname", ws.join("l")).unwrap();
+        assert_eq!(out(w, "l", &tg("l")), "OutsideWorkspace");
+        std::os::unix::fs::symlink(&ws, root.join("wl")).unwrap();
+        let wl = root.join("wl").display().to_string();
+        assert_eq!(out(&wl, "N.md", &format!("{wl}/N.md")), "OutsideWorkspace");
+
+        let g = |extra: Value| {
+            let mut v = json!({"proposal_sha256": "p", "path": "N.md", "content_sha256": "c",
+                "approver": "x", "target": tg("N.md"), "prior_sha256": null, "workspace": w});
+            for (k, x) in extra.as_object().unwrap() {
+                v[k] = x.clone();
+            }
+            v.to_string()
+        };
+        assert!(check_reserved_note("authorization", &g(json!({}))).is_ok());
+        assert!(check_reserved_note("authorization", &g(json!({"approved_grant": 1}))).is_err());
+        assert!(check_reserved_note("authorization", &g(json!({"target": "/etc/N.md"}))).is_err());
+        let mut no_ws: Value = serde_json::from_str(&g(json!({}))).unwrap();
+        no_ws.as_object_mut().unwrap().remove("workspace");
+        assert!(check_reserved_note("authorization", &no_ws.to_string()).is_err());
+
+        // An approved grant with no committed replay claim behind it opens nothing.
+        let rec = |id: u64, links: Vec<u64>, text: String| ComposeRecordView {
+            links,
+            ..super::tests::rec(id, "authorization", serde_json::from_str(&text).unwrap())
+        };
+        let fake = rec(
+            5,
+            vec![1, 2, 3],
+            g(
+                json!({"approved_grant": 1, "approval_key": "k", "replay_claim": 3,
+                "cx_promotion": 1, "cx_evidence": 2}),
+            ),
+        );
+        let l = Ledger::from_records(std::slice::from_ref(&fake)).unwrap();
+        let gr = &l.grants[&5];
+        assert_eq!(
+            check_approved_backing(gr, std::slice::from_ref(&fake))
+                .unwrap_err()
+                .name,
+            "NotAuthorized"
+        );
+        // A grant without the marker needs no backing; the approved one without
+        // its fields is a corrupt ledger, not a generic grant.
+        assert!(Ledger::from_records(&[rec(6, vec![], g(json!({"approved_grant": 1})))]).is_err());
     }
 }

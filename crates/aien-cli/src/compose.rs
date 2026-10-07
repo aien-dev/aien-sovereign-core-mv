@@ -275,7 +275,7 @@ async fn step(sub: &str, m: &HashMap<String, String>) -> Result<Value, String> {
             links.extend(constraint.unwrap_or_default().into_iter().take(2));
             let text = json!({"proposal_sha256": psha, "path": path, "content_sha256": csha,
                 "approver": approver, "receipt_sha256": rc["sha256"], "target": tgt,
-                "prior_sha256": prior});
+                "prior_sha256": prior, "workspace": ws.display().to_string()});
             let n = note("authorization", &text.to_string(), links).await?;
             Ok(json!({"step": "S4", "receipt": rc, "authorization": n, "approvals": 1}))
         }

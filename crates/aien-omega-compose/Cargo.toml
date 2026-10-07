@@ -6,6 +6,9 @@ authors = ["Drake Stapleton <aien@aienos.com>"]
 description = "FFI to omega COMPOSITION-2 (librx_compose.a, rxc_host ABI): goals through J-Space, AEGIS and Cortex"
 license.workspace = true
 build = "build.rs"
+# Declared so dependents' build scripts see DEP_RX_COMPOSE_LINKED (aien-runtime
+# gates its journal-dependent tests on it: ignored, not passed, in a stub build).
+links = "rx_compose"
 
 [dependencies]
 sha2 = "0.10"

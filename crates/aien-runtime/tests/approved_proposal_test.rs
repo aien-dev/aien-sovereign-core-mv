@@ -8,7 +8,9 @@ use aien_omega_compose::hex;
 use aien_runtime::approved::{
     self, ApprovedComposeReport, ApprovedProposal, ApprovedRefusal, ProposerHook,
 };
-use aien_runtime::approved_auth::{approval_key, desk_key_path, ApprovalIdentity, DeskKey};
+use aien_runtime::approved_auth::{
+    approval_key, canonical_workspace, desk_key_path, ApprovalIdentity, DeskKey,
+};
 use aien_runtime::control::{ComposeRecallReport, ControlResponse};
 use aien_runtime::effects::{self, IntentRequest, Ledger};
 use aien_runtime::spine::{ComposeBridge, ComposeProposer, APPROVED_PROPOSER_LABEL};
@@ -60,8 +62,14 @@ fn desk(b: &ComposeBridge) -> DeskKey {
     DeskKey::load(&desk_key_path(b.dir())).unwrap()
 }
 
+/// The workspace every test home pairs with its compose home (`setup`:
+/// `<tmp>/compose` and `<tmp>/ws`); the approval binds it.
+fn ws_of(b: &ComposeBridge) -> std::path::PathBuf {
+    b.dir().parent().unwrap().join("ws")
+}
+
 fn sign(b: &ComposeBridge, mut p: ApprovedProposal) -> ApprovedProposal {
-    p.approval_mac = desk(b).sign(&p);
+    p.approval_mac = desk(b).sign(&p, &ws_of(b));
     p
 }
 
@@ -129,6 +137,7 @@ fn setup() -> (tempfile::TempDir, Arc<ComposeBridge>, ProposerHook, String) {
 }
 
 #[test]
+#[cfg_attr(not(compose_linked), ignore = "needs librx_compose.a: stub build")]
 fn approved_proposal_commits_then_effect_is_done() {
     let _turn = turn();
     let (_tmp, b, hook, ws) = setup();
@@ -152,7 +161,11 @@ fn approved_proposal_commits_then_effect_is_done() {
     assert_eq!(r.desk_key_id, d.id());
     assert_eq!(
         r.approval_key,
-        approval_key(&ApprovalIdentity::of(&p, d.id()))
+        approval_key(&ApprovalIdentity::of(
+            &p,
+            &canonical_workspace(&ws_of(&b)).unwrap(),
+            d.id()
+        ))
     );
     assert!(r.replay_claim != 0);
     assert_eq!(r.approved_proposal_sha256, interplane_sha(PATH, CONTENT));
@@ -178,15 +191,34 @@ fn approved_proposal_commits_then_effect_is_done() {
     let target = Path::new(&ws).join(PATH);
     assert!(!target.exists());
 
-    // Effect: grant (named as aien compose authorize names it), intent, write, ack.
-    let tgt = target.display().to_string();
-    let grant = json!({"proposal_sha256": r.compose_proposal_sha256, "path": r.path,
-        "content_sha256": r.content_sha256, "approver": r.approver, "target": tgt,
-        "prior_sha256": Value::Null});
-    let a = match b.note("authorization", &grant.to_string(), &r.grant_links) {
-        ControlResponse::ComposeNoted(n) => n.id,
-        other => panic!("grant: {other:?}"),
-    };
+    // Effect: the daemon's own grant (reserved, keyed on the compose hash,
+    // linked to promotion, evidence and the replay claim), intent, write, ack.
+    let a = r.approved_grant.expect("the daemon wrote the grant");
+    let tgt = r.target.clone().expect("grant target");
+    assert_eq!(
+        Path::new(&tgt),
+        std::fs::canonicalize(&ws).unwrap().join(PATH)
+    );
+    let g = recalled(&b, &[a]);
+    assert!(g.cited[0].verified);
+    assert_eq!(g.cited[0].note.as_deref(), Some("authorization"));
+    for x in [t.cx_promotion, t.cx_evidence, r.replay_claim] {
+        assert!(g.cited[0].links.contains(&x), "{:?}", g.cited[0]);
+    }
+    let gv: Value = serde_json::from_str(g.cited[0].text.as_deref().unwrap()).unwrap();
+    assert_eq!(gv["approved_grant"], 1);
+    assert_eq!(gv["proposal_sha256"], json!(r.compose_proposal_sha256));
+    assert_eq!(
+        gv["approved_proposal_sha256"],
+        json!(r.approved_proposal_sha256)
+    );
+    assert_eq!(gv["approval_key"], json!(r.approval_key));
+    assert_eq!(
+        (gv["request_id"].as_str(), gv["trace_id"].as_str()),
+        (Some(r.request_id.as_str()), Some(r.trace_id.as_str()))
+    );
+    assert_eq!(gv["prior_sha256"], Value::Null);
+    let target = Path::new(&tgt).to_path_buf();
     let (pid, start) = effects::self_executor();
     let req = IntentRequest {
         authorization: a,
@@ -273,6 +305,7 @@ fn unverified_proposal_is_refused_with_zero_effects() {
 /// result without a second run (ALREADY_COMMITTED); the request id or the
 /// approval id under another approval is refused; nothing is appended.
 #[test]
+#[cfg_attr(not(compose_linked), ignore = "needs librx_compose.a: stub build")]
 fn duplicate_proposal_is_refused() {
     let _turn = turn();
     let (_tmp, b, hook, ws) = setup();
@@ -354,7 +387,7 @@ fn unauthenticated_approval_is_refused_with_no_compose() {
     cases.push(("MAC made of caller text", p));
     let other = DeskKey::create(&tmp.path().join("other.key")).unwrap();
     let mut p = good.clone();
-    p.approval_mac = other.sign(&p);
+    p.approval_mac = other.sign(&p, &ws_of(&b));
     cases.push(("MAC under another key", p));
     let mut p = good.clone();
     p.approval_mac = p.approval_mac.to_uppercase();
@@ -457,6 +490,7 @@ fn compose_home_overlapping_the_workspace_is_refused() {
 /// daemon restart is) refuses every replay; the retry of the same approval
 /// gets the original result back and nothing runs again.
 #[test]
+#[cfg_attr(not(compose_linked), ignore = "needs librx_compose.a: stub build")]
 fn replay_is_refused_after_restart() {
     let _turn = turn();
     let (tmp, b, hook, ws) = setup();
@@ -496,6 +530,7 @@ fn replay_is_refused_after_restart() {
 /// eight more submit new request ids under one approval id: exactly one
 /// compose run per approval id.
 #[test]
+#[cfg_attr(not(compose_linked), ignore = "needs librx_compose.a: stub build")]
 fn concurrent_duplicates_run_once() {
     let _turn = turn();
     let (_tmp, b, hook, ws) = setup();
@@ -556,6 +591,7 @@ fn approved_hash_is_the_interplane_form() {
 /// and merge the reply into the seed (v7 T5). An approved whole-file
 /// proposal must commit byte-exact, with no seed line merged in.
 #[test]
+#[cfg_attr(not(compose_linked), ignore = "needs librx_compose.a: stub build")]
 fn approved_proposal_over_existing_file_commits_byte_exact() {
     let _turn = turn();
     let (_tmp, _b, hook, ws) = setup();
@@ -588,5 +624,48 @@ fn approved_proposal_over_existing_file_commits_byte_exact() {
     assert_eq!(
         std::fs::read_to_string(Path::new(&ws).join(PATH)).unwrap(),
         seed
+    );
+}
+
+/// 476ca4 c17: a valid approval presented with another workspace is refused
+/// as Unauthenticated (the workspace is in the MAC), nothing is consumed, and
+/// the same approval still commits for the workspace it was made for; the
+/// daemon's grant targets the bound workspace.
+#[test]
+fn approval_redirected_to_another_workspace_is_refused() {
+    let _turn = turn();
+    let (tmp, b, hook, ws) = setup();
+    let other = tmp.path().join("elsewhere");
+    std::fs::create_dir_all(&other).unwrap();
+    // A symlink to the right workspace resolves to it: same canonical path.
+    let alias = tmp.path().join("ws-alias");
+    std::os::unix::fs::symlink(&ws, &alias).unwrap();
+    let p = sign(&b, unsigned("req-w", "appr-w"));
+    let before = aien_omega_compose::LINKED.then(|| recalled(&b, &[]).records_total);
+    for w in [other.to_str().unwrap(), "/", tmp.path().to_str().unwrap()] {
+        let e = hook.submit(&p, w).unwrap_err();
+        assert!(
+            e.name == "Unauthenticated" || e.name == "Confinement",
+            "{w}: {e}"
+        );
+    }
+    if let Some(n) = before {
+        assert_eq!(recalled(&b, &[]).records_total, n, "nothing consumed");
+    }
+    assert!(!other.join(PATH).exists());
+    let out = hook.submit(&p, alias.to_str().unwrap());
+    if !aien_omega_compose::LINKED {
+        stub_refused(out);
+        return;
+    }
+    let r = committed(out);
+    assert_eq!(
+        r.target.as_deref().map(Path::new),
+        Some(
+            canonical_workspace(Path::new(&ws))
+                .map(|w| Path::new(&w).join(PATH))
+                .unwrap()
+                .as_path()
+        )
     );
 }

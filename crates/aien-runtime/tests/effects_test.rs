@@ -95,7 +95,8 @@ impl Fixture {
         let prior = effects::file_sha256(Path::new(&self.target)).unwrap();
         let text = json!({"proposal_sha256": self.psha, "path": "NOTES.md",
             "content_sha256": self.csha, "approver": "drake", "target": self.target,
-            "prior_sha256": prior});
+            "prior_sha256": prior,
+            "workspace": Path::new(&self.target).parent().unwrap().display().to_string()});
         noted(b.note("authorization", &text.to_string(), &[])).id
     }
 
@@ -124,6 +125,7 @@ fn effect_intents_are_at_most_once_or_unresolved() {
     let home = tmp.path().join("compose");
     let ws = tmp.path().join("ws");
     std::fs::create_dir_all(&ws).unwrap();
+    let ws = std::fs::canonicalize(&ws).unwrap();
     let b = ComposeBridge::new(home.clone(), proposer(), "test:fixed-proposer");
     let run = b.run_task("write the note", ws.to_str().unwrap());
     if !aien_omega_compose::LINKED {

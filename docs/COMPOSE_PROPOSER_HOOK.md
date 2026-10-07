@@ -39,10 +39,41 @@ approval_id, replay_claim}.
 daemon socket (same-user peer check, 0600 socket, like every compose
 command). Answered `ComposeApprovedResult(report)` or
 `ComposeApprovedRefused(refusal)`. It runs `ProposerHook::submit`; there is
-no unauthenticated variant. It writes nothing to the workspace and mints no
-grant: the effect still needs an `authorization` record, a
-`ComposeEffectIntent` and a `ComposeEffectAck`, all naming
-compose_proposal_sha256. `aien compose desk-key [--create 1]` prints the
+no unauthenticated variant. It writes nothing to the workspace. After the
+replay commit the daemon itself writes the one grant for the approval
+(`approved_grant` below) and returns its id (`approved_grant`) and target;
+the caller then needs only `ComposeEffectIntent` and `ComposeEffectAck`,
+both naming compose_proposal_sha256. A caller never writes its own grant
+for an approved write.
+
+## Daemon-written grant and workspace confinement (476ca4 A1/A1b)
+- **Approved grant.** Kind `authorization`, field `approved_grant: 1`,
+  keyed on `proposal_sha256 = compose_proposal_sha256`, naming `workspace`
+  (canonical), `target = workspace/path`, `prior_sha256`, `approval_key`,
+  `replay_claim`, `cx_promotion`, `cx_evidence`, `request_id`, `trace_id`,
+  `approval_id`, `desk_key_id`, `approved_proposal_sha256`; Cortex links
+  [cx_promotion, cx_evidence, replay_claim]. Reserved: `ComposeNote` refuses
+  any authorization carrying `approved_grant`. At the intent the daemon
+  requires the replay claim to be COMMITTED with the same approval key and
+  commit evidence naming the same proposal, promotion and evidence, and the
+  record to link all three. A crash between the replay commit and the grant
+  leaves the approval spent with no grant: no effect, a new approval is
+  needed (`approved_crash_test` boundary 3).
+- **Confinement, every grant.** `effects::confine_target`: the workspace is
+  an absolute canonical directory other than `/`; `path` has plain
+  components only; `target == workspace/path`; the target's directory
+  resolves (symlinks followed) to itself inside the workspace; an existing
+  target is a regular file, never a symlink. Checked when a grant is written
+  through `ComposeNote` and again at every `ComposeEffectIntent`. A grant
+  with no `workspace` opens no intent. `aien compose authorize` now writes
+  `workspace`; older unspent grants without it are refused (fail closed).
+- **Still open (sc#261, out of scope here):** the generic, client-written
+  `ComposeNote` authorization used by the `aien compose` operator flow. A
+  same-user socket caller can still write a generic grant for a proposal
+  nothing produced, inside a workspace it names, and reach DONE. The
+  workspace is the caller's claim, as it is for `aien compose authorize`.
+  `approved_confinement_test` asserts this observed behaviour so the follow-up
+  flips it visibly. `aien compose desk-key [--create 1]` prints the
 desk key id and path (never the key) and creates the key if none exists.
 
 ## Authentication design (#249 A)
@@ -55,7 +86,13 @@ daemon cannot check it. So the smallest verifiable evidence is used:
 dependency) keyed by the approval desk key, over the canonical binding
 (`approved_auth::binding_bytes`): compact JSON, keys sorted, of
 approval_id, approved_proposal_sha256, approver, content_sha256,
-desk_key_id, path, request_id, trace_id and `"v":"aien.approval.v1"`.
+desk_key_id, path, request_id, trace_id, workspace and
+`"v":"aien.approval.v2"`. `workspace` is the canonical absolute path
+(symlinks resolved): the daemon canonicalises the command's `workspace`
+and binds that, so a valid approval presented with another workspace fails
+the MAC (`Unauthenticated`, nothing consumed; 476ca4 c17), and the daemon's
+grant target is derived only from the bound workspace plus path. v2 because
+the binding gained a field (nothing was released under v1).
 The daemon recomputes it with its copy of the key and compares in constant
 time; anything else is `PROPOSAL_REFUSED Unauthenticated`.
 - Key: 32 bytes from /dev/urandom, `<compose dir>/approval-desk.key`,
@@ -108,7 +145,10 @@ uncertain); a failure gates effect commands and approved proposals.
 appended for any of these); `REPLAY_REFUSED <Name>` from the claim
 (AlreadyCommitted, AlreadyFailed, AlreadyConsumed, Uncertain, InFlight, ...);
 after a claim: `ComposeError` and `Mismatch` (claim UNCERTAIN),
-`NotCommitted` (claim FAILED).
+`NotCommitted` (claim FAILED); after the replay commit: `GrantNotWritten`
+(the approval is spent, no grant, no effect). At the intent:
+`EFFECT_REFUSED OutsideWorkspace`, and `NotAuthorized` for a grant with no
+workspace or an approved grant without its committed backing.
 
 ## Deferred
 - The effect receipt (`record_effect_receipt`) still has no request_id or
@@ -120,14 +160,15 @@ after a claim: `ComposeError` and `Mismatch` (claim UNCERTAIN),
 Today trace_id and request_id survive in: the command's report and refusal
 (`request_id`, `trace_id`), the replay `accepted` record (Cortex host
 record, kind effect, fields `request_id`, `trace_id`, `approval_id`,
-`approval_key`), and the compose goal text (request only). The effect
-grant/intent/ack records and `record_effect_receipt` carry neither.
-Recommended: option B, bind rather than re-version: the effect grant written
-after this command links (Cortex links) the replay claim record id
-(`replay_claim`) next to [cx_promotion, cx_evidence], and the grant text
-names `replay_claim`; a verifier walks ack -> intent -> grant -> claim and
-reads trace_id/request_id from the immutable claim record. Receipt files
-stay version 1. Tests to add: grant links the claim; walk from an ack
-recovers trace_id and request_id; a grant naming a claim whose
-compose_proposal_sha256 differs is refused at intent; a forged claim id
-(not an `accepted` record) is refused.
+`approval_key`), and the compose goal text (request only). Since the A1 fix the
+daemon's approved grant carries `request_id`, `trace_id` and `approval_id`
+and links the replay claim; the intent and ack records and
+`record_effect_receipt` still carry neither.
+Recommended: option B, bind rather than re-version: a verifier walks
+ack -> intent (`authorization`) -> approved grant (`replay_claim`, Cortex
+link) -> claim and reads trace_id/request_id from the immutable claim
+record (and the grant text). Receipt files stay version 1. Done by the A1
+fix: the grant links the claim; a grant whose claim is not COMMITTED with
+matching evidence is refused at intent; the approved grant cannot be
+forged. Tests still to add: walk from an ack recovers trace_id and
+request_id; `record_effect_receipt` for approved writes names the grant.

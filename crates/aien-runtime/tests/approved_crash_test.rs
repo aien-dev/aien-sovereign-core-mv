@@ -7,6 +7,8 @@
 //!   approved_after_claim    boundary 1: accepted, dies before compose
 //!   approved_after_compose  boundary 2: the World committed, dies before the
 //!                           replay commit record
+//!   approved_after_commit   boundary 3: the replay claim committed, dies
+//!                           before the daemon's grant record
 //!
 //! Needs the `fault-hold` feature (test builds only):
 //! `cargo test -p aien-runtime --features fault-hold --test approved_crash_test`.
@@ -45,7 +47,9 @@ fn proposal(b: &ComposeBridge) -> ApprovedProposal {
         content_sha256: sha(CONTENT.as_bytes()),
         approval_mac: String::new(),
     };
-    p.approval_mac = DeskKey::load(&desk_key_path(b.dir())).unwrap().sign(&p);
+    p.approval_mac = DeskKey::load(&desk_key_path(b.dir()))
+        .unwrap()
+        .sign(&p, &b.dir().parent().unwrap().join("ws"));
     p
 }
 
@@ -112,7 +116,7 @@ fn claims(r: &ComposeRecallReport) -> usize {
 
 static HOMES: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-fn boundary(hold: &str, want_reconciled: &str, want_refusal: &str) {
+fn boundary(hold: &str, want_reconciled: &str, want_refusal: Option<&str>) {
     let _turn = HOMES.lock().unwrap_or_else(|e| e.into_inner());
     let tmp = tempfile::tempdir().unwrap();
     let ws = tmp.path().join("ws");
@@ -134,12 +138,23 @@ fn boundary(hold: &str, want_reconciled: &str, want_refusal: &str) {
     // Retry of the same approval and replays under either id: refused, never run.
     let hook = ProposerHook::new(b.clone());
     let p = proposal(&b);
-    let e = hook.submit(&p, ws.to_str().unwrap()).unwrap_err();
-    assert_eq!(e.name, want_refusal, "{e}");
-    assert_eq!(e.refused_by, "REPLAY_REFUSED");
+    match (hook.submit(&p, ws.to_str().unwrap()), want_refusal) {
+        (Err(e), Some(want)) => {
+            assert_eq!(e.name, want, "{e}");
+            assert_eq!(e.refused_by, "REPLAY_REFUSED");
+        }
+        // Committed before the crash: the same approval gets the original
+        // result back, and no grant (the daemon never wrote one).
+        (Ok(r), None) => {
+            assert_eq!(r.state, "ALREADY_COMMITTED");
+            assert!(r.task.is_none() && r.approved_grant.is_none());
+        }
+        (other, want) => panic!("want {want:?}, got {other:?}"),
+    }
+    let want_refusal = want_refusal.unwrap_or("AlreadyCommitted");
     let mut q = p.clone();
     q.request_id = "req-crash-2".into();
-    q.approval_mac = DeskKey::load(&desk_key_path(&dir)).unwrap().sign(&q);
+    q.approval_mac = DeskKey::load(&desk_key_path(&dir)).unwrap().sign(&q, &ws);
     assert_eq!(
         hook.submit(&q, ws.to_str().unwrap()).unwrap_err().name,
         want_refusal
@@ -159,6 +174,7 @@ fn boundary(hold: &str, want_reconciled: &str, want_refusal: &str) {
 /// claim is NOT_EXECUTED and the approval stays consumed (a new approval is
 /// needed); nothing ran.
 #[test]
+#[cfg_attr(not(compose_linked), ignore = "needs librx_compose.a: stub build")]
 fn crash_after_claim_is_consumed_never_run() {
     if !aien_omega_compose::LINKED {
         return;
@@ -166,7 +182,7 @@ fn crash_after_claim_is_consumed_never_run() {
     boundary(
         "approved_after_claim",
         "1 -> NOT_EXECUTED",
-        "AlreadyConsumed",
+        Some("AlreadyConsumed"),
     );
 }
 
@@ -174,9 +190,26 @@ fn crash_after_claim_is_consumed_never_run() {
 /// record. After restart the claim is UNCERTAIN (recorded), every retry is
 /// refused: no second World commit, no effect.
 #[test]
+#[cfg_attr(not(compose_linked), ignore = "needs librx_compose.a: stub build")]
 fn crash_after_compose_is_uncertain_never_rerun() {
     if !aien_omega_compose::LINKED {
         return;
     }
-    boundary("approved_after_compose", "1 -> UNCERTAIN", "Uncertain");
+    boundary(
+        "approved_after_compose",
+        "1 -> UNCERTAIN",
+        Some("Uncertain"),
+    );
+}
+
+/// Boundary 3: the replay claim committed, the process dies before the
+/// daemon's grant is written. After restart the approval is spent and no
+/// grant exists, so no effect is possible: a new approval is needed.
+#[test]
+#[cfg_attr(not(compose_linked), ignore = "needs librx_compose.a: stub build")]
+fn crash_before_grant_leaves_no_effect_possible() {
+    if !aien_omega_compose::LINKED {
+        return;
+    }
+    boundary("approved_after_commit", "", None);
 }

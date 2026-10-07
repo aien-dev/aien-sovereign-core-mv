@@ -36,7 +36,9 @@ fn signed(dir: &Path, request: &str, approval: &str, approver: &str) -> Approved
         content_sha256: hex(&Sha256::digest(CONTENT.as_bytes())),
         approval_mac: String::new(),
     };
-    p.approval_mac = DeskKey::load(&desk_key_path(dir)).unwrap().sign(&p);
+    p.approval_mac = DeskKey::load(&desk_key_path(dir))
+        .unwrap()
+        .sign(&p, &dir.parent().unwrap().join("ws"));
     p
 }
 
@@ -108,6 +110,7 @@ fn refusal(r: ControlResponse) -> (String, String) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[cfg_attr(not(compose_linked), ignore = "needs librx_compose.a: stub build")]
 async fn approved_proposal_over_the_daemon_socket() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("compose");
@@ -182,6 +185,12 @@ async fn approved_proposal_over_the_daemon_socket() {
     let t = first.task.as_ref().unwrap();
     assert!(t.committed && t.aegis_pass_mask & 1 == 1 && t.cx_promotion != 0);
     assert_eq!(first.grant_links, vec![t.cx_promotion, t.cx_evidence]);
+    // The daemon wrote the one grant for this approval, confined to the workspace.
+    assert!(first.approved_grant.is_some());
+    assert_eq!(
+        first.target.as_deref().map(Path::new),
+        Some(std::fs::canonicalize(&ws).unwrap().join(PATH).as_path())
+    );
     assert!(!ws.join(PATH).exists(), "the command writes nothing");
     // The forged notes did not consume req-2/appr-2.
     let second = signed(&dir, "req-2", "appr-2", "interplane-host");

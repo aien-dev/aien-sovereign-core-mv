@@ -33,6 +33,7 @@ use crate::approved_auth::{
 };
 use crate::approved_replay::{self, ClaimKeys, CommitEvidence};
 use crate::control::ComposeTaskReport;
+use crate::effects::{write_approved_grant, ApprovedLink};
 use crate::spine::{check_file_proposal, ComposeBridge};
 use aien_omega_compose::hex;
 use serde::{Deserialize, Serialize};
@@ -97,6 +98,15 @@ pub struct ApprovedComposeReport {
     /// The compose run (J-Space branch, AEGIS verdict, World commit records);
     /// None for ALREADY_COMMITTED.
     pub task: Option<ComposeTaskReport>,
+    /// The authorization grant the daemon wrote for this approval (reserved
+    /// `approved_grant` record, keyed on `compose_proposal_sha256`, linked to
+    /// promotion, evidence and the replay claim). The effect intent names it;
+    /// a caller never writes its own. None for ALREADY_COMMITTED.
+    #[serde(default)]
+    pub approved_grant: Option<u64>,
+    /// The grant's absolute target (`<canonical workspace>/<path>`).
+    #[serde(default)]
+    pub target: Option<String>,
 }
 
 /// A refusal of the approved-proposal command, with the correlation ids.
@@ -233,7 +243,7 @@ impl ProposerHook {
         let identity = (|| {
             let desk = DeskKey::load(&desk_key_path(self.bridge.dir()))?;
             check_confinement(self.bridge.dir(), Path::new(workspace))?;
-            desk.authenticate(p)
+            desk.authenticate(p, Path::new(workspace))
         })()
         .map_err(|e| refusal(e, None))?;
         let keys = ClaimKeys {
@@ -258,7 +268,10 @@ impl ProposerHook {
             "apply approved proposal for {} (request {})",
             p.path, p.request_id
         );
-        let r = match self.bridge.run_approved_task(&goal, workspace, &text) {
+        let r = match self
+            .bridge
+            .run_approved_task(&goal, &identity.workspace, &text)
+        {
             Ok(r) => r,
             Err(e) => {
                 // The run may have reached the World: never guess.
@@ -306,7 +319,40 @@ impl ProposerHook {
         // If this append fails the claim stays in_flight: refused forever,
         // UNCERTAIN after a restart (fail closed).
         approved_replay::commit(&self.bridge, &claim, &evidence).map_err(rr)?;
-        Ok(self.report(
+        crash_point("approved_after_commit");
+        // The one grant for this approval, written by the daemon (never by the
+        // caller). If it cannot be written the approval stays spent and no
+        // effect is possible: a new approval is needed (fail closed).
+        // The grant's target comes from the bound (MAC-covered) workspace only.
+        let link = ApprovedLink {
+            approval_key: keys.approval_key.clone(),
+            replay_claim: claim.id,
+            cx_promotion: evidence.cx_promotion,
+            cx_evidence: evidence.cx_evidence,
+        };
+        let ids = serde_json::json!({"request_id": p.request_id, "trace_id": p.trace_id,
+            "approval_id": p.approval_id, "desk_key_id": identity.desk_key_id,
+            "approved_proposal_sha256": p.approved_proposal_sha256});
+        let (grant, target) = write_approved_grant(
+            &self.bridge,
+            &identity.workspace,
+            &p.path,
+            &p.content_sha256,
+            &p.approver,
+            &ids,
+            &link,
+            &compose_sha,
+        )
+        .map_err(|e| {
+            refusal(
+                refuse(
+                    "GrantNotWritten",
+                    format!("the approval is committed and spent; no effect is possible: {e}"),
+                ),
+                Some(claim.id),
+            )
+        })?;
+        let mut out = self.report(
             p,
             &identity,
             &keys,
@@ -314,7 +360,10 @@ impl ProposerHook {
             "COMMITTED",
             &evidence,
             Some(r),
-        ))
+        );
+        out.approved_grant = Some(grant);
+        out.target = Some(target);
+        Ok(out)
     }
 
     /// A claim refusal. A retry of the very same authenticated approval (all
@@ -383,6 +432,8 @@ impl ProposerHook {
             approval_key: keys.approval_key.clone(),
             replay_claim: claim,
             task,
+            approved_grant: None,
+            target: None,
         }
     }
 }
