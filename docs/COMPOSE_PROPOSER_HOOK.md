@@ -25,11 +25,70 @@ file change), the winner commits through the World, Cortex records goal,
 candidates, evidence and promotion (`cx_*` in `ComposeTaskReport`). The hook
 returns Ok only if the run committed exactly the approved text.
 
-## What the ledger hands over (`ApprovedProposal`, approved.rs:39)
+## What the ledger hands over (`ApprovedProposal`)
 request_id, trace_id, approval_id, approver, path, content,
-approved_proposal_sha256, content_sha256. The hook returns
-`ApprovedComposeReport` (approved.rs:57): the same ids plus
-compose_proposal_sha256, grant_links and the compose `task` report.
+approved_proposal_sha256, content_sha256, approval_mac. The hook returns
+`ApprovedComposeReport`: state (COMMITTED | ALREADY_COMMITTED), the same
+ids, compose_proposal_sha256, grant_links, desk_key_id, approval_key,
+replay_claim and the compose `task` report (None for ALREADY_COMMITTED); or
+`ApprovedRefusal` {refused_by, name, detail, request_id, trace_id,
+approval_id, replay_claim}.
+
+## Daemon command (#249 C)
+`ControlCommand::ComposeApprovedProposal { proposal, workspace }` on the
+daemon socket (same-user peer check, 0600 socket, like every compose
+command). Answered `ComposeApprovedResult(report)` or
+`ComposeApprovedRefused(refusal)`. It runs `ProposerHook::submit`; there is
+no unauthenticated variant. It writes nothing to the workspace and mints no
+grant: the effect still needs an `authorization` record, a
+`ComposeEffectIntent` and a `ComposeEffectAck`, all naming
+compose_proposal_sha256. `aien compose desk-key [--create 1]` prints the
+desk key id and path (never the key) and creates the key if none exists.
+
+## Authentication design (#249 A)
+Reused primitive: none of the existing grant records can carry it. A
+`ComposeNote` `authorization` grant is written by any same-user socket
+caller, so binding the approval to one would be caller text in two steps;
+the aien-mcp `ApprovalGrant` lives in the INTERPLANE process memory and the
+daemon cannot check it. So the smallest verifiable evidence is used:
+`approval_mac` = HMAC-SHA256 (RFC 2104 over the existing sha2 crate, no new
+dependency) keyed by the approval desk key, over the canonical binding
+(`approved_auth::binding_bytes`): compact JSON, keys sorted, of
+approval_id, approved_proposal_sha256, approver, content_sha256,
+desk_key_id, path, request_id, trace_id and `"v":"aien.approval.v1"`.
+The daemon recomputes it with its copy of the key and compares in constant
+time; anything else is `PROPOSAL_REFUSED Unauthenticated`.
+- Key: 32 bytes from /dev/urandom, `<compose dir>/approval-desk.key`,
+  64 lowercase hex, created 0600 with O_EXCL|O_NOFOLLOW. Every submission
+  re-loads it: a symlink, a non-regular file, another owner, any group or
+  other permission bit, or a malformed key is `NoDesk`. Only desk_key_id
+  (first 16 hex of sha256 of the key) is ever printed or recorded.
+- Confinement: the compose home and the submission's workspace must not
+  overlap (either inside the other), else `Confinement`: the model-facing
+  tools read inside the workspace, never the key or the journal.
+- What it proves: the holder of the desk key approved exactly these fields.
+  Not which human pressed approve: the desk (INTERPLANE host-only approval
+  continuation) names the approver, and the MAC stops anyone without the key
+  from changing it. Caller text can never carry a valid MAC.
+- Rotation / loss: replacing the key refuses every MAC made with the old
+  one (approvals issued and not yet submitted must be approved again);
+  claims already recorded keep their keys. Without a key every submission
+  is `NoDesk`.
+- Limit: the OS user is still the outer boundary; a process of the
+  daemon's user that can read the compose home can read the key.
+
+## Replay (#249 B, crate::approved_replay, session 476ca4)
+`approval_key` = sha256 of the binding above; the claim keys are the
+approval key, the request id and the approval id, each on its own. Order in
+`ProposerHook::submit`: verify -> reconcile gate -> desk key -> confinement
+-> MAC -> `claim` (durable `accepted`) -> `mark_in_flight` -> one
+`run_approved_task` -> `commit` | `fail` (ran, not committed) | `uncertain`
+(run error, or committed but not the approved text). A refused claim is
+returned with its state; a retry of the very same approval (all keys equal)
+whose claim committed gets the original result back as ALREADY_COMMITTED,
+never a second run. Daemon start runs `approved_replay::reconcile_at_start`
+after the effect reconcile (accepted -> not_executed, in_flight ->
+uncertain); a failure gates effect commands and approved proposals.
 
 ## Hash semantics (fix)
 - approved_proposal_sha256 = sha256 of compact JSON {"content","path"} with
@@ -44,16 +103,31 @@ compose_proposal_sha256, grant_links and the compose `task` report.
   blank line, code fence) is refused, so content_sha256 is the committed one.
 
 ## Refusals (never silent)
-`PROPOSAL_REFUSED Unverified` (hash, ids, path, template round trip; nothing
-appended), `Duplicate` (request or approval id already submitted in this
-process), `ComposeError`, `NotCommitted`, `Mismatch`.
+`PROPOSAL_REFUSED` `Unverified` (hash, ids, path, template round trip),
+`ReconcileFailed`, `NoDesk`, `Confinement`, `Unauthenticated` (nothing
+appended for any of these); `REPLAY_REFUSED <Name>` from the claim
+(AlreadyCommitted, AlreadyFailed, AlreadyConsumed, Uncertain, InFlight, ...);
+after a claim: `ComposeError` and `Mismatch` (claim UNCERTAIN),
+`NotCommitted` (claim FAILED).
 
 ## Deferred
-- No socket command: the hook is in-process only. A daemon command (and the
-  `AIEN_COMPOSE_PROPOSER=interplane:<socket>` selection) is the next cut.
-- Replay set is in memory; after a daemon restart a replay is stopped by the
-  upstream desk (pending approvals are in memory) and by single-use grants,
-  not by this hook. A durable request-id record is not written.
-- The effect receipt (`record_effect_receipt`) still has no request_id.
+- The effect receipt (`record_effect_receipt`) still has no request_id or
+  trace_id (#76; see below). The replay `accepted` record carries
+  `request_id` and `trace_id` (and `approval_id`, `approval_key`).
 - Real model leg NOT_RUN; no GPU.
-- approver / approval_id are caller-supplied: authenticate + durable replay first (#249).
+
+## Correlation for retained records (#76, design note only)
+Today trace_id and request_id survive in: the command's report and refusal
+(`request_id`, `trace_id`), the replay `accepted` record (Cortex host
+record, kind effect, fields `request_id`, `trace_id`, `approval_id`,
+`approval_key`), and the compose goal text (request only). The effect
+grant/intent/ack records and `record_effect_receipt` carry neither.
+Recommended: option B, bind rather than re-version: the effect grant written
+after this command links (Cortex links) the replay claim record id
+(`replay_claim`) next to [cx_promotion, cx_evidence], and the grant text
+names `replay_claim`; a verifier walks ack -> intent -> grant -> claim and
+reads trace_id/request_id from the immutable claim record. Receipt files
+stay version 1. Tests to add: grant links the claim; walk from an ack
+recovers trace_id and request_id; a grant naming a claim whose
+compose_proposal_sha256 differs is refused at intent; a forged claim id
+(not an `accepted` record) is refused.

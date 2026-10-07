@@ -198,6 +198,33 @@ impl AienRuntimeServer {
                     }
                 };
             println!("{line}");
+            // sovereign-core #249: settle approved-proposal claims a previous
+            // process left open (never re-run). A failure gates effect commands
+            // and approved proposals like a failed effect reconcile.
+            let b = compose.clone().expect("compose is Some here");
+            let gate = b.clone();
+            let line = match tokio::task::spawn_blocking(move || {
+                crate::approved_replay::reconcile_at_start(&b)
+            })
+            .await
+            {
+                Ok(Ok(line)) => line,
+                Ok(Err(e)) => {
+                    gate.set_reconcile_failed(format!("replay reconcile refused: {e}"));
+                    format!(
+                        "Replay reconcile: refused: {e}; {}",
+                        crate::effects::RECONCILE_GATE_NOTE
+                    )
+                }
+                Err(e) => {
+                    gate.set_reconcile_failed(format!("replay reconcile failed: {e}"));
+                    format!(
+                        "Replay reconcile: failed: {e}; {}",
+                        crate::effects::RECONCILE_GATE_NOTE
+                    )
+                }
+            };
+            println!("{line}");
         }
 
         // Connection accept loop
@@ -374,7 +401,7 @@ pub fn finish_reason_label(reason: &aien_inference_abi::FinishReason) -> &'stati
 }
 
 /// A compose command, run on a blocking thread against the bridge.
-type ComposeJob = Box<dyn FnOnce(&ComposeBridge) -> ControlResponse + Send>;
+type ComposeJob = Box<dyn FnOnce(&Arc<ComposeBridge>) -> ControlResponse + Send>;
 
 /// NEXT-PHASE-1: the whole turn as one string (no streaming) and its token
 /// count, for the compose "model" Skill. Same submission path as
@@ -597,7 +624,7 @@ async fn handle_connection(
                 ref workspace,
             } => {
                 let (g, w) = (goal.clone(), workspace.clone());
-                Some(Box::new(move |b: &ComposeBridge| b.run_task(&g, &w)))
+                Some(Box::new(move |b: &Arc<ComposeBridge>| b.run_task(&g, &w)))
             }
             ControlCommand::ComposeNote {
                 ref kind,
@@ -606,18 +633,20 @@ async fn handle_connection(
             } => {
                 let (k, t, l) = (kind.clone(), text.clone(), links.clone());
                 // NEXT-PHASE-2: gated effect/control records cannot be forged here.
-                Some(Box::new(
-                    move |b: &ComposeBridge| match crate::effects::check_reserved_note(&k, &t) {
+                Some(Box::new(move |b: &Arc<ComposeBridge>| {
+                    match crate::effects::check_reserved_note(&k, &t) {
                         Ok(()) => b.note(&k, &t, &l),
                         Err(e) => ControlResponse::Error(e),
-                    },
-                ))
+                    }
+                }))
             }
             ControlCommand::ComposeRecall { ref ids, prefix } => {
                 let i = ids.clone();
-                Some(Box::new(move |b: &ComposeBridge| b.recall(&i, prefix)))
+                Some(Box::new(move |b: &Arc<ComposeBridge>| b.recall(&i, prefix)))
             }
-            ControlCommand::RecoverComposeHome => Some(Box::new(|b: &ComposeBridge| b.recover())),
+            ControlCommand::RecoverComposeHome => {
+                Some(Box::new(|b: &Arc<ComposeBridge>| b.recover()))
+            }
             // NEXT-PHASE-2: effect intents, acks, reconcile, operator control.
             ControlCommand::ComposeEffectIntent {
                 authorization,
@@ -637,7 +666,7 @@ async fn handle_connection(
                     executor_pid,
                     executor_start,
                 };
-                Some(Box::new(move |b: &ComposeBridge| {
+                Some(Box::new(move |b: &Arc<ComposeBridge>| {
                     crate::effects::open_intent(b, &req)
                 }))
             }
@@ -646,14 +675,26 @@ async fn handle_connection(
                 ref reported,
             } => {
                 let r = reported.clone();
-                Some(Box::new(move |b: &ComposeBridge| {
+                Some(Box::new(move |b: &Arc<ComposeBridge>| {
                     crate::effects::ack(b, intent, &r)
                 }))
             }
             ControlCommand::ComposeReconcile { ref declare } => {
                 let d = declare.clone();
-                Some(Box::new(move |b: &ComposeBridge| {
+                Some(Box::new(move |b: &Arc<ComposeBridge>| {
                     crate::effects::reconcile(b, d.as_ref(), "reconcile")
+                }))
+            }
+            ControlCommand::ComposeApprovedProposal {
+                ref proposal,
+                ref workspace,
+            } => {
+                let (p, w) = (proposal.clone(), workspace.clone());
+                Some(Box::new(move |b: &Arc<ComposeBridge>| {
+                    match crate::approved::ProposerHook::new(b.clone()).submit(&p, &w) {
+                        Ok(r) => ControlResponse::ComposeApprovedResult(Box::new(r)),
+                        Err(r) => ControlResponse::ComposeApprovedRefused(r),
+                    }
                 }))
             }
             ControlCommand::ComposeControl {
@@ -662,7 +703,7 @@ async fn handle_connection(
                 authorization,
             } => {
                 let (a, p) = (action.clone(), approver.clone());
-                Some(Box::new(move |b: &ComposeBridge| {
+                Some(Box::new(move |b: &Arc<ComposeBridge>| {
                     crate::effects::control(b, &a, &p, authorization)
                 }))
             }

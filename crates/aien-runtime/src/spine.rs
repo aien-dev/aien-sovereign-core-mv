@@ -415,7 +415,8 @@ impl AienRuntimeSpine {
             | ControlCommand::ComposeEffectIntent { .. }
             | ControlCommand::ComposeEffectAck { .. }
             | ControlCommand::ComposeReconcile { .. }
-            | ControlCommand::ComposeControl { .. } => ControlResponse::Error(
+            | ControlCommand::ComposeControl { .. }
+            | ControlCommand::ComposeApprovedProposal { .. } => ControlResponse::Error(
                 "compose commands are handled on the socket connection, not as one-shot commands"
                     .into(),
             ),

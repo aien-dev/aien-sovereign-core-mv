@@ -113,6 +113,16 @@ pub enum ControlCommand {
     ComposeReconcile {
         declare: Option<ReconcileDeclare>,
     },
+    /// sovereign-core #249: one approved proposal through the proposer hook
+    /// (crate::approved): desk-key MAC authentication, a durable replay claim,
+    /// then the production compose run (J-Space, AEGIS verify, World commit,
+    /// Cortex records) with `workspace` as the task's workspace. Answered with
+    /// `ComposeApprovedResult` or `ComposeApprovedRefused`. Writes nothing to
+    /// `workspace`; the effect still needs an authorization, an intent and an ack.
+    ComposeApprovedProposal {
+        proposal: crate::approved::ApprovedProposal,
+        workspace: String,
+    },
     /// NEXT-PHASE-2: operator `stop`, `resume`, `revoke` (ACCEPTANCE-v2 2.5, 2.6).
     ComposeControl {
         action: String,
@@ -181,6 +191,11 @@ pub enum ControlResponse {
     ComposeReconciled(Box<ComposeReconcileReport>),
     /// Result of `ComposeControl`.
     ComposeControlled(Box<ComposeControlReport>),
+    /// `ComposeApprovedProposal` committed (state COMMITTED or ALREADY_COMMITTED).
+    ComposeApprovedResult(Box<crate::approved::ApprovedComposeReport>),
+    /// `ComposeApprovedProposal` refused (named; nothing ran unless the
+    /// refusal says the run happened).
+    ComposeApprovedRefused(Box<crate::approved::ApprovedRefusal>),
     Error(String),
 }
 

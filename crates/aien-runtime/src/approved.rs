@@ -20,15 +20,26 @@
 //!   (`filename: <path>\n<content>`), the value `aien compose authorize` puts
 //!   in the authorization grant and `ComposeEffectIntent` must repeat.
 //!
+//! Authentication (#249 A, crate::approved_auth): `approval_mac` must be the
+//! approval desk key's HMAC over every approved field, else `Unauthenticated`.
+//! Replay (#249 B, crate::approved_replay): the approval is claimed durably
+//! in the Cortex journal before the run and settled after it (committed,
+//! failed, uncertain); a claimed request id, approval id or approval key is
+//! refused for ever, across restarts.
+//!
 //! Design note: docs/COMPOSE_PROPOSER_HOOK.md.
+use crate::approved_auth::{
+    approval_key, check_confinement, desk_key_path, ApprovalIdentity, DeskKey,
+};
+use crate::approved_replay::{self, ClaimKeys, CommitEvidence};
 use crate::control::ComposeTaskReport;
 use crate::spine::{check_file_proposal, ComposeBridge};
 use aien_omega_compose::hex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::path::Path;
+use std::sync::Arc;
 
 /// Prefix of every hook refusal.
 pub const REFUSED: &str = "PROPOSAL_REFUSED";
@@ -50,11 +61,20 @@ pub struct ApprovedProposal {
     pub approved_proposal_sha256: String,
     /// sha256 of `content`.
     pub content_sha256: String,
+    /// HMAC-SHA256 (hex) of the approval binding under the approval desk key
+    /// (crate::approved_auth). Never caller text: only the desk key holder
+    /// can make it.
+    pub approval_mac: String,
 }
 
 /// What a committed approved proposal hands to the effect ledger.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApprovedComposeReport {
+    /// "COMMITTED" (this submission ran and the World committed it) or
+    /// "ALREADY_COMMITTED" (a retry of the same authenticated approval whose
+    /// first response was lost: nothing ran again, `task` is None and the
+    /// evidence is the original run's, read from the replay ledger).
+    pub state: String,
     pub request_id: String,
     pub trace_id: String,
     pub approval_id: String,
@@ -68,8 +88,53 @@ pub struct ApprovedComposeReport {
     /// Links the authorization grant carries, as `aien compose authorize`
     /// does: [cx_promotion, cx_evidence].
     pub grant_links: Vec<u64>,
-    /// The compose run (J-Space branch, AEGIS verdict, World commit records).
-    pub task: ComposeTaskReport,
+    /// The desk key that authenticated the approval (its id, never the key).
+    pub desk_key_id: String,
+    /// The durable replay key (crate::approved_auth::approval_key).
+    pub approval_key: String,
+    /// The replay claim (its `accepted` record id in the Cortex journal).
+    pub replay_claim: u64,
+    /// The compose run (J-Space branch, AEGIS verdict, World commit records);
+    /// None for ALREADY_COMMITTED.
+    pub task: Option<ComposeTaskReport>,
+}
+
+/// A refusal of the approved-proposal command, with the correlation ids.
+/// `refused_by` is "PROPOSAL_REFUSED" (checks before or around the run) or
+/// "REPLAY_REFUSED" (crate::approved_replay); `name` is the refusal name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovedRefusal {
+    pub refused_by: String,
+    pub name: String,
+    pub detail: String,
+    pub request_id: String,
+    pub trace_id: String,
+    pub approval_id: String,
+    /// The replay claim the refusal concerns, when there is one.
+    pub replay_claim: Option<u64>,
+}
+
+impl std::fmt::Display for ApprovedRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {}: {}", self.refused_by, self.name, self.detail)
+    }
+}
+
+impl ApprovedRefusal {
+    /// From a "<PREFIX> <Name>: detail" text.
+    fn from_text(p: &ApprovedProposal, text: &str, claim: Option<u64>) -> Box<Self> {
+        let (head, detail) = text.split_once(": ").unwrap_or((text, ""));
+        let (by, name) = head.split_once(' ').unwrap_or((REFUSED, head));
+        Box::new(Self {
+            refused_by: by.to_string(),
+            name: name.to_string(),
+            detail: detail.to_string(),
+            request_id: p.request_id.clone(),
+            trace_id: p.trace_id.clone(),
+            approval_id: p.approval_id.clone(),
+            replay_claim: claim,
+        })
+    }
 }
 
 fn sha256_hex(b: &[u8]) -> String {
@@ -132,59 +197,78 @@ pub fn verify(p: &ApprovedProposal) -> Result<String, String> {
     proposal_text(&p.path, &p.content)
 }
 
-/// The hook over one compose bridge (the daemon's, or a test's).
+/// The hook over one compose bridge (the daemon's, or a test's). Replay
+/// state lives only in the bridge's Cortex journal (crate::approved_replay):
+/// two hooks over one compose home, or a restarted daemon, see the same claims.
 pub struct ProposerHook {
     bridge: Arc<ComposeBridge>,
-    /// Request and approval ids already submitted by this process.
-    consumed: Mutex<HashSet<String>>,
 }
 
 impl ProposerHook {
     pub fn new(bridge: Arc<ComposeBridge>) -> Self {
-        Self {
-            bridge,
-            consumed: Mutex::new(HashSet::new()),
-        }
+        Self { bridge }
     }
 
-    /// Blocking (runs the composition). Verify, refuse duplicates, run, and
-    /// return the commit only if the World committed exactly this proposal.
+    /// Blocking (runs the composition). Order: verify (hashes, template) ->
+    /// start-up reconcile gate -> desk key (file rules) -> confinement ->
+    /// authenticate (MAC) -> durable claim -> in_flight -> one compose run ->
+    /// committed | failed | uncertain. Nothing runs unless every step before
+    /// it passed; nothing before the claim writes a record.
     pub fn submit(
         &self,
         p: &ApprovedProposal,
         workspace: &str,
-    ) -> Result<ApprovedComposeReport, String> {
-        let text = verify(p)?;
-        {
-            let mut seen = self
-                .consumed
-                .lock()
-                .map_err(|_| refuse("Internal", "replay set lock poisoned"))?;
-            let keys = [
-                format!("request:{}", p.request_id),
-                format!("approval:{}", p.approval_id),
-            ];
-            if let Some(k) = keys.iter().find(|k| seen.contains(*k)) {
-                return Err(refuse("Duplicate", format!("{k} was already submitted")));
-            }
-            // Consumed before the run: a failed run never frees the approval.
-            for k in keys {
-                seen.insert(k);
-            }
+    ) -> Result<ApprovedComposeReport, Box<ApprovedRefusal>> {
+        let refusal = |t: String, c: Option<u64>| ApprovedRefusal::from_text(p, &t, c);
+        let text = verify(p).map_err(|e| refusal(e, None))?;
+        if let Some(why) = self.bridge.reconcile_failed() {
+            return Err(refusal(
+                refuse(
+                    "ReconcileFailed",
+                    format!("the start-up reconcile did not complete ({why}); run aien compose reconcile"),
+                ),
+                None,
+            ));
         }
-        // The goal names the path, so an existing file is an edit target here as
-        // in RunComposeTask; the approved branch of the Skill ignores it (edit =
-        // None), see spine.rs.
+        let identity = (|| {
+            let desk = DeskKey::load(&desk_key_path(self.bridge.dir()))?;
+            check_confinement(self.bridge.dir(), Path::new(workspace))?;
+            desk.authenticate(p)
+        })()
+        .map_err(|e| refusal(e, None))?;
+        let keys = ClaimKeys {
+            approval_key: approval_key(&identity),
+            request_id: p.request_id.clone(),
+            approval_id: p.approval_id.clone(),
+            trace_id: p.trace_id.clone(),
+        };
+        let claim = match approved_replay::claim(&self.bridge, &keys) {
+            Ok(c) => c,
+            Err(r) => return self.replayed(p, &identity, &keys, r),
+        };
+        crash_point("approved_after_claim");
+        let rr = |r: approved_replay::Refusal| refusal(r.to_string(), Some(claim.id));
+        approved_replay::mark_in_flight(&self.bridge, &claim).map_err(|e| {
+            // Nothing ran; end the claim as not_executed if the journal lets us.
+            let _ = approved_replay::not_executed(&self.bridge, &claim, &e.to_string());
+            rr(e)
+        })?;
+        // Exactly one compose run per claim.
         let goal = format!(
             "apply approved proposal for {} (request {})",
             p.path, p.request_id
         );
-        let r = self
-            .bridge
-            .run_approved_task(&goal, workspace, &text)
-            .map_err(|e| refuse("ComposeError", e))?;
+        let r = match self.bridge.run_approved_task(&goal, workspace, &text) {
+            Ok(r) => r,
+            Err(e) => {
+                // The run may have reached the World: never guess.
+                let why = refuse("ComposeError", &e);
+                approved_replay::uncertain(&self.bridge, &claim, &why).map_err(rr)?;
+                return Err(refusal(why, Some(claim.id)));
+            }
+        };
         if !r.committed {
-            return Err(refuse(
+            let why = refuse(
                 "NotCommitted",
                 format!(
                     "outcome {} (AEGIS pass mask {:#x}); {}",
@@ -192,7 +276,9 @@ impl ProposerHook {
                     r.aegis_pass_mask,
                     r.proposer_error.as_deref().unwrap_or("no proposer error")
                 ),
-            ));
+            );
+            approved_replay::fail(&self.bridge, &claim, &why).map_err(rr)?;
+            return Err(refusal(why, Some(claim.id)));
         }
         let compose_sha = sha256_hex(text.as_bytes());
         if r.proposal.as_deref() != Some(text.as_str())
@@ -200,12 +286,90 @@ impl ProposerHook {
             || r.proposal_path.as_deref() != Some(p.path.as_str())
             || r.proposal_content_sha256.as_deref() != Some(p.content_sha256.as_str())
         {
-            return Err(refuse(
+            let why = refuse(
                 "Mismatch",
-                "the committed proposal is not the approved one",
-            ));
+                format!(
+                    "the World committed task {} (promotion #{}) but not the approved proposal",
+                    r.task, r.cx_promotion
+                ),
+            );
+            approved_replay::uncertain(&self.bridge, &claim, &why).map_err(rr)?;
+            return Err(refusal(why, Some(claim.id)));
         }
-        Ok(ApprovedComposeReport {
+        let evidence = CommitEvidence {
+            compose_proposal_sha256: compose_sha.clone(),
+            cx_promotion: r.cx_promotion,
+            cx_evidence: r.cx_evidence,
+            task: r.task,
+        };
+        crash_point("approved_after_compose");
+        // If this append fails the claim stays in_flight: refused forever,
+        // UNCERTAIN after a restart (fail closed).
+        approved_replay::commit(&self.bridge, &claim, &evidence).map_err(rr)?;
+        Ok(self.report(
+            p,
+            &identity,
+            &keys,
+            claim.id,
+            "COMMITTED",
+            &evidence,
+            Some(r),
+        ))
+    }
+
+    /// A claim refusal. A retry of the very same authenticated approval (all
+    /// keys equal) whose claim committed gets the original result back as
+    /// ALREADY_COMMITTED; everything else is refused with the claim's state.
+    fn replayed(
+        &self,
+        p: &ApprovedProposal,
+        identity: &ApprovalIdentity,
+        keys: &ClaimKeys,
+        r: approved_replay::Refusal,
+    ) -> Result<ApprovedComposeReport, Box<ApprovedRefusal>> {
+        if r.name == "AlreadyCommitted" {
+            if let (Some(id), Some(ev)) = (r.claim, r.evidence.as_ref()) {
+                if self.claim_keys(id).as_ref() == Ok(keys) {
+                    return Ok(self.report(p, identity, keys, id, "ALREADY_COMMITTED", ev, None));
+                }
+            }
+        }
+        Err(ApprovedRefusal::from_text(p, &r.to_string(), r.claim))
+    }
+
+    /// The keys a claim recorded, read back from the journal.
+    fn claim_keys(&self, id: u64) -> Result<ClaimKeys, String> {
+        self.bridge.with_home(|home| {
+            let (recs, _) = home
+                .compose
+                .recall(aien_omega_compose::SUBJECT_HOST, 4096)
+                .map_err(|e| format!("host records: {e}"))?;
+            let views: Vec<_> = recs
+                .iter()
+                .map(|r| crate::spine::record_view(&mut home.compose, r))
+                .collect();
+            let l =
+                approved_replay::ReplayLedger::from_records(&views).map_err(|e| e.to_string())?;
+            l.claims
+                .get(&id)
+                .map(|row| row.keys.clone())
+                .ok_or_else(|| format!("#{id} is not a claim"))
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn report(
+        &self,
+        p: &ApprovedProposal,
+        identity: &ApprovalIdentity,
+        keys: &ClaimKeys,
+        claim: u64,
+        state: &str,
+        ev: &CommitEvidence,
+        task: Option<ComposeTaskReport>,
+    ) -> ApprovedComposeReport {
+        ApprovedComposeReport {
+            state: state.into(),
             request_id: p.request_id.clone(),
             trace_id: p.trace_id.clone(),
             approval_id: p.approval_id.clone(),
@@ -213,9 +377,26 @@ impl ProposerHook {
             path: p.path.clone(),
             content_sha256: p.content_sha256.clone(),
             approved_proposal_sha256: p.approved_proposal_sha256.clone(),
-            compose_proposal_sha256: compose_sha,
-            grant_links: vec![r.cx_promotion, r.cx_evidence],
-            task: r,
-        })
+            compose_proposal_sha256: ev.compose_proposal_sha256.clone(),
+            grant_links: vec![ev.cx_promotion, ev.cx_evidence],
+            desk_key_id: identity.desk_key_id.clone(),
+            approval_key: keys.approval_key.clone(),
+            replay_claim: claim,
+            task,
+        }
     }
 }
+
+/// Test builds only (cargo feature `fault-hold`): abort the process at the
+/// named point when `AIEN_FAULT_HOLD` names it, to prove the crash
+/// boundaries of #249 B. The default build compiles this to nothing.
+#[cfg(feature = "fault-hold")]
+fn crash_point(name: &str) {
+    if std::env::var("AIEN_FAULT_HOLD").as_deref() == Ok(name) {
+        eprintln!("fault hold {name}: aborting (test build)");
+        std::process::abort();
+    }
+}
+
+#[cfg(not(feature = "fault-hold"))]
+fn crash_point(_: &str) {}
