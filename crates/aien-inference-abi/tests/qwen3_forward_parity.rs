@@ -610,9 +610,9 @@ fn real_qwen3_4b_instruct_2507_on_gb10_matches_transformers() {
         .map(|v| v.as_f64().unwrap() as f32)
         .collect();
     let config = load_model_config(&dir).expect("config");
-    omega
-        .check_model(&config)
-        .expect("GB10 engine must accept Qwen3-4B (a declared attempt sets AIEN_GB10_QWEN3_DECLARED_ATTEMPT=1)");
+    omega.check_model(&config).expect(
+        "GB10 engine must accept Qwen3-4B (unset or AIEN_GB10_QWEN3_DECLARED_ATTEMPT=1 enables it)",
+    );
     let weights = TransformerWeights::load_from_safetensors(
         dir.join("model.safetensors.index.json"),
         &config,

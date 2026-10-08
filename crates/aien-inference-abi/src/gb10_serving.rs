@@ -5,7 +5,7 @@
 //! and the matmul kernel cache on demand while serving, and every growth is a driver (RM)
 //! allocation that can fail with NV_ERR_NO_MEMORY when MemFree is low (omega#327; omega#332
 //! measured 458 allocations and 456 frees over 428 tokens). omega#333 and omega#338 add an
-//! opt-in reservation: allocate the buffers once for declared bounds, build and pin every
+//! reservation: allocate the buffers once for declared bounds, build and pin every
 //! matmul kernel the model will run (`prepare`), then `seal`, after which serving makes no
 //! driver allocation inside the bounds and an unprepared kernel or a call past the bounds is
 //! refused `TOO_LARGE` by name.

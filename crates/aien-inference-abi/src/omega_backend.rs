@@ -7,7 +7,7 @@
 //! (the model builds Fp32 pools) the sequence's K/V are gathered on the host into
 //! contiguous f32 exactly as the reference reads them, then run on the f32 gqa kernel.
 //! omega attention needs head_dim 64 (TinyLlama, Llama-3.2-1B) or 128 (Qwen3-4B, since omega
-//! b564bf4; Qwen3 is refused by default while omega#327 is open and at any other head_dim
+//! b564bf4; Qwen3 is refused only when switched off (AIEN_GB10_QWEN3_DECLARED_ATTEMPT=0) and at any other head_dim
 //! always, see `omega_model_refusal`). A chip
 //! error in one of those is a fallback of a claimed-native op: it is counted, goes through
 //! `OpAccounting::reference_path` (fatal in a production build, see `strict.rs`)
@@ -585,7 +585,10 @@ pub const GB10_QWEN3_OPT_IN_ENV: &str = "AIEN_GB10_QWEN3_DECLARED_ATTEMPT";
 
 /// Whether the GB10 Qwen3 path is enabled, read from [`GB10_QWEN3_OPT_IN_ENV`].
 pub fn gb10_qwen3_enabled() -> bool {
-    gb10_qwen3_enabled_from(std::env::var(GB10_QWEN3_OPT_IN_ENV).ok().as_deref())
+    match std::env::var_os(GB10_QWEN3_OPT_IN_ENV) {
+        None => gb10_qwen3_enabled_from(None),
+        Some(v) => gb10_qwen3_enabled_from(Some(v.to_str().unwrap_or("<non-utf8>"))),
+    }
 }
 
 /// [`gb10_qwen3_enabled`] on an explicit value: `None` (unset) and `1` enable, all else refuses.
@@ -621,6 +624,14 @@ pub fn omega_model_refusal_with(config: &ModelConfig, qwen3_opted_in: bool) -> O
 impl TensorBackend for OmegaGb10Backend {
     fn check_model(&self, config: &ModelConfig) -> Result<(), String> {
         omega_model_refusal(config).map_or(Ok(()), Err)?;
+        if config.qk_norm && !self.is_available() {
+            return Err(format!(
+                "OmegaGb10Backend refuses model {:?}: Qwen3 needs the linked GB10 engine for its \
+                 streamed weights and serving reservation, and this is a stub build (no chip); \
+                 run it on the CPU reference backend",
+                config.model_id
+            ));
+        }
         if config.qk_norm {
             eprintln!(
                 "OMEGA_BACKEND NOTE: running Qwen3 {:?} on GB10 via the qualified path \
