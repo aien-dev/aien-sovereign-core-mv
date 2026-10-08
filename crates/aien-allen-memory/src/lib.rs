@@ -18,6 +18,6 @@ pub mod store;
 pub use refusal::MemoryRefusal;
 pub use schema::{Kind, Scope, GOAL_LABEL, MEMORY_SCHEMA};
 pub use store::{
-    memory_dir, ForgetTarget, GoalList, GoalView, InspectAll, ItemStatus, ItemView, Memory, Recall,
-    RecallLimits, ScopeGrant, Step,
+    memory_dir, Authority, ForgetTarget, GoalList, GoalView, InspectAll, ItemStatus, ItemView,
+    Memory, Recall, RecallLimits, ScopeGrant, Step,
 };

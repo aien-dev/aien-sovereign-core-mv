@@ -21,9 +21,12 @@ Forget runs in this order:
 3. Append a Forget record to `log/` (item id, scope, time; no content).
 4. Remove the marker.
 
-A crash between steps leaves the item unreadable (key gone or marker present).
-`inspect` reports it as `forgotten (key missing, record pending)`. The next open
-finishes steps 2 to 4. A missing key on an item nobody asked to forget is
+A crash between steps leaves the item unreadable to this API (a marker exists, so
+recall skips it). `inspect` reports `forgotten (key removal pending)` while the
+key file is still there and `forgotten (key missing, record pending)` once it is
+gone; after the record is appended it reports `forgotten`. A crash after step 1
+but before step 2 finishes leaves the key on disk until the next open completes
+steps 2 to 4. A missing key on an item nobody asked to forget is
 reported as `Unresolved: key missing`, never as live and never as forgotten.
 
 A correction destroys the superseded version's key the same way.
@@ -63,6 +66,21 @@ A correction destroys the superseded version's key the same way.
 - Keys are not wrapped by a master key. Whoever can read `keys/` and `log/` can
   read live content. The protection is scope separation in the API and access
   to the folder, not secrecy from the machine's owner.
+
+## Integrity limits
+
+- The hash chain is unkeyed. Anyone who can write the store folder as the same
+  user can rebuild a valid chain, and removing the newest records (tail
+  truncation) is not detected. The chain catches accidents and clumsy edits, not
+  a same-user attacker. Encryption binds each ciphertext to agent, root, item,
+  version, scope and kind, so moving or relabelling a ciphertext is refused, but
+  a writer who also holds the key can forge content.
+- Key files are opened without following symlinks and a symlinked key or folder
+  is refused; the keys folder is tightened to 0700 on open.
+- Open also sweeps keys that no record refers to (leftovers of a crashed write)
+  and stale temporary files. This assumes a single writer.
+- Changing or forgetting an item needs a grant for the item's scope (or the
+  owner-facing `InspectAll`).
 
 ## Scopes
 

@@ -15,6 +15,8 @@ pub enum MemoryRefusal {
     /// The item was forgotten (or a forget is pending); it cannot be changed.
     ItemForgotten(String),
     NotAGoal(String),
+    /// The caller's grant is for a different scope than the item's.
+    ScopeMismatch(String),
     /// Nothing matched a forget request.
     NothingToForget,
     /// The item's key is missing or damaged, so its content cannot be read.
@@ -39,6 +41,7 @@ impl MemoryRefusal {
             UnknownItem(_) => "unknown_item",
             ItemForgotten(_) => "item_forgotten",
             NotAGoal(_) => "not_a_goal",
+            ScopeMismatch(_) => "scope_mismatch",
             NothingToForget => "nothing_to_forget",
             KeyUnavailable(_) => "key_unavailable",
             Tampered(_) => "tampered",
@@ -60,6 +63,7 @@ impl fmt::Display for MemoryRefusal {
             UnknownItem(i) => write!(f, "There is no memory item {i}. Nothing was changed."),
             ItemForgotten(i) => write!(f, "Item {i} was forgotten (or is being forgotten) and cannot be changed."),
             NotAGoal(i) => write!(f, "Item {i} is not a goal. Nothing was changed."),
+            ScopeMismatch(i) => write!(f, "Your access covers a different scope than {i}. Nothing was changed."),
             NothingToForget => write!(f, "No live memory matched. Nothing was forgotten."),
             KeyUnavailable(i) => write!(f, "The key for item {i} is missing or damaged, so its content cannot be read."),
             Tampered(i) => write!(f, "Item {i} failed its integrity check (ciphertext or bound data changed). It was not used."),

@@ -69,6 +69,35 @@ impl ScopeGrant {
 #[derive(Debug, Clone, Copy)]
 pub struct InspectAll(());
 
+/// Who is asking to change an item: a grant for one scope, or the owner.
+#[derive(Clone, Copy)]
+pub enum Authority<'a> {
+    Scope(&'a ScopeGrant),
+    Owner(&'a InspectAll),
+}
+
+impl<'a> From<&'a ScopeGrant> for Authority<'a> {
+    fn from(g: &'a ScopeGrant) -> Self {
+        Authority::Scope(g)
+    }
+}
+
+impl<'a> From<&'a InspectAll> for Authority<'a> {
+    fn from(g: &'a InspectAll) -> Self {
+        Authority::Owner(g)
+    }
+}
+
+impl Authority<'_> {
+    fn check(&self, item: &str, scope: &Scope) -> Result<(), R> {
+        match self {
+            Authority::Owner(_) => Ok(()),
+            Authority::Scope(g) if g.scope == *scope => Ok(()),
+            Authority::Scope(_) => Err(R::ScopeMismatch(item.to_string())),
+        }
+    }
+}
+
 impl InspectAll {
     pub fn owner() -> InspectAll {
         InspectAll(())
@@ -398,11 +427,12 @@ impl Memory {
 
     // ---------- crypto and keys ----------
 
-    fn aad(&self, item: &str, version: u32, scope: &Scope) -> Vec<u8> {
+    fn aad(&self, item: &str, version: u32, scope: &Scope, kind: Kind) -> Vec<u8> {
         format!(
-            "{MEMORY_SCHEMA}|{}|{}|{item}|{version}|{scope}",
+            "{MEMORY_SCHEMA}|{}|{}|{item}|{version}|{scope}|{}",
             hex(&self.agent),
-            hex(&self.root)
+            hex(&self.root),
+            kind.as_str()
         )
         .into_bytes()
     }
@@ -413,9 +443,11 @@ impl Memory {
             .fill(&mut key)
             .map_err(|_| R::Io("random source failed".into()))?;
         self.ensure_dirs()?;
+        // A key file for a version that is not in the log yet can only be an
+        // orphan of a crashed write (single writer): destroy it, then create.
+        self.destroy_key(kid)?;
         let mut oo = std::fs::OpenOptions::new();
         oo.write(true).create_new(true);
-        #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
             oo.mode(0o600);
@@ -452,7 +484,7 @@ impl Memory {
     /// Err(Ok(status)) shapes are avoided: returns the plaintext or an `ItemStatus::Unresolved` reason.
     fn read_text(&self, id: &str, it: &Item, v: &Ver) -> Result<String, ItemStatus> {
         let kid = key_id(id, v.version);
-        let key = match std::fs::read(self.key_path(&kid)) {
+        let key = match read_key(&self.key_path(&kid)) {
             Ok(k) if k.len() == 32 => k,
             Ok(_) => return Err(ItemStatus::Unresolved("key damaged".into())),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -464,7 +496,7 @@ impl Memory {
             UnboundKey::new(&CHACHA20_POLY1305, &key)
                 .map_err(|_| ItemStatus::Unresolved("key damaged".into()))?,
         );
-        let aad = self.aad(id, v.version, &it.scope);
+        let aad = self.aad(id, v.version, &it.scope, it.kind);
         let mut buf = v.ciphertext.clone();
         match k.open_in_place(
             Nonce::assume_unique_for_key(v.nonce),
@@ -480,16 +512,19 @@ impl Memory {
     /// Overwrite with zeros, fsync, unlink. Returns whether a file existed.
     fn destroy_key(&self, kid: &str) -> Result<bool, R> {
         let p = self.key_path(kid);
-        let len = match std::fs::metadata(&p) {
-            Ok(m) => m.len() as usize,
+        let (mut f, len) = match open_regular(&p, true) {
+            Ok(f) => {
+                let len = f.metadata().map_err(|e| io("stat key", e))?.len() as usize;
+                (f, len)
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-            Err(e) => return Err(io("stat key", e)),
+            Err(e) => {
+                return Err(R::Damaged(format!(
+                    "key file {kid} is not a plain file ({e}); refusing to touch it"
+                )))
+            }
         };
         {
-            let mut f = std::fs::OpenOptions::new()
-                .write(true)
-                .open(&p)
-                .map_err(|e| io("open key", e))?;
             f.write_all(&vec![0u8; len])
                 .map_err(|e| io("zero key", e))?;
             f.sync_all().map_err(|e| io("fsync key", e))?;
@@ -618,7 +653,13 @@ impl Memory {
             self.pending_dir().join(format!(".tmp-{name}")),
             self.pending_dir().join(&name),
         );
-        let mut f = std::fs::File::create(&tmp).map_err(|e| io("create marker", e))?;
+        let mut oo = std::fs::OpenOptions::new();
+        oo.write(true).create(true).truncate(true);
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            oo.mode(0o600);
+        }
+        let mut f = oo.open(&tmp).map_err(|e| io("create marker", e))?;
         f.write_all(&serde_json::to_vec(m).map_err(|e| R::Io(e.to_string()))?)
             .map_err(|e| io("write marker", e))?;
         f.sync_all().map_err(|e| io("fsync marker", e))?;
@@ -637,28 +678,57 @@ impl Memory {
 
     // ---------- recovery ----------
 
-    /// Destroy any key whose item has a Forget record, and any key of a
-    /// superseded version. Idempotent; returns how many key files it removed.
+    /// Destroy any key whose item has a Forget record, any key of a
+    /// superseded version, and any orphan key no record refers to. Idempotent; returns how many key files it removed.
     /// Run on every open, so restoring an old copy of `keys/` cannot bring
     /// forgotten content back once the log is intact.
     pub fn reapply_forgets(&self) -> Result<usize, R> {
         let rp = self.replay()?;
-        let mut kids = Vec::new();
+        let mut keep = std::collections::BTreeSet::new();
         for (id, it) in &rp.items {
-            if it.forgotten {
-                kids.extend(Memory::all_kids(id, it));
-            } else {
-                let n = it.versions.len();
-                kids.extend(it.versions[..n - 1].iter().map(|v| key_id(id, v.version)));
+            if !it.forgotten {
+                keep.insert(key_id(id, it.current().version));
             }
         }
-        if !self.keys_dir().exists() {
-            return Ok(0);
+        let rd = match std::fs::read_dir(self.keys_dir()) {
+            Ok(rd) => rd,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+            Err(e) => return Err(io("read keys folder", e)),
+        };
+        let mut kids = Vec::new();
+        for ent in rd {
+            let name = ent
+                .map_err(|e| io("read keys folder", e))?
+                .file_name()
+                .to_string_lossy()
+                .into_owned();
+            if let Some(kid) = name.strip_suffix(".key") {
+                if !keep.contains(kid) {
+                    kids.push(kid.to_string());
+                }
+            }
         }
+        kids.sort();
         self.destroy_keys(&kids)
     }
 
+    fn check_layout(&self) -> Result<(), R> {
+        check_dir(&self.dir, false)?;
+        check_dir(&self.log_dir(), false)?;
+        check_dir(&self.keys_dir(), true)?;
+        check_dir(&self.pending_dir(), false)
+    }
+
     fn recover(&self) -> Result<(), R> {
+        self.check_layout()?;
+        // Leftovers of a crashed append (single writer: none can be in flight now).
+        if let Ok(rd) = std::fs::read_dir(self.log_dir()) {
+            for ent in rd.flatten() {
+                if ent.file_name().to_string_lossy().starts_with(".tmp-") {
+                    let _ = std::fs::remove_file(ent.path());
+                }
+            }
+        }
         // Finish interrupted forgets: destroy keys, append the record, drop the marker.
         for (path, m) in self.markers()? {
             let rp = self.replay()?;
@@ -723,7 +793,7 @@ impl Memory {
         let item = rand_hex(16)?;
         let kid = key_id(&item, 1);
         let key = self.make_key(&kid)?;
-        let (ciphertext, nonce) = self.seal(&key, &self.aad(&item, 1, &scope), text)?;
+        let (ciphertext, nonce) = self.seal(&key, &self.aad(&item, 1, &scope, kind), text)?;
         self.append(
             &rp,
             Op::Put {
@@ -740,13 +810,19 @@ impl Memory {
     }
 
     /// Write a new version and destroy the superseded version's key.
-    pub fn correct(&self, item: &str, text: &str) -> Result<u32, R> {
+    pub fn correct<'a>(
+        &self,
+        auth: impl Into<Authority<'a>>,
+        item: &str,
+        text: &str,
+    ) -> Result<u32, R> {
         Memory::check_text(text)?;
         let rp = self.replay()?;
         let it = rp
             .items
             .get(item)
             .ok_or_else(|| R::UnknownItem(item.into()))?;
+        auth.into().check(item, &it.scope)?;
         let markers = self.markers()?;
         if it.forgotten || Memory::marker_covers(&markers, item, it) {
             return Err(R::ItemForgotten(item.into()));
@@ -755,7 +831,8 @@ impl Memory {
         let new = old + 1;
         let kid = key_id(item, new);
         let key = self.make_key(&kid)?;
-        let (ciphertext, nonce) = self.seal(&key, &self.aad(item, new, &it.scope), text)?;
+        let (ciphertext, nonce) =
+            self.seal(&key, &self.aad(item, new, &it.scope, it.kind), text)?;
         self.append(
             &rp,
             Op::Correct {
@@ -775,11 +852,17 @@ impl Memory {
     /// Forget an item or a whole scope. Order: intent marker, destroy keys
     /// (zero, fsync, unlink, fsync dir), append Forget record, drop marker.
     /// Returns the ids forgotten.
-    pub fn forget(&self, target: ForgetTarget) -> Result<Vec<String>, R> {
+    pub fn forget<'a>(
+        &self,
+        auth: impl Into<Authority<'a>>,
+        target: ForgetTarget,
+    ) -> Result<Vec<String>, R> {
         let rp = self.replay()?;
+        let auth = auth.into();
         let (marker, ids, op) = match &target {
             ForgetTarget::Item(i) => {
                 let it = rp.items.get(i).ok_or_else(|| R::UnknownItem(i.clone()))?;
+                auth.check(i, &it.scope)?;
                 if it.forgotten {
                     return Err(R::NothingToForget);
                 }
@@ -793,6 +876,7 @@ impl Memory {
                 )
             }
             ForgetTarget::Scope(s) => {
+                auth.check("(scope)", s)?;
                 let ids: Vec<String> = rp
                     .items
                     .iter()
@@ -824,12 +908,13 @@ impl Memory {
     }
 
     /// Mark a goal closed. Its content stays readable (the key is kept).
-    pub fn close_goal(&self, item: &str) -> Result<(), R> {
+    pub fn close_goal<'a>(&self, auth: impl Into<Authority<'a>>, item: &str) -> Result<(), R> {
         let rp = self.replay()?;
         let it = rp
             .items
             .get(item)
             .ok_or_else(|| R::UnknownItem(item.into()))?;
+        auth.into().check(item, &it.scope)?;
         if it.kind != Kind::Goal {
             return Err(R::NotAGoal(item.into()));
         }
@@ -1102,6 +1187,55 @@ fn apply(rp: &mut Replay, rec: &Record) -> Result<(), String> {
             }
             it.closed = true;
         }
+    }
+    Ok(())
+}
+
+/// Open an existing regular file without following a symlink: lstat must say
+/// "regular file" and the opened handle must be the same inode (no swap race).
+fn open_regular(path: &Path, write: bool) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::MetadataExt;
+    let bad = |w: &str| std::io::Error::new(std::io::ErrorKind::PermissionDenied, w.to_string());
+    let l = std::fs::symlink_metadata(path)?;
+    if !l.file_type().is_file() {
+        return Err(bad("not a regular file"));
+    }
+    let f = std::fs::OpenOptions::new()
+        .read(true)
+        .write(write)
+        .open(path)?;
+    let m = f.metadata()?;
+    if m.dev() != l.dev() || m.ino() != l.ino() {
+        return Err(bad("file changed while opening"));
+    }
+    Ok(f)
+}
+
+fn read_key(path: &Path) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut b = Vec::new();
+    open_regular(path, false)?.take(65).read_to_end(&mut b)?;
+    Ok(b)
+}
+
+/// A real directory (not a symlink), mode 0700 when `private`; looser modes
+/// are tightened.
+fn check_dir(p: &Path, private: bool) -> Result<(), R> {
+    use std::os::unix::fs::PermissionsExt;
+    let m = match std::fs::symlink_metadata(p) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(io("stat folder", e)),
+    };
+    if !m.file_type().is_dir() {
+        return Err(R::Damaged(format!(
+            "{} is not a plain folder (symlink or file)",
+            p.display()
+        )));
+    }
+    if private && m.permissions().mode() & 0o077 != 0 {
+        std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o700))
+            .map_err(|e| io("tighten folder mode", e))?;
     }
     Ok(())
 }

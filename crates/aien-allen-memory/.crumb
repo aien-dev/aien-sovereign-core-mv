@@ -3,14 +3,14 @@
     "generated": {
       "children": [],
       "children_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "compiled_at": "2026-10-08T01:04:14Z",
+      "compiled_at": "2026-10-08T01:11:05Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:ada7ee452a169558551c12f2f813ea43b8809ebc60b24e7ffbe72cd61e7bfbd6",
+      "digest": "sha256:5f241cca63ec616e206e6d821f3cfc50df1659395c75256c64150bf815d0853b",
       "evidence_files": 0,
       "evidence_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "files": 0,
-      "generated_at_commit": "12c1a5ff18b70e748b678280c4210788f820c712",
-      "source_tree": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "files": 7,
+      "generated_at_commit": "c4d8de578407a43bff86f0429b6418c6596ccf41",
+      "source_tree": "sha256:bb05e0d69b7884ecfafa16d813061dd1378b073971abcfce9e0e16e7c1c9a6e6"
     }
   },
   "name": "aien-allen-memory",

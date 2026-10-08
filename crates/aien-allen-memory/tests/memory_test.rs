@@ -276,7 +276,7 @@ fn inspect_lists_states_and_content() {
     let m = f.open();
     let a = m.put(Scope::Work, Kind::Fact, "one").unwrap();
     m.put(Scope::Personal, Kind::Fact, "other scope").unwrap();
-    m.correct(&a, "one-v2").unwrap();
+    m.correct(&InspectAll::owner(), &a, "one-v2").unwrap();
     let v = m.inspect(&g("work")).unwrap();
     assert_eq!(v.len(), 2);
     assert_eq!(
@@ -297,7 +297,7 @@ fn correct_destroys_the_old_key() {
     let a = m.put(Scope::Work, Kind::Fact, "wrong").unwrap();
     assert_eq!(key_files(&f).len(), 1);
     let old = key_files(&f)[0].clone();
-    assert_eq!(m.correct(&a, "right").unwrap(), 2);
+    assert_eq!(m.correct(&InspectAll::owner(), &a, "right").unwrap(), 2);
     assert!(!old.exists());
     assert_eq!(key_files(&f).len(), 1);
     assert_eq!(
@@ -321,13 +321,14 @@ fn correct_of_unknown_or_forgotten_item_refused() {
     let f = fx();
     let m = f.open();
     assert!(matches!(
-        m.correct(&"0".repeat(32), "x"),
+        m.correct(&InspectAll::owner(), &"0".repeat(32), "x"),
         Err(MemoryRefusal::UnknownItem(_))
     ));
     let a = m.put(Scope::Work, Kind::Fact, "x").unwrap();
-    m.forget(ForgetTarget::Item(a.clone())).unwrap();
+    m.forget(&InspectAll::owner(), ForgetTarget::Item(a.clone()))
+        .unwrap();
     assert!(matches!(
-        m.correct(&a, "y"),
+        m.correct(&InspectAll::owner(), &a, "y"),
         Err(MemoryRefusal::ItemForgotten(_))
     ));
 }
@@ -344,7 +345,8 @@ fn forget_item_removes_content_but_not_the_ciphertext() {
     let _ = rec;
     let log_before = files(&f.dir().join("log")).len();
     assert_eq!(
-        m.forget(ForgetTarget::Item(a.clone())).unwrap(),
+        m.forget(&InspectAll::owner(), ForgetTarget::Item(a.clone()))
+            .unwrap(),
         vec![a.clone()]
     );
     assert_eq!(
@@ -363,7 +365,7 @@ fn forget_item_removes_content_but_not_the_ciphertext() {
     let fr = std::fs::read_to_string(last_record(&f)).unwrap();
     assert!(fr.contains("forget_item") && fr.contains(&a) && !fr.contains("gone soon"));
     assert!(matches!(
-        m.forget(ForgetTarget::Item(a)),
+        m.forget(&InspectAll::owner(), ForgetTarget::Item(a)),
         Err(MemoryRefusal::NothingToForget)
     ));
 }
@@ -378,7 +380,12 @@ fn forget_scope_only_touches_that_scope() {
     m.put(Scope::parse("project:b").unwrap(), Kind::Fact, "b1")
         .unwrap();
     m.put(Scope::Work, Kind::Fact, "w1").unwrap();
-    assert_eq!(m.forget(ForgetTarget::Scope(p)).unwrap().len(), 2);
+    assert_eq!(
+        m.forget(&InspectAll::owner(), ForgetTarget::Scope(p))
+            .unwrap()
+            .len(),
+        2
+    );
     assert!(m
         .recall(&g("project:a"), None, &lim())
         .unwrap()
@@ -396,7 +403,7 @@ fn forget_scope_only_touches_that_scope() {
     assert_eq!(texts(&m.recall(&g("work"), None, &lim()).unwrap()), ["w1"]);
     assert_eq!(key_files(&f).len(), 2);
     assert!(matches!(
-        m.forget(ForgetTarget::Scope(Scope::Personal)),
+        m.forget(&InspectAll::owner(), ForgetTarget::Scope(Scope::Personal)),
         Err(MemoryRefusal::NothingToForget)
     ));
     // a later put in a forgotten scope is a new, live item
@@ -450,7 +457,7 @@ fn crash_at_every_forget_step_never_resurrects_and_reopen_finishes() {
             } else {
                 ForgetTarget::Item(a.clone())
             };
-            let r = m.forget(t);
+            let r = m.forget(&InspectAll::owner(), t);
             assert!(fired.load(Ordering::SeqCst), "{step:?} never reached");
             assert!(
                 matches!(r, Err(MemoryRefusal::Crashed(_))),
@@ -493,7 +500,7 @@ fn crash_at_every_forget_step_never_resurrects_and_reopen_finishes() {
             assert!(files(&f.dir().join("pending")).is_empty(), "{step:?}");
             // forgetting twice is not possible, and the chain is intact for new writes
             assert!(matches!(
-                m.forget(ForgetTarget::Item(a.clone())),
+                m.forget(&InspectAll::owner(), ForgetTarget::Item(a.clone())),
                 Err(MemoryRefusal::NothingToForget)
             ));
             m.put(Scope::Work, Kind::Fact, "after").unwrap();
@@ -543,49 +550,14 @@ fn crash_at_every_put_step_leaves_a_clean_store() {
 }
 
 #[test]
-fn crash_at_every_correct_step_never_loses_both_versions() {
-    for step in [
-        Step::KeyWritten,
-        Step::Linked,
-        Step::KeyZeroed,
-        Step::KeyUnlinked,
-        Step::KeysDestroyed,
-        Step::SupersededKeyDestroyed,
-    ] {
-        let f = fx();
-        let m = f.open();
-        let a = m.put(Scope::Work, Kind::Fact, "old").unwrap();
-        let (hook, _) = once(step);
-        let m = m.with_fault_hook(hook);
-        let _ = m.correct(&a, "new");
-        let m = f.open();
-        let got = texts(&m.recall(&g("work"), None, &lim()).unwrap());
-        let applied = !matches!(step, Step::KeyWritten);
-        assert_eq!(
-            got,
-            if applied { vec!["new"] } else { vec!["old"] },
-            "{step:?}"
-        );
-        // never both keys once reopened
-        assert_eq!(
-            key_files(&f).len(),
-            if applied { 1 } else { 2 }.min(key_files(&f).len()),
-            "{step:?}"
-        );
-        if applied {
-            assert_eq!(key_files(&f).len(), 1, "{step:?}");
-        }
-    }
-}
-
-#[test]
 fn restoring_old_keys_after_forget_cannot_resurrect_content() {
     let f = fx();
     let m = f.open();
     let a = m.put(Scope::Work, Kind::Fact, "restorable?").unwrap();
     let bk = f.dir().join("keys-backup");
     copy_dir(&f.dir().join("keys"), &bk); // backup taken BEFORE the forget
-    m.forget(ForgetTarget::Item(a)).unwrap();
+    m.forget(&InspectAll::owner(), ForgetTarget::Item(a))
+        .unwrap();
     assert!(key_files(&f).is_empty());
     // restore the pre-forget keys over the live store
     for k in files(&bk) {
@@ -793,7 +765,8 @@ fn export_has_live_plaintext_of_one_scope_only() {
     let b = m.put(Scope::Work, Kind::Fact, "forgotten one").unwrap();
     m.put(Scope::Personal, Kind::Fact, "not in work export")
         .unwrap();
-    m.forget(ForgetTarget::Item(b)).unwrap();
+    m.forget(&InspectAll::owner(), ForgetTarget::Item(b))
+        .unwrap();
     let j = m.export(&g("work")).unwrap();
     let v: serde_json::Value = serde_json::from_str(&j).unwrap();
     assert_eq!(v["scope"], "work");
@@ -820,7 +793,7 @@ fn host_goals_open_close_and_are_labelled() {
         .goals
         .iter()
         .all(|x| x.state == "open" && x.label == GOAL_LABEL && x.scope == "work"));
-    m.close_goal(&a).unwrap();
+    m.close_goal(&InspectAll::owner(), &a).unwrap();
     let l = m.goals(&g("work")).unwrap();
     assert_eq!(
         l.goals.iter().find(|x| x.item == a).unwrap().state,
@@ -836,7 +809,10 @@ fn host_goals_open_close_and_are_labelled() {
     let open_goal = r.items.iter().find(|i| i.item == b).unwrap();
     assert_eq!(open_goal.label, Some(GOAL_LABEL));
     assert_eq!(m.goals_all(&InspectAll::owner()).unwrap().goals.len(), 3);
-    assert!(matches!(m.close_goal(&a), Err(MemoryRefusal::Invalid(_))));
+    assert!(matches!(
+        m.close_goal(&InspectAll::owner(), &a),
+        Err(MemoryRefusal::Invalid(_))
+    ));
     let fact = m
         .inspect(&g("work"))
         .unwrap()
@@ -844,13 +820,14 @@ fn host_goals_open_close_and_are_labelled() {
         .find(|i| i.kind == Kind::Fact)
         .unwrap();
     assert!(matches!(
-        m.close_goal(&fact.item),
+        m.close_goal(&InspectAll::owner(), &fact.item),
         Err(MemoryRefusal::NotAGoal(_))
     ));
     // survives restart; forgetting a goal removes it from the list
     let m = f.open();
     assert_eq!(m.goals(&g("work")).unwrap().goals.len(), 2);
-    m.forget(ForgetTarget::Item(b)).unwrap();
+    m.forget(&InspectAll::owner(), ForgetTarget::Item(b))
+        .unwrap();
     assert_eq!(m.goals(&g("work")).unwrap().goals.len(), 1);
 }
 
@@ -861,4 +838,218 @@ fn no_memory_or_goal_field_leaks_into_the_profile_schema() {
     f.open().put(Scope::Work, Kind::Goal, "g").unwrap();
     assert!(!f.home.with_file_name("home.allen-profile").exists());
     assert!(f.home.with_file_name("home.allen-memory").exists());
+}
+
+// ---------- review fixes ----------
+
+#[test]
+fn crash_at_every_correct_step_leaves_no_orphan_and_retry_works() {
+    for step in [
+        Step::KeyWritten,
+        Step::TempCreated,
+        Step::TempWritten,
+        Step::TempSynced,
+        Step::Linked,
+        Step::DirSynced,
+        Step::TempRemoved,
+        Step::KeyZeroed,
+        Step::KeyUnlinked,
+        Step::KeysDestroyed,
+        Step::SupersededKeyDestroyed,
+    ] {
+        let f = fx();
+        let m = f.open();
+        let a = m.put(Scope::Work, Kind::Fact, "old").unwrap();
+        let (hook, fired) = once(step);
+        let m = m.with_fault_hook(hook);
+        let r = m.correct(&InspectAll::owner(), &a, "new");
+        assert!(fired.load(Ordering::SeqCst), "{step:?} never reached");
+        assert!(
+            matches!(r, Err(MemoryRefusal::Crashed(_))),
+            "{step:?}: {r:?}"
+        );
+        let m = f.open();
+        let applied = !matches!(
+            step,
+            Step::KeyWritten | Step::TempCreated | Step::TempWritten | Step::TempSynced
+        );
+        let expect = if applied { "new" } else { "old" };
+        assert_eq!(
+            texts(&m.recall(&g("work"), None, &lim()).unwrap()),
+            [expect],
+            "{step:?}"
+        );
+        // exactly one key remains: no orphan, no superseded key
+        assert_eq!(key_files(&f).len(), 1, "{step:?}");
+        let before = m.recall(&g("work"), None, &lim()).unwrap().items[0].version;
+        // the retry must succeed (this failed forever with "File exists" before)
+        let v = m.correct(&InspectAll::owner(), &a, "retry").unwrap();
+        assert_eq!(v, before + 1, "{step:?}");
+        assert_eq!(
+            texts(&m.recall(&g("work"), None, &lim()).unwrap()),
+            ["retry"],
+            "{step:?}"
+        );
+        assert_eq!(key_files(&f).len(), 1, "{step:?}");
+    }
+}
+
+#[test]
+fn correct_retry_works_even_without_reopen_after_orphan_key() {
+    let f = fx();
+    let m = f.open();
+    let a = m.put(Scope::Work, Kind::Fact, "old").unwrap();
+    let (hook, _) = once(Step::KeyWritten);
+    let m = m.with_fault_hook(hook);
+    assert!(m.correct(&InspectAll::owner(), &a, "new").is_err());
+    assert_eq!(key_files(&f).len(), 2); // old + orphan
+    assert_eq!(m.correct(&InspectAll::owner(), &a, "new").unwrap(), 2);
+    assert_eq!(texts(&m.recall(&g("work"), None, &lim()).unwrap()), ["new"]);
+    assert_eq!(key_files(&f).len(), 1);
+}
+
+#[test]
+fn orphan_key_of_a_crashed_put_is_swept_on_open() {
+    let f = fx();
+    let m = f.open();
+    let (hook, _) = once(Step::KeyWritten);
+    let m = m.with_fault_hook(hook);
+    assert!(m.put(Scope::Work, Kind::Fact, "x").is_err());
+    assert_eq!(key_files(&f).len(), 1);
+    f.open();
+    assert!(key_files(&f).is_empty());
+}
+
+#[test]
+fn changes_need_a_grant_for_the_items_scope() {
+    let f = fx();
+    let m = f.open();
+    let w = m.put(Scope::Work, Kind::Goal, "work goal").unwrap();
+    let p = m.put(Scope::Personal, Kind::Fact, "personal fact").unwrap();
+    let work = g("work");
+    assert!(matches!(
+        m.correct(&work, &p, "x"),
+        Err(MemoryRefusal::ScopeMismatch(_))
+    ));
+    assert!(matches!(
+        m.close_goal(&g("personal"), &w),
+        Err(MemoryRefusal::ScopeMismatch(_))
+    ));
+    assert!(matches!(
+        m.forget(&work, ForgetTarget::Item(p.clone())),
+        Err(MemoryRefusal::ScopeMismatch(_))
+    ));
+    assert!(matches!(
+        m.forget(&work, ForgetTarget::Scope(Scope::Personal)),
+        Err(MemoryRefusal::ScopeMismatch(_))
+    ));
+    // nothing changed
+    assert_eq!(
+        texts(&m.recall(&g("personal"), None, &lim()).unwrap()),
+        ["personal fact"]
+    );
+    assert_eq!(key_files(&f).len(), 2);
+    // the matching grant works
+    assert_eq!(m.correct(&work, &w, "work goal v2").unwrap(), 2);
+    m.close_goal(&work, &w).unwrap();
+    assert_eq!(
+        m.forget(&work, ForgetTarget::Scope(Scope::Work))
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn kind_is_bound_into_the_encryption() {
+    let f = fx();
+    let m = f.open();
+    m.put(Scope::Work, Kind::Fact, "a fact").unwrap();
+    edit_last(&f, |v| v["op"]["kind"] = "goal".into());
+    let m = f.open();
+    assert!(matches!(
+        m.recall(&g("work"), None, &lim()),
+        Err(MemoryRefusal::Tampered(_))
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinked_key_is_refused_and_its_target_is_never_zeroed() {
+    use std::os::unix::fs::symlink;
+    let f = fx();
+    let m = f.open();
+    let a = m.put(Scope::Work, Kind::Fact, "x").unwrap();
+    let k = key_files(&f)[0].clone();
+    let target = f.dir().join("precious");
+    std::fs::write(&target, b"precious bytes").unwrap();
+    std::fs::remove_file(&k).unwrap();
+    symlink(&target, &k).unwrap();
+    let v = m.inspect(&g("work")).unwrap();
+    assert!(v[0].state.starts_with("Unresolved"), "{}", v[0].state);
+    let r = m.forget(&InspectAll::owner(), ForgetTarget::Item(a));
+    assert!(matches!(r, Err(MemoryRefusal::Damaged(_))), "{r:?}");
+    assert_eq!(std::fs::read(&target).unwrap(), b"precious bytes");
+    // reopening refuses too, and still does not touch the target
+    assert!(Memory::open(&f.home, Some(&resolved(1))).is_err());
+    assert_eq!(std::fs::read(&target).unwrap(), b"precious bytes");
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinked_keys_folder_is_refused_and_loose_modes_are_tightened() {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    let f = fx();
+    f.open().put(Scope::Work, Kind::Fact, "x").unwrap();
+    let keys = f.dir().join("keys");
+    std::fs::set_permissions(&keys, std::fs::Permissions::from_mode(0o755)).unwrap();
+    f.open();
+    assert_eq!(
+        std::fs::metadata(&keys).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    let moved = f.dir().join("keys-real");
+    std::fs::rename(&keys, &moved).unwrap();
+    symlink(&moved, &keys).unwrap();
+    assert!(matches!(
+        Memory::open(&f.home, Some(&resolved(1))),
+        Err(MemoryRefusal::Damaged(_))
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn marker_files_are_private() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = fx();
+    let m = f.open();
+    let a = m.put(Scope::Work, Kind::Fact, "x").unwrap();
+    let (hook, _) = once(Step::MarkerWritten);
+    let m = m.with_fault_hook(hook);
+    assert!(m
+        .forget(&InspectAll::owner(), ForgetTarget::Item(a))
+        .is_err());
+    let ms = files(&f.dir().join("pending"));
+    assert_eq!(ms.len(), 1);
+    assert_eq!(
+        std::fs::metadata(&ms[0]).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+}
+
+#[test]
+fn stale_temp_files_in_the_log_are_removed_on_open() {
+    let f = fx();
+    f.open().put(Scope::Work, Kind::Fact, "x").unwrap();
+    let stale = f.dir().join("log").join(".tmp-123-0-456");
+    std::fs::write(&stale, b"half a record").unwrap();
+    let m = f.open();
+    assert!(!stale.exists());
+    assert_eq!(texts(&m.recall(&g("work"), None, &lim()).unwrap()), ["x"]);
+    // an unexpected non-temp name is still a refusal
+    std::fs::write(f.dir().join("log").join("notes.txt"), b"x").unwrap();
+    assert!(matches!(
+        Memory::open(&f.home, Some(&resolved(1))),
+        Err(MemoryRefusal::Damaged(_))
+    ));
 }
