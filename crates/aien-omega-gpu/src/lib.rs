@@ -942,6 +942,8 @@ impl ServingBounds {
     /// Bytes omega will reserve for these bounds. Tiles: omega `OMEGA_GPU_MATMUL_TILE_M` 16,
     /// `_TILE_N` 8, `_TILE_K` 16 (omega_gpu_matmul_api.h:46-48).
     pub fn bytes(&self) -> ServingBytes {
+        // Each buffer is rounded to a 4 KiB page by omega (checked against omega's fake driver
+        // layer: 194170880 bytes for the Qwen3-4B daemon bounds, see the unit test).
         let (ctx, seqs) = (self.max_context as u64, self.max_seqs.max(1) as u64);
         let (kvh, hd) = (self.num_kv_heads as u64, self.head_dim as u64);
         let mut per_seq = 2 * ctx * kvh * hd * 4;
@@ -950,7 +952,7 @@ impl ServingBounds {
             per_seq = per_seq.max(round_up(ctx, bs) * kvh * hd * 4);
         }
         let qo = seqs * self.num_q_heads as u64 * hd * 4;
-        let table = ((seqs * ctx + seqs) * 4).max(8);
+        let table = round_up(((seqs * ctx + seqs) * 4).max(8), 4096);
         let mp = round_up(self.max_rows as u64, 16);
         let kp = round_up(self.max_k as u64, 16);
         let mut c = mp * round_up(self.max_n as u64, 8) * 4;
@@ -958,57 +960,44 @@ impl ServingBounds {
             c = c.max(16 * round_up(self.max_n_one_row as u64, 8) * 4);
         }
         ServingBytes {
-            attention_pool: per_seq * seqs,
-            attention_q_out: qo,
+            attention_pool: round_up(per_seq * seqs, 4096),
+            attention_q_out: round_up(qo, 4096),
             attention_table: table,
-            matmul_activation: mp * kp * 2,
-            matmul_result: c,
+            matmul_activation: round_up(mp * kp * 2, 4096),
+            matmul_result: round_up(c, 4096),
         }
     }
 }
 
-/// Reserve the serving buffers once (opens the device if needed). All-or-nothing: if the
-/// matmul half is refused the attention half is released again, as omega's own
-/// `omega_gpu_reserve_serving` does (`src/omega_gpu_serving.c`, which libomega_gpu.a does not
-/// contain at b980783, so the two per-API calls are made here in the same order).
-/// On refusal the error carries omega's return-code name and its stage text
-/// (for example "serving reservation exceeded" or the driver's allocation failure). Stub: `Unavailable`.
+/// Reserve the serving buffers once (opens the device if needed): omega's own all-or-nothing
+/// `omega_gpu_reserve_serving` (`src/omega_gpu_serving.c`, in libomega_gpu.a since omega#338).
+/// On refusal the error carries omega's return-code name; callers add `last_error()` for the
+/// stage text (for example "serving reservation exceeded" or the driver's allocation failure).
+/// Stub: `Unavailable`.
 pub fn reserve_serving(b: &ServingBounds) -> Result<(), OmegaGpuError> {
     #[cfg(has_omega_gpu)]
     {
-        // SAFETY: plain integer arguments; omega takes its own lock and may open the device.
-        let rc = unsafe {
-            ffi::omega_gpu_attention_reserve(
-                b.max_context,
-                b.max_seqs.max(1),
-                b.num_q_heads,
-                b.num_kv_heads,
-                b.head_dim,
-                b.kv_block_size,
-            )
+        let c = ffi::OmegaGpuServingBounds {
+            max_context: b.max_context,
+            max_seqs: b.max_seqs,
+            num_q_heads: b.num_q_heads,
+            num_kv_heads: b.num_kv_heads,
+            head_dim: b.head_dim,
+            kv_block_size: b.kv_block_size,
+            max_rows: b.max_rows,
+            max_k: b.max_k,
+            max_n: b.max_n,
+            max_n_one_row: b.max_n_one_row,
+            kernel_slots: b.kernel_slots,
         };
-        if rc != 0 {
-            return Err(OmegaGpuError::Rc {
-                rc,
-                name: attn_rc_name(rc),
-            });
+        // SAFETY: `c` is a valid, fully initialised repr(C) struct that omega only reads.
+        let rc = unsafe { ffi::omega_gpu_reserve_serving(&c) };
+        if rc == 0 {
+            Ok(())
+        } else {
+            // matmul and attention codes share the numbering 0/-1..-5; the matmul table names them.
+            Err(rc_error(rc))
         }
-        // SAFETY: as above.
-        let rc = unsafe {
-            ffi::omega_gpu_matmul_reserve(
-                b.max_rows,
-                b.max_k,
-                b.max_n,
-                b.max_n_one_row,
-                b.kernel_slots,
-            )
-        };
-        if rc != 0 {
-            // SAFETY: no arguments; releases only the attention flag.
-            unsafe { ffi::omega_gpu_attention_unreserve() };
-            return Err(rc_error(rc));
-        }
-        Ok(())
     }
     #[cfg(not(has_omega_gpu))]
     {
@@ -1022,10 +1011,10 @@ pub fn release_serving() {
     #[cfg(has_omega_gpu)]
     // SAFETY: no arguments; omega takes its own lock.
     unsafe {
-        ffi::omega_gpu_attention_unreserve();
-        ffi::omega_gpu_matmul_unreserve();
+        ffi::omega_gpu_serving_release();
     }
 }
+
 #[cfg(test)]
 mod cta_budget_tests {
     use super::*;
@@ -1178,8 +1167,11 @@ mod spin_us_tests {
         // omega attention_api.c:664-681 and matmul_api.c:130-150 at b980783, Qwen3-4B shape.
         let y = qwen3_4b_bounds().bytes();
         assert_eq!(y.attention_pool, 2 * 4096 * 8 * 128 * 4); // 32 MiB
-        assert_eq!(y.attention_q_out, 32 * 128 * 4);
-        assert_eq!(y.attention_table, (4096 + 1) * 4);
+        assert_eq!(y.attention_q_out, 16384);
+        assert_eq!(y.attention_table, 20480); // (4096 + 1) * 4 rounded up to a page
+                                              // Measured, not derived: omega_gpu_reserve_serving on its fake driver layer with these
+                                              // bounds asked the driver for exactly 194170880 bytes (6 buffers).
+        assert_eq!(y.total(), 194_170_880);
         assert_eq!(y.matmul_activation, 256 * 9728 * 2);
         assert_eq!(y.matmul_result, 256 * 151936 * 4);
         // under half a block of context the paged path stages a whole block, the larger one

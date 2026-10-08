@@ -1490,6 +1490,34 @@ fn apply_omega_cta_budget(budget: Option<aien_omega_gpu::CtaBudget>) -> Result<S
     ))
 }
 
+/// The daemon's start-up decision for the GB10 serving reservation, apart from the chip so a CPU
+/// test can run it: derives the bounds from the KV plan's context and the scheduler limits, makes
+/// the one reservation call through `reserve` on the opt-in Qwen3 GB10 path (and never elsewhere),
+/// and returns the log line, or the named refusal that stops the daemon (no on-demand fallback).
+/// `run_daemon_server` calls it once, before the server is built, hence before any request.
+fn daemon_serving_reservation(
+    model_config: &aien_inference_abi::ModelConfig,
+    kv_context_tokens: usize,
+    sched: &aien_scheduler::SchedulerConfig,
+    gpu_native: bool,
+    qwen3_opted_in: bool,
+    reserve: &dyn Fn(&aien_omega_gpu::ServingBounds) -> Result<(), String>,
+) -> Result<Option<String>, String> {
+    let limits = aien_inference_abi::gb10_serving::ServingLimits {
+        context_tokens: kv_context_tokens,
+        max_batch_rows: sched.max_batch_size,
+        prefill_chunk_rows: sched.prefill_chunk_size,
+    };
+    aien_inference_abi::gb10_serving::reserve_gb10_serving_with(
+        model_config,
+        &limits,
+        gpu_native,
+        qwen3_opted_in,
+        reserve,
+    )
+    .map(|r| r.map(|r| r.log_line()))
+}
+
 pub async fn run_daemon_server() {
     println!(
         "{}",
@@ -1526,8 +1554,7 @@ pub async fn run_daemon_server() {
     // MemAvailable is checked before it is allocated (#239). AIEN_KV_CONTEXT_TOKENS
     // may lower the context budget below the model's declared context, never raise it.
     let model_config = weights.config.clone();
-    let (max_batch_rows, prefill_chunk_rows) =
-        (sched_cfg.max_batch_size, sched_cfg.prefill_chunk_size);
+    let sched_for_reservation = sched_cfg.clone();
     let kv_context_cap = match aien_runtime::shared_kv::kv_context_cap_from_env() {
         Ok(cap) => cap,
         Err(fatal) => {
@@ -1569,15 +1596,15 @@ pub async fn run_daemon_server() {
     // bounds, before the first request. A refusal stops the daemon by name; there is no
     // on-demand fallback (sovereign-core#277, omega#327, omega#333). The outcome is logged
     // either way so a chip run can measure it.
-    match aien_inference_abi::gb10_serving::reserve_gb10_serving(
+    match daemon_serving_reservation(
         &model_config,
-        &aien_inference_abi::gb10_serving::ServingLimits {
-            context_tokens: kv_plan.context_tokens,
-            max_batch_rows,
-            prefill_chunk_rows,
-        },
+        kv_plan.context_tokens,
+        &sched_for_reservation,
+        gpu_native,
+        std::env::var(aien_inference_abi::GB10_QWEN3_OPT_IN_ENV).is_ok_and(|v| v == "1"),
+        &aien_inference_abi::gb10_serving::omega_reserve,
     ) {
-        Ok(Some(reservation)) => println!("  {}", reservation.log_line()),
+        Ok(Some(line)) => println!("  {line}"),
         Ok(None) => {}
         Err(fatal) => {
             eprintln!("Fatal: {}", fatal.red().bold());
@@ -1984,6 +2011,118 @@ pub async fn handle_aegis_command() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- GB10 serving reservation: the daemon's start-up decision (sovereign-core#277) ----
+
+    fn qwen3_4b_config() -> aien_inference_abi::ModelConfig {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../aien-inference-abi/fixtures/qwen3-4b-instruct-2507-config");
+        let cfg = std::fs::read_to_string(dir.join("config.json")).unwrap();
+        let gen = std::fs::read_to_string(dir.join("generation_config.json")).unwrap();
+        aien_inference_abi::model_config_from_hf_json(
+            "Qwen/Qwen3-4B-Instruct-2507",
+            &cfg,
+            Some(&gen),
+        )
+        .unwrap()
+    }
+
+    /// The scheduler limits `run_daemon_server` declares.
+    fn daemon_sched() -> aien_scheduler::SchedulerConfig {
+        aien_scheduler::SchedulerConfig {
+            max_batch_size: 256,
+            max_batch_tokens: 16384,
+            max_prefill_tokens: 8192,
+            prefill_chunk_size: 128,
+            chunk_prefill: true,
+            watermark_blocks: 64,
+        }
+    }
+
+    #[test]
+    fn opt_in_qwen3_gb10_reserves_exactly_once_from_the_kv_plan() {
+        let cfg = qwen3_4b_config();
+        // the plan the daemon builds (context capped like AIEN_KV_CONTEXT_TOKENS=2048)
+        let plan = aien_runtime::shared_kv::plan_checked_model_kv(
+            &cfg,
+            Some(2048),
+            &|| Ok(u64::MAX),
+            false,
+        )
+        .unwrap();
+        let calls = std::cell::RefCell::new(Vec::new());
+        let line = daemon_serving_reservation(
+            &cfg,
+            plan.context_tokens,
+            &daemon_sched(),
+            true,
+            true,
+            &|b| {
+                calls.borrow_mut().push(*b);
+                Ok(())
+            },
+        )
+        .unwrap()
+        .expect("reserved on the opt-in path");
+        let calls = calls.into_inner();
+        assert_eq!(calls.len(), 1, "exactly one reservation call");
+        assert_eq!(calls[0].max_context, 2048, "from the KV plan");
+        assert_eq!(calls[0].max_rows, 256, "from the scheduler");
+        assert_eq!(calls[0].kv_block_size as usize, plan.block_size);
+        assert!(
+            line.starts_with("GB10_SERVING_RESERVATION reserved bytes="),
+            "{line}"
+        );
+    }
+
+    #[test]
+    fn a_refused_reservation_stops_the_daemon_by_name() {
+        let err = daemon_serving_reservation(
+            &qwen3_4b_config(),
+            4096,
+            &daemon_sched(),
+            true,
+            true,
+            &|_| Err("omega_gpu rc=-4 (CHIP_FAIL)".to_string()),
+        )
+        .unwrap_err();
+        assert!(err.contains("GB10_SERVING_RESERVATION refused"), "{err}");
+        assert!(
+            err.contains("CHIP_FAIL") && err.contains("no on-demand fallback"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn default_path_makes_no_reservation_call() {
+        let never = |_: &aien_omega_gpu::ServingBounds| -> Result<(), String> {
+            panic!("the default path must not reserve")
+        };
+        // Qwen3 without the declared-attempt opt-in (the default refusal path)
+        assert_eq!(
+            daemon_serving_reservation(
+                &qwen3_4b_config(),
+                4096,
+                &daemon_sched(),
+                true,
+                false,
+                &never
+            ),
+            Ok(None)
+        );
+        // CPU daemon (no GB10 engine linked)
+        assert_eq!(
+            daemon_serving_reservation(
+                &qwen3_4b_config(),
+                4096,
+                &daemon_sched(),
+                false,
+                true,
+                &never
+            ),
+            Ok(None)
+        );
+    }
 
     #[test]
     fn model_identity_needs_real_weights_and_a_parsed_tokenizer() {

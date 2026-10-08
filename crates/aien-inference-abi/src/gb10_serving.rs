@@ -14,7 +14,7 @@
 //! header lists as not covered (elementwise scratch, the attention kernel cache, the first
 //! build of each matmul shape).
 
-use crate::omega_backend::{gb10_qwen3_opted_in, omega_model_refusal_with, OmegaGb10Backend};
+use crate::omega_backend::omega_model_refusal_with;
 use aien_abi_core::ModelConfig;
 use aien_omega_gpu::{ServingBounds, ServingBytes};
 
@@ -149,26 +149,15 @@ pub fn reserve_gb10_serving_with(
     }))
 }
 
-/// Reserve the serving buffers once, after the GPU session and the weights are set up and
-/// before the first request. See [`reserve_gb10_serving_with`] for the outcomes.
-pub fn reserve_gb10_serving(
-    config: &ModelConfig,
-    limits: &ServingLimits,
-) -> Result<Option<ServingReservation>, String> {
-    reserve_gb10_serving_with(
-        config,
-        limits,
-        OmegaGb10Backend::new().is_available(),
-        gb10_qwen3_opted_in(),
-        &|b| {
-            aien_omega_gpu::reserve_serving(b).map_err(|e| {
-                let stage = aien_omega_gpu::last_error();
-                if stage.is_empty() {
-                    e.to_string()
-                } else {
-                    format!("{e} (omega: {stage})")
-                }
-            })
-        },
-    )
+/// The real reservation call: omega's `omega_gpu_reserve_serving`, with omega's stage text added to
+/// a refusal. The daemon passes this to [`reserve_gb10_serving_with`].
+pub fn omega_reserve(b: &ServingBounds) -> Result<(), String> {
+    aien_omega_gpu::reserve_serving(b).map_err(|e| {
+        let stage = aien_omega_gpu::last_error();
+        if stage.is_empty() {
+            e.to_string()
+        } else {
+            format!("{e} (omega: {stage})")
+        }
+    })
 }

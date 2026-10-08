@@ -81,6 +81,23 @@ impl OmegaGpuMatmulInfo {
 pub struct OmegaGpuTensor {
     _private: [u8; 0],
 }
+#[cfg(has_omega_gpu)]
+/// omega `OmegaGpuServingBounds` (`src/omega_gpu_serving.h`), field for field.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct OmegaGpuServingBounds {
+    pub max_context: u32,
+    pub max_seqs: u32,
+    pub num_q_heads: u32,
+    pub num_kv_heads: u32,
+    pub head_dim: u32,
+    pub kv_block_size: u32,
+    pub max_rows: u32,
+    pub max_k: u32,
+    pub max_n: u32,
+    pub max_n_one_row: u32,
+    pub kernel_slots: u32,
+}
 
 #[cfg(has_omega_gpu)]
 extern "C" {
@@ -144,17 +161,11 @@ extern "C" {
     // -1 above OMEGA_GPU_SESSION_MAX_SPIN_US with the setting unchanged (omega#328).
     pub fn omega_gpu_session_set_spin_us(us: u32) -> c_int;
     pub fn omega_gpu_session_spin_us() -> u32;
-    // omega b980783 `src/omega_gpu_matmul_api.h` (opt-in serving reservation, omega#333): activation and
-    // result staging for calls of up to max_rows rows plus a deeper kernel cache. 0 on success, else an
-    // OMEGA_GPU_MATMUL_* code (omega_gpu_matmul_last_error() has the text).
-    pub fn omega_gpu_matmul_reserve(
-        max_rows: u32,
-        max_k: u32,
-        max_n: u32,
-        max_n_one_row: u32,
-        kernel_slots: u32,
-    ) -> c_int;
-    pub fn omega_gpu_matmul_unreserve();
+    // omega c1/lib-serving `src/omega_gpu_serving.h` (omega#333 reservation, shipped in libomega_gpu.a by
+    // omega#338): one all-or-nothing call; 0 on success, else the first failing OMEGA_GPU_MATMUL_* /
+    // OMEGA_GPU_ATTN_* code (omega_gpu_matmul_last_error() has the text).
+    pub fn omega_gpu_reserve_serving(b: *const OmegaGpuServingBounds) -> c_int;
+    pub fn omega_gpu_serving_release();
 }
 
 // ---- omega `src/omega_gpu_elementwise_api.h` (FB-1 cut 4, pinned 2636409) ----
@@ -371,14 +382,4 @@ extern "C" {
     ) -> c_int;
     pub fn omega_gpu_attention_rc_name(rc: c_int) -> *const c_char;
     pub fn omega_gpu_attention_last_error() -> *const c_char;
-    // omega b980783 `src/omega_gpu_attention_api.h` (opt-in serving reservation, omega#333).
-    pub fn omega_gpu_attention_reserve(
-        max_context: u32,
-        max_seqs: u32,
-        num_q_heads: u32,
-        num_kv_heads: u32,
-        head_dim: u32,
-        kv_block_size: u32,
-    ) -> c_int;
-    pub fn omega_gpu_attention_unreserve();
 }
