@@ -12,8 +12,8 @@
 //!
 //! This module derives the bounds and the shapes from the model and the daemon's declared
 //! limits, and runs reserve, prepare, seal in that order through [`ServingOps`] (the real one
-//! calls omega; tests record). It applies only on the path that is already opt-in (Qwen3 on
-//! the GB10, `AIEN_GB10_QWEN3_DECLARED_ATTEMPT=1`); the default Qwen3 refusal is untouched. It
+//! calls omega; tests record). It applies only to Qwen3 on the GB10, which is enabled by
+//! default since #277 (`AIEN_GB10_QWEN3_DECLARED_ATTEMPT=0` refuses it). It
 //! does not claim to fix #277: it is not proven on the chip, and omega's header lists what is
 //! still not covered (elementwise scratch, the attention kernel).
 

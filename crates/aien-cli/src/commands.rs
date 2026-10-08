@@ -1430,8 +1430,7 @@ fn build_native_daemon_backend() -> Result<DaemonBackendParts, String> {
         let resident = ResidentLoad {
             native_linked: aien_omega_gpu::is_native(),
             strict: aien_inference_abi::strict::production_strict(),
-            qwen3_opted_in: std::env::var(aien_inference_abi::GB10_QWEN3_OPT_IN_ENV)
-                .is_ok_and(|v| v == "1"),
+            qwen3_opted_in: aien_inference_abi::gb10_qwen3_enabled(),
             uploader: &aien_inference_abi::OmegaUploader,
             open_session: &open_session,
         };
@@ -1673,7 +1672,7 @@ pub async fn run_daemon_server() {
             std::process::exit(1);
         }
     }
-    // GB10 Qwen3 (the opt-in path only): reserve the serving buffers once, from the declared
+    // GB10 Qwen3 (enabled by default, #277): reserve the serving buffers once, from the declared
     // bounds, before the first request. A refusal stops the daemon by name; there is no
     // on-demand fallback (sovereign-core#277, omega#327, omega#333). The outcome is logged
     // either way so a chip run can measure it.
@@ -1685,7 +1684,7 @@ pub async fn run_daemon_server() {
         _kv_plan.context_tokens,
         &sched_for_reservation,
         gpu_native,
-        std::env::var(aien_inference_abi::GB10_QWEN3_OPT_IN_ENV).is_ok_and(|v| v == "1"),
+        aien_inference_abi::gb10_qwen3_enabled(),
         &aien_inference_abi::gb10_serving::OmegaServingOps,
     ) {
         Ok(Some(line)) => {
@@ -2282,7 +2281,7 @@ mod tests {
 
     #[test]
     fn default_path_makes_no_omega_call() {
-        // Qwen3 without the declared-attempt opt-in (the default refusal path)
+        // Qwen3 switched off with AIEN_GB10_QWEN3_DECLARED_ATTEMPT=0
         let rec = Recorder::new();
         assert_eq!(run(&rec, 4096, true, false), Ok(None));
         // CPU daemon (no GB10 engine linked)

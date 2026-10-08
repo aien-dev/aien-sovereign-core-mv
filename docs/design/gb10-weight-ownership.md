@@ -305,8 +305,10 @@ low-MemFree state where the unchanged baseline fails, without dropping the page 
 - Limits to state in the verdict: one model, one hardware unit, one driver (580.173.02), batch size
   coverage as run, context only up to what the serving leg reached (and never above 4096 on this
   path).
-- The default refusal in `omega_model_refusal_with` (omega_backend.rs:543-) stays until the verdict
-  is PASS and merged. Flipping it is a separate PR that cites the verdict.
+- The default refusal in `omega_model_refusal_with` stayed until the verdict was PASS and merged.
+  Declared attempt 3 passed (sovereign-core#277), and the follow-up PR flipped the default:
+  `AIEN_GB10_QWEN3_DECLARED_ATTEMPT` unset or `1` enables the path, `0` (or any other value)
+  refuses it by name.
 - Do not drop caches to qualify. If the organic state never recurs, the answer is "not
   qualified", not a staged state.
 

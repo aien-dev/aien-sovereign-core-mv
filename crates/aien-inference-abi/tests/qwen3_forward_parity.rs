@@ -348,20 +348,30 @@ fn gb10_backend_refuses_qwen3_and_not_llama() {
         Some("{\"eos_token_id\":[151645]}"),
     )
     .unwrap();
-    // Qwen3-4B (head_dim 128): rmsnorm_heads and attention both run on the engine, but the
-    // path stays off by default while omega#327 (NV_ERR_NO_MEMORY on low MemFree) is open.
+    // Qwen3-4B (head_dim 128): rmsnorm_heads and attention both run on the engine, and since
+    // sovereign-core#277 (declared attempt 3) the qualified path is the default. Only an
+    // explicit switch-off refuses it, by name.
     assert_eq!(q.head_dim, 128);
     let msg = omega_model_refusal_with(&q, false)
-        .expect("Qwen3-4B must be refused on the GB10 engine by default");
+        .expect("Qwen3-4B must be refused on the GB10 engine when switched off");
     assert!(
-        msg.contains("omega#327")
-            && msg.contains("NV_ERR_NO_MEMORY")
-            && msg.contains("AIEN_GB10_QWEN3_DECLARED_ATTEMPT=1"),
+        msg.contains("AIEN_GB10_QWEN3_DECLARED_ATTEMPT") && msg.contains("switched off"),
         "{msg}"
     );
     assert_eq!(omega_model_refusal_with(&q, true), None);
-    if std::env::var(GB10_QWEN3_OPT_IN_ENV).is_err() {
-        assert_eq!(omega_model_refusal(&q), Some(msg));
+    // The default is on: unset and 1 enable, 0 and any other value refuse (fail closed).
+    assert!(aien_inference_abi::gb10_qwen3_enabled_from(None));
+    assert!(aien_inference_abi::gb10_qwen3_enabled_from(Some("1")));
+    for v in ["0", "", "true", "yes", "2", " 1"] {
+        assert!(
+            !aien_inference_abi::gb10_qwen3_enabled_from(Some(v)),
+            "{v:?}"
+        );
+    }
+    match std::env::var(GB10_QWEN3_OPT_IN_ENV).ok().as_deref() {
+        None => assert_eq!(omega_model_refusal(&q), None),
+        Some("1") => assert_eq!(omega_model_refusal(&q), None),
+        Some(_) => assert_eq!(omega_model_refusal(&q), Some(msg)),
     }
     // A Qwen3 shape with head_dim 64 cannot run rmsnorm_heads (head_dim % 128): refused up front.
     let q64 = model_config_from_hf_json(
@@ -371,7 +381,7 @@ fn gb10_backend_refuses_qwen3_and_not_llama() {
     )
     .unwrap();
     assert_eq!(q64.head_dim, 64);
-    // The opt-in does not lift this one.
+    // Neither setting lifts this one.
     for opted_in in [false, true] {
         let msg = omega_model_refusal_with(&q64, opted_in)
             .expect("Qwen3 with head_dim 64 must be refused on the GB10 engine");

@@ -137,7 +137,7 @@ fn a_refusal_stops_serving_by_name_with_no_fallback() {
 }
 
 #[test]
-fn nothing_changes_off_the_opt_in_qwen3_gb10_path() {
+fn nothing_changes_off_the_enabled_qwen3_gb10_path() {
     let none = |native: bool, opted: bool, cfg: &aien_inference_abi::ModelConfig| {
         let ops = Ops::default();
         let r = reserve_gb10_serving_with(cfg, &daemon_limits(), native, opted, &ops).unwrap();
@@ -147,7 +147,7 @@ fn nothing_changes_off_the_opt_in_qwen3_gb10_path() {
         );
     };
     none(false, true, &qwen3_4b()); // not native (CPU daemon)
-    none(true, false, &qwen3_4b()); // default refusal still in force (no opt-in)
+    none(true, false, &qwen3_4b()); // switched off (=0): the refusal still applies
     let mut llama = qwen3_4b();
     llama.qk_norm = false; // a non-Qwen3 model on the GB10 is untouched
     none(true, true, &llama);

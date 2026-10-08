@@ -413,7 +413,7 @@ fn resident_load_is_chosen_only_on_the_native_strict_opted_in_qwen3_path() {
     // each condition off -> host f32 load, unchanged
     assert!(!resident_load_wanted(false, true, true, &q4b)); // stub build / no GB10
     assert!(!resident_load_wanted(true, false, true, &q4b)); // dev-fallback needs host values
-    assert!(!resident_load_wanted(true, true, false, &q4b)); // default refusal of Qwen3 stays
+    assert!(!resident_load_wanted(true, true, false, &q4b)); // Qwen3 switched off (=0): refused
     assert!(!resident_load_wanted(true, true, true, &tiny)); // engine refuses head_dim 16
     let mut llama = q4b.clone();
     llama.qk_norm = false; // other models keep their path
