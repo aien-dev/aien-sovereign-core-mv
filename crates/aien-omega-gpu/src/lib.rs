@@ -1157,6 +1157,48 @@ mod spin_us_tests {
         }
     }
 
+    fn qwen3_4b_bounds() -> ServingBounds {
+        ServingBounds {
+            max_context: 4096,
+            max_seqs: 1,
+            num_q_heads: 32,
+            num_kv_heads: 8,
+            head_dim: 128,
+            kv_block_size: 16,
+            max_rows: 256,
+            max_k: 9728,
+            max_n: 151936,
+            max_n_one_row: 151936,
+            kernel_slots: 32,
+        }
+    }
+
+    #[test]
+    fn serving_bytes_follow_omegas_formulas() {
+        // omega attention_api.c:664-681 and matmul_api.c:130-150 at b980783, Qwen3-4B shape.
+        let y = qwen3_4b_bounds().bytes();
+        assert_eq!(y.attention_pool, 2 * 4096 * 8 * 128 * 4); // 32 MiB
+        assert_eq!(y.attention_q_out, 32 * 128 * 4);
+        assert_eq!(y.attention_table, (4096 + 1) * 4);
+        assert_eq!(y.matmul_activation, 256 * 9728 * 2);
+        assert_eq!(y.matmul_result, 256 * 151936 * 4);
+        // under half a block of context the paged path stages a whole block, the larger one
+        let mut b = qwen3_4b_bounds();
+        (b.max_context, b.kv_block_size) = (16, 64);
+        assert_eq!(b.bytes().attention_pool, 64 * 8 * 128 * 4);
+    }
+
+    #[test]
+    fn reserving_without_the_engine_is_unavailable() {
+        if !is_native() {
+            assert_eq!(
+                reserve_serving(&qwen3_4b_bounds()),
+                Err(OmegaGpuError::Unavailable)
+            );
+            release_serving();
+        }
+    }
+
     #[test]
     fn reading_the_window_matches_the_build() {
         if is_native() {

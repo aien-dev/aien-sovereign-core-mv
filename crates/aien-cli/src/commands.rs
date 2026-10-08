@@ -1525,6 +1525,9 @@ pub async fn run_daemon_server() {
     // from the loaded model's config and declared context, and the host's
     // MemAvailable is checked before it is allocated (#239). AIEN_KV_CONTEXT_TOKENS
     // may lower the context budget below the model's declared context, never raise it.
+    let model_config = weights.config.clone();
+    let (max_batch_rows, prefill_chunk_rows) =
+        (sched_cfg.max_batch_size, sched_cfg.prefill_chunk_size);
     let kv_context_cap = match aien_runtime::shared_kv::kv_context_cap_from_env() {
         Ok(cap) => cap,
         Err(fatal) => {
@@ -1533,22 +1536,21 @@ pub async fn run_daemon_server() {
         }
     };
     let gpu_native = aien_inference_abi::OmegaGb10Backend::new().is_available();
-    let (spine, backend, _kv_plan) =
-        match aien_runtime::shared_kv::build_shared_kv_runtime_for_model(
-            weights,
-            tensor_backend,
-            sched_cfg,
-            4096,
-            kv_context_cap,
-            &aien_runtime::shared_kv::read_mem_available_checked,
-            aien_runtime::shared_kv::allow_unchecked_memory_from_env(),
-        ) {
-            Ok(parts) => parts,
-            Err(fatal) => {
-                eprintln!("Fatal: shared KV pool: {}", fatal.red().bold());
-                std::process::exit(1);
-            }
-        };
+    let (spine, backend, kv_plan) = match aien_runtime::shared_kv::build_shared_kv_runtime_for_model(
+        weights,
+        tensor_backend,
+        sched_cfg,
+        4096,
+        kv_context_cap,
+        &aien_runtime::shared_kv::read_mem_available_checked,
+        aien_runtime::shared_kv::allow_unchecked_memory_from_env(),
+    ) {
+        Ok(parts) => parts,
+        Err(fatal) => {
+            eprintln!("Fatal: shared KV pool: {}", fatal.red().bold());
+            std::process::exit(1);
+        }
+    };
     // Open the GPU session before serving, with a bounded retry, so a failed
     // channel open is a clear refusal with status and free memory per attempt
     // instead of the strict-fallback panic at warm-up (#239, #236).
@@ -1559,6 +1561,25 @@ pub async fn run_daemon_server() {
             aien_inference_abi::GPU_SESSION_OPEN_DEADLINE,
             &aien_runtime::shared_kv::read_mem_available,
         ) {
+            eprintln!("Fatal: {}", fatal.red().bold());
+            std::process::exit(1);
+        }
+    }
+    // GB10 Qwen3 (the opt-in path only): reserve the serving buffers once, from the declared
+    // bounds, before the first request. A refusal stops the daemon by name; there is no
+    // on-demand fallback (sovereign-core#277, omega#327, omega#333). The outcome is logged
+    // either way so a chip run can measure it.
+    match aien_inference_abi::gb10_serving::reserve_gb10_serving(
+        &model_config,
+        &aien_inference_abi::gb10_serving::ServingLimits {
+            context_tokens: kv_plan.context_tokens,
+            max_batch_rows,
+            prefill_chunk_rows,
+        },
+    ) {
+        Ok(Some(reservation)) => println!("  {}", reservation.log_line()),
+        Ok(None) => {}
+        Err(fatal) => {
             eprintln!("Fatal: {}", fatal.red().bold());
             std::process::exit(1);
         }

@@ -44,9 +44,11 @@ layers, 32 query heads, 8 KV heads, head_dim 128, vocab 151936, tied embeddings,
   counts 0 allocations and 0 frees after warm-up; a request past the reservation is refused with a
   named error before any driver call. Not covered: elementwise scratch, the attention kernel cache
   (8 slots), prebuilding matmul shapes at reserve time.
-- Not done: sovereign-core does not call the reservation yet (its `omega.lock` is still 01f6a74,
-  before #333), so the daemon's behaviour is unchanged. Wiring it in is a separate reviewed change
-  with its own chip attempt under the #277 protocol. Cuts A and C are not started. The default
+- Wired in (draft PR "Part of #277", not yet proven on the chip): `omega.lock` is b980783 and the
+  daemon, on the opt-in Qwen3 GB10 path only, calls the reservation once after the session opens and
+  before the first request (`aien-inference-abi/src/gb10_serving.rs`), logging a
+  `GB10_SERVING_RESERVATION` line and refusing to serve by name if omega refuses. Its chip attempt
+  under the #277 protocol is still to be declared and run. Cuts A and C are not started. The default
   refusal of Qwen3 on the GB10 stays.
 - The #277 chip attempts so far: attempt 1 (06:33Z) and attempt 2 (21:45Z) are both INVALID CONDITION:
   the baseline did not reproduce the failure, so the fix runs were skipped by the rule fixed in advance.

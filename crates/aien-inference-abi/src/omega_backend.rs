@@ -534,7 +534,7 @@ pub fn omega_model_refusal(config: &ModelConfig) -> Option<String> {
 /// open. Only the exact value `1` opts in; unset or anything else keeps the refusal.
 pub const GB10_QWEN3_OPT_IN_ENV: &str = "AIEN_GB10_QWEN3_DECLARED_ATTEMPT";
 
-fn gb10_qwen3_opted_in() -> bool {
+pub(crate) fn gb10_qwen3_opted_in() -> bool {
     std::env::var(GB10_QWEN3_OPT_IN_ENV).is_ok_and(|v| v == "1")
 }
 
