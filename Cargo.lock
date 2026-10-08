@@ -45,6 +45,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "aien-allen-memory"
+version = "0.1.0"
+dependencies = [
+ "aien-allen",
+ "aien-allen-memory",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+]
+
+[[package]]
 name = "aien-campaign-verifier"
 version = "0.1.0"
 dependencies = [

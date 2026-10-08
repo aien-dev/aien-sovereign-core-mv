@@ -42,6 +42,7 @@ members = [
     "crates/aien-switchboard",
     "crates/aien-dual-observation",
     "crates/aien-allen",
+    "crates/aien-allen-memory",
     "tools/aien-test",
     "crates/aien-drive",
 ]

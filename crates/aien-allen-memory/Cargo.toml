@@ -1,0 +1,24 @@
+[package]
+name = "aien-allen-memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "ALLEN scoped memory store: scopes enforced at recall, inspect/correct/export, key-destroying forget, host goal records (arch#159)"
+
+[dependencies]
+aien-allen = { path = "../aien-allen" }
+ring = "0.17"
+sha2 = "0.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[features]
+# Test seam: lets a test stop a write at a named step (simulated crash).
+# Enabled only by the dev-dependency below, never by a daemon build.
+fault-injection = []
+
+[dev-dependencies]
+tempfile = "3.10"
+aien-allen-memory = { path = ".", features = ["fault-injection"] }
