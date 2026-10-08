@@ -144,6 +144,17 @@ extern "C" {
     // -1 above OMEGA_GPU_SESSION_MAX_SPIN_US with the setting unchanged (omega#328).
     pub fn omega_gpu_session_set_spin_us(us: u32) -> c_int;
     pub fn omega_gpu_session_spin_us() -> u32;
+    // omega b980783 `src/omega_gpu_matmul_api.h` (opt-in serving reservation, omega#333): activation and
+    // result staging for calls of up to max_rows rows plus a deeper kernel cache. 0 on success, else an
+    // OMEGA_GPU_MATMUL_* code (omega_gpu_matmul_last_error() has the text).
+    pub fn omega_gpu_matmul_reserve(
+        max_rows: u32,
+        max_k: u32,
+        max_n: u32,
+        max_n_one_row: u32,
+        kernel_slots: u32,
+    ) -> c_int;
+    pub fn omega_gpu_matmul_unreserve();
 }
 
 // ---- omega `src/omega_gpu_elementwise_api.h` (FB-1 cut 4, pinned 2636409) ----
@@ -360,4 +371,14 @@ extern "C" {
     ) -> c_int;
     pub fn omega_gpu_attention_rc_name(rc: c_int) -> *const c_char;
     pub fn omega_gpu_attention_last_error() -> *const c_char;
+    // omega b980783 `src/omega_gpu_attention_api.h` (opt-in serving reservation, omega#333).
+    pub fn omega_gpu_attention_reserve(
+        max_context: u32,
+        max_seqs: u32,
+        num_q_heads: u32,
+        num_kv_heads: u32,
+        head_dim: u32,
+        kv_block_size: u32,
+    ) -> c_int;
+    pub fn omega_gpu_attention_unreserve();
 }

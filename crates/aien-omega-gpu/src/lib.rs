@@ -883,6 +883,149 @@ fn check_pool(pool: &[u8], layout: &OmegaGpuKvLayout) -> Result<(), OmegaGpuErro
     Ok(())
 }
 
+// ---- opt-in serving reservation (omega b980783, omega#333; sovereign-core#277) ----
+
+/// Declared serving bounds, the Rust twin of omega's `OmegaGpuServingBounds`
+/// (`src/omega_gpu_serving.h`). Every field is a bound the daemon declares at start-up;
+/// omega reserves the driver memory for them once and refuses a call past them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ServingBounds {
+    /// Longest sequence (tokens) one attention call may cover.
+    pub max_context: u32,
+    /// Sequences per attention call (the GB10 backend calls attention one sequence at a time: 1).
+    pub max_seqs: u32,
+    pub num_q_heads: u32,
+    pub num_kv_heads: u32,
+    pub head_dim: u32,
+    /// Paged KV block size in tokens (power of two).
+    pub kv_block_size: u32,
+    /// Most rows one matmul call may carry.
+    pub max_rows: u32,
+    /// Widest weight input dimension.
+    pub max_k: u32,
+    /// Widest weight output dimension for calls of up to `max_rows` rows.
+    pub max_n: u32,
+    /// Widest output dimension for calls of at most 16 rows (the logits projection).
+    pub max_n_one_row: u32,
+    /// Matmul kernel cache slots (omega allows at most 32).
+    pub kernel_slots: u32,
+}
+
+/// Driver bytes a reservation asks for, computed with omega's own formulas
+/// (`omega_gpu_attention_reserve`, attention_api.c:664-681; `omega_gpu_matmul_reserve`,
+/// matmul_api.c:130-150, at b980783). Reported in the daemon log so a chip run can compare
+/// it with the driver's allocation counters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ServingBytes {
+    pub attention_pool: u64,
+    pub attention_q_out: u64,
+    pub attention_table: u64,
+    pub matmul_activation: u64,
+    pub matmul_result: u64,
+}
+
+impl ServingBytes {
+    pub fn total(&self) -> u64 {
+        self.attention_pool
+            + 2 * self.attention_q_out
+            + self.attention_table
+            + self.matmul_activation
+            + self.matmul_result
+    }
+}
+
+fn round_up(v: u64, to: u64) -> u64 {
+    v.div_ceil(to) * to
+}
+
+impl ServingBounds {
+    /// Bytes omega will reserve for these bounds. Tiles: omega `OMEGA_GPU_MATMUL_TILE_M` 16,
+    /// `_TILE_N` 8, `_TILE_K` 16 (omega_gpu_matmul_api.h:46-48).
+    pub fn bytes(&self) -> ServingBytes {
+        let (ctx, seqs) = (self.max_context as u64, self.max_seqs.max(1) as u64);
+        let (kvh, hd) = (self.num_kv_heads as u64, self.head_dim as u64);
+        let mut per_seq = 2 * ctx * kvh * hd * 4;
+        if self.kv_block_size != 0 {
+            let bs = self.kv_block_size as u64;
+            per_seq = per_seq.max(round_up(ctx, bs) * kvh * hd * 4);
+        }
+        let qo = seqs * self.num_q_heads as u64 * hd * 4;
+        let table = ((seqs * ctx + seqs) * 4).max(8);
+        let mp = round_up(self.max_rows as u64, 16);
+        let kp = round_up(self.max_k as u64, 16);
+        let mut c = mp * round_up(self.max_n as u64, 8) * 4;
+        if self.max_n_one_row != 0 {
+            c = c.max(16 * round_up(self.max_n_one_row as u64, 8) * 4);
+        }
+        ServingBytes {
+            attention_pool: per_seq * seqs,
+            attention_q_out: qo,
+            attention_table: table,
+            matmul_activation: mp * kp * 2,
+            matmul_result: c,
+        }
+    }
+}
+
+/// Reserve the serving buffers once (opens the device if needed). All-or-nothing: if the
+/// matmul half is refused the attention half is released again, as omega's own
+/// `omega_gpu_reserve_serving` does (`src/omega_gpu_serving.c`, which libomega_gpu.a does not
+/// contain at b980783, so the two per-API calls are made here in the same order).
+/// On refusal the error carries omega's return-code name and its stage text
+/// (for example "serving reservation exceeded" or the driver's allocation failure). Stub: `Unavailable`.
+pub fn reserve_serving(b: &ServingBounds) -> Result<(), OmegaGpuError> {
+    #[cfg(has_omega_gpu)]
+    {
+        // SAFETY: plain integer arguments; omega takes its own lock and may open the device.
+        let rc = unsafe {
+            ffi::omega_gpu_attention_reserve(
+                b.max_context,
+                b.max_seqs.max(1),
+                b.num_q_heads,
+                b.num_kv_heads,
+                b.head_dim,
+                b.kv_block_size,
+            )
+        };
+        if rc != 0 {
+            return Err(OmegaGpuError::Rc {
+                rc,
+                name: attn_rc_name(rc),
+            });
+        }
+        // SAFETY: as above.
+        let rc = unsafe {
+            ffi::omega_gpu_matmul_reserve(
+                b.max_rows,
+                b.max_k,
+                b.max_n,
+                b.max_n_one_row,
+                b.kernel_slots,
+            )
+        };
+        if rc != 0 {
+            // SAFETY: no arguments; releases only the attention flag.
+            unsafe { ffi::omega_gpu_attention_unreserve() };
+            return Err(rc_error(rc));
+        }
+        Ok(())
+    }
+    #[cfg(not(has_omega_gpu))]
+    {
+        let _ = b;
+        Err(OmegaGpuError::Unavailable)
+    }
+}
+
+/// Lift the reservation (buffers stay, growth is allowed again). No-op in the stub.
+pub fn release_serving() {
+    #[cfg(has_omega_gpu)]
+    // SAFETY: no arguments; omega takes its own lock.
+    unsafe {
+        ffi::omega_gpu_attention_unreserve();
+        ffi::omega_gpu_matmul_unreserve();
+    }
+}
 #[cfg(test)]
 mod cta_budget_tests {
     use super::*;
