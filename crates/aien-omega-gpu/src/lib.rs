@@ -1006,7 +1006,55 @@ pub fn reserve_serving(b: &ServingBounds) -> Result<(), OmegaGpuError> {
     }
 }
 
-/// Lift the reservation (buffers stay, growth is allowed again). No-op in the stub.
+/// Driver allocation counters since the process started (omega `omega_gpu_session_alloc_stats`).
+pub use ffi::OmegaGpuAllocStats as AllocStats;
+
+/// Read omega's allocation counters; `None` in the stub (no engine, nothing allocates).
+pub fn alloc_stats() -> Option<AllocStats> {
+    #[cfg(has_omega_gpu)]
+    {
+        let mut s = AllocStats::default();
+        // SAFETY: `s` is a valid repr(C) struct that omega fills; no lock is held across the call.
+        unsafe { ffi::omega_gpu_session_alloc_stats(&mut s) };
+        Some(s)
+    }
+    #[cfg(not(has_omega_gpu))]
+    None
+}
+
+/// Build and pin the matmul kernel a call of `m` rows over a `k` x `n` weight will use (omega
+/// `omega_gpu_matmul_prepare`). Stub: `Unavailable`.
+pub fn matmul_prepare(m: u32, k: u32, n: u32) -> Result<(), OmegaGpuError> {
+    #[cfg(has_omega_gpu)]
+    {
+        // SAFETY: plain integer arguments; omega takes its own lock.
+        let rc = unsafe { ffi::omega_gpu_matmul_prepare(m, k, n) };
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(rc_error(rc))
+        }
+    }
+    #[cfg(not(has_omega_gpu))]
+    {
+        let _ = (m, k, n);
+        Err(OmegaGpuError::Unavailable)
+    }
+}
+
+/// Seal the serving state: from now on a matmul kernel that was not prepared is refused, never
+/// built (omega `omega_gpu_serving_seal`). No-op in the stub.
+pub fn seal_serving() {
+    #[cfg(has_omega_gpu)]
+    // SAFETY: no arguments; omega takes its own lock.
+    unsafe {
+        ffi::omega_gpu_serving_seal();
+    }
+}
+
+/// Lift the reservation and the seal (buffers stay, growth is allowed again). The daemon never
+/// calls this: the reservation is held for the life of the process and ends when omega closes
+/// the device at exit. No-op in the stub.
 pub fn release_serving() {
     #[cfg(has_omega_gpu)]
     // SAFETY: no arguments; omega takes its own lock.

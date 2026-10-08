@@ -29,6 +29,8 @@ pub struct AienRuntimeServer {
     is_running: Arc<AtomicBool>,
     tokenizer: Arc<RwLock<Option<ChatTokenizer>>>,
     warm_up: AtomicBool,
+    /// Optional serving-time probe (GB10 allocation counters), see `set_serving_probe`.
+    probe: std::sync::Mutex<Option<Arc<dyn aien_inference_abi::gb10_serving::ServingProbe>>>,
     /// Test seam: a ready-made compose bridge (see `with_compose_bridge`).
     compose_override: std::sync::Mutex<Option<Arc<ComposeBridge>>>,
     /// The loaded model files' digests (set by the daemon after load; absent
@@ -59,6 +61,7 @@ impl AienRuntimeServer {
             is_running: Arc::new(AtomicBool::new(false)),
             tokenizer: Arc::new(RwLock::new(None)),
             warm_up: AtomicBool::new(false),
+            probe: std::sync::Mutex::new(None),
             compose_override: std::sync::Mutex::new(None),
             identity: std::sync::Mutex::new(None),
             started: DaemonStart::now(),
@@ -90,6 +93,15 @@ impl AienRuntimeServer {
     /// `run`, before any request is served (ACCEPTANCE-v4 Section 2(2)).
     pub fn enable_warm_up(&self) {
         self.warm_up.store(true, Ordering::SeqCst);
+    }
+
+    /// Log the GB10 allocation counters once after warm-up and the change since warm-up after
+    /// every served connection (sovereign-core#277). Unset = nothing is logged.
+    pub fn set_serving_probe(
+        &self,
+        probe: Arc<dyn aien_inference_abi::gb10_serving::ServingProbe>,
+    ) {
+        *self.probe.lock().expect("probe lock") = Some(probe);
     }
 
     pub fn spine(&self) -> Arc<Mutex<AienRuntimeSpine>> {
@@ -194,6 +206,10 @@ impl AienRuntimeServer {
         if self.warm_up.load(Ordering::SeqCst) {
             println!("  {}", self.run_warm_up().await);
         }
+        let probe = self.probe.lock().expect("probe lock").clone();
+        if let Some(line) = probe.as_ref().and_then(|p| p.after_warm_up()) {
+            println!("  {line}");
+        }
 
         // NEXT-PHASE-1: the compose bridge (opened on the first RunComposeTask).
         let preset = self
@@ -293,6 +309,7 @@ impl AienRuntimeServer {
                             let compose_conn = compose.clone();
                             let identity_conn = identity.clone();
                             let started = self.started;
+                            let probe_conn = probe.clone();
                             tokio::spawn(async move {
                                 handle_connection(
                                     stream,
@@ -304,6 +321,9 @@ impl AienRuntimeServer {
                                     (identity_conn, started),
                                 )
                                 .await;
+                                if let Some(line) = probe_conn.as_ref().and_then(|p| p.after_request()) {
+                                    println!("  {line}");
+                                }
                             });
                         }
                         Err(e) => {
