@@ -52,13 +52,19 @@ fn record_writes_file_and_id_is_reproducible() {
     assert_eq!(v["ok"], true);
     let id = v["objective_id"].as_str().unwrap().to_string();
     assert_eq!(id, expected_id(TEXT));
-    assert_eq!(v["objective_text_sha256"], hex::encode(Sha256::digest(TEXT)));
+    assert_eq!(
+        v["objective_text_sha256"],
+        hex::encode(Sha256::digest(TEXT))
+    );
     assert_eq!(v["recorded_before_work"], true);
     assert_eq!(v["operator_surface"], "aien-cli");
     assert!(v["utc"].as_str().unwrap().ends_with('Z'));
     let path = PathBuf::from(v["path"].as_str().unwrap());
     assert!(path.starts_with(&p) && path.is_file());
-    assert_eq!(path.file_name().unwrap().to_str().unwrap(), format!("{id}.json"));
+    assert_eq!(
+        path.file_name().unwrap().to_str().unwrap(),
+        format!("{id}.json")
+    );
     let rec: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     assert_eq!(rec["objective_id"], id);
     assert_eq!(rec["objective_text"], TEXT);
@@ -72,12 +78,18 @@ fn record_writes_file_and_id_is_reproducible() {
 fn record_refuses_over_length_text() {
     let (_t, p) = prov();
     let ok = "a".repeat(2000);
-    assert!(run(&p, &["objective", "record", "--text", &ok]).status.success());
+    assert!(run(&p, &["objective", "record", "--text", &ok])
+        .status
+        .success());
     let long = "a".repeat(2001);
     let o = run(&p, &["objective", "record", "--text", &long]);
     assert!(!o.status.success());
     assert_eq!(json_of(&o)["ok"], false);
-    assert!(stderr_of(&o).contains("OBJECTIVE_REFUSED TooLong"), "{}", stderr_of(&o));
+    assert!(
+        stderr_of(&o).contains("OBJECTIVE_REFUSED TooLong"),
+        "{}",
+        stderr_of(&o)
+    );
 }
 
 #[test]
@@ -85,7 +97,14 @@ fn record_refuses_forbidden_effect_class_before_any_work() {
     let (_t, p) = prov();
     let o = run(
         &p,
-        &["objective", "record", "--text", "Email the report", "--effect-class", "EXTERNAL_IRREVERSIBLE"],
+        &[
+            "objective",
+            "record",
+            "--text",
+            "Email the report",
+            "--effect-class",
+            "EXTERNAL_IRREVERSIBLE",
+        ],
     );
     assert!(!o.status.success());
     let v = json_of(&o);
@@ -97,7 +116,10 @@ fn record_refuses_forbidden_effect_class_before_any_work() {
         stderr_of(&o)
     );
     // Nothing was recorded and no effect receipt exists.
-    assert!(!p.join("objectives").join(format!("{}.json", expected_id("Email the report"))).exists());
+    assert!(!p
+        .join("objectives")
+        .join(format!("{}.json", expected_id("Email the report")))
+        .exists());
     let leftovers = std::fs::read_dir(&p).map(|d| d.count()).unwrap_or(0);
     assert_eq!(leftovers, 0);
 }
@@ -123,7 +145,16 @@ fn show_prints_the_record() {
 fn propose(p: &Path, ws: &Path, goal: &str, id: &str) -> Output {
     run(
         p,
-        &["compose", "propose", "--workspace", ws.to_str().unwrap(), "--goal", goal, "--objective-id", id],
+        &[
+            "compose",
+            "propose",
+            "--workspace",
+            ws.to_str().unwrap(),
+            "--goal",
+            goal,
+            "--objective-id",
+            id,
+        ],
     )
 }
 
@@ -140,7 +171,10 @@ fn propose_with_mismatched_objective_id_is_refused() {
     assert!(!o.status.success());
     let v = json_of(&o);
     assert_eq!(v["ok"], false);
-    assert!(v["error"].as_str().unwrap().contains("ObjectiveMismatch"), "{v}");
+    assert!(
+        v["error"].as_str().unwrap().contains("ObjectiveMismatch"),
+        "{v}"
+    );
 }
 
 #[test]
@@ -150,5 +184,8 @@ fn propose_with_missing_objective_id_is_refused() {
     std::fs::create_dir_all(&ws).unwrap();
     let o = propose(&p, &ws, TEXT, &"f".repeat(64));
     assert!(!o.status.success());
-    assert!(json_of(&o)["error"].as_str().unwrap().contains("ObjectiveMissing"));
+    assert!(json_of(&o)["error"]
+        .as_str()
+        .unwrap()
+        .contains("ObjectiveMissing"));
 }
