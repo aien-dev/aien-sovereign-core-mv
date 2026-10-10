@@ -516,7 +516,7 @@ fn branch_sampling_params(config: &SwarmConfig) -> SamplingParams {
 
 use crate::control::{
     ComposeNoteReport, ComposeRecallReport, ComposeRecordView, ComposeRecoverReport,
-    ComposeTaskReport, ProposalAttempt,
+    ComposeTaskReport, InputOmitted, InputRef, ProposalAttempt,
 };
 use crate::cortex_mark::{self, Mark, MarkRefusal, Plan};
 use aien_omega_compose::{hex, note_bytes, Compose, ComposeError, NoteKind, RootKind};
@@ -1341,6 +1341,20 @@ pub fn task_decision(goal: &str, ws: &Path) -> Result<(TaskPrompt, Option<String
             Ok(((prompt, None, kind), dest))
         }
     }
+}
+
+/// Total bytes of input text a proposal prompt carries (sc#382).
+pub const COMPOSE_INPUTS_MAX_BYTES: usize = 16384;
+/// Most input files a proposal prompt carries (sc#382).
+pub const COMPOSE_INPUTS_MAX_FILES: usize = 16;
+
+/// `task_decision` plus the inputs the prompt carries and the candidates left out.
+pub fn task_decision_with_inputs(
+    goal: &str,
+    ws: &Path,
+) -> Result<(TaskPrompt, Option<String>, Vec<InputRef>, Vec<InputOmitted>), String> {
+    let (plan, dest) = task_decision(goal, ws)?;
+    Ok((plan, dest, Vec::new(), Vec::new()))
 }
 
 /// Largest prior-lines x reply-lines table `merge_edit_reply` builds.
@@ -2347,6 +2361,8 @@ impl ComposeBridge {
             },
             persona,
             memory,
+            inputs: Vec::new(),
+            inputs_omitted: Vec::new(),
         })
     }
 
@@ -2988,5 +3004,22 @@ mod new_document_overwrite_tests {
         assert!(run(None, "fresh.md", false).is_ok());
         // An edit-kind task may write its own (existing) target.
         assert!(run(Some("README.md"), "README.md", true).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod folder_destination_enforcement_tests {
+    use super::*;
+
+    #[test]
+    fn proposal_in_the_folder_is_accepted_for_ctrl_goal() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir(tmp.path().join("outbox")).unwrap();
+        let ws = std::fs::canonicalize(tmp.path()).unwrap();
+        let goal = "Write a file named ctrl.md in the outbox folder containing one line: control.";
+        let dest = task_decision(goal, &ws).unwrap().1;
+        let t = "filename: outbox/ctrl.md\ncontrol\n".to_string();
+        let r = enforce_destination((Ok(t.clone()), vec![]), dest.as_deref(), &ws, false).0;
+        assert_eq!(r, Ok(t));
     }
 }

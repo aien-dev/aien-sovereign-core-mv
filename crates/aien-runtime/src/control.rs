@@ -704,6 +704,29 @@ pub struct ComposeTaskReport {
     /// ALLEN memory used for this task (arch#159). Old reports have none.
     #[serde(default)]
     pub memory: Option<MemoryReport>,
+    /// Workspace files whose text the proposal prompt carried (sc#382): name
+    /// relative to the workspace, sha256 and size of the bytes shown. Reading
+    /// inside the workspace is not an effect; this list is its record.
+    #[serde(default)]
+    pub inputs: Vec<InputRef>,
+    /// Input candidates that were not shown to the model, with the reason.
+    #[serde(default)]
+    pub inputs_omitted: Vec<InputOmitted>,
+}
+
+/// One workspace file shown to the model as input (sc#382).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InputRef {
+    pub name: String,
+    pub sha256: String,
+    pub bytes: usize,
+}
+
+/// An input candidate that was not shown, and why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InputOmitted {
+    pub name: String,
+    pub reason: String,
 }
 
 /// One proposal the compose "model" Skill made (ACCEPTANCE-v2 3b).
