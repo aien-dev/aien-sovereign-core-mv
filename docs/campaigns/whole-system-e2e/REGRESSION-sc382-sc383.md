@@ -64,3 +64,14 @@ for two genuinely distinct write targets, the destination-probe corpus record
 
 Input text is untrusted prompt content, the same as edit-mode content today. Folder reading is one level
 deep. Reading only happens when the goal names the source; the model cannot ask for files.
+
+## Notes added with the fix (rows above unchanged)
+
+- `compose_propose_report_lists_inputs_with_digests` passes on a stub build before and after the fix, because
+  the stub refuses every run ("not linked"). The registered FAIL-before holds only with the linked compose
+  library; the assertions on `inputs` are exercised by CI's linked job. The same facts are asserted without
+  the library by `folder_source_phrase_includes_inputs_sorted_with_digests`, which failed before.
+- Inputs found by a directory word: a goal word naming a top-level workspace directory counts only when a
+  plural noun follows it ("the three inbox files"), so "about docs and plan.txt" keeps its v5 prompt.
+- A folder is read as input only when the goal puts a reading word (files, notes, from, about, ...) within
+  five words before "in the Y folder" and the phrase does not directly follow a named path.

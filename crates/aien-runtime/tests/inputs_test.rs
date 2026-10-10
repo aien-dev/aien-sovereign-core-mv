@@ -242,6 +242,13 @@ fn goal_without_inputs_keeps_prompt_byte_for_byte() {
     assert_eq!(a.0, b.0);
     assert!(b.2.is_empty() && b.3.is_empty());
     assert!(!a.0 .0.contains("Input files"));
+    let w = ws.display().to_string();
+    let want = format!(
+        "{}{}",
+        aien_runtime::spine::proposal_prompt(goal, &w),
+        aien_runtime::spine::new_document_block("notes.md")
+    );
+    assert_eq!(a.0 .0, want);
 }
 
 fn scripted(seen: Arc<std::sync::Mutex<String>>) -> ComposeProposer {

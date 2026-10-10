@@ -330,12 +330,136 @@ fn path_like(w: &str, is_file: &dyn Fn(&str) -> bool) -> bool {
     ok_chars && (w.contains('/') && has_extension(w) || has_extension(w) || is_file(w))
 }
 
+/// What a goal names: the one file to write (resolved into its folder when the
+/// goal says "in the Y folder") and the other paths it mentions, in goal order.
+/// The other paths are references: material to read, never written.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Named {
+    pub dest: Option<String>,
+    pub inputs: Vec<String>,
+}
+
+#[derive(Default)]
+struct Parsed {
+    /// Destination path as written in the goal, and its word index.
+    dest: Option<(String, usize)>,
+    others: Vec<String>,
+}
+
+const FOLDER_NOUNS: &[&str] = &["folder", "directory", "dir"];
+const FOLDER_ARTICLES: &[&str] = &["the", "a", "an", "our", "my", "this"];
+/// Plural nouns and verbs that make a folder phrase a place to read from.
+const READ_INTENT: &[&str] = &[
+    "files",
+    "documents",
+    "docs",
+    "notes",
+    "texts",
+    "read",
+    "reading",
+    "from",
+    "about",
+    "using",
+    "summarise",
+    "summarize",
+    "of",
+];
+
+/// "in the Y folder" phrases of the goal: (folder name, index of "in").
+fn folder_phrases(raw: &[&str], words: &[String]) -> Vec<(String, usize)> {
+    let mut out = Vec::new();
+    for (i, w) in words.iter().enumerate() {
+        if !matches!(w.as_str(), "in" | "inside" | "into") {
+            continue;
+        }
+        let mut j = i + 1;
+        while j < words.len() && FOLDER_ARTICLES.contains(&words[j].as_str()) {
+            j += 1;
+        }
+        if j + 1 >= words.len() || !FOLDER_NOUNS.contains(&words[j + 1].as_str()) {
+            continue;
+        }
+        let name = clean(raw[j]);
+        let plain = !name.is_empty()
+            && !name.starts_with('.')
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'));
+        if plain {
+            out.push((name.to_string(), i));
+        }
+    }
+    out
+}
+
+/// The destination written as "X ... in the Y folder" is `Y/X`. Only a bare
+/// name directly followed by the phrase is moved.
+fn resolve_in_folder(raw: &[&str], words: &[String], dest: String, idx: usize) -> String {
+    if dest.contains('/') {
+        return dest;
+    }
+    match folder_phrases(raw, words)
+        .into_iter()
+        .find(|(_, at)| *at == idx + 1)
+    {
+        Some((folder, _)) => format!("{folder}/{dest}"),
+        None => dest,
+    }
+}
+
+/// Every folder the goal names with "the Y folder" (any role), in goal order.
+pub fn goal_folders(goal: &str) -> Vec<String> {
+    let raw: Vec<&str> = goal.split_whitespace().collect();
+    let words: Vec<String> = raw.iter().map(|w| clean(w).to_ascii_lowercase()).collect();
+    let mut out: Vec<String> = Vec::new();
+    for (n, _) in folder_phrases(&raw, &words) {
+        if !out.contains(&n) {
+            out.push(n);
+        }
+    }
+    out
+}
+
+/// Folders the goal names as a place to READ from ("the three text files in the
+/// inbox folder"): the phrase is not the folder of a file the goal names
+/// (the word before "in" is not a path) and a reading word stands within the
+/// five words before "in".
+pub fn input_folders(goal: &str) -> Vec<String> {
+    let raw: Vec<&str> = goal.split_whitespace().collect();
+    let words: Vec<String> = raw.iter().map(|w| clean(w).to_ascii_lowercase()).collect();
+    let mut out: Vec<String> = Vec::new();
+    for (n, at) in folder_phrases(&raw, &words) {
+        let after_path = at > 0 && {
+            let p = clean(raw[at - 1]);
+            p.contains('/') || has_extension(p)
+        };
+        let reads = words[at.saturating_sub(5)..at]
+            .iter()
+            .any(|w| READ_INTENT.contains(&w.as_str()));
+        if !after_path && reads && !out.contains(&n) {
+            out.push(n);
+        }
+    }
+    out
+}
+
 /// The destination the goal names. `is_file(w)` says whether the plain
 /// relative word `w` is an existing file (for extension-less names).
 pub fn named_destination(
     goal: &str,
     is_file: &dyn Fn(&str) -> bool,
 ) -> Result<Option<String>, DestinationError> {
+    named_paths(goal, is_file, &|_| false).map(|n| n.dest)
+}
+
+/// The destination and the input paths a goal names. `is_input(w)` says whether
+/// the word `w` is an existing workspace file that is material to read: such a
+/// name is never taken as a write target when the goal also names a new file.
+pub fn named_paths(
+    goal: &str,
+    is_file: &dyn Fn(&str) -> bool,
+    is_input: &dyn Fn(&str) -> bool,
+) -> Result<Named, DestinationError> {
     let raw: Vec<&str> = goal.split_whitespace().collect();
     let words: Vec<String> = raw.iter().map(|w| clean(w).to_ascii_lowercase()).collect();
     if let Some(op) = asked_file_op(&raw, &words, is_file) {
@@ -344,10 +468,17 @@ pub fn named_destination(
     // A file-operation word that acts on nothing is subject matter only when
     // the goal names exactly one file to write; otherwise it is refused as before.
     let op_word = words.iter().find(|w| FILE_OPS.contains(&w.as_str()));
-    match (op_word, parse(&raw, &words, is_file)) {
-        (_, Ok(Some(dest))) => Ok(Some(dest)),
+    let finish = |p: Parsed| {
+        let dest = p.dest.map(|(d, i)| resolve_in_folder(&raw, &words, d, i));
+        Named {
+            dest,
+            inputs: p.others,
+        }
+    };
+    match (op_word, parse(&raw, &words, is_file, is_input)) {
+        (_, Ok(p)) if p.dest.is_some() => Ok(finish(p)),
         (Some(op), _) => Err(DestinationError::Unsupported(op.clone())),
-        (None, other) => other,
+        (None, other) => other.map(finish),
     }
 }
 
@@ -355,7 +486,8 @@ fn parse(
     raw: &[&str],
     words: &[String],
     is_file: &dyn Fn(&str) -> bool,
-) -> Result<Option<String>, DestinationError> {
+    is_input: &dyn Fn(&str) -> bool,
+) -> Result<Parsed, DestinationError> {
     let mut cands: Vec<Cand> = Vec::new();
     let mut verb_since_last = false;
     let mut first_verb: Option<usize> = None;
@@ -433,9 +565,16 @@ fn parse(
     if demote {
         dests.retain(|c| !c.existing);
     }
+    // A name that already exists in the workspace and is not governed by a
+    // destination verb is material to read, never a write target, when another
+    // candidate remains that does not exist (the new file the goal asks for).
+    let input_like = |c: &Cand| !c.governed && is_input(&c.path);
+    if dests.iter().any(|c| !input_like(c) && !is_input(&c.path)) {
+        dests.retain(|c| !input_like(c));
+    }
     let Some(first) = dests.first() else {
         if cands.is_empty() {
-            return Ok(None);
+            return Ok(Parsed::default());
         }
         let mut names: Vec<String> = Vec::new();
         for c in &cands {
@@ -460,7 +599,16 @@ fn parse(
             }
         }
     }
-    Ok(Some(first.path.clone()))
+    let mut others: Vec<String> = Vec::new();
+    for c in &cands {
+        if c.path != first.path && !others.contains(&c.path) {
+            others.push(c.path.clone());
+        }
+    }
+    Ok(Parsed {
+        dest: Some((first.path.clone(), first.idx)),
+        others,
+    })
 }
 
 #[cfg(test)]

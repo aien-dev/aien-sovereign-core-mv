@@ -1196,19 +1196,188 @@ pub fn classify_target(goal: &str, ws: &Path) -> TargetClass {
 /// names none). This is the single decision of a task: the prompt, the budget,
 /// the merge target and the check of the reply's `filename:` all use it.
 pub fn classify_destination(goal: &str, ws: &Path) -> (TargetClass, Option<String>) {
+    let (class, dest, _) = classify_with_inputs(goal, ws);
+    (class, dest)
+}
+
+/// Directories of the workspace the goal points at: every "Y folder" phrase and
+/// every directory name used as a modifier ("the three inbox files").
+fn goal_dirs(goal: &str, ws: &Path) -> Vec<String> {
+    const NOUNS: &[&str] = &["files", "documents", "docs", "notes", "texts"];
+    let mut out = crate::destination::goal_folders(goal);
+    let ws_words: Vec<&str> = goal.split_whitespace().collect();
+    for pair in ws_words.windows(2) {
+        let trim = |c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-';
+        let (w, next) = (pair[0].trim_matches(trim), pair[1].trim_matches(trim));
+        if !w.is_empty()
+            && NOUNS.contains(&next.to_ascii_lowercase().as_str())
+            && !out.iter().any(|o| o == w)
+            && ws.join(w).is_dir()
+        {
+            out.push(w.to_string());
+        }
+    }
+    out
+}
+
+/// Where a named input word lives in the workspace: the word itself, else the
+/// same name inside a directory the goal points at. None when it does not exist.
+fn locate_input(word: &str, ws: &Path, dirs: &[String]) -> Option<String> {
+    let exists = |p: &str| std::fs::symlink_metadata(ws.join(p)).is_ok();
+    if exists(word) {
+        return Some(word.to_string());
+    }
+    if word.contains('/') {
+        return None;
+    }
+    dirs.iter()
+        .map(|d| format!("{d}/{word}"))
+        .find(|p| exists(p))
+}
+
+/// `classify_destination` plus the other paths the goal names (inputs, as the
+/// goal wrote them). A name that exists in the workspace and is not the named
+/// destination is an input, never a write target (sc#383).
+fn classify_with_inputs(goal: &str, ws: &Path) -> (TargetClass, Option<String>, Vec<String>) {
     let Ok(ws) = std::fs::canonicalize(ws) else {
-        return (TargetClass::New, None);
+        return (TargetClass::New, None, Vec::new());
     };
     let is_file = |w: &str| {
         check_relative_path(w).is_ok() && std::fs::metadata(ws.join(w)).is_ok_and(|m| m.is_file())
     };
-    let w = match crate::destination::named_destination(goal, &is_file) {
-        Ok(Some(w)) => w,
-        Ok(None) => return (TargetClass::New, None),
-        Err(e) => return (TargetClass::Refused(format!("{e}")), None),
+    let dirs = goal_dirs(goal, &ws);
+    let is_input = |w: &str| {
+        check_relative_path(w).is_ok() && locate_input(w, &ws, &dirs).is_some_and(|p| is_file(&p))
+    };
+    let n = match crate::destination::named_paths(goal, &is_file, &is_input) {
+        Ok(n) => n,
+        Err(e) => return (TargetClass::Refused(format!("{e}")), None, Vec::new()),
+    };
+    let Some(w) = n.dest else {
+        return (TargetClass::New, None, n.inputs);
     };
     let class = classify_named(&w, &ws);
-    (class, Some(w))
+    (class, Some(w), n.inputs)
+}
+
+/// Input files for the prompt (sc#382): the paths the goal reads, plus the
+/// regular files directly inside a folder the goal reads from. All resolved
+/// strictly inside the canonical workspace, UTF-8 only, sorted by name, bounded
+/// by `COMPOSE_INPUTS_MAX_FILES` and `COMPOSE_INPUTS_MAX_BYTES`. Returns the
+/// prompt block ("" when nothing is shown), what was shown and what was left
+/// out. A named input that leaves the workspace is refused. Never writes.
+fn gather_inputs(
+    goal: &str,
+    ws: &Path,
+    named: &[String],
+    dest: Option<&str>,
+) -> Result<(String, Vec<InputRef>, Vec<InputOmitted>), String> {
+    let none = (String::new(), Vec::new(), Vec::new());
+    let Ok(ws) = std::fs::canonicalize(ws) else {
+        return Ok(none);
+    };
+    let dirs = goal_dirs(goal, &ws);
+    let mut omitted: Vec<InputOmitted> = Vec::new();
+    let mut cands: Vec<String> = Vec::new();
+    let refuse = |w: &str, why: &str| format!("RunComposeTask: input {w} {why}; refusing");
+    for w in named {
+        if check_relative_path(w).is_err() {
+            return Err(refuse(
+                w,
+                "is not a plain relative path inside the workspace",
+            ));
+        }
+        let Some(rel) = locate_input(w, &ws, &dirs) else {
+            continue; // does not exist: nothing to read, as before
+        };
+        match std::fs::canonicalize(ws.join(&rel)) {
+            Ok(full) if full.starts_with(&ws) => {
+                if full.is_file() && Some(rel.as_str()) != dest && !cands.contains(&rel) {
+                    cands.push(rel);
+                }
+            }
+            _ => return Err(refuse(w, "resolves outside the workspace")),
+        }
+    }
+    for d in crate::destination::input_folders(goal) {
+        let Ok(full) = std::fs::canonicalize(ws.join(&d)) else {
+            continue;
+        };
+        if check_relative_path(&d).is_err() || !full.starts_with(&ws) || !full.is_dir() {
+            continue;
+        }
+        let Ok(rd) = std::fs::read_dir(&full) else {
+            continue;
+        };
+        for e in rd.flatten() {
+            let rel = format!("{d}/{}", e.file_name().to_string_lossy());
+            let ft = e.file_type();
+            if ft.as_ref().is_ok_and(|t| t.is_file()) {
+                if Some(rel.as_str()) != dest && !cands.contains(&rel) {
+                    cands.push(rel);
+                }
+            } else if ft.is_ok_and(|t| t.is_symlink()) {
+                omitted.push(InputOmitted {
+                    name: rel,
+                    reason: "symlink, not followed".into(),
+                });
+            }
+        }
+    }
+    cands.sort();
+    let mut included: Vec<InputRef> = Vec::new();
+    let mut block = String::new();
+    let mut used = 0usize;
+    for rel in cands {
+        let skip = |reason: String| InputOmitted {
+            name: rel.clone(),
+            reason,
+        };
+        if included.len() >= COMPOSE_INPUTS_MAX_FILES {
+            omitted.push(skip(format!(
+                "over the {COMPOSE_INPUTS_MAX_FILES}-file input limit"
+            )));
+            continue;
+        }
+        let Ok(meta) = std::fs::metadata(ws.join(&rel)) else {
+            omitted.push(skip("unreadable".into()));
+            continue;
+        };
+        if meta.len() as usize > COMPOSE_INPUTS_MAX_BYTES - used {
+            omitted.push(skip(format!(
+                "{} bytes does not fit the {COMPOSE_INPUTS_MAX_BYTES}-byte input limit",
+                meta.len()
+            )));
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(ws.join(&rel)) else {
+            omitted.push(skip("unreadable".into()));
+            continue;
+        };
+        let Ok(text) = String::from_utf8(bytes) else {
+            omitted.push(skip("not UTF-8 text".into()));
+            continue;
+        };
+        if text.len() > COMPOSE_INPUTS_MAX_BYTES - used {
+            omitted.push(skip("does not fit the input byte limit".into()));
+            continue;
+        }
+        used += text.len();
+        let nl = if text.ends_with('\n') { "" } else { "\n" };
+        block.push_str(&format!("--- {rel} ---\n{text}{nl}--- end {rel} ---\n"));
+        included.push(InputRef {
+            sha256: hex(&Sha256::digest(text.as_bytes())),
+            bytes: text.len(),
+            name: rel,
+        });
+    }
+    omitted.sort_by(|a, b| a.name.cmp(&b.name));
+    if !block.is_empty() {
+        block = format!(
+            "\nInput files from the workspace (read only, material for the answer, not files to write):\n{block}"
+        );
+    }
+    Ok((block, included, omitted))
 }
 
 fn classify_named(w: &str, ws: &Path) -> TargetClass {
@@ -1325,20 +1494,40 @@ pub fn task_plan(goal: &str, ws: &Path) -> Result<TaskPrompt, String> {
 /// none). The one decision of a task: a reply whose `filename:` differs from
 /// the destination is refused by the Skill.
 pub fn task_decision(goal: &str, ws: &Path) -> Result<(TaskPrompt, Option<String>), String> {
+    task_decision_with_inputs(goal, ws).map(|(plan, dest, _, _)| (plan, dest))
+}
+
+/// A task decision with the inputs its prompt carries and the candidates left out.
+pub type TaskDecisionInputs = (TaskPrompt, Option<String>, Vec<InputRef>, Vec<InputOmitted>);
+
+/// `task_decision` plus the inputs its prompt carries and the candidates left
+/// out (sc#382). The prompt is the fixed template, the input block when the
+/// goal points at workspace files to read, then the edit or new-document block.
+pub fn task_decision_with_inputs(goal: &str, ws: &Path) -> Result<TaskDecisionInputs, String> {
     let mut prompt = proposal_prompt(goal, &ws.display().to_string());
-    let (class, dest) = classify_destination(goal, ws);
+    let (class, dest, named) = classify_with_inputs(goal, ws);
     let kind = class.kind();
+    if let TargetClass::Refused(why) = class {
+        return Err(format!("RunComposeTask: {why}"));
+    }
+    let (block, included, omitted) = gather_inputs(goal, ws, &named, dest.as_deref())?;
+    prompt.push_str(&block);
     match class {
-        TargetClass::Refused(why) => Err(format!("RunComposeTask: {why}")),
+        TargetClass::Refused(_) => unreachable!("refused above"),
         TargetClass::Edit(path, content) => {
             prompt.push_str(&edit_block(&path, &content));
-            Ok(((prompt, Some((path, content)), kind), dest))
+            Ok((
+                (prompt, Some((path, content)), kind),
+                dest,
+                included,
+                omitted,
+            ))
         }
         TargetClass::New => {
             if let Some(d) = &dest {
                 prompt.push_str(&new_document_block(d));
             }
-            Ok(((prompt, None, kind), dest))
+            Ok(((prompt, None, kind), dest, included, omitted))
         }
     }
 }
@@ -1347,15 +1536,6 @@ pub fn task_decision(goal: &str, ws: &Path) -> Result<(TaskPrompt, Option<String
 pub const COMPOSE_INPUTS_MAX_BYTES: usize = 16384;
 /// Most input files a proposal prompt carries (sc#382).
 pub const COMPOSE_INPUTS_MAX_FILES: usize = 16;
-
-/// `task_decision` plus the inputs the prompt carries and the candidates left out.
-pub fn task_decision_with_inputs(
-    goal: &str,
-    ws: &Path,
-) -> Result<(TaskPrompt, Option<String>, Vec<InputRef>, Vec<InputOmitted>), String> {
-    let (plan, dest) = task_decision(goal, ws)?;
-    Ok((plan, dest, Vec::new(), Vec::new()))
-}
 
 /// Largest prior-lines x reply-lines table `merge_edit_reply` builds.
 pub const COMPOSE_EDIT_MERGE_MAX_CELLS: usize = 4 << 20;
@@ -2181,7 +2361,7 @@ impl ComposeBridge {
                 ws.display()
             ));
         }
-        let (mut plan, dest) = task_decision(goal, &ws)?;
+        let (mut plan, dest, inputs, inputs_omitted) = task_decision_with_inputs(goal, &ws)?;
         // The requirements the goal states are checked on every path: the model
         // path and an approved proposal (refused before any write when unmet).
         let machine_goal =
@@ -2361,8 +2541,8 @@ impl ComposeBridge {
             },
             persona,
             memory,
-            inputs: Vec::new(),
-            inputs_omitted: Vec::new(),
+            inputs,
+            inputs_omitted,
         })
     }
 
