@@ -48,6 +48,7 @@ members = [
     "crates/aien-allen-memory",
     "tools/aien-test",
     "crates/aien-drive",
+    "crates/aien-calc",
 ]
 
 [workspace.package]

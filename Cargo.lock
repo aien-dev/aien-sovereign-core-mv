@@ -74,6 +74,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "aien-calc"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "clap",
+ "num-bigint",
+ "num-integer",
+ "num-rational",
+ "num-traits",
+ "serde_json",
+]
+
+[[package]]
 name = "aien-campaign-verifier"
 version = "0.1.0"
 dependencies = [
