@@ -77,6 +77,7 @@ dependencies = [
 name = "aien-calc"
 version = "0.1.0"
 dependencies = [
+ "aien-inference-abi",
  "blake3",
  "clap",
  "num-bigint",

@@ -1,6 +1,9 @@
 //! Exact evaluator for calc-lang v1. Every intermediate is a rational; there is no floating point.
 
 use crate::error::{Refusal, Res};
+use crate::format::{
+    class_of, decode, encode, fields_of, flush, neighbour, round_to, ulp, Class, Format, Policy,
+};
 use crate::lexer::MAX_BITS;
 use crate::parser::{Ast, BinOp};
 use crate::ratutil::{round_signed, RoundMode};
@@ -105,8 +108,17 @@ fn pow(base: &BigRational, exp: &BigRational) -> Res<BigRational> {
 fn binary(op: BinOp, a: &Value, b: &Value) -> Res<Value> {
     use BinOp::*;
     if matches!(op, Eq | Ne) {
-        if let (Value::Bool(x), Value::Bool(y)) = (a, b) {
-            return Ok(Value::Bool((x == y) == (op == Eq)));
+        let same_kind = matches!(
+            (a, b),
+            (Value::Bool(_), Value::Bool(_))
+                | (Value::Class(_), Value::Class(_))
+                | (Value::Fmt(_), Value::Fmt(_))
+                | (Value::Mode(_), Value::Mode(_))
+                | (Value::Policy(_), Value::Policy(_))
+                | (Value::Inf { .. }, Value::Inf { .. })
+        );
+        if same_kind {
+            return Ok(Value::Bool((a == b) == (op == Eq)));
         }
     }
     let x = num(a)?;
@@ -165,6 +177,9 @@ fn is_pow2_int(n: &BigInt) -> Option<u64> {
 }
 
 fn call(name: &str, args: &[Value]) -> Res<Value> {
+    if let Some(r) = format_call(name, args) {
+        return r;
+    }
     let n = |i: usize| num(&args[i]);
     let out = match name {
         "abs" => {
@@ -261,7 +276,19 @@ fn ident(name: &str) -> Res<Value> {
     match name {
         "true" => Ok(Value::Bool(true)),
         "false" => Ok(Value::Bool(false)),
-        other => Err(Refusal::new(format!("unknown name `{other}`"))),
+        "saturate" => Ok(Value::Policy(Policy::Saturate)),
+        "refuse" => Ok(Value::Policy(Policy::Refuse)),
+        other => {
+            if let Some(f) = Format::from_name(other) {
+                Ok(Value::Fmt(f))
+            } else if let Some(c) = Class::from_name(other) {
+                Ok(Value::Class(c))
+            } else if let Some(m) = RoundMode::from_name(other) {
+                Ok(Value::Mode(m))
+            } else {
+                Err(Refusal::new(format!("unknown name `{other}`")))
+            }
+        }
     }
 }
 
@@ -285,4 +312,108 @@ pub fn evaluate(ast: &Ast, env: &Env) -> Res<Value> {
             call(name, &vals)
         }
     }
+}
+
+// ---- format lab functions (cut 2) ----
+
+fn fmt_arg(v: &Value) -> Res<Format> {
+    match v {
+        Value::Fmt(f) => Ok(*f),
+        other => Err(Refusal::new(format!("expected a format (e4m3, e5m2, f16, bf16, f32, f64, int8, int4, uint8, uint4), found {}", other.kind()))),
+    }
+}
+
+fn code_arg(fmt: Format, v: &Value) -> Res<u64> {
+    let r = num(v)?;
+    let n = int(&r, "bit pattern")?;
+    match n.to_u64() {
+        Some(c) if fmt.width() == 64 || c >> fmt.width() == 0 => Ok(c),
+        _ => Err(Refusal::new(format!(
+            "code {n} is out of range for {} ({} bits)",
+            fmt.name(),
+            fmt.width()
+        ))),
+    }
+}
+
+/// Optional trailing rounding mode and overflow policy, in either order, each at most once.
+fn options(rest: &[Value]) -> Res<(Option<RoundMode>, Option<Policy>)> {
+    let (mut mode, mut policy) = (None, None);
+    for v in rest {
+        match v {
+            Value::Mode(m) => {
+                if mode.replace(*m).is_some() {
+                    return Err(Refusal::new("rounding mode given twice"));
+                }
+            }
+            Value::Policy(_) | Value::Class(Class::Inf) => {
+                let p = match v {
+                    Value::Policy(p) => *p,
+                    _ => Policy::Inf,
+                };
+                if policy.replace(p).is_some() {
+                    return Err(Refusal::new("overflow policy given twice"));
+                }
+            }
+            other => {
+                return Err(Refusal::new(format!(
+                    "expected a rounding mode (rne rtz rup rdown rna) or overflow policy (saturate inf refuse), found {}",
+                    other.kind()
+                )))
+            }
+        }
+    }
+    Ok((mode, policy))
+}
+
+fn format_call(name: &str, args: &[Value]) -> Option<Res<Value>> {
+    let run = || -> Res<Value> {
+        match name {
+            "val" => {
+                arity(name, args, 2, 2)?;
+                let f = fmt_arg(&args[0])?;
+                decode(f, code_arg(f, &args[1])?)
+            }
+            "bits" => {
+                arity(name, args, 2, 4)?;
+                let f = fmt_arg(&args[0])?;
+                let (mode, policy) = options(&args[2..])?;
+                let code = encode(f, &args[1], mode, policy)?;
+                Ok(Value::Num(BigRational::from_integer(BigInt::from(code))))
+            }
+            "round" => {
+                arity(name, args, 2, 4)?;
+                let f = fmt_arg(&args[0])?;
+                let (mode, policy) = options(&args[2..])?;
+                round_to(f, &args[1], mode, policy)
+            }
+            "class" => {
+                arity(name, args, 2, 2)?;
+                Ok(Value::Class(class_of(fmt_arg(&args[0])?, &args[1])?))
+            }
+            "next" | "prev" => {
+                arity(name, args, 2, 2)?;
+                neighbour(fmt_arg(&args[0])?, &args[1], name == "next")
+            }
+            "ulp" => {
+                arity(name, args, 2, 2)?;
+                ulp(fmt_arg(&args[0])?, &args[1])
+            }
+            "ftz" | "daz" => {
+                arity(name, args, 2, 2)?;
+                flush(fmt_arg(&args[0])?, &args[1])
+            }
+            "fields" => {
+                arity(name, args, 2, 2)?;
+                let f = fmt_arg(&args[0])?;
+                Ok(Value::Fields(fields_of(f, code_arg(f, &args[1])?)?))
+            }
+            _ => unreachable!("guarded by the caller"),
+        }
+    };
+    matches!(
+        name,
+        "val" | "bits" | "round" | "class" | "next" | "prev" | "ulp" | "ftz" | "daz" | "fields"
+    )
+    .then(run)
 }

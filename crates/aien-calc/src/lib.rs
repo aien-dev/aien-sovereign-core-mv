@@ -6,6 +6,7 @@
 
 pub mod error;
 pub mod eval;
+pub mod format;
 pub mod json;
 pub mod lexer;
 pub mod parser;

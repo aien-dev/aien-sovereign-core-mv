@@ -16,6 +16,7 @@ num-traits = "0.2"
 
 [dev-dependencies]
 serde_json = "1.0"
+aien-inference-abi = { path = "../aien-inference-abi" }
 
 [lib]
 name = "aien_calc"

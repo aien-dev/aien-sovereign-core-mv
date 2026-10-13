@@ -90,6 +90,31 @@ pub(crate) fn value_json(v: &Value, precision: u32) -> (Json, String) {
             Json::obj(vec![("kind", Json::str("bool")), ("value", Json::Bool(*b))]),
             format!("value   {b}"),
         ),
+        Value::Fields(f) => (
+            Json::obj(vec![
+                ("exp", Json::Str(f.exp.to_string())),
+                ("kind", Json::str("fields")),
+                ("mant", Json::Str(f.mant.to_string())),
+                ("sign", Json::Str(f.sign.to_string())),
+            ]),
+            format!("value   {}", v.human()),
+        ),
+        other => {
+            let kind = match other {
+                Value::NaN | Value::Inf { .. } | Value::NegZero => "special",
+                Value::Fmt(_) => "format",
+                Value::Class(_) => "class",
+                Value::Mode(_) => "rounding_mode",
+                _ => "policy",
+            };
+            (
+                Json::obj(vec![
+                    ("kind", Json::str(kind)),
+                    ("value", Json::Str(other.canonical())),
+                ]),
+                format!("value   {}", other.human()),
+            )
+        }
     }
 }
 
