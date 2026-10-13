@@ -13,6 +13,7 @@ pub mod parser;
 pub mod ratutil;
 pub mod receipt;
 pub mod render;
+pub mod sweep;
 pub mod value;
 
 pub use error::{CalcError, Refusal};

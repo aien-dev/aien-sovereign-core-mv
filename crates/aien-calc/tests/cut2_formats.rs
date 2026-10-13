@@ -307,6 +307,10 @@ fn fields_vectors() {
 
 #[test]
 fn arithmetic_on_decoded_values_stays_exact() {
+    // negative zero is an ordinary zero in arithmetic and comparisons
+    assert_eq!(ev("val(e4m3, 0x80) + 1"), "1/1");
+    assert_eq!(ev("val(e4m3, 0x80) == 0"), "true");
+    assert_eq!(ev("-val(e4m3, 0x80)"), "0/1");
     assert_eq!(ev("val(f16, 0x3c01) - 1"), "1/1024");
     assert_eq!(ev("val(e4m3, 0x38) + val(e4m3, 0x39)"), "17/8");
     assert_eq!(ev("val(f32, 0x3f800000) / 3 * 3"), "1/1");

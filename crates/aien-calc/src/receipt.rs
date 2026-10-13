@@ -47,12 +47,15 @@ impl Receipt {
 }
 
 /// Fixed `method` block shared by every tool.
-pub(crate) fn method_block(precision: u32) -> Json {
+pub(crate) fn method_block(precision: Option<u32>) -> Json {
     Json::obj(vec![
         ("decimal_rounding", Json::str("half-even")),
         ("format_table", Json::str(FORMAT_TABLE)),
         ("language", Json::str(LANGUAGE)),
-        ("precision_significant_digits", Json::Int(precision as i64)),
+        (
+            "precision_significant_digits",
+            precision.map_or(Json::Null, |p| Json::Int(p as i64)),
+        ),
         ("rounding_default", Json::str("rne")),
     ])
 }
@@ -183,7 +186,7 @@ pub fn eval(expr: &str, precision: u32) -> Result<EvalOutcome, CalcError> {
                 ("precision", Json::Int(precision as i64)),
             ]),
         ),
-        ("method", method_block(precision)),
+        ("method", method_block(Some(precision))),
         ("result", result_json),
         ("schema", Json::str(SCHEMA)),
         ("tool", Json::str("eval")),

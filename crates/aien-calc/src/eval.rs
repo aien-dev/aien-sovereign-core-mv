@@ -41,6 +41,7 @@ fn checked(r: BigRational, what: &str) -> Res<BigRational> {
 pub(crate) fn num(v: &Value) -> Res<BigRational> {
     match v {
         Value::Num(r) => Ok(r.clone()),
+        Value::NegZero => Ok(BigRational::zero()),
         other => Err(Refusal::new(format!(
             "expected a number, found {}",
             other.kind()
