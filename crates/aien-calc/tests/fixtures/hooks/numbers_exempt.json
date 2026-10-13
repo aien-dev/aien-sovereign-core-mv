@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"/work/repo/docs/adr/0042-decode-budget.md","content":"# Decode budget\n\nThe model weights are 3.04 GB at 4-bit and the bus moves 273 GB/s, so one token takes 11 ms,\nwhich is 90 tok/s. The KV cache costs 98 KB per token.\n\nCALC-EXEMPT: figures quoted from the vendor datasheet, not derived here.\n"}}
