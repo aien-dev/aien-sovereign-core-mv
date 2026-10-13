@@ -7,9 +7,17 @@ use crate::parser::parse;
 use crate::render::decimal;
 use crate::value::Value;
 
-/// Crate version plus the git commit the binary was built from.
-pub const CALC_VERSION: &str =
-    concat!(env!("CARGO_PKG_VERSION"), "+", env!("AIEN_CALC_GIT_COMMIT"));
+/// Semantic engine version: the only version that enters a hashed receipt. Bump it (and regenerate
+/// the pinned ids in `tests/engine_version.rs`) only when evaluation semantics or the receipt
+/// layout change; rebuilding from another commit must never change a receipt id.
+pub const ENGINE_VERSION: &str = "aien-calc/1 grammar/1";
+/// Crate version plus the git commit of this build. Shown in human output, never hashed.
+pub const BUILD_INFO: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("AIEN_CALC_GIT_COMMIT"));
+
+/// Lines shown before the receipt line: engine (hashed) and build (not hashed).
+pub(crate) fn provenance_lines() -> String {
+    format!("engine  {ENGINE_VERSION}\nbuild   {BUILD_INFO} (not part of the receipt)\n")
+}
 pub const LANGUAGE: &str = "calc-lang v1";
 pub const FORMAT_TABLE: &str = "v1";
 pub const SCHEMA: &str = "aien-calc-receipt";
@@ -177,7 +185,7 @@ pub fn eval(expr: &str, precision: u32) -> Result<EvalOutcome, CalcError> {
         ),
     };
     let body = Json::obj(vec![
-        ("calc_version", Json::str(CALC_VERSION)),
+        ("calc_version", Json::str(ENGINE_VERSION)),
         ("exactness", Json::str(exactness)),
         (
             "inputs",
@@ -194,7 +202,11 @@ pub fn eval(expr: &str, precision: u32) -> Result<EvalOutcome, CalcError> {
         ("warnings", Json::Arr(vec![])),
     ]);
     let receipt = Receipt::new(body);
-    let text = format!("expr    {canonical}\n{body_text}\nreceipt {}", receipt.id());
+    let text = format!(
+        "expr    {canonical}\n{body_text}\n{}receipt {}",
+        provenance_lines(),
+        receipt.id()
+    );
     Ok(EvalOutcome {
         receipt,
         text,

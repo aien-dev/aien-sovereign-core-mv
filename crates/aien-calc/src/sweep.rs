@@ -10,7 +10,7 @@ use crate::eval::{evaluate, Env};
 use crate::format::{decode, Format};
 use crate::json::Json;
 use crate::parser::{parse, Ast};
-use crate::receipt::{method_block, Receipt, CALC_VERSION, SCHEMA};
+use crate::receipt::{method_block, Receipt, ENGINE_VERSION, SCHEMA};
 use crate::value::Value;
 
 /// Largest sweep, in codes (16-bit formats). f32 and f64 are refused.
@@ -262,7 +262,7 @@ pub fn sweep(
             .unwrap_or(Json::Null)
     };
     let body = Json::obj(vec![
-        ("calc_version", Json::str(CALC_VERSION)),
+        ("calc_version", Json::str(ENGINE_VERSION)),
         ("exactness", Json::str("exact")),
         (
             "inputs",
@@ -385,7 +385,11 @@ pub fn sweep(
             text.push_str(&format!("  {} {r}\n", hex(*c, digits)));
         }
     }
-    text.push_str(&format!("table   {table_digest}\nreceipt {}", receipt.id()));
+    text.push_str(&format!(
+        "table   {table_digest}\n{}receipt {}",
+        crate::receipt::provenance_lines(),
+        receipt.id()
+    ));
     Ok(SweepOutcome {
         receipt,
         text,

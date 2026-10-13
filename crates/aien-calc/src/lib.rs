@@ -18,5 +18,5 @@ pub mod value;
 
 pub use error::{CalcError, Refusal};
 pub use json::Json;
-pub use receipt::{eval, EvalOutcome, Receipt, CALC_VERSION};
+pub use receipt::{eval, EvalOutcome, Receipt, BUILD_INFO, ENGINE_VERSION};
 pub use value::Value;
