@@ -9,6 +9,8 @@ pub mod eval;
 pub mod format;
 pub mod json;
 pub mod lexer;
+#[cfg(feature = "mcp")]
+pub mod mcp;
 pub mod parser;
 pub mod ratutil;
 pub mod receipt;

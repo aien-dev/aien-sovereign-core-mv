@@ -84,7 +84,9 @@ dependencies = [
  "num-integer",
  "num-rational",
  "num-traits",
+ "rmcp",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

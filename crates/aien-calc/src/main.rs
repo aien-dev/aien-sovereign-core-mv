@@ -19,8 +19,11 @@ struct Cli {
     /// Do not save the receipt to the store ($AIEN_CALC_HOME, else ~/.aien/calc).
     #[arg(long, global = true)]
     no_store: bool,
+    /// Serve the eval, sweep and verify tools over MCP on stdin/stdout (needs the `mcp` build feature).
+    #[arg(long)]
+    mcp: bool,
     #[command(subcommand)]
-    command: Cmd,
+    command: Option<Cmd>,
 }
 
 #[derive(Subcommand)]
@@ -175,7 +178,18 @@ fn b3_cmd(files: &[String]) -> ExitCode {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let no_store = cli.no_store;
-    match cli.command {
+    let Some(command) = cli.command else {
+        if cli.mcp {
+            return mcp_cmd();
+        }
+        eprintln!("aien-calc: a command is required (eval, sweep, verify, export, b3) or --mcp; see --help");
+        return ExitCode::from(2);
+    };
+    if cli.mcp {
+        eprintln!("aien-calc: --mcp cannot be combined with a command");
+        return ExitCode::from(2);
+    }
+    match command {
         Cmd::Eval {
             expr,
             precision,
@@ -220,4 +234,21 @@ fn main() -> ExitCode {
         },
         Cmd::B3 { files } => b3_cmd(&files),
     }
+}
+
+#[cfg(feature = "mcp")]
+fn mcp_cmd() -> ExitCode {
+    match aien_calc::mcp::serve_stdio() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("aien-calc: mcp server: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+#[cfg(not(feature = "mcp"))]
+fn mcp_cmd() -> ExitCode {
+    eprintln!("aien-calc: this build has no MCP server; rebuild with `--features mcp`");
+    ExitCode::from(2)
 }
