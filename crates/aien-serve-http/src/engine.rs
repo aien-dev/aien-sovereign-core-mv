@@ -51,6 +51,22 @@ pub struct GenerateOutcome {
     pub finish: FinishReason,
     pub prefill_ms: u64,
     pub decode_ms: u64,
+    /// Prompt tokens whose KV was already resident, so not recomputed (prefix reuse).
+    pub reused_prompt_tokens: usize,
+}
+
+/// What a prefill-ahead call reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PrefillOutcome {
+    /// Tokens of the target now resident (a prefix of it).
+    pub cached: usize,
+    /// Tokens that were already resident before this call.
+    pub reused: usize,
+    /// Tokens computed by this call.
+    pub computed: usize,
+    /// The resident sequence diverged from the target and the KV was cut back.
+    pub rewound: bool,
+    pub ms: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,15 +109,34 @@ pub trait Engine: Send + Sync {
         params: &GenerateParams,
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, EngineError>;
+
+    /// True when [`Engine::prefill`] works (ahead-of-Enter prefill is offered).
+    fn supports_prefill(&self) -> bool {
+        false
+    }
+
+    /// Extends the resident KV toward `tokens` without decoding: keeps the longest common
+    /// prefix with what is resident, cuts the KV back first if the resident sequence
+    /// diverged (an edit), then computes at most `max_new` new tokens. Never samples and
+    /// never removes matching KV. The caller serialises engine calls and calls again until
+    /// `cached == tokens.len()`.
+    fn prefill(&self, _tokens: &[u32], _max_new: usize) -> Result<PrefillOutcome, EngineError> {
+        Err(EngineError::Failed("this engine does not support prefill-ahead".into()))
+    }
 }
 
-/// Test engine: ignores the prompt and replays a fixed token list, optionally
-/// sleeping between tokens so tests can observe a busy server.
-#[derive(Debug, Clone)]
+/// Test engine: replays a fixed token list. It keeps a fake "KV" (the token sequence it
+/// holds) with the same prefix-reuse and rewind rule as the Omega engine, counts the
+/// tokens it had to compute, and can sleep per token so tests can observe scheduling.
+#[derive(Debug)]
 pub struct StubEngine {
     reply: Vec<u32>,
     per_token_delay: Duration,
+    prefill_token_delay: Duration,
     max_context: usize,
+    skip_rewind: bool,
+    kv: std::sync::Mutex<Vec<u32>>,
+    computed_total: std::sync::atomic::AtomicU64,
 }
 
 impl StubEngine {
@@ -109,8 +144,56 @@ impl StubEngine {
         Self {
             reply,
             per_token_delay: Duration::ZERO,
+            prefill_token_delay: Duration::ZERO,
             max_context: 4096,
+            skip_rewind: false,
+            kv: std::sync::Mutex::new(Vec::new()),
+            computed_total: std::sync::atomic::AtomicU64::new(0),
         }
+    }
+
+    /// Sleep per computed prompt token (prefill and generation alike).
+    pub fn with_prefill_delay(mut self, d: Duration) -> Self {
+        self.prefill_token_delay = d;
+        self
+    }
+
+    /// MUTANT for tests: on an edit, keep the stale KV instead of cutting it back.
+    pub fn with_mutant_skip_rewind(mut self) -> Self {
+        self.skip_rewind = true;
+        self
+    }
+
+    /// The fake KV: the tokens currently resident.
+    pub fn resident_snapshot(&self) -> Vec<u32> {
+        self.kv.lock().expect("kv").clone()
+    }
+
+    /// Prompt tokens computed so far over the engine's life (prefill and generation).
+    pub fn computed_total(&self) -> u64 {
+        self.computed_total.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Applies the shared plan to the fake KV; returns (tokens reused, rewound).
+    fn align(&self, kv: &mut Vec<u32>, target: &[u32]) -> (usize, bool) {
+        let plan = crate::session::plan_prefill(kv, target);
+        let mut rewound = false;
+        if let Some(n) = plan.rewind_to {
+            if !self.skip_rewind {
+                kv.truncate(n);
+                rewound = true;
+            }
+        }
+        (plan.common, rewound)
+    }
+
+    fn compute(&self, kv: &mut Vec<u32>, tokens: &[u32]) {
+        if !self.prefill_token_delay.is_zero() {
+            std::thread::sleep(self.prefill_token_delay * tokens.len() as u32);
+        }
+        kv.extend_from_slice(tokens);
+        self.computed_total
+            .fetch_add(tokens.len() as u64, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn with_delay(mut self, per_token_delay: Duration) -> Self {
@@ -133,6 +216,29 @@ impl Engine for StubEngine {
         self.max_context
     }
 
+    fn supports_prefill(&self) -> bool {
+        true
+    }
+
+    fn prefill(&self, tokens: &[u32], max_new: usize) -> Result<PrefillOutcome, EngineError> {
+        if tokens.len() >= self.max_context {
+            return Err(EngineError::PromptTooLong { len: tokens.len(), max: self.max_context });
+        }
+        let t0 = Instant::now();
+        let mut kv = self.kv.lock().expect("kv");
+        let (reused, rewound) = self.align(&mut kv, tokens);
+        let end = tokens.len().min(reused.saturating_add(max_new));
+        let new = &tokens[reused.min(end)..end];
+        self.compute(&mut kv, new);
+        Ok(PrefillOutcome {
+            cached: end.max(reused),
+            reused,
+            computed: new.len(),
+            rewound,
+            ms: t0.elapsed().as_millis() as u64,
+        })
+    }
+
     fn generate(
         &self,
         prompt: &[u32],
@@ -149,6 +255,16 @@ impl Engine for StubEngine {
             });
         }
         let t0 = Instant::now();
+        let mut kv = self.kv.lock().expect("kv");
+        // Same rule as the Omega engine: at least the last prompt token is always computed.
+        let (common, _) = self.align(&mut kv, prompt);
+        let reused = common.min(prompt.len() - 1);
+        if !self.skip_rewind {
+            kv.truncate(reused);
+        }
+        self.compute(&mut kv, &prompt[reused..]);
+        let prefill_ms = t0.elapsed().as_millis() as u64;
+        let t1 = Instant::now();
         let mut emitted = 0usize;
         let mut pos = prompt.len();
         let mut finish = FinishReason::Stop;
@@ -166,6 +282,7 @@ impl Engine for StubEngine {
             }
             emitted += 1;
             pos += 1;
+            kv.push(tok);
             if !on_token(tok) {
                 finish = FinishReason::Cancelled;
                 break;
@@ -174,8 +291,9 @@ impl Engine for StubEngine {
         Ok(GenerateOutcome {
             emitted_tokens: emitted,
             finish,
-            prefill_ms: 0,
-            decode_ms: t0.elapsed().as_millis() as u64,
+            prefill_ms,
+            decode_ms: t1.elapsed().as_millis() as u64,
+            reused_prompt_tokens: reused,
         })
     }
 }

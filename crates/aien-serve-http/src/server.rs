@@ -11,19 +11,23 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use axum::body::Bytes;
 use axum::extract::rejection::BytesRejection;
 use axum::extract::{DefaultBodyLimit, Path, State};
+use axum::http::HeaderMap;
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde_json::Value;
-use tokio::sync::{mpsc, Mutex, OwnedMutexGuard};
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::codec::{Codec, CodecError};
 use crate::engine::{Engine, EngineError, FinishReason, GenerateParams};
-use crate::openai::{chunk_json, completion_json, ChatRequest, ErrorBody, ModelCard, ModelList, Usage};
+use crate::openai::{
+    chunk_json, completion_json, ChatRequest, ErrorBody, Message, ModelCard, ModelList, PromptTokensDetails, Usage,
+};
+use crate::scheduler::{GenPermit, PrefillConfig, Scheduler};
 use crate::text::{Push, TextAssembler};
 
 #[derive(Debug, Clone)]
@@ -44,6 +48,10 @@ pub struct ServerConfig {
     pub default_top_k: usize,
     /// Optional server-side context cap (min with the engine's own limit).
     pub max_context_tokens: Option<usize>,
+    /// Ahead-of-Enter prefill: session caps, chunk size, draft hold-back.
+    pub prefill: PrefillConfig,
+    /// Boot warmup: prefill bodies (same shape as `POST /v1/aien/prefill`) run at startup.
+    pub warmup: Vec<Value>,
 }
 
 impl Default for ServerConfig {
@@ -61,6 +69,8 @@ impl Default for ServerConfig {
             default_top_p: 0.8,
             default_top_k: 20,
             max_context_tokens: None,
+            prefill: PrefillConfig::default(),
+            warmup: Vec::new(),
         }
     }
 }
@@ -69,7 +79,7 @@ pub struct AppState {
     engine: Arc<dyn Engine>,
     codec: Arc<dyn Codec>,
     cfg: ServerConfig,
-    gate: Arc<Mutex<()>>,
+    sched: Arc<Scheduler>,
     started: Instant,
     counter: AtomicU64,
 }
@@ -162,6 +172,7 @@ enum Ev {
     Done {
         finish: &'static str,
         completion_tokens: usize,
+        cached_tokens: usize,
     },
     Error(String),
     /// The engine could not get the shared chip: 503 before any token.
@@ -181,6 +192,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/models", get(list_models))
         .route("/v1/models/:id", get(get_model))
         .route("/v1/chat/completions", post(chat_completions))
+        .route("/v1/aien/prefill", post(prefill_ahead))
+        .route("/v1/aien/sessions", get(sessions_status))
         .route("/health", get(health))
         .fallback(not_found)
         .layer(DefaultBodyLimit::max(limit))
@@ -202,15 +215,21 @@ pub async fn serve(
     }
     let listener = tokio::net::TcpListener::bind(SocketAddr::new(cfg.bind, cfg.port)).await?;
     let addr = listener.local_addr()?;
+    let cfg_prefill = cfg.prefill.clone();
+    let warmup = cfg.warmup.clone();
     let state = Arc::new(AppState {
         engine,
         codec,
         cfg,
-        gate: Arc::new(Mutex::new(())),
+        sched: Scheduler::new(cfg_prefill),
         started: Instant::now(),
         counter: AtomicU64::new(0),
     });
-    let app = router(state);
+    let app = router(Arc::clone(&state));
+    if !warmup.is_empty() && state.cfg.prefill.enabled {
+        let st = Arc::clone(&state);
+        tokio::task::spawn_blocking(move || run_warmup(&st, warmup));
+    }
     let handle = tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, app).await {
             eprintln!("aien-serve-http: server stopped: {e}");
@@ -253,7 +272,8 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
         "status": "ok",
         "model": state.cfg.model_id,
         "engine": state.engine.kind(),
-        "busy": state.gate.try_lock().is_err(),
+        "busy": state.sched.generation_active(),
+        "prefill_pending": state.sched.prefill_pending(),
         "uptime_s": state.started.elapsed().as_secs(),
     }))
 }
@@ -264,9 +284,10 @@ async fn not_found() -> ApiError {
 
 async fn chat_completions(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     body: Result<Bytes, BytesRejection>,
 ) -> Response {
-    match handle_chat(state, body).await {
+    match handle_chat(state, headers, body).await {
         Ok(r) => r,
         Err(e) => e.into_response(),
     }
@@ -274,6 +295,7 @@ async fn chat_completions(
 
 async fn handle_chat(
     state: Arc<AppState>,
+    headers: HeaderMap,
     body: Result<Bytes, BytesRejection>,
 ) -> Result<Response, ApiError> {
     let body = body.map_err(|r| {
@@ -285,10 +307,12 @@ async fn handle_chat(
     })?;
     let req: ChatRequest = serde_json::from_slice(&body)
         .map_err(|e| ApiError::bad_request(format!("invalid JSON request: {e}")))?;
+    let session = session_key(&headers, req.session.as_deref());
     let prepared = prepare(&state, req)?;
-    let guard = Arc::clone(&state.gate)
-        .try_lock_owned()
-        .map_err(|_| ApiError::busy())?;
+    let guard = state
+        .sched
+        .begin_generation(session.as_deref(), &prepared.prompt_tokens)
+        .ok_or_else(ApiError::busy)?;
 
     let (created, nanos) = unix_now();
     let n = state.counter.fetch_add(1, Ordering::Relaxed);
@@ -362,6 +386,27 @@ fn text_of_content(content: &Value) -> Result<String, ApiError> {
     }
 }
 
+fn build_turns(messages: &[Message]) -> Result<Vec<(String, String)>, ApiError> {
+    let mut turns: Vec<(String, String)> = Vec::with_capacity(messages.len());
+    for m in messages {
+        let role = match m.role.trim().to_ascii_lowercase().as_str() {
+            "system" | "developer" => "system",
+            "user" => "user",
+            "assistant" => "assistant",
+            "tool" | "function" => {
+                return Err(ApiError::bad_request(
+                    "role tool is not supported by this server (v1 is plain text)",
+                ))
+            }
+            other => {
+                return Err(ApiError::bad_request(format!("unknown message role '{other}'")))
+            }
+        };
+        turns.push((role.to_string(), text_of_content(&m.content)?));
+    }
+    Ok(turns)
+}
+
 fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
     let cfg = &state.cfg;
     if let Some(m) = req.model.as_deref() {
@@ -392,23 +437,7 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
             cfg.max_messages
         )));
     }
-    let mut turns: Vec<(String, String)> = Vec::with_capacity(req.messages.len());
-    for m in &req.messages {
-        let role = match m.role.trim().to_ascii_lowercase().as_str() {
-            "system" | "developer" => "system",
-            "user" => "user",
-            "assistant" => "assistant",
-            "tool" | "function" => {
-                return Err(ApiError::bad_request(
-                    "role tool is not supported by this server (v1 is plain text)",
-                ))
-            }
-            other => {
-                return Err(ApiError::bad_request(format!("unknown message role '{other}'")))
-            }
-        };
-        turns.push((role.to_string(), text_of_content(&m.content)?));
-    }
+    let turns = build_turns(&req.messages)?;
     let turn_refs: Vec<(&str, &str)> = turns
         .iter()
         .map(|(r, c)| (r.as_str(), c.as_str()))
@@ -510,12 +539,14 @@ fn run_generation(
     codec: Arc<dyn Codec>,
     prepared: Prepared,
     tx: mpsc::Sender<Ev>,
-    _guard: OwnedMutexGuard<()>,
+    permit: GenPermit,
     id: &str,
 ) {
     let mut asm = TextAssembler::new(codec, prepared.stop_strings);
     let mut stopped_by_string = false;
     let mut client_gone = false;
+    // Waits at most one background prefill chunk; generation has priority over prefill.
+    let _engine_guard = permit.lock_engine();
     let result = engine.generate(&prepared.prompt_tokens, &prepared.params, &mut |tok| {
         match asm.push(tok) {
             Push::Hold => true,
@@ -536,6 +567,9 @@ fn run_generation(
             }
         }
     });
+    if result.is_ok() {
+        permit.finished(&prepared.prompt_tokens);
+    }
     match result {
         Err(EngineError::Busy(m)) => {
             eprintln!("aien-serve-http: {id}: GPU busy: {m}");
@@ -570,8 +604,9 @@ fn run_generation(
                 0.0
             };
             eprintln!(
-                "aien-serve-http: {id}: prompt {} tok, reply {} tok, finish {finish}, prefill {} ms, decode {} ms ({tps:.2} tok/s)",
+                "aien-serve-http: {id}: prompt {} tok ({} cached), reply {} tok, finish {finish}, prefill {} ms, decode {} ms ({tps:.2} tok/s)",
                 prepared.prompt_tokens.len(),
+                out.reused_prompt_tokens,
                 out.emitted_tokens,
                 out.prefill_ms,
                 out.decode_ms
@@ -579,6 +614,7 @@ fn run_generation(
             let _ = tx.blocking_send(Ev::Done {
                 finish,
                 completion_tokens: out.emitted_tokens,
+                cached_tokens: out.reused_prompt_tokens,
             });
         }
     }
@@ -598,11 +634,13 @@ async fn collect_response(
             Ev::Done {
                 finish,
                 completion_tokens,
+                cached_tokens,
             } => {
                 let usage = Usage {
                     prompt_tokens,
                     completion_tokens,
                     total_tokens: prompt_tokens + completion_tokens,
+                    prompt_tokens_details: PromptTokensDetails { cached_tokens },
                 };
                 return Ok(Json(completion_json(
                     &id, created, model, &content, finish, &usage,
@@ -636,11 +674,13 @@ fn stream_response(
                 Ev::Done {
                     finish,
                     completion_tokens,
+                    cached_tokens,
                 } => {
                     let usage = Usage {
                         prompt_tokens,
                         completion_tokens,
                         total_tokens: prompt_tokens + completion_tokens,
+                    prompt_tokens_details: PromptTokensDetails { cached_tokens },
                     };
                     let last = chunk_json(&id, created, &model, None, None, Some(finish), Some(&usage));
                     if etx.send(data(last)).await.is_err() {
@@ -671,4 +711,163 @@ fn stream_response(
                 .text("keep-alive"),
         )
         .into_response()
+}
+
+// ---- ahead-of-Enter prefill (OWN-30B T2) -------------------------------------------------
+
+/// Session key: header `x-aien-session`, else the body field `session` / `session_id`.
+fn session_key(headers: &HeaderMap, field: Option<&str>) -> Option<String> {
+    headers
+        .get("x-aien-session")
+        .and_then(|v| v.to_str().ok())
+        .or(field)
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && s.len() <= 128)
+        .map(str::to_string)
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct PrefillRequest {
+    #[serde(default)]
+    session: Option<String>,
+    #[serde(default)]
+    messages: Option<Vec<Message>>,
+    /// Raw text instead of messages: tokenized as is, no chat template.
+    #[serde(default)]
+    prompt: Option<String>,
+    /// Override of the draft hold-back (trailing tokens left out).
+    #[serde(default)]
+    hold_back: Option<usize>,
+}
+
+/// Turns a prefill request into the token prefix worth keeping resident.
+///
+/// Template trap: the chat template closes the last turn and appends the assistant header.
+/// Both are left out here (only the stable text is prefilled), so the final chat request
+/// adds just the draft's tail, the closing and the header.
+fn prefill_tokens(state: &AppState, req: &PrefillRequest) -> Result<Vec<u32>, ApiError> {
+    let hold = req.hold_back.unwrap_or(state.cfg.prefill.hold_back);
+    let mut tokens = match (&req.messages, &req.prompt) {
+        (Some(_), Some(_)) => return Err(ApiError::bad_request("send either messages or prompt, not both")),
+        (None, None) => return Err(ApiError::bad_request("send messages or prompt")),
+        (None, Some(p)) => state
+            .codec
+            .encode(p)
+            .map_err(|e| ApiError::context_exceeded(format!("could not tokenize prompt: {e}")))?,
+        (Some(m), None) => {
+            if m.is_empty() || m.len() > state.cfg.max_messages {
+                return Err(ApiError::bad_request("messages must be a non-empty array within the message limit"));
+            }
+            let turns = build_turns(m)?;
+            let refs: Vec<(&str, &str)> = turns.iter().map(|(r, c)| (r.as_str(), c.as_str())).collect();
+            let text = state.codec.render_chat(&refs).map_err(|e| match e {
+                CodecError::Unrenderable(m) => ApiError::bad_request(m),
+                CodecError::Failed(m) => ApiError::internal(m),
+            })?;
+            let stable = state.codec.stable_len(&text).ok_or_else(|| {
+                ApiError::bad_request("the chat template layout is not recognised; send a raw prompt instead")
+            })?;
+            state
+                .codec
+                .encode(&text[..stable])
+                .map_err(|e| ApiError::context_exceeded(format!("could not tokenize prompt: {e}")))?
+        }
+    };
+    tokens.truncate(tokens.len().saturating_sub(hold));
+    let ctx = state
+        .cfg
+        .max_context_tokens
+        .unwrap_or(usize::MAX)
+        .min(state.engine.max_context_tokens());
+    if tokens.len() >= ctx {
+        return Err(ApiError::context_exceeded(format!(
+            "prefill target is {} tokens; the context window is {ctx}",
+            tokens.len()
+        )));
+    }
+    Ok(tokens)
+}
+
+async fn prefill_ahead(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Result<Bytes, BytesRejection>,
+) -> Response {
+    match handle_prefill(state, headers, body) {
+        Ok(r) => r.into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+fn handle_prefill(
+    state: Arc<AppState>,
+    headers: HeaderMap,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, ApiError> {
+    if !state.cfg.prefill.enabled || !state.engine.supports_prefill() {
+        return Err(ApiError {
+            status: StatusCode::NOT_IMPLEMENTED,
+            body: ErrorBody::new("not_implemented", "prefill-ahead is off or not supported by this engine"),
+            retry_after: None,
+        });
+    }
+    let body = body.map_err(|r| ApiError::bad_request(format!("could not read request body: {}", r.body_text())))?;
+    let req: PrefillRequest =
+        serde_json::from_slice(&body).map_err(|e| ApiError::bad_request(format!("invalid JSON request: {e}")))?;
+    let session = session_key(&headers, req.session.as_deref())
+        .ok_or_else(|| ApiError::bad_request("a session key is required (field `session` or header x-aien-session)"))?;
+    let tokens = prefill_tokens(&state, &req)?;
+    submit_prefill(&state, &session, tokens)
+}
+
+fn submit_prefill(state: &AppState, session: &str, tokens: Vec<u32>) -> Result<Json<Value>, ApiError> {
+    let sub = state
+        .sched
+        .submit(&state.engine, session, tokens)
+        .map_err(|e| match e {
+            crate::session::SessionError::TooLarge { bytes, cap } => ApiError {
+                status: StatusCode::PAYLOAD_TOO_LARGE,
+                body: ErrorBody::new(
+                    "invalid_request_error",
+                    format!("session would hold {bytes} KV bytes, above the cap of {cap}"),
+                ),
+                retry_after: None,
+            },
+        })?;
+    Ok(Json(serde_json::json!({
+        "session": session,
+        "cached_tokens": sub.cached_tokens,
+        "target_tokens": sub.target_tokens,
+        "queued_tokens": sub.to_compute,
+        "status": if sub.to_compute == 0 { "cached" } else { "queued" },
+        "generation_active": state.sched.generation_active(),
+        "evicted_sessions": sub.evicted,
+    })))
+}
+
+async fn sessions_status(State(state): State<Arc<AppState>>) -> Json<Value> {
+    Json(state.sched.snapshot())
+}
+
+/// Boot warmup: runs each configured prefill body in turn and waits for it to finish. A
+/// generation that arrives meanwhile cancels the rest of the current item (priority).
+fn run_warmup(state: &AppState, items: Vec<Value>) {
+    for (i, item) in items.into_iter().enumerate() {
+        let req: PrefillRequest = match serde_json::from_value(item) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("aien-serve-http: warmup item {i}: {e}");
+                continue;
+            }
+        };
+        let session = req.session.clone().unwrap_or_else(|| format!("warmup-{i}"));
+        match prefill_tokens(state, &req).and_then(|t| submit_prefill(state, &session, t)) {
+            Ok(_) => {
+                let t0 = Instant::now();
+                state.sched.wait_idle(Duration::from_secs(600));
+                eprintln!("aien-serve-http: warmup '{session}' done in {:.1} s", t0.elapsed().as_secs_f64());
+            }
+            Err(e) => eprintln!("aien-serve-http: warmup '{session}': {:?}", e.body.error.message),
+        }
+    }
 }

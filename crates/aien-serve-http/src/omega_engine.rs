@@ -14,12 +14,15 @@ use std::time::{Duration, Instant};
 
 use aien_inference_abi::qwen3_moe_omega::{self as omega, LoadReport, OmegaEngine, WeightFormat};
 
-use crate::engine::{Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams};
+use crate::engine::{Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams, PrefillOutcome};
+use crate::session::plan_prefill;
 use crate::sampling::sample_next;
 
 pub const GPU_LOCK_PATH: &str = "/tmp/aien-gb10.lock";
 /// How long `generate` waits for the chip lock before answering busy.
 pub const LOCK_WAIT: Duration = Duration::from_secs(30);
+/// How long a background prefill chunk waits for the chip lock before the scheduler retries.
+pub const PREFILL_LOCK_WAIT: Duration = Duration::from_secs(2);
 /// Host memory the load needs free (the model is 30.5 GB resident plus the KV pool and
 /// loader transients; the rule leaves room for another 30 GB job).
 pub const LOAD_MIN_FREE_GB: f64 = 45.0;
@@ -145,6 +148,48 @@ impl Engine for OmegaDoor {
         self.engine.max_context_tokens()
     }
 
+    fn supports_prefill(&self) -> bool {
+        true
+    }
+
+    fn prefill(&self, tokens: &[u32], max_new: usize) -> Result<PrefillOutcome, EngineError> {
+        let max = self.engine.max_context_tokens();
+        if tokens.len() >= max {
+            return Err(EngineError::PromptTooLong { len: tokens.len(), max });
+        }
+        // Background work waits only briefly for the chip; the scheduler retries later.
+        let _lock = GpuLock::acquire(PREFILL_LOCK_WAIT).map_err(EngineError::Busy)?;
+        let t0 = Instant::now();
+        self.engine
+            .with_engine(|e| -> Result<PrefillOutcome, String> {
+                let plan = plan_prefill(e.history(), tokens);
+                let mut rewound = false;
+                if let Some(n) = plan.rewind_to {
+                    if n == 0 {
+                        e.reset();
+                    } else {
+                        e.rewind(n);
+                    }
+                    rewound = true;
+                }
+                let end = tokens.len().min(plan.common.saturating_add(max_new));
+                let chunk = e.prefill_chunk.max(1);
+                for part in tokens[plan.common.min(end)..end].chunks(chunk) {
+                    e.step_batch(part)?;
+                }
+                Ok(PrefillOutcome {
+                    cached: end.max(plan.common),
+                    reused: plan.common,
+                    computed: end.saturating_sub(plan.common),
+                    rewound,
+                    ms: t0.elapsed().as_millis() as u64,
+                })
+            })
+            .map_err(EngineError::Failed)?
+            .map_err(EngineError::Failed)
+    }
+
+
     fn generate(
         &self,
         prompt: &[u32],
@@ -185,6 +230,7 @@ impl Engine for OmegaDoor {
             },
             prefill_ms: o.prefill_ms,
             decode_ms: o.decode_ms,
+            reused_prompt_tokens: o.reused_prompt_tokens,
         })
     }
 }

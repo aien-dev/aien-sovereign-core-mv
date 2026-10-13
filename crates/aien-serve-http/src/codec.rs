@@ -50,6 +50,12 @@ pub trait Codec: Send + Sync {
     /// character must decode with a trailing U+FFFD, never fail.
     fn decode(&self, tokens: &[u32]) -> Result<String, CodecError>;
     fn stop_token_ids(&self) -> Vec<u32>;
+    /// Byte length of the stable part of a rendered chat: everything except the closing of
+    /// the last turn and the trailing generation prompt. `None` when the layout is not
+    /// recognised (prefill-ahead then refuses rather than guess).
+    fn stable_len(&self, _rendered: &str) -> Option<usize> {
+        None
+    }
 }
 
 /// The model's own tokenizer and chat template.
@@ -89,6 +95,11 @@ impl Codec for HfCodec {
 
     fn stop_token_ids(&self) -> Vec<u32> {
         self.tokenizer.stop_token_ids().to_vec()
+    }
+
+    fn stable_len(&self, rendered: &str) -> Option<usize> {
+        // ChatML: the last turn closes with `<|im_end|>\n`, then the assistant header.
+        rendered.strip_suffix("<|im_end|>\n<|im_start|>assistant\n").map(str::len)
     }
 }
 
@@ -130,6 +141,11 @@ impl Codec for ByteCodec {
     fn stop_token_ids(&self) -> Vec<u32> {
         vec![Self::STOP]
     }
+
+    fn stable_len(&self, rendered: &str) -> Option<usize> {
+        // Layout `<role>content</role>\n` per turn then `<assistant>`.
+        rendered.strip_suffix("<assistant>").and_then(|r| r.trim_end_matches('\n').rfind("</"))
+    }
 }
 
 #[cfg(test)]
@@ -155,5 +171,35 @@ mod tests {
             c.render_chat(&[("tool", "x")]),
             Err(CodecError::Unrenderable(_))
         ));
+    }
+}
+
+#[cfg(test)]
+mod stable_prefix_tests {
+    use super::*;
+
+    /// With the real Qwen3 tokenizer: the tokens of the stable text are exactly the head of
+    /// the tokens of the full rendered prompt, for any draft of the last user message.
+    /// Skipped when the checkpoint directory is not on this machine.
+    #[test]
+    fn real_tokenizer_stable_prefix_is_a_head_of_the_full_prompt() {
+        let dir = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default())
+            .join("models/qwen3-30b-a3b-instruct-2507-fp8");
+        if !dir.join("tokenizer.json").exists() {
+            eprintln!("skipped: no tokenizer at {}", dir.display());
+            return;
+        }
+        let c = HfCodec::from_model_dir(&dir).expect("tokenizer");
+        let sys = "You are Odysseus. Use the tools carefully.\n".repeat(20);
+        for draft in ["", "What", "What is the capital of Fr", "What is the capital of France?", "list: \n- a\n- b ", "日本語のテスト"] {
+            let turns = [("system", sys.as_str()), ("user", draft)];
+            let text = c.render_chat(&turns).expect("render");
+            let n = c.stable_len(&text).expect("ChatML layout recognised");
+            assert!(!text[..n].contains("<|im_start|>assistant"), "generation header leaked");
+            let stable = c.encode(&text[..n]).expect("encode stable");
+            let full = c.encode(&text).expect("encode full");
+            assert_eq!(&full[..stable.len()], &stable[..], "draft {draft:?}: stable tokens are not a head of the full prompt");
+            assert!(full.len() - stable.len() <= 6, "tail after the draft should be a handful of tokens, got {}", full.len() - stable.len());
+        }
     }
 }

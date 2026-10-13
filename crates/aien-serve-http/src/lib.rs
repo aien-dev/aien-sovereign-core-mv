@@ -10,7 +10,9 @@ pub mod engine;
 pub mod omega_engine;
 pub mod openai;
 pub mod sampling;
+pub mod scheduler;
 pub mod server;
+pub mod session;
 pub mod text;
 
 pub use codec::{ByteCodec, Codec, HfCodec};

@@ -90,6 +90,7 @@ impl Engine for CpuReferenceEngine {
             finish,
             prefill_ms,
             decode_ms: t1.elapsed().as_millis() as u64,
+            reused_prompt_tokens: 0,
         })
     }
 }

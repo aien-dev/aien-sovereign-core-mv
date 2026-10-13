@@ -35,6 +35,9 @@ pub struct ChatRequest {
     pub functions: Option<Vec<Value>>,
     #[serde(default)]
     pub stream_options: Option<StreamOptions>,
+    /// Prefill-ahead session key (`session`, or Odysseus's `session_id`).
+    #[serde(default, alias = "session_id")]
+    pub session: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -83,6 +86,13 @@ pub struct Usage {
     pub prompt_tokens: usize,
     pub completion_tokens: usize,
     pub total_tokens: usize,
+    /// OpenAI-style detail: how many prompt tokens were served from resident KV.
+    pub prompt_tokens_details: PromptTokensDetails,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PromptTokensDetails {
+    pub cached_tokens: usize,
 }
 
 #[derive(Debug, Serialize)]

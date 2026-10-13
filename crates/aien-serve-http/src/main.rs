@@ -38,7 +38,9 @@ struct Args {
 fn usage() -> String {
     "usage: aien-serve-http [--engine cpu|stub|omega] [--weights bf16|fp8-experts|fp8] [--spin-us N] \
      [--model-dir DIR] [--port N] [--bind ADDR] [--model-id ID] [--max-context N] \
-     [--max-tokens-cap N] [--stub-reply TEXT]"
+     [--max-tokens-cap N] [--stub-reply TEXT] \
+     [--no-prefill] [--prefill-sessions N] [--prefill-kv-gb G] [--prefill-chunk N] [--prefill-hold-back N] \
+     [--warmup FILE.json]"
         .to_string()
 }
 
@@ -84,6 +86,26 @@ fn parse_args() -> Result<Args, String> {
                     "fp8" => WeightFormat::Fp8All,
                     other => return Err(format!("--weights must be bf16, fp8-experts or fp8, got {other}")),
                 }
+            }
+            "--no-prefill" => a.cfg.prefill.enabled = false,
+            "--prefill-sessions" => {
+                a.cfg.prefill.limits.max_sessions = val()?.parse().map_err(|e| format!("--prefill-sessions: {e}"))?
+            }
+            "--prefill-kv-gb" => {
+                let gb: f64 = val()?.parse().map_err(|e| format!("--prefill-kv-gb: {e}"))?;
+                a.cfg.prefill.limits.max_kv_bytes = (gb * (1u64 << 30) as f64) as u64;
+            }
+            "--prefill-chunk" => {
+                a.cfg.prefill.chunk = val()?.parse().map_err(|e| format!("--prefill-chunk: {e}"))?
+            }
+            "--prefill-hold-back" => {
+                a.cfg.prefill.hold_back = val()?.parse().map_err(|e| format!("--prefill-hold-back: {e}"))?
+            }
+            "--warmup" => {
+                let path = val()?;
+                let text = std::fs::read_to_string(&path).map_err(|e| format!("--warmup {path}: {e}"))?;
+                a.cfg.warmup = serde_json::from_str(&text)
+                    .map_err(|e| format!("--warmup {path}: expected a JSON array of prefill bodies: {e}"))?;
             }
             "--spin-us" => a.spin_us = Some(val()?.parse().map_err(|e| format!("--spin-us: {e}"))?),
             "-h" | "--help" => return Err(usage()),
