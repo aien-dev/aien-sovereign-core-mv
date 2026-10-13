@@ -29,6 +29,8 @@ use crate::qwen3_moe::{bf16_to_f32, f32_to_bf16, fp8_table, shard_path, Shard, F
 use crate::moe_plan::MoeBatchPlan;
 use crate::resident::transpose_bf16_for_upload;
 
+pub mod spec;
+
 /// Column tile of the engine's tile-major B layout: every expert window must start on one.
 pub const WINDOW_TILE: usize = aien_omega_moe::TILE_N;
 /// Engine limits for one resident tensor (`omega_blackwell_matmul.h` at omega.lock).
@@ -2925,6 +2927,11 @@ impl OmegaEngine {
         params: &GenerateParams,
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, String> {
+        let cfg = spec::SpecConfig::from_env();
+        if cfg.enabled && params.temperature <= 0.001 {
+            let p = params.clone();
+            return self.generate_with(prompt, params, &mut |logits, step| sample_next(logits, &p, step), on_token);
+        }
         let mut g = self.inner.lock().map_err(|_| "engine lock poisoned".to_string())?;
         g.generate(prompt, params, on_token)
     }
@@ -2938,6 +2945,12 @@ impl OmegaEngine {
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, String> {
         let mut g = self.inner.lock().map_err(|_| "engine lock poisoned".to_string())?;
+        let cfg = spec::SpecConfig::from_env();
+        if cfg.enabled && params.temperature <= 0.001 {
+            let (o, st) = g.generate_spec_with(prompt, params, &cfg, sampler, on_token)?;
+            eprintln!("spec: rounds {} plain {} drafted {} accepted {}", st.rounds, st.plain_steps, st.drafted, st.accepted);
+            return Ok(o);
+        }
         g.generate_with(prompt, params, sampler, on_token)
     }
 

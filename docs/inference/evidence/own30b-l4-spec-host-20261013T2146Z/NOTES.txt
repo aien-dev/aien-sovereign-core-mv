@@ -1,0 +1,5 @@
+HOST ONLY. Not a hardware result. Chip gate NOT RUN: 18091 server (31 GB) is live and free memory was too low for a second 30 GB model.
+Command: cargo test -p aien-inference-abi --lib qwen3_moe_omega
+Chip command (to run in a window, under the lock, with the live server stopped by its owner):
+ flock /tmp/aien-gb10.lock env AIEN_OMEGA_SPIN_US=2000 <build>/own30b_spec_check ~/models/qwen3-30b-a3b-instruct-2507-fp8 docs/inference/evidence/own30b-f-20261013T1745Z/golden.json <receipt-dir> --runs 3
+commit f4101b51262a19ebc1ef047f427acaff832f529b
