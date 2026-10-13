@@ -154,10 +154,32 @@ pub fn sweep(
             fmt.name()
         )));
     }
-    let expect_ast = parse(expect)?;
-    let got_ast = parse(got)?;
-    let flag_ast = parse_opt(flag)?;
-    let where_ast = parse_opt(where_)?;
+    sweep_ast(
+        format,
+        &parse(expect)?,
+        &parse(got)?,
+        parse_opt(flag)?.as_ref(),
+        parse_opt(where_)?.as_ref(),
+    )
+}
+
+/// [`sweep`] on already parsed expressions (also how `verify` recomputes a stored receipt).
+pub fn sweep_ast(
+    format: &str,
+    expect_ast: &Ast,
+    got_ast: &Ast,
+    flag_ast: Option<&Ast>,
+    where_ast: Option<&Ast>,
+) -> Result<SweepOutcome, CalcError> {
+    let fmt = Format::from_name(format)
+        .ok_or_else(|| CalcError::Invalid(format!("unknown format `{format}`")))?;
+    let total = 1u64 << fmt.width().min(63);
+    if fmt.width() > 16 {
+        return Err(CalcError::Invalid(format!(
+            "sweep of {} refused: {total} codes exceeds the {MAX_SWEEP_CODES}-code limit (use where ranges or next/prev walks)",
+            fmt.name()
+        )));
+    }
     let digits = (fmt.width() as usize).div_ceil(4);
 
     let mut table = format!("aien-calc-sweep-table v1 {}\n", fmt.name());
@@ -199,8 +221,8 @@ pub fn sweep(
             }
         }
         considered += 1;
-        let e = evaluate(&expect_ast, &env);
-        let g = evaluate(&got_ast, &env);
+        let e = evaluate(expect_ast, &env);
+        let g = evaluate(got_ast, &env);
         let f = flag_ast.as_ref().map(|a| match evaluate(a, &env) {
             Ok(Value::Bool(b)) => Ok(b),
             Ok(other) => Err(Refusal::new(format!(
@@ -256,7 +278,7 @@ pub fn sweep(
     let flag_trunc = capped(flagged.len(), "flag_true", &mut warnings);
     let ref_trunc = capped(refused.len(), "refused", &mut warnings);
 
-    let canon = |a: &Option<Ast>| {
+    let canon = |a: &Option<&Ast>| {
         a.as_ref()
             .map(|x| Json::Str(x.canonical()))
             .unwrap_or(Json::Null)

@@ -3,7 +3,7 @@
 use crate::error::CalcError;
 use crate::eval::{evaluate_top, Env};
 use crate::json::Json;
-use crate::parser::parse;
+use crate::parser::{parse, Ast};
 use crate::render::decimal;
 use crate::value::Value;
 
@@ -184,9 +184,14 @@ impl EvalOutcome {
 /// (no receipt); a well-formed question that exact arithmetic declines is an `Ok` with a refusal.
 pub fn eval(expr: &str, precision: u32) -> Result<EvalOutcome, CalcError> {
     check_precision(precision)?;
-    let ast = parse(expr)?;
+    eval_ast(&parse(expr)?, precision)
+}
+
+/// [`eval`] on an already parsed expression (also how `verify` recomputes a stored receipt).
+pub fn eval_ast(ast: &Ast, precision: u32) -> Result<EvalOutcome, CalcError> {
+    check_precision(precision)?;
     let canonical = ast.canonical();
-    let result = evaluate_top(&ast, &Env::default());
+    let result = evaluate_top(ast, &Env::default());
     let (result_json, exactness, body_text, value, refusal) = match result {
         Ok(v) => {
             let (j, t) = value_json(&v, precision);

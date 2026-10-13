@@ -80,6 +80,35 @@ pub enum Ast {
 }
 
 impl Ast {
+    /// Read the canonical prefix form back into an AST (the inverse of [`Ast::canonical`]).
+    pub fn from_canonical(s: &str) -> Result<Ast, String> {
+        let mut toks: Vec<&str> = Vec::new();
+        let mut start: Option<usize> = None;
+        for (i, c) in s.char_indices() {
+            if c == '(' || c == ')' || c.is_whitespace() {
+                if let Some(st) = start.take() {
+                    toks.push(&s[st..i]);
+                }
+                if c == '(' {
+                    toks.push("(");
+                } else if c == ')' {
+                    toks.push(")");
+                }
+            } else if start.is_none() {
+                start = Some(i);
+            }
+        }
+        if let Some(st) = start {
+            toks.push(&s[st..]);
+        }
+        let mut pos = 0;
+        let ast = canon_node(&toks, &mut pos, 0)?;
+        if pos != toks.len() {
+            return Err("unexpected text after the expression".into());
+        }
+        Ok(ast)
+    }
+
     /// Prefixes used by unit literals and `->` targets, e.g. `GiB:binary(2^30)`.
     pub fn prefixes(&self) -> std::collections::BTreeSet<String> {
         let mut out = std::collections::BTreeSet::new();
@@ -129,6 +158,112 @@ impl Ast {
                 }
                 s.push(')');
                 s
+            }
+        }
+    }
+}
+
+fn canon_number(t: &str) -> Option<BigRational> {
+    let (n, d) = match t.split_once('/') {
+        Some((n, d)) => (n, d),
+        None => (t, "1"),
+    };
+    let ok = |x: &str, neg: bool| {
+        let body = if neg {
+            x.strip_prefix('-').unwrap_or(x)
+        } else {
+            x
+        };
+        !body.is_empty() && body.bytes().all(|c| c.is_ascii_digit())
+    };
+    if !ok(n, true) || !ok(d, false) {
+        return None;
+    }
+    let n = num_bigint::BigInt::parse_bytes(n.as_bytes(), 10)?;
+    let d = num_bigint::BigInt::parse_bytes(d.as_bytes(), 10)?;
+    if num_traits::Zero::is_zero(&d) {
+        return None;
+    }
+    Some(BigRational::new(n, d))
+}
+
+fn bin_op_from_symbol(s: &str) -> Option<BinOp> {
+    use BinOp::*;
+    [
+        Add, Sub, Mul, Div, Rem, Pow, Shl, Shr, And, Or, Xor, Eq, Ne, Lt, Le, Gt, Ge, By,
+    ]
+    .into_iter()
+    .find(|op| op.symbol() == s)
+}
+
+fn canon_node(toks: &[&str], pos: &mut usize, depth: usize) -> Result<Ast, String> {
+    if depth > 512 {
+        return Err("canonical form nested too deeply".into());
+    }
+    let t = *toks.get(*pos).ok_or("unexpected end of canonical form")?;
+    *pos += 1;
+    match t {
+        ")" => Err("unexpected `)`".into()),
+        "(" => {
+            let head = *toks.get(*pos).ok_or("missing operator after `(`")?;
+            if head == "(" || head == ")" {
+                return Err("expected an operator name after `(`".into());
+            }
+            *pos += 1;
+            let unit = |pos: &mut usize| -> Result<UnitExpr, String> {
+                let u = *toks.get(*pos).ok_or("missing unit")?;
+                *pos += 1;
+                UnitExpr::parse_text(u).ok_or_else(|| format!("unknown unit `{u}`"))
+            };
+            let node = match head {
+                "qty" => {
+                    let n = *toks.get(*pos).ok_or("missing quantity value")?;
+                    *pos += 1;
+                    let r = canon_number(n).ok_or_else(|| format!("bad quantity value `{n}`"))?;
+                    Ast::Qty(r, unit(pos)?)
+                }
+                "->" => {
+                    let a = canon_node(toks, pos, depth + 1)?;
+                    Ast::Convert(Box::new(a), unit(pos)?)
+                }
+                _ => {
+                    let mut args = Vec::new();
+                    while toks.get(*pos).ok_or("missing `)`")? != &")" {
+                        args.push(canon_node(toks, pos, depth + 1)?);
+                    }
+                    if head == "neg" {
+                        if args.len() != 1 {
+                            return Err("`neg` takes one operand".into());
+                        }
+                        Ast::Neg(Box::new(args.remove(0)))
+                    } else if let Some(op) = bin_op_from_symbol(head) {
+                        if args.len() != 2 {
+                            return Err(format!("`{head}` takes two operands"));
+                        }
+                        let b = args.remove(1);
+                        Ast::Bin(op, Box::new(args.remove(0)), Box::new(b))
+                    } else {
+                        Ast::Call(head.to_string(), args)
+                    }
+                }
+            };
+            match toks.get(*pos) {
+                Some(&")") => {
+                    *pos += 1;
+                    Ok(node)
+                }
+                _ => Err("missing `)`".into()),
+            }
+        }
+        _ => {
+            if let Some(v) = t.strip_prefix('$') {
+                Ok(Ast::Var(v.to_string()))
+            } else if t.starts_with(|c: char| c.is_ascii_digit() || c == '-') {
+                canon_number(t)
+                    .map(Ast::Num)
+                    .ok_or_else(|| format!("bad number `{t}`"))
+            } else {
+                Ok(Ast::Ident(t.to_string()))
             }
         }
     }
@@ -283,6 +418,12 @@ impl Parser {
                     return Err(err(pos, "`xor` is an operator and needs a left operand"));
                 }
                 if matches!(self.peek(), Tok::LParen) {
+                    if matches!(name.as_str(), "neg" | "qty" | "x") {
+                        return Err(err(
+                            pos,
+                            format!("`{name}` is reserved and cannot be called as a function"),
+                        ));
+                    }
                     self.bump();
                     let mut args = Vec::new();
                     if matches!(self.peek(), Tok::RParen) {
