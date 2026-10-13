@@ -11,8 +11,8 @@ use crate::store::Store;
 use crate::sweep::sweep as run_sweep;
 use crate::verify::verify_bytes;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
-    JsonObject, ListToolsResult, ServerCapabilities, ServerConfig, Tool,
+    CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock,
+    Implementation, JsonObject, ListToolsResult, ServerCapabilities, ServerConfig, Tool,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ServerHandler, ServiceExt};
@@ -276,7 +276,11 @@ and cite the returned calc:<hex> id beside the figure.",
                 Tool::new(t.name, t.description, Arc::new(schema))
             })
             .collect();
-        Ok(ListToolsResult::with_all_items(listed).with_ttl_ms(0))
+        // Claude Code rejects a tools/list result that carries ttlMs without cacheScope.
+        // Results are pure functions of their inputs, so any client may cache them.
+        Ok(ListToolsResult::with_all_items(listed)
+            .with_ttl_ms(0)
+            .with_cache_scope(CacheScope::Public))
     }
 
     async fn call_tool(

@@ -260,3 +260,43 @@ async fn verify_reports_a_tampered_stored_receipt() {
     assert!(structured(&v)["diffs"].as_array().unwrap().len() >= 2);
     assert!(text(&v).starts_with("MISMATCH"));
 }
+
+/// The real binary over stdio, as Claude Code drives it: a tools/list result that carries
+/// ttlMs must also carry cacheScope, or Claude Code refuses the whole tool list.
+#[test]
+fn stdio_tools_list_carries_cache_scope_with_ttl() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::{Command, Stdio};
+    let mut child = Command::new(env!("CARGO_BIN_EXE_aien-calc"))
+        .arg("--mcp")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    for line in [
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}"#,
+        r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+    ] {
+        writeln!(stdin, "{line}").unwrap();
+    }
+    let mut reply = None;
+    for line in BufReader::new(child.stdout.take().unwrap()).lines() {
+        let v: Value = serde_json::from_str(&line.unwrap()).unwrap();
+        if v["id"] == 2 {
+            reply = Some(v);
+            break;
+        }
+    }
+    drop(stdin);
+    let _ = child.kill();
+    let _ = child.wait();
+    let result = &reply.expect("no tools/list reply")["result"];
+    assert!(result.get("ttlMs").is_some(), "ttlMs missing: {result}");
+    assert_eq!(
+        result["cacheScope"], "public",
+        "cacheScope missing: {result}"
+    );
+}
