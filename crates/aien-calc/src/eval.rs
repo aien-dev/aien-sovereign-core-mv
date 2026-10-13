@@ -7,6 +7,8 @@ use crate::format::{
 use crate::lexer::MAX_BITS;
 use crate::parser::{Ast, BinOp};
 use crate::ratutil::{round_signed, RoundMode};
+use crate::unit_eval::{binary_units, convert, mk, negate, qty_call, shape_call};
+use crate::units::UnitExpr;
 use crate::value::{rat_human, Value};
 use num_bigint::BigInt;
 use num_integer::Integer;
@@ -30,7 +32,7 @@ fn within(r: &BigRational) -> bool {
     r.numer().bits() <= MAX_BITS && r.denom().bits() <= MAX_BITS
 }
 
-fn checked(r: BigRational, what: &str) -> Res<BigRational> {
+pub(crate) fn checked(r: BigRational, what: &str) -> Res<BigRational> {
     if within(&r) {
         Ok(r)
     } else {
@@ -42,6 +44,10 @@ pub(crate) fn num(v: &Value) -> Res<BigRational> {
     match v {
         Value::Num(r) => Ok(r.clone()),
         Value::NegZero => Ok(BigRational::zero()),
+        Value::Qty(q) => Err(Refusal::new(format!(
+            "expected a plain number, found a quantity in {}",
+            q.dim.name()
+        ))),
         other => Err(Refusal::new(format!(
             "expected a number, found {}",
             other.kind()
@@ -108,6 +114,12 @@ fn pow(base: &BigRational, exp: &BigRational) -> Res<BigRational> {
 
 fn binary(op: BinOp, a: &Value, b: &Value) -> Res<Value> {
     use BinOp::*;
+    if op == By
+        || matches!(a, Value::Qty(_) | Value::Shape(_))
+        || matches!(b, Value::Qty(_) | Value::Shape(_))
+    {
+        return binary_units(op, a, b);
+    }
     if matches!(op, Eq | Ne) {
         let same_kind = matches!(
             (a, b),
@@ -168,6 +180,7 @@ fn binary(op: BinOp, a: &Value, b: &Value) -> Res<Value> {
         Le => Value::Bool(x <= y),
         Gt => Value::Bool(x > y),
         Ge => Value::Bool(x >= y),
+        By => unreachable!("handled by binary_units"),
     })
 }
 
@@ -178,6 +191,12 @@ fn is_pow2_int(n: &BigInt) -> Option<u64> {
 }
 
 fn call(name: &str, args: &[Value]) -> Res<Value> {
+    if let Some(r) = shape_call(name, args) {
+        return r;
+    }
+    if let Some(v) = qty_call(name, args)? {
+        return Ok(v);
+    }
     if let Some(r) = format_call(name, args) {
         return r;
     }
@@ -286,6 +305,8 @@ fn ident(name: &str) -> Res<Value> {
                 Ok(Value::Class(c))
             } else if let Some(m) = RoundMode::from_name(other) {
                 Ok(Value::Mode(m))
+            } else if let Some(u) = UnitExpr::from_atom(other) {
+                mk(u.factor, u.dim)
             } else {
                 Err(Refusal::new(format!("unknown name `{other}`")))
             }
@@ -303,7 +324,12 @@ pub fn evaluate(ast: &Ast, env: &Env) -> Res<Value> {
                 "unbound variable ${v} (only defined inside a sweep)"
             ))
         }),
-        Ast::Neg(a) => Ok(Value::Num(-num(&evaluate(a, env)?)?)),
+        Ast::Neg(a) => match evaluate(a, env)? {
+            Value::Qty(q) => Ok(negate(&q)),
+            v => Ok(Value::Num(-num(&v)?)),
+        },
+        Ast::Qty(r, u) => mk(r * &u.factor, u.dim),
+        Ast::Convert(a, u) => convert(&evaluate(a, env)?, u),
         Ast::Bin(op, a, b) => binary(*op, &evaluate(a, env)?, &evaluate(b, env)?),
         Ast::Call(name, args) => {
             let vals = args
@@ -417,4 +443,14 @@ fn format_call(name: &str, args: &[Value]) -> Option<Res<Value>> {
         "val" | "bits" | "round" | "class" | "next" | "prev" | "ulp" | "ftz" | "daz" | "fields"
     )
     .then(run)
+}
+
+/// Evaluate a complete expression: like [`evaluate`], but a bare shape (`m x n`) is not a result.
+pub fn evaluate_top(ast: &Ast, env: &Env) -> Res<Value> {
+    match evaluate(ast, env)? {
+        Value::Shape(_) => Err(Refusal::new(
+            "a shape (m x n) is only valid as the argument of params()",
+        )),
+        v => Ok(v),
+    }
 }

@@ -6,6 +6,7 @@
 
 use crate::error::CalcError;
 use crate::lexer::{lex, Tok};
+use crate::units::{is_unit_name, UnitExpr};
 use num_rational::BigRational;
 use num_traits::One;
 
@@ -28,6 +29,8 @@ pub enum BinOp {
     Le,
     Gt,
     Ge,
+    /// `m x n`: a shape, only meaningful inside `params()`.
+    By,
 }
 
 impl BinOp {
@@ -50,6 +53,7 @@ impl BinOp {
             BinOp::Le => "<=",
             BinOp::Gt => ">",
             BinOp::Ge => ">=",
+            BinOp::By => "x",
         }
     }
 
@@ -69,9 +73,37 @@ pub enum Ast {
     Neg(Box<Ast>),
     Bin(BinOp, Box<Ast>, Box<Ast>),
     Call(String, Vec<Ast>),
+    /// A number with a unit: `273 GB/s`.
+    Qty(BigRational, UnitExpr),
+    /// `expr -> unit`.
+    Convert(Box<Ast>, UnitExpr),
 }
 
 impl Ast {
+    /// Prefixes used by unit literals and `->` targets, e.g. `GiB:binary(2^30)`.
+    pub fn prefixes(&self) -> std::collections::BTreeSet<String> {
+        let mut out = std::collections::BTreeSet::new();
+        self.collect_prefixes(&mut out);
+        out
+    }
+
+    fn collect_prefixes(&self, out: &mut std::collections::BTreeSet<String>) {
+        match self {
+            Ast::Qty(_, u) => out.extend(u.prefixes.iter().cloned()),
+            Ast::Convert(a, u) => {
+                a.collect_prefixes(out);
+                out.extend(u.prefixes.iter().cloned());
+            }
+            Ast::Neg(a) => a.collect_prefixes(out),
+            Ast::Bin(_, a, b) => {
+                a.collect_prefixes(out);
+                b.collect_prefixes(out);
+            }
+            Ast::Call(_, args) => args.iter().for_each(|a| a.collect_prefixes(out)),
+            Ast::Num(_) | Ast::Ident(_) | Ast::Var(_) => {}
+        }
+    }
+
     /// Canonical prefix form: whitespace and literal spelling (`0x7f`, `127`) disappear, structure stays.
     /// Numbers print as `n` or `p/q`; operators and functions as `(head arg ...)`.
     pub fn canonical(&self) -> String {
@@ -86,6 +118,8 @@ impl Ast {
             Ast::Ident(s) => s.clone(),
             Ast::Var(s) => format!("${s}"),
             Ast::Neg(a) => format!("(neg {})", a.canonical()),
+            Ast::Qty(r, u) => format!("(qty {} {})", Ast::Num(r.clone()).canonical(), u.text),
+            Ast::Convert(a, u) => format!("(-> {} {})", a.canonical(), u.text),
             Ast::Bin(op, a, b) => format!("({} {} {})", op.symbol(), a.canonical(), b.canonical()),
             Ast::Call(name, args) => {
                 let mut s = format!("({name}");
@@ -138,6 +172,7 @@ fn infix(tok: &Tok) -> Option<(u8, u8, BinOp)> {
             _ => return None,
         },
         Tok::Ident(s) if s == "xor" => (5, 6, BinOp::Xor),
+        Tok::Ident(s) if s == "x" => (13, 14, BinOp::By),
         _ => return None,
     };
     Some(op)
@@ -186,14 +221,51 @@ impl Parser {
             let rhs = self.expr(rbp)?;
             lhs = Ast::Bin(op, Box::new(lhs), Box::new(rhs));
         }
+        while min_bp == 0 && matches!(self.peek(), Tok::Op("->")) {
+            self.bump();
+            let unit = self.unit_expr()?;
+            lhs = Ast::Convert(Box::new(lhs), unit);
+        }
         self.depth -= 1;
         Ok(lhs)
+    }
+
+    /// Is the token after the current one a unit atom?
+    fn next_is_unit(&self, offset: usize) -> bool {
+        matches!(self.toks.get(self.i + offset), Some((Tok::Ident(n), _)) if is_unit_name(n))
+    }
+
+    /// `GB`, `GB/s`, `B/param*tok`: atoms joined by `/` or `*`, read left to right.
+    fn unit_expr(&mut self) -> Result<UnitExpr, CalcError> {
+        let pos = self.pos();
+        let mut parts: Vec<(String, char)> = Vec::new();
+        match self.bump() {
+            Tok::Ident(n) if is_unit_name(&n) => parts.push((n, '*')),
+            _ => return Err(err(pos, "expected a unit")),
+        }
+        while let Tok::Op(o @ ("/" | "*")) = self.peek().clone() {
+            if !self.next_is_unit(1) {
+                break;
+            }
+            self.bump();
+            if let Tok::Ident(n) = self.bump() {
+                parts.push((n, o.chars().next().unwrap_or('*')));
+            }
+        }
+        UnitExpr::from_parts(&parts).ok_or_else(|| err(pos, "bad unit"))
     }
 
     fn primary(&mut self) -> Result<Ast, CalcError> {
         let pos = self.pos();
         match self.bump() {
-            Tok::Num(r) => Ok(Ast::Num(r)),
+            Tok::Num(r) => {
+                if self.next_is_unit(0) {
+                    let u = self.unit_expr()?;
+                    Ok(Ast::Qty(r, u))
+                } else {
+                    Ok(Ast::Num(r))
+                }
+            }
             Tok::Var(v) => Ok(Ast::Var(v)),
             Tok::Op("-") => {
                 let inner = self.expr(UNARY_BP)?;

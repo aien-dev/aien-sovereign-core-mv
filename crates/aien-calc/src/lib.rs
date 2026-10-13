@@ -14,6 +14,8 @@ pub mod ratutil;
 pub mod receipt;
 pub mod render;
 pub mod sweep;
+pub mod unit_eval;
+pub mod units;
 pub mod value;
 
 pub use error::{CalcError, Refusal};

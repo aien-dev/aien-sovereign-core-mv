@@ -6,7 +6,7 @@
 //! A BLAKE3 digest over the full per-code table is part of the receipt.
 
 use crate::error::{CalcError, Refusal};
-use crate::eval::{evaluate, Env};
+use crate::eval::{evaluate_top as evaluate, Env};
 use crate::format::{decode, Format};
 use crate::json::Json;
 use crate::parser::{parse, Ast};

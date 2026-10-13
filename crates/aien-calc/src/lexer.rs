@@ -162,6 +162,7 @@ pub fn lex(src: &str) -> Result<Vec<(Tok, usize)>, CalcError> {
                 "==" => Some("=="),
                 "!=" => Some("!="),
                 "<=" => Some("<="),
+                "->" => Some("->"),
                 ">=" => Some(">="),
                 _ => None,
             };

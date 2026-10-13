@@ -1,7 +1,7 @@
 //! Receipts: canonical JSON body, BLAKE3 id, and the `eval` tool.
 
 use crate::error::CalcError;
-use crate::eval::{evaluate, Env};
+use crate::eval::{evaluate_top, Env};
 use crate::json::Json;
 use crate::parser::parse;
 use crate::render::decimal;
@@ -101,6 +101,25 @@ pub(crate) fn value_json(v: &Value, precision: u32) -> (Json, String) {
             Json::obj(vec![("kind", Json::str("bool")), ("value", Json::Bool(*b))]),
             format!("value   {b}"),
         ),
+        Value::Qty(q) => {
+            let (n, unit) = q.display_parts();
+            let (dec, exact) = decimal(&n, precision);
+            let note = if exact {
+                "exact".to_string()
+            } else {
+                format!("rounded to {precision} significant digits")
+            };
+            (
+                Json::obj(vec![
+                    ("decimal", Json::Str(dec.clone())),
+                    ("decimal_exact", Json::Bool(exact)),
+                    ("kind", Json::str("quantity")),
+                    ("unit", Json::Str(unit.clone())),
+                    ("value", Json::Str(crate::value::rat_canonical(&n))),
+                ]),
+                format!("value   {}\ndecimal {dec} {unit} ({note})", v.human()),
+            )
+        }
         Value::Fields(f) => (
             Json::obj(vec![
                 ("exp", Json::Str(f.exp.to_string())),
@@ -167,7 +186,7 @@ pub fn eval(expr: &str, precision: u32) -> Result<EvalOutcome, CalcError> {
     check_precision(precision)?;
     let ast = parse(expr)?;
     let canonical = ast.canonical();
-    let result = evaluate(&ast, &Env::default());
+    let result = evaluate_top(&ast, &Env::default());
     let (result_json, exactness, body_text, value, refusal) = match result {
         Ok(v) => {
             let (j, t) = value_json(&v, precision);
@@ -184,16 +203,22 @@ pub fn eval(expr: &str, precision: u32) -> Result<EvalOutcome, CalcError> {
             Some(r.0),
         ),
     };
+    let mut input_pairs = vec![
+        ("expr", Json::Str(canonical.clone())),
+        ("precision", Json::Int(precision as i64)),
+    ];
+    let prefixes = ast.prefixes();
+    if !prefixes.is_empty() {
+        input_pairs.push((
+            "prefixes",
+            Json::Arr(prefixes.into_iter().map(Json::Str).collect()),
+        ));
+    }
+    let inputs = Json::obj(input_pairs);
     let body = Json::obj(vec![
         ("calc_version", Json::str(ENGINE_VERSION)),
         ("exactness", Json::str(exactness)),
-        (
-            "inputs",
-            Json::obj(vec![
-                ("expr", Json::Str(canonical.clone())),
-                ("precision", Json::Int(precision as i64)),
-            ]),
-        ),
+        ("inputs", inputs),
         ("method", method_block(Some(precision))),
         ("result", result_json),
         ("schema", Json::str(SCHEMA)),
