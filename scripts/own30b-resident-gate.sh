@@ -34,7 +34,7 @@ run() { # name, resident (0|1), graph (0|1)
   local n=$1
   if [ "$3" = 1 ]; then export OWN30B_DECODE_GRAPH=1; else unset OWN30B_DECODE_GRAPH; fi
   if [ "$2" = 1 ]; then export AIEN_OMEGA_DGRAPH_RESIDENT=1; else unset AIEN_OMEGA_DGRAPH_RESIDENT; fi
-  echo "$n: OWN30B_DECODE_GRAPH=${OWN30B_DECODE_GRAPH:-} AIEN_OMEGA_DGRAPH_RESIDENT=${AIEN_OMEGA_DGRAPH_RESIDENT:-} GRID=${AIEN_OMEGA_DGRAPH_RESIDENT_GRID:-128}" >> "$ev/gate.txt"
+  echo "$n: OWN30B_DECODE_GRAPH=${OWN30B_DECODE_GRAPH:-} AIEN_OMEGA_DGRAPH_RESIDENT=${AIEN_OMEGA_DGRAPH_RESIDENT:-} GRID=${AIEN_OMEGA_DGRAPH_RESIDENT_GRID:-128} ROWS=${AIEN_OMEGA_DGRAPH_RESIDENT_ROWS:-1}" >> "$ev/gate.txt"
   OWN30B_WHISPER="OWN-30B W-L2h resident gate: $n (30 GB load), ~5 min" "$repo/scripts/own30b-chip-run.sh" "$ev" "$n" "$bin" "$golden" "${args[@]}"
 }
 [ "${BASELINE:-0}" = 1 ] && run base 0 0
