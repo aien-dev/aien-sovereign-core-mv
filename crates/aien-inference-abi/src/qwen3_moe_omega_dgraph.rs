@@ -44,8 +44,8 @@ pub struct Timeline {
     /// Graph tokens summed.
     pub steps: u64,
     /// Launches and GPU ns per kind (`aien_omega_dgraph::KIND_NAMES` order).
-    pub launches: [u64; 12],
-    pub ns: [u64; 12],
+    pub launches: [u64; aien_omega_dgraph::KIND_NAMES.len()],
+    pub ns: [u64; aien_omega_dgraph::KIND_NAMES.len()],
     /// Sum of each token's first-to-last stamp span, and of the graph's own chip_ns.
     pub span_ns: u64,
     pub chip_ns: u64,
@@ -226,7 +226,7 @@ impl Qwen3MoeOmegaEngine {
                     let t = &mut g.timeline;
                     t.steps += 1;
                     for (i, &k) in kinds.iter().enumerate() {
-                        let k = (k as usize).min(11);
+                        let k = (k as usize).min(aien_omega_dgraph::KIND_NAMES.len() - 1);
                         t.launches[k] += 1;
                         t.ns[k] += stamps[i + 1].saturating_sub(stamps[i]);
                     }
