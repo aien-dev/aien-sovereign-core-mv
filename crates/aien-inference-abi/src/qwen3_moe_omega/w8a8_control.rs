@@ -18,6 +18,7 @@
 use std::time::Instant;
 
 use crate::moe_plan::MoeBatchPlan;
+use crate::qwen3_moe_omega::host_attn::HostAttn;
 use crate::qwen3_moe_omega::{swiglu, AttnWeights, ExpertWeights, Qwen3MoeOmegaEngine, StepTiming};
 use crate::qwen3_moe_omega_prefill::fake_quant::{bf16_round_row, fake_quant_row};
 use crate::qwen3_moe_omega_prefill::{rotate_logits, WpMutant, WpTrace};
@@ -32,12 +33,77 @@ pub enum ControlMode {
     W8A8,
 }
 
+/// Rounding applied to a GEMV input row (W-L1I drift split).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ActRound {
+    #[default]
+    F32,
+    /// e4m3, power-of-two scale per token per 128 block (the W8A8 prefill).
+    E4m3,
+    /// bf16 round-to-nearest-even (the W8A16 prefill's hconv / hswiglu).
+    Bf16,
+}
+
+/// GEMM input points, for [`Emul::act_points`].
+pub const PT_QKV: u8 = 1;
+pub const PT_O: u8 = 2;
+pub const PT_GU: u8 = 4;
+pub const PT_DOWN: u8 = 8;
+pub const PT_ALL: u8 = 15;
+
+/// One-variable-at-a-time emulation of the ON path's roundings in the OFF path (W-L1I).
+/// The default is the OFF path itself.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Emul {
+    /// Rounding at the GEMV inputs selected by `act_points`.
+    pub acts: ActRound,
+    /// Bitmask of PT_* points `acts` applies to.
+    pub act_points: u8,
+    /// Attention on the host emulator (the caller passes the [`HostAttn`]) instead of the chip's
+    /// decode kernel; the chip kernel still runs on the same inputs for the floor comparison.
+    pub host_attn: bool,
+    /// FLOOR CONTROL: flip the last mantissa bit of every embedding element of the first token
+    /// (a 6e-8 relative perturbation): how far does a 1-ulp difference travel?
+    pub ulp_nudge: bool,
+}
+
+impl Emul {
+    fn round(&self, pt: u8, row: &mut [f32]) {
+        if self.act_points & pt == 0 {
+            return;
+        }
+        match self.acts {
+            ActRound::F32 => {}
+            ActRound::E4m3 => {
+                if pt == PT_DOWN {
+                    bf16_round_row(row);
+                }
+                fake_quant_row(row);
+            }
+            ActRound::Bf16 => bf16_round_row(row),
+        }
+    }
+}
+
 impl Qwen3MoeOmegaEngine {
     /// Runs `token` at the next position through every layer on the OFF kernels, in `mode`,
     /// recording token row `row` of `trace` (which must have been sized by [`WpTrace::begin`]).
     /// `mutant` applies the routing mutant to the host routing (the GEMM mutant has no OFF-path
     /// meaning and is ignored). Returns the final-normed hidden state.
     pub fn control_step(&mut self, token: u32, mode: ControlMode, mutant: WpMutant, trace: &mut WpTrace, row: usize) -> Result<Vec<f32>, String> {
+        let emul = match mode {
+            ControlMode::Off => Emul::default(),
+            ControlMode::W8A8 => Emul { acts: ActRound::E4m3, act_points: PT_ALL, ..Emul::default() },
+        };
+        self.control_step_emul(token, &emul, None, mutant, trace, row)
+    }
+
+    /// [`Self::control_step`] with the W-L1I emulation switches. `host` must be `Some` when
+    /// `emul.host_attn` is set.
+    pub fn control_step_emul(&mut self, token: u32, emul: &Emul, mut host: Option<&mut HostAttn>, mutant: WpMutant, trace: &mut WpTrace, row: usize) -> Result<Vec<f32>, String> {
+        if emul.host_attn != host.is_some() {
+            return Err("control_step_emul: host_attn and the HostAttn argument disagree".into());
+        }
         let t_step = Instant::now();
         let mut timing = StepTiming::default();
         let c = &self.weights.config;
@@ -50,8 +116,11 @@ impl Qwen3MoeOmegaEngine {
         if row >= trace.m || trace.layers() != self.weights.layers.len() {
             return Err(format!("control_step: trace sized for {} rows x {} layers, asked row {row}", trace.m, trace.layers()));
         }
-        let fq = mode == ControlMode::W8A8;
+        let mut chip_out = if emul.host_attn { vec![0.0f32; qd] } else { Vec::new() };
         let mut x = self.weights.embed_row(token);
+        if emul.ulp_nudge && pos == 0 {
+            x.iter_mut().for_each(|v| *v = f32::from_bits(v.to_bits() ^ 1));
+        }
         let mut x_norm = vec![0.0f32; h];
         let mut qkv_out = vec![0.0f32; c.qkv_n()];
         let mut attn_out = vec![0.0f32; qd];
@@ -74,23 +143,24 @@ impl Qwen3MoeOmegaEngine {
             if ops {
                 put(&mut trace.ops.x_norm, trace.m, row, &x_norm);
             }
-            if fq {
-                fake_quant_row(&mut x_norm);
-            }
+            emul.round(PT_QKV, &mut x_norm);
             timing.chip_ns += qkv.grouped_f32(&[0], &x_norm, &mut qkv_out).map_err(|e| format!("layer {layer_idx} qkv: {e}"))?;
             if ops {
                 put(&mut trace.ops.qkv, trace.m, row, &qkv_out);
             }
-            match self.kv.fused_attend(layer_idx, pos, &qkv_out, eps, &mut attn_out) {
+            let chip_dst = if emul.host_attn { &mut chip_out } else { &mut attn_out };
+            match self.kv.fused_attend(layer_idx, pos, &qkv_out, eps, chip_dst) {
                 Some(r) => timing.chip_ns += r?,
                 None => return Err("the control needs the fused KV attention".into()),
+            }
+            if let Some(ha) = host.as_deref_mut() {
+                ha.attend(layer_idx, pos, &qkv_out, &layer.q_norm, &layer.k_norm, eps, &mut attn_out).map_err(|e| format!("layer {layer_idx}: {e}"))?;
+                ha.record_chip(layer_idx, &attn_out, &chip_out);
             }
             if ops {
                 put(&mut trace.ops.attn, trace.m, row, &attn_out);
             }
-            if fq {
-                fake_quant_row(&mut attn_out);
-            }
+            emul.round(PT_O, &mut attn_out);
             timing.chip_ns += o.grouped_f32(&[0], &attn_out, &mut attn_proj).map_err(|e| format!("layer {layer_idx} o: {e}"))?;
             if ops {
                 put(&mut trace.ops.oproj, trace.m, row, &attn_proj);
@@ -115,17 +185,12 @@ impl Qwen3MoeOmegaEngine {
             let plan = MoeBatchPlan::from_logits(&logits, 1, e, top_k).map_err(|e| format!("layer {layer_idx} routing: {e}"))?;
             let experts: Vec<u32> = plan.topk_experts.clone();
             trace.experts[layer_idx][row * top_k..(row + 1) * top_k].copy_from_slice(&experts);
-            if fq {
-                fake_quant_row(&mut post);
-            }
+            emul.round(PT_GU, &mut post);
             timing.chip_ns += gate_up.grouped_f32(&experts, &post, &mut gu_out).map_err(|e| format!("layer {layer_idx} gate_up fp8: {e}"))?;
             for slot in 0..top_k {
                 let act = &mut act_all[slot * i..(slot + 1) * i];
                 swiglu(&gu_out[slot * 2 * i..(slot + 1) * 2 * i], i, act);
-                if fq {
-                    bf16_round_row(act);
-                    fake_quant_row(act);
-                }
+                emul.round(PT_DOWN, act);
             }
             timing.chip_ns += down.grouped_f32(&experts, &act_all, &mut down_all).map_err(|e| format!("layer {layer_idx} down fp8: {e}"))?;
             moe_out.iter_mut().for_each(|v| *v = 0.0);

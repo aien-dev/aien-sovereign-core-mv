@@ -30,6 +30,7 @@ use crate::moe_plan::MoeBatchPlan;
 use crate::resident::transpose_bf16_for_upload;
 mod whole_prompt;
 pub mod w8a8_control;
+pub mod host_attn;
 
 /// The one-list decode token (OWN-30B L2 cut 2), off unless `OWN30B_DECODE_GRAPH=1`.
 #[path = "qwen3_moe_omega_dgraph.rs"]
