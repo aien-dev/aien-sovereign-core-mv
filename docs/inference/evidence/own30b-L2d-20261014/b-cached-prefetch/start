@@ -1,0 +1,8 @@
+queued 2026-10-14T01:45:49Z bin /tmp/wl2d/target/release/own30b_check sha 30080f93831f142c sc be05376 omega.lock 7d47aa874e0d7eb4ffdb7becc5f1b1c1e3a6af33 archive aa95ab6380f6f8a4
+env AIEN_OMEGA_SPIN_US=2000 AIEN_OMEGA_CTA_BUDGET=64 OWN30B_DECODE_GRAPH=1 OWN30B_DECODE_GRAPH_STAMPS=1 AIEN_OMEGA_FP8_WEIGHT_CACHE=1 AIEN_OMEGA_DGRAPH_PREFETCH=1
+flags --prompts 1,2,3,4 --new 16 --layers 0,23,47 --weights fp8 --attn fused --router device --lm-head gemv --prefill auto
+lock acquired 2026-10-14T01:45:50Z
+ 20:45:50 up 7 days, 14:14, 15 users,  load average: 8.59, 7.17, 6.22
+               total        used        free      shared  buff/cache   available
+Mem:             121          20          41           2          62         101
+ended 2026-10-14T01:47:07Z
