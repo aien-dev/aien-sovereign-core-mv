@@ -119,6 +119,9 @@ fn main() {
         }
     }
     let off = SpecConfig::default();
+    // Tuning (K, MAX_N, MIN_N, MIN_ACCEPT) from the AIEN_OWN30B_SPEC_* environment; enabled / verify / mutant set here.
+    let base = SpecConfig { enabled: false, mutant_accept_extra: false, ..SpecConfig::from_env() };
+    say(format!("spec tuning: max_draft={} max_ngram={} min_ngram={} min_accept={}", base.max_draft, base.max_ngram, base.min_ngram, base.min_accept));
     let params = GenerateParams::greedy(new_tokens, config.eos_token_ids.clone());
     let mut all_ok = true;
     let mut rows = Vec::new();
@@ -148,7 +151,7 @@ fn main() {
             };
             say(format!("{name} run {run}: OFF {tps_off:.1} tok/s ({ms_off} ms, {} tokens) | off-vs-golden {golden_cmp}", t_off.len()));
             for (pi, &path) in paths.iter().enumerate() {
-                let on = SpecConfig { enabled: true, verify: path, ..SpecConfig::default() };
+                let on = SpecConfig { enabled: true, verify: path, ..base.clone() };
                 let (t_on, st, tps_on, ms_on) = go(&on, &mut engine);
                 let diff = first_diff(&t_off, &t_on);
                 let verdict = match (path, diff) {
@@ -168,12 +171,12 @@ fn main() {
                     }
                 }
                 say(format!(
-                    "{name} run {run}: ON verify={path:?} {tps_on:.1} tok/s ({ms_on} ms) vs off {verdict} | rounds {} wp_rounds {} plain {} drafted {} accepted {} acceptance {:.3}",
-                    st.rounds, st.wp_rounds, st.plain_steps, st.drafted, st.accepted, st.acceptance()
+                    "{name} run {run}: ON verify={path:?} {tps_on:.1} tok/s ({ms_on} ms) vs off {verdict} | rounds {} wp_rounds {} plain {} backoff {} drafted {} accepted {} acceptance {:.3}",
+                    st.rounds, st.wp_rounds, st.plain_steps, st.backoff_steps, st.drafted, st.accepted, st.acceptance()
                 ));
                 rows.push(serde_json::json!({"prompt": name, "run": run, "verify": format!("{path:?}"), "identical": diff.is_none(), "first_diff": diff,
                     "off_matches_golden": t_off == want, "off_tok_s": tps_off, "on_tok_s": tps_on, "off_ms": ms_off, "on_ms": ms_on,
-                    "rounds": st.rounds, "wp_rounds": st.wp_rounds, "plain": st.plain_steps, "drafted": st.drafted, "accepted": st.accepted,
+                    "rounds": st.rounds, "wp_rounds": st.wp_rounds, "plain": st.plain_steps, "backoff": st.backoff_steps, "drafted": st.drafted, "accepted": st.accepted,
                     "acceptance": st.acceptance(), "tokens_off": t_off, "tokens_on": t_on}));
                 if run == 1 {
                     // Negative control: compared with the SAME path's honest spec-on output.

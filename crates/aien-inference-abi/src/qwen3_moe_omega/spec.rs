@@ -33,6 +33,10 @@ pub struct SpecConfig {
     pub mutant_accept_extra: bool,
     /// Which pass checks the drafts (W-L4b). See [`VerifyPath`].
     pub verify: VerifyPath,
+    /// W-L4b back-off: a round that accepts fewer than `min_accept` drafts makes the next rounds
+    /// skip drafting (plain steps) for 1, 2, 4 .. 16 steps; a good round resets it. 0 = off. Only
+    /// WHICH steps get a draft changes, never how a token is chosen.
+    pub min_accept: usize,
 }
 
 /// The pass that runs `[t0, drafts..]` in one go.
@@ -52,7 +56,7 @@ pub const SPEC_ENV: &str = "AIEN_OWN30B_SPEC";
 
 impl Default for SpecConfig {
     fn default() -> Self {
-        Self { enabled: false, max_draft: 8, max_ngram: 3, min_ngram: 1, mutant_accept_extra: false, verify: VerifyPath::Decode }
+        Self { enabled: false, max_draft: 8, max_ngram: 3, min_ngram: 1, mutant_accept_extra: false, verify: VerifyPath::Decode, min_accept: 0 }
     }
 }
 
@@ -68,6 +72,7 @@ impl SpecConfig {
             max_ngram: num("AIEN_OWN30B_SPEC_MAX_N", d.max_ngram),
             min_ngram: num("AIEN_OWN30B_SPEC_MIN_N", d.min_ngram),
             mutant_accept_extra: false,
+            min_accept: num("AIEN_OWN30B_SPEC_MIN_ACCEPT", d.min_accept),
             // AIEN_OWN30B_SPEC_VERIFY=wp: verify through the whole-prompt driver (W-L4b).
             verify: match get("AIEN_OWN30B_SPEC_VERIFY").as_deref().map(str::trim) {
                 Some("wp") | Some("whole-prompt") => VerifyPath::WholePrompt,
@@ -88,6 +93,8 @@ pub struct SpecStats {
     pub accepted: usize,
     /// Rounds verified through the whole-prompt driver (the rest used `step_verify`).
     pub wp_rounds: usize,
+    /// Plain steps taken because of the back-off (also counted in `plain_steps`).
+    pub backoff_steps: usize,
 }
 
 impl SpecStats {
@@ -407,6 +414,7 @@ impl Qwen3MoeOmegaEngine {
         let mut finish = FinishReason::Length;
         let mut step = 0usize;
         let mut pending_logits: Option<Vec<f32>> = None;
+        let (mut skip, mut backoff) = (0usize, 0usize);
         // lm_head launch with its timing folded into decode_timing.
         macro_rules! lm {
             ($self:ident, $h:expr) => {{
@@ -447,7 +455,13 @@ impl Qwen3MoeOmegaEngine {
                 .min(room.saturating_sub(1))
                 .min(params.max_new_tokens - emitted)
                 .min(aien_omega_fp8::GEMM_MAX_ROWS / self.weights.config.top_k - 1);
-            let drafts = find_draft(&ctx, cfg.max_ngram, cfg.min_ngram, k);
+            let drafts = if skip > 0 {
+                skip -= 1;
+                stats.backoff_steps += 1;
+                Vec::new()
+            } else {
+                find_draft(&ctx, cfg.max_ngram, cfg.min_ngram, k)
+            };
             if drafts.is_empty() {
                 stats.plain_steps += 1;
                 self.last_timing = StepTiming::default();
@@ -504,6 +518,14 @@ impl Qwen3MoeOmegaEngine {
             }
             // Keep t_first and the accepted drafts; drop the rejected inputs' KV.
             self.rewind(pos_before + 1 + acc);
+            if cfg.min_accept > 0 {
+                if acc < cfg.min_accept {
+                    backoff = (backoff * 2).clamp(1, 16);
+                    skip = backoff;
+                } else {
+                    backoff = 0;
+                }
+            }
         }
         Ok((
             GenerateOutcome {
@@ -648,6 +670,25 @@ mod tests {
         assert_eq!(t.len(), 10);
         std::env::remove_var(SPEC_ENV);
         assert!(!SpecConfig::from_env().enabled, "default is OFF");
+    }
+
+    #[test]
+    fn back_off_skips_drafting_after_poor_rounds_and_keeps_the_tokens() {
+        let prompt = [5u32, 17, 42, 3, 9, 60, 5, 17, 42, 3, 9, 60, 5, 17, 42];
+        for device in [true, false] {
+            let want = run(&mut engine(device), &prompt, 60, &SpecConfig::default(), vec![]).0;
+            let free = run(&mut engine(device), &prompt, 60, &SpecConfig { enabled: true, ..Default::default() }, vec![]).1;
+            // min_accept above any possible acceptance: every round is "poor", so back-off must kick in.
+            let cfg = SpecConfig { enabled: true, min_accept: 9, ..Default::default() };
+            let (got, st, _) = run(&mut engine(device), &prompt, 60, &cfg, vec![]);
+            assert_eq!(got, want, "device={device}: back-off changed the tokens");
+            assert!(st.backoff_steps > 0 && st.rounds > 0, "{st:?}");
+            assert!(st.rounds < free.rounds, "back-off did not reduce rounds: {st:?} vs {free:?}");
+        }
+        std::env::set_var("AIEN_OWN30B_SPEC_MIN_ACCEPT", "2");
+        assert_eq!(SpecConfig::from_env().min_accept, 2);
+        std::env::remove_var("AIEN_OWN30B_SPEC_MIN_ACCEPT");
+        assert_eq!(SpecConfig::from_env().min_accept, 0, "default: no back-off");
     }
 
     #[test]
