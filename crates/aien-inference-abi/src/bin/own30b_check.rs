@@ -903,7 +903,7 @@ fn timeline_table(t: &dgraph::Timeline, c: &Qwen3MoeConfig) -> Vec<String> {
     };
     let mut out = vec![format!("TIMELINE over {} graph tokens: {:<12} {:>9} {:>10} {:>14} {:>9}", t.steps, "kind", "launches", "us/step", "bytes/step", "GB/s")];
     let mut sum_ns = 0u64;
-    for k in 0..12 {
+    for k in 0..aien_omega_dgraph::KIND_NAMES.len() {
         let name = aien_omega_dgraph::kind_name(k as u8);
         sum_ns += t.ns[k];
         let us = t.ns[k] as f64 / 1e3 / steps;

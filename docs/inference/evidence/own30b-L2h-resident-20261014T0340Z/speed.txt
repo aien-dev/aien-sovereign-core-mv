@@ -1,0 +1,6 @@
+prompt  off-a  on-a  off-b  on-b (decode tok/s)
+p1  43.6  44.8  43.5  45.1
+p2  40.2  41.4  40.5  41.7
+p3  41.6  42.9  41.7  42.9
+p4  40.8  42.0  41.0  42.2
+  DECODE GRAPH ON: 15 of 16 decode steps as one list (the first step is the prefill's lm_head); per step launches 184.8 submits 1.0; per graph token launches 197.0 submits 1.0 record 27.7 us

@@ -29,8 +29,9 @@ pub const fn is_native() -> bool {
     cfg!(has_omega_dgraph)
 }
 
-/// Launch kinds of the timeline (`OMEGA_GPU_DGRAPH_K_*`), in enum order.
-pub const KIND_NAMES: [&str; 12] = ["norm", "qkv", "attn", "o_proj", "res_add", "router", "gate_up", "swiglu", "down", "combine_norm", "lm_head", "argmax"];
+/// Launch kinds of the timeline (`OMEGA_GPU_DGRAPH_K_*`), in enum order. The last two are the resident
+/// launches (omega `AIEN_OMEGA_DGRAPH_RESIDENT=1`, OWN-30B W-L2h).
+pub const KIND_NAMES: [&str; 14] = ["norm", "qkv", "attn", "o_proj", "res_add", "router", "gate_up", "swiglu", "down", "combine_norm", "lm_head", "argmax", "res_o_add", "res_moe_chain"];
 
 /// omega's own name for a launch kind (`omega_gpu_decode_graph_kind_name`); the table above
 /// in the stub.
@@ -442,7 +443,7 @@ mod tests {
         for (k, want) in KIND_NAMES.iter().enumerate() {
             assert_eq!(kind_name(k as u8), *want);
         }
-        assert_eq!(kind_name(12), "?");
+        assert_eq!(kind_name(14), "?");
     }
 
     #[test]
