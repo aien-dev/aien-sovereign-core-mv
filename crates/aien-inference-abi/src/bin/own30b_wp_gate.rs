@@ -357,6 +357,8 @@ fn main() {
                 (format!("{k} ON-CTRL {a:.3e} <= CTRL-OFF {b:.3e}"), a <= b)
             })
             .collect();
+        // W-L1H: the drift against plain decode, the number W8A8 and W8A16 are compared on.
+        say(format!("len {n} DRIFT acts {} max_l relerr(ON,OFF) = {:.3e} top1 {}", if ACTS_A16.load(Ordering::Relaxed) { "a16" } else { "a8" }, max_out(&runs[0].3), if argmax(&on.logits0) == argmax(&off.logits0) { "AGREE" } else { "DIFFER" }));
         let pass = on_ctrl <= budget && ops_ok.iter().all(|o| o.1);
         all_pass &= pass;
         say(format!("len {n} RULE: budget B = max_l relerr(CTRL,OFF) = {budget:.3e}; max_l relerr(ON,CTRL) = {on_ctrl:.3e} ({:.2} x B); ops: {}", on_ctrl / budget, ops_ok.iter().map(|o| format!("{} {}", o.0, if o.1 { "ok" } else { "VIOLATED" })).collect::<Vec<_>>().join(", ")));
