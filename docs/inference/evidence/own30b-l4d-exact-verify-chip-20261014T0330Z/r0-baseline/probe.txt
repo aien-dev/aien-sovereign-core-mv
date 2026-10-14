@@ -1,0 +1,37 @@
+spin_us Some(2000)
+LOAD 6 layers 8.8s prompt p4-long (657 tokens) reps 6 max_m 8 whole-prompt true
+prefilled 657 positions; first token 129177
+IDENTITY path=verify m=1 rows_equal=1/1 words_differ=0 first_bad_row=None
+IDENTITY path=wp m=1 rows_equal=0/1 words_differ=2048 first_bad_row=Some(0)
+IDENTITY path=verify m=2 rows_equal=2/2 words_differ=0 first_bad_row=None
+IDENTITY path=wp m=2 rows_equal=0/2 words_differ=4096 first_bad_row=Some(0)
+IDENTITY path=verify m=3 rows_equal=3/3 words_differ=0 first_bad_row=None
+IDENTITY path=wp m=3 rows_equal=0/3 words_differ=6144 first_bad_row=Some(0)
+IDENTITY path=verify m=4 rows_equal=4/4 words_differ=0 first_bad_row=None
+IDENTITY path=wp m=4 rows_equal=0/4 words_differ=8192 first_bad_row=Some(0)
+IDENTITY path=verify m=5 rows_equal=5/5 words_differ=0 first_bad_row=None
+IDENTITY path=wp m=5 rows_equal=0/5 words_differ=10240 first_bad_row=Some(0)
+IDENTITY path=verify m=6 rows_equal=6/6 words_differ=0 first_bad_row=None
+IDENTITY path=wp m=6 rows_equal=0/6 words_differ=12288 first_bad_row=Some(0)
+IDENTITY path=verify m=7 rows_equal=7/7 words_differ=0 first_bad_row=None
+IDENTITY path=wp m=7 rows_equal=0/7 words_differ=14336 first_bad_row=Some(0)
+IDENTITY path=verify m=8 rows_equal=8/8 words_differ=0 first_bad_row=None
+IDENTITY path=wp m=8 rows_equal=0/8 words_differ=16384 first_bad_row=Some(0)
+PLAIN step 3.21 ms (0.535 ms/layer) lm_head 3.03 ms | total 6.19 attention 1.36 experts 1.84 route 0.00 moe_host 0.00 host 0.08 chip 5.81 ms launches 37
+TIME path=verify m=1: wall 5.37 ms (0.895 ms/layer, 1.67x plain step) | total 4.55 attention 2.60 experts 1.94 route 0.17 moe_host 0.00 host 0.01 chip 4.02 ms launches 36
+TIME path=verify m=2: wall 8.15 ms (1.358 ms/layer, 2.54x plain step) | total 8.17 attention 3.54 experts 4.59 route 0.35 moe_host 0.00 host 0.03 chip 6.69 ms launches 48
+TIME path=verify m=3: wall 11.15 ms (1.859 ms/layer, 3.47x plain step) | total 11.42 attention 4.34 experts 7.04 route 0.51 moe_host 0.00 host 0.04 chip 9.59 ms launches 60
+TIME path=verify m=4: wall 13.74 ms (2.290 ms/layer, 4.28x plain step) | total 13.83 attention 4.93 experts 8.80 route 0.69 moe_host 0.00 host 0.06 chip 11.32 ms launches 72
+TIME path=verify m=5: wall 14.59 ms (2.432 ms/layer, 4.54x plain step) | total 14.15 attention 4.96 experts 9.09 route 0.86 moe_host 0.00 host 0.07 chip 11.73 ms launches 84
+TIME path=verify m=6: wall 16.83 ms (2.806 ms/layer, 5.24x plain step) | total 16.15 attention 5.41 experts 10.63 route 1.02 moe_host 0.00 host 0.08 chip 13.49 ms launches 96
+TIME path=verify m=7: wall 18.96 ms (3.160 ms/layer, 5.90x plain step) | total 18.32 attention 6.30 experts 11.87 route 1.19 moe_host 0.00 host 0.08 chip 15.38 ms launches 108
+TIME path=verify m=8: wall 19.98 ms (3.330 ms/layer, 6.22x plain step) | total 21.45 attention 6.67 experts 14.64 route 1.36 moe_host 0.00 host 0.10 chip 17.04 ms launches 120
+TIME path=wp m=1: wall 2.88 ms (0.480 ms/layer, 0.90x plain step) | total 2.76 attention 0.35 experts 0.00 route 0.00 moe_host 0.00 host 0.20 chip 2.52 ms launches 54
+TIME path=wp m=2: wall 3.75 ms (0.625 ms/layer, 1.17x plain step) | total 3.76 attention 0.37 experts 0.00 route 0.00 moe_host 0.00 host 0.27 chip 3.45 ms launches 54
+TIME path=wp m=3: wall 4.91 ms (0.819 ms/layer, 1.53x plain step) | total 4.91 attention 0.40 experts 0.00 route 0.00 moe_host 0.00 host 0.40 chip 4.48 ms launches 54
+TIME path=wp m=4: wall 5.53 ms (0.921 ms/layer, 1.72x plain step) | total 5.52 attention 0.40 experts 0.00 route 0.00 moe_host 0.00 host 0.51 chip 4.97 ms launches 54
+TIME path=wp m=5: wall 6.42 ms (1.070 ms/layer, 2.00x plain step) | total 7.16 attention 0.41 experts 0.00 route 0.00 moe_host 0.00 host 0.67 chip 6.46 ms launches 54
+TIME path=wp m=6: wall 6.90 ms (1.150 ms/layer, 2.15x plain step) | total 6.86 attention 0.42 experts 0.00 route 0.00 moe_host 0.00 host 0.75 chip 6.08 ms launches 54
+TIME path=wp m=7: wall 7.34 ms (1.223 ms/layer, 2.29x plain step) | total 7.33 attention 0.43 experts 0.00 route 0.00 moe_host 0.00 host 0.86 chip 6.43 ms launches 54
+TIME path=wp m=8: wall 7.91 ms (1.318 ms/layer, 2.46x plain step) | total 7.91 attention 0.43 experts 0.00 route 0.00 moe_host 0.00 host 1.00 chip 6.87 ms launches 54
+PROBE DONE

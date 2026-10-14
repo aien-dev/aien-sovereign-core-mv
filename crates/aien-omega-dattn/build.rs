@@ -17,6 +17,7 @@ use std::process::Command;
 
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(has_omega_dattn)");
+    println!("cargo:rustc-check-cfg=cfg(has_omega_dattn_rows)");
     for v in ["AIEN_FORCE_CPU_STUB", "AIEN_OMEGA_GPU_LIB", "AIEN_OMEGA_DIR"] {
         println!("cargo:rerun-if-env-changed={v}");
     }
@@ -27,6 +28,10 @@ fn main() {
         println!("cargo:rerun-if-changed={lib}");
         if archive_defines(Path::new(&lib), "omega_gpu_decode_attn") {
             println!("cargo:rustc-cfg=has_omega_dattn");
+            // W-L4d: the multi-row exact verify attention (omega own30b/spec-exact) is optional on top.
+            if archive_defines(Path::new(&lib), "omega_gpu_decode_attn_rows") {
+                println!("cargo:rustc-cfg=has_omega_dattn_rows");
+            }
         } else {
             println!("cargo:warning=aien-omega-dattn: {lib} does not define the decode attention API; fused attention is stubbed");
         }
@@ -37,6 +42,9 @@ fn main() {
         println!("cargo:rerun-if-changed={}", header.display());
         if header.is_file() {
             println!("cargo:rustc-cfg=has_omega_dattn");
+            if std::fs::read_to_string(&header).map(|h| h.contains("omega_gpu_decode_attn_rows")).unwrap_or(false) {
+                println!("cargo:rustc-cfg=has_omega_dattn_rows");
+            }
         } else {
             println!("cargo:warning=aien-omega-dattn: {dir} has no src/omega_gpu_decode_attn_api.h (omega before OWN-30B cut 8); fused attention is stubbed");
         }

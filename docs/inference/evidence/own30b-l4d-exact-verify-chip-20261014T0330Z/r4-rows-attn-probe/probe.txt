@@ -1,0 +1,45 @@
+spin_us Some(2000)
+LOAD 6 layers 5.2s prompt p4-long (657 tokens) reps 6 max_m 8 whole-prompt true
+prefilled 657 positions; first token 129177
+IDENTITY path=fast m=1 rows_equal=1/1 words_differ=0 first_bad_row=None
+IDENTITY path=wp m=1 rows_equal=0/1 words_differ=2048 first_bad_row=Some(0)
+IDENTITY path=fast m=2 rows_equal=2/2 words_differ=0 first_bad_row=None
+IDENTITY path=wp m=2 rows_equal=0/2 words_differ=4096 first_bad_row=Some(0)
+IDENTITY path=fast m=3 rows_equal=3/3 words_differ=0 first_bad_row=None
+IDENTITY path=wp m=3 rows_equal=0/3 words_differ=6144 first_bad_row=Some(0)
+IDENTITY path=fast m=4 rows_equal=4/4 words_differ=0 first_bad_row=None
+IDENTITY path=wp m=4 rows_equal=0/4 words_differ=8192 first_bad_row=Some(0)
+IDENTITY path=fast m=5 rows_equal=5/5 words_differ=0 first_bad_row=None
+IDENTITY path=wp m=5 rows_equal=0/5 words_differ=10240 first_bad_row=Some(0)
+IDENTITY path=fast m=6 rows_equal=6/6 words_differ=0 first_bad_row=None
+IDENTITY path=wp m=6 rows_equal=0/6 words_differ=12288 first_bad_row=Some(0)
+IDENTITY path=fast m=7 rows_equal=7/7 words_differ=0 first_bad_row=None
+IDENTITY path=wp m=7 rows_equal=0/7 words_differ=14336 first_bad_row=Some(0)
+IDENTITY path=fast m=8 rows_equal=8/8 words_differ=0 first_bad_row=None
+IDENTITY path=wp m=8 rows_equal=0/8 words_differ=16384 first_bad_row=Some(0)
+PLAIN step 3.20 ms (0.534 ms/layer) lm_head 3.03 ms | total 6.80 attention 1.53 experts 2.03 route 0.00 moe_host 0.00 host 0.08 chip 6.43 ms launches 37
+TIME path=fast m=1: wall 2.63 ms (0.438 ms/layer, 0.82x plain step) | total 2.63 attention 1.14 experts 1.40 route 0.16 moe_host 0.00 host 0.08 chip 2.35 ms launches 0
+PROF m=1 per call (all 6 layers): qkv 0.364/0.336 attn 0.474/0.462 o 0.325/0.305 route 0.163/0.154 gate_up 0.780/0.725 down 0.502/0.430 host 0.081 (ms per call, wall/chip)
+TIME path=fast m=2: wall 4.10 ms (0.683 ms/layer, 1.28x plain step) | total 4.10 attention 1.35 experts 2.58 route 0.34 moe_host 0.00 host 0.16 chip 3.56 ms launches 0
+PROF m=2 per call (all 6 layers): qkv 0.376/0.328 attn 0.639/0.600 o 0.339/0.307 route 0.338/0.320 gate_up 1.371/1.268 down 0.866/0.731 host 0.159 (ms per call, wall/chip)
+TIME path=fast m=3: wall 5.89 ms (0.982 ms/layer, 1.84x plain step) | total 5.89 attention 1.85 experts 3.79 route 0.50 moe_host 0.00 host 0.24 chip 5.08 ms launches 0
+PROF m=3 per call (all 6 layers): qkv 0.467/0.394 attn 0.749/0.694 o 0.633/0.584 route 0.506/0.478 gate_up 2.019/1.865 down 1.273/1.066 host 0.239 (ms per call, wall/chip)
+TIME path=fast m=4: wall 6.99 ms (1.165 ms/layer, 2.18x plain step) | total 6.97 attention 1.98 experts 4.66 route 0.67 moe_host 0.00 host 0.32 chip 5.90 ms launches 0
+PROF m=4 per call (all 6 layers): qkv 0.492/0.401 attn 0.867/0.796 o 0.644/0.584 route 0.672/0.634 gate_up 2.440/2.234 down 1.538/1.263 host 0.317 (ms per call, wall/chip)
+TIME path=fast m=5: wall 9.54 ms (1.590 ms/layer, 2.98x plain step) | total 9.60 attention 3.36 experts 5.83 route 0.84 moe_host 0.00 host 0.40 chip 8.23 ms launches 0
+PROF m=5 per call (all 6 layers): qkv 1.044/0.934 attn 1.031/0.943 o 1.258/1.178 route 0.840/0.792 gate_up 3.045/2.785 down 1.889/1.534 host 0.397 (ms per call, wall/chip)
+TIME path=fast m=6: wall 10.62 ms (1.770 ms/layer, 3.31x plain step) | total 10.62 attention 3.47 experts 6.65 route 1.00 moe_host 0.00 host 0.48 chip 9.00 ms launches 0
+PROF m=6 per call (all 6 layers): qkv 1.068/0.936 attn 1.154/1.049 o 1.260/1.172 route 1.003/0.945 gate_up 3.515/3.199 down 2.131/1.709 host 0.477 (ms per call, wall/chip)
+TIME path=fast m=7: wall 11.78 ms (1.964 ms/layer, 3.68x plain step) | total 11.80 attention 3.71 experts 7.51 route 1.17 moe_host 0.00 host 0.56 chip 9.90 ms launches 0
+PROF m=7 per call (all 6 layers): qkv 1.094/0.941 attn 1.330/1.208 o 1.280/1.177 route 1.168/1.099 gate_up 3.946/3.575 down 2.379/1.885 host 0.558 (ms per call, wall/chip)
+TIME path=fast m=8: wall 12.72 ms (2.121 ms/layer, 3.97x plain step) | total 12.69 attention 3.76 experts 8.26 route 1.33 moe_host 0.00 host 0.64 chip 10.51 ms launches 0
+PROF m=8 per call (all 6 layers): qkv 1.123/0.947 attn 1.351/1.214 o 1.295/1.176 route 1.335/1.257 gate_up 4.332/3.907 down 2.571/2.003 host 0.640 (ms per call, wall/chip)
+TIME path=wp m=1: wall 2.77 ms (0.462 ms/layer, 0.86x plain step) | total 2.74 attention 0.35 experts 0.00 route 0.00 moe_host 0.00 host 0.16 chip 2.54 ms launches 54
+TIME path=wp m=2: wall 3.75 ms (0.626 ms/layer, 1.17x plain step) | total 3.76 attention 0.37 experts 0.00 route 0.00 moe_host 0.00 host 0.27 chip 3.46 ms launches 54
+TIME path=wp m=3: wall 4.92 ms (0.820 ms/layer, 1.53x plain step) | total 4.93 attention 0.40 experts 0.00 route 0.00 moe_host 0.00 host 0.38 chip 4.51 ms launches 54
+TIME path=wp m=4: wall 5.59 ms (0.932 ms/layer, 1.75x plain step) | total 5.60 attention 0.40 experts 0.00 route 0.00 moe_host 0.00 host 0.50 chip 5.06 ms launches 54
+TIME path=wp m=5: wall 6.42 ms (1.070 ms/layer, 2.00x plain step) | total 6.48 attention 0.41 experts 0.00 route 0.00 moe_host 0.00 host 0.62 chip 5.83 ms launches 54
+TIME path=wp m=6: wall 7.01 ms (1.168 ms/layer, 2.19x plain step) | total 6.97 attention 0.42 experts 0.00 route 0.00 moe_host 0.00 host 0.74 chip 6.19 ms launches 54
+TIME path=wp m=7: wall 7.50 ms (1.250 ms/layer, 2.34x plain step) | total 7.50 attention 0.43 experts 0.00 route 0.00 moe_host 0.00 host 0.86 chip 6.61 ms launches 54
+TIME path=wp m=8: wall 7.95 ms (1.326 ms/layer, 2.48x plain step) | total 8.00 attention 0.43 experts 0.00 route 0.00 moe_host 0.00 host 0.98 chip 6.98 ms launches 54
+PROBE DONE

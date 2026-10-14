@@ -44,6 +44,9 @@ pub struct SpecConfig {
     /// NEGATIVE CONTROL ONLY: also accepts the first draft that does not match. Output must then
     /// differ from spec-off; a check that does not notice is broken.
     pub mutant_accept_extra: bool,
+    /// NEGATIVE CONTROL ONLY (W-L4d): the `Exact` verify truncates every attention output to bf16
+    /// before o_proj (a numerics change the token comparison must catch).
+    pub mutant_numerics: bool,
     /// Which pass checks the drafts (W-L4b). See [`VerifyPath`].
     pub verify: VerifyPath,
     /// W-L4b back-off: a round that accepts fewer than `min_accept` drafts makes the next rounds
@@ -66,13 +69,18 @@ pub enum VerifyPath {
     /// per layer, FP8 activations, host router). Faster, but rounds differently from plain decode,
     /// so accepted tokens follow the W8A8 numerics. Needs `set_whole_prompt(true)`.
     WholePrompt,
+    /// W-L4d: [`Qwen3MoeOmegaEngine::step_verify_exact`]: the same numerics as `Decode` (every row
+    /// bit-identical to a plain `step`, probe receipt r4-rows-attn-probe) with serial host loops and
+    /// omega's multi-row decode attention (two launches per layer for all rows). Needs the device
+    /// router and the fused KV; `AIEN_OWN30B_SPEC_VERIFY=exact`.
+    Exact,
 }
 
 pub const SPEC_ENV: &str = "AIEN_OWN30B_SPEC";
 
 impl Default for SpecConfig {
     fn default() -> Self {
-        Self { enabled: false, max_draft: 8, max_ngram: 3, min_ngram: 1, mutant_accept_extra: false, verify: VerifyPath::Decode, min_accept: 0, source: DraftSource::PromptLookup, suffix: SuffixConfig::default() }
+        Self { enabled: false, max_draft: 8, max_ngram: 3, min_ngram: 1, mutant_accept_extra: false, mutant_numerics: false, verify: VerifyPath::Decode, min_accept: 0, source: DraftSource::PromptLookup, suffix: SuffixConfig::default() }
     }
 }
 
@@ -88,10 +96,13 @@ impl SpecConfig {
             max_ngram: num("AIEN_OWN30B_SPEC_MAX_N", d.max_ngram),
             min_ngram: num("AIEN_OWN30B_SPEC_MIN_N", d.min_ngram),
             mutant_accept_extra: false,
+            mutant_numerics: false,
             min_accept: num("AIEN_OWN30B_SPEC_MIN_ACCEPT", d.min_accept),
             // AIEN_OWN30B_SPEC_VERIFY=wp: verify through the whole-prompt driver (W-L4b).
             verify: match get("AIEN_OWN30B_SPEC_VERIFY").as_deref().map(str::trim) {
                 Some("wp") | Some("whole-prompt") => VerifyPath::WholePrompt,
+                // W-L4d: AIEN_OWN30B_SPEC_VERIFY=exact: decode numerics, faster pass (step_verify_exact).
+                Some("exact") => VerifyPath::Exact,
                 _ => VerifyPath::Decode,
             },
             // W-L4c: AIEN_OWN30B_SPEC_DRAFTER=suffix, tuned by AIEN_OWN30B_SPEC_SUFFIX_* (see SuffixConfig::from_env).
@@ -101,6 +112,60 @@ impl SpecConfig {
             },
             suffix: SuffixConfig::from_env(),
         }
+    }
+}
+
+/// W-L4d: one operation's totals in the exact verify pass.
+#[derive(Clone, Debug, Default)]
+pub struct OpProf {
+    /// Wall time of the calls (host API time included).
+    pub wall_ns: u64,
+    /// Chip time the kernels reported.
+    pub chip_ns: u64,
+    pub calls: u64,
+}
+
+impl OpProf {
+    fn add(&mut self, since: Instant, chip_ns: u64) {
+        self.add_n(since, chip_ns, 1);
+    }
+    fn add_n(&mut self, since: Instant, chip_ns: u64, calls: u64) {
+        self.wall_ns += since.elapsed().as_nanos() as u64;
+        self.chip_ns += chip_ns;
+        self.calls += calls;
+    }
+}
+
+/// W-L4d: per-operation profile of [`Qwen3MoeOmegaEngine::step_verify_exact_prof`] (summed over calls).
+#[derive(Clone, Debug, Default)]
+pub struct ExactProf {
+    pub calls: u64,
+    pub rows: u64,
+    pub qkv: OpProf,
+    pub attn: OpProf,
+    pub o: OpProf,
+    pub route: OpProf,
+    pub gate_up: OpProf,
+    pub down: OpProf,
+    /// Host norms, residual adds, sort, SwiGLU, combine.
+    pub host_ns: u64,
+}
+
+impl ExactProf {
+    /// One line, milliseconds per call: `op wall/chip` for each operation.
+    pub fn line(&self) -> String {
+        let n = self.calls.max(1) as f64;
+        let f = |o: &OpProf| format!("{:.3}/{:.3}", o.wall_ns as f64 / n / 1e6, o.chip_ns as f64 / n / 1e6);
+        format!(
+            "qkv {} attn {} o {} route {} gate_up {} down {} host {:.3} (ms per call, wall/chip)",
+            f(&self.qkv),
+            f(&self.attn),
+            f(&self.o),
+            f(&self.route),
+            f(&self.gate_up),
+            f(&self.down),
+            self.host_ns as f64 / n / 1e6
+        )
     }
 }
 
@@ -182,6 +247,7 @@ impl Qwen3MoeOmegaEngine {
     pub fn spec_verify_possible(&self, path: VerifyPath) -> bool {
         match path {
             VerifyPath::Decode => self.spec_possible(),
+            VerifyPath::Exact => self.spec_possible() && self.exact_verify_possible(),
             VerifyPath::WholePrompt => self.whole_prompt.is_some() && self.trace_layers.is_empty() && !self.routing_mutant,
         }
     }
@@ -394,6 +460,211 @@ impl Qwen3MoeOmegaEngine {
         Ok(hiddens)
     }
 
+    /// W-L4d: the exact verify pass (every row's hidden state bit-identical to a plain `step` on that
+    /// token), built for speed. See [`Self::step_verify_exact_prof`].
+    pub fn step_verify_exact(&mut self, tokens: &[u32]) -> Result<Vec<Vec<f32>>, String> {
+        let mut prof = ExactProf::default();
+        self.step_verify_exact_prof(tokens, &mut prof)
+    }
+
+    /// [`Self::step_verify_exact`] with a per-operation profile (wall ns of each call and the chip ns
+    /// the kernels report), added into `prof`.
+    ///
+    /// Same operations, order and numerics as [`Self::step_verify`] (each row: host input norm, the
+    /// projections through omega's FP8 GEMM which is bit-identical to decode's GEMV per row, decode's
+    /// fused attention per row in position order, the device router per row and its own normed row as
+    /// the experts' input, host SwiGLU, combine in slot order from zero), with these speed changes:
+    ///   * host loops serial (no rayon wake-ups for at most a few rows).
+    pub fn step_verify_exact_prof(&mut self, tokens: &[u32], prof: &mut ExactProf) -> Result<Vec<Vec<f32>>, String> {
+        self.step_verify_exact_inner(tokens, prof, false)
+    }
+
+    /// Whether [`Self::step_verify_exact`] can run here: the device router (decode routes on the
+    /// device) and the fused KV (decode's attention kernel).
+    pub fn exact_verify_possible(&self) -> bool {
+        self.weights.device_router.is_some() && self.device_routing && !self.routing_mutant && self.kv.path_name() == "fused"
+    }
+
+    /// `mutant`: NEGATIVE CONTROL ONLY, attention outputs truncated to bf16 before o_proj.
+    pub fn step_verify_exact_inner(&mut self, tokens: &[u32], prof: &mut ExactProf, mutant: bool) -> Result<Vec<Vec<f32>>, String> {
+        let m = tokens.len();
+        if m == 0 {
+            return Err("step_verify_exact: empty batch".into());
+        }
+        if !self.spec_possible() {
+            return Err("step_verify_exact: needs FP8 attention and experts with the prefill GEMM, and no tracing".into());
+        }
+        let t_step = Instant::now();
+        let mut timing = StepTiming::default();
+        let c = &self.weights.config;
+        let top_k = c.top_k;
+        if m > aien_omega_fp8::GEMM_MAX_ROWS / top_k {
+            return Err(format!("step_verify_exact: {m} tokens exceed one GEMM launch"));
+        }
+        let (h, qd, eps) = (c.hidden, c.q_dim(), c.rms_eps);
+        let (e, i, qkv_n) = (c.experts, c.moe_intermediate, c.qkv_n());
+        let pos0 = self.pos;
+        if pos0 + m > self.kv.capacity() {
+            return Err(format!("context full: {pos0} + {m} of {}", self.kv.capacity()));
+        }
+        let g = m * top_k;
+        let mut x: Vec<f32> = tokens.iter().flat_map(|&t| self.weights.embed_row(t)).collect();
+        let mut x_norm = vec![0.0f32; m * h];
+        let mut qkv_all = vec![0.0f32; m * qkv_n];
+        let mut attn_all = vec![0.0f32; m * qd];
+        let mut proj_all = vec![0.0f32; m * h];
+        let mut post = vec![0.0f32; m * h];
+        let mut ids = vec![0u32; g];
+        let mut wts = vec![0.0f32; g];
+        let mut sorted_expert = vec![0u32; g];
+        let mut sorted_token = vec![0u32; g];
+        let mut inv = vec![0u32; g];
+        let mut gu_all = vec![0.0f32; g * 2 * i];
+        let mut act_all = vec![0.0f32; g * i];
+        let mut down_all = vec![0.0f32; g * h];
+        let mut acc = vec![0.0f32; h];
+        let dense_ids = vec![0u32; m];
+        let rows_m: Vec<u32> = (0..m as u32).collect();
+        let rows_g: Vec<u32> = (0..g as u32).collect();
+        let router = match &self.weights.device_router {
+            Some(r) if self.device_routing && !self.routing_mutant => r.clone(),
+            _ => return Err("step_verify_exact: needs the device router (decode routes on the device)".into()),
+        };
+        let mut start = vec![0u32; e + 1];
+        // A/B switch for the probe: AIEN_OWN30B_EXACT_ROWS_ATTN=0 keeps one attention launch per row.
+        let rows_attn = std::env::var("AIEN_OWN30B_EXACT_ROWS_ATTN").as_deref() != Ok("0");
+        prof.calls += 1;
+        prof.rows += m as u64;
+
+        for (layer_idx, layer) in self.weights.layers.iter().enumerate() {
+            let (AttnWeights::Fp8 { qkv, o }, ExpertWeights::Fp8 { gate_up, down }) = (&layer.attn, &layer.experts) else {
+                return Err(format!("layer {layer_idx}: step_verify_exact needs FP8 attention and experts"));
+            };
+            let t = Instant::now();
+            for r in 0..m {
+                rmsnorm(&x[r * h..(r + 1) * h], &layer.input_norm, eps, &mut x_norm[r * h..(r + 1) * h]);
+            }
+            prof.host_ns += t.elapsed().as_nanos() as u64;
+
+            let t = Instant::now();
+            let ns = qkv.gemm_f32(&dense_ids, &rows_m, &x_norm, &mut qkv_all).map_err(|e| format!("layer {layer_idx} qkv exact x{m}: {e}"))?;
+            prof.qkv.add(t, ns);
+            let t = Instant::now();
+            let mut chip = 0u64;
+            // All rows in two launches (omega's rows attention, bit-identical to the per-row calls), else per row.
+            let rows_done = if m > 1 && rows_attn {
+                match self.kv.fused_attend_rows(layer_idx, pos0, m, &qkv_all, eps, &mut attn_all) {
+                    Some(res) => {
+                        chip += res?;
+                        true
+                    }
+                    None => false,
+                }
+            } else {
+                false
+            };
+            if !rows_done {
+                for r in 0..m {
+                    let qkv_r = &qkv_all[r * qkv_n..(r + 1) * qkv_n];
+                    let out_r = &mut attn_all[r * qd..(r + 1) * qd];
+                    match self.kv.fused_attend(layer_idx, pos0 + r, qkv_r, eps, out_r) {
+                        Some(res) => chip += res?,
+                        None => return Err("step_verify_exact: needs the fused attention kernel (decode's)".into()),
+                    }
+                }
+            }
+            prof.attn.add_n(t, chip, if rows_done { 2 } else { m as u64 });
+            let t = Instant::now();
+            if mutant {
+                attn_all.iter_mut().for_each(|v| *v = f32::from_bits(v.to_bits() & 0xffff_0000));
+            }
+            let ns = o.gemm_f32(&dense_ids, &rows_m, &attn_all, &mut proj_all).map_err(|e| format!("layer {layer_idx} o exact x{m}: {e}"))?;
+            prof.o.add(t, ns);
+
+            let t = Instant::now();
+            for (xi, p) in x.iter_mut().zip(&proj_all) {
+                *xi += p;
+            }
+            prof.host_ns += t.elapsed().as_nanos() as u64;
+            // Per token: the device router on the residual row, then the device's own normed row back.
+            let t = Instant::now();
+            let mut chip = 0u64;
+            for r in 0..m {
+                let (a, b) = (r * top_k, (r + 1) * top_k);
+                let (ns, _) = router
+                    .route(layer_idx, &x[r * h..(r + 1) * h], eps, &mut ids[a..b], &mut wts[a..b])
+                    .map_err(|e| format!("layer {layer_idx} device router (exact token {r} of {m}): {e}"))?;
+                chip += ns;
+                router.read_post(&mut post[r * h..(r + 1) * h]).map_err(|e| format!("layer {layer_idx} router readback: {e}"))?;
+            }
+            prof.route.add_n(t, chip, m as u64);
+
+            let t = Instant::now();
+            start.iter_mut().for_each(|s| *s = 0);
+            for &ex in &ids {
+                start[ex as usize + 1] += 1;
+            }
+            for ex in 0..e {
+                start[ex + 1] += start[ex];
+            }
+            for (gi, &ex) in ids.iter().enumerate() {
+                let slot = &mut start[ex as usize];
+                sorted_expert[*slot as usize] = ex;
+                sorted_token[*slot as usize] = (gi / top_k) as u32;
+                inv[gi] = *slot;
+                *slot += 1;
+            }
+            prof.host_ns += t.elapsed().as_nanos() as u64;
+            let t = Instant::now();
+            let ns = gate_up.gemm_f32(&sorted_expert, &sorted_token, &post, &mut gu_all).map_err(|e| format!("layer {layer_idx} gate_up exact x{g}: {e}"))?;
+            prof.gate_up.add(t, ns);
+            let t = Instant::now();
+            for (a, gu) in act_all.chunks_mut(i).zip(gu_all.chunks(2 * i)) {
+                swiglu(gu, i, a);
+            }
+            prof.host_ns += t.elapsed().as_nanos() as u64;
+            let t = Instant::now();
+            let ns = down.gemm_f32(&sorted_expert, &rows_g, &act_all, &mut down_all).map_err(|e| format!("layer {layer_idx} down exact x{g}: {e}"))?;
+            prof.down.add(t, ns);
+            // Combine per token in slot order from zero, then the residual add (decode's order).
+            let t = Instant::now();
+            for r in 0..m {
+                acc.iter_mut().for_each(|a| *a = 0.0);
+                for slot in 0..top_k {
+                    let gi = r * top_k + slot;
+                    let w = wts[gi];
+                    let row = inv[gi] as usize;
+                    for (a, d) in acc.iter_mut().zip(&down_all[row * h..(row + 1) * h]) {
+                        *a += w * d;
+                    }
+                }
+                for (xi, a) in x[r * h..(r + 1) * h].iter_mut().zip(&acc) {
+                    *xi += a;
+                }
+            }
+            prof.host_ns += t.elapsed().as_nanos() as u64;
+        }
+        let t = Instant::now();
+        let mut hiddens = Vec::with_capacity(m);
+        for r in 0..m {
+            let mut hid = vec![0.0f32; h];
+            rmsnorm(&x[r * h..(r + 1) * h], &self.weights.final_norm, eps, &mut hid);
+            hiddens.push(hid);
+        }
+        prof.host_ns += t.elapsed().as_nanos() as u64;
+        self.pos = pos0 + m;
+        self.history.extend_from_slice(tokens);
+        let ops = [&prof.qkv, &prof.attn, &prof.o, &prof.route, &prof.gate_up, &prof.down];
+        timing.chip_ns = ops.iter().map(|o| o.chip_ns).sum();
+        timing.total_ns = t_step.elapsed().as_nanos() as u64;
+        timing.attention_ns = prof.qkv.wall_ns + prof.attn.wall_ns + prof.o.wall_ns;
+        timing.experts_ns = prof.route.wall_ns + prof.gate_up.wall_ns + prof.down.wall_ns;
+        timing.route_ns = prof.route.wall_ns;
+        timing.host_ns = prof.host_ns;
+        self.last_timing = timing;
+        Ok(hiddens)
+    }
+
     /// Greedy generation with speculative decoding. Same contract and same emitted tokens as
     /// [`Self::generate_with`] when the sampler is greedy; falls back to it (stats all zero) when
     /// `cfg.enabled` is false or [`Self::spec_possible`] is false. Prefill is shared code.
@@ -534,6 +805,10 @@ impl Qwen3MoeOmegaEngine {
             let t_verify = Instant::now();
             let hiddens = match cfg.verify {
                 VerifyPath::Decode => self.step_verify(&inputs)?,
+                VerifyPath::Exact => {
+                    let mut prof = ExactProf::default();
+                    self.step_verify_exact_inner(&inputs, &mut prof, cfg.mutant_numerics)?
+                }
                 VerifyPath::WholePrompt => {
                     stats.wp_rounds += 1;
                     self.step_verify_wp(&inputs)?

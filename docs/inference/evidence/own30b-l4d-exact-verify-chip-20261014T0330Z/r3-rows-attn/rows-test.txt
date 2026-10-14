@@ -1,0 +1,88 @@
+SAME pos0=0 rows=1 splits=1 out_words_differ=0 kv_differ=0 rows_chip_us=209.3
+SAME pos0=0 rows=2 splits=1 out_words_differ=0 kv_differ=0 rows_chip_us=205.6
+NEG mutant2 pos0=0 rows=2 rc=0 out_words_differ=8184 -> caught
+SAME pos0=0 rows=3 splits=1 out_words_differ=0 kv_differ=0 rows_chip_us=206.9
+NEG mutant2 pos0=0 rows=3 rc=0 out_words_differ=12288 -> caught
+SAME pos0=0 rows=5 splits=1 out_words_differ=0 kv_differ=0 rows_chip_us=206.3
+NEG mutant2 pos0=0 rows=5 rc=0 out_words_differ=20480 -> caught
+SAME pos0=0 rows=8 splits=1 out_words_differ=0 kv_differ=0 rows_chip_us=207.2
+NEG mutant2 pos0=0 rows=8 rc=0 out_words_differ=32760 -> caught
+SAME pos0=0 rows=16 splits=1 out_words_differ=0 kv_differ=0 rows_chip_us=308.2
+NEG mutant2 pos0=0 rows=16 rc=0 out_words_differ=65512 -> caught
+SAME pos0=1 rows=1 splits=1 out_words_differ=0 kv_differ=0 rows_chip_us=205.8
+SAME pos0=1 rows=2 splits=1 out_words_differ=0 kv_differ=0 rows_chip_us=208.9
+SAME pos0=1 rows=3 splits=1 out_words_differ=0 kv_differ=0 rows_chip_us=205.9
+SAME pos0=1 rows=5 splits=1 out_words_differ=0 kv_differ=0 rows_chip_us=207.0
+SAME pos0=1 rows=8 splits=1 out_words_differ=0 kv_differ=0 rows_chip_us=206.8
+SAME pos0=1 rows=16 splits=1 out_words_differ=0 kv_differ=0 rows_chip_us=308.3
+SAME pos0=37 rows=1 splits=1 out_words_differ=0 kv_differ=0 rows_chip_us=206.7
+SAME pos0=37 rows=2 splits=1 out_words_differ=0 kv_differ=0 rows_chip_us=206.8
+SAME pos0=37 rows=3 splits=1 out_words_differ=0 kv_differ=0 rows_chip_us=206.4
+SAME pos0=37 rows=5 splits=1 out_words_differ=0 kv_differ=0 rows_chip_us=206.1
+SAME pos0=37 rows=8 splits=1 out_words_differ=0 kv_differ=0 rows_chip_us=207.2
+SAME pos0=37 rows=16 splits=1 out_words_differ=0 kv_differ=0 rows_chip_us=308.7
+SAME pos0=250 rows=1 splits=1 out_words_differ=0 kv_differ=0 rows_chip_us=206.6
+SAME pos0=250 rows=2 splits=1 out_words_differ=0 kv_differ=0 rows_chip_us=206.2
+NEG mutant2 pos0=250 rows=2 rc=0 out_words_differ=8192 -> caught
+SAME pos0=250 rows=3 splits=1 out_words_differ=0 kv_differ=0 rows_chip_us=207.8
+NEG mutant2 pos0=250 rows=3 rc=0 out_words_differ=12288 -> caught
+SAME pos0=250 rows=5 splits=1 out_words_differ=0 kv_differ=0 rows_chip_us=308.1
+NEG mutant2 pos0=250 rows=5 rc=0 out_words_differ=20480 -> caught
+SAME pos0=250 rows=8 splits=2 out_words_differ=0 kv_differ=0 rows_chip_us=308.8
+NEG mutant2 pos0=250 rows=8 rc=0 out_words_differ=32768 -> caught
+SAME pos0=250 rows=16 splits=2 out_words_differ=0 kv_differ=0 rows_chip_us=373.6
+NEG mutant2 pos0=250 rows=16 rc=0 out_words_differ=65536 -> caught
+SAME pos0=255 rows=1 splits=1 out_words_differ=0 kv_differ=0 rows_chip_us=207.8
+SAME pos0=255 rows=2 splits=2 out_words_differ=0 kv_differ=0 rows_chip_us=205.8
+SAME pos0=255 rows=3 splits=2 out_words_differ=0 kv_differ=0 rows_chip_us=307.2
+SAME pos0=255 rows=5 splits=2 out_words_differ=0 kv_differ=0 rows_chip_us=307.1
+SAME pos0=255 rows=8 splits=2 out_words_differ=0 kv_differ=0 rows_chip_us=308.3
+SAME pos0=255 rows=16 splits=2 out_words_differ=0 kv_differ=0 rows_chip_us=408.5
+SAME pos0=256 rows=1 splits=2 out_words_differ=0 kv_differ=0 rows_chip_us=205.4
+SAME pos0=256 rows=2 splits=2 out_words_differ=0 kv_differ=0 rows_chip_us=205.4
+SAME pos0=256 rows=3 splits=2 out_words_differ=0 kv_differ=0 rows_chip_us=205.7
+SAME pos0=256 rows=5 splits=2 out_words_differ=0 kv_differ=0 rows_chip_us=309.1
+SAME pos0=256 rows=8 splits=2 out_words_differ=0 kv_differ=0 rows_chip_us=309.3
+SAME pos0=256 rows=16 splits=2 out_words_differ=0 kv_differ=0 rows_chip_us=409.9
+SAME pos0=509 rows=1 splits=2 out_words_differ=0 kv_differ=0 rows_chip_us=208.0
+SAME pos0=509 rows=2 splits=2 out_words_differ=0 kv_differ=0 rows_chip_us=206.9
+NEG mutant2 pos0=509 rows=2 rc=0 out_words_differ=8192 -> caught
+SAME pos0=509 rows=3 splits=2 out_words_differ=0 kv_differ=0 rows_chip_us=309.9
+NEG mutant2 pos0=509 rows=3 rc=0 out_words_differ=12288 -> caught
+SAME pos0=509 rows=5 splits=3 out_words_differ=0 kv_differ=0 rows_chip_us=309.3
+NEG mutant2 pos0=509 rows=5 rc=0 out_words_differ=20480 -> caught
+SAME pos0=509 rows=8 splits=3 out_words_differ=0 kv_differ=0 rows_chip_us=309.1
+NEG mutant2 pos0=509 rows=8 rc=0 out_words_differ=32768 -> caught
+SAME pos0=509 rows=16 splits=3 out_words_differ=0 kv_differ=0 rows_chip_us=614.9
+NEG mutant2 pos0=509 rows=16 rc=0 out_words_differ=65536 -> caught
+SAME pos0=700 rows=1 splits=3 out_words_differ=0 kv_differ=0 rows_chip_us=309.9
+SAME pos0=700 rows=2 splits=3 out_words_differ=0 kv_differ=0 rows_chip_us=308.0
+SAME pos0=700 rows=3 splits=3 out_words_differ=0 kv_differ=0 rows_chip_us=309.0
+SAME pos0=700 rows=5 splits=3 out_words_differ=0 kv_differ=0 rows_chip_us=412.0
+SAME pos0=700 rows=8 splits=3 out_words_differ=0 kv_differ=0 rows_chip_us=410.7
+SAME pos0=700 rows=16 splits=3 out_words_differ=0 kv_differ=0 rows_chip_us=614.1
+SAME pos0=1023 rows=1 splits=4 out_words_differ=0 kv_differ=0 rows_chip_us=206.4
+SAME pos0=1023 rows=2 splits=5 out_words_differ=0 kv_differ=0 rows_chip_us=307.3
+SAME pos0=1023 rows=3 splits=5 out_words_differ=0 kv_differ=0 rows_chip_us=308.3
+SAME pos0=1023 rows=5 splits=5 out_words_differ=0 kv_differ=0 rows_chip_us=411.8
+SAME pos0=1023 rows=8 splits=5 out_words_differ=0 kv_differ=0 rows_chip_us=607.2
+SAME pos0=1023 rows=16 splits=5 out_words_differ=0 kv_differ=0 rows_chip_us=1005.1
+SAME pos0=1500 rows=1 splits=6 out_words_differ=0 kv_differ=0 rows_chip_us=309.2
+SAME pos0=1500 rows=2 splits=6 out_words_differ=0 kv_differ=0 rows_chip_us=309.3
+NEG mutant2 pos0=1500 rows=2 rc=0 out_words_differ=8192 -> caught
+SAME pos0=1500 rows=3 splits=6 out_words_differ=0 kv_differ=0 rows_chip_us=411.1
+NEG mutant2 pos0=1500 rows=3 rc=0 out_words_differ=12288 -> caught
+SAME pos0=1500 rows=5 splits=6 out_words_differ=0 kv_differ=0 rows_chip_us=516.1
+NEG mutant2 pos0=1500 rows=5 rc=0 out_words_differ=20480 -> caught
+SAME pos0=1500 rows=8 splits=6 out_words_differ=0 kv_differ=0 rows_chip_us=712.5
+NEG mutant2 pos0=1500 rows=8 rc=0 out_words_differ=32768 -> caught
+SAME pos0=1500 rows=16 splits=6 out_words_differ=0 kv_differ=0 rows_chip_us=1221.9
+NEG mutant2 pos0=1500 rows=16 rc=0 out_words_differ=65536 -> caught
+SAME pos0=2032 rows=1 splits=8 out_words_differ=0 kv_differ=0 rows_chip_us=310.5
+SAME pos0=2032 rows=2 splits=8 out_words_differ=0 kv_differ=0 rows_chip_us=411.0
+SAME pos0=2032 rows=3 splits=8 out_words_differ=0 kv_differ=0 rows_chip_us=617.2
+SAME pos0=2032 rows=5 splits=8 out_words_differ=0 kv_differ=0 rows_chip_us=820.7
+SAME pos0=2032 rows=8 splits=8 out_words_differ=0 kv_differ=0 rows_chip_us=1024.3
+SAME pos0=2032 rows=16 splits=8 out_words_differ=0 kv_differ=0 rows_chip_us=1831.6
+chip time: rows path 24691.5 us total vs per-row path 49306.2 us total
+VERDICT PASS cases=66 bad=0 negative=20/20 caught

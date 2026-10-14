@@ -1799,6 +1799,11 @@ pub trait KvAttention: Send {
     fn fused_attend(&mut self, _layer: usize, _pos: usize, _qkv: &[f32], _eps: f32, _out: &mut [f32]) -> Option<Result<u64, String>> {
         None
     }
+    /// W-L4d: `rows` consecutive new tokens from `pos0` in one call, bit-identical to
+    /// `fused_attend` once per row in order. `None`: not available (the caller loops).
+    fn fused_attend_rows(&mut self, _layer: usize, _pos0: usize, _rows: usize, _qkv: &[f32], _eps: f32, _out: &mut [f32]) -> Option<Result<u64, String>> {
+        None
+    }
     /// "split" (host norm/rope, `append` + `attend`) or "fused" (one launch per layer).
     fn path_name(&self) -> &'static str {
         "split"
@@ -2585,6 +2590,41 @@ impl Qwen3MoeOmegaEngine {
             let kv = OmegaPagedKv::new(&weights.config, max_context)?;
             progress(&format!("kv pool {} MB resident={}", kv.pool_bytes() >> 20, kv.resident()));
             Box::new(kv)
+        };
+        Ok((Self::new(weights, kv), report))
+    }
+
+    /// W-L4d probe/test helper: [`Self::load_omega_paths`] with only the first `layers` decoder layers
+    /// loaded (real checkpoint weights, `config.layers` capped). The output is NOT the model's; it is
+    /// for bit-identity and timing work on real-shape weights without the 30 GB resident copy.
+    pub fn load_omega_first_layers(
+        dir: &Path,
+        layers: usize,
+        max_context: usize,
+        format: WeightFormat,
+        attn: AttnPath,
+        paths: DevicePaths,
+        progress: &mut dyn FnMut(&str),
+    ) -> Result<(Self, LoadReport), String> {
+        if !aien_omega_gpu::is_native() {
+            return Err("this binary carries the CPU stub of the Omega engine (build with AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB)".into());
+        }
+        let mut config = Qwen3MoeConfig::from_checkpoint(dir)?;
+        if layers == 0 || layers > config.layers {
+            return Err(format!("load_omega_first_layers: {layers} layers asked, the checkpoint has {}", config.layers));
+        }
+        config.layers = layers;
+        let mut source = ShardSource::open(dir)?;
+        let (weights, report) = load_qwen3_moe_omega_from_paths(&config, &mut source, &OmegaModelUploader, format, paths, progress)?;
+        let fused = match attn {
+            AttnPath::Split => false,
+            AttnPath::Fused => true,
+            AttnPath::Auto => OmegaModelUploader::uses_dattn_api() && crate::qwen3_moe_omega_dattn::OmegaFusedKv::fits(&weights.config),
+        };
+        let kv: Box<dyn KvAttention> = if fused {
+            Box::new(crate::qwen3_moe_omega_dattn::OmegaFusedKv::new(&weights.config, max_context, &weights.layers)?)
+        } else {
+            Box::new(OmegaPagedKv::new(&weights.config, max_context)?)
         };
         Ok((Self::new(weights, kv), report))
     }

@@ -16,6 +16,10 @@
 //! FP8-activation pass, identity reported with the first diverging token). `--wp-prefill` turns the
 //! whole-prompt prefill on for every generation (off and on start from the same KV); `--wp-cached`
 //! adds its GPU-cached weight copy. Negative control per path: mutant vs the same path's spec-on output.
+//!
+//! W-L4d: `--verify exact` (or `decode,exact`): the fast exact verify (`AIEN_OWN30B_SPEC_VERIFY=exact`); it must be
+//! token-identical like `decode`. Extra numerics control: the exact verify with bf16-truncated attention must differ
+//! from OFF on at least one prompt, else FAIL.
 
 use std::path::PathBuf;
 
@@ -54,6 +58,7 @@ fn main() {
     // W-L4c: --drafter lookup|suffix, --suffix-global (past conversations = the OTHER prompts' spec-off
     // outputs), --extra-prompt NAME FILE (a chat prompt tokenized here; repeatable), --prompts a,b (subset).
     let (mut drafter, mut suffix_global) = ("lookup".to_string(), false);
+    let mut layers: Option<usize> = None;
     let mut extra: Vec<(String, String)> = Vec::new();
     let mut only: Option<Vec<String>> = None;
     let mut new_extra = 0usize;
@@ -68,6 +73,7 @@ fn main() {
             "--wp-cached" => wp_cached = true,
             "--drafter" => drafter = it.next().expect("--drafter lookup|suffix"),
             "--suffix-global" => suffix_global = true,
+            "--layers" => layers = Some(it.next().expect("--layers N").parse().expect("number")),
             "--new-extra" => new_extra = it.next().expect("--new-extra N").parse().expect("number"),
             "--extra-prompt" => {
                 let n = it.next().expect("--extra-prompt NAME FILE");
@@ -81,9 +87,11 @@ fn main() {
     let paths: Vec<VerifyPath> = match verify.as_str() {
         "decode" => vec![VerifyPath::Decode],
         "wp" => vec![VerifyPath::WholePrompt],
+        "exact" => vec![VerifyPath::Exact],
+        "decode,exact" => vec![VerifyPath::Decode, VerifyPath::Exact],
         "both" => vec![VerifyPath::Decode, VerifyPath::WholePrompt],
         _ => {
-            eprintln!("--verify must be decode, wp or both");
+            eprintln!("--verify must be decode, wp, both, exact or decode,exact");
             std::process::exit(2);
         }
     };
@@ -107,7 +115,7 @@ fn main() {
     say(format!("spin_us {:?}", aien_omega_gpu::spin_us()));
     let avail = mem_available_gb();
     say(format!("mem available before load: {avail:.1} GB"));
-    if avail < 70.0 && !force {
+    if avail < 70.0 && !force && layers.is_none() {
         say("REFUSED: less than 70 GB available (another model may be loaded); --force-memory to override".into());
         let _ = std::fs::write(receipt.join("run.log"), log.join("\n"));
         std::process::exit(3);
@@ -116,8 +124,13 @@ fn main() {
     let config = Qwen3MoeConfig::from_checkpoint(&checkpoint).expect("config");
     // The whole-prompt driver needs omega's fused KV cache.
     let attn = if needs_wp { AttnPath::Fused } else { AttnPath::Auto };
-    let (mut engine, report) =
-        Qwen3MoeOmegaEngine::load_omega_paths(&checkpoint, max_context, WeightFormat::Fp8All, attn, DevicePaths::default(), &mut |_| {}).expect("load on Omega");
+    // --layers N (W-L4d rehearsal): only the first N layers (a few GB, safe beside the live server); the tokens are
+    // not the model's, but OFF vs ON identity and the controls are still meaningful. Fused KV (the exact verify needs it).
+    let (mut engine, report) = match layers {
+        Some(n) => Qwen3MoeOmegaEngine::load_omega_first_layers(&checkpoint, n, max_context, WeightFormat::Fp8All, AttnPath::Fused, DevicePaths::default(), &mut |_| {}),
+        None => Qwen3MoeOmegaEngine::load_omega_paths(&checkpoint, max_context, WeightFormat::Fp8All, attn, DevicePaths::default(), &mut |_| {}),
+    }
+    .expect("load on Omega");
     if needs_wp {
         engine.set_whole_prompt(true).expect("whole-prompt driver refused");
         if wp_cached {
@@ -179,6 +192,7 @@ fn main() {
     let mut all_ok = true;
     let mut rows = Vec::new();
     let mut mutant_caught = vec![false; paths.len()];
+    let mut numerics_caught = false;
     let mut wp_identical = (0usize, 0usize);
     for (name, ids, want) in prompts.iter().cloned() {
         // --new-extra: a longer generation for the --extra-prompt prompts (no golden list).
@@ -226,7 +240,7 @@ fn main() {
                 let verdict = match (path, diff) {
                     (_, None) => "IDENTICAL".to_string(),
                     // Decode-rounding verify must be token-identical: a difference is a failure.
-                    (VerifyPath::Decode, Some(i)) => {
+                    (VerifyPath::Decode | VerifyPath::Exact, Some(i)) => {
                         all_ok = false;
                         format!("DIFFERENT at token {i} (FAIL)")
                     }
@@ -258,6 +272,18 @@ fn main() {
                         "{name} negative control verify={path:?} (accept one extra wrong draft): {}",
                         if caught { "output differs (CAUGHT)" } else { "output unchanged (no rejected draft to corrupt)" }
                     ));
+                    if path == VerifyPath::Exact {
+                        // W-L4d numerics control: the exact verify with attention outputs truncated to bf16.
+                        // Compared with spec-off; it must differ on at least one prompt.
+                        let nm = SpecConfig { mutant_numerics: true, ..on.clone() };
+                        let (t_nm, _, _, _) = go(&nm, &mut engine);
+                        let c = t_nm != t_off;
+                        numerics_caught |= c;
+                        say(format!(
+                            "{name} numerics control verify=Exact (bf16-truncated attention in verify): {}",
+                            if c { format!("output differs from OFF at token {} (CAUGHT)", first_diff(&t_off, &t_nm).unwrap_or(0)) } else { "output unchanged".to_string() }
+                        ));
+                    }
                 }
             }
             if run == 1 {
@@ -270,6 +296,10 @@ fn main() {
             say(format!("FAIL: verify={path:?}: the extra-accept mutant never changed the output; the check is not proven on this data"));
             all_ok = false;
         }
+    }
+    if paths.contains(&VerifyPath::Exact) && !numerics_caught {
+        say("FAIL: verify=Exact: the numerics mutant never changed the output; the identity check cannot see a rounding change on this data".into());
+        all_ok = false;
     }
     if paths.contains(&VerifyPath::WholePrompt) {
         say(format!("WP-VERIFY IDENTITY vs spec-off: {} of {} runs identical", wp_identical.0, wp_identical.1));
