@@ -1,0 +1,17 @@
+mem available before load: 105.7 GB
+LOAD 17.4s attention=fused prefill_chunk=64 device_routing=true spec_possible=true whole_prompt=true (prefill and wp verify) verify=wp new=64
+spec tuning: max_draft=8 max_ngram=3 min_ngram=1 min_accept=0
+p1-one-token run 1: OFF 24.3 tok/s (2635 ms, 64 tokens) | off-vs-golden differs at token 0 (recorded; spec-off is the reference)
+p1-one-token run 1: ON verify=WholePrompt 39.3 tok/s (1627 ms) vs off DIVERGES at token 14 (FP8-activation verify; reported) | rounds 9 wp_rounds 9 plain 16 backoff 0 drafted 70 accepted 39 acceptance 0.557
+p1-one-token negative control verify=WholePrompt (accept one extra wrong draft): output differs (CAUGHT)
+p2-short run 1: OFF 24.8 tok/s (282 ms, 7 tokens) | off-vs-golden IDENTICAL
+p2-short run 1: ON verify=WholePrompt 18.2 tok/s (385 ms) vs off IDENTICAL | rounds 3 wp_rounds 3 plain 2 backoff 0 drafted 24 accepted 2 acceptance 0.083
+p2-short negative control verify=WholePrompt (accept one extra wrong draft): output differs (CAUGHT)
+p3-medium run 1: OFF 24.4 tok/s (2628 ms, 64 tokens) | off-vs-golden differs at token 16 (recorded; spec-off is the reference)
+p3-medium run 1: ON verify=WholePrompt 18.2 tok/s (3509 ms) vs off DIVERGES at token 7 (FP8-activation verify; reported) | rounds 26 wp_rounds 26 plain 15 backoff 0 drafted 191 accepted 23 acceptance 0.120
+p3-medium negative control verify=WholePrompt (accept one extra wrong draft): output differs (CAUGHT)
+p4-long run 1: OFF 24.4 tok/s (2625 ms, 64 tokens) | off-vs-golden differs at token 16 (recorded; spec-off is the reference)
+p4-long run 1: ON verify=WholePrompt 19.7 tok/s (3249 ms) vs off DIVERGES at token 11 (FP8-activation verify; reported) | rounds 25 wp_rounds 25 plain 14 backoff 0 drafted 185 accepted 24 acceptance 0.130
+p4-long negative control verify=WholePrompt (accept one extra wrong draft): output differs (CAUGHT)
+WP-VERIFY IDENTITY vs spec-off: 1 of 4 runs identical
+RESULT: PASS

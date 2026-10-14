@@ -1,0 +1,28 @@
+spin_us Some(2000)
+mem available before load: 105.5 GB
+LOAD 16.8s prompt p4-long (657 tokens) reps 6 max_m 8
+prefilled 657 positions; first token 3838
+PLAIN last step+lm_head timing: attention 10.97 experts 14.30 lm_head 2.92 host 0.62 chip 25.99 ms, launches 289
+PLAIN step 25.36 ms + lm_head 2.92 ms = 28.28 ms/token (35.4 tok/s)
+WP devhost=false m=1: wall 24.29 ms | dev calls 22.46 (chip 18.84 attn 3.38) | router 1.38 plan 0.07 tiles 0.04 combine 0.17 norms/resid/embed 0.17 | launches 432 router 0 combine 0
+WP devhost=false m=2: wall 29.99 ms | dev calls 26.58 (chip 22.90 attn 3.45) | router 2.47 plan 0.12 tiles 0.05 combine 0.36 norms/resid/embed 0.30 | launches 432 router 0 combine 0
+WP devhost=false m=3: wall 34.77 ms | dev calls 30.41 (chip 26.67 attn 3.51) | router 3.14 plan 0.17 tiles 0.05 combine 0.51 norms/resid/embed 0.43 | launches 432 router 0 combine 0
+WP devhost=false m=4: wall 39.98 ms | dev calls 34.46 (chip 30.66 attn 3.58) | router 3.98 plan 0.21 tiles 0.06 combine 0.67 norms/resid/embed 0.56 | launches 432 router 0 combine 0
+WP devhost=false m=5: wall 44.74 ms | dev calls 38.41 (chip 34.56 attn 3.62) | router 4.36 plan 0.26 tiles 0.06 combine 0.83 norms/resid/embed 0.69 | launches 432 router 0 combine 0
+WP devhost=false m=6: wall 47.55 ms | dev calls 40.21 (chip 36.30 attn 3.67) | router 4.99 plan 0.31 tiles 0.06 combine 0.97 norms/resid/embed 0.82 | launches 432 router 0 combine 0
+WP devhost=false m=7: wall 52.18 ms | dev calls 43.96 (chip 39.97 attn 3.76) | router 5.68 plan 0.35 tiles 0.06 combine 1.13 norms/resid/embed 0.93 | launches 432 router 0 combine 0
+WP devhost=false m=8: wall 55.57 ms | dev calls 46.35 (chip 42.32 attn 3.80) | router 6.36 plan 0.41 tiles 0.06 combine 1.27 norms/resid/embed 1.07 | launches 432 router 0 combine 0
+WP devhost=true m=1: wall 24.37 ms | dev calls 22.41 (chip 18.80 attn 3.38) | router 1.44 plan 0.07 tiles 0.04 combine 0.17 norms/resid/embed 0.17 | launches 432 router 0 combine 0
+WP devhost=true m=2: wall 29.99 ms | dev calls 26.66 (chip 23.01 attn 3.43) | router 2.65 plan 0.13 tiles 0.05 combine 0.36 norms/resid/embed 0.31 | launches 432 router 0 combine 0
+WP devhost=true m=3: wall 35.34 ms | dev calls 30.64 (chip 26.89 attn 3.52) | router 3.41 plan 0.17 tiles 0.06 combine 0.52 norms/resid/embed 0.43 | launches 432 router 0 combine 0
+WP devhost=true m=4: wall 40.14 ms | dev calls 34.41 (chip 30.60 attn 3.58) | router 3.98 plan 0.21 tiles 0.06 combine 0.67 norms/resid/embed 0.56 | launches 432 router 0 combine 0
+WP devhost=true m=5: wall 45.07 ms | dev calls 38.54 (chip 34.68 attn 3.63) | router 4.70 plan 0.26 tiles 0.07 combine 0.85 norms/resid/embed 0.69 | launches 432 router 0 combine 0
+WP devhost=true m=6: wall 47.88 ms | dev calls 40.33 (chip 36.42 attn 3.69) | router 5.20 plan 0.31 tiles 0.06 combine 0.99 norms/resid/embed 0.82 | launches 432 router 0 combine 0
+WP devhost=true m=7: wall 52.61 ms | dev calls 44.57 (chip 40.57 attn 3.76) | router 6.00 plan 0.36 tiles 0.07 combine 1.15 norms/resid/embed 0.95 | launches 432 router 0 combine 0
+WP devhost=true m=8: wall 55.57 ms | dev calls 46.34 (chip 42.32 attn 3.79) | router 6.29 plan 0.40 tiles 0.06 combine 1.30 norms/resid/embed 1.07 | launches 432 router 0 combine 0
+DECODE-VERIFY m=1: wall 53.27 ms
+DECODE-VERIFY m=2: wall 71.33 ms
+DECODE-VERIFY m=4: wall 102.18 ms
+DECODE-VERIFY m=6: wall 122.18 ms
+DECODE-VERIFY m=8: wall 151.72 ms
+PROBE DONE
