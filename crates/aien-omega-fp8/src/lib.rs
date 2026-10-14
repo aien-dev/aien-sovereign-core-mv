@@ -135,6 +135,11 @@ mod ffi {
             info: *mut Fp8Info,
         ) -> i32;
     }
+    #[cfg(has_omega_fp8_fill)]
+    extern "C" {
+        pub fn omega_gpu_fp8_tensor_alloc(experts: u32, n: u32, k: u32, out: *mut *mut OmegaGpuFp8Tensor) -> i32;
+        pub fn omega_gpu_fp8_tensor_fill(t: *mut OmegaGpuFp8Tensor, w: *const u8, scale_inv_bf16: *const u16) -> i32;
+    }
     #[cfg(has_omega_fp8_dev)]
     extern "C" {
         pub fn omega_gpu_fp8_gemv_grouped_dev(
@@ -463,6 +468,84 @@ impl Drop for Fp8Tensor {
     fn drop(&mut self) {
         #[cfg(has_omega_fp8)]
         // SAFETY: ptr came from upload and is freed once.
+        unsafe {
+            ffi::omega_gpu_fp8_tensor_free(self.ptr)
+        }
+    }
+}
+
+/// True when the two-phase upload (`Fp8Reservation`) is linked (W-FL2).
+pub const fn has_two_phase_upload() -> bool {
+    cfg!(has_omega_fp8_fill)
+}
+
+/// The device buffers of one FP8 tensor, taken but not yet written (W-FL2 two-phase upload). `alloc` runs in the
+/// loader's fixed order on one thread; `fill` (NaN refusal, copy, scale fold) may run on any thread and is the only
+/// way to an [`Fp8Tensor`], so an unfilled buffer can never reach a GEMV. Dropping a reservation frees it.
+pub struct Fp8Reservation {
+    #[cfg(has_omega_fp8_fill)]
+    ptr: *mut ffi::OmegaGpuFp8Tensor,
+    experts: usize,
+    n: usize,
+    k: usize,
+}
+
+// SAFETY: an owning handle to device buffers nobody else references until fill hands them over.
+unsafe impl Send for Fp8Reservation {}
+
+impl fmt::Debug for Fp8Reservation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Fp8Reservation {{ experts: {}, n: {}, k: {} }}", self.experts, self.n, self.k)
+    }
+}
+
+impl Fp8Reservation {
+    pub fn alloc(experts: usize, n: usize, k: usize) -> Result<Self, OmegaGpuError> {
+        check_shape(experts, n, k)?;
+        #[cfg(has_omega_fp8_fill)]
+        {
+            let mut ptr = std::ptr::null_mut();
+            // SAFETY: shape checked above; omega writes the handle or leaves it null.
+            let rc = unsafe { ffi::omega_gpu_fp8_tensor_alloc(experts as u32, n as u32, k as u32, &mut ptr) };
+            if rc != 0 || ptr.is_null() {
+                return Err(rc_err(rc));
+            }
+            Ok(Self { ptr, experts, n, k })
+        }
+        #[cfg(not(has_omega_fp8_fill))]
+        {
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
+
+    /// Writes the weights and scales (the same checks and bytes as [`Fp8Tensor::upload`]).
+    pub fn fill(self, w: &[u8], scale_inv_bf16: &[u16]) -> Result<Fp8Tensor, OmegaGpuError> {
+        let (experts, n, k) = (self.experts, self.n, self.k);
+        check_len("fp8 weight bytes", experts * n * k, w.len())?;
+        check_len("fp8 scale words", experts * (n / BLOCK) * (k / BLOCK), scale_inv_bf16.len())?;
+        #[cfg(has_omega_fp8_fill)]
+        {
+            // SAFETY: lengths checked above; omega copies the bytes before returning. On failure self is dropped,
+            // which frees the buffers once.
+            let rc = unsafe { ffi::omega_gpu_fp8_tensor_fill(self.ptr, w.as_ptr(), scale_inv_bf16.as_ptr()) };
+            if rc != 0 {
+                return Err(rc_err(rc));
+            }
+            let me = std::mem::ManuallyDrop::new(self);
+            Ok(Fp8Tensor { ptr: me.ptr, experts, n, k })
+        }
+        #[cfg(not(has_omega_fp8_fill))]
+        {
+            let _ = scale_inv_bf16;
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
+}
+
+impl Drop for Fp8Reservation {
+    fn drop(&mut self) {
+        #[cfg(has_omega_fp8_fill)]
+        // SAFETY: ptr came from alloc and is freed once (fill moves it into an Fp8Tensor without dropping self).
         unsafe {
             ffi::omega_gpu_fp8_tensor_free(self.ptr)
         }

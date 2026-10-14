@@ -243,6 +243,10 @@ fn eos_ids(v: Option<&serde_json::Value>) -> Vec<u32> {
 /// Reads one raw tensor (dtype and shape checked) into `dst`.
 pub trait TensorSource {
     fn read_into(&mut self, name: &str, dtype: &str, shape: &[usize], dst: &mut [u8]) -> Result<(), String>;
+    /// The same tensors readable from several threads at once, when this source can do that (W-FL2).
+    fn shared(&mut self) -> Result<Option<&dyn SharedTensorSource>, String> {
+        Ok(None)
+    }
 }
 
 /// The safetensors shards behind `model.safetensors.index.json` (the same validated reader as
@@ -286,6 +290,35 @@ impl TensorSource for ShardSource {
             self.shards.insert(filename.to_string(), shard);
         }
         self.shards[filename]
+            .read(name, dtype, shape, dst)
+            .map_err(|e| e.to_string())
+    }
+    fn shared(&mut self) -> Result<Option<&dyn SharedTensorSource>, String> {
+        // Open every shard the index names, so read_shared needs no &mut (pread on each File is thread-safe).
+        let mut files: Vec<String> = self.weight_map.values().filter_map(|v| v.as_str().map(str::to_string)).collect();
+        files.sort();
+        files.dedup();
+        for filename in files {
+            if !self.shards.contains_key(&filename) {
+                let path = shard_path(&self.dir, &filename).map_err(|e| e.to_string())?;
+                let shard = Shard::open(&path).map_err(|e| e.to_string())?;
+                self.shards.insert(filename, shard);
+            }
+        }
+        Ok(Some(self))
+    }
+}
+
+impl SharedTensorSource for ShardSource {
+    fn read_shared(&self, name: &str, dtype: &str, shape: &[usize], dst: &mut [u8]) -> Result<(), String> {
+        let filename = self
+            .weight_map
+            .get(name)
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| format!("index: no shard for {name}"))?;
+        self.shards
+            .get(filename)
+            .ok_or_else(|| format!("shard {filename} not opened"))?
             .read(name, dtype, shape, dst)
             .map_err(|e| e.to_string())
     }
@@ -505,6 +538,17 @@ impl WeightFormat {
     }
 }
 
+/// Device buffers from [`ModelUploader::reserve_fp8`], not yet written (W-FL2).
+pub trait Fp8Reserved: Send {
+    /// The bytes and checks of `upload_fp8(experts, n, k, w, scales)` into the reserved buffers.
+    fn fill(self: Box<Self>, w: &[u8], scales: &[u16]) -> Result<Arc<dyn Fp8Gemv>, String>;
+}
+
+/// A [`TensorSource`] that several threads can read at once (W-FL2 parallel load).
+pub trait SharedTensorSource: Sync {
+    fn read_shared(&self, name: &str, dtype: &str, shape: &[usize], dst: &mut [u8]) -> Result<(), String>;
+}
+
 /// Makes `[k][n]` bf16 matrices resident. The real one is [`OmegaModelUploader`].
 pub trait ModelUploader {
     fn upload_dense(&self, k: usize, n: usize, bits: &[u16]) -> Result<Arc<dyn DenseMatmul>, String>;
@@ -514,6 +558,14 @@ pub trait ModelUploader {
     fn upload_fp8(&self, experts: usize, n: usize, k: usize, w: &[u8], scales: &[u16]) -> Result<Arc<dyn Fp8Gemv>, String> {
         let _ = (experts, n, k, w, scales);
         Err("this uploader has no FP8 path".into())
+    }
+    /// W-FL2 two-phase FP8 upload: take the device buffers for one `upload_fp8` now (the loader calls this in its
+    /// fixed upload order, on one thread) and write them later from any thread with [`Fp8Reserved::fill`], which
+    /// must hand the device exactly what `upload_fp8` would. `None`: no two-phase path; the loader then calls
+    /// `upload_fp8` in order on one thread.
+    fn reserve_fp8(&self, experts: usize, n: usize, k: usize) -> Result<Option<Box<dyn Fp8Reserved + '_>>, String> {
+        let _ = (experts, n, k);
+        Ok(None)
     }
     /// The device router for `config` (its kernel is fixed at 128 experts, hidden 2048, top-8),
     /// or `None` when this uploader has none.
@@ -665,6 +717,13 @@ impl ModelUploader for OmegaModelUploader {
         let t = aien_omega_fp8::Fp8Tensor::upload(experts, n, k, w, scales).map_err(|e| e.to_string())?;
         Ok(Arc::new(OmegaFp8(Mutex::new(t), experts, n, k)))
     }
+    fn reserve_fp8(&self, experts: usize, n: usize, k: usize) -> Result<Option<Box<dyn Fp8Reserved + '_>>, String> {
+        if !Self::uses_fp8_api() || !aien_omega_fp8::has_two_phase_upload() {
+            return Ok(None);
+        }
+        let r = aien_omega_fp8::Fp8Reservation::alloc(experts, n, k).map_err(|e| e.to_string())?;
+        Ok(Some(Box::new(OmegaFp8Reserved(r, experts, n, k))))
+    }
     fn new_router(&self, config: &Qwen3MoeConfig) -> Result<Option<Arc<dyn DeviceRouter>>, String> {
         if !Self::uses_router_api() {
             return Ok(None);
@@ -681,6 +740,18 @@ impl ModelUploader for OmegaModelUploader {
         }
         let t = aien_omega_bf16::Bf16Tensor::upload(n, k, bits).map_err(|e| e.to_string())?;
         Ok(Some(Arc::new(OmegaLmHead(Mutex::new(t)))))
+    }
+}
+
+/// Omega FP8 buffers taken in load order, written by [`Fp8Reserved::fill`] on a loader thread (W-FL2).
+#[derive(Debug)]
+pub struct OmegaFp8Reserved(aien_omega_fp8::Fp8Reservation, usize, usize, usize);
+
+impl Fp8Reserved for OmegaFp8Reserved {
+    fn fill(self: Box<Self>, w: &[u8], scales: &[u16]) -> Result<Arc<dyn Fp8Gemv>, String> {
+        let OmegaFp8Reserved(r, experts, n, k) = *self;
+        let t = r.fill(w, scales).map_err(|e| e.to_string())?;
+        Ok(Arc::new(OmegaFp8(Mutex::new(t), experts, n, k)))
     }
 }
 
@@ -932,6 +1003,36 @@ pub fn load_qwen3_moe_omega_from_paths(
     paths: DevicePaths,
     progress: &mut dyn FnMut(&str),
 ) -> Result<(Qwen3MoeOmegaWeights, LoadReport), String> {
+    load_qwen3_moe_omega_from_paths_threads(config, source, uploader, format, paths, load_threads(), progress)
+}
+
+/// Loader threads for the parallel path (W-FL2): `AIEN_LOAD_THREADS` (1 = the sequential loader, at most 16),
+/// default [`DEFAULT_LOAD_THREADS`]. Each thread holds one layer of host staging (about 620 MB for OWN-30B).
+pub fn load_threads() -> usize {
+    std::env::var("AIEN_LOAD_THREADS")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .map(|n| n.clamp(1, 16))
+        .unwrap_or(DEFAULT_LOAD_THREADS)
+}
+
+/// See [`load_threads`].
+pub const DEFAULT_LOAD_THREADS: usize = 6;
+
+/// As [`load_qwen3_moe_omega_from_paths`] with the loader thread count given. With `threads > 1`, FP8 weights
+/// ([`WeightFormat::Fp8All`]), a source that reads from several threads ([`TensorSource::shared`]) and an uploader
+/// with the two-phase FP8 path ([`ModelUploader::reserve_fp8`]), the layers load in parallel
+/// ([`load_layers_parallel`]); otherwise the sequential loop runs. Both hand the device the same bytes and take the
+/// device buffers in the same order.
+pub fn load_qwen3_moe_omega_from_paths_threads(
+    config: &Qwen3MoeConfig,
+    source: &mut dyn TensorSource,
+    uploader: &dyn ModelUploader,
+    format: WeightFormat,
+    paths: DevicePaths,
+    threads: usize,
+    progress: &mut dyn FnMut(&str),
+) -> Result<(Qwen3MoeOmegaWeights, LoadReport), String> {
     config.validate()?;
     let device_router: Option<Arc<dyn DeviceRouter>> = if paths.router == PathChoice::Host {
         None
@@ -972,8 +1073,17 @@ pub fn load_qwen3_moe_omega_from_paths(
             .collect())
     };
 
-    let mut layers = Vec::with_capacity(config.layers);
-    for layer in 0..config.layers {
+    // W-FL2: the parallel path loads every layer (or declines with None); the loop below then has nothing left.
+    let parallel = if threads > 1 && format == WeightFormat::Fp8All {
+        match source.shared()? {
+            Some(shared) => load_layers_parallel(config, shared, uploader, device_router.as_ref(), threads, &mut resident, progress)?,
+            None => None,
+        }
+    } else {
+        None
+    };
+    let mut layers = parallel.unwrap_or_else(|| Vec::with_capacity(config.layers));
+    for layer in layers.len()..config.layers {
         let p = format!("model.layers.{layer}");
         // --- fused q|k|v: sources q [qd][h], k [kvd][h], v [kvd][h] at columns 0, qd, qd+kvd ---
         let specs = [("q_proj", qd, 0usize), ("k_proj", kvd, qd), ("v_proj", kvd, qd + kvd)];
@@ -1108,21 +1218,7 @@ pub fn load_qwen3_moe_omega_from_paths(
             experts,
         });
         if let (Some(router), Some(layer)) = (&device_router, layers.last()) {
-            let li = layers.len() - 1;
-            let ExpertWeights::Fp8 { gate_up, down } = &layer.experts else {
-                return Err(format!("layer {li}: the device router needs FP8 experts"));
-            };
-            // The router carries the bf16 gate weights; the host copy is an exact widening of them.
-            let gate_bf16: Vec<u16> = layer.router.iter().map(|v| (v.to_bits() >> 16) as u16).collect();
-            router.set_layer(li, &gate_bf16, &layer.post_norm).map_err(|e| format!("router layer {li}: {e}"))?;
-            let (mut gu, mut dn) = (Vec::with_capacity(2 * e), Vec::with_capacity(2 * e));
-            for ex in 0..e {
-                let (w, s) = gate_up.tensor_entry(ex)?;
-                gu.extend([w, s]);
-                let (w, s) = down.tensor_entry(ex)?;
-                dn.extend([w, s]);
-            }
-            router.set_directory(li, &gu, &dn).map_err(|e| format!("router directory layer {li}: {e}"))?;
+            attach_router_layer(router, layers.len() - 1, layer, e)?;
         }
     }
     drop(fp8);
