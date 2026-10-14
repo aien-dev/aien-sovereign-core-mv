@@ -1,0 +1,12 @@
+Here is a JSON array of tool-call records from an agent log. Return the same JSON array with exactly two changes to every record: set "status" to "done", and add the field "checked": true right after "status". Keep every other field and value exactly as it is, in the same order. Output only the JSON, no explanation.
+
+[
+  {"id": 101, "tool": "read_file", "args": {"path": "src/server/router.rs", "start": 1, "end": 120}, "status": "pending", "owner": "agent-a"},
+  {"id": 102, "tool": "grep", "args": {"pattern": "fn handle_request", "path": "src/server"}, "status": "pending", "owner": "agent-a"},
+  {"id": 103, "tool": "read_file", "args": {"path": "src/server/handlers.rs", "start": 40, "end": 200}, "status": "pending", "owner": "agent-b"},
+  {"id": 104, "tool": "edit_file", "args": {"path": "src/server/handlers.rs", "line": 88, "text": "let body = req.body().await?;"}, "status": "pending", "owner": "agent-b"},
+  {"id": 105, "tool": "run_tests", "args": {"crate": "server", "filter": "handlers"}, "status": "pending", "owner": "agent-a"},
+  {"id": 106, "tool": "read_file", "args": {"path": "src/server/config.rs", "start": 1, "end": 60}, "status": "pending", "owner": "agent-c"},
+  {"id": 107, "tool": "grep", "args": {"pattern": "max_connections", "path": "src"}, "status": "pending", "owner": "agent-c"},
+  {"id": 108, "tool": "edit_file", "args": {"path": "src/server/config.rs", "line": 22, "text": "pub max_connections: usize,"}, "status": "pending", "owner": "agent-c"}
+]

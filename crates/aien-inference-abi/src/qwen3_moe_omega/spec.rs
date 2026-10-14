@@ -19,6 +19,19 @@
 
 use super::*;
 
+pub mod suffix;
+use suffix::{SuffixConfig, SuffixDrafter};
+
+/// Where drafts come from (W-L4c).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum DraftSource {
+    /// [`find_draft`]: most recent earlier occurrence of the last 1..3 tokens, fixed `max_draft`.
+    #[default]
+    PromptLookup,
+    /// [`suffix::SuffixDrafter`]: suffix index over this request and past ones, cost-aware length.
+    Suffix,
+}
+
 /// Speculative decoding settings.
 #[derive(Clone, Debug)]
 pub struct SpecConfig {
@@ -37,6 +50,9 @@ pub struct SpecConfig {
     /// skip drafting (plain steps) for 1, 2, 4 .. 16 steps; a good round resets it. 0 = off. Only
     /// WHICH steps get a draft changes, never how a token is chosen.
     pub min_accept: usize,
+    /// W-L4c: draft source and the suffix drafter's settings.
+    pub source: DraftSource,
+    pub suffix: SuffixConfig,
 }
 
 /// The pass that runs `[t0, drafts..]` in one go.
@@ -56,7 +72,7 @@ pub const SPEC_ENV: &str = "AIEN_OWN30B_SPEC";
 
 impl Default for SpecConfig {
     fn default() -> Self {
-        Self { enabled: false, max_draft: 8, max_ngram: 3, min_ngram: 1, mutant_accept_extra: false, verify: VerifyPath::Decode, min_accept: 0 }
+        Self { enabled: false, max_draft: 8, max_ngram: 3, min_ngram: 1, mutant_accept_extra: false, verify: VerifyPath::Decode, min_accept: 0, source: DraftSource::PromptLookup, suffix: SuffixConfig::default() }
     }
 }
 
@@ -78,6 +94,12 @@ impl SpecConfig {
                 Some("wp") | Some("whole-prompt") => VerifyPath::WholePrompt,
                 _ => VerifyPath::Decode,
             },
+            // W-L4c: AIEN_OWN30B_SPEC_DRAFTER=suffix, tuned by AIEN_OWN30B_SPEC_SUFFIX_* (see SuffixConfig::from_env).
+            source: match get("AIEN_OWN30B_SPEC_DRAFTER").as_deref().map(str::trim) {
+                Some("suffix") => DraftSource::Suffix,
+                _ => DraftSource::PromptLookup,
+            },
+            suffix: SuffixConfig::from_env(),
         }
     }
 }
@@ -95,6 +117,10 @@ pub struct SpecStats {
     pub wp_rounds: usize,
     /// Plain steps taken because of the back-off (also counted in `plain_steps`).
     pub backoff_steps: usize,
+    /// W-L4c: wall time of the verify passes (ns), so verify ms per round can be reported.
+    pub verify_ns: u64,
+    /// Rounds whose draft came from the global (past requests) suffix tree.
+    pub global_rounds: usize,
 }
 
 impl SpecStats {
@@ -379,6 +405,23 @@ impl Qwen3MoeOmegaEngine {
         sampler: &mut dyn FnMut(&[f32], usize) -> u32,
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<(GenerateOutcome, SpecStats), String> {
+        // A suffix drafter that lives for this request only (no past requests).
+        let mut local = (cfg.source == DraftSource::Suffix).then(|| SuffixDrafter::new(SuffixConfig { use_global: false, ..cfg.suffix.clone() }));
+        self.generate_spec_drafter(prompt, params, cfg, local.as_mut(), sampler, on_token)
+    }
+
+    /// [`Self::generate_spec_with`] with a caller-owned suffix drafter (W-L4c): it keeps its global
+    /// tree across requests (past conversations) and gets this request's prompt and output. With
+    /// `drafter` `None` the drafts are prompt-lookup ([`find_draft`]).
+    pub fn generate_spec_drafter(
+        &mut self,
+        prompt: &[u32],
+        params: &GenerateParams,
+        cfg: &SpecConfig,
+        mut drafter: Option<&mut SuffixDrafter>,
+        sampler: &mut dyn FnMut(&[f32], usize) -> u32,
+        on_token: &mut dyn FnMut(u32) -> bool,
+    ) -> Result<(GenerateOutcome, SpecStats), String> {
         if !cfg.enabled || !self.spec_verify_possible(cfg.verify) {
             return self.generate_with(prompt, params, sampler, on_token).map(|o| (o, SpecStats::default()));
         }
@@ -411,6 +454,9 @@ impl Qwen3MoeOmegaEngine {
         let mut decode_timing = StepTiming::default();
         let mut stats = SpecStats::default();
         let mut ctx: Vec<u32> = prompt.to_vec();
+        if let Some(d) = drafter.as_deref_mut() {
+            d.begin(prompt);
+        }
         let mut emitted = 0usize;
         let mut finish = FinishReason::Length;
         let mut step = 0usize;
@@ -441,6 +487,9 @@ impl Qwen3MoeOmegaEngine {
             }
             emitted += 1;
             ctx.push(t_first);
+            if let Some(d) = drafter.as_deref_mut() {
+                d.push(t_first);
+            }
             if !on_token(t_first) {
                 finish = FinishReason::Cancelled;
                 break;
@@ -460,6 +509,12 @@ impl Qwen3MoeOmegaEngine {
                 skip -= 1;
                 stats.backoff_steps += 1;
                 Vec::new()
+            } else if let Some(d) = drafter.as_deref() {
+                let dr = d.draft(&ctx, k);
+                if dr.from_global && !dr.tokens.is_empty() {
+                    stats.global_rounds += 1;
+                }
+                dr.tokens
             } else {
                 find_draft(&ctx, cfg.max_ngram, cfg.min_ngram, k)
             };
@@ -476,6 +531,7 @@ impl Qwen3MoeOmegaEngine {
             let mut inputs = Vec::with_capacity(drafts.len() + 1);
             inputs.push(t_first);
             inputs.extend_from_slice(&drafts);
+            let t_verify = Instant::now();
             let hiddens = match cfg.verify {
                 VerifyPath::Decode => self.step_verify(&inputs)?,
                 VerifyPath::WholePrompt => {
@@ -483,6 +539,7 @@ impl Qwen3MoeOmegaEngine {
                     self.step_verify_wp(&inputs)?
                 }
             };
+            stats.verify_ns += t_verify.elapsed().as_nanos() as u64;
             decode_timing.add(&self.last_timing);
             let mut acc = 0usize;
             let mut mutant_pending = cfg.mutant_accept_extra;
@@ -507,6 +564,9 @@ impl Qwen3MoeOmegaEngine {
                 stats.accepted += 1;
                 let tok = drafts[acc - 1];
                 ctx.push(tok);
+                if let Some(d) = drafter.as_deref_mut() {
+                    d.push(tok);
+                }
                 if !on_token(tok) {
                     finish = FinishReason::Cancelled;
                     self.rewind(pos_before + 1 + acc);
@@ -527,6 +587,9 @@ impl Qwen3MoeOmegaEngine {
                     backoff = 0;
                 }
             }
+        }
+        if let Some(d) = drafter {
+            d.finish(&ctx);
         }
         Ok((
             GenerateOutcome {
@@ -659,6 +722,48 @@ mod tests {
                 let mut e = engine(device);
                 assert_eq!(run(&mut e, &prompt, 40, &cfg, vec![]).0, want[..40].to_vec(), "k={k}");
             }
+        }
+    }
+
+    /// W-L4c: the suffix drafter (request-local and with a caller-owned global tree that has seen
+    /// an earlier request) changes only which tokens are proposed: output equals plain decode.
+    #[test]
+    fn suffix_drafter_keeps_plain_decode_tokens_and_uses_the_global_tree() {
+        let prompt = [5u32, 17, 42, 3, 9, 60, 5, 17, 42, 3, 9, 60, 5, 17, 42];
+        // Optimistic costs so the fake model's short runs still draft.
+        let suffix = suffix::SuffixConfig { cost: suffix::CostModel { verify_base_ms: 1.0, verify_row_ms: 0.1, lm_ms: 0.0, plain_ms: 1.0 }, ..Default::default() };
+        let on = SpecConfig { enabled: true, max_draft: 12, source: DraftSource::Suffix, suffix: suffix.clone(), ..Default::default() };
+        for device in [true, false] {
+            let mut plain = engine(device);
+            let want = run(&mut plain, &prompt, 60, &SpecConfig::default(), vec![]).0;
+            let mut spec = engine(device);
+            let (got, st, _) = run(&mut spec, &prompt, 60, &on, vec![]);
+            assert_eq!(got, want, "device={device}: suffix-drafted output differs from plain decode");
+            assert!(st.rounds > 0 && st.accepted > 0, "no speculation happened: {st:?}");
+            // Caller-owned drafter: request 1 fills the global tree, request 2 (a different prompt
+            // that runs into the same text) drafts from it.
+            let mut d = suffix::SuffixDrafter::new(suffix.clone());
+            let p = GenerateParams::greedy(40, vec![]);
+            let mut e = engine(device);
+            let mut first = Vec::new();
+            e.generate_spec_drafter(&prompt, &p, &on, Some(&mut d), &mut |lg, _| argmax(lg), &mut |t| {
+                first.push(t);
+                true
+            })
+            .unwrap();
+            assert_eq!(first, want[..40].to_vec());
+            let mut e2 = engine(device);
+            let prompt2: Vec<u32> = [1u32, 2].iter().copied().chain(prompt.iter().copied()).collect();
+            let want2 = run(&mut engine(device), &prompt2, 40, &SpecConfig::default(), vec![]).0;
+            let mut second = Vec::new();
+            let (_, st2) = e2
+                .generate_spec_drafter(&prompt2, &p, &on, Some(&mut d), &mut |lg, _| argmax(lg), &mut |t| {
+                    second.push(t);
+                    true
+                })
+                .unwrap();
+            assert_eq!(second, want2, "device={device}: second request");
+            assert!(st2.global_rounds > 0, "the global tree was never used: {st2:?}");
         }
     }
 
