@@ -1,0 +1,42 @@
+mem available before load: 68.6 GB (minimum 20)
+LOAD 2.1s layers 3 resident 2.49 GB attention fused devhost true
+len 512 OFF: 0.9 s
+len 512 FULL: 1.6 s
+len 512 ON16: 0.1 s
+len 512 relerr(X,OFF) on x_out per layer [expert-set flip tokens]:
+layer             FULL            ON16
+    0   1.738e-3 [  2]   1.738e-3 [  2]
+    1   2.732e-3 [  4]   2.734e-3 [  5]
+    2   3.456e-3 [  9]   3.457e-3 [ 10]
+len 512 per-token relerr(X,OFF) on x_out: median / worst@token, per layer:
+    0 FULL 8.08e-4/2.86e-2@478 ON16 8.07e-4/2.86e-2@478
+    1 FULL 1.21e-3/3.81e-2@55 ON16 1.20e-3/3.81e-2@55
+    2 FULL 1.54e-3/7.20e-2@16 ON16 1.53e-3/5.74e-2@58
+len 512 FULL attention op vs chip decode kernel (same inputs) per layer: 9.66e-4 1.36e-3 2.20e-3
+len 512 ops layer 0 FULL vs OFF: attn 2.292e-3, logits 2.539e-4, moe_out 4.435e-3, oproj 1.055e-3, qkv 7.231e-4
+len 512 ops layer 0 ON16 vs OFF: attn 2.292e-3, logits 2.531e-4, moe_out 4.436e-3, oproj 1.052e-3, qkv 7.231e-4
+len 512 R3 repro: layer 0 relerr(ON16,FULL) 1.254e-4 vs 0.1 x relerr(ON16,OFF) 1.738e-4: PASS
+len 512 relerr(ON16,FULL) per layer: 1.25e-4 5.02e-4 3.51e-4
+len 512 relerr(ON16,FULL) same-route tokens only per layer: 1.25e-4 1.68e-4 1.22e-4 (ON16-vs-FULL flip tokens [0, 3, 5])
+len 512 DRIFT max_l relerr(ON16,OFF) = 3.457e-3; per variant max_l: FULL 3.456e-3, ON16 3.457e-3
+len 512 logits cosine vs OFF: FULL 0.999996, ON16 0.999997; top-1 OFF 96035
+len 2048 OFF: 3.9 s
+len 2048 FULL: 9.0 s
+len 2048 ON16: 0.2 s
+len 2048 relerr(X,OFF) on x_out per layer [expert-set flip tokens]:
+layer             FULL            ON16
+    0   1.845e-3 [ 12]   1.861e-3 [ 13]
+    1   2.905e-3 [ 21]   2.803e-3 [ 20]
+    2   3.476e-3 [ 28]   3.465e-3 [ 24]
+len 2048 per-token relerr(X,OFF) on x_out: median / worst@token, per layer:
+    0 FULL 7.92e-4/3.15e-2@1078 ON16 7.93e-4/3.15e-2@1078
+    1 FULL 1.14e-3/4.92e-2@729 ON16 1.14e-3/4.25e-2@721
+    2 FULL 1.47e-3/7.20e-2@16 ON16 1.45e-3/6.76e-2@721
+len 2048 FULL attention op vs chip decode kernel (same inputs) per layer: 8.95e-4 1.37e-3 2.04e-3
+len 2048 ops layer 0 FULL vs OFF: attn 2.160e-3, logits 2.415e-4, moe_out 5.029e-3, oproj 1.025e-3, qkv 7.099e-4
+len 2048 ops layer 0 ON16 vs OFF: attn 2.160e-3, logits 2.405e-4, moe_out 5.078e-3, oproj 1.022e-3, qkv 7.099e-4
+len 2048 R3 repro: layer 0 relerr(ON16,FULL) 2.750e-4 vs 0.1 x relerr(ON16,OFF) 1.861e-4: FAIL
+len 2048 relerr(ON16,FULL) per layer: 2.75e-4 1.05e-3 5.19e-4
+len 2048 relerr(ON16,FULL) same-route tokens only per layer: 1.20e-4 3.05e-4 2.94e-4 (ON16-vs-FULL flip tokens [1, 12, 14])
+len 2048 DRIFT max_l relerr(ON16,OFF) = 3.465e-3; per variant max_l: FULL 3.476e-3, ON16 3.465e-3
+len 2048 logits cosine vs OFF: FULL 0.999998, ON16 0.999998; top-1 OFF 96035

@@ -1,0 +1,7 @@
+sc 16cf49e19bddc970112978fa2d4b7b0397b28c37
+omega own30b/a16b 848a999baf208ffc8c14872803cd56da6fb829d4 archive sha256 1baabd41f02b8e8a6de2fd6f993e8dea505d4f9f664f916746f6f2c20ab0687b
+checkpoint view /tmp/wl1i/ckpt3 = ~/models/qwen3-30b-a3b-instruct-2507-fp8 shards symlinked, config num_hidden_layers 3
+cmd: flock /tmp/aien-gb10.lock env AIEN_OMEGA_SPIN_US=2000 own30b_drift_split /tmp/wl1i/ckpt3 docs/inference/evidence/own30b-l1i-drift3-20261014T0510Z --lens 512,2048 --min-mem-gb 20
+580.173.02
+Wed Oct 14 05:10:58 AM UTC 2026
+binary own30b_drift_split sha256 c5084987530366d95144b704a83feb6d26f323108eaa9328842766f130bd8c7e (kept in ~/workspace/investigations/2026-10-14-own30b-l1i-drift/own30b-l1i-drift3-20261014T0510Z/, not committed)

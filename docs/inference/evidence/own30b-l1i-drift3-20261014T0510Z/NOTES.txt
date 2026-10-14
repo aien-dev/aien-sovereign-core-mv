@@ -1,0 +1,11 @@
+W-L1I drift split, 3-layer view of the real checkpoint (HARDWARE, real weights layers 0-2; NOT the full model).
+Rules pre-registered in plan-preregistered.md before any variant number was seen.
+R1 floor PASS (512, 2048). R2 teeth FAIL (512, 2048): the 2% score-scale mutant is only 6-15x the bf16 Q/P attention error,
+  i.e. bf16 Q/P costs about what a ~0.2% score-scale error would; rule mis-calibrated, recorded as FAIL.
+R3 repro PASS 512, FAIL 2048 (2.75e-4 vs 1.86e-4); post hoc diagnostic: same-route tokens only 1.20e-4 (one token
+  flips its experts between ON16 and FULL at layer 0). FULL tracks ON16 per layer at both lengths.
+Shares at layer 0 (L2 over tokens, squares): A16 60/72%, bf16 Q 38/27%, bf16 P 1.3/0.3%, online softmax 0% (512/2048).
+Typical token (per-token median, layer 0, 512): ON16 8.07e-4 = FULL 8.08e-4; A16 7.62e-4 (qkv input 5.80e-4, o 3.45e-4,
+  gate|up 1.68e-4, down 2.08e-4), bf16 Q 2.27e-4, bf16 P 1.10e-4, online 2e-7.
+Forecasts (median, 512): f32 Q (FIXQ) layer 0 -5%, layer 2 -15%; f32 Q + f32 qkv GEMM input (FIXQKV) -40% / -38%.
+devhost/: ON16 with device router + combine = host ON16 (same per-layer numbers).
