@@ -1,0 +1,32 @@
+mem available before load: 104.2 GB
+LOAD 28.0s attention=fused prefill_chunk=64 device_routing=true spec_possible=true whole_prompt=true (prefill and wp verify) verify=both new=64
+spec tuning: max_draft=8 max_ngram=3 min_ngram=1 min_accept=2
+p1-one-token run 1: OFF 24.2 tok/s (2644 ms, 64 tokens) | off-vs-golden differs at token 0 (recorded; spec-off is the reference)
+p1-one-token run 1: ON verify=Decode 17.8 tok/s (3589 ms) vs off IDENTICAL | rounds 10 wp_rounds 0 plain 31 backoff 16 drafted 70 accepted 22 acceptance 0.314
+p1-one-token negative control verify=Decode (accept one extra wrong draft): output differs (CAUGHT)
+p1-one-token run 1: ON verify=WholePrompt 27.1 tok/s (2363 ms) vs off IDENTICAL | rounds 10 wp_rounds 10 plain 31 backoff 16 drafted 70 accepted 22 acceptance 0.314
+p1-one-token negative control verify=WholePrompt (accept one extra wrong draft): output differs (CAUGHT)
+p1-one-token run 2: OFF 25.0 tok/s (2563 ms, 64 tokens) | off-vs-golden differs at token 0 (recorded; spec-off is the reference)
+p1-one-token run 2: ON verify=Decode 18.5 tok/s (3468 ms) vs off IDENTICAL | rounds 10 wp_rounds 0 plain 31 backoff 16 drafted 70 accepted 22 acceptance 0.314
+p1-one-token run 2: ON verify=WholePrompt 26.6 tok/s (2408 ms) vs off IDENTICAL | rounds 10 wp_rounds 10 plain 31 backoff 16 drafted 70 accepted 22 acceptance 0.314
+p2-short run 1: OFF 23.6 tok/s (297 ms, 7 tokens) | off-vs-golden IDENTICAL
+p2-short run 1: ON verify=Decode 8.0 tok/s (872 ms) vs off IDENTICAL | rounds 3 wp_rounds 0 plain 2 backoff 1 drafted 24 accepted 2 acceptance 0.083
+p2-short negative control verify=Decode (accept one extra wrong draft): output differs (CAUGHT)
+p2-short run 1: ON verify=WholePrompt 18.7 tok/s (374 ms) vs off IDENTICAL | rounds 3 wp_rounds 3 plain 2 backoff 1 drafted 24 accepted 2 acceptance 0.083
+p2-short negative control verify=WholePrompt (accept one extra wrong draft): output differs (CAUGHT)
+p2-short run 2: OFF 23.6 tok/s (297 ms, 7 tokens) | off-vs-golden IDENTICAL
+p2-short run 2: ON verify=Decode 8.2 tok/s (849 ms) vs off IDENTICAL | rounds 3 wp_rounds 0 plain 2 backoff 1 drafted 24 accepted 2 acceptance 0.083
+p2-short run 2: ON verify=WholePrompt 16.8 tok/s (416 ms) vs off IDENTICAL | rounds 3 wp_rounds 3 plain 2 backoff 1 drafted 24 accepted 2 acceptance 0.083
+p3-medium run 1: OFF 24.4 tok/s (2627 ms, 64 tokens) | off-vs-golden differs at token 16 (recorded; spec-off is the reference)
+p3-medium run 1: ON verify=Decode 14.9 tok/s (4292 ms) vs off IDENTICAL | rounds 11 wp_rounds 0 plain 40 backoff 36 drafted 82 accepted 12 acceptance 0.146
+p3-medium negative control verify=Decode (accept one extra wrong draft): output differs (CAUGHT)
+p3-medium run 1: ON verify=WholePrompt 22.2 tok/s (2885 ms) vs off DIVERGES at token 37 (FP8-activation verify; reported) | rounds 11 wp_rounds 11 plain 40 backoff 35 drafted 81 accepted 12 acceptance 0.148
+p3-medium negative control verify=WholePrompt (accept one extra wrong draft): output differs (CAUGHT)
+p3-medium run 2: OFF 22.6 tok/s (2836 ms, 64 tokens) | off-vs-golden differs at token 16 (recorded; spec-off is the reference)
+p3-medium run 2: ON verify=Decode 14.8 tok/s (4319 ms) vs off IDENTICAL | rounds 11 wp_rounds 0 plain 40 backoff 36 drafted 82 accepted 12 acceptance 0.146
+p3-medium run 2: ON verify=WholePrompt 17.1 tok/s (3740 ms) vs off DIVERGES at token 37 (FP8-activation verify; reported) | rounds 11 wp_rounds 11 plain 40 backoff 35 drafted 81 accepted 12 acceptance 0.148
+p4-long run 1: OFF 24.3 tok/s (2632 ms, 64 tokens) | off-vs-golden differs at token 16 (recorded; spec-off is the reference)
+p4-long run 1: ON verify=Decode 15.3 tok/s (4186 ms) vs off IDENTICAL | rounds 8 wp_rounds 0 plain 51 backoff 44 drafted 63 accepted 4 acceptance 0.063
+p4-long negative control verify=Decode (accept one extra wrong draft): output differs (CAUGHT)
+p4-long run 1: ON verify=WholePrompt 20.0 tok/s (3201 ms) vs off IDENTICAL | rounds 8 wp_rounds 8 plain 51 backoff 44 drafted 63 accepted 4 acceptance 0.063
+p4-long negative control verify=WholePrompt (accept one extra wrong draft): output differs (CAUGHT)
