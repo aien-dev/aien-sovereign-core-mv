@@ -16,6 +16,7 @@ use std::process::Command;
 
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(has_omega_dgraph)");
+    println!("cargo:rustc-check-cfg=cfg(has_omega_dgraph_resident)");
     for v in ["AIEN_FORCE_CPU_STUB", "AIEN_OMEGA_GPU_LIB", "AIEN_OMEGA_DIR"] {
         println!("cargo:rerun-if-env-changed={v}");
     }
@@ -26,6 +27,10 @@ fn main() {
         println!("cargo:rerun-if-changed={lib}");
         if archive_defines(Path::new(&lib), "omega_gpu_decode_graph_create") {
             println!("cargo:rustc-cfg=has_omega_dgraph");
+            // Resident decode chain switches (omega W-L2h/W-L2i, 802a0101): rows setter = the row-pair kernel.
+            if archive_defines(Path::new(&lib), "omega_gpu_decode_graph_set_resident_rows") {
+                println!("cargo:rustc-cfg=has_omega_dgraph_resident");
+            }
         } else {
             println!("cargo:warning=aien-omega-dgraph: {lib} does not define the decode graph API; the one-list decode is stubbed");
         }
@@ -36,6 +41,9 @@ fn main() {
         println!("cargo:rerun-if-changed={}", header.display());
         if header.is_file() {
             println!("cargo:rustc-cfg=has_omega_dgraph");
+            if std::fs::read_to_string(&header).is_ok_and(|h| h.contains("omega_gpu_decode_graph_set_resident_rows")) {
+                println!("cargo:rustc-cfg=has_omega_dgraph_resident");
+            }
         } else {
             println!("cargo:warning=aien-omega-dgraph: {dir} has no src/omega_gpu_decode_graph.h (omega before OWN-30B L2 cut 2); the one-list decode is stubbed");
         }

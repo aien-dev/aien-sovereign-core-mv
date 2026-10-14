@@ -141,6 +141,26 @@ impl Qwen3MoeOmegaEngine {
         self.decode_graph
     }
 
+    /// Turns the one-list decode on or off after creation (OWN-30B RC2: the HTTP door's default is on),
+    /// overriding the `OWN30B_DECODE_GRAPH` value read at creation. On builds the graph now, so a load that
+    /// cannot run it is refused here with the plain reason (and the switch stays off). Off drops the graph.
+    /// Call between generations.
+    pub fn set_decode_graph(&mut self, on: bool) -> Result<(), String> {
+        self.dgraph_clear();
+        if !on {
+            self.dgraph = None;
+            self.decode_graph = false;
+            return Ok(());
+        }
+        self.decode_graph = true;
+        if let Err(e) = self.prepare_decode_graph() {
+            self.dgraph = None;
+            self.decode_graph = false;
+            return Err(e);
+        }
+        Ok(())
+    }
+
     /// Builds the graph now (it is otherwise built at the first decode step), so a load that
     /// cannot run it fails before any generation. No-op when the switch is off.
     pub fn prepare_decode_graph(&mut self) -> Result<(), String> {

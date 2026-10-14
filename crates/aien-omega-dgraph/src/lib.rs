@@ -13,6 +13,8 @@
 //! `aien_omega_bf16::Bf16Tensor`). Those objects must outlive the graph and must not be used
 //! concurrently with a [`DecodeGraph::token`] call. Without the native library
 //! (`is_native()` false) every call returns `Unavailable`.
+pub mod resident;
+
 use aien_omega_gpu::OmegaGpuError;
 use std::ffi::c_void;
 use std::fmt;
