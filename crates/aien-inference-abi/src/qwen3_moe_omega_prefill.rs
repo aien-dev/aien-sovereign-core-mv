@@ -290,6 +290,12 @@ pub struct WholePromptPrefill<D: PrefillDevice> {
     pub mutant: WpMutant,
     /// Device router logits + combine (W-L1G-D, [`devhost`]): `None` = host path (the default).
     devhost: Option<devhost::DevHost<D::Buf>>,
+    /// W-L4c: each layer's router transposed for [`router_logits_t`], built on the first batch of
+    /// at most [`SERIAL_ROWS`] rows (the speculative verify); empty until then.
+    router_t: Vec<Vec<f32>>,
+    /// W-L4c: batches below this many rows take the host router even with the device path on
+    /// (default `SERIAL_ROWS + 1`; the device-path tests set 1).
+    pub devhost_min_rows: usize,
 }
 
 impl<D: PrefillDevice> std::fmt::Debug for WholePromptPrefill<D> {
@@ -301,7 +307,7 @@ impl<D: PrefillDevice> std::fmt::Debug for WholePromptPrefill<D> {
 impl<D: PrefillDevice> WholePromptPrefill<D> {
     /// Collects the in-place weight addresses of every layer (no weight copy).
     pub fn new(dev: D, weights: &Qwen3MoeOmegaWeights) -> Result<Self, String> {
-        Ok(Self { dev, entries: layer_entries(weights)?, bufs: None, stats: PrefillStats::default(), cached: Vec::new(), trace: None, mutant: WpMutant::None, devhost: None })
+        Ok(Self { dev, entries: layer_entries(weights)?, bufs: None, stats: PrefillStats::default(), cached: Vec::new(), trace: None, mutant: WpMutant::None, devhost: None, router_t: Vec::new(), devhost_min_rows: SERIAL_ROWS + 1 })
     }
 
     pub fn device(&self) -> &D {
@@ -413,7 +419,10 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
     }
 
     fn run_inner(&mut self, weights: &Qwen3MoeOmegaWeights, attn: &mut dyn PrefillAttention, tokens: &[u32], pos0: usize, all_rows: bool) -> Result<Vec<f32>, String> {
-        if self.devhost.is_some() {
+        // W-L4c: at most SERIAL_ROWS rows (the speculative verify) take the host router: the device
+        // router kernel measured ~0.46 ms per layer at m = 1..8 against ~0.05 ms on the host, and the
+        // two are bit-identical (receipt own30b-wp-devhost-20261014T0136Z).
+        if self.devhost.is_some() && tokens.len() >= self.devhost_min_rows {
             return self.run_dev(weights, attn, tokens, pos0, all_rows);
         }
         let c = &weights.config;
@@ -431,6 +440,9 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
         let g = m * top_k;
         let dev_attn = attn.has_dev();
         self.ensure(c, m, dev_attn)?;
+        if m <= SERIAL_ROWS && self.router_t.len() != weights.layers.len() {
+            self.router_t = weights.layers.iter().map(|ly| transpose_router(&ly.router, h, e)).collect();
+        }
         let mut st = PrefillStats { tokens: m, layers: weights.layers.len(), attn_dev: dev_attn, ..Default::default() };
         let (dev, b) = (&mut self.dev, self.bufs.as_mut().expect("sized"));
         let bm = b.bm;
@@ -478,7 +490,7 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
             let t = Instant::now();
             {
                 let xin = host_mut(&mut b.xin, "xin")?;
-                xin[..m * h].par_chunks_mut(h).zip(x.par_chunks(h)).for_each(|(o, xr)| rmsnorm(xr, &layer.input_norm, eps, o));
+                for_rows(&mut xin[..m * h], h, &x, h, |o, xr| rmsnorm(xr, &layer.input_norm, eps, o));
                 lap!(norm_in_ns);
             }
             st.host_ns += t.elapsed().as_nanos() as u64;
@@ -546,9 +558,9 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
             let sort = {
                 lap!(dev_ns);
                 let oproj = host(&b.oproj, "o projection")?;
-                x.par_chunks_mut(h).zip(oproj[..m * h].par_chunks(h)).for_each(|(xr, pr)| {
-                    for (xi, p) in xr.iter_mut().zip(pr) {
-                        *xi += p;
+                for_rows(&mut x, h, &oproj[..m * h], h, |xr, pr| {
+                    for (xi, v) in xr.iter_mut().zip(pr) {
+                        *xi += v;
                     }
                 });
                 if let Some(t) = tr.as_deref_mut() {
@@ -556,9 +568,13 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
                 }
                 lap!(resid_ns);
                 let post = host_mut(&mut b.xin, "xin")?;
-                post[..m * h].par_chunks_mut(h).zip(x.par_chunks(h)).for_each(|(o, xr)| rmsnorm(xr, &layer.post_norm, eps, o));
+                for_rows(&mut post[..m * h], h, &x, h, |o, xr| rmsnorm(xr, &layer.post_norm, eps, o));
                 lap!(norm_post_ns);
-                router_logits(&layer.router, &post[..m * h], h, e, &mut logits);
+                if m <= SERIAL_ROWS {
+                    router_logits_t(&self.router_t[l], &post[..m * h], h, e, &mut logits);
+                } else {
+                    router_logits(&layer.router, &post[..m * h], h, e, &mut logits);
+                }
                 lap!(router_ns);
                 if mutant == WpMutant::Routing {
                     rotate_logits(&mut logits, e);
@@ -619,7 +635,7 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
         let t = Instant::now();
         let hidden = if all_rows {
             let mut rows = vec![0.0f32; m * h];
-            rows.par_chunks_mut(h).zip(x.par_chunks(h)).for_each(|(o, xr)| rmsnorm(xr, &weights.final_norm, eps, o));
+            for_rows(&mut rows, h, &x, h, |o, xr| rmsnorm(xr, &weights.final_norm, eps, o));
             rows
         } else {
             let mut last = vec![0.0f32; h];
@@ -632,6 +648,57 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
         st.host_ns += t.elapsed().as_nanos() as u64;
         self.stats = st;
         Ok(hidden)
+    }
+}
+
+/// W-L4c: batches of at most this many rows run their host row loops on the calling thread.
+/// Waking rayon's pool costs tens of microseconds per call, more than a few rows of work; the
+/// speculative verify pass (2 to 9 rows, ~200 such calls) paid 7-25 ms for it. Per-row arithmetic
+/// is unchanged, so the results are bit-identical either way.
+pub const SERIAL_ROWS: usize = 16;
+
+/// `f(out_row, in_row)` for every row pair (`ow` / `iw` wide); serial for at most [`SERIAL_ROWS`] rows.
+pub fn for_rows<F>(out: &mut [f32], ow: usize, inp: &[f32], iw: usize, f: F)
+where
+    F: Fn(&mut [f32], &[f32]) + Sync + Send,
+{
+    if out.len() / ow.max(1) <= SERIAL_ROWS {
+        out.chunks_mut(ow).zip(inp.chunks(iw)).for_each(|(o, i)| f(o, i));
+    } else {
+        out.par_chunks_mut(ow).zip(inp.par_chunks(iw)).for_each(|(o, i)| f(o, i));
+    }
+}
+
+/// `router` (`[e][h]`) transposed to `[h][e]` for [`router_logits_t`].
+pub fn transpose_router(router: &[f32], h: usize, e: usize) -> Vec<f32> {
+    let mut t = vec![0.0f32; h * e];
+    for ex in 0..e {
+        for j in 0..h {
+            t[j * e + ex] = router[ex * h + j];
+        }
+    }
+    t
+}
+
+/// W-L4c: [`router_logits`] with the router transposed (`router_t[j * e + ex]`). Every logit is
+/// still `sum_j router[ex][j] * post[j]` added in index order from -0.0 (what `Iterator::sum`
+/// does), so the bits are the same; the experts run side by side, which vectorises (the serial
+/// one-expert-at-a-time sum was ~0.2 ms per row per layer).
+pub fn router_logits_t(router_t: &[f32], post: &[f32], h: usize, e: usize, logits: &mut [f32]) {
+    // Rows in blocks of 8 share each router column load (the 1 MB router was streamed once per row).
+    const BLOCK: usize = 8;
+    logits.fill(-0.0);
+    for (lb, pb) in logits.chunks_mut(BLOCK * e).zip(post.chunks(BLOCK * h)) {
+        let rows = lb.len() / e;
+        for j in 0..h {
+            let col = &router_t[j * e..(j + 1) * e];
+            for r in 0..rows {
+                let p = pb[r * h + j];
+                for (l, &w) in lb[r * e..(r + 1) * e].iter_mut().zip(col) {
+                    *l += w * p;
+                }
+            }
+        }
     }
 }
 
@@ -648,7 +715,7 @@ pub fn router_logits(router: &[f32], post: &[f32], h: usize, e: usize, logits: &
 /// `x[r] += sum_slot wts[r * top_k + slot] * down[inv[r * top_k + slot]]`, accumulated in slot
 /// order from zero (reimplements the engine's private `combine_rows`).
 pub fn combine_rows(x: &mut [f32], down_sorted: &[f32], wts: &[f32], inv: &[u32], h: usize, top_k: usize) {
-    x.par_chunks_mut(h).enumerate().for_each(|(r, xr)| {
+    let one = |r: usize, xr: &mut [f32]| {
         let mut acc = vec![0.0f32; h];
         for slot in 0..top_k {
             let gi = r * top_k + slot;
@@ -660,7 +727,12 @@ pub fn combine_rows(x: &mut [f32], down_sorted: &[f32], wts: &[f32], inv: &[u32]
         for (xi, a) in xr.iter_mut().zip(&acc) {
             *xi += a;
         }
-    });
+    };
+    if x.len() / h.max(1) <= SERIAL_ROWS {
+        x.chunks_mut(h).enumerate().for_each(|(r, xr)| one(r, xr));
+    } else {
+        x.par_chunks_mut(h).enumerate().for_each(|(r, xr)| one(r, xr));
+    }
 }
 
 /// Host mirror of the activation quantiser (W-L1G-C).

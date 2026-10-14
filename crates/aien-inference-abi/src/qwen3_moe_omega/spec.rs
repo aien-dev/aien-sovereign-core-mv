@@ -202,6 +202,7 @@ impl Qwen3MoeOmegaEngine {
             launches: st.launches() as u64,
             route_ns: 0,
             moe_host_ns: 0,
+            ..StepTiming::default()
         };
         Ok(rows.chunks(h).map(<[f32]>::to_vec).collect())
     }

@@ -108,6 +108,7 @@ fn device_router_and_combine_equal_the_host_path_bit_for_bit() {
         let (tm2, mut dev_drv, mut a2, _) = setup_dh(bm, dev_attn, Some(t));
         assert!(!dev_drv.device_host_work(), "OFF by default");
         dev_drv.set_device_host_work(&tm2.weights, true).unwrap();
+        dev_drv.devhost_min_rows = 1;
         assert!(dev_drv.device_host_work());
         let (got, got_tr) = traced(&mut dev_drv, &tm2, &mut a2, split);
         let case = format!("bm {bm} dev_attn {dev_attn} t {t} split {split}");
@@ -129,6 +130,7 @@ fn device_router_and_combine_equal_the_host_path_bit_for_bit() {
 fn device_path_call_order_per_layer() {
     let (tm, mut drv, mut attn, log) = setup_dh(4, false, Some(3));
     drv.set_device_host_work(&tm.weights, true).unwrap();
+    drv.devhost_min_rows = 1;
     let c = tm.weights.config.clone();
     let m = 5;
     drv.run(&tm.weights, &mut attn, &TOKENS[..m], 0).unwrap();
@@ -157,9 +159,11 @@ fn device_path_call_order_per_layer() {
 fn routing_mutant_is_still_caught_on_the_device_path() {
     let (tm, mut drv, mut attn, _) = setup_dh(4, false, Some(3));
     drv.set_device_host_work(&tm.weights, true).unwrap();
+    drv.devhost_min_rows = 1;
     let (_, good) = traced(&mut drv, &tm, &mut attn, false);
     let (tm2, mut bad, mut attn2, _) = setup_dh(4, false, Some(3));
     bad.set_device_host_work(&tm2.weights, true).unwrap();
+    bad.devhost_min_rows = 1;
     bad.mutant = WpMutant::Routing;
     let (out, bad_tr) = traced(&mut bad, &tm2, &mut attn2, false);
     assert_ne!(bad_tr.experts, good.experts, "rotated logits must change the routing");
@@ -170,6 +174,7 @@ fn routing_mutant_is_still_caught_on_the_device_path() {
 fn combine_negative_control_is_caught() {
     let (tm, mut drv, mut attn, _) = setup_dh(4, false, Some(3));
     drv.set_device_host_work(&tm.weights, true).unwrap();
+    drv.devhost_min_rows = 1;
     let (tm2, mut host_drv, mut attn2, _) = setup_dh(4, false, Some(3));
     let want = host_drv.run(&tm2.weights, &mut attn2, &TOKENS, 0).unwrap();
     // a driver whose fake combine drops each token's last slot
@@ -178,6 +183,7 @@ fn combine_negative_control_is_caught() {
     let fd = FakeDevice::new(4, &tm, log.clone());
     let mut mutant = WholePromptPrefill::new(DhDev { inner: fd, t: Some(3), mutant_combine_drop_last: true }, &tm.weights).unwrap();
     mutant.set_device_host_work(&tm.weights, true).unwrap();
+    mutant.devhost_min_rows = 1;
     let mut attn3 = FakeAttn { core: AttnCore::new(&c), log, dev: None, qkv_n: c.qkv_n(), qd: c.q_dim() };
     let bad = mutant.run(&tm.weights, &mut attn3, &TOKENS, 0).unwrap();
     assert_ne!(bad, want, "dropping a slot in the combine must change the output");

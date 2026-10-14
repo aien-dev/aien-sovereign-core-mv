@@ -82,6 +82,12 @@ fn main() {
         println!("{s}");
         log.push(s);
     };
+    // W-L4c: the spin window from AIEN_OMEGA_SPIN_US, as own30b_check does (without it omega waits with
+    // its 50 us default and plain decode measures ~39 ms/token instead of ~26).
+    if let Some(us) = aien_omega_gpu::parse_spin_us(std::env::var(aien_omega_gpu::SPIN_US_ENV).ok().as_deref()).expect("spin env") {
+        aien_omega_gpu::set_spin_us(us).expect("set spin window");
+    }
+    say(format!("spin_us {:?}", aien_omega_gpu::spin_us()));
     let avail = mem_available_gb();
     say(format!("mem available before load: {avail:.1} GB"));
     if avail < 70.0 && !force {

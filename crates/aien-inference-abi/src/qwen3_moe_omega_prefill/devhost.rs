@@ -28,7 +28,7 @@ use std::time::Instant;
 use aien_omega_pf::{build_tiles, Layout, PfBuffer, PrefillAttention, PrefillDevice, QgemmCall, QuantIn, TILE_BYTES};
 use rayon::prelude::*;
 
-use super::{as_u32_mut, host, host_mut, read_dev, rotate_logits, ExpertSort, PrefillStats, Region, WholePromptPrefill, WpMutant, ATTN_OUT_SCALE};
+use super::{as_u32_mut, for_rows, host, host_mut, read_dev, rotate_logits, ExpertSort, PrefillStats, Region, WholePromptPrefill, WpMutant, ATTN_OUT_SCALE};
 use crate::moe_plan::{MoeBatchPlan, MoePlanError};
 use crate::qwen3_moe_omega::{Qwen3MoeConfig, Qwen3MoeOmegaWeights};
 use crate::tensor::rmsnorm;
@@ -187,7 +187,7 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
             let t = Instant::now();
             {
                 let xin = host_mut(&mut b.xin, "xin")?;
-                xin[..m * h].par_chunks_mut(h).zip(x.par_chunks(h)).for_each(|(o, xr)| rmsnorm(xr, &layer.input_norm, eps, o));
+                for_rows(&mut xin[..m * h], h, &x, h, |o, xr| rmsnorm(xr, &layer.input_norm, eps, o));
                 lap!(norm_in_ns);
             }
             st.host_ns += t.elapsed().as_nanos() as u64;
@@ -251,9 +251,9 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
             let t = Instant::now();
             {
                 let oproj = host(&b.oproj, "o projection")?;
-                x.par_chunks_mut(h).zip(oproj[..m * h].par_chunks(h)).for_each(|(xr, pr)| {
-                    for (xi, p) in xr.iter_mut().zip(pr) {
-                        *xi += p;
+                for_rows(&mut x, h, &oproj[..m * h], h, |xr, pr| {
+                    for (xi, v) in xr.iter_mut().zip(pr) {
+                        *xi += v;
                     }
                 });
             }
@@ -263,7 +263,7 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
             lap!(resid_ns);
             {
                 let post = host_mut(&mut d.post, "post")?;
-                post[..m * h].par_chunks_mut(h).zip(x.par_chunks(h)).for_each(|(o, xr)| rmsnorm(xr, &layer.post_norm, eps, o));
+                for_rows(&mut post[..m * h], h, &x, h, |o, xr| rmsnorm(xr, &layer.post_norm, eps, o));
             }
             lap!(norm_post_ns);
             st.host_ns += t.elapsed().as_nanos() as u64;
@@ -323,9 +323,9 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
             let t = Instant::now();
             {
                 let moe = host(&d.moe, "combine out")?;
-                x.par_chunks_mut(h).zip(moe[..m * h].par_chunks(h)).for_each(|(xr, ar)| {
-                    for (xi, a) in xr.iter_mut().zip(ar) {
-                        *xi += a;
+                for_rows(&mut x, h, &moe[..m * h], h, |xr, ar| {
+                    for (xi, v) in xr.iter_mut().zip(ar) {
+                        *xi += v;
                     }
                 });
             }
@@ -341,7 +341,7 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
         let t = Instant::now();
         let hidden = if all_rows {
             let mut rows = vec![0.0f32; m * h];
-            rows.par_chunks_mut(h).zip(x.par_chunks(h)).for_each(|(o, xr)| rmsnorm(xr, &weights.final_norm, eps, o));
+            for_rows(&mut rows, h, &x, h, |o, xr| rmsnorm(xr, &weights.final_norm, eps, o));
             rows
         } else {
             let mut last = vec![0.0f32; h];
@@ -370,29 +370,31 @@ pub fn plan_par(logits: &[f32], tokens: usize, experts: usize, top_k: usize) -> 
         return Err(MoePlanError::InvalidShape);
     }
     let assignments = tokens * top_k;
-    let per_token: Vec<Result<TokenTopK, MoePlanError>> = logits
-        .par_chunks_exact(experts)
-        .enumerate()
-        .map(|(token, row)| {
-            if let Some(expert) = row.iter().position(|v| !v.is_finite()) {
-                return Err(MoePlanError::InvalidLogit { token, expert });
-            }
-            let cmp = |a: &usize, b: &usize| row[*b].total_cmp(&row[*a]).then(a.cmp(b));
-            let mut ranking: Vec<usize> = (0..experts).collect();
-            if top_k < experts {
-                ranking.select_nth_unstable_by(top_k - 1, cmp);
-            }
-            ranking.truncate(top_k);
-            ranking.sort_unstable_by(cmp);
-            let max_logit = row[ranking[0]];
-            let probs: Vec<f32> = ranking.iter().map(|&ex| (row[ex] - max_logit).exp()).collect();
-            let mut sum = 0.0f32;
-            for p in &probs {
-                sum += p;
-            }
-            Ok((ranking.iter().map(|&ex| ex as u32).collect(), probs.iter().map(|p| p / sum).collect()))
-        })
-        .collect();
+    let one = |token: usize, row: &[f32]| -> Result<TokenTopK, MoePlanError> {
+        if let Some(expert) = row.iter().position(|v| !v.is_finite()) {
+            return Err(MoePlanError::InvalidLogit { token, expert });
+        }
+        let cmp = |a: &usize, b: &usize| row[*b].total_cmp(&row[*a]).then(a.cmp(b));
+        let mut ranking: Vec<usize> = (0..experts).collect();
+        if top_k < experts {
+            ranking.select_nth_unstable_by(top_k - 1, cmp);
+        }
+        ranking.truncate(top_k);
+        ranking.sort_unstable_by(cmp);
+        let max_logit = row[ranking[0]];
+        let probs: Vec<f32> = ranking.iter().map(|&ex| (row[ex] - max_logit).exp()).collect();
+        let mut sum = 0.0f32;
+        for p in &probs {
+            sum += p;
+        }
+        Ok((ranking.iter().map(|&ex| ex as u32).collect(), probs.iter().map(|p| p / sum).collect()))
+    };
+    // W-L4c: small batches (the speculative verify) on the calling thread; same values.
+    let per_token: Vec<Result<TokenTopK, MoePlanError>> = if tokens <= super::SERIAL_ROWS {
+        logits.chunks_exact(experts).enumerate().map(|(t, r)| one(t, r)).collect()
+    } else {
+        logits.par_chunks_exact(experts).enumerate().map(|(t, r)| one(t, r)).collect()
+    };
     let mut topk_experts = Vec::with_capacity(assignments);
     let mut topk_weights = Vec::with_capacity(assignments);
     let mut counts = vec![0u32; experts];
