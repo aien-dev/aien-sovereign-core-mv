@@ -611,3 +611,22 @@ fn cache_weights_refusal_leaves_the_in_place_path_working() {
     let got = drv.run(&tm.weights, &mut attn, &TOKENS, 0).unwrap();
     assert!(max_rel_diff(&got, &reference(&tm, &TOKENS)) <= TOL);
 }
+
+#[test]
+fn run_rows_gives_every_token_its_own_hidden_and_the_same_last_row_as_run() {
+    // W-L4b: the speculative verify pass reads every position's hidden state from one call.
+    let (tm, mut drv, mut attn, _) = setup(4, false);
+    let h = tm.weights.config.hidden;
+    drv.run(&tm.weights, &mut attn, &TOKENS[..3], 0).unwrap();
+    let rows = drv.run_rows(&tm.weights, &mut attn, &TOKENS[3..], 3).unwrap();
+    assert_eq!(rows.len(), 4 * h);
+    for r in 0..4 {
+        let want = reference(&tm, &TOKENS[..4 + r]);
+        let d = max_rel_diff(&rows[r * h..(r + 1) * h], &want);
+        assert!(d <= TOL, "row {r} (position {}) vs reference: {d}", 3 + r);
+    }
+    let (tm2, mut drv2, mut attn2, _) = setup(4, false);
+    drv2.run(&tm2.weights, &mut attn2, &TOKENS[..3], 0).unwrap();
+    let last = drv2.run(&tm2.weights, &mut attn2, &TOKENS[3..], 3).unwrap();
+    assert_eq!(&rows[3 * h..], &last[..], "run_rows' last row is bit-equal to run");
+}

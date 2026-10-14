@@ -31,13 +31,28 @@ pub struct SpecConfig {
     /// NEGATIVE CONTROL ONLY: also accepts the first draft that does not match. Output must then
     /// differ from spec-off; a check that does not notice is broken.
     pub mutant_accept_extra: bool,
+    /// Which pass checks the drafts (W-L4b). See [`VerifyPath`].
+    pub verify: VerifyPath,
+}
+
+/// The pass that runs `[t0, drafts..]` in one go.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum VerifyPath {
+    /// [`Qwen3MoeOmegaEngine::step_verify`]: GEMM batched, f32 activations, device router per token:
+    /// the same rounding as plain decode (token-identical on the chip, receipt own30b-l4-spec-chip-20261013T2158Z).
+    #[default]
+    Decode,
+    /// [`Qwen3MoeOmegaEngine::step_verify_wp`]: the whole-prompt prefill driver (fixed launch count
+    /// per layer, FP8 activations, host router). Faster, but rounds differently from plain decode,
+    /// so accepted tokens follow the W8A8 numerics. Needs `set_whole_prompt(true)`.
+    WholePrompt,
 }
 
 pub const SPEC_ENV: &str = "AIEN_OWN30B_SPEC";
 
 impl Default for SpecConfig {
     fn default() -> Self {
-        Self { enabled: false, max_draft: 8, max_ngram: 3, min_ngram: 1, mutant_accept_extra: false }
+        Self { enabled: false, max_draft: 8, max_ngram: 3, min_ngram: 1, mutant_accept_extra: false, verify: VerifyPath::Decode }
     }
 }
 
@@ -53,6 +68,11 @@ impl SpecConfig {
             max_ngram: num("AIEN_OWN30B_SPEC_MAX_N", d.max_ngram),
             min_ngram: num("AIEN_OWN30B_SPEC_MIN_N", d.min_ngram),
             mutant_accept_extra: false,
+            // AIEN_OWN30B_SPEC_VERIFY=wp: verify through the whole-prompt driver (W-L4b).
+            verify: match get("AIEN_OWN30B_SPEC_VERIFY").as_deref().map(str::trim) {
+                Some("wp") | Some("whole-prompt") => VerifyPath::WholePrompt,
+                _ => VerifyPath::Decode,
+            },
         }
     }
 }
@@ -66,6 +86,8 @@ pub struct SpecStats {
     pub plain_steps: usize,
     pub drafted: usize,
     pub accepted: usize,
+    /// Rounds verified through the whole-prompt driver (the rest used `step_verify`).
+    pub wp_rounds: usize,
 }
 
 impl SpecStats {
@@ -119,6 +141,62 @@ impl Qwen3MoeOmegaEngine {
     /// everywhere, no tracing. Otherwise speculative decoding falls back to plain decode.
     pub fn spec_possible(&self) -> bool {
         self.trace_layers.is_empty() && gemm_everywhere(&self.weights)
+    }
+
+    /// Whether the verify pass `path` can run on this engine. `WholePrompt` needs the whole-prompt
+    /// switch on (`set_whole_prompt(true)`: fused KV, prefill kernels linked), no tracing and no
+    /// routing mutant (the same conditions as `whole_prompt_prefill`).
+    pub fn spec_verify_possible(&self, path: VerifyPath) -> bool {
+        match path {
+            VerifyPath::Decode => self.spec_possible(),
+            VerifyPath::WholePrompt => self.whole_prompt.is_some() && self.trace_layers.is_empty() && !self.routing_mutant,
+        }
+    }
+
+    /// W-L4b: runs `tokens` (consecutive positions from `pos`) through the whole-prompt driver in
+    /// ONE call (fixed launch count per layer) and returns every position's final-normed hidden
+    /// state. Writes their KV into the fused cache, advances `pos` and `history`; the caller
+    /// rewinds what it rejects. Numerics are the whole-prompt ones (FP8 activations, host router).
+    pub fn step_verify_wp(&mut self, tokens: &[u32]) -> Result<Vec<Vec<f32>>, String> {
+        let m = tokens.len();
+        if m == 0 {
+            return Err("step_verify_wp: empty batch".into());
+        }
+        if !self.spec_verify_possible(VerifyPath::WholePrompt) {
+            return Err("step_verify_wp: whole-prompt switch off, or tracing / routing mutant on".into());
+        }
+        let h = self.weights.config.hidden;
+        let pos0 = self.pos;
+        let t = Instant::now();
+        let wp = self.whole_prompt.as_mut().expect("checked above");
+        let fused = self.kv.fused_kv().ok_or("step_verify_wp: KV is not omega's fused cache")?;
+        if pos0 + m > fused.capacity() {
+            return Err(format!("context full: {pos0} + {m} of {}", fused.capacity()));
+        }
+        let out = wp.run_rows(&self.weights, &mut fused.prefill_attention(), tokens, pos0);
+        let rows = match out {
+            Ok(r) => r,
+            Err(e) => {
+                self.rewind(pos0);
+                return Err(format!("step_verify_wp x{m}: {e}"));
+            }
+        };
+        fused.mark_filled(pos0 + m);
+        self.pos = pos0 + m;
+        self.history.extend_from_slice(tokens);
+        let st = &wp.stats;
+        self.last_timing = StepTiming {
+            total_ns: t.elapsed().as_nanos() as u64,
+            attention_ns: st.attn_ns,
+            experts_ns: 0,
+            lm_head_ns: 0,
+            host_ns: st.host_ns,
+            chip_ns: st.chip_ns + st.attn_ns,
+            launches: st.launches() as u64,
+            route_ns: 0,
+            moe_host_ns: 0,
+        };
+        Ok(rows.chunks(h).map(<[f32]>::to_vec).collect())
     }
 
     /// Runs `tokens` (consecutive positions, at most 128) in one batched pass and returns the
@@ -293,7 +371,7 @@ impl Qwen3MoeOmegaEngine {
         sampler: &mut dyn FnMut(&[f32], usize) -> u32,
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<(GenerateOutcome, SpecStats), String> {
-        if !cfg.enabled || !self.spec_possible() {
+        if !cfg.enabled || !self.spec_verify_possible(cfg.verify) {
             return self.generate_with(prompt, params, sampler, on_token).map(|o| (o, SpecStats::default()));
         }
         if prompt.is_empty() {
@@ -312,7 +390,10 @@ impl Qwen3MoeOmegaEngine {
         let t0 = Instant::now();
         let mut pending = Vec::new();
         let mut prefill_timing = StepTiming::default();
-        for chunk in prompt[reused..].chunks(self.prefill_chunk.max(1)) {
+        // Same prefill as `generate_with` (whole-prompt when its switch is on), so spec off and on start
+        // from the same KV and the same first hidden state.
+        let whole = self.whole_prompt_prefill(&prompt[reused..], &mut pending, &mut prefill_timing)?;
+        for chunk in prompt[reused + whole..].chunks(self.prefill_chunk.max(1)) {
             pending = self.step_batch(chunk)?;
             prefill_timing.add(&self.last_timing);
         }
@@ -380,7 +461,13 @@ impl Qwen3MoeOmegaEngine {
             let mut inputs = Vec::with_capacity(drafts.len() + 1);
             inputs.push(t_first);
             inputs.extend_from_slice(&drafts);
-            let hiddens = self.step_verify(&inputs)?;
+            let hiddens = match cfg.verify {
+                VerifyPath::Decode => self.step_verify(&inputs)?,
+                VerifyPath::WholePrompt => {
+                    stats.wp_rounds += 1;
+                    self.step_verify_wp(&inputs)?
+                }
+            };
             decode_timing.add(&self.last_timing);
             let mut acc = 0usize;
             let mut mutant_pending = cfg.mutant_accept_extra;
@@ -561,6 +648,25 @@ mod tests {
         assert_eq!(t.len(), 10);
         std::env::remove_var(SPEC_ENV);
         assert!(!SpecConfig::from_env().enabled, "default is OFF");
+    }
+
+    #[test]
+    fn whole_prompt_verify_without_its_switch_runs_plain_decode() {
+        // W-L4b: verify=WholePrompt needs set_whole_prompt(true); without it the engine must not
+        // half-run a speculative round, it decodes plainly (stats zero), same tokens as spec off.
+        let prompt = [5u32, 17, 42, 3, 9, 60, 5, 17, 42];
+        let mut a = engine(true);
+        assert!(!a.spec_verify_possible(VerifyPath::WholePrompt));
+        assert!(a.step_verify_wp(&[5, 17]).is_err());
+        let (plain, _, _) = run(&mut a, &prompt, 10, &SpecConfig::default(), vec![]);
+        let cfg = SpecConfig { enabled: true, verify: VerifyPath::WholePrompt, ..SpecConfig::default() };
+        let (t, st, _) = run(&mut a, &prompt, 10, &cfg, vec![]);
+        assert_eq!((st.rounds, st.wp_rounds, st.drafted), (0, 0, 0));
+        assert_eq!(t, plain);
+        std::env::set_var("AIEN_OWN30B_SPEC_VERIFY", "wp");
+        assert_eq!(SpecConfig::from_env().verify, VerifyPath::WholePrompt);
+        std::env::remove_var("AIEN_OWN30B_SPEC_VERIFY");
+        assert_eq!(SpecConfig::from_env().verify, VerifyPath::Decode, "default verify is the decode-rounding path");
     }
 
     #[test]

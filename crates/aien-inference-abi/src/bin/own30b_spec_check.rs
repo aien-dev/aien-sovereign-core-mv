@@ -11,10 +11,15 @@
 //!
 //! Memory: refuses with less than 70 GB available (the live server holds a 30 GB model) unless --force-memory.
 //! Run it under `flock /tmp/aien-gb10.lock`.
+//!
+//! W-L4b: `--verify decode|wp|both` picks the verify pass (decode rounding, must be identical; whole-prompt
+//! FP8-activation pass, identity reported with the first diverging token). `--wp-prefill` turns the
+//! whole-prompt prefill on for every generation (off and on start from the same KV); `--wp-cached`
+//! adds its GPU-cached weight copy. Negative control per path: mutant vs the same path's spec-on output.
 
 use std::path::PathBuf;
 
-use aien_inference_abi::qwen3_moe_omega::spec::SpecConfig;
+use aien_inference_abi::qwen3_moe_omega::spec::{SpecConfig, VerifyPath};
 use aien_inference_abi::qwen3_moe_omega::{AttnPath, DevicePaths, GenerateParams, Qwen3MoeConfig, Qwen3MoeOmegaEngine, WeightFormat};
 
 fn mem_available_gb() -> f64 {
@@ -35,21 +40,39 @@ fn argmax(lg: &[f32]) -> u32 {
     best as u32
 }
 
+fn first_diff(a: &[u32], b: &[u32]) -> Option<usize> {
+    (0..a.len().max(b.len())).find(|&i| a.get(i) != b.get(i))
+}
+
 fn main() {
     let mut it = std::env::args().skip(1);
     let mut pos: Vec<String> = Vec::new();
     let (mut runs, mut new_tokens, mut max_context, mut force) = (3usize, 16usize, 8192usize, false);
+    let (mut verify, mut wp_prefill, mut wp_cached) = ("decode".to_string(), false, false);
     while let Some(a) = it.next() {
         match a.as_str() {
             "--runs" => runs = it.next().expect("--runs N").parse().expect("number"),
             "--new" => new_tokens = it.next().expect("--new N").parse().expect("number"),
             "--max-context" => max_context = it.next().expect("--max-context N").parse().expect("number"),
             "--force-memory" => force = true,
+            "--verify" => verify = it.next().expect("--verify decode|wp|both"),
+            "--wp-prefill" => wp_prefill = true,
+            "--wp-cached" => wp_cached = true,
             _ => pos.push(a),
         }
     }
+    let paths: Vec<VerifyPath> = match verify.as_str() {
+        "decode" => vec![VerifyPath::Decode],
+        "wp" => vec![VerifyPath::WholePrompt],
+        "both" => vec![VerifyPath::Decode, VerifyPath::WholePrompt],
+        _ => {
+            eprintln!("--verify must be decode, wp or both");
+            std::process::exit(2);
+        }
+    };
+    let needs_wp = wp_prefill || wp_cached || paths.contains(&VerifyPath::WholePrompt);
     if pos.len() != 3 {
-        eprintln!("usage: own30b_spec_check <checkpoint> <golden.json> <receipt-dir> [--runs 3] [--new 16] [--max-context 8192] [--force-memory]");
+        eprintln!("usage: own30b_spec_check <checkpoint> <golden.json> <receipt-dir> [--runs 3] [--new 16] [--max-context 8192] [--force-memory] [--verify decode|wp|both] [--wp-prefill] [--wp-cached]");
         std::process::exit(2);
     }
     let (checkpoint, golden_path, receipt) = (PathBuf::from(&pos[0]), PathBuf::from(&pos[1]), PathBuf::from(&pos[2]));
@@ -68,29 +91,39 @@ fn main() {
     }
     let golden: serde_json::Value = serde_json::from_slice(&std::fs::read(&golden_path).expect("golden file")).expect("golden json");
     let config = Qwen3MoeConfig::from_checkpoint(&checkpoint).expect("config");
+    // The whole-prompt driver needs omega's fused KV cache.
+    let attn = if needs_wp { AttnPath::Fused } else { AttnPath::Auto };
     let (mut engine, report) =
-        Qwen3MoeOmegaEngine::load_omega_paths(&checkpoint, max_context, WeightFormat::Fp8All, AttnPath::Auto, DevicePaths::default(), &mut |_| {})
-            .expect("load on Omega");
+        Qwen3MoeOmegaEngine::load_omega_paths(&checkpoint, max_context, WeightFormat::Fp8All, attn, DevicePaths::default(), &mut |_| {}).expect("load on Omega");
+    if needs_wp {
+        engine.set_whole_prompt(true).expect("whole-prompt driver refused");
+        if wp_cached {
+            let bytes = engine.whole_prompt_cache_weights().expect("cached weight copy");
+            say(format!("whole-prompt cached weight copy: {:.1} GB", bytes as f64 / 1e9));
+        }
+    }
     say(format!(
-        "LOAD {:.1}s attention={} prefill_chunk={} device_routing={} spec_possible={}",
+        "LOAD {:.1}s attention={} prefill_chunk={} device_routing={} spec_possible={} whole_prompt={} (prefill and wp verify) verify={verify} new={new_tokens}",
         report.seconds,
         engine.attention_path(),
         engine.prefill_chunk,
         engine.device_routing,
-        engine.spec_possible()
+        engine.spec_possible(),
+        engine.whole_prompt_on(),
     ));
-    if !engine.spec_possible() {
-        say("FAIL: speculative verify path is not available on this engine (needs the prefill GEMM everywhere)".into());
-        let _ = std::fs::write(receipt.join("run.log"), log.join("\n"));
-        std::process::exit(1);
+    for &p in &paths {
+        if !engine.spec_verify_possible(p) {
+            say(format!("FAIL: verify path {p:?} is not available on this engine"));
+            let _ = std::fs::write(receipt.join("run.log"), log.join("\n"));
+            std::process::exit(1);
+        }
     }
     let off = SpecConfig::default();
-    let on = SpecConfig { enabled: true, ..SpecConfig::default() };
-    let mutant = SpecConfig { enabled: true, mutant_accept_extra: true, ..SpecConfig::default() };
     let params = GenerateParams::greedy(new_tokens, config.eos_token_ids.clone());
     let mut all_ok = true;
     let mut rows = Vec::new();
-    let mut mutant_differs = false;
+    let mut mutant_caught = vec![false; paths.len()];
+    let mut wp_identical = (0usize, 0usize);
     for p in golden["prompts"].as_array().expect("prompts") {
         let name = p["name"].as_str().unwrap_or("?").to_string();
         let ids: Vec<u32> = p["prompt_tokens"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap() as u32).collect();
@@ -109,33 +142,61 @@ fn main() {
                 (got, st, tps, o.decode_ms)
             };
             let (t_off, _, tps_off, ms_off) = go(&off, &mut engine);
-            let (t_on, st, tps_on, ms_on) = go(&on, &mut engine);
-            let same = t_off == t_on;
-            let golden_same = t_off == want;
-            if !same {
-                all_ok = false;
-            }
-            say(format!(
-                "{name} run {run}: spec-on vs spec-off {} | off-vs-golden {} | off {tps_off:.1} tok/s ({ms_off} ms) on {tps_on:.1} tok/s ({ms_on} ms) | rounds {} plain {} drafted {} accepted {} acceptance {:.3}",
-                if same { "IDENTICAL" } else { "DIFFERENT (FAIL)" },
-                if golden_same { "IDENTICAL" } else { "differs (recorded; spec-off is the reference)" },
-                st.rounds, st.plain_steps, st.drafted, st.accepted, st.acceptance()
-            ));
-            rows.push(serde_json::json!({"prompt": name, "run": run, "identical": same, "off_matches_golden": golden_same,
-                "off_tok_s": tps_off, "on_tok_s": tps_on, "rounds": st.rounds, "plain": st.plain_steps, "drafted": st.drafted, "accepted": st.accepted,
-                "acceptance": st.acceptance(), "tokens_off": t_off, "tokens_on": t_on}));
-            if run == 1 {
-                let (t_mut, _, _, _) = go(&mutant, &mut engine);
-                if t_mut != t_off {
-                    mutant_differs = true;
+            let golden_cmp = match first_diff(&t_off, &want) {
+                None => "IDENTICAL".to_string(),
+                Some(i) => format!("differs at token {i} (recorded; spec-off is the reference)"),
+            };
+            say(format!("{name} run {run}: OFF {tps_off:.1} tok/s ({ms_off} ms, {} tokens) | off-vs-golden {golden_cmp}", t_off.len()));
+            for (pi, &path) in paths.iter().enumerate() {
+                let on = SpecConfig { enabled: true, verify: path, ..SpecConfig::default() };
+                let (t_on, st, tps_on, ms_on) = go(&on, &mut engine);
+                let diff = first_diff(&t_off, &t_on);
+                let verdict = match (path, diff) {
+                    (_, None) => "IDENTICAL".to_string(),
+                    // Decode-rounding verify must be token-identical: a difference is a failure.
+                    (VerifyPath::Decode, Some(i)) => {
+                        all_ok = false;
+                        format!("DIFFERENT at token {i} (FAIL)")
+                    }
+                    // Whole-prompt verify rounds activations to FP8: a difference is reported, not hidden.
+                    (VerifyPath::WholePrompt, Some(i)) => format!("DIVERGES at token {i} (FP8-activation verify; reported)"),
+                };
+                if path == VerifyPath::WholePrompt {
+                    wp_identical.1 += 1;
+                    if diff.is_none() {
+                        wp_identical.0 += 1;
+                    }
                 }
-                say(format!("{name} negative control (accept one extra wrong draft): {}", if t_mut != t_off { "output differs (CAUGHT)" } else { "output unchanged (no rejected draft to corrupt)" }));
+                say(format!(
+                    "{name} run {run}: ON verify={path:?} {tps_on:.1} tok/s ({ms_on} ms) vs off {verdict} | rounds {} wp_rounds {} plain {} drafted {} accepted {} acceptance {:.3}",
+                    st.rounds, st.wp_rounds, st.plain_steps, st.drafted, st.accepted, st.acceptance()
+                ));
+                rows.push(serde_json::json!({"prompt": name, "run": run, "verify": format!("{path:?}"), "identical": diff.is_none(), "first_diff": diff,
+                    "off_matches_golden": t_off == want, "off_tok_s": tps_off, "on_tok_s": tps_on, "off_ms": ms_off, "on_ms": ms_on,
+                    "rounds": st.rounds, "wp_rounds": st.wp_rounds, "plain": st.plain_steps, "drafted": st.drafted, "accepted": st.accepted,
+                    "acceptance": st.acceptance(), "tokens_off": t_off, "tokens_on": t_on}));
+                if run == 1 {
+                    // Negative control: compared with the SAME path's honest spec-on output.
+                    let mutant = SpecConfig { mutant_accept_extra: true, ..on.clone() };
+                    let (t_mut, _, _, _) = go(&mutant, &mut engine);
+                    let caught = t_mut != t_on;
+                    mutant_caught[pi] |= caught;
+                    say(format!(
+                        "{name} negative control verify={path:?} (accept one extra wrong draft): {}",
+                        if caught { "output differs (CAUGHT)" } else { "output unchanged (no rejected draft to corrupt)" }
+                    ));
+                }
             }
         }
     }
-    if !mutant_differs {
-        say("FAIL: the extra-accept mutant never changed the output; the identity check is not proven on this data".into());
-        all_ok = false;
+    for (pi, &path) in paths.iter().enumerate() {
+        if !mutant_caught[pi] {
+            say(format!("FAIL: verify={path:?}: the extra-accept mutant never changed the output; the check is not proven on this data"));
+            all_ok = false;
+        }
+    }
+    if paths.contains(&VerifyPath::WholePrompt) {
+        say(format!("WP-VERIFY IDENTITY vs spec-off: {} of {} runs identical", wp_identical.0, wp_identical.1));
     }
     say(format!("RESULT: {}", if all_ok { "PASS" } else { "FAIL" }));
     std::fs::write(receipt.join("run.log"), log.join("\n")).expect("write log");

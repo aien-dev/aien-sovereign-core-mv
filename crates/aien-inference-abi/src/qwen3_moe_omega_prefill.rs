@@ -398,6 +398,16 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
     /// Positions `0 .. pos0 - 1` must already be in `attn`'s KV cache. Returns the last token's
     /// final-normed hidden state.
     pub fn run(&mut self, weights: &Qwen3MoeOmegaWeights, attn: &mut dyn PrefillAttention, tokens: &[u32], pos0: usize) -> Result<Vec<f32>, String> {
+        self.run_inner(weights, attn, tokens, pos0, false)
+    }
+
+    /// Same pass as [`Self::run`] (same launches, same numbers) but returns the final-normed hidden
+    /// state of EVERY token, `m x hidden` row-major (W-L4b: the speculative verify pass).
+    pub fn run_rows(&mut self, weights: &Qwen3MoeOmegaWeights, attn: &mut dyn PrefillAttention, tokens: &[u32], pos0: usize) -> Result<Vec<f32>, String> {
+        self.run_inner(weights, attn, tokens, pos0, true)
+    }
+
+    fn run_inner(&mut self, weights: &Qwen3MoeOmegaWeights, attn: &mut dyn PrefillAttention, tokens: &[u32], pos0: usize, all_rows: bool) -> Result<Vec<f32>, String> {
         let c = &weights.config;
         let m = tokens.len();
         if m == 0 {
@@ -599,8 +609,15 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
             st.host_ns += t.elapsed().as_nanos() as u64;
         }
         let t = Instant::now();
-        let mut hidden = vec![0.0f32; h];
-        rmsnorm(&x[(m - 1) * h..], &weights.final_norm, eps, &mut hidden);
+        let hidden = if all_rows {
+            let mut rows = vec![0.0f32; m * h];
+            rows.par_chunks_mut(h).zip(x.par_chunks(h)).for_each(|(o, xr)| rmsnorm(xr, &weights.final_norm, eps, o));
+            rows
+        } else {
+            let mut last = vec![0.0f32; h];
+            rmsnorm(&x[(m - 1) * h..], &weights.final_norm, eps, &mut last);
+            last
+        };
         lap!(final_ns);
         let _ = lap;
         st.prof.wall_ns = t_run.elapsed().as_nanos() as u64;
