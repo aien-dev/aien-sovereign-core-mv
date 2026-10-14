@@ -1,0 +1,7 @@
+sc 9d899513d95e5f30f374e3ac30ab49e6430dccef
+Wed Oct 14 02:30:08 AM UTC 2026
+binary /tmp/l4c/bin/own30b_spec_check.c2 sha256 d0486d92a979d366a0e6afd092c84eeedea96a585636d6b1560cccbcd47be9ed
+omega archive 6a6cb4df479ddbcc5cd4ef0fda1aea968832b2b70be2ff3312051c3e9921aad5 = omega own30b/rc d0889a94
+cmd flock /tmp/aien-gb10.lock env AIEN_OMEGA_SPIN_US=2000 /tmp/l4c/bin/own30b_spec_check.c2 /home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8 docs/inference/evidence/own30b-f-20261013T1745Z/golden.json docs/inference/evidence/own30b-l4c-cut2-chip-20261014T0227Z/suffix --drafter suffix --suffix-global --runs 2 --new 64 --extra-prompt p5-code-json docs/inference/evidence/own30b-l4c-cut2-chip-20261014T0227Z/p5-code-json.txt --new-extra 256 --verify both --wp-prefill
+Mem:             121          15          40           2          69         105
+lock acquired 2026-10-14T02:30:08Z
