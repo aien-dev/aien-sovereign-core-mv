@@ -1,0 +1,3 @@
+sc 138ae521e6e9534870e87a947745369b48288bf8
+Wed Oct 14 01:30:55 AM UTC 2026
+flock /tmp/aien-gb10.lock env AIEN_OMEGA_SPIN_US=2000 AIEN_OWN30B_SPEC_MIN_ACCEPT=2 /tmp/l4b-omega/own30b_spec_check.run3 <ckpt> <golden> docs/inference/evidence/own30b-l4b-specwp-chip-20261014T0123Z/run4 --runs 2 --new 64 --verify both --wp-prefill
