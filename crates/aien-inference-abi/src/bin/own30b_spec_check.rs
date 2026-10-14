@@ -21,6 +21,9 @@
 //! token-identical like `decode`. Extra numerics control: the exact verify with bf16-truncated attention must differ
 //! from OFF on at least one prompt, else FAIL.
 //!
+//! RC3: `--decode-graph on|off`, `--resident on|off`, `--wp-device-host` (the server's switches). With the one-list decode
+//! on, spec-on plain steps are graph tokens and verified rows are host-glue rounding, so ON may diverge from OFF:
+//! inside the golden length that FAILS, past it it is reported. The strict identity proof is the graph-off run.
 //! W-L4e: `--numerics-mutant act-fp8` (default: W8A8 activations inside the verify, the whole-prompt
 //! rounding class), `residual-bf16` (residual stream truncated to bf16) or `attn-bf16` (the W-L4d control, never caught
 //! on the full model). The golden compare looks only at the golden list's length (16 tokens; never past it). `--require-golden`
@@ -71,6 +74,15 @@ fn main() {
     // outputs), --extra-prompt NAME FILE (a chat prompt tokenized here; repeatable), --prompts a,b (subset).
     let (mut drafter, mut suffix_global) = ("lookup".to_string(), false);
     let mut layers: Option<usize> = None;
+    // RC3: the server's decode and prefill switches. --decode-graph on|off (one-list plain steps), --resident on|off
+    // (omega's resident chain inside the list, the gated grid 128 rows 2), --wp-device-host (whole-prompt prefill
+    // with the router logits and combine on the chip, the server default). Unset: the engine's own defaults.
+    let (mut decode_graph, mut resident, mut wp_device_host): (Option<bool>, Option<bool>, bool) = (None, None, false);
+    let onoff = |f: &str, v: String| match v.as_str() {
+        "on" => true,
+        "off" => false,
+        other => panic!("{f} must be on or off, got {other:?}"),
+    };
     let mut extra: Vec<(String, String)> = Vec::new();
     let mut only: Option<Vec<String>> = None;
     let mut new_extra = 0usize;
@@ -89,6 +101,9 @@ fn main() {
             "--verify" => verify = it.next().expect("--verify decode|wp|both"),
             "--wp-prefill" => wp_prefill = true,
             "--wp-cached" => wp_cached = true,
+            "--decode-graph" => decode_graph = Some(onoff("--decode-graph", it.next().expect("--decode-graph on|off"))),
+            "--resident" => resident = Some(onoff("--resident", it.next().expect("--resident on|off"))),
+            "--wp-device-host" => wp_device_host = true,
             "--drafter" => drafter = it.next().expect("--drafter lookup|suffix"),
             "--suffix-global" => suffix_global = true,
             "--layers" => layers = Some(it.next().expect("--layers N").parse().expect("number")),
@@ -113,7 +128,7 @@ fn main() {
             std::process::exit(2);
         }
     };
-    let needs_wp = wp_prefill || wp_cached || paths.contains(&VerifyPath::WholePrompt);
+    let needs_wp = wp_prefill || wp_cached || wp_device_host || paths.contains(&VerifyPath::WholePrompt);
     if pos.len() != 3 {
         eprintln!("usage: own30b_spec_check <checkpoint> <golden.json> <receipt-dir> [--runs 3] [--new 16] [--max-context 8192] [--force-memory] [--verify decode|wp|both] [--wp-prefill] [--wp-cached]");
         std::process::exit(2);
@@ -151,11 +166,23 @@ fn main() {
     .expect("load on Omega");
     if needs_wp {
         engine.set_whole_prompt(true).expect("whole-prompt driver refused");
+        if wp_device_host {
+            engine.set_whole_prompt_device_host(true).expect("whole-prompt device router/combine refused");
+        }
         if wp_cached {
             let bytes = engine.whole_prompt_cache_weights().expect("cached weight copy");
             say(format!("whole-prompt cached weight copy: {:.1} GB", bytes as f64 / 1e9));
         }
     }
+    if let Some(r) = resident {
+        let res = aien_omega_dgraph::resident::Resident { on: r, ..aien_omega_dgraph::resident::GATED };
+        aien_omega_dgraph::resident::set(res).expect("resident decode switch");
+    }
+    if let Some(g) = decode_graph {
+        engine.set_decode_graph(g).expect("one-list decode refused on this load");
+    }
+    let graph_on = engine.decode_graph_on();
+    say(format!("decode_graph={graph_on} resident={:?} wp_device_host={}", aien_omega_dgraph::resident::get(), engine.whole_prompt_device_host_on()));
     say(format!(
         "LOAD {:.1}s attention={} prefill_chunk={} device_routing={} spec_possible={} whole_prompt={} (prefill and wp verify) verify={verify} new={new_tokens}",
         report.seconds,
@@ -264,6 +291,11 @@ fn main() {
                 let verify_ms = if st.rounds > 0 { st.verify_ns as f64 / 1e6 / st.rounds as f64 } else { 0.0 };
                 let verdict = match (path, diff) {
                     (_, None) => "IDENTICAL".to_string(),
+                    // RC3: with one-list plain steps the rounding mixes (graph steps vs the exact verify's host-glue
+                    // numerics): a difference past the golden length is reported, inside it it fails.
+                    (VerifyPath::Decode | VerifyPath::Exact, Some(i)) if graph_on && i >= want.len() => {
+                        format!("DIVERGES at token {i}, past the golden length {} (one-list plain steps vs exact verify rounding; reported)", want.len())
+                    }
                     // Decode-rounding verify must be token-identical: a difference is a failure.
                     (VerifyPath::Decode | VerifyPath::Exact, Some(i)) => {
                         all_ok = false;

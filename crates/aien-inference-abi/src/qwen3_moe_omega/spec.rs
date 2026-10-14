@@ -56,6 +56,10 @@ pub struct SpecConfig {
     /// W-L4e cut 2: the measured break-even back-off ([`BreakEven`]). Off in `default()` (unit tests on host fakes);
     /// on in `from_env()` unless `AIEN_OWN30B_SPEC_BREAK_EVEN=0`, and on in the server.
     pub break_even: bool,
+    /// RC3: the sampler is the plain argmax (greedy), so a one-list decode step's own chip argmax may stand in for
+    /// reading its logits back (the same rule: lowest index of the max). Plain steps and the spec-off fallback then
+    /// run exactly like the server's greedy decode. Default false.
+    pub chip_argmax: bool,
     /// W-L4c: draft source and the suffix drafter's settings.
     pub source: DraftSource,
     pub suffix: SuffixConfig,
@@ -132,7 +136,7 @@ pub const SPEC_ENV: &str = "AIEN_OWN30B_SPEC";
 
 impl Default for SpecConfig {
     fn default() -> Self {
-        Self { enabled: false, max_draft: 8, max_ngram: 3, min_ngram: 1, mutant_accept_extra: false, mutant_numerics: NumericsMutant::None, verify: VerifyPath::Decode, min_accept: 0, break_even: false, source: DraftSource::PromptLookup, suffix: SuffixConfig::default() }
+        Self { enabled: false, max_draft: 8, max_ngram: 3, min_ngram: 1, mutant_accept_extra: false, mutant_numerics: NumericsMutant::None, verify: VerifyPath::Decode, min_accept: 0, break_even: false, chip_argmax: false, source: DraftSource::PromptLookup, suffix: SuffixConfig::default() }
     }
 }
 
@@ -151,6 +155,7 @@ impl SpecConfig {
             mutant_numerics: NumericsMutant::None,
             min_accept: num("AIEN_OWN30B_SPEC_MIN_ACCEPT", d.min_accept),
             break_even: !matches!(get("AIEN_OWN30B_SPEC_BREAK_EVEN").as_deref().map(str::trim), Some("0") | Some("off")),
+            chip_argmax: false,
             // AIEN_OWN30B_SPEC_VERIFY=wp: verify through the whole-prompt driver (W-L4b).
             verify: match get("AIEN_OWN30B_SPEC_VERIFY").as_deref().map(str::trim) {
                 Some("wp") | Some("whole-prompt") => VerifyPath::WholePrompt,
@@ -881,7 +886,7 @@ impl Qwen3MoeOmegaEngine {
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<(GenerateOutcome, SpecStats), String> {
         if !cfg.enabled || !self.spec_verify_possible(cfg.verify) {
-            return self.generate_with(prompt, params, sampler, on_token).map(|o| (o, SpecStats::default()));
+            return self.generate_inner(prompt, params, sampler, cfg.chip_argmax, on_token).map(|o| (o, SpecStats::default()));
         }
         if prompt.is_empty() {
             return Err("empty prompt".into());
@@ -919,6 +924,8 @@ impl Qwen3MoeOmegaEngine {
         let mut finish = FinishReason::Length;
         let mut step = 0usize;
         let mut pending_logits: Option<Vec<f32>> = None;
+        // RC3: a one-list decode step's greedy token (chip argmax), when `cfg.chip_argmax`.
+        let mut pending_token: Option<u32> = None;
         let (mut skip, mut backoff) = (0usize, 0usize);
         let mut be = cfg.break_even.then(|| BreakEven::new(cfg.suffix.cost.plain_ms as f64));
         // lm_head launch with its timing folded into decode_timing.
@@ -934,11 +941,16 @@ impl Qwen3MoeOmegaEngine {
             if emitted >= params.max_new_tokens {
                 break;
             }
-            let logits = match pending_logits.take() {
-                Some(l) => l,
-                None => lm!(self, &pending),
+            let t_first = match pending_token.take() {
+                Some(t) => t,
+                None => {
+                    let logits = match pending_logits.take() {
+                        Some(l) => l,
+                        None => lm!(self, &pending),
+                    };
+                    sampler(&logits, step)
+                }
             };
-            let t_first = sampler(&logits, step);
             step += 1;
             if params.stop_token_ids.contains(&t_first) {
                 finish = FinishReason::Stop;
@@ -987,10 +999,14 @@ impl Qwen3MoeOmegaEngine {
                 stats.plain_steps += 1;
                 let t_plain = Instant::now();
                 self.last_timing = StepTiming::default();
-                pending = self.step(t_first)?;
+                // RC3: the plain step is the one-list decode token when its switch is on (else `step`).
+                pending = self.decode_step(t_first)?;
                 decode_timing.add(&self.last_timing);
                 // The next token's lm_head now (the loop top takes it), so the plain token's full cost is measured.
-                pending_logits = Some(lm!(self, &pending));
+                match self.dgraph_take_greedy(cfg.chip_argmax) {
+                    Some(t) => pending_token = Some(t),
+                    None => pending_logits = Some(lm!(self, &pending)),
+                }
                 if let Some(b) = be.as_mut() {
                     b.observe_plain(t_plain.elapsed().as_secs_f64() * 1e3);
                 }
@@ -1084,6 +1100,50 @@ impl Qwen3MoeOmegaEngine {
                 prefill_timing,
             },
             stats,
+        ))
+    }
+}
+
+/// RC3: speculative decoding as the HTTP door runs it (`--spec on`): the suffix drafter with its global tree
+/// (past requests, kept across requests), the fast exact verify, the break-even back-off. Greedy requests only;
+/// plain steps are the one-list decode token when its switch is on.
+#[derive(Clone, Debug)]
+pub struct SpecServe {
+    pub cfg: SpecConfig,
+    pub drafter: SuffixDrafter,
+}
+
+impl SpecServe {
+    /// The served configuration: tuning from the `AIEN_OWN30B_SPEC_*` environment (draft length, suffix and cost
+    /// knobs, `AIEN_OWN30B_SPEC_BREAK_EVEN`), but always enabled, `Exact` verify, suffix drafter, no mutants.
+    pub fn served() -> Self {
+        let env = SpecConfig::from_env();
+        let cfg = SpecConfig {
+            enabled: true,
+            verify: VerifyPath::Exact,
+            source: DraftSource::Suffix,
+            mutant_accept_extra: false,
+            mutant_numerics: NumericsMutant::None,
+            chip_argmax: false,
+            ..env
+        };
+        let drafter = SuffixDrafter::new(cfg.suffix.clone());
+        Self { cfg, drafter }
+    }
+}
+
+impl Qwen3MoeOmegaEngine {
+    /// Why `--spec on` cannot run on this load (`None`: it can). The exact verify needs FP8 attention and experts,
+    /// the device router and omega's fused KV (the same objects the one-list decode uses).
+    pub fn spec_serve_refusal(&self) -> Option<String> {
+        if self.spec_verify_possible(VerifyPath::Exact) {
+            return None;
+        }
+        Some(format!(
+            "speculative decoding needs the exact verify: --weights fp8, the device router and omega's fused attention (this load: attention={}, device_routing={}, spec_possible={})",
+            self.kv.path_name(),
+            self.device_routing,
+            self.spec_possible()
         ))
     }
 }
@@ -1447,6 +1507,34 @@ mod tests {
         std::env::set_var("AIEN_OWN30B_SPEC_BREAK_EVEN", "0");
         assert!(!SpecConfig::from_env().break_even);
         std::env::remove_var("AIEN_OWN30B_SPEC_BREAK_EVEN");
+    }
+
+    /// RC3: the door's switch. On is refused on a load without the exact verify (host fakes: no fused KV) and
+    /// stays off; off runs plain decode (the env is not touched here: other tests read it concurrently).
+    #[test]
+    fn served_spec_switch_refuses_a_load_without_exact_verify_and_stays_off() {
+        let report = LoadReport { resident_bytes: 0, format: WeightFormat::Fp8All, host_bytes: 0, peak_rss_bytes: None, peak_rss_before_bytes: None, seconds: 0.0, window_api: false };
+        let prompt = [5u32, 17, 42, 3, 9, 60, 5, 17, 42, 3, 9, 60, 5, 17, 42];
+        let want = run(&mut engine(true), &prompt, 20, &SpecConfig::default(), vec![]).0;
+        let shared = OmegaEngine::from_engine(engine(true), report);
+        assert!(!shared.spec_on());
+        let err = shared.set_spec(true).unwrap_err();
+        assert!(err.contains("exact verify"), "{err}");
+        assert!(!shared.spec_on() && shared.spec_config().is_none(), "a refused on leaves it off");
+        shared.set_spec(false).unwrap();
+        let mut got = Vec::new();
+        let p = GenerateParams::greedy(20, vec![]);
+        shared.generate_with(&prompt, &p, &mut |lg, _| argmax(lg), &mut |t| {
+            got.push(t);
+            true
+        })
+        .unwrap();
+        assert_eq!(got, want);
+        assert!(shared.take_last_spec_stats().is_none(), "door said off: plain decode");
+        // The served configuration: exact verify, suffix drafter, break-even on, no mutants.
+        let s = SpecServe::served();
+        assert!(s.cfg.enabled && s.cfg.verify == VerifyPath::Exact && s.cfg.source == DraftSource::Suffix);
+        assert!(s.cfg.break_even && !s.cfg.mutant_accept_extra && s.cfg.mutant_numerics == NumericsMutant::None);
     }
 
     #[test]

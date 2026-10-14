@@ -34,7 +34,7 @@ pub const LOAD_MIN_FREE_GB: f64 = 45.0;
 /// 7.6 s -> 0.31 s, 2048 tokens 31.4 s -> 0.84 s; tokens differ from the chunked path only by FP8
 /// activation rounding. Off: `--whole-prompt off` / `AIEN_SERVE_WHOLE_PROMPT=0` (the chunked
 /// prefill of cut 10), `--prefill-device-host off` / `AIEN_SERVE_WP_DEVICE_HOST=0` (host routing
-/// and combine). The cached 30 GB weight copy and speculative decoding stay off.
+/// and combine). The cached 30 GB weight copy stays off (speculative decoding: RC3 `--spec`, see decode_mode).
 ///
 /// RC2 (W-RC2): `acts` = the whole-prompt GEMM activations: W8A8 (e4m3; the default and the RC 1
 /// path) or W8A16 (bf16 activations on the same FP8 weights, W-L1H; OFF by default until its
@@ -221,6 +221,18 @@ impl OmegaDoor {
             r.rows,
             t_dg.elapsed().as_secs_f64()
         );
+        // Speculative decoding (RC3, OFF by default): set explicitly so the legacy AIEN_OWN30B_SPEC variable
+        // cannot change what the door runs. A refusal is fatal and names the off switch.
+        engine.set_spec(decode.spec).map_err(|m| format!("{m} (start with --spec off)"))?;
+        match engine.spec_config() {
+            Some(c) => eprintln!(
+                "aien-serve-http: spec=on (greedy requests: suffix drafter max_draft {} with past requests, exact verify, break-even back-off {}; plain steps {})",
+                c.max_draft,
+                if c.break_even { "on" } else { "off" },
+                if graph_on { "one-list" } else { "launch-at-a-time" }
+            ),
+            None => eprintln!("aien-serve-http: spec=off"),
+        }
         let r = &engine.load_report;
         let (attn_path, prefill_chunk, router_path, lm_head_path, prefill_path) = engine.with_engine(|e| {
             (
@@ -296,6 +308,21 @@ impl Engine for OmegaDoor {
             "aien-serve-http: omega: lock wait {lock_wait_ms} ms, prompt {} tok, {} reused from the previous turn, prefill {} ms, decode {} tok in {} ms",
             o.prompt_tokens, o.reused_prompt_tokens, o.prefill_ms, o.emitted_tokens, o.decode_ms
         );
+        if let Some(st) = self.engine.take_last_spec_stats() {
+            let tpr = if st.rounds > 0 { (st.accepted + st.rounds) as f64 / st.rounds as f64 } else { 0.0 };
+            eprintln!(
+                "aien-serve-http: omega: spec rounds {} plain {} paused {} drafted {} accepted {} (acceptance {:.2}, {:.2} tokens/round, verify {:.1} ms/round, {} from past requests)",
+                st.rounds,
+                st.plain_steps,
+                st.backoff_steps,
+                st.drafted,
+                st.accepted,
+                st.acceptance(),
+                tpr,
+                if st.rounds > 0 { st.verify_ns as f64 / 1e6 / st.rounds as f64 } else { 0.0 },
+                st.global_rounds
+            );
+        }
         Ok(GenerateOutcome {
             emitted_tokens: o.emitted_tokens,
             finish: match o.finish {

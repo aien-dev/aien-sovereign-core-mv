@@ -3016,6 +3016,11 @@ pub struct OmegaEngine {
     inner: Mutex<Qwen3MoeOmegaEngine>,
     max_context: usize,
     pub load_report: LoadReport,
+    /// RC3: speculative decoding as the door set it ([`Self::set_spec`]). `None` = never set: the legacy
+    /// per-request `AIEN_OWN30B_SPEC` read. `Some(None)` = off, `Some(Some(_))` = on (greedy requests).
+    spec: Mutex<Option<Option<spec::SpecServe>>>,
+    /// The last generation's speculation counters (spec on and greedy), for the door's log.
+    last_spec: Mutex<Option<spec::SpecStats>>,
 }
 
 impl OmegaEngine {
@@ -3032,6 +3037,8 @@ impl OmegaEngine {
             inner: Mutex::new(engine),
             max_context,
             load_report,
+            spec: Mutex::new(None),
+            last_spec: Mutex::new(None),
         })
     }
 
@@ -3041,6 +3048,8 @@ impl OmegaEngine {
             inner: Mutex::new(engine),
             max_context,
             load_report,
+            spec: Mutex::new(None),
+            last_spec: Mutex::new(None),
         }
     }
 
@@ -3058,8 +3067,11 @@ impl OmegaEngine {
         params: &GenerateParams,
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, String> {
-        let cfg = spec::SpecConfig::from_env();
-        if cfg.enabled && params.temperature <= 0.001 {
+        let spec_wanted = match self.spec.lock().as_deref() {
+            Ok(Some(s)) => s.is_some(),
+            _ => spec::SpecConfig::from_env().enabled,
+        };
+        if spec_wanted && params.temperature <= 0.001 {
             let p = params.clone();
             return self.generate_with(prompt, params, &mut |logits, step| sample_next(logits, &p, step), on_token);
         }
@@ -3076,13 +3088,58 @@ impl OmegaEngine {
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, String> {
         let mut g = self.inner.lock().map_err(|_| "engine lock poisoned".to_string())?;
-        let cfg = spec::SpecConfig::from_env();
-        if cfg.enabled && params.temperature <= 0.001 {
-            let (o, st) = g.generate_spec_with(prompt, params, &cfg, sampler, on_token)?;
-            eprintln!("spec: rounds {} plain {} drafted {} accepted {}", st.rounds, st.plain_steps, st.drafted, st.accepted);
-            return Ok(o);
+        let greedy = params.temperature <= 0.001;
+        let mut sp = self.spec.lock().map_err(|_| "spec lock poisoned".to_string())?;
+        match sp.as_mut() {
+            // RC3: the door's switch. On: greedy requests speculate (sampled ones decode plainly); the
+            // drafter keeps its global tree across requests.
+            Some(Some(s)) if greedy => {
+                let (o, st) = g.generate_spec_drafter(prompt, params, &s.cfg, Some(&mut s.drafter), sampler, on_token)?;
+                if let Ok(mut l) = self.last_spec.lock() {
+                    *l = Some(st);
+                }
+                return Ok(o);
+            }
+            Some(_) => {}
+            None => {
+                let cfg = spec::SpecConfig::from_env();
+                if cfg.enabled && greedy {
+                    let (o, st) = g.generate_spec_with(prompt, params, &cfg, sampler, on_token)?;
+                    eprintln!("spec: rounds {} plain {} drafted {} accepted {}", st.rounds, st.plain_steps, st.drafted, st.accepted);
+                    return Ok(o);
+                }
+            }
         }
         g.generate_with(prompt, params, sampler, on_token)
+    }
+
+    /// RC3: turns speculative decoding on (the served configuration, [`spec::SpecServe::served`]) or off for every
+    /// later request, replacing the legacy `AIEN_OWN30B_SPEC` read. On is refused (and the switch stays off) when
+    /// this load cannot run the exact verify.
+    pub fn set_spec(&self, on: bool) -> Result<(), String> {
+        let refusal = if on { self.with_engine(|e| e.spec_serve_refusal())? } else { None };
+        let mut sp = self.spec.lock().map_err(|_| "spec lock poisoned".to_string())?;
+        if let Some(r) = refusal {
+            *sp = Some(None);
+            return Err(r);
+        }
+        *sp = Some(on.then(spec::SpecServe::served));
+        Ok(())
+    }
+
+    /// Whether the door turned speculative decoding on (`false` when never set).
+    pub fn spec_on(&self) -> bool {
+        matches!(self.spec.lock().as_deref(), Ok(Some(Some(_))))
+    }
+
+    /// The served speculation settings (`None` when off).
+    pub fn spec_config(&self) -> Option<spec::SpecConfig> {
+        self.spec.lock().ok().and_then(|s| s.as_ref().and_then(|s| s.as_ref().map(|s| s.cfg.clone())))
+    }
+
+    /// The last generation's speculation counters (spec on and greedy), consumed.
+    pub fn take_last_spec_stats(&self) -> Option<spec::SpecStats> {
+        self.last_spec.lock().ok().and_then(|mut l| l.take())
     }
 
     pub fn with_engine<R>(&self, f: impl FnOnce(&mut Qwen3MoeOmegaEngine) -> R) -> Result<R, String> {

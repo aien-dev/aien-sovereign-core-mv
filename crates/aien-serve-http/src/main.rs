@@ -2,7 +2,7 @@
 //!
 //!   aien-serve-http [--engine cpu|stub|omega] [--weights bf16|fp8-experts|fp8] [--spin-us N]
 //!                   [--whole-prompt on|off] [--prefill-device-host on|off] [--prefill-acts a8|a16]
-//!                   [--decode-graph on|off] [--resident-decode on|off]
+//!                   [--decode-graph on|off] [--resident-decode on|off] [--spec on|off]
 //!                   [--model-dir DIR] [--port 18091]
 //!                   [--bind 127.0.0.1] [--model-id ID] [--max-context N]
 //!                   [--max-tokens-cap N] [--stub-reply TEXT]
@@ -16,7 +16,8 @@
 //! activations are W8A8 unless `--prefill-acts a16` / `AIEN_SERVE_PREFILL_ACTS=a16` (W8A16, off by default).
 //! Each decode token is one command list with the resident decode chain (ON by default;
 //! `--decode-graph off`, `--resident-decode off` or `AIEN_SERVE_DECODE_GRAPH=0` /
-//! `AIEN_SERVE_RESIDENT_DECODE=0` turn them off). Flag beats environment beats default.
+//! `AIEN_SERVE_RESIDENT_DECODE=0` turn them off). Speculative decoding (guess-ahead) for greedy requests is
+//! OFF by default (`--spec on` / `AIEN_SERVE_SPEC=1`, RC3). Flag beats environment beats default.
 //! `stub` replays `--stub-reply` for every request, using the model directory's
 //! tokenizer when it exists (so Odysseus can be wired before the weights load).
 
@@ -29,7 +30,7 @@ use aien_serve_http::codec::{ByteCodec, Codec, HfCodec};
 use aien_serve_http::cpu_engine::CpuReferenceEngine;
 use aien_inference_abi::qwen3_moe_omega::WeightFormat;
 use aien_serve_http::engine::{Engine, StubEngine};
-use aien_serve_http::decode_mode::{DecodeMode, DECODE_GRAPH_ENV, RESIDENT_ENV};
+use aien_serve_http::decode_mode::{DecodeMode, DECODE_GRAPH_ENV, RESIDENT_ENV, SPEC_ENV};
 use aien_serve_http::omega_engine::{
     parse_acts, parse_switch, OmegaDoor, PrefillActs, PrefillMode, PREFILL_ACTS_ENV, WHOLE_PROMPT_ENV, WP_DEVICE_HOST_ENV,
 };
@@ -49,6 +50,7 @@ struct Args {
     prefill_acts: Option<PrefillActs>,
     decode_graph: Option<bool>,
     resident: Option<bool>,
+    spec: Option<bool>,
     prefill: PrefillMode,
     decode: DecodeMode,
 }
@@ -57,7 +59,7 @@ fn usage() -> String {
     "usage: aien-serve-http [--engine cpu|stub|omega] [--weights bf16|fp8-experts|fp8] [--spin-us N] \
      [--model-dir DIR] [--port N] [--bind ADDR] [--model-id ID] [--max-context N] \
      [--max-tokens-cap N] [--stub-reply TEXT] [--whole-prompt on|off] [--prefill-device-host on|off] \
-     [--prefill-acts a8|a16] [--decode-graph on|off] [--resident-decode on|off]"
+     [--prefill-acts a8|a16] [--decode-graph on|off] [--resident-decode on|off] [--spec on|off]"
         .to_string()
 }
 
@@ -78,6 +80,7 @@ fn parse_args() -> Result<Args, String> {
         prefill_acts: None,
         decode_graph: None,
         resident: None,
+        spec: None,
         prefill: PrefillMode::default(),
         decode: DecodeMode::default(),
     };
@@ -117,6 +120,7 @@ fn parse_args() -> Result<Args, String> {
             "--prefill-acts" => a.prefill_acts = Some(parse_acts("--prefill-acts", &val()?)?),
             "--decode-graph" => a.decode_graph = Some(parse_switch("--decode-graph", &val()?)?),
             "--resident-decode" => a.resident = Some(parse_switch("--resident-decode", &val()?)?),
+            "--spec" => a.spec = Some(parse_switch("--spec", &val()?)?),
             "-h" | "--help" => return Err(usage()),
             other => return Err(format!("unknown flag {other}\n{}", usage())),
         }
@@ -143,15 +147,19 @@ fn parse_args() -> Result<Args, String> {
     if let Some(v) = a.prefill_acts {
         a.prefill.acts = v;
     }
-    // Decode path (RC2): flag beats environment beats the default (both on; see DecodeMode).
+    // Decode path (RC2, RC3 spec): flag beats environment beats the default (graph and resident on, spec off; see DecodeMode).
     let env_graph = std::env::var(DECODE_GRAPH_ENV).ok();
     let env_res = std::env::var(RESIDENT_ENV).ok();
-    a.decode = DecodeMode::from_env(env_graph.as_deref(), env_res.as_deref())?;
+    let env_spec = std::env::var(SPEC_ENV).ok();
+    a.decode = DecodeMode::from_env(env_graph.as_deref(), env_res.as_deref(), env_spec.as_deref())?;
     if let Some(v) = a.decode_graph {
         a.decode.graph = v;
     }
     if let Some(v) = a.resident {
         a.decode.resident = v;
+    }
+    if let Some(v) = a.spec {
+        a.decode.spec = v;
     }
     Ok(a)
 }

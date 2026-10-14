@@ -1,0 +1,8 @@
+sc 74b0b263dee29b0d41d2b7523a5d4d95590d1fd1 dirty=6 omega 4f3d45e7f370c22169865c97445c6cadbd241342
+6eabede21dd3248b3817405a90678493128a9ee57aad6ba78bc83810428ef4a5  /tmp/l4e/rc3-target/release/own30b_spec_check
+               total        used        free      shared  buff/cache   available
+Mem:             121          54           9           2          60          67
+2026-10-14T05:44:41Z
+graph-off-strict rc=0
+graph-on rc=0
+graph-on-nobe rc=0
