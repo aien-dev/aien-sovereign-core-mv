@@ -173,6 +173,9 @@ pub struct PrefillStats {
     pub host_ns: u64,
     /// Host-time breakdown by phase (W-L1G-D profile), summed over layers.
     pub prof: HostProf,
+    /// Device router-logits and combine launches (W-L1G-D device path; not in [`Self::launches`]).
+    pub router: usize,
+    pub combine: usize,
 }
 
 /// Where the whole-prompt wall time goes (W-L1G-D, 2026-10-14): ns per phase, summed over layers.
@@ -285,6 +288,8 @@ pub struct WholePromptPrefill<D: PrefillDevice> {
     pub trace: Option<WpTrace>,
     /// Negative-control mutant (W-L1G-C): `WpMutant::None` in service.
     pub mutant: WpMutant,
+    /// Device router logits + combine (W-L1G-D, [`devhost`]): `None` = host path (the default).
+    devhost: Option<devhost::DevHost<D::Buf>>,
 }
 
 impl<D: PrefillDevice> std::fmt::Debug for WholePromptPrefill<D> {
@@ -296,7 +301,7 @@ impl<D: PrefillDevice> std::fmt::Debug for WholePromptPrefill<D> {
 impl<D: PrefillDevice> WholePromptPrefill<D> {
     /// Collects the in-place weight addresses of every layer (no weight copy).
     pub fn new(dev: D, weights: &Qwen3MoeOmegaWeights) -> Result<Self, String> {
-        Ok(Self { dev, entries: layer_entries(weights)?, bufs: None, stats: PrefillStats::default(), cached: Vec::new(), trace: None, mutant: WpMutant::None })
+        Ok(Self { dev, entries: layer_entries(weights)?, bufs: None, stats: PrefillStats::default(), cached: Vec::new(), trace: None, mutant: WpMutant::None, devhost: None })
     }
 
     pub fn device(&self) -> &D {
@@ -408,6 +413,9 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
     }
 
     fn run_inner(&mut self, weights: &Qwen3MoeOmegaWeights, attn: &mut dyn PrefillAttention, tokens: &[u32], pos0: usize, all_rows: bool) -> Result<Vec<f32>, String> {
+        if self.devhost.is_some() {
+            return self.run_dev(weights, attn, tokens, pos0, all_rows);
+        }
         let c = &weights.config;
         let m = tokens.len();
         if m == 0 {
@@ -657,6 +665,7 @@ pub fn combine_rows(x: &mut [f32], down_sorted: &[f32], wts: &[f32], inv: &[u32]
 
 /// Host mirror of the activation quantiser (W-L1G-C).
 pub mod fake_quant;
+pub mod devhost;
 
 /// Negative-control mutants of the whole-prompt path (W-L1G-C). Each must be caught by the gate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

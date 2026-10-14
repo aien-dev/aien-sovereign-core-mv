@@ -2,6 +2,7 @@
 //!
 //!   own30b_ttft <checkpoint> <receipt-dir> [--lens 512,2048] [--new-tokens 32] [--reps 2]
 //!               [--max-context 8192] [--force-memory]
+//!               [--devhost]   (W-L1G-E: also ON with router logits + combine on the chip, and expert agreement)
 //!
 //! Loads the FP8 model once (fused attention), then for every prompt length runs, `--reps`
 //! times, OFF (the engine's chunked prefill) then ON (`set_whole_prompt(true)`), each from an
@@ -14,6 +15,7 @@ use std::time::Instant;
 
 use aien_inference_abi::qwen3_moe_omega::{AttnPath, DevicePaths, GenerateParams, Qwen3MoeOmegaEngine, StepTiming, WeightFormat};
 use aien_inference_abi::tokenizer::ChatTokenizer as Tokenizer;
+use aien_inference_abi::qwen3_moe_omega_prefill::WpTrace;
 
 fn mem_available_gb() -> f64 {
     std::fs::read_to_string("/proc/meminfo")
@@ -108,6 +110,7 @@ fn main() {
     let checkpoint = PathBuf::from(args.get(1).expect("checkpoint dir"));
     let receipt = PathBuf::from(args.get(2).expect("receipt dir"));
     let (mut lens, mut new_tokens, mut reps, mut max_context, mut force, mut cached) = (vec![512usize, 2048], 32usize, 2usize, 8192usize, false, false);
+    let (mut devhost, mut devhost_exact) = (false, true);
     let mut it = args[3..].iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -117,6 +120,7 @@ fn main() {
             "--max-context" => max_context = it.next().expect("--max-context").parse().expect("n"),
             "--force-memory" => force = true,
             "--cached" => cached = true,
+            "--devhost" => devhost = true,
             o => panic!("unknown argument {o}"),
         }
     }
@@ -218,6 +222,64 @@ fn main() {
                 "on_stats": {"launches": st.launches(), "chip_ns": st.chip_ns, "attn_ns": st.attn_ns, "host_ns": st.host_ns, "attn_dev": st.attn_dev},
                 "off_timing": {"chip_ns": off.pt.chip_ns, "launches": off.pt.launches, "total_ns": off.pt.total_ns},
             }));
+            if devhost {
+                // Phase D (W-L1G-E): the same ON run with the router logits + MoE combine on the chip.
+                engine.set_whole_prompt_device_host(true).expect("device router / combine refused");
+                let dv = run(&mut engine, &ids, new_tokens);
+                let sd = engine.whole_prompt_stats().cloned().unwrap_or_default();
+                engine.set_whole_prompt_device_host(false).expect("device host work off");
+                let same_tokens = dv.tokens == on.tokens;
+                let bits_differ = dv.logits0.iter().zip(&on.logits0).filter(|(a, b)| a.to_bits() != b.to_bits()).count() + dv.logits0.len().abs_diff(on.logits0.len());
+                let diff_off = off.tokens.iter().zip(&dv.tokens).position(|(a, b)| a != b);
+                all_identical &= diff_off.is_none();
+                devhost_exact &= same_tokens && bits_differ == 0;
+                say(format!(
+                    "len {n} rep {rep} DEVHOST: TTFT off {:.1} ms on(host) {:.1} ms on(dev) {:.1} ms (x{:.2} vs off, x{:.2} vs on-host); prefill_ms on(dev) {}; vs on-host tokens {} logits0 bits differ {bits_differ}; vs off tokens {}",
+                    off.ttft_ms,
+                    on.ttft_ms,
+                    dv.ttft_ms,
+                    off.ttft_ms / dv.ttft_ms,
+                    on.ttft_ms / dv.ttft_ms,
+                    dv.prefill_ms,
+                    if same_tokens { "IDENTICAL" } else { "DIFFER" },
+                    diff_off.map_or("IDENTICAL".to_string(), |p| format!("DIFFER at {p}"))
+                ));
+                let p = &sd.prof;
+                say(format!(
+                    "  on(dev): launches {} + router {} + combine {} chip {:.1} ms attention {:.1} ms host {:.1} ms | profile ms: wall {:.1} dev(calls) {:.1} | host: embed {:.1} norm_in {:.1} resid {:.1} norm_post {:.1} router {:.1} plan {:.1} tiles {:.1} combine {:.1} final {:.1}",
+                    sd.launches(), sd.router, sd.combine,
+                    sd.chip_ns as f64 / 1e6, sd.attn_ns as f64 / 1e6, sd.host_ns as f64 / 1e6,
+                    ms(p.wall_ns), ms(p.dev_ns), ms(p.embed_ns), ms(p.norm_in_ns), ms(p.resid_ns), ms(p.norm_post_ns), ms(p.router_ns), ms(p.plan_ns), ms(p.tiles_ns), ms(p.combine_ns), ms(p.final_ns)
+                ));
+                rows.push(serde_json::json!({"len": n, "rep": rep, "devhost": true, "ttft_ms_off": off.ttft_ms, "ttft_ms_on_host": on.ttft_ms, "ttft_ms_on_dev": dv.ttft_ms,
+                    "prefill_ms_on_dev": dv.prefill_ms, "tokens_on_dev": dv.tokens, "tokens_equal_on_host": same_tokens, "logits0_bits_differ_vs_on_host": bits_differ, "first_diff_vs_off": diff_off,
+                    "on_dev_stats": {"launches": sd.launches(), "router": sd.router, "combine": sd.combine, "chip_ns": sd.chip_ns, "attn_ns": sd.attn_ns, "host_ns": sd.host_ns, "wall_ns": p.wall_ns,
+                        "router_ns": p.router_ns, "plan_ns": p.plan_ns, "combine_ns": p.combine_ns}}));
+            }
+        }
+        if devhost {
+            // Expert agreement (W-L1G-E), untimed: one traced ON run per routing path, every layer's expert ids compared.
+            engine.set_whole_prompt(true).expect("on");
+            engine.set_whole_prompt_device_host(false).expect("host");
+            engine.whole_prompt_set_trace(Some(WpTrace::new(None))).expect("trace");
+            let _ = run(&mut engine, &ids, 1);
+            let th = engine.whole_prompt_take_trace().expect("host trace");
+            engine.set_whole_prompt_device_host(true).expect("dev");
+            engine.whole_prompt_set_trace(Some(WpTrace::new(None))).expect("trace");
+            let _ = run(&mut engine, &ids, 1);
+            let td = engine.whole_prompt_take_trace().expect("device trace");
+            engine.set_whole_prompt_device_host(false).expect("host");
+            let slots: usize = th.experts.iter().map(Vec::len).sum();
+            let flips: usize = th.experts.iter().zip(&td.experts).map(|(a, b)| a.iter().zip(b).filter(|(x, y)| x != y).count() + a.len().abs_diff(b.len())).sum();
+            let first_layer = th.experts.iter().zip(&td.experts).position(|(a, b)| a != b);
+            let resid_bits: usize = th.x_out.iter().zip(&td.x_out).map(|(a, b)| a.iter().zip(b).filter(|(x, y)| x.to_bits() != y.to_bits()).count()).sum();
+            devhost_exact &= flips == 0 && resid_bits == 0 && th.experts.len() == td.experts.len() && !th.experts.is_empty();
+            say(format!(
+                "len {n} EXPERTS host vs device routing: {} layers, {slots} expert slots, flips {flips}, first differing layer {:?}; residual stream bits differ {resid_bits}",
+                th.experts.len(),
+                first_layer
+            ));
+            rows.push(serde_json::json!({"len": n, "experts_layers": th.experts.len(), "expert_slots": slots, "expert_flips": flips, "first_flip_layer": first_layer, "residual_bits_differ": resid_bits}));
         }
     }
     if cached {
@@ -252,6 +314,9 @@ fn main() {
         }
     }
     say(format!("SUMMARY tokens {}", if all_identical { "IDENTICAL" } else { "DIFFER" }));
+    if devhost {
+        say(format!("SUMMARY devhost vs host routing+combine {}", if devhost_exact { "BIT-IDENTICAL" } else { "DIFFER" }));
+    }
     let doc = serde_json::json!({"checkpoint": checkpoint, "lens": lens, "new_tokens": new_tokens, "reps": reps, "rows": rows});
     std::fs::write(receipt.join("run.json"), serde_json::to_string_pretty(&doc).unwrap()).expect("run.json");
     std::fs::write(receipt.join("run.txt"), log.join("\n") + "\n").expect("run.txt");

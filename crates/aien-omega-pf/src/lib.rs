@@ -194,6 +194,21 @@ pub trait PrefillDevice {
     fn copy_va(&mut self, _dst_va: u64, _src_va: u64, _bytes: usize) -> Result<(), String> {
         Err("pf copy: not offered by this device".into())
     }
+    /// Rows per CTA of the device router-logits launch (W-L1G-D), or `None` when this device has
+    /// no router-logits / combine kernels. The router reads and writes `ceil(rows / t) * t` rows.
+    fn router_rows(&self) -> Option<usize> {
+        None
+    }
+    /// Router logits for `rows` rows of `k` f32 at `x_va` against the packed weights at `wq_va`
+    /// ([`pack_router`]) into f32 rows of `e` at `logits_va`; bit-identical to [`router_logits_ref`].
+    fn router_logits(&mut self, _k: usize, _e: usize, _rows: usize, _x_va: u64, _wq_va: u64, _logits_va: u64) -> Result<u64, String> {
+        Err("pf router logits: not offered by this device".into())
+    }
+    /// MoE weighted combine ([`moe_combine_ref`]): `out[r] = sum_slot wt[r][slot] * down[inv[r][slot]]`.
+    #[allow(clippy::too_many_arguments)]
+    fn moe_combine(&mut self, _h: usize, _top_k: usize, _rows: usize, _down_va: u64, _inv_va: u64, _wt_va: u64, _out_va: u64) -> Result<u64, String> {
+        Err("pf moe combine: not offered by this device".into())
+    }
 }
 
 /// The attention call boundary: `omega_gpu_prefill_attn` exactly. One call does layer `layer`
@@ -293,6 +308,85 @@ mod ffi {
     }
 }
 
+/// Router logits and MoE combine kernels (W-L1G-D, omega_gpu_pfhost.h).
+#[cfg(has_omega_pfhost)]
+mod ffi_host {
+    extern "C" {
+        pub fn omega_gpu_pf_router_rows() -> u32;
+        pub fn omega_gpu_pf_router_pack(e: u32, k: u32, w: *const f32, wq: *mut f32);
+        pub fn omega_gpu_pf_router_logits(k: u32, e: u32, rows: u32, x_va: u64, wq_va: u64, logits_va: u64, ns: *mut u64) -> i32;
+        pub fn omega_gpu_pf_moe_combine(h: u32, top_k: u32, rows: u32, down_va: u64, inv_va: u64, wt_va: u64, out_va: u64, ns: *mut u64) -> i32;
+    }
+}
+
+/// True when omega's router-logits and combine kernels (omega_gpu_pfhost.h) are linked.
+pub const fn has_pfhost() -> bool {
+    cfg!(has_omega_pfhost)
+}
+
+/// f32 count of the packed router layout R4 plus its pad group: `(k / 4 + 1) * e * 4`.
+pub fn router_packed_len(e: usize, k: usize) -> usize {
+    (k / 4 + 1) * e * 4
+}
+
+/// Packs a router `w` (f32 `[e][k]`, row = expert) into the kernel's layout R4:
+/// `wq[g][ex][q] = w[ex][4g + q]`, then one zero pad group (omega_gpu_pf_router_pack).
+pub fn pack_router(e: usize, k: usize, w: &[f32]) -> Vec<f32> {
+    assert!(k.is_multiple_of(4) && w.len() == e * k, "pack_router: w must be e x k with k a multiple of 4");
+    let mut wq = vec![0.0f32; router_packed_len(e, k)];
+    for g in 0..k / 4 {
+        for ex in 0..e {
+            wq[(g * e + ex) * 4..(g * e + ex) * 4 + 4].copy_from_slice(&w[ex * k + 4 * g..ex * k + 4 * g + 4]);
+        }
+    }
+    wq
+}
+
+/// The C packer (omega_gpu_pf_router_pack), for checking [`pack_router`] against it.
+pub fn pack_router_c(e: usize, k: usize, w: &[f32]) -> Result<Vec<f32>, OmegaGpuError> {
+    if !k.is_multiple_of(4) || w.len() != e * k {
+        return Err(bad("pack_router_c: w must be e x k with k a multiple of 4".into()));
+    }
+    #[cfg(has_omega_pfhost)]
+    {
+        let mut wq = vec![f32::NAN; router_packed_len(e, k)];
+        // SAFETY: w has e * k floats, wq router_packed_len(e, k) (the C packer's size).
+        unsafe { ffi_host::omega_gpu_pf_router_pack(e as u32, k as u32, w.as_ptr(), wq.as_mut_ptr()) };
+        Ok(wq)
+    }
+    #[cfg(not(has_omega_pfhost))]
+    {
+        Err(OmegaGpuError::Unavailable)
+    }
+}
+
+/// Host mirror of the router-logits kernel: `out[r][ex]` = the sequential f32 sum from -0.0 of
+/// `w[ex][j] * x[r][j]` (Rust's `map(a * b).sum::<f32>()`), read from the packed layout.
+pub fn router_logits_ref(k: usize, e: usize, rows: usize, x: &[f32], wq: &[f32], out: &mut [f32]) {
+    for r in 0..rows {
+        for ex in 0..e {
+            let mut acc = -0.0f32;
+            for j in 0..k {
+                acc += wq[((j / 4) * e + ex) * 4 + j % 4] * x[r * k + j];
+            }
+            out[r * e + ex] = acc;
+        }
+    }
+}
+
+/// Host mirror of the combine kernel: `out[r][c]` = the sum from +0.0, in slot order, of
+/// `wt[r][slot] * down[inv[r][slot]][c]` (the driver's combine accumulator).
+pub fn moe_combine_ref(h: usize, top_k: usize, rows: usize, down: &[f32], inv: &[u32], wt: &[f32], out: &mut [f32]) {
+    for r in 0..rows {
+        for c in 0..h {
+            let mut acc = 0.0f32;
+            for s in 0..top_k {
+                acc += wt[r * top_k + s] * down[inv[r * top_k + s] as usize * h + c];
+            }
+            out[r * h + c] = acc;
+        }
+    }
+}
 #[cfg(has_omega_pattn)]
 mod ffi_attn {
     use super::PrefillAttnInfo;
@@ -501,6 +595,55 @@ impl OmegaPfDevice {
 
 impl PrefillDevice for OmegaPfDevice {
     type Buf = PfMem;
+    fn router_rows(&self) -> Option<usize> {
+        #[cfg(has_omega_pfhost)]
+        {
+            // SAFETY: no arguments.
+            Some(unsafe { ffi_host::omega_gpu_pf_router_rows() } as usize)
+        }
+        #[cfg(not(has_omega_pfhost))]
+        {
+            None
+        }
+    }
+    fn router_logits(&mut self, k: usize, e: usize, rows: usize, x_va: u64, wq_va: u64, logits_va: u64) -> Result<u64, String> {
+        if x_va == 0 || wq_va == 0 || logits_va == 0 || rows > u32::MAX as usize || k > u32::MAX as usize || e > u32::MAX as usize {
+            return Err(format!("pf router logits: null address or {rows} rows"));
+        }
+        #[cfg(has_omega_pfhost)]
+        {
+            let mut ns = 0u64;
+            // SAFETY: plain values and one out pointer; the addresses are session buffers the caller owns.
+            let rc = unsafe { ffi_host::omega_gpu_pf_router_logits(k as u32, e as u32, rows as u32, x_va, wq_va, logits_va, &mut ns) };
+            if rc != 0 {
+                return Err(rc_err(rc).to_string());
+            }
+            Ok(ns)
+        }
+        #[cfg(not(has_omega_pfhost))]
+        {
+            Err(OmegaGpuError::Unavailable.to_string())
+        }
+    }
+    fn moe_combine(&mut self, h: usize, top_k: usize, rows: usize, down_va: u64, inv_va: u64, wt_va: u64, out_va: u64) -> Result<u64, String> {
+        if down_va == 0 || inv_va == 0 || wt_va == 0 || out_va == 0 || rows > u32::MAX as usize || h > u32::MAX as usize || top_k > u32::MAX as usize {
+            return Err(format!("pf moe combine: null address or {rows} rows"));
+        }
+        #[cfg(has_omega_pfhost)]
+        {
+            let mut ns = 0u64;
+            // SAFETY: plain values and one out pointer; the addresses are session buffers the caller owns.
+            let rc = unsafe { ffi_host::omega_gpu_pf_moe_combine(h as u32, top_k as u32, rows as u32, down_va, inv_va, wt_va, out_va, &mut ns) };
+            if rc != 0 {
+                return Err(rc_err(rc).to_string());
+            }
+            Ok(ns)
+        }
+        #[cfg(not(has_omega_pfhost))]
+        {
+            Err(OmegaGpuError::Unavailable.to_string())
+        }
+    }
     fn copy_va(&mut self, dst_va: u64, src_va: u64, bytes: usize) -> Result<(), String> {
         if dst_va == 0 || src_va == 0 || dst_va % 16 != 0 || src_va % 16 != 0 || bytes % 16 != 0 {
             return Err(format!("pf copy: addresses and {bytes} bytes must be non-zero 16-byte multiples"));
@@ -753,5 +896,74 @@ mod tests {
         assert!(matches!(PfMem::alloc_dev(64), Err(OmegaGpuError::Unavailable)));
         assert!(d.quant(2048, QuantIn::F32, 1, 1, 1, 1).unwrap_err().contains("unavailable"));
         assert_eq!(d.qgemm_bm(), DEFAULT_BM);
+    }
+
+    // ---- W-L1G-D: router logits + combine host mirrors ----
+    fn lcg_vec(seed: &mut u64, n: usize, scale: f32) -> Vec<f32> {
+        (0..n)
+            .map(|_| {
+                *seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                ((*seed >> 40) as f32 / (1u64 << 24) as f32 * 2.0 - 1.0) * scale
+            })
+            .collect()
+    }
+
+    #[test]
+    fn router_mirror_equals_the_rust_sum_bit_for_bit() {
+        let (e, k, rows) = (16usize, 64usize, 5usize);
+        let mut s = 7u64;
+        let w = lcg_vec(&mut s, e * k, 0.1);
+        let mut x = lcg_vec(&mut s, rows * k, 2.0);
+        x[2 * k..3 * k].fill(-0.0); // signed-zero products: the sign of the sum depends on the -0.0 start
+        let wq = pack_router(e, k, &w);
+        assert_eq!(wq.len(), router_packed_len(e, k));
+        assert!(wq[(k / 4) * e * 4..].iter().all(|&v| v.to_bits() == 0), "pad group is zero");
+        let mut got = vec![0.0f32; rows * e];
+        router_logits_ref(k, e, rows, &x, &wq, &mut got);
+        for r in 0..rows {
+            for ex in 0..e {
+                let want: f32 = w[ex * k..(ex + 1) * k].iter().zip(&x[r * k..(r + 1) * k]).map(|(a, b)| a * b).sum();
+                assert_eq!(got[r * e + ex].to_bits(), want.to_bits(), "row {r} expert {ex}");
+            }
+        }
+    }
+
+    #[test]
+    fn combine_mirror_accumulates_from_zero_in_slot_order() {
+        let (h, top_k, rows) = (8usize, 4usize, 3usize);
+        let mut s = 11u64;
+        let down = lcg_vec(&mut s, rows * top_k * h, 1.0);
+        let wt = lcg_vec(&mut s, rows * top_k, 0.5);
+        let inv: Vec<u32> = (0..(rows * top_k) as u32).rev().collect();
+        let mut got = vec![0.0f32; rows * h];
+        moe_combine_ref(h, top_k, rows, &down, &inv, &wt, &mut got);
+        for r in 0..rows {
+            for c in 0..h {
+                let mut acc = 0.0f32;
+                for sl in 0..top_k {
+                    acc += wt[r * top_k + sl] * down[inv[r * top_k + sl] as usize * h + c];
+                }
+                assert_eq!(got[r * h + c].to_bits(), acc.to_bits());
+            }
+        }
+    }
+
+    #[cfg(has_omega_pfhost)]
+    #[test]
+    fn rust_router_pack_equals_the_c_packer() {
+        let (e, k) = (128usize, 2048usize);
+        let mut s = 3u64;
+        let w = lcg_vec(&mut s, e * k, 0.1);
+        let a = pack_router(e, k, &w);
+        let b = pack_router_c(e, k, &w).unwrap();
+        assert!(a.iter().zip(&b).all(|(x, y)| x.to_bits() == y.to_bits()) && a.len() == b.len());
+        assert_eq!(OmegaPfDevice.router_rows(), Some(16));
+    }
+
+    #[cfg(not(has_omega_pfhost))]
+    #[test]
+    fn pfhost_stub_offers_no_router() {
+        assert_eq!(OmegaPfDevice.router_rows(), None);
+        assert!(pack_router_c(4, 4, &[0.0; 16]).is_err());
     }
 }

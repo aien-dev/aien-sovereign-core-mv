@@ -3,6 +3,7 @@
 //!
 //!   own30b_wp_gate <checkpoint> <receipt-dir> [--lens 512,2048] [--ops-layer 0] [--mutants]
 //!                  [--max-context 8192] [--force-memory]
+//!                  [--devhost]  (W-L1G-E: ON and the mutants run with the router logits + combine on the chip)
 //!
 //! Loads the FP8 model once (fused attention). Per prompt length, three runs of the same prompt
 //! from an empty KV, each recording every layer's residual after attention (`x_mid`) and after
@@ -24,6 +25,10 @@
 //! Writes run.json (every per-layer number) and run.txt into the receipt dir.
 use std::path::PathBuf;
 use std::time::Instant;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// `--devhost` (W-L1G-E): ON runs use the device router logits + MoE combine.
+static DEVHOST: AtomicBool = AtomicBool::new(false);
 
 use aien_inference_abi::qwen3_moe_omega::w8a8_control::ControlMode;
 use aien_inference_abi::qwen3_moe_omega::{AttnPath, DevicePaths, GenerateParams, Qwen3MoeOmegaEngine, WeightFormat};
@@ -169,6 +174,7 @@ fn control_run(engine: &mut Qwen3MoeOmegaEngine, name: &str, ids: &[u32], mode: 
 
 fn on_run(engine: &mut Qwen3MoeOmegaEngine, name: &str, ids: &[u32], mutant: WpMutant, ops_layer: usize) -> Run {
     engine.set_whole_prompt(true).expect("whole-prompt prefill refused");
+    engine.set_whole_prompt_device_host(DEVHOST.load(Ordering::Relaxed)).expect("device router / combine refused");
     engine.whole_prompt_set_mutant(mutant).expect("mutant");
     engine.whole_prompt_set_trace(Some(WpTrace::new(Some(ops_layer)))).expect("trace");
     engine.reset();
@@ -191,6 +197,10 @@ fn on_run(engine: &mut Qwen3MoeOmegaEngine, name: &str, ids: &[u32], mutant: WpM
     let trace = engine.whole_prompt_take_trace().expect("recorder");
     engine.whole_prompt_set_mutant(WpMutant::None).expect("mutant off");
     assert_eq!(trace.m, ids.len(), "{name}: the whole-prompt path did not run (recorder empty)");
+    let st = engine.whole_prompt_stats().cloned().unwrap_or_default();
+    let want = if DEVHOST.load(Ordering::Relaxed) { st.layers } else { 0 };
+    assert!(st.router == want && st.combine == want, "{name}: device router / combine launches {} / {}, want {want} each", st.router, st.combine);
+    println!("{name}: routing path {} (router launches {}, combine launches {})", if want > 0 { "DEVICE" } else { "HOST" }, st.router, st.combine);
     Run { name: name.to_string(), trace, logits0, secs }
 }
 
@@ -251,6 +261,7 @@ fn main() {
             "--lens" => lens = it.next().expect("--lens").split(',').map(|s| s.parse().expect("len")).collect(),
             "--ops-layer" => ops_layer = it.next().expect("--ops-layer").parse().expect("n"),
             "--mutants" => mutants = true,
+            "--devhost" => DEVHOST.store(true, Ordering::Relaxed),
             "--max-context" => max_context = it.next().expect("--max-context").parse().expect("n"),
             "--force-memory" => force = true,
             o => panic!("unknown argument {o}"),

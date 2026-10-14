@@ -1,0 +1,7 @@
+start 2026-10-14T01:39:37Z
+sc commit 1d534806e5eddd58378b261e2a9e66a6a9ac30d8 (own30b/whole-prompt)
+binary /tmp/wl1ge/bin/own30b_wp_gate sha256 53653cfe87d1f105fadf7405ceb40e4fdb956ca7a6cc886a07534fcecf9bea1c
+omega lib /tmp/wl1ge/omega/libomega_gpu.a sha256 fc7ca3f0a94023e7f91475a537633ec19d9f3905073b52c1d0591c21a9e64cfa (omega own30b/l1g-e-int 7e43dd8f)
+cmd flock /tmp/aien-gb10.lock env AIEN_OMEGA_SPIN_US=2000 /tmp/wl1ge/bin/own30b_wp_gate ~/models/qwen3-30b-a3b-instruct-2507-fp8 /home/drakestapleton/workspace/sc-own30b-wp/docs/inference/evidence/own30b-wp-devhost-20261014T0136Z/gate --lens 512,2048 --ops-layer 0 --mutants --devhost
+               total        used        free      shared  buff/cache   available
+Mem:             121          18          42           2          63         102

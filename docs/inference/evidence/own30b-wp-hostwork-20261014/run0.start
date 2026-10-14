@@ -1,0 +1,7 @@
+start 2026-10-14T01:14:17Z
+sc commit ce59355c83a4fa07a2a77b907ffaaf0b2e32823c
+binary /tmp/wl1gd-own30b_ttft-prof sha256 6b41c9c98bdda9e98eca01d1ff9d6392b4a078197d83accbf597e4ce6b3a275c
+omega lib investigations/2026-10-14-own30b-wp-w8a8-gate/omega-5281feb7/build/libomega_gpu.a sha256 e059453fa877fe118edbf01922ea5de647e313a82ef755f7f34163a0f3ba23bb
+cmd flock /tmp/aien-gb10.lock env AIEN_OMEGA_SPIN_US=2000 /tmp/wl1gd-own30b_ttft-prof ~/models/qwen3-30b-a3b-instruct-2507-fp8 docs/inference/evidence/own30b-wp-hostwork-20261014/run0 --lens 2048,512 --new-tokens 8 --reps 1
+               total        used        free      shared  buff/cache   available
+Mem:             121          16          32           2          75         105

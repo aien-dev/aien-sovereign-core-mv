@@ -1,0 +1,7 @@
+start 2026-10-14T01:36:57Z
+sc commit 1d534806e5eddd58378b261e2a9e66a6a9ac30d8 (own30b/whole-prompt)
+binary /tmp/wl1ge/bin/own30b_ttft sha256 def8505a5b15cd23cb77b17df06d08976247cd1a78685d83f9fce9c02dd2d06d
+omega lib /tmp/wl1ge/omega/libomega_gpu.a sha256 fc7ca3f0a94023e7f91475a537633ec19d9f3905073b52c1d0591c21a9e64cfa = omega own30b/l1g-e-int 7e43dd8f (integration baa62091 + tc-prefill feb3c2e5), PHYSICS_DIR physics-own30b-k 6d7cf0d
+cmd flock /tmp/aien-gb10.lock env AIEN_OMEGA_SPIN_US=2000 /tmp/wl1ge/bin/own30b_ttft ~/models/qwen3-30b-a3b-instruct-2507-fp8 /home/drakestapleton/workspace/sc-own30b-wp/docs/inference/evidence/own30b-wp-devhost-20261014T0136Z/ttft --lens 512,2048 --new-tokens 32 --reps 2 --devhost
+               total        used        free      shared  buff/cache   available
+Mem:             121          18          40           2          66         103

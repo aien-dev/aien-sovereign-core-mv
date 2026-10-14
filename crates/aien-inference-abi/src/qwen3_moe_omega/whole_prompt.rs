@@ -44,6 +44,19 @@ impl Qwen3MoeOmegaEngine {
         self.whole_prompt.as_mut().ok_or("whole-prompt prefill is off")?.cache_weights(&c)
     }
 
+    /// Moves the whole-prompt router logits and MoE combine to the chip (W-L1G-E; OFF by default,
+    /// and dropped with the driver when the whole-prompt switch goes off). Needs the switch on and
+    /// omega's router / combine kernels linked; the result is bit-identical to the host path.
+    pub fn set_whole_prompt_device_host(&mut self, on: bool) -> Result<(), String> {
+        let wp = self.whole_prompt.as_mut().ok_or("whole-prompt prefill is off")?;
+        wp.set_device_host_work(&self.weights, on)
+    }
+
+    /// Whether the whole-prompt path runs its router logits and combine on the chip.
+    pub fn whole_prompt_device_host_on(&self) -> bool {
+        self.whole_prompt.as_ref().is_some_and(|w| w.device_host_work())
+    }
+
     /// Whether `generate_with` will take the whole-prompt path.
     pub fn whole_prompt_on(&self) -> bool {
         self.whole_prompt.is_some()

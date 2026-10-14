@@ -25,6 +25,9 @@ enum Ev {
     Quant { k: usize, input: QuantIn, rows: usize },
     Gemm { n: usize, k: usize, layout: Layout, ntiles: usize, gather: bool },
     Attn { layer: u32, pos0: u32, m: u32, dev: bool },
+    /// W-L1G-D device router logits / combine (tests/devhost.rs).
+    Router { k: usize, e: usize, rows: usize },
+    Combine { h: usize, top_k: usize, rows: usize },
 }
 
 type Log = Rc<RefCell<Vec<Ev>>>;
@@ -630,3 +633,6 @@ fn run_rows_gives_every_token_its_own_hidden_and_the_same_last_row_as_run() {
     let last = drv2.run(&tm2.weights, &mut attn2, &TOKENS[3..], 3).unwrap();
     assert_eq!(&rows[3 * h..], &last[..], "run_rows' last row is bit-equal to run");
 }
+
+/// W-L1G-D: the device router logits + combine path (fake device in tests/devhost.rs).
+mod devhost;

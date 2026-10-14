@@ -1,0 +1,109 @@
+{
+  "checkpoint": "/home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8",
+  "lens": [
+    2048,
+    512
+  ],
+  "new_tokens": 8,
+  "reps": 1,
+  "rows": [
+    {
+      "decode_ms_off": 218,
+      "decode_ms_on": 217,
+      "first_diff": null,
+      "len": 2048,
+      "logits0_cosine": 0.9935312055124229,
+      "logits0_maxdiff": 3.277301788330078,
+      "margin_off": 6.326026916503906,
+      "margin_on": 5.0389251708984375,
+      "off_timing": {
+        "chip_ns": 24262045876,
+        "launches": 104448,
+        "total_ns": 31255722709
+      },
+      "on_stats": {
+        "attn_dev": true,
+        "attn_ns": 60155745,
+        "chip_ns": 716158158,
+        "host_ns": 1272207199,
+        "launches": 432
+      },
+      "prefill_ms_off": 31255,
+      "prefill_ms_on": 2235,
+      "rep": 0,
+      "tokens_off": [
+        18,
+        16,
+        151645,
+        198,
+        151643,
+        7985,
+        264,
+        2805
+      ],
+      "tokens_on": [
+        18,
+        16,
+        151645,
+        198,
+        151643,
+        7985,
+        264,
+        2805
+      ],
+      "top1_off": 18,
+      "top1_on": 18,
+      "ttft_ms_off": 31259.723997999998,
+      "ttft_ms_on": 2239.1608810000002
+    },
+    {
+      "decode_ms_off": 203,
+      "decode_ms_on": 204,
+      "first_diff": 7,
+      "len": 512,
+      "logits0_cosine": 0.9888885265068956,
+      "logits0_maxdiff": 2.0247836112976074,
+      "margin_off": 2.6596832275390625,
+      "margin_on": 3.0655975341796875,
+      "off_timing": {
+        "chip_ns": 5647346414,
+        "launches": 26112,
+        "total_ns": 7368369364
+      },
+      "on_stats": {
+        "attn_dev": true,
+        "attn_ns": 9268950,
+        "chip_ns": 243148691,
+        "host_ns": 374004728,
+        "launches": 432
+      },
+      "prefill_ms_off": 7368,
+      "prefill_ms_on": 651,
+      "rep": 0,
+      "tokens_off": [
+        22,
+        151645,
+        198,
+        151643,
+        7985,
+        264,
+        11682,
+        16148
+      ],
+      "tokens_on": [
+        22,
+        151645,
+        198,
+        151643,
+        7985,
+        264,
+        11682,
+        11
+      ],
+      "top1_off": 22,
+      "top1_on": 22,
+      "ttft_ms_off": 7371.697926999999,
+      "ttft_ms_on": 654.340394
+    }
+  ]
+}
