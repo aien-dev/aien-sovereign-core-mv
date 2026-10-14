@@ -1,7 +1,8 @@
 //! `aien-serve-http`: OpenAI-compatible door on 127.0.0.1 for the OWN-30B model.
 //!
 //!   aien-serve-http [--engine cpu|stub|omega] [--weights bf16|fp8-experts|fp8] [--spin-us N]
-//!                   [--whole-prompt on|off] [--prefill-device-host on|off]
+//!                   [--whole-prompt on|off] [--prefill-device-host on|off] [--prefill-acts a8|a16]
+//!                   [--decode-graph on|off] [--resident-decode on|off]
 //!                   [--model-dir DIR] [--port 18091]
 //!                   [--bind 127.0.0.1] [--model-id ID] [--max-context N]
 //!                   [--max-tokens-cap N] [--stub-reply TEXT]
@@ -11,7 +12,11 @@
 //! unless `--spin-us` or `AIEN_OMEGA_SPIN_US` says otherwise) and takes the shared chip lock
 //! only around each generation. Its prefill runs the whole prompt in one pass with the router
 //! and MoE combine on the chip (ON by default; `--whole-prompt off`, `--prefill-device-host off`
-//! or `AIEN_SERVE_WHOLE_PROMPT=0` / `AIEN_SERVE_WP_DEVICE_HOST=0` turn them off).
+//! or `AIEN_SERVE_WHOLE_PROMPT=0` / `AIEN_SERVE_WP_DEVICE_HOST=0` turn them off). Its GEMM
+//! activations are W8A8 unless `--prefill-acts a16` / `AIEN_SERVE_PREFILL_ACTS=a16` (W8A16, off by default).
+//! Each decode token is one command list with the resident decode chain (ON by default;
+//! `--decode-graph off`, `--resident-decode off` or `AIEN_SERVE_DECODE_GRAPH=0` /
+//! `AIEN_SERVE_RESIDENT_DECODE=0` turn them off). Flag beats environment beats default.
 //! `stub` replays `--stub-reply` for every request, using the model directory's
 //! tokenizer when it exists (so Odysseus can be wired before the weights load).
 
@@ -24,7 +29,10 @@ use aien_serve_http::codec::{ByteCodec, Codec, HfCodec};
 use aien_serve_http::cpu_engine::CpuReferenceEngine;
 use aien_inference_abi::qwen3_moe_omega::WeightFormat;
 use aien_serve_http::engine::{Engine, StubEngine};
-use aien_serve_http::omega_engine::{parse_switch, OmegaDoor, PrefillMode, WHOLE_PROMPT_ENV, WP_DEVICE_HOST_ENV};
+use aien_serve_http::decode_mode::{DecodeMode, DECODE_GRAPH_ENV, RESIDENT_ENV};
+use aien_serve_http::omega_engine::{
+    parse_acts, parse_switch, OmegaDoor, PrefillActs, PrefillMode, PREFILL_ACTS_ENV, WHOLE_PROMPT_ENV, WP_DEVICE_HOST_ENV,
+};
 use aien_serve_http::server::{serve, ServerConfig};
 
 const DEFAULT_MODEL_DIR: &str = "models/qwen3-30b-a3b-instruct-2507-fp8";
@@ -38,13 +46,18 @@ struct Args {
     spin_us: Option<u32>,
     whole_prompt: Option<bool>,
     wp_device_host: Option<bool>,
+    prefill_acts: Option<PrefillActs>,
+    decode_graph: Option<bool>,
+    resident: Option<bool>,
     prefill: PrefillMode,
+    decode: DecodeMode,
 }
 
 fn usage() -> String {
     "usage: aien-serve-http [--engine cpu|stub|omega] [--weights bf16|fp8-experts|fp8] [--spin-us N] \
      [--model-dir DIR] [--port N] [--bind ADDR] [--model-id ID] [--max-context N] \
-     [--max-tokens-cap N] [--stub-reply TEXT] [--whole-prompt on|off] [--prefill-device-host on|off]"
+     [--max-tokens-cap N] [--stub-reply TEXT] [--whole-prompt on|off] [--prefill-device-host on|off] \
+     [--prefill-acts a8|a16] [--decode-graph on|off] [--resident-decode on|off]"
         .to_string()
 }
 
@@ -62,7 +75,11 @@ fn parse_args() -> Result<Args, String> {
         spin_us: None,
         whole_prompt: None,
         wp_device_host: None,
+        prefill_acts: None,
+        decode_graph: None,
+        resident: None,
         prefill: PrefillMode::default(),
+        decode: DecodeMode::default(),
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -97,6 +114,9 @@ fn parse_args() -> Result<Args, String> {
             "--spin-us" => a.spin_us = Some(val()?.parse().map_err(|e| format!("--spin-us: {e}"))?),
             "--whole-prompt" => a.whole_prompt = Some(parse_switch("--whole-prompt", &val()?)?),
             "--prefill-device-host" => a.wp_device_host = Some(parse_switch("--prefill-device-host", &val()?)?),
+            "--prefill-acts" => a.prefill_acts = Some(parse_acts("--prefill-acts", &val()?)?),
+            "--decode-graph" => a.decode_graph = Some(parse_switch("--decode-graph", &val()?)?),
+            "--resident-decode" => a.resident = Some(parse_switch("--resident-decode", &val()?)?),
             "-h" | "--help" => return Err(usage()),
             other => return Err(format!("unknown flag {other}\n{}", usage())),
         }
@@ -112,12 +132,26 @@ fn parse_args() -> Result<Args, String> {
     // Prefill path: flag beats environment beats the default (both on; see PrefillMode).
     let env_wp = std::env::var(WHOLE_PROMPT_ENV).ok();
     let env_dev = std::env::var(WP_DEVICE_HOST_ENV).ok();
-    a.prefill = PrefillMode::from_env(env_wp.as_deref(), env_dev.as_deref())?;
+    let env_acts = std::env::var(PREFILL_ACTS_ENV).ok();
+    a.prefill = PrefillMode::from_env(env_wp.as_deref(), env_dev.as_deref(), env_acts.as_deref())?;
     if let Some(v) = a.whole_prompt {
         a.prefill.whole_prompt = v;
     }
     if let Some(v) = a.wp_device_host {
         a.prefill.device_host = v;
+    }
+    if let Some(v) = a.prefill_acts {
+        a.prefill.acts = v;
+    }
+    // Decode path (RC2): flag beats environment beats the default (both on; see DecodeMode).
+    let env_graph = std::env::var(DECODE_GRAPH_ENV).ok();
+    let env_res = std::env::var(RESIDENT_ENV).ok();
+    a.decode = DecodeMode::from_env(env_graph.as_deref(), env_res.as_deref())?;
+    if let Some(v) = a.decode_graph {
+        a.decode.graph = v;
+    }
+    if let Some(v) = a.resident {
+        a.decode.resident = v;
     }
     Ok(a)
 }
@@ -193,7 +227,7 @@ fn main() -> ExitCode {
             args.model_dir.display(),
             args.spin_us
         );
-        match OmegaDoor::load(&args.model_dir, args.cfg.max_context_tokens.unwrap_or(32768), args.weights, args.spin_us, args.prefill) {
+        match OmegaDoor::load(&args.model_dir, args.cfg.max_context_tokens.unwrap_or(32768), args.weights, args.spin_us, args.prefill, args.decode) {
             Ok(e) => Arc::new(e),
             Err(e) => {
                 eprintln!("aien-serve-http: omega load failed: {e}");

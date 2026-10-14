@@ -13,6 +13,9 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use aien_inference_abi::qwen3_moe_omega::{self as omega, LoadReport, OmegaEngine, WeightFormat};
+pub use aien_inference_abi::qwen3_moe_omega_prefill::PrefillActs;
+
+use crate::decode_mode::DecodeMode;
 
 use crate::engine::{Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams};
 use crate::sampling::sample_next;
@@ -32,16 +35,30 @@ pub const LOAD_MIN_FREE_GB: f64 = 45.0;
 /// activation rounding. Off: `--whole-prompt off` / `AIEN_SERVE_WHOLE_PROMPT=0` (the chunked
 /// prefill of cut 10), `--prefill-device-host off` / `AIEN_SERVE_WP_DEVICE_HOST=0` (host routing
 /// and combine). The cached 30 GB weight copy and speculative decoding stay off.
+///
+/// RC2 (W-RC2): `acts` = the whole-prompt GEMM activations: W8A8 (e4m3; the default and the RC 1
+/// path) or W8A16 (bf16 activations on the same FP8 weights, W-L1H; OFF by default until its
+/// full-model gate passes): `--prefill-acts a8|a16` / `AIEN_SERVE_PREFILL_ACTS=a8|a16`. Used only
+/// by the whole-prompt path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PrefillMode {
     pub whole_prompt: bool,
     pub device_host: bool,
+    pub acts: PrefillActs,
 }
 
 impl Default for PrefillMode {
     fn default() -> Self {
-        Self { whole_prompt: true, device_host: true }
+        Self { whole_prompt: true, device_host: true, acts: PrefillActs::W8A8 }
     }
+}
+
+/// Environment switch for [`PrefillMode::acts`].
+pub const PREFILL_ACTS_ENV: &str = "AIEN_SERVE_PREFILL_ACTS";
+
+/// `a8|a16` (also `w8a8|w8a16`, any case, surrounding spaces ignored); anything else is refused.
+pub fn parse_acts(name: &str, v: &str) -> Result<PrefillActs, String> {
+    PrefillActs::parse(v.trim().to_ascii_lowercase().as_str()).map_err(|e| format!("{name}: {e}"))
 }
 
 /// Environment switch for [`PrefillMode::whole_prompt`].
@@ -60,8 +77,11 @@ pub fn parse_switch(name: &str, v: &str) -> Result<bool, String> {
 
 impl PrefillMode {
     /// Defaults overridden by the environment (`None` = unset).
-    pub fn from_env(whole_prompt: Option<&str>, device_host: Option<&str>) -> Result<Self, String> {
+    pub fn from_env(whole_prompt: Option<&str>, device_host: Option<&str>, acts: Option<&str>) -> Result<Self, String> {
         let mut m = Self::default();
+        if let Some(v) = acts {
+            m.acts = parse_acts(PREFILL_ACTS_ENV, v)?;
+        }
         if let Some(v) = whole_prompt {
             m.whole_prompt = parse_switch(WHOLE_PROMPT_ENV, v)?;
         }
@@ -73,7 +93,11 @@ impl PrefillMode {
 
     /// What the engine runs: the device router/combine only exists inside the whole-prompt path.
     pub fn effective(self) -> Self {
-        Self { whole_prompt: self.whole_prompt, device_host: self.whole_prompt && self.device_host }
+        Self {
+            whole_prompt: self.whole_prompt,
+            device_host: self.whole_prompt && self.device_host,
+            acts: if self.whole_prompt { self.acts } else { PrefillActs::W8A8 },
+        }
     }
 }
 
@@ -131,7 +155,7 @@ pub struct OmegaDoor {
 impl OmegaDoor {
     /// Loads the checkpoint onto Omega (under the GPU lock, released before returning) with a
     /// KV for `max_context` tokens. Refuses with less than [`LOAD_MIN_FREE_GB`] available.
-    pub fn load(model_dir: &Path, max_context: usize, format: WeightFormat, spin_us: Option<u32>, prefill: PrefillMode) -> Result<Self, String> {
+    pub fn load(model_dir: &Path, max_context: usize, format: WeightFormat, spin_us: Option<u32>, prefill: PrefillMode, decode: DecodeMode) -> Result<Self, String> {
         let avail = mem_available_gb();
         if avail < LOAD_MIN_FREE_GB {
             return Err(format!("{avail:.1} GB available, the load needs {LOAD_MIN_FREE_GB} GB free (another model may be loaded)"));
@@ -164,15 +188,38 @@ impl OmegaDoor {
             if prefill.whole_prompt {
                 e.set_whole_prompt_device_host(prefill.device_host)
                     .map_err(|m| format!("{m} (start with --prefill-device-host off to keep routing on the host)"))?;
+                e.set_whole_prompt_acts(prefill.acts)
+                    .map_err(|m| format!("{m} (start with --prefill-acts a8 for the W8A8 prefill)"))?;
             }
             Ok(())
         })??;
         let (wp_on, wp_dev) = engine.with_engine(|e| (e.whole_prompt_on(), e.whole_prompt_device_host_on()))?;
         eprintln!(
-            "aien-serve-http: whole_prompt={} prefill_device_host={} (set in {:.2} s)",
+            "aien-serve-http: whole_prompt={} prefill_device_host={} prefill_acts={} (set in {:.2} s)",
             if wp_on { "on" } else { "off" },
             if wp_dev { "on" } else { "off" },
+            if wp_on { prefill.acts.name() } else { "-" },
             t_wp.elapsed().as_secs_f64()
+        );
+        // Decode path (W-RC2): the resident chain is a process-wide omega switch read when the graph
+        // records a token, so set it first, then build the one-list graph while the chip lock is held.
+        // A refusal is fatal and names the off switch.
+        let decode = decode.effective();
+        let t_dg = Instant::now();
+        let res = aien_omega_dgraph::resident::Resident { on: decode.resident, ..aien_omega_dgraph::resident::GATED };
+        aien_omega_dgraph::resident::set(res).map_err(|m| format!("{m} (start with --resident-decode off)"))?;
+        engine
+            .with_engine(|e| e.set_decode_graph(decode.graph))?
+            .map_err(|m| format!("{m} (start with --decode-graph off for the launch-at-a-time decode)"))?;
+        let graph_on = engine.with_engine(|e| e.decode_graph_on())?;
+        let r = aien_omega_dgraph::resident::get();
+        eprintln!(
+            "aien-serve-http: decode_graph={} resident_decode={} (grid {} rows {}) (set in {:.2} s)",
+            if graph_on { "on" } else { "off" },
+            if graph_on && r.on { "on" } else { "off" },
+            r.grid,
+            r.rows,
+            t_dg.elapsed().as_secs_f64()
         );
         let r = &engine.load_report;
         let (attn_path, prefill_chunk, router_path, lm_head_path, prefill_path) = engine.with_engine(|e| {
@@ -291,16 +338,32 @@ mod tests {
 
     #[test]
     fn prefill_mode_defaults_on_and_env_switches_off() {
-        assert_eq!(PrefillMode::default(), PrefillMode { whole_prompt: true, device_host: true });
-        assert_eq!(PrefillMode::from_env(None, None).unwrap(), PrefillMode::default());
-        let m = PrefillMode::from_env(Some("0"), None).unwrap();
+        const A8: PrefillActs = PrefillActs::W8A8;
+        assert_eq!(PrefillMode::default(), PrefillMode { whole_prompt: true, device_host: true, acts: A8 });
+        assert_eq!(PrefillMode::from_env(None, None, None).unwrap(), PrefillMode::default());
+        let m = PrefillMode::from_env(Some("0"), None, None).unwrap();
         assert!(!m.whole_prompt && m.device_host);
         // The device router/combine lives inside the whole-prompt path: off with it.
-        assert_eq!(m.effective(), PrefillMode { whole_prompt: false, device_host: false });
-        let m = PrefillMode::from_env(Some("on"), Some("off")).unwrap();
-        assert_eq!(m.effective(), PrefillMode { whole_prompt: true, device_host: false });
-        assert!(PrefillMode::from_env(Some("of"), None).is_err());
+        assert_eq!(m.effective(), PrefillMode { whole_prompt: false, device_host: false, acts: A8 });
+        let m = PrefillMode::from_env(Some("on"), Some("off"), None).unwrap();
+        assert_eq!(m.effective(), PrefillMode { whole_prompt: true, device_host: false, acts: A8 });
+        assert!(PrefillMode::from_env(Some("of"), None, None).is_err());
         assert!(parse_switch("--whole-prompt", "maybe").is_err());
         assert!(parse_switch("--whole-prompt", " TRUE ").unwrap());
+    }
+
+    #[test]
+    fn prefill_acts_default_a8_env_a16_and_typos_refused() {
+        assert_eq!(PrefillMode::default().acts, PrefillActs::W8A8);
+        let m = PrefillMode::from_env(None, None, Some("a16")).unwrap();
+        assert_eq!(m.effective().acts, PrefillActs::W8A16);
+        assert_eq!(PrefillMode::from_env(None, None, Some(" A16 ")).unwrap().acts, PrefillActs::W8A16);
+        assert_eq!(PrefillMode::from_env(None, None, Some("w8a8")).unwrap().acts, PrefillActs::W8A8);
+        // W8A16 is a whole-prompt mode: with the whole-prompt path off it is not used.
+        let m = PrefillMode::from_env(Some("off"), None, Some("a16")).unwrap();
+        assert_eq!(m.effective().acts, PrefillActs::W8A8);
+        assert!(PrefillMode::from_env(None, None, Some("a61")).is_err());
+        assert!(PrefillMode::from_env(None, None, Some("on")).is_err());
+        assert!(parse_acts("--prefill-acts", "16").is_err());
     }
 }

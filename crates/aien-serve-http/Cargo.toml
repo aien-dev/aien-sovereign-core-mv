@@ -21,4 +21,5 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 aien-inference-abi = { path = "../aien-inference-abi" }
 aien-omega-gpu = { path = "../aien-omega-gpu" }
+aien-omega-dgraph = { path = "../aien-omega-dgraph" }
 libc = "0.2"
