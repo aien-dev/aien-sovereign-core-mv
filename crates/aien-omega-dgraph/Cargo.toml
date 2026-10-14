@@ -1,0 +1,11 @@
+[package]
+name = "aien-omega-dgraph"
+version = "0.1.0"
+edition = "2021"
+authors = ["Drake Stapleton <aien@aienos.com>"]
+description = "FFI to omega's one-command-list decode token for Qwen3-30B-A3B (omega_gpu_decode_graph, OWN-30B L2 cut 2)"
+license.workspace = true
+build = "build.rs"
+
+[dependencies]
+aien-omega-gpu = { path = "../aien-omega-gpu" }

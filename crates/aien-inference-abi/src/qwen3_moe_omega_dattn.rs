@@ -106,4 +106,16 @@ impl KvAttention for OmegaFusedKv {
     fn fused_kv(&mut self) -> Option<&mut OmegaFusedKv> {
         Some(self)
     }
+    fn dgraph_cache(&mut self, pos: usize) -> Option<Result<*mut std::ffi::c_void, String>> {
+        if pos >= self.capacity {
+            return Some(Err(format!("fused kv (decode graph): step at {pos}, capacity {}", self.capacity)));
+        }
+        if let Some((l, &f)) = self.filled.iter().enumerate().find(|(_, &f)| f != pos) {
+            return Some(Err(format!("fused kv (decode graph): step at {pos}, layer {l} holds {f} positions")));
+        }
+        Some(Ok(self.cache.as_raw()))
+    }
+    fn dgraph_commit(&mut self, pos: usize) {
+        self.filled.iter_mut().for_each(|f| *f = pos + 1);
+    }
 }

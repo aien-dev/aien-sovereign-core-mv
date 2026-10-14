@@ -235,6 +235,21 @@ impl fmt::Debug for Fp8Tensor {
 }
 
 impl Fp8Tensor {
+    /// The C handle (`OmegaGpuFp8Tensor *`) for another omega API that takes this object (the decode
+    /// graph, OWN-30B cut 2). Null in the stub. The handle stays owned by `self`: the caller must
+    /// not free it, must not use it after `self` is dropped, and must serialise its use with
+    /// `self`'s own calls.
+    pub fn as_raw(&self) -> *mut std::ffi::c_void {
+        #[cfg(has_omega_fp8)]
+        {
+            self.ptr as *mut std::ffi::c_void
+        }
+        #[cfg(not(has_omega_fp8))]
+        {
+            std::ptr::null_mut()
+        }
+    }
+
     /// Upload `experts * n * k` e4m3 bytes (`[expert][n][k]`) and
     /// `experts * (n/128) * (k/128)` bf16 scale bits (`[expert][n/128][k/128]`).
     pub fn upload(experts: usize, n: usize, k: usize, w: &[u8], scale_inv_bf16: &[u16]) -> Result<Self, OmegaGpuError> {

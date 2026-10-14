@@ -126,6 +126,8 @@ impl Qwen3MoeOmegaEngine {
             launches: st.launches() as u64,
             route_ns: 0,
             moe_host_ns: 0,
+            // Decode-graph counters (decode-mega): the prefill never runs the one-list decode.
+            ..StepTiming::default()
         });
         *hidden = h;
         Ok(m)

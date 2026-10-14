@@ -40,6 +40,7 @@ members = [
     "crates/aien-omega-dattn",
     "crates/aien-omega-router",
     "crates/aien-omega-bf16",
+    "crates/aien-omega-dgraph",
     "crates/aien-omega-compose",
     "crates/aien-omega-pf",
     "crates/aien-campaign-verifier",

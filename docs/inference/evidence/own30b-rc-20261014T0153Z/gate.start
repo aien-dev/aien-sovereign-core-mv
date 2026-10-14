@@ -1,0 +1,8 @@
+queued 2026-10-14T01:57:19Z sc 37b696f9efdfc1cc5ca6bbd310a78d359504d399 omega d0889a944b02066f84fec71af7b9bbb92f5c986f archive-sha256 6a6cb4df479ddbcc5cd4ef0fda1aea968832b2b70be2ff3312051c3e9921aad5
+binary /tmp/wrc/bin/own30b_wp_gate sha256 cbf3f8562d45ab8213fa9ee6491eee826f99e080f996f36ef7d7f6aeec6f42d5
+env AIEN_OMEGA_SPIN_US=2000
+cmd flock /tmp/aien-gb10.lock /tmp/wrc/bin/own30b_wp_gate /home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8 /home/drakestapleton/workspace/sc-own30b-rc/docs/inference/evidence/own30b-rc-20261014T0153Z/gate --lens 512,2048 --ops-layer 0 --mutants --devhost
+lock acquired 2026-10-14T01:57:19Z
+ 20:57:19 up 7 days, 14:25, 15 users,  load average: 5.12, 4.50, 5.40
+               total        used        free      shared  buff/cache   available
+Mem:             121          15          47           2          62         105

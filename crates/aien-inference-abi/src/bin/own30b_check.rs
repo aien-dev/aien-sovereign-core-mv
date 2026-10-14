@@ -9,6 +9,7 @@
 //!                     [--router auto|host|device] [--lm-head auto|dense|gemv] [--router-mutants 1,2,3,4]
 //!                     [--prefill auto|gemv|gemm] [--prefill-routing host|device] [--prefill-chunk N]
 //!                     [--gemm-mutants 1,2,3] [--long-prompt N] [--tokens-only]
+//!                     [--whole-prompt] [--prefill-device-host]
 //!       Omega: loads the resident model, per-layer parity (attention replay + exact MoE oracle)
 //!       with the routing mutant and the chip-side window-skew mutant as negative controls,
 //!       whole-model greedy tokens against the golden file, decode tok/s and load time.
@@ -26,6 +27,7 @@ use aien_inference_abi::qwen3_moe_omega::{
     current_rss_bytes, load_attention_layer_f32, peak_rss_bytes, replay_attention, replay_moe, AttnPath, DevicePaths, GenerateParams, LmHead,
     OmegaModelUploader, PathChoice, Qwen3MoeConfig, Qwen3MoeOmegaEngine, StepTiming, WeightFormat,
 };
+use aien_inference_abi::qwen3_moe_omega::dgraph;
 use aien_inference_abi::tokenizer::ChatTokenizer as Tokenizer;
 
 const PROMPT_TEXTS: [(&str, &str); 4] = [
@@ -192,6 +194,9 @@ struct Args {
     router_mutants: Vec<i32>,
     /// Skip parity, controls and the prefill check: tokens against the golden and timing only.
     tokens_only: bool,
+    /// Whole-prompt prefill (W-RC: the RC server default) and its device router/combine.
+    whole_prompt: bool,
+    wp_device_host: bool,
     /// Batched prefill kernel: auto (GEMM when linked), gemv (the grouped GEMV) or gemm (required).
     prefill: PathChoice,
     /// Batched prefill routing: false = host (default), true = the device router per token.
@@ -233,6 +238,8 @@ fn parse_args() -> Args {
         paths: DevicePaths::default(),
         router_mutants: vec![1, 2, 3, 4],
         tokens_only: false,
+        whole_prompt: false,
+        wp_device_host: false,
         prefill: PathChoice::Auto,
         prefill_device_routing: false,
         gemm_mutants: vec![1, 2, 3],
@@ -266,6 +273,8 @@ fn parse_args() -> Args {
             "--router" => a.paths.router = parse_choice(&it.next().expect("--router auto|host|device"), "host", "--router"),
             "--lm-head" => a.paths.lm_head = parse_choice(&it.next().expect("--lm-head auto|dense|gemv"), "dense", "--lm-head"),
             "--tokens-only" => a.tokens_only = true,
+            "--whole-prompt" => a.whole_prompt = true,
+            "--prefill-device-host" => a.wp_device_host = true,
             "--prefill" => a.prefill = parse_choice(&it.next().expect("--prefill auto|gemv|gemm"), "gemv", "--prefill"),
             "--prefill-routing" => {
                 a.prefill_device_routing = match it.next().expect("--prefill-routing host|device").as_str() {
@@ -408,6 +417,44 @@ fn chip(a: &Args) {
     let router_path = if engine.device_routing { "device" } else { "host" };
     let lm_head_path = if matches!(engine.weights().lm_head, LmHead::Gemv(_)) { "gemv" } else { "dense" };
     say(format!("router path {router_path} lm_head path {lm_head_path} (router_api={} bf16_api={})", OmegaModelUploader::uses_router_api(), OmegaModelUploader::uses_bf16_api()));
+    // One command list per decode token (OWN30B_DECODE_GRAPH=1): built now so a load that cannot
+    // run it is refused before any generation, never run on the old path in its place.
+    if dgraph::stamps_requested() && !engine.decode_graph_on() {
+        say(format!("REFUSED: {}=1 measures the one-list decode; it needs {}=1 as well", dgraph::STAMPS_ENV, dgraph::ENV));
+        std::process::exit(4);
+    }
+    if engine.decode_graph_on() {
+        if let Err(e) = engine.prepare_decode_graph() {
+            say(format!("REFUSED: {e}"));
+            std::process::exit(4);
+        }
+    }
+    say(format!(
+        "decode graph {} (dgraph_api={}, {}=1 to turn on) mutant {}",
+        if engine.decode_graph_on() { "ON" } else { "OFF" },
+        aien_omega_dgraph::is_native(),
+        aien_inference_abi::qwen3_moe_omega::dgraph::ENV,
+        engine.decode_graph_mutant()
+    ));
+    // Whole-prompt prefill (W-RC): the release-candidate server turns both on. The per-layer
+    // parity replays set trace layers, which the whole-prompt path declines (chunked there).
+    if a.whole_prompt {
+        if let Err(e) = engine.set_whole_prompt(true) {
+            say(format!("REFUSED: whole-prompt prefill: {e}"));
+            std::process::exit(4);
+        }
+        if a.wp_device_host {
+            if let Err(e) = engine.set_whole_prompt_device_host(true) {
+                say(format!("REFUSED: whole-prompt device router/combine: {e}"));
+                std::process::exit(4);
+            }
+        }
+    }
+    say(format!(
+        "whole-prompt prefill {} device router/combine {}",
+        if engine.whole_prompt_on() { "ON" } else { "OFF" },
+        if engine.whole_prompt_device_host_on() { "ON" } else { "OFF" }
+    ));
     let peak = report.peak_rss_bytes.unwrap_or(0) as f64 / 1e9;
     say(format!(
         "LOAD: {:.1}s resident {:.2} GB host {:.2} GB peak_rss {:.2} GB (before {:.2} GB) kv_resident={} mem_available_after {:.1} GB",
@@ -681,6 +728,8 @@ fn chip(a: &Args) {
         }
         let mut got = Vec::new();
         let params = GenerateParams::greedy(a.new_tokens, config.eos_token_ids.clone());
+        // Start this prompt's timeline from zero (earlier sections also ran graph tokens).
+        let _ = engine.take_decode_timeline();
         let o = engine
             .generate(ids, &params, &mut |t| {
                 got.push(t);
@@ -726,6 +775,29 @@ fn chip(a: &Args) {
             dt.chip_ns as f64 / 1e6 / steps,
             dt.launches as f64 / steps,
         ));
+        // Every old-path launch is its own synchronous submission; a one-list token is one
+        // submission for all its launches.
+        let submits = dt.launches - dt.graph_launches + dt.graph_submits;
+        let per_graph = |v: u64| if dt.graph_tokens > 0 { v as f64 / dt.graph_tokens as f64 } else { 0.0 };
+        say(format!(
+            "  DECODE GRAPH {}: {} of {} decode steps as one list (the first step is the prefill's lm_head); per step launches {:.1} submits {:.1}; per graph token launches {:.1} submits {:.1} record {:.1} us",
+            if engine.decode_graph_on() { "ON" } else { "OFF" },
+            dt.graph_tokens,
+            o.emitted_tokens,
+            dt.launches as f64 / steps,
+            submits as f64 / steps,
+            per_graph(dt.graph_launches),
+            per_graph(dt.graph_submits),
+            per_graph(dt.graph_record_ns) / 1e3,
+        ));
+        let mut timeline_json = serde_json::Value::Null;
+        if let Some(t) = engine.take_decode_timeline() {
+            let lines = timeline_table(&t, &config);
+            for l in &lines {
+                say(format!("  {l}"));
+            }
+            timeline_json = serde_json::json!({"steps": t.steps, "launches": t.launches, "ns": t.ns, "span_ns": t.span_ns, "chip_ns": t.chip_ns, "table": lines});
+        }
         say(format!("  chip text: {:?}", tok.decode(&got).unwrap_or_default()));
         say(format!("  cpu  text: {:?}", g["text"].as_str().unwrap_or("")));
         results.push(serde_json::json!({
@@ -734,6 +806,8 @@ fn chip(a: &Args) {
             "per_step_ms": {"attention": dt.attention_ns as f64 / 1e6 / steps, "experts": dt.experts_ns as f64 / 1e6 / steps,
                 "lm_head": dt.lm_head_ns as f64 / 1e6 / steps, "host": dt.host_ns as f64 / 1e6 / steps, "chip_reported": dt.chip_ns as f64 / 1e6 / steps,
                 "launches": dt.launches as f64 / steps},
+            "decode_graph": {"on": engine.decode_graph_on(), "graph_tokens": dt.graph_tokens, "graph_launches": dt.graph_launches,
+                "graph_submits": dt.graph_submits, "graph_record_ns": dt.graph_record_ns, "submits": submits, "mutant": engine.decode_graph_mutant(), "timeline": timeline_json},
         }));
     }
     // ---- a long prompt (new territory past 673 tokens): chunk 1 against the batched chunk ----
@@ -809,4 +883,43 @@ fn main() {
         "golden" => golden(&a),
         _ => chip(&a),
     }
+}
+
+/// The one-list decode's per-kind timeline as table lines: kind, launches/step, us/step, FP8 (or
+/// bf16 for the lm_head) weight bytes/step and the achieved GB/s. Router, attention and the glue
+/// kernels get "-" for bytes (their traffic is not a fixed weight read; KV bytes are not guessed).
+fn timeline_table(t: &dgraph::Timeline, c: &Qwen3MoeConfig) -> Vec<String> {
+    let steps = t.steps.max(1) as f64;
+    let l = c.layers as f64;
+    let bytes = |kind: &str| -> Option<f64> {
+        match kind {
+            "qkv" => Some(5120.0 * 2048.0 * l),
+            "o_proj" => Some(2048.0 * 4096.0 * l),
+            "gate_up" => Some(8.0 * 1536.0 * 2048.0 * l),
+            "down" => Some(8.0 * 2048.0 * 768.0 * l),
+            "lm_head" => Some(151936.0 * 2048.0 * 2.0),
+            _ => None,
+        }
+    };
+    let mut out = vec![format!("TIMELINE over {} graph tokens: {:<12} {:>9} {:>10} {:>14} {:>9}", t.steps, "kind", "launches", "us/step", "bytes/step", "GB/s")];
+    let mut sum_ns = 0u64;
+    for k in 0..12 {
+        let name = aien_omega_dgraph::kind_name(k as u8);
+        sum_ns += t.ns[k];
+        let us = t.ns[k] as f64 / 1e3 / steps;
+        let (b, gbs) = match bytes(&name) {
+            // bytes per ns = GB/s
+            Some(b) if t.ns[k] > 0 => (format!("{b:.0}"), format!("{:.1}", b * steps / t.ns[k] as f64)),
+            Some(b) => (format!("{b:.0}"), "-".into()),
+            None => ("-".into(), "-".into()),
+        };
+        out.push(format!("TIMELINE {:<12} {:>9.1} {:>10.1} {:>14} {:>9}", name, t.launches[k] as f64 / steps, us, b, gbs));
+    }
+    out.push(format!(
+        "TIMELINE span {:.1} us/step (sum of kinds {:.1}) vs graph chip_ns {:.1} us/step",
+        t.span_ns as f64 / 1e3 / steps,
+        sum_ns as f64 / 1e3 / steps,
+        t.chip_ns as f64 / 1e3 / steps
+    ));
+    out
 }

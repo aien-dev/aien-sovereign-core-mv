@@ -126,6 +126,21 @@ impl fmt::Debug for Bf16Tensor {
 }
 
 impl Bf16Tensor {
+    /// The C handle (`OmegaGpuBf16Tensor *`) for another omega API that takes this object (the decode
+    /// graph, OWN-30B cut 2). Null in the stub. The handle stays owned by `self`: the caller must
+    /// not free it, must not use it after `self` is dropped, and must serialise its use with
+    /// `self`'s own calls.
+    pub fn as_raw(&self) -> *mut std::ffi::c_void {
+        #[cfg(has_omega_bf16)]
+        {
+            self.ptr as *mut std::ffi::c_void
+        }
+        #[cfg(not(has_omega_bf16))]
+        {
+            std::ptr::null_mut()
+        }
+    }
+
     /// Upload `n * k` bf16 bit patterns, row-major `[n][k]` (the checkpoint's layout).
     pub fn upload(n: usize, k: usize, w_bf16: &[u16]) -> Result<Self, OmegaGpuError> {
         check_shape(n, k)?;

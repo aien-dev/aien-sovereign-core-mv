@@ -1,0 +1,8 @@
+queued 2026-10-14T01:55:17Z sc 37b696f9efdfc1cc5ca6bbd310a78d359504d399 omega d0889a944b02066f84fec71af7b9bbb92f5c986f archive-sha256 6a6cb4df479ddbcc5cd4ef0fda1aea968832b2b70be2ff3312051c3e9921aad5
+binary /tmp/wrc/bin/own30b_ttft sha256 b270d812c093ff32320d382d32f0283ab324f91dba258ba3aa36897f84758c48
+env AIEN_OMEGA_SPIN_US=2000
+cmd flock /tmp/aien-gb10.lock /tmp/wrc/bin/own30b_ttft /home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8 /home/drakestapleton/workspace/sc-own30b-rc/docs/inference/evidence/own30b-rc-20261014T0153Z/ttft --lens 512,2048 --new-tokens 32 --reps 2 --devhost
+lock acquired 2026-10-14T01:55:17Z
+ 20:55:17 up 7 days, 14:23, 15 users,  load average: 3.23, 4.77, 5.63
+               total        used        free      shared  buff/cache   available
+Mem:             121          16          46           2          62         105

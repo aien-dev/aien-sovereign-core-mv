@@ -34,11 +34,12 @@ field OmegaGpuMatmulInfo padded_k 144 4 u32 1
 field OmegaGpuMatmulInfo resident 148 1 bool 1
 field OmegaGpuMatmulInfo oracle_ran 149 1 bool 1
 field OmegaGpuMatmulInfo call_ns 152 8 u64 1
-struct OmegaGpuAllocStats 32 8
+struct OmegaGpuAllocStats 40 8
 field OmegaGpuAllocStats allocs 0 8 u64 1
 field OmegaGpuAllocStats alloc_bytes 8 8 u64 1
 field OmegaGpuAllocStats alloc_failures 16 8 u64 1
 field OmegaGpuAllocStats frees 24 8 u64 1
+field OmegaGpuAllocStats stale_refusals 32 8 u64 1
 struct OmegaGpuServingBounds 44 4
 field OmegaGpuServingBounds max_context 0 4 u32 1
 field OmegaGpuServingBounds max_seqs 4 4 u32 1

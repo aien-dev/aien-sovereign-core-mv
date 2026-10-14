@@ -1,0 +1,189 @@
+mem available before load: 105.9 GB
+build native=true pf=true pattn=true pattn_dev=true
+LOAD 16.9s resident 30.53 GB attention fused mem_available_after 74.6 GB
+len 1 OFF  (per-token OFF kernels, f32 activations): 0.0 s
+len 1 CTRL (OFF kernels + the ON quantiser at every GEMM input): 0.0 s
+ON: routing path DEVICE (router launches 48, combine launches 48)
+len 1 ON   (whole-prompt path): 0.2 s
+len 1 per-layer relative error on x_out (L2 over all 1 tokens) | expert-set flips (tokens/ids):
+layer       ON-OFF     CTRL-OFF      ON-CTRL |      ON-OFF    CTRL-OFF     ON-CTRL
+    0     3.985e-2     3.985e-2     1.583e-7 |         1/1         1/1         0/0
+    1     3.117e-2     3.117e-2     1.208e-8 |         0/0         0/0         0/0
+    2     4.824e-2     4.824e-2     5.093e-9 |         0/0         0/0         0/0
+    3     3.827e-2     3.827e-2     3.824e-9 |         0/0         0/0         0/0
+    4     3.827e-2     3.827e-2     3.826e-9 |         0/0         0/0         0/0
+    5     3.827e-2     3.827e-2     3.834e-9 |         0/0         0/0         0/0
+    6     3.827e-2     3.827e-2     3.845e-9 |         0/0         0/0         0/0
+    7     3.827e-2     3.827e-2     3.849e-9 |         0/0         0/0         0/0
+    8     3.827e-2     3.827e-2     3.861e-9 |         0/0         0/0         0/0
+    9     3.827e-2     3.827e-2     3.872e-9 |         0/0         0/0         0/0
+   10     3.827e-2     3.827e-2     3.881e-9 |         0/0         0/0         0/0
+   11     3.827e-2     3.827e-2     3.889e-9 |         0/0         0/0         0/0
+   12     3.827e-2     3.827e-2     3.896e-9 |         0/0         0/0         0/0
+   13     3.827e-2     3.827e-2     3.900e-9 |         0/0         0/0         0/0
+   14     3.827e-2     3.827e-2     3.912e-9 |         0/0         0/0         0/0
+   15     3.827e-2     3.827e-2     3.918e-9 |         0/0         0/0         0/0
+   16     3.823e-2     3.823e-2     3.940e-9 |         0/0         0/0         0/0
+   17     3.823e-2     3.823e-2     5.036e-8 |         0/0         0/0         0/0
+   18     3.823e-2     3.823e-2     5.037e-8 |         0/0         0/0         0/0
+   19     3.823e-2     3.823e-2     5.034e-8 |         0/0         0/0         0/0
+   20     3.823e-2     3.823e-2     5.032e-8 |         0/0         0/0         0/0
+   21     3.822e-2     3.822e-2     5.031e-8 |         0/0         0/0         0/0
+   22     3.823e-2     3.823e-2     5.033e-8 |         0/0         0/0         0/0
+   23     3.823e-2     3.823e-2     8.678e-7 |         0/0         0/0         0/0
+   24     3.822e-2     3.822e-2     1.427e-6 |         1/1         1/1         0/0
+   25     3.819e-2     3.819e-2     2.680e-6 |         0/0         0/0         0/0
+   26     3.805e-2     3.805e-2     3.337e-6 |         0/0         0/0         0/0
+   27     3.805e-2     3.805e-2     3.363e-6 |         0/0         0/0         0/0
+   28     3.805e-2     3.805e-2     3.687e-6 |         0/0         0/0         0/0
+   29     3.805e-2     3.805e-2     3.881e-6 |         0/0         0/0         0/0
+   30     3.805e-2     3.805e-2     4.119e-6 |         0/0         0/0         0/0
+   31     3.806e-2     3.806e-2     4.534e-6 |         0/0         0/0         0/0
+   32     3.806e-2     3.806e-2     4.730e-6 |         1/1         1/1         0/0
+   33     3.806e-2     3.806e-2     5.236e-6 |         0/0         0/0         0/0
+   34     3.806e-2     3.806e-2     5.519e-6 |         0/0         0/0         0/0
+   35     3.806e-2     3.806e-2     6.048e-6 |         0/0         0/0         0/0
+   36     3.804e-2     3.804e-2     6.746e-6 |         0/0         0/0         0/0
+   37     3.804e-2     3.804e-2     8.492e-6 |         0/0         0/0         0/0
+   38     3.804e-2     3.804e-2     9.203e-6 |         0/0         0/0         0/0
+   39     3.804e-2     3.804e-2     9.517e-6 |         0/0         0/0         0/0
+   40     3.797e-2     3.797e-2     1.092e-5 |         0/0         0/0         0/0
+   41     3.796e-2     3.796e-2     1.153e-5 |         0/0         0/0         0/0
+   42     3.796e-2     3.796e-2     1.429e-5 |         0/0         0/0         0/0
+   43     3.816e-2     3.816e-2     1.738e-5 |         0/0         0/0         0/0
+   44     3.817e-2     3.817e-2     2.061e-5 |         0/0         0/0         0/0
+   45     3.823e-2     3.823e-2     2.414e-5 |         0/0         0/0         0/0
+   46     7.347e-2     7.308e-2     7.553e-4 |         0/0         0/0         0/0
+   47     8.102e-1     8.078e-1     4.209e-3 |         0/0         0/0         0/0
+len 1 ops at layer 0 (relative error): ON-OFF {"attn":0.02135821785199772,"attn_quantised":0.02893242082539543,"logits":0.004872752037370467,"moe_out":0.06088418065089375,"moe_out_same_route":0.0,"oproj":0.02205042780686611,"post":0.018913139817490165,"post_quantised":0.03292497591360798,"qkv":0.012050053387263756,"same_route_tokens":0,"x_norm":0.0,"x_norm_quantised":0.0} ; CTRL-OFF {"attn":0.02135821755725982,"attn_quantised":0.02893242082539543,"logits":0.0048727299185938305,"moe_out":0.060884174443310374,"moe_out_same_route":0.0,"oproj":0.022050412228887584,"post":0.01891314108763963,"post_quantised":0.03292497591360798,"qkv":0.01205003773164875,"same_route_tokens":0,"x_norm":0.0,"x_norm_quantised":0.0} ; ON-CTRL {"attn":1.47584656334163e-7,"attn_quantised":0.0,"logits":1.0845163093220845e-7,"moe_out":2.151645633846998e-7,"moe_out_same_route":2.151645633846998e-7,"oproj":1.2495121362763545e-7,"post":1.1135044185718383e-7,"post_quantised":0.0,"qkv":1.0790400457959853e-7,"same_route_tokens":1,"x_norm":0.0,"x_norm_quantised":0.0}
+len 1 first-step logits cosine: ON-OFF 0.891040 CTRL-OFF 0.894522 ON-CTRL 0.999950; top-1 OFF 323 CTRL 25 ON 25
+len 1 RULE: budget B = max_l relerr(CTRL,OFF) = 8.078e-1; max_l relerr(ON,CTRL) = 4.209e-3 (0.01 x B); ops: qkv ON-CTRL 1.079e-7 <= CTRL-OFF 1.205e-2 ok, oproj ON-CTRL 1.250e-7 <= CTRL-OFF 2.205e-2 ok, moe_out ON-CTRL 2.152e-7 <= CTRL-OFF 6.088e-2 ok
+len 1 VERDICT: PASS (ON within the control's rounding budget: drift = activation rounding)
+MUT_ROUTING: routing path DEVICE (router launches 48, combine launches 48)
+len 1 NEGATIVE CONTROL MUT_ROUTING vs CTRL: max_l relerr 1.343e0 (1.7 x B), layer 0 out 5.732e-1 flips 1/8, logits cosine vs OFF 0.761180: CAUGHT (rule fails it)
+MUT_GUSCALES: routing path DEVICE (router launches 48, combine launches 48)
+len 1 NEGATIVE CONTROL MUT_GUSCALES vs CTRL: max_l relerr 2.899e0 (3.6 x B), layer 0 out 1.135e-1 flips 0/0, logits cosine vs OFF -0.067654: CAUGHT (rule fails it)
+len 2 OFF  (per-token OFF kernels, f32 activations): 0.1 s
+len 2 CTRL (OFF kernels + the ON quantiser at every GEMM input): 0.1 s
+ON: routing path DEVICE (router launches 48, combine launches 48)
+len 2 ON   (whole-prompt path): 0.1 s
+len 2 per-layer relative error on x_out (L2 over all 2 tokens) | expert-set flips (tokens/ids):
+layer       ON-OFF     CTRL-OFF      ON-CTRL |      ON-OFF    CTRL-OFF     ON-CTRL
+    0     3.099e-2     3.073e-2     4.537e-3 |         1/1         1/1         0/0
+    1     3.467e-2     4.167e-2     7.061e-2 |         1/1         1/1         0/0
+    2     3.794e-2     5.371e-2     1.499e-2 |         0/0         0/0         0/0
+    3     3.232e-2     4.317e-2     1.042e-2 |         0/0         0/0         0/0
+    4     3.231e-2     4.316e-2     1.042e-2 |         0/0         0/0         0/0
+    5     3.231e-2     4.316e-2     1.042e-2 |         0/0         0/0         0/0
+    6     3.231e-2     4.317e-2     1.043e-2 |         0/0         0/0         0/0
+    7     3.231e-2     4.317e-2     1.043e-2 |         0/0         0/0         0/0
+    8     3.232e-2     4.317e-2     1.043e-2 |         1/1         1/1         0/0
+    9     3.232e-2     4.317e-2     1.043e-2 |         0/0         0/0         0/0
+   10     3.232e-2     4.317e-2     1.043e-2 |         0/0         0/0         0/0
+   11     3.232e-2     4.317e-2     1.043e-2 |         0/0         0/0         0/0
+   12     3.231e-2     4.316e-2     1.042e-2 |         0/0         0/0         0/0
+   13     3.231e-2     4.316e-2     1.042e-2 |         1/1         1/1         0/0
+   14     3.231e-2     4.316e-2     1.042e-2 |         0/0         0/0         0/0
+   15     3.231e-2     4.316e-2     1.042e-2 |         0/0         0/0         0/0
+   16     3.239e-2     4.318e-2     1.040e-2 |         1/1         1/1         0/0
+   17     3.239e-2     4.318e-2     1.040e-2 |         0/0         0/0         0/0
+   18     3.240e-2     4.318e-2     1.040e-2 |         0/0         0/0         0/0
+   19     3.240e-2     4.319e-2     1.040e-2 |         0/0         0/0         0/0
+   20     3.240e-2     4.318e-2     1.040e-2 |         1/1         0/0         1/1
+   21     3.239e-2     4.317e-2     1.040e-2 |         0/0         0/0         0/0
+   22     3.239e-2     4.317e-2     1.040e-2 |         0/0         0/0         0/0
+   23     3.239e-2     4.318e-2     1.040e-2 |         0/0         0/0         0/0
+   24     3.232e-2     4.308e-2     1.038e-2 |         1/1         2/2         1/1
+   25     3.226e-2     4.302e-2     1.037e-2 |         1/1         1/1         0/0
+   26     3.209e-2     4.283e-2     1.035e-2 |         0/0         0/0         0/0
+   27     3.209e-2     4.283e-2     1.035e-2 |         1/1         1/1         0/0
+   28     3.210e-2     4.284e-2     1.034e-2 |         0/0         0/0         0/0
+   29     3.210e-2     4.284e-2     1.034e-2 |         0/0         0/0         0/0
+   30     3.211e-2     4.284e-2     1.036e-2 |         1/1         0/0         1/1
+   31     3.200e-2     4.279e-2     1.057e-2 |         0/0         0/0         0/0
+   32     3.200e-2     4.278e-2     1.058e-2 |         0/0         0/0         0/0
+   33     3.200e-2     4.278e-2     1.058e-2 |         0/0         0/0         0/0
+   34     3.201e-2     4.279e-2     1.059e-2 |         2/2         1/1         1/1
+   35     3.200e-2     4.279e-2     1.060e-2 |         0/0         0/0         0/0
+   36     3.198e-2     4.275e-2     1.057e-2 |         0/0         0/0         0/0
+   37     3.194e-2     4.272e-2     1.059e-2 |         0/0         1/1         1/1
+   38     3.192e-2     4.269e-2     1.060e-2 |         0/0         0/0         0/0
+   39     3.192e-2     4.269e-2     1.060e-2 |         0/0         0/0         0/0
+   40     3.183e-2     4.260e-2     1.063e-2 |         0/0         0/0         0/0
+   41     3.178e-2     4.253e-2     1.065e-2 |         0/0         0/0         0/0
+   42     3.177e-2     4.249e-2     1.064e-2 |         0/0         0/0         0/0
+   43     3.196e-2     4.274e-2     1.069e-2 |         0/0         0/0         0/0
+   44     3.197e-2     4.279e-2     1.089e-2 |         0/0         1/1         1/1
+   45     3.202e-2     4.285e-2     1.092e-2 |         0/0         0/0         0/0
+   46     6.296e-2     7.434e-2     1.708e-2 |         1/1         1/1         0/0
+   47     1.379e-1     1.382e-1     3.362e-2 |         2/2         1/1         1/1
+len 2 ops at layer 0 (relative error): ON-OFF {"attn":0.023267240416235565,"attn_quantised":0.039989059178338636,"logits":0.008377405901374186,"moe_out":0.03819146063547688,"moe_out_same_route":0.027195715043197104,"oproj":0.028444713298527536,"post":0.027207348822708127,"post_quantised":0.04250555474081087,"qkv":0.01153612287511096,"same_route_tokens":1,"x_norm":0.0,"x_norm_quantised":0.0} ; CTRL-OFF {"attn":0.023288459166687054,"attn_quantised":0.04025528255647989,"logits":0.00868127296769187,"moe_out":0.03794561332771257,"moe_out_same_route":0.026109315737474808,"oproj":0.028681803298487137,"post":0.027239708122745638,"post_quantised":0.042474179297578844,"qkv":0.011536109257569436,"same_route_tokens":1,"x_norm":0.0,"x_norm_quantised":0.0} ; ON-CTRL {"attn":0.00036860877747166146,"attn_quantised":0.005086385527772535,"logits":0.000499509371720683,"moe_out":0.005846088326600176,"moe_out_same_route":0.005846088326600168,"oproj":0.0025010135127650815,"post":0.0015046576993313597,"post_quantised":0.007404669687362887,"qkv":1.087667685663439e-7,"same_route_tokens":2,"x_norm":0.0,"x_norm_quantised":0.0}
+len 2 first-step logits cosine: ON-OFF 0.949104 CTRL-OFF 0.930862 ON-CTRL 0.995904; top-1 OFF 25 CTRL 25 ON 25
+len 2 RULE: budget B = max_l relerr(CTRL,OFF) = 1.382e-1; max_l relerr(ON,CTRL) = 7.061e-2 (0.51 x B); ops: qkv ON-CTRL 1.088e-7 <= CTRL-OFF 1.154e-2 ok, oproj ON-CTRL 2.501e-3 <= CTRL-OFF 2.868e-2 ok, moe_out ON-CTRL 5.846e-3 <= CTRL-OFF 3.795e-2 ok
+len 2 VERDICT: PASS (ON within the control's rounding budget: drift = activation rounding)
+MUT_ROUTING: routing path DEVICE (router launches 48, combine launches 48)
+len 2 NEGATIVE CONTROL MUT_ROUTING vs CTRL: max_l relerr 1.001e0 (7.2 x B), layer 0 out 6.664e-1 flips 2/15, logits cosine vs OFF -0.144676: CAUGHT (rule fails it)
+MUT_GUSCALES: routing path DEVICE (router launches 48, combine launches 48)
+len 2 NEGATIVE CONTROL MUT_GUSCALES vs CTRL: max_l relerr 9.952e-1 (7.2 x B), layer 0 out 4.500e-1 flips 0/0, logits cosine vs OFF 0.621968: CAUGHT (rule fails it)
+len 20 OFF  (per-token OFF kernels, f32 activations): 0.6 s
+len 20 CTRL (OFF kernels + the ON quantiser at every GEMM input): 0.8 s
+ON: routing path DEVICE (router launches 48, combine launches 48)
+len 20 ON   (whole-prompt path): 0.1 s
+len 20 per-layer relative error on x_out (L2 over all 20 tokens) | expert-set flips (tokens/ids):
+layer       ON-OFF     CTRL-OFF      ON-CTRL |      ON-OFF    CTRL-OFF     ON-CTRL
+    0     1.964e-2     1.915e-2     6.047e-3 |         3/3         3/3         0/0
+    1     3.464e-2     4.162e-2     7.052e-2 |         1/1         2/2         1/1
+    2     3.794e-2     5.371e-2     1.499e-2 |         2/2         0/0         2/2
+    3     3.232e-2     4.317e-2     1.043e-2 |         2/2         2/2         0/0
+    4     3.231e-2     4.316e-2     1.044e-2 |         3/3         2/2         2/2
+    5     3.231e-2     4.316e-2     1.045e-2 |         2/2         2/2         4/4
+    6     3.231e-2     4.316e-2     1.046e-2 |         2/2         1/1         3/3
+    7     3.232e-2     4.317e-2     1.049e-2 |         5/5         6/6         4/4
+    8     3.232e-2     4.318e-2     1.051e-2 |         3/3         5/5         4/4
+    9     3.233e-2     4.318e-2     1.053e-2 |         1/1         1/1         1/1
+   10     3.233e-2     4.318e-2     1.058e-2 |         3/3         0/0         3/3
+   11     3.234e-2     4.319e-2     1.060e-2 |         1/1         1/1         2/2
+   12     3.234e-2     4.318e-2     1.062e-2 |         4/4         5/5         4/4
+   13     3.234e-2     4.318e-2     1.064e-2 |         2/2         5/5         5/5
+   14     3.234e-2     4.318e-2     1.066e-2 |         5/5         4/4         4/4
+   15     3.235e-2     4.318e-2     1.067e-2 |         2/2         3/3         2/2
+   16     3.243e-2     4.321e-2     1.070e-2 |         3/3         6/6         6/6
+   17     3.243e-2     4.321e-2     1.070e-2 |         1/1         3/3         4/4
+   18     3.243e-2     4.322e-2     1.071e-2 |         4/4         7/7         5/5
+   19     3.243e-2     4.322e-2     1.070e-2 |         2/2         2/2         1/1
+   20     3.245e-2     4.322e-2     1.076e-2 |         8/8         4/4         7/7
+   21     3.250e-2     4.323e-2     1.152e-2 |         4/4         5/5         3/3
+   22     3.247e-2     4.325e-2     1.149e-2 |         5/5         4/4         5/5
+   23     3.248e-2     4.325e-2     1.151e-2 |         3/3         3/3         3/4
+   24     3.241e-2     4.315e-2     1.124e-2 |         4/4         7/7         4/4
+   25     3.237e-2     4.309e-2     1.105e-2 |         7/7         6/7         7/8
+   26     3.219e-2     4.290e-2     1.105e-2 |         5/5         2/2         5/5
+   27     3.221e-2     4.291e-2     1.111e-2 |         7/7         7/7         7/7
+   28     3.223e-2     4.291e-2     1.112e-2 |         5/6         4/4         2/2
+   29     3.223e-2     4.292e-2     1.111e-2 |         1/1         2/2         1/1
+   30     3.226e-2     4.293e-2     1.119e-2 |         8/8         6/6         8/8
+   31     3.215e-2     4.287e-2     1.143e-2 |         5/5         8/8         6/6
+   32     3.217e-2     4.288e-2     1.154e-2 |         6/6         4/4         4/4
+   33     3.209e-2     4.277e-2     1.163e-2 |         4/4         2/2         4/4
+   34     3.211e-2     4.279e-2     1.175e-2 |         4/4         4/4         4/4
+   35     3.213e-2     4.280e-2     1.188e-2 |         5/5         3/3         3/3
+   36     3.220e-2     4.284e-2     1.194e-2 |         4/4         4/4         4/4
+   37     3.227e-2     4.289e-2     1.216e-2 |         4/4         4/4         2/2
+   38     3.224e-2     4.283e-2     1.230e-2 |         1/1         0/0         1/1
+   39     3.231e-2     4.288e-2     1.256e-2 |         6/6         5/5         3/3
+   40     3.231e-2     4.286e-2     1.311e-2 |         4/4         6/7         4/4
+   41     3.232e-2     4.284e-2     1.356e-2 |         3/3         4/4         5/5
+   42     3.251e-2     4.297e-2     1.439e-2 |         6/6         4/4         4/4
+   43     3.294e-2     4.340e-2     1.551e-2 |         4/4         4/4         3/3
+   44     3.315e-2     4.359e-2     1.674e-2 |         3/3         4/4         5/5
+   45     3.337e-2     4.369e-2     1.753e-2 |         4/4         1/1         5/5
+   46     6.127e-2     7.197e-2     2.519e-2 |         4/4         4/4         4/4
+   47     1.231e-1     1.241e-1     4.169e-2 |         4/4         4/4         5/6
+len 20 ops at layer 0 (relative error): ON-OFF {"attn":0.024654757733280176,"attn_quantised":0.039181820930777427,"logits":0.0037229584246308597,"moe_out":0.030566198014828797,"moe_out_same_route":0.02440283357833555,"oproj":0.016969317977358223,"post":0.018890415035477347,"post_quantised":0.03224024271985281,"qkv":0.01246698511645581,"same_route_tokens":17,"x_norm":0.0,"x_norm_quantised":0.0} ; CTRL-OFF {"attn":0.024653652936345874,"attn_quantised":0.03926722958350975,"logits":0.0038399397183485453,"moe_out":0.029698642663583623,"moe_out_same_route":0.022400926045748278,"oproj":0.017065991704087506,"post":0.018961406190488746,"post_quantised":0.03221695957692887,"qkv":0.012466985344987367,"same_route_tokens":17,"x_norm":0.0,"x_norm_quantised":0.0} ; ON-CTRL {"attn":0.001039260112090449,"attn_quantised":0.007648422536292537,"logits":0.0006248911117163509,"moe_out":0.00984127104682513,"moe_out_same_route":0.009841271046824097,"oproj":0.0029309989139511875,"post":0.0030202190593713887,"post_quantised":0.010998846673455829,"qkv":1.1593887748857601e-7,"same_route_tokens":20,"x_norm":0.0,"x_norm_quantised":0.0}
+len 20 first-step logits cosine: ON-OFF 0.999750 CTRL-OFF 0.999781 ON-CTRL 0.999789; top-1 OFF 11 CTRL 11 ON 11
+len 20 RULE: budget B = max_l relerr(CTRL,OFF) = 1.241e-1; max_l relerr(ON,CTRL) = 7.052e-2 (0.57 x B); ops: qkv ON-CTRL 1.159e-7 <= CTRL-OFF 1.247e-2 ok, oproj ON-CTRL 2.931e-3 <= CTRL-OFF 1.707e-2 ok, moe_out ON-CTRL 9.841e-3 <= CTRL-OFF 2.970e-2 ok
+len 20 VERDICT: PASS (ON within the control's rounding budget: drift = activation rounding)
+MUT_ROUTING: routing path DEVICE (router launches 48, combine launches 48)
+len 20 NEGATIVE CONTROL MUT_ROUTING vs CTRL: max_l relerr 1.032e0 (8.3 x B), layer 0 out 5.365e-1 flips 20/153, logits cosine vs OFF 0.823532: CAUGHT (rule fails it)
+MUT_GUSCALES: routing path DEVICE (router launches 48, combine launches 48)
+len 20 NEGATIVE CONTROL MUT_GUSCALES vs CTRL: max_l relerr 9.469e-1 (7.6 x B), layer 0 out 2.071e-1 flips 0/0, logits cosine vs OFF 0.967100: CAUGHT (rule fails it)

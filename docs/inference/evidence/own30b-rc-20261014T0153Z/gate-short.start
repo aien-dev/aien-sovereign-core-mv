@@ -1,0 +1,4 @@
+queued 2026-10-14T02:01:05Z sc cdccd5a5c04153d4a0eca05052cc9a012677bad1 omega d0889a944b02066f84fec71af7b9bbb92f5c986f
+binary /tmp/wrc/bin/own30b_wp_gate_short sha256 c3365fd848b464d60f73d2e2db6d3b821b6bfabfd6ca50e15a5021a3187cfee1
+cmd flock /tmp/aien-gb10.lock env AIEN_OMEGA_SPIN_US=2000 /tmp/wrc/bin/own30b_wp_gate_short /home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8 /home/drakestapleton/workspace/sc-own30b-rc/docs/inference/evidence/own30b-rc-20261014T0153Z/gate-short --lens 1,2,20,48 --ops-layer 0 --mutants --devhost
+lock acquired 2026-10-14T02:01:05Z

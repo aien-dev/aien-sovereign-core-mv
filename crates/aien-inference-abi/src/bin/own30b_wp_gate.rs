@@ -2,6 +2,7 @@
 //! drift activation rounding or a bug?
 //!
 //!   own30b_wp_gate <checkpoint> <receipt-dir> [--lens 512,2048] [--ops-layer 0] [--mutants]
+//!                  (W-RC: --lens 1 is own30b_check p1 "Hello"; other short lens take the preamble head)
 //!                  [--max-context 8192] [--force-memory]
 //!                  [--devhost]  (W-L1G-E: ON and the mutants run with the router logits + combine on the chip)
 //!
@@ -50,7 +51,18 @@ fn prompt_ids(tok: &Tokenizer, n: usize) -> Vec<u32> {
     let enc = |t: &str| tok.encode_with_special(t, false).expect("encode");
     let mut ids = enc("<|im_start|>user\nYou are a careful engineering assistant. Read the log below and say, in plain words, which block number has the largest decode time.\n\n");
     let tail = enc("\nAnswer with the block number only.<|im_end|>\n<|im_start|>assistant\n");
-    assert!(n > ids.len() + tail.len() + 8, "prompt length {n} too short");
+    // W-RC: short prompts (what the server prefills after prefix reuse). n = 1 is own30b_check's
+    // p1 ("Hello", the prompt whose ON token 0 differs); 2.. are the first n tokens of the preamble.
+    if n == 1 {
+        let one = enc("Hello");
+        assert_eq!(one.len(), 1, "\"Hello\" is one token");
+        return one;
+    }
+    if n <= ids.len() + tail.len() + 8 {
+        assert!(n <= ids.len(), "prompt length {n} too short for the preamble");
+        ids.truncate(n);
+        return ids;
+    }
     let mut b = 0usize;
     while ids.len() + tail.len() < n {
         ids.extend(enc(&format!(

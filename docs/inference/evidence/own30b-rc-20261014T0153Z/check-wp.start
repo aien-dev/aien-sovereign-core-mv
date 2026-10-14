@@ -1,0 +1,8 @@
+queued 2026-10-14T01:54:50Z sc 37b696f9efdfc1cc5ca6bbd310a78d359504d399 omega d0889a944b02066f84fec71af7b9bbb92f5c986f archive-sha256 6a6cb4df479ddbcc5cd4ef0fda1aea968832b2b70be2ff3312051c3e9921aad5
+binary /tmp/wrc/bin/own30b_check sha256 119e315c829a9bed7539d815071f6d1d20b7e00bee32be35fa91374a64d35cdc
+env AIEN_OMEGA_SPIN_US=2000
+cmd flock /tmp/aien-gb10.lock /tmp/wrc/bin/own30b_check chip /home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8 /home/drakestapleton/workspace/sc-own30b-rc/docs/inference/evidence/own30b-f-20261013T1745Z/golden.json /home/drakestapleton/workspace/sc-own30b-rc/docs/inference/evidence/own30b-rc-20261014T0153Z/check-wp --prompts 1,2,3,4 --new 16 --layers 0,23,47 --weights fp8 --attn fused --router device --lm-head gemv --prefill auto --tokens-only --whole-prompt --prefill-device-host
+lock acquired 2026-10-14T01:54:50Z
+ 20:54:50 up 7 days, 14:23, 15 users,  load average: 2.35, 4.78, 5.66
+               total        used        free      shared  buff/cache   available
+Mem:             121          15          46           2          63         105

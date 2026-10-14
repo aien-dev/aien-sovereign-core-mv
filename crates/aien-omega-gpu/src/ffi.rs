@@ -103,6 +103,7 @@ pub struct OmegaGpuAllocStats {
     pub alloc_bytes: u64,
     pub alloc_failures: u64,
     pub frees: u64,
+    pub stale_refusals: u64,
 }
 }
 

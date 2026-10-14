@@ -163,6 +163,7 @@ fn the_alloc_probe_logs_the_baseline_and_shows_any_nonzero_delta() {
         alloc_bytes: 7_000_000_000,
         alloc_failures: 0,
         frees: 12,
+        stale_refusals: 0,
     }));
     let n2 = now.clone();
     let p = AllocProbe::new(Box::new(move || Some(*n2.lock().unwrap())));

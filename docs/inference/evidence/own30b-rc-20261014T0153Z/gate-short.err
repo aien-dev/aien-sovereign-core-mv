@@ -1,0 +1,4 @@
+
+thread 'main' (1538518) panicked at crates/aien-inference-abi/src/bin/own30b_wp_gate.rs:62:9:
+prompt length 48 too short for the preamble
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

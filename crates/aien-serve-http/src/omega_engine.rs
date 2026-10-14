@@ -24,6 +24,59 @@ pub const LOCK_WAIT: Duration = Duration::from_secs(30);
 /// loader transients; the rule leaves room for another 30 GB job).
 pub const LOAD_MIN_FREE_GB: f64 = 45.0;
 
+/// Prefill path of the door (OWN-30B release candidate, W-RC 2026-10-14). Both switches are ON
+/// by default: the whole prompt goes through omega's prefill GEMMs and attention in one pass
+/// (`set_whole_prompt`), with the router logits and MoE combine on the chip
+/// (`set_whole_prompt_device_host`). Chip gate (sc own30b/whole-prompt 7cc2b66): TTFT 512 tokens
+/// 7.6 s -> 0.31 s, 2048 tokens 31.4 s -> 0.84 s; tokens differ from the chunked path only by FP8
+/// activation rounding. Off: `--whole-prompt off` / `AIEN_SERVE_WHOLE_PROMPT=0` (the chunked
+/// prefill of cut 10), `--prefill-device-host off` / `AIEN_SERVE_WP_DEVICE_HOST=0` (host routing
+/// and combine). The cached 30 GB weight copy and speculative decoding stay off.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PrefillMode {
+    pub whole_prompt: bool,
+    pub device_host: bool,
+}
+
+impl Default for PrefillMode {
+    fn default() -> Self {
+        Self { whole_prompt: true, device_host: true }
+    }
+}
+
+/// Environment switch for [`PrefillMode::whole_prompt`].
+pub const WHOLE_PROMPT_ENV: &str = "AIEN_SERVE_WHOLE_PROMPT";
+/// Environment switch for [`PrefillMode::device_host`].
+pub const WP_DEVICE_HOST_ENV: &str = "AIEN_SERVE_WP_DEVICE_HOST";
+
+/// `on|off|1|0|true|false` (anything else is refused, so a typo never silently flips a path).
+pub fn parse_switch(name: &str, v: &str) -> Result<bool, String> {
+    match v.trim().to_ascii_lowercase().as_str() {
+        "on" | "1" | "true" | "yes" => Ok(true),
+        "off" | "0" | "false" | "no" => Ok(false),
+        other => Err(format!("{name} must be on or off, got {other:?}")),
+    }
+}
+
+impl PrefillMode {
+    /// Defaults overridden by the environment (`None` = unset).
+    pub fn from_env(whole_prompt: Option<&str>, device_host: Option<&str>) -> Result<Self, String> {
+        let mut m = Self::default();
+        if let Some(v) = whole_prompt {
+            m.whole_prompt = parse_switch(WHOLE_PROMPT_ENV, v)?;
+        }
+        if let Some(v) = device_host {
+            m.device_host = parse_switch(WP_DEVICE_HOST_ENV, v)?;
+        }
+        Ok(m)
+    }
+
+    /// What the engine runs: the device router/combine only exists inside the whole-prompt path.
+    pub fn effective(self) -> Self {
+        Self { whole_prompt: self.whole_prompt, device_host: self.whole_prompt && self.device_host }
+    }
+}
+
 /// An exclusive hold of the hive's GPU lock (released on drop).
 pub struct GpuLock(#[allow(dead_code)] File);
 
@@ -78,7 +131,7 @@ pub struct OmegaDoor {
 impl OmegaDoor {
     /// Loads the checkpoint onto Omega (under the GPU lock, released before returning) with a
     /// KV for `max_context` tokens. Refuses with less than [`LOAD_MIN_FREE_GB`] available.
-    pub fn load(model_dir: &Path, max_context: usize, format: WeightFormat, spin_us: Option<u32>) -> Result<Self, String> {
+    pub fn load(model_dir: &Path, max_context: usize, format: WeightFormat, spin_us: Option<u32>, prefill: PrefillMode) -> Result<Self, String> {
         let avail = mem_available_gb();
         if avail < LOAD_MIN_FREE_GB {
             return Err(format!("{avail:.1} GB available, the load needs {LOAD_MIN_FREE_GB} GB free (another model may be loaded)"));
@@ -101,6 +154,26 @@ impl OmegaDoor {
                 eprintln!("aien-serve-http: omega load [{:.0}s] {what}", t0.elapsed().as_secs_f64());
             }
         })?;
+        // Prefill path (W-RC): switched on while the load still holds the chip lock. A refusal is
+        // fatal: the operator asked for the path (by default), so say how to turn it off.
+        let prefill = prefill.effective();
+        let t_wp = Instant::now();
+        engine.with_engine(|e| -> Result<(), String> {
+            e.set_whole_prompt(prefill.whole_prompt)
+                .map_err(|m| format!("{m} (start with --whole-prompt off to use the chunked prefill)"))?;
+            if prefill.whole_prompt {
+                e.set_whole_prompt_device_host(prefill.device_host)
+                    .map_err(|m| format!("{m} (start with --prefill-device-host off to keep routing on the host)"))?;
+            }
+            Ok(())
+        })??;
+        let (wp_on, wp_dev) = engine.with_engine(|e| (e.whole_prompt_on(), e.whole_prompt_device_host_on()))?;
+        eprintln!(
+            "aien-serve-http: whole_prompt={} prefill_device_host={} (set in {:.2} s)",
+            if wp_on { "on" } else { "off" },
+            if wp_dev { "on" } else { "off" },
+            t_wp.elapsed().as_secs_f64()
+        );
         let r = &engine.load_report;
         let (attn_path, prefill_chunk, router_path, lm_head_path, prefill_path) = engine.with_engine(|e| {
             (
@@ -214,5 +287,20 @@ mod tests {
     #[test]
     fn mem_available_reads_proc() {
         assert!(mem_available_gb() > 0.0);
+    }
+
+    #[test]
+    fn prefill_mode_defaults_on_and_env_switches_off() {
+        assert_eq!(PrefillMode::default(), PrefillMode { whole_prompt: true, device_host: true });
+        assert_eq!(PrefillMode::from_env(None, None).unwrap(), PrefillMode::default());
+        let m = PrefillMode::from_env(Some("0"), None).unwrap();
+        assert!(!m.whole_prompt && m.device_host);
+        // The device router/combine lives inside the whole-prompt path: off with it.
+        assert_eq!(m.effective(), PrefillMode { whole_prompt: false, device_host: false });
+        let m = PrefillMode::from_env(Some("on"), Some("off")).unwrap();
+        assert_eq!(m.effective(), PrefillMode { whole_prompt: true, device_host: false });
+        assert!(PrefillMode::from_env(Some("of"), None).is_err());
+        assert!(parse_switch("--whole-prompt", "maybe").is_err());
+        assert!(parse_switch("--whole-prompt", " TRUE ").unwrap());
     }
 }

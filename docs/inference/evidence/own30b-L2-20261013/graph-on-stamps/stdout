@@ -1,0 +1,99 @@
+mem available before load: 104.6 GB
+engine native=true window_api=true fp8_api=true dattn_api=true weights=Fp8All attn=Fused spin_us=Some(2000) cta_budget=Some(64)
+prefill path gemm routing host (gemm_api=true)
+attention path fused prefill_chunk 64 batched_prefill_possible true
+router path device lm_head path gemv (router_api=true bf16_api=true)
+decode graph ON (dgraph_api=true, OWN30B_DECODE_GRAPH=1 to turn on) mutant none
+LOAD: 29.9s resident 30.53 GB host 0.67 GB peak_rss 31.94 GB (before 0.13 GB) kv_resident=true mem_available_after 74.9 GB
+LOAD peak over resident+host: 0.74 GB (budget 6 GB) -> PASS
+PARITY layer 0 over 20 positions (p2-short): attention cosine(min) 0.999999 moe cosine(min) 1.000000 moe p95_rel(max) 0.0000 routing_agrees=true routing weights err(max) 8.79e-7 router x' rel(max) 1.54e-7 -> PASS
+PARITY layer 23 over 20 positions (p2-short): attention cosine(min) 0.999957 moe cosine(min) 1.000000 moe p95_rel(max) 0.0000 routing_agrees=true routing weights err(max) 9.69e-7 router x' rel(max) 2.05e-7 -> PASS
+PARITY layer 47 over 20 positions (p2-short): attention cosine(min) 0.999997 moe cosine(min) 1.000000 moe p95_rel(max) 0.0000 routing_agrees=true routing weights err(max) 7.30e-7 router x' rel(max) 2.15e-7 -> PASS
+CONTROL routing-mutant: layer 0 moe cosine(min) 0.3692 -> CAUGHT
+CONTROL fp8-scales-dropped: layer 0 moe cosine(min) 0.8582 -> CAUGHT
+CONTROL attention-mutant-1: layer 0 attention cosine(min) 0.8221 over 20 positions -> CAUGHT
+CONTROL router-mutant-1: layer 0 moe cosine(min) 0.7682 routing_agrees=false routing weights err(max) 6.70e-1 router x' rel(max) 2.76e1 over 4 positions -> CAUGHT
+CONTROL router-mutant-2: layer 0 moe cosine(min) 0.5346 routing_agrees=false routing weights err(max) 2.20e-1 router x' rel(max) 1.09e-7 over 4 positions -> CAUGHT
+CONTROL router-mutant-3: layer 0 moe cosine(min) -0.1282 routing_agrees=true routing weights err(max) 6.26e-7 router x' rel(max) 1.09e-7 over 4 positions -> CAUGHT
+CONTROL router-mutant-4: layer 0 moe cosine(min) 1.0000 routing_agrees=true routing weights err(max) 7.73e-1 router x' rel(max) 1.09e-7 over 4 positions -> CAUGHT
+PREFILL chunk 1 (p3-medium, 204 tokens): 5.36s = 26.3 ms/token; per token: attention 10.9 ms experts 15.3 ms (routing 0.00 ms, sort+swiglu+combine 0.00 ms) host 0.6 ms chip-reported 23.9 ms launches 288.0; first tokens [12, 576, 50275, 55, 26467, 5711, 279, 18865]
+PREFILL chunk 64 (p3-medium, 204 tokens): 2.89s = 14.2 ms/token; per token: attention 6.2 ms experts 7.8 ms (routing 1.18 ms, sort+swiglu+combine 0.61 ms) host 0.1 ms chip-reported 10.5 ms launches 51.8; first tokens [12, 576, 50275, 55, 26467, 5711, 279, 18865]
+PREFILL chunk 64 vs 1: tokens IDENTICAL ; first-step logits cosine 0.9999987 max abs diff 5.32e-2 ; 26.3 -> 14.2 ms/token -> PASS
+CONTROL gemm-mutant-1: prefill of 80 tokens (p3-medium, chunk 64) first-step logits cosine 0.1695 max abs diff 3.09e1 tokens [80238] vs clean [220] -> CAUGHT
+CONTROL gemm-mutant-2: prefill of 80 tokens (p3-medium, chunk 64) first-step logits cosine 0.9568 max abs diff 8.19e0 tokens [3175] vs clean [220] -> CAUGHT
+CONTROL gemm-mutant-3: prefill of 80 tokens (p3-medium, chunk 64) first-step logits cosine 0.9194 max abs diff 1.16e1 tokens [279] vs clean [220] -> CAUGHT
+CONTROL gemm-mutants-off: the clean prefill after the mutants is bit-identical to before -> PASS
+TOKENS p1-one-token: 1 prompt tokens, prefill 0.02s (24.0 ms/token; chunk 64, per token attention 9.6 ms experts 14.6 ms host 0.6 ms launches 288.0), decode 16 tokens in 372 ms = 23.2 ms/token = 43.0 tok/s; per step: attention 0.0 ms experts 0.0 ms lm_head 0.2 ms host 0.1 ms chip-reported 23.2 ms launches 408.8125; IDENTICAL
+  DECODE GRAPH ON: 15 of 16 decode steps as one list (the first step is the prefill's lm_head); per step launches 408.8 submits 1.0; per graph token launches 436.0 submits 1.0 record 48.6 us
+  TIMELINE over 15 graph tokens: kind          launches    us/step     bytes/step      GB/s
+  TIMELINE norm               1.0        6.3              -         -
+  TIMELINE qkv               48.0     3330.7      503316480     151.1
+  TIMELINE attn              48.0     2001.5              -         -
+  TIMELINE o_proj            48.0     2943.9      402653184     136.8
+  TIMELINE res_add           48.0      231.6              -         -
+  TIMELINE router            48.0     1236.1              -         -
+  TIMELINE gate_up           48.0     6918.7     1207959552     174.6
+  TIMELINE swiglu            48.0      154.2              -         -
+  TIMELINE down              48.0     4363.3      603979776     138.4
+  TIMELINE combine_norm      48.0      491.1              -         -
+  TIMELINE lm_head            1.0     2791.0      622329856     223.0
+  TIMELINE argmax             2.0       15.3              -         -
+  TIMELINE span 24483.5 us/step (sum of kinds 24483.5) vs graph chip_ns 24539.2 us/step
+  chip text: " and welcome to the 2024-25 season of the National"
+  cpu  text: " and welcome to the 2024-25 season of the National"
+TOKENS p2-short: 20 prompt tokens, prefill 0.34s (17.1 ms/token; chunk 64, per token attention 6.3 ms experts 10.8 ms host 0.1 ms launches 57.6), decode 7 tokens in 176 ms = 25.1 ms/token = 39.8 tok/s; per step: attention 0.0 ms experts 0.0 ms lm_head 0.4 ms host 0.1 ms chip-reported 25.1 ms launches 436.14285714285717; IDENTICAL
+  DECODE GRAPH ON: 7 of 7 decode steps as one list (the first step is the prefill's lm_head); per step launches 436.1 submits 1.1; per graph token launches 436.0 submits 1.0 record 63.8 us
+  TIMELINE over 7 graph tokens: kind          launches    us/step     bytes/step      GB/s
+  TIMELINE norm               1.0        6.3              -         -
+  TIMELINE qkv               48.0     3323.5      503316480     151.4
+  TIMELINE attn              48.0     2107.7              -         -
+  TIMELINE o_proj            48.0     2953.8      402653184     136.3
+  TIMELINE res_add           48.0      227.3              -         -
+  TIMELINE router            48.0     1231.0              -         -
+  TIMELINE gate_up           48.0     6933.8     1207959552     174.2
+  TIMELINE swiglu            48.0      150.1              -         -
+  TIMELINE down              48.0     4368.2      603979776     138.3
+  TIMELINE combine_norm      48.0      485.4              -         -
+  TIMELINE lm_head            1.0     2778.7      622329856     224.0
+  TIMELINE argmax             2.0       15.1              -         -
+  TIMELINE span 24581.0 us/step (sum of kinds 24581.0) vs graph chip_ns 24652.8 us/step
+  chip text: "The capital of France is Paris."
+  cpu  text: "The capital of France is Paris.<|im_end|>"
+TOKENS p3-medium: 204 prompt tokens, prefill 2.83s (13.9 ms/token; chunk 64, per token attention 6.1 ms experts 7.7 ms host 0.1 ms launches 51.1), decode 16 tokens in 393 ms = 24.6 ms/token = 40.7 tok/s; per step: attention 0.0 ms experts 0.0 ms lm_head 0.2 ms host 0.1 ms chip-reported 24.4 ms launches 408.8125; IDENTICAL
+  DECODE GRAPH ON: 15 of 16 decode steps as one list (the first step is the prefill's lm_head); per step launches 408.8 submits 1.0; per graph token launches 436.0 submits 1.0 record 97.6 us
+  TIMELINE over 15 graph tokens: kind          launches    us/step     bytes/step      GB/s
+  TIMELINE norm               1.0        6.1              -         -
+  TIMELINE qkv               48.0     3355.3      503316480     150.0
+  TIMELINE attn              48.0     3170.5              -         -
+  TIMELINE o_proj            48.0     2990.0      402653184     134.7
+  TIMELINE res_add           48.0      225.3              -         -
+  TIMELINE router            48.0     1235.0              -         -
+  TIMELINE gate_up           48.0     6998.8     1207959552     172.6
+  TIMELINE swiglu            48.0      147.7              -         -
+  TIMELINE down              48.0     4391.0      603979776     137.5
+  TIMELINE combine_norm      48.0      482.9              -         -
+  TIMELINE lm_head            1.0     2798.4      622329856     222.4
+  TIMELINE argmax             2.0       14.9              -         -
+  TIMELINE span 25816.0 us/step (sum of kinds 25816.0) vs graph chip_ns 25879.2 us/step
+  chip text: "- The DGX Spark uses the GB10 Grace Blackwell superchip,"
+  cpu  text: "- The DGX Spark uses the GB10 Grace Blackwell superchip,"
+TOKENS p4-long: 657 prompt tokens, prefill 9.63s (14.7 ms/token; chunk 64, per token attention 6.7 ms experts 7.8 ms host 0.1 ms launches 51.0), decode 16 tokens in 395 ms = 24.7 ms/token = 40.5 tok/s; per step: attention 0.0 ms experts 0.0 ms lm_head 0.2 ms host 0.1 ms chip-reported 24.6 ms launches 408.8125; IDENTICAL
+  DECODE GRAPH ON: 15 of 16 decode steps as one list (the first step is the prefill's lm_head); per step launches 408.8 submits 1.0; per graph token launches 436.0 submits 1.0 record 80.9 us
+  TIMELINE over 15 graph tokens: kind          launches    us/step     bytes/step      GB/s
+  TIMELINE norm               1.0        6.1              -         -
+  TIMELINE qkv               48.0     3335.3      503316480     150.9
+  TIMELINE attn              48.0     3520.9              -         -
+  TIMELINE o_proj            48.0     2957.1      402653184     136.2
+  TIMELINE res_add           48.0      224.4              -         -
+  TIMELINE router            48.0     1225.7              -         -
+  TIMELINE gate_up           48.0     6936.6     1207959552     174.1
+  TIMELINE swiglu            48.0      148.7              -         -
+  TIMELINE down              48.0     4377.3      603979776     138.0
+  TIMELINE combine_norm      48.0      481.5              -         -
+  TIMELINE lm_head            1.0     2794.4      622329856     222.7
+  TIMELINE argmax             2.0       15.1              -         -
+  TIMELINE span 26023.0 us/step (sum of kinds 26023.0) vs graph chip_ns 26074.6 us/step
+  chip text: "What went wrong:  \nIn **run 10**, the model's output"
+  cpu  text: "What went wrong:  \nIn **run 10**, the model's output"
+SUMMARY parity=PASS tokens=PASS peak_rss=33.41 GB
+receipt: docs/inference/evidence/own30b-L2-20261013/graph-on-stamps

@@ -1,0 +1,7 @@
+queued 2026-10-14T00:53:54Z bin /tmp/own30b-decode/target/release/own30b_check sha 8659289402ac126f sc a61b249 omega cd57a892 (clean clone) archive c67f8ad74e78f9b8
+env AIEN_OMEGA_SPIN_US=2000 AIEN_OMEGA_CTA_BUDGET=64 OWN30B_DECODE_GRAPH=1
+flags --prompts 1,2,3,4 --new 16 --layers 0,23,47 --weights fp8 --attn fused --router device --lm-head gemv --prefill auto
+lock acquired 2026-10-14T00:53:54Z
+ 19:53:54 up 7 days, 13:22, 15 users,  load average: 3.27, 2.89, 7.24
+Mem:             121          16          35           2          73         104
+ended 2026-10-14T00:54:55Z

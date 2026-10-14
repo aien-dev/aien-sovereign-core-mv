@@ -1,0 +1,20 @@
+data: {"choices":[{"delta":{"content":"","role":"assistant"},"finish_reason":null,"index":0}],"created":1791943359,"id":"chatcmpl-18de42fde3c1fb200001","model":"qwen3-30b-a3b-instruct-2507","object":"chat.completion.chunk"}
+
+data: {"choices":[{"delta":{"content":"The"},"finish_reason":null,"index":0}],"created":1791943359,"id":"chatcmpl-18de42fde3c1fb200001","model":"qwen3-30b-a3b-instruct-2507","object":"chat.completion.chunk"}
+
+data: {"choices":[{"delta":{"content":" capital"},"finish_reason":null,"index":0}],"created":1791943359,"id":"chatcmpl-18de42fde3c1fb200001","model":"qwen3-30b-a3b-instruct-2507","object":"chat.completion.chunk"}
+
+data: {"choices":[{"delta":{"content":" of"},"finish_reason":null,"index":0}],"created":1791943359,"id":"chatcmpl-18de42fde3c1fb200001","model":"qwen3-30b-a3b-instruct-2507","object":"chat.completion.chunk"}
+
+data: {"choices":[{"delta":{"content":" Italy"},"finish_reason":null,"index":0}],"created":1791943359,"id":"chatcmpl-18de42fde3c1fb200001","model":"qwen3-30b-a3b-instruct-2507","object":"chat.completion.chunk"}
+
+data: {"choices":[{"delta":{"content":" is"},"finish_reason":null,"index":0}],"created":1791943359,"id":"chatcmpl-18de42fde3c1fb200001","model":"qwen3-30b-a3b-instruct-2507","object":"chat.completion.chunk"}
+
+data: {"choices":[{"delta":{"content":" Rome"},"finish_reason":null,"index":0}],"created":1791943359,"id":"chatcmpl-18de42fde3c1fb200001","model":"qwen3-30b-a3b-instruct-2507","object":"chat.completion.chunk"}
+
+data: {"choices":[{"delta":{"content":"."},"finish_reason":null,"index":0}],"created":1791943359,"id":"chatcmpl-18de42fde3c1fb200001","model":"qwen3-30b-a3b-instruct-2507","object":"chat.completion.chunk"}
+
+data: {"choices":[{"delta":{},"finish_reason":"stop","index":0}],"created":1791943359,"id":"chatcmpl-18de42fde3c1fb200001","model":"qwen3-30b-a3b-instruct-2507","object":"chat.completion.chunk","usage":{"completion_tokens":7,"prompt_tokens":62,"total_tokens":69}}
+
+data: [DONE]
+

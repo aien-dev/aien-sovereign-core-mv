@@ -1,0 +1,11 @@
+  [3s] model.layers.4.mlp.experts.down
+  [6s] model.layers.9.mlp.experts.down
+  [9s] model.layers.14.mlp.experts.down
+  [12s] model.layers.19.mlp.experts.down
+  [14s] model.layers.24.mlp.experts.down
+  [17s] model.layers.29.mlp.experts.down
+  [18s] model.layers.34.mlp.experts.down
+  [20s] model.layers.39.mlp.experts.down
+  [22s] model.layers.44.mlp.experts.down
+  [24s] lm_head
+  [25s] kv fused cache 768 MB resident=true
