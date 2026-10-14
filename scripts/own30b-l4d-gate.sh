@@ -19,7 +19,7 @@ golden=$repo/docs/inference/evidence/own30b-f-20261013T1745Z/golden.json
 p5=$repo/docs/inference/evidence/own30b-l4c-cut2-chip-20261014T0227Z/p5-code-json.txt
 ev=$repo/docs/inference/evidence/own30b-l4d-gate-chip-$(date -u +%Y%m%dT%H%MZ)
 [ -f "$lib" ] || { echo "no omega archive at $lib"; exit 2; }
-nm "$lib" | grep -q " T omega_gpu_decode_attn_rows$" || { echo "$lib lacks omega_gpu_decode_attn_rows (needs omega own30b/spec-exact)"; exit 2; }
+nm "$lib" | grep " T omega_gpu_decode_attn_rows$" >/dev/null || { echo "$lib lacks omega_gpu_decode_attn_rows (needs omega own30b/spec-exact)"; exit 2; }
 stage=$(mktemp -d /tmp/l4d-gate.XXXX); cp "$lib" "$stage/libomega_gpu.a"
 export AIEN_OMEGA_GPU_LIB=$stage/libomega_gpu.a AIEN_OMEGA_GPU_LIB_SHA256=$(sha256sum "$lib" | cut -d' ' -f1) CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-/tmp/l4d/target}
 ( cd "$repo" && cargo build --release -p aien-inference-abi --bin own30b_spec_check ) || { echo "build failed"; exit 2; }
