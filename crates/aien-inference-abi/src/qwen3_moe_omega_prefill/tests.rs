@@ -28,6 +28,10 @@ enum Ev {
     /// W-L1G-D device router logits / combine (tests/devhost.rs).
     Router { k: usize, e: usize, rows: usize },
     Combine { h: usize, top_k: usize, rows: usize },
+    /// W-L1H W8A16 kernels.
+    Hconv { k: usize, input: QuantIn, rows: usize },
+    Hgemm { n: usize, k: usize, ntiles: usize },
+    Hswiglu { i: usize, rows: usize },
 }
 
 type Log = Rc<RefCell<Vec<Ev>>>;
@@ -111,6 +115,8 @@ struct FakeDevice {
     quant: HashMap<u64, QEntry>,
     /// Negative control: the gate|up GEMM ignores the row index (reads row i % rows: valid, wrong token).
     mutant_ignore_rowidx: bool,
+    /// W-L1H: offers the W8A16 kernels (`hgemm_bm` Some). Numerics stay exact as in the W8A8 fake (layout only).
+    a16: bool,
 }
 
 impl FakeDevice {
@@ -124,7 +130,7 @@ impl FakeDevice {
                 weights.insert(w, (s, t.n, t.k));
             }
         }
-        Self { bm, reg, log, weights, quant: HashMap::new(), mutant_ignore_rowidx: false }
+        Self { bm, reg, log, weights, quant: HashMap::new(), mutant_ignore_rowidx: false, a16: false }
     }
     fn alloc(&mut self, bytes: usize, host: bool) -> FakeBuf {
         let b = FakeBuf { mem: vec![0u64; bytes.div_ceil(8)], bytes, host, reg: self.reg.clone() };
@@ -168,11 +174,55 @@ impl PrefillDevice for FakeDevice {
         Ok(10)
     }
     fn qgemm(&mut self, c: &QgemmCall) -> Result<u64, String> {
-        let gather = c.rowidx_va != 0 && !self.mutant_ignore_rowidx;
         self.log.borrow_mut().push(Ev::Gemm { n: c.n, k: c.k, layout: c.layout, ntiles: c.ntiles, gather: c.rowidx_va != 0 });
+        self.gemm_impl(c, false)
+    }
+    fn hgemm_bm(&self) -> Option<usize> {
+        self.a16.then_some(self.bm)
+    }
+    fn hconv(&mut self, k: usize, input: QuantIn, rows: usize, x_va: u64, xh_va: u64) -> Result<u64, String> {
+        assert!(self.a16, "hconv on a device without the W8A16 kernels");
+        self.log.borrow_mut().push(Ev::Hconv { k, input, rows });
+        check_range(&self.reg, xh_va, rows * k * 2, "hconv out");
+        assert_eq!(input, QuantIn::F32, "the driver converts f32 rows only");
+        let data = read_f32(&self.reg, x_va, rows * k, "hconv x f32");
+        self.quant.insert(xh_va, QEntry { s_va: 0, k, rows, data });
+        Ok(10)
+    }
+    fn hswiglu(&mut self, i: usize, rows: usize, gu_va: u64, act_va: u64) -> Result<u64, String> {
+        assert!(self.a16, "hswiglu on a device without the W8A16 kernels");
+        self.log.borrow_mut().push(Ev::Hswiglu { i, rows });
+        check_range(&self.reg, act_va, rows * i * 2, "hswiglu out");
+        let gu = read_f32(&self.reg, gu_va, rows * 2 * i, "hswiglu gate|up rows");
+        let mut data = vec![0.0f32; rows * i];
+        for r in 0..rows {
+            for j in 0..i {
+                let (g, u) = (gu[r * 2 * i + j], gu[r * 2 * i + i + j]);
+                data[r * i + j] = bf16_to_f32(f32_to_bf16(silu(g) * u)); // the W8A8 fake's act rounding
+            }
+        }
+        self.quant.insert(act_va, QEntry { s_va: 0, k: i, rows, data });
+        Ok(10)
+    }
+    fn hgemm(&mut self, c: &aien_omega_pf::HgemmCall) -> Result<u64, String> {
+        assert!(self.a16, "hgemm on a device without the W8A16 kernels");
+        assert_ne!(c.rowidx_va, 0, "hgemm needs a row index");
+        self.log.borrow_mut().push(Ev::Hgemm { n: c.n, k: c.k, ntiles: c.ntiles });
+        let q = QgemmCall { n: c.n, k: c.k, layout: Layout::Plain, tiles_va: c.tiles_va, ntiles: c.ntiles, rowidx_va: c.rowidx_va, xq_va: c.xh_va, xs_va: 0, y_va: c.y_va };
+        self.gemm_impl(&q, true)
+    }
+}
+
+impl FakeDevice {
+    /// The GEMM of both modes: `a16` reads bf16 rows (2 bytes per element) and no scales.
+    fn gemm_impl(&mut self, c: &QgemmCall, a16: bool) -> Result<u64, String> {
+        let gather = c.rowidx_va != 0 && !self.mutant_ignore_rowidx;
         check_range(&self.reg, c.tiles_va, c.ntiles * TILE_BYTES, "tile table");
         let q = self.quant.get(&c.xq_va).expect("GEMM activations were quantised first");
-        assert_eq!(q.s_va, c.xs_va, "GEMM scales are the quantiser's");
+        if !a16 {
+            assert_eq!(q.s_va, c.xs_va, "GEMM scales are the quantiser's");
+        }
+        let eb = if a16 { 2 } else { 1 };
         assert_eq!(q.k, c.k, "GEMM k equals the quantised row width");
         let kb = c.k / 128;
         for ti in 0..c.ntiles {
@@ -194,8 +244,10 @@ impl PrefillDevice for FakeDevice {
                 } else {
                     if c.rowidx_va != 0 { idx % q.rows } else { idx } // the mutant reads sorted row i % rows instead of its token
                 };
-                check_range(&self.reg, c.xq_va + (src * c.k) as u64, c.k, "activation row (tile padding)");
-                check_range(&self.reg, c.xs_va + (src * kb * 4) as u64, kb * 4, "activation scales (tile padding)");
+                check_range(&self.reg, c.xq_va + (src * c.k * eb) as u64, c.k * eb, "activation row (tile padding)");
+                if !a16 {
+                    check_range(&self.reg, c.xs_va + (src * kb * 4) as u64, kb * 4, "activation scales (tile padding)");
+                }
                 if r >= t.cnt as usize {
                     continue;
                 }
@@ -617,3 +669,6 @@ fn cache_weights_refusal_leaves_the_in_place_path_working() {
 
 /// W-L1G-D: the device router logits + combine path (fake device in tests/devhost.rs).
 mod devhost;
+
+/// W-L1H: the W8A16 activation mode (tests/acts.rs).
+mod acts;

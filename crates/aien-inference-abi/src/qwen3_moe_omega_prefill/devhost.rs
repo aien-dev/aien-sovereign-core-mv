@@ -194,7 +194,7 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
             if let Some(t) = tr.as_deref_mut().filter(|t| t.ops_layer == Some(l)) {
                 t.ops.x_norm = host(&b.xin, "xin")?[..m * h].to_vec();
             }
-            st.chip_ns += dev.quant(h, QuantIn::F32, m, b.xin.va(), b.xq.va(), b.xs.va()).map_err(|err| format!("layer {l} quant x: {err}"))?;
+            st.chip_ns += b.act_in(dev, h, QuantIn::F32, m, b.xin.va()).map_err(|err| format!("layer {l} quant x: {err}"))?;
             st.quant += 1;
 
             // --- q|k|v, attention, o: exactly as `run` ---
@@ -207,7 +207,7 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
                 (None, None) => unreachable!("ensure allocates one q|k|v buffer"),
             };
             let call = QgemmCall { n: qkv_n, k: h, layout: Layout::Plain, tiles_va: tv, ntiles: nt, rowidx_va: 0, xq_va: b.xq.va(), xs_va: b.xs.va(), y_va: qkv_y };
-            st.chip_ns += dev.qgemm(&call).map_err(|err| format!("layer {l} q|k|v gemm x{m}: {err}"))?;
+            st.chip_ns += b.gemm(dev, &call).map_err(|err| format!("layer {l} q|k|v gemm x{m}: {err}"))?;
             st.qkv += 1;
             let att_va = if let (Some(qd_buf), Some(ad_buf)) = (&b.qkv_dev, &b.att_dev) {
                 let ns = attn
@@ -234,13 +234,13 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
                 };
                 t.ops.attn = if b.att_dev.is_some() { read_dev(&mut *dev, att_va, m * qd)? } else { host(&b.xin, "xin")?[..m * qd].to_vec() };
             }
-            st.chip_ns += dev.quant(qd, QuantIn::F32, m, att_va, b.xq.va(), b.xs.va()).map_err(|err| format!("layer {l} quant attn: {err}"))?;
+            st.chip_ns += b.act_in(dev, qd, QuantIn::F32, m, att_va).map_err(|err| format!("layer {l} quant attn: {err}"))?;
             st.quant += 1;
             lap!(dev_ns);
             let (tv, nt) = put_tiles(&mut b.tiles, b.max_tiles, Region::O, &[ent.o.0], &[ent.o.1], &dense)?;
             lap!(tiles_ns);
             let call = QgemmCall { n: h, k: qd, layout: Layout::Plain, tiles_va: tv, ntiles: nt, rowidx_va: 0, xq_va: b.xq.va(), xs_va: b.xs.va(), y_va: b.oproj.va() };
-            st.chip_ns += dev.qgemm(&call).map_err(|err| format!("layer {l} o gemm x{m}: {err}"))?;
+            st.chip_ns += b.gemm(dev, &call).map_err(|err| format!("layer {l} o gemm x{m}: {err}"))?;
             st.o += 1;
             if let Some(t) = tr.as_deref_mut().filter(|t| t.ops_layer == Some(l)) {
                 t.ops.oproj = host(&b.oproj, "o projection")?[..m * h].to_vec();
@@ -292,7 +292,7 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
             host_mut(&mut d.wts, "weights")?[..g].copy_from_slice(&plan.topk_weights);
             st.host_ns += t.elapsed().as_nanos() as u64;
             lap!(plan_ns);
-            st.chip_ns += dev.quant(h, QuantIn::F32, m, d.post.va(), b.xq.va(), b.xs.va()).map_err(|err| format!("layer {l} quant post: {err}"))?;
+            st.chip_ns += b.act_in(dev, h, QuantIn::F32, m, d.post.va()).map_err(|err| format!("layer {l} quant post: {err}"))?;
             st.quant += 1;
 
             // --- experts: gate|up (rows gathered by token), act quantised, down into DEVICE rows ---
@@ -305,15 +305,15 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
             }
             lap!(tiles_ns);
             let call = QgemmCall { n: 2 * i, k: h, layout: Layout::SwigluNat, tiles_va: tv, ntiles: nt, rowidx_va: b.rowidx.va(), xq_va: b.xq.va(), xs_va: b.xs.va(), y_va: b.act.va() };
-            st.chip_ns += dev.qgemm(&call).map_err(|err| format!("layer {l} gate|up gemm x{g}: {err}"))?;
+            st.chip_ns += b.gemm(dev, &call).map_err(|err| format!("layer {l} gate|up gemm x{g}: {err}"))?;
             st.gate_up += 1;
-            st.chip_ns += dev.quant(i, QuantIn::Bf16, g, b.act.va(), b.aq.va(), b.a_s.va()).map_err(|err| format!("layer {l} quant act: {err}"))?;
+            st.chip_ns += b.act_mid(dev, i, g).map_err(|err| format!("layer {l} quant act: {err}"))?;
             st.quant += 1;
             lap!(dev_ns);
             let (tv, nt) = put_tiles(&mut b.tiles, b.max_tiles, Region::Down, &ent.dn_w, &ent.dn_s, &sort.counts)?;
             lap!(tiles_ns);
             let call = QgemmCall { n: h, k: i, layout: Layout::Plain, tiles_va: tv, ntiles: nt, rowidx_va: 0, xq_va: b.aq.va(), xs_va: b.a_s.va(), y_va: d.down.va() };
-            st.chip_ns += dev.qgemm(&call).map_err(|err| format!("layer {l} down gemm x{g}: {err}"))?;
+            st.chip_ns += b.gemm(dev, &call).map_err(|err| format!("layer {l} down gemm x{g}: {err}"))?;
             st.down += 1;
             lap!(dev_ns);
 

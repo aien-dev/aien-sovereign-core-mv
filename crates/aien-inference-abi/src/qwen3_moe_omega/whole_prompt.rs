@@ -52,6 +52,12 @@ impl Qwen3MoeOmegaEngine {
         wp.set_device_host_work(&self.weights, on)
     }
 
+    /// Selects the whole-prompt GEMM activation precision (W-L1H): `W8A8` (the default, e4m3 activations) or
+    /// `W8A16` (bf16 activations on the same FP8 weights). Needs the switch on; W8A16 needs omega's W8A16 kernels.
+    pub fn set_whole_prompt_acts(&mut self, acts: crate::qwen3_moe_omega_prefill::PrefillActs) -> Result<(), String> {
+        self.whole_prompt.as_mut().ok_or("whole-prompt prefill is off")?.set_acts(acts)
+    }
+
     /// Whether the whole-prompt path runs its router logits and combine on the chip.
     pub fn whole_prompt_device_host_on(&self) -> bool {
         self.whole_prompt.as_ref().is_some_and(|w| w.device_host_work())

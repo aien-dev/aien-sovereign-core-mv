@@ -3,6 +3,7 @@
 //!   own30b_ttft <checkpoint> <receipt-dir> [--lens 512,2048] [--new-tokens 32] [--reps 2]
 //!               [--max-context 8192] [--force-memory]
 //!               [--devhost]   (W-L1G-E: also ON with router logits + combine on the chip, and expert agreement)
+//!               [--acts a8|a16]  (W-L1H: ON with e4m3 (default) or bf16 GEMM activations)
 //!
 //! Loads the FP8 model once (fused attention), then for every prompt length runs, `--reps`
 //! times, OFF (the engine's chunked prefill) then ON (`set_whole_prompt(true)`), each from an
@@ -15,7 +16,7 @@ use std::time::Instant;
 
 use aien_inference_abi::qwen3_moe_omega::{AttnPath, DevicePaths, GenerateParams, Qwen3MoeOmegaEngine, StepTiming, WeightFormat};
 use aien_inference_abi::tokenizer::ChatTokenizer as Tokenizer;
-use aien_inference_abi::qwen3_moe_omega_prefill::WpTrace;
+use aien_inference_abi::qwen3_moe_omega_prefill::{PrefillActs, WpTrace};
 
 fn mem_available_gb() -> f64 {
     std::fs::read_to_string("/proc/meminfo")
@@ -111,6 +112,7 @@ fn main() {
     let receipt = PathBuf::from(args.get(2).expect("receipt dir"));
     let (mut lens, mut new_tokens, mut reps, mut max_context, mut force, mut cached) = (vec![512usize, 2048], 32usize, 2usize, 8192usize, false, false);
     let (mut devhost, mut devhost_exact) = (false, true);
+    let mut acts = PrefillActs::W8A8;
     let mut it = args[3..].iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -121,6 +123,7 @@ fn main() {
             "--force-memory" => force = true,
             "--cached" => cached = true,
             "--devhost" => devhost = true,
+            "--acts" => acts = PrefillActs::parse(it.next().expect("--acts a8|a16")).expect("--acts"),
             o => panic!("unknown argument {o}"),
         }
     }
@@ -170,6 +173,7 @@ fn main() {
             engine.set_whole_prompt(false).expect("off");
             let off = run(&mut engine, &ids, new_tokens);
             engine.set_whole_prompt(true).expect("whole-prompt prefill refused");
+            engine.set_whole_prompt_acts(acts).expect("prefill activations refused");
             let on = run(&mut engine, &ids, new_tokens);
             let st = engine.whole_prompt_stats().cloned().unwrap_or_default();
             let diff = off.tokens.iter().zip(&on.tokens).position(|(a, b)| a != b).or((off.tokens.len() != on.tokens.len()).then_some(off.tokens.len().min(on.tokens.len())));
@@ -260,6 +264,7 @@ fn main() {
         if devhost {
             // Expert agreement (W-L1G-E), untimed: one traced ON run per routing path, every layer's expert ids compared.
             engine.set_whole_prompt(true).expect("on");
+            engine.set_whole_prompt_acts(acts).expect("prefill activations refused");
             engine.set_whole_prompt_device_host(false).expect("host");
             engine.whole_prompt_set_trace(Some(WpTrace::new(None))).expect("trace");
             let _ = run(&mut engine, &ids, 1);
@@ -285,6 +290,7 @@ fn main() {
     if cached {
         // Phase B: the whole-prompt GEMMs read a GPU-cached copy of the weights (the OFF runs above are the baseline).
         engine.set_whole_prompt(true).expect("on");
+        engine.set_whole_prompt_acts(acts).expect("prefill activations refused");
         let t = Instant::now();
         let bytes = engine.whole_prompt_cache_weights().expect("cached weight copy");
         say(format!("CACHED copy {:.2} GB in {:.2} s, mem_available {:.1} GB", bytes as f64 / 1e9, t.elapsed().as_secs_f64(), mem_available_gb()));
@@ -313,6 +319,7 @@ fn main() {
             }
         }
     }
+    say(format!("SUMMARY acts {}", acts.name()));
     say(format!("SUMMARY tokens {}", if all_identical { "IDENTICAL" } else { "DIFFER" }));
     if devhost {
         say(format!("SUMMARY devhost vs host routing+combine {}", if devhost_exact { "BIT-IDENTICAL" } else { "DIFFER" }));
