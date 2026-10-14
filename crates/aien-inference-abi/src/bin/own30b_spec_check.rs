@@ -20,6 +20,9 @@
 //! W-L4d: `--verify exact` (or `decode,exact`): the fast exact verify (`AIEN_OWN30B_SPEC_VERIFY=exact`); it must be
 //! token-identical like `decode`. Extra numerics control: the exact verify with bf16-truncated attention must differ
 //! from OFF on at least one prompt, else FAIL.
+//!
+//! W-L4e: the golden compare looks only at the golden list's length (16 tokens; never past it). `--require-golden`
+//! makes a spec-off difference inside that length a FAIL (default: recorded).
 
 use std::path::PathBuf;
 
@@ -50,6 +53,13 @@ fn first_diff(a: &[u32], b: &[u32]) -> Option<usize> {
     (0..a.len().max(b.len())).find(|&i| a.get(i) != b.get(i))
 }
 
+/// W-L4e cut 4: the first token where `off` differs from the golden list, looking ONLY at the golden
+/// length (the golden file holds 16 tokens; a longer generation is not judged past it). `off` ending
+/// before the golden list does is a difference at its end.
+fn golden_diff(off: &[u32], golden: &[u32]) -> Option<usize> {
+    (0..golden.len()).find(|&i| off.get(i) != golden.get(i))
+}
+
 fn main() {
     let mut it = std::env::args().skip(1);
     let mut pos: Vec<String> = Vec::new();
@@ -62,12 +72,15 @@ fn main() {
     let mut extra: Vec<(String, String)> = Vec::new();
     let mut only: Option<Vec<String>> = None;
     let mut new_extra = 0usize;
+    // W-L4e: --require-golden: spec-off differing from the golden list (on the golden length only) is a FAIL.
+    let mut require_golden = false;
     while let Some(a) = it.next() {
         match a.as_str() {
             "--runs" => runs = it.next().expect("--runs N").parse().expect("number"),
             "--new" => new_tokens = it.next().expect("--new N").parse().expect("number"),
             "--max-context" => max_context = it.next().expect("--max-context N").parse().expect("number"),
             "--force-memory" => force = true,
+            "--require-golden" => require_golden = true,
             "--verify" => verify = it.next().expect("--verify decode|wp|both"),
             "--wp-prefill" => wp_prefill = true,
             "--wp-cached" => wp_cached = true,
@@ -220,9 +233,15 @@ fn main() {
                 (got, st, tps, o.decode_ms)
             };
             let (t_off, _, tps_off, ms_off) = go(&off, &mut engine);
-            let golden_cmp = match first_diff(&t_off, &want) {
-                None => "IDENTICAL".to_string(),
-                Some(i) => format!("differs at token {i} (recorded; spec-off is the reference)"),
+            let golden_cmp = match (want.is_empty(), golden_diff(&t_off, &want)) {
+                (true, _) => "no golden list".to_string(),
+                (false, None) => format!("IDENTICAL on the golden length {}", want.len()),
+                (false, Some(i)) => {
+                    if require_golden {
+                        all_ok = false;
+                    }
+                    format!("differs at token {i} of the golden {} ({})", want.len(), if require_golden { "FAIL: --require-golden" } else { "recorded; spec-off is the reference" })
+                }
             };
             say(format!("{name} run {run}: OFF {tps_off:.1} tok/s ({ms_off} ms, {} tokens) | off-vs-golden {golden_cmp}", t_off.len()));
             if run == 1 && want.is_empty() {
@@ -258,7 +277,7 @@ fn main() {
                     st.rounds, st.wp_rounds, st.plain_steps, st.backoff_steps, st.drafted, st.accepted, st.acceptance(), tokens_per_round, verify_ms, st.global_rounds
                 ));
                 rows.push(serde_json::json!({"prompt": name, "run": run, "verify": format!("{path:?}"), "identical": diff.is_none(), "first_diff": diff,
-                    "off_matches_golden": t_off == want, "off_tok_s": tps_off, "on_tok_s": tps_on, "off_ms": ms_off, "on_ms": ms_on,
+                    "off_matches_golden": !want.is_empty() && golden_diff(&t_off, &want).is_none(), "golden_len": want.len(), "off_tok_s": tps_off, "on_tok_s": tps_on, "off_ms": ms_off, "on_ms": ms_on,
                     "rounds": st.rounds, "wp_rounds": st.wp_rounds, "plain": st.plain_steps, "backoff": st.backoff_steps, "drafted": st.drafted, "accepted": st.accepted,
                     "acceptance": st.acceptance(), "tokens_per_round": tokens_per_round, "verify_ms_per_round": verify_ms, "global_rounds": st.global_rounds,
                     "drafter": format!("{:?}", on.source), "prompt_tokens": ids, "tokens_off": t_off, "tokens_on": t_on}));
@@ -308,4 +327,24 @@ fn main() {
     std::fs::write(receipt.join("run.log"), log.join("\n")).expect("write log");
     std::fs::write(receipt.join("run.json"), serde_json::to_string_pretty(&serde_json::json!({"runs": rows, "pass": all_ok})).unwrap()).expect("write json");
     std::process::exit(if all_ok { 0 } else { 1 });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::golden_diff;
+
+    #[test]
+    fn golden_compare_stops_at_the_golden_length() {
+        let golden = [1u32, 2, 3, 4];
+        // A 64-token generation that matches the 4 golden tokens is identical, whatever follows.
+        let long: Vec<u32> = [1u32, 2, 3, 4].iter().copied().chain(100..160).collect();
+        assert_eq!(golden_diff(&long, &golden), None);
+        assert_eq!(golden_diff(&golden, &golden), None);
+        // A real difference inside the golden length is still reported at its index.
+        assert_eq!(golden_diff(&[1, 2, 9, 4, 5], &golden), Some(2));
+        // Stopping early (fewer tokens than the golden list) differs where the output ends.
+        assert_eq!(golden_diff(&[1, 2], &golden), Some(2));
+        // No golden list: nothing to compare.
+        assert_eq!(golden_diff(&long, &[]), None);
+    }
 }
