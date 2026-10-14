@@ -1,0 +1,3 @@
+mem available before load: 73.2 GB
+LOAD 56.3s attention=fused prefill_chunk=8 device_routing=true spec_possible=false
+FAIL: speculative verify path is not available on this engine (needs the prefill GEMM everywhere)
