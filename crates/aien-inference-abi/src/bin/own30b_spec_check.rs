@@ -21,13 +21,15 @@
 //! token-identical like `decode`. Extra numerics control: the exact verify with bf16-truncated attention must differ
 //! from OFF on at least one prompt, else FAIL.
 //!
-//! W-L4e: the golden compare looks only at the golden list's length (16 tokens; never past it). `--require-golden`
+//! W-L4e: `--numerics-mutant act-fp8` (default: W8A8 activations inside the verify, the whole-prompt
+//! rounding class), `residual-bf16` (residual stream truncated to bf16) or `attn-bf16` (the W-L4d control, never caught
+//! on the full model). The golden compare looks only at the golden list's length (16 tokens; never past it). `--require-golden`
 //! makes a spec-off difference inside that length a FAIL (default: recorded).
 
 use std::path::PathBuf;
 
 use aien_inference_abi::qwen3_moe_omega::spec::suffix::SuffixDrafter;
-use aien_inference_abi::qwen3_moe_omega::spec::{DraftSource, SpecConfig, VerifyPath};
+use aien_inference_abi::qwen3_moe_omega::spec::{DraftSource, NumericsMutant, SpecConfig, VerifyPath};
 use aien_inference_abi::tokenizer::ChatTokenizer;
 use aien_inference_abi::qwen3_moe_omega::{AttnPath, DevicePaths, GenerateParams, Qwen3MoeConfig, Qwen3MoeOmegaEngine, WeightFormat};
 
@@ -74,6 +76,8 @@ fn main() {
     let mut new_extra = 0usize;
     // W-L4e: --require-golden: spec-off differing from the golden list (on the golden length only) is a FAIL.
     let mut require_golden = false;
+    // W-L4e cut 1: the numerics control (default act-fp8, the whole-prompt rounding class; attn-bf16 is the W-L4d one, never caught on the full model).
+    let mut numerics = NumericsMutant::ActFp8;
     while let Some(a) = it.next() {
         match a.as_str() {
             "--runs" => runs = it.next().expect("--runs N").parse().expect("number"),
@@ -81,6 +85,7 @@ fn main() {
             "--max-context" => max_context = it.next().expect("--max-context N").parse().expect("number"),
             "--force-memory" => force = true,
             "--require-golden" => require_golden = true,
+            "--numerics-mutant" => numerics = NumericsMutant::parse(&it.next().expect("--numerics-mutant KIND")).unwrap_or_else(|e| panic!("{e}")),
             "--verify" => verify = it.next().expect("--verify decode|wp|both"),
             "--wp-prefill" => wp_prefill = true,
             "--wp-cached" => wp_cached = true,
@@ -206,6 +211,7 @@ fn main() {
     let mut rows = Vec::new();
     let mut mutant_caught = vec![false; paths.len()];
     let mut numerics_caught = false;
+    let mut numerics_tally = (0usize, 0usize);
     let mut wp_identical = (0usize, 0usize);
     for (name, ids, want) in prompts.iter().cloned() {
         // --new-extra: a longer generation for the --extra-prompt prompts (no golden list).
@@ -294,12 +300,14 @@ fn main() {
                     if path == VerifyPath::Exact {
                         // W-L4d numerics control: the exact verify with attention outputs truncated to bf16.
                         // Compared with spec-off; it must differ on at least one prompt.
-                        let nm = SpecConfig { mutant_numerics: true, ..on.clone() };
+                        let nm = SpecConfig { mutant_numerics: numerics, ..on.clone() };
                         let (t_nm, _, _, _) = go(&nm, &mut engine);
                         let c = t_nm != t_off;
                         numerics_caught |= c;
+                        numerics_tally.1 += 1;
+                        numerics_tally.0 += c as usize;
                         say(format!(
-                            "{name} numerics control verify=Exact (bf16-truncated attention in verify): {}",
+                            "{name} numerics control verify=Exact ({numerics:?} in verify): {}",
                             if c { format!("output differs from OFF at token {} (CAUGHT)", first_diff(&t_off, &t_nm).unwrap_or(0)) } else { "output unchanged".to_string() }
                         ));
                     }
@@ -315,6 +323,9 @@ fn main() {
             say(format!("FAIL: verify={path:?}: the extra-accept mutant never changed the output; the check is not proven on this data"));
             all_ok = false;
         }
+    }
+    if paths.contains(&VerifyPath::Exact) {
+        say(format!("NUMERICS CONTROL ({numerics:?}): caught on {} of {} prompts", numerics_tally.0, numerics_tally.1));
     }
     if paths.contains(&VerifyPath::Exact) && !numerics_caught {
         say("FAIL: verify=Exact: the numerics mutant never changed the output; the identity check cannot see a rounding change on this data".into());

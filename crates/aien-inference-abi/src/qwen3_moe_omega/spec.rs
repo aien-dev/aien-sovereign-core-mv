@@ -44,9 +44,9 @@ pub struct SpecConfig {
     /// NEGATIVE CONTROL ONLY: also accepts the first draft that does not match. Output must then
     /// differ from spec-off; a check that does not notice is broken.
     pub mutant_accept_extra: bool,
-    /// NEGATIVE CONTROL ONLY (W-L4d): the `Exact` verify truncates every attention output to bf16
-    /// before o_proj (a numerics change the token comparison must catch).
-    pub mutant_numerics: bool,
+    /// NEGATIVE CONTROL ONLY (W-L4d, W-L4e): a rounding-class change inside the `Exact` verify that the
+    /// token comparison must catch. See [`NumericsMutant`].
+    pub mutant_numerics: NumericsMutant,
     /// Which pass checks the drafts (W-L4b). See [`VerifyPath`].
     pub verify: VerifyPath,
     /// W-L4b back-off: a round that accepts fewer than `min_accept` drafts makes the next rounds
@@ -56,6 +56,55 @@ pub struct SpecConfig {
     /// W-L4c: draft source and the suffix drafter's settings.
     pub source: DraftSource,
     pub suffix: SuffixConfig,
+}
+
+/// NEGATIVE CONTROL ONLY: a deliberate rounding error inside the exact verify pass (never set in serving).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum NumericsMutant {
+    #[default]
+    None,
+    /// W-L4d: attention outputs truncated to bf16 before o_proj. Too weak: on 3 real layers it moves the logits
+    /// by at most 0.036 (W-L4e probe), and the 2026-10-14 full-model gate never saw it change a token.
+    AttnBf16,
+    /// W-L4e: the residual stream kept in bf16, as a verify kernel with bf16 activations would: after each
+    /// residual add (attention and MoE) every word of x is truncated to bf16. x is never quantised again
+    /// before the device router, the norms and the next layer, so the error reaches the routing (expert
+    /// choice), the KV written for accepted positions and the final hidden state, and compounds over the layers.
+    ResidualBf16,
+    /// W-L4e: W8A8 activations, the rounding class of the whole-prompt path: every GEMM input row of the verify
+    /// (input-normed row, attention output, post-normed row, SwiGLU output rounded to bf16 first) goes through the
+    /// prefill quantiser (`fake_quant_row`: e4m3, power-of-two scale per 128 block) before the FP8 GEMM. The
+    /// whole-prompt verify, which has exactly these numerics, diverged from spec-off on 6 of 10 full-model runs
+    /// (W-L4c cut 2 receipt), so the token check is known to see this class on the real model.
+    ActFp8,
+}
+
+impl NumericsMutant {
+    pub fn parse(s: &str) -> Result<Self, String> {
+        match s {
+            "none" => Ok(Self::None),
+            "attn-bf16" => Ok(Self::AttnBf16),
+            "residual-bf16" => Ok(Self::ResidualBf16),
+            "act-fp8" => Ok(Self::ActFp8),
+            other => Err(format!("numerics mutant {other:?}: none, attn-bf16, residual-bf16 or act-fp8")),
+        }
+    }
+}
+
+/// Truncates every word to bf16 (keeps the top 16 bits).
+fn truncate_bf16(v: &mut [f32]) {
+    v.iter_mut().for_each(|x| *x = f32::from_bits(x.to_bits() & 0xffff_0000));
+}
+
+/// W8A8 fake quantisation of each `width`-wide row (the prefill quantiser).
+fn fake_quant_rows(v: &mut [f32], width: usize, bf16_first: bool) {
+    use crate::qwen3_moe_omega_prefill::fake_quant::{bf16_round_row, fake_quant_row};
+    for row in v.chunks_mut(width) {
+        if bf16_first {
+            bf16_round_row(row);
+        }
+        fake_quant_row(row);
+    }
 }
 
 /// The pass that runs `[t0, drafts..]` in one go.
@@ -80,7 +129,7 @@ pub const SPEC_ENV: &str = "AIEN_OWN30B_SPEC";
 
 impl Default for SpecConfig {
     fn default() -> Self {
-        Self { enabled: false, max_draft: 8, max_ngram: 3, min_ngram: 1, mutant_accept_extra: false, mutant_numerics: false, verify: VerifyPath::Decode, min_accept: 0, source: DraftSource::PromptLookup, suffix: SuffixConfig::default() }
+        Self { enabled: false, max_draft: 8, max_ngram: 3, min_ngram: 1, mutant_accept_extra: false, mutant_numerics: NumericsMutant::None, verify: VerifyPath::Decode, min_accept: 0, source: DraftSource::PromptLookup, suffix: SuffixConfig::default() }
     }
 }
 
@@ -96,7 +145,7 @@ impl SpecConfig {
             max_ngram: num("AIEN_OWN30B_SPEC_MAX_N", d.max_ngram),
             min_ngram: num("AIEN_OWN30B_SPEC_MIN_N", d.min_ngram),
             mutant_accept_extra: false,
-            mutant_numerics: false,
+            mutant_numerics: NumericsMutant::None,
             min_accept: num("AIEN_OWN30B_SPEC_MIN_ACCEPT", d.min_accept),
             // AIEN_OWN30B_SPEC_VERIFY=wp: verify through the whole-prompt driver (W-L4b).
             verify: match get("AIEN_OWN30B_SPEC_VERIFY").as_deref().map(str::trim) {
@@ -476,7 +525,7 @@ impl Qwen3MoeOmegaEngine {
     /// the experts' input, host SwiGLU, combine in slot order from zero), with these speed changes:
     ///   * host loops serial (no rayon wake-ups for at most a few rows).
     pub fn step_verify_exact_prof(&mut self, tokens: &[u32], prof: &mut ExactProf) -> Result<Vec<Vec<f32>>, String> {
-        self.step_verify_exact_inner(tokens, prof, false)
+        self.step_verify_exact_inner(tokens, prof, NumericsMutant::None)
     }
 
     /// Whether [`Self::step_verify_exact`] can run here: the device router (decode routes on the
@@ -485,8 +534,8 @@ impl Qwen3MoeOmegaEngine {
         self.weights.device_router.is_some() && self.device_routing && !self.routing_mutant && self.kv.path_name() == "fused"
     }
 
-    /// `mutant`: NEGATIVE CONTROL ONLY, attention outputs truncated to bf16 before o_proj.
-    pub fn step_verify_exact_inner(&mut self, tokens: &[u32], prof: &mut ExactProf, mutant: bool) -> Result<Vec<Vec<f32>>, String> {
+    /// `mutant`: NEGATIVE CONTROL ONLY (see [`NumericsMutant`]); `None` in every real use.
+    pub fn step_verify_exact_inner(&mut self, tokens: &[u32], prof: &mut ExactProf, mutant: NumericsMutant) -> Result<Vec<Vec<f32>>, String> {
         let m = tokens.len();
         if m == 0 {
             return Err("step_verify_exact: empty batch".into());
@@ -547,6 +596,9 @@ impl Qwen3MoeOmegaEngine {
             prof.host_ns += t.elapsed().as_nanos() as u64;
 
             let t = Instant::now();
+            if mutant == NumericsMutant::ActFp8 {
+                fake_quant_rows(&mut x_norm, h, false);
+            }
             let ns = qkv.gemm_f32(&dense_ids, &rows_m, &x_norm, &mut qkv_all).map_err(|e| format!("layer {layer_idx} qkv exact x{m}: {e}"))?;
             prof.qkv.add(t, ns);
             let t = Instant::now();
@@ -575,8 +627,11 @@ impl Qwen3MoeOmegaEngine {
             }
             prof.attn.add_n(t, chip, if rows_done { 2 } else { m as u64 });
             let t = Instant::now();
-            if mutant {
-                attn_all.iter_mut().for_each(|v| *v = f32::from_bits(v.to_bits() & 0xffff_0000));
+            if mutant == NumericsMutant::AttnBf16 {
+                truncate_bf16(&mut attn_all);
+            }
+            if mutant == NumericsMutant::ActFp8 {
+                fake_quant_rows(&mut attn_all, qd, false);
             }
             let ns = o.gemm_f32(&dense_ids, &rows_m, &attn_all, &mut proj_all).map_err(|e| format!("layer {layer_idx} o exact x{m}: {e}"))?;
             prof.o.add(t, ns);
@@ -584,6 +639,9 @@ impl Qwen3MoeOmegaEngine {
             let t = Instant::now();
             for (xi, p) in x.iter_mut().zip(&proj_all) {
                 *xi += p;
+            }
+            if mutant == NumericsMutant::ResidualBf16 {
+                truncate_bf16(&mut x);
             }
             prof.host_ns += t.elapsed().as_nanos() as u64;
             // Per token: the device router on the residual row, then the device's own normed row back.
@@ -616,6 +674,9 @@ impl Qwen3MoeOmegaEngine {
             }
             prof.host_ns += t.elapsed().as_nanos() as u64;
             let t = Instant::now();
+            if mutant == NumericsMutant::ActFp8 {
+                fake_quant_rows(&mut post, h, false);
+            }
             let ns = gate_up.gemm_f32(&sorted_expert, &sorted_token, &post, &mut gu_all).map_err(|e| format!("layer {layer_idx} gate_up exact x{g}: {e}"))?;
             prof.gate_up.add(t, ns);
             let t = Instant::now();
@@ -624,6 +685,9 @@ impl Qwen3MoeOmegaEngine {
             }
             prof.host_ns += t.elapsed().as_nanos() as u64;
             let t = Instant::now();
+            if mutant == NumericsMutant::ActFp8 {
+                fake_quant_rows(&mut act_all, i, true);
+            }
             let ns = down.gemm_f32(&sorted_expert, &rows_g, &act_all, &mut down_all).map_err(|e| format!("layer {layer_idx} down exact x{g}: {e}"))?;
             prof.down.add(t, ns);
             // Combine per token in slot order from zero, then the residual add (decode's order).
@@ -641,6 +705,9 @@ impl Qwen3MoeOmegaEngine {
                 for (xi, a) in x[r * h..(r + 1) * h].iter_mut().zip(&acc) {
                     *xi += a;
                 }
+            }
+            if mutant == NumericsMutant::ResidualBf16 {
+                truncate_bf16(&mut x);
             }
             prof.host_ns += t.elapsed().as_nanos() as u64;
         }
@@ -886,6 +953,24 @@ impl Qwen3MoeOmegaEngine {
 mod tests {
     use super::super::test_support::*;
     use super::*;
+
+    #[test]
+    fn numerics_mutant_names_parse_and_typos_are_refused() {
+        assert_eq!(NumericsMutant::parse("act-fp8"), Ok(NumericsMutant::ActFp8));
+        assert_eq!(NumericsMutant::parse("residual-bf16"), Ok(NumericsMutant::ResidualBf16));
+        assert_eq!(NumericsMutant::parse("attn-bf16"), Ok(NumericsMutant::AttnBf16));
+        assert_eq!(NumericsMutant::parse("none"), Ok(NumericsMutant::None));
+        assert!(NumericsMutant::parse("act_fp8").is_err());
+        assert_eq!(SpecConfig::default().mutant_numerics, NumericsMutant::None, "never on by default");
+        // The W8A8 fake quantiser really moves values (else the control could not change anything).
+        let mut v: Vec<f32> = (0..256).map(|j| (j as f32 * 0.37).sin() * 3.1).collect();
+        let before = v.clone();
+        fake_quant_rows(&mut v, 128, true);
+        assert!(v.iter().zip(&before).any(|(a, b)| a != b));
+        let mut w = before.clone();
+        truncate_bf16(&mut w);
+        assert!(w.iter().zip(&before).all(|(a, b)| (a - b).abs() <= b.abs() / 128.0));
+    }
 
     #[test]
     fn find_draft_takes_the_most_recent_match_longest_suffix_first() {

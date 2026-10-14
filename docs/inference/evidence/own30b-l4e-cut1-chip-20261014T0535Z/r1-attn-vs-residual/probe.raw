@@ -1,0 +1,40 @@
+spin_us Some(2000)
+LOAD 3 layers 2.1s prompt p4-long (657 tokens) reps 2 max_m 5 whole-prompt true
+prefilled 657 positions; first token 140474
+IDENTITY path=fast m=1 rows_equal=1/1 words_differ=0 first_bad_row=None logit_max_abs_diff=0.0000e0 argmax_flips=0 min_ref_margin=0.2479
+IDENTITY path=mutant m=1 rows_equal=0/1 words_differ=2048 first_bad_row=Some(0) logit_max_abs_diff=3.6170e-2 argmax_flips=0 min_ref_margin=0.2479
+IDENTITY path=mutant-res m=1 rows_equal=0/1 words_differ=2048 first_bad_row=Some(0) logit_max_abs_diff=6.6601e-2 argmax_flips=0 min_ref_margin=0.2479
+IDENTITY path=fast m=2 rows_equal=2/2 words_differ=0 first_bad_row=None logit_max_abs_diff=0.0000e0 argmax_flips=0 min_ref_margin=0.2479
+IDENTITY path=mutant m=2 rows_equal=0/2 words_differ=4096 first_bad_row=Some(0) logit_max_abs_diff=3.6170e-2 argmax_flips=0 min_ref_margin=0.2479
+IDENTITY path=mutant-res m=2 rows_equal=0/2 words_differ=4096 first_bad_row=Some(0) logit_max_abs_diff=7.7749e-2 argmax_flips=0 min_ref_margin=0.2479
+IDENTITY path=fast m=3 rows_equal=3/3 words_differ=0 first_bad_row=None logit_max_abs_diff=0.0000e0 argmax_flips=0 min_ref_margin=0.2479
+IDENTITY path=mutant m=3 rows_equal=0/3 words_differ=6144 first_bad_row=Some(0) logit_max_abs_diff=3.6170e-2 argmax_flips=0 min_ref_margin=0.2479
+IDENTITY path=mutant-res m=3 rows_equal=0/3 words_differ=6144 first_bad_row=Some(0) logit_max_abs_diff=7.7749e-2 argmax_flips=0 min_ref_margin=0.2479
+IDENTITY path=fast m=4 rows_equal=4/4 words_differ=0 first_bad_row=None logit_max_abs_diff=0.0000e0 argmax_flips=0 min_ref_margin=0.2479
+IDENTITY path=mutant m=4 rows_equal=0/4 words_differ=8192 first_bad_row=Some(0) logit_max_abs_diff=3.6170e-2 argmax_flips=0 min_ref_margin=0.2479
+IDENTITY path=mutant-res m=4 rows_equal=0/4 words_differ=8192 first_bad_row=Some(0) logit_max_abs_diff=7.7749e-2 argmax_flips=0 min_ref_margin=0.2479
+IDENTITY path=fast m=5 rows_equal=5/5 words_differ=0 first_bad_row=None logit_max_abs_diff=0.0000e0 argmax_flips=0 min_ref_margin=0.2479
+IDENTITY path=mutant m=5 rows_equal=0/5 words_differ=10240 first_bad_row=Some(0) logit_max_abs_diff=3.6170e-2 argmax_flips=0 min_ref_margin=0.2479
+IDENTITY path=mutant-res m=5 rows_equal=0/5 words_differ=10240 first_bad_row=Some(0) logit_max_abs_diff=9.9521e-2 argmax_flips=0 min_ref_margin=0.2479
+PLAIN step 1.56 ms (0.519 ms/layer) lm_head 2.92 ms | total 4.47 attention 0.66 experts 0.88 route 0.00 moe_host 0.00 host 0.04 chip 4.23 ms launches 19
+TIME path=fast m=1: wall 1.33 ms (0.444 ms/layer, 0.86x plain step) | total 1.33 attention 0.59 experts 0.69 route 0.08 moe_host 0.00 host 0.04 chip 1.19 ms launches 0
+PROF m=1 per call (all 3 layers): qkv 0.179/0.165 attn 0.237/0.231 o 0.185/0.175 route 0.082/0.078 gate_up 0.380/0.352 down 0.233/0.198 host 0.041 (ms per call, wall/chip)
+TIME path=fast m=2: wall 2.09 ms (0.697 ms/layer, 1.34x plain step) | total 2.09 attention 0.69 experts 1.31 route 0.16 moe_host 0.00 host 0.08 chip 1.81 ms launches 0
+PROF m=2 per call (all 3 layers): qkv 0.189/0.165 attn 0.315/0.295 o 0.189/0.173 route 0.163/0.154 gate_up 0.722/0.670 down 0.430/0.363 host 0.081 (ms per call, wall/chip)
+TIME path=fast m=3: wall 3.03 ms (1.011 ms/layer, 1.95x plain step) | total 3.02 attention 1.08 experts 1.81 route 0.24 moe_host 0.00 host 0.12 chip 2.62 ms launches 0
+PROF m=3 per call (all 3 layers): qkv 0.256/0.221 attn 0.433/0.406 o 0.489/0.465 route 0.248/0.234 gate_up 1.089/1.013 down 0.600/0.498 host 0.121 (ms per call, wall/chip)
+TIME path=fast m=4: wall 3.68 ms (1.228 ms/layer, 2.37x plain step) | total 3.68 attention 1.17 experts 2.34 route 0.33 moe_host 0.00 host 0.16 chip 3.14 ms launches 0
+PROF m=4 per call (all 3 layers): qkv 0.262/0.216 attn 0.433/0.398 o 0.492/0.461 route 0.326/0.307 gate_up 1.282/1.179 down 0.828/0.691 host 0.163 (ms per call, wall/chip)
+TIME path=fast m=5: wall 5.29 ms (1.764 ms/layer, 3.40x plain step) | total 5.29 attention 2.20 experts 2.88 route 0.41 moe_host 0.00 host 0.20 chip 4.61 ms launches 0
+PROF m=5 per call (all 3 layers): qkv 0.749/0.692 attn 0.498/0.455 o 0.933/0.894 route 0.413/0.389 gate_up 1.562/1.433 down 0.907/0.733 host 0.204 (ms per call, wall/chip)
+TIME path=mutant m=1: wall 1.33 ms (0.445 ms/layer, 0.86x plain step) | total 1.33 attention 0.59 experts 0.69 route 0.08 moe_host 0.00 host 0.04 chip 1.19 ms launches 0
+TIME path=mutant m=2: wall 2.10 ms (0.698 ms/layer, 1.35x plain step) | total 2.09 attention 0.69 experts 1.31 route 0.16 moe_host 0.00 host 0.08 chip 1.81 ms launches 0
+TIME path=mutant m=3: wall 3.04 ms (1.013 ms/layer, 1.95x plain step) | total 3.04 attention 1.09 experts 1.82 route 0.25 moe_host 0.00 host 0.12 chip 2.63 ms launches 0
+TIME path=mutant m=4: wall 3.69 ms (1.229 ms/layer, 2.37x plain step) | total 3.69 attention 1.18 experts 2.34 route 0.32 moe_host 0.00 host 0.16 chip 3.14 ms launches 0
+TIME path=mutant m=5: wall 5.36 ms (1.785 ms/layer, 3.44x plain step) | total 5.28 attention 2.18 experts 2.87 route 0.41 moe_host 0.00 host 0.20 chip 4.59 ms launches 0
+TIME path=mutant-res m=1: wall 1.33 ms (0.444 ms/layer, 0.86x plain step) | total 1.33 attention 0.59 experts 0.69 route 0.08 moe_host 0.00 host 0.04 chip 1.18 ms launches 0
+TIME path=mutant-res m=2: wall 2.10 ms (0.701 ms/layer, 1.35x plain step) | total 2.10 attention 0.70 experts 1.31 route 0.16 moe_host 0.00 host 0.08 chip 1.83 ms launches 0
+TIME path=mutant-res m=3: wall 3.04 ms (1.014 ms/layer, 1.95x plain step) | total 3.04 attention 1.10 experts 1.81 route 0.24 moe_host 0.00 host 0.12 chip 2.63 ms launches 0
+TIME path=mutant-res m=4: wall 3.68 ms (1.227 ms/layer, 2.37x plain step) | total 3.68 attention 1.17 experts 2.34 route 0.33 moe_host 0.00 host 0.16 chip 3.14 ms launches 0
+TIME path=mutant-res m=5: wall 5.28 ms (1.759 ms/layer, 3.39x plain step) | total 5.27 attention 2.17 experts 2.87 route 0.41 moe_host 0.00 host 0.20 chip 4.58 ms launches 0
+PROBE DONE

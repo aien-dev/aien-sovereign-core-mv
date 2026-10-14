@@ -1,0 +1,10 @@
+sc 844faeed9f38f49551688e9faa677f3afec6789d dirty=3
+omega archive /tmp/l4e/libomega_gpu.a 8d5a42e8efb83f2a7afd7c176cfb9425671256d036cc335cb4576b6fb867f97b
+29bbdadd5b3084e84182f639884395e5ef6da3fce0cb372c4839e5ca84b4815c  /tmp/l4e/target/release/own30b_exact_probe
+aa86c58c2c60d2979a5521eae9f2b4c9f42b0f6e29ab531b922ddb535a90a8c8  /tmp/l4e/target/release/own30b_spec_check
+               total        used        free      shared  buff/cache   available
+Mem:             121          53          10           2          61          68
+2026-10-14T05:24:09Z
+probe rc=0
+check attn-bf16 rc=0
+check residual-bf16 rc=0

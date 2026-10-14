@@ -5,6 +5,8 @@
 //!                      [--paths verify,fast,wp] [--no-identity]
 //!
 //! After a plain prefill of one golden prompt, at the same KV position every time (rewind after each call):
+//!   (W-L4e: paths also `mutant` = bf16 attention, `mutant-res` = bf16 residual stream, `mutant-fp8` = W8A8 activations; every IDENTITY line also
+//!   reports the logit change, argmax flips and the reference rows' smallest top-1/top-2 margin.)
 //!   1. IDENTITY: for m = 1..max_m rows, the hidden state of every row of each verify path is compared bit for bit
 //!      with m plain one-token `step` calls on the same tokens. Prints `IDENTITY path=<p> m=<m> rows_equal=a/m
 //!      words_differ=w`. The whole-prompt path (FP8 activations) is the instrument's negative control: it must
@@ -17,7 +19,7 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use aien_inference_abi::qwen3_moe_omega::spec::ExactProf;
+use aien_inference_abi::qwen3_moe_omega::spec::{ExactProf, NumericsMutant};
 use aien_inference_abi::qwen3_moe_omega::{AttnPath, DevicePaths, GenerateParams, Qwen3MoeOmegaEngine, StepTiming, WeightFormat};
 
 fn median(v: &mut [f64]) -> f64 {
@@ -27,6 +29,10 @@ fn median(v: &mut [f64]) -> f64 {
     } else {
         v[v.len() / 2]
     }
+}
+
+fn argmax(lg: &[f32]) -> usize {
+    lg.iter().enumerate().fold(0usize, |b, (i, &v)| if v > lg[b] { i } else { b })
 }
 
 fn ms(ns: u64) -> f64 {
@@ -52,7 +58,10 @@ fn run_path(engine: &mut Qwen3MoeOmegaEngine, path: &str, toks: &[u32]) -> Resul
         "verify" => engine.step_verify(toks),
         "fast" => engine.step_verify_exact(toks),
         "wp" => engine.step_verify_wp(toks),
-        "mutant" => engine.step_verify_exact_inner(toks, &mut ExactProf::default(), true),
+        "mutant" => engine.step_verify_exact_inner(toks, &mut ExactProf::default(), NumericsMutant::AttnBf16),
+        // W-L4e: the residual-stream bf16 mutant.
+        "mutant-res" => engine.step_verify_exact_inner(toks, &mut ExactProf::default(), NumericsMutant::ResidualBf16),
+        "mutant-fp8" => engine.step_verify_exact_inner(toks, &mut ExactProf::default(), NumericsMutant::ActFp8),
         other => Err(format!("unknown path {other}")),
     }
 }
@@ -145,8 +154,21 @@ fn main() {
                     }
                     words += d;
                 }
-                say(format!("IDENTITY path={path} m={m} rows_equal={rows_equal}/{m} words_differ={words} first_bad_row={first_bad:?}"));
-                rows_json.push(serde_json::json!({"path": path, "m": m, "rows_equal": rows_equal, "words_differ": words}));
+                // W-L4e: what the difference does to the logits: largest |logit change|, rows whose argmax
+                // flipped, and the smallest top-1/top-2 margin of the reference rows (a flip needs a change
+                // of about the margin).
+                let (mut dmax, mut flips, mut margin) = (0.0f32, 0usize, f32::INFINITY);
+                for (a, b) in reference.iter().zip(&got) {
+                    let la = engine.logits(a).expect("lm_head");
+                    let lb = engine.logits(b).expect("lm_head");
+                    dmax = la.iter().zip(&lb).map(|(x, y)| (x - y).abs()).fold(dmax, f32::max);
+                    let (ia, ib) = (argmax(&la), argmax(&lb));
+                    flips += (ia != ib) as usize;
+                    let second = la.iter().enumerate().filter(|(i, _)| *i != ia).map(|(_, &v)| v).fold(f32::NEG_INFINITY, f32::max);
+                    margin = margin.min(la[ia] - second);
+                }
+                say(format!("IDENTITY path={path} m={m} rows_equal={rows_equal}/{m} words_differ={words} first_bad_row={first_bad:?} logit_max_abs_diff={dmax:.4e} argmax_flips={flips} min_ref_margin={margin:.4}"));
+                rows_json.push(serde_json::json!({"path": path, "m": m, "rows_equal": rows_equal, "words_differ": words, "logit_max_abs_diff": dmax, "argmax_flips": flips, "min_ref_margin": margin}));
             }
         }
         json.insert("identity".into(), serde_json::Value::Array(rows_json));
