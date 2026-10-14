@@ -226,8 +226,9 @@ impl OmegaDoor {
         engine.set_spec(decode.spec).map_err(|m| format!("{m} (start with --spec off)"))?;
         match engine.spec_config() {
             Some(c) => eprintln!(
-                "aien-serve-http: spec=on (greedy requests: suffix drafter max_draft {} with past requests, exact verify, break-even back-off {}; plain steps {})",
+                "aien-serve-http: spec=on (greedy requests: suffix drafter max_draft {} with past requests, {} verify, break-even back-off {}; plain steps {})",
                 c.max_draft,
+                format!("{:?}", c.verify).to_lowercase(),
                 if c.break_even { "on" } else { "off" },
                 if graph_on { "one-list" } else { "launch-at-a-time" }
             ),
