@@ -1,0 +1,10 @@
+start 2026-10-14T03:41:11Z
+sc commit 72a6dd42a39ad5ebbca06ee9f36c0b0967a3443b branch own30b/resident
+binary /home/drakestapleton/workspace/sc-own30b-resident/docs/inference/evidence/own30b-L2h-resident-20261014T0340Z/own30b_check sha256 ccef68559cf57080e9bb875f703313c969deebd9e9c5b18674a79eb0e2b27e76
+golden /home/drakestapleton/workspace/sc-own30b-resident/docs/inference/evidence/own30b-f-20261013T1745Z/golden.json sha256 957d0165544f379951590f33108a8f7b26c2d55a677fc72b27c4b370497e1ace
+omega lib pinned omega.lock 
+env AIEN_OMEGA_SPIN_US=2000 AIEN_OMEGA_CTA_BUDGET=
+cmd flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/sc-own30b-resident/docs/inference/evidence/own30b-L2h-resident-20261014T0340Z/own30b_check chip /home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8 /home/drakestapleton/workspace/sc-own30b-resident/docs/inference/evidence/own30b-f-20261013T1745Z/golden.json /home/drakestapleton/workspace/sc-own30b-resident/docs/inference/evidence/own30b-L2h-resident-20261014T0340Z/base --prompts 1,2,3,4 --new 16 --layers 0,23,47 --weights fp8 --attn fused --router device --lm-head gemv --prefill auto
+               total        used        free      shared  buff/cache   available
+Mem:             121          47           7           2          69          73
+7.0.0-1019-nvidia

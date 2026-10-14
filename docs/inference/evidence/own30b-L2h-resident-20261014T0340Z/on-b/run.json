@@ -1,0 +1,384 @@
+{
+  "checkpoint": "/home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8",
+  "controls": [
+    {
+      "caught": true,
+      "control": "routing-mutant",
+      "moe_cosine_min": 0.3692025137900707
+    },
+    {
+      "caught": true,
+      "control": "fp8-scales-dropped",
+      "moe_cosine_min": 0.8582220221305831
+    },
+    {
+      "attn_cosine_min": 0.8221134324507205,
+      "caught": true,
+      "control": "attention-mutant-1"
+    },
+    {
+      "caught": true,
+      "control": "router-mutant-1",
+      "moe_cosine_min": 0.7682029976699462,
+      "router_xprime_rel_max": 27.602657318115234,
+      "routing_agrees": false,
+      "routing_weight_err_max": 0.66987144947052
+    },
+    {
+      "caught": true,
+      "control": "router-mutant-2",
+      "moe_cosine_min": 0.5345981367501033,
+      "router_xprime_rel_max": 1.0930641280992859e-7,
+      "routing_agrees": false,
+      "routing_weight_err_max": 0.21989747881889343
+    },
+    {
+      "caught": true,
+      "control": "router-mutant-3",
+      "moe_cosine_min": -0.1282351225769249,
+      "router_xprime_rel_max": 1.0930641280992859e-7,
+      "routing_agrees": true,
+      "routing_weight_err_max": 6.258487701416016e-7
+    },
+    {
+      "caught": true,
+      "control": "router-mutant-4",
+      "moe_cosine_min": 0.999999999999559,
+      "router_xprime_rel_max": 1.0930641280992859e-7,
+      "routing_agrees": true,
+      "routing_weight_err_max": 0.7731469869613647
+    },
+    {
+      "caught": true,
+      "control": "gemm-mutant-1",
+      "logits_cosine": 0.1695149104933057,
+      "max_abs_diff": 30.896467208862305
+    },
+    {
+      "caught": true,
+      "control": "gemm-mutant-2",
+      "logits_cosine": 0.9568050213120963,
+      "max_abs_diff": 8.191482543945312
+    },
+    {
+      "caught": true,
+      "control": "gemm-mutant-3",
+      "logits_cosine": 0.9193720714189647,
+      "max_abs_diff": 11.63990592956543
+    }
+  ],
+  "engine": {
+    "attention": "fused",
+    "bf16_api": true,
+    "cta_budget": 64,
+    "dattn_api": true,
+    "fp8_api": true,
+    "kv_resident": true,
+    "lm_head": "gemv",
+    "max_context": 8192,
+    "native": true,
+    "prefill_chunk": 64,
+    "prefill_path": "gemm",
+    "prefill_routing": "host",
+    "router": "device",
+    "router_api": true,
+    "spin_us": 2000,
+    "weights": "Fp8All",
+    "window_api": true
+  },
+  "golden": "/home/drakestapleton/workspace/sc-own30b-resident/docs/inference/evidence/own30b-f-20261013T1745Z/golden.json",
+  "load": {
+    "host_bytes": 673505280,
+    "peak_rss_before_bytes": 133545984,
+    "peak_rss_bytes": 31943536640,
+    "resident_bytes": 30526627840,
+    "seconds": 17.162367732,
+    "transient_gb": 0.7434035200000011
+  },
+  "long_prompt": null,
+  "parity": [
+    {
+      "attn_cosine_min": 0.9999988846132656,
+      "layer": 0,
+      "moe_cosine_min": 0.9999999999980523,
+      "moe_p95_rel_max": 1.210719347000122e-6,
+      "pass": true,
+      "positions": 20,
+      "router_xprime_rel_max": 1.5420889099004853e-7,
+      "routing_agrees": true,
+      "routing_weight_err_max": 8.791685104370117e-7
+    },
+    {
+      "attn_cosine_min": 0.9999568509533563,
+      "layer": 23,
+      "moe_cosine_min": 0.9999999999963317,
+      "moe_p95_rel_max": 5.8067962527275085e-6,
+      "pass": true,
+      "positions": 20,
+      "router_xprime_rel_max": 2.0500769437603594e-7,
+      "routing_agrees": true,
+      "routing_weight_err_max": 9.685754776000977e-7
+    },
+    {
+      "attn_cosine_min": 0.9999974833824463,
+      "layer": 47,
+      "moe_cosine_min": 0.9999999999997126,
+      "moe_p95_rel_max": 0.00001903623342514038,
+      "pass": true,
+      "positions": 20,
+      "router_xprime_rel_max": 2.1530942717618018e-7,
+      "routing_agrees": true,
+      "routing_weight_err_max": 7.301568984985352e-7
+    }
+  ],
+  "pass": true,
+  "prefill": {
+    "chunk": 64,
+    "launches_per_token_chunk": 51.76470588235294,
+    "launches_per_token_chunk1": 288.0,
+    "logits_cosine": 0.9999987410879339,
+    "logits_max_abs_diff": 0.053193092346191406,
+    "prefill_ms_chunk": 2834,
+    "prefill_ms_chunk1": 4967,
+    "prompt": "p3-medium",
+    "prompt_tokens": 204,
+    "tokens_identical": true
+  },
+  "prompts": [
+    {
+      "chip": [
+        323,
+        10565,
+        311,
+        279,
+        220,
+        17,
+        15,
+        17,
+        19,
+        12,
+        17,
+        20,
+        3200,
+        315,
+        279,
+        5055
+      ],
+      "decode_graph": {
+        "graph_launches": 2955,
+        "graph_record_ns": 297715,
+        "graph_submits": 15,
+        "graph_tokens": 15,
+        "mutant": "none",
+        "on": true,
+        "submits": 16,
+        "timeline": null
+      },
+      "decode_ms": 355,
+      "emitted": 16,
+      "first_diff": null,
+      "golden": [
+        323,
+        10565,
+        311,
+        279,
+        220,
+        17,
+        15,
+        17,
+        19,
+        12,
+        17,
+        20,
+        3200,
+        315,
+        279,
+        5055
+      ],
+      "name": "p1-one-token",
+      "per_step_ms": {
+        "attention": 0.0,
+        "chip_reported": 22.1559471875,
+        "experts": 0.0,
+        "host": 0.0216091875,
+        "launches": 184.75,
+        "lm_head": 0.183019375
+      },
+      "prefill_ms": 23,
+      "prompt_tokens": 1,
+      "tok_s": 45.070422535211264
+    },
+    {
+      "chip": [
+        785,
+        6722,
+        315,
+        9625,
+        374,
+        12095,
+        13
+      ],
+      "decode_graph": {
+        "graph_launches": 1379,
+        "graph_record_ns": 182993,
+        "graph_submits": 7,
+        "graph_tokens": 7,
+        "mutant": "none",
+        "on": true,
+        "submits": 8,
+        "timeline": null
+      },
+      "decode_ms": 168,
+      "emitted": 7,
+      "first_diff": null,
+      "golden": [
+        785,
+        6722,
+        315,
+        9625,
+        374,
+        12095,
+        13,
+        151645
+      ],
+      "name": "p2-short",
+      "per_step_ms": {
+        "attention": 0.0,
+        "chip_reported": 23.938745285714283,
+        "experts": 0.0,
+        "host": 0.030690571428571428,
+        "launches": 197.14285714285714,
+        "lm_head": 0.4186865714285714
+      },
+      "prefill_ms": 351,
+      "prompt_tokens": 20,
+      "tok_s": 41.666666666666664
+    },
+    {
+      "chip": [
+        12,
+        576,
+        50275,
+        55,
+        26467,
+        5711,
+        279,
+        18865,
+        16,
+        15,
+        31071,
+        5235,
+        9157,
+        2256,
+        29662,
+        11
+      ],
+      "decode_graph": {
+        "graph_launches": 2955,
+        "graph_record_ns": 362882,
+        "graph_submits": 15,
+        "graph_tokens": 15,
+        "mutant": "none",
+        "on": true,
+        "submits": 16,
+        "timeline": null
+      },
+      "decode_ms": 373,
+      "emitted": 16,
+      "first_diff": null,
+      "golden": [
+        12,
+        576,
+        50275,
+        55,
+        26467,
+        5711,
+        279,
+        18865,
+        16,
+        15,
+        31071,
+        5235,
+        9157,
+        2256,
+        29662,
+        11
+      ],
+      "name": "p3-medium",
+      "per_step_ms": {
+        "attention": 0.0,
+        "chip_reported": 23.3134618125,
+        "experts": 0.0,
+        "host": 0.0271973125,
+        "launches": 184.75,
+        "lm_head": 0.183616375
+      },
+      "prefill_ms": 2838,
+      "prompt_tokens": 204,
+      "tok_s": 42.89544235924933
+    },
+    {
+      "chip": [
+        3838,
+        3937,
+        4969,
+        25,
+        2303,
+        641,
+        3070,
+        6108,
+        220,
+        16,
+        15,
+        97219,
+        279,
+        1614,
+        594,
+        2550
+      ],
+      "decode_graph": {
+        "graph_launches": 2955,
+        "graph_record_ns": 340964,
+        "graph_submits": 15,
+        "graph_tokens": 15,
+        "mutant": "none",
+        "on": true,
+        "submits": 16,
+        "timeline": null
+      },
+      "decode_ms": 379,
+      "emitted": 16,
+      "first_diff": null,
+      "golden": [
+        3838,
+        3937,
+        4969,
+        25,
+        2303,
+        641,
+        3070,
+        6108,
+        220,
+        16,
+        15,
+        97219,
+        279,
+        1614,
+        594,
+        2550
+      ],
+      "name": "p4-long",
+      "per_step_ms": {
+        "attention": 0.0,
+        "chip_reported": 23.675013375,
+        "experts": 0.0,
+        "host": 0.0250413125,
+        "launches": 184.75,
+        "lm_head": 0.184233375
+      },
+      "prefill_ms": 9754,
+      "prompt_tokens": 657,
+      "tok_s": 42.21635883905013
+    }
+  ]
+}
