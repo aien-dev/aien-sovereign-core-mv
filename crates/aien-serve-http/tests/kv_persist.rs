@@ -222,6 +222,41 @@ fn park_turn1(scratch: &Scratch, s: &Setup) -> (Vec<u32>, Vec<u32>) {
     (o1, h1)
 }
 
+// A recovered chain must be admitted incrementally when it exceeds intake credits.
+// Stalled reads make the original submit-all-then-poll failure deterministic.
+#[test]
+fn restore_waits_for_load_credits_after_restart() {
+    let scratch = Scratch::new("load-credits");
+    let seed = Setup::new(&scratch.store(), &gen_key());
+    let (_, history) = park_turn1(&scratch, &seed);
+    let limited = seed.with_var("AIEN_KV_STORE_MAX_RESTORE_OPS", "1");
+    let (d, _) = door_with_fault(&scratch, &limited, Some("load:20"));
+    let pk = pk_of(&d);
+    let fetched = pk.fetch(&prompt2(&history), 0);
+    assert!(fetched.is_some(), "whole chain refused under one load credit: {:?}", pk.counters());
+    assert_eq!(fetched.unwrap().tokens, history.len());
+    assert!(pk.fetch(&[61, 60, 59, 58], 0).is_none(), "absent prefix is a miss");
+}
+
+#[test]
+fn restore_waits_for_byte_credits_through_max_context() {
+    let scratch = Scratch::new("load-byte-credits");
+    let seed = Setup::new(&scratch.store(), &gen_key());
+    let (a, _) = door(&scratch, &seed);
+    let prompt: Vec<u32> = (0..240).map(|i| (i * 7 + 3) % 64).collect();
+    turn(&a, &prompt);
+    let history = a.history();
+    assert!(pk_of(&a).wait_idle(WAIT));
+    drop(a);
+    // Tiny model: 16384-byte payload + 4096-byte header per full chunk.
+    // The 3/4 restore share admits only one chunk at a time.
+    let limited = seed.with_var("AIEN_KV_STORE_MAX_INFLIGHT_BYTES", "32768");
+    let (b, _) = door_with_fault(&scratch, &limited, Some("load:20"));
+    let fetched = pk_of(&b).fetch(&prompt2(&history), 0);
+    assert!(fetched.is_some(), "byte-limited restore refused: {:?}", counters(&b));
+    assert_eq!(fetched.unwrap().tokens, history.len());
+}
+
 #[test]
 fn park_then_restart_then_restore_equals_the_uninterrupted_run() {
     let scratch = Scratch::new("restore");

@@ -969,6 +969,10 @@ impl KvPersistence {
             self.miss("ram-prefix-as-long");
             return None;
         }
+        // One deadline covers admission AND I/O for the entire chain. OWN-30B's
+        // 24 MiB chunks exceed the default restore byte budget at chunk eight.
+        // Waiting only after submitting every chunk makes cold restores fail busy.
+        let t0 = Instant::now();
         let fields = self.fields();
         let mut jobs: Vec<(JobId, Arc<LandBuf>)> = Vec::new();
         let mut fail: Option<String> = None;
@@ -995,31 +999,57 @@ impl KvPersistence {
                 break;
             }
             let buf = LandBuf::new(len);
-            let keep = buf.clone();
-            // SAFETY: `buf` stays allocated while the guard (held by the job) lives, and nobody
-            // reads it until the job's terminal completion has been polled.
-            let dst = unsafe {
-                PinnedDest::new(
-                    buf.ptr,
-                    self.block_bytes(),
-                    (0..nb).collect(),
-                    HolderGuard::new(move || drop(keep)),
-                )
-            };
-            let mut g = self.inner.lock().unwrap_or_else(|p| p.into_inner());
-            match self.worker.submit_load(key, &header, dst, self.inc()) {
-                Ok(job) => {
-                    g.loads.insert(job, None);
-                    jobs.push((job, buf));
-                }
-                Err(e) => {
-                    fail = Some(miss_reason(&e).to_string());
+            loop {
+                let mut g = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+                self.pump(&mut g);
+                // Stop on a failed earlier chunk instead of admitting an unusable suffix.
+                fail = jobs.iter().find_map(|(job, _)| match g.loads.get(job) {
+                    Some(Some(Err(e))) => Some(e.clone()),
+                    _ => None,
+                });
+                if fail.is_some() {
                     break;
                 }
+                if t0.elapsed() >= LOAD_TIMEOUT {
+                    fail = Some("timeout".into());
+                    break;
+                }
+                let keep = buf.clone();
+                // SAFETY: each attempt owns a guard. A refused submission drops it;
+                // an accepted one holds it until its terminal is polled. No bytes
+                // are read until all jobs succeed, including on timeout/cancel.
+                let dst = unsafe {
+                    PinnedDest::new(
+                        buf.ptr,
+                        self.block_bytes(),
+                        (0..nb).collect(),
+                        HolderGuard::new(move || drop(keep)),
+                    )
+                };
+                match self.worker.submit_load(key, &header, dst, self.inc()) {
+                    Ok(job) => {
+                        g.loads.insert(job, None);
+                        jobs.push((job, buf));
+                        break;
+                    }
+                    Err(aien_platform::PlatformError::QueueFull
+                        | aien_platform::PlatformError::OutOfMemory) => {
+                        // Release the mutex so health and other callers can reap
+                        // completions while the storage worker makes room.
+                        drop(g);
+                        std::thread::sleep(Duration::from_micros(200));
+                    }
+                    Err(e) => {
+                        fail = Some(miss_reason(&e).to_string());
+                        break;
+                    }
+                }
+            }
+            if fail.is_some() {
+                break;
             }
         }
         if fail.is_none() {
-            let t0 = Instant::now();
             loop {
                 let mut g = self.inner.lock().unwrap_or_else(|p| p.into_inner());
                 self.pump(&mut g);
