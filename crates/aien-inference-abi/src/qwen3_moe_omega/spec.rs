@@ -53,6 +53,9 @@ pub struct SpecConfig {
     /// skip drafting (plain steps) for 1, 2, 4 .. 16 steps; a good round resets it. 0 = off. Only
     /// WHICH steps get a draft changes, never how a token is chosen.
     pub min_accept: usize,
+    /// W-L4e cut 2: the measured break-even back-off ([`BreakEven`]). Off in `default()` (unit tests on host fakes);
+    /// on in `from_env()` unless `AIEN_OWN30B_SPEC_BREAK_EVEN=0`, and on in the server.
+    pub break_even: bool,
     /// W-L4c: draft source and the suffix drafter's settings.
     pub source: DraftSource,
     pub suffix: SuffixConfig,
@@ -129,7 +132,7 @@ pub const SPEC_ENV: &str = "AIEN_OWN30B_SPEC";
 
 impl Default for SpecConfig {
     fn default() -> Self {
-        Self { enabled: false, max_draft: 8, max_ngram: 3, min_ngram: 1, mutant_accept_extra: false, mutant_numerics: NumericsMutant::None, verify: VerifyPath::Decode, min_accept: 0, source: DraftSource::PromptLookup, suffix: SuffixConfig::default() }
+        Self { enabled: false, max_draft: 8, max_ngram: 3, min_ngram: 1, mutant_accept_extra: false, mutant_numerics: NumericsMutant::None, verify: VerifyPath::Decode, min_accept: 0, break_even: false, source: DraftSource::PromptLookup, suffix: SuffixConfig::default() }
     }
 }
 
@@ -147,6 +150,7 @@ impl SpecConfig {
             mutant_accept_extra: false,
             mutant_numerics: NumericsMutant::None,
             min_accept: num("AIEN_OWN30B_SPEC_MIN_ACCEPT", d.min_accept),
+            break_even: !matches!(get("AIEN_OWN30B_SPEC_BREAK_EVEN").as_deref().map(str::trim), Some("0") | Some("off")),
             // AIEN_OWN30B_SPEC_VERIFY=wp: verify through the whole-prompt driver (W-L4b).
             verify: match get("AIEN_OWN30B_SPEC_VERIFY").as_deref().map(str::trim) {
                 Some("wp") | Some("whole-prompt") => VerifyPath::WholePrompt,
@@ -235,6 +239,8 @@ pub struct SpecStats {
     pub verify_ns: u64,
     /// Rounds whose draft came from the global (past requests) suffix tree.
     pub global_rounds: usize,
+    /// W-L4e: the break-even state at the end (measured costs), when it was on.
+    pub break_even: Option<BreakEven>,
 }
 
 impl SpecStats {
@@ -243,6 +249,120 @@ impl SpecStats {
             0.0
         } else {
             self.accepted as f64 / self.drafted as f64
+        }
+    }
+}
+
+
+/// W-L4e cut 2: the break-even back-off. Measures what a plain token costs (step + lm_head) and what a
+/// speculative round costs and yields (verify wall + lm_head per evaluated row; tokens = accepted + 1), as
+/// running averages over the recent rounds. When the recent rounds yield fewer tokens per ms than plain decode,
+/// drafting stops for `16, 32, .. max_backoff` steps; the round after a pause is a probe with a short draft
+/// (at most `probe_draft` tokens, the cheapest verify), so a probe that fails costs little. A round that
+/// pays clears the pause. Only WHICH steps draft changes, never how a token is chosen.
+#[derive(Clone, Debug)]
+pub struct BreakEven {
+    /// Running averages (weight `alpha` on the newest sample).
+    pub plain_ms: f64,
+    pub round_ms: f64,
+    pub tokens_per_round: f64,
+    /// Measured verify wall / the cost model's prediction for the same rows (scales the drafter's costs).
+    pub verify_scale: f64,
+    pub plain_seen: usize,
+    pub rounds_seen: usize,
+    skip: usize,
+    backoff: usize,
+    probing: bool,
+    pub alpha: f64,
+    /// Rounds measured before the first decision.
+    pub min_rounds: usize,
+    pub max_backoff: usize,
+    pub probe_draft: usize,
+}
+
+impl BreakEven {
+    /// `plain_ms_seed`: the plain token cost until one is measured (the cost model's `plain_ms`).
+    pub fn new(plain_ms_seed: f64) -> Self {
+        Self {
+            plain_ms: plain_ms_seed,
+            round_ms: 0.0,
+            tokens_per_round: 0.0,
+            verify_scale: 1.0,
+            plain_seen: 0,
+            rounds_seen: 0,
+            skip: 0,
+            backoff: 0,
+            probing: false,
+            alpha: 0.5,
+            min_rounds: 1,
+            max_backoff: 128,
+            probe_draft: 1,
+        }
+    }
+
+    fn ema(old: f64, new: f64, n_before: usize, alpha: f64) -> f64 {
+        if n_before == 0 {
+            new
+        } else {
+            old + alpha * (new - old)
+        }
+    }
+
+    /// A plain token took `ms` (step + lm_head).
+    pub fn observe_plain(&mut self, ms: f64) {
+        self.plain_ms = Self::ema(self.plain_ms, ms, self.plain_seen, self.alpha);
+        self.plain_seen += 1;
+    }
+
+    /// Before a step: `None` = no draft this step (paused), `Some(cap)` = draft at most `cap` tokens.
+    pub fn draft_cap(&mut self, k: usize) -> Option<usize> {
+        if self.skip > 0 {
+            self.skip -= 1;
+            return None;
+        }
+        Some(if self.probing { k.min(self.probe_draft) } else { k })
+    }
+
+    /// Recent rounds' tokens per ms vs plain decode's.
+    pub fn pays(&self) -> bool {
+        self.round_ms > 0.0 && self.tokens_per_round / self.round_ms >= 1.0 / self.plain_ms
+    }
+
+    /// A round ran: `ms` wall (verify + lm_head of the evaluated rows), `tokens` emitted by it
+    /// (accepted + 1), `verify_ms` of the verify pass alone and `predicted_verify_ms` from the cost model.
+    pub fn observe_round(&mut self, ms: f64, tokens: usize, verify_ms: f64, predicted_verify_ms: f64) {
+        let n = self.rounds_seen;
+        // A probe after a pause starts the averages afresh (the text may have changed).
+        let fresh = if self.probing { 0 } else { n };
+        self.round_ms = Self::ema(self.round_ms, ms, fresh, self.alpha);
+        self.tokens_per_round = Self::ema(self.tokens_per_round, tokens as f64, fresh, self.alpha);
+        if predicted_verify_ms > 0.0 {
+            self.verify_scale = Self::ema(self.verify_scale, verify_ms / predicted_verify_ms, n, self.alpha);
+        }
+        self.rounds_seen += 1;
+        if self.rounds_seen < self.min_rounds && !self.probing {
+            return;
+        }
+        if self.pays() {
+            self.backoff = 0;
+            self.probing = false;
+        } else {
+            self.backoff = (self.backoff * 2).clamp(16, self.max_backoff.max(16));
+            self.skip = self.backoff;
+            self.probing = true;
+        }
+    }
+
+    /// The cost model the drafter should weigh: measured plain cost, verify scaled by what was measured.
+    pub fn cost(&self, base: &suffix::CostModel) -> suffix::CostModel {
+        let s = self.verify_scale as f32;
+        suffix::CostModel {
+            verify_base_ms: base.verify_base_ms * s,
+            verify_row_ms: base.verify_row_ms * s,
+            lm_ms: base.lm_ms,
+            // Text with no measured round yet, or a probe after a pause, must look clearly better than plain
+            // decode (plain cost seen as 1/1.2 of itself): an unproven round is where the back-off loses time.
+            plain_ms: (if self.plain_seen > 0 { self.plain_ms as f32 } else { base.plain_ms }) / if self.rounds_seen == 0 || self.probing { 1.2 } else { 1.0 },
         }
     }
 }
@@ -800,6 +920,7 @@ impl Qwen3MoeOmegaEngine {
         let mut step = 0usize;
         let mut pending_logits: Option<Vec<f32>> = None;
         let (mut skip, mut backoff) = (0usize, 0usize);
+        let mut be = cfg.break_even.then(|| BreakEven::new(cfg.suffix.cost.plain_ms as f64));
         // lm_head launch with its timing folded into decode_timing.
         macro_rules! lm {
             ($self:ident, $h:expr) => {{
@@ -843,24 +964,36 @@ impl Qwen3MoeOmegaEngine {
                 .min(room.saturating_sub(1))
                 .min(params.max_new_tokens - emitted)
                 .min(aien_omega_fp8::GEMM_MAX_ROWS / self.weights.config.top_k - 1);
-            let drafts = if skip > 0 {
-                skip -= 1;
+            // W-L4e: the break-even pause (None) or a draft cap (a short probe after a pause).
+            let cap = if skip > 0 { None } else { be.as_mut().map_or(Some(k), |b| b.draft_cap(k)) };
+            let drafts = if skip > 0 || cap.is_none() {
+                skip = skip.saturating_sub(1);
                 stats.backoff_steps += 1;
                 Vec::new()
             } else if let Some(d) = drafter.as_deref() {
-                let dr = d.draft(&ctx, k);
+                let k = cap.unwrap_or(k);
+                let dr = match &be {
+                    Some(b) => d.draft_with_cost(&ctx, k, &b.cost(&d.cfg.cost)),
+                    None => d.draft(&ctx, k),
+                };
                 if dr.from_global && !dr.tokens.is_empty() {
                     stats.global_rounds += 1;
                 }
                 dr.tokens
             } else {
-                find_draft(&ctx, cfg.max_ngram, cfg.min_ngram, k)
+                find_draft(&ctx, cfg.max_ngram, cfg.min_ngram, cap.unwrap_or(k))
             };
             if drafts.is_empty() {
                 stats.plain_steps += 1;
+                let t_plain = Instant::now();
                 self.last_timing = StepTiming::default();
                 pending = self.step(t_first)?;
                 decode_timing.add(&self.last_timing);
+                // The next token's lm_head now (the loop top takes it), so the plain token's full cost is measured.
+                pending_logits = Some(lm!(self, &pending));
+                if let Some(b) = be.as_mut() {
+                    b.observe_plain(t_plain.elapsed().as_secs_f64() * 1e3);
+                }
                 continue;
             }
             stats.rounds += 1;
@@ -881,6 +1014,7 @@ impl Qwen3MoeOmegaEngine {
                     self.step_verify_wp(&inputs)?
                 }
             };
+            let verify_ms = t_verify.elapsed().as_secs_f64() * 1e3;
             stats.verify_ns += t_verify.elapsed().as_nanos() as u64;
             decode_timing.add(&self.last_timing);
             let mut acc = 0usize;
@@ -921,6 +1055,10 @@ impl Qwen3MoeOmegaEngine {
             }
             // Keep t_first and the accepted drafts; drop the rejected inputs' KV.
             self.rewind(pos_before + 1 + acc);
+            if let Some(b) = be.as_mut() {
+                let predicted = cfg.suffix.cost.verify_ms(inputs.len()) as f64;
+                b.observe_round(t_verify.elapsed().as_secs_f64() * 1e3, acc + 1, verify_ms, predicted);
+            }
             if cfg.min_accept > 0 {
                 if acc < cfg.min_accept {
                     backoff = (backoff * 2).clamp(1, 16);
@@ -933,6 +1071,7 @@ impl Qwen3MoeOmegaEngine {
         if let Some(d) = drafter {
             d.finish(&ctx);
         }
+        stats.break_even = be;
         Ok((
             GenerateOutcome {
                 emitted_tokens: emitted,
@@ -1198,6 +1337,116 @@ mod tests {
             let got = run(&mut s, &prompt, cap, &SpecConfig { enabled: true, ..Default::default() }, vec![]);
             assert_eq!(got.0, free[..cap].to_vec(), "cap {cap}");
         }
+    }
+
+    /// W-L4e cut 2: simulated generation of `n` tokens with measured-like costs. Each draft token is accepted
+    /// with probability `p` (fixed LCG, so the run is repeatable) until the first rejection. Returns (total ms,
+    /// rounds). `be` None = always draft (no back-off).
+    fn simulate(mut be: Option<BreakEven>, n: usize, p: f64, draft_len: usize, plain_ms: f64) -> (f64, usize) {
+        let mut seed = 12345u64;
+        let mut rnd = || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (seed >> 11) as f64 / (1u64 << 53) as f64
+        };
+        let (mut t, mut done, mut rounds) = (0.0, 0usize, 0usize);
+        while done < n {
+            let cap = match be.as_mut() {
+                Some(b) => b.draft_cap(draft_len),
+                None => Some(draft_len),
+            };
+            match cap {
+                None | Some(0) => {
+                    t += plain_ms;
+                    done += 1;
+                    if let Some(b) = be.as_mut() {
+                        b.observe_plain(plain_ms);
+                    }
+                }
+                Some(k) => {
+                    let mut acc = 0;
+                    while acc < k && rnd() < p {
+                        acc += 1;
+                    }
+                    // Exact verify on the chip (W-L4d gate): ~30 ms at 2 rows, ~3 ms per extra row; lm_head 2.9 ms per evaluated row.
+                    let verify = 30.0 + 3.0 * (k as f64 - 1.0);
+                    let ms = verify + 2.9 * (acc as f64 + 1.0);
+                    t += ms;
+                    done += acc + 1;
+                    rounds += 1;
+                    if let Some(b) = be.as_mut() {
+                        b.observe_round(ms, acc + 1, verify, verify);
+                    }
+                }
+            }
+        }
+        (t, rounds)
+    }
+
+    #[test]
+    fn break_even_stops_drafting_where_it_loses_and_keeps_it_where_it_pays() {
+        // p4-long on the full model (W-L4d gate): acceptance 0.15, plain decode 27.8 ms/token.
+        let plain = 27.8;
+        let n = 64;
+        let (always, r_always) = simulate(None, n, 0.15, 2, plain);
+        let (gov, r_gov) = simulate(Some(BreakEven::new(28.3)), n, 0.15, 2, plain);
+        let off = n as f64 * plain;
+        assert!(always > off * 1.05, "without back-off p4-like text must lose ({always:.0} vs {off:.0} ms)");
+        assert!(gov <= off * 1.02, "with back-off it must not lose more than 2% ({gov:.0} vs {off:.0} ms)");
+        assert!(r_gov < r_always / 3, "back-off must cut the rounds: {r_gov} vs {r_always}");
+        // With the one-list decode (plain ~22.5 ms) the same text pauses too.
+        let (gov_g, _) = simulate(Some(BreakEven::new(28.3)), n, 0.15, 2, 22.5);
+        // Every unproven round costs ~10 ms against a 22.5 ms plain token: at most 3% over 64 tokens, and it
+        // amortises (256 tokens: at most 1.5%).
+        assert!(gov_g <= n as f64 * 22.5 * 1.03, "graph plain cost: {gov_g:.0}");
+        let (gov_g256, _) = simulate(Some(BreakEven::new(28.3)), 256, 0.15, 2, 22.5);
+        assert!(gov_g256 <= 256.0 * 22.5 * 1.015, "graph plain cost, 256 tokens: {gov_g256:.0}");
+        // code/JSON (acceptance 0.86, long drafts): keeps drafting and wins.
+        let (json, r_json) = simulate(Some(BreakEven::new(28.3)), 256, 0.86, 8, plain);
+        assert!(json < 256.0 * plain * 0.8, "code/JSON must keep its gain: {json:.0} vs {:.0}", 256.0 * plain);
+        assert!(r_json > 30, "{r_json}");
+        // A switch from repetitive to fresh text and back: the probes find the good stretch again.
+        let mut b = BreakEven::new(28.3);
+        for _ in 0..6 {
+            if b.draft_cap(8).is_some() {
+                b.observe_round(45.0, 1, 33.0, 33.0);
+            } else {
+                b.observe_plain(plain);
+            }
+        }
+        assert!(!b.pays());
+        let mut drafted_again = false;
+        for _ in 0..80 {
+            match b.draft_cap(8) {
+                Some(k) => {
+                    assert!(k <= 8);
+                    b.observe_round(50.0, k + 1, 36.0, 36.0);
+                    drafted_again = true;
+                }
+                None => b.observe_plain(plain),
+            }
+        }
+        assert!(drafted_again && b.pays(), "a paying stretch must turn drafting back on: {b:?}");
+        assert_eq!(b.draft_cap(8), Some(8), "full drafts after a paying probe");
+    }
+
+    #[test]
+    fn break_even_on_keeps_plain_decode_tokens() {
+        let prompt = [5u32, 17, 42, 3, 9, 60, 5, 17, 42, 3, 9, 60, 5, 17, 42];
+        for device in [true, false] {
+            let want = run(&mut engine(device), &prompt, 60, &SpecConfig::default(), vec![]).0;
+            for source in [DraftSource::PromptLookup, DraftSource::Suffix] {
+                let cfg = SpecConfig { enabled: true, break_even: true, source, ..Default::default() };
+                let (got, st, _) = run(&mut engine(device), &prompt, 60, &cfg, vec![]);
+                assert_eq!(got, want, "device={device} {source:?}: break-even changed the tokens");
+                let b = st.break_even.expect("break-even state reported");
+                assert!(b.plain_seen + b.rounds_seen > 0, "{b:?}");
+            }
+        }
+        std::env::remove_var("AIEN_OWN30B_SPEC_BREAK_EVEN");
+        assert!(SpecConfig::from_env().break_even, "from_env: on by default");
+        std::env::set_var("AIEN_OWN30B_SPEC_BREAK_EVEN", "0");
+        assert!(!SpecConfig::from_env().break_even);
+        std::env::remove_var("AIEN_OWN30B_SPEC_BREAK_EVEN");
     }
 
     #[test]

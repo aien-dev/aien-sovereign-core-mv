@@ -348,15 +348,20 @@ impl SuffixDrafter {
     /// The draft for context `ctx` (prompt plus everything emitted, the round's first token
     /// included), at most `k_max` tokens; empty when drafting is not expected to pay.
     pub fn draft(&self, ctx: &[u32], k_max: usize) -> Draft {
+        self.draft_with_cost(ctx, k_max, &self.cfg.cost)
+    }
+
+    /// [`Self::draft`] weighing `cost` instead of the configured cost model (W-L4e: the measured costs).
+    pub fn draft_with_cost(&self, ctx: &[u32], k_max: usize, cost: &CostModel) -> Draft {
         let mut best = Draft::default();
-        let mut best_rate = 1.0 / self.cfg.cost.plain_ms * self.cfg.gain;
+        let mut best_rate = 1.0 / cost.plain_ms * self.cfg.gain;
         let cands = [(self.candidate(&self.local, ctx, k_max), false), (if self.cfg.use_global { self.candidate(&self.global, ctx, k_max) } else { None }, true)];
         for (c, from_global) in cands {
             let Some((toks, cums, p)) = c else { continue };
             let mut exp = 1.0f32;
             for k in 1..=toks.len() {
                 exp += cums[k - 1];
-                let rate = exp / (self.cfg.cost.verify_ms(k + 1) + self.cfg.cost.lm_ms * exp);
+                let rate = exp / (cost.verify_ms(k + 1) + cost.lm_ms * exp);
                 if rate > best_rate {
                     best_rate = rate;
                     best = Draft { tokens: toks[..k].to_vec(), match_len: p, expected: exp, from_global };

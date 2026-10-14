@@ -180,7 +180,7 @@ fn main() {
         "suffix" => DraftSource::Suffix,
         other => panic!("--drafter {other}: lookup or suffix"),
     };
-    say(format!("spec tuning: max_draft={} max_ngram={} min_ngram={} min_accept={} drafter={:?} suffix_global={suffix_global}", base.max_draft, base.max_ngram, base.min_ngram, base.min_accept, base.source));
+    say(format!("spec tuning: max_draft={} max_ngram={} min_ngram={} min_accept={} break_even={} drafter={:?} suffix_global={suffix_global}", base.max_draft, base.max_ngram, base.min_ngram, base.min_accept, base.break_even, base.source));
     if base.source == DraftSource::Suffix {
         say(format!("suffix config: {:?}", base.suffix));
     }
@@ -279,8 +279,9 @@ fn main() {
                     }
                 }
                 say(format!(
-                    "{name} run {run}: ON verify={path:?} {tps_on:.1} tok/s ({ms_on} ms) vs off {verdict} | rounds {} wp_rounds {} plain {} backoff {} drafted {} accepted {} acceptance {:.3} | tokens/round {:.2} verify {:.1} ms/round global {}",
-                    st.rounds, st.wp_rounds, st.plain_steps, st.backoff_steps, st.drafted, st.accepted, st.acceptance(), tokens_per_round, verify_ms, st.global_rounds
+                    "{name} run {run}: ON verify={path:?} {tps_on:.1} tok/s ({ms_on} ms) vs off {verdict} | rounds {} wp_rounds {} plain {} backoff {} drafted {} accepted {} acceptance {:.3} | tokens/round {:.2} verify {:.1} ms/round global {} | {}",
+                    st.rounds, st.wp_rounds, st.plain_steps, st.backoff_steps, st.drafted, st.accepted, st.acceptance(), tokens_per_round, verify_ms, st.global_rounds,
+                    st.break_even.as_ref().map_or("break-even off".to_string(), |b| format!("break-even plain {:.1} ms round {:.1} ms tokens/round {:.2} verify x{:.2} pays={}", b.plain_ms, b.round_ms, b.tokens_per_round, b.verify_scale, b.pays()))
                 ));
                 rows.push(serde_json::json!({"prompt": name, "run": run, "verify": format!("{path:?}"), "identical": diff.is_none(), "first_diff": diff,
                     "off_matches_golden": !want.is_empty() && golden_diff(&t_off, &want).is_none(), "golden_len": want.len(), "off_tok_s": tps_off, "on_tok_s": tps_on, "off_ms": ms_off, "on_ms": ms_on,
