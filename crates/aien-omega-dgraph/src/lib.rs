@@ -26,6 +26,13 @@ pub const MAX_LAYERS: usize = 64;
 /// Largest vocabulary the two-stage argmax covers (`2048 * 2048`).
 pub const MAX_VOCAB: usize = 2048 * 2048;
 
+/// Most rows one batched verify call takes (`OMEGA_GPU_DGRAPH_VERIFY_MAX_ROWS`).
+pub const VERIFY_MAX_ROWS: usize = 16;
+/// Floats per row the verify hook sees (`OMEGA_GPU_DGRAPH_VERIFY_XR`): 2048 x' (* 2^64), then ids and weights.
+pub const VERIFY_XR: usize = 2072;
+/// `OmegaGpuDecodeGraphVerifyHook`: CONTROL ONLY, see [`DecodeGraph::verify_set_hook`].
+pub type VerifyHook = unsafe extern "C" fn(ctx: *mut c_void, layer: u32, rows: u32, xr: *mut f32);
+
 /// True when the decode graph API is linked (not the stub).
 pub const fn is_native() -> bool {
     cfg!(has_omega_dgraph)
@@ -112,6 +119,16 @@ mod ffi {
         pub fn omega_gpu_decode_graph_read(g: *mut OmegaGpuDecodeGraph, x: *mut f32, hidden: *mut f32, logits: *mut f32) -> i32;
         pub fn omega_gpu_decode_graph_set_flush_each(g: *mut OmegaGpuDecodeGraph, on: i32);
         pub fn omega_gpu_decode_graph_test_set_mutant(g: *mut OmegaGpuDecodeGraph, mutant: i32);
+        pub fn omega_gpu_decode_graph_verify(
+            g: *mut OmegaGpuDecodeGraph,
+            rows: u32,
+            x_embed: *const f32,
+            pos0: u32,
+            hidden: *mut f32,
+            st: *mut GraphStats,
+        ) -> i32;
+        pub fn omega_gpu_decode_graph_verify_set_hook(g: *mut OmegaGpuDecodeGraph, hook: Option<super::VerifyHook>, ctx: *mut c_void);
+        pub fn omega_gpu_decode_graph_verify_test_set_mutant(g: *mut OmegaGpuDecodeGraph, mutant: i32);
         pub fn omega_gpu_decode_graph_set_stamps(g: *mut OmegaGpuDecodeGraph, on: i32);
         pub fn omega_gpu_decode_graph_stamps(g: *const OmegaGpuDecodeGraph, stamps: *mut u64, kinds: *mut u8, cap: u32) -> i32;
         pub fn omega_gpu_decode_graph_kind_name(kind: u8) -> *const std::os::raw::c_char;
@@ -356,6 +373,62 @@ impl DecodeGraph {
         let _ = on;
     }
 
+    /// Batched exact verify (OWN-30B W-L4f): `rows` new tokens (`x_embed`: rows x HIDDEN embedding rows) at positions
+    /// `pos0 ..= pos0 + rows - 1` through every layer; `hidden` gets each row's final-normed hidden state (rows x
+    /// HIDDEN). Row r is bit-identical to [`DecodeGraph::token`] at `pos0 + r` after rows 0..r (launched or resident),
+    /// and so are the K/V rows it stores. No lm_head: run it on the rows you need. One submission per layer.
+    pub fn verify(&mut self, rows: usize, x_embed: &[f32], pos0: usize, hidden: &mut [f32]) -> Result<GraphStats, OmegaGpuError> {
+        if rows == 0 || rows > VERIFY_MAX_ROWS {
+            return Err(bad(format!("decode graph verify: rows {rows} outside 1..={VERIFY_MAX_ROWS}")));
+        }
+        check_len("decode graph verify x_embed", rows * HIDDEN, x_embed.len())?;
+        check_len("decode graph verify hidden", rows * HIDDEN, hidden.len())?;
+        let pos0 = u32::try_from(pos0).map_err(|_| bad(format!("decode graph verify: pos0 {pos0} too large")))?;
+        #[cfg(has_omega_dgraph)]
+        {
+            let mut st = GraphStats::default();
+            // SAFETY: ptr is live; x_embed and hidden hold rows * HIDDEN f32 (checked); st is local.
+            let rc = unsafe { ffi::omega_gpu_decode_graph_verify(self.ptr, rows as u32, x_embed.as_ptr(), pos0, hidden.as_mut_ptr(), &mut st) };
+            if rc != 0 {
+                return Err(rc_err("verify", rc));
+            }
+            Ok(st)
+        }
+        #[cfg(not(has_omega_dgraph))]
+        {
+            let _ = pos0;
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
+
+    /// CONTROL ONLY (numerics negative control): `hook` is called inside every later verify call after each layer's
+    /// router sync with the rows' expert input rows (`rows` x [`VERIFY_XR`] floats; the first [`HIDDEN`] of each are
+    /// x' * 2^64, then ids and weights) and may change the x' values before the experts read them. `None` = off (default).
+    ///
+    /// # Safety
+    /// `hook` must only touch the rows it is given and `ctx` must stay valid while it is set.
+    pub unsafe fn verify_set_hook(&mut self, hook: Option<VerifyHook>, ctx: *mut c_void) {
+        #[cfg(has_omega_dgraph)]
+        // SAFETY: ptr is live; the caller vouches for hook and ctx.
+        unsafe {
+            ffi::omega_gpu_decode_graph_verify_set_hook(self.ptr, hook, ctx)
+        }
+        #[cfg(not(has_omega_dgraph))]
+        let _ = (hook, ctx);
+    }
+
+    /// TEST ONLY: omega's deliberate wrong verify wiring (0 off; 1 row copies ignore the gather table and lane
+    /// layout; 2 combine reads expert slots 0 and 1 of row 0 swapped).
+    pub fn verify_test_set_mutant(&mut self, mutant: i32) {
+        #[cfg(has_omega_dgraph)]
+        // SAFETY: ptr is live; plain integer argument.
+        unsafe {
+            ffi::omega_gpu_decode_graph_verify_test_set_mutant(self.ptr, mutant)
+        }
+        #[cfg(not(has_omega_dgraph))]
+        let _ = mutant;
+    }
+
     /// TEST ONLY: omega's deliberate wrong kernels (0 off; 1 SwiGLU reads the wrong half;
     /// 2 combine skips expert 7; 3 attention written at scale 1 instead of 2^64). A token
     /// check must catch the one it sets.
@@ -439,6 +512,9 @@ mod tests {
         let norm = [0.0f32; HIDDEN];
         // SAFETY: a NULL graph is refused first.
         assert_eq!(unsafe { ffi::omega_gpu_decode_graph_set_final_norm(std::ptr::null_mut(), norm.as_ptr()) }, -1);
+        let mut hid = [0.0f32; HIDDEN];
+        // SAFETY: a NULL graph is refused first (omega_gpu_decode_graph.c verify).
+        assert_eq!(unsafe { ffi::omega_gpu_decode_graph_verify(std::ptr::null_mut(), 1, norm.as_ptr(), 0, hid.as_mut_ptr(), std::ptr::null_mut()) }, -1);
         let e = rc_err("smoke", -1).to_string();
         assert!(e.contains("BAD_ARGS"), "{e}");
         // omega's kind names are the table's, in enum order.
@@ -446,6 +522,11 @@ mod tests {
             assert_eq!(kind_name(k as u8), *want);
         }
         assert_eq!(kind_name(14), "?");
+    }
+
+    #[test]
+    fn verify_constants_match_omega() {
+        const { assert!(VERIFY_MAX_ROWS == 16 && VERIFY_XR == HIDDEN + 24) };
     }
 
     #[test]

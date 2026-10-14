@@ -130,6 +130,11 @@ pub enum VerifyPath {
     /// omega's multi-row decode attention (two launches per layer for all rows). Needs the device
     /// router and the fused KV; `AIEN_OWN30B_SPEC_VERIFY=exact`.
     Exact,
+    /// W-L4f: [`Qwen3MoeOmegaEngine::step_verify_batch`]: every row bit-identical to the one-list decode token (the
+    /// served plain step, `OWN30B_DECODE_GRAPH=1`), run as one omega call with one submission per layer (the graph's
+    /// own glue kernels, the FP8 grouped GEMM shared by the rows). Needs the one-list decode switch on, at most
+    /// `aien_omega_dgraph::VERIFY_MAX_ROWS` rows; `AIEN_OWN30B_SPEC_VERIFY=batch`. Off by default.
+    Batch,
 }
 
 pub const SPEC_ENV: &str = "AIEN_OWN30B_SPEC";
@@ -161,6 +166,8 @@ impl SpecConfig {
                 Some("wp") | Some("whole-prompt") => VerifyPath::WholePrompt,
                 // W-L4d: AIEN_OWN30B_SPEC_VERIFY=exact: decode numerics, faster pass (step_verify_exact).
                 Some("exact") => VerifyPath::Exact,
+                // W-L4f: AIEN_OWN30B_SPEC_VERIFY=batch: the batched exact verify on the one-list decode graph.
+                Some("batch") => VerifyPath::Batch,
                 _ => VerifyPath::Decode,
             },
             // W-L4c: AIEN_OWN30B_SPEC_DRAFTER=suffix, tuned by AIEN_OWN30B_SPEC_SUFFIX_* (see SuffixConfig::from_env).
@@ -422,6 +429,7 @@ impl Qwen3MoeOmegaEngine {
         match path {
             VerifyPath::Decode => self.spec_possible(),
             VerifyPath::Exact => self.spec_possible() && self.exact_verify_possible(),
+            VerifyPath::Batch => self.spec_possible() && self.exact_verify_possible() && self.batch_verify_possible(),
             VerifyPath::WholePrompt => self.whole_prompt.is_some() && self.trace_layers.is_empty() && !self.routing_mutant,
         }
     }
@@ -976,6 +984,7 @@ impl Qwen3MoeOmegaEngine {
                 .min(room.saturating_sub(1))
                 .min(params.max_new_tokens - emitted)
                 .min(aien_omega_fp8::GEMM_MAX_ROWS / self.weights.config.top_k - 1);
+            let k = if cfg.verify == VerifyPath::Batch { k.min(aien_omega_dgraph::VERIFY_MAX_ROWS - 1) } else { k };
             // W-L4e: the break-even pause (None) or a draft cap (a short probe after a pause).
             let cap = if skip > 0 { None } else { be.as_mut().map_or(Some(k), |b| b.draft_cap(k)) };
             let drafts = if skip > 0 || cap.is_none() {
@@ -1025,6 +1034,7 @@ impl Qwen3MoeOmegaEngine {
                     let mut prof = ExactProf::default();
                     self.step_verify_exact_inner(&inputs, &mut prof, cfg.mutant_numerics)?
                 }
+                VerifyPath::Batch => self.step_verify_batch(&inputs, cfg.mutant_numerics)?,
                 VerifyPath::WholePrompt => {
                     stats.wp_rounds += 1;
                     self.step_verify_wp(&inputs)?
@@ -1115,12 +1125,13 @@ pub struct SpecServe {
 
 impl SpecServe {
     /// The served configuration: tuning from the `AIEN_OWN30B_SPEC_*` environment (draft length, suffix and cost
-    /// knobs, `AIEN_OWN30B_SPEC_BREAK_EVEN`), but always enabled, `Exact` verify, suffix drafter, no mutants.
+    /// knobs, `AIEN_OWN30B_SPEC_BREAK_EVEN`), but always enabled, suffix drafter, no mutants, and the `Exact` verify, or
+    /// the `Batch` verify when `AIEN_OWN30B_SPEC_VERIFY=batch` (W-L4f, off by default; see [`Self::served_verify`]).
     pub fn served() -> Self {
         let env = SpecConfig::from_env();
         let cfg = SpecConfig {
             enabled: true,
-            verify: VerifyPath::Exact,
+            verify: Self::served_verify(),
             source: DraftSource::Suffix,
             mutant_accept_extra: false,
             mutant_numerics: NumericsMutant::None,
@@ -1130,12 +1141,29 @@ impl SpecServe {
         let drafter = SuffixDrafter::new(cfg.suffix.clone());
         Self { cfg, drafter }
     }
+
+    /// The served verify pass: `Batch` when `AIEN_OWN30B_SPEC_VERIFY=batch`, else `Exact` (the default; `wp` and
+    /// `decode` are not served).
+    pub fn served_verify() -> VerifyPath {
+        match std::env::var("AIEN_OWN30B_SPEC_VERIFY").as_deref().map(str::trim) {
+            Ok("batch") => VerifyPath::Batch,
+            _ => VerifyPath::Exact,
+        }
+    }
 }
 
 impl Qwen3MoeOmegaEngine {
     /// Why `--spec on` cannot run on this load (`None`: it can). The exact verify needs FP8 attention and experts,
     /// the device router and omega's fused KV (the same objects the one-list decode uses).
     pub fn spec_serve_refusal(&self) -> Option<String> {
+        if SpecServe::served_verify() == VerifyPath::Batch && !self.spec_verify_possible(VerifyPath::Batch) {
+            return Some(format!(
+                "AIEN_OWN30B_SPEC_VERIFY=batch needs the one-list decode (OWN30B_DECODE_GRAPH=1) on an exact-verify load (decode_graph={}, attention={}, device_routing={})",
+                self.decode_graph_on(),
+                self.kv.path_name(),
+                self.device_routing
+            ));
+        }
         if self.spec_verify_possible(VerifyPath::Exact) {
             return None;
         }
@@ -1373,6 +1401,20 @@ mod tests {
         assert_eq!(SpecConfig::from_env().verify, VerifyPath::WholePrompt);
         std::env::remove_var("AIEN_OWN30B_SPEC_VERIFY");
         assert_eq!(SpecConfig::from_env().verify, VerifyPath::Decode, "default verify is the decode-rounding path");
+        // W-L4f: the batched verify needs the one-list decode; without it the request decodes plainly and the
+        // served pass stays Exact unless the switch says batch.
+        assert!(!a.spec_verify_possible(VerifyPath::Batch));
+        assert!(a.step_verify_batch(&[5, 17], NumericsMutant::None).is_err());
+        let cfg = SpecConfig { enabled: true, verify: VerifyPath::Batch, ..SpecConfig::default() };
+        let (t, st, _) = run(&mut a, &prompt, 10, &cfg, vec![]);
+        assert_eq!((st.rounds, st.drafted), (0, 0));
+        assert_eq!(t, plain);
+        assert_eq!(SpecServe::served_verify(), VerifyPath::Exact, "the served verify is Exact by default");
+        std::env::set_var("AIEN_OWN30B_SPEC_VERIFY", "batch");
+        assert_eq!(SpecConfig::from_env().verify, VerifyPath::Batch);
+        assert_eq!(SpecServe::served_verify(), VerifyPath::Batch);
+        assert!(a.spec_serve_refusal().is_some_and(|r| r.contains("OWN30B_DECODE_GRAPH=1")), "batch without the one-list decode is refused");
+        std::env::remove_var("AIEN_OWN30B_SPEC_VERIFY");
     }
 
     #[test]

@@ -135,6 +135,18 @@ fn handles(w: &Qwen3MoeOmegaWeights) -> Result<(GraphConfig, Vec<[*mut std::ffi:
     Ok((cfg, layers))
 }
 
+/// W-L4f NEGATIVE CONTROL: the act-fp8 numerics class inside the batched verify. Every row's expert input x' (the first
+/// HIDDEN of each VERIFY_XR row, x' * 2^64) goes through the prefill quantiser (`fake_quant_row`: e4m3, power-of-two
+/// scale per 128 block, so the 2^64 factor passes through exactly) before the experts read it.
+unsafe extern "C" fn act_fp8_hook(_ctx: *mut std::ffi::c_void, _layer: u32, rows: u32, xr: *mut f32) {
+    use crate::qwen3_moe_omega_prefill::fake_quant::fake_quant_row;
+    for r in 0..rows as usize {
+        // SAFETY: omega passes rows x VERIFY_XR floats.
+        let row = unsafe { std::slice::from_raw_parts_mut(xr.add(r * aien_omega_dgraph::VERIFY_XR), aien_omega_dgraph::HIDDEN) };
+        fake_quant_row(row);
+    }
+}
+
 impl Qwen3MoeOmegaEngine {
     /// Whether decode steps run as one command list (`OWN30B_DECODE_GRAPH=1` at engine creation).
     pub fn decode_graph_on(&self) -> bool {
@@ -274,6 +286,93 @@ impl Qwen3MoeOmegaEngine {
             Some(e) => Err(e),
             None => Ok(Vec::new()),
         }
+    }
+
+    /// W-L4f probe: one one-list decode token at `pos` ([`Self::decode_step`]) and its final-normed hidden state read
+    /// back from the chip (the reference the batched verify must equal bit for bit), with the graph's own logits when
+    /// `logits` (the in-list lm_head). Consumes the pending token. Needs the one-list decode switch on.
+    pub fn decode_step_hidden(&mut self, token: u32, logits: bool) -> Result<(Vec<f32>, Option<Vec<f32>>), String> {
+        if !self.batch_verify_possible() {
+            return Err(format!("decode_step_hidden: needs {ENV}=1, no tracing and no routing mutant"));
+        }
+        self.decode_step(token)?;
+        let g = self.dgraph.as_mut().ok_or("decode graph missing after a decode step")?;
+        g.pending = false;
+        let mut hidden = vec![0.0f32; aien_omega_dgraph::HIDDEN];
+        let mut lg = logits.then(|| vec![0.0f32; g.graph.vocab()]);
+        g.graph.read(None, Some(&mut hidden), lg.as_deref_mut()).map_err(|e| format!("decode graph hidden: {e}"))?;
+        Ok((hidden, lg))
+    }
+
+    /// W-L4f: whether [`Self::step_verify_batch`] can run: the one-list decode switch on (the batch verify is that
+    /// graph's own kernels), no tracing, no host routing mutant, the graph linked.
+    pub fn batch_verify_possible(&self) -> bool {
+        self.decode_graph && self.trace_layers.is_empty() && !self.routing_mutant && aien_omega_dgraph::is_native()
+    }
+
+    /// W-L4f: the batched exact verify. `tokens` (consecutive positions from `pos`, at most
+    /// [`aien_omega_dgraph::VERIFY_MAX_ROWS`]) run through every layer in one omega call (one submission per layer),
+    /// and every row's final-normed hidden state comes back. Each row is bit-identical to the one-list decode token
+    /// ([`Self::decode_step`], launched or resident) at that position after the rows before it, and so is the KV it
+    /// writes (omega `omega_gpu_decode_graph_verify`). Advances `pos` and `history`; the caller rewinds what it
+    /// rejects. `mutant`: NEGATIVE CONTROL ONLY; `ActFp8` quantizes every row's expert input (x' after the post
+    /// norm) to FP8 with the prefill quantiser inside the call, the rest are refused.
+    pub fn step_verify_batch(&mut self, tokens: &[u32], mutant: super::spec::NumericsMutant) -> Result<Vec<Vec<f32>>, String> {
+        use super::spec::NumericsMutant;
+        let m = tokens.len();
+        if m == 0 || m > aien_omega_dgraph::VERIFY_MAX_ROWS {
+            return Err(format!("step_verify_batch: {m} tokens (1..={})", aien_omega_dgraph::VERIFY_MAX_ROWS));
+        }
+        if !self.batch_verify_possible() {
+            return Err(format!("step_verify_batch: needs {ENV}=1 with the one-list decode linked, no tracing and no routing mutant"));
+        }
+        if !matches!(mutant, NumericsMutant::None | NumericsMutant::ActFp8) {
+            return Err(format!("step_verify_batch: numerics mutant {mutant:?} is not wired here (none or act-fp8)"));
+        }
+        let t0 = Instant::now();
+        let pos0 = self.pos;
+        if pos0 + m > self.kv.capacity() {
+            return Err(format!("context full: {pos0} + {m} of {}", self.kv.capacity()));
+        }
+        self.prepare_decode_graph()?;
+        match self.kv.dgraph_cache(pos0) {
+            Some(r) => {
+                r?;
+            }
+            None => return Err(format!("{NEEDS}; this load has the {} attention path", self.kv.path_name())),
+        }
+        let h = self.weights.config.hidden;
+        let x: Vec<f32> = tokens.iter().flat_map(|&t| self.weights.embed_row(t)).collect();
+        let mut hidden = vec![0.0f32; m * h];
+        let g = self.dgraph.as_mut().ok_or("decode graph missing after prepare")?;
+        // A pending one-list token belongs to the step before this round; its logits are not these rows'.
+        g.pending = false;
+        if mutant == NumericsMutant::ActFp8 {
+            // SAFETY: act_fp8_hook touches only the rows omega passes; no context.
+            unsafe { g.graph.verify_set_hook(Some(act_fp8_hook), std::ptr::null_mut()) };
+        }
+        let r = g.graph.verify(m, &x, pos0, &mut hidden);
+        if mutant == NumericsMutant::ActFp8 {
+            // SAFETY: clearing the hook.
+            unsafe { g.graph.verify_set_hook(None, std::ptr::null_mut()) };
+        }
+        let st: GraphStats = r.map_err(|e| format!("decode graph verify at {pos0} ({m} rows): {e}"))?;
+        // The call wrote positions pos0 ..= pos0 + m - 1 of every layer.
+        self.kv.dgraph_commit(pos0 + m - 1);
+        self.pos = pos0 + m;
+        self.history.extend_from_slice(tokens);
+        let total_ns = t0.elapsed().as_nanos() as u64;
+        self.last_timing = StepTiming {
+            total_ns,
+            chip_ns: st.chip_ns,
+            launches: st.launches as u64,
+            host_ns: total_ns.saturating_sub(st.chip_ns),
+            graph_launches: st.launches as u64,
+            graph_submits: st.submits as u64,
+            graph_record_ns: st.record_ns,
+            ..StepTiming::default()
+        };
+        Ok(hidden.chunks(h).map(<[f32]>::to_vec).collect())
     }
 
     /// The graph's greedy token of the last decode step, when the caller's sampler is the

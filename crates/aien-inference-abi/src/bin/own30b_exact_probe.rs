@@ -2,7 +2,10 @@
 //! (so the 30 GB model is never resident; the output is not the model's, the numerics are).
 //!
 //!   own30b_exact_probe <checkpoint> <layers> <golden.json> <receipt-dir> [--reps 6] [--max-m 8] [--prompt p4-long]
-//!                      [--paths verify,fast,wp] [--no-identity]
+//!                      [--paths verify,fast,wp] [--no-identity] [--decode-graph on] [--resident on|off] [--rows 1,3,5,9]
+//!   W-L4f: paths `batch` (the batched exact verify; needs --decode-graph on), `batch-fp8` (its act-fp8 control) and
+//!   `graph` (m one-list tokens in a row: the served plain step). Their IDENTITY reference is the one-list token, and
+//!   LM-IDENTITY compares the host lm_head on each verified row with the token's in-list logits.
 //!
 //! After a plain prefill of one golden prompt, at the same KV position every time (rewind after each call):
 //!   (W-L4e: paths also `mutant` = bf16 attention, `mutant-res` = bf16 residual stream, `mutant-fp8` = W8A8 activations; every IDENTITY line also
@@ -62,6 +65,11 @@ fn run_path(engine: &mut Qwen3MoeOmegaEngine, path: &str, toks: &[u32]) -> Resul
         // W-L4e: the residual-stream bf16 mutant.
         "mutant-res" => engine.step_verify_exact_inner(toks, &mut ExactProf::default(), NumericsMutant::ResidualBf16),
         "mutant-fp8" => engine.step_verify_exact_inner(toks, &mut ExactProf::default(), NumericsMutant::ActFp8),
+        // W-L4f: the batched exact verify on the one-list decode graph, its act-fp8 control, and m one-list tokens
+        // one after another (the served plain step: what a round of m rows costs without speculation).
+        "batch" => engine.step_verify_batch(toks, NumericsMutant::None),
+        "batch-fp8" => engine.step_verify_batch(toks, NumericsMutant::ActFp8),
+        "graph" => toks.iter().map(|&t| engine.decode_step_hidden(t, false).map(|(h, _)| h)).collect(),
         other => Err(format!("unknown path {other}")),
     }
 }
@@ -72,6 +80,7 @@ fn main() {
     let (mut reps, mut max_m, mut prompt_name) = (6usize, 8usize, "p4-long".to_string());
     let mut paths: Vec<String> = vec!["verify".into(), "fast".into(), "wp".into()];
     let mut identity = true;
+    let (mut decode_graph, mut resident, mut rows_list): (bool, Option<bool>, Option<Vec<usize>>) = (false, None, None);
     while let Some(a) = it.next() {
         match a.as_str() {
             "--reps" => reps = it.next().expect("--reps N").parse().expect("number"),
@@ -79,6 +88,9 @@ fn main() {
             "--prompt" => prompt_name = it.next().expect("--prompt NAME"),
             "--paths" => paths = it.next().expect("--paths a,b").split(',').map(str::to_string).collect(),
             "--no-identity" => identity = false,
+            "--decode-graph" => decode_graph = it.next().expect("--decode-graph on|off") == "on",
+            "--resident" => resident = Some(it.next().expect("--resident on|off") == "on"),
+            "--rows" => rows_list = Some(it.next().expect("--rows 1,3,5,9").split(',').map(|s| s.parse().expect("number")).collect()),
             _ => pos.push(a),
         }
     }
@@ -129,19 +141,47 @@ fn main() {
     let base = ids.len();
     engine.rewind(base);
     say(format!("prefilled {base} positions; first token {first}"));
+    // W-L4f: the one-list decode (the served plain step) after the plain prefill, so both start from the same KV.
+    if let Some(r) = resident {
+        aien_omega_dgraph::resident::set(aien_omega_dgraph::resident::Resident { on: r, ..aien_omega_dgraph::resident::GATED }).expect("resident decode switch");
+    }
+    if decode_graph {
+        engine.set_decode_graph(true).expect("one-list decode on");
+    }
+    say(format!("decode_graph={} resident={:?}", engine.decode_graph_on(), aien_omega_dgraph::resident::get()));
+    let ms_list: Vec<usize> = rows_list.clone().unwrap_or_else(|| (1..=max_m).collect());
+    assert!(ms_list.iter().all(|&m| m >= 1 && m <= max_m), "--rows values must be 1..=--max-m");
     let mut json = serde_json::Map::new();
     let toks_for = |m: usize| -> Vec<u32> { std::iter::once(first).chain(rows_src.iter().copied()).take(m).collect() };
 
     // --- 1. identity ---
     if identity {
         let mut rows_json = Vec::new();
-        for m in 1..=max_m {
+        let graph_paths = |p: &str| p.starts_with("batch") || p == "graph";
+        for &m in &ms_list {
             let toks = toks_for(m);
             engine.rewind(base);
-            let reference: Vec<Vec<f32>> = toks.iter().map(|&t| engine.step(t).expect("step")).collect();
+            let ref_step: Vec<Vec<f32>> = if paths.iter().any(|p| !graph_paths(p)) { toks.iter().map(|&t| engine.step(t).expect("step")).collect() } else { Vec::new() };
+            // W-L4f: the batched verify's reference is the served plain step, the one-list token (and its in-list logits).
+            let (ref_graph, ref_graph_logits): (Vec<Vec<f32>>, Vec<Vec<f32>>) = if paths.iter().any(|p| graph_paths(p)) {
+                engine.rewind(base);
+                toks.iter().map(|&t| engine.decode_step_hidden(t, true).map(|(h, l)| (h, l.unwrap_or_default())).expect("one-list token")).unzip()
+            } else {
+                (Vec::new(), Vec::new())
+            };
             for path in &paths {
                 engine.rewind(base);
                 let got = run_path(&mut engine, path, &toks).unwrap_or_else(|e| panic!("{path} x{m}: {e}"));
+                let reference = if graph_paths(path) { &ref_graph } else { &ref_step };
+                if graph_paths(path) {
+                    // The spec loop runs the host lm_head on verified rows: it must equal the graph's in-list lm_head.
+                    let mut lm_rows_equal = 0usize;
+                    for (b, lg) in got.iter().zip(&ref_graph_logits) {
+                        let lb = engine.logits(b).expect("lm_head");
+                        lm_rows_equal += (lb.len() == lg.len() && lb.iter().zip(lg).all(|(x, y)| x.to_bits() == y.to_bits())) as usize;
+                    }
+                    say(format!("LM-IDENTITY path={path} m={m} host_lm_head_rows_equal_graph_logits={lm_rows_equal}/{m}"));
+                }
                 let mut rows_equal = 0usize;
                 let mut words = 0usize;
                 let mut first_bad: Option<usize> = None;
@@ -195,7 +235,7 @@ fn main() {
     json.insert("plain".into(), serde_json::json!({"step_ms": step_ms, "lm_head_ms": lm_ms, "layers": layers}));
     let mut timing_rows = Vec::new();
     for path in &paths {
-        for m in 1..=max_m {
+        for &m in &ms_list {
             let toks = toks_for(m);
             let mut walls = Vec::new();
             let mut last = StepTiming::default();
