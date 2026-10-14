@@ -92,6 +92,18 @@ mod ffi {
             out: *mut f32,
             info: *mut DecodeAttnInfo,
         ) -> i32;
+        #[cfg(has_omega_dattn_rows)]
+        pub fn omega_gpu_decode_attn_rows(
+            c: *mut OmegaGpuDecodeAttnCache,
+            layer: u32,
+            pos0: u32,
+            rows: u32,
+            qkv: *const f32,
+            eps: f32,
+            out_scale: f32,
+            out: *mut f32,
+            info: *mut DecodeAttnInfo,
+        ) -> i32;
         pub fn omega_gpu_decode_attn_last_error() -> *const std::os::raw::c_char;
         pub fn omega_gpu_decode_attn_rc_name(rc: i32) -> *const std::os::raw::c_char;
         pub fn omega_gpu_decode_attn_set_depth(depth: u32);
@@ -271,6 +283,59 @@ impl DecodeAttnCache {
             Err(OmegaGpuError::Unavailable)
         }
     }
+
+    /// W-L4d (exact speculative verify): `rows` new tokens at `pos0 ..` of `layer` in two
+    /// launches (`omega_gpu_decode_attn_rows`). `qkv`: `[rows][QKV_WORDS]`, `out`:
+    /// `[rows][OUT_WORDS]`. Row r is bit-identical to `attend(layer, pos0 + r, ..)` called
+    /// for r = 0, 1, .. in order (chip-checked on the omega side). `Unavailable` when the
+    /// linked archive predates the rows API.
+    #[allow(clippy::too_many_arguments)]
+    pub fn attend_rows(
+        &mut self,
+        layer: usize,
+        pos0: usize,
+        rows: usize,
+        qkv: &[f32],
+        eps: f32,
+        out_scale: f32,
+        out: &mut [f32],
+    ) -> Result<DecodeAttnInfo, OmegaGpuError> {
+        if rows == 0 || rows > MAX_ROWS {
+            return Err(bad(format!("decode attn rows {rows} outside 1..={MAX_ROWS}")));
+        }
+        check_len("decode attn rows qkv", rows * QKV_WORDS, qkv.len())?;
+        check_len("decode attn rows out", rows * OUT_WORDS, out.len())?;
+        if layer >= self.layers {
+            return Err(bad(format!("decode attn layer {layer} >= layers {}", self.layers)));
+        }
+        if pos0 + rows > self.max_pos {
+            return Err(bad(format!("decode attn rows {pos0}+{rows} > max_pos {}", self.max_pos)));
+        }
+        #[cfg(has_omega_dattn_rows)]
+        {
+            let mut info = DecodeAttnInfo::default();
+            // SAFETY: lengths and ranges checked; the cache is live for &mut self.
+            let rc = unsafe {
+                ffi::omega_gpu_decode_attn_rows(self.ptr, layer as u32, pos0 as u32, rows as u32, qkv.as_ptr(), eps, out_scale, out.as_mut_ptr(), &mut info)
+            };
+            if rc != 0 {
+                return Err(rc_err(rc));
+            }
+            Ok(info)
+        }
+        #[cfg(not(has_omega_dattn_rows))]
+        {
+            let _ = (eps, out_scale, out);
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
+}
+
+/// Most rows one `attend_rows` call takes (`OMEGA_GPU_DATTN_MAX_ROWS`).
+pub const MAX_ROWS: usize = 16;
+/// True when the multi-row exact attention is linked.
+pub const fn has_rows() -> bool {
+    cfg!(has_omega_dattn_rows)
 }
 
 impl Drop for DecodeAttnCache {

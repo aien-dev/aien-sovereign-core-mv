@@ -1,0 +1,54 @@
+spin_us Some(2000)
+mem available before load: 104.0 GB
+LOAD 38.1s attention=fused prefill_chunk=64 device_routing=true spec_possible=true whole_prompt=false (prefill and wp verify) verify=decode,exact new=64
+spec tuning: max_draft=8 max_ngram=3 min_ngram=1 min_accept=0 drafter=Suffix suffix_global=true
+suffix config: SuffixConfig { depth: 40, max_match: 24, min_match: 1, alpha: 4.0, prior: 4.0, min_cum: 0.05, gain: 1.1, global_max_nodes: 8000000, use_global: true, cost: CostModel { verify_base_ms: 24.3, verify_row_ms: 4.5, lm_ms: 2.9, plain_ms: 28.3 } }
+extra prompt p5-code-json: 506 tokens from /home/drakestapleton/workspace/sc-own30b-specwp/docs/inference/evidence/own30b-l4c-cut2-chip-20261014T0227Z/p5-code-json.txt
+p1-one-token run 1: OFF 37.9 tok/s (1687 ms, 64 tokens) | off-vs-golden differs at token 16 (recorded; spec-off is the reference)
+p1-one-token run 1: ON verify=Decode 36.6 tok/s (1751 ms) vs off IDENTICAL | rounds 6 wp_rounds 0 plain 54 backoff 0 drafted 6 accepted 3 acceptance 0.500 | tokens/round 1.50 verify 46.5 ms/round global 0
+p1-one-token negative control verify=Decode (accept one extra wrong draft): output differs (CAUGHT)
+p1-one-token run 1: ON verify=Exact 38.5 tok/s (1661 ms) vs off IDENTICAL | rounds 6 wp_rounds 0 plain 54 backoff 0 drafted 6 accepted 3 acceptance 0.500 | tokens/round 1.50 verify 30.0 ms/round global 0
+p1-one-token negative control verify=Exact (accept one extra wrong draft): output differs (CAUGHT)
+p1-one-token numerics control verify=Exact (bf16-truncated attention in verify): output unchanged
+p1-one-token run 2: OFF 37.9 tok/s (1688 ms, 64 tokens) | off-vs-golden differs at token 16 (recorded; spec-off is the reference)
+p1-one-token run 2: ON verify=Decode 36.6 tok/s (1751 ms) vs off IDENTICAL | rounds 6 wp_rounds 0 plain 54 backoff 0 drafted 6 accepted 3 acceptance 0.500 | tokens/round 1.50 verify 46.3 ms/round global 0
+p1-one-token run 2: ON verify=Exact 38.6 tok/s (1658 ms) vs off IDENTICAL | rounds 6 wp_rounds 0 plain 54 backoff 0 drafted 6 accepted 3 acceptance 0.500 | tokens/round 1.50 verify 29.6 ms/round global 0
+p2-short run 1: OFF 36.8 tok/s (190 ms, 7 tokens) | off-vs-golden IDENTICAL
+p2-short run 1: ON verify=Decode 36.6 tok/s (191 ms) vs off IDENTICAL | rounds 1 wp_rounds 0 plain 5 backoff 0 drafted 1 accepted 1 acceptance 1.000 | tokens/round 2.00 verify 48.6 ms/round global 0
+p2-short negative control verify=Decode (accept one extra wrong draft): output unchanged (no rejected draft to corrupt)
+p2-short run 1: ON verify=Exact 40.5 tok/s (173 ms) vs off IDENTICAL | rounds 1 wp_rounds 0 plain 5 backoff 0 drafted 1 accepted 1 acceptance 1.000 | tokens/round 2.00 verify 30.2 ms/round global 0
+p2-short negative control verify=Exact (accept one extra wrong draft): output unchanged (no rejected draft to corrupt)
+p2-short numerics control verify=Exact (bf16-truncated attention in verify): output unchanged
+p2-short run 2: OFF 36.8 tok/s (190 ms, 7 tokens) | off-vs-golden IDENTICAL
+p2-short run 2: ON verify=Decode 36.1 tok/s (194 ms) vs off IDENTICAL | rounds 1 wp_rounds 0 plain 5 backoff 0 drafted 1 accepted 1 acceptance 1.000 | tokens/round 2.00 verify 52.3 ms/round global 0
+p2-short run 2: ON verify=Exact 40.2 tok/s (174 ms) vs off IDENTICAL | rounds 1 wp_rounds 0 plain 5 backoff 0 drafted 1 accepted 1 acceptance 1.000 | tokens/round 2.00 verify 30.2 ms/round global 0
+p3-medium run 1: OFF 36.4 tok/s (1760 ms, 64 tokens) | off-vs-golden differs at token 16 (recorded; spec-off is the reference)
+p3-medium run 1: ON verify=Decode 34.0 tok/s (1881 ms) vs off IDENTICAL | rounds 13 wp_rounds 0 plain 39 backoff 0 drafted 17 accepted 11 acceptance 0.647 | tokens/round 1.85 verify 54.7 ms/round global 0
+p3-medium negative control verify=Decode (accept one extra wrong draft): output differs (CAUGHT)
+p3-medium run 1: ON verify=Exact 39.0 tok/s (1639 ms) vs off IDENTICAL | rounds 13 wp_rounds 0 plain 39 backoff 0 drafted 17 accepted 11 acceptance 0.647 | tokens/round 1.85 verify 35.7 ms/round global 0
+p3-medium negative control verify=Exact (accept one extra wrong draft): output differs (CAUGHT)
+p3-medium numerics control verify=Exact (bf16-truncated attention in verify): output unchanged
+p3-medium run 2: OFF 36.1 tok/s (1771 ms, 64 tokens) | off-vs-golden differs at token 16 (recorded; spec-off is the reference)
+p3-medium run 2: ON verify=Decode 34.3 tok/s (1864 ms) vs off IDENTICAL | rounds 13 wp_rounds 0 plain 39 backoff 0 drafted 17 accepted 11 acceptance 0.647 | tokens/round 1.85 verify 53.5 ms/round global 0
+p3-medium run 2: ON verify=Exact 39.0 tok/s (1641 ms) vs off IDENTICAL | rounds 13 wp_rounds 0 plain 39 backoff 0 drafted 17 accepted 11 acceptance 0.647 | tokens/round 1.85 verify 36.0 ms/round global 0
+p4-long run 1: OFF 36.0 tok/s (1778 ms, 64 tokens) | off-vs-golden differs at token 16 (recorded; spec-off is the reference)
+p4-long run 1: ON verify=Decode 28.8 tok/s (2220 ms) vs off IDENTICAL | rounds 20 wp_rounds 0 plain 39 backoff 0 drafted 26 accepted 4 acceptance 0.154 | tokens/round 1.20 verify 51.6 ms/round global 4
+p4-long negative control verify=Decode (accept one extra wrong draft): output differs (CAUGHT)
+p4-long run 1: ON verify=Exact 32.8 tok/s (1949 ms) vs off IDENTICAL | rounds 20 wp_rounds 0 plain 39 backoff 0 drafted 26 accepted 4 acceptance 0.154 | tokens/round 1.20 verify 37.3 ms/round global 4
+p4-long negative control verify=Exact (accept one extra wrong draft): output differs (CAUGHT)
+p4-long numerics control verify=Exact (bf16-truncated attention in verify): output unchanged
+p4-long run 2: OFF 36.0 tok/s (1777 ms, 64 tokens) | off-vs-golden differs at token 16 (recorded; spec-off is the reference)
+p4-long run 2: ON verify=Decode 28.2 tok/s (2270 ms) vs off IDENTICAL | rounds 20 wp_rounds 0 plain 39 backoff 0 drafted 26 accepted 4 acceptance 0.154 | tokens/round 1.20 verify 54.0 ms/round global 4
+p4-long run 2: ON verify=Exact 33.2 tok/s (1925 ms) vs off IDENTICAL | rounds 20 wp_rounds 0 plain 39 backoff 0 drafted 26 accepted 4 acceptance 0.154 | tokens/round 1.20 verify 36.7 ms/round global 4
+p5-code-json run 1: OFF 35.6 tok/s (7195 ms, 256 tokens) | off-vs-golden differs at token 0 (recorded; spec-off is the reference)
+p5-code-json OFF text (first 400 chars): "[\n  {\"id\": 101, \"tool\": \"read_file\", \"args\": {\"path\": \"src/server/router.rs\", \"start\": 1, \"end\": 120}, \"status\": \"done\", \"checked\": true, \"owner\": \"agent-a\"},\n  {\"id\": 102, \"tool\": \"grep\", \"args\": {\"pattern\": \"fn handle_request\", \"path\": \"src/server\"}, \"status\": \"done\", \"checked\": true, \"owner\": \"agent-a\"},\n  {\"id\": 103, \"tool\": \"read_file\", \"args\": {\"path\": \"src/server/handlers.rs\", \"start\": 40, "
+p5-code-json run 1: ON verify=Decode 40.9 tok/s (6262 ms) vs off IDENTICAL | rounds 52 wp_rounds 0 plain 1 backoff 0 drafted 235 accepted 203 acceptance 0.864 | tokens/round 4.90 verify 104.6 ms/round global 0
+p5-code-json negative control verify=Decode (accept one extra wrong draft): output differs (CAUGHT)
+p5-code-json run 1: ON verify=Exact 50.5 tok/s (5068 ms) vs off IDENTICAL | rounds 52 wp_rounds 0 plain 1 backoff 0 drafted 235 accepted 203 acceptance 0.864 | tokens/round 4.90 verify 81.6 ms/round global 0
+p5-code-json negative control verify=Exact (accept one extra wrong draft): output differs (CAUGHT)
+p5-code-json numerics control verify=Exact (bf16-truncated attention in verify): output unchanged
+p5-code-json run 2: OFF 35.6 tok/s (7181 ms, 256 tokens) | off-vs-golden differs at token 0 (recorded; spec-off is the reference)
+p5-code-json run 2: ON verify=Decode 40.6 tok/s (6299 ms) vs off IDENTICAL | rounds 52 wp_rounds 0 plain 1 backoff 0 drafted 235 accepted 203 acceptance 0.864 | tokens/round 4.90 verify 105.3 ms/round global 0
+p5-code-json run 2: ON verify=Exact 51.1 tok/s (5008 ms) vs off IDENTICAL | rounds 52 wp_rounds 0 plain 1 backoff 0 drafted 235 accepted 203 acceptance 0.864 | tokens/round 4.90 verify 80.5 ms/round global 0
+FAIL: verify=Exact: the numerics mutant never changed the output; the identity check cannot see a rounding change on this data
+RESULT: FAIL

@@ -1,0 +1,3 @@
+sc 658316dc487b20cb3739701887d1a876750f9da2
+Wed Oct 14 01:23:11 AM UTC 2026
+flock /tmp/aien-gb10.lock env AIEN_OMEGA_SPIN_US=2000 /tmp/l4b-omega/own30b_spec_check.run1 /home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8 docs/inference/evidence/own30b-f-20261013T1745Z/golden.json docs/inference/evidence/own30b-l4b-specwp-chip-20261014T0123Z/run1 --runs 3 --new 16 --verify both --wp-prefill

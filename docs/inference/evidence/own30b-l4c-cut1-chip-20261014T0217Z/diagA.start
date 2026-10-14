@@ -1,0 +1,5 @@
+sc f7ac6a4 (pre-cut-1 merge) + StepTiming ..default() fix only (worktree /tmp/l4c/wt-a); purpose: does the wp divergence come from cut 1 or from the RC archive/merge?
+Wed Oct 14 02:20:49 AM UTC 2026
+binary 452175e3a61b87da1691971a1e090192e7b7934f9429c5b82ee09dd622fcd8c1  /tmp/l4c/bin/own30b_spec_check.A
+omega archive 6a6cb4df479ddbcc5cd4ef0fda1aea968832b2b70be2ff3312051c3e9921aad5
+cmd flock /tmp/aien-gb10.lock env AIEN_OMEGA_SPIN_US=2000 /tmp/l4c/bin/own30b_spec_check.A <ckpt> golden docs/inference/evidence/own30b-l4c-cut1-chip-20261014T0217Z/diagA --runs 1 --new 64 --verify wp --wp-prefill

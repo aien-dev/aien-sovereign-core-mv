@@ -31,6 +31,7 @@ use crate::resident::transpose_bf16_for_upload;
 mod whole_prompt;
 pub mod w8a8_control;
 
+pub mod spec;
 /// The one-list decode token (OWN-30B L2 cut 2), off unless `OWN30B_DECODE_GRAPH=1`.
 #[path = "qwen3_moe_omega_dgraph.rs"]
 pub mod dgraph;
@@ -1798,6 +1799,11 @@ pub trait KvAttention: Send {
     fn fused_attend(&mut self, _layer: usize, _pos: usize, _qkv: &[f32], _eps: f32, _out: &mut [f32]) -> Option<Result<u64, String>> {
         None
     }
+    /// W-L4d: `rows` consecutive new tokens from `pos0` in one call, bit-identical to
+    /// `fused_attend` once per row in order. `None`: not available (the caller loops).
+    fn fused_attend_rows(&mut self, _layer: usize, _pos0: usize, _rows: usize, _qkv: &[f32], _eps: f32, _out: &mut [f32]) -> Option<Result<u64, String>> {
+        None
+    }
     /// "split" (host norm/rope, `append` + `attend`) or "fused" (one launch per layer).
     fn path_name(&self) -> &'static str {
         "split"
@@ -2588,6 +2594,41 @@ impl Qwen3MoeOmegaEngine {
         Ok((Self::new(weights, kv), report))
     }
 
+    /// W-L4d probe/test helper: [`Self::load_omega_paths`] with only the first `layers` decoder layers
+    /// loaded (real checkpoint weights, `config.layers` capped). The output is NOT the model's; it is
+    /// for bit-identity and timing work on real-shape weights without the 30 GB resident copy.
+    pub fn load_omega_first_layers(
+        dir: &Path,
+        layers: usize,
+        max_context: usize,
+        format: WeightFormat,
+        attn: AttnPath,
+        paths: DevicePaths,
+        progress: &mut dyn FnMut(&str),
+    ) -> Result<(Self, LoadReport), String> {
+        if !aien_omega_gpu::is_native() {
+            return Err("this binary carries the CPU stub of the Omega engine (build with AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB)".into());
+        }
+        let mut config = Qwen3MoeConfig::from_checkpoint(dir)?;
+        if layers == 0 || layers > config.layers {
+            return Err(format!("load_omega_first_layers: {layers} layers asked, the checkpoint has {}", config.layers));
+        }
+        config.layers = layers;
+        let mut source = ShardSource::open(dir)?;
+        let (weights, report) = load_qwen3_moe_omega_from_paths(&config, &mut source, &OmegaModelUploader, format, paths, progress)?;
+        let fused = match attn {
+            AttnPath::Split => false,
+            AttnPath::Fused => true,
+            AttnPath::Auto => OmegaModelUploader::uses_dattn_api() && crate::qwen3_moe_omega_dattn::OmegaFusedKv::fits(&weights.config),
+        };
+        let kv: Box<dyn KvAttention> = if fused {
+            Box::new(crate::qwen3_moe_omega_dattn::OmegaFusedKv::new(&weights.config, max_context, &weights.layers)?)
+        } else {
+            Box::new(OmegaPagedKv::new(&weights.config, max_context)?)
+        };
+        Ok((Self::new(weights, kv), report))
+    }
+
     /// "split" or "fused": which attention path this engine runs.
     pub fn attention_path(&self) -> &'static str {
         self.kv.path_name()
@@ -3017,6 +3058,11 @@ impl OmegaEngine {
         params: &GenerateParams,
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, String> {
+        let cfg = spec::SpecConfig::from_env();
+        if cfg.enabled && params.temperature <= 0.001 {
+            let p = params.clone();
+            return self.generate_with(prompt, params, &mut |logits, step| sample_next(logits, &p, step), on_token);
+        }
         let mut g = self.inner.lock().map_err(|_| "engine lock poisoned".to_string())?;
         g.generate(prompt, params, on_token)
     }
@@ -3030,6 +3076,12 @@ impl OmegaEngine {
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, String> {
         let mut g = self.inner.lock().map_err(|_| "engine lock poisoned".to_string())?;
+        let cfg = spec::SpecConfig::from_env();
+        if cfg.enabled && params.temperature <= 0.001 {
+            let (o, st) = g.generate_spec_with(prompt, params, &cfg, sampler, on_token)?;
+            eprintln!("spec: rounds {} plain {} drafted {} accepted {}", st.rounds, st.plain_steps, st.drafted, st.accepted);
+            return Ok(o);
+        }
         g.generate_with(prompt, params, sampler, on_token)
     }
 

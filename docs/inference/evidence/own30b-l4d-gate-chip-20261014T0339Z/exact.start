@@ -1,0 +1,7 @@
+start 2026-10-14T03:39:54Z
+sc commit dc9a3f389d36f338824492bad8cbf5eb0ea07071 branch own30b/spec-wp dirty=0
+binary /tmp/l4d/target/release/own30b_spec_check sha256 7edb1002e0af22bef52561bcf483d705586f2ab1b849041cd10eabdcf0b18214
+omega archive /home/drakestapleton/workspace/omega-own30b-spec/build/libomega_gpu.a sha256 8d5a42e8efb83f2a7afd7c176cfb9425671256d036cc335cb4576b6fb867f97b
+cmd flock /tmp/aien-gb10.lock env AIEN_OMEGA_SPIN_US=2000 /tmp/l4d/target/release/own30b_spec_check /home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8 /home/drakestapleton/workspace/sc-own30b-specwp/docs/inference/evidence/own30b-f-20261013T1745Z/golden.json /home/drakestapleton/workspace/sc-own30b-specwp/docs/inference/evidence/own30b-l4d-gate-chip-20261014T0339Z/exact --drafter suffix --suffix-global --runs 2 --new 64 --extra-prompt p5-code-json /home/drakestapleton/workspace/sc-own30b-specwp/docs/inference/evidence/own30b-l4c-cut2-chip-20261014T0227Z/p5-code-json.txt --new-extra 256 --verify decode,exact
+               total        used        free      shared  buff/cache   available
+Mem:             121          17          45           2          62         103

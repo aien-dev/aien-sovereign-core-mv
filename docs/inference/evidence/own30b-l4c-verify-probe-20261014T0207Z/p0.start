@@ -1,0 +1,7 @@
+sc f7ac6a47d244802c21202b0cda115da43db5774c (+ uncommitted probe bin)
+Wed Oct 14 02:07:36 AM UTC 2026
+binary b42bb888404ac7eca2ea5e2b50b053a3f06acd4b59261d2b4f5a30098e1d4edb  /tmp/l4c/bin/own30b_spec_probe.p0
+omega archive 6a6cb4df479ddbcc5cd4ef0fda1aea968832b2b70be2ff3312051c3e9921aad5  /tmp/l4c/omega/libomega_gpu.a = omega own30b/rc d0889a94 (copied from /tmp/wrc/omega)
+cmd flock /tmp/aien-gb10.lock env AIEN_OMEGA_SPIN_US=2000 /tmp/l4c/bin/own30b_spec_probe.p0 <ckpt> docs/inference/evidence/own30b-f-20261013T1745Z/golden.json docs/inference/evidence/own30b-l4c-verify-probe-20261014T0207Z/p0 --reps 6 --max-m 8
+               total        used        free      shared  buff/cache   available
+Mem:             121          15          45           2          63         105

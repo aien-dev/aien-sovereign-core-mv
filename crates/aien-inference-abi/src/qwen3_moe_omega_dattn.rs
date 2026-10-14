@@ -103,6 +103,25 @@ impl KvAttention for OmegaFusedKv {
     fn path_name(&self) -> &'static str {
         "fused"
     }
+    /// W-L4d: `rows` consecutive new tokens from `pos0` (= the filled length) in two launches,
+    /// bit-identical to `fused_attend` once per row. `None` when the archive lacks the rows API.
+    fn fused_attend_rows(&mut self, layer: usize, pos0: usize, rows: usize, qkv: &[f32], eps: f32, out: &mut [f32]) -> Option<Result<u64, String>> {
+        if !aien_omega_dattn::has_rows() {
+            return None;
+        }
+        if pos0 != self.filled[layer] || pos0 + rows > self.capacity {
+            return Some(Err(format!("fused kv: rows at {pos0}+{rows}, have {} (capacity {})", self.filled[layer], self.capacity)));
+        }
+        let r = self
+            .cache
+            .attend_rows(layer, pos0, rows, qkv, eps, 1.0, out)
+            .map(|info| info.elapsed_ns)
+            .map_err(|e| format!("decode attn rows layer {layer} pos {pos0}+{rows}: {e}"));
+        if r.is_ok() {
+            self.filled[layer] = pos0 + rows;
+        }
+        Some(r)
+    }
     fn fused_kv(&mut self) -> Option<&mut OmegaFusedKv> {
         Some(self)
     }

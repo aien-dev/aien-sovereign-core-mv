@@ -1,0 +1,53 @@
+spin_us Some(2000)
+mem available before load: 68.1 GB
+LOAD 3.7s attention=fused prefill_chunk=64 device_routing=true spec_possible=true whole_prompt=false (prefill and wp verify) verify=decode,exact new=64
+spec tuning: max_draft=8 max_ngram=3 min_ngram=1 min_accept=0 drafter=Suffix suffix_global=true
+suffix config: SuffixConfig { depth: 40, max_match: 24, min_match: 1, alpha: 4.0, prior: 4.0, min_cum: 0.05, gain: 1.1, global_max_nodes: 8000000, use_global: true, cost: CostModel { verify_base_ms: 24.3, verify_row_ms: 4.5, lm_ms: 2.9, plain_ms: 28.3 } }
+extra prompt p5-code-json: 506 tokens from docs/inference/evidence/own30b-l4c-cut2-chip-20261014T0227Z/p5-code-json.txt
+p1-one-token run 1: OFF 167.5 tok/s (382 ms, 64 tokens) | off-vs-golden differs at token 0 (recorded; spec-off is the reference)
+p1-one-token run 1: ON verify=Decode 158.4 tok/s (404 ms) vs off IDENTICAL | rounds 13 wp_rounds 0 plain 46 backoff 0 drafted 13 accepted 4 acceptance 0.308 | tokens/round 1.31 verify 5.6 ms/round global 0
+p1-one-token negative control verify=Decode (accept one extra wrong draft): output differs (CAUGHT)
+p1-one-token run 1: ON verify=Exact 169.8 tok/s (377 ms) vs off IDENTICAL | rounds 13 wp_rounds 0 plain 46 backoff 0 drafted 13 accepted 4 acceptance 0.308 | tokens/round 1.31 verify 3.6 ms/round global 0
+p1-one-token negative control verify=Exact (accept one extra wrong draft): output differs (CAUGHT)
+p1-one-token numerics control verify=Exact (bf16-truncated attention in verify): output differs from OFF at token 20 (CAUGHT)
+p1-one-token run 2: OFF 169.3 tok/s (378 ms, 64 tokens) | off-vs-golden differs at token 0 (recorded; spec-off is the reference)
+p1-one-token run 2: ON verify=Decode 156.1 tok/s (410 ms) vs off IDENTICAL | rounds 13 wp_rounds 0 plain 46 backoff 0 drafted 13 accepted 4 acceptance 0.308 | tokens/round 1.31 verify 6.2 ms/round global 0
+p1-one-token run 2: ON verify=Exact 170.7 tok/s (375 ms) vs off IDENTICAL | rounds 13 wp_rounds 0 plain 46 backoff 0 drafted 13 accepted 4 acceptance 0.308 | tokens/round 1.31 verify 3.5 ms/round global 0
+p2-short run 1: OFF 168.4 tok/s (380 ms, 64 tokens) | off-vs-golden differs at token 0 (recorded; spec-off is the reference)
+p2-short run 1: ON verify=Decode 171.6 tok/s (373 ms) vs off IDENTICAL | rounds 19 wp_rounds 0 plain 18 backoff 0 drafted 30 accepted 27 acceptance 0.900 | tokens/round 2.42 verify 6.6 ms/round global 4
+p2-short negative control verify=Decode (accept one extra wrong draft): output differs (CAUGHT)
+p2-short run 1: ON verify=Exact 195.1 tok/s (328 ms) vs off IDENTICAL | rounds 19 wp_rounds 0 plain 18 backoff 0 drafted 30 accepted 27 acceptance 0.900 | tokens/round 2.42 verify 4.3 ms/round global 4
+p2-short negative control verify=Exact (accept one extra wrong draft): output differs (CAUGHT)
+p2-short numerics control verify=Exact (bf16-truncated attention in verify): output unchanged
+p2-short run 2: OFF 168.9 tok/s (379 ms, 64 tokens) | off-vs-golden differs at token 0 (recorded; spec-off is the reference)
+p2-short run 2: ON verify=Decode 180.8 tok/s (354 ms) vs off IDENTICAL | rounds 19 wp_rounds 0 plain 18 backoff 0 drafted 30 accepted 27 acceptance 0.900 | tokens/round 2.42 verify 5.7 ms/round global 4
+p2-short run 2: ON verify=Exact 196.9 tok/s (325 ms) vs off IDENTICAL | rounds 19 wp_rounds 0 plain 18 backoff 0 drafted 30 accepted 27 acceptance 0.900 | tokens/round 2.42 verify 4.1 ms/round global 4
+p3-medium run 1: OFF 165.4 tok/s (387 ms, 64 tokens) | off-vs-golden differs at token 0 (recorded; spec-off is the reference)
+p3-medium run 1: ON verify=Decode 143.2 tok/s (447 ms) vs off IDENTICAL | rounds 27 wp_rounds 0 plain 27 backoff 0 drafted 31 accepted 9 acceptance 0.290 | tokens/round 1.33 verify 6.2 ms/round global 13
+p3-medium negative control verify=Decode (accept one extra wrong draft): output differs (CAUGHT)
+p3-medium run 1: ON verify=Exact 165.4 tok/s (387 ms) vs off IDENTICAL | rounds 27 wp_rounds 0 plain 27 backoff 0 drafted 31 accepted 9 acceptance 0.290 | tokens/round 1.33 verify 4.0 ms/round global 13
+p3-medium negative control verify=Exact (accept one extra wrong draft): output differs (CAUGHT)
+p3-medium numerics control verify=Exact (bf16-truncated attention in verify): output differs from OFF at token 9 (CAUGHT)
+p3-medium run 2: OFF 164.9 tok/s (388 ms, 64 tokens) | off-vs-golden differs at token 0 (recorded; spec-off is the reference)
+p3-medium run 2: ON verify=Decode 141.9 tok/s (451 ms) vs off IDENTICAL | rounds 27 wp_rounds 0 plain 27 backoff 0 drafted 31 accepted 9 acceptance 0.290 | tokens/round 1.33 verify 6.4 ms/round global 13
+p3-medium run 2: ON verify=Exact 167.1 tok/s (383 ms) vs off IDENTICAL | rounds 27 wp_rounds 0 plain 27 backoff 0 drafted 31 accepted 9 acceptance 0.290 | tokens/round 1.33 verify 3.9 ms/round global 13
+p4-long run 1: OFF 163.7 tok/s (391 ms, 64 tokens) | off-vs-golden differs at token 0 (recorded; spec-off is the reference)
+p4-long run 1: ON verify=Decode 166.2 tok/s (385 ms) vs off IDENTICAL | rounds 19 wp_rounds 0 plain 14 backoff 0 drafted 34 accepted 30 acceptance 0.882 | tokens/round 2.58 verify 7.0 ms/round global 3
+p4-long negative control verify=Decode (accept one extra wrong draft): output differs (CAUGHT)
+p4-long run 1: ON verify=Exact 186.6 tok/s (343 ms) vs off IDENTICAL | rounds 19 wp_rounds 0 plain 14 backoff 0 drafted 34 accepted 30 acceptance 0.882 | tokens/round 2.58 verify 4.9 ms/round global 3
+p4-long negative control verify=Exact (accept one extra wrong draft): output differs (CAUGHT)
+p4-long numerics control verify=Exact (bf16-truncated attention in verify): output differs from OFF at token 5 (CAUGHT)
+p4-long run 2: OFF 164.5 tok/s (389 ms, 64 tokens) | off-vs-golden differs at token 0 (recorded; spec-off is the reference)
+p4-long run 2: ON verify=Decode 160.4 tok/s (399 ms) vs off IDENTICAL | rounds 19 wp_rounds 0 plain 14 backoff 0 drafted 34 accepted 30 acceptance 0.882 | tokens/round 2.58 verify 7.8 ms/round global 3
+p4-long run 2: ON verify=Exact 183.9 tok/s (348 ms) vs off IDENTICAL | rounds 19 wp_rounds 0 plain 14 backoff 0 drafted 34 accepted 30 acceptance 0.882 | tokens/round 2.58 verify 5.1 ms/round global 3
+p5-code-json run 1: OFF 163.0 tok/s (1571 ms, 256 tokens) | off-vs-golden differs at token 0 (recorded; spec-off is the reference)
+p5-code-json OFF text (first 400 chars): "谢邀Much ado adoVERTISEMENTses…\n\n…”…\n\n服務或(Service…),… …\n\nتماعsickness sickness للغا…but,… …\n\nتماعsickness sickness的症状 symptoms,… …\n\n …\n\n …\n\n…and…\n\n…\n\n都有着但不限于…the…\n\n…and…\n\n…and…and,… …\n\nأهد.SDK.SDKARE的答案(answeredBy/on/off/off,… …\n\nتماعs\\/\\/\\/\\/sis,\",żu…the…the,… …\n\nتماعs.… …\n\n有这样的吗样的/il/il… …\n\nتماعs.… …\n\n …\n\nAŞsphaltphalt…it…the…\n\n …\n\nsı же…the,… …\n\n …\n\nAŞsphaltphalt,…\n\n …\n\n …\n\n…and/or當您在../../../都有着"
+p5-code-json run 1: ON verify=Decode 143.6 tok/s (1783 ms) vs off IDENTICAL | rounds 98 wp_rounds 0 plain 73 backoff 0 drafted 167 accepted 84 acceptance 0.503 | tokens/round 1.86 verify 7.7 ms/round global 36
+p5-code-json negative control verify=Decode (accept one extra wrong draft): output differs (CAUGHT)
+p5-code-json run 1: ON verify=Exact 166.4 tok/s (1538 ms) vs off IDENTICAL | rounds 98 wp_rounds 0 plain 73 backoff 0 drafted 167 accepted 84 acceptance 0.503 | tokens/round 1.86 verify 5.2 ms/round global 36
+p5-code-json negative control verify=Exact (accept one extra wrong draft): output differs (CAUGHT)
+p5-code-json numerics control verify=Exact (bf16-truncated attention in verify): output differs from OFF at token 88 (CAUGHT)
+p5-code-json run 2: OFF 162.8 tok/s (1572 ms, 256 tokens) | off-vs-golden differs at token 0 (recorded; spec-off is the reference)
+p5-code-json run 2: ON verify=Decode 144.6 tok/s (1770 ms) vs off IDENTICAL | rounds 98 wp_rounds 0 plain 73 backoff 0 drafted 167 accepted 84 acceptance 0.503 | tokens/round 1.86 verify 7.6 ms/round global 36
+p5-code-json run 2: ON verify=Exact 167.3 tok/s (1530 ms) vs off IDENTICAL | rounds 98 wp_rounds 0 plain 73 backoff 0 drafted 167 accepted 84 acceptance 0.503 | tokens/round 1.86 verify 5.2 ms/round global 36
+RESULT: PASS

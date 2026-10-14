@@ -1,0 +1,49 @@
+spin_us Some(2000)
+mem available before load: 105.9 GB
+LOAD 17.1s attention=fused prefill_chunk=64 device_routing=true spec_possible=true whole_prompt=true (prefill and wp verify) verify=both new=64
+spec tuning: max_draft=8 max_ngram=3 min_ngram=1 min_accept=0 drafter=Suffix suffix_global=true
+suffix config: SuffixConfig { depth: 40, max_match: 24, min_match: 1, alpha: 4.0, prior: 4.0, min_cum: 0.05, gain: 1.1, global_max_nodes: 8000000, use_global: true, cost: CostModel { verify_base_ms: 24.3, verify_row_ms: 4.5, lm_ms: 2.9, plain_ms: 28.3 } }
+extra prompt p5-code-json: 506 tokens from docs/inference/evidence/own30b-l4c-cut2-chip-20261014T0227Z/p5-code-json.txt
+p1-one-token run 1: OFF 37.7 tok/s (1698 ms, 64 tokens) | off-vs-golden differs at token 0 (recorded; spec-off is the reference)
+p1-one-token run 1: ON verify=Decode 31.8 tok/s (2015 ms) vs off IDENTICAL | rounds 15 wp_rounds 0 plain 29 backoff 0 drafted 22 accepted 19 acceptance 0.864 | tokens/round 2.27 verify 75.3 ms/round global 0
+p1-one-token negative control verify=Decode (accept one extra wrong draft): output differs (CAUGHT)
+p1-one-token run 1: ON verify=WholePrompt 47.5 tok/s (1346 ms) vs off DIVERGES at token 49 (FP8-activation verify; reported) | rounds 15 wp_rounds 15 plain 28 backoff 0 drafted 24 accepted 20 acceptance 0.833 | tokens/round 2.33 verify 32.4 ms/round global 0
+p1-one-token negative control verify=WholePrompt (accept one extra wrong draft): output differs (CAUGHT)
+p1-one-token run 2: OFF 37.7 tok/s (1698 ms, 64 tokens) | off-vs-golden differs at token 0 (recorded; spec-off is the reference)
+p1-one-token run 2: ON verify=Decode 32.8 tok/s (1949 ms) vs off IDENTICAL | rounds 15 wp_rounds 0 plain 29 backoff 0 drafted 22 accepted 19 acceptance 0.864 | tokens/round 2.27 verify 71.0 ms/round global 0
+p1-one-token run 2: ON verify=WholePrompt 47.9 tok/s (1337 ms) vs off DIVERGES at token 49 (FP8-activation verify; reported) | rounds 15 wp_rounds 15 plain 28 backoff 0 drafted 24 accepted 20 acceptance 0.833 | tokens/round 2.33 verify 31.9 ms/round global 0
+p2-short run 1: OFF 36.8 tok/s (190 ms, 7 tokens) | off-vs-golden IDENTICAL
+p2-short run 1: ON verify=Decode 24.6 tok/s (284 ms) vs off IDENTICAL | rounds 2 wp_rounds 0 plain 4 backoff 0 drafted 4 accepted 1 acceptance 0.250 | tokens/round 1.50 verify 82.3 ms/round global 1
+p2-short negative control verify=Decode (accept one extra wrong draft): output differs (CAUGHT)
+p2-short run 1: ON verify=WholePrompt 36.5 tok/s (192 ms) vs off IDENTICAL | rounds 2 wp_rounds 2 plain 4 backoff 0 drafted 4 accepted 1 acceptance 0.250 | tokens/round 1.50 verify 36.4 ms/round global 1
+p2-short negative control verify=WholePrompt (accept one extra wrong draft): output differs (CAUGHT)
+p2-short run 2: OFF 36.6 tok/s (191 ms, 7 tokens) | off-vs-golden IDENTICAL
+p2-short run 2: ON verify=Decode 24.2 tok/s (289 ms) vs off IDENTICAL | rounds 2 wp_rounds 0 plain 4 backoff 0 drafted 4 accepted 1 acceptance 0.250 | tokens/round 1.50 verify 84.7 ms/round global 1
+p2-short run 2: ON verify=WholePrompt 36.3 tok/s (193 ms) vs off IDENTICAL | rounds 2 wp_rounds 2 plain 4 backoff 0 drafted 4 accepted 1 acceptance 0.250 | tokens/round 1.50 verify 37.0 ms/round global 1
+p3-medium run 1: OFF 36.2 tok/s (1767 ms, 64 tokens) | off-vs-golden differs at token 16 (recorded; spec-off is the reference)
+p3-medium run 1: ON verify=Decode 28.0 tok/s (2289 ms) vs off IDENTICAL | rounds 14 wp_rounds 0 plain 38 backoff 0 drafted 21 accepted 11 acceptance 0.524 | tokens/round 1.79 verify 81.7 ms/round global 2
+p3-medium negative control verify=Decode (accept one extra wrong draft): output differs (CAUGHT)
+p3-medium run 1: ON verify=WholePrompt 38.7 tok/s (1652 ms) vs off DIVERGES at token 24 (FP8-activation verify; reported) | rounds 15 wp_rounds 15 plain 38 backoff 0 drafted 22 accepted 10 acceptance 0.455 | tokens/round 1.67 verify 33.6 ms/round global 2
+p3-medium negative control verify=WholePrompt (accept one extra wrong draft): output differs (CAUGHT)
+p3-medium run 2: OFF 36.1 tok/s (1771 ms, 64 tokens) | off-vs-golden differs at token 16 (recorded; spec-off is the reference)
+p3-medium run 2: ON verify=Decode 28.4 tok/s (2253 ms) vs off IDENTICAL | rounds 14 wp_rounds 0 plain 38 backoff 0 drafted 21 accepted 11 acceptance 0.524 | tokens/round 1.79 verify 79.0 ms/round global 2
+p3-medium run 2: ON verify=WholePrompt 38.7 tok/s (1655 ms) vs off DIVERGES at token 24 (FP8-activation verify; reported) | rounds 15 wp_rounds 15 plain 38 backoff 0 drafted 22 accepted 10 acceptance 0.455 | tokens/round 1.67 verify 33.8 ms/round global 2
+p4-long run 1: OFF 35.8 tok/s (1789 ms, 64 tokens) | off-vs-golden differs at token 16 (recorded; spec-off is the reference)
+p4-long run 1: ON verify=Decode 22.7 tok/s (2817 ms) vs off IDENTICAL | rounds 20 wp_rounds 0 plain 39 backoff 0 drafted 28 accepted 4 acceptance 0.143 | tokens/round 1.20 verify 81.1 ms/round global 5
+p4-long negative control verify=Decode (accept one extra wrong draft): output differs (CAUGHT)
+p4-long run 1: ON verify=WholePrompt 34.0 tok/s (1883 ms) vs off DIVERGES at token 17 (FP8-activation verify; reported) | rounds 19 wp_rounds 19 plain 40 backoff 0 drafted 27 accepted 4 acceptance 0.148 | tokens/round 1.21 verify 34.3 ms/round global 5
+p4-long negative control verify=WholePrompt (accept one extra wrong draft): output differs (CAUGHT)
+p4-long run 2: OFF 35.9 tok/s (1781 ms, 64 tokens) | off-vs-golden differs at token 16 (recorded; spec-off is the reference)
+p4-long run 2: ON verify=Decode 22.7 tok/s (2818 ms) vs off IDENTICAL | rounds 20 wp_rounds 0 plain 39 backoff 0 drafted 28 accepted 4 acceptance 0.143 | tokens/round 1.20 verify 81.0 ms/round global 5
+p4-long run 2: ON verify=WholePrompt 34.0 tok/s (1880 ms) vs off DIVERGES at token 17 (FP8-activation verify; reported) | rounds 19 wp_rounds 19 plain 40 backoff 0 drafted 27 accepted 4 acceptance 0.148 | tokens/round 1.21 verify 34.5 ms/round global 5
+p5-code-json run 1: OFF 35.5 tok/s (7221 ms, 256 tokens) | off-vs-golden differs at token 0 (recorded; spec-off is the reference)
+p5-code-json OFF text (first 400 chars): "[\n  {\"id\": 101, \"tool\": \"read_file\", \"args\": {\"path\": \"src/server/router.rs\", \"start\": 1, \"end\": 120}, \"status\": \"done\", \"checked\": true, \"owner\": \"agent-a\"},\n  {\"id\": 102, \"tool\": \"grep\", \"args\": {\"pattern\": \"fn handle_request\", \"path\": \"src/server\"}, \"status\": \"done\", \"checked\": true, \"owner\": \"agent-a\"},\n  {\"id\": 103, \"tool\": \"read_file\", \"args\": {\"path\": \"src/server/handlers.rs\", \"start\": 40, "
+p5-code-json run 1: ON verify=Decode 35.7 tok/s (7174 ms) vs off IDENTICAL | rounds 52 wp_rounds 0 plain 1 backoff 0 drafted 235 accepted 203 acceptance 0.864 | tokens/round 4.90 verify 122.2 ms/round global 0
+p5-code-json negative control verify=Decode (accept one extra wrong draft): output differs (CAUGHT)
+p5-code-json run 1: ON verify=WholePrompt 78.1 tok/s (3278 ms) vs off IDENTICAL | rounds 52 wp_rounds 52 plain 1 backoff 0 drafted 235 accepted 203 acceptance 0.864 | tokens/round 4.90 verify 47.2 ms/round global 0
+p5-code-json negative control verify=WholePrompt (accept one extra wrong draft): output differs (CAUGHT)
+p5-code-json run 2: OFF 35.4 tok/s (7228 ms, 256 tokens) | off-vs-golden differs at token 0 (recorded; spec-off is the reference)
+p5-code-json run 2: ON verify=Decode 35.5 tok/s (7210 ms) vs off IDENTICAL | rounds 52 wp_rounds 0 plain 1 backoff 0 drafted 235 accepted 203 acceptance 0.864 | tokens/round 4.90 verify 122.8 ms/round global 0
+p5-code-json run 2: ON verify=WholePrompt 77.7 tok/s (3293 ms) vs off IDENTICAL | rounds 52 wp_rounds 52 plain 1 backoff 0 drafted 235 accepted 203 acceptance 0.864 | tokens/round 4.90 verify 47.4 ms/round global 0
+WP-VERIFY IDENTITY vs spec-off: 4 of 10 runs identical
+RESULT: PASS

@@ -1,0 +1,131 @@
+{
+  "identity": [
+    {
+      "m": 1,
+      "path": "fast",
+      "rows_equal": 1,
+      "words_differ": 0
+    },
+    {
+      "m": 1,
+      "path": "mutant",
+      "rows_equal": 0,
+      "words_differ": 2048
+    },
+    {
+      "m": 2,
+      "path": "fast",
+      "rows_equal": 2,
+      "words_differ": 0
+    },
+    {
+      "m": 2,
+      "path": "mutant",
+      "rows_equal": 0,
+      "words_differ": 4096
+    },
+    {
+      "m": 3,
+      "path": "fast",
+      "rows_equal": 3,
+      "words_differ": 0
+    },
+    {
+      "m": 3,
+      "path": "mutant",
+      "rows_equal": 0,
+      "words_differ": 6144
+    },
+    {
+      "m": 4,
+      "path": "fast",
+      "rows_equal": 4,
+      "words_differ": 0
+    },
+    {
+      "m": 4,
+      "path": "mutant",
+      "rows_equal": 0,
+      "words_differ": 8192
+    },
+    {
+      "m": 5,
+      "path": "fast",
+      "rows_equal": 5,
+      "words_differ": 0
+    },
+    {
+      "m": 5,
+      "path": "mutant",
+      "rows_equal": 0,
+      "words_differ": 10240
+    }
+  ],
+  "plain": {
+    "layers": 6,
+    "lm_head_ms": 3.0253039999999998,
+    "step_ms": 3.126665
+  },
+  "timing": [
+    {
+      "m": 1,
+      "path": "fast",
+      "per_layer_ms": 0.4368461666666666,
+      "wall_ms": 2.6210769999999997
+    },
+    {
+      "m": 2,
+      "path": "fast",
+      "per_layer_ms": 0.6784135,
+      "wall_ms": 4.070481
+    },
+    {
+      "m": 3,
+      "path": "fast",
+      "per_layer_ms": 0.9745758333333333,
+      "wall_ms": 5.847455
+    },
+    {
+      "m": 4,
+      "path": "fast",
+      "per_layer_ms": 1.2581248333333335,
+      "wall_ms": 7.548749000000001
+    },
+    {
+      "m": 5,
+      "path": "fast",
+      "per_layer_ms": 1.5742525,
+      "wall_ms": 9.445515
+    },
+    {
+      "m": 1,
+      "path": "mutant",
+      "per_layer_ms": 0.4368543333333334,
+      "wall_ms": 2.6211260000000003
+    },
+    {
+      "m": 2,
+      "path": "mutant",
+      "per_layer_ms": 0.6815655,
+      "wall_ms": 4.089393
+    },
+    {
+      "m": 3,
+      "path": "mutant",
+      "per_layer_ms": 0.9762396666666667,
+      "wall_ms": 5.857438
+    },
+    {
+      "m": 4,
+      "path": "mutant",
+      "per_layer_ms": 1.1571826666666667,
+      "wall_ms": 6.943096000000001
+    },
+    {
+      "m": 5,
+      "path": "mutant",
+      "per_layer_ms": 1.5732233333333332,
+      "wall_ms": 9.43934
+    }
+  ]
+}

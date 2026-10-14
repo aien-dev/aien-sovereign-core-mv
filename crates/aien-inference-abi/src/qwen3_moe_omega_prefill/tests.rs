@@ -667,8 +667,74 @@ fn cache_weights_refusal_leaves_the_in_place_path_working() {
     assert!(max_rel_diff(&got, &reference(&tm, &TOKENS)) <= TOL);
 }
 
+#[test]
+fn run_rows_gives_every_token_its_own_hidden_and_the_same_last_row_as_run() {
+    // W-L4b: the speculative verify pass reads every position's hidden state from one call.
+    let (tm, mut drv, mut attn, _) = setup(4, false);
+    let h = tm.weights.config.hidden;
+    drv.run(&tm.weights, &mut attn, &TOKENS[..3], 0).unwrap();
+    let rows = drv.run_rows(&tm.weights, &mut attn, &TOKENS[3..], 3).unwrap();
+    assert_eq!(rows.len(), 4 * h);
+    for r in 0..4 {
+        let want = reference(&tm, &TOKENS[..4 + r]);
+        let d = max_rel_diff(&rows[r * h..(r + 1) * h], &want);
+        assert!(d <= TOL, "row {r} (position {}) vs reference: {d}", 3 + r);
+    }
+    let (tm2, mut drv2, mut attn2, _) = setup(4, false);
+    drv2.run(&tm2.weights, &mut attn2, &TOKENS[..3], 0).unwrap();
+    let last = drv2.run(&tm2.weights, &mut attn2, &TOKENS[3..], 3).unwrap();
+    assert_eq!(&rows[3 * h..], &last[..], "run_rows' last row is bit-equal to run");
+}
+
 /// W-L1G-D: the device router logits + combine path (fake device in tests/devhost.rs).
 mod devhost;
 
 /// W-L1H: the W8A16 activation mode (tests/acts.rs).
 mod acts;
+
+/// W-L4c: the transposed, experts-side-by-side router gives the same bits as `router_logits`
+/// (index-order sums), including all-zero and sign-mixed rows; and the serial / parallel row
+/// loops give the same bits as each other.
+#[test]
+fn router_logits_t_and_serial_rows_are_bit_identical() {
+    let (h, e) = (96usize, 24usize);
+    let mut s = 0x2545_f491_4f6c_dd1du64;
+    let mut rnd = || {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        ((s >> 40) as f32 / (1u64 << 24) as f32 - 0.5) * 3.0
+    };
+    let router: Vec<f32> = (0..e * h).map(|_| rnd()).collect();
+    let rt = transpose_router(&router, h, e);
+    for m in [1usize, 2, 5, 9, SERIAL_ROWS, SERIAL_ROWS + 3] {
+        let mut post: Vec<f32> = (0..m * h).map(|_| rnd()).collect();
+        post[..h].fill(0.0);
+        let (mut a, mut b) = (vec![0.0f32; m * e], vec![1.0f32; m * e]);
+        router_logits(&router, &post, h, e, &mut a);
+        router_logits_t(&rt, &post, h, e, &mut b);
+        let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+        assert_eq!(bits(&a), bits(&b), "m = {m}");
+        // combine_rows: serial (<= SERIAL_ROWS rows) and parallel agree with a plain reference.
+        let top_k = 3;
+        let down: Vec<f32> = (0..m * top_k * h).map(|_| rnd()).collect();
+        let wts: Vec<f32> = (0..m * top_k).map(|_| rnd()).collect();
+        let inv: Vec<u32> = (0..(m * top_k) as u32).rev().collect();
+        let mut x: Vec<f32> = (0..m * h).map(|_| rnd()).collect();
+        let mut want = x.clone();
+        for r in 0..m {
+            let mut acc = vec![0.0f32; h];
+            for slot in 0..top_k {
+                let gi = r * top_k + slot;
+                for (j, a) in acc.iter_mut().enumerate() {
+                    *a += wts[gi] * down[inv[gi] as usize * h + j];
+                }
+            }
+            for j in 0..h {
+                want[r * h + j] += acc[j];
+            }
+        }
+        combine_rows(&mut x, &down, &wts, &inv, h, top_k);
+        assert_eq!(bits(&x), bits(&want), "combine m = {m}");
+    }
+}

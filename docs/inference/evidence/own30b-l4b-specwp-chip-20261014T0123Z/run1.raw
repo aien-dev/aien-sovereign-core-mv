@@ -1,0 +1,48 @@
+mem available before load: 103.9 GB
+LOAD 35.1s attention=fused prefill_chunk=64 device_routing=true spec_possible=true whole_prompt=true (prefill and wp verify) verify=both new=16
+p1-one-token run 1: OFF 26.1 tok/s (614 ms, 16 tokens) | off-vs-golden differs at token 0 (recorded; spec-off is the reference)
+p1-one-token run 1: ON verify=Decode 21.2 tok/s (756 ms) vs off IDENTICAL | rounds 2 wp_rounds 0 plain 12 drafted 6 accepted 1 acceptance 0.167
+p1-one-token negative control verify=Decode (accept one extra wrong draft): output differs (CAUGHT)
+p1-one-token run 1: ON verify=WholePrompt 24.6 tok/s (651 ms) vs off IDENTICAL | rounds 2 wp_rounds 2 plain 12 drafted 6 accepted 1 acceptance 0.167
+p1-one-token negative control verify=WholePrompt (accept one extra wrong draft): output differs (CAUGHT)
+p1-one-token run 2: OFF 25.7 tok/s (622 ms, 16 tokens) | off-vs-golden differs at token 0 (recorded; spec-off is the reference)
+p1-one-token run 2: ON verify=Decode 20.8 tok/s (768 ms) vs off IDENTICAL | rounds 2 wp_rounds 0 plain 12 drafted 6 accepted 1 acceptance 0.167
+p1-one-token run 2: ON verify=WholePrompt 23.5 tok/s (680 ms) vs off IDENTICAL | rounds 2 wp_rounds 2 plain 12 drafted 6 accepted 1 acceptance 0.167
+p1-one-token run 3: OFF 25.4 tok/s (631 ms, 16 tokens) | off-vs-golden differs at token 0 (recorded; spec-off is the reference)
+p1-one-token run 3: ON verify=Decode 20.6 tok/s (775 ms) vs off IDENTICAL | rounds 2 wp_rounds 0 plain 12 drafted 6 accepted 1 acceptance 0.167
+p1-one-token run 3: ON verify=WholePrompt 24.5 tok/s (652 ms) vs off IDENTICAL | rounds 2 wp_rounds 2 plain 12 drafted 6 accepted 1 acceptance 0.167
+p2-short run 1: OFF 24.4 tok/s (287 ms, 7 tokens) | off-vs-golden IDENTICAL
+p2-short run 1: ON verify=Decode 8.2 tok/s (852 ms) vs off IDENTICAL | rounds 3 wp_rounds 0 plain 2 drafted 24 accepted 2 acceptance 0.083
+p2-short negative control verify=Decode (accept one extra wrong draft): output differs (CAUGHT)
+p2-short run 1: ON verify=WholePrompt 16.7 tok/s (419 ms) vs off IDENTICAL | rounds 3 wp_rounds 3 plain 2 drafted 24 accepted 2 acceptance 0.083
+p2-short negative control verify=WholePrompt (accept one extra wrong draft): output differs (CAUGHT)
+p2-short run 2: OFF 24.3 tok/s (288 ms, 7 tokens) | off-vs-golden IDENTICAL
+p2-short run 2: ON verify=Decode 8.3 tok/s (843 ms) vs off IDENTICAL | rounds 3 wp_rounds 0 plain 2 drafted 24 accepted 2 acceptance 0.083
+p2-short run 2: ON verify=WholePrompt 17.6 tok/s (398 ms) vs off IDENTICAL | rounds 3 wp_rounds 3 plain 2 drafted 24 accepted 2 acceptance 0.083
+p2-short run 3: OFF 24.4 tok/s (287 ms, 7 tokens) | off-vs-golden IDENTICAL
+p2-short run 3: ON verify=Decode 8.2 tok/s (853 ms) vs off IDENTICAL | rounds 3 wp_rounds 0 plain 2 drafted 24 accepted 2 acceptance 0.083
+p2-short run 3: ON verify=WholePrompt 16.6 tok/s (421 ms) vs off IDENTICAL | rounds 3 wp_rounds 3 plain 2 drafted 24 accepted 2 acceptance 0.083
+p3-medium run 1: OFF 26.3 tok/s (609 ms, 16 tokens) | off-vs-golden IDENTICAL
+p3-medium run 1: ON verify=Decode 14.1 tok/s (1134 ms) vs off IDENTICAL | rounds 4 wp_rounds 0 plain 2 drafted 32 accepted 9 acceptance 0.281
+p3-medium negative control verify=Decode (accept one extra wrong draft): output differs (CAUGHT)
+p3-medium run 1: ON verify=WholePrompt 32.3 tok/s (495 ms) vs off IDENTICAL | rounds 4 wp_rounds 4 plain 2 drafted 32 accepted 9 acceptance 0.281
+p3-medium negative control verify=WholePrompt (accept one extra wrong draft): output differs (CAUGHT)
+p3-medium run 2: OFF 25.4 tok/s (631 ms, 16 tokens) | off-vs-golden IDENTICAL
+p3-medium run 2: ON verify=Decode 14.2 tok/s (1123 ms) vs off IDENTICAL | rounds 4 wp_rounds 0 plain 2 drafted 32 accepted 9 acceptance 0.281
+p3-medium run 2: ON verify=WholePrompt 31.7 tok/s (505 ms) vs off IDENTICAL | rounds 4 wp_rounds 4 plain 2 drafted 32 accepted 9 acceptance 0.281
+p3-medium run 3: OFF 25.5 tok/s (627 ms, 16 tokens) | off-vs-golden IDENTICAL
+p3-medium run 3: ON verify=Decode 14.4 tok/s (1114 ms) vs off IDENTICAL | rounds 4 wp_rounds 0 plain 2 drafted 32 accepted 9 acceptance 0.281
+p3-medium run 3: ON verify=WholePrompt 30.7 tok/s (522 ms) vs off IDENTICAL | rounds 4 wp_rounds 4 plain 2 drafted 32 accepted 9 acceptance 0.281
+p4-long run 1: OFF 25.1 tok/s (638 ms, 16 tokens) | off-vs-golden IDENTICAL
+p4-long run 1: ON verify=Decode 13.3 tok/s (1204 ms) vs off IDENTICAL | rounds 4 wp_rounds 0 plain 7 drafted 27 accepted 4 acceptance 0.148
+p4-long negative control verify=Decode (accept one extra wrong draft): output differs (CAUGHT)
+p4-long run 1: ON verify=WholePrompt 23.3 tok/s (686 ms) vs off IDENTICAL | rounds 4 wp_rounds 4 plain 7 drafted 27 accepted 4 acceptance 0.148
+p4-long negative control verify=WholePrompt (accept one extra wrong draft): output differs (CAUGHT)
+p4-long run 2: OFF 26.4 tok/s (607 ms, 16 tokens) | off-vs-golden IDENTICAL
+p4-long run 2: ON verify=Decode 13.4 tok/s (1191 ms) vs off IDENTICAL | rounds 4 wp_rounds 0 plain 7 drafted 27 accepted 4 acceptance 0.148
+p4-long run 2: ON verify=WholePrompt 22.0 tok/s (726 ms) vs off IDENTICAL | rounds 4 wp_rounds 4 plain 7 drafted 27 accepted 4 acceptance 0.148
+p4-long run 3: OFF 25.8 tok/s (620 ms, 16 tokens) | off-vs-golden IDENTICAL
+p4-long run 3: ON verify=Decode 13.0 tok/s (1230 ms) vs off IDENTICAL | rounds 4 wp_rounds 0 plain 7 drafted 27 accepted 4 acceptance 0.148
+p4-long run 3: ON verify=WholePrompt 22.6 tok/s (707 ms) vs off IDENTICAL | rounds 4 wp_rounds 4 plain 7 drafted 27 accepted 4 acceptance 0.148
+WP-VERIFY IDENTITY vs spec-off: 12 of 12 runs identical
+RESULT: PASS

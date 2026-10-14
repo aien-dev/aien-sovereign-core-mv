@@ -1,0 +1,19 @@
+mem available before load: 97.6 GB
+LOAD 29.1s attention=fused prefill_chunk=64 device_routing=true spec_possible=true
+p1-one-token run 1: spec-on vs spec-off IDENTICAL | off-vs-golden IDENTICAL | off 24.9 tok/s (643 ms) on 18.3 tok/s (873 ms) | rounds 3 plain 12 drafted 6 accepted 0 acceptance 0.000
+p1-one-token negative control (accept one extra wrong draft): output differs (CAUGHT)
+p1-one-token run 2: spec-on vs spec-off IDENTICAL | off-vs-golden IDENTICAL | off 26.4 tok/s (607 ms) on 19.4 tok/s (826 ms) | rounds 3 plain 12 drafted 6 accepted 0 acceptance 0.000
+p1-one-token run 3: spec-on vs spec-off IDENTICAL | off-vs-golden IDENTICAL | off 25.1 tok/s (638 ms) on 19.4 tok/s (823 ms) | rounds 3 plain 12 drafted 6 accepted 0 acceptance 0.000
+p2-short run 1: spec-on vs spec-off IDENTICAL | off-vs-golden IDENTICAL | off 24.8 tok/s (282 ms) on 7.8 tok/s (897 ms) | rounds 3 plain 2 drafted 24 accepted 2 acceptance 0.083
+p2-short negative control (accept one extra wrong draft): output differs (CAUGHT)
+p2-short run 2: spec-on vs spec-off IDENTICAL | off-vs-golden IDENTICAL | off 23.3 tok/s (300 ms) on 8.3 tok/s (842 ms) | rounds 3 plain 2 drafted 24 accepted 2 acceptance 0.083
+p2-short run 3: spec-on vs spec-off IDENTICAL | off-vs-golden IDENTICAL | off 23.8 tok/s (294 ms) on 8.3 tok/s (844 ms) | rounds 3 plain 2 drafted 24 accepted 2 acceptance 0.083
+p3-medium run 1: spec-on vs spec-off IDENTICAL | off-vs-golden IDENTICAL | off 25.4 tok/s (631 ms) on 14.6 tok/s (1098 ms) | rounds 4 plain 2 drafted 32 accepted 9 acceptance 0.281
+p3-medium negative control (accept one extra wrong draft): output differs (CAUGHT)
+p3-medium run 2: spec-on vs spec-off IDENTICAL | off-vs-golden IDENTICAL | off 24.9 tok/s (643 ms) on 13.5 tok/s (1185 ms) | rounds 4 plain 2 drafted 32 accepted 9 acceptance 0.281
+p3-medium run 3: spec-on vs spec-off IDENTICAL | off-vs-golden IDENTICAL | off 25.4 tok/s (630 ms) on 14.5 tok/s (1101 ms) | rounds 4 plain 2 drafted 32 accepted 9 acceptance 0.281
+p4-long run 1: spec-on vs spec-off IDENTICAL | off-vs-golden IDENTICAL | off 25.8 tok/s (621 ms) on 12.9 tok/s (1242 ms) | rounds 4 plain 7 drafted 27 accepted 4 acceptance 0.148
+p4-long negative control (accept one extra wrong draft): output differs (CAUGHT)
+p4-long run 2: spec-on vs spec-off IDENTICAL | off-vs-golden IDENTICAL | off 25.2 tok/s (636 ms) on 13.7 tok/s (1169 ms) | rounds 4 plain 7 drafted 27 accepted 4 acceptance 0.148
+p4-long run 3: spec-on vs spec-off IDENTICAL | off-vs-golden IDENTICAL | off 24.9 tok/s (642 ms) on 13.4 tok/s (1190 ms) | rounds 4 plain 7 drafted 27 accepted 4 acceptance 0.148
+RESULT: PASS
