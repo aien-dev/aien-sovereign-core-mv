@@ -10,6 +10,7 @@
 //! `cfg(has_omega_pf)`: `omega_gpu_pf_qgemm` defined (quantiser, QMMA grouped GEMM, pf buffers).
 //! `cfg(has_omega_pattn)`: `omega_gpu_prefill_attn` defined (host-pointer prefill attention).
 //! `cfg(has_omega_pattn_dev)`: `omega_gpu_prefill_attn_dev` defined (device-pointer entry).
+//! `cfg(has_omega_pfa16)`: `omega_gpu_pf_hgemm` / `hconv` / `hswiglu` defined (W8A16 whole-prompt kernels, W-L1H).
 //! Otherwise every call returns `Unavailable`; a stub never fails the build.
 use std::path::Path;
 use std::process::Command;
@@ -19,6 +20,7 @@ fn main() {
         println!("cargo:rustc-check-cfg=cfg({c})");
     }
     println!("cargo:rustc-check-cfg=cfg(has_omega_pfhost)");
+    println!("cargo:rustc-check-cfg=cfg(has_omega_pfa16)");
     for v in ["AIEN_FORCE_CPU_STUB", "AIEN_OMEGA_GPU_LIB", "AIEN_OMEGA_DIR"] {
         println!("cargo:rerun-if-env-changed={v}");
     }
@@ -46,6 +48,10 @@ fn main() {
         if has("omega_gpu_pf_qgemm") && has("omega_gpu_pf_router_logits") && has("omega_gpu_pf_moe_combine") && has("omega_gpu_pf_router_pack") && has("omega_gpu_pf_router_rows") {
             println!("cargo:rustc-cfg=has_omega_pfhost");
         }
+        // W-L1H: W8A16 kernels (omega_gpu_pfa16.h)
+        if has("omega_gpu_pf_qgemm") && has("omega_gpu_pf_hgemm") && has("omega_gpu_pf_hconv") && has("omega_gpu_pf_hswiglu") && has("omega_gpu_pf_hgemm_bm") {
+            println!("cargo:rustc-cfg=has_omega_pfa16");
+        }
         return;
     }
     if let Ok(dir) = std::env::var("AIEN_OMEGA_DIR") {
@@ -58,6 +64,12 @@ fn main() {
         println!("cargo:rerun-if-changed={}", ph.display());
         if std::fs::read_to_string(&ph).is_ok_and(|t| t.contains("omega_gpu_pf_router_logits(") && t.contains("omega_gpu_pf_moe_combine(")) {
             println!("cargo:rustc-cfg=has_omega_pfhost");
+        }
+        // W-L1H: W8A16 kernels (omega_gpu_pfa16.h)
+        let pa16 = Path::new(&dir).join("src/omega_gpu_pfa16.h");
+        println!("cargo:rerun-if-changed={}", pa16.display());
+        if std::fs::read_to_string(&pa16).is_ok_and(|t| t.contains("omega_gpu_pf_hgemm(") && t.contains("omega_gpu_pf_hconv(") && t.contains("omega_gpu_pf_hswiglu(")) {
+            println!("cargo:rustc-cfg=has_omega_pfa16");
         }
         if std::fs::read_to_string(&pf).is_ok_and(|t| t.contains("omega_gpu_pf_qgemm(") && t.contains("omega_gpu_pf_quant(")) {
             println!("cargo:rustc-cfg=has_omega_pf");

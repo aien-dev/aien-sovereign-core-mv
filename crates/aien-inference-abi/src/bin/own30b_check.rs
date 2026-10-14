@@ -9,7 +9,7 @@
 //!                     [--router auto|host|device] [--lm-head auto|dense|gemv] [--router-mutants 1,2,3,4]
 //!                     [--prefill auto|gemv|gemm] [--prefill-routing host|device] [--prefill-chunk N]
 //!                     [--gemm-mutants 1,2,3] [--long-prompt N] [--tokens-only]
-//!                     [--whole-prompt] [--prefill-device-host]
+//!                     [--whole-prompt] [--prefill-device-host] [--prefill-acts a8|a16]
 //!       Omega: loads the resident model, per-layer parity (attention replay + exact MoE oracle)
 //!       with the routing mutant and the chip-side window-skew mutant as negative controls,
 //!       whole-model greedy tokens against the golden file, decode tok/s and load time.
@@ -197,6 +197,8 @@ struct Args {
     /// Whole-prompt prefill (W-RC: the RC server default) and its device router/combine.
     whole_prompt: bool,
     wp_device_host: bool,
+    /// `--prefill-acts a8|a16` (W-L1H): whole-prompt GEMM activations, e4m3 (default) or bf16.
+    wp_acts: aien_inference_abi::qwen3_moe_omega_prefill::PrefillActs,
     /// Batched prefill kernel: auto (GEMM when linked), gemv (the grouped GEMV) or gemm (required).
     prefill: PathChoice,
     /// Batched prefill routing: false = host (default), true = the device router per token.
@@ -240,6 +242,7 @@ fn parse_args() -> Args {
         tokens_only: false,
         whole_prompt: false,
         wp_device_host: false,
+        wp_acts: Default::default(),
         prefill: PathChoice::Auto,
         prefill_device_routing: false,
         gemm_mutants: vec![1, 2, 3],
@@ -275,6 +278,7 @@ fn parse_args() -> Args {
             "--tokens-only" => a.tokens_only = true,
             "--whole-prompt" => a.whole_prompt = true,
             "--prefill-device-host" => a.wp_device_host = true,
+            "--prefill-acts" => a.wp_acts = aien_inference_abi::qwen3_moe_omega_prefill::PrefillActs::parse(&it.next().expect("--prefill-acts a8|a16")).expect("--prefill-acts"),
             "--prefill" => a.prefill = parse_choice(&it.next().expect("--prefill auto|gemv|gemm"), "gemv", "--prefill"),
             "--prefill-routing" => {
                 a.prefill_device_routing = match it.next().expect("--prefill-routing host|device").as_str() {
@@ -449,6 +453,11 @@ fn chip(a: &Args) {
                 std::process::exit(4);
             }
         }
+        if let Err(e) = engine.set_whole_prompt_acts(a.wp_acts) {
+            say(format!("REFUSED: whole-prompt activations {}: {e}", a.wp_acts.name()));
+            std::process::exit(4);
+        }
+        say(format!("whole-prompt activations: {}", a.wp_acts.name()));
     }
     say(format!(
         "whole-prompt prefill {} device router/combine {}",

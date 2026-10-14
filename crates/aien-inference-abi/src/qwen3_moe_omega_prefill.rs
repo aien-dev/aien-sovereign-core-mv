@@ -274,6 +274,9 @@ struct Bufs<B> {
     down: B,
     /// HOST 4 regions x max_tiles x 32 bytes.
     tiles: B,
+    /// W8A16 extras (W-L1H, [`acts`]); `None` = W8A8. In W8A16 `xq` / `aq` hold bf16 rows (twice the bytes) and
+    /// `xs` / `a_s` / `act` are unused.
+    a16: Option<acts::A16Bufs<B>>,
 }
 
 /// The whole-prompt prefill driver over a [`PrefillDevice`] (real: `aien_omega_pf::OmegaPfDevice`).
@@ -290,6 +293,8 @@ pub struct WholePromptPrefill<D: PrefillDevice> {
     pub mutant: WpMutant,
     /// Device router logits + combine (W-L1G-D, [`devhost`]): `None` = host path (the default).
     devhost: Option<devhost::DevHost<D::Buf>>,
+    /// GEMM activation precision (W-L1H): W8A8 by default, see [`Self::set_acts`].
+    acts: PrefillActs,
 }
 
 impl<D: PrefillDevice> std::fmt::Debug for WholePromptPrefill<D> {
@@ -301,11 +306,25 @@ impl<D: PrefillDevice> std::fmt::Debug for WholePromptPrefill<D> {
 impl<D: PrefillDevice> WholePromptPrefill<D> {
     /// Collects the in-place weight addresses of every layer (no weight copy).
     pub fn new(dev: D, weights: &Qwen3MoeOmegaWeights) -> Result<Self, String> {
-        Ok(Self { dev, entries: layer_entries(weights)?, bufs: None, stats: PrefillStats::default(), cached: Vec::new(), trace: None, mutant: WpMutant::None, devhost: None })
+        Ok(Self { dev, entries: layer_entries(weights)?, bufs: None, stats: PrefillStats::default(), cached: Vec::new(), trace: None, mutant: WpMutant::None, devhost: None, acts: PrefillActs::W8A8 })
     }
 
     pub fn device(&self) -> &D {
         &self.dev
+    }
+
+    /// Selects the GEMM activation precision (W-L1H). W8A16 needs omega's W8A16 kernels on the device.
+    /// The buffers are re-sized on the next run.
+    pub fn set_acts(&mut self, acts: PrefillActs) -> Result<(), String> {
+        if acts == PrefillActs::W8A16 && self.dev.hgemm_bm().is_none() {
+            return Err("W8A16 whole-prompt prefill: this device does not offer the W8A16 kernels".into());
+        }
+        self.acts = acts;
+        Ok(())
+    }
+
+    pub fn acts(&self) -> PrefillActs {
+        self.acts
     }
 
     /// Copies every FP8 weight tensor into GPU-cached device memory (one copy kernel per tensor)
@@ -357,9 +376,10 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
     }
 
     fn ensure(&mut self, c: &Qwen3MoeConfig, m: usize, dev_attn: bool) -> Result<(), String> {
-        let bm = self.dev.qgemm_bm();
+        let a16 = self.acts == PrefillActs::W8A16;
+        let bm = if a16 { self.dev.hgemm_bm().ok_or("W8A16 kernels absent")? } else { self.dev.qgemm_bm() };
         if let Some(b) = &self.bufs {
-            let mode_ok = if dev_attn { b.qkv_dev.is_some() } else { b.qkv_host.is_some() };
+            let mode_ok = (if dev_attn { b.qkv_dev.is_some() } else { b.qkv_host.is_some() }) && b.a16.is_some() == a16;
             if b.m >= m && b.bm == bm && mode_ok {
                 return Ok(());
             }
@@ -369,6 +389,7 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
         let g = m * c.top_k;
         let kmax = h.max(qd);
         let max_tiles = g.div_ceil(bm) + e;
+        let w = if a16 { 2 } else { 1 }; // bytes per GEMM input element
         let d = &mut self.dev;
         let (qkv_host, qkv_dev, att_dev) = if dev_attn {
             (None, Some(d.alloc_dev(m * qkv_n * 4)?), Some(d.alloc_dev(m * qd * 4)?))
@@ -380,7 +401,7 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
             bm,
             max_tiles,
             xin: d.alloc_host(m * kmax * 4)?,
-            xq: d.alloc_dev((m + bm) * kmax)?,
+            xq: d.alloc_dev((m + bm) * kmax * w)?,
             xs: d.alloc_dev((m + bm) * (kmax / aien_omega_pf::BLOCK) * 4)?,
             qkv_host,
             qkv_dev,
@@ -388,13 +409,21 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
             oproj: d.alloc_host(m * h * 4)?,
             rowidx: d.alloc_host((g + bm) * 4)?,
             act: d.alloc_dev(g * i * 2)?,
-            aq: d.alloc_dev((g + bm) * i)?,
+            aq: d.alloc_dev((g + bm) * i * w)?,
             a_s: d.alloc_dev((g + bm) * (i / aien_omega_pf::BLOCK) * 4)?,
             down: d.alloc_host(g * h * 4)?,
             tiles: d.alloc_host(4 * max_tiles * TILE_BYTES)?,
+            a16: None,
         };
         // padding rows of the row index read token 0 (a valid row); written once per sizing
         as_u32_mut(b.rowidx.host_mut().ok_or("row index is not a host buffer")?)?.fill(0);
+        if a16 {
+            let mut ident = d.alloc_host((g + bm) * 4)?;
+            for (r, v) in as_u32_mut(ident.host_mut().ok_or("identity row index is not a host buffer")?)?.iter_mut().enumerate() {
+                *v = r as u32;
+            }
+            b.a16 = Some(acts::A16Bufs { ident, gu: d.alloc_dev(g * 2 * i * 4)? });
+        }
         self.bufs = Some(b);
         Ok(())
     }
@@ -475,7 +504,7 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
             if let Some(t) = tr.as_deref_mut().filter(|t| t.ops_layer == Some(l)) {
                 t.ops.x_norm = host(&b.xin, "xin")?[..m * h].to_vec();
             }
-            st.chip_ns += dev.quant(h, QuantIn::F32, m, b.xin.va(), b.xq.va(), b.xs.va()).map_err(|err| format!("layer {l} quant x: {err}"))?;
+            st.chip_ns += b.act_in(dev, h, QuantIn::F32, m, b.xin.va()).map_err(|err| format!("layer {l} quant x: {err}"))?;
             st.quant += 1;
 
             // --- q|k|v: one GEMM for all m tokens ---
@@ -488,7 +517,7 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
                 (None, None) => unreachable!("ensure allocates one q|k|v buffer"),
             };
             let call = QgemmCall { n: qkv_n, k: h, layout: Layout::Plain, tiles_va: tv, ntiles: nt, rowidx_va: 0, xq_va: b.xq.va(), xs_va: b.xs.va(), y_va: qkv_y };
-            st.chip_ns += dev.qgemm(&call).map_err(|err| format!("layer {l} q|k|v gemm x{m}: {err}"))?;
+            st.chip_ns += b.gemm(dev, &call).map_err(|err| format!("layer {l} q|k|v gemm x{m}: {err}"))?;
             st.qkv += 1;
 
             // --- attention: ONE call for all m tokens ---
@@ -517,7 +546,7 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
                 };
                 t.ops.attn = if b.att_dev.is_some() { read_dev(&mut *dev, att_va, m * qd)? } else { host(&b.xin, "xin")?[..m * qd].to_vec() };
             }
-            st.chip_ns += dev.quant(qd, QuantIn::F32, m, att_va, b.xq.va(), b.xs.va()).map_err(|err| format!("layer {l} quant attn: {err}"))?;
+            st.chip_ns += b.act_in(dev, qd, QuantIn::F32, m, att_va).map_err(|err| format!("layer {l} quant attn: {err}"))?;
             st.quant += 1;
 
             // --- o: one GEMM into HOST rows ---
@@ -525,7 +554,7 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
             let (tv, nt) = put_tiles(&mut b.tiles, b.max_tiles, Region::O, &[ent.o.0], &[ent.o.1], &dense)?;
             lap!(tiles_ns);
             let call = QgemmCall { n: h, k: qd, layout: Layout::Plain, tiles_va: tv, ntiles: nt, rowidx_va: 0, xq_va: b.xq.va(), xs_va: b.xs.va(), y_va: b.oproj.va() };
-            st.chip_ns += dev.qgemm(&call).map_err(|err| format!("layer {l} o gemm x{m}: {err}"))?;
+            st.chip_ns += b.gemm(dev, &call).map_err(|err| format!("layer {l} o gemm x{m}: {err}"))?;
             st.o += 1;
             if let Some(t) = tr.as_deref_mut().filter(|t| t.ops_layer == Some(l)) {
                 t.ops.oproj = host(&b.oproj, "o projection")?[..m * h].to_vec();
@@ -568,7 +597,7 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
             let (sort, wts) = sort;
             lap!(plan_ns);
             st.host_ns += t.elapsed().as_nanos() as u64;
-            st.chip_ns += dev.quant(h, QuantIn::F32, m, b.xin.va(), b.xq.va(), b.xs.va()).map_err(|err| format!("layer {l} quant post: {err}"))?;
+            st.chip_ns += b.act_in(dev, h, QuantIn::F32, m, b.xin.va()).map_err(|err| format!("layer {l} quant post: {err}"))?;
             st.quant += 1;
 
             // --- experts: gate|up with the SwiGLU epilogue (rows gathered by token), act quantised, down ---
@@ -582,15 +611,15 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
             }
             lap!(tiles_ns);
             let call = QgemmCall { n: 2 * i, k: h, layout: Layout::SwigluNat, tiles_va: tv, ntiles: nt, rowidx_va: b.rowidx.va(), xq_va: b.xq.va(), xs_va: b.xs.va(), y_va: b.act.va() };
-            st.chip_ns += dev.qgemm(&call).map_err(|err| format!("layer {l} gate|up gemm x{g}: {err}"))?;
+            st.chip_ns += b.gemm(dev, &call).map_err(|err| format!("layer {l} gate|up gemm x{g}: {err}"))?;
             st.gate_up += 1;
-            st.chip_ns += dev.quant(i, QuantIn::Bf16, g, b.act.va(), b.aq.va(), b.a_s.va()).map_err(|err| format!("layer {l} quant act: {err}"))?;
+            st.chip_ns += b.act_mid(dev, i, g).map_err(|err| format!("layer {l} quant act: {err}"))?;
             st.quant += 1;
             lap!(dev_ns);
             let (tv, nt) = put_tiles(&mut b.tiles, b.max_tiles, Region::Down, &ent.dn_w, &ent.dn_s, &sort.counts)?;
             lap!(tiles_ns);
             let call = QgemmCall { n: h, k: i, layout: Layout::Plain, tiles_va: tv, ntiles: nt, rowidx_va: 0, xq_va: b.aq.va(), xs_va: b.a_s.va(), y_va: b.down.va() };
-            st.chip_ns += dev.qgemm(&call).map_err(|err| format!("layer {l} down gemm x{g}: {err}"))?;
+            st.chip_ns += b.gemm(dev, &call).map_err(|err| format!("layer {l} down gemm x{g}: {err}"))?;
             st.down += 1;
 
             let t = Instant::now();
@@ -649,6 +678,8 @@ pub fn combine_rows(x: &mut [f32], down_sorted: &[f32], wts: &[f32], inv: &[u32]
 /// Host mirror of the activation quantiser (W-L1G-C).
 pub mod fake_quant;
 pub mod devhost;
+pub mod acts;
+pub use acts::PrefillActs;
 
 /// Negative-control mutants of the whole-prompt path (W-L1G-C). Each must be caught by the gate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

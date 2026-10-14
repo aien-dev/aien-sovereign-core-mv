@@ -123,6 +123,15 @@ pub fn build_tiles(bm: usize, w_va: &[u64], s_va: &[u64], counts: &[u32]) -> Res
     Ok(tiles)
 }
 
+/// W8A16 activation width rule (omega_hx_spec_ok): a multiple of 128 in 128 ..= 4096.
+fn check_a16_k(k: usize) -> Result<(), String> {
+    if (128..=4096).contains(&k) && k.is_multiple_of(128) {
+        Ok(())
+    } else {
+        Err(format!("pf w8a16: width {k} must be a multiple of 128 in 128..=4096"))
+    }
+}
+
 /// Host check of the quantiser rule (`omega_pq_spec_ok`), before any chip call.
 pub fn check_quant(k: usize) -> Result<(), OmegaGpuError> {
     if !k.is_multiple_of(BLOCK) || !(BLOCK..=QUANT_MAX_K).contains(&k) {
@@ -176,6 +185,20 @@ pub struct QgemmCall {
     pub y_va: u64,
 }
 
+/// One W8A16 grouped GEMM launch (`omega_gpu_pf_hgemm`, W-L1H): FP8 weights read in place, bf16
+/// activations (`xh_va`: rows of `k` in the [`PrefillDevice::hconv`] form), f32 output rows of `n`.
+/// Same tile table as [`QgemmCall`]; the row index is required (identity rows for the down GEMM).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HgemmCall {
+    pub n: usize,
+    pub k: usize,
+    pub tiles_va: u64,
+    pub ntiles: usize,
+    pub rowidx_va: u64,
+    pub xh_va: u64,
+    pub y_va: u64,
+}
+
 /// omega's prefill kernels on the shared session. Every call is synchronous (it returns after
 /// the chip finished, with the chip nanoseconds). Real: [`OmegaPfDevice`].
 pub trait PrefillDevice {
@@ -208,6 +231,24 @@ pub trait PrefillDevice {
     #[allow(clippy::too_many_arguments)]
     fn moe_combine(&mut self, _h: usize, _top_k: usize, _rows: usize, _down_va: u64, _inv_va: u64, _wt_va: u64, _out_va: u64) -> Result<u64, String> {
         Err("pf moe combine: not offered by this device".into())
+    }
+    /// W8A16 (W-L1H): rows per tile of [`Self::hgemm`], or `None` when the W8A16 kernels are absent.
+    fn hgemm_bm(&self) -> Option<usize> {
+        None
+    }
+    /// W8A16: `rows` rows of `k` (f32 or bf16) at `x_va` -> bf16 rows of `k` at `xh_va`: RNE of x * 2^64,
+    /// stored per group of 4 as (0, 2, 1, 3).
+    fn hconv(&mut self, _k: usize, _input: QuantIn, _rows: usize, _x_va: u64, _xh_va: u64) -> Result<u64, String> {
+        Err("pf hconv: not offered by this device".into())
+    }
+    /// W8A16: f32 rows of `2 * i` (gate | up) at `gu_va` -> bf16 rows of `i` at `act_va` in the hconv form,
+    /// act = silu(gate) * up (the W8A8 epilogue's arithmetic).
+    fn hswiglu(&mut self, _i: usize, _rows: usize, _gu_va: u64, _act_va: u64) -> Result<u64, String> {
+        Err("pf hswiglu: not offered by this device".into())
+    }
+    /// W8A16: one grouped GEMM launch.
+    fn hgemm(&mut self, _call: &HgemmCall) -> Result<u64, String> {
+        Err("pf hgemm: not offered by this device".into())
     }
 }
 
@@ -317,6 +358,22 @@ mod ffi_host {
         pub fn omega_gpu_pf_router_logits(k: u32, e: u32, rows: u32, x_va: u64, wq_va: u64, logits_va: u64, ns: *mut u64) -> i32;
         pub fn omega_gpu_pf_moe_combine(h: u32, top_k: u32, rows: u32, down_va: u64, inv_va: u64, wt_va: u64, out_va: u64, ns: *mut u64) -> i32;
     }
+}
+
+/// W8A16 whole-prompt kernels (W-L1H, omega_gpu_pfa16.h).
+#[cfg(has_omega_pfa16)]
+mod ffi_a16 {
+    extern "C" {
+        pub fn omega_gpu_pf_hgemm_bm() -> u32;
+        pub fn omega_gpu_pf_hconv(k: u32, in_type: u32, rows: u32, x_va: u64, xh_va: u64, ns: *mut u64) -> i32;
+        pub fn omega_gpu_pf_hswiglu(i: u32, rows: u32, gu_va: u64, act_va: u64, ns: *mut u64) -> i32;
+        pub fn omega_gpu_pf_hgemm(n: u32, k: u32, tiles_va: u64, ntiles: u32, rowidx_va: u64, xh_va: u64, y_va: u64, ns: *mut u64) -> i32;
+    }
+}
+
+/// True when omega's W8A16 whole-prompt kernels (omega_gpu_pfa16.h) are linked.
+pub const fn has_a16() -> bool {
+    cfg!(has_omega_pfa16)
 }
 
 /// True when omega's router-logits and combine kernels (omega_gpu_pfhost.h) are linked.
@@ -729,6 +786,83 @@ impl PrefillDevice for OmegaPfDevice {
             Ok(ns)
         }
         #[cfg(not(has_omega_pf))]
+        {
+            Err(OmegaGpuError::Unavailable.to_string())
+        }
+    }
+    fn hgemm_bm(&self) -> Option<usize> {
+        #[cfg(has_omega_pfa16)]
+        {
+            // SAFETY: no arguments.
+            Some(unsafe { ffi_a16::omega_gpu_pf_hgemm_bm() } as usize)
+        }
+        #[cfg(not(has_omega_pfa16))]
+        {
+            None
+        }
+    }
+    fn hconv(&mut self, k: usize, input: QuantIn, rows: usize, x_va: u64, xh_va: u64) -> Result<u64, String> {
+        check_a16_k(k)?;
+        if x_va == 0 || xh_va == 0 || rows > u32::MAX as usize {
+            return Err(format!("pf hconv: null address or {rows} rows"));
+        }
+        #[cfg(has_omega_pfa16)]
+        {
+            let mut ns = 0u64;
+            // SAFETY: plain values and one out pointer; the addresses are session buffers the caller owns.
+            let rc = unsafe { ffi_a16::omega_gpu_pf_hconv(k as u32, input as u32, rows as u32, x_va, xh_va, &mut ns) };
+            if rc != 0 {
+                return Err(rc_err(rc).to_string());
+            }
+            Ok(ns)
+        }
+        #[cfg(not(has_omega_pfa16))]
+        {
+            let _ = input;
+            Err(OmegaGpuError::Unavailable.to_string())
+        }
+    }
+    fn hswiglu(&mut self, i: usize, rows: usize, gu_va: u64, act_va: u64) -> Result<u64, String> {
+        check_a16_k(i)?;
+        if gu_va == 0 || act_va == 0 || rows > u32::MAX as usize {
+            return Err(format!("pf hswiglu: null address or {rows} rows"));
+        }
+        #[cfg(has_omega_pfa16)]
+        {
+            let mut ns = 0u64;
+            // SAFETY: plain values and one out pointer; the addresses are session buffers the caller owns.
+            let rc = unsafe { ffi_a16::omega_gpu_pf_hswiglu(i as u32, rows as u32, gu_va, act_va, &mut ns) };
+            if rc != 0 {
+                return Err(rc_err(rc).to_string());
+            }
+            Ok(ns)
+        }
+        #[cfg(not(has_omega_pfa16))]
+        {
+            Err(OmegaGpuError::Unavailable.to_string())
+        }
+    }
+    fn hgemm(&mut self, c: &HgemmCall) -> Result<u64, String> {
+        check_a16_k(c.k)?;
+        if c.n == 0 || !c.n.is_multiple_of(128) || c.n > u32::MAX as usize || c.ntiles > u32::MAX as usize {
+            return Err(format!("pf hgemm: n {} must be a non-zero multiple of 128", c.n));
+        }
+        if c.tiles_va == 0 || c.rowidx_va == 0 || c.xh_va == 0 || c.y_va == 0 {
+            return Err("pf hgemm: null address (the row index is required)".into());
+        }
+        #[cfg(has_omega_pfa16)]
+        {
+            let mut ns = 0u64;
+            // SAFETY: plain values and one out pointer; the addresses are session buffers the caller owns.
+            let rc = unsafe {
+                ffi_a16::omega_gpu_pf_hgemm(c.n as u32, c.k as u32, c.tiles_va, c.ntiles as u32, c.rowidx_va, c.xh_va, c.y_va, &mut ns)
+            };
+            if rc != 0 {
+                return Err(rc_err(rc).to_string());
+            }
+            Ok(ns)
+        }
+        #[cfg(not(has_omega_pfa16))]
         {
             Err(OmegaGpuError::Unavailable.to_string())
         }

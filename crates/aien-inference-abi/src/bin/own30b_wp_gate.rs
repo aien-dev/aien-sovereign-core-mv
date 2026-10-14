@@ -5,6 +5,7 @@
 //!                  (W-RC: --lens 1 is own30b_check p1 "Hello"; other short lens take the preamble head)
 //!                  [--max-context 8192] [--force-memory]
 //!                  [--devhost]  (W-L1G-E: ON and the mutants run with the router logits + combine on the chip)
+//!                  [--acts a8|a16]  (W-L1H: ON with e4m3 (default) or bf16 GEMM activations)
 //!
 //! Loads the FP8 model once (fused attention). Per prompt length, three runs of the same prompt
 //! from an empty KV, each recording every layer's residual after attention (`x_mid`) and after
@@ -30,11 +31,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 /// `--devhost` (W-L1G-E): ON runs use the device router logits + MoE combine.
 static DEVHOST: AtomicBool = AtomicBool::new(false);
+/// `--acts a16` (W-L1H): ON runs use bf16 GEMM activations (W8A16) instead of e4m3 (W8A8). The CTRL run still models
+/// W8A8, so with a16 the ON-vs-OFF numbers are the ones to read.
+static ACTS_A16: AtomicBool = AtomicBool::new(false);
 
 use aien_inference_abi::qwen3_moe_omega::w8a8_control::ControlMode;
 use aien_inference_abi::qwen3_moe_omega::{AttnPath, DevicePaths, GenerateParams, Qwen3MoeOmegaEngine, WeightFormat};
 use aien_inference_abi::qwen3_moe_omega_prefill::fake_quant::fake_quant_row;
-use aien_inference_abi::qwen3_moe_omega_prefill::{WpMutant, WpTrace};
+use aien_inference_abi::qwen3_moe_omega_prefill::{PrefillActs, WpMutant, WpTrace};
 use aien_inference_abi::tokenizer::ChatTokenizer as Tokenizer;
 
 fn mem_available_gb() -> f64 {
@@ -187,6 +191,9 @@ fn control_run(engine: &mut Qwen3MoeOmegaEngine, name: &str, ids: &[u32], mode: 
 fn on_run(engine: &mut Qwen3MoeOmegaEngine, name: &str, ids: &[u32], mutant: WpMutant, ops_layer: usize) -> Run {
     engine.set_whole_prompt(true).expect("whole-prompt prefill refused");
     engine.set_whole_prompt_device_host(DEVHOST.load(Ordering::Relaxed)).expect("device router / combine refused");
+    if ACTS_A16.load(Ordering::Relaxed) {
+        engine.set_whole_prompt_acts(PrefillActs::W8A16).expect("W8A16 whole-prompt prefill refused");
+    }
     engine.whole_prompt_set_mutant(mutant).expect("mutant");
     engine.whole_prompt_set_trace(Some(WpTrace::new(Some(ops_layer)))).expect("trace");
     engine.reset();
@@ -274,6 +281,7 @@ fn main() {
             "--ops-layer" => ops_layer = it.next().expect("--ops-layer").parse().expect("n"),
             "--mutants" => mutants = true,
             "--devhost" => DEVHOST.store(true, Ordering::Relaxed),
+            "--acts" => ACTS_A16.store(PrefillActs::parse(it.next().expect("--acts a8|a16")).expect("--acts") == PrefillActs::W8A16, Ordering::Relaxed),
             "--max-context" => max_context = it.next().expect("--max-context").parse().expect("n"),
             "--force-memory" => force = true,
             o => panic!("unknown argument {o}"),

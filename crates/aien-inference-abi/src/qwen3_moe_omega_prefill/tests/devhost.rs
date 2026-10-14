@@ -36,6 +36,18 @@ impl PrefillDevice for DhDev {
     fn qgemm(&mut self, c: &QgemmCall) -> Result<u64, String> {
         self.inner.qgemm(c)
     }
+    fn hgemm_bm(&self) -> Option<usize> {
+        self.inner.hgemm_bm()
+    }
+    fn hconv(&mut self, k: usize, input: QuantIn, rows: usize, x_va: u64, xh_va: u64) -> Result<u64, String> {
+        self.inner.hconv(k, input, rows, x_va, xh_va)
+    }
+    fn hswiglu(&mut self, i: usize, rows: usize, gu_va: u64, act_va: u64) -> Result<u64, String> {
+        self.inner.hswiglu(i, rows, gu_va, act_va)
+    }
+    fn hgemm(&mut self, c: &aien_omega_pf::HgemmCall) -> Result<u64, String> {
+        self.inner.hgemm(c)
+    }
     fn copy_va(&mut self, dst_va: u64, src_va: u64, bytes: usize) -> Result<(), String> {
         let v = read_f32(&self.inner.reg, src_va, bytes / 4, "copy src");
         write_f32(&self.inner.reg, dst_va, &v, "copy dst");
@@ -245,4 +257,20 @@ fn parallel_plan_errors_equal_from_logits() {
     for (t, e, k, n) in [(6, 8, 0, 48), (6, 8, 9, 48), (6, 0, 1, 0), (6, 8, 2, 47)] {
         assert_eq!(plan_par(&logits[..n], t, e, k).unwrap_err(), MoeBatchPlan::from_logits(&logits[..n], t, e, k).unwrap_err());
     }
+}
+
+/// W-L1H: the device router / combine path in W8A16 mode computes the same function as in W8A8.
+#[test]
+fn device_path_w8a16_matches_w8a8() {
+    let (tm, mut a8, mut at8, _) = setup_dh(4, false, Some(3));
+    a8.set_device_host_work(&tm.weights, true).unwrap();
+    let want = a8.run(&tm.weights, &mut at8, &TOKENS, 0).unwrap();
+    let (tm2, mut a16, mut at16, log) = setup_dh(4, false, Some(3));
+    a16.dev.inner.a16 = true;
+    a16.set_acts(crate::qwen3_moe_omega_prefill::PrefillActs::W8A16).unwrap();
+    a16.set_device_host_work(&tm2.weights, true).unwrap();
+    let got = a16.run(&tm2.weights, &mut at16, &TOKENS, 0).unwrap();
+    assert_eq!(got.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), want.iter().map(|v| v.to_bits()).collect::<Vec<_>>());
+    let log = log.borrow();
+    assert!(log.iter().any(|e| matches!(e, Ev::Hswiglu { .. })) && !log.iter().any(|e| matches!(e, Ev::Quant { .. } | Ev::Gemm { .. })));
 }
