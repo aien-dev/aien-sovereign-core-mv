@@ -34,6 +34,19 @@ pub const LOAD_MIN_FREE_GB: f64 = 45.0;
 /// activation rounding. Off: `--whole-prompt off` / `AIEN_SERVE_WHOLE_PROMPT=0` (the chunked
 /// prefill of cut 10), `--prefill-device-host off` / `AIEN_SERVE_WP_DEVICE_HOST=0` (host routing
 /// and combine). The cached 30 GB weight copy and speculative decoding stay off.
+///
+/// Defaults differ by path (sc#522); this is documented, not aligned, because changing a chip
+/// tool's default would change what its past evidence means:
+/// - this door: both ON ([`Default`]; `--whole-prompt off` / `--prefill-device-host off`);
+/// - the engine itself (`Qwen3MoeOmegaEngine`): both OFF until `set_whole_prompt(true)` and
+///   `set_whole_prompt_device_host(true)`; its other callers (`own30b_ttft`, `own30b_wp_gate`)
+///   set the switch explicitly per leg;
+/// - `own30b_check`: both OFF unless the bare flags `--whole-prompt` and
+///   `--prefill-device-host` are passed.
+///
+/// A door run and a check run therefore use different prefill paths unless the check is given
+/// both flags (or the door both `off` switches); their tokens can differ by FP8 activation
+/// rounding. Compare like with like.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PrefillMode {
     pub whole_prompt: bool,
