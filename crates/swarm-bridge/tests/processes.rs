@@ -300,3 +300,60 @@ fn watch_wakes_on_a_post_from_another_process() {
     );
     assert!(out.contains(&format!("#{q} question from=alpha")), "{out}");
 }
+
+/// bench pair 1 and 2 (2026-10-16): a board root deep enough that the wake
+/// socket path passes the 107-byte `sun_path` limit made `watch` fail
+/// outright, so the answering agent never saw the question. `watch` now
+/// falls back to polling the cursor and says why.
+#[test]
+fn watch_polls_when_the_wake_socket_path_is_too_long() {
+    let dir = tmp();
+    let deep = dir.join("d".repeat(70));
+    fs::create_dir_all(&deep).unwrap();
+    let root = init(&deep);
+    let sock_len = root.join("wake/0123456789abcdef.sock").as_os_str().len();
+    assert!(sock_len > 107, "test must exceed sun_path: {sock_len}");
+    hook(&dir, &root, "s-b", "SessionStart", &[("SWARM_TAG", "beta")]).unwrap();
+    hook(
+        &dir,
+        &root,
+        "s-a",
+        "SessionStart",
+        &[("SWARM_TAG", "alpha")],
+    )
+    .unwrap();
+    let watch = |secs: &str| {
+        Command::new(BIN)
+            .args(["watch", "--timeout", secs])
+            .env("SWARM_BRIDGE_BOARD_ROOT", &root)
+            .env("SWARM_BRIDGE_STATE_DIR", dir.join("state"))
+            .env("SWARM_BRIDGE_SESSION", "s-b")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap()
+    };
+    // Negative control: nothing posted, the watch times out cleanly.
+    let o = watch("1").wait_with_output().unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(String::from_utf8_lossy(&o.stdout).contains("timed out"));
+    let w = watch("60");
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let started = std::time::Instant::now();
+    let q = posted_id(&cli(
+        &dir,
+        &root,
+        "s-a",
+        &["question", "--to", "beta", "--thread", "t", "ping?"],
+    ));
+    let o = w.wait_with_output().unwrap();
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(
+        started.elapsed().as_secs() < 30,
+        "found by polling, not timed out"
+    );
+    assert!(out.contains("SocketPathTooLong"), "{out}");
+    assert!(out.contains("polling the cursor found events"), "{out}");
+    assert!(out.contains(&format!("#{q} question from=alpha")), "{out}");
+}

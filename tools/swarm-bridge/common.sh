@@ -265,9 +265,18 @@ sb_relay_loop() { # run_dir prefix
   done
 }
 
+# The board root for a run. Kept short: the board binds wake/<16 hex>.sock
+# under it and a Unix socket path must fit 107 bytes (bench pairs 1 and 2 on
+# 2026-10-16 failed on a 108-byte path under the run dir).
+sb_board_root() { # run_dir
+  local h
+  h=$(printf %s "$(basename "$1")" | sha256sum | cut -c1-12)
+  printf %s "$SB_DEMO/b/$h"
+}
+
 # One full run of one arm. Writes $SB_DEMO/<run>/out/{result.json,...}.
 sb_run_arm() { # arm(board|mail) run
-  local arm=$1 run=$2 R P a
+  local arm=$1 run=$2 R P a BR=
   R="$SB_DEMO/$run"
   [ -e "$R" ] && { log "run dir $R exists; refusing to reuse"; return 1; }
   mkdir -p "$R/out" "$R/state"
@@ -279,7 +288,12 @@ sb_run_arm() { # arm(board|mail) run
   local cwd_alpha="$R/synapse-alpha" cwd_beta="$R/sc-beta" cwd_gamma="$R/sc-gamma"
   local settings=- relay_pid=
   if [ "$arm" = board ]; then
-    "$SB_BIN" init-board "$R/board" >"$R/out/board-init.txt"
+    BR=$(sb_board_root "$R")
+    local probe="$BR/wake/0123456789abcdef.sock"
+    [ ${#probe} -le 107 ] || { log "board root $BR too long for wake sockets"; return 1; }
+    mkdir -p "$SB_DEMO/b"
+    "$SB_BIN" init-board "$BR" >"$R/out/board-init.txt"
+    printf '%s\n' "$BR" >"$R/out/board-root.txt"
     settings="$SB_TOOLS/demo-settings.json"
   else
     sb_relay_loop "$R" "$P" &
@@ -291,7 +305,7 @@ sb_run_arm() { # arm(board|mail) run
     brief=$(sb_brief "$a" "$arm" "$P" "$R/home/shared/agents")
     envs=(PATH="$R/bin:$PATH")
     if [ "$arm" = board ]; then
-      envs+=(SWARM_BRIDGE_BIN="$SB_BIN" SWARM_BRIDGE_BOARD_ROOT="$R/board"
+      envs+=(SWARM_BRIDGE_BIN="$SB_BIN" SWARM_BRIDGE_BOARD_ROOT="$BR"
         SWARM_BRIDGE_STATE_DIR="$R/state" SWARM_TAG="$a" SWARM_BRIDGE_SESSION="$run-$a")
       [ "$a" = gamma ] && envs+=(SWARM_BRIDGE_SUBSCRIBE="thread:contract/ledger-verify")
     fi
@@ -315,7 +329,9 @@ sb_finish() { # run_dir arm run
   sb_metrics "$R/out" "$arm" "$run" >"$R/out/metrics.json"
   sb_task_check "$R" >"$R/out/task.json"
   if [ "$arm" = board ]; then
-    "$SB_BIN" --board-root "$R/board" board-events >"$R/out/board-events.jsonl"
+    local br="$R/board"
+    [ -s "$R/out/board-root.txt" ] && br=$(cat "$R/out/board-root.txt")
+    "$SB_BIN" --board-root "$br" board-events >"$R/out/board-events.jsonl"
     sb_board_assert "$R" >"$R/out/assert.json"
   else
     echo '{}' >"$R/out/assert.json"

@@ -550,16 +550,41 @@ impl<'a, B: Board> Bridge<'a, B> {
 
     /// `swarm-bridge watch`: park without spending model tokens until a
     /// notification arrives or `timeout` passes, then read since the cursor.
+    /// When the board can not arm a notification (`NoNotifier`), it polls
+    /// the cursor every `WATCH_POLL` instead and says so.
     pub fn watch(&self, key: &str, timeout: Duration) -> Result<(ReadOut, WatchEnd), BridgeError> {
         let first = self.read(key, false)?;
         if first.text.is_some() {
             return Ok((first, WatchEnd::AlreadyWaiting));
         }
         let deadline = std::time::Instant::now() + timeout;
+        let mut polling: Option<String> = None;
         loop {
-            let (after, seen) = self.shown(key)?;
             let left = deadline.saturating_duration_since(std::time::Instant::now());
-            let notified = !left.is_zero() && self.board.wait(key, after, &seen, left)?;
+            if let Some(reason) = &polling {
+                std::thread::sleep(left.min(WATCH_POLL));
+                let out = self.read(key, false)?;
+                if out.text.is_some() {
+                    return Ok((out, WatchEnd::Polled(reason.clone())));
+                }
+                if std::time::Instant::now() >= deadline {
+                    return Ok((out, WatchEnd::TimeoutEmpty));
+                }
+                continue;
+            }
+            let (after, seen) = self.shown(key)?;
+            let notified = if left.is_zero() {
+                false
+            } else {
+                match self.board.wait(key, after, &seen, left) {
+                    Ok(n) => n,
+                    Err(BridgeError::NoNotifier(r)) => {
+                        polling = Some(r);
+                        continue;
+                    }
+                    Err(e) => return Err(e),
+                }
+            };
             let out = self.read(key, false)?;
             match (notified, out.text.is_some()) {
                 (true, true) => return Ok((out, WatchEnd::Notified)),
@@ -743,10 +768,15 @@ pub struct ReadOut {
     pub ids: Vec<u64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Poll interval when the board can not arm a notification.
+pub const WATCH_POLL: Duration = Duration::from_millis(250);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WatchEnd {
     AlreadyWaiting,
     Notified,
+    /// No notifier could be armed (the reason); polling found events.
+    Polled(String),
     TimeoutFound,
     TimeoutEmpty,
 }

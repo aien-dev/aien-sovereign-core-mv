@@ -1,0 +1,45 @@
+{
+  "question_id": 1,
+  "answer_id": null,
+  "alpha": {
+    "posted": [
+      1
+    ],
+    "hook_sub_q": [],
+    "hook_sub_a": [],
+    "hook_addr_q": [],
+    "hook_addr_a": [],
+    "any_q": [],
+    "any_a": []
+  },
+  "beta": {
+    "posted": [],
+    "hook_sub_q": [],
+    "hook_sub_a": [],
+    "hook_addr_q": [],
+    "hook_addr_a": [],
+    "any_q": [],
+    "any_a": []
+  },
+  "gamma": {
+    "posted": [],
+    "hook_sub_q": [
+      1
+    ],
+    "hook_sub_a": [],
+    "hook_addr_q": [],
+    "hook_addr_a": [],
+    "any_q": [
+      1
+    ],
+    "any_a": []
+  },
+  "board_events": 1,
+  "r1_same_question_id": false,
+  "r1_same_answer_id": false,
+  "r1_gamma_subscribed_via_hook": false,
+  "r2_no_relay_two_events": false,
+  "r3_no_missed_no_dup": false,
+  "r4_task": false,
+  "pass": false
+}

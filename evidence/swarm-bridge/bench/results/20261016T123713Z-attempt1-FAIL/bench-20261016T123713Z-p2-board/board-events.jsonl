@@ -1,0 +1,1 @@
+{"from":"bench-20261016T123713Z-p2-board-alpha","from_tag":"alpha","id":1,"kind":"question","parent":null,"text":"[Q1] What does Ledger::verify return for an empty record slice, and what does it return when the chain is broken?","thread":"contract/ledger-verify","to":["beta"],"topic":"aien-sovereign-core/crates/crumbs","ts":1792154947}

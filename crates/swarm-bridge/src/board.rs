@@ -197,6 +197,10 @@ pub enum BridgeError {
     Io(String),
     /// A refusal from the board itself (named by the board).
     Board(String),
+    /// The board can not arm a wake notification for this session (for
+    /// example its wake socket path is over the 107-byte `sun_path` limit).
+    /// `watch` falls back to polling; nothing else depends on wakes.
+    NoNotifier(String),
 }
 
 impl fmt::Display for BridgeError {
@@ -223,6 +227,7 @@ impl fmt::Display for BridgeError {
             BridgeError::StateCorrupt(m) => write!(f, "StateCorrupt: {m}"),
             BridgeError::Io(m) => write!(f, "Io: {m}"),
             BridgeError::Board(m) => write!(f, "Board: {m}"),
+            BridgeError::NoNotifier(m) => write!(f, "NoNotifier: {m}"),
         }
     }
 }

@@ -326,9 +326,16 @@ fn run_cmd(g: &Global, cmd: &str, rest: &[String]) -> Result<(), BridgeError> {
                     .map_err(|_| BridgeError::BadArgs("--timeout SECS".into()))?;
             }
             let (out, end) = b.watch(&key, Duration::from_secs(secs))?;
-            let how = match end {
+            let polled;
+            let how = match &end {
                 WatchEnd::AlreadyWaiting => "events were already waiting",
                 WatchEnd::Notified => "woken by a board notification",
+                WatchEnd::Polled(r) => {
+                    polled = format!(
+                        "no notification could be armed ({r}); polling the cursor found events"
+                    );
+                    polled.as_str()
+                }
                 WatchEnd::TimeoutFound => {
                     "no notification arrived (it may have been lost); the cursor read found events"
                 }

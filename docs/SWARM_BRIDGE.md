@@ -125,11 +125,17 @@ tag, applies the visibility rule (addressed to the tag, or on a subscribed threa
 posts never shown) and pages reads (`read_since` returns every matching id up to `through`).
 `swarm-bridge watch` binds the board's wake socket before it looks, so a post that lands between
 the look and the wait still wakes it; a lost wake datagram costs only the timeout.
+The wake socket lives at `<board root>/wake/<16 hex>.sock`, and a Unix socket path must fit
+107 bytes, so a board root longer than about 80 bytes can not arm a wake. The board refuses with
+`SocketPathTooLong`; `watch` then polls the cursor every 250 ms until its timeout and says so in
+its first output line (`no notification could be armed (...)`). Keep board roots short to get
+the notification path; the first bench attempt on 2026-10-16 failed on exactly this (a 108-byte
+path), before the fallback existed.
 
 The same fault tests run against the in-memory fake and the real board in a temp dir
 (`tests/faults.rs`), and `tests/processes.rs` drives the real binary as separate OS processes
 (two processes racing for one tag, a question/answer/follower round with one board write per
-message, `watch` woken by another process).
+message, `watch` woken by another process, `watch` polling when the wake socket path is too long).
 
 ## 3. Delivery, confirmation and acknowledgement
 

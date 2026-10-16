@@ -235,7 +235,12 @@ impl Board for RealBoard {
     ) -> Result<bool, BridgeError> {
         // Bind the wake socket first, then look: a post landing between the
         // look and the wait still wakes the socket.
-        let w = self.board.watcher(session).map_err(err)?;
+        let w = self.board.watcher(session).map_err(|e| match e {
+            e @ sb::BoardError::SocketPathTooLong { .. } => {
+                BridgeError::NoNotifier(format!("{}: {e}", e.name()))
+            }
+            e => err(e),
+        })?;
         let mut from = after;
         for _ in 0..WAIT_SCAN_PAGES {
             let b = self.board.read_since(session, from, 64).map_err(err)?;

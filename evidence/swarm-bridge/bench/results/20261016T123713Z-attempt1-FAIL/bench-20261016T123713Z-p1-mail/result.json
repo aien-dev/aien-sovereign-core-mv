@@ -1,0 +1,129 @@
+{
+  "arm": "mail",
+  "run": "bench-20261016T123713Z-p1-mail",
+  "agents": {
+    "alpha": {
+      "model_invocations": 5,
+      "tool_calls": 4,
+      "waiting_tool_calls": 1,
+      "input_tokens": 10,
+      "cache_creation_tokens": 22193,
+      "repeated_context_tokens": 128532,
+      "output_tokens": 1779,
+      "first_ts": "2026-10-16T12:37:22.663Z",
+      "last_ts": "2026-10-16T12:38:06.223Z",
+      "time": "44.43 2.98 0.60"
+    },
+    "beta": {
+      "model_invocations": 4,
+      "tool_calls": 3,
+      "waiting_tool_calls": 1,
+      "input_tokens": 8,
+      "cache_creation_tokens": 24161,
+      "repeated_context_tokens": 105479,
+      "output_tokens": 1168,
+      "first_ts": "2026-10-16T12:37:19.934Z",
+      "last_ts": "2026-10-16T12:37:44.377Z",
+      "time": "25.47 2.76 0.61"
+    },
+    "gamma": {
+      "model_invocations": 8,
+      "tool_calls": 11,
+      "waiting_tool_calls": 3,
+      "input_tokens": 16,
+      "cache_creation_tokens": 31418,
+      "repeated_context_tokens": 267521,
+      "output_tokens": 4036,
+      "first_ts": "2026-10-16T12:37:21.311Z",
+      "last_ts": "2026-10-16T12:38:23.171Z",
+      "time": "62.63 8.05 1.98"
+    }
+  },
+  "relays": [
+    {
+      "model_invocations": 2,
+      "tool_calls": 2,
+      "waiting_tool_calls": 0,
+      "input_tokens": 4,
+      "cache_creation_tokens": 20064,
+      "repeated_context_tokens": 37531,
+      "output_tokens": 494,
+      "first_ts": "2026-10-16T12:37:27.834Z",
+      "last_ts": "2026-10-16T12:37:32.504Z"
+    },
+    {
+      "model_invocations": 2,
+      "tool_calls": 1,
+      "waiting_tool_calls": 0,
+      "input_tokens": 4,
+      "cache_creation_tokens": 17933,
+      "repeated_context_tokens": 40217,
+      "output_tokens": 916,
+      "first_ts": "2026-10-16T12:37:44.036Z",
+      "last_ts": "2026-10-16T12:37:50.224Z"
+    }
+  ],
+  "ferrying_invocations": 4,
+  "totals": {
+    "agent_model_invocations": 17,
+    "model_invocations_all": 21,
+    "tool_calls": 21,
+    "waiting_tool_calls": 5,
+    "repeated_context_tokens": 579280,
+    "input_side_tokens": 695091,
+    "cpu_s": 21.85
+  },
+  "pairs": [
+    {
+      "msg": "[Q1]",
+      "from": "alpha",
+      "to": "beta",
+      "sent": "2026-10-16T12:37:26.585Z",
+      "deliveries": 1,
+      "first_via": "mail-or-sniff",
+      "first_seen": "2026-10-16T12:37:38.970Z",
+      "latency_s": 12.384999990463257
+    },
+    {
+      "msg": "[Q1]",
+      "from": "alpha",
+      "to": "gamma",
+      "sent": "2026-10-16T12:37:26.585Z",
+      "deliveries": 2,
+      "first_via": "mail-or-sniff",
+      "first_seen": "2026-10-16T12:37:43.415Z",
+      "latency_s": 16.829999923706055
+    },
+    {
+      "msg": "[A1]",
+      "from": "beta",
+      "to": "alpha",
+      "sent": "2026-10-16T12:37:42.916Z",
+      "deliveries": 1,
+      "first_via": "mail-or-sniff",
+      "first_seen": "2026-10-16T12:37:58.835Z",
+      "latency_s": 15.919000148773193
+    },
+    {
+      "msg": "[A1]",
+      "from": "beta",
+      "to": "gamma",
+      "sent": "2026-10-16T12:37:42.916Z",
+      "deliveries": 1,
+      "first_via": "mail-or-sniff",
+      "first_seen": "2026-10-16T12:38:00.666Z",
+      "latency_s": 17.75
+    }
+  ],
+  "missed": 0,
+  "duplicates": 1,
+  "coordination_wall_s": {
+    "alpha_has_answer": 32.25,
+    "gamma_has_answer": 34.08099985122681
+  },
+  "task": {
+    "alpha_note_ok": true,
+    "gamma_test_ok": true
+  },
+  "board": {}
+}

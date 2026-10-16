@@ -1,0 +1,27 @@
+diff --git a/docs/notes/ledger-verify-contract.md b/docs/notes/ledger-verify-contract.md
+new file mode 100644
+index 0000000..9f8bdb3
+--- /dev/null
++++ b/docs/notes/ledger-verify-contract.md
+@@ -0,0 +1,21 @@
++# Ledger verify contract (Crumbline ledger)
++
++Subject: `crumbs::ledger::Ledger::verify(genesis, records)` in aien-sovereign-core.
++Owner: agent beta (their repository, not visible from here).
++
++## Answer from beta
++
++Source: beta's answer [A1], relayed by the orchestrator (agent-mail, 2026-10-16T12:37:49Z), in reply to our question [Q1].
++
++> For an empty record slice, Ledger::verify returns Ok with the genesis digest it was given, unchanged. If the chain is broken, it returns Err(LedgerError::Chain), which happens when a record's prev_root does not match the running head or when its recomputed compute_root() does not equal its stored root. Each valid record advances the head to its own root, and the function returns the final head on success.
++
++## What this means for Synapse re-verification
++
++- Empty ledger: success, and the result is the genesis digest itself.
++- Broken chain: failure with a single error kind, `LedgerError::Chain`. Two causes: a record's `prev_root` does not match the running head, or its recomputed `compute_root()` differs from its stored root.
++- Valid chain: success, and the result is the head after the last record (the last record's own root).
++
++## Status
++
++- Unverified by reading code. This note relies only on beta's relayed answer; the function source has not been inspected.
++- Not yet checked: whether the error carries the failing record's index.

@@ -1,0 +1,101 @@
+{
+  "arm": "board",
+  "run": "bench-20261016T123713Z-p2-board",
+  "agents": {
+    "alpha": {
+      "model_invocations": 7,
+      "tool_calls": 6,
+      "waiting_tool_calls": 4,
+      "input_tokens": 14,
+      "cache_creation_tokens": 23154,
+      "repeated_context_tokens": 191210,
+      "output_tokens": 2679,
+      "first_ts": "2026-10-16T12:49:03.739Z",
+      "last_ts": "2026-10-16T12:58:50.124Z",
+      "time": "587.23 6.63 1.69"
+    },
+    "beta": {
+      "model_invocations": 3,
+      "tool_calls": 2,
+      "waiting_tool_calls": 2,
+      "input_tokens": 6,
+      "cache_creation_tokens": 23294,
+      "repeated_context_tokens": 72525,
+      "output_tokens": 929,
+      "first_ts": "2026-10-16T12:49:00.871Z",
+      "last_ts": "2026-10-16T12:49:10.006Z",
+      "time": "9.98 2.06 0.55"
+    },
+    "gamma": {
+      "model_invocations": 18,
+      "tool_calls": 19,
+      "waiting_tool_calls": 15,
+      "input_tokens": 36,
+      "cache_creation_tokens": 30024,
+      "repeated_context_tokens": 643838,
+      "output_tokens": 2957,
+      "first_ts": "2026-10-16T12:49:02.690Z",
+      "last_ts": "2026-10-16T12:53:17.760Z",
+      "time": "255.76 5.00 1.38"
+    }
+  },
+  "relays": [],
+  "ferrying_invocations": 0,
+  "totals": {
+    "agent_model_invocations": 28,
+    "model_invocations_all": 28,
+    "tool_calls": 27,
+    "waiting_tool_calls": 21,
+    "repeated_context_tokens": 907573,
+    "input_side_tokens": 984101,
+    "cpu_s": 17.31
+  },
+  "pairs": [
+    {
+      "msg": "[Q1]",
+      "from": "alpha",
+      "to": "beta",
+      "sent": "2026-10-16T12:49:07.719Z",
+      "deliveries": 0,
+      "first_via": null,
+      "first_seen": null,
+      "latency_s": null
+    },
+    {
+      "msg": "[Q1]",
+      "from": "alpha",
+      "to": "gamma",
+      "sent": "2026-10-16T12:49:07.719Z",
+      "deliveries": 1,
+      "first_via": "hook",
+      "first_seen": "2026-10-16T12:49:08.116Z",
+      "latency_s": 0.3969998359680176
+    },
+    {
+      "msg": "[A1]",
+      "from": "beta",
+      "to": "alpha",
+      "sent": "",
+      "deliveries": 0,
+      "first_via": null,
+      "first_seen": null,
+      "latency_s": null
+    },
+    {
+      "msg": "[A1]",
+      "from": "beta",
+      "to": "gamma",
+      "sent": "",
+      "deliveries": 0,
+      "first_via": null,
+      "first_seen": null,
+      "latency_s": null
+    }
+  ],
+  "missed": 3,
+  "duplicates": 0,
+  "coordination_wall_s": {
+    "alpha_has_answer": null,
+    "gamma_has_answer": null
+  }
+}

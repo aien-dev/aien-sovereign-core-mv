@@ -1,0 +1,150 @@
+{
+  "arm": "board",
+  "run": "bench-20261016T123713Z-p1-board",
+  "agents": {
+    "alpha": {
+      "model_invocations": 9,
+      "tool_calls": 8,
+      "waiting_tool_calls": 5,
+      "input_tokens": 18,
+      "cache_creation_tokens": 22958,
+      "repeated_context_tokens": 251819,
+      "output_tokens": 2630,
+      "first_ts": "2026-10-16T12:38:33.940Z",
+      "last_ts": "2026-10-16T12:48:55.787Z",
+      "time": "622.77 7.72 1.62"
+    },
+    "beta": {
+      "model_invocations": 3,
+      "tool_calls": 2,
+      "waiting_tool_calls": 2,
+      "input_tokens": 6,
+      "cache_creation_tokens": 23169,
+      "repeated_context_tokens": 72532,
+      "output_tokens": 752,
+      "first_ts": "2026-10-16T12:38:30.904Z",
+      "last_ts": "2026-10-16T12:38:39.546Z",
+      "time": "9.88 2.44 0.44"
+    },
+    "gamma": {
+      "model_invocations": 17,
+      "tool_calls": 16,
+      "waiting_tool_calls": 14,
+      "input_tokens": 34,
+      "cache_creation_tokens": 29495,
+      "repeated_context_tokens": 598996,
+      "output_tokens": 2651,
+      "first_ts": "2026-10-16T12:38:32.433Z",
+      "last_ts": "2026-10-16T12:42:37.818Z",
+      "time": "246.44 4.48 1.09"
+    }
+  },
+  "relays": [],
+  "ferrying_invocations": 0,
+  "totals": {
+    "agent_model_invocations": 29,
+    "model_invocations_all": 29,
+    "tool_calls": 26,
+    "waiting_tool_calls": 21,
+    "repeated_context_tokens": 923347,
+    "input_side_tokens": 999027,
+    "cpu_s": 17.79
+  },
+  "pairs": [
+    {
+      "msg": "[Q1]",
+      "from": "alpha",
+      "to": "beta",
+      "sent": "2026-10-16T12:38:37.353Z",
+      "deliveries": 0,
+      "first_via": null,
+      "first_seen": null,
+      "latency_s": null
+    },
+    {
+      "msg": "[Q1]",
+      "from": "alpha",
+      "to": "gamma",
+      "sent": "2026-10-16T12:38:37.353Z",
+      "deliveries": 1,
+      "first_via": "hook",
+      "first_seen": "2026-10-16T12:38:38.990Z",
+      "latency_s": 1.6370000839233398
+    },
+    {
+      "msg": "[A1]",
+      "from": "beta",
+      "to": "alpha",
+      "sent": "",
+      "deliveries": 0,
+      "first_via": null,
+      "first_seen": null,
+      "latency_s": null
+    },
+    {
+      "msg": "[A1]",
+      "from": "beta",
+      "to": "gamma",
+      "sent": "",
+      "deliveries": 0,
+      "first_via": null,
+      "first_seen": null,
+      "latency_s": null
+    }
+  ],
+  "missed": 3,
+  "duplicates": 0,
+  "coordination_wall_s": {
+    "alpha_has_answer": null,
+    "gamma_has_answer": null
+  },
+  "task": {
+    "alpha_note_ok": false,
+    "gamma_test_ok": false
+  },
+  "board": {
+    "question_id": 1,
+    "answer_id": null,
+    "alpha": {
+      "posted": [
+        1
+      ],
+      "hook_sub_q": [],
+      "hook_sub_a": [],
+      "hook_addr_q": [],
+      "hook_addr_a": [],
+      "any_q": [],
+      "any_a": []
+    },
+    "beta": {
+      "posted": [],
+      "hook_sub_q": [],
+      "hook_sub_a": [],
+      "hook_addr_q": [],
+      "hook_addr_a": [],
+      "any_q": [],
+      "any_a": []
+    },
+    "gamma": {
+      "posted": [],
+      "hook_sub_q": [
+        1
+      ],
+      "hook_sub_a": [],
+      "hook_addr_q": [],
+      "hook_addr_a": [],
+      "any_q": [
+        1
+      ],
+      "any_a": []
+    },
+    "board_events": 1,
+    "r1_same_question_id": false,
+    "r1_same_answer_id": false,
+    "r1_gamma_subscribed_via_hook": false,
+    "r2_no_relay_two_events": false,
+    "r3_no_missed_no_dup": false,
+    "r4_task": false,
+    "pass": false
+  }
+}
