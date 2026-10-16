@@ -942,7 +942,9 @@ impl Fp8Gemv for OmegaFp8 {
         Ok(info.elapsed_ns)
     }
     fn omega_raw(&self) -> *mut std::ffi::c_void {
-        self.0.lock().map_or(std::ptr::null_mut(), |t| t.as_raw())
+        self.0
+            .lock()
+            .map_or(std::ptr::null_mut(), |mut t| t.as_raw())
     }
 }
 
@@ -1012,7 +1014,9 @@ impl DeviceRouter for OmegaRouter {
         Ok(())
     }
     fn omega_raw(&self) -> *mut std::ffi::c_void {
-        self.0.lock().map_or(std::ptr::null_mut(), |r| r.as_raw())
+        self.0
+            .lock()
+            .map_or(std::ptr::null_mut(), |mut r| r.as_raw())
     }
 }
 
@@ -1030,7 +1034,9 @@ impl LmHeadGemv for OmegaLmHead {
         Ok(info.elapsed_ns)
     }
     fn omega_raw(&self) -> *mut std::ffi::c_void {
-        self.0.lock().map_or(std::ptr::null_mut(), |t| t.as_raw())
+        self.0
+            .lock()
+            .map_or(std::ptr::null_mut(), |mut t| t.as_raw())
     }
 }
 
