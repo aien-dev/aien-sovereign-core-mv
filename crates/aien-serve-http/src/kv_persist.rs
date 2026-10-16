@@ -513,6 +513,19 @@ pub fn settings_from_lookup(
     }))
 }
 
+/// The startup read of the server: the persistence settings ([`settings_from_lookup`]), then the
+/// store key stripped from the environment through `strip` so the key lives on only in the
+/// settings and no child process inherits it. The key is stripped whether or not
+/// `AIEN_KV_STORE_DIR` is set (sc#523); the server calls this before it loads the engine.
+pub fn take_settings(
+    get: impl Fn(&str) -> Option<String>,
+    strip: impl FnOnce(&str),
+) -> Option<Result<KvPersistSettings, String>> {
+    let s = settings_from_lookup(get);
+    strip(aien_kv_store::seal::KEY_ENV);
+    s
+}
+
 /// sha256 of a file, streamed.
 fn sha256_file(p: &Path) -> Result<[u8; 32], String> {
     let mut f = std::fs::File::open(p).map_err(|e| format!("{}: {e}", p.display()))?;

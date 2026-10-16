@@ -1026,3 +1026,36 @@ fn a_fetched_prefix_left_unused_by_a_busy_gpu_lock_is_a_miss() {
     assert_eq!(turn(&b, &prompt2(&h1)), plain_turn2(&scratch, &h1));
     assert_eq!(counters(&b).restores, 1, "the store still serves");
 }
+
+/// sc#523 item 10: the startup read strips the store key from the environment whether or not
+/// `AIEN_KV_STORE_DIR` is set (a key exported for nothing must not reach a child either).
+#[test]
+fn the_startup_read_strips_the_store_key_with_or_without_the_store_dir() {
+    let key = gen_key();
+    for dir in [None, Some(""), Some("/nonexistent/pkv523")] {
+        let stripped = Mutex::new(Vec::<String>::new());
+        let got = kv_persist::take_settings(
+            |n| match n {
+                "AIEN_KV_STORE_DIR" => dir.map(String::from),
+                "AIEN_KV_STORE_KEY" => Some(key.clone()),
+                _ => None,
+            },
+            |k| stripped.lock().unwrap().push(k.to_string()),
+        );
+        assert_eq!(
+            *stripped.lock().unwrap(),
+            vec!["AIEN_KV_STORE_KEY".to_string()],
+            "dir {dir:?}"
+        );
+        match dir {
+            Some(d) if !d.is_empty() => {
+                let s = got.expect("dir set").expect("settings parse");
+                assert!(
+                    matches!(s.store_key, Some(Ok(_))),
+                    "the key is in the settings"
+                );
+            }
+            _ => assert!(got.is_none(), "dir {dir:?}"),
+        }
+    }
+}

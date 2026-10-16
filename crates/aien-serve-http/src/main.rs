@@ -177,6 +177,10 @@ fn main() -> ExitCode {
         }
     };
     apply_generation_defaults(&mut args.cfg, &args.model_dir);
+    // Persistent KV (sc#505): settings only when AIEN_KV_STORE_DIR is set; the store key leaves
+    // the environment now, before any engine loads, set dir or not (sc#523): no child inherits it.
+    let persist_settings =
+        kv_persist::take_settings(|n| std::env::var(n).ok(), |k| std::env::remove_var(k));
     // OWN-8B stage S negative controls: read once, refused outright without debug assertions.
     match aien_serve_http::sampling::install_mutant_from_env() {
         Ok(None) => {}
@@ -250,11 +254,8 @@ fn main() -> ExitCode {
             args.prefill,
         ) {
             Ok(mut door) => {
-                // Persistent KV (sc#505): only when AIEN_KV_STORE_DIR is set; otherwise nothing else is read.
-                if let Some(settings) = kv_persist::settings_from_lookup(|n| std::env::var(n).ok())
-                {
-                    // The key lives on only in the settings; no child inherits it.
-                    std::env::remove_var(aien_kv_store::seal::KEY_ENV);
+                // Persistent KV (sc#505): only when AIEN_KV_STORE_DIR was set at startup.
+                if let Some(settings) = persist_settings {
                     let line = enable_persistence(&mut door, settings, &args);
                     eprintln!("aien-serve-http: {line}");
                 }
