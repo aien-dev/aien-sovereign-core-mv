@@ -1687,7 +1687,7 @@ async fn handle_services_action(
         }
         "max" | "max-server" => {
             // Modular MAX was removed from AIEN on 2026-10-15 (issue #369 first refused
-            // its launcher, which loaded historical yardstick Python). The cockpit can
+            // its launcher, which loaded Python). The cockpit can
             // observe and stop a stray instance, but never launches it.
             if action == "start" || action == "restart" {
                 return Err((
@@ -3787,7 +3787,7 @@ mod tests {
     }
 
     /// Issue #369: the cockpit must never launch the Modular MAX server (removed from
-    /// AIEN on 2026-10-15; its launcher depended on historical yardstick Python). Start and restart
+    /// AIEN on 2026-10-15; its launcher depended on Python). Start and restart
     /// are refused loudly instead of spawning anything.
     #[tokio::test]
     async fn test_cockpit_services_action_max_server_never_launched() {

@@ -169,7 +169,7 @@ When a subagent forks from a parent agent:
 Execution Substrate: NVIDIA DGX Spark (NVIDIA Grace Blackwell GB10, aarch64, 121 GB Unified LPDDR5X Memory, Linux 7.0.0-1019-nvidia).
 
 ### 5.1 Paged KV Cache Block-Table Allocator Throughput (Control Plane)
-Benchmark binary: `bench_inference_stack` (a Modular MAX comparison yardstick, removed from the tree on 2026-10-15; the results below are kept as a record)
+Benchmark binary: `bench_inference_stack` (it measured the Modular MAX engine and was removed from the tree on 2026-10-15; the results below are kept only as a record)
 - Workload: 10,000 sequence allocations (160,000 block-table indices managed, block size = 16 tokens).
 
 | Metric | Result | Sub-unit Latency |

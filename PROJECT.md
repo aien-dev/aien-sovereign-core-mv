@@ -54,7 +54,7 @@ Every feature identified during survey is mapped directly to a milestone.
 | F12 | ReferenceCpuBackend | Complete FP32 reference implementation satisfying TensorBackend | M5 | R5, Survey 3 |
 | F13 | Mojo GB10 C-ABI Kernels | Removed 2026-10-15 with Modular MAX and Mojo; GPU path is OmegaGb10Backend | M5 | R5, Survey 3 |
 | F14 | MojoGb10Backend Implementation | Removed 2026-10-15 with Modular MAX and Mojo | M5 | R5, Survey 3 |
-| F15 | Neutral Benchmark Driver | Standalone AIEN benchmark driver on DGX Spark (the MAX engine was removed 2026-10-15; outside yardsticks live in aien-yardsticks) | M6 | R6, Survey 3 |
+| F15 | Neutral Benchmark Driver | Standalone AIEN benchmark driver on DGX Spark (the MAX engine was removed 2026-10-15; speed is measured against the machine's physical limit, and correctness against our own reference) | M6 | R6, Survey 3 |
 | F16 | Concurrency Sweeps & Telemetry | C=1..64 sweeps, TTFT, ITL, throughput, RSS, power, energy metrics | M6 | R6, Survey 3 |
 | F17 | Hardware & Secrets Compliance | User drakestapleton on Spark, zero disk secrets (TPM atlas-vault) | M7 | R7, Survey 3 |
 | F18 | PR Lifecycle & Cortex Receipt | Branch feat/real-model-execution-tinyllama, squash merge, Cortex write | M7 | R7, Survey 3 |
@@ -146,7 +146,7 @@ crates/aien-inference-abi/
 │   ├── tinyllama_parity.rs                 (owns: M4 5-stage numerical parity test harness)
 │   └── fixtures/                           (owns: M3 compact oracle and tokenizer fixtures)
 scripts/
-└── (TinyLlama oracle generator moved to aien-dev/aien-yardsticks)
+└── (no Python; the TinyLlama oracle generator was removed, only its recorded outputs are kept as test fixtures)
 benchmarks/
 ├── Cargo.toml                              (owns: M6 benchmark workspace)
 └── crates/

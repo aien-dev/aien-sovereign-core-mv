@@ -104,7 +104,7 @@ The test matrix covers all 18 features across four structured tiers:
 - TC-F6-05: Verify decode of empty token slice returns empty string without error.
 
 #### Feature F7: Reference Oracle Script
-- TC-F7-01: (retired) the oracle generator now lives in aien-dev/aien-yardsticks `yardsticks/tinyllama-oracle/`; this repo holds no Python.
+- TC-F7-01: (retired) the oracle generator is no longer kept in AIEN; only its recorded outputs remain, as test fixtures. This repo holds no Python.
 - TC-F7-02: Verify script CLI options `--model-dir` and `--output-dir`.
 - TC-F7-03: Verify script specifies CPU device and FP32 torch precision.
 - TC-F7-04: Verify script registers hooks on all 22 layers (RMSNorm, RoPE, Attention, SwiGLU, final norm).

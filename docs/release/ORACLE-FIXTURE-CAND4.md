@@ -12,7 +12,7 @@ chat prompt and records 132 activation tensors (embedding, per layer post_rmsnor
 post_attention, post_attn_residual, post_attn_norm, post_swiglu, post_residual for 16 layers, final norm, logits,
 last-token logits), the top-10 next-token logits and 16 greedy tokens. It does not use any AIEN code.
 
-The oracle is an outside yardstick, made once as scratch outside every repository. AIEN does not depend on it at
+The oracle was made once as scratch outside every repository. AIEN does not depend on it at
 build, test or run time: no Python and no Hugging Face code is committed, and nothing in the build, the tests or the
 runtime runs it. Only its two output files and their digests are kept, as a recorded reference. The architecture
 record is the additive amendment `qualification/candidates/CAND-4.amendment-1.toml` (aien-architecture#152); the

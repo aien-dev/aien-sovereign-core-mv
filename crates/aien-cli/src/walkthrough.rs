@@ -306,7 +306,7 @@ graph TD
 
 - [x] **Phase 1: Workspace Sanitation & Model Alignment**
   - Reclaimed 74 GB of NVMe disk space; 501 GB available.
-  - Locked inference strictly to Modular MAX on port `18006` serving NVIDIA-native `nemotron_h_kvexp` (`atlas-lightning-omni`; the adapter now lives in the aien-yardsticks repo).
+  - Locked inference strictly to Modular MAX on port `18006` serving NVIDIA-native `nemotron_h_kvexp` (`atlas-lightning-omni`; historical, Modular MAX and its adapter were removed on 2026-10-15).
 - [x] **Phase 2: Native AIEN Terminal CLI (`aien-cli`)**
   - High-performance Rust binary installed to `~/.local/bin/aien`.
   - ANSI streaming, collapsible tool widgets, GB10 GPU telemetry status footer, persistent history.

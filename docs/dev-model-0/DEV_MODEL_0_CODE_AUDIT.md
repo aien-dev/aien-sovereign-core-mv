@@ -89,9 +89,9 @@ Sampling happens on host after full logits are read back (`transformer_backend.r
 ## 5. Python, Mojo, build, CLI inventory
 
 Python files in repo: 11 (confirmed). None is imported or shelled out to from the inference path.
-- `scripts/generate_tinyllama_oracle.py`: moved to aien-dev/aien-yardsticks `yardsticks/tinyllama-oracle/`.
+- `scripts/generate_tinyllama_oracle.py`: moved out of this repo to a separate repository, archived on 2026-10-15.
 - `scripts/aien_drive.py`, `scripts/browser_mirror_test.py`: removed (no Python in this repo; see the Rust replacement issues). `crates/aien-cli/src/sandbox.rs` and `platform.rs` still shell out to a script outside the repo.
-- `modular/nemotron_h_kvexp` (a MAX architecture plugin for Nemotron-H, not referenced by any Rust crate): MOVED 2026-10-04 out of this repo to https://github.com/aien-dev/aien-yardsticks (`yardsticks/modular-nemotron-h-kvexp`), history preserved.
+- `modular/nemotron_h_kvexp` (a MAX architecture plugin for Nemotron-H, not referenced by any Rust crate): MOVED 2026-10-04 out of this repo to a separate repository (archived on 2026-10-15), history preserved.
 - Python also appears inside shell scripts (`scripts/golden_path.sh`, `mac-platform-proxy.sh`, `sync-standalone-repos.sh:127`). Out of scope for DM0 but they are Python-in-shell, relevant to the standing rule.
 
 Mojo kernels present: `abi/mojo/lib.mojo` (299), `abi/mojo/qwen3_moe/{kernels,lib}.mojo`, `abi/mojo/qwencoder_serve/{qwencoder_kernels,qwencoder_serve,test_kernels}.mojo`, `crates/spark-max-cabi/mojo/spark_max_bridge.mojo`, `crates/spark-aegis/mojo/simd_matcher.mojo`, `imprints/en2-trinity/mojo/en2_kv_adapter.mojo`. Built by `abi/mojo/build.sh` with `mojo build --emit shared-lib`.
