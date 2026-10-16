@@ -1,0 +1,80 @@
+help: consider removing the dependency on `crumb-spec`
+warning: unused dependency `reqwest`
+  --> crates/spark-harness/Cargo.toml:19:1
+   |
+19 | reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `reqwest`
+warning: unused dependency `spark-crumbs`
+  --> crates/spark-harness/Cargo.toml:13:1
+   |
+13 | spark-crumbs = { git = "https://github.com/aien-dev/spark-crumbs", rev = "9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `spark-crumbs`
+warning: unused dependency `tracing-subscriber`
+  --> crates/spark-harness/Cargo.toml:21:1
+   |
+21 | tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `tracing-subscriber`
+warning: `spark-harness` (manifest) generated 4 warnings
+warning: unused dependency `crumb-spec`
+  --> crates/spark-hive/Cargo.toml:11:1
+   |
+11 | crumb-spec = { git = "https://github.com/aien-dev/crumb-spec", rev = "24194d1b7917ef19244aae6bcaff510686b75fef" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `crumb-spec`
+warning: unused dependency `spark-crumbs`
+  --> crates/spark-hive/Cargo.toml:15:1
+   |
+15 | spark-crumbs = { git = "https://github.com/aien-dev/spark-crumbs", rev = "9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `spark-crumbs`
+warning: `spark-hive` (manifest) generated 2 warnings
+warning: unused dependency `crumb-spec`
+  --> crates/spark-inquisitor/Cargo.toml:19:1
+   |
+19 | crumb-spec = { git = "https://github.com/aien-dev/crumb-spec", rev = "24194d1b7917ef19244aae6bcaff510686b75fef" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `crumb-spec`
+warning: unused dependency `spark-crumbs`
+  --> crates/spark-inquisitor/Cargo.toml:17:1
+   |
+17 | spark-crumbs = { git = "https://github.com/aien-dev/spark-crumbs", rev = "9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `spark-crumbs`
+warning: `spark-inquisitor` (manifest) generated 2 warnings
+warning: unused dependency `tower-http`
+  --> crates/spark-mail-rs/Cargo.toml:18:1
+   |
+18 | tower-http = { version = "0.7.1", features = ["cors"] }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `tower-http`
+warning: `spark-mail-rs` (manifest) generated 1 warning
+warning: unused dependency `crumb-spec`
+  --> crates/spark-supervisor/Cargo.toml:19:1
+   |
+19 | crumb-spec = { git = "https://github.com/aien-dev/crumb-spec", rev = "24194d1b7917ef19244aae6bcaff510686b75fef" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `crumb-spec`
+warning: unused dependency `spark-crumbs`
+  --> crates/spark-supervisor/Cargo.toml:13:1
+   |
+13 | spark-crumbs = { git = "https://github.com/aien-dev/spark-crumbs", rev = "9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `spark-crumbs`
+warning: `spark-supervisor` (manifest) generated 2 warnings

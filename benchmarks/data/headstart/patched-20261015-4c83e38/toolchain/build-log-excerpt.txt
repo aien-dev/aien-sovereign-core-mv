@@ -1,0 +1,16 @@
+downloading https://static.rust-lang.org/dist/2026-08-30/rust-std-beta-aarch64-unknown-linux-gnu.tar.xz
+downloading https://static.rust-lang.org/dist/2026-08-30/rustc-beta-aarch64-unknown-linux-gnu.tar.xz
+downloading https://static.rust-lang.org/dist/2026-08-30/cargo-beta-aarch64-unknown-linux-gnu.tar.xz
+    Finished `dev` profile [unoptimized] target(s) in 9.74s
+downloading https://ci-artifacts.rust-lang.org/rustc-builds/6006fd03947bd7b04ae5cb5f7f9bb66b44dc8c6e/rust-dev-nightly-aarch64-unknown-linux-gnu.tar.xz
+Building stage1 compiler artifacts{rustc_abi, rustc_arena, rustc_ast, rustc_ast_ir, rustc_ast_lowering, rustc_ast_passes, rustc_ast_pretty, rustc_attr_ir, rustc_attr_parsing, rustc_baked_icu_data, rustc_borrowck, rustc_builtin_macros, rustc_codegen_llvm, rustc_codegen_ssa, rustc_const_eval, rustc_crate_store, rustc_data_structures, rustc_driver, rustc_driver_impl, rustc_error_codes, rustc_error_messages, rustc_errors, rustc_expand, rustc_expand_queries, rustc_feature, rustc_fs_util, rustc_graphviz, rustc_hashes, rustc_hir, rustc_hir_analysis, rustc_hir_id, rustc_hir_pretty, rustc_hir_typeck, rustc_incremental, rustc_index, rustc_index_macros, rustc_infer, rustc_interface, rustc_lexer, rustc_lint, rustc_lint_defs, rustc_llvm, rustc_log, rustc_macros, rustc_metadata, rustc_middle, rustc_mir_build, rustc_mir_dataflow, rustc_mir_transform, rustc_monomorphize, rustc_next_trait_solver, rustc_parse, rustc_parse_format, rustc_passes, rustc_pattern_analysis, rustc_privacy, rustc_proc_macro, rustc_public, rustc_public_bridge, rustc_query_impl, rustc_resolve, rustc_sanitizers, rustc_serialize, rustc_session, rustc_span, rustc_structures, rustc_symbol_mangling, rustc_target, rustc_thread_pool, rustc_trait_selection, rustc_traits, rustc_transmute, rustc_ty_utils, rustc_ty_walk, rustc_type_ir, rustc_type_ir_macros, rustc_windows_rc} (stage0 -> stage1, aarch64-unknown-linux-gnu)
+    Finished `release` profile [optimized + debuginfo] target(s) in 1m 16s
+Building stage1 compiler artifacts (stage0 -> stage1, aarch64-unknown-linux-gnu)
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.59s
+Building stage1 library artifacts{alloc, compiler_builtins, core, panic_abort, panic_unwind, proc_macro, rustc-std-workspace-core, std, std_detect, sysroot, test, unwind} (stage1 -> stage1, aarch64-unknown-linux-gnu)
+    Finished `dist` profile [optimized + debuginfo] target(s) in 34.66s
+Build completed successfully in 0:02:26
+RUSTC_BUILD_S 146
+    Finished `release` profile [optimized] target(s) in 1m 09s
+CARGO_BUILD_S 70
+BUILD_OK

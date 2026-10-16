@@ -1,0 +1,12 @@
+### headstart=false
+    Checking slow v0.1.0 (/tmp/tmp.MTzc0JTqKE/slow)
+    Checking app v0.1.0 (/tmp/tmp.MTzc0JTqKE/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.04s
+wall=7.04 maxrss_kb=411584
+exit=0
+### headstart=true
+    Checking slow v0.1.0 (/tmp/tmp.MTzc0JTqKE/slow)
+    Checking app v0.1.0 (/tmp/tmp.MTzc0JTqKE/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.31s
+wall=7.31 maxrss_kb=410540
+exit=0

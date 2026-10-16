@@ -1,0 +1,11 @@
+same   initial (exit 0)
+same   body-edit (exit 0)
+same   add-opaque (exit 0)
+same   change-opaque (exit 0)
+same   interface-break (exit 101)
+same   interface-fix (exit 0)
+same   body-error (exit 101)
+same   body-fix (exit 0)
+same   app-edit (exit 0)
+same   touch-all (exit 0)
+same   final state vs clean build

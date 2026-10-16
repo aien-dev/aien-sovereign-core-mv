@@ -1,0 +1,30 @@
+help: consider removing the dependency on `spark-crumbs`
+warning: `spark-inquisitor` (manifest) generated 2 warnings
+warning: unused dependency `tower-http`
+  --> crates/spark-mail-rs/Cargo.toml:18:1
+   |
+18 | tower-http = { version = "0.7.1", features = ["cors"] }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `tower-http`
+warning: `spark-mail-rs` (manifest) generated 1 warning
+warning: unused dependency `crumb-spec`
+  --> crates/spark-supervisor/Cargo.toml:19:1
+   |
+19 | crumb-spec = { git = "https://github.com/aien-dev/crumb-spec", rev = "24194d1b7917ef19244aae6bcaff510686b75fef" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `crumb-spec`
+warning: unused dependency `spark-crumbs`
+  --> crates/spark-supervisor/Cargo.toml:13:1
+   |
+13 | spark-crumbs = { git = "https://github.com/aien-dev/spark-crumbs", rev = "9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `spark-crumbs`
+warning: `spark-supervisor` (manifest) generated 2 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.49s
+warning: the following packages contain code that will be rejected by a future version of Rust: imap-proto v0.10.2, nix v0.28.0
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`

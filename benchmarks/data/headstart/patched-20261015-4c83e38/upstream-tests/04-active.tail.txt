@@ -1,0 +1,13 @@
+### CARGO_UNSTABLE_HEADSTART=false
+exit=0
+json reasons:
+      1 build-finished
+      2 compiler-artifact
+rustc invocations with -Zearly-metadata: 0
+### CARGO_UNSTABLE_HEADSTART=true
+exit=0
+json reasons:
+      1 build-finished
+      2 compiler-artifact
+rustc invocations with -Zearly-metadata: 2
+      2 -Zearly-metadata

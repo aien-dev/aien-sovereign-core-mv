@@ -1,0 +1,1536 @@
+{
+  "aa_noise": [
+    {
+      "delta_pct": -0.868,
+      "delta_s": -0.329,
+      "median_a_s": 37.895,
+      "median_b_s": 37.566,
+      "n_a": 3,
+      "n_b": 2,
+      "scenario": "ab_aa_check_ws"
+    }
+  ],
+  "aa_noise_clean": [
+    {
+      "delta_pct": -0.868,
+      "median_a_s": 37.895,
+      "median_b_s": 37.566,
+      "n_a": 3,
+      "n_b": 2,
+      "scenario": "ab_aa_check_ws"
+    }
+  ],
+  "ab": [
+    {
+      "contaminated_excluded_off": 0,
+      "contaminated_excluded_on": 0,
+      "cpu_s_delta_pct": 4.624,
+      "cpu_s_median_off": 581.895,
+      "cpu_s_median_on": 608.8,
+      "delta_s": -10.197,
+      "failed_off": 0,
+      "failed_on": 0,
+      "failures": [],
+      "ice_reports_on": 0,
+      "max_rss_delta_pct": 0.003,
+      "max_rss_kb_median_off": 1210954,
+      "max_rss_kb_median_on": 1210992,
+      "n_off": 2,
+      "n_on": 3,
+      "saving_pct": 19.314,
+      "scenario": "ab_cold_build_ws",
+      "status": "measured",
+      "wall_s_off": {
+        "mad": 0.324,
+        "max": 53.117,
+        "median": 52.793,
+        "min": 52.468,
+        "n": 2,
+        "stdev": 0.459
+      },
+      "wall_s_on": {
+        "mad": 0.066,
+        "max": 42.662,
+        "median": 42.596,
+        "min": 42.444,
+        "n": 3,
+        "stdev": 0.112
+      }
+    },
+    {
+      "contaminated_excluded_off": 1,
+      "contaminated_excluded_on": 0,
+      "cpu_s_delta_pct": 1.924,
+      "cpu_s_median_off": 450.325,
+      "cpu_s_median_on": 458.99,
+      "delta_s": -6.474,
+      "failed_off": 0,
+      "failed_on": 0,
+      "failures": [],
+      "ice_reports_on": 0,
+      "max_rss_delta_pct": -3.052,
+      "max_rss_kb_median_off": 725174,
+      "max_rss_kb_median_on": 703040,
+      "n_off": 2,
+      "n_on": 3,
+      "saving_pct": 16.983,
+      "scenario": "ab_cold_check_ws",
+      "status": "measured",
+      "wall_s_off": {
+        "mad": 0.244,
+        "max": 38.361,
+        "median": 38.117,
+        "min": 37.872,
+        "n": 2,
+        "stdev": 0.346
+      },
+      "wall_s_on": {
+        "mad": 0.691,
+        "max": 32.449,
+        "median": 31.643,
+        "min": 30.952,
+        "n": 3,
+        "stdev": 0.749
+      }
+    },
+    {
+      "contaminated_excluded_off": 0,
+      "contaminated_excluded_on": 0,
+      "cpu_s_delta_pct": 6.755,
+      "cpu_s_median_off": 1180.42,
+      "cpu_s_median_on": 1260.155,
+      "delta_s": -6.441,
+      "failed_off": 0,
+      "failed_on": 0,
+      "failures": [],
+      "ice_reports_on": 0,
+      "max_rss_delta_pct": -0.118,
+      "max_rss_kb_median_off": 1234440,
+      "max_rss_kb_median_on": 1232986,
+      "n_off": 3,
+      "n_on": 2,
+      "saving_pct": 8.057,
+      "scenario": "ab_cold_test_norun_ws",
+      "status": "measured",
+      "wall_s_off": {
+        "mad": 0.226,
+        "max": 82.177,
+        "median": 79.933,
+        "min": 79.707,
+        "n": 3,
+        "stdev": 1.365
+      },
+      "wall_s_on": {
+        "mad": 0.143,
+        "max": 73.636,
+        "median": 73.493,
+        "min": 73.349,
+        "n": 2,
+        "stdev": 0.203
+      }
+    },
+    {
+      "contaminated_excluded_off": 0,
+      "contaminated_excluded_on": 0,
+      "cpu_s_delta_pct": null,
+      "cpu_s_median_off": 13.515,
+      "cpu_s_median_on": null,
+      "delta_s": null,
+      "failed_off": 0,
+      "failed_on": 20,
+      "failures": [
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r1-s1-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r1-s2-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r1-s3-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r1-s4-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r1-s5-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r1-s6-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r1-s7-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r1-s8-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r1-s9-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r1-s10-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r2-s1-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r2-s2-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r2-s3-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r2-s4-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r2-s5-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r2-s6-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r2-s7-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r2-s8-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r2-s9-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r2-s10-a1"
+        }
+      ],
+      "ice_reports_on": null,
+      "max_rss_delta_pct": null,
+      "max_rss_kb_median_off": 307798,
+      "max_rss_kb_median_on": null,
+      "n_off": 20,
+      "n_on": 0,
+      "saving_pct": null,
+      "scenario": "abincr_body_check",
+      "status": "FAILED",
+      "wall_s_off": {
+        "mad": 0.16,
+        "max": 2.783,
+        "median": 2.58,
+        "min": 0.266,
+        "n": 20,
+        "stdev": 0.534
+      },
+      "wall_s_on": {
+        "mad": null,
+        "max": null,
+        "median": null,
+        "min": null,
+        "n": 0,
+        "stdev": null
+      }
+    },
+    {
+      "contaminated_excluded_off": 1,
+      "contaminated_excluded_on": 0,
+      "cpu_s_delta_pct": null,
+      "cpu_s_median_off": 13.56,
+      "cpu_s_median_on": null,
+      "delta_s": null,
+      "failed_off": 0,
+      "failed_on": 20,
+      "failures": [
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r1-s1-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r1-s2-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r1-s3-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r1-s4-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r1-s5-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r1-s6-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r1-s7-a2"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r1-s8-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r1-s9-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r1-s10-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r2-s1-a2"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r2-s2-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r2-s3-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r2-s4-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r2-s5-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r2-s6-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r2-s7-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r2-s8-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r2-s9-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r2-s10-a1"
+        }
+      ],
+      "ice_reports_on": null,
+      "max_rss_delta_pct": null,
+      "max_rss_kb_median_off": 307896,
+      "max_rss_kb_median_on": null,
+      "n_off": 19,
+      "n_on": 0,
+      "saving_pct": null,
+      "scenario": "abincr_iface_check",
+      "status": "FAILED",
+      "wall_s_off": {
+        "mad": 0.141,
+        "max": 2.885,
+        "median": 2.607,
+        "min": 0.269,
+        "n": 19,
+        "stdev": 0.559
+      },
+      "wall_s_on": {
+        "mad": null,
+        "max": null,
+        "median": null,
+        "min": null,
+        "n": 0,
+        "stdev": null
+      }
+    },
+    {
+      "contaminated_excluded_off": 0,
+      "contaminated_excluded_on": 0,
+      "cpu_s_delta_pct": -8,
+      "cpu_s_median_off": 0.25,
+      "cpu_s_median_on": 0.23,
+      "delta_s": -0.024,
+      "failed_off": 0,
+      "failed_on": 0,
+      "failures": [],
+      "ice_reports_on": null,
+      "max_rss_delta_pct": -2.056,
+      "max_rss_kb_median_off": 121616,
+      "max_rss_kb_median_on": 119116,
+      "n_off": 3,
+      "n_on": 3,
+      "saving_pct": 8.989,
+      "scenario": "abincr_noop_check",
+      "status": "measured",
+      "wall_s_off": {
+        "mad": 0.005,
+        "max": 0.293,
+        "median": 0.267,
+        "min": 0.262,
+        "n": 3,
+        "stdev": 0.017
+      },
+      "wall_s_on": {
+        "mad": 0.01,
+        "max": 0.267,
+        "median": 0.243,
+        "min": 0.233,
+        "n": 3,
+        "stdev": 0.017
+      }
+    },
+    {
+      "contaminated_excluded_off": 0,
+      "contaminated_excluded_on": 0,
+      "cpu_s_delta_pct": 3.359,
+      "cpu_s_median_off": 445.72,
+      "cpu_s_median_on": 460.69,
+      "delta_s": -7.254,
+      "failed_off": 0,
+      "failed_on": 0,
+      "failures": [],
+      "ice_reports_on": null,
+      "max_rss_delta_pct": -3.036,
+      "max_rss_kb_median_off": 725048,
+      "max_rss_kb_median_on": 703036,
+      "n_off": 1,
+      "n_on": 1,
+      "saving_pct": 19.141,
+      "scenario": "abincr_prime",
+      "status": "measured",
+      "wall_s_off": {
+        "mad": 0,
+        "max": 37.898,
+        "median": 37.898,
+        "min": 37.898,
+        "n": 1,
+        "stdev": null
+      },
+      "wall_s_on": {
+        "mad": 0,
+        "max": 30.644,
+        "median": 30.644,
+        "min": 30.644,
+        "n": 1,
+        "stdev": null
+      }
+    },
+    {
+      "contaminated_excluded_off": 0,
+      "contaminated_excluded_on": 0,
+      "cpu_s_delta_pct": null,
+      "cpu_s_median_off": 13.845,
+      "cpu_s_median_on": null,
+      "delta_s": null,
+      "failed_off": 0,
+      "failed_on": 4,
+      "failures": [
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_settle-ON-r1-s1-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_settle-ON-r1-s2-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_settle-ON-r2-s1-a1"
+        },
+        {
+          "arm": "ON",
+          "exit_status": 101,
+          "sample_id": "abincr_settle-ON-r2-s2-a1"
+        }
+      ],
+      "ice_reports_on": null,
+      "max_rss_delta_pct": null,
+      "max_rss_kb_median_off": 307802,
+      "max_rss_kb_median_on": null,
+      "n_off": 4,
+      "n_on": 0,
+      "saving_pct": null,
+      "scenario": "abincr_settle",
+      "status": "FAILED",
+      "wall_s_off": {
+        "mad": 0.073,
+        "max": 2.688,
+        "median": 2.594,
+        "min": 2.424,
+        "n": 4,
+        "stdev": 0.117
+      },
+      "wall_s_on": {
+        "mad": null,
+        "max": null,
+        "median": null,
+        "min": null,
+        "n": 0,
+        "stdev": null
+      }
+    },
+    {
+      "contaminated_excluded_off": 0,
+      "contaminated_excluded_on": 0,
+      "cpu_s_delta_pct": null,
+      "cpu_s_median_off": null,
+      "cpu_s_median_on": 607.96,
+      "delta_s": null,
+      "failed_off": 0,
+      "failed_on": 0,
+      "failures": [],
+      "ice_reports_on": null,
+      "max_rss_delta_pct": null,
+      "max_rss_kb_median_off": null,
+      "max_rss_kb_median_on": 1210952,
+      "n_off": 0,
+      "n_on": 1,
+      "saving_pct": null,
+      "scenario": "verify_build_extra",
+      "status": "NOT_MEASURED",
+      "wall_s_off": {
+        "mad": null,
+        "max": null,
+        "median": null,
+        "min": null,
+        "n": 0,
+        "stdev": null
+      },
+      "wall_s_on": {
+        "mad": 0,
+        "max": 41.53,
+        "median": 41.53,
+        "min": 41.53,
+        "n": 1,
+        "stdev": null
+      }
+    },
+    {
+      "contaminated_excluded_off": 0,
+      "contaminated_excluded_on": 0,
+      "cpu_s_delta_pct": 2.771,
+      "cpu_s_median_off": 445.29,
+      "cpu_s_median_on": 457.63,
+      "delta_s": -6.277,
+      "failed_off": 0,
+      "failed_on": 0,
+      "failures": [],
+      "ice_reports_on": null,
+      "max_rss_delta_pct": -3.088,
+      "max_rss_kb_median_off": 726160,
+      "max_rss_kb_median_on": 703736,
+      "n_off": 1,
+      "n_on": 1,
+      "saving_pct": 16.68,
+      "scenario": "verify_check_json",
+      "status": "measured",
+      "wall_s_off": {
+        "mad": 0,
+        "max": 37.631,
+        "median": 37.631,
+        "min": 37.631,
+        "n": 1,
+        "stdev": null
+      },
+      "wall_s_on": {
+        "mad": 0,
+        "max": 31.354,
+        "median": 31.354,
+        "min": 31.354,
+        "n": 1,
+        "stdev": null
+      }
+    },
+    {
+      "contaminated_excluded_off": 0,
+      "contaminated_excluded_on": 0,
+      "cpu_s_delta_pct": 9.108,
+      "cpu_s_median_off": 142.19,
+      "cpu_s_median_on": 155.14,
+      "delta_s": -2.66,
+      "failed_off": 0,
+      "failed_on": 0,
+      "failures": [],
+      "ice_reports_on": null,
+      "max_rss_delta_pct": -0.092,
+      "max_rss_kb_median_off": 557432,
+      "max_rss_kb_median_on": 556920,
+      "n_off": 1,
+      "n_on": 1,
+      "saving_pct": 12.825,
+      "scenario": "verify_test",
+      "status": "measured",
+      "wall_s_off": {
+        "mad": 0,
+        "max": 20.74,
+        "median": 20.74,
+        "min": 20.74,
+        "n": 1,
+        "stdev": null
+      },
+      "wall_s_on": {
+        "mad": 0,
+        "max": 18.08,
+        "median": 18.08,
+        "min": 18.08,
+        "n": 1,
+        "stdev": null
+      }
+    }
+  ],
+  "ab_rules": {
+    "counted": "final attempt, exit status 0 and contaminated == false; contaminated finals are excluded and counted, failures are listed and never timed",
+    "status": "measured when both arms have a clean sample; else FAILED when a final sample failed, else NOT_MEASURED (no clean final sample: contaminated host)"
+  },
+  "groups": [
+    {
+      "arm": "A",
+      "command": "cargo check --workspace --all-targets",
+      "cpu_percent_median": 1176,
+      "failures": [],
+      "kind": "ab",
+      "max_rss_kb_median": 725880,
+      "n_contaminated_counted": 0,
+      "n_failed": 0,
+      "n_final": 3,
+      "n_lines": 3,
+      "n_superseded": 0,
+      "scenario": "ab_aa_check_ws",
+      "wall_s": {
+        "mad": 0.032,
+        "max": 37.927,
+        "median": 37.895,
+        "min": 37.79,
+        "n": 3,
+        "stdev": 0.072
+      },
+      "wall_s_clean": {
+        "mad": 0.032,
+        "max": 37.927,
+        "median": 37.895,
+        "min": 37.79,
+        "n": 3,
+        "stdev": 0.072
+      }
+    },
+    {
+      "arm": "B",
+      "command": "cargo check --workspace --all-targets",
+      "cpu_percent_median": 1186.5,
+      "failures": [],
+      "kind": "ab",
+      "max_rss_kb_median": 725450,
+      "n_contaminated_counted": 0,
+      "n_failed": 0,
+      "n_final": 2,
+      "n_lines": 2,
+      "n_superseded": 0,
+      "scenario": "ab_aa_check_ws",
+      "wall_s": {
+        "mad": 0.04,
+        "max": 37.606,
+        "median": 37.566,
+        "min": 37.526,
+        "n": 2,
+        "stdev": 0.057
+      },
+      "wall_s_clean": {
+        "mad": 0.04,
+        "max": 37.606,
+        "median": 37.566,
+        "min": 37.526,
+        "n": 2,
+        "stdev": 0.057
+      }
+    },
+    {
+      "arm": "OFF",
+      "command": "cargo build --workspace",
+      "cpu_percent_median": 1101.5,
+      "failures": [],
+      "kind": "ab",
+      "max_rss_kb_median": 1210954,
+      "n_contaminated_counted": 0,
+      "n_failed": 0,
+      "n_final": 2,
+      "n_lines": 2,
+      "n_superseded": 0,
+      "scenario": "ab_cold_build_ws",
+      "wall_s": {
+        "mad": 0.324,
+        "max": 53.117,
+        "median": 52.793,
+        "min": 52.468,
+        "n": 2,
+        "stdev": 0.459
+      },
+      "wall_s_clean": {
+        "mad": 0.324,
+        "max": 53.117,
+        "median": 52.793,
+        "min": 52.468,
+        "n": 2,
+        "stdev": 0.459
+      }
+    },
+    {
+      "arm": "ON",
+      "command": "cargo build --workspace",
+      "cpu_percent_median": 1430,
+      "failures": [],
+      "kind": "ab",
+      "max_rss_kb_median": 1210992,
+      "n_contaminated_counted": 0,
+      "n_failed": 0,
+      "n_final": 3,
+      "n_lines": 3,
+      "n_superseded": 0,
+      "scenario": "ab_cold_build_ws",
+      "wall_s": {
+        "mad": 0.066,
+        "max": 42.662,
+        "median": 42.596,
+        "min": 42.444,
+        "n": 3,
+        "stdev": 0.112
+      },
+      "wall_s_clean": {
+        "mad": 0.066,
+        "max": 42.662,
+        "median": 42.596,
+        "min": 42.444,
+        "n": 3,
+        "stdev": 0.112
+      }
+    },
+    {
+      "arm": "OFF",
+      "command": "cargo check --workspace --all-targets",
+      "cpu_percent_median": 1184,
+      "failures": [],
+      "kind": "ab",
+      "max_rss_kb_median": 725696,
+      "n_contaminated_counted": 1,
+      "n_failed": 0,
+      "n_final": 3,
+      "n_lines": 5,
+      "n_superseded": 2,
+      "scenario": "ab_cold_check_ws",
+      "wall_s": {
+        "mad": 0.075,
+        "max": 38.361,
+        "median": 38.286,
+        "min": 37.872,
+        "n": 3,
+        "stdev": 0.263
+      },
+      "wall_s_clean": {
+        "mad": 0.244,
+        "max": 38.361,
+        "median": 38.117,
+        "min": 37.872,
+        "n": 2,
+        "stdev": 0.346
+      }
+    },
+    {
+      "arm": "ON",
+      "command": "cargo check --workspace --all-targets",
+      "cpu_percent_median": 1449,
+      "failures": [],
+      "kind": "ab",
+      "max_rss_kb_median": 703040,
+      "n_contaminated_counted": 0,
+      "n_failed": 0,
+      "n_final": 3,
+      "n_lines": 4,
+      "n_superseded": 1,
+      "scenario": "ab_cold_check_ws",
+      "wall_s": {
+        "mad": 0.691,
+        "max": 32.449,
+        "median": 31.643,
+        "min": 30.952,
+        "n": 3,
+        "stdev": 0.749
+      },
+      "wall_s_clean": {
+        "mad": 0.691,
+        "max": 32.449,
+        "median": 31.643,
+        "min": 30.952,
+        "n": 3,
+        "stdev": 0.749
+      }
+    },
+    {
+      "arm": "OFF",
+      "command": "cargo test --workspace --no-run",
+      "cpu_percent_median": 1459,
+      "failures": [],
+      "kind": "ab",
+      "max_rss_kb_median": 1234440,
+      "n_contaminated_counted": 0,
+      "n_failed": 0,
+      "n_final": 3,
+      "n_lines": 3,
+      "n_superseded": 0,
+      "scenario": "ab_cold_test_norun_ws",
+      "wall_s": {
+        "mad": 0.226,
+        "max": 82.177,
+        "median": 79.933,
+        "min": 79.707,
+        "n": 3,
+        "stdev": 1.365
+      },
+      "wall_s_clean": {
+        "mad": 0.226,
+        "max": 82.177,
+        "median": 79.933,
+        "min": 79.707,
+        "n": 3,
+        "stdev": 1.365
+      }
+    },
+    {
+      "arm": "ON",
+      "command": "cargo test --workspace --no-run",
+      "cpu_percent_median": 1714,
+      "failures": [],
+      "kind": "ab",
+      "max_rss_kb_median": 1232986,
+      "n_contaminated_counted": 0,
+      "n_failed": 0,
+      "n_final": 2,
+      "n_lines": 2,
+      "n_superseded": 0,
+      "scenario": "ab_cold_test_norun_ws",
+      "wall_s": {
+        "mad": 0.143,
+        "max": 73.636,
+        "median": 73.493,
+        "min": 73.349,
+        "n": 2,
+        "stdev": 0.203
+      },
+      "wall_s_clean": {
+        "mad": 0.143,
+        "max": 73.636,
+        "median": 73.493,
+        "min": 73.349,
+        "n": 2,
+        "stdev": 0.203
+      }
+    },
+    {
+      "arm": "OFF",
+      "command": "cargo check --workspace --all-targets",
+      "cpu_percent_median": 522.5,
+      "failures": [],
+      "kind": "incremental",
+      "max_rss_kb_median": 307798,
+      "n_contaminated_counted": 0,
+      "n_failed": 0,
+      "n_final": 20,
+      "n_lines": 22,
+      "n_superseded": 2,
+      "scenario": "abincr_body_check",
+      "wall_s": {
+        "mad": 0.16,
+        "max": 2.783,
+        "median": 2.58,
+        "min": 0.266,
+        "n": 20,
+        "stdev": 0.534
+      },
+      "wall_s_clean": {
+        "mad": 0.16,
+        "max": 2.783,
+        "median": 2.58,
+        "min": 0.266,
+        "n": 20,
+        "stdev": 0.534
+      }
+    },
+    {
+      "arm": "ON",
+      "command": "cargo check --workspace --all-targets",
+      "cpu_percent_median": null,
+      "failures": [
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r1-s1-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r1-s2-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r1-s3-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r1-s4-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r1-s5-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r1-s6-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r1-s7-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r1-s8-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r1-s9-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r1-s10-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r2-s1-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r2-s2-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r2-s3-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r2-s4-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r2-s5-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r2-s6-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r2-s7-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r2-s8-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r2-s9-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_body_check-ON-r2-s10-a1"
+        }
+      ],
+      "kind": "incremental",
+      "max_rss_kb_median": null,
+      "n_contaminated_counted": 0,
+      "n_failed": 20,
+      "n_final": 20,
+      "n_lines": 20,
+      "n_superseded": 0,
+      "scenario": "abincr_body_check",
+      "wall_s": {
+        "mad": null,
+        "max": null,
+        "median": null,
+        "min": null,
+        "n": 0,
+        "stdev": null
+      },
+      "wall_s_clean": {
+        "mad": null,
+        "max": null,
+        "median": null,
+        "min": null,
+        "n": 0,
+        "stdev": null
+      }
+    },
+    {
+      "arm": "OFF",
+      "command": "cargo check --workspace --all-targets",
+      "cpu_percent_median": 517,
+      "failures": [],
+      "kind": "incremental",
+      "max_rss_kb_median": 307888,
+      "n_contaminated_counted": 1,
+      "n_failed": 0,
+      "n_final": 20,
+      "n_lines": 24,
+      "n_superseded": 4,
+      "scenario": "abincr_iface_check",
+      "wall_s": {
+        "mad": 0.153,
+        "max": 2.885,
+        "median": 2.595,
+        "min": 0.251,
+        "n": 20,
+        "stdev": 0.739
+      },
+      "wall_s_clean": {
+        "mad": 0.141,
+        "max": 2.885,
+        "median": 2.607,
+        "min": 0.269,
+        "n": 19,
+        "stdev": 0.559
+      }
+    },
+    {
+      "arm": "ON",
+      "command": "cargo check --workspace --all-targets",
+      "cpu_percent_median": null,
+      "failures": [
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r1-s1-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r1-s2-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r1-s3-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r1-s4-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r1-s5-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r1-s6-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r1-s7-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r1-s7-a2"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r1-s8-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r1-s9-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r1-s10-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r2-s1-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r2-s1-a2"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r2-s2-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r2-s3-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r2-s4-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r2-s5-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r2-s6-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r2-s7-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r2-s8-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r2-s9-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_iface_check-ON-r2-s10-a1"
+        }
+      ],
+      "kind": "incremental",
+      "max_rss_kb_median": null,
+      "n_contaminated_counted": 0,
+      "n_failed": 20,
+      "n_final": 20,
+      "n_lines": 22,
+      "n_superseded": 2,
+      "scenario": "abincr_iface_check",
+      "wall_s": {
+        "mad": null,
+        "max": null,
+        "median": null,
+        "min": null,
+        "n": 0,
+        "stdev": null
+      },
+      "wall_s_clean": {
+        "mad": null,
+        "max": null,
+        "median": null,
+        "min": null,
+        "n": 0,
+        "stdev": null
+      }
+    },
+    {
+      "arm": "OFF",
+      "command": "cargo check --workspace --all-targets",
+      "cpu_percent_median": 100,
+      "failures": [],
+      "kind": "incremental",
+      "max_rss_kb_median": 121616,
+      "n_contaminated_counted": 0,
+      "n_failed": 0,
+      "n_final": 3,
+      "n_lines": 3,
+      "n_superseded": 0,
+      "scenario": "abincr_noop_check",
+      "wall_s": {
+        "mad": 0.005,
+        "max": 0.293,
+        "median": 0.267,
+        "min": 0.262,
+        "n": 3,
+        "stdev": 0.017
+      },
+      "wall_s_clean": {
+        "mad": 0.005,
+        "max": 0.293,
+        "median": 0.267,
+        "min": 0.262,
+        "n": 3,
+        "stdev": 0.017
+      }
+    },
+    {
+      "arm": "ON",
+      "command": "cargo check --workspace --all-targets",
+      "cpu_percent_median": 100,
+      "failures": [],
+      "kind": "incremental",
+      "max_rss_kb_median": 119116,
+      "n_contaminated_counted": 0,
+      "n_failed": 0,
+      "n_final": 3,
+      "n_lines": 3,
+      "n_superseded": 0,
+      "scenario": "abincr_noop_check",
+      "wall_s": {
+        "mad": 0.01,
+        "max": 0.267,
+        "median": 0.243,
+        "min": 0.233,
+        "n": 3,
+        "stdev": 0.017
+      },
+      "wall_s_clean": {
+        "mad": 0.01,
+        "max": 0.267,
+        "median": 0.243,
+        "min": 0.233,
+        "n": 3,
+        "stdev": 0.017
+      }
+    },
+    {
+      "arm": "OFF",
+      "command": "cargo check --workspace --all-targets",
+      "cpu_percent_median": 1176,
+      "failures": [],
+      "kind": "prime",
+      "max_rss_kb_median": 725048,
+      "n_contaminated_counted": 0,
+      "n_failed": 0,
+      "n_final": 1,
+      "n_lines": 1,
+      "n_superseded": 0,
+      "scenario": "abincr_prime",
+      "wall_s": {
+        "mad": 0,
+        "max": 37.898,
+        "median": 37.898,
+        "min": 37.898,
+        "n": 1,
+        "stdev": null
+      },
+      "wall_s_clean": {
+        "mad": 0,
+        "max": 37.898,
+        "median": 37.898,
+        "min": 37.898,
+        "n": 1,
+        "stdev": null
+      }
+    },
+    {
+      "arm": "ON",
+      "command": "cargo check --workspace --all-targets",
+      "cpu_percent_median": 1503,
+      "failures": [],
+      "kind": "prime",
+      "max_rss_kb_median": 703036,
+      "n_contaminated_counted": 0,
+      "n_failed": 0,
+      "n_final": 1,
+      "n_lines": 1,
+      "n_superseded": 0,
+      "scenario": "abincr_prime",
+      "wall_s": {
+        "mad": 0,
+        "max": 30.644,
+        "median": 30.644,
+        "min": 30.644,
+        "n": 1,
+        "stdev": null
+      },
+      "wall_s_clean": {
+        "mad": 0,
+        "max": 30.644,
+        "median": 30.644,
+        "min": 30.644,
+        "n": 1,
+        "stdev": null
+      }
+    },
+    {
+      "arm": "OFF",
+      "command": "cargo check --workspace --all-targets",
+      "cpu_percent_median": 537.5,
+      "failures": [],
+      "kind": "settle",
+      "max_rss_kb_median": 307802,
+      "n_contaminated_counted": 0,
+      "n_failed": 0,
+      "n_final": 4,
+      "n_lines": 4,
+      "n_superseded": 0,
+      "scenario": "abincr_settle",
+      "wall_s": {
+        "mad": 0.073,
+        "max": 2.688,
+        "median": 2.594,
+        "min": 2.424,
+        "n": 4,
+        "stdev": 0.117
+      },
+      "wall_s_clean": {
+        "mad": 0.073,
+        "max": 2.688,
+        "median": 2.594,
+        "min": 2.424,
+        "n": 4,
+        "stdev": 0.117
+      }
+    },
+    {
+      "arm": "ON",
+      "command": "cargo check --workspace --all-targets",
+      "cpu_percent_median": null,
+      "failures": [
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_settle-ON-r1-s1-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_settle-ON-r1-s2-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_settle-ON-r2-s1-a1"
+        },
+        {
+          "exit_status": 101,
+          "sample_id": "abincr_settle-ON-r2-s2-a1"
+        }
+      ],
+      "kind": "settle",
+      "max_rss_kb_median": null,
+      "n_contaminated_counted": 0,
+      "n_failed": 4,
+      "n_final": 4,
+      "n_lines": 4,
+      "n_superseded": 0,
+      "scenario": "abincr_settle",
+      "wall_s": {
+        "mad": null,
+        "max": null,
+        "median": null,
+        "min": null,
+        "n": 0,
+        "stdev": null
+      },
+      "wall_s_clean": {
+        "mad": null,
+        "max": null,
+        "median": null,
+        "min": null,
+        "n": 0,
+        "stdev": null
+      }
+    },
+    {
+      "arm": "ON",
+      "command": "cargo build --workspace",
+      "cpu_percent_median": 1464,
+      "failures": [],
+      "kind": "verify",
+      "max_rss_kb_median": 1210952,
+      "n_contaminated_counted": 0,
+      "n_failed": 0,
+      "n_final": 1,
+      "n_lines": 1,
+      "n_superseded": 0,
+      "scenario": "verify_build_extra",
+      "wall_s": {
+        "mad": 0,
+        "max": 41.53,
+        "median": 41.53,
+        "min": 41.53,
+        "n": 1,
+        "stdev": null
+      },
+      "wall_s_clean": {
+        "mad": 0,
+        "max": 41.53,
+        "median": 41.53,
+        "min": 41.53,
+        "n": 1,
+        "stdev": null
+      }
+    },
+    {
+      "arm": "OFF",
+      "command": "cargo check --workspace --all-targets --message-format=json",
+      "cpu_percent_median": 1183,
+      "failures": [],
+      "kind": "verify",
+      "max_rss_kb_median": 726160,
+      "n_contaminated_counted": 0,
+      "n_failed": 0,
+      "n_final": 1,
+      "n_lines": 2,
+      "n_superseded": 1,
+      "scenario": "verify_check_json",
+      "wall_s": {
+        "mad": 0,
+        "max": 37.631,
+        "median": 37.631,
+        "min": 37.631,
+        "n": 1,
+        "stdev": null
+      },
+      "wall_s_clean": {
+        "mad": 0,
+        "max": 37.631,
+        "median": 37.631,
+        "min": 37.631,
+        "n": 1,
+        "stdev": null
+      }
+    },
+    {
+      "arm": "ON",
+      "command": "cargo check --workspace --all-targets --message-format=json",
+      "cpu_percent_median": 1459,
+      "failures": [],
+      "kind": "verify",
+      "max_rss_kb_median": 703736,
+      "n_contaminated_counted": 0,
+      "n_failed": 0,
+      "n_final": 1,
+      "n_lines": 2,
+      "n_superseded": 1,
+      "scenario": "verify_check_json",
+      "wall_s": {
+        "mad": 0,
+        "max": 31.354,
+        "median": 31.354,
+        "min": 31.354,
+        "n": 1,
+        "stdev": null
+      },
+      "wall_s_clean": {
+        "mad": 0,
+        "max": 31.354,
+        "median": 31.354,
+        "min": 31.354,
+        "n": 1,
+        "stdev": null
+      }
+    },
+    {
+      "arm": "OFF",
+      "command": "cargo test -p spark-harness -p aien-proof --lib --bins --tests -- --test-threads=1",
+      "cpu_percent_median": 685,
+      "failures": [],
+      "kind": "verify",
+      "max_rss_kb_median": 557432,
+      "n_contaminated_counted": 0,
+      "n_failed": 0,
+      "n_final": 1,
+      "n_lines": 1,
+      "n_superseded": 0,
+      "scenario": "verify_test",
+      "wall_s": {
+        "mad": 0,
+        "max": 20.74,
+        "median": 20.74,
+        "min": 20.74,
+        "n": 1,
+        "stdev": null
+      },
+      "wall_s_clean": {
+        "mad": 0,
+        "max": 20.74,
+        "median": 20.74,
+        "min": 20.74,
+        "n": 1,
+        "stdev": null
+      }
+    },
+    {
+      "arm": "ON",
+      "command": "cargo test -p spark-harness -p aien-proof --lib --bins --tests -- --test-threads=1",
+      "cpu_percent_median": 858,
+      "failures": [],
+      "kind": "verify",
+      "max_rss_kb_median": 556920,
+      "n_contaminated_counted": 0,
+      "n_failed": 0,
+      "n_final": 1,
+      "n_lines": 1,
+      "n_superseded": 0,
+      "scenario": "verify_test",
+      "wall_s": {
+        "mad": 0,
+        "max": 18.08,
+        "median": 18.08,
+        "min": 18.08,
+        "n": 1,
+        "stdev": null
+      },
+      "wall_s_clean": {
+        "mad": 0,
+        "max": 18.08,
+        "median": 18.08,
+        "min": 18.08,
+        "n": 1,
+        "stdev": null
+      }
+    }
+  ],
+  "n_lines": 135,
+  "rules": {
+    "clean": "counted and contaminated == false",
+    "counted": "final attempt, exit status 0 (failed builds are never counted)",
+    "dispersion": "mad = median absolute deviation; stdev = sample standard deviation (n-1)",
+    "units": "seconds for wall_s, kilobytes for max_rss_kb, percent for cpu_percent"
+  },
+  "schema": "headstart-summary/v1",
+  "source": "samples.jsonl"
+}

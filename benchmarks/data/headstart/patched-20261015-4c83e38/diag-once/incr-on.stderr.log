@@ -1,0 +1,366 @@
+warning: aien-omega-gpu@0.1.0: aien-omega-gpu: no AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB, building the CPU stub
+    Checking cortex-rs v0.1.0 (~/workspace/headstart-exp/aien-work/src/crates/cortex-rs)
+warning: aien-omega-compose@0.1.0: aien-omega-compose: no AIEN_OMEGA_COMPOSE_DIR, AIEN_OMEGA_DIR or AIEN_OMEGA_COMPOSE_LIB, building the stub
+    Checking aien-runtime v0.1.0 (~/workspace/headstart-exp/aien-work/src/crates/aien-runtime)
+    Checking cortex-path-m1 v0.1.0 (~/workspace/headstart-exp/aien-work/src/crates/cortex-path-m1)
+    Checking spark-mail-rs v0.1.0 (~/workspace/headstart-exp/aien-work/src/crates/spark-mail-rs)
+    Checking aien-cli v0.1.0 (~/workspace/headstart-exp/aien-work/src/crates/aien-cli)
+    Checking aien-serve-http v0.1.0 (~/workspace/headstart-exp/aien-work/src/crates/aien-serve-http)
+    Checking aien-kv-bench v0.1.0 (~/workspace/headstart-exp/aien-work/src/crates/aien-kv-bench)
+
+thread 'rustc' (586269) panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(14471294406250765354, 2846842288280468526) }
+ right: Svh { hash: Fingerprint(2011455709281448572, 17269224548599260132) }
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/cbae9b4cae2b108f6a3d18cfe6075714bb739463/library/std/src/panicking.rs:679:5
+   1: core::panicking::panic_fmt
+             at /rustc/cbae9b4cae2b108f6a3d18cfe6075714bb739463/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+   3: core::panicking::assert_failed::<rustc_data_structures::svh::Svh, rustc_data_structures::svh::Svh>
+             at /rustc/cbae9b4cae2b108f6a3d18cfe6075714bb739463/library/core/src/panicking.rs:407:5
+   4: encode_metadata
+             at ~/workspace/headstart-exp/headstart/rustc/compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29
+   5: encode_and_write_metadata
+             at ~/workspace/headstart-exp/headstart/rustc/compiler/rustc_metadata/src/fs.rs:60:9
+   6: start_codegen
+             at ~/workspace/headstart-exp/headstart/rustc/compiler/rustc_interface/src/passes.rs:1444:26
+   7: codegen_and_build_linker
+             at ~/workspace/headstart-exp/headstart/rustc/compiler/rustc_interface/src/queries.rs:35:13
+   8: {closure#1}
+             at ~/workspace/headstart-exp/headstart/rustc/compiler/rustc_driver_impl/src/lib.rs:331:17
+   9: {closure#0}<core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>, rustc_driver_impl::run_compiler::{closure#0}::{closure_env#1}>
+             at ~/workspace/headstart-exp/headstart/rustc/compiler/rustc_interface/src/passes.rs:1045:80
+  10: call_once<core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>, rustc_interface::passes::create_and_enter_global_ctxt::{closure#2}::{closure_env#0}<core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>, rustc_driver_impl::run_compiler::{closure#0}::{closure_env#1}>>
+             at /rustc/cbae9b4cae2b108f6a3d18cfe6075714bb739463/library/core/src/panic/unwind_safe.rs:275:9
+  11: do_call<core::panic::unwind_safe::AssertUnwindSafe<rustc_interface::passes::create_and_enter_global_ctxt::{closure#2}::{closure_env#0}<core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>, rustc_driver_impl::run_compiler::{closure#0}::{closure_env#1}>>, core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>>
+             at /rustc/cbae9b4cae2b108f6a3d18cfe6075714bb739463/library/std/src/panicking.rs:576:43
+  12: catch_unwind<core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>, core::panic::unwind_safe::AssertUnwindSafe<rustc_interface::passes::create_and_enter_global_ctxt::{closure#2}::{closure_env#0}<core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>, rustc_driver_impl::run_compiler::{closure#0}::{closure_env#1}>>>
+             at /rustc/cbae9b4cae2b108f6a3d18cfe6075714bb739463/library/std/src/panicking.rs:544:19
+  13: catch_unwind<core::panic::unwind_safe::AssertUnwindSafe<rustc_interface::passes::create_and_enter_global_ctxt::{closure#2}::{closure_env#0}<core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>, rustc_driver_impl::run_compiler::{closure#0}::{closure_env#1}>>, core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>>
+             at /rustc/cbae9b4cae2b108f6a3d18cfe6075714bb739463/library/std/src/panic.rs:359:14
+  14: {closure#2}<core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>, rustc_driver_impl::run_compiler::{closure#0}::{closure_env#1}>
+             at ~/workspace/headstart-exp/headstart/rustc/compiler/rustc_interface/src/passes.rs:1045:23
+  15: {closure#1}<rustc_interface::passes::create_and_enter_global_ctxt::{closure_env#2}<core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>, rustc_driver_impl::run_compiler::{closure#0}::{closure_env#1}>, core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>>
+             at ~/workspace/headstart-exp/headstart/rustc/compiler/rustc_middle/src/ty/context.rs:809:37
+  16: {closure#0}<rustc_middle::ty::context::{impl#15}::enter::{closure_env#1}<rustc_interface::passes::create_and_enter_global_ctxt::{closure_env#2}<core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>, rustc_driver_impl::run_compiler::{closure#0}::{closure_env#1}>, core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>>, core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>>
+             at ~/workspace/headstart-exp/headstart/rustc/compiler/rustc_middle/src/ty/context/tls.rs:56:9
+  17: try_with<core::cell::Cell<*const ()>, rustc_middle::ty::context::tls::enter_context::{closure_env#0}<rustc_middle::ty::context::{impl#15}::enter::{closure_env#1}<rustc_interface::passes::create_and_enter_global_ctxt::{closure_env#2}<core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>, rustc_driver_impl::run_compiler::{closure#0}::{closure_env#1}>, core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>>, core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>>, core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>>
+             at /rustc/cbae9b4cae2b108f6a3d18cfe6075714bb739463/library/std/src/thread/local.rs:464:12
+  18: with<core::cell::Cell<*const ()>, rustc_middle::ty::context::tls::enter_context::{closure_env#0}<rustc_middle::ty::context::{impl#15}::enter::{closure_env#1}<rustc_interface::passes::create_and_enter_global_ctxt::{closure_env#2}<core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>, rustc_driver_impl::run_compiler::{closure#0}::{closure_env#1}>, core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>>, core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>>, core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>>
+             at /rustc/cbae9b4cae2b108f6a3d18cfe6075714bb739463/library/std/src/thread/local.rs:428:20
+  19: enter_context<rustc_middle::ty::context::{impl#15}::enter::{closure_env#1}<rustc_interface::passes::create_and_enter_global_ctxt::{closure_env#2}<core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>, rustc_driver_impl::run_compiler::{closure#0}::{closure_env#1}>, core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>>, core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>>
+             at ~/workspace/headstart-exp/headstart/rustc/compiler/rustc_middle/src/ty/context/tls.rs:53:9
+  20: enter<rustc_interface::passes::create_and_enter_global_ctxt::{closure_env#2}<core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>, rustc_driver_impl::run_compiler::{closure#0}::{closure_env#1}>, core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>>
+             at ~/workspace/headstart-exp/headstart/rustc/compiler/rustc_middle/src/ty/context.rs:809:9
+  21: create_global_ctxt<core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>, rustc_interface::passes::create_and_enter_global_ctxt::{closure_env#2}<core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>, rustc_driver_impl::run_compiler::{closure#0}::{closure_env#1}>>
+             at ~/workspace/headstart-exp/headstart/rustc/compiler/rustc_middle/src/ty/context.rs:990:13
+  22: create_and_enter_global_ctxt<core::option::Option<(rustc_interface::queries::Linker, core::option::Option<rustc_metadata::fs::EarlyMetadataFiles>)>, rustc_driver_impl::run_compiler::{closure#0}::{closure_env#1}>
+             at ~/workspace/headstart-exp/headstart/rustc/compiler/rustc_interface/src/passes.rs:1005:15
+  23: {closure#0}
+             at ~/workspace/headstart-exp/headstart/rustc/compiler/rustc_driver_impl/src/lib.rs:294:22
+  24: {closure#0}<(), rustc_driver_impl::run_compiler::{closure_env#0}>
+             at ~/workspace/headstart-exp/headstart/rustc/compiler/rustc_interface/src/interface.rs:507:80
+  25: call_once<(), rustc_interface::interface::run_compiler::{closure#2}::{closure_env#0}<(), rustc_driver_impl::run_compiler::{closure_env#0}>>
+             at /rustc/cbae9b4cae2b108f6a3d18cfe6075714bb739463/library/core/src/panic/unwind_safe.rs:275:9
+  26: do_call<core::panic::unwind_safe::AssertUnwindSafe<rustc_interface::interface::run_compiler::{closure#2}::{closure_env#0}<(), rustc_driver_impl::run_compiler::{closure_env#0}>>, ()>
+             at /rustc/cbae9b4cae2b108f6a3d18cfe6075714bb739463/library/std/src/panicking.rs:576:43
+  27: catch_unwind<(), core::panic::unwind_safe::AssertUnwindSafe<rustc_interface::interface::run_compiler::{closure#2}::{closure_env#0}<(), rustc_driver_impl::run_compiler::{closure_env#0}>>>
+             at /rustc/cbae9b4cae2b108f6a3d18cfe6075714bb739463/library/std/src/panicking.rs:544:19
+  28: catch_unwind<core::panic::unwind_safe::AssertUnwindSafe<rustc_interface::interface::run_compiler::{closure#2}::{closure_env#0}<(), rustc_driver_impl::run_compiler::{closure_env#0}>>, ()>
+             at /rustc/cbae9b4cae2b108f6a3d18cfe6075714bb739463/library/std/src/panic.rs:359:14
+  29: {closure#2}<(), rustc_driver_impl::run_compiler::{closure_env#0}>
+             at ~/workspace/headstart-exp/headstart/rustc/compiler/rustc_interface/src/interface.rs:507:23
+  30: {closure#0}<rustc_interface::interface::run_compiler::{closure_env#2}<(), rustc_driver_impl::run_compiler::{closure_env#0}>, ()>
+             at ~/workspace/headstart-exp/headstart/rustc/compiler/rustc_interface/src/util.rs:244:17
+  31: {closure#0}<rustc_interface::util::run_in_thread_pool_with_globals::{closure_env#0}<rustc_interface::interface::run_compiler::{closure_env#2}<(), rustc_driver_impl::run_compiler::{closure_env#0}>, ()>, ()>
+             at ~/workspace/headstart-exp/headstart/rustc/compiler/rustc_interface/src/util.rs:201:24
+  32: set<rustc_span::SessionGlobals, rustc_interface::util::run_in_thread_with_globals::{closure#0}::{closure#0}::{closure_env#0}<rustc_interface::util::run_in_thread_pool_with_globals::{closure_env#0}<rustc_interface::interface::run_compiler::{closure_env#2}<(), rustc_driver_impl::run_compiler::{closure_env#0}>, ()>, ()>, ()>
+             at ~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/scoped-tls-1.0.1/src/lib.rs:137:9
+  33: create_session_globals_then<(), rustc_interface::util::run_in_thread_with_globals::{closure#0}::{closure#0}::{closure_env#0}<rustc_interface::util::run_in_thread_pool_with_globals::{closure_env#0}<rustc_interface::interface::run_compiler::{closure_env#2}<(), rustc_driver_impl::run_compiler::{closure_env#0}>, ()>, ()>>
+             at ~/workspace/headstart-exp/headstart/rustc/compiler/rustc_span/src/lib.rs:157:21
+  34: {closure#0}<rustc_interface::util::run_in_thread_pool_with_globals::{closure_env#0}<rustc_interface::interface::run_compiler::{closure_env#2}<(), rustc_driver_impl::run_compiler::{closure_env#0}>, ()>, ()>
+             at ~/workspace/headstart-exp/headstart/rustc/compiler/rustc_interface/src/util.rs:197:17
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+error: the compiler unexpectedly panicked. This is a bug
+
+note: we would appreciate a bug report: https://github.com/rust-lang/rust/issues/new?labels=C-bug%2C+I-ICE%2C+T-compiler&template=ice.md
+
+note: please make sure that you have updated to the latest nightly
+
+note: please attach the file at `~/workspace/headstart-exp/aien-work/src/rustc-ice-2026-10-16T01_09_09-586212.txt` to your bug report
+
+note: rustc 1.101.0-dev running on aarch64-unknown-linux-gnu
+
+note: compiler flags: --crate-type lib -Z early-metadata -C embed-bitcode=no -C debuginfo=2 -C incremental=[REDACTED]
+
+note: some of the compiler flags provided by cargo are hidden
+
+query stack during panic:
+end of query stack
+error: could not compile `aien-runtime` (lib)
+
+Caused by:
+  process didn't exit successfully: `~/workspace/headstart-exp/headstart/rustc/build/host/stage1/bin/rustc --crate-name aien_runtime --edition=2021 crates/aien-runtime/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat,unused-externs-silent --crate-type lib -Zearly-metadata --emit=dep-info,metadata -C embed-bitcode=no -C debuginfo=2 --cfg 'feature="test-support"' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values("fault-hold", "test-support"))' -C metadata=f98f0ac5e89cd3f0 -C extra-filename=-3d5d1d0fff41ab33 --out-dir ~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-runtime/3d5d1d0fff41ab33/out -C incremental=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/incremental -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/ahash/6a081101da000913/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aho-corasick/4f8132752a00f27a/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-abi-conformance/d8579c6a59c90905/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-abi-core/b717503abce16701/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-allen/64fde2e64cf64489/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-inference-abi/7973e8ebeafa431a/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-kv-cache/63e7c3c8d4a1e408/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-omega-bf16/5021eb12753a1213/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-omega-dattn/f7e38f9b8f76d310/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-omega-dgraph/3dd5b28cca8dfeab/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-omega-fp8/8bd9965712b21c00/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-omega-gpu/3f0b4c55aa834890/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-omega-moe/db2eda1df8d22fe6/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-omega-pf/4519ed135966bcf5/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-omega-router/a3dfcf5d13339ca8/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-platform-linux/2e47c2ee8e99b121/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-platform/c1f01097cee6b262/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/anstream/ac98d9dc9b27386b/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/anstyle-parse/32607d55370fbf4d/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/anstyle-query/b9a6c5208dd7d084/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/anstyle/3c25709ba689257b/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/arrayvec/5b0d0cf95e51f5a1/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/async-trait/149887749d523587/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/atomic-waker/0dd8a2faf8f0f72d/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aws-lc-rs/728fc1c73f71b787/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aws-lc-sys/0edeb5a5a222fb6e/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/axum-core/f160937072f7fd99/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/axum-macros/76c02508521a2f6a/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/axum/c7e1433e8af546f0/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/base64/82fd27f29a33f5be/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/base64/a417bdad47c647d9/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/bincode/7e6fce69de1b2bc8/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/bitflags/842ff10690fc132e/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/blake3/9c3d782905076793/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/block-buffer/64d1a8dbc0fdb9b8/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/byteorder/ec15e19b4a286935/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/bytes/e27fce90e8e7c82e/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/castaway/05f60c84b4108d88/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/cfg-if/cbafa99d22df74d1/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/chrono/280d066026cc3412/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/clap/72bdeb0317d8f677/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/clap_builder/c7d8b6b02e8f6c19/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/clap_derive/66d6e7beb5cfd76d/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/clap_lex/2e10a9e5f389659a/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/colorchoice/bf806de75ab66518/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/colored/a40f8a68e0bee095/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/compact_str/796fd34411411817/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/constant_time_eq/63673d0a9a328e9f/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/cpufeatures/754950d1d906cde1/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/crossbeam-deque/058ae5f8fb47f8a8/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/crossbeam-epoch/9474a3ca67b40f4d/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/crossbeam-utils/83e1e90efa5dc14b/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/crumb-spec/91025b3bb7598a1f/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/crypto-common/43060ecd48ad90c6/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/csv-core/ccc536bc421ff01e/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/csv/e98daac0c524153c/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/dary_heap/9ee40311eeb7f7ff/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/deranged/d60fd5be4399fd38/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/derive_builder/da28fedb3f3d549e/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/derive_builder_macro/b7f990b72fc585a2/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/digest/ee8b2f8267ba7a7b/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/displaydoc/75cbf980c4da3253/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/either/99e6a5c1710461c0/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/encoding_rs/a7516e76de002ab6/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/equivalent/06979ffb604e8234/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/errno/1266a4ec558b99df/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/esaxx-rs/4d408f9b9957e377/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/fallible-iterator/e343579bdec6ddf9/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/fallible-streaming-iterator/5e52038686256159/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/fnv/ee7c1ef450a719b5/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/foreign-types-shared/a7f3a85e9cf608ed/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/foreign-types/88159d652f7077d8/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/form_urlencoded/d134a536d73a1cf4/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/futures-channel/b360ff33ae316287/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/futures-core/334adc30e359127f/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/futures-io/c44ea57c6a59e403/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/futures-macro/beb13646a2583f1b/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/futures-sink/ec3b64365c7787df/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/futures-task/33673ea5963feac1/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/futures-util/5228a2086ef09f02/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/generic-array/b6384e06fb9f5838/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/getrandom/19858beec8577ea7/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/getrandom/a1d9247e1be4cbb3/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/getrandom/d9ecfc5ae70b9ee6/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/h2/b6387b354a85b238/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/hashbrown/05a96e540788089b/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/hashbrown/c90198dba1589523/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/hashlink/3292bfeba543889d/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/http-body-util/550f74c18bd81fbb/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/http-body/d890b345af21afd6/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/http/1e724bf1eb41008c/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/httparse/ff889d8f52224919/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/httpdate/09b8e386756946cc/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/hyper-rustls/5c6766ca6afd56fa/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/hyper-tls/0352e129cc5f5b54/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/hyper-util/70f4141c124f6dda/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/hyper/9452e039b3a30d66/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/iana-time-zone/1d0f957f9d0701c5/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/icu_collections/4f32f93d9e93638b/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/icu_locale_core/bd69ca875469afd5/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/icu_normalizer/0014cde983540053/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/icu_normalizer_data/17417208c2bc7e4a/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/icu_properties/fa831614671d9515/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/icu_properties_data/8227396965145411/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/icu_provider/d954669cda0b2266/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/idna/047854c7e841bdaa/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/idna_adapter/36b1bcbe163ba544/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/indexmap/1b9f8bdf8074d3e7/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/ipnet/7ba2df88cbb041b4/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/is_terminal_polyfill/2f2a123a23b04683/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/itertools/c71d52aaa7f93989/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/itoa/d1a10a4d57a50276/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/lazy_static/37f012c23270a42d/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/libc/505bebaa9c5c3ca8/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/libsqlite3-sys/557d076bd1711586/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/litemap/91682b48911b4198/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/lock_api/1449fe6aa1672909/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/log/a80694168b3749cc/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/macro_rules_attribute-proc_macro/244bea13381df7be/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/macro_rules_attribute/dad5f40f2256445e/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/matchers/82a25b5e03e6c9a3/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/matchit/0bd0f26a4035a6bc/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/memchr/c099fdd01f7fda8e/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/mime/fafcbc7deffe4f04/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/minimal-lexical/a1c2e0fa5dea44ca/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/mio/4f3105110e557552/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/monostate-impl/7e73bba8ebcfbf1f/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/monostate/846417d6522f491a/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/multiversion_no_op/a17e1b3fd2212cb9/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/native-tls/fa9db7b2b8169338/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/nom/e85b2fee00d76a0d/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/nu-ansi-term/cda5a44747387e43/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/num-conv/2257481d19524b41/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/num-traits/d10875e5ec5eb746/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/once_cell/1277bb1518ffdf6b/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/onig/14880a053c5b3331/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/onig_sys/36306687ae48b631/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/openssl-macros/b687870187d13f9f/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/openssl-probe/46d75ae8be456ece/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/openssl-sys/5e6c9c12753126dd/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/openssl/80cf49613953a060/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/parking_lot/5207639c38e2122c/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/parking_lot_core/2ffecc33361c05ac/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/paste/adfd34019abf0aa3/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/pastey/f78afcddb32eb7ce/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/percent-encoding/b2953e7b3dcebd25/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/pin-project-lite/4edf2950ac80c045/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/potential_utf/5ea47b0e9e1357d1/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/powerfmt/ae8af93941f866c3/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/ppv-lite86/df14974b46a31f3a/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/rand/e12f5f811253aa29/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/rand_chacha/cb56584c975b3b94/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/rand_core/1d6b3e3081f0c294/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/rand_core/2ae10720c967e383/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/rayon-cond/8f94dd5ef01fd531/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/rayon-core/b4e9f68532b579b6/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/rayon/db7c73e1e0712661/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/regex-automata/78b761f5ea366fbf/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/regex-syntax/271f9c7f69b8f8b1/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/regex/3ea624598799e0ed/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/reqwest/da23be46e702b071/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/ring/b9bece14128eeb08/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/rusqlite/fc2f306cd5bd9c28/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/rustls-pki-types/d1e4309d7ffb4fb0/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/rustls-webpki/5ee0700e967ea611/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/rustls/2e3d078b4f33b341/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/rustversion/ea46bb4d9aefc982/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/ryu/4df29b3d84e9f264/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/same-file/7e5b68a34ac46e38/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/scopeguard/3781b63634117c38/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/serde/7e84b784c75b821e/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/serde_core/6510bab6d5f3c528/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/serde_derive/c2c13302f2488d96/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/serde_json/da5b0b22ff30b2ed/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/serde_path_to_error/d2c01427d280e28f/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/serde_urlencoded/1dbe3c260e836204/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/sha2/7b27c9e69c78c7cb/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/sharded-slab/950f7ad1c0d88084/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/signal-hook-registry/cfb00dca7031115f/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/simdutf8/6e378b200e8a3e48/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/slab/0964acf04e45f453/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/smallvec/118245eb58144e83/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/socket2/84a7453b5bc8b17f/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/spark-crumbs/ba4d339a4df55bf4/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/spm_precompiled/fb3bb37e350bd101/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/stable_deref_trait/d4d017633e230fee/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/static_assertions/0321dfc222ebff4d/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/strsim/696d81fa2a7df2c1/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/subtle/1c1fddea2c6b23c5/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/sync_wrapper/040d86f5661f550d/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/thiserror-impl/11ba33c2449fee91/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/thiserror-impl/3f1c4e85dfb70b5e/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/thiserror/66391c478ddb771c/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/thiserror/c9de54f768417e60/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/thread_local/148990ae1a1aeb7f/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/time-core/f2c6f56cfe243f59/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/time-macros/e5110b096907512e/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/time/0806dc6a20b94e15/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/tinystr/06cfa3bd28a084c5/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/tokenizers/9f2748e665a0a67a/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/tokio-macros/23e0554a4b8e7f31/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/tokio-native-tls/f4bc96ee836725fb/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/tokio-rustls/0460126de40fb12e/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/tokio-util/971276f2abab4e7b/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/tokio/17c9b29299998756/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/tower-http/04da53cfca97d831/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/tower-http/6a862d2e6c7cc9f5/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/tower-layer/af6fadf6ffcf4ac5/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/tower-service/e677aea3f67478e3/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/tower/1fd77e308c0c6d9d/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/tracing-attributes/ff1d2af0abd1e7e7/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/tracing-core/8de44711cf93b738/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/tracing-log/6cb7c46dbce4bf66/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/tracing-subscriber/47c9561bf91f0735/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/tracing/c45f40bdddfafb7c/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/try-lock/150005e16ee66ddd/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/typenum/0cb14f490c8a4087/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/unicode-normalization-alignments/0dba1ed6f54ce990/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/unicode-segmentation/60b79db1f88f2432/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/unicode_categories/706287b588cbc0d7/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/untrusted/928604210125977f/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/url/6dc64920f0ef9c2d/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/utf8_iter/bb33bbc1101b9b77/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/utf8parse/5205f5cbc41c8981/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/uuid/9caf85e6b469a125/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/walkdir/da7ea73314be956f/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/want/1d160fce2f0381a5/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/webpki-roots/6bbeb8b6218f9e10/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/writeable/5feea3faff6dfcd6/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/yoke-derive/b6b88b47e27a3d74/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/yoke/b4372907d1d71831/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/zerocopy/8f3df4d0c56c32e5/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/zerofrom-derive/1937357d3bc86967/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/zerofrom/a715d8a61d223407/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/zeroize/ad41d6ef1d02b461/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/zeroize_derive/a646801140e3787b/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/zerotrie/43b08991458140c8/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/zerovec-derive/dfd2740a2862bf0f/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/zerovec/73e8eca3df0b0a8f/out -L dependency=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/zmij/510159d81fd3c49f/out --extern aien_abi_core=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-abi-core/b717503abce16701/out/libaien_abi_core-b717503abce16701.rmeta --extern aien_allen=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-allen/64fde2e64cf64489/out/libaien_allen-64fde2e64cf64489.rmeta --extern aien_allen_memory=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-allen-memory/59536d64c3846ede/out/libaien_allen_memory-59536d64c3846ede.rmeta --extern aien_allen_profile=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-allen-profile/580ad77b99bc6c51/out/libaien_allen_profile-580ad77b99bc6c51.rmeta --extern aien_inference_abi=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-inference-abi/7973e8ebeafa431a/out/libaien_inference_abi-7973e8ebeafa431a.rmeta --extern aien_kv_cache=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-kv-cache/63e7c3c8d4a1e408/out/libaien_kv_cache-63e7c3c8d4a1e408.rmeta --extern aien_kv_store=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-kv-store/574912a87da03a4c/out/libaien_kv_store-574912a87da03a4c.rmeta --extern aien_omega_compose=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-omega-compose/f18e3e869a972142/out/libaien_omega_compose-f18e3e869a972142.rmeta --extern aien_platform=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-platform/c1f01097cee6b262/out/libaien_platform-c1f01097cee6b262.rmeta --extern aien_scheduler=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-scheduler/9bf2d1ce31657b55/out/libaien_scheduler-9bf2d1ce31657b55.rmeta --extern aien_security=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-security/a5f87afb095153d6/out/libaien_security-a5f87afb095153d6.rmeta --extern aien_trace=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aien-trace/45f0882536878f24/out/libaien_trace-45f0882536878f24.rmeta --extern async_trait=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/async-trait/149887749d523587/out/libasync_trait-149887749d523587.so --extern cortex_rs=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/cortex-rs/382167b8f71babba/out/libcortex_rs-382167b8f71babba.rmeta --extern libc=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/libc/505bebaa9c5c3ca8/out/liblibc-505bebaa9c5c3ca8.rmeta --extern parking_lot=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/parking_lot/5207639c38e2122c/out/libparking_lot-5207639c38e2122c.rmeta --extern serde=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/serde/7e84b784c75b821e/out/libserde-7e84b784c75b821e.rmeta --extern serde_json=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/serde_json/da5b0b22ff30b2ed/out/libserde_json-da5b0b22ff30b2ed.rmeta --extern sha2=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/sha2/7b27c9e69c78c7cb/out/libsha2-7b27c9e69c78c7cb.rmeta --extern thiserror=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/thiserror/c9de54f768417e60/out/libthiserror-c9de54f768417e60.rmeta --extern tokio=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/tokio/17c9b29299998756/out/libtokio-17c9b29299998756.rmeta --extern tracing=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/tracing/c45f40bdddfafb7c/out/libtracing-c45f40bdddfafb7c.rmeta --extern tracing_subscriber=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/tracing-subscriber/47c9561bf91f0735/out/libtracing_subscriber-47c9561bf91f0735.rmeta --force-warn=unused_crate_dependencies -L native=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/ring/362e25c5711276df/out -L native=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/onig_sys/83a319009517b16c/out -L native=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/aws-lc-sys/cc51586547a69a29/out -L native=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/blake3/6516436a46a43f54/out -L native=~/workspace/headstart-exp/aien-work/target-diag-once-ON/debug/build/libsqlite3-sys/016139faee0b73f6/out --check-cfg 'cfg(compose_linked)'` (exit status: 101)
+warning: unused dependency `anyhow`
+  --> crates/aien-inference-runtime/Cargo.toml:25:1
+   |
+25 | anyhow = "1.0"
+   | ^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `anyhow`
+warning: unused dependency `chrono`
+  --> crates/aien-inference-runtime/Cargo.toml:24:1
+   |
+24 | chrono = { version = "0.4", features = ["serde"] }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `chrono`
+warning: unused dependency `uuid`
+  --> crates/aien-inference-runtime/Cargo.toml:23:1
+   |
+23 | uuid = { version = "1.8", features = ["v4"] }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `uuid`
+warning: `aien-inference-runtime` (manifest) generated 3 warnings
+warning: unused dependency `futures-util`
+  --> crates/aien-inference-service/Cargo.toml:16:1
+   |
+16 | futures-util = "0.3"
+   | ^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `futures-util`
+warning: unused dependency `serde_json`
+  --> crates/aien-inference-service/Cargo.toml:13:1
+   |
+13 | serde_json = "1.0"
+   | ^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `serde_json`
+help: to still use for development builds, move to `dev-dependencies`
+warning: `aien-inference-service` (manifest) generated 2 warnings
+warning: unused dependency `byteorder`
+  --> crates/cortex-rs/Cargo.toml:32:1
+   |
+32 | byteorder = "1.5"
+   | ^^^^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `byteorder`
+warning: unused dependency `crumb-spec`
+  --> crates/cortex-rs/Cargo.toml:29:1
+   |
+29 | crumb-spec = { git = "https://github.com/aien-dev/crumb-spec", rev = "24194d1b7917ef19244aae6bcaff510686b75fef" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `crumb-spec`
+warning: unused dependency `spark-crumbs`
+  --> crates/cortex-rs/Cargo.toml:24:1
+   |
+24 | spark-crumbs = { git = "https://github.com/aien-dev/spark-crumbs", rev = "9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `spark-crumbs`
+warning: `cortex-rs` (manifest) generated 3 warnings
+warning: unused dependency `crumb-spec`
+  --> crates/rad-id-sync/Cargo.toml:22:1
+   |
+22 | crumb-spec = { git = "https://github.com/aien-dev/crumb-spec", rev = "24194d1b7917ef19244aae6bcaff510686b75fef" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `crumb-spec`
+warning: unused dependency `ed25519-dalek`
+  --> crates/rad-id-sync/Cargo.toml:25:1
+   |
+25 | ed25519-dalek = { version = "2.1", default-features = false, features = ["fast", "zeroize"] }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `ed25519-dalek`
+warning: unused dependency `rand`
+  --> crates/rad-id-sync/Cargo.toml:26:1
+   |
+26 | rand = "0.8"
+   | ^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `rand`
+warning: unused dependency `spark-crumbs`
+  --> crates/rad-id-sync/Cargo.toml:20:1
+   |
+20 | spark-crumbs = { git = "https://github.com/aien-dev/spark-crumbs", rev = "9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `spark-crumbs`
+warning: `rad-id-sync` (manifest) generated 4 warnings
+warning: unused dependency `async-stream`
+  --> crates/spark-adapters/Cargo.toml:16:1
+   |
+16 | async-stream = "0.3"
+   | ^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `async-stream`
+warning: unused dependency `crumb-spec`
+  --> crates/spark-adapters/Cargo.toml:21:1
+   |
+21 | crumb-spec = { git = "https://github.com/aien-dev/crumb-spec", rev = "24194d1b7917ef19244aae6bcaff510686b75fef" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `crumb-spec`
+warning: unused dependency `spark-crumbs`
+  --> crates/spark-adapters/Cargo.toml:13:1
+   |
+13 | spark-crumbs = { git = "https://github.com/aien-dev/spark-crumbs", rev = "9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `spark-crumbs`
+warning: `spark-adapters` (manifest) generated 3 warnings
+warning: unused dependency `rayon`
+  --> crates/spark-crumbs/Cargo.toml:16:1
+   |
+16 | rayon = "1.10"
+   | ^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `rayon`
+warning: `spark-crumbs` (manifest) generated 1 warning
+warning: unused dependency `crumb-spec`
+  --> crates/spark-debugger/Cargo.toml:19:1
+   |
+19 | crumb-spec = { git = "https://github.com/aien-dev/crumb-spec", rev = "24194d1b7917ef19244aae6bcaff510686b75fef" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `crumb-spec`
+warning: unused dependency `spark-crumbs`
+  --> crates/spark-debugger/Cargo.toml:13:1
+   |
+13 | spark-crumbs = { git = "https://github.com/aien-dev/spark-crumbs", rev = "9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `spark-crumbs`
+warning: `spark-debugger` (manifest) generated 2 warnings
+warning: unused dependency `chrono`
+  --> crates/spark-discord-hub/Cargo.toml:17:1
+   |
+17 | chrono = { version = "0.4", features = ["serde"] }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `chrono`
+warning: `spark-discord-hub` (manifest) generated 1 warning
+warning: unused dependency `crumb-spec`
+  --> crates/spark-dream/Cargo.toml:15:1
+   |
+15 | crumb-spec = { git = "https://github.com/aien-dev/crumb-spec", rev = "24194d1b7917ef19244aae6bcaff510686b75fef" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `crumb-spec`
+warning: unused dependency `regex`
+  --> crates/spark-dream/Cargo.toml:20:1
+   |
+20 | regex = "1.10"
+   | ^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `regex`
+warning: unused dependency `spark-crumbs`
+  --> crates/spark-dream/Cargo.toml:13:1
+   |
+13 | spark-crumbs = { git = "https://github.com/aien-dev/spark-crumbs", rev = "9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `spark-crumbs`
+warning: `spark-dream` (manifest) generated 3 warnings
+warning: unused dependency `crumb-spec`
+  --> crates/spark-harness/Cargo.toml:18:1
+   |
+18 | crumb-spec = { git = "https://github.com/aien-dev/crumb-spec", rev = "24194d1b7917ef19244aae6bcaff510686b75fef" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `crumb-spec`
+warning: unused dependency `reqwest`
+  --> crates/spark-harness/Cargo.toml:19:1
+   |
+19 | reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `reqwest`
+warning: unused dependency `spark-crumbs`
+  --> crates/spark-harness/Cargo.toml:13:1
+   |
+13 | spark-crumbs = { git = "https://github.com/aien-dev/spark-crumbs", rev = "9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `spark-crumbs`
+warning: unused dependency `tracing-subscriber`
+  --> crates/spark-harness/Cargo.toml:21:1
+   |
+21 | tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `tracing-subscriber`
+warning: `spark-harness` (manifest) generated 4 warnings
+warning: unused dependency `crumb-spec`
+  --> crates/spark-hive/Cargo.toml:11:1
+   |
+11 | crumb-spec = { git = "https://github.com/aien-dev/crumb-spec", rev = "24194d1b7917ef19244aae6bcaff510686b75fef" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `crumb-spec`
+warning: unused dependency `spark-crumbs`
+  --> crates/spark-hive/Cargo.toml:15:1
+   |
+15 | spark-crumbs = { git = "https://github.com/aien-dev/spark-crumbs", rev = "9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `spark-crumbs`
+warning: `spark-hive` (manifest) generated 2 warnings
+warning: unused dependency `crumb-spec`
+  --> crates/spark-inquisitor/Cargo.toml:19:1
+   |
+19 | crumb-spec = { git = "https://github.com/aien-dev/crumb-spec", rev = "24194d1b7917ef19244aae6bcaff510686b75fef" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `crumb-spec`
+warning: unused dependency `spark-crumbs`
+  --> crates/spark-inquisitor/Cargo.toml:17:1
+   |
+17 | spark-crumbs = { git = "https://github.com/aien-dev/spark-crumbs", rev = "9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `spark-crumbs`
+warning: `spark-inquisitor` (manifest) generated 2 warnings
+warning: unused dependency `tower-http`
+  --> crates/spark-mail-rs/Cargo.toml:18:1
+   |
+18 | tower-http = { version = "0.7.1", features = ["cors"] }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `tower-http`
+warning: `spark-mail-rs` (manifest) generated 1 warning
+warning: unused dependency `crumb-spec`
+  --> crates/spark-supervisor/Cargo.toml:19:1
+   |
+19 | crumb-spec = { git = "https://github.com/aien-dev/crumb-spec", rev = "24194d1b7917ef19244aae6bcaff510686b75fef" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `crumb-spec`
+warning: unused dependency `spark-crumbs`
+  --> crates/spark-supervisor/Cargo.toml:13:1
+   |
+13 | spark-crumbs = { git = "https://github.com/aien-dev/spark-crumbs", rev = "9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2" }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: consider removing the dependency on `spark-crumbs`
+warning: `spark-supervisor` (manifest) generated 2 warnings

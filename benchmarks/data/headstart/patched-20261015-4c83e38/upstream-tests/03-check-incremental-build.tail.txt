@@ -1,0 +1,11 @@
+same   initial (12808997377654390784)
+same   body-edit (4780833787732819968)
+same   add-opaque (4780833787732819968)
+same   change-opaque (4780833787732819968)
+same   interface-break (4780833787732819968)
+same   interface-fix (4780833787732819968)
+same   body-error (4780833787732819968)
+same   body-fix (4780833787732819968)
+same   app-edit (4780833787732819971)
+same   touch-all (4780833787732819971)
+same   final state vs clean build

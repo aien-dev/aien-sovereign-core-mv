@@ -1,0 +1,5 @@
+smoke rc=0 wall_s=15
+check-swap rc=0 wall_s=3
+check-errors rc=0 wall_s=198
+check-incremental-check rc=0 wall_s=68
+check-incremental-build rc=0 wall_s=87

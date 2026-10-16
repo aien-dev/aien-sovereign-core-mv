@@ -1,0 +1,30 @@
+test altered_output_digest_against_ledger_ref_fails ... ok
+test assertion_from_wrong_source_fails ... ok
+test blocked_receipt_used_as_pass_prerequisite_is_blocked ... ok
+test different_commit_substituted_fails_identity ... ok
+test dirty_source_substituted_is_blocked ... ok
+test host_receipt_substituted_for_qemu_is_blocked ... ok
+test incomplete_crash_matrix_does_not_pass ... ok
+test machine1_claim_without_hold_is_incomplete ... ok
+test missing_dependency_yields_incomplete_chain ... ok
+test mutating_claim_with_wrong_mutation_class_fails ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (/home/drakestapleton/workspace/headstart-exp/aien-work/target-verify-OFF/debug/build/spark-harness/4b74717a4ad7b1bd/out/spark_harness-4b74717a4ad7b1bd)
+
+running 5 tests
+test tests::test_reproduction_present ... ok
+test tests::test_required_evidence ... ok
+test tests::test_schema_validation ... ok
+test tests::test_slop_gate ... ok
+test tests::test_workflow_transitions ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/main.rs (/home/drakestapleton/workspace/headstart-exp/aien-work/target-verify-OFF/debug/build/spark-harness/5c28ccbd6d2c217f/out/spark_harness-5c28ccbd6d2c217f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

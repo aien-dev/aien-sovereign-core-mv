@@ -1,0 +1,44 @@
+{
+  "schema": "headstart-verify/v1",
+  "check_command": "cargo check --workspace --all-targets --message-format=json",
+  "test_command": "cargo test -p spark-harness -p aien-proof --lib --bins --tests -- --test-threads=1 (no doctests: they run rustdoc, which the toolchain under test may not ship)",
+  "normalization": "compiler-message records reduced to {level, code, message, primary spans}, sorted; test result lines with the timing suffix removed",
+  "arms": {
+    "OFF": {
+      "check_exit": 0,
+      "diagnostics": 2,
+      "diagnostics_sha256": "08ebb561c74c3e19f2621ac6c2e0a8bc92dfe92c833afb88c9a33ed108a149e2",
+      "test_exit": 0,
+      "test_results": [
+        "test result: ok. 100 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out",
+        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"
+      ]
+    },
+    "ON": {
+      "check_exit": 0,
+      "diagnostics": 2,
+      "diagnostics_sha256": "08ebb561c74c3e19f2621ac6c2e0a8bc92dfe92c833afb88c9a33ed108a149e2",
+      "test_exit": 0,
+      "test_results": [
+        "test result: ok. 100 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out",
+        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"
+      ]
+    }
+  },
+  "check_exit_equal": true,
+  "diagnostics_equal": true,
+  "test_exit_equal": true,
+  "test_results_equal": true,
+  "verify_build": {
+    "env": "RUSTFLAGS=-Zearly-metadata-verify",
+    "command": "cargo build --workspace",
+    "exit": 0
+  },
+  "verdict": "match"
+}

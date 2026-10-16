@@ -1,0 +1,2 @@
+{"level":"warning","code":"deprecated","message":"use of deprecated method `std::sync::atomic::Atomic::<u64>::fetch_update`: renamed to `try_update` for consistency","spans":[{"file_name":"crates/aien-serve-http/src/kv_persist.rs","line_start":487,"column_start":14}]}
+{"level":"warning","code":"deprecated","message":"use of deprecated method `std::sync::atomic::Atomic::<u64>::fetch_update`: renamed to `try_update` for consistency","spans":[{"file_name":"crates/aien-serve-http/src/kv_persist.rs","line_start":487,"column_start":14}]}

@@ -1,0 +1,230 @@
+== rustc-ice-2026-10-15T22_30_05-410239.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_30_07-413660.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_30_40-434384.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_30_41-434828.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_30_50-439096.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_30_52-439678.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_31_00-442868.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_31_01-443295.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_31_39-451721.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_31_41-452444.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_31_48-456340.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_31_52-457997.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_32_14-482913.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_32_31-494639.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_32_33-495006.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_32_46-499936.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_32_47-500291.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_33_14-507872.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_33_16-508612.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_33_18-509087.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_33_26-512546.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_33_28-513423.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_33_35-516561.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_33_40-518334.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_33_42-518927.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_34_05-525142.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_34_07-525660.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_34_15-528630.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_34_16-529407.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_34_54-538016.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_34_56-539025.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_35_03-541539.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_35_05-542437.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_35_37-551431.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_36_27-563190.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_36_44-567238.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_36_46-567691.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_36_53-570687.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_36_55-571064.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_37_02-574185.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_37_04-574600.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_37_11-577965.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_37_13-578313.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_37_20-581087.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_37_22-581743.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }
+== rustc-ice-2026-10-15T22_37_30-584808.txt ==
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(6992684181234095439, 180989152259912042) }
+ right: Svh { hash: Fingerprint(14440539920971399249, 9030103922791892547) }

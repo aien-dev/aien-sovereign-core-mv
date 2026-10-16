@@ -1,0 +1,4 @@
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+  left: Svh { hash: Fingerprint(14471294406250765354, 2846842288280468526) }
+ right: Svh { hash: Fingerprint(2011455709281448572, 17269224548599260132) }

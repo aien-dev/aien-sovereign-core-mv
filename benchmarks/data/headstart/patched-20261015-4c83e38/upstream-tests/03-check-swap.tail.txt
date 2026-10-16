@@ -1,0 +1,6 @@
+opt-level=0: ok (2 0 6 5)
+opt-level=1: ok (2 0 6 5)
+opt-level=2: ok (2 0 6 5)
+opt-level=3: ok (2 0 6 5)
+opt-level=s: ok (2 0 6 5)
+opt-level=z: ok (2 0 6 5)

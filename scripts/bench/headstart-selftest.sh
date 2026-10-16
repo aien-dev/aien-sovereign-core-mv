@@ -208,5 +208,137 @@ kill "$FAKE" 2>/dev/null; wait "$FAKE" 2>/dev/null
 check "NEGATIVE: foreign compiler process is detected at start and end" jqs --arg p "$FAKE:cargo:-" '.[0].contaminated == true and (.[0].foreign.at_start | index($p)) and (.[0].foreign.at_end | index($p)) and (.[0].contamination_reasons | index("foreign_at_end"))' "$T/out-foreign/samples.jsonl"
 check "timings stage writes the replay estimate" jqt '.deadlock == false and .units_without_package == 0 and .label == "ESTIMATE, not a measurement"' "$T/out-foreign/timings/replay.json"
 
+# ------------------------------------------------ 4. M5 (#536) OFF/ON summary, synthetic
+SAB="$T/ab.jsonl"
+mkab() { # mkab scenario arm wall rc rss user [contaminated]
+  jq -cn --arg s "$1" --arg a "$2" --argjson w "$3" --argjson rc "$4" --argjson rss "$5" --argjson u "$6" --argjson c "${7:-false}" \
+    '{scenario: $s, arm: $a, kind: "ab", command: "cargo x", sample_id: ($s + "-" + $a + "-" + ($w|tostring)),
+      wall_s: $w, exit_status: $rc, ok: ($rc == 0), final: true, contaminated: $c, aa_pair: null,
+      time_v: {available: true, max_rss_kb: $rss, cpu_percent: 100, user_s: $u, sys_s: 1}}' >> "$SAB"
+}
+mkab w OFF 10 0 1000 9; mkab w OFF 12 0 1000 9; mkab w ON 8 0 1100 10; mkab w ON 9 0 1100 10; mkab w ON 1 101 1 1
+mkab w OFF 100 0 9000 90 true; mkab w ON 0.5 0 1 1 true
+mkab c OFF 10 0 1000 9 true; mkab c ON 9 0 1000 9 true; mkab f OFF 10 0 1000 9; mkab f ON 1 101 1 1
+"$SUM" samples "$SAB" > "$T/ab-summary.json"
+AB='.ab[] | select(.scenario == "w")'
+check "ab: medians, delta and saving" jqt "$AB | .wall_s_off.median == 11 and .wall_s_on.median == 8.5 and .delta_s == -2.5 and .saving_pct == 22.727" "$T/ab-summary.json"
+check "ab: failed ON sample counted as failure, not time" jqt "$AB | .failed_on == 1 and .n_on == 2 and .failures[0].arm == \"ON\" and .failures[0].exit_status == 101" "$T/ab-summary.json"
+check "NEGATIVE: contaminated finals excluded from times, RSS and CPU" jqt "$AB | .contaminated_excluded_off == 1 and .contaminated_excluded_on == 1 and .n_off == 2 and .max_rss_kb_median_off == 1000 and .status == \"measured\"" "$T/ab-summary.json"
+check "NEGATIVE: only contaminated samples give NOT_MEASURED, no number" jqt '.ab[] | select(.scenario == "c") | .status == "NOT_MEASURED" and .n_off == 0 and .n_on == 0 and .saving_pct == null' "$T/ab-summary.json"
+check "NEGATIVE: ON that only fails gives FAILED, no number" jqt '.ab[] | select(.scenario == "f") | .status == "FAILED" and .failed_on == 1 and .saving_pct == null' "$T/ab-summary.json"
+check "ab: max RSS and CPU deltas" jqt "$AB | .max_rss_delta_pct == 10 and .cpu_s_median_off == 10 and .cpu_s_median_on == 11 and .cpu_s_delta_pct == 10" "$T/ab-summary.json"
+check "ab: section absent when no OFF/ON arms" jqt 'has("ab") | not' "$T/summary.json"
+
+# ------------------------------------------------ 5. M5 A/B stages end to end on the fixture
+ABSTAGES=(setup ab abincr abverify cleanup)
+HS_ARM_ENV_OFF="HS_FAKE_ARM=off" HS_ARM_ENV_ON="HS_FAKE_ARM=on" HS_AB_JOBS=2 HS_AB_JOBS_SAMPLES=1 \
+HS_VERIFY_TEST_PKGS=hsbase HS_VERIFY_ENV_ON="HS_FAKE_VERIFY=1" runner "$FX" ab "${ABSTAGES[@]}"
+RC=$?
+O="$T/out-ab"
+check "ab runner exits 0" test "$RC" -eq 0
+check "ab runner wrote 35 samples, all ok" jqs 'length == 35 and all(.[]; .ok)' "$O/samples.jsonl"
+check "ab arm environments reach the command" jqs 'all(.[] | select(.arm == "ON"); .env_words | test("HS_FAKE_ARM=on")) and all(.[] | select(.arm != "ON"); .env_words | test("HS_FAKE_ARM=off"))' "$O/samples.jsonl"
+check "ab arms use separate target dirs" jqs '[.[] | select(.kind == "ab")] | length == 10 and all(.[]; . as $x | $x.cargo_target_dir | endswith("-" + $x.arm))' "$O/samples.jsonl"
+check "ab A/A pair runs with the OFF environment" jqt '.aa_noise[] | select(.scenario == "ab_aa_check_ws") | .n_a == 1 and .n_b == 1' "$O/summary.json"
+# Coverage counts contaminated finals too: on a busy host a fixture sample
+# can be contaminated (HS_MAX_RERUNS=0 here), which excludes it from times.
+check "ab summary covers cold, jobs and incremental scenarios" jqt '[.ab[] | select(.n_off + .contaminated_excluded_off >= 1 and .n_on + .contaminated_excluded_on >= 1) | .scenario] as $s | (["ab_cold_check_ws","ab_cold_build_ws","ab_cold_test_norun_ws","ab_cold_build_ws_j2","abincr_body_check","abincr_iface_check"] - $s) == []' "$O/summary.json"
+check "ab incremental: both arms check every edit" jqs '[.[] | select(.scenario == "abincr_body_check")] | (map(select(.arm == "OFF")) | length) == 2 and (map(select(.arm == "ON")) | length) == 2' "$O/samples.jsonl"
+check "ab verify: verdict match with test results" jqt '.verdict == "match" and .diagnostics_equal and .test_results_equal and (.arms.ON.test_results | length) >= 1 and .verify_build.exit == 0' "$O/verify.json"
+check "ab verify extra env added on top of the ON arm" jqs 'map(select(.scenario == "verify_build_extra")) | length == 1 and (.[0].env_words | test("HS_FAKE_ARM=on") and test("HS_FAKE_VERIFY=1"))' "$O/samples.jsonl"
+check "ab manifest records binaries digests and arm envs" jqt '(.toolchain.binaries.sha256 | length) >= 2 and .toolchain.binaries.arm_env.ON == "HS_FAKE_ARM=on"' "$O/manifest.json"
+check "ab summary reproducible from samples" bash -c "'$SUM' samples '$O/samples.jsonl' | cmp - '$O/summary.json'"
+check "ab caller fixture checkout untouched" git -C "$FX" diff --quiet
+
+HS_ARM_ENV_OFF="HS_FAKE_ARM=off" runner "$FX" noon setup ab
+RC=$?
+check "NEGATIVE: ab stage without HS_ARM_ENV_ON aborts" test "$RC" -ne 0
+check "NEGATIVE: abort message names the arm variables" grep -q 'HS_ARM_ENV_OFF and HS_ARM_ENV_ON' "$T/runner-noon.log"
+runner "$FX" noon cleanup
+HS_ARM_ENV_OFF="HS_FAKE_ARM=x" HS_ARM_ENV_ON="HS_FAKE_ARM=x" runner "$FX" same setup abverify
+RC=$?
+check "NEGATIVE: identical arm environments abort" test "$RC" -ne 0
+runner "$FX" same cleanup
+
+HS_ARM_ENV_OFF="HS_FAKE_ARM=off" HS_ARM_ENV_ON="RUSTFLAGS=-Wmissing-docs" HS_VERIFY_TEST_PKGS=hsbase \
+  runner "$FX" diag setup abverify cleanup
+check "NEGATIVE: changed diagnostics give verdict MISMATCH" jqt '.verdict == "MISMATCH" and (.diagnostics_equal | not) and .check_exit_equal and .arms.ON.diagnostics > .arms.OFF.diagnostics' "$T/out-diag/verify.json"
+
+HS_ARM_ENV_OFF="HS_FAKE_ARM=off" HS_ARM_ENV_ON="RUSTFLAGS=-Zheadstart-selftest-bogus" HS_VERIFY_TEST_PKGS=hsbase \
+  runner "$FX" brk setup ab abverify cleanup
+RC=$?
+check "broken ON arm: runner still exits 0 (failure recorded)" test "$RC" -eq 0
+check "NEGATIVE: failing ON arm recorded as failures, never as time" jqt '.ab[] | select(.scenario == "ab_cold_build_ws") | .failed_on == 1 and .n_on == 0 and .wall_s_on.median == null and .saving_pct == null' "$T/out-brk/summary.json"
+check "NEGATIVE: wrong ON exit code gives verdict MISMATCH" jqt '.verdict == "MISMATCH" and (.check_exit_equal | not) and .arms.ON.check_exit != 0' "$T/out-brk/verify.json"
+
+# ------------------------------------------------ 6. per-sample quiet-flag hold, ICE reports, failure tails
+# The real quietlock on a private state dir (QUIETLOCK_DIR), never the host's
+# flag. The fake cargo records whether our hold is on the flag while the timed
+# command runs, and (with HS_FAKE_ICE=1) fails a check the way the SVH bug
+# does: an ICE report in the cwd, the error far above 100 warning lines.
+QL="$T/ql"; mkdir -p "$QL"
+cat > "$T/fake-cargo" <<'EOF'
+#!/usr/bin/env bash
+if [ -n "${HS_FAKE_FLAG_LOG:-}" ]; then
+  if grep -q hs-selftest "$QUIETLOCK_DIR/.spark-quiet" 2>/dev/null; then echo HELD; else echo FREE; fi >> "$HS_FAKE_FLAG_LOG"
+fi
+if [ "${HS_FAKE_ICE:-}" = 1 ] && [[ " $* " == *" check "* ]]; then
+  printf "thread 'rustc' panicked at compiler/selftest.rs:1:1:\nassertion failed: selftest svh\nstack backtrace:\n   0: selftest-backtrace-frame\n" > "rustc-ice-selftest-$$.txt"
+  echo 'error: could not compile `hsbase` (lib)'
+  for i in $(seq 100); do echo "warning: selftest noise $i"; done
+  exit 101
+fi
+exec cargo "$@"
+EOF
+chmod +x "$T/fake-cargo"
+QL_BIN=$(command -v quietlock || true)
+if [ -n "$QL_BIN" ]; then
+  export QUIETLOCK_DIR="$QL"
+  hrunner() {
+    HS_HOLD=1 HS_HOLD_OWNER=hs-selftest HS_HOLD_MINUTES=1 HS_HOLD_REASON=selftest \
+    HS_CARGO="$T/fake-cargo" HS_FAKE_FLAG_LOG="$T/flag.log" runner "$@"
+  }
+  hrunner "$FX" hold setup
+  # A foreign hold taken between stages: the first sample must queue behind it.
+  "$QL_BIN" hold --owner selftest-other --minutes 1 --reason selftest -- sleep 5 >/dev/null 2>&1 &
+  OTHER=$!; sleep 1
+  hrunner "$FX" hold cold
+  RC=$?; wait "$OTHER" 2>/dev/null
+  O="$T/out-hold"; N=$(jq -s length "$O/samples.jsonl")
+  check "hold: run exits 0 with samples" test "$RC" -eq 0 -a "$N" -ge 2
+  check "hold: every sample held, one distinct hold id each" jqs 'all(.[]; .quiet_hold.held and .quiet_hold.requested) and ([.[].quiet_hold.id] | unique | length) == length and all(.[]; .contamination_reasons | index("quiet_hold_not_taken") | not)' "$O/samples.jsonl"
+  check "hold: our hold is on the flag during every timed command" test "$(grep -c HELD "$T/flag.log")" -eq "$N"
+  check "hold: setup commands outside samples run unheld" grep -q FREE "$T/flag.log"
+  check "hold: every hold acquired and released (history)" test "$(grep -c 'hold acquired: hs-selftest' "$QL/.spark-quiet.history")" -eq "$N" -a "$(grep -c 'released' "$QL/.spark-quiet.history")" -ge "$((N + 1))"
+  check "hold: flag clear after the run" "$QL_BIN" check
+  check "NEGATIVE: foreign hold is waited out before our hold" jqs '.[0].quiet_flag_wait_s >= 2 and .[0].quiet_hold.held' "$O/samples.jsonl"
+  check "hold: manifest lists the held samples" jqt --argjson n "$N" '.protocol.quiet_hold.enabled and .protocol.quiet_hold.owner == "hs-selftest" and (.protocol.quiet_hold.samples_held | length) == $n and .protocol.quiet_hold.samples_unheld == []' "$O/manifest.json"
+  runner "$FX" hold cleanup
+
+  # A quietlock whose check says clear but whose hold is always refused.
+  printf '#!/usr/bin/env bash\n[ "$1" = check ] && exit 0\necho "quietlock: QUIETLOCK_REFUSED fake" >&2\nexit 75\n' > "$T/refusing-quietlock"
+  chmod +x "$T/refusing-quietlock"
+  T_QL_BIN="$T/refusing-quietlock" T_QL_CAP=2 HS_HOLD=1 runner "$FX" refused setup cold cleanup
+  RC=$?
+  check "NEGATIVE: refused hold does not hang the run (cap)" test "$RC" -eq 0
+  check "NEGATIVE: refused hold marks the sample contaminated, unheld" jqs '.[0].quiet_hold.held == false and .[0].quiet_hold.refused >= 1 and .[0].contaminated and (.[0].contamination_reasons | index("quiet_hold_not_taken"))' "$T/out-refused/samples.jsonl"
+  unset QUIETLOCK_DIR
+else
+  check "quietlock installed for the hold tests" false
+fi
+
+HS_CARGO="$T/fake-cargo" HS_ARM_ENV_OFF="HS_FAKE_ARM=off" HS_ARM_ENV_ON="HS_FAKE_ICE=1" runner "$FX" ice setup ab
+RC=$?
+ICE='.[] | select(.scenario == "ab_cold_check_ws" and .arm == "ON")'
+check "ICE ON arm: runner exits 0, failure recorded" test "$RC" -eq 0
+check "NEGATIVE: ICE sample has exit 101 and one ICE report" jqs "[$ICE] | length == 1 and .[0].exit_status == 101 and .[0].ice_reports == 1" "$T/out-ice/samples.jsonl"
+check "OFF samples report no ICE" jqs 'all(.[] | select(.arm == "OFF"); .ice_reports == 0)' "$T/out-ice/samples.jsonl"
+TAILF="$T/out-ice/$(jq -rs "[$ICE][0].log_tail" "$T/out-ice/samples.jsonl")"
+check "failure tail starts with the error lines" bash -c "head -1 '$TAILF' | grep -q '^== error lines' && sed -n 2p '$TAILF' | grep -q 'could not compile'"
+check "failure tail carries the ICE panic head" grep -q 'assertion failed: selftest svh' "$TAILF"
+check "NEGATIVE: ICE backtrace is not copied" bash -c "! grep -q selftest-backtrace-frame '$TAILF'"
+check "ICE report removed from the worktree root" bash -c "! ls '$T/work-ice/src'/rustc-ice-* 2>/dev/null"
+runner "$FX" ice cleanup
+
 echo "selftest: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

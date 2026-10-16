@@ -1,0 +1,240 @@
+{
+  "schema": "headstart-manifest/v1",
+  "run_id": "headstart-m5-20261015-4c83e38",
+  "created_at": "2026-10-15T22:09:34Z",
+  "source": {
+    "commit": "4c83e389e8fa8790af6f3199958e6570f976db2d",
+    "short": "4c83e38",
+    "origin": "https://github.com/aien-spark/aien-sovereign-core",
+    "worktree": "/home/drakestapleton/workspace/headstart-exp/aien-work/src",
+    "worktree_kind": "git worktree add --detach (outside the caller checkout)"
+  },
+  "toolchain": {
+    "rustc_vV": "rustc 1.101.0-dev\nbinary: rustc\ncommit-hash: unknown\ncommit-date: unknown\nhost: aarch64-unknown-linux-gnu\nrelease: 1.101.0-dev\nLLVM version: 23.1.1",
+    "cargo_V": "cargo 1.101.0 (4f3fb2428 2026-09-30)",
+    "rust_toolchain_toml": "[toolchain]\nchannel = \"1.98.1\"\nprofile = \"minimal\"\ncomponents = [\"rustfmt\", \"clippy\"]",
+    "cargo_config_files": [],
+    "env": {
+      "RUSTFLAGS": "<unset>",
+      "RUSTC_WRAPPER": "<unset>",
+      "CARGO_BUILD_JOBS": "<unset>",
+      "CARGO_INCREMENTAL": "<unset>"
+    },
+    "binaries": {
+      "cargo": "/home/drakestapleton/workspace/headstart-exp/headstart/cargo/target/release/cargo",
+      "rustc": "/home/drakestapleton/workspace/headstart-exp/headstart/rustc/build/host/stage1/bin/rustc",
+      "sysroot": "/home/drakestapleton/workspace/headstart-exp/headstart/rustc/build/aarch64-unknown-linux-gnu/stage1",
+      "sha256": {
+        "/home/drakestapleton/workspace/headstart-exp/headstart/cargo/target/release/cargo": "cff877de20424b9712f00f5d94d009cc1a7defd8a4e66ba4a1c6c5912d47556b",
+        "/home/drakestapleton/workspace/headstart-exp/headstart/rustc/build/host/stage1/bin/rustc": "71aec5e4fac9d624d54c50355f2596f1d743843240d28396071a2c5626f3a01c",
+        "/home/drakestapleton/workspace/headstart-exp/headstart/rustc/build/aarch64-unknown-linux-gnu/stage1/lib/librustc_driver-2cf8bbfbd3e8b27b.so": "251e0614df7f749ed00b123be0a3e6d03faf58a62ff980014e57581252fe8772"
+      },
+      "arm_env": {
+        "OFF": "CARGO_UNSTABLE_HEADSTART=false",
+        "ON": "CARGO_UNSTABLE_HEADSTART=true"
+      },
+      "verify_env_on": "RUSTFLAGS=-Zearly-metadata-verify",
+      "note": "with HS_RUSTC unset, rustc is the rustup proxy and sysroot the toolchain selected by rust-toolchain.toml"
+    }
+  },
+  "host": {
+    "arch": "aarch64",
+    "kernel": "7.0.0-1019-nvidia",
+    "nproc": 20,
+    "cpu_models": [
+      "Cortex-X925",
+      "Cortex-A725"
+    ],
+    "mem_total_kb": 127598752,
+    "mem_available_kb_at_setup": 71643420,
+    "disk_at_setup": "/dev/nvme0n1p2  3.7T  3.0T  563G  85% /"
+  },
+  "build": {
+    "features": "default (no --features / --all-features / --no-default-features flags)",
+    "profiles": {
+      "check": "dev",
+      "build": "dev",
+      "test --no-run": "test (inherits dev)"
+    },
+    "target_dir": "/home/drakestapleton/workspace/headstart-exp/aien-work/target",
+    "jobs": "cargo default (-j not passed, CARGO_BUILD_JOBS as recorded) = nproc",
+    "cold_definition": "CARGO_TARGET_DIR removed before every cold attempt; ~/.cargo/registry and ~/.cargo/git kept warm",
+    "registry_cache": {
+      "state": "warm",
+      "how": "cargo fetch --locked ran once in setup before any sample",
+      "fetch_wall_s": 0.261
+    }
+  },
+  "protocol": {
+    "samples_per_scenario": 5,
+    "load1_max": 3,
+    "load_wait_cap_s": 600,
+    "foreign_monitor_interval_s": 3,
+    "max_reruns_when_contaminated": 2,
+    "slow_cold_threshold_s": 1200,
+    "foreign_definition": "cargo processes, or rustc / clippy-driver / rustdoc processes with --crate-name (an actual compile), outside this runner process tree and whose command line does not mention the benchmark work dir",
+    "contaminated_definition": "any of: a foreign process at sample start, at any monitor tick or in the end-of-sample snapshot; the load wait hit its cap; the quiet-flag wait hit its cap (see contamination_reasons)",
+    "time_v_available": true,
+    "quiet_flag": {
+      "first_stage": "abverify",
+      "enabled": true,
+      "tool": "quietlock",
+      "available": true,
+      "respected": true,
+      "wait_cap_s": 3600,
+      "how": "before each sample, wait while `quietlock check` reports the host quiet flag held by another job, at most wait_cap_s; a capped wait is logged and marks the sample contaminated; per-sample quiet_flag_checked / quiet_flag_wait_s / quiet_flag_wait_capped"
+    },
+    "ab": {
+      "arms": {
+        "OFF": "CARGO_UNSTABLE_HEADSTART=false",
+        "ON": "CARGO_UNSTABLE_HEADSTART=true",
+        "A": "CARGO_UNSTABLE_HEADSTART=false",
+        "B": "CARGO_UNSTABLE_HEADSTART=false"
+      },
+      "rounds": 5,
+      "jobs_rounds": 3,
+      "jobs": "",
+      "order": "per round: check X, build Y, test-no-run X, A/A first, check Y, build X, test-no-run Y, A/A second; round 1 X=OFF Y=ON first=A, swapped every round; job-count builds after the main rounds, OFF/ON order swapped every round",
+      "target_dirs": "each arm has its own CARGO_TARGET_DIR (<target>-<arm>), removed before every cold attempt"
+    },
+    "quiet_hold": {
+      "enabled": true,
+      "owner": "hs-m5",
+      "minutes": 5,
+      "reason": "headstart M5 timing sample",
+      "how": "with enabled, each sample runs: the quiet_flag queue wait, then `quietlock hold --owner <owner> --minutes <minutes> --reason <reason>` around the load wait and the timed command, released before the next sample; a refused hold queues again (within wait_cap_s); a hold not taken marks the sample contaminated (quiet_hold_not_taken). Per-sample quiet_hold {requested, held, id, acquire_s, refused}; samples_held / samples_unheld list sample ids"
+    }
+  },
+  "scenarios": [
+    {
+      "id": "verify_check_json",
+      "kind": "verify",
+      "command": "cargo check --workspace --all-targets --message-format=json",
+      "cwd": "worktree root"
+    },
+    {
+      "id": "verify_test",
+      "kind": "verify",
+      "command": "cargo test -p spark-harness -p aien-proof --lib --bins --tests -- --test-threads=1",
+      "cwd": "worktree root"
+    },
+    {
+      "id": "verify_build_extra",
+      "kind": "verify",
+      "command": "cargo build --workspace (ON arm plus HS_VERIFY_ENV_ON)",
+      "cwd": "worktree root"
+    },
+    {
+      "id": "abincr_prime",
+      "kind": "abincr",
+      "command": "cargo check --workspace --all-targets",
+      "cwd": "worktree root"
+    },
+    {
+      "id": "abincr_noop_check",
+      "kind": "abincr",
+      "command": "cargo check --workspace --all-targets",
+      "cwd": "worktree root"
+    },
+    {
+      "id": "abincr_body_check",
+      "kind": "abincr",
+      "command": "cargo check --workspace --all-targets",
+      "cwd": "worktree root"
+    },
+    {
+      "id": "abincr_iface_check",
+      "kind": "abincr",
+      "command": "cargo check --workspace --all-targets",
+      "cwd": "worktree root"
+    },
+    {
+      "id": "abincr_settle",
+      "kind": "abincr",
+      "command": "cargo check --workspace --all-targets",
+      "cwd": "worktree root"
+    },
+    {
+      "id": "ab_cold_check_ws",
+      "kind": "ab",
+      "command": "cargo check --workspace --all-targets",
+      "cwd": "worktree root"
+    },
+    {
+      "id": "ab_cold_build_ws",
+      "kind": "ab",
+      "command": "cargo build --workspace",
+      "cwd": "worktree root"
+    },
+    {
+      "id": "ab_cold_test_norun_ws",
+      "kind": "ab",
+      "command": "cargo test --workspace --no-run",
+      "cwd": "worktree root"
+    },
+    {
+      "id": "ab_aa_check_ws",
+      "kind": "ab",
+      "command": "cargo check --workspace --all-targets",
+      "cwd": "worktree root"
+    }
+  ],
+  "stages": [
+    {
+      "stage": "abverify",
+      "started_at": "2026-10-15T22:09:34Z",
+      "script": "scripts/bench/headstart-aien.sh",
+      "ended_at": "2026-10-15T22:24:55Z"
+    },
+    {
+      "stage": "abincr",
+      "started_at": "2026-10-15T22:24:55Z",
+      "script": "scripts/bench/headstart-aien.sh",
+      "ended_at": "2026-10-15T22:37:32Z"
+    },
+    {
+      "stage": "ab",
+      "started_at": "2026-10-15T22:37:32Z",
+      "script": "scripts/bench/headstart-aien.sh"
+    },
+    {
+      "stage": "ab",
+      "started_at": "2026-10-15T23:56:14Z",
+      "script": "scripts/bench/headstart-aien.sh"
+    },
+    {
+      "stage": "ab",
+      "started_at": "2026-10-15T23:56:35Z",
+      "script": "scripts/bench/headstart-aien.sh"
+    }
+  ],
+  "ab_incremental": {
+    "command": "cargo check --workspace --all-targets",
+    "steps": 10,
+    "series_per_kind": 2,
+    "order": "prime OFF then ON (each on its own fresh target dir), 3 no-op checks per arm, then body and iface series as in incr; after every edit both arms check the same source, OFF first on odd steps and ON first on even steps; settle check per arm after every revert",
+    "body": {
+      "file": "crates/cortex-rs/src/lib.rs",
+      "anchor": "    pub fn in_memory() -> Result<Self, String> {"
+    },
+    "iface": {
+      "file": "crates/cortex-rs/src/lib.rs"
+    },
+    "reason": "same edit targets as the M0 stable baseline (baseline-20261015-4c83e38 manifest.incremental.reason), so the incremental series are comparable",
+    "failure_rule": "a failed ON (or OFF) check is recorded with its exit status and log tail and the series continues; it is never counted as a time"
+  },
+  "cleanup": {
+    "at": "2026-10-16T01:10:04Z",
+    "removed": [
+      "/home/drakestapleton/workspace/headstart-exp/aien-work"
+    ]
+  },
+  "m5_closeout": {
+    "decision": "REJECTED (Drake via orchestrator, 2026-10-16): stop measuring; no more timing samples",
+    "stages_without_end": "the two ab entries with ended_at null were stopped: run 1 (unheld, host contaminated) by this worker at 23:45Z, its 20 samples moved to samples-ab-run1-interrupted-unheld.jsonl and not used; run 2 (per-sample quiet-flag hold, all 24 samples held) stopped by the orchestrator during round 3, its complete samples stay in samples.jsonl",
+    "jobs_4_8_16": "NOT_RUN",
+    "upstream_unit_tests": "NOT_RUN (07-upstream-unit.sh written, not run)",
+    "diagnostic": "diag-once/: one untimed incremental ON check under quietlock run, -j 8, full stderr kept",
+    "ice_reports_run1": "logs/abincr-run1-ice-heads.txt: heads of the 46 rustc-ice reports from the abincr stage (harvested after the run; the runner harvests them per sample since the commit adding the per-sample quiet-flag hold)"
+  }
+}

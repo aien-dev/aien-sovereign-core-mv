@@ -77,6 +77,158 @@ Every command's exit status is recorded. A failed build is a failure
 (`ok: false`, with the last 80 log lines kept); it is never counted in a
 median and never replaced by a smaller workload.
 
+## A/B stages for one toolchain with two arm environments (M5, #536)
+
+The same runner measures one toolchain with a feature off and on. It takes
+the toolchain from `HS_CARGO` (replaces the leading `cargo` of every scenario
+command) and `HS_RUSTC` (exported as `RUSTC` to every sample), and the arm
+environments from `HS_ARM_ENV_OFF` and `HS_ARM_ENV_ON` (space-separated
+`KEY=VALUE` words, both required and different, or the stage aborts). Each
+arm has its own `CARGO_TARGET_DIR` (`<target>-<arm>`), so arms never share
+build state. Every sample records `cargo_bin` and `env_words`; `setup`
+records the sha256 of cargo, rustc and the `librustc_driver-*.so` in the
+rustc sysroot under `manifest.toolchain.binaries`.
+
+- `ab`: `HS_SAMPLES` rounds of cold check, cold build and cold
+  `test --no-run`, OFF and ON alternating (the arm that goes first swaps
+  every round), plus an A/A pair: cold check twice with the OFF environment
+  (arms A and B, `aa_noise` in the summary). `HS_AB_JOBS="4 8 16"` adds cold
+  workspace builds at those `-j` values, `HS_AB_JOBS_SAMPLES` rounds each.
+- `abincr`: the `incr` edit series, but both arms check the same source after
+  every edit (OFF first on odd steps, ON first on even steps), each on its own
+  incremental target dir. A failed check is recorded with its exit status and
+  log tail and the series continues; it is never counted as a time.
+- `abverify`: per arm, a cold `cargo check --workspace --all-targets
+  --message-format=json` and `cargo test -p <HS_VERIFY_TEST_PKGS> --lib
+  --bins --tests -- --test-threads=1` (no doctests: those run `rustdoc`,
+  and a stage-1 `compiler library` build ships none, so the rustup rustdoc
+  would be mixed in), compared in `verify.json`: exit codes, diagnostics
+  normalized for event order (each `compiler-message` reduced to level, code,
+  message and primary spans, then sorted) and test result lines (timing
+  suffix removed). With `HS_VERIFY_ENV_ON` set, one more cold
+  `cargo build --workspace` runs with the ON environment plus those words.
+  `verdict` is `match` only when everything is equal, both arms exit 0 and
+  that extra build exits 0.
+
+With `HS_HOLD=1` every sample also holds the host quiet flag for itself:
+after the usual `quietlock check` queue wait, the runner takes it with
+`quietlock hold --owner <HS_HOLD_OWNER> --minutes <HS_HOLD_MINUTES> --reason
+<HS_HOLD_REASON>`, keeps it through the load wait and the timed command, and
+releases it before the next sample, so other jobs (chip gates, a paused
+tokenizer) get the flag between samples. A refused hold (exit 75: another
+job took the flag first) queues again within `HS_QUIET_WAIT_CAP_S`; a hold
+that is not taken marks the sample contaminated (`quiet_hold_not_taken`).
+Each sample records `quiet_hold` (requested, held, hold id, seconds to
+acquire, refusals) and the manifest lists `protocol.quiet_hold.samples_held`
+and `samples_unheld`.
+
+A failed sample's log tail starts with the error lines of the full log
+(cargo prints its manifest warnings last, so the last lines alone can miss
+the cause). When rustc panics it leaves `rustc-ice-*.txt` in the worktree
+root; the runner appends each report's head (up to the backtrace) to the
+tail, deletes the file and records `ice_reports`.
+
+The summary gains an `ab` section (only when OFF/ON samples exist, so older
+summaries reproduce byte for byte): per scenario the OFF and ON wall time
+stats, `delta_s` (ON minus OFF), `saving_pct` ((OFF - ON) / OFF), failures
+per arm, median max RSS and median CPU seconds (user + sys) per arm and
+their deltas.
+
+## M5 result (patched-20261015-4c83e38): REJECTED, Headstart stays disabled
+
+**Verdict: REJECTED.** The promotion gate fails on the crash below.
+Further timing was stopped by Drake's decision (via the orchestrator,
+2026-10-16), so speed cells beyond the clean held samples are NOT_MEASURED.
+The gate needs zero unexplained crashes; Headstart ON crashes the compiler
+on every incremental edit, so it fails whatever the speed.
+No "Optional local invocation" section is added. Default builds are
+unchanged: nothing in this repository enables `-Zheadstart` or
+`-Zearly-metadata`.
+
+The toolchain was local only: built under a disposable directory outside
+the repository, never vendored or committed (the upstream patches carry no
+license), never installed into rustup or `~/.cargo/bin`, and never used by
+CI, release, signing or spark-rsi. Only digests and our own scripts are kept
+(`toolchain/digests.txt`, `toolchain/*.sh`).
+
+Pins: upstream headstart `ff81bfecda2116d54776a7fec538fc2f4e349d1f`, rustc
+submodule `6006fd03947bd7b04ae5cb5f7f9bb66b44dc8c6e`, cargo submodule
+`4f3fb2428282fb2467c4bb5be0163d2f42a31491`; sha256 of the stage-1 rustc,
+`librustc_driver-*.so`, cargo and each patch in `toolchain/digests.txt` and
+`manifest.toolchain.binaries`. AIEN source: `4c83e38`.
+
+**Crash (observed, the gate failure).** In the `abincr` stage every check
+after an edit failed with exit 101 when ON, and every one passed when OFF:
+
+| check after edit | OFF exit 0 | ON exit 101 |
+|---|---|---|
+| body edit (20 steps) | 20 of 20 | 20 of 20 |
+| interface edit (20 steps) | 20 of 20 | 20 of 20 |
+| settle after revert (4) | 4 of 4 | 4 of 4 |
+
+No-op checks and the cold prime passed in both arms. The run left 46 rustc
+ICE reports, all the same panic (`logs/abincr-run1-ice-heads.txt`). One
+untimed diagnostic (`diag-once/`: prime, the step-1 body edit, one
+incremental ON check, `-j 8`, under `quietlock run`) reproduced it; full
+stderr in `diag-once/incr-on.stderr.log`:
+
+```
+thread 'rustc' (586269) panicked at compiler/rustc_metadata/src/rmeta/encoder.rs:2837:29:
+assertion `left == right` failed: early and full metadata disagree on the SVH
+note: compiler flags: --crate-type lib -Z early-metadata -C embed-bitcode=no -C debuginfo=2 -C incremental=[REDACTED]
+error: could not compile `aien-runtime` (lib)
+```
+
+The crate that panics is `aien-runtime`, which depends on the edited
+`cortex-rs` (`crates/aien-runtime/Cargo.toml`). This matches the upstream
+note `docs/ice-early-metadata-svh.md` at the pinned commit: same assertion
+and file, during incremental `cargo check` runs, "It's not fixed yet", and
+"Every later build fails the same way, even with the edit reverted", which
+is what the settle checks show.
+
+**Correctness of cold builds (observed).** `verify.json` verdict `match`:
+same exit codes, same normalized diagnostics, same results for the 115
+tests of `spark-harness` and `aien-proof` in both arms, and the
+`-Zearly-metadata-verify` cold build exited 0.
+
+**Cold timings (observed, INDICATIVE: n=2 to 3 clean held samples per
+arm, under the planned 5).** Same patched toolchain, OFF vs ON, default
+`-j` (20), per-sample quiet-flag hold, arms alternating. The rerun was
+stopped by Drake's decision during round 3; the remaining rounds are
+NOT_MEASURED.
+
+| workload | OFF median (n) | ON median (n) | saving | max RSS | CPU (user+sys) |
+|---|---|---|---|---|---|
+| cold `check --workspace --all-targets` | 38.117 s (2) | 31.643 s (3) | 16.98 % | -3.05 % | +1.92 % |
+| cold `build --workspace` | 52.793 s (2) | 42.596 s (3) | 19.31 % | +0.00 % | +4.62 % |
+| cold `test --workspace --no-run` | 79.933 s (3) | 73.493 s (2) | 8.06 % | -0.12 % | +6.76 % |
+| A/A cold check (OFF vs OFF) | 37.895 s (3) | 37.566 s (2) | 0.87 % | | |
+
+The OFF and ON ranges do not overlap in any of the three workloads
+(`summary.json` `.ab[].wall_s_off/on`). One OFF check was contaminated and
+is excluded. NOT_MEASURED (stopped by decision): jobs 4/8/16 (NOT_RUN),
+rounds 4 and 5 of the cold A/B, every incremental ON timing (no ON check
+after an edit succeeded). NOT_RUN: the upstream unit tests (`x test
+tests/run-make/early-metadata tests/ui/rmeta`, cargo headstart tests). The
+upstream check scripts (smoke, check-swap, check-errors, check-incremental
+check and build) all exited 0 (`upstream-tests/results.txt`).
+
+**Stable reference (M0, kept separate).** The stable 1.98.1 medians are
+20.367 s (cold check), 31.054 s (cold build) and 56.387 s (test --no-run).
+The patched stage-1 compiler is a different, slower build (OFF takes 1.42
+to 1.87 times the stable median, ON 1.30 to 1.55 times), so patched and
+stable times are not comparable. The M0 schedule replay **estimated** 14.5 % (realistic) and
+15.7 % (upper) for the cold build; that is an estimate, separate from the
+19.31 % observed above on the patched toolchain.
+
+The first cold A/B run (before the per-sample hold) was stopped after
+round 1 on a contaminated host; its samples are kept apart in
+`samples-ab-run1-interrupted-unheld.jsonl` and used nowhere.
+
+**Next:** the M0 critical path shows the `aws-lc-sys` build script (run) at
+13.08 s of the 31.5 s cold build (`baseline-20261015-4c83e38/timings/critical-path.json`).
+The follow-up is a native fix of that bottleneck, in a separate issue.
+
 ## Running it
 
 From the repository root, with the stable toolchain pinned by
