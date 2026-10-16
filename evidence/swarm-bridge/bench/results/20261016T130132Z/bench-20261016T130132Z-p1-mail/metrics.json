@@ -1,0 +1,124 @@
+{
+  "arm": "mail",
+  "run": "bench-20261016T130132Z-p1-mail",
+  "agents": {
+    "alpha": {
+      "model_invocations": 6,
+      "tool_calls": 7,
+      "waiting_tool_calls": 1,
+      "input_tokens": 12,
+      "cache_creation_tokens": 23509,
+      "repeated_context_tokens": 160298,
+      "output_tokens": 2820,
+      "first_ts": "2026-10-16T13:01:39.974Z",
+      "last_ts": "2026-10-16T13:02:27.337Z",
+      "time": "48.16 2.87 0.79"
+    },
+    "beta": {
+      "model_invocations": 5,
+      "tool_calls": 4,
+      "waiting_tool_calls": 1,
+      "input_tokens": 10,
+      "cache_creation_tokens": 24965,
+      "repeated_context_tokens": 138618,
+      "output_tokens": 1372,
+      "first_ts": "2026-10-16T13:01:36.608Z",
+      "last_ts": "2026-10-16T13:02:03.814Z",
+      "time": "28.05 3.11 0.78"
+    },
+    "gamma": {
+      "model_invocations": 9,
+      "tool_calls": 10,
+      "waiting_tool_calls": 3,
+      "input_tokens": 18,
+      "cache_creation_tokens": 31343,
+      "repeated_context_tokens": 304078,
+      "output_tokens": 3765,
+      "first_ts": "2026-10-16T13:01:38.704Z",
+      "last_ts": "2026-10-16T13:02:45.970Z",
+      "time": "68.10 6.99 1.75"
+    }
+  },
+  "relays": [
+    {
+      "model_invocations": 2,
+      "tool_calls": 2,
+      "waiting_tool_calls": 0,
+      "input_tokens": 4,
+      "cache_creation_tokens": 20117,
+      "repeated_context_tokens": 37531,
+      "output_tokens": 553,
+      "first_ts": "2026-10-16T13:01:44.600Z",
+      "last_ts": "2026-10-16T13:01:49.273Z"
+    },
+    {
+      "model_invocations": 2,
+      "tool_calls": 1,
+      "waiting_tool_calls": 0,
+      "input_tokens": 4,
+      "cache_creation_tokens": 17819,
+      "repeated_context_tokens": 40233,
+      "output_tokens": 795,
+      "first_ts": "2026-10-16T13:02:03.360Z",
+      "last_ts": "2026-10-16T13:02:09.013Z"
+    }
+  ],
+  "ferrying_invocations": 4,
+  "totals": {
+    "agent_model_invocations": 20,
+    "model_invocations_all": 24,
+    "tool_calls": 24,
+    "waiting_tool_calls": 5,
+    "repeated_context_tokens": 680758,
+    "input_side_tokens": 798559,
+    "cpu_s": 20.28
+  },
+  "pairs": [
+    {
+      "msg": "[Q1]",
+      "from": "alpha",
+      "to": "beta",
+      "sent": "2026-10-16T13:01:43.325Z",
+      "deliveries": 1,
+      "first_via": "mail-or-sniff",
+      "first_seen": "2026-10-16T13:01:55.736Z",
+      "latency_s": 12.41100001335144
+    },
+    {
+      "msg": "[Q1]",
+      "from": "alpha",
+      "to": "gamma",
+      "sent": "2026-10-16T13:01:43.325Z",
+      "deliveries": 2,
+      "first_via": "mail-or-sniff",
+      "first_seen": "2026-10-16T13:02:05.523Z",
+      "latency_s": 22.197999954223633
+    },
+    {
+      "msg": "[A1]",
+      "from": "beta",
+      "to": "alpha",
+      "sent": "2026-10-16T13:02:02.186Z",
+      "deliveries": 1,
+      "first_via": "mail-or-sniff",
+      "first_seen": "2026-10-16T13:02:15.784Z",
+      "latency_s": 13.597999811172485
+    },
+    {
+      "msg": "[A1]",
+      "from": "beta",
+      "to": "gamma",
+      "sent": "2026-10-16T13:02:02.186Z",
+      "deliveries": 1,
+      "first_via": "mail-or-sniff",
+      "first_seen": "2026-10-16T13:02:23.160Z",
+      "latency_s": 20.973999977111816
+    }
+  ],
+  "missed": 0,
+  "duplicates": 1,
+  "coordination_wall_s": {
+    "alpha_has_answer": 32.45899987220764,
+    "gamma_has_answer": 39.83500003814697
+  }
+}

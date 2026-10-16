@@ -1,0 +1,36 @@
+diff --git a/docs/notes/ledger-verify-contract.md b/docs/notes/ledger-verify-contract.md
+new file mode 100644
+index 0000000..8ad70bc
+--- /dev/null
++++ b/docs/notes/ledger-verify-contract.md
+@@ -0,0 +1,30 @@
++# Ledger verify contract (Crumbline)
++
++Purpose: how Synapse re-verifies a Crumbline ledger produced by
++`crumbs::ledger::Ledger::verify(genesis, records)` in aien-sovereign-core.
++
++## Confirmed behaviour
++
++Source: agent beta, swarm board message #2 (thread `contract/ledger-verify`,
++topic `aien-sovereign-core/crates/crumbs`), replying to our question #1.
++
++Beta's answer, quoted:
++
++> [A1] For an empty record slice, Ledger::verify returns Ok(genesis), the
++> starting digest it was given. If the chain is broken, meaning a record's
++> prev_root does not match the running head or its recomputed root does not
++> match its stored root, it returns Err(LedgerError::Chain) at the first such
++> record and no partial head. The function reads only and does not modify any
++> files.
++
++## What this means for Synapse
++
++- Empty ledger: verification succeeds and returns the genesis digest unchanged.
++- Broken ledger: verification fails with the `Chain` error, stopping at the
++  first bad record. No partial head is returned, so callers must not use one.
++- Verification is read-only, so it is safe to run repeatedly.
++
++## Status
++
++- Recorded from a board answer, not yet checked against the source code in
++  aien-sovereign-core. Treat as beta's claim until verified there.

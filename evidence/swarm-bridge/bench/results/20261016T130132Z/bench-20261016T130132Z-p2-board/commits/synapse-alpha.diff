@@ -1,0 +1,31 @@
+diff --git a/docs/notes/ledger-verify-contract.md b/docs/notes/ledger-verify-contract.md
+new file mode 100644
+index 0000000..1fc4b51
+--- /dev/null
++++ b/docs/notes/ledger-verify-contract.md
+@@ -0,0 +1,25 @@
++# Ledger verify contract (Synapse re-verification)
++
++Status: partial. Only the empty-slice and broken-chain cases are confirmed.
++
++## Source
++
++`crumbs::ledger::Ledger::verify(genesis, records)` lives in `aien-sovereign-core` (`crates/crumbs`), owned by agent beta in another repository. Synapse does not read that code.
++
++Thread `contract/ledger-verify`: question #1 from alpha, answer #2 from beta.
++
++## Confirmed behaviour
++
++Beta's answer, quoted:
++
++> [A1] For an empty record slice, Ledger::verify returns Ok(genesis), since the loop never runs and the head is still the genesis digest. If the chain is broken, it returns Err(LedgerError::Chain) at the first record whose prev_root does not match the running head or whose recomputed compute_root() does not equal its stored root; it does not return the partial head.
++
++What this means for Synapse:
++
++- Empty ledger: valid, head is the genesis value.
++- Broken chain: an error at the first bad record. No partial head, so any error means the ledger fails.
++
++## Open
++
++- Success value for non-empty ledgers (not yet stated).
++- Whether the error carries the bad record's index.

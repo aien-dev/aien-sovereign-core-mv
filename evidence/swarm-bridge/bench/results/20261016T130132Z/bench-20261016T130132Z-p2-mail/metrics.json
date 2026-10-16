@@ -1,0 +1,124 @@
+{
+  "arm": "mail",
+  "run": "bench-20261016T130132Z-p2-mail",
+  "agents": {
+    "alpha": {
+      "model_invocations": 5,
+      "tool_calls": 4,
+      "waiting_tool_calls": 1,
+      "input_tokens": 10,
+      "cache_creation_tokens": 22869,
+      "repeated_context_tokens": 128330,
+      "output_tokens": 2534,
+      "first_ts": "2026-10-16T13:04:31.367Z",
+      "last_ts": "2026-10-16T13:05:21.492Z",
+      "time": "50.95 2.73 0.65"
+    },
+    "beta": {
+      "model_invocations": 5,
+      "tool_calls": 4,
+      "waiting_tool_calls": 1,
+      "input_tokens": 10,
+      "cache_creation_tokens": 24241,
+      "repeated_context_tokens": 137723,
+      "output_tokens": 1073,
+      "first_ts": "2026-10-16T13:04:28.747Z",
+      "last_ts": "2026-10-16T13:04:58.175Z",
+      "time": "30.30 2.41 0.61"
+    },
+    "gamma": {
+      "model_invocations": 8,
+      "tool_calls": 9,
+      "waiting_tool_calls": 2,
+      "input_tokens": 16,
+      "cache_creation_tokens": 30130,
+      "repeated_context_tokens": 262528,
+      "output_tokens": 3140,
+      "first_ts": "2026-10-16T13:04:30.037Z",
+      "last_ts": "2026-10-16T13:05:23.906Z",
+      "time": "54.74 7.54 1.72"
+    }
+  },
+  "relays": [
+    {
+      "model_invocations": 2,
+      "tool_calls": 2,
+      "waiting_tool_calls": 0,
+      "input_tokens": 4,
+      "cache_creation_tokens": 20148,
+      "repeated_context_tokens": 37531,
+      "output_tokens": 581,
+      "first_ts": "2026-10-16T13:04:36.820Z",
+      "last_ts": "2026-10-16T13:04:43.314Z"
+    },
+    {
+      "model_invocations": 2,
+      "tool_calls": 2,
+      "waiting_tool_calls": 0,
+      "input_tokens": 4,
+      "cache_creation_tokens": 17906,
+      "repeated_context_tokens": 40223,
+      "output_tokens": 878,
+      "first_ts": "2026-10-16T13:04:56.246Z",
+      "last_ts": "2026-10-16T13:05:02.393Z"
+    }
+  ],
+  "ferrying_invocations": 4,
+  "totals": {
+    "agent_model_invocations": 18,
+    "model_invocations_all": 22,
+    "tool_calls": 21,
+    "waiting_tool_calls": 4,
+    "repeated_context_tokens": 606335,
+    "input_side_tokens": 721673,
+    "cpu_s": 19.64
+  },
+  "pairs": [
+    {
+      "msg": "[Q1]",
+      "from": "alpha",
+      "to": "beta",
+      "sent": "2026-10-16T13:04:36.223Z",
+      "deliveries": 1,
+      "first_via": "mail-or-sniff",
+      "first_seen": "2026-10-16T13:04:48.917Z",
+      "latency_s": 12.694000005722046
+    },
+    {
+      "msg": "[Q1]",
+      "from": "alpha",
+      "to": "gamma",
+      "sent": "2026-10-16T13:04:36.223Z",
+      "deliveries": 1,
+      "first_via": "mail-or-sniff",
+      "first_seen": "2026-10-16T13:05:09.080Z",
+      "latency_s": 32.85699987411499
+    },
+    {
+      "msg": "[A1]",
+      "from": "beta",
+      "to": "alpha",
+      "sent": "2026-10-16T13:04:55.582Z",
+      "deliveries": 1,
+      "first_via": "mail-or-sniff",
+      "first_seen": "2026-10-16T13:05:09.517Z",
+      "latency_s": 13.934999942779541
+    },
+    {
+      "msg": "[A1]",
+      "from": "beta",
+      "to": "gamma",
+      "sent": "2026-10-16T13:04:55.582Z",
+      "deliveries": 1,
+      "first_via": "mail-or-sniff",
+      "first_seen": "2026-10-16T13:05:09.080Z",
+      "latency_s": 13.497999906539917
+    }
+  ],
+  "missed": 0,
+  "duplicates": 0,
+  "coordination_wall_s": {
+    "alpha_has_answer": 33.293999910354614,
+    "gamma_has_answer": 32.85699987411499
+  }
+}

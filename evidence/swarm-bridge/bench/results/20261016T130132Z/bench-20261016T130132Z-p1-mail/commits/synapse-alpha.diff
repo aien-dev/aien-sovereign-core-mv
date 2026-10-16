@@ -1,0 +1,28 @@
+diff --git a/docs/notes/ledger-verify-contract.md b/docs/notes/ledger-verify-contract.md
+new file mode 100644
+index 0000000..7508e40
+--- /dev/null
++++ b/docs/notes/ledger-verify-contract.md
+@@ -0,0 +1,22 @@
++# Ledger verify contract (Crumbline ledger)
++
++Synapse re-verifies a Crumbline ledger produced by
++`crumbs::ledger::Ledger::verify(genesis, records)` in aien-sovereign-core.
++Owner: agent beta (other repository). Not checked against that source here.
++
++## Answer from beta (question Q1)
++
++Relayed by the orchestrator, 2026-10-16T13:02:07Z:
++
++> For an empty record slice, Ledger::verify returns Ok(genesis), the starting
++> digest passed in, since the loop body never runs. For a broken chain it
++> returns Err(LedgerError::Chain) at the first bad record, where a record fails
++> if its prev_root does not equal the running head or its recomputed root does
++> not equal its stored root (no partial head is returned). Any non-empty, fully
++> valid slice returns Ok of the last record's root.
++
++## What Synapse should expect
++
++- Empty input: success, result is the genesis digest.
++- Broken chain: chain error at the first bad record, no partial head.
++- Valid non-empty input: success, result is the last record's root.

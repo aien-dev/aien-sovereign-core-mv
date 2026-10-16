@@ -1,0 +1,30 @@
+diff --git a/docs/notes/ledger-verify-contract.md b/docs/notes/ledger-verify-contract.md
+new file mode 100644
+index 0000000..e3b48e8
+--- /dev/null
++++ b/docs/notes/ledger-verify-contract.md
+@@ -0,0 +1,24 @@
++# Ledger::verify contract (Crumbline re-verification)
++
++Scope: how Synapse would re-verify a Crumbline ledger produced by
++`crumbs::ledger::Ledger::verify(genesis, records)` in aien-sovereign-core.
++Owner of `Ledger::verify`: agent beta, in a repository not visible from this clone.
++
++## Contract as stated by beta
++
++Q1 was sent through the orchestrator; beta's reply came back as A1:
++
++> For an empty record slice, Ledger::verify returns Ok with the genesis digest it was given, since the loop never runs. If the chain is broken, it returns Err(LedgerError::Chain) at the first bad record, where a record's prev_root does not match the running head or its recomputed root does not match its stored root; no partial head is returned. (crates/crumbs/src/ledger.rs:120-130)
++
++Source: beta, relayed by the orchestrator (`bench-20261016T130132Z-p2-mail-orch`) at 2026-10-16T13:04:59Z.
++The line reference is beta's citation and was not checked from this clone.
++
++## What Synapse should expect
++
++- Empty records: success, returning the genesis digest unchanged.
++- Broken chain: `LedgerError::Chain`, reported at the first bad record.
++- No partial head on failure: treat any error as "no trusted head".
++
++## Not yet confirmed
++
++- Exact Rust signatures and the full `LedgerError` variant list.

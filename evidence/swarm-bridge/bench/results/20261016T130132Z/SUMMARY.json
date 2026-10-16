@@ -1,0 +1,201 @@
+{
+  "runs": {
+    "mail": 3,
+    "board": 3
+  },
+  "board_rule_pass": [
+    {
+      "run": "bench-20261016T130132Z-p1-board",
+      "pass": true
+    },
+    {
+      "run": "bench-20261016T130132Z-p2-board",
+      "pass": true
+    },
+    {
+      "run": "bench-20261016T130132Z-p3-board",
+      "pass": true
+    }
+  ],
+  "ferrying_invocations": {
+    "mail": [
+      4,
+      4,
+      4
+    ],
+    "board": [
+      0,
+      0,
+      0
+    ],
+    "board_lower_every_pair": true
+  },
+  "agent_model_invocations": {
+    "mail": [
+      20,
+      18,
+      22
+    ],
+    "board": [
+      18,
+      20,
+      23
+    ],
+    "board_lower_every_pair": false
+  },
+  "model_invocations_all": {
+    "mail": [
+      24,
+      22,
+      26
+    ],
+    "board": [
+      18,
+      20,
+      23
+    ],
+    "board_lower_every_pair": true
+  },
+  "tool_calls": {
+    "mail": [
+      24,
+      21,
+      26
+    ],
+    "board": [
+      17,
+      19,
+      21
+    ],
+    "board_lower_every_pair": true
+  },
+  "waiting_tool_calls": {
+    "mail": [
+      5,
+      4,
+      5
+    ],
+    "board": [
+      3,
+      3,
+      3
+    ],
+    "board_lower_every_pair": true
+  },
+  "repeated_context_tokens": {
+    "mail": [
+      680758,
+      606335,
+      752552
+    ],
+    "board": [
+      524308,
+      594903,
+      718977
+    ],
+    "board_lower_every_pair": true
+  },
+  "input_side_tokens": {
+    "mail": [
+      798559,
+      721673,
+      871026
+    ],
+    "board": [
+      601307,
+      673008,
+      798880
+    ],
+    "board_lower_every_pair": true
+  },
+  "cpu_s": {
+    "mail": [
+      20.28,
+      19.64,
+      20.14
+    ],
+    "board": [
+      15.52,
+      15.35,
+      16.12
+    ],
+    "board_lower_every_pair": true
+  },
+  "coordination_wall_s_alpha": {
+    "mail": [
+      32.45899987220764,
+      33.293999910354614,
+      32.00200009346008
+    ],
+    "board": [
+      4.015999794006348,
+      4.240999937057495,
+      3.9019999504089355
+    ],
+    "board_lower_every_pair": true
+  },
+  "coordination_wall_s_gamma": {
+    "mail": [
+      39.83500003814697,
+      32.85699987411499,
+      36.60000014305115
+    ],
+    "board": [
+      17.244999885559082,
+      18.056999921798706,
+      18.115999937057495
+    ],
+    "board_lower_every_pair": true
+  },
+  "missed": {
+    "mail": [
+      0,
+      0,
+      0
+    ],
+    "board": [
+      0,
+      0,
+      0
+    ],
+    "board_lower_every_pair": false
+  },
+  "duplicates": {
+    "mail": [
+      1,
+      0,
+      1
+    ],
+    "board": [
+      0,
+      0,
+      0
+    ],
+    "board_lower_every_pair": false
+  },
+  "task_ok": {
+    "mail": [
+      true,
+      true,
+      true
+    ],
+    "board": [
+      true,
+      true,
+      true
+    ]
+  },
+  "delivery_latency_s": {
+    "mail": {
+      "n": 12,
+      "p50": 13.934999942779541,
+      "p95": 22.197999954223633
+    },
+    "board": {
+      "n": 12,
+      "p50": 0.003999948501586914,
+      "p95": 13.819999933242798
+    }
+  },
+  "joules": "NOT_MEASURED"
+}

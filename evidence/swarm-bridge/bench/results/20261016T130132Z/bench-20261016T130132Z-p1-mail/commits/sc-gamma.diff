@@ -1,0 +1,41 @@
+diff --git a/crates/crumbs/tests/ledger_verify_empty.rs b/crates/crumbs/tests/ledger_verify_empty.rs
+new file mode 100644
+index 0000000..45d80d9
+--- /dev/null
++++ b/crates/crumbs/tests/ledger_verify_empty.rs
+@@ -0,0 +1,35 @@
++//! Contract for `Ledger::verify` on an empty record slice, as settled by beta's answer:
++//!
++//! [A1] For an empty record slice, Ledger::verify returns Ok(genesis), the starting digest
++//! passed in, since the loop body never runs. For a broken chain it returns
++//! Err(LedgerError::Chain) at the first bad record, where a record fails if its prev_root
++//! does not equal the running head or its recomputed root does not equal its stored root
++//! (no partial head is returned). Any non-empty, fully valid slice returns Ok of the last
++//! record's root.
++
++use crumbs::digest::Digest;
++use crumbs::ledger::{genesis, Ledger, LedgerError};
++use crumbs::provenance::Lane;
++
++#[test]
++fn verify_empty_slice_returns_genesis() {
++    let g = genesis(Lane::Main, "run-empty");
++    assert!(matches!(Ledger::verify(g, &[]), Ok(head) if head == g));
++}
++
++#[test]
++fn verify_empty_slice_returns_whatever_genesis_was_passed() {
++    // The empty case echoes the starting digest, whatever it is. It does not
++    // depend on the lane or run id used to derive it.
++    let g: Digest = Digest([7u8; 32]);
++    assert!(matches!(Ledger::verify(g, &[]), Ok(head) if head == g));
++
++    let clean = genesis(Lane::CleanRoom, "run-empty");
++    assert!(matches!(Ledger::verify(clean, &[]), Ok(head) if head == clean));
++}
++
++#[test]
++fn verify_empty_slice_is_not_a_chain_error() {
++    let g = genesis(Lane::Main, "run-empty");
++    assert!(!matches!(Ledger::verify(g, &[]), Err(LedgerError::Chain)));
++}

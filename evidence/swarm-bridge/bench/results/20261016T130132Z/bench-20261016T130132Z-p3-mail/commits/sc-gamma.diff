@@ -1,0 +1,27 @@
+diff --git a/crates/crumbs/tests/ledger_verify_empty.rs b/crates/crumbs/tests/ledger_verify_empty.rs
+new file mode 100644
+index 0000000..15b3cc4
+--- /dev/null
++++ b/crates/crumbs/tests/ledger_verify_empty.rs
+@@ -0,0 +1,21 @@
++//! Contract for `Ledger::verify` on an empty record slice, as settled by beta's
++//! answer [A1] to alpha's question [Q1]:
++//!
++//! "For an empty record slice, Ledger::verify returns Ok with the genesis digest
++//! passed in, since the loop never runs and the starting head is returned
++//! unchanged. If the chain is broken, meaning a record's prev_root does not match
++//! the running head or its recomputed root does not match its stored root, it
++//! returns Err(LedgerError::Chain) at the first bad record and stops checking. On
++//! success for a non-empty slice, it returns Ok with the root of the last record."
++
++use crumbs::ledger::{genesis, Ledger};
++use crumbs::provenance::Lane;
++
++#[test]
++fn verify_empty_slice_returns_passed_genesis() {
++    let main = genesis(Lane::Main, "run-empty");
++    assert_eq!(Ledger::verify(main, &[]), Ok(main));
++
++    let clean = genesis(Lane::CleanRoom, "run-empty");
++    assert_eq!(Ledger::verify(clean, &[]), Ok(clean));
++}
