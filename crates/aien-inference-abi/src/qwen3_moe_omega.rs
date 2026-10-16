@@ -3326,6 +3326,9 @@ pub struct Qwen3MoeOmegaEngine {
     head_hidden: Option<Vec<f32>>,
     /// The logits `ForwardPass::next` lends out (the last head read).
     head_logits: Vec<f32>,
+    /// The cache was lent through `ForwardPass::kv` since the last forward call: the mirror's
+    /// tokens are taken from the ledger at the next one.
+    kv_lent: bool,
 }
 
 impl Qwen3MoeOmegaEngine {
@@ -3354,6 +3357,7 @@ impl Qwen3MoeOmegaEngine {
             whole_prompt: None,
             head_hidden: None,
             head_logits: Vec::new(),
+            kv_lent: false,
         }
     }
 

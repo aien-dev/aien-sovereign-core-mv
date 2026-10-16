@@ -58,3 +58,12 @@ failures:
 test result: FAILED. 3 passed; 4 failed; 0 ignored; 0 measured; 227 filtered out; finished in 4.49s
 
 error: test failed, to rerun pass `-p aien-inference-abi --lib`
+
+## Review fix (SHOULD 2): equal-length import through kv() left the mirror claiming old tokens
+Red, 2026-10-15: with `kv()` not marking the cache lent (`self.kv_lent = false`), the case
+"a different sequence of the same length imported over the mirror's own" fails:
+test qwen3_moe_omega::forward_pass::tests::the_mirror_resyncs_after_a_restore_and_refuses_a_position_the_cache_does_not_hold ... FAILED
+  panicked at crates/aien-inference-abi/src/qwen3_moe_omega/forward_pass/tests.rs:289:5
+  (assert!(g.history()[..h.len()].iter().all(|&x| x == UNSEEN)))
+test result: FAILED. 6 passed; 1 failed (filter qwen3_moe_omega::forward_pass)
+Green with `kv_lent = true`: 33 passed; 0 failed (filter generation qwen3_moe_omega::forward_pass).

@@ -54,7 +54,10 @@ fn the_30b_adapter_keeps_the_forward_pass_contract() {
 #[test]
 fn moved_tests_run_on_the_tiny_moe() {
     let o = moved_prefix_reuse(&|| tiny(CTX));
-    assert!(o.prefill_timing.launches > 0);
+    // The warm turn prefilled only its 3 new tokens: as many launches as a cold 3-token prefill.
+    let mut c = GenerationController::new(tiny(CTX));
+    let (_, cold3) = gen(&mut c, &[5, 6, 7], &greedy(1), None).unwrap();
+    assert_eq!(o.prefill_timing.launches, cold3.prefill_timing.launches);
     moved_stops_caps_and_cancels(&|| tiny(CTX));
     moved_restored_prefix(&|| tiny(CTX), &tiny_chunk3);
     moved_failed_restore(&|| tiny(CTX));
@@ -198,6 +201,15 @@ fn dual_run(make: &dyn Fn() -> Qwen3MoeOmegaEngine, label: &str) {
             let b = new_turn(&mut new, &p3, &params, path);
             assert_eq!(b.1.reused_prompt_tokens, 9);
             assert_same(&format!("{what} rewind"), &mut old, &mut new, a, b);
+            // A stop id taken from the last reply: consumed, never emitted, in both loops.
+            let stop = new.history()[new.position() - 2];
+            let mut ps = params.clone();
+            ps.stop_token_ids = vec![stop];
+            let mut p5 = new.history().to_vec();
+            p5.push(1);
+            let a = old_turn(&mut old, &p5, &ps, path);
+            let b = new_turn(&mut new, &p5, &ps, path);
+            assert_same(&format!("{what} stop"), &mut old, &mut new, a, b);
             // Restored: the parked prefix into fresh engines, the old one through its own
             // restore_kv, the new one through the controller (the mirror resync case of I1).
             let h = new.history().to_vec();
@@ -265,6 +277,23 @@ fn the_mirror_resyncs_after_a_restore_and_refuses_a_position_the_cache_does_not_
     assert!(f.decode(7, &[1], &mut t).is_err(), "a gap");
     f.decode(6, &[1], &mut t).unwrap();
     assert_eq!((f.position(), f.history().len()), (7, 7));
+
+    // A different sequence of the same length imported over the mirror's own: without a
+    // ledger the mirror no longer claims its old tokens; with one it takes the ledger's.
+    let other = prompt(h.len(), 9);
+    let mut g = tiny(CTX);
+    g.prefill(0, &other, &mut t).unwrap();
+    g.kv().truncate(0);
+    g.kv().import_blocks(0, h.len(), &bytes).unwrap().unwrap();
+    g.decode(h.len(), &[1], &mut t).unwrap();
+    assert!(g.history()[..h.len()].iter().all(|&x| x == UNSEEN));
+    let mut g = tiny(CTX);
+    g.prefill(0, &other, &mut t).unwrap();
+    g.kv().truncate(0);
+    g.kv().import_blocks(0, h.len(), &bytes).unwrap().unwrap();
+    g.mirror_ledger(&h);
+    g.decode(h.len(), &[1], &mut t).unwrap();
+    assert_eq!(&g.history()[..h.len()], &h[..]);
 }
 
 #[test]
@@ -333,6 +362,33 @@ fn kv_identity_names_every_switch_and_mutants_and_tracing_refuse() {
     assert_eq!(
         changed(&|e| e.kv = Box::new(HostKv::new(&KvGeometry::from(&c), 32))),
         ["attention_path"]
+    );
+    type ConfigFlip = dyn Fn(&mut Qwen3MoeConfig);
+    // Every config field that reaches a K/V byte moves its own entry; the stop ids do not.
+    let cfg: [(&str, &ConfigFlip); 13] = [
+        ("layers", &|c| c.layers += 1),
+        ("hidden", &|c| c.hidden += 1),
+        ("q_heads", &|c| c.q_heads += 1),
+        ("kv_heads", &|c| c.kv_heads += 1),
+        ("head_dim", &|c| c.head_dim += 1),
+        ("experts", &|c| c.experts += 1),
+        ("top_k", &|c| c.top_k += 1),
+        ("moe_intermediate", &|c| c.moe_intermediate += 1),
+        ("vocab", &|c| c.vocab += 1),
+        ("rms_eps", &|c| c.rms_eps *= 2.0),
+        ("rope_theta", &|c| c.rope_theta *= 2.0),
+        ("norm_topk_prob", &|c| c.norm_topk_prob ^= true),
+        ("tie_word_embeddings", &|c| c.tie_word_embeddings ^= true),
+    ];
+    for (name, f) in cfg {
+        assert_eq!(changed(&|e| f(&mut e.weights.config)), [name]);
+    }
+    let mut s = tiny(32);
+    s.weights.config.eos_token_ids.push(7);
+    assert_eq!(
+        s.kv_identity().unwrap(),
+        base,
+        "stop ids change no K/V byte"
     );
     let mut m = tiny(32);
     m.routing_mutant = true;
