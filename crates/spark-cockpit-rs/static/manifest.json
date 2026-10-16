@@ -1,11 +1,11 @@
 {
-  "name": "AIEN Sovereign Cockpit",
-  "short_name": "AIEN",
-  "description": "Universal Sovereign Agent Cockpit for NVIDIA DGX Spark",
+  "name": "ALLEN harness",
+  "short_name": "ALLEN",
+  "description": "The ALLEN harness on the Spark: chat, goals, approvals, artifacts and the judge's verdict",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#07090e",
-  "theme_color": "#00f0ff",
+  "background_color": "#141311",
+  "theme_color": "#f2a93b",
   "orientation": "any",
   "icons": [
     {
