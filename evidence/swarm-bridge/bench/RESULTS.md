@@ -1,6 +1,6 @@
 # Paired benchmark results (sc#587)
 
-Measured against `RULE.md` (committed in d4e37d9 before any run). Comparison is only against our
+Measured against `RULE.md` (its commit, "paired benchmark rule, committed before measurement", precedes every bench run and result on this branch). Comparison is only against our
 own pre-board flow (agent-mail + crumb whisper/sniff + scripted orchestrator relay).
 
 - Counted run: `results/20261016T130132Z/` (3 pairs, order alternated: pair 1 mail then board,
@@ -24,7 +24,7 @@ own pre-board flow (agent-mail + crumb whisper/sniff + scripted orchestrator rel
 over the 107-byte Unix socket limit. The board refused the watcher with `SocketPathTooLong`, so
 beta's `swarm-bridge watch` exited with that error on both tries and beta never answered. Gamma
 still received Q1 through its hook (hooks do not use wake sockets). demo-1 had passed only
-because its run name was shorter. Fixes in 65dc9b9: `watch` now falls back to polling the
+because its run name was shorter. Fixes in the commit "watch polls when no wake can be armed": `watch` now falls back to polling the
 cursor every 250 ms when no wake can be armed and says why (red-before-green test in
 `tests/processes.rs`), and the harness keeps board roots short (`demo/b/<12 hex>`, length
 checked). The attempt was stopped after its second board run; its partial pair 2 mail run was
