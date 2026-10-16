@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "matcher": "", "hooks": [ { "type": "command", "command": "\"${SWARM_BRIDGE_BIN:-swarm-bridge}\" hook", "timeout": 10 } ] }
+    ],
+    "SubagentStart": [
+      { "matcher": "", "hooks": [ { "type": "command", "command": "\"${SWARM_BRIDGE_BIN:-swarm-bridge}\" hook", "timeout": 10 } ] }
+    ],
+    "UserPromptSubmit": [
+      { "matcher": "", "hooks": [ { "type": "command", "command": "\"${SWARM_BRIDGE_BIN:-swarm-bridge}\" hook", "timeout": 10 } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "*", "hooks": [ { "type": "command", "command": "\"${SWARM_BRIDGE_BIN:-swarm-bridge}\" hook", "timeout": 10 } ] }
+    ]
+  }
+}

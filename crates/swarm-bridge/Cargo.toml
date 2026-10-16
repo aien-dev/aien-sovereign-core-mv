@@ -1,0 +1,21 @@
+[package]
+name = "swarm-bridge"
+description = "Thin live bridge: delivers subscribed swarm-board events into running Claude Code sessions at their next hook boundary"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+libc = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[[bin]]
+name = "swarm-bridge"
+path = "src/main.rs"
+
+[lib]
+name = "swarm_bridge"
+path = "src/lib.rs"

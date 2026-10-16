@@ -58,6 +58,7 @@ members = [
     "crates/aien-kv-bench",
     "crates/aien-omegese-constraint",
     "crates/aien-localhttp",
+    "crates/swarm-bridge",
 ]
 
 [workspace.package]

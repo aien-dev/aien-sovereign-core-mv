@@ -1,0 +1,9 @@
+The subagent's report, verbatim:
+
+> The echo command ran and printed `sub`.
+>
+> Before I ran any tool, I could see one line containing the probe token: `SubagentStart hook additional context: PROBE-TOKEN-7731 from SubagentStart`.
+>
+> After the command ran, a second hook message also carried the token: `PostToolUse:Bash hook additional context: PROBE-TOKEN-7731 from PostToolUse`. It said two memory and documentation connectors, cortex and greptile, failed to connect this session. I have not checked that myself. If you need them, they may need a retry.
+>
+> agentId: a0e4ce21ef526f4e3 (use SendMessage with to: 'a0e4ce21ef526f4e3', summary: '<5-10 word recap>' to continue this agent)

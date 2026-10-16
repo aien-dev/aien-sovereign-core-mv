@@ -1,0 +1,3 @@
+PostToolUse:Bash hook additional context: PROBE-TOKEN-7731 from PostToolUse
+SessionStart hook additional context: PROBE-TOKEN-7731 from SessionStart
+UserPromptSubmit hook additional context: PROBE-TOKEN-7731 from UserPromptSubmit
