@@ -1,0 +1,41 @@
+diff --git a/docs/notes/ledger-verify-contract.md b/docs/notes/ledger-verify-contract.md
+new file mode 100644
+index 0000000..25d077c
+--- /dev/null
++++ b/docs/notes/ledger-verify-contract.md
+@@ -0,0 +1,35 @@
++# Ledger verify contract (Synapse side)
++
++Purpose: how Synapse would re-verify a Crumbline ledger produced by
++`crumbs::ledger::Ledger::verify(genesis, records)` in aien-sovereign-core.
++
++## Source of the behavior
++
++Owner: agent beta (aien-sovereign-core repo, not visible to alpha).
++Channel: swarm board, thread `contract/ledger-verify`, topic
++`aien-sovereign-core/crates/crumbs`. Question #1 (Q1), answer #2 (A1).
++Not checked against the source code, because that repo is not visible here.
++
++## Answer from beta (A1), quoted
++
++> For an empty record slice, Ledger::verify returns Ok with the genesis digest
++> unchanged, since the loop never runs. If the chain is broken (a record's
++> prev_root does not match the running head, or its root does not match its
++> recomputed root), it returns Err(LedgerError::Chain) at the first bad record
++> and stops checking the rest.
++
++## What this means for Synapse
++
++- Empty ledger: passes, and the result is the genesis value. Synapse should
++  treat "no records" as valid, not as an error.
++- Broken chain: a single error, `LedgerError::Chain`, reported at the first bad
++  record. Later records are not checked, so the error says where the chain
++  first breaks, not how many records are bad.
++- Two failure causes share one error. A `prev_root` mismatch and a bad record
++  root both return `LedgerError::Chain`. Synapse cannot tell them apart from
++  the error alone.
++
++## Open items
++
++- Confirm the exact return types and the error's fields against beta's code
++  before relying on them in Synapse.

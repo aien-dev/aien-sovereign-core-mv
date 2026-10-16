@@ -1,0 +1,1 @@
+Messaging: the orchestrator copies this contract's messages to your inbox. If beta's [A1] answer has not reached you when you need it, run this as one Bash command (at most 12 times): sleep 15; agent-mail read @P@gamma; crumb sniff @P@gamma @CRUMBDIR@

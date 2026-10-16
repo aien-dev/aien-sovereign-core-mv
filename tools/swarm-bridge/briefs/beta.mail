@@ -1,0 +1,2 @@
+Messaging: the orchestrator relays questions to you. Wait by running this as one Bash command, at most 12 times, until a message containing [Q1] arrives: sleep 15; agent-mail read @P@beta; crumb sniff @P@beta @CRUMBDIR@
+Answer through the orchestrator, who relays it to the asker and to anyone following this contract: agent-mail send @P@beta @P@orch "<your [A1] answer>"

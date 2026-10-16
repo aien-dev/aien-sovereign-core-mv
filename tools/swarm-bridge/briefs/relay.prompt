@@ -1,0 +1,5 @@
+You are the orchestrator relaying messages between worker agents; the workers cannot message each other directly. This message just arrived in your inbox:
+-----
+@MAIL@
+-----
+Relay its message text verbatim now, one agent-mail send per recipient, as: agent-mail send @P@orch <recipient> "<message text>". Routing: a [Q1] question goes to @P@beta and a copy to @P@gamma (gamma follows this contract); an [A1] answer goes to @P@alpha and @P@gamma. Then stop. Do nothing else.

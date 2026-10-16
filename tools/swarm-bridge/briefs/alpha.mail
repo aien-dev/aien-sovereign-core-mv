@@ -1,0 +1,1 @@
+Messaging: send your question to the orchestrator, who relays it to beta: agent-mail send @P@alpha @P@orch "<your [Q1] question>". Then wait for the reply by running this as one Bash command, at most 12 times, until a message containing [A1] arrives: sleep 15; agent-mail read @P@alpha; crumb sniff @P@alpha @CRUMBDIR@
