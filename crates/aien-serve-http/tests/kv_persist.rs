@@ -17,7 +17,7 @@ use aien_inference_abi::qwen3_moe_omega::{host_test_engine, OmegaEngine, WeightF
 use aien_serve_http::codec::ByteCodec;
 use aien_serve_http::engine::{Engine, GenerateParams};
 use aien_serve_http::kv_persist::{self, OmegaBuild, PersistState};
-use aien_serve_http::omega_engine::OmegaDoor;
+use aien_serve_http::omega_engine::{GpuLock, OmegaDoor};
 use aien_serve_http::sampling::sample_next;
 use aien_serve_http::server::{serve, serve_until, ServerConfig};
 
@@ -119,7 +119,17 @@ fn door(scratch: &Scratch, s: &Setup) -> (OmegaDoor, String) {
 
 /// [`door`] with the store's test-only stall (`AIEN_KV_TEST_FAULT`, sc#507).
 fn door_with_fault(scratch: &Scratch, s: &Setup, fault: Option<&str>) -> (OmegaDoor, String) {
-    let mut d = OmegaDoor::from_parts(engine(s.weights), scratch.lock(), Duration::from_secs(5));
+    door_at(scratch, s, fault, Duration::from_secs(5))
+}
+
+/// [`door_with_fault`] whose generations wait `lock_wait` for the GPU lock.
+fn door_at(
+    scratch: &Scratch,
+    s: &Setup,
+    fault: Option<&str>,
+    lock_wait: Duration,
+) -> (OmegaDoor, String) {
+    let mut d = OmegaDoor::from_parts(engine(s.weights), scratch.lock(), lock_wait);
     let vars: HashMap<String, String> = s.store_vars.iter().cloned().collect();
     let settings =
         kv_persist::settings_from_lookup(|n| vars.get(n).cloned()).expect("store dir is set");
@@ -990,4 +1000,29 @@ fn a_refused_park_counts_the_chunks_it_drops() {
         (Some(1), Some(1), Some(chunks - 2)),
         "every chunk of the turn is accounted for: {v}"
     );
+}
+
+/// sc#523 item 5: a prefix loaded from the store but never imported because the GPU lock stayed
+/// busy is counted as a restore miss (`gpu-lock-busy`), not lost from the counters.
+#[test]
+fn a_fetched_prefix_left_unused_by_a_busy_gpu_lock_is_a_miss() {
+    let scratch = Scratch::new("lockbusy");
+    let s = Setup::new(&scratch.store(), &gen_key());
+    let (_, h1) = park_turn1(&scratch, &s);
+    let (b, _) = door_at(&scratch, &s, None, Duration::from_millis(200));
+    let held = GpuLock::acquire_at(&scratch.lock(), Duration::from_secs(1)).unwrap();
+    let r = b.generate(&prompt2(&h1), &greedy(6), &mut |_| true);
+    assert!(
+        r.is_err(),
+        "the door must answer busy while the lock is held"
+    );
+    let c = counters(&b);
+    assert_eq!(
+        (c.restores, c.restore_misses.get("gpu-lock-busy").copied()),
+        (0, Some(1)),
+        "{c:?}"
+    );
+    drop(held);
+    assert_eq!(turn(&b, &prompt2(&h1)), plain_turn2(&scratch, &h1));
+    assert_eq!(counters(&b).restores, 1, "the store still serves");
 }

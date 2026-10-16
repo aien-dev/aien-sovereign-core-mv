@@ -1113,6 +1113,12 @@ impl KvPersistence {
         self.miss("import");
     }
 
+    /// Counts a fetched prefix never imported because the GPU lock stayed busy (the request was
+    /// answered busy; sc#523).
+    pub fn note_lock_busy(&self) {
+        self.miss("gpu-lock-busy");
+    }
+
     /// Under the GPU lock, after a generation: exports the chunks of the engine's history that
     /// the store does not hold. Submitting them is [`Self::submit`], after the lock is released.
     pub fn snapshot(&self, e: &mut Qwen3MoeOmegaEngine) -> Vec<ParkItem> {
