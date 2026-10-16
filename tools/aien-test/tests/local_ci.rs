@@ -1571,7 +1571,7 @@ fn poll_gh(w: &World, pulls: &str, main: &str) -> PathBuf {
     fs::write(
         &fake,
         format!(
-            "#!/bin/sh\nroot={}\necho \"$@\" >> \"$root/gh.log\"\ncase \"$2\" in *pulls*) cat \"$root/pulls.txt\";; *commits/main*) cat \"$root/main.txt\";; esac\nexit 0\n",
+            "#!/bin/sh\nroot={}\necho \"$@\" >> \"$root/gh.log\"\ncase \"$2\" in graphql) cat \"$root/probe.txt\" 2>/dev/null;; *pulls*) cat \"$root/pulls.txt\";; *commits/main*) cat \"$root/main.txt\";; esac\nexit 0\n",
             r.display()
         ),
     )
@@ -1697,4 +1697,47 @@ fn cold_and_priming_refuse_outside_the_user_sandbox() {
     assert!(e.contains("is not the polled main head"), "{e}");
     let e = worker::prime_once(&cfg, "../x", &w.base, &w.base, &mut never).unwrap_err();
     assert!(e.contains("refusing to prime"), "{e}");
+}
+
+#[test]
+fn one_probe_call_serves_the_loop_and_a_partial_probe_falls_back_to_rest() {
+    let w = world();
+    // REST would offer nothing new; only the probe names the labeled head.
+    let fake = poll_gh(&w, "", &w.base);
+    fs::write(
+        w.state.root.join("probe.txt"),
+        format!("r0 main {}\nr0 pr {} true\n", w.base, w.head),
+    )
+    .unwrap();
+    let mut cfg = w.config();
+    cfg.github = true;
+    cfg.gh = fake.display().to_string();
+    cfg.repos = vec![REPO.to_string()];
+    cfg.poll = std::time::Duration::from_secs(1);
+    let served = worker::run_loop(&cfg, Some(1));
+    assert_eq!(served, 1, "the labeled head from the probe ran");
+    let log = fs::read_to_string(w.state.root.join("gh.log")).unwrap();
+    assert!(log.contains("api graphql"), "{log}");
+    assert!(
+        !log.contains("pulls") && !log.contains("commits/main"),
+        "no per-repository REST call when the probe answered: {log}"
+    );
+    // A probe answer without the main line never reads as "no pull
+    // requests": that repository is polled per repository instead.
+    fs::write(
+        w.state.root.join("probe.txt"),
+        format!("r0 pr {} true\n", w.head_h),
+    )
+    .unwrap();
+    fs::remove_file(w.state.root.join("gh.log")).unwrap();
+    worker::run_loop(&cfg, Some(1));
+    let log = fs::read_to_string(w.state.root.join("gh.log")).unwrap();
+    assert!(
+        log.contains("pulls") && log.contains("commits/main"),
+        "{log}"
+    );
+    assert!(
+        !cfg.state.bundle_path(REPO, &w.head_h).exists(),
+        "a head only a partial probe named was not trusted"
+    );
 }

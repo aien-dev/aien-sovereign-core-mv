@@ -233,9 +233,10 @@ pub struct Config {
     pub jobs: JobsSpec,
     /// `--no-cache`: run every selected gate, reuse no receipt.
     pub no_cache: bool,
-    /// Ceiling of the backed-off poll interval (`--poll-cap`, default 900 s).
-    pub poll_cap: Duration,
-    /// Nothing moved for this long before the poll backs off (`--quiet-after`).
+    /// Ceiling of the backed-off retry interval (`--backoff-cap`, default 900 s).
+    pub backoff_cap: Duration,
+    /// Nothing moved for this long before retries back off and QUIET-SINCE is
+    /// written (`--quiet-after`).
     pub quiet_after: Duration,
     /// `--cold`: wipe the pr class target dir before the run (cold-equals-warm
     /// proof); the bundle then says `target.cold`.
@@ -243,6 +244,11 @@ pub struct Config {
     /// The operator's prime map (`tools/aien-local-ci/prime`, beside the
     /// sibling map): what warm standby builds. None: no priming.
     pub prime: Option<PathBuf>,
+    /// Per-repository target dir quota in KiB (main + pr; `--target-quota-gb`,
+    /// default 120 GiB like gc.sh). Priming never goes past it.
+    pub target_quota_kb: u64,
+    /// Free space the filesystem keeps in KiB (`--disk-floor-gb`, default 50).
+    pub disk_floor_kb: u64,
     /// What this loop round already fetched and synced (shared by clones of
     /// this config; cleared at the start of every round).
     pub memo: Arc<Mutex<RoundMemo>>,
@@ -271,10 +277,12 @@ impl Config {
             siblings: None,
             jobs: JobsSpec::default(),
             no_cache: false,
-            poll_cap: idle::DEFAULT_POLL_CAP,
+            backoff_cap: idle::DEFAULT_BACKOFF_CAP,
             quiet_after: idle::DEFAULT_QUIET_AFTER,
             cold: false,
             prime: None,
+            target_quota_kb: idle::DEFAULT_TARGET_QUOTA_KB,
+            disk_floor_kb: idle::DEFAULT_DISK_FLOOR_KB,
             memo: Arc::new(Mutex::new(RoundMemo::default())),
         }
     }
@@ -1511,6 +1519,71 @@ pub fn github_poll(gh: &str, repository: &str) -> Result<Polled, String> {
     })
 }
 
+/// The cheap change check: ONE GraphQL call for every repository (open pull
+/// request heads with the merge label, and main). Entry `i` answers
+/// `repositories[i]`; None for a repository the answer did not cover (the
+/// caller polls that one per repository). Err: the call itself failed.
+pub fn github_probe(gh: &str, repositories: &[String]) -> Result<Vec<Option<Polled>>, String> {
+    let pairs: Vec<(String, String)> = repositories
+        .iter()
+        .map(|r| {
+            owner_repo(r)
+                .and_then(|or| {
+                    or.split_once('/')
+                        .map(|(o, n)| (o.to_string(), n.to_string()))
+                })
+                .ok_or_else(|| format!("bad repository name {r:?}"))
+        })
+        .collect::<Result<_, _>>()?;
+    let query = idle::probe_query(&pairs).ok_or("repository name not safe for the probe")?;
+    let mut cmd = Command::new(gh);
+    cmd.args([
+        "api",
+        "graphql",
+        "-f",
+        &format!("query={query}"),
+        "--jq",
+        &idle::probe_jq(),
+    ]);
+    let out = process::output_gated(&mut cmd).map_err(|e| format!("cannot run {gh}: {e}"))?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    Ok(idle::parse_probe(
+        &String::from_utf8_lossy(&out.stdout),
+        repositories.len(),
+    ))
+}
+
+/// Every repository's poll: the probe first, the per-repository REST poll
+/// only for what the probe did not cover. Each entry is `(repo, result)`.
+pub fn poll_all(cfg: &Config) -> Vec<(String, Result<Polled, String>)> {
+    let names: Vec<String> = cfg
+        .repos
+        .iter()
+        .map(|r| plan::repository_name(&cfg.clones.join(r), None))
+        .collect();
+    let probed = match github_probe(&cfg.gh, &names) {
+        Ok(p) => p,
+        Err(e) => {
+            println!("GITHUB probe failed: {e} (polling per repository)");
+            vec![None; names.len()]
+        }
+    };
+    cfg.repos
+        .iter()
+        .zip(names)
+        .zip(probed)
+        .map(|((repo, name), p)| {
+            let r = match p {
+                Some(p) => Ok(p),
+                None => github_poll(&cfg.gh, &name),
+            };
+            (repo.clone(), r)
+        })
+        .collect()
+}
+
 /// Open PR heads and the main head of `repo` from GitHub, as shas.
 pub fn github_heads(gh: &str, repository: &str) -> Result<Vec<String>, String> {
     let p = github_poll(gh, repository)?;
@@ -1528,11 +1601,15 @@ pub fn quiet_raised() -> Option<String> {
     (!q.starts_with("clear")).then_some(q)
 }
 
-/// The loop: flush the outbox, serve trigger files, poll GitHub when asked,
-/// run what is new (labeled heads first), prime the pr target dir from main
-/// when nothing else waits, then sleep the backed-off interval in slices that
-/// wake on WAKE, PAUSE removal or a trigger file. `iterations` bounds the
-/// rounds (None: forever). Returns the number of heads served.
+/// The loop: flush the outbox, serve trigger files, probe GitHub when asked
+/// (one GraphQL call for all repositories, every `cfg.poll`, never backed
+/// off), run what is new (labeled heads first), prime the pr target dir from
+/// main when nothing else waits, then sleep `cfg.poll` in slices that wake on
+/// WAKE, PAUSE removal or a trigger file. Only the expensive work backs off:
+/// retrying heads that failed to run (fetch, sibling sync) waits the backed-off
+/// interval, and cron-tick thins pipeline rounds while QUIET-SINCE is old.
+/// `iterations` bounds the rounds (None: forever). Returns the number of heads
+/// served.
 ///
 /// Activity (resets the poll to `cfg.poll`, removes QUIET-SINCE): a trigger
 /// file, a poll that differs from the previous one for a repository (new
@@ -1542,12 +1619,17 @@ pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
     let mut served = 0;
     let mut round = 0u64;
     let root = cfg.state.root.clone();
-    let mut backoff =
-        idle::Backoff::new(cfg.poll, cfg.poll_cap, cfg.quiet_after, SystemTime::now());
+    let mut backoff = idle::Backoff::new(
+        cfg.poll,
+        cfg.backoff_cap,
+        cfg.quiet_after,
+        SystemTime::now(),
+    );
     let mut watch = idle::WakeWatch::new(&root);
     let mut seen: BTreeMap<String, Polled> = BTreeMap::new();
     let mut errored: BTreeSet<(String, String)> = BTreeSet::new();
     let mut prime_failed: BTreeSet<(String, String)> = BTreeSet::new();
+    let mut last_retry = std::time::Instant::now();
     if cfg.github {
         idle::remove_quiet_since(&root);
     }
@@ -1575,9 +1657,9 @@ pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
         let mut mains: BTreeMap<String, String> = BTreeMap::new();
         if cfg.github {
             let mut new: Vec<(String, PrHead)> = Vec::new();
-            for repo in &cfg.repos {
-                let repository = plan::repository_name(&cfg.clones.join(repo), None);
-                match github_poll(&cfg.gh, &repository) {
+            for (repo, polled) in poll_all(cfg) {
+                let repo = &repo;
+                match polled {
                     Ok(p) => {
                         activity |= idle::moved(seen.get(repo), &p);
                         let mut all = p.prs.clone();
@@ -1611,6 +1693,16 @@ pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
                     heads.push((repo, h.sha, None));
                 }
             }
+        }
+        // A head that already failed to run is retried only once the backed-off
+        // interval has passed (a retry is a fetch and a sibling sync); the cheap
+        // probe above runs every round regardless.
+        let retry_due = last_retry.elapsed() >= backoff.interval();
+        heads.retain(|(r, s, t)| {
+            t.is_some() || retry_due || !errored.contains(&(r.clone(), s.clone()))
+        });
+        if retry_due {
+            last_retry = std::time::Instant::now();
         }
         let had_work = !heads.is_empty();
         for (repo, sha, trigger) in heads {
@@ -1670,7 +1762,9 @@ pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
         if iterations.is_some_and(|n| round >= n) {
             break;
         }
-        if let Some(why) = sliced_sleep(cfg, backoff.interval(), &mut watch) {
+        // The probe is cheap, so it runs every `cfg.poll`, quiet or not: a new
+        // head or label is seen within one poll. Only retries back off.
+        if let Some(why) = sliced_sleep(cfg, cfg.poll, &mut watch) {
             println!("WAKE {why}");
             backoff.activity(SystemTime::now());
             if cfg.github {
@@ -1747,13 +1841,19 @@ fn prime_pending(
         let (word, why) = match &outcome {
             Ok(PrimeOutcome::Warm) => ("warm", None),
             Ok(PrimeOutcome::Interrupted(w)) => ("interrupted", Some(w.clone())),
+            Ok(PrimeOutcome::Cold(_)) => {
+                failed.insert(key);
+                ("cold", None)
+            }
             Ok(PrimeOutcome::Failed(_)) | Err(_) => {
                 failed.insert(key);
                 ("failed", None)
             }
         };
         let detail = match &outcome {
-            Ok(PrimeOutcome::Failed(d)) | Ok(PrimeOutcome::Interrupted(d)) => d.clone(),
+            Ok(PrimeOutcome::Failed(d))
+            | Ok(PrimeOutcome::Interrupted(d))
+            | Ok(PrimeOutcome::Cold(d)) => d.clone(),
             Err(e) => e.clone(),
             _ => String::new(),
         };
@@ -1793,15 +1893,16 @@ fn prime_stop(cfg: &Config, watch: &mut idle::WakeWatch) -> Option<String> {
     let now = now_secs();
     if now.saturating_sub(LAST_POLL.with(|c| c.get())) >= 60 {
         LAST_POLL.with(|c| c.set(now));
-        for repo in &cfg.repos {
-            let repository = plan::repository_name(&cfg.clones.join(repo), None);
-            if let Ok(shas) = github_heads(&cfg.gh, &repository) {
-                if let Some(s) = shas
-                    .iter()
-                    .find(|s| !cfg.state.bundle_path(repo, s).exists())
-                {
-                    return Some(format!("new head {repo} {s}"));
-                }
+        for (repo, polled) in poll_all(cfg) {
+            let Ok(p) = polled else { continue };
+            if let Some(s) = p
+                .prs
+                .iter()
+                .map(|h| &h.sha)
+                .chain(p.main.iter())
+                .find(|s| !cfg.state.bundle_path(&repo, s).exists())
+            {
+                return Some(format!("new head {repo} {s}"));
             }
         }
     }
@@ -1817,6 +1918,9 @@ pub enum PrimeOutcome {
     Interrupted(String),
     /// A prime line failed (no record).
     Failed(String),
+    /// The disk bound refused priming (pr left as it is) or stopped it (pr
+    /// emptied); no record: runs are not warm until space is freed.
+    Cold(String),
 }
 
 /// Warm standby for one repository: check out `sha` (which must be the main
@@ -1868,11 +1972,63 @@ pub fn prime_once(
             return Err(format!("{sha} is not on {}: never primed", cfg.base_ref));
         }
         idle::clear_warm(&cfg.state.root, repo);
+        // The target dir lock (shared with the gates that build there) is held
+        // for the disk decision, any eviction and every prime line.
+        let _lock = match lock_target_wait(cfg, &target, &mut || stop(cfg))? {
+            Ok(l) => l,
+            Err(why) => return Ok(PrimeOutcome::Interrupted(why)),
+        };
+        let d = disk_now(cfg, repo, &co.wt)?;
+        let before = format!(
+            "disk before: target {} GiB (pr {} GiB), {} GiB free",
+            d.total >> 20,
+            d.pr >> 20,
+            d.free >> 20
+        );
+        println!("PRIME {repo} {before}");
+        match idle::disk_plan(
+            d.total,
+            d.pr,
+            cfg.target_quota_kb,
+            d.free,
+            cfg.disk_floor_kb,
+        ) {
+            idle::DiskPlan::Prime => {}
+            idle::DiskPlan::WipeThenPrime => {
+                println!("PRIME {repo} {}", wipe_pr_dir_locked(cfg, repo, &co.wt)?);
+            }
+            idle::DiskPlan::NoPrime(why) => {
+                // Emptying pr would not make room for priming; what PR runs
+                // left there is gc.sh's to bound, so it stays as it is.
+                return Ok(PrimeOutcome::Cold(format!("{why}; {before}")));
+            }
+        }
         let log = cfg.state.root.join("warm").join(format!("{repo}.log"));
+        let mut last_du = std::time::Instant::now();
+        let mut disk_stop = || -> Option<String> {
+            // statvfs every ask (no process); the repository total once a minute.
+            if let Ok(free) = free_kb(&cfg.target_root) {
+                if free < cfg.disk_floor_kb {
+                    return idle::disk_over(0, cfg.target_quota_kb, free, cfg.disk_floor_kb);
+                }
+            }
+            if last_du.elapsed() >= Duration::from_secs(60) {
+                last_du = std::time::Instant::now();
+                if let Ok(d) = disk_now(cfg, repo, &co.wt) {
+                    return idle::disk_over(
+                        d.total,
+                        cfg.target_quota_kb,
+                        d.free,
+                        cfg.disk_floor_kb,
+                    );
+                }
+            }
+            None
+        };
         for l in &lines {
             let mut env = sandbox::env_pairs(Some(&target));
             env.extend(l.env.iter().cloned());
-            let mut ask = || stop(cfg);
+            let mut ask = || stop(cfg).or_else(&mut disk_stop);
             match sandbox_exec(&co.wt, "cargo", &l.args, &env, 3600, &log, Some(&mut ask))? {
                 ExecEnd::Exit(0) => {}
                 ExecEnd::Exit(rc) => {
@@ -1882,8 +2038,28 @@ pub fn prime_once(
                         log.display()
                     )))
                 }
+                ExecEnd::Stopped(why) if why.starts_with("disk:") => {
+                    // Fail closed: never leave a half-primed dir past the bound.
+                    println!("PRIME {repo} {}", wipe_pr_dir_locked(cfg, repo, &co.wt)?);
+                    return Ok(PrimeOutcome::Cold(why));
+                }
                 ExecEnd::Stopped(why) => return Ok(PrimeOutcome::Interrupted(why)),
             }
+        }
+        let d = disk_now(cfg, repo, &co.wt)?;
+        let after = format!(
+            "disk after: target {} GiB (pr {} GiB), {} GiB free",
+            d.total >> 20,
+            d.pr >> 20,
+            d.free >> 20
+        );
+        println!("PRIME {repo} {after}");
+        if let Some(why) = idle::disk_over(d.total, cfg.target_quota_kb, d.free, cfg.disk_floor_kb)
+        {
+            println!("PRIME {repo} {}", wipe_pr_dir_locked(cfg, repo, &co.wt)?);
+            return Ok(PrimeOutcome::Cold(format!(
+                "{why} after priming; {before}; {after}"
+            )));
         }
         idle::write_warm(
             &cfg.state.root,
@@ -1983,6 +2159,129 @@ pub fn wipe_pr_target(cfg: &Config, repo: &str, cwd: &Path) -> Result<String, St
         return Err("emptying the pr class dir needs --sandbox user".to_string());
     }
     let dir = target_dir_for(cfg, repo, false).ok_or("no pr class target dir")?;
+    // Waits for whatever builds there now (an operator action: no stop).
+    let _lock = lock_target_wait(cfg, &dir, &mut || None)?
+        .map_err(|w| format!("target lock not taken: {w}"))?;
+    wipe_pr_dir_locked(cfg, repo, cwd)
+}
+
+/// The target dir flock for `dir` (`<state>/locks/target/<sanitised>.lock`,
+/// the same file the runner locks around a cargo gate). Tries without
+/// blocking every `idle::SLICE` and gives up with `stop`'s reason; the inner
+/// Err is that reason, the outer one an I/O failure. Released on drop; the
+/// descriptor is close-on-exec, so no child inherits it.
+fn lock_target_wait(
+    cfg: &Config,
+    dir: &Path,
+    stop: &mut dyn FnMut() -> Option<String>,
+) -> Result<Result<fs::File, String>, String> {
+    use std::os::fd::AsRawFd;
+    let p = idle::target_lock_path(&cfg.state.root.join("locks").join("target"), dir);
+    if let Some(d) = p.parent() {
+        fs::create_dir_all(d).map_err(|e| format!("cannot create {}: {e}", d.display()))?;
+    }
+    let f = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&p)
+        .map_err(|e| format!("cannot open {}: {e}", p.display()))?;
+    loop {
+        // SAFETY: flock(2) on a descriptor this function owns.
+        if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            return Ok(Ok(f));
+        }
+        let e = std::io::Error::last_os_error();
+        if e.raw_os_error() != Some(libc::EWOULDBLOCK) {
+            return Err(format!("cannot lock {}: {e}", p.display()));
+        }
+        if let Some(why) = stop() {
+            return Ok(Err(why));
+        }
+        cfg.state.beat("-", "-", "wait-target-lock");
+        std::thread::sleep(idle::SLICE);
+    }
+}
+
+/// Disk state of one repository's target dirs, in KiB.
+struct DiskNow {
+    total: u64,
+    pr: u64,
+    free: u64,
+}
+
+/// Free KiB for unprivileged use on the filesystem holding `path`.
+fn free_kb(path: &Path) -> Result<u64, String> {
+    use std::os::unix::ffi::OsStrExt;
+    let c = std::ffi::CString::new(path.as_os_str().as_bytes()).map_err(|e| e.to_string())?;
+    // SAFETY: statvfs(3) into a zeroed struct we own, with a valid C string.
+    let mut s: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(c.as_ptr(), &mut s) } != 0 {
+        return Err(format!(
+            "statvfs {}: {}",
+            path.display(),
+            std::io::Error::last_os_error()
+        ));
+    }
+    Ok((s.f_bavail as u64).saturating_mul(s.f_frsize as u64) / 1024)
+}
+
+/// `du -sk` of `target/<repo>/{pr,main}` from inside the sandbox (aien-run
+/// owns them) plus the filesystem's free space. A dir that does not exist is
+/// 0; one du did not report is an error (never read as empty).
+fn disk_now(cfg: &Config, repo: &str, cwd: &Path) -> Result<DiskNow, String> {
+    let base = cfg.target_root.join(repo);
+    let (pr, main) = (base.join("pr"), base.join("main"));
+    let dirs: Vec<&PathBuf> = [&pr, &main].into_iter().filter(|d| d.exists()).collect();
+    let mut sizes: BTreeMap<String, u64> = BTreeMap::new();
+    if !dirs.is_empty() {
+        let log = cfg.state.root.join("warm").join(format!("{repo}.du.log"));
+        let mut args = vec!["-sk".to_string()];
+        args.extend(dirs.iter().map(|d| d.display().to_string()));
+        // du exits 1 when a file vanished under it (a build running); the
+        // totals it prints are still the sizes, so the exit code is not used.
+        sandbox_exec(
+            cwd,
+            "du",
+            &args,
+            &sandbox::env_pairs(Some(&pr)),
+            600,
+            &log,
+            None,
+        )?;
+        let text =
+            fs::read_to_string(&log).map_err(|e| format!("cannot read {}: {e}", log.display()))?;
+        for l in text.lines() {
+            if let Some((n, p)) = l.split_once('\t') {
+                if let Ok(n) = n.trim().parse::<u64>() {
+                    sizes.insert(p.trim_end_matches('/').to_string(), n);
+                }
+            }
+        }
+        for d in &dirs {
+            if !sizes.contains_key(&d.display().to_string()) {
+                return Err(format!(
+                    "du did not report {} (log {})",
+                    d.display(),
+                    log.display()
+                ));
+            }
+        }
+    }
+    let pr_kb = sizes.get(&pr.display().to_string()).copied().unwrap_or(0);
+    let main_kb = sizes.get(&main.display().to_string()).copied().unwrap_or(0);
+    Ok(DiskNow {
+        total: pr_kb + main_kb,
+        pr: pr_kb,
+        free: free_kb(&cfg.target_root)?,
+    })
+}
+
+/// Empty `target/<repo>/pr` (the caller holds its target lock) and drop the
+/// warm record.
+fn wipe_pr_dir_locked(cfg: &Config, repo: &str, cwd: &Path) -> Result<String, String> {
+    let dir = target_dir_for(cfg, repo, false).ok_or("no pr class target dir")?;
     if dir != cfg.target_root.join(repo).join("pr") {
         return Err(format!("{} is not the pr class dir", dir.display()));
     }
@@ -2080,6 +2379,35 @@ fn target_state(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn target_lock_excludes_a_second_holder_and_gives_up_on_stop() {
+        use std::os::fd::AsRawFd;
+        let d = std::env::temp_dir().join(format!("aien-test-lock-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        let cfg = Config::new(StateDir::new(&d), &d, &d, &d);
+        let dir = Path::new("/var/lib/aien-run/target/r/pr");
+        let held = lock_target_wait(&cfg, dir, &mut || None).unwrap().unwrap();
+        let p = d.join("locks/target/_var_lib_aien-run_target_r_pr.lock");
+        assert!(p.is_file(), "lock file at the shared path");
+        // flock locks belong to the open file: a second open of the same file
+        // (another process, or this one) cannot take it while `held` lives.
+        let mut asked = 0;
+        let r = lock_target_wait(&cfg, dir, &mut || {
+            asked += 1;
+            Some("WAKE touched".to_string())
+        })
+        .unwrap();
+        assert_eq!(r.unwrap_err(), "WAKE touched");
+        assert_eq!(asked, 1);
+        // SAFETY: test-only flock probe on a descriptor we own.
+        assert_eq!(unsafe { libc::flock(held.as_raw_fd(), libc::LOCK_UN) }, 0);
+        drop(held);
+        assert!(lock_target_wait(&cfg, dir, &mut || Some("x".into()))
+            .unwrap()
+            .is_ok());
+        let _ = fs::remove_dir_all(&d);
+    }
 
     #[test]
     fn pin_list_selects_the_repository_and_refuses_bad_lines() {

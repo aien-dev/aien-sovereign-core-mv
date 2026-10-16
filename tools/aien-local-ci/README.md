@@ -225,11 +225,21 @@ Markers, all in `~/.local/state/aien-local-ci/` (the merge train and anything el
 
 Activity (worker): a trigger file, a GitHub poll that differs from the previous one for a repository (new head,
 `ready-to-merge` added or removed, main moved), a head run that had not already failed to run in this loop, a wake.
-Priming is never activity. The worker polls every `--poll` (60 s) while anything moved in the last `--quiet-after`
-(600 s), then doubles per idle round up to `--poll-cap` (900 s). It sleeps in 5 s slices that only stat WAKE, PAUSE
-and the trigger dir and rewrite the heartbeat (no network, no process), so WAKE, PAUSE removal or a trigger file ends
-the sleep within 5 s. Worst-case time from a new label or head on GitHub to the worker seeing it: the current poll
-interval, so up to 900 s in deep quiet; touch WAKE to make it immediate.
+Priming is never activity.
+
+Cheap check vs expensive work. The cheap check never backs off. Every `--poll` (60 s, as installed) the worker makes
+ONE GraphQL call for all enrolled repositories (`gh api graphql`: per repository the main head and up to 50 open pull
+request heads with their labels). A repository the answer does not cover (no main line) is polled the old way (two
+REST calls), and a failed probe polls every repository the old way; a partial answer never reads as "no pull
+requests". Measured on 2026-10-16 for the 11 enrolled repositories (`worker --probe`, 5 runs): about 1.0 s wall and
+0.07 CPU-s (user+sys) per probe, against about 13.4 s wall and 1.4 CPU-s for the 22 REST calls it replaces; at 60 s
+that is about 0.1 % of one core. So a new head or label is seen within one poll (60 s), quiet or not, and its gates
+start in that round. Only the expensive work backs off: retrying a head that already failed to run (a fetch and a
+sibling sync) waits the backed-off interval (60 s, doubling to `--backoff-cap` 900 s once nothing moved for
+`--quiet-after` 600 s), and `cron-tick.sh` thins pipeline rounds while QUIET-SINCE is old. A label seen while quiet
+removes QUIET-SINCE at once, so the next cron tick (at most 2 min) runs the merge round. The worker sleeps in 5 s
+slices that only stat WAKE, PAUSE and the trigger dir and rewrite the heartbeat (no network, no process), so WAKE,
+PAUSE removal or a trigger file ends the sleep within 5 s.
 
 `cron-tick.sh`: the keepalive runs every tick. The round is skipped only while QUIET-SINCE is at least 600 s old,
 the worker heartbeat is younger than 1200 s (a dead or hung worker never silences the pipeline) and the last round
@@ -247,8 +257,23 @@ it checks out that main head (asserted on the base line and equal to the polled 
 each `prime` line through the exec helper, profile `host`, `CARGO_TARGET_DIR=/var/lib/aien-run/target/<repo>/pr`.
 Main is trusted, so its build may seed the lower class; nothing ever writes the `main` class from priming, and a pr
 build never reaches `main`. Every 5 s it checks the trigger dir, WAKE, PAUSE and the quiet flag, and once a minute
-GitHub for a head without a bundle; any of them sends SIGTERM to the helper (its trap stops the scope). Never gb10,
-never QEMU, never a booted VM.
+GitHub (the same one-call probe) for a head without a bundle; any of them sends SIGTERM to the helper (its trap stops
+the scope). Never gb10, never QEMU, never a booted VM.
+
+Disk bound. Priming takes the target dir lock, `<state>/locks/target/<sanitised target dir>.lock` (the flock the
+runner holds around a cargo gate, sc #584). It retries every 5 s and gives up on any stop reason, and never holds the
+GPU or proof locks. Holding it, priming measures `du -sk target/<repo>/{pr,main}` (inside the sandbox, as aien-run)
+and the filesystem's free space, then:
+* total (main + pr) at most `--target-quota-gb` (120, as gc.sh) and at least `--disk-floor-gb` (50) free: prime;
+* over, but main alone fits and emptying pr restores the floor: empty pr (the lowest class, a cache the next run
+  rebuilds), then prime;
+* otherwise (main alone over the quota, or the floor even with pr empty): do not prime, and leave pr as it is (what
+  PR runs put there is gc.sh's to bound). The outcome is `cold` in the journal, that main is not tried again, and no
+  bundle claims warm until space is freed.
+
+While priming, free space is checked every 5 s and the repository total once a minute; going over stops the build,
+empties pr and leaves it cold. After the last line the total is measured again under the same rule. The worker log
+carries the disk before and after (`PRIME <repo> disk before: ...`).
 
 Every bundle carries a signed top-level member `target`: `{"class":"main|pr|unsandboxed","warm":bool,
 "primed_from_main":sha|null,"primed_utc":..,"cold":bool}`. `warm` = the complete record existed and the pr dir was

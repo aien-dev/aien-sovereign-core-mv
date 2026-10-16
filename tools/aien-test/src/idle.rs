@@ -30,15 +30,21 @@ pub const WAKE: &str = "WAKE";
 pub const PAUSE: &str = "PAUSE";
 /// The label the merge pipeline acts on.
 pub const MERGE_LABEL: &str = "ready-to-merge";
-/// Default: nothing moved for this long before the poll starts backing off.
+/// Default: nothing moved for this long before the expensive work backs off.
 pub const DEFAULT_QUIET_AFTER: Duration = Duration::from_secs(600);
-/// Default ceiling of the backed-off poll interval.
-pub const DEFAULT_POLL_CAP: Duration = Duration::from_secs(900);
+/// Default ceiling of the backed-off retry interval (heads that failed to run).
+pub const DEFAULT_BACKOFF_CAP: Duration = Duration::from_secs(900);
 /// The sliced sleep checks the local wake sources this often.
 pub const SLICE: Duration = Duration::from_secs(5);
+/// Default per-repository target dir quota (KiB): 120 GiB, as gc.sh.
+pub const DEFAULT_TARGET_QUOTA_KB: u64 = 120 << 20;
+/// Default free space the filesystem keeps (KiB): 50 GiB.
+pub const DEFAULT_DISK_FLOOR_KB: u64 = 50 << 20;
 
-/// The poll interval: `base` while anything moved within `quiet_after`, then
-/// doubling every idle round up to `cap`. Any activity resets it to `base`.
+/// The interval of the expensive work (retrying heads that failed to run,
+/// which means a fetch and a sibling sync): `base` while anything moved within
+/// `quiet_after`, then doubling every idle round up to `cap`. Any activity
+/// resets it to `base`. The cheap probe itself never backs off.
 #[derive(Debug, Clone)]
 pub struct Backoff {
     pub base: Duration,
@@ -142,6 +148,170 @@ pub fn moved(prev: Option<&Polled>, now: &Polled) -> bool {
 pub fn service_order(mut heads: Vec<PrHead>) -> Vec<PrHead> {
     heads.sort_by(|a, b| b.labeled.cmp(&a.labeled).then(a.sha.cmp(&b.sha)));
     heads
+}
+
+// ---------------------------------------------------------------- cheap probe
+
+/// A name GitHub accepts as an owner or repository and that is safe to place
+/// inside a GraphQL string literal (no quote, backslash or space).
+fn probe_name_ok(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 100
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+}
+
+/// The one GraphQL query that sees every repository at once: per repository
+/// (alias `r<i>`) the main head and the open pull request heads with their
+/// labels. `None` when a name is not safe to embed.
+pub fn probe_query(repos: &[(String, String)]) -> Option<String> {
+    let mut q = String::from("query{");
+    for (i, (owner, name)) in repos.iter().enumerate() {
+        if !probe_name_ok(owner) || !probe_name_ok(name) {
+            return None;
+        }
+        q.push_str(&format!(
+            "r{i}:repository(owner:\"{owner}\",name:\"{name}\"){{ref(qualifiedName:\"refs/heads/main\"){{target{{oid}}}} pullRequests(states:OPEN,first:50){{nodes{{headRefOid labels(first:30){{nodes{{name}}}}}}}}}}"
+        ));
+    }
+    q.push('}');
+    Some(q)
+}
+
+/// The jq filter applied to the probe answer: `r<i> main <oid>` and
+/// `r<i> pr <sha> <true|false>` lines. A repository GitHub could not resolve
+/// (null) prints nothing, so the caller falls back to the per-repository poll.
+pub fn probe_jq() -> String {
+    format!(
+        ".data | to_entries[] | select(.value != null) | .key as $k | \
+         ((.value.ref.target.oid // empty | \"\\($k) main \\(.)\"), \
+          (.value.pullRequests.nodes[] | \"\\($k) pr \\(.headRefOid) \\([.labels.nodes[].name] | index(\"{MERGE_LABEL}\") != null)\"))"
+    )
+}
+
+/// Parse the probe lines into one `Polled` per repository index. A repository
+/// is present only when its `main` line was seen with a valid sha (a partial
+/// answer never reads as "no pull requests"); bad lines are ignored.
+pub fn parse_probe(text: &str, n: usize) -> Vec<Option<Polled>> {
+    let mut out: Vec<Option<Polled>> = vec![None; n];
+    let mut prs: Vec<Vec<PrHead>> = vec![Vec::new(); n];
+    for l in text.lines() {
+        let f: Vec<&str> = l.split_whitespace().collect();
+        let Some(i) = f
+            .first()
+            .and_then(|k| k.strip_prefix('r'))
+            .and_then(|k| k.parse::<usize>().ok())
+            .filter(|i| *i < n)
+        else {
+            continue;
+        };
+        let sha = f.get(2).map(|s| s.to_ascii_lowercase()).unwrap_or_default();
+        if !crate::worker::valid_sha(&sha) {
+            continue;
+        }
+        match f.get(1) {
+            Some(&"main") if f.len() == 3 => {
+                out[i] = Some(Polled {
+                    prs: Vec::new(),
+                    main: Some(sha),
+                })
+            }
+            Some(&"pr") if f.len() == 4 => prs[i].push(PrHead {
+                sha,
+                labeled: f[3] == "true",
+            }),
+            _ => {}
+        }
+    }
+    for (i, p) in out.iter_mut().enumerate() {
+        if let Some(p) = p {
+            let mut v = std::mem::take(&mut prs[i]);
+            v.sort();
+            v.dedup();
+            p.prs = v;
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------- target lock
+
+/// The flock file that serialises everything building in `target_dir` (gates
+/// and priming): `<lock_dir>/<sanitised>.lock`, where sanitising replaces
+/// every byte of the path as given outside `[A-Za-z0-9._-]` with `_`. Same
+/// rule as the runner's `resources::target_lock_path` (fix/target-dir-serialise),
+/// so both sides lock the same file; the kernel serialises them.
+pub fn target_lock_path(lock_dir: &Path, target_dir: &Path) -> PathBuf {
+    let s: String = target_dir
+        .display()
+        .to_string()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    lock_dir.join(format!("{s}.lock"))
+}
+
+// ---------------------------------------------------------------- disk bound
+
+/// What the disk allows before priming `target/<repo>/pr`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DiskPlan {
+    /// Under the quota and above the floor: prime into the dir as it is.
+    Prime,
+    /// Over: empty the pr class dir first (the lowest class, a cache the next
+    /// run rebuilds); that alone brings the repository under the quota.
+    WipeThenPrime,
+    /// Over even without the pr class dir (main alone, or the disk floor):
+    /// do not prime and leave pr as it is (what PR runs put there is gc.sh's
+    /// to bound). No warm claim; runs are cold-from-main until space is freed.
+    NoPrime(String),
+}
+
+/// The rule (sizes in KiB): the repository's target total (main + pr) must be
+/// at most `quota`, and the filesystem must keep `floor` free. The pr class
+/// dir is the only thing priming may evict; the main class is never touched.
+pub fn disk_plan(total: u64, pr: u64, quota: u64, free: u64, floor: u64) -> DiskPlan {
+    if total <= quota && free >= floor {
+        return DiskPlan::Prime;
+    }
+    let rest = total.saturating_sub(pr);
+    if rest <= quota && free.saturating_add(pr) >= floor {
+        return DiskPlan::WipeThenPrime;
+    }
+    DiskPlan::NoPrime(format!(
+        "target total {} GiB without pr is {} GiB (quota {} GiB), {} GiB free with pr emptied (floor {} GiB)",
+        total >> 20,
+        rest >> 20,
+        quota >> 20,
+        free.saturating_add(pr) >> 20,
+        floor >> 20
+    ))
+}
+
+/// While priming: stop when the repository's total went over the quota or
+/// the filesystem fell under the floor (sizes in KiB).
+pub fn disk_over(total: u64, quota: u64, free: u64, floor: u64) -> Option<String> {
+    if total > quota {
+        return Some(format!(
+            "disk: target total {} GiB over the {} GiB quota",
+            total >> 20,
+            quota >> 20
+        ));
+    }
+    if free < floor {
+        return Some(format!(
+            "disk: {} GiB free, under the {} GiB floor",
+            free >> 20,
+            floor >> 20
+        ));
+    }
+    None
 }
 
 // ---------------------------------------------------------------- fetch skip
@@ -497,6 +667,116 @@ mod tests {
 
     fn t(s: u64) -> SystemTime {
         SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000 + s)
+    }
+
+    #[test]
+    fn probe_query_covers_every_repo_and_refuses_unsafe_names() {
+        let q = probe_query(&[
+            ("aien-dev".into(), "aienos".into()),
+            ("aien-spark".into(), "aien-sovereign-core".into()),
+        ])
+        .unwrap();
+        assert!(q.starts_with("query{r0:repository(owner:\"aien-dev\",name:\"aienos\")"));
+        assert!(q.contains("r1:repository(owner:\"aien-spark\",name:\"aien-sovereign-core\")"));
+        assert!(q.contains("refs/heads/main") && q.contains("states:OPEN,first:50"));
+        assert_eq!(q.matches('{').count(), q.matches('}').count());
+        for bad in ["a\"b", "a b", "a\\b", "", "a{b"] {
+            assert!(
+                probe_query(&[("o".into(), bad.into())]).is_none(),
+                "{bad:?}"
+            );
+        }
+        assert!(probe_jq().contains("index(\"ready-to-merge\") != null"));
+    }
+
+    #[test]
+    fn parse_probe_needs_main_and_ignores_bad_lines() {
+        let text = format!(
+            "r0 main {A}\nr0 pr {B} true\nr0 pr {C} false\nr0 pr {B} true\n\
+             r1 pr {C} true\nr2 main {A}\nr9 main {A}\nx main {A}\nr2 pr nope true\nr2 main short\n"
+        );
+        let p = parse_probe(&text, 3);
+        assert_eq!(
+            p[0],
+            Some(Polled {
+                prs: vec![
+                    PrHead {
+                        sha: B.into(),
+                        labeled: true
+                    },
+                    PrHead {
+                        sha: C.into(),
+                        labeled: false
+                    }
+                ],
+                main: Some(A.into())
+            })
+        );
+        assert_eq!(p[1], None, "no main line: fall back, never 'no PRs'");
+        assert_eq!(
+            p[2],
+            Some(Polled {
+                prs: vec![],
+                main: Some(A.into())
+            })
+        );
+        assert_eq!(parse_probe("", 2), vec![None, None]);
+    }
+
+    #[test]
+    fn target_lock_path_matches_the_runner_rule() {
+        assert_eq!(
+            target_lock_path(
+                Path::new("/s/locks/target"),
+                Path::new("/var/lib/aien-run/target/aien-sovereign-core/pr")
+            ),
+            PathBuf::from("/s/locks/target/_var_lib_aien-run_target_aien-sovereign-core_pr.lock")
+        );
+        // Nothing can climb out of the lock dir.
+        let p = target_lock_path(Path::new("/l"), Path::new("../../x y"));
+        assert_eq!(p, PathBuf::from("/l/.._.._x_y.lock"));
+        assert_eq!(p.parent(), Some(Path::new("/l")));
+    }
+
+    #[test]
+    fn disk_plan_evicts_pr_first_and_fails_closed_to_cold() {
+        let g = 1u64 << 20; // KiB per GiB
+        let (quota, floor) = (120 * g, 50 * g);
+        assert_eq!(
+            disk_plan(100 * g, 40 * g, quota, 200 * g, floor),
+            DiskPlan::Prime
+        );
+        assert_eq!(
+            disk_plan(120 * g, 40 * g, quota, 200 * g, floor),
+            DiskPlan::Prime
+        );
+        // Over the quota, main alone under it: empty pr, then prime.
+        assert_eq!(
+            disk_plan(150 * g, 60 * g, quota, 200 * g, floor),
+            DiskPlan::WipeThenPrime
+        );
+        // Under the floor; emptying pr gives the room back.
+        assert_eq!(
+            disk_plan(100 * g, 40 * g, quota, 20 * g, floor),
+            DiskPlan::WipeThenPrime
+        );
+        // Main alone over the quota (the live sc state on 2026-10-16: 122 + 148).
+        assert!(matches!(
+            disk_plan(270 * g, 148 * g, quota, 150 * g, floor),
+            DiskPlan::NoPrime(w) if w.contains("122 GiB")
+        ));
+        // The disk floor even with pr emptied.
+        assert!(matches!(
+            disk_plan(60 * g, 10 * g, quota, 5 * g, floor),
+            DiskPlan::NoPrime(_)
+        ));
+        assert_eq!(disk_over(120 * g, quota, 50 * g, floor), None);
+        assert!(disk_over(120 * g + 1, quota, 60 * g, floor)
+            .unwrap()
+            .contains("quota"));
+        assert!(disk_over(10 * g, quota, 49 * g, floor)
+            .unwrap()
+            .contains("floor"));
     }
 
     #[test]

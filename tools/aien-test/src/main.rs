@@ -557,9 +557,9 @@ fn cmd_worker(cli: &Cli) -> i32 {
     cfg.operator = cli.operator;
     cfg.jobs = cli.jobs;
     cfg.no_cache = cli.no_cache;
-    cfg.poll_cap = Duration::from_secs(
-        cli.poll_cap
-            .unwrap_or(aien_test::idle::DEFAULT_POLL_CAP.as_secs()),
+    cfg.backoff_cap = Duration::from_secs(
+        cli.backoff_cap
+            .unwrap_or(aien_test::idle::DEFAULT_BACKOFF_CAP.as_secs()),
     );
     cfg.quiet_after = Duration::from_secs(
         cli.quiet_after
@@ -573,7 +573,32 @@ fn cmd_worker(cli: &Cli) -> i32 {
         None => Some(clones.join("aien-sovereign-core/tools/aien-local-ci/prime"))
             .filter(|p| p.is_file()),
     };
+    if let Some(g) = cli.target_quota_gb {
+        cfg.target_quota_kb = g << 20;
+    }
+    if let Some(g) = cli.disk_floor_gb {
+        cfg.disk_floor_kb = g << 20;
+    }
     cfg.hardware_identity = cli.hardware_identity.clone().unwrap_or_default();
+    if cli.probe {
+        // One cheap probe, as the loop does it (falls back per repository).
+        let mut rc = 0;
+        for (repo, p) in worker::poll_all(&cfg) {
+            match p {
+                Ok(p) => println!(
+                    "PROBE {repo} main {} prs {} labeled {}",
+                    p.main.as_deref().unwrap_or("-"),
+                    p.prs.len(),
+                    p.prs.iter().filter(|h| h.labeled).count()
+                ),
+                Err(e) => {
+                    println!("PROBE {repo} unreachable: {e}");
+                    rc = 1;
+                }
+            }
+        }
+        return rc;
+    }
     if let Some((repo, sha)) = &cli.once {
         if cli.prime_only {
             return match worker::prime_now(&cfg, repo, sha) {

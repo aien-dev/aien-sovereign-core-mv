@@ -12,7 +12,8 @@
 //! aien-test verify COMMIT [--repo NAME] [--base REF] [--state-dir DIR] [--release]
 //! aien-test worker [--once REPO SHA] [--poll SECS] [--repos LIST] [--github] [--iterations N]
 //!                  [--state-dir DIR] [--key FILE] [--clones DIR] [--wt-root DIR] [--wt-tool FILE] [--siblings FILE] [--sandbox user|none --dev-unsandboxed]
-//!                  [--poll-cap SECS] [--quiet-after SECS] [--prime FILE] [--cold] [--prime-only] (the last two with --once)
+//!                  [--backoff-cap SECS] [--quiet-after SECS] [--prime FILE] [--cold] [--prime-only] (the last two with --once)
+//!                  [--target-quota-gb G] [--disk-floor-gb G] [--probe]
 //! ```
 //!
 //! `--host/--qemu/--gb10` and `--mutants` are later slices and are refused.
@@ -114,8 +115,8 @@ pub struct Cli {
     pub once: Option<(String, String)>,
     /// worker: `--poll SECS` (default 30).
     pub poll: Option<u64>,
-    /// worker: `--poll-cap SECS` ceiling of the backed-off poll (default 900).
-    pub poll_cap: Option<u64>,
+    /// worker: `--backoff-cap SECS` ceiling of the backed-off retries (default 900).
+    pub backoff_cap: Option<u64>,
     /// worker: `--quiet-after SECS` idle time before backing off (default 600).
     pub quiet_after: Option<u64>,
     /// worker: `--cold`: empty the pr class target dir first (with --once).
@@ -126,6 +127,12 @@ pub struct Cli {
     /// worker: `--prime FILE` the warm-standby prime map (default
     /// `<clones>/aien-sovereign-core/tools/aien-local-ci/prime`).
     pub prime: Option<PathBuf>,
+    /// worker: `--target-quota-gb G` per-repository target dir quota (default 120).
+    pub target_quota_gb: Option<u64>,
+    /// worker: `--disk-floor-gb G` free space priming keeps (default 50).
+    pub disk_floor_gb: Option<u64>,
+    /// worker: `--probe`: print the cheap GitHub probe once and exit.
+    pub probe: bool,
     /// worker: `--repos A,B`.
     pub repos: Vec<String>,
     /// worker: `--github`: poll GitHub and post commit statuses.
@@ -158,9 +165,12 @@ fn parse_selection(s: &str) -> Result<Selection, String> {
 const COMMANDS: [&str; 9] = [
     "run", "test", "why", "list", "identity", "plan", "status", "verify", "worker",
 ];
-const WORKER_FLAGS: [&str; 18] = [
+const WORKER_FLAGS: [&str; 21] = [
+    "--target-quota-gb",
+    "--disk-floor-gb",
+    "--probe",
     "--prime-only",
-    "--poll-cap",
+    "--backoff-cap",
     "--quiet-after",
     "--cold",
     "--prime",
@@ -213,11 +223,14 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
     let mut siblings: Option<PathBuf> = None;
     let mut once: Option<(String, String)> = None;
     let mut poll: Option<u64> = None;
-    let mut poll_cap: Option<u64> = None;
+    let mut backoff_cap: Option<u64> = None;
     let mut quiet_after: Option<u64> = None;
     let mut cold = false;
     let mut prime_only = false;
     let mut prime: Option<PathBuf> = None;
+    let mut target_quota_gb: Option<u64> = None;
+    let mut disk_floor_gb: Option<u64> = None;
+    let mut probe = false;
     let mut repos: Vec<String> = Vec::new();
     let mut github = false;
     let mut iterations: Option<u64> = None;
@@ -295,9 +308,9 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
                 v.parse::<u64>()
                     .map_err(|_| format!("--poll needs seconds, not {v:?}"))?,
             );
-        } else if a == "--poll-cap" || a == "--quiet-after" {
-            worker_flags.push(if a == "--poll-cap" {
-                "--poll-cap"
+        } else if a == "--backoff-cap" || a == "--quiet-after" {
+            worker_flags.push(if a == "--backoff-cap" {
+                "--backoff-cap"
             } else {
                 "--quiet-after"
             });
@@ -305,11 +318,32 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
             let n = v
                 .parse::<u64>()
                 .map_err(|_| format!("{a} needs seconds, not {v:?}"))?;
-            if a == "--poll-cap" {
-                poll_cap = Some(n);
+            if a == "--backoff-cap" {
+                backoff_cap = Some(n);
             } else {
                 quiet_after = Some(n);
             }
+        } else if a == "--target-quota-gb" || a == "--disk-floor-gb" {
+            let quota = a == "--target-quota-gb";
+            worker_flags.push(if quota {
+                "--target-quota-gb"
+            } else {
+                "--disk-floor-gb"
+            });
+            let v = value(&mut i, a)?;
+            let n = v
+                .parse::<u64>()
+                .ok()
+                .filter(|n| *n > 0 && *n < 1 << 20)
+                .ok_or_else(|| format!("{a} needs whole GiB above 0, not {v:?}"))?;
+            if quota {
+                target_quota_gb = Some(n);
+            } else {
+                disk_floor_gb = Some(n);
+            }
+        } else if a == "--probe" {
+            worker_flags.push("--probe");
+            probe = true;
         } else if a == "--prime-only" {
             worker_flags.push("--prime-only");
             prime_only = true;
@@ -444,11 +478,14 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
         siblings,
         once,
         poll,
-        poll_cap,
+        backoff_cap,
         quiet_after,
         cold,
         prime_only,
         prime,
+        target_quota_gb,
+        disk_floor_gb,
+        probe,
         repos,
         github,
         iterations,
@@ -674,7 +711,7 @@ mod tests {
         let sha = "c".repeat(40);
         let c = parse_args(&v(&[
             "worker",
-            "--poll-cap",
+            "--backoff-cap",
             "300",
             "--quiet-after",
             "120",
@@ -682,7 +719,7 @@ mod tests {
             "/p",
         ]))
         .unwrap();
-        assert_eq!((c.poll_cap, c.quiet_after), (Some(300), Some(120)));
+        assert_eq!((c.backoff_cap, c.quiet_after), (Some(300), Some(120)));
         assert_eq!(c.prime, Some(PathBuf::from("/p")));
         assert!(!c.cold);
         let c = parse_args(&v(&["worker", "--once", "r", &sha, "--cold"])).unwrap();
@@ -690,9 +727,9 @@ mod tests {
         assert!(parse_args(&v(&["worker", "--cold"]))
             .unwrap_err()
             .contains("--cold only applies"));
-        assert!(parse_args(&v(&["worker", "--poll-cap", "x"])).is_err());
+        assert!(parse_args(&v(&["worker", "--backoff-cap", "x"])).is_err());
         assert!(parse_args(&v(&["worker", "--quiet-after"])).is_err());
-        assert!(parse_args(&v(&["status", "--poll-cap", "5"]))
+        assert!(parse_args(&v(&["status", "--backoff-cap", "5"]))
             .unwrap_err()
             .contains("only applies to worker"));
         assert!(parse_args(&v(&["status", "--prime", "/p"])).is_err());
