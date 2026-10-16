@@ -11,7 +11,7 @@ repository.workspace = true
 libc = "0.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-synapse-coord = { path = "/home/drakestapleton/workspace/board83/synapse-pin/crates/synapse-coord" }
+synapse-coord = { git = "https://github.com/aien-spark/synapse", rev = "15422d0d4f9f373deec69e430e9cae1fe7bdd620" }
 
 [[bin]]
 name = "swarm-bridge"

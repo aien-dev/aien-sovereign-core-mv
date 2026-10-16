@@ -4382,6 +4382,7 @@ dependencies = [
 [[package]]
 name = "synapse-coord"
 version = "0.1.0"
+source = "git+https://github.com/aien-spark/synapse?rev=15422d0d4f9f373deec69e430e9cae1fe7bdd620#15422d0d4f9f373deec69e430e9cae1fe7bdd620"
 dependencies = [
  "libc",
 ]
