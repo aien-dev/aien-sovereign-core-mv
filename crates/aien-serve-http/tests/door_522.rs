@@ -8,7 +8,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use aien_serve_http::codec::{ByteCodec, Codec, CodecError};
-use aien_serve_http::engine::{Engine, StubEngine};
+use aien_serve_http::engine::{Engine, EngineError, GenerateOutcome, GenerateParams, StubEngine};
 use aien_serve_http::server::{serve, ServerConfig};
 use serde_json::Value;
 
@@ -40,6 +40,7 @@ fn start_single_thread(engine: Arc<dyn Engine>, codec: Arc<dyn Codec>) -> Socket
 
 struct Reply {
     status: u16,
+    headers: String,
     body: String,
 }
 
@@ -72,6 +73,7 @@ fn request(
         .expect("status code");
     Ok(Reply {
         status,
+        headers,
         body: String::from_utf8_lossy(&raw[split + 4..]).to_string(),
     })
 }
@@ -136,4 +138,63 @@ fn tokenizing_does_not_block_the_runtime() {
     assert_eq!(chat.status, 200, "{}", chat.body);
     let v: Value = serde_json::from_str(&chat.body).expect("json");
     assert_eq!(v["choices"][0]["message"]["content"], "ok");
+}
+
+/// An engine whose chip is always held by another job.
+struct BusyEngine;
+
+impl Engine for BusyEngine {
+    fn kind(&self) -> &str {
+        "busy"
+    }
+    fn max_context_tokens(&self) -> usize {
+        4096
+    }
+    fn generate(
+        &self,
+        _prompt: &[u32],
+        _params: &GenerateParams,
+        _on_token: &mut dyn FnMut(u32) -> bool,
+    ) -> Result<GenerateOutcome, EngineError> {
+        Err(EngineError::Busy(
+            "GPU lock held by another job for 30 s".into(),
+        ))
+    }
+}
+
+#[test]
+fn gpu_busy_is_an_openai_error_envelope() {
+    let addr = start_single_thread(Arc::new(BusyEngine), Arc::new(ByteCodec));
+    for stream in [false, true] {
+        let body = PROMPT.replace(
+            "\"max_tokens\":4",
+            &format!("\"max_tokens\":4,\"stream\":{stream}"),
+        );
+        let r = request(
+            addr,
+            "POST",
+            "/v1/chat/completions",
+            &body,
+            Duration::from_secs(30),
+        )
+        .expect("reply");
+        assert_eq!(r.status, 503, "stream={stream}: {}", r.body);
+        assert!(
+            r.headers.to_ascii_lowercase().contains("retry-after: 5"),
+            "stream={stream}: {}",
+            r.headers
+        );
+        let v: Value = serde_json::from_str(&r.body)
+            .unwrap_or_else(|e| panic!("stream={stream}: not JSON ({e}): {}", r.body));
+        let err = &v["error"];
+        assert_eq!(err["type"], "server_busy", "stream={stream}: {v}");
+        assert_eq!(err["code"], "gpu_busy", "stream={stream}: {v}");
+        let msg = err["message"].as_str().expect("message string");
+        assert!(msg.contains("GPU busy"), "stream={stream}: {msg}");
+        assert!(
+            msg.contains("held by another job"),
+            "stream={stream}: {msg}"
+        );
+        assert!(err.get("param").is_some(), "stream={stream}: {v}");
+    }
 }
