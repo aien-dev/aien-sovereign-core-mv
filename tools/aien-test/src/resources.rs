@@ -8,9 +8,13 @@
 //!
 //! Deadlock rule: whenever more than one resource is taken, they are taken in
 //! one fixed order. Pools are ordered by `Pool`'s derived `Ord` (gb10, then
-//! qemu, then host). For a gb10 job the order is: the in-process gb10 slot,
-//! then `/tmp/aien-gb10.lock`, then aien-proof's `slots/gpu.lock` when the
-//! aien-proof board directory exists.
+//! qemu, then host). The full order for one gate is: (1) the in-process pool
+//! slot, (2) the target-dir lock (`lock_target_dir`, cargo gates only, when
+//! a `CARGO_TARGET_DIR` is set), (3) `/tmp/aien-gb10.lock`, (4) aien-proof's
+//! `slots/gpu.lock` when the aien-proof board directory exists. A holder of
+//! (2) already has its slot and never waits for one, so a gate blocked on
+//! (2) with a slot in hand cannot close a cycle; the worker's target priming
+//! takes (2) alone and never (3) or (4).
 //!
 //! GPU job protocol (CR-028, CR-029, CR-033, CR-052, CR-053): refuse at once
 //! (never wait, never steal) if the quiet flag file exists or an `est_load`
@@ -405,6 +409,68 @@ impl Drop for GpuGuard {
     }
 }
 
+/// The default directory of the target-dir lock files for a bare `run`
+/// without a worker state dir (the worker uses `<state>/locks/target`).
+pub const DEFAULT_TARGET_LOCK_DIR: &str = "/tmp/aien-test-target-locks";
+
+/// The lock file for one cargo target dir: `<lock_dir>/<sanitised>.lock`,
+/// where every character of the target dir path outside `[A-Za-z0-9._-]`
+/// becomes `_`. The path is taken as given (no canonicalising), so every
+/// holder that names the same target dir names the same lock file. Not
+/// inside the target dir itself: under the user sandbox that belongs to
+/// `aien-run`, and the lock is the worker's.
+pub fn target_lock_path(lock_dir: &Path, target_dir: &Path) -> PathBuf {
+    let name: String = target_dir
+        .display()
+        .to_string()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    lock_dir.join(format!("{name}.lock"))
+}
+
+/// Exclusive hold of one cargo target dir (`flock(LOCK_EX)`, waited for).
+/// Held by the runner for a whole cargo gate, build and run, so two gates of
+/// one head never build in, or relink a binary under, the same target dir
+/// at once (sc fix/521: SC-AGENT-PREFLIGHT relinked a test binary while
+/// SC-TEST was executing it). Dropping it closes the descriptor under the
+/// spawn gate, like `GpuGuard`.
+#[derive(Debug)]
+pub struct TargetLock {
+    file: Option<File>,
+    path: PathBuf,
+}
+
+impl TargetLock {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TargetLock {
+    fn drop(&mut self) {
+        let _gate = crate::process::spawn_gate();
+        self.file.take();
+    }
+}
+
+/// Take the target-dir lock at `path` (see `target_lock_path`), waiting for
+/// the holder to finish. The file is created if absent and never deleted.
+pub fn lock_target_dir(path: &Path) -> io::Result<TargetLock> {
+    let file = open_lock(path)?;
+    flock_exclusive(&file, true)?;
+    Ok(TargetLock {
+        file: Some(file),
+        path: path.to_path_buf(),
+    })
+}
+
 fn open_lock(path: &Path) -> io::Result<File> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
@@ -513,6 +579,46 @@ mod tests {
             drop(held);
             rx.recv_timeout(Duration::from_secs(20))
                 .expect("the waiter gets the slot after the release");
+        });
+    }
+
+    #[test]
+    fn target_lock_path_is_one_file_per_target_dir_under_the_lock_dir() {
+        let p = target_lock_path(
+            Path::new("/state/locks/target"),
+            Path::new("/var/lib/aien-run/target/aien-sovereign-core/pr"),
+        );
+        assert_eq!(
+            p,
+            PathBuf::from(
+                "/state/locks/target/_var_lib_aien-run_target_aien-sovereign-core_pr.lock"
+            )
+        );
+        let main = target_lock_path(Path::new("/l"), Path::new("/t/main"));
+        let pr = target_lock_path(Path::new("/l"), Path::new("/t/pr"));
+        assert_ne!(main, pr, "main and pr are different target dirs");
+    }
+
+    /// Two holders in one process (two `open`s, two file descriptions) and
+    /// so two threads of the runner exclude each other; the second waits
+    /// until the first is dropped.
+    #[test]
+    fn target_lock_is_exclusive_and_waited_for() {
+        let dir = TempDir::new("tlock");
+        let path = target_lock_path(dir.path(), Path::new("/t/pr"));
+        let held = lock_target_dir(&path).unwrap();
+        assert!(held.path().exists());
+        let (tx, rx) = mpsc::channel();
+        thread::scope(|s| {
+            s.spawn(|| {
+                let _second = lock_target_dir(&path).unwrap();
+                tx.send(()).unwrap();
+            });
+            thread::sleep(Duration::from_millis(200));
+            assert!(rx.try_recv().is_err(), "the second holder must wait");
+            drop(held);
+            rx.recv_timeout(Duration::from_secs(20))
+                .expect("the waiter takes the lock after the release");
         });
     }
 

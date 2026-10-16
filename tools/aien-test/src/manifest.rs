@@ -178,6 +178,20 @@ impl Manifest {
             "host"
         }
     }
+
+    /// The gate builds in `CARGO_TARGET_DIR`: it declares `Cargo.toml` or
+    /// `Cargo.lock` among its inputs, or its `build.tool` is cargo. The
+    /// runner holds the target dir for one such gate at a time (see
+    /// `resources::lock_target_dir`). A gate that runs cargo without
+    /// declaring the lock file is mis-declared already: its cache key would
+    /// miss a dependency change too.
+    pub fn uses_cargo(&self) -> bool {
+        self.build.as_ref().is_some_and(|b| b.tool == "cargo")
+            || self.inputs.iter().any(|i| {
+                let i = i.trim_end_matches('/');
+                i == "Cargo.toml" || i == "Cargo.lock"
+            })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1071,6 +1085,30 @@ mod tests {
     fn pool_is_scarcest() {
         let t = GOOD.replace("  - host\n", "  - host\n  - gb10\n");
         assert_eq!(parse(t.as_bytes()).unwrap().pool(), "gb10");
+    }
+
+    #[test]
+    fn uses_cargo_follows_the_declared_inputs_or_build_tool() {
+        assert!(!parse(GOOD.as_bytes()).unwrap().uses_cargo());
+        for extra in [
+            "inputs:\n  - Cargo.lock\n",
+            "inputs:\n  - Cargo.toml\n  - crates/\n",
+            "build:\n  target: x\n  tool: cargo\n",
+        ] {
+            assert!(
+                parse(with(extra).as_bytes()).unwrap().uses_cargo(),
+                "{extra}"
+            );
+        }
+        for extra in [
+            "inputs:\n  - scripts/\n",
+            "build:\n  target: x\n  tool: make\n",
+        ] {
+            assert!(
+                !parse(with(extra).as_bytes()).unwrap().uses_cargo(),
+                "{extra}"
+            );
+        }
     }
 
     #[test]

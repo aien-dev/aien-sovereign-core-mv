@@ -126,6 +126,14 @@ impl StateDir {
         self.root.join("evidence").join(repo).join(sha)
     }
 
+    /// `<state>/locks/target`: the per-target-dir lock files
+    /// (`resources::target_lock_path`). Every holder of a cargo target dir,
+    /// a gate run by this worker or the worker's own priming of
+    /// `target/<repo>/pr`, takes its lock from here.
+    pub fn target_lock_dir(&self) -> PathBuf {
+        self.root.join("locks").join("target")
+    }
+
     pub fn bundle_path(&self, repo: &str, sha: &str) -> PathBuf {
         self.root
             .join("bundles")
@@ -912,6 +920,7 @@ fn run_in_worktree(
     let mut opts = Options::new(evidence_dir.clone());
     opts.sandbox = cfg.sandbox;
     opts.cargo_target_dir = target_dir_for(cfg, repo, on_main);
+    opts.target_lock_dir = cfg.state.target_lock_dir();
     opts.pool_sizes = opts.pool_sizes.with(cfg.jobs);
     opts.pins = pins;
     if fresh || cfg.no_cache {
