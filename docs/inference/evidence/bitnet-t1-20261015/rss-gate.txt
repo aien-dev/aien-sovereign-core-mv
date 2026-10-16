@@ -1,0 +1,4 @@
+BITNET-RSS streaming growth 203575296 bound 224067584
+BITNET-RSS f32image control growth 1143644160 bound 224067584
+BITNET-RSS f32qkv control growth 243077120 bound 224067584
+test result: measured_peak_rss_is_the_embedding_plus_the_buffers ok

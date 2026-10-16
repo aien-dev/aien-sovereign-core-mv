@@ -1,0 +1,18 @@
+BITNET-GGUF sha256=4221b252fdd5fd25e15847adfeb5ee88886506ba50b8a34548374492884c2162
+BITNET-GGUF block choice: agree@128=6473881 agree@64=3789499 of 6553600
+BITNET-GGUF layer 0 q gguf_scale=1.2188548 our_w_scale=1.21875 plain=6473881 rope_interleaved=2901430 of 6553600
+BITNET-GGUF layer 0 k gguf_scale=1.7940564 our_w_scale=1.8046875 plain=1565515 rope_interleaved=708933 of 1638400
+BITNET-GGUF layer 0 v gguf_scale=2.2931101 our_w_scale=2.296875 plain=1593073 rope_interleaved=1593073 of 1638400
+BITNET-GGUF layer 0 o gguf_scale=0.9655979 our_w_scale=0.9609375 plain=6533176 rope_interleaved=6533176 of 6553600
+BITNET-GGUF layer 0 gate gguf_scale=1.5512433 our_w_scale=1.5546875 plain=17311944 rope_interleaved=17311944 of 17694720
+BITNET-GGUF layer 0 up gguf_scale=1.8309356 our_w_scale=1.828125 plain=17603113 rope_interleaved=17603113 of 17694720
+BITNET-GGUF layer 0 down gguf_scale=2.1631613 our_w_scale=2.15625 plain=17593047 rope_interleaved=17593047 of 17694720
+BITNET-GGUF down: plain=516883758 rope_interleaved=516883758 of 530841600
+BITNET-GGUF gate: plain=516603939 rope_interleaved=516603939 of 530841600
+BITNET-GGUF k: plain=46908723 rope_interleaved=18922793 of 49152000
+BITNET-GGUF o: plain=190302462 rope_interleaved=190302462 of 196608000
+BITNET-GGUF q: plain=190426393 rope_interleaved=76787543 of 196608000
+BITNET-GGUF up: plain=519395094 rope_interleaved=519395094 of 530841600
+BITNET-GGUF v: plain=46241684 rope_interleaved=46241684 of 49152000
+BITNET-GGUF block=128 total_agree=2026762053 of 2084044800 disagree=57282747
+test result: real_gguf_trit_agreement ok

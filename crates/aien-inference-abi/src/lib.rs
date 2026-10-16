@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 pub mod backend;
+pub mod bitnet_omega;
 pub mod capsule;
 pub mod checkpoint;
 pub mod gb10_serving;
