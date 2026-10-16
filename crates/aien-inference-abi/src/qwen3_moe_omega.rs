@@ -28,6 +28,7 @@ use rayon::prelude::*;
 use crate::moe_plan::MoeBatchPlan;
 use crate::qwen3_moe::{bf16_to_f32, f32_to_bf16, fp8_table, shard_path, Shard, FP8_BLOCK};
 use crate::resident::transpose_bf16_for_upload;
+mod forward_pass;
 pub mod w8a8_control;
 mod whole_prompt;
 
@@ -3320,6 +3321,11 @@ pub struct Qwen3MoeOmegaEngine {
     history: Vec<u32>,
     /// Whole-prompt prefill driver (OFF = None; `set_whole_prompt`). See `whole_prompt.rs`.
     whole_prompt: Option<Box<whole_prompt::EngineWholePrompt>>,
+    /// The host head (ADR 0004 adapter): the last forward call's final hidden state, unread.
+    /// `None` once read or forgotten. Empty on the decode graph, whose head is its pending token.
+    head_hidden: Option<Vec<f32>>,
+    /// The logits `ForwardPass::next` lends out (the last head read).
+    head_logits: Vec<f32>,
 }
 
 impl Qwen3MoeOmegaEngine {
@@ -3346,6 +3352,8 @@ impl Qwen3MoeOmegaEngine {
             pos: 0,
             history: Vec::new(),
             whole_prompt: None,
+            head_hidden: None,
+            head_logits: Vec::new(),
         }
     }
 
