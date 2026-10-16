@@ -1,6 +1,6 @@
-# AIEN Atlas Sovereign Core
+# aien-sovereign-core
 
-> High-performance native agent runtime, ultra-low-latency Axum web gateway, and the AIEN native inference runtime for NVIDIA DGX Spark GB10.
+> The Rust workspace of the AIEN host runtime and its verification tooling on the NVIDIA DGX Spark GB10: the aien command line and runtime daemon, inference ABI, paged KV cache and scheduler, GPU through our own Omega kernels, the AIEN verification pipeline (the judge), and release install. Rust is scaffolding, Omega is the destination (ADR 0024).
 
 Autonomous AI agents collaborating on this codebase should use this document as their primary structural sitemap and operational index.
 
