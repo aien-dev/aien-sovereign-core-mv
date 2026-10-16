@@ -39,7 +39,11 @@ impl TaskTiming {
             TaskState::Blocked => self.blocked += spent,
             TaskState::Provisional => self.provisional += spent,
             TaskState::AwaitingFinalProof => self.awaiting_final_proof += spent,
-            TaskState::Committable | TaskState::Aborted => {}
+            TaskState::Committable
+            | TaskState::Aborted
+            | TaskState::Committing
+            | TaskState::Committed
+            | TaskState::CommitUncertain => {}
         }
         self.since = at;
     }

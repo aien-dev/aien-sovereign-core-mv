@@ -21,6 +21,9 @@ aien-omega-compose = { path = "../aien-omega-compose" }
 aien-allen = { path = "../aien-allen" }
 aien-allen-profile = { path = "../aien-allen-profile" }
 aien-allen-memory = { path = "../aien-allen-memory" }
+# Headstart M3 (#537): only with feature `provisional-prep`; absent from default builds.
+spark-harness = { path = "../spark-harness", optional = true }
+aien-proof = { path = "../aien-proof", optional = true }
 
 tokio = { version = "1.37", features = ["full"] }
 parking_lot = "0.12"
@@ -40,6 +43,10 @@ fault-hold = []
 # Test seams that bypass the reserved-record guard (`note_unchecked`,
 # `with_compose_bridge`). Enabled only by dev-dependencies, never by the daemon.
 test-support = []
+# Headstart M3 (#537): the opt-in provisional preparation adapter and final
+# commit fence (src/provisional.rs). Default off: the default build compiles
+# none of it and links neither spark-harness nor aien-proof.
+provisional-prep = ["dep:spark-harness", "dep:aien-proof"]
 
 [dev-dependencies]
 aien-omega-gpu = { path = "../aien-omega-gpu" }

@@ -68,7 +68,8 @@ pub mod timing;
 mod unit_tests;
 
 pub use self::core::{
-    Binding, BindingLevel, Effects, Event, EventKind, JournalEntry, Revocation, TaskEntry,
+    ApprovalBinding, Binding, BindingLevel, CommitInputs, CommitResult, Effects, Event, EventKind,
+    JournalEntry, Revocation, TaskEntry, MAX_APPROVAL_BINDINGS_PER_TASK, MAX_APPROVAL_KEY_LEN,
 };
 pub use self::error::SchedError;
 pub use self::permits::{PermitPool, ResourceLimits, ResourceRequest};
@@ -178,9 +179,12 @@ pub struct Unaudited {
 }
 
 impl Unaudited {
-    /// Re-verify every replayed active task against the store, revoke the
-    /// ones that fail, and hand out the scheduler.
+    /// Mark every replayed `Committing` task `CommitUncertain` (its outcome
+    /// was lost; it is never run again), re-verify every replayed active
+    /// task against the store, revoke the ones that fail, and hand out the
+    /// scheduler.
     pub fn audit(mut self) -> Result<(Scheduler, Vec<String>), SchedError> {
+        self.sched.settle_interrupted_commits()?;
         let revoked = self.sched.audit()?;
         Ok((self.sched, revoked))
     }
@@ -297,6 +301,16 @@ impl Scheduler {
 
     pub fn generation(&self, id: &str) -> Option<u64> {
         self.task(id).map(|t| t.generation)
+    }
+
+    /// The fence a bound request key must pass ([`EventKind::BindApproval`]).
+    pub fn approval(&self, key: &str) -> Option<&ApprovalBinding> {
+        self.core.approvals.get(key)
+    }
+
+    /// How many request keys are bound.
+    pub fn approvals_len(&self) -> usize {
+        self.core.approvals.len()
     }
 
     pub fn queue(&self) -> Vec<String> {

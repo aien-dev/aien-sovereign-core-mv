@@ -5,13 +5,22 @@
 //!   Blocked --dispatch--> Provisional --work done--> AwaitingFinalProof --finalize--> Committable
 //!      ^                      |                           |                               |
 //!      +------ revoke --------+---------------------------+-------------------------------+
-//!   any non-Aborted --cancel / failure / lease expiry--> Aborted --retry--> Blocked
+//!   any of the first four --cancel / failure / lease expiry--> Aborted --retry--> Blocked
+//!
+//!   Committable --begin commit--> Committing --outcome--> Committed | CommitUncertain | Aborted
 //! ```
 //!
-//! There is no `Committed` state. `Committable` means "every dependency is
-//! final-verified for its current generation"; committing is done by the
-//! existing effect/World machinery in aien-runtime, which this crate does not
-//! touch.
+//! `Committable` means "every dependency is final-verified for its current
+//! generation". Committing itself is done by the existing effect/World
+//! machinery in aien-runtime, which this crate does not touch. The optional
+//! `Committing` state (Headstart M3, issue #537) lets a caller record that
+//! it is about to run such a commit: a journaled `BeginCommit` freezes the
+//! task's generation and the producer completions it was checked against,
+//! and a journaled `CommitOutcome` ends it. While a task is `Committing`,
+//! every event that would revoke, cancel, fail or re-generate it (directly
+//! or through an upstream producer) is refused. A `Committing` task found
+//! after a restart has no recorded outcome and becomes `CommitUncertain`;
+//! it is never run again. `Committed` and `CommitUncertain` are terminal.
 //!
 //! Revocation returns a task to `Blocked` rather than `Aborted`. The task did
 //! nothing wrong: an upstream producer failed, changed its interface or
@@ -21,8 +30,7 @@
 //! failure, cancellation, lost lease).
 //!
 //! Only `Provisional` holds resource permits. Leaving `Provisional` releases
-//! them, so `Blocked`, `AwaitingFinalProof`, `Committable` and `Aborted`
-//! tasks hold none.
+//! them, so every other state holds none.
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -34,6 +42,13 @@ pub enum TaskState {
     AwaitingFinalProof,
     Committable,
     Aborted,
+    /// A commit of this task's result is running (see the module docs).
+    Committing,
+    /// The commit reported success. Terminal.
+    Committed,
+    /// The commit's outcome is unknown (it may have reached the World).
+    /// Terminal: never run again; an operator resolves it.
+    CommitUncertain,
 }
 
 impl TaskState {
@@ -44,7 +59,24 @@ impl TaskState {
             TaskState::AwaitingFinalProof => "awaiting_final_proof",
             TaskState::Committable => "committable",
             TaskState::Aborted => "aborted",
+            TaskState::Committing => "committing",
+            TaskState::Committed => "committed",
+            TaskState::CommitUncertain => "commit_uncertain",
         }
+    }
+
+    /// `Committed` or `CommitUncertain`: the task is done and no upstream
+    /// change reaches it or, through it, its consumers.
+    pub fn is_commit_terminal(self) -> bool {
+        matches!(self, TaskState::Committed | TaskState::CommitUncertain)
+    }
+
+    /// A completion that consumers may treat as final.
+    pub fn is_final(self) -> bool {
+        matches!(
+            self,
+            TaskState::Committable | TaskState::Committing | TaskState::Committed
+        )
     }
 
     /// States whose work or proof is built on upstream artifacts and must be
@@ -95,6 +127,8 @@ pub fn check_transition(from: TaskState, to: TaskState) -> Result<(), IllegalTra
                 Aborted
             )
             | (Aborted, Blocked)
+            | (Committable, Committing)
+            | (Committing, Committed | CommitUncertain | Aborted)
     );
     if ok {
         Ok(())
@@ -118,6 +152,15 @@ mod tests {
             (Aborted, Committable),
             (Committable, Provisional),
             (Blocked, Blocked),
+            (AwaitingFinalProof, Committing),
+            (Committing, Blocked),
+            (Committing, Committable),
+            (Committed, Blocked),
+            (Committed, Aborted),
+            (Committed, Committing),
+            (CommitUncertain, Blocked),
+            (CommitUncertain, Aborted),
+            (CommitUncertain, Committing),
         ] {
             assert!(check_transition(from, to).is_err(), "{from:?} -> {to:?}");
         }
@@ -127,6 +170,10 @@ mod tests {
             (AwaitingFinalProof, Committable),
             (Committable, Blocked),
             (Aborted, Blocked),
+            (Committable, Committing),
+            (Committing, Committed),
+            (Committing, CommitUncertain),
+            (Committing, Aborted),
         ] {
             assert!(check_transition(from, to).is_ok(), "{from:?} -> {to:?}");
         }

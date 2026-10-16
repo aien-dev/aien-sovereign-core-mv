@@ -16,6 +16,9 @@ pub mod generation;
 pub mod kv_residency;
 pub mod objective;
 pub mod persona;
+/// Headstart M3 (#537): opt-in provisional preparation and final commit fence.
+#[cfg(feature = "provisional-prep")]
+pub mod provisional;
 pub mod requirements;
 mod requirements_extract;
 pub mod rsi;

@@ -6,7 +6,7 @@
 //! (which records what was accepted earlier) only says which receipt to
 //! re-check; it is never the authority on its own.
 
-use super::core::{Binding, BindingLevel, EventKind, Revocation, TaskEntry};
+use super::core::{Binding, BindingLevel, CommitResult, EventKind, Revocation, TaskEntry};
 use super::error::SchedError;
 use super::{Event, Outcome, Scheduler, RESERVED_ID_PREFIX};
 use crate::completion::CompletionError;
@@ -43,6 +43,18 @@ impl Scheduler {
             EventKind::Finalize { task, generation } => {
                 self.core.require_generation(task, *generation)?;
                 self.may_finalize(task)?;
+            }
+            EventKind::BeginCommit {
+                task,
+                generation,
+                completion,
+                ..
+            } => {
+                // Every producer re-verified (recursively), then the task's
+                // own completion; `apply` checks the claims equal the state.
+                self.core.require_generation(task, *generation)?;
+                self.may_finalize(task)?;
+                verify_final(&self.store, task, *generation, completion).map_err(proof(task))?;
             }
             _ => {}
         }
@@ -121,10 +133,12 @@ impl Scheduler {
             ));
         }
         let t = self.core.task(task)?;
+        // A producer (depth > 0) may also be frozen in `Committing`.
         if !matches!(
             t.state,
             TaskState::AwaitingFinalProof | TaskState::Committable
-        ) {
+        ) && !(depth > 0 && t.state == TaskState::Committing)
+        {
             return Err(SchedError::WrongState {
                 task: task.to_string(),
                 state: t.state,
@@ -158,7 +172,11 @@ impl Scheduler {
             }
         };
         let r = verify_final(&self.store, p, pt.generation, claim).map_err(proof(p))?;
-        self.finalize_check(p, depth)?;
+        // A committed producer is done: its own completion is the proof,
+        // and its upstream may have moved on since (see `Core::affected`).
+        if pt.state != TaskState::Committed {
+            self.finalize_check(p, depth)?;
+        }
         Ok(r)
     }
 
@@ -245,7 +263,12 @@ impl Scheduler {
                     .producers_of(id)
                     .try_for_each(|p| self.bound_readiness(id, t, p).map(|_| ())),
                 TaskState::Committable => self.may_finalize(id).map(|_| ()),
-                TaskState::Blocked | TaskState::Aborted => Ok(()),
+                // Frozen or done: not re-checked (see `audit`).
+                TaskState::Blocked
+                | TaskState::Aborted
+                | TaskState::Committing
+                | TaskState::Committed
+                | TaskState::CommitUncertain => Ok(()),
             };
             if let Err(e) = check {
                 out.push(revocation(id, e));
@@ -265,12 +288,20 @@ impl Scheduler {
     /// after all of its revocations, so no consumer is dispatched against a
     /// claim the same round is about to revoke. Each round revokes at least
     /// one active task; the round count is capped as a backstop.
+    ///
+    /// A revocation that would reach a `Committing` task is deferred (left
+    /// out of the batch): the commit was checked against the store when it
+    /// began, and a later audit catches the change once the outcome is in.
     pub fn audit(&mut self) -> Result<Vec<String>, SchedError> {
         let mut revoked = Vec::new();
+        let ready = |s: &Self, mut b: Vec<Revocation>| {
+            b.retain(|r| s.core.guard_commit(&r.task).is_ok());
+            b
+        };
         for _ in 0..=2 * self.core.tasks.len() {
-            let mut batch = self.own_claim_failures();
+            let mut batch = ready(self, self.own_claim_failures());
             if batch.is_empty() {
-                batch = self.binding_failures();
+                batch = ready(self, self.binding_failures());
             }
             if batch.is_empty() {
                 return Ok(revoked);
@@ -286,6 +317,35 @@ impl Scheduler {
         Err(SchedError::InvalidEvent(
             "audit did not converge; refusing to continue".to_string(),
         ))
+    }
+
+    /// After a replay: every task still `Committing` lost its outcome with
+    /// the old process. Its commit may or may not have reached the World, so
+    /// it becomes `CommitUncertain` through a journaled `CommitOutcome` and
+    /// is never run again (as `approved_replay` treats an in-flight claim).
+    /// Returns those tasks.
+    pub(crate) fn settle_interrupted_commits(&mut self) -> Result<Vec<String>, SchedError> {
+        let open: Vec<(String, u64)> = self
+            .core
+            .tasks
+            .iter()
+            .filter(|(_, t)| t.state == TaskState::Committing)
+            .map(|(id, t)| (id.clone(), t.generation))
+            .collect();
+        for (task, generation) in &open {
+            let event = Event {
+                id: format!("{RESERVED_ID_PREFIX}commit-uncertain-{}", self.core.seq + 1),
+                kind: EventKind::CommitOutcome {
+                    task: task.clone(),
+                    generation: *generation,
+                    outcome: CommitResult::Uncertain {
+                        reason: "restarted while committing; no outcome was recorded".to_string(),
+                    },
+                },
+            };
+            self.deliver_unchecked(event)?;
+        }
+        Ok(open.into_iter().map(|(t, _)| t).collect())
     }
 }
 

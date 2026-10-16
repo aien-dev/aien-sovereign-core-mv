@@ -54,6 +54,15 @@ pub(crate) fn generation_scope(kind: &EventKind) -> Option<(&str, u64)> {
         | EventKind::Retry { task, generation }
         | EventKind::Revoke {
             task, generation, ..
+        }
+        | EventKind::BeginCommit {
+            task, generation, ..
+        }
+        | EventKind::CommitOutcome {
+            task, generation, ..
+        }
+        | EventKind::BindApproval {
+            task, generation, ..
         } => Some((task.as_str(), *generation)),
         EventKind::RegisterTask { .. }
         | EventKind::AddDependency { .. }

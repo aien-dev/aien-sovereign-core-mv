@@ -83,6 +83,10 @@ pub struct AienRuntimeServer {
     /// = no generation record, see crate::generation).
     identity: std::sync::Mutex<Option<Arc<ModelIdentity>>>,
     started: DaemonStart,
+    /// Headstart M3 (#537): the provisional preparation adapter whose fence
+    /// bound compose commit requests pass (see `with_prep_adapter`).
+    #[cfg(feature = "provisional-prep")]
+    prep: std::sync::Mutex<Option<Arc<crate::provisional::PrepAdapter>>>,
 }
 
 /// NEXT-PHASE-1 v4 declared warm-up prompt (ACCEPTANCE-v4 Section 2(2)):
@@ -111,7 +115,20 @@ impl AienRuntimeServer {
             compose_override: std::sync::Mutex::new(None),
             identity: std::sync::Mutex::new(None),
             started: DaemonStart::now(),
+            #[cfg(feature = "provisional-prep")]
+            prep: std::sync::Mutex::new(None),
         }
+    }
+
+    /// Headstart M3 (#537): send `ComposeApprovedProposal` and
+    /// `ComposeAuthorize` requests that `adapter` has bound
+    /// (`PrepAdapter::bind_approval`) through its final commit fence. Unbound
+    /// requests run the original call unchanged. Without this call (the
+    /// default) nothing is fenced.
+    #[cfg(feature = "provisional-prep")]
+    pub fn with_prep_adapter(self, adapter: Arc<crate::provisional::PrepAdapter>) -> Self {
+        *self.prep.lock().expect("prep adapter") = Some(adapter);
+        self
     }
 
     /// Test seam: serve compose commands from `bridge` (for example one with a
@@ -294,6 +311,8 @@ impl AienRuntimeServer {
             .expect("compose override")
             .clone();
         let identity = self.identity.lock().expect("identity lock").clone();
+        #[cfg(feature = "provisional-prep")]
+        let prep = self.prep.lock().expect("prep adapter").clone();
         // Correlation trace exporter (#398): on only when AIEN_TRACE_JSONL names
         // a file. Off, the bridge keeps a NullSink and emits nothing. The flusher
         // handle lives until the end of `run`, after the compose home closes,
@@ -413,7 +432,10 @@ impl AienRuntimeServer {
                             let identity_conn = identity.clone();
                             let started = self.started;
                             let probe_conn = probe.clone();
+                            #[cfg(feature = "provisional-prep")]
+                            let prep_conn = prep.clone();
                             tokio::spawn(async move {
+                                #[cfg(not(feature = "provisional-prep"))]
                                 handle_connection(
                                     stream,
                                     spine_conn,
@@ -422,6 +444,18 @@ impl AienRuntimeServer {
                                     tokenizer_conn,
                                     compose_conn,
                                     (identity_conn, started),
+                                )
+                                .await;
+                                #[cfg(feature = "provisional-prep")]
+                                handle_connection(
+                                    stream,
+                                    spine_conn,
+                                    is_running_conn,
+                                    notify_conn,
+                                    tokenizer_conn,
+                                    compose_conn,
+                                    (identity_conn, started),
+                                    prep_conn,
                                 )
                                 .await;
                                 if let Some(line) = probe_conn.as_ref().and_then(|p| p.after_request()) {
@@ -897,6 +931,7 @@ async fn stream_turn(
     }
 }
 
+#[cfg_attr(feature = "provisional-prep", allow(clippy::too_many_arguments))]
 async fn handle_connection(
     stream: UnixStream,
     spine: Arc<Mutex<AienRuntimeSpine>>,
@@ -905,6 +940,7 @@ async fn handle_connection(
     tokenizer: Arc<RwLock<Option<ChatTokenizer>>>,
     compose: Option<Arc<ComposeBridge>>,
     (identity, started): (Option<Arc<ModelIdentity>>, DaemonStart),
+    #[cfg(feature = "provisional-prep")] prep: Option<Arc<crate::provisional::PrepAdapter>>,
 ) {
     let (reader, mut writer) = stream.into_split();
     let mut buf_reader = BufReader::new(reader);
@@ -1002,7 +1038,16 @@ async fn handle_connection(
                 };
                 let proof = desk_proof.clone();
                 let objective = objective_id.clone();
+                #[cfg(feature = "provisional-prep")]
+                let fence = prep.clone();
                 Some(Box::new(move |b: &Arc<ComposeBridge>| {
+                    // Headstart M3: a bound request passes the fence instead.
+                    #[cfg(feature = "provisional-prep")]
+                    if let Some(r) = fence.as_ref().and_then(|a| {
+                        a.route_authorize(b, &req, proof.as_ref(), objective.as_deref())
+                    }) {
+                        return r;
+                    }
                     crate::effects::authorize_with_objective(
                         b,
                         &req,
@@ -1061,7 +1106,14 @@ async fn handle_connection(
                 ref workspace,
             } => {
                 let (p, w) = (proposal.clone(), workspace.clone());
+                #[cfg(feature = "provisional-prep")]
+                let fence = prep.clone();
                 Some(Box::new(move |b: &Arc<ComposeBridge>| {
+                    // Headstart M3: a bound request passes the fence instead.
+                    #[cfg(feature = "provisional-prep")]
+                    if let Some(r) = fence.as_ref().and_then(|a| a.route_approved(b, &p, &w)) {
+                        return r;
+                    }
                     match crate::approved::ProposerHook::new(b.clone()).submit(&p, &w) {
                         Ok(r) => ControlResponse::ComposeApprovedResult(Box::new(r)),
                         Err(r) => ControlResponse::ComposeApprovedRefused(r),
