@@ -16,17 +16,17 @@ fn ctl(graph: bool) -> Ctl {
     GenerationController::new(m)
 }
 
-fn prompt(n: usize, seed: usize) -> Vec<u32> {
+pub(crate) fn prompt(n: usize, seed: usize) -> Vec<u32> {
     (0..n)
         .map(|i| ((i * 7 + seed * 13 + 1) % 64) as u32)
         .collect()
 }
 
-fn greedy(n: usize) -> GenerateParams {
+pub(crate) fn greedy(n: usize) -> GenerateParams {
     GenerateParams::greedy(n, Vec::new())
 }
 
-fn sampled(n: usize, seed: u64) -> GenerateParams {
+pub(crate) fn sampled(n: usize, seed: u64) -> GenerateParams {
     GenerateParams {
         max_new_tokens: n,
         temperature: 1.0,
@@ -37,8 +37,8 @@ fn sampled(n: usize, seed: u64) -> GenerateParams {
     }
 }
 
-fn gen_with(
-    c: &mut Ctl,
+pub(crate) fn gen_with<M: ForwardPass>(
+    c: &mut GenerationController<M>,
     prompt: &[u32],
     params: &GenerateParams,
     sampler: &mut dyn Sampler,
@@ -52,8 +52,8 @@ fn gen_with(
     Ok((out, o))
 }
 
-fn gen(
-    c: &mut Ctl,
+pub(crate) fn gen<M: ForwardPass>(
+    c: &mut GenerationController<M>,
     prompt: &[u32],
     params: &GenerateParams,
     constraint: Option<&mut dyn Constraint>,
@@ -67,18 +67,32 @@ fn cold(prompt: &[u32], params: &GenerateParams) -> Vec<u32> {
     gen(&mut ctl(false), prompt, params, None).unwrap().0
 }
 
+/// What the moved tests read beyond the seam: how many positions each layer of the cache holds
+/// (as many layers as the model can show).
+pub(crate) trait LayerFill {
+    fn layer_fill(&self) -> Vec<usize>;
+}
+
+impl LayerFill for EchoChainModel {
+    fn layer_fill(&self) -> Vec<usize> {
+        self.layer_lens()
+    }
+}
+
 /// Every layer holds exactly the ledger's positions.
-fn assert_at_ledger(c: &Ctl) {
+pub(crate) fn assert_at_ledger<M: ForwardPass + LayerFill>(c: &GenerationController<M>) {
     let n = c.position();
+    let fill = c.model().layer_fill();
+    assert!(!fill.is_empty());
     assert_eq!(
-        c.model().layer_lens(),
-        vec![n; 2],
+        fill,
+        vec![n; fill.len()],
         "every layer must hold exactly position() = {n} rows"
     );
 }
 
 /// The outcome without its wall-clock fields.
-fn counted(o: &GenerateOutcome) -> GenerateOutcome {
+pub(crate) fn counted(o: &GenerateOutcome) -> GenerateOutcome {
     GenerateOutcome {
         prefill_ms: 0,
         decode_ms: 0,
@@ -164,7 +178,7 @@ fn greedy_chain<M: ForwardPass>(m: &mut M, pos: usize, first: u32, n: usize) -> 
     out
 }
 
-fn forward_pass_contract<M: ForwardPass>(make: &dyn Fn() -> M) {
+pub(crate) fn forward_pass_contract<M: ForwardPass>(make: &dyn Fn() -> M) {
     let p = prompt(20, 1); // more than one KV block
     let n = p.len();
     let mut t = StepTiming::default();
@@ -311,9 +325,25 @@ fn echo_chain_keeps_the_forward_pass_contract() {
 // The controller (moved tests, then the new ones of section 5).
 // ---------------------------------------------------------------------------------------------
 
-#[test]
-fn prefix_reuse_prefills_only_the_new_tokens_and_matches_a_cold_run() {
-    let mut c = ctl(false);
+// The moved tests (ADR 0004 section 5), generic over the forward pass: each runs here on the
+// fake and on the tiny MoE through the 30B adapter (`qwen3_moe_omega::forward_pass` tests).
+
+/// A cold run on a fresh model.
+pub(crate) fn cold_on<M: ForwardPass>(
+    make: &dyn Fn() -> M,
+    prompt: &[u32],
+    params: &GenerateParams,
+) -> Vec<u32> {
+    gen(&mut GenerationController::new(make()), prompt, params, None)
+        .unwrap()
+        .0
+}
+
+/// Returns the warm turn's outcome, so the caller can check its own prefill counters.
+pub(crate) fn moved_prefix_reuse<M: ForwardPass + LayerFill>(
+    make: &dyn Fn() -> M,
+) -> GenerateOutcome {
+    let mut c = GenerationController::new(make());
     let p1 = prompt(10, 2);
     let (first, o) = gen(&mut c, &p1, &greedy(4), None).unwrap();
     assert_eq!((o.reused_prompt_tokens, o.prompt_tokens), (0, 10));
@@ -321,14 +351,28 @@ fn prefix_reuse_prefills_only_the_new_tokens_and_matches_a_cold_run() {
     assert_eq!(p2.len(), 13, "prompt plus the three decoded tokens");
     assert_eq!(&p2[10..], &first[..3]);
     p2.extend([5, 6, 7]);
-    let (warm, o) = gen(&mut c, &p2, &greedy(8), None).unwrap();
-    assert_eq!(o.reused_prompt_tokens, 13);
+    let (warm, warm_outcome) = gen(&mut c, &p2, &greedy(8), None).unwrap();
+    assert_eq!(warm_outcome.reused_prompt_tokens, 13);
+    assert_eq!(warm, cold_on(make, &p2, &greedy(8)));
+    assert_at_ledger(&c);
+    // A prompt equal to the whole history still prefills its last token; an unrelated prompt
+    // starts cold.
+    let h = c.history().to_vec();
+    let (_, o) = gen(&mut c, &h, &greedy(2), None).unwrap();
+    assert_eq!(o.reused_prompt_tokens, h.len() - 1);
+    let (_, o) = gen(&mut c, &[1, 2, 3], &greedy(2), None).unwrap();
+    assert_eq!(o.reused_prompt_tokens, 0);
+    assert_at_ledger(&c);
+    warm_outcome
+}
+
+#[test]
+fn prefix_reuse_prefills_only_the_new_tokens_and_matches_a_cold_run() {
+    let o = moved_prefix_reuse(&|| EchoChainModel::new(CTX));
     assert_eq!(
         o.prefill_timing.launches, 3,
         "only the new tokens are prefilled"
     );
-    assert_eq!(warm, cold(&p2, &greedy(8)));
-    assert_at_ledger(&c);
 }
 
 #[test]
@@ -440,24 +484,24 @@ fn a_forward_error_leaves_every_layer_at_the_ledger() {
     assert_eq!(warm, cold(&p3, &greedy(8)));
 }
 
-#[test]
-fn generate_stops_on_stop_ids_caps_length_and_cancels() {
+pub(crate) fn moved_stops_caps_and_cancels<M: ForwardPass>(make: &dyn Fn() -> M) {
     let p = prompt(10, 7);
-    let chain = cold(&p, &greedy(8));
+    let chain = cold_on(make, &p, &greedy(8));
     assert_eq!(chain.len(), 8);
     let stop = chain[4];
     let i = chain.iter().position(|&t| t == stop).unwrap();
-    let mut c = ctl(false);
+    let mut c = GenerationController::new(make());
     let (out, o) = gen(&mut c, &p, &GenerateParams::greedy(8, vec![stop]), None).unwrap();
     assert_eq!(
         (&out[..], o.finish, o.emitted_tokens),
         (&chain[..i], FinishReason::Stop, i)
     );
 
-    let (out, o) = gen(&mut ctl(false), &p, &greedy(5), None).unwrap();
+    let mut c = GenerationController::new(make());
+    let (out, o) = gen(&mut c, &p, &greedy(5), None).unwrap();
     assert_eq!((&out[..], o.finish), (&chain[..5], FinishReason::Length));
 
-    let mut c = ctl(false);
+    let mut c = GenerationController::new(make());
     let mut out = Vec::new();
     let o = c
         .generate(&p, &greedy(8), &mut SampleNext(greedy(8)), None, &mut |t| {
@@ -469,6 +513,11 @@ fn generate_stops_on_stop_ids_caps_length_and_cancels() {
         (&out[..], o.finish, o.emitted_tokens),
         (&chain[..3], FinishReason::Cancelled, 3)
     );
+}
+
+#[test]
+fn generate_stops_on_stop_ids_caps_length_and_cancels() {
+    moved_stops_caps_and_cancels(&|| EchoChainModel::new(CTX));
 }
 
 #[test]
@@ -549,9 +598,12 @@ fn a_full_context_ends_with_length_and_no_error() {
     );
 }
 
-#[test]
-fn restored_prefix_continues_exactly_like_the_uninterrupted_engine() {
-    let mut a = ctl(false);
+/// `make_a` runs the uninterrupted engine, `make_b` the one the prefix is restored into.
+pub(crate) fn moved_restored_prefix<M: ForwardPass + LayerFill>(
+    make_a: &dyn Fn() -> M,
+    make_b: &dyn Fn() -> M,
+) {
+    let mut a = GenerationController::new(make_a());
     gen(&mut a, &prompt(20, 11), &greedy(8), None).unwrap();
     let h = a.history().to_vec();
     let bytes = a.export_kv(0, h.len()).unwrap();
@@ -559,42 +611,63 @@ fn restored_prefix_continues_exactly_like_the_uninterrupted_engine() {
     next.extend([4, 2]);
     let (want, _) = gen(&mut a, &next, &greedy(8), None).unwrap();
 
-    let mut b = ctl(true);
+    let mut b = GenerationController::new(make_b());
     b.restore_kv(&h, &bytes).unwrap();
     assert_eq!(b.history(), &h[..]);
     assert_at_ledger(&b);
+    assert_eq!(
+        b.export_kv(0, h.len()).unwrap(),
+        bytes,
+        "import then export is byte-identical"
+    );
     let (got, o) = gen(&mut b, &next, &greedy(8), None).unwrap();
     assert_eq!(o.reused_prompt_tokens, h.len());
     assert_eq!(got, want);
-    assert_eq!(got, cold(&next, &greedy(8)));
+    assert_eq!(got, cold_on(make_b, &next, &greedy(8)));
 }
 
 #[test]
-fn a_failed_restore_resets_the_ledger() {
+fn restored_prefix_continues_exactly_like_the_uninterrupted_engine() {
+    moved_restored_prefix(&|| EchoChainModel::new(CTX), &|| {
+        let mut m = EchoChainModel::new(CTX);
+        m.graph_mode = true;
+        m
+    });
+}
+
+pub(crate) fn moved_failed_restore<M: ForwardPass + LayerFill>(make: &dyn Fn() -> M) {
     let p = prompt(20, 12);
-    let mut a = ctl(false);
+    let mut a = GenerationController::new(make());
     gen(&mut a, &p, &greedy(4), None).unwrap();
     let h = a.history().to_vec();
     let mut snap = a.export_kv(0, h.len()).unwrap();
     assert!(a.export_kv(0, h.len() + 1).is_err(), "past the ledger");
 
-    let mut b = ctl(false);
+    let mut b = GenerationController::new(make());
     gen(&mut b, &[1, 2, 3, 4], &greedy(2), None).unwrap();
     assert!(b.restore_kv(&h, &snap[..snap.len() - 2]).is_err());
-    assert_eq!((b.position(), b.model().layer_lens()), (0, vec![0, 0]));
+    assert_eq!(b.position(), 0);
+    assert_at_ledger(&b);
     let last = snap.len() - 1;
     snap[last] ^= 1; // a padding byte set
     assert!(b.restore_kv(&h, &snap).is_err());
     assert!(b.restore_kv(&[], &[]).is_err());
-    assert!(b.restore_kv(&vec![1u32; CTX], &snap).is_err());
-    assert_eq!((b.position(), b.model().layer_lens()), (0, vec![0, 0]));
+    let ctx = b.max_context_tokens();
+    assert!(b.restore_kv(&vec![1u32; ctx], &snap).is_err());
+    assert_eq!(b.position(), 0);
+    assert_at_ledger(&b);
     let (got, o) = gen(&mut b, &p, &greedy(8), None).unwrap();
     assert_eq!(o.reused_prompt_tokens, 0);
     assert_eq!(
         got,
-        cold(&p, &greedy(8)),
+        cold_on(make, &p, &greedy(8)),
         "plain prefill after a refused restore"
     );
+}
+
+#[test]
+fn a_failed_restore_resets_the_ledger() {
+    moved_failed_restore(&|| EchoChainModel::new(CTX));
 }
 
 #[test]
