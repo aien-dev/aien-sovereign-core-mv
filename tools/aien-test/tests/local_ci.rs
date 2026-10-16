@@ -1487,3 +1487,74 @@ fn worker_never_reuses_a_pass_when_an_undeclared_file_changed_across_commits() {
         r2.gates
     );
 }
+
+/// An operator run of a pipeline configuration change (a head that adds a
+/// gate under `tests/gates/`) is checked with the operator's permission too:
+/// the independent check recomputes the plan with `operator` set, so a
+/// passing operator run is READY and posts success. Without the operator the
+/// same head stays BLOCKED_OPERATOR and never posts success.
+#[test]
+fn worker_operator_run_of_a_config_change_is_ready_and_posts_success() {
+    if nested_in_sandbox("worker_operator_run_of_a_config_change_is_ready_and_posts_success") {
+        return;
+    }
+    let w = world();
+    let (fake, log, _down) = fake_gh(&w);
+    let mut cfg = w.config();
+    cfg.github = true;
+    cfg.gh = fake.display().to_string();
+    git(&w.origin, &["checkout", "-q", "-b", "topic-op", "main"]);
+    write(&w.origin, "op/op.sh", "#!/bin/sh\necho PASS\n", true);
+    git(&w.origin, &["checkout", "-q", "main"]);
+    let head = commit_on(
+        &w,
+        "topic-op",
+        &[
+            ("op/op.txt", "1\n"),
+            ("tests/gates/OP.gate", &gate("OP", "op/", "op/op.sh", "")),
+        ],
+        "new gate OP",
+    );
+
+    // Not the operator: blocked, never success.
+    let s = worker::run_once(&cfg, REPO, &head).expect("worker (no operator)");
+    assert!(!s.ready, "{:?}", s.notes);
+    let l = fs::read_to_string(&log).unwrap();
+    assert!(!l.contains("state=success"), "{l}");
+
+    // The operator: the gate runs and passes, the check agrees, success.
+    cfg.operator = true;
+    let s = worker::run_once(&cfg, REPO, &head).expect("worker (operator)");
+    assert_eq!(gate_verdict(&s, "OP"), Verdict::Pass, "{:?}", s.notes);
+    assert_eq!(s.bundle_verdict, "PASS");
+    assert!(s.ready, "{:?}", s.notes);
+    let l = fs::read_to_string(&log).unwrap();
+    assert!(l.contains("state=success"), "{l}");
+    let j = fs::read_to_string(w.state.journal()).unwrap();
+    assert!(
+        j.lines().last().unwrap().contains("\"verify\":\"READY\""),
+        "{j}"
+    );
+
+    // Permission must never be inherited from an earlier authorized run
+    // of this exact head. A later non-operator run must publish a refusal.
+    let prior_statuses = l;
+    cfg.operator = false;
+    let s = worker::run_once(&cfg, REPO, &head).expect("worker (operator revoked)");
+    assert!(!s.ready, "operator authorization leaked into a later run");
+    let statuses = fs::read_to_string(&log).unwrap();
+    let new_statuses = statuses
+        .strip_prefix(&prior_statuses)
+        .expect("the worker must append to the existing status log");
+    assert!(new_statuses.contains("state=error"), "{new_statuses}");
+    assert!(!new_statuses.contains("state=success"), "{new_statuses}");
+    let journal = fs::read_to_string(w.state.journal()).unwrap();
+    assert!(
+        journal
+            .lines()
+            .last()
+            .unwrap()
+            .contains("\"verify\":\"BLOCKED\""),
+        "{journal}"
+    );
+}

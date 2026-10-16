@@ -1043,7 +1043,9 @@ fn run_in_worktree(
 
     // The independent check of what was just written, exactly as `verify`
     // does it: keys at BASE, signature, graph digest, receipts, manifests,
-    // crumb. Nothing is published as success unless this says READY.
+    // crumb, with the same operator permission the plan had (a pipeline
+    // configuration change the operator ran by hand is not BLOCKED here).
+    // Nothing is published as success unless this says READY.
     cfg.state.beat(repo, sha, "verify");
     let check = verify::run(
         clone,
@@ -1053,7 +1055,7 @@ fn run_in_worktree(
             base: plan.base.clone(),
             repository: Some(repository.clone()),
             release: false,
-            operator: false,
+            operator: cfg.operator,
             hardware_identity: cfg.hardware_identity.clone(),
             crumb: cfg.crumb.clone(),
             keys_override: None,
