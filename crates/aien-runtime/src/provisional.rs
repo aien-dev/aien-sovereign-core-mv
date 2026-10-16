@@ -90,14 +90,20 @@
 //! [`DeliverError::DeferredFull`] and queues nothing) and delivered again
 //! right after the commit outcome is recorded, under the same mutex, before
 //! any other event or fence. What each redelivery did is returned in
-//! [`Fenced::redelivered`]. Only an event M2 applied (or answered as a
-//! duplicate) leaves the queue: one still refused by another running commit,
-//! and one M2 refuses for any other reason (a stale generation, a wrong
-//! state, a journal write failure), stays queued and journaled, so a revoke
-//! or cancel is never dropped without a decision. It is delivered again
-//! after every later outcome and on every open, and it holds a queue slot
-//! until the caller removes it ([`PrepAdapter::discard_deferred`]); a full
-//! queue refuses new deferrals (fail closed). With a journaled scheduler
+//! [`Fenced::redelivered`]. An event M2 applied (or answered as a
+//! duplicate) leaves the queue. So does one M2 refuses as a stale
+//! generation ([`SchedError::StaleGeneration`]): generations only grow, so
+//! that event can never apply, and keeping it would hold a queue slot for
+//! good (after [`DEFERRED_CAPACITY`] such events every delivery during a
+//! commit would fail). It is reported with its refusal and
+//! [`Redelivered::dropped`] set, which is the decision. One still refused
+//! by another running commit stays queued silently, and one M2 refuses for
+//! any other reason (a wrong state, a journal write failure, an unknown
+//! task) stays queued and journaled, so a revoke or cancel is never dropped
+//! without a decision. It is delivered again after every later outcome and
+//! on every open, and it holds a queue slot until the caller removes it
+//! ([`PrepAdapter::discard_deferred`]); a full queue refuses new deferrals
+//! (fail closed). With a journaled scheduler
 //! ([`PrepAdapter::open`]) the queue is journaled in a sidecar next to the M2
 //! journal ([`deferred_journal_path`]): rewritten atomically (temp file,
 //! fsync, rename, directory fsync) before `Deferred` is returned and after
@@ -110,7 +116,7 @@
 //! still lands after it ([`PrepAdapter::take_replayed_deferred`] returns
 //! what each did). An event that was already applied before the crash is a
 //! duplicate, or a stale generation once its task moved on (spark-harness
-//! `scheduler/dedup.rs`); the second stays queued until discarded. A sidecar
+//! `scheduler/dedup.rs`); the second is reported and dropped. A sidecar
 //! that does not parse, holds more than [`DEFERRED_CAPACITY`] events or
 //! holds a fence-only event fails the open. One adapter owns a journal and
 //! its sidecar: open resolves the journal path to its canonical form, takes
@@ -374,6 +380,11 @@ impl std::error::Error for DeliverError {}
 pub struct Redelivered {
     pub id: String,
     pub result: Result<Outcome, SchedError>,
+    /// The event left the queue although M2 refused it: the refusal was
+    /// [`SchedError::StaleGeneration`], which no later delivery can change.
+    /// False for an applied event (it left the queue because it landed) and
+    /// for every other refusal (the event stays queued).
+    pub dropped: bool,
 }
 
 #[derive(Debug)]
@@ -516,8 +527,9 @@ impl Inner {
         });
     }
 
-    /// Deliver every deferred event again, oldest first. Only an event M2
-    /// applied or answered as a duplicate leaves the queue; one still
+    /// Deliver every deferred event again, oldest first. An event M2
+    /// applied or answered as a duplicate leaves the queue, and so does one
+    /// refused as a stale generation (reported, `dropped`); one still
     /// refused by a running commit stays queued silently, and one refused
     /// for any other reason stays queued and is returned with its refusal.
     /// The sidecar is rewritten when anything left the queue; the error, if
@@ -532,11 +544,18 @@ impl Inner {
                 Ok(o) => out.push(Redelivered {
                     id: ev.id,
                     result: Ok(o),
+                    dropped: false,
+                }),
+                Err(e @ SchedError::StaleGeneration { .. }) => out.push(Redelivered {
+                    id: ev.id,
+                    result: Err(e),
+                    dropped: true,
                 }),
                 Err(e) => {
                     out.push(Redelivered {
                         id: ev.id.clone(),
                         result: Err(e),
+                        dropped: false,
                     });
                     keep.push_back(ev);
                 }

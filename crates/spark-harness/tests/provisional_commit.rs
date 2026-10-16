@@ -529,7 +529,11 @@ fn bindings_survive_a_replay_and_are_dropped_when_the_task_commits() {
 }
 
 #[test]
-fn bindings_are_dropped_only_when_the_commit_ended() {
+fn bindings_are_dropped_only_when_the_commit_landed() {
+    // Aborted keeps the binding (the task may be retried); uncertain keeps
+    // it too (whether the commit landed is unknown, so the bound request
+    // stays fenced and refused instead of running unfenced); only a landed
+    // commit releases it.
     for (result, ended, kept) in [
         (
             CommitResult::Failed {
@@ -543,7 +547,7 @@ fn bindings_are_dropped_only_when_the_commit_ended() {
                 reason: "transport".into(),
             },
             TaskState::CommitUncertain,
-            false,
+            true,
         ),
         (committed(), TaskState::Committed, false),
     ] {
@@ -560,6 +564,42 @@ fn bindings_are_dropped_only_when_the_commit_ended() {
         assert_eq!(bound(&h, "approval:x"), want, "{result:?}");
         assert!(bound(&h, "approval:c").is_some(), "{result:?}");
     }
+}
+
+#[test]
+fn an_uncertain_commit_keeps_its_bindings_for_good_and_takes_no_new_one() {
+    let mut h = H::journaled(enabled());
+    h.register("a", 1, &[]);
+    h.register("b", 1, &["a"]);
+    h.publish("a", 1);
+    h.finish("a");
+    h.finish("b");
+    let gen_b = h.generation("b");
+    bind(&mut h, "approval:x", "b").unwrap();
+    begin(&mut h, "b").unwrap();
+    outcome(
+        &mut h,
+        "b",
+        CommitResult::Uncertain {
+            reason: "the fenced call panicked".into(),
+        },
+    );
+    assert_eq!(h.sched.state("b"), Some(TaskState::CommitUncertain));
+    // The bound request stays bound to the terminal generation, so a fence
+    // on it is a refusal (`AlreadySubmitted` / wrong state), never an
+    // unfenced run. A new key cannot be bound to the task.
+    assert_eq!(bound(&h, "approval:x"), Some(("b".into(), gen_b)));
+    assert!(wrong_state(&bind(&mut h, "approval:new", "b")));
+    assert_eq!(bound(&h, "approval:new"), None);
+    assert!(begin(&mut h, "b").is_err());
+    // Rebinding the held key is refused too: the task ended.
+    assert!(wrong_state(&bind(&mut h, "approval:x", "b")));
+    assert_eq!(bound(&h, "approval:x"), Some(("b".into(), gen_b)));
+    // A replay rebuilds the same table.
+    h.restart(enabled()).unwrap();
+    assert_eq!(h.sched.state("b"), Some(TaskState::CommitUncertain));
+    assert_eq!(bound(&h, "approval:x"), Some(("b".into(), gen_b)));
+    assert_eq!(h.sched.approvals_len(), 1);
 }
 
 #[test]
@@ -708,13 +748,17 @@ fn aborted_tasks_cannot_exhaust_the_table_for_other_tasks() {
         bind(&mut h, &format!("approval:c-{i}"), "c").unwrap();
     }
     cancel(&mut h, "c");
-    // c keeps its full share while aborted and after a retry.
+    // c keeps its full share while aborted and after a retry. A new key
+    // for the retried task reclaims one superseded binding (see
+    // `a_full_task_reclaims_its_superseded_bindings_oldest_first`), so the
+    // share stays at the cap.
     retry(&mut h, "c");
     assert_eq!(h.sched.approvals_len(), MAX_APPROVAL_BINDINGS_PER_TASK);
-    let r = bind(&mut h, "approval:c-new", "c");
-    assert!(matches!(r, Err(SchedError::BindingsFull { .. })), "{r:?}");
+    assert!(bind(&mut h, "approval:c-new", "c").is_ok());
+    assert_eq!(h.sched.approvals_len(), MAX_APPROVAL_BINDINGS_PER_TASK);
     // Its own keys may be bound again at the new generation.
-    assert!(bind(&mut h, "approval:c-0", "c").is_ok());
+    assert!(bind(&mut h, "approval:c-1", "c").is_ok());
+    assert_eq!(h.sched.approvals_len(), MAX_APPROVAL_BINDINGS_PER_TASK);
     // An unrelated task still gets its whole share.
     for i in 0..MAX_APPROVAL_BINDINGS_PER_TASK {
         bind(&mut h, &format!("approval:x-{i}"), "x").unwrap();
@@ -725,4 +769,64 @@ fn aborted_tasks_cannot_exhaust_the_table_for_other_tasks() {
         matches!(r, Err(SchedError::BindingsFull { ref task, .. }) if task == "x"),
         "{r:?}"
     );
+}
+
+#[test]
+fn a_full_task_reclaims_its_superseded_bindings_oldest_first() {
+    let mut h = H::journaled(enabled());
+    h.register("a", 1, &[]);
+    h.register("c", 1, &["a"]);
+    let g1 = h.generation("c");
+    for i in 0..MAX_APPROVAL_BINDINGS_PER_TASK {
+        bind(&mut h, &format!("approval:c-{i}"), "c").unwrap();
+    }
+    // Full at the current generation: a new key is refused, nothing moves.
+    let r = bind(&mut h, "approval:c-new", "c");
+    assert!(matches!(r, Err(SchedError::BindingsFull { .. })), "{r:?}");
+    assert_eq!(h.sched.approvals_len(), MAX_APPROVAL_BINDINGS_PER_TASK);
+    // Retried: every binding now names the superseded generation g1.
+    cancel(&mut h, "c");
+    retry(&mut h, "c");
+    let g2 = h.generation("c");
+    assert_eq!(g2, g1 + 1);
+    // A new key reclaims the lowest superseded key (BTreeMap order:
+    // "approval:c-0", then "approval:c-1", then "approval:c-10").
+    bind(&mut h, "approval:c-new", "c").unwrap();
+    assert_eq!(bound(&h, "approval:c-0"), None);
+    assert_eq!(bound(&h, "approval:c-new"), Some(("c".into(), g2)));
+    assert_eq!(h.sched.approvals_len(), MAX_APPROVAL_BINDINGS_PER_TASK);
+    bind(&mut h, "approval:c-newer", "c").unwrap();
+    assert_eq!(bound(&h, "approval:c-1"), None);
+    assert_eq!(bound(&h, "approval:c-10"), Some(("c".into(), g1)));
+    assert_eq!(h.sched.approvals_len(), MAX_APPROVAL_BINDINGS_PER_TASK);
+    // Rebinding a held key moves it to g2 without reclaiming anything.
+    bind(&mut h, "approval:c-10", "c").unwrap();
+    assert_eq!(bound(&h, "approval:c-10"), Some(("c".into(), g2)));
+    assert_eq!(h.sched.approvals_len(), MAX_APPROVAL_BINDINGS_PER_TASK);
+    // Reclaim never touches another task's bindings.
+    h.register("x", 1, &[]);
+    bind(&mut h, "approval:x-0", "x").unwrap();
+    bind(&mut h, "approval:c-newest", "c").unwrap();
+    assert_eq!(bound(&h, "approval:x-0"), Some(("x".into(), 1)));
+    assert_eq!(bound(&h, "approval:c-11"), None);
+    // A replay reclaims the same bindings.
+    let table: Vec<(String, Option<(String, u64)>)> = ["c-0", "c-1", "c-10", "c-11", "c-12"]
+        .iter()
+        .map(|k| (format!("approval:{k}"), bound(&h, &format!("approval:{k}"))))
+        .collect();
+    h.restart(enabled()).unwrap();
+    for (key, want) in table {
+        assert_eq!(bound(&h, &key), want, "{key}");
+    }
+    assert_eq!(h.sched.approvals_len(), MAX_APPROVAL_BINDINGS_PER_TASK + 1);
+    // Once every binding is at the current generation again, the cap
+    // refuses new keys as before.
+    for i in 0..MAX_APPROVAL_BINDINGS_PER_TASK {
+        let key = format!("approval:c-{i}");
+        if bound(&h, &key).is_some_and(|(_, g)| g == g1) {
+            bind(&mut h, &key, "c").unwrap();
+        }
+    }
+    let r = bind(&mut h, "approval:c-last", "c");
+    assert!(matches!(r, Err(SchedError::BindingsFull { .. })), "{r:?}");
 }

@@ -1930,8 +1930,12 @@ async fn an_aborted_task_keeps_its_bound_requests_fenced_until_retried_and_bound
         assert!(fence_refused(&r, "AlreadySubmitted"), "{r:?}");
     } else {
         // The stub answer is not an EFFECT_REFUSED: uncertain, terminal.
+        // The binding is kept, so a resend is refused by the fence instead
+        // of running unfenced.
         assert_eq!(h.state("q"), TaskState::CommitUncertain);
-        assert!(h.adapter.binding(&key).is_none());
+        assert_eq!(h.adapter.binding(&key), Some(("q".into(), 2)));
+        let r = send(authorize(&digest)).await;
+        assert!(fence_refused(&r, "AlreadySubmitted"), "{r:?}");
     }
 
     let _ = client.send_command(ControlCommand::Shutdown).await;
@@ -2075,15 +2079,20 @@ async fn a_bound_grant_after_an_unfenced_compose_run_mints_through_the_fence() {
         // Not an `EFFECT_REFUSED`: classified uncertain (fail closed).
         assert_eq!(h.state("b"), TaskState::CommitUncertain);
     }
-    // B ended: the binding is dropped and the retry is the original call.
-    assert!(h.adapter.binding(&key).is_none());
     let r = send(grant("m3-run-final")).await;
-    match &r {
-        ControlResponse::Error(e) if aien_omega_compose::LINKED => {
-            assert!(e.starts_with("EFFECT_REFUSED "), "{e}")
+    if aien_omega_compose::LINKED {
+        // B committed: the binding is dropped and the retry is the original
+        // call, which the replay ledger refuses.
+        assert!(h.adapter.binding(&key).is_none());
+        match &r {
+            ControlResponse::Error(e) => assert!(e.starts_with("EFFECT_REFUSED "), "{e}"),
+            other => panic!("a second grant must be refused: {other:?}"),
         }
-        ControlResponse::Error(e) => assert!(e.ends_with("is not linked (stub build)"), "{e}"),
-        other => panic!("a second grant must be refused: {other:?}"),
+    } else {
+        // B is uncertain: the binding is kept for good, so the retry stays
+        // fenced and is refused (the task ended) instead of running unfenced.
+        assert_eq!(h.adapter.binding(&key), Some(("b".into(), 1)));
+        assert!(fence_refused(&r, "AlreadySubmitted"), "{r:?}");
     }
 
     let _ = client.send_command(ControlCommand::Shutdown).await;
@@ -2374,13 +2383,123 @@ fn the_deferred_queue_is_bounded_and_fails_closed() {
         .collect();
     assert_eq!(ids, want);
     assert!(matches!(out.redelivered[0].result, Ok(Outcome::Applied(_))));
+    assert!(!out.redelivered[0].dropped);
     // The first revoke moved a to generation 2, so the rest are refused as
-    // stale. Refused redeliveries are kept (never dropped) until discarded.
+    // stale. A stale event can never apply (generations only grow), so each
+    // is reported as dropped and leaves the queue: the queue is empty again
+    // instead of holding 63 dead slots.
     assert!(out.redelivered[1..]
         .iter()
-        .all(|r| matches!(r.result, Err(SchedError::StaleGeneration { .. }))));
-    assert_eq!(h.adapter.deferred_len(), DEFERRED_CAPACITY - 1);
+        .all(|r| { matches!(r.result, Err(SchedError::StaleGeneration { .. })) && r.dropped }));
+    assert_eq!(h.adapter.deferred_len(), 0);
     assert_eq!(h.state("b"), TaskState::Committed);
+}
+
+#[test]
+fn a_stale_deferred_event_is_dropped_and_leaves_the_sidecar() {
+    let mut h = H::journaled(cfg(true, 4));
+    h.register("a", &[]);
+    h.register("b", &["a"]);
+    h.publish("a", 1);
+    h.finish("a");
+    h.finish("b");
+    let side = deferred_journal_path(&h.tmp.path().join("journal.jsonl"));
+    let adapter = Arc::clone(&h.adapter);
+    let out = h
+        .adapter
+        .fenced_for_tests(
+            "b",
+            1,
+            |_| {
+                (
+                    adapter.deliver(revoke_a("revoke-first")),
+                    adapter.deliver(revoke_a("revoke-second")),
+                )
+            },
+            committed,
+        )
+        .unwrap();
+    assert!(matches!(
+        out.outcome.0,
+        Ok(Delivered::Deferred { queued: 1, .. })
+    ));
+    assert!(matches!(
+        out.outcome.1,
+        Ok(Delivered::Deferred { queued: 2, .. })
+    ));
+    // The first revoke applies (a moves to generation 2); the second names
+    // generation 1 and is stale for good: reported, dropped, and gone from
+    // the sidecar, so the queue has its slot back.
+    assert_eq!(out.redelivered.len(), 2);
+    assert_eq!(out.redelivered[0].id, "revoke-first");
+    assert!(matches!(out.redelivered[0].result, Ok(Outcome::Applied(_))));
+    assert!(!out.redelivered[0].dropped);
+    assert_eq!(out.redelivered[1].id, "revoke-second");
+    assert!(
+        matches!(
+            out.redelivered[1].result,
+            Err(SchedError::StaleGeneration { ref task, submitted: 1, current: 2 }) if task == "a"
+        ),
+        "{:?}",
+        out.redelivered[1].result
+    );
+    assert!(out.redelivered[1].dropped);
+    assert!(out.deferred_error.is_none());
+    assert_eq!(h.adapter.deferred_len(), 0);
+    assert_eq!(std::fs::read_to_string(&side).unwrap(), "");
+    assert_eq!(h.gen("a"), 2);
+    // A restart replays nothing: the drop was journaled.
+    drop(adapter);
+    h.restart(cfg(true, 4));
+    assert!(h.adapter.take_replayed_deferred().is_empty());
+    assert_eq!(h.adapter.deferred_len(), 0);
+}
+
+#[test]
+fn an_uncertain_commit_keeps_the_binding_so_the_request_stays_fenced() {
+    let mut h = H::journaled(cfg(true, 4));
+    h.register("a", &[]);
+    h.register("b", &["a"]);
+    h.publish("a", 1);
+    h.finish("a");
+    h.finish("b");
+    let key = FenceKey::Approval("approval-uncertain".into());
+    h.adapter.bind_approval(key.clone(), "b", 1).unwrap();
+    let adapter = Arc::clone(&h.adapter);
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        adapter.fenced_for_tests(
+            "b",
+            1,
+            |_| panic!("commit blew up before any write"),
+            committed,
+        )
+    }));
+    assert!(r.is_err(), "the panic is resumed");
+    assert_eq!(h.state("b"), TaskState::CommitUncertain);
+    // The binding is kept: the daemon still routes this request through the
+    // fence, and the fence refuses it (the task ended) instead of letting
+    // the same request run unfenced. Only a new key, never bound, runs as
+    // the original call.
+    assert_eq!(h.adapter.binding(&key), Some(("b".to_string(), 1)));
+    let mut ran = false;
+    assert!(matches!(
+        fence_err(
+            h.adapter
+                .fenced_for_tests("b", 1, |_| ran = true, committed)
+        ),
+        FenceError::AlreadySubmitted { .. }
+    ));
+    assert!(!ran);
+    assert!(matches!(
+        h.adapter
+            .bind_approval(FenceKey::Approval("approval-late".into()), "b", 1),
+        Err(SchedError::WrongState { .. })
+    ));
+    // The binding survives a restart along with the terminal state.
+    drop(adapter);
+    h.restart(cfg(true, 4));
+    assert_eq!(h.state("b"), TaskState::CommitUncertain);
+    assert_eq!(h.adapter.binding(&key), Some(("b".to_string(), 1)));
 }
 
 #[test]
@@ -2777,8 +2896,8 @@ fn an_open_whose_sidecar_cannot_be_rewritten_fails() {
     }
     // Control: without the blocker, the same open succeeds. The failed
     // open had journaled the revoke before its rewrite failed, so a is at
-    // generation 2 once, and the redelivered copy is refused as stale and
-    // kept (never dropped) until it is discarded.
+    // generation 2 once, and the redelivered copy is refused as stale,
+    // reported, and dropped (it can never apply); the sidecar is empty.
     std::fs::remove_dir_all(&blocker).unwrap();
     let (a, _) = open().unwrap();
     assert_eq!(a.generation("a"), Some(2));
@@ -2789,8 +2908,9 @@ fn an_open_whose_sidecar_cannot_be_rewritten_fails() {
         "{:?}",
         replayed[0].result
     );
-    assert_eq!(a.deferred_len(), 1);
-    assert!(a.discard_deferred("revoke-a").unwrap().is_some());
+    assert!(replayed[0].dropped);
+    assert_eq!(a.deferred_len(), 0);
+    assert!(a.discard_deferred("revoke-a").unwrap().is_none());
     assert_eq!(std::fs::read_to_string(&side).unwrap(), "");
 }
 
