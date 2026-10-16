@@ -11,7 +11,7 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use aien_inference_abi::qwen3_moe_omega::{host_test_engine, OmegaEngine, WeightFormat};
 use aien_serve_http::codec::ByteCodec;
@@ -872,4 +872,59 @@ fn a_turn_larger_than_the_park_and_restore_budgets_is_parked_and_restored_in_ful
         r2, u2,
         "restored continuation differs from the uninterrupted run"
     );
+}
+
+/// What the storage worker charges for one chunk of these tests: its payload (one block at
+/// `AIEN_KV_CHUNK_BLOCKS=1`, the same for every chunk) plus the header region. Probed by parking a
+/// turn on a door with the default budgets.
+fn chunk_charge() -> u64 {
+    let probe = Scratch::new("charge-probe");
+    let (a, line) = door(&probe, &Setup::new(&probe.store(), &gen_key()));
+    assert!(line.contains("persistent KV: on"), "{line}");
+    let _ = turn(&a, &prompt1());
+    assert!(pk_of(&a).wait_idle(WAIT));
+    let c = counters(&a);
+    assert!(c.parked_chunks > 0 && c.park_refused == 0, "{c:?}");
+    c.park_bytes / c.parked_chunks + aien_kv_store::record::HEADER_REGION_LEN as u64
+}
+
+/// sc#523 item 2: a chunk that can never fit the worker's park budget (a quarter of
+/// `AIEN_KV_STORE_MAX_INFLIGHT_BYTES`) or restore budget (the rest) is refused at open, not
+/// spun on at every turn until the credit wait runs out.
+#[test]
+fn a_chunk_larger_than_the_park_or_restore_budget_refuses_at_open() {
+    let c = chunk_charge();
+    let scratch = Scratch::new("oversize");
+    let s = Setup::new(&scratch.store(), &gen_key());
+    // Park budget one byte short of a chunk, restore budget three chunks: parking can never run.
+    let short_park = s
+        .clone()
+        .with_var("AIEN_KV_STORE_MAX_INFLIGHT_BYTES", &(4 * c - 4).to_string());
+    let (d, line) = door(&scratch, &short_park);
+    assert!(
+        line.contains("REFUSED") && line.contains("park budget"),
+        "{line}"
+    );
+    assert!(matches!(d.persistence(), PersistState::Refused(_)));
+    let t0 = Instant::now();
+    assert_eq!(
+        turn(&d, &prompt1()),
+        turn(&plain_door(&scratch), &prompt1())
+    );
+    assert!(t0.elapsed() < Duration::from_secs(5), "{:?}", t0.elapsed());
+    drop(d);
+    // The same budgets with parking off: restore alone fits, so persistence is on.
+    let (d, line) = door(&scratch, &short_park.clone().with_var("AIEN_KV_PARK", "0"));
+    assert!(line.contains("persistent KV: on"), "{line}");
+    drop(d);
+    // Restore budget (three quarters of one chunk) short of a chunk: restoring can never run.
+    let short_restore = s
+        .with_var("AIEN_KV_PARK", "0")
+        .with_var("AIEN_KV_STORE_MAX_INFLIGHT_BYTES", &c.to_string());
+    let (d, line) = door(&scratch, &short_restore);
+    assert!(
+        line.contains("REFUSED") && line.contains("restore budget"),
+        "{line}"
+    );
+    assert!(matches!(d.persistence(), PersistState::Refused(_)));
 }

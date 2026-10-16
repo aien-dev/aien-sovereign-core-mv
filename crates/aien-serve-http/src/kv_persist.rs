@@ -49,6 +49,7 @@ use aien_kv_store::{
     chunk_chain, chunk_key, BackendFormat, ChunkHeader, ChunkKey, ComputeConfig, EngineConfig,
     EngineIdentity, HiddenAct, HolderGuard, Incarnation, JobId, KvDtype, KvStore, LayoutStrides,
     NamespaceFields, NamespaceId, PinnedDest, PinnedSource, RecoveryProgress, StoreState, Terminal,
+    HEADER_REGION_LEN,
 };
 use aien_runtime::shared_kv::{KvPersistSettings, KV_STORE_DIR_ENV};
 use sha2::{Digest, Sha256};
@@ -723,6 +724,12 @@ impl KvPersistence {
         self.identity.geometry.block_stride()
     }
 
+    /// `QueueFull` with nothing in flight before and after the submit: no credit will come back,
+    /// so waiting cannot help (sc#523: a chunk larger than the budget; [`open`] refuses those).
+    fn credit_never_frees(&self, idle_before: bool) -> bool {
+        idle_before && self.worker.capacity().inflight_bytes == 0
+    }
+
     /// The store finished recovery (or failed) within `timeout`.
     pub fn wait_ready(&self, timeout: Duration) -> bool {
         let t0 = Instant::now();
@@ -1009,10 +1016,17 @@ impl KvPersistence {
                 };
                 let mut g = self.inner.lock().unwrap_or_else(|p| p.into_inner());
                 self.pump(&mut g);
+                let idle = self.worker.capacity().inflight_bytes == 0;
                 match self.worker.submit_load(key, &header, dst, self.inc()) {
                     Ok(job) => {
                         g.loads.insert(job, None);
                         jobs.push((job, buf));
+                        break;
+                    }
+                    Err(aien_platform::PlatformError::QueueFull)
+                        if self.credit_never_frees(idle) =>
+                    {
+                        fail = Some("over-budget".into());
                         break;
                     }
                     Err(aien_platform::PlatformError::QueueFull)
@@ -1186,6 +1200,7 @@ impl KvPersistence {
             loop {
                 let mut g = self.inner.lock().unwrap_or_else(|p| p.into_inner());
                 self.pump(&mut g);
+                let idle = self.worker.capacity().inflight_bytes == 0;
                 let keep = bytes.clone();
                 // SAFETY: the guard owns a reference to the bytes, so they live and stay unwritten
                 // (nothing writes through an `Arc<[u8]>`) until the store releases the holder.
@@ -1204,7 +1219,7 @@ impl KvPersistence {
                         break;
                     }
                     Err(aien_platform::PlatformError::QueueFull)
-                        if t0.elapsed() < PARK_CREDIT_WAIT =>
+                        if t0.elapsed() < PARK_CREDIT_WAIT && !self.credit_never_frees(idle) =>
                     {
                         drop(g);
                         std::thread::sleep(Duration::from_micros(500));
@@ -1273,6 +1288,25 @@ fn open_inner(
         .checked_mul(KV_BLOCK_SIZE)
         .filter(|&t| u32::try_from(t).is_ok())
         .ok_or("AIEN_KV_CHUNK_BLOCKS: chunk size overflows")?;
+    // One chunk must fit the worker's park budget (a quarter of the in-flight bytes) and its
+    // restore budget (the rest), the split of `aien_kv_store::worker` (sc#523): a chunk that
+    // never fits is `QueueFull` forever, and every turn would wait out the credit wait first.
+    let charge = (identity.geometry.payload_len(chunk_tokens) + HEADER_REGION_LEN) as u64;
+    let max = settings.worker.max_inflight_bytes;
+    let (park_budget, restore_budget) = (max / 4, max - max / 4);
+    for (on, what, budget, share) in [
+        (settings.park, "park", park_budget, "a quarter"),
+        (
+            settings.restore,
+            "restore",
+            restore_budget,
+            "three quarters",
+        ),
+    ] {
+        if on && charge > budget {
+            return Err(format!("one chunk of {chunk_tokens} tokens takes {charge} bytes in flight, more than the storage worker's {what} budget of {budget} bytes ({share} of AIEN_KV_STORE_MAX_INFLIGHT_BYTES={max}); raise it or lower AIEN_KV_CHUNK_BLOCKS"));
+        }
+    }
     let (ns, mut cfg) = {
         let fields = identity.fields(chunk_tokens as u32, &settings.namespace);
         let ns = fields
