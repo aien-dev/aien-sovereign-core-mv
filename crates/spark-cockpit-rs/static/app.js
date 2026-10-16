@@ -1,5 +1,6 @@
 // ========================================================================= //
-// META MUSE PERSONAL AGENT CONTROLLER (AIEN SOVEREIGN COCKPIT)               //
+// ALLEN HARNESS FRONT END (SPARK COCKPIT)                                    //
+// Every figure on the page is read from the server; nothing is typed in.    //
 // ========================================================================= //
 
 let currentThreadId = "main";
@@ -15,6 +16,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initChat();
   initApprovals();
   initTelemetry();
+  initLive();
   initDrawer();
   initGoals();
   initMemory();
@@ -24,7 +26,9 @@ document.addEventListener("DOMContentLoaded", () => {
 // THEME & NAVIGATION                                                        //
 // ========================================================================= //
 function initTheme() {
-  const savedTheme = localStorage.getItem("muse_theme") || "dark";
+  // A link can choose the theme (?theme=light); otherwise the last choice on this browser, else dark.
+  const fromLink = new URLSearchParams(window.location.search).get("theme");
+  const savedTheme = fromLink || localStorage.getItem("allen_theme") || localStorage.getItem("muse_theme") || "dark";
   document.body.className = savedTheme === "light" ? "light-theme" : "dark-theme";
 
   const btn = document.getElementById("btn-theme-toggle");
@@ -33,16 +37,34 @@ function initTheme() {
       const isLight = document.body.classList.contains("light-theme");
       const nextTheme = isLight ? "dark" : "light";
       document.body.className = nextTheme + "-theme";
-      localStorage.setItem("muse_theme", nextTheme);
+      localStorage.setItem("allen_theme", nextTheme);
     });
   }
 
+  // Wide screens: the menu button narrows the rail to icons. Phones (under 820 px): the rail
+  // sits off canvas and the same button slides it in over a backdrop.
   const sidebarToggle = document.getElementById("btn-sidebar-toggle");
   const sidebar = document.getElementById("muse-sidebar");
+  const backdrop = document.getElementById("sidebar-backdrop");
+  const phone = window.matchMedia("(max-width: 820px)");
+  const closeRail = () => {
+    sidebar.classList.remove("open");
+    if (backdrop) backdrop.classList.remove("show");
+  };
   if (sidebarToggle && sidebar) {
     sidebarToggle.addEventListener("click", () => {
-      sidebar.classList.toggle("collapsed");
+      if (phone.matches) {
+        const open = sidebar.classList.toggle("open");
+        if (backdrop) backdrop.classList.toggle("show", open);
+      } else {
+        sidebar.classList.toggle("collapsed");
+      }
     });
+    if (backdrop) backdrop.addEventListener("click", closeRail);
+    sidebar.querySelectorAll(".nav-item, .thread-item").forEach(el => {
+      el.addEventListener("click", () => { if (phone.matches) closeRail(); });
+    });
+    phone.addEventListener("change", closeRail);
   }
 }
 
@@ -91,15 +113,37 @@ async function initTelemetry() {
       if (!res.ok) return;
       const data = await res.json();
       
+      // /api/telemetry/live answers {gpu: {temperature_c}, memory: {used_kb, total_kb}}.
+      // The pills stay hidden until a real reading arrives.
+      const temp = data.gpu && data.gpu.temperature_c;
+      const usedKb = data.memory && data.memory.used_kb;
+      const totalKb = data.memory && data.memory.total_kb;
+      let shown = false;
+
       const gpuTempEl = document.getElementById("gpu-temp");
-      if (gpuTempEl && data.gpu_temp_c != null) {
-        gpuTempEl.textContent = `${data.gpu_temp_c}°C`;
+      const gpuPill = document.getElementById("pill-gpu");
+      if (gpuTempEl && typeof temp === "number" && temp > 0) {
+        gpuTempEl.textContent = `GB10 ${Math.round(temp)}°C`;
+        if (gpuPill) gpuPill.hidden = false;
+        shown = true;
+      } else if (gpuPill) {
+        gpuPill.hidden = true;
       }
 
       const ramUsedEl = document.getElementById("ram-used");
-      if (ramUsedEl && data.ram_used_gb != null) {
-        ramUsedEl.textContent = `${data.ram_used_gb.toFixed(1)} / 128 GB`;
+      const ramPill = document.getElementById("pill-ram");
+      if (ramUsedEl && typeof usedKb === "number" && typeof totalKb === "number" && totalKb > 0) {
+        const usedGb = usedKb / 1048576;
+        const totalGb = Math.round(totalKb / 1048576);
+        ramUsedEl.textContent = `${usedGb.toFixed(1)} of ${totalGb} GB`;
+        if (ramPill) ramPill.hidden = false;
+        shown = true;
+      } else if (ramPill) {
+        ramPill.hidden = true;
       }
+
+      const pills = document.getElementById("system-pills");
+      if (pills) pills.hidden = !shown;
     } catch (_) {}
   }
 
@@ -108,7 +152,109 @@ async function initTelemetry() {
 }
 
 // ========================================================================= //
-// CHAT & STREAMING (SSE / SPARK-MUSE-BRIDGE PROTOCOL)                       //
+// LIVE STATE ON THE WELCOME (seat, approvals, goals, Spark judge)            //
+// ========================================================================= //
+function setText(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+function greetingForHour(hour) {
+  if (hour < 5) return "Good night";
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+}
+
+async function readJson(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url}: ${res.status}`);
+  return res.json();
+}
+
+async function refreshSeat() {
+  const badge = document.getElementById("seat-model-badge");
+  try {
+    const data = await readJson("/api/models");
+    const first = (data.active_models || [])[0] || {};
+    const online = first.status === "ONLINE" && first.id;
+    const text = online ? first.id : "seat offline";
+    if (badge) {
+      badge.textContent = text;
+      badge.classList.toggle("is-offline", !online);
+    }
+    setText("live-seat", text);
+    const card = document.getElementById("live-card-seat");
+    if (card) card.classList.toggle("is-bad", !online);
+  } catch (_) {
+    if (badge) badge.textContent = "seat unknown";
+    setText("live-seat", "not readable");
+  }
+}
+
+async function refreshCounts() {
+  try {
+    const data = await readJson("/api/approvals");
+    const pending = (data.approvals || []).filter(a => a.status === "pending").length;
+    setText("live-approvals", String(pending));
+    const card = document.getElementById("live-card-approvals");
+    if (card) card.classList.toggle("is-attention", pending > 0);
+  } catch (_) {
+    setText("live-approvals", "not readable");
+  }
+  try {
+    const data = await readJson("/api/goals");
+    setText("live-goals", String((data.goals || []).length));
+  } catch (_) {
+    setText("live-goals", "not readable");
+  }
+}
+
+function judgeWord(v) {
+  if (v === "PASS") return "PASS";
+  if (v === "FAIL") return "FAIL";
+  if (!v || v === "NO VERDICT") return "NO VERDICT";
+  return "BLOCKED";
+}
+
+async function refreshJudge() {
+  const value = document.getElementById("live-judge");
+  const note = document.getElementById("live-judge-note");
+  const card = document.getElementById("live-card-judge");
+  try {
+    const j = await readJson("/api/judge");
+    const word = judgeWord(j.verdict);
+    if (value) {
+      value.textContent = word;
+      value.className = `live-value verdict verdict-${word.toLowerCase().replace(" ", "-")}`;
+    }
+    if (card) card.classList.toggle("is-bad", word === "FAIL");
+    if (note) {
+      if (j.commit) {
+        const when = (j.finished_utc || "").replace("T", " ").replace("Z", " UTC");
+        note.textContent = `commit ${j.commit.slice(0, 7)}: ${j.checks_pass} of ${j.checks_total} checks PASS, ${j.checks_fail} FAIL, ${j.checks_blocked} blocked. Judged ${when}.`;
+      } else {
+        note.textContent = j.note || "No Spark judge bundle could be read on this machine.";
+      }
+    }
+  } catch (_) {
+    if (value) value.textContent = "not readable";
+    if (note) note.textContent = "The judge's bundle store could not be read.";
+  }
+}
+
+function initLive() {
+  setText("hero-greeting", `${greetingForHour(new Date().getHours())}. ALLEN is ready.`);
+  refreshSeat();
+  refreshCounts();
+  refreshJudge();
+  setInterval(refreshSeat, 15000);
+  setInterval(refreshCounts, 15000);
+  setInterval(refreshJudge, 60000);
+}
+
+// ========================================================================= //
+// CHAT & STREAMING (SSE)                                                    //
 // ========================================================================= //
 function initChat() {
   const input = document.getElementById("chat-input");
