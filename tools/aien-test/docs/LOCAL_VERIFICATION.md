@@ -85,7 +85,13 @@ running `crumb verify .` as `aien-run` in a worker checkout passed.
 sudo -n /usr/local/sbin/aien-run-exec --cwd CWD --timeout SECS --profile host|qemu|gb10 [--env CARGO_TARGET_DIR=...] -- PROGRAM ARGS
 ```
 
-Only `CARGO_TARGET_DIR` is passed through. Under `--sandbox user` the
+Only `CARGO_TARGET_DIR` is passed through, plus `AIEN_GB10_LOCK_HELD=1` for a
+gb10 gate while the runner holds the GPU locks for it (also set without the
+sandbox). The runner, not the gate, serializes gb10 under `/tmp/aien-gb10.lock`
+(ADR 0033); a gate script that takes that lock by hand for operator use must
+skip the `flock` when it sees the marker, because `aien-run` cannot open the
+worker's lock file and the same user would block behind the runner's own lock.
+Under `--sandbox user` the
 receipt's `core.machine` also carries `sandbox_helper_sha256` (sha256 of
 the installed helper), so it is in `machine_digest` and the cache key: a
 result made under another helper (other network, mounts or limits) is

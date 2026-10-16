@@ -28,6 +28,7 @@ use crate::manifest::{self, Manifest};
 use crate::process::{self, RunSpec};
 use crate::resources::{
     acquire_gpu, lock, GpuConfig, GpuGuard, Hardware, Permit, Pool, PoolSizes, Pools,
+    GPU_LOCK_HELD_MARKER,
 };
 use crate::sandbox::{self, Sandbox};
 use crate::verdict::{self, campaign_verdict, derive, parse_observations, DepFact, Facts, Verdict};
@@ -689,6 +690,13 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
             // gb10 jobs are never killed (ADR 0028 Decision 6): the timeout
             // only marks the receipt.
             enforce_timeout: m.pool() != "gb10",
+            // Tell the gate the GPU locks are already held for it, so a
+            // script that would take /tmp/aien-gb10.lock itself skips that.
+            env: if gpu.is_some() {
+                vec![(GPU_LOCK_HELD_MARKER.to_string(), "1".to_string())]
+            } else {
+                Vec::new()
+            },
         };
         // The sandbox seam (C8): `none` returns `direct` unchanged.
         let spec = sandbox::wrap(
@@ -1584,6 +1592,32 @@ mod tests {
             acquire_gpu(&opts.gpu).is_ok(),
             "the lock is released after the job"
         );
+    }
+
+    /// Prints whether the runner told the gate it already holds the GPU lock.
+    const LOCK_HELD_SCRIPT: &str =
+        "#!/bin/sh\ntouch \"$1\"\necho \"AIEN-OBS lock_held ${AIEN_GB10_LOCK_HELD:-0}\"\n";
+
+    #[test]
+    fn gb10_gate_is_told_the_runner_holds_the_gpu_lock() {
+        // ADR 0033: the trusted side serializes gb10 under /tmp/aien-gb10.lock.
+        // A gate script that takes the same lock itself would block behind the
+        // runner (or, as aien-run, fail to open it), so the runner says so.
+        let fx = gb10_fixture(LOCK_HELD_SCRIPT, "20s");
+        let o = run(&fx, &gb10_opts(&fx));
+        assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
+        let r = read_json(&o.receipt_path.unwrap());
+        assert_eq!(r["core"]["observations"][0]["name"], "lock_held");
+        assert_eq!(r["core"]["observations"][0]["value"], 1);
+    }
+
+    #[test]
+    fn host_gate_is_not_told_the_lock_is_held() {
+        let fx = fixture(LOCK_HELD_SCRIPT, 0, &[], "20s", "");
+        let o = run(&fx, &fx.opts());
+        assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
+        let r = read_json(&o.receipt_path.unwrap());
+        assert_eq!(r["core"]["observations"][0]["value"], 0);
     }
 
     #[test]
