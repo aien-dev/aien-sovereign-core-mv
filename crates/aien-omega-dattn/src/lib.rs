@@ -212,7 +212,8 @@ impl DecodeAttnCache {
     /// graph, OWN-30B cut 2). Null in the stub. The handle stays owned by `self`: the caller must
     /// not free it, must not use it after `self` is dropped, and must serialise its use with
     /// `self`'s own calls.
-    pub fn as_raw(&self) -> *mut std::ffi::c_void {
+    // SAFETY: C writes through this handle, so it is only handed out under `&mut self`.
+    pub fn as_raw(&mut self) -> *mut std::ffi::c_void {
         #[cfg(has_omega_dattn)]
         {
             self.ptr as *mut std::ffi::c_void
