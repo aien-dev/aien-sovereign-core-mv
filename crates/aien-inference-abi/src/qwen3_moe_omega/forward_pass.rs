@@ -29,9 +29,13 @@ impl Qwen3MoeOmegaEngine {
         self.head_hidden = None;
     }
 
-    /// I1 on entry to a forward call at `pos`: the cache must hold exactly `pos` positions; the
-    /// mirror follows the ledger (`pos == 0` resets, a shorter ledger rewinds, a longer one,
-    /// restored or imported through `kv()`, is taken with `ledger`'s tokens when given).
+    /// I1 on entry to a forward call at `pos`: the cache must hold exactly `pos` positions. The
+    /// mirror then follows the ledger: `pos == 0` resets; if the cache was not lent since the
+    /// last forward call, a shorter ledger is a rewind (the mirror's tokens are the ledger's);
+    /// after a lending (a truncate, an import or a restore through `kv()`) or for a longer
+    /// ledger, the mirror takes `ledger`'s tokens, or [`UNSEEN`] when driven without one.
+    /// After a forward error the mirror may stay ahead of the ledger until the next forward
+    /// call; nothing but the controller reads it during the migration.
     fn resync(&mut self, pos: usize, ledger: Option<&[u32]>) -> Result<(), String> {
         let held = self.kv.len();
         if held != pos {
@@ -40,20 +44,26 @@ impl Qwen3MoeOmegaEngine {
                 self.kv.path_name()
             ));
         }
-        if pos == self.pos {
+        let lent = std::mem::take(&mut self.kv_lent);
+        if pos == 0 {
+            if self.pos != 0 {
+                self.reset();
+            }
             return Ok(());
         }
-        if pos == 0 {
-            self.reset();
-        } else if pos < self.pos {
-            self.rewind(pos);
-        } else {
-            self.pos = pos;
-            self.history = match ledger {
-                Some(h) if h.len() == pos => h.to_vec(),
-                _ => vec![UNSEEN; pos],
-            };
+        if !lent && pos == self.pos {
+            return Ok(());
         }
+        if !lent && pos < self.pos {
+            self.rewind(pos);
+            return Ok(());
+        }
+        self.dgraph_clear();
+        self.pos = pos;
+        self.history = match ledger {
+            Some(h) if h.len() == pos => h.to_vec(),
+            _ => vec![UNSEEN; pos],
+        };
         Ok(())
     }
 }
@@ -68,9 +78,11 @@ impl ForwardPass for Qwen3MoeOmegaEngine {
     }
 
     /// Lending the cache forgets every unread head: a truncate or an import through it must
-    /// never leave a stale graph token or host hidden state to read (I2).
+    /// never leave a stale graph token or host hidden state to read (I2). The next forward call
+    /// takes the mirror's tokens from the ledger.
     fn kv(&mut self) -> &mut dyn KvStore {
         self.forget_heads();
+        self.kv_lent = true;
         &mut *self.kv
     }
 
@@ -95,6 +107,7 @@ impl ForwardPass for Qwen3MoeOmegaEngine {
             return Err("prefill of no tokens".into());
         }
         let mut hidden = Vec::new();
+        // Neither prefill route leaves a graph token, so an error leaves no head.
         let whole = self.whole_prompt_prefill(tokens, &mut hidden, timing)?;
         for chunk in tokens[whole..].chunks(self.prefill_chunk.max(1)) {
             hidden = self.step_batch(chunk)?;
@@ -121,7 +134,10 @@ impl ForwardPass for Qwen3MoeOmegaEngine {
                 tokens.len()
             ));
         };
-        let hidden = self.decode_step(token)?;
+        // On an error (the graph books a token before a timeline error) no head is left.
+        let hidden = self
+            .decode_step(token)
+            .inspect_err(|_| self.forget_heads())?;
         timing.add(&self.last_timing);
         self.head_hidden = Some(hidden);
         Ok(())
@@ -136,17 +152,19 @@ impl ForwardPass for Qwen3MoeOmegaEngine {
         if head != 0 {
             return Err(format!("head {head}: the 30B leaves one head"));
         }
-        if want == Want::Greedy {
-            // The graph's chip argmax (the sample_argmax rule), with no read-back.
-            if let Some(t) = self.dgraph_take_greedy(true) {
-                self.head_hidden = None;
-                return Ok(Next::Token(t));
-            }
-        }
+        // The head left by the last successful forward call, read once: empty for a graph
+        // decode step (its head is the chip's pending token), else the host hidden state.
         let hidden = self
             .head_hidden
             .take()
             .ok_or("no head pending: a head is read once")?;
+        if hidden.is_empty() && want == Want::Greedy {
+            // The graph's chip argmax (the sample_argmax rule), with no read-back.
+            let t = self
+                .dgraph_take_greedy(true)
+                .ok_or("the decode graph holds no pending token")?;
+            return Ok(Next::Token(t));
+        }
         // The host lm_head adds its own time (today's reset before the first decode head); the
         // graph's logits read-back adds nothing, as today.
         self.last_timing = StepTiming::default();
