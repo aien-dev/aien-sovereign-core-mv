@@ -20,7 +20,7 @@
 //! warm/<repo>.json   the warm-standby record of target/<repo>/pr (below).
 //! ```
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -171,7 +171,7 @@ pub fn probe_query(repos: &[(String, String)]) -> Option<String> {
             return None;
         }
         q.push_str(&format!(
-            "r{i}:repository(owner:\"{owner}\",name:\"{name}\"){{ref(qualifiedName:\"refs/heads/main\"){{target{{oid}}}} pullRequests(states:OPEN,first:50){{nodes{{headRefOid labels(first:30){{nodes{{name}}}}}}}}}}"
+            "r{i}:repository(owner:\"{owner}\",name:\"{name}\"){{ref(qualifiedName:\"refs/heads/main\"){{target{{oid}}}} pullRequests(states:OPEN,first:50){{pageInfo{{hasNextPage}} nodes{{headRefOid labels(first:30){{pageInfo{{hasNextPage}} nodes{{name}}}}}}}}}}"
         ));
     }
     q.push('}');
@@ -185,16 +185,19 @@ pub fn probe_jq() -> String {
     format!(
         ".data | to_entries[] | select(.value != null) | .key as $k | \
          ((.value.ref.target.oid // empty | \"\\($k) main \\(.)\"), \
+          (if .value.pullRequests.pageInfo.hasNextPage or any(.value.pullRequests.nodes[]; .labels.pageInfo.hasNextPage) then \"\\($k) more\" else empty end), \
           (.value.pullRequests.nodes[] | \"\\($k) pr \\(.headRefOid) \\([.labels.nodes[].name] | index(\"{MERGE_LABEL}\") != null)\"))"
     )
 }
 
 /// Parse the probe lines into one `Polled` per repository index. A repository
-/// is present only when its `main` line was seen with a valid sha (a partial
+/// is present only when its `main` line was seen with a valid sha and no `more`
+/// line (a second page of pull requests or labels) came for it (a partial
 /// answer never reads as "no pull requests"); bad lines are ignored.
 pub fn parse_probe(text: &str, n: usize) -> Vec<Option<Polled>> {
     let mut out: Vec<Option<Polled>> = vec![None; n];
     let mut prs: Vec<Vec<PrHead>> = vec![Vec::new(); n];
+    let mut more = vec![false; n];
     for l in text.lines() {
         let f: Vec<&str> = l.split_whitespace().collect();
         let Some(i) = f
@@ -205,6 +208,10 @@ pub fn parse_probe(text: &str, n: usize) -> Vec<Option<Polled>> {
         else {
             continue;
         };
+        if f.len() == 2 && f[1] == "more" {
+            more[i] = true;
+            continue;
+        }
         let sha = f.get(2).map(|s| s.to_ascii_lowercase()).unwrap_or_default();
         if !crate::worker::valid_sha(&sha) {
             continue;
@@ -224,6 +231,10 @@ pub fn parse_probe(text: &str, n: usize) -> Vec<Option<Polled>> {
         }
     }
     for (i, p) in out.iter_mut().enumerate() {
+        // More than one page (pull requests or labels): never trusted.
+        if more[i] {
+            *p = None;
+        }
         if let Some(p) = p {
             let mut v = std::mem::take(&mut prs[i]);
             v.sort();
@@ -232,6 +243,72 @@ pub fn parse_probe(text: &str, n: usize) -> Vec<Option<Polled>> {
         }
     }
     out
+}
+
+// ---------------------------------------------------------------- priming stops
+
+/// While priming: the first polled head (pull request or main) that still
+/// needs a run, i.e. has no bundle and has not already failed to run.
+pub fn unserved_head<'a>(
+    polls: &'a [(String, Polled)],
+    has_bundle: &dyn Fn(&str, &str) -> bool,
+    errored: &BTreeSet<(String, String)>,
+) -> Option<(&'a str, &'a str)> {
+    polls.iter().find_map(|(repo, p)| {
+        p.prs
+            .iter()
+            .map(|h| h.sha.as_str())
+            .chain(p.main.as_deref())
+            .find(|s| !has_bundle(repo, s) && !errored.contains(&(repo.clone(), s.to_string())))
+            .map(|s| (repo.as_str(), s))
+    })
+}
+
+/// Does a priming interrupt count as activity (resets the backoff, removes
+/// QUIET-SINCE)? Only something that means work: a new head, WAKE, PAUSE
+/// removed, a trigger file.
+pub fn interrupt_is_activity(why: &str) -> bool {
+    ["new head ", "WAKE touched", "PAUSE removed", "trigger file"]
+        .iter()
+        .any(|p| why.starts_with(p))
+}
+
+/// After priming was interrupted for `why`, should the loop sleep before the
+/// next round?
+pub fn sleep_after_interrupt(why: Option<&str>) -> bool {
+    !why.is_some_and(interrupt_is_activity)
+}
+
+/// The disk check during priming (KiB). `total` is None between the
+/// once-a-minute measurements.
+pub fn disk_verdict(
+    free: Result<u64, String>,
+    total: Option<Result<u64, String>>,
+    quota: u64,
+    floor: u64,
+) -> Option<String> {
+    // A check that cannot measure stops priming (fail closed to cold).
+    match free {
+        Err(e) => return Some(format!("disk: free space unknown: {e}")),
+        Ok(f) if f < floor => return disk_over(0, quota, f, floor),
+        Ok(_) => {}
+    }
+    match total {
+        Some(Err(e)) => Some(format!("disk: target size unknown: {e}")),
+        Some(Ok(t)) => disk_over(t, quota, u64::MAX, floor),
+        None => None,
+    }
+}
+
+/// Priming runs below the gates: `nice -n 19 ionice -c 3 <program> <args>`
+/// inside the sandbox (the unprivileged user may lower its own priority).
+pub fn low_priority(program: &str, args: &[String]) -> (String, Vec<String>) {
+    let mut a: Vec<String> = ["-n", "19", "ionice", "-c", "3", program]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    a.extend(args.iter().cloned());
+    ("nice".to_string(), a)
 }
 
 // ---------------------------------------------------------------- target lock
@@ -687,6 +764,96 @@ mod tests {
             );
         }
         assert!(probe_jq().contains("index(\"ready-to-merge\") != null"));
+    }
+
+    #[test]
+    fn review_a_an_errored_head_never_stops_priming() {
+        let polls = vec![(
+            "r".to_string(),
+            Polled {
+                prs: vec![PrHead {
+                    sha: B.into(),
+                    labeled: false,
+                }],
+                main: Some(A.into()),
+            },
+        )];
+        let bundled = |_: &str, s: &str| s == A;
+        let mut errored = BTreeSet::new();
+        assert_eq!(unserved_head(&polls, &bundled, &errored), Some(("r", B)));
+        errored.insert(("r".to_string(), B.to_string()));
+        assert_eq!(
+            unserved_head(&polls, &bundled, &errored),
+            None,
+            "errored head skipped"
+        );
+        // An errored main (no plan, say) is skipped the same way.
+        let none = |_: &str, _: &str| false;
+        errored.insert(("r".to_string(), A.to_string()));
+        assert_eq!(unserved_head(&polls, &none, &errored), None);
+    }
+
+    #[test]
+    fn review_a_b_only_work_interrupts_count_and_skip_the_sleep() {
+        for w in [
+            "new head r abc",
+            "WAKE touched",
+            "PAUSE removed",
+            "trigger file",
+        ] {
+            assert!(interrupt_is_activity(w), "{w}");
+            assert!(!sleep_after_interrupt(Some(w)), "{w}: run it now");
+        }
+        for w in [
+            "RAISED by x",
+            "unknown (quietlock missing)",
+            "PAUSE present",
+            "disk: 3 GiB free, under the 50 GiB floor",
+        ] {
+            assert!(!interrupt_is_activity(w), "{w}");
+            assert!(sleep_after_interrupt(Some(w)), "{w}");
+        }
+        assert!(sleep_after_interrupt(None));
+    }
+
+    #[test]
+    fn review_c_more_than_one_page_falls_back() {
+        let text = format!("r0 main {A}\nr0 pr {B} true\nr0 more\nr1 main {A}\n");
+        let p = parse_probe(&text, 2);
+        assert_eq!(p[0], None, "a truncated answer is never trusted");
+        assert!(p[1].is_some());
+        let q = probe_query(&[("o".into(), "n".into())]).unwrap();
+        assert!(q.contains("pageInfo{hasNextPage}"), "{q}");
+        assert!(probe_jq().contains("hasNextPage"));
+    }
+
+    #[test]
+    fn review_d_a_failed_disk_check_stops_priming() {
+        let g = 1u64 << 20;
+        let (q, f) = (120 * g, 50 * g);
+        assert_eq!(disk_verdict(Ok(100 * g), None, q, f), None);
+        assert_eq!(disk_verdict(Ok(100 * g), Some(Ok(100 * g)), q, f), None);
+        assert!(disk_verdict(Ok(100 * g), Some(Ok(121 * g)), q, f)
+            .unwrap()
+            .starts_with("disk:"));
+        assert!(disk_verdict(Ok(10 * g), None, q, f)
+            .unwrap()
+            .starts_with("disk:"));
+        let e = disk_verdict(Err("statvfs: EIO".into()), None, q, f).expect("free unknown: stop");
+        assert!(e.starts_with("disk:") && e.contains("EIO"), "{e}");
+        let e = disk_verdict(Ok(100 * g), Some(Err("du did not report".into())), q, f)
+            .expect("size unknown: stop");
+        assert!(
+            e.starts_with("disk:") && e.contains("du did not report"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn req3_priming_runs_niced_and_idle_io() {
+        let (p, a) = low_priority("cargo", &["check".to_string()]);
+        assert_eq!(p, "nice");
+        assert_eq!(a, ["-n", "19", "ionice", "-c", "3", "cargo", "check"]);
     }
 
     #[test]

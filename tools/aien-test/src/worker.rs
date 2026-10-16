@@ -1638,6 +1638,7 @@ pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
         cfg.new_round();
         cfg.state.beat("-", "-", "poll");
         let mut activity = false;
+        let mut run_now = false;
         // Posting is the operator's choice (--github). A loop without it leaves
         // queued statuses where they are, so `aien-local-ci start` after an
         // offline --github run never posts them behind the operator's back.
@@ -1740,9 +1741,10 @@ pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
         }
         // Warm standby: lowest priority, only in a round with nothing to run.
         if cfg.github && !had_work && !watch.paused() {
-            if let Some(why) = prime_pending(cfg, &mains, &mut prime_failed, &mut watch) {
+            if let Some(why) = prime_pending(cfg, &mains, &mut prime_failed, &errored, &mut watch) {
                 println!("PRIME interrupted: {why}");
-                activity |= !why.starts_with("RAISED") && !why.starts_with("unknown");
+                activity |= idle::interrupt_is_activity(&why);
+                run_now = !idle::sleep_after_interrupt(Some(&why));
             }
         }
         let now = SystemTime::now();
@@ -1761,6 +1763,10 @@ pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
         }
         if iterations.is_some_and(|n| round >= n) {
             break;
+        }
+        // A new head or a wake stopped priming: serve it now, no sleep.
+        if run_now {
+            continue;
         }
         // The probe is cheap, so it runs every `cfg.poll`, quiet or not: a new
         // head or label is seen within one poll. Only retries back off.
@@ -1810,6 +1816,7 @@ fn prime_pending(
     cfg: &Config,
     mains: &BTreeMap<String, String>,
     failed: &mut BTreeSet<(String, String)>,
+    errored: &BTreeSet<(String, String)>,
     watch: &mut idle::WakeWatch,
 ) -> Option<String> {
     if cfg.sandbox != Sandbox::User {
@@ -1837,7 +1844,9 @@ fn prime_pending(
             return Some(q);
         }
         let started = now_secs();
-        let outcome = prime_once(cfg, repo, main, main, &mut |c| prime_stop(c, watch));
+        let outcome = prime_once(cfg, repo, main, main, &mut |c| {
+            prime_stop(c, watch, errored)
+        });
         let (word, why) = match &outcome {
             Ok(PrimeOutcome::Warm) => ("warm", None),
             Ok(PrimeOutcome::Interrupted(w)) => ("interrupted", Some(w.clone())),
@@ -1877,7 +1886,11 @@ fn prime_pending(
 
 /// While priming: stop for a trigger file, WAKE, PAUSE (either way), the
 /// quiet flag, or (once a minute) any polled head without a bundle.
-fn prime_stop(cfg: &Config, watch: &mut idle::WakeWatch) -> Option<String> {
+fn prime_stop(
+    cfg: &Config,
+    watch: &mut idle::WakeWatch,
+    errored: &BTreeSet<(String, String)>,
+) -> Option<String> {
     thread_local! {
         static LAST_POLL: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     }
@@ -1893,17 +1906,13 @@ fn prime_stop(cfg: &Config, watch: &mut idle::WakeWatch) -> Option<String> {
     let now = now_secs();
     if now.saturating_sub(LAST_POLL.with(|c| c.get())) >= 60 {
         LAST_POLL.with(|c| c.set(now));
-        for (repo, polled) in poll_all(cfg) {
-            let Ok(p) = polled else { continue };
-            if let Some(s) = p
-                .prs
-                .iter()
-                .map(|h| &h.sha)
-                .chain(p.main.iter())
-                .find(|s| !cfg.state.bundle_path(&repo, s).exists())
-            {
-                return Some(format!("new head {repo} {s}"));
-            }
+        let polls: Vec<(String, Polled)> = poll_all(cfg)
+            .into_iter()
+            .filter_map(|(r, p)| p.ok().map(|p| (r, p)))
+            .collect();
+        let bundled = |r: &str, s: &str| cfg.state.bundle_path(r, s).exists();
+        if let Some((repo, s)) = idle::unserved_head(&polls, &bundled, errored) {
+            return Some(format!("new head {repo} {s}"));
         }
     }
     None
@@ -2006,24 +2015,18 @@ pub fn prime_once(
         let log = cfg.state.root.join("warm").join(format!("{repo}.log"));
         let mut last_du = std::time::Instant::now();
         let mut disk_stop = || -> Option<String> {
-            // statvfs every ask (no process); the repository total once a minute.
-            if let Ok(free) = free_kb(&cfg.target_root) {
-                if free < cfg.disk_floor_kb {
-                    return idle::disk_over(0, cfg.target_quota_kb, free, cfg.disk_floor_kb);
-                }
-            }
-            if last_du.elapsed() >= Duration::from_secs(60) {
+            // statvfs every ask (no process); the repository total once a
+            // minute. A check that fails stops priming (idle::disk_verdict).
+            let total = (last_du.elapsed() >= Duration::from_secs(60)).then(|| {
                 last_du = std::time::Instant::now();
-                if let Ok(d) = disk_now(cfg, repo, &co.wt) {
-                    return idle::disk_over(
-                        d.total,
-                        cfg.target_quota_kb,
-                        d.free,
-                        cfg.disk_floor_kb,
-                    );
-                }
-            }
-            None
+                disk_now(cfg, repo, &co.wt).map(|d| d.total)
+            });
+            idle::disk_verdict(
+                free_kb(&cfg.target_root),
+                total,
+                cfg.target_quota_kb,
+                cfg.disk_floor_kb,
+            )
         };
         for l in &lines {
             let mut env = sandbox::env_pairs(Some(&target));
@@ -2102,10 +2105,12 @@ fn sandbox_exec(
     log: &Path,
     mut stop: Option<&mut dyn FnMut() -> Option<String>>,
 ) -> Result<ExecEnd, String> {
+    // Everything run here is warm standby or its housekeeping: below the gates.
+    let (program, args) = idle::low_priority(program, args);
     let (prog, argv) = sandbox::command(
         Sandbox::User,
-        Path::new(program),
-        args,
+        Path::new(&program),
+        &args,
         cwd,
         timeout_secs,
         "host",

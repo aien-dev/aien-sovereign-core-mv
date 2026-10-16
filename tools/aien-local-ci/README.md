@@ -229,8 +229,8 @@ Priming is never activity.
 
 Cheap check vs expensive work. The cheap check never backs off. Every `--poll` (60 s, as installed) the worker makes
 ONE GraphQL call for all enrolled repositories (`gh api graphql`: per repository the main head and up to 50 open pull
-request heads with their labels). A repository the answer does not cover (no main line) is polled the old way (two
-REST calls), and a failed probe polls every repository the old way; a partial answer never reads as "no pull
+request heads with their labels). A repository the answer does not cover (no main line, or a second page of pull
+requests or labels: `hasNextPage`) is polled the old way (two REST calls), and a failed probe polls every repository the old way; a partial answer never reads as "no pull
 requests". Measured on 2026-10-16 for the 11 enrolled repositories (`worker --probe`, 5 runs): about 1.0 s wall and
 0.07 CPU-s (user+sys) per probe, against about 13.4 s wall and 1.4 CPU-s for the 22 REST calls it replaces; at 60 s
 that is about 0.1 % of one core. So a new head or label is seen within one poll (60 s), quiet or not, and its gates
@@ -257,8 +257,12 @@ it checks out that main head (asserted on the base line and equal to the polled 
 each `prime` line through the exec helper, profile `host`, `CARGO_TARGET_DIR=/var/lib/aien-run/target/<repo>/pr`.
 Main is trusted, so its build may seed the lower class; nothing ever writes the `main` class from priming, and a pr
 build never reaches `main`. Every 5 s it checks the trigger dir, WAKE, PAUSE and the quiet flag, and once a minute
-GitHub (the same one-call probe) for a head without a bundle; any of them sends SIGTERM to the helper (its trap stops
-the scope). Never gb10, never QEMU, never a booted VM.
+GitHub (the same one-call probe) for a head without a bundle that has not already failed to run in this loop (a
+head that errored never gets a bundle, so it must not stop priming every round); any of them sends SIGTERM to the
+helper (its trap stops the scope). Only a new head, WAKE, PAUSE removal or a trigger file counts as activity, and
+then the loop runs the next round at once instead of sleeping; the quiet flag, PAUSE present or the disk bound do
+neither. Everything priming runs (cargo, du, the wipe) runs as `nice -n 19 ionice -c 3` inside the sandbox, below
+the gates. Never gb10, never QEMU, never a booted VM.
 
 Disk bound. Priming takes the target dir lock, `<state>/locks/target/<sanitised target dir>.lock` (the flock the
 runner holds around a cargo gate, sc #584). It retries every 5 s and gives up on any stop reason, and never holds the
@@ -271,8 +275,8 @@ and the filesystem's free space, then:
   PR runs put there is gc.sh's to bound). The outcome is `cold` in the journal, that main is not tried again, and no
   bundle claims warm until space is freed.
 
-While priming, free space is checked every 5 s and the repository total once a minute; going over stops the build,
-empties pr and leaves it cold. After the last line the total is measured again under the same rule. The worker log
+While priming, free space is checked every 5 s and the repository total once a minute; going over, or a check that
+cannot measure, stops the build, empties pr and leaves it cold. After the last line the total is measured again under the same rule. The worker log
 carries the disk before and after (`PRIME <repo> disk before: ...`).
 
 Every bundle carries a signed top-level member `target`: `{"class":"main|pr|unsandboxed","warm":bool,
