@@ -11,6 +11,7 @@
 
 use aien_test::bundle;
 use aien_test::evidence::canonical;
+use aien_test::idle;
 use aien_test::plan::{self, Request};
 use aien_test::runner::{self, Options};
 use aien_test::sandbox::Sandbox;
@@ -1557,4 +1558,143 @@ fn worker_operator_run_of_a_config_change_is_ready_and_posts_success() {
             .contains("\"verify\":\"BLOCKED\""),
         "{journal}"
     );
+}
+
+/// A fake `gh` for the loop: `pulls` answers from `<root>/pulls.txt`, `commits/main`
+/// from `<root>/main.txt`, statuses are logged.
+fn poll_gh(w: &World, pulls: &str, main: &str) -> PathBuf {
+    let r = &w.state.root;
+    fs::create_dir_all(r).unwrap();
+    fs::write(r.join("pulls.txt"), pulls).unwrap();
+    fs::write(r.join("main.txt"), format!("{main}\n")).unwrap();
+    let fake = r.join("poll-gh");
+    fs::write(
+        &fake,
+        format!(
+            "#!/bin/sh\nroot={}\necho \"$@\" >> \"$root/gh.log\"\ncase \"$2\" in *pulls*) cat \"$root/pulls.txt\";; *commits/main*) cat \"$root/main.txt\";; esac\nexit 0\n",
+            r.display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
+    fake
+}
+
+#[test]
+fn quiet_loop_writes_quiet_since_and_a_failing_head_does_not_keep_it_awake() {
+    let w = world();
+    // An open PR whose head is not in any clone: it fails to run every round.
+    let ghost = "dddddddddddddddddddddddddddddddddddddddd";
+    let fake = poll_gh(&w, &format!("{} true\n{ghost} false\n", w.head), &w.base);
+    let mut cfg = w.config();
+    cfg.github = true;
+    cfg.gh = fake.display().to_string();
+    cfg.repos = vec![REPO.to_string()];
+    cfg.poll = std::time::Duration::from_secs(1);
+    cfg.quiet_after = std::time::Duration::ZERO;
+    let quiet = w.state.root.join(idle::QUIET_SINCE);
+    fs::write(&quiet, "1 stale\n").unwrap();
+    // Round 1: first poll moves, heads run (the ghost fails); round 2: nothing
+    // moved and the ghost has failed before, so the worker goes quiet.
+    let served = worker::run_loop(&cfg, Some(2));
+    // main (the root commit, no parent to plan against) fails to run, like the ghost.
+    assert_eq!(served, 1, "the labeled head served once");
+    let since = idle::read_quiet_since(&w.state.root).expect("QUIET-SINCE written");
+    assert!(
+        since > 1,
+        "the stale marker was removed at start and rewritten"
+    );
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    assert!(since <= now && now - since < 120);
+    // The labeled head was served before main (labeled first).
+    let j = fs::read_to_string(w.state.journal()).unwrap();
+    let head_at = j.find(&w.head).unwrap();
+    let ghost_at = j.find(ghost).unwrap();
+    assert!(head_at < ghost_at, "labeled head first");
+    // Every bundle says which target it used.
+    let b = w.read_bundle(&w.head);
+    assert_eq!(b["target"]["class"], "unsandboxed");
+    assert_eq!(b["target"]["warm"], false);
+    assert_eq!(b["target"]["cold"], false);
+}
+
+#[test]
+fn a_loop_without_github_never_writes_quiet_since() {
+    let w = world();
+    let mut cfg = w.config();
+    cfg.poll = std::time::Duration::from_secs(1);
+    cfg.quiet_after = std::time::Duration::ZERO;
+    fs::create_dir_all(&w.state.root).unwrap();
+    worker::run_loop(&cfg, Some(2));
+    assert!(!w.state.root.join(idle::QUIET_SINCE).exists());
+}
+
+#[test]
+fn fetch_is_skipped_when_origin_did_not_move() {
+    let w = world();
+    let cfg = w.config();
+    let s = worker::run_once(&cfg, REPO, &w.head).expect("worker");
+    assert!(
+        s.notes
+            .iter()
+            .any(|n| n.contains("unchanged on origin, fetch skipped")),
+        "{:?}",
+        s.notes
+    );
+    // Same round: no second look at origin.
+    let s = worker::run_once(&cfg, REPO, &w.head_h).expect("worker");
+    assert!(
+        s.notes
+            .iter()
+            .any(|n| n.contains("fetched earlier this round")),
+        "{:?}",
+        s.notes
+    );
+    // Origin moves: the next round fetches, and the new branch arrives.
+    git(&w.origin, &["checkout", "-q", "-b", "later", "main"]);
+    write(&w.origin, "a/a.txt", "3\n", false);
+    git(&w.origin, &["add", "-A"]);
+    git(&w.origin, &["commit", "-q", "-m", "later"]);
+    let later = git(&w.origin, &["rev-parse", "HEAD"]);
+    git(&w.origin, &["checkout", "-q", "main"]);
+    cfg.new_round();
+    let s = worker::run_once(&cfg, REPO, &w.head).expect("worker");
+    assert!(
+        s.notes.iter().any(|n| n.ends_with(": fetched")),
+        "{:?}",
+        s.notes
+    );
+    assert_eq!(
+        git(&w.clone, &["rev-parse", "refs/remotes/origin/later"]),
+        later
+    );
+    // A missing commit always fetches, even when fetched earlier this round.
+    git(&w.origin, &["checkout", "-q", "-b", "later2", "main"]);
+    write(&w.origin, "a/a.txt", "4\n", false);
+    git(&w.origin, &["add", "-A"]);
+    git(&w.origin, &["commit", "-q", "-m", "later2"]);
+    let later2 = git(&w.origin, &["rev-parse", "HEAD"]);
+    git(&w.origin, &["checkout", "-q", "main"]);
+    let s = worker::run_once(&cfg, REPO, &later2).expect("missing commit is fetched");
+    assert_eq!(s.sha, later2);
+}
+
+#[test]
+fn cold_and_priming_refuse_outside_the_user_sandbox() {
+    let w = world();
+    let mut cfg = w.config();
+    cfg.cold = true;
+    let e = worker::run_once(&cfg, REPO, &w.head).unwrap_err();
+    assert!(e.contains("--cold needs --sandbox user"), "{e}");
+    cfg.cold = false;
+    let mut never = |_: &Config| -> Option<String> { None };
+    let e = worker::prime_once(&cfg, REPO, &w.base, &w.base, &mut never).unwrap_err();
+    assert!(e.contains("--sandbox user"), "{e}");
+    let e = worker::prime_once(&cfg, REPO, &w.base, &w.head, &mut never).unwrap_err();
+    assert!(e.contains("is not the polled main head"), "{e}");
+    let e = worker::prime_once(&cfg, "../x", &w.base, &w.base, &mut never).unwrap_err();
+    assert!(e.contains("refusing to prime"), "{e}");
 }

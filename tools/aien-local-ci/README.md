@@ -18,6 +18,10 @@ AIENOS.
 | `tests/run.sh` | proofs of the contract on this host (33 checks with two wt.sh worktrees present) |
 | `pipeline.sh` | ADR 0033 phase 3: publish verified bundles to aien-receipts, rerun the GitHub thin gate, merge `ready-to-merge` PRs behind guards |
 | `tests/pipeline_test.sh` | offline proofs of `pipeline.sh` with fake `gh`, fake `aien-test` and throwaway git repositories (56 checks) |
+| `cron-tick.sh` | the cron entry point (every 2 min): worker keepalive + one `pipeline.sh round`, thinned out while quiet (below); installed by `install.sh` to `~/.local/lib/aien-local-ci/` |
+| `tests/cron_tick_test.sh` | offline proofs of `cron-tick.sh` (PAUSE, QUIET-SINCE, WAKE, stale heartbeat, garbage markers; 17 checks) |
+| `prime` | warm-standby prime map: which cargo builds of main seed `target/<repo>/pr` |
+| `cold-warm-proof.sh` | periodic proof that a warm pr target gives the same verdicts and receipt cores as a cold one |
 
 ## C8 exec contract
 
@@ -206,3 +210,56 @@ Measured 2026-10-11 (sovereign-core 5ef7720, 20 cores, caches seeded): cold `car
 --locked --offline` as aien-run 65.0 s (target dir 27 GB); warm rebuild after touching one crate 2.2 s. After the
 read-only home change: full workspace build of worktree 62542eb into the existing `pr` target 49.9 s (new worktree
 path, so workspace crates rebuilt; dependencies reused), exit 0.
+
+## Power saving and warm standby (2026-10-16)
+
+Markers, all in `~/.local/state/aien-local-ci/` (the merge train and anything else may read them):
+
+| marker | written by | meaning |
+|---|---|---|
+| `QUIET-SINCE` | the worker, only with `--github` | one line `<epoch-secs> <utc>`: the time of the last activity the worker saw. Present = nothing moved since then. Removed the moment anything moves. Absent, empty or not a number = **not quiet** (readers fail open to full cadence). |
+| `WAKE` | anyone (`touch`) | "full cadence now". Never removed by a reader: each reader compares its mtime with the last one it acted on (the worker in memory, `cron-tick.sh` against `cron-last-round`). |
+| `PAUSE` | the operator | unchanged: `cron-tick.sh` exits at once (no keepalive, no round). PAUSE present -> absent wakes both the worker and the next tick. |
+| `cron-last-round` | `cron-tick.sh` | mtime = start of its last `pipeline.sh round`. |
+| `warm/<repo>.json` | the worker | `{"class":"pr","complete":true,"primed_from_main":<sha>,"utc":..}`: `target/<repo>/pr` was primed from that main. Removed before priming starts and by `--cold`, `gc.sh` and the proof; written only when every prime line exited 0. |
+
+Activity (worker): a trigger file, a GitHub poll that differs from the previous one for a repository (new head,
+`ready-to-merge` added or removed, main moved), a head run that had not already failed to run in this loop, a wake.
+Priming is never activity. The worker polls every `--poll` (60 s) while anything moved in the last `--quiet-after`
+(600 s), then doubles per idle round up to `--poll-cap` (900 s). It sleeps in 5 s slices that only stat WAKE, PAUSE
+and the trigger dir and rewrite the heartbeat (no network, no process), so WAKE, PAUSE removal or a trigger file ends
+the sleep within 5 s. Worst-case time from a new label or head on GitHub to the worker seeing it: the current poll
+interval, so up to 900 s in deep quiet; touch WAKE to make it immediate.
+
+`cron-tick.sh`: the keepalive runs every tick. The round is skipped only while QUIET-SINCE is at least 600 s old,
+the worker heartbeat is younger than 1200 s (a dead or hung worker never silences the pipeline) and the last round
+started less than 600 s ago; so while quiet there is still one round every 10 min. Each round logs its own child
+CPU (`round rc=.. child_cpu user=..s sys=..s`).
+
+Fetching: a run fetches its trusted clone only when `git ls-remote origin`, mapped through `remote.origin.fetch`,
+shows a ref (or any tag) the clone does not have at the same sha, or the commit is missing; anything unclear
+fetches as before. At most once per clone per round. Sibling clones are refreshed the same way once per round, and
+`wt.sh sync` runs only when the clone's refs changed since the last sync in that round.
+
+Warm standby: when nothing waits and the quiet flag is clear (`quietlock check` rc 0, else `~/workspace/.spark-quiet`
+absent), the worker primes one repository whose `warm/<repo>.json` does not name the main head polled this round:
+it checks out that main head (asserted on the base line and equal to the polled head) with its siblings and runs
+each `prime` line through the exec helper, profile `host`, `CARGO_TARGET_DIR=/var/lib/aien-run/target/<repo>/pr`.
+Main is trusted, so its build may seed the lower class; nothing ever writes the `main` class from priming, and a pr
+build never reaches `main`. Every 5 s it checks the trigger dir, WAKE, PAUSE and the quiet flag, and once a minute
+GitHub for a head without a bundle; any of them sends SIGTERM to the helper (its trap stops the scope). Never gb10,
+never QEMU, never a booted VM.
+
+Every bundle carries a signed top-level member `target`: `{"class":"main|pr|unsandboxed","warm":bool,
+"primed_from_main":sha|null,"primed_utc":..,"cold":bool}`. `warm` = the complete record existed and the pr dir was
+not empty when the run started. It means "primed from main <sha>"; the pr dir may also hold earlier PR builds, as it
+always has. `bundle::validate` ignores members it does not know and the signature covers every member, so this
+needs no schema bump; `target` is the first such member, on purpose.
+
+`worker --once REPO SHA --cold` empties `target/<repo>/pr` from inside the sandbox first (pr heads only; the main
+class is never emptied); `worker --once REPO MAIN --prime-only [--cold]` primes by hand. `cold-warm-proof.sh <repo>
+<pr-head>` runs warm (empty, prime, run) then cold (empty, run), both `--no-cache` into their own state dirs, and
+compares per gate the verdict and the receipt core minus the stdout/stderr digests. It refuses unless PAUSE exists
+and the live worker is stopped, because it shares the pr dir. Not built: a crumb tool cache (the gate builds it in
+`$TMP` from its pin in about 3 s, inside the repos' `run.sh`) and a boot image per main sha (aienos `ck_gates.sh`
+builds its images itself; both need repo-side gate changes).

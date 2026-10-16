@@ -1,0 +1,16 @@
+# prime: the warm-standby map (aien-test worker --prime; default beside the sibling map).
+# After main moves in <repo>, the worker builds main's tree into /var/lib/aien-run/target/<repo>/pr (the pull
+# request class) inside the sandbox, so the next PR run starts warm. Main is trusted, so it may seed the lower
+# class; nothing here ever writes the main class. Lowest priority: never while a head waits, the quiet flag is
+# raised or PAUSE exists; a new head stops it.
+#   <repo> [K=V ...] cargo build|check|clippy|test <args...>      (cargo test only with --no-run)
+# Each line mirrors a cargo invocation of that repo's tests/gates/run.sh (same package set, flags and the env the
+# compile sees), so cargo's fingerprints match and the gate reuses the artifacts. A line that does not match
+# only costs build time; it can never change a verdict (cargo rebuilds what does not match).
+aien-sovereign-core  cargo check --workspace --all-targets
+aien-sovereign-core  cargo clippy --workspace --all-targets -- -D warnings
+aien-sovereign-core  CI=true AIEN_DEV_FALLBACK=1 cargo test --workspace --no-run
+aienos               cargo test --locked --offline -p aienos-crypto --no-run
+aienos               cargo clippy --locked --offline -p aienos-crypto --all-targets -- -D warnings
+aienos               cargo clippy -p aienos-infer --all-targets -- -D warnings
+aienos               cargo test -p aienos-infer --no-run

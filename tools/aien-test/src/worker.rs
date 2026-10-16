@@ -27,19 +27,21 @@
 use crate::bundle;
 use crate::evidence::{canonical, canonical_digest, sha256_hex, utc_string};
 use crate::graph;
+use crate::idle::{self, Polled, PrHead};
 use crate::plan::{self, Known, Section};
 use crate::process;
 use crate::resources::{Hardware, JobsSpec};
 use crate::runner::{self, CacheNote, Options};
-use crate::sandbox::Sandbox;
+use crate::sandbox::{self, Sandbox};
 use crate::verdict::Verdict;
 use crate::verify;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const CONTEXT: &str = "AIEN Verification (Spark)";
@@ -231,6 +233,19 @@ pub struct Config {
     pub jobs: JobsSpec,
     /// `--no-cache`: run every selected gate, reuse no receipt.
     pub no_cache: bool,
+    /// Ceiling of the backed-off poll interval (`--poll-cap`, default 900 s).
+    pub poll_cap: Duration,
+    /// Nothing moved for this long before the poll backs off (`--quiet-after`).
+    pub quiet_after: Duration,
+    /// `--cold`: wipe the pr class target dir before the run (cold-equals-warm
+    /// proof); the bundle then says `target.cold`.
+    pub cold: bool,
+    /// The operator's prime map (`tools/aien-local-ci/prime`, beside the
+    /// sibling map): what warm standby builds. None: no priming.
+    pub prime: Option<PathBuf>,
+    /// What this loop round already fetched and synced (shared by clones of
+    /// this config; cleared at the start of every round).
+    pub memo: Arc<Mutex<RoundMemo>>,
 }
 
 impl Config {
@@ -256,6 +271,11 @@ impl Config {
             siblings: None,
             jobs: JobsSpec::default(),
             no_cache: false,
+            poll_cap: idle::DEFAULT_POLL_CAP,
+            quiet_after: idle::DEFAULT_QUIET_AFTER,
+            cold: false,
+            prime: None,
+            memo: Arc::new(Mutex::new(RoundMemo::default())),
         }
     }
 
@@ -316,10 +336,99 @@ fn git(cwd: &Path, args: &[&str]) -> Result<String, String> {
     run_cmd(cwd, "git", args)
 }
 
+/// Per-round memory of the trusted side's network and mirror work, so a
+/// round that runs several heads fetches each clone at most once and syncs
+/// each mirror only when its clone's refs changed.
+#[derive(Debug, Default)]
+pub struct RoundMemo {
+    /// Clones fetched (or found unchanged) this round.
+    pub fetched: BTreeSet<String>,
+    /// Mirror synced this round, keyed by repository: the clone's ref digest.
+    pub synced: BTreeMap<String, String>,
+}
+
+impl Config {
+    fn memo(&self) -> std::sync::MutexGuard<'_, RoundMemo> {
+        self.memo.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Start a new round: forget what was fetched and synced.
+    pub fn new_round(&self) {
+        let mut m = self.memo();
+        m.fetched.clear();
+        m.synced.clear();
+    }
+}
+
+/// `git fetch --quiet --all` in a trusted clone, skipped when the clone has
+/// exactly one remote (`origin`) and `git ls-remote origin` shows nothing the
+/// configured refspecs would bring in (`idle::refs_unchanged`). Anything
+/// unclear fetches exactly as before. `force` (a needed commit is missing)
+/// always fetches. At most once per clone per round.
+fn fetch_if_changed(
+    cfg: &Config,
+    key: &str,
+    clone: &Path,
+    force: bool,
+) -> Result<&'static str, String> {
+    if !force && cfg.memo().fetched.contains(key) {
+        return Ok("fetched earlier this round");
+    }
+    let unchanged =
+        !force && git(clone, &["remote"]).is_ok_and(|r| r.split_whitespace().eq(["origin"])) && {
+            let specs: Vec<String> = git(clone, &["config", "--get-all", "remote.origin.fetch"])
+                .unwrap_or_default()
+                .lines()
+                .map(|l| l.to_string())
+                .collect();
+            match (
+                git(clone, &["ls-remote", "--quiet", "origin"]),
+                git(
+                    clone,
+                    &["for-each-ref", "--format=%(objectname) %(refname)"],
+                ),
+            ) {
+                (Ok(remote), Ok(local)) => {
+                    idle::refs_unchanged(&remote, &specs, &local) == Some(true)
+                }
+                _ => false,
+            }
+        };
+    let how = if unchanged {
+        "unchanged on origin, fetch skipped"
+    } else {
+        git(clone, &["fetch", "--quiet", "--all"])?;
+        "fetched"
+    };
+    cfg.memo().fetched.insert(key.to_string());
+    Ok(how)
+}
+
+/// `wt.sh sync <repo> <clone>` unless this round already synced the mirror
+/// from the same clone refs.
+fn sync_once(cfg: &Config, tool: &str, repo: &str, clone: &Path) -> Result<(), String> {
+    let refs = git(
+        clone,
+        &["for-each-ref", "--format=%(objectname) %(refname)"],
+    )
+    .map(|r| sha256_hex(r.as_bytes()))
+    .unwrap_or_default();
+    if !refs.is_empty() && cfg.memo().synced.get(repo) == Some(&refs) {
+        return Ok(());
+    }
+    let clone_s = clone.display().to_string();
+    run_cmd(clone, tool, &["sync", repo, &clone_s])?;
+    if !refs.is_empty() {
+        cfg.memo().synced.insert(repo.to_string(), refs);
+    }
+    Ok(())
+}
+
 /// One sibling checkout a repository's gates reach as `../<dir>`: a
 /// read-only checkout of `<clones>/<source>` at `refs/remotes/origin/<git_ref>`
-/// as that trusted clone has it when the run starts (never fetched for the
-/// run, never the network).
+/// as that trusted clone has it when the run starts. The trusted side refreshes
+/// the clone at most once per worker round (fetch only when origin moved);
+/// the sandbox never reaches the network.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sibling {
     pub dir: String,
@@ -535,6 +644,15 @@ fn provision_siblings(
     }
     for s in sibs {
         let src = cfg.clones.join(&s.source);
+        // Refreshed once per round (fetch only when origin moved), so a sibling
+        // follows its ref without a fetch per run.
+        match fetch_if_changed(cfg, &s.source, &src, false) {
+            Ok(how) => notes.push(format!("sibling clone {}: {how}", s.source)),
+            Err(e) => notes.push(format!(
+                "sibling clone {}: fetch failed, using what it has: {e}",
+                s.source
+            )),
+        }
         let want = format!("refs/remotes/origin/{}^{{commit}}", s.git_ref);
         let sib_sha = match git(&src, &["rev-parse", "--verify", "--quiet", &want]) {
             Ok(o) if valid_sha(o.trim()) => o.trim().to_string(),
@@ -555,8 +673,7 @@ fn provision_siblings(
                 .as_ref()
                 .map(|t| t.display().to_string())
                 .unwrap_or_default();
-            let src_s = src.display().to_string();
-            run_cmd(&src, &tool, &["sync", &s.source, &src_s]).and_then(|_| {
+            sync_once(cfg, &tool, &s.source, &src).and_then(|_| {
                 run_cmd(
                     &src,
                     &tool,
@@ -619,7 +736,7 @@ fn checkout_for_sandbox(
     })?;
     let tool = tool.display().to_string();
     let clone_s = clone.display().to_string();
-    run_cmd(clone, &tool, &["sync", repo, &clone_s])?;
+    sync_once(cfg, &tool, repo, clone)?;
     let mirror = cfg.mirror_root.join(format!("{repo}.git"));
     let commit = format!("{sha}^{{commit}}");
     if git(&mirror, &["cat-file", "-e", &commit]).is_err() {
@@ -706,12 +823,13 @@ fn checkout(
         return Err(format!("no trusted clone at {}", clone.display()));
     }
     let present = |c: &Path| git(c, &["cat-file", "-e", &format!("{sha}^{{commit}}")]).is_ok();
-    if !present(&clone) {
-        if let Err(e) = git(&clone, &["fetch", "--quiet", "--all"]) {
-            notes.push(format!("fetch failed: {e}"));
-        }
-    } else if let Err(e) = git(&clone, &["fetch", "--quiet", "--all"]) {
-        notes.push(format!("fetch failed (commit already present): {e}"));
+    // Fetch only when origin shows a change (or the commit is missing); at
+    // most once per clone per round.
+    let had = present(&clone);
+    match fetch_if_changed(cfg, repo, &clone, !had) {
+        Ok(how) => notes.push(format!("{repo}: {how}")),
+        Err(e) if had => notes.push(format!("fetch failed (commit already present): {e}")),
+        Err(e) => notes.push(format!("fetch failed: {e}")),
     }
     if !present(&clone) {
         return Err(format!("commit {sha} is not in {}", clone.display()));
@@ -912,6 +1030,8 @@ fn run_in_worktree(
     let mut opts = Options::new(evidence_dir.clone());
     opts.sandbox = cfg.sandbox;
     opts.cargo_target_dir = target_dir_for(cfg, repo, on_main);
+    // Warm standby bookkeeping: which class dir, primed from which main, cold.
+    let target = target_state(cfg, repo, wt, on_main, notes)?;
     opts.pool_sizes = opts.pool_sizes.with(cfg.jobs);
     opts.pins = pins;
     if fresh || cfg.no_cache {
@@ -1032,6 +1152,10 @@ fn run_in_worktree(
             "removed": plan.removed,
             "blocked": plan.blocked,
         },
+        // Which cargo target dir the gates used and whether warm standby had
+        // primed it from main (signed with the rest; `validate` allows
+        // extra members, this is the first).
+        "target": target,
     });
     let signed = bundle::sign(&unsigned, &key).map_err(|r| format!("cannot sign bundle: {r}"))?;
     let bytes = canonical(&signed).map_err(|e| e.to_string())?;
@@ -1358,47 +1482,80 @@ pub fn triggers(state: &StateDir) -> Vec<(String, String, PathBuf)> {
     out
 }
 
-/// Open PR heads and the main head of `repo` from GitHub (bounded: one call
-/// per list). Errors are returned, never fatal to the loop.
-pub fn github_heads(gh: &str, repository: &str) -> Result<Vec<String>, String> {
+/// What one GitHub poll of `repo` sees: open pull request heads with their
+/// merge label, and the main head (bounded: one call per list). Errors are
+/// returned, never fatal to the loop.
+pub fn github_poll(gh: &str, repository: &str) -> Result<Polled, String> {
     let or = owner_repo(repository).ok_or("bad repository name")?;
-    let mut shas = Vec::new();
-    for args in [
-        vec![
-            "api",
-            &format!("repos/{or}/pulls?state=open&per_page=50"),
-            "--jq",
-            ".[].head.sha",
-        ],
-        vec!["api", &format!("repos/{or}/commits/main"), "--jq", ".sha"],
-    ] {
+    let call = |path: String, jq: &str| -> Result<String, String> {
         let mut cmd = Command::new(gh);
-        cmd.args(&args);
+        cmd.args(["api", &path, "--jq", jq]);
         let out = process::output_gated(&mut cmd).map_err(|e| format!("cannot run {gh}: {e}"))?;
         if !out.status.success() {
             return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
         }
-        for l in String::from_utf8_lossy(&out.stdout).lines() {
-            let l = l.trim().to_ascii_lowercase();
-            if valid_sha(&l) {
-                shas.push(l);
-            }
-        }
-    }
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    };
+    let pulls = call(
+        format!("repos/{or}/pulls?state=open&per_page=50"),
+        &format!(
+            ".[] | \"\\(.head.sha) \\([.labels[].name] | index(\"{}\") != null)\"",
+            idle::MERGE_LABEL
+        ),
+    )?;
+    let main = call(format!("repos/{or}/commits/main"), ".sha")?;
+    let main = main.trim().to_ascii_lowercase();
+    Ok(Polled {
+        prs: idle::parse_pulls(&pulls),
+        main: valid_sha(&main).then_some(main),
+    })
+}
+
+/// Open PR heads and the main head of `repo` from GitHub, as shas.
+pub fn github_heads(gh: &str, repository: &str) -> Result<Vec<String>, String> {
+    let p = github_poll(gh, repository)?;
+    let mut shas: Vec<String> = p.prs.into_iter().map(|h| h.sha).collect();
+    shas.extend(p.main);
     shas.sort();
     shas.dedup();
     Ok(shas)
 }
 
+/// Why the chip side wants the machine quiet right now, if it does:
+/// `quietlock check` (or the flag file without it). Unknown counts as raised.
+pub fn quiet_raised() -> Option<String> {
+    let q = crate::status::quiet_flag(&crate::resources::GpuConfig::detect());
+    (!q.starts_with("clear")).then_some(q)
+}
+
 /// The loop: flush the outbox, serve trigger files, poll GitHub when asked,
-/// sleep. `iterations` bounds the rounds (None: forever). Returns the number
-/// of heads served.
+/// run what is new (labeled heads first), prime the pr target dir from main
+/// when nothing else waits, then sleep the backed-off interval in slices that
+/// wake on WAKE, PAUSE removal or a trigger file. `iterations` bounds the
+/// rounds (None: forever). Returns the number of heads served.
+///
+/// Activity (resets the poll to `cfg.poll`, removes QUIET-SINCE): a trigger
+/// file, a poll that differs from the previous one for a repository (new
+/// head, label added or removed, main moved), a head run that had not failed
+/// to run before, a wake. Priming is never activity.
 pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
     let mut served = 0;
     let mut round = 0u64;
+    let root = cfg.state.root.clone();
+    let mut backoff =
+        idle::Backoff::new(cfg.poll, cfg.poll_cap, cfg.quiet_after, SystemTime::now());
+    let mut watch = idle::WakeWatch::new(&root);
+    let mut seen: BTreeMap<String, Polled> = BTreeMap::new();
+    let mut errored: BTreeSet<(String, String)> = BTreeSet::new();
+    let mut prime_failed: BTreeSet<(String, String)> = BTreeSet::new();
+    if cfg.github {
+        idle::remove_quiet_since(&root);
+    }
     loop {
         round += 1;
+        cfg.new_round();
         cfg.state.beat("-", "-", "poll");
+        let mut activity = false;
         // Posting is the operator's choice (--github). A loop without it leaves
         // queued statuses where they are, so `aien-local-ci start` after an
         // offline --github run never posts them behind the operator's back.
@@ -1414,22 +1571,52 @@ pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
             .into_iter()
             .map(|(r, s, f)| (r, s, Some(f)))
             .collect();
+        activity |= !heads.is_empty();
+        let mut mains: BTreeMap<String, String> = BTreeMap::new();
         if cfg.github {
+            let mut new: Vec<(String, PrHead)> = Vec::new();
             for repo in &cfg.repos {
                 let repository = plan::repository_name(&cfg.clones.join(repo), None);
-                match github_heads(&cfg.gh, &repository) {
-                    Ok(shas) => {
-                        for s in shas {
-                            if !cfg.state.bundle_path(repo, &s).exists() {
-                                heads.push((repo.clone(), s, None));
+                match github_poll(&cfg.gh, &repository) {
+                    Ok(p) => {
+                        activity |= idle::moved(seen.get(repo), &p);
+                        let mut all = p.prs.clone();
+                        if let Some(m) = &p.main {
+                            mains.insert(repo.clone(), m.clone());
+                            all.push(PrHead {
+                                sha: m.clone(),
+                                labeled: false,
+                            });
+                        }
+                        for h in all {
+                            if !cfg.state.bundle_path(repo, &h.sha).exists() {
+                                new.push((repo.clone(), h));
                             }
                         }
+                        seen.insert(repo.clone(), p);
                     }
                     Err(e) => println!("GITHUB unreachable for {repo}: {e} (will retry)"),
                 }
             }
+            // Labeled heads first (the merge waits on them), across repositories.
+            new.sort_by(|(ra, a), (rb, b)| {
+                b.labeled
+                    .cmp(&a.labeled)
+                    .then(ra.cmp(rb))
+                    .then(a.sha.cmp(&b.sha))
+            });
+            new.dedup();
+            for (repo, h) in new {
+                if !heads.iter().any(|(r, s, _)| *r == repo && *s == h.sha) {
+                    heads.push((repo, h.sha, None));
+                }
+            }
         }
+        let had_work = !heads.is_empty();
         for (repo, sha, trigger) in heads {
+            // A head that already failed to run in this loop is retried every
+            // round but does not keep the worker awake.
+            activity |= trigger.is_some() || !errored.contains(&(repo.clone(), sha.clone()));
             match run_once(cfg, &repo, &sha) {
                 Ok(s) => {
                     println!(
@@ -1440,9 +1627,11 @@ pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
                         s.publication
                     );
                     served += 1;
+                    errored.remove(&(repo.clone(), sha.clone()));
                 }
                 Err(e) => {
                     println!("HEAD {repo} {sha} ERROR {e}");
+                    errored.insert((repo.clone(), sha.clone()));
                     let _ = cfg.state.journal_append(&json!({
                         "utc": utc_string(now_secs()),
                         "repo": repo,
@@ -1457,12 +1646,435 @@ pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
                 let _ = fs::remove_file(f);
             }
         }
+        // Warm standby: lowest priority, only in a round with nothing to run.
+        if cfg.github && !had_work && !watch.paused() {
+            if let Some(why) = prime_pending(cfg, &mains, &mut prime_failed, &mut watch) {
+                println!("PRIME interrupted: {why}");
+                activity |= !why.starts_with("RAISED") && !why.starts_with("unknown");
+            }
+        }
+        let now = SystemTime::now();
+        if activity {
+            backoff.activity(now);
+            if cfg.github {
+                idle::remove_quiet_since(&root);
+            }
+        } else {
+            backoff.idle_round(now);
+            if cfg.github && idle::read_quiet_since(&root).is_none() {
+                if let Err(e) = idle::write_quiet_since(&root, backoff.last_activity()) {
+                    println!("QUIET-SINCE not written: {e}");
+                }
+            }
+        }
         if iterations.is_some_and(|n| round >= n) {
             break;
         }
-        std::thread::sleep(cfg.poll);
+        if let Some(why) = sliced_sleep(cfg, backoff.interval(), &mut watch) {
+            println!("WAKE {why}");
+            backoff.activity(SystemTime::now());
+            if cfg.github {
+                idle::remove_quiet_since(&root);
+            }
+        }
     }
     served
+}
+
+/// Sleep up to `wait` in `idle::SLICE` steps, writing the heartbeat each
+/// step (no network, no process) and returning early with the reason when a
+/// local wake source fires.
+fn sliced_sleep(cfg: &Config, wait: Duration, watch: &mut idle::WakeWatch) -> Option<&'static str> {
+    let start = std::time::Instant::now();
+    loop {
+        let left = wait.saturating_sub(start.elapsed());
+        if left.is_zero() {
+            return None;
+        }
+        std::thread::sleep(left.min(idle::SLICE));
+        cfg.state.beat("-", "-", "sleep");
+        if let Some(w) = watch.check() {
+            return Some(w);
+        }
+    }
+}
+
+/// The prime lines of `repo` from `cfg.prime` (none without a map).
+fn prime_for(cfg: &Config, repo: &str) -> Result<Vec<idle::PrimeLine>, String> {
+    let Some(path) = &cfg.prime else {
+        return Ok(Vec::new());
+    };
+    let text = fs::read_to_string(path)
+        .map_err(|e| format!("cannot read the prime map {}: {e}", path.display()))?;
+    idle::parse_prime(&text, repo)
+}
+
+/// Prime the first repository whose pr target dir is not warm from its
+/// current main (as polled this round). Returns the reason when a real head,
+/// a wake or the quiet flag stopped it.
+fn prime_pending(
+    cfg: &Config,
+    mains: &BTreeMap<String, String>,
+    failed: &mut BTreeSet<(String, String)>,
+    watch: &mut idle::WakeWatch,
+) -> Option<String> {
+    if cfg.sandbox != Sandbox::User {
+        return None;
+    }
+    for repo in &cfg.repos {
+        let Some(main) = mains.get(repo) else {
+            continue;
+        };
+        let key = (repo.clone(), main.clone());
+        if failed.contains(&key)
+            || idle::read_warm(&cfg.state.root, repo).is_some_and(|w| w.primed_from_main == *main)
+        {
+            continue;
+        }
+        match prime_for(cfg, repo) {
+            Ok(l) if l.is_empty() => continue,
+            Ok(_) => {}
+            Err(e) => {
+                println!("PRIME refused: {e}");
+                return None;
+            }
+        }
+        if let Some(q) = quiet_raised() {
+            return Some(q);
+        }
+        let started = now_secs();
+        let outcome = prime_once(cfg, repo, main, main, &mut |c| prime_stop(c, watch));
+        let (word, why) = match &outcome {
+            Ok(PrimeOutcome::Warm) => ("warm", None),
+            Ok(PrimeOutcome::Interrupted(w)) => ("interrupted", Some(w.clone())),
+            Ok(PrimeOutcome::Failed(_)) | Err(_) => {
+                failed.insert(key);
+                ("failed", None)
+            }
+        };
+        let detail = match &outcome {
+            Ok(PrimeOutcome::Failed(d)) | Ok(PrimeOutcome::Interrupted(d)) => d.clone(),
+            Err(e) => e.clone(),
+            _ => String::new(),
+        };
+        println!("PRIME {repo} {main} {word} {detail}");
+        let _ = cfg.state.journal_append(&json!({
+            "utc": utc_string(now_secs()),
+            "kind": "prime",
+            "repo": repo,
+            "sha": main,
+            "class": "pr",
+            "outcome": word,
+            "detail": detail,
+            "secs": now_secs().saturating_sub(started),
+        }));
+        // One repository per round keeps the round short; the next idle
+        // round primes the next one.
+        return why;
+    }
+    None
+}
+
+/// While priming: stop for a trigger file, WAKE, PAUSE (either way), the
+/// quiet flag, or (once a minute) any polled head without a bundle.
+fn prime_stop(cfg: &Config, watch: &mut idle::WakeWatch) -> Option<String> {
+    thread_local! {
+        static LAST_POLL: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    }
+    if let Some(w) = watch.check() {
+        return Some(w.to_string());
+    }
+    if watch.paused() || cfg.state.root.join(idle::PAUSE).exists() {
+        return Some("PAUSE present".to_string());
+    }
+    if let Some(q) = quiet_raised() {
+        return Some(q);
+    }
+    let now = now_secs();
+    if now.saturating_sub(LAST_POLL.with(|c| c.get())) >= 60 {
+        LAST_POLL.with(|c| c.set(now));
+        for repo in &cfg.repos {
+            let repository = plan::repository_name(&cfg.clones.join(repo), None);
+            if let Ok(shas) = github_heads(&cfg.gh, &repository) {
+                if let Some(s) = shas
+                    .iter()
+                    .find(|s| !cfg.state.bundle_path(repo, s).exists())
+                {
+                    return Some(format!("new head {repo} {s}"));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// How one priming ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PrimeOutcome {
+    /// Every prime line exited 0: `warm/<repo>.json` written.
+    Warm,
+    /// A real head, a wake or the quiet flag stopped it (no record).
+    Interrupted(String),
+    /// A prime line failed (no record).
+    Failed(String),
+}
+
+/// Warm standby for one repository: check out `sha` (which must be the main
+/// head polled this round and on the base line), run every prime line inside
+/// the sandbox (profile host, never gb10 or qemu) with the pr class target
+/// dir. Main is trusted, so its build may seed the lower class; nothing ever
+/// writes the main class from here. The warm record is removed first and
+/// written only when every line exited 0.
+pub fn prime_once(
+    cfg: &Config,
+    repo: &str,
+    sha: &str,
+    polled_main: &str,
+    stop: &mut dyn FnMut(&Config) -> Option<String>,
+) -> Result<PrimeOutcome, String> {
+    if !valid_repo_key(repo) || !valid_sha(sha) {
+        return Err(format!("refusing to prime {repo:?} {sha:?}"));
+    }
+    if sha != polled_main {
+        return Err(format!(
+            "prime sha {sha} is not the polled main head {polled_main}"
+        ));
+    }
+    if cfg.sandbox != Sandbox::User || cfg.wt_tool.is_none() {
+        return Err("priming needs --sandbox user and the worktree tool".to_string());
+    }
+    let lines = prime_for(cfg, repo)?;
+    if lines.is_empty() {
+        return Err(format!("no prime lines for {repo}"));
+    }
+    let target = target_dir_for(cfg, repo, false).ok_or("no pr class target dir")?;
+    if target != cfg.target_root.join(repo).join("pr") {
+        return Err(format!(
+            "prime target {} is not the pr class dir",
+            target.display()
+        ));
+    }
+    let sibs = siblings_for(cfg, repo)?;
+    let pins = pins_for(cfg, repo)?;
+    let mut notes = Vec::new();
+    cfg.state.beat(repo, sha, "prime");
+    let co = checkout(cfg, repo, sha, &mut notes)?;
+    ensure_pins(&cfg.clones, &pins, &sibs, &mut notes);
+    let _ = provision_siblings(cfg, repo, sha, &co, &sibs, &pins, &mut notes);
+    let trust = process::trust_worktree(&co.wt);
+    let result = (|| {
+        let (_, on_main) = plan::base_for(&co.wt, &cfg.base_ref, sha)?;
+        if !on_main {
+            return Err(format!("{sha} is not on {}: never primed", cfg.base_ref));
+        }
+        idle::clear_warm(&cfg.state.root, repo);
+        let log = cfg.state.root.join("warm").join(format!("{repo}.log"));
+        for l in &lines {
+            let mut env = sandbox::env_pairs(Some(&target));
+            env.extend(l.env.iter().cloned());
+            let mut ask = || stop(cfg);
+            match sandbox_exec(&co.wt, "cargo", &l.args, &env, 3600, &log, Some(&mut ask))? {
+                ExecEnd::Exit(0) => {}
+                ExecEnd::Exit(rc) => {
+                    return Ok(PrimeOutcome::Failed(format!(
+                        "cargo {} exited {rc} (log {})",
+                        l.args.join(" "),
+                        log.display()
+                    )))
+                }
+                ExecEnd::Stopped(why) => return Ok(PrimeOutcome::Interrupted(why)),
+            }
+        }
+        idle::write_warm(
+            &cfg.state.root,
+            repo,
+            &idle::WarmRecord {
+                primed_from_main: sha.to_string(),
+                utc: utc_string(now_secs()),
+            },
+            lines.len(),
+        )?;
+        Ok(PrimeOutcome::Warm)
+    })();
+    drop(trust);
+    if let Some(tool) = &cfg.wt_tool {
+        let tool = tool.display().to_string();
+        if let Err(e) = run_cmd(&co.clone, &tool, &["remove", repo, sha]) {
+            println!("PRIME worktree not removed: {e}");
+        }
+    }
+    cfg.state.beat("-", "-", "idle");
+    result
+}
+
+/// How a sandboxed command ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExecEnd {
+    Exit(i32),
+    Stopped(String),
+}
+
+/// Run `program args` through the exec helper (profile host) in `cwd`, output
+/// to `log`. `stop` is asked every `idle::SLICE`; when it answers, the helper
+/// gets SIGTERM (its trap stops the whole scope), SIGKILL after 30 s more.
+fn sandbox_exec(
+    cwd: &Path,
+    program: &str,
+    args: &[String],
+    env: &[(String, String)],
+    timeout_secs: u64,
+    log: &Path,
+    mut stop: Option<&mut dyn FnMut() -> Option<String>>,
+) -> Result<ExecEnd, String> {
+    let (prog, argv) = sandbox::command(
+        Sandbox::User,
+        Path::new(program),
+        args,
+        cwd,
+        timeout_secs,
+        "host",
+        env,
+    );
+    if let Some(d) = log.parent() {
+        let _ = fs::create_dir_all(d);
+    }
+    let out = fs::File::create(log).map_err(|e| format!("cannot write {}: {e}", log.display()))?;
+    let err = out.try_clone().map_err(|e| e.to_string())?;
+    let mut child = Command::new(&prog)
+        .args(&argv)
+        .stdin(std::process::Stdio::null())
+        .stdout(out)
+        .stderr(err)
+        .spawn()
+        .map_err(|e| format!("cannot run {}: {e}", prog.display()))?;
+    let mut last_ask = std::time::Instant::now();
+    loop {
+        if let Some(st) = child.try_wait().map_err(|e| e.to_string())? {
+            return Ok(ExecEnd::Exit(st.code().unwrap_or(-1)));
+        }
+        if last_ask.elapsed() >= idle::SLICE {
+            last_ask = std::time::Instant::now();
+            if let Some(why) = stop.as_mut().and_then(|s| s()) {
+                // SAFETY: plain kill(2) on our own child's pid.
+                unsafe {
+                    libc::kill(child.id() as libc::pid_t, libc::SIGTERM);
+                }
+                let t = std::time::Instant::now();
+                while t.elapsed() < Duration::from_secs(30) {
+                    if child.try_wait().map_err(|e| e.to_string())?.is_some() {
+                        return Ok(ExecEnd::Stopped(why));
+                    }
+                    std::thread::sleep(Duration::from_millis(200));
+                }
+                let _ = child.kill();
+                let _ = child.wait();
+                return Ok(ExecEnd::Stopped(why));
+            }
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
+/// Empty `target/<repo>/pr` from inside the sandbox (as aien-run, who owns
+/// what is in it) and drop the warm record. `cwd` is a worktree of the run or
+/// the sandbox home itself (the exec helper allows both). Never the main class.
+pub fn wipe_pr_target(cfg: &Config, repo: &str, cwd: &Path) -> Result<String, String> {
+    if cfg.sandbox != Sandbox::User {
+        return Err("emptying the pr class dir needs --sandbox user".to_string());
+    }
+    let dir = target_dir_for(cfg, repo, false).ok_or("no pr class target dir")?;
+    if dir != cfg.target_root.join(repo).join("pr") {
+        return Err(format!("{} is not the pr class dir", dir.display()));
+    }
+    idle::clear_warm(&cfg.state.root, repo);
+    let log = cfg.state.root.join("warm").join(format!("{repo}.cold.log"));
+    let args: Vec<String> = vec![
+        dir.display().to_string(),
+        "-mindepth".into(),
+        "1".into(),
+        "-delete".into(),
+    ];
+    match sandbox_exec(
+        cwd,
+        "find",
+        &args,
+        &sandbox::env_pairs(Some(&dir)),
+        600,
+        &log,
+        None,
+    )? {
+        ExecEnd::Exit(0) => Ok(format!("cold: emptied {}", dir.display())),
+        other => Err(format!(
+            "cold: could not empty {}: {other:?} (log {})",
+            dir.display(),
+            log.display()
+        )),
+    }
+}
+
+/// `worker --once REPO MAIN --prime-only [--cold]`: the operator's priming
+/// (the cold-equals-warm proof uses it). MAIN must be the trusted clone's
+/// `origin/main` after a fetch; with `cold` the pr class dir is emptied first.
+/// Stops only for the quiet flag.
+pub fn prime_now(cfg: &Config, repo: &str, sha: &str) -> Result<PrimeOutcome, String> {
+    if !valid_repo_key(repo) || !valid_sha(sha) {
+        return Err(format!("refusing to prime {repo:?} {sha:?}"));
+    }
+    let clone = cfg.clones.join(repo);
+    fetch_if_changed(cfg, repo, &clone, false)?;
+    let main = git(
+        &clone,
+        &["rev-parse", "--verify", "refs/remotes/origin/main^{commit}"],
+    )?;
+    let main = main.trim();
+    if cfg.cold {
+        let home = cfg
+            .target_root
+            .parent()
+            .unwrap_or(Path::new("/var/lib/aien-run"));
+        println!("NOTE {}", wipe_pr_target(cfg, repo, home)?);
+    }
+    prime_once(cfg, repo, sha, main, &mut |_| quiet_raised())
+}
+
+/// The `target` member for this run, and the cold wipe when asked: under the
+/// user sandbox the class dir is `main` or `pr`; a pr run is warm when the
+/// complete warm record existed at run start. `--cold` empties the pr class
+/// dir from inside the sandbox (as aien-run, the only one who can) and drops
+/// the record; it refuses a head on main (the main class is never wiped).
+fn target_state(
+    cfg: &Config,
+    repo: &str,
+    wt: &Path,
+    on_main: bool,
+    notes: &mut Vec<String>,
+) -> Result<Value, String> {
+    if cfg.sandbox != Sandbox::User {
+        if cfg.cold {
+            return Err(
+                "--cold needs --sandbox user (it empties the pr class target dir)".to_string(),
+            );
+        }
+        return Ok(idle::target_member("unsandboxed", None, false));
+    }
+    let class = if on_main { "main" } else { "pr" };
+    if cfg.cold {
+        if on_main {
+            return Err("--cold empties only the pr class dir; this head is on main".to_string());
+        }
+        notes.push(wipe_pr_target(cfg, repo, wt)?);
+        return Ok(idle::target_member(class, None, true));
+    }
+    // Warm needs the complete record and a class dir that is not empty (a
+    // dir emptied behind the worker's back, by gc.sh say, is cold).
+    let pr_dir = cfg.target_root.join(repo).join("pr");
+    let non_empty = fs::read_dir(&pr_dir).is_ok_and(|mut d| d.next().is_some());
+    let warm = if on_main || !non_empty {
+        None
+    } else {
+        idle::read_warm(&cfg.state.root, repo)
+    };
+    Ok(idle::target_member(class, warm.as_ref(), false))
 }
 
 #[cfg(test)]

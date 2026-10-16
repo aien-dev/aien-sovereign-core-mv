@@ -557,8 +557,36 @@ fn cmd_worker(cli: &Cli) -> i32 {
     cfg.operator = cli.operator;
     cfg.jobs = cli.jobs;
     cfg.no_cache = cli.no_cache;
+    cfg.poll_cap = Duration::from_secs(
+        cli.poll_cap
+            .unwrap_or(aien_test::idle::DEFAULT_POLL_CAP.as_secs()),
+    );
+    cfg.quiet_after = Duration::from_secs(
+        cli.quiet_after
+            .unwrap_or(aien_test::idle::DEFAULT_QUIET_AFTER.as_secs()),
+    );
+    cfg.cold = cli.cold;
+    // The warm-standby prime map, beside the sibling map in the trusted clone.
+    // A missing default file means no priming.
+    cfg.prime = match &cli.prime {
+        Some(f) => Some(f.clone()),
+        None => Some(clones.join("aien-sovereign-core/tools/aien-local-ci/prime"))
+            .filter(|p| p.is_file()),
+    };
     cfg.hardware_identity = cli.hardware_identity.clone().unwrap_or_default();
     if let Some((repo, sha)) = &cli.once {
+        if cli.prime_only {
+            return match worker::prime_now(&cfg, repo, sha) {
+                Ok(o) => {
+                    println!("PRIME {repo} {sha} {o:?}");
+                    i32::from(o != worker::PrimeOutcome::Warm)
+                }
+                Err(e) => {
+                    println!("PRIME {repo} {sha} refused: {e}");
+                    2
+                }
+            };
+        }
         return match worker::run_once(&cfg, repo, sha) {
             Ok(s) => {
                 for n in &s.notes {

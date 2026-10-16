@@ -42,6 +42,7 @@ pub mod cli;
 pub mod evidence;
 pub mod graph;
 pub mod identity;
+pub mod idle;
 pub mod manifest;
 pub mod plan;
 pub mod process;

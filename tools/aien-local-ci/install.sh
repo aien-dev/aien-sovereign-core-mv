@@ -132,4 +132,14 @@ S visudo -cf "$tmp/sudoers" >/dev/null
 S install -o root -g root -m 0440 "$tmp/sudoers" /etc/sudoers.d/aien-local-ci
 S visudo -c >/dev/null && say "sudoers OK"
 
+# 6. cron tick (operator-owned; the crontab line itself is the operator's: */2 * * * * $HOME/.local/lib/aien-local-ci/cron-tick.sh)
+LIB=${AIEN_CI_LIB:-$OP_HOME/.local/lib/aien-local-ci}
+install -d -m 0755 "$LIB"
+if ! cmp -s "$here/cron-tick.sh" "$LIB/cron-tick.sh" 2>/dev/null; then
+  install -m 0755 "$here/cron-tick.sh" "$LIB/cron-tick.sh"
+  say "installed $LIB/cron-tick.sh"
+else
+  say "$LIB/cron-tick.sh current"
+fi
+
 say "done. verify with: $here/tests/run.sh"

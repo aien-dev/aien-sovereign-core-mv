@@ -48,6 +48,8 @@ for r in "$RUN_HOME"/target/*/; do
   for sub in pr main; do
     [[ -d $r/$sub ]] || continue
     act sudo -n find "$r/$sub" -mindepth 1 -delete
+    # A wiped pr dir is no longer warm (aien-test worker warm standby record).
+    if [[ $sub == pr ]]; then act rm -f "$HOME/.local/state/aien-local-ci/warm/$(basename "$r").json"; fi
     (( apply )) || break
     used_gb=$(( $(sudo -n du -sk "$r" | cut -f1) / 1024 / 1024 ))
     (( used_gb > quota_gb )) || break

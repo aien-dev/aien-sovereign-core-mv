@@ -12,6 +12,7 @@
 //! aien-test verify COMMIT [--repo NAME] [--base REF] [--state-dir DIR] [--release]
 //! aien-test worker [--once REPO SHA] [--poll SECS] [--repos LIST] [--github] [--iterations N]
 //!                  [--state-dir DIR] [--key FILE] [--clones DIR] [--wt-root DIR] [--wt-tool FILE] [--siblings FILE] [--sandbox user|none --dev-unsandboxed]
+//!                  [--poll-cap SECS] [--quiet-after SECS] [--prime FILE] [--cold] [--prime-only] (the last two with --once)
 //! ```
 //!
 //! `--host/--qemu/--gb10` and `--mutants` are later slices and are refused.
@@ -113,6 +114,18 @@ pub struct Cli {
     pub once: Option<(String, String)>,
     /// worker: `--poll SECS` (default 30).
     pub poll: Option<u64>,
+    /// worker: `--poll-cap SECS` ceiling of the backed-off poll (default 900).
+    pub poll_cap: Option<u64>,
+    /// worker: `--quiet-after SECS` idle time before backing off (default 600).
+    pub quiet_after: Option<u64>,
+    /// worker: `--cold`: empty the pr class target dir first (with --once).
+    pub cold: bool,
+    /// worker: `--prime-only` (with --once REPO MAIN): prime the pr class dir
+    /// from that main head and run nothing (with --cold: empty it first).
+    pub prime_only: bool,
+    /// worker: `--prime FILE` the warm-standby prime map (default
+    /// `<clones>/aien-sovereign-core/tools/aien-local-ci/prime`).
+    pub prime: Option<PathBuf>,
     /// worker: `--repos A,B`.
     pub repos: Vec<String>,
     /// worker: `--github`: poll GitHub and post commit statuses.
@@ -145,7 +158,12 @@ fn parse_selection(s: &str) -> Result<Selection, String> {
 const COMMANDS: [&str; 9] = [
     "run", "test", "why", "list", "identity", "plan", "status", "verify", "worker",
 ];
-const WORKER_FLAGS: [&str; 13] = [
+const WORKER_FLAGS: [&str; 18] = [
+    "--prime-only",
+    "--poll-cap",
+    "--quiet-after",
+    "--cold",
+    "--prime",
     "--dev-unsandboxed",
     "--key",
     "--clones",
@@ -195,6 +213,11 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
     let mut siblings: Option<PathBuf> = None;
     let mut once: Option<(String, String)> = None;
     let mut poll: Option<u64> = None;
+    let mut poll_cap: Option<u64> = None;
+    let mut quiet_after: Option<u64> = None;
+    let mut cold = false;
+    let mut prime_only = false;
+    let mut prime: Option<PathBuf> = None;
     let mut repos: Vec<String> = Vec::new();
     let mut github = false;
     let mut iterations: Option<u64> = None;
@@ -272,6 +295,30 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
                 v.parse::<u64>()
                     .map_err(|_| format!("--poll needs seconds, not {v:?}"))?,
             );
+        } else if a == "--poll-cap" || a == "--quiet-after" {
+            worker_flags.push(if a == "--poll-cap" {
+                "--poll-cap"
+            } else {
+                "--quiet-after"
+            });
+            let v = value(&mut i, a)?;
+            let n = v
+                .parse::<u64>()
+                .map_err(|_| format!("{a} needs seconds, not {v:?}"))?;
+            if a == "--poll-cap" {
+                poll_cap = Some(n);
+            } else {
+                quiet_after = Some(n);
+            }
+        } else if a == "--prime-only" {
+            worker_flags.push("--prime-only");
+            prime_only = true;
+        } else if a == "--cold" {
+            worker_flags.push("--cold");
+            cold = true;
+        } else if a == "--prime" {
+            worker_flags.push("--prime");
+            prime = Some(PathBuf::from(value(&mut i, a)?));
         } else if a == "--iterations" {
             worker_flags.push("--iterations");
             let v = value(&mut i, a)?;
@@ -308,6 +355,14 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
         return Err(
             "--compiler-identity, --flag and --hardware-identity only apply to identity, plan, verify and worker"
                 .to_string(),
+        );
+    }
+    if prime_only && once.is_none() {
+        return Err("--prime-only needs --once REPO MAIN-SHA".to_string());
+    }
+    if cold && once.is_none() {
+        return Err(
+            "--cold only applies to worker --once (it empties the pr class target dir)".to_string(),
         );
     }
     if name != "worker" {
@@ -389,6 +444,11 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
         siblings,
         once,
         poll,
+        poll_cap,
+        quiet_after,
+        cold,
+        prime_only,
+        prime,
         repos,
         github,
         iterations,
@@ -607,6 +667,35 @@ mod tests {
         assert!(parse_args(&v(&["run", "G", "--operator"])).is_err());
         assert!(parse_args(&v(&["run", "G", "--state-dir", "/s"])).is_err());
         assert!(parse_args(&v(&["list", "--repo", "x"])).is_err());
+    }
+
+    #[test]
+    fn power_and_warm_flags() {
+        let sha = "c".repeat(40);
+        let c = parse_args(&v(&[
+            "worker",
+            "--poll-cap",
+            "300",
+            "--quiet-after",
+            "120",
+            "--prime",
+            "/p",
+        ]))
+        .unwrap();
+        assert_eq!((c.poll_cap, c.quiet_after), (Some(300), Some(120)));
+        assert_eq!(c.prime, Some(PathBuf::from("/p")));
+        assert!(!c.cold);
+        let c = parse_args(&v(&["worker", "--once", "r", &sha, "--cold"])).unwrap();
+        assert!(c.cold);
+        assert!(parse_args(&v(&["worker", "--cold"]))
+            .unwrap_err()
+            .contains("--cold only applies"));
+        assert!(parse_args(&v(&["worker", "--poll-cap", "x"])).is_err());
+        assert!(parse_args(&v(&["worker", "--quiet-after"])).is_err());
+        assert!(parse_args(&v(&["status", "--poll-cap", "5"]))
+            .unwrap_err()
+            .contains("only applies to worker"));
+        assert!(parse_args(&v(&["status", "--prime", "/p"])).is_err());
     }
 
     #[test]
