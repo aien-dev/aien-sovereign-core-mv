@@ -74,12 +74,9 @@ pub fn check_name(what: &str, s: &str, allow_slash: bool) -> Result<(), BridgeEr
     Ok(())
 }
 
-/// Topics may also be a wildcard: `*` or `<prefix>/*`.
+/// A topic is matched exactly (the board has no wildcard topics in v0).
 pub fn check_topic(s: &str) -> Result<(), BridgeError> {
-    if s == "*" {
-        return Ok(());
-    }
-    check_name("topic", s.strip_suffix("/*").unwrap_or(s), true)
+    check_name("topic", s, true)
 }
 
 pub fn check_sub(sub: &Sub) -> Result<(), BridgeError> {
@@ -179,8 +176,14 @@ impl<'a, B: Board> Bridge<'a, B> {
     fn open(&self, key: &str) -> Result<(StateFile, State), BridgeError> {
         let sf = StateFile::open(&self.state_dir, &self.mission, key)?;
         let mut st = sf.load(&self.mission, key)?;
-        if st.confirmed == 0 && st.pending.is_none() && st.batches == 0 {
-            // Fresh or lost local state: resume from the board's durable ack.
+        if st.confirmed == 0
+            && st.pending.is_none()
+            && st.batches == 0
+            && self.board.tag_of(key)?.is_some()
+        {
+            // Fresh or lost local state of a bound session: resume from the
+            // board's durable ack. (An unbound session has no cursor yet;
+            // `select` takes the ack again once the tag is bound.)
             st.confirmed = self.board.acked(key)?;
         }
         Ok((sf, st))
@@ -221,7 +224,20 @@ impl<'a, B: Board> Bridge<'a, B> {
         check_name("tag", wanted, false)?;
         let mut note = None;
         let mut got = None;
+        // Local state lost but the board still binds this session: keep it.
+        if let Some(t) = self.board.tag_of(key)? {
+            self.board.register(key, &t)?;
+            if t != wanted && !t.starts_with(&format!("{wanted}-")) {
+                note = Some(format!(
+                    "This session is already bound to tag {t} on the board; you are {t}."
+                ));
+            }
+            got = Some(t);
+        }
         for n in 1..=TAG_SUFFIXES {
+            if got.is_some() {
+                break;
+            }
             let cand = if n == 1 {
                 wanted.to_string()
             } else {
@@ -313,16 +329,12 @@ impl<'a, B: Board> Bridge<'a, B> {
         let mut addressed: Vec<&Event> = Vec::new();
         let mut subscribed: Vec<&Event> = Vec::new();
         let mut page_ids = BTreeSet::new();
-        let mut max_sub: Option<u64> = None;
         for e in &page.events {
             if e.id <= start || !seen_ids.insert(e.id) {
                 continue; // dedup by id
             }
             page_ids.insert(e.id);
             let is_addr = e.to.iter().any(|t| t == tag);
-            if !is_addr {
-                max_sub = Some(max_sub.map_or(e.id, |m: u64| m.max(e.id)));
-            }
             if ahead.contains(&e.id) {
                 continue;
             }
@@ -353,8 +365,7 @@ impl<'a, B: Board> Bridge<'a, B> {
                 &page_ids,
                 start,
                 |i| own.contains(&i) || ahead.contains(&i),
-                page.more,
-                max_sub,
+                page.through,
             );
             if p > start {
                 return Ok(Some(Selected {
@@ -389,8 +400,7 @@ impl<'a, B: Board> Bridge<'a, B> {
             &page_ids,
             start,
             |i| delivered.contains(&i) || own.contains(&i) || ahead.contains(&i),
-            page.more,
-            max_sub,
+            page.through,
         );
         view.last_id = (p > start).then_some(p);
         let (text, _, _) = render::render(&view);
@@ -545,14 +555,31 @@ impl<'a, B: Board> Bridge<'a, B> {
         if first.text.is_some() {
             return Ok((first, WatchEnd::AlreadyWaiting));
         }
-        let notified = self.board.wait(key, timeout)?;
-        let out = self.read(key, false)?;
-        let end = match (notified, out.text.is_some()) {
-            (true, _) => WatchEnd::Notified,
-            (false, true) => WatchEnd::TimeoutFound,
-            (false, false) => WatchEnd::TimeoutEmpty,
-        };
-        Ok((out, end))
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            let (after, seen) = self.shown(key)?;
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            let notified = !left.is_zero() && self.board.wait(key, after, &seen, left)?;
+            let out = self.read(key, false)?;
+            match (notified, out.text.is_some()) {
+                (true, true) => return Ok((out, WatchEnd::Notified)),
+                // Woken by a post that is not for us: park again.
+                (true, false) => continue,
+                (false, true) => return Ok((out, WatchEnd::TimeoutFound)),
+                (false, false) => return Ok((out, WatchEnd::TimeoutEmpty)),
+            }
+        }
+    }
+
+    /// The delivered prefix and the ids shown above it (out of order or in
+    /// a pending hook batch), for arming a wait.
+    fn shown(&self, key: &str) -> Result<(u64, Vec<u64>), BridgeError> {
+        let (_sf, st) = self.open(key)?;
+        let mut seen = st.ahead.clone();
+        if let Some(p) = &st.pending {
+            seen.extend(p.ids.iter().copied());
+        }
+        Ok((st.confirmed.max(self.board.acked(key)?), seen))
     }
 
     /// `swarm-bridge ack <id>`: explicit acknowledgement. Never acks past
@@ -688,33 +715,19 @@ impl<'a, B: Board> Bridge<'a, B> {
     }
 }
 
-/// Highest id P such that every page id in (start, P] satisfies `seen`.
-/// When the page was cut (`more`), events past it are unknown: P may not
-/// pass the last subscribed id in the page, and if the page held only
-/// addressed events P does not move.
-fn prefix(
-    page_ids: &BTreeSet<u64>,
-    start: u64,
-    seen: impl Fn(u64) -> bool,
-    more: bool,
-    max_sub: Option<u64>,
-) -> u64 {
+/// Highest id P such that every matching id in (start, P] satisfies `seen`.
+/// The page holds every matching id up to `through`, so when all its ids
+/// are seen P reaches `through` (skipping ids that matched nobody).
+fn prefix(page_ids: &BTreeSet<u64>, start: u64, seen: impl Fn(u64) -> bool, through: u64) -> u64 {
     let mut p = start;
     for &i in page_ids {
         if seen(i) {
             p = i;
         } else {
-            break;
+            return p;
         }
     }
-    if more {
-        match max_sub {
-            Some(m) => p.min(m),
-            None => start,
-        }
-    } else {
-        p
-    }
+    p.max(through)
 }
 
 struct Selected {

@@ -61,16 +61,6 @@ fn tag_of(inner: &Inner, session: &str) -> Option<String> {
         .map(|(t, _)| t.clone())
 }
 
-fn topic_matches(pattern: &str, topic: &str) -> bool {
-    if pattern == "*" {
-        return true;
-    }
-    match pattern.strip_suffix("/*") {
-        Some(prefix) => topic == prefix || topic.starts_with(&format!("{prefix}/")),
-        None => pattern == topic,
-    }
-}
-
 fn body_key(p: &Post) -> String {
     format!(
         "{}|{}|{}|{}|{:?}|{}|{:?}|{}|{:?}",
@@ -96,6 +86,9 @@ impl Board for MemoryBoard {
         match g.tags.get(tag) {
             Some(s) if s == session => Ok(()),
             Some(_) => Err(BridgeError::TagTaken(tag.to_string())),
+            None if g.tags.values().any(|s| s == session) => Err(BridgeError::Board(format!(
+                "SessionTagged: {session} already holds another tag"
+            ))),
             None => {
                 g.tags.insert(tag.to_string(), session.to_string());
                 Ok(())
@@ -159,27 +152,53 @@ impl Board for MemoryBoard {
         Ok(self.lock().subs.get(session).cloned().unwrap_or_default())
     }
 
+    fn tag_of(&self, session: &str) -> Result<Option<String>, BridgeError> {
+        Ok(tag_of(&self.lock(), session))
+    }
+
+    /// Same page contract as the real board: the lowest `limit` matching ids
+    /// after `after`, then addressed first; the reader's own posts are not
+    /// shown.
     fn read_since(&self, session: &str, after: u64, limit: usize) -> Result<Page, BridgeError> {
         let g = self.lock();
         let tag = tag_of(&g, session);
         let subs = g.subs.get(session).cloned().unwrap_or_default();
-        let mut addressed = Vec::new();
-        let mut subscribed = Vec::new();
+        let limit = limit.max(1);
+        let mut chosen: Vec<(&Event, bool)> = Vec::new();
+        let mut more = false;
         for e in g.events.iter().filter(|e| e.id > after) {
-            if tag.as_ref().is_some_and(|t| e.to.contains(t)) {
-                addressed.push(e.clone());
-            } else if subs.iter().any(|s| match s {
+            let addressed = tag.as_ref().is_some_and(|t| e.to.contains(t));
+            let subscribed = subs.iter().any(|s| match s {
                 Sub::Thread(t) => *t == e.thread,
-                Sub::Topic(p) => topic_matches(p, &e.topic),
-            }) {
-                subscribed.push(e.clone());
+                Sub::Topic(p) => *p == e.topic,
+            });
+            if !(addressed || subscribed) {
+                continue;
             }
+            if chosen.len() == limit {
+                more = true;
+                break;
+            }
+            chosen.push((e, addressed));
         }
-        addressed.extend(subscribed);
-        let more = addressed.len() > limit;
-        addressed.truncate(limit);
+        let through = if more {
+            chosen.last().map_or(after, |c| c.0.id)
+        } else {
+            (g.events.len() as u64).max(after)
+        };
+        let shown = |e: &Event| !tag.as_ref().is_some_and(|t| *t == e.from_tag);
+        let mut events: Vec<Event> = Vec::new();
+        for want_addressed in [true, false] {
+            events.extend(
+                chosen
+                    .iter()
+                    .filter(|(e, a)| *a == want_addressed && shown(e))
+                    .map(|(e, _)| (*e).clone()),
+            );
+        }
         Ok(Page {
-            events: addressed,
+            events,
+            through,
             more,
         })
     }
@@ -208,9 +227,19 @@ impl Board for MemoryBoard {
         Ok(*cur)
     }
 
-    fn wait(&self, _session: &str, timeout: Duration) -> Result<bool, BridgeError> {
+    fn wait(
+        &self,
+        session: &str,
+        after: u64,
+        seen: &[u64],
+        timeout: Duration,
+    ) -> Result<bool, BridgeError> {
+        let start = self.lock().wakes;
+        let page = self.read_since(session, after, 64)?;
+        if page.events.iter().any(|e| !seen.contains(&e.id)) {
+            return Ok(true);
+        }
         let g = self.lock();
-        let start = g.wakes;
         let (g, res) = match self.cv.wait_timeout_while(g, timeout, |i| i.wakes == start) {
             Ok(x) => x,
             Err(p) => p.into_inner(),

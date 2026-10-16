@@ -17,6 +17,7 @@
 pub mod board;
 pub mod bridge;
 pub mod memory;
+pub mod real;
 pub mod render;
 pub mod state;
 

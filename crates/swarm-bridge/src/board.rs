@@ -163,11 +163,13 @@ impl Sub {
 }
 
 /// A bounded page from `read_since`: events addressed to the reader first,
-/// then subscribed events, each part in id order. `more` is true when more
-/// matching events exist past this page.
+/// then subscribed events, each part in id order. Every matching id at or
+/// below `through` is in this page (or was at or below `after`); `more` is
+/// true when matching events may exist past `through`.
 #[derive(Debug, Clone, Default)]
 pub struct Page {
     pub events: Vec<Event>,
+    pub through: u64,
     pub more: bool,
 }
 
@@ -234,6 +236,8 @@ pub trait Board {
     /// Bind `tag` to `session`. Idempotent for the same pair; another
     /// session's tag is refused with [`BridgeError::TagTaken`].
     fn register(&self, session: &str, tag: &str) -> Result<(), BridgeError>;
+    /// The live tag `session` already holds, if any.
+    fn tag_of(&self, session: &str) -> Result<Option<String>, BridgeError>;
     /// Append one event; returns its id. Same idempotency key and same body
     /// returns the existing id.
     fn post(&self, post: &Post) -> Result<u64, BridgeError>;
@@ -249,7 +253,16 @@ pub trait Board {
     /// Move the acknowledged cursor forward. Ids at or below the current
     /// cursor are a no-op (idempotent); returns the cursor after the call.
     fn ack(&self, session: &str, id: u64) -> Result<u64, BridgeError>;
-    /// Block until a notification arrives or `timeout` passes. Returns true
-    /// when notified. A lost notification costs only the timeout.
-    fn wait(&self, session: &str, timeout: Duration) -> Result<bool, BridgeError>;
+    /// Block until something new for `session` may exist or `timeout`
+    /// passes. Returns true at once when an event after `after` that is not
+    /// in `seen` is already visible (race-free: the board notifier is armed
+    /// before that check), true when notified, false on timeout. A lost
+    /// notification costs only the timeout.
+    fn wait(
+        &self,
+        session: &str,
+        after: u64,
+        seen: &[u64],
+        timeout: Duration,
+    ) -> Result<bool, BridgeError>;
 }

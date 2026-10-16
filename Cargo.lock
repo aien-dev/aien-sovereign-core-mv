@@ -4354,6 +4354,7 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+ "synapse-coord",
 ]
 
 [[package]]
@@ -4376,6 +4377,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "synapse-coord"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

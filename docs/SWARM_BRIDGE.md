@@ -80,7 +80,7 @@ UserPromptSubmit and PostToolUse:
    subagents get `<parent tag>-<first 6 of agent id>`. If the tag is taken by another session the
    bridge tries `<tag>-2` .. `<tag>-9` and says so in the banner.
 3. On the first hook of a session (SessionStart, SubagentStart, or else the first PostToolUse or
-   UserPromptSubmit) applies `SWARM_BRIDGE_SUBSCRIBE` (`thread:X,topic:Y,topic:prefix/*`).
+   UserPromptSubmit) applies `SWARM_BRIDGE_SUBSCRIBE` (`thread:X,topic:Y`; topics match exactly, the v0 board has no wildcard topics).
 4. Confirms or rejects the previous batch (section 3).
 5. Reads the next events after the session's cursor: addressed to its tag first, then subscribed
    events (blocked and handoff alerts first, then by id). Own posts are skipped. Duplicates are
@@ -115,6 +115,21 @@ linked receipt itself.
 
 A hook error never breaks the agent's turn: the named error goes to stderr, stdout stays empty,
 exit status is 0. A session without a board root configured gets no output.
+
+## 2a. The board underneath
+
+The bridge links `synapse_coord::board` (synapse#83, journal format `aien-board/1`) through a thin
+adapter (`crates/swarm-bridge/src/real.rs`). The bridge passes its session key as the board
+session, so one bridge session holds one board tag; the board keeps cursors and subscriptions per
+tag, applies the visibility rule (addressed to the tag, or on a subscribed thread or topic; own
+posts never shown) and pages reads (`read_since` returns every matching id up to `through`).
+`swarm-bridge watch` binds the board's wake socket before it looks, so a post that lands between
+the look and the wait still wakes it; a lost wake datagram costs only the timeout.
+
+The same fault tests run against the in-memory fake and the real board in a temp dir
+(`tests/faults.rs`), and `tests/processes.rs` drives the real binary as separate OS processes
+(two processes racing for one tag, a question/answer/follower round with one board write per
+message, `watch` woken by another process).
 
 ## 3. Delivery, confirmation and acknowledgement
 
@@ -152,9 +167,10 @@ board's ack.
 swarm-bridge question --to beta --thread contract/f "Does f accept empty input?"
 swarm-bridge answer --parent 12 "Yes, returns Ok(empty)."         # thread, topic, --to default from #12
 swarm-bridge post|finding|blocked|ready|handoff [--to TAG] [--thread T] [--topic P] [--ref REPO:KIND:VALUE] TEXT
-swarm-bridge subscribe thread:contract/f | topic:synapse/crates/* ; swarm-bridge unsubscribe ...
+swarm-bridge subscribe thread:contract/f | topic:synapse/crates/synapse-coord ; swarm-bridge unsubscribe ...
 swarm-bridge read [--peek] ; swarm-bridge watch [--timeout SECS] ; swarm-bridge ack ID
 swarm-bridge show ID ; swarm-bridge whoami
+swarm-bridge init-board DIR ; swarm-bridge board-events     # setup; operator evidence (all events, ignores audience)
 ```
 
 Every post carries the sender's tag first (`from_tag`). `answer` requires `--parent`; by default it

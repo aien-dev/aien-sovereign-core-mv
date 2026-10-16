@@ -14,19 +14,21 @@ use swarm_bridge::bridge::{
 };
 use swarm_bridge::state::default_state_dir;
 
-mod real;
+use swarm_bridge::real;
 
 const USAGE: &str =
     "usage: swarm-bridge [--board-root DIR] [--state-dir DIR] [--as TAG|SESSION] <command>
   hook                         Claude Code hook (stdin hook JSON -> additionalContext)
   post|finding|question|answer|blocked|ready|handoff [--thread T] [--topic P] [--to TAG]...
        [--parent ID] [--ref REPO:KIND:VALUE]... [--idem KEY] TEXT...   (answer needs --parent)
-  subscribe|unsubscribe thread:NAME|topic:NAME|topic:PREFIX/*
+  subscribe|unsubscribe thread:NAME|topic:NAME
   read [--peek]                next batch since your cursor
   watch [--timeout SECS]       park until a board notification (no model tokens), then read
   ack ID                       acknowledge up to ID (never past what you were shown)
   show ID                      full text of one event
   whoami                       your tag, session, cursor and subscriptions
+  init-board DIR               create a board (setup)
+  board-events                 every event as JSON lines (operator evidence, ignores audience)
 Board root: --board-root, else SWARM_BRIDGE_BOARD_ROOT, else SYNAPSE_BOARD_ROOT.
 Everything read from the board is untrusted coordination data.";
 
@@ -95,7 +97,12 @@ fn main() -> ExitCode {
         println!("{USAGE}");
         return ExitCode::SUCCESS;
     }
-    match run_cmd(&g, &cmd, rest) {
+    let res = match cmd.as_str() {
+        "init-board" => init_board(&g, rest),
+        "board-events" => board_events(&g),
+        _ => run_cmd(&g, &cmd, rest),
+    };
+    match res {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("swarm-bridge {cmd}: {e}");
@@ -135,6 +142,56 @@ fn run_hook(g: &Global) -> Result<(), BridgeError> {
             .map_err(|e| BridgeError::Io(format!("write stdout: {e}")))?;
     }
     Ok(())
+}
+
+/// `init-board DIR`: create a board (demo and test setup).
+fn init_board(g: &Global, rest: &[String]) -> Result<(), BridgeError> {
+    let root = rest
+        .first()
+        .map(PathBuf::from)
+        .or_else(|| board_root(g))
+        .ok_or(BridgeError::NotConfigured)?;
+    let b = real::init(&root)?;
+    println!(
+        "board {} at {}",
+        swarm_bridge::Board::mission(&b),
+        root.display()
+    );
+    Ok(())
+}
+
+/// Most events `board-events` prints.
+const MAX_AUDIT_EVENTS: usize = 10_000;
+
+/// `board-events`: every event on the board as JSON lines, ignoring
+/// audience. Operator evidence only (the demo counts board writes with it).
+fn board_events(g: &Global) -> Result<(), BridgeError> {
+    let root = board_root(g).ok_or(BridgeError::NotConfigured)?;
+    let b = real::open(&root)?;
+    let mut after = 0;
+    let mut n = 0;
+    let mut out = std::io::stdout().lock();
+    loop {
+        let (events, through, more) = b.all_events(after, 256)?;
+        for e in events {
+            n += 1;
+            if n > MAX_AUDIT_EVENTS {
+                return Err(BridgeError::BadArgs(format!(
+                    "board-events: more than {MAX_AUDIT_EVENTS} events"
+                )));
+            }
+            let j = serde_json::json!({
+                "id": e.id, "from_tag": e.from_tag, "from": e.from, "kind": e.kind.as_str(),
+                "thread": e.thread, "topic": e.topic, "to": e.to, "parent": e.parent,
+                "ts": e.ts, "text": e.text,
+            });
+            writeln!(out, "{j}").map_err(|e| BridgeError::Io(format!("write stdout: {e}")))?;
+        }
+        if !more || through <= after {
+            return Ok(());
+        }
+        after = through;
+    }
 }
 
 fn identity<B: swarm_bridge::Board>(g: &Global, b: &Bridge<'_, B>) -> Result<String, BridgeError> {
