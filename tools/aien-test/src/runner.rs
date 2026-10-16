@@ -692,10 +692,17 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
             enforce_timeout: m.pool() != "gb10",
             // Tell the gate the GPU locks are already held for it, so a
             // script that would take /tmp/aien-gb10.lock itself skips that.
+            // Only the runner may say so: an inherited copy (an operator's
+            // shell) is removed for every gate the guard is not held for.
             env: if gpu.is_some() {
                 vec![(GPU_LOCK_HELD_MARKER.to_string(), "1".to_string())]
             } else {
                 Vec::new()
+            },
+            env_remove: if gpu.is_some() {
+                Vec::new()
+            } else {
+                vec![GPU_LOCK_HELD_MARKER.to_string()]
             },
         };
         // The sandbox seam (C8): `none` returns `direct` unchanged.
@@ -1615,6 +1622,20 @@ mod tests {
     fn host_gate_is_not_told_the_lock_is_held() {
         let fx = fixture(LOCK_HELD_SCRIPT, 0, &[], "20s", "");
         let o = run(&fx, &fx.opts());
+        assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
+        let r = read_json(&o.receipt_path.unwrap());
+        assert_eq!(r["core"]["observations"][0]["value"], 0);
+    }
+
+    #[test]
+    fn host_gate_does_not_inherit_the_marker_from_the_operator() {
+        // Without a sandbox the gate inherits the runner's environment. An
+        // operator shell that exported the marker must not make a host gate
+        // believe the GPU lock is held for it.
+        std::env::set_var(GPU_LOCK_HELD_MARKER, "1");
+        let fx = fixture(LOCK_HELD_SCRIPT, 0, &[], "20s", "");
+        let o = run(&fx, &fx.opts());
+        std::env::remove_var(GPU_LOCK_HELD_MARKER);
         assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
         let r = read_json(&o.receipt_path.unwrap());
         assert_eq!(r["core"]["observations"][0]["value"], 0);

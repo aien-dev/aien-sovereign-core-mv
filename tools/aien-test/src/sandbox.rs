@@ -150,6 +150,7 @@ mod tests {
             kill_grace: Duration::from_secs(10),
             enforce_timeout: false,
             env: Vec::new(),
+            env_remove: Vec::new(),
         }
     }
 
