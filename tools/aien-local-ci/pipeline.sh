@@ -21,6 +21,7 @@ RECEIPTS=${AIEN_RECEIPTS:-$HOME/workspace/pipeline/aien-receipts}
 RECEIPTS_BRANCH=${AIEN_RECEIPTS_BRANCH:-main}
 BIN=${AIEN_TEST_BIN:-$HOME/workspace/pipeline/target-sc/release/aien-test}
 OWNER=${AIEN_GH_OWNER:-aien-dev}
+SLUG_OWNERS=${AIEN_SLUG_OWNERS:-aien-spark $OWNER}
 REPOS=${AIEN_REPOS:-aien-sovereign-core,omega,aienos,physics,aien-protocols,aegis-runtime,spark-rsi,aien-architecture,benchmarks}
 GH=${GH:-gh}
 GIT=${GIT:-git}
@@ -114,11 +115,16 @@ publish_time() {
 }
 
 declare -A SLUGS=()
-# slug REPO: canonical owner/name on GitHub (aien-dev/<repo> may redirect), resolved once per run.
+# slug REPO: canonical owner/name on GitHub, resolved once per run. aien-spark is the canonical owner now;
+# aien-dev/<repo> (a redirect for most repos) is the fallback. Some repos (synapse) exist only under aien-spark.
 slug() {
-  local s
+  local s="" o
   if [[ -z ${SLUGS[$1]:-} ]]; then
-    s=$("$GH" api "repos/$OWNER/$1" --jq .full_name 2>/dev/null) || return 1
+    for o in $SLUG_OWNERS; do
+      s=$("$GH" api "repos/$o/$1" --jq .full_name 2>/dev/null) && break
+      s=""
+    done
+    [[ -n $s ]] || return 1
     [[ $s =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || return 1
     SLUGS[$1]=$s
   fi

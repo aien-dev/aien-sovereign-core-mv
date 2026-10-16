@@ -153,7 +153,7 @@ check "commit message names the replaced digest" bash -c "git --git-dir='$T/rece
 
 echo "== rerun"
 ghset "repos/aien-dev/demo" '{"full_name":"aien-spark/demo"}'
-ghset "repos/aien-dev/plain" '{"full_name":"aien-spark/plain"}'
+ghset "repos/aien-spark/plain" '{"full_name":"aien-spark/plain"}'   # only under aien-spark, no aien-dev redirect (like synapse)
 ghset "repos/aien-spark/plain/pulls?state=open&per_page=100" '[]'
 pulls() { # NUM:SHA:DRAFT:LABEL ...
   local out="[" sep="" n s d l
@@ -177,6 +177,7 @@ check "older run and other workflows untouched" [ "$(posts 10)$(posts 12)" = 00 
 check "in-progress run is not rerun" [ "$(posts 20)" = 0 ]
 check "run started after publication is not rerun" [ "$(posts 30)" = 0 ]
 check "head without a published bundle is not looked up" bash -c "! grep -q 'head_sha=$C' '$FAKE_LOG'"
+check "repo only under aien-spark resolves (no aien-dev redirect)" [ "$(jl ".repo==\"plain\" and (.reason|test(\"cannot resolve\"))")" = 0 ]
 check "journal: in-progress wait" [ "$(jl ".action==\"rerun\" and .sha==\"$B\" and .result==\"wait\"")" = 1 ]
 bash "$PIPE" rerun > "$T/out5" 2>&1
 check "second round: no second rerun for the same digest" [ "$(posts 11)" = 1 ]
