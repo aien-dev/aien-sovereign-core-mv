@@ -20,6 +20,7 @@ omega                aien-architecture                aien-architecture     main
 omega                physics                          physics               main
 omega                aienos                           aienos                main
 aienos               aien-architecture                aien-architecture     main
+synapse              aien-architecture                aien-architecture     main
 aien-sovereign-core  omega                            omega                 main
 aien-sovereign-core  physics                          physics               main
 aien-sovereign-core  aienos                           aienos                main

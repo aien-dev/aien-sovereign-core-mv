@@ -244,7 +244,7 @@ kill_at() { # point release-dir [install.sh args...]: run install.sh held at poi
     ipid=$!
     for _ in $(seq 1 100); do grep -q "paused at $point" "$WORK/log-int" 2>/dev/null && break; sleep 0.1; done
     grep -q "paused at $point" "$WORK/log-int" || fail "installer never reached $point"
-    pkill -9 -P "$ipid" 2>/dev/null || true; kill -9 "$ipid"; wait "$ipid" 2>/dev/null || true
+    pkill -9 -P "$ipid" 2>/dev/null || true; kill -9 "$ipid" 2>/dev/null || true; wait "$ipid" 2>/dev/null || true
 }
 rec_cur() { sed -n 's/^current = "\(.*\)"$/\1/p' "$WORK/cfg-good/installed.toml"; }
 strays() { ls -A "$WORK/cfg-good/releases" | grep -c '^\.current\.new\.' || true; }
