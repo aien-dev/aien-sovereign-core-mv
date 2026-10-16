@@ -311,7 +311,14 @@ async fn handle_chat(
     })?;
     let req: ChatRequest = serde_json::from_slice(&body)
         .map_err(|e| ApiError::bad_request(format!("invalid JSON request: {e}")))?;
-    let prepared = prepare(&state, req)?;
+    // Rendering and tokenizing a long prompt is CPU work: run it on a blocking thread so it never
+    // stalls the async runtime (sc#522).
+    let prepared = {
+        let state = Arc::clone(&state);
+        tokio::task::spawn_blocking(move || prepare(&state, req))
+            .await
+            .map_err(|e| ApiError::internal(format!("request preparation failed: {e}")))??
+    };
     let guard = Arc::clone(&state.gate)
         .try_lock_owned()
         .map_err(|_| ApiError::busy())?;
