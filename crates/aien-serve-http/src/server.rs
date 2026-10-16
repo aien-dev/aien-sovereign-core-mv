@@ -130,6 +130,20 @@ impl ApiError {
         }
     }
 
+    /// The engine could not get the shared chip in time (another job holds the GPU lock).
+    fn gpu_busy(detail: &str) -> Self {
+        let mut e = Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            body: ErrorBody::new(
+                "server_busy",
+                format!("GPU busy with another job, retry shortly: {detail}"),
+            ),
+            retry_after: Some(5),
+        };
+        e.body.error.code = Some("gpu_busy".into());
+        e
+    }
+
     fn internal(msg: impl Into<String>) -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
@@ -337,18 +351,11 @@ async fn handle_chat(
         run_generation(engine, codec, prepared, tx, guard, &log_id);
     });
 
-    // The first event decides the status: a busy chip is a 503 with a plain body, before any
-    // headers go out (streaming included). Everything else is forwarded unchanged.
+    // The first event decides the status: a busy chip is a 503 in the OpenAI error envelope,
+    // before any headers go out (streaming included). Everything else is forwarded unchanged.
     let first = rx.recv().await;
-    if let Some(Ev::Busy(_)) = first {
-        let mut resp = (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({"error": "GPU busy with another job"})),
-        )
-            .into_response();
-        resp.headers_mut()
-            .insert(header::RETRY_AFTER, HeaderValue::from_static("5"));
-        return Ok(resp);
+    if let Some(Ev::Busy(m)) = &first {
+        return Err(ApiError::gpu_busy(m));
     }
     let (ftx, frx) = mpsc::channel::<Ev>(64);
     tokio::spawn(async move {
