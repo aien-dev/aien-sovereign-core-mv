@@ -60,6 +60,8 @@ members = [
     "crates/aien-localhttp",
     "crates/swarm-bridge",
 ]
+# Vendored dependency of swarm-bridge, not a workspace member (see third_party/synapse-coord.pin).
+exclude = ["third_party/synapse-coord"]
 
 [workspace.package]
 version = "0.1.0"

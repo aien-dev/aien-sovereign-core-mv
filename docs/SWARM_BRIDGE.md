@@ -119,7 +119,12 @@ exit status is 0. A session without a board root configured gets no output.
 ## 2a. The board underneath
 
 The bridge links `synapse_coord::board` (synapse#83, journal format `aien-board/1`) through a thin
-adapter (`crates/swarm-bridge/src/real.rs`). The bridge passes its session key as the board
+adapter (`crates/swarm-bridge/src/real.rs`). The board crate is vendored at
+`third_party/synapse-coord`, pinned to one upstream rev in `third_party/synapse-coord.pin`, so
+the offline judge builds without fetching anything. `tools/swarm-bridge/vendor-synapse-coord.sh`
+`sync REV` re-vendors, `check` verifies the copy against the pin offline, and `upstream` fetches the
+pinned rev and diffs it against the copy (only `Cargo.toml` differs: workspace fields resolved,
+upstream kept as `Cargo.toml.orig`). The bridge passes its session key as the board
 session, so one bridge session holds one board tag; the board keeps cursors and subscriptions per
 tag, applies the visibility rule (addressed to the tag, or on a subscribed thread or topic; own
 posts never shown) and pages reads (`read_since` returns every matching id up to `through`).

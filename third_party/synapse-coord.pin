@@ -1,0 +1,6 @@
+# Pin for third_party/synapse-coord (tools/swarm-bridge/vendor-synapse-coord.sh).
+repo=https://github.com/aien-dev/synapse
+rev=15422d0d4f9f373deec69e430e9cae1fe7bdd620
+path=crates/synapse-coord
+tree=fa900019a61bcd6b8156c30b8446a07ed40a0c1f
+digest=07dce98ccc4d1afa25d7decf6654dbbf1b303a9e85c93cd87e816d9dd57993d9
