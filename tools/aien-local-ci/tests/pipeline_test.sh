@@ -125,6 +125,17 @@ check "verify-bundle got --repo from the path" grep -q -- "--repo github.com/aie
 check "publish never passes --require" bash -c "! grep -q 'aien-test.*--require' '$FAKE_LOG'"
 check "publish made no GitHub call" bash -c "! grep -q '^gh ' '$FAKE_LOG'"
 
+# A clone whose origin is github.com/aien-spark/<repo> (synapse): the expected repository follows the origin URL,
+# the way the worker names it in the bundle. A wrapper git reports that URL; everything else is real git.
+cat > "$T/bin/sparkgit" <<EOF
+#!/bin/bash
+if [[ "\$*" == "-C $AIEN_CLONES/demo remote get-url origin" ]]; then echo "git@github.com:aien-spark/demo.git"; exit 0; fi
+exec git "\$@"
+EOF
+chmod +x "$T/bin/sparkgit"
+GIT=$T/bin/sparkgit bash "$PIPE" publish > "$T/out1b" 2>&1
+check "origin under aien-spark: verify-bundle expects github.com/aien-spark/demo" grep -q -- "--repo github.com/aien-spark/demo --commit" "$FAKE_LOG"
+
 before=$(remote_commits)
 bash "$PIPE" publish > "$T/out2" 2>&1
 check "identical bundles are not re-committed" [ "$(remote_commits)" = "$before" ]

@@ -74,6 +74,27 @@ journal() {
 
 digest() { sha256sum "$1" | cut -d' ' -f1; }
 
+# repo_identity REPO: the repository name the worker signs into bundles, from the clone's origin URL
+# (same rules as aien-test plan::normalise_remote), else github.com/$OWNER/REPO (plan::repository_name's fallback).
+# synapse's clone points at aien-spark, so its bundles say github.com/aien-spark/synapse.
+repo_identity() {
+  local url rest
+  url=$("$GIT" -C "$CLONES/$1" remote get-url origin 2>/dev/null || true)
+  url=${url%/}; url=${url%.git}
+  case $url in
+    git@*) rest=${url#git@}; rest=${rest/:/\/} ;;
+    ssh://git@*) rest=${url#ssh://git@} ;;
+    https://*) rest=${url#https://} ;;
+    http://*) rest=${url#http://} ;;
+    *) rest="" ;;
+  esac
+  if [[ $rest =~ ^([^/]+)/(.+/)?([^/]+)/([^/]+)$ ]]; then
+    echo "${BASH_REMATCH[1]}/${BASH_REMATCH[3]}/${BASH_REMATCH[4]}"
+  else
+    echo "github.com/$OWNER/$1"
+  fi
+}
+
 # keys CLONE REF: the trusted public keys at REF, one per line (same rule as aien-test: '#' comments, 64 hex).
 keys() {
   "$GIT" -C "$1" show "$2:.aien/verify.pub" 2>/dev/null | sed 's/#.*//' | tr -d ' \t\r' | tr 'A-F' 'a-f' \
@@ -89,7 +110,7 @@ verify() {
   while IFS= read -r key; do
     [[ -n $key ]] || continue
     rc=0
-    "$BIN" verify-bundle "$file" --repo "github.com/$OWNER/$repo" --commit "$sha" --pubkey "$key" "${extra[@]}" \
+    "$BIN" verify-bundle "$file" --repo "$(repo_identity "$repo")" --commit "$sha" --pubkey "$key" "${extra[@]}" \
       >/dev/null 2>&1 || rc=$?
     codes+="${codes:+,}$rc"
   done <<< "$keylist"
