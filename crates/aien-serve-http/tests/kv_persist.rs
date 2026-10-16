@@ -928,3 +928,35 @@ fn a_chunk_larger_than_the_park_or_restore_budget_refuses_at_open() {
     );
     assert!(matches!(d.persistence(), PersistState::Refused(_)));
 }
+
+/// sc#523 item 3: one fetch holds the request for at most [`kv_persist::LOAD_TIMEOUT`] in all,
+/// submit phase and wait phase together. The restore budget holds one chunk, so each of the three
+/// loads of turn 2 waits for the one before; each load stalls 4 s, so the last is submitted at
+/// about 8 s and lands at about 12 s.
+#[test]
+fn one_fetch_waits_at_most_the_load_timeout_over_submit_and_wait() {
+    let c = chunk_charge();
+    let scratch = Scratch::new("onedeadline");
+    let s = Setup::new(&scratch.store(), &gen_key());
+    let (_, h1) = park_turn1(&scratch, &s);
+    let narrow = s
+        .clone()
+        .with_var("AIEN_KV_PARK", "0")
+        .with_var("AIEN_KV_STORE_MAX_INFLIGHT_BYTES", &(2 * c).to_string());
+    let (b, line) = door_with_fault(&scratch, &narrow, Some("load:4000:3"));
+    assert!(line.contains("persistent KV: on"), "{line}");
+    let t0 = Instant::now();
+    let r2 = turn(&b, &prompt2(&h1));
+    let took = t0.elapsed();
+    let c = counters(&b);
+    assert_eq!(
+        (c.restores, c.restore_misses.get("timeout").copied()),
+        (0, Some(1)),
+        "turn 2 took {took:?}: {c:?}"
+    );
+    assert!(
+        took < kv_persist::LOAD_TIMEOUT + Duration::from_secs(2),
+        "one fetch held the request {took:?}"
+    );
+    assert_eq!(r2, plain_turn2(&scratch, &h1));
+}

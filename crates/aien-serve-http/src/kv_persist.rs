@@ -947,7 +947,8 @@ impl KvPersistence {
     }
 
     /// Looks up and loads the longest stored prefix of `prompt` when it beats `in_ram`. Runs
-    /// without the GPU lock. `None` = plain prefill (the reason is counted).
+    /// without the GPU lock. `None` = plain prefill (the reason is counted). One deadline,
+    /// [`LOAD_TIMEOUT`] from the start, covers submitting the loads and waiting for them (sc#523).
     pub fn fetch(&self, prompt: &[u32], in_ram: usize) -> Option<Fetched> {
         if self.worker.capacity().state == StoreState::Recovering {
             self.miss("store-recovering");
@@ -1046,7 +1047,6 @@ impl KvPersistence {
             }
         }
         if fail.is_none() {
-            let t0 = Instant::now();
             loop {
                 let mut g = self.inner.lock().unwrap_or_else(|p| p.into_inner());
                 self.pump(&mut g);
@@ -1065,7 +1065,7 @@ impl KvPersistence {
                     break;
                 }
                 drop(g);
-                if t0.elapsed() >= LOAD_TIMEOUT {
+                if t_fetch.elapsed() >= LOAD_TIMEOUT {
                     fail = Some("timeout".into());
                     break;
                 }
