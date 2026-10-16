@@ -451,6 +451,7 @@ fn health_reports_the_persistence_counters_when_on() {
     for k in [
         "parked_chunks",
         "park_bytes",
+        "park_dropped",
         "restores",
         "restored_tokens",
         "restore_bytes",
@@ -959,4 +960,34 @@ fn one_fetch_waits_at_most_the_load_timeout_over_submit_and_wait() {
         "one fetch held the request {took:?}"
     );
     assert_eq!(r2, plain_turn2(&scratch, &h1));
+}
+
+/// sc#523 item 4: a refused park drops the rest of its chain (a chain with a hole cannot be
+/// restored past it); the dropped chunks are counted. The park budget holds one chunk and the
+/// first park stalls past [`kv_persist::PARK_CREDIT_WAIT`], so chunk 2 is refused and the rest
+/// is dropped.
+#[test]
+fn a_refused_park_counts_the_chunks_it_drops() {
+    let c = chunk_charge();
+    let scratch = Scratch::new("parkdrop");
+    let s = Setup::new(&scratch.store(), &gen_key())
+        .with_var("AIEN_KV_STORE_MAX_INFLIGHT_BYTES", &(4 * c).to_string());
+    let stall = kv_persist::PARK_CREDIT_WAIT + Duration::from_secs(2);
+    let (a, line) = door_with_fault(&scratch, &s, Some(&format!("p3:{}:1", stall.as_millis())));
+    assert!(line.contains("persistent KV: on"), "{line}");
+    let _ = turn(&a, &prompt1());
+    let chunks = a.history().len().div_ceil(16) as u64;
+    assert!(chunks >= 3, "{chunks}");
+    assert!(pk_of(&a).wait_idle(WAIT));
+    let v = pk_of(&a).status_json();
+    assert_eq!(v["chunk_tokens"], 16, "{v}");
+    assert_eq!(
+        (
+            v["parked_chunks"].as_u64(),
+            v["park_refused"].as_u64(),
+            v["park_dropped"].as_u64()
+        ),
+        (Some(1), Some(1), Some(chunks - 2)),
+        "every chunk of the turn is accounted for: {v}"
+    );
 }

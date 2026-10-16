@@ -594,6 +594,8 @@ pub struct PersistCounters {
     pub park_dedup: u64,
     /// Chunks the store refused at submit (quota, queue, state).
     pub park_refused: u64,
+    /// Chunks after a refused one, never submitted: a chain with a hole cannot be restored past it.
+    pub park_dropped: u64,
     /// Chunks whose export or write failed.
     pub park_failed: u64,
     /// Generations not parked because the store was not open (recovering, degraded, failed).
@@ -793,6 +795,7 @@ impl KvPersistence {
             "park_bytes": c.park_bytes,
             "park_dedup": c.park_dedup,
             "park_refused": c.park_refused,
+            "park_dropped": c.park_dropped,
             "park_failed": c.park_failed,
             "park_skipped": c.park_skipped,
             "restores": c.restores,
@@ -1183,14 +1186,15 @@ impl KvPersistence {
     }
 
     /// Hands exported chunks to the storage worker (no GPU lock held). Stops at the first
-    /// refusal: a chain with a hole cannot be restored past it.
+    /// refusal: a chain with a hole cannot be restored past it (the rest counts in `park_dropped`).
     ///
     /// A chain longer than the worker's park budget is normal on the real model (one 256-token
     /// chunk of the 30B is 25 MB, the default budget 64 MB): on `QueueFull` the chunk waits, up to
     /// [`PARK_CREDIT_WAIT`], for the earlier chunks to publish and free their credit, then retries.
     /// Runs after the GPU lock is released; the inner lock is not held while waiting.
     pub fn submit(&self, items: Vec<ParkItem>) {
-        for it in items {
+        let n = items.len();
+        for (i, it) in items.into_iter().enumerate() {
             let nb = it.tokens.div_ceil(KV_BLOCK_SIZE);
             let tail_valid = (it.tokens - (nb - 1) * KV_BLOCK_SIZE) as u32;
             // Shared so a refused submit (which drops its guard) leaves the bytes for the retry.
@@ -1226,7 +1230,8 @@ impl KvPersistence {
                     }
                     Err(_) => {
                         g.counters.park_refused += 1;
-                        // A chain with a hole cannot be restored past it.
+                        // A chain with a hole cannot be restored past it: the rest is dropped.
+                        g.counters.park_dropped += (n - i - 1) as u64;
                         return;
                     }
                 }
