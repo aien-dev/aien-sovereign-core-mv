@@ -57,6 +57,7 @@ pin() {  # pin <dir-name> <sibling repo> <sha40>
 case "$step" in
   crumb-verify)        "${CRUMB:-crumb}" verify . ;;
   # ci.yml job verify ("Workspace Verification & Invariant Audit")
+  no-python)           sh scripts/check-no-python.sh ;;
   fmt)                 cargo fmt --all -- --check ;;
   release-gate-negatives)
     bash scripts/test-install-release.sh

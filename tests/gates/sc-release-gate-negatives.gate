@@ -9,6 +9,10 @@ inputs:
   - scripts/
   - tools/
   - release/
+  - install.sh
+  - docs/release/
+  - Cargo.lock
+  - omega.lock
   - tests/gates/
 run:
   exec: tests/gates/run.sh

@@ -7,6 +7,7 @@ requires:
   - portable
 inputs:
   - docs/campaigns/scoring/
+  - docs/campaigns/next-phase-2/
   - tests/gates/
 run:
   exec: tests/gates/run.sh

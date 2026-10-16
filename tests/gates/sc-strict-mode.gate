@@ -8,8 +8,8 @@ requires:
 inputs:
   - Cargo.toml
   - Cargo.lock
-  - crates/aien-inference-abi/
-  - crates/aien-inference-runtime/
+  - rust-toolchain.toml
+  - crates/
   - tests/gates/
 run:
   exec: tests/gates/run.sh

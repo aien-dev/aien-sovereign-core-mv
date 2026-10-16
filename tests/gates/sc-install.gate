@@ -7,6 +7,8 @@ requires:
   - host
 inputs:
   - scripts/
+  - install.sh
+  - Cargo.lock
   - tests/gates/
 run:
   exec: tests/gates/run.sh

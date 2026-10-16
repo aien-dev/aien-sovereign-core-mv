@@ -1,0 +1,21 @@
+# tests/gates/sc-no-python.gate
+# Mirrors hosted: ci.yml verify 'No Python guard (fails if any Python file is tracked)': sh scripts/check-no-python.sh (always-run)
+# Always-run because the guard scans every tracked file, so no input list can name what it reads.
+gate: SC-NO-PYTHON
+manifest_version: 2
+owner: aien-sovereign-core
+requires:
+  - portable
+inputs:
+  - scripts/check-no-python.sh
+  - tests/gates/
+run:
+  exec: tests/gates/run.sh
+  args: ["no-python"]
+expects:
+  exit: 0
+  verdict: PASS
+timeout: 2m
+exactness: EXACT
+cache_scope: portable
+cache: never
