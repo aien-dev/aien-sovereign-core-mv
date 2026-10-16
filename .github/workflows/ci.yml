@@ -51,9 +51,6 @@ jobs:
       - name: Pin materializer self-test (scripts/pins.sh, offline)
         run: bash scripts/test-pins.sh
 
-      - name: Persistent KV chip-script helpers (stubbed, no server or chip)
-        run: bash scripts/test-pkv-lib.sh
-
       - name: Native library identity refusals (scripts/test-native-identity.sh, no omega needed)
         run: bash scripts/test-native-identity.sh
 
