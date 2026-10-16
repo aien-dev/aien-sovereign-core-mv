@@ -219,11 +219,13 @@ chat() { # <out-name> <messages-json>: prints the content
 	printf '%s\n' "$c"
 }
 
-wait_parks() { # until parked_chunks > 0 and unchanged for 3 s
+wait_parks() { # until parked_chunks is a number > 0 and unchanged for 3 s
 	local last=-1 now
 	for _ in $(seq 1 60); do
-		now=$(curl -s -m 5 "$base/health" | jq -r '.persistent_kv.parked_chunks')
-		[ "$now" != 0 ] && [ "$now" = "$last" ] && return 0
+		now=$(curl -s -m 5 "$base/health" | jq -r '.persistent_kv.parked_chunks' 2>/dev/null || true)
+		# A failed request, null or a missing counter is not a count (sc#523): never settled.
+		case $now in '' | *[!0-9]*) now=-1 ;; esac
+		[ "$now" -gt 0 ] && [ "$now" = "$last" ] && return 0
 		last=$now
 		sleep 3
 	done
