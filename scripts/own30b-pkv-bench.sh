@@ -84,7 +84,7 @@ stop_samplers() {
 	if [ -n "$SAMPLER" ]; then kill "$SAMPLER" 2>/dev/null || true; fi
 	SAMPLER=
 }
-trap 'stop_samplers; [ -n "$IOSTAT" ] && kill "$IOSTAT" 2>/dev/null; stop_server; rm -rf "$work"' EXIT
+trap 'stop_samplers; [ -n "$IOSTAT" ] && kill "$IOSTAT" 2>/dev/null; stop_server || PKV_LEAK=1; rm -rf "$work"; pkv_trap_status' EXIT
 
 if command -v iostat >/dev/null; then
 	iostat -dxk -t 5 >"$dir/iostat.txt" 2>&1 &

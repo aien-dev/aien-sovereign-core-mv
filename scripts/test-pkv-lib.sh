@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# test-pkv-lib.sh: host-only self-test of scripts/own30b-pkv-lib.sh (sc#523 item 7) with
+# test-pkv-lib.sh: host-only self-test of scripts/own30b-pkv-lib.sh (sc#523 items 7 and 8) with
 # stub curl, ss and sleep on PATH: no server, no chip, no network, no real port. Proves:
-# wait_parks settles only on a number (a null or empty parked_chunks never counts as settled).
+# wait_parks settles only on a number (a null or empty parked_chunks never counts as settled),
+# and a port still held at exit makes the EXIT trap fail the run without skipping its cleanup.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="$ROOT/scripts/own30b-pkv-lib.sh"
@@ -39,5 +40,35 @@ chk '[ "$(parks "{\"persistent_kv\":{}}")" != 0 ]' "a missing counter never sett
 chk '[ "$(parks "{\"status\":\"ok\"}")" != 0 ]' "persistence absent never settles"
 chk '[ "$(parks "")" != 0 ]' "an empty reply never settles"
 rm -f "$T/health"
+
+echo "test-pkv-lib: the EXIT trap with the port still held (item 8)"
+# pkv_begin with a free port, then something keeps listening after our server is gone.
+rc=0
+(
+	PATH="$T/bin:$PATH"
+	set -euo pipefail
+	. "$LIB"
+	dir="$T/ev" BIN=/bin/true
+	pkv_begin
+	echo "$work" >"$T/work"
+	echo 999999 >"$PIDF" # not an aien-serve-http: stop_server sends no signal
+	touch "$T/listening"
+) >"$T/trap.out" 2>&1 || rc=$?
+chk '[ "$rc" != 0 ]' "the run fails (exit $rc)"
+chk 'grep -q "still listens" "$T/trap.out"' "the leftover listener is reported"
+chk '[ -s "$T/work" ] && [ ! -e "$(cat "$T/work")" ]' "the trap still removed the private work dir"
+
+rm -f "$T/listening"
+rc=0
+(
+	PATH="$T/bin:$PATH"
+	set -euo pipefail
+	. "$LIB"
+	dir="$T/ev2" BIN=/bin/true
+	pkv_begin
+	echo "$work" >"$T/work2"
+) >/dev/null 2>&1 || rc=$?
+chk '[ "$rc" = 0 ]' "a clean stop exits 0 (control)"
+chk '[ ! -e "$(cat "$T/work2")" ]' "and removes the work dir"
 
 [ "$fail" = 0 ] && echo "test-pkv-lib: PASS" || { echo "test-pkv-lib: FAIL"; exit 1; }
