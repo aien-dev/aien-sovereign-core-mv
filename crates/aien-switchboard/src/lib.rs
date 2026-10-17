@@ -14,9 +14,12 @@
 //! pure function of its inputs.
 
 pub mod account;
+pub mod cli;
 pub mod dispatch;
+pub mod doctor;
 pub mod gauge;
 pub mod job;
+pub mod launch;
 pub mod router;
 pub mod rules;
 pub mod runner;
@@ -24,7 +27,9 @@ pub mod runner;
 pub use account::{Account, AccountId, Provider};
 pub use dispatch::{run_job, Completed, DispatchError};
 pub use gauge::{Gauge, Gauges, Window};
+pub use doctor::{doctor, FakeProbe, Finding, Level, Report, VersionProbe};
 pub use job::{Job, JobKind, JobSize};
+pub use launch::{launch, plan_launch, Env, FakeSpawner, LaunchError, LaunchPlan, Spawner};
 pub use router::{route, Decision};
 pub use rules::{RuleTable, RulesError};
 pub use runner::{FakeRunner, RunResult, Runner};
