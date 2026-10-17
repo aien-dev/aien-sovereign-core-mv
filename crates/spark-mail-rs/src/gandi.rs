@@ -1,7 +1,7 @@
 //! Gandi mailbox transport. Credentials are resolved from the hardware vault
 //! at call time and never written to the local mail store.
 
-use imap::Session;
+use crate::imap::{Client, Section};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{Message, SmtpTransport, Transport};
 use mailparse::MailHeaderMap;
@@ -11,8 +11,10 @@ use std::io::{Error, ErrorKind};
 use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::Command;
+use std::time::Duration;
 
 const HOST: &str = "mail.gandi.net";
+const IMAP_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, clap::ValueEnum)]
 pub enum Account {
@@ -89,15 +91,23 @@ fn vault_password(account: Account) -> Result<String, Error> {
     Ok(password.to_owned())
 }
 
-fn imap_session(account: Account) -> Result<Session<native_tls::TlsStream<TcpStream>>, Error> {
+fn imap_session(account: Account) -> Result<Client<native_tls::TlsStream<TcpStream>>, Error> {
     let tls = TlsConnector::builder()
         .build()
         .map_err(|_| Error::other("could not initialize TLS"))?;
-    let client = imap::connect((HOST, 993), HOST, &tls)
+    let tcp = TcpStream::connect((HOST, 993))
         .map_err(|_| Error::other("could not connect to Gandi IMAP over TLS"))?;
+    tcp.set_read_timeout(Some(IMAP_TIMEOUT))?;
+    tcp.set_write_timeout(Some(IMAP_TIMEOUT))?;
+    let stream = tls
+        .connect(HOST, tcp)
+        .map_err(|_| Error::other("could not connect to Gandi IMAP over TLS"))?;
+    let mut client = Client::connect(stream)
+        .map_err(|error| Error::other(format!("Gandi IMAP greeting refused: {error}")))?;
     client
-        .login(account.address(), vault_password(account)?)
-        .map_err(|_| Error::new(ErrorKind::PermissionDenied, "Gandi IMAP login failed"))
+        .login(account.address(), &vault_password(account)?)
+        .map_err(|_| Error::new(ErrorKind::PermissionDenied, "Gandi IMAP login failed"))?;
+    Ok(client)
 }
 
 fn header_value(headers: &[mailparse::MailHeader<'_>], name: &str) -> String {
@@ -116,19 +126,17 @@ pub fn list(account: Account, limit: usize) -> Result<Vec<MailSummary>, Error> {
     session
         .examine("INBOX")
         .map_err(|error| Error::other(format!("cannot open inbox: {error}")))?;
-    let mut uids: Vec<u32> = session
-        .uid_search("ALL")
-        .map_err(|_| Error::other("cannot search inbox"))?
-        .into_iter()
-        .collect();
+    let mut uids = session
+        .uid_search_all()
+        .map_err(|_| Error::other("cannot search inbox"))?;
     uids.sort_unstable_by(|a, b| b.cmp(a));
     let mut messages = Vec::new();
     for uid in uids.into_iter().take(limit.min(100)) {
         let fetched = session
-            .uid_fetch(uid.to_string(), "BODY.PEEK[HEADER]")
+            .uid_fetch(uid, Section::Header)
             .map_err(|_| Error::other("cannot fetch mail headers"))?;
-        if let Some(raw) = fetched.iter().next().and_then(|item| item.header()) {
-            let (headers, _) = mailparse::parse_headers(raw)
+        if let Some(raw) = fetched {
+            let (headers, _) = mailparse::parse_headers(&raw)
                 .map_err(|_| Error::new(ErrorKind::InvalidData, "invalid mail headers"))?;
             messages.push(MailSummary {
                 uid,
@@ -147,15 +155,11 @@ pub fn read(account: Account, uid: u32) -> Result<MailDetail, Error> {
     session
         .examine("INBOX")
         .map_err(|error| Error::other(format!("cannot open inbox: {error}")))?;
-    let fetched = session
-        .uid_fetch(uid.to_string(), "BODY.PEEK[]")
-        .map_err(|_| Error::other("cannot fetch message"))?;
-    let raw = fetched
-        .iter()
-        .next()
-        .and_then(|item| item.body())
+    let raw = session
+        .uid_fetch(uid, Section::Full)
+        .map_err(|_| Error::other("cannot fetch message"))?
         .ok_or_else(|| Error::new(ErrorKind::NotFound, "message UID not found"))?;
-    let parsed = mailparse::parse_mail(raw)
+    let parsed = mailparse::parse_mail(&raw)
         .map_err(|_| Error::new(ErrorKind::InvalidData, "invalid mail message"))?;
     let body = plain_body(&parsed).unwrap_or_else(|| "[No plain-text body]".to_string());
     let detail = detail_from_fetched(
