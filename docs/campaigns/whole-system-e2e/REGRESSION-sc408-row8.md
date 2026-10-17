@@ -39,7 +39,9 @@ first checks its digest against every record omega wrote (a control).
 
 Other checks on this branch: `scripts/test-linked-compose.sh` (CI's linked gate, `LINKED_REPEAT=1`): PASS, 592 linked
 tests; `cortex_mark` unit tests 12 passed (v1 read, v2 layout, chain formula against a manual sha256 fold, refusal
-text); `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --check` clean.
+text); `crates/aien-cli/tests/recovery_matrix_test.rs` (real SIGKILL restarts of a compose-linked CPU
+`fault-hold` daemon, SmolLM2 on the CPU reference): 12 passed; `cargo clippy --workspace --all-targets -- -D warnings`
+and `cargo fmt --check` clean.
 
 ## Limits (not claimed)
 
