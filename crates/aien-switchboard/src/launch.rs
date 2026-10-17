@@ -21,12 +21,11 @@ use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::fs;
 use std::io;
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
-/// Every credential-selecting variable named in ADR 0030 amendment A and
-/// issue #592. None of these is ever passed to `claude`. The allowlist below
-/// already drops them; this list exists so doctor can name them and tests can
+/// Every credential-selecting variable named in issue #592. None of these is
+/// ever passed to `claude`. The allowlist below already drops them; this list exists so doctor can name them and tests can
 /// prove the allowlist covers them.
 pub const STRIPPED_ENV: &[&str] = &[
     "ANTHROPIC_API_KEY",
@@ -83,6 +82,8 @@ const ALLOWED_ENV: &[&str] = &[
     "BROWSER",
     "EDITOR",
     "VISUAL",
+    // Design choice: claude and the tools it runs (git push) may use the
+    // operator's ssh agent. The agent socket signs; it never hands out keys.
     "SSH_AUTH_SOCK",
 ];
 
@@ -123,7 +124,12 @@ pub fn launch_env(inherited: &Env, config_dir: &Path, pass_env: &[String]) -> En
         let Some(name) = k.to_str() else { continue };
         let listed_proxy = PROXY_ENV.contains(&name) && pass_env.iter().any(|p| p.as_str() == name);
         if (allowed(name) || listed_proxy) && !is_credential_selecting(name) {
-            out.insert(k.clone(), v.clone());
+            let v = if name == "PATH" {
+                absolute_path_entries(v)
+            } else {
+                v.clone()
+            };
+            out.insert(k.clone(), v);
         }
     }
     out.insert(
@@ -140,12 +146,13 @@ fn is_executable_file(p: &Path) -> bool {
 }
 
 /// Find `program` the way a shell would: a name containing `/` is used as
-/// given, anything else is searched for in `path` (a `PATH` value). Only an
+/// given only when absolute (a relative one is never run), anything else is
+/// searched for in the absolute entries of `path` (a `PATH` value). Only an
 /// executable regular file counts.
 pub fn find_program(program: &str, path: Option<&OsStr>) -> Option<PathBuf> {
     if program.contains('/') {
         let p = PathBuf::from(program);
-        return is_executable_file(&p).then_some(p);
+        return (p.is_absolute() && is_executable_file(&p)).then_some(p);
     }
     std::env::split_paths(path?)
         .filter(|dir| dir.is_absolute())
@@ -259,14 +266,33 @@ impl fmt::Display for DirProblem {
                 "has mode {mode:03o}; only you may open it (run: chmod 700 on the folder)"
             ),
             DirProblem::Io(m) => write!(f, "cannot be checked: {m}"),
-            DirProblem::NotOwner { uid } => write!(f, "STUB {uid}"),
-            DirProblem::SharedWith(o) => write!(f, "STUB {o}"),
+            DirProblem::NotOwner { uid } => {
+                write!(f, "belongs to user id {uid}, not to you")
+            }
+            DirProblem::SharedWith(o) => write!(
+                f,
+                "is the same folder as profile {o:?}; each profile needs its own folder"
+            ),
         }
     }
 }
 
-/// Check a profile folder without changing it.
+/// The effective user id of this process: the owner of `/proc/self`
+/// (Linux). `None` when it cannot be read.
+pub fn current_uid() -> Option<u32> {
+    fs::metadata("/proc/self").ok().map(|m| m.uid())
+}
+
+/// Check a profile folder without changing it: it must be a real folder (not
+/// a link), owned by the current user, with no access for group or others.
 pub fn check_profile_dir(path: &Path) -> Result<DirState, DirProblem> {
+    let uid = current_uid().ok_or_else(|| DirProblem::Io("cannot tell the current user".into()))?;
+    check_profile_dir_owned_by(path, uid)
+}
+
+/// `check_profile_dir` against an explicit owner `uid` (tests use this to
+/// exercise the wrong-owner case without a second user).
+pub fn check_profile_dir_owned_by(path: &Path, uid: u32) -> Result<DirState, DirProblem> {
     let meta = match fs::symlink_metadata(path) {
         Ok(m) => m,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(DirState::Missing),
@@ -277,6 +303,9 @@ pub fn check_profile_dir(path: &Path) -> Result<DirState, DirProblem> {
     }
     if !meta.is_dir() {
         return Err(DirProblem::NotADirectory);
+    }
+    if meta.uid() != uid {
+        return Err(DirProblem::NotOwner { uid: meta.uid() });
     }
     let mode = meta.permissions().mode() & 0o777;
     if mode & 0o077 != 0 {
@@ -323,6 +352,12 @@ pub fn plan_launch(
     inherited: &Env,
 ) -> Result<LaunchPlan, LaunchError> {
     let (account, dir) = profile(rules, alias)?;
+    if let Some(other) = folder_shared_with(rules, alias, dir) {
+        return Err(LaunchError::ProfileDir {
+            path: dir.to_path_buf(),
+            problem: DirProblem::SharedWith(other),
+        });
+    }
     let env = launch_env(inherited, dir, rules.pass_env());
     let program = find_program(
         &account.program,
@@ -430,7 +465,43 @@ impl fmt::Display for LaunchError {
 
 impl std::error::Error for LaunchError {}
 
-/// STUB (red step).
-pub fn check_profile_dir_owned_by(path: &Path, _uid: u32) -> Result<DirState, DirProblem> {
-    check_profile_dir(path)
+/// Keep only absolute entries of a `PATH` value, so neither `claude` nor the
+/// tools it runs search the working folder (empty, `.` or relative entries).
+fn absolute_path_entries(path: &OsStr) -> OsString {
+    let kept: Vec<PathBuf> = std::env::split_paths(path)
+        .filter(|p| p.is_absolute())
+        .collect();
+    std::env::join_paths(kept).unwrap_or_default()
+}
+
+/// Where `path` really points: the nearest existing ancestor resolved
+/// through links, with the not-yet-created rest appended.
+fn resolve(path: &Path) -> PathBuf {
+    let mut rest = Vec::new();
+    let mut cur = path;
+    loop {
+        if let Ok(real) = fs::canonicalize(cur) {
+            return rest.iter().rev().fold(real, |acc, part| acc.join(part));
+        }
+        match (cur.parent(), cur.file_name()) {
+            (Some(parent), Some(name)) => {
+                rest.push(name.to_owned());
+                cur = parent;
+            }
+            _ => return path.to_path_buf(),
+        }
+    }
+}
+
+/// The other account whose settings folder resolves to the same place as
+/// `alias`'s folder, if any. The rule file already refuses identical text and
+/// `..`; this catches links on the way.
+pub fn folder_shared_with(rules: &RuleTable, alias: &str, dir: &Path) -> Option<String> {
+    let mine = resolve(dir);
+    rules.accounts().iter().find_map(|a| match &a.credential {
+        Credential::SettingsFolder(other) if a.id.as_str() != alias && resolve(other) == mine => {
+            Some(a.id.to_string())
+        }
+        _ => None,
+    })
 }
