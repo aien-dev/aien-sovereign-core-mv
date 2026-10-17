@@ -267,6 +267,11 @@ impl RuleTable {
         self.default_backoff_secs
     }
 
+    /// STUB (red step).
+    pub fn pass_env(&self) -> &[String] {
+        &[]
+    }
+
     pub fn local(&self) -> &AccountId {
         &self.local
     }
