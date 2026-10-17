@@ -383,3 +383,27 @@ fn version_1_mark_is_upgraded_then_checked() {
     let e = reopen_refusal(&home);
     assert!(e.contains("E_MARK_CHAIN"), "{e}");
 }
+
+#[test]
+fn zero_record_mark_with_a_chain_is_refused_as_a_damaged_mark() {
+    let _home = home_guard::home_slot();
+    let Some((_tmp, home, _ids, _)) = setup() else {
+        return;
+    };
+    let mp = cortex_mark::mark_path(&home);
+    let m = cortex_mark::read(&mp).unwrap().unwrap();
+    // A v2 mark claiming no records but carrying a non-initial chain: the
+    // mark contradicts itself; the refusal names the mark, not the journal.
+    cortex_mark::write(
+        &mp,
+        &cortex_mark::Mark {
+            records: 0,
+            digest: [0u8; 32],
+            chain: Some([0x5a; 32]),
+            ..m
+        },
+    )
+    .unwrap();
+    let e = reopen_refusal(&home);
+    assert!(e.contains("(E_MARK)") && e.contains("zero records"), "{e}");
+}
