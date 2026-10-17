@@ -155,7 +155,7 @@ impl<S: Read + Write> Client<S> {
             next_tag: 1,
         };
         // A greeting is one line; it gets one line's worth of budget.
-        let mut budget = limits.line + 2 + ENTRY_COST;
+        let mut budget = limits.line.saturating_add(2 + ENTRY_COST);
         let greeting = client.read_response(&mut budget)?;
         if let Some(text) = untagged(&greeting.text[0], b"BYE") {
             return Err(ImapError::Bye(printable(text)));
@@ -371,7 +371,7 @@ impl<S: Read + Write> Client<S> {
                 return Ok(line);
             }
             // The buffer may end in the CR of a line exactly at the limit.
-            if self.buf.len() > self.limits.line + 1 {
+            if self.buf.len() > self.limits.line.saturating_add(1) {
                 return Err(ImapError::LineTooLong);
             }
             scanned = self.buf.len().saturating_sub(1);
@@ -771,7 +771,7 @@ mod tests {
         c.login("u", "p").unwrap();
         assert_eq!(c.examine("INBOX"), Err(ImapError::TooManyResponses));
         let limits = Limits {
-            // The login reply and the FETCH line fit; the 16-byte literal does not.
+            // The FETCH line (94 with its overhead) fits; its 16-byte literal (80) does not.
             command_bytes: 2 * ENTRY_COST + 40,
             ..Limits::default()
         };
