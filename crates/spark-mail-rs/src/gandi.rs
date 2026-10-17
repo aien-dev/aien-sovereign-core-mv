@@ -130,6 +130,8 @@ pub fn list(account: Account, limit: usize) -> Result<Vec<MailSummary>, Error> {
         .uid_search_all()
         .map_err(|_| Error::other("cannot search inbox"))?;
     uids.sort_unstable_by(|a, b| b.cmp(a));
+    // A server may repeat a UID; each message is listed once.
+    uids.dedup();
     let mut messages = Vec::new();
     for uid in uids.into_iter().take(limit.min(100)) {
         let fetched = session
