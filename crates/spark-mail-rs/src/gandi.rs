@@ -121,19 +121,24 @@ fn plain_body(part: &mailparse::ParsedMail<'_>) -> Option<String> {
     part.subparts.iter().find_map(plain_body)
 }
 
+/// The newest `limit` UIDs, newest first, each once (a server may repeat a UID).
+fn newest_first(mut uids: Vec<u32>, limit: usize) -> Vec<u32> {
+    uids.sort_unstable_by(|a, b| b.cmp(a));
+    uids.dedup();
+    uids.truncate(limit);
+    uids
+}
+
 pub fn list(account: Account, limit: usize) -> Result<Vec<MailSummary>, Error> {
     let mut session = imap_session(account)?;
     session
         .examine("INBOX")
         .map_err(|error| Error::other(format!("cannot open inbox: {error}")))?;
-    let mut uids = session
+    let uids = session
         .uid_search_all()
         .map_err(|_| Error::other("cannot search inbox"))?;
-    uids.sort_unstable_by(|a, b| b.cmp(a));
-    // A server may repeat a UID; each message is listed once.
-    uids.dedup();
     let mut messages = Vec::new();
-    for uid in uids.into_iter().take(limit.min(100)) {
+    for uid in newest_first(uids, limit.min(100)) {
         let fetched = session
             .uid_fetch(uid, Section::Header)
             .map_err(|_| Error::other("cannot fetch mail headers"))?;
@@ -231,6 +236,12 @@ pub fn send_as_aien(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn newest_first_lists_each_uid_once() {
+        assert_eq!(newest_first(vec![4, 7, 9, 7, 2, 9], 3), vec![9, 7, 4]);
+        assert_eq!(newest_first(vec![7, 7], 100), vec![7]);
+    }
 
     #[test]
     fn identities_have_separate_vault_keys() {
