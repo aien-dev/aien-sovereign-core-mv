@@ -12,8 +12,8 @@ use std::ffi::OsString;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
-/// Every variable ADR 0030 amendment A and issue #592 name, plus the cloud
-/// credential families.
+/// Every variable issue #592 names, plus the cloud credential families and
+/// code-injection variables.
 const MUST_STRIP: &[&str] = &[
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
@@ -38,6 +38,15 @@ const MUST_STRIP: &[&str] = &[
     "CLOUD_ML_REGION",
     "GH_TOKEN",
     "OPENAI_API_KEY",
+    // Code-injection and config-relocation variables (review of #619).
+    "LD_PRELOAD",
+    "LD_LIBRARY_PATH",
+    "NODE_OPTIONS",
+    "BASH_ENV",
+    "XDG_CONFIG_HOME",
+    "GIT_SSH_COMMAND",
+    "anthropic_api_key",
+    "claude_config_dir",
 ];
 
 #[test]
@@ -255,4 +264,75 @@ fn plan_debug_and_error_text_never_show_environment_values() {
     );
     let err = plan_launch(&f.rules(""), "nope", &inherited).unwrap_err();
     assert!(!err.to_string().contains("SENTINEL"));
+}
+
+#[test]
+fn relative_and_empty_path_entries_never_reach_claude() {
+    let f = Fixture::new();
+    let mut inherited = f.base_env();
+    inherited.insert("PATH".into(), ".:bin::/usr/bin:rel/x:/opt/b".into());
+    let out = launch_env(&inherited, &f.profile_dir("anthropic-1"), &[]);
+    assert_eq!(out[&OsString::from("PATH")], "/usr/bin:/opt/b");
+}
+
+#[test]
+fn absolute_program_path_is_used_as_given() {
+    let f = Fixture::new();
+    let exe = f.install_fake_claude();
+    let toml = f.rules_toml("").replacen(
+        "program = \"claude\"",
+        &format!("program = \"{}\"", exe.display()),
+        1,
+    );
+    let rules = RuleTable::from_toml_str(&toml).unwrap();
+    let mut env = f.base_env();
+    env.insert("PATH".into(), "/nonexistent".into());
+    assert_eq!(
+        plan_launch(&rules, "anthropic-1", &env).unwrap().program,
+        exe
+    );
+}
+
+#[test]
+fn two_profiles_reaching_one_folder_through_a_link_are_refused() {
+    let f = Fixture::new();
+    f.install_fake_claude();
+    // anthropic-2 = <home>/.switchboard/anthropic-2; make its parent a link
+    // so it resolves to anthropic-1's folder.
+    let real = f.tmp.path().join("real");
+    fs::create_dir_all(&real).unwrap();
+    let a1 = real.join("p");
+    let link = f.tmp.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let a2 = link.join("p");
+    let toml = format!(
+        "[[accounts]]\nid=\"a1\"\nprovider=\"anthropic\"\nprogram=\"claude\"\nsettings_dir=\"{}\"\n\
+         [[accounts]]\nid=\"a2\"\nprovider=\"anthropic\"\nprogram=\"claude\"\nsettings_dir=\"{}\"\n\
+         [[accounts]]\nid=\"local\"\nprovider=\"local\"\nprogram=\"aien\"\n[routes]\ndefault=[\"local\"]\n",
+        a1.display(),
+        a2.display()
+    );
+    let rules = RuleTable::from_toml_str(&toml).unwrap();
+    let mut sp = FakeSpawner::default();
+    let err = launch(&rules, "a2", &f.base_env(), &mut sp).unwrap_err();
+    assert!(
+        matches!(err, LaunchError::ProfileDir { problem: DirProblem::SharedWith(ref o), .. } if o == "a1"),
+        "{err:?}"
+    );
+    assert!(sp.plans.is_empty());
+}
+
+#[test]
+fn folder_owned_by_someone_else_is_refused() {
+    use aien_switchboard::launch::check_profile_dir_owned_by;
+    use std::os::unix::fs::MetadataExt;
+    let f = Fixture::new();
+    let dir = f.profile_dir("anthropic-1");
+    f.make_private_dir(&dir);
+    let me = fs::metadata(&dir).unwrap().uid();
+    assert_eq!(check_profile_dir_owned_by(&dir, me), Ok(DirState::Private));
+    assert_eq!(
+        check_profile_dir_owned_by(&dir, me + 1),
+        Err(DirProblem::NotOwner { uid: me })
+    );
 }

@@ -232,6 +232,12 @@ pub enum DirState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DirProblem {
     NotADirectory,
+    /// STUB (red step).
+    NotOwner {
+        uid: u32,
+    },
+    /// STUB (red step).
+    SharedWith(String),
     /// A symbolic link could point two profiles at one folder.
     Symlink,
     /// Group or others have some access; `mode` is the permission bits.
@@ -253,6 +259,8 @@ impl fmt::Display for DirProblem {
                 "has mode {mode:03o}; only you may open it (run: chmod 700 on the folder)"
             ),
             DirProblem::Io(m) => write!(f, "cannot be checked: {m}"),
+            DirProblem::NotOwner { uid } => write!(f, "STUB {uid}"),
+            DirProblem::SharedWith(o) => write!(f, "STUB {o}"),
         }
     }
 }
@@ -421,3 +429,8 @@ impl fmt::Display for LaunchError {
 }
 
 impl std::error::Error for LaunchError {}
+
+/// STUB (red step).
+pub fn check_profile_dir_owned_by(path: &Path, _uid: u32) -> Result<DirState, DirProblem> {
+    check_profile_dir(path)
+}
