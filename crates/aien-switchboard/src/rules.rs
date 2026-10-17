@@ -40,7 +40,15 @@
 //! [routes]
 //! code = ["anthropic-1", "openrouter-1"]
 //! default = ["anthropic-1"]
+//!
+//! [launch]
+//! pass_env = ["HTTPS_PROXY"]  # proxy variables only; see launch::PROXY_ENV
 //! ```
+//!
+//! A route may hold at most one subscription account (one with
+//! `settings_dir`) per provider: automatic routing between two subscriptions
+//! of the same provider is excluded (operator decision 2026-10-16).
+//! `settings_dir` must be absolute and different for every account.
 //!
 //! `local` is always the last fallback of every route so AIEN works offline.
 //! If the file lists it earlier it is moved to the end; if the file omits it
@@ -48,6 +56,7 @@
 
 use crate::account::{Account, AccountId, Credential, Provider};
 use crate::job::JobKind;
+use crate::launch::PROXY_ENV;
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -85,7 +94,19 @@ struct RawFile {
     settings: RawSettings,
     #[serde(default)]
     accounts: Vec<RawAccount>,
+    #[serde(default)]
+    launch: RawLaunch,
     routes: RawRoutes,
+}
+
+/// `[launch]`: how `switchboard launch` builds the environment for `claude`.
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawLaunch {
+    /// Proxy variables to pass through from the shell. Only names in
+    /// `launch::PROXY_ENV` are accepted; nothing else can be added.
+    #[serde(default)]
+    pass_env: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -140,6 +161,7 @@ pub struct RuleTable {
     routes: BTreeMap<JobKind, Vec<AccountId>>,
     default_route: Vec<AccountId>,
     local: AccountId,
+    pass_env: Vec<String>,
 }
 
 fn valid_name(s: &str) -> bool {
@@ -169,6 +191,7 @@ impl RuleTable {
         let mut accounts = Vec::new();
         let mut seen = BTreeSet::new();
         let mut local: Option<AccountId> = None;
+        let mut folders: BTreeMap<PathBuf, String> = BTreeMap::new();
         for a in raw.accounts {
             if !valid_name(&a.id) {
                 return bad(format!(
@@ -189,7 +212,23 @@ impl RuleTable {
                         a.id
                     ))
                 }
-                (Some(p), None) => Credential::SettingsFolder(p),
+                (Some(p), None) => {
+                    if !p.is_absolute() {
+                        return bad(format!(
+                            "account {:?}: settings_dir must be an absolute path, got {}",
+                            a.id,
+                            p.display()
+                        ));
+                    }
+                    if let Some(other) = folders.insert(p.clone(), a.id.clone()) {
+                        return bad(format!(
+                            "accounts {other:?} and {:?} use the same settings_dir {}; each account needs its own folder",
+                            a.id,
+                            p.display()
+                        ));
+                    }
+                    Credential::SettingsFolder(p)
+                }
                 (None, Some(k)) => {
                     if !valid_name(&k) {
                         return bad(format!(
@@ -247,6 +286,7 @@ impl RuleTable {
                 out.push(id);
             }
             // Local is always last, exactly once.
+            no_same_provider_subscriptions(label, &out, &accounts)?;
             out.retain(|i| *i != local);
             out.push(local.clone());
             Ok(out)
@@ -264,6 +304,15 @@ impl RuleTable {
             }
         }
 
+        for name in &raw.launch.pass_env {
+            if !PROXY_ENV.contains(&name.as_str()) {
+                return bad(format!(
+                    "[launch] pass_env may list only proxy variables ({}); {name:?} is not one",
+                    PROXY_ENV.join(", ")
+                ));
+            }
+        }
+
         Ok(RuleTable {
             accounts,
             ceiling_percent: c,
@@ -271,6 +320,7 @@ impl RuleTable {
             routes,
             default_route,
             local,
+            pass_env: raw.launch.pass_env,
         })
     }
 
@@ -282,9 +332,10 @@ impl RuleTable {
         self.default_backoff_secs
     }
 
-    /// STUB (red step).
+    /// Proxy variable names `switchboard launch` passes through from the
+    /// shell (from `[launch] pass_env`). Every name is in `PROXY_ENV`.
     pub fn pass_env(&self) -> &[String] {
-        &[]
+        &self.pass_env
     }
 
     pub fn local(&self) -> &AccountId {
@@ -303,4 +354,32 @@ impl RuleTable {
     pub fn route_for(&self, kind: JobKind) -> &[AccountId] {
         self.routes.get(&kind).unwrap_or(&self.default_route)
     }
+}
+
+/// Operator decision 2026-10-16 (ADR 0030 amendment A, aien-architecture#236):
+/// no automatic routing between two subscription accounts of the same
+/// provider. A subscription account is one whose program keeps its own login
+/// in a settings folder. Manual `switchboard launch` may still open any
+/// profile; this rule only governs routes.
+fn no_same_provider_subscriptions(
+    label: &str,
+    route: &[AccountId],
+    accounts: &[Account],
+) -> Result<(), RulesError> {
+    let mut seen: BTreeMap<&'static str, &AccountId> = BTreeMap::new();
+    for id in route {
+        let Some(a) = accounts.iter().find(|a| a.id == *id) else {
+            continue;
+        };
+        if !matches!(a.credential, Credential::SettingsFolder(_)) {
+            continue;
+        }
+        if let Some(first) = seen.insert(a.provider.as_str(), id) {
+            return bad(format!(
+                "route {label:?} holds two {} subscription accounts ({first}, {id}); automatic routing between subscriptions of the same provider is excluded (operator decision 2026-10-16, ADR 0030 amendment A). Keep one per route and open the other by hand with `switchboard launch {id}`",
+                a.provider.as_str()
+            ));
+        }
+    }
+    Ok(())
 }

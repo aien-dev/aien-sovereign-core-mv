@@ -43,7 +43,10 @@ const MUST_STRIP: &[&str] = &[
 #[test]
 fn stripped_list_names_every_variable_from_the_issue() {
     for name in &MUST_STRIP[..10] {
-        assert!(STRIPPED_ENV.contains(name), "{name} missing from STRIPPED_ENV");
+        assert!(
+            STRIPPED_ENV.contains(name),
+            "{name} missing from STRIPPED_ENV"
+        );
     }
 }
 
@@ -61,7 +64,10 @@ fn allowlist_strips_every_listed_variable() {
     let dir = f.profile_dir("anthropic-1");
     let out = launch_env(&inherited, &dir, &[]);
     for name in MUST_STRIP {
-        assert!(!has(&out, name), "{name} leaked into the launch environment");
+        assert!(
+            !has(&out, name),
+            "{name} leaked into the launch environment"
+        );
     }
     for keep in ["PATH", "HOME", "LANG", "LC_ALL", "TERM"] {
         assert!(has(&out, keep), "{keep} should pass");
@@ -107,7 +113,12 @@ fn proxy_variables_pass_only_when_listed_in_local_config() {
 fn local_config_may_only_pass_proxy_variables() {
     let f = Fixture::new();
     assert!(PROXY_ENV.contains(&"HTTPS_PROXY"));
-    for bad in ["ANTHROPIC_API_KEY", "CLAUDE_CONFIG_DIR", "AWS_PROFILE", "EDITOR"] {
+    for bad in [
+        "ANTHROPIC_API_KEY",
+        "CLAUDE_CONFIG_DIR",
+        "AWS_PROFILE",
+        "EDITOR",
+    ] {
         let toml = f.rules_toml(&format!("[launch]\npass_env = [\"{bad}\"]\n"));
         match RuleTable::from_toml_str(&toml) {
             Err(RulesError::Invalid(m)) => assert!(m.contains(bad), "{m}"),
