@@ -246,8 +246,13 @@ fn plan_debug_and_error_text_never_show_environment_values() {
     inherited.insert("LANG".into(), "LANG-SENTINEL".into());
     let plan = plan_launch(&f.rules(""), "anthropic-1", &inherited).unwrap();
     let dbg = format!("{plan:?}");
-    assert!(dbg.contains("LANG"), "names are shown: {dbg}");
-    assert!(!dbg.contains("SENTINEL"), "values must not be shown: {dbg}");
+    // Assertion messages never echo the text under test: it was built from
+    // an environment holding a (fake) key.
+    assert!(dbg.contains("LANG"), "variable names should be shown");
+    assert!(
+        !dbg.contains("SENTINEL"),
+        "variable values must not be shown"
+    );
     let err = plan_launch(&f.rules(""), "nope", &inherited).unwrap_err();
     assert!(!err.to_string().contains("SENTINEL"));
 }
