@@ -222,3 +222,31 @@ fn anthropic_profile_files_in_home_are_flagged_by_presence() {
         "{t}"
     );
 }
+
+#[test]
+fn doctor_fails_two_profiles_that_resolve_to_one_folder() {
+    let f = Fixture::new();
+    f.install_fake_claude();
+    let real = f.tmp.path().join("real");
+    let a1 = real.join("p");
+    f.make_private_dir(&a1);
+    let link = f.tmp.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let toml = format!(
+        "[[accounts]]\nid=\"a1\"\nprovider=\"anthropic\"\nprogram=\"claude\"\nsettings_dir=\"{}\"\n\
+         [[accounts]]\nid=\"a2\"\nprovider=\"anthropic\"\nprogram=\"claude\"\nsettings_dir=\"{}\"\n\
+         [[accounts]]\nid=\"local\"\nprovider=\"local\"\nprogram=\"aien\"\n[routes]\ndefault=[\"local\"]\n",
+        a1.display(),
+        link.join("p").display()
+    );
+    let rules = RuleTable::from_toml_str(&toml).unwrap();
+    let r = doctor(&rules, &f.base_env(), f.tmp.path(), &mut probe());
+    let t = text(&r);
+    assert!(r.failed(), "{t}");
+    assert!(
+        r.findings
+            .iter()
+            .any(|x| x.subject == "a2" && x.level == Level::Fail && x.message.contains("a1")),
+        "{t}"
+    );
+}

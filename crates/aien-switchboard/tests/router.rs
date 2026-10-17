@@ -230,7 +230,7 @@ fn parse_errors_are_clear() {
 #[test]
 fn rule_mistakes_name_the_problem() {
     let local = "[[accounts]]\nid=\"local\"\nprovider=\"local\"\nprogram=\"aien\"\n";
-    let g1 = "[[accounts]]\nid=\"g1\"\nprovider=\"google\"\nprogram=\"agy\"\n";
+    let g1 = "[[accounts]]\nid=\"g1\"\nprovider=\"google\"\nprogram=\"agy\"\nsettings_dir=\"/tmp/sb/g1\"\n";
     assert!(parse_err(&format!("{g1}[routes]\ndefault=[\"g1\"]\n"))
         .contains("no account with provider = \"local\""));
     assert!(parse_err(&format!("{local}[routes]\ndefault=[\"nope\"]\n"))
@@ -282,7 +282,7 @@ fn sub(id: &str, provider: &str, program: &str) -> String {
 
 #[test]
 fn route_with_two_subscriptions_of_one_provider_is_rejected() {
-    // Operator decision 2026-10-16 (ADR 0030 amendment A): no automatic
+    // Operator decision 2026-10-16 (aien-architecture#236, issue #592): no automatic
     // routing between two subscription accounts of the same provider.
     let accts = format!(
         "{LOCAL}{}{}",
@@ -338,4 +338,59 @@ fn settings_folders_must_be_absolute_and_not_shared() {
     ))
     .unwrap_err();
     assert!(e.to_string().contains("same settings_dir"), "{e}");
+}
+
+#[test]
+fn route_error_cites_the_operator_decision_only() {
+    let accts = format!(
+        "{LOCAL}{}{}",
+        sub("a1", "anthropic", "claude"),
+        sub("a2", "anthropic", "claude")
+    );
+    let m = RuleTable::from_toml_str(&format!("{accts}[routes]\ndefault=[\"a1\",\"a2\"]\n"))
+        .unwrap_err()
+        .to_string();
+    assert!(m.contains("aien-architecture#236"), "{m}");
+    assert!(!m.contains("amendment"), "{m}");
+}
+
+#[test]
+fn non_local_account_without_a_login_setting_is_refused() {
+    // A claude account with no settings_dir would use the default ~/.claude
+    // login, a subscription the route rule could not see. Review of #619.
+    let bare = "[[accounts]]\nid=\"a2\"\nprovider=\"anthropic\"\nprogram=\"claude\"\n";
+    let accts = format!("{LOCAL}{}{bare}", sub("a1", "anthropic", "claude"));
+    let e = RuleTable::from_toml_str(&format!(
+        "{accts}[routes]\ndefault=[\"local\"]\ncode=[\"a1\",\"a2\"]\n"
+    ))
+    .unwrap_err();
+    assert!(matches!(e, RulesError::Invalid(_)), "{e}");
+    assert!(e.to_string().contains("\"a2\""), "{e}");
+    // Not routed anywhere: still refused, for any non-local provider.
+    let g = "[[accounts]]\nid=\"g\"\nprovider=\"google\"\nprogram=\"agy\"\n";
+    let e = RuleTable::from_toml_str(&format!("{LOCAL}{g}[routes]\ndefault=[\"local\"]\n"))
+        .unwrap_err();
+    assert!(e.to_string().contains("settings_dir or key_ref"), "{e}");
+}
+
+#[test]
+fn program_must_be_a_bare_name_or_an_absolute_path() {
+    for bad in ["bin/claude", "./claude", "../x/claude"] {
+        let a = format!("[[accounts]]\nid=\"a1\"\nprovider=\"anthropic\"\nprogram=\"{bad}\"\nsettings_dir=\"/tmp/sb/a1\"\n");
+        let e = RuleTable::from_toml_str(&format!("{LOCAL}{a}[routes]\ndefault=[\"local\"]\n"))
+            .unwrap_err();
+        assert!(e.to_string().contains("absolute"), "{bad}: {e}");
+    }
+    let ok = "[[accounts]]\nid=\"a1\"\nprovider=\"anthropic\"\nprogram=\"/opt/claude/bin/claude\"\nsettings_dir=\"/tmp/sb/a1\"\n";
+    assert!(
+        RuleTable::from_toml_str(&format!("{LOCAL}{ok}[routes]\ndefault=[\"local\"]\n")).is_ok()
+    );
+}
+
+#[test]
+fn settings_dir_with_parent_steps_is_refused() {
+    let a = "[[accounts]]\nid=\"a2\"\nprovider=\"anthropic\"\nprogram=\"claude\"\nsettings_dir=\"/tmp/sb/x/../a1\"\n";
+    let e = RuleTable::from_toml_str(&format!("{LOCAL}{a}[routes]\ndefault=[\"local\"]\n"))
+        .unwrap_err();
+    assert!(e.to_string().contains(".."), "{e}");
 }
