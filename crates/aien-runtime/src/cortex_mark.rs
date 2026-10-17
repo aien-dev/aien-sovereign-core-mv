@@ -359,6 +359,24 @@ mod tests {
     }
 
     #[test]
+    fn zero_records_with_a_chain_is_a_damaged_mark() {
+        // No records means the initial chain (32 zero bytes); anything else is
+        // the mark contradicting itself, not lost history.
+        let m = Mark {
+            records: 0,
+            digest: [0u8; 32],
+            ..mark(0)
+        };
+        let e = Mark::decode(&m.encode()).unwrap_err();
+        assert!(e.contains("zero records"), "{e}");
+        let ok = Mark {
+            chain: Some([0u8; 32]),
+            ..m
+        };
+        assert_eq!(Mark::decode(&ok.encode()).unwrap(), ok);
+    }
+
+    #[test]
     fn version_1_marks_still_read() {
         let m = Mark {
             chain: None,
