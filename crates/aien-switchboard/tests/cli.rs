@@ -25,7 +25,15 @@ fn call(f: &Fixture, args: &[&str], sp: &mut FakeSpawner) -> Out {
         calls: Vec::new(),
     };
     let (mut o, mut e) = (Vec::new(), Vec::new());
-    let code = run(&args, &f.base_env(), f.tmp.path(), sp, &mut probe, &mut o, &mut e);
+    let code = run(
+        &args,
+        &f.base_env(),
+        f.tmp.path(),
+        sp,
+        &mut probe,
+        &mut o,
+        &mut e,
+    );
     Out {
         code,
         out: String::from_utf8(o).unwrap(),
@@ -41,7 +49,9 @@ fn accounts_lists_profiles_from_the_default_rule_file_in_home() {
     for a in ["anthropic-1", "anthropic-2", "openrouter-1", "local"] {
         assert!(o.out.contains(a), "{}", o.out);
     }
-    assert!(o.out.contains(f.profile_dir("anthropic-1").to_str().unwrap()));
+    assert!(o
+        .out
+        .contains(f.profile_dir("anthropic-1").to_str().unwrap()));
 }
 
 #[test]
@@ -65,7 +75,11 @@ fn unknown_alias_exits_nonzero_with_known_names() {
     let mut sp = FakeSpawner::default();
     let o = call(&f, &["launch", "nobody"], &mut sp);
     assert_eq!(o.code, 1);
-    assert!(o.err.contains("nobody") && o.err.contains("anthropic-1"), "{}", o.err);
+    assert!(
+        o.err.contains("nobody") && o.err.contains("anthropic-1"),
+        "{}",
+        o.err
+    );
     assert!(sp.plans.is_empty());
 }
 
@@ -85,8 +99,14 @@ fn usage_errors_exit_2() {
     let f = Fixture::new();
     assert_eq!(call(&f, &[], &mut FakeSpawner::default()).code, 2);
     assert_eq!(call(&f, &["launch"], &mut FakeSpawner::default()).code, 2);
-    assert_eq!(call(&f, &["frobnicate"], &mut FakeSpawner::default()).code, 2);
-    assert_eq!(call(&f, &["launch", "a", "b"], &mut FakeSpawner::default()).code, 2);
+    assert_eq!(
+        call(&f, &["frobnicate"], &mut FakeSpawner::default()).code,
+        2
+    );
+    assert_eq!(
+        call(&f, &["launch", "a", "b"], &mut FakeSpawner::default()).code,
+        2
+    );
 }
 
 #[test]
@@ -94,6 +114,10 @@ fn rules_flag_points_at_another_file() {
     let f = Fixture::new();
     let other = f.tmp.path().join("other.toml");
     fs::write(&other, f.rules_toml("")).unwrap();
-    let o = call(&f, &["--rules", other.to_str().unwrap(), "accounts"], &mut FakeSpawner::default());
+    let o = call(
+        &f,
+        &["--rules", other.to_str().unwrap(), "accounts"],
+        &mut FakeSpawner::default(),
+    );
     assert_eq!(o.code, 0, "{}", o.err);
 }

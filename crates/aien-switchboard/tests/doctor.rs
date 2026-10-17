@@ -59,12 +59,18 @@ fn credentials_with_0600_are_ok_and_missing_ones_say_not_signed_in() {
 
     let r = doctor(&f.rules(""), &f.base_env(), f.tmp.path(), &mut probe());
     let t = text(&r);
-    assert!(r.findings.iter().any(|x| x.subject == "anthropic-1"
-        && x.level == Level::Ok
-        && x.message.contains("credentials file present")), "{t}");
-    assert!(r.findings.iter().any(|x| x.subject == "anthropic-2"
-        && x.level == Level::Warn
-        && x.message.contains("not signed in")), "{t}");
+    assert!(
+        r.findings.iter().any(|x| x.subject == "anthropic-1"
+            && x.level == Level::Ok
+            && x.message.contains("credentials file present")),
+        "{t}"
+    );
+    assert!(
+        r.findings.iter().any(|x| x.subject == "anthropic-2"
+            && x.level == Level::Warn
+            && x.message.contains("not signed in")),
+        "{t}"
+    );
     assert!(!r.failed(), "{t}");
 }
 
@@ -103,12 +109,18 @@ fn missing_profile_folder_is_a_warning_and_open_folder_is_a_failure() {
     fs::set_permissions(&d2, fs::Permissions::from_mode(0o750)).unwrap();
     let r = doctor(&f.rules(""), &f.base_env(), f.tmp.path(), &mut probe());
     let t = text(&r);
-    assert!(r.findings.iter().any(|x| x.subject == "anthropic-1"
-        && x.level == Level::Warn
-        && x.message.contains("folder not created yet")), "{t}");
-    assert!(r.findings.iter().any(|x| x.subject == "anthropic-2"
-        && x.level == Level::Fail
-        && x.message.contains("750")), "{t}");
+    assert!(
+        r.findings.iter().any(|x| x.subject == "anthropic-1"
+            && x.level == Level::Warn
+            && x.message.contains("folder not created yet")),
+        "{t}"
+    );
+    assert!(
+        r.findings.iter().any(|x| x.subject == "anthropic-2"
+            && x.level == Level::Fail
+            && x.message.contains("750")),
+        "{t}"
+    );
     assert!(r.failed());
 }
 
@@ -126,11 +138,18 @@ fn api_key_helper_and_env_block_in_profile_settings_warn_without_values() {
     let r = doctor(&f.rules(""), &f.base_env(), f.tmp.path(), &mut probe());
     let t = text(&r);
     assert!(!t.contains("SENTINEL"), "{t}");
-    assert!(r.findings.iter().any(|x| x.level == Level::Warn
-        && x.message.contains("apiKeyHelper")), "{t}");
-    assert!(r.findings.iter().any(|x| x.level == Level::Warn
-        && x.message.contains("env block")
-        && x.message.contains("ANTHROPIC_API_KEY")), "{t}");
+    assert!(
+        r.findings
+            .iter()
+            .any(|x| x.level == Level::Warn && x.message.contains("apiKeyHelper")),
+        "{t}"
+    );
+    assert!(
+        r.findings.iter().any(|x| x.level == Level::Warn
+            && x.message.contains("env block")
+            && x.message.contains("ANTHROPIC_API_KEY")),
+        "{t}"
+    );
 }
 
 #[test]
@@ -147,14 +166,27 @@ fn repo_settings_files_are_checked() {
         r#"{"env":{"CLAUDE_CODE_OAUTH_TOKEN":"OAUTH-SENTINEL"}}"#,
     )
     .unwrap();
-    fs::write(repo.join(".claude").join("settings.json"), "{not json OTHER-SENTINEL").unwrap();
+    fs::write(
+        repo.join(".claude").join("settings.json"),
+        "{not json OTHER-SENTINEL",
+    )
+    .unwrap();
     let r = doctor(&f.rules(""), &f.base_env(), &sub, &mut probe());
     let t = text(&r);
     assert!(!t.contains("SENTINEL"), "{t}");
-    assert!(r.findings.iter().any(|x| x.subject.ends_with("settings.local.json")
-        && x.message.contains("CLAUDE_CODE_OAUTH_TOKEN")), "{t}");
-    assert!(r.findings.iter().any(|x| x.subject.ends_with("settings.json")
-        && x.message.contains("cannot parse")), "{t}");
+    assert!(
+        r.findings
+            .iter()
+            .any(|x| x.subject.ends_with("settings.local.json")
+                && x.message.contains("CLAUDE_CODE_OAUTH_TOKEN")),
+        "{t}"
+    );
+    assert!(
+        r.findings
+            .iter()
+            .any(|x| x.subject.ends_with("settings.json") && x.message.contains("cannot parse")),
+        "{t}"
+    );
 }
 
 #[test]
@@ -167,7 +199,10 @@ fn credential_variables_in_the_shell_are_named_not_shown() {
     let r = doctor(&f.rules(""), &e, f.tmp.path(), &mut probe());
     let t = text(&r);
     assert!(!t.contains("SENTINEL"), "{t}");
-    assert!(t.contains("ANTHROPIC_API_KEY") && t.contains("AWS_SECRET_ACCESS_KEY"), "{t}");
+    assert!(
+        t.contains("ANTHROPIC_API_KEY") && t.contains("AWS_SECRET_ACCESS_KEY"),
+        "{t}"
+    );
 }
 
 #[test]
@@ -180,6 +215,10 @@ fn anthropic_profile_files_in_home_are_flagged_by_presence() {
     let r = doctor(&f.rules(""), &f.base_env(), f.tmp.path(), &mut probe());
     let t = text(&r);
     assert!(!t.contains("PROFILE-SENTINEL"), "{t}");
-    assert!(r.findings.iter().any(|x| x.level == Level::Warn
-        && x.message.contains("Anthropic profile")), "{t}");
+    assert!(
+        r.findings
+            .iter()
+            .any(|x| x.level == Level::Warn && x.message.contains("Anthropic profile")),
+        "{t}"
+    );
 }
