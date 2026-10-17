@@ -239,11 +239,11 @@ pub enum DirState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DirProblem {
     NotADirectory,
-    /// STUB (red step).
+    /// Owned by another user; `uid` is the owner's.
     NotOwner {
         uid: u32,
     },
-    /// STUB (red step).
+    /// Resolves (through links) to the folder of this other profile.
     SharedWith(String),
     /// A symbolic link could point two profiles at one folder.
     Symlink,
