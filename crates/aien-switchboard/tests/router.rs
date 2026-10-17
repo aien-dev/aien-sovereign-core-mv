@@ -284,15 +284,26 @@ fn sub(id: &str, provider: &str, program: &str) -> String {
 fn route_with_two_subscriptions_of_one_provider_is_rejected() {
     // Operator decision 2026-10-16 (ADR 0030 amendment A): no automatic
     // routing between two subscription accounts of the same provider.
-    let accts = format!("{LOCAL}{}{}", sub("a1", "anthropic", "claude"), sub("a2", "anthropic", "claude"));
-    let e = RuleTable::from_toml_str(&format!("{accts}[routes]\ndefault=[\"local\"]\ncode=[\"a1\",\"a2\"]\n"))
-        .unwrap_err();
+    let accts = format!(
+        "{LOCAL}{}{}",
+        sub("a1", "anthropic", "claude"),
+        sub("a2", "anthropic", "claude")
+    );
+    let e = RuleTable::from_toml_str(&format!(
+        "{accts}[routes]\ndefault=[\"local\"]\ncode=[\"a1\",\"a2\"]\n"
+    ))
+    .unwrap_err();
     let m = e.to_string();
     assert!(matches!(e, RulesError::Invalid(_)), "{m}");
-    assert!(m.contains("route \"code\"") && m.contains("a1") && m.contains("a2"), "{m}");
+    assert!(
+        m.contains("route \"code\"") && m.contains("a1") && m.contains("a2"),
+        "{m}"
+    );
     assert!(m.contains("anthropic"), "{m}");
     // The default route is checked too.
-    assert!(RuleTable::from_toml_str(&format!("{accts}[routes]\ndefault=[\"a2\",\"a1\"]\n")).is_err());
+    assert!(
+        RuleTable::from_toml_str(&format!("{accts}[routes]\ndefault=[\"a2\",\"a1\"]\n")).is_err()
+    );
     // Same accounts on separate routes are fine: manual launch may open any.
     assert!(RuleTable::from_toml_str(&format!(
         "{accts}[routes]\ndefault=[\"local\"]\ncode=[\"a1\"]\nreview=[\"a2\"]\n"
@@ -303,15 +314,22 @@ fn route_with_two_subscriptions_of_one_provider_is_rejected() {
 #[test]
 fn subscription_plus_api_key_or_other_provider_is_allowed() {
     let key = "[[accounts]]\nid=\"a-key\"\nprovider=\"anthropic\"\nprogram=\"http\"\nkey_ref=\"anthropic-console\"\n";
-    let accts = format!("{LOCAL}{}{key}{}", sub("a1", "anthropic", "claude"), sub("g1", "google", "agy"));
-    let r = RuleTable::from_toml_str(&format!("{accts}[routes]\ndefault=[\"a1\",\"a-key\",\"g1\"]\n"));
+    let accts = format!(
+        "{LOCAL}{}{key}{}",
+        sub("a1", "anthropic", "claude"),
+        sub("g1", "google", "agy")
+    );
+    let r = RuleTable::from_toml_str(&format!(
+        "{accts}[routes]\ndefault=[\"a1\",\"a-key\",\"g1\"]\n"
+    ));
     assert!(r.is_ok(), "{r:?}");
 }
 
 #[test]
 fn settings_folders_must_be_absolute_and_not_shared() {
     let rel = "[[accounts]]\nid=\"a1\"\nprovider=\"anthropic\"\nprogram=\"claude\"\nsettings_dir=\"rel/a1\"\n";
-    let e = RuleTable::from_toml_str(&format!("{LOCAL}{rel}[routes]\ndefault=[\"local\"]\n")).unwrap_err();
+    let e = RuleTable::from_toml_str(&format!("{LOCAL}{rel}[routes]\ndefault=[\"local\"]\n"))
+        .unwrap_err();
     assert!(e.to_string().contains("absolute"), "{e}");
     let shared = "[[accounts]]\nid=\"a2\"\nprovider=\"anthropic\"\nprogram=\"claude\"\nsettings_dir=\"/tmp/sb/a1\"\n";
     let e = RuleTable::from_toml_str(&format!(

@@ -26,8 +26,8 @@ pub mod runner;
 
 pub use account::{Account, AccountId, Provider};
 pub use dispatch::{run_job, Completed, DispatchError};
-pub use gauge::{Gauge, Gauges, Window};
 pub use doctor::{doctor, FakeProbe, Finding, Level, Report, VersionProbe};
+pub use gauge::{Gauge, Gauges, Window};
 pub use job::{Job, JobKind, JobSize};
 pub use launch::{launch, plan_launch, Env, FakeSpawner, LaunchError, LaunchPlan, Spawner};
 pub use router::{route, Decision};
