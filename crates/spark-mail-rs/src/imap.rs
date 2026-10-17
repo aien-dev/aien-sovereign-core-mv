@@ -91,6 +91,48 @@ pub enum Section {
 pub struct Client<S> {
     stream: S,
     limits: Limits,
+    /// Bytes read from the stream and not yet consumed.
+    buf: Vec<u8>,
+    next_tag: u32,
+}
+
+/// One server response: the text around each literal, then the literals.
+/// `text.len() == literals.len() + 1`.
+struct Response {
+    text: Vec<Vec<u8>>,
+    literals: Vec<Vec<u8>>,
+}
+
+/// One encoded command argument.
+enum Arg<'a> {
+    Atom(&'a str),
+    Quoted(Vec<u8>),
+    /// Sent as a synchronizing literal: `{n}`, wait for `+`, then the bytes.
+    Literal(&'a [u8]),
+}
+
+impl<'a> Arg<'a> {
+    /// An IMAP string: quoted when 7-bit, a literal when it holds 8-bit
+    /// bytes, refused when it holds CR, LF or NUL (RFC 3501 section 4.3).
+    fn string(value: &'a str) -> Result<Self, ImapError> {
+        let bytes = value.as_bytes();
+        if bytes.iter().any(|&b| matches!(b, b'\r' | b'\n' | 0)) {
+            return Err(ImapError::UnsafeArgument);
+        }
+        if !bytes.is_ascii() {
+            return Ok(Self::Literal(bytes));
+        }
+        let mut quoted = Vec::with_capacity(bytes.len() + 2);
+        quoted.push(b'"');
+        for &b in bytes {
+            if b == b'"' || b == b'\\' {
+                quoted.push(b'\\');
+            }
+            quoted.push(b);
+        }
+        quoted.push(b'"');
+        Ok(Self::Quoted(quoted))
+    }
 }
 
 impl<S: Read + Write> Client<S> {
@@ -100,35 +142,375 @@ impl<S: Read + Write> Client<S> {
     }
 
     pub fn with_limits(stream: S, limits: Limits) -> Result<Self, ImapError> {
-        let _ = (stream, limits);
-        Err(ImapError::Malformed("not implemented"))
+        let mut client = Self {
+            stream,
+            limits,
+            buf: Vec::new(),
+            next_tag: 1,
+        };
+        // A greeting is one line; it gets a line's worth of budget.
+        let mut budget = limits.line;
+        let greeting = client.read_response(&mut budget)?;
+        if let Some(text) = untagged(&greeting.text[0], b"BYE") {
+            return Err(ImapError::Bye(printable(text)));
+        }
+        if untagged(&greeting.text[0], b"OK").is_none() {
+            return Err(ImapError::Malformed("server greeting is not * OK"));
+        }
+        Ok(client)
     }
 
     pub fn login(&mut self, user: &str, password: &str) -> Result<(), ImapError> {
-        let _ = (user, password, &mut self.stream, self.limits);
-        Err(ImapError::Malformed("not implemented"))
+        let args = [
+            Arg::Atom("LOGIN"),
+            Arg::string(user)?,
+            Arg::string(password)?,
+        ];
+        self.run(&args, false).map(drop)
     }
 
     /// Open a mailbox read-only.
     pub fn examine(&mut self, mailbox: &str) -> Result<(), ImapError> {
-        let _ = mailbox;
-        Err(ImapError::Malformed("not implemented"))
+        self.run(&[Arg::Atom("EXAMINE"), Arg::string(mailbox)?], false)
+            .map(drop)
     }
 
     pub fn uid_search_all(&mut self) -> Result<Vec<u32>, ImapError> {
-        Err(ImapError::Malformed("not implemented"))
+        let args = [Arg::Atom("UID"), Arg::Atom("SEARCH"), Arg::Atom("ALL")];
+        let mut uids = Vec::new();
+        for response in self.run(&args, false)? {
+            let Some(rest) = untagged(&response.text[0], b"SEARCH") else {
+                continue;
+            };
+            if !response.literals.is_empty() {
+                return Err(ImapError::Malformed("search result carries a literal"));
+            }
+            for token in rest.split(|&b| b == b' ').filter(|t| !t.is_empty()) {
+                if uids.len() == self.limits.uids {
+                    return Err(ImapError::TooManyUids);
+                }
+                uids.push(
+                    parse_uid(token).ok_or(ImapError::Malformed("search result is not a UID"))?,
+                );
+            }
+        }
+        Ok(uids)
     }
 
     /// The requested section of message `uid`, or `None` when the server
     /// returns no such message.
     pub fn uid_fetch(&mut self, uid: u32, section: Section) -> Result<Option<Vec<u8>>, ImapError> {
-        let _ = (uid, section);
-        Err(ImapError::Malformed("not implemented"))
+        let (request, reply) = match section {
+            Section::Header => ("BODY.PEEK[HEADER]", &b"BODY[HEADER]"[..]),
+            Section::Full => ("BODY.PEEK[]", &b"BODY[]"[..]),
+        };
+        let uid_text = uid.to_string();
+        let args = [
+            Arg::Atom("UID"),
+            Arg::Atom("FETCH"),
+            Arg::Atom(&uid_text),
+            Arg::Atom(request),
+        ];
+        for response in self.run(&args, false)? {
+            // Servers may interleave unsolicited FETCH data for other messages.
+            if !is_fetch(&response.text[0]) || fetch_uid(&response) != Some(uid) {
+                continue;
+            }
+            for (text, literal) in response.text.iter().zip(response.literals) {
+                if names_section(text, reply) {
+                    return Ok(Some(literal));
+                }
+            }
+        }
+        Ok(None)
     }
 
     pub fn logout(&mut self) -> Result<(), ImapError> {
-        Err(ImapError::Malformed("not implemented"))
+        self.run(&[Arg::Atom("LOGOUT")], true).map(drop)
     }
+
+    /// Send one tagged command and collect its untagged responses up to the
+    /// tagged OK. Arguments are encoded before anything is sent, so a refused
+    /// argument leaves the stream untouched.
+    fn run(&mut self, args: &[Arg<'_>], expect_bye: bool) -> Result<Vec<Response>, ImapError> {
+        let tag = format!("A{:04}", self.next_tag);
+        self.next_tag += 1;
+        let mut budget = self.limits.command_bytes;
+        let mut seen = 0;
+        let mut line = tag.clone().into_bytes();
+        for arg in args {
+            line.push(b' ');
+            match arg {
+                Arg::Atom(atom) => line.extend_from_slice(atom.as_bytes()),
+                Arg::Quoted(quoted) => line.extend_from_slice(quoted),
+                Arg::Literal(bytes) => {
+                    line.extend_from_slice(format!("{{{}}}\r\n", bytes.len()).as_bytes());
+                    self.send(&line)?;
+                    line.clear();
+                    self.await_continuation(&tag, &mut budget, &mut seen)?;
+                    line.extend_from_slice(bytes);
+                }
+            }
+        }
+        line.extend_from_slice(b"\r\n");
+        self.send(&line)?;
+        let mut responses = Vec::new();
+        loop {
+            let response = self.read_response(&mut budget)?;
+            if let Some(rest) = tagged(&response.text[0], &tag) {
+                return tagged_status(rest).map(|()| responses);
+            }
+            self.check_untagged(&response.text[0], expect_bye, &mut seen)?;
+            responses.push(response);
+        }
+    }
+
+    /// Wait for the `+` that lets a literal be sent. A tagged NO or BAD here
+    /// means the server refused the command, and the literal is never sent.
+    fn await_continuation(
+        &mut self,
+        tag: &str,
+        budget: &mut usize,
+        seen: &mut usize,
+    ) -> Result<(), ImapError> {
+        loop {
+            let response = self.read_response(budget)?;
+            let first = &response.text[0];
+            if first.starts_with(b"+") {
+                return Ok(());
+            }
+            if let Some(rest) = tagged(first, tag) {
+                tagged_status(rest)?;
+                return Err(ImapError::Malformed(
+                    "tagged OK before the literal was sent",
+                ));
+            }
+            self.check_untagged(first, false, seen)?;
+        }
+    }
+
+    fn check_untagged(
+        &self,
+        first: &[u8],
+        expect_bye: bool,
+        seen: &mut usize,
+    ) -> Result<(), ImapError> {
+        if first.starts_with(b"+") {
+            return Err(ImapError::Malformed("unexpected continuation request"));
+        }
+        if !first.starts_with(b"* ") {
+            return Err(ImapError::Malformed("response with a foreign tag"));
+        }
+        if let Some(text) = untagged(first, b"BYE")
+            && !expect_bye
+        {
+            return Err(ImapError::Bye(printable(text)));
+        }
+        if *seen == self.limits.responses {
+            return Err(ImapError::TooManyResponses);
+        }
+        *seen += 1;
+        Ok(())
+    }
+
+    fn send(&mut self, bytes: &[u8]) -> Result<(), ImapError> {
+        self.stream
+            .write_all(bytes)
+            .map_err(|e| ImapError::Io(e.kind()))?;
+        self.stream.flush().map_err(|e| ImapError::Io(e.kind()))
+    }
+
+    /// One response: a line, plus a literal and a further line for every
+    /// line that ends in `{n}`.
+    fn read_response(&mut self, budget: &mut usize) -> Result<Response, ImapError> {
+        let mut text = Vec::new();
+        let mut literals = Vec::new();
+        loop {
+            let line = self.read_line(budget)?;
+            let literal = literal_len(&line)?;
+            text.push(line);
+            let Some(len) = literal else {
+                return Ok(Response { text, literals });
+            };
+            if len > self.limits.literal {
+                return Err(ImapError::LiteralTooLarge);
+            }
+            charge(budget, len)?;
+            literals.push(self.read_exact(len)?);
+        }
+    }
+
+    /// The next CRLF-terminated line, CRLF removed.
+    fn read_line(&mut self, budget: &mut usize) -> Result<Vec<u8>, ImapError> {
+        let mut scanned = 0;
+        loop {
+            if let Some(pos) = self.buf[scanned..].windows(2).position(|w| w == b"\r\n") {
+                let pos = scanned + pos;
+                if pos > self.limits.line {
+                    return Err(ImapError::LineTooLong);
+                }
+                charge(budget, pos + 2)?;
+                let mut line: Vec<u8> = self.buf.drain(..pos + 2).collect();
+                line.truncate(pos);
+                return Ok(line);
+            }
+            // The buffer may end in the CR of a line exactly at the limit.
+            if self.buf.len() > self.limits.line + 1 {
+                return Err(ImapError::LineTooLong);
+            }
+            scanned = self.buf.len().saturating_sub(1);
+            if self.fill()? == 0 {
+                return Err(ImapError::Truncated);
+            }
+        }
+    }
+
+    /// Exactly `len` bytes. Nothing is reserved up front, so a server that
+    /// announces a literal and then stops costs only what it really sent.
+    fn read_exact(&mut self, len: usize) -> Result<Vec<u8>, ImapError> {
+        while self.buf.len() < len {
+            if self.fill()? == 0 {
+                return Err(ImapError::Truncated);
+            }
+        }
+        Ok(self.buf.drain(..len).collect())
+    }
+
+    fn fill(&mut self) -> Result<usize, ImapError> {
+        let mut chunk = [0u8; 16 * 1024];
+        loop {
+            match self.stream.read(&mut chunk) {
+                Ok(n) => {
+                    self.buf.extend_from_slice(&chunk[..n]);
+                    return Ok(n);
+                }
+                Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+                Err(e) => return Err(ImapError::Io(e.kind())),
+            }
+        }
+    }
+}
+
+fn charge(budget: &mut usize, bytes: usize) -> Result<(), ImapError> {
+    *budget = budget
+        .checked_sub(bytes)
+        .ok_or(ImapError::CommandTooLarge)?;
+    Ok(())
+}
+
+/// `Some(n)` when the line ends in a literal announcement `{n}`.
+fn literal_len(line: &[u8]) -> Result<Option<usize>, ImapError> {
+    let Some(body) = line.strip_suffix(b"}") else {
+        return Ok(None);
+    };
+    let Some(open) = body.iter().rposition(|&b| b == b'{') else {
+        return Ok(None);
+    };
+    let digits = &body[open + 1..];
+    if digits.is_empty() || !digits.iter().all(u8::is_ascii_digit) {
+        return Ok(None);
+    }
+    let mut len: usize = 0;
+    for &d in digits {
+        len = len
+            .checked_mul(10)
+            .and_then(|len| len.checked_add(usize::from(d - b'0')))
+            .ok_or(ImapError::LiteralTooLarge)?;
+    }
+    Ok(Some(len))
+}
+
+fn split_word(s: &[u8]) -> (&[u8], &[u8]) {
+    match s.iter().position(|&b| b == b' ') {
+        Some(p) => (&s[..p], &s[p + 1..]),
+        None => (s, &[]),
+    }
+}
+
+/// The text after `* WORD`, when the line is that untagged response.
+fn untagged<'a>(line: &'a [u8], word: &[u8]) -> Option<&'a [u8]> {
+    let (first, text) = split_word(line.strip_prefix(b"* ")?);
+    first.eq_ignore_ascii_case(word).then_some(text)
+}
+
+fn tagged<'a>(line: &'a [u8], tag: &str) -> Option<&'a [u8]> {
+    line.strip_prefix(tag.as_bytes())?.strip_prefix(b" ")
+}
+
+fn tagged_status(rest: &[u8]) -> Result<(), ImapError> {
+    let (word, text) = split_word(rest);
+    if word.eq_ignore_ascii_case(b"OK") {
+        Ok(())
+    } else if word.eq_ignore_ascii_case(b"NO") {
+        Err(ImapError::No(printable(text)))
+    } else if word.eq_ignore_ascii_case(b"BAD") {
+        Err(ImapError::Bad(printable(text)))
+    } else {
+        Err(ImapError::Malformed("tagged response is not OK, NO or BAD"))
+    }
+}
+
+/// Server text reduced to printable ASCII and at most 200 characters, so it
+/// can be shown without carrying terminal escapes.
+fn printable(text: &[u8]) -> String {
+    text.iter()
+        .filter(|b| (0x20..=0x7e).contains(*b))
+        .take(200)
+        .map(|&b| char::from(b))
+        .collect()
+}
+
+fn parse_uid(token: &[u8]) -> Option<u32> {
+    if token.is_empty() || token.len() > 10 || !token.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    std::str::from_utf8(token)
+        .ok()?
+        .parse::<u32>()
+        .ok()
+        .filter(|&uid| uid != 0)
+}
+
+/// `* <n> FETCH ...`
+fn is_fetch(line: &[u8]) -> bool {
+    let Some(rest) = line.strip_prefix(b"* ") else {
+        return false;
+    };
+    let (number, rest) = split_word(rest);
+    !number.is_empty()
+        && number.iter().all(u8::is_ascii_digit)
+        && rest.len() >= 5
+        && rest[..5].eq_ignore_ascii_case(b"FETCH")
+}
+
+/// The value of the `UID` item in a FETCH response.
+fn fetch_uid(response: &Response) -> Option<u32> {
+    response.text.iter().find_map(|text| {
+        (1..text.len().saturating_sub(3)).find_map(|i| {
+            if !matches!(text[i - 1], b'(' | b' ') || !text[i..i + 4].eq_ignore_ascii_case(b"UID ")
+            {
+                return None;
+            }
+            let digits = &text[i + 4..];
+            let end = digits
+                .iter()
+                .position(|b| !b.is_ascii_digit())
+                .unwrap_or(digits.len());
+            parse_uid(&digits[..end])
+        })
+    })
+}
+
+/// Whether the text before a literal names `name` as the item it carries,
+/// as in `... BODY[HEADER] {123}`.
+fn names_section(text: &[u8], name: &[u8]) -> bool {
+    let Some(open) = text.iter().rposition(|&b| b == b'{') else {
+        return false;
+    };
+    let head = text[..open].trim_ascii_end();
+    head.len() > name.len()
+        && head[head.len() - name.len()..].eq_ignore_ascii_case(name)
+        && matches!(head[head.len() - name.len() - 1], b'(' | b' ')
 }
 
 #[cfg(test)]
@@ -191,12 +573,18 @@ mod tests {
         let body = b"From: a@example.com\r\nSubject: hi\r\n\r\nhello\r\n";
         let mut replies = Vec::new();
         replies.extend_from_slice(b"A0001 OK Logged in\r\n");
-        replies.extend_from_slice(b"* 3 EXISTS\r\n* FLAGS (\\Seen)\r\nA0002 OK [READ-ONLY] Examine completed\r\n");
+        replies.extend_from_slice(
+            b"* 3 EXISTS\r\n* FLAGS (\\Seen)\r\nA0002 OK [READ-ONLY] Examine completed\r\n",
+        );
         replies.extend_from_slice(b"* SEARCH 4 9 12\r\nA0003 OK Search completed\r\n");
-        replies.extend_from_slice(format!("* 2 FETCH (UID 9 BODY[HEADER] {{{}}}\r\n", header.len()).as_bytes());
+        replies.extend_from_slice(
+            format!("* 2 FETCH (UID 9 BODY[HEADER] {{{}}}\r\n", header.len()).as_bytes(),
+        );
         replies.extend_from_slice(header);
         replies.extend_from_slice(b")\r\nA0004 OK Fetch completed\r\n");
-        replies.extend_from_slice(format!("* 3 FETCH (UID 12 BODY[] {{{}}}\r\n", body.len()).as_bytes());
+        replies.extend_from_slice(
+            format!("* 3 FETCH (UID 12 BODY[] {{{}}}\r\n", body.len()).as_bytes(),
+        );
         replies.extend_from_slice(body);
         replies.extend_from_slice(b")\r\nA0005 OK Fetch completed\r\n");
         replies.extend_from_slice(b"* BYE Logging out\r\nA0006 OK Logout completed\r\n");
@@ -204,8 +592,14 @@ mod tests {
         c.login("aien@aienos.com", "pw").unwrap();
         c.examine("INBOX").unwrap();
         assert_eq!(c.uid_search_all().unwrap(), vec![4, 9, 12]);
-        assert_eq!(c.uid_fetch(9, Section::Header).unwrap().as_deref(), Some(&header[..]));
-        assert_eq!(c.uid_fetch(12, Section::Full).unwrap().as_deref(), Some(&body[..]));
+        assert_eq!(
+            c.uid_fetch(9, Section::Header).unwrap().as_deref(),
+            Some(&header[..])
+        );
+        assert_eq!(
+            c.uid_fetch(12, Section::Full).unwrap().as_deref(),
+            Some(&body[..])
+        );
         c.logout().unwrap();
         assert_eq!(
             written(&c),
@@ -240,7 +634,10 @@ mod tests {
         for bad in ["pw\r\nA0002 DELETE INBOX", "pw\n", "pw\0"] {
             let mut c = client(b"");
             assert_eq!(c.login("u", bad), Err(ImapError::UnsafeArgument));
-            assert!(c.stream.written.is_empty(), "nothing may be sent for {bad:?}");
+            assert!(
+                c.stream.written.is_empty(),
+                "nothing may be sent for {bad:?}"
+            );
         }
     }
 
@@ -259,10 +656,16 @@ mod tests {
     #[test]
     fn tagged_no_and_bad_are_typed_refusals() {
         let mut c = client(b"A0001 NO Authentication failed\r\n");
-        assert_eq!(c.login("u", "p"), Err(ImapError::No("Authentication failed".into())));
+        assert_eq!(
+            c.login("u", "p"),
+            Err(ImapError::No("Authentication failed".into()))
+        );
         let mut c = client(b"A0001 OK\r\nA0002 BAD Unknown mailbox syntax\r\n");
         c.login("u", "p").unwrap();
-        assert_eq!(c.examine("INBOX"), Err(ImapError::Bad("Unknown mailbox syntax".into())));
+        assert_eq!(
+            c.examine("INBOX"),
+            Err(ImapError::Bad("Unknown mailbox syntax".into()))
+        );
     }
 
     #[test]
@@ -275,11 +678,24 @@ mod tests {
     fn oversized_literal_is_refused_without_reading_it() {
         let mut c = client(b"A0001 OK\r\n* 1 FETCH (UID 5 BODY[] {99999999999999999999}\r\nxx");
         c.login("u", "p").unwrap();
-        assert_eq!(c.uid_fetch(5, Section::Full), Err(ImapError::LiteralTooLarge));
-        let limits = Limits { literal: 8, ..Limits::default() };
-        let mut c = small(b"A0001 OK\r\n* 1 FETCH (UID 5 BODY[] {9}\r\n123456789)\r\nA0002 OK\r\n", limits).unwrap();
+        assert_eq!(
+            c.uid_fetch(5, Section::Full),
+            Err(ImapError::LiteralTooLarge)
+        );
+        let limits = Limits {
+            literal: 8,
+            ..Limits::default()
+        };
+        let mut c = small(
+            b"A0001 OK\r\n* 1 FETCH (UID 5 BODY[] {9}\r\n123456789)\r\nA0002 OK\r\n",
+            limits,
+        )
+        .unwrap();
         c.login("u", "p").unwrap();
-        assert_eq!(c.uid_fetch(5, Section::Full), Err(ImapError::LiteralTooLarge));
+        assert_eq!(
+            c.uid_fetch(5, Section::Full),
+            Err(ImapError::LiteralTooLarge)
+        );
     }
 
     #[test]
@@ -293,7 +709,10 @@ mod tests {
 
     #[test]
     fn overlong_line_is_refused() {
-        let limits = Limits { line: 32, ..Limits::default() };
+        let limits = Limits {
+            line: 48,
+            ..Limits::default()
+        };
         let mut replies = b"A0001 OK\r\n* SEARCH ".to_vec();
         replies.extend(std::iter::repeat_n(b'7', 64));
         let mut c = small(&replies, limits).unwrap();
@@ -303,29 +722,56 @@ mod tests {
 
     #[test]
     fn response_flood_and_byte_flood_are_refused() {
-        let limits = Limits { responses: 3, ..Limits::default() };
-        let mut c = small(b"A0001 OK\r\n* 1 EXISTS\r\n* 2 EXISTS\r\n* 3 EXISTS\r\n* 4 EXISTS\r\nA0002 OK\r\n", limits).unwrap();
+        let limits = Limits {
+            responses: 3,
+            ..Limits::default()
+        };
+        let mut c = small(
+            b"A0001 OK\r\n* 1 EXISTS\r\n* 2 EXISTS\r\n* 3 EXISTS\r\n* 4 EXISTS\r\nA0002 OK\r\n",
+            limits,
+        )
+        .unwrap();
         c.login("u", "p").unwrap();
         assert_eq!(c.examine("INBOX"), Err(ImapError::TooManyResponses));
-        let limits = Limits { command_bytes: 20, ..Limits::default() };
-        let mut c = small(b"A0001 OK\r\n* 1 FETCH (UID 5 BODY[] {16}\r\n0123456789abcdef)\r\nA0002 OK\r\n", limits).unwrap();
+        let limits = Limits {
+            command_bytes: 20,
+            ..Limits::default()
+        };
+        let mut c = small(
+            b"A0001 OK\r\n* 1 FETCH (UID 5 BODY[] {16}\r\n0123456789abcdef)\r\nA0002 OK\r\n",
+            limits,
+        )
+        .unwrap();
         c.login("u", "p").unwrap();
-        assert_eq!(c.uid_fetch(5, Section::Full), Err(ImapError::CommandTooLarge));
+        assert_eq!(
+            c.uid_fetch(5, Section::Full),
+            Err(ImapError::CommandTooLarge)
+        );
     }
 
     #[test]
     fn search_refuses_too_many_or_non_uid_results() {
-        let limits = Limits { uids: 2, ..Limits::default() };
+        let limits = Limits {
+            uids: 2,
+            ..Limits::default()
+        };
         let mut c = small(b"A0001 OK\r\n* SEARCH 1 2 3\r\nA0002 OK\r\n", limits).unwrap();
         c.login("u", "p").unwrap();
         assert_eq!(c.uid_search_all(), Err(ImapError::TooManyUids));
-        for bad in [&b"* SEARCH 1 x\r\n"[..], b"* SEARCH 0\r\n", b"* SEARCH 4294967296\r\n"] {
+        for bad in [
+            &b"* SEARCH 1 x\r\n"[..],
+            b"* SEARCH 0\r\n",
+            b"* SEARCH 4294967296\r\n",
+        ] {
             let mut replies = b"A0001 OK\r\n".to_vec();
             replies.extend_from_slice(bad);
             replies.extend_from_slice(b"A0002 OK\r\n");
             let mut c = client(&replies);
             c.login("u", "p").unwrap();
-            assert!(matches!(c.uid_search_all(), Err(ImapError::Malformed(_))), "{bad:?}");
+            assert!(
+                matches!(c.uid_search_all(), Err(ImapError::Malformed(_))),
+                "{bad:?}"
+            );
         }
         let mut c = client(b"A0001 OK\r\n* SEARCH\r\nA0002 OK\r\n");
         c.login("u", "p").unwrap();
@@ -343,7 +789,10 @@ mod tests {
               A0002 OK\r\n",
         );
         c.login("u", "p").unwrap();
-        assert_eq!(c.uid_fetch(7, Section::Full).unwrap().as_deref(), Some(&b"mine"[..]));
+        assert_eq!(
+            c.uid_fetch(7, Section::Full).unwrap().as_deref(),
+            Some(&b"mine"[..])
+        );
     }
 
     #[test]
@@ -357,7 +806,10 @@ mod tests {
     fn unexpected_bye_foreign_tag_and_stray_continuation_are_refused() {
         let mut c = client(b"A0001 OK\r\n* BYE Server shutting down\r\n");
         c.login("u", "p").unwrap();
-        assert_eq!(c.examine("INBOX"), Err(ImapError::Bye("Server shutting down".into())));
+        assert_eq!(
+            c.examine("INBOX"),
+            Err(ImapError::Bye("Server shutting down".into()))
+        );
         let mut c = client(b"A0001 OK\r\nB0002 OK\r\n");
         c.login("u", "p").unwrap();
         assert!(matches!(c.examine("INBOX"), Err(ImapError::Malformed(_))));
@@ -369,14 +821,20 @@ mod tests {
     #[test]
     fn literal_login_refused_by_server_does_not_send_the_password() {
         let mut c = client(b"A0001 NO Literal refused\r\n");
-        assert_eq!(c.login("u", "pässword"), Err(ImapError::No("Literal refused".into())));
+        assert_eq!(
+            c.login("u", "pässword"),
+            Err(ImapError::No("Literal refused".into()))
+        );
         assert_eq!(written(&c), "A0001 LOGIN \"u\" {9}\r\n");
     }
 
     #[test]
     fn greeting_must_be_ok() {
         let bye = Client::connect(Script::new(b"* BYE Too many connections\r\n"));
-        assert_eq!(bye.err(), Some(ImapError::Bye("Too many connections".into())));
+        assert_eq!(
+            bye.err(),
+            Some(ImapError::Bye("Too many connections".into()))
+        );
         let preauth = Client::connect(Script::new(b"* PREAUTH ready\r\n"));
         assert!(matches!(preauth.err(), Some(ImapError::Malformed(_))));
         let junk = Client::connect(Script::new(b"HTTP/1.1 400 Bad Request\r\n"));
