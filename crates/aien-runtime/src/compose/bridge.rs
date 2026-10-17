@@ -212,6 +212,25 @@ fn mark_refusal(dir: &Path, r: &MarkRefusal) -> String {
     format!("compose home {} refused: {r}", dir.display())
 }
 
+/// The record chain (`cortex_mark::chain_step`) from `start` over the digests
+/// of records #`lo`..=#`hi`, as the open home reads them.
+fn record_chain(
+    compose: &mut Compose,
+    start: [u8; 32],
+    lo: u64,
+    hi: u64,
+) -> Result<[u8; 32], String> {
+    let mut c = start;
+    for id in lo..=hi {
+        let d = compose
+            .record(id)
+            .map_err(|e| format!("record {id}: {e}"))?
+            .digest;
+        cortex_mark::chain_step(&mut c, &d);
+    }
+    Ok(c)
+}
+
 /// One proposed file change: a path relative to the workspace and the
 /// complete new content.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1567,9 +1586,26 @@ impl ComposeHome {
             .info()
             .map_err(|e| format!("record mark: info: {e}"))?
             .records;
-        if self.mark.as_ref().is_some_and(|m| m.records >= n) {
+        // A version 1 mark (no chain) is rewritten even at the same count.
+        if self
+            .mark
+            .as_ref()
+            .is_some_and(|m| m.records > n || (m.records == n && m.chain.is_some()))
+        {
             return Ok(None);
         }
+        // Extend the verified chain of the last mark; without one, hash the
+        // whole journal as this home opened it.
+        let (from, start) = match &self.mark {
+            Some(Mark {
+                records,
+                chain: Some(c),
+                ..
+            }) => (*records, *c),
+            _ => (0, [0u8; 32]),
+        };
+        let chain = record_chain(&mut self.compose, start, from + 1, n)
+            .map_err(|e| format!("record mark: {e}"))?;
         let digest = if n == 0 {
             [0u8; 32]
         } else {
@@ -1583,6 +1619,7 @@ impl ComposeHome {
             seq: self.mark_seq + 1,
             records: n,
             digest,
+            chain: Some(chain),
         };
         cortex_mark::write(&self.mark_path, &m)?;
         self.mark_seq = m.seq;
@@ -1915,6 +1952,12 @@ impl ComposeBridge {
             if m.records > 0 {
                 let at = compose.record(m.records).ok().map(|r| r.digest);
                 cortex_mark::check_digest(m, at).map_err(|r| mark_refusal(&self.dir, &r))?;
+                // Receipt continuity (#408 row 8): every record before the
+                // newest, through the chain the mark carries.
+                if m.chain.is_some() {
+                    let at = record_chain(&mut compose, [0u8; 32], 1, m.records).ok();
+                    cortex_mark::check_chain(m, at).map_err(|r| mark_refusal(&self.dir, &r))?;
+                }
             }
         }
         // ALLEN identity gate: after the open (record 1 exists, skills are
@@ -2524,6 +2567,9 @@ impl ComposeBridge {
                 Err(e) if e.contains("E_MARK_DIGEST") => {
                     Some((Some(m), 0, "names a different record"))
                 }
+                Err(e) if e.contains("E_MARK_CHAIN") => {
+                    Some((Some(m), 0, "records before the newest differ"))
+                }
                 // Refused for another reason: reported as before, mark kept.
                 Err(_) => None,
             },
@@ -2556,6 +2602,7 @@ impl ComposeBridge {
             "lost": lost,
             "old_seq": old_seq,
             "old_digest": old.as_ref().map(|m| hex(&m.digest)),
+            "old_chain": old.as_ref().and_then(|m| m.chain.map(|c| hex(&c))),
             "kept_as": kept_as.display().to_string(),
         })
         .to_string();

@@ -303,3 +303,83 @@ fn truncated_tail_is_refused() {
         "{e}"
     );
 }
+
+#[test]
+fn chain_refusal_repairs_nothing_and_recover_keeps_the_old_mark() {
+    let _home = home_guard::home_slot();
+    let Some((_tmp, home, ids, _)) = setup() else {
+        return;
+    };
+    let cx = home.join("cortex.cx");
+    let mp = cortex_mark::mark_path(&home);
+    let (hdr, mut recs) = read_journal(&cx);
+    forge_note(&mut recs[idx(ids[1])], "drake", "decoy");
+    write_journal(&cx, &hdr, &mut recs);
+    let (journal, mark) = (std::fs::read(&cx).unwrap(), std::fs::read(&mp).unwrap());
+    let seq = cortex_mark::read(&mp).unwrap().unwrap().seq;
+    let e = reopen_refusal(&home);
+    assert!(e.contains("E_MARK_CHAIN"), "{e}");
+    // Nothing is repaired or rewritten: the tampered records stay as they
+    // were (the open's own start-up records may follow them, as for
+    // E_MARK_DIGEST) and the mark is untouched.
+    assert!(std::fs::read(&cx).unwrap().starts_with(&journal));
+    assert!(std::fs::read(&mp).unwrap() == mark);
+
+    // The operator's recover sets the mark aside and names why.
+    let b = ComposeBridge::new(home.clone(), proposer(), "test");
+    let rep = match b.recover() {
+        ControlResponse::ComposeRecovered(r) => *r,
+        other => panic!("recover: {other:?}"),
+    };
+    let kept = PathBuf::from(rep.mark_kept_as.clone().unwrap());
+    assert!(kept
+        .to_string_lossy()
+        .ends_with(&format!(".cortex-mark.lost-{seq}")));
+    assert_eq!(std::fs::read(&kept).unwrap(), mark);
+    let r = match b.recall(&[rep.mark_repair_record], None) {
+        ControlResponse::ComposeRecalled(r) => *r,
+        other => panic!("recall after recover: {other:?}"),
+    };
+    let t: serde_json::Value = serde_json::from_str(r.cited[0].text.as_deref().unwrap()).unwrap();
+    assert_eq!(t["repair"], "cortex-mark");
+    assert_eq!(t["why"], "records before the newest differ");
+    assert!(
+        t["old_chain"].as_str().is_some_and(|c| c.len() == 64),
+        "{t}"
+    );
+    drop(b);
+    let b = ComposeBridge::new(home.clone(), proposer(), "test");
+    total(&b);
+}
+
+#[test]
+fn version_1_mark_is_upgraded_then_checked() {
+    let _home = home_guard::home_slot();
+    let Some((_tmp, home, ids, _)) = setup() else {
+        return;
+    };
+    let cx = home.join("cortex.cx");
+    let mp = cortex_mark::mark_path(&home);
+    // An install older than the chain: the same mark without it.
+    let m = cortex_mark::read(&mp).unwrap().unwrap();
+    assert!(m.chain.is_some());
+    cortex_mark::write(&mp, &cortex_mark::Mark { chain: None, ..m }).unwrap();
+    assert_eq!(std::fs::read(&mp).unwrap().len(), cortex_mark::MARK_LEN_V1);
+    let b = ComposeBridge::new(home.clone(), proposer(), "test");
+    let n = total(&b);
+    drop(b);
+    let up = cortex_mark::read(&mp).unwrap().unwrap();
+    assert_eq!(up.records, n);
+    // The new chain is the chain over the journal as written.
+    let (hdr, mut recs) = read_journal(&cx);
+    assert_eq!(recs.len() as u64, n);
+    assert_eq!(
+        up.chain,
+        Some(cortex_mark::chain_over(recs.iter().map(|r| &r.digest)))
+    );
+    // From here on a forged receipt is refused.
+    forge_note(&mut recs[idx(ids[0])], "drake", "decoy");
+    write_journal(&cx, &hdr, &mut recs);
+    let e = reopen_refusal(&home);
+    assert!(e.contains("E_MARK_CHAIN"), "{e}");
+}
