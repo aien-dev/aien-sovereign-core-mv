@@ -199,7 +199,7 @@ fn local_limit_hit_is_a_clear_error_not_a_loop() {
 fn local_listed_early_is_moved_last() {
     let r = RuleTable::from_toml_str(
         "[[accounts]]\nid=\"local\"\nprovider=\"local\"\nprogram=\"aien\"\n\
-         [[accounts]]\nid=\"g1\"\nprovider=\"google\"\nprogram=\"agy\"\n\
+         [[accounts]]\nid=\"g1\"\nprovider=\"google\"\nprogram=\"agy\"\nsettings_dir=\"/tmp/sb/g1\"\n\
          [routes]\ndefault=[\"local\",\"g1\"]\n",
     )
     .unwrap();

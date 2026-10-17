@@ -190,6 +190,12 @@ impl RuleTable {
             if a.program.trim().is_empty() {
                 return bad(format!("account {:?} has an empty program name", a.id));
             }
+            if a.program.contains('/') && !Path::new(&a.program).is_absolute() {
+                return bad(format!(
+                    "account {:?}: program must be a bare name found on PATH or an absolute path, got {:?}; a relative path would run a file from the working folder",
+                    a.id, a.program
+                ));
+            }
             let credential = match (a.settings_dir, a.key_ref) {
                 (Some(_), Some(_)) => {
                     return bad(format!(
@@ -201,6 +207,13 @@ impl RuleTable {
                     if !p.is_absolute() {
                         return bad(format!(
                             "account {:?}: settings_dir must be an absolute path, got {}",
+                            a.id,
+                            p.display()
+                        ));
+                    }
+                    if p.components().any(|c| c == std::path::Component::ParentDir) {
+                        return bad(format!(
+                            "account {:?}: settings_dir must not contain '..', got {}",
                             a.id,
                             p.display()
                         ));
@@ -223,7 +236,20 @@ impl RuleTable {
                     }
                     Credential::KeyRef(k)
                 }
-                (None, None) => Credential::None,
+                (None, None) => {
+                    // Only the local model needs no login. Any other account
+                    // without a setting would fall back to its program's default
+                    // login (for claude: ~/.claude, a subscription the route rule
+                    // could not see).
+                    if a.provider != Provider::Local {
+                        return bad(format!(
+                            "account {:?} ({}) needs settings_dir or key_ref; only the local account may have neither",
+                            a.id,
+                            a.provider.as_str()
+                        ));
+                    }
+                    Credential::None
+                }
             };
             if a.provider == Provider::Local {
                 if credential != Credential::None {
@@ -341,7 +367,7 @@ impl RuleTable {
     }
 }
 
-/// Operator decision 2026-10-16 (ADR 0030 amendment A, aien-architecture#236):
+/// Operator decision 2026-10-16 (aien-architecture#236; issue #592):
 /// no automatic routing between two subscription accounts of the same
 /// provider. A subscription account is one whose program keeps its own login
 /// in a settings folder. Manual `switchboard launch` may still open any
@@ -361,7 +387,7 @@ fn no_same_provider_subscriptions(
         }
         if let Some(first) = seen.insert(a.provider.as_str(), id) {
             return bad(format!(
-                "route {label:?} holds two {} subscription accounts ({first}, {id}); automatic routing between subscriptions of the same provider is excluded (operator decision 2026-10-16, ADR 0030 amendment A). Keep one per route and open the other by hand with `switchboard launch {id}`",
+                "route {label:?} holds two {} subscription accounts ({first}, {id}); automatic routing between subscriptions of the same provider is excluded (operator decision 2026-10-16, aien-architecture#236). Keep one per route and open the other by hand with `switchboard launch {id}`",
                 a.provider.as_str()
             ));
         }

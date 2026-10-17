@@ -12,8 +12,8 @@
 //! login.
 
 use crate::launch::{
-    check_profile_dir, claude_profiles, find_program, is_credential_selecting, launch_env,
-    DirProblem, DirState, Env, CONFIG_DIR_VAR, CREDENTIALS_FILE,
+    check_profile_dir, claude_profiles, find_program, folder_shared_with, is_credential_selecting,
+    launch_env, DirProblem, DirState, Env, CONFIG_DIR_VAR, CREDENTIALS_FILE,
 };
 use crate::rules::RuleTable;
 use std::ffi::OsStr;
@@ -177,7 +177,7 @@ pub fn doctor(rules: &RuleTable, env: &Env, cwd: &Path, probe: &mut dyn VersionP
     }
 
     for (account, dir) in &profiles {
-        check_profile(&mut r, account.id.as_str(), dir);
+        check_profile(&mut r, rules, account.id.as_str(), dir);
     }
 
     for path in repo_settings_files(cwd) {
@@ -210,7 +210,12 @@ fn check_shell_env(r: &mut Report, env: &Env) {
     }
 }
 
-fn check_profile(r: &mut Report, alias: &str, dir: &Path) {
+fn check_profile(r: &mut Report, rules: &RuleTable, alias: &str, dir: &Path) {
+    if let Some(other) = folder_shared_with(rules, alias, dir) {
+        let p = DirProblem::SharedWith(other);
+        r.push(Level::Fail, alias, format!("folder {} {p}", dir.display()));
+        return;
+    }
     match check_profile_dir(dir) {
         Ok(DirState::Missing) => {
             r.push(
