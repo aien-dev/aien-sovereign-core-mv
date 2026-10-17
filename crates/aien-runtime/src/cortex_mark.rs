@@ -26,7 +26,11 @@
 //!
 //! Limits (declared NOT_PROVED): the sha256 is unkeyed, so rewriting journal
 //! and mark together, deleting the mark (adopted and reported), or rolling the
-//! compose dir and the mark back together are not detected.
+//! compose dir and the mark back together are not detected. Same class:
+//! rewriting the mark as version 1 skips the chain check and the next save
+//! stamps a fresh version 2 chain; version 1 acceptance must end once the
+//! chain is keyed. A version 2 mark with zero records must carry the initial
+//! (all-zero) chain, or it is refused as damaged.
 use sha2::{Digest, Sha256};
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -111,13 +115,22 @@ impl Mark {
         if Sha256::digest(&b[..body])[..] != b[body..] {
             return Err("checksum does not match".into());
         }
-        Ok(Mark {
+        let m = Mark {
             machine_id: b[16..48].try_into().expect("32 bytes"),
             seq: u64::from_le_bytes(b[48..56].try_into().expect("8 bytes")),
             records: u64::from_le_bytes(b[56..64].try_into().expect("8 bytes")),
             digest: b[64..96].try_into().expect("32 bytes"),
             chain: (version == VERSION).then(|| b[96..128].try_into().expect("32 bytes")),
-        })
+        };
+        // No records means the initial chain. Anything else is the mark
+        // contradicting itself (and would seed the next save's chain), so it
+        // is refused as a damaged mark, not as changed history.
+        if m.records == 0 && m.chain.is_some_and(|c| c != [0u8; 32]) {
+            return Err(
+                "version 2 mark claims zero records but carries a non-initial chain".into(),
+            );
+        }
+        Ok(m)
     }
 }
 
