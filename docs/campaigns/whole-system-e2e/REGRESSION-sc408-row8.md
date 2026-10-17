@@ -36,9 +36,10 @@ first checks its digest against every record omega wrote (a control).
 | truncated tail | refused `E_MARK_TRUNCATED`; padded back to the count: `E_REPLAY` (J-Space anchor) | same |
 | refusal repairs nothing; recover keeps the old mark | (not reached) | pass |
 | version 1 mark upgraded, then a forged receipt refused | (not reached) | pass |
+| v2 mark claiming zero records with a non-initial chain | accepted on 8b47f25f (this branch before review), opened with 22 records | refused `E_MARK` (damaged mark, blames the mark) |
 
 Other checks on this branch: `scripts/test-linked-compose.sh` (CI's linked gate, `LINKED_REPEAT=1`): PASS, 592 linked
-tests; `cortex_mark` unit tests 12 passed (v1 read, v2 layout, chain formula against a manual sha256 fold, refusal
+tests; `cortex_mark` unit tests 13 passed (v1 read, v2 layout, zero-record chain refused, chain formula against a manual sha256 fold, refusal
 text); `crates/aien-cli/tests/recovery_matrix_test.rs` (real SIGKILL restarts of a compose-linked CPU
 `fault-hold` daemon, SmolLM2 on the CPU reference): 12 passed; `cargo clippy --workspace --all-targets -- -D warnings`
 and `cargo fmt --check` clean.
@@ -46,7 +47,7 @@ and `cargo fmt --check` clean.
 ## Limits (not claimed)
 
 The chain is unkeyed: rewriting the journal and the mark together, deleting the mark (adopted and reported), or
-rolling both back together is still not detected (the mark's declared NOT_PROVED limits). Records appended after the
+rolling both back together is still not detected (the mark's declared NOT_PROVED limits). Same class: rewriting the mark as version 1 (no chain) skips the chain check, and the next save stamps a fresh version 2 chain over whatever the journal then holds; version 1 acceptance must end once the chain is keyed. Records appended after the
 last mark write (a kill between append and mark update) are taken as read, as before. A refused open still lets omega
 append its start-up records first, as for `E_MARK_DIGEST`. No fault-harness run, no E2E rerun, no GB10: the other
 #408 items stay open.
