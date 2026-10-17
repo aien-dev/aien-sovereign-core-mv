@@ -19,11 +19,17 @@ pub struct Limits {
     pub literal: usize,
     /// Most untagged responses accepted for one command.
     pub responses: usize,
-    /// Most response bytes (lines plus literals) accepted for one command.
+    /// Most response bytes (lines plus literals) accepted for one command. Every line
+    /// and literal also costs `ENTRY_COST` bytes, so a flood of empty literals is bounded
+    /// by the memory it really takes, not only by its size on the wire.
     pub command_bytes: usize,
     /// Most UIDs accepted from one search.
     pub uids: usize,
 }
+
+/// Budget charged for each line and literal on top of its bytes: the allocation and
+/// bookkeeping one entry costs whatever its length.
+const ENTRY_COST: usize = 64;
 
 impl Default for Limits {
     fn default() -> Self {
@@ -148,8 +154,8 @@ impl<S: Read + Write> Client<S> {
             buf: Vec::new(),
             next_tag: 1,
         };
-        // A greeting is one line; it gets a line's worth of budget.
-        let mut budget = limits.line;
+        // A greeting is one line; it gets one line's worth of budget.
+        let mut budget = limits.line + 2 + ENTRY_COST;
         let greeting = client.read_response(&mut budget)?;
         if let Some(text) = untagged(&greeting.text[0], b"BYE") {
             return Err(ImapError::Bye(printable(text)));
@@ -215,6 +221,11 @@ impl<S: Read + Write> Client<S> {
             // Servers may interleave unsolicited FETCH data for other messages.
             if !is_fetch(&response.text[0]) || fetch_uid(&response) != Some(uid) {
                 continue;
+            }
+            // A body sent as a quoted string would read as missing; refuse it. NIL (no
+            // such section) stays `None`.
+            if response.text.iter().any(|text| quotes_section(text, reply)) {
+                return Err(ImapError::Malformed("section sent as a quoted string"));
             }
             for (text, literal) in response.text.iter().zip(response.literals) {
                 if names_section(text, reply) {
@@ -321,13 +332,18 @@ impl<S: Read + Write> Client<S> {
     }
 
     /// One response: a line, plus a literal and a further line for every
-    /// line that ends in `{n}`.
+    /// line that ends in `{n}`. Only untagged responses carry literals: a tagged
+    /// status or `+` line ending in `{n}` is just text.
     fn read_response(&mut self, budget: &mut usize) -> Result<Response, ImapError> {
         let mut text = Vec::new();
         let mut literals = Vec::new();
         loop {
             let line = self.read_line(budget)?;
-            let literal = literal_len(&line)?;
+            let literal = if text.is_empty() && !line.starts_with(b"* ") {
+                None
+            } else {
+                literal_len(&line)?
+            };
             text.push(line);
             let Some(len) = literal else {
                 return Ok(Response { text, literals });
@@ -335,7 +351,7 @@ impl<S: Read + Write> Client<S> {
             if len > self.limits.literal {
                 return Err(ImapError::LiteralTooLarge);
             }
-            charge(budget, len)?;
+            charge(budget, len.saturating_add(ENTRY_COST))?;
             literals.push(self.read_exact(len)?);
         }
     }
@@ -349,7 +365,7 @@ impl<S: Read + Write> Client<S> {
                 if pos > self.limits.line {
                     return Err(ImapError::LineTooLong);
                 }
-                charge(budget, pos + 2)?;
+                charge(budget, pos + 2 + ENTRY_COST)?;
                 let mut line: Vec<u8> = self.buf.drain(..pos + 2).collect();
                 line.truncate(pos);
                 return Ok(line);
@@ -501,6 +517,15 @@ fn fetch_uid(response: &Response) -> Option<u32> {
     })
 }
 
+/// Whether `text` carries `name` as a quoted string, as in `... BODY[] "..."`.
+fn quotes_section(text: &[u8], name: &[u8]) -> bool {
+    let mut quoted = name.to_vec();
+    quoted.extend_from_slice(b" \"");
+    text.windows(quoted.len()).enumerate().any(|(i, w)| {
+        w.eq_ignore_ascii_case(&quoted) && i > 0 && matches!(text[i - 1], b'(' | b' ')
+    })
+}
+
 /// Whether the text before a literal names `name` as the item it carries,
 /// as in `... BODY[HEADER] {123}`.
 fn names_section(text: &[u8], name: &[u8]) -> bool {
@@ -518,9 +543,11 @@ mod tests {
     use super::*;
     use std::io::Cursor;
 
-    /// A scripted server: replies are read from `input`, client writes are kept.
+    /// A scripted server: replies are read from `input`, at most `chunk` bytes per
+    /// read, and client writes are kept.
     struct Script {
         input: Cursor<Vec<u8>>,
+        chunk: usize,
         written: Vec<u8>,
     }
 
@@ -528,14 +555,24 @@ mod tests {
         fn new(replies: &[u8]) -> Self {
             Self {
                 input: Cursor::new(replies.to_vec()),
+                chunk: usize::MAX,
                 written: Vec::new(),
+            }
+        }
+
+        /// A server that hands over one byte per read.
+        fn trickle(replies: &[u8]) -> Self {
+            Self {
+                chunk: 1,
+                ..Self::new(replies)
             }
         }
     }
 
     impl Read for Script {
         fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            self.input.read(buf)
+            let n = buf.len().min(self.chunk);
+            self.input.read(&mut buf[..n])
         }
     }
 
@@ -734,7 +771,8 @@ mod tests {
         c.login("u", "p").unwrap();
         assert_eq!(c.examine("INBOX"), Err(ImapError::TooManyResponses));
         let limits = Limits {
-            command_bytes: 20,
+            // The login reply and the FETCH line fit; the 16-byte literal does not.
+            command_bytes: 2 * ENTRY_COST + 40,
             ..Limits::default()
         };
         let mut c = small(
@@ -841,5 +879,114 @@ mod tests {
         assert!(matches!(junk.err(), Some(ImapError::Malformed(_))));
         let empty = Client::connect(Script::new(b""));
         assert_eq!(empty.err(), Some(ImapError::Truncated));
+    }
+
+    #[test]
+    fn one_byte_per_read_gives_the_same_transcript() {
+        // A 20 KiB literal crosses many fills; CRLFs split across reads resume the scan.
+        let body: Vec<u8> = (0..20 * 1024).map(|i| b'a' + (i % 26) as u8).collect();
+        let mut replies = GREETING.to_vec();
+        replies.extend_from_slice(b"A0001 OK Logged in\r\n");
+        replies.extend_from_slice(b"* 1 EXISTS\r\nA0002 OK [READ-ONLY] Examine completed\r\n");
+        replies.extend_from_slice(b"* SEARCH 12\r\nA0003 OK Search completed\r\n");
+        // The UID item may follow the literal.
+        replies.extend_from_slice(format!("* 1 FETCH (BODY[] {{{}}}\r\n", body.len()).as_bytes());
+        replies.extend_from_slice(&body);
+        replies.extend_from_slice(b" UID 12)\r\nA0004 OK Fetch completed\r\n");
+        replies.extend_from_slice(b"* BYE Logging out\r\nA0005 OK Logout completed\r\n");
+        let mut c = Client::connect(Script::trickle(&replies)).unwrap();
+        c.login("u", "p").unwrap();
+        c.examine("INBOX").unwrap();
+        assert_eq!(c.uid_search_all().unwrap(), vec![12]);
+        assert_eq!(c.uid_fetch(12, Section::Full).unwrap(), Some(body));
+        c.logout().unwrap();
+    }
+
+    #[test]
+    fn line_exactly_at_the_limit_is_accepted_one_byte_per_read() {
+        let limits = Limits {
+            line: 48,
+            ..Limits::default()
+        };
+        let mut at = b"* SEARCH ".to_vec();
+        at.extend(std::iter::repeat_n(b'7', 48 - at.len()));
+        let mut replies = GREETING.to_vec();
+        replies.extend_from_slice(b"A0001 OK\r\n");
+        replies.extend_from_slice(&at);
+        replies.extend_from_slice(b"\r\nA0002 OK\r\n");
+        let mut c = Client::with_limits(Script::trickle(&replies), limits).unwrap();
+        c.login("u", "p").unwrap();
+        assert_eq!(
+            c.uid_search_all(),
+            Err(ImapError::Malformed("search result is not a UID"))
+        );
+        // One byte more is refused.
+        let mut over = GREETING.to_vec();
+        over.extend_from_slice(b"A0001 OK\r\n");
+        over.extend_from_slice(&at);
+        over.extend_from_slice(b"7\r\nA0002 OK\r\n");
+        let mut c = Client::with_limits(Script::trickle(&over), limits).unwrap();
+        c.login("u", "p").unwrap();
+        assert_eq!(c.uid_search_all(), Err(ImapError::LineTooLong));
+    }
+
+    #[test]
+    fn empty_literal_flood_is_charged_against_the_command_budget() {
+        // 2,000 `{0}` literals are 10 kB on the wire but 4,000 allocations; each line and
+        // literal is charged a fixed overhead, so the flood hits the command budget.
+        let limits = Limits {
+            command_bytes: 64 * 1024,
+            ..Limits::default()
+        };
+        let mut replies = b"A0001 OK\r\n* 1 FETCH (UID 5 X {0}\r\n".to_vec();
+        for _ in 0..2_000 {
+            replies.extend_from_slice(b"{0}\r\n");
+        }
+        replies.extend_from_slice(b")\r\nA0002 OK\r\n");
+        let mut c = small(&replies, limits).unwrap();
+        c.login("u", "p").unwrap();
+        assert_eq!(
+            c.uid_fetch(5, Section::Full),
+            Err(ImapError::CommandTooLarge)
+        );
+    }
+
+    #[test]
+    fn tagged_and_continuation_lines_never_announce_literals() {
+        // A tagged status or `+` line ending in `{n}` is not followed by n bytes.
+        let mut c = client(b"A0001 OK done {5}\r\nA0002 OK {9}\r\n");
+        c.login("u", "p").unwrap();
+        c.examine("INBOX").unwrap();
+        let mut c = client(b"+ ready {4}\r\nA0001 OK\r\n");
+        c.login("u", "pässword").unwrap();
+    }
+
+    #[test]
+    fn tagged_no_after_a_fetch_literal_and_bye_before_continuation_are_refused() {
+        let mut c =
+            client(b"A0001 OK\r\n* 1 FETCH (UID 5 BODY[] {3}\r\nabc)\r\nA0002 NO denied\r\n");
+        c.login("u", "p").unwrap();
+        assert_eq!(
+            c.uid_fetch(5, Section::Full),
+            Err(ImapError::No("denied".into()))
+        );
+        let mut c = client(b"* BYE going away\r\n");
+        assert_eq!(
+            c.login("u", "pässword"),
+            Err(ImapError::Bye("going away".into()))
+        );
+    }
+
+    #[test]
+    fn section_sent_as_a_quoted_string_is_malformed_and_nil_is_none() {
+        let mut c = client(b"A0001 OK\r\n* 1 FETCH (UID 5 BODY[] \"hello\")\r\nA0002 OK\r\n");
+        c.login("u", "p").unwrap();
+        assert!(matches!(
+            c.uid_fetch(5, Section::Full),
+            Err(ImapError::Malformed(_))
+        ));
+        let mut c = client(b"A0001 OK\r\n* 1 FETCH (UID 5 BODY[HEADER] NIL)\r\nA0002 OK\r\n");
+        c.login("u", "p").unwrap();
+        assert_eq!(c.uid_fetch(5, Section::Header).unwrap(), None);
     }
 }
