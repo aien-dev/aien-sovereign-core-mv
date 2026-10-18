@@ -1,0 +1,11 @@
+  ribbon manifest 6144 experts, model digest 57e416ad499a06d6b63edfc849a9363f7d983e8fad9eed3d6aaeb791e0fe6885
+  ribbon slots 3072 x 4719744 B = 14499053568 B device
+  [2s] model.layers.6.self_attn.o_proj
+  [2s] model.layers.13.self_attn.qkv
+  [2s] model.layers.19.mlp.experts paged
+  [2s] model.layers.26.self_attn.o_proj
+  [2s] model.layers.33.self_attn.qkv
+  [2s] model.layers.39.mlp.experts paged
+  [2s] model.layers.46.self_attn.o_proj
+  [3s] lm_head
+  [3s] kv fused cache 768 MB resident=true

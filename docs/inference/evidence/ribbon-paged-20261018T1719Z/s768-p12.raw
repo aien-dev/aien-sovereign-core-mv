@@ -1,0 +1,22 @@
+mem available before load: 48.5 GB
+RIBBON: 768 slots, pools 3.62 GB; memory gate 9.6 GB
+engine native=true window_api=true fp8_api=true dattn_api=true weights=Fp8All attn=Fused spin_us=Some(2000) cta_budget=Some(64)
+prefill path gemv routing host (gemm_api=true)
+attention path fused prefill_chunk 8 batched_prefill_possible false
+router path device lm_head path gemv (router_api=true bf16_api=true)
+decode graph OFF (dgraph_api=true, OWN30B_DECODE_GRAPH=1 to turn on) mutant none
+whole-prompt prefill OFF device router/combine OFF
+LOAD: 3.6s resident 1.53 GB host 0.67 GB peak_rss 6.74 GB (before 3.88 GB) kv_resident=true mem_available_after 41.6 GB
+LOAD peak over resident+host: 4.54 GB (budget 6 GB) -> PASS
+TOKENS p1-one-token: 1 prompt tokens, prefill 0.60s (604.0 ms/token; chunk 8, per token attention 11.5 ms experts 592.7 ms host 1.3 ms launches 288.0), decode 16 tokens in 6677 ms = 417.3 ms/token = 2.4 tok/s; per step: attention 9.0 ms experts 404.8 ms lm_head 3.1 ms host 1.2 ms chip-reported 24.4 ms launches 271; IDENTICAL
+  DECODE GRAPH OFF: 0 of 16 decode steps as one list (the first step is the prefill's lm_head); per step launches 271.0 submits 271.0; per graph token launches 0.0 submits 0.0 record 0.0 us
+  RIBBON 768 slots: experts hit 3683 miss 2461 (hit rate 0.5994); loaded 11613872448 B; miss wall 6782.3 ms; per decode step page 388.50 ms; prefill page 573.7 ms; summed read wait 15860.6 ms; summed slot load 5751.2 ms; device read 11634057216 B; resident 768
+  chip text: " and welcome to the 2024-25 season of the National"
+  cpu  text: " and welcome to the 2024-25 season of the National"
+TOKENS p2-short: 20 prompt tokens, prefill 9.19s (459.4 ms/token; chunk 8, per token attention 9.5 ms experts 449.7 ms host 1.1 ms launches 288.0), decode 7 tokens in 3138 ms = 448.3 ms/token = 2.2 tok/s; per step: attention 9.6 ms experts 434.9 ms lm_head 3.5 ms host 1.1 ms chip-reported 25.9 ms launches 289.14285714285717; IDENTICAL
+  DECODE GRAPH OFF: 0 of 7 decode steps as one list (the first step is the prefill's lm_head); per step launches 289.1 submits 289.1; per graph token launches 0.0 submits 0.0 record 0.0 us
+  RIBBON 768 slots: experts hit 4904 miss 5464 (hit rate 0.4730); loaded 25785533952 B; miss wall 11566.0 ms; per decode step page 418.15 ms; prefill page 8652.7 ms; summed read wait 31560.4 ms; summed slot load 11658.3 ms; device read 25830225040 B; resident 768
+  chip text: "The capital of France is Paris."
+  cpu  text: "The capital of France is Paris.<|im_end|>"
+SUMMARY parity=PASS tokens=PASS peak_rss=6.94 GB
+receipt: /home/drakestapleton/workspace/ribbon-sc/docs/inference/evidence/ribbon-paged-20261018T1719Z/s768-p12
