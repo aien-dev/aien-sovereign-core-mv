@@ -21,6 +21,9 @@ jobs:
       - name: No Python guard (fails if any Python file is tracked)
         run: sh scripts/check-no-python.sh
 
+      - name: PREFILL-E2E-2 mutant patches still apply (no model, no build; sc #452)
+        run: sh crates/aien-runtime/tests/prefill_e2e2_run.sh patches
+
 
       - name: Install Stable Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
