@@ -88,7 +88,8 @@ added by this lane.
 | `cargo/` | root 0755 | CARGO_HOME (cargo works with it read-only: `--locked --offline` builds need no writes there) |
 | `cargo/registry`, `cargo/git` | root, read-only | seeded once from `~/.cargo` (1.9 GB + 1.3 GB; the git cache is needed because `Cargo.lock` has 3 git sources) |
 | `cargo/bin` | root | the operator's `rustup` binary + proxy symlinks; no second rustup install |
-| `rustup/` | root, read-only | `settings.toml` (default 1.98.1) + `toolchains/1.98.1-aarch64-unknown-linux-gnu` copied (631 MB) |
+| `rustup/` | root, read-only | `settings.toml` (default 1.98.1) + `toolchains/1.98.1-aarch64-unknown-linux-gnu` copied (631 MB), plus `toolchains/nightly-aarch64-unknown-linux-gnu` with miri for SC-MIRI |
+| `.cache/miri` | root, read-only | miri sysroot built once by `install.sh` against the copied nightly (110 MB); `cargo +nightly miri setup` in the sandbox finds it and writes nothing (#600) |
 | `.gitconfig` | root 0644 | `safe.directory = *` (git 2.43 has no path globs; aien-run reaches nothing else) |
 | `mirror/<repo>.git` | drakestapleton 0755 | bare mirror of the trusted clone, refreshed by `wt.sh sync`; unwritable by aien-run |
 | `wt/<repo>/<sha>` | root dir drakestapleton:aien-run 1775, `.git` root 0644, files aien-run | checkouts; aien-run can add files, cannot replace `.git` or write the mirror |
