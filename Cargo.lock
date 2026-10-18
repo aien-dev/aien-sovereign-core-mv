@@ -377,7 +377,7 @@ dependencies = [
 [[package]]
 name = "aien-pi-spark-task"
 version = "0.1.0"
-source = "git+https://github.com/aien-dev/aien-protocols?rev=cc35d06f07114b00c2b811f3c4ddfdad1e041fd9#cc35d06f07114b00c2b811f3c4ddfdad1e041fd9"
+source = "git+https://github.com/aien-dev/aien-protocols?rev=81b7d75f340a75ad468a241d152315fb5ef7c1a6#81b7d75f340a75ad468a241d152315fb5ef7c1a6"
 dependencies = [
  "sha2 0.10.9",
 ]

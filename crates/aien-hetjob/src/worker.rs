@@ -82,6 +82,15 @@ fn deliver(
     send(w, ids, wire::T_COMPLETED, next + 1, output)
 }
 
+fn peer_gone(e: &io::Error) -> bool {
+    matches!(
+        e.kind(),
+        io::ErrorKind::BrokenPipe
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::ConnectionAborted
+    )
+}
+
 fn unix_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -97,24 +106,37 @@ impl Worker {
         std::thread::spawn(move || wire::pump(r, reader_tx, Event::In));
         let mut running: Option<Running> = None;
         let mut sum = Summary::default();
+        let res = self.serve_loop(&mut w, &tx, &rx, &mut running, &mut sum);
+        if let Some(job) = running.take() {
+            job.cancel.store(true, Ordering::Relaxed);
+            let _ = job.handle.join();
+        }
+        match res {
+            // The peer may hang up while a reply is being written (it refused
+            // this worker, or gave up): that ends the session like end of input.
+            Err(e) if !peer_gone(&e) => Err(e),
+            _ => Ok(sum),
+        }
+    }
+
+    fn serve_loop<W: Write>(
+        &self,
+        mut w: W,
+        tx: &mpsc::Sender<Event>,
+        rx: &mpsc::Receiver<Event>,
+        running: &mut Option<Running>,
+        sum: &mut Summary,
+    ) -> io::Result<()> {
         loop {
             let ev = rx.recv().expect("worker holds a sender");
             match ev {
-                Event::In(Inbound::Msg(m)) => {
-                    self.on_msg(&mut w, &tx, &mut running, &mut sum, *m)?
-                }
+                Event::In(Inbound::Msg(m)) => self.on_msg(&mut w, tx, running, sum, *m)?,
                 Event::In(Inbound::Refused(_)) => sum.refused_frames += 1,
-                Event::In(Inbound::Eof) | Event::In(Inbound::Broken(_)) => {
-                    if let Some(job) = running.take() {
-                        job.cancel.store(true, Ordering::Relaxed);
-                        let _ = job.handle.join();
-                    }
-                    return Ok(sum);
-                }
+                Event::In(Inbound::Eof) | Event::In(Inbound::Broken(_)) => return Ok(()),
                 Event::Done(fin) => {
                     let Some(job) = running.take() else { continue };
                     if job.ids.task_id != fin.task_id {
-                        running = Some(job);
+                        *running = Some(job);
                         continue;
                     }
                     let _ = job.handle.join();

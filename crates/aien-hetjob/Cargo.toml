@@ -6,9 +6,9 @@ license.workspace = true
 description = "Allowlisted, integer-exact CPU jobs dispatched over PST1 to a hosted worker machine, with worker-signed receipts and an independent recompute on the coordinator (aien-sovereign-core#637)"
 
 [dependencies]
-# PST1 header reader and writer. Pinned to aien-protocols-mv#37 head until that
-# stack merges; switch to the merged main rev before this crate merges.
-aien-pi-spark-task = { git = "https://github.com/aien-dev/aien-protocols", rev = "cc35d06f07114b00c2b811f3c4ddfdad1e041fd9" }
+# PST1 header reader and writer, pinned to the aien-protocols-mv main commit
+# that merged #37.
+aien-pi-spark-task = { git = "https://github.com/aien-dev/aien-protocols", rev = "81b7d75f340a75ad468a241d152315fb5ef7c1a6" }
 # Key files, executor fingerprints and canonical signed bytes are reused from
 # the local verification worker (ADR 0033 Decision 6); the bundle schema is not.
 aien-test = { path = "../../tools/aien-test" }

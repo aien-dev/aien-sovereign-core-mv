@@ -464,6 +464,30 @@ fn corrupt_frame_is_dropped_and_the_next_request_still_runs() {
     assert_eq!(got.last().unwrap().header.msg_type, wire::T_COMPLETED);
 }
 
+/// A writer whose peer has hung up.
+struct HungUp;
+
+impl std::io::Write for HungUp {
+    fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::ErrorKind::BrokenPipe.into())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn peer_hanging_up_mid_reply_ends_the_session_cleanly() {
+    // The input stays open, so the hang-up is seen only by the failed write
+    // (the order the wrong-peer test can hit when the result is fast).
+    let w = worker("hungup", Limits::default());
+    let (mut c, s) = UnixStream::pair().unwrap();
+    let req = wire::build(&ids(14, 14), wire::T_REQUEST, 0, &SMALL.encode());
+    wire::write_frame(&mut c, &req).unwrap();
+    let sum = w.serve(s, HungUp).expect("a hang-up is not a worker error");
+    assert_eq!(sum.completed + sum.failed, 0);
+}
+
 #[test]
 fn stale_frames_for_another_task_are_ignored() {
     let spec = SMALL;
