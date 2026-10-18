@@ -1,0 +1,22 @@
+# tests/gates/sc-pkv-lib.gate
+# No hosted mirror: host-only self-test of the persistent KV chip-script helpers (stub curl, ss, sleep;
+# no server, chip, network or real port). Kept out of ci.yml so the judge decides pkv heads without an
+# operator run (#613).
+gate: SC-PKV-LIB
+manifest_version: 2
+owner: aien-sovereign-core
+requires:
+  - host
+inputs:
+  - scripts/own30b-pkv-lib.sh
+  - scripts/test-pkv-lib.sh
+  - tests/gates/
+run:
+  exec: tests/gates/run.sh
+  args: ["pkv-lib"]
+expects:
+  exit: 0
+  verdict: PASS
+timeout: 10m
+exactness: EXACT
+cache_scope: machine
