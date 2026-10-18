@@ -27,7 +27,7 @@ pub use pager::{ExpertPager, PagerError, PagerStats, Pinned, SlotBackend};
 pub use reader::{
     FakeShards, Fault, FileShards, ReadAdapter, ReadConfig, ReadError, ShardDevice, VerifiedExpert,
 };
-pub use residency::{Acquire, ExpertId, MemoryBudget, Residency, SlotVersion};
+pub use residency::{Acquire, ExpertId, MemoryBudget, Residency, ResidencyStats, SlotVersion};
 pub use ring::{Lease, Ring, SlotTag};
 pub use stream::{RotationStats, Schedule, StreamConfig, Streamer};
 

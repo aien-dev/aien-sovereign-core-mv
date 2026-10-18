@@ -28,6 +28,8 @@ use rayon::prelude::*;
 use crate::moe_plan::MoeBatchPlan;
 use crate::qwen3_moe::{bf16_to_f32, f32_to_bf16, fp8_table, shard_path, Shard, FP8_BLOCK};
 use crate::resident::transpose_bf16_for_upload;
+/// Expert Ribbon: FP8 experts paged from the NVMe into GPU slots (aienix#4, sc#632).
+pub mod ribbon;
 pub mod w8a8_control;
 mod whole_prompt;
 
@@ -1074,6 +1076,8 @@ pub enum ExpertWeights {
         gate_up: Arc<dyn Fp8Gemv>,
         down: Arc<dyn Fp8Gemv>,
     },
+    /// FP8 experts paged from the NVMe into GPU slots (Expert Ribbon); one pool shared by all layers.
+    Paged(Arc<ribbon::PagedExperts>),
 }
 
 /// The whole model: resident matmuls on the device, bf16 embedding and f32 norms/routers on the host.
@@ -1220,6 +1224,65 @@ pub fn load_qwen3_moe_omega_from_paths(
     paths: DevicePaths,
     progress: &mut dyn FnMut(&str),
 ) -> Result<(Qwen3MoeOmegaWeights, LoadReport), String> {
+    load_from_inner(config, source, uploader, format, paths, None, progress)
+}
+
+/// As [`load_qwen3_moe_omega_from_paths`] with the experts paged (Expert Ribbon): no expert bytes are read
+/// or uploaded; every layer gets [`ExpertWeights::Paged`] over the one shared slot pool. Needs FP8 experts.
+pub fn load_qwen3_moe_omega_paged_from(
+    config: &Qwen3MoeConfig,
+    source: &mut dyn TensorSource,
+    uploader: &dyn ModelUploader,
+    format: WeightFormat,
+    paths: DevicePaths,
+    paged: Arc<ribbon::PagedExperts>,
+    progress: &mut dyn FnMut(&str),
+) -> Result<(Qwen3MoeOmegaWeights, LoadReport), String> {
+    if !format.fp8_experts() {
+        return Err("paged experts need FP8 experts (--weights fp8-experts or fp8)".into());
+    }
+    load_from_inner(
+        config,
+        source,
+        uploader,
+        format,
+        paths,
+        Some(paged),
+        progress,
+    )
+}
+
+/// As [`load_qwen3_moe_omega_paged_from`] from a checkpoint directory.
+pub fn load_qwen3_moe_omega_paged(
+    dir: &Path,
+    uploader: &dyn ModelUploader,
+    format: WeightFormat,
+    paths: DevicePaths,
+    paged: Arc<ribbon::PagedExperts>,
+    progress: &mut dyn FnMut(&str),
+) -> Result<(Qwen3MoeOmegaWeights, LoadReport), String> {
+    let config = Qwen3MoeConfig::from_checkpoint(dir)?;
+    let mut source = ShardSource::open(dir)?;
+    load_qwen3_moe_omega_paged_from(
+        &config,
+        &mut source,
+        uploader,
+        format,
+        paths,
+        paged,
+        progress,
+    )
+}
+
+fn load_from_inner(
+    config: &Qwen3MoeConfig,
+    source: &mut dyn TensorSource,
+    uploader: &dyn ModelUploader,
+    format: WeightFormat,
+    paths: DevicePaths,
+    paged: Option<Arc<ribbon::PagedExperts>>,
+    progress: &mut dyn FnMut(&str),
+) -> Result<(Qwen3MoeOmegaWeights, LoadReport), String> {
     config.validate()?;
     let device_router: Option<Arc<dyn DeviceRouter>> = if paths.router == PathChoice::Host {
         None
@@ -1247,10 +1310,18 @@ pub fn load_qwen3_moe_omega_from_paths(
     let qkv_n = config.qkv_n();
 
     // Transient host buffers, sized once for the largest use and reused for every layer.
-    let mut bits: Vec<u16> = vec![0; h * config.gate_up_n().max(qkv_n).max(qd)];
-    let mut fp8: Vec<u8> = vec![0; (e * 2 * i * h).max(qd * h + 2 * kvd * h)];
+    let gu_cols = if paged.is_some() {
+        0
+    } else {
+        config.gate_up_n()
+    };
+    let mut bits: Vec<u16> = vec![0; h * gu_cols.max(qkv_n).max(qd)];
+    // Paged experts never pass through these buffers: size them for attention only.
+    let ex_bytes = if paged.is_some() { 0 } else { e * 2 * i * h };
+    let ex_scales = if paged.is_some() { 0 } else { e * 2 * ib * kb };
+    let mut fp8: Vec<u8> = vec![0; ex_bytes.max(qd * h + 2 * kvd * h)];
     let mut scales: Vec<u16> =
-        vec![0; (e * 2 * ib * kb).max((qd / FP8_BLOCK + 2 * (kvd / FP8_BLOCK)) * kb)];
+        vec![0; ex_scales.max((qd / FP8_BLOCK + 2 * (kvd / FP8_BLOCK)) * kb)];
     let mut small: Vec<u8> = Vec::new();
 
     let read_bf16_f32 = |source: &mut dyn TensorSource,
@@ -1365,104 +1436,112 @@ pub fn load_qwen3_moe_omega_from_paths(
         };
         progress(&format!("{p}.self_attn.o_proj"));
 
-        // --- experts gate|up: per expert gate [i][h] then up [i][h]; columns e*2i (gate), e*2i+i (up) ---
-        let gu_n = config.gate_up_n();
-        for ex in 0..e {
-            for (j, proj) in ["gate_proj", "up_proj"].into_iter().enumerate() {
-                let w0 = (ex * 2 + j) * i * h;
-                let s0 = (ex * 2 + j) * ib * kb;
-                let base = format!("{p}.mlp.experts.{ex}.{proj}");
+        // Expert Ribbon: no expert bytes are read here; the pager reads them on first use.
+        let experts = if let Some(pe) = &paged {
+            progress(&format!("{p}.mlp.experts paged"));
+            ExpertWeights::Paged(pe.clone())
+        } else {
+            // --- experts gate|up: per expert gate [i][h] then up [i][h]; columns e*2i (gate), e*2i+i (up) ---
+            let gu_n = config.gate_up_n();
+            for ex in 0..e {
+                for (j, proj) in ["gate_proj", "up_proj"].into_iter().enumerate() {
+                    let w0 = (ex * 2 + j) * i * h;
+                    let s0 = (ex * 2 + j) * ib * kb;
+                    let base = format!("{p}.mlp.experts.{ex}.{proj}");
+                    source.read_into(
+                        &format!("{base}.weight"),
+                        "F8_E4M3",
+                        &[i, h],
+                        &mut fp8[w0..w0 + i * h],
+                    )?;
+                    read_scales(
+                        source,
+                        &format!("{base}.weight_scale_inv"),
+                        &[ib, kb],
+                        &mut scales[s0..s0 + ib * kb],
+                    )?;
+                }
+            }
+            let sources: Vec<Fp8Source> = (0..e)
+                .flat_map(|ex| (0..2).map(move |j| (ex, j)))
+                .map(|(ex, j)| {
+                    let w0 = (ex * 2 + j) * i * h;
+                    let s0 = (ex * 2 + j) * ib * kb;
+                    Fp8Source {
+                        weights: &fp8[w0..w0 + i * h],
+                        scales: &scales[s0..s0 + ib * kb],
+                        rows: i,
+                        col0: config.gate_up_col0(ex) + j * i,
+                    }
+                })
+                .collect();
+            let gate_up_fp8 = if format.fp8_experts() {
+                // [e][2i][h] bytes with scales [e][2ib][kb]: the capsule GATE_UP layout, as the chip wants it.
+                resident += e * 2 * i * h + e * 2 * ib * kb * 4;
+                Some(uploader.upload_fp8(
+                    e,
+                    2 * i,
+                    h,
+                    &fp8[..e * 2 * i * h],
+                    &scales[..e * 2 * ib * kb],
+                )?)
+            } else {
+                None
+            };
+            let gate_up = if gate_up_fp8.is_none() {
+                dequant_fp8_sources_to_bf16_cols(&sources, h, &mut bits[..h * gu_n], gu_n)?;
+                resident += 2 * h * gu_n;
+                Some(uploader.upload_experts(h, gu_n, &bits[..h * gu_n])?)
+            } else {
+                None
+            };
+            progress(&format!("{p}.mlp.experts.gate_up"));
+
+            // --- experts down: per expert [h][i]; columns e*h ---
+            let dn_n = config.down_n();
+            for ex in 0..e {
+                let base = format!("{p}.mlp.experts.{ex}.down_proj");
                 source.read_into(
                     &format!("{base}.weight"),
                     "F8_E4M3",
-                    &[i, h],
-                    &mut fp8[w0..w0 + i * h],
+                    &[h, i],
+                    &mut fp8[ex * h * i..(ex + 1) * h * i],
                 )?;
                 read_scales(
                     source,
                     &format!("{base}.weight_scale_inv"),
-                    &[ib, kb],
-                    &mut scales[s0..s0 + ib * kb],
+                    &[kb, ib],
+                    &mut scales[ex * kb * ib..(ex + 1) * kb * ib],
                 )?;
             }
-        }
-        let sources: Vec<Fp8Source> = (0..e)
-            .flat_map(|ex| (0..2).map(move |j| (ex, j)))
-            .map(|(ex, j)| {
-                let w0 = (ex * 2 + j) * i * h;
-                let s0 = (ex * 2 + j) * ib * kb;
-                Fp8Source {
-                    weights: &fp8[w0..w0 + i * h],
-                    scales: &scales[s0..s0 + ib * kb],
-                    rows: i,
-                    col0: config.gate_up_col0(ex) + j * i,
+            let sources: Vec<Fp8Source> = (0..e)
+                .map(|ex| Fp8Source {
+                    weights: &fp8[ex * h * i..(ex + 1) * h * i],
+                    scales: &scales[ex * kb * ib..(ex + 1) * kb * ib],
+                    rows: h,
+                    col0: config.down_col0(ex),
+                })
+                .collect();
+            let experts = if format.fp8_experts() {
+                resident += e * h * i + e * kb * ib * 4;
+                let down =
+                    uploader.upload_fp8(e, h, i, &fp8[..e * h * i], &scales[..e * kb * ib])?;
+                ExpertWeights::Fp8 {
+                    gate_up: gate_up_fp8.expect("fp8 gate_up"),
+                    down,
                 }
-            })
-            .collect();
-        let gate_up_fp8 = if format.fp8_experts() {
-            // [e][2i][h] bytes with scales [e][2ib][kb]: the capsule GATE_UP layout, as the chip wants it.
-            resident += e * 2 * i * h + e * 2 * ib * kb * 4;
-            Some(uploader.upload_fp8(
-                e,
-                2 * i,
-                h,
-                &fp8[..e * 2 * i * h],
-                &scales[..e * 2 * ib * kb],
-            )?)
-        } else {
-            None
+            } else {
+                dequant_fp8_sources_to_bf16_cols(&sources, i, &mut bits[..i * dn_n], dn_n)?;
+                resident += 2 * i * dn_n;
+                let down = uploader.upload_experts(i, dn_n, &bits[..i * dn_n])?;
+                ExpertWeights::Bf16 {
+                    gate_up: gate_up.expect("bf16 gate_up"),
+                    down,
+                }
+            };
+            progress(&format!("{p}.mlp.experts.down"));
+            experts
         };
-        let gate_up = if gate_up_fp8.is_none() {
-            dequant_fp8_sources_to_bf16_cols(&sources, h, &mut bits[..h * gu_n], gu_n)?;
-            resident += 2 * h * gu_n;
-            Some(uploader.upload_experts(h, gu_n, &bits[..h * gu_n])?)
-        } else {
-            None
-        };
-        progress(&format!("{p}.mlp.experts.gate_up"));
-
-        // --- experts down: per expert [h][i]; columns e*h ---
-        let dn_n = config.down_n();
-        for ex in 0..e {
-            let base = format!("{p}.mlp.experts.{ex}.down_proj");
-            source.read_into(
-                &format!("{base}.weight"),
-                "F8_E4M3",
-                &[h, i],
-                &mut fp8[ex * h * i..(ex + 1) * h * i],
-            )?;
-            read_scales(
-                source,
-                &format!("{base}.weight_scale_inv"),
-                &[kb, ib],
-                &mut scales[ex * kb * ib..(ex + 1) * kb * ib],
-            )?;
-        }
-        let sources: Vec<Fp8Source> = (0..e)
-            .map(|ex| Fp8Source {
-                weights: &fp8[ex * h * i..(ex + 1) * h * i],
-                scales: &scales[ex * kb * ib..(ex + 1) * kb * ib],
-                rows: h,
-                col0: config.down_col0(ex),
-            })
-            .collect();
-        let experts = if format.fp8_experts() {
-            resident += e * h * i + e * kb * ib * 4;
-            let down = uploader.upload_fp8(e, h, i, &fp8[..e * h * i], &scales[..e * kb * ib])?;
-            ExpertWeights::Fp8 {
-                gate_up: gate_up_fp8.expect("fp8 gate_up"),
-                down,
-            }
-        } else {
-            dequant_fp8_sources_to_bf16_cols(&sources, i, &mut bits[..i * dn_n], dn_n)?;
-            resident += 2 * i * dn_n;
-            let down = uploader.upload_experts(i, dn_n, &bits[..i * dn_n])?;
-            ExpertWeights::Bf16 {
-                gate_up: gate_up.expect("bf16 gate_up"),
-                down,
-            }
-        };
-        progress(&format!("{p}.mlp.experts.down"));
 
         layers.push(OmegaLayer {
             input_norm: read_bf16_f32(
@@ -1495,9 +1574,6 @@ pub fn load_qwen3_moe_omega_from_paths(
         });
         if let (Some(router), Some(layer)) = (&device_router, layers.last()) {
             let li = layers.len() - 1;
-            let ExpertWeights::Fp8 { gate_up, down } = &layer.experts else {
-                return Err(format!("layer {li}: the device router needs FP8 experts"));
-            };
             // The router carries the bf16 gate weights; the host copy is an exact widening of them.
             let gate_bf16: Vec<u16> = layer
                 .router
@@ -1507,13 +1583,26 @@ pub fn load_qwen3_moe_omega_from_paths(
             router
                 .set_layer(li, &gate_bf16, &layer.post_norm)
                 .map_err(|e| format!("router layer {li}: {e}"))?;
-            let (mut gu, mut dn) = (Vec::with_capacity(2 * e), Vec::with_capacity(2 * e));
-            for ex in 0..e {
-                let (w, s) = gate_up.tensor_entry(ex)?;
-                gu.extend([w, s]);
-                let (w, s) = down.tensor_entry(ex)?;
-                dn.extend([w, s]);
-            }
+            let (gu, dn) = match &layer.experts {
+                ExpertWeights::Fp8 { gate_up, down } => {
+                    let (mut gu, mut dn) = (Vec::with_capacity(2 * e), Vec::with_capacity(2 * e));
+                    for ex in 0..e {
+                        let (w, s) = gate_up.tensor_entry(ex)?;
+                        gu.extend([w, s]);
+                        let (w, s) = down.tensor_entry(ex)?;
+                        dn.extend([w, s]);
+                    }
+                    (gu, dn)
+                }
+                // The paged path never reads the router's group tables (ribbon.rs).
+                ExpertWeights::Paged(_) => (
+                    ribbon::directory_placeholder(e),
+                    ribbon::directory_placeholder(e),
+                ),
+                ExpertWeights::Bf16 { .. } => {
+                    return Err(format!("layer {li}: the device router needs FP8 experts"))
+                }
+            };
             router
                 .set_directory(li, &gu, &dn)
                 .map_err(|e| format!("router directory layer {li}: {e}"))?;
@@ -1935,11 +2024,16 @@ pub(crate) mod test_support {
         }
         fn set_directory(&self, layer: usize, gu: &[u64], dn: &[u64]) -> Result<(), String> {
             assert_eq!((gu.len(), dn.len()), (2 * self.experts, 2 * self.experts));
-            // tensor_entry of expert x is (x + 1, 0): the directory must list them in order.
-            assert!(gu
-                .chunks(2)
-                .enumerate()
-                .all(|(x, p)| p == [x as u64 + 1, 0]));
+            // tensor_entry of expert x is (x + 1, 0): the directory must list them in order. A paged
+            // load (Expert Ribbon) sets the fixed placeholder instead: its tables are never read.
+            let placeholder = super::ribbon::directory_placeholder(self.experts);
+            assert!(
+                (gu == placeholder.as_slice() && dn == placeholder.as_slice())
+                    || gu
+                        .chunks(2)
+                        .enumerate()
+                        .all(|(x, p)| p == [x as u64 + 1, 0])
+            );
             self.directories.lock().unwrap().push(layer);
             Ok(())
         }
@@ -3188,6 +3282,9 @@ pub struct StepTiming {
     pub graph_launches: u64,
     pub graph_submits: u64,
     pub graph_record_ns: u64,
+    /// Expert Ribbon only (inside `experts_ns`): wall time pinning the top-k in slots, misses read
+    /// from the NVMe and loaded included.
+    pub page_ns: u64,
 }
 
 impl StepTiming {
@@ -3196,6 +3293,7 @@ impl StepTiming {
         self.graph_launches += o.graph_launches;
         self.graph_submits += o.graph_submits;
         self.graph_record_ns += o.graph_record_ns;
+        self.page_ns += o.page_ns;
         self.route_ns += o.route_ns;
         self.moe_host_ns += o.moe_host_ns;
         self.total_ns += o.total_ns;
@@ -3841,11 +3939,29 @@ impl Qwen3MoeOmegaEngine {
         paths: DevicePaths,
         progress: &mut dyn FnMut(&str),
     ) -> Result<(Self, LoadReport), String> {
+        Self::load_omega_experts(dir, max_context, format, attn, paths, None, progress)
+    }
+
+    /// As [`Self::load_omega_paths`] with the experts paged into GPU slots (Expert Ribbon) when
+    /// `paged` is given: no expert bytes are read at load, every expert comes from the pager.
+    pub fn load_omega_experts(
+        dir: &Path,
+        max_context: usize,
+        format: WeightFormat,
+        attn: AttnPath,
+        paths: DevicePaths,
+        paged: Option<Arc<ribbon::PagedExperts>>,
+        progress: &mut dyn FnMut(&str),
+    ) -> Result<(Self, LoadReport), String> {
         if !aien_omega_gpu::is_native() {
             return Err("this binary carries the CPU stub of the Omega engine (build with AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB)".into());
         }
-        let (weights, report) =
-            load_qwen3_moe_omega_paths(dir, &OmegaModelUploader, format, paths, progress)?;
+        let (weights, report) = match paged {
+            None => load_qwen3_moe_omega_paths(dir, &OmegaModelUploader, format, paths, progress)?,
+            Some(p) => {
+                load_qwen3_moe_omega_paged(dir, &OmegaModelUploader, format, paths, p, progress)?
+            }
+        };
         let geometry = KvGeometry::from(&weights.config);
         let fused = match attn {
             AttnPath::Split => false,
@@ -4105,7 +4221,7 @@ impl Qwen3MoeOmegaEngine {
             // group table on the chip: no host RMSNorm, router matmul, top-k or table build.
             // The host routing mutant (a host-side swap of the chosen ids) needs the host path.
             let device_router = match (&self.weights.device_router, &layer.experts) {
-                (Some(r), ExpertWeights::Fp8 { .. })
+                (Some(r), ExpertWeights::Fp8 { .. } | ExpertWeights::Paged(_))
                     if self.device_routing && !self.routing_mutant =>
                 {
                     Some(r)
@@ -4203,6 +4319,42 @@ impl Qwen3MoeOmegaEngine {
                         .grouped_f32(&experts, &act_all, &mut down_all)
                         .map_err(|e| format!("layer {layer_idx} down fp8: {e}"))?;
                     timing.launches += 1;
+                    let th = Instant::now();
+                    for (slot, &w) in topk_weights.iter().enumerate() {
+                        for (m, d) in moe_out.iter_mut().zip(&down_all[slot * h..(slot + 1) * h]) {
+                            *m += w * d;
+                        }
+                    }
+                    timing.host_ns += th.elapsed().as_nanos() as u64;
+                }
+                // --- Expert Ribbon: pin the top-k in GPU slots (misses paged in), two grouped launches ---
+                ExpertWeights::Paged(paged) => {
+                    // With the device router the resident path reads the router's normed row on the
+                    // chip; read the same row back (exact: see ribbon.rs). Host routing already has it.
+                    let row: &[f32] = match (device_router, addrs.is_some()) {
+                        (Some(router), true) => {
+                            if post_device.is_empty() {
+                                post_device = vec![0.0f32; h];
+                                router.read_post(&mut post_device).map_err(|e| {
+                                    format!("layer {layer_idx} router readback: {e}")
+                                })?;
+                            }
+                            &post_device
+                        }
+                        _ => &post,
+                    };
+                    let f = paged.ffn(
+                        layer_idx,
+                        &experts,
+                        row,
+                        &mut gu_out,
+                        &mut act_all,
+                        &mut down_all,
+                    )?;
+                    timing.chip_ns += f.chip_ns;
+                    timing.host_ns += f.host_ns;
+                    timing.launches += f.launches;
+                    timing.page_ns += f.page_ns;
                     let th = Instant::now();
                     for (slot, &w) in topk_weights.iter().enumerate() {
                         for (m, d) in moe_out.iter_mut().zip(&down_all[slot * h..(slot + 1) * h]) {
