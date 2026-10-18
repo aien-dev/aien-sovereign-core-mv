@@ -252,7 +252,11 @@ impl Qwen3MoeOmegaEngine {
     /// else [`Self::step`]. On the graph path the returned hidden state is empty and the token is
     /// held for [`Self::dgraph_take_greedy`] / [`Self::logits`].
     pub(super) fn decode_step(&mut self, token: u32) -> Result<Vec<f32>, String> {
-        if !self.decode_graph || !self.trace_layers.is_empty() || self.routing_mutant {
+        if !self.decode_graph
+            || !self.trace_layers.is_empty()
+            || self.routing_mutant
+            || self.draft_on()
+        {
             return self.step(token);
         }
         let t0 = Instant::now();
