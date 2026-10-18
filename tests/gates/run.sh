@@ -67,6 +67,7 @@ case "$step" in
     ;;
   aien-verify-tests)   sh tools/aien-verify/tests/run.sh ;;
   pins-selftest)       bash scripts/test-pins.sh ;;
+  pkv-lib)             bash scripts/test-pkv-lib.sh ;;
   native-identity)     bash scripts/test-native-identity.sh ;;
   install-test)        bash scripts/test-install.sh ;;
   scoring-v5)          bash docs/campaigns/scoring/test-scoring-v5.sh ;;
