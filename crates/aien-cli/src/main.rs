@@ -417,6 +417,7 @@ async fn main() {
         ))
         .with_redactor(crate::vault::redact_secrets)
         .with_counter_from_env();
+    let micro_compact = crate::compaction::micro_compact_enabled_from_env();
 
     loop {
         let prompt_str = format!("{}{}", "AIEN".magenta().bold(), " ❯ ".cyan().bold());
@@ -443,7 +444,8 @@ async fn main() {
                     continue;
                 }
 
-                report_compaction(&compactor.compact_if_needed(&mut messages));
+                let report = compactor.compact_if_needed(&mut messages);
+                record_compaction(&report, &messages, &mut journal);
 
                 // Multi-turn tool execution loop (sc#665: persist-before-act, one-shot recovery)
                 if let Some(stop) = run_model_steps(
@@ -458,6 +460,13 @@ async fn main() {
                 {
                     println!("\n{}", stop.describe().red().bold());
                     journal.stop(&stop);
+                }
+
+                // sc#664: opt-in per-turn folding of one exchange
+                // (AIEN_MICRO_COMPACT=1). The operator's words are never folded.
+                if micro_compact {
+                    let report = compactor.absorb_oldest_exchange(&mut messages);
+                    record_compaction(&report, &messages, &mut journal);
                 }
 
                 // The end of the turn: the journal snapshot is the record of this
@@ -615,7 +624,8 @@ async fn run_model_steps(
                             "(the conversation is too long for the model; compacting and trying once more)"
                                 .dimmed()
                         );
-                        report_compaction(&c.compact_if_needed(messages));
+                        let report = c.compact_if_needed(messages);
+                        record_compaction(&report, messages, journal);
                         continue;
                     }
                     None => {
@@ -674,7 +684,8 @@ async fn run_model_steps(
         }
 
         if let Some(c) = compactor {
-            report_compaction(&c.compact_if_needed(messages));
+            let report = c.compact_if_needed(messages);
+            record_compaction(&report, messages, journal);
         }
 
         let tool_calls = extract_tool_calls(&assistant_resp);
@@ -841,6 +852,29 @@ pub async fn run_autonomous_goal(goal_id: &str) {
 
 /// Prints the outcome of a compaction pass. Skips are reported too, so a
 /// refusal (detached tool result, store failure) is never silent.
+/// sc#664: prints the compaction report and, when the history changed, records
+/// the new history in the session journal at once. The journal line is written
+/// whole or not at all, so a resumed session loads either the old history or
+/// the compacted one, never both the recap and the messages it replaced.
+fn record_compaction(
+    report: &crate::compaction::CompactionReport,
+    messages: &[Value],
+    journal: &mut turn_journal::Journal,
+) {
+    report_compaction(report);
+    if report.applied {
+        if let Err(e) = journal.snapshot(messages) {
+            eprintln!(
+                "{}",
+                format!(
+                    "warning: the compacted history could not be recorded ({e}); a resumed session would load the history from before this compaction"
+                )
+                .yellow()
+            );
+        }
+    }
+}
+
 fn report_compaction(report: &crate::compaction::CompactionReport) {
     use crate::compaction::SkipReason;
     if let Some(stats) = &report.stats {
@@ -880,5 +914,83 @@ fn report_compaction(report: &crate::compaction::CompactionReport) {
             .yellow()
             .dimmed()
         ),
+    }
+}
+
+#[cfg(test)]
+mod compaction_journal_tests {
+    use super::*;
+    use crate::compaction::{CompactionStore, ContextCompactor};
+
+    fn user(t: &str) -> Value {
+        json!({"role": "user", "content": t})
+    }
+
+    /// sc#664 acceptance: a compaction is on disk before anything else
+    /// happens, so a process killed right after it resumes with the compacted
+    /// history, once: one recap, not the recap plus the messages it replaced.
+    #[test]
+    fn resume_after_a_compaction_does_not_double_load() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("s.journal.jsonl");
+        let mut journal = turn_journal::Journal::create(&path).unwrap();
+        let compactor = ContextCompactor::new(2000, 1000, 500)
+            .with_store(CompactionStore::new(d.path().join("compaction")));
+        let mut messages = Vec::new();
+        let opening = [
+            json!({"role": "system", "content": "sys"}),
+            user("grounding"),
+        ];
+        for m in opening {
+            journal.push(&mut messages, m).unwrap();
+        }
+        for k in 0..4 {
+            journal
+                .push(&mut messages, user(&format!("ask {k}")))
+                .unwrap();
+            journal
+                .push(
+                    &mut messages,
+                    json!({"role": "assistant", "content": "<tool_call>\n{\"name\": \"view_file\", \"arguments\": {}}\n</tool_call>"}),
+                )
+                .unwrap();
+            let big = format!(
+                "<tool_response name=\"view_file\">\n{}\n</tool_response>",
+                "Z".repeat(4000)
+            );
+            journal.push(&mut messages, user(&big)).unwrap();
+            journal
+                .push(
+                    &mut messages,
+                    json!({"role": "assistant", "content": format!("answer {k}")}),
+                )
+                .unwrap();
+        }
+        let before = messages.len();
+        let report = compactor.compact_if_needed(&mut messages);
+        assert!(report.applied, "{report:?}");
+        assert!(messages.len() < before);
+        record_compaction(&report, &messages, &mut journal);
+        // Killed here: nothing else is written.
+        drop(journal);
+
+        let (_j, rep) = turn_journal::Journal::resume(&path).unwrap();
+        assert_eq!(rep.messages, messages);
+        let recaps = rep
+            .messages
+            .iter()
+            .filter(|m| {
+                m["content"]
+                    .as_str()
+                    .is_some_and(|c| c.starts_with("<context_compaction_recap"))
+            })
+            .count();
+        assert_eq!(recaps, 1);
+        for k in 0..4 {
+            assert!(
+                rep.messages.contains(&user(&format!("ask {k}"))),
+                "ask {k} lost"
+            );
+        }
     }
 }
