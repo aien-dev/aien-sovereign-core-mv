@@ -12,12 +12,22 @@
 
 pub mod aligned;
 pub mod error;
+pub mod layout;
 pub mod manifest;
+pub mod pager;
+pub mod reader;
+pub mod residency;
 pub mod ring;
 pub mod stream;
 
 pub use error::HeartbeatError;
+pub use layout::{ExpertLayout, ExpertParts, ExpertShape, Payload};
 pub use manifest::{ExpertEntry, Manifest};
+pub use pager::{ExpertPager, PagerError, PagerStats, Pinned, SlotBackend};
+pub use reader::{
+    FakeShards, Fault, FileShards, ReadAdapter, ReadConfig, ReadError, ShardDevice, VerifiedExpert,
+};
+pub use residency::{Acquire, ExpertId, MemoryBudget, Residency, SlotVersion};
 pub use ring::{Lease, Ring, SlotTag};
 pub use stream::{RotationStats, Schedule, StreamConfig, Streamer};
 
