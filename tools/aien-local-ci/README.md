@@ -65,9 +65,9 @@ resolves only through it; a file of the same name inside the worktree is never u
 ## Trusted crumb on the sandbox PATH
 
 `/usr/local/bin/crumb` (root 0755) is built by `install.sh` from aien-architecture commit
-`94fffbcf88492c5a1c54211b5126c8a6c370a98d` (`tools/crumb/crumb.c`, git blob `841f5317...`, checked before building;
+`12ad0141b41ec67ef5aa51cb4e1815894c1083bb` (`tools/crumb/crumb.c`, git blob `c272f293...`, checked before building;
 source read from the git object store of `AIEN_ARCH_CLONE`, default `~/workspace/aien-architecture`) with
-`cc -O2 -Wall -std=c11`. With gcc 13.3.0 the binary's sha256 is `22015e6b156e038e...`, identical to the operator's
+`cc -O2 -Wall -std=c11`. With gcc 13.3.0 the binary's sha256 is `2fb09401f1e09682...` (2026-10-18). The 94fffbcf88492c5a1c54211b5126c8a6c370a98d build matched the operator's
 `~/.local/bin/crumb` on 2026-10-11. To move the pin, change `CRUMB_COMMIT` and `CRUMB_BLOB` in `install.sh` in a PR.
 
 ## Egress decision
