@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 pub mod backend;
 pub mod bitnet_forward;
 pub mod bitnet_omega;
-pub mod bitnet_tokenizer;
+pub use aien_bitnet_tokenizer as bitnet_tokenizer;
 pub mod capsule;
 pub mod checkpoint;
 pub mod gb10_serving;

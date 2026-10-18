@@ -9,6 +9,8 @@ description = "Allowlisted, integer-exact CPU jobs dispatched over PST1 to a hos
 # PST1 header reader and writer, pinned to the aien-protocols-mv main commit
 # that merged #37.
 aien-pi-spark-task = { git = "https://github.com/aien-dev/aien-protocols", rev = "81b7d75f340a75ad468a241d152315fb5ef7c1a6" }
+# Our own BPE for the tokenize_batch kind (no tokenizer library).
+aien-bitnet-tokenizer = { path = "../aien-bitnet-tokenizer" }
 # Key files, executor fingerprints and canonical signed bytes are reused from
 # the local verification worker (ADR 0033 Decision 6); the bundle schema is not.
 aien-test = { path = "../../tools/aien-test" }

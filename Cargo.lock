@@ -74,6 +74,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "aien-bitnet-tokenizer"
+version = "0.1.0"
+dependencies = [
+ "regex-syntax",
+ "serde_json",
+]
+
+[[package]]
 name = "aien-campaign-verifier"
 version = "0.1.0"
 dependencies = [
@@ -171,6 +179,7 @@ dependencies = [
 name = "aien-hetjob"
 version = "0.1.0"
 dependencies = [
+ "aien-bitnet-tokenizer",
  "aien-pi-spark-task",
  "aien-test",
  "ed25519-dalek",
@@ -184,6 +193,7 @@ name = "aien-inference-abi"
 version = "0.1.0"
 dependencies = [
  "aien-abi-core",
+ "aien-bitnet-tokenizer",
  "aien-kv-cache",
  "aien-omega-bf16",
  "aien-omega-dattn",
@@ -197,7 +207,6 @@ dependencies = [
  "async-trait",
  "parking_lot",
  "rayon",
- "regex-syntax",
  "serde",
  "serde_json",
  "sha2 0.10.9",

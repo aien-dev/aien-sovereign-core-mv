@@ -1,0 +1,21 @@
+aien-hetjob serve: Summary { completed: 1, replayed: 0, denied: 0, cancelled: 0, failed: 0, refused_frames: 0 }
+cause_id=f8a2266e3d5924fa1486fbb106b04e4f142299e18e23fbf4ef2d41a9a7f86881
+task_id=fd60cffee6e6774845b5314ad4951265
+idempotence_key=4e0c1ab07548f9f15a1fe1634b0861c3
+kind=tokenize_batch
+work_units=3065803
+oracle_lines=40137
+oracle_tokens=777909
+oracle_round_trips=40137
+round_trip_ms=339.001
+frames=6
+stale_ignored=0
+oracle_ms=672.856
+OUTCOME VERIFIED
+output_digest=4cd7c87806c04e359ddd595870726e991d56381d0d516548ff9e0cd5f415ab8b
+oracle=matched
+worker_key_fingerprint=310482aafb104bcf37f0a14c00eb38f0aacbc9ea4bc02735497c4184ac7af309
+claimed_platform=macos aarch64 cpus=8 memory_bytes=8589934592
+claimed_program_digest=a7406da86c6f107714d282564348e36912c791efaade0d59621ca238347404ce
+claimed_remote_compute_ms=232.432
+claimed_threads=4
