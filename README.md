@@ -14,6 +14,8 @@ No Python in this repo (a CI guard, `scripts/check-no-python.sh`, fails the buil
 
 Research-grade and pre-alpha. Crates build and have unit tests on the DGX Spark; execution is CPU plus GPU through AIEN's own Omega kernels. Modular MAX and Mojo were removed from the project on 2026-10-15. Nothing here is qualified on hardware as a finished system. Live status and sequencing: [CURRENT_EXECUTION_PLAN.md](https://github.com/aien-spark/aien-architecture/blob/main/CURRENT_EXECUTION_PLAN.md) and the [implementation status snapshot](https://github.com/aien-spark/aien-architecture/blob/main/docs/02-implementation-status.md). Component detail and platform status: [docs/PLATFORM_MATRIX.md](docs/PLATFORM_MATRIX.md), [docs/AIEN_RUNTIME_ARCHITECTURE.md](docs/AIEN_RUNTIME_ARCHITECTURE.md).
 
+Qwen3.8-27B (the hybrid DeltaNet + attention model, FP8) has a host reference in `crates/aien-inference-abi/src/qwen38.rs`: on 256 tokens of the Apache license it predicts the next token 98.8% of the time (perplexity 1.091, [evidence](docs/inference/evidence/qwen38-ref-20261018/NOTES.md)); its Omega GPU engine is in progress (#641).
+
 The OWN-30B server (`aien-serve-http --engine omega`, Qwen3-30B-A3B FP8) holds up to 128k context with `--max-context 131072` (default 32768) and refuses to start when its KV cache cannot hold what was asked. On the Spark GPU it recalled a code word from the first line of a 118,186-token prompt ([evidence](docs/inference/evidence/own30b-128k-20261018/NOTES.md)).
 
 Known limits: the GPU fallback counter covers only instrumented operations, so execution is not exclusively accelerated; Qwen full-runtime qualification is not complete; the C1 evidence campaign is in progress.
