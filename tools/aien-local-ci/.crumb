@@ -1,18 +1,4 @@
 {
-  "extensions": {
-    "generated": {
-      "children": [],
-      "children_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "compiled_at": "2026-10-19T00:25:49Z",
-      "compiler": "crumb-compile/1",
-      "digest": "sha256:bb2a911a1a7d4088d5c767bba72d8248154b71fedd0d86102490a594a64a9947",
-      "evidence_files": 0,
-      "evidence_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "files": 17,
-      "generated_at_commit": "f23e1cbd1827d99d525a19052b6d8ae993951ad6",
-      "source_tree": "sha256:dc61b4ef713230725436ddaf2cfb6a6f3958daa16ea8a5a5d7727428519a3768"
-    }
-  },
   "layer": "infra",
   "name": "aien-local-ci",
   "purpose": "Local CI sandbox exec contract (C8), aien-run user/caches install, Forgejo trigger hook, health and gc scripts (lane INFRA)",
