@@ -201,6 +201,18 @@ impl Qwen38Config {
         Ok(())
     }
 
+    /// The first `layers` layers of the model (a truncated stack for parity checks: the final norm
+    /// and lm_head then read layer `layers - 1`'s output). `None` when `layers` is 0 or too many.
+    pub fn prefix(&self, layers: usize) -> Option<Self> {
+        if layers == 0 || layers > self.layers {
+            return None;
+        }
+        let mut c = self.clone();
+        c.layers = layers;
+        c.full_attention.truncate(layers);
+        Some(c)
+    }
+
     /// Width of the DeltaNet conv input: q | k | v.
     pub fn conv_dim(&self) -> usize {
         2 * self.lin_k_heads * self.lin_k_dim + self.lin_v_heads * self.lin_v_dim
@@ -340,7 +352,7 @@ fn bytes_of_words(words: &mut [u16]) -> &mut [u8] {
     unsafe { std::slice::from_raw_parts_mut(words.as_mut_ptr().cast::<u8>(), words.len() * 2) }
 }
 
-fn read_bf16_words(
+pub(crate) fn read_bf16_words(
     source: &mut dyn TensorSource,
     name: &str,
     shape: &[usize],
@@ -350,7 +362,7 @@ fn read_bf16_words(
     Ok(words)
 }
 
-fn read_vec(source: &mut dyn TensorSource, name: &str, len: usize) -> Result<Vec<f32>, String> {
+pub(crate) fn read_vec(source: &mut dyn TensorSource, name: &str, len: usize) -> Result<Vec<f32>, String> {
     Ok(read_bf16_words(source, name, &[len])?
         .into_iter()
         .map(bf16_to_f32)
@@ -359,7 +371,7 @@ fn read_vec(source: &mut dyn TensorSource, name: &str, len: usize) -> Result<Vec
 
 /// Reads `name` as `[n][k]`: e4m3 with `name_scale_inv` when the header says `F8_E4M3`, else
 /// bf16. An e4m3 weight without its scale grid is refused.
-fn read_matrix(
+pub(crate) fn read_matrix(
     source: &mut dyn TensorSource,
     name: &str,
     n: usize,
@@ -534,6 +546,21 @@ pub enum Logits {
     All,
 }
 
+/// Where the text model's tensors live: the multimodal checkpoint nests it under
+/// `model.language_model.`, a text-only one under `model.`.
+pub(crate) fn text_prefix(source: &mut dyn TensorSource) -> Result<String, String> {
+    ["model.language_model.", "model."]
+        .into_iter()
+        .find(|p| {
+            matches!(
+                source.dtype_of(&format!("{p}embed_tokens.weight")),
+                Ok(Some(_))
+            )
+        })
+        .map(str::to_string)
+        .ok_or_else(|| "checkpoint: no embed_tokens.weight under model.language_model. or model.".into())
+}
+
 pub struct Qwen38Reference<S: TensorSource> {
     pub config: Qwen38Config,
     source: S,
@@ -555,17 +582,7 @@ impl Qwen38Reference<ShardSource> {
 impl<S: TensorSource> Qwen38Reference<S> {
     /// Reads the embedding, final norm and lm_head; layers are read per call.
     pub fn new(config: Qwen38Config, mut source: S) -> Result<Self, String> {
-        // The multimodal checkpoint nests the text model under `model.language_model.`.
-        let prefix = ["model.language_model.", "model."]
-            .into_iter()
-            .find(|p| {
-                matches!(
-                    source.dtype_of(&format!("{p}embed_tokens.weight")),
-                    Ok(Some(_))
-                )
-            })
-            .ok_or("checkpoint: no embed_tokens.weight under model.language_model. or model.")?
-            .to_string();
+        let prefix = text_prefix(&mut source)?;
         let (v, h) = (config.vocab, config.hidden);
         let embed = read_bf16_words(&mut source, &format!("{prefix}embed_tokens.weight"), &[v, h])?;
         let final_norm = read_vec(&mut source, &format!("{prefix}norm.weight"), h)?;

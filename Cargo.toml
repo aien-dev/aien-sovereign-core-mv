@@ -37,6 +37,7 @@ members = [
     "crates/aien-omega-moe",
     "crates/aien-omega-fp8",
     "crates/aien-omega-dattn",
+    "crates/aien-omega-q38",
     "crates/aien-omega-router",
     "crates/aien-omega-bf16",
     "crates/aien-omega-dgraph",

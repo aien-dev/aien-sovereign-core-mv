@@ -9,7 +9,7 @@
 //! row per group (`x_rows == groups`).
 //!
 //! Rules omega refuses otherwise (`BAD_ARGS` / `TOO_LARGE`): `n % 128 == 0`, `k % 128 == 0`,
-//! `128 <= k <= 16384`, `1 <= groups <= 64`, every id `< experts`; any e4m3 NaN code in the
+//! `128 <= k <= 32768`, `1 <= groups <= 64`, every id `< experts`; any e4m3 NaN code in the
 //! weights is refused at upload (`NAN_WEIGHT`). Without the native library (`is_native()`
 //! false) every call returns `Unavailable`.
 use aien_omega_gpu::OmegaGpuError;
@@ -19,8 +19,9 @@ use std::fmt;
 pub const BLOCK: usize = 128;
 /// Most experts one grouped call takes (`OMEGA_GPU_FP8_MAX_GROUPS`).
 pub const MAX_GROUPS: usize = 64;
-/// Widest `k` the kernel accepts.
-pub const MAX_K: usize = 16384;
+/// Widest `k` the kernel accepts (`OMEGA_FP8_MAX_K`, 32768 since omega#541: the Qwen3.8-27B
+/// down_proj has k 17408; an omega archive older than that refuses past 16384 itself).
+pub const MAX_K: usize = 32768;
 
 /// True when the FP8 API is linked (not the stub).
 pub const fn is_native() -> bool {
@@ -721,6 +722,7 @@ mod tests {
         assert!(check_shape(0, 128, 128).is_err());
         assert!(check_shape(1, 100, 128).is_err());
         assert!(check_shape(1, 128, 64).is_err());
+        assert!(check_shape(1, 5120, 17408).is_ok());
         assert!(check_shape(1, 128, MAX_K + 128).is_err());
     }
 

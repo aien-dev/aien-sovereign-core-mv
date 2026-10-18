@@ -180,6 +180,7 @@ dependencies = [
  "aien-omega-gpu",
  "aien-omega-moe",
  "aien-omega-pf",
+ "aien-omega-q38",
  "aien-omega-router",
  "aien-platform",
  "async-trait",
@@ -344,6 +345,13 @@ name = "aien-omega-pf"
 version = "0.1.0"
 dependencies = [
  "aien-omega-dattn",
+ "aien-omega-gpu",
+]
+
+[[package]]
+name = "aien-omega-q38"
+version = "0.1.0"
+dependencies = [
  "aien-omega-gpu",
 ]
 
