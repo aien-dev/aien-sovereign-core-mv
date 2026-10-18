@@ -169,7 +169,7 @@ GitHub to act. One instance at a time (`flock` on `$STATE/pipeline.lock`; a seco
 and refusal is one JSON line in `$STATE/pipeline.jsonl`. Exit 0 when the round ran (refusals included), 2 on a usage
 or configuration error. Overrides: `AIEN_STATE`, `AIEN_CLONES`, `AIEN_RECEIPTS`, `AIEN_RECEIPTS_BRANCH`,
 `AIEN_TEST_BIN`, `AIEN_GH_OWNER` (default `aien-dev`), `AIEN_REPOS`, `GH`, `GIT`. GitHub calls use the canonical slug
-(`gh api repos/aien-dev/<repo> --jq .full_name`, so `aienos` becomes `aien-spark/aienos`).
+(`gh api repos/aien-dev/<repo> --jq .full_name`, so `aienos` becomes `aien-dev/aienos-mv` while the temporary `-mv` names last).
 
 * **publish**: for each `$STATE/bundles/<repo>/<sha>/bundle.json` of a repository whose trusted clone has a key in
   `origin/main:.aien/verify.pub` (several keys allowed, one per line, `#` comments, same rule as aien-test): skip when

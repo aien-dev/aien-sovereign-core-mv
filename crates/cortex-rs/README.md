@@ -14,7 +14,7 @@ Native Rust memory engine with SQLite FTS5 lexical recall, bi-encoder vector sim
 
 ## Overview
 
-`cortex-rs` is the Linux-hosted memory service (native Rust, Axum) that Atlas and the AIEN agent tools call for lexical and semantic recall. It is not the canonical memory owner: under [ADR 0022](https://github.com/aien-spark/aien-architecture/blob/main/docs/adr/0022-canonical-cortex-owner.md) the canonical Cortex owner at the Omega layer is omega `rx_cortex`, and under [ADR 0036](https://github.com/aien-spark/aien-architecture/blob/main/docs/adr/0036-release-v1-memory-owner.md) the memory the v1 release tests is `aien-allen-memory` attached to an engaged ALLEN identity.
+`cortex-rs` is the Linux-hosted memory service (native Rust, Axum) that the AIEN agent tools call for lexical and semantic recall. It is not the canonical memory owner: under [ADR 0022](https://github.com/aien-dev/aien-architecture/blob/main/docs/adr/0022-canonical-cortex-owner.md) the canonical Cortex owner at the Omega layer is omega `rx_cortex`, and under [ADR 0036](https://github.com/aien-dev/aien-architecture/blob/main/docs/adr/0036-release-v1-memory-owner.md) the memory the v1 release tests is `aien-allen-memory` attached to an engaged ALLEN identity.
 
 It provides hybrid search combining BM25 full-text indexing with ONNX vector embeddings, enabling autonomous agents to recall procedures, lessons, and architectural discoveries across thousands of turns without context collapse.
 
