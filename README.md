@@ -14,6 +14,8 @@ No Python in this repo (a CI guard, `scripts/check-no-python.sh`, fails the buil
 
 Research-grade and pre-alpha. Crates build and have unit tests on the DGX Spark; execution is CPU plus GPU through AIEN's own Omega kernels. Modular MAX and Mojo were removed from the project on 2026-10-15. Nothing here is qualified on hardware as a finished system. Live status and sequencing: [CURRENT_EXECUTION_PLAN.md](https://github.com/aien-spark/aien-architecture/blob/main/CURRENT_EXECUTION_PLAN.md) and the [implementation status snapshot](https://github.com/aien-spark/aien-architecture/blob/main/docs/02-implementation-status.md). Component detail and platform status: [docs/PLATFORM_MATRIX.md](docs/PLATFORM_MATRIX.md), [docs/AIEN_RUNTIME_ARCHITECTURE.md](docs/AIEN_RUNTIME_ARCHITECTURE.md).
 
+Self-draft (aienix#4, H0): `Qwen3MoeOmegaEngine::set_draft_experts` lets the 30B draft with a per-layer resident expert subset while the full router verifies; default off and bit-identical. Acceptance per resident size and block size: [docs/inference/evidence/own30b-selfdraft-h0-20261018](docs/inference/evidence/own30b-selfdraft-h0-20261018/README.md).
+
 Known limits: the GPU fallback counter covers only instrumented operations, so execution is not exclusively accelerated; Qwen full-runtime qualification is not complete; the C1 evidence campaign is in progress.
 
 ## Measured results
