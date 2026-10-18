@@ -21,8 +21,8 @@
 #       built in its own target dir (see run_mutant), never the shared one.
 #   prefill_e2e2_run.sh patches
 #       Check that every prefill_e2e2_mutants/mutant_*.patch still applies to
-#       this tree (git apply --check). No model, no build; GitHub CI runs it so
-#       a change that breaks a mutant patch fails on its own PR (sc #452).
+#       this tree (git apply --check). No model, no build; run it after changing
+#       a file a mutant patch touches (sc #452).
 #
 # Observations ("AIEN-OBS NAME JSON" lines, see tools/aien-test) tell the
 # runner what happened; the verdict is derived from the manifest, not here.
