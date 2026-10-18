@@ -29,6 +29,9 @@
 //! - a change under `.aien/`, `tests/gates/`, `.github/workflows/`,
 //!   `.forgejo/` or `tools/aien-test/` blocks the commit (BLOCKED_OPERATOR,
 //!   PIPELINE_CONFIG_CHANGED) unless the operator passes `--operator`;
+//! - a gate with `requires: operator` is Blocked (OPERATOR_STEP_PENDING) in
+//!   an automatic run and takes its normal section under `--operator`: the
+//!   operator starting the run by hand is what the manifest asks for;
 //! - every gate that exists at BASE must exist at HEAD; a deleted gate gives
 //!   NOT_RUN with reason GATE_REMOVED.
 //!
@@ -707,9 +710,17 @@ pub fn compute(root: &Path, req: &Request) -> Result<Plan, String> {
         let m = &node.manifest;
         let is_always = always_idx.contains(&i);
         let required = m.exactness != Exactness::Advisory;
+        // A `requires: operator` gate is never scheduled automatically; the
+        // operator starting the run by hand (`--operator`) is what lets it
+        // run, exactly as for a pipeline configuration change (ADR 0033
+        // Decision 2 and amendment A4; sc #614).
+        let operator_gate = m.requires.iter().any(|r| r == "operator");
+        if operator_gate && req.operator && blocked.is_none() {
+            notes.push(format!("operator gate {}: started by --operator", node.id));
+        }
         let (section, reason) = if let Some(b) = &blocked {
             (Section::Blocked, b.clone())
-        } else if m.requires.iter().any(|r| r == "operator") {
+        } else if operator_gate && !req.operator {
             (Section::Blocked, "OPERATOR_STEP_PENDING".to_string())
         } else if !required {
             (Section::Advisory, String::new())
@@ -1625,6 +1636,77 @@ mod tests {
         ] {
             assert!(text.contains(&format!("\n{title}\n")), "{title}");
         }
+    }
+
+    #[test]
+    fn operator_gate_runs_under_operator_and_is_blocked_otherwise() {
+        // sc #614: a `requires: operator` gate is OPERATOR_STEP_PENDING for an
+        // automatic run and runs like any other gate when the operator
+        // started the run by hand with `--operator` (ADR 0033 Decision 2).
+        let op = gate("OP", &["op/"], "").replace("  - host\n", "  - host\n  - operator\n");
+        let t = init_repo(
+            "plan-operator-gate",
+            &[
+                ("gates/op.gate", op.as_str(), false),
+                ("run.sh", "#!/bin/sh\n", true),
+                ("op/x", "1\n", false),
+            ],
+        );
+        commit(&t, &[("op/x", "2\n")]);
+        let pass = |receipt: bool| {
+            let mut known = BTreeMap::new();
+            known.insert(
+                "OP".to_string(),
+                Known {
+                    verdict: Verdict::Pass,
+                    reason: "PASS".into(),
+                    receipt: receipt.then(|| "d".repeat(64)),
+                },
+            );
+            known
+        };
+
+        // Automatic run: Blocked, and a PASS receipt does not unblock it.
+        let p = compute(t.path(), &Request::new("HEAD~1", "HEAD")).unwrap();
+        assert_eq!(gates(&p, Section::Blocked), ["OP"]);
+        assert_eq!(
+            exit_code(&p),
+            0,
+            "a pending operator step is not a config block"
+        );
+        let j = judge(&p, &pass(true));
+        assert_eq!(
+            (j.verdict, j.reason.as_str()),
+            (Verdict::BlockedOperator, "OP:OPERATOR_STEP_PENDING")
+        );
+
+        // Operator run: the gate is Required, runs, and its receipt counts.
+        let p = compute(
+            t.path(),
+            &Request {
+                operator: true,
+                ..Request::new("HEAD~1", "HEAD")
+            },
+        )
+        .unwrap();
+        assert_eq!(gates(&p, Section::Required), ["OP"]);
+        assert!(gates(&p, Section::Blocked).is_empty());
+        let e = p.entries.iter().find(|e| e.gate == "OP").unwrap();
+        assert!(e.reason.is_empty(), "reason {}", e.reason);
+        assert!(
+            p.notes
+                .iter()
+                .any(|n| n.contains("OP") && n.contains("--operator")),
+            "{:?}",
+            p.notes
+        );
+        let j = judge(&p, &pass(true));
+        assert_eq!((j.verdict, j.reason.as_str()), (Verdict::Pass, ""));
+        // Without a receipt nothing is promoted.
+        let j = judge(&p, &pass(false));
+        assert_eq!(j.verdict, Verdict::NotRun);
+        let j = judge(&p, &BTreeMap::new());
+        assert_eq!(j.verdict, Verdict::NotRun);
     }
 
     #[test]

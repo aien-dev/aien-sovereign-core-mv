@@ -271,19 +271,6 @@ impl SwarmRegistry {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PendingApproval {
-    pub id: String,
-    pub action_type: String,
-    pub title: String,
-    pub description: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub command_or_diff: Option<String>,
-    pub risk_level: String,
-    pub status: String,
-    pub created_at: String,
-}
-
 #[derive(Clone)]
 struct AppState {
     client: reqwest::Client,
@@ -292,7 +279,6 @@ struct AppState {
     hive_store: Arc<spark_hive::CombStore>,
     swarm_registry: Arc<SwarmRegistry>,
     distill_engine: Arc<spark_adapters::DistillationEngine>,
-    approvals: Arc<std::sync::Mutex<Vec<PendingApproval>>>,
 }
 
 fn build_patterns() -> Vec<(Regex, &'static str)> {
@@ -452,23 +438,6 @@ async fn handle_get_feed(State(state): State<AppState>) -> Json<Value> {
         "badge": if running_count > 0 { "ACTIVE" } else { "IDLE" }
     }));
 
-    let approvals = state.approvals.lock().unwrap();
-    let pending_approvals = approvals.iter().filter(|a| a.status == "pending").count();
-    drop(approvals);
-
-    if pending_approvals > 0 {
-        items.push(json!({
-            "id": "feed-approvals-alert",
-            "category": "approvals",
-            "title": format!("{} Action{} Awaiting Review", pending_approvals, if pending_approvals > 1 { "s" } else { "" }),
-            "summary": "High-stakes tool executions queued for operator authorization.",
-            "timestamp": Utc::now().to_rfc3339(),
-            "action_label": "Review Queue",
-            "action_target": "approvals",
-            "badge": "PENDING"
-        }));
-    }
-
     items.push(json!({
         "id": "feed-cortex-sync",
         "category": "memory",
@@ -487,41 +456,33 @@ async fn handle_get_feed(State(state): State<AppState>) -> Json<Value> {
     }))
 }
 
-async fn handle_get_approvals(State(state): State<AppState>) -> Json<Value> {
-    let approvals = state.approvals.lock().unwrap();
+/// sovereign-core #380 (done-when 4): the approval desk (`aien compose
+/// authorize`, desk-key MAC) is the only issuer of approvals. The cockpit
+/// holds none, so it never shows an approval the desk did not issue.
+const APPROVALS_ISSUER: &str = "the approval desk (aien compose authorize)";
+
+async fn handle_get_approvals() -> Json<Value> {
     Json(json!({
         "status": "ok",
-        "approvals": *approvals
+        "approvals": [],
+        "issuer": APPROVALS_ISSUER,
+        "note": "The cockpit holds no approvals. The approval desk issues them."
     }))
 }
 
-#[derive(Deserialize)]
-struct ApprovalActionPayload {
-    action: String,
-}
-
+/// Every resolve is refused by name: approving here would grant nothing.
 async fn handle_resolve_approval(
-    State(state): State<AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
-    Json(payload): Json<ApprovalActionPayload>,
-) -> Json<Value> {
-    let mut approvals = state.approvals.lock().unwrap();
-    if let Some(appr) = approvals.iter_mut().find(|a| a.id == id) {
-        appr.status = if payload.action == "approve" {
-            "approved".to_string()
-        } else {
-            "rejected".to_string()
-        };
-        Json(json!({
-            "status": "ok",
-            "approval": appr
-        }))
-    } else {
+) -> (StatusCode, Json<Value>) {
+    (
+        StatusCode::CONFLICT,
         Json(json!({
             "status": "error",
-            "message": "Approval ID not found"
-        }))
-    }
+            "refusal": "NotTheDesk",
+            "id": id,
+            "message": format!("The cockpit does not approve or reject. Use {APPROVALS_ISSUER}."),
+        })),
+    )
 }
 
 async fn handle_list_artifacts() -> Json<Value> {
@@ -921,29 +882,6 @@ async fn main() {
     let swarm_registry = Arc::new(SwarmRegistry::new_persistent(journal_path));
     let distill_engine = Arc::new(spark_adapters::DistillationEngine::new());
 
-    let approvals = Arc::new(std::sync::Mutex::new(vec![
-        PendingApproval {
-            id: "appr-gb10-parity".to_string(),
-            action_type: "kernel_verification".to_string(),
-            title: "Verify Grace Blackwell GB10 Kernel Parity".to_string(),
-            description: "Execute sm_121 forward pass check and validate against HF oracle.".to_string(),
-            command_or_diff: Some("cargo test -p aien-kernel --release -- --test-threads=1".to_string()),
-            risk_level: "low".to_string(),
-            status: "pending".to_string(),
-            created_at: Utc::now().to_rfc3339(),
-        },
-        PendingApproval {
-            id: "appr-cortex-sync".to_string(),
-            action_type: "memory_ingestion".to_string(),
-            title: "Commit Verified Lesson to Spark Cortex".to_string(),
-            description: "Persist hardware page cache drop invariant and submillisecond latency heuristics to space atlas-memory.".to_string(),
-            command_or_diff: Some("POST /api/cortex { entity: 'gb10-page-cache-invariant' }".to_string()),
-            risk_level: "low".to_string(),
-            status: "pending".to_string(),
-            created_at: Utc::now().to_rfc3339(),
-        },
-    ]));
-
     let state = AppState {
         client,
         start_time: Instant::now(),
@@ -951,7 +889,6 @@ async fn main() {
         hive_store: hive_store.clone(),
         swarm_registry,
         distill_engine,
-        approvals: approvals.clone(),
     };
 
     let reaper_hive_store = hive_store.clone();
@@ -3367,16 +3304,6 @@ mod tests {
         let hive_store = Arc::new(spark_hive::CombStore::open_in_memory().unwrap());
         let swarm_registry = Arc::new(SwarmRegistry::new_in_memory());
         let distill_engine = Arc::new(spark_adapters::DistillationEngine::new());
-        let approvals = Arc::new(std::sync::Mutex::new(vec![PendingApproval {
-            id: "test-appr-1".to_string(),
-            action_type: "test".to_string(),
-            title: "Test Approval".to_string(),
-            description: "Test description".to_string(),
-            command_or_diff: None,
-            risk_level: "low".to_string(),
-            status: "pending".to_string(),
-            created_at: Utc::now().to_rfc3339(),
-        }]));
         AppState {
             client,
             start_time: Instant::now(),
@@ -3384,7 +3311,6 @@ mod tests {
             hive_store,
             swarm_registry,
             distill_engine,
-            approvals,
         }
     }
 
@@ -3594,7 +3520,6 @@ mod tests {
         let hive_store = Arc::new(spark_hive::CombStore::open_in_memory().unwrap());
         let swarm_registry = Arc::new(SwarmRegistry::new_in_memory());
         let distill_engine = Arc::new(spark_adapters::DistillationEngine::new());
-        let approvals = Arc::new(std::sync::Mutex::new(vec![]));
         AppState {
             client,
             start_time: Instant::now(),
@@ -3602,7 +3527,6 @@ mod tests {
             hive_store,
             swarm_registry,
             distill_engine,
-            approvals,
         }
     }
 
@@ -3949,25 +3873,37 @@ mod tests {
         assert!(feed["feed"].as_array().is_some());
     }
 
+    // sovereign-core #380 R4c: the cockpit lists no approval and names the desk.
     #[tokio::test]
-    async fn test_cockpit_approvals_lifecycle() {
-        let state = create_test_state();
-        let Json(apprs) = handle_get_approvals(State(state.clone())).await;
+    async fn test_cockpit_approvals_only_from_the_desk() {
+        let Json(apprs) = handle_get_approvals().await;
         assert_eq!(apprs["status"], "ok");
-        let list = apprs["approvals"].as_array().unwrap();
-        assert!(!list.is_empty());
+        assert_eq!(apprs["approvals"], json!([]));
+        assert_eq!(apprs["issuer"], APPROVALS_ISSUER);
+    }
 
-        let res = handle_resolve_approval(
-            State(state.clone()),
-            axum::extract::Path("test-appr-1".to_string()),
-            Json(ApprovalActionPayload {
-                action: "approve".to_string(),
-            }),
-        )
-        .await;
+    // sovereign-core #380 R4d: resolve refuses every id by name, including
+    // the ids of the removed placeholders.
+    #[tokio::test]
+    async fn test_cockpit_resolve_is_refused_not_the_desk() {
+        for id in ["appr-gb10-parity", "appr-cortex-sync", "anything"] {
+            let (code, Json(res)) =
+                handle_resolve_approval(axum::extract::Path(id.to_string())).await;
+            assert_eq!(code, StatusCode::CONFLICT);
+            assert_eq!(res["status"], "error");
+            assert_eq!(res["refusal"], "NotTheDesk");
+            assert_eq!(res["id"], id);
+            assert!(res.get("approval").is_none());
+        }
+        let Json(apprs) = handle_get_approvals().await;
+        assert_eq!(apprs["approvals"], json!([]));
+    }
 
-        let Json(resolved) = res;
-        assert_eq!(resolved["status"], "ok");
-        assert_eq!(resolved["approval"]["status"], "approved");
+    // sovereign-core #380 R4e: the feed announces no approval.
+    #[tokio::test]
+    async fn test_cockpit_feed_has_no_approvals_item() {
+        let Json(feed) = handle_get_feed(State(create_test_state())).await;
+        let items = feed["feed"].as_array().unwrap();
+        assert!(items.iter().all(|i| i["category"] != "approvals"));
     }
 }

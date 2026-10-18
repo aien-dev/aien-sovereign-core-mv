@@ -32,7 +32,12 @@ plus the always set, closed over dependents and then dependencies. Sections:
 - **Needs Spark**: pool `qemu`, or `arch`/`bare_metal` requirements.
 - **Needs GB10**: pool `gb10`.
 - **Advisory**: exactness ADVISORY; never required, never moves the verdict.
-- **Blocked**: `PIPELINE_CONFIG_CHANGED` or `OPERATOR_STEP_PENDING`.
+- **Blocked**: `PIPELINE_CONFIG_CHANGED` or `OPERATOR_STEP_PENDING`. A gate
+  with `requires: operator` is `OPERATOR_STEP_PENDING` in every automatic run;
+  under `--operator` (`plan`, `test`, `worker`) it takes its normal section and
+  runs, with its own timeout, and its receipt counts like any other. The
+  operator starting the run by hand is the attestation the manifest asks for
+  (ADR 0033 Decision 2); nothing else lifts it.
 
 A changed path no gate covers is listed under `UNMAPPED` and the verdict is
 `NOT_RUN UNMAPPED_PATH`. A gate that exists at BASE and is gone at HEAD is
