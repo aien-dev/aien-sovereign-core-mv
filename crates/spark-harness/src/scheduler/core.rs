@@ -120,13 +120,23 @@ pub enum EventKind {
     /// [`MAX_APPROVAL_KEY_LEN`] bytes) to the commit fence of `task` at
     /// `generation`. A later bind of the same key replaces it. Refused for
     /// a task whose commit ended (`Committed`, `CommitUncertain`). Every
-    /// binding of a task is dropped when the task reaches one of those
-    /// states, and only then: an `Aborted` task keeps its bindings, and so
-    /// does a retried or revoked one (the binding then names a superseded
-    /// generation), so the request stays fenced until it is bound again.
-    /// Each task holds at most [`MAX_APPROVAL_BINDINGS_PER_TASK`] keys; a
-    /// new key beyond that is refused, so one task cannot take another
-    /// task's slots and the table is bounded by the number of tasks.
+    /// binding of a task is dropped when the task is `Committed`, and only
+    /// then: an `Aborted` task keeps its bindings, and so does a retried or
+    /// revoked one (the binding then names a superseded generation), so the
+    /// request stays fenced until it is bound again. A `CommitUncertain`
+    /// task keeps its bindings too, for good: whether its commit landed is
+    /// unknown, so a bound request delivered again is refused by the fence
+    /// (the task is terminal) instead of running unfenced; only a request
+    /// under a new key, which nobody bound, runs as the original call.
+    /// Each task holds at most [`MAX_APPROVAL_BINDINGS_PER_TASK`] keys, so
+    /// one task cannot take another task's slots and the table is bounded
+    /// by the number of tasks. A new key for a full task reclaims one of
+    /// the task's bindings at a superseded generation (the lowest
+    /// generation, then the lowest key, so a replay reclaims the same one);
+    /// the request that key named is then unbound, and its fence was
+    /// already a refusal (`StaleGeneration`). A full task whose bindings
+    /// are all at its current generation refuses the new key
+    /// (`BindingsFull`).
     BindApproval {
         key: String,
         task: String,
@@ -146,11 +156,21 @@ pub struct ApprovalBinding {
     pub generation: u64,
 }
 
-/// A task in one of these states has run its commit, for good: it holds no
-/// request binding. `Aborted` is not one of them: a cancelled, failed or
-/// expired task may be retried, and its bound requests must stay fenced.
+/// A task in one of these states has run its commit, for good: no request
+/// may be bound to it any more. `Aborted` is not one of them: a cancelled,
+/// failed or expired task may be retried, and its bound requests must stay
+/// fenced.
 fn binding_ended(state: TaskState) -> bool {
     matches!(state, TaskState::Committed | TaskState::CommitUncertain)
+}
+
+/// A task in this state holds no request binding: its commit landed, so a
+/// bound request delivered again would be a duplicate the durable ledgers
+/// answer. `CommitUncertain` is not one of them: whether that commit landed
+/// is unknown, so its bound requests stay fenced (and refused, the task
+/// being terminal) rather than running unfenced.
+fn bindings_released(state: TaskState) -> bool {
+    matches!(state, TaskState::Committed)
 }
 
 /// How a commit ended.
@@ -921,10 +941,27 @@ impl Core {
                 let rebind = self.approvals.get(key).is_some_and(|b| b.task == *task);
                 let held = self.approvals.values().filter(|b| b.task == *task).count();
                 if !rebind && held >= MAX_APPROVAL_BINDINGS_PER_TASK {
-                    return Err(SchedError::BindingsFull {
-                        task: task.clone(),
-                        capacity: MAX_APPROVAL_BINDINGS_PER_TASK,
-                    });
+                    // Reclaim one binding at a superseded generation:
+                    // lowest generation, then lowest key (BTreeMap order),
+                    // so a replay reclaims the same one.
+                    let current = self.task(task)?.generation;
+                    let superseded = self
+                        .approvals
+                        .iter()
+                        .filter(|(_, b)| b.task == *task && b.generation < current)
+                        .min_by_key(|(k, b)| (b.generation, (*k).clone()))
+                        .map(|(k, _)| k.clone());
+                    match superseded {
+                        Some(k) => {
+                            self.approvals.remove(&k);
+                        }
+                        None => {
+                            return Err(SchedError::BindingsFull {
+                                task: task.clone(),
+                                capacity: MAX_APPROVAL_BINDINGS_PER_TASK,
+                            })
+                        }
+                    }
                 }
                 self.approvals.insert(
                     key.clone(),
@@ -936,13 +973,16 @@ impl Core {
             }
         }
         self.pump(cfg, at, &mut fx)?;
-        // Every binding of a task whose commit ended (committed or
-        // uncertain, by this event or by a cascade from it) is dropped.
-        // Aborted tasks keep theirs (see `binding_ended`). Deterministic, so
-        // a replay rebuilds the same table.
+        // Every binding of a task whose commit landed (by this event or by
+        // a cascade from it) is dropped. Aborted and uncertain tasks keep
+        // theirs (see `bindings_released`). Deterministic, so a replay
+        // rebuilds the same table.
         let tasks = &self.tasks;
-        self.approvals
-            .retain(|_, b| tasks.get(&b.task).is_some_and(|t| !binding_ended(t.state)));
+        self.approvals.retain(|_, b| {
+            tasks
+                .get(&b.task)
+                .is_some_and(|t| !bindings_released(t.state))
+        });
         self.seen
             .record(&e.id, payload_digest(&e.kind), &e.kind, cfg.dedup_window);
         let tasks = &self.tasks;
