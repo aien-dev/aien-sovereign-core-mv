@@ -1,0 +1,9 @@
+start 2026-10-18T07:37:47Z
+sc commit 5be4a0512bde3f58bed9f4ef52cced98b1ed7357 branch own8b/stage-2-dense-engine
+binary target/release/own8b_check sha256 321769a1c00fcbfbf183f97134729910749a0bb5603e92bd5a275264d0689aa3
+golden docs/campaigns/open-model-qwen3/SMOKE-4B-v1.golden.json sha256 329e5bd7616cede5297ead5360376d7527b497f85437a8fee7ea179249a62d1c
+omega ? at 
+cmd flock /tmp/aien-gb10.lock target/release/own8b_check chip /home/drakestapleton/models/qwen3-4b-instruct-2507-cdbee75 docs/campaigns/open-model-qwen3/SMOKE-4B-v1.golden.json docs/inference/evidence/own8b-stage2-chip-20261018/4b-green-r4 
+               total        used        free      shared  buff/cache   available
+Mem:             121          52          40           2          36          69
+7.0.0-1019-nvidia
