@@ -132,14 +132,22 @@ pub enum CrumbTool {
 /// `<cache>/<pin>/tools/crumb/crumb` and reused. The build is `git archive` of
 /// `tools/crumb` at the pin plus `make crumb`, the same as the CRUMB-VERIFY gate
 /// in tests/gates/run.sh, so the readiness line and the gate use one binary.
+///
+/// aien-architecture owns the tool and has no `crumb.lock`: its commits are
+/// checked with the tool at COMMIT itself, as its hosted workflow does, so a
+/// change to the crumb format is judged by the tool that writes it.
 pub fn crumb_tool_for(root: &Path, commit: &str, fallback: &str, cache: &Path) -> CrumbTool {
-    let Some(bytes) = plan::show(root, commit, CRUMB_LOCK) else {
-        return CrumbTool::Unpinned(fallback.to_string());
-    };
-    let Some(pin) = parse_crumb_lock(&String::from_utf8_lossy(&bytes)) else {
-        return CrumbTool::Unavailable(format!(
-            "{CRUMB_LOCK} at {commit} is not one 40-hex commit"
-        ));
+    let pin = match plan::show(root, commit, CRUMB_LOCK) {
+        Some(bytes) => match parse_crumb_lock(&String::from_utf8_lossy(&bytes)) {
+            Some(pin) => pin,
+            None => {
+                return CrumbTool::Unavailable(format!(
+                    "{CRUMB_LOCK} at {commit} is not one 40-hex commit"
+                ));
+            }
+        },
+        None if owns_crumb_tool(root, commit) => commit.to_ascii_lowercase(),
+        None => return CrumbTool::Unpinned(fallback.to_string()),
     };
     let built = cache.join(&pin).join("tools").join("crumb").join("crumb");
     if built.is_file() {
@@ -192,6 +200,13 @@ pub fn crumb_tool_for(root: &Path, commit: &str, fallback: &str, cache: &Path) -
 }
 
 /// Run a build step; Err carries the last stderr line (or the spawn error).
+/// True for the trusted aien-architecture clone (the worker's
+/// `<clones>/aien-architecture`) at a commit that carries the tool source.
+fn owns_crumb_tool(root: &Path, commit: &str) -> bool {
+    root.file_name().is_some_and(|n| n == "aien-architecture")
+        && plan::show(root, commit, "tools/crumb/crumb.c").is_some()
+}
+
 fn run_ok(cmd: &mut Command) -> Result<(), String> {
     match process::output_gated(cmd) {
         Ok(o) if o.status.success() => Ok(()),
@@ -803,6 +818,43 @@ mod tests {
         assert_eq!(
             crumb_tool_for(&repo, &head, "crumb", &cache),
             CrumbTool::Pinned { pin, path: built }
+        );
+    }
+
+    /// aien-architecture (no `crumb.lock`, owns `tools/crumb`) is checked with
+    /// the tool at COMMIT; any other repo carrying a `tools/crumb` is not.
+    #[test]
+    fn architecture_checks_itself_with_the_tool_at_commit() {
+        let base = crate::testutil::TempDir::new("crumb-self");
+        let makefile =
+            "crumb:\n\tprintf '#!/bin/sh\\necho fake crumb\\n' > crumb && chmod +x crumb\n";
+        for name in ["aien-architecture", "other"] {
+            let tool_dir = base.path().join(name).join("tools").join("crumb");
+            fs::create_dir_all(&tool_dir).unwrap();
+            fs::write(tool_dir.join("Makefile"), makefile).unwrap();
+            fs::write(tool_dir.join("crumb.c"), "int main(void){return 0;}\n").unwrap();
+            let repo = base.path().join(name);
+            crate::testutil::git(&repo, &["init", "-q"]);
+            crate::testutil::git(&repo, &["add", "."]);
+            crate::testutil::git(&repo, &["commit", "-q", "-m", "tool"]);
+        }
+        let arch = base.path().join("aien-architecture");
+        let head = plan::resolve(&arch, "HEAD").unwrap();
+        let cache = base.path().join("cache");
+        let built = cache.join(&head).join("tools").join("crumb").join("crumb");
+        assert_eq!(
+            crumb_tool_for(&arch, &head, "crumb", &cache),
+            CrumbTool::Pinned {
+                pin: head.clone(),
+                path: built.clone()
+            }
+        );
+        assert!(built.is_file());
+        let other = base.path().join("other");
+        let head = plan::resolve(&other, "HEAD").unwrap();
+        assert_eq!(
+            crumb_tool_for(&other, &head, "crumb", &cache),
+            CrumbTool::Unpinned("crumb".into())
         );
     }
 

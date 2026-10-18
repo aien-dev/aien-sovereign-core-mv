@@ -70,6 +70,10 @@ source read from the git object store of `AIEN_ARCH_CLONE`, default `~/workspace
 `cc -O2 -Wall -std=c11`. With gcc 13.3.0 the binary's sha256 is `22015e6b156e038e...`, identical to the operator's
 `~/.local/bin/crumb` on 2026-10-11. To move the pin, change `CRUMB_COMMIT` and `CRUMB_BLOB` in `install.sh` in a PR.
 
+The worker's readiness check does not trust any PATH `crumb`: it builds the tool each repository names in `crumb.lock`
+(aien-architecture: the tool at the commit under test) and caches it under `<state>/crumb-tool/<pin>/` (sc#602,
+details in `tools/aien-test/docs/LOCAL_VERIFICATION.md`).
+
 ## Egress decision
 
 No nftables rule for uid aien-run. host and qemu checks run in a fresh network namespace with no interface but its own loopback, which is

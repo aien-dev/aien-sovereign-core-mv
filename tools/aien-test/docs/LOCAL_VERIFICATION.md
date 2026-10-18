@@ -90,7 +90,11 @@ that commit from the sibling `../aien-architecture` into
 `crumb_tool_commit`. The readiness report does the same from the trusted clone
 `<clones>/aien-architecture` into `<state>/crumb-tool/<pin>` and prints
 `Crumb tool: pinned <sha> (crumb.lock)`, so the gate and the `Crumb status:`
-line can never disagree because of a different `crumb` on PATH. A commit
+line can never disagree because of a different `crumb` on PATH.
+aien-architecture owns the tool and has no `crumb.lock`: its commits are
+checked with the tool at the commit under test (`Crumb tool: pinned <that
+commit>`), as its hosted workflow does, so a change to the crumb format is
+judged by the tool that writes it. Any other commit
 without `crumb.lock` still uses the PATH `crumb` and the report says
 `Crumb tool: crumb on PATH (no crumb.lock at COMMIT)`. If the pinned tool cannot
 be built (no sibling clone, bad lock) the status is STALE with the reason in
