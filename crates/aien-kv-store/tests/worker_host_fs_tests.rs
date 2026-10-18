@@ -225,7 +225,13 @@ fn worker_over_host_fs_shutdown_drains_and_the_directory_reopens() {
             .count();
         assert_eq!(n, 1, "{j:?}");
     }
-    assert!(keep.iter().all(|(h, _)| !h.is_held()), "sources released");
+    // The store drops a finished job's source guard just after it unlocks, so the
+    // terminal can be seen a moment before the hold clears.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while keep.iter().any(|(h, _)| h.is_held()) {
+        assert!(Instant::now() < deadline, "sources released");
+        std::thread::sleep(Duration::from_millis(1));
+    }
     // After shutdown, intake is closed.
     let (_, h) = r.fx.chunk(30, 8);
     let mem = Mem::new(2, 0);
