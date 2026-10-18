@@ -1299,7 +1299,11 @@ fn open_inner(
     }
     let slice_ms = cfg.recovery_slice_ms;
     let recovery = Arc::new(Mutex::new(RecoveryProgress::default()));
-    let store = Arc::new(HostFsStore::open(cfg).map_err(|e| format!("store open at {}: {e:?} (the directory must be private, under a parent only you can write)", root.display()))?);
+    let store = Arc::new(HostFsStore::open(cfg).map_err(|e| match e {
+        // Another open store holds the directory (#521): no privacy hint.
+        aien_platform::PlatformError::TaskRejected(why) => format!("store open: {why}"),
+        e => format!("store open at {}: {e:?} (the directory must be private, under a parent only you can write)", root.display()),
+    })?);
     let drive = {
         let store = store.clone();
         let progress = recovery.clone();
