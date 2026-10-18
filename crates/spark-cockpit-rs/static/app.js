@@ -597,7 +597,7 @@ async function loadApprovals() {
     if (!list) return;
 
     if (approvals.length === 0) {
-      list.innerHTML = "<div style='color:var(--text-muted); text-align:center; padding:30px;'>No pending approvals. Safe autonomous operations running.</div>";
+      list.innerHTML = "<div style='color:var(--text-muted); text-align:center; padding:30px;'>The cockpit holds no approvals. The approval desk issues them (aien compose authorize).</div>";
       return;
     }
 

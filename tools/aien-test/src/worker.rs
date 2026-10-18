@@ -923,6 +923,9 @@ fn run_in_worktree(
     opts.target_lock_dir = cfg.state.target_lock_dir();
     opts.pool_sizes = opts.pool_sizes.with(cfg.jobs);
     opts.pins = pins;
+    // The same operator permission the plan had: an operator gate the plan
+    // put in Required under `--operator` must not be refused by the runner.
+    opts.operator = cfg.operator;
     if fresh || cfg.no_cache {
         opts.no_cache = true;
     }

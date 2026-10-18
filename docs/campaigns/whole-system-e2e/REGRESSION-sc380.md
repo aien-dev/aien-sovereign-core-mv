@@ -31,3 +31,20 @@ The matching case is a unit test of the check and the report attachment, because
 ## Must not change
 
 Every existing command and flag, `compose propose` without `--objective-id`, the effect receipt format and location, `scripts/whole_system_e2e.sh`, and anything under `runs/`.
+
+## Done-when 4: the cockpit shows only approvals the desk issued (2026-10-17)
+
+Pre-registered before the cockpit change.
+
+Failing behaviour on main at `5870446d`: `spark-cockpit-rs` starts with two hard-coded approvals (`appr-gb10-parity`, `appr-cortex-sync`) in an in-memory list. `GET /api/approvals` shows them as `pending`, the feed announces "2 Actions Awaiting Review", and `POST /api/approvals/<id>/resolve` with `approve` flips the in-memory entry to `approved`. None of them came from the approval desk, and the cockpit "approve" grants nothing.
+
+Change: the placeholder list and the in-memory approval store are removed. The cockpit holds no approvals. `GET /api/approvals` returns an empty list and names the desk (`aien compose authorize`) as the only issuer. `POST /api/approvals/<id>/resolve` refuses every id with HTTP 409 and the named refusal `NotTheDesk`, changing nothing. The feed has no approvals item. Reading desk records into the cockpit is not part of this change.
+
+| row | on main 5870446d | after fix |
+|---|---|---|
+| R4a live binary: `GET /api/approvals` on a fresh cockpit lists no approval | FAIL (2 placeholders) | PASS |
+| R4b live binary: `POST /api/approvals/appr-gb10-parity/resolve` `approve` is refused, nothing approved | FAIL (`status ok`, `approved`) | PASS |
+| R4c unit: `GET /api/approvals` is empty and names the desk | n/a | PASS |
+| R4d unit: resolve refuses with 409 `NotTheDesk` for any id | n/a | PASS |
+| R4e unit: the feed has no approvals item | n/a | PASS |
+| negative control: the live run with the same request shape against a route that exists (`/api/feed`) answers 200, so R4a/R4b fail or pass on content, not on auth | PASS | PASS |
