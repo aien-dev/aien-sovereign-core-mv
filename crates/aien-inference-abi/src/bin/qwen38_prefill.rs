@@ -232,8 +232,19 @@ fn score(dir: &Path, record: &str, chunk: usize) -> Result<(bool, Value), String
 fn corpus_tokens(dir: &Path, corpus: &str, want: usize) -> Result<Vec<u32>, String> {
     let tk = ChatTokenizer::from_file(dir.join("tokenizer.json")).map_err(|e| e.to_string())?;
     let text = std::fs::read_to_string(corpus).map_err(|e| format!("{corpus}: {e}"))?;
-    let mut out = Vec::with_capacity(want);
-    let mut rest = text.as_str();
+    let mut out = encode_pieces(&tk, &text, want)?;
+    if out.len() < want {
+        return Err(format!("{corpus}: {} tokens, {want} wanted", out.len()));
+    }
+    out.truncate(want);
+    Ok(out)
+}
+
+/// The tokenizer refuses sequences over 2048 tokens, so text goes in pieces of at most TOKENIZE_PIECE bytes,
+/// stopping once `want` tokens are in hand.
+fn encode_pieces(tk: &ChatTokenizer, text: &str, want: usize) -> Result<Vec<u32>, String> {
+    let mut out = Vec::with_capacity(want.min(text.len()));
+    let mut rest = text;
     while out.len() < want && !rest.is_empty() {
         let mut cut = rest.len().min(TOKENIZE_PIECE);
         while !rest.is_char_boundary(cut) {
@@ -242,10 +253,6 @@ fn corpus_tokens(dir: &Path, corpus: &str, want: usize) -> Result<Vec<u32>, Stri
         out.extend(tk.encode(&rest[..cut]).map_err(|e| e.to_string())?);
         rest = &rest[cut..];
     }
-    if out.len() < want {
-        return Err(format!("{corpus}: {} tokens, {want} wanted", out.len()));
-    }
-    out.truncate(want);
     Ok(out)
 }
 
@@ -283,9 +290,42 @@ fn ttft(dir: &Path, corpus: &str, lens: &[usize], chunk: usize) -> Result<(bool,
     ))
 }
 
+/// Writes prompt-<len>.txt, the text of the first <len> corpus tokens, so other servers can be sent the same
+/// bytes the ttft mode prefills. Re-encoding that text in one piece is timed: the tokenizer cost the
+/// in-process ttft leaves out.
+fn prompts(dir: &Path, corpus: &str, lens: &[usize], out: &Path) -> Result<(bool, Value), String> {
+    let max = *lens.iter().max().ok_or("no lengths")?;
+    let toks = corpus_tokens(dir, corpus, max)?;
+    let tk = ChatTokenizer::from_file(dir.join("tokenizer.json")).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
+    let mut rows = Vec::new();
+    let mut pass = true;
+    for &n in lens {
+        let text = tk.decode(&toks[..n]).map_err(|e| e.to_string())?;
+        let t = Instant::now();
+        let again = encode_pieces(&tk, &text, usize::MAX)?.len();
+        let encode_ms = t.elapsed().as_secs_f64() * 1e3;
+        let path = out.join(format!("prompt-{n}.txt"));
+        std::fs::write(&path, &text).map_err(|e| format!("{}: {e}", path.display()))?;
+        // The servers count the re-encoded text plus their chat template; 1% is the side-by-side's void line.
+        let ok = again.abs_diff(n) * 100 <= n;
+        pass &= ok;
+        eprintln!(
+            "len {n}: {} bytes, re-encoded {again} tokens in {encode_ms:.1} ms",
+            text.len()
+        );
+        rows.push(json!({"tokens": n, "bytes": text.len(), "reencoded_tokens": again,
+                         "encode_ms": encode_ms, "file": path.display().to_string(), "within_1pct": ok}));
+    }
+    Ok((
+        pass,
+        json!({"mode": "prompts", "corpus": corpus, "prompts": rows}),
+    ))
+}
+
 fn main() {
     let a: Vec<String> = std::env::args().collect();
-    let usage = "usage: qwen38_prefill golden|score <dir> <record.json> <chunk> <out.json> | ttft <dir> <corpus.txt> <len,...> <chunk> <out.json>";
+    let usage = "usage: qwen38_prefill golden|score <dir> <record.json> <chunk> <out.json> | ttft <dir> <corpus.txt> <len,...> <chunk> <out.json> | prompts <dir> <corpus.txt> <len,...> <out-dir>";
     let res = (|| -> Result<(bool, Value, String), String> {
         match a.get(1).map(String::as_str) {
             Some(mode @ ("golden" | "score")) if a.len() == 6 => {
@@ -306,6 +346,18 @@ fn main() {
                 let chunk: usize = a[5].parse().map_err(|_| usage.to_string())?;
                 let (pass, v) = ttft(Path::new(&a[2]), &a[3], &lens, chunk)?;
                 Ok((pass, v, a[6].clone()))
+            }
+            Some("prompts") if a.len() == 6 => {
+                let lens: Vec<usize> = a[4]
+                    .split(',')
+                    .map(|s| s.parse().map_err(|_| usage.to_string()))
+                    .collect::<Result<_, _>>()?;
+                let (pass, v) = prompts(Path::new(&a[2]), &a[3], &lens, Path::new(&a[5]))?;
+                Ok((
+                    pass,
+                    v,
+                    Path::new(&a[5]).join("prompts.json").display().to_string(),
+                ))
             }
             _ => Err(usage.to_string()),
         }
