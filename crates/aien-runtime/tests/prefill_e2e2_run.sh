@@ -98,13 +98,18 @@ run_mutant() {
 	lg="$out/AIENTEST-DOGFOOD-$sha8-$id.log"
 	# The patch goes into a private copy of the tree, never into the checkout: aien-test runs gates in
 	# parallel in one checkout, and a patched file there fails their clean-tree checks (and the main leg's
-	# fmt check). The copy shares CARGO_TARGET_DIR so dependencies build once.
+	# fmt check). Each mutant builds in its own target dir under CARGO_TARGET_DIR: cargo names artifacts
+	# by package, not by source path, so a mutant's patched rlibs and the clean tree's rlibs would overwrite
+	# each other in one shared dir and a clean run that starts while a mutant copy still exists reuses the
+	# mutant's artifacts as fresh (PREFILL-E2E-2 failed 18 of 26 clean runs with the m7 or m3 shape when
+	# the mutant gates ran alongside, 2026-10-16 to 10-18; mutants survived the same way). The per-mutant
+	# dir persists across heads, so after the first build only the patched crates recompile.
 	work=$(mktemp -d) || exit 3
 	trap 'rm -rf "$work"' EXIT
 	trap 'rm -rf "$work"; exit 143' HUP INT TERM
 	git ls-files -z --cached --others --exclude-standard --deduplicate |
 		tar --null --ignore-failed-read -T - -cf - | tar -xf - -C "$work" || exit 3
-	CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$PWD/target}
+	CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$PWD/target}/mutants/$id
 	export CARGO_TARGET_DIR
 	cd "$work" || exit 3
 	git apply "$patch" || exit 3

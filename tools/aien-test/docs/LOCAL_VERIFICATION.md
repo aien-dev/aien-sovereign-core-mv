@@ -139,6 +139,17 @@ aien-proof `slots/gpu.lock`; the worker's target priming takes only the
 target-dir lock. Known limit: a gb10 gate is never killed on timeout, so a
 hung one holds the target dir until it exits on its own.
 
+The PREFILL-E2E-2 mutant legs (`crates/aien-runtime/tests/prefill_e2e2_run.sh`
+`mutant mN`) build in `$CARGO_TARGET_DIR/mutants/mN`, one dir per mutant, never
+in the shared dir. Cargo names artifacts by package and not by source path, so a
+mutant's patched rlibs carried the same file names as the clean tree's: in one
+shared dir they overwrote each other, and a clean build that started while a
+mutant copy still existed took the mutant's artifacts as fresh. 2026-10-16 to
+10-18 the clean PREFILL-E2E-2 gate failed 18 of 26 runs that had the mutant
+gates alongside (always with the m7 or m3 failure shape) and 1 of 28 without;
+136 mutant legs "survived" the same way. The per-mutant dirs persist across
+heads, so only the patched crates recompile after the first build.
+
 Under `--sandbox user` every checkout is made with INFRA's worktree tool
 (`--wt-tool`, default `<clones>/aien-sovereign-core/tools/aien-local-ci/wt.sh`;
 without it the worker refuses to run). `wt.sh sync` refreshes the bare mirror
