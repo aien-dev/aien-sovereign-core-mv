@@ -71,6 +71,10 @@ pub struct Options {
     /// `core.pins` and part of `cache.key` (ADR 0028: `{name, commit}` sorted
     /// by `name`). The worker sets the head's sibling and operator pins.
     pub pins: Value,
+    /// `--operator`: the operator started this run by hand, so a
+    /// `requires: operator` gate runs instead of staying OPERATOR_STEP_PENDING
+    /// (ADR 0033 Decision 2). Never set by the automatic loop.
+    pub operator: bool,
 }
 
 impl Options {
@@ -91,6 +95,7 @@ impl Options {
             target_lock_dir: PathBuf::from(crate::resources::DEFAULT_TARGET_LOCK_DIR),
             release: false,
             pins: json!([]),
+            operator: false,
         }
     }
 }
@@ -584,6 +589,7 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
         deps: job.deps.clone(),
         gb10_present: opts.hardware.gb10_present,
         qemu_available: opts.hardware.qemu_available,
+        operator: opts.operator,
         ..Facts::default()
     };
 
@@ -1616,6 +1622,28 @@ mod tests {
             acquire_gpu(&opts.gpu).is_ok(),
             "the lock is released after the job"
         );
+    }
+
+    #[test]
+    fn operator_gate_runs_when_the_operator_started_it() {
+        // sc #614: the same gate the previous test refuses runs under
+        // `--operator`, writes its receipt and passes on its own facts.
+        let fx = ok_fixture();
+        let gate = fs::read_to_string(fx.manifest()).unwrap();
+        write_file(
+            fx.repo.path(),
+            "tests/t.gate",
+            &gate.replace("  - host\n", "  - host\n  - operator\n"),
+            false,
+        );
+        git(fx.repo.path(), &["add", "-A"]);
+        git(fx.repo.path(), &["commit", "-q", "-m", "op"]);
+        let mut opts = fx.opts();
+        opts.operator = true;
+        let o = run(&fx, &opts);
+        assert_eq!((o.verdict, o.reason.as_str()), (Verdict::Pass, ""));
+        assert!(fx.marker().exists(), "the gate ran");
+        assert!(o.receipt_digest.is_some(), "a receipt was written");
     }
 
     #[test]

@@ -23,7 +23,8 @@
 //! counts (`at least|at most|no fewer than|no more than|a minimum of|up to|
 //! more than|fewer than|N or more|N or fewer` with digits or number words
 //! one..twenty) of lines, words, list items, steps, sections/headings and
-//! questions; section titles (`sections titled A, B and C`), topics
+//! questions, and `under|below|within N` before lines or words only (sc#383,
+//! `under 200 words` = at most 199); section titles (`sections titled A, B and C`), topics
 //! (`covers A, B and C`), required words and phrases, and a minimum number
 //! of sentences in every section; and a markdown heading as the first line
 //! (`start with a Markdown heading line that begins with "# "`).
