@@ -1,0 +1,14 @@
+aien-hetjob serve: Summary { completed: 0, replayed: 0, denied: 1, cancelled: 0, failed: 0, refused_frames: 0 }
+cause_id=75c99d7e1c4c7ee031ad8bbfad4dd59076ee09f4759f297509d0125d4b1a22dd
+task_id=fbac63ae7d724e931012b80e836a8628
+idempotence_key=8b4432f6e54cd8a51e10ab4e9a565566
+kind=tokenize_batch
+work_units=2780
+oracle_lines=100
+oracle_tokens=602
+oracle_round_trips=100
+round_trip_ms=41.317
+frames=1
+stale_ignored=0
+oracle_ms=205.129
+OUTCOME FAILED INPUT_DIGEST_MISMATCH:3f6bdaa23a42f7deb39b750760467ee3ad807f356bb6141a49f9ed7483b6b3af
