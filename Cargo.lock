@@ -182,6 +182,7 @@ name = "aien-inference-abi"
 version = "0.1.0"
 dependencies = [
  "aien-abi-core",
+ "aien-heartbeat",
  "aien-kv-cache",
  "aien-omega-bf16",
  "aien-omega-dattn",

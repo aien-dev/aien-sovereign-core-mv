@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::HeartbeatError;
 
-pub const MANIFEST_SCHEMA: &str = "aien-heartbeat-manifest/1";
+pub const MANIFEST_SCHEMA: &str = "aien-heartbeat-manifest/2";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TensorRange {
@@ -59,6 +59,10 @@ impl ExpertEntry {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Manifest {
     pub schema: String,
+    /// BLAKE3 over the index file, every expert shard's name and header bytes, and every expert's
+    /// `(layer, expert, digest)` in order: names the checkpoint by content, not by path. The per-expert
+    /// digests cover the weight bytes themselves, so this is not an index-only digest (sc#338).
+    pub model_digest: String,
     pub model_dir: PathBuf,
     pub shards: Vec<String>,
     pub num_layers: u16,
@@ -92,7 +96,10 @@ fn parse_expert_name(name: &str) -> Option<(u16, u16)> {
 }
 
 /// Read a safetensors header: returns (data section start, tensors).
-fn read_header(path: &Path) -> Result<(u64, BTreeMap<String, serde_json::Value>), HeartbeatError> {
+#[allow(clippy::type_complexity)]
+fn read_header(
+    path: &Path,
+) -> Result<(u64, BTreeMap<String, serde_json::Value>, Vec<u8>), HeartbeatError> {
     let f = File::open(path).map_err(|e| HeartbeatError::io(path.display().to_string(), e))?;
     let mut lenb = [0u8; 8];
     f.read_exact_at(&mut lenb, 0)
@@ -108,7 +115,7 @@ fn read_header(path: &Path) -> Result<(u64, BTreeMap<String, serde_json::Value>)
         .map_err(|e| HeartbeatError::io("header", e))?;
     let map: BTreeMap<String, serde_json::Value> = serde_json::from_slice(&h)
         .map_err(|e| HeartbeatError::Manifest(format!("header json: {e}")))?;
-    Ok((8 + hlen, map))
+    Ok((8 + hlen, map, h))
 }
 
 impl Manifest {
@@ -116,11 +123,14 @@ impl Manifest {
     /// expert span once to compute its digest. Read-only on the model.
     pub fn build(model_dir: &Path) -> Result<Self, HeartbeatError> {
         let idx_path = model_dir.join("model.safetensors.index.json");
-        let idx: Index = serde_json::from_slice(
-            &std::fs::read(&idx_path).map_err(|e| HeartbeatError::io("index", e))?,
-        )
-        .map_err(|e| HeartbeatError::Manifest(format!("index json: {e}")))?;
+        let idx_bytes = std::fs::read(&idx_path).map_err(|e| HeartbeatError::io("index", e))?;
+        let idx: Index = serde_json::from_slice(&idx_bytes)
+            .map_err(|e| HeartbeatError::Manifest(format!("index json: {e}")))?;
 
+        let mut model_h = blake3::Hasher::new();
+        model_h.update(b"aien-heartbeat-model/1\0");
+        model_h.update(&(idx_bytes.len() as u64).to_le_bytes());
+        model_h.update(&idx_bytes);
         let mut shards: Vec<String> = Vec::new();
         for (name, shard) in &idx.weight_map {
             if parse_expert_name(name).is_some() && !shards.contains(shard) {
@@ -132,7 +142,11 @@ impl Manifest {
         // (layer, expert) -> tensors (shard, name, dtype, shape, abs offset, len)
         let mut groups: BTreeMap<(u16, u16), Vec<(u32, RawTensor)>> = BTreeMap::new();
         for (si, shard) in shards.iter().enumerate() {
-            let (data_start, header) = read_header(&model_dir.join(shard))?;
+            let (data_start, header, raw_header) = read_header(&model_dir.join(shard))?;
+            model_h.update(&(shard.len() as u64).to_le_bytes());
+            model_h.update(shard.as_bytes());
+            model_h.update(&(raw_header.len() as u64).to_le_bytes());
+            model_h.update(&raw_header);
             for (name, v) in header {
                 let Some(key) = parse_expert_name(&name) else {
                     continue;
@@ -197,6 +211,9 @@ impl Manifest {
                 h.update(&buf);
             }
             let digest = h.finalize().to_hex().to_string();
+            model_h.update(&layer.to_le_bytes());
+            model_h.update(&expert.to_le_bytes());
+            model_h.update(digest.as_bytes());
             experts.push(ExpertEntry {
                 layer,
                 expert,
@@ -216,6 +233,7 @@ impl Manifest {
         }
         Ok(Self {
             schema: MANIFEST_SCHEMA.into(),
+            model_digest: model_h.finalize().to_hex().to_string(),
             model_dir: model_dir.to_path_buf(),
             shards,
             num_layers,

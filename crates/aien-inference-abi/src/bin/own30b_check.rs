@@ -5,6 +5,7 @@
 //!       runs greedy continuations of the 4 fixed prompts, writes tokens and top-2 margins.
 //!   own30b_check chip <checkpoint> <golden.json> <receipt-dir> [--new N] [--layers 0,23,47]
 //!                     [--max-context 8192] [--prompts 1,2,3,4] [--force-memory]
+//!                     [--paged-experts SLOTS [--manifest PATH] [--read-workers W] [--read-depth D]]
 //!                     [--weights bf16|fp8-experts|fp8]
 //!                     [--router auto|host|device] [--lm-head auto|dense|gemv] [--router-mutants 1,2,3,4]
 //!                     [--prefill auto|gemv|gemm] [--prefill-routing host|device] [--prefill-chunk N]
@@ -25,12 +26,12 @@ use aien_inference_abi::qwen3_coder::{
     compute_logits, forward_token, load_qwen3_coder, Qwen3CoderState,
 };
 use aien_inference_abi::qwen3_moe::load_qwen3_fp8_moe_layer;
-use aien_inference_abi::qwen3_moe_omega::dgraph;
 use aien_inference_abi::qwen3_moe_omega::{
     current_rss_bytes, load_attention_layer_f32, peak_rss_bytes, replay_attention, replay_moe,
     AttnPath, DevicePaths, GenerateParams, LmHead, OmegaModelUploader, PathChoice, Qwen3MoeConfig,
     Qwen3MoeOmegaEngine, StepTiming, WeightFormat,
 };
+use aien_inference_abi::qwen3_moe_omega::{dgraph, ribbon};
 use aien_inference_abi::tokenizer::ChatTokenizer as Tokenizer;
 
 const PROMPT_TEXTS: [(&str, &str); 4] = [
@@ -225,6 +226,11 @@ struct Args {
     gemm_mutants: Vec<i32>,
     /// Also run a prompt of at least this many tokens: chunk 1 against the batched chunk, tokens and hidden state.
     long_prompt: usize,
+    /// Expert Ribbon: page the experts into this many GPU slots (0 = all resident).
+    paged_slots: usize,
+    ribbon_manifest: PathBuf,
+    read_workers: usize,
+    read_depth: usize,
 }
 
 fn parse_choice(v: &str, host_word: &str, flag: &str) -> PathChoice {
@@ -263,6 +269,10 @@ fn parse_args() -> Args {
         prefill_device_routing: false,
         gemm_mutants: vec![1, 2, 3],
         long_prompt: 0,
+        paged_slots: 0,
+        ribbon_manifest: std::env::temp_dir().join("aien-ribbon-manifest.json"),
+        read_workers: 16,
+        read_depth: 32,
     };
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -329,6 +339,24 @@ fn parse_args() -> Args {
                 )
             }
             "--tokens-only" => a.tokens_only = true,
+            "--paged-experts" => {
+                a.paged_slots = it
+                    .next()
+                    .expect("--paged-experts SLOTS")
+                    .parse()
+                    .expect("number")
+            }
+            "--manifest" => a.ribbon_manifest = PathBuf::from(it.next().expect("--manifest PATH")),
+            "--read-workers" => {
+                a.read_workers = it
+                    .next()
+                    .expect("--read-workers N")
+                    .parse()
+                    .expect("number")
+            }
+            "--read-depth" => {
+                a.read_depth = it.next().expect("--read-depth N").parse().expect("number")
+            }
             "--whole-prompt" => a.whole_prompt = true,
             "--prefill-device-host" => a.wp_device_host = true,
             "--prefill" => {
@@ -442,8 +470,24 @@ fn chip(a: &Args) {
     };
     let avail = mem_available_gb();
     say(format!("mem available before load: {avail:.1} GB"));
-    if avail < 70.0 && !a.force_memory {
-        say("REFUSED: less than 70 GB available (another model may be loaded); --force-memory to override".into());
+    let config0 = Qwen3MoeConfig::from_checkpoint(&a.checkpoint).expect("config.json");
+    // Paged experts: the slot pools (exact) plus a fixed 6 GB for attention, lm_head, KV and scratch.
+    let (h0, i0) = (config0.hidden, config0.moe_intermediate);
+    let pool_bytes = a.paged_slots * (3 * h0 * i0 + 4 * 3 * (h0 / 128) * (i0 / 128));
+    let need_gb = if a.paged_slots > 0 {
+        pool_bytes as f64 / 1e9 + 6.0
+    } else {
+        70.0
+    };
+    if a.paged_slots > 0 {
+        say(format!(
+            "RIBBON: {} slots, pools {:.2} GB; memory gate {need_gb:.1} GB",
+            a.paged_slots,
+            pool_bytes as f64 / 1e9
+        ));
+    }
+    if avail < need_gb && !a.force_memory {
+        say(format!("REFUSED: less than {need_gb:.1} GB available (another model may be loaded); --force-memory to override"));
         std::process::exit(3);
     }
     let golden: serde_json::Value =
@@ -474,12 +518,32 @@ fn chip(a: &Args) {
     // ---- load ----
     let t0 = Instant::now();
     let mut n = 0usize;
-    let (mut engine, report) = Qwen3MoeOmegaEngine::load_omega_paths(
+    let paged = (a.paged_slots > 0).then(|| {
+        ribbon::open_omega(
+            &a.checkpoint,
+            h0,
+            i0,
+            &ribbon::RibbonOptions {
+                manifest: a.ribbon_manifest.clone(),
+                slots: a.paged_slots,
+                read: aien_heartbeat::ReadConfig {
+                    workers: a.read_workers,
+                    queue_depth: a.read_depth,
+                },
+                direct: true,
+                read_deadline: std::time::Duration::from_secs(30),
+            },
+            &mut |s| eprintln!("  {s}"),
+        )
+        .expect("expert ribbon")
+    });
+    let (mut engine, report) = Qwen3MoeOmegaEngine::load_omega_experts(
         &a.checkpoint,
         a.max_context,
         a.format,
         a.attn,
         a.paths,
+        paged.clone(),
         &mut |s| {
             n += 1;
             if n.is_multiple_of(20) || s.starts_with("kv") || s == "lm_head" {
@@ -952,6 +1016,7 @@ fn chip(a: &Args) {
         let params = GenerateParams::greedy(a.new_tokens, config.eos_token_ids.clone());
         // Start this prompt's timeline from zero (earlier sections also ran graph tokens).
         let _ = engine.take_decode_timeline();
+        let rb0 = paged.as_ref().map(|p| (p.stats(), p.read_stats()));
         let o = engine
             .generate(ids, &params, &mut |t| {
                 got.push(t);
@@ -1039,6 +1104,32 @@ fn chip(a: &Args) {
             per_graph(dt.graph_submits),
             per_graph(dt.graph_record_ns) / 1e3,
         ));
+        let mut ribbon_json = serde_json::Value::Null;
+        if let (Some(p), Some((s0, r0))) = (&paged, &rb0) {
+            let (s, r) = (p.stats(), p.read_stats());
+            let hit = s.experts_hit - s0.experts_hit;
+            let miss = s.experts_missed - s0.experts_missed;
+            let bytes = s.bytes_loaded - s0.bytes_loaded;
+            let slot_ns = s.slot_load_ns - s0.slot_load_ns;
+            let read_ns = s.read_wait_ns - s0.read_wait_ns;
+            let miss_wall = s.miss_wall_ns - s0.miss_wall_ns;
+            let dev_bytes = r.device_bytes - r0.device_bytes;
+            say(format!(
+                "  RIBBON {} slots: experts hit {hit} miss {miss} (hit rate {:.4}); loaded {bytes} B; miss wall {:.1} ms; per decode step page {:.2} ms; prefill page {:.1} ms; summed read wait {:.1} ms; summed slot load {:.1} ms; device read {dev_bytes} B; resident {}",
+                p.capacity(),
+                hit as f64 / (hit + miss).max(1) as f64,
+                miss_wall as f64 / 1e6,
+                dt.page_ns as f64 / steps / 1e6,
+                pt.page_ns as f64 / 1e6,
+                read_ns as f64 / 1e6,
+                slot_ns as f64 / 1e6,
+                p.resident(),
+            ));
+            ribbon_json = serde_json::json!({"slots": p.capacity(), "hit": hit, "miss": miss,
+                "bytes_loaded": bytes, "miss_wall_ns": miss_wall, "read_wait_ns": read_ns,
+                "slot_load_ns": slot_ns, "device_read_bytes": dev_bytes, "decode_page_ns": dt.page_ns,
+                "prefill_page_ns": pt.page_ns, "decode_steps": o.emitted_tokens});
+        }
         let mut timeline_json = serde_json::Value::Null;
         if let Some(t) = engine.take_decode_timeline() {
             let lines = timeline_table(&t, &config);
@@ -1057,7 +1148,7 @@ fn chip(a: &Args) {
         ));
         results.push(serde_json::json!({
             "name": name, "prompt_tokens": ids.len(), "chip": got, "golden": want, "first_diff": first_diff,
-            "prefill_ms": o.prefill_ms, "decode_ms": o.decode_ms, "emitted": o.emitted_tokens, "tok_s": tok_s,
+            "prefill_ms": o.prefill_ms, "decode_ms": o.decode_ms, "emitted": o.emitted_tokens, "tok_s": tok_s, "ribbon": ribbon_json,
             "per_step_ms": {"attention": dt.attention_ns as f64 / 1e6 / steps, "experts": dt.experts_ns as f64 / 1e6 / steps,
                 "lm_head": dt.lm_head_ns as f64 / 1e6 / steps, "host": dt.host_ns as f64 / 1e6 / steps, "chip_reported": dt.chip_ns as f64 / 1e6 / steps,
                 "launches": dt.launches as f64 / steps},

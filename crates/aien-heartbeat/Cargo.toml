@@ -16,3 +16,7 @@ serde_json = "1.0"
 [[bin]]
 name = "heartbeat_bench"
 path = "src/bin/heartbeat_bench.rs"
+
+[[bin]]
+name = "ribbon_read_bench"
+path = "src/bin/ribbon_read_bench.rs"

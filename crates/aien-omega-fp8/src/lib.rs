@@ -769,3 +769,297 @@ mod tests {
         assert_eq!(std::mem::offset_of!(GemmInfo, kernel_cache_hit), 76);
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Expert Ribbon (aienix#4, omega#533): versioned replaceable FP8 expert slots.
+// ---------------------------------------------------------------------------------------------
+
+#[cfg(has_omega_fp8_slots)]
+mod slots_ffi {
+    use super::Fp8Info;
+    #[repr(C)]
+    pub struct OmegaGpuFp8Slots {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct OmegaGpuFp8SlotsStats {
+        pub slots: u32,
+        pub n: u32,
+        pub k: u32,
+        pub device_bytes: u64,
+        pub loads: u64,
+        pub load_failures: u64,
+        pub busy_refusals: u64,
+        pub stale_refusals: u64,
+        pub evictions: u64,
+        pub pins: u64,
+        pub pinned_now: u32,
+        pub pinned_high: u32,
+        pub bytes_loaded: u64,
+        pub load_ns: u64,
+    }
+    extern "C" {
+        pub fn omega_gpu_fp8_slots_alloc(
+            slots: u32,
+            n: u32,
+            k: u32,
+            out: *mut *mut OmegaGpuFp8Slots,
+        ) -> i32;
+        pub fn omega_gpu_fp8_slots_free(p: *mut OmegaGpuFp8Slots) -> i32;
+        pub fn omega_gpu_fp8_slots_load(
+            p: *mut OmegaGpuFp8Slots,
+            slot: u32,
+            key: u64,
+            w: *const u8,
+            scale_inv_bf16: *const u16,
+            version: *mut u64,
+        ) -> i32;
+        pub fn omega_gpu_fp8_slots_gemv_grouped_f32(
+            p: *mut OmegaGpuFp8Slots,
+            groups: u32,
+            slots: *const u32,
+            versions: *const u64,
+            x: *const f32,
+            x_rows: u32,
+            y: *mut f32,
+            info: *mut Fp8Info,
+        ) -> i32;
+        pub fn omega_gpu_fp8_slots_stats(p: *mut OmegaGpuFp8Slots, out: *mut OmegaGpuFp8SlotsStats);
+        pub fn omega_gpu_fp8_slots_rc_name(rc: i32) -> *const std::os::raw::c_char;
+    }
+}
+
+/// Counters of one slot pool (omega `OmegaGpuFp8SlotsStats`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SlotPoolStats {
+    pub slots: u32,
+    pub device_bytes: u64,
+    pub loads: u64,
+    pub load_failures: u64,
+    pub busy_refusals: u64,
+    pub stale_refusals: u64,
+    pub pins: u64,
+    pub pinned_now: u32,
+    pub pinned_high: u32,
+    pub bytes_loaded: u64,
+    pub load_ns: u64,
+}
+
+/// A pool of `slots` versioned FP8 expert slots of one shape `[n][k]` (omega_gpu_fp8_slots.h): GPU-uncached,
+/// refilled while the model runs. `load` hides the slot, copies and publishes a fresh version; it is refused
+/// while a launch reads the slot. `grouped_f32` pins the given (slot, version) pairs for exactly its launch.
+/// Thread-safe in omega (pool mutex; launches take the session lock), so `Sync`.
+pub struct Fp8Slots {
+    #[cfg(has_omega_fp8_slots)]
+    ptr: *mut slots_ffi::OmegaGpuFp8Slots,
+    slots: usize,
+    n: usize,
+    k: usize,
+}
+
+// SAFETY: the omega pool serialises its own state (pthread mutex) and launches take the session lock.
+unsafe impl Send for Fp8Slots {}
+unsafe impl Sync for Fp8Slots {}
+
+impl fmt::Debug for Fp8Slots {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Fp8Slots {{ slots: {}, n: {}, k: {} }}",
+            self.slots, self.n, self.k
+        )
+    }
+}
+
+#[cfg(has_omega_fp8_slots)]
+fn slots_err(rc: i32) -> OmegaGpuError {
+    // SAFETY: static NUL-terminated strings (last_error may be NULL).
+    let name = unsafe {
+        let n = slots_ffi::omega_gpu_fp8_slots_rc_name(rc);
+        let n = if n.is_null() {
+            String::from("?")
+        } else {
+            std::ffi::CStr::from_ptr(n).to_string_lossy().into_owned()
+        };
+        let e = ffi::omega_gpu_fp8_last_error();
+        if e.is_null() || rc == -6 || rc == -7 {
+            n
+        } else {
+            format!("{n}: {}", std::ffi::CStr::from_ptr(e).to_string_lossy())
+        }
+    };
+    OmegaGpuError::Rc { rc, name }
+}
+
+/// Whether this binary carries the slot pool API.
+pub fn slots_native() -> bool {
+    cfg!(has_omega_fp8_slots)
+}
+
+impl Fp8Slots {
+    pub fn alloc(slots: usize, n: usize, k: usize) -> Result<Self, OmegaGpuError> {
+        check_shape(slots, n, k)?;
+        #[cfg(has_omega_fp8_slots)]
+        {
+            let mut ptr = std::ptr::null_mut();
+            // SAFETY: shape checked; omega writes the handle or leaves it NULL.
+            let rc = unsafe {
+                slots_ffi::omega_gpu_fp8_slots_alloc(slots as u32, n as u32, k as u32, &mut ptr)
+            };
+            if rc != 0 || ptr.is_null() {
+                return Err(slots_err(rc));
+            }
+            Ok(Self { ptr, slots, n, k })
+        }
+        #[cfg(not(has_omega_fp8_slots))]
+        {
+            let _ = (slots, n, k);
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
+
+    pub fn slots(&self) -> usize {
+        self.slots
+    }
+    pub fn n(&self) -> usize {
+        self.n
+    }
+    pub fn k(&self) -> usize {
+        self.k
+    }
+    /// Device bytes per slot (weights + f32 scales).
+    pub fn slot_bytes(&self) -> usize {
+        self.n * self.k + (self.n / BLOCK) * (self.k / BLOCK) * 4
+    }
+
+    /// Load one expert projection into `slot`; returns the published version.
+    pub fn load(
+        &self,
+        slot: usize,
+        key: u64,
+        w: &[u8],
+        scale_inv_bf16: &[u16],
+    ) -> Result<u64, OmegaGpuError> {
+        check_len("fp8 slot weight bytes", self.n * self.k, w.len())?;
+        check_len(
+            "fp8 slot scale words",
+            (self.n / BLOCK) * (self.k / BLOCK),
+            scale_inv_bf16.len(),
+        )?;
+        if slot >= self.slots {
+            return Err(bad(format!("slot {slot} of {}", self.slots)));
+        }
+        #[cfg(has_omega_fp8_slots)]
+        {
+            let mut v = 0u64;
+            // SAFETY: lengths checked; omega copies before returning.
+            let rc = unsafe {
+                slots_ffi::omega_gpu_fp8_slots_load(
+                    self.ptr,
+                    slot as u32,
+                    key,
+                    w.as_ptr(),
+                    scale_inv_bf16.as_ptr(),
+                    &mut v,
+                )
+            };
+            if rc != 0 {
+                return Err(slots_err(rc));
+            }
+            Ok(v)
+        }
+        #[cfg(not(has_omega_fp8_slots))]
+        {
+            let _ = key;
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
+
+    /// One grouped launch over (slot, version) pairs, pinned for the launch (`x`: `k` values shared, or
+    /// `slots.len() * k`, one row per group). Returns the chip info.
+    pub fn grouped_f32(
+        &self,
+        slots: &[u32],
+        versions: &[u64],
+        x: &[f32],
+        y: &mut [f32],
+    ) -> Result<Fp8Info, OmegaGpuError> {
+        let g = slots.len();
+        check_len("fp8 slot versions", g, versions.len())?;
+        if g == 0 || g > MAX_GROUPS {
+            return Err(bad(format!("fp8 slot groups {g} (1..={MAX_GROUPS})")));
+        }
+        let x_rows = if x.len() == self.k {
+            1
+        } else {
+            check_len("fp8 slot x", g * self.k, x.len())?;
+            g
+        };
+        check_len("fp8 slot y", g * self.n, y.len())?;
+        #[cfg(has_omega_fp8_slots)]
+        {
+            let mut info = Fp8Info::default();
+            // SAFETY: lengths checked above; omega pins, launches, waits for the marker, unpins.
+            let rc = unsafe {
+                slots_ffi::omega_gpu_fp8_slots_gemv_grouped_f32(
+                    self.ptr,
+                    g as u32,
+                    slots.as_ptr(),
+                    versions.as_ptr(),
+                    x.as_ptr(),
+                    x_rows as u32,
+                    y.as_mut_ptr(),
+                    &mut info,
+                )
+            };
+            if rc != 0 {
+                return Err(slots_err(rc));
+            }
+            Ok(info)
+        }
+        #[cfg(not(has_omega_fp8_slots))]
+        {
+            let _ = x_rows;
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
+
+    pub fn stats(&self) -> SlotPoolStats {
+        #[cfg(has_omega_fp8_slots)]
+        {
+            let mut s = slots_ffi::OmegaGpuFp8SlotsStats::default();
+            // SAFETY: valid handle, plain C struct out.
+            unsafe { slots_ffi::omega_gpu_fp8_slots_stats(self.ptr, &mut s) };
+            SlotPoolStats {
+                slots: s.slots,
+                device_bytes: s.device_bytes,
+                loads: s.loads,
+                load_failures: s.load_failures,
+                busy_refusals: s.busy_refusals,
+                stale_refusals: s.stale_refusals,
+                pins: s.pins,
+                pinned_now: s.pinned_now,
+                pinned_high: s.pinned_high,
+                bytes_loaded: s.bytes_loaded,
+                load_ns: s.load_ns,
+            }
+        }
+        #[cfg(not(has_omega_fp8_slots))]
+        {
+            SlotPoolStats::default()
+        }
+    }
+}
+
+impl Drop for Fp8Slots {
+    fn drop(&mut self) {
+        #[cfg(has_omega_fp8_slots)]
+        {
+            // SAFETY: owned handle. BUSY means a launch still pins a slot, which cannot happen here (launches
+            // are synchronous and borrow &self); the pool is then leaked rather than freed under a reader.
+            let rc = unsafe { slots_ffi::omega_gpu_fp8_slots_free(self.ptr) };
+            debug_assert_eq!(rc, 0, "slot pool freed while pinned");
+        }
+    }
+}

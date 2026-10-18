@@ -1,0 +1,32 @@
+mem available before load: 48.2 GB
+RIBBON: 3072 slots, pools 14.50 GB; memory gate 20.5 GB
+engine native=true window_api=true fp8_api=true dattn_api=true weights=Fp8All attn=Fused spin_us=Some(2000) cta_budget=Some(64)
+prefill path gemv routing host (gemm_api=true)
+attention path fused prefill_chunk 8 batched_prefill_possible false
+router path device lm_head path gemv (router_api=true bf16_api=true)
+decode graph OFF (dgraph_api=true, OWN30B_DECODE_GRAPH=1 to turn on) mutant none
+whole-prompt prefill OFF device router/combine OFF
+LOAD: 1.4s resident 1.53 GB host 0.67 GB peak_rss 17.62 GB (before 14.75 GB) kv_resident=true mem_available_after 32.1 GB
+LOAD peak over resident+host: 15.42 GB (budget 6 GB) -> FAIL
+TOKENS p1-one-token: 1 prompt tokens, prefill 0.56s (557.0 ms/token; chunk 8, per token attention 10.8 ms experts 546.1 ms host 1.2 ms launches 288.0), decode 16 tokens in 5844 ms = 365.2 ms/token = 2.7 tok/s; per step: attention 9.3 ms experts 352.0 ms lm_head 3.6 ms host 1.0 ms chip-reported 24.5 ms launches 271; IDENTICAL
+  DECODE GRAPH OFF: 0 of 16 decode steps as one list (the first step is the prefill's lm_head); per step launches 271.0 submits 271.0; per graph token launches 0.0 submits 0.0 record 0.0 us
+  RIBBON 3072 slots: experts hit 4182 miss 1962 (hit rate 0.6807); loaded 9259007616 B; miss wall 5906.2 ms; per decode step page 336.46 ms; prefill page 528.1 ms; summed read wait 13263.5 ms; summed slot load 4329.6 ms; device read 9275092992 B; resident 1962
+  chip text: " and welcome to the 2024-25 season of the National"
+  cpu  text: " and welcome to the 2024-25 season of the National"
+TOKENS p2-short: 20 prompt tokens, prefill 5.19s (259.6 ms/token; chunk 8, per token attention 9.9 ms experts 249.5 ms host 1.2 ms launches 288.0), decode 7 tokens in 1542 ms = 220.3 ms/token = 4.5 tok/s; per step: attention 10.0 ms experts 206.3 ms lm_head 3.6 ms host 1.4 ms chip-reported 26.0 ms launches 289.14285714285717; IDENTICAL
+  DECODE GRAPH OFF: 0 of 7 decode steps as one list (the first step is the prefill's lm_head); per step launches 289.1 submits 289.1; per graph token launches 0.0 submits 0.0 record 0.0 us
+  RIBBON 3072 slots: experts hit 8918 miss 1450 (hit rate 0.8601); loaded 6842793600 B; miss wall 5979.2 ms; per decode step page 189.80 ms; prefill page 4661.2 ms; summed read wait 7475.5 ms; summed slot load 3123.4 ms; device read 6854583440 B; resident 3072
+  chip text: "The capital of France is Paris."
+  cpu  text: "The capital of France is Paris.<|im_end|>"
+TOKENS p3-medium: 204 prompt tokens, prefill 23.74s (116.4 ms/token; chunk 8, per token attention 11.2 ms experts 105.1 ms host 1.4 ms launches 283.8), decode 16 tokens in 3138 ms = 196.1 ms/token = 5.1 tok/s; per step: attention 10.4 ms experts 182.2 ms lm_head 3.1 ms host 1.1 ms chip-reported 25.2 ms launches 271; IDENTICAL
+  DECODE GRAPH OFF: 0 of 16 decode steps as one list (the first step is the prefill's lm_head); per step launches 271.0 submits 271.0; per graph token launches 0.0 submits 0.0 record 0.0 us
+  RIBBON 3072 slots: experts hit 79811 miss 3133 (hit rate 0.9622); loaded 14785153344 B; miss wall 20518.6 ms; per decode step page 166.92 ms; prefill page 17925.0 ms; summed read wait 21224.3 ms; summed slot load 7458.1 ms; device read 14810735760 B; resident 3072
+  chip text: "- The DGX Spark uses the GB10 Grace Blackwell superchip,"
+  cpu  text: "- The DGX Spark uses the GB10 Grace Blackwell superchip,"
+TOKENS p4-long: 657 prompt tokens, prefill 76.74s (116.8 ms/token; chunk 8, per token attention 11.3 ms experts 105.3 ms host 1.1 ms launches 286.7), decode 16 tokens in 2263 ms = 141.4 ms/token = 7.1 tok/s; per step: attention 10.8 ms experts 127.2 ms lm_head 3.1 ms host 1.1 ms chip-reported 25.5 ms launches 271; IDENTICAL
+  DECODE GRAPH OFF: 0 of 16 decode steps as one list (the first step is the prefill's lm_head); per step launches 271.0 submits 271.0; per graph token launches 0.0 submits 0.0 record 0.0 us
+  RIBBON 3072 slots: experts hit 247590 miss 9306 (hit rate 0.9638); loaded 43916577408 B; miss wall 60363.6 ms; per decode step page 112.20 ms; prefill page 58726.2 ms; summed read wait 55679.9 ms; summed slot load 20735.7 ms; device read 43992697120 B; resident 3072
+  chip text: "What went wrong:  \nIn **run 10**, the model's output"
+  cpu  text: "What went wrong:  \nIn **run 10**, the model's output"
+SUMMARY parity=PASS tokens=PASS peak_rss=17.82 GB
+receipt: /home/drakestapleton/workspace/ribbon-sc/docs/inference/evidence/ribbon-paged-20261018T1719Z/s3072-p1234
