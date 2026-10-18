@@ -87,6 +87,9 @@ fn options(cli: &Cli, root: &Path) -> Result<Options, i32> {
     opts.gpu.wait = cli.wait_gpu;
     opts.sandbox = cli.sandbox;
     opts.release = cli.release;
+    // `--operator` is only accepted on plan, test and worker (cli.rs), so a
+    // plain `run` never lifts an operator gate.
+    opts.operator = cli.operator;
     opts.cargo_target_dir = std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from);
     Ok(opts)
 }
