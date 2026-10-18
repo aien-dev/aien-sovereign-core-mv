@@ -189,10 +189,12 @@ impl Qwen38Config {
         if self.full_attention.len() != self.layers {
             return bad("layer_types length differs from num_hidden_layers");
         }
-        if self.heads % self.kv_heads != 0 || self.lin_v_heads % self.lin_k_heads != 0 {
+        if !self.heads.is_multiple_of(self.kv_heads)
+            || !self.lin_v_heads.is_multiple_of(self.lin_k_heads)
+        {
             return bad("head counts do not group evenly");
         }
-        if self.rotary_dim % 2 != 0 || self.rotary_dim > self.head_dim {
+        if !self.rotary_dim.is_multiple_of(2) || self.rotary_dim > self.head_dim {
             return bad("rotary_dim must be even and at most head_dim");
         }
         if self.conv_kernel < 1 {
@@ -288,10 +290,7 @@ impl Matrix {
                 }
             }
             Self::Bf16 { k, w, .. } => {
-                for (o, &b) in dst[..rows * k]
-                    .iter_mut()
-                    .zip(&w[r0 * k..(r0 + rows) * k])
-                {
+                for (o, &b) in dst[..rows * k].iter_mut().zip(&w[r0 * k..(r0 + rows) * k]) {
                     *o = bf16_to_f32(b);
                 }
             }
@@ -301,7 +300,12 @@ impl Matrix {
     /// `y[t][r] = sum_c W[r][c] * x[t][c]` for `t` rows of `x` (`[t][k]`), returned `[t][n]`.
     pub fn matmul(&self, x: &[f32], t: usize) -> Vec<f32> {
         let (n, k) = (self.n(), self.k());
-        assert_eq!(x.len(), t * k, "matmul [{n}][{k}] given {} values for {t} rows", x.len());
+        assert_eq!(
+            x.len(),
+            t * k,
+            "matmul [{n}][{k}] given {} values for {t} rows",
+            x.len()
+        );
         let lut = fp8_table();
         // Worked as `[n][t]` so each task owns a contiguous run of output rows.
         let mut by_row = vec![0f32; n * t];
@@ -367,8 +371,10 @@ fn read_matrix(
 ) -> Result<Matrix, String> {
     match source.dtype_of(name)?.as_deref() {
         Some("F8_E4M3") => {
-            if n % FP8_BLOCK != 0 || k % FP8_BLOCK != 0 {
-                return Err(format!("{name}: [{n}][{k}] is not a whole number of 128 blocks"));
+            if !n.is_multiple_of(FP8_BLOCK) || !k.is_multiple_of(FP8_BLOCK) {
+                return Err(format!(
+                    "{name}: [{n}][{k}] is not a whole number of 128 blocks"
+                ));
             }
             let scale_name = format!("{name}_scale_inv");
             if source.dtype_of(&scale_name)?.is_none() {
@@ -376,8 +382,7 @@ fn read_matrix(
             }
             let mut w = vec![0u8; n * k];
             source.read_into(name, "F8_E4M3", &[n, k], &mut w)?;
-            let scales =
-                read_bf16_words(source, &scale_name, &[n / FP8_BLOCK, k / FP8_BLOCK])?;
+            let scales = read_bf16_words(source, &scale_name, &[n / FP8_BLOCK, k / FP8_BLOCK])?;
             Ok(Matrix::Fp8 { n, k, w, scales })
         }
         Some("BF16") => Ok(Matrix::Bf16 {
@@ -567,7 +572,11 @@ impl<S: TensorSource> Qwen38Reference<S> {
             .ok_or("checkpoint: no embed_tokens.weight under model.language_model. or model.")?
             .to_string();
         let (v, h) = (config.vocab, config.hidden);
-        let embed = read_bf16_words(&mut source, &format!("{prefix}embed_tokens.weight"), &[v, h])?;
+        let embed = read_bf16_words(
+            &mut source,
+            &format!("{prefix}embed_tokens.weight"),
+            &[v, h],
+        )?;
         let final_norm = read_vec(&mut source, &format!("{prefix}norm.weight"), h)?;
         let lm_head = read_matrix(&mut source, "lm_head.weight", v, h)?;
         Ok(Self {
@@ -592,7 +601,12 @@ impl<S: TensorSource> Qwen38Reference<S> {
         let mixer = if c.full_attention[l] {
             let a = format!("{p}.self_attn");
             Mixer::Attention(AttentionWeights {
-                q: read_matrix(src, &format!("{a}.q_proj.weight"), 2 * c.heads * c.head_dim, h)?,
+                q: read_matrix(
+                    src,
+                    &format!("{a}.q_proj.weight"),
+                    2 * c.heads * c.head_dim,
+                    h,
+                )?,
                 k: read_matrix(src, &format!("{a}.k_proj.weight"), c.kv_dim(), h)?,
                 v: read_matrix(src, &format!("{a}.v_proj.weight"), c.kv_dim(), h)?,
                 o: read_matrix(src, &format!("{a}.o_proj.weight"), h, c.heads * c.head_dim)?,
@@ -645,7 +659,10 @@ impl<S: TensorSource> Qwen38Reference<S> {
         for (row, &tok) in x.chunks_exact_mut(h).zip(tokens) {
             let tok = tok as usize;
             if tok >= c.vocab {
-                return Err(format!("forward: token {tok} outside the vocab {}", c.vocab));
+                return Err(format!(
+                    "forward: token {tok} outside the vocab {}",
+                    c.vocab
+                ));
             }
             for (o, &b) in row.iter_mut().zip(&self.embed[tok * h..(tok + 1) * h]) {
                 *o = bf16_to_f32(b);
@@ -747,7 +764,8 @@ fn delta_net(
             for i in 0..t {
                 let kt = &k[i * key_dim + hk * kd..i * key_dim + (hk + 1) * kd];
                 let qt = &q[i * key_dim + hk * kd..i * key_dim + (hk + 1) * kd];
-                let vt = &mixed[i * cd + 2 * key_dim + hv * vd..i * cd + 2 * key_dim + (hv + 1) * vd];
+                let vt =
+                    &mixed[i * cd + 2 * key_dim + hv * vd..i * cd + 2 * key_dim + (hv + 1) * vd];
                 let g = decay_rate * softplus(a[i * vh + hv] + w.dt_bias[hv]);
                 let beta = sigmoid(b[i * vh + hv]);
                 let decay = g.exp();
@@ -975,7 +993,12 @@ mod tests {
         for l in 0..c.layers {
             let lp = format!("{p}layers.{l}");
             m.bf16(&format!("{lp}.input_layernorm.weight"), &[h], 0.1, 0.0);
-            m.bf16(&format!("{lp}.post_attention_layernorm.weight"), &[h], 0.1, 0.0);
+            m.bf16(
+                &format!("{lp}.post_attention_layernorm.weight"),
+                &[h],
+                0.1,
+                0.0,
+            );
             if c.full_attention[l] {
                 let a = format!("{lp}.self_attn");
                 m.fp8(&format!("{a}.q_proj.weight"), 2 * c.heads * c.head_dim, h);
@@ -988,9 +1011,24 @@ mod tests {
                 let a = format!("{lp}.linear_attn");
                 m.fp8(&format!("{a}.in_proj_qkv.weight"), c.conv_dim(), h);
                 m.fp8(&format!("{a}.in_proj_z.weight"), c.lin_value_dim(), h);
-                m.bf16(&format!("{a}.in_proj_a.weight"), &[c.lin_v_heads, h], 0.05, 0.0);
-                m.bf16(&format!("{a}.in_proj_b.weight"), &[c.lin_v_heads, h], 0.05, 0.0);
-                m.bf16(&format!("{a}.conv1d.weight"), &[c.conv_dim(), 1, c.conv_kernel], 0.5, 0.0);
+                m.bf16(
+                    &format!("{a}.in_proj_a.weight"),
+                    &[c.lin_v_heads, h],
+                    0.05,
+                    0.0,
+                );
+                m.bf16(
+                    &format!("{a}.in_proj_b.weight"),
+                    &[c.lin_v_heads, h],
+                    0.05,
+                    0.0,
+                );
+                m.bf16(
+                    &format!("{a}.conv1d.weight"),
+                    &[c.conv_dim(), 1, c.conv_kernel],
+                    0.5,
+                    0.0,
+                );
                 m.bf16(&format!("{a}.A_log"), &[c.lin_v_heads], 0.5, 0.0);
                 m.bf16(&format!("{a}.dt_bias"), &[c.lin_v_heads], 0.5, 0.0);
                 m.bf16(&format!("{a}.norm.weight"), &[c.lin_v_dim], 0.1, 1.0);
@@ -1021,7 +1059,10 @@ mod tests {
         assert_eq!(c.conv_dim(), 10240);
         assert_eq!(c.full_attention, vec![false, false, false, true]);
         assert_eq!(c.eos_token_ids, vec![248046, 248044]);
-        let tied = json.replace("\"tie_word_embeddings\":false", "\"tie_word_embeddings\":true");
+        let tied = json.replace(
+            "\"tie_word_embeddings\":false",
+            "\"tie_word_embeddings\":true",
+        );
         assert!(Qwen38Config::from_json(&tied, None).is_err());
         let int8 = json.replace("\"fp8\"", "\"int8\"");
         assert!(Qwen38Config::from_json(&int8, None).is_err());
@@ -1034,7 +1075,9 @@ mod tests {
         let w = read_matrix(&mut m, "w", 256, 384).unwrap();
         let x: Vec<f32> = (0..3 * 384).map(|i| prand(9, i)).collect();
         let y = w.matmul(&x, 3);
-        let Matrix::Fp8 { w: q, scales, .. } = &w else { panic!() };
+        let Matrix::Fp8 { w: q, scales, .. } = &w else {
+            panic!()
+        };
         let lut = fp8_table();
         for t in 0..3 {
             for r in 0..256 {
@@ -1045,7 +1088,10 @@ mod tests {
                     })
                     .sum();
                 let got = y[t * 256 + r] as f64;
-                assert!((got - want).abs() <= 1e-4 * (1.0 + want.abs()), "{t} {r} {got} {want}");
+                assert!(
+                    (got - want).abs() <= 1e-4 * (1.0 + want.abs()),
+                    "{t} {r} {got} {want}"
+                );
             }
         }
     }
@@ -1099,7 +1145,9 @@ mod tests {
         let mut m = Mem::default();
         m.fp8("w", 128, 128);
         m.tensors.remove("w_scale_inv");
-        assert!(read_matrix(&mut m, "w", 128, 128).unwrap_err().contains("without"));
+        assert!(read_matrix(&mut m, "w", 128, 128)
+            .unwrap_err()
+            .contains("without"));
     }
 
     #[test]
