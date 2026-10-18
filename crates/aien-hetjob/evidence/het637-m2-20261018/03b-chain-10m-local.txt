@@ -1,0 +1,9 @@
+++ /home/drakestapleton/workspace/targets/het-637/release/aien-hetjob local --chain 10000000 abababababababababababababababababababababababababababababababab
+kind=digest_chain
+work_units=10000000
+worker_algorithm_digest=2a083022beccae75b5497a9eff5887b5b9e7d5a18b53b5da33255d2bd00f148c
+worker_algorithm_ms=1178.227
+threads=4
+oracle_digest=2a083022beccae75b5497a9eff5887b5b9e7d5a18b53b5da33255d2bd00f148c
+oracle_ms=1195.040
+agree=true

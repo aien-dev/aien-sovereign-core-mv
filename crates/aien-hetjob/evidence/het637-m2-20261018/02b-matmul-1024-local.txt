@@ -1,0 +1,9 @@
+++ /home/drakestapleton/workspace/targets/het-637/release/aien-hetjob local --matmul 1024 1024 1024 2026 --threads 4
+kind=matmul_u32
+work_units=1073741824
+worker_algorithm_digest=1a6ac78095dee511101103c5f6b86dee751015930b434a5f6325368ee76d55dd
+worker_algorithm_ms=54.984
+threads=4
+oracle_digest=1a6ac78095dee511101103c5f6b86dee751015930b434a5f6325368ee76d55dd
+oracle_ms=1195.252
+agree=true

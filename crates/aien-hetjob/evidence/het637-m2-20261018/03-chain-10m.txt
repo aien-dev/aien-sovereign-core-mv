@@ -1,0 +1,18 @@
+++ /home/drakestapleton/workspace/targets/het-637/release/aien-hetjob dispatch --roster crates/aien-hetjob/evidence/het637-m2-20261018/roster.txt --ssh macbook-hetjob --chain 10000000 abababababababababababababababababababababababababababababababab
+aien-hetjob serve: Summary { completed: 1, replayed: 0, denied: 0, cancelled: 0, failed: 0, refused_frames: 0 }
+task_id=52d6ae89dddc9248034871819a83f37b
+idempotence_key=b9322a6ae59c812ea6118eabc46b916a
+kind=digest_chain
+work_units=10000000
+round_trip_ms=1756.295
+frames=6
+stale_ignored=0
+oracle_ms=1182.042
+OUTCOME VERIFIED
+output_digest=2a083022beccae75b5497a9eff5887b5b9e7d5a18b53b5da33255d2bd00f148c
+oracle=matched
+worker_key_fingerprint=310482aafb104bcf37f0a14c00eb38f0aacbc9ea4bc02735497c4184ac7af309
+claimed_platform=macos aarch64 cpus=8 memory_bytes=8589934592
+claimed_program_digest=a57f7c08b47c1f37510cd981e8b30e8c045f2365687e39033c484643f3523077
+claimed_remote_compute_ms=1741.902
+claimed_threads=4

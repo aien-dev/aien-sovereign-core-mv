@@ -1,0 +1,22 @@
+[package]
+name = "aien-hetjob"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+description = "Allowlisted, integer-exact CPU jobs dispatched over PST1 to a hosted worker machine, with worker-signed receipts and an independent recompute on the coordinator (aien-sovereign-core#637)"
+
+[dependencies]
+# PST1 header reader and writer, pinned to the aien-protocols-mv main commit
+# that merged #37.
+aien-pi-spark-task = { git = "https://github.com/aien-dev/aien-protocols", rev = "81b7d75f340a75ad468a241d152315fb5ef7c1a6" }
+# Key files, executor fingerprints and canonical signed bytes are reused from
+# the local verification worker (ADR 0033 Decision 6); the bundle schema is not.
+aien-test = { path = "../../tools/aien-test" }
+ed25519-dalek = { version = "2.1", default-features = false, features = ["fast", "zeroize"] }
+libc = "0.2"
+serde_json = "1.0"
+sha2 = "0.10"
+
+[[bin]]
+name = "aien-hetjob"
+path = "src/main.rs"

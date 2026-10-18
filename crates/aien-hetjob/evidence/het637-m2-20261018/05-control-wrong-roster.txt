@@ -1,0 +1,11 @@
+++ /home/drakestapleton/workspace/targets/het-637/release/aien-hetjob dispatch --roster crates/aien-hetjob/evidence/het637-m2-20261018/wrong-roster.txt --ssh macbook-hetjob --matmul 64 64 64 1
+aien-hetjob serve: Summary { completed: 1, replayed: 0, denied: 0, cancelled: 0, failed: 0, refused_frames: 0 }
+task_id=acd4bd1ba4a612adaf542c2e62370371
+idempotence_key=247fa65e03511f758333d38bdfda32ff
+kind=matmul_u32
+work_units=262144
+round_trip_ms=207.333
+frames=5
+stale_ignored=0
+oracle_ms=0.141
+OUTCOME REJECTED WRONG_PEER:8d5fe96bea997f8acaf79b514bd37597becddef82a0a9075ef5c5bc53ad7be2a

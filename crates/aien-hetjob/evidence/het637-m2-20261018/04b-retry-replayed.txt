@@ -1,0 +1,19 @@
+++ /home/drakestapleton/workspace/targets/het-637/release/aien-hetjob dispatch --roster crates/aien-hetjob/evidence/het637-m2-20261018/roster.txt --ssh macbook-hetjob --matmul 512 512 512 4242 --idem 72657472792d6d61746d756c2d353132 --task 7461736b2d72657472792d3531322d31 --cause c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0
+aien-hetjob serve: Summary { completed: 0, replayed: 1, denied: 0, cancelled: 0, failed: 0, refused_frames: 0 }
+cause_id=c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0
+task_id=7461736b2d72657472792d3531322d31
+idempotence_key=72657472792d6d61746d756c2d353132
+kind=matmul_u32
+work_units=134217728
+round_trip_ms=138.666
+frames=5
+stale_ignored=0
+oracle_ms=107.119
+OUTCOME VERIFIED
+output_digest=27da96a3df130f7859c8f6c3f58b292f3168bf17565399f2d22dcccda99f8a8c
+oracle=matched
+worker_key_fingerprint=310482aafb104bcf37f0a14c00eb38f0aacbc9ea4bc02735497c4184ac7af309
+claimed_platform=macos aarch64 cpus=8 memory_bytes=8589934592
+claimed_program_digest=a57f7c08b47c1f37510cd981e8b30e8c045f2365687e39033c484643f3523077
+claimed_remote_compute_ms=8.815
+claimed_threads=4
