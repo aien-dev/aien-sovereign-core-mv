@@ -220,6 +220,28 @@ pub fn valid_obs_name(s: &str) -> bool {
     chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.' || c == '-')
 }
 
+/// The folder of an `inputs_top` entry (`<dir>/*` in `inputs`), or None for a plain input.
+pub fn shallow_dir(input: &str) -> Option<&str> {
+    input.strip_suffix("/*")
+}
+
+/// `path` is a file directly inside `dir` whose name does not start with a dot.
+pub fn directly_in(dir: &str, path: &str) -> bool {
+    path.strip_prefix(dir)
+        .and_then(|r| r.strip_prefix('/'))
+        .is_some_and(|n| !n.is_empty() && !n.contains('/') && !n.starts_with('.'))
+}
+
+/// A changed `path` falls under one entry of `inputs`: the input itself or anything below
+/// it, or, for an `inputs_top` entry, a file directly inside its folder.
+pub fn input_covers(input: &str, path: &str) -> bool {
+    if let Some(dir) = shallow_dir(input) {
+        return directly_in(dir, path);
+    }
+    let dir = input.trim_end_matches('/');
+    path == dir || path.starts_with(&format!("{dir}/"))
+}
+
 fn valid_rel_path(s: &str) -> bool {
     !s.is_empty() && !s.starts_with('/') && !s.contains('\0') && !s.split('/').any(|c| c == "..")
 }
@@ -465,13 +487,14 @@ pub const REQUIRES_V2: [&str; 9] = [
     "operator",
 ];
 
-const V2_KEYS: [&str; 6] = [
+const V2_KEYS: [&str; 7] = [
     "exactness",
     "tolerance",
     "backends",
     "fallback",
     "cache_scope",
     "oracle",
+    "inputs_top",
 ];
 
 fn bad<T>(msg: String) -> Result<T, ManifestError> {
@@ -702,13 +725,14 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, ManifestError> {
     }
     let entries = parse_entries(text)?;
 
-    const KNOWN: [&str; 19] = [
+    const KNOWN: [&str; 20] = [
         "gate",
         "manifest_version",
         "owner",
         "requires",
         "depends_on",
         "inputs",
+        "inputs_top",
         "build",
         "run",
         "expects",
@@ -793,15 +817,30 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, ManifestError> {
             return Err(ManifestError(format!("invalid depends_on id {d:?}")));
         }
     }
-    let inputs = match get("inputs") {
+    let mut inputs = match get("inputs") {
         Some(e) => list(e)?,
         None => Vec::new(),
     };
     for i in &inputs {
-        if !valid_rel_path(i) {
+        if !valid_rel_path(i) || shallow_dir(i).is_some() {
             return Err(ManifestError(format!(
                 "inputs path must be repo-relative: {i:?}"
             )));
+        }
+    }
+    // `inputs_top` (v2, omega#524): only the tracked files directly inside each folder, not
+    // its subfolders and not its dotfiles (`.crumb`). Kept in `inputs` as `<dir>/*`, which
+    // `shallow_dir` and `input_covers` read. A plain input may not end in `/*`, and a binary
+    // older than this key refuses the manifest (unknown key) instead of misreading it.
+    if let Some(e) = get("inputs_top") {
+        for d in list(e)? {
+            let d = d.trim_end_matches('/');
+            if !valid_rel_path(d) || d.contains('*') {
+                return Err(ManifestError(format!(
+                    "inputs_top folder must be repo-relative: {d:?}"
+                )));
+            }
+            inputs.push(format!("{d}/*"));
         }
     }
 
@@ -1232,6 +1271,39 @@ mod tests {
         assert_eq!(m.oracle.golden.as_deref(), Some("tests/g.txt"));
         let m = parse(v2("oracle:\n  compare: G-0\n").as_bytes()).unwrap();
         assert_eq!(m.oracle.compare.as_deref(), Some("G-0"));
+    }
+
+    #[test]
+    fn inputs_top_parses_into_shallow_entries() {
+        let m =
+            parse(v2("inputs:\n  - mk/\ninputs_top:\n  - src\n  - tools/\n").as_bytes()).unwrap();
+        assert_eq!(m.inputs, ["mk/", "src/*", "tools/*"]);
+        assert_eq!(shallow_dir("src/*"), Some("src"));
+        assert_eq!(shallow_dir("src/"), None);
+        // v1 does not know the key; plain inputs may not spell the shallow form.
+        let e = parse(with("inputs_top:\n  - src\n").as_bytes())
+            .unwrap_err()
+            .0;
+        assert!(e.contains("requires manifest_version 2"), "{e}");
+        assert!(v2_err("inputs:\n  - src/*\n").contains("repo-relative"));
+        for bad in ["/abs", "a/../b", "src/*/x", "*"] {
+            let e = v2_err(&format!("inputs_top:\n  - {bad}\n"));
+            assert!(e.contains("inputs_top folder"), "{bad}: {e}");
+        }
+    }
+
+    #[test]
+    fn input_covers_reads_both_forms() {
+        assert!(input_covers("src/", "src/visor/a.c"));
+        assert!(input_covers("src", "src"));
+        assert!(!input_covers("src", "srcx/a.c"));
+        assert!(input_covers("src/*", "src/a.c"));
+        assert!(!input_covers("src/*", "src/visor/a.c"));
+        assert!(!input_covers("src/*", "src/.crumb"));
+        assert!(!input_covers("src/*", "src"));
+        assert!(!input_covers("src/*", "src-x/a.c"));
+        assert!(directly_in("a/b", "a/b/c.h"));
+        assert!(!directly_in("a/b", "a/bc.h"));
     }
 
     #[test]

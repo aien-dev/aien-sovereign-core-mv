@@ -17,7 +17,7 @@
 
 use crate::evidence::{canonical, sha256_hex};
 use crate::graph::Graph;
-use crate::manifest::{CacheScope, Manifest};
+use crate::manifest::{self, CacheScope, Manifest};
 use crate::process;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -74,8 +74,17 @@ fn git_ls_files(root: &Path, spec: &str) -> Result<Vec<(String, String)>, String
 pub fn input_blob_ids(m: &Manifest, root: &Path) -> Result<Vec<Value>, String> {
     let mut rows: BTreeMap<String, Option<String>> = BTreeMap::new();
     for input in &m.inputs {
-        let spec = input.trim_end_matches('/');
-        let found = git_ls_files(root, spec)?;
+        let (spec, found) = match manifest::shallow_dir(input) {
+            Some(dir) => {
+                let mut found = git_ls_files(root, dir)?;
+                found.retain(|(path, _)| manifest::directly_in(dir, path));
+                (input.as_str(), found)
+            }
+            None => {
+                let spec = input.trim_end_matches('/');
+                (spec, git_ls_files(root, spec)?)
+            }
+        };
         if found.is_empty() {
             rows.entry(spec.to_string()).or_insert(None);
         }
@@ -120,6 +129,24 @@ pub fn declared_dependencies(m: &Manifest) -> Vec<String> {
 pub fn input_blob_ids_from_rows(m: &Manifest, tree: &BTreeMap<String, String>) -> Vec<Value> {
     let mut rows: BTreeMap<String, Option<String>> = BTreeMap::new();
     for input in &m.inputs {
+        if let Some(dir) = manifest::shallow_dir(input) {
+            // Same null-row key as `input_blob_ids`: the entry as written (`<dir>/*`).
+            let prefix = format!("{dir}/");
+            let mut found = false;
+            for (path, blob) in tree.range(prefix.clone()..) {
+                if !path.starts_with(&prefix) {
+                    break;
+                }
+                if manifest::directly_in(dir, path) {
+                    rows.insert(path.clone(), Some(blob.clone()));
+                    found = true;
+                }
+            }
+            if !found {
+                rows.entry(input.clone()).or_insert(None);
+            }
+            continue;
+        }
         let spec = input.trim_end_matches('/');
         let prefix = format!("{spec}/");
         let mut found = false;
@@ -267,12 +294,12 @@ pub fn graph_identities(
 pub fn select_changed(graph: &Graph, changed: &[String]) -> BTreeSet<usize> {
     let touched: Vec<usize> = (0..graph.len())
         .filter(|&i| {
-            graph.node(i).manifest.inputs.iter().any(|input| {
-                let dir = input.trim_end_matches('/');
-                changed
-                    .iter()
-                    .any(|c| c == dir || c.starts_with(&format!("{dir}/")))
-            })
+            graph
+                .node(i)
+                .manifest
+                .inputs
+                .iter()
+                .any(|input| changed.iter().any(|c| manifest::input_covers(input, c)))
         })
         .collect();
     let mut seeds = touched;
@@ -622,5 +649,51 @@ mod rows_tests {
         let a = identity_object(&m, t.path(), "c", &[], &[], &b).unwrap();
         let r = identity_object_from_parts(&m, from_rows, None, "c", &[], &[], &b).unwrap();
         assert_eq!(a, r);
+    }
+}
+
+#[cfg(test)]
+mod inputs_top_tests {
+    use super::*;
+    use crate::testutil::init_repo;
+    use std::process::Command;
+
+    /// omega#524: an `inputs_top` folder contributes only its direct, non-dot files, and the
+    /// index listing and the tree listing agree (including the null row for an empty folder).
+    #[test]
+    fn inputs_top_rows_are_direct_files_only_in_both_listings() {
+        let g = "gate: A\nmanifest_version: 2\nowner: t\nrequires:\n  - host\ninputs_top:\n  - src\n  - empty\nrun:\n  exec: run.sh\nexpects:\n  exit: 0\n  verdict: PASS\ntimeout: 5s\n";
+        let t = init_repo(
+            "ident-top",
+            &[
+                ("a.gate", g, false),
+                ("run.sh", "#!/bin/sh\n", true),
+                ("src/a.c", "a\n", false),
+                ("src/.crumb", "{}\n", false),
+                ("src/lane/l.c", "l\n", false),
+                ("src-x/b.c", "b\n", false),
+                ("empty/sub/x.c", "x\n", false),
+            ],
+        );
+        let m = manifest::parse(g.as_bytes()).unwrap();
+        let from_index = input_blob_ids(&m, t.path()).unwrap();
+        let mut cmd = Command::new("git");
+        cmd.arg("-C").arg(t.path()).args(["ls-tree", "-r", "HEAD"]);
+        let out = process::output_gated(&mut cmd).unwrap();
+        let mut tree = BTreeMap::new();
+        for line in String::from_utf8_lossy(&out.stdout).lines() {
+            let (meta, path) = line.split_once('\t').unwrap();
+            tree.insert(
+                path.to_string(),
+                meta.split(' ').nth(2).unwrap().to_string(),
+            );
+        }
+        assert_eq!(from_index, input_blob_ids_from_rows(&m, &tree));
+        let paths: Vec<&str> = from_index
+            .iter()
+            .map(|r| r["path"].as_str().unwrap())
+            .collect();
+        assert_eq!(paths, ["empty/*", "src/a.c"]);
+        assert!(from_index[0]["blob_id"].is_null());
     }
 }

@@ -466,8 +466,12 @@ pub fn watched(m: &Manifest, rel: &str, rows: &BTreeMap<String, String>) -> Vec<
     v
 }
 
-/// `input` is `path` or a directory above it.
+/// `input` is `path` or a directory above it; an `inputs_top` entry (`<dir>/*`)
+/// covers only the files directly inside its folder.
 pub fn covers(input: &str, path: &str) -> bool {
+    if let Some(dir) = manifest::shallow_dir(input) {
+        return manifest::directly_in(dir, path);
+    }
     let input = input.trim_end_matches('/');
     input.is_empty() || path == input || path.starts_with(&format!("{input}/"))
 }
@@ -1492,6 +1496,36 @@ mod tests {
         let p = plan_of(&t);
         assert!(p.entries.is_empty());
         assert_eq!(p.unmapped, ["src/kern/other.rs"]);
+    }
+
+    /// omega#524: a gate that names `src` in `inputs_top` is selected by a file directly in
+    /// `src/`, not by one in a subfolder and not by the folder's `.crumb`.
+    #[test]
+    fn inputs_top_selects_only_files_directly_in_the_folder() {
+        let top = gate("TOP", &["mk/"], "inputs_top:\n  - src\n");
+        let lane = gate("LANE", &["src/lane/"], "");
+        let t = init_repo(
+            "plan-top",
+            &[
+                ("gates/top.gate", top.as_str(), false),
+                ("gates/lane.gate", lane.as_str(), false),
+                ("run.sh", "#!/bin/sh\n", true),
+                ("mk/a.mk", "x\n", false),
+                ("src/core.c", "int a;\n", false),
+                ("src/.crumb", "{}\n", false),
+                ("src/lane/l.c", "int l;\n", false),
+            ],
+        );
+        commit(&t, &[("src/lane/l.c", "int l2;\n")]);
+        assert_eq!(all_gates(&plan_of(&t)), ["LANE"]);
+        commit(&t, &[("src/.crumb", "{\"v\":2}\n")]);
+        assert!(plan_of(&t).entries.is_empty());
+        commit(&t, &[("src/core.c", "int b;\n")]);
+        let p = plan_of(&t);
+        assert_eq!(all_gates(&p), ["TOP"]);
+        assert!(p.unmapped.is_empty());
+        commit(&t, &[("src/new.h", "x\n")]);
+        assert_eq!(all_gates(&plan_of(&t)), ["TOP"]);
     }
 
     #[test]
