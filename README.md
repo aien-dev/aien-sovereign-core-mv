@@ -20,6 +20,8 @@ Known limits: the GPU fallback counter covers only instrumented operations, so e
 
 Every headline performance number must resolve to a reproducible command and an artifact bundle (commit identity, hardware and environment record, exact command, raw samples, SHA-256 digests, measurement definition, reproducibility steps). Earlier figures (branch fork latency, COW page mutation latency, memory sharing ratios, service comparison table) are withdrawn until regenerated to that standard. The evidence bundles live in [aien-spark/benchmarks](https://github.com/aien-spark/benchmarks).
 
+- Expert Heartbeat H1 ring streamer (aienix#4): verified expert rotation from NVMe at 10.36 GB/s payload, 2.80 s per full 6,144-expert beat; method, receipts and limits in [crates/aien-heartbeat](crates/aien-heartbeat/README.md). Measured with aien-calc receipts; not yet packaged as the artifact bundle this section requires.
+
 ## Standing rules
 
 Language rule: Rust is scaffolding, Omega is the destination, and C or assembly stay only where hardware, boot, ABI or measurement justifies them ([ADR 0024](https://github.com/aien-spark/aien-architecture/blob/main/docs/adr/0024-rust-scaffolding-omega-destination.md), which supersedes the old "C is the target, no new Rust" rule). No Python anywhere in repos, build, CI or tooling. No CUDA toolkit and no new CUDA dependence. No systemd in AIENOS. No outside dependencies in the trusted base. No Modular MAX or Mojo anywhere in the tree (removed 2026-10-15); kernels are Omega or Rust, closest to the metal, fastest wins, build what is missing.
