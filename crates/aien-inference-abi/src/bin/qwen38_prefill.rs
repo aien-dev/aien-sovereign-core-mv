@@ -75,6 +75,8 @@ fn need_bytes(c: &Qwen38Config, max_pos: usize, chunk: usize) -> u64 {
 }
 
 fn open(dir: &Path, max_pos: usize, chunk: usize) -> Result<Qwen38Omega, String> {
+    // The attention cache holds whole score passes of 256 positions (OMEGA_DATTN256_CHUNK).
+    let max_pos = max_pos.next_multiple_of(256);
     let c = Qwen38Config::from_checkpoint(dir)?;
     let need = need_bytes(&c, max_pos, chunk);
     let avail = mem_available()?;
