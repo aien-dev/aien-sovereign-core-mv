@@ -25,6 +25,11 @@ if [ -n "${HOME:-}" ] && [ ! -w "$HOME" ]; then
   HOME="$(mktemp -d)"; export HOME
   trap 'rm -rf "$HOME"' EXIT
   if [ -f "$ro_home/.gitconfig" ]; then cp "$ro_home/.gitconfig" "$HOME/.gitconfig"; fi
+  # The miri sysroot that install.sh prebuilt under the read-only HOME (#600) stays the one miri uses;
+  # the fresh HOME would otherwise send `cargo miri setup` off to rebuild it offline, which cannot work.
+  if [ -z "${MIRI_SYSROOT:-}" ] && [ -d "$ro_home/.cache/miri/lib" ]; then
+    MIRI_SYSROOT="$ro_home/.cache/miri"; export MIRI_SYSROOT
+  fi
 fi
 obs() { printf 'AIEN-OBS %s %s\n' "$1" "$2"; }
 # Inside the user sandbox (AIEN_SANDBOX_NESTED=1, set by the worker) five aien-test self-tests that would
