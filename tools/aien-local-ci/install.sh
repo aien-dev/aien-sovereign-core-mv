@@ -51,6 +51,17 @@ for g in video render kvm; do
   getent group "$g" >/dev/null || continue
   id -nG "$RUN_USER" | tr ' ' '\n' | grep -qx "$g" || S usermod -aG "$g" "$RUN_USER"
 done
+# 1b. the GB10 chip lock (#627). Gate scripts and operator chip runs all flock /tmp/aien-gb10.lock, and the
+#     gb10 profile shares the host /tmp. fs.protected_regular=2 refuses an O_CREAT open of another user's file in
+#     sticky /tmp unless the file belongs to the directory owner, so the lock is root-owned and the operator and
+#     aien-run get rw through ACL entries (effective at once, unlike a new group in running sessions).
+#     chown/setfacl keep the inode, so a chip run holding the lock is not disturbed; the tmpfiles.d rule recreates
+#     it the same way after /tmp is cleaned at boot.
+printf 'f /tmp/aien-gb10.lock 0664 root root -\na+ /tmp/aien-gb10.lock - - - - u:%s:rw-,u:%s:rw-\n' "$OPERATOR" "$RUN_USER" > "$tmp/aien-gb10.conf"
+S install -o root -g root -m 0644 "$tmp/aien-gb10.conf" /etc/tmpfiles.d/aien-gb10.conf
+S systemd-tmpfiles --create /etc/tmpfiles.d/aien-gb10.conf
+S chown root:root /tmp/aien-gb10.lock
+S setfacl -m "u:$OPERATOR:rw-,u:$RUN_USER:rw-" /tmp/aien-gb10.lock
 # home: root-owned, group aien-run (traverse), operator via ACL; skeleton dotfiles removed (nothing may be
 # sourced or read from an aien-run-writable file in the home).
 S chown root:"$RUN_USER" "$RUN_HOME"
