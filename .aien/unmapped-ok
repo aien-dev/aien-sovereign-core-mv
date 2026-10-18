@@ -6,3 +6,7 @@
 LICENSE
 .gitignore
 docs/adr/**
+# llms.txt: plain-text site summary for language models (prose, like README.md).
+llms.txt
+# evidence/: recorded run results and receipts (data and prose, nothing executed by a gate).
+evidence/
