@@ -362,8 +362,16 @@ impl Engine for OmegaDoor {
             pk.fetch(prompt, in_ram)
         });
         let t_lock = Instant::now();
-        let lock =
-            GpuLock::acquire_at(&self.lock_path, self.lock_wait).map_err(EngineError::Busy)?;
+        let lock = match GpuLock::acquire_at(&self.lock_path, self.lock_wait) {
+            Ok(l) => l,
+            Err(e) => {
+                // A prefix loaded but never imported is a restore miss, not lost from the counters.
+                if let (Some(pk), Some(_)) = (persist, fetched.as_ref()) {
+                    pk.note_lock_busy();
+                }
+                return Err(EngineError::Busy(e));
+            }
+        };
         let lock_wait_ms = t_lock.elapsed().as_millis();
         if let (Some(pk), Some(f)) = (persist, fetched.as_ref()) {
             // All or nothing: on error the engine is reset and the prompt is prefilled.

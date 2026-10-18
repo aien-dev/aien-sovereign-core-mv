@@ -11,13 +11,13 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use aien_inference_abi::qwen3_moe_omega::{host_test_engine, OmegaEngine, WeightFormat};
 use aien_serve_http::codec::ByteCodec;
 use aien_serve_http::engine::{Engine, GenerateParams};
 use aien_serve_http::kv_persist::{self, OmegaBuild, PersistState};
-use aien_serve_http::omega_engine::OmegaDoor;
+use aien_serve_http::omega_engine::{GpuLock, OmegaDoor};
 use aien_serve_http::sampling::sample_next;
 use aien_serve_http::server::{serve, serve_until, ServerConfig};
 
@@ -119,7 +119,17 @@ fn door(scratch: &Scratch, s: &Setup) -> (OmegaDoor, String) {
 
 /// [`door`] with the store's test-only stall (`AIEN_KV_TEST_FAULT`, sc#507).
 fn door_with_fault(scratch: &Scratch, s: &Setup, fault: Option<&str>) -> (OmegaDoor, String) {
-    let mut d = OmegaDoor::from_parts(engine(s.weights), scratch.lock(), Duration::from_secs(5));
+    door_at(scratch, s, fault, Duration::from_secs(5))
+}
+
+/// [`door_with_fault`] whose generations wait `lock_wait` for the GPU lock.
+fn door_at(
+    scratch: &Scratch,
+    s: &Setup,
+    fault: Option<&str>,
+    lock_wait: Duration,
+) -> (OmegaDoor, String) {
+    let mut d = OmegaDoor::from_parts(engine(s.weights), scratch.lock(), lock_wait);
     let vars: HashMap<String, String> = s.store_vars.iter().cloned().collect();
     let settings =
         kv_persist::settings_from_lookup(|n| vars.get(n).cloned()).expect("store dir is set");
@@ -451,6 +461,7 @@ fn health_reports_the_persistence_counters_when_on() {
     for k in [
         "parked_chunks",
         "park_bytes",
+        "park_dropped",
         "restores",
         "restored_tokens",
         "restore_bytes",
@@ -872,4 +883,179 @@ fn a_turn_larger_than_the_park_and_restore_budgets_is_parked_and_restored_in_ful
         r2, u2,
         "restored continuation differs from the uninterrupted run"
     );
+}
+
+/// What the storage worker charges for one chunk of these tests: its payload (one block at
+/// `AIEN_KV_CHUNK_BLOCKS=1`, the same for every chunk) plus the header region. Probed by parking a
+/// turn on a door with the default budgets.
+fn chunk_charge() -> u64 {
+    let probe = Scratch::new("charge-probe");
+    let (a, line) = door(&probe, &Setup::new(&probe.store(), &gen_key()));
+    assert!(line.contains("persistent KV: on"), "{line}");
+    let _ = turn(&a, &prompt1());
+    assert!(pk_of(&a).wait_idle(WAIT));
+    let c = counters(&a);
+    assert!(c.parked_chunks > 0 && c.park_refused == 0, "{c:?}");
+    c.park_bytes / c.parked_chunks + aien_kv_store::record::HEADER_REGION_LEN as u64
+}
+
+/// sc#523 item 2: a chunk that can never fit the worker's park budget (a quarter of
+/// `AIEN_KV_STORE_MAX_INFLIGHT_BYTES`) or restore budget (the rest) is refused at open, not
+/// spun on at every turn until the credit wait runs out.
+#[test]
+fn a_chunk_larger_than_the_park_or_restore_budget_refuses_at_open() {
+    let c = chunk_charge();
+    let scratch = Scratch::new("oversize");
+    let s = Setup::new(&scratch.store(), &gen_key());
+    // Park budget one byte short of a chunk, restore budget three chunks: parking can never run.
+    let short_park = s
+        .clone()
+        .with_var("AIEN_KV_STORE_MAX_INFLIGHT_BYTES", &(4 * c - 4).to_string());
+    let (d, line) = door(&scratch, &short_park);
+    assert!(
+        line.contains("REFUSED") && line.contains("park budget"),
+        "{line}"
+    );
+    assert!(matches!(d.persistence(), PersistState::Refused(_)));
+    let t0 = Instant::now();
+    assert_eq!(
+        turn(&d, &prompt1()),
+        turn(&plain_door(&scratch), &prompt1())
+    );
+    assert!(t0.elapsed() < Duration::from_secs(5), "{:?}", t0.elapsed());
+    drop(d);
+    // The same budgets with parking off: restore alone fits, so persistence is on.
+    let (d, line) = door(&scratch, &short_park.clone().with_var("AIEN_KV_PARK", "0"));
+    assert!(line.contains("persistent KV: on"), "{line}");
+    drop(d);
+    // Restore budget (three quarters of one chunk) short of a chunk: restoring can never run.
+    let short_restore = s
+        .with_var("AIEN_KV_PARK", "0")
+        .with_var("AIEN_KV_STORE_MAX_INFLIGHT_BYTES", &c.to_string());
+    let (d, line) = door(&scratch, &short_restore);
+    assert!(
+        line.contains("REFUSED") && line.contains("restore budget"),
+        "{line}"
+    );
+    assert!(matches!(d.persistence(), PersistState::Refused(_)));
+}
+
+/// sc#523 item 3: one fetch holds the request for at most [`kv_persist::LOAD_TIMEOUT`] in all,
+/// submit phase and wait phase together. The restore budget holds one chunk, so each of the three
+/// loads of turn 2 waits for the one before; each load stalls 4 s, so the last is submitted at
+/// about 8 s and lands at about 12 s.
+#[test]
+fn one_fetch_waits_at_most_the_load_timeout_over_submit_and_wait() {
+    let c = chunk_charge();
+    let scratch = Scratch::new("onedeadline");
+    let s = Setup::new(&scratch.store(), &gen_key());
+    let (_, h1) = park_turn1(&scratch, &s);
+    let narrow = s
+        .clone()
+        .with_var("AIEN_KV_PARK", "0")
+        .with_var("AIEN_KV_STORE_MAX_INFLIGHT_BYTES", &(2 * c).to_string());
+    let (b, line) = door_with_fault(&scratch, &narrow, Some("load:4000:3"));
+    assert!(line.contains("persistent KV: on"), "{line}");
+    let t0 = Instant::now();
+    let r2 = turn(&b, &prompt2(&h1));
+    let took = t0.elapsed();
+    let c = counters(&b);
+    assert_eq!(
+        (c.restores, c.restore_misses.get("timeout").copied()),
+        (0, Some(1)),
+        "turn 2 took {took:?}: {c:?}"
+    );
+    assert!(
+        took < kv_persist::LOAD_TIMEOUT + Duration::from_secs(2),
+        "one fetch held the request {took:?}"
+    );
+    assert_eq!(r2, plain_turn2(&scratch, &h1));
+}
+
+/// sc#523 item 4: a refused park drops the rest of its chain (a chain with a hole cannot be
+/// restored past it); the dropped chunks are counted. The park budget holds one chunk and the
+/// first park stalls past [`kv_persist::PARK_CREDIT_WAIT`], so chunk 2 is refused and the rest
+/// is dropped.
+#[test]
+fn a_refused_park_counts_the_chunks_it_drops() {
+    let c = chunk_charge();
+    let scratch = Scratch::new("parkdrop");
+    let s = Setup::new(&scratch.store(), &gen_key())
+        .with_var("AIEN_KV_STORE_MAX_INFLIGHT_BYTES", &(4 * c).to_string());
+    let stall = kv_persist::PARK_CREDIT_WAIT + Duration::from_secs(2);
+    let (a, line) = door_with_fault(&scratch, &s, Some(&format!("p3:{}:1", stall.as_millis())));
+    assert!(line.contains("persistent KV: on"), "{line}");
+    let _ = turn(&a, &prompt1());
+    let chunks = a.history().len().div_ceil(16) as u64;
+    assert!(chunks >= 3, "{chunks}");
+    assert!(pk_of(&a).wait_idle(WAIT));
+    let v = pk_of(&a).status_json();
+    assert_eq!(v["chunk_tokens"], 16, "{v}");
+    assert_eq!(
+        (
+            v["parked_chunks"].as_u64(),
+            v["park_refused"].as_u64(),
+            v["park_dropped"].as_u64()
+        ),
+        (Some(1), Some(1), Some(chunks - 2)),
+        "every chunk of the turn is accounted for: {v}"
+    );
+}
+
+/// sc#523 item 5: a prefix loaded from the store but never imported because the GPU lock stayed
+/// busy is counted as a restore miss (`gpu-lock-busy`), not lost from the counters.
+#[test]
+fn a_fetched_prefix_left_unused_by_a_busy_gpu_lock_is_a_miss() {
+    let scratch = Scratch::new("lockbusy");
+    let s = Setup::new(&scratch.store(), &gen_key());
+    let (_, h1) = park_turn1(&scratch, &s);
+    let (b, _) = door_at(&scratch, &s, None, Duration::from_millis(200));
+    let held = GpuLock::acquire_at(&scratch.lock(), Duration::from_secs(1)).unwrap();
+    let r = b.generate(&prompt2(&h1), &greedy(6), &mut |_| true);
+    assert!(
+        r.is_err(),
+        "the door must answer busy while the lock is held"
+    );
+    let c = counters(&b);
+    assert_eq!(
+        (c.restores, c.restore_misses.get("gpu-lock-busy").copied()),
+        (0, Some(1)),
+        "{c:?}"
+    );
+    drop(held);
+    assert_eq!(turn(&b, &prompt2(&h1)), plain_turn2(&scratch, &h1));
+    assert_eq!(counters(&b).restores, 1, "the store still serves");
+}
+
+/// sc#523 item 10: the startup read strips the store key from the environment whether or not
+/// `AIEN_KV_STORE_DIR` is set (a key exported for nothing must not reach a child either).
+#[test]
+fn the_startup_read_strips_the_store_key_with_or_without_the_store_dir() {
+    let key = gen_key();
+    for dir in [None, Some(""), Some("/nonexistent/pkv523")] {
+        let stripped = Mutex::new(Vec::<String>::new());
+        let got = kv_persist::take_settings(
+            |n| match n {
+                "AIEN_KV_STORE_DIR" => dir.map(String::from),
+                "AIEN_KV_STORE_KEY" => Some(key.clone()),
+                _ => None,
+            },
+            |k| stripped.lock().unwrap().push(k.to_string()),
+        );
+        assert_eq!(
+            *stripped.lock().unwrap(),
+            vec!["AIEN_KV_STORE_KEY".to_string()],
+            "dir {dir:?}"
+        );
+        match dir {
+            Some(d) if !d.is_empty() => {
+                let s = got.expect("dir set").expect("settings parse");
+                assert!(
+                    matches!(s.store_key, Some(Ok(_))),
+                    "the key is in the settings"
+                );
+            }
+            _ => assert!(got.is_none(), "dir {dir:?}"),
+        }
+    }
 }

@@ -97,7 +97,7 @@ pkv_begin() {
 	work=$(mktemp -d /tmp/pkv-chip.XXXXXX)
 	chmod 700 "$work"
 	PIDF="$work/server.pid"
-	trap 'stop_server; rm -rf "$work"' EXIT
+	trap 'stop_server || PKV_LEAK=1; rm -rf "$work"; pkv_trap_status' EXIT
 	KEY=
 	if [ "${PKV_CHECK_EPHEMERAL_KEY:-0}" = 1 ]; then
 		KEY=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
@@ -114,13 +114,19 @@ SERVED_MODEL=${PKV_SERVED_MODEL:-qwen3-30b-a3b-instruct-2507}
 
 server_pid() { [ -f "$PIDF" ] && cat "$PIDF"; }
 
-# Exits the run if anything still owns our port after a stop: never start the next server
-# beside a leftover one (two 30 GB loads on the chip).
+# Fails (returns 1) if anything still owns our port after a stop: never start the next server
+# beside a leftover one (two 30 GB loads on the chip). Mid-run the callers' set -e stops the run;
+# the EXIT trap records it and carries on with its cleanup (an exit inside the trap would end the
+# trap there and leave the other server and the work dir behind, sc#523).
 port_released() {
 	for _ in $(seq 1 50); do ss -Hltn "sport = :$PORT" | grep -q . || return 0; sleep 0.2; done
 	echo "something still listens on :$PORT after the stop; stopping the run" >&2
-	exit 1
+	return 1
 }
+
+# The last step of every EXIT trap: a stop that left the port held (PKV_LEAK=1) fails the run,
+# after every other cleanup step has run.
+pkv_trap_status() { [ -z "${PKV_LEAK:-}" ] || exit 1; }
 
 # Stops our server: SIGTERM (graceful drain, #509), SIGKILL after PKV_STOP_WAIT_S (default 120).
 stop_server() {
@@ -219,11 +225,13 @@ chat() { # <out-name> <messages-json>: prints the content
 	printf '%s\n' "$c"
 }
 
-wait_parks() { # until parked_chunks > 0 and unchanged for 3 s
+wait_parks() { # until parked_chunks is a number > 0 and unchanged for 3 s
 	local last=-1 now
 	for _ in $(seq 1 60); do
-		now=$(curl -s -m 5 "$base/health" | jq -r '.persistent_kv.parked_chunks')
-		[ "$now" != 0 ] && [ "$now" = "$last" ] && return 0
+		now=$(curl -s -m 5 "$base/health" | jq -r '.persistent_kv.parked_chunks' 2>/dev/null || true)
+		# A failed request, null or a missing counter is not a count (sc#523): never settled.
+		case $now in '' | *[!0-9]*) now=-1 ;; esac
+		[ "$now" -gt 0 ] && [ "$now" = "$last" ] && return 0
 		last=$now
 		sleep 3
 	done

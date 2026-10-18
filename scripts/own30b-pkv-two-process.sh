@@ -48,7 +48,7 @@ PORT=$PORT1 base="http://127.0.0.1:$PORT1"
 pkv_begin
 
 use() { PORT=$1 base="http://127.0.0.1:$1" PIDF="$work/server-$1.pid"; }
-trap 'use $PORT2; stop_server; use $PORT1; stop_server; rm -rf "$work"' EXIT
+trap 'use $PORT2; stop_server || PKV_LEAK=1; use $PORT1; stop_server || PKV_LEAK=1; rm -rf "$work"; pkv_trap_status' EXIT
 memavail() { awk '/^MemAvailable:/ {printf "%.1f", $2/1048576}' /proc/meminfo; }
 
 use "$PORT1"
