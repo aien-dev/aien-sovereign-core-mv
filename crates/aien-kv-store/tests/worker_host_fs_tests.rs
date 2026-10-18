@@ -239,6 +239,14 @@ fn worker_over_host_fs_shutdown_drains_and_the_directory_reopens() {
         .collect();
     let Rigged { fx, store, worker } = r;
     drop(worker);
+    // Dropping the handle does not join the worker thread, which still holds two
+    // clones of the store until its loop returns. The store keeps the directory's
+    // LOCK (#521) while any clone lives, so reopen only once the thread let go.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Arc::strong_count(&store) > 1 {
+        assert!(Instant::now() < deadline, "worker thread kept the store");
+        std::thread::sleep(Duration::from_millis(1));
+    }
     drop(store);
     let reopened = fx.open();
     assert_eq!(reopened.capacity().state, StoreState::Open);
