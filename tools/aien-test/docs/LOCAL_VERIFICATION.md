@@ -139,6 +139,23 @@ aien-proof `slots/gpu.lock`; the worker's target priming takes only the
 target-dir lock. Known limit: a gb10 gate is never killed on timeout, so a
 hung one holds the target dir until it exits on its own.
 
+The worker also holds the target dir for the whole head, from before the
+checkout to the verdict, on its own lock file
+`<state>/locks/target/<sanitised target dir>.head.lock` (`aien-test status`
+shows the phase `target-wait` while it waits; the bundle's notes record how
+long). Two heads of one trust class therefore never build in the dir with
+their gates interleaved. Without it a head failed to compile against its own
+crate (sc #597, `unresolved import aien_kv_cache::round_to_dtype_in_place` at
+a commit that has it): cargo keys a workspace crate by its path relative to
+the workspace root, so every checkout of the repository names the same rlib,
+and it decides freshness by comparing source mtimes with the artifact. Head B
+was checked out, head A then built the crate at a newer commit in the same
+dir, and B's sources were older than A's rlib, so cargo linked A's. With the
+head lock a checkout is always newer than every artifact in the dir, so a
+head rebuilds its own workspace crates and reuses only the registry
+dependencies, which cargo keys by version. Gate-level serialization of the
+dir already made this the throughput the judge had.
+
 Under `--sandbox user` every checkout is made with INFRA's worktree tool
 (`--wt-tool`, default `<clones>/aien-sovereign-core/tools/aien-local-ci/wt.sh`;
 without it the worker refuses to run). `wt.sh sync` refreshes the bare mirror

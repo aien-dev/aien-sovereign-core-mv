@@ -29,7 +29,7 @@ use crate::evidence::{canonical, canonical_digest, sha256_hex, utc_string};
 use crate::graph;
 use crate::plan::{self, Known, Section};
 use crate::process;
-use crate::resources::{Hardware, JobsSpec};
+use crate::resources::{self, Hardware, JobsSpec};
 use crate::runner::{self, CacheNote, Options};
 use crate::sandbox::Sandbox;
 use crate::verdict::Verdict;
@@ -40,7 +40,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub const CONTEXT: &str = "AIEN Verification (Spark)";
 pub const EXECUTOR_CLASS: &str = "spark";
@@ -701,14 +701,14 @@ pub fn check_worktree_link(wt: &Path, mirror: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Fetch the clone and add a detached worktree for `sha`. The clone's own
-/// checkout is never touched.
-fn checkout(
+/// Fetch the trusted clone of `repo` until it has `sha`. The clone's own
+/// checkout is never touched. Returns the clone.
+fn fetch_commit(
     cfg: &Config,
     repo: &str,
     sha: &str,
     notes: &mut Vec<String>,
-) -> Result<Checkout, String> {
+) -> Result<PathBuf, String> {
     let clone = cfg.clones.join(repo);
     if !clone.join(".git").exists() && !clone.join("HEAD").exists() {
         return Err(format!("no trusted clone at {}", clone.display()));
@@ -724,6 +724,48 @@ fn checkout(
     if !present(&clone) {
         return Err(format!("commit {sha} is not in {}", clone.display()));
     }
+    Ok(clone)
+}
+
+/// Hold the target dir the head's gates will build in, for the whole head
+/// (`resources::head_lock_path`, order (0) in `resources`). Taken before the
+/// head is checked out: a fresh checkout is then newer than every artifact
+/// in the dir, so cargo rebuilds this head's workspace crates instead of
+/// linking what another head left there (sc #597: two checkouts of one
+/// repository share cargo's metadata hash for their path crates, and with
+/// heads interleaved head B's checkout was older than the rlib head A had
+/// just built, so cargo took A's). Gates of different target dirs still run
+/// at the same time. `None` when the gates build in the worktree's own
+/// `target/`, which no other head shares.
+fn hold_target_dir(
+    cfg: &Config,
+    repo: &str,
+    sha: &str,
+    on_main: bool,
+    notes: &mut Vec<String>,
+) -> Result<Option<resources::TargetLock>, String> {
+    let Some(dir) = target_dir_for(cfg, repo, on_main) else {
+        return Ok(None);
+    };
+    let path = resources::head_lock_path(&cfg.state.target_lock_dir(), &dir);
+    cfg.state.beat(repo, sha, "target-wait");
+    let t = Instant::now();
+    let lock = resources::lock_target_dir(&path).map_err(|e| {
+        format!(
+            "cannot hold target dir {} for the head: {e}",
+            path.display()
+        )
+    })?;
+    notes.push(format!(
+        "target dir {} held for the whole head (waited {:.1} s)",
+        dir.display(),
+        t.elapsed().as_secs_f64()
+    ));
+    Ok(Some(lock))
+}
+
+/// Add a detached worktree for `sha` from the fetched trusted `clone`.
+fn checkout(cfg: &Config, repo: &str, sha: &str, clone: PathBuf) -> Result<Checkout, String> {
     if cfg.sandbox == Sandbox::User {
         let (wt, run_dir, nested) = checkout_for_sandbox(cfg, repo, sha, &clone)?;
         return Ok(Checkout {
@@ -832,8 +874,15 @@ pub fn run_once(cfg: &Config, repo: &str, sha: &str) -> Result<Summary, String> 
     let sibs = siblings_for(cfg, repo)?;
     let pins = pins_for(cfg, repo)?;
     let mut notes: Vec<String> = Vec::new();
+    cfg.state.beat(repo, sha, "fetch");
+    let clone = fetch_commit(cfg, repo, sha, &mut notes)?;
+    // The trust class is decided from the trusted clone (the rule
+    // `run_in_worktree` applies again against the worktree) so the head's
+    // target dir is held before the checkout exists.
+    let (_, on_main) = plan::base_for(&clone, &cfg.base_ref, sha)?;
+    let _held = hold_target_dir(cfg, repo, sha, on_main, &mut notes)?;
     cfg.state.beat(repo, sha, "checkout");
-    let co = checkout(cfg, repo, sha, &mut notes)?;
+    let co = checkout(cfg, repo, sha, clone)?;
     ensure_pins(&cfg.clones, &pins, &sibs, &mut notes);
     let (made, pin_values) = provision_siblings(cfg, repo, sha, &co, &sibs, &pins, &mut notes);
     let (clone, wt) = (co.clone.clone(), co.wt.clone());
@@ -1156,7 +1205,8 @@ fn run_in_worktree(
 /// otherwise. The exec helper accepts only exactly those two paths under
 /// `/var/lib/aien-run/target` and creates the class dir on demand. Never the
 /// worker's own target dir, which `aien-run` cannot write. Without the
-/// sandbox, the worker's own `CARGO_TARGET_DIR`.
+/// sandbox, the worker's own `CARGO_TARGET_DIR`. Shared by every head of the
+/// class, so `hold_target_dir` keeps one head in it at a time.
 fn target_dir_for(cfg: &Config, repo: &str, on_main: bool) -> Option<PathBuf> {
     match cfg.sandbox {
         Sandbox::None => std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from),

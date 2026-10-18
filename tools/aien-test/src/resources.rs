@@ -8,13 +8,20 @@
 //!
 //! Deadlock rule: whenever more than one resource is taken, they are taken in
 //! one fixed order. Pools are ordered by `Pool`'s derived `Ord` (gb10, then
-//! qemu, then host). The full order for one gate is: (1) the in-process pool
-//! slot, (2) the target-dir lock (`lock_target_dir`, every gate that runs,
-//! on its `CARGO_TARGET_DIR` or else the worktree's `target/`), (3)
-//! `/tmp/aien-gb10.lock`, (4) aien-proof's `slots/gpu.lock` when the
-//! aien-proof board directory exists. A holder of (2) already has its slot
-//! and never waits for one, so a gate blocked on (2) with a slot in hand
-//! cannot close a cycle; the worker's target priming takes (2) alone and
+//! qemu, then host). Before any of them the worker holds (0) the head lock
+//! of its target dir (`head_lock_path`, `lock_target_dir`): taken before the
+//! head is checked out and held until its verdict, so two heads never build
+//! in one target dir with their gates interleaved (sc #597: cargo keys a
+//! workspace crate by its path relative to the workspace root, so head B's
+//! fresh checkout is older than the artifact head A built in between and
+//! cargo links A's stale rlib). The full order for one gate is then: (1) the
+//! in-process pool slot, (2) the target-dir lock (`lock_target_dir`, every
+//! gate that runs, on its `CARGO_TARGET_DIR` or else the worktree's
+//! `target/`), (3) `/tmp/aien-gb10.lock`, (4) aien-proof's `slots/gpu.lock`
+//! when the aien-proof board directory exists. A holder of (2) already has
+//! its slot and never waits for one, so a gate blocked on (2) with a slot in
+//! hand cannot close a cycle; a holder of (0) holds nothing else when it
+//! takes it; the worker's target priming takes (2) alone and
 //! never (3) or (4). Known limit: a gb10 gate is never killed on timeout,
 //! so a hung one holds (2) and (3) until it exits on its own; every other
 //! gate of that target dir waits behind it (the receipt says
@@ -424,7 +431,22 @@ pub const DEFAULT_TARGET_LOCK_DIR: &str = "/tmp/aien-test-target-locks";
 /// inside the target dir itself: under the user sandbox that belongs to
 /// `aien-run`, and the lock is the worker's.
 pub fn target_lock_path(lock_dir: &Path, target_dir: &Path) -> PathBuf {
-    let name: String = target_dir
+    lock_dir.join(format!("{}.lock", lock_name(target_dir)))
+}
+
+/// The head lock of one cargo target dir: `<lock_dir>/<sanitised>.head.lock`,
+/// beside the gate lock of the same dir and never the same file. The worker
+/// takes it before it checks a head out and holds it until the head's
+/// verdict, so the gates of two heads never interleave in one target dir
+/// (sc #597). Its own file, because the runner's per-gate `flock` on
+/// `target_lock_path` is taken in the same process: a second `flock` on one
+/// file would wait for the worker itself.
+pub fn head_lock_path(lock_dir: &Path, target_dir: &Path) -> PathBuf {
+    lock_dir.join(format!("{}.head.lock", lock_name(target_dir)))
+}
+
+fn lock_name(target_dir: &Path) -> String {
+    target_dir
         .display()
         .to_string()
         .chars()
@@ -435,8 +457,7 @@ pub fn target_lock_path(lock_dir: &Path, target_dir: &Path) -> PathBuf {
                 '_'
             }
         })
-        .collect();
-    lock_dir.join(format!("{name}.lock"))
+        .collect()
 }
 
 /// Exclusive hold of one cargo target dir (`flock(LOCK_EX)`, waited for).
@@ -473,6 +494,18 @@ pub fn lock_target_dir(path: &Path) -> io::Result<TargetLock> {
         file: Some(file),
         path: path.to_path_buf(),
     })
+}
+
+/// `lock_target_dir` without the wait: `None` when another holder has it.
+pub fn try_lock_target_dir(path: &Path) -> io::Result<Option<TargetLock>> {
+    let file = open_lock(path)?;
+    if !flock_exclusive(&file, false)? {
+        return Ok(None);
+    }
+    Ok(Some(TargetLock {
+        file: Some(file),
+        path: path.to_path_buf(),
+    }))
 }
 
 fn open_lock(path: &Path) -> io::Result<File> {
@@ -624,6 +657,33 @@ mod tests {
             rx.recv_timeout(Duration::from_secs(20))
                 .expect("the waiter takes the lock after the release");
         });
+    }
+
+    /// The head lock of a target dir is its own file: holding it leaves the
+    /// gate lock of the same dir free (the runner takes that one in the same
+    /// process, for every gate of the head), and it is exclusive between
+    /// holders until dropped.
+    #[test]
+    fn head_lock_is_its_own_file_and_exclusive() {
+        let dir = TempDir::new("hlock");
+        let target = Path::new("/var/lib/aien-run/target/r/pr");
+        let head = head_lock_path(dir.path(), target);
+        let gate = target_lock_path(dir.path(), target);
+        assert_ne!(head, gate);
+        assert_eq!(head.parent(), gate.parent());
+        assert!(head.ends_with("_var_lib_aien-run_target_r_pr.head.lock"));
+        let held = lock_target_dir(&head).unwrap();
+        assert!(
+            try_lock_target_dir(&head).unwrap().is_none(),
+            "a second holder of the head lock is refused"
+        );
+        let gate_lock = try_lock_target_dir(&gate).unwrap();
+        assert!(
+            gate_lock.is_some(),
+            "the gate lock stays free under the head lock"
+        );
+        drop(held);
+        assert!(try_lock_target_dir(&head).unwrap().is_some());
     }
 
     #[test]
