@@ -250,6 +250,14 @@ impl OmegaDoor {
                 );
             }
         })?;
+        // The KV cache may hold fewer positions than asked (the fused cache caps at
+        // aien_omega_dattn::MAX_POS): refuse instead of serving a shorter context than requested.
+        let context = engine.max_context_tokens();
+        if context < max_context {
+            return Err(format!(
+                "--max-context {max_context}: the engine's KV cache holds at most {context} positions (start with --max-context {context} or less)"
+            ));
+        }
         // Prefill path (W-RC): switched on while the load still holds the chip lock. A refusal is
         // fatal: the operator asked for the path (by default), so say how to turn it off.
         let prefill = prefill.effective();
@@ -287,7 +295,7 @@ impl OmegaDoor {
                 )
             })?;
         eprintln!(
-            "aien-serve-http: omega engine ready in {:.1} s: {:?} weights, {:.2} GB resident, {:.2} GB host, peak rss {:.2} GB, window_api={} fp8_api={} dattn_api={} attention={attn_path} router={router_path} lm_head={lm_head_path} prefill={prefill_path} prefill_chunk={prefill_chunk} spin_us={:?}",
+            "aien-serve-http: omega engine ready in {:.1} s: context {context} tokens, {:?} weights, {:.2} GB resident, {:.2} GB host, peak rss {:.2} GB, window_api={} fp8_api={} dattn_api={} attention={attn_path} router={router_path} lm_head={lm_head_path} prefill={prefill_path} prefill_chunk={prefill_chunk} spin_us={:?}",
             r.seconds,
             r.format,
             r.resident_bytes as f64 / 1e9,
