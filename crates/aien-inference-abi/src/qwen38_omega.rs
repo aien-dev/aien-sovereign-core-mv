@@ -165,9 +165,36 @@ impl Qwen38Omega {
         Self::load(config, &mut ShardSource::open(dir)?, max_pos)
     }
 
+    /// Opens a checkpoint directory and uploads model layers `first .. first + count` as a stack
+    /// of their own (final norm and lm_head on top): a window, fed and read through
+    /// [`Self::step_residual`] / [`Self::residual`] so a model larger than free device memory is
+    /// checked one window at a time.
+    pub fn open_window(
+        dir: &Path,
+        first: usize,
+        count: usize,
+        max_pos: usize,
+    ) -> Result<Self, String> {
+        let full = Qwen38Config::from_checkpoint(dir)?;
+        let config = full
+            .window(first, count)
+            .ok_or_else(|| format!("window {first}+{count}: outside the {} layers", full.layers))?;
+        Self::load_at(config, first, &mut ShardSource::open(dir)?, max_pos)
+    }
+
     /// Uploads `config.layers` layers from `source`.
     pub fn load(
         config: Qwen38Config,
+        source: &mut dyn TensorSource,
+        max_pos: usize,
+    ) -> Result<Self, String> {
+        Self::load_at(config, 0, source, max_pos)
+    }
+
+    /// Uploads `config.layers` layers from `source`, reading model layer `first + l` for layer `l`.
+    fn load_at(
+        config: Qwen38Config,
+        first: usize,
         source: &mut dyn TensorSource,
         max_pos: usize,
     ) -> Result<Self, String> {
@@ -230,7 +257,7 @@ impl Qwen38Omega {
         let mut norms = Vec::with_capacity(c.layers);
         let (mut gi, mut ai) = (0usize, 0usize);
         for l in 0..c.layers {
-            let p = format!("{prefix}layers.{l}");
+            let p = format!("{prefix}layers.{}", first + l);
             let rm = |s: &mut dyn TensorSource, name: String, n, k| read_matrix(s, &name, n, k);
             let (mix, ab, o) = if c.full_attention[l] {
                 let a = format!("{p}.self_attn");
@@ -438,6 +465,37 @@ impl Qwen38Omega {
         let out = self.graph.token(&x, self.pos).map_err(gpu("q38 token"))?;
         self.pos += 1;
         Ok(out)
+    }
+
+    /// Feeds the residual stream `x` (`[hidden]`, what enters this stack's first layer: the
+    /// previous window's [`Self::residual`]) at the next position instead of a token's embedding.
+    pub fn step_residual(&mut self, x: &[f32]) -> Result<(u32, GraphStats), String> {
+        if x.len() != self.config.hidden {
+            return Err(format!(
+                "step_residual: {} values (hidden {})",
+                x.len(),
+                self.config.hidden
+            ));
+        }
+        if self.pos >= self.max_pos {
+            return Err(format!(
+                "step: the KV cache holds {} positions",
+                self.max_pos
+            ));
+        }
+        let out = self.graph.token(x, self.pos).map_err(gpu("q38 token"))?;
+        self.pos += 1;
+        Ok(out)
+    }
+
+    /// The last step's residual stream after this stack's last layer (`[hidden]`, before the
+    /// final norm).
+    pub fn residual(&mut self) -> Result<Vec<f32>, String> {
+        let mut x = vec![0f32; self.config.hidden];
+        self.graph
+            .read(Some(&mut x), None, None)
+            .map_err(gpu("q38 read residual"))?;
+        Ok(x)
     }
 
     /// The last step's logits (`[vocab]`).

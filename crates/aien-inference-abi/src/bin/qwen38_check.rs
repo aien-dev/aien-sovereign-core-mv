@@ -24,7 +24,8 @@ fn top5(logits: &[f32]) -> Vec<(usize, f32)> {
 
 fn run() -> Result<(), String> {
     let args: Vec<String> = std::env::args().collect();
-    let usage = "usage: qwen38_check score|generate <checkpoint-dir> <text-file> <count> <out.json>";
+    let usage =
+        "usage: qwen38_check score|generate <checkpoint-dir> <text-file> <count> <out.json>";
     if args.len() != 6 {
         return Err(usage.into());
     }
@@ -109,8 +110,11 @@ fn run() -> Result<(), String> {
         }
         _ => return Err(usage.into()),
     };
-    std::fs::write(out_path, serde_json::to_vec_pretty(&report).map_err(|e| e.to_string())?)
-        .map_err(|e| format!("{out_path}: {e}"))
+    std::fs::write(
+        out_path,
+        serde_json::to_vec_pretty(&report).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| format!("{out_path}: {e}"))
 }
 
 fn main() {
