@@ -17,7 +17,7 @@ AIENOS.
 | `gc.sh` | worktree age + target-dir quota cleanup, dry run by default |
 | `tests/run.sh` | proofs of the contract on this host (33 checks with two wt.sh worktrees present) |
 | `pipeline.sh` | ADR 0033 phase 3: publish verified bundles to aien-receipts, rerun the GitHub thin gate, merge `ready-to-merge` PRs behind guards |
-| `tests/pipeline_test.sh` | offline proofs of `pipeline.sh` with fake `gh`, fake `aien-test` and throwaway git repositories (64 checks) |
+| `tests/pipeline_test.sh` | offline proofs of `pipeline.sh` with fake `gh`, fake `aien-test` and throwaway git repositories (68 checks) |
 | `rebase-train.sh` | moves `ready-to-merge` PRs that conflict only in `.crumb` files (or are behind) onto main, recompiles crumbs with the pinned tool, force-with-lease pushes; labels `needs-rebase` and comments once otherwise |
 | `cron-tick.sh` | source of the cron entry (`*/5`): keeps the worker lanes main, small, big and core alive, runs `rebase-train.sh`, then `pipeline.sh round` |
 | `aien-local-ci` | source of the operator front door `~/.local/bin/aien-local-ci` (status, start/stop named worker lanes, trigger, verify, once, plan, health, log) |
@@ -239,6 +239,12 @@ see pipeline.sh), one label call, one
 configuration error. Overrides: `AIEN_STATE`, `AIEN_CLONES`, `AIEN_ARCH_CLONE`, `AIEN_GH_OWNER`, `AIEN_REPOS`,
 `AIEN_TRAIN_MIN_AGE`, `GH`, `GIT`.
 
+GitHub rate-limit guard: every `gh` call of `pipeline.sh` and `rebase-train.sh` goes through `ghc`. When the shared
+guard `~/.local/bin/gh` refuses with exit 98 (allowance reserved or rate-limit marker set), the run makes no further
+GitHub call and every journal line after it carries `deferred: "gh guard exit 98: try next round"` (in train.jsonl
+the same words close the reason). Never a retry loop, never a FAIL: the next tick tries again. Neither script uses
+`gh run watch` (the guard's exit 97). Pushes use git, whose credential helper is `/usr/bin/gh auth git-credential`.
+
 ## Cron tick (cron-tick.sh)
 
 Installed as `~/.local/lib/aien-local-ci/cron-tick.sh` with one crontab line (no systemd):
@@ -256,7 +262,7 @@ and clones), each lane its own process, repo list, pidfile and log:
 
 | lane | started by the tick with | pidfile, log |
 |---|---|---|
-| `main` | `aien-local-ci start --github` (every enrolled repo, `AIEN_REPOS`) | `$STATE/worker.pid`, `$STATE/worker.log` |
+| `main` | `aien-local-ci start --github` (aienos, synapse, interplane: the default `AIEN_REPOS` of the wrapper) | `$STATE/worker.pid`, `$STATE/worker.log` |
 | `small` | `aien-local-ci start --github --lane small --repos physics,aien-protocols,aegis-runtime,spark-rsi,aien-architecture,benchmarks` | `$STATE/worker-small.pid`, `$STATE/worker-small.log` |
 | `big` | `aien-local-ci start --github --lane big --repos omega,aien-sovereign-core` | `$STATE/worker-big.pid`, `$STATE/worker-big.log` |
 | `core` | `aien-local-ci start --github --lane core --repos aien-sovereign-core` | `$STATE/worker-core.pid`, `$STATE/worker-core.log` |
@@ -265,8 +271,9 @@ Any other lane name works the same way (`--lane NAME --repos LIST`, files `worke
 Why: one worker is one serial queue. On 2026-10-18 a 45 to 60 minute aienos, sovereign-core or omega job starved the
 small repos ("no local bundle for head" on 11 ready PRs), and the main lane sat on one aienos head for over 30 minutes
 while nine freshly rebased omega and sovereign-core heads waited; `core` keeps sovereign-core heads from waiting behind
-omega GPU gates in `big`. `main` keeps every repo, so a head can occasionally
-run in two lanes; the per-target lock serialises that. A lane started by hand is adopted, not started twice: when the
+omega GPU gates in `big`. The lists do not overlap except sovereign-core in `big` and `core` (overlapping lanes polled
+the same repos twice, about 59 GitHub requests a minute in all, measured 2026-10-18), so a sovereign-core head can
+occasionally run in two lanes; the per-target lock serialises that. A lane started by hand is adopted, not started twice: when the
 pidfile's pid is gone, `start` and `stop` look for a running `aien-test worker` of this user whose `--state-dir` and
 `--repos` are exactly the lane's (read from `/proc/<pid>/cmdline`) and rewrite the pidfile. `aien-local-ci stop
 [--lane NAME]` stops one lane.

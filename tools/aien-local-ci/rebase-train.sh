@@ -73,6 +73,17 @@ exec 9>>"$STATE/train.lock"
 flock -n 9 || exit 0
 WORK=$(mktemp -d "$STATE/.train.XXXXXX")
 CLEAN=()   # "<clone>|<worktree>|<ref>" to remove on exit
+GH_DEFER=$WORK/gh-deferred
+# ghc ARGS...: every GitHub call goes through here. ~/.local/bin/gh (the shared rate-limit guard) exits 98 when it
+# refuses (allowance reserved or rate-limit marker set): then this run makes no further GitHub call, and every
+# journal line from then on carries deferred="gh guard exit 98: try next round". Never a retry loop, never a FAIL.
+ghc() {
+  local rc=0
+  [[ -e $GH_DEFER ]] && return 98
+  "$GH" "$@" || rc=$?
+  [[ $rc != 98 ]] || : > "$GH_DEFER"
+  return "$rc"
+}
 cleanup() {
   local e c w ref
   for e in "${CLEAN[@]}"; do
@@ -90,8 +101,10 @@ journal() {
   local p=""; [[ $DRY == 1 ]] && p="[dry-run] "
   echo "${p}$1#$2 ${3:0:8} $4: $5"
   [[ $DRY == 1 ]] && return 0
+  local r=$5
+  [[ ! -e $GH_DEFER ]] || r+=" (gh guard exit 98: try next round)"
   jq -nc --arg utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg repo "$1" --arg pr "$2" --arg head "$3" \
-    --arg action "$4" --arg reason "$5" '{utc: $utc, repo: $repo, pr: $pr, head: $head, action: $action, reason: $reason}' \
+    --arg action "$4" --arg reason "$r" '{utc: $utc, repo: $repo, pr: $pr, head: $head, action: $action, reason: $reason}' \
     >> "$JOURNAL"
 }
 
@@ -134,7 +147,7 @@ slug() {
   local f=$STATE/slugs/$1 s="" fresh re='^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'
   [[ -f $f ]] && s=$(head -n 1 "$f")
   if [[ $s =~ $re ]] && (( $(date +%s) - $(stat -c %Y "$f") < ${AIEN_SLUG_TTL:-86400} )); then echo "$s"; return 0; fi
-  if fresh=$("$GH" api "repos/$OWNER/$1" --jq .full_name 2>/dev/null) && [[ $fresh =~ $re ]]; then
+  if fresh=$(ghc api "repos/$OWNER/$1" --jq .full_name 2>/dev/null) && [[ $fresh =~ $re ]]; then
     mkdir -p "$STATE/slugs" && printf '%s\n' "$fresh" > "$f.tmp" && mv "$f.tmp" "$f"
     echo "$fresh"; return 0
   fi
@@ -153,16 +166,16 @@ block() {
   if ! s=$(slug "$repo"); then journal "$repo" "$num" "$head" label-failed "cannot resolve GitHub slug"; return 0; fi
   if [[ ,$labels, != *",$BLOCK_LABEL,"* ]]; then
     if [[ -z ${LABEL_OK[$repo]:-} ]] && ! grep -qx "$repo" "$LABELED" 2>/dev/null; then
-      if "$GH" label create "$BLOCK_LABEL" -R "$s" --color D93F0B \
+      if ghc label create "$BLOCK_LABEL" -R "$s" --color D93F0B \
            --description "The rebase train could not rebase this onto main by itself" >/dev/null 2>&1 \
-         || "$GH" label list -R "$s" --search "$BLOCK_LABEL" --json name --jq '.[].name' 2>/dev/null | grep -qx "$BLOCK_LABEL"; then
+         || ghc label list -R "$s" --search "$BLOCK_LABEL" --json name --jq '.[].name' 2>/dev/null | grep -qx "$BLOCK_LABEL"; then
         echo "$repo" >> "$LABELED"
       else
         journal "$repo" "$num" "$head" label-failed "cannot create label $BLOCK_LABEL"
       fi
     fi
     LABEL_OK[$repo]=1
-    if "$GH" api -X POST "repos/$s/issues/$num/labels" -f "labels[]=$BLOCK_LABEL" >/dev/null 2>&1; then
+    if ghc api -X POST "repos/$s/issues/$num/labels" -f "labels[]=$BLOCK_LABEL" >/dev/null 2>&1; then
       journal "$repo" "$num" "$head" labeled "$BLOCK_LABEL"
     else
       journal "$repo" "$num" "$head" label-failed "cannot add $BLOCK_LABEL"
@@ -171,7 +184,7 @@ block() {
   if grep -qx "$repo $num $head" "$COMMENTED" 2>/dev/null; then
     journal "$repo" "$num" "$head" comment-skipped "already commented on this head (state)"; return 0
   fi
-  if ! seen=$("$GH" pr view "$num" -R "$s" --json comments --jq "[.comments[].body | select(contains(\"$MARK$head\"))] | length"); then
+  if ! seen=$(ghc pr view "$num" -R "$s" --json comments --jq "[.comments[].body | select(contains(\"$MARK$head\"))] | length"); then
     journal "$repo" "$num" "$head" comment-failed "cannot read comments"; return 0
   fi
   if [[ $seen != 0 ]]; then
@@ -194,7 +207,7 @@ block() {
     echo
     echo "<!-- $MARK$head -->"
   } > "$body"
-  if "$GH" api -X POST "repos/$s/issues/$num/comments" -F "body=@$body" >/dev/null 2>&1; then
+  if ghc api -X POST "repos/$s/issues/$num/comments" -F "body=@$body" >/dev/null 2>&1; then
     echo "$repo $num $head" >> "$COMMENTED"
     journal "$repo" "$num" "$head" commented "conflict comment posted"
   else
@@ -298,7 +311,7 @@ train_one() {
   if g "$wt" push -q --force-with-lease="refs/heads/$branch:$head" origin "HEAD:refs/heads/$branch" >/dev/null 2>&1; then
     journal "$repo" "$num" "$head" pushed "rebased onto origin/$base, new head $newhead, crumbs $recompiled"
     if [[ ,$labels, == *",$BLOCK_LABEL,"* ]]; then
-      if s=$(slug "$repo") && "$GH" api -X DELETE "repos/$s/issues/$num/labels/$BLOCK_LABEL" >/dev/null 2>&1; then
+      if s=$(slug "$repo") && ghc api -X DELETE "repos/$s/issues/$num/labels/$BLOCK_LABEL" >/dev/null 2>&1; then
         journal "$repo" "$num" "$newhead" unlabeled "$BLOCK_LABEL removed after a clean rebase"
       fi
     fi
@@ -313,7 +326,7 @@ for repo in "${repo_list[@]}"; do
   if ! "$GIT" -C "$CLONES/$repo" fetch -q origin; then
     journal "$repo" - - skipped "fetch of trusted clone failed"; continue
   fi
-  if ! prs=$("$GH" pr list -R "$s" --state open --limit 100 \
+  if ! prs=$(ghc pr list -R "$s" --state open --limit 100 \
       --json number,headRefOid,headRefName,baseRefName,isDraft,isCrossRepository,mergeable,mergeStateStatus,labels \
       --jq '.[] | [.number, .headRefOid, .headRefName, .baseRefName, .isDraft, .isCrossRepository, .mergeable,
                    .mergeStateStatus, ([.labels[].name] | join(","))] | @tsv'); then

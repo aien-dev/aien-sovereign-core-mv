@@ -26,6 +26,7 @@ mkdir -p "$T/bin" "$FAKE_GH" "$AIEN_STATE" "$AIEN_CLONES"
 cat > "$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 echo "gh $*" >> "$FAKE_LOG"
+[[ -z ${FAKE_GH98:-} ]] || exit 98
 if [[ $1 == pr && $2 == merge ]]; then exit 0; fi
 [[ $1 == api ]] || exit 9
 shift
@@ -256,6 +257,17 @@ check "no slug refusal while a cached name exists" [ "$(refused)" = "$r0" ]
 rm -f "$AIEN_STATE/slugs/demo"
 bash "$PIPE" merge > "$T/out13" 2>&1
 check "no cache and no API: refused as before" [ "$(refused)" -gt "$r0" ]
+
+echo "== GitHub guard (exit 98)"
+ghset "repos/aien-dev/demo" '{"full_name":"aien-spark/demo"}'
+rm -f "$AIEN_STATE/slugs/demo" "$AIEN_STATE/slugs/plain"
+c0=$(grep -c '^gh ' "$FAKE_LOG" || true); l0=$(wc -l < "$AIEN_STATE/pipeline.jsonl")
+rc=0; FAKE_GH98=1 bash "$PIPE" round > "$T/out14" 2>&1 || rc=$?
+check "guard refusal: round still exits 0" [ "$rc" = 0 ]
+check "guard refusal: one GitHub call, then none (no retry loop)" [ "$(( $(grep -c '^gh ' "$FAKE_LOG") - c0 ))" = 1 ]
+check "guard refusal: later journal lines say try next round" \
+  [ "$(tail -n +$((l0 + 1)) "$AIEN_STATE/pipeline.jsonl" | jq -c 'select(.deferred == "gh guard exit 98: try next round")' | wc -l)" -ge 1 ]
+check "guard refusal: nothing merged" [ "$(tail -n +$((l0 + 1)) "$AIEN_STATE/pipeline.jsonl" | jq -c 'select(.result == "merged")' | wc -l)" = 0 ]
 
 echo "== secrets"
 check "pipeline.sh never names the signing key file" bash -c "! grep -q 'verify\\.key' '$PIPE'"

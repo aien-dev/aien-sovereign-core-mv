@@ -1,12 +1,13 @@
 #!/bin/bash
 # AIEN Spark pipeline tick (cron, every 5 min; no systemd by rule). Installed copy: ~/.local/lib/aien-local-ci/.
 #   */5 * * * * $HOME/.local/lib/aien-local-ci/cron-tick.sh >> $HOME/.local/state/aien-local-ci/cron-tick.log 2>&1
-# 1) keeps four worker lanes alive (--github): main (all enrolled repos), small (the small repos), big (omega,
+# 1) keeps four worker lanes alive (--github): main (aienos, synapse, interplane), small (the small repos), big (omega,
 #    sovereign-core) and core (sovereign-core), so one long job cannot starve the rest. `start` is a no-op while a
 #    lane runs.
 # 2) rebase train: moves ready-to-merge PRs that conflict only in .crumb files (or are behind) onto main.
 # 3) runs one pipeline round: publish signed bundles, rerun stale checks, merge green PRs labelled ready-to-merge.
 # Every 5 min, not 2: the 2-min round plus the worker's polling used up the 5000/h GitHub API limit (2026-10-18).
+# No gh call here; pipeline.sh and rebase-train.sh treat the gh guard's exit 98 as "try next round".
 # Stop everything: touch ~/.local/state/aien-local-ci/PAUSE ; aien-local-ci stop ; aien-local-ci stop --lane small ; aien-local-ci stop --lane big ; aien-local-ci stop --lane core
 export PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
 S=$HOME/.local/state/aien-local-ci
