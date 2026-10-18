@@ -29,7 +29,7 @@ use crate::evidence::{canonical, canonical_digest, sha256_hex, utc_string};
 use crate::graph;
 use crate::plan::{self, Known, Section};
 use crate::process;
-use crate::resources::{Hardware, JobsSpec};
+use crate::resources::{self, Hardware, JobsSpec};
 use crate::runner::{self, CacheNote, Options};
 use crate::sandbox::Sandbox;
 use crate::verdict::Verdict;
@@ -510,6 +510,12 @@ struct Checkout {
     wt: PathBuf,
     run_dir: PathBuf,
     nested: bool,
+    /// Whether the head is on the base line, decided from the clone before the
+    /// checkout existed (it picks the target dir, so it had to be known first).
+    on_main: bool,
+    /// The run-level target-dir lock, taken before the checkout was made and
+    /// held until this value drops (after the worktree is removed).
+    run_lock: Option<resources::TargetLock>,
 }
 
 /// Make the read-only sibling checkouts of one head, each from its trusted
@@ -724,6 +730,27 @@ fn checkout(
     if !present(&clone) {
         return Err(format!("commit {sha} is not in {}", clone.display()));
     }
+    // The run-level target-dir lock (docs/LOCAL_VERIFICATION.md): taken before
+    // the checkout exists, so every file the checkout gets is newer than
+    // anything built in that dir and cargo rebuilds each workspace crate from
+    // this head's own sources. Held until the Checkout drops.
+    let (_, on_main) = plan::base_for(&clone, &cfg.base_ref, sha)?;
+    let run_lock = match target_dir_for(cfg, repo, on_main) {
+        Some(dir) => {
+            cfg.state.beat(repo, sha, "lock");
+            let path = resources::target_lock_path(&cfg.state.target_lock_dir(), &dir);
+            let t0 = std::time::Instant::now();
+            let lock = resources::lock_target_dir(&path)
+                .map_err(|e| format!("cannot lock target dir {}: {e}", path.display()))?;
+            notes.push(format!(
+                "target dir {} held for the whole run (waited {} s before the checkout)",
+                dir.display(),
+                t0.elapsed().as_secs()
+            ));
+            Some(lock)
+        }
+        None => None,
+    };
     if cfg.sandbox == Sandbox::User {
         let (wt, run_dir, nested) = checkout_for_sandbox(cfg, repo, sha, &clone)?;
         return Ok(Checkout {
@@ -731,6 +758,8 @@ fn checkout(
             wt,
             run_dir,
             nested,
+            on_main,
+            run_lock,
         });
     }
     let run_dir = cfg.wt_root.join(repo).join(sha);
@@ -761,6 +790,8 @@ fn checkout(
         wt,
         run_dir,
         nested: true,
+        on_main,
+        run_lock,
     })
 }
 
@@ -914,13 +945,20 @@ fn run_in_worktree(
     let plan = plan::compute(wt, &req)?;
 
     // Run what the plan selects, through the sandbox and the pools.
+    if on_main != co.on_main {
+        notes.push(format!(
+            "base detection differs: worktree says on_main={on_main}, clone said {}; the locked target dir follows the clone",
+            co.on_main
+        ));
+    }
     cfg.state.beat(repo, sha, "run");
     let evidence_dir = cfg.state.evidence(repo, sha);
     fs::create_dir_all(&evidence_dir).map_err(|e| format!("cannot create evidence dir: {e}"))?;
     let mut opts = Options::new(evidence_dir.clone());
     opts.sandbox = cfg.sandbox;
-    opts.cargo_target_dir = target_dir_for(cfg, repo, on_main);
+    opts.cargo_target_dir = target_dir_for(cfg, repo, co.on_main);
     opts.target_lock_dir = cfg.state.target_lock_dir();
+    opts.target_lock_held = co.run_lock.is_some();
     opts.pool_sizes = opts.pool_sizes.with(cfg.jobs);
     opts.pins = pins;
     // The same operator permission the plan had: an operator gate the plan

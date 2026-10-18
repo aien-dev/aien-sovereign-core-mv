@@ -483,6 +483,32 @@ pub fn lock_target_dir(path: &Path) -> io::Result<TargetLock> {
     })
 }
 
+static IN_PROCESS_TARGET_LOCKS: Mutex<Vec<(PathBuf, &'static Mutex<()>)>> = Mutex::new(Vec::new());
+
+/// The in-process half of the target-dir lock. When the worker holds the
+/// file lock for its whole run (`Options::target_lock_held`), its gates
+/// cannot take that lock again (a second `flock` on another open file
+/// waits for ever), yet two of them must still never build in one target
+/// dir at once (sc fix/521: one relinked the test binary the other was
+/// executing). So under a held run lock each gate takes turns through this
+/// mutex instead, keyed by the lock file's path.
+pub fn lock_target_dir_in_process(path: &Path) -> MutexGuard<'static, ()> {
+    let m: &'static Mutex<()> = {
+        let mut table = IN_PROCESS_TARGET_LOCKS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        match table.iter().find(|(p, _)| p == path) {
+            Some((_, m)) => m,
+            None => {
+                let m: &'static Mutex<()> = Box::leak(Box::new(Mutex::new(())));
+                table.push((path.to_path_buf(), m));
+                m
+            }
+        }
+    };
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 fn open_lock(path: &Path) -> io::Result<File> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
