@@ -65,68 +65,68 @@
       "children": [
         {
           "digest": "4e7f370019e67f6c71565d1544530851eb1b3b1bed61c2712f4ac7d9614a89bf",
-          "last_commit": "6bbe2ec2",
+          "last_commit": "6bbe2ec",
           "name": "crates/aien-allen",
           "purpose": "ALLEN identity gate: resolve-only subject check, host pin record, deployment record (ADR 0035). "
         },
         {
           "digest": "40a231c50dba92af7de2527ab33879c5d1eaaa6e7ea5d6a5ebaa9d60c7542075",
-          "last_commit": "b9b52f9c",
+          "last_commit": "b9b52f9",
           "name": "crates/aien-allen-memory",
           "purpose": "ALLEN scoped memory store: scopes enforced at recall, inspect/correct/export, key-destroying for"
         },
         {
           "digest": "44dc482b8c9db8919a68ec69b019cd77967232a6ec8b1910c0dfe3cd4d71f141",
-          "last_commit": "b9b52f9c",
+          "last_commit": "b9b52f9",
           "name": "crates/aien-allen-profile",
           "purpose": "ALLEN persona profile v1: versioned, user-editable profile bound to the engaged ALLEN identity; "
         },
         {
           "digest": "f5571bcc0bb95b44dd8bf8f0b47ded3bcb1e1ee76c81b4ff5edb87ac237d66d8",
-          "last_commit": "f8eea420",
+          "last_commit": "f8eea42",
           "name": "crates/aien-cli",
           "purpose": ""
         },
         {
           "digest": "25fd9f8afbea19702750f8ddba2ef4aeafc5bc4515aa695340a5af6931989c03",
-          "last_commit": "8cca8020",
+          "last_commit": "8cca802",
           "name": "crates/aien-scheduler/src/bin",
           "purpose": ""
         },
         {
           "digest": "dd11ae9a698f7fcad7d1df386926426ea051d4131ee738da2ac81eb6a57b9473",
-          "last_commit": "afbbd804",
+          "last_commit": "afbbd80",
           "name": "crates/spark-cockpit-rs",
           "purpose": ""
         },
         {
           "digest": "34b010337138a65931ca4d0177631d839f71af021c5092583f52afd69ddd1b72",
-          "last_commit": "fe3677c3",
+          "last_commit": "fe3677c",
           "name": "scripts",
           "purpose": ""
         },
         {
           "digest": "75e439cb2ae120e1807af894b70b6454971028f5527f56451f9d6558f503c88b",
-          "last_commit": "fa73e778",
+          "last_commit": "fa73e77",
           "name": "skills",
           "purpose": ""
         },
         {
-          "digest": "f44f81600d98021f83fd88d23ed440f13acaa945ce54b2ef276bdd27487f19b6",
-          "last_commit": "28e3da97",
+          "digest": "fe81976bd1a7e0a57c7b03d27fe0252fe956b60f2a3007d12c5c9221bfb95dfd",
+          "last_commit": "1989e07",
           "name": "tools/aien-local-ci",
           "purpose": "Local CI sandbox exec contract (C8), aien-run user/caches install, Forgejo trigger hook, health "
         }
       ],
-      "children_root": "sha256:5f336a15f17c63933efa0604715564620ad61d5e6f37fa82f14d9114f3b1e99a",
-      "compiled_at": "2026-10-18T17:36:55Z",
+      "children_root": "sha256:f192d0e7ea0741217df3ca62a57abc402d85480ba176758eddc287e69c06b593",
+      "compiled_at": "2026-10-18T21:36:15Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:1100a0609391c3c0d09d9d25ca44eefef6043727c1f9c71d2cb96cbbddb5e06d",
+      "digest": "sha256:6ebf4cbab02ace985c6a443480ebe2c02ee9967a6b17307c03f4b20daca6e03f",
       "evidence_files": 1578,
       "evidence_root": "sha256:135e27a1a0704c4a8371cd2c1eb555f2b5beec61c212949b029a5457418a7160",
-      "files": 5891,
-      "generated_at_commit": "28e3da9787b480b6b71ed92079261098b9d5f996",
-      "source_tree": "sha256:d6893f876ac8deff9c84931096b77dda5de8bff1794f37b06eaa888c8fd1bd7d"
+      "files": 5893,
+      "generated_at_commit": "1989e074e7c85a306ac0a1a51c5b5bc5483259c2",
+      "source_tree": "sha256:22cc11c6a457c4443152c95632ad1872615fd067b5d431efe5af19d86aaf7d1c"
     }
   },
   "history": [],
