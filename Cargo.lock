@@ -179,6 +179,7 @@ dependencies = [
 name = "aien-hetjob"
 version = "0.1.0"
 dependencies = [
+ "aien-bitnet-tokenizer",
  "aien-pi-spark-task",
  "aien-test",
  "ed25519-dalek",

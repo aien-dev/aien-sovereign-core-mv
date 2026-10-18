@@ -5,7 +5,7 @@
 use aien_hetjob::coordinator::{dispatch, Job, OracleCheck, Outcome, Policy, Stats};
 use aien_hetjob::receipt::{Platform, Receipt};
 use aien_hetjob::store::Store;
-use aien_hetjob::task::{self, Limits, TaskSpec};
+use aien_hetjob::task::{self, Inputs, Limits, TaskSpec};
 use aien_hetjob::wire::{self, Ids, Inbound};
 use aien_hetjob::worker::{Summary, Worker};
 use aien_pi_spark_task as pst;
@@ -61,7 +61,7 @@ fn policy(spec: &TaskSpec) -> Policy {
     Policy {
         deadline: Duration::from_secs(20),
         cancel_grace: Duration::from_secs(5),
-        oracle: Some(task::oracle(spec)),
+        oracle: Some(task::oracle(spec, &Inputs::default()).unwrap()),
     }
 }
 
@@ -123,7 +123,7 @@ fn scripted(
 
 /// The frames an honest worker sends for `spec`, signed by `k`.
 fn honest_frames(ids: &Ids, spec: &TaskSpec, k: &SigningKey) -> (Vec<Vec<u8>>, Vec<u8>, [u8; 32]) {
-    let out = task::oracle(spec);
+    let out = task::oracle(spec, &Inputs::default()).unwrap();
     let receipt = Receipt {
         task_id: ids.task_id,
         idempotence_key: ids.idempotence_key,
@@ -189,7 +189,7 @@ fn verified_matmul_and_chain_match_the_oracle() {
         match o {
             Outcome::Verified(v) => {
                 assert_eq!(v.oracle, OracleCheck::Matched);
-                assert_eq!(v.output, task::oracle(&spec));
+                assert_eq!(v.output, task::oracle(&spec, &Inputs::default()).unwrap());
                 assert_eq!(v.receipt.platform, platform());
             }
             other => panic!("{other:?}"),
@@ -241,7 +241,11 @@ fn golden_digests_are_frozen() {
         ),
     ];
     for (spec, want) in cases {
-        assert_eq!(hex(task::oracle(&spec)), want, "{spec:?}");
+        assert_eq!(
+            hex(task::oracle(&spec, &Inputs::default()).unwrap()),
+            want,
+            "{spec:?}"
+        );
     }
 }
 
@@ -267,8 +271,8 @@ fn worker_algorithm_equals_oracle_for_awkward_shapes_and_threads() {
                 threads,
             };
             assert_eq!(
-                task::run(&spec, &ctl).unwrap(),
-                task::oracle(&spec),
+                task::run(&spec, &Inputs::default(), &ctl).unwrap(),
+                task::oracle(&spec, &Inputs::default()).unwrap(),
                 "{spec:?} threads={threads}"
             );
         }
@@ -522,7 +526,12 @@ fn out_of_order_and_missing_receipt_are_rejected() {
     let (o, _) = scripted(&job, &roster, &policy(&SMALL), |i| {
         vec![
             wire::build(i, wire::T_ACCEPTED, 0, &[]),
-            wire::build(i, wire::T_COMPLETED, 1, &task::oracle(&SMALL)),
+            wire::build(
+                i,
+                wire::T_COMPLETED,
+                1,
+                &task::oracle(&SMALL, &Inputs::default()).unwrap(),
+            ),
         ]
     });
     assert_eq!(rejected(&o), "COMPLETED_WITHOUT_RECEIPT");

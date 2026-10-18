@@ -5,12 +5,13 @@
 //! `text_chunk` messages, `receipt_reference` (SHA-256 of the receipt bytes)
 //! and `completed` (the 32-byte output digest). The receipt is stored durably
 //! before `completed` is sent. A cancel ends in `cancelled`; the deadline in
-//! `failed` with `TIMEOUT`. A request that is not admitted gets one `failed`
+//! `failed` with `TIMEOUT` (or `INVALID_INPUT:<why>` for an input file the job
+//! cannot use). A request that is not admitted gets one `failed`
 //! with ordinal 0 and creates no task.
 
 use crate::receipt::{Platform, Receipt};
-use crate::store::{Lookup, Store};
-use crate::task::{self, Abort, Control, Limits, TaskSpec};
+use crate::store::{self, Lookup, Store};
+use crate::task::{self, Abort, Control, Inputs, Limits, TaskSpec};
 use crate::wire::{self, Ids, Inbound, Msg};
 use aien_pi_spark_task as pst;
 use ed25519_dalek::SigningKey;
@@ -177,6 +178,17 @@ impl Worker {
                             sum.failed += 1;
                             send(&mut w, &job.ids, wire::T_FAILED, job.next, b"TIMEOUT")?;
                         }
+                        Err(Abort::Invalid(why)) => {
+                            sum.failed += 1;
+                            let reason = format!("INVALID_INPUT:{why}");
+                            send(
+                                &mut w,
+                                &job.ids,
+                                wire::T_FAILED,
+                                job.next,
+                                reason.as_bytes(),
+                            )?;
+                        }
                     }
                 }
             }
@@ -246,6 +258,10 @@ impl Worker {
                     Ok(Lookup::Conflict) => return deny(w, sum, &ids, "DUPLICATE_ID"),
                     Err(e) => return deny(w, sum, &ids, format!("STORE_REFUSED:{e}")),
                 }
+                let inputs = match self.load_inputs(&spec) {
+                    Ok(i) => i,
+                    Err(reason) => return deny(w, sum, &ids, reason),
+                };
                 send(w, &ids, wire::T_ACCEPTED, 0, &[])?;
                 send(w, &ids, wire::T_RUNNING, 1, &[])?;
                 let cancel = Arc::new(AtomicBool::new(false));
@@ -259,7 +275,7 @@ impl Worker {
                         deadline: t0 + limits.max_wall,
                         threads: limits.max_threads,
                     };
-                    let result = task::run(&spec, &ctl);
+                    let result = task::run(&spec, &inputs, &ctl);
                     let compute_ns = t0.elapsed().as_nanos() as u64;
                     let _ = done.send(Event::Done(Finished {
                         task_id,
@@ -279,6 +295,29 @@ impl Worker {
                 Ok(())
             }
         }
+    }
+
+    /// The job's input files: sizes admitted first, then each read and
+    /// checked against its digest. Err is the denial reason.
+    fn load_inputs(&self, spec: &TaskSpec) -> Result<Inputs, String> {
+        let files = spec.input_files();
+        if files.is_empty() {
+            return Ok(Inputs::default());
+        }
+        let dir = self.store.dir();
+        let sizes = files
+            .iter()
+            .map(|d| store::blob_size(dir, d).map_err(|e| e.code(d)))
+            .collect::<Result<Vec<u64>, String>>()?;
+        spec.admit_sized(&sizes, &self.limits)
+            .map_err(|d| d.code())?;
+        let mut loaded = files
+            .iter()
+            .map(|d| store::load_blob(dir, d).map_err(|e| e.code(d)))
+            .collect::<Result<Vec<Vec<u8>>, String>>()?;
+        let corpus = loaded.pop().unwrap_or_default();
+        let tokenizer = loaded.pop().unwrap_or_default();
+        Ok(Inputs { tokenizer, corpus })
     }
 }
 

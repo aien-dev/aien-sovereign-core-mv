@@ -5,15 +5,18 @@
 //!   aien-hetjob serve --state DIR [LIMITS]         serve PST1 on stdin/stdout until the peer closes
 //!   aien-hetjob dispatch --roster FILE (--ssh HOST [--remote CMD] | --local-worker DIR) JOB [--deadline-s N] [--no-oracle] [--idem HEX --task HEX --cause HEX to retry]
 //!   aien-hetjob local JOB [--threads N]            run the worker's algorithm and the oracle here, timed
+//!   aien-hetjob put-blob --state DIR FILE          copy an input file into a worker's blob store, print its sha256
 //!
-//! JOB is `--matmul M K N SEED` or `--chain ROUNDS SEED_HEX64`.
+//! JOB is `--matmul M K N SEED`, `--chain ROUNDS SEED_HEX64` or
+//! `--tokenize TOKENIZER_JSON CORPUS [--bos]` (the worker must hold both files
+//! in its blob store, see put-blob; the coordinator reads its own copies).
 //! LIMITS: --max-memory-mib N, --max-work N, --max-wall-s N, --threads N.
 //! Exit: 0 verified (or command done), 1 any other outcome, 2 usage error.
 
 use aien_hetjob::coordinator::{self, Job, OracleCheck, Outcome, Policy};
 use aien_hetjob::receipt::Receipt;
-use aien_hetjob::store::Store;
-use aien_hetjob::task::{self, Control, Limits, TaskSpec};
+use aien_hetjob::store::{self, Store};
+use aien_hetjob::task::{self, Control, Inputs, Limits, TaskSpec};
 use aien_hetjob::worker::Worker;
 use aien_hetjob::{host, wire};
 use aien_test::bundle::{fingerprint, hex_decode, hex_encode, keygen, load_signing_key};
@@ -72,7 +75,25 @@ impl Args {
     }
 }
 
-fn job_spec(a: &mut Args) -> Result<TaskSpec, String> {
+fn job_spec(a: &mut Args) -> Result<(TaskSpec, Inputs), String> {
+    if let Some(v) = a.values("--tokenize", 2)? {
+        let bos = a.flag("--bos");
+        let read = |p: &str| std::fs::read(p).map_err(|e| format!("--tokenize: {p}: {e}"));
+        let inputs = Inputs {
+            tokenizer: read(&v[0])?,
+            corpus: read(&v[1])?,
+        };
+        let spec = TaskSpec::TokenizeBatch {
+            tokenizer: Sha256::digest(&inputs.tokenizer).into(),
+            corpus: Sha256::digest(&inputs.corpus).into(),
+            bos,
+        };
+        return Ok((spec, inputs));
+    }
+    generated_spec(a).map(|s| (s, Inputs::default()))
+}
+
+fn generated_spec(a: &mut Args) -> Result<TaskSpec, String> {
     if let Some(v) = a.values("--matmul", 4)? {
         let p = |i: usize| {
             v[i].parse::<u64>()
@@ -97,7 +118,10 @@ fn job_spec(a: &mut Args) -> Result<TaskSpec, String> {
             .ok_or("--chain: seed must be 64 hex digits")?;
         return Ok(TaskSpec::DigestChain { rounds, seed });
     }
-    Err("a job is required: --matmul M K N SEED or --chain ROUNDS SEED_HEX64".to_string())
+    Err(
+        "a job is required: --matmul M K N SEED, --chain ROUNDS SEED_HEX64 or --tokenize TOKENIZER CORPUS"
+            .to_string(),
+    )
 }
 
 fn limits(a: &mut Args) -> Result<Limits, String> {
@@ -142,7 +166,7 @@ fn ms(d: Duration) -> String {
     format!("{:.3}", d.as_secs_f64() * 1e3)
 }
 
-fn time_local(spec: &TaskSpec, threads: usize) -> ([u8; 32], Duration) {
+fn time_local(spec: &TaskSpec, inputs: &Inputs, threads: usize) -> ([u8; 32], Duration) {
     let cancel = AtomicBool::new(false);
     let t0 = Instant::now();
     let ctl = Control {
@@ -150,7 +174,7 @@ fn time_local(spec: &TaskSpec, threads: usize) -> ([u8; 32], Duration) {
         deadline: t0 + Duration::from_secs(3600),
         threads,
     };
-    let d = task::run(spec, &ctl).expect("local run is never cancelled");
+    let d = task::run(spec, inputs, &ctl).expect("local run: not cancelled, inputs usable");
     (d, t0.elapsed())
 }
 
@@ -200,7 +224,7 @@ fn run(cmd: &str, a: &mut Args) -> Result<ExitCode, String> {
                 hex_encode(&p.program_digest)
             );
             println!(
-                "claimed_version={}\nkinds=matmul_u32,digest_chain",
+                "claimed_version={}\nkinds=matmul_u32,digest_chain,tokenize_batch",
                 p.version
             );
             let base = TaskSpec::MatmulU32 {
@@ -210,7 +234,7 @@ fn run(cmd: &str, a: &mut Args) -> Result<ExitCode, String> {
                 seed: 1,
             };
             for t in [1usize, Limits::default().max_threads] {
-                let (_, d) = time_local(&base, t);
+                let (_, d) = time_local(&base, &Inputs::default(), t);
                 println!("baseline_matmul_256_threads_{t}_ms={}", ms(d));
             }
             Ok(ExitCode::SUCCESS)
@@ -238,21 +262,30 @@ fn run(cmd: &str, a: &mut Args) -> Result<ExitCode, String> {
             Ok(ExitCode::SUCCESS)
         }
         "local" => {
-            let spec = job_spec(a).map_err(u)?;
+            let (spec, inputs) = job_spec(a).map_err(u)?;
             let threads = a
                 .num("--threads")
                 .map_err(u)?
                 .unwrap_or(Limits::default().max_threads);
             a.done().map_err(u)?;
-            let (d, t) = time_local(&spec, threads);
+            let sizes = [inputs.tokenizer.len() as u64, inputs.corpus.len() as u64];
+            let (d, t) = time_local(&spec, &inputs, threads);
             let t0 = Instant::now();
-            let o = task::oracle(&spec);
+            let o = task::oracle(&spec, &inputs)?;
             let to = t0.elapsed();
             println!(
-                "kind={}\nwork_units={}",
+                "kind={}\nwork_units={}\nadmission_memory_bytes={}",
                 spec.kind_name(),
-                spec.work_units()
+                spec.work_units(&sizes),
+                spec.memory_bytes(&sizes)
             );
+            if let TaskSpec::TokenizeBatch { .. } = spec {
+                let s = task::tokenize_summary(&spec, &inputs)?;
+                println!(
+                    "lines={}\ntokens={}\nround_trips={}",
+                    s.lines, s.tokens, s.round_trips
+                );
+            }
             println!(
                 "worker_algorithm_digest={}\nworker_algorithm_ms={}\nthreads={threads}",
                 hex_encode(&d),
@@ -269,6 +302,15 @@ fn run(cmd: &str, a: &mut Args) -> Result<ExitCode, String> {
             } else {
                 ExitCode::from(1)
             })
+        }
+        "put-blob" => {
+            let state = PathBuf::from(a.one("--state").map_err(u)?.ok_or("usage:--state DIR")?);
+            let file = a.0.pop().ok_or("usage:put-blob --state DIR FILE")?;
+            a.done().map_err(u)?;
+            let bytes = std::fs::read(&file).map_err(|e| format!("{file}: {e}"))?;
+            let d = store::put_blob(&state, &bytes).map_err(|e| e.to_string())?;
+            println!("{}  {} bytes", hex_encode(&d), bytes.len());
+            Ok(ExitCode::SUCCESS)
         }
         "dispatch" => dispatch(a),
         other => Err(format!("usage:unknown command {other}")),
@@ -309,7 +351,7 @@ fn dispatch(a: &mut Args) -> Result<ExitCode, String> {
             .ok_or("usage:--cause must be 64 hex digits")?,
         None => random().map_err(|e| e.to_string())?,
     };
-    let spec = job_spec(a).map_err(u)?;
+    let (spec, inputs) = job_spec(a).map_err(u)?;
     a.done().map_err(u)?;
 
     let mut child = match (&ssh, &local_worker) {
@@ -348,11 +390,18 @@ fn dispatch(a: &mut Args) -> Result<ExitCode, String> {
         task_id,
         idempotence_key: idem,
     };
+    let mut summary = None;
     let (oracle, oracle_time) = if no_oracle {
         (None, Duration::ZERO)
     } else {
         let t0 = Instant::now();
-        let o = task::oracle(&spec);
+        let o = if let TaskSpec::TokenizeBatch { .. } = spec {
+            let s = task::tokenize_summary(&spec, &inputs)?;
+            summary = Some(s);
+            s.digest
+        } else {
+            task::oracle(&spec, &inputs)?
+        };
         (Some(o), t0.elapsed())
     };
     let policy = Policy {
@@ -377,11 +426,18 @@ fn dispatch(a: &mut Args) -> Result<ExitCode, String> {
         hex_encode(&ids.task_id),
         hex_encode(&ids.idempotence_key)
     );
+    let sizes = [inputs.tokenizer.len() as u64, inputs.corpus.len() as u64];
     println!(
         "kind={}\nwork_units={}",
         spec.kind_name(),
-        spec.work_units()
+        spec.work_units(&sizes)
     );
+    if let Some(s) = summary {
+        println!(
+            "oracle_lines={}\noracle_tokens={}\noracle_round_trips={}",
+            s.lines, s.tokens, s.round_trips
+        );
+    }
     println!(
         "round_trip_ms={}\nframes={}\nstale_ignored={}",
         ms(stats.round_trip),
