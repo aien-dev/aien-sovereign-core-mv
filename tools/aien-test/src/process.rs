@@ -22,6 +22,12 @@ pub struct RunSpec {
     /// Decision 6, gb10 jobs). `timeout` is then advisory and only sets
     /// `timeout_exceeded`.
     pub enforce_timeout: bool,
+    /// Extra `K=V` pairs for the program's environment, set by the runner
+    /// (never by a manifest). The user sandbox forwards them as `--env`.
+    pub env: Vec<(String, String)>,
+    /// Names removed from the inherited environment before `env` is applied,
+    /// so an operator's shell cannot leak a runner-only marker into a gate.
+    pub env_remove: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -155,6 +161,12 @@ fn spawn(spec: &RunSpec) -> io::Result<Child> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .process_group(0);
+    for k in &spec.env_remove {
+        cmd.env_remove(k);
+    }
+    for (k, v) in &spec.env {
+        cmd.env(k, v);
+    }
     let mut attempt = 0;
     loop {
         // One attempt per gate hold: the retry sleep below is outside it.
@@ -250,6 +262,8 @@ mod tests {
             timeout: Duration::from_millis(timeout_ms),
             kill_grace: Duration::from_millis(500),
             enforce_timeout: true,
+            env: Vec::new(),
+            env_remove: Vec::new(),
         }
     }
 

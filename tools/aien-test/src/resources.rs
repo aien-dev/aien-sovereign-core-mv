@@ -46,6 +46,14 @@ use std::sync::{Condvar, Mutex, MutexGuard};
 
 pub const DEFAULT_GPU_LOCK: &str = "/tmp/aien-gb10.lock";
 
+/// Set to `1` in a gb10 gate's environment while the runner holds the GPU
+/// locks for it (ADR 0033: gb10 is serialized by the trusted side). A gate
+/// script that also takes `/tmp/aien-gb10.lock` by hand must skip that when
+/// it sees this: under `--sandbox user` it cannot open the worker's lock file
+/// (exit 66, `flock: Permission denied`), and as the same user it would
+/// block forever behind the runner's own exclusive lock.
+pub const GPU_LOCK_HELD_MARKER: &str = "AIEN_GB10_LOCK_HELD";
+
 pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
