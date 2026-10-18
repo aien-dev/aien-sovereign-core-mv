@@ -114,12 +114,27 @@ publish_time() {
 }
 
 declare -A SLUGS=()
-# slug REPO: canonical owner/name on GitHub (aien-dev/<repo> may redirect), resolved once per run.
+SLUG_DIR=$STATE/slugs
+SLUG_TTL=${AIEN_SLUG_TTL:-86400}
+# slug REPO: canonical owner/name on GitHub (aien-dev/<repo> may redirect, e.g. to aien-dev/<repo>-mv), resolved once
+# per run. Cached on disk in $STATE/slugs/<repo>: used while younger than AIEN_SLUG_TTL seconds (24 h); refreshed
+# with one `gh api` call when missing or older; an older cached name is still used when the refresh fails (an
+# exhausted API limit must not refuse every pull request). Every name, cached or fresh, passes the same regex.
 slug() {
-  local s
+  local s="" f=$SLUG_DIR/$1 age="" fresh
   if [[ -z ${SLUGS[$1]:-} ]]; then
-    s=$("$GH" api "repos/$OWNER/$1" --jq .full_name 2>/dev/null) || return 1
-    [[ $s =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || return 1
+    [[ -f $f ]] && { s=$(head -n 1 "$f"); age=$(( $(date +%s) - $(stat -c %Y "$f") )); }
+    if [[ -n $s && $age -lt $SLUG_TTL && $s =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
+      journal action=slug repo="$1" result=cached slug="$s" >/dev/null
+    elif fresh=$("$GH" api "repos/$OWNER/$1" --jq .full_name 2>/dev/null) && [[ $fresh =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
+      s=$fresh
+      mkdir -p "$SLUG_DIR" && printf '%s\n' "$s" > "$f.tmp" && mv "$f.tmp" "$f"
+      journal action=slug repo="$1" result=refreshed slug="$s" >/dev/null
+    elif [[ -n $s && $s =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
+      journal action=slug repo="$1" result=stale-cache slug="$s" reason="refresh failed, cache is ${age}s old" >/dev/null
+    else
+      return 1
+    fi
     SLUGS[$1]=$s
   fi
   echo "${SLUGS[$1]}"

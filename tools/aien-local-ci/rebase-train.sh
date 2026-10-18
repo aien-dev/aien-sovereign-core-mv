@@ -127,17 +127,19 @@ crumb_tool() {
   echo "$out"
 }
 
-declare -A SLUGS=()
-# slug REPO: canonical owner/name on GitHub (aien-dev/<repo> may redirect, as in pipeline.sh), resolved once per run
-# and only when the train is about to write (label, comment).
+# slug REPO: canonical owner/name on GitHub (aien-dev/<repo> may redirect to aien-dev/<repo>-mv), only when the train
+# is about to write (label, comment). Shares pipeline.sh's disk cache $STATE/slugs/<repo> (24 h; an older name is
+# used when the refresh fails).
 slug() {
-  local s
-  if [[ -z ${SLUGS[$1]:-} ]]; then
-    s=$("$GH" api "repos/$OWNER/$1" --jq .full_name 2>/dev/null) || return 1
-    [[ $s =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || return 1
-    SLUGS[$1]=$s
+  local f=$STATE/slugs/$1 s="" fresh re='^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'
+  [[ -f $f ]] && s=$(head -n 1 "$f")
+  if [[ $s =~ $re ]] && (( $(date +%s) - $(stat -c %Y "$f") < ${AIEN_SLUG_TTL:-86400} )); then echo "$s"; return 0; fi
+  if fresh=$("$GH" api "repos/$OWNER/$1" --jq .full_name 2>/dev/null) && [[ $fresh =~ $re ]]; then
+    mkdir -p "$STATE/slugs" && printf '%s\n' "$fresh" > "$f.tmp" && mv "$f.tmp" "$f"
+    echo "$fresh"; return 0
   fi
-  echo "${SLUGS[$1]}"
+  [[ $s =~ $re ]] && { echo "$s"; return 0; }
+  return 1
 }
 
 declare -A LABEL_OK=()

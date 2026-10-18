@@ -238,6 +238,25 @@ check "second instance did nothing" [ "$(remote_commits) $(wc -l < "$AIEN_STATE/
 bash "$PIPE" publish > "$T/out10" 2>&1
 check "after the lock is released the bundle publishes" remote_has demo "$(sha 99)"
 
+echo "== slug cache"
+check "resolved slug cached on disk" [ "$(cat "$AIEN_STATE/slugs/demo" 2>/dev/null)" = "$S" ]
+check "a refresh is journaled" [ "$(jl '.action == "slug" and .repo == "demo" and .result == "refreshed"')" -ge 1 ]
+rm -f "$FAKE_GH/repos_aien-dev_demo.json"
+calls=$(grep -c "gh api repos/aien-dev/demo " "$FAKE_LOG" || true)
+refused() { jl '.repo == "demo" and .reason == "cannot resolve GitHub slug"'; }
+r0=$(refused)
+bash "$PIPE" merge > "$T/out11" 2>&1
+check "fresh cache used without an API call" [ "$(grep -c "gh api repos/aien-dev/demo " "$FAKE_LOG" || true)" = "$calls" ]
+check "cache use is journaled" [ "$(jl '.action == "slug" and .repo == "demo" and .result == "cached"')" -ge 1 ]
+touch -d '2 days ago' "$AIEN_STATE/slugs/demo"
+bash "$PIPE" merge > "$T/out12" 2>&1
+check "old cache tried a refresh" [ "$(grep -c "gh api repos/aien-dev/demo " "$FAKE_LOG" || true)" -gt "$calls" ]
+check "refresh failed: old cache used, journaled stale-cache" [ "$(jl '.action == "slug" and .repo == "demo" and .result == "stale-cache"')" -ge 1 ]
+check "no slug refusal while a cached name exists" [ "$(refused)" = "$r0" ]
+rm -f "$AIEN_STATE/slugs/demo"
+bash "$PIPE" merge > "$T/out13" 2>&1
+check "no cache and no API: refused as before" [ "$(refused)" -gt "$r0" ]
+
 echo "== secrets"
 check "pipeline.sh never names the signing key file" bash -c "! grep -q 'verify\\.key' '$PIPE'"
 

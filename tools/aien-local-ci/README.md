@@ -17,9 +17,10 @@ AIENOS.
 | `gc.sh` | worktree age + target-dir quota cleanup, dry run by default |
 | `tests/run.sh` | proofs of the contract on this host (33 checks with two wt.sh worktrees present) |
 | `pipeline.sh` | ADR 0033 phase 3: publish verified bundles to aien-receipts, rerun the GitHub thin gate, merge `ready-to-merge` PRs behind guards |
-| `tests/pipeline_test.sh` | offline proofs of `pipeline.sh` with fake `gh`, fake `aien-test` and throwaway git repositories (56 checks) |
+| `tests/pipeline_test.sh` | offline proofs of `pipeline.sh` with fake `gh`, fake `aien-test` and throwaway git repositories (64 checks) |
 | `rebase-train.sh` | moves `ready-to-merge` PRs that conflict only in `.crumb` files (or are behind) onto main, recompiles crumbs with the pinned tool, force-with-lease pushes; labels `needs-rebase` and comments once otherwise |
 | `cron-tick.sh` | source of the cron entry (`*/5`): keeps the worker alive, runs `rebase-train.sh`, then `pipeline.sh round` |
+| `aien-local-ci` | source of the operator front door `~/.local/bin/aien-local-ci` (status, start/stop worker lanes `main` and `small`, trigger, verify, once, plan, health, log) |
 
 ## C8 exec contract
 
@@ -171,7 +172,12 @@ GitHub to act. One instance at a time (`flock` on `$STATE/pipeline.lock`; a seco
 and refusal is one JSON line in `$STATE/pipeline.jsonl`. Exit 0 when the round ran (refusals included), 2 on a usage
 or configuration error. Overrides: `AIEN_STATE`, `AIEN_CLONES`, `AIEN_RECEIPTS`, `AIEN_RECEIPTS_BRANCH`,
 `AIEN_TEST_BIN`, `AIEN_GH_OWNER` (default `aien-dev`), `AIEN_REPOS`, `GH`, `GIT`. GitHub calls use the canonical slug
-(`gh api repos/aien-dev/<repo> --jq .full_name`, so `aienos` becomes `aien-spark/aienos`).
+(`gh api repos/aien-dev/<repo> --jq .full_name`; on 2026-10-18 the names carry a `-mv` suffix, e.g.
+`aien-dev/aegis-runtime-mv`). The slug is cached on disk in `$STATE/slugs/<repo>` and used while younger than 24 h
+(`AIEN_SLUG_TTL`, seconds); older or missing means one refresh call, and when that call fails (for example an
+exhausted API limit) the older cached name is still used, so a round no longer refuses every PR with "cannot
+resolve GitHub slug" (19 such refusals on 2026-10-18). Each lookup journals `action=slug` with `result=cached`,
+`refreshed` or `stale-cache`; every name, cached or fresh, must match `owner/name`. No merge guard changed.
 
 * **publish**: for each `$STATE/bundles/<repo>/<sha>/bundle.json` of a repository whose trusted clone has a key in
   `origin/main:.aien/verify.pub` (several keys allowed, one per line, `#` comments, same rule as aien-test): skip when
@@ -227,7 +233,8 @@ A conflict outside `.crumb`, or a recompile that changes anything but `.crumb` f
 `gh pr view` before posting. Every decision is one JSON line in `$STATE/train.jsonl` (`utc, repo, pr, head, action,
 reason`); `--dry-run` writes none, pushes, labels and comments nothing. One instance at a time (`flock` on
 `$STATE/train.lock`). API budget per run: one `gh pr list` per repo (GraphQL; the label is filtered locally because
-`gh pr list --label` returned nothing on 2026-10-18), and only for a blocked PR one slug lookup, one label call, one
+`gh pr list --label` returned nothing on 2026-10-18), and only for a blocked PR one slug lookup (shared disk cache,
+see pipeline.sh), one label call, one
 `gh pr view` and one comment. Pushes go through git. Exit 0 when the run finished (skips included), 2 on a usage or
 configuration error. Overrides: `AIEN_STATE`, `AIEN_CLONES`, `AIEN_ARCH_CLONE`, `AIEN_GH_OWNER`, `AIEN_REPOS`,
 `AIEN_TRAIN_MIN_AGE`, `GH`, `GIT`.
@@ -240,9 +247,23 @@ Installed as `~/.local/lib/aien-local-ci/cron-tick.sh` with one crontab line (no
 */5 * * * * $HOME/.local/lib/aien-local-ci/cron-tick.sh >> $HOME/.local/state/aien-local-ci/cron-tick.log 2>&1
 ```
 
-Each tick: `aien-local-ci start --github` (no-op when the worker runs), `rebase-train.sh`, `pipeline.sh round`.
+Each tick: `aien-local-ci start --github` and `aien-local-ci start --github --lane small` (each a no-op while that
+lane runs), `rebase-train.sh`, `pipeline.sh round`.
 Every 5 minutes, not 2: the 2-minute round plus the worker's polling used up the shared 5000/h GitHub API limit on
 2026-10-18. `touch ~/.local/state/aien-local-ci/PAUSE` stops the tick.
+
+Two worker lanes, both kept alive by every tick (same `aien-test worker` binary and arguments, `--poll 60 --github
+--sandbox user`, same state dir and clones; each lane has its own pidfile and log):
+
+| lane | start | repos | pidfile, log |
+|---|---|---|---|
+| `main` | `aien-local-ci start --github` | every enrolled repo (`AIEN_REPOS`) | `$STATE/worker.pid`, `$STATE/worker.log` |
+| `small` | `aien-local-ci start --github --lane small` | physics, aien-protocols, aegis-runtime, spark-rsi, aien-architecture, benchmarks (`AIEN_SMALL_REPOS`) | `$STATE/worker-small.pid`, `$STATE/worker-small.log` |
+
+Why: one worker is one serial queue, and a 45 to 60 minute aienos, sovereign-core or omega job starved the small
+repos of bundles (2026-10-18: "no local bundle for head" on 11 ready PRs). `main` keeps the small repos too, so a
+small-repo head can occasionally run in both lanes; the per-target lock serialises that. `aien-local-ci stop
+[--lane small]` stops one lane.
 
 ## Operate
 
