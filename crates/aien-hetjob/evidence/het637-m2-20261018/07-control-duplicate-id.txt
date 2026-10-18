@@ -1,0 +1,11 @@
+++ /home/drakestapleton/workspace/targets/het-637/release/aien-hetjob dispatch --roster crates/aien-hetjob/evidence/het637-m2-20261018/roster.txt --ssh macbook-hetjob --matmul 64 64 64 2 --idem 6a6f62637d6d326d61746d756c353132
+aien-hetjob serve: Summary { completed: 0, replayed: 0, denied: 1, cancelled: 0, failed: 0, refused_frames: 0 }
+task_id=47621a951bf187b914bbe641df2b1f76
+idempotence_key=6a6f62637d6d326d61746d756c353132
+kind=matmul_u32
+work_units=262144
+round_trip_ms=240.648
+frames=1
+stale_ignored=0
+oracle_ms=0.347
+OUTCOME FAILED DUPLICATE_ID

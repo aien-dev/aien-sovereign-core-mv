@@ -1,0 +1,2 @@
+# a real ed25519 key that is NOT the M2 worker key (a Spark test key)
+58843530e2c38871b18738dd6edff99577f2c154e5737e6dcdbf1531163abd0d

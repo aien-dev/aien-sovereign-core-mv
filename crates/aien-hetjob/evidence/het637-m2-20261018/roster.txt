@@ -1,0 +1,4 @@
+# aien-hetjob roster: worker receipt keys the Spark coordinator accepts
+# M2 MacBook Air (macOS 26.6.2, Apple M2), key made 2026-10-18 by `aien-hetjob keygen` on the M2
+# M2 SSH host key as pinned in the Spark known_hosts: ED25519 SHA256:Jdrszoi5q21Jc/l6pvFPEYbpspSPhtpRTC1uLbq31S0;
+8d5fe96bea997f8acaf79b514bd37597becddef82a0a9075ef5c5bc53ad7be2a

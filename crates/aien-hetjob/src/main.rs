@@ -3,7 +3,7 @@
 //!   aien-hetjob keygen --state DIR                 create the worker key (0600), print its public key
 //!   aien-hetjob caps --state DIR                   claimed platform, key, program digest, local baseline
 //!   aien-hetjob serve --state DIR [LIMITS]         serve PST1 on stdin/stdout until the peer closes
-//!   aien-hetjob dispatch --roster FILE (--ssh HOST [--remote CMD] | --local-worker DIR) JOB [--deadline-s N] [--no-oracle] [--idem HEX]
+//!   aien-hetjob dispatch --roster FILE (--ssh HOST [--remote CMD] | --local-worker DIR) JOB [--deadline-s N] [--no-oracle] [--idem HEX --task HEX --cause HEX to retry]
 //!   aien-hetjob local JOB [--threads N]            run the worker's algorithm and the oracle here, timed
 //!
 //! JOB is `--matmul M K N SEED` or `--chain ROUNDS SEED_HEX64`.
@@ -294,6 +294,21 @@ fn dispatch(a: &mut Args) -> Result<ExitCode, String> {
             .ok_or("usage:--idem must be 32 hex digits")?,
         None => random().map_err(|e| e.to_string())?,
     };
+    // A retry of the same request repeats both the task id and the
+    // idempotence key (PST1 section 8); a new task id with an old key is a
+    // different request and the worker refuses it as DUPLICATE_ID.
+    let task_id = match a.one("--task").map_err(u)? {
+        Some(h) => hex_decode(&h)
+            .and_then(|b| <[u8; 16]>::try_from(b).ok())
+            .ok_or("usage:--task must be 32 hex digits")?,
+        None => random().map_err(|e| e.to_string())?,
+    };
+    let cause_id = match a.one("--cause").map_err(u)? {
+        Some(h) => hex_decode(&h)
+            .and_then(|b| <[u8; 32]>::try_from(b).ok())
+            .ok_or("usage:--cause must be 64 hex digits")?,
+        None => random().map_err(|e| e.to_string())?,
+    };
     let spec = job_spec(a).map_err(u)?;
     a.done().map_err(u)?;
 
@@ -326,11 +341,11 @@ fn dispatch(a: &mut Args) -> Result<ExitCode, String> {
     ))
     .into();
     let ids = wire::Ids {
-        cause_id: random().map_err(|e| e.to_string())?,
+        cause_id,
         origin_run_id: random().map_err(|e| e.to_string())?,
         objective_id: objective,
         subject_id: [0; 32],
-        task_id: random().map_err(|e| e.to_string())?,
+        task_id,
         idempotence_key: idem,
     };
     let (oracle, oracle_time) = if no_oracle {
@@ -357,7 +372,8 @@ fn dispatch(a: &mut Args) -> Result<ExitCode, String> {
     let _ = child.wait();
 
     println!(
-        "task_id={}\nidempotence_key={}",
+        "cause_id={}\ntask_id={}\nidempotence_key={}",
+        hex_encode(&ids.cause_id),
         hex_encode(&ids.task_id),
         hex_encode(&ids.idempotence_key)
     );
