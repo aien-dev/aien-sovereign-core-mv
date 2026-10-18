@@ -22,6 +22,7 @@ members = [
     "crates/spark-aegis",
     "crates/aien-inference-abi",
     "crates/aien-kv-cache",
+    "crates/aien-bitnet-tokenizer",
     "crates/aien-hetjob",
     "crates/aien-kv-store",
     "crates/aien-scheduler",

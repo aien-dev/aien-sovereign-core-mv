@@ -1,0 +1,11 @@
+[package]
+name = "aien-bitnet-tokenizer"
+version = "0.1.0"
+edition = "2021"
+authors = ["Drake Stapleton <aien@aienos.com>"]
+description = "Our own LLaMA-3 byte-level BPE for BitNet b1.58 2B-4T, read from tokenizer.json, no tokenizer library"
+license.workspace = true
+
+[dependencies]
+regex-syntax = "0.8"
+serde_json = "1.0"

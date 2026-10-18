@@ -26,7 +26,7 @@ aien-omega-pf = { path = "../aien-omega-pf" }
 aien-omega-dgraph = { path = "../aien-omega-dgraph" }
 parking_lot = "0.12"
 sha2 = "0.10"
-regex-syntax = "0.8"
+aien-bitnet-tokenizer = { path = "../aien-bitnet-tokenizer" }
 
 
 
