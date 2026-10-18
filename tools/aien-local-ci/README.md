@@ -19,8 +19,8 @@ AIENOS.
 | `pipeline.sh` | ADR 0033 phase 3: publish verified bundles to aien-receipts, rerun the GitHub thin gate, merge `ready-to-merge` PRs behind guards |
 | `tests/pipeline_test.sh` | offline proofs of `pipeline.sh` with fake `gh`, fake `aien-test` and throwaway git repositories (64 checks) |
 | `rebase-train.sh` | moves `ready-to-merge` PRs that conflict only in `.crumb` files (or are behind) onto main, recompiles crumbs with the pinned tool, force-with-lease pushes; labels `needs-rebase` and comments once otherwise |
-| `cron-tick.sh` | source of the cron entry (`*/5`): keeps the worker alive, runs `rebase-train.sh`, then `pipeline.sh round` |
-| `aien-local-ci` | source of the operator front door `~/.local/bin/aien-local-ci` (status, start/stop worker lanes `main` and `small`, trigger, verify, once, plan, health, log) |
+| `cron-tick.sh` | source of the cron entry (`*/5`): keeps the worker lanes main, small, big and core alive, runs `rebase-train.sh`, then `pipeline.sh round` |
+| `aien-local-ci` | source of the operator front door `~/.local/bin/aien-local-ci` (status, start/stop named worker lanes, trigger, verify, once, plan, health, log) |
 
 ## C8 exec contract
 
@@ -247,23 +247,29 @@ Installed as `~/.local/lib/aien-local-ci/cron-tick.sh` with one crontab line (no
 */5 * * * * $HOME/.local/lib/aien-local-ci/cron-tick.sh >> $HOME/.local/state/aien-local-ci/cron-tick.log 2>&1
 ```
 
-Each tick: `aien-local-ci start --github` and `aien-local-ci start --github --lane small` (each a no-op while that
-lane runs), `rebase-train.sh`, `pipeline.sh round`.
-Every 5 minutes, not 2: the 2-minute round plus the worker's polling used up the shared 5000/h GitHub API limit on
-2026-10-18. `touch ~/.local/state/aien-local-ci/PAUSE` stops the tick.
+Each tick: keep the four worker lanes alive (each `start` is a no-op while that lane runs), `rebase-train.sh`,
+`pipeline.sh round`. Every 5 minutes, not 2: the 2-minute round plus the worker's polling used up the shared 5000/h
+GitHub API limit on 2026-10-18. `touch ~/.local/state/aien-local-ci/PAUSE` stops the tick.
 
-Two worker lanes, both kept alive by every tick (same `aien-test worker` binary and arguments, `--poll 60 --github
---sandbox user`, same state dir and clones; each lane has its own pidfile and log):
+Worker lanes: the same `aien-test worker` binary and arguments (`--poll 60 --github --sandbox user`, same state dir
+and clones), each lane its own process, repo list, pidfile and log:
 
-| lane | start | repos | pidfile, log |
-|---|---|---|---|
-| `main` | `aien-local-ci start --github` | every enrolled repo (`AIEN_REPOS`) | `$STATE/worker.pid`, `$STATE/worker.log` |
-| `small` | `aien-local-ci start --github --lane small` | physics, aien-protocols, aegis-runtime, spark-rsi, aien-architecture, benchmarks (`AIEN_SMALL_REPOS`) | `$STATE/worker-small.pid`, `$STATE/worker-small.log` |
+| lane | started by the tick with | pidfile, log |
+|---|---|---|
+| `main` | `aien-local-ci start --github` (every enrolled repo, `AIEN_REPOS`) | `$STATE/worker.pid`, `$STATE/worker.log` |
+| `small` | `aien-local-ci start --github --lane small --repos physics,aien-protocols,aegis-runtime,spark-rsi,aien-architecture,benchmarks` | `$STATE/worker-small.pid`, `$STATE/worker-small.log` |
+| `big` | `aien-local-ci start --github --lane big --repos omega,aien-sovereign-core` | `$STATE/worker-big.pid`, `$STATE/worker-big.log` |
+| `core` | `aien-local-ci start --github --lane core --repos aien-sovereign-core` | `$STATE/worker-core.pid`, `$STATE/worker-core.log` |
 
-Why: one worker is one serial queue, and a 45 to 60 minute aienos, sovereign-core or omega job starved the small
-repos of bundles (2026-10-18: "no local bundle for head" on 11 ready PRs). `main` keeps the small repos too, so a
-small-repo head can occasionally run in both lanes; the per-target lock serialises that. `aien-local-ci stop
-[--lane small]` stops one lane.
+Any other lane name works the same way (`--lane NAME --repos LIST`, files `worker-NAME.pid`, `worker-NAME.log`).
+Why: one worker is one serial queue. On 2026-10-18 a 45 to 60 minute aienos, sovereign-core or omega job starved the
+small repos ("no local bundle for head" on 11 ready PRs), and the main lane sat on one aienos head for over 30 minutes
+while nine freshly rebased omega and sovereign-core heads waited; `core` keeps sovereign-core heads from waiting behind
+omega GPU gates in `big`. `main` keeps every repo, so a head can occasionally
+run in two lanes; the per-target lock serialises that. A lane started by hand is adopted, not started twice: when the
+pidfile's pid is gone, `start` and `stop` look for a running `aien-test worker` of this user whose `--state-dir` and
+`--repos` are exactly the lane's (read from `/proc/<pid>/cmdline`) and rewrite the pidfile. `aien-local-ci stop
+[--lane NAME]` stops one lane.
 
 ## Operate
 
