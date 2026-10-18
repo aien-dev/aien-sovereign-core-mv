@@ -17,7 +17,7 @@ AIENOS.
 | `gc.sh` | worktree age + target-dir quota cleanup, dry run by default |
 | `tests/run.sh` | proofs of the contract on this host (33 checks with two wt.sh worktrees present) |
 | `pipeline.sh` | ADR 0033 phase 3: publish verified bundles to aien-receipts, rerun the GitHub thin gate, merge `ready-to-merge` PRs behind guards |
-| `tests/pipeline_test.sh` | offline proofs of `pipeline.sh` with fake `gh`, fake `aien-test` and throwaway git repositories (68 checks) |
+| `tests/pipeline_test.sh` | offline proofs of `pipeline.sh` with fake `gh`, fake `aien-test` and throwaway git repositories (72 checks) |
 | `rebase-train.sh` | moves `ready-to-merge` PRs that conflict only in `.crumb` files (or are behind) onto main, recompiles crumbs with the pinned tool, force-with-lease pushes; labels `needs-rebase` and comments once otherwise |
 | `cron-tick.sh` | source of the cron entry (`*/5`): keeps the worker lanes main, small, big and core alive, runs `rebase-train.sh`, then `pipeline.sh round` |
 | `aien-local-ci` | source of the operator front door `~/.local/bin/aien-local-ci` (status, start/stop named worker lanes, trigger, verify, once, plan, health, log) |
@@ -198,6 +198,11 @@ resolve GitHub slug" (19 such refusals on 2026-10-18). Each lookup journals `act
   is present on the head with only `success` (check runs and commit statuses); no `AIEN Verification` run for the head
   is queued or in progress. Then `gh pr merge N -R <slug> --merge --match-head-commit <sha>`. Never `--admin`. A base
   branch without required status checks (or whose protection cannot be read) is refused, not merged.
+
+Merge pause: while `$STATE/MERGE-PAUSE` exists (Drake, 2026-10-18: "stop all agents from trying to merge"), the
+merge step journals `result=paused` and merges nothing; publish and rerun keep running. `rebase-train.sh` keeps
+rebasing (that is not merging) and never adds `ready-to-merge` or enables auto-merge, paused or not. No script creates
+or deletes the file: only Drake lifts the pause.
 
 ## Rebase train (rebase-train.sh, before every round)
 

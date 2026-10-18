@@ -269,6 +269,17 @@ check "guard refusal: later journal lines say try next round" \
   [ "$(tail -n +$((l0 + 1)) "$AIEN_STATE/pipeline.jsonl" | jq -c 'select(.deferred == "gh guard exit 98: try next round")' | wc -l)" -ge 1 ]
 check "guard refusal: nothing merged" [ "$(tail -n +$((l0 + 1)) "$AIEN_STATE/pipeline.jsonl" | jq -c 'select(.result == "merged")' | wc -l)" = 0 ]
 
+echo "== merge pause"
+: > "$AIEN_STATE/MERGE-PAUSE"
+m0=$(grep -c '^gh pr merge' "$FAKE_LOG" || true); l0=$(wc -l < "$AIEN_STATE/pipeline.jsonl")
+bash "$PIPE" merge > "$T/out15" 2>&1
+check "MERGE-PAUSE: merge step journals paused" [ "$(tail -n +$((l0 + 1)) "$AIEN_STATE/pipeline.jsonl" | jq -c 'select(.action == "merge" and .result == "paused")' | wc -l)" = 1 ]
+check "MERGE-PAUSE: no gh pr merge" [ "$(grep -c '^gh pr merge' "$FAKE_LOG" || true)" = "$m0" ]
+check "MERGE-PAUSE: the file is left in place" [ -e "$AIEN_STATE/MERGE-PAUSE" ]
+check "rebase-train.sh never adds ready-to-merge or enables auto-merge" \
+  bash -c "! grep -nE 'labels\\[\\]=(\"?\\\$MERGE_LABEL|ready-to-merge)|--auto|auto-merge\"' '$HERE/../rebase-train.sh'"
+rm -f "$AIEN_STATE/MERGE-PAUSE"
+
 echo "== secrets"
 check "pipeline.sh never names the signing key file" bash -c "! grep -q 'verify\\.key' '$PIPE'"
 

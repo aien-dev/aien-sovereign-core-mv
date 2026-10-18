@@ -336,6 +336,8 @@ merge_one() {
 
 do_merge() {
   local repo s prs num sha base draft labeled
+  # Drake 2026-10-18: "stop all agents from trying to merge". Merge-only stop; publish and rerun keep going.
+  if [[ -e $STATE/MERGE-PAUSE ]]; then journal action=merge result=paused reason="MERGE-PAUSE present"; return 0; fi
   if ! fetch_receipts; then journal action=merge result=refused reason="receipts fetch failed"; return 0; fi
   for repo in "${repo_list[@]}"; do
     [[ -d $CLONES/$repo ]] || continue

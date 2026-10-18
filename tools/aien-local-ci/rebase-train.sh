@@ -95,6 +95,10 @@ cleanup() {
   rm -rf "$WORK"
 }
 trap cleanup EXIT
+# Merge pause (Drake 2026-10-18): while $STATE/MERGE-PAUSE exists pipeline.sh merges nothing. The train keeps
+# rebasing (that is not merging) and never adds ready-to-merge or enables auto-merge in any case; it only reads the
+# label. It never creates or deletes MERGE-PAUSE: only Drake lifts it.
+if [[ -e $STATE/MERGE-PAUSE ]]; then echo "rebase-train.sh: MERGE-PAUSE present: rebasing only, merges stay paused"; fi
 
 # journal REPO PR HEAD ACTION REASON: one JSON line (not in --dry-run) and one short line on stdout.
 journal() {
