@@ -1,0 +1,4 @@
+
+thread 'main' (3899970) panicked at crates/aien-inference-abi/src/bin/own8b_check.rs:432:38:
+prefill: "layer 0 down: omega_gpu rc=-4 (CHIP_FAIL: qmd build (shared_bytes))"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

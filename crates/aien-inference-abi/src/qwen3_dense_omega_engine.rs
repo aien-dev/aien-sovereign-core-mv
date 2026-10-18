@@ -46,9 +46,15 @@ use crate::tensor::{apply_rope, rmsnorm};
 // ---------------------------------------------------------------------------
 
 /// omega's bf16 streaming GEMV over one `[n][k]` matrix (projections of a bf16 checkpoint and
-/// every lm_head), behind a lock (`Bf16Tensor` is not `Sync`).
+/// every lm_head), behind a lock (`Bf16Tensor` is not `Sync`). The kernel stages x in shared memory
+/// (k * 4 bytes, at most 16384: omega_blackwell_qmd.h `OMEGA_BW_QMD_MAX_SHARED_BYTES`), so a wider
+/// matrix is held as column slices of at most `BF16_MAX_SLICE_K` and their partial sums are added
+/// in slice order (Qwen3-4B down: k 9728 = 4096 + 4096 + 1536).
 #[derive(Debug)]
-pub struct OmegaBf16Gemv(Mutex<aien_omega_bf16::Bf16Tensor>, usize, usize);
+pub struct OmegaBf16Gemv(Mutex<Vec<aien_omega_bf16::Bf16Tensor>>, usize, usize);
+
+/// Widest x one bf16 launch stages: 16384 shared bytes / 4.
+pub const BF16_MAX_SLICE_K: usize = 4096;
 
 impl DenseGemv for OmegaBf16Gemv {
     fn n(&self) -> usize {
@@ -58,9 +64,22 @@ impl DenseGemv for OmegaBf16Gemv {
         self.2
     }
     fn gemv_f32(&self, x: &[f32], y: &mut [f32]) -> Result<u64, String> {
-        let t = self.0.lock().map_err(|_| "bf16 tensor lock poisoned")?;
-        let info = t.gemv_f32(x, y).map_err(|e| e.to_string())?;
-        Ok(info.elapsed_ns)
+        let slices = self.0.lock().map_err(|_| "bf16 tensor lock poisoned")?;
+        if let [t] = slices.as_slice() {
+            return Ok(t.gemv_f32(x, y).map_err(|e| e.to_string())?.elapsed_ns);
+        }
+        let mut part = vec![0f32; y.len()];
+        let mut ns = 0;
+        for (i, t) in slices.iter().enumerate() {
+            let c0 = i * BF16_MAX_SLICE_K;
+            let c1 = (c0 + BF16_MAX_SLICE_K).min(self.2);
+            let out = if i == 0 { &mut *y } else { &mut part[..] };
+            ns += t.gemv_f32(&x[c0..c1], out).map_err(|e| e.to_string())?.elapsed_ns;
+            if i > 0 {
+                y.iter_mut().zip(&part).for_each(|(a, b)| *a += b);
+            }
+        }
+        Ok(ns)
     }
 }
 
@@ -238,8 +257,18 @@ impl DenseUploader for OmegaDenseUploader {
         if !aien_omega_bf16::is_native() {
             return Err("this binary carries no omega bf16 GEMV (built without AIEN_OMEGA_DIR)".into());
         }
-        let t = aien_omega_bf16::Bf16Tensor::upload(n, k, bits).map_err(|e| e.to_string())?;
-        Ok(Arc::new(OmegaBf16Gemv(Mutex::new(t), n, k)))
+        let mut slices = Vec::new();
+        for c0 in (0..k).step_by(BF16_MAX_SLICE_K) {
+            let w = BF16_MAX_SLICE_K.min(k - c0);
+            let t = if w == k {
+                aien_omega_bf16::Bf16Tensor::upload(n, k, bits)
+            } else {
+                let cols: Vec<u16> = bits.chunks_exact(k).flat_map(|row| &row[c0..c0 + w]).copied().collect();
+                aien_omega_bf16::Bf16Tensor::upload(n, w, &cols)
+            };
+            slices.push(t.map_err(|e| e.to_string())?);
+        }
+        Ok(Arc::new(OmegaBf16Gemv(Mutex::new(slices), n, k)))
     }
     fn upload_fp8(
         &self,
