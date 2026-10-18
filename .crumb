@@ -76,7 +76,7 @@
           "purpose": "ALLEN scoped memory store: scopes enforced at recall, inspect/correct/export, key-destroying for"
         },
         {
-          "digest": "44dc482b8c9db8919a68ec69b019cd77967232a6ec8b1910c0dfe3cd4d71f141",
+          "digest": "cd47dee5280a769dfc65a68275cc8a78b68392024f4d2bf25bd57383bce5c32a",
           "last_commit": "b9b52f9c",
           "name": "crates/aien-allen-profile",
           "purpose": "ALLEN persona profile v1: versioned, user-editable profile bound to the engaged ALLEN identity; "
@@ -112,21 +112,21 @@
           "purpose": ""
         },
         {
-          "digest": "b787845b373f1f2ef48522c2575a6de8ad32e3584bef4b578ba61d2ab053187c",
+          "digest": "761ec03bf3abdd7548b67ef9fac479b3f5a54df82d084788bdf9c444ff2d6daa",
           "last_commit": "fe3677c3",
           "name": "tools/aien-local-ci",
           "purpose": "Local CI sandbox exec contract (C8), aien-run user/caches install, Forgejo trigger hook, health "
         }
       ],
-      "children_root": "sha256:111edf8bf001ed434f7dacbc6d8ab9d75f6bda2cd909d01264fb42bbe38b1d74",
-      "compiled_at": "2026-10-17T11:58:09Z",
+      "children_root": "sha256:31cf115012cf9c724c7ab1cfbaa8c28e2a028b2054da6e22255fce9397968353",
+      "compiled_at": "2026-10-18T04:49:16Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:90138b1fd1cf3ffa4f762b157930e959f2bea50c41351c40b41330ae9edff05b",
+      "digest": "sha256:9be5f4b447e1683f000a53779fc614686bbdcd6e84e7a047d168cb6ae2aa98e8",
       "evidence_files": 1578,
       "evidence_root": "sha256:135e27a1a0704c4a8371cd2c1eb555f2b5beec61c212949b029a5457418a7160",
       "files": 5891,
-      "generated_at_commit": "6fb606867d2cd502b9475cd2ff0cc85ab40b16c9",
-      "source_tree": "sha256:7ac140a01c7f7ef0cc9f91a7cf9ea94fb063f8ca7f24365f185b9da5b2ed26b9"
+      "generated_at_commit": "12e71aad80fda23a428317d11b0dac02d1c777f1",
+      "source_tree": "sha256:b85438aa4ae566248e9e8aefbd6845e66fa9cc492b61c9836d214e73149c2dd2"
     }
   },
   "history": [],

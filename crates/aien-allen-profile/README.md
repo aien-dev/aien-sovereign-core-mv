@@ -5,7 +5,7 @@ whether it keeps to plain language, and a few working preferences. It is tied to
 your ALLEN identity, but it is not the identity. Renaming ALLEN never changes
 who it is.
 
-Tracks aien-spark/aien-architecture#159. This is version 1, host side only.
+Tracks aien-dev/aien-architecture#159. This is version 1, host side only.
 
 ## What you can change
 
