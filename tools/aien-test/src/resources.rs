@@ -45,6 +45,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Condvar, Mutex, MutexGuard};
 
 pub const DEFAULT_GPU_LOCK: &str = "/tmp/aien-gb10.lock";
+/// Set to `1` in a gb10 job's environment while the runner holds the GPU
+/// lock for it. Gate scripts that take the lock themselves skip it then.
+pub const GPU_LOCK_HELD_ENV: &str = "AIEN_GB10_LOCK_HELD";
 
 pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())

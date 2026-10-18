@@ -22,6 +22,8 @@ pub struct RunSpec {
     /// Decision 6, gb10 jobs). `timeout` is then advisory and only sets
     /// `timeout_exceeded`.
     pub enforce_timeout: bool,
+    /// Extra `K=V` pairs set in the job's environment on top of the runner's.
+    pub env: Vec<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -150,6 +152,7 @@ pub(crate) fn output_gated(cmd: &mut Command) -> io::Result<Output> {
 fn spawn(spec: &RunSpec) -> io::Result<Child> {
     let mut cmd = Command::new(&spec.program);
     cmd.args(&spec.args)
+        .envs(spec.env.iter().map(|(k, v)| (k, v)))
         .current_dir(&spec.cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -250,6 +253,7 @@ mod tests {
             timeout: Duration::from_millis(timeout_ms),
             kill_grace: Duration::from_millis(500),
             enforce_timeout: true,
+            env: Vec::new(),
         }
     }
 

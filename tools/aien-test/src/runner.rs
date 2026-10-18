@@ -726,6 +726,13 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
             // gb10 jobs are never killed (ADR 0028 Decision 6): the timeout
             // only marks the receipt.
             enforce_timeout: m.pool() != "gb10",
+            // The runner already holds the GPU lock for this job: a gate script that
+            // would take it again must not, or it waits on us forever (#627).
+            env: if gpu.is_some() {
+                vec![(resources::GPU_LOCK_HELD_ENV.to_string(), "1".to_string())]
+            } else {
+                Vec::new()
+            },
         };
         // The sandbox seam (C8): `none` returns `direct` unchanged.
         let spec = sandbox::wrap(
@@ -1621,6 +1628,26 @@ mod tests {
         assert!(
             acquire_gpu(&opts.gpu).is_ok(),
             "the lock is released after the job"
+        );
+    }
+
+    const ECHO_LOCK_HELD: &str = "#!/bin/sh\nprintf '[%s]' \"$AIEN_GB10_LOCK_HELD\" > \"$1\"\n";
+
+    #[test]
+    fn gb10_gate_is_told_the_runner_holds_the_gpu_lock() {
+        // #627: the gate script must not take the lock again, or it waits on us forever.
+        let fx = gb10_fixture(ECHO_LOCK_HELD, "20s");
+        let o = run(&fx, &gb10_opts(&fx));
+        assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
+        assert_eq!(fs::read_to_string(fx.marker()).unwrap(), "[1]");
+
+        let fx = fixture(ECHO_LOCK_HELD, 0, &[], "20s", "");
+        let o = run(&fx, &fx.opts());
+        assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
+        assert_eq!(
+            fs::read_to_string(fx.marker()).unwrap(),
+            "[]",
+            "host gates hold no GPU lock"
         );
     }
 

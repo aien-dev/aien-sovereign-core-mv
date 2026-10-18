@@ -99,12 +99,15 @@ pub fn command(
 
 /// Rewrite a direct `RunSpec` for the sandbox. `None` returns it unchanged,
 /// byte for byte. The timeout policy (`enforce_timeout`) is not touched: a
-/// gb10 job stays advisory and is never killed.
+/// gb10 job stays advisory and is never killed. The spec's own `env` pairs
+/// move onto the helper's `--env` list, since sudo would drop them.
 pub fn wrap(sandbox: Sandbox, spec: RunSpec, profile: &str, env: &[(String, String)]) -> RunSpec {
     if sandbox == Sandbox::None {
         return spec;
     }
     let secs = spec.timeout.as_secs().max(1);
+    let mut pairs = env.to_vec();
+    pairs.extend(spec.env.iter().cloned());
     let (program, args) = command(
         sandbox,
         &spec.program,
@@ -112,11 +115,12 @@ pub fn wrap(sandbox: Sandbox, spec: RunSpec, profile: &str, env: &[(String, Stri
         &spec.cwd,
         secs,
         profile,
-        env,
+        &pairs,
     );
     RunSpec {
         program,
         args,
+        env: Vec::new(),
         ..spec
     }
 }
@@ -144,6 +148,7 @@ mod tests {
             timeout: Duration::from_millis(90_500),
             kill_grace: Duration::from_secs(10),
             enforce_timeout: false,
+            env: Vec::new(),
         }
     }
 
@@ -216,6 +221,37 @@ mod tests {
         assert_eq!(
             env_pairs(Some(Path::new("/x"))),
             vec![("CARGO_TARGET_DIR".to_string(), "/x".to_string())]
+        );
+    }
+
+    #[test]
+    fn the_specs_own_env_moves_onto_the_helper_command_line() {
+        let held = vec![("AIEN_GB10_LOCK_HELD".to_string(), "1".to_string())];
+        let mut s = spec();
+        s.env = held.clone();
+        let none = wrap(Sandbox::None, s, "gb10", &[]);
+        assert_eq!(none.env, held, "none keeps the pairs for the direct spawn");
+        let mut s = spec();
+        s.env = held;
+        let env = vec![("CARGO_TARGET_DIR".to_string(), "/t".to_string())];
+        let w = wrap(Sandbox::User, s, "gb10", &env);
+        let envs: Vec<&String> = w
+            .args
+            .windows(2)
+            .filter(|p| p[0] == "--env")
+            .map(|p| &p[1])
+            .collect();
+        assert_eq!(
+            envs,
+            vec![
+                "AIEN_SANDBOX_NESTED=1",
+                "CARGO_TARGET_DIR=/t",
+                "AIEN_GB10_LOCK_HELD=1"
+            ]
+        );
+        assert!(
+            w.env.is_empty(),
+            "sudo would drop them, so none stay on the spec"
         );
     }
 
