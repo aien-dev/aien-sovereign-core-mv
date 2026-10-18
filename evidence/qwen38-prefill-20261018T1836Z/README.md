@@ -7,7 +7,7 @@ omega qwen38/prefill-graph 6e24f7fd (sha 373d122c...). Model ~/models/qwen3.8-27
 | --- | --- | --- |
 | golden (24 tokens, prefill chunk 8 + decode) | command-golden.txt | tokens 24/24 equal to host reference; logits cosine 0.9929 < 0.999 bar, so pass:false (bar not moved) |
 | score (LICENSE 256, chunk 64) | command-score.txt | PASS: mean NLL 0.08772 vs ref 0.08707, accuracy 0.9882 = ref, control 21.25 |
-| cold TTFT 32k/64k/128k (chunk 4096) | command-ttft.txt | 32k: 197.702 s (gemm chip 77.9 s, host 40.5 s, attn 25.2 s, gdn 20.7 s, a/b 7.2 s); 64k and 128k were still running at commit time, see ttft-chunk4096.log/json once done |
+| cold TTFT 32k/64k/128k (chunk 4096) | command-ttft.txt | 32k 197.702 s, 64k 415.255 s, 128k 936.728 s (ttft-chunk4096.json). 128k split: gemm chip 304.7 s, attn 318.5 s, host 109.4 s, gdn 73.1 s, a/b 25.3 s |
 
 Ceiling at 131,072 tokens: about 66 s (GEMMs 30.73 s at 207.7 TFLOPS FP8, calc:fb84329b; causal attention 35.18 s at
 our measured 96 TFLOPS bf16, calc:2632671b). Refused runs kept: run1 attn alloc (max_pos not a multiple of 256),
