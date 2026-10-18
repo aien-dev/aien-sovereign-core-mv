@@ -23,6 +23,11 @@ gate whose `cache_scope` is `hardware` cannot count.
 
 ## The plan
 
+An `inputs` entry is a path prefix: `src/` covers everything under `src/`.
+An `inputs_top: [src]` entry covers only the files directly in `src/`, not
+its subfolders and not dot files such as `src/.crumb`. Use it when a gate
+builds from the top of a folder whose subfolders belong to other gates.
+
 Selection is the set of gates whose watched paths (declared `inputs`, the
 D3 implied inputs, the manifest file, the golden file) cover a changed path,
 plus the always set, closed over dependents and then dependencies. Sections:

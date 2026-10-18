@@ -341,6 +341,25 @@ fn collect_files(root: &Path, rel: &str, out: &mut BTreeSet<String>) {
     }
 }
 
+/// The files directly inside `dir` (an `inputs_top` entry), no dotfiles; none at all
+/// is recorded as the entry itself with a null digest, like a missing plain input.
+fn collect_top_files(root: &Path, dir: &str, entry: &str, out: &mut BTreeSet<String>) {
+    let mut any = false;
+    if let Ok(rd) = fs::read_dir(root.join(dir)) {
+        for e in rd.flatten() {
+            let rel = format!("{dir}/{}", e.file_name().to_string_lossy());
+            let is_file = fs::symlink_metadata(e.path()).is_ok_and(|m| m.is_file());
+            if is_file && manifest::directly_in(dir, &rel) {
+                out.insert(rel);
+                any = true;
+            }
+        }
+    }
+    if !any {
+        out.insert(entry.to_string());
+    }
+}
+
 /// Where `run.exec` is, for a run without the sandbox (the runner's PATH).
 /// See [`exec_path_for`].
 pub fn exec_path(root: &Path, exec: &str) -> Option<PathBuf> {
@@ -388,7 +407,10 @@ fn exec_path_in(root: &Path, exec: &str, path: Option<std::ffi::OsString>) -> Op
 pub fn build_inputs_digest(root: &Path, manifest_rel: Option<&Path>, m: &Manifest) -> String {
     let mut paths: BTreeSet<String> = BTreeSet::new();
     for i in &m.inputs {
-        collect_files(root, i, &mut paths);
+        match manifest::shallow_dir(i) {
+            Some(dir) => collect_top_files(root, dir, i, &mut paths),
+            None => collect_files(root, i, &mut paths),
+        }
     }
     if let Some(rel) = manifest_rel {
         let dir = rel.parent().unwrap_or(Path::new(""));
