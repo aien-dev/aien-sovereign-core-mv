@@ -23,7 +23,11 @@ use std::path::Path;
 
 use aien_omega_bf16::Bf16Tensor;
 use aien_omega_fp8::Fp8Tensor;
+use aien_omega_gpu::ResidentTensor;
 use aien_omega_q38::{Attn256Cache, Gdn, GraphConfig, GraphStats, Q38Graph};
+
+mod prefill;
+pub use prefill::PrefillStats;
 
 use crate::qwen38::{read_bf16_words, read_matrix, read_vec, text_prefix, Matrix, Qwen38Config};
 use crate::qwen3_moe::bf16_to_f32;
@@ -56,6 +60,15 @@ pub struct Qwen38Omega {
     /// Tokens the state holds (the next token's position).
     pub pos: usize,
     max_pos: usize,
+    /// Every layer's (input, post-attention) norm weight and the final norm, folded to `1 + w`:
+    /// the prefill normalises on the host.
+    norms: Vec<(Vec<f32>, Vec<f32>)>,
+    final_norm: Vec<f32>,
+    /// in_proj_a|b of every DeltaNet layer for the prefill's batched projection, `[5120][96]`
+    /// (the graph's interleaved rows transposed, plain values) on omega's resident bf16 matmul.
+    ab_mm: Vec<ResidentTensor>,
+    /// The prefill's buffers, made by the first [`Self::prefill`].
+    pf: Option<prefill::PfState>,
 }
 
 impl std::fmt::Debug for Qwen38Omega {
@@ -149,6 +162,19 @@ fn ab_rows(a: &Matrix, b: &Matrix) -> Result<(usize, usize, Vec<u16>), String> {
         }
     }
     Ok((2 * n, *k, out))
+}
+
+/// [`ab_rows`]' `[n][k]` words back at the checkpoint's values (times 2^64, exact: the reverse
+/// exponent shift) and transposed to `[k][n]`, the resident matmul's B layout.
+fn ab_plain_transposed(n: usize, k: usize, w: &[u16]) -> Vec<u16> {
+    let unscale = |v: u16| ((bf16_to_f32(v) * aien_omega_q38::ROW_SCALE).to_bits() >> 16) as u16;
+    let mut t = vec![0u16; n * k];
+    for (j, row) in w.chunks_exact(k).enumerate() {
+        for (i, &v) in row.iter().enumerate() {
+            t[i * n + j] = unscale(v);
+        }
+    }
+    t
 }
 
 impl Qwen38Omega {
@@ -255,6 +281,7 @@ impl Qwen38Omega {
 
         let mut layers = Vec::with_capacity(c.layers);
         let mut norms = Vec::with_capacity(c.layers);
+        let mut ab_mm = Vec::with_capacity(n_gdn);
         let (mut gi, mut ai) = (0usize, 0usize);
         for l in 0..c.layers {
             let p = format!("{prefix}layers.{}", first + l);
@@ -309,6 +336,10 @@ impl Qwen38Omega {
                 let ib = rm(source, format!("{a}.in_proj_b.weight"), c.lin_v_heads, h)?;
                 let (an, ak, aw) = ab_rows(&ia, &ib).map_err(|e| format!("{a}: {e}"))?;
                 let ab = Bf16Tensor::upload(an, ak, &aw).map_err(gpu("in_proj_a|b"))?;
+                ab_mm.push(
+                    ResidentTensor::upload_bf16(ak, an, &ab_plain_transposed(an, ak, &aw))
+                        .map_err(gpu("in_proj_a|b matmul"))?,
+                );
                 let o = upload_fp8(
                     &format!("{a}.out_proj"),
                     rm(source, format!("{a}.out_proj.weight"), h, c.lin_value_dim())?,
@@ -407,6 +438,10 @@ impl Qwen38Omega {
             embed,
             pos: 0,
             max_pos,
+            norms,
+            final_norm,
+            ab_mm,
+            pf: None,
         })
     }
 

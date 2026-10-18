@@ -48,9 +48,82 @@ pub const MAX_POS: usize = 131072;
 /// 2^64: the FP8 GEMV row scale (the graph keeps its activation rows at this scale).
 pub const ROW_SCALE: f32 = 18_446_744_073_709_551_616.0;
 
+/// The attention kernel's q|k|v row: q 24 x 256 (permuted) | k 4 x 256 (permuted) | v 4 x 256.
+pub const ATT_QKV: usize = 8192;
+/// Fewest tokens one DeltaNet prefill call takes (omega#543).
+pub const GDN_PF_MIN_T: usize = 3;
+/// Most tokens one DeltaNet prefill call takes (`OMEGA_GPU_GDN_PF_MAX_T`).
+pub const GDN_PF_MAX_T: usize = 65536;
+/// Most tokens one attention prefill call takes (`OMEGA_GPU_PATTN256_MAX_M`).
+pub const PATTN_MAX_M: usize = 32768;
+
 /// True when the Qwen3.8 decode API is linked (not the stub).
 pub const fn is_native() -> bool {
     cfg!(has_omega_q38)
+}
+
+/// True when the prefill entries ([`Gdn::prefill`], [`Attn256Cache::prefill`]) are linked.
+pub const fn has_prefill() -> bool {
+    cfg!(has_omega_q38_prefill)
+}
+
+/// Source index in the attention projection row (`[ATT_MIX]`: q_proj 24 x [q 256 | gate 256],
+/// k_proj, v_proj) of every slot of the gathered row: q permuted | k permuted | v (the first
+/// [`ATT_QKV`], the attention kernel's row) | gate (`[MIXER_OUT]`). Mirror of
+/// `omega_q38_gather_table` (the decode graph's GATHER).
+pub fn gather_table(rotary: usize) -> Vec<u32> {
+    let qp = 24 * 512;
+    let kp = qp + 4 * 256;
+    (0..ATT_MIX)
+        .map(|n| {
+            let s = if n < 6144 {
+                (n / 256) * 512 + perm_slot(n % 256, rotary)
+            } else if n < 7168 {
+                qp + ((n - 6144) / 256) * 256 + perm_slot(n % 256, rotary)
+            } else if n < ATT_QKV {
+                kp + (n - 7168)
+            } else {
+                ((n - ATT_QKV) / 256) * 512 + 256 + (n - ATT_QKV) % 256
+            };
+            s as u32
+        })
+        .collect()
+}
+
+/// What one prefill call cost: the chip time of its launches and the whole call (host copies
+/// included), both from omega's info record.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PrefillCost {
+    pub chip_ns: u64,
+    pub call_ns: u64,
+}
+
+/// Mirror of `OmegaGpuGdnPfInfo`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct GdnPfInfo {
+    pub layer: u32,
+    pub tokens: u32,
+    pub insns: [u32; 3],
+    pub gprs: [u32; 3],
+    pub elapsed_ns: [u64; 3],
+    pub call_ns: u64,
+    pub kernel_cache_hits: u32,
+}
+
+/// Mirror of `OmegaGpuPrefillAttn256Info`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Attn256PfInfo {
+    pub layer: u32,
+    pub pos0: u32,
+    pub m: u32,
+    pub grid_x: [u32; 2],
+    pub insns: [u32; 2],
+    pub gprs: [u32; 2],
+    pub elapsed_ns: [u64; 2],
+    pub call_ns: u64,
+    pub kernel_cache_hits: u32,
 }
 
 /// Launch kinds of the timeline (`OMEGA_GPU_Q38_K_*`), in enum order.
@@ -246,7 +319,51 @@ mod ffi {
         pub fn omega_gpu_q38_graph_kind_name(kind: u8) -> *const c_char;
         pub fn omega_gpu_q38_graph_set_flush_each(g: *mut OmegaGpuQ38Graph, on: i32);
         pub fn omega_gpu_session_last_error() -> *const c_char;
+        pub fn omega_q38_gather_table(tab: *mut u32);
     }
+
+    #[cfg(has_omega_q38_prefill)]
+    extern "C" {
+        pub fn omega_gpu_gdn_prefill(
+            g: *mut OmegaGpuGdn,
+            layer: u32,
+            tokens: u32,
+            qkv: *const f32,
+            z: *const f32,
+            ab: *const f32,
+            eps_l2: f32,
+            eps_norm: f32,
+            in_scale: f32,
+            out_scale: f32,
+            out: *mut f32,
+            info: *mut super::GdnPfInfo,
+        ) -> i32;
+        pub fn omega_gpu_gdn_last_error() -> *const c_char;
+        pub fn omega_gpu_prefill_attn256(
+            c: *mut OmegaGpuDecodeAttn256Cache,
+            layer: u32,
+            pos0: u32,
+            m: u32,
+            qkv: *const f32,
+            eps: f32,
+            out_scale: f32,
+            out: *mut f32,
+            info: *mut super::Attn256PfInfo,
+        ) -> i32;
+    }
+}
+
+/// omega's own gather table (`omega_q38_gather_table`), for checking [`gather_table`].
+pub fn gather_table_c() -> Result<Vec<u32>, OmegaGpuError> {
+    #[cfg(has_omega_q38)]
+    {
+        let mut t = vec![0u32; ATT_MIX];
+        // SAFETY: omega writes exactly OMEGA_GPU_Q38_ATT_MIX entries.
+        unsafe { ffi::omega_q38_gather_table(t.as_mut_ptr()) };
+        Ok(t)
+    }
+    #[cfg(not(has_omega_q38))]
+    Err(OmegaGpuError::Unavailable)
 }
 
 /// omega's own name for a launch kind (`omega_gpu_q38_graph_kind_name`); the table above in
@@ -434,6 +551,75 @@ impl Gdn {
         #[cfg(not(has_omega_q38))]
         Err(OmegaGpuError::Unavailable)
     }
+
+    /// `tokens` new tokens of DeltaNet layer `layer` (its index among the DeltaNet layers) in one
+    /// call (`omega_gpu_gdn_prefill`), continuing from the layer's tail and state exactly as
+    /// `tokens` decode steps would and leaving them for the next call or decode step. Plain
+    /// values in and out (scales 1): `qkv` `[tokens][10240]`, `z` `[tokens][6144]`, `ab`
+    /// `[tokens][96]` ({a, b} per head), `out` `[tokens][6144]` (the out_proj input).
+    #[allow(clippy::too_many_arguments)]
+    pub fn prefill(
+        &mut self,
+        layer: usize,
+        tokens: usize,
+        qkv: &[f32],
+        z: &[f32],
+        ab: &[f32],
+        eps_l2: f32,
+        eps_norm: f32,
+        out: &mut [f32],
+    ) -> Result<PrefillCost, OmegaGpuError> {
+        if !(GDN_PF_MIN_T..=GDN_PF_MAX_T).contains(&tokens) {
+            return Err(bad(format!(
+                "gdn prefill: {tokens} tokens, {GDN_PF_MIN_T}..={GDN_PF_MAX_T} supported"
+            )));
+        }
+        check_len("gdn prefill qkv", tokens * GDN_QKV, qkv.len())?;
+        check_len("gdn prefill z", tokens * MIXER_OUT, z.len())?;
+        check_len("gdn prefill ab", tokens * AB, ab.len())?;
+        check_len("gdn prefill out", tokens * MIXER_OUT, out.len())?;
+        if layer >= self.layers {
+            return Err(bad(format!(
+                "gdn prefill: layer {layer} of {}",
+                self.layers
+            )));
+        }
+        #[cfg(has_omega_q38_prefill)]
+        {
+            let mut info = GdnPfInfo::default();
+            // SAFETY: ptr is live; every slice has the length omega reads or writes (checked).
+            let rc = unsafe {
+                ffi::omega_gpu_gdn_prefill(
+                    self.ptr,
+                    layer as u32,
+                    tokens as u32,
+                    qkv.as_ptr(),
+                    z.as_ptr(),
+                    ab.as_ptr(),
+                    eps_l2,
+                    eps_norm,
+                    1.0,
+                    1.0,
+                    out.as_mut_ptr(),
+                    &mut info,
+                )
+            };
+            if rc != 0 {
+                // SAFETY: no arguments.
+                let detail = c_text(unsafe { ffi::omega_gpu_gdn_last_error() });
+                return Err(rc_err("gdn prefill", rc, detail));
+            }
+            Ok(PrefillCost {
+                chip_ns: info.elapsed_ns.iter().sum(),
+                call_ns: info.call_ns,
+            })
+        }
+        #[cfg(not(has_omega_q38_prefill))]
+        {
+            let _ = (eps_l2, eps_norm);
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
 }
 
 impl Drop for Gdn {
@@ -589,6 +775,74 @@ impl Attn256Cache {
         #[cfg(not(has_omega_q38))]
         {
             let _ = (q, k);
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
+
+    /// Causal prefill attention for attention layer `layer` (its index among the attention
+    /// layers), `omega_gpu_prefill_attn256`: `m` tokens at positions `pos0 .. pos0 + m` (positions
+    /// before `pos0` already in the cache). `qkv` `[m][8192]` in the decode call's row layout
+    /// ([`gather_table`]'s first [`ATT_QKV`] slots, raw: the q/k norms and RoPE are applied
+    /// here); appends their K and V and writes `out` `[m][6144]` (head h at h * 256, before the
+    /// output gate).
+    pub fn prefill(
+        &mut self,
+        layer: usize,
+        pos0: usize,
+        m: usize,
+        qkv: &[f32],
+        eps: f32,
+        out: &mut [f32],
+    ) -> Result<PrefillCost, OmegaGpuError> {
+        if !(1..=PATTN_MAX_M).contains(&m) {
+            return Err(bad(format!(
+                "attn256 prefill: {m} tokens, 1..={PATTN_MAX_M} supported"
+            )));
+        }
+        if pos0 + m > self.max_pos {
+            return Err(bad(format!(
+                "attn256 prefill: positions {pos0} + {m} > cache of {}",
+                self.max_pos
+            )));
+        }
+        check_len("attn256 prefill qkv", m * ATT_QKV, qkv.len())?;
+        check_len("attn256 prefill out", m * MIXER_OUT, out.len())?;
+        if layer >= self.layers {
+            return Err(bad(format!(
+                "attn256 prefill: layer {layer} of {}",
+                self.layers
+            )));
+        }
+        #[cfg(has_omega_q38_prefill)]
+        {
+            let mut info = Attn256PfInfo::default();
+            // SAFETY: ptr is live; qkv and out have the lengths omega reads and writes (checked).
+            let rc = unsafe {
+                ffi::omega_gpu_prefill_attn256(
+                    self.ptr,
+                    layer as u32,
+                    pos0 as u32,
+                    m as u32,
+                    qkv.as_ptr(),
+                    eps,
+                    1.0,
+                    out.as_mut_ptr(),
+                    &mut info,
+                )
+            };
+            if rc != 0 {
+                // SAFETY: no arguments.
+                let detail = c_text(unsafe { ffi::omega_gpu_decode_attn_last_error() });
+                return Err(rc_err("attn256 prefill", rc, detail));
+            }
+            Ok(PrefillCost {
+                chip_ns: info.elapsed_ns.iter().sum(),
+                call_ns: info.call_ns,
+            })
+        }
+        #[cfg(not(has_omega_q38_prefill))]
+        {
+            let _ = eps;
             Err(OmegaGpuError::Unavailable)
         }
     }
@@ -932,6 +1186,21 @@ impl Drop for Q38Graph {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gather_table_is_a_permutation_and_matches_omega() {
+        let t = gather_table(64);
+        let mut seen = vec![false; ATT_MIX];
+        for &s in &t {
+            assert!(!std::mem::replace(&mut seen[s as usize], true), "{s} twice");
+        }
+        assert!(seen.iter().all(|&s| s));
+        // q head 0 dim 0 comes from row 0; the gate of head 0 from row 256; v from after k.
+        assert_eq!((t[0], t[ATT_QKV], t[7168]), (0, 256, 24 * 512 + 4 * 256));
+        if is_native() {
+            assert_eq!(gather_table_c().unwrap(), t);
+        }
+    }
 
     #[test]
     fn perm_slot_matches_the_documented_table() {
