@@ -168,6 +168,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "aien-hetjob"
+version = "0.1.0"
+dependencies = [
+ "aien-pi-spark-task",
+ "aien-test",
+ "ed25519-dalek",
+ "libc",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "aien-inference-abi"
 version = "0.1.0"
 dependencies = [
@@ -360,6 +372,14 @@ version = "0.1.0"
 dependencies = [
  "aien-inference-abi",
  "tokenizers",
+]
+
+[[package]]
+name = "aien-pi-spark-task"
+version = "0.1.0"
+source = "git+https://github.com/aien-dev/aien-protocols?rev=cc35d06f07114b00c2b811f3c4ddfdad1e041fd9#cc35d06f07114b00c2b811f3c4ddfdad1e041fd9"
+dependencies = [
+ "sha2 0.10.9",
 ]
 
 [[package]]
