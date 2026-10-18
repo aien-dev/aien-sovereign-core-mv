@@ -65,6 +65,10 @@ pub struct Options {
     /// or the worktree's `target/`) for its whole run, so two gates never
     /// build in one target dir at once. The worker sets `<state>/locks/target`.
     pub target_lock_dir: PathBuf,
+    /// The worker already holds the target-dir lock for the whole run, so
+    /// gates skip their own (a second `flock` on another open file would
+    /// wait for ever). See `worker::run_in_worktree`.
+    pub target_lock_held: bool,
     /// `--release`: qualification mode. No cache reuse and the tree must be
     /// clean even with `--allow-dirty`.
     pub release: bool,
@@ -93,6 +97,7 @@ impl Options {
             sandbox: Sandbox::None,
             cargo_target_dir: None,
             target_lock_dir: PathBuf::from(crate::resources::DEFAULT_TARGET_LOCK_DIR),
+            target_lock_held: false,
             release: false,
             pins: json!([]),
             operator: false,
@@ -684,14 +689,23 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
     // A gb10 gate is never killed on timeout (ADR 0028 Decision 6), so one
     // that hangs holds the target dir until it exits; the receipt's
     // `timeout_exceeded` is the only sign.
-    let target_lock: Option<resources::TargetLock> = if verdict::pre_run(m, &facts).is_none() {
+    let will_lock = verdict::pre_run(m, &facts).is_none();
+    let target_lock_path = {
         let dir = opts
             .cargo_target_dir
             .clone()
             .unwrap_or_else(|| resolve(root).join("target"));
-        let path = resources::target_lock_path(&opts.target_lock_dir, &dir);
-        Some(resources::lock_target_dir(&path).map_err(|e| {
-            RunError::Fatal(format!("cannot lock target dir {}: {e}", path.display()))
+        resources::target_lock_path(&opts.target_lock_dir, &dir)
+    };
+    // Under the worker's run-level file lock, gates take turns in process.
+    let mut in_process_lock = (will_lock && opts.target_lock_held)
+        .then(|| resources::lock_target_dir_in_process(&target_lock_path));
+    let target_lock: Option<resources::TargetLock> = if will_lock && !opts.target_lock_held {
+        Some(resources::lock_target_dir(&target_lock_path).map_err(|e| {
+            RunError::Fatal(format!(
+                "cannot lock target dir {}: {e}",
+                target_lock_path.display()
+            ))
         })?)
     } else {
         None
@@ -755,6 +769,7 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
         // The job is over: close the lock descriptors at once.
         drop(gpu);
         drop(target_lock);
+        in_process_lock.take();
         after = porcelain(root).map_err(RunError::Fatal)?;
         let head_after = head(root).unwrap_or_default();
         facts.tree_changed_after = after != before;
@@ -1944,6 +1959,38 @@ mod tests {
             &resolve(fx.repo.path()).join("target"),
         );
         assert!(lock.exists(), "lock {} never taken", lock.display());
+    }
+
+    /// With the worker's run-level file lock held (`target_lock_held`), gates
+    /// skip the file lock (a second `flock` would wait for ever) but still
+    /// take turns in the target dir through the in-process lock (sc fix/521).
+    /// The campaign runs on its own thread so a regression fails instead of
+    /// hanging the test.
+    #[test]
+    fn gates_under_a_held_run_lock_still_take_turns() {
+        let fx = gfx(&[
+            ("G-A", "", "host", slow("G-A")),
+            ("G-B", "", "host", slow("G-B")),
+        ]);
+        let mut opts = fx.opts();
+        opts.target_lock_dir = fx.scratch.path().join("locks");
+        opts.target_lock_held = true;
+        let lock = crate::resources::target_lock_path(
+            &opts.target_lock_dir,
+            &resolve(fx.repo.path()).join("target"),
+        );
+        let _held_by_the_worker = crate::resources::lock_target_dir(&lock).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let c = fx.campaign(&opts);
+            let _ = tx.send((c.exit_code(), fx.log()));
+        });
+        let (code, log) = rx
+            .recv_timeout(std::time::Duration::from_secs(60))
+            .expect("gates waited on the file lock the worker already holds");
+        assert_eq!(code, 0);
+        assert_eq!(log.len(), 4, "{log:?}");
+        assert_serial(&log, "gates under a held run lock");
     }
 
     /// A gate may call cargo without naming `Cargo.toml` among its inputs

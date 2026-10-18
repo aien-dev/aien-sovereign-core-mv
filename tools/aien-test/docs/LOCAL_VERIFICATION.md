@@ -123,21 +123,38 @@ rule (`Config.allow_unsandboxed`, default false). Under `--sandbox user` the
 worker passes `CARGO_TARGET_DIR=/var/lib/aien-run/target/<repo>/main` for a
 head already on the base line and `.../pr` for any other head (A2).
 
-The gates of one head share that target dir, so the runner holds it for one
-gate at a time: every gate that runs takes an exclusive `flock` on
-`<state>/locks/target/<sanitised target dir>.lock` (the `CARGO_TARGET_DIR` it
-is given, or else the worktree's own `target/`) for its whole run, build and
-execution, and releases it when its process has exited. Every gate, not only
-those whose manifest names cargo inputs: SC-INQUISITOR builds with cargo and
-lists no `Cargo.toml`, and the runner cannot see inside a script. The lock is
-the worker's, never the gate's. Without it two gates built in one target dir
-at once and one relinked a test binary the other was executing (sc fix/521:
+The gates of one head share that target dir, and so do the heads of one
+repo, so the worker takes an exclusive `flock` on
+`<state>/locks/target/<sanitised target dir>.lock` before it makes the
+checkout and holds it until the last gate has exited and the checkout is
+removed (the run-level lock; heartbeat phase `lock` while it waits; the
+head's base is decided from the trusted clone so the target dir is known
+first). Why before the checkout: cargo judges a workspace crate fresh when
+none of its sources is newer than the last build in the target dir. Two
+heads interleaving gate by gate in one target dir broke that: a checkout
+made at t0 whose sources differ from the head built there at t1 > t0 was
+"fresh", and cargo reused the other head's artifacts (sc 2026-10-18:
+0d035972's SC-TEST ran the `deployment_test` binary 1f39046 had built, with
+1f39046's checkout path baked in by `env!("CARGO_MANIFEST_DIR")` and gone
+since: `NotFound`, a false FAIL; with differing sources it would have been
+the wrong code under test). A checkout made under the lock is newer than
+anything built there, so every workspace crate is rebuilt once per run;
+third-party dependencies are keyed by package id and version, not mtime,
+and stay cached. Gates run outside the worker (`aien-test run`, `aien-test
+test`) still take the same lock one gate at a time: every gate that runs,
+not only those whose manifest names cargo inputs, because SC-INQUISITOR
+builds with cargo and lists no `Cargo.toml`, and the runner cannot see
+inside a script. Without a lock two gates built in one target dir at once
+and one relinked a test binary the other was executing (sc fix/521:
 SC-AGENT-PREFLIGHT under SC-TEST, `current_exe: NotFound`, a false FAIL).
-Gates given different target dirs still run at the same time. The fixed lock
-order of one gate is: pool slot, target-dir lock, `/tmp/aien-gb10.lock`,
-aien-proof `slots/gpu.lock`; the worker's target priming takes only the
-target-dir lock. Known limit: a gb10 gate is never killed on timeout, so a
+Gates given different target dirs still run at the same time. The fixed
+lock order of one gate is: pool slot, target-dir lock (under the worker's
+run-level file lock the gates of that run take turns through an in-process
+mutex on the same path instead, so two of them still never build in one
+target dir at once), `/tmp/aien-gb10.lock`, aien-proof `slots/gpu.lock`. Known limit: a gb10 gate is never killed on timeout, so a
 hung one holds the target dir until it exits on its own.
+
+
 
 Under `--sandbox user` every checkout is made with INFRA's worktree tool
 (`--wt-tool`, default `<clones>/aien-sovereign-core/tools/aien-local-ci/wt.sh`;

@@ -37,6 +37,8 @@ cargo test --workspace -- --test-threads=1   # one test thread, as CI runs it
 scripts/repro-build.sh -p aien-cli   # release build with machine-local paths removed; build aien-cli on its own, because its digest changes with the other packages in the same cargo command (docs/release/F1-binary-digest-difference.md)
 ```
 
+The judge holds a repo's shared build cache for a whole run, from before the checkout is made until it is removed, so one head never tests another head's compiled crates; see `tools/aien-test/docs/LOCAL_VERIFICATION.md` for why.
+
 Installing a release (state on 2026-10-11, from `install.sh` and the dry-run artifact of Actions run 38105672607, nothing else):
 
 - `install.sh` with no arguments builds from source and verifies no signature. With `AIEN_RELEASE_TAG=vX.Y.Z` it installs a published release instead: it downloads the archive, `SHA256SUMS.txt` and `SHA256SUMS.txt.sig`, checks the signature with `ssh-keygen`, then the archive checksum, and writes `install-receipt.json` with a `signature_check` of `release`, `internal-test-key` or `dry-run-key` (see [docs/release/RELEASE_SIGNING.md](docs/release/RELEASE_SIGNING.md)).
