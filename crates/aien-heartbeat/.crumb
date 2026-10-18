@@ -1,5 +1,19 @@
 {
-  "schema_version": "1.0.0",
+  "extensions": {
+    "generated": {
+      "children": [],
+      "children_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "compiled_at": "2026-10-18T05:55:22Z",
+      "compiler": "crumb-compile/1",
+      "digest": "sha256:3a331fee49e858953c344a75e26558ac2288bca4b335eed2f2702dfd77379e8e",
+      "evidence_files": 0,
+      "evidence_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "files": 10,
+      "generated_at_commit": "75070c84bc926334a6087404d467ac600a5bc773",
+      "source_tree": "sha256:79e162e5ebf5877744c153b2f8af14e701c4e8d27b586a93e1852ec353d35214"
+    }
+  },
   "name": "aien-heartbeat",
-  "purpose": "Expert Heartbeat H1 (aienix#4): fixed-slot versioned ring streaming MoE expert weights from NVMe, publish only after full read + BLAKE3 verify, fail closed"
+  "purpose": "Expert Heartbeat H1 (aienix#4): fixed-slot versioned ring streaming MoE expert weights from NVMe, publish only after full read + BLAKE3 verify, fail closed",
+  "schema_version": "1.0.0"
 }
