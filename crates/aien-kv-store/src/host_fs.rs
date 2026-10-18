@@ -542,6 +542,8 @@ struct Shared {
     purge_walk: Mutex<Walk>,
     /// SEAL SEAM (#506): the key every object is sealed and opened with.
     seal_key: Arc<crate::seal::SealKey>,
+    /// The root's `LOCK`, held for the store's lifetime (#521).
+    _dir_lock: File,
 }
 
 /// Host filesystem `KvStore` implementation.
@@ -698,6 +700,40 @@ fn create_private_file(path: &Path) -> std::io::Result<File> {
     }
     if meta.mode() & 0o777 != PRIVATE_FILE_MODE {
         f.set_permissions(std::fs::Permissions::from_mode(PRIVATE_FILE_MODE))?;
+    }
+    Ok(f)
+}
+
+/// One open store per store directory (#521; ADR 0003 supports one runtime
+/// per store directory). An exclusive `flock` on `LOCK` in the root, taken at
+/// open before anything else in the root is touched and released when the
+/// store drops. A second opener, in this process or another, is refused:
+/// otherwise its recovery would delete the first store's in-flight temps and
+/// the two in-memory indexes would drift apart. A planted `LOCK` (a symlink,
+/// another owner) is `AccessDenied` like every other planted name.
+fn lock_store_dir(root: &Path) -> Result<File, PlatformError> {
+    use std::os::unix::io::AsRawFd;
+    let path = root.join("LOCK");
+    let f = create_private_file(&path).map_err(|e| {
+        if e.raw_os_error() == Some(libc::ELOOP) || e.kind() == std::io::ErrorKind::PermissionDenied
+        {
+            PlatformError::AccessDenied
+        } else {
+            io_to_error(&e, "create LOCK")
+        }
+    })?;
+    // SAFETY: flock only takes an advisory lock on a descriptor we own; the
+    // lock lives as long as `f`.
+    if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        let e = std::io::Error::last_os_error();
+        if e.raw_os_error() == Some(libc::EWOULDBLOCK) {
+            return Err(PlatformError::TaskRejected(format!(
+                "store directory {} is in use by another open store ({} is held)",
+                root.display(),
+                path.display()
+            )));
+        }
+        return Err(io_to_error(&e, "lock LOCK"));
     }
     Ok(f)
 }
@@ -3007,8 +3043,14 @@ impl HostFsStore {
             }
         }
 
-        for (dir, recursive) in [(root, true), (&objects_dir, false), (&tmp_dir, false)] {
-            if make_private_dir(dir, recursive)? {
+        if make_private_dir(root, true)? {
+            stats.mkdirs += 1;
+            stats.io_ops += 1;
+        }
+        let dir_lock = lock_store_dir(root)?;
+        stats.io_ops += 1;
+        for dir in [&objects_dir, &tmp_dir] {
+            if make_private_dir(dir, false)? {
                 stats.mkdirs += 1;
                 stats.io_ops += 1;
             }
@@ -3133,6 +3175,7 @@ impl HostFsStore {
             walk: Mutex::new(Walk::new(WalkStage::Tmp)),
             purge_walk: Mutex::new(Walk::new(WalkStage::Shard(0))),
             seal_key,
+            _dir_lock: dir_lock,
         });
 
         let handle = if worker_mode == WorkerMode::Thread {
