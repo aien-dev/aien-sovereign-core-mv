@@ -1,0 +1,17 @@
+[package]
+name = "aien-expert-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Content-addressed FP8 expert-weight store and bounded verified read adapter (RIBBON P1, sc#629)"
+
+[dependencies]
+sha2 = "0.10"
+subtle = "2.6"
+zeroize = "1"
+# Shard headers and model.safetensors.index.json of the source checkpoint.
+serde_json = "1.0"
+# O_NOFOLLOW for object opens and O_DIRECT for the direct read mode.
+libc = "0.2"
