@@ -65,8 +65,8 @@ post() {
   local name=$1 size=$2 ep=$3 bf=$4 out=$EV/$1.json
   local l0 m0 t
   l0=$(la); m0=$(memavail)
-  echo "curl -s -X POST $URL$ep -H 'content-type: application/json' --data-binary @$(basename "$bf")" > "$EV/$name.cmd"
-  t=$(curl -s -o "$out" -w '%{time_total}' -X POST "$URL$ep" -H 'content-type: application/json' --data-binary @"$bf")
+  echo "quiet-measure curl -s -X POST $URL$ep -H 'content-type: application/json' --data-binary @$(basename "$bf")" > "$EV/$name.cmd"
+  t=$($HOME/.local/bin/quiet-measure curl -s -o "$out" -w '%{time_total}' -X POST "$URL$ep" -H 'content-type: application/json' --data-binary @"$bf")
   local pt; pt=$(jq -r '.usage.prompt_tokens // .tokens // ""' "$out" 2>/dev/null)
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$name" "$size" "$pt" "$t" "$l0" "$(la)" "$m0" "$(memavail)" "$name.json" >> "$LOG"
   echo "$out"
