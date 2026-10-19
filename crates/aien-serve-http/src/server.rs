@@ -50,6 +50,9 @@ pub struct ServerConfig {
     pub default_top_k: usize,
     /// Optional server-side context cap (min with the engine's own limit).
     pub max_context_tokens: Option<usize>,
+    /// `enable_thinking` for requests that do not set it (`None`: the chat template's own
+    /// default). Only templates with a thinking switch read it (Qwen3.8-27B).
+    pub default_enable_thinking: Option<bool>,
 }
 
 impl Default for ServerConfig {
@@ -67,6 +70,7 @@ impl Default for ServerConfig {
             default_top_p: 0.8,
             default_top_k: 20,
             max_context_tokens: None,
+            default_enable_thinking: None,
         }
     }
 }
@@ -455,7 +459,10 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
         .iter()
         .map(|(r, c)| (r.as_str(), c.as_str()))
         .collect();
-    let opts = chat_options(&req)?;
+    let mut opts = chat_options(&req)?;
+    if opts.enable_thinking.is_none() {
+        opts.enable_thinking = cfg.default_enable_thinking;
+    }
     let prompt_text = state
         .codec
         .render_chat_with(&turn_refs, &opts)

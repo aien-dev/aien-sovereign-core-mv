@@ -4,7 +4,7 @@
 //!                   [--whole-prompt on|off] [--prefill-device-host on|off]
 //!                   [--model-dir DIR] [--port 18091]
 //!                   [--bind 127.0.0.1] [--model-id ID] [--max-context N]
-//!                   [--max-tokens-cap N] [--stub-reply TEXT]
+//!                   [--max-tokens-cap N] [--stub-reply TEXT] [--thinking on|off|template]
 //!
 //! `cpu` (default) loads the checkpoint into the CPU reference forward (slow, real).
 //! `omega` loads the checkpoint onto AIEN's own GPU engine (FP8 by default, spin 2000 us
@@ -18,6 +18,9 @@
 //! refuses with a startup line and the door runs plain. Unset: nothing changes.
 //! SIGTERM/SIGINT: stop accepting, finish the request in flight, drain the parks, exit 0.
 //! `AIEN_KV_TEST_FAULT` (chip acceptance checks only) stalls one store step; see `kv_persist`.
+//! `--thinking on|off|template` sets `enable_thinking` for requests that do not set it themselves
+//! (`chat_template_kwargs.enable_thinking`); `template` (the default) leaves the chat template's
+//! own default (Qwen3.8-27B: on). Templates without a thinking switch ignore it.
 //! `stub` replays `--stub-reply` for every request, using the model directory's
 //! tokenizer when it exists (so Odysseus can be wired before the weights load).
 
@@ -54,7 +57,8 @@ struct Args {
 fn usage() -> String {
     "usage: aien-serve-http [--engine cpu|stub|omega] [--weights bf16|fp8-experts|fp8] [--spin-us N] \
      [--model-dir DIR] [--port N] [--bind ADDR] [--model-id ID] [--max-context N] \
-     [--max-tokens-cap N] [--stub-reply TEXT] [--whole-prompt on|off] [--prefill-device-host on|off]"
+     [--max-tokens-cap N] [--stub-reply TEXT] [--whole-prompt on|off] [--prefill-device-host on|off] \
+     [--thinking on|off|template]"
         .to_string()
 }
 
@@ -100,6 +104,18 @@ fn parse_args() -> Result<Args, String> {
                     .map_err(|e| format!("--max-tokens-cap: {e}"))?
             }
             "--stub-reply" => a.stub_reply = val()?,
+            "--thinking" => {
+                a.cfg.default_enable_thinking = match val()?.as_str() {
+                    "on" => Some(true),
+                    "off" => Some(false),
+                    "template" => None,
+                    other => {
+                        return Err(format!(
+                            "--thinking must be on, off or template, got {other}"
+                        ))
+                    }
+                }
+            }
             "--weights" => {
                 a.weights = match val()?.as_str() {
                     "bf16" => WeightFormat::Bf16,

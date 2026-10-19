@@ -15,13 +15,19 @@ use aien_inference_abi::qwen38::Qwen38Config;
 use aien_inference_abi::qwen38_omega::{need_bytes, Qwen38Omega, Qwen38Session, Reuse};
 
 use crate::engine::{Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams};
-use crate::omega_engine::{GpuLock, GPU_LOCK_PATH, LOCK_WAIT};
+use crate::omega_engine::{GpuLock, GPU_LOCK_PATH};
 use crate::sampling::SamplingObserver;
 
 /// Model id the door answers to unless `--model-id` says otherwise.
 pub const DEFAULT_MODEL_ID: &str = "qwen3.8-27b-fp8";
 /// Prefill chunk length (the 2026-10-18 TTFT receipts ran 4096).
 pub const PREFILL_CHUNK: usize = 4096;
+/// How long a request waits in the chip lock's queue before answering busy (the hive's chip
+/// jobs queue with `flock(1)` and run for seconds to minutes each).
+pub const REQUEST_LOCK_WAIT: Duration = Duration::from_secs(300);
+/// How long the upload waits for the chip lock (other jobs' chip runs take minutes; a request
+/// waits [`REQUEST_LOCK_WAIT`]).
+pub const LOAD_LOCK_WAIT: Duration = Duration::from_secs(1800);
 /// Memory kept free beyond [`need_bytes`] at load (other jobs share the box).
 pub const KEEP_FREE: u64 = 8 << 30;
 
@@ -78,7 +84,7 @@ impl Qwen38Door {
                 avail >> 20
             ));
         }
-        let _lock = GpuLock::acquire(LOCK_WAIT)?;
+        let _lock = GpuLock::acquire_queued_at(Path::new(GPU_LOCK_PATH), LOAD_LOCK_WAIT)?;
         let t0 = Instant::now();
         eprintln!(
             "aien-serve-http: qwen38: uploading {} layers, KV {max_pos} positions (need {} MiB, MemAvailable {} MiB)",
@@ -99,7 +105,7 @@ impl Qwen38Door {
             session: Mutex::new(Qwen38Session::new(model, PREFILL_CHUNK)),
             max_context,
             lock_path: PathBuf::from(GPU_LOCK_PATH),
-            lock_wait: LOCK_WAIT,
+            lock_wait: REQUEST_LOCK_WAIT,
         })
     }
 }
@@ -129,8 +135,8 @@ impl Engine for Qwen38Door {
             });
         }
         let t_lock = Instant::now();
-        let lock =
-            GpuLock::acquire_at(&self.lock_path, self.lock_wait).map_err(EngineError::Busy)?;
+        let lock = GpuLock::acquire_queued_at(&self.lock_path, self.lock_wait)
+            .map_err(EngineError::Busy)?;
         let lock_wait_ms = t_lock.elapsed().as_millis();
         let mut s = self
             .session

@@ -59,10 +59,15 @@ fn reply_ids() -> Vec<u32> {
 }
 
 fn start() -> (SocketAddr, tokio::runtime::Runtime) {
+    start_with(None)
+}
+
+fn start_with(thinking: Option<bool>) -> (SocketAddr, tokio::runtime::Runtime) {
     let rt = tokio::runtime::Runtime::new().expect("runtime");
     let cfg = ServerConfig {
         port: 0,
         model_id: "test-model".into(),
+        default_enable_thinking: thinking,
         ..ServerConfig::default()
     };
     let (addr, _h) = rt
@@ -232,4 +237,21 @@ fn streamed_thinking_reply_sends_reasoning_deltas_first() {
     }
     assert_eq!(reasoning.trim(), "Plan it.");
     assert_eq!(content, "The answer.");
+}
+
+#[test]
+fn server_default_thinking_off_applies_unless_the_request_asks() {
+    let (addr, _rt) = start_with(Some(false));
+    let body = r#"{"messages":[{"role":"user","content":"q"}]}"#;
+    let v: Value =
+        serde_json::from_str(&request(addr, "POST", "/v1/chat/completions", Some(body)).body)
+            .unwrap();
+    assert!(v["choices"][0]["message"]
+        .get("reasoning_content")
+        .is_none());
+    let body = r#"{"messages":[{"role":"user","content":"q"}],"chat_template_kwargs":{"enable_thinking":true}}"#;
+    let v: Value =
+        serde_json::from_str(&request(addr, "POST", "/v1/chat/completions", Some(body)).body)
+            .unwrap();
+    assert_eq!(v["choices"][0]["message"]["reasoning_content"], "Plan it.");
 }
