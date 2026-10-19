@@ -9,11 +9,19 @@
 //!     - costs: snapshot, restore, exact pass at m = 1 and 5, decode graph token.
 //!   qwen38_spec gen <checkpoint-dir> <out.json> [--k 0,1,2,3,4] [--n 256] [--prompt code|codelong|prose|tune|golden]
 //!                   [--order embed|hidden] [--normed 0|1] [--offset 0|1] [--mutant none|extra|norollback|rowshift]
-//!                   [--graph 0|1] [--golden <gen-chat-max-24.json>]
+//!                   [--graph 0|1] [--golden <gen-chat-max-24.json>] [--weights fp8|mxfp4]
 //!     The whole model. For each k: greedy tokens, acceptance, wall per token and its parts; PASS when
 //!     every k > 0 run's tokens equal the k = 0 run's (the same exact path one token at a time) and,
 //!     with --golden on the golden prompt, the first 24 equal the golden record. --graph 1 also runs
 //!     the decode graph (the live server's path) for its tokens and chip time per token.
+//!   qwen38_spec drift <checkpoint-dir> <out.json> --record <score-license-256.json> [--weights fp8|mxfp4]
+//!                     [--chunk 8] [--dump <logits.f32>] [--against <fp8-logits.f32>]
+//!     Task B. The record's tokens scored teacher-forced on the exact rows path: per-position NLL,
+//!     argmax, top-two margin, perplexity, and the two-ahead control (must score >= 1 nat worse).
+//!     --weights mxfp4 converts every FP8 projection to MXFP4 at load (qwen38_omega::w4).
+//!     --dump writes every position's logits; --against reads an FP8 dump and reports argmax
+//!     agreement, KL(fp8 || this) and the FP8 top-two margin where the argmax flipped. The FP8 run
+//!     PASSes when it reproduces the record (mean NLL within 2 percent, accuracy within 0.02).
 //!
 //! The GPU lock is the caller's (flock /tmp/aien-gb10.lock). A model is uploaded only when
 //! MemAvailable covers it plus 12 GiB.
@@ -21,10 +29,11 @@ use std::path::Path;
 use std::time::Instant;
 
 use aien_inference_abi::qwen38::Qwen38Config;
+use aien_inference_abi::qwen38_omega::spec::argmax;
 use aien_inference_abi::qwen38_omega::spec::{
     generate, FcOrder, GdnRows, Mtp, MtpOptions, RowStats, SpecMutant, SpecRun,
 };
-use aien_inference_abi::qwen38_omega::{need_bytes, Qwen38Omega, Qwen38Snapshot};
+use aien_inference_abi::qwen38_omega::{need_bytes, w4, Qwen38Omega, Qwen38Snapshot};
 use aien_inference_abi::tokenizer::{ChatOptions, ChatTokenizer};
 use serde_json::{json, Value};
 
@@ -377,6 +386,12 @@ fn gen(args: &[String]) -> Result<bool, String> {
         "rowshift" => SpecMutant::RowShift,
         o => return Err(format!("--mutant {o}")),
     };
+    // Task B: the same generation with every FP8 projection converted to MXFP4 at load.
+    match flag(args, "--weights").unwrap_or("fp8") {
+        "fp8" => {}
+        "mxfp4" => w4::set_mxfp4(true),
+        o => return Err(format!("--weights {o}: fp8|mxfp4")),
+    }
     let graph = flag(args, "--graph").unwrap_or("0") == "1";
     let golden: Option<Value> = match flag(args, "--golden") {
         Some(p) => Some(
@@ -564,12 +579,201 @@ fn gen(args: &[String]) -> Result<bool, String> {
     Ok(pass)
 }
 
+/// `log_softmax(logits)` in f64.
+fn log_softmax(logits: &[f32]) -> Vec<f64> {
+    let max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max) as f64;
+    let lse = logits
+        .iter()
+        .map(|&v| (v as f64 - max).exp())
+        .sum::<f64>()
+        .ln()
+        + max;
+    logits.iter().map(|&v| v as f64 - lse).collect()
+}
+
+/// Largest minus second largest logit.
+fn top2_margin(logits: &[f32]) -> f64 {
+    let (mut a, mut b) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+    for &v in logits {
+        if v > a {
+            b = a;
+            a = v;
+        } else if v > b {
+            b = v;
+        }
+    }
+    (a - b) as f64
+}
+
+fn drift(args: &[String]) -> Result<bool, String> {
+    use std::io::{Read, Write};
+    let (Some(dir), Some(out)) = (args.first(), args.get(1)) else {
+        return Err(
+            "usage: qwen38_spec drift <checkpoint-dir> <out.json> --record <score.json> [flags]"
+                .into(),
+        );
+    };
+    let dir = Path::new(dir);
+    let record_path = flag(args, "--record").ok_or("drift: --record <score-license-256.json>")?;
+    let record: Value = serde_json::from_str(
+        &std::fs::read_to_string(record_path).map_err(|e| format!("{record_path}: {e}"))?,
+    )
+    .map_err(|e| format!("{record_path}: {e}"))?;
+    let toks = ids(&record, "ids")?;
+    let ref_mean = record["mean_nll"].as_f64().ok_or("record: no mean_nll")?;
+    let ref_acc = record["next_token_accuracy"]
+        .as_f64()
+        .ok_or("record: no next_token_accuracy")?;
+    let weights = flag(args, "--weights").unwrap_or("fp8");
+    match weights {
+        "fp8" => {}
+        "mxfp4" => w4::set_mxfp4(true),
+        o => return Err(format!("--weights {o}: fp8|mxfp4")),
+    }
+    let chunk: usize = flag(args, "--chunk")
+        .unwrap_or("8")
+        .parse()
+        .map_err(|e| format!("--chunk: {e}"))?;
+    let n = toks.len();
+    let c = Qwen38Config::from_checkpoint(dir)?;
+    let max_pos = (n + 16).div_ceil(256) * 256;
+    guard(need_bytes(&c, max_pos, 0), "whole model")?;
+    let t = Instant::now();
+    let mut model = Qwen38Omega::open(dir, None, max_pos)?;
+    let w4s = w4::stats();
+    eprintln!(
+        "uploaded in {:.1} s, weights {weights}, {} tensors converted, {} weights below the block range",
+        t.elapsed().as_secs_f64(),
+        w4s.tensors,
+        w4s.underflow
+    );
+    let mut st = RowStats::default();
+    model.reset()?;
+    let t = Instant::now();
+    let mut rows = Vec::with_capacity(n * c.hidden);
+    for part in toks.chunks(chunk.max(1)) {
+        rows.extend(model.exact_rows(part, None, &mut st)?);
+    }
+    let pass_ms = t.elapsed().as_secs_f64() * 1e3;
+    let mut dump = match flag(args, "--dump") {
+        Some(p) => Some(std::io::BufWriter::new(
+            std::fs::File::create(p).map_err(|e| format!("{p}: {e}"))?,
+        )),
+        None => None,
+    };
+    let mut against = match flag(args, "--against") {
+        Some(p) => Some(std::io::BufReader::new(
+            std::fs::File::open(p).map_err(|e| format!("{p}: {e}"))?,
+        )),
+        None => None,
+    };
+    let v = c.vocab;
+    let h = c.hidden;
+    let (mut nll, mut hits, mut ctrl) = (Vec::with_capacity(n), 0usize, 0f64);
+    let (mut agree, mut kl_sum, mut kl_max) = (0usize, 0f64, 0f64);
+    let (mut margins, mut ref_margins, mut flips) = (Vec::new(), Vec::new(), Vec::new());
+    let mut ref_logits = vec![0f32; v];
+    let mut bytes = vec![0u8; v * 4];
+    for p in 0..n - 1 {
+        let logits = model.head_logits(&rows[p * h..(p + 1) * h])?;
+        let lp = log_softmax(&logits);
+        let next = toks[p + 1] as usize;
+        nll.push(-lp[next]);
+        let top = argmax(&logits) as usize;
+        if top == next {
+            hits += 1;
+        }
+        if p + 2 < n {
+            ctrl += -lp[toks[p + 2] as usize];
+        }
+        margins.push(top2_margin(&logits));
+        if let Some(d) = dump.as_mut() {
+            for (b, x) in bytes.as_chunks_mut::<4>().0.iter_mut().zip(&logits) {
+                *b = x.to_le_bytes();
+            }
+            d.write_all(&bytes).map_err(|e| format!("dump: {e}"))?;
+        }
+        if let Some(a) = against.as_mut() {
+            a.read_exact(&mut bytes)
+                .map_err(|e| format!("against: {e}"))?;
+            for (x, b) in ref_logits.iter_mut().zip(bytes.as_chunks::<4>().0) {
+                *x = f32::from_le_bytes(*b);
+            }
+            let rlp = log_softmax(&ref_logits);
+            let kl: f64 = rlp.iter().zip(&lp).map(|(&r, &q)| r.exp() * (r - q)).sum();
+            kl_sum += kl;
+            kl_max = kl_max.max(kl);
+            let rtop = argmax(&ref_logits) as usize;
+            let rm = top2_margin(&ref_logits);
+            ref_margins.push(rm);
+            if rtop == top {
+                agree += 1;
+            } else {
+                flips.push(json!({"pos": p, "ref_argmax": rtop, "argmax": top,
+                                  "ref_margin": rm, "ref_is_next": rtop == next, "is_next": top == next}));
+            }
+        }
+    }
+    if let Some(d) = dump.as_mut() {
+        d.flush().map_err(|e| format!("dump: {e}"))?;
+    }
+    let scored = nll.len();
+    let mean = nll.iter().sum::<f64>() / scored as f64;
+    let acc = hits as f64 / scored as f64;
+    let ctrl_mean = ctrl / (n - 2) as f64;
+    let ctrl_ok = ctrl_mean >= mean + 1.0;
+    // The FP8 run must reproduce the record (same bars as qwen38_prefill score); the MXFP4 run
+    // is the study and has no bar, only the control.
+    let ref_ok = (mean - ref_mean).abs() <= 0.02 * ref_mean && (acc - ref_acc).abs() <= 0.02;
+    let pass = ctrl_ok && (weights != "fp8" || ref_ok);
+    let mut sorted = ref_margins.clone();
+    sorted.sort_by(f64::total_cmp);
+    let mut j = json!({
+        "mode": "drift", "weights": weights, "record": record_path, "tokens": n, "scored": scored,
+        "chunk": chunk, "pass_ms": pass_ms, "stats": stats_json(&st),
+        "mean_nll": mean, "perplexity": mean.exp(), "next_token_accuracy": acc,
+        "record_mean_nll": ref_mean, "record_perplexity": ref_mean.exp(),
+        "record_next_token_accuracy": ref_acc, "control_mean_nll_two_ahead": ctrl_mean,
+        "control_ok": ctrl_ok, "record_ok": ref_ok,
+        "top2_margin_min": margins.iter().copied().fold(f64::INFINITY, f64::min),
+        "nll": nll, "pass": pass,
+    });
+    if weights == "mxfp4" {
+        j["mxfp4"] = json!({"group": w4::GROUP, "tensors": w4s.tensors, "weights": w4s.weights,
+            "groups": w4s.groups, "underflow": w4s.underflow,
+            "relative_rms_weight_error": (w4s.sq_err / w4s.sq_ref).sqrt()});
+    }
+    if against.is_some() {
+        j["against"] = json!({
+            "file": flag(args, "--against"), "argmax_agree": agree, "argmax_agree_rate": agree as f64 / scored as f64,
+            "kl_mean": kl_sum / scored as f64, "kl_max": kl_max, "flips": flips,
+            "ref_margin_min": sorted.first(), "ref_margin_median": sorted.get(sorted.len() / 2),
+        });
+    }
+    std::fs::write(
+        out,
+        serde_json::to_string_pretty(&j).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| format!("{out}: {e}"))?;
+    println!(
+        "QWEN38_SPEC_DRIFT weights {weights}: mean NLL {mean:.5} (record {ref_mean:.5}), perplexity {:.5}, accuracy {acc:.4}, control {ctrl_mean:.3}{}: {}",
+        mean.exp(),
+        if against.is_some() {
+            format!(", argmax agree {agree}/{scored}, KL mean {:.3e} max {kl_max:.3e}", kl_sum / scored as f64)
+        } else {
+            String::new()
+        },
+        if pass { "PASS" } else { "FAIL" }
+    );
+    Ok(pass)
+}
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let r = match args.first().map(String::as_str) {
         Some("probe") => probe(&args[1..]),
         Some("gen") => gen(&args[1..]),
-        _ => Err("usage: qwen38_spec probe|gen ... (see the file header)".into()),
+        Some("drift") => drift(&args[1..]),
+        _ => Err("usage: qwen38_spec probe|gen|drift ... (see the file header)".into()),
     };
     match r {
         Ok(true) => {}

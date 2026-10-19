@@ -29,6 +29,7 @@ use aien_omega_q38::{Attn256Cache, Gdn, GraphConfig, GraphStats, Q38Graph};
 mod prefill;
 mod session;
 pub mod spec;
+pub mod w4;
 pub use prefill::PrefillStats;
 pub use session::{plan_reuse, FeedStats, Qwen38Session, Reuse, IM_START};
 
@@ -158,11 +159,14 @@ fn fuse_fp8(name: &str, parts: Vec<Matrix>) -> Result<Fp8Tensor, String> {
             Matrix::Fp8 {
                 n: pn,
                 k,
-                w: pw,
-                scales: ps,
+                w: mut pw,
+                scales: mut ps,
             } => {
                 if *k0.get_or_insert(k) != k {
                     return Err(format!("{name}: parts with different k"));
+                }
+                if w4::mxfp4_on() {
+                    w4::mxfp4_fp8(pn, k, &mut pw, &mut ps).map_err(|e| format!("{name}: {e}"))?;
                 }
                 n += pn;
                 w.extend_from_slice(&pw);
