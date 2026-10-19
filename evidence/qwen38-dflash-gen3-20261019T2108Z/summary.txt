@@ -1,2 +1,3 @@
 QWEN38_DFLASH prompt code n 256 mutant None norollback false: replay 6.000 words/pass, live 6.000, mtp k7 5.800 -> PASS
 QWEN38_DFLASH prompt prose n 256 mutant None norollback false: replay 2.286 words/pass, live 2.286, mtp k7 2.168 -> PASS
+DONE 2026-10-19T23:31:00Z
