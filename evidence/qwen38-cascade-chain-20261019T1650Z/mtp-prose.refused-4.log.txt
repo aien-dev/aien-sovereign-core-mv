@@ -1,0 +1,25 @@
+memory: whole model + MTP head needs 32647 MiB, keep 12288 MiB free, MemAvailable 32890 MiB
+qwen38_spec: whole model + MTP head: needs 32647 MiB with 12288 MiB kept free, MemAvailable 32890 MiB; refusing
+{
+ "name": "cascade-mtp-prose",
+ "cmd": "/home/drakestapleton/.local/bin/quiet-measure nice -n 10 flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/sc-cascade/pinned/qwen38_spec-ca870265 gen /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a evidence/qwen38-cascade-chain-20261019T1650Z/mtp-prose.json --prompt prose --n 192 --k 0,1,4,8 --source mtp",
+ "exit": 2,
+ "git_head": "985f774c",
+ "start": "2026-10-19T14:39:34.831216",
+ "seconds": 714.027,
+ "samples": 339,
+ "wall_W_mean": 221.88790560471978,
+ "wall_J": 158433.85552615896,
+ "idle_W_before": 230.0,
+ "incremental_J": -5792.250767042495,
+ "gpu_W_mean": 16.306076696165192,
+ "gpu_util_mean": 29.811209439528024,
+ "load1_start": "11.11",
+ "load1_end": "15.32",
+ "mem_avail_kB_start": "50382536",
+ "mem_avail_kB_end": "33670380",
+ "lock_holders_max": 7,
+ "nvrm_errors_delta": 8,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-cascade-mtp-prose.json
