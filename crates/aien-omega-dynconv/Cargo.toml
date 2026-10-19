@@ -1,0 +1,11 @@
+[package]
+name = "aien-omega-dynconv"
+version = "0.1.0"
+edition = "2021"
+authors = ["Drake Stapleton <aien@aienos.com>"]
+description = "FFI to omega's DFlash 2 two-tap grouped dynamic causal conv (omega_gpu_dynconv2_f32, cascade/dflash-drafter)"
+license.workspace = true
+build = "build.rs"
+
+[dependencies]
+aien-omega-gpu = { path = "../aien-omega-gpu" }

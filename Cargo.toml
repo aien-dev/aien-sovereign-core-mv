@@ -40,6 +40,7 @@ members = [
     "crates/aien-omega-q38",
     "crates/aien-omega-router",
     "crates/aien-omega-bf16",
+    "crates/aien-omega-dynconv",
     "crates/aien-omega-dgraph",
     "crates/aien-omega-compose",
     "crates/aien-omega-pf",

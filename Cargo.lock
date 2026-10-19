@@ -176,6 +176,7 @@ dependencies = [
  "aien-omega-bf16",
  "aien-omega-dattn",
  "aien-omega-dgraph",
+ "aien-omega-dynconv",
  "aien-omega-fp8",
  "aien-omega-gpu",
  "aien-omega-moe",
@@ -314,6 +315,13 @@ dependencies = [
 
 [[package]]
 name = "aien-omega-dgraph"
+version = "0.1.0"
+dependencies = [
+ "aien-omega-gpu",
+]
+
+[[package]]
+name = "aien-omega-dynconv"
 version = "0.1.0"
 dependencies = [
  "aien-omega-gpu",

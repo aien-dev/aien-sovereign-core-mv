@@ -443,10 +443,119 @@ impl DraftMutant {
     }
 }
 
+/// Which drafter matrix a product uses (the chip backend keys its resident copies by it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MatId {
+    Fc,
+    SelProj,
+    Q(usize),
+    K(usize),
+    V(usize),
+    O(usize),
+    Gate(usize),
+    Up(usize),
+    Down(usize),
+    AttProj(usize),
+    MlpProj(usize),
+}
+
+/// Where the drafter's matrix products and convs run. Everything else (norms, rope, attention,
+/// selector walk) is the same host code whatever the backend, so a backend is checked by
+/// comparing its block rows and drafts with [`HostLinear`]'s.
+pub trait Linear {
+    /// `y[m][host.n] = host . x[m][host.k]` for the matrix `id` (`host` is its host copy).
+    fn mm(&self, id: MatId, host: &Mat, x: &[f32], m: usize) -> Result<Vec<f32>, String>;
+    /// [`dynconv2`].
+    fn conv(
+        &self,
+        v: &[f32],
+        dynk: &[f32],
+        base: &[f32],
+        rows: usize,
+        hidden: usize,
+        group: usize,
+    ) -> Result<Vec<f32>, String>;
+}
+
+/// The host reference backend.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct HostLinear;
+
+impl Linear for HostLinear {
+    fn mm(&self, _id: MatId, host: &Mat, x: &[f32], m: usize) -> Result<Vec<f32>, String> {
+        Ok(host.matmul(x, m))
+    }
+    fn conv(
+        &self,
+        v: &[f32],
+        dynk: &[f32],
+        base: &[f32],
+        rows: usize,
+        hidden: usize,
+        group: usize,
+    ) -> Result<Vec<f32>, String> {
+        Ok(dynconv2(v, dynk, base, rows, hidden, group))
+    }
+}
+
 impl Drafter {
-    /// Context rows `taps` (`[m][tap_width]`, positions `cache.len ..`) into the cache.
+    /// [`Self::add_context_on`] on the host.
     pub fn add_context(
         &self,
+        cache: &mut DraftCache,
+        taps: &[f32],
+        mutant: DraftMutant,
+    ) -> Result<(), String> {
+        self.add_context_on(&HostLinear, cache, taps, mutant)
+    }
+
+    /// [`Self::block_on`] on the host.
+    pub fn block(
+        &self,
+        cache: &DraftCache,
+        x: &[f32],
+        mutant: DraftMutant,
+    ) -> Result<Vec<f32>, String> {
+        self.block_on(&HostLinear, cache, x, mutant)
+    }
+
+    /// [`Self::select_on`] on the host.
+    pub fn select(
+        &self,
+        h: &[f32],
+        logits: &[Vec<f32>],
+        anchor: u32,
+        mutant: DraftMutant,
+    ) -> Vec<u32> {
+        self.select_on(&HostLinear, h, logits, anchor, mutant)
+            .expect("the host backend does not fail")
+    }
+
+    /// [`Self::draft_on`] on the host.
+    pub fn draft(
+        &self,
+        cache: &DraftCache,
+        anchor: u32,
+        anchor_embed: &[f32],
+        mask_embed: &[f32],
+        head: &mut dyn Head,
+        mutant: DraftMutant,
+    ) -> Result<(Vec<u32>, Vec<f32>), String> {
+        self.draft_on(
+            &HostLinear,
+            cache,
+            anchor,
+            anchor_embed,
+            mask_embed,
+            head,
+            mutant,
+        )
+    }
+
+    /// Context rows `taps` (`[m][tap_width]`, positions `cache.len ..`) into the cache.
+    pub fn add_context_on(
+        &self,
+        lin: &dyn Linear,
         cache: &mut DraftCache,
         taps: &[f32],
         mutant: DraftMutant,
@@ -468,15 +577,15 @@ impl Drafter {
             }
             return Ok(());
         }
-        let f = self.fc.matmul(taps, m);
+        let f = lin.mm(MatId::Fc, &self.fc, taps, m)?;
         let mut ctx = vec![0f32; m * c.hidden];
         for (o, r) in ctx.chunks_exact_mut(c.hidden).zip(f.chunks_exact(c.hidden)) {
             rmsnorm_plain(r, &self.hidden_norm, c.eps, o);
         }
         let pos0 = cache.len;
         for (l, ly) in self.layers.iter().enumerate() {
-            let mut k = ly.k.matmul(&ctx, m);
-            let v = ly.v.matmul(&ctx, m);
+            let mut k = lin.mm(MatId::K(l), &ly.k, &ctx, m)?;
+            let v = lin.mm(MatId::V(l), &ly.v, &ctx, m)?;
             for (r, kr) in k.chunks_exact_mut(c.kv_dim()).enumerate() {
                 self.key_norm_rope(ly, kr, pos0 + r);
             }
@@ -501,8 +610,9 @@ impl Drafter {
     /// The block (`x`, `[block][hidden]`: the anchor's and the mask word's embedding rows) at
     /// positions `cache.len ..` through every layer and the final norm: `[block][hidden]`.
     /// The cache is read, never written.
-    pub fn block(
+    pub fn block_on(
         &self,
+        lin: &dyn Linear,
         cache: &DraftCache,
         x: &[f32],
         mutant: DraftMutant,
@@ -519,28 +629,28 @@ impl Drafter {
             for (o, r) in a.chunks_exact_mut(h).zip(x.chunks_exact(h)) {
                 rmsnorm_plain(r, &ly.in_norm, c.eps, o);
             }
-            let (pre, fin) = self.conv_kernels(&ly.att_proj, &a);
-            let a2 = self.conv(&a, &pre, &ly.att_base[..2 * h], mutant);
-            let att = self.attention(ly, l, cache, &a2, s)?;
-            let o = ly.o.matmul(&att, b);
-            let o = self.conv(&o, &fin, &ly.att_base[2 * h..], mutant);
+            let (pre, fin) = self.conv_kernels(lin, MatId::AttProj(l), &ly.att_proj, &a)?;
+            let a2 = self.conv(lin, &a, &pre, &ly.att_base[..2 * h], mutant)?;
+            let att = self.attention(lin, ly, l, cache, &a2, s)?;
+            let o = lin.mm(MatId::O(l), &ly.o, &att, b)?;
+            let o = self.conv(lin, &o, &fin, &ly.att_base[2 * h..], mutant)?;
             for (xv, ov) in x.iter_mut().zip(&o) {
                 *xv += ov;
             }
             for (o, r) in a.chunks_exact_mut(h).zip(x.chunks_exact(h)) {
                 rmsnorm_plain(r, &ly.post_norm, c.eps, o);
             }
-            let (pre, fin) = self.conv_kernels(&ly.mlp_proj, &a);
-            let a2 = self.conv(&a, &pre, &ly.mlp_base[..2 * h], mutant);
-            let g = ly.gate.matmul(&a2, b);
-            let u = ly.up.matmul(&a2, b);
+            let (pre, fin) = self.conv_kernels(lin, MatId::MlpProj(l), &ly.mlp_proj, &a)?;
+            let a2 = self.conv(lin, &a, &pre, &ly.mlp_base[..2 * h], mutant)?;
+            let g = lin.mm(MatId::Gate(l), &ly.gate, &a2, b)?;
+            let u = lin.mm(MatId::Up(l), &ly.up, &a2, b)?;
             let act: Vec<f32> = g
                 .iter()
                 .zip(&u)
                 .map(|(&g, &u)| g / (1.0 + (-g).exp()) * u)
                 .collect();
-            let d = ly.down.matmul(&act, b);
-            let d = self.conv(&d, &fin, &ly.mlp_base[2 * h..], mutant);
+            let d = lin.mm(MatId::Down(l), &ly.down, &act, b)?;
+            let d = self.conv(lin, &d, &fin, &ly.mlp_base[2 * h..], mutant)?;
             for (xv, dv) in x.iter_mut().zip(&d) {
                 *xv += dv;
             }
@@ -554,33 +664,47 @@ impl Drafter {
 
     /// The kernel projection of the normed rows, split into the prepare and the finish halves,
     /// each `[rows][2 taps][groups]`.
-    fn conv_kernels(&self, proj: &Mat, a: &[f32]) -> (Vec<f32>, Vec<f32>) {
+    fn conv_kernels(
+        &self,
+        lin: &dyn Linear,
+        id: MatId,
+        proj: &Mat,
+        a: &[f32],
+    ) -> Result<(Vec<f32>, Vec<f32>), String> {
         let g2 = 2 * self.cfg.groups();
         let rows = a.len() / self.cfg.hidden;
-        let d = proj.matmul(a, rows);
+        let d = lin.mm(id, proj, a, rows)?;
         let mut pre = Vec::with_capacity(rows * g2);
         let mut fin = Vec::with_capacity(rows * g2);
         for r in d.chunks_exact(2 * g2) {
             pre.extend_from_slice(&r[..g2]);
             fin.extend_from_slice(&r[g2..]);
         }
-        (pre, fin)
+        Ok((pre, fin))
     }
 
-    fn conv(&self, v: &[f32], dynk: &[f32], base: &[f32], mutant: DraftMutant) -> Vec<f32> {
+    fn conv(
+        &self,
+        lin: &dyn Linear,
+        v: &[f32],
+        dynk: &[f32],
+        base: &[f32],
+        mutant: DraftMutant,
+    ) -> Result<Vec<f32>, String> {
         let c = &self.cfg;
         let rows = v.len() / c.hidden;
         if mutant == DraftMutant::ConvTapSwap {
             let mut sw = base[c.hidden..].to_vec();
             sw.extend_from_slice(&base[..c.hidden]);
-            return dynconv2(v, dynk, &sw, rows, c.hidden, c.conv_group);
+            return lin.conv(v, dynk, &sw, rows, c.hidden, c.conv_group);
         }
-        dynconv2(v, dynk, base, rows, c.hidden, c.conv_group)
+        lin.conv(v, dynk, base, rows, c.hidden, c.conv_group)
     }
 
     /// Both-ways windowed attention of the block rows over the cached context and the block.
     fn attention(
         &self,
+        lin: &dyn Linear,
         ly: &DflashLayer,
         l: usize,
         cache: &DraftCache,
@@ -589,9 +713,9 @@ impl Drafter {
     ) -> Result<Vec<f32>, String> {
         let c = &self.cfg;
         let (b, hd, kvd, qd) = (c.block, c.head_dim, c.kv_dim(), c.q_dim());
-        let mut q = ly.q.matmul(a, b);
-        let mut k = ly.k.matmul(a, b);
-        let v = ly.v.matmul(a, b);
+        let mut q = lin.mm(MatId::Q(l), &ly.q, a, b)?;
+        let mut k = lin.mm(MatId::K(l), &ly.k, a, b)?;
+        let v = lin.mm(MatId::V(l), &ly.v, a, b)?;
         let mut t = vec![0f32; hd];
         for (r, qr) in q.chunks_exact_mut(qd).enumerate() {
             for hh in qr.chunks_exact_mut(hd) {
@@ -660,16 +784,17 @@ impl Drafter {
 
     /// The selector over the draft rows: `h` is `[rows][hidden]` (block rows 1 ..), `logits`
     /// their scores. Greedy path from `anchor`.
-    pub fn select(
+    pub fn select_on(
         &self,
+        lin: &dyn Linear,
         h: &[f32],
         logits: &[Vec<f32>],
         anchor: u32,
         mutant: DraftMutant,
-    ) -> Vec<u32> {
+    ) -> Result<Vec<u32>, String> {
         let c = &self.cfg;
         let rows = logits.len();
-        let p = self.sel_proj.matmul(h, rows);
+        let p = lin.mm(MatId::SelProj, &self.sel_proj, h, rows)?;
         let mut prev = anchor;
         let mut path = Vec::with_capacity(rows);
         for r in 0..rows {
@@ -696,13 +821,14 @@ impl Drafter {
             prev = cand[best];
             path.push(prev);
         }
-        path
+        Ok(path)
     }
 
     /// One whole draft: block rows from the anchor's embedding row and the mask word's, scores
     /// through `head`, the selector path (`block - 1` words). Also returns the block rows.
-    pub fn draft(
+    pub fn draft_on(
         &self,
+        lin: &dyn Linear,
         cache: &DraftCache,
         anchor: u32,
         anchor_embed: &[f32],
@@ -715,13 +841,13 @@ impl Drafter {
         for _ in 1..c.block {
             x.extend_from_slice(mask_embed);
         }
-        let hb = self.block(cache, &x, mutant)?;
+        let hb = self.block_on(lin, cache, &x, mutant)?;
         let rows = &hb[c.hidden..];
         let mut logits = Vec::with_capacity(c.block - 1);
         for r in rows.chunks_exact(c.hidden) {
             logits.push(head.logits(r)?);
         }
-        Ok((self.select(rows, &logits, anchor, mutant), hb))
+        Ok((self.select_on(lin, rows, &logits, anchor, mutant)?, hb))
     }
 
     /// Bytes of bf16 matrix weights held.

@@ -20,7 +20,11 @@ use aien_omega_q38 as q;
 
 use super::spec::{GdnRows, Mixer, RowStats};
 use super::{gpu, Qwen38Omega, Qwen38Snapshot};
-use crate::qwen38_dflash::{accepted, DraftCache, DraftMutant, Drafter, Head};
+use aien_omega_bf16::Bf16Tensor;
+
+use crate::qwen38_dflash::{
+    accepted, DraftCache, DraftMutant, Drafter, Head, HostLinear, Linear, Mat, MatId,
+};
 
 fn ns(t: Instant) -> u64 {
     t.elapsed().as_nanos() as u64
@@ -200,6 +204,10 @@ pub struct DflashRun {
     pub accepted_hist: Vec<u64>,
     /// `(start position, accepted)` of every round.
     pub per_round: Vec<(usize, usize)>,
+    /// Every round's drafts (replay only).
+    pub drafts: Vec<Vec<u32>>,
+    /// The first round's block rows after the final norm (replay only; backend parity).
+    pub first_block: Vec<f32>,
     pub rollbacks: u64,
     pub decode_ns: u64,
     pub prompt_ns: u64,
@@ -229,6 +237,7 @@ impl DflashRun {
 /// positions `0 .. s`, the drafts are compared with `tokens[s + 1 ..]`.
 pub fn replay_rounds(
     drafter: &Drafter,
+    lin: &dyn Linear,
     model: &mut Qwen38Omega,
     cap: &Capture,
     mutant: DraftMutant,
@@ -253,7 +262,7 @@ pub fn replay_rounds(
     while s + 1 < total {
         let tc = Instant::now();
         let from = cache.len;
-        drafter.add_context(&mut cache, &cap.taps[from * tw..s * tw], mutant)?;
+        drafter.add_context_on(lin, &mut cache, &cap.taps[from * tw..s * tw], mutant)?;
         run.context_ns += ns(tc);
         let anchor = cap.tokens[s];
         let emb = model.embedding(anchor);
@@ -263,7 +272,11 @@ pub fn replay_rounds(
             calls: 0,
             ns: 0,
         };
-        let (drafts, _) = drafter.draft(&cache, anchor, &emb, &mask, &mut head, mutant)?;
+        let (drafts, hb) = drafter.draft_on(lin, &cache, anchor, &emb, &mask, &mut head, mutant)?;
+        if run.first_block.is_empty() {
+            run.first_block = hb;
+        }
+        run.drafts.push(drafts.clone());
         run.head_calls += head.calls;
         run.head_ns += head.ns;
         run.draft_ns += ns(td);
@@ -288,6 +301,7 @@ pub fn replay_rounds(
 pub fn generate(
     model: &mut Qwen38Omega,
     drafter: &Drafter,
+    lin: &dyn Linear,
     prompt: &[u32],
     n: usize,
     stop: &[u32],
@@ -312,7 +326,7 @@ pub fn generate(
     for ch in prompt.chunks(chunk.max(1)) {
         let (x, tp) = model.exact_rows_taps(ch, None, &c.taps, &mut run.main)?;
         let tc = Instant::now();
-        drafter.add_context(&mut cache, &tp, mutant)?;
+        drafter.add_context_on(lin, &mut cache, &tp, mutant)?;
         run.context_ns += ns(tc);
         last = x[(ch.len() - 1) * h..].to_vec();
     }
@@ -337,7 +351,7 @@ pub fn generate(
                 calls: 0,
                 ns: 0,
             };
-            let (d, _) = drafter.draft(&cache, t, &emb, &mask, &mut head, mutant)?;
+            let (d, _) = drafter.draft_on(lin, &cache, t, &emb, &mask, &mut head, mutant)?;
             run.head_calls += head.calls;
             run.head_ns += head.ns;
             d
@@ -401,10 +415,139 @@ pub fn generate(
         }
         // The verified rows the model kept are the drafter's new context.
         let tc = Instant::now();
-        drafter.add_context(&mut cache, &tp[..(j + 1) * tw], mutant)?;
+        drafter.add_context_on(lin, &mut cache, &tp[..(j + 1) * tw], mutant)?;
         run.context_ns += ns(tc);
         t = next;
     }
     run.decode_ns = ns(t1);
     Ok(run)
+}
+
+/// The drafter's matrices resident on the chip, products by omega's bf16 GEMV (one launch per row
+/// and K piece: the GEMV takes K up to 16384, so `fc` (25600) and `down_proj` (17408) are two
+/// pieces whose outputs are added on the host), the conv by `omega_gpu_dynconv2_f32` when linked.
+/// The GEMV sums in its own order, so its block rows match the host reference within tolerance,
+/// not bit for bit; the conv is bit for bit.
+pub struct ChipLinear {
+    mats: std::collections::HashMap<MatId, Vec<(usize, usize, Bf16Tensor)>>,
+    /// Run the conv on the chip (else the host's).
+    pub chip_conv: bool,
+    pub gemv_calls: std::cell::Cell<u64>,
+    pub gemv_ns: std::cell::Cell<u64>,
+    pub conv_calls: std::cell::Cell<u64>,
+    pub conv_ns: std::cell::Cell<u64>,
+    bytes: usize,
+}
+
+impl ChipLinear {
+    /// Uploads every matrix of `d` (3.85 GB at the shipped size).
+    pub fn upload(d: &Drafter) -> Result<Self, String> {
+        let mut ids = vec![(MatId::Fc, &d.fc), (MatId::SelProj, &d.sel_proj)];
+        for (l, ly) in d.layers.iter().enumerate() {
+            ids.extend([
+                (MatId::Q(l), &ly.q),
+                (MatId::K(l), &ly.k),
+                (MatId::V(l), &ly.v),
+                (MatId::O(l), &ly.o),
+                (MatId::Gate(l), &ly.gate),
+                (MatId::Up(l), &ly.up),
+                (MatId::Down(l), &ly.down),
+                (MatId::AttProj(l), &ly.att_proj),
+                (MatId::MlpProj(l), &ly.mlp_proj),
+            ]);
+        }
+        let mut mats = std::collections::HashMap::new();
+        let mut bytes = 0;
+        for (id, m) in ids {
+            let pieces = m.k.div_ceil(aien_omega_bf16::MAX_K);
+            if !m.k.is_multiple_of(pieces)
+                || !(m.k / pieces).is_multiple_of(aien_omega_bf16::K_GRANULE)
+            {
+                return Err(format!("{id:?}: k {} does not split into GEMV pieces", m.k));
+            }
+            let kp = m.k / pieces;
+            let mut v = Vec::with_capacity(pieces);
+            for p in 0..pieces {
+                let (k0, k1) = (p * kp, (p + 1) * kp);
+                let w: Vec<u16> = if pieces == 1 {
+                    m.w.clone()
+                } else {
+                    (0..m.n)
+                        .flat_map(|j| m.w[j * m.k + k0..j * m.k + k1].iter().copied())
+                        .collect()
+                };
+                let t = Bf16Tensor::upload(m.n, kp, &w).map_err(gpu("dflash upload"))?;
+                bytes += t.resident_bytes();
+                v.push((k0, k1, t));
+            }
+            mats.insert(id, v);
+        }
+        Ok(Self {
+            mats,
+            chip_conv: aien_omega_dynconv::is_native(),
+            gemv_calls: Default::default(),
+            gemv_ns: Default::default(),
+            conv_calls: Default::default(),
+            conv_ns: Default::default(),
+            bytes,
+        })
+    }
+
+    pub fn resident_bytes(&self) -> usize {
+        self.bytes
+    }
+}
+
+impl Linear for ChipLinear {
+    fn mm(&self, id: MatId, host: &Mat, x: &[f32], m: usize) -> Result<Vec<f32>, String> {
+        let pieces = self
+            .mats
+            .get(&id)
+            .ok_or_else(|| format!("{id:?}: not resident"))?;
+        let (n, k) = (host.n, host.k);
+        if x.len() != m * k {
+            return Err(format!("{id:?}: {} values for {m} rows of {k}", x.len()));
+        }
+        let mut y = vec![0f32; m * n];
+        let mut part = vec![0f32; n];
+        let t = Instant::now();
+        for r in 0..m {
+            for (pi, (k0, k1, w)) in pieces.iter().enumerate() {
+                let xs = &x[r * k + k0..r * k + k1];
+                if pi == 0 {
+                    w.gemv_f32(xs, &mut y[r * n..(r + 1) * n])
+                        .map_err(gpu("dflash gemv"))?;
+                } else {
+                    w.gemv_f32(xs, &mut part).map_err(gpu("dflash gemv"))?;
+                    for (a, b) in y[r * n..(r + 1) * n].iter_mut().zip(&part) {
+                        *a += b;
+                    }
+                }
+                self.gemv_calls.set(self.gemv_calls.get() + 1);
+            }
+        }
+        self.gemv_ns.set(self.gemv_ns.get() + ns(t));
+        Ok(y)
+    }
+
+    fn conv(
+        &self,
+        v: &[f32],
+        dynk: &[f32],
+        base: &[f32],
+        rows: usize,
+        hidden: usize,
+        group: usize,
+    ) -> Result<Vec<f32>, String> {
+        if !self.chip_conv {
+            return HostLinear.conv(v, dynk, base, rows, hidden, group);
+        }
+        let t = Instant::now();
+        let mut out = vec![0f32; rows * hidden];
+        aien_omega_dynconv::dynconv2_f32(rows, hidden, group, v, dynk, base, &mut out)
+            .map_err(gpu("dflash dynconv2"))?;
+        self.conv_calls.set(self.conv_calls.get() + 1);
+        self.conv_ns.set(self.conv_ns.get() + ns(t));
+        Ok(out)
+    }
 }

@@ -2,7 +2,7 @@
 //!
 //!   qwen38_dflash gen <27B-dir> <drafter-dir> <out.json> [--prompt code|codelong|prose|tune]
 //!                     [--n 256] [--live 1] [--mtp-k 7] [--mutant none|convswap|nopair|nocontext]
-//!                     [--norollback 1]
+//!                     [--norollback 1] [--backend host|chip] [--parity 1]
 //!     On the chip, exact rows path:
 //!     1. capture: greedy, one token at a time (k = 0), the residual after the drafter's tap layers
 //!        recorded for every position. These tokens are the reference.
@@ -15,6 +15,9 @@
 //!        equal to the capture's, its words per pass.
 //!     --mutant changes the drafter (acceptance must drop, tokens must not change); --norollback 1
 //!     leaves the DeltaNet state of refused drafts in place (tokens must change: the control).
+//!     --backend chip runs the drafter's matrices on omega's bf16 GEMV and its conv on
+//!     omega_gpu_dynconv2_f32; --parity 1 runs the replay on both backends and compares (conv bits,
+//!     block rows within tolerance, drafts), with the conv mutant that must differ.
 //!
 //! The GPU lock is the caller's (flock /tmp/aien-gb10.lock). Timings in the output are taken on a
 //! shared machine unless the receipt says the quiet lock was held exclusively.
@@ -22,8 +25,8 @@ use std::path::Path;
 use std::time::Instant;
 
 use aien_inference_abi::qwen38::Qwen38Config;
-use aien_inference_abi::qwen38_dflash::{DraftMutant, Drafter};
-use aien_inference_abi::qwen38_omega::dflash::{self, DflashRun};
+use aien_inference_abi::qwen38_dflash::{DraftMutant, Drafter, HostLinear, Linear};
+use aien_inference_abi::qwen38_omega::dflash::{self, ChipLinear, DflashRun};
 use aien_inference_abi::qwen38_omega::spec::{generate, Mtp, MtpOptions, RowStats, SpecMutant};
 use aien_inference_abi::qwen38_omega::{need_bytes, Qwen38Omega};
 use aien_inference_abi::tokenizer::{ChatOptions, ChatTokenizer};
@@ -137,6 +140,12 @@ fn gen(args: &[String]) -> Result<bool, String> {
         .map_err(|e| format!("--mtp-k: {e}"))?;
     let mutant = DraftMutant::parse(flag(args, "--mutant").unwrap_or("none"))?;
     let norollback = flag(args, "--norollback") == Some("1");
+    let backend = flag(args, "--backend").unwrap_or("host");
+    let parity = flag(args, "--parity") == Some("1");
+    if !matches!(backend, "host" | "chip") {
+        return Err(format!("--backend {backend}: host|chip"));
+    }
+    let chip_needed = backend == "chip" || parity;
 
     let prompt = prompt_ids(dir, which)?;
     let tok = ChatTokenizer::from_model_dir(dir, None).map_err(|e| e.to_string())?;
@@ -144,7 +153,7 @@ fn gen(args: &[String]) -> Result<bool, String> {
     let c = Qwen38Config::from_checkpoint(dir)?;
     let max_pos = (prompt.len() + n + 16).div_ceil(256) * 256;
     guard(
-        need_bytes(&c, max_pos, 0) + MTP_BYTES + DRAFTER_BYTES,
+        need_bytes(&c, max_pos, 0) + MTP_BYTES + DRAFTER_BYTES * if chip_needed { 2 } else { 1 },
         "whole model + MTP head + drafter",
     )?;
     let t = Instant::now();
@@ -166,7 +175,24 @@ fn gen(args: &[String]) -> Result<bool, String> {
         "capture: {} tokens in {capture_ms:.0} ms",
         cap.generated().len()
     );
-    let rep = dflash::replay_rounds(&drafter, &mut model, &cap, mutant)?;
+    let chip = if chip_needed {
+        let t = Instant::now();
+        let cl = ChipLinear::upload(&drafter)?;
+        eprintln!(
+            "drafter on the chip: {} MiB in {:.1} s, chip conv {}",
+            cl.resident_bytes() >> 20,
+            t.elapsed().as_secs_f64(),
+            cl.chip_conv
+        );
+        Some(cl)
+    } else {
+        None
+    };
+    let lin: &dyn Linear = match (&chip, backend) {
+        (Some(cl), "chip") => cl,
+        _ => &HostLinear,
+    };
+    let rep = dflash::replay_rounds(&drafter, lin, &mut model, &cap, mutant)?;
     eprintln!(
         "replay: {} rounds, {} accepted of {} drafted, {:.3} words per pass",
         rep.rounds,
@@ -188,7 +214,7 @@ fn gen(args: &[String]) -> Result<bool, String> {
     let mut pass = true;
     if live {
         let r = dflash::generate(
-            &mut model, &drafter, &prompt, n, &stop, 64, mutant, norollback,
+            &mut model, &drafter, lin, &prompt, n, &stop, 64, mutant, norollback,
         )?;
         let same_tokens = r.tokens == cap.generated();
         let same_rounds = r.per_round == rep.per_round;
@@ -239,6 +265,87 @@ fn gen(args: &[String]) -> Result<bool, String> {
             "main": stats_json(&r.main), "mtp": stats_json(&r.mtp)});
         pass &= same;
     }
+    if parity {
+        let cl = chip.as_ref().expect("uploaded for --parity");
+        let other: &dyn Linear = if backend == "chip" { &HostLinear } else { cl };
+        let rep2 = dflash::replay_rounds(&drafter, other, &mut model, &cap, mutant)?;
+        let (hr, cr) = if backend == "chip" {
+            (&rep2, &rep)
+        } else {
+            (&rep, &rep2)
+        };
+        let same_drafts = hr
+            .drafts
+            .iter()
+            .zip(&cr.drafts)
+            .filter(|(a, b)| a == b)
+            .count();
+        let (mut max_abs, mut max_ref) = (0f32, 0f32);
+        for (a, b) in hr.first_block.iter().zip(&cr.first_block) {
+            max_abs = max_abs.max((a - b).abs());
+            max_ref = max_ref.max(a.abs());
+        }
+        // The conv alone on the drafter's shape: chip against the host, bits; then the mutant.
+        let (rows, hid) = (drafter.cfg.block, drafter.cfg.hidden);
+        let g2 = 2 * drafter.cfg.groups();
+        let vals = |n: usize, seed: u32, a: f32| -> Vec<f32> {
+            let mut s = seed;
+            (0..n)
+                .map(|_| {
+                    s = s.wrapping_mul(1664525).wrapping_add(1013904223);
+                    ((s >> 8) as f32 / 16777216.0 * 2.0 - 1.0) * a
+                })
+                .collect()
+        };
+        let (v, dk, base) = (
+            vals(rows * hid, 1, 3.0),
+            vals(rows * g2, 2, 0.2),
+            vals(2 * hid, 3, 1.0),
+        );
+        let want = HostLinear.conv(&v, &dk, &base, rows, hid, 16)?;
+        let got = cl.conv(&v, &dk, &base, rows, hid, 16)?;
+        let conv_differ = want
+            .iter()
+            .zip(&got)
+            .filter(|(a, b)| a.to_bits() != b.to_bits())
+            .count();
+        aien_omega_dynconv::test_set_mutant(true);
+        let mgot = cl.conv(&v, &dk, &base, rows, hid, 16);
+        aien_omega_dynconv::test_set_mutant(false);
+        let mutant_differ = match &mgot {
+            Ok(m) => want
+                .iter()
+                .zip(m)
+                .filter(|(a, b)| a.to_bits() != b.to_bits())
+                .count(),
+            Err(_) => 0,
+        };
+        let conv_ok = cl.chip_conv && conv_differ == 0 && mutant_differ > want.len() / 2;
+        eprintln!(
+            "parity: drafts equal {same_drafts} of {} rounds, rounds identical {}, first block max abs diff {max_abs:e} (max |host| {max_ref}), words/pass host {:.3} chip {:.3}; conv differ {conv_differ}, mutant differ {mutant_differ} of {}",
+            hr.drafts.len(),
+            hr.per_round == cr.per_round,
+            hr.words_per_pass(),
+            cr.words_per_pass(),
+            want.len()
+        );
+        rec["parity"] = json!({
+            "rule": "chip GEMV block rows within tolerance of the host reference (not bitwise: the GEMV sums in its own order); conv bit for bit; conv mutant must differ",
+            "rounds_host": hr.drafts.len(), "rounds_chip": cr.drafts.len(),
+            "drafts_equal_rounds": same_drafts, "per_round_identical": hr.per_round == cr.per_round,
+            "first_block_max_abs_diff": max_abs, "first_block_max_abs_host": max_ref,
+            "words_per_pass_host": hr.words_per_pass(), "words_per_pass_chip": cr.words_per_pass(),
+            "replay_chip": run_json(cr),
+            "chip_gemv_calls": cl.gemv_calls.get(), "chip_gemv_ms": ms(cl.gemv_ns.get()),
+            "chip_conv_calls": cl.conv_calls.get(), "chip_conv_ms": ms(cl.conv_ns.get()),
+            "conv": {"chip_native": cl.chip_conv, "words": want.len(), "differ": conv_differ,
+                     "mutant_differ": mutant_differ, "mutant_rc_ok": mgot.is_ok(), "pass": conv_ok},
+        });
+        // Tolerance: the block rows are normed (|x| about 1 to 30); 2e-2 absolute is far below
+        // what changes a top-16 candidate list in practice, and the drafts are compared too.
+        pass &= conv_ok && max_abs <= 2e-2 && same_drafts * 10 >= hr.drafts.len() * 9;
+    }
+    rec["backend"] = json!(backend);
     rec["pass"] = json!(pass);
     std::fs::write(out, serde_json::to_string_pretty(&rec).unwrap())
         .map_err(|e| format!("{out}: {e}"))?;

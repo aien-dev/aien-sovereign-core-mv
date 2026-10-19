@@ -22,6 +22,7 @@ aien-omega-fp8 = { path = "../aien-omega-fp8" }
 aien-omega-dattn = { path = "../aien-omega-dattn" }
 aien-omega-router = { path = "../aien-omega-router" }
 aien-omega-bf16 = { path = "../aien-omega-bf16" }
+aien-omega-dynconv = { path = "../aien-omega-dynconv" }
 aien-omega-pf = { path = "../aien-omega-pf" }
 aien-omega-dgraph = { path = "../aien-omega-dgraph" }
 aien-omega-q38 = { path = "../aien-omega-q38" }
