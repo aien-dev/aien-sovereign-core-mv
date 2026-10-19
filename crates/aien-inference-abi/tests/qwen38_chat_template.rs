@@ -31,6 +31,24 @@ fn shipped_golden_is_well_formed() {
     assert!(g["generated_text"].as_str().unwrap().starts_with("```c\nint max("));
 }
 
+/// The speed tool's references: 256 reference ids for its decode request, and a corpus long
+/// enough for its 100,000-byte prompt (see fixtures/qwen38/PROVENANCE.md).
+#[test]
+fn shipped_speed_references_are_well_formed() {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/qwen38");
+    let r: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(format!("{dir}/decode-lighthouses-256.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(r["ids"].as_array().unwrap().len(), 256);
+    assert_eq!(r["request"]["max_tokens"], 256);
+    assert_eq!(r["request"]["temperature"], 0);
+    assert_eq!(r["request"]["aien_return_token_ids"], true);
+    let corpus = std::fs::read(format!("{dir}/speed-corpus.txt")).unwrap();
+    assert!(corpus.len() >= 100_000, "corpus is {} bytes", corpus.len());
+    assert!(std::str::from_utf8(&corpus).is_ok());
+}
+
 fn t() -> ChatTemplate {
     let text = std::fs::read_to_string(format!("{DIR}/chat_template.jinja")).unwrap();
     ChatTemplate::detect(&text).expect("Qwen3.8 template accepted")

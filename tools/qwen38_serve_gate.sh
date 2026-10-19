@@ -8,7 +8,10 @@
 #                (crates/aien-inference-abi/fixtures/qwen38/gen-chat-max-24.json); "" also means default
 #   server-log   default $AIEN_SERVE_LOG, else the log tools/serve-27b.sh writes:
 #                ${XDG_STATE_HOME:-$HOME/.local/state}/aien/serve-27b.log
-# Needs curl and jq.
+# Writes <out-dir>/summary.txt (names the server binary sha256 and model folder it tested) and
+# <out-dir>/receipt.json (build, binary sha256, model checksum list, machine state, per-request
+# figures, MATCH or MISMATCH against the shipped golden). See tools/qwen38_receipt.sh for how the
+# server is found (SERVER_BIN and MODEL_DIR override). Needs curl, jq, sha256sum and awk.
 set -uo pipefail
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 URL=${1:-http://127.0.0.1:18091}
@@ -19,6 +22,11 @@ for t in curl jq; do command -v "$t" >/dev/null || { echo "qwen38_serve_gate.sh:
 [ -f "$GOLDEN" ] || { echo "qwen38_serve_gate.sh: golden file not found: $GOLDEN" >&2; exit 2; }
 [ -f "$LOG" ] || { echo "qwen38_serve_gate.sh: server log not found: $LOG (pass it as the 4th argument or set AIEN_SERVE_LOG)" >&2; exit 2; }
 mkdir -p "$OUT"
+# shellcheck source=tools/qwen38_receipt.sh
+. "$REPO/tools/qwen38_receipt.sh"
+q38_server_facts "$URL"
+Q38_MACHINE_START=$(q38_machine_json)
+: > "$OUT/runs.jsonl"
 N=$(jq '.generated_ids | length' "$GOLDEN")
 WANT=$(jq -c '.generated_ids' "$GOLDEN")
 WANT_PROMPT=$(jq '.prompt_ids | length' "$GOLDEN")
@@ -32,12 +40,14 @@ ask() {
     '{messages:$m, temperature:0, max_tokens:$n, chat_template_kwargs:{enable_thinking:false}, aien_return_token_ids:true}' \
     > "$OUT/$1.req.json"
   # Other clients share the server: retry while it answers busy (one generation at a time).
+  local w=""
   for try in $(seq 1 240); do
-    curl -s -m 900 "$URL/v1/chat/completions" -H 'Content-Type: application/json' -d @"$OUT/$1.req.json" > "$OUT/$1.json"
+    w=$(curl -s -m 900 -o "$OUT/$1.json" -w "%{time_total}" "$URL/v1/chat/completions" -H 'Content-Type: application/json' -d @"$OUT/$1.req.json")
     # Retry only "busy" answers (server_busy, chip lock); any other error is the result.
     jq -e '.error | tostring | test("busy"; "i")' "$OUT/$1.json" >/dev/null 2>&1 || break
     sleep 5
   done
+  q38_run_json "$1" "$OUT/$1.json" "$w" "$LOG" >> "$OUT/runs.jsonl"
 }
 # The server's own record of how a reply's prompt was fed (the qwen38 line before its id).
 reuse() { grep -B1 "$(jq -r '.id' "$OUT/$1.json"):" "$LOG" | grep -o 'reuse [A-Za-z]*([0-9]*)\|reuse Cold' | head -1; }
@@ -69,6 +79,11 @@ ask turn3_cold "$m3"
 pass=1
 check() { if [ "$2" = 1 ]; then echo "PASS $1"; else echo "FAIL $1"; pass=0; fi; }
 {
+  echo "server $URL pid $Q38_PID"
+  echo "server binary sha256 $Q38_BIN_SHA256 (${Q38_BIN:-unknown})"
+  echo "server build $Q38_BUILD"
+  echo "model dir $Q38_MODEL_DIR"
+  echo "golden $GOLDEN sha256 $(sha256sum "$GOLDEN" | cut -d" " -f1)"
   # A busy chip (503) voids the run instead of failing it silently as null ids.
   for f in "$OUT"/*.json; do case $f in *.req.json) continue;; esac
     jq -e '.usage.aien_token_ids' "$f" >/dev/null || echo "VOID $(basename "$f"): $(head -c 200 "$f")"; done
@@ -93,5 +108,13 @@ check() { if [ "$2" = 1 ]; then echo "PASS $1"; else echo "FAIL $1"; pass=0; fi;
   echo "golden text: $C1"
   [ $pass = 1 ] && echo "GATE PASS" || echo "GATE FAIL"
 } > "$OUT/summary.txt"
+G_MATCH=MISMATCH; [ "$G_IDS" = "$WANT" ] && G_MATCH=MATCH
+echo "golden ids against the shipped reference: $G_MATCH" >> "$OUT/summary.txt"
+VERDICT=$(grep -q '^GATE PASS$' "$OUT/summary.txt" && echo PASS || echo FAIL)
+EXTRA=$(jq -n --arg golden "$GOLDEN" --arg gsha "$(sha256sum "$GOLDEN" | cut -d' ' -f1)" \
+  --arg m "$G_MATCH" --arg v "$VERDICT" --rawfile s "$OUT/summary.txt" \
+  '{reference:{file:$golden, sha256:$gsha}, golden_ids:$m, verdict:$v, summary:($s | rtrimstr("\n") | split("\n"))}')
+q38_write_receipt "$OUT/receipt.json" gate "$URL" "$OUT/runs.jsonl" "$EXTRA"
 cat "$OUT/summary.txt"
-grep -q '^GATE PASS$' "$OUT/summary.txt"
+echo "receipt: $OUT/receipt.json"
+[ "$VERDICT" = PASS ]
