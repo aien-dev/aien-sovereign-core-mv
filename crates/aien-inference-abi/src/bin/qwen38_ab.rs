@@ -365,6 +365,56 @@ fn decode(dir: &Path, run_json: &str, out: &str) -> Result<(), String> {
     )
     .map_err(|e| format!("{out}: {e}"))
 }
+
+/// `timeline <ckpt> <seq.json> <out.json>`: GPU-stamped time per launch kind, per token (the graph's stamps), median over
+/// the seq's tokens after the first; the span is the whole token on the chip.
+fn timeline(dir: &Path, seq_path: &str, out: &str) -> Result<(), String> {
+    let seq = ids(&read_json(seq_path)?, "ids")?;
+    let mut e = Qwen38Omega::open(dir, None, (seq.len() + 1).max(256).next_multiple_of(256))?;
+    e.graph_mut().set_stamps(true);
+    let mut per_kind: std::collections::BTreeMap<u8, Vec<f64>> = Default::default();
+    let mut counts: std::collections::BTreeMap<u8, usize> = Default::default();
+    let mut span = Vec::new();
+    for (p, &t) in seq.iter().enumerate() {
+        e.step(t)?;
+        if p == 0 {
+            continue;
+        }
+        let (st, kd) = e.graph_mut().stamps().map_err(|x| x.to_string())?;
+        let mut sum: std::collections::BTreeMap<u8, f64> = Default::default();
+        for (i, &k) in kd.iter().enumerate() {
+            *sum.entry(k).or_default() += (st[i + 1] - st[i]) as f64 / 1e6;
+            if p == 1 {
+                *counts.entry(k).or_default() += 1;
+            }
+        }
+        for (k, v) in sum {
+            per_kind.entry(k).or_default().push(v);
+        }
+        span.push((st[kd.len()] - st[0]) as f64 / 1e6);
+    }
+    let med = |v: &mut Vec<f64>| {
+        v.sort_by(|a, b| a.total_cmp(b));
+        v[v.len() / 2]
+    };
+    let mut rows = Vec::new();
+    for (k, v) in per_kind.iter_mut() {
+        let m = med(v);
+        let name = aien_omega_q38::kind_name(*k);
+        eprintln!(
+            "{name:>8} {:4} launches {m:8.3} ms",
+            counts.get(k).copied().unwrap_or(0)
+        );
+        rows.push(json!({"kind": name, "launches": counts.get(k), "ms_median": m}));
+    }
+    let s = med(&mut span);
+    eprintln!("    span {s:8.3} ms over {} tokens", span.len());
+    let v = json!({"mode": "timeline", "seq": seq_path, "tokens": span.len(), "span_ms_median": s, "kinds": rows,
+        "variant": {"AIEN_Q38_FP8_HEAD": std::env::var("AIEN_Q38_FP8_HEAD").ok(), "AIEN_Q38_W4": std::env::var("AIEN_Q38_W4").ok(),
+                    "AIEN_Q38_W4_HEAD": std::env::var("AIEN_Q38_W4_HEAD").ok()}});
+    std::fs::write(out, serde_json::to_string_pretty(&v).unwrap())
+        .map_err(|e| format!("{out}: {e}"))
+}
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     let r = match a.get(1).map(String::as_str) {
@@ -379,7 +429,8 @@ fn main() {
             .and_then(|g| run(Path::new(&a[2]), &a[3], &a[4], g)),
         Some("compare") if a.len() == 5 => compare(&a[2], &a[3], &a[4]),
         Some("decode") if a.len() == 5 => decode(Path::new(&a[2]), &a[3], &a[4]),
-        _ => Err("usage: qwen38_ab text <ckpt> <text-file> <n> <seq.json> | run <ckpt> <seq.json> <out-prefix> [--gen N] | compare <a> <b> <out.json> | decode <ckpt> <run.json> <out.txt>".into()),
+        Some("timeline") if a.len() == 5 => timeline(Path::new(&a[2]), &a[3], &a[4]),
+        _ => Err("usage: qwen38_ab text <ckpt> <text-file> <n> <seq.json> | run <ckpt> <seq.json> <out-prefix> [--gen N] | compare <a> <b> <out.json> | decode <ckpt> <run.json> <out.txt> | timeline <ckpt> <seq.json> <out.json>".into()),
     };
     if let Err(e) = r {
         eprintln!("qwen38_ab: {e}");
