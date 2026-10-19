@@ -10,18 +10,14 @@ AIENOS.
 | file | role |
 |---|---|
 | `aien-run-exec` | source of truth for `/usr/local/sbin/aien-run-exec`, the C8 exec contract |
-| `install.sh` | idempotent host install (user, dirs, caches, rustup proxies, trusted `crumb`, exec script, sudoers) |
+| `install.sh` | idempotent host install (user, dirs, caches, rustup proxies, exec script, sudoers) |
 | `wt.sh` | trusted-side mirror + worktree management under `/var/lib/aien-run` |
 | `forgejo-webhook.sh` | push trigger: Forgejo post-receive hook that writes the worker trigger file (A3) |
-| `health.sh` | one-screen health (Forgejo, user, exec, crumb, home layout, caches, worktrees, scopes, disk, GPU lock, quiet flag) |
+| `health.sh` | one-screen health (Forgejo, user, exec, home layout, caches, worktrees, scopes, disk, GPU lock, quiet flag) |
 | `gc.sh` | worktree age + target-dir quota cleanup, dry run by default |
 | `tests/run.sh` | proofs of the contract on this host (33 checks with two wt.sh worktrees present) |
 | `pipeline.sh` | ADR 0033 phase 3: publish verified bundles to aien-receipts, rerun the GitHub thin gate, merge `ready-to-merge` PRs behind guards |
 | `tests/pipeline_test.sh` | offline proofs of `pipeline.sh` with fake `gh`, fake `aien-test` and throwaway git repositories (56 checks) |
-| `crumb-shim.sh` | the operator's `~/.local/bin/crumb`: runs the crumb tool the repository's own CRUMB-VERIFY gate uses (crumb.lock pin, own tree for aien-architecture, else the sandbox tool), so author, readiness check and gate never disagree |
-| `crumb-doctor` | drift check, cron (via cron-tick.sh): gate, readiness and hosted crumb tools agree on every main and tool-changing PR; worker sibling maps match origin/main; `--heal` keeps this clone's work tree on origin/main |
-| `tests/crumb_shim_test.sh`, `tests/crumb_doctor_test.sh` | offline proofs of both on throwaway fixtures (17 and 7 checks) |
-| `tests/crumb_real_test.sh` | Spark-only red/green on real trees and on the real failing heads of 2026-10-16..18 (19 checks) |
 
 ## C8 exec contract
 
@@ -66,32 +62,11 @@ Optional flags `--memory-max`, `--tasks-max`, `--cpu-quota` override the profile
 Sandbox PATH is `/var/lib/aien-run/cargo/bin:/usr/local/bin:/usr/bin:/bin` (all root-owned). A bare program name
 resolves only through it; a file of the same name inside the worktree is never used.
 
-## Trusted crumb on the sandbox PATH
+## Crumbs are not a check (RFC-0003 Am2, 2026-10-19)
 
-`/usr/local/bin/crumb` (root 0755) is built by `install.sh` from aien-architecture commit
-`94fffbcf88492c5a1c54211b5126c8a6c370a98d` (`tools/crumb/crumb.c`, git blob `841f5317...`, checked before building;
-source read from the git object store of `AIEN_ARCH_CLONE`, default `~/workspace/aien-architecture`) with
-`cc -O2 -Wall -std=c11`. With gcc 13.3.0 the binary's sha256 is `22015e6b156e038e...`, identical to the operator's
-`~/.local/bin/crumb` on 2026-10-11. To move the pin, change `CRUMB_COMMIT` and `CRUMB_BLOB` in `install.sh` in a PR.
-
-## Operator crumb (shim) and crumb-doctor (2026-10-19)
-
-Four places used to pick a crumb build four different ways: each repo's CRUMB-VERIFY gate (crumb.lock pin, own
-tree, or this sandbox tool), the worker's readiness check (`aien-test verify` runs the bare name `crumb`, so
-`~/.local/bin/crumb`), the required hosted "AIEN Verification" (its workflow pin), and whoever ran `crumb compile`.
-`~/.local/bin/crumb` was a fixed 94fffbcf build. Effects seen 2026-10-16..18: every PASS head in omega, aienos and
-physics (pinned d0f0b95d) published as `BLOCKED PASS` / error; every RFC-0003 Am1 migration head read "N of N crumbs
-stale"; authors compiled sc with d0f0b95d and omega with 94fffbcf and the gates called the result stale (12 of 34
-STALE gate failures). Separately, the poll workers read `siblings` from this clone's WORK TREE, which nothing had
-moved since 2026-10-11, so synapse ran CRUMB-VERIFY without `../aien-architecture` (30 failed judgements, exit 3).
-
-- Install the shim: `install -m 0755 tools/aien-local-ci/crumb-shim.sh ~/.local/bin/crumb` (keep the old binary as
-  `crumb.bak-<ts>-<sha8>`). It never falls back silently: a malformed or unbuildable pin exits 97.
-- Install the doctor: `install -m 0755 tools/aien-local-ci/crumb-doctor ~/.local/bin/crumb-doctor`. cron-tick.sh
-  runs `crumb-doctor --heal-only` every tick and `crumb-doctor --heal --alert` at most every 15 minutes in the
-  background; failures become a `CRUMB-DRIFT` line in the aien-watch ALERT (shown by the gh guard and the chat hook).
-- Before merging any PR that moves a crumb pin (crumb.lock, the hosted workflow pin, tools/crumb, install.sh), run
-  `crumb-doctor --repos <repo>`: every consumer must give the same verdict on the PR head.
+Crumbs are advisory notes for agents. No gate, readiness check or merge step reads them, so this pipeline no
+longer builds a trusted `crumb` for the sandbox, and the operator crumb shim and crumb-doctor are retired.
+`aien-test verify` prints `Crumb status: not checked (crumbs are advisory, RFC-0003 Am2)` for log readers.
 
 ## Egress decision
 
@@ -218,7 +193,7 @@ or configuration error. Overrides: `AIEN_STATE`, `AIEN_CLONES`, `AIEN_RECEIPTS`,
 ## Operate
 
 ```
-tools/aien-local-ci/install.sh               # idempotent; AIEN_ARCH_CLONE=<aien-architecture clone> for crumb
+tools/aien-local-ci/install.sh               # idempotent
 tools/aien-local-ci/tests/run.sh             # all proofs, about 10 s
 tools/aien-local-ci/wt.sh sync aien-sovereign-core ~/workspace/aien-sovereign-core
 tools/aien-local-ci/wt.sh add aien-sovereign-core <sha>

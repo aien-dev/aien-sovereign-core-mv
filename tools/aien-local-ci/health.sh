@@ -23,12 +23,6 @@ else
   row "aien-run user" "MISSING"
 fi
 [[ -x /usr/local/sbin/aien-run-exec ]] && row "aien-run-exec" "$(stat -c '%U %a' /usr/local/sbin/aien-run-exec) $(sudo -n -l /usr/local/sbin/aien-run-exec >/dev/null 2>&1 && echo 'sudo ok' || echo 'SUDO RULE MISSING')" || row "aien-run-exec" "MISSING"
-if [[ -x /usr/local/bin/crumb ]]; then
-  want=$(sed -n 's/^CRUMB_COMMIT=//p' "$(dirname "$0")/install.sh" 2>/dev/null | cut -c1-7)
-  row "crumb (sandbox)" "/usr/local/bin/crumb $(stat -c '%U %a' /usr/local/bin/crumb) sha256 $(sha256sum < /usr/local/bin/crumb | cut -c1-12) (install.sh pins aien-architecture ${want:-?})"
-else
-  row "crumb (sandbox)" "MISSING (run install.sh)"
-fi
 hl=$(stat -c '%U:%G %a' "$RUN_HOME" "$RUN_HOME/cargo" "$RUN_HOME/target" 2>/dev/null | tr '\n' ' ')
 [[ $hl == "root:aien-run 750 root:root 755 root:root 755 " ]] && row "sandbox home layout" "root-owned (home, cargo, target)" || row "sandbox home layout" "UNSAFE: $hl(re-run install.sh)"
 
