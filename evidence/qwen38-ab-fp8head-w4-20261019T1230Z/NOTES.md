@@ -132,7 +132,7 @@ WW would be 54.82 ms per token (calc:b49da385), 18.24 tokens per second (calc:b1
 ## Branches (all pushed, no pull requests opened)
 - omega `qwen38/w4-gemv` at dd5e89ff (base qwen38/decode-speed 0010f7d3): the 4-bit reading routine, its tests, the
   graph hookup, the converter rounding rules.
-- sovereign-core `qwen38/w4-decode` at c5ae3958 (base qwen38/decode-speed b6c61c54): the switches AIEN_Q38_W4=1,
+- sovereign-core `qwen38/w4-decode` (code at 03172513, evidence commits after it; base qwen38/decode-speed b6c61c54): the switches AIEN_Q38_W4=1,
   AIEN_Q38_W4_HEAD=1, AIEN_Q38_W4_RULE, the A/B tool qwen38_ab, and all evidence in
   evidence/qwen38-ab-fp8head-w4-20261019T1230Z.
 - Tests on the final code all pass: chip tests of the 4-bit routine (11 checks, deliberately broken versions all
@@ -154,3 +154,13 @@ WW would be 54.82 ms per token (calc:b49da385), 18.24 tokens per second (calc:b1
 GitHub calls going around the guard (about 33 a minute, source unknown), two project-file checks out of date
 (benchmarks, interplane), two new scheduled jobs not on the approved list (a notes scanner, a sensor logger),
 and 9 leftover hidden browser pieces from a stopped chat.
+## Log 19:4xZ: dumpC-prose-W refused again: memory was free when queued, but it waited ~30 min on the GPU lock and the lock holder took the memory. bin/chain-e.sh (after chain-d) retries every still-missing run up to 20 times, memory check before each try.
+## Log 20:3xZ: bin/one.sh v2 (v1 kept as one.sh.v1): takes the GPU lock non-blocking only when 58 GiB is free at that moment, retries every 30 s, so a run never waits on the lock while the holder takes the memory. MemAvailable 42-48 GiB for the last hour (other agents' jobs). A W4-only decode mode (drop the FP8 copies, ~25 GB less) would remove the wait; it needs omega set_layer to accept no FP8 tensor: owed, not done.
+
+## Status at 21:17Z (queued runs)
+Not run yet: none of the queued quality runs (BEST rule included) has found room. Three copies of the 27B model
+belonging to other work are loaded (the live server about 38 GB, a second server about 38 GB, a third about 11 GB),
+leaving about 16 GB free; each run needs about 56 GB. The queue (bin/chain-c.sh, chain-d.sh, chain-e.sh) waits by
+itself and takes the GPU only when the memory is there. When results land they get added to the tables above.
+Until then the decision stands on the measured runs; the BEST rule is NOT MEASURED on the chip and stays off
+(default OCP).
