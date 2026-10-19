@@ -1,0 +1,4 @@
+binary /home/drakestapleton/workspace/targets/dflash/bin/qwen38_dflash-94e65f18dada sha256 94e65f18dada32e83a20fda5779ca472fc60f009cca237bde564c346fd3aa887
+sc head f239bb60214349c440f27156f585b58ab63cea8b
+omega library /home/drakestapleton/workspace/targets/q38-f7-omega/libomega_gpu.a sha256 6e90520913032ee8653ebbe325c485d329daa0a749840303a44b68b97ca17bff
+model /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a ; drafter /home/drakestapleton/models/qwen3.8-27b-dflash2-50307d4c (sha256 list evidence/qwen38-dflash-weights)
