@@ -23,6 +23,9 @@
 //!     every k > 0 run's tokens equal the k = 0 run's (the same exact path one token at a time) and,
 //!     with --golden on the golden prompt, the first 24 equal the golden record. --graph 1 also runs
 //!     the decode graph (the live server's path) for its tokens and chip time per token.
+//!   qwen38_spec suite <checkpoint-dir> <out-dir> <plan.txt>
+//!     One model upload, many gen runs: each plan line is `<name> <gen flags>`; results go to
+//!     <out-dir>/<name>.json (an error to <name>.error.txt, the suite goes on). Same checks as gen.
 //!   qwen38_spec drift <checkpoint-dir> <out.json> --record <score-license-256.json> [--weights fp8|mxfp4]
 //!                     [--chunk 8] [--dump <logits.f32>] [--against <fp8-logits.f32>]
 //!     Task B. The record's tokens scored teacher-forced on the exact rows path: per-position NLL,
@@ -413,11 +416,29 @@ fn run_json(k: usize, r: &SpecRun) -> Value {
     })
 }
 
-fn gen(args: &[String]) -> Result<bool, String> {
+/// One `gen` request, parsed.
+struct GenItem {
+    args: Vec<String>,
+    out: String,
+    ks: Vec<usize>,
+    n: usize,
+    which: String,
+    opts: MtpOptions,
+    mutant: SpecMutant,
+    tree: Option<TreeSpec>,
+    rows: HeadRows,
+    source: DraftSource,
+    sopts: SpecOptions,
+    graph: bool,
+    golden: Option<Value>,
+    prompt: Vec<u32>,
+}
+
+fn parse_gen_item(args: &[String]) -> Result<GenItem, String> {
     let (Some(dir), Some(out)) = (args.first(), args.get(1)) else {
         return Err("usage: qwen38_spec gen <checkpoint-dir> <out.json> [flags]".into());
     };
-    let dir = Path::new(dir);
+    let dirp = Path::new(dir);
     let ks: Vec<usize> = flag(args, "--k")
         .unwrap_or("0,1,2,3,4")
         .split(',')
@@ -507,42 +528,146 @@ fn gen(args: &[String]) -> Result<bool, String> {
         ),
         None => None,
     };
-    let prompt = prompt_ids(dir, which, golden.as_ref())?;
+    let prompt = prompt_ids(dirp, which, golden.as_ref())?;
     if let Some(g) = &golden {
         let gp = ids(g, "prompt_ids")?;
         eprintln!(
             "prompt {which}: {} tokens; golden prompt {} the rendered code prompt",
             prompt.len(),
-            if prompt_ids(dir, "code", None)? == gp {
+            if prompt_ids(dirp, "code", None)? == gp {
                 "equals"
             } else {
                 "DIFFERS FROM"
             }
         );
     }
+    Ok(GenItem {
+        args: args.to_vec(),
+        out: out.clone(),
+        ks,
+        n,
+        which: which.to_string(),
+        opts,
+        mutant,
+        tree,
+        rows,
+        source,
+        sopts,
+        graph,
+        golden,
+        prompt,
+    })
+}
+
+/// Opens the model once for every item: the longest prompt + n decides the context, the MTP head
+/// is loaded when any item uses k > 0.
+fn open_for(
+    dir: &Path,
+    items: &[GenItem],
+) -> Result<(Qwen38Omega, Option<Mtp>, ChatTokenizer, Vec<u32>), String> {
     let tok = ChatTokenizer::from_model_dir(dir, None).map_err(|e| e.to_string())?;
     let stop = tok.stop_token_ids().to_vec();
     let c = Qwen38Config::from_checkpoint(dir)?;
-    let max_pos = (prompt.len() + n + 16).div_ceil(256) * 256;
+    let max_pos = items
+        .iter()
+        .map(|i| (i.prompt.len() + i.n + 16).div_ceil(256) * 256)
+        .max()
+        .ok_or("no items")?;
     guard(
         need_bytes(&c, max_pos, 0) + MTP_BYTES,
         "whole model + MTP head",
     )?;
     let t = Instant::now();
-    let mut model = Qwen38Omega::open(dir, None, max_pos)?;
-    let mut mtp = if ks.iter().any(|&k| k > 0) {
-        let m = Mtp::open(dir, &model, opts)?;
+    let model = Qwen38Omega::open(dir, None, max_pos)?;
+    let mtp = if items.iter().any(|i| i.ks.iter().any(|&k| k > 0)) {
+        let m = Mtp::open(dir, &model, items[0].opts)?;
         eprintln!(
-            "MTP head: {} MiB, raw norm means (embed, hidden, final) {:?}, options {opts:?}",
+            "MTP head: {} MiB, raw norm means (embed, hidden, final) {:?}, options {:?}",
             m.weight_bytes() >> 20,
-            m.raw_norm_means
+            m.raw_norm_means,
+            items[0].opts
         );
         Some(m)
     } else {
         None
     };
     eprintln!("uploaded in {:.1} s", t.elapsed().as_secs_f64());
+    Ok((model, mtp, tok, stop))
+}
 
+fn gen(args: &[String]) -> Result<bool, String> {
+    let item = parse_gen_item(args)?;
+    let dir = Path::new(&args[0]);
+    let (mut model, mut mtp, tok, stop) = open_for(dir, std::slice::from_ref(&item))?;
+    gen_item(&mut model, &mut mtp, &tok, &stop, &item)
+}
+
+/// `qwen38_spec suite <checkpoint-dir> <out-dir> <plan.txt>`: one model upload, many `gen` runs.
+/// Each plan line is `<name> <gen flags>` (blank lines and # comments skipped); the result of a
+/// line goes to <out-dir>/<name>.json, an error to <out-dir>/<name>.error.txt and the suite goes on.
+/// The weights flag is global (the first line decides). Exit 0 only when every line passed.
+fn suite(args: &[String]) -> Result<bool, String> {
+    let (Some(dir), Some(outdir), Some(plan)) = (args.first(), args.get(1), args.get(2)) else {
+        return Err("usage: qwen38_spec suite <checkpoint-dir> <out-dir> <plan.txt>".into());
+    };
+    let text = std::fs::read_to_string(plan).map_err(|e| format!("{plan}: {e}"))?;
+    std::fs::create_dir_all(outdir).map_err(|e| format!("{outdir}: {e}"))?;
+    let mut names = Vec::new();
+    let mut items = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut w = line.split_whitespace();
+        let name = w.next().unwrap().to_string();
+        let mut a = vec![dir.clone(), format!("{outdir}/{name}.json")];
+        a.extend(w.map(String::from));
+        if flag(&a, "--sweep-mtp").is_some() {
+            return Err(format!("{name}: --sweep-mtp is not for suites"));
+        }
+        items.push(parse_gen_item(&a).map_err(|e| format!("{name}: {e}"))?);
+        names.push(name);
+    }
+    let (mut model, mut mtp, tok, stop) = open_for(Path::new(dir), &items)?;
+    let mut all = true;
+    for (name, item) in names.iter().zip(&items) {
+        eprintln!("suite: {name} start");
+        match gen_item(&mut model, &mut mtp, &tok, &stop, item) {
+            Ok(p) => {
+                eprintln!("suite: {name} {}", if p { "PASS" } else { "FAIL" });
+                all &= p;
+            }
+            Err(e) => {
+                eprintln!("suite: {name} ERROR {e}");
+                let _ = std::fs::write(format!("{outdir}/{name}.error.txt"), &e);
+                all = false;
+            }
+        }
+    }
+    println!("QWEN38_SPEC_SUITE {} items: {}", items.len(), if all { "PASS" } else { "FAIL" });
+    Ok(all)
+}
+
+fn gen_item(
+    model: &mut Qwen38Omega,
+    mtp: &mut Option<Mtp>,
+    tok: &ChatTokenizer,
+    stop: &[u32],
+    it: &GenItem,
+) -> Result<bool, String> {
+    let args = &it.args[..];
+    let out = it.out.as_str();
+    let ks = it.ks.clone();
+    let n = it.n;
+    let which = it.which.as_str();
+    let (opts, mutant, tree, rows, source, sopts, graph) =
+        (it.opts, it.mutant, it.tree, it.rows, it.source, it.sopts, it.graph);
+    let golden = it.golden.clone();
+    let prompt = it.prompt.clone();
+    if let Some(m) = mtp.as_mut() {
+        m.opts = opts;
+    }
     if flag(args, "--sweep-mtp") == Some("1") {
         // Draft quality of every MTP wiring at k = 1 (the tuning prompt; output is the k = 0 path's
         // whatever the wiring, so only acceptance is compared).
@@ -560,7 +685,7 @@ fn gen(args: &[String]) -> Result<bool, String> {
                         normed_hidden,
                         pos_offset,
                     };
-                    let r = generate(&mut model, Some(&mut *m), &prompt, n, 1, &stop, 64, sopts)?;
+                    let r = generate(&mut *model, Some(&mut *m), &prompt, n, 1, stop, 64, sopts)?;
                     let rate = r.accepted as f64 / r.drafted.max(1) as f64;
                     eprintln!(
                         "mtp {:?}: accept {}/{} = {rate:.3}",
@@ -585,23 +710,23 @@ fn gen(args: &[String]) -> Result<bool, String> {
     for &k in &ks {
         let r = match (tree, k > 0) {
             (Some(spec), true) => generate_tree(
-                &mut model,
+                &mut *model,
                 mtp.as_mut().ok_or("--tree needs the MTP head")?,
                 &prompt,
                 n,
                 k,
-                &stop,
+                stop,
                 64,
                 sopts,
                 spec,
             )?,
             _ => generate(
-                &mut model,
+                &mut *model,
                 if k > 0 { mtp.as_mut() } else { None },
                 &prompt,
                 n,
                 k,
-                &stop,
+                stop,
                 64,
                 sopts,
             )?,
@@ -895,8 +1020,9 @@ fn main() {
     let r = match args.first().map(String::as_str) {
         Some("probe") => probe(&args[1..]),
         Some("gen") => gen(&args[1..]),
+        Some("suite") => suite(&args[1..]),
         Some("drift") => drift(&args[1..]),
-        _ => Err("usage: qwen38_spec probe|gen|drift ... (see the file header)".into()),
+        _ => Err("usage: qwen38_spec probe|gen|suite|drift ... (see the file header)".into()),
     };
     match r {
         Ok(true) => {}
