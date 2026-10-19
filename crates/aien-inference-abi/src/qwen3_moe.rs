@@ -309,6 +309,54 @@ impl Shard {
         self.header.get(name)?.get("dtype")?.as_str()
     }
 
+    /// Reads `dst.len()` bytes of tensor `name` starting `offset` bytes into its data, after checking dtype and shape and that the
+    /// range lies inside the tensor (one row of a table too big to read whole).
+    pub(crate) fn read_range(
+        &self,
+        name: &str,
+        dtype: &str,
+        shape: &[usize],
+        offset: u64,
+        dst: &mut [u8],
+    ) -> Result<(), Qwen3MoeError> {
+        let contract = |detail: String| Qwen3MoeError::Contract(format!("{name}: {detail}"));
+        let entry = self
+            .header
+            .get(name)
+            .ok_or_else(|| contract("missing from shard header".to_string()))?;
+        if entry.get("dtype").and_then(|v| v.as_str()) != Some(dtype) {
+            return Err(contract(format!("dtype {:?}, expected {dtype}", entry.get("dtype"))));
+        }
+        let actual_shape: Option<Vec<usize>> = entry
+            .get("shape")
+            .and_then(|v| v.as_array())
+            .map(|dims| dims.iter().filter_map(|d| d.as_u64().map(|d| d as usize)).collect());
+        if actual_shape.as_deref() != Some(shape) {
+            return Err(contract(format!("shape {actual_shape:?}, expected {shape:?}")));
+        }
+        let offsets: Vec<u64> = entry
+            .get("data_offsets")
+            .and_then(|v| v.as_array())
+            .map(|o| o.iter().filter_map(|v| v.as_u64()).collect())
+            .unwrap_or_default();
+        let [start, end] = offsets[..] else {
+            return Err(contract("data_offsets must hold two integers".to_string()));
+        };
+        let need = offset
+            .checked_add(dst.len() as u64)
+            .ok_or_else(|| contract("range overflows".to_string()))?;
+        if start > end || need > end - start || self.payload_start + end > self.file_len {
+            return Err(contract(format!(
+                "range {offset}+{} is outside the {} byte tensor",
+                dst.len(),
+                end.saturating_sub(start)
+            )));
+        }
+        self.file
+            .read_exact_at(dst, self.payload_start + start + offset)
+            .map_err(|e| Qwen3MoeError::Io(format!("{name}: {e}")))
+    }
+
     /// Reads one tensor into `dst` after checking dtype, shape and byte range.
     pub(crate) fn read(
         &self,

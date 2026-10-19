@@ -280,6 +280,19 @@ pub trait TensorSource {
     fn dtype_of(&mut self, name: &str) -> Result<Option<String>, String> {
         Err(format!("{name}: this tensor source cannot report dtypes"))
     }
+
+    /// `dst.len()` bytes of tensor `name` from `offset` bytes into its data (dtype and shape checked); for tables too big
+    /// to read whole. A source that cannot refuses.
+    fn read_range(
+        &mut self,
+        name: &str,
+        _dtype: &str,
+        _shape: &[usize],
+        _offset: u64,
+        _dst: &mut [u8],
+    ) -> Result<(), String> {
+        Err(format!("{name}: this tensor source cannot read byte ranges"))
+    }
 }
 
 /// The safetensors shards behind `model.safetensors.index.json` (the same validated reader as
@@ -339,6 +352,20 @@ impl TensorSource for ShardSource {
         self.shard_for(name)?
             .ok_or_else(|| format!("index: no shard for {name}"))?
             .read(name, dtype, shape, dst)
+            .map_err(|e| e.to_string())
+    }
+
+    fn read_range(
+        &mut self,
+        name: &str,
+        dtype: &str,
+        shape: &[usize],
+        offset: u64,
+        dst: &mut [u8],
+    ) -> Result<(), String> {
+        self.shard_for(name)?
+            .ok_or_else(|| format!("index: no shard for {name}"))?
+            .read_range(name, dtype, shape, offset, dst)
             .map_err(|e| e.to_string())
     }
 
