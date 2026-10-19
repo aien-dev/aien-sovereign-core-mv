@@ -1,0 +1,17 @@
+start 2026-10-19T19:39:25Z
+chip GB10 (DGX Spark), NOT an RTX 5070
+sc c03bef7bb2ebb06f0132a4d59920b52647974e43 dirty 1
+binary /home/drakestapleton/workspace/targets/rig-engine/target/release/aien-serve-http sha256 9f6e07c28b874d8e3055af562cf6d199f9c76f34c80974814fe39be8a2267411
+server: /home/drakestapleton/workspace/targets/rig-engine/target/release/aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3-8b-fp8 --port 18120  --mem-budget-gib 12 --max-context 32768
+env AIEN_Q38_W4_RULE=unset
+loadavg 12.40 9.39 13.83 5/2323 3783455
+MemAvailable:   50716488 kB
+attempt 1 start 2026-10-19T19:39:25Z MemFree 49 GiB
+attempt 1: server exited before serving: aien-serve-http: dense load refused: layer 0 q|k|v [6144][4096] upload: omega_gpu rc=-4 (CHIP_FAIL: m16_native_create_channel: RM_ALLOC class 0xcec0 status 0x51)
+attempt 2 start 2026-10-19T19:48:00Z MemFree 30 GiB
+attempt 2: server exited before serving: aien-serve-http: dense load refused: layer 0 q|k|v [6144][4096] upload: omega_gpu rc=-4 (CHIP_FAIL: m16_native_create_channel: RM_ALLOC class 0xcec0 status 0x51)
+attempt 3 start 2026-10-19T19:49:18Z MemFree 24 GiB
+model id qwen3-dense
+end 2026-10-19T20:00:32Z
+loadavg 19.19 17.48 16.10 8/2368 217640
+MemAvailable:   47065216 kB

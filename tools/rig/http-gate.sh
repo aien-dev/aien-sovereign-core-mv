@@ -63,8 +63,16 @@ echo "serving: $(grep -E 'memory budget|dense load' "$d/server.log" | tr '\n' ' 
 ask() { # ask <out.json> <max_tokens> <user text>
 	jq -n --arg u "$3" --argjson m "$2" --arg model "$model" \
 		'{model:$model, messages:[{role:"user", content:$u}], temperature:0, max_tokens:$m}' |
-		curl -s -w '\n%{time_total}\n' -H 'content-type: application/json' --data-binary @- \
+		cat > "$1.req"
+	# Other jobs hold the chip lock for minutes: the server answers 503 (GPU busy) after 300 s. A refused request
+	# leaves no line in the ids log, so retry until it is answered, or the ids would shift against the prompts.
+	for try in $(seq 1 20); do
+		curl -s -w '\n%{time_total}\n' -H 'content-type: application/json' --data-binary @"$1.req" \
 			"http://127.0.0.1:$port/v1/chat/completions" > "$1"
+		head -n1 "$1" | jq -e '.choices[0]' > /dev/null 2>&1 && return 0
+		echo "request $1 try $try refused: $(head -n1 "$1" | cut -c1-160)" >> "$d/ground.txt"; mv "$1" "$1.refused$try"; sleep 10
+	done
+	echo "request $1 never answered"; return 1
 }
 GATE=("What is the capital of France? Answer in one sentence."
 	"Write a Rust function \`fn is_prime(n: u64) -> bool\` that uses trial division up to the square root, with a short doc comment."
