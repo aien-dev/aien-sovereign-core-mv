@@ -1,0 +1,1 @@
+STOPPED by the lab agent at 2026-10-19T17:30:05Z (its own process) after Drake's quiet-lock rule change: long CPU lab runs now run WITHOUT the quiet lock at nice 19 ionice -c3, timing runs through quiet-measure. No numbers from this run are used.

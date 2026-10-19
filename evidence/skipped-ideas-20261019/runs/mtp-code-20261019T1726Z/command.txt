@@ -1,0 +1,1 @@
+AIEN_LAB_QUIET_LOCK=/tmp/aien-quiet.lock nice -n 19 spark-receipt skipped-mtp-code-20261019T1726Z -- /home/drakestapleton/workspace/targets/skipped/release/qwen38_lab mtp /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a /home/drakestapleton/workspace/skipped-work/seq/code.json /home/drakestapleton/workspace/skipped-work/runs/mtp-code-20261019T1726Z/trace
