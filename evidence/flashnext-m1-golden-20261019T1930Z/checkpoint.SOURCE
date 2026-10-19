@@ -1,0 +1,38 @@
+Repo: nvidia/Qwen3.8-Flash-Next-NVFP4 (https://huggingface.co/nvidia/Qwen3.8-Flash-Next-NVFP4)
+Revision: fc694b54fb0174e0913e6adf86691ef85a4ead47
+Base model: Qwen/Qwen3.8-Flash-Next (de4b8e4d bf16)
+License: NVIDIA Open Model License (model card front matter: license: other, license_name: nvidia-open-model-license); the card also points to the Qwen Community License 1.0 for Qwen3.8-Flash-Next. Drake approved this download 2026-10-19 (AIEN is AGPL non-commercial; Qwen Community License covers it). Never redistribute the weights and never commit them to a repo.
+Downloaded and verified: 2026-10-19T18:10:29Z (UTC) (download 17:43:55Z to 18:06:22Z, 1346 s, 98.6 MB/s, nice -n 19 ionice -c3 curl, 3 parallel, resumed across an agent restart; the dl.py process kept running through it)
+Target: ~/models/qwen3.8-flash-next-nvfp4-fc694b54
+Result: 25 files, 132734506847 bytes total (132.7 GB). Every size matched. All 13 LFS files matched the sha256 in the Hugging Face API listing (13 of 13).
+Note: the 12 small non-LFS files have no published hash, so only their size was checked; their sha256 is recorded in qwen3.8-flash-next-nvfp4-fc694b54.sha256.
+Layout: model-00001..00010-of-00010.safetensors (NVFP4 body), model-fp8-mtp-ple.safetensors (53.7 GB, FP8 MTP + per-layer embeddings), model.safetensors.index.json, config/tokenizer/processor files.
+Not downloaded: the FP8 copy (Qwen/Qwen3.8-Flash-Next-FP8 @ 236dfdf285828023ca3bcd3f37366c58a3469b13, 185.56 GB); free disk was 930 GB (26%), which would leave about 20%. Metadata only is in ~/flashnext-scratch/meta/fp8.
+Scratch: ~/flashnext-scratch/dl.py (downloader and verifier), dl-nvfp4.log.
+
+Per-file expected vs actual:
+- .gitattributes: size expected 1635 / actual 1635 (OK); sha256 expected - / actual fe81d528e7ee055bbcf6a310afe0f2808423a4a16d45225f29c285926abef08d (no published hash, size only)
+- README.md: size expected 12109 / actual 12109 (OK); sha256 expected - / actual e3ed0cb89950ef0f41e8df344ba1cc15c67e1baf91e1cb5305a7344e58a8d975 (no published hash, size only)
+- chat_template.jinja: size expected 8952 / actual 8952 (OK); sha256 expected - / actual c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041 (no published hash, size only)
+- config.json: size expected 30820 / actual 30820 (OK); sha256 expected - / actual deef67a61f3311faf051b23dc4192f442c7fee4f9cd2f38cbcbe4da55c763a80 (no published hash, size only)
+- generation_config.json: size expected 202 / actual 202 (OK); sha256 expected - / actual e70c136c1b78ddc1fb0905bac8e733a4dc448d4f852a5dd75143fffc70be550e (no published hash, size only)
+- hf_quant_config.json: size expected 23001 / actual 23001 (OK); sha256 expected - / actual 331ad11d57c8bc374554579977198084e0d4d0933d5b3558f125f6f670aba0e8 (no published hash, size only)
+- merges.txt: size expected 3353259 / actual 3353259 (OK); sha256 expected - / actual a9d356d7bdf1ef4949e3e748e95b8e10ad9d4e2e838eddc38a0a7b6b94d1db8d (no published hash, size only)
+- model-00001-of-00010.safetensors: size expected 3115991696 / actual 3115991696 (OK); sha256 expected 63fde954be6f08b49b876f4f70a0ad0bcfee71aff7b1faa33779b6b32feca2a2 / actual 63fde954be6f08b49b876f4f70a0ad0bcfee71aff7b1faa33779b6b32feca2a2 (sha256 OK)
+- model-00002-of-00010.safetensors: size expected 10005510304 / actual 10005510304 (OK); sha256 expected 4dafaef62a908e49e0d92c7c2a3fa99f4d9651fdeeb0ca09f09a9b40095af4e0 / actual 4dafaef62a908e49e0d92c7c2a3fa99f4d9651fdeeb0ca09f09a9b40095af4e0 (sha256 OK)
+- model-00003-of-00010.safetensors: size expected 10005364728 / actual 10005364728 (OK); sha256 expected 3218ddc129258e91a721a8e81329ca8f00588332ec721bd8d2cf7d20e324bf47 / actual 3218ddc129258e91a721a8e81329ca8f00588332ec721bd8d2cf7d20e324bf47 (sha256 OK)
+- model-00004-of-00010.safetensors: size expected 10006060112 / actual 10006060112 (OK); sha256 expected 55e2bdf6a3a1f6e65270787f65c63b2a2a56b308b54eb1fb318dfabc9b48b141 / actual 55e2bdf6a3a1f6e65270787f65c63b2a2a56b308b54eb1fb318dfabc9b48b141 (sha256 OK)
+- model-00005-of-00010.safetensors: size expected 10005362392 / actual 10005362392 (OK); sha256 expected d3c169d3694bfba846455d01e48f047d770f78d071c5a4d22f129389411d686e / actual d3c169d3694bfba846455d01e48f047d770f78d071c5a4d22f129389411d686e (sha256 OK)
+- model-00006-of-00010.safetensors: size expected 10005375328 / actual 10005375328 (OK); sha256 expected 38f65a9d11090428e139cc60d0587e8e5433ea2ce79820883c583d7cfcc53130 / actual 38f65a9d11090428e139cc60d0587e8e5433ea2ce79820883c583d7cfcc53130 (sha256 OK)
+- model-00007-of-00010.safetensors: size expected 10005956544 / actual 10005956544 (OK); sha256 expected 8cf3fa05c04cb2e060963b69bb01f7a7b9f43c58435fbe380836a0457a19cd3e / actual 8cf3fa05c04cb2e060963b69bb01f7a7b9f43c58435fbe380836a0457a19cd3e (sha256 OK)
+- model-00008-of-00010.safetensors: size expected 10005375200 / actual 10005375200 (OK); sha256 expected 53d1f80746aa0cc0a7c2f4836587002a8a4dd72c827432cd2e43abae3c3899e4 / actual 53d1f80746aa0cc0a7c2f4836587002a8a4dd72c827432cd2e43abae3c3899e4 (sha256 OK)
+- model-00009-of-00010.safetensors: size expected 5679113808 / actual 5679113808 (OK); sha256 expected eaff6a87ece6fbfd6ad0fbaa0a5cf9ff542f8076acba38e62410b1ed55e12cc3 / actual eaff6a87ece6fbfd6ad0fbaa0a5cf9ff542f8076acba38e62410b1ed55e12cc3 (sha256 OK)
+- model-00010-of-00010.safetensors: size expected 128587536 / actual 128587536 (OK); sha256 expected 0d49b0cf7c15bf9b5bd1e17403b36727315860a8f2a2e0f5a53655547084f640 / actual 0d49b0cf7c15bf9b5bd1e17403b36727315860a8f2a2e0f5a53655547084f640 (sha256 OK)
+- model-fp8-mtp-ple.safetensors: size expected 53717551730 / actual 53717551730 (OK); sha256 expected 3525520c8602d850003eb1960aec0b64291dae33b83f8b65dd639a451df78823 / actual 3525520c8602d850003eb1960aec0b64291dae33b83f8b65dd639a451df78823 (sha256 OK)
+- model.safetensors.index.json: size expected 31275518 / actual 31275518 (OK); sha256 expected 660414e8300728ba80062e6a3c81cb76a65e2ab136ac9e9ceb450ba0c51c3c0d / actual 660414e8300728ba80062e6a3c81cb76a65e2ab136ac9e9ceb450ba0c51c3c0d (sha256 OK)
+- preprocessor_config.json: size expected 390 / actual 390 (OK); sha256 expected - / actual 27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516 (no published hash, size only)
+- processor_config.json: size expected 1191 / actual 1191 (OK); sha256 expected - / actual d89ef49ce9cd37fbf510158e13c1ef063d9286411c1ec9049932dbe0487143b1 (no published hash, size only)
+- tokenizer.json: size expected 12809320 / actual 12809320 (OK); sha256 expected 0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3 / actual 0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3 (sha256 OK)
+- tokenizer_config.json: size expected 17928 / actual 17928 (OK); sha256 expected - / actual b11349aafa7cdc6a320767cf7ceb29ed82f7eda5d65e8e0819e76f0ce947bf27 (no published hash, size only)
+- video_preprocessor_config.json: size expected 385 / actual 385 (OK); sha256 expected - / actual 7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13 (no published hash, size only)
+- vocab.json: size expected 6722759 / actual 6722759 (OK); sha256 expected - / actual ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003 (no published hash, size only)

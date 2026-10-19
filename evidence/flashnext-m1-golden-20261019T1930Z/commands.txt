@@ -1,0 +1,7 @@
+# binary built from sc flashnext/port 78e55b40 (cargo build --release -p aien-inference-abi --bin flashnext_check via quiet-build)
+# run at nice -n 19 ionice -c3, no quiet lock (long CPU run), loadavg in each json (loadavg_start / loadavg_end)
+flashnext_check tokenize $M/tokenizer.json "The capital of France is Paris. The capital of Germany is Berlin. The capital of Italy is"
+flashnext_check golden $M runs/golden1 48 12 $(cat golden1.prompt.ids)
+flashnext_check tokenize $M/tokenizer.json "In 1969, Neil Armstrong became the first person to walk on the surface of the Moon. He said it was one small step for man, one giant leap for mankind."
+flashnext_check golden $M runs/golden2 48 16 $(cat golden2.prompt.ids)
+# M = ~/models/qwen3.8-flash-next-nvfp4-fc694b54 (nvidia/Qwen3.8-Flash-Next-NVFP4 @ fc694b54, 13/13 published sha256 OK)
