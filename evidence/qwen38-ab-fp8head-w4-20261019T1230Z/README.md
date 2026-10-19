@@ -11,4 +11,4 @@ timelines), runs/w4err (host scale-rule survey), runs/text (decoded texts), runs
 Variants: h0 bf16 head, h1 FP8 head, F FP8 weights + FP8 head, W MXFP4 weights + FP8 head, WW MXFP4 weights + MXFP4 head,
 Wb/WWb the same with converter scale rule BEST.
 
-Results and receipts: see ~/handoffs/2026-10-19-ab-fp8head-4bit.md (final table copied here when the last runs land).
+Results and receipts: NOTES.md (copy of ~/handoffs/2026-10-19-ab-fp8head-4bit.md; final report at its end).
