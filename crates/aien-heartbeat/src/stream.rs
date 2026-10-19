@@ -187,7 +187,9 @@ impl Streamer {
         })
     }
 
-    fn load_one(
+    /// Read, digest-check and publish one expert into `slot` (the demand-fill path of a cache on
+    /// this ring; `rotate` uses the same call for every schedule item).
+    pub fn load_one(
         &self,
         ring: &Ring,
         slot: usize,

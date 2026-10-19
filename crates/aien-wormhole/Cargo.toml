@@ -1,0 +1,17 @@
+[package]
+name = "aien-wormhole"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+description = "Wormhole (L080): Qwen3.8-27B and Qwen3.8-Flash-Next as draft + block verify, Flash-Next's routed experts served from the Expert Heartbeat ring. Output is exactly the verifier's own greedy output."
+
+[dependencies]
+aien-heartbeat = { path = "../aien-heartbeat" }
+aien-inference-abi = { path = "../aien-inference-abi" }
+blake3 = "1.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[[bin]]
+name = "wormhole_run"
+path = "src/bin/wormhole_run.rs"

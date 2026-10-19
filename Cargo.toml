@@ -60,6 +60,7 @@ members = [
     "crates/aien-omegese-constraint",
     "crates/aien-localhttp",
     "crates/aien-heartbeat",
+    "crates/aien-wormhole",
 ]
 
 [workspace.package]

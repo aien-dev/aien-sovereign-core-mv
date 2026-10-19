@@ -82,9 +82,12 @@ struct HeaderTensor {
 /// (name, dtype, shape, absolute offset, length)
 type RawTensor = (String, String, Vec<u64>, u64, u64);
 
-/// Parse `model.layers.{L}.mlp.experts.{E}.<rest>`.
+/// Parse `model.layers.{L}.mlp.experts.{E}.<rest>` (Qwen3 MoE) or
+/// `model.language_model.layers.{L}.mlp.experts.{E}.<rest>` (Qwen3.8 Flash-Next).
 fn parse_expert_name(name: &str) -> Option<(u16, u16)> {
-    let rest = name.strip_prefix("model.layers.")?;
+    let rest = name.strip_prefix("model.")?;
+    let rest = rest.strip_prefix("language_model.").unwrap_or(rest);
+    let rest = rest.strip_prefix("layers.")?;
     let (l, rest) = rest.split_once('.')?;
     let rest = rest.strip_prefix("mlp.experts.")?;
     let (e, _) = rest.split_once('.')?;
@@ -155,13 +158,12 @@ impl Manifest {
             }
         }
 
-        let mut experts = Vec::with_capacity(groups.len());
         let mut files: Vec<File> = Vec::new();
         for s in &shards {
             files
                 .push(File::open(model_dir.join(s)).map_err(|e| HeartbeatError::io(s.clone(), e))?);
         }
-        let mut buf = Vec::new();
+        let mut experts = Vec::with_capacity(groups.len());
         for ((layer, expert), mut ts) in groups {
             // Shard order, then file order; adjacent tensors merge into one segment.
             ts.sort_by_key(|(s, t)| (*s, t.3));
@@ -186,26 +188,53 @@ impl Manifest {
                 });
                 payload_off += l;
             }
-            let mut h = blake3::Hasher::new();
-            for seg in &segments {
-                buf.resize(seg.len as usize, 0);
-                files[seg.shard as usize]
-                    .read_exact_at(&mut buf, seg.start)
-                    .map_err(|e| {
-                        HeartbeatError::io(format!("digest read ({layer},{expert})"), e)
-                    })?;
-                h.update(&buf);
-            }
-            let digest = h.finalize().to_hex().to_string();
             experts.push(ExpertEntry {
                 layer,
                 expert,
                 segments,
                 len: payload_off,
                 tensors,
-                digest,
+                digest: String::new(),
             });
         }
+        // Content addresses on a small worker pool (a 24,576-expert model is 68 GB).
+        let workers = std::thread::available_parallelism()
+            .map(|n| n.get().min(8))
+            .unwrap_or(4);
+        let chunk = experts.len().div_ceil(workers).max(1);
+        let files = &files;
+        std::thread::scope(|sc| -> Result<(), HeartbeatError> {
+            let hs: Vec<_> = experts
+                .chunks_mut(chunk)
+                .map(|part| {
+                    sc.spawn(move || -> Result<(), HeartbeatError> {
+                        let mut buf = Vec::new();
+                        for e in part {
+                            let mut h = blake3::Hasher::new();
+                            for seg in &e.segments {
+                                buf.resize(seg.len as usize, 0);
+                                files[seg.shard as usize]
+                                    .read_exact_at(&mut buf, seg.start)
+                                    .map_err(|err| {
+                                        HeartbeatError::io(
+                                            format!("digest read ({},{})", e.layer, e.expert),
+                                            err,
+                                        )
+                                    })?;
+                                h.update(&buf);
+                            }
+                            e.digest = h.finalize().to_hex().to_string();
+                        }
+                        Ok(())
+                    })
+                })
+                .collect();
+            for h in hs {
+                h.join()
+                    .map_err(|_| HeartbeatError::Manifest("digest worker panicked".into()))??;
+            }
+            Ok(())
+        })?;
         let num_layers = experts.iter().map(|e| e.layer + 1).max().unwrap_or(0);
         let experts_per_layer = experts.iter().map(|e| e.expert + 1).max().unwrap_or(0);
         if experts.len() != num_layers as usize * experts_per_layer as usize {
@@ -267,5 +296,14 @@ mod tests {
         );
         assert_eq!(parse_expert_name("model.layers.7.mlp.gate.weight"), None);
         assert_eq!(parse_expert_name("lm_head.weight"), None);
+        assert_eq!(
+            parse_expert_name("model.language_model.layers.47.mlp.experts.511.down_proj.weight_scale_2"),
+            Some((47, 511))
+        );
+        assert_eq!(
+            parse_expert_name("model.language_model.layers.4.mlp.shared_expert.up_proj.weight"),
+            None
+        );
+        assert_eq!(parse_expert_name("mtp.layers.0.mlp.experts.3.up_proj.weight"), None);
     }
 }
