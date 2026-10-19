@@ -1,0 +1,36 @@
+{
+  "group_layers": 4,
+  "reps": [
+    {
+      "bytes": 1523597312,
+      "dev_memcpy_gbps_1t": 26.430300766112314,
+      "dev_memcpy_gbps_nt": 71.09685629174923,
+      "dev_readback_gbps_nt": 117.36807196102166,
+      "direct_bytes_match": true,
+      "direct_read": null,
+      "direct_read_gbps": 10.764830563875128,
+      "fp8_upload_bytes": 1520435200,
+      "fp8_upload_gbps": 1.3348910787504369,
+      "host_memcpy_gbps_1t": 25.67427118036743,
+      "host_memcpy_gbps_nt": 70.49290674284627,
+      "pool_alloc_ms": 240.788306,
+      "pool_free_ms": 60.903218
+    },
+    {
+      "bytes": 1523597312,
+      "dev_memcpy_gbps_1t": 26.56879798873356,
+      "dev_memcpy_gbps_nt": 67.71456332340605,
+      "dev_readback_gbps_nt": 112.30028719323379,
+      "direct_bytes_match": true,
+      "direct_read": null,
+      "direct_read_gbps": 10.666542405475617,
+      "fp8_upload_bytes": 1520435200,
+      "fp8_upload_gbps": 2.1577506624640717,
+      "host_memcpy_gbps_1t": 26.333403775946447,
+      "host_memcpy_gbps_nt": 70.55793297679193,
+      "pool_alloc_ms": 191.661606,
+      "pool_free_ms": 43.66987
+    }
+  ],
+  "threads": 4
+}

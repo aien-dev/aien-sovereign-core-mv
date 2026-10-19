@@ -1,0 +1,1 @@
+flock /tmp/aien-gb10.lock ./qwen38_drum.bin upload-bench q38.drum 4 4 3 upload-bench.json

@@ -1,0 +1,632 @@
+{
+  "batch": 1,
+  "budget": 17179869184,
+  "control": "StaleSlot",
+  "golden": [
+    71093,
+    66,
+    198,
+    390,
+    1866,
+    1494,
+    264,
+    11,
+    514,
+    292,
+    8,
+    313,
+    198,
+    262,
+    460,
+    318,
+    64,
+    835,
+    292,
+    8,
+    907,
+    264,
+    535,
+    292
+  ],
+  "group": 4,
+  "logits_bit_identical": false,
+  "logits_equal_per_conversation": [
+    0
+  ],
+  "max_abs_diff": 28.135658264160156,
+  "median_ms": {
+    "commit_tail": 87.659657,
+    "compute": 165.694147,
+    "reader": 1414.920206,
+    "upload": 0.0,
+    "wait": 1346.825704,
+    "wall": 1512.619336
+  },
+  "mode": "run",
+  "open_s": 9.1728667,
+  "pass": false,
+  "passes": [
+    {
+      "chip_ns": 168121283,
+      "commit_ns": 99219973,
+      "compute_ns": 169304845,
+      "read_bytes": 16726828800,
+      "read_ns": 1561423260,
+      "upload_ns": 0,
+      "wait_ns": 1512658766,
+      "wall_ns": 1682145996
+    },
+    {
+      "chip_ns": 164210612,
+      "commit_ns": 95964090,
+      "compute_ns": 164541785,
+      "read_bytes": 16726828800,
+      "read_ns": 1430964296,
+      "upload_ns": 0,
+      "wait_ns": 1371588531,
+      "wall_ns": 1536309868
+    },
+    {
+      "chip_ns": 165126910,
+      "commit_ns": 90996958,
+      "compute_ns": 165462800,
+      "read_bytes": 16726828800,
+      "read_ns": 1426134216,
+      "upload_ns": 0,
+      "wait_ns": 1360997248,
+      "wall_ns": 1526649345
+    },
+    {
+      "chip_ns": 164437657,
+      "commit_ns": 89836569,
+      "compute_ns": 164766282,
+      "read_bytes": 16726828800,
+      "read_ns": 1423307743,
+      "upload_ns": 0,
+      "wait_ns": 1357390550,
+      "wall_ns": 1522354914
+    },
+    {
+      "chip_ns": 164604933,
+      "commit_ns": 81554401,
+      "compute_ns": 164922027,
+      "read_bytes": 16726828800,
+      "read_ns": 1413030360,
+      "upload_ns": 0,
+      "wait_ns": 1338928119,
+      "wall_ns": 1504034451
+    },
+    {
+      "chip_ns": 165360434,
+      "commit_ns": 81445444,
+      "compute_ns": 165694147,
+      "read_bytes": 16726828800,
+      "read_ns": 1407958237,
+      "upload_ns": 0,
+      "wait_ns": 1333028233,
+      "wall_ns": 1498925165
+    },
+    {
+      "chip_ns": 164670555,
+      "commit_ns": 86846622,
+      "compute_ns": 164998653,
+      "read_bytes": 16726828800,
+      "read_ns": 1419458620,
+      "upload_ns": 0,
+      "wait_ns": 1350075314,
+      "wall_ns": 1515273169
+    },
+    {
+      "chip_ns": 166281046,
+      "commit_ns": 93997911,
+      "compute_ns": 166614169,
+      "read_bytes": 16726828800,
+      "read_ns": 1778178987,
+      "upload_ns": 0,
+      "wait_ns": 1715045123,
+      "wall_ns": 1881861439
+    },
+    {
+      "chip_ns": 164748378,
+      "commit_ns": 91475086,
+      "compute_ns": 165062396,
+      "read_bytes": 16726828800,
+      "read_ns": 1413748280,
+      "upload_ns": 0,
+      "wait_ns": 1348624030,
+      "wall_ns": 1513882027
+    },
+    {
+      "chip_ns": 166190023,
+      "commit_ns": 88420471,
+      "compute_ns": 166524409,
+      "read_bytes": 16726828800,
+      "read_ns": 1409186116,
+      "upload_ns": 0,
+      "wait_ns": 1340258990,
+      "wall_ns": 1506983479
+    },
+    {
+      "chip_ns": 164536381,
+      "commit_ns": 90593178,
+      "compute_ns": 164834686,
+      "read_bytes": 16726828800,
+      "read_ns": 1423292629,
+      "upload_ns": 0,
+      "wait_ns": 1357998265,
+      "wall_ns": 1522987608
+    },
+    {
+      "chip_ns": 165401572,
+      "commit_ns": 82929527,
+      "compute_ns": 165729477,
+      "read_bytes": 16726828800,
+      "read_ns": 1423946946,
+      "upload_ns": 0,
+      "wait_ns": 1350135134,
+      "wall_ns": 1516061587
+    },
+    {
+      "chip_ns": 163971254,
+      "commit_ns": 87514047,
+      "compute_ns": 164295193,
+      "read_bytes": 16726828800,
+      "read_ns": 1414781353,
+      "upload_ns": 0,
+      "wait_ns": 1346635302,
+      "wall_ns": 1511137727
+    },
+    {
+      "chip_ns": 164875421,
+      "commit_ns": 89287291,
+      "compute_ns": 165202048,
+      "read_bytes": 16726828800,
+      "read_ns": 1422208520,
+      "upload_ns": 0,
+      "wait_ns": 1355675614,
+      "wall_ns": 1521083040
+    },
+    {
+      "chip_ns": 166503771,
+      "commit_ns": 93990666,
+      "compute_ns": 166807421,
+      "read_bytes": 16726828800,
+      "read_ns": 1437169400,
+      "upload_ns": 0,
+      "wait_ns": 1375864194,
+      "wall_ns": 1542861791
+    },
+    {
+      "chip_ns": 165184768,
+      "commit_ns": 80737557,
+      "compute_ns": 165521028,
+      "read_bytes": 16726828800,
+      "read_ns": 1414010158,
+      "upload_ns": 0,
+      "wait_ns": 1338518410,
+      "wall_ns": 1504240991
+    },
+    {
+      "chip_ns": 164742111,
+      "commit_ns": 87304503,
+      "compute_ns": 165059344,
+      "read_bytes": 16726828800,
+      "read_ns": 1423136185,
+      "upload_ns": 0,
+      "wait_ns": 1354304953,
+      "wall_ns": 1519527722
+    },
+    {
+      "chip_ns": 163936086,
+      "commit_ns": 87456631,
+      "compute_ns": 164259193,
+      "read_bytes": 16726828800,
+      "read_ns": 1424709563,
+      "upload_ns": 0,
+      "wait_ns": 1357081424,
+      "wall_ns": 1521515965
+    },
+    {
+      "chip_ns": 164373626,
+      "commit_ns": 91017985,
+      "compute_ns": 164660924,
+      "read_bytes": 16726828800,
+      "read_ns": 1415944106,
+      "upload_ns": 0,
+      "wait_ns": 1351131094,
+      "wall_ns": 1515959938
+    },
+    {
+      "chip_ns": 165680643,
+      "commit_ns": 92297749,
+      "compute_ns": 165966823,
+      "read_bytes": 16726828800,
+      "read_ns": 1420502069,
+      "upload_ns": 0,
+      "wait_ns": 1356229983,
+      "wall_ns": 1522351607
+    },
+    {
+      "chip_ns": 166093926,
+      "commit_ns": 89665870,
+      "compute_ns": 166454554,
+      "read_bytes": 16726828800,
+      "read_ns": 1412930656,
+      "upload_ns": 0,
+      "wait_ns": 1345031576,
+      "wall_ns": 1511684102
+    },
+    {
+      "chip_ns": 164643345,
+      "commit_ns": 89241494,
+      "compute_ns": 164964161,
+      "read_bytes": 16726828800,
+      "read_ns": 1421781116,
+      "upload_ns": 0,
+      "wait_ns": 1355044329,
+      "wall_ns": 1520182795
+    },
+    {
+      "chip_ns": 164590556,
+      "commit_ns": 88961390,
+      "compute_ns": 164922382,
+      "read_bytes": 16726828800,
+      "read_ns": 1413562114,
+      "upload_ns": 0,
+      "wait_ns": 1346730157,
+      "wall_ns": 1511861195
+    },
+    {
+      "chip_ns": 165274437,
+      "commit_ns": 92107741,
+      "compute_ns": 165691879,
+      "read_bytes": 16726828800,
+      "read_ns": 1420738824,
+      "upload_ns": 0,
+      "wait_ns": 1356327241,
+      "wall_ns": 1522234096
+    },
+    {
+      "chip_ns": 168175659,
+      "commit_ns": 90645666,
+      "compute_ns": 168559469,
+      "read_bytes": 16726828800,
+      "read_ns": 1403620098,
+      "upload_ns": 0,
+      "wait_ns": 1334379467,
+      "wall_ns": 1503145210
+    },
+    {
+      "chip_ns": 164789455,
+      "commit_ns": 75056909,
+      "compute_ns": 165152449,
+      "read_bytes": 16726828800,
+      "read_ns": 1409176570,
+      "upload_ns": 0,
+      "wait_ns": 1328051196,
+      "wall_ns": 1493373471
+    },
+    {
+      "chip_ns": 164254396,
+      "commit_ns": 93071914,
+      "compute_ns": 164608414,
+      "read_bytes": 16726828800,
+      "read_ns": 1417342526,
+      "upload_ns": 0,
+      "wait_ns": 1355071555,
+      "wall_ns": 1519844579
+    },
+    {
+      "chip_ns": 165913817,
+      "commit_ns": 84914913,
+      "compute_ns": 166318364,
+      "read_bytes": 16726828800,
+      "read_ns": 1421218728,
+      "upload_ns": 0,
+      "wait_ns": 1348927476,
+      "wall_ns": 1515435746
+    },
+    {
+      "chip_ns": 164344335,
+      "commit_ns": 93132536,
+      "compute_ns": 164742353,
+      "read_bytes": 16726828800,
+      "read_ns": 1414816928,
+      "upload_ns": 0,
+      "wait_ns": 1351891727,
+      "wall_ns": 1516802944
+    },
+    {
+      "chip_ns": 166874129,
+      "commit_ns": 93197146,
+      "compute_ns": 167306854,
+      "read_bytes": 16726828800,
+      "read_ns": 1412239549,
+      "upload_ns": 0,
+      "wait_ns": 1347337388,
+      "wall_ns": 1514856722
+    },
+    {
+      "chip_ns": 167267302,
+      "commit_ns": 78839325,
+      "compute_ns": 167704710,
+      "read_bytes": 16726828800,
+      "read_ns": 1412617966,
+      "upload_ns": 0,
+      "wait_ns": 1332642811,
+      "wall_ns": 1500562674
+    },
+    {
+      "chip_ns": 165711897,
+      "commit_ns": 90785784,
+      "compute_ns": 166110044,
+      "read_bytes": 16726828800,
+      "read_ns": 1411571627,
+      "upload_ns": 0,
+      "wait_ns": 1345308543,
+      "wall_ns": 1511607965
+    },
+    {
+      "chip_ns": 165370838,
+      "commit_ns": 82135412,
+      "compute_ns": 165770922,
+      "read_bytes": 16726828800,
+      "read_ns": 1419663821,
+      "upload_ns": 0,
+      "wait_ns": 1344635341,
+      "wall_ns": 1510613703
+    },
+    {
+      "chip_ns": 165990571,
+      "commit_ns": 82223799,
+      "compute_ns": 166382781,
+      "read_bytes": 16726828800,
+      "read_ns": 1406252866,
+      "upload_ns": 0,
+      "wait_ns": 1331229541,
+      "wall_ns": 1497801507
+    },
+    {
+      "chip_ns": 165529239,
+      "commit_ns": 82414437,
+      "compute_ns": 165959212,
+      "read_bytes": 16726828800,
+      "read_ns": 1418419401,
+      "upload_ns": 0,
+      "wait_ns": 1343471380,
+      "wall_ns": 1509633396
+    },
+    {
+      "chip_ns": 166677522,
+      "commit_ns": 87659657,
+      "compute_ns": 167090132,
+      "read_bytes": 16726828800,
+      "read_ns": 1407803484,
+      "upload_ns": 0,
+      "wait_ns": 1337291591,
+      "wall_ns": 1504577693
+    },
+    {
+      "chip_ns": 164075724,
+      "commit_ns": 85514729,
+      "compute_ns": 164471057,
+      "read_bytes": 16726828800,
+      "read_ns": 1414928902,
+      "upload_ns": 0,
+      "wait_ns": 1344520883,
+      "wall_ns": 1509187621
+    },
+    {
+      "chip_ns": 166626945,
+      "commit_ns": 84706470,
+      "compute_ns": 167024485,
+      "read_bytes": 16726828800,
+      "read_ns": 1422020125,
+      "upload_ns": 0,
+      "wait_ns": 1350312019,
+      "wall_ns": 1517513241
+    },
+    {
+      "chip_ns": 164248288,
+      "commit_ns": 87830919,
+      "compute_ns": 164629154,
+      "read_bytes": 16726828800,
+      "read_ns": 1414920206,
+      "upload_ns": 0,
+      "wait_ns": 1346825704,
+      "wall_ns": 1511641196
+    },
+    {
+      "chip_ns": 167358007,
+      "commit_ns": 87533532,
+      "compute_ns": 167760556,
+      "read_bytes": 16726828800,
+      "read_ns": 1413182571,
+      "upload_ns": 0,
+      "wait_ns": 1341898738,
+      "wall_ns": 1509853872
+    },
+    {
+      "chip_ns": 166227489,
+      "commit_ns": 83589538,
+      "compute_ns": 166615715,
+      "read_bytes": 16726828800,
+      "read_ns": 1419654186,
+      "upload_ns": 0,
+      "wait_ns": 1345799827,
+      "wall_ns": 1512619336
+    },
+    {
+      "chip_ns": 165850252,
+      "commit_ns": 93669346,
+      "compute_ns": 166270176,
+      "read_bytes": 16726828800,
+      "read_ns": 1409870431,
+      "upload_ns": 0,
+      "wait_ns": 1345940520,
+      "wall_ns": 1512410633
+    },
+    {
+      "chip_ns": 166139038,
+      "commit_ns": 91088072,
+      "compute_ns": 166534033,
+      "read_bytes": 16726828800,
+      "read_ns": 1414364586,
+      "upload_ns": 0,
+      "wait_ns": 1348298349,
+      "wall_ns": 1515018479
+    },
+    {
+      "chip_ns": 165081540,
+      "commit_ns": 84411402,
+      "compute_ns": 165470152,
+      "read_bytes": 16726828800,
+      "read_ns": 1426919274,
+      "upload_ns": 0,
+      "wait_ns": 1355234728,
+      "wall_ns": 1520893617
+    },
+    {
+      "chip_ns": 164992917,
+      "commit_ns": 83166061,
+      "compute_ns": 165385863,
+      "read_bytes": 16726828800,
+      "read_ns": 1413995799,
+      "upload_ns": 0,
+      "wait_ns": 1340215617,
+      "wall_ns": 1505787770
+    },
+    {
+      "chip_ns": 166585652,
+      "commit_ns": 82656775,
+      "compute_ns": 166971591,
+      "read_bytes": 16726828800,
+      "read_ns": 1404423088,
+      "upload_ns": 0,
+      "wait_ns": 1329768526,
+      "wall_ns": 1496915877
+    },
+    {
+      "chip_ns": 167126521,
+      "commit_ns": 87495706,
+      "compute_ns": 167541340,
+      "read_bytes": 16726828800,
+      "read_ns": 1410393206,
+      "upload_ns": 0,
+      "wait_ns": 1340761030,
+      "wall_ns": 1508513412
+    }
+  ],
+  "path": "Refill",
+  "plan": {
+    "budget": 17179869184,
+    "fixed": 6401163264,
+    "groups": [
+      [
+        0,
+        4
+      ],
+      [
+        4,
+        8
+      ],
+      [
+        8,
+        12
+      ],
+      [
+        12,
+        16
+      ],
+      [
+        16,
+        20
+      ],
+      [
+        20,
+        24
+      ],
+      [
+        24,
+        28
+      ],
+      [
+        28,
+        32
+      ],
+      [
+        32,
+        36
+      ],
+      [
+        36,
+        40
+      ],
+      [
+        40,
+        44
+      ],
+      [
+        44,
+        48
+      ],
+      [
+        48,
+        52
+      ],
+      [
+        52,
+        56
+      ],
+      [
+        56,
+        60
+      ],
+      [
+        60,
+        64
+      ]
+    ],
+    "peak": 17066344448,
+    "pinned": 5,
+    "pinned_bytes": 7617986560,
+    "slot_bytes": 1523597312,
+    "slots": 2,
+    "streamed_bytes": 16759570432
+  },
+  "positions": 47,
+  "reader_gbps_median": 11.821747070307936,
+  "reference_golden_identical": true,
+  "threads": 4,
+  "tokens": [
+    [
+      3296,
+      42600,
+      54825,
+      2972,
+      1244,
+      4775,
+      459,
+      3825,
+      1649,
+      16,
+      1649,
+      1649,
+      1649,
+      64,
+      22,
+      2226,
+      25,
+      248046,
+      220,
+      220,
+      466,
+      874,
+      30,
+      1649
+    ]
+  ],
+  "tokens_identical": false,
+  "vm_hwm": 16122839040,
+  "within_budget": true
+}

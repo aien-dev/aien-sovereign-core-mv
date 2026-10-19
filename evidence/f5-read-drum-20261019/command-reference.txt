@@ -1,0 +1,1 @@
+flock /tmp/aien-gb10.lock ./qwen38_drum.bin reference ~/models/qwen3.8-27b-fp8-017b9c7a ~/handoffs/qwen38-ref/gen-chat-max-24.json /tmp/f5-read-drum-scratch/ref

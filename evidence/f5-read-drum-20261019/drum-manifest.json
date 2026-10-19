@@ -1,0 +1,4502 @@
+{
+  "format": "aien-q38-drum/1",
+  "checkpoint": "qwen3.8-27b-fp8-017b9c7a",
+  "layers": [
+    {
+      "layer": 0,
+      "attention": false,
+      "start": 0,
+      "len": 383766528,
+      "sha256": "48b4fe7bca2026175ee82c342e8ad674d4390472c25dc026d0086149cf589790",
+      "entries": [
+        {
+          "name": "layers.0.mix.w",
+          "offset": 0,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.0.mix.s",
+          "offset": 83886080,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.0.ab",
+          "offset": 83898368,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.0.o.w",
+          "offset": 84881408,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.0.o.s",
+          "offset": 116338688,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.0.gate_up.w",
+          "offset": 116342784,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.0.gate_up.s",
+          "offset": 294600704,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.0.down.w",
+          "offset": 294625280,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.0.down.s",
+          "offset": 383754240,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 1,
+      "attention": false,
+      "start": 383766528,
+      "len": 383766528,
+      "sha256": "d66a02413b5b64b85174599dfe5998d69372ed14b1e1d64b0aa5450113d2bec4",
+      "entries": [
+        {
+          "name": "layers.1.mix.w",
+          "offset": 383766528,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.1.mix.s",
+          "offset": 467652608,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.1.ab",
+          "offset": 467664896,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.1.o.w",
+          "offset": 468647936,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.1.o.s",
+          "offset": 500105216,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.1.gate_up.w",
+          "offset": 500109312,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.1.gate_up.s",
+          "offset": 678367232,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.1.down.w",
+          "offset": 678391808,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.1.down.s",
+          "offset": 767520768,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 2,
+      "attention": false,
+      "start": 767533056,
+      "len": 383766528,
+      "sha256": "1262c108eff0409144d0d0fcc661a8d639fac1bd710f33479bb5401911394051",
+      "entries": [
+        {
+          "name": "layers.2.mix.w",
+          "offset": 767533056,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.2.mix.s",
+          "offset": 851419136,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.2.ab",
+          "offset": 851431424,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.2.o.w",
+          "offset": 852414464,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.2.o.s",
+          "offset": 883871744,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.2.gate_up.w",
+          "offset": 883875840,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.2.gate_up.s",
+          "offset": 1062133760,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.2.down.w",
+          "offset": 1062158336,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.2.down.s",
+          "offset": 1151287296,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 3,
+      "attention": true,
+      "start": 1151299584,
+      "len": 372297728,
+      "sha256": "8357f1a5de79c26519176a605aa4b8ccd599b7a619237dcb948a4ad64502752e",
+      "entries": [
+        {
+          "name": "layers.3.mix.w",
+          "offset": 1151299584,
+          "bytes": 73400320,
+          "n": 14336,
+          "k": 5120
+        },
+        {
+          "name": "layers.3.mix.s",
+          "offset": 1224699904,
+          "bytes": 8960,
+          "n": 112,
+          "k": 40
+        },
+        {
+          "name": "layers.3.o.w",
+          "offset": 1224712192,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.3.o.s",
+          "offset": 1256169472,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.3.gate_up.w",
+          "offset": 1256173568,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.3.gate_up.s",
+          "offset": 1434431488,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.3.down.w",
+          "offset": 1434456064,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.3.down.s",
+          "offset": 1523585024,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 4,
+      "attention": false,
+      "start": 1523597312,
+      "len": 383766528,
+      "sha256": "85cf8eb61ef1be4df93cfc9eebe4970a2fb51d3b3973953f2f63974653f02bc0",
+      "entries": [
+        {
+          "name": "layers.4.mix.w",
+          "offset": 1523597312,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.4.mix.s",
+          "offset": 1607483392,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.4.ab",
+          "offset": 1607495680,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.4.o.w",
+          "offset": 1608478720,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.4.o.s",
+          "offset": 1639936000,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.4.gate_up.w",
+          "offset": 1639940096,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.4.gate_up.s",
+          "offset": 1818198016,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.4.down.w",
+          "offset": 1818222592,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.4.down.s",
+          "offset": 1907351552,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 5,
+      "attention": false,
+      "start": 1907363840,
+      "len": 383766528,
+      "sha256": "988ea62b037963aba8109ef7acdce8bc7234b74259af1fd633eb734aeeed0c1b",
+      "entries": [
+        {
+          "name": "layers.5.mix.w",
+          "offset": 1907363840,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.5.mix.s",
+          "offset": 1991249920,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.5.ab",
+          "offset": 1991262208,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.5.o.w",
+          "offset": 1992245248,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.5.o.s",
+          "offset": 2023702528,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.5.gate_up.w",
+          "offset": 2023706624,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.5.gate_up.s",
+          "offset": 2201964544,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.5.down.w",
+          "offset": 2201989120,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.5.down.s",
+          "offset": 2291118080,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 6,
+      "attention": false,
+      "start": 2291130368,
+      "len": 383766528,
+      "sha256": "185fa6ad4d31aea1c2db1a21aef111b54794377e12a523c273c3628b36ac8c9b",
+      "entries": [
+        {
+          "name": "layers.6.mix.w",
+          "offset": 2291130368,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.6.mix.s",
+          "offset": 2375016448,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.6.ab",
+          "offset": 2375028736,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.6.o.w",
+          "offset": 2376011776,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.6.o.s",
+          "offset": 2407469056,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.6.gate_up.w",
+          "offset": 2407473152,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.6.gate_up.s",
+          "offset": 2585731072,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.6.down.w",
+          "offset": 2585755648,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.6.down.s",
+          "offset": 2674884608,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 7,
+      "attention": true,
+      "start": 2674896896,
+      "len": 372297728,
+      "sha256": "9e9cd0b31fa29cd4ffb8b56b94fbbe765bcf86e0069b1ea772da1f7bad50b149",
+      "entries": [
+        {
+          "name": "layers.7.mix.w",
+          "offset": 2674896896,
+          "bytes": 73400320,
+          "n": 14336,
+          "k": 5120
+        },
+        {
+          "name": "layers.7.mix.s",
+          "offset": 2748297216,
+          "bytes": 8960,
+          "n": 112,
+          "k": 40
+        },
+        {
+          "name": "layers.7.o.w",
+          "offset": 2748309504,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.7.o.s",
+          "offset": 2779766784,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.7.gate_up.w",
+          "offset": 2779770880,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.7.gate_up.s",
+          "offset": 2958028800,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.7.down.w",
+          "offset": 2958053376,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.7.down.s",
+          "offset": 3047182336,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 8,
+      "attention": false,
+      "start": 3047194624,
+      "len": 383766528,
+      "sha256": "d9d16fe34b30badbd8056b4e6ddf63a4a6b394f7bf7fa5e6dcc743dca9d9f84f",
+      "entries": [
+        {
+          "name": "layers.8.mix.w",
+          "offset": 3047194624,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.8.mix.s",
+          "offset": 3131080704,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.8.ab",
+          "offset": 3131092992,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.8.o.w",
+          "offset": 3132076032,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.8.o.s",
+          "offset": 3163533312,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.8.gate_up.w",
+          "offset": 3163537408,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.8.gate_up.s",
+          "offset": 3341795328,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.8.down.w",
+          "offset": 3341819904,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.8.down.s",
+          "offset": 3430948864,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 9,
+      "attention": false,
+      "start": 3430961152,
+      "len": 383766528,
+      "sha256": "8b602a9880a927d440c90abb99f4200387be58f2779fd787a9b0d4dd93c3fee9",
+      "entries": [
+        {
+          "name": "layers.9.mix.w",
+          "offset": 3430961152,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.9.mix.s",
+          "offset": 3514847232,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.9.ab",
+          "offset": 3514859520,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.9.o.w",
+          "offset": 3515842560,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.9.o.s",
+          "offset": 3547299840,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.9.gate_up.w",
+          "offset": 3547303936,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.9.gate_up.s",
+          "offset": 3725561856,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.9.down.w",
+          "offset": 3725586432,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.9.down.s",
+          "offset": 3814715392,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 10,
+      "attention": false,
+      "start": 3814727680,
+      "len": 383766528,
+      "sha256": "12d5c3a116fed06647cd2236df7cc735e89b1218c005f06627aa0f073b03173f",
+      "entries": [
+        {
+          "name": "layers.10.mix.w",
+          "offset": 3814727680,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.10.mix.s",
+          "offset": 3898613760,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.10.ab",
+          "offset": 3898626048,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.10.o.w",
+          "offset": 3899609088,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.10.o.s",
+          "offset": 3931066368,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.10.gate_up.w",
+          "offset": 3931070464,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.10.gate_up.s",
+          "offset": 4109328384,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.10.down.w",
+          "offset": 4109352960,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.10.down.s",
+          "offset": 4198481920,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 11,
+      "attention": true,
+      "start": 4198494208,
+      "len": 372297728,
+      "sha256": "41415da685190b359ee7f71e5520fd8edb04ef39a8bcc5e381ffe7e405ba36ee",
+      "entries": [
+        {
+          "name": "layers.11.mix.w",
+          "offset": 4198494208,
+          "bytes": 73400320,
+          "n": 14336,
+          "k": 5120
+        },
+        {
+          "name": "layers.11.mix.s",
+          "offset": 4271894528,
+          "bytes": 8960,
+          "n": 112,
+          "k": 40
+        },
+        {
+          "name": "layers.11.o.w",
+          "offset": 4271906816,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.11.o.s",
+          "offset": 4303364096,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.11.gate_up.w",
+          "offset": 4303368192,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.11.gate_up.s",
+          "offset": 4481626112,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.11.down.w",
+          "offset": 4481650688,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.11.down.s",
+          "offset": 4570779648,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 12,
+      "attention": false,
+      "start": 4570791936,
+      "len": 383766528,
+      "sha256": "e7b1f082b80430c77875d1638144d33633017225096214140425088c7a1ffab8",
+      "entries": [
+        {
+          "name": "layers.12.mix.w",
+          "offset": 4570791936,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.12.mix.s",
+          "offset": 4654678016,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.12.ab",
+          "offset": 4654690304,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.12.o.w",
+          "offset": 4655673344,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.12.o.s",
+          "offset": 4687130624,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.12.gate_up.w",
+          "offset": 4687134720,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.12.gate_up.s",
+          "offset": 4865392640,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.12.down.w",
+          "offset": 4865417216,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.12.down.s",
+          "offset": 4954546176,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 13,
+      "attention": false,
+      "start": 4954558464,
+      "len": 383766528,
+      "sha256": "878302cb2cf654b58547212effb88c74db0a6f102192618528c2e853e3388d54",
+      "entries": [
+        {
+          "name": "layers.13.mix.w",
+          "offset": 4954558464,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.13.mix.s",
+          "offset": 5038444544,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.13.ab",
+          "offset": 5038456832,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.13.o.w",
+          "offset": 5039439872,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.13.o.s",
+          "offset": 5070897152,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.13.gate_up.w",
+          "offset": 5070901248,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.13.gate_up.s",
+          "offset": 5249159168,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.13.down.w",
+          "offset": 5249183744,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.13.down.s",
+          "offset": 5338312704,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 14,
+      "attention": false,
+      "start": 5338324992,
+      "len": 383766528,
+      "sha256": "a795bf11110f789cbff64bce5607db9826cf24dd03a375452e7ee0f46e186761",
+      "entries": [
+        {
+          "name": "layers.14.mix.w",
+          "offset": 5338324992,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.14.mix.s",
+          "offset": 5422211072,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.14.ab",
+          "offset": 5422223360,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.14.o.w",
+          "offset": 5423206400,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.14.o.s",
+          "offset": 5454663680,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.14.gate_up.w",
+          "offset": 5454667776,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.14.gate_up.s",
+          "offset": 5632925696,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.14.down.w",
+          "offset": 5632950272,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.14.down.s",
+          "offset": 5722079232,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 15,
+      "attention": true,
+      "start": 5722091520,
+      "len": 372297728,
+      "sha256": "89298b73850f6d0e9b2e0da186669a71211aa48d2336b9839f93050b04498ce5",
+      "entries": [
+        {
+          "name": "layers.15.mix.w",
+          "offset": 5722091520,
+          "bytes": 73400320,
+          "n": 14336,
+          "k": 5120
+        },
+        {
+          "name": "layers.15.mix.s",
+          "offset": 5795491840,
+          "bytes": 8960,
+          "n": 112,
+          "k": 40
+        },
+        {
+          "name": "layers.15.o.w",
+          "offset": 5795504128,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.15.o.s",
+          "offset": 5826961408,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.15.gate_up.w",
+          "offset": 5826965504,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.15.gate_up.s",
+          "offset": 6005223424,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.15.down.w",
+          "offset": 6005248000,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.15.down.s",
+          "offset": 6094376960,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 16,
+      "attention": false,
+      "start": 6094389248,
+      "len": 383766528,
+      "sha256": "47e98b7fb7b729a94616cb8e01cc69381b556b4bd76449432af4cb6b6dda10e9",
+      "entries": [
+        {
+          "name": "layers.16.mix.w",
+          "offset": 6094389248,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.16.mix.s",
+          "offset": 6178275328,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.16.ab",
+          "offset": 6178287616,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.16.o.w",
+          "offset": 6179270656,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.16.o.s",
+          "offset": 6210727936,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.16.gate_up.w",
+          "offset": 6210732032,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.16.gate_up.s",
+          "offset": 6388989952,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.16.down.w",
+          "offset": 6389014528,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.16.down.s",
+          "offset": 6478143488,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 17,
+      "attention": false,
+      "start": 6478155776,
+      "len": 383766528,
+      "sha256": "b4037cc0ceedd18570efb0ada740b56bbf596144ffbc50bcb8bbff6589a51cf1",
+      "entries": [
+        {
+          "name": "layers.17.mix.w",
+          "offset": 6478155776,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.17.mix.s",
+          "offset": 6562041856,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.17.ab",
+          "offset": 6562054144,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.17.o.w",
+          "offset": 6563037184,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.17.o.s",
+          "offset": 6594494464,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.17.gate_up.w",
+          "offset": 6594498560,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.17.gate_up.s",
+          "offset": 6772756480,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.17.down.w",
+          "offset": 6772781056,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.17.down.s",
+          "offset": 6861910016,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 18,
+      "attention": false,
+      "start": 6861922304,
+      "len": 383766528,
+      "sha256": "1cda864d03b949360098ace5b64dcad9c78a9585f46b3e64171738264fd8e3f3",
+      "entries": [
+        {
+          "name": "layers.18.mix.w",
+          "offset": 6861922304,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.18.mix.s",
+          "offset": 6945808384,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.18.ab",
+          "offset": 6945820672,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.18.o.w",
+          "offset": 6946803712,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.18.o.s",
+          "offset": 6978260992,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.18.gate_up.w",
+          "offset": 6978265088,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.18.gate_up.s",
+          "offset": 7156523008,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.18.down.w",
+          "offset": 7156547584,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.18.down.s",
+          "offset": 7245676544,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 19,
+      "attention": true,
+      "start": 7245688832,
+      "len": 372297728,
+      "sha256": "f50631ddb0f5ad58b6e22819c2bd6223b677a302c802ea42ab03df034dde2651",
+      "entries": [
+        {
+          "name": "layers.19.mix.w",
+          "offset": 7245688832,
+          "bytes": 73400320,
+          "n": 14336,
+          "k": 5120
+        },
+        {
+          "name": "layers.19.mix.s",
+          "offset": 7319089152,
+          "bytes": 8960,
+          "n": 112,
+          "k": 40
+        },
+        {
+          "name": "layers.19.o.w",
+          "offset": 7319101440,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.19.o.s",
+          "offset": 7350558720,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.19.gate_up.w",
+          "offset": 7350562816,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.19.gate_up.s",
+          "offset": 7528820736,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.19.down.w",
+          "offset": 7528845312,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.19.down.s",
+          "offset": 7617974272,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 20,
+      "attention": false,
+      "start": 7617986560,
+      "len": 383766528,
+      "sha256": "41bfb17aecdf8f02ecb913b597af191e4c49c3f8f7d9c7c568739ec6b751e7ab",
+      "entries": [
+        {
+          "name": "layers.20.mix.w",
+          "offset": 7617986560,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.20.mix.s",
+          "offset": 7701872640,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.20.ab",
+          "offset": 7701884928,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.20.o.w",
+          "offset": 7702867968,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.20.o.s",
+          "offset": 7734325248,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.20.gate_up.w",
+          "offset": 7734329344,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.20.gate_up.s",
+          "offset": 7912587264,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.20.down.w",
+          "offset": 7912611840,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.20.down.s",
+          "offset": 8001740800,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 21,
+      "attention": false,
+      "start": 8001753088,
+      "len": 383766528,
+      "sha256": "48ac518b838e787dcd9f793f4e3a4977b96335b89361799061ab1b27deb562c3",
+      "entries": [
+        {
+          "name": "layers.21.mix.w",
+          "offset": 8001753088,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.21.mix.s",
+          "offset": 8085639168,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.21.ab",
+          "offset": 8085651456,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.21.o.w",
+          "offset": 8086634496,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.21.o.s",
+          "offset": 8118091776,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.21.gate_up.w",
+          "offset": 8118095872,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.21.gate_up.s",
+          "offset": 8296353792,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.21.down.w",
+          "offset": 8296378368,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.21.down.s",
+          "offset": 8385507328,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 22,
+      "attention": false,
+      "start": 8385519616,
+      "len": 383766528,
+      "sha256": "78bcabc969122b8bb650489256da075c743ab95a0751c70d62359915183b7167",
+      "entries": [
+        {
+          "name": "layers.22.mix.w",
+          "offset": 8385519616,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.22.mix.s",
+          "offset": 8469405696,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.22.ab",
+          "offset": 8469417984,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.22.o.w",
+          "offset": 8470401024,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.22.o.s",
+          "offset": 8501858304,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.22.gate_up.w",
+          "offset": 8501862400,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.22.gate_up.s",
+          "offset": 8680120320,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.22.down.w",
+          "offset": 8680144896,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.22.down.s",
+          "offset": 8769273856,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 23,
+      "attention": true,
+      "start": 8769286144,
+      "len": 372297728,
+      "sha256": "979b4e7618d35bb09d17794060f3ab3a5e1a58af17aba0b0e33634af8c5a3c5c",
+      "entries": [
+        {
+          "name": "layers.23.mix.w",
+          "offset": 8769286144,
+          "bytes": 73400320,
+          "n": 14336,
+          "k": 5120
+        },
+        {
+          "name": "layers.23.mix.s",
+          "offset": 8842686464,
+          "bytes": 8960,
+          "n": 112,
+          "k": 40
+        },
+        {
+          "name": "layers.23.o.w",
+          "offset": 8842698752,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.23.o.s",
+          "offset": 8874156032,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.23.gate_up.w",
+          "offset": 8874160128,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.23.gate_up.s",
+          "offset": 9052418048,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.23.down.w",
+          "offset": 9052442624,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.23.down.s",
+          "offset": 9141571584,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 24,
+      "attention": false,
+      "start": 9141583872,
+      "len": 383766528,
+      "sha256": "83d9cead5566da90533e0f03cddbc545907b9727768ddf4a0902c20962331419",
+      "entries": [
+        {
+          "name": "layers.24.mix.w",
+          "offset": 9141583872,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.24.mix.s",
+          "offset": 9225469952,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.24.ab",
+          "offset": 9225482240,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.24.o.w",
+          "offset": 9226465280,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.24.o.s",
+          "offset": 9257922560,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.24.gate_up.w",
+          "offset": 9257926656,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.24.gate_up.s",
+          "offset": 9436184576,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.24.down.w",
+          "offset": 9436209152,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.24.down.s",
+          "offset": 9525338112,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 25,
+      "attention": false,
+      "start": 9525350400,
+      "len": 383766528,
+      "sha256": "8dcd8f7bd676362cb9ee87925e220bf4e3b04ce3185dd52891f5fb057d2e00c3",
+      "entries": [
+        {
+          "name": "layers.25.mix.w",
+          "offset": 9525350400,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.25.mix.s",
+          "offset": 9609236480,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.25.ab",
+          "offset": 9609248768,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.25.o.w",
+          "offset": 9610231808,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.25.o.s",
+          "offset": 9641689088,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.25.gate_up.w",
+          "offset": 9641693184,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.25.gate_up.s",
+          "offset": 9819951104,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.25.down.w",
+          "offset": 9819975680,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.25.down.s",
+          "offset": 9909104640,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 26,
+      "attention": false,
+      "start": 9909116928,
+      "len": 383766528,
+      "sha256": "9e19ea36ec207b2bbf1e7929deb53391e062a59c047decbc3c969e27c5320596",
+      "entries": [
+        {
+          "name": "layers.26.mix.w",
+          "offset": 9909116928,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.26.mix.s",
+          "offset": 9993003008,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.26.ab",
+          "offset": 9993015296,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.26.o.w",
+          "offset": 9993998336,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.26.o.s",
+          "offset": 10025455616,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.26.gate_up.w",
+          "offset": 10025459712,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.26.gate_up.s",
+          "offset": 10203717632,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.26.down.w",
+          "offset": 10203742208,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.26.down.s",
+          "offset": 10292871168,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 27,
+      "attention": true,
+      "start": 10292883456,
+      "len": 372297728,
+      "sha256": "bfc21402e39229164e47b74400222e7d8479ae935b4e7f4814a4af25454775ee",
+      "entries": [
+        {
+          "name": "layers.27.mix.w",
+          "offset": 10292883456,
+          "bytes": 73400320,
+          "n": 14336,
+          "k": 5120
+        },
+        {
+          "name": "layers.27.mix.s",
+          "offset": 10366283776,
+          "bytes": 8960,
+          "n": 112,
+          "k": 40
+        },
+        {
+          "name": "layers.27.o.w",
+          "offset": 10366296064,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.27.o.s",
+          "offset": 10397753344,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.27.gate_up.w",
+          "offset": 10397757440,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.27.gate_up.s",
+          "offset": 10576015360,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.27.down.w",
+          "offset": 10576039936,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.27.down.s",
+          "offset": 10665168896,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 28,
+      "attention": false,
+      "start": 10665181184,
+      "len": 383766528,
+      "sha256": "ef95ad3d972543749a9da246a5919fa3032c3b57ddbbf16a4e523ad137fb677e",
+      "entries": [
+        {
+          "name": "layers.28.mix.w",
+          "offset": 10665181184,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.28.mix.s",
+          "offset": 10749067264,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.28.ab",
+          "offset": 10749079552,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.28.o.w",
+          "offset": 10750062592,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.28.o.s",
+          "offset": 10781519872,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.28.gate_up.w",
+          "offset": 10781523968,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.28.gate_up.s",
+          "offset": 10959781888,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.28.down.w",
+          "offset": 10959806464,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.28.down.s",
+          "offset": 11048935424,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 29,
+      "attention": false,
+      "start": 11048947712,
+      "len": 383766528,
+      "sha256": "436b4c7b7d0b241d76b974a96877753da680209735a48790d32919c2f1bcd293",
+      "entries": [
+        {
+          "name": "layers.29.mix.w",
+          "offset": 11048947712,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.29.mix.s",
+          "offset": 11132833792,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.29.ab",
+          "offset": 11132846080,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.29.o.w",
+          "offset": 11133829120,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.29.o.s",
+          "offset": 11165286400,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.29.gate_up.w",
+          "offset": 11165290496,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.29.gate_up.s",
+          "offset": 11343548416,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.29.down.w",
+          "offset": 11343572992,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.29.down.s",
+          "offset": 11432701952,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 30,
+      "attention": false,
+      "start": 11432714240,
+      "len": 383766528,
+      "sha256": "9471f15f8e121be7c2755d04ffe0162d3048932beef659cdea0588f106bc1835",
+      "entries": [
+        {
+          "name": "layers.30.mix.w",
+          "offset": 11432714240,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.30.mix.s",
+          "offset": 11516600320,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.30.ab",
+          "offset": 11516612608,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.30.o.w",
+          "offset": 11517595648,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.30.o.s",
+          "offset": 11549052928,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.30.gate_up.w",
+          "offset": 11549057024,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.30.gate_up.s",
+          "offset": 11727314944,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.30.down.w",
+          "offset": 11727339520,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.30.down.s",
+          "offset": 11816468480,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 31,
+      "attention": true,
+      "start": 11816480768,
+      "len": 372297728,
+      "sha256": "b98a226a91fe7c83d79aec6bf3790f5cc451eeb31147064aa66212c9626115d9",
+      "entries": [
+        {
+          "name": "layers.31.mix.w",
+          "offset": 11816480768,
+          "bytes": 73400320,
+          "n": 14336,
+          "k": 5120
+        },
+        {
+          "name": "layers.31.mix.s",
+          "offset": 11889881088,
+          "bytes": 8960,
+          "n": 112,
+          "k": 40
+        },
+        {
+          "name": "layers.31.o.w",
+          "offset": 11889893376,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.31.o.s",
+          "offset": 11921350656,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.31.gate_up.w",
+          "offset": 11921354752,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.31.gate_up.s",
+          "offset": 12099612672,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.31.down.w",
+          "offset": 12099637248,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.31.down.s",
+          "offset": 12188766208,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 32,
+      "attention": false,
+      "start": 12188778496,
+      "len": 383766528,
+      "sha256": "3974e12974987353cefdaf5bf3a3cee09b2f5b9b5cd87079ccb83e2f6011f0ff",
+      "entries": [
+        {
+          "name": "layers.32.mix.w",
+          "offset": 12188778496,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.32.mix.s",
+          "offset": 12272664576,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.32.ab",
+          "offset": 12272676864,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.32.o.w",
+          "offset": 12273659904,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.32.o.s",
+          "offset": 12305117184,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.32.gate_up.w",
+          "offset": 12305121280,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.32.gate_up.s",
+          "offset": 12483379200,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.32.down.w",
+          "offset": 12483403776,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.32.down.s",
+          "offset": 12572532736,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 33,
+      "attention": false,
+      "start": 12572545024,
+      "len": 383766528,
+      "sha256": "e5e3a050ac21b0dc1839146a73ec0e05b2cf66cd0a6d3f1bb476d46c37c89dda",
+      "entries": [
+        {
+          "name": "layers.33.mix.w",
+          "offset": 12572545024,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.33.mix.s",
+          "offset": 12656431104,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.33.ab",
+          "offset": 12656443392,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.33.o.w",
+          "offset": 12657426432,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.33.o.s",
+          "offset": 12688883712,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.33.gate_up.w",
+          "offset": 12688887808,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.33.gate_up.s",
+          "offset": 12867145728,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.33.down.w",
+          "offset": 12867170304,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.33.down.s",
+          "offset": 12956299264,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 34,
+      "attention": false,
+      "start": 12956311552,
+      "len": 383766528,
+      "sha256": "47bf3e94ea5f5b67860eba5a6cd0e53643d044ed471d638c7509f12d3968ddac",
+      "entries": [
+        {
+          "name": "layers.34.mix.w",
+          "offset": 12956311552,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.34.mix.s",
+          "offset": 13040197632,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.34.ab",
+          "offset": 13040209920,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.34.o.w",
+          "offset": 13041192960,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.34.o.s",
+          "offset": 13072650240,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.34.gate_up.w",
+          "offset": 13072654336,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.34.gate_up.s",
+          "offset": 13250912256,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.34.down.w",
+          "offset": 13250936832,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.34.down.s",
+          "offset": 13340065792,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 35,
+      "attention": true,
+      "start": 13340078080,
+      "len": 372297728,
+      "sha256": "60fa2c2316959c01540e228d5f95876e21aff72bdad2ef56410d07180610aa8d",
+      "entries": [
+        {
+          "name": "layers.35.mix.w",
+          "offset": 13340078080,
+          "bytes": 73400320,
+          "n": 14336,
+          "k": 5120
+        },
+        {
+          "name": "layers.35.mix.s",
+          "offset": 13413478400,
+          "bytes": 8960,
+          "n": 112,
+          "k": 40
+        },
+        {
+          "name": "layers.35.o.w",
+          "offset": 13413490688,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.35.o.s",
+          "offset": 13444947968,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.35.gate_up.w",
+          "offset": 13444952064,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.35.gate_up.s",
+          "offset": 13623209984,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.35.down.w",
+          "offset": 13623234560,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.35.down.s",
+          "offset": 13712363520,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 36,
+      "attention": false,
+      "start": 13712375808,
+      "len": 383766528,
+      "sha256": "72cd851027d77df6d1551b0d92fe88992f391a56b63dafb73a866f2dd3175439",
+      "entries": [
+        {
+          "name": "layers.36.mix.w",
+          "offset": 13712375808,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.36.mix.s",
+          "offset": 13796261888,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.36.ab",
+          "offset": 13796274176,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.36.o.w",
+          "offset": 13797257216,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.36.o.s",
+          "offset": 13828714496,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.36.gate_up.w",
+          "offset": 13828718592,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.36.gate_up.s",
+          "offset": 14006976512,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.36.down.w",
+          "offset": 14007001088,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.36.down.s",
+          "offset": 14096130048,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 37,
+      "attention": false,
+      "start": 14096142336,
+      "len": 383766528,
+      "sha256": "d6faae443880756372d3ddad7baba99a37f800ee5f2981f9f4ea407c0dd678f2",
+      "entries": [
+        {
+          "name": "layers.37.mix.w",
+          "offset": 14096142336,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.37.mix.s",
+          "offset": 14180028416,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.37.ab",
+          "offset": 14180040704,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.37.o.w",
+          "offset": 14181023744,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.37.o.s",
+          "offset": 14212481024,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.37.gate_up.w",
+          "offset": 14212485120,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.37.gate_up.s",
+          "offset": 14390743040,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.37.down.w",
+          "offset": 14390767616,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.37.down.s",
+          "offset": 14479896576,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 38,
+      "attention": false,
+      "start": 14479908864,
+      "len": 383766528,
+      "sha256": "feaa8b69dca59db86012cf132fc3c764e3968a705489a93f21d09ad56e91b2f8",
+      "entries": [
+        {
+          "name": "layers.38.mix.w",
+          "offset": 14479908864,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.38.mix.s",
+          "offset": 14563794944,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.38.ab",
+          "offset": 14563807232,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.38.o.w",
+          "offset": 14564790272,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.38.o.s",
+          "offset": 14596247552,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.38.gate_up.w",
+          "offset": 14596251648,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.38.gate_up.s",
+          "offset": 14774509568,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.38.down.w",
+          "offset": 14774534144,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.38.down.s",
+          "offset": 14863663104,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 39,
+      "attention": true,
+      "start": 14863675392,
+      "len": 372297728,
+      "sha256": "3241d9a6c732e937c22483aaed5d7a9cb52d2007f0e695dbf5c2c359eae9e3c5",
+      "entries": [
+        {
+          "name": "layers.39.mix.w",
+          "offset": 14863675392,
+          "bytes": 73400320,
+          "n": 14336,
+          "k": 5120
+        },
+        {
+          "name": "layers.39.mix.s",
+          "offset": 14937075712,
+          "bytes": 8960,
+          "n": 112,
+          "k": 40
+        },
+        {
+          "name": "layers.39.o.w",
+          "offset": 14937088000,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.39.o.s",
+          "offset": 14968545280,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.39.gate_up.w",
+          "offset": 14968549376,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.39.gate_up.s",
+          "offset": 15146807296,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.39.down.w",
+          "offset": 15146831872,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.39.down.s",
+          "offset": 15235960832,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 40,
+      "attention": false,
+      "start": 15235973120,
+      "len": 383766528,
+      "sha256": "fb7efe3759e6c12aff710960e22774e75c7bf9854490dfd8bf4b03e8630b59e7",
+      "entries": [
+        {
+          "name": "layers.40.mix.w",
+          "offset": 15235973120,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.40.mix.s",
+          "offset": 15319859200,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.40.ab",
+          "offset": 15319871488,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.40.o.w",
+          "offset": 15320854528,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.40.o.s",
+          "offset": 15352311808,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.40.gate_up.w",
+          "offset": 15352315904,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.40.gate_up.s",
+          "offset": 15530573824,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.40.down.w",
+          "offset": 15530598400,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.40.down.s",
+          "offset": 15619727360,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 41,
+      "attention": false,
+      "start": 15619739648,
+      "len": 383766528,
+      "sha256": "60c0d4a172f3e2e278e96c65b678e5e8d24ac91863f4d2d0ec28407599b08097",
+      "entries": [
+        {
+          "name": "layers.41.mix.w",
+          "offset": 15619739648,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.41.mix.s",
+          "offset": 15703625728,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.41.ab",
+          "offset": 15703638016,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.41.o.w",
+          "offset": 15704621056,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.41.o.s",
+          "offset": 15736078336,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.41.gate_up.w",
+          "offset": 15736082432,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.41.gate_up.s",
+          "offset": 15914340352,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.41.down.w",
+          "offset": 15914364928,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.41.down.s",
+          "offset": 16003493888,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 42,
+      "attention": false,
+      "start": 16003506176,
+      "len": 383766528,
+      "sha256": "7776ba9970e52f7586ab42424aa51fd8c372e34e4ad3474f12bb4f71f9799101",
+      "entries": [
+        {
+          "name": "layers.42.mix.w",
+          "offset": 16003506176,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.42.mix.s",
+          "offset": 16087392256,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.42.ab",
+          "offset": 16087404544,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.42.o.w",
+          "offset": 16088387584,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.42.o.s",
+          "offset": 16119844864,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.42.gate_up.w",
+          "offset": 16119848960,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.42.gate_up.s",
+          "offset": 16298106880,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.42.down.w",
+          "offset": 16298131456,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.42.down.s",
+          "offset": 16387260416,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 43,
+      "attention": true,
+      "start": 16387272704,
+      "len": 372297728,
+      "sha256": "2dd0f749328ffe917cb034bd8b7cae44778111595d2fbb5e1d7e81c73c436449",
+      "entries": [
+        {
+          "name": "layers.43.mix.w",
+          "offset": 16387272704,
+          "bytes": 73400320,
+          "n": 14336,
+          "k": 5120
+        },
+        {
+          "name": "layers.43.mix.s",
+          "offset": 16460673024,
+          "bytes": 8960,
+          "n": 112,
+          "k": 40
+        },
+        {
+          "name": "layers.43.o.w",
+          "offset": 16460685312,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.43.o.s",
+          "offset": 16492142592,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.43.gate_up.w",
+          "offset": 16492146688,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.43.gate_up.s",
+          "offset": 16670404608,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.43.down.w",
+          "offset": 16670429184,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.43.down.s",
+          "offset": 16759558144,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 44,
+      "attention": false,
+      "start": 16759570432,
+      "len": 383766528,
+      "sha256": "8541211b345e1a82088e4f6e14197b713e305c757ab18c56c8b71e6762a72a3d",
+      "entries": [
+        {
+          "name": "layers.44.mix.w",
+          "offset": 16759570432,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.44.mix.s",
+          "offset": 16843456512,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.44.ab",
+          "offset": 16843468800,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.44.o.w",
+          "offset": 16844451840,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.44.o.s",
+          "offset": 16875909120,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.44.gate_up.w",
+          "offset": 16875913216,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.44.gate_up.s",
+          "offset": 17054171136,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.44.down.w",
+          "offset": 17054195712,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.44.down.s",
+          "offset": 17143324672,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 45,
+      "attention": false,
+      "start": 17143336960,
+      "len": 383766528,
+      "sha256": "b5a7c591281493f032f14e1932478ea8a87a13446d893cb2b08d1e7830b7e988",
+      "entries": [
+        {
+          "name": "layers.45.mix.w",
+          "offset": 17143336960,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.45.mix.s",
+          "offset": 17227223040,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.45.ab",
+          "offset": 17227235328,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.45.o.w",
+          "offset": 17228218368,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.45.o.s",
+          "offset": 17259675648,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.45.gate_up.w",
+          "offset": 17259679744,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.45.gate_up.s",
+          "offset": 17437937664,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.45.down.w",
+          "offset": 17437962240,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.45.down.s",
+          "offset": 17527091200,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 46,
+      "attention": false,
+      "start": 17527103488,
+      "len": 383766528,
+      "sha256": "ec4d1707b94b918389bb0de655e300b20303d9f14e65cf48b21fce6030dc3154",
+      "entries": [
+        {
+          "name": "layers.46.mix.w",
+          "offset": 17527103488,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.46.mix.s",
+          "offset": 17610989568,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.46.ab",
+          "offset": 17611001856,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.46.o.w",
+          "offset": 17611984896,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.46.o.s",
+          "offset": 17643442176,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.46.gate_up.w",
+          "offset": 17643446272,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.46.gate_up.s",
+          "offset": 17821704192,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.46.down.w",
+          "offset": 17821728768,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.46.down.s",
+          "offset": 17910857728,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 47,
+      "attention": true,
+      "start": 17910870016,
+      "len": 372297728,
+      "sha256": "aac02cff0ec9a2ea0f4830e5531f591499bbd1f79a9775c11aaad710b9d41a00",
+      "entries": [
+        {
+          "name": "layers.47.mix.w",
+          "offset": 17910870016,
+          "bytes": 73400320,
+          "n": 14336,
+          "k": 5120
+        },
+        {
+          "name": "layers.47.mix.s",
+          "offset": 17984270336,
+          "bytes": 8960,
+          "n": 112,
+          "k": 40
+        },
+        {
+          "name": "layers.47.o.w",
+          "offset": 17984282624,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.47.o.s",
+          "offset": 18015739904,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.47.gate_up.w",
+          "offset": 18015744000,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.47.gate_up.s",
+          "offset": 18194001920,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.47.down.w",
+          "offset": 18194026496,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.47.down.s",
+          "offset": 18283155456,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 48,
+      "attention": false,
+      "start": 18283167744,
+      "len": 383766528,
+      "sha256": "c4e59b6eaadb1db6f342acb876c62e5513b176b8cb17af335d2f71fc8f0d75b0",
+      "entries": [
+        {
+          "name": "layers.48.mix.w",
+          "offset": 18283167744,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.48.mix.s",
+          "offset": 18367053824,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.48.ab",
+          "offset": 18367066112,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.48.o.w",
+          "offset": 18368049152,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.48.o.s",
+          "offset": 18399506432,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.48.gate_up.w",
+          "offset": 18399510528,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.48.gate_up.s",
+          "offset": 18577768448,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.48.down.w",
+          "offset": 18577793024,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.48.down.s",
+          "offset": 18666921984,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 49,
+      "attention": false,
+      "start": 18666934272,
+      "len": 383766528,
+      "sha256": "f19128b1c766e7497b4456bd30585498f848bd395ff90cc5dd20893991907f28",
+      "entries": [
+        {
+          "name": "layers.49.mix.w",
+          "offset": 18666934272,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.49.mix.s",
+          "offset": 18750820352,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.49.ab",
+          "offset": 18750832640,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.49.o.w",
+          "offset": 18751815680,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.49.o.s",
+          "offset": 18783272960,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.49.gate_up.w",
+          "offset": 18783277056,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.49.gate_up.s",
+          "offset": 18961534976,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.49.down.w",
+          "offset": 18961559552,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.49.down.s",
+          "offset": 19050688512,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 50,
+      "attention": false,
+      "start": 19050700800,
+      "len": 383766528,
+      "sha256": "5afd463f8fe21c0a0a6e52921cefc1f3ff1bf4c479764f373418e5b0ba9ac09b",
+      "entries": [
+        {
+          "name": "layers.50.mix.w",
+          "offset": 19050700800,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.50.mix.s",
+          "offset": 19134586880,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.50.ab",
+          "offset": 19134599168,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.50.o.w",
+          "offset": 19135582208,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.50.o.s",
+          "offset": 19167039488,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.50.gate_up.w",
+          "offset": 19167043584,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.50.gate_up.s",
+          "offset": 19345301504,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.50.down.w",
+          "offset": 19345326080,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.50.down.s",
+          "offset": 19434455040,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 51,
+      "attention": true,
+      "start": 19434467328,
+      "len": 372297728,
+      "sha256": "a008e3e9eda78fec30458bd06d65d57e500bb5bee747e9a2464184fb383a0050",
+      "entries": [
+        {
+          "name": "layers.51.mix.w",
+          "offset": 19434467328,
+          "bytes": 73400320,
+          "n": 14336,
+          "k": 5120
+        },
+        {
+          "name": "layers.51.mix.s",
+          "offset": 19507867648,
+          "bytes": 8960,
+          "n": 112,
+          "k": 40
+        },
+        {
+          "name": "layers.51.o.w",
+          "offset": 19507879936,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.51.o.s",
+          "offset": 19539337216,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.51.gate_up.w",
+          "offset": 19539341312,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.51.gate_up.s",
+          "offset": 19717599232,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.51.down.w",
+          "offset": 19717623808,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.51.down.s",
+          "offset": 19806752768,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 52,
+      "attention": false,
+      "start": 19806765056,
+      "len": 383766528,
+      "sha256": "7dd4f908e1ec3d54d828b69d16fb693e92111555659bd9b8cbd22907970b1448",
+      "entries": [
+        {
+          "name": "layers.52.mix.w",
+          "offset": 19806765056,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.52.mix.s",
+          "offset": 19890651136,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.52.ab",
+          "offset": 19890663424,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.52.o.w",
+          "offset": 19891646464,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.52.o.s",
+          "offset": 19923103744,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.52.gate_up.w",
+          "offset": 19923107840,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.52.gate_up.s",
+          "offset": 20101365760,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.52.down.w",
+          "offset": 20101390336,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.52.down.s",
+          "offset": 20190519296,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 53,
+      "attention": false,
+      "start": 20190531584,
+      "len": 383766528,
+      "sha256": "1292855ce81bd2e93a772053a71bb82f4e7763df709ae82c12b54f1903c47b71",
+      "entries": [
+        {
+          "name": "layers.53.mix.w",
+          "offset": 20190531584,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.53.mix.s",
+          "offset": 20274417664,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.53.ab",
+          "offset": 20274429952,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.53.o.w",
+          "offset": 20275412992,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.53.o.s",
+          "offset": 20306870272,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.53.gate_up.w",
+          "offset": 20306874368,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.53.gate_up.s",
+          "offset": 20485132288,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.53.down.w",
+          "offset": 20485156864,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.53.down.s",
+          "offset": 20574285824,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 54,
+      "attention": false,
+      "start": 20574298112,
+      "len": 383766528,
+      "sha256": "280cb556461a4312498ed50a1a9c167e1b92c013205cfbb06f3889fa1a4658ba",
+      "entries": [
+        {
+          "name": "layers.54.mix.w",
+          "offset": 20574298112,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.54.mix.s",
+          "offset": 20658184192,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.54.ab",
+          "offset": 20658196480,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.54.o.w",
+          "offset": 20659179520,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.54.o.s",
+          "offset": 20690636800,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.54.gate_up.w",
+          "offset": 20690640896,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.54.gate_up.s",
+          "offset": 20868898816,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.54.down.w",
+          "offset": 20868923392,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.54.down.s",
+          "offset": 20958052352,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 55,
+      "attention": true,
+      "start": 20958064640,
+      "len": 372297728,
+      "sha256": "72b44d61e3c418952b0d11ffaead4691b14485843b992ae8b3aff44d594f7570",
+      "entries": [
+        {
+          "name": "layers.55.mix.w",
+          "offset": 20958064640,
+          "bytes": 73400320,
+          "n": 14336,
+          "k": 5120
+        },
+        {
+          "name": "layers.55.mix.s",
+          "offset": 21031464960,
+          "bytes": 8960,
+          "n": 112,
+          "k": 40
+        },
+        {
+          "name": "layers.55.o.w",
+          "offset": 21031477248,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.55.o.s",
+          "offset": 21062934528,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.55.gate_up.w",
+          "offset": 21062938624,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.55.gate_up.s",
+          "offset": 21241196544,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.55.down.w",
+          "offset": 21241221120,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.55.down.s",
+          "offset": 21330350080,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 56,
+      "attention": false,
+      "start": 21330362368,
+      "len": 383766528,
+      "sha256": "056e6724eb89c722c8e6ef70ec34dd7b4982b9ffb31d4b4a2ee72dd6298d97ac",
+      "entries": [
+        {
+          "name": "layers.56.mix.w",
+          "offset": 21330362368,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.56.mix.s",
+          "offset": 21414248448,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.56.ab",
+          "offset": 21414260736,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.56.o.w",
+          "offset": 21415243776,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.56.o.s",
+          "offset": 21446701056,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.56.gate_up.w",
+          "offset": 21446705152,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.56.gate_up.s",
+          "offset": 21624963072,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.56.down.w",
+          "offset": 21624987648,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.56.down.s",
+          "offset": 21714116608,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 57,
+      "attention": false,
+      "start": 21714128896,
+      "len": 383766528,
+      "sha256": "33e42f695efdf6a43f0607e1772cdb7605185fbd3450dfd71569d00fef4f6b9b",
+      "entries": [
+        {
+          "name": "layers.57.mix.w",
+          "offset": 21714128896,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.57.mix.s",
+          "offset": 21798014976,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.57.ab",
+          "offset": 21798027264,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.57.o.w",
+          "offset": 21799010304,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.57.o.s",
+          "offset": 21830467584,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.57.gate_up.w",
+          "offset": 21830471680,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.57.gate_up.s",
+          "offset": 22008729600,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.57.down.w",
+          "offset": 22008754176,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.57.down.s",
+          "offset": 22097883136,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 58,
+      "attention": false,
+      "start": 22097895424,
+      "len": 383766528,
+      "sha256": "7e4bc80b7a7230493cadb584437aaf44020c05027a1b4077abd2c82cd4328c3a",
+      "entries": [
+        {
+          "name": "layers.58.mix.w",
+          "offset": 22097895424,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.58.mix.s",
+          "offset": 22181781504,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.58.ab",
+          "offset": 22181793792,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.58.o.w",
+          "offset": 22182776832,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.58.o.s",
+          "offset": 22214234112,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.58.gate_up.w",
+          "offset": 22214238208,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.58.gate_up.s",
+          "offset": 22392496128,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.58.down.w",
+          "offset": 22392520704,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.58.down.s",
+          "offset": 22481649664,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 59,
+      "attention": true,
+      "start": 22481661952,
+      "len": 372297728,
+      "sha256": "91ff0b6e76502cc0253302ec39167a585a3f5d6ef51af285f8d355160437b4eb",
+      "entries": [
+        {
+          "name": "layers.59.mix.w",
+          "offset": 22481661952,
+          "bytes": 73400320,
+          "n": 14336,
+          "k": 5120
+        },
+        {
+          "name": "layers.59.mix.s",
+          "offset": 22555062272,
+          "bytes": 8960,
+          "n": 112,
+          "k": 40
+        },
+        {
+          "name": "layers.59.o.w",
+          "offset": 22555074560,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.59.o.s",
+          "offset": 22586531840,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.59.gate_up.w",
+          "offset": 22586535936,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.59.gate_up.s",
+          "offset": 22764793856,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.59.down.w",
+          "offset": 22764818432,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.59.down.s",
+          "offset": 22853947392,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 60,
+      "attention": false,
+      "start": 22853959680,
+      "len": 383766528,
+      "sha256": "77bc97346040ccbf728ff4eb4bf953b667fb1f5b863744d93d725a3c2592fcd4",
+      "entries": [
+        {
+          "name": "layers.60.mix.w",
+          "offset": 22853959680,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.60.mix.s",
+          "offset": 22937845760,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.60.ab",
+          "offset": 22937858048,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.60.o.w",
+          "offset": 22938841088,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.60.o.s",
+          "offset": 22970298368,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.60.gate_up.w",
+          "offset": 22970302464,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.60.gate_up.s",
+          "offset": 23148560384,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.60.down.w",
+          "offset": 23148584960,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.60.down.s",
+          "offset": 23237713920,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 61,
+      "attention": false,
+      "start": 23237726208,
+      "len": 383766528,
+      "sha256": "f1a29ac1bb3c8b07c14717c3a81fbe44c9571721f18d77a8882cfb8290ec6dd3",
+      "entries": [
+        {
+          "name": "layers.61.mix.w",
+          "offset": 23237726208,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.61.mix.s",
+          "offset": 23321612288,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.61.ab",
+          "offset": 23321624576,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.61.o.w",
+          "offset": 23322607616,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.61.o.s",
+          "offset": 23354064896,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.61.gate_up.w",
+          "offset": 23354068992,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.61.gate_up.s",
+          "offset": 23532326912,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.61.down.w",
+          "offset": 23532351488,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.61.down.s",
+          "offset": 23621480448,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 62,
+      "attention": false,
+      "start": 23621492736,
+      "len": 383766528,
+      "sha256": "1702940d6ad69fe467f5883f6a98570ac530138b375fc135bea75500de504d4a",
+      "entries": [
+        {
+          "name": "layers.62.mix.w",
+          "offset": 23621492736,
+          "bytes": 83886080,
+          "n": 16384,
+          "k": 5120
+        },
+        {
+          "name": "layers.62.mix.s",
+          "offset": 23705378816,
+          "bytes": 10240,
+          "n": 128,
+          "k": 40
+        },
+        {
+          "name": "layers.62.ab",
+          "offset": 23705391104,
+          "bytes": 983040,
+          "n": 96,
+          "k": 5120
+        },
+        {
+          "name": "layers.62.o.w",
+          "offset": 23706374144,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.62.o.s",
+          "offset": 23737831424,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.62.gate_up.w",
+          "offset": 23737835520,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.62.gate_up.s",
+          "offset": 23916093440,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.62.down.w",
+          "offset": 23916118016,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.62.down.s",
+          "offset": 24005246976,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    },
+    {
+      "layer": 63,
+      "attention": true,
+      "start": 24005259264,
+      "len": 372297728,
+      "sha256": "f147f4dbfa55b04ab0adab864285d15b32e8f3a55c6e44fdfc4eeff60cf04ff6",
+      "entries": [
+        {
+          "name": "layers.63.mix.w",
+          "offset": 24005259264,
+          "bytes": 73400320,
+          "n": 14336,
+          "k": 5120
+        },
+        {
+          "name": "layers.63.mix.s",
+          "offset": 24078659584,
+          "bytes": 8960,
+          "n": 112,
+          "k": 40
+        },
+        {
+          "name": "layers.63.o.w",
+          "offset": 24078671872,
+          "bytes": 31457280,
+          "n": 5120,
+          "k": 6144
+        },
+        {
+          "name": "layers.63.o.s",
+          "offset": 24110129152,
+          "bytes": 3840,
+          "n": 40,
+          "k": 48
+        },
+        {
+          "name": "layers.63.gate_up.w",
+          "offset": 24110133248,
+          "bytes": 178257920,
+          "n": 34816,
+          "k": 5120
+        },
+        {
+          "name": "layers.63.gate_up.s",
+          "offset": 24288391168,
+          "bytes": 21760,
+          "n": 272,
+          "k": 40
+        },
+        {
+          "name": "layers.63.down.w",
+          "offset": 24288415744,
+          "bytes": 89128960,
+          "n": 5120,
+          "k": 17408
+        },
+        {
+          "name": "layers.63.down.s",
+          "offset": 24377544704,
+          "bytes": 10880,
+          "n": 40,
+          "k": 136
+        }
+      ]
+    }
+  ]
+}

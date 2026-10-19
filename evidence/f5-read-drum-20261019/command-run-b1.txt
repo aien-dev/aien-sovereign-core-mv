@@ -1,0 +1,1 @@
+flock /tmp/aien-gb10.lock ./qwen38_drum.bin run /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a q38.drum /home/drakestapleton/handoffs/qwen38-ref/gen-chat-max-24.json 16 4 1 ref run-b1.json --threads 4
