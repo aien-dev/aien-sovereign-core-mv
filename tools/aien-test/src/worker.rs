@@ -1503,11 +1503,15 @@ mod tests {
         let main_a = target_dir_for(&cfg, "aien-sovereign-core", &a, true).unwrap();
         assert_eq!(
             pr_a,
-            Path::new(TARGET_ROOT).join("aien-sovereign-core/pr").join(&a)
+            Path::new(TARGET_ROOT)
+                .join("aien-sovereign-core/pr")
+                .join(&a)
         );
         assert_eq!(
             main_a,
-            Path::new(TARGET_ROOT).join("aien-sovereign-core/main").join(&a)
+            Path::new(TARGET_ROOT)
+                .join("aien-sovereign-core/main")
+                .join(&a)
         );
         // Two heads never share a dir (cargo would link one head's build into
         // the other, sc #605), and a head's pr dir is never its main dir (A2).
