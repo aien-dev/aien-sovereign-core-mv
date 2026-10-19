@@ -145,6 +145,18 @@ for repo in $REPOS; do
 done
 
 # AGREE
+ready_check() {  # ready_check <repo> <sha> <label> <tree>: the worker's own readiness code (aien-test verify) must
+  # call the crumbs CURRENT exactly when the gate's tool says OK. Catches readiness bugs no tool swap can fix
+  # (2026-10-19: verify.rs called every repo without a root .crumb STALE, so benchmarks/interplane PASS -> error).
+  [ "${AIEN_DOCTOR_NO_READY:-}" = 1 ] && return
+  command -v aien-local-ci >/dev/null || return
+  local gt want got
+  if [ -e "$4/.crumb" ]; then gt=$(gate_tool "$4"); gt=${gt%%|*}; else gt=$SANDBOX; fi
+  want=$(verdict "$gt" "$4"); [ "${want%%|*}" = OK ] && want=CURRENT || want=STALE
+  got=$(aien-local-ci verify "$1" "$2" 2>/dev/null | sed -n 's/^Crumb status: //p' | head -1)
+  if [ "$got" = "$want" ]; then record PASS READY "$1 $3" "aien-test verify Crumb status $got (gate tool agrees)"
+  else record FAIL READY "$1 $3" "aien-test verify says Crumb status ${got:-none}, gate tool says $want"; fi
+}
 check_agree() {  # check_agree <repo> <rev> <label>
   local repo=$1 clone=$CLONES/$1 w sha tree gt ht gv hv kinds detail k rv
   w=$(mktemp -d); sha=$(git -C "$clone" rev-parse --verify -q "$2^{commit}")
@@ -152,6 +164,7 @@ check_agree() {  # check_agree <repo> <rev> <label>
     record FAIL AGREE "$repo $3" "cannot check out $2"; rm -rf "$w"; return
   fi
   tree=$w/t
+  ready_check "$repo" "$sha" "$3" "$tree"
   if [ ! -e "$tree/.crumb" ]; then record PASS AGREE "$repo $3" "no crumbs"; rm -rf "$w"; return; fi
   gt=$(gate_tool "$tree"); ht=$(hosted_tool "$tree")
   gv=$(verdict "${gt%%|*}" "$tree"); hv=$(verdict "${ht%%|*}" "$tree")

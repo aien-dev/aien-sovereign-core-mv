@@ -8,7 +8,7 @@ pass=0; fail=0
 ok()  { pass=$((pass+1)); echo "ok   $1"; }
 bad() { fail=$((fail+1)); echo "FAIL $1: $2"; }
 g() { git -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
-export AIEN_CLONES=$T/clones AIEN_WATCH_STATE=$T/watch AIEN_DOCTOR_NO_PROC=1 CRUMB_TOOL_CACHE=$T/cache
+export AIEN_CLONES=$T/clones AIEN_WATCH_STATE=$T/watch AIEN_DOCTOR_NO_PROC=1 AIEN_DOCTOR_NO_READY=1 CRUMB_TOOL_CACHE=$T/cache
 mkdir -p "$T/clones" "$T/watch"
 echo "OTHER: unrelated alert (must survive)" > "$T/watch/ALERT"
 
