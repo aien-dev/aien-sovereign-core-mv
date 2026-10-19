@@ -1382,6 +1382,19 @@ mod ffi_w4 {
             e8: *mut u8,
             stats: *mut super::W4Stats,
         ) -> i32;
+        #[cfg(has_omega_q38_w4_rule)]
+        pub fn omega_gpu_w4_from_fp8_rule(
+            n: u32,
+            k: u32,
+            w8: *const u8,
+            scale_bf16: *const u16,
+            row0: u32,
+            rows: u32,
+            w4: *mut u8,
+            e8: *mut u8,
+            stats: *mut super::W4Stats,
+            rule: i32,
+        ) -> i32;
         pub fn omega_gpu_q38_graph_set_layer_w4(
             g: *mut OmegaGpuQ38Graph,
             layer: u32,
@@ -1425,6 +1438,24 @@ impl W4Stats {
             0.0
         }
     }
+}
+
+/// The converter's group scale rule from `AIEN_Q38_W4_RULE`: `floor` (default; OCP / f7, omega
+/// `omega_gpu_w4_from_fp8`), `ceil` (never clips) or `mse` (of X and 2X the smaller squared error); omega
+/// `OMEGA_W4_RULE_*` 0, 1, 2. `ceil` and `mse` need an archive with `omega_gpu_w4_from_fp8_rule`.
+pub fn w4_rule() -> Result<i32, OmegaGpuError> {
+    let r = match std::env::var("AIEN_Q38_W4_RULE").as_deref() {
+        Err(_) | Ok("") | Ok("floor") => 0,
+        Ok("ceil") => 1,
+        Ok("mse") => 2,
+        Ok(o) => return Err(bad(format!("AIEN_Q38_W4_RULE={o}: floor, ceil or mse"))),
+    };
+    if r != 0 && !cfg!(has_omega_q38_w4_rule) {
+        return Err(bad(
+            "AIEN_Q38_W4_RULE: this omega archive has only the floor rule".to_string(),
+        ));
+    }
+    Ok(r)
 }
 
 /// True when this build links the MXFP4 GEMV and the graph's 4-bit entries.
@@ -1554,6 +1585,7 @@ pub fn w4_from_fp8(
     let mut e8 = vec![0u8; n * k / 32];
     #[cfg(has_omega_q38_w4)]
     {
+        let rule = w4_rule()?;
         let per = (n / B).div_ceil(threads.max(1)) * B;
         // The converter addresses the whole output by row (rows [row0, row0 + rows) of w4 / e8), so every thread gets
         // the base pointers and a disjoint row range.
@@ -1567,18 +1599,39 @@ pub fn w4_from_fp8(
                         let rows = per.min(n - row0);
                         // SAFETY: w8 / scales hold the whole tensor and w4 / e8 the whole output (checked / sized
                         // above, alive for the scope); the threads write disjoint row ranges.
-                        let rc = unsafe {
-                            ffi_w4::omega_gpu_w4_from_fp8(
-                                n as u32,
-                                k as u32,
-                                w8.as_ptr(),
-                                scales.as_ptr(),
-                                row0 as u32,
-                                rows as u32,
-                                pw as *mut u8,
-                                pe as *mut u8,
-                                &mut st,
-                            )
+                        let rc = match rule {
+                            // SAFETY: as above.
+                            0 => unsafe {
+                                ffi_w4::omega_gpu_w4_from_fp8(
+                                    n as u32,
+                                    k as u32,
+                                    w8.as_ptr(),
+                                    scales.as_ptr(),
+                                    row0 as u32,
+                                    rows as u32,
+                                    pw as *mut u8,
+                                    pe as *mut u8,
+                                    &mut st,
+                                )
+                            },
+                            #[cfg(has_omega_q38_w4_rule)]
+                            // SAFETY: as above.
+                            r => unsafe {
+                                ffi_w4::omega_gpu_w4_from_fp8_rule(
+                                    n as u32,
+                                    k as u32,
+                                    w8.as_ptr(),
+                                    scales.as_ptr(),
+                                    row0 as u32,
+                                    rows as u32,
+                                    pw as *mut u8,
+                                    pe as *mut u8,
+                                    &mut st,
+                                    r,
+                                )
+                            },
+                            #[cfg(not(has_omega_q38_w4_rule))]
+                            _ => -1,
                         };
                         (rc, st)
                     })
