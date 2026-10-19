@@ -1,0 +1,24 @@
+Repo: z-lab/Qwen3.8-27B-DFlash2 (https://huggingface.co/z-lab/Qwen3.8-27B-DFlash2)
+Mirror of: incoai/Qwen3.8-27B-DFlash2 (the model card says so)
+Revision: 50307d4c4cde6860d4eee73e2547cd786fe8e8a4
+License: Apache-2.0 (model card front matter: license: apache-2.0). Base model Qwen/Qwen3.8-27B (Apache-2.0).
+Downloaded and verified: 2026-10-19T16:06:03Z (UTC), nice -n 19 ionice -c3 curl, 43 s for the weights, load 26.8 at start
+Target: ~/models/qwen3.8-27b-dflash2-50307d4c
+Result: 5 files, 3849113002 bytes total. Every size matched. Every LFS file's sha256 matched the Hugging Face API listing.
+Note: small non-LFS files have no published hash in the listing, so only their size was checked.
+What it is: the DFlash 2 block-diffusion draft model (5 layers, bf16, 1,924,404,480 parameters, 81 tensors) for
+Qwen3.8-27B. It has no embedding table and no lm_head of its own: it uses the target model's (the paper, section
+4.2 "Shared embedding and LM head"). Architecture as read from config.json, the safetensors header and the paper:
+~/handoffs/2026-10-19-cascade-dflash-drafter.md.
+Why the full-precision one: the Chisel NVFP4 build (yuanlin2004/Qwen3.8-27B-Chisel-DFlash2-NVFP4-drafter, rev
+57697fc07c2f7e6475017afbba088caa6cce4a6c, 1.36 GB, Apache-2.0, model.safetensors sha256
+8d464c9f597c41a2e8917c585454239be14f254592f114675fd9d5d5dbc92f4c) is a weight-format change of this same checkpoint
+(compressed-tensors NVFP4A16, group 16, FP8 scales). We keep the bf16 original as the CPU reference and quantize
+ourselves for the chip. Not downloaded.
+
+Per-file expected vs actual:
+- .gitattributes: size expected 1581 / actual 1581 (OK); sha256 expected - / actual 8e63f02a5caa4dbc92838d44dddcfa2c1b76f355503fcbeaa3d6512f7fe132ef (no published hash, size only)
+- README.md: size expected 5397 / actual 5397 (OK); sha256 expected - / actual 0c06405ffff835f4da26115114a6dd7bb4a8b8a6881c17edd3a1086a99281269 (no published hash, size only)
+- config.json: size expected 1239 / actual 1239 (OK); sha256 expected - / actual 873e3556509b0da06e29654ba00d4944888d4b5e8a33afde25f7eb27d321e980 (no published hash, size only)
+- model.safetensors: size expected 3848817896 / actual 3848817896 (OK); sha256 expected 67fc76d68dc5a9415511a4f394ef744d67510cd20e93b37cc2cc7d28e4bab65c / actual 67fc76d68dc5a9415511a4f394ef744d67510cd20e93b37cc2cc7d28e4bab65c (sha256 OK)
+- assets/dflash2-figure.png: size expected 286889 / actual 286889 (OK); sha256 expected 6d8dcc9a9472bddb644c881fe83050b5343d09bf5ffb0912e5598e55fe671e99 / actual 6d8dcc9a9472bddb644c881fe83050b5343d09bf5ffb0912e5598e55fe671e99 (sha256 OK)

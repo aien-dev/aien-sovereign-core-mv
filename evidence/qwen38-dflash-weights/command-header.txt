@@ -1,0 +1,1 @@
+header read with: od -An -t u8 -N8 model.safetensors; dd bs=1 skip=8 count=<n> | jq -S .
