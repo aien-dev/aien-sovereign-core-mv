@@ -4,3 +4,4 @@ QWEN38_DFLASH prompt tune n 256 mutant None norollback false: replay 3.507 words
 qwen38_dflash: lm_head: omega_gpu rc=-4 (CHIP_FAIL: m16_native_create_channel: RM_ALLOC class 0xcec0 status 0x51)
 QWEN38_DFLASH prompt code n 128 mutant ConvTapSwap norollback false: replay 1.208 words/pass -> PASS
 QWEN38_DFLASH prompt code n 128 mutant None norollback true: replay 6.000 words/pass, live 4.417 -> FAIL
+DONE 2026-10-19T23:42:31Z
