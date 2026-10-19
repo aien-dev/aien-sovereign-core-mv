@@ -52,8 +52,8 @@
           "purpose": ""
         },
         {
-          "digest": "658199e445b94e279fac37311108efa89860c875fb469597a1a696b95eb76195",
-          "last_commit": "f97dc905",
+          "digest": "0c60d1b76d9945a67e90babcbff47e438cecb9abfd67ab1d2cf928f039118cfb",
+          "last_commit": "67d1a2ac",
           "name": "self-improvement",
           "purpose": ""
         },
@@ -64,15 +64,15 @@
           "purpose": ""
         }
       ],
-      "children_root": "sha256:fb9c1475432753af7a788bb3c8d7379c2feb4c1c626b3389efa24f033779dea2",
-      "compiled_at": "2026-10-15T11:09:25Z",
+      "children_root": "sha256:16cba1705b4370250500d4873326e75ac2091e05a14d75b15422c269f063af24",
+      "compiled_at": "2026-10-19T21:48:39Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:75e439cb2ae120e1807af894b70b6454971028f5527f56451f9d6558f503c88b",
+      "digest": "sha256:4b39904311773ac1481bfb45cfea442ff8a5981c922512eceb3fa9b90591a32a",
       "evidence_files": 0,
       "evidence_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "files": 9,
-      "generated_at_commit": "7b88b1c4a03de5900578a43e90ce5733f86bbd9d",
-      "source_tree": "sha256:16bf6f03e2f4c6247f5119f03624e964d02605a1bfa4df3683bccc8548b86036"
+      "generated_at_commit": "67d1a2ace110e3312d86cb1675040d02871398f0",
+      "source_tree": "sha256:2208f0414e927323360984b96177cfce3ba804fe1a97e0b86ceb514ebe9601ef"
     }
   },
   "history": [
