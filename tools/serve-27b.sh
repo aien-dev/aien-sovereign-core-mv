@@ -52,10 +52,11 @@ fi
 if command -v ss >/dev/null && ss -ltn "sport = :$PORT" 2>/dev/null | grep -q LISTEN; then
     fail "port $PORT is already in use. Pick another one with PORT=..."
 fi
-# The model and its working memory need about 38.5 GiB of free memory (measured on a DGX Spark).
+# The server peaked at about 36.7 GiB of resident memory on the current build (VmHWM 38499160 kB,
+# evidence/qwen38-serve-memory-20261019/proc-status.txt); warn below 40 GiB free.
 avail_kib=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)
 if [ "${avail_kib:-0}" -lt $((40 * 1024 * 1024)) ]; then
-    echo "serve-27b: warning: only $((avail_kib / 1024 / 1024)) GiB of memory available; the 27B server needs about 38.5 GiB and may be killed by the kernel" >&2
+    echo "serve-27b: warning: only $((avail_kib / 1024 / 1024)) GiB of memory available; the 27B server peaked at about 36.7 GiB and may be killed by the kernel" >&2
 fi
 
 ARGS=(--engine omega --model-dir "$MODEL_DIR" --port "$PORT"
