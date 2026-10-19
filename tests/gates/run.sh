@@ -55,7 +55,8 @@ pin() {  # pin <dir-name> <sibling repo> <sha40>
 }
 
 case "$step" in
-  crumb-verify)        "${CRUMB:-crumb}" verify . ;;
+  # Retired: crumbs are advisory (RFC-0003 Am2). Kept so the CRUMB-VERIFY manifest still resolves.
+  crumb-verify)        echo "CRUMB-VERIFY retired: crumbs are advisory notes (RFC-0003 Am2); nothing to check" ;;
   # ci.yml job verify ("Workspace Verification & Invariant Audit")
   fmt)                 cargo fmt --all -- --check ;;
   release-gate-negatives)
