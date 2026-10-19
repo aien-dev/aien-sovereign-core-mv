@@ -108,7 +108,7 @@ What the helper requires (INFRA, read from the installed script): `--cwd`
 canonical, and inside `/var/lib/aien-run` only a run directory
 `wt/<repo>/<40-hex>` or below it; host and qemu checks get a private `/tmp`, so a tree
 under `/tmp` is invisible to them; `CARGO_TARGET_DIR` only as
-`/var/lib/aien-run/target/<repo>/pr` or `.../main` (created on demand).
+`/var/lib/aien-run/target/<repo>/pr/<sha40>` or `.../main/<sha40>`, the head's own (created on demand).
 Inside a run everything is read-only except the run's own run directory (file
 ownership inside it still applies: siblings are not writable), its one
 target dir and a private `/tmp`. host and qemu checks have no network but
@@ -126,8 +126,10 @@ otherwise. `--sandbox none` runs gates as the worker's own user, who can read
 the signing key: the worker refuses it (exit 2) unless `--dev-unsandboxed` is
 given, and refuses it with `--github` in every case. The library has the same
 rule (`Config.allow_unsandboxed`, default false). Under `--sandbox user` the
-worker passes `CARGO_TARGET_DIR=/var/lib/aien-run/target/<repo>/main` for a
-head already on the base line and `.../pr` for any other head (A2).
+worker passes `CARGO_TARGET_DIR=/var/lib/aien-run/target/<repo>/main/<sha>` for a
+head already on the base line and `.../pr/<sha>` for any other head (A2). One dir
+per head: in a shared dir cargo linked one head's build into another (sc #605);
+`wt.sh remove` deletes the dir with the worktree.
 
 The gates of one head share that target dir, so the runner holds it for one
 gate at a time: every gate that runs takes an exclusive `flock` on
@@ -414,7 +416,7 @@ unmapped path, no blocked gate, no problem line.
   <repo>/                                the detached checkout under test
   <dir>/                                 a read-only sibling checkout (../<dir> from the checkout)
 <clones>/aien-sovereign-core/tools/aien-local-ci/siblings   the operator's sibling map
-/var/lib/aien-run/target/<repo>/pr|main  cargo target dir per trust class (sandbox user)
+/var/lib/aien-run/target/<repo>/pr|main/<sha>  cargo target dir per head and trust class (sandbox user)
 /usr/local/sbin/aien-run-exec            the exec helper (INFRA)
 ```
 
