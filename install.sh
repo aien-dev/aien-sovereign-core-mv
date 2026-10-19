@@ -313,8 +313,10 @@ server_preflight() {
     echo "    GPU device files: $ok readable and writable"
     local avail_kib
     avail_kib="$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
-    if [[ "${avail_kib:-0}" -lt $((40 * 1024 * 1024)) ]]; then
-        server_warn "only $((avail_kib / 1024 / 1024)) GiB of memory is free now; the 27B server needs about 38.5 GiB when it runs."
+    # The loader needs 41,305 MiB + 8,192 MiB kept free = 49,497 MiB (48.3 GiB) of MemAvailable at
+    # load (crates/aien-serve-http/src/qwen38_engine.rs). It re-checks after it gets the GPU lock.
+    if [[ "${avail_kib:-0}" -lt $((49497 * 1024)) ]]; then
+        server_warn "only $((avail_kib / 1024)) MiB of memory is free now; the 27B server's loader needs 49,497 MiB (48.3 GiB) free when it starts, and checks again when it gets the GPU lock."
     else
         echo "    free memory: $((avail_kib / 1024 / 1024)) GiB"
     fi
