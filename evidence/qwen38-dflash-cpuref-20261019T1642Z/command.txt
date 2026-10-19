@@ -1,0 +1,1 @@
+AIEN_DFLASH_DIR=/home/drakestapleton/models/qwen3.8-27b-dflash2-50307d4c flock -s /tmp/aien-quiet.lock nice -n 19 cargo test -j 6 --release -p aien-inference-abi --lib qwen38_dflash -- --include-ignored

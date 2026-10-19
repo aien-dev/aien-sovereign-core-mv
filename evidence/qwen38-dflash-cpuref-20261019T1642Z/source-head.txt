@@ -1,0 +1,2 @@
+f053fac4fc8653797fbfd817f3f2aa5c8c5b1a61
+plus uncommitted qwen38_dflash.rs (committed with this evidence)

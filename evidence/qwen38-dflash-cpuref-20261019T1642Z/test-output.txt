@@ -1,0 +1,24 @@
+warning: aien-omega-gpu@0.1.0: aien-omega-gpu: linking prebuilt /home/drakestapleton/workspace/targets/q38-f7-omega/libomega_gpu.a (sha256 6e90520913032ee8653ebbe325c485d329daa0a749840303a44b68b97ca17bff): a development override, not a qualified build
+   Compiling aien-inference-abi v0.1.0 (/home/drakestapleton/workspace/sc-dflash/crates/aien-inference-abi)
+    Finished `release` profile [optimized] target(s) in 1m 03s
+     Running unittests src/lib.rs (/home/drakestapleton/workspace/targets/dflash/sc/release/deps/aien_inference_abi-4f7b2b2b037b859f)
+
+running 14 tests
+test qwen38_dflash::tests::accepted_counts_the_matching_prefix ... ok
+test qwen38_dflash::tests::config_reads_the_shipped_one_and_refuses_causal ... ok
+test qwen38_dflash::tests::top_k_descending_ascending_id_on_ties ... ok
+test qwen38_dflash::tests::dynconv2_hand_example ... ok
+test qwen38_dflash::tests::dot_is_fixed_order_and_handles_tails ... ok
+test qwen38_dflash::tests::selector_pairwise_term_can_overturn_the_logit_order ... ok
+test qwen38_dflash::tests::block_attends_both_ways ... ok
+test qwen38_dflash::tests::matmul_rows_match_single_rows_bit_for_bit ... ok
+test qwen38_dflash::tests::conv_tap_swap_mutant_changes_the_block ... ok
+test qwen38_dflash::tests::context_in_pieces_equals_context_at_once ... ok
+test qwen38_dflash::tests::safetensors_roundtrip_and_shape_refusal ... ok
+test qwen38_dflash::tests::window_hides_far_context ... ok
+test qwen38_dflash::tests::context_matters_and_the_no_context_mutant_is_seen ... ok
+test qwen38_dflash::tests::real_checkpoint_loads_and_drafts ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 280 filtered out; finished in 7.88s
+
+rc=0
