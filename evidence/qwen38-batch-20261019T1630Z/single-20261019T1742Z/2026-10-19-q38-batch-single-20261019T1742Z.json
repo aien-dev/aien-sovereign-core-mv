@@ -1,0 +1,22 @@
+{
+ "name": "q38-batch-single-20261019T1742Z",
+ "cmd": "/home/drakestapleton/workspace/sc-batch/evidence/qwen38-batch-20261019T1630Z/run.sh single /home/drakestapleton/workspace/sc-batch/evidence/qwen38-batch-20261019T1630Z/single-20261019T1742Z",
+ "exit": 0,
+ "git_head": "e0baae94",
+ "start": "2026-10-19T13:03:49.082959",
+ "seconds": 732.286,
+ "samples": 327,
+ "wall_W_mean": 290.3058103975535,
+ "wall_J": 212586.94206974193,
+ "idle_W_before": 305.0,
+ "incremental_J": -10760.35243490057,
+ "gpu_W_mean": 32.00406727828746,
+ "gpu_util_mean": 68.37003058103976,
+ "load1_start": "74.64",
+ "load1_end": "58.31",
+ "mem_avail_kB_start": "50317928",
+ "mem_avail_kB_end": "53901180",
+ "lock_holders_max": 5,
+ "nvrm_errors_delta": 40,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}

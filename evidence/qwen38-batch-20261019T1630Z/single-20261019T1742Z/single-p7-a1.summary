@@ -1,0 +1,2 @@
+single-p7-a1 req 7 completion_tokens 256 finish length
+single-p7-a1 n=1 max_tokens=256 total_completion_tokens=256 wall_ms=180037 aggregate_tok_s=1.422

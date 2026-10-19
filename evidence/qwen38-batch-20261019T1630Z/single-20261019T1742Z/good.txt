@@ -2,3 +2,7 @@ single-p0 single-p0-a1
 single-p1 single-p1-a1
 single-p2 single-p2-a1
 single-p3 single-p3-a1
+single-p4 single-p4-a1
+single-p5 single-p5-a1
+single-p6 single-p6-a1
+single-p7 single-p7-a1

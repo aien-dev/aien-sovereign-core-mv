@@ -1,0 +1,2 @@
+single-p4-a1 req 4 completion_tokens 256 finish length
+single-p4-a1 n=1 max_tokens=256 total_completion_tokens=256 wall_ms=129652 aggregate_tok_s=1.975
