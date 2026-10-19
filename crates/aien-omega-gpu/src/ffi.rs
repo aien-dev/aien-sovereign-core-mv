@@ -24,7 +24,7 @@ pub const OMEGA_GPU_MATMUL_PARITY_FAIL: c_int = -5;
 pub const OMEGA_GPU_MATMUL_TILE_M: u32 = 16;
 pub const OMEGA_GPU_MATMUL_TILE_N: u32 = 8;
 pub const OMEGA_GPU_MATMUL_TILE_K: u32 = 16;
-pub const OMEGA_GPU_MATMUL_MAX_CTAS: u32 = 64;
+pub const OMEGA_GPU_MATMUL_MAX_CTAS: u32 = 1024;
 }
 
 abi_struct! {
