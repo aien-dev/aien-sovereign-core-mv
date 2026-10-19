@@ -1,0 +1,57 @@
+memory: whole model + MTP head needs 32663 MiB, keep 12288 MiB free, MemAvailable 67952 MiB
+MTP head: 455 MiB, raw norm means (embed, hidden, final) [-0.46056232, -0.15720086, 1.2520472], options MtpOptions { order: EmbedFirst, normed_hidden: false, pos_offset: 0 }
+uploaded in 40.5 s
+suite: merge-codeedit start
+k=0: 192 tokens, 214.89 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 192 tokens, 209.51 ms/token decode, accept 160/248 (0.645), 6.16 tokens/round, ngram rounds 25 accept 127/200, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt codeedit n 192 k [0, 8] rows All source Merge tree None mutant None: PASS
+suite: merge-codeedit PASS
+suite: merge-quote start
+k=0: 85 tokens, 214.55 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 85 tokens, 237.25 ms/token decode, accept 73/120 (0.608), 5.60 tokens/round, ngram rounds 10 accept 49/80, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt quote n 192 k [0, 8] rows All source Merge tree None mutant None: PASS
+suite: merge-quote PASS
+suite: merge-codelong start
+k=0: 192 tokens, 215.17 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 192 tokens, 360.14 ms/token decode, accept 142/400 (0.355), 3.82 tokens/round, ngram rounds 8 accept 10/64, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt codelong n 192 k [0, 8] rows All source Merge tree None mutant None: PASS
+suite: merge-codelong PASS
+suite: merge-prose start
+k=0: 192 tokens, 213.53 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 192 tokens, 641.54 ms/token decode, accept 103/720 (0.143), 2.12 tokens/round, ngram rounds 3 accept 1/24, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt prose n 192 k [0, 8] rows All source Merge tree None mutant None: PASS
+suite: merge-prose PASS
+suite: ngramfirst-codeedit start
+k=0: 192 tokens, 221.60 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 192 tokens, 215.49 ms/token decode, accept 160/247 (0.648), 6.16 tokens/round, ngram rounds 25 accept 127/199, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt codeedit n 192 k [0, 8] rows All source NgramFirst tree None mutant None: PASS
+suite: ngramfirst-codeedit PASS
+suite: ngramfirst-quote start
+k=0: 85 tokens, 219.58 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 85 tokens, 233.76 ms/token decode, accept 73/120 (0.608), 5.60 tokens/round, ngram rounds 10 accept 49/80, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt quote n 192 k [0, 8] rows All source NgramFirst tree None mutant None: PASS
+suite: ngramfirst-quote PASS
+QWEN38_SPEC_SUITE 6 items: PASS
+{
+ "name": "cascade-suite-B-merge",
+ "cmd": "/home/drakestapleton/.local/bin/quiet-measure nice -n 10 flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/sc-cascade/pinned/qwen38_spec-e166f57f suite /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a evidence/qwen38-cascade-suite-20261019T2130Z evidence/qwen38-cascade-suite-20261019T2130Z/plan-B-merge.txt",
+ "exit": 0,
+ "git_head": "e9c55a65",
+ "start": "2026-10-19T17:51:23.175559",
+ "seconds": 985.429,
+ "samples": 465,
+ "wall_W_mean": 224.81720430107526,
+ "wall_J": 221541.2807160552,
+ "idle_W_before": 225.0,
+ "incremental_J": -180.13209164783942,
+ "gpu_W_mean": 26.814860215053763,
+ "gpu_util_mean": 65.91612903225807,
+ "load1_start": "4.64",
+ "load1_end": "10.90",
+ "mem_avail_kB_start": "65487732",
+ "mem_avail_kB_end": "67316212",
+ "lock_holders_max": 5,
+ "nvrm_errors_delta": 0,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-cascade-suite-B-merge.json

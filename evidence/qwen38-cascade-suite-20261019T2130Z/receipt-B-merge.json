@@ -1,0 +1,22 @@
+{
+ "name": "cascade-suite-B-merge",
+ "cmd": "/home/drakestapleton/.local/bin/quiet-measure nice -n 10 flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/sc-cascade/pinned/qwen38_spec-e166f57f suite /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a evidence/qwen38-cascade-suite-20261019T2130Z evidence/qwen38-cascade-suite-20261019T2130Z/plan-B-merge.txt",
+ "exit": 0,
+ "git_head": "e9c55a65",
+ "start": "2026-10-19T17:51:23.175559",
+ "seconds": 985.429,
+ "samples": 465,
+ "wall_W_mean": 224.81720430107526,
+ "wall_J": 221541.2807160552,
+ "idle_W_before": 225.0,
+ "incremental_J": -180.13209164783942,
+ "gpu_W_mean": 26.814860215053763,
+ "gpu_util_mean": 65.91612903225807,
+ "load1_start": "4.64",
+ "load1_end": "10.90",
+ "mem_avail_kB_start": "65487732",
+ "mem_avail_kB_end": "67316212",
+ "lock_holders_max": 5,
+ "nvrm_errors_delta": 0,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}
