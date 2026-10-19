@@ -156,6 +156,7 @@ fn run(dir: &Path, seq_path: &str, prefix: &str, gen: usize) -> Result<(), Strin
         "AIEN_Q38_FP8_HEAD": std::env::var("AIEN_Q38_FP8_HEAD").ok(),
         "AIEN_Q38_W4": std::env::var("AIEN_Q38_W4").ok(),
         "AIEN_Q38_W4_HEAD": std::env::var("AIEN_Q38_W4_HEAD").ok(),
+        "AIEN_Q38_W4_RULE": std::env::var("AIEN_Q38_W4_RULE").ok(),
     });
     eprintln!(
         "variant {variant}; {steps} steps; MemAvailable {} MiB",
@@ -415,6 +416,29 @@ fn timeline(dir: &Path, seq_path: &str, out: &str) -> Result<(), String> {
     std::fs::write(out, serde_json::to_string_pretty(&v).unwrap())
         .map_err(|e| format!("{out}: {e}"))
 }
+
+/// `w4err <ckpt> <out.json>`: host only, every projection under the OCP, FIT and BEST MXFP4 scale rules.
+fn w4err(dir: &Path, out: &str) -> Result<(), String> {
+    use aien_omega_q38::{W4_RULE_BEST, W4_RULE_FIT, W4_RULE_OCP};
+    let t0 = Instant::now();
+    let st = aien_inference_abi::qwen38_omega::w4_error_survey(
+        dir,
+        &[W4_RULE_OCP, W4_RULE_FIT, W4_RULE_BEST],
+        16,
+    )?;
+    let rows: Vec<Value> = ["ocp", "fit", "best"]
+        .iter()
+        .zip(&st)
+        .map(|(n, s)| {
+            eprintln!("{n:>4}: rel_rms {:.6} clipped {} of {} weights", s.rel_rms(), s.saturated, s.weights);
+            json!({"rule": n, "rel_rms": s.rel_rms(), "saturated": s.saturated, "weights": s.weights, "groups": s.groups,
+                   "zero_groups": s.zero_groups, "sq_err": s.sq_err, "sq_ref": s.sq_ref})
+        })
+        .collect();
+    let v = json!({"mode": "w4err", "rules": rows, "seconds": t0.elapsed().as_secs_f64()});
+    std::fs::write(out, serde_json::to_string_pretty(&v).unwrap())
+        .map_err(|e| format!("{out}: {e}"))
+}
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     let r = match a.get(1).map(String::as_str) {
@@ -430,7 +454,8 @@ fn main() {
         Some("compare") if a.len() == 5 => compare(&a[2], &a[3], &a[4]),
         Some("decode") if a.len() == 5 => decode(Path::new(&a[2]), &a[3], &a[4]),
         Some("timeline") if a.len() == 5 => timeline(Path::new(&a[2]), &a[3], &a[4]),
-        _ => Err("usage: qwen38_ab text <ckpt> <text-file> <n> <seq.json> | run <ckpt> <seq.json> <out-prefix> [--gen N] | compare <a> <b> <out.json> | decode <ckpt> <run.json> <out.txt> | timeline <ckpt> <seq.json> <out.json>".into()),
+        Some("w4err") if a.len() == 4 => w4err(Path::new(&a[2]), &a[3]),
+        _ => Err("usage: qwen38_ab text <ckpt> <text-file> <n> <seq.json> | run <ckpt> <seq.json> <out-prefix> [--gen N] | compare <a> <b> <out.json> | decode <ckpt> <run.json> <out.txt> | timeline <ckpt> <seq.json> <out.json> | w4err <ckpt> <out.json>".into()),
     };
     if let Err(e) = r {
         eprintln!("qwen38_ab: {e}");

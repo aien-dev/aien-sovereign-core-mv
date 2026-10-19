@@ -1371,13 +1371,14 @@ mod ffi_w4 {
         pub fn omega_gpu_w4_tensor_free(t: *mut OmegaGpuW4Tensor);
         pub fn omega_gpu_w4_tensor_bytes(t: *const OmegaGpuW4Tensor) -> usize;
         pub fn omega_gpu_w4_last_error() -> *const c_char;
-        pub fn omega_gpu_w4_from_fp8(
+        pub fn omega_gpu_w4_from_fp8_rule(
             n: u32,
             k: u32,
             w8: *const u8,
             scale_bf16: *const u16,
             row0: u32,
             rows: u32,
+            rule: i32,
             w4: *mut u8,
             e8: *mut u8,
             stats: *mut super::W4Stats,
@@ -1426,6 +1427,12 @@ impl W4Stats {
         }
     }
 }
+
+/// MXFP4 scale rules (omega `OMEGA_W4_RULE_*`): OCP X = 2^(floor(log2 amax) - 2) (clips |v| above 6 X); FIT one power of
+/// two up in a group that would clip; BEST whichever of the two has the smaller squared error.
+pub const W4_RULE_OCP: i32 = 0;
+pub const W4_RULE_FIT: i32 = 1;
+pub const W4_RULE_BEST: i32 = 2;
 
 /// True when this build links the MXFP4 GEMV and the graph's 4-bit entries.
 pub fn w4_native() -> bool {
@@ -1494,8 +1501,9 @@ impl W4Tensor {
         w8: &[u8],
         scales: &[u16],
         threads: usize,
+        rule: i32,
     ) -> Result<(Self, W4Stats), OmegaGpuError> {
-        let (w4, e8, st) = w4_from_fp8(n, k, w8, scales, threads)?;
+        let (w4, e8, st) = w4_from_fp8(n, k, w8, scales, threads, rule)?;
         Ok((Self::upload(n, k, &w4, &e8)?, st))
     }
 
@@ -1541,6 +1549,7 @@ pub fn w4_from_fp8(
     w8: &[u8],
     scales: &[u16],
     threads: usize,
+    rule: i32,
 ) -> Result<(Vec<u8>, Vec<u8>, W4Stats), OmegaGpuError> {
     const B: usize = 128;
     if n == 0 || k == 0 || !n.is_multiple_of(B) || !k.is_multiple_of(B) {
@@ -1568,13 +1577,14 @@ pub fn w4_from_fp8(
                         // SAFETY: w8 / scales hold the whole tensor and w4 / e8 the whole output (checked / sized
                         // above, alive for the scope); the threads write disjoint row ranges.
                         let rc = unsafe {
-                            ffi_w4::omega_gpu_w4_from_fp8(
+                            ffi_w4::omega_gpu_w4_from_fp8_rule(
                                 n as u32,
                                 k as u32,
                                 w8.as_ptr(),
                                 scales.as_ptr(),
                                 row0 as u32,
                                 rows as u32,
+                                rule,
                                 pw as *mut u8,
                                 pe as *mut u8,
                                 &mut st,
@@ -1599,7 +1609,7 @@ pub fn w4_from_fp8(
     }
     #[cfg(not(has_omega_q38_w4))]
     {
-        let _ = (&mut w4, &mut e8, threads);
+        let _ = (&mut w4, &mut e8, threads, rule);
         Err(OmegaGpuError::Unavailable)
     }
 }

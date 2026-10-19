@@ -120,7 +120,7 @@ fn w4_copy(
     let Some(total) = stats.as_mut() else {
         return Ok(None);
     };
-    let (t, st) = W4Tensor::from_fp8(n, k, w, s, W4_THREADS).map_err(gpu(name))?;
+    let (t, st) = W4Tensor::from_fp8(n, k, w, s, W4_THREADS, w4_rule()?).map_err(gpu(name))?;
     total.add(&st);
     Ok(Some(t))
 }
@@ -647,4 +647,62 @@ impl Qwen38Omega {
     pub fn graph_mut(&mut self) -> &mut Q38Graph {
         &mut self.graph
     }
+}
+
+/// The MXFP4 scale rule the loader uses (env `AIEN_Q38_W4_RULE`: `ocp` default, `fit`, `best`; omega
+/// `omega_gpu_w4_from_fp8_rule`).
+pub fn w4_rule() -> Result<i32, String> {
+    match std::env::var("AIEN_Q38_W4_RULE").as_deref() {
+        Err(_) | Ok("ocp") => Ok(aien_omega_q38::W4_RULE_OCP),
+        Ok("fit") => Ok(aien_omega_q38::W4_RULE_FIT),
+        Ok("best") => Ok(aien_omega_q38::W4_RULE_BEST),
+        Ok(o) => Err(format!("AIEN_Q38_W4_RULE={o}: ocp, fit or best")),
+    }
+}
+
+/// Host only (no device): every FP8 projection of the checkpoint converted to MXFP4 under each rule, the converter's tally
+/// summed per rule (relative RMS error, clipped weights). Projections are converted one checkpoint tensor at a time.
+pub fn w4_error_survey(dir: &Path, rules: &[i32], threads: usize) -> Result<Vec<W4Stats>, String> {
+    let c = Qwen38Config::from_checkpoint(dir)?;
+    let mut source = ShardSource::open(dir)?;
+    let prefix = text_prefix(&mut source)?;
+    let h = c.hidden;
+    let mut out = vec![W4Stats::default(); rules.len()];
+    for l in 0..c.layers {
+        let p = format!("{prefix}layers.{l}");
+        let names: Vec<(String, usize, usize)> = if c.full_attention[l] {
+            let a = format!("{p}.self_attn");
+            vec![
+                (format!("{a}.q_proj.weight"), 2 * c.heads * c.head_dim, h),
+                (format!("{a}.k_proj.weight"), c.kv_dim(), h),
+                (format!("{a}.v_proj.weight"), c.kv_dim(), h),
+                (format!("{a}.o_proj.weight"), h, c.heads * c.head_dim),
+            ]
+        } else {
+            let a = format!("{p}.linear_attn");
+            vec![
+                (format!("{a}.in_proj_qkv.weight"), c.conv_dim(), h),
+                (format!("{a}.in_proj_z.weight"), c.lin_value_dim(), h),
+                (format!("{a}.out_proj.weight"), h, c.lin_value_dim()),
+            ]
+        };
+        let m = format!("{p}.mlp");
+        let mlp = [
+            (format!("{m}.gate_proj.weight"), c.intermediate, h),
+            (format!("{m}.up_proj.weight"), c.intermediate, h),
+            (format!("{m}.down_proj.weight"), h, c.intermediate),
+        ];
+        for (name, n, k) in names.into_iter().chain(mlp) {
+            let Matrix::Fp8 { n, k, w, scales } = read_matrix(&mut source, &name, n, k)? else {
+                return Err(format!("{name}: not FP8"));
+            };
+            for (i, &rule) in rules.iter().enumerate() {
+                let (_, _, st) = aien_omega_q38::w4_from_fp8(n, k, &w, &scales, threads, rule)
+                    .map_err(gpu(&name))?;
+                out[i].add(&st);
+            }
+        }
+        eprintln!("w4 survey: layer {l} done");
+    }
+    Ok(out)
 }
