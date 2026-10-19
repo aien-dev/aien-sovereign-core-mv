@@ -1,0 +1,4 @@
+rep1-p3 rep1-p3-a1 3
+rep2-p3 rep2-p3-a1 3
+rep3-p3 rep3-p3-a1 3
+rep4-p0 rep4-p0-a1 0

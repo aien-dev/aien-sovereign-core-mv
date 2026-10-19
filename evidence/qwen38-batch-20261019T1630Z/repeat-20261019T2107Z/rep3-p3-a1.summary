@@ -1,0 +1,2 @@
+rep3-p3-a1 req 3 completion_tokens 169 finish stop
+rep3-p3-a1 n=1 max_tokens=256 total_completion_tokens=169 wall_ms=112547 aggregate_tok_s=1.502
