@@ -275,12 +275,16 @@ fn compare(a: &str, b: &str, out: &str) -> Result<(), String> {
         }
         same_input += 1;
         let la: Vec<f32> = ba
-            .chunks_exact(4)
-            .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| f32::from_le_bytes(*c))
             .collect();
         let lb: Vec<f32> = bb
-            .chunks_exact(4)
-            .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| f32::from_le_bytes(*c))
             .collect();
         let (ta, tb) = (argmax(&la), argmax(&lb));
         if ta == tb {
