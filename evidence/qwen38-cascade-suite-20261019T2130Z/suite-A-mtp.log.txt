@@ -1,0 +1,60 @@
+prompt golden: 24 tokens; golden prompt equals the rendered code prompt
+prompt golden: 24 tokens; golden prompt equals the rendered code prompt
+memory: whole model + MTP head needs 32663 MiB, keep 12288 MiB free, MemAvailable 68496 MiB
+MTP head: 455 MiB, raw norm means (embed, hidden, final) [-0.46056232, -0.15720086, 1.2520472], options MtpOptions { order: EmbedFirst, normed_hidden: false, pos_offset: 0 }
+uploaded in 37.5 s
+suite: golden-chain start
+k=0: 30 tokens, 209.58 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 30 tokens, 235.52 ms/token decode, accept 25/40 (0.625), 5.80 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt golden n 64 k [0, 8] rows All source Mtp tree None mutant None: PASS
+suite: golden-chain PASS
+suite: golden-tree-332 start
+k=0: 30 tokens, 211.91 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 30 tokens, 461.94 ms/token decode, accept 25/100 (0.250), 5.80 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt golden n 64 k [0, 8] rows All source Mtp tree Some(TreeSpec { w1: 3, w2: 3, side: 2 }) mutant None: PASS
+suite: golden-tree-332 PASS
+suite: mtp-prose start
+k=0: 192 tokens, 213.64 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=1: 192 tokens, 172.92 ms/token decode, accept 78/114 (0.684), 1.68 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+k=4: 192 tokens, 388.35 ms/token decode, accept 103/360 (0.286), 2.12 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+k=8: 192 tokens, 637.72 ms/token decode, accept 104/712 (0.146), 2.15 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt prose n 192 k [0, 1, 4, 8] rows All source Mtp tree None mutant None: PASS
+suite: mtp-prose PASS
+suite: mtp-codeedit start
+k=0: 192 tokens, 213.07 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=1: 192 tokens, 156.35 ms/token decode, accept 95/96 (0.990), 1.99 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+k=4: 192 tokens, 169.42 ms/token decode, accept 153/160 (0.956), 4.78 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+k=8: 192 tokens, 205.77 ms/token decode, accept 164/224 (0.732), 6.82 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt codeedit n 192 k [0, 1, 4, 8] rows All source Mtp tree None mutant None: PASS
+suite: mtp-codeedit PASS
+suite: mtp-quote start
+k=0: 85 tokens, 219.02 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=1: 85 tokens, 144.97 ms/token decode, accept 42/42 (1.000), 2.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+k=4: 85 tokens, 187.27 ms/token decode, accept 69/76 (0.908), 4.42 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+k=8: 85 tokens, 211.53 ms/token decode, accept 75/104 (0.721), 6.46 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt quote n 192 k [0, 1, 4, 8] rows All source Mtp tree None mutant None: PASS
+suite: mtp-quote PASS
+QWEN38_SPEC_SUITE 5 items: PASS
+{
+ "name": "cascade-suite-A-mtp",
+ "cmd": "/home/drakestapleton/.local/bin/quiet-measure nice -n 10 flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/sc-cascade/pinned/qwen38_spec-e166f57f suite /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a evidence/qwen38-cascade-suite-20261019T2130Z evidence/qwen38-cascade-suite-20261019T2130Z/plan-A-mtp.txt",
+ "exit": 0,
+ "git_head": "22e00876",
+ "start": "2026-10-19T17:12:42.482921",
+ "seconds": 2316.086,
+ "samples": 1087,
+ "wall_W_mean": 227.56209751609936,
+ "wall_J": 527053.4782432128,
+ "idle_W_before": 267.14285714285717,
+ "incremental_J": -91672.45890460895,
+ "gpu_W_mean": 18.32195032198712,
+ "gpu_util_mean": 36.58969641214352,
+ "load1_start": "11.16",
+ "load1_end": "4.75",
+ "mem_avail_kB_start": "62028576",
+ "mem_avail_kB_end": "41120752",
+ "lock_holders_max": 8,
+ "nvrm_errors_delta": 8,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-cascade-suite-A-mtp.json
