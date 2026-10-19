@@ -117,6 +117,7 @@ dependencies = [
  "spark-hive",
  "tempfile",
  "tokio",
+ "toml",
 ]
 
 [[package]]

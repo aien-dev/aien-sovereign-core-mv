@@ -1,4 +1,5 @@
 #![allow(clippy::type_complexity, clippy::needless_range_loop)]
+mod agents_sync;
 mod allen;
 mod client;
 mod commands;
@@ -57,6 +58,10 @@ async fn main() {
         }
         if args[1] == "--stop" || args[1] == "stop" {
             commands::handle_stop_command().await;
+            return;
+        }
+        if args[1] == "agents" {
+            agents_sync::handle_agents_command(&args[2..]);
             return;
         }
         if args[1] == "allen" {

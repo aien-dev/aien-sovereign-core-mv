@@ -59,6 +59,7 @@ pub async fn handle_slash_command(cmd: &str) -> bool {
   /goal [list|new|done]     Manage project goals & milestone lattices"
             );
             println!("  /rules                    Inspect active repository & directory rules (AGENTS.md, GEMINI.md)");
+            println!("  aien agents sync|check    Write agents.toml hooks and skills into Claude Code, Codex, Hermes (ADR 0038)");
             println!("  /walkthrough [save]       Display live architecture map & roadmap (or save to WALKTHROUGH.md)");
             println!("  /nest                     Execute the Agent Nesting Ritual (grounding, threat check, peer wind, scent)");
             println!("  /crumb [path]             Inspect directory crumb (above, below, and local agent history)");

@@ -1,0 +1,59 @@
+# Agent guidance manifest (schema v1, aien-architecture ADR 0038).
+# Agent-agnostic: `aien agents sync` translates it into the files Claude Code,
+# Codex and Hermes read; `aien agents check` fails when those files are stale.
+schema = 1
+
+[component]
+name = "sovereign-core"
+tree = "core"
+
+[[skills]]
+path = "skills/agent-onboarding"
+
+[[skills]]
+path = "skills/github-operations"
+
+[[skills]]
+path = "skills/gpu-telemetry"
+
+[[skills]]
+path = "skills/model-adapters-pr"
+
+[[skills]]
+path = "skills/open-source-etiquette"
+
+[[skills]]
+path = "skills/radicle-sync"
+
+[[skills]]
+path = "skills/scaffold-project"
+
+[[skills]]
+path = "skills/self-improvement"
+
+[[skills]]
+path = "skills/unslop"
+
+[[hooks]]
+event = "pre-command"
+command = "tools/agent-hooks/no-admin-merge.sh"
+
+[[hooks]]
+event = "pre-command"
+command = "tools/agent-hooks/no-force-push.sh"
+
+[[hooks]]
+event = "pre-command"
+command = "tools/agent-hooks/no-kill-jobs.sh"
+
+[[hooks]]
+event = "pre-edit"
+command = "tools/agent-hooks/protected-paths.sh"
+
+[[hooks]]
+event = "pre-edit"
+command = "tools/agent-hooks/skill-context.sh"
+
+[attachments]
+# An attachment's agents.toml is loaded only if its name is listed here.
+allow = []
