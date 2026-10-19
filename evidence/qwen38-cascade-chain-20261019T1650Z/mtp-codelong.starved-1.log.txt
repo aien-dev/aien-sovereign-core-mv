@@ -1,0 +1,1 @@
+/home/drakestapleton/workspace/sc-cascade/evidence/qwen38-cascade-chain-20261019T1650Z/run.sh: 21: /.local/bin/spark-receipt: not found

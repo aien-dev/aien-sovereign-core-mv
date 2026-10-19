@@ -1,0 +1,31 @@
+memory: whole model + MTP head needs 32663 MiB, keep 12288 MiB free, MemAvailable 51103 MiB
+MTP head: 455 MiB, raw norm means (embed, hidden, final) [-0.46056232, -0.15720086, 1.2520472], options MtpOptions { order: EmbedFirst, normed_hidden: false, pos_offset: 0 }
+uploaded in 57.7 s
+k=0: 192 tokens, 272.67 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=1: 192 tokens, 191.90 ms/token decode, accept 89/103 (0.864), 1.85 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+k=4: 192 tokens, 274.24 ms/token decode, accept 139/224 (0.621), 3.41 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+k=8: 192 tokens, 368.49 ms/token decode, accept 146/368 (0.397), 4.15 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt codelong n 192 k [0, 1, 4, 8] rows All source Mtp mutant None: PASS
+{
+ "name": "cascade-mtp-codelong",
+ "cmd": "/home/drakestapleton/.local/bin/quiet-measure nice -n 10 flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/sc-cascade/pinned/qwen38_spec-ca870265 gen /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a evidence/qwen38-cascade-chain-20261019T1650Z/mtp-codelong.json --prompt codelong --n 192 --k 0,1,4,8 --source mtp",
+ "exit": 0,
+ "git_head": "7ec06216",
+ "start": "2026-10-19T12:30:15.447513",
+ "seconds": 1958.986,
+ "samples": 895,
+ "wall_W_mean": 264.1340782122905,
+ "wall_J": 517434.9777932406,
+ "idle_W_before": 250.0,
+ "incremental_J": 27688.46222116958,
+ "gpu_W_mean": 14.093418994413408,
+ "gpu_util_mean": 31.105027932960894,
+ "load1_start": "92.35",
+ "load1_end": "91.04",
+ "mem_avail_kB_start": "44956652",
+ "mem_avail_kB_end": "31438112",
+ "lock_holders_max": 64,
+ "nvrm_errors_delta": 18,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-cascade-mtp-codelong.json

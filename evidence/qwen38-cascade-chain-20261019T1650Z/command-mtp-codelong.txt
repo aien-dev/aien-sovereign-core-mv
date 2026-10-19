@@ -1,0 +1,13 @@
+bin sha 9aece7168e8ce5baa42fd0dce97f19858afcb2899dfd2e7f06d54fb475d051f8 (built from ca870265)
+lib ~/workspace/targets/q38-f7-omega/libomega_gpu.a sha 6e90520913032ee8653ebbe325c485d329daa0a749840303a44b68b97ca17bff (omega 37034f03)
+spark-receipt cascade-mtp-codelong -- flock -x /tmp/aien-quiet.lock nice -n 10 flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/sc-cascade/pinned/qwen38_spec-ca870265 gen M evidence/qwen38-cascade-chain-20261019T1650Z/mtp-codelong.json --prompt codelong --n 192 --k 0,1,4,8 --source mtp
+start 2026-10-19T16:36:16Z load 30.12 19.75 18.07 6/1930 3497348 MemAvailable:   40498312 kB
+end load 92.64 85.48 77.82 73/2871 991273
+exit 143 2026-10-19T17:30:12Z
+end 2026-10-19T17:30:12Z rc 127 load 92.64 85.48 77.82 54/2874 991297 MemAvailable:   53095016 kB
+first attempt of mtp-codelong: waited 16:36Z to 17:31Z on raw flock -x of the quiet lock (starved by shared holders), never ran; killed by me after the quiet-measure rule; rerun follows
+bin sha 9aece7168e8ce5baa42fd0dce97f19858afcb2899dfd2e7f06d54fb475d051f8 (built from ca870265)
+lib ~/workspace/targets/q38-f7-omega/libomega_gpu.a sha 6e90520913032ee8653ebbe325c485d329daa0a749840303a44b68b97ca17bff (omega 37034f03)
+spark-receipt cascade-mtp-codelong -- ~/.local/bin/quiet-measure nice -n 10 flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/sc-cascade/pinned/qwen38_spec-ca870265 gen M evidence/qwen38-cascade-chain-20261019T1650Z/mtp-codelong.json --prompt codelong --n 192 --k 0,1,4,8 --source mtp
+queued 2026-10-19T17:30:15Z load 92.35 85.54 77.88 65/2910 993547 MemAvailable:   53322848 kB
+end 2026-10-19T18:02:57Z rc 0 load 92.96 86.01 81.47 132/2486 1689179 MemAvailable:   45230104 kB

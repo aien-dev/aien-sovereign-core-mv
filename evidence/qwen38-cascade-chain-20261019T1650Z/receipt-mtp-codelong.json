@@ -1,0 +1,22 @@
+{
+ "name": "cascade-mtp-codelong",
+ "cmd": "/home/drakestapleton/.local/bin/quiet-measure nice -n 10 flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/sc-cascade/pinned/qwen38_spec-ca870265 gen /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a evidence/qwen38-cascade-chain-20261019T1650Z/mtp-codelong.json --prompt codelong --n 192 --k 0,1,4,8 --source mtp",
+ "exit": 0,
+ "git_head": "7ec06216",
+ "start": "2026-10-19T12:30:15.447513",
+ "seconds": 1958.986,
+ "samples": 895,
+ "wall_W_mean": 264.1340782122905,
+ "wall_J": 517434.9777932406,
+ "idle_W_before": 250.0,
+ "incremental_J": 27688.46222116958,
+ "gpu_W_mean": 14.093418994413408,
+ "gpu_util_mean": 31.105027932960894,
+ "load1_start": "92.35",
+ "load1_end": "91.04",
+ "mem_avail_kB_start": "44956652",
+ "mem_avail_kB_end": "31438112",
+ "lock_holders_max": 64,
+ "nvrm_errors_delta": 18,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}

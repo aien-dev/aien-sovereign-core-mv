@@ -1,0 +1,5 @@
+bin sha 9aece7168e8ce5baa42fd0dce97f19858afcb2899dfd2e7f06d54fb475d051f8 (built from ca870265)
+lib ~/workspace/targets/q38-f7-omega/libomega_gpu.a sha 6e90520913032ee8653ebbe325c485d329daa0a749840303a44b68b97ca17bff (omega 37034f03)
+spark-receipt cascade-mtp-prose -- ~/.local/bin/quiet-measure nice -n 10 flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/sc-cascade/pinned/qwen38_spec-ca870265 gen M evidence/qwen38-cascade-chain-20261019T1650Z/mtp-prose.json --prompt prose --n 192 --k 0,1,4,8 --source mtp
+queued 2026-10-19T18:03:27Z load 84.68 84.77 81.21 46/2377 1697561 MemAvailable:   53962400 kB
+end 2026-10-19T18:06:02Z rc 2 load 81.14 80.92 80.14 96/2478 1740160 MemAvailable:   14580480 kB
