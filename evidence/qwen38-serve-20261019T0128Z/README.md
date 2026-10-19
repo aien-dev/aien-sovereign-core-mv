@@ -11,3 +11,15 @@
   golden 24/24 ids equal the host reference (gen-chat-max-24.json), repeat equal, control (smaller) differs,
   turn 2b Snapshot(17) == cold, turn 2 Live(47) == cold, turn 3 Live(93) == cold, cold runs logged Cold.
 - tools/qwen38_serve_gate.sh reproduces it: `tools/qwen38_serve_gate.sh http://127.0.0.1:18091 <golden.json> <out-dir>`.
+- speed-run1: VOID/stopped. The 30k prompt was refused by the tokenizer ("Sequence length 29948 exceeds maximum
+  context length 2048", fixed in 4c56abc4) and the script retried the refusal until its runner's time limit.
+  Decode rows from it (161.7 / 165.2 / 169.1 ms/token graph chip) were on the earlier binary.
+- gate-run5: GATE PASS again on the final binary (sha c8404006, 4c56abc4).
+- speed-run2 (final binary, live server, other agents' chip jobs queued on the same GPU lock: lock waits up to 201 s):
+  decode 30 in / 256 out greedy x3: graph chip 160.3 / 158.6 / 158.9 ms/token, wall 161.6 / 159.9 / 160.2 ms/token;
+  request without lock wait 41.7 / 41.0 / 41.1 s. Median 158.9 ms = 6.29 tok/s (calc:b161649a) = 0.620 of the
+  10.15 tok/s ceiling (calc:69ebef69); wall 160.2 ms = 0.615 (calc:462f1f37); whole request 6.23 tok/s (calc:2051089e).
+  TTFT cold 1681 tok: prefill 8.78 s (client 50.6 s incl. 41.8 s lock wait); floor ~0.40 s (calc:c2a6deca) -> 4.6%
+  (calc:3390b07e). TTFT cold 29948 tok: prefill 162.2 s (client 168.1 s, lock 5.9 s); floor ~8.86 s (calc:0e6b020a)
+  -> 5.5% (calc:ccb3259b). Next turn on 29973 tok, Live(29948) reuse, 25 fed: prefill 0.71 s (client 7.69 s incl.
+  6.95 s lock wait).
