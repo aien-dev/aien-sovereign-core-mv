@@ -1,0 +1,22 @@
+{
+ "name": "docmem-kv-32768",
+ "cmd": "/home/drakestapleton/.local/bin/quiet-measure flock -w 1800 /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/docmem/bin-e07a3b4c/docmem_bench kv 32768",
+ "exit": 1,
+ "git_head": "368bec0d",
+ "start": "2026-10-19T13:16:02.498153",
+ "seconds": 746.367,
+ "samples": 350,
+ "wall_W_mean": 258.48571428571427,
+ "wall_J": 192925.16363168444,
+ "idle_W_before": 307.14285714285717,
+ "incremental_J": -36316.0775577273,
+ "gpu_W_mean": 7.349885714285715,
+ "gpu_util_mean": 1.2457142857142858,
+ "load1_start": "58.31",
+ "load1_end": "52.32",
+ "mem_avail_kB_start": "53564036",
+ "mem_avail_kB_end": "22181620",
+ "lock_holders_max": 7,
+ "nvrm_errors_delta": 4,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}
