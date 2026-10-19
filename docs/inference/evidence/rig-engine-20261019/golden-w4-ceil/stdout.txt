@@ -1,0 +1,23 @@
+{
+ "name": "rig-golden-w4-ceil",
+ "cmd": "nice -n 10 /home/drakestapleton/workspace/targets/rig-engine/target/release/own8b_check golden /home/drakestapleton/models/qwen3-8b-fp8 /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019/SMOKE-8B-W4-ceil.golden.json --w4",
+ "exit": 0,
+ "git_head": "70664000",
+ "start": "2026-10-19T12:37:41.465753",
+ "seconds": 3073.856,
+ "samples": 1409,
+ "wall_W_mean": 270.21291696238467,
+ "wall_J": 830595.4747579198,
+ "idle_W_before": 250.71428571428572,
+ "incremental_J": 59935.97589895699,
+ "gpu_W_mean": 17.163250532292405,
+ "gpu_util_mean": 34.00070972320795,
+ "load1_start": "79.58",
+ "load1_end": "42.31",
+ "mem_avail_kB_start": "20436204",
+ "mem_avail_kB_end": "27660040",
+ "lock_holders_max": 64,
+ "nvrm_errors_delta": 61,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-rig-golden-w4-ceil.json

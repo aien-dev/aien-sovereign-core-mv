@@ -1,0 +1,7 @@
+host reference loaded in 72s (8.19 GB)
+p1-one-token: 1 prompt tokens, 32 new in 97s: " \\boxed{A}!\n\nHello \\boxed{B}!\n\nHello \\boxed{C}!\n\nHello \\boxed{D}!\n\nHello \\boxed{E"
+p2-short: 20 prompt tokens, 32 new in 107s: "<think>\nOkay, the user is asking for the capital of France. Let me make sure I have the correct answer. I know that France's capital is Paris"
+p3-medium: 129 prompt tokens, 32 new in 523s: "<think>\nOkay, let me try to summarize this. The user wants three bullet points based on the given text about the DGX Spark.\n\nFirst, the main"
+p4-code: 56 prompt tokens, 32 new in 369s: "<think>\nOkay, I need to write a Rust function called is_prime that takes a u64 and returns a bool. The function should use trial division up"
+p5-512: 512 prompt tokens, 32 new in 1880s: " points.\n\nThe DGX Spark is a compact workstation built around the GB10 Grace Blackwell superchip. It pairs an Arm CPU with a Blackwell GPU"
+wrote /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019/SMOKE-8B-W4-ceil.golden.json
