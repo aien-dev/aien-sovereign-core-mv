@@ -12,8 +12,8 @@ for job in "$@"; do
     extra="--base $bj"
   fi
   { date -u; uptime; grep MemAvailable /proc/meminfo; echo "branch head $(git -C ~/workspace/sc-skipped rev-parse HEAD)"; git -C ~/workspace/sc-skipped status --porcelain | grep -v '^??' ; sha256sum $B $W/seq/$seq.json; } > $O/ground.txt
-  echo "flock -s /tmp/aien-quiet.lock nice -n 19 spark-receipt skipped-$exp-$seq-$TS -- $B run $M $W/seq/$seq.json $exp $O/out.json $extra" > $O/command.txt
-  flock -s /tmp/aien-quiet.lock nice -n 19 ~/.local/bin/spark-receipt skipped-$exp-$seq-$TS -- $B run $M $W/seq/$seq.json $exp $O/out.json $extra > $O/run.log 2>&1
+  echo "AIEN_LAB_QUIET_LOCK=/tmp/aien-quiet.lock (shared, per layer) nice -n 19 spark-receipt skipped-$exp-$seq-$TS -- $B run $M $W/seq/$seq.json $exp $O/out.json $extra" > $O/command.txt
+  AIEN_LAB_QUIET_LOCK=/tmp/aien-quiet.lock nice -n 19 ~/.local/bin/spark-receipt skipped-$exp-$seq-$TS -- $B run $M $W/seq/$seq.json $exp $O/out.json $extra > $O/run.log 2>&1
   echo "rc=$?" >> $O/run.log
   grep -v '^layer' $O/run.log | grep -v '^ "' | head -60 > $O/summary.txt
   touch $O/.final

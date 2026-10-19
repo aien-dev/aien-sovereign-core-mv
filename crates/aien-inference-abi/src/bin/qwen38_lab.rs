@@ -25,7 +25,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use aien_inference_abi::qwen38::lab::{
-    kl, layer_bytes, model_bytes, top2, Act, Quant, Teal, TealMode, Variant, UNION_N,
+    kl, layer_bytes, model_bytes, quiet_lock, top2, Act, Quant, Teal, TealMode, Variant, UNION_N,
 };
 use aien_inference_abi::qwen38::Qwen38Reference;
 use aien_inference_abi::qwen38::{argmax, negative_log_likelihood, Matrix, Qwen38Config};
@@ -334,6 +334,7 @@ fn run(a: &[String]) -> Result<(), String> {
     let full_gb = (body + head) / 1e9;
     let mut results = Vec::new();
     for (vi, var) in vars.iter().enumerate() {
+        let _q = quiet_lock()?;
         let vo = &out.vars[vi];
         let lg = if vi == 0 {
             base_logits.clone()
@@ -402,6 +403,7 @@ fn run(a: &[String]) -> Result<(), String> {
     if exp == "base" {
         let mut ee = Vec::new();
         for (l, rows_l) in &out.taps {
+            let _q = quiet_lock()?;
             let lg = model.lab_logits(rows_l);
             let top = top2(&lg, vocab);
             let agree = top
@@ -482,6 +484,7 @@ fn mtp(a: &[String]) -> Result<(), String> {
     }];
     // Score from row 1 so every row's residual comes back (rows 0..t-1).
     let out = model.lab_pass(&tokens, 1, &vars, &vec![false; t], &[])?;
+    let _q = quiet_lock()?;
     let resid = &out.vars[0].final_rows; // rows 0 .. t-1 (t - 1 rows)
     let main = argmax_rows(&model, resid, h, false);
     let pass_s = t0.elapsed().as_secs_f64();
@@ -681,6 +684,7 @@ fn learn(a: &[String]) -> Result<(), String> {
     // runs its own loop; their drafts at one tick share one lm_head read.
     let mut tick = 0usize;
     loop {
+        let _q = quiet_lock()?;
         let active: Vec<usize> = (0..sts.len()).filter(|&i| sts[i].p + 1 < rows).collect();
         if active.is_empty() {
             break;

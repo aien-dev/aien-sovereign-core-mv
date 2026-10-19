@@ -1,0 +1,4 @@
+STOPPED by the lab agent at 2026-10-19T17:27Z (its own process), a few layers in. Reason: the run held the box's
+quiet lock shared for the whole pass (about an hour), which would hold back other agents' exclusive timing runs
+that long. Restarted with the lab binary taking the lock shared per layer (AIEN_LAB_QUIET_LOCK). No numbers
+from this run are used.

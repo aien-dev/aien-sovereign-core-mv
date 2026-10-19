@@ -32,6 +32,22 @@ use super::*;
 /// Weights per quantisation group along k.
 pub const GROUP: usize = 32;
 
+/// The box's quiet lock held shared (env `AIEN_LAB_QUIET_LOCK`, e.g. /tmp/aien-quiet.lock)
+/// until the returned file drops; `None` when the variable is unset. Lab passes take it per
+/// layer so an exclusive timing run waits one layer, not a whole pass.
+pub fn quiet_lock() -> Result<Option<std::fs::File>, String> {
+    let Ok(p) = std::env::var("AIEN_LAB_QUIET_LOCK") else {
+        return Ok(None);
+    };
+    let f = std::fs::OpenOptions::new()
+        .read(true)
+        .open(&p)
+        .map_err(|e| format!("{p}: {e}"))?;
+    f.lock_shared()
+        .map_err(|e| format!("{p}: lock_shared: {e}"))?;
+    Ok(Some(f))
+}
+
 // ---------------------------------------------------------------------------
 // Low-bit weights.
 // ---------------------------------------------------------------------------
@@ -1056,6 +1072,9 @@ impl<S: TensorSource> Qwen38Reference<S> {
             if tap_at.contains(&l) {
                 taps.push((l, next[0].1.x[r0 * h..r1 * h].to_vec()));
             }
+            // Hold the box's quiet lock shared for one layer at a time (env AIEN_LAB_QUIET_LOCK),
+            // so a timing run that wants it exclusive waits at most one layer, not a whole pass.
+            let quiet = quiet_lock()?;
             let w = self.read_layer(l)?;
             let mut qcache: Option<(Quant, HashMap<Site, F32Mat>, (f64, f64))> = None;
             let mut base_x: Vec<f32> = Vec::new();
@@ -1115,6 +1134,7 @@ impl<S: TensorSource> Qwen38Reference<S> {
             if qcache.is_some() {
                 drop(qcache);
             }
+            drop(quiet);
             let alive = streams.len();
             eprintln!(
                 "layer {l:2} done, {alive} streams, {:.0} s",
