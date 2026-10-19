@@ -48,8 +48,12 @@ VmHWM at or under the budget, and the reference itself matches golden.
 
 - Refill vs upload, B=1: 5.172x (calc:d0c59d6b). The upload path was bound by omega's byte-loop NaN scan
   (3.33 GB/s) and per-group allocation, not by the NVMe (`upload-bench*.json`).
-- Against the ceiling: NVMe floor for 15.61 GiB at 10.4 GB/s is 1.6083 s (calc:a5a8e4c1). The measured B=1
-  pass reaches 0.9756 of that floor (calc:dbd93b32). The read bench reached 10.03 to 12.81 GB/s on a fresh file.
+- Against the ceiling, two ways. At the issue's 10.4 GB/s the 15.61 GiB per pass take 1.6083 s
+  (calc:a5a8e4c1) and the measured B=1 pass reaches 0.9756 of that floor (calc:dbd93b32). But this drive did
+  better: the reader held 10.66 to 10.77 GB/s in every streamed run, and the whole-file read bench reached
+  12.81 GB/s with 4 threads on a freshly written file (the drive's cache may have helped). Against 12.81 GB/s
+  the floor is 1.3058 s (calc:213e4183) and the pass reaches 0.7921 of it (calc:918653aa). Where the last
+  fifth goes (reader running beside compute and commits, or the bench's fresh-file advantage) is UNKNOWN.
 - B=8 total is 6.3472x B=1 (calc:728c5eb0) and 0.598 of the resident single-conversation speed (calc:8b5ba014).
 - Compute per conversation at B=8 is 168.6 ms (calc:3050c9b8). The compute-bound ceiling for the total is
   1 / 0.166 s = 6.0241 tok/s (calc:b52ac54d). Breakeven, where compute covers the read, is about 9.48
@@ -58,7 +62,8 @@ VmHWM at or under the budget, and the reference itself matches golden.
 
 ### Why B=12 and B=16 were refused
 
-Each conversation holds, per 4-layer group, one Q38Graph (1 activation buffer + 11 kernel code buffers + 5
+Estimate, counted from the omega source and not from a live counter, consistent with the B=8 pass and the
+B=12 refusal (8 x 480 fits under 4096, 12 x 480 does not). Each conversation holds, per 4-layer group, one Q38Graph (1 activation buffer + 11 kernel code buffers + 5
 command-list buffers), one GDN state object (4 buffers) and one attention cache (7 buffers): about 30 live
 allocations per group, about 480 per conversation. omega's handle table was 1024 slots (batch 4 refused,
 `run-refill-b4-slots1024-refused.log`); omega cdbd1fb3 raises it to 4096, equal to physics `NVRM_MAX_LIVE`,
