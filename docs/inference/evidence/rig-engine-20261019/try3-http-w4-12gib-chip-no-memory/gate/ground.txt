@@ -1,0 +1,8 @@
+start 2026-10-19T19:17:24Z
+chip GB10 (DGX Spark), NOT an RTX 5070
+sc f99fbad30ea356db37582255967c6a286cdfad08 dirty 1
+binary /home/drakestapleton/workspace/targets/rig-engine/target/release/aien-serve-http sha256 9f6e07c28b874d8e3055af562cf6d199f9c76f34c80974814fe39be8a2267411
+server: /home/drakestapleton/workspace/targets/rig-engine/target/release/aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3-8b-fp8 --port 18120 --weights w4 --mem-budget-gib 12 --max-context 32768
+env AIEN_Q38_W4_RULE=ceil
+loadavg 10.63 20.53 28.83 6/1981 3342814
+MemAvailable:   41372400 kB

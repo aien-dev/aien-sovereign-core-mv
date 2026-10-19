@@ -32,16 +32,30 @@ repo=$(cd "$(dirname "$0")/../.." && pwd)
 
 # The server takes the shared chip lock itself (at load and per request): never wrap it in flock, that
 # deadlocks (measured: the wrapped server sat 21 minutes in flock(2) on its own lock).
-AIEN_RIG_IDS_LOG="$ids" setsid nohup "$BIN" --engine omega --model-dir "$ckpt" --port "$port" \
-	${w4[*]:+--weights w4} "$@" > "$d/server.log" 2>&1 < /dev/null &
-pid=$!; echo "$pid" > "$d/server.pid"
-stop() { kill -TERM "$pid" 2>/dev/null; for _ in $(seq 1 60); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done; }
+# The load can fail with NV_ERR_NO_MEMORY on the chip channel when other jobs hold system memory at that
+# moment (the GB10 shares one memory pool; measured twice). Retry the whole start, each time after
+# MemFree (not just MemAvailable, page cache does not help the driver) is at least FREE_GIB.
+FREE_GIB=${FREE_GIB:-16}; ATTEMPTS=${ATTEMPTS:-6}
+pid=; stop() { [[ -n $pid ]] && { kill -TERM "$pid" 2>/dev/null; for _ in $(seq 1 60); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done; }; }
 trap stop EXIT
-for _ in $(seq 1 7200); do
-	curl -sf "http://127.0.0.1:$port/health" > "$d/health.json" 2>/dev/null && break
-	kill -0 "$pid" 2>/dev/null || { echo "server exited before serving"; tail -5 "$d/server.log"; exit 1; }
-	sleep 1
+up=0
+for try in $(seq 1 "$ATTEMPTS"); do
+	while (( $(awk '/MemFree/{print $2}' /proc/meminfo) < FREE_GIB * 1024 * 1024 )); do sleep 20; done
+	echo "attempt $try start $(date -u +%FT%TZ) MemFree $(awk '/MemFree/{print int($2/1048576)}' /proc/meminfo) GiB" >> "$d/ground.txt"
+	AIEN_RIG_IDS_LOG="$ids" setsid nohup "$BIN" --engine omega --model-dir "$ckpt" --port "$port" \
+		${w4[*]:+--weights w4} "$@" > "$d/server.log" 2>&1 < /dev/null &
+	pid=$!; echo "$pid" > "$d/server.pid"
+	for _ in $(seq 1 7200); do
+		curl -sf "http://127.0.0.1:$port/health" > "$d/health.json" 2>/dev/null && { up=1; break; }
+		kill -0 "$pid" 2>/dev/null || break
+		sleep 1
+	done
+	(( up )) && break
+	echo "attempt $try: server exited before serving: $(tail -1 "$d/server.log" | cut -c1-200)" | tee -a "$d/ground.txt"
+	cp "$d/server.log" "$d/server-attempt$try.log"; pid=
+	sleep 30
 done
+(( up )) || { echo "server never came up"; exit 1; }
 model=$(curl -sf "http://127.0.0.1:$port/v1/models" | jq -r '.data[0].id')
 echo "model id $model" >> "$d/ground.txt"
 echo "serving: $(grep -E 'memory budget|dense load' "$d/server.log" | tr '\n' ' ')"
