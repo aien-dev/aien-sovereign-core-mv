@@ -169,6 +169,8 @@ mod ffi {
         pub fn omega_gpu_fp8gemm_rc_name(rc: i32) -> *const std::os::raw::c_char;
         pub fn omega_gpu_fp8gemm_last_error() -> *const std::os::raw::c_char;
         pub fn omega_gpu_fp8gemm_test_set_mutant(mutant: i32);
+        pub fn omega_gpu_fp8gemm_set_shape(mt: u32, warps: u32);
+        pub fn omega_gpu_fp8gemm_set_cta_budget(ctas_per_segment: u32);
     }
     extern "C" {
         pub fn omega_gpu_fp8_prepare(k: u32) -> i32;
@@ -615,6 +617,30 @@ pub fn gemm_prepare(k: usize) -> Result<(), OmegaGpuError> {
         let _ = k;
         Err(OmegaGpuError::Unavailable)
     }
+}
+
+/// GEMM launch shape for every later call: `mt` rows per pass (power of two, 0 = the API's
+/// rule) and warps per CTA (0 = default 16). Each output stays bit-identical to the per-row
+/// GEMV whatever the shape; only speed changes. Clears the GEMM kernel cache.
+pub fn gemm_set_shape(mt: u32, warps: u32) {
+    #[cfg(has_omega_fp8gemm)]
+    // SAFETY: plain integer arguments.
+    unsafe {
+        ffi::omega_gpu_fp8gemm_set_shape(mt, warps)
+    }
+    #[cfg(not(has_omega_fp8gemm))]
+    let _ = (mt, warps);
+}
+
+/// GEMM CTAs per segment for every later call (0 = the API's rule). Speed only.
+pub fn gemm_set_cta_budget(ctas: u32) {
+    #[cfg(has_omega_fp8gemm)]
+    // SAFETY: plain integer argument.
+    unsafe {
+        ffi::omega_gpu_fp8gemm_set_cta_budget(ctas)
+    }
+    #[cfg(not(has_omega_fp8gemm))]
+    let _ = ctas;
 }
 
 /// TEST ONLY: deliberately wrong GEMM kernel (0 off; 1 scale dropped; 2 scale pointer never

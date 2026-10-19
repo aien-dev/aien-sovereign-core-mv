@@ -189,6 +189,42 @@ pub fn perm_vec(src: &[f32], rotary: usize) -> Vec<f32> {
     (0..HEAD_DIM).map(|i| src[perm_slot(i, rotary)]).collect()
 }
 
+/// Mirror of `OmegaGpuGdnInfo` (one [`Gdn::step`]).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct StepInfo {
+    pub layer: u32,
+    pub threads: u32,
+    pub grid_x: u32,
+    pub grid_y: u32,
+    pub insns: u32,
+    pub gprs: u32,
+    pub state_bytes: u64,
+    pub elapsed_ns: u64,
+    pub call_ns: u64,
+    pub completion_marker: u32,
+    pub kernel_cache_hit: i32,
+}
+
+/// Mirror of `OmegaGpuDecodeAttn256Info` (one [`Attn256Cache::decode`]).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Attn256StepInfo {
+    pub layer: u32,
+    pub pos: u32,
+    pub splits: u32,
+    pub per_split: u32,
+    pub depth: u32,
+    pub grid_x: u32,
+    pub grid_y: u32,
+    pub threads: u32,
+    pub kv_bytes: u64,
+    pub elapsed_ns: u64,
+    pub call_ns: u64,
+    pub completion_marker: u32,
+    pub kernel_cache_hit: i32,
+}
+
 /// Mirror of `OmegaGpuDecodeGraphStats`: what one token cost.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -286,6 +322,29 @@ mod ffi {
             k_norm: *const f32,
         ) -> i32;
         pub fn omega_gpu_decode_attn_last_error() -> *const c_char;
+        pub fn omega_gpu_gdn_step(
+            g: *mut OmegaGpuGdn,
+            layer: u32,
+            qkv: *const f32,
+            z: *const f32,
+            ab: *const f32,
+            eps_l2: f32,
+            eps_norm: f32,
+            in_scale: f32,
+            out_scale: f32,
+            out: *mut f32,
+            info: *mut super::StepInfo,
+        ) -> i32;
+        pub fn omega_gpu_decode_attn256(
+            c: *mut OmegaGpuDecodeAttn256Cache,
+            layer: u32,
+            pos: u32,
+            qkv: *const f32,
+            eps: f32,
+            out_scale: f32,
+            out: *mut f32,
+            info: *mut super::Attn256StepInfo,
+        ) -> i32;
 
         pub fn omega_gpu_q38_graph_create(
             cfg: *const GraphConfig,
@@ -719,6 +778,65 @@ impl Gdn {
             Err(OmegaGpuError::Unavailable)
         }
     }
+
+    /// One decode step of DeltaNet layer `layer` (its index among the DeltaNet layers),
+    /// `omega_gpu_gdn_step`: the same kernel the decode graph records, submitted on its own.
+    /// Plain values in and out (scales 1): `qkv` `[10240]`, `z` `[6144]`, `ab` `[96]` ({a, b}
+    /// per head), `out` `[6144]` (the out_proj input). Advances the layer's tail and state by one
+    /// token. Returns the chip time and the whole call.
+    #[allow(clippy::too_many_arguments)]
+    pub fn step(
+        &mut self,
+        layer: usize,
+        qkv: &[f32],
+        z: &[f32],
+        ab: &[f32],
+        eps_l2: f32,
+        eps_norm: f32,
+        out: &mut [f32],
+    ) -> Result<PrefillCost, OmegaGpuError> {
+        check_len("gdn step qkv", GDN_QKV, qkv.len())?;
+        check_len("gdn step z", MIXER_OUT, z.len())?;
+        check_len("gdn step ab", AB, ab.len())?;
+        check_len("gdn step out", MIXER_OUT, out.len())?;
+        if layer >= self.layers {
+            return Err(bad(format!("gdn step: layer {layer} of {}", self.layers)));
+        }
+        #[cfg(has_omega_q38)]
+        {
+            let mut info = StepInfo::default();
+            // SAFETY: ptr is live; every slice has the length omega reads or writes (checked).
+            let rc = unsafe {
+                ffi::omega_gpu_gdn_step(
+                    self.ptr,
+                    layer as u32,
+                    qkv.as_ptr(),
+                    z.as_ptr(),
+                    ab.as_ptr(),
+                    eps_l2,
+                    eps_norm,
+                    1.0,
+                    1.0,
+                    out.as_mut_ptr(),
+                    &mut info,
+                )
+            };
+            if rc != 0 {
+                // SAFETY: no arguments.
+                let detail = c_text(unsafe { ffi::omega_gpu_gdn_last_error() });
+                return Err(rc_err("gdn step", rc, detail));
+            }
+            Ok(PrefillCost {
+                chip_ns: info.elapsed_ns,
+                call_ns: info.call_ns,
+            })
+        }
+        #[cfg(not(has_omega_q38))]
+        {
+            let _ = (eps_l2, eps_norm);
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
 }
 
 impl Drop for Gdn {
@@ -940,6 +1058,66 @@ impl Attn256Cache {
             })
         }
         #[cfg(not(has_omega_q38_prefill))]
+        {
+            let _ = eps;
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
+
+    /// Decode attention for one new token of attention layer `layer` at position `pos`
+    /// (`omega_gpu_decode_attn256`, the kernel the decode graph records, submitted on its own):
+    /// `qkv` `[8192]` in the kernel's row layout ([`gather_table`]'s first [`ATT_QKV`] slots,
+    /// raw); appends its K and V at `pos` (positions before `pos` already in the cache) and
+    /// writes `out` `[6144]` (before the output gate).
+    pub fn decode(
+        &mut self,
+        layer: usize,
+        pos: usize,
+        qkv: &[f32],
+        eps: f32,
+        out: &mut [f32],
+    ) -> Result<PrefillCost, OmegaGpuError> {
+        if pos >= self.max_pos {
+            return Err(bad(format!(
+                "attn256 decode: position {pos} >= cache of {}",
+                self.max_pos
+            )));
+        }
+        check_len("attn256 decode qkv", ATT_QKV, qkv.len())?;
+        check_len("attn256 decode out", MIXER_OUT, out.len())?;
+        if layer >= self.layers {
+            return Err(bad(format!(
+                "attn256 decode: layer {layer} of {}",
+                self.layers
+            )));
+        }
+        #[cfg(has_omega_q38)]
+        {
+            let mut info = Attn256StepInfo::default();
+            // SAFETY: ptr is live; qkv and out have the lengths omega reads and writes (checked).
+            let rc = unsafe {
+                ffi::omega_gpu_decode_attn256(
+                    self.ptr,
+                    layer as u32,
+                    pos as u32,
+                    qkv.as_ptr(),
+                    eps,
+                    1.0,
+                    out.as_mut_ptr(),
+                    &mut info,
+                )
+            };
+            if rc != 0 {
+                // SAFETY: no arguments.
+                let detail = c_text(unsafe { ffi::omega_gpu_decode_attn_last_error() });
+                return Err(rc_err("attn256 decode", rc, detail));
+            }
+            Ok(PrefillCost {
+                chip_ns: info.elapsed_ns,
+                call_ns: info.call_ns,
+            })
+        }
+        #[cfg(not(has_omega_q38))]
         {
             let _ = eps;
             Err(OmegaGpuError::Unavailable)
