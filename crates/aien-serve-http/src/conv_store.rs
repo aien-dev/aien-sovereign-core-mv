@@ -118,7 +118,11 @@ impl AlignedBuf {
     /// Sets the useful length (`<= capacity`); bytes past the old length are whatever the
     /// allocation holds until written.
     pub fn set_len(&mut self, len: usize) {
-        assert!(len <= self.cap, "AlignedBuf::set_len {len} > capacity {}", self.cap);
+        assert!(
+            len <= self.cap,
+            "AlignedBuf::set_len {len} > capacity {}",
+            self.cap
+        );
         self.len = len;
     }
 
@@ -253,7 +257,9 @@ pub fn settings_from_env(
         };
         num.parse::<u64>().map_or(d, |n| n * mul)
     };
-    let dir = lookup(DIR_ENV).filter(|s| !s.trim().is_empty()).map(PathBuf::from);
+    let dir = lookup(DIR_ENV)
+        .filter(|s| !s.trim().is_empty())
+        .map(PathBuf::from);
     let ram = bytes(lookup(RAM_ENV), DEFAULT_RAM_BUDGET);
     let disk = bytes(lookup(DISK_ENV), DEFAULT_DISK_BUDGET);
     let every = lookup(EVERY_ENV)
@@ -340,8 +346,16 @@ impl KvRows {
     }
 
     /// Rows `from .. to` of one plane as bf16 words.
-    pub fn plane_words(&self, layer: usize, head: usize, plane: usize, from: usize, to: usize) -> &[u16] {
-        let b = &self.planes[Self::plane_index(layer, head, plane)].as_slice()[from * ROW_BYTES..to * ROW_BYTES];
+    pub fn plane_words(
+        &self,
+        layer: usize,
+        head: usize,
+        plane: usize,
+        from: usize,
+        to: usize,
+    ) -> &[u16] {
+        let b = &self.planes[Self::plane_index(layer, head, plane)].as_slice()
+            [from * ROW_BYTES..to * ROW_BYTES];
         // SAFETY: the buffer is 4096 aligned and the row size is a multiple of 2; u16 has no invalid bit patterns.
         unsafe { std::slice::from_raw_parts(b.as_ptr().cast::<u16>(), b.len() / 2) }
     }
@@ -371,7 +385,9 @@ impl KvRows {
                     buf.set_len(to * ROW_BYTES);
                     let b = &mut buf.as_mut_slice()[from * ROW_BYTES..to * ROW_BYTES];
                     // SAFETY: aligned, even length, u16 has no invalid bit patterns.
-                    let w = unsafe { std::slice::from_raw_parts_mut(b.as_mut_ptr().cast::<u16>(), b.len() / 2) };
+                    let w = unsafe {
+                        std::slice::from_raw_parts_mut(b.as_mut_ptr().cast::<u16>(), b.len() / 2)
+                    };
                     fill(layer, head, plane, w)?;
                 }
             }
@@ -415,7 +431,10 @@ pub enum Residency {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EntryStatus {
     /// A background read in progress: `done` of `total` tokens fed and checkpointed.
-    Reading { done: usize, total: usize },
+    Reading {
+        done: usize,
+        total: usize,
+    },
     Ready,
     Failed(String),
 }
@@ -449,7 +468,11 @@ impl Entry {
     /// Host bytes the resident copy holds (0 when spilled).
     pub fn ram_bytes(&self) -> u64 {
         self.kv.as_ref().map_or(0, KvRows::bytes)
-            + self.checkpoints.iter().map(|c| c.snap.bytes() as u64).sum::<u64>()
+            + self
+                .checkpoints
+                .iter()
+                .map(|c| c.snap.bytes() as u64)
+                .sum::<u64>()
     }
 
     /// The resident checkpoint at `pos`.
@@ -462,7 +485,8 @@ impl Entry {
         let pos = snap.pos;
         self.checkpoints.retain(|c| c.pos != pos);
         self.ckpt_table.retain(|c| c.0 != pos);
-        self.checkpoints.push(Arc::new(Checkpoint { pos, kind, snap }));
+        self.checkpoints
+            .push(Arc::new(Checkpoint { pos, kind, snap }));
         self.checkpoints.sort_by_key(|c| c.pos);
         self.ckpt_table.push((pos, kind));
         self.ckpt_table.sort_by_key(|c| c.0);
@@ -652,7 +676,8 @@ impl ConvStore {
             }
             let shared = common_prefix_len(&e.tokens, prompt);
             let limit = shared.min(prompt.len().saturating_sub(1)).min(e.kv_rows);
-            let Some(&(pos, kind)) = e.ckpt_table.iter().rev().find(|c| c.0 <= limit && c.0 > 0) else {
+            let Some(&(pos, kind)) = e.ckpt_table.iter().rev().find(|c| c.0 <= limit && c.0 > 0)
+            else {
                 continue;
             };
             let m = Match {
@@ -668,7 +693,8 @@ impl ConvStore {
                 Some((b, t)) => {
                     m.pos > b.pos
                         || (m.pos == b.pos
-                            && ((m.residency == Residency::Resident && b.residency != Residency::Resident)
+                            && ((m.residency == Residency::Resident
+                                && b.residency != Residency::Resident)
                                 || (m.residency == b.residency && e.last_used > *t)))
                 }
             };
@@ -692,7 +718,9 @@ impl ConvStore {
     /// A new, empty, resident entry for `tokens` (no KV rows yet, no checkpoints); returns its
     /// key (`sha256` of the tokens and the time, hex). Pinned until [`Self::unpin`].
     pub fn create(&self, tokens: &[u32], label: Option<String>, status: EntryStatus) -> String {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
         let mut h = Sha256::new();
         h.update(b"AIEN-CONV-KEY\0");
         for t in tokens {
@@ -734,7 +762,11 @@ impl ConvStore {
     /// Pins `key` (never spilled while pinned) and makes it resident, loading it from NVMe when
     /// spilled (evicting others to fit the budget first). Then runs `f` on it. `None` when
     /// there is no such entry. Time in `f` counts as use.
-    pub fn with_entry<R>(&self, key: &str, f: impl FnOnce(&mut Entry) -> R) -> Result<Option<R>, String> {
+    pub fn with_entry<R>(
+        &self,
+        key: &str,
+        f: impl FnOnce(&mut Entry) -> R,
+    ) -> Result<Option<R>, String> {
         let mut g = self.lock();
         if !g.entries.contains_key(key) {
             return Ok(None);
@@ -765,7 +797,9 @@ impl ConvStore {
             g.ram_bytes += bytes;
             self.counters.loads.fetch_add(1, Ordering::Relaxed);
             self.counters.load_bytes.fetch_add(bytes, Ordering::Relaxed);
-            self.counters.load_ns.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
+            self.counters
+                .load_ns
+                .fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
             eprintln!(
                 "aien-serve-http: conv store: loaded {key} from NVMe: {} rows, {} checkpoints, {:.3} GB in {:.3} s ({:.2} GB/s)",
                 loaded.kv_rows,
@@ -792,6 +826,16 @@ impl ConvStore {
         self.make_room(&mut g, 0);
     }
 
+    /// Whether `key` holds a checkpoint at `pos` covering exactly `tokens` (resident or not).
+    pub fn holds(&self, key: &str, tokens: &[u32]) -> bool {
+        let g = self.lock();
+        g.entries.get(key).is_some_and(|e| {
+            e.kv_rows >= tokens.len()
+                && e.tokens.starts_with(tokens)
+                && e.ckpt_table.iter().any(|c| c.0 == tokens.len())
+        })
+    }
+
     /// Marks `key` used now.
     pub fn touch(&self, key: &str) {
         let mut g = self.lock();
@@ -816,7 +860,9 @@ impl ConvStore {
     /// Removes an entry (RAM and file).
     pub fn remove(&self, key: &str) -> bool {
         let mut g = self.lock();
-        let Some(e) = g.entries.remove(key) else { return false };
+        let Some(e) = g.entries.remove(key) else {
+            return false;
+        };
         g.ram_bytes = g.ram_bytes.saturating_sub(e.ram_bytes());
         if let Some(f) = &e.file {
             let _ = std::fs::remove_file(f);
@@ -835,7 +881,9 @@ impl ConvStore {
         let keys: Vec<String> = g
             .entries
             .values()
-            .filter(|e| e.residency == Residency::Resident && e.dirty && e.status == EntryStatus::Ready)
+            .filter(|e| {
+                e.residency == Residency::Resident && e.dirty && e.status == EntryStatus::Ready
+            })
             .map(|e| e.key.clone())
             .collect();
         let mut n = 0;
@@ -893,12 +941,17 @@ impl ConvStore {
         e.checkpoints.clear();
         e.residency = Residency::Spilled;
         g.ram_bytes = g.ram_bytes.saturating_sub(bytes);
-        eprintln!("aien-serve-http: conv store: spilled {key} ({:.3} GB freed)", bytes as f64 / 1e9);
+        eprintln!(
+            "aien-serve-http: conv store: spilled {key} ({:.3} GB freed)",
+            bytes as f64 / 1e9
+        );
         Ok(())
     }
 
     fn drop_entry(&self, g: &mut Inner, key: &str) -> bool {
-        let Some(e) = g.entries.remove(key) else { return false };
+        let Some(e) = g.entries.remove(key) else {
+            return false;
+        };
         g.ram_bytes = g.ram_bytes.saturating_sub(e.ram_bytes());
         if let Some(f) = &e.file {
             let _ = std::fs::remove_file(f);
@@ -917,7 +970,12 @@ impl ConvStore {
         let (bytes, path) = {
             let e = g.entries.get(key).expect("present");
             let kv = e.kv.as_ref().ok_or("write_entry: not resident")?;
-            let planned = file_bytes(&self.cfg.shape, e.tokens.len(), kv.rows(), e.checkpoints.len());
+            let planned = file_bytes(
+                &self.cfg.shape,
+                e.tokens.len(),
+                kv.rows(),
+                e.checkpoints.len(),
+            );
             (planned, dir.join(format!("{key}.{FILE_EXT}")))
         };
         // Disk budget: remove the oldest other files first.
@@ -945,8 +1003,12 @@ impl ConvStore {
         e.file_bytes = written;
         e.dirty = false;
         self.counters.spills.fetch_add(1, Ordering::Relaxed);
-        self.counters.spill_bytes.fetch_add(written, Ordering::Relaxed);
-        self.counters.spill_ns.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
+        self.counters
+            .spill_bytes
+            .fetch_add(written, Ordering::Relaxed);
+        self.counters
+            .spill_ns
+            .fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
         eprintln!(
             "aien-serve-http: conv store: wrote {key} to NVMe: {:.3} GB in {:.3} s ({:.2} GB/s)",
             written as f64 / 1e9,
@@ -1080,9 +1142,11 @@ fn open_rw(path: &Path, cfg: &StoreConfig, write: bool) -> io::Result<File> {
 fn read_header(path: &Path) -> Result<Header, String> {
     let mut f = File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut buf = vec![0u8; HEADER_BYTES];
-    f.read_exact(&mut buf).map_err(|e| format!("{}: header: {e}", path.display()))?;
+    f.read_exact(&mut buf)
+        .map_err(|e| format!("{}: header: {e}", path.display()))?;
     let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-    let h: Header = serde_json::from_slice(&buf[..end]).map_err(|e| format!("{}: header: {e}", path.display()))?;
+    let h: Header = serde_json::from_slice(&buf[..end])
+        .map_err(|e| format!("{}: header: {e}", path.display()))?;
     if h.magic != MAGIC {
         return Err(format!("{}: not a conversation file", path.display()));
     }
@@ -1093,8 +1157,14 @@ fn read_tokens(path: &Path, h: &Header) -> Result<Vec<u32>, String> {
     let f = File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let l = layout(&h.shape, h.tokens, h.kv_rows, h.checkpoints.len());
     let mut raw = vec![0u8; h.tokens * 4];
-    f.read_exact_at(&mut raw, l.tokens_off).map_err(|e| format!("{}: tokens: {e}", path.display()))?;
-    Ok(raw.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect())
+    f.read_exact_at(&mut raw, l.tokens_off)
+        .map_err(|e| format!("{}: tokens: {e}", path.display()))?;
+    Ok(raw
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| u32::from_le_bytes(*c))
+        .collect())
 }
 
 struct Loaded {
@@ -1131,7 +1201,8 @@ fn run_jobs(f: &File, jobs: Vec<Job<'_>>, threads: usize, write: bool) -> io::Re
             })
             .collect();
         for h in handles {
-            h.join().map_err(|_| io::Error::other("I/O thread panicked"))??;
+            h.join()
+                .map_err(|_| io::Error::other("I/O thread panicked"))??;
         }
         Ok(())
     })
@@ -1148,11 +1219,14 @@ fn load_file(path: &Path, cfg: &StoreConfig) -> Result<Loaded, String> {
     let mut tok = AlignedBuf::with_capacity(pad(h.tokens * 4));
     tok.set_len(pad(h.tokens * 4));
     if !tok.is_empty() {
-        f.read_exact_at(tok.as_mut_slice(), l.tokens_off).map_err(|e| format!("{}: tokens: {e}", path.display()))?;
+        f.read_exact_at(tok.as_mut_slice(), l.tokens_off)
+            .map_err(|e| format!("{}: tokens: {e}", path.display()))?;
     }
     let tokens: Vec<u32> = tok.as_slice()[..h.tokens * 4]
-        .chunks_exact(4)
-        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| u32::from_le_bytes(*c))
         .collect();
     // Checkpoints: staged through aligned buffers.
     let n_ckpt = h.checkpoints.len();
@@ -1173,15 +1247,25 @@ fn load_file(path: &Path, cfg: &StoreConfig) -> Result<Loaded, String> {
     let mut jobs = Vec::with_capacity(2 * n_ckpt + kv.planes.len());
     for (i, (t, s)) in stage.iter_mut().enumerate() {
         let off = l.ckpt_off + l.ckpt_stride * i as u64;
-        jobs.push(Job { off, buf: t.as_mut_slice() });
-        jobs.push(Job { off: off + pad(l.tails_bytes) as u64, buf: s.as_mut_slice() });
+        jobs.push(Job {
+            off,
+            buf: t.as_mut_slice(),
+        });
+        jobs.push(Job {
+            off: off + pad(l.tails_bytes) as u64,
+            buf: s.as_mut_slice(),
+        });
     }
     if l.plane_bytes > 0 {
         for (i, p) in kv.planes.iter_mut().enumerate() {
-            jobs.push(Job { off: l.planes_off + l.plane_stride * i as u64, buf: p.as_mut_slice() });
+            jobs.push(Job {
+                off: l.planes_off + l.plane_stride * i as u64,
+                buf: p.as_mut_slice(),
+            });
         }
     }
-    run_jobs(&f, jobs, cfg.io_threads, false).map_err(|e| format!("{}: read: {e}", path.display()))?;
+    run_jobs(&f, jobs, cfg.io_threads, false)
+        .map_err(|e| format!("{}: read: {e}", path.display()))?;
     for p in &mut kv.planes {
         p.set_len(l.plane_bytes);
     }
@@ -1192,10 +1276,19 @@ fn load_file(path: &Path, cfg: &StoreConfig) -> Result<Loaded, String> {
         .map(|((t, s), &(pos, kind))| {
             let tails = bytes_to_f32(&t.as_slice()[..l.tails_bytes]);
             let states = bytes_to_f32(&s.as_slice()[..l.states_bytes]);
-            Arc::new(Checkpoint { pos, kind, snap: Qwen38Snapshot::from_parts(pos, tails, states) })
+            Arc::new(Checkpoint {
+                pos,
+                kind,
+                snap: Qwen38Snapshot::from_parts(pos, tails, states),
+            })
         })
         .collect();
-    Ok(Loaded { tokens, kv_rows: h.kv_rows, kv, checkpoints })
+    Ok(Loaded {
+        tokens,
+        kv_rows: h.kv_rows,
+        kv,
+        checkpoints,
+    })
 }
 
 fn write_file(path: &Path, e: &Entry, cfg: &StoreConfig) -> Result<(), String> {
@@ -1214,17 +1307,22 @@ fn write_file(path: &Path, e: &Entry, cfg: &StoreConfig) -> Result<(), String> {
     };
     let hj = serde_json::to_vec(&h).map_err(|e| e.to_string())?;
     if hj.len() >= HEADER_BYTES {
-        return Err(format!("conversation header of {} bytes (limit {HEADER_BYTES})", hj.len()));
+        return Err(format!(
+            "conversation header of {} bytes (limit {HEADER_BYTES})",
+            hj.len()
+        ));
     }
     let f = open_rw(path, cfg, true).map_err(|e| format!("{}: {e}", path.display()))?;
-    f.set_len(l.total).map_err(|e| format!("{}: set_len: {e}", path.display()))?;
+    f.set_len(l.total)
+        .map_err(|e| format!("{}: set_len: {e}", path.display()))?;
     // Header and tokens in one aligned buffer.
     let mut head = AlignedBuf::with_capacity(l.ckpt_off as usize);
     head.set_len(l.ckpt_off as usize);
     head.as_mut_slice().fill(0);
     head.as_mut_slice()[..hj.len()].copy_from_slice(&hj);
     for (i, t) in e.tokens.iter().enumerate() {
-        head.as_mut_slice()[HEADER_BYTES + i * 4..HEADER_BYTES + i * 4 + 4].copy_from_slice(&t.to_le_bytes());
+        head.as_mut_slice()[HEADER_BYTES + i * 4..HEADER_BYTES + i * 4 + 4]
+            .copy_from_slice(&t.to_le_bytes());
     }
     // Checkpoints staged.
     let mut stage: Vec<(AlignedBuf, AlignedBuf)> = e
@@ -1245,11 +1343,20 @@ fn write_file(path: &Path, e: &Entry, cfg: &StoreConfig) -> Result<(), String> {
     // Planes: written from their own buffers (padded tail needs the capacity to be aligned).
     let mut planes: Vec<AlignedBuf> = Vec::with_capacity(kv.planes.len());
     let mut jobs: Vec<Job<'_>> = Vec::new();
-    jobs.push(Job { off: 0, buf: head.as_mut_slice() });
+    jobs.push(Job {
+        off: 0,
+        buf: head.as_mut_slice(),
+    });
     for (i, (t, s)) in stage.iter_mut().enumerate() {
         let off = l.ckpt_off + l.ckpt_stride * i as u64;
-        jobs.push(Job { off, buf: t.as_mut_slice() });
-        jobs.push(Job { off: off + pad(l.tails_bytes) as u64, buf: s.as_mut_slice() });
+        jobs.push(Job {
+            off,
+            buf: t.as_mut_slice(),
+        });
+        jobs.push(Job {
+            off: off + pad(l.tails_bytes) as u64,
+            buf: s.as_mut_slice(),
+        });
     }
     if l.plane_bytes > 0 {
         for p in &kv.planes {
@@ -1260,16 +1367,25 @@ fn write_file(path: &Path, e: &Entry, cfg: &StoreConfig) -> Result<(), String> {
             planes.push(b);
         }
         for (i, p) in planes.iter_mut().enumerate() {
-            jobs.push(Job { off: l.planes_off + l.plane_stride * i as u64, buf: p.as_mut_slice() });
+            jobs.push(Job {
+                off: l.planes_off + l.plane_stride * i as u64,
+                buf: p.as_mut_slice(),
+            });
         }
     }
-    run_jobs(&f, jobs, cfg.io_threads, true).map_err(|e| format!("{}: write: {e}", path.display()))?;
-    f.sync_all().map_err(|e| format!("{}: sync: {e}", path.display()))?;
+    run_jobs(&f, jobs, cfg.io_threads, true)
+        .map_err(|e| format!("{}: write: {e}", path.display()))?;
+    f.sync_all()
+        .map_err(|e| format!("{}: sync: {e}", path.display()))?;
     Ok(())
 }
 
 fn bytes_to_f32(b: &[u8]) -> Vec<f32> {
-    b.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect()
+    b.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| f32::from_le_bytes(*c))
+        .collect()
 }
 
 fn f32_to_bytes(v: &[f32], out: &mut [u8]) {
@@ -1281,7 +1397,7 @@ fn f32_to_bytes(v: &[f32], out: &mut [u8]) {
 /// The header of a file (for tools).
 pub fn describe_file(path: &Path) -> Result<serde_json::Value, String> {
     let h = read_header(path)?;
-    Ok(serde_json::to_value(h).map_err(|e| e.to_string())?)
+    serde_json::to_value(h).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -1289,7 +1405,13 @@ mod tests {
     use super::*;
 
     fn shape() -> Shape {
-        Shape { n_attn: 2, n_gdn: 3, tail_floats: 8, state_floats: 16, max_pos: 64 }
+        Shape {
+            n_attn: 2,
+            n_gdn: 3,
+            tail_floats: 8,
+            state_floats: 16,
+            max_pos: 64,
+        }
     }
 
     fn config(dir: Option<PathBuf>, ram: u64) -> StoreConfig {
@@ -1307,8 +1429,12 @@ mod tests {
 
     fn snap(pos: usize, seed: f32) -> Qwen38Snapshot {
         let s = shape();
-        let tails: Vec<f32> = (0..s.n_gdn * s.tail_floats).map(|i| seed + i as f32).collect();
-        let states: Vec<f32> = (0..s.n_gdn * s.state_floats).map(|i| seed * 2.0 - i as f32).collect();
+        let tails: Vec<f32> = (0..s.n_gdn * s.tail_floats)
+            .map(|i| seed + i as f32)
+            .collect();
+        let states: Vec<f32> = (0..s.n_gdn * s.state_floats)
+            .map(|i| seed * 2.0 - i as f32)
+            .collect();
         Qwen38Snapshot::from_parts(pos, tails, states)
     }
 
@@ -1326,7 +1452,9 @@ mod tests {
     }
 
     fn tmpdir(name: &str) -> PathBuf {
-        let base = std::env::var("CARGO_TARGET_DIR").map(PathBuf::from).unwrap_or_else(|_| std::env::temp_dir());
+        let base = std::env::var("CARGO_TARGET_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| std::env::temp_dir());
         let d = base.join(format!("conv-store-test-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         d
@@ -1367,7 +1495,11 @@ mod tests {
         let s = shape();
         let one = s.kv_bytes(8) + s.checkpoint_bytes() * 2;
         let st = ConvStore::open(config(Some(dir.clone()), one + one / 2)).unwrap();
-        let a = st.create(&(1..=8).collect::<Vec<u32>>(), Some("a".into()), EntryStatus::Ready);
+        let a = st.create(
+            &(1..=8).collect::<Vec<u32>>(),
+            Some("a".into()),
+            EntryStatus::Ready,
+        );
         st.with_entry(&a, |e| {
             fill_rows(e, 8, 10);
             e.put_checkpoint(CkptKind::Chunk, snap(4, 1.5));
@@ -1376,7 +1508,11 @@ mod tests {
         .unwrap();
         st.unpin();
         std::thread::sleep(std::time::Duration::from_millis(5));
-        let b = st.create(&(11..=18).collect::<Vec<u32>>(), Some("b".into()), EntryStatus::Ready);
+        let b = st.create(
+            &(11..=18).collect::<Vec<u32>>(),
+            Some("b".into()),
+            EntryStatus::Ready,
+        );
         st.with_entry(&b, |e| {
             fill_rows(e, 8, 20);
             e.put_checkpoint(CkptKind::Chunk, snap(4, 3.5));
@@ -1388,9 +1524,14 @@ mod tests {
         let status = st.status();
         assert_eq!(status["resident"], 1);
         let m = st.best_match(&[1, 2, 3, 4, 5, 6, 7, 8, 9]).unwrap();
-        assert_eq!((m.key.as_str(), m.pos, m.residency), (a.as_str(), 8, Residency::Spilled));
+        assert_eq!(
+            (m.key.as_str(), m.pos, m.residency),
+            (a.as_str(), 8, Residency::Spilled)
+        );
         // Loading a back spills b and restores a's bytes exactly.
-        let expect_k: Vec<u16> = (0..256).map(|i| 10u16.wrapping_add((1000 + 300 + 10 + i) as u16)).collect();
+        let expect_k: Vec<u16> = (0..256)
+            .map(|i| 10u16.wrapping_add((1000 + 300 + 10 + i) as u16))
+            .collect();
         st.with_entry(&a, |e| {
             assert_eq!(e.residency, Residency::Resident);
             let kv = e.kv.as_ref().unwrap();
@@ -1408,11 +1549,16 @@ mod tests {
         drop(st);
         let st2 = ConvStore::open(config(Some(dir.clone()), one * 4)).unwrap();
         assert_eq!(st2.status()["conversations"], 2);
-        let m = st2.best_match(&[11, 12, 13, 14, 15, 16, 17, 18, 1]).unwrap();
+        let m = st2
+            .best_match(&[11, 12, 13, 14, 15, 16, 17, 18, 1])
+            .unwrap();
         assert_eq!((m.key.as_str(), m.pos), (b.as_str(), 8));
         st2.with_entry(&b, |e| {
             assert_eq!(e.kv.as_ref().unwrap().rows(), 8);
-            assert_eq!(e.checkpoint_at(4).unwrap().snap.states(), snap(4, 3.5).states());
+            assert_eq!(
+                e.checkpoint_at(4).unwrap().snap.states(),
+                snap(4, 3.5).states()
+            );
         })
         .unwrap();
         let _ = std::fs::remove_dir_all(&dir);

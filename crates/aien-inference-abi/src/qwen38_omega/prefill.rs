@@ -290,7 +290,10 @@ impl Qwen38Omega {
     /// buffers one call over all of them would.
     pub fn reserve_prefill(&mut self, m: usize) -> Result<(), String> {
         if m == 0 || m > q::PATTN_MAX_M {
-            return Err(format!("qwen38 reserve_prefill: {m} tokens (1..={})", q::PATTN_MAX_M));
+            return Err(format!(
+                "qwen38 reserve_prefill: {m} tokens (1..={})",
+                q::PATTN_MAX_M
+            ));
         }
         if self.pf.as_ref().is_none_or(|p| p.m < m) {
             self.pf = None;

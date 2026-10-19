@@ -167,6 +167,8 @@ struct Prepared {
     /// The prompt opens a thinking block: reply tokens up to this id are reasoning.
     reasoning_end: Option<u32>,
     return_ids: bool,
+    /// `aien_reuse: "cold"`: recompute from scratch, no saved state (document memory gates).
+    cold: bool,
 }
 
 /// What the generation thread sends to the HTTP side.
@@ -199,6 +201,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/models/:id", get(get_model))
         .route("/v1/chat/completions", post(chat_completions))
         .route("/health", get(health))
+        .route("/v1/documents", get(list_documents).post(ingest_document))
+        .route("/v1/documents/:id/:action", post(document_action))
         .fallback(not_found)
         .layer(DefaultBodyLimit::max(limit))
         .with_state(state)
@@ -293,6 +297,48 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
         obj.insert("persistent_kv".into(), pk);
     }
     Json(v)
+}
+
+/// `GET /v1/documents`: the document memory (saved conversations, budgets, counters).
+async fn list_documents(State(state): State<Arc<AppState>>) -> Result<Json<Value>, ApiError> {
+    state
+        .engine
+        .documents()
+        .map(Json)
+        .ok_or_else(|| ApiError::not_found("this engine has no document memory"))
+}
+
+/// `POST /v1/documents`: a chat request body whose rendered prompt (up to its last turn
+/// header) is read in the background and saved; returns the saved conversation's id at once.
+async fn ingest_document(
+    State(state): State<Arc<AppState>>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let body = body.map_err(|r| {
+        ApiError::bad_request(format!("could not read request body: {}", r.body_text()))
+    })?;
+    let req: ChatRequest = serde_json::from_slice(&body)
+        .map_err(|e| ApiError::bad_request(format!("invalid JSON request: {e}")))?;
+    let label = req.model.clone();
+    let prepared = prepare(&state, req)?;
+    let engine = Arc::clone(&state.engine);
+    let r = tokio::task::spawn_blocking(move || engine.ingest(prepared.prompt_tokens, label))
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?;
+    r.map(Json).map_err(|e| ApiError::internal(e.to_string()))
+}
+
+/// `POST /v1/documents/:id/:action` (`spill`, `remove`).
+async fn document_action(
+    State(state): State<Arc<AppState>>,
+    Path((id, action)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    let engine = Arc::clone(&state.engine);
+    let r = tokio::task::spawn_blocking(move || engine.document_action(&id, &action))
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?;
+    r.map(Json)
+        .map_err(|e| ApiError::bad_request(e.to_string()))
 }
 
 async fn not_found() -> ApiError {
@@ -562,6 +608,7 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
             None
         },
         return_ids: req.aien_return_token_ids,
+        cold: req.aien_reuse.as_deref() == Some("cold"),
     })
 }
 
@@ -620,61 +667,67 @@ fn run_generation(
     let mut ids = prepared.return_ids.then(Vec::new);
     let mut stopped_by_string = false;
     let mut client_gone = false;
-    let result = engine.generate(&prepared.prompt_tokens, &prepared.params, &mut |tok| {
-        if let Some(ids) = ids.as_mut() {
-            ids.push(tok);
-        }
-        if let Some((end, rasm)) = thinking.as_mut() {
-            let ev = if tok == *end {
-                let rest = rasm.finish();
-                thinking = None;
-                rest
-            } else {
-                match rasm.push(tok) {
-                    Push::Delta(d) | Push::StopAt(d) => Some(d),
-                    Push::Hold => None,
-                }
-            };
-            if let Some(d) = ev.filter(|d| !d.is_empty()) {
-                if tx.blocking_send(Ev::Reasoning(d)).is_err() {
-                    client_gone = true;
-                    return false;
-                }
+    let cold = prepared.cold;
+    let result = engine.generate_mode(
+        &prepared.prompt_tokens,
+        &prepared.params,
+        cold,
+        &mut |tok| {
+            if let Some(ids) = ids.as_mut() {
+                ids.push(tok);
             }
-            return true;
-        }
-        let trim = |d: String, started: &mut bool| {
-            if *started {
-                return d;
-            }
-            let t = d.trim_start_matches('\n');
-            *started = !t.is_empty();
-            t.to_string()
-        };
-        match asm.push(tok) {
-            Push::Hold => true,
-            Push::Delta(d) => {
-                let d = trim(d, &mut answer_started);
-                if d.is_empty() {
-                    return true;
-                }
-                if tx.blocking_send(Ev::Delta(d)).is_err() {
-                    client_gone = true;
-                    false
+            if let Some((end, rasm)) = thinking.as_mut() {
+                let ev = if tok == *end {
+                    let rest = rasm.finish();
+                    thinking = None;
+                    rest
                 } else {
-                    true
+                    match rasm.push(tok) {
+                        Push::Delta(d) | Push::StopAt(d) => Some(d),
+                        Push::Hold => None,
+                    }
+                };
+                if let Some(d) = ev.filter(|d| !d.is_empty()) {
+                    if tx.blocking_send(Ev::Reasoning(d)).is_err() {
+                        client_gone = true;
+                        return false;
+                    }
+                }
+                return true;
+            }
+            let trim = |d: String, started: &mut bool| {
+                if *started {
+                    return d;
+                }
+                let t = d.trim_start_matches('\n');
+                *started = !t.is_empty();
+                t.to_string()
+            };
+            match asm.push(tok) {
+                Push::Hold => true,
+                Push::Delta(d) => {
+                    let d = trim(d, &mut answer_started);
+                    if d.is_empty() {
+                        return true;
+                    }
+                    if tx.blocking_send(Ev::Delta(d)).is_err() {
+                        client_gone = true;
+                        false
+                    } else {
+                        true
+                    }
+                }
+                Push::StopAt(d) => {
+                    stopped_by_string = true;
+                    let d = trim(d, &mut answer_started);
+                    if !d.is_empty() {
+                        let _ = tx.blocking_send(Ev::Delta(d));
+                    }
+                    false
                 }
             }
-            Push::StopAt(d) => {
-                stopped_by_string = true;
-                let d = trim(d, &mut answer_started);
-                if !d.is_empty() {
-                    let _ = tx.blocking_send(Ev::Delta(d));
-                }
-                false
-            }
-        }
-    });
+        },
+    );
     drop(guard);
     match result {
         Err(EngineError::Busy(m)) => {

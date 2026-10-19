@@ -47,6 +47,10 @@ pub struct ChatRequest {
     /// AIEN extra: return the generated token ids in `usage.aien_token_ids` (correctness gates).
     #[serde(default)]
     pub aien_return_token_ids: bool,
+    /// AIEN extra (document memory gates): `"cold"` feeds the whole prompt from scratch, using
+    /// and saving no stored state (the recomputed reference); absent or `"default"` reuses.
+    #[serde(default)]
+    pub aien_reuse: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

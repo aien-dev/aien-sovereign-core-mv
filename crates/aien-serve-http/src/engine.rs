@@ -106,6 +106,43 @@ pub trait Engine: Send + Sync {
     fn persistence_status(&self) -> Option<serde_json::Value> {
         None
     }
+    /// [`Self::generate`] with a reuse mode (document memory): `cold` feeds the whole prompt
+    /// from scratch and neither reads nor writes saved state. Engines without saved state
+    /// ignore it.
+    fn generate_mode(
+        &self,
+        prompt: &[u32],
+        params: &GenerateParams,
+        cold: bool,
+        on_token: &mut dyn FnMut(u32) -> bool,
+    ) -> Result<GenerateOutcome, EngineError> {
+        let _ = cold;
+        self.generate(prompt, params, on_token)
+    }
+    /// Document memory: start reading `prompt` (up to its last turn header) in the background.
+    /// `Err` when the engine has no document memory.
+    fn ingest(
+        &self,
+        prompt: Vec<u32>,
+        label: Option<String>,
+    ) -> Result<serde_json::Value, EngineError> {
+        let _ = (prompt, label);
+        Err(EngineError::Failed(
+            "this engine has no document memory".into(),
+        ))
+    }
+    /// Document memory status (`GET /v1/documents`); `None` when there is none.
+    fn documents(&self) -> Option<serde_json::Value> {
+        None
+    }
+    /// Document memory admin: `spill` (write to NVMe and free RAM) or `remove` a saved
+    /// conversation.
+    fn document_action(&self, id: &str, action: &str) -> Result<serde_json::Value, EngineError> {
+        let _ = (id, action);
+        Err(EngineError::Failed(
+            "this engine has no document memory".into(),
+        ))
+    }
 }
 
 /// Test engine: ignores the prompt and replays a fixed token list, optionally

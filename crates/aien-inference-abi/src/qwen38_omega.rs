@@ -732,8 +732,14 @@ impl Qwen38Omega {
             return Err("kv_read_rows: no attention cache".into());
         };
         for (i, pos) in (from..to).enumerate() {
-            a.read_row(layer, kv_head, pos, &mut k[i * w..(i + 1) * w], &mut v[i * w..(i + 1) * w])
-                .map_err(gpu("attn256 read_row"))?;
+            a.read_row(
+                layer,
+                kv_head,
+                pos,
+                &mut k[i * w..(i + 1) * w],
+                &mut v[i * w..(i + 1) * w],
+            )
+            .map_err(gpu("attn256 read_row"))?;
         }
         Ok(())
     }

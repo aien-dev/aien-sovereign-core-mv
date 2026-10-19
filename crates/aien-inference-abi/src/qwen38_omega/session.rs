@@ -275,7 +275,9 @@ impl Qwen38Session {
         let t0 = Instant::now();
         if !tokens.starts_with(&self.history) {
             self.history.clear();
-            return Err("qwen38 session feed_prefix: the tokens do not extend the live state".into());
+            return Err(
+                "qwen38 session feed_prefix: the tokens do not extend the live state".into(),
+            );
         }
         if tokens.len() > self.model.max_pos() {
             return Err(format!(
@@ -286,7 +288,11 @@ impl Qwen38Session {
         }
         let from = self.history.len();
         let mut st = FeedStats {
-            reuse: Some(if from == 0 { Reuse::Cold } else { Reuse::Live(from) }),
+            reuse: Some(if from == 0 {
+                Reuse::Cold
+            } else {
+                Reuse::Live(from)
+            }),
             fed: tokens.len() - from,
             ..Default::default()
         };
