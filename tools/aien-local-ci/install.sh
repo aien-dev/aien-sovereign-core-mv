@@ -9,8 +9,6 @@
 #   * /var/lib/aien-run/{cargo,target,wt,mirror,rustup} with the ownership described in README.md
 #   * cargo registry + git cache seeded from ~/.cargo (root-owned, read-only), toolchain copied from ~/.rustup
 #     (root-owned, read-only), rustup proxies in /var/lib/aien-run/cargo/bin (no second rustup install)
-#   * /usr/local/bin/crumb (root 0755), built from aien-architecture at CRUMB_COMMIT below (the trusted copy
-#     on the sandbox PATH; never the operator's ~/.local/bin copy, never a copy from a tree under test)
 #   * /usr/local/sbin/aien-run-exec (root 0755) and /etc/sudoers.d/aien-local-ci (validated with visudo -c)
 #   * ~/.local/state/aien-local-ci/{trigger,evidence,bundles} for the trusted side
 set -euo pipefail
@@ -21,12 +19,6 @@ OPERATOR=${AIEN_OPERATOR:-drakestapleton}
 OP_HOME=$(getent passwd "$OPERATOR" | cut -d: -f6)
 TOOLCHAIN=${AIEN_TOOLCHAIN:-1.98.1-aarch64-unknown-linux-gnu}
 STATE="$OP_HOME/.local/state/aien-local-ci"
-# crumb source: aien-architecture main at this commit (2026-10-11, on GitHub main), file tools/crumb/crumb.c
-# (git blob 841f5317480b6643086061585c4309097975d8f9). Built with gcc 13.3.0 the binary's sha256 is
-# 22015e6b156e038ecea26ca8cf5c03f944d0c526282c4314fc5891751ffa67b0 (same as the operator's copy that day).
-CRUMB_COMMIT=94fffbcf88492c5a1c54211b5126c8a6c370a98d
-CRUMB_BLOB=841f5317480b6643086061585c4309097975d8f9
-ARCH_CLONE=${AIEN_ARCH_CLONE:-$OP_HOME/workspace/aien-architecture}
 
 say() { printf '[install] %s\n' "$*"; }
 S() { sudo -n "$@"; }
@@ -119,22 +111,6 @@ S chown root:root "$RUN_HOME/rustup"; S chmod 0755 "$RUN_HOME/rustup"
 #     git 2.43 has no path globs for safe.directory, so it is "*"; aien-run can only reach /var/lib/aien-run anyway.
 printf "[safe]\n\tdirectory = *\n" > "$tmp/gitconfig"
 S install -o root -g root -m 0644 "$tmp/gitconfig" "$RUN_HOME/.gitconfig"
-
-# 4c. trusted crumb on the sandbox PATH, built from the pinned aien-architecture commit (source read straight
-#     from the git object store, so the clone's checked-out branch does not matter).
-git -C "$ARCH_CLONE" cat-file -e "$CRUMB_COMMIT^{commit}" 2>/dev/null \
-  || git -C "$ARCH_CLONE" fetch --quiet origin main \
-  || { echo "cannot find $CRUMB_COMMIT in $ARCH_CLONE (set AIEN_ARCH_CLONE)" >&2; exit 1; }
-blob=$(git -C "$ARCH_CLONE" rev-parse "$CRUMB_COMMIT:tools/crumb/crumb.c")
-[[ $blob == "$CRUMB_BLOB" ]] || { echo "crumb.c blob $blob != expected $CRUMB_BLOB" >&2; exit 1; }
-git -C "$ARCH_CLONE" cat-file blob "$blob" > "$tmp/crumb.c"
-cc -O2 -Wall -std=c11 -o "$tmp/crumb" "$tmp/crumb.c"
-if ! cmp -s "$tmp/crumb" /usr/local/bin/crumb 2>/dev/null; then
-  S install -o root -g root -m 0755 "$tmp/crumb" /usr/local/bin/crumb
-  say "installed /usr/local/bin/crumb from aien-architecture $CRUMB_COMMIT (sha256 $(sha256sum < "$tmp/crumb" | cut -c1-16)...)"
-else
-  say "/usr/local/bin/crumb current (aien-architecture $CRUMB_COMMIT)"
-fi
 
 # 5. exec contract + sudoers
 S install -o root -g root -m 0755 "$here/aien-run-exec" /usr/local/sbin/aien-run-exec
