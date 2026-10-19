@@ -1,0 +1,1 @@
+flock -s /tmp/aien-quiet.lock nice -n 19 spark-receipt skipped-base-story-20261019T1657Z -- /home/drakestapleton/workspace/targets/skipped/release/qwen38_lab run /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a /home/drakestapleton/workspace/skipped-work/seq/story.json base /home/drakestapleton/workspace/skipped-work/runs/base-story-20261019T1657Z/out.json 

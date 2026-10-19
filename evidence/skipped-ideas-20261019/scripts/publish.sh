@@ -3,6 +3,7 @@
 # Evidence is append-only: existing files in evidence are never rewritten.
 set -u
 MSG="$1"
+exec 9>/tmp/skipped-publish.lock; flock 9
 WT=$HOME/workspace/sc-skipped; W=$HOME/workspace/skipped-work
 EV=$WT/evidence/skipped-ideas-20261019
 mkdir -p $EV/runs $EV/scripts

@@ -1,0 +1,13 @@
+base: 1 variants, 290 tokens, scored rows 33..289, MemAvailable 32.7 GiB
+base                   agree 256/256 (1.0000)  KL 0.000e0  cos final 1.00000/1.00000  GB/token 26.92 (100.0% of 26.92)
+early exit after 16 layers: agree 4/256
+early exit after 32 layers: agree 30/256
+early exit after 48 layers: agree 39/256
+early exit after 56 layers: agree 49/256
+early exit after 60 layers: agree 93/256
+early exit after 62 layers: agree 149/256
+early exit after 63 layers: agree 198/256
+{
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-skipped-base-story-20261019T1657Z.json
+rc=0
