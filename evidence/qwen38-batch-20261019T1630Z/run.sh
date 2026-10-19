@@ -32,6 +32,7 @@ grep VmHWM /proc/$SPID/status > "$OUT/vm-after-load.txt"; grep VmRSS /proc/$SPID
 grep MemAvailable /proc/meminfo >> "$OUT/vm-after-load.txt"
 m() { echo "start $(date -u +%FT%TZ) load $(cat /proc/loadavg) :: $*" >> "$OUT/locks.log"; flock -x /tmp/aien-quiet.lock "$@"; echo "end   $(date -u +%FT%TZ) load $(cat /proc/loadavg)" >> "$OUT/locks.log"; }
 m() {
+  if [ "${QUIET:-1}" = 0 ]; then echo "start $(date -u +%FT%TZ) load $(cat /proc/loadavg) NO QUIET LOCK (correctness only, timings not published) :: $*" >> "$OUT/locks.log"; "$@"; echo "end   $(date -u +%FT%TZ) load $(cat /proc/loadavg)" >> "$OUT/locks.log"; return; fi
   echo "start $(date -u +%FT%TZ) load $(cat /proc/loadavg) :: $*" >> "$OUT/locks.log"
   flock -x /tmp/aien-quiet.lock "$@"
   echo "end   $(date -u +%FT%TZ) load $(cat /proc/loadavg)" >> "$OUT/locks.log"
@@ -39,6 +40,13 @@ m() {
 if [ "$MODE" = single ]; then
   for i in 0 1 2 3 4 5 6 7; do m "$HERE/bench.sh" $URL "$OUT" single-p$i 1 "$MAXT" $i; done
 else
+  if [ "${CORRECT_FIRST:-0}" = 1 ]; then
+    # Correctness pass: no quiet lock, labels c-*, timings not published.
+    Q=${QUIET:-1}; QUIET=0
+    for i in 0 1 2 3 4 5 6 7; do m "$HERE/bench.sh" $URL "$OUT" c-n1-p$i 1 "$MAXT" $i; done
+    for n in 2 4 8; do m "$HERE/bench.sh" $URL "$OUT" c-n$n "$n" "$MAXT"; done
+    QUIET=$Q
+  fi
   for i in 0 1 2 3 4 5 6 7; do m "$HERE/bench.sh" $URL "$OUT" n1-p$i 1 "$MAXT" $i; done
   for r in $(seq "$ROUNDS"); do
     for n in 2 4 8; do m "$HERE/bench.sh" $URL "$OUT" n$n-r$r "$n" "$MAXT"; done
