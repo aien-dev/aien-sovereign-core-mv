@@ -44,6 +44,9 @@ use layout::{entry_sha256, Image, Manifest, Pack, ShapeFacts, StageMutant};
 /// l2norm eps of the DeltaNet q/k (the reference's constant).
 const EPS_L2: f32 = 1e-6;
 
+/// How far the pack door reads ahead of the image it is fingerprinting.
+const PREFETCH_BYTES: u64 = 1 << 30;
+
 /// One layer's device tensors (kept alive for the graph).
 struct LayerTensors {
     mix: Fp8Tensor,
@@ -61,7 +64,8 @@ pub struct LoadStats {
     pub total_s: f64,
     /// Reading safetensors (checkpoint door only).
     pub read_s: f64,
-    /// Fingerprinting the images (the pack door's first touch of each mapped page is here).
+    /// Fingerprinting the images. The pack door fingerprints on a second thread while the first
+    /// uploads (its first touch of each mapped page is here), so this overlaps `upload_s`.
     pub hash_s: f64,
     /// Inside the device upload calls.
     pub upload_s: f64,
@@ -522,12 +526,42 @@ impl Qwen38Omega {
             ));
         }
         let mut asm = Assembler::new(config.clone(), first, max_pos)?;
-        for spec in layout::plan(&config, first) {
-            let t = Instant::now();
-            let img = pack.take(&spec, flip == Some(spec.name.as_str()))?;
-            asm.stats.hash_s += t.elapsed().as_secs_f64();
-            asm.push(img)?;
-        }
+        let specs = layout::plan(&config, first);
+        // A second thread reads ahead and fingerprints image i + 1 while this one uploads image
+        // i; an image reaches the upload only after its own check passed. Two images in flight
+        // at most (mapped, so no heap copies).
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(Image, f64), String>>(2);
+        let hashed = std::thread::scope(|s| {
+            s.spawn(move || {
+                let (mut ahead, mut queued) = (0usize, 0u64);
+                for (i, spec) in specs.iter().enumerate() {
+                    if i > 0 {
+                        queued -= specs[i - 1].bytes() as u64;
+                    }
+                    while ahead < specs.len() && queued < PREFETCH_BYTES {
+                        pack.prefetch(&[specs[ahead].name.as_str()]);
+                        queued += specs[ahead].bytes() as u64;
+                        ahead += 1;
+                    }
+                    let t = Instant::now();
+                    let r = pack
+                        .take(spec, flip == Some(spec.name.as_str()))
+                        .map(|img| (img, t.elapsed().as_secs_f64()));
+                    let stop = r.is_err();
+                    if tx.send(r).is_err() || stop {
+                        return;
+                    }
+                }
+            });
+            let mut hash_s = 0f64;
+            for r in rx {
+                let (img, s) = r?;
+                hash_s += s;
+                asm.push(img)?;
+            }
+            Ok::<f64, String>(hash_s)
+        })?;
+        asm.stats.hash_s = hashed;
         asm.stats.source = format!("pack {}", pack.id);
         asm.finish(total)
     }

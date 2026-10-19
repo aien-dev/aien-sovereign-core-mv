@@ -28,6 +28,8 @@ aien-omega-q38 = { path = "../aien-omega-q38" }
 parking_lot = "0.12"
 sha2 = "0.10"
 libc = "0.2"
+# Layout fingerprints (qwen38_omega::layout): 0.11 picks the ARMv8 SHA-256 instructions at run time.
+sha2_11 = { package = "sha2", version = "0.11" }
 regex-syntax = "0.8"
 
 

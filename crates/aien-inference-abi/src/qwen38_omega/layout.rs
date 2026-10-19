@@ -34,7 +34,7 @@ use std::sync::Arc;
 
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use sha2_11::{Digest, Sha256};
 
 use crate::qwen38::{read_bf16_words, read_matrix, read_vec, text_prefix, Matrix, Qwen38Config};
 use crate::qwen3_moe::bf16_to_f32;
@@ -59,7 +59,8 @@ stored (f32); embed and lm_head bf16 as stored";
 /// The layout of `~/models/qwen3.8-27b-fp8-017b9c7a` (Qwen/Qwen3.8-27B-FP8 at 017b9c7a), all 64
 /// layers, under [`FORMAT`] and [`RULES`]. Built by `qwen38_layout build`; receipt in
 /// `evidence/f4-layout-families-*/`.
-pub const QWEN38_27B_FP8_017B9C7A: &str = "PENDING";
+pub const QWEN38_27B_FP8_017B9C7A: &str =
+    "a6edf91182a0bd38827b94121f5e11cc8318a5f0aeb420e76e98217ff84d27a0";
 
 /// Every image starts at a multiple of this (the page size: the mapped slices are word-aligned).
 pub const ALIGN: u64 = 4096;
@@ -201,16 +202,26 @@ impl Mapping {
     /// Drops this process's page mappings of `off .. off + len` (the page cache keeps the file;
     /// a later read maps it again). Used after an image is on the device.
     fn release(&self, off: usize, len: usize) {
+        self.advise(off, len, libc::MADV_DONTNEED);
+    }
+
+    /// Asks the kernel to start reading `off .. off + len` into the page cache now (no wait).
+    fn prefetch(&self, off: usize, len: usize) {
+        self.advise(off, len, libc::MADV_WILLNEED);
+    }
+
+    fn advise(&self, off: usize, len: usize, advice: libc::c_int) {
         let start = off & !(ALIGN as usize - 1);
         let end = (off + len).min(self.len);
         if end > start {
-            // SAFETY: the range lies inside the mapping; MADV_DONTNEED on a private read-only
-            // mapping only drops page table entries, the bytes read back unchanged.
+            // SAFETY: the range lies inside the mapping. On a private read-only mapping
+            // MADV_DONTNEED only drops page table entries (the bytes read back unchanged) and
+            // MADV_WILLNEED only starts readahead.
             unsafe {
                 libc::madvise(
                     (self.ptr as *mut u8).add(start) as *mut libc::c_void,
                     end - start,
-                    libc::MADV_DONTNEED,
+                    advice,
                 );
             }
         }
@@ -851,6 +862,15 @@ impl Pack {
             manifest,
             map: Arc::new(map),
         })
+    }
+
+    /// Starts reading the named entries into the page cache (readahead; returns at once).
+    pub fn prefetch(&self, names: &[&str]) {
+        for n in names {
+            if let Some(e) = self.manifest.entry(n) {
+                self.map.prefetch(e.offset as usize, e.bytes as usize);
+            }
+        }
     }
 
     /// The image for `spec` from the pack, its bytes hashed and held to the manifest. `flip`

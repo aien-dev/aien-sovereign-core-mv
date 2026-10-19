@@ -16,6 +16,10 @@
 //!       Uploads the window to the chip from the checkpoint or the pack, prints where the seconds
 //!       and the resident bytes went and the window's layout id, runs one decode step.
 //!
+//!   qwen38_layout cached <file>... / evict <file>...
+//!       Page-cache residency of files (mincore); evict drops their clean pages (posix_fadvise
+//!       DONTNEED, nothing else touched) so a load is measured from the disk.
+//!
 //! Exit 0 pass, 1 refused or mismatched, 2 usage or I/O.
 
 use std::path::Path;
@@ -168,12 +172,11 @@ fn load(args: &mut Vec<String>) -> Result<bool, String> {
     let id = engine.layout().id();
     let (tok, st) = engine.step(0)?;
     println!(
-        "{}: window {first}+{count} loaded in {wall:.3} s (read {:.3}, hash {:.3}, upload {:.3}, other {:.3}); {} images {} bytes; window layout {id}",
+        "{}: window {first}+{count} loaded in {wall:.3} s (read {:.3}, hash {:.3} (overlaps upload on the pack door), upload {:.3}); {} images {} bytes; window layout {id}",
         ld.source,
         ld.read_s,
         ld.hash_s,
         ld.upload_s,
-        ld.total_s - ld.read_s - ld.hash_s - ld.upload_s,
         ld.images,
         ld.image_bytes
     );
@@ -205,9 +208,75 @@ fn load(args: &mut Vec<String>) -> Result<bool, String> {
     Ok(true)
 }
 
+/// Bytes of `path` in the page cache (mincore over a read-only mapping) and its length.
+fn cached_bytes(path: &str) -> Result<(u64, u64), String> {
+    use std::os::fd::AsRawFd;
+    let f = std::fs::File::open(path).map_err(|e| format!("{path}: {e}"))?;
+    let len = f.metadata().map_err(|e| format!("{path}: {e}"))?.len() as usize;
+    if len == 0 {
+        return Ok((0, 0));
+    }
+    // SAFETY: a fresh read-only mapping, only passed to mincore and unmapped below.
+    let p = unsafe {
+        libc::mmap(
+            std::ptr::null_mut(),
+            len,
+            libc::PROT_READ,
+            libc::MAP_SHARED,
+            f.as_raw_fd(),
+            0,
+        )
+    };
+    if p == libc::MAP_FAILED {
+        return Err(format!("{path}: mmap failed"));
+    }
+    let page = 4096usize;
+    let mut v = vec![0u8; len.div_ceil(page)];
+    // SAFETY: v holds one byte per page of the mapping.
+    let rc = unsafe { libc::mincore(p, len, v.as_mut_ptr()) };
+    // SAFETY: p/len from the mmap above.
+    unsafe { libc::munmap(p, len) };
+    if rc != 0 {
+        return Err(format!("{path}: mincore failed"));
+    }
+    let resident = v.iter().filter(|&&b| b & 1 == 1).count() as u64 * page as u64;
+    Ok((resident.min(len as u64), len as u64))
+}
+
+/// `cached <file>...`: page-cache residency per file and in total.
+fn cached(files: &[String]) -> Result<bool, String> {
+    let (mut r, mut t) = (0u64, 0u64);
+    for f in files {
+        let (a, b) = cached_bytes(f)?;
+        r += a;
+        t += b;
+    }
+    println!(
+        "page cache: {r} of {t} bytes resident over {} files",
+        files.len()
+    );
+    Ok(true)
+}
+
+/// `evict <file>...`: asks the kernel to drop these files' clean pages from the page cache
+/// (posix_fadvise DONTNEED; other files and other processes' memory are untouched), so a load
+/// can be measured from the disk.
+fn evict(files: &[String]) -> Result<bool, String> {
+    use std::os::fd::AsRawFd;
+    for f in files {
+        let file = std::fs::File::open(f).map_err(|e| format!("{f}: {e}"))?;
+        // SAFETY: plain advice call on an open descriptor.
+        let rc = unsafe { libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED) };
+        if rc != 0 {
+            return Err(format!("{f}: posix_fadvise {rc}"));
+        }
+    }
+    cached(files)
+}
+
 fn run() -> Result<bool, String> {
     let mut a: Vec<String> = std::env::args().collect();
-    let usage = "usage: qwen38_layout build <checkpoint-dir> <out-dir> [<layers>] | id <pack> | verify <pack> [<id>] | covers <pack> <manifest.json>... | load <checkpoint-dir> <first> <count> [--layout <pack>] [<out.json>]";
+    let usage = "usage: qwen38_layout build <checkpoint-dir> <out-dir> [<layers>] | id <pack> | verify <pack> [<id>] | covers <pack> <manifest.json>... | load <checkpoint-dir> <first> <count> [--layout <pack>] [<out.json>] | cached <file>... | evict <file>...";
     match a.get(1).map(String::as_str) {
         Some("build") if a.len() == 4 || a.len() == 5 => {
             let layers = a
@@ -229,6 +298,8 @@ fn run() -> Result<bool, String> {
         }
         Some("covers") if a.len() >= 4 => covers(Path::new(&a[2]), &a[3..]),
         Some("load") if a.len() >= 5 => load(&mut a),
+        Some("cached") if a.len() >= 3 => cached(&a[2..]),
+        Some("evict") if a.len() >= 3 => evict(&a[2..]),
         _ => Err(usage.into()),
     }
 }
