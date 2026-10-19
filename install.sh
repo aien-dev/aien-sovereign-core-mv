@@ -17,15 +17,23 @@ RELEASE_TAG="${AIEN_RELEASE_TAG:-}"
 
 ACTION="install"
 ALLOW_DOWNGRADE=0
+# Opt-in model server (DGX Spark only): --with-server or AIEN_INSTALL_SERVER=1.
+WITH_SERVER="${AIEN_INSTALL_SERVER:-0}"
 for arg in "$@"; do
     case "$arg" in
         --rollback) ACTION="rollback" ;;
         --allow-downgrade) ALLOW_DOWNGRADE=1 ;;
+        --with-server) WITH_SERVER=1 ;;
         -h|--help)
-            echo "usage: install.sh [--rollback] [--allow-downgrade]"
+            echo "usage: install.sh [--rollback] [--allow-downgrade] [--with-server]"
             echo "  (none)             source build, or with AIEN_RELEASE_TAG=vX.Y.Z a signed release install"
             echo "  --rollback         switch back to the one previous release kept by the last upgrade"
             echo "  --allow-downgrade  accept a release whose candidate is older than the installed one"
+            echo "  --with-server      also build the Qwen3.8-27B model server (aien-serve-http) on AIEN's own"
+            echo "                     Omega GPU engine and install it with its start script aien-serve-27b."
+            echo "                     DGX Spark (aarch64 Linux, NVIDIA GB10) only, source build only."
+            echo "                     Same as AIEN_INSTALL_SERVER=1. AIEN_PINS_DIR sets where the pinned"
+            echo "                     omega, physics and aienos sources are fetched (default target/pins)."
             exit 0 ;;
         *) echo "Error: unknown argument: $arg" >&2; exit 2 ;;
     esac
@@ -250,6 +258,107 @@ if [[ "$ACTION" == "rollback" ]]; then
     exit 0
 fi
 
+# ------------------------------------------------------------------------------
+# Model server (--with-server): checks first, so nothing is changed on a machine
+# that cannot run it. Every failure says what is wrong in plain words and stops.
+# ------------------------------------------------------------------------------
+# The NVIDIA open kernel module version whose headers physics vendors (the only one tested).
+AIEN_EXPECTED_NVIDIA_DRIVER="580.173.02"
+server_die() {
+    echo "" >&2
+    echo "Error (model server): $*" >&2
+    echo "Nothing was built or installed for the model server." >&2
+    exit 1
+}
+server_warn() { echo "[!] Warning (model server): $*" >&2; }
+
+server_preflight() {
+    echo "[*] Model server: checking this machine"
+    [[ -z "$RELEASE_TAG" ]] || server_die "--with-server builds from source and cannot be combined with AIEN_RELEASE_TAG (no signed release contains the server). Unset AIEN_RELEASE_TAG."
+    local os arch
+    os="$(uname -s)"; arch="$(uname -m)"
+    [[ "$os" == Linux && "$arch" == aarch64 ]] \
+        || server_die "the model server only runs on an NVIDIA DGX Spark (aarch64 Linux with the GB10 chip). This machine is $os $arch."
+    local t missing=""
+    for t in git curl cc make ar nm; do
+        command -v "$t" >/dev/null 2>&1 || missing="$missing $t"
+    done
+    [[ -z "$missing" ]] || server_die "these programs are needed and were not found:$missing. On DGX OS / Ubuntu: sudo apt install git curl build-essential binutils"
+    # Test hook (scripts/test-install.sh only): skip the driver, device and memory checks, which a
+    # test machine cannot fake. Never set this for a real install.
+    if [[ "${AIEN_TEST_SERVER_SKIP_HW_CHECKS:-}" == 1 ]]; then
+        echo "[test] model server: driver, device and memory checks SKIPPED (AIEN_TEST_SERVER_SKIP_HW_CHECKS=1)" >&2
+        return 0
+    fi
+    # The Omega engine talks to the NVIDIA kernel driver directly (no CUDA toolkit, no nvcc).
+    local drv=""
+    if [[ -r /proc/driver/nvidia/version ]]; then
+        drv="$(grep -o '[0-9]\{3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}' /proc/driver/nvidia/version | head -n 1 || true)"
+    fi
+    if [[ -z "$drv" ]] && command -v nvidia-smi >/dev/null 2>&1; then
+        drv="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n 1 | tr -d '[:space:]' || true)"
+    fi
+    [[ -n "$drv" ]] || server_die "no NVIDIA driver found (no /proc/driver/nvidia/version and no nvidia-smi). Install the NVIDIA open kernel driver $AIEN_EXPECTED_NVIDIA_DRIVER and reboot."
+    if [[ "$drv" != "$AIEN_EXPECTED_NVIDIA_DRIVER" ]]; then
+        server_warn "NVIDIA driver is $drv; the engine is only tested with $AIEN_EXPECTED_NVIDIA_DRIVER. It may fail to start or give wrong results."
+    else
+        echo "    NVIDIA driver $drv (tested version)"
+    fi
+    local dev ok=0
+    for dev in /dev/nvidiactl /dev/nvidia0 /dev/nvidia-uvm; do
+        [[ -e "$dev" ]] || server_die "$dev does not exist: the NVIDIA driver is not fully loaded (try: sudo modprobe nvidia-uvm, or reboot)."
+        [[ -r "$dev" && -w "$dev" ]] || server_die "$dev is not readable and writable by $(id -un). Add yourself to the group that owns it ($(stat -c %G "$dev" 2>/dev/null || echo unknown)) or fix its permissions."
+        ok=$((ok + 1))
+    done
+    echo "    GPU device files: $ok readable and writable"
+    local avail_kib
+    avail_kib="$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+    if [[ "${avail_kib:-0}" -lt $((40 * 1024 * 1024)) ]]; then
+        server_warn "only $((avail_kib / 1024 / 1024)) GiB of memory is free now; the 27B server needs about 38.5 GiB when it runs."
+    else
+        echo "    free memory: $((avail_kib / 1024 / 1024)) GiB"
+    fi
+    echo "[+] Model server: machine checks passed"
+}
+
+# server_build: fetch the pinned Omega sources, build aien-serve-http against the real GPU engine,
+# refuse a CPU stub, install it and its start script. Runs from the source checkout.
+server_build() {
+    local pins="${AIEN_PINS_DIR:-$SOURCE_ROOT/target/pins}"
+    local out="${CARGO_TARGET_DIR:-$SOURCE_ROOT/target}/release/aien-serve-http"
+    echo "[*] Model server: fetching the pinned omega, physics and aienos sources into $pins"
+    bash "$SOURCE_ROOT/scripts/pins.sh" --gpu "$pins" \
+        || server_die "scripts/pins.sh --gpu failed (see the lines above). Check the network and that git can reach github.com."
+    [[ -f "$pins/env.sh" ]] || server_die "scripts/pins.sh did not write $pins/env.sh."
+    # shellcheck disable=SC1091
+    . "$pins/env.sh"
+    [[ "${AIEN_REQUIRE_NATIVE_LIBS:-}" == 1 && -n "${AIEN_OMEGA_DIR:-}" ]] \
+        || server_die "$pins/env.sh does not select the GPU engine (AIEN_OMEGA_DIR unset)."
+    echo "[*] Model server: building aien-serve-http (release, links AIEN's Omega GPU library; this takes a while)"
+    cargo build --locked --release -p aien-serve-http \
+        || server_die "cargo build of aien-serve-http failed (see the lines above)."
+    [[ -x "$out" ]] || server_die "the build finished but $out is missing."
+    local info
+    info="$("$out" --version 2>&1)" || server_die "$out --version failed: $info"
+    if ! grep -q '^omega gpu engine: native' <<<"$info" || ! grep -q '^qwen38 engine: native' <<<"$info"; then
+        echo "$info" >&2
+        server_die "the built server has only the CPU stub, not the Omega GPU engine. It was NOT installed."
+    fi
+    mkdir -p "$BIN_DIR"
+    cp "$out" "$BIN_DIR/.aien-serve-http.new.$$"
+    chmod 755 "$BIN_DIR/.aien-serve-http.new.$$"
+    mv -f "$BIN_DIR/.aien-serve-http.new.$$" "$BIN_DIR/aien-serve-http"
+    cp "$SOURCE_ROOT/tools/serve-27b.sh" "$BIN_DIR/.aien-serve-27b.new.$$"
+    chmod 755 "$BIN_DIR/.aien-serve-27b.new.$$"
+    mv -f "$BIN_DIR/.aien-serve-27b.new.$$" "$BIN_DIR/aien-serve-27b"
+    echo "[+] Model server installed:"
+    echo "    - aien-serve-http -> $BIN_DIR/aien-serve-http"
+    echo "    - aien-serve-27b  -> $BIN_DIR/aien-serve-27b (start script)"
+    sed 's/^/      /' <<<"$info"
+}
+
+[[ "$WITH_SERVER" != 1 ]] || server_preflight
+
 # Release signing keys, pinned here so a release can be verified with nothing but this file and the assets
 # (offline). scripts/test-install-release.sh checks both lines against their files in docs/release/.
 # AIEN_RELEASE_SIGNER is the dedicated offline public-release key (Drake ruling 1, sc#385). It equals the key line of
@@ -271,7 +380,7 @@ elif [[ -f "${BASH_SOURCE[0]:-}" && -f "$(dirname "${BASH_SOURCE[0]}")/Cargo.tom
 elif [[ -z "$RELEASE_TAG" ]]; then
     INSTALL_WORKSPACE="$(mktemp -d "${TMPDIR:-/tmp}/aien-install.XXXXXX")"
     trap 'rm -rf "$INSTALL_WORKSPACE"' EXIT
-    git clone --quiet https://github.com/aien-dev/aien-sovereign-core.git "$INSTALL_WORKSPACE/core"
+    git clone --quiet https://github.com/aien-dev/aien-sovereign-core-mv.git "$INSTALL_WORKSPACE/core"
     git -C "$INSTALL_WORKSPACE/core" checkout --quiet "${AIEN_REV:-main}"
     SOURCE_ROOT="$INSTALL_WORKSPACE/core"
 fi
@@ -355,7 +464,7 @@ install_release() {
     [[ "$tag" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "Error: release tag '$tag' has characters other than letters, digits, dot, dash, underscore" >&2; exit 1; }
     command -v ssh-keygen >/dev/null 2>&1 || { echo "Error: ssh-keygen is required to verify the release signature" >&2; exit 1; }
     command -v curl >/dev/null 2>&1 || { echo "Error: curl is required to download the release" >&2; exit 1; }
-    local base="${AIEN_RELEASE_BASE_URL:-https://github.com/aien-dev/aien-sovereign-core/releases/download/$tag}"
+    local base="${AIEN_RELEASE_BASE_URL:-https://github.com/aien-dev/aien-sovereign-core-mv/releases/download/$tag}"
     local asset="sovereign-${TARGET_OS}-${RELEASE_ARCH}.tar.gz"
     DL_DIR=""
     DL_DIR="$(mktemp -d "${TMPDIR:-/tmp}/aien-release.XXXXXX")"
@@ -479,6 +588,10 @@ echo "    - spark-crumbs -> $BIN_DIR/spark-crumbs"
 echo "    - spark-aegis -> $BIN_DIR/spark-aegis"
 fi
 
+if [[ "$WITH_SERVER" == 1 ]]; then
+    server_build
+fi
+
 echo "[*] Initializing Sovereign Operator Profile..."
 if [ ! -f "$CONFIG_DIR/operator.toml" ]; then
     GIT_NAME="$(git config user.name 2>/dev/null || echo "Sovereign Operator")"
@@ -526,3 +639,11 @@ echo "    aien chat       # Interactive sovereign terminal pairing"
 echo "    aien aegis      # Run defensive boundary security audit"
 echo "    aien doctor     # System diagnostic and TPM key vault audit"
 echo "=================================================================="
+if [[ "$WITH_SERVER" == 1 ]]; then
+echo "  Model server (Qwen3.8-27B on the Omega engine):"
+echo "    1. Download the weights (about 31 GB) into ~/models/qwen3.8-27b-fp8-017b9c7a:"
+echo "       Hugging Face Qwen/Qwen3.8-27B-FP8, revision 017b9c7af6b5689d5dd426a76e0bc077eb5ca20a"
+echo "    2. aien-serve-27b        # starts it on http://127.0.0.1:18091/v1 and prints how to stop it"
+echo "       (MODEL_DIR, PORT and BIN override the defaults; aien-serve-27b --help)"
+echo "=================================================================="
+fi
