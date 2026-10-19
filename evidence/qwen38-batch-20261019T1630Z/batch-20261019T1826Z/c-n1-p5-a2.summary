@@ -1,0 +1,2 @@
+c-n1-p5-a2 req 5 completion_tokens 256 finish length
+c-n1-p5-a2 n=1 max_tokens=256 total_completion_tokens=256 wall_ms=218882 aggregate_tok_s=1.170

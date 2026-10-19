@@ -1,0 +1,24 @@
+c-n1-p0 prompt 0 tokens 184 vs-single-door SAME vs-batch-n1 SAME
+c-n1-p1 prompt 1 tokens 118 vs-single-door SAME vs-batch-n1 SAME
+c-n1-p2 prompt 2 tokens 256 vs-single-door SAME vs-batch-n1 SAME
+c-n1-p3 prompt 3 tokens 171 vs-single-door DIFF vs-batch-n1 SAME
+c-n1-p4 prompt 4 tokens 256 vs-single-door SAME vs-batch-n1 SAME
+c-n1-p5 prompt 5 tokens 256 vs-single-door SAME vs-batch-n1 SAME
+c-n1-p6 prompt 6 tokens 256 vs-single-door SAME vs-batch-n1 SAME
+c-n1-p7 prompt 7 tokens 256 vs-single-door SAME vs-batch-n1 SAME
+c-n2 prompt 0 tokens 184 vs-single-door SAME vs-batch-n1 SAME
+c-n2 prompt 1 tokens 118 vs-single-door SAME vs-batch-n1 SAME
+c-n4 prompt 0 tokens 184 vs-single-door SAME vs-batch-n1 SAME
+c-n4 prompt 1 tokens 118 vs-single-door SAME vs-batch-n1 SAME
+c-n4 prompt 2 tokens 256 vs-single-door SAME vs-batch-n1 SAME
+c-n4 prompt 3 tokens 171 vs-single-door DIFF vs-batch-n1 SAME
+c-n8 prompt 0 tokens 184 vs-single-door SAME vs-batch-n1 SAME
+c-n8 prompt 1 tokens 118 vs-single-door SAME vs-batch-n1 SAME
+c-n8 prompt 2 tokens 256 vs-single-door SAME vs-batch-n1 SAME
+c-n8 prompt 3 tokens 171 vs-single-door DIFF vs-batch-n1 SAME
+c-n8 prompt 4 tokens 256 vs-single-door SAME vs-batch-n1 SAME
+c-n8 prompt 5 tokens 256 vs-single-door SAME vs-batch-n1 SAME
+c-n8 prompt 6 tokens 256 vs-single-door SAME vs-batch-n1 SAME
+c-n8 prompt 7 tokens 256 vs-single-door SAME vs-batch-n1 SAME
+TOTAL vs single door: 19 same, 3 different; vs batch n=1: 22 same, 0 different
+NEGATIVE CONTROL (stream vs the next prompt's reference, must differ): 22 differ, 0 same
