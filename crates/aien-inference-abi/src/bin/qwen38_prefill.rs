@@ -21,9 +21,15 @@
 //! of `corpus.txt` (tokenised in pieces of at most 2000 characters, the tokenizer's limit);
 //! the time from the call to the first generated token, with the breakdown.
 //!
-//! The whole model is resident (about 25.7 GiB) plus the KV cache for the longest sequence. The
-//! upload is refused unless MemAvailable covers that plus 12 GiB kept free (the resident 30B server
-//! shares the memory; OOM lesson of 2026-10-18 16:43:58Z).
+//! The whole model is resident (25.13 GiB of weights on the device, the 2.37 GiB embedding on the
+//! host) plus the KV cache for the longest sequence. The upload is refused unless MemAvailable covers
+//! the storage map's planned peak plus 12 GiB kept free (OOM lesson of 2026-10-18 16:43:58Z).
+//!
+//! Every mode writes `<out>.storage-map-load.{txt,json}` and `<out>.storage-map-end.{txt,json}`
+//! (sc #678): every named block, held vs named, the UNACCOUNTED numbers. The run fails when an
+//! unaccounted number passes its bar (64 MiB driver, 128 MiB heap: a smaller unnamed block passes)
+//! or the planned peak is below VmHWM. `storage` is the map's own check on the first layers.
+//! AIEN_STORAGE_MAP_LEAK_BYTES=n: the negative control (n unnamed bytes in each space).
 
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};

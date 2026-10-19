@@ -32,9 +32,17 @@ shows 27,174,064,128 counted vs 27,176,820,736 mapped, because `omega_gpu_pf_all
 - Chunk 4096 (the configuration of the 2026-10-18 19:20Z near miss), 8192 tokens: plan covers the peak by 65.20 MiB
   (calc:58c8052257a34357e4d7113de8a4ef07249ade51e3a444a91d1869c5efea7d73). Peak = 0.2394 of the 128 GiB box
   (calc:e0e436912f60129384877ece194d4d027938e0485601a297b48847306679194c).
+- Bars: a run fails when unaccounted driver passes 64 MiB or unaccounted heap 128 MiB. An unnamed block smaller than
+  that passes; the control proves a 256 MiB block is caught, nothing smaller.
+- aien-serve-http receipt at load: NOT RUN. On this branch the server's Omega door is the 30B MoE (about 56 GiB), which
+  does not fit beside the live 27B server under the 12 GiB rule. The code prints the totals and unaccounted lines at load
+  and writes serve-load.{txt,json} under AIEN_STORAGE_MAP_DIR; for the 30B door it names only the load report's weight
+  bytes, so its unaccounted number is large by design: a printout, not a check. The 27B door (qwen38/serve) hands in
+  Qwen38Omega::storage_map() when the branches meet.
+- "by lifetime" sums in these files include the transient entries (heap weights = embedding + the lm_head host copy).
 - 128k, chunk 4096: NOT MEASURED (would hold the GPU lock about 16 minutes against the live server). Plan peak 39183 MiB
   (host test `qwen38_omega::storage::incident`), old formula 35509 MiB: the plan is 3674.46 MiB higher
-  (calc:7a6382a1d38d8f98a040fae714d34ab975d5d47138546378f74e3f9a82ce48b1). Predicted held peak from the measured 8192 run plus
+  (calc:7a6382a1d38d8f98a040fae714d34ab975d5d47138546378f74e3f9a82ce48b1). PREDICTED (derived, not a receipt) held peak from the measured 8192 run plus
   the plan's difference (KV planes, RoPE rows; the attention-cache call matched its formula exactly at every cache size run
   here): 39188.4 MiB (calc:bc999dc2e478c70b10a45939a1bc488ab0588a5ad7ba428ecf78c81ac0d9a098). The incident's "RSS 39 GiB"
   was a rounded figure, not a receipt.
