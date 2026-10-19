@@ -1,0 +1,83 @@
+{
+  "kinds": [
+    {
+      "kind": "norm",
+      "launches": 1,
+      "ms_median": 0.008512
+    },
+    {
+      "kind": "mix",
+      "launches": 64,
+      "ms_median": 22.40016
+    },
+    {
+      "kind": "ab",
+      "launches": 48,
+      "ms_median": 0.019136
+    },
+    {
+      "kind": "gdn",
+      "launches": 48,
+      "ms_median": 1.9424960000000002
+    },
+    {
+      "kind": "gather",
+      "launches": 16,
+      "ms_median": 0.068384
+    },
+    {
+      "kind": "attn",
+      "launches": 16,
+      "ms_median": 1.055712
+    },
+    {
+      "kind": "gate",
+      "launches": 16,
+      "ms_median": 0.04473599999999999
+    },
+    {
+      "kind": "o_proj",
+      "launches": 64,
+      "ms_median": 10.185343999999997
+    },
+    {
+      "kind": "res",
+      "launches": 128,
+      "ms_median": 1.6352
+    },
+    {
+      "kind": "gate_up",
+      "launches": 64,
+      "ms_median": 47.648735999999985
+    },
+    {
+      "kind": "swiglu",
+      "launches": 64,
+      "ms_median": 0.187072
+    },
+    {
+      "kind": "down",
+      "launches": 64,
+      "ms_median": 26.749888000000002
+    },
+    {
+      "kind": "lm_head",
+      "launches": 1,
+      "ms_median": 5.392864
+    },
+    {
+      "kind": "argmax",
+      "launches": 2,
+      "ms_median": 0.017055999999999998
+    }
+  ],
+  "mode": "timeline",
+  "seq": "/home/drakestapleton/workspace/ab-w4-work/seq/golden.json",
+  "span_ms_median": 117.36976,
+  "tokens": 47,
+  "variant": {
+    "AIEN_Q38_FP8_HEAD": "1",
+    "AIEN_Q38_W4": null,
+    "AIEN_Q38_W4_HEAD": null
+  }
+}

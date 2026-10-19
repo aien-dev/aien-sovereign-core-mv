@@ -1,0 +1,1 @@
+flock /tmp/aien-gb10.lock env AIEN_Q38_W4=1 AIEN_Q38_FP8_HEAD=1 nice /home/drakestapleton/workspace/targets/ab-w4/sc-b/release/qwen38_ab run /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a /home/drakestapleton/workspace/ab-w4-work/seq/code.json out

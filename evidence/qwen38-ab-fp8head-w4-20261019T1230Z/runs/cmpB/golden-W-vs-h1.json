@@ -1,0 +1,21 @@
+{
+  "a": "dumpA-golden-h1-20261019T130903Z/out",
+  "a_chip_ms_median": 131.936583,
+  "a_generated": [],
+  "a_margin_min": 0.09806442260742188,
+  "a_mean_nll_fed": 2.021496322729341,
+  "argmax_agree": 47,
+  "b": "dumpB-golden-W-20261019T154726Z/out",
+  "b_chip_ms_median": 78.492166,
+  "b_generated": [],
+  "b_mean_nll_fed": 1.8573481892702568,
+  "cosine_mean": 0.9795133499840393,
+  "cosine_min": 0.7821358803579822,
+  "first_input_difference": null,
+  "flips": [],
+  "kl_max": 0.6123305982646193,
+  "kl_mean": 0.02782491308867546,
+  "mode": "compare",
+  "positions": 47,
+  "same_input_positions": 47
+}

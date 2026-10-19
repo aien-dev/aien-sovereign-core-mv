@@ -1,0 +1,3 @@
+  argmax    2 launches    0.017 ms
+    span   72.853 ms over 47 tokens
+rc=0

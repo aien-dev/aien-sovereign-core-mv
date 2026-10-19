@@ -1,0 +1,36 @@
+{
+  "a": "dumpA-golden-h1-20261019T130903Z/out",
+  "a_chip_ms_median": 131.936583,
+  "a_generated": [],
+  "a_margin_min": 0.09806442260742188,
+  "a_mean_nll_fed": 2.021496322729341,
+  "argmax_agree": 45,
+  "b": "dumpB-golden-WW-20261019T155058Z/out",
+  "b_chip_ms_median": 78.257153,
+  "b_generated": [],
+  "b_mean_nll_fed": 1.901199113557872,
+  "cosine_mean": 0.9745864977094716,
+  "cosine_min": 0.7773557605378948,
+  "first_input_difference": null,
+  "flips": [
+    {
+      "a": 248068,
+      "a_margin": 6.633693695068359,
+      "b": 198,
+      "b_margin": 0.25568580627441406,
+      "p": 18
+    },
+    {
+      "a": 318,
+      "a_margin": 0.7253646850585938,
+      "b": 264,
+      "b_margin": 0.09758949279785156,
+      "p": 38
+    }
+  ],
+  "kl_max": 0.8439833315493502,
+  "kl_mean": 0.03393955680442588,
+  "mode": "compare",
+  "positions": 47,
+  "same_input_positions": 47
+}

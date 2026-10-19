@@ -1,0 +1,16 @@
+1 | --w4-shape 16,2,16 --w4-coal 0 | 2051.8 us | 34 checks, 0 failed
+1 | --w4-shape 16,2,8 --w4-coal 0 | 2072.9 us | 34 checks, 0 failed
+1 | --w4-shape 16,2,8 | 1975.1 us | 34 checks, 0 failed
+1 | --w4-shape 16,2,16 | 2140.1 us | 34 checks, 0 failed
+1 | --w4-shape 16,4,4 --w4-coal 0 | 2107.9 us | 34 checks, 0 failed
+2 | --w4-shape 16,2,16 --w4-coal 0 | 2160.9 us | 34 checks, 0 failed
+2 | --w4-shape 16,2,8 --w4-coal 0 | 1977.6 us | 34 checks, 0 failed
+2 | --w4-shape 16,2,8 | 2110.6 us | 34 checks, 0 failed
+2 | --w4-shape 16,2,16 | 2006.6 us | 34 checks, 0 failed
+2 | --w4-shape 16,4,4 --w4-coal 0 | 2122 us | 34 checks, 0 failed
+3 | --w4-shape 16,2,16 --w4-coal 0 | 2058.1 us | 34 checks, 0 failed
+3 | --w4-shape 16,2,8 --w4-coal 0 | 2046.3 us | 34 checks, 0 failed
+3 | --w4-shape 16,2,8 | 1968.2 us | 34 checks, 0 failed
+3 | --w4-shape 16,2,16 | 1985.7 us | 34 checks, 0 failed
+3 | --w4-shape 16,4,4 --w4-coal 0 | 1963.7 us | 34 checks, 0 failed
+DONE

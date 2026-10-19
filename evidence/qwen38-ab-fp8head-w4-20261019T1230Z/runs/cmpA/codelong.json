@@ -1,0 +1,43 @@
+{
+  "a": "dumpA-codelong-h0-20261019T132658Z/out",
+  "a_chip_ms_median": 125.448106,
+  "a_generated": [],
+  "a_margin_min": 0.0021953582763671875,
+  "a_mean_nll_fed": 0.9638757793710084,
+  "argmax_agree": 302,
+  "b": "dumpA-codelong-h1-20261019T133103Z/out",
+  "b_chip_ms_median": 118.57353,
+  "b_generated": [],
+  "b_mean_nll_fed": 0.9654095638935422,
+  "cosine_mean": 0.9997779993690477,
+  "cosine_min": 0.9992248593266265,
+  "first_input_difference": null,
+  "flips": [
+    {
+      "a": 1022,
+      "a_margin": 0.12243080139160156,
+      "b": 1389,
+      "b_margin": 0.03168678283691406,
+      "p": 118
+    },
+    {
+      "a": 25749,
+      "a_margin": 0.0021953582763671875,
+      "b": 6328,
+      "b_margin": 0.06542396545410156,
+      "p": 119
+    },
+    {
+      "a": 5447,
+      "a_margin": 0.1384143829345703,
+      "b": 8625,
+      "b_margin": 0.03000640869140625,
+      "p": 171
+    }
+  ],
+  "kl_max": 0.00463826228227628,
+  "kl_mean": 0.0002554468883224377,
+  "mode": "compare",
+  "positions": 305,
+  "same_input_positions": 305
+}

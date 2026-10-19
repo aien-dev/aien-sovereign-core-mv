@@ -1,0 +1,52 @@
+=== prompt (50 ids)
+<|im_start|>user
+Write a C program that reads lines from standard input, counts how often each word appears using a hash table you implement yourself, and prints the 10 most frequent words. Include comments.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+=== generated (256 ids)
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+/*
+ * Word frequency counter using a custom hash table.
+ * Reads lines from stdin, tokenizes into words, counts frequencies,
+ * and prints the 10 most frequent words.
+ */
+
+/* Maximum number of distinct words we can store */
+#define MAX_WORDS 100000
+
+/* Initial capacity of the hash table (must be a power of 2 for simple modulo) */
+#define INITIAL_CAPACITY 1024
+
+/* Number of top words to print */
+#define TOP_N 10
+
+/*
+ * Hash table entry: stores a word and its frequency.
+ * Each bucket is a linked list of entries to handle collisions.
+ */
+typedef struct Entry {
+    char *word;
+    int count;
+    struct Entry *next;
+} Entry;
+
+/*
+ * Hash table structure: array of buckets, each pointing to a linked list.
+ */
+typedef struct {
+    Entry **buckets;
+    int capacity;
+    int size; /* number of distinct words */
+} HashTable;
+
+/*
+ * Compute a hash value for a

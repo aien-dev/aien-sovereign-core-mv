@@ -1,0 +1,3 @@
+step  288: fed 69388 top 7338 chip 125.82 ms
+QWEN38_AB run 289 steps: chip median 126.04 ms (min 123.42 max 131.17), mean NLL of fed text 0.98948, generated 0
+rc=0

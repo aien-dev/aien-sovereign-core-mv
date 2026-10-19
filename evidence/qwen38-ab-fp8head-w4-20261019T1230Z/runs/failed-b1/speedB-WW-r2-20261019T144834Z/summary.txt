@@ -1,0 +1,3 @@
+reference: 47 positions in 55.6 s; its greedy tokens equal the golden record
+qwen38_omega_full: model.language_model.layers.56.linear_attn.out_proj: omega_gpu rc=-4 (w4 upload: CHIP_FAIL: dma_alloc: REFUSED_LIMIT)
+rc=2

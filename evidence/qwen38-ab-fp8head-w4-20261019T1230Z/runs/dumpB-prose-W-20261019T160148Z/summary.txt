@@ -1,0 +1,2 @@
+qwen38_ab: memory guard: MemAvailable 56256 MiB < model 44171 MiB + 12 GiB kept free
+rc=1

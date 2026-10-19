@@ -1,0 +1,15 @@
+=== prompt (34 ids)
+<|im_start|>user
+Write a short story, about three paragraphs, about a lighthouse keeper who finds a message in a bottle.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+=== generated (256 ids)
+Elias had spent forty years listening to the rhythm of the North Sea, a cadence of crashing waves and groaning timber that had long since become the only language he truly understood. On a Tuesday evening, when the fog rolled in thick enough to swallow the horizon, he found the bottle wedged between the rocks at the base of the cliff. It was not the usual debris of plastic or driftwood, but a heavy, green glass cylinder sealed with wax, containing a single, folded piece of parchment that felt impossibly fragile against his calloused fingers.
+
+He carried it up the spiral stairs, the wind howling against the lantern room’s glass, and broke the seal with trembling hands. The paper inside was yellowed and brittle, the ink faded to a ghostly brown, yet the handwriting was distinct and urgent. It was a letter from a sailor who had vanished in the same storm that had claimed Elias’s wife decades ago, a man who had written his final regrets and a map to a hidden cove where he intended to wait for rescue. The date on the letter was three days before the storm hit, meaning the message had been waiting in the deep for over a decade, a silent witness to a tragedy Elias had never fully processed.
+
+Elias sat

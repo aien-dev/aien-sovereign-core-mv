@@ -1,0 +1,3 @@
+reference: 47 positions in 41.4 s; its greedy tokens equal the golden record
+qwen38_omega_full: lm_head w4: omega_gpu rc=-4 (w4 upload: CHIP_FAIL: m16_native_create_channel: RM_ALLOC class 0xcec0 status 0x51)
+rc=2

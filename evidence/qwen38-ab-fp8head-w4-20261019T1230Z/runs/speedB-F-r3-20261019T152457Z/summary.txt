@@ -1,0 +1,3 @@
+CONTROL shifted-by-one: best cosine 0.957973; one window short: best cosine n/a -> caught
+QWEN38_OMEGA_FULL layers 64 windows 1 positions 47: generated 24/24 identical to golden, cosine(min) 0.999375 p95_rel(max) 0.4696 greedy agrees control caught -> FAIL
+rc=1

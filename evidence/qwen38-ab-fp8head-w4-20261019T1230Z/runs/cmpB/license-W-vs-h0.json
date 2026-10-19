@@ -1,0 +1,21 @@
+{
+  "a": "dumpA-license-h0-20261019T131206Z/out",
+  "a_chip_ms_median": 125.939157,
+  "a_generated": [],
+  "a_margin_min": 0.6411724090576172,
+  "a_mean_nll_fed": 0.08708163079983339,
+  "argmax_agree": 255,
+  "b": "dumpB-license-W-20261019T155436Z/out",
+  "b_chip_ms_median": 78.146574,
+  "b_generated": [],
+  "b_mean_nll_fed": 0.09278918164661124,
+  "cosine_mean": 0.9806132331428378,
+  "cosine_min": 0.8912740508441286,
+  "first_input_difference": null,
+  "flips": [],
+  "kl_max": 0.2086950202997488,
+  "kl_mean": 0.00289360428456045,
+  "mode": "compare",
+  "positions": 255,
+  "same_input_positions": 255
+}

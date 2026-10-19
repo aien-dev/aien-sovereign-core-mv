@@ -1,0 +1,29 @@
+{
+  "a": "dumpA-license-h1-20261019T131609Z/out",
+  "a_chip_ms_median": 121.512688,
+  "a_generated": [],
+  "a_margin_min": 0.7554817199707031,
+  "a_mean_nll_fed": 0.08736970804576498,
+  "argmax_agree": 254,
+  "b": "dumpB-license-WW-20261019T155808Z/out",
+  "b_chip_ms_median": 76.899904,
+  "b_generated": [],
+  "b_mean_nll_fed": 0.08869412719391041,
+  "cosine_mean": 0.9781240597817502,
+  "cosine_min": 0.8865734540368853,
+  "first_input_difference": null,
+  "flips": [
+    {
+      "a": 2,
+      "a_margin": 0.7554817199707031,
+      "b": 464,
+      "b_margin": 0.05342674255371094,
+      "p": 0
+    }
+  ],
+  "kl_max": 0.19900520016537784,
+  "kl_mean": 0.0025179468513339192,
+  "mode": "compare",
+  "positions": 255,
+  "same_input_positions": 255
+}

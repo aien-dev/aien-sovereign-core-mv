@@ -1,0 +1,43 @@
+{
+  "a": "dumpA-prose-h0-20261019T132026Z/out",
+  "a_chip_ms_median": 126.035597,
+  "a_generated": [],
+  "a_margin_min": 0.003284454345703125,
+  "a_mean_nll_fed": 0.9894833253037852,
+  "argmax_agree": 286,
+  "b": "dumpA-prose-h1-20261019T132435Z/out",
+  "b_chip_ms_median": 119.430623,
+  "b_generated": [],
+  "b_mean_nll_fed": 0.9895381495132914,
+  "cosine_mean": 0.9997728995472238,
+  "cosine_min": 0.9993793693156445,
+  "first_input_difference": null,
+  "flips": [
+    {
+      "a": 7168,
+      "a_margin": 0.0052547454833984375,
+      "b": 10326,
+      "b_margin": 0.001125335693359375,
+      "p": 218
+    },
+    {
+      "a": 65633,
+      "a_margin": 0.08857917785644531,
+      "b": 10976,
+      "b_margin": 0.011373519897460938,
+      "p": 229
+    },
+    {
+      "a": 10287,
+      "a_margin": 0.009189605712890625,
+      "b": 995,
+      "b_margin": 0.034423828125,
+      "p": 240
+    }
+  ],
+  "kl_max": 0.0068925669049200765,
+  "kl_mean": 0.0005150634959450927,
+  "mode": "compare",
+  "positions": 289,
+  "same_input_positions": 289
+}
