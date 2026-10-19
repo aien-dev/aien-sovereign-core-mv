@@ -149,4 +149,8 @@ fn golden_prompt_tokenizes_to_the_reference_ids() {
         .unwrap();
     assert_ne!(tk.encode_with_special(&on, true).unwrap(), want);
     assert_eq!(tk.stop_token_ids(), &[248046, 248044]);
+    // The limit comes from config.json text_config (262144), not the 2048 default: a 30k prompt
+    // encodes (the server's 128k context needs it).
+    let long = "word ".repeat(30_000);
+    assert!(tk.encode_with_special(&long, true).unwrap().len() > 2048);
 }

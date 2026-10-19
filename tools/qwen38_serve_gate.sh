@@ -21,7 +21,8 @@ ask() {
   # Other clients share the server: retry while it answers busy (one generation at a time).
   for try in $(seq 1 240); do
     curl -s -m 900 "$URL/v1/chat/completions" -H 'Content-Type: application/json' -d @"$OUT/$1.req.json" > "$OUT/$1.json"
-    jq -e '.error' "$OUT/$1.json" >/dev/null 2>&1 || break
+    # Retry only "busy" answers (server_busy, chip lock); any other error is the result.
+    jq -e '.error | tostring | test("busy"; "i")' "$OUT/$1.json" >/dev/null 2>&1 || break
     sleep 5
   done
 }

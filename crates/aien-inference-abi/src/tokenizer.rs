@@ -200,9 +200,11 @@ fn render_qwen38(turns: &[(&str, &str)], opts: &ChatOptions) -> Result<String, T
                 out.push_str(content);
                 out.push_str("<|im_end|>\n");
             }
-            other => return refuse(format!(
+            other => {
+                return refuse(format!(
                 "role {other} refused: the Qwen3.8 layout here is text-only system/user/assistant"
-            )),
+            ))
+            }
         }
     }
     out.push_str("<|im_start|>assistant\n");
@@ -600,7 +602,8 @@ impl ChatTokenizer {
     /// - template: detected from `chat_template` in `tokenizer_config.json`, else from
     ///   `chat_template.jinja`;
     /// - stop set: `eos_token_id` of `generation_config.json`, else of `config.json`;
-    /// - context limit: `max_position_embeddings` of `config.json` (default 2048).
+    /// - context limit: `max_position_embeddings` of `config.json`, or of its `text_config`
+    ///   (default 2048).
     pub fn from_model_dir(
         dir: &Path,
         tokenizer_json: Option<&Path>,
@@ -666,9 +669,13 @@ impl ChatTokenizer {
             )));
         }
         tokenizer.stop_token_ids = stop;
+        // Multimodal configs (Qwen3.8 `qwen3_5`) keep the language model's limit in `text_config`.
         if let Some(max) = config
             .as_ref()
-            .and_then(|c| c.get("max_position_embeddings"))
+            .and_then(|c| {
+                c.get("max_position_embeddings")
+                    .or_else(|| c.get("text_config")?.get("max_position_embeddings"))
+            })
             .and_then(|v| v.as_u64())
         {
             tokenizer.max_context_len = max as usize;
