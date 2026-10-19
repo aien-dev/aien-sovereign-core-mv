@@ -147,6 +147,23 @@ aien-proof `slots/gpu.lock`; the worker's target priming takes only the
 target-dir lock. Known limit: a gb10 gate is never killed on timeout, so a
 hung one holds the target dir until it exits on its own.
 
+A held GPU lock is waited for, up to a bound, then the gate is NOT_RUN
+`gpu_lock` (or `gpu_lock_proof`). The live model server takes
+`/tmp/aien-gb10.lock` around every request (one request held it 108 s median,
+222 s at most, over 323 requests on 2026-10-19), so the old single try lost
+nearly every time. The wait is a blocking `flock` in the kernel's queue, the
+same queue the server's requests (`GpuLock::acquire_queued_at`, 300 s per
+request) and `flock(1)` jobs wait in: the gate takes its turn between
+requests and never jumps the queue. A poller with `LOCK_NB` is starved by
+queued waiters (2026-10-19, two back-to-back 300 ms holders: polling got in
+after 13 to 17 s or gave up at 20 s in 2 of 5 tries; the queue got in after
+0.3 to 0.6 s in 5 of 5). Default bound 30 minutes (`DEFAULT_GPU_WAIT`, the
+server's own upload wait); `--gpu-wait 0` refuses at once, `--gpu-wait 90s`
+sets another bound, `--wait-gpu` waits without one. While it waits the gate
+keeps its pool slot and target-dir lock (never the GPU idle), so other gates
+of the same target dir wait too, at most the bound. Every gb10 receipt
+records `volatile.gpu_wait`: `mode`, `bound_ms`, `waited_ms`, `acquired`.
+
 Under `--sandbox user` every checkout is made with INFRA's worktree tool
 (`--wt-tool`, default `<clones>/aien-sovereign-core/tools/aien-local-ci/wt.sh`;
 without it the worker refuses to run). `wt.sh sync` refreshes the bare mirror
@@ -370,6 +387,7 @@ Evidence status: VERIFIED | INVALID
 Hardware status: QUALIFIED | NOT_REQUIRED | BLOCKED
 Final verdict: PASS | FAIL | NOT_RUN | BLOCKED
 Queue time: N ms | n/a
+GPU lock wait: N ms | n/a
 Build time: n/a
 Test time: N ms | n/a
 Total time: N ms | n/a
@@ -391,7 +409,9 @@ manifest at COMMIT (`MANIFEST_MISMATCH`); then the plan judge. Every
 rejection is a `Problem` or `Evidence note` line and leaves READY out of
 reach; no path defaults to PASS. Crumb status comes from `crumb verify .` in a temporary
 detached worktree at COMMIT, removed afterwards. Queue time is the sum of
-`pool_wait_ms`, test time the sum of `duration_ms` over the executed
+`pool_wait_ms`, GPU lock wait the sum of `gpu_wait.waited_ms` (gb10 gates:
+how long each waited in the kernel queue of `/tmp/aien-gb10.lock`, see
+below), test time the sum of `duration_ms` over the executed
 receipts, total time the bundle's `finished_utc - started_utc`; build time
 is not measured yet.
 
