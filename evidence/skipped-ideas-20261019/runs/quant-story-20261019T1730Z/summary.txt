@@ -1,0 +1,11 @@
+quant: 6 variants, 290 tokens, scored rows 33..289, MemAvailable 51.6 GiB
+base                   agree 256/256 (1.0000)  KL 0.000e0  cos final 1.00000/1.00000  GB/token 26.92 (100.0% of 26.92)
+quant-mxfp4            agree 223/256 (0.8711)  KL 7.061e-2  cos final 0.98112/0.96246  GB/token 15.49 (57.6% of 26.92)
+quant-int4g32          agree 222/256 (0.8672)  KL 4.958e-2  cos final 0.98642/0.96014  GB/token 16.25 (60.4% of 26.92)
+quant-mxint3           agree 173/256 (0.6758)  KL 4.478e-1  cos final 0.89709/0.76223  GB/token 12.44 (46.2% of 26.92)
+quant-mxfp3            agree 170/256 (0.6641)  KL 5.571e-1  cos final 0.87974/0.75597  GB/token 12.44 (46.2% of 26.92)
+quant-int3g32          agree 184/256 (0.7188)  KL 2.905e-1  cos final 0.92406/0.85137  GB/token 13.21 (49.1% of 26.92)
+{
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-skipped-quant-story-20261019T1730Z.json
+rc=0

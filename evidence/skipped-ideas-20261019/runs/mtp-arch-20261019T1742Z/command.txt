@@ -1,0 +1,1 @@
+nice -n 19 ionice -c3 spark-receipt skipped-mtp-arch-20261019T1742Z -- /home/drakestapleton/workspace/targets/skipped/release/qwen38_lab mtp /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a /home/drakestapleton/workspace/skipped-work/seq/arch.json /home/drakestapleton/workspace/skipped-work/runs/mtp-arch-20261019T1742Z/trace
