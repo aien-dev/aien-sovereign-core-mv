@@ -1,0 +1,20 @@
+skip: 15 variants, 306 tokens, scored rows 49..305, MemAvailable 35.1 GiB
+base                   agree 256/256 (1.0000)  KL 0.000e0  cos final 1.00000/1.00000  GB/token 26.92 (100.0% of 26.92)
+static-any-8           agree 235/256 (0.9180)  KL 7.623e-2  cos final 0.96450/0.60959  GB/token 23.87 (88.7% of 26.92)
+static-attn-1          agree 251/256 (0.9805)  KL 4.740e-3  cos final 0.99364/0.64572  GB/token 26.54 (98.6% of 26.92)
+static-attn-2          agree 245/256 (0.9570)  KL 1.089e-2  cos final 0.98966/0.68719  GB/token 26.17 (97.2% of 26.92)
+static-attn-4          agree 239/256 (0.9336)  KL 3.671e-2  cos final 0.97718/0.50279  GB/token 25.43 (94.5% of 26.92)
+static-dn-1            agree 251/256 (0.9805)  KL 4.731e-3  cos final 0.99174/0.55625  GB/token 26.53 (98.6% of 26.92)
+static-dn-2            agree 249/256 (0.9727)  KL 1.080e-2  cos final 0.98997/0.59063  GB/token 26.15 (97.1% of 26.92)
+static-dn-4            agree 242/256 (0.9453)  KL 2.488e-2  cos final 0.97917/0.53862  GB/token 25.38 (94.3% of 26.92)
+static-dn-8            agree 231/256 (0.9023)  KL 8.351e-2  cos final 0.96421/0.52480  GB/token 23.85 (88.6% of 26.92)
+dyn-dn-4-nostate       agree 246/256 (0.9609)  KL 1.388e-2  cos final 0.98407/0.59247  GB/token 26.15 (97.1% of 26.92)
+dyn-dn-4-cheap         agree 247/256 (0.9648)  KL 1.192e-2  cos final 0.98877/0.58870  GB/token 26.26 (97.5% of 26.92)
+dyn-dn-8-nostate       agree 242/256 (0.9453)  KL 5.585e-2  cos final 0.97591/0.65996  GB/token 25.38 (94.3% of 26.92)
+dyn-dn-8-cheap         agree 243/256 (0.9492)  KL 2.971e-2  cos final 0.98468/0.63693  GB/token 25.60 (95.1% of 26.92)
+dyn-attn-4-nostate     agree 247/256 (0.9648)  KL 1.248e-2  cos final 0.99087/0.71407  GB/token 26.17 (97.2% of 26.92)
+dyn-attn-4-cheap       agree 247/256 (0.9648)  KL 1.187e-2  cos final 0.99121/0.71446  GB/token 26.19 (97.3% of 26.92)
+{
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-skipped-skip-code-20261019T1846Z.json
+rc=0
