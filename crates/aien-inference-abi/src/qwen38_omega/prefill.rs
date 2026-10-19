@@ -38,8 +38,9 @@ use aien_omega_pf::{
 use aien_omega_q38 as q;
 use rayon::prelude::*;
 
-use super::{gpu, Qwen38Omega, EPS_L2};
+use super::{gpu, storage, Qwen38Omega, EPS_L2};
 use crate::qwen3_moe::bf16_to_f32;
+use crate::storage_map::Probe;
 use crate::tensor::rmsnorm;
 
 /// What one [`Qwen38Omega::prefill`] call cost. Chip times are the omega info records' launch
@@ -297,9 +298,18 @@ impl Qwen38Omega {
         let mut hidden = vec![0f32; h];
         rmsnorm(residual, &self.final_norm, self.config.eps, &mut hidden);
         let mut logits = vec![0f32; self.config.vocab];
+        let first = !self
+            .map
+            .measured
+            .iter()
+            .any(|(c, _)| c == storage::CALL_HEAD_FIRST);
+        let probe = if first { Some(Probe::start()?) } else { None };
         self.lm_head
             .gemv_f32(&hidden, &mut logits)
             .map_err(gpu("lm_head"))?;
+        if let Some(p) = probe {
+            self.map.record(storage::CALL_HEAD_FIRST, p.driver_added()?);
+        }
         Ok(logits)
     }
 
@@ -340,10 +350,19 @@ impl Qwen38Omega {
             return Err(format!("qwen38 prefill: token {t} outside the vocab {v}"));
         }
         let want = chunk.min(n);
-        if self.pf.as_ref().is_none_or(|p| p.m < want) {
+        let grow = self.pf.as_ref().is_none_or(|p| p.m < want);
+        if grow {
             self.pf = None; // free the old sizing first
-            self.pf = Some(PfState::new(want, self.config.rotary_dim)?);
+            let probe = Probe::start()?;
+            let pf = PfState::new(want, self.config.rotary_dim)?;
+            storage::set_prefill(&mut self.map, &self.config, want, pf.bm);
+            self.map
+                .record(storage::CALL_PF_BUFS, probe.driver_added()?);
+            self.pf = Some(pf);
         }
+        // omega's scratch for the larger chunk is made inside the chunks: probed whenever the
+        // sizing grows (its growth is new minus old, so the records add up to the high water).
+        let lazy = if grow { Some(Probe::start()?) } else { None };
         let mut st = PrefillStats {
             tokens: n,
             ..Default::default()
@@ -359,6 +378,9 @@ impl Qwen38Omega {
             }
             done += m;
             st.chunks += 1;
+        }
+        if let Some(p) = lazy {
+            self.map.record(storage::CALL_PF_FIRST, p.driver_added()?);
         }
         st.wall_ns = ns(t0);
         Ok((rows, st))

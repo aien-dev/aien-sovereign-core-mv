@@ -27,11 +27,13 @@ use aien_omega_gpu::ResidentTensor;
 use aien_omega_q38::{Attn256Cache, Gdn, GraphConfig, GraphStats, Q38Graph};
 
 mod prefill;
+pub mod storage;
 pub use prefill::PrefillStats;
 
 use crate::qwen38::{read_bf16_words, read_matrix, read_vec, text_prefix, Matrix, Qwen38Config};
 use crate::qwen3_moe::bf16_to_f32;
 use crate::qwen3_moe_omega::{ShardSource, TensorSource};
+use crate::storage_map::{Probe, StorageMap};
 
 /// l2norm eps of the DeltaNet q/k (the reference's constant).
 const EPS_L2: f32 = 1e-6;
@@ -69,6 +71,11 @@ pub struct Qwen38Omega {
     ab_mm: Vec<ResidentTensor>,
     /// The prefill's buffers, made by the first [`Self::prefill`].
     pf: Option<prefill::PfState>,
+    /// Every block the model holds, planned from the config and measured call by call
+    /// ([`storage`]).
+    map: StorageMap,
+    /// The first decode step was probed.
+    decoded: bool,
 }
 
 impl std::fmt::Debug for Qwen38Omega {
@@ -83,6 +90,18 @@ impl std::fmt::Debug for Qwen38Omega {
 
 fn gpu(stage: &str) -> impl Fn(aien_omega_gpu::OmegaGpuError) -> String + '_ {
     move |e| format!("{stage}: {e}")
+}
+
+/// Runs one allocating call and records the driver bytes it added under `call` in `map`.
+fn probed<T>(
+    map: &mut StorageMap,
+    call: &str,
+    f: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    let p = Probe::start()?;
+    let out = f()?;
+    map.record(call, p.driver_added()?);
+    Ok(out)
 }
 
 /// `1 + w`, the zero-centred RMSNorm weight the graph's norms multiply by.
@@ -249,27 +268,32 @@ impl Qwen38Omega {
                 q::MAX_LAYERS
             ));
         }
+        let mut map = storage::plan(c, max_pos, None);
         let prefix = text_prefix(source)?;
         let (v, h) = (c.vocab, c.hidden);
         let embed = read_bf16_words(source, &format!("{prefix}embed_tokens.weight"), &[v, h])?;
         let final_norm = fold(read_vec(source, &format!("{prefix}norm.weight"), h)?);
         let lm_head = match read_matrix(source, "lm_head.weight", v, h)? {
-            Matrix::Bf16 { n, k, w } => Bf16Tensor::upload(n, k, &w).map_err(gpu("lm_head"))?,
+            Matrix::Bf16 { n, k, w } => probed(&mut map, storage::CALL_LM_HEAD, || {
+                Bf16Tensor::upload(n, k, &w).map_err(gpu("lm_head"))
+            })?,
             Matrix::Fp8 { .. } => return Err("lm_head: FP8 (the graph takes a bf16 head)".into()),
         };
 
         let n_attn = c.full_attention.iter().filter(|&&a| a).count();
         let n_gdn = c.layers - n_attn;
         let mut gdn = if n_gdn > 0 {
-            Some(Gdn::alloc(n_gdn).map_err(gpu("gdn alloc"))?)
+            Some(probed(&mut map, storage::CALL_GDN, || {
+                Gdn::alloc(n_gdn).map_err(gpu("gdn alloc"))
+            })?)
         } else {
             None
         };
         let mut attn = if n_attn > 0 {
-            Some(
+            Some(probed(&mut map, storage::CALL_ATTN, || {
                 Attn256Cache::alloc(n_attn, max_pos, c.rope_theta, c.rotary_dim)
-                    .map_err(gpu("attn256 alloc"))?,
-            )
+                    .map_err(gpu("attn256 alloc"))
+            })?)
         } else {
             None
         };
@@ -285,31 +309,36 @@ impl Qwen38Omega {
         let (mut gi, mut ai) = (0usize, 0usize);
         for l in 0..c.layers {
             let p = format!("{prefix}layers.{}", first + l);
+            let names = storage::layer_names(l, c.full_attention[l]);
             let rm = |s: &mut dyn TensorSource, name: String, n, k| read_matrix(s, &name, n, k);
             let (mix, ab, o) = if c.full_attention[l] {
                 let a = format!("{p}.self_attn");
-                let mix = fuse_fp8(
-                    &format!("{a} q|k|v"),
-                    vec![
+                let mix = probed(&mut map, &names[0], || {
+                    fuse_fp8(
+                        &format!("{a} q|k|v"),
+                        vec![
+                            rm(
+                                source,
+                                format!("{a}.q_proj.weight"),
+                                2 * c.heads * c.head_dim,
+                                h,
+                            )?,
+                            rm(source, format!("{a}.k_proj.weight"), c.kv_dim(), h)?,
+                            rm(source, format!("{a}.v_proj.weight"), c.kv_dim(), h)?,
+                        ],
+                    )
+                })?;
+                let o = probed(&mut map, &names[1], || {
+                    upload_fp8(
+                        &format!("{a}.o_proj"),
                         rm(
                             source,
-                            format!("{a}.q_proj.weight"),
-                            2 * c.heads * c.head_dim,
+                            format!("{a}.o_proj.weight"),
                             h,
+                            c.heads * c.head_dim,
                         )?,
-                        rm(source, format!("{a}.k_proj.weight"), c.kv_dim(), h)?,
-                        rm(source, format!("{a}.v_proj.weight"), c.kv_dim(), h)?,
-                    ],
-                )?;
-                let o = upload_fp8(
-                    &format!("{a}.o_proj"),
-                    rm(
-                        source,
-                        format!("{a}.o_proj.weight"),
-                        h,
-                        c.heads * c.head_dim,
-                    )?,
-                )?;
+                    )
+                })?;
                 let q_norm = read_vec(source, &format!("{a}.q_norm.weight"), c.head_dim)?;
                 let k_norm = read_vec(source, &format!("{a}.k_norm.weight"), c.head_dim)?;
                 attn.as_mut()
@@ -320,30 +349,36 @@ impl Qwen38Omega {
                 (mix, None, o)
             } else {
                 let a = format!("{p}.linear_attn");
-                let mix = fuse_fp8(
-                    &format!("{a} qkv|z"),
-                    vec![
-                        rm(source, format!("{a}.in_proj_qkv.weight"), c.conv_dim(), h)?,
-                        rm(
-                            source,
-                            format!("{a}.in_proj_z.weight"),
-                            c.lin_value_dim(),
-                            h,
-                        )?,
-                    ],
-                )?;
+                let mix = probed(&mut map, &names[0], || {
+                    fuse_fp8(
+                        &format!("{a} qkv|z"),
+                        vec![
+                            rm(source, format!("{a}.in_proj_qkv.weight"), c.conv_dim(), h)?,
+                            rm(
+                                source,
+                                format!("{a}.in_proj_z.weight"),
+                                c.lin_value_dim(),
+                                h,
+                            )?,
+                        ],
+                    )
+                })?;
                 let ia = rm(source, format!("{a}.in_proj_a.weight"), c.lin_v_heads, h)?;
                 let ib = rm(source, format!("{a}.in_proj_b.weight"), c.lin_v_heads, h)?;
                 let (an, ak, aw) = ab_rows(&ia, &ib).map_err(|e| format!("{a}: {e}"))?;
-                let ab = Bf16Tensor::upload(an, ak, &aw).map_err(gpu("in_proj_a|b"))?;
-                ab_mm.push(
+                let ab = probed(&mut map, &names[1], || {
+                    Bf16Tensor::upload(an, ak, &aw).map_err(gpu("in_proj_a|b"))
+                })?;
+                ab_mm.push(probed(&mut map, &names[2], || {
                     ResidentTensor::upload_bf16(ak, an, &ab_plain_transposed(an, ak, &aw))
-                        .map_err(gpu("in_proj_a|b matmul"))?,
-                );
-                let o = upload_fp8(
-                    &format!("{a}.out_proj"),
-                    rm(source, format!("{a}.out_proj.weight"), h, c.lin_value_dim())?,
-                )?;
+                        .map_err(gpu("in_proj_a|b matmul"))
+                })?);
+                let o = probed(&mut map, &names[3], || {
+                    upload_fp8(
+                        &format!("{a}.out_proj"),
+                        rm(source, format!("{a}.out_proj.weight"), h, c.lin_value_dim())?,
+                    )
+                })?;
                 let conv: Vec<f32> = read_bf16_words(
                     source,
                     &format!("{a}.conv1d.weight"),
@@ -363,17 +398,22 @@ impl Qwen38Omega {
                 (mix, Some(ab), o)
             };
             let m = format!("{p}.mlp");
-            let gate_up = fuse_fp8(
-                &format!("{m} gate|up"),
-                vec![
-                    rm(source, format!("{m}.gate_proj.weight"), c.intermediate, h)?,
-                    rm(source, format!("{m}.up_proj.weight"), c.intermediate, h)?,
-                ],
-            )?;
-            let down = upload_fp8(
-                &format!("{m}.down_proj"),
-                rm(source, format!("{m}.down_proj.weight"), h, c.intermediate)?,
-            )?;
+            let n = names.len();
+            let gate_up = probed(&mut map, &names[n - 2], || {
+                fuse_fp8(
+                    &format!("{m} gate|up"),
+                    vec![
+                        rm(source, format!("{m}.gate_proj.weight"), c.intermediate, h)?,
+                        rm(source, format!("{m}.up_proj.weight"), c.intermediate, h)?,
+                    ],
+                )
+            })?;
+            let down = probed(&mut map, &names[n - 1], || {
+                upload_fp8(
+                    &format!("{m}.down_proj"),
+                    rm(source, format!("{m}.down_proj.weight"), h, c.intermediate)?,
+                )
+            })?;
             let in_norm = fold(read_vec(source, &format!("{p}.input_layernorm.weight"), h)?);
             let post_norm = fold(read_vec(
                 source,
@@ -404,7 +444,9 @@ impl Qwen38Omega {
         };
         // SAFETY: gdn, attn and lm_head are live omega objects owned by the returned value, which
         // drops the graph before them (field order).
-        let mut graph = unsafe { Q38Graph::create(&cfg) }.map_err(gpu("q38 graph create"))?;
+        let mut graph = probed(&mut map, storage::CALL_GRAPH, || {
+            unsafe { Q38Graph::create(&cfg) }.map_err(gpu("q38 graph create"))
+        })?;
         for (l, (t, (in_norm, post_norm))) in layers.iter().zip(&norms).enumerate() {
             let ab =
                 t.ab.as_ref()
@@ -442,7 +484,15 @@ impl Qwen38Omega {
             final_norm,
             ab_mm,
             pf: None,
+            map,
+            decoded: false,
         })
+    }
+
+    /// Every block this model holds: the plan from the config, measured call by call
+    /// ([`storage`]). Hold it against the process with [`crate::storage_map::Receipt`].
+    pub fn storage_map(&self) -> &StorageMap {
+        &self.map
     }
 
     /// Bytes resident on the device for the weights (tensors as uploaded, not the KV cache).
@@ -497,8 +547,21 @@ impl Qwen38Omega {
             .iter()
             .map(|&b| bf16_to_f32(b))
             .collect();
-        let out = self.graph.token(&x, self.pos).map_err(gpu("q38 token"))?;
+        let out = self.token(&x)?;
         self.pos += 1;
+        Ok(out)
+    }
+
+    /// One graph token; the first one probed ([`storage::CALL_DECODE_FIRST`]).
+    fn token(&mut self, x: &[f32]) -> Result<(u32, GraphStats), String> {
+        if self.decoded {
+            return self.graph.token(x, self.pos).map_err(gpu("q38 token"));
+        }
+        let (graph, pos) = (&mut self.graph, self.pos);
+        let out = probed(&mut self.map, storage::CALL_DECODE_FIRST, || {
+            graph.token(x, pos).map_err(gpu("q38 token"))
+        })?;
+        self.decoded = true;
         Ok(out)
     }
 
@@ -518,7 +581,7 @@ impl Qwen38Omega {
                 self.max_pos
             ));
         }
-        let out = self.graph.token(x, self.pos).map_err(gpu("q38 token"))?;
+        let out = self.token(x)?;
         self.pos += 1;
         Ok(out)
     }

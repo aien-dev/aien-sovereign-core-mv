@@ -25,12 +25,15 @@
 //! shares the memory; OOM lesson of 2026-10-18 16:43:58Z).
 
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 use aien_inference_abi::qwen38::{argmax, Qwen38Config};
-use aien_inference_abi::qwen38_omega::{PrefillStats, Qwen38Omega};
+use aien_inference_abi::qwen38_omega::{storage, PrefillStats, Qwen38Omega};
 use aien_inference_abi::qwen3_moe::parity_stats;
+use aien_inference_abi::storage_map::{ProcMemory, Receipt, Space};
 use aien_inference_abi::tokenizer::ChatTokenizer;
+use aien_omega_pf::{OmegaPfDevice, PfBuffer, PfMem, PrefillDevice};
 use serde_json::{json, Value};
 
 const COSINE_MIN: f64 = 0.999;
@@ -46,39 +49,99 @@ fn mem_available() -> Result<u64, String> {
         .ok_or_else(|| "/proc/meminfo: no MemAvailable".into())
 }
 
-/// Device bytes for the whole model, its KV cache at `max_pos` and the prefill buffers for
-/// `chunk` tokens; from the config, not measured.
+/// Bytes the run needs at its peak: the storage map's plan for the whole model, its KV cache at
+/// `max_pos` and the prefill for chunks of `chunk` tokens (sc #678: the same map the receipt
+/// measures; the old formula left out the host embedding and omega's own scratch).
 fn need_bytes(c: &Qwen38Config, max_pos: usize, chunk: usize) -> u64 {
-    let h = c.hidden as u64;
-    let mlp = 3 * c.intermediate as u64 * h;
-    let o = h * (c.heads * c.head_dim) as u64;
-    let layers: u64 = c
-        .full_attention
-        .iter()
-        .map(|&attn| {
-            if attn {
-                (2 * c.heads * c.head_dim + 2 * c.kv_dim()) as u64 * h + o + mlp
-            } else {
-                (c.conv_dim() + c.lin_value_dim()) as u64 * h + o + mlp + 4 * 2 * 2 * 48 * h
-            }
-        })
-        .sum();
-    let weights = layers + layers / 4096 + 2 * c.vocab as u64 * h;
-    let n_attn = c.full_attention.iter().filter(|&&a| a).count() as u64;
-    let kv = n_attn * 2 * 4 * max_pos as u64 * 512 + max_pos as u64 * 1024;
-    // xin, xq, xs, mix, act, out, plus the DeltaNet prefill scratch (omega_gpu_gdn_api.h).
-    let m = chunk as u64;
-    let bufs = m * (6144 * 4 + 17408 + 136 * 4 + 16384 * 4 + 17408 * 2 + 5120 * 4)
-        + m * (40960 + 3 * 24576 + 384)
-        + m.div_ceil(8) * 8 * 74496;
-    weights + kv + bufs
+    storage::plan(c, max_pos, Some((chunk, OmegaPfDevice.qgemm_bm()))).peak()
+}
+
+/// The process before its first allocation (set first thing in `main`).
+static BASELINE: OnceLock<ProcMemory> = OnceLock::new();
+/// Where the storage map receipts go: `<out>.storage-map-<stage>.{txt,json}`.
+static MAP_OUT: OnceLock<String> = OnceLock::new();
+/// The negative control's blocks (AIEN_STORAGE_MAP_LEAK_BYTES): made after the load, never
+/// registered in the map, kept until the process ends.
+static LEAK: Mutex<Vec<(PfMem, Vec<u8>)>> = Mutex::new(Vec::new());
+
+/// Unaccounted bytes a run may hold, per space, before its storage check fails; set from the
+/// measured clean runs (evidence/f6-storage-map-*/).
+const UNACCOUNTED_DRIVER_MAX: i64 = 64 << 20;
+const UNACCOUNTED_HEAP_MAX: i64 = 1 << 30;
+
+/// AIEN_STORAGE_MAP_LEAK_BYTES=n: one omega host buffer and one heap vector of n bytes each,
+/// every page written, that the map does not name. Both must show in the unaccounted numbers.
+fn leak_control() -> Result<(), String> {
+    let Ok(v) = std::env::var("AIEN_STORAGE_MAP_LEAK_BYTES") else {
+        return Ok(());
+    };
+    let n: usize = v
+        .parse()
+        .map_err(|_| format!("AIEN_STORAGE_MAP_LEAK_BYTES={v}: not a byte count"))?;
+    let mut d = PfMem::alloc_host(n).map_err(|e| format!("leak control: {e}"))?;
+    d.host_mut().ok_or("leak control: no host view")?.fill(0x5a);
+    let h = vec![0x5au8; n];
+    eprintln!("NEGATIVE CONTROL: {n} unregistered bytes in each space");
+    LEAK.lock().expect("leak lock").push((d, h));
+    Ok(())
+}
+
+/// Holds the model's storage map against the process now; writes the receipt files and returns
+/// the totals and whether the unaccounted numbers stay within the bars and the planned peak
+/// covers the held one.
+fn storage_receipt(e: &Qwen38Omega, stage: &str) -> Result<(bool, Value), String> {
+    let base = *BASELINE.get().ok_or("no baseline")?;
+    let r = Receipt::new(
+        format!("qwen38_prefill {stage}"),
+        e.storage_map().clone(),
+        base,
+        ProcMemory::read()?,
+    );
+    let ud = r.unaccounted(Space::Driver);
+    let uh = r.unaccounted(Space::Heap);
+    let peak_ok = r.map.peak() >= r.peak_held();
+    let ok = ud.abs() <= UNACCOUNTED_DRIVER_MAX && uh.abs() <= UNACCOUNTED_HEAP_MAX && peak_ok;
+    let mut text = r.to_text();
+    text.push_str(&format!(
+        "storage check ({stage}): |unaccounted driver| {} <= {UNACCOUNTED_DRIVER_MAX}, |unaccounted heap| {} <= {UNACCOUNTED_HEAP_MAX}, planned peak >= held peak {peak_ok}: {}\n",
+        ud.abs(),
+        uh.abs(),
+        if ok { "PASS" } else { "FAIL" }
+    ));
+    let mut v = r.to_json();
+    v["check"] = json!({"stage": stage, "pass": ok, "unaccounted_driver_max": UNACCOUNTED_DRIVER_MAX,
+                        "unaccounted_heap_max": UNACCOUNTED_HEAP_MAX, "peak_covered": peak_ok});
+    if let Some(out) = MAP_OUT.get() {
+        for (ext, body) in [
+            ("txt", text.clone()),
+            ("json", serde_json::to_string_pretty(&v).expect("json")),
+        ] {
+            let p = format!("{out}.storage-map-{stage}.{ext}");
+            std::fs::write(&p, body).map_err(|e| format!("{p}: {e}"))?;
+        }
+    }
+    eprint!(
+        "{}",
+        text.lines()
+            .rev()
+            .take(9)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .map(|l| format!("{l}\n"))
+            .collect::<String>()
+    );
+    Ok((
+        ok,
+        json!({"stage": stage, "pass": ok, "totals": v["totals"], "mismatches": v["mismatches"]}),
+    ))
 }
 
 fn open(dir: &Path, max_pos: usize, chunk: usize) -> Result<Qwen38Omega, String> {
     // The attention cache holds whole score passes of 256 positions (OMEGA_DATTN256_CHUNK).
     let max_pos = max_pos.next_multiple_of(256);
     let c = Qwen38Config::from_checkpoint(dir)?;
-    let need = need_bytes(&c, max_pos, chunk);
+    let need = need_bytes(&c, max_pos, chunk.min(max_pos));
     let avail = mem_available()?;
     if avail < need + KEEP_FREE {
         return Err(format!(
@@ -89,11 +152,14 @@ fn open(dir: &Path, max_pos: usize, chunk: usize) -> Result<Qwen38Omega, String>
         ));
     }
     eprintln!(
-        "upload: need {} MiB, MemAvailable {} MiB",
+        "upload: need {} MiB (storage map peak), MemAvailable {} MiB",
         need >> 20,
         avail >> 20
     );
-    Qwen38Omega::open(dir, None, max_pos)
+    let e = Qwen38Omega::open(dir, None, max_pos)?;
+    leak_control()?;
+    storage_receipt(&e, "load")?;
+    Ok(e)
 }
 
 fn stats_json(s: &PrefillStats) -> Value {
@@ -153,6 +219,8 @@ fn golden(dir: &Path, golden: &str, chunk: usize) -> Result<(bool, Value), Strin
         && p.cosine >= COSINE_MIN
         && control.cosine < COSINE_MIN
         && argmax(&dec) as u32 == first;
+    let (sm_ok, sm) = storage_receipt(&e, "end")?;
+    let pass = pass && sm_ok;
     Ok((
         pass,
         json!({
@@ -161,7 +229,7 @@ fn golden(dir: &Path, golden: &str, chunk: usize) -> Result<(bool, Value), Strin
             "first_token_decode_graph": argmax(&dec), "first_token_prefill": first,
             "cosine_vs_decode_graph": p.cosine, "max_abs_vs_decode_graph": p.max_abs,
             "control_cosine_vs_previous_position": control.cosine,
-            "cosine_min": COSINE_MIN, "stats": stats_json(&st), "pass": pass,
+            "cosine_min": COSINE_MIN, "stats": stats_json(&st), "pass": pass, "storage_map": sm,
         }),
     ))
 }
@@ -215,6 +283,8 @@ fn score(dir: &Path, record: &str, chunk: usize) -> Result<(bool, Value), String
     let acc_ok = (acc - ref_acc).abs() <= 0.02;
     let ctrl_ok = ctrl_mean >= ref_mean + 1.0;
     let pass = mean_ok && acc_ok && ctrl_ok && ref_nll.len() == nll.len();
+    let (sm_ok, sm) = storage_receipt(&e, "end")?;
+    let pass = pass && sm_ok;
     Ok((
         pass,
         json!({
@@ -224,7 +294,7 @@ fn score(dir: &Path, record: &str, chunk: usize) -> Result<(bool, Value), String
             "next_token_accuracy": acc, "reference_next_token_accuracy": ref_acc,
             "max_abs_nll_diff": max_d, "mean_abs_nll_diff": sum_d / nll.len() as f64,
             "control_mean_nll_two_ahead": ctrl_mean,
-            "stats": stats_json(&st), "pass": pass,
+            "stats": stats_json(&st), "pass": pass, "storage_map": sm,
         }),
     ))
 }
@@ -284,9 +354,10 @@ fn ttft(dir: &Path, corpus: &str, lens: &[usize], chunk: usize) -> Result<(bool,
             "tokens": n, "ttft_s": s, "first_token": first, "stats": stats_json(&st),
         }));
     }
+    let (sm_ok, sm) = storage_receipt(&e, "end")?;
     Ok((
-        true,
-        json!({ "mode": "ttft", "chunk": chunk, "corpus": corpus, "runs": runs }),
+        sm_ok,
+        json!({ "mode": "ttft", "chunk": chunk, "corpus": corpus, "runs": runs, "storage_map": sm }),
     ))
 }
 
@@ -324,7 +395,20 @@ fn prompts(dir: &Path, corpus: &str, lens: &[usize], out: &Path) -> Result<(bool
 }
 
 fn main() {
+    // Before anything allocates: the receipts count from here.
+    match ProcMemory::read() {
+        Ok(m) => {
+            let _ = BASELINE.set(m);
+        }
+        Err(e) => {
+            eprintln!("qwen38_prefill: {e}");
+            std::process::exit(2);
+        }
+    }
     let a: Vec<String> = std::env::args().collect();
+    if let Some(out) = a.last() {
+        let _ = MAP_OUT.set(out.trim_end_matches(".json").to_string());
+    }
     let usage = "usage: qwen38_prefill golden|score <dir> <record.json> <chunk> <out.json> | ttft <dir> <corpus.txt> <len,...> <chunk> <out.json> | prompts <dir> <corpus.txt> <len,...> <out-dir>";
     let res = (|| -> Result<(bool, Value, String), String> {
         match a.get(1).map(String::as_str) {

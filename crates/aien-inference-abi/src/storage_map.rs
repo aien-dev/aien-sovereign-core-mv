@@ -88,6 +88,9 @@ pub struct Entry {
     /// The allocating call that makes it (one call can make several entries); measurements are
     /// per call.
     pub call: String,
+    /// Held only while a step runs (freed after it): counted in the peak, not in what a
+    /// finished run still holds.
+    pub transient: bool,
 }
 
 /// The arrangement of a run's storage, in the order it was registered.
@@ -123,6 +126,7 @@ impl StorageMap {
             writers: writers.iter().map(|w| w.to_string()).collect(),
             lifetime,
             derived: true,
+            transient: false,
         });
         self.entries.last_mut().expect("just pushed")
     }
@@ -150,13 +154,19 @@ impl StorageMap {
             .sum()
     }
 
-    /// Planned bytes in `space` (`None`: both).
+    /// Planned bytes in `space` (`None`: both) that stay held (transient entries left out).
     pub fn total(&self, space: Option<Space>) -> u64 {
         self.entries
             .iter()
-            .filter(|e| space.is_none_or(|s| e.space == s))
+            .filter(|e| !e.transient && space.is_none_or(|s| e.space == s))
             .map(|e| e.bytes)
             .sum()
+    }
+
+    /// Planned bytes at the peak: everything held plus every transient entry (they are freed
+    /// before the next one is made, but this sums them all: an upper bound). Admission uses it.
+    pub fn peak(&self) -> u64 {
+        self.entries.iter().map(|e| e.bytes).sum()
     }
 
     /// Driver bytes measured over every probed call.
@@ -356,6 +366,11 @@ impl Receipt {
             .saturating_sub(self.baseline.driver_size)
     }
 
+    /// The process's peak resident set (VmHWM) beyond the baseline's resident set.
+    pub fn peak_held(&self) -> u64 {
+        self.now.vm_hwm.saturating_sub(self.baseline.vm_rss)
+    }
+
     /// Heap bytes the process holds beyond the baseline.
     pub fn heap_held(&self) -> u64 {
         self.now.heap.saturating_sub(self.baseline.heap)
@@ -387,7 +402,7 @@ impl Receipt {
                 json!({
                     "name": e.name, "space": e.space.as_str(), "bytes": e.bytes,
                     "owner": e.owner, "writers": e.writers, "lifetime": e.lifetime.as_str(),
-                    "derived": e.derived, "call": e.call,
+                    "derived": e.derived, "call": e.call, "transient": e.transient,
                 })
             })
             .collect();
@@ -407,6 +422,9 @@ impl Receipt {
                 "named_driver": self.map.total(Some(Space::Driver)),
                 "named_heap": self.map.total(Some(Space::Heap)),
                 "named": self.map.total(None),
+                "planned_peak": self.map.peak(),
+                "held_peak": self.peak_held(),
+                "peak_margin": self.map.peak() as i64 - self.peak_held() as i64,
                 "measured_driver_calls": self.map.measured_total(),
                 "held_driver": self.driver_held(),
                 "held_heap": self.heap_held(),
@@ -447,13 +465,23 @@ impl Receipt {
                 e.lifetime.as_str(),
                 e.owner,
                 e.writers.join(","),
-                if e.derived {
-                    ""
-                } else {
-                    " [allowance, not derived]"
+                match (e.derived, e.transient) {
+                    (true, false) => "",
+                    (true, true) => " [transient]",
+                    (false, false) => " [allowance, not derived]",
+                    (false, true) => " [transient allowance, not derived]",
                 }
             );
         }
+        let _ = writeln!(
+            s,
+            "planned peak {} ({:.1} MiB), held peak (VmHWM - baseline VmRSS) {} ({:.1} MiB), peak margin {}",
+            self.map.peak(),
+            mib(self.map.peak()),
+            self.peak_held(),
+            mib(self.peak_held()),
+            self.map.peak() as i64 - self.peak_held() as i64
+        );
         for sp in [Space::Driver, Space::Heap] {
             let _ = write!(s, "named {} by lifetime:", sp.as_str());
             for (l, b) in self.map.by_lifetime(sp) {
