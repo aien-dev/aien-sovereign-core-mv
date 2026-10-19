@@ -1,0 +1,4 @@
+mem available before load: 71.4 GB, this run needs about 23.3 GB
+omega native: bf16 GEMV true, FP8 GEMV true, FP8 GEMM true
+LOAD /home/drakestapleton/models/qwen3-4b-instruct-2507-cdbee75 format Bf16 tied true layers 36 resident 8.045 GB uploads 145 in 3.2s, kv split resident true context 4096, controls: upload_mutant None kernel_mutant 0 attention_mutant false
+host reference loaded in 2.7s
