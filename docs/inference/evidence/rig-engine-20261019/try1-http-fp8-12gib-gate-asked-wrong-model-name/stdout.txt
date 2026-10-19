@@ -1,0 +1,33 @@
+serving: aien-serve-http: memory budget 12.000 GiB: weights 7.630 (Checkpoint) + KV 3.973 (28928 tokens x 147456 B) + scratch 0.391 = 11.993 GiB (context shrunk from 32768 to fit); embedding 1.159 GiB stays in system RAM aien-serve-http: dense load: Checkpoint context 28928 in 16.7 s, weights resident 7.629 GiB, omega device allocations 11.602 GiB, attention split, kv resident true 
+server stopped
+reference rc=0
+gate-0 server ids vs host reference: MATCH ( tokens); control (reference id 3 changed): MATCH
+gate-1 server ids vs host reference: MATCH ( tokens); control (reference id 3 changed): MATCH
+gate-2 server ids vs host reference: MATCH ( tokens); control (reference id 3 changed): MATCH
+speed-1 client wall 0.000237 s
+speed-2 client wall 0.000139 s
+speed-3 client wall 0.000298 s
+VERDICT FAIL
+{
+ "name": "rig-http-fp8-12gib",
+ "cmd": "nice -n 10 tools/rig/http-gate.sh /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019 http-fp8-12gib/gate 18120 /home/drakestapleton/models/qwen3-8b-fp8 -- --mem-budget-gib 12 --max-context 32768",
+ "exit": 1,
+ "git_head": "2c1e4752",
+ "start": "2026-10-19T13:45:11.539290",
+ "seconds": 227.658,
+ "samples": 105,
+ "wall_W_mean": 295.23809523809524,
+ "wall_J": 67213.2945741926,
+ "idle_W_before": 307.3333333333333,
+ "incremental_J": -2753.5769067491756,
+ "gpu_W_mean": 37.5367619047619,
+ "gpu_util_mean": 80.84761904761905,
+ "load1_start": "27.21",
+ "load1_end": "32.14",
+ "mem_avail_kB_start": "28040196",
+ "mem_avail_kB_end": "27240584",
+ "lock_holders_max": 4,
+ "nvrm_errors_delta": 0,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-rig-http-fp8-12gib.json

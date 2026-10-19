@@ -1,0 +1,13 @@
+start 2026-10-19T18:38:48Z
+host spark-b87b chip GB10 (DGX Spark), NOT an RTX 5070
+sc 2190f3eded994ca09aa6271fcdfd2c0d9a69b7ca branch rig/engine-12gb dirty 2
+binary /home/drakestapleton/workspace/targets/rig-engine/target/release/own8b_check sha256 8e05efc7687d688e844ed6db94cbcc95eac0852dd7cfd7cb8655e97c20fe19c7
+omega archive /home/drakestapleton/workspace/targets/rig-engine/omega/libomega_gpu.a sha256 eafe3317a0dc6e7877e293c0e08d54fd0be395332e250dd73b7e62ebb36f86d5
+env AIEN_Q38_W4_RULE=ceil
+cmd /home/drakestapleton/workspace/targets/rig-engine/target/release/own8b_check chip /home/drakestapleton/models/qwen3-8b-fp8 /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019/SMOKE-8B-W4-ceil.golden.json /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019/chip-w4-ceil-red-swapkv/check --no-host --w4 --speed-tokens 16 --upload-mutant swap-kv
+loadavg 27.86 28.41 44.37 46/2343 2403929
+MemAvailable:   21726612 kB
+7.0.0-1019-nvidia
+end 2026-10-19T18:41:34Z
+loadavg 26.93 29.48 42.32 28/2202 2474585
+MemAvailable:   27773840 kB

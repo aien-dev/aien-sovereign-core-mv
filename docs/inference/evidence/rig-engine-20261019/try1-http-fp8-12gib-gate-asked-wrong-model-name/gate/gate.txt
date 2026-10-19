@@ -1,0 +1,7 @@
+gate-0 server ids vs host reference: MATCH ( tokens); control (reference id 3 changed): MATCH
+gate-1 server ids vs host reference: MATCH ( tokens); control (reference id 3 changed): MATCH
+gate-2 server ids vs host reference: MATCH ( tokens); control (reference id 3 changed): MATCH
+speed-1 client wall 0.000237 s
+speed-2 client wall 0.000139 s
+speed-3 client wall 0.000298 s
+VERDICT FAIL

@@ -30,7 +30,9 @@ repo=$(cd "$(dirname "$0")/../.." && pwd)
 	echo "loadavg $(cat /proc/loadavg)"; grep MemAvailable /proc/meminfo
 } > "$d/ground.txt"
 
-AIEN_RIG_IDS_LOG="$ids" setsid nohup "$BIN" --engine omega --model-dir "$ckpt" --port "$port" \
+# The server holds the shared chip lock while it runs (flock execs the server, so $pid is the server);
+# the host reference below runs after it stops, without the lock.
+AIEN_RIG_IDS_LOG="$ids" setsid nohup flock /tmp/aien-gb10.lock "$BIN" --engine omega --model-dir "$ckpt" --port "$port" \
 	${w4[*]:+--weights w4} "$@" > "$d/server.log" 2>&1 < /dev/null &
 pid=$!; echo "$pid" > "$d/server.pid"
 stop() { kill -TERM "$pid" 2>/dev/null; for _ in $(seq 1 60); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done; }
@@ -40,11 +42,13 @@ for _ in $(seq 1 7200); do
 	kill -0 "$pid" 2>/dev/null || { echo "server exited before serving"; tail -5 "$d/server.log"; exit 1; }
 	sleep 1
 done
+model=$(curl -sf "http://127.0.0.1:$port/v1/models" | jq -r '.data[0].id')
+echo "model id $model" >> "$d/ground.txt"
 echo "serving: $(grep -E 'memory budget|dense load' "$d/server.log" | tr '\n' ' ')"
 
 ask() { # ask <out.json> <max_tokens> <user text>
-	jq -n --arg u "$3" --argjson m "$2" \
-		'{model:"x", messages:[{role:"user", content:$u}], temperature:0, max_tokens:$m}' |
+	jq -n --arg u "$3" --argjson m "$2" --arg model "$model" \
+		'{model:$model, messages:[{role:"user", content:$u}], temperature:0, max_tokens:$m}' |
 		curl -s -w '\n%{time_total}\n' -H 'content-type: application/json' --data-binary @- \
 			"http://127.0.0.1:$port/v1/chat/completions" > "$1"
 }
@@ -74,6 +78,7 @@ for i in "${!GATE[@]}"; do
 	ok=MISMATCH; [[ $got == "$want" ]] && ok=MATCH
 	cok=MISMATCH; [[ $got == "$ctl" ]] && cok=MATCH
 	echo "gate-$i server ids vs host reference: $ok ($(jq 'length' <<<"$got") tokens); control (reference id 3 changed): $cok" >> "$d/gate.txt"
+	[[ $(jq 'length' <<<"$got") -gt 0 ]] || verdict=FAIL # an empty reply is never a pass
 	[[ $ok == MATCH && $cok == MISMATCH ]] || verdict=FAIL
 done
 # Speed: server-side decode wall and chip time per token, from the ids log (requests after the gate prompts).

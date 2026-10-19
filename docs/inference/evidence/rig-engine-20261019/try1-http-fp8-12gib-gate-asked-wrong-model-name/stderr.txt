@@ -1,0 +1,6 @@
+jq: error (at /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019/http-fp8-12gib/gate/reference.json:33): Cannot iterate over null (null)
+jq: error (at /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019/http-fp8-12gib/gate/reference.json:33): Cannot iterate over null (null)
+jq: error (at /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019/http-fp8-12gib/gate/reference.json:33): Cannot iterate over null (null)
+jq: error (at /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019/http-fp8-12gib/gate/reference.json:33): Cannot iterate over null (null)
+jq: error (at /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019/http-fp8-12gib/gate/reference.json:33): Cannot iterate over null (null)
+jq: error (at /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019/http-fp8-12gib/gate/reference.json:33): Cannot iterate over null (null)

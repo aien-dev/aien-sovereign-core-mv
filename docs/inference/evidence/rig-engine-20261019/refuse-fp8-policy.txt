@@ -1,0 +1,4 @@
+aien-serve-http: tokenizer from /home/drakestapleton/models/qwen3-8b-fp8 (chat layout chatml-qwen3-nothink (Qwen3-8B, thinking off), stop ids [151645, 151643])
+aien-serve-http: loading dense Qwen3 (Checkpoint) onto the Omega engine from /home/drakestapleton/models/qwen3-8b-fp8
+aien-serve-http: dense load refused: context 32768 does not fit: 12.521 GiB needed, budget 12.000 GiB (policy refuse; ask for less or use shrink)
+rc=1
