@@ -26,6 +26,7 @@ use aien_omega_fp8::Fp8Tensor;
 use aien_omega_gpu::ResidentTensor;
 use aien_omega_q38::{Attn256Cache, Gdn, GraphConfig, GraphStats, Q38Graph};
 
+pub mod drum;
 mod prefill;
 pub use prefill::PrefillStats;
 

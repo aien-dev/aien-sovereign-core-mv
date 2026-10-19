@@ -184,6 +184,7 @@ dependencies = [
  "aien-omega-router",
  "aien-platform",
  "async-trait",
+ "libc",
  "parking_lot",
  "rayon",
  "regex-syntax",
