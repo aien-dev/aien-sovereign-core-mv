@@ -16,6 +16,8 @@ use std::time::{Duration, Instant};
 use aien_inference_abi::qwen3_moe_omega::{self as omega, LoadReport, OmegaEngine, WeightFormat};
 
 use crate::engine::{Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams};
+use crate::mask::Mask;
+use aien_inference_abi::generation::StepRule;
 use crate::kv_persist::PersistState;
 use crate::sampling::SamplingObserver;
 
@@ -330,7 +332,50 @@ impl Engine for OmegaDoor {
         p: &GenerateParams,
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, EngineError> {
+        self.run(prompt, p, None, on_token)
+    }
+
+    /// The 30B's loop reads the output head inside every step, so a forced token still pays for
+    /// its head here; only the sampler is skipped.
+    fn generate_masked(
+        &self,
+        prompt: &[u32],
+        p: &GenerateParams,
+        mask: &mut Mask,
+        on_token: &mut dyn FnMut(u32) -> bool,
+    ) -> Result<GenerateOutcome, EngineError> {
+        self.run(prompt, p, Some(mask), on_token)
+    }
+
+    fn persistence_status(&self) -> Option<serde_json::Value> {
+        match &self.persist {
+            PersistState::Off => None,
+            PersistState::Refused(why) => {
+                Some(serde_json::json!({ "state": "refused", "reason": why, "refusals": 1 }))
+            }
+            PersistState::On(pk) => Some(pk.status_json()),
+        }
+    }
+}
+
+impl OmegaDoor {
+    /// One reply, with or without a constraint. With one, the sampler asks it at every step;
+    /// the tokens emitted so far are recorded by the `on_token` wrapper. A constraint error or
+    /// `Finish` answers the first stop token, which ends the loop, and the error is returned.
+    fn run(
+        &self,
+        prompt: &[u32],
+        p: &GenerateParams,
+        mut mask: Option<&mut Mask>,
+        on_token: &mut dyn FnMut(u32) -> bool,
+    ) -> Result<GenerateOutcome, EngineError> {
         let max = self.engine.max_context_tokens();
+        let stop = p.stop_token_ids.first().copied();
+        if mask.is_some() && stop.is_none() {
+            return Err(EngineError::Failed(
+                "a constrained reply needs a stop token".into(),
+            ));
+        }
         if prompt.is_empty() {
             return Err(EngineError::Failed("empty prompt".into()));
         }
@@ -381,11 +426,35 @@ impl Engine for OmegaDoor {
         drop(fetched);
         // The server's own sampler, so CPU and Omega engines pick tokens the same way.
         let mut observer = SamplingObserver::new(p);
-        let mut sampler = |logits: &[f32], step: usize| observer.sample(logits, step);
+        let generated = std::cell::RefCell::new(Vec::new());
+        let failed = std::cell::RefCell::new(None);
+        let mut sampler = |logits: &[f32], step: usize| match mask.as_deref_mut() {
+            None => observer.sample(logits, step),
+            Some(m) => {
+                let stop = stop.expect("checked above");
+                let r = m
+                    .rule(prompt, &generated.borrow())
+                    .and_then(|rule| match rule {
+                        StepRule::Finish => Ok(stop),
+                        rule => m.choose(&rule, logits, &mut |l| observer.sample(l, step)),
+                    });
+                r.unwrap_or_else(|e| {
+                    *failed.borrow_mut() = Some(e);
+                    stop
+                })
+            }
+        };
+        let mut on_tok = |t: u32| {
+            generated.borrow_mut().push(t);
+            on_token(t)
+        };
         let o = self
             .engine
-            .generate_with(prompt, &q, &mut sampler, on_token)
+            .generate_with(prompt, &q, &mut sampler, &mut on_tok)
             .map_err(EngineError::Failed)?;
+        if let Some(e) = failed.into_inner() {
+            return Err(EngineError::Failed(format!("constraint: {e}")));
+        }
         let sampling = observer.record();
         self.reused_last
             .store(o.reused_prompt_tokens, Ordering::Relaxed);
@@ -415,17 +484,8 @@ impl Engine for OmegaDoor {
             prefill_ms: o.prefill_ms,
             decode_ms: o.decode_ms,
             sampling: Some(sampling),
+            mask: None,
         })
-    }
-
-    fn persistence_status(&self) -> Option<serde_json::Value> {
-        match &self.persist {
-            PersistState::Off => None,
-            PersistState::Refused(why) => {
-                Some(serde_json::json!({ "state": "refused", "reason": why, "refusals": 1 }))
-            }
-            PersistState::On(pk) => Some(pk.status_json()),
-        }
     }
 }
 

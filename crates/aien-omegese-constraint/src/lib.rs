@@ -12,12 +12,14 @@
 //! ([`Framing`]).
 
 pub mod constraint;
+pub mod linked;
 pub mod oracle;
 pub mod signature;
 pub mod table;
 pub mod word;
 
 pub use constraint::{Framing, OmegeseConstraint, Stats};
+pub use linked::LinkedOracle;
 pub use oracle::{parse_machine, Answer, Item, ItemOracle, SubprocessOracle, DEFAULT_TIMEOUT};
 pub use signature::Signature;
 pub use table::{Shape, TokenTable};

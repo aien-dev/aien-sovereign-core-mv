@@ -23,6 +23,7 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::codec::{Codec, CodecError};
 use crate::engine::{Engine, EngineError, FinishReason, GenerateParams};
+use crate::mask::{ConstraintRequest, Mask};
 use crate::openai::{
     chunk_json, completion_json, ChatRequest, ErrorBody, ModelCard, ModelList, Usage,
 };
@@ -157,6 +158,8 @@ struct Prepared {
     params: GenerateParams,
     stop_strings: Vec<String>,
     stream: bool,
+    /// The request's decode constraint (`constraint`), built for this reply.
+    mask: Option<Mask>,
 }
 
 /// What the generation thread sends to the HTTP side.
@@ -166,6 +169,7 @@ enum Ev {
         finish: &'static str,
         completion_tokens: usize,
         sampling: Option<SamplingRecord>,
+        mask: Option<MaskRecord>,
     },
     Error(String),
     /// The engine could not get the shared chip: 503 before any token.
@@ -524,19 +528,49 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
         )));
     }
 
+    let params = GenerateParams {
+        max_new_tokens,
+        temperature,
+        top_p,
+        top_k,
+        seed,
+        stop_token_ids: state.codec.stop_token_ids(),
+    };
+    let mask = ConstraintRequest::parse(req.constraint.as_ref(), req.constraint_header.as_deref())
+        .map_err(ApiError::bad_request)?
+        .map(|c| build_mask(&c, &params.stop_token_ids))
+        .transpose()?;
     Ok(Prepared {
         prompt_tokens,
-        params: GenerateParams {
-            max_new_tokens,
-            temperature,
-            top_p,
-            top_k,
-            seed,
-            stop_token_ids: state.codec.stop_token_ids(),
-        },
+        params,
         stop_strings,
         stream: req.stream,
+        mask,
     })
+}
+
+/// The mask for a request's constraint. The Omegese mask needs the `omegese` feature and the model's
+/// tokenizer (`mask::omegese::set_tokenizer`, from `--model-dir`), and its stop token must be one
+/// the engine stops on.
+fn build_mask(c: &ConstraintRequest, stop_ids: &[u32]) -> Result<Mask, ApiError> {
+    #[cfg(feature = "omegese")]
+    {
+        let setup = crate::mask::omegese::setup().map_err(ApiError::internal)?;
+        if !stop_ids.contains(&setup.stop()) {
+            return Err(ApiError::internal(format!(
+                "the Omegese mask ends on token {}, which is not among the stop tokens {stop_ids:?}",
+                setup.stop()
+            )));
+        }
+        setup.mask(c).map_err(ApiError::bad_request)
+    }
+    #[cfg(not(feature = "omegese"))]
+    {
+        let _ = (c, stop_ids);
+        Err(ApiError::bad_request(
+            "this server was built without the omegese feature: \"constraint\" is not available",
+        ))
+    }
 }
 
 /// Runs on a blocking thread holding the generation lock (`guard`). The lock is released as soon
@@ -553,10 +587,8 @@ fn run_generation(
     let mut asm = TextAssembler::new(codec, prepared.stop_strings);
     let mut stopped_by_string = false;
     let mut client_gone = false;
-    let result = engine.generate(
-        &prepared.prompt_tokens,
-        &prepared.params,
-        &mut |tok| match asm.push(tok) {
+    let mut mask = prepared.mask;
+    let mut on_token = |tok| match asm.push(tok) {
             Push::Hold => true,
             Push::Delta(d) => {
                 if tx.blocking_send(Ev::Delta(d)).is_err() {
@@ -573,8 +605,16 @@ fn run_generation(
                 }
                 false
             }
-        },
-    );
+    };
+    let result = match mask.as_mut() {
+        None => engine.generate(&prepared.prompt_tokens, &prepared.params, &mut on_token),
+        Some(m) => engine
+            .generate_masked(&prepared.prompt_tokens, &prepared.params, m, &mut on_token)
+            .map(|mut out| {
+                out.mask = Some(m.record());
+                out
+            }),
+    };
     drop(guard);
     match result {
         Err(EngineError::Busy(m)) => {
@@ -625,6 +665,7 @@ fn run_generation(
                 finish,
                 completion_tokens: out.emitted_tokens,
                 sampling: out.sampling,
+                mask: out.mask,
             });
         }
     }
@@ -645,12 +686,14 @@ async fn collect_response(
                 finish,
                 completion_tokens,
                 sampling,
+                mask,
             } => {
                 let usage = Usage {
                     prompt_tokens,
                     completion_tokens,
                     total_tokens: prompt_tokens + completion_tokens,
                     aien_sampling: sampling,
+                    aien_constraint: mask,
                 };
                 return Ok(Json(completion_json(
                     &id, created, model, &content, finish, &usage,
@@ -693,12 +736,14 @@ fn stream_response(
                     finish,
                     completion_tokens,
                     sampling,
+                    mask,
                 } => {
                     let usage = Usage {
                         prompt_tokens,
                         completion_tokens,
                         total_tokens: prompt_tokens + completion_tokens,
                         aien_sampling: sampling,
+                        aien_constraint: mask,
                     };
                     let last =
                         chunk_json(&id, created, &model, None, None, Some(finish), Some(&usage));
