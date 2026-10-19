@@ -1,0 +1,258 @@
+{
+  "inputs": "8 pseudo-random rows, unit RMS",
+  "rows": [
+    {
+      "expert": 0,
+      "forms": {
+        "fp8_block128": {
+          "bytes": 4915800,
+          "out_cosine": 0.9991712005632876,
+          "out_rel_rms": 0.04083565290302953,
+          "weight_rel_rms": 0.02664026755644852
+        },
+        "mxfp4_from_bf16": {
+          "bytes": 2611200,
+          "out_cosine": 0.9840852332304573,
+          "out_rel_rms": 0.1829289637474056,
+          "weight_rel_rms": 0.11806602845534864
+        },
+        "mxfp4_from_fp8": {
+          "bytes": 2611200,
+          "out_cosine": 0.9831265458658347,
+          "out_rel_rms": 0.18761262134686268,
+          "weight_rel_rms": 0.12127462596705538
+        },
+        "mxfp4_from_nvfp4": {
+          "bytes": 2611200,
+          "out_cosine": 0.9778861028872489,
+          "out_rel_rms": 0.21660995382280743,
+          "weight_rel_rms": 0.13924955043953977
+        },
+        "mxfp4_mse_from_bf16": {
+          "bytes": 2611200,
+          "out_cosine": 0.9853449105290537,
+          "out_rel_rms": 0.17130983081405238,
+          "weight_rel_rms": 0.11391196365476512
+        },
+        "nvfp4": {
+          "bytes": 2764812,
+          "out_cosine": 0.9922117918569282,
+          "out_rel_rms": 0.12458848337467408,
+          "weight_rel_rms": 0.08133807315416133
+        }
+      },
+      "layer": 0
+    },
+    {
+      "expert": 311,
+      "forms": {
+        "fp8_block128": {
+          "bytes": 4915800,
+          "out_cosine": 0.9989243063272932,
+          "out_rel_rms": 0.04643578038627929,
+          "weight_rel_rms": 0.02662188333285324
+        },
+        "mxfp4_from_bf16": {
+          "bytes": 2611200,
+          "out_cosine": 0.9786357153870477,
+          "out_rel_rms": 0.2092631261537385,
+          "weight_rel_rms": 0.11782021202926078
+        },
+        "mxfp4_from_fp8": {
+          "bytes": 2611200,
+          "out_cosine": 0.9774916487834496,
+          "out_rel_rms": 0.21322971727351533,
+          "weight_rel_rms": 0.12110886257493376
+        },
+        "mxfp4_from_nvfp4": {
+          "bytes": 2611200,
+          "out_cosine": 0.9694975479113371,
+          "out_rel_rms": 0.24522351220859737,
+          "weight_rel_rms": 0.14164224458287056
+        },
+        "mxfp4_mse_from_bf16": {
+          "bytes": 2611200,
+          "out_cosine": 0.9807436200593281,
+          "out_rel_rms": 0.19531092836770825,
+          "weight_rel_rms": 0.11353586008973858
+        },
+        "nvfp4": {
+          "bytes": 2764812,
+          "out_cosine": 0.9901023402788139,
+          "out_rel_rms": 0.1405437248074877,
+          "weight_rel_rms": 0.08128529801059559
+        }
+      },
+      "layer": 0
+    },
+    {
+      "expert": 0,
+      "forms": {
+        "fp8_block128": {
+          "bytes": 4915800,
+          "out_cosine": 0.9990172318344818,
+          "out_rel_rms": 0.04433858235113333,
+          "weight_rel_rms": 0.026624029888093606
+        },
+        "mxfp4_from_bf16": {
+          "bytes": 2611200,
+          "out_cosine": 0.9808352623256765,
+          "out_rel_rms": 0.19851882733130435,
+          "weight_rel_rms": 0.11776187337163892
+        },
+        "mxfp4_from_fp8": {
+          "bytes": 2611200,
+          "out_cosine": 0.9785570040213993,
+          "out_rel_rms": 0.2085380713831678,
+          "weight_rel_rms": 0.12108118253365285
+        },
+        "mxfp4_from_nvfp4": {
+          "bytes": 2611200,
+          "out_cosine": 0.971160461303864,
+          "out_rel_rms": 0.24846477169135534,
+          "weight_rel_rms": 0.14113586027758435
+        },
+        "mxfp4_mse_from_bf16": {
+          "bytes": 2611200,
+          "out_cosine": 0.9822479815032351,
+          "out_rel_rms": 0.18761069396043234,
+          "weight_rel_rms": 0.11273931057556454
+        },
+        "nvfp4": {
+          "bytes": 2764812,
+          "out_cosine": 0.9905574999873626,
+          "out_rel_rms": 0.13712330158177372,
+          "weight_rel_rms": 0.08120453161543673
+        }
+      },
+      "layer": 24
+    },
+    {
+      "expert": 311,
+      "forms": {
+        "fp8_block128": {
+          "bytes": 4915800,
+          "out_cosine": 0.9990093372414751,
+          "out_rel_rms": 0.04450602299888561,
+          "weight_rel_rms": 0.026624491723645376
+        },
+        "mxfp4_from_bf16": {
+          "bytes": 2611200,
+          "out_cosine": 0.982207509685459,
+          "out_rel_rms": 0.1921570717577783,
+          "weight_rel_rms": 0.11765516242887863
+        },
+        "mxfp4_from_fp8": {
+          "bytes": 2611200,
+          "out_cosine": 0.9800924435959851,
+          "out_rel_rms": 0.2013119532099101,
+          "weight_rel_rms": 0.12120334143462039
+        },
+        "mxfp4_from_nvfp4": {
+          "bytes": 2611200,
+          "out_cosine": 0.9732123729674559,
+          "out_rel_rms": 0.2308024938512565,
+          "weight_rel_rms": 0.141901560884864
+        },
+        "mxfp4_mse_from_bf16": {
+          "bytes": 2611200,
+          "out_cosine": 0.9832742522157994,
+          "out_rel_rms": 0.182261740536675,
+          "weight_rel_rms": 0.11279149339249904
+        },
+        "nvfp4": {
+          "bytes": 2764812,
+          "out_cosine": 0.9912926164610142,
+          "out_rel_rms": 0.1317682645053872,
+          "weight_rel_rms": 0.08123325489152797
+        }
+      },
+      "layer": 24
+    },
+    {
+      "expert": 0,
+      "forms": {
+        "fp8_block128": {
+          "bytes": 4915800,
+          "out_cosine": 0.9988650881640586,
+          "out_rel_rms": 0.04763871045044121,
+          "weight_rel_rms": 0.026527776913296035
+        },
+        "mxfp4_from_bf16": {
+          "bytes": 2611200,
+          "out_cosine": 0.97949450235358,
+          "out_rel_rms": 0.20364387583054713,
+          "weight_rel_rms": 0.11929210892344062
+        },
+        "mxfp4_from_fp8": {
+          "bytes": 2611200,
+          "out_cosine": 0.9776598626469409,
+          "out_rel_rms": 0.21247698311313123,
+          "weight_rel_rms": 0.12238640321080874
+        },
+        "mxfp4_from_nvfp4": {
+          "bytes": 2611200,
+          "out_cosine": 0.9685476250957801,
+          "out_rel_rms": 0.25335390880698416,
+          "weight_rel_rms": 0.14395483288444985
+        },
+        "mxfp4_mse_from_bf16": {
+          "bytes": 2611200,
+          "out_cosine": 0.9807166769764648,
+          "out_rel_rms": 0.1954355814267055,
+          "weight_rel_rms": 0.11538778647621672
+        },
+        "nvfp4": {
+          "bytes": 2764812,
+          "out_cosine": 0.9900842905686591,
+          "out_rel_rms": 0.1404879700596786,
+          "weight_rel_rms": 0.08158719498908386
+        }
+      },
+      "layer": 47
+    },
+    {
+      "expert": 311,
+      "forms": {
+        "fp8_block128": {
+          "bytes": 4915800,
+          "out_cosine": 0.9990244994129183,
+          "out_rel_rms": 0.044297643697889064,
+          "weight_rel_rms": 0.02660399886276951
+        },
+        "mxfp4_from_bf16": {
+          "bytes": 2611200,
+          "out_cosine": 0.9816753537239523,
+          "out_rel_rms": 0.19274478423114455,
+          "weight_rel_rms": 0.11773283802842344
+        },
+        "mxfp4_from_fp8": {
+          "bytes": 2611200,
+          "out_cosine": 0.9804340845719932,
+          "out_rel_rms": 0.19944865123176786,
+          "weight_rel_rms": 0.12140086269970485
+        },
+        "mxfp4_from_nvfp4": {
+          "bytes": 2611200,
+          "out_cosine": 0.9745523018409693,
+          "out_rel_rms": 0.24611430963311912,
+          "weight_rel_rms": 0.144035034537262
+        },
+        "mxfp4_mse_from_bf16": {
+          "bytes": 2611200,
+          "out_cosine": 0.9830393494849726,
+          "out_rel_rms": 0.1835754987821247,
+          "weight_rel_rms": 0.11317318426981124
+        },
+        "nvfp4": {
+          "bytes": 2764812,
+          "out_cosine": 0.990879225610624,
+          "out_rel_rms": 0.13475926125811563,
+          "weight_rel_rms": 0.08129533889591495
+        }
+      },
+      "layer": 47
+    }
+  ],
+  "what": "expert weight formats vs the bf16 checkpoint"
+}

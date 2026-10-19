@@ -12,6 +12,7 @@ pub mod bitnet_omega;
 pub mod bitnet_tokenizer;
 pub mod capsule;
 pub mod checkpoint;
+pub mod flashnext;
 pub mod gb10_serving;
 pub mod generation;
 pub mod model_dir;

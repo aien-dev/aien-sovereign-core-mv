@@ -1,0 +1,4 @@
+58989473	~/flashnext-scratch/tensors/fmt-bf16
+29517663	~/flashnext-scratch/tensors/fmt-fp8
+16634134	~/flashnext-scratch/tensors/fmt-nvfp4
+2917	~/flashnext-scratch/tensors/ple-const

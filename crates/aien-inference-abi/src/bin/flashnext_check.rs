@@ -1,0 +1,348 @@
+//! flashnext_check: host checks of the Qwen3.8-Flash-Next reference on tensors fetched by HTTP range
+//! (tools/flashnext/hf-range-fetch.sh), before the checkpoint can be downloaded.
+//!
+//!   flashnext_check formats BF16_DIR FP8_DIR NVFP4_DIR OUT.json LAYER:EXPERT...
+//!     Per expert: weight error of every stored or convertible 4-bit / 8-bit form against the bf16 checkpoint
+//!     (relative RMS over the three matrices) and the expert MLP output error on fixed inputs.
+//!   flashnext_check tokenize TOKENIZER_JSON TEXT
+//!   flashnext_check run CONFIG_JSON DIR LAYERS stored|mxfp4 OUT_DIR ID...
+//!     The first LAYERS layers on DIR's tensors. Exit 3 with "MISSING ..." lines when experts or n-gram rows are
+//!     not fetched yet (the driver fetches them and runs again). On success writes OUT_DIR/run.json (routing,
+//!     indexer selections, lane norms) and OUT_DIR/moe/L<l>/ fixtures for the chip's MoE parity test.
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+use aien_inference_abi::flashnext::*;
+use aien_inference_abi::qwen38::Matrix;
+use aien_inference_abi::qwen3_moe_omega::ShardSource;
+
+fn main() {
+    let a: Vec<String> = std::env::args().collect();
+    let r = match a.get(1).map(String::as_str) {
+        Some("formats") if a.len() >= 7 => formats(&a[2], &a[3], &a[4], &a[5], &a[6..]),
+        Some("tokenize") if a.len() == 4 => tokenize(&a[2], &a[3]),
+        Some("run") if a.len() >= 8 => run(&a[2], &a[3], &a[4], &a[5], &a[6], &a[7..]),
+        _ => Err("usage: see the file header".into()),
+    };
+    match r {
+        Ok(()) => {}
+        Err(e) if e.starts_with("MISSING") => {
+            println!("{e}");
+            std::process::exit(3);
+        }
+        Err(e) => {
+            eprintln!("FAIL: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn prand(seed: u64, idx: usize) -> f32 {
+    let mut x = seed
+        .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        .wrapping_add(idx as u64 + 1);
+    x ^= x >> 29;
+    x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    x ^= x >> 32;
+    ((x & 0xFFFF) as f32 / 32768.0) - 1.0
+}
+
+fn rel(a: &[f32], b: &[f32]) -> (f64, f64) {
+    let (mut e, mut r, mut ab, mut aa, mut bb) = (0f64, 0f64, 0f64, 0f64, 0f64);
+    for (&x, &y) in a.iter().zip(b) {
+        let (x, y) = (x as f64, y as f64);
+        e += (x - y).powi(2);
+        r += y * y;
+        ab += x * y;
+        aa += x * x;
+        bb += y * y;
+    }
+    ((e / r).sqrt(), ab / (aa.sqrt() * bb.sqrt()))
+}
+
+fn formats(bf: &str, f8: &str, nv: &str, out: &str, items: &[String]) -> Result<(), String> {
+    let cfg = FlashNextConfig::from_json(include_str!("../../fixtures/flashnext/config.json"))?;
+    let (mut sb, mut s8, mut sn) = (
+        ShardSource::open(Path::new(bf))?,
+        ShardSource::open(Path::new(f8))?,
+        ShardSource::open(Path::new(nv))?,
+    );
+    let mut rows = Vec::new();
+    for it in items {
+        let (l, e) = it.split_once(':').ok_or("LAYER:EXPERT")?;
+        let (l, e): (usize, usize) = (
+            l.parse().map_err(|_| "layer")?,
+            e.parse().map_err(|_| "expert")?,
+        );
+        let mlp = format!("model.language_model.layers.{l}.mlp");
+        let mut st = QuantStats::default();
+        let ref_ = read_expert(&mut sb, &mlp, e, &cfg, ExpertFormat::AsStored, &mut st)?;
+        let mut forms: Vec<(&str, Expert, QuantStats)> = Vec::new();
+        let mut q = QuantStats::default();
+        forms.push((
+            "fp8_block128",
+            read_expert(&mut s8, &mlp, e, &cfg, ExpertFormat::AsStored, &mut q)?,
+            q,
+        ));
+        let mut q = QuantStats::default();
+        forms.push((
+            "nvfp4",
+            read_expert(&mut sn, &mlp, e, &cfg, ExpertFormat::AsStored, &mut q)?,
+            q,
+        ));
+        let mut q = QuantStats::default();
+        forms.push((
+            "mxfp4_from_bf16",
+            read_expert(&mut sb, &mlp, e, &cfg, ExpertFormat::Mxfp4, &mut q)?,
+            q,
+        ));
+        let mut q = QuantStats::default();
+        forms.push((
+            "mxfp4_from_fp8",
+            read_expert(&mut s8, &mlp, e, &cfg, ExpertFormat::Mxfp4, &mut q)?,
+            q,
+        ));
+        let mut q = QuantStats::default();
+        forms.push((
+            "mxfp4_from_nvfp4",
+            read_expert(&mut sn, &mlp, e, &cfg, ExpertFormat::Mxfp4, &mut q)?,
+            q,
+        ));
+        let mut q = QuantStats::default();
+        let mse = |p: &Proj, q: &mut QuantStats| mxfp4_from_f32_mse(p.n(), p.k(), &p.dense(), q);
+        let ex = Expert {
+            gate: mse(&ref_.gate, &mut q),
+            up: mse(&ref_.up, &mut q),
+            down: mse(&ref_.down, &mut q),
+        };
+        forms.push(("mxfp4_mse_from_bf16", ex, q));
+        let rw: Vec<Vec<f32>> = [&ref_.gate, &ref_.up, &ref_.down]
+            .iter()
+            .map(|p| p.dense())
+            .collect();
+        // inputs: unit-RMS pseudo-random rows (no real activations without the earlier layers)
+        let t = 8;
+        let x: Vec<f32> = (0..t * cfg.hidden)
+            .map(|i| prand(1000 + i as u64 / cfg.hidden as u64, i) * 1.732)
+            .collect();
+        let yref = ref_.forward(&x, t);
+        let mut fr = serde_json::Map::new();
+        for (name, ex, _) in &forms {
+            let ws: Vec<Vec<f32>> = [&ex.gate, &ex.up, &ex.down]
+                .iter()
+                .map(|p| p.dense())
+                .collect();
+            let (mut e2, mut r2) = (0f64, 0f64);
+            for (a, b) in ws.iter().zip(&rw) {
+                for (&x, &y) in a.iter().zip(b) {
+                    e2 += ((x - y) as f64).powi(2);
+                    r2 += (y as f64).powi(2);
+                }
+            }
+            let y = ex.forward(&x, t);
+            let (oe, cos) = rel(&y, &yref);
+            let bytes: usize = [&ex.gate, &ex.up, &ex.down]
+                .iter()
+                .map(|p| p.stored_bytes())
+                .sum();
+            fr.insert(
+                name.to_string(),
+                serde_json::json!({"weight_rel_rms": (e2 / r2).sqrt(), "out_rel_rms": oe, "out_cosine": cos, "bytes": bytes}),
+            );
+        }
+        rows.push(serde_json::json!({"layer": l, "expert": e, "forms": fr}));
+        println!(
+            "L{l} E{e}: {}",
+            serde_json::to_string(&rows.last().unwrap()["forms"]).unwrap()
+        );
+    }
+    let doc = serde_json::json!({"what": "expert weight formats vs the bf16 checkpoint", "inputs": "8 pseudo-random rows, unit RMS", "rows": rows});
+    std::fs::write(out, serde_json::to_string_pretty(&doc).unwrap()).map_err(|e| e.to_string())
+}
+
+fn tokenize(tok: &str, text: &str) -> Result<(), String> {
+    let t = tokenizers::Tokenizer::from_file(tok).map_err(|e| e.to_string())?;
+    let enc = t.encode(text, false).map_err(|e| e.to_string())?;
+    let ids: Vec<String> = enc.get_ids().iter().map(|i| i.to_string()).collect();
+    println!("{}", ids.join(" "));
+    Ok(())
+}
+
+fn write_f32(p: &Path, v: &[f32]) -> Result<(), String> {
+    let b: Vec<u8> = v.iter().flat_map(|x| x.to_le_bytes()).collect();
+    std::fs::write(p, b).map_err(|e| format!("{}: {e}", p.display()))
+}
+fn write_bf16(p: &Path, m: &Matrix) -> Result<(), String> {
+    match m {
+        Matrix::Bf16 { w, .. } => {
+            let b: Vec<u8> = w.iter().flat_map(|x| x.to_le_bytes()).collect();
+            std::fs::write(p, b).map_err(|e| e.to_string())
+        }
+        Matrix::Fp8 { .. } => Err("expected bf16".into()),
+    }
+}
+fn write_mx(dir: &Path, stem: &str, p: &Proj) -> Result<(), String> {
+    let Proj::Mxfp4 { nib, e8, .. } = p else {
+        return Err("expected mxfp4".into());
+    };
+    std::fs::write(dir.join(format!("{stem}.nib")), nib).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join(format!("{stem}.e8")), e8).map_err(|e| e.to_string())
+}
+
+/// Concatenates gate | up rows into one [2m][k] MXFP4 tensor (the chip's fused gate+up layout).
+fn fuse(a: &Proj, b: &Proj) -> Result<Proj, String> {
+    match (a, b) {
+        (
+            Proj::Mxfp4 { n, k, nib, e8 },
+            Proj::Mxfp4 {
+                n: n2,
+                k: k2,
+                nib: nb,
+                e8: eb,
+            },
+        ) if n == n2 && k == k2 => Ok(Proj::Mxfp4 {
+            n: 2 * n,
+            k: *k,
+            nib: [nib.clone(), nb.clone()].concat(),
+            e8: [e8.clone(), eb.clone()].concat(),
+        }),
+        _ => Err("fuse: shapes".into()),
+    }
+}
+
+fn run(
+    cfg_path: &str,
+    dir: &str,
+    layers: &str,
+    fmt: &str,
+    out: &str,
+    ids: &[String],
+) -> Result<(), String> {
+    let full =
+        FlashNextConfig::from_json(&std::fs::read_to_string(cfg_path).map_err(|e| e.to_string())?)?;
+    let n: usize = layers.parse().map_err(|_| "layers")?;
+    let c = full.prefix(n).ok_or("layers")?;
+    let tokens: Vec<u32> = ids
+        .iter()
+        .map(|s| s.parse().map_err(|_| "id"))
+        .collect::<Result<_, _>>()?;
+    let src = ShardSource::open(Path::new(dir))?;
+    let mut r = FlashNextReference::new(c.clone(), src);
+    r.with_head = false;
+    r.expert_format = match fmt {
+        "stored" => ExpertFormat::AsStored,
+        "mxfp4" => ExpertFormat::Mxfp4,
+        o => return Err(format!("format {o}")),
+    };
+    let mut st = r.new_state();
+    let mut taps = Vec::new();
+    let t0 = std::time::Instant::now();
+    let res = r.forward(&mut st, &tokens, Some(&mut taps));
+    let (mixed, _) = match res {
+        Ok(v) => v,
+        Err(e) if e.starts_with("missing experts") || e.starts_with("missing ngram") => {
+            return Err(format!("MISSING {e}"))
+        }
+        Err(e) => return Err(e),
+    };
+    let wall = t0.elapsed().as_secs_f64();
+    let outp = PathBuf::from(out);
+    std::fs::create_dir_all(&outp).map_err(|e| e.to_string())?;
+    let l = c.lanes();
+    let lane_rms: Vec<Vec<f64>> = taps
+        .iter()
+        .map(|tp| {
+            tp.chunks(l)
+                .map(|row| (row.iter().map(|v| (*v as f64).powi(2)).sum::<f64>() / l as f64).sqrt())
+                .collect()
+        })
+        .collect();
+    let finite =
+        mixed.iter().all(|v| v.is_finite()) && taps.iter().flatten().all(|v| v.is_finite());
+    let traces: Vec<serde_json::Value> = r
+        .traces
+        .iter()
+        .map(|t| serde_json::json!({"ids": t.ids, "weights": t.weights, "shared_gate": t.shared_gate}))
+        .collect();
+    let doc = serde_json::json!({
+        "tokens": tokens, "layers": n, "expert_format": fmt, "finite": finite, "wall_s": wall,
+        "lane_rms_entering_layer": lane_rms, "moe": traces,
+        "indexer_selected_counts": r.selections.iter().map(|s| s.iter().map(|x| x.len()).collect::<Vec<_>>()).collect::<Vec<_>>(),
+        "quant": {"weights": r.quant.weights, "rel_rms": if r.quant.sq_ref > 0.0 { (r.quant.sq_err / r.quant.sq_ref).sqrt() } else { 0.0 }},
+    });
+    std::fs::write(
+        outp.join("run.json"),
+        serde_json::to_string_pretty(&doc).unwrap(),
+    )
+    .map_err(|e| e.to_string())?;
+    write_f32(&outp.join("mixer_out.f32"), &mixed)?;
+    for (i, tp) in taps.iter().enumerate() {
+        write_f32(&outp.join(format!("lanes_in_L{i}.f32")), tp)?;
+    }
+    // MoE fixtures (mxfp4 runs): router input, routing, outputs, and the weights in the chip's layout.
+    if r.expert_format == ExpertFormat::Mxfp4 {
+        moe_fixtures(&mut r, &c, &outp)?;
+    }
+    println!(
+        "PASS run: {n} layers, {} tokens, finite {finite}, {wall:.1} s",
+        tokens.len()
+    );
+    Ok(())
+}
+
+fn moe_fixtures(
+    r: &mut FlashNextReference<ShardSource>,
+    c: &FlashNextConfig,
+    outp: &Path,
+) -> Result<(), String> {
+    let prefix = r.prefix.clone();
+    for layer in 0..c.layers {
+        let d = outp.join(format!("moe/L{layer}"));
+        std::fs::create_dir_all(d.join("experts")).map_err(|e| e.to_string())?;
+        let p = format!("{prefix}layers.{layer}");
+        let trace = r.traces[layer].clone();
+        let t = trace.ids.len();
+        write_f32(&d.join("x.f32"), &r.moe_inputs[layer])?;
+        write_f32(&d.join("y.f32"), &r.moe_outputs[layer])?;
+        let mw = r.read_moe(&p)?;
+        write_bf16(&d.join("router.bf16"), &mw.router)?;
+        write_bf16(&d.join("shared_gate.bf16"), &mw.shared_gate)?;
+        write_mx(&d, "shared_gu", &fuse(&mw.shared.gate, &mw.shared.up)?)?;
+        write_mx(&d, "shared_dn", &mw.shared.down)?;
+        let mut need: Vec<usize> = trace.ids.iter().flatten().copied().collect();
+        need.sort_unstable();
+        need.dedup();
+        for &e in &need {
+            let ex = r.expert(layer, e).ok_or("expert not loaded")?;
+            write_mx(
+                &d.join("experts"),
+                &format!("{e}.gu"),
+                &fuse(&ex.gate, &ex.up)?,
+            )?;
+            write_mx(&d.join("experts"), &format!("{e}.dn"), &ex.down)?;
+        }
+        let mut f = std::fs::File::create(d.join("routing.txt")).map_err(|e| e.to_string())?;
+        writeln!(
+            f,
+            "# tokens {t} hidden {} experts {} top_k {}: ids | weights | sigmoid(shared gate)",
+            c.hidden, c.experts, c.top_k
+        )
+        .map_err(|e| e.to_string())?;
+        for i in 0..t {
+            let ids: Vec<String> = trace.ids[i].iter().map(|v| v.to_string()).collect();
+            let ws: Vec<String> = trace.weights[i]
+                .iter()
+                .map(|v| format!("{v:.9e}"))
+                .collect();
+            writeln!(
+                f,
+                "{} | {} | {:.9e}",
+                ids.join(" "),
+                ws.join(" "),
+                trace.shared_gate[i]
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
