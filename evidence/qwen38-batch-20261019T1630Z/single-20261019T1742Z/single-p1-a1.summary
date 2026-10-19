@@ -1,0 +1,2 @@
+single-p1-a1 req 1 completion_tokens 118 finish stop
+single-p1-a1 n=1 max_tokens=256 total_completion_tokens=118 wall_ms=19295 aggregate_tok_s=6.116
