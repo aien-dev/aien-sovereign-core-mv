@@ -645,7 +645,11 @@ fn suite(args: &[String]) -> Result<bool, String> {
             }
         }
     }
-    println!("QWEN38_SPEC_SUITE {} items: {}", items.len(), if all { "PASS" } else { "FAIL" });
+    println!(
+        "QWEN38_SPEC_SUITE {} items: {}",
+        items.len(),
+        if all { "PASS" } else { "FAIL" }
+    );
     Ok(all)
 }
 
@@ -661,8 +665,9 @@ fn gen_item(
     let ks = it.ks.clone();
     let n = it.n;
     let which = it.which.as_str();
-    let (opts, mutant, tree, rows, source, sopts, graph) =
-        (it.opts, it.mutant, it.tree, it.rows, it.source, it.sopts, it.graph);
+    let (opts, mutant, tree, rows, source, sopts, graph) = (
+        it.opts, it.mutant, it.tree, it.rows, it.source, it.sopts, it.graph,
+    );
     let golden = it.golden.clone();
     let prompt = it.prompt.clone();
     if let Some(m) = mtp.as_mut() {
