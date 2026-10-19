@@ -1,0 +1,24 @@
+spells in log: 28 (timed = last 17)
+{'call': 'n1-p0', 'n': 1, 'tokens': 184, 'steps': 184, 'mean_rows': 1.0, 'ms_per_step': 190.5, 'gemm_ms_per_step': 168.7, 'head_ms_per_step': 12.4, 'spell_s': 35.5, 'agg_tok_s': 5.183, 'per_user_tok_s_mean': 5.224}
+{'call': 'n1-p1', 'n': 1, 'tokens': 118, 'steps': 118, 'mean_rows': 1.0, 'ms_per_step': 188.8, 'gemm_ms_per_step': 167.0, 'head_ms_per_step': 13.0, 'spell_s': 22.9, 'agg_tok_s': 5.153, 'per_user_tok_s_mean': 5.271}
+{'call': 'n1-p2', 'n': 1, 'tokens': 256, 'steps': 255, 'mean_rows': 1.0, 'ms_per_step': 206.6, 'gemm_ms_per_step': 183.0, 'head_ms_per_step': 12.1, 'spell_s': 53.5, 'agg_tok_s': 4.785, 'per_user_tok_s_mean': 4.834}
+{'call': 'n1-p3', 'n': 1, 'tokens': 171, 'steps': 171, 'mean_rows': 1.0, 'ms_per_step': 200.2, 'gemm_ms_per_step': 176.6, 'head_ms_per_step': 12.1, 'spell_s': 34.8, 'agg_tok_s': 4.914, 'per_user_tok_s_mean': 4.965}
+{'call': 'n1-p4', 'n': 1, 'tokens': 256, 'steps': 255, 'mean_rows': 1.0, 'ms_per_step': 212.4, 'gemm_ms_per_step': 188.9, 'head_ms_per_step': 12.1, 'spell_s': 54.8, 'agg_tok_s': 4.672, 'per_user_tok_s_mean': 4.702}
+{'call': 'n1-p5', 'n': 1, 'tokens': 256, 'steps': 255, 'mean_rows': 1.0, 'ms_per_step': 208.3, 'gemm_ms_per_step': 185.0, 'head_ms_per_step': 12.0, 'spell_s': 53.8, 'agg_tok_s': 4.758, 'per_user_tok_s_mean': 4.793}
+{'call': 'n1-p6', 'n': 1, 'tokens': 256, 'steps': 255, 'mean_rows': 1.0, 'ms_per_step': 181.5, 'gemm_ms_per_step': 160.2, 'head_ms_per_step': 12.5, 'spell_s': 46.9, 'agg_tok_s': 5.458, 'per_user_tok_s_mean': 5.505}
+{'call': 'n1-p7', 'n': 1, 'tokens': 256, 'steps': 255, 'mean_rows': 1.0, 'ms_per_step': 189.3, 'gemm_ms_per_step': 168.0, 'head_ms_per_step': 12.5, 'spell_s': 48.9, 'agg_tok_s': 5.235, 'per_user_tok_s_mean': 5.281}
+{'call': 'n2-r1', 'n': 2, 'tokens': 302, 'steps': 184, 'mean_rows': 1.64, 'ms_per_step': 215.5, 'gemm_ms_per_step': 180.6, 'head_ms_per_step': 20.6, 'spell_s': 40.7, 'agg_tok_s': 7.42, 'per_user_tok_s_mean': 4.466}
+{'call': 'n4-r1', 'n': 4, 'tokens': 729, 'steps': 255, 'mean_rows': 2.85, 'ms_per_step': 380.3, 'gemm_ms_per_step': 314.6, 'head_ms_per_step': 35.4, 'spell_s': 99.3, 'agg_tok_s': 7.341, 'per_user_tok_s_mean': 2.245}
+{'call': 'n8-r1', 'n': 8, 'tokens': 1753, 'steps': 255, 'mean_rows': 6.85, 'ms_per_step': 780.3, 'gemm_ms_per_step': 634.1, 'head_ms_per_step': 82.3, 'spell_s': 202.9, 'agg_tok_s': 8.64, 'per_user_tok_s_mean': 1.225}
+{'call': 'n2-r2', 'n': 2, 'tokens': 302, 'steps': 184, 'mean_rows': 1.64, 'ms_per_step': 210.4, 'gemm_ms_per_step': 177.0, 'head_ms_per_step': 19.6, 'spell_s': 39.6, 'agg_tok_s': 7.626, 'per_user_tok_s_mean': 4.645}
+{'call': 'n4-r2', 'n': 4, 'tokens': 729, 'steps': 255, 'mean_rows': 2.85, 'ms_per_step': 363.7, 'gemm_ms_per_step': 301.2, 'head_ms_per_step': 34.5, 'spell_s': 94.6, 'agg_tok_s': 7.706, 'per_user_tok_s_mean': 2.349}
+{'call': 'n8-r2', 'n': 8, 'tokens': 1753, 'steps': 255, 'mean_rows': 6.85, 'ms_per_step': 780.2, 'gemm_ms_per_step': 628.8, 'head_ms_per_step': 83.3, 'spell_s': 203.1, 'agg_tok_s': 8.631, 'per_user_tok_s_mean': 1.231}
+{'call': 'n2-r3', 'n': 2, 'tokens': 302, 'steps': 184, 'mean_rows': 1.64, 'ms_per_step': 203.7, 'gemm_ms_per_step': 169.2, 'head_ms_per_step': 20.5, 'spell_s': 38.4, 'agg_tok_s': 7.865, 'per_user_tok_s_mean': 4.739}
+{'call': 'n4-r3', 'n': 4, 'tokens': 729, 'steps': 255, 'mean_rows': 2.85, 'ms_per_step': 396.1, 'gemm_ms_per_step': 329.3, 'head_ms_per_step': 37.3, 'spell_s': 103.6, 'agg_tok_s': 7.037, 'per_user_tok_s_mean': 2.145}
+{'call': 'n8-r3', 'n': 8, 'tokens': 1753, 'steps': 255, 'mean_rows': 6.85, 'ms_per_step': 798.0, 'gemm_ms_per_step': 651.5, 'head_ms_per_step': 82.5, 'spell_s': 207.5, 'agg_tok_s': 8.448, 'per_user_tok_s_mean': 1.201}
+
+n  calls  agg_tok_s(median, min-max)  per_user_tok_s(median)  ms/step(median)  gemm_ms/step
+1 8 5.0335 (4.672, 5.458) 5.0945 195.35 172.64999999999998
+2 3 7.626 (7.42, 7.865) 4.645 210.4 177.0
+4 3 7.341 (7.037, 7.706) 2.245 380.3 314.6
+8 3 8.631 (8.448, 8.64) 1.225 780.3 634.1

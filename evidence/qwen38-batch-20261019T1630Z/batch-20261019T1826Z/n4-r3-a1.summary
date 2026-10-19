@@ -1,0 +1,5 @@
+n4-r3-a1 req 0 completion_tokens 184 finish stop
+n4-r3-a1 req 1 completion_tokens 118 finish stop
+n4-r3-a1 req 2 completion_tokens 256 finish length
+n4-r3-a1 req 3 completion_tokens 171 finish stop
+n4-r3-a1 n=4 max_tokens=256 total_completion_tokens=729 wall_ms=103619 aggregate_tok_s=7.035
