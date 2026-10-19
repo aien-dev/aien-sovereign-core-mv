@@ -174,31 +174,24 @@ fn kernel(w: &[f32], rows: usize, k: usize, x: &[f32], t: usize, out: &mut [f32]
             &x[(tt + 3) * k..(tt + 4) * k],
         ];
         let mut r = 0;
-        while r + 2 <= rows {
+        while r < rows {
             let w0 = &w[r * k..(r + 1) * k];
-            let w1 = &w[(r + 1) * k..(r + 2) * k];
-            let mut acc = [[0f32; 8]; 8];
-            for c in 0..k / 8 {
+            let mut acc = [[0f32; 8]; 4];
+            for (c, a) in w0.chunks_exact(8).enumerate() {
                 let s = c * 8..c * 8 + 8;
-                let a: &[f32; 8] = w0[s.clone()].try_into().expect("8");
-                let b: &[f32; 8] = w1[s.clone()].try_into().expect("8");
-                for (j, xv) in xs.iter().enumerate() {
-                    let xv: &[f32; 8] = xv[s.clone()].try_into().expect("8");
-                    for l in 0..8 {
-                        acc[j][l] += a[l] * xv[l];
-                        acc[4 + j][l] += b[l] * xv[l];
-                    }
+                let x0 = &xs[0][s.clone()];
+                let x1 = &xs[1][s.clone()];
+                let x2 = &xs[2][s.clone()];
+                let x3 = &xs[3][s];
+                for l in 0..8 {
+                    acc[0][l] += a[l] * x0[l];
+                    acc[1][l] += a[l] * x1[l];
+                    acc[2][l] += a[l] * x2[l];
+                    acc[3][l] += a[l] * x3[l];
                 }
             }
-            for j in 0..4 {
-                out[r * t + tt + j] = lanes(&acc[j]);
-                out[(r + 1) * t + tt + j] = lanes(&acc[4 + j]);
-            }
-            r += 2;
-        }
-        while r < rows {
-            for j in 0..4 {
-                out[r * t + tt + j] = dot(&w[r * k..(r + 1) * k], xs[j]);
+            for (j, a) in acc.iter().enumerate() {
+                out[r * t + tt + j] = lanes(a);
             }
             r += 1;
         }
@@ -1326,5 +1319,32 @@ mod tests {
         let mut x = vec![1.0f32, -4.0, 2.0, 0.5, 3.0, -0.1, 0.2, 5.0];
         tl.apply(&mut x, 8, 0, 1.0, None);
         assert_eq!(x, vec![0.0, -4.0, 2.0, 0.0, 3.0, 0.0, 0.0, 5.0]);
+    }
+
+    #[test]
+    #[ignore]
+    fn bench_kernel_vs_reference() {
+        let (n, k, t) = (2048usize, 5120usize, 288usize);
+        let w: Vec<u16> = (0..n * k)
+            .map(|i| crate::qwen3_moe::f32_to_bf16(((i * 37 % 101) as f32 - 50.0) / 500.0))
+            .collect();
+        let m = Matrix::Bf16 { n, k, w };
+        let x: Vec<f32> = (0..t * k)
+            .map(|i| ((i * 53 % 89) as f32 - 44.0) / 44.0)
+            .collect();
+        for _ in 0..2 {
+            let t0 = std::time::Instant::now();
+            let a = m.matmul(&x, t);
+            let ta = t0.elapsed().as_secs_f64();
+            let t0 = std::time::Instant::now();
+            let b = fast_matmul(&m, &x, t);
+            let tb = t0.elapsed().as_secs_f64();
+            let md = a
+                .iter()
+                .zip(&b)
+                .map(|(p, q)| (p - q).abs())
+                .fold(0f32, f32::max);
+            eprintln!("reference {ta:.3} s, kernel {tb:.3} s, max diff {md:e}");
+        }
     }
 }

@@ -1,0 +1,6 @@
+ABORTED by the lab agent at 2026-10-19T17:21Z (kill of its own process, layer 5 of 64 reached).
+Reason: this run used the first 2x4 register-blocked kernel (binary 1cf732ef...), which a later microbenchmark
+showed 2 to 3 times SLOWER than the reference matmul (0.515/0.542 s vs 0.285/0.180 s on 2048 x 5120 x 288),
+and 25 variants that diverge at layer 1 (lowest block influence) would cost about 25 model passes on a CPU
+shared at load 65 to 75. Replaced by the 1x4 kernel (bit-identical to the reference, 0.090/0.120 s vs
+0.127/0.151 s) and a cut variant list (15 streams). No numbers from this run are used.

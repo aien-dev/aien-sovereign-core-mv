@@ -166,10 +166,11 @@ fn variants(c: &Qwen38Config, exp: &str, base: Option<&Value>) -> Result<Vec<Var
                 ("dn", order(&bi, &dn)),
             ];
             for (pname, ord) in &pools {
-                let ks: &[usize] = if *pname == "attn" {
-                    &[1, 2, 4, 8]
-                } else {
-                    &[1, 2, 4, 8, 16]
+                // Cut to fit the shared CPU (a stream costs one model pass): 2026-10-19T17:20Z.
+                let ks: &[usize] = match *pname {
+                    "attn" => &[1, 2, 4],
+                    "dn" => &[1, 2, 4, 8],
+                    _ => &[8],
                 };
                 for &k in ks {
                     let set: Vec<usize> = ord[..k].to_vec();
@@ -183,8 +184,8 @@ fn variants(c: &Qwen38Config, exp: &str, base: Option<&Value>) -> Result<Vec<Var
                 }
             }
             for (pname, ord, ks) in [
-                ("dn", &pools[2].1, &[4usize, 8, 16][..]),
-                ("attn", &pools[1].1, &[4, 8][..]),
+                ("dn", &pools[2].1, &[4usize, 8][..]),
+                ("attn", &pools[1].1, &[4][..]),
             ] {
                 for &k in ks {
                     for cheap in [false, true] {
@@ -212,7 +213,7 @@ fn variants(c: &Qwen38Config, exp: &str, base: Option<&Value>) -> Result<Vec<Var
                 }));
             }
             for g in [4usize, 8] {
-                for s in [0.2f32, 0.3, 0.4, 0.5] {
+                for s in [0.3f32, 0.5] {
                     v.push(with(format!("teal-shared{g}-{s}"), &|_| {
                         Act::Teal(Teal {
                             s,
@@ -222,7 +223,7 @@ fn variants(c: &Qwen38Config, exp: &str, base: Option<&Value>) -> Result<Vec<Var
                     }));
                 }
             }
-            for (g, s) in [(4usize, 0.4f32), (4, 0.5), (8, 0.5)] {
+            for (g, s) in [(4usize, 0.5f32)] {
                 v.push(with(format!("teal-union{g}-{s}"), &|_| {
                     Act::Teal(Teal {
                         s,
