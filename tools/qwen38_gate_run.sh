@@ -16,10 +16,10 @@
 #   AIEN_Q38_LOCK_WAIT_S  how long to wait for /tmp/aien-gb10.lock when run by hand, default 1800
 #
 # Memory: the loader asks for 41,305 MiB plus 8,192 MiB kept free (49,497 MiB, about 48.3 GiB of
-# MemAvailable) and refuses below that. This script checks /proc/meminfo first and waits up to
-# AIEN_Q38_MEM_WAIT_S for it; still short, it FAILS with refusal "memory_short" (no server is
-# started, nothing hangs). A missing checkpoint is NOT_RUN model_missing (exit 77), as for
-# PREFILL-E2E-2.
+# MemAvailable) and refuses below that. This script checks /proc/meminfo before it queues for the
+# chip and waits up to AIEN_Q38_MEM_WAIT_S for it (and re-checks once the lock is held); still
+# short, it FAILS with refusal "memory_short" (no server is started, nothing hangs). A missing
+# checkpoint is NOT_RUN model_missing (exit 77), as for PREFILL-E2E-2.
 #
 # GPU lock: under the judge the runner holds /tmp/aien-gb10.lock for the whole gate and sets
 # AIEN_GB10_LOCK_HELD=1, so nothing is locked here (a second flock would wait on its own parent
@@ -68,6 +68,33 @@ mem_kib() { awk '/^MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null || echo 
 loadavg() { cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || echo unknown; }
 for t in curl jq sha256sum awk ss; do command -v "$t" >/dev/null || { echo "$GATE: needs $t" >&2; exit 2; }; done
 
+# Memory: wait up to $1 seconds for the loader's demand, then refuse (FAIL, nothing started).
+mem_wait() {
+  local wait_s=$1 t0 have
+  t0=$(date +%s)
+  while :; do
+    have=$(mem_kib)
+    [ "$have" -ge "$NEED_KIB" ] && { MEM_HAVE=$have; return 0; }
+    if [ $(( $(date +%s) - t0 )) -ge "$wait_s" ]; then
+      mkdir -p "$OUT"
+      obs mem_available_kib_at_load "$have"; obs mem_needed_kib "$NEED_KIB"; obs loadavg_at_load "$(str "$(loadavg)")"
+      obs refusal '"memory_short"'
+      jq -n --arg gate "$GATE" --argjson have "$have" --argjson need "$NEED_KIB" --arg load "$(loadavg)" \
+        --arg at "$(date -u +%FT%TZ)" --arg waited "$wait_s" \
+        '{gate:$gate, verdict:"FAIL", refusal:"memory_short", mem_available_kib:$have, mem_needed_kib:$need,
+          waited_s:($waited|tonumber), loadavg_1_5_15:$load, at:$at}' > "$OUT/receipt.json"
+      obs receipt "$(str "$OUT/receipt.json")"
+      echo "$GATE FAIL: memory short: MemAvailable $((have / 1024)) MiB, the loader needs $((NEED_KIB / 1024)) MiB (41,305 MiB model + 8,192 MiB kept free); waited $wait_s s. No server was started."
+      exit 1
+    fi
+    echo "$GATE: MemAvailable $((have / 1024)) MiB < $((NEED_KIB / 1024)) MiB needed; waiting ($(( $(date +%s) - t0 ))/$wait_s s)"
+    sleep 15
+  done
+}
+
+# Memory first, before queuing for the chip: short of it there is nothing to lock for.
+mem_wait "$MEM_WAIT_S"
+
 # By hand (no judge): take the chip lock around everything below, then run again inside it.
 if [ "${AIEN_GB10_LOCK_HELD:-0}" != 1 ]; then
   if command -v quietlock >/dev/null; then quietlock check || true; fi
@@ -110,26 +137,9 @@ done
 [ -n "$PORT" ] || { obs refusal '"no_free_port"'; echo "$GATE FAIL: no free port in $PORT_RANGE"; exit 1; }
 obs port "$PORT"
 
-# Memory: wait a bounded time for the loader's demand, then refuse.
-t0=$(date +%s)
-while :; do
-  have=$(mem_kib)
-  [ "$have" -ge "$NEED_KIB" ] && break
-  if [ $(( $(date +%s) - t0 )) -ge "$MEM_WAIT_S" ]; then
-    obs mem_available_kib_at_load "$have"; obs mem_needed_kib "$NEED_KIB"; obs loadavg_at_load "$(str "$(loadavg)")"
-    obs refusal '"memory_short"'
-    jq -n --arg gate "$GATE" --argjson have "$have" --argjson need "$NEED_KIB" --arg load "$(loadavg)" \
-      --arg at "$(date -u +%FT%TZ)" --arg waited "$MEM_WAIT_S" \
-      '{gate:$gate, verdict:"FAIL", refusal:"memory_short", mem_available_kib:$have, mem_needed_kib:$need,
-        waited_s:($waited|tonumber), loadavg_1_5_15:$load, at:$at}' > "$OUT/receipt.json"
-    obs receipt "$(str "$OUT/receipt.json")"
-    echo "$GATE FAIL: memory short: MemAvailable $((have / 1024)) MiB, the loader needs $((NEED_KIB / 1024)) MiB (41,305 MiB model + 8,192 MiB kept free); waited $MEM_WAIT_S s. No server was started."
-    exit 1
-  fi
-  echo "$GATE: MemAvailable $((have / 1024)) MiB < $((NEED_KIB / 1024)) MiB needed; waiting ($(( $(date +%s) - t0 ))/$MEM_WAIT_S s)"
-  sleep 15
-done
-obs mem_available_kib_at_load "$have"; obs mem_needed_kib "$NEED_KIB"; obs loadavg_at_load "$(str "$(loadavg)")"
+# Memory again now that the lock is held (it can move while waiting for the chip): one quick re-check.
+mem_wait 30
+obs mem_available_kib_at_load "$MEM_HAVE"; obs mem_needed_kib "$NEED_KIB"; obs loadavg_at_load "$(str "$(loadavg)")"
 
 # Start our own server with the project's start script (same flags as the live server).
 LOG="$OUT/server.log"
