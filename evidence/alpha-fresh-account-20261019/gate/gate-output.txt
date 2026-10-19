@@ -1,0 +1,40 @@
+server http://127.0.0.1:18391 pid 2022966
+server binary sha256 74aaaaa21216e2a849bf52661741086665f2fc1de20c90d1566d524d57238db5 (/proc/2022966/exe)
+server build 71f1fe592b57bdebdb51c474f4a7b37e36b0ae90 (dirty 0)
+model dir /home/aienalpha/models/qwen3.8-27b-fp8-017b9c7a
+golden /home/aienalpha/aien-sovereign-core-mv/crates/aien-inference-abi/fixtures/qwen38/gen-chat-max-24.json sha256 b5ec54942008264aa6e0c4b046a93985a23ad78ac5d1f937524b9d72ad9c0666
+golden ids want [71093,66,198,390,1866,1494,264,11,514,292,8,313,198,262,460,318,64,835,292,8,907,264,535,292]
+golden ids got  [71093,66,198,390,1866,1494,264,11,514,292,8,313,198,262,460,318,64,835,292,8,907,264,535,292]
+PASS golden: 24 greedy ids equal the host reference
+PASS golden: prompt is the reference's 24 tokens
+PASS golden repeat: same ids
+PASS control (smaller): ids differ from the golden (must)
+turn2 resumed [71093,66,198,390,1866,18,1494,264,11,514,292,11,514,272,8,313,198,262,514,295,283,318,64,835]
+turn2 cold    [71093,66,198,390,1866,18,1494,264,11,514,292,11,514,272,8,313,198,262,514,295,283,318,64,835]
+golden: reuse Cold
+turn2b_resumed: reuse Snapshot(17)
+turn2_resumed: reuse Live(47)
+turn3_resumed: reuse Live(93)
+control: reuse Cold
+turn2_cold: reuse Cold
+turn2b_cold: reuse Cold
+turn3_cold: reuse Cold
+PASS turn 2b (edited reply) reused the snapshot
+PASS turn 2 resumed request reused a state
+turn2b resumed [71093,66,198,390,1866,3456,48332,1494,264,11,514,292,11,514,272,8,313,198,262,514,1866,283,264,26]
+turn2b cold    [71093,66,198,390,1866,3456,48332,1494,264,11,514,292,11,514,272,8,313,198,262,514,1866,283,264,26]
+PASS turn 2b resumed (snapshot) == cold
+PASS turn 3 resumed request reused a state
+PASS cold requests ran cold
+PASS turn 2 resumed == cold
+turn3 resumed [2523,2224]
+turn3 cold    [2523,2224]
+PASS turn 3 resumed == cold
+PASS turn 2 differs from turn 1 (no stale reply)
+golden text: ```c
+int max(int a, int b) {
+    return (a > b) ? a : b
+GATE PASS
+golden ids against the shipped reference: MATCH
+receipt: /home/aienalpha/aien-check/gate/receipt.json
+rc 0

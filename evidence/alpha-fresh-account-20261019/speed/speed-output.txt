@@ -1,0 +1,11 @@
+decode1	client_wall_s=40.561296	prompt=30	completion=256	lock wait 4852 ms, prompt 30 tok, reuse Cold (0 tok), fed 30 (0 stepped), prefill 549 ms (gemm chip 341 ms, gdn chip 15 ms, attn chip 2 ms, host 131 ms, restore 0 ms, snapshot 10 ms), decode 256 tok in 35156 ms, graph chip 136.5 ms/token, wall 137.9 ms/token
+decode2	client_wall_s=39.122831	prompt=30	completion=256	lock wait 5131 ms, prompt 30 tok, reuse Snapshot(23) (23 tok), fed 7 (0 stepped), prefill 341 ms (gemm chip 164 ms, gdn chip 5 ms, attn chip 0 ms, host 138 ms, restore 9 ms, snapshot 0 ms), decode 256 tok in 33649 ms, graph chip 130.6 ms/token, wall 132.0 ms/token
+decode3	client_wall_s=42.072481	prompt=30	completion=256	lock wait 8347 ms, prompt 30 tok, reuse Snapshot(23) (23 tok), fed 7 (0 stepped), prefill 248 ms (gemm chip 163 ms, gdn chip 5 ms, attn chip 0 ms, host 37 ms, restore 19 ms, snapshot 0 ms), decode 256 tok in 33475 ms, graph chip 129.9 ms/token, wall 131.3 ms/token
+ttft_1p7k	client_wall_s=166.220825	prompt=1565	completion=1	lock wait 154133 ms, prompt 1565 tok, reuse Cold (0 tok), fed 1565 (0 stepped), prefill 12083 ms (gemm chip 4128 ms, gdn chip 332 ms, attn chip 143 ms, host 4300 ms, restore 0 ms, snapshot 23 ms), decode 1 tok in 0 ms, graph chip 0.0 ms/token, wall 0.0 ms/token
+ttft_30k	client_wall_s=284.154668	prompt=21507	completion=1	lock wait 135894 ms, prompt 21507 tok, reuse Cold (0 tok), fed 21507 (0 stepped), prefill 148187 ms (gemm chip 52549 ms, gdn chip 4558 ms, attn chip 10056 ms, host 39864 ms, restore 0 ms, snapshot 12 ms), decode 1 tok in 1 ms, graph chip 0.0 ms/token, wall 1.0 ms/token
+next_turn_30k	client_wall_s=129.088040	prompt=21532	completion=1	lock wait 128436 ms, prompt 21532 tok, reuse Live(21507) (21507 tok), fed 25 (0 stepped), prefill 610 ms (gemm chip 336 ms, gdn chip 14 ms, attn chip 131 ms, host 69 ms, restore 0 ms, snapshot 13 ms), decode 1 tok in 1 ms, graph chip 0.0 ms/token, wall 1.0 ms/token
+server binary sha256 74aaaaa21216e2a849bf52661741086665f2fc1de20c90d1566d524d57238db5, build 71f1fe592b57bdebdb51c474f4a7b37e36b0ae90 (dirty 0), model dir /home/aienalpha/models/qwen3.8-27b-fp8-017b9c7a
+decode ids against the shipped reference: MATCH
+median chip ms per token (3 decodes): 130.6
+receipt: /home/aienalpha/aien-check/speed/receipt.json
+rc 0

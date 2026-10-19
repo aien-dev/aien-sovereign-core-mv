@@ -1,0 +1,9 @@
+serve-27b: started, pid 750475
+  log:     /home/aienalpha/.local/state/aien/serve-27b.log
+  loading takes about one to two minutes. It is ready when this lists qwen3.8-27b-fp8:
+           curl -s http://127.0.0.1:18391/v1/models
+  chat:    curl -s http://127.0.0.1:18391/v1/chat/completions -H 'Content-Type: application/json' \
+             -d '{"messages":[{"role":"user","content":"Hello"}],"max_tokens":64}'
+  stop:    kill -TERM $(cat /home/aienalpha/.local/state/aien/serve-27b.pid)
+           (it finishes the reply in progress, then exits; that can take a few minutes)
+rc 0
