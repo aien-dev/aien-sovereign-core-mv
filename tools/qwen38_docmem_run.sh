@@ -146,8 +146,59 @@ run_size() {
   curl -s "$URL/v1/documents" > "$EV/documents-$size-end.json"
 }
 
+# Approximate join of two separately read documents (A: the first N bytes of the licence texts,
+# B: the N bytes after them). Every answer is compared with the cold recompute of the joined
+# prompt: token agreement (length of the common prefix, and position by position).
+agree() { # REF GOT -> "prefix positional total"
+  jq -n --argjson a "$(ids "$1")" --argjson b "$(ids "$2")" '
+    ($a | length) as $n
+    | ([range(0; [$n, ($b | length)] | min)] | map(select($a[.] == $b[.])) | length) as $pos
+    | (first(range(0; [$n, ($b | length)] | min) | select($a[.] != $b[.])) // ([$n, ($b | length)] | min)) as $pre
+    | "\($pre) \($pos) \($n)"' -r
+}
+run_join() {
+  local n=$1 all=$EV/doc-all.txt a=$EV/join-a-$1.txt b=$EV/join-b-$1.txt
+  make_doc 400000 > /dev/null; cp "$EV/doc-400000.txt" "$all"
+  head -c "$n" "$all" > "$a"; tail -c +"$((n + 1))" "$all" | head -c "$n" > "$b"
+  local ia ib
+  body "$a" "" 0 > "$EV/join-ingest-a-$n.body"; body "$b" "" 0 > "$EV/join-ingest-b-$n.body"
+  ia=$(jq -r .id "$(post "join-ingest-a-$n" "$n" /v1/documents "$EV/join-ingest-a-$n.body")"); wait_ready "$ia" || return 1
+  ib=$(jq -r .id "$(post "join-ingest-b-$n" "$n" /v1/documents "$EV/join-ingest-b-$n.body")"); wait_ready "$ib" || return 1
+  local i q
+  for ((i = 0; i < ${JOIN_QUESTIONS:-2}; i++)); do
+    q=${QUESTIONS[$i]}
+    jq -n --rawfile da "$a" --rawfile db "$b" --arg q "$q" --argjson mt "$MAXT" '
+      {model:"qwen3.8-27b-fp8", temperature:0, max_tokens:$mt, aien_return_token_ids:true,
+       chat_template_kwargs:{enable_thinking:false},
+       messages:[ {role:"user", content:("Here is a document.\n\n" + $da)},
+                  {role:"assistant", content:"I have read the document."},
+                  {role:"user", content:("Here is a document.\n\n" + $db)},
+                  {role:"assistant", content:"I have read the document."},
+                  {role:"user", content:$q} ]}' > "$EV/join-$n-q$i.body"
+    jq '. + {aien_reuse:"cold"}' "$EV/join-$n-q$i.body" > "$EV/join-$n-q$i-cold.body"
+    local ref; ref=$(post "join-$n-q$i-cold" "$n" /v1/chat/completions "$EV/join-$n-q$i-cold.body")
+    # Exact baseline from the store: A restored, B re-read.
+    displace "join-$n-q$i"
+    local ex; ex=$(post "join-$n-q$i-store-exact" "$n" /v1/chat/completions "$EV/join-$n-q$i.body")
+    gate "join$n-q$i-store-exact" "$ref" "$ex"
+    printf '%s\t%s\t%s\n' "join$n-q$i" "store-exact" "$(agree "$ref" "$ex")" >> "$EV/join.tsv"
+    local mode
+    for mode in last first sum; do
+      jq --arg r "join:$ia,$ib:$mode" '. + {aien_reuse:$r}' "$EV/join-$n-q$i.body" > "$EV/join-$n-q$i-$mode.body"
+      local got; got=$(post "join-$n-q$i-$mode" "$n" /v1/chat/completions "$EV/join-$n-q$i-$mode.body")
+      printf '%s\t%s\t%s\n' "join$n-q$i" "$mode" "$(agree "$ref" "$got")" >> "$EV/join.tsv"
+      note "join $n q$i $mode: agreement (prefix positional total) $(agree "$ref" "$got")"
+    done
+  done
+}
+
 note "run start: sizes $* bin $BIN sha256 $(sha256sum "$BIN" | cut -d' ' -f1)"
 start_server || exit 1
-for s in "$@"; do run_size "$s"; done
+for s in "$@"; do
+  case "$s" in
+    join:*) run_join "${s#join:}" ;;
+    *) run_size "$s" ;;
+  esac
+done
 stop_server
 note "run end"

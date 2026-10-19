@@ -615,7 +615,17 @@ fn join_restore(
     }
     let tokens_of = |key: &str| -> Result<Vec<u32>, String> {
         store
-            .with_entry(key, |e| e.tokens[..e.kv_rows.min(e.tokens.len())].to_vec())?
+            .with_entry(key, |e| {
+                // The document's own end (an ingested conversation may since have been
+                // extended by questions), else everything with KV rows.
+                let end = e
+                    .ckpt_table
+                    .iter()
+                    .find(|c| c.1 == CkptKind::DocumentEnd)
+                    .map_or(e.kv_rows, |c| c.0)
+                    .min(e.tokens.len());
+                e.tokens[..end].to_vec()
+            })?
             .ok_or_else(|| format!("join: no conversation {key}"))
     };
     let ta = tokens_of(a)?;
