@@ -1,0 +1,208 @@
+{
+  "capture": {
+    "main": {
+      "ab_ms": 287.491149,
+      "attn_calls": 848,
+      "attn_ms": 100.335684,
+      "gdn_calls": 2544,
+      "gdn_ms": 551.56561,
+      "gemm_calls": 7680,
+      "gemm_ms": 7252.807523,
+      "head_calls": 30,
+      "head_ms": 368.565782,
+      "host_ms": 239.215737,
+      "passes": 30,
+      "rows": 53
+    },
+    "ms": 8822.625712000001,
+    "text": "```c\nint max(int a, int b) {\n    return (a > b) ? a : b;\n}\n```<|im_end|>",
+    "tokens": [
+      71093,
+      66,
+      198,
+      390,
+      1866,
+      1494,
+      264,
+      11,
+      514,
+      292,
+      8,
+      313,
+      198,
+      262,
+      460,
+      318,
+      64,
+      835,
+      292,
+      8,
+      907,
+      264,
+      535,
+      292,
+      26,
+      198,
+      92,
+      198,
+      71093,
+      248046
+    ]
+  },
+  "drafter_config": "DflashConfig { hidden: 5120, layers: 5, heads: 32, kv_heads: 8, head_dim: 128, inter: 17408, eps: 1e-6, rope_theta: 10000000.0, window: 2048, block: 8, mask_token: 248070, taps: [5, 19, 33, 47, 61], conv_group: 16, sel_rank: 256, sel_top_k: 16, vocab: 248320 }",
+  "drafter_dir": "/home/drakestapleton/models/qwen3.8-27b-dflash2-50307d4c",
+  "load_s": {
+    "drafter": 2.56640391,
+    "model": 45.146295533
+  },
+  "model_dir": "/home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a",
+  "mutant": "ConvTapSwap",
+  "n": 128,
+  "norollback": false,
+  "pass": true,
+  "prompt": "code",
+  "prompt_len": 24,
+  "replay": {
+    "accept_rate": 0.03225806451612903,
+    "accepted": 5,
+    "accepted_hist": [
+      19,
+      5,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "drafted": 155,
+    "head_calls": 168,
+    "main": {
+      "ab_ms": 0.0,
+      "attn_calls": 0,
+      "attn_ms": 0.0,
+      "gdn_calls": 0,
+      "gdn_ms": 0.0,
+      "gemm_calls": 0,
+      "gemm_ms": 0.0,
+      "head_calls": 0,
+      "head_ms": 0.0,
+      "host_ms": 0.0,
+      "passes": 0,
+      "rows": 0
+    },
+    "ms": {
+      "context": 406.167447,
+      "decode": 7942.768727,
+      "draft": 7536.525408,
+      "head": 2051.928677,
+      "prompt": 0.0,
+      "rollback": 0.0,
+      "snapshot": 0.0,
+      "verify": 0.0
+    },
+    "per_round_start_accepted": [
+      [
+        24,
+        0
+      ],
+      [
+        25,
+        0
+      ],
+      [
+        26,
+        0
+      ],
+      [
+        27,
+        0
+      ],
+      [
+        28,
+        0
+      ],
+      [
+        29,
+        0
+      ],
+      [
+        30,
+        0
+      ],
+      [
+        31,
+        1
+      ],
+      [
+        33,
+        0
+      ],
+      [
+        34,
+        0
+      ],
+      [
+        35,
+        1
+      ],
+      [
+        37,
+        0
+      ],
+      [
+        38,
+        0
+      ],
+      [
+        39,
+        0
+      ],
+      [
+        40,
+        1
+      ],
+      [
+        42,
+        0
+      ],
+      [
+        43,
+        0
+      ],
+      [
+        44,
+        0
+      ],
+      [
+        45,
+        0
+      ],
+      [
+        46,
+        0
+      ],
+      [
+        47,
+        0
+      ],
+      [
+        48,
+        1
+      ],
+      [
+        50,
+        1
+      ],
+      [
+        52,
+        0
+      ]
+    ],
+    "rollbacks": 0,
+    "rounds": 24,
+    "tokens_n": 30,
+    "words_per_pass": 1.2083333333333333
+  },
+  "schema": "QWEN38_DFLASH_GEN_V1"
+}

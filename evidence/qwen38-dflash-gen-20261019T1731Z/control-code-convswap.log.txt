@@ -1,0 +1,5 @@
+memory: whole model + MTP head + drafter needs 36743 MiB, keep 12288 MiB free, MemAvailable 67996 MiB
+drafter 3670 MiB in 2.6 s, model in 45.1 s, prompt code 24 tokens
+capture: 30 tokens in 8823 ms
+replay: 24 rounds, 5 accepted of 155 drafted, 1.208 words per pass
+QWEN38_DFLASH prompt code n 128 mutant ConvTapSwap norollback false: replay 1.208 words/pass -> PASS
