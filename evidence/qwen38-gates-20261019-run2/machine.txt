@@ -1,0 +1,9 @@
+host spark-b87b  kernel 7.0.0-1019-nvidia  arch aarch64
+nvidia driver 580.173.02
+loadavg at start 22.73 18.84 23.24
+MemAvailable at start 63263 MiB
+gb10 lock holders at start: 1
+other aien-serve-http processes at start:
+  1527223 ./aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a --port 18091 --max-context 131072 --max-tokens-cap 16384 --thinking off
+loadavg at end 20.98 21.44 21.38
+MemAvailable at end 68654 MiB

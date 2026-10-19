@@ -1,0 +1,5 @@
+# run by ~/handoffs/2026-10-19-qwen38-gates-queued.sh at 2026-10-19T22:37:31Z, branch gates/qwen38-serve-speed @ f1e4b79728d41e8bb51ddbfe7a15322e59db4227
+cd /home/drakestapleton/workspace/targets/gates-qwen38/run/aien-sovereign-core   # detached checkout of f1e4b797 with siblings ../omega ../physics ../aienos (run.sh pins from them)
+CARGO_BUILD_JOBS=8 CARGO_TARGET_DIR=/home/drakestapleton/workspace/targets/gates-qwen38 quiet-build nice -n 5 bash tests/gates/run.sh qwen38-build
+CARGO_TARGET_DIR=/home/drakestapleton/workspace/targets/gates-qwen38 AIEN_Q38_MEM_WAIT_S=120 bash tests/gates/run.sh qwen38-serve   # rc 1
+CARGO_TARGET_DIR=/home/drakestapleton/workspace/targets/gates-qwen38 AIEN_Q38_MEM_WAIT_S=120 bash tests/gates/run.sh qwen38-speed   # rc 0
