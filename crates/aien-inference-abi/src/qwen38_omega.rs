@@ -28,6 +28,7 @@ use aien_omega_q38::{Attn256Cache, Gdn, GraphConfig, GraphStats, Q38Graph};
 
 mod prefill;
 mod session;
+pub mod spec;
 pub use prefill::PrefillStats;
 pub use session::{plan_reuse, FeedStats, Qwen38Session, Reuse, IM_START};
 
@@ -89,6 +90,16 @@ pub struct Qwen38Snapshot {
     pub pos: usize,
     tails: Vec<f32>,
     states: Vec<f32>,
+}
+
+impl Qwen38Snapshot {
+    /// Same position and every tail and state word bit for bit.
+    pub fn bits_equal(&self, other: &Self) -> bool {
+        let eq = |a: &[f32], b: &[f32]| {
+            a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits())
+        };
+        self.pos == other.pos && eq(&self.tails, &other.tails) && eq(&self.states, &other.states)
+    }
 }
 
 /// Memory the whole model needs with a KV cache of `max_pos` positions and prefill buffers for
