@@ -1,0 +1,13 @@
+base: 1 variants, 306 tokens, scored rows 49..305, MemAvailable 28.7 GiB
+base                   agree 256/256 (1.0000)  KL 0.000e0  cos final 1.00000/1.00000  GB/token 26.92 (100.0% of 26.92)
+early exit after 16 layers: agree 7/256
+early exit after 32 layers: agree 20/256
+early exit after 48 layers: agree 40/256
+early exit after 56 layers: agree 67/256
+early exit after 60 layers: agree 97/256
+early exit after 62 layers: agree 153/256
+early exit after 63 layers: agree 221/256
+{
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-skipped-base-code-20261019T1703Z.json
+rc=0
