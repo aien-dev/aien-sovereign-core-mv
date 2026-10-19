@@ -1,0 +1,22 @@
+{
+ "name": "docmem-disk-4096",
+ "cmd": "/home/drakestapleton/.local/bin/quiet-measure /home/drakestapleton/workspace/targets/docmem/bin-e07a3b4c/docmem_bench disk 4096 1 /home/drakestapleton/workspace/targets/docmem/convstore-bench",
+ "exit": 0,
+ "git_head": "e07a3b4c",
+ "start": "2026-10-19T12:36:49.647980",
+ "seconds": 1719.55,
+ "samples": 789,
+ "wall_W_mean": 267.084917617237,
+ "wall_J": 459265.90153291955,
+ "idle_W_before": 267.85714285714283,
+ "incremental_J": -1327.880002194979,
+ "gpu_W_mean": 14.525373891001268,
+ "gpu_util_mean": 32.462610899873255,
+ "load1_start": "88.84",
+ "load1_end": "72.92",
+ "mem_avail_kB_start": "20384780",
+ "mem_avail_kB_end": "13520332",
+ "lock_holders_max": 64,
+ "nvrm_errors_delta": 13,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}
