@@ -1061,7 +1061,7 @@ fn run_in_worktree(
 
     // The independent check of what was just written, exactly as `verify`
     // does it: keys at BASE, signature, graph digest, receipts, manifests,
-    // crumb, with the same operator permission the plan had (a pipeline
+    // with the same operator permission the plan had (a pipeline
     // configuration change the operator ran by hand is not BLOCKED here).
     // Nothing is published as success unless this says READY.
     cfg.state.beat(repo, sha, "verify");
@@ -1075,7 +1075,6 @@ fn run_in_worktree(
             release: false,
             operator: cfg.operator,
             hardware_identity: cfg.hardware_identity.clone(),
-            crumb: cfg.crumb.clone(),
             keys_override: None,
         },
     );
@@ -1083,11 +1082,7 @@ fn run_in_worktree(
     let check_problems: Vec<String> = check
         .lines
         .iter()
-        .filter(|l| {
-            l.starts_with("Problem: ")
-                || l.starts_with("Evidence note: ")
-                || l.starts_with("Crumb note: ")
-        })
+        .filter(|l| l.starts_with("Problem: ") || l.starts_with("Evidence note: "))
         .cloned()
         .collect();
 

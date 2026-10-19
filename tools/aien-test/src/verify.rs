@@ -5,23 +5,26 @@
 //! keys the repository committed at BASE (`.aien/verify.pub`, one hex key per
 //! line), recomputes the plan for BASE..COMMIT and compares the graph digest,
 //! checks that every `run` entry has its receipt on disk, judges the verdict
-//! with the planner's algebra, asks `crumb verify` about the tree at COMMIT,
-//! and prints the fixed report block. Exit 0 only on MERGE ELIGIBILITY READY.
+//! with the planner's algebra, and prints the fixed report block. Exit 0 only
+//! on MERGE ELIGIBILITY READY. Crumbs are advisory notes (RFC-0003 Am2): they
+//! are never read here and never change the verdict.
 
 use crate::bundle::{self, Expect};
 use crate::evidence::{self, utc_secs, Index, Store};
 use crate::manifest::CacheScope;
 use crate::plan::{self, Known, Plan, Request, Section};
-use crate::process;
 use crate::verdict::Verdict;
 use crate::worker::StateDir;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 pub const KEYS_FILE: &str = ".aien/verify.pub";
+
+/// The fixed report line where the crumb status used to be. Crumbs are
+/// advisory notes and are never checked here.
+pub const CRUMB_LINE: &str = "Crumb status: not checked (crumbs are advisory, RFC-0003 Am2)";
 
 /// What the verifier was asked to do.
 #[derive(Debug, Clone)]
@@ -33,8 +36,6 @@ pub struct Ask {
     pub release: bool,
     pub operator: bool,
     pub hardware_identity: String,
-    /// The crumb command; None skips the crumb check (status STALE).
-    pub crumb: Option<String>,
     /// Keys to trust instead of `.aien/verify.pub` at BASE (tests).
     pub keys_override: Option<Vec<String>>,
 }
@@ -102,88 +103,6 @@ fn sum_u64(index: &Index, digests: &[String], pointer: &str) -> Option<u64> {
         }
     }
     any.then_some(total)
-}
-
-/// `crumb verify` over the tree at COMMIT, in a temporary detached worktree.
-/// CURRENT only when crumb says OK; STALE otherwise, also when the command is
-/// unavailable (the tree is then not proven current).
-pub fn crumb_status(root: &Path, commit: &str, crumb: Option<&str>) -> (String, String) {
-    let Some(crumb) = crumb else {
-        return ("STALE".into(), "crumb check skipped".into());
-    };
-    let tmp = std::env::temp_dir().join(format!(
-        "aien-verify-{}-{}",
-        std::process::id(),
-        &commit[..12]
-    ));
-    let _ = fs::remove_dir_all(&tmp);
-    let mut add = Command::new("git");
-    add.args(["worktree", "add", "--detach", "--quiet"])
-        .arg(&tmp)
-        .arg(commit)
-        .current_dir(root)
-        .env("GIT_OPTIONAL_LOCKS", "0");
-    let out = match process::output_gated(&mut add) {
-        Ok(o) if o.status.success() => o,
-        Ok(o) => {
-            return (
-                "STALE".into(),
-                format!(
-                    "cannot check out {commit}: {}",
-                    String::from_utf8_lossy(&o.stderr).trim()
-                ),
-            );
-        }
-        Err(e) => return ("STALE".into(), format!("cannot run git: {e}")),
-    };
-    drop(out);
-    // The crumb tool decides, exactly as the CRUMB-VERIFY gate does. A repository with no crumbs at all
-    // (benchmarks, interplane) is "OK: 0 crumbs current" to the tool; calling it STALE here published every
-    // PASS head of those repos as BLOCKED/error (2026-10-16..19).
-    let result = {
-        let mut cmd = Command::new(crumb);
-        cmd.args(["verify", "."]).current_dir(&tmp);
-        match process::output_gated(&mut cmd) {
-            Ok(o) if o.status.success() => (
-                "CURRENT".to_string(),
-                String::from_utf8_lossy(&o.stdout)
-                    .lines()
-                    .next()
-                    .unwrap_or("")
-                    .trim()
-                    .to_string(),
-            ),
-            Ok(o) => (
-                "STALE".to_string(),
-                format!(
-                    "{} {}",
-                    String::from_utf8_lossy(&o.stdout)
-                        .lines()
-                        .last()
-                        .unwrap_or("")
-                        .trim(),
-                    String::from_utf8_lossy(&o.stderr)
-                        .lines()
-                        .last()
-                        .unwrap_or("")
-                        .trim()
-                )
-                .trim()
-                .to_string(),
-            ),
-            Err(e) => ("STALE".to_string(), format!("cannot run {crumb}: {e}")),
-        }
-    };
-    let mut rm = Command::new("git");
-    rm.args(["worktree", "remove", "--force"])
-        .arg(&tmp)
-        .current_dir(root);
-    let _ = process::output_gated(&mut rm);
-    let _ = fs::remove_dir_all(&tmp);
-    let mut prune = Command::new("git");
-    prune.args(["worktree", "prune"]).current_dir(root);
-    let _ = process::output_gated(&mut prune);
-    result
 }
 
 fn verdict_line(v: &str) -> &str {
@@ -471,12 +390,8 @@ pub fn run(root: &Path, ask: &Ask) -> Report {
     lines.push(format!("Cached gates: {}", list(&cached)));
     lines.push(format!("Failed gates: {}", list(&failed)));
     lines.push(format!("Blocked gates: {}", list(&blocked)));
-    let (crumb, crumb_note) = if commit_ok {
-        crumb_status(root, &commit, ask.crumb.as_deref())
-    } else {
-        ("STALE".into(), "commit missing".into())
-    };
-    lines.push(format!("Crumb status: {crumb}"));
+    // Kept for log readers; crumbs never affect readiness (RFC-0003 Am2).
+    lines.push(CRUMB_LINE.to_string());
     lines.push(format!("Evidence status: {evidence_status}"));
     let hardware = match &plan {
         Some(p)
@@ -533,7 +448,6 @@ pub fn run(root: &Path, ask: &Ask) -> Report {
     lines.push(format!("Total time: {}", ms(total)));
     let ready = evidence_status == "VERIFIED"
         && final_verdict == "PASS"
-        && crumb == "CURRENT"
         && unmapped.is_empty()
         && blocked.is_empty()
         && problems.is_empty()
@@ -545,9 +459,6 @@ pub fn run(root: &Path, ask: &Ask) -> Report {
     ));
     if !evidence_note.is_empty() {
         lines.push(format!("Evidence note: {evidence_note}"));
-    }
-    if !crumb_note.is_empty() {
-        lines.push(format!("Crumb note: {crumb_note}"));
     }
     if let Some(j) = &judged {
         if !j.reason.is_empty() {
@@ -628,7 +539,6 @@ mod tests {
             release: false,
             operator: false,
             hardware_identity: String::new(),
-            crumb: None,
             keys_override: None,
         };
         let r = run(repo.path(), &ask);
@@ -640,39 +550,5 @@ mod tests {
             .lines
             .iter()
             .any(|l| l.starts_with("Problem: no bundle at ")));
-    }
-
-    /// A fake crumb on disk that prints `out` and exits `rc`.
-    fn fake_crumb(dir: &Path, out: &str, rc: i32) -> String {
-        use std::os::unix::fs::PermissionsExt;
-        let p = dir.join("crumb");
-        fs::write(&p, format!("#!/bin/sh\necho '{out}'\nexit {rc}\n")).unwrap();
-        fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
-        p.display().to_string()
-    }
-
-    #[test]
-    fn repo_without_crumbs_asks_the_tool() {
-        // benchmarks and interplane have no .crumb at all; the gate's tool says OK, so readiness must too.
-        let repo = crate::testutil::init_repo("verify-nocrumb", &[("README", "x\n", false)]);
-        let head = plan::resolve(repo.path(), "HEAD").unwrap();
-        let bin = crate::testutil::TempDir::new("verify-fake-crumb");
-        let ok = fake_crumb(bin.path(), "crumb verify: OK: 0 crumbs current", 0);
-        assert_eq!(
-            crumb_status(repo.path(), &head, Some(&ok)),
-            (
-                "CURRENT".to_string(),
-                "crumb verify: OK: 0 crumbs current".to_string()
-            )
-        );
-        // The tool still has the last word: if it fails, readiness is STALE.
-        let bad = fake_crumb(
-            bin.path(),
-            "crumb verify: FAIL: 1 of 1 crumbs stale; run: crumb compile",
-            1,
-        );
-        assert_eq!(crumb_status(repo.path(), &head, Some(&bad)).0, "STALE");
-        // No tool configured: still STALE (not proven current).
-        assert_eq!(crumb_status(repo.path(), &head, None).0, "STALE");
     }
 }

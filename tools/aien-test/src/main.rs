@@ -484,7 +484,6 @@ fn cmd_verify(cli: &Cli, commit: &str, cwd: &Path) -> i32 {
         release: cli.release,
         operator: cli.operator,
         hardware_identity: cli.hardware_identity.clone().unwrap_or_default(),
-        crumb: Some("crumb".to_string()),
         keys_override: None,
     };
     let report = verify::run(&root, &ask);
