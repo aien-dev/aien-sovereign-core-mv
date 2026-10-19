@@ -134,10 +134,10 @@ impl DflashConfig {
         let ok = self.hidden > 0
             && self.layers > 0
             && self.kv_heads > 0
-            && self.heads % self.kv_heads == 0
-            && self.head_dim % 2 == 0
+            && self.heads.is_multiple_of(self.kv_heads)
+            && self.head_dim.is_multiple_of(2)
             && self.conv_group > 0
-            && self.hidden % self.conv_group == 0
+            && self.hidden.is_multiple_of(self.conv_group)
             && self.block >= 2
             && !self.taps.is_empty()
             && self.sel_top_k >= 1
@@ -453,7 +453,7 @@ impl Drafter {
     ) -> Result<(), String> {
         let c = &self.cfg;
         let tw = c.tap_width();
-        if taps.is_empty() || taps.len() % tw != 0 {
+        if taps.is_empty() || !taps.len().is_multiple_of(tw) {
             return Err(format!("add_context: {} values, rows of {tw}", taps.len()));
         }
         let m = taps.len() / tw;
