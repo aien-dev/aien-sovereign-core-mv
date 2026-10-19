@@ -1,0 +1,6 @@
+2026-10-19T03:17:14Z
+live server pid 38628 (started by the serving agent; restarts tonight were SIGTERM, no OOM since 2026-10-18 16:43Z)
+    PID   RSS     ELAPSED CMD
+  38628 39621888    48:54 ./aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a --port 18091 --max-context 131072 --
+aien-serve-http: qwen38 engine ready in 43.0 s: context 131072 tokens, weights 26.92 GB resident, KV 8.59 GB, rss 38.55 GB, prefill chunk 4096, spin_us Some(2000)
+aien-serve-http: qwen38 engine ready in 29.3 s: context 131072 tokens, weights 26.92 GB resident, KV 8.59 GB, rss 38.55 GB, prefill chunk 4096, spin_us Some(2000)

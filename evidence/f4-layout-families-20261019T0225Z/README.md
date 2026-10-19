@@ -1,7 +1,7 @@
 # f4: one pinned resident layout for every Qwen3.8-27B tool (sc #676, FORTRAN idea 4)
 
 Branch fortran/4-pinned-resident-layout (base qwen38/prefill-ttft 5a82ea60). Spark, 2026-10-19 02:25Z to 03:05Z,
-live 27B server up the whole time (about 38.5 GB), every chip run under `flock /tmp/aien-gb10.lock`, MemAvailable
+live 27B server up the whole time (about 38.5 GB, server-state.txt), every chip run under `flock /tmp/aien-gb10.lock`, MemAvailable
 checked before each (12 GiB kept free). Omega archive `fresh-pg-6e24f7fd/libomega_gpu.a` (sha in binaries.sha256).
 
 ## What is pinned
@@ -22,16 +22,20 @@ Identity across doors and tools:
 
 | run | door | page cache before | load s | read | hash | upload |
 |---|---|---|---|---|---|---|
-| r1-ckpt-warm | checkpoint | ckpt 16.3 of 30.9 GB | 44.643 | 26.088 | 1.642 | 14.607 |
+| r1-ckpt-warm | checkpoint | ckpt 29.47 of 30.87 GB | 44.643 | 26.088 | 1.642 | 14.607 |
 | r2-ckpt-cold | checkpoint | ckpt 0.06 GB (evicted) | 35.781 | 18.971 | 1.355 | 13.238 |
 | r1-pack-warm | pack, serial hash | pack 3.45 GB | 19.061 | 0 | 6.206 | 12.763 |
 | r2-pack-warm | pack, serial hash | pack 22.9 GB | 21.111 | 0 | 6.775 | 14.242 |
 | r2-pack-cold | pack, serial hash | pack 0 (evicted) | 26.421 | 0 | 14.674 | 11.679 |
 | r3-pack-cold | pack, read-ahead + hash beside upload | pack 0 (evicted) | 14.472 | 0 | 6.154 (overlapped) | 11.554 |
 | r3-pack-warm | pack, read-ahead + hash beside upload | pack 29.5 of 29.5 GB | 12.001 | 0 | 1.298 (overlapped) | 11.426 |
+| r4-pack-warm | pack, final build (checked dispatch) | pack 9.73 of 29.5 GB | 15.072 | 0 | 5.527 (overlapped) | 12.478 |
 
 Checkpoint warm 44.643 s to pack warm 12.001 s: 3.72x (calc:9ee22852); cold 35.781 to 14.472 s: 2.47x (calc:742db239).
 The two checkpoint rows ran under different box load (the cold one was faster); both are reported as measured.
+Binaries: r1/r2 rows ran builds from before the read-ahead change (commit a1f28ccf / c59d800f work in progress, not
+recorded); r3 rows, both pairs and the controls ran the build in binaries.sha256; r4 and check16-pack-final ran the
+final build in binaries-final.sha256 (dispatch checks each held image by name; still PASS / every image matched).
 
 Against the ceiling: reading 29.52 GB from the NVMe at 10.4 GB/s takes 2.84 s (calc:1fd7120f), so the cold pack load
 uses 0.196 of the disk ceiling (calc:a7d32641). What is left is the copy into the driver's buffers inside omega's
@@ -52,9 +56,9 @@ Both loads: 71.79 s before, 28.80 s after: 2.49x (calc:afb65392). Heap per tool 
 embedding is read from the shared pack mapping instead of a private copy. Chip memory per tool is unchanged: each tool
 still holds its own 27.17 GB copy (true one-copy sharing is not built; see the handoff).
 
-Outputs are bit-identical between doors: tool 1's tokens, cosine, p95 and every per-step number hash to the same value
-(ad9919fa...) before and after; tool 2's tokens, cosine 0.9928993630379012 and max_abs equal (99f2ce4b...), and equal
-to the earlier receipt evidence/qwen38-prefill-20261018T1836Z/golden-chunk8.json. Tool 1 PASS 24/24. Tool 2 says FAIL
+Outputs are bit-identical between doors (outputs-compared.txt holds the filters and digests): tool 1's tokens,
+cosine, p95 and every per-step number hash to the same value (ad9919fa...) before and after; tool 2's tokens, cosine
+0.9928993630379012 and max_abs equal (99f2ce4b...), and equal to the earlier receipt evidence/qwen38-prefill-20261018T1836Z/golden-chunk8.json. Tool 1 PASS 24/24. Tool 2 says FAIL
 both times for the same, already known reason (its cosine bar 0.999 vs 0.9929 with all 24 tokens equal; not moved).
 
 ## Negative controls (all went red)

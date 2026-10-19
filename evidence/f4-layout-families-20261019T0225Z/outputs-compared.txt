@@ -1,0 +1,8 @@
+# outputs compared with timing removed (jq filters below, then sha256)
+tool1 filter: [.chip_ids, .cosine_min, .p95_rel_max, (.steps|map(del(.chip_ns_all_windows)))]
+before-t1 ad9919fa463fbe15f16acae4896948684ec46e410cc2fb4b5b6d51b0f7658a7d
+after-t1 ad9919fa463fbe15f16acae4896948684ec46e410cc2fb4b5b6d51b0f7658a7d
+tool2 filter: [.generated, .cosine_vs_decode_graph, .max_abs_vs_decode_graph, .control_cosine_vs_previous_position, .tokens_equal]
+before-t2 99f2ce4b46525a1725d39c6775de6776668c4c6b59f44f16b0f5bd764886c928
+after-t2 99f2ce4b46525a1725d39c6775de6776668c4c6b59f44f16b0f5bd764886c928
+earlier receipt evidence/qwen38-prefill-20261018T1836Z/golden-chunk8.json 99f2ce4b46525a1725d39c6775de6776668c4c6b59f44f16b0f5bd764886c928

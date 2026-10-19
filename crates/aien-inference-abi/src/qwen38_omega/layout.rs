@@ -22,10 +22,11 @@
 //! equal ids from a checkpoint load and a pack load mean the two uploaded the same bytes, from
 //! independent inputs.
 //!
-//! Threat model: the hash is taken on the exact slice handed to the upload, in the same thread,
-//! right before the call. The pack is mapped read-only and written 0444; changing the file while a
-//! tool has it open is outside what this checks (the embedding is read from the mapping for the
-//! tool's lifetime after its one check at open).
+//! Threat model: the hash is taken on the exact slice that is uploaded, and an image reaches its
+//! upload only after its own check passed (the pack door hashes on a reader thread while the
+//! previous image uploads; the checkpoint door hashes in line). The pack is mapped read-only and
+//! written 0444; changing the file while a tool has it open is outside what this checks (the
+//! embedding is read from the mapping for the tool's lifetime after its one check at open).
 
 use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};
@@ -918,9 +919,9 @@ impl Pack {
 
 /// Mutant switch for the unit tests' red run: `AIEN_Q38_LAYOUT_MUTANT_SKIP_VERIFY=1` makes
 /// [`Pack::take`] accept a mismatched image. A check that cannot fail proves nothing; this shows
-/// the tamper tests fail without it.
+/// the tamper tests fail without it. Compiled into test builds only: a tool never skips the check.
 fn mutant_skip_verify() -> bool {
-    std::env::var_os("AIEN_Q38_LAYOUT_MUTANT_SKIP_VERIFY").is_some_and(|v| v == "1")
+    cfg!(test) && std::env::var_os("AIEN_Q38_LAYOUT_MUTANT_SKIP_VERIFY").is_some_and(|v| v == "1")
 }
 
 /// Writes a pack: images arrive in plan order and go straight to disk (never the whole model in

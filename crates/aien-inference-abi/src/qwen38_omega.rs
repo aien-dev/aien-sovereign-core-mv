@@ -179,9 +179,22 @@ struct Assembler {
     stats: LoadStats,
 }
 
-fn take_held(held: &mut Vec<Image>, what: &str) -> Result<Image, String> {
-    held.pop()
-        .ok_or_else(|| format!("assemble: {what} without its first half"))
+/// Pops the held image `want`, which the plan puts before `closing`.
+fn take_held(held: &mut Vec<Image>, closing: &str, want: &str) -> Result<Image, String> {
+    match held.pop() {
+        Some(img) if img.spec.name == want => Ok(img),
+        Some(img) => Err(format!(
+            "assemble: {closing} found {} held, expected {want}",
+            img.spec.name
+        )),
+        None => Err(format!("assemble: {closing} without {want}")),
+    }
+}
+
+/// `layers.N.<piece>` for the layer `name` belongs to.
+fn sibling(name: &str, piece: &str) -> String {
+    let layer = name.splitn(3, '.').take(2).collect::<Vec<_>>().join(".");
+    format!("{layer}.{piece}")
 }
 
 fn upload_fp8(name: &str, w: &Image, s: &Image) -> Result<Fp8Tensor, String> {
@@ -276,7 +289,11 @@ impl Assembler {
             "mix.w" | "o.w" | "gate_up.w" | "down.w" | "q_norm" | "conv" | "a_log" | "dt_bias"
             | "in_norm" => self.held.push(img),
             "mix.s" | "o.s" | "gate_up.s" | "down.s" => {
-                let w = take_held(&mut self.held, &name)?;
+                let w = take_held(
+                    &mut self.held,
+                    &name,
+                    &format!("{}.w", name.trim_end_matches(".s")),
+                )?;
                 let t = upload_fp8(&w.spec.name, &w, &img)?;
                 w.release();
                 img.release();
@@ -303,7 +320,7 @@ impl Assembler {
                 img.release();
             }
             "k_norm" => {
-                let q = take_held(&mut self.held, &name)?;
+                let q = take_held(&mut self.held, &name, &sibling(&name, "q_norm"))?;
                 self.attn
                     .as_mut()
                     .ok_or("assemble: an attention norm without a cache")?
@@ -312,9 +329,9 @@ impl Assembler {
                 self.ai += 1;
             }
             "gnorm" => {
-                let dt_bias = take_held(&mut self.held, &name)?;
-                let a_log = take_held(&mut self.held, &name)?;
-                let conv = take_held(&mut self.held, &name)?;
+                let dt_bias = take_held(&mut self.held, &name, &sibling(&name, "dt_bias"))?;
+                let a_log = take_held(&mut self.held, &name, &sibling(&name, "a_log"))?;
+                let conv = take_held(&mut self.held, &name, &sibling(&name, "conv"))?;
                 self.gdn
                     .as_mut()
                     .ok_or("assemble: DeltaNet constants without state")?
@@ -323,7 +340,7 @@ impl Assembler {
                 self.gi += 1;
             }
             "post_norm" => {
-                let in_norm = take_held(&mut self.held, &name)?;
+                let in_norm = take_held(&mut self.held, &name, &sibling(&name, "in_norm"))?;
                 let p = std::mem::take(&mut self.cur);
                 let missing =
                     |what: &str| format!("assemble: {name} closes a layer without {what}");
@@ -528,8 +545,9 @@ impl Qwen38Omega {
         let mut asm = Assembler::new(config.clone(), first, max_pos)?;
         let specs = layout::plan(&config, first);
         // A second thread reads ahead and fingerprints image i + 1 while this one uploads image
-        // i; an image reaches the upload only after its own check passed. Two images in flight
-        // at most (mapped, so no heap copies).
+        // i; an image reaches the upload only after its own check passed. At most four images
+        // between the two threads (two queued, one being hashed, one uploading), all mapped, so no
+        // heap copies.
         let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(Image, f64), String>>(2);
         let hashed = std::thread::scope(|s| {
             s.spawn(move || {
