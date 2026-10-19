@@ -1,0 +1,5 @@
+# refusal path (memory short), run by hand on the Spark at 2026-10-19T20:49:20Z, branch gates/qwen38-serve-speed @ c717f6ae
+# run tree: a detached checkout of the branch beside the siblings ../omega ../physics ../aienos (run.sh pins from them)
+cd ~/workspace/targets/gates-qwen38/run/aien-sovereign-core
+CARGO_BUILD_JOBS=8 CARGO_TARGET_DIR=$HOME/workspace/targets/gates-qwen38 nice -n 19 ionice -c3 bash tests/gates/run.sh qwen38-build   # 1m21s (quiet-build waited 21 min behind other agents' measurement flags, then ran without the quiet lock, load 25-36)
+CARGO_TARGET_DIR=$HOME/workspace/targets/gates-qwen38 AIEN_Q38_MEM_WAIT_S=45 bash tests/gates/run.sh qwen38-serve   # rc 1 after 1m38s (52 s of that a rebuild for the new commit)

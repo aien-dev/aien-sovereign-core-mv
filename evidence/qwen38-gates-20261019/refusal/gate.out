@@ -1,0 +1,15 @@
+AIEN-OBS pin_omega "0010f7d30bcaf0012e8051c5a05584a08d8320ec"
+AIEN-OBS pin_physics "6d7cf0d4d8eb2cda7b512100ff6058e25dbb3ddf"
+AIEN-OBS pin_aienos "b84c0a67590a934f3f3e001b12ec85ebc086a9eb"
+    Finished `release` profile [optimized] target(s) in 52.64s
+AIEN-OBS server_binary_sha256 "2695693cc17b31cdfaa9d3b2efbb228b7db48471965e61384ffb1598477c334a"
+QWEN38-SERVE: MemAvailable 18143 MiB < 49497 MiB needed; waiting (0/45 s)
+QWEN38-SERVE: MemAvailable 18290 MiB < 49497 MiB needed; waiting (15/45 s)
+QWEN38-SERVE: MemAvailable 18169 MiB < 49497 MiB needed; waiting (30/45 s)
+AIEN-OBS mem_available_kib_at_load 30371276
+AIEN-OBS mem_needed_kib 50684928
+AIEN-OBS loadavg_at_load "45.40 35.77 35.20"
+AIEN-OBS refusal "memory_short"
+AIEN-OBS receipt "/home/drakestapleton/workspace/targets/gates-qwen38/qwen38-gates/serve/receipt.json"
+QWEN38-SERVE FAIL: memory short: MemAvailable 29659 MiB, the loader needs 49497 MiB (41,305 MiB model + 8,192 MiB kept free); waited 45 s. No server was started.
+rc=1
