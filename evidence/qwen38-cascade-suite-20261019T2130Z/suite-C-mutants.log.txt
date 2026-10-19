@@ -1,0 +1,67 @@
+memory: whole model + MTP head needs 32663 MiB, keep 12288 MiB free, MemAvailable 66716 MiB
+MTP head: 455 MiB, raw norm means (embed, hidden, final) [-0.46056232, -0.15720086, 1.2520472], options MtpOptions { order: EmbedFirst, normed_hidden: false, pos_offset: 0 }
+uploaded in 53.6 s
+suite: mutant-extra-prose start
+k=0: 96 tokens, 221.34 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 96 tokens, 409.91 ms/token decode, accept 69/208 (0.332), 3.65 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(false)
+QWEN38_SPEC_GEN prompt prose n 96 k [0, 8] rows All source Mtp tree None mutant ExtraAccept: FAIL
+suite: mutant-extra-prose FAIL
+suite: mutant-norollback-prose start
+k=0: 96 tokens, 223.46 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 28 tokens, 457.47 ms/token decode, accept 19/64 (0.297), 3.38 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(false)
+QWEN38_SPEC_GEN prompt prose n 96 k [0, 8] rows All source Mtp tree None mutant NoRollback: FAIL
+suite: mutant-norollback-prose FAIL
+suite: mutant-rowshift-prose start
+k=0: 96 tokens, 226.94 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 96 tokens, 371.58 ms/token decode, accept 72/200 (0.360), 3.80 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(false)
+QWEN38_SPEC_GEN prompt prose n 96 k [0, 8] rows All source Mtp tree None mutant RowShift: FAIL
+suite: mutant-rowshift-prose FAIL
+suite: mutant-extra-codeedit-merge start
+k=0: 96 tokens, 233.48 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 96 tokens, 165.29 ms/token decode, accept 83/96 (0.865), 7.92 tokens/round, ngram rounds 12 accept 83/96, identical_to_k0 Some(false)
+QWEN38_SPEC_GEN prompt codeedit n 96 k [0, 8] rows All source Merge tree None mutant ExtraAccept: FAIL
+suite: mutant-extra-codeedit-merge FAIL
+suite: mutant-treenorebuild-tree-prose start
+k=0: 96 tokens, 226.03 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 96 tokens, 456.32 ms/token decode, accept 87/320 (0.272), 5.94 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(false)
+QWEN38_SPEC_GEN prompt prose n 96 k [0, 8] rows All source Mtp tree Some(TreeSpec { w1: 3, w2: 3, side: 2 }) mutant TreeNoRebuild: FAIL
+suite: mutant-treenorebuild-tree-prose FAIL
+suite: mutant-treenokv-tree-prose start
+k=0: 96 tokens, 234.30 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 96 tokens, 946.37 ms/token decode, accept 62/680 (0.091), 2.79 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(false)
+QWEN38_SPEC_GEN prompt prose n 96 k [0, 8] rows All source Mtp tree Some(TreeSpec { w1: 3, w2: 3, side: 2 }) mutant TreeNoKvFix: FAIL
+suite: mutant-treenokv-tree-prose FAIL
+suite: mutant-extra-tree-prose start
+k=0: 96 tokens, 222.51 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 96 tokens, 698.45 ms/token decode, accept 72/500 (0.144), 3.80 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(false)
+QWEN38_SPEC_GEN prompt prose n 96 k [0, 8] rows All source Mtp tree Some(TreeSpec { w1: 3, w2: 3, side: 2 }) mutant ExtraAccept: FAIL
+suite: mutant-extra-tree-prose FAIL
+suite: mutant-norollback-tree-prose start
+k=0: 96 tokens, 222.53 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 71 tokens, 1033.87 ms/token decode, accept 42/560 (0.075), 2.50 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(false)
+QWEN38_SPEC_GEN prompt prose n 96 k [0, 8] rows All source Mtp tree Some(TreeSpec { w1: 3, w2: 3, side: 2 }) mutant NoRollback: FAIL
+suite: mutant-norollback-tree-prose FAIL
+QWEN38_SPEC_SUITE 8 items: FAIL
+{
+ "name": "cascade-suite-C-mutants",
+ "cmd": "/home/drakestapleton/.local/bin/quiet-measure nice -n 10 flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/sc-cascade/pinned/qwen38_spec-e166f57f suite /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a evidence/qwen38-cascade-suite-20261019T2130Z evidence/qwen38-cascade-suite-20261019T2130Z/plan-C-mutants.txt",
+ "exit": 1,
+ "git_head": "26732021",
+ "start": "2026-10-19T18:07:53.288013",
+ "seconds": 2781.181,
+ "samples": 1289,
+ "wall_W_mean": 239.34057408844066,
+ "wall_J": 665649.4007469501,
+ "idle_W_before": 242.0,
+ "incremental_J": -7396.3441890393715,
+ "gpu_W_mean": 17.487323506594258,
+ "gpu_util_mean": 31.894491854150505,
+ "load1_start": "10.15",
+ "load1_end": "28.64",
+ "mem_avail_kB_start": "58915664",
+ "mem_avail_kB_end": "38841824",
+ "lock_holders_max": 9,
+ "nvrm_errors_delta": 7,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-cascade-suite-C-mutants.json

@@ -1,0 +1,22 @@
+{
+ "name": "cascade-suite-C-mutants",
+ "cmd": "/home/drakestapleton/.local/bin/quiet-measure nice -n 10 flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/sc-cascade/pinned/qwen38_spec-e166f57f suite /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a evidence/qwen38-cascade-suite-20261019T2130Z evidence/qwen38-cascade-suite-20261019T2130Z/plan-C-mutants.txt",
+ "exit": 1,
+ "git_head": "26732021",
+ "start": "2026-10-19T18:07:53.288013",
+ "seconds": 2781.181,
+ "samples": 1289,
+ "wall_W_mean": 239.34057408844066,
+ "wall_J": 665649.4007469501,
+ "idle_W_before": 242.0,
+ "incremental_J": -7396.3441890393715,
+ "gpu_W_mean": 17.487323506594258,
+ "gpu_util_mean": 31.894491854150505,
+ "load1_start": "10.15",
+ "load1_end": "28.64",
+ "mem_avail_kB_start": "58915664",
+ "mem_avail_kB_end": "38841824",
+ "lock_holders_max": 9,
+ "nvrm_errors_delta": 7,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}
