@@ -11,7 +11,7 @@
 #                a fresh process of our own)
 #   AIEN_Q38_PORT_RANGE   test ports tried in order, default 18391-18399 (18091 is the live
 #                server's port and is never used)
-#   AIEN_Q38_MEM_WAIT_S   how long to wait for enough free memory, default 600
+#   AIEN_Q38_MEM_WAIT_S   how long to wait for enough free memory, default 300
 #   AIEN_Q38_READY_WAIT_S how long to wait for the server to load, default 900
 #   AIEN_Q38_LOCK_WAIT_S  how long to wait for /tmp/aien-gb10.lock when run by hand, default 1800
 #
@@ -55,7 +55,7 @@ GATE="QWEN38-$(tr a-z A-Z <<<"$KIND")"
 BIN=${SERVER_BIN:?set SERVER_BIN to the aien-serve-http binary}
 MODEL_DIR=${MODEL_DIR:-$HOME/models/qwen3.8-27b-fp8-017b9c7a}
 PORT_RANGE=${AIEN_Q38_PORT_RANGE:-18391-18399}
-MEM_WAIT_S=${AIEN_Q38_MEM_WAIT_S:-600}
+MEM_WAIT_S=${AIEN_Q38_MEM_WAIT_S:-300}
 READY_WAIT_S=${AIEN_Q38_READY_WAIT_S:-900}
 LOCK_WAIT_S=${AIEN_Q38_LOCK_WAIT_S:-1800}
 GPU_LOCK=/tmp/aien-gb10.lock
