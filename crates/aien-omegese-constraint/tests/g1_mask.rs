@@ -146,6 +146,10 @@ struct Teacher {
     stop: u32,
     decoy: u32,
     rng: XorShift,
+    /// The tokenizer's next token at the last step, and how many picks differed from it (the mask
+    /// refused it, e.g. a token across two word boundaries, and a shorter piece was legal).
+    last_canonical: Option<(usize, u32)>,
+    non_canonical: u64,
 }
 
 impl Scorer for Teacher {
@@ -154,6 +158,23 @@ impl Scorer for Teacher {
             *l = self.rng.unit();
         }
         logits[self.decoy as usize] = 20.0;
+        if let Some((at, c)) = self.last_canonical.take() {
+            let took = &written[at.min(written.len())..];
+            if self.table.text(c) != Some(took) {
+                self.non_canonical += 1;
+            }
+        }
+        // Every token that continues the target ranks above the noise (longer first), the
+        // tokenizer's own next token above them all.
+        if let Some(rest) = self.target.strip_prefix(written) {
+            for (i, l) in logits.iter_mut().enumerate() {
+                if let Some(t) = self.table.text(i as u32) {
+                    if !t.is_empty() && rest.starts_with(t) {
+                        *l = 5.0 + 0.01 * t.len() as f32;
+                    }
+                }
+            }
+        }
         let want = if written == self.target.as_slice() {
             Some(self.stop)
         } else if self.target.starts_with(written) {
@@ -164,6 +185,9 @@ impl Scorer for Teacher {
         };
         if let Some(t) = want {
             logits[t as usize] = 10.0;
+            if t != self.stop {
+                self.last_canonical = Some((written.len(), t));
+            }
         }
     }
 }
@@ -272,6 +296,8 @@ fn g1_reproduces_every_worked_example_under_a_decoy() {
             stop,
             decoy,
             rng: XorShift(0x9E37_79B9_7F4A_7C15 ^ i as u64),
+            last_canonical: None,
+            non_canonical: 0,
         };
         let mut ctl = GenerationController::new(TextModel::new(table.clone(), teacher));
         let mut k = OmegeseConstraint::new(table.clone(), LinkedOracle::new().unwrap(), framing(stop))
@@ -292,8 +318,9 @@ fn g1_reproduces_every_worked_example_under_a_decoy() {
         let text = table.decode(&out).unwrap();
         let same = text == target && o.finish == FinishReason::Stop;
         let s = k.stats();
+        let nc = ctl.model().scorer.non_canonical;
         receipt(&format!(
-            "G1-REPRO {name}: {} tokens, {} masked steps (the decoy ranked above the pick at each), {} forced, {} oracle calls, reply == fenced example: {}",
+            "G1-REPRO {name}: {} tokens, {} masked steps (the decoy ranked above the pick at each), {} forced, {} oracle calls, {nc} picks other than the tokenizer's own token, reply == fenced example: {}",
             out.len(),
             s.masked_steps,
             s.forced_steps,
