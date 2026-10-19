@@ -1,0 +1,11 @@
+{
+  "model": "qwen3-dense",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Write a Rust function `fn is_prime(n: u64) -> bool` that uses trial division up to the square root, with a short doc comment."
+    }
+  ],
+  "temperature": 0,
+  "max_tokens": 64
+}

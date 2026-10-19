@@ -1,0 +1,1 @@
+{"busy":false,"engine":"omega-dense","memory":{"budget_bytes":12884901888,"context":32768,"context_shrunk":false,"device_alloc_bytes":9766576128,"engine":"omega-dense","kv_bytes":4831838208,"planned_bytes":10035627520,"scratch_bytes":269190656,"w4_weight_rel_rms":0.11757199963157496,"weights_bytes":4934598656},"model":"qwen3-dense","status":"ok","uptime_s":2601}

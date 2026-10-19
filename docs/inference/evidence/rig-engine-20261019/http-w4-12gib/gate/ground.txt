@@ -1,0 +1,22 @@
+start 2026-10-19T20:49:42Z
+chip GB10 (DGX Spark), NOT an RTX 5070
+sc f3dcfdcbcefd94641eaa188133939293dfeb6bc6 dirty 2
+binary /home/drakestapleton/workspace/targets/rig-engine/target/release/aien-serve-http sha256 9f6e07c28b874d8e3055af562cf6d199f9c76f34c80974814fe39be8a2267411
+server: /home/drakestapleton/workspace/targets/rig-engine/target/release/aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3-8b-fp8 --port 18120 --weights w4 --mem-budget-gib 12 --max-context 32768
+env AIEN_Q38_W4_RULE=ceil
+loadavg 36.96 36.02 35.38 25/2384 1380218
+MemAvailable:   40208948 kB
+attempt 1 start 2026-10-19T20:49:42Z MemFree 31 GiB
+attempt 1: server exited before serving: aien-serve-http: dense load refused: layer 0 q|k|v [6144][4096] upload: q|k|v [6144][4096] MXFP4 upload: omega_gpu rc=-4 (w4 upload: CHIP_FAIL: m16_native_create_channel: RM_ALLOC class 0xcec0 status 
+attempt 2 start 2026-10-19T20:52:14Z MemFree 20 GiB
+model id qwen3-dense
+request /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019/http-w4-12gib/gate/gate-1.json try 1 refused: {"error":"GPU busy with another job"}
+request /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019/http-w4-12gib/gate/gate-1.json try 2 refused: {"error":"GPU busy with another job"}
+request /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019/http-w4-12gib/gate/gate-2.json try 1 refused: {"error":"GPU busy with another job"}
+request /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019/http-w4-12gib/gate/gate-2.json try 2 refused: {"error":"GPU busy with another job"}
+request /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019/http-w4-12gib/gate/gate-2.json try 3 refused: {"error":"GPU busy with another job"}
+request /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019/http-w4-12gib/gate/gate-2.json try 4 refused: {"error":"GPU busy with another job"}
+request /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019/http-w4-12gib/gate/gate-2.json try 5 refused: {"error":"GPU busy with another job"}
+end 2026-10-19T21:49:51Z
+loadavg 27.31 37.30 32.64 9/3822 2994018
+MemAvailable:   32025336 kB
