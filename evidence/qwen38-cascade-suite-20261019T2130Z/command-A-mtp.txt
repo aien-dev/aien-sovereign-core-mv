@@ -1,0 +1,9 @@
+bin sha 3816e6de63803b414c4be2f03e24a07d790c9000dc483f3cc7dba2df31290d3c (built from e166f57f)
+lib ~/workspace/targets/q38-f7-omega/libomega_gpu.a sha 6e90520913032ee8653ebbe325c485d329daa0a749840303a44b68b97ca17bff (omega 37034f03)
+spark-receipt cascade-suite-A-mtp -- ~/.local/bin/quiet-measure nice -n 10 flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/sc-cascade/pinned/qwen38_spec-e166f57f suite M evidence/qwen38-cascade-suite-20261019T2130Z evidence/qwen38-cascade-suite-20261019T2130Z/plan-A-mtp.txt
+queued 2026-10-19T22:01:50Z load 27.29 19.95 23.56 41/4139 3560222 MemAvailable:   63969328 kB
+end 2026-10-19T22:10:12Z rc 2 load 9.46 14.46 20.02 12/3666 3937934 MemAvailable:   40214996 kB
+bin sha 3816e6de63803b414c4be2f03e24a07d790c9000dc483f3cc7dba2df31290d3c (built from e166f57f)
+lib ~/workspace/targets/q38-f7-omega/libomega_gpu.a sha 6e90520913032ee8653ebbe325c485d329daa0a749840303a44b68b97ca17bff (omega 37034f03)
+spark-receipt cascade-suite-A-mtp -- ~/.local/bin/quiet-measure nice -n 10 flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/sc-cascade/pinned/qwen38_spec-e166f57f suite M evidence/qwen38-cascade-suite-20261019T2130Z evidence/qwen38-cascade-suite-20261019T2130Z/plan-A-mtp.txt
+queued 2026-10-19T22:12:42Z load 11.16 13.58 18.88 7/3679 4014596 MemAvailable:   62364684 kB
