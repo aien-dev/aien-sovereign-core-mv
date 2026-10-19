@@ -14,7 +14,7 @@ unknown_key_allowed	manifest.rs	s#if !KNOWN.contains(&e.key.as_str()) {#if false
 missing_exec_ignored	verdict.rs	s#if !f.exec_exists {#if false {#	a missing run.exec is not MISSING_IMPLEMENTATION
 last_value_becomes_first	verdict.rs	s#compare(rule.op, vals\[vals.len() - 1\], &rule.value)#compare(rule.op, vals[0], \&rule.value)#	a repeated observation uses the first value, not the last
 evidence_inside_not_refused	runner.rs	s#let evidence_inside = resolve(&opts.evidence_dir).starts_with(resolve(root));#let evidence_inside = false;#	evidence may be written inside the tree under test
-operator_gate_not_blocked	verdict.rs	s#if m.requires.iter().any(|r| r == "operator") {#if false {#	a gate needing an operator runs anyway
+operator_gate_not_blocked	verdict.rs	s#if !f.operator && m.requires.iter().any(|r| r == "operator") {#if false {#	a gate needing an operator runs anyway
 timeout_checked_after_exit	verdict.rs	s#let (verdict, reason) = if f.timed_out {#let (verdict, reason) = if false {#	a timed-out run is reported as rc_nonzero, not timeout
 discover_ignores_gate_files	runner.rs	s#} else if ft.is_file() && name.ends_with(".gate") {#} else if false {#	the walk finds no .gate file, so a repository-wide parse check silently covers nothing
 discover_not_recursive	runner.rs	s#walk(&path, out);#let _ = \&path;#	the walk does not descend into directories, so gates under crates/ or tests/ are never parsed
@@ -78,9 +78,13 @@ vacuous_pass_gates	bundle.rs	s#"PASS" if self.required == 0 => "NOT_RUN",#"PASS"
 crumb_close_bad_action	worker.rs	s#^            "test",$#            "done",#	the worker closes its crumb claim with an action crumb refuses, so the claim stays open
 sandbox_refusal_is_a_result	runner.rs	s#^                    facts.exit_status = None;$#                    let _ = ();#	a refusal by the exec helper (exit 2) counts as the program exiting 2
 wt_link_owner_ignored	worker.rs	s#|| md.uid() != 0 ##	a worktree whose .git link the sandbox user owns is opened with the operator git
-sibling_cache_reused	worker.rs	s#    if fresh {#    if false \&\& fresh {#	a head with siblings reuses a cached result made without them
-sibling_not_provided	worker.rs	s#let made = provision_siblings(cfg, repo, sha, \&co, \&sibs, \&mut notes);#let made: Vec<(PathBuf, PathBuf)> = Vec::new();#	the sibling map is read but no sibling is checked out
+sibling_cache_reused	worker.rs	s#    if fresh || cfg.no_cache {#    if cfg.no_cache {#	a head with siblings reuses a cached result made without them
+sibling_not_provided	worker.rs	s#let (made, pin_values) = provision_siblings(cfg, repo, sha, \&co, \&sibs, \&pins, \&mut notes);#let (made, pin_values): (Vec<(PathBuf, PathBuf)>, Value) = (Vec::new(), json!([]));#	the sibling map is read but no sibling is checked out
 sibling_self_name_accepted	worker.rs	s#if f\[1\] == f\[0\] {#if false {#	a sibling may take the name of the checkout under test
 sibling_bad_ref_accepted	worker.rs	s#if !valid_ref(f\[3\]) {#if false {#	any text is accepted as the sibling ref
 sibling_duplicate_dir_accepted	worker.rs	s#if !seen.insert((f\[0\], f\[1\])) {#if false \&\& !seen.insert((f[0], f[1])) {#	one repository may name the same sibling dir twice
 sandbox_helper_not_in_machine	runner.rs	s#    if sandbox == Sandbox::User {#    if false \&\& sandbox == Sandbox::User {#	a result made under another exec helper is reused
+gpu_wait_refuses_at_once	resources.rs	s#(GpuWait::Bounded(_), Some(d)) => flock_queued(file, d).map_err(open_err),#(GpuWait::Bounded(_), Some(_d)) => Ok(None),#	a bounded GPU wait gives up at once, so a holder of a moment makes the gate NOT_RUN (the old single try)
+gpu_default_refuses	resources.rs	s#wait: GpuWait::Bounded(DEFAULT_GPU_WAIT),#wait: GpuWait::Refuse,#	the real machine refuses a held GPU lock at once instead of waiting the default bound
+gpu_abandoned_waiter_keeps_lock	resources.rs	s#return lost(r);#return std::mem::forget(r);#	a GPU waiter given up on keeps the lock when the kernel grants it, so the GPU stays held by nobody
+gpu_wait_not_recorded	runner.rs	s#"waited_ms": attempt.waited.as_millis() as u64,#"waited_ms": 0,#	the receipt says a gb10 gate never waited for the GPU lock

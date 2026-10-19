@@ -92,6 +92,7 @@ impl Engine for CpuReferenceEngine {
             prefill_ms,
             decode_ms: t1.elapsed().as_millis() as u64,
             sampling: Some(sampler.record()),
+            mask: None,
         })
     }
 }

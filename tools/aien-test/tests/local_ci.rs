@@ -297,6 +297,7 @@ fn worker_then_verify_is_ready() {
     assert_eq!(line(&r, "Final verdict:"), "Final verdict: PASS");
     assert_eq!(line(&r, "Executed gates:"), "Executed gates: 1 (A)");
     assert_eq!(line(&r, "Build time:"), "Build time: n/a");
+    assert_eq!(line(&r, "GPU lock wait:"), "GPU lock wait: n/a");
     assert!(line(&r, "Test time:").ends_with(" ms"));
     assert_eq!(
         line(&r, "MERGE ELIGIBILITY:"),

@@ -84,7 +84,9 @@ fn options(cli: &Cli, root: &Path) -> Result<Options, i32> {
     opts.no_cache = cli.no_cache;
     opts.args_override = cli.args.clone();
     opts.pool_sizes = opts.pool_sizes.with(cli.jobs);
-    opts.gpu.wait = cli.wait_gpu;
+    if let Some(w) = cli.gpu_wait {
+        opts.gpu.wait = w;
+    }
     opts.sandbox = cli.sandbox;
     opts.release = cli.release;
     // `--operator` is only accepted on plan, test and worker (cli.rs), so a
@@ -559,6 +561,9 @@ fn cmd_worker(cli: &Cli) -> i32 {
     cfg.repos = cli.repos.clone();
     cfg.operator = cli.operator;
     cfg.jobs = cli.jobs;
+    if let Some(w) = cli.gpu_wait {
+        cfg.gpu_wait = w;
+    }
     cfg.no_cache = cli.no_cache;
     cfg.hardware_identity = cli.hardware_identity.clone().unwrap_or_default();
     if let Some((repo, sha)) = &cli.once {

@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::mask::MaskRecord;
 use crate::sampling::SamplingRecord;
 
 #[derive(Debug, Deserialize)]
@@ -47,6 +48,12 @@ pub struct ChatRequest {
     /// AIEN extra: return the generated token ids in `usage.aien_token_ids` (correctness gates).
     #[serde(default)]
     pub aien_return_token_ids: bool,
+    /// A decode constraint (`"omegese"`; see `crate::mask`). Absent: none.
+    #[serde(default)]
+    pub constraint: Option<Value>,
+    /// With `"constraint": "omegese"`: the entry function's header line, forced after the fence.
+    #[serde(default)]
+    pub constraint_header: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -102,6 +109,10 @@ pub struct Usage {
     /// The generated token ids, when the request set `aien_return_token_ids`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aien_token_ids: Option<Vec<u32>>,
+    /// The decode constraint's record when the request asked for one (`constraint`): an extra
+    /// field, absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aien_constraint: Option<MaskRecord>,
 }
 
 #[derive(Debug, Serialize)]

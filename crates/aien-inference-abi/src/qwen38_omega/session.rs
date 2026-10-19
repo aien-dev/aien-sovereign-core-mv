@@ -246,6 +246,22 @@ impl Qwen38Session {
 
     /// Feeds one reply token through the decode graph: the logits after it and the graph's
     /// chip time for the step (ns).
+    /// Feeds `token` without reading the output head: for a token whose logits nothing reads (a
+    /// decode constraint forces the next one). [`Self::advance`] reads the head of the next token
+    /// fed as usual. Returns the chip time.
+    pub fn push(&mut self, token: u32) -> Result<u64, String> {
+        match self.model.step(token) {
+            Ok((_, stats)) => {
+                self.history.push(token);
+                Ok(stats.chip_ns)
+            }
+            Err(e) => {
+                self.history.clear();
+                Err(e)
+            }
+        }
+    }
+
     pub fn advance(&mut self, token: u32) -> Result<(Vec<f32>, u64), String> {
         let r = self.model.step(token).and_then(|(_, stats)| {
             let logits = self.model.logits()?;

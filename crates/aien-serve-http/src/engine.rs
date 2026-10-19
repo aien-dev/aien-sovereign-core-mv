@@ -14,6 +14,7 @@
 use std::fmt;
 use std::time::{Duration, Instant};
 
+use crate::mask::{Mask, MaskRecord};
 use crate::sampling::SamplingRecord;
 
 /// Sampling and stopping parameters for one generation. All fields are already
@@ -56,6 +57,8 @@ pub struct GenerateOutcome {
     /// How the tokens were sampled, observed at each draw (OWN-8B stage S). `None` for an
     /// engine that does not sample (the stub replays a fixed list).
     pub sampling: Option<SamplingRecord>,
+    /// The constraint's record (`usage.aien_constraint`); `None` for an unconstrained reply.
+    pub mask: Option<MaskRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,6 +106,22 @@ pub trait Engine: Send + Sync {
     ) -> Result<GenerateOutcome, EngineError>;
     /// Persistent KV status and counters for `/health` (sc#505). `None` (the default, and the
     /// omega door with `AIEN_KV_STORE_DIR` unset) leaves `/health` exactly as it was.
+    /// `generate` under a per-request constraint ([`Mask`]): the engine asks `mask.rule` once per
+    /// step before its logits and takes the token it gives (`Force`), stops (`Finish`), or samples
+    /// through `mask.choose`. The default refuses: an engine takes a constraint only when its loop
+    /// was written for it.
+    fn generate_masked(
+        &self,
+        _prompt: &[u32],
+        _params: &GenerateParams,
+        _mask: &mut Mask,
+        _on_token: &mut dyn FnMut(u32) -> bool,
+    ) -> Result<GenerateOutcome, EngineError> {
+        Err(EngineError::Failed(format!(
+            "the {} engine does not take a decode constraint",
+            self.kind()
+        )))
+    }
     fn persistence_status(&self) -> Option<serde_json::Value> {
         None
     }
@@ -188,6 +207,7 @@ impl Engine for StubEngine {
             prefill_ms: 0,
             decode_ms: t0.elapsed().as_millis() as u64,
             sampling: None,
+            mask: None,
         })
     }
 }

@@ -13,7 +13,13 @@ path = "src/lib.rs"
 name = "aien-serve-http"
 path = "src/main.rs"
 
+[features]
+# The Omegese decode mask (`"constraint": "omegese"`): links omega's Omegese reader (see
+# aien-omegese-constraint's build.rs). Off: the request field is refused and nothing else changes.
+omegese = ["dep:aien-omegese-constraint"]
+
 [dependencies]
+aien-omegese-constraint = { path = "../aien-omegese-constraint", optional = true }
 axum = "0.7"
 tokio = { version = "1.37", features = ["full"] }
 tokio-stream = "0.1"

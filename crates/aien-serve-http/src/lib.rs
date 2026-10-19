@@ -8,6 +8,7 @@ pub mod codec;
 pub mod cpu_engine;
 pub mod engine;
 pub mod kv_persist;
+pub mod mask;
 pub mod omega_engine;
 pub mod openai;
 pub mod qwen38_engine;

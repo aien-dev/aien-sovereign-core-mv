@@ -15,6 +15,8 @@ use aien_inference_abi::qwen38::Qwen38Config;
 use aien_inference_abi::qwen38_omega::{need_bytes, Qwen38Omega, Qwen38Session, Reuse};
 
 use crate::engine::{Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams};
+use crate::mask::Mask;
+use aien_inference_abi::generation::StepRule;
 use crate::omega_engine::{GpuLock, GPU_LOCK_PATH};
 use crate::sampling::SamplingObserver;
 
@@ -195,6 +197,114 @@ impl Engine for Qwen38Door {
             prefill_ms,
             decode_ms,
             sampling: Some(observer.record()),
+            mask: None,
+        })
+    }
+
+    /// The loop of `generate` under a constraint. The constraint is asked for the next step's rule
+    /// as soon as a token is emitted, before the token is fed: when that rule is `Force` the token
+    /// is fed without reading the output head ([`Qwen38Session::push`]); when it is `Finish` or a
+    /// forced stop it is not fed at all. Only `Any` and `Allow` read a head and sample.
+    fn generate_masked(
+        &self,
+        prompt: &[u32],
+        p: &GenerateParams,
+        mask: &mut Mask,
+        on_token: &mut dyn FnMut(u32) -> bool,
+    ) -> Result<GenerateOutcome, EngineError> {
+        if prompt.is_empty() {
+            return Err(EngineError::Failed("empty prompt".into()));
+        }
+        if prompt.len() >= self.max_context {
+            return Err(EngineError::PromptTooLong {
+                len: prompt.len(),
+                max: self.max_context,
+            });
+        }
+        let failed = |e: String| EngineError::Failed(format!("constraint: {e}"));
+        let t_lock = Instant::now();
+        let lock = GpuLock::acquire_queued_at(&self.lock_path, self.lock_wait)
+            .map_err(EngineError::Busy)?;
+        let lock_wait_ms = t_lock.elapsed().as_millis();
+        let mut s = self
+            .session
+            .lock()
+            .map_err(|_| EngineError::Failed("qwen38 session poisoned".into()))?;
+        let t0 = Instant::now();
+        let (mut logits, fs) = s.start(prompt).map_err(EngineError::Failed)?;
+        let prefill_ms = t0.elapsed().as_millis() as u64;
+        let t1 = Instant::now();
+        let mut observer = SamplingObserver::new(p);
+        let mut generated: Vec<u32> = Vec::new();
+        let (mut emitted, mut chip_ns, mut heads) = (0usize, 0u64, 0usize);
+        let mut next_rule: Option<StepRule> = None;
+        let finish = loop {
+            if emitted >= p.max_new_tokens || prompt.len() + emitted >= self.max_context {
+                break FinishReason::Length;
+            }
+            let rule = match next_rule.take() {
+                Some(r) => r,
+                None => mask.rule(prompt, &generated).map_err(failed)?,
+            };
+            let tok = match rule {
+                StepRule::Finish => break FinishReason::Stop,
+                StepRule::Force(t) => t,
+                ref r => mask
+                    .choose(r, &logits, &mut |l| observer.sample(l, emitted))
+                    .map_err(failed)?,
+            };
+            if p.stop_token_ids.contains(&tok) {
+                break FinishReason::Stop;
+            }
+            emitted += 1;
+            generated.push(tok);
+            if !on_token(tok) {
+                break FinishReason::Cancelled;
+            }
+            if emitted >= p.max_new_tokens || prompt.len() + emitted >= self.max_context {
+                break FinishReason::Length;
+            }
+            let r = mask.rule(prompt, &generated).map_err(failed)?;
+            match &r {
+                StepRule::Finish => {}
+                StepRule::Force(f) if p.stop_token_ids.contains(f) => {}
+                StepRule::Force(_) => {
+                    chip_ns += s.push(tok).map_err(EngineError::Failed)?;
+                    mask.note_head_skipped();
+                }
+                StepRule::Any | StepRule::Allow(_) => {
+                    let (next, ns) = s.advance(tok).map_err(EngineError::Failed)?;
+                    logits = next;
+                    chip_ns += ns;
+                    heads += 1;
+                }
+            }
+            next_rule = Some(r);
+        };
+        let decode_ms = t1.elapsed().as_millis() as u64;
+        let steps = emitted.saturating_sub(1).max(1) as f64;
+        let reused = fs.reuse.map_or(0, Reuse::tokens);
+        drop(s);
+        drop(lock);
+        let m = mask.record();
+        eprintln!(
+            "aien-serve-http: qwen38: constraint {}: lock wait {lock_wait_ms} ms, prompt {} tok, reuse {reused} tok, prefill {prefill_ms} ms, decode {emitted} tok in {decode_ms} ms ({heads} heads read, {} forced, {} heads skipped), constraint {} us total, {} us max step, chip {:.1} ms/token, wall {:.1} ms/token",
+            m.kind,
+            prompt.len(),
+            m.forced,
+            m.head_skipped,
+            m.rule_us,
+            m.rule_us_max,
+            chip_ns as f64 / 1e6 / steps,
+            decode_ms as f64 / steps,
+        );
+        Ok(GenerateOutcome {
+            emitted_tokens: emitted,
+            finish,
+            prefill_ms,
+            decode_ms,
+            sampling: Some(observer.record()),
+            mask: None,
         })
     }
 }

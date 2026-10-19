@@ -249,6 +249,8 @@ fn main() -> ExitCode {
         }
     };
     apply_generation_defaults(&mut args.cfg, &args.model_dir);
+    #[cfg(feature = "omegese")]
+    aien_serve_http::mask::omegese::set_tokenizer(args.model_dir.join("tokenizer.json"));
     // OWN-8B stage S negative controls: read once, refused outright without debug assertions.
     match aien_serve_http::sampling::install_mutant_from_env() {
         Ok(None) => {}
