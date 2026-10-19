@@ -1,0 +1,521 @@
+{
+  "results": [
+    {
+      "accept": 0.7309644670050761,
+      "config": "none",
+      "hits": 864,
+      "passes": 1182,
+      "produced": 2046,
+      "windows": [
+        {
+          "accept": 0.7482517482517482,
+          "hits": 107,
+          "passes": 143,
+          "tokens_end": 250
+        },
+        {
+          "accept": 0.7310344827586207,
+          "hits": 106,
+          "passes": 145,
+          "tokens_end": 501
+        },
+        {
+          "accept": 0.7054794520547946,
+          "hits": 103,
+          "passes": 146,
+          "tokens_end": 750
+        },
+        {
+          "accept": 0.7676056338028169,
+          "hits": 109,
+          "passes": 142,
+          "tokens_end": 1001
+        },
+        {
+          "accept": 0.7361111111111112,
+          "hits": 106,
+          "passes": 144,
+          "tokens_end": 1251
+        },
+        {
+          "accept": 0.7361111111111112,
+          "hits": 106,
+          "passes": 144,
+          "tokens_end": 1501
+        },
+        {
+          "accept": 0.7291666666666666,
+          "hits": 105,
+          "passes": 144,
+          "tokens_end": 1750
+        },
+        {
+          "accept": 0.6891891891891891,
+          "hits": 102,
+          "passes": 148,
+          "tokens_end": 2000
+        },
+        {
+          "accept": 0.7692307692307693,
+          "hits": 20,
+          "passes": 26,
+          "tokens_end": 2046
+        }
+      ],
+      "words_per_pass": 1.7309644670050761
+    },
+    {
+      "accept": 0.6903385631709331,
+      "config": "vbias:0.02",
+      "hits": 836,
+      "passes": 1211,
+      "produced": 2047,
+      "windows": [
+        {
+          "accept": 0.7241379310344828,
+          "hits": 105,
+          "passes": 145,
+          "tokens_end": 250
+        },
+        {
+          "accept": 0.7191780821917808,
+          "hits": 105,
+          "passes": 146,
+          "tokens_end": 501
+        },
+        {
+          "accept": 0.6711409395973155,
+          "hits": 100,
+          "passes": 149,
+          "tokens_end": 750
+        },
+        {
+          "accept": 0.7074829931972789,
+          "hits": 104,
+          "passes": 147,
+          "tokens_end": 1001
+        },
+        {
+          "accept": 0.6891891891891891,
+          "hits": 102,
+          "passes": 148,
+          "tokens_end": 1251
+        },
+        {
+          "accept": 0.6666666666666666,
+          "hits": 100,
+          "passes": 150,
+          "tokens_end": 1501
+        },
+        {
+          "accept": 0.6490066225165563,
+          "hits": 98,
+          "passes": 151,
+          "tokens_end": 1750
+        },
+        {
+          "accept": 0.6891891891891891,
+          "hits": 102,
+          "passes": 148,
+          "tokens_end": 2000
+        },
+        {
+          "accept": 0.7407407407407407,
+          "hits": 20,
+          "passes": 27,
+          "tokens_end": 2047
+        }
+      ],
+      "words_per_pass": 1.6903385631709331
+    },
+    {
+      "accept": 0.6289808917197452,
+      "config": "vbias:0.1",
+      "hits": 790,
+      "passes": 1256,
+      "produced": 2046,
+      "windows": [
+        {
+          "accept": 0.7074829931972789,
+          "hits": 104,
+          "passes": 147,
+          "tokens_end": 251
+        },
+        {
+          "accept": 0.6824324324324325,
+          "hits": 101,
+          "passes": 148,
+          "tokens_end": 500
+        },
+        {
+          "accept": 0.6025641025641025,
+          "hits": 94,
+          "passes": 156,
+          "tokens_end": 750
+        },
+        {
+          "accept": 0.6405228758169934,
+          "hits": 98,
+          "passes": 153,
+          "tokens_end": 1001
+        },
+        {
+          "accept": 0.6168831168831169,
+          "hits": 95,
+          "passes": 154,
+          "tokens_end": 1250
+        },
+        {
+          "accept": 0.6298701298701299,
+          "hits": 97,
+          "passes": 154,
+          "tokens_end": 1501
+        },
+        {
+          "accept": 0.5859872611464968,
+          "hits": 92,
+          "passes": 157,
+          "tokens_end": 1750
+        },
+        {
+          "accept": 0.5822784810126582,
+          "hits": 92,
+          "passes": 158,
+          "tokens_end": 2000
+        },
+        {
+          "accept": 0.5862068965517241,
+          "hits": 17,
+          "passes": 29,
+          "tokens_end": 2046
+        }
+      ],
+      "words_per_pass": 1.6289808917197452
+    },
+    {
+      "accept": 0.6601784266017843,
+      "config": "vbias:0.1:miss",
+      "hits": 814,
+      "passes": 1233,
+      "produced": 2047,
+      "windows": [
+        {
+          "accept": 0.7123287671232876,
+          "hits": 104,
+          "passes": 146,
+          "tokens_end": 250
+        },
+        {
+          "accept": 0.7123287671232876,
+          "hits": 104,
+          "passes": 146,
+          "tokens_end": 500
+        },
+        {
+          "accept": 0.6891891891891891,
+          "hits": 102,
+          "passes": 148,
+          "tokens_end": 750
+        },
+        {
+          "accept": 0.6622516556291391,
+          "hits": 100,
+          "passes": 151,
+          "tokens_end": 1001
+        },
+        {
+          "accept": 0.7006802721088435,
+          "hits": 103,
+          "passes": 147,
+          "tokens_end": 1251
+        },
+        {
+          "accept": 0.6447368421052632,
+          "hits": 98,
+          "passes": 152,
+          "tokens_end": 1501
+        },
+        {
+          "accept": 0.5961538461538461,
+          "hits": 93,
+          "passes": 156,
+          "tokens_end": 1750
+        },
+        {
+          "accept": 0.6025641025641025,
+          "hits": 94,
+          "passes": 156,
+          "tokens_end": 2000
+        },
+        {
+          "accept": 0.5161290322580645,
+          "hits": 16,
+          "passes": 31,
+          "tokens_end": 2047
+        }
+      ],
+      "words_per_pass": 1.6601784266017843
+    },
+    {
+      "accept": 0.7280405405405406,
+      "config": "hbias:0.0003",
+      "hits": 862,
+      "passes": 1184,
+      "produced": 2046,
+      "windows": [
+        {
+          "accept": 0.7482517482517482,
+          "hits": 107,
+          "passes": 143,
+          "tokens_end": 250
+        },
+        {
+          "accept": 0.7310344827586207,
+          "hits": 106,
+          "passes": 145,
+          "tokens_end": 501
+        },
+        {
+          "accept": 0.7054794520547946,
+          "hits": 103,
+          "passes": 146,
+          "tokens_end": 750
+        },
+        {
+          "accept": 0.7676056338028169,
+          "hits": 109,
+          "passes": 142,
+          "tokens_end": 1001
+        },
+        {
+          "accept": 0.7361111111111112,
+          "hits": 106,
+          "passes": 144,
+          "tokens_end": 1251
+        },
+        {
+          "accept": 0.7241379310344828,
+          "hits": 105,
+          "passes": 145,
+          "tokens_end": 1501
+        },
+        {
+          "accept": 0.7172413793103448,
+          "hits": 104,
+          "passes": 145,
+          "tokens_end": 1750
+        },
+        {
+          "accept": 0.6891891891891891,
+          "hits": 102,
+          "passes": 148,
+          "tokens_end": 2000
+        },
+        {
+          "accept": 0.7692307692307693,
+          "hits": 20,
+          "passes": 26,
+          "tokens_end": 2046
+        }
+      ],
+      "words_per_pass": 1.7280405405405406
+    },
+    {
+      "accept": 0.7222222222222222,
+      "config": "hbias:0.001",
+      "hits": 858,
+      "passes": 1188,
+      "produced": 2046,
+      "windows": [
+        {
+          "accept": 0.7482517482517482,
+          "hits": 107,
+          "passes": 143,
+          "tokens_end": 250
+        },
+        {
+          "accept": 0.7310344827586207,
+          "hits": 106,
+          "passes": 145,
+          "tokens_end": 501
+        },
+        {
+          "accept": 0.7054794520547946,
+          "hits": 103,
+          "passes": 146,
+          "tokens_end": 750
+        },
+        {
+          "accept": 0.7430555555555556,
+          "hits": 107,
+          "passes": 144,
+          "tokens_end": 1001
+        },
+        {
+          "accept": 0.7361111111111112,
+          "hits": 106,
+          "passes": 144,
+          "tokens_end": 1251
+        },
+        {
+          "accept": 0.7123287671232876,
+          "hits": 104,
+          "passes": 146,
+          "tokens_end": 1501
+        },
+        {
+          "accept": 0.7054794520547946,
+          "hits": 103,
+          "passes": 146,
+          "tokens_end": 1750
+        },
+        {
+          "accept": 0.6891891891891891,
+          "hits": 102,
+          "passes": 148,
+          "tokens_end": 2000
+        },
+        {
+          "accept": 0.7692307692307693,
+          "hits": 20,
+          "passes": 26,
+          "tokens_end": 2046
+        }
+      ],
+      "words_per_pass": 1.7222222222222223
+    },
+    {
+      "accept": 0.7251264755480608,
+      "config": "lora:0.0001:16",
+      "hits": 860,
+      "passes": 1186,
+      "produced": 2046,
+      "windows": [
+        {
+          "accept": 0.7482517482517482,
+          "hits": 107,
+          "passes": 143,
+          "tokens_end": 250
+        },
+        {
+          "accept": 0.7310344827586207,
+          "hits": 106,
+          "passes": 145,
+          "tokens_end": 501
+        },
+        {
+          "accept": 0.7054794520547946,
+          "hits": 103,
+          "passes": 146,
+          "tokens_end": 750
+        },
+        {
+          "accept": 0.7430555555555556,
+          "hits": 107,
+          "passes": 144,
+          "tokens_end": 1001
+        },
+        {
+          "accept": 0.7361111111111112,
+          "hits": 106,
+          "passes": 144,
+          "tokens_end": 1251
+        },
+        {
+          "accept": 0.7123287671232876,
+          "hits": 104,
+          "passes": 146,
+          "tokens_end": 1501
+        },
+        {
+          "accept": 0.7291666666666666,
+          "hits": 105,
+          "passes": 144,
+          "tokens_end": 1750
+        },
+        {
+          "accept": 0.6891891891891891,
+          "hits": 102,
+          "passes": 148,
+          "tokens_end": 2000
+        },
+        {
+          "accept": 0.7692307692307693,
+          "hits": 20,
+          "passes": 26,
+          "tokens_end": 2046
+        }
+      ],
+      "words_per_pass": 1.7251264755480606
+    },
+    {
+      "accept": 0.5178041543026706,
+      "config": "lora:0.001:16",
+      "hits": 698,
+      "passes": 1348,
+      "produced": 2046,
+      "windows": [
+        {
+          "accept": 0.6129032258064516,
+          "hits": 95,
+          "passes": 155,
+          "tokens_end": 250
+        },
+        {
+          "accept": 0.5060240963855421,
+          "hits": 84,
+          "passes": 166,
+          "tokens_end": 500
+        },
+        {
+          "accept": 0.34408602150537637,
+          "hits": 64,
+          "passes": 186,
+          "tokens_end": 750
+        },
+        {
+          "accept": 0.49700598802395207,
+          "hits": 83,
+          "passes": 167,
+          "tokens_end": 1000
+        },
+        {
+          "accept": 0.5886075949367089,
+          "hits": 93,
+          "passes": 158,
+          "tokens_end": 1251
+        },
+        {
+          "accept": 0.5923566878980892,
+          "hits": 93,
+          "passes": 157,
+          "tokens_end": 1501
+        },
+        {
+          "accept": 0.5060240963855421,
+          "hits": 84,
+          "passes": 166,
+          "tokens_end": 1751
+        },
+        {
+          "accept": 0.5370370370370371,
+          "hits": 87,
+          "passes": 162,
+          "tokens_end": 2000
+        },
+        {
+          "accept": 0.4838709677419355,
+          "hits": 15,
+          "passes": 31,
+          "tokens_end": 2046
+        }
+      ],
+      "words_per_pass": 1.5178041543026706
+    }
+  ],
+  "rows": 2047,
+  "score_start": 1,
+  "seconds": 652.439420065,
+  "tool": "qwen38_lab learn",
+  "trace": "/home/drakestapleton/workspace/skipped-work/runs/mtp-arch-20261019T1742Z/trace"
+}

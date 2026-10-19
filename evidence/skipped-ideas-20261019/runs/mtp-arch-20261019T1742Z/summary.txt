@@ -1,0 +1,18 @@
+main pass 2048 tokens in 936 s
+MTP draft == verifier on 1509/2046 decoded rows; main argmax == text on 1167/2047
+{
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-skipped-mtp-arch-20261019T1742Z.json
+rc=0
+none               passes 1182 hits 864 (0.7310) words/pass 1.7310  windows ["0.748", "0.731", "0.705", "0.768", "0.736", "0.736", "0.729", "0.689", "0.769"]
+vbias:0.02         passes 1211 hits 836 (0.6903) words/pass 1.6903  windows ["0.724", "0.719", "0.671", "0.707", "0.689", "0.667", "0.649", "0.689", "0.741"]
+vbias:0.1          passes 1256 hits 790 (0.6290) words/pass 1.6290  windows ["0.707", "0.682", "0.603", "0.641", "0.617", "0.630", "0.586", "0.582", "0.586"]
+vbias:0.1:miss     passes 1233 hits 814 (0.6602) words/pass 1.6602  windows ["0.712", "0.712", "0.689", "0.662", "0.701", "0.645", "0.596", "0.603", "0.516"]
+hbias:0.0003       passes 1184 hits 862 (0.7280) words/pass 1.7280  windows ["0.748", "0.731", "0.705", "0.768", "0.736", "0.724", "0.717", "0.689", "0.769"]
+hbias:0.001        passes 1188 hits 858 (0.7222) words/pass 1.7222  windows ["0.748", "0.731", "0.705", "0.743", "0.736", "0.712", "0.705", "0.689", "0.769"]
+lora:0.0001:16     passes 1186 hits 860 (0.7251) words/pass 1.7251  windows ["0.748", "0.731", "0.705", "0.743", "0.736", "0.712", "0.729", "0.689", "0.769"]
+lora:0.001:16      passes 1348 hits 698 (0.5178) words/pass 1.5178  windows ["0.613", "0.506", "0.344", "0.497", "0.589", "0.592", "0.506", "0.537", "0.484"]
+{
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-skipped-learn-arch-20261019T1742Z.json
+rc=0
