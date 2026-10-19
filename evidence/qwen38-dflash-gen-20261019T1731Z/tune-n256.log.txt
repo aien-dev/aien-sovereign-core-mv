@@ -1,0 +1,7 @@
+memory: whole model + MTP head + drafter needs 36759 MiB, keep 12288 MiB free, MemAvailable 67890 MiB
+drafter 3670 MiB in 4.5 s, model in 44.7 s, prompt tune 28 tokens
+capture: 256 tokens in 59059 ms
+replay: 73 rounds, 183 accepted of 507 drafted, 3.507 words per pass
+live: 73 rounds, 3.507 words per pass, tokens identical to k = 0: true, rounds identical to replay: true
+mtp k 7: 75 rounds, 3.480 words per pass, tokens identical: true
+QWEN38_DFLASH prompt tune n 256 mutant None norollback false: replay 3.507 words/pass, live 3.507, mtp k7 3.480 -> PASS
