@@ -31,6 +31,7 @@ mkdir -p "$OUT"
 # shellcheck source=tools/qwen38_receipt.sh
 . "$REPO/tools/qwen38_receipt.sh"
 q38_server_facts "$URL"
+# shellcheck disable=SC2034 # read by q38_write_receipt
 Q38_MACHINE_START=$(q38_machine_json)
 : > "$OUT/runs.jsonl"
 # run <name> <messages-json> <max_tokens>
@@ -38,7 +39,7 @@ run() {
   local w=""
   jq -n --argjson m "$2" --argjson n "$3" \
     '{messages:$m, temperature:0, max_tokens:$n, chat_template_kwargs:{enable_thinking:false}, aien_return_token_ids:true}' > "$OUT/$1.req.json"
-  for try in $(seq 1 240); do
+  for _ in $(seq 1 240); do
     w=$(curl -s -m 1800 -o "$OUT/$1.json" -w '%{time_total}' "$URL/v1/chat/completions" \
       -H 'Content-Type: application/json' -d @"$OUT/$1.req.json")
     # Retry only "busy" answers (server_busy, chip lock); any other error is the result.

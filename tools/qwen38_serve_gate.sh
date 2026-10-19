@@ -25,6 +25,7 @@ mkdir -p "$OUT"
 # shellcheck source=tools/qwen38_receipt.sh
 . "$REPO/tools/qwen38_receipt.sh"
 q38_server_facts "$URL"
+# shellcheck disable=SC2034 # read by q38_write_receipt
 Q38_MACHINE_START=$(q38_machine_json)
 : > "$OUT/runs.jsonl"
 N=$(jq '.generated_ids | length' "$GOLDEN")
@@ -41,7 +42,7 @@ ask() {
     > "$OUT/$1.req.json"
   # Other clients share the server: retry while it answers busy (one generation at a time).
   local w=""
-  for try in $(seq 1 240); do
+  for _ in $(seq 1 240); do
     w=$(curl -s -m 900 -o "$OUT/$1.json" -w "%{time_total}" "$URL/v1/chat/completions" -H 'Content-Type: application/json' -d @"$OUT/$1.req.json")
     # Retry only "busy" answers (server_busy, chip lock); any other error is the result.
     jq -e '.error | tostring | test("busy"; "i")' "$OUT/$1.json" >/dev/null 2>&1 || break

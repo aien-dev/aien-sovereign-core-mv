@@ -13,6 +13,7 @@
 Q38_REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 Q38_MODEL_SUMS="$Q38_REPO/docs/qwen38/qwen3.8-27b-fp8-017b9c7a.sha256"
 # Weight bytes read per generated token and the 273 GB/s nominal memory rate: docs/qwen38/CEILING.md.
+# shellcheck disable=SC2034 # read by qwen38_serve_speed.sh
 Q38_CEILING_TOK_S=10.15
 
 # q38_server_facts <base-url>: sets Q38_PID, Q38_BIN, Q38_BIN_SHA256, Q38_BUILD, Q38_MODEL_DIR.
