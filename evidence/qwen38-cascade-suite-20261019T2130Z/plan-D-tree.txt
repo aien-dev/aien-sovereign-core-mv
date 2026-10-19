@@ -1,0 +1,10 @@
+tree-213-codelong --prompt codelong --n 192 --k 0,8 --tree 2,1,3
+tree-332-codelong --prompt codelong --n 192 --k 0,8 --tree 3,3,2
+tree-213-prose --prompt prose --n 192 --k 0,8 --tree 2,1,3
+tree-332-prose --prompt prose --n 192 --k 0,8 --tree 3,3,2
+tree-213-codeedit --prompt codeedit --n 192 --k 0,8 --tree 2,1,3
+tree-332-codeedit --prompt codeedit --n 192 --k 0,8 --tree 3,3,2
+tree-213-quote --prompt quote --n 192 --k 0,8 --tree 2,1,3
+tree-332-quote --prompt quote --n 192 --k 0,8 --tree 3,3,2
+tree-412-codelong --prompt codelong --n 192 --k 0,8 --tree 4,1,2
+tree-412-prose --prompt prose --n 192 --k 0,8 --tree 4,1,2

@@ -1,0 +1,6 @@
+merge-codeedit --prompt codeedit --n 192 --k 0,8 --source merge
+merge-quote --prompt quote --n 192 --k 0,8 --source merge
+merge-codelong --prompt codelong --n 192 --k 0,8 --source merge
+merge-prose --prompt prose --n 192 --k 0,8 --source merge
+ngramfirst-codeedit --prompt codeedit --n 192 --k 0,8 --source ngram-first
+ngramfirst-quote --prompt quote --n 192 --k 0,8 --source ngram-first

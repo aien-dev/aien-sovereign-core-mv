@@ -1,0 +1,5 @@
+golden-chain --prompt golden --golden /home/drakestapleton/handoffs/qwen38-ref/gen-chat-max-24.json --n 64 --k 0,8
+golden-tree-332 --prompt golden --golden /home/drakestapleton/handoffs/qwen38-ref/gen-chat-max-24.json --n 64 --k 0,8 --tree 3,3,2
+mtp-prose --prompt prose --n 192 --k 0,1,4,8 --source mtp
+mtp-codeedit --prompt codeedit --n 192 --k 0,1,4,8 --source mtp
+mtp-quote --prompt quote --n 192 --k 0,1,4,8 --source mtp

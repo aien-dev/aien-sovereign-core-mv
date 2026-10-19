@@ -1,0 +1,8 @@
+mutant-extra-prose --prompt prose --n 96 --k 0,8 --source mtp --mutant extra
+mutant-norollback-prose --prompt prose --n 96 --k 0,8 --source mtp --mutant norollback
+mutant-rowshift-prose --prompt prose --n 96 --k 0,8 --source mtp --mutant rowshift
+mutant-extra-codeedit-merge --prompt codeedit --n 96 --k 0,8 --source merge --mutant extra
+mutant-treenorebuild-tree-prose --prompt prose --n 96 --k 0,8 --tree 3,3,2 --mutant treenorebuild
+mutant-treenokv-tree-prose --prompt prose --n 96 --k 0,8 --tree 3,3,2 --mutant treenokv
+mutant-extra-tree-prose --prompt prose --n 96 --k 0,8 --tree 3,3,2 --mutant extra
+mutant-norollback-tree-prose --prompt prose --n 96 --k 0,8 --tree 3,3,2 --mutant norollback
