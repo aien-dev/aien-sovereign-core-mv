@@ -4,7 +4,7 @@
 //!                   [--whole-prompt on|off] [--prefill-device-host on|off]
 //!                   [--model-dir DIR] [--port 18091]
 //!                   [--bind 127.0.0.1] [--model-id ID] [--max-context N]
-//!                   [--max-tokens-cap N] [--stub-reply TEXT]
+//!                   [--max-tokens-cap N] [--stub-reply TEXT] [--thinking on|off|template]
 //!
 //! `cpu` (default) loads the checkpoint into the CPU reference forward (slow, real).
 //! `omega` loads the checkpoint onto AIEN's own GPU engine (FP8 by default, spin 2000 us
@@ -18,6 +18,9 @@
 //! refuses with a startup line and the door runs plain. Unset: nothing changes.
 //! SIGTERM/SIGINT: stop accepting, finish the request in flight, drain the parks, exit 0.
 //! `AIEN_KV_TEST_FAULT` (chip acceptance checks only) stalls one store step; see `kv_persist`.
+//! `--thinking on|off|template` sets `enable_thinking` for requests that do not set it themselves
+//! (`chat_template_kwargs.enable_thinking`); `template` (the default) leaves the chat template's
+//! own default (Qwen3.8-27B: on). Templates without a thinking switch ignore it.
 //! `stub` replays `--stub-reply` for every request, using the model directory's
 //! tokenizer when it exists (so Odysseus can be wired before the weights load).
 
@@ -34,6 +37,7 @@ use aien_serve_http::kv_persist;
 use aien_serve_http::omega_engine::{
     parse_switch, OmegaDoor, PrefillMode, WHOLE_PROMPT_ENV, WP_DEVICE_HOST_ENV,
 };
+use aien_serve_http::qwen38_engine;
 use aien_serve_http::server::{serve_until, ServerConfig};
 
 const DEFAULT_MODEL_DIR: &str = "models/qwen3-30b-a3b-instruct-2507-fp8";
@@ -53,7 +57,8 @@ struct Args {
 fn usage() -> String {
     "usage: aien-serve-http [--engine cpu|stub|omega] [--weights bf16|fp8-experts|fp8] [--spin-us N] \
      [--model-dir DIR] [--port N] [--bind ADDR] [--model-id ID] [--max-context N] \
-     [--max-tokens-cap N] [--stub-reply TEXT] [--whole-prompt on|off] [--prefill-device-host on|off]"
+     [--max-tokens-cap N] [--stub-reply TEXT] [--whole-prompt on|off] [--prefill-device-host on|off] \
+     [--thinking on|off|template]"
         .to_string()
 }
 
@@ -99,6 +104,18 @@ fn parse_args() -> Result<Args, String> {
                     .map_err(|e| format!("--max-tokens-cap: {e}"))?
             }
             "--stub-reply" => a.stub_reply = val()?,
+            "--thinking" => {
+                a.cfg.default_enable_thinking = match val()?.as_str() {
+                    "on" => Some(true),
+                    "off" => Some(false),
+                    "template" => None,
+                    other => {
+                        return Err(format!(
+                            "--thinking must be on, off or template, got {other}"
+                        ))
+                    }
+                }
+            }
             "--weights" => {
                 a.weights = match val()?.as_str() {
                     "bf16" => WeightFormat::Bf16,
@@ -235,6 +252,36 @@ fn main() -> ExitCode {
         Arc::new(
             StubEngine::new(reply).with_max_context(args.cfg.max_context_tokens.unwrap_or(4096)),
         )
+    } else if args.engine == "omega" && qwen38_engine::is_qwen38_dir(&args.model_dir) {
+        // Qwen3.8-27B (config model_type qwen3_5): its own door; no persistent KV (DeltaNet state).
+        if let Some(us) = args.spin_us {
+            if let Err(e) = aien_omega_gpu::set_spin_us(us) {
+                eprintln!("aien-serve-http: spin: {e}");
+                return ExitCode::from(1);
+            }
+        }
+        if args.cfg.model_id == ServerConfig::default().model_id {
+            args.cfg.model_id = qwen38_engine::DEFAULT_MODEL_ID.into();
+        }
+        if std::env::var_os("AIEN_KV_STORE_DIR").is_some() {
+            eprintln!(
+                "aien-serve-http: AIEN_KV_STORE_DIR ignored: the qwen38 door has no persistent KV"
+            );
+        }
+        eprintln!(
+            "aien-serve-http: loading Qwen3.8 (qwen3_5) onto the Omega engine from {}",
+            args.model_dir.display()
+        );
+        match qwen38_engine::Qwen38Door::load(
+            &args.model_dir,
+            args.cfg.max_context_tokens.unwrap_or(32768),
+        ) {
+            Ok(door) => Arc::new(door),
+            Err(e) => {
+                eprintln!("aien-serve-http: qwen38 load failed: {e}");
+                return ExitCode::from(1);
+            }
+        }
     } else if args.engine == "omega" {
         eprintln!(
             "aien-serve-http: loading {:?} weights onto the Omega engine from {} (spin {:?} us)",

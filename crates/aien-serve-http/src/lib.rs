@@ -10,6 +10,7 @@ pub mod engine;
 pub mod kv_persist;
 pub mod omega_engine;
 pub mod openai;
+pub mod qwen38_engine;
 pub mod sampling;
 pub mod server;
 pub mod text;

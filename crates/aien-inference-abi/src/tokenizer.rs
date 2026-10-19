@@ -86,6 +86,12 @@ pub enum ChatTemplate {
     /// turns, tool calls, reasoning content, unknown roles, a trailing assistant turn) is
     /// refused with `TokenizerError::UnsupportedChatLayout`. Selected only by the pinned text.
     ChatMlQwen3NoThink,
+    /// Qwen3.8-27B (the pinned template `QWEN38`): text-only system, user and assistant turns.
+    /// Thinking follows the template: ON unless [`ChatOptions::enable_thinking`] is `false`, with
+    /// the template's reasoning-effort system text (default `xhigh`; `medium` adds none). Earlier
+    /// assistant turns render with the template's empty think block (no `reasoning_content`).
+    /// Tool turns are refused. Selected only by the pinned text.
+    Qwen38,
     /// The model directory has no chat template at all (a base model). Plain text encode
     /// and decode work; every chat render is refused (`try_render` errors with
     /// "no chat template"). Chosen only when neither `tokenizer_config.json` `chat_template`
@@ -116,6 +122,100 @@ const QWEN3_INSTRUCT_2507: &str =
 /// engine always renders the `enable_thinking=false` form ([`ChatTemplate::ChatMlQwen3NoThink`]).
 const QWEN3_8B: &str = include_str!("../fixtures/chat-templates/qwen3-8b/chat_template.jinja");
 
+/// The Qwen3.8-27B chat template, byte for byte (Hugging Face `Qwen/Qwen3.8-27B-FP8` revision
+/// 017b9c7a, Apache-2.0; see `fixtures/chat-templates/qwen3.8-27b/PROVENANCE.md`).
+const QWEN38: &str = include_str!("../fixtures/chat-templates/qwen3.8-27b/chat_template.jinja");
+
+/// Template switches a request may set (`chat_template_kwargs`). `None` = the template's default.
+/// Only [`ChatTemplate::Qwen38`] reads them; the other layouts ignore them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ChatOptions {
+    pub enable_thinking: Option<bool>,
+    pub reasoning_effort: Option<String>,
+}
+
+/// The Qwen3.8-27B template's reasoning-effort system text (`QWEN38` lines 46-58).
+fn qwen38_reasoning_instructions(opts: &ChatOptions) -> Result<&'static str, TokenizerError> {
+    if opts.enable_thinking == Some(false) {
+        return Ok("");
+    }
+    match opts.reasoning_effort.as_deref().unwrap_or("xhigh") {
+        "xhigh" => Ok("Reasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer."),
+        "medium" => Ok(""),
+        "low" => Ok("Reasoning effort is set to low. Keep your thinking brief and focused, moving directly to the conclusion without unnecessary elaboration."),
+        other => Err(TokenizerError::UnsupportedChatLayout(format!(
+            "Unexpected reasoning effort {other}. Supported types are xhigh (default), medium, and low."
+        ))),
+    }
+}
+
+/// The pinned Qwen3.8-27B template without tools, text content only (oracle-checked against
+/// jinja2, `fixtures/chat-templates/qwen3.8-27b/render_oracle.json`): every content trimmed; an
+/// optional first system turn merged with the reasoning-effort text; user turns ChatML; assistant
+/// turns `<think>\n\n</think>\n\n` + content (no reasoning content is carried); generation prompt
+/// `<|im_start|>assistant\n<think>\n`, or the closed empty think block when thinking is off.
+fn render_qwen38(turns: &[(&str, &str)], opts: &ChatOptions) -> Result<String, TokenizerError> {
+    let refuse = |why: String| Err(TokenizerError::UnsupportedChatLayout(why));
+    if turns.is_empty() {
+        return refuse("No messages provided.".into());
+    }
+    let reasoning = qwen38_reasoning_instructions(opts)?;
+    let mut out = String::new();
+    let system = match turns[0] {
+        ("system", c) => Some(c.trim()),
+        _ => None,
+    };
+    match system {
+        Some(c) if !c.is_empty() => {
+            out.push_str("<|im_start|>system\n");
+            if !reasoning.is_empty() {
+                out.push_str(reasoning);
+                out.push_str("\n\n");
+            }
+            out.push_str(c);
+            out.push_str("<|im_end|>\n");
+        }
+        _ if !reasoning.is_empty() => {
+            out.push_str("<|im_start|>system\n");
+            out.push_str(reasoning);
+            out.push_str("<|im_end|>\n");
+        }
+        _ => {}
+    }
+    if !turns.iter().any(|(r, _)| *r == "user") {
+        return refuse("No user query found in messages.".into());
+    }
+    for (i, (role, content)) in turns.iter().enumerate() {
+        let content = content.trim();
+        match *role {
+            "system" if i == 0 => {}
+            "system" => return refuse("System message must be at the beginning.".into()),
+            "user" => {
+                out.push_str("<|im_start|>user\n");
+                out.push_str(content);
+                out.push_str("<|im_end|>\n");
+            }
+            "assistant" => {
+                out.push_str("<|im_start|>assistant\n<think>\n\n</think>\n\n");
+                out.push_str(content);
+                out.push_str("<|im_end|>\n");
+            }
+            other => {
+                return refuse(format!(
+                "role {other} refused: the Qwen3.8 layout here is text-only system/user/assistant"
+            ))
+            }
+        }
+    }
+    out.push_str("<|im_start|>assistant\n");
+    out.push_str(if opts.enable_thinking == Some(false) {
+        "<think>\n\n</think>\n\n"
+    } else {
+        "<think>\n"
+    });
+    Ok(out)
+}
+
 /// Matches a chat template text against the ChatML layouts above. Returns the layout
 /// with its default system message (None for the plain layout), or a refusal.
 fn parse_chatml(template_text: &str) -> Result<ChatTemplate, TokenizerError> {
@@ -125,6 +225,9 @@ fn parse_chatml(template_text: &str) -> Result<ChatTemplate, TokenizerError> {
     }
     if text == QWEN3_8B.trim() {
         return Ok(ChatTemplate::ChatMlQwen3NoThink);
+    }
+    if text == QWEN38.trim() {
+        return Ok(ChatTemplate::Qwen38);
     }
     if text == CHATML_PLAIN {
         return Ok(ChatTemplate::ChatMl {
@@ -262,6 +365,18 @@ fn render_qwen3_nothink(turns: &[(&str, &str)]) -> Result<String, TokenizerError
 }
 
 impl ChatTemplate {
+    /// [`Self::try_render`] with template switches: only [`ChatTemplate::Qwen38`] reads `opts`.
+    pub fn try_render_with(
+        &self,
+        turns: &[(&str, &str)],
+        opts: &ChatOptions,
+    ) -> Result<String, TokenizerError> {
+        match self {
+            Self::Qwen38 => render_qwen38(turns, opts),
+            _ => self.try_render(turns),
+        }
+    }
+
     /// Qwen3-8B with `enable_thinking` requested explicitly. Only `false` renders; `true` is
     /// refused (the engine does not parse or budget a thinking block).
     pub fn try_render_thinking(
@@ -291,6 +406,7 @@ impl ChatTemplate {
             Self::ChatMl { .. } => "chatml (<|im_start|> / <|im_end|>)",
             Self::ChatMlQwen3 => "chatml-qwen3 (<|im_start|> / <|im_end|>, tool responses)",
             Self::ChatMlQwen3NoThink => "chatml-qwen3-nothink (Qwen3-8B, thinking off)",
+            Self::Qwen38 => "qwen3.8 (Qwen3.8-27B, thinking per request, template default on)",
             Self::None => "none (plain text model)",
         }
     }
@@ -345,6 +461,9 @@ impl ChatTemplate {
         if let Self::ChatMlQwen3NoThink = self {
             return render_qwen3_nothink(turns);
         }
+        if let Self::Qwen38 = self {
+            return render_qwen38(turns, &ChatOptions::default());
+        }
         let mut out = String::new();
         for (role, content) in turns {
             let body = content.trim();
@@ -361,7 +480,10 @@ impl ChatTemplate {
                 Self::Llama3 => out.push_str(&format!(
                     "<|start_header_id|>{role}<|end_header_id|>\n\n{body}<|eot_id|>"
                 )),
-                Self::ChatMl { .. } | Self::ChatMlQwen3 | Self::ChatMlQwen3NoThink => {
+                Self::ChatMl { .. }
+                | Self::ChatMlQwen3
+                | Self::ChatMlQwen3NoThink
+                | Self::Qwen38 => {
                     unreachable!("ChatML returned above")
                 }
                 Self::None => unreachable!("plain model refused above"),
@@ -371,7 +493,10 @@ impl ChatTemplate {
             out.push_str(match self {
                 Self::Zephyr => "<|assistant|>\n",
                 Self::Llama3 => "<|start_header_id|>assistant<|end_header_id|>\n\n",
-                Self::ChatMl { .. } | Self::ChatMlQwen3 | Self::ChatMlQwen3NoThink => {
+                Self::ChatMl { .. }
+                | Self::ChatMlQwen3
+                | Self::ChatMlQwen3NoThink
+                | Self::Qwen38 => {
                     unreachable!("ChatML returned above")
                 }
                 Self::None => unreachable!("plain model refused above"),
@@ -477,7 +602,8 @@ impl ChatTokenizer {
     /// - template: detected from `chat_template` in `tokenizer_config.json`, else from
     ///   `chat_template.jinja`;
     /// - stop set: `eos_token_id` of `generation_config.json`, else of `config.json`;
-    /// - context limit: `max_position_embeddings` of `config.json` (default 2048).
+    /// - context limit: `max_position_embeddings` of `config.json`, or of its `text_config`
+    ///   (default 2048).
     pub fn from_model_dir(
         dir: &Path,
         tokenizer_json: Option<&Path>,
@@ -543,9 +669,13 @@ impl ChatTokenizer {
             )));
         }
         tokenizer.stop_token_ids = stop;
+        // Multimodal configs (Qwen3.8 `qwen3_5`) keep the language model's limit in `text_config`.
         if let Some(max) = config
             .as_ref()
-            .and_then(|c| c.get("max_position_embeddings"))
+            .and_then(|c| {
+                c.get("max_position_embeddings")
+                    .or_else(|| c.get("text_config")?.get("max_position_embeddings"))
+            })
             .and_then(|v| v.as_u64())
         {
             tokenizer.max_context_len = max as usize;
@@ -573,6 +703,17 @@ impl ChatTokenizer {
     pub fn try_format_chat(&self, turns: &[(&str, &str)]) -> Result<String, TokenizerError> {
         refuse_tool_role(turns)?;
         self.template.try_render(turns)
+    }
+
+    /// [`Self::try_format_chat`] with the request's template switches (only the Qwen3.8 layout
+    /// reads them; every other layout renders exactly as without).
+    pub fn try_format_chat_with(
+        &self,
+        turns: &[(&str, &str)],
+        opts: &ChatOptions,
+    ) -> Result<String, TokenizerError> {
+        refuse_tool_role(turns)?;
+        self.template.try_render_with(turns, opts)
     }
 
     /// Formats a conversation according to the canonical TinyLlama chat template:
