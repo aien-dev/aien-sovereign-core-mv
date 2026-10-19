@@ -4,7 +4,7 @@
 #   mode single : the one-at-a-time door (no --batch-slots): single-stream greedy references, 8 prompts alone
 #   mode batch  : --batch-slots 8: n=1 (each prompt alone), then n=2,4,8 for ROUNDS rounds
 # Env: MAXT (max_tokens, default 256), ROUNDS (default 3), CTX (max-context, default 4096)
-# Locks: every timed bench call runs under flock -x /tmp/aien-quiet.lock (coordinator rule 16:35Z).
+# Locks: every timed bench call runs under ~/.local/bin/quiet-measure (quiet lock exclusive, builds held off).
 # The GPU lock /tmp/aien-gb10.lock is taken by the server itself (at load and for each busy spell,
 # first arrival to last leave); wrapping the client in it too would deadlock the server, so the
 # client does not take it. loadavg is recorded at start and end of every call in <outdir>/locks.log.
@@ -34,7 +34,7 @@ m() { echo "start $(date -u +%FT%TZ) load $(cat /proc/loadavg) :: $*" >> "$OUT/l
 m() {
   if [ "${QUIET:-1}" = 0 ]; then echo "start $(date -u +%FT%TZ) load $(cat /proc/loadavg) NO QUIET LOCK (correctness only, timings not published) :: $*" >> "$OUT/locks.log"; "$@"; echo "end   $(date -u +%FT%TZ) load $(cat /proc/loadavg)" >> "$OUT/locks.log"; return; fi
   echo "start $(date -u +%FT%TZ) load $(cat /proc/loadavg) :: $*" >> "$OUT/locks.log"
-  flock -x /tmp/aien-quiet.lock "$@"
+  $HOME/.local/bin/quiet-measure "$@"
   echo "end   $(date -u +%FT%TZ) load $(cat /proc/loadavg)" >> "$OUT/locks.log"
 }
 if [ "$MODE" = single ]; then
