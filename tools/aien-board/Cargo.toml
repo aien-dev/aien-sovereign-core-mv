@@ -1,0 +1,22 @@
+[package]
+name = "aien-board"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Repo agents and the change board (L088): measure what the judge spends on gates a change cannot reach, post changed producer interfaces, run only the consumer contract checks they touch"
+
+[dependencies]
+# The planner, git plumbing and receipts come from aien-test; nothing new enters the lockfile.
+aien-test = { path = "../aien-test" }
+libc = "0.2"
+serde_json = "1.0"
+sha2 = "0.10"
+
+[[bin]]
+name = "aien-board"
+path = "src/main.rs"
+
+[lib]
+name = "aien_board"
+path = "src/lib.rs"

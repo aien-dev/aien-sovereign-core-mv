@@ -1,0 +1,899 @@
+{
+  "by_repo": {
+    "aegis-runtime": {
+      "always": {
+        "fails": 0,
+        "gate_ms": 179450,
+        "receipts": 72,
+        "wait_ms": 3
+      },
+      "direct": {
+        "fails": 10,
+        "gate_ms": 643877,
+        "receipts": 69,
+        "wait_ms": 7
+      },
+      "heads": 23
+    },
+    "aien-architecture": {
+      "always": {
+        "fails": 1,
+        "gate_ms": 639179,
+        "receipts": 123,
+        "wait_ms": 23
+      },
+      "direct": {
+        "fails": 5,
+        "gate_ms": 577636,
+        "receipts": 53,
+        "wait_ms": 3
+      },
+      "heads": 35
+    },
+    "aien-protocols": {
+      "always": {
+        "fails": 0,
+        "gate_ms": 335565,
+        "receipts": 111,
+        "wait_ms": 6
+      },
+      "direct": {
+        "fails": 8,
+        "gate_ms": 1759076,
+        "receipts": 111,
+        "wait_ms": 9
+      },
+      "heads": 36
+    },
+    "aien-sovereign-core": {
+      "always": {
+        "fails": 26,
+        "gate_ms": 375837531,
+        "receipts": 705,
+        "wait_ms": 42821531
+      },
+      "direct": {
+        "fails": 434,
+        "gate_ms": 1487894709,
+        "receipts": 2259,
+        "wait_ms": 92385988
+      },
+      "heads": 153
+    },
+    "aienos": {
+      "always": {
+        "fails": 11,
+        "gate_ms": 223826766,
+        "receipts": 156,
+        "wait_ms": 129
+      },
+      "direct": {
+        "fails": 57,
+        "gate_ms": 668185139,
+        "receipts": 409,
+        "wait_ms": 275
+      },
+      "heads": 44
+    },
+    "benchmarks": {
+      "always": {
+        "fails": 0,
+        "gate_ms": 66331,
+        "receipts": 19,
+        "wait_ms": 1
+      },
+      "direct": {
+        "fails": 21,
+        "gate_ms": 814872,
+        "receipts": 79,
+        "wait_ms": 2
+      },
+      "heads": 18
+    },
+    "interplane": {
+      "always": {
+        "fails": 0,
+        "gate_ms": 36816,
+        "receipts": 11,
+        "wait_ms": 2
+      },
+      "direct": {
+        "fails": 5,
+        "gate_ms": 4161943,
+        "receipts": 45,
+        "wait_ms": 6
+      },
+      "heads": 10
+    },
+    "omega": {
+      "always": {
+        "fails": 16,
+        "gate_ms": 203313536,
+        "receipts": 223,
+        "wait_ms": 115220919
+      },
+      "direct": {
+        "fails": 427,
+        "gate_ms": 2837510727,
+        "receipts": 3463,
+        "wait_ms": 3545796538
+      },
+      "heads": 71
+    },
+    "physics": {
+      "always": {
+        "fails": 4,
+        "gate_ms": 68256700,
+        "receipts": 156,
+        "wait_ms": 2019
+      },
+      "direct": {
+        "fails": 26,
+        "gate_ms": 185812557,
+        "receipts": 734,
+        "wait_ms": 12755701
+      },
+      "heads": 28
+    },
+    "spark-rsi": {
+      "always": {
+        "fails": 0,
+        "gate_ms": 236822,
+        "receipts": 42,
+        "wait_ms": 2
+      },
+      "direct": {
+        "fails": 9,
+        "gate_ms": 3599220,
+        "receipts": 43,
+        "wait_ms": 0
+      },
+      "heads": 20
+    },
+    "synapse": {
+      "always": {
+        "fails": 30,
+        "gate_ms": 71724,
+        "receipts": 102,
+        "wait_ms": 13
+      },
+      "direct": {
+        "fails": 40,
+        "gate_ms": 6265249,
+        "receipts": 102,
+        "wait_ms": 10
+      },
+      "heads": 47
+    }
+  },
+  "fails_outside_direct": [
+    {
+      "class": "always",
+      "finished": "2026-10-18T19:14:00Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aien-architecture",
+      "sha": "e275c5b9c2af32e89fefab0df40ca527710d7d08"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T21:02:31Z",
+      "gate": "SC-ZERO-CUDA",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "24bc83cc14f4fc5f53f6f17d1a356aca7f6060f9"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-19T20:11:12Z",
+      "gate": "SC-ZERO-CUDA",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "24bc83cc14f4fc5f53f6f17d1a356aca7f6060f9"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T07:42:44Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "276c2e1bebaff1ffef1d58b00cf5087d6b0bd81e"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T18:28:18Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "2d16cb943635e8bb13e5481eb9d9260091e87733"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T18:34:54Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "336f51fba81fea9757dc7eed731cf59cd7ad54db"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T21:36:18Z",
+      "gate": "SC-ZERO-CUDA",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "3606d0411991d65304e17124343e52b669e9bb82"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T18:41:32Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "501467fccb700d111257e356d559c1404eec5efb"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T18:45:27Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "515b115449c471cfd3b3d1ecc0f299d2ef70a954"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T08:09:48Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "5be4a0512bde3f58bed9f4ef52cced98b1ed7357"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-17T03:17:40Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "6fec8716d70e4164926bfef4e94f700b877a8fc9"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-11T20:42:02Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "762f6f7171c158d12138591eff58ee1458888f86"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-17T12:17:58Z",
+      "gate": "SC-ZERO-CUDA",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "76b10f6f09dcb1203d3052cca1182f837732bde0"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T15:48:41Z",
+      "gate": "SC-ZERO-CUDA",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "77cca63424ee6a1a43de396ddf1d9e22bcc9a06d"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T18:52:46Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "78b404f36e51f2c1185b9200111fca1ad4423546"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T12:31:00Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "81760bedfe634ec1a439a2e3f3e72f9302d1a14a"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T14:08:43Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "81760bedfe634ec1a439a2e3f3e72f9302d1a14a"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T10:19:48Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "824c80b4e3ed0359cdf803a371bc17c512786e78"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T22:27:34Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "836a53446d3674e86cbfc435d814775a0b8503a8"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T13:27:32Z",
+      "gate": "SC-ZERO-CUDA",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "8860a5851074354f942951c5294b6672a76b49f1"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T18:53:05Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "923c20018fbd9360d7cf058deadf7917c977a80c"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-17T09:47:16Z",
+      "gate": "SC-ZERO-CUDA",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "c2775a6094f43d393ef36947f0cf8f377df41a55"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-19T21:07:50Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "c4316dca17b86a7506fd4042fa99be1b15977490"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T16:54:04Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "e22f0d4a21f302cf18ef97e1db809c45930a04a8"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T17:27:10Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "e8141c54c658a021b7e7cf23b0704a31fbecbc22"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T18:41:32Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "ed4a169c9f52f4eb97cea357256406f45a3459a3"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T20:08:23Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aien-sovereign-core",
+      "sha": "fa8e618f315117976ae4da72f7485eb42e6aef46"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T09:51:32Z",
+      "gate": "AIENOS-CRYPTO-BOUNDARY",
+      "reason": "rc_nonzero",
+      "repo": "aienos",
+      "sha": "09f8040f70ae89d27e1b1c617599d8869a5b2ee5"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T12:47:50Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aienos",
+      "sha": "105544890f780085f64bee754d4a92c1a2f17ecf"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T09:51:35Z",
+      "gate": "AIENOS-ZERO-DISK-SECRETS",
+      "reason": "rc_nonzero",
+      "repo": "aienos",
+      "sha": "1afff3629cd7f3d323d448172c55e32590276a48"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T09:51:35Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aienos",
+      "sha": "1afff3629cd7f3d323d448172c55e32590276a48"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T09:51:36Z",
+      "gate": "AIENOS-CRYPTO-BOUNDARY",
+      "reason": "rc_nonzero",
+      "repo": "aienos",
+      "sha": "1afff3629cd7f3d323d448172c55e32590276a48"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T09:51:39Z",
+      "gate": "AIENOS-CRYPTO-BOUNDARY",
+      "reason": "rc_nonzero",
+      "repo": "aienos",
+      "sha": "4031c130afced0435a725412c09c4a183b2cc235"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T09:51:39Z",
+      "gate": "AIENOS-ZERO-DISK-SECRETS",
+      "reason": "rc_nonzero",
+      "repo": "aienos",
+      "sha": "4031c130afced0435a725412c09c4a183b2cc235"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T09:51:39Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aienos",
+      "sha": "4031c130afced0435a725412c09c4a183b2cc235"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T09:51:42Z",
+      "gate": "AIENOS-ZERO-DISK-SECRETS",
+      "reason": "rc_nonzero",
+      "repo": "aienos",
+      "sha": "54f3d647b341275d579fd98212cc15fc9ac63a23"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T09:51:42Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "aienos",
+      "sha": "54f3d647b341275d579fd98212cc15fc9ac63a23"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T09:51:43Z",
+      "gate": "AIENOS-CRYPTO-BOUNDARY",
+      "reason": "rc_nonzero",
+      "repo": "aienos",
+      "sha": "54f3d647b341275d579fd98212cc15fc9ac63a23"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T20:29:18Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "omega",
+      "sha": "03d975f7e17e915fd3a52a21c0e7b9be7bc13192"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T20:40:23Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "omega",
+      "sha": "05d0d8e9ab225dba82698bf89128072f3a6f3a7a"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T10:42:44Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "omega",
+      "sha": "23c9c7e93040f6a71cd51e17f8b9c5ef8d475ad4"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T22:44:59Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "omega",
+      "sha": "2ec8fc974d5a2b8766782e4dea787016bc62ac28"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-19T04:09:29Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "omega",
+      "sha": "2ef40a1538c6cf85b39fc511da35cb85f13c5649"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T11:05:58Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "omega",
+      "sha": "4a48b61325865b1edc2d021d621a51f0f515963d"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-19T09:43:45Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "omega",
+      "sha": "7bda76611e606b4d2b2f0336b2d2dda56dd950a0"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T11:14:37Z",
+      "gate": "OMEGA-ZERO-DISK-SECRETS",
+      "reason": "dirty_after",
+      "repo": "omega",
+      "sha": "815f56c02e4d8e07908d87cb4373033f8fc17513"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T18:18:23Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "omega",
+      "sha": "850d7ca1c69494d960f925b90d30c83aa7b00dc6"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T11:15:48Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "omega",
+      "sha": "856cc9772f5fbdddb1590f3572a271058cd7bba6"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-19T15:19:56Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "omega",
+      "sha": "98d138fff1b83cca1f9bc6d58ee2cfba05d91d80"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T17:19:05Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "omega",
+      "sha": "b11bd1f632afab7f7ec5368f8a618b04179fed63"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T11:26:34Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "omega",
+      "sha": "bf87fb02de89eda1aa00f5706b784a282fd6ba96"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T18:00:28Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "omega",
+      "sha": "c30a5c7128804c731c2373ecc72807775f56b77b"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-17T05:31:45Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "omega",
+      "sha": "e466b138b57f6672afb26fc657fcdb28cc4c6293"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T22:44:26Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "omega",
+      "sha": "e7f1a98b7a75720e4417be2ddd26d4fb4297507c"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T08:41:27Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "physics",
+      "sha": "77c1514dd0fcb06d6788c149c8a8fc604610b170"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-17T08:13:28Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "physics",
+      "sha": "c8c11d176b86c4f32a15dade39715994819f44ba"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-17T08:13:28Z",
+      "gate": "PHYSICS-ZERO-DISK-SECRETS",
+      "reason": "dirty_after",
+      "repo": "physics",
+      "sha": "c8c11d176b86c4f32a15dade39715994819f44ba"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T08:38:34Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "dirty_after",
+      "repo": "physics",
+      "sha": "e5265c0cf417c138cc4805ae8dc4462d33c20537"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-17T11:27:42Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "04ea9040447867312f603b2c9f2bc3249c52c3dc"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T12:52:35Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "0ef777b127e332f713882ab67ac6b662114fea86"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T13:04:51Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "10675903a276e56b54a92d3ac211074c35aec32d"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T17:30:29Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "1a88cad49984da2d03bf48300f8c20a507d91428"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-17T13:45:24Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "2485c6c424b6583b06844fa9f2e1d8cad46d8495"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-17T08:13:32Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "28d783c37f20d3bd9b3d63c7dd6a2c5620c58e66"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T12:53:39Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "2cc8b3e46e2fe1c0c941f79f5410de870d3a7ab1"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T17:47:35Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "2f06c455a5af8a5db7e0230c3692f08db21f61f2"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T12:54:50Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "303641ef6faa84720edc8d05598dcf80ae0ad9f7"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T13:36:23Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "471ce193c1054b318d201a671154d56760fd8831"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-17T08:14:28Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "4bb6056acb96e56ff430479c69dc2474f038c8b3"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T17:32:19Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "55e1e42ee13ab6397b521ceeb0fa8ab5bedfeed5"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-17T11:28:56Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "5612a058416d465baac9a47bdc4c8699e9db5f52"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-17T08:15:18Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "75c4e0c666009f865afe2c5f37cd36335d3a4ebe"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T09:31:18Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "78220814c009d0a7d5c2d8f137b4a9175542f1f3"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-17T11:29:31Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "872134c8fe409d7885443f7c70c527eb6c82fcd7"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T17:33:55Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "8c68955f1e230f37df3daecb4b61a9237071849d"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-17T11:30:23Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "925e7987b0306ed1ad0d98461c5c1abb5ed0887d"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T17:49:06Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "94f1db8a163a99bbed04ddfcadd05c561bb98e61"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T13:18:06Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "9eed8d78d261ae97a34383e440d2844dfc25dc9f"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-17T11:31:18Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "a30881a9218327296f9a2ac3e41f491b0a2b8105"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T17:28:48Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "a8178b57c3d903c65c61c8cb0cf0afb8ad846c83"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-17T08:16:09Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "b69db2d986c807e5cada585c072ecc4cf996d0bc"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T13:27:47Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "bf39c5fdd85868c8528cadb505e7929406b51082"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-17T11:32:11Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "ceae25518599afe9a86792c8d6499638f3eb12c1"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-17T08:17:08Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "cf3879f499f6e23651844cbd85e694370e51830c"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-16T13:05:58Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "d64fc4799c043033f67f9efc4009334472b3e30f"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-17T13:46:42Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "d760aa90b28ced718b884e326440c7bd8657a204"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-18T21:12:37Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "db040fe9312153f4c316e191b057e8f45fa65bec"
+    },
+    {
+      "class": "always",
+      "finished": "2026-10-17T11:33:11Z",
+      "gate": "CRUMB-VERIFY",
+      "reason": "rc_nonzero",
+      "repo": "synapse",
+      "sha": "e6f2c5ef377087f28dbf493109e0a40723d85800"
+    }
+  ],
+  "heads": 485,
+  "limits": [
+    "plan recomputed with the current planner over the manifests at each head",
+    "one base per head: the newest journal line for that head",
+    "gate granularity: a gate whose inputs cover the change counts as direct even if most of its tests are unrelated",
+    "duration_ms is gate run time; pool_wait_ms (GPU lock, slots) is reported separately"
+  ],
+  "receipts": 9087,
+  "schema": "aien-board/MeasureV1",
+  "since": "2026-10-05",
+  "totals": {
+    "always": {
+      "fails": 88,
+      "gate_ms": 872800420,
+      "receipts": 1720,
+      "wait_ms": 158044648
+    },
+    "direct": {
+      "fails": 1042,
+      "gate_ms": 5197225005,
+      "receipts": 7367,
+      "wait_ms": 3650938539
+    }
+  }
+}

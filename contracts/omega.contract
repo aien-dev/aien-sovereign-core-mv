@@ -1,0 +1,18 @@
+# contracts/omega.contract: what aien-sovereign-core uses of omega, and the check that proves it.
+# Read by the aien-sovereign-core repo agent (tools/aien-board, docs/REPO_AGENTS.md) from this
+# repository's main, never from a producer change. An omega post on the change board needs this
+# check exactly when one of its changed paths is under a watch line below; otherwise the answer is SKIP.
+producer omega
+pin omega.lock
+# The rxc_host C ABI and the build that makes librx_compose.a (crates/aien-omega-compose/build.rs).
+watch src/runtime/rxc_host_abi.h
+watch src/runtime/rxc_host_abi.c
+watch Makefile
+watch mk/
+watch physics.lock
+watch aienos.lock
+# Every omega source and header the library is compiled from, learned by the check from the
+# objects' dependency files (scripts/contract-omega.sh writes watch.learned; refresh with a PR).
+watch-file contracts/omega.watch
+check scripts/contract-omega.sh
+timeout 40m

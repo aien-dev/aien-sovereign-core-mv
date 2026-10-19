@@ -53,6 +53,7 @@ members = [
     "crates/aien-allen-profile",
     "crates/aien-allen-memory",
     "tools/aien-test",
+    "tools/aien-board",
     "crates/aien-drive",
     "crates/aien-serve-http",
     "crates/aien-kv-bench",
