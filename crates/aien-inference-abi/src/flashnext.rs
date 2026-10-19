@@ -994,6 +994,8 @@ pub struct PleWeights {
     pub norm_conv: Vec<f32>,
     /// `[lanes][kernel]`
     pub conv: Vec<f32>,
+    /// tensor name stem of the n-gram table shards (see `SourceRows::table`)
+    pub table_name: String,
 }
 
 #[derive(Debug, Clone)]
@@ -1309,7 +1311,8 @@ pub trait NgramRows {
 /// Rows from a tensor source holding aliases `ngram_row.<id>` (fetched rows) or the full shards.
 pub struct SourceRows<'a> {
     pub src: &'a mut dyn TensorSource,
-    pub prefix: String,
+    /// the PLE embedding's tensor name stem, `<layer>.ple.ple_embedding.ngram_embedding`; shard `s` is `<stem>.shard_<s>.weight`
+    pub table: String,
     pub shard_rows: u64,
     pub row_len: usize,
 }
@@ -1319,6 +1322,17 @@ impl NgramRows for SourceRows<'_> {
         let alias = format!("ngram_row.{id}");
         if self.src.dtype_of(&alias)?.is_some() {
             return self.src.read_into(&alias, "F8_E4M3", &[self.row_len], dst);
+        }
+        let (shard, r) = (id / self.shard_rows, id % self.shard_rows);
+        let name = format!("{}.shard_{shard}.weight", self.table);
+        if self.src.dtype_of(&name)?.is_some() {
+            return self.src.read_range(
+                &name,
+                "F8_E4M3",
+                &[self.shard_rows as usize, self.row_len],
+                r * self.row_len as u64,
+                dst,
+            );
         }
         Err(format!(
             "missing ngram row: {id} (shard {} row {})",
@@ -1338,6 +1352,8 @@ pub struct FlashNextReference<S: TensorSource> {
     experts: HashMap<(usize, usize), Expert>,
     /// whether to skip the lm_head (partial-layer runs on fetched tensors)
     pub with_head: bool,
+    /// drop a layer's routed experts right after that layer ran (bounded memory for whole-model runs)
+    pub evict_experts: bool,
     pub traces: Vec<MoeTrace>,
     pub selections: Vec<Vec<Vec<usize>>>,
     /// per layer of the last forward: the MoE input `[t][hidden]` and output
@@ -1365,6 +1381,7 @@ impl<S: TensorSource> FlashNextReference<S> {
             quant: QuantStats::default(),
             experts: HashMap::new(),
             with_head: true,
+            evict_experts: false,
             traces: Vec::new(),
             selections: Vec::new(),
             moe_inputs: Vec::new(),
@@ -1480,6 +1497,7 @@ impl<S: TensorSource> FlashNextReference<S> {
             .collect();
         let table_scale = read_vec(src, &format!("{e}.ngram_embedding.weight_scale"), 1)?[0];
         Ok(PleWeights {
+            table_name: format!("{e}.ngram_embedding"),
             mult,
             sizes,
             offs,
@@ -1521,15 +1539,28 @@ impl<S: TensorSource> FlashNextReference<S> {
         {
             let mut rows = SourceRows {
                 src: &mut self.source,
-                prefix: self.prefix.clone(),
+                table: w.table_name.clone(),
                 shard_rows: 2_500_012,
                 row_len: rl,
             };
+            let mut missing = Vec::new();
             for (j, &id) in ids.iter().enumerate() {
-                rows.row(id, &mut buf)?;
+                match rows.row(id, &mut buf) {
+                    Ok(()) => {}
+                    Err(e) if e.starts_with("missing ngram row") => {
+                        missing.push(id.to_string());
+                        continue;
+                    }
+                    Err(e) => return Err(e),
+                }
                 for (o, &b) in emb[j * rl..(j + 1) * rl].iter_mut().zip(&buf) {
                     *o = fp8_e4m3fn_to_f32(b) * w.table_scale;
                 }
+            }
+            if !missing.is_empty() {
+                missing.sort();
+                missing.dedup();
+                return Err(format!("missing ngram rows: {}", missing.join(" ")));
             }
         }
         let mut key = w.key.matmul(&emb, t);
@@ -1634,6 +1665,9 @@ impl<S: TensorSource> FlashNextReference<S> {
                     *o += w * v;
                 }
             }
+        }
+        if self.evict_experts {
+            self.experts.retain(|k, _| k.0 != layer);
         }
         self.traces.push(trace);
         Ok(out)
