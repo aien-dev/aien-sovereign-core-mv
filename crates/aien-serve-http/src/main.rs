@@ -27,6 +27,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use aien_inference_abi::qwen3_moe_omega::WeightFormat;
+use aien_inference_abi::storage_map::{ProcMemory, Receipt, StorageMap};
 use aien_serve_http::codec::{ByteCodec, Codec, HfCodec};
 use aien_serve_http::cpu_engine::CpuReferenceEngine;
 use aien_serve_http::engine::{Engine, StubEngine};
@@ -168,7 +169,28 @@ fn apply_generation_defaults(cfg: &mut ServerConfig, model_dir: &std::path::Path
     }
 }
 
+/// Prints the storage map receipt of the loaded engine (sc #678): the totals and the
+/// unaccounted numbers to stderr, the whole map to `$AIEN_STORAGE_MAP_DIR/serve-load.{txt,json}`
+/// when that is set. A failed `/proc` read is reported, never fatal.
+fn storage_map_at_load(baseline: Option<ProcMemory>, map: StorageMap) {
+    let (Some(base), Ok(now)) = (baseline, ProcMemory::read()) else {
+        eprintln!("aien-serve-http: storage map: /proc not readable, no receipt");
+        return;
+    };
+    let r = Receipt::new("aien-serve-http load", map, base, now);
+    for line in r.summary().lines() {
+        eprintln!("aien-serve-http: storage map: {line}");
+    }
+    if let Some(dir) = std::env::var_os("AIEN_STORAGE_MAP_DIR") {
+        if let Err(e) = r.write(std::path::Path::new(&dir), "serve-load") {
+            eprintln!("aien-serve-http: storage map: {e}");
+        }
+    }
+}
+
 fn main() -> ExitCode {
+    // Before the engine allocates anything: the storage map receipt at load counts from here.
+    let baseline = ProcMemory::read().ok();
     let mut args = match parse_args() {
         Ok(a) => a,
         Err(e) => {
@@ -250,6 +272,7 @@ fn main() -> ExitCode {
             args.prefill,
         ) {
             Ok(mut door) => {
+                storage_map_at_load(baseline, door.storage_map());
                 // Persistent KV (sc#505): only when AIEN_KV_STORE_DIR is set; otherwise nothing else is read.
                 if let Some(settings) = kv_persist::settings_from_lookup(|n| std::env::var(n).ok())
                 {

@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use aien_inference_abi::qwen3_moe_omega::{self as omega, LoadReport, OmegaEngine, WeightFormat};
+use aien_inference_abi::storage_map::{Lifetime, Space, StorageMap};
 
 use crate::engine::{Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams};
 use crate::kv_persist::PersistState;
@@ -315,6 +316,31 @@ impl OmegaDoor {
 
     pub fn load_report(&self) -> &LoadReport {
         &self.engine.load_report
+    }
+
+    /// What this door names of its storage (sc #678): the load report's resident and host
+    /// weight bytes. Its KV pool, scratch and kernel code are not named yet, so they show in the
+    /// receipt's unaccounted numbers.
+    pub fn storage_map(&self) -> StorageMap {
+        let r = self.load_report();
+        let mut m = StorageMap::new();
+        m.add(
+            "weights resident (load report)",
+            Space::Driver,
+            r.resident_bytes as u64,
+            "OmegaDoor",
+            &["load"],
+            Lifetime::Weights,
+        );
+        m.add(
+            "weights on the host (load report)",
+            Space::Heap,
+            r.host_bytes as u64,
+            "OmegaDoor",
+            &["load"],
+            Lifetime::Weights,
+        );
+        m
     }
 
     /// Tokens whose KV is resident from the last generation (prefix reuse candidates).

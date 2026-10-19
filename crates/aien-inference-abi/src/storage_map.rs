@@ -467,6 +467,31 @@ impl Receipt {
         })
     }
 
+    /// The totals part of [`Self::to_text`] (everything after the entry lines), for a log.
+    pub fn summary(&self) -> String {
+        let text = self.to_text();
+        match text.find("\nplanned peak ") {
+            Some(i) => text[i + 1..].to_string(),
+            None => text,
+        }
+    }
+
+    /// Writes `<dir>/<stem>.txt` and `<dir>/<stem>.json`.
+    pub fn write(&self, dir: &std::path::Path, stem: &str) -> Result<(), String> {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        for (ext, body) in [
+            ("txt", self.to_text()),
+            (
+                "json",
+                serde_json::to_string_pretty(&self.to_json()).expect("json"),
+            ),
+        ] {
+            let p = dir.join(format!("{stem}.{ext}"));
+            std::fs::write(&p, body).map_err(|e| format!("{}: {e}", p.display()))?;
+        }
+        Ok(())
+    }
+
     /// The printed map: one line per entry, then the totals and the unaccounted numbers.
     pub fn to_text(&self) -> String {
         let mut s = String::new();
@@ -691,6 +716,23 @@ VmFlags: rd wr mr mw me ac
         s.add("late", Space::Heap, 10, "t", &["x"], Lifetime::Token);
         assert_eq!(s.total(None), 17394);
         assert_eq!(s.peak(), 117_384);
+    }
+
+    #[test]
+    fn summary_and_files() {
+        let r = Receipt::new("t", sample(), ProcMemory::default(), ProcMemory::default());
+        let s = r.summary();
+        assert!(s.starts_with("planned peak "), "{s}");
+        assert!(!s.contains("embed "), "entry lines left out");
+        let dir = std::env::temp_dir().join(format!("storage-map-test-{}", std::process::id()));
+        r.write(&dir, "x").unwrap();
+        let j: Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("x.json")).unwrap()).unwrap();
+        assert_eq!(j["totals"]["named"], 13288);
+        assert!(std::fs::read_to_string(dir.join("x.txt"))
+            .unwrap()
+            .starts_with("STORAGE MAP t"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
