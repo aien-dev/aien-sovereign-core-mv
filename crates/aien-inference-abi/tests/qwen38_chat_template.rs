@@ -28,7 +28,10 @@ fn shipped_golden_is_well_formed() {
     assert_eq!(ids("generated_ids"), 24);
     assert!(ids("prompt_ids") > 0);
     // The reference answer opens a C code block (see PROVENANCE.md next to the file).
-    assert!(g["generated_text"].as_str().unwrap().starts_with("```c\nint max("));
+    assert!(g["generated_text"]
+        .as_str()
+        .unwrap()
+        .starts_with("```c\nint max("));
 }
 
 /// The speed tool's references: 256 reference ids for its decode request, and a corpus long

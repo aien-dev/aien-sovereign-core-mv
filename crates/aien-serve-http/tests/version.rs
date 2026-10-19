@@ -21,8 +21,8 @@ fn version_prints_build_identity_and_exits_zero() {
     ] {
         assert!(text.contains(want), "missing {want:?} in:\n{text}");
     }
-    let pin = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../omega.lock"))
-        .unwrap();
+    let pin =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../omega.lock")).unwrap();
     assert!(
         text.contains(&format!("omega.lock: {}", pin.trim())),
         "omega.lock line does not match the repository pin:\n{text}"
@@ -33,7 +33,13 @@ fn version_prints_build_identity_and_exits_zero() {
 fn version_wins_over_other_flags_and_loads_nothing() {
     // A missing model dir would fail any real start; --version must not look at it.
     let out = Command::new(env!("CARGO_BIN_EXE_aien-serve-http"))
-        .args(["--engine", "omega", "--model-dir", "/nonexistent-version-test", "--version"])
+        .args([
+            "--engine",
+            "omega",
+            "--model-dir",
+            "/nonexistent-version-test",
+            "--version",
+        ])
         .output()
         .unwrap();
     assert!(out.status.success(), "exit {:?}", out.status);
