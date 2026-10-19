@@ -1,0 +1,15 @@
+teal: 10 variants, 306 tokens, scored rows 49..305, MemAvailable 71.5 GiB
+base                   agree 256/256 (1.0000)  KL 0.000e0  cos final 1.00000/1.00000  GB/token 26.92 (100.0% of 26.92)
+teal-row-0.2           agree 249/256 (0.9727)  KL 2.824e-3  cos final 0.99784/0.96215  GB/token 22.04 (81.9% of 26.92)  union kept [0.800, 0.948, 0.995, 0.999, 1.000] for N [1, 2, 4, 8, 16]
+teal-row-0.3           agree 249/256 (0.9727)  KL 9.370e-3  cos final 0.99335/0.94526  GB/token 19.60 (72.8% of 26.92)  union kept [0.700, 0.888, 0.980, 0.997, 0.999] for N [1, 2, 4, 8, 16]
+teal-row-0.4           agree 243/256 (0.9492)  KL 2.422e-2  cos final 0.98057/0.79684  GB/token 17.17 (63.8% of 26.92)  union kept [0.600, 0.809, 0.949, 0.992, 0.998] for N [1, 2, 4, 8, 16]
+teal-row-0.5           agree 235/256 (0.9180)  KL 5.446e-2  cos final 0.95896/0.61578  GB/token 14.73 (54.7% of 26.92)  union kept [0.500, 0.713, 0.895, 0.978, 0.995] for N [1, 2, 4, 8, 16]
+teal-shared4-0.3       agree 237/256 (0.9258)  KL 6.636e-2  cos final 0.95552/0.66043  GB/token 19.60 (72.8% of 26.92)
+teal-shared4-0.5       agree 223/256 (0.8711)  KL 2.787e-1  cos final 0.86523/0.57398  GB/token 14.73 (54.7% of 26.92)
+teal-shared8-0.3       agree 239/256 (0.9336)  KL 1.164e-1  cos final 0.93220/0.63896  GB/token 19.60 (72.8% of 26.92)
+teal-shared8-0.5       agree 217/256 (0.8477)  KL 3.978e-1  cos final 0.80975/0.52870  GB/token 14.73 (54.7% of 26.92)
+teal-union4-0.5        agree 250/256 (0.9766)  KL 9.867e-3  cos final 0.99151/0.68581  GB/token 26.92 (100.0% of 26.92)
+{
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-skipped-teal-code-20261019T1905Z.json
+rc=0
