@@ -1,0 +1,1 @@
+nice -n 19 ionice -c3 spark-receipt (no quiet lock, per the 17:3xZ rule) skipped-quant-code-20261019T1835Z -- /home/drakestapleton/workspace/targets/skipped/release/qwen38_lab run /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a /home/drakestapleton/workspace/skipped-work/seq/code.json quant /home/drakestapleton/workspace/skipped-work/runs/quant-code-20261019T1835Z/out.json 
