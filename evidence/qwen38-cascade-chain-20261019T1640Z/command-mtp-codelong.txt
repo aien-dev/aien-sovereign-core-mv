@@ -1,0 +1,5 @@
+bin sha 9aece7168e8ce5baa42fd0dce97f19858afcb2899dfd2e7f06d54fb475d051f8 (built from ca870265)
+lib ~/workspace/targets/q38-f7-omega/libomega_gpu.a sha 6e90520913032ee8653ebbe325c485d329daa0a749840303a44b68b97ca17bff (omega 37034f03)
+spark-receipt cascade-mtp-codelong -- nice -n 10 flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/sc-cascade/pinned/qwen38_spec-ca870265 gen M evidence/qwen38-cascade-chain-20261019T1640Z/mtp-codelong.json --prompt codelong --n 192 --k 0,1,4,8 --source mtp
+start 2026-10-19T16:32:43Z load 11.75 12.32 16.02 8/1984 3419492 MemAvailable_kB 
+exit 143 2026-10-19T16:35:56Z

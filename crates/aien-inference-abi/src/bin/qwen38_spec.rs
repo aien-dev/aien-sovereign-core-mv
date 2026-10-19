@@ -11,6 +11,10 @@
 //!                   [--order embed|hidden] [--normed 0|1] [--offset 0|1] [--mutant none|extra|norollback|rowshift]
 //!                   [--graph 0|1] [--golden <gen-chat-max-24.json>] [--weights fp8|mxfp4]
 //!                   [--rows all|accepted] [--source mtp|ngram|ngram-first|agree|merge] [--ngram <max>,<min>]
+//!                   [--tree <w1>,<w2>,<side>] [--mutant ...|treenorebuild|treenokv]
+//!     --tree replaces the chain with a small tree: the MTP chain of k as the trunk, the next
+//!     w1 - 1 best first words and w2 - 1 best second words as side branches, each continued
+//!     by an MTP chain of <side> words; one tree pass, rebuild-only-accepted state.
 //!     k up to 8 (the cascade's chain). --rows all (default) runs the lm_head and the MTP head on every
 //!     row of the verify pass (the cascade shape); accepted runs them on the accepted rows only (the
 //!     pre-cascade shape, fewer lm_head calls today). --source picks the draft source: the MTP chain,
@@ -36,8 +40,8 @@ use std::time::Instant;
 use aien_inference_abi::qwen38::Qwen38Config;
 use aien_inference_abi::qwen38_omega::spec::argmax;
 use aien_inference_abi::qwen38_omega::spec::{
-    generate, DraftSource, FcOrder, GdnRows, HeadRows, Mtp, MtpOptions, NgramDraft, RowStats,
-    SpecMutant, SpecOptions, SpecRun, VerifyKernel,
+    generate, generate_tree, DraftSource, FcOrder, GdnRows, HeadRows, Mtp, MtpOptions, NgramDraft,
+    RowStats, SpecMutant, SpecOptions, SpecRun, TreeSpec, VerifyKernel,
 };
 use aien_inference_abi::qwen38_omega::{need_bytes, w4, Qwen38Omega, Qwen38Snapshot};
 use aien_inference_abi::tokenizer::{ChatOptions, ChatTokenizer};
@@ -401,6 +405,8 @@ fn run_json(k: usize, r: &SpecRun) -> Value {
         "ngram_rounds": r.ngram_rounds, "ngram_drafted": r.ngram_drafted, "ngram_accepted": r.ngram_accepted,
         "accepted_hist": r.accepted_hist,
         "accepted_per_round": if r.rounds > 0 { r.accepted as f64 / r.rounds as f64 } else { 0.0 },
+        "words_per_pass": if r.rounds > 0 { (r.accepted + r.rounds) as f64 / r.rounds as f64 } else { 0.0 },
+        "rows_per_pass": if r.rounds > 0 { (r.drafted + r.rounds) as f64 / r.rounds as f64 } else { 0.0 },
         "verify_ms_per_round": if r.rounds > 0 { ms(r.verify_ns) / r.rounds as f64 } else { 0.0 },
         "draft_ms_per_round": if r.rounds > 0 { ms(r.draft_ns) / r.rounds as f64 } else { 0.0 },
         "state_ms_per_round": if r.rounds > 0 { ms(r.snapshot_ns + r.rollback_ns) / r.rounds as f64 } else { 0.0 },
@@ -439,7 +445,22 @@ fn gen(args: &[String]) -> Result<bool, String> {
         "extra" => SpecMutant::ExtraAccept,
         "norollback" => SpecMutant::NoRollback,
         "rowshift" => SpecMutant::RowShift,
+        "treenorebuild" => SpecMutant::TreeNoRebuild,
+        "treenokv" => SpecMutant::TreeNoKvFix,
         o => return Err(format!("--mutant {o}")),
+    };
+    let tree = match flag(args, "--tree") {
+        None => None,
+        Some(s) => {
+            let v: Vec<usize> = s
+                .split(',')
+                .map(|x| x.parse().map_err(|e| format!("--tree: {e}")))
+                .collect::<Result<_, _>>()?;
+            let [w1, w2, side] = v[..] else {
+                return Err("--tree w1,w2,side".into());
+            };
+            Some(TreeSpec { w1, w2, side })
+        }
     };
     // Task B: the same generation with every FP8 projection converted to MXFP4 at load.
     match flag(args, "--weights").unwrap_or("fp8") {
@@ -476,6 +497,7 @@ fn gen(args: &[String]) -> Result<bool, String> {
         source,
         ngram,
         mutant,
+        tree,
     };
     let graph = flag(args, "--graph").unwrap_or("0") == "1";
     let golden: Option<Value> = match flag(args, "--golden") {
@@ -561,16 +583,29 @@ fn gen(args: &[String]) -> Result<bool, String> {
     let mut base: Option<Vec<u32>> = None;
     let mut pass = true;
     for &k in &ks {
-        let r = generate(
-            &mut model,
-            if k > 0 { mtp.as_mut() } else { None },
-            &prompt,
-            n,
-            k,
-            &stop,
-            64,
-            sopts,
-        )?;
+        let r = match (tree, k > 0) {
+            (Some(spec), true) => generate_tree(
+                &mut model,
+                mtp.as_mut().ok_or("--tree needs the MTP head")?,
+                &prompt,
+                n,
+                k,
+                &stop,
+                64,
+                sopts,
+                spec,
+            )?,
+            _ => generate(
+                &mut model,
+                if k > 0 { mtp.as_mut() } else { None },
+                &prompt,
+                n,
+                k,
+                &stop,
+                64,
+                sopts,
+            )?,
+        };
         let mut j = run_json(k, &r);
         let same = match &base {
             None => {
@@ -661,7 +696,7 @@ fn gen(args: &[String]) -> Result<bool, String> {
     std::fs::write(out, serde_json::to_string_pretty(&rec).unwrap())
         .map_err(|e| format!("{out}: {e}"))?;
     println!(
-        "QWEN38_SPEC_GEN prompt {which} n {n} k {ks:?} rows {rows:?} source {source:?} mutant {mutant:?}: {}",
+        "QWEN38_SPEC_GEN prompt {which} n {n} k {ks:?} rows {rows:?} source {source:?} tree {tree:?} mutant {mutant:?}: {}",
         if pass { "PASS" } else { "FAIL" }
     );
     Ok(pass)

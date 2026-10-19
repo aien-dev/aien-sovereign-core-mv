@@ -1,0 +1,1 @@
+ABORTED by me at 2026-10-19T16:35:59Z: new rule, published timings must run under flock -x /tmp/aien-quiet.lock then the GPU lock. Rerun in evidence/qwen38-cascade-chain-20261019T1650Z. Nothing here is a result.

@@ -80,6 +80,29 @@ pub fn argmax(v: &[f32]) -> u32 {
     best as u32
 }
 
+/// The `w` largest logits' indices, largest first, the first index on a tie, so `topk(v, w)[0]`
+/// is [`argmax`]`(v)`.
+pub fn topk(v: &[f32], w: usize) -> Vec<u32> {
+    let mut out: Vec<u32> = Vec::with_capacity(w);
+    for _ in 0..w.min(v.len()) {
+        let mut best: Option<usize> = None;
+        for (i, &x) in v.iter().enumerate() {
+            if out.contains(&(i as u32)) {
+                continue;
+            }
+            let better = match best {
+                None => true,
+                Some(b) => x > v[b],
+            };
+            if better {
+                best = Some(i);
+            }
+        }
+        out.push(best.expect("w <= len") as u32);
+    }
+    out
+}
+
 /// Wall time of the exact rows path by kind (every chip call is synchronous, so a call's wall
 /// time includes its launch, wait and copies).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -113,13 +136,93 @@ pub(super) enum Mixer<'a> {
         cache: &'a mut Attn256Cache,
         idx: usize,
         gather: &'a [u32],
+        /// A tree pass: row `r` writes its K and V at `pos0 + depth[r]` and its raw qkv row is
+        /// kept (see [`TreeShape`]).
+        tree: Option<(&'a TreeShape, &'a mut Vec<f32>)>,
     },
     Gdn {
         gdn: &'a mut Gdn,
         idx: usize,
         ab: &'a Bf16Tensor,
         keep: Option<&'a mut GdnRows>,
+        /// A tree pass: the shape and this layer's committed (tail, state) to rebuild a branch
+        /// from.
+        tree: Option<(&'a TreeShape, &'a [f32], &'a [f32])>,
     },
+}
+
+/// The shape of a tree verify pass: rows in depth-first preorder, `parent[0] = 0` for the
+/// root (the last committed token), `parent[r] < r`, `depth[r] = depth[parent[r]] + 1`.
+///
+/// Why preorder makes the per-row exact path a tree path with no mask and no state copy per
+/// node:
+/// - attention: row `r` writes its K and V at slot `pos0 + depth[r]` and reads slots
+///   `0 ..= pos0 + depth[r]`. In preorder every row between an ancestor and `r` is deeper
+///   than that ancestor, so the slots `pos0 .. pos0 + depth[r]` hold exactly `r`'s ancestors.
+/// - DeltaNet: rows run in order on one state. When `parent[r] != r - 1` the layer's state is
+///   rebuilt: the committed state put back and the kept inputs of `r`'s ancestors replayed
+///   (rebuild only the path, never a snapshot per node).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TreeShape {
+    pub parent: Vec<usize>,
+    pub depth: Vec<usize>,
+    /// Test fault: skip the branch rebuild (a sibling sees the previous branch's state).
+    pub mutant_no_rebuild: bool,
+}
+
+impl TreeShape {
+    /// A shape from parents (preorder, `parent[0] = 0`).
+    pub fn from_parents(parent: Vec<usize>) -> Result<Self, String> {
+        if parent.first() != Some(&0) {
+            return Err("tree: row 0 is the root".into());
+        }
+        let mut depth = vec![0usize; parent.len()];
+        for r in 1..parent.len() {
+            if parent[r] >= r {
+                return Err(format!(
+                    "tree: row {r} has parent {} (not before it)",
+                    parent[r]
+                ));
+            }
+            depth[r] = depth[parent[r]] + 1;
+        }
+        // Preorder: the parent of r is r - 1 or an ancestor of r - 1.
+        for r in 1..parent.len() {
+            let mut a = r - 1;
+            while a != parent[r] && a != 0 {
+                a = parent[a];
+            }
+            if a != parent[r] {
+                return Err(format!("tree: row {r} breaks depth-first preorder"));
+            }
+        }
+        Ok(Self {
+            parent,
+            depth,
+            mutant_no_rebuild: false,
+        })
+    }
+
+    /// Rows from the root to `r`, root first.
+    pub fn path(&self, r: usize) -> Vec<usize> {
+        let mut p = vec![r];
+        let mut a = r;
+        while a != 0 {
+            a = self.parent[a];
+            p.push(a);
+        }
+        p.reverse();
+        p
+    }
+
+    /// The children of `r` in row order.
+    pub fn children(&self, r: usize) -> impl Iterator<Item = usize> + '_ {
+        (r + 1..self.parent.len()).filter(move |&c| self.parent[c] == r)
+    }
+
+    pub fn max_depth(&self) -> usize {
+        self.depth.iter().copied().max().unwrap_or(0)
+    }
 }
 
 /// Row-table GEMM over one dense FP8 tensor: `y[m][n] = W . x[m][k]`.
@@ -170,8 +273,16 @@ pub(super) fn layer_rows(
     gemm(&lt.mix, &xn, &mut mix, m, "mixer", st)?;
     let mut att = vec![0f32; m * mo];
     match mixer {
-        Mixer::Attn { cache, idx, gather } => {
+        Mixer::Attn {
+            cache,
+            idx,
+            gather,
+            mut tree,
+        } => {
             let (gq, gg) = gather.split_at(q::ATT_QKV);
+            if let Some((_, kq)) = tree.as_mut() {
+                kq.clear();
+            }
             let (mut qkv, mut gate) = (vec![0f32; q::ATT_QKV], vec![0f32; mo]);
             for (r, out) in att.chunks_exact_mut(mo).enumerate() {
                 let t = Instant::now();
@@ -182,10 +293,17 @@ pub(super) fn layer_rows(
                 for (o, &s) in gate.iter_mut().zip(gg) {
                     *o = row[s as usize];
                 }
+                let slot = match tree.as_mut() {
+                    Some((shape, kq)) => {
+                        kq.extend_from_slice(&qkv);
+                        pos0 + shape.depth[r]
+                    }
+                    None => pos0 + r,
+                };
                 st.host_ns += ns(t);
                 let t = Instant::now();
                 cache
-                    .decode(idx, pos0 + r, &qkv, eps, out)
+                    .decode(idx, slot, &qkv, eps, out)
                     .map_err(|e| format!("attention row {r}: {e}"))?;
                 st.attn_ns += ns(t);
                 st.attn_calls += 1;
@@ -201,7 +319,11 @@ pub(super) fn layer_rows(
             idx,
             ab,
             mut keep,
+            tree,
         } => {
+            if tree.is_some() && keep.is_none() {
+                return Err("a tree pass keeps the DeltaNet row inputs".into());
+            }
             let t = Instant::now();
             let mut abr = vec![0f32; m * q::AB];
             let mut xs = vec![0f32; h];
@@ -224,6 +346,28 @@ pub(super) fn layer_rows(
                 let row = &mix[r * mix_n..(r + 1) * mix_n];
                 let (qkv, z) = row[..q::GDN_MIX].split_at(q::GDN_QKV);
                 let t = Instant::now();
+                if let Some((shape, tail0, state0)) = tree {
+                    if r > 0 && shape.parent[r] != r - 1 && !shape.mutant_no_rebuild {
+                        // A new branch: the committed state, then the path down to the parent.
+                        gdn.set_state(idx, tail0, state0)
+                            .map_err(|e| format!("gdn branch row {r}: {e}"))?;
+                        let k = keep.as_deref().expect("checked");
+                        let mut scratch = vec![0f32; mo];
+                        for a in shape.path(shape.parent[r]) {
+                            gdn.step(
+                                idx,
+                                &k.qkv[a * q::GDN_QKV..(a + 1) * q::GDN_QKV],
+                                &k.z[a * mo..(a + 1) * mo],
+                                &abr[a * q::AB..(a + 1) * q::AB],
+                                EPS_L2,
+                                eps,
+                                &mut scratch,
+                            )
+                            .map_err(|e| format!("gdn branch replay row {a}: {e}"))?;
+                            st.gdn_calls += 1;
+                        }
+                    }
+                }
                 gdn.step(
                     idx,
                     qkv,
@@ -281,7 +425,104 @@ impl Qwen38Omega {
     pub fn exact_rows(
         &mut self,
         tokens: &[u32],
+        keep: Option<&mut Vec<GdnRows>>,
+        st: &mut RowStats,
+    ) -> Result<Vec<f32>, String> {
+        self.rows_pass(tokens, keep, None, st)
+    }
+
+    /// A tree verify pass on the exact rows path ([`TreeShape`]): row `r` is what the one-row
+    /// path gives after the committed history plus `r`'s ancestors, bit for bit. `committed`
+    /// is the [`Self::snapshot`] taken at the pass start (branches rebuild from it); `kv` gets
+    /// every attention layer's raw qkv rows for [`Self::tree_commit`]. Leaves the position at
+    /// the start (the caller commits the accepted path).
+    pub fn tree_rows(
+        &mut self,
+        tokens: &[u32],
+        shape: &TreeShape,
+        committed: &Qwen38Snapshot,
+        keep: &mut Vec<GdnRows>,
+        kv: &mut Vec<Vec<f32>>,
+        st: &mut RowStats,
+    ) -> Result<Vec<f32>, String> {
+        if shape.parent.len() != tokens.len() {
+            return Err("tree_rows: shape and tokens differ in length".into());
+        }
+        if committed.pos != self.pos {
+            return Err("tree_rows: the snapshot is not of this position".into());
+        }
+        let pos0 = self.pos;
+        let x = self.rows_pass(tokens, Some(keep), Some((shape, committed, kv)), st)?;
+        self.pos = pos0;
+        Ok(x)
+    }
+
+    /// Commits the accepted path `path` (rows of the last [`Self::tree_rows`], root first):
+    /// the committed DeltaNet state put back and the path's kept inputs replayed, and every
+    /// attention layer's K and V for the path rewritten at `pos0 + depth` from the kept qkv (a
+    /// later branch may have overwritten them). Afterwards the state and the cache are those
+    /// of the path's tokens fed one at a time.
+    pub fn tree_commit(
+        &mut self,
+        committed: &Qwen38Snapshot,
+        keep: &[GdnRows],
+        kv: &[Vec<f32>],
+        path: &[usize],
+        fix_kv: bool,
+        st: &mut RowStats,
+    ) -> Result<(), String> {
+        self.restore(committed)?;
+        let pos0 = self.pos;
+        let eps = self.config.eps;
+        if let Some(g) = self.gdn.as_mut() {
+            let mut out = vec![0f32; q::MIXER_OUT];
+            for (gi, k) in keep.iter().enumerate() {
+                for &r in path {
+                    let t = Instant::now();
+                    g.step(
+                        gi,
+                        &k.qkv[r * q::GDN_QKV..(r + 1) * q::GDN_QKV],
+                        &k.z[r * q::MIXER_OUT..(r + 1) * q::MIXER_OUT],
+                        &k.ab[r * q::AB..(r + 1) * q::AB],
+                        EPS_L2,
+                        eps,
+                        &mut out,
+                    )
+                    .map_err(|e| format!("tree commit gdn layer {gi} row {r}: {e}"))?;
+                    st.gdn_ns += ns(t);
+                    st.gdn_calls += 1;
+                }
+            }
+        }
+        if fix_kv {
+            if let Some(c) = self.attn.as_mut() {
+                let mut out = vec![0f32; q::MIXER_OUT];
+                for (ai, rows) in kv.iter().enumerate() {
+                    for (d, &r) in path.iter().enumerate() {
+                        let t = Instant::now();
+                        c.decode(
+                            ai,
+                            pos0 + d,
+                            &rows[r * q::ATT_QKV..(r + 1) * q::ATT_QKV],
+                            eps,
+                            &mut out,
+                        )
+                        .map_err(|e| format!("tree commit kv layer {ai} row {r}: {e}"))?;
+                        st.attn_ns += ns(t);
+                        st.attn_calls += 1;
+                    }
+                }
+            }
+        }
+        self.pos = pos0 + path.len();
+        Ok(())
+    }
+
+    fn rows_pass(
+        &mut self,
+        tokens: &[u32],
         mut keep: Option<&mut Vec<GdnRows>>,
+        mut tree: Option<(&TreeShape, &Qwen38Snapshot, &mut Vec<Vec<f32>>)>,
         st: &mut RowStats,
     ) -> Result<Vec<f32>, String> {
         let m = tokens.len();
@@ -292,9 +533,13 @@ impl Qwen38Omega {
                 aien_omega_fp8::GEMM_MAX_ROWS
             ));
         }
-        if self.pos + m > self.max_pos {
+        let span = match &tree {
+            Some((shape, _, _)) => shape.max_depth() + 1,
+            None => m,
+        };
+        if self.pos + span > self.max_pos {
             return Err(format!(
-                "exact_rows: positions {} + {m} > KV cache of {}",
+                "exact_rows: positions {} + {span} > KV cache of {}",
                 self.pos, self.max_pos
             ));
         }
@@ -317,6 +562,13 @@ impl Qwen38Omega {
         }
         let (pos0, eps) = (self.pos, self.config.eps);
         let (mut gi, mut ai) = (0usize, 0usize);
+        if let Some((_, _, kv)) = tree.as_mut() {
+            kv.resize_with(
+                self.config.full_attention.iter().filter(|&&f| f).count(),
+                Vec::new,
+            );
+        }
+        let (tf, sf) = (q::GDN_TAIL_FLOATS, q::GDN_STATE_FLOATS);
         for l in 0..self.config.layers {
             let lt = &self.layers[l];
             let (in_norm, post_norm) = &self.norms[l];
@@ -326,6 +578,9 @@ impl Qwen38Omega {
                     cache: self.attn.as_mut().expect("an attention layer has a cache"),
                     idx: ai - 1,
                     gather: &gather,
+                    tree: tree
+                        .as_mut()
+                        .map(|(shape, _, kv)| (&**shape, &mut kv[ai - 1])),
                 }
             } else {
                 gi += 1;
@@ -334,6 +589,14 @@ impl Qwen38Omega {
                     idx: gi - 1,
                     ab: lt.ab.as_ref().expect("a DeltaNet layer has a|b"),
                     keep: keep.as_deref_mut().map(|k| &mut k[gi - 1]),
+                    tree: tree.as_ref().map(|(shape, snap, _)| {
+                        let l = gi - 1;
+                        (
+                            &**shape,
+                            &snap.tails[l * tf..(l + 1) * tf],
+                            &snap.states[l * sf..(l + 1) * sf],
+                        )
+                    }),
                 }
             };
             layer_rows(lt, in_norm, post_norm, mixer, pos0, m, eps, &mut x, st)
@@ -652,6 +915,7 @@ impl Mtp {
             cache: &mut self.attn,
             idx: 0,
             gather: &self.gather,
+            tree: None,
         };
         let (in_norm, post_norm) = &self.norms;
         layer_rows(
@@ -750,6 +1014,39 @@ impl Mtp {
         row: &[f32],
         st: &mut RowStats,
     ) -> Result<u32, String> {
+        Ok(argmax(&self.logits_of(model, row, st)?))
+    }
+
+    /// The `w` best drafts after the tip (largest first; the first is [`Self::draft_head`]'s).
+    pub fn draft_topk(
+        &mut self,
+        model: &mut Qwen38Omega,
+        w: usize,
+        st: &mut RowStats,
+    ) -> Result<Vec<u32>, String> {
+        let last = std::mem::take(&mut self.last);
+        let r = self.logits_of(model, &last, st);
+        self.last = last;
+        Ok(topk(&r?, w.max(1)))
+    }
+
+    /// The tip (`last`, `next_pos`), to branch the chain from it more than once.
+    pub fn tip(&self) -> (Vec<f32>, usize) {
+        (self.last.clone(), self.next_pos)
+    }
+
+    /// Puts a [`Self::tip`] back.
+    pub fn set_tip_state(&mut self, tip: &(Vec<f32>, usize)) {
+        self.last.clone_from(&tip.0);
+        self.next_pos = tip.1;
+    }
+
+    fn logits_of(
+        &self,
+        model: &mut Qwen38Omega,
+        row: &[f32],
+        st: &mut RowStats,
+    ) -> Result<Vec<f32>, String> {
         let t = Instant::now();
         let mut hn = vec![0f32; q::HIDDEN];
         rmsnorm(row, &self.final_norm, self.eps, &mut hn);
@@ -760,7 +1057,7 @@ impl Mtp {
             .map_err(gpu("mtp lm_head"))?;
         st.head_ns += ns(t);
         st.head_calls += 1;
-        Ok(argmax(&logits))
+        Ok(logits)
     }
 }
 
@@ -775,6 +1072,10 @@ pub enum SpecMutant {
     NoRollback,
     /// Row `r`'s draft is checked against row `r + 1`'s token.
     RowShift,
+    /// Tree pass: a side branch runs on the previous branch's DeltaNet state (no rebuild).
+    TreeNoRebuild,
+    /// Tree commit: the accepted path's K and V are not rewritten (a later branch's stay).
+    TreeNoKvFix,
 }
 
 /// Which routine runs the verify pass (the one function boundary the fast tree-verify GEMM
@@ -1006,6 +1307,272 @@ pub struct SpecOptions {
     pub source: DraftSource,
     pub ngram: NgramDraft,
     pub mutant: SpecMutant,
+    /// A small draft tree instead of the chain ([`generate_tree`]).
+    pub tree: Option<TreeSpec>,
+}
+
+/// The small tree: the MTP chain of `k` as the trunk, plus the next `w1 - 1` best MTP guesses
+/// for the first word and the next `w2 - 1` best for the second word (under the trunk's first
+/// word), each side branch continued by an MTP chain of `side` more words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TreeSpec {
+    pub w1: usize,
+    pub w2: usize,
+    pub side: usize,
+}
+
+/// What one tree verify pass returns.
+#[derive(Debug, Clone, Default)]
+pub struct TreeOut {
+    /// Accepted rows, root first (`path.len() - 1` drafts accepted).
+    pub path: Vec<usize>,
+    /// The model's own token after the path.
+    pub next: u32,
+    /// The MTP head's best `w1` guesses for the word after `next` (the next tree's first level).
+    pub draft_top: Vec<u32>,
+    /// Commit time (state rebuild of the path and the K/V rewrite).
+    pub commit_ns: u64,
+}
+
+/// ONE tree verify pass on the [`VerifyKernel`] boundary: the tree's rows through the model
+/// ([`Qwen38Omega::tree_rows`]), the walk from the root (at each node the model's greedy token
+/// picks the child, if any), the commit of the accepted path only (rebuild-only-accepted
+/// DeltaNet state, K/V rewrite), and the MTP head as layer 65 over the path rows so the next
+/// tree's first level comes out of this pass. `committed` is the snapshot at the pass start.
+#[allow(clippy::too_many_arguments)]
+pub fn verify_tree(
+    kernel: VerifyKernel,
+    model: &mut Qwen38Omega,
+    mtp: &mut Mtp,
+    tokens: &[u32],
+    shape: &TreeShape,
+    committed: &Qwen38Snapshot,
+    keep: &mut Vec<GdnRows>,
+    kv: &mut Vec<Vec<f32>>,
+    w1: usize,
+    mutant: SpecMutant,
+    st: &mut RowStats,
+    st_mtp: &mut RowStats,
+) -> Result<TreeOut, String> {
+    let VerifyKernel::ExactRows = kernel;
+    let h = q::HIDDEN;
+    let pos0 = model.pos;
+    let hidden = model.tree_rows(tokens, shape, committed, keep, kv, st)?;
+    let mut path = vec![0usize];
+    let mut node = 0usize;
+    let mut extra = mutant == SpecMutant::ExtraAccept;
+    let next = loop {
+        let g = model.head_token(&hidden[node * h..(node + 1) * h], st)?;
+        let child = shape.children(node).find(|&c| tokens[c] == g).or_else(|| {
+            if std::mem::take(&mut extra) {
+                shape.children(node).find(|&c| tokens[c] != g)
+            } else {
+                None
+            }
+        });
+        match child {
+            Some(c) => {
+                path.push(c);
+                node = c;
+            }
+            None => break g,
+        }
+    };
+    let tc = Instant::now();
+    if mutant == SpecMutant::NoRollback {
+        model.pos = pos0 + path.len();
+    } else {
+        model.tree_commit(
+            committed,
+            keep,
+            kv,
+            &path,
+            mutant != SpecMutant::TreeNoKvFix,
+            st,
+        )?;
+    }
+    let commit_ns = ns(tc);
+    let hid: Vec<f32> = path
+        .iter()
+        .flat_map(|&r| hidden[r * h..(r + 1) * h].iter().copied())
+        .collect();
+    let mut own: Vec<u32> = path[1..].iter().map(|&r| tokens[r]).collect();
+    own.push(next);
+    mtp.layer65(model, &hid, &own, pos0, st_mtp)?;
+    mtp.set_tip(path.len() - 1, pos0 + path.len());
+    let draft_top = mtp.draft_topk(model, w1, st_mtp)?;
+    Ok(TreeOut {
+        path,
+        next,
+        draft_top,
+        commit_ns,
+    })
+}
+
+/// A side branch to draft: its parent row, first token, depth, and the MTP tip it grows from.
+type SideBranch = (usize, u32, usize, (Vec<f32>, usize));
+
+/// Greedy generation with a small draft tree per round ([`TreeSpec`], trunk = the MTP chain of
+/// `k`), checked in one [`verify_tree`] pass. Same contract as [`generate`]: the tokens equal
+/// the plain path's one at a time.
+#[allow(clippy::too_many_arguments)]
+pub fn generate_tree(
+    model: &mut Qwen38Omega,
+    mtp: &mut Mtp,
+    prompt: &[u32],
+    n: usize,
+    k: usize,
+    stop: &[u32],
+    chunk: usize,
+    opts: SpecOptions,
+    spec: TreeSpec,
+) -> Result<SpecRun, String> {
+    if prompt.is_empty() || n == 0 {
+        return Err("generate_tree: empty prompt or n = 0".into());
+    }
+    if k == 0 || k > MAX_CHAIN || spec.side > MAX_CHAIN {
+        return Err(format!(
+            "generate_tree: k {k}, side {} (1..={MAX_CHAIN})",
+            spec.side
+        ));
+    }
+    if !(1..=8).contains(&spec.w1) || !(1..=8).contains(&spec.w2) {
+        return Err("generate_tree: widths 1..=8".into());
+    }
+    let h = q::HIDDEN;
+    let mutant = opts.mutant;
+    let max_depth = k.max(spec.side + 2);
+    let mut run = SpecRun {
+        accepted_hist: vec![0; max_depth + 1],
+        ..SpecRun::default()
+    };
+    model.reset()?;
+    let t0 = Instant::now();
+    let mut rows = Vec::with_capacity(prompt.len() * h);
+    for c in prompt.chunks(chunk.max(1)) {
+        rows.extend(model.exact_rows(c, None, &mut run.main)?);
+    }
+    let last = rows[(prompt.len() - 1) * h..].to_vec();
+    let mut t = model.head_token(&last, &mut run.main)?;
+    run.tokens.push(t);
+    let mut next_ids = prompt[1..].to_vec();
+    next_ids.push(t);
+    let td = Instant::now();
+    mtp.layer65(model, &rows, &next_ids, 0, &mut run.mtp)?;
+    mtp.set_tip(prompt.len() - 1, prompt.len());
+    let mut top = mtp.draft_topk(model, spec.w1, &mut run.mtp)?;
+    run.draft_ns += ns(td);
+    run.prompt_ns = ns(t0);
+    drop(rows);
+
+    let t1 = Instant::now();
+    let mut snap = Qwen38Snapshot::default();
+    let mut keep: Vec<GdnRows> = Vec::new();
+    let mut kv: Vec<Vec<f32>> = Vec::new();
+    while run.tokens.len() < n && !stop.contains(&t) {
+        run.rounds += 1;
+        let p = model.pos;
+        let room = (model.max_pos() - p).saturating_sub(1).min(max_depth);
+        let trunk = room.min(k);
+        let td = Instant::now();
+        let tip = mtp.tip();
+        let mut toks = vec![t];
+        let mut parent = vec![0usize];
+        let mut l2: Vec<u32> = Vec::new();
+        let mut tip1 = None;
+        if trunk >= 1 {
+            let mut d = top[0];
+            toks.push(d);
+            parent.push(0);
+            for depth in 2..=trunk {
+                d = if depth == 2 && spec.w2 > 1 {
+                    mtp.chain_layer(model, d, &mut run.mtp)?;
+                    tip1 = Some(mtp.tip());
+                    let tk = mtp.draft_topk(model, spec.w2, &mut run.mtp)?;
+                    l2 = tk[1..].to_vec();
+                    tk[0]
+                } else {
+                    mtp.chain(model, d, &mut run.mtp)?
+                };
+                parent.push(toks.len() - 1);
+                toks.push(d);
+            }
+        }
+        // Side branches: (start row's parent, first token, its depth), each chained `side` on.
+        let mut sides: Vec<SideBranch> = Vec::new();
+        if let Some(t1s) = &tip1 {
+            for &a in &l2 {
+                sides.push((1, a, 2, t1s.clone()));
+            }
+        }
+        if room >= 1 {
+            for &a in top.iter().skip(1) {
+                sides.push((0, a, 1, tip.clone()));
+            }
+        }
+        for (par, a, depth0, from) in sides {
+            mtp.set_tip_state(&from);
+            parent.push(par);
+            toks.push(a);
+            let mut prev = a;
+            let mut depth = depth0;
+            while depth < depth0 + spec.side && depth < room {
+                let x = mtp.chain(model, prev, &mut run.mtp)?;
+                parent.push(toks.len() - 1);
+                toks.push(x);
+                prev = x;
+                depth += 1;
+            }
+        }
+        run.draft_ns += ns(td);
+        let mut shape = TreeShape::from_parents(parent)?;
+        shape.mutant_no_rebuild = mutant == SpecMutant::TreeNoRebuild;
+        let drafts = toks.len() - 1;
+        run.drafted += drafts as u64;
+
+        let ts = Instant::now();
+        model.snapshot(&mut snap)?;
+        run.snapshot_ns += ns(ts);
+        let tv = Instant::now();
+        let out = verify_tree(
+            opts.kernel,
+            model,
+            mtp,
+            &toks,
+            &shape,
+            &snap,
+            &mut keep,
+            &mut kv,
+            spec.w1,
+            mutant,
+            &mut run.main,
+            &mut run.mtp,
+        )?;
+        run.verify_ns += ns(tv) - out.commit_ns;
+        run.rollback_ns += out.commit_ns;
+        let j = out.path.len() - 1;
+        run.accepted += j as u64;
+        if j < shape.max_depth() {
+            run.rollbacks += 1;
+        }
+        if let Some(c) = run.accepted_hist.get_mut(j) {
+            *c += 1;
+        }
+        let room_out = n - run.tokens.len();
+        run.tokens
+            .extend(out.path[1..].iter().map(|&r| toks[r]).take(room_out));
+        if run.tokens.len() < n {
+            run.tokens.push(out.next);
+        }
+        if let Some(s) = run.tokens.iter().position(|x| stop.contains(x)) {
+            run.tokens.truncate(s + 1);
+            break;
+        }
+        t = out.next;
+        top = out.draft_top;
+    }
+    run.decode_ns = ns(t1);
+    Ok(run)
 }
 
 /// Greedy generation on the exact rows path: `k = 0` is the plain path one token at a time;
@@ -1226,6 +1793,33 @@ mod tests {
         assert_eq!(o.order, FcOrder::EmbedFirst);
         assert!(!o.normed_hidden);
         assert_eq!(o.pos_offset, 0);
+    }
+
+    #[test]
+    fn tree_shape_preorder_paths_and_children() {
+        // root 0; trunk 1-2-3; side under 1: 4-5; side under 0: 6-7.
+        let s = TreeShape::from_parents(vec![0, 0, 1, 2, 1, 4, 0, 6]).unwrap();
+        assert_eq!(s.depth, vec![0, 1, 2, 3, 2, 3, 1, 2]);
+        assert_eq!(s.path(5), vec![0, 1, 4, 5]);
+        assert_eq!(s.path(0), vec![0]);
+        assert_eq!(s.children(0).collect::<Vec<_>>(), vec![1, 6]);
+        assert_eq!(s.children(1).collect::<Vec<_>>(), vec![2, 4]);
+        assert_eq!(s.max_depth(), 3);
+        // Not preorder: row 3's parent 1 is not an ancestor of row 2 (a child of 0).
+        assert!(TreeShape::from_parents(vec![0, 0, 0, 1]).is_err());
+        assert!(TreeShape::from_parents(vec![0, 2, 0]).is_err());
+        assert!(TreeShape::from_parents(vec![1]).is_err());
+        // A chain is a tree.
+        let c = TreeShape::from_parents(vec![0, 0, 1, 2]).unwrap();
+        assert_eq!(c.depth, vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn topk_leads_with_argmax_and_breaks_ties_first() {
+        let v = [1.0, 5.0, 3.0, 5.0, 4.0];
+        assert_eq!(topk(&v, 1), vec![argmax(&v)]);
+        assert_eq!(topk(&v, 4), vec![1, 3, 4, 2]);
+        assert_eq!(topk(&v, 9).len(), 5);
     }
 
     #[test]
