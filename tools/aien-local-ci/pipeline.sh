@@ -276,13 +276,13 @@ merge_one() {
   [[ $head == "$sha" ]] || { merge_refuse "head moved to $head"; return 0; }
   [[ ${pr##* } == false ]] || { merge_refuse "draft"; return 0; }
   # Up to date with the base. GitHub does not require it here (strict=false), and two PRs merged
-  # back to back each pass alone but leave main with a stale root crumb (Drake 2026-10-18: "don't
-  # make them all collapse").
+  # back to back can each pass alone but break main together (Drake 2026-10-18: "don't make them
+  # all collapse").
   if ! "$GIT" -C "$clone" cat-file -e "$sha^{commit}" 2>/dev/null; then
     "$GIT" -C "$clone" fetch -q origin "pull/$num/head" 2>/dev/null || true
   fi
   if ! "$GIT" -C "$clone" merge-base --is-ancestor "origin/$base" "$sha" 2>/dev/null; then
-    merge_refuse "behind origin/$base: merge the base in, recompile crumbs, let checks rerun"; return 0
+    merge_refuse "behind origin/$base: merge the base in, let checks rerun"; return 0
   fi
   [[ $state != dirty ]] || { merge_refuse "mergeable state dirty (conflicts)"; return 0; }
   lfile=$STATE/bundles/$repo/$sha/bundle.json

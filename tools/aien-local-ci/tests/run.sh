@@ -197,35 +197,16 @@ out=$(run --cwd /tmp --timeout 10 --profile host -- sh -c 'echo $(ls -A /run/loc
 host_ipc="$(ipcs -m | grep -c "^0x") $(ipcs -s | grep -c "^0x")"
 [[ $out == "0 0 0" ]] && ok "host: private /run/lock, /run/screen, /dev/shm, /dev/mqueue and IPC namespace (host has shm+sem: $host_ipc)" || bad "host ipc" "$out"
 
-# 18 trusted crumb on the sandbox PATH; `crumb verify .` runs as aien-run in a sandboxed worktree; a `crumb`
-#    planted inside the worktree is never picked up by a bare name
-out=$(run --cwd /tmp --timeout 10 --profile host -- sh -c 'command -v crumb; stat -c "%U %a" "$(command -v crumb)"' 2>&1 | tr '\n' ' ')
-[[ $out == "/usr/local/bin/crumb root 755 " ]] && ok "crumb on sandbox PATH: $out" || bad "crumb PATH" "$out"
+# 18 a bare program name resolves only through the root-owned sandbox PATH: a `git` planted inside the
+#    worktree is never picked up, neither as PROGRAM nor by a shell exec
 if [[ -n $wt ]]; then
-  # every worktree: the sandboxed verdict equals the trusted side's verdict on a clean trusted checkout of the same
-  # commit (operator git refuses to run inside a sandbox worktree: dubious ownership, by design); at least one
-  # worktree (a crumb-current commit) must verify OK, so the PASS path is exercised, not only the STALE path
-  agree=0; total=0; okrun=0
-  for w in $(wt_sh_worktrees); do
-    total=$((total+1))
-    s_out=$(run --cwd "$w" --timeout 60 --profile host -- crumb verify . 2>&1); s_rc=$?
-    tc=$(mktemp -d); rel=${w#"$RUN_HOME"/wt/}; repo=${rel%%/*}; rest=${rel#*/}; sha=${rest%%/*}
-    git clone --quiet --shared --no-checkout "$RUN_HOME/mirror/$repo.git" "$tc/t" && git -C "$tc/t" checkout --quiet "$sha"
-    t_out=$(cd "$tc/t" && /usr/local/bin/crumb verify . 2>&1); t_rc=$?
-    rm -rf "$tc"
-    [[ $s_rc -eq $t_rc && $s_out == "$t_out" ]] && agree=$((agree+1))
-    [[ $s_rc -eq 0 ]] && okrun=$((okrun+1))
-    printf '     %s: sandbox rc=%s, trusted rc=%s, %s\n' "$(basename "$w" | cut -c1-7)" "$s_rc" "$t_rc" "$(tail -1 <<<"$s_out")"
-  done
-  [[ $agree -eq $total && $okrun -ge 1 ]] && ok "crumb verify . as aien-run in $total sandboxed worktrees (agrees with trusted side; $okrun OK)" \
-    || bad "crumb verify" "agree=$agree/$total ok=$okrun"
-  run --cwd "$wt" --timeout 10 --profile host -- sh -c 'printf "#!/bin/sh\necho PLANTED\n" > crumb && chmod +x crumb' >/dev/null 2>&1
-  o1=$(run --cwd "$wt" --timeout 10 --profile host -- crumb status . 2>&1 | head -3)
-  o2=$(run --cwd "$wt" --timeout 10 --profile host -- sh -c 'exec crumb status .' 2>&1 | head -3)
-  o3=$(run --cwd "$wt" --timeout 10 --profile host -- sh -c 'test -x ./crumb && echo planted-present' 2>&1)
-  run --cwd "$wt" --timeout 10 --profile host -- rm -f crumb >/dev/null 2>&1
-  [[ $o3 == planted-present && $o1 != *PLANTED* && $o2 != *PLANTED* && -n $o1 && -n $o2 ]] \
-    && ok "planted ./crumb in the worktree ignored (PROGRAM and sh exec both use /usr/local/bin/crumb)" || bad "planted crumb" "o1=$o1 o2=$o2 o3=$o3"
+  run --cwd "$wt" --timeout 10 --profile host -- sh -c 'printf "#!/bin/sh\necho PLANTED\n" > git && chmod +x git' >/dev/null 2>&1
+  o1=$(run --cwd "$wt" --timeout 10 --profile host -- git --version 2>&1 | head -3)
+  o2=$(run --cwd "$wt" --timeout 10 --profile host -- sh -c 'exec git --version' 2>&1 | head -3)
+  o3=$(run --cwd "$wt" --timeout 10 --profile host -- sh -c 'test -x ./git && echo planted-present' 2>&1)
+  run --cwd "$wt" --timeout 10 --profile host -- rm -f git >/dev/null 2>&1
+  [[ $o3 == planted-present && $o1 != *PLANTED* && $o2 != *PLANTED* && $o1 == "git version"* && $o2 == "git version"* ]] \
+    && ok "planted ./git in the worktree ignored (PROGRAM and sh exec both use the sandbox PATH)" || bad "planted git" "o1=$o1 o2=$o2 o3=$o3"
 fi
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]
