@@ -1,17 +1,11 @@
 host spark-b87b  kernel 7.0.0-1019-nvidia  arch aarch64
 nvidia driver 580.173.02
-at 2026-10-19T20:49:20Z
-loadavg 41.41 36.74 35.59
-MemAvailable 40055 MiB (the loader needs 49,497 MiB)
-gb10 lock holders: 1
-other aien-serve-http servers (not ours, never touched):
-  pid 2853639 port 18191 model /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a
-  pid 2854444 port 18291 model /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a
-server binary built by run.sh qwen38-build: sha256 2695693cc17b31cdfaa9d3b2efbb228b7db48471965e61384ffb1598477c334a
-  aien-serve-http 0.1.0
-  sovereign-core commit: c717f6ae1d69e74874903814ef89fcf45603aabf (dirty 0)
-  omega.lock: 0010f7d30bcaf0012e8051c5a05584a08d8320ec
-  omega gpu engine: native (link pinned-source, abi pass, digest locked, archive sha256 bd6802a5d493ed6b4589dabb5787db70a37ba10c75d8406f3cce27c4dfa9f9bd)
-  qwen38 engine: native (prefill linked)
-  release-grade native identity: yes
-  default model dir: $HOME/models/qwen3.8-27b-fp8-017b9c7a
+loadavg at start 29.49 31.29 33.52
+MemAvailable at start 56687 MiB
+gb10 lock holders at start: 4
+other aien-serve-http processes at start:
+  1456695 /home/drakestapleton/workspace/targets/rig-engine/target/release/aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3-8b-fp8 --port 18120 --weights w4 --mem-budget-gib 12 --max-context 32768
+  1527223 ./aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a --port 18091 --max-context 131072 --max-tokens-cap 16384 --thinking off
+  2854444 /home/drakestapleton/workspace/targets/docmem/bin-e07a3b4c/aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a --port 18291 --max-context 40960 --max-tokens-cap 512 --thinking off
+loadavg at end 23.87 28.45 32.13
+MemAvailable at end 19117 MiB

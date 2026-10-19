@@ -1,0 +1,21 @@
+AIEN-OBS pin_omega "0010f7d30bcaf0012e8051c5a05584a08d8320ec"
+AIEN-OBS pin_physics "6d7cf0d4d8eb2cda7b512100ff6058e25dbb3ddf"
+AIEN-OBS pin_aienos "b84c0a67590a934f3f3e001b12ec85ebc086a9eb"
+   Compiling aien-runtime v0.1.0 (/home/drakestapleton/workspace/targets/gates-qwen38/run/aien-sovereign-core/crates/aien-runtime)
+   Compiling aien-serve-http v0.1.0 (/home/drakestapleton/workspace/targets/gates-qwen38/run/aien-sovereign-core/crates/aien-serve-http)
+    Finished `release` profile [optimized] target(s) in 30.74s
+AIEN-OBS server_binary_sha256 "1f06044701cc364bab246d4bccd941f87aae9aea0d554f4636a53972742114db"
+QWEN38-SERVE: MemAvailable 35893 MiB < 49497 MiB needed; waiting (0/120 s)
+QWEN38-SERVE: MemAvailable 26127 MiB < 49497 MiB needed; waiting (15/120 s)
+QWEN38-SERVE: MemAvailable 24561 MiB < 49497 MiB needed; waiting (30/120 s)
+QWEN38-SERVE: MemAvailable 24578 MiB < 49497 MiB needed; waiting (45/120 s)
+QWEN38-SERVE: MemAvailable 25132 MiB < 49497 MiB needed; waiting (60/120 s)
+QWEN38-SERVE: MemAvailable 23976 MiB < 49497 MiB needed; waiting (75/120 s)
+QWEN38-SERVE: MemAvailable 25041 MiB < 49497 MiB needed; waiting (90/120 s)
+QWEN38-SERVE: MemAvailable 19417 MiB < 49497 MiB needed; waiting (105/120 s)
+AIEN-OBS mem_available_kib_at_load 19657620
+AIEN-OBS mem_needed_kib 50684928
+AIEN-OBS loadavg_at_load "23.87 28.45 32.13"
+AIEN-OBS refusal "memory_short"
+AIEN-OBS receipt "/home/drakestapleton/workspace/targets/gates-qwen38/qwen38-gates/serve/receipt.json"
+QWEN38-SERVE FAIL: memory short: MemAvailable 19196 MiB, the loader needs 49497 MiB (41,305 MiB model + 8,192 MiB kept free); waited 120 s. No server was started.
