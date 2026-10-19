@@ -1,0 +1,3 @@
+slots 1: aien-serve-http: qwen38-batch engine ready in 38.6 s: context 4096 tokens, 1 slots, weights 26.92 GB resident, per-slot state 405.6 MiB on paper, 0.0 MiB measured (MemAvailable 35761 MiB -> 38956 MiB), rss 30.53 GB
+slots 2: aien-serve-http: qwen38-batch engine ready in 40.6 s: context 4096 tokens, 2 slots, weights 26.92 GB resident, per-slot state 405.6 MiB on paper, 409.6 MiB measured (MemAvailable 40023 MiB -> 39204 MiB), rss 30.98 GB
+slots 4: aien-serve-http: qwen38-batch engine ready in 32.6 s: context 4096 tokens, 4 slots, weights 26.92 GB resident, per-slot state 405.6 MiB on paper, 21.9 MiB measured (MemAvailable 39326 MiB -> 39238 MiB), rss 31.87 GB

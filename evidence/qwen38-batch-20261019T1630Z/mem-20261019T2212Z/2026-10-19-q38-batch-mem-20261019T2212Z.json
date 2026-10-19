@@ -1,0 +1,22 @@
+{
+ "name": "q38-batch-mem-20261019T2212Z",
+ "cmd": "/home/drakestapleton/workspace/sc-batch/evidence/qwen38-batch-20261019T1630Z/run-extra.sh mem /home/drakestapleton/workspace/sc-batch/evidence/qwen38-batch-20261019T1630Z/mem-20261019T2212Z",
+ "exit": 0,
+ "git_head": "8f14ee9d",
+ "start": "2026-10-19T17:12:37.153198",
+ "seconds": 2363.563,
+ "samples": 1109,
+ "wall_W_mean": 227.141568981064,
+ "wall_J": 536863.4674426776,
+ "idle_W_before": 267.14285714285717,
+ "incremental_J": -94545.5750836357,
+ "gpu_W_mean": 18.17258791704238,
+ "gpu_util_mean": 36.12894499549143,
+ "load1_start": "11.16",
+ "load1_end": "4.42",
+ "mem_avail_kB_start": "64508804",
+ "mem_avail_kB_end": "71187792",
+ "lock_holders_max": 8,
+ "nvrm_errors_delta": 8,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}

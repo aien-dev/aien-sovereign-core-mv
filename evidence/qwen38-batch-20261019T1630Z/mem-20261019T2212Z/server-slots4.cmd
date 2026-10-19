@@ -1,0 +1,1 @@
+nice -n 10 /home/drakestapleton/workspace/targets/q38-batch/bin-6a440c6d/aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a --port 18191 --max-context 4096 --max-tokens-cap 16384 --thinking off --batch-slots 4

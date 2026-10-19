@@ -1,0 +1,3 @@
+VmHWM:	30252616 kB
+VmRSS:	30252616 kB
+MemAvailable:   40262992 kB
