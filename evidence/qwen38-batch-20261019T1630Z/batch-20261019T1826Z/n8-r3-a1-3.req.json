@@ -1,0 +1,1 @@
+{"model":"qwen3.8-27b-fp8","messages":[{"role":"user","content":"Summarise the plot of Romeo and Juliet in one paragraph."}],"temperature":0,"max_tokens":256,"aien_return_token_ids":true,"chat_template_kwargs":{"enable_thinking":false}}

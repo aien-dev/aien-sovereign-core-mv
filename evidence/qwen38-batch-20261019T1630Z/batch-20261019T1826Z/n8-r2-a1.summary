@@ -1,0 +1,9 @@
+n8-r2-a1 req 0 completion_tokens 184 finish stop
+n8-r2-a1 req 1 completion_tokens 118 finish stop
+n8-r2-a1 req 2 completion_tokens 256 finish length
+n8-r2-a1 req 3 completion_tokens 171 finish stop
+n8-r2-a1 req 4 completion_tokens 256 finish length
+n8-r2-a1 req 5 completion_tokens 256 finish length
+n8-r2-a1 req 6 completion_tokens 256 finish length
+n8-r2-a1 req 7 completion_tokens 256 finish length
+n8-r2-a1 n=8 max_tokens=256 total_completion_tokens=1753 wall_ms=203132 aggregate_tok_s=8.630
