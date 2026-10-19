@@ -1,0 +1,35 @@
+mem available before load: 21.9 GB, this run needs about 13.8 GB
+omega native: bf16 GEMV true, FP8 GEMV true, FP8 GEMM true
+DEVICE omega allocations since start: 294 buffers, 8796315648 bytes (8.192 GiB), 0 frees, 0 refusals
+LOAD /home/drakestapleton/models/qwen3-8b-fp8 format Fp8Block128 tied false layers 36 resident 8.191 GB uploads 145 in 21.6s, kv split resident true context 4096, controls: upload_mutant None kernel_mutant 0 attention_mutant false
+PREFILL 512 tokens in 10.981s (18576 launches, chip 8180.2 ms), last hidden vs token-at-a-time: bit-equal true, cosine 1.000000000
+TOKENS p1-one-token: 32 of 32 golden tokens, identical -> PASS
+TOKENS p2-short: 32 of 32 golden tokens, identical -> PASS
+TOKENS p3-medium: 32 of 32 golden tokens, identical -> PASS
+TOKENS p4-code: 32 of 32 golden tokens, identical -> PASS
+TOKENS p5-512: 32 of 32 golden tokens, identical -> PASS
+SPEED decode 256 tokens in 16375 ms = 15.63 tok/s; per token: chip 58.93 ms, host 2.05 ms, attention 20.09 ms, mlp 36.89 ms, lm_head 6.38 ms, 180 launches; prefill 56 tokens in 1189 ms
+SUMMARY PASS (parity 0 layers, tokens identical, prefill bit-equal true)
+{
+ "name": "rig-chip-fp8",
+ "cmd": "flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/rig-engine/target/release/own8b_check chip /home/drakestapleton/models/qwen3-8b-fp8 /home/drakestapleton/workspace/sc-rig-engine/docs/campaigns/open-model-qwen3/SMOKE-8B-FP8-v1.golden.json /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019/chip-fp8/check --no-host --speed-tokens 256",
+ "exit": 0,
+ "git_head": "70664000",
+ "start": "2026-10-19T12:29:54.907406",
+ "seconds": 283.128,
+ "samples": 128,
+ "wall_W_mean": 257.03125,
+ "wall_J": 72772.68492560834,
+ "idle_W_before": 250.0,
+ "incremental_J": 1990.7421408221126,
+ "gpu_W_mean": 14.916875,
+ "gpu_util_mean": 19.6640625,
+ "load1_start": "97.97",
+ "load1_end": "87.97",
+ "mem_avail_kB_start": "46092268",
+ "mem_avail_kB_end": "14073172",
+ "lock_holders_max": 15,
+ "nvrm_errors_delta": 5,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-rig-chip-fp8.json
