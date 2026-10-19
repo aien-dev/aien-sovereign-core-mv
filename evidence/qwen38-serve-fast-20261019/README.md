@@ -4,7 +4,7 @@ Binary: aien-serve-http from this branch (46134247), sha256 df9360112fdc815539f3
 linked to omega qwen38/decode-speed 0010f7d3 libomega_gpu.a sha256 bd6802a5d493ed6b4589dabb5787db70a37ba10c75d8406f3cce27c4dfa9f9bd.
 Live on 127.0.0.1:18091 since 2026-10-19T14:00:47Z (start-27b.sh.new = the installed start script).
 
-- No second server: MemAvailable 45 GiB against a 37.6 GiB need (old VmHWM 40.36 GB) at decision time, under the 12 GiB rule. Swap path.
+- No second server: MemAvailable 45 GiB against a 38.5 GiB need (old VmHWM 40358896 kB, calc:e6df204b) at decision time, under the 12 GiB rule. Swap path.
 - swap.log: keepalive stopped, SIGTERM 13:55:26Z, old exited 13:59:43Z (257 s drain of an aien-translate reply), new ready 14:00:47Z (load 64 s).
 - gate-live/, gate-live.out: tools/qwen38_serve_gate.sh against the new live server: GATE PASS (golden 24/24, control differs, snapshot/live/cold resume equal).
 - after/: 4 runs of the serve agent's short prompt, 256 greedy tokens: chip 129.9 / 129.0 / 134.9 / 132.2 ms/token, all four id lists identical, text identical to the old binary's speed-run2/decode1.json.
