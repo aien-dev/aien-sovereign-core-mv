@@ -1,0 +1,2 @@
+code-n256 try 1 start 2026-10-19T17:30:42Z loadavg 96.67 87.37 78.70 80/2822 1017298 memavail_kb 45895728
+aborted by the agent at 2026-10-19T17:31:25Z before the GPU lock was taken: the run command still held the quiet lock shared; re-queued as qwen38-dflash-gen-20261019T1731Z (GPU lock only, nice 19)
