@@ -4,6 +4,7 @@
 //!   qwen38_prefill golden <checkpoint-dir> <golden.json> <chunk> <out.json>
 //!   qwen38_prefill score  <checkpoint-dir> <score.json>  <chunk> <out.json>
 //!   qwen38_prefill ttft   <checkpoint-dir> <corpus.txt>  <len,len,...> <chunk> <out.json>
+//!   qwen38_prefill storage <checkpoint-dir> <layers> <tokens> <chunk> <out.json>
 //!
 //! `golden`: a `qwen38_check generate` record (host reference). The prompt is prefilled in chunks
 //! of `chunk`, then the decode graph continues greedily; every generated token must equal the
@@ -67,7 +68,7 @@ static LEAK: Mutex<Vec<(PfMem, Vec<u8>)>> = Mutex::new(Vec::new());
 /// Unaccounted bytes a run may hold, per space, before its storage check fails; set from the
 /// measured clean runs (evidence/f6-storage-map-*/).
 const UNACCOUNTED_DRIVER_MAX: i64 = 64 << 20;
-const UNACCOUNTED_HEAP_MAX: i64 = 1 << 30;
+const UNACCOUNTED_HEAP_MAX: i64 = 128 << 20;
 
 /// AIEN_STORAGE_MAP_LEAK_BYTES=n: one omega host buffer and one heap vector of n bytes each,
 /// every page written, that the map does not name. Both must show in the unaccounted numbers.
@@ -138,9 +139,25 @@ fn storage_receipt(e: &Qwen38Omega, stage: &str) -> Result<(bool, Value), String
 }
 
 fn open(dir: &Path, max_pos: usize, chunk: usize) -> Result<Qwen38Omega, String> {
+    open_layers(dir, None, max_pos, chunk)
+}
+
+/// [`open`] for the first `layers` layers only (`None`: all).
+fn open_layers(
+    dir: &Path,
+    layers: Option<usize>,
+    max_pos: usize,
+    chunk: usize,
+) -> Result<Qwen38Omega, String> {
     // The attention cache holds whole score passes of 256 positions (OMEGA_DATTN256_CHUNK).
     let max_pos = max_pos.next_multiple_of(256);
-    let c = Qwen38Config::from_checkpoint(dir)?;
+    let full = Qwen38Config::from_checkpoint(dir)?;
+    let c = match layers {
+        None => full,
+        Some(n) => full
+            .prefix(n)
+            .ok_or_else(|| format!("layers {n}: outside the model"))?,
+    };
     let need = need_bytes(&c, max_pos, chunk.min(max_pos));
     let avail = mem_available()?;
     if avail < need + KEEP_FREE {
@@ -156,10 +173,37 @@ fn open(dir: &Path, max_pos: usize, chunk: usize) -> Result<Qwen38Omega, String>
         need >> 20,
         avail >> 20
     );
-    let e = Qwen38Omega::open(dir, None, max_pos)?;
+    let e = Qwen38Omega::open(dir, layers, max_pos)?;
     leak_control()?;
     storage_receipt(&e, "load")?;
     Ok(e)
+}
+
+/// The storage map's own check (sc #678): the first `layers` layers, a prefill of `tokens`
+/// tokens in chunks of `chunk`, the host head and one decode step, each first use probed; PASS
+/// when every probed call matches its plan, nothing planned is left unprobed and both
+/// receipts pass. Small enough to run beside the live server.
+fn storage_check(
+    dir: &Path,
+    layers: usize,
+    tokens: usize,
+    chunk: usize,
+) -> Result<(bool, Value), String> {
+    let mut e = open_layers(dir, Some(layers), tokens + 1, chunk)?;
+    let ids: Vec<u32> = (0..tokens as u32).map(|i| 1000 + 7 * i).collect();
+    e.reset()?;
+    let (first, _, st) = e.prefill(&ids, chunk)?;
+    e.step(first)?;
+    let (ok, sm) = storage_receipt(&e, "end")?;
+    let mismatches = e.storage_map().failing(storage::ALLOWANCE_SLACK).len();
+    let unprobed = e.storage_map().unprobed().len();
+    let pass = ok && mismatches == 0 && unprobed == 0;
+    Ok((
+        pass,
+        json!({"mode": "storage", "layers": layers, "tokens": tokens, "chunk": chunk,
+               "mismatched_calls": mismatches, "unprobed_calls": unprobed,
+               "stats": stats_json(&st), "storage_map": sm, "pass": pass}),
+    ))
 }
 
 fn stats_json(s: &PrefillStats) -> Value {
@@ -409,7 +453,7 @@ fn main() {
     if let Some(out) = a.last() {
         let _ = MAP_OUT.set(out.trim_end_matches(".json").to_string());
     }
-    let usage = "usage: qwen38_prefill golden|score <dir> <record.json> <chunk> <out.json> | ttft <dir> <corpus.txt> <len,...> <chunk> <out.json> | prompts <dir> <corpus.txt> <len,...> <out-dir>";
+    let usage = "usage: qwen38_prefill golden|score <dir> <record.json> <chunk> <out.json> | ttft <dir> <corpus.txt> <len,...> <chunk> <out.json> | prompts <dir> <corpus.txt> <len,...> <out-dir> | storage <dir> <layers> <tokens> <chunk> <out.json>";
     let res = (|| -> Result<(bool, Value, String), String> {
         match a.get(1).map(String::as_str) {
             Some(mode @ ("golden" | "score")) if a.len() == 6 => {
@@ -429,6 +473,11 @@ fn main() {
                     .collect::<Result<_, _>>()?;
                 let chunk: usize = a[5].parse().map_err(|_| usage.to_string())?;
                 let (pass, v) = ttft(Path::new(&a[2]), &a[3], &lens, chunk)?;
+                Ok((pass, v, a[6].clone()))
+            }
+            Some("storage") if a.len() == 7 => {
+                let num = |i: usize| a[i].parse::<usize>().map_err(|_| usage.to_string());
+                let (pass, v) = storage_check(Path::new(&a[2]), num(3)?, num(4)?, num(5)?)?;
                 Ok((pass, v, a[6].clone()))
             }
             Some("prompts") if a.len() == 6 => {

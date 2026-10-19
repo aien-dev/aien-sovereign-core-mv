@@ -66,18 +66,28 @@ const GDN_SCAN_CHUNK: u64 = 8;
 const MM_TILE_M: u64 = 16;
 const MM_TILE_K: u64 = 16;
 const MM_TILE_N: u64 = 8;
-/// `PF_STAGE_BYTES` (omega_gpu_prefill.c:12): the host entries' staging.
-const PF_STAGE: u64 = 64 << 20;
 /// `TILE_BYTES` of one FP8 GEMM tile record (aien-omega-pf).
 const TILE: u64 = aien_omega_pf::TILE_BYTES as u64;
 
 /// Measured allowances (no formula on this side: kernel code sizes come out of omega's code
 /// generator, the session and driver maps out of the platform). Each is the figure measured on
-/// the chip (receipt in evidence/f6-storage-map-*/), rounded up to a whole MiB.
-pub const SESSION_ALLOWANCE: u64 = 0;
-pub const GRAPH_CODE_ALLOWANCE: u64 = 0;
-pub const PREFILL_CODE_ALLOWANCE: u64 = 0;
-pub const DECODE_FIRST_ALLOWANCE: u64 = 0;
+/// the chip, exact (first run: evidence/f6-storage-map-20261019T0156Z/storage-l4.storage-map-end.txt,
+/// omega archive 373d122c, qwen38/prefill-graph 6e24f7fd). A different omega build that
+/// changes one of them fails the storage check by name: re-measure, do not widen.
+pub const SESSION_ALLOWANCE: u64 = 1_323_008;
+pub const GRAPH_CODE_ALLOWANCE: u64 = 69_632;
+pub const PREFILL_CODE_ALLOWANCE: u64 = 126_976;
+pub const HEAD_CODE_ALLOWANCE: u64 = 8_192;
+pub const DECODE_FIRST_ALLOWANCE: u64 = 61_440;
+/// Process heap beyond the named vectors: the safetensors index, read buffers, rayon arenas
+/// keeping freed chunk vectors (glibc keeps blocks under its 32 MiB mmap threshold). Measured:
+/// 54,784,000 bytes unaccounted after a 256-token chunk run and 1.2 MB over the plan at the
+/// load peak (evidence/f6-storage-map-20261019T0156Z, storage-l4-c256); 64 MiB.
+pub const HEAP_ALLOWANCE: u64 = 64 << 20;
+/// Drift a call with a measured allowance may show before the check fails (kernel code is
+/// made per chunk shape: a 300-token prompt in chunks of 128 made one more 4 KiB code page
+/// than 512 in chunks of 256). Calls with only derived entries must match exactly.
+pub const ALLOWANCE_SLACK: u64 = 64 << 10;
 
 /// Call names (the load and the prefill probe these).
 pub const CALL_LM_HEAD: &str = "lm_head upload (first omega call: opens the session)";
@@ -120,6 +130,25 @@ pub fn plan(c: &Qwen38Config, max_pos: usize, chunk: Option<(usize, usize)>) -> 
     let w = Lifetime::Weights;
     let d = Space::Driver;
 
+    // In load order: the peak is a running maximum over the entries as registered.
+    let hp = Space::Heap;
+    s.add(
+        "embedding bf16 [vocab][hidden]",
+        hp,
+        v * h * 2,
+        "Qwen38Omega.embed",
+        &["load"],
+        w,
+    );
+    let e = s.add(
+        "process heap: checkpoint index, read buffers, allocator slack",
+        hp,
+        HEAP_ALLOWANCE,
+        "process",
+        &["load", "prefill"],
+        Lifetime::Engine,
+    );
+    e.derived = false;
     s.add(
         "lm_head bf16 [vocab][hidden]",
         d,
@@ -139,6 +168,16 @@ pub fn plan(c: &Qwen38Config, max_pos: usize, chunk: Option<(usize, usize)>) -> 
     );
     e.call = CALL_LM_HEAD.into();
     e.derived = false;
+    // The host copy is still held while its upload runs: counted with the uploaded twin.
+    s.add(
+        "lm_head host copy (read before the upload)",
+        hp,
+        v * h * 2,
+        "load_at",
+        &["load"],
+        w,
+    )
+    .transient = true;
 
     if n_gdn > 0 {
         let g = "Qwen38Omega.gdn";
@@ -234,6 +273,18 @@ pub fn plan(c: &Qwen38Config, max_pos: usize, chunk: Option<(usize, usize)>) -> 
         s.add(names[n - 2].clone(), d, fp8(2 * i, h), o, &["load"], w);
         s.add(names[n - 1].clone(), d, fp8(h, i), o, &["load"], w);
     }
+    // One layer's host copies while it uploads, the largest being gate|up: both parts as read
+    // and the fused copy (weights and bf16 scales). Freed before the next layer reads.
+    let gu = 2 * i * h + (2 * i / BLOCK) * (h / BLOCK) * 2;
+    s.add(
+        "layer upload host copies (gate|up parts and fused)",
+        hp,
+        2 * gu,
+        "load_at",
+        &["load"],
+        w,
+    )
+    .transient = true;
 
     // The decode graph: one buffer at fixed 256-byte sections (omega_gpu_q38_graph.c:125-130).
     let am_ctas = v.div_ceil(ARGMAX_SPAN);
@@ -314,17 +365,18 @@ pub fn plan(c: &Qwen38Config, max_pos: usize, chunk: Option<(usize, usize)>) -> 
         Lifetime::Token,
     )
     .call = CALL_HEAD_FIRST.into();
-
-    // Host: the embedding (one row widened per token) and the norms the prefill applies.
-    let hp = Space::Heap;
-    s.add(
-        "embedding bf16 [vocab][hidden]",
-        hp,
-        v * h * 2,
-        "Qwen38Omega.embed",
-        &["load"],
-        w,
+    let e = s.add(
+        "lm_head GEMV kernel code",
+        d,
+        HEAD_CODE_ALLOWANCE,
+        "omega bf16 gemv",
+        &["omega code generator"],
+        Lifetime::Engine,
     );
+    e.call = CALL_HEAD_FIRST.into();
+    e.derived = false;
+
+    // Host: the norms the prefill applies.
     s.add(
         "norms f32 (input, post-attention per layer; final)",
         hp,
@@ -416,7 +468,9 @@ fn prefill_entries(s: &mut StorageMap, c: &Qwen38Config, m: u64, bm: u64) {
         + 2 * al(m * q::MIXER_OUT as u64 * 4)
         + al(t8 * 48 * GDN_REC);
     let mmp = m.div_ceil(MM_TILE_M) * MM_TILE_M;
-    let lazy: [(&str, u64, &str, &[&str]); 5] = [
+    // (omega's 64 MiB host-entry stage, PF_STAGE_BYTES, is made only by omega_gpu_pf_upload /
+    // download, which this path does not call: not planned, and the chip run shows it absent.)
+    let lazy: [(&str, u64, &str, &[&str]); 4] = [
         (
             "gdn prefill scratch (qkv, z, ab, out, o, records)",
             page(gdn_pf),
@@ -437,12 +491,6 @@ fn prefill_entries(s: &mut StorageMap, c: &Qwen38Config, m: u64, bm: u64) {
                 + page(mmp * (2 * c.lin_v_heads as u64).div_ceil(MM_TILE_N) * MM_TILE_N * 4),
             "omega matmul",
             &["a|b matmul"],
-        ),
-        (
-            "prefill host-entry stage",
-            page(PF_STAGE),
-            "omega prefill",
-            &["pf host entries"],
         ),
         (
             "prefill kernel code",

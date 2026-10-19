@@ -163,10 +163,20 @@ impl StorageMap {
             .sum()
     }
 
-    /// Planned bytes at the peak: everything held plus every transient entry (they are freed
-    /// before the next one is made, but this sums them all: an upper bound). Admission uses it.
+    /// Planned bytes at the peak, with the entries registered in the order they are made: the
+    /// running sum of held entries, plus a transient entry at its own moment (it is freed before
+    /// the next entry is made), at its highest. Admission uses it.
     pub fn peak(&self) -> u64 {
-        self.entries.iter().map(|e| e.bytes).sum()
+        let (mut held, mut peak) = (0u64, 0u64);
+        for e in &self.entries {
+            if e.transient {
+                peak = peak.max(held + e.bytes);
+            } else {
+                held += e.bytes;
+                peak = peak.max(held);
+            }
+        }
+        peak
     }
 
     /// Driver bytes measured over every probed call.
@@ -181,6 +191,18 @@ impl StorageMap {
             .filter_map(|(c, m)| {
                 let p = self.planned_for(c);
                 (p != *m).then_some((c.as_str(), p, *m))
+            })
+            .collect()
+    }
+
+    /// The mismatches a check fails on: every one on a call made of derived entries only, and on
+    /// a call with a measured allowance those that drift more than `slack`.
+    pub fn failing(&self, slack: u64) -> Vec<(&str, u64, u64)> {
+        self.mismatches()
+            .into_iter()
+            .filter(|(c, p, m)| {
+                let allowance = self.entries.iter().any(|e| e.call == *c && !e.derived);
+                !allowance || p.abs_diff(*m) > slack
             })
             .collect()
     }
@@ -651,9 +673,24 @@ VmFlags: rd wr mr mw me ac
         assert!(!s.record("nope", 1));
         assert_eq!(s.planned_for("kv"), 8192);
         assert_eq!(s.mismatches(), vec![("kv", 8192, 12288), ("nope", 0, 1)]);
+        assert_eq!(s.failing(1 << 20), s.mismatches(), "no allowance: exact");
+        s.entries[1].derived = false;
+        assert_eq!(
+            s.failing(4096),
+            vec![("nope", 0, 1)],
+            "kv drifts 4096, within slack"
+        );
+        assert_eq!(s.failing(4095).len(), 2);
+        s.entries[1].derived = true;
         assert_eq!(s.measured_total(), 20481);
         assert!(s.unprobed().is_empty());
         assert_eq!(s.total(None), 17384);
+        // A transient block counts at its own moment only.
+        s.add("tmp", Space::Heap, 100_000, "t", &["x"], Lifetime::Token)
+            .transient = true;
+        s.add("late", Space::Heap, 10, "t", &["x"], Lifetime::Token);
+        assert_eq!(s.total(None), 17394);
+        assert_eq!(s.peak(), 117_384);
     }
 
     #[test]
