@@ -674,7 +674,7 @@ fn acquire_locks(cfg: &GpuConfig, t0: Instant) -> Result<GpuGuard, GpuRefusal> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{write_file, TempDir};
+    use crate::testutil::{queued_on, write_file, TempDir};
     use std::sync::mpsc;
     use std::thread;
     use std::time::Duration;
@@ -938,15 +938,26 @@ mod tests {
         let mut cfg = GpuConfig::rooted_at(d.path());
         let held = acquire_gpu(&cfg).unwrap();
         cfg.wait = GpuWait::Bounded(Duration::from_secs(20));
+        // Let go 300 ms after the waiter shows up in the kernel queue.
+        let lock = cfg.lock_path.clone();
         let holder = thread::spawn(move || {
-            thread::sleep(Duration::from_millis(500));
+            let t0 = Instant::now();
+            while !queued_on(&lock) && t0.elapsed() < Duration::from_secs(15) {
+                thread::sleep(Duration::from_millis(5));
+            }
+            let seen = queued_on(&lock);
+            thread::sleep(Duration::from_millis(300));
             drop(held);
+            seen
         });
         let a = acquire_gpu_timed(&cfg);
-        holder.join().unwrap();
+        assert!(
+            holder.join().unwrap(),
+            "the waiter never queued in the kernel"
+        );
         assert!(a.result.is_ok(), "{:?}", a.result);
         assert!(
-            (Duration::from_millis(400)..Duration::from_secs(20)).contains(&a.waited),
+            (Duration::from_millis(250)..Duration::from_secs(20)).contains(&a.waited),
             "waited {:?}",
             a.waited
         );
