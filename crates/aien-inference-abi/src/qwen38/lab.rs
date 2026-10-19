@@ -160,6 +160,78 @@ fn by_row_to_tokens(by_row: Vec<f32>, n: usize, t: usize) -> Vec<f32> {
     y
 }
 
+/// `out[r * t + tt] = W[r] . x[tt]` for `rows` rows of `w` (`[rows][k]`) and `t` rows of `x`,
+/// two weight rows by four tokens at a time (eight lanes each) so a weight load feeds four
+/// products. Sums in another order than [`dot`]: a lab pass compares within one binary only.
+fn kernel(w: &[f32], rows: usize, k: usize, x: &[f32], t: usize, out: &mut [f32]) {
+    let lanes = |a: &[f32; 8]| a.iter().sum::<f32>();
+    let mut tt = 0;
+    while tt + 4 <= t && k % 8 == 0 {
+        let xs = [
+            &x[tt * k..(tt + 1) * k],
+            &x[(tt + 1) * k..(tt + 2) * k],
+            &x[(tt + 2) * k..(tt + 3) * k],
+            &x[(tt + 3) * k..(tt + 4) * k],
+        ];
+        let mut r = 0;
+        while r + 2 <= rows {
+            let w0 = &w[r * k..(r + 1) * k];
+            let w1 = &w[(r + 1) * k..(r + 2) * k];
+            let mut acc = [[0f32; 8]; 8];
+            for c in 0..k / 8 {
+                let s = c * 8..c * 8 + 8;
+                let a: &[f32; 8] = w0[s.clone()].try_into().expect("8");
+                let b: &[f32; 8] = w1[s.clone()].try_into().expect("8");
+                for (j, xv) in xs.iter().enumerate() {
+                    let xv: &[f32; 8] = xv[s.clone()].try_into().expect("8");
+                    for l in 0..8 {
+                        acc[j][l] += a[l] * xv[l];
+                        acc[4 + j][l] += b[l] * xv[l];
+                    }
+                }
+            }
+            for j in 0..4 {
+                out[r * t + tt + j] = lanes(&acc[j]);
+                out[(r + 1) * t + tt + j] = lanes(&acc[4 + j]);
+            }
+            r += 2;
+        }
+        while r < rows {
+            for j in 0..4 {
+                out[r * t + tt + j] = dot(&w[r * k..(r + 1) * k], xs[j]);
+            }
+            r += 1;
+        }
+        tt += 4;
+    }
+    while tt < t {
+        let xv = &x[tt * k..(tt + 1) * k];
+        for r in 0..rows {
+            out[r * t + tt] = dot(&w[r * k..(r + 1) * k], xv);
+        }
+        tt += 1;
+    }
+}
+
+/// [`Matrix::matmul`] through [`kernel`].
+pub fn fast_matmul(m: &Matrix, x: &[f32], t: usize) -> Vec<f32> {
+    let (n, k) = (m.n(), m.k());
+    assert_eq!(x.len(), t * k);
+    let lut = fp8_table();
+    let mut by_row = vec![0f32; n * t];
+    by_row
+        .par_chunks_mut(ROWS_PER_TASK * t)
+        .enumerate()
+        .for_each_init(Vec::new, |buf: &mut Vec<f32>, (task, out)| {
+            let r0 = task * ROWS_PER_TASK;
+            let rows = out.len() / t;
+            buf.resize(rows * k, 0.0);
+            m.widen_rows(r0, rows, &lut, buf);
+            kernel(buf, rows, k, x, t, out);
+        });
+    by_row_to_tokens(by_row, n, t)
+}
+
 impl F32Mat {
     pub fn matmul(&self, x: &[f32], t: usize) -> Vec<f32> {
         let (n, k) = (self.n, self.k);
@@ -171,12 +243,7 @@ impl F32Mat {
             .for_each(|(task, out)| {
                 let r0 = task * ROWS_PER_TASK;
                 let rows = out.len() / t;
-                for tt in 0..t {
-                    let xv = &x[tt * k..(tt + 1) * k];
-                    for r in 0..rows {
-                        out[r * t + tt] = dot(&self.w[(r0 + r) * k..(r0 + r + 1) * k], xv);
-                    }
-                }
+                kernel(&self.w[r0 * k..(r0 + rows) * k], rows, k, x, t, out);
             });
         by_row_to_tokens(by_row, n, t)
     }
@@ -314,7 +381,7 @@ impl View<'_> {
         if let Some(m) = self.q.and_then(|q| q.get(&s)) {
             return m.matmul(x, t);
         }
-        self.raw(s).matmul(x, t)
+        fast_matmul(self.raw(s), x, t)
     }
     fn bytes(&self, sites: &[Site]) -> f64 {
         sites.iter().map(|&s| mat_bytes(self.raw(s))).sum()
@@ -1086,7 +1153,7 @@ impl<S: TensorSource> Qwen38Reference<S> {
     pub fn lab_logits(&self, rows: &[f32]) -> Vec<f32> {
         let mut r = rows.to_vec();
         rms_norm_zc(&mut r, &self.final_norm, self.config.eps);
-        self.lm_head.matmul(&r, rows.len() / self.config.hidden)
+        fast_matmul(&self.lm_head, &r, rows.len() / self.config.hidden)
     }
 
     /// The lm_head (bf16) for the drafter-learning simulation.
@@ -1151,7 +1218,7 @@ impl<S: TensorSource> Qwen38Reference<S> {
             cat[i * 2 * h..i * 2 * h + h].copy_from_slice(&e);
             cat[i * 2 * h + h..(i + 1) * 2 * h].copy_from_slice(&hh);
         }
-        let mut x = fc.matmul(&cat, m);
+        let mut x = fast_matmul(&fc, &cat, m);
         let mut st = LayerState::Attention {
             k: Vec::new(),
             v: Vec::new(),
@@ -1204,4 +1271,60 @@ pub fn kl(p: &[f32], q: &[f32]) -> f64 {
             la.exp() * (la - (b as f64 - lq))
         })
         .sum()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kernel_matches_dot() {
+        let (rows, k) = (5usize, 40usize);
+        for t in [1usize, 3, 4, 7, 9] {
+            let w: Vec<f32> = (0..rows * k)
+                .map(|i| ((i * 37 % 101) as f32 - 50.0) / 50.0)
+                .collect();
+            let x: Vec<f32> = (0..t * k)
+                .map(|i| ((i * 53 % 89) as f32 - 44.0) / 44.0)
+                .collect();
+            let mut out = vec![0f32; rows * t];
+            kernel(&w, rows, k, &x, t, &mut out);
+            for r in 0..rows {
+                for tt in 0..t {
+                    let want = dot(&w[r * k..(r + 1) * k], &x[tt * k..(tt + 1) * k]);
+                    assert!((out[r * t + tt] - want).abs() < 1e-4, "r {r} t {tt}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn mxfp4_group_matches_rule() {
+        // amax 3.0 -> X = 2^(1 - 2) = 0.5, codes up to 6 * 0.5 = 3.0.
+        let mut g = [0f32; GROUP];
+        g[0] = 3.0;
+        g[1] = -0.3; // 0.6 -> 0.5 -> -0.25
+        g[2] = 1.1; // 2.2 -> 2.0 -> 1.0
+        quant_group(Quant::Mxfp4, &mut g);
+        assert_eq!((g[0], g[1], g[2]), (3.0, -0.25, 1.0));
+        // int3 pow2: amax 3.0 -> X = 2^(1 - 1) = 1, codes 0..3.
+        let mut h = [0f32; GROUP];
+        h[0] = 3.0;
+        h[1] = 1.4;
+        h[2] = -2.6;
+        quant_group(Quant::Mxint3, &mut h);
+        assert_eq!((h[0], h[1], h[2]), (3.0, 1.0, -3.0));
+    }
+
+    #[test]
+    fn teal_row_keeps_largest_share() {
+        let tl = Teal {
+            s: 0.5,
+            group: 1,
+            mode: TealMode::Row,
+        };
+        let mut x = vec![1.0f32, -4.0, 2.0, 0.5, 3.0, -0.1, 0.2, 5.0];
+        tl.apply(&mut x, 8, 0, 1.0, None);
+        assert_eq!(x, vec![0.0, -4.0, 2.0, 0.0, 3.0, 0.0, 0.0, 5.0]);
+    }
 }
