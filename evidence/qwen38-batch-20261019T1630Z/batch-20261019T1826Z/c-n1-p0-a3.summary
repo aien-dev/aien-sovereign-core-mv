@@ -1,0 +1,2 @@
+c-n1-p0-a3 req 0 completion_tokens 184 finish stop
+c-n1-p0-a3 n=1 max_tokens=256 total_completion_tokens=184 wall_ms=73893 aggregate_tok_s=2.490

@@ -1,0 +1,4 @@
+c-n1-p0 c-n1-p0-a3
+c-n1-p1 c-n1-p1-a1
+c-n1-p2 c-n1-p2-a1
+c-n1-p3 c-n1-p3-a1
