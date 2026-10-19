@@ -102,7 +102,8 @@ directory only.
 into a temp directory with receipts built through aien-proof's own API, then
 checks one PASS case and at least one failing case per code, each asserting the
 exact finding and the binary's exit code. The committed seeded fixture (with
-store) is what `.github/workflows/verify-closure.yml` runs against. To rewrite
+store) is what the SC-VERIFY-CLOSURE gate (`tests/gates/sc-verify-closure.gate`,
+step `verify-closure` in `tests/gates/run.sh`) runs against on the Spark judge. To rewrite
 it: `cargo test -p aien-closure -- --ignored regenerate_committed_fixture`.
 
 ## One meaning per declaration code

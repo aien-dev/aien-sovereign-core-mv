@@ -229,6 +229,18 @@ round 1 on a contaminated host; its samples are kept apart in
 13.08 s of the 31.5 s cold build (`baseline-20261015-4c83e38/timings/critical-path.json`).
 The follow-up is a native fix of that bottleneck, in a separate issue.
 
+**Update 2026-10-16.** That follow-up landed: #558 replaced the HTTP client with
+the native `crates/aien-localhttp` and took `aws-lc-sys` off the build graph
+(`Cargo.lock` on main has no `aws-lc` entry on 2026-10-19). No new M0 baseline
+has been recorded since, so the timings above still describe the build before
+that change.
+
+**Milestone M6, a different part of Headstart.** M6 tested the runtime's
+provisional preparation feature (#537, #538), not the compiler. Its A/B run on
+2026-10-16 did not meet its 10 % gate and the feature stays off by default:
+`benchmarks/data/headstart/m6-2026-10-16/RESULTS.md` and
+[docs/headstart/ROLLOUT.md](../../docs/headstart/ROLLOUT.md).
+
 ## Running it
 
 From the repository root, with the stable toolchain pinned by

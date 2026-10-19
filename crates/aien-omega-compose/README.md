@@ -7,8 +7,8 @@ in omega `mk/rx_compose_lib.mk`). NEXT-PHASE-1 cut 1b.
 ## Building against omega
 
 The library is built from an omega checkout whose HEAD must equal `omega.lock`
-(the same pin aien-omega-gpu uses; since NEXT-PHASE-1 it is omega 62b6a28, which
-contains `librx_compose.a`). Default build, no override:
+(the same pin aien-omega-gpu uses; on 2026-10-19 `omega.lock` names omega
+4799f9eb). Omega has shipped `librx_compose.a` since NEXT-PHASE-1 (omega 62b6a28). Default build, no override:
 
 ```text
 AIEN_OMEGA_DIR=<omega checkout at omega.lock>

@@ -17,7 +17,9 @@ AIENOS.
 | `gc.sh` | worktree age + target-dir quota cleanup, dry run by default |
 | `tests/run.sh` | proofs of the contract on this host (33 checks with two wt.sh worktrees present) |
 | `pipeline.sh` | ADR 0033 phase 3: publish verified bundles to aien-receipts, rerun the GitHub thin gate, merge `ready-to-merge` PRs behind guards |
-| `tests/pipeline_test.sh` | offline proofs of `pipeline.sh` with fake `gh`, fake `aien-test` and throwaway git repositories (56 checks) |
+| `tests/pipeline_test.sh` | offline proofs of `pipeline.sh` with fake `gh`, fake `aien-test` and throwaway git repositories (60 checks on 2026-10-19) |
+| `siblings` | operator configuration: the sibling checkouts (`../<dir>`) each repository's gates need, read by the worker from the trusted clone |
+| `pins` | operator configuration: pinned sibling commits the worker makes present before a run (for example the SC-TRN1 and SC-CRB1 corpora) |
 
 ## C8 exec contract
 
@@ -170,7 +172,8 @@ GitHub to act. One instance at a time (`flock` on `$STATE/pipeline.lock`; a seco
 and refusal is one JSON line in `$STATE/pipeline.jsonl`. Exit 0 when the round ran (refusals included), 2 on a usage
 or configuration error. Overrides: `AIEN_STATE`, `AIEN_CLONES`, `AIEN_RECEIPTS`, `AIEN_RECEIPTS_BRANCH`,
 `AIEN_TEST_BIN`, `AIEN_GH_OWNER` (default `aien-dev`), `AIEN_REPOS`, `GH`, `GIT`. GitHub calls use the canonical slug
-(`gh api repos/aien-dev/<repo> --jq .full_name`, so `aienos` becomes `aien-spark/aienos`).
+(`gh api repos/aien-dev/<repo> --jq .full_name`, so `aienos` becomes `aien-dev/aienos-mv` while the temporary
+`-mv` repository names last).
 
 * **publish**: for each `$STATE/bundles/<repo>/<sha>/bundle.json` of a repository whose trusted clone has a key in
   `origin/main:.aien/verify.pub` (several keys allowed, one per line, `#` comments, same rule as aien-test): skip when
@@ -184,8 +187,11 @@ or configuration error. Overrides: `AIEN_STATE`, `AIEN_CLONES`, `AIEN_RECEIPTS`,
   `$STATE/pipeline-reruns`: the latest `AIEN Verification` run for that head is rerun when it is completed and its
   latest attempt started (`run_started_at`, else `created_at`) before the publication (push time in
   `$STATE/pipeline-published`, else the receipts commit time). A queued or running run waits for a later round.
+  A refused rerun is retried at most once an hour and given up after three refusals.
 * **merge**: only open PRs labeled exactly `ready-to-merge`, not draft, mergeable state not `dirty`, head unchanged
-  since listing. All guards required: the local bundle for the head exists; its sha256 equals the published copy at
+  since listing, and head up to date with the base (`origin/<base>` is an ancestor of the head; otherwise refused
+  with "behind origin/<base>"). At most one merge per repository per round, so the next PR must catch up with the
+  new base first (#657). A file `$STATE/MERGE-PAUSE` stops merging only; publish and rerun keep going. All guards required: the local bundle for the head exists; its sha256 equals the published copy at
   receipts `origin/main`; `verify-bundle` exits 0 with a key from `origin/<base>:.aien/verify.pub` and `--require`
   from `origin/<base>:.aien/always` (as the thin gate does); the base branch has required status checks and every one
   is present on the head with only `success` (check runs and commit statuses); no `AIEN Verification` run for the head
