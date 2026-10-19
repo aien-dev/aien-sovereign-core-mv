@@ -28,7 +28,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use aien_inference_abi::qwen38::{argmax, Qwen38Config};
-use aien_inference_abi::qwen38_omega::{PrefillStats, Qwen38Omega};
+use aien_inference_abi::qwen38_omega::{layout, PrefillStats, Qwen38Omega};
 use aien_inference_abi::qwen3_moe::parity_stats;
 use aien_inference_abi::tokenizer::ChatTokenizer;
 use serde_json::{json, Value};
@@ -93,8 +93,16 @@ fn open(dir: &Path, max_pos: usize, chunk: usize) -> Result<Qwen38Omega, String>
         need >> 20,
         avail >> 20
     );
-    Qwen38Omega::open(dir, None, max_pos)
+    match PACK.get().and_then(Option::as_ref) {
+        Some(p) => {
+            Qwen38Omega::open_pack(dir, p, None, max_pos, layout::flip_from_env().as_deref())
+        }
+        None => Qwen38Omega::open(dir, None, max_pos),
+    }
 }
+
+/// The layout pack from `--layout` (sc #676), opened once against the pinned id.
+static PACK: std::sync::OnceLock<Option<layout::Pack>> = std::sync::OnceLock::new();
 
 fn stats_json(s: &PrefillStats) -> Value {
     json!({
@@ -324,8 +332,19 @@ fn prompts(dir: &Path, corpus: &str, lens: &[usize], out: &Path) -> Result<(bool
 }
 
 fn main() {
-    let a: Vec<String> = std::env::args().collect();
-    let usage = "usage: qwen38_prefill golden|score <dir> <record.json> <chunk> <out.json> | ttft <dir> <corpus.txt> <len,...> <chunk> <out.json> | prompts <dir> <corpus.txt> <len,...> <out-dir>";
+    let mut a: Vec<String> = std::env::args().collect();
+    let pack = layout::take_layout_arg(&mut a)
+        .and_then(|p| p.map(|p| layout::open_for_tool(&p)).transpose());
+    match pack {
+        Ok(p) => {
+            let _ = PACK.set(p);
+        }
+        Err(e) => {
+            eprintln!("qwen38_prefill: {e}");
+            std::process::exit(2);
+        }
+    }
+    let usage = "usage: qwen38_prefill golden|score <dir> <record.json> <chunk> <out.json> | ttft <dir> <corpus.txt> <len,...> <chunk> <out.json> | prompts <dir> <corpus.txt> <len,...> <out-dir>; [--layout <pack>] loads from a pinned layout pack";
     let res = (|| -> Result<(bool, Value, String), String> {
         match a.get(1).map(String::as_str) {
             Some(mode @ ("golden" | "score")) if a.len() == 6 => {

@@ -24,7 +24,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use aien_inference_abi::qwen38::{argmax, Logits, Qwen38Config, Qwen38Reference};
-use aien_inference_abi::qwen38_omega::Qwen38Omega;
+use aien_inference_abi::qwen38_omega::{layout, Qwen38Omega};
 use aien_inference_abi::qwen3_moe::parity_stats;
 use aien_inference_abi::qwen3_moe_omega::ShardSource;
 use serde_json::{json, Value};
@@ -93,9 +93,12 @@ fn ids(v: &Value, key: &str) -> Result<Vec<u32>, String> {
 }
 
 fn run() -> Result<bool, String> {
-    let args: Vec<String> = std::env::args().collect();
-    let usage =
-        "usage: qwen38_omega_full <checkpoint-dir> <window-layers> <golden.json> <out.json>";
+    let mut args: Vec<String> = std::env::args().collect();
+    let usage = "usage: qwen38_omega_full <checkpoint-dir> <window-layers> <golden.json> <out.json> [--layout <pack>]";
+    let pack = layout::take_layout_arg(&mut args)?
+        .map(|p| layout::open_for_tool(&p))
+        .transpose()?;
+    let flip = layout::flip_from_env();
     if args.len() != 5 {
         return Err(usage.into());
     }
@@ -171,7 +174,27 @@ fn run() -> Result<bool, String> {
             ));
         }
         let t1 = Instant::now();
-        let mut engine = Qwen38Omega::open_window(dir, first, wl, t.max(256))?;
+        let mut engine = match &pack {
+            Some(p) => {
+                Qwen38Omega::open_pack(dir, p, Some((first, wl)), t.max(256), flip.as_deref())?
+            }
+            None => Qwen38Omega::open_window(dir, first, wl, t.max(256))?,
+        };
+        let ld = engine.load_stats().clone();
+        let resident = layout::resident_split()?;
+        let win_id = engine.layout().id();
+        eprintln!(
+            "window {w}: {} total {:.2} s (read {:.2}, hash {:.2}, upload {:.2}), {} images {} bytes, window layout {win_id}, resident {resident:?}",
+            ld.source, ld.total_s, ld.read_s, ld.hash_s, ld.upload_s, ld.images, ld.image_bytes
+        );
+        if let Some(p) = &pack {
+            p.manifest.covers(engine.layout())?;
+        }
+        if let Ok(dirp) = std::env::var("AIEN_Q38_LAYOUT_RECORD_DIR") {
+            let mp = Path::new(&dirp).join(format!("window{w}.manifest.json"));
+            std::fs::write(&mp, engine.layout().encode())
+                .map_err(|e| format!("{}: {e}", mp.display()))?;
+        }
         let ls = t1.elapsed().as_secs_f64();
         upload_s += ls;
         weight_bytes += engine.weight_bytes();
@@ -209,7 +232,9 @@ fn run() -> Result<bool, String> {
         }
         println!("window {w} layers {first}..{}: residual cosine(min) {cos_min:.6} p95_rel(max) {p95_max:.4}", first + wl - 1);
         win_report.push(json!({"window": w, "first_layer": first, "layers": wl, "upload_s": ls,
-            "weight_bytes": engine.weight_bytes(), "residual_cosine_min": cos_min, "residual_p95_rel_max": p95_max}));
+            "weight_bytes": engine.weight_bytes(), "layout_source": ld.source, "window_layout_id": win_id,
+            "load": {"total_s": ld.total_s, "read_s": ld.read_s, "hash_s": ld.hash_s, "upload_s": ld.upload_s, "images": ld.images, "image_bytes": ld.image_bytes},
+            "resident_after_load": resident, "residual_cosine_min": cos_min, "residual_p95_rel_max": p95_max}));
         x_in = x_out;
         drop(engine);
     }
@@ -283,7 +308,7 @@ fn run() -> Result<bool, String> {
         if pass { "PASS" } else { "FAIL" }
     );
     let report = json!({
-        "checkpoint": dir.display().to_string(), "layers": layers, "window_layers": wl, "windows": win_report,
+        "checkpoint": dir.display().to_string(), "layout_pack": pack.as_ref().map(|p| p.id.clone()), "layers": layers, "window_layers": wl, "windows": win_report,
         "positions": t, "prompt_ids": prompt, "golden_ids": generated, "chip_ids": gen_tokens,
         "reference_s": ref_s, "reference_matches_golden": ref_matches_golden, "upload_s": upload_s,
         "weight_bytes": weight_bytes, "cosine_min": cos_min, "p95_rel_max": p95_max,

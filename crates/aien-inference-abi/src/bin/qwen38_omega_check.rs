@@ -16,7 +16,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use aien_inference_abi::qwen38::{argmax, Logits, Qwen38Config, Qwen38Reference};
-use aien_inference_abi::qwen38_omega::Qwen38Omega;
+use aien_inference_abi::qwen38_omega::{layout, Qwen38Omega};
 use aien_inference_abi::qwen3_moe::parity_stats;
 use aien_inference_abi::qwen3_moe_omega::ShardSource;
 use aien_inference_abi::tokenizer::ChatTokenizer;
@@ -37,9 +37,12 @@ fn margin(logits: &[f32]) -> f32 {
 }
 
 fn run() -> Result<bool, String> {
-    let args: Vec<String> = std::env::args().collect();
+    let mut args: Vec<String> = std::env::args().collect();
+    let pack = layout::take_layout_arg(&mut args)?
+        .map(|p| layout::open_for_tool(&p))
+        .transpose()?;
     let usage =
-        "usage: qwen38_omega_check <checkpoint-dir> <layers> <prompt.txt> <tokens> <out.json>";
+        "usage: qwen38_omega_check <checkpoint-dir> <layers> <prompt.txt> <tokens> <out.json> [--layout <pack>]";
     if args.len() != 6 {
         return Err(usage.into());
     }
@@ -84,7 +87,26 @@ fn run() -> Result<bool, String> {
     let vocab = config.vocab;
 
     let t1 = Instant::now();
-    let mut engine = Qwen38Omega::load(config, &mut ShardSource::open(dir)?, t.max(256))?;
+    let mut engine = match &pack {
+        Some(p) => Qwen38Omega::open_pack(
+            dir,
+            p,
+            Some((0, layers)),
+            t.max(256),
+            layout::flip_from_env().as_deref(),
+        )?,
+        None => Qwen38Omega::load(config, &mut ShardSource::open(dir)?, t.max(256))?,
+    };
+    let ld = engine.load_stats().clone();
+    eprintln!(
+        "engine: {} total {:.2} s (read {:.2}, hash {:.2}, upload {:.2}), layout {}",
+        ld.source,
+        ld.total_s,
+        ld.read_s,
+        ld.hash_s,
+        ld.upload_s,
+        engine.layout().id()
+    );
     let load_s = t1.elapsed().as_secs_f64();
     eprintln!(
         "engine: uploaded in {load_s:.1} s, weights {} MB, KV {} MB",
@@ -158,6 +180,7 @@ fn run() -> Result<bool, String> {
     let report = json!({
         "checkpoint": dir.display().to_string(), "layers": layers, "attention_layers": attn_layers,
         "tokens": t, "ids": ids, "reference_s": ref_s, "upload_s": load_s,
+        "layout_source": ld.source, "layout_id": engine.layout().id(), "layout_pack": pack.as_ref().map(|p| p.id.clone()),
         "weight_bytes": engine.weight_bytes(), "kv_bytes": engine.kv_bytes(),
         "cosine_min": cos_min, "p95_rel_max": p95_max, "greedy_agrees": greedy_ok,
         "control_best_cosine": control_cos, "control_short_best_cosine": short_cos, "control_caught": caught,
