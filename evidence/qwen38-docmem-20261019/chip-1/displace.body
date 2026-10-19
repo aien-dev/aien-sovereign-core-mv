@@ -1,0 +1,11 @@
+{
+  "model": "qwen3.8-27b-fp8",
+  "temperature": 0,
+  "max_tokens": 4,
+  "messages": [
+    {
+      "role": "user",
+      "content": "Say hello."
+    }
+  ]
+}

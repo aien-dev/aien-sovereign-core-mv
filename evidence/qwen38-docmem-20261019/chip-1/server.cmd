@@ -1,0 +1,1 @@
+AIEN_CONV_STORE_DIR=/home/drakestapleton/workspace/targets/docmem/convstore AIEN_CONV_RAM_BYTES=4G AIEN_CONV_TEST_MUTANT= /home/drakestapleton/workspace/targets/docmem/bin-e07a3b4c/aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a --port 18291 --max-context 40960 --max-tokens-cap 512 --thinking off

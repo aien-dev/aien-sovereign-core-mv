@@ -1,0 +1,2 @@
+utc	step	size_bytes	prompt_tokens	curl_total_s	loadavg_start	loadavg_end	memavail_kb_start	memavail_kb_end	file
+2026-10-19T19:43:21Z	ingest-16000	16000	3496	0.008451	4.94,6.82,11.77	4.94,6.82,11.77	48210872	48210428	ingest-16000.json

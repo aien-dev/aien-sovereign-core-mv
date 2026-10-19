@@ -65,8 +65,9 @@ post() {
   local name=$1 size=$2 ep=$3 bf=$4 out=$EV/$1.json
   local l0 m0 t
   l0=$(la); m0=$(memavail)
-  echo "quiet-measure curl -s -X POST $URL$ep -H 'content-type: application/json' --data-binary @$(basename "$bf")" > "$EV/$name.cmd"
-  t=$($HOME/.local/bin/quiet-measure curl -s -o "$out" -w '%{time_total}' -X POST "$URL$ep" -H 'content-type: application/json' --data-binary @"$bf")
+  echo "$([ "${QUIET:-1}" = 0 ] && echo plain-setup-request || echo quiet-measure) curl -s -X POST $URL$ep -H 'content-type: application/json' --data-binary @$(basename "$bf")" > "$EV/$name.cmd"
+  local qm="$HOME/.local/bin/quiet-measure"; [ "${QUIET:-1}" = 0 ] && qm=
+  t=$($qm curl -s -o "$out" -w '%{time_total}' -X POST "$URL$ep" -H 'content-type: application/json' --data-binary @"$bf")
   local pt; pt=$(jq -r '.usage.prompt_tokens // .tokens // ""' "$out" 2>/dev/null)
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$name" "$size" "$pt" "$t" "$l0" "$(la)" "$m0" "$(memavail)" "$name.json" >> "$LOG"
   echo "$out"
@@ -74,14 +75,24 @@ post() {
 
 ids() { jq -c '.usage.aien_token_ids' "$1"; }
 
+wait_up() {
+  for _ in $(seq 1 ${START_WAIT:-900}); do
+    curl -s "$URL/v1/models" 2>/dev/null | grep -q qwen && { note "server up pid $(cat "$EV/server.pid")"; return 0; }
+    kill -0 "$(cat "$EV/server.pid")" 2>/dev/null || { note "server died"; return 1; }
+    sleep 2
+  done
+  note "server did not come up"; return 1
+}
+
 start_server() {
+  if [ "${SKIP_START:-0}" = 1 ]; then note "adopting the server started earlier, pid $(cat "$EV/server.pid")"; wait_up; return $?; fi
   note "starting server port $PORT (MUTANT=${MUTANT:-none}) memavail $(memavail) kB load $(la)"
   echo "AIEN_CONV_STORE_DIR=$STORE_DIR AIEN_CONV_RAM_BYTES=$RAM AIEN_CONV_TEST_MUTANT=${MUTANT:-} $BIN --engine omega --model-dir $MODEL_DIR --port $PORT --max-context $MAX_CONTEXT --max-tokens-cap 512 --thinking off" >> "$EV/server.cmd"
   AIEN_CONV_STORE_DIR=$STORE_DIR AIEN_CONV_RAM_BYTES=$RAM AIEN_CONV_TEST_MUTANT=${MUTANT:-} \
     setsid nohup "$BIN" --engine omega --model-dir "$MODEL_DIR" --port "$PORT" --max-context "$MAX_CONTEXT" \
     --max-tokens-cap 512 --thinking off >> "$EV/server.log" 2>&1 < /dev/null &
   echo $! > "$EV/server.pid"
-  for _ in $(seq 1 900); do
+  for _ in $(seq 1 ${START_WAIT:-900}); do
     curl -s "$URL/v1/models" 2>/dev/null | grep -q qwen && { note "server up pid $(cat "$EV/server.pid")"; return 0; }
     kill -0 "$(cat "$EV/server.pid")" 2>/dev/null || { note "server died"; return 1; }
     sleep 2
@@ -111,7 +122,7 @@ wait_ready() {
 displace() {
   local bf=$EV/displace.body
   jq -n '{model:"qwen3.8-27b-fp8", temperature:0, max_tokens:4, messages:[{role:"user", content:"Say hello."}]}' > "$bf"
-  post "displace-$1" 0 /v1/chat/completions "$bf" > /dev/null
+  QUIET=0 post "displace-$1" 0 /v1/chat/completions "$bf" > /dev/null
 }
 
 gate() { # NAME REF GOT
@@ -124,7 +135,7 @@ run_size() {
   local size=$1 doc id i q n=0
   doc=$(make_doc "$size")
   body "$doc" "" 0 > "$EV/ingest-$size.body"
-  local r; r=$(post "ingest-$size" "$size" /v1/documents "$EV/ingest-$size.body")
+  local r; r=$(QUIET=0 post "ingest-$size" "$size" /v1/documents "$EV/ingest-$size.body")
   id=$(jq -r .id "$r")
   note "ingest $size bytes: id $id, $(jq -r .tokens "$r") tokens"
   wait_ready "$id" || return 1
@@ -162,8 +173,8 @@ run_join() {
   head -c "$n" "$all" > "$a"; tail -c +"$((n + 1))" "$all" | head -c "$n" > "$b"
   local ia ib
   body "$a" "" 0 > "$EV/join-ingest-a-$n.body"; body "$b" "" 0 > "$EV/join-ingest-b-$n.body"
-  ia=$(jq -r .id "$(post "join-ingest-a-$n" "$n" /v1/documents "$EV/join-ingest-a-$n.body")"); wait_ready "$ia" || return 1
-  ib=$(jq -r .id "$(post "join-ingest-b-$n" "$n" /v1/documents "$EV/join-ingest-b-$n.body")"); wait_ready "$ib" || return 1
+  ia=$(jq -r .id "$(QUIET=0 post "join-ingest-a-$n" "$n" /v1/documents "$EV/join-ingest-a-$n.body")"); wait_ready "$ia" || return 1
+  ib=$(jq -r .id "$(QUIET=0 post "join-ingest-b-$n" "$n" /v1/documents "$EV/join-ingest-b-$n.body")"); wait_ready "$ib" || return 1
   local i q
   for ((i = 0; i < ${JOIN_QUESTIONS:-2}; i++)); do
     q=${QUESTIONS[$i]}
@@ -200,5 +211,5 @@ for s in "$@"; do
     *) run_size "$s" ;;
   esac
 done
-stop_server
+[ "${KEEP_SERVER:-0}" = 1 ] || stop_server
 note "run end"
