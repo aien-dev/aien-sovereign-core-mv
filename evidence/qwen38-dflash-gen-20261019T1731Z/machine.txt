@@ -62,3 +62,4 @@ codelong-n256 try 11 start 2026-10-19T22:10:23Z loadavg 11.45 14.68 20.01 15/371
 codelong-n256 try 11 end 2026-10-19T22:13:35Z rc 2 loadavg 8.71 12.51 18.21 5/3697 4030156
 tune-n256 try 1 start 2026-10-19T22:13:36Z loadavg 8.71 12.51 18.21 5/3671 4030271 memavail_kb 69704964
 tune-n256 try 1 end 2026-10-19T22:22:29Z rc 0 loadavg 28.12 27.34 23.29 30/3723 24890
+control-code-nopair try 1 start 2026-10-19T22:22:31Z loadavg 28.12 27.34 23.29 27/3730 25222 memavail_kb 69812264
