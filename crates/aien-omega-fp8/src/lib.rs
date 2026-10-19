@@ -34,6 +34,12 @@ pub const fn has_device_tables() -> bool {
     cfg!(has_omega_fp8_dev)
 }
 
+/// True when the refill door ([`Fp8Tensor::alloc`], [`Fp8Tensor::weights_mut`], [`Fp8Tensor::commit`], sc #677)
+/// is linked.
+pub const fn has_refill() -> bool {
+    cfg!(has_omega_fp8_refill)
+}
+
 /// True when the prefill grouped GEMM (`omega_gpu_fp8gemm_f32`, `src/omega_gpu_fp8gemm_api.h`) is linked.
 pub const fn has_gemm() -> bool {
     cfg!(has_omega_fp8gemm)
@@ -134,6 +140,24 @@ mod ffi {
             x_rows: u32,
             y: *mut f32,
             info: *mut Fp8Info,
+        ) -> i32;
+    }
+    #[cfg(has_omega_fp8_refill)]
+    extern "C" {
+        pub fn omega_gpu_fp8_tensor_alloc(
+            experts: u32,
+            n: u32,
+            k: u32,
+            out: *mut *mut OmegaGpuFp8Tensor,
+        ) -> i32;
+        pub fn omega_gpu_fp8_tensor_weights(
+            t: *mut OmegaGpuFp8Tensor,
+            w_cpu: *mut *mut u8,
+            bytes: *mut usize,
+        ) -> i32;
+        pub fn omega_gpu_fp8_tensor_commit(
+            t: *mut OmegaGpuFp8Tensor,
+            scale_inv_bf16: *const u16,
         ) -> i32;
     }
     #[cfg(has_omega_fp8_dev)]
@@ -309,6 +333,76 @@ impl Fp8Tensor {
             Ok(Self { ptr, experts, n, k })
         }
         #[cfg(not(has_omega_fp8))]
+        {
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
+
+    /// A tensor of this shape with undefined contents (sc #677 refill door): fill
+    /// [`Self::weights_mut`] (an O_DIRECT read can land there directly), then [`Self::commit`]
+    /// before any launch reads it. Stub or an archive without the door: `Unavailable`.
+    pub fn alloc(experts: usize, n: usize, k: usize) -> Result<Self, OmegaGpuError> {
+        check_shape(experts, n, k)?;
+        #[cfg(has_omega_fp8_refill)]
+        {
+            let mut ptr = std::ptr::null_mut();
+            // SAFETY: shape checked; omega writes the handle.
+            let rc = unsafe {
+                ffi::omega_gpu_fp8_tensor_alloc(experts as u32, n as u32, k as u32, &mut ptr)
+            };
+            if rc != 0 || ptr.is_null() {
+                return Err(rc_err(rc));
+            }
+            Ok(Self { ptr, experts, n, k })
+        }
+        #[cfg(not(has_omega_fp8_refill))]
+        {
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
+
+    /// The weight bytes' host mapping (`experts * n * k`, page aligned). Writing here changes what
+    /// the chip reads only after [`Self::commit`]; no launch that reads this tensor may be in flight
+    /// while it is written (the `&mut self` borrow, and the caller's ordering for graphs holding
+    /// [`Self::as_raw`]).
+    pub fn weights_mut(&mut self) -> Result<&mut [u8], OmegaGpuError> {
+        #[cfg(has_omega_fp8_refill)]
+        {
+            let (mut w, mut bytes) = (std::ptr::null_mut(), 0usize);
+            // SAFETY: a live tensor; omega writes the pointer and length of its own allocation.
+            let rc = unsafe { ffi::omega_gpu_fp8_tensor_weights(self.ptr, &mut w, &mut bytes) };
+            if rc != 0 || w.is_null() {
+                return Err(rc_err(rc));
+            }
+            check_len("fp8 weight mapping", self.experts * self.n * self.k, bytes)?;
+            // SAFETY: the allocation lives as long as `self`, borrowed mutably here.
+            Ok(unsafe { std::slice::from_raw_parts_mut(w, bytes) })
+        }
+        #[cfg(not(has_omega_fp8_refill))]
+        {
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
+
+    /// Commits the current weight bytes with these scales (`[expert][n/128][k/128]` bf16 bits):
+    /// refuses e4m3 NaN codes as [`Self::upload`] does, packs the scales, syncs. After a failed
+    /// commit the tensor must not be launched until a later commit succeeds.
+    pub fn commit(&mut self, scale_inv_bf16: &[u16]) -> Result<(), OmegaGpuError> {
+        check_len(
+            "fp8 scale words",
+            self.experts * (self.n / BLOCK) * (self.k / BLOCK),
+            scale_inv_bf16.len(),
+        )?;
+        #[cfg(has_omega_fp8_refill)]
+        {
+            // SAFETY: a live tensor; the scale length is checked above.
+            let rc = unsafe { ffi::omega_gpu_fp8_tensor_commit(self.ptr, scale_inv_bf16.as_ptr()) };
+            if rc != 0 {
+                return Err(rc_err(rc));
+            }
+            Ok(())
+        }
+        #[cfg(not(has_omega_fp8_refill))]
         {
             Err(OmegaGpuError::Unavailable)
         }

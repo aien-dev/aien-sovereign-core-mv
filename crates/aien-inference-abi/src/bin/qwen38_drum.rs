@@ -5,7 +5,7 @@
 //!   qwen38_drum read <drum> <threads,...> <group-layers> <out.json>
 //!   qwen38_drum reference <checkpoint-dir> <golden.json> <out-prefix>
 //!   qwen38_drum run <checkpoint-dir> <drum> <golden.json> <budget-GiB> <group-layers> <batch>
-//!                   <reference-prefix> <out.json> [--threads N] [--control flip|stale]
+//!                   <reference-prefix> <out.json> [--threads N] [--control flip|stale] [--path upload|refill]
 //!
 //! `reference` runs the production whole-model upload ([`Qwen38Omega::open`]) teacher-forced on the
 //! golden record and writes `<prefix>.json` + `<prefix>.logits` (f32 logits of every generated
@@ -17,7 +17,9 @@
 use std::path::Path;
 use std::time::Instant;
 
-use aien_inference_abi::qwen38_omega::drum::{self, Control, DrumFile, DrumIndex, DrumModel};
+use aien_inference_abi::qwen38_omega::drum::{
+    self, Control, DrumFile, DrumIndex, DrumModel, StreamPath,
+};
 use aien_inference_abi::qwen38_omega::Qwen38Omega;
 use serde_json::{json, Value};
 
@@ -239,14 +241,21 @@ fn cmd_run(a: &[String]) -> Result<bool, String> {
         (p, o)
     };
     let [dir, drum_p, gold, budget, group, batch, refp, out] = pos[..] else {
-        return Err("usage: run <checkpoint-dir> <drum> <golden.json> <budget-GiB> <group-layers> <batch> <reference-prefix> <out.json> [--threads N] [--control flip|stale]".into());
+        return Err("usage: run <checkpoint-dir> <drum> <golden.json> <budget-GiB> <group-layers> <batch> <reference-prefix> <out.json> [--threads N] [--control flip|stale] [--path upload|refill]".into());
     };
     let (mut threads, mut control) = (8usize, Control::None);
+    let mut path = if aien_omega_fp8::has_refill() {
+        StreamPath::Refill
+    } else {
+        StreamPath::Upload
+    };
     for kv in opts.chunks(2) {
         match (kv[0].as_str(), kv[1].as_str()) {
             ("--threads", n) => threads = n.parse().map_err(|_| "--threads: a number")?,
             ("--control", "flip") => control = Control::FlipByte,
             ("--control", "stale") => control = Control::StaleSlot,
+            ("--path", "upload") => path = StreamPath::Upload,
+            ("--path", "refill") => path = StreamPath::Refill,
             (k, v) => return Err(format!("unknown option {k} {v}")),
         }
     }
@@ -276,6 +285,7 @@ fn cmd_run(a: &[String]) -> Result<bool, String> {
         1 << 30,
         threads,
         control,
+        path,
     )?;
     let open_s = t.elapsed().as_secs_f64();
     let plan = m.plan.clone();
@@ -314,10 +324,11 @@ fn cmd_run(a: &[String]) -> Result<bool, String> {
             }
         }
         println!(
-            "pass {p:3}: wall {:8.1} ms  wait {:7.1}  upload {:7.1}  compute {:7.1}  read {:7.1} ms {:.2} GB",
+            "pass {p:3}: wall {:8.1} ms  wait {:7.1}  upload {:7.1}  commit {:7.1}  compute {:7.1}  read {:7.1} ms {:.2} GB",
             st.wall_ns as f64 / 1e6,
             st.wait_ns as f64 / 1e6,
             st.upload_ns as f64 / 1e6,
+            st.commit_ns as f64 / 1e6,
             st.compute_ns as f64 / 1e6,
             st.read_ns as f64 / 1e6,
             st.read_bytes as f64 / 1e9
@@ -336,10 +347,11 @@ fn cmd_run(a: &[String]) -> Result<bool, String> {
     let med = |f: &dyn Fn(&drum::PassStats) -> u64| {
         median(warm.iter().map(|s| f(s) as f64 / 1e6).collect())
     };
-    let (wall, wait, upload, compute, read) = (
+    let (wall, wait, upload, commit, compute, read) = (
         med(&|s| s.wall_ns),
         med(&|s| s.wait_ns),
         med(&|s| s.upload_ns),
+        med(&|s| s.commit_ns),
         med(&|s| s.compute_ns),
         med(&|s| s.read_ns),
     );
@@ -350,7 +362,7 @@ fn cmd_run(a: &[String]) -> Result<bool, String> {
             .collect(),
     );
     println!(
-        "DRUM_RUN budget {:.2} GiB group {group} batch {batch} control {control:?}: tokens {} logits bit-identical {}/{} per conversation (max |diff| {max_abs}), VmHWM {:.2} GiB {} budget; median pass {wall:.1} ms (wait {wait:.1}, upload {upload:.1}, compute {compute:.1}, reader {read:.1} ms at {read_gbps:.2} GB/s) = {:.3} tok/s per conversation, {:.3} tok/s total -> {}",
+        "DRUM_RUN budget {:.2} GiB group {group} batch {batch} control {control:?} path {path:?}: tokens {} logits bit-identical {}/{} per conversation (max |diff| {max_abs}), VmHWM {:.2} GiB {} budget; median pass {wall:.1} ms (wait {wait:.1}, upload {upload:.1}, commit tail {commit:.1}, compute {compute:.1}, reader {read:.1} ms at {read_gbps:.2} GB/s) = {:.3} tok/s per conversation, {:.3} tok/s total -> {}",
         budget as f64 / GIB,
         if tokens_ok { "== golden" } else { "DIFFER" },
         equal_logits.iter().min().unwrap_or(&0),
@@ -362,15 +374,163 @@ fn cmd_run(a: &[String]) -> Result<bool, String> {
         if pass { "PASS" } else { "FAIL" }
     );
     let r = json!({"mode": "run", "budget": budget, "group": group, "batch": batch, "threads": threads,
-        "control": format!("{control:?}"), "plan": plan, "open_s": open_s, "positions": feed.len(),
+        "control": format!("{control:?}"), "path": format!("{path:?}"), "plan": plan, "open_s": open_s, "positions": feed.len(),
         "tokens": toks, "golden": gen, "tokens_identical": tokens_ok, "logits_equal_per_conversation": equal_logits,
         "logits_bit_identical": logits_ok, "max_abs_diff": max_abs, "reference_golden_identical": ref_ok,
         "vm_hwm": hwm, "within_budget": within,
-        "median_ms": {"wall": wall, "wait": wait, "upload": upload, "compute": compute, "reader": read},
+        "median_ms": {"wall": wall, "wait": wait, "upload": upload, "commit_tail": commit, "compute": compute, "reader": read},
         "reader_gbps_median": read_gbps, "passes": passes, "pass": pass});
     std::fs::write(out, serde_json::to_string_pretty(&r).unwrap())
         .map_err(|e| format!("{out}: {e}"))?;
     Ok(pass)
+}
+
+/// Where the upload time goes (sc #677 finding: upload 2.3 GB/s vs NVMe 11.7 GB/s). Per repeat on
+/// one streamed group's bytes: host memcpy (1 and `threads` threads), omega's GPU-uncached
+/// allocation alone, memcpy into its host mapping (1 and `threads` threads), O_DIRECT read of the
+/// group straight into that mapping (no staging copy; bytes checked against the manifest), and
+/// `Fp8Tensor::upload` of every FP8 piece of the group.
+fn cmd_upload_bench(a: &[String]) -> Result<bool, String> {
+    let [drum_p, group, threads, reps, out] = a else {
+        return Err(
+            "usage: upload-bench <drum> <group-layers> <threads> <repeats> <out.json>".into(),
+        );
+    };
+    let group: usize = group.parse().map_err(|_| "group: a number")?;
+    let threads: usize = threads.parse().map_err(|_| "threads: a number")?;
+    let reps: usize = reps.parse().map_err(|_| "repeats: a number")?;
+    let ix = DrumIndex::load(&drum::manifest_path(Path::new(drum_p)))?;
+    let layers = &ix.layers[ix.layers.len() - group..];
+    let start = layers[0].start;
+    let len = (layers[group - 1].start + layers[group - 1].len - start) as usize;
+    guard(3 * len as u64, "upload-bench")?;
+    let f = DrumFile::open(Path::new(drum_p), threads)?;
+    let mut stage = drum::AlignedBuf::new(len);
+    f.read(start, len, &mut stage)?;
+    let gbps = |b: usize, t: Instant| b as f64 / t.elapsed().as_secs_f64() / 1e9;
+    let par_copy = |dst: *mut u8, src: &[u8], n: usize| {
+        let d = dst as usize;
+        let per = src.len().div_ceil(n);
+        std::thread::scope(|s| {
+            for (i, c) in src.chunks(per).enumerate() {
+                s.spawn(move || {
+                    // SAFETY: disjoint ranges of a live allocation of src.len() bytes.
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(c.as_ptr(), (d + i * per) as *mut u8, c.len())
+                    }
+                });
+            }
+        });
+    };
+    let mut rows = Vec::new();
+    for r in 0..reps {
+        let mut host = drum::AlignedBuf::new(len);
+        let t = Instant::now();
+        par_copy(
+            host.as_mut_slice().as_mut_ptr(),
+            &stage.as_slice()[..len],
+            1,
+        );
+        let host1 = gbps(len, t);
+        let t = Instant::now();
+        par_copy(
+            host.as_mut_slice().as_mut_ptr(),
+            &stage.as_slice()[..len],
+            threads,
+        );
+        let host_n = gbps(len, t);
+        drop(host);
+        let t = Instant::now();
+        let (dev, _) =
+            aien_omega_gpu::resident_kv_pool_alloc(len).map_err(|e| format!("pool alloc: {e}"))?;
+        let alloc_ms = t.elapsed().as_secs_f64() * 1e3;
+        let t = Instant::now();
+        par_copy(dev, &stage.as_slice()[..len], 1);
+        let dev1 = gbps(len, t);
+        let t = Instant::now();
+        par_copy(dev, &stage.as_slice()[..len], threads);
+        let dev_n = gbps(len, t);
+        // O_DIRECT straight into the device mapping (may be refused by the kernel).
+        // SAFETY: dev..dev+len is the live pool allocation, not aliased while the read runs.
+        let mut view = unsafe { drum::AlignedBuf::borrowed(dev, len) };
+        let t = Instant::now();
+        let direct = f.read(start, len, &mut view);
+        let direct_gbps = gbps(len, t);
+        // CPU read-back of the device mapping (`threads` threads, u64 sum): can a check run in place?
+        let t = Instant::now();
+        let d = dev as usize;
+        let per = (len / 8).div_ceil(threads) * 8;
+        let sum: u64 = std::thread::scope(|s| {
+            let hs: Vec<_> = (0..threads)
+                .map(|i| {
+                    s.spawn(move || {
+                        let (a, e) = ((i * per).min(len), ((i + 1) * per).min(len));
+                        // SAFETY: inside the live pool allocation, 8-byte aligned.
+                        let w = unsafe {
+                            std::slice::from_raw_parts((d + a) as *const u64, (e - a) / 8)
+                        };
+                        w.iter().fold(0u64, |x, y| x.wrapping_add(*y))
+                    })
+                })
+                .collect();
+            hs.into_iter()
+                .map(|h| h.join().unwrap_or(0))
+                .fold(0, u64::wrapping_add)
+        });
+        let dev_read = gbps(len, t);
+        let direct_ok = match &direct {
+            Ok(()) => layers.iter().all(|l| {
+                let o = (l.start - start) as usize;
+                drum::sha256_hex(&view.as_slice()[o..o + l.len as usize]) == l.sha256
+            }),
+            Err(_) => false,
+        };
+        drop(view);
+        let t = Instant::now();
+        aien_omega_gpu::resident_kv_pool_free();
+        let free_ms = t.elapsed().as_secs_f64() * 1e3;
+        let t = Instant::now();
+        let mut fp8_bytes = 0usize;
+        for l in layers {
+            for e in l.entries.iter().filter(|e| e.name.ends_with(".w")) {
+                let s = l
+                    .entries
+                    .iter()
+                    .find(|x| x.name == e.name.replace(".w", ".s"))
+                    .ok_or("no scales")?;
+                let o = |x: &drum::DrumEntry| (x.offset - start) as usize;
+                let sb: Vec<u16> = stage.as_slice()[o(s)..o(s) + s.bytes as usize]
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|c| u16::from_le_bytes(*c))
+                    .collect();
+                let w = &stage.as_slice()[o(e)..o(e) + e.bytes as usize];
+                let tsr = aien_omega_fp8::Fp8Tensor::upload(1, e.n, e.k, w, &sb)
+                    .map_err(|x| format!("upload: {x}"))?;
+                fp8_bytes += e.bytes as usize;
+                drop(tsr);
+            }
+        }
+        let upload = gbps(fp8_bytes, t);
+        println!(
+            "UPLOAD_BENCH rep {r}: {len} B; host memcpy 1t {host1:.2} GB/s, {threads}t {host_n:.2}; pool alloc {alloc_ms:.1} ms; into device mapping 1t {dev1:.2} GB/s, {threads}t {dev_n:.2}; O_DIRECT into device mapping {} ({direct_gbps:.2} GB/s, bytes {}); CPU read-back {threads}t {dev_read:.2} GB/s (sum {sum:x}); free {free_ms:.1} ms; Fp8Tensor::upload {upload:.2} GB/s over {fp8_bytes} B",
+            match &direct { Ok(()) => "ok".to_string(), Err(e) => format!("REFUSED: {e}") },
+            if direct_ok { "match manifest" } else { "NOT checked equal" }
+        );
+        rows.push(json!({"bytes": len, "host_memcpy_gbps_1t": host1, "host_memcpy_gbps_nt": host_n, "pool_alloc_ms": alloc_ms,
+            "dev_memcpy_gbps_1t": dev1, "dev_memcpy_gbps_nt": dev_n, "direct_read": direct.err(), "direct_read_gbps": direct_gbps,
+            "direct_bytes_match": direct_ok, "dev_readback_gbps_nt": dev_read, "pool_free_ms": free_ms, "fp8_upload_gbps": upload, "fp8_upload_bytes": fp8_bytes}));
+    }
+    std::fs::write(
+        out,
+        serde_json::to_string_pretty(
+            &json!({"group_layers": group, "threads": threads, "reps": rows}),
+        )
+        .unwrap(),
+    )
+    .map_err(|e| format!("{out}: {e}"))?;
+    Ok(true)
 }
 
 fn main() {
@@ -381,6 +541,7 @@ fn main() {
         Some("read") => cmd_read(&a[1..]),
         Some("reference") => cmd_reference(&a[1..]),
         Some("run") => cmd_run(&a[1..]),
+        Some("upload-bench") => cmd_upload_bench(&a[1..]),
         _ => Err("usage: qwen38_drum build|verify|read|reference|run ...".into()),
     };
     match r {

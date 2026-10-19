@@ -141,6 +141,8 @@ impl DrumIndex {
 pub struct AlignedBuf {
     ptr: *mut u8,
     len: usize,
+    /// False for a view of memory someone else owns ([`Self::borrowed`]).
+    owned: bool,
 }
 
 // SAFETY: owns its allocation; handed between threads, never shared.
@@ -153,7 +155,24 @@ impl AlignedBuf {
         // SAFETY: non-zero size.
         let ptr = unsafe { std::alloc::alloc_zeroed(layout) };
         assert!(!ptr.is_null(), "AlignedBuf: out of memory ({len} B)");
-        Self { ptr, len }
+        Self {
+            ptr,
+            len,
+            owned: true,
+        }
+    }
+    /// A view of `len` bytes at `ptr` (another owner's memory, for example a device mapping),
+    /// never freed by this value.
+    ///
+    /// # Safety
+    /// `ptr..ptr + len` must stay valid and unaliased while the view lives; `ptr` and `len` must
+    /// be [`ALIGN`]-aligned for O_DIRECT reads.
+    pub unsafe fn borrowed(ptr: *mut u8, len: usize) -> Self {
+        Self {
+            ptr,
+            len,
+            owned: false,
+        }
     }
     pub fn len(&self) -> usize {
         self.len
@@ -173,6 +192,9 @@ impl AlignedBuf {
 
 impl Drop for AlignedBuf {
     fn drop(&mut self) {
+        if !self.owned {
+            return;
+        }
         let layout = std::alloc::Layout::from_size_align(self.len, ALIGN).expect("aligned layout");
         // SAFETY: allocated with this layout in `new`.
         unsafe { std::alloc::dealloc(self.ptr, layout) }
@@ -509,6 +531,77 @@ fn upload_layer(layer: &DrumLayer, img: &[u8]) -> Result<LayerTensors, String> {
     })
 }
 
+/// `name` (`mix.w`, `ab`, ...) of a drum layer.
+fn entry<'a>(dl: &'a DrumLayer, key: &str) -> Result<&'a DrumEntry, String> {
+    let want = format!("layers.{}.{key}", dl.layer);
+    dl.entries
+        .iter()
+        .find(|e| e.name == want)
+        .ok_or_else(|| format!("drum layer {}: no {key}", dl.layer))
+}
+
+/// Fills one tensor set from the drum: every weight O_DIRECT straight into its tensor's mapping,
+/// scales through a small buffer, each tensor committed on its own thread as soon as its read is
+/// done (commits overlap the next reads). Returns (read ns, commit tail ns). `flip`: the negative
+/// control, one byte of the first layer's gate|up weight changed before its commit.
+fn refill(
+    file: &DrumFile,
+    layers: &[DrumLayer],
+    set: &mut [LayerTensors],
+    flip: bool,
+) -> Result<(u64, u64), String> {
+    let t0 = Instant::now();
+    let mut read_ns = 0u64;
+    std::thread::scope(|s| -> Result<(), String> {
+        let mut commits = Vec::new();
+        for (li, (dl, lt)) in layers.iter().zip(set.iter_mut()).enumerate() {
+            let LayerTensors {
+                mix,
+                o,
+                gate_up,
+                down,
+                ..
+            } = lt;
+            for (key, t) in [("mix", mix), ("o", o), ("gate_up", gate_up), ("down", down)] {
+                let (we, se) = (
+                    entry(dl, &format!("{key}.w"))?,
+                    entry(dl, &format!("{key}.s"))?,
+                );
+                let tr = Instant::now();
+                {
+                    let w = t.weights_mut().map_err(gpu("drum weights mapping"))?;
+                    if w.len() as u64 != we.bytes {
+                        return Err(format!(
+                            "drum refill: {} is {} B, slot {} B",
+                            we.name,
+                            we.bytes,
+                            w.len()
+                        ));
+                    }
+                    {
+                        // SAFETY: the tensor's own mapping, exclusively borrowed for this read.
+                        let mut view = unsafe { AlignedBuf::borrowed(w.as_mut_ptr(), w.len()) };
+                        file.read(we.offset, we.bytes as usize, &mut view)?;
+                    }
+                    if flip && li == 0 && key == "gate_up" {
+                        w[12345] ^= 0x01;
+                    }
+                }
+                let slen = round_up(se.bytes as usize, ALIGN);
+                let mut sb = AlignedBuf::new(slen);
+                file.read(se.offset, slen, &mut sb)?;
+                let scales = bytes_u16(&sb.as_slice()[..se.bytes as usize]);
+                read_ns += tr.elapsed().as_nanos() as u64;
+                commits.push(s.spawn(move || t.commit(&scales).map_err(gpu("drum commit"))));
+            }
+        }
+        commits
+            .into_iter()
+            .try_for_each(|h| h.join().map_err(|_| "drum commit panicked".to_string())?)
+    })?;
+    let total = t0.elapsed().as_nanos() as u64;
+    Ok((read_ns, total.saturating_sub(read_ns)))
+}
 /// How the layers are split under a budget.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct DrumPlan {
@@ -519,21 +612,25 @@ pub struct DrumPlan {
     /// The first `pinned` groups stay resident.
     pub pinned: usize,
     pub pinned_bytes: u64,
-    /// Largest streamed group (one staging buffer, one device copy).
+    /// Largest streamed group (the size of one slot).
     pub slot_bytes: u64,
+    /// Slots a streamed group needs at once: 3 on the upload path (two host staging buffers and
+    /// one device copy), 2 on the refill path (two device tensor sets the NVMe fills directly).
+    pub slots: u64,
     /// Bytes read from the NVMe per pass (every streamed group once).
     pub streamed_bytes: u64,
-    /// fixed + pinned + 3 slots (2 staging + 1 on the device) when anything streams.
+    /// fixed + pinned + `slots` slots when anything streams.
     pub peak: u64,
 }
 
 /// Groups of `group` consecutive layers; pins whole groups from the first while
-/// `fixed + pinned + 3 * slot <= budget`. Refuses when even nothing pinned does not fit.
+/// `fixed + pinned + slots * slot <= budget`. Refuses when even nothing pinned does not fit.
 pub fn plan(
     layer_bytes: &[u64],
     group: usize,
     budget: u64,
     fixed: u64,
+    slots: u64,
 ) -> Result<DrumPlan, String> {
     if group == 0 || layer_bytes.is_empty() {
         return Err("drum plan: no layers or group 0".into());
@@ -552,6 +649,7 @@ pub fn plan(
             groups,
             pinned_bytes: all,
             slot_bytes: 0,
+            slots,
             streamed_bytes: 0,
             peak: fixed + all,
         });
@@ -561,7 +659,7 @@ pub fn plan(
     loop {
         let slot = groups[pinned + 1..].iter().map(gb).max().unwrap_or(0);
         let g = gb(&groups[pinned]);
-        if pinned + 1 < groups.len() && fixed + pinned_bytes + g + 3 * slot <= budget {
+        if pinned + 1 < groups.len() && fixed + pinned_bytes + g + slots * slot <= budget {
             pinned_bytes += g;
             pinned += 1;
         } else {
@@ -569,7 +667,7 @@ pub fn plan(
         }
     }
     let slot = groups[pinned..].iter().map(gb).max().unwrap_or(0);
-    let peak = fixed + pinned_bytes + 3 * slot;
+    let peak = fixed + pinned_bytes + slots * slot;
     if peak > budget {
         return Err(format!(
             "drum plan: {peak} B needed with nothing more pinned, budget {budget} B (smaller groups?)"
@@ -583,6 +681,7 @@ pub fn plan(
         groups,
         pinned_bytes,
         slot_bytes: slot,
+        slots,
         peak,
     })
 }
@@ -597,6 +696,18 @@ pub enum Control {
     StaleSlot,
 }
 
+/// How streamed groups reach the chip.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub enum StreamPath {
+    /// O_DIRECT into a host staging buffer, then [`Fp8Tensor::upload`] (allocate, scan, copy) per
+    /// group on the main thread. Three slots.
+    Upload,
+    /// Two fixed device tensor sets; the reader O_DIRECTs every weight straight into a set's
+    /// mapping and commits it ([`Fp8Tensor::commit`]: NaN scan, scales) while the other set
+    /// computes. Two slots, no copy. Needs omega's refill door.
+    Refill,
+}
+
 /// One pass's costs (ns) and bytes.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct PassStats {
@@ -604,6 +715,8 @@ pub struct PassStats {
     /// Main thread blocked waiting for a staging buffer to be full.
     pub wait_ns: u64,
     pub upload_ns: u64,
+    /// Refill path: reader time after its last read until every commit of the group returned.
+    pub commit_ns: u64,
     /// Graph tokens and residual reads, all conversations.
     pub compute_ns: u64,
     /// Sum of the chip time the graphs report.
@@ -627,6 +740,8 @@ struct Conversation {
 }
 
 type Filled = Result<(usize, AlignedBuf, u64), String>;
+/// A refilled set: (group, set, read ns, commit tail ns).
+type Refilled = Result<(usize, Vec<LayerTensors>, u64, u64), String>;
 /// What [`DrumModel::step`] returns: tokens, logits (when asked), costs.
 pub type StepOut = (Vec<u32>, Vec<Vec<f32>>, PassStats);
 
@@ -644,6 +759,11 @@ pub struct DrumModel {
     pub pos: usize,
     max_pos: usize,
     control: Control,
+    pub path: StreamPath,
+    /// Refill path: every streamed DeltaNet layer's a|b tensor, resident (`None` elsewhere).
+    ab_res: Vec<Option<Bf16Tensor>>,
+    set_tx: Option<mpsc::Sender<Vec<LayerTensors>>>,
+    set_rx: Option<mpsc::Receiver<Refilled>>,
     free_tx: Option<mpsc::Sender<AlignedBuf>>,
     full_rx: Option<mpsc::Receiver<Filled>>,
     reader: Option<std::thread::JoinHandle<()>>,
@@ -683,6 +803,7 @@ impl DrumModel {
         margin: u64,
         threads: usize,
         control: Control,
+        path: StreamPath,
     ) -> Result<Self, String> {
         let c = Qwen38Config::from_checkpoint(dir)?;
         let index = DrumIndex::load(&manifest_path(drum))?;
@@ -694,10 +815,21 @@ impl DrumModel {
             ));
         }
         let (v, h) = (c.vocab, c.hidden);
+        let ab_all: u64 = index
+            .layers
+            .iter()
+            .flat_map(|l| l.entries.iter())
+            .filter(|e| e.name.ends_with(".ab"))
+            .map(|e| e.bytes)
+            .sum();
+        let (slots, ab_fixed) = match path {
+            StreamPath::Upload => (3, 0),
+            StreamPath::Refill => (2, ab_all),
+        };
         let fixed = (2 * v * h * 2 + STAND_IN_VOCAB * h * 2) as u64
             + batch as u64 * state_bytes(&c, max_pos)
             + margin;
-        let plan = plan(&index.layer_bytes(), group, budget, fixed)?;
+        let plan = plan(&index.layer_bytes(), group, budget, fixed + ab_fixed, slots)?;
 
         let mut source = ShardSource::open(dir)?;
         let prefix = text_prefix(&mut source)?;
@@ -848,6 +980,7 @@ impl DrumModel {
                 pinned.push(upload_layer(dl, &buf.as_slice()[..dl.len as usize])?);
             }
         }
+        let n_layers = index.layers.len();
         let mut m = Self {
             convs,
             pinned,
@@ -861,6 +994,10 @@ impl DrumModel {
             pos: 0,
             max_pos,
             control,
+            path,
+            ab_res: (0..n_layers).map(|_| None).collect(),
+            set_tx: None,
+            set_rx: None,
             free_tx: None,
             full_rx: None,
             reader: None,
@@ -875,7 +1012,10 @@ impl DrumModel {
             }
         }
         if m.plan.pinned < m.plan.groups.len() {
-            m.start_reader(file)?;
+            match path {
+                StreamPath::Upload => m.start_reader(file)?,
+                StreamPath::Refill => m.start_refill(file)?,
+            }
         }
         Ok(m)
     }
@@ -893,10 +1033,14 @@ impl DrumModel {
         slot: usize,
         t: Option<&LayerTensors>,
     ) -> Result<(), String> {
-        let t = t.unwrap_or(&self.pinned[l]);
+        let t = match t {
+            Some(t) => t,
+            None => &self.pinned[l],
+        };
         let s = &self.small[l];
         let ab =
             t.ab.as_ref()
+                .or(self.ab_res[l].as_ref())
                 .map_or(std::ptr::null_mut(), Bf16Tensor::as_raw);
         self.convs[conv].graphs[gi]
             .set_layer(
@@ -952,6 +1096,106 @@ impl DrumModel {
         Ok(())
     }
 
+    /// Refill path: the resident a|b of every streamed DeltaNet layer, two device tensor sets of
+    /// one group's shapes, and the reader that fills them straight from the drum.
+    fn start_refill(&mut self, file: DrumFile) -> Result<(), String> {
+        let first = self.plan.pinned;
+        let streamed: Vec<(usize, Vec<DrumLayer>)> = (first..self.plan.groups.len())
+            .map(|gi| {
+                let (a, b) = self.plan.groups[gi];
+                (gi, self.index.layers[a..b].to_vec())
+            })
+            .collect();
+        // Every streamed group must have the first one's shapes (layer kinds in the same order).
+        let pattern: Vec<bool> = streamed[0].1.iter().map(|l| l.attention).collect();
+        if streamed
+            .iter()
+            .any(|(_, ls)| ls.iter().map(|l| l.attention).collect::<Vec<_>>() != pattern)
+        {
+            return Err("drum refill: streamed groups differ in layer kinds (use a group size that is a multiple of 4)".into());
+        }
+        let mut ab_buf = AlignedBuf::new(ALIGN);
+        for (_, ls) in &streamed {
+            for dl in ls.iter().filter(|l| !l.attention) {
+                let e = entry(dl, "ab")?;
+                let len = round_up(e.bytes as usize, ALIGN);
+                if ab_buf.len() < len {
+                    ab_buf = AlignedBuf::new(len);
+                }
+                file.read(e.offset, len, &mut ab_buf)?;
+                self.ab_res[dl.layer] = Some(
+                    Bf16Tensor::upload(
+                        e.n,
+                        e.k,
+                        &bytes_u16(&ab_buf.as_slice()[..e.bytes as usize]),
+                    )
+                    .map_err(gpu("drum ab upload"))?,
+                );
+            }
+        }
+        let alloc_set = || -> Result<Vec<LayerTensors>, String> {
+            streamed[0]
+                .1
+                .iter()
+                .map(|dl| {
+                    let t = |key: &str| -> Result<Fp8Tensor, String> {
+                        let e = entry(dl, &format!("{key}.w"))?;
+                        Fp8Tensor::alloc(1, e.n, e.k).map_err(gpu("drum slot alloc"))
+                    };
+                    Ok(LayerTensors {
+                        mix: t("mix")?,
+                        ab: None,
+                        o: t("o")?,
+                        gate_up: t("gate_up")?,
+                        down: t("down")?,
+                    })
+                })
+                .collect()
+        };
+        let (set_tx, set_rx_r) = mpsc::channel::<Vec<LayerTensors>>();
+        let (done_tx, done_rx) = mpsc::sync_channel::<Refilled>(2);
+        for _ in 0..2 {
+            set_tx
+                .send(alloc_set()?)
+                .map_err(|_| "drum: refill channel")?;
+        }
+        let control = self.control;
+        let reader = std::thread::Builder::new()
+            .name("drum-refill".into())
+            .spawn(move || {
+                let mut pass = 0usize;
+                'outer: loop {
+                    for (si, (gi, layers)) in streamed.iter().enumerate() {
+                        let Ok(mut set) = set_rx_r.recv() else {
+                            break 'outer;
+                        };
+                        // Stale control: from the second pass on, the second streamed group runs on
+                        // whatever its set held before (no read, no commit).
+                        let r = if control == Control::StaleSlot && si == 1 && pass > 0 {
+                            Ok((0, 0))
+                        } else {
+                            refill(
+                                &file,
+                                layers,
+                                &mut set,
+                                control == Control::FlipByte && si == 0,
+                            )
+                        };
+                        let failed = r.is_err();
+                        if done_tx.send(r.map(|(rd, cm)| (*gi, set, rd, cm))).is_err() || failed {
+                            break 'outer;
+                        }
+                    }
+                    pass += 1;
+                }
+            })
+            .map_err(|e| format!("drum refill reader: {e}"))?;
+        self.set_tx = Some(set_tx);
+        self.set_rx = Some(done_rx);
+        self.reader = Some(reader);
+        Ok(())
+    }
+
     /// Conversations in the batch.
     pub fn batch(&self) -> usize {
         self.convs.len()
@@ -995,7 +1239,33 @@ impl DrumModel {
         for gi in 0..self.plan.groups.len() {
             let (a, e) = self.plan.groups[gi];
             let mut cur: Option<Vec<LayerTensors>> = None;
-            if gi >= self.plan.pinned {
+            let mut refilled: Option<Vec<LayerTensors>> = None;
+            if gi >= self.plan.pinned && self.path == StreamPath::Refill {
+                let t = Instant::now();
+                let rx = self.set_rx.as_ref().expect("refill reader running");
+                let (got, set, read_ns, commit_ns) =
+                    rx.recv().map_err(|_| "drum refill reader stopped")??;
+                st.wait_ns += t.elapsed().as_nanos() as u64;
+                st.read_ns += read_ns;
+                st.commit_ns += commit_ns;
+                st.read_bytes += self.index.layers[a..e]
+                    .iter()
+                    .flat_map(|l| l.entries.iter())
+                    .filter(|x| !x.name.ends_with(".ab"))
+                    .map(|x| x.bytes)
+                    .sum::<u64>();
+                if got != gi {
+                    return Err(format!("drum: refill delivered group {got}, wanted {gi}"));
+                }
+                for conv in 0..b {
+                    for l in a..e {
+                        // SAFETY: `set` lives until it goes back to the reader after this
+                        // group's tokens below.
+                        unsafe { self.point(conv, gi, l, l - a, Some(&set[l - a]))? };
+                    }
+                }
+                refilled = Some(set);
+            } else if gi >= self.plan.pinned {
                 let t = Instant::now();
                 let rx = self.full_rx.as_ref().expect("reader running");
                 let (got, mut buf, read_ns) = rx.recv().map_err(|_| "drum reader stopped")??;
@@ -1064,6 +1334,13 @@ impl DrumModel {
                 }
             }
             st.compute_ns += t.elapsed().as_nanos() as u64;
+            if let Some(set) = refilled {
+                self.set_tx
+                    .as_ref()
+                    .expect("refill reader running")
+                    .send(set)
+                    .map_err(|_| "drum refill reader stopped")?;
+            }
             // The group's streamed tensors go now (before the next upload); the stale control
             // keeps the first streamed group's for the second.
             if self.control == Control::StaleSlot && gi == self.plan.pinned {
@@ -1082,6 +1359,8 @@ impl Drop for DrumModel {
         // Close both channels so the reader stops, then wait for it.
         self.free_tx.take();
         self.full_rx.take();
+        self.set_tx.take();
+        self.set_rx.take();
         if let Some(r) = self.reader.take() {
             let _ = r.join();
         }
@@ -1101,7 +1380,7 @@ mod tests {
 
     #[test]
     fn plan_pins_all_when_it_fits() {
-        let p = plan(&q38_layers(), 4, 64 << 30, 6 << 30).unwrap();
+        let p = plan(&q38_layers(), 4, 64 << 30, 6 << 30, 3).unwrap();
         assert_eq!(p.pinned, 16);
         assert_eq!(p.streamed_bytes, 0);
         assert_eq!(p.peak, (6 << 30) + q38_layers().iter().sum::<u64>());
@@ -1110,7 +1389,7 @@ mod tests {
     #[test]
     fn plan_under_16_gib_streams_and_stays_under_budget() {
         let budget = 16u64 << 30;
-        let p = plan(&q38_layers(), 4, budget, 6 << 30).unwrap();
+        let p = plan(&q38_layers(), 4, budget, 6 << 30, 3).unwrap();
         let group = 2 * G + G + A;
         assert!(p.pinned > 0 && p.pinned < 16, "{p:?}");
         assert_eq!(p.slot_bytes, group);
@@ -1122,8 +1401,19 @@ mod tests {
     }
 
     #[test]
+    fn refill_path_needs_two_slots_and_pins_more() {
+        let budget = 16u64 << 30;
+        let up = plan(&q38_layers(), 4, budget, 6 << 30, 3).unwrap();
+        let rf = plan(&q38_layers(), 4, budget, 6 << 30, 2).unwrap();
+        assert_eq!(rf.slots, 2);
+        assert!(rf.pinned >= up.pinned, "{rf:?} vs {up:?}");
+        assert!(rf.peak <= budget);
+        assert_eq!(rf.peak, rf.fixed + rf.pinned_bytes + 2 * rf.slot_bytes);
+    }
+
+    #[test]
     fn plan_refuses_when_slots_do_not_fit() {
-        assert!(plan(&q38_layers(), 16, 8 << 30, 6 << 30).is_err());
+        assert!(plan(&q38_layers(), 16, 8 << 30, 6 << 30, 3).is_err());
     }
 
     #[test]
