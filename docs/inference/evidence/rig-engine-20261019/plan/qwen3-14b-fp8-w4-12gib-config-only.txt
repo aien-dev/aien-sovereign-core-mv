@@ -1,0 +1,3 @@
+# 2026-10-19T18:07:06Z sc 5024f18c cmd: aien-serve-http --engine omega --model-dir /home/drakestapleton/workspace/targets/rig-engine/plan14b --weights w4 --mem-budget-gib 12 --max-context 32768
+memory budget 12.000 GiB: weights 7.986 (W4) + KV 3.750 (24576 tokens x 163840 B) + scratch 0.251 = 11.987 GiB (context shrunk from 32768 to fit); embedding 1.449 GiB stays in system RAM
+rc=0

@@ -1,0 +1,3 @@
+# 2026-10-19T18:07:06Z sc 5024f18c cmd: aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3-8b-fp8 --mem-budget-gib 12 --max-context 32768
+memory budget 12.000 GiB: weights 7.630 (Checkpoint) + KV 3.973 (28928 tokens x 147456 B) + scratch 0.391 = 11.993 GiB (context shrunk from 32768 to fit); embedding 1.159 GiB stays in system RAM
+rc=0

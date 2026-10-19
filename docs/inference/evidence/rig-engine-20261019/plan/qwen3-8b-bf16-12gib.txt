@@ -1,0 +1,3 @@
+# 2026-10-19T18:07:06Z sc 5024f18c cmd: aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3-8b --mem-budget-gib 12 --max-context 32768
+refused: does not fit: weights 14.097 GiB (Checkpoint) + scratch 0.251 + KV for 2048 tokens 0.281 = 14.629 GiB, budget 12.000 GiB
+rc=1
