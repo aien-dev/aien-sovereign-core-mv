@@ -1,0 +1,163 @@
+{
+  "results": [
+    {
+      "accept": 0.8823529411764706,
+      "config": "none",
+      "hits": 120,
+      "passes": 136,
+      "produced": 256,
+      "windows": [
+        {
+          "accept": 0.8796992481203008,
+          "hits": 117,
+          "passes": 133,
+          "tokens_end": 250
+        },
+        {
+          "accept": 1.0,
+          "hits": 3,
+          "passes": 3,
+          "tokens_end": 256
+        }
+      ],
+      "words_per_pass": 1.8823529411764706
+    },
+    {
+      "accept": 0.8478260869565217,
+      "config": "vbias:0.1",
+      "hits": 117,
+      "passes": 138,
+      "produced": 255,
+      "windows": [
+        {
+          "accept": 0.8455882352941176,
+          "hits": 115,
+          "passes": 136,
+          "tokens_end": 251
+        },
+        {
+          "accept": 1.0,
+          "hits": 2,
+          "passes": 2,
+          "tokens_end": 255
+        }
+      ],
+      "words_per_pass": 1.8478260869565217
+    },
+    {
+      "accept": 0.8085106382978723,
+      "config": "vbias:0.5",
+      "hits": 114,
+      "passes": 141,
+      "produced": 255,
+      "windows": [
+        {
+          "accept": 0.8115942028985508,
+          "hits": 112,
+          "passes": 138,
+          "tokens_end": 250
+        },
+        {
+          "accept": 0.6666666666666666,
+          "hits": 2,
+          "passes": 3,
+          "tokens_end": 255
+        }
+      ],
+      "words_per_pass": 1.8085106382978724
+    },
+    {
+      "accept": 0.8823529411764706,
+      "config": "hbias:0.001",
+      "hits": 120,
+      "passes": 136,
+      "produced": 256,
+      "windows": [
+        {
+          "accept": 0.8796992481203008,
+          "hits": 117,
+          "passes": 133,
+          "tokens_end": 250
+        },
+        {
+          "accept": 1.0,
+          "hits": 3,
+          "passes": 3,
+          "tokens_end": 256
+        }
+      ],
+      "words_per_pass": 1.8823529411764706
+    },
+    {
+      "accept": 0.8686131386861314,
+      "config": "hbias:0.01",
+      "hits": 119,
+      "passes": 137,
+      "produced": 256,
+      "windows": [
+        {
+          "accept": 0.8731343283582089,
+          "hits": 117,
+          "passes": 134,
+          "tokens_end": 251
+        },
+        {
+          "accept": 0.6666666666666666,
+          "hits": 2,
+          "passes": 3,
+          "tokens_end": 256
+        }
+      ],
+      "words_per_pass": 1.8686131386861313
+    },
+    {
+      "accept": 0.8028169014084507,
+      "config": "lora:0.001:16",
+      "hits": 114,
+      "passes": 142,
+      "produced": 256,
+      "windows": [
+        {
+          "accept": 0.7985611510791367,
+          "hits": 111,
+          "passes": 139,
+          "tokens_end": 250
+        },
+        {
+          "accept": 1.0,
+          "hits": 3,
+          "passes": 3,
+          "tokens_end": 256
+        }
+      ],
+      "words_per_pass": 1.8028169014084507
+    },
+    {
+      "accept": 0.12334801762114538,
+      "config": "lora:0.01:16",
+      "hits": 28,
+      "passes": 227,
+      "produced": 255,
+      "windows": [
+        {
+          "accept": 0.12612612612612611,
+          "hits": 28,
+          "passes": 222,
+          "tokens_end": 250
+        },
+        {
+          "accept": 0.0,
+          "hits": 0,
+          "passes": 5,
+          "tokens_end": 255
+        }
+      ],
+      "words_per_pass": 1.1233480176211454
+    }
+  ],
+  "rows": 305,
+  "score_start": 50,
+  "seconds": 87.555856055,
+  "tool": "qwen38_lab learn",
+  "trace": "/home/drakestapleton/workspace/skipped-work/runs/mtp-code-20261019T1730Z/trace"
+}

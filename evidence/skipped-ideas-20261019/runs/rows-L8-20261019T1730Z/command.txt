@@ -1,0 +1,1 @@
+~/.local/bin/quiet-measure flock /tmp/aien-gb10.lock nice -n 10 spark-receipt skipped-rows-L8-20261019T1730Z -- /home/drakestapleton/workspace/targets/skipped/release/qwen38_lab rows /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a 8 7 /home/drakestapleton/workspace/skipped-work/runs/rows-L8-20261019T1730Z/out.json
