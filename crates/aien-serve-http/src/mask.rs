@@ -4,8 +4,9 @@
 //! runs and every engine takes its own loop, byte for byte.
 //!
 //! An engine that takes a constraint asks [`Mask::rule`] once per step, before it reads the step's
-//! logits: `Force` and `Finish` need none, so an engine whose output head is a separate call
-//! skips it there (the forward pass that stores the previous token still runs). `Any` and `Allow`
+//! logits: `Force` and `Finish` need none, so an engine skips the logits read and the sampler
+//! there (the forward pass that stores the previous token still runs, and so does the output
+//! head where it is fused into the step, as on the 27B door). `Any` and `Allow`
 //! are answered by [`Mask::choose`] with the engine's own sampler on the logits, masked to the
 //! allowed rows under `Allow`.
 
@@ -54,10 +55,11 @@ pub struct MaskRecord {
     /// stop).
     pub steps: u64,
     /// Steps with exactly one legal token: taken without sampling, and without reading the
-    /// output head where the engine can skip it.
+    /// logits where the engine can skip that.
     pub forced: u64,
-    /// Of `forced`, the steps whose output head the engine skipped.
-    pub head_skipped: u64,
+    /// Of `forced`, the steps whose logits the engine neither read nor sampled (on the 27B door
+    /// the output head still runs inside the step: it is fused into the chip graph).
+    pub logits_skipped: u64,
     /// Steps sampled from the masked logits.
     pub allowed: u64,
     /// Steps sampled with no mask (`Any`).
@@ -109,9 +111,9 @@ impl Mask {
         r
     }
 
-    /// Counts a forced step whose output head the engine did not read.
-    pub fn note_head_skipped(&mut self) {
-        self.rec.head_skipped += 1;
+    /// Counts a forced step whose logits the engine did not read.
+    pub fn note_logits_skipped(&mut self) {
+        self.rec.logits_skipped += 1;
     }
 
     /// The token for an `Any` or `Allow` step: `sample` (the engine's sampler) on the logits,
