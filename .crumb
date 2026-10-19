@@ -82,8 +82,8 @@
           "purpose": "ALLEN persona profile v1: versioned, user-editable profile bound to the engaged ALLEN identity; "
         },
         {
-          "digest": "ba3a04bc2644d6fea87246faa8cd1cdfb8b02120463ebe04c31f4864b073b6e6",
-          "last_commit": "16288198",
+          "digest": "f5571bcc0bb95b44dd8bf8f0b47ded3bcb1e1ee76c81b4ff5edb87ac237d66d8",
+          "last_commit": "f8eea420",
           "name": "crates/aien-cli",
           "purpose": ""
         },
@@ -112,21 +112,21 @@
           "purpose": ""
         },
         {
-          "digest": "489b92d3d4363d2b403d6fee34a384284a40c25176df4dcc77eef07478ff8825",
-          "last_commit": "96d89167",
+          "digest": "2f97482c393b942d4aa30b6016bfbeaa8f96f29bc11ba819bd88b48d37c5b016",
+          "last_commit": "4f85ace0",
           "name": "tools/aien-local-ci",
           "purpose": "Local CI sandbox exec contract (C8), aien-run user/caches install, Forgejo trigger hook, health "
         }
       ],
-      "children_root": "sha256:491c7194c27af7c991c76d6afba8e7054c6a73aadc5972f2656bad9ed40808bd",
-      "compiled_at": "2026-10-20T06:41:12Z",
+      "children_root": "sha256:18da4467dc78329d8ce0d1984f4429f9fda6475ce798cd867816699e0641e13e",
+      "compiled_at": "2026-10-19T23:37:32Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:ee30353afd33cca266f281e3b0a7d4313951c604a8f170c57a646db15933c229",
+      "digest": "sha256:31377ad0b28c56c796630e083a130b9f757ad4ccbc5e7a8d13f1e17901ab1039",
       "evidence_files": 1578,
       "evidence_root": "sha256:135e27a1a0704c4a8371cd2c1eb555f2b5beec61c212949b029a5457418a7160",
-      "files": 5894,
-      "generated_at_commit": "f8634ae24e14cc50ce9428b6cbad022443c57547",
-      "source_tree": "sha256:239dc911f2570bb68c5610312c2eeb4093cc95ffad2b92fd3914ce416978332c"
+      "files": 5893,
+      "generated_at_commit": "4f85ace0c1b1fc2d80c6842886858cf0e7ec193f",
+      "source_tree": "sha256:c3197c619ac7b177d4b29744fee3f89ffdac66114dffeeadf8555fef855c7e98"
     }
   },
   "history": [],
