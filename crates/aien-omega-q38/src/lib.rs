@@ -37,6 +37,11 @@ pub const GDN_HEADS: usize = 48;
 pub const GDN_CONV_KERNEL: usize = 4;
 /// DeltaNet per-head value width (the gated norm's weight length).
 pub const GDN_HEAD_DIM: usize = 128;
+/// One DeltaNet layer's conv tail in the reference layout, `[3][10240]` oldest first
+/// (`OMEGA_GPU_GDN_TAIL_FLOATS`).
+pub const GDN_TAIL_FLOATS: usize = (GDN_CONV_KERNEL - 1) * GDN_QKV;
+/// One DeltaNet layer's recurrent state, `[48][128 k][128 v]` f32 (`OMEGA_GPU_GDN_STATE_FLOATS`).
+pub const GDN_STATE_FLOATS: usize = GDN_HEADS * GDN_HEAD_DIM * GDN_HEAD_DIM;
 /// Attention head width.
 pub const HEAD_DIM: usize = 256;
 /// Most layers (`OMEGA_GPU_Q38_MAX_LAYERS`).
@@ -253,6 +258,18 @@ mod ffi {
             norm_w: *const f32,
         ) -> i32;
         pub fn omega_gpu_gdn_reset(g: *mut OmegaGpuGdn) -> i32;
+        pub fn omega_gpu_gdn_set_state(
+            g: *mut OmegaGpuGdn,
+            layer: u32,
+            tail: *const f32,
+            state: *const f32,
+        ) -> i32;
+        pub fn omega_gpu_gdn_get_state(
+            g: *mut OmegaGpuGdn,
+            layer: u32,
+            tail: *mut f32,
+            state: *mut f32,
+        ) -> i32;
 
         pub fn omega_gpu_decode_attn256_cache_alloc(
             layers: u32,
@@ -545,6 +562,66 @@ impl Gdn {
             let rc = unsafe { ffi::omega_gpu_gdn_reset(self.ptr) };
             if rc != 0 {
                 return Err(session_err("gdn reset", rc));
+            }
+            Ok(())
+        }
+        #[cfg(not(has_omega_q38))]
+        Err(OmegaGpuError::Unavailable)
+    }
+
+    /// Layer `layer`'s conv tail ([`GDN_TAIL_FLOATS`]) and recurrent state ([`GDN_STATE_FLOATS`])
+    /// in the reference layouts (`omega_gpu_gdn_get_state`): what a later [`Self::set_state`]
+    /// puts back so the sequence continues from here.
+    pub fn get_state(
+        &mut self,
+        layer: usize,
+        tail: &mut [f32],
+        state: &mut [f32],
+    ) -> Result<(), OmegaGpuError> {
+        check_len("gdn tail", GDN_TAIL_FLOATS, tail.len())?;
+        check_len("gdn state", GDN_STATE_FLOATS, state.len())?;
+        if layer >= self.layers {
+            return Err(bad(format!("gdn get_state: layer {layer} of {}", self.layers)));
+        }
+        #[cfg(has_omega_q38)]
+        {
+            // SAFETY: ptr is live; both buffers hold the lengths checked above.
+            let rc = unsafe {
+                ffi::omega_gpu_gdn_get_state(
+                    self.ptr,
+                    layer as u32,
+                    tail.as_mut_ptr(),
+                    state.as_mut_ptr(),
+                )
+            };
+            if rc != 0 {
+                // SAFETY: no arguments.
+                let detail = c_text(unsafe { ffi::omega_gpu_gdn_last_error() });
+                return Err(rc_err("gdn get_state", rc, detail));
+            }
+            Ok(())
+        }
+        #[cfg(not(has_omega_q38))]
+        Err(OmegaGpuError::Unavailable)
+    }
+
+    /// Writes layer `layer`'s conv tail and recurrent state ([`Self::get_state`]'s layouts).
+    pub fn set_state(&mut self, layer: usize, tail: &[f32], state: &[f32]) -> Result<(), OmegaGpuError> {
+        check_len("gdn tail", GDN_TAIL_FLOATS, tail.len())?;
+        check_len("gdn state", GDN_STATE_FLOATS, state.len())?;
+        if layer >= self.layers {
+            return Err(bad(format!("gdn set_state: layer {layer} of {}", self.layers)));
+        }
+        #[cfg(has_omega_q38)]
+        {
+            // SAFETY: ptr is live; both buffers hold the lengths checked above.
+            let rc = unsafe {
+                ffi::omega_gpu_gdn_set_state(self.ptr, layer as u32, tail.as_ptr(), state.as_ptr())
+            };
+            if rc != 0 {
+                // SAFETY: no arguments.
+                let detail = c_text(unsafe { ffi::omega_gpu_gdn_last_error() });
+                return Err(rc_err("gdn set_state", rc, detail));
             }
             Ok(())
         }
