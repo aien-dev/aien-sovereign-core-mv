@@ -2,3 +2,7 @@ join30000-q0	store-exact	32 32 32
 join30000-q0	last	13 13 32
 join30000-q0	first	5 12 32
 join30000-q0	sum	2 2 32
+join30000-q1	store-exact	32 32 32
+join30000-q1	last	32 32 32
+join30000-q1	first	32 32 32
+join30000-q1	sum	32 32 32
