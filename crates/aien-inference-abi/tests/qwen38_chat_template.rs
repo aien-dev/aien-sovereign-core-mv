@@ -6,13 +6,30 @@
 //!    outside the repository) for 8 conversations x 6 option sets, thinking on, off and default.
 //! 2. GOLDEN PROMPT: with the checkpoint present (`AIEN_QWEN38_DIR`, ignored test), the
 //!    thinking-off rendering of the golden question tokenizes to the host reference's
-//!    `prompt_ids` (`~/handoffs/qwen38-ref/gen-chat-max-24.json`), the ids the chip gate replays.
+//!    `prompt_ids` (`fixtures/qwen38/gen-chat-max-24.json`), the ids the chip gate replays.
 use aien_inference_abi::tokenizer::{ChatOptions, ChatTemplate, ChatTokenizer};
 
 const DIR: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/fixtures/chat-templates/qwen3.8-27b"
 );
+
+/// Host reference golden (greedy, 24 tokens, thinking off) shipped with the repository; the
+/// chip gate `tools/qwen38_serve_gate.sh` replays the same file.
+const GOLDEN: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/fixtures/qwen38/gen-chat-max-24.json"
+));
+
+#[test]
+fn shipped_golden_is_well_formed() {
+    let g: serde_json::Value = serde_json::from_str(GOLDEN).unwrap();
+    let ids = |k: &str| g[k].as_array().map(|a| a.len()).unwrap_or(0);
+    assert_eq!(ids("generated_ids"), 24);
+    assert!(ids("prompt_ids") > 0);
+    // The reference answer opens a C code block (see PROVENANCE.md next to the file).
+    assert!(g["generated_text"].as_str().unwrap().starts_with("```c\nint max("));
+}
 
 fn t() -> ChatTemplate {
     let text = std::fs::read_to_string(format!("{DIR}/chat_template.jinja")).unwrap();
@@ -106,15 +123,10 @@ fn options_change_the_rendering_and_bad_ones_are_refused() {
 }
 
 #[test]
-#[ignore = "needs AIEN_QWEN38_DIR (the checkpoint) and ~/handoffs/qwen38-ref/gen-chat-max-24.json"]
+#[ignore = "needs AIEN_QWEN38_DIR (the checkpoint)"]
 fn golden_prompt_tokenizes_to_the_reference_ids() {
     let dir = std::env::var("AIEN_QWEN38_DIR").expect("AIEN_QWEN38_DIR");
-    let home = std::env::var("HOME").unwrap();
-    let g: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(format!("{home}/handoffs/qwen38-ref/gen-chat-max-24.json"))
-            .unwrap(),
-    )
-    .unwrap();
+    let g: serde_json::Value = serde_json::from_str(GOLDEN).unwrap();
     let want: Vec<u32> = g["prompt_ids"]
         .as_array()
         .unwrap()

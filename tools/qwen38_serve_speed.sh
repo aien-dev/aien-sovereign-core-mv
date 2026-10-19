@@ -4,8 +4,17 @@
 # follow-up that extends the 30k conversation. Client wall from curl; prefill / decode / chip
 # figures from the server's own log line for each reply id.
 # Usage: qwen38_serve_speed.sh <base-url> <corpus.txt> <out-dir> [server-log]
+#   server-log  default $AIEN_SERVE_LOG, else the log tools/serve-27b.sh writes:
+#               ${XDG_STATE_HOME:-$HOME/.local/state}/aien/serve-27b.log
+#   corpus.txt  any long UTF-8 text (at least 100 kB); for example LICENSE files concatenated.
+# Needs curl, jq and iconv.
 set -uo pipefail
-URL=$1; CORPUS=$2; OUT=$3; LOG=${4:-$HOME/.local/state/aien-q38/serve.log}
+USAGE="usage: qwen38_serve_speed.sh <base-url> <corpus.txt> <out-dir> [server-log]"
+URL=${1:?$USAGE}; CORPUS=${2:?$USAGE}; OUT=${3:?$USAGE}
+LOG=${4:-${AIEN_SERVE_LOG:-${XDG_STATE_HOME:-$HOME/.local/state}/aien/serve-27b.log}}
+for t in curl jq iconv; do command -v "$t" >/dev/null || { echo "qwen38_serve_speed.sh: needs $t" >&2; exit 2; }; done
+[ -f "$CORPUS" ] || { echo "qwen38_serve_speed.sh: corpus not found: $CORPUS" >&2; exit 2; }
+[ -f "$LOG" ] || { echo "qwen38_serve_speed.sh: server log not found: $LOG (pass it as the 4th argument or set AIEN_SERVE_LOG)" >&2; exit 2; }
 mkdir -p "$OUT"
 # run <name> <messages-json> <max_tokens>
 run() {

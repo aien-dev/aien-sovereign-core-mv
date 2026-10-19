@@ -1,10 +1,23 @@
 #!/bin/bash
 # Correctness gate for the live Qwen3.8-27B server (sc #642): greedy ids through the real HTTP
 # door against the host reference golden, a negative control that must fail, and next-turn resume
-# (snapshot and live) against cold recomputation. Usage: qwen38_serve_gate.sh <base-url> <golden.json> <out-dir>
+# (snapshot and live) against cold recomputation.
+# Usage: qwen38_serve_gate.sh [base-url] [golden.json] <out-dir> [server-log]
+#   base-url     default http://127.0.0.1:18091
+#   golden.json  default: the host reference shipped in this repository
+#                (crates/aien-inference-abi/fixtures/qwen38/gen-chat-max-24.json); "" also means default
+#   server-log   default $AIEN_SERVE_LOG, else the log tools/serve-27b.sh writes:
+#                ${XDG_STATE_HOME:-$HOME/.local/state}/aien/serve-27b.log
+# Needs curl and jq.
 set -uo pipefail
-URL=${1:-http://127.0.0.1:18091}; GOLDEN=${2:-$HOME/handoffs/qwen38-ref/gen-chat-max-24.json}; OUT=${3:?out dir}
-LOG=${4:-$HOME/.local/state/aien-q38/serve.log}
+REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+URL=${1:-http://127.0.0.1:18091}
+GOLDEN=${2:-$REPO/crates/aien-inference-abi/fixtures/qwen38/gen-chat-max-24.json}
+OUT=${3:?usage: qwen38_serve_gate.sh [base-url] [golden.json] <out-dir> [server-log]}
+LOG=${4:-${AIEN_SERVE_LOG:-${XDG_STATE_HOME:-$HOME/.local/state}/aien/serve-27b.log}}
+for t in curl jq; do command -v "$t" >/dev/null || { echo "qwen38_serve_gate.sh: needs $t" >&2; exit 2; }; done
+[ -f "$GOLDEN" ] || { echo "qwen38_serve_gate.sh: golden file not found: $GOLDEN" >&2; exit 2; }
+[ -f "$LOG" ] || { echo "qwen38_serve_gate.sh: server log not found: $LOG (pass it as the 4th argument or set AIEN_SERVE_LOG)" >&2; exit 2; }
 mkdir -p "$OUT"
 N=$(jq '.generated_ids | length' "$GOLDEN")
 WANT=$(jq -c '.generated_ids' "$GOLDEN")
