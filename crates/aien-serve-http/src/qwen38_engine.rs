@@ -162,8 +162,11 @@ pub fn restore_from_store(
             0
         };
         st.kept_rows = keep;
+        // TEST ONLY (negative controls of the chip gate): AIEN_CONV_TEST_MUTANT=state skips the
+        // DeltaNet checkpoint (the state stays zero), =kv skips writing the KV rows.
+        let mutant = std::env::var("AIEN_CONV_TEST_MUTANT").unwrap_or_default();
         let t = Instant::now();
-        if keep < m.pos {
+        if keep < m.pos && mutant != "kv" {
             let model = s.model_mut();
             for layer in 0..model.attn_layers() {
                 for head in 0..conv_store::KV_HEADS {
@@ -176,7 +179,16 @@ pub fn restore_from_store(
         st.kv_write_ms = ms(t);
         let t = Instant::now();
         let tokens = e.tokens[..m.pos].to_vec();
-        s.adopt(&tokens, &ck.snap)?;
+        if mutant == "state" {
+            let z = Qwen38Snapshot::from_parts(
+                m.pos,
+                vec![0.0; ck.snap.tails().len()],
+                vec![0.0; ck.snap.states().len()],
+            );
+            s.adopt(&tokens, &z)?;
+        } else {
+            s.adopt(&tokens, &ck.snap)?;
+        }
         st.state_ms = ms(t);
         Ok(st)
     });
@@ -599,6 +611,7 @@ impl Engine for Qwen38Door {
         }
         let mut store_line = String::new();
         let mut target: Option<String> = None;
+        let mut matched_pos = 0usize;
         if let Some(dm) = mem {
             let own = aien_inference_abi::qwen38_omega::plan_reuse(
                 s.history(),
@@ -609,6 +622,7 @@ impl Engine for Qwen38Door {
             let matched = dm.store.best_match(prompt);
             if let Some(m) = matched.as_ref() {
                 target = Some(m.key.clone());
+                matched_pos = m.pos;
                 if m.pos > own {
                     match restore_from_store(&mut s, &dm.store, m) {
                         Ok(r) => {
@@ -677,6 +691,13 @@ impl Engine for Qwen38Door {
                     .is_some_and(|t| dm.store.holds(t, &prompt[..k]))
                 {
                     save_line = ", store already holds this turn".into();
+                } else if target.as_deref().is_some_and(|t| {
+                    !dm.store.is_prefix_of(t, &prompt[..k])
+                        && k.saturating_sub(matched_pos) < every.max(1)
+                }) {
+                    // A short new turn on a saved conversation that went another way (another
+                    // question on the same document): not worth a second copy of the document.
+                    save_line = ", store not saved (short branch of a saved conversation)".into();
                 } else {
                     let end = s.snapshot().clone();
                     let t = Instant::now();

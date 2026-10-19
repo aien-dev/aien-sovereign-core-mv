@@ -836,6 +836,14 @@ impl ConvStore {
         })
     }
 
+    /// Whether `key`'s token record is a prefix of `tokens` (saving `tokens` would extend it).
+    pub fn is_prefix_of(&self, key: &str, tokens: &[u32]) -> bool {
+        let g = self.lock();
+        g.entries
+            .get(key)
+            .is_some_and(|e| tokens.starts_with(&e.tokens))
+    }
+
     /// Marks `key` used now.
     pub fn touch(&self, key: &str) {
         let mut g = self.lock();
