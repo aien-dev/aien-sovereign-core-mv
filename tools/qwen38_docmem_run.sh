@@ -74,14 +74,24 @@ post() {
 
 ids() { jq -c '.usage.aien_token_ids' "$1"; }
 
+wait_up() {
+  for _ in $(seq 1 ${START_WAIT:-900}); do
+    curl -s "$URL/v1/models" 2>/dev/null | grep -q qwen && { note "server up pid $(cat "$EV/server.pid")"; return 0; }
+    kill -0 "$(cat "$EV/server.pid")" 2>/dev/null || { note "server died"; return 1; }
+    sleep 2
+  done
+  note "server did not come up"; return 1
+}
+
 start_server() {
+  if [ "${SKIP_START:-0}" = 1 ]; then note "adopting the server started earlier, pid $(cat "$EV/server.pid")"; wait_up; return $?; fi
   note "starting server port $PORT (MUTANT=${MUTANT:-none}) memavail $(memavail) kB load $(la)"
   echo "AIEN_CONV_STORE_DIR=$STORE_DIR AIEN_CONV_RAM_BYTES=$RAM AIEN_CONV_TEST_MUTANT=${MUTANT:-} $BIN --engine omega --model-dir $MODEL_DIR --port $PORT --max-context $MAX_CONTEXT --max-tokens-cap 512 --thinking off" >> "$EV/server.cmd"
   AIEN_CONV_STORE_DIR=$STORE_DIR AIEN_CONV_RAM_BYTES=$RAM AIEN_CONV_TEST_MUTANT=${MUTANT:-} \
     setsid nohup "$BIN" --engine omega --model-dir "$MODEL_DIR" --port "$PORT" --max-context "$MAX_CONTEXT" \
     --max-tokens-cap 512 --thinking off >> "$EV/server.log" 2>&1 < /dev/null &
   echo $! > "$EV/server.pid"
-  for _ in $(seq 1 900); do
+  for _ in $(seq 1 ${START_WAIT:-900}); do
     curl -s "$URL/v1/models" 2>/dev/null | grep -q qwen && { note "server up pid $(cat "$EV/server.pid")"; return 0; }
     kill -0 "$(cat "$EV/server.pid")" 2>/dev/null || { note "server died"; return 1; }
     sleep 2
