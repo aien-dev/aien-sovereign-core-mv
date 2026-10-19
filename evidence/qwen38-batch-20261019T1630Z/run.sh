@@ -36,19 +36,29 @@ m() {
   $HOME/.local/bin/quiet-measure "$@"
   echo "end   $(date -u +%FT%TZ) load $(cat /proc/loadavg)" >> "$OUT/locks.log"
 }
+# b LABEL N [idx]: one bench call, repeated (label LABEL-aK) while any request came back without
+# tokens (the server gives up on the GPU lock after 300 s when other jobs hold it). Every attempt is kept.
+b() {
+  local L=$1; shift
+  for k in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    m "$HERE/bench.sh" $URL "$OUT" "$L-a$k" "$1" "$MAXT" "${@:2}"
+    grep -q "finish none" "$OUT/$L-a$k.summary" || { echo "$L $L-a$k" >> "$OUT/good.txt"; return 0; }
+  done
+  echo "$L FAILED after 12 attempts" >> "$OUT/good.txt"
+}
 if [ "$MODE" = single ]; then
-  for i in 0 1 2 3 4 5 6 7; do m "$HERE/bench.sh" $URL "$OUT" single-p$i 1 "$MAXT" $i; done
+  for i in 0 1 2 3 4 5 6 7; do b single-p$i 1 $i; done
 else
   if [ "${CORRECT_FIRST:-0}" = 1 ]; then
     # Correctness pass: no quiet lock, labels c-*, timings not published.
     Q=${QUIET:-1}; QUIET=0
-    for i in 0 1 2 3 4 5 6 7; do m "$HERE/bench.sh" $URL "$OUT" c-n1-p$i 1 "$MAXT" $i; done
-    for n in 2 4 8; do m "$HERE/bench.sh" $URL "$OUT" c-n$n "$n" "$MAXT"; done
+    for i in 0 1 2 3 4 5 6 7; do b c-n1-p$i 1 $i; done
+    for n in 2 4 8; do b c-n$n "$n"; done
     QUIET=$Q
   fi
-  for i in 0 1 2 3 4 5 6 7; do m "$HERE/bench.sh" $URL "$OUT" n1-p$i 1 "$MAXT" $i; done
+  for i in 0 1 2 3 4 5 6 7; do b n1-p$i 1 $i; done
   for r in $(seq "$ROUNDS"); do
-    for n in 2 4 8; do m "$HERE/bench.sh" $URL "$OUT" n$n-r$r "$n" "$MAXT"; done
+    for n in 2 4 8; do b n$n-r$r "$n"; done
   done
 fi
 curl -s $URL/health > "$OUT/health-end.json"
