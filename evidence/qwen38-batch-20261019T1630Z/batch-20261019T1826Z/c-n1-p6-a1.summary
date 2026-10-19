@@ -1,0 +1,2 @@
+c-n1-p6-a1 req 6 completion_tokens 256 finish length
+c-n1-p6-a1 n=1 max_tokens=256 total_completion_tokens=256 wall_ms=58246 aggregate_tok_s=4.395

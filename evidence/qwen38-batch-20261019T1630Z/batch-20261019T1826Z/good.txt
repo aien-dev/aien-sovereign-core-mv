@@ -2,3 +2,9 @@ c-n1-p0 c-n1-p0-a3
 c-n1-p1 c-n1-p1-a1
 c-n1-p2 c-n1-p2-a1
 c-n1-p3 c-n1-p3-a1
+c-n1-p4 c-n1-p4-a2
+c-n1-p5 c-n1-p5-a2
+c-n1-p6 c-n1-p6-a1
+c-n1-p7 c-n1-p7-a1
+c-n2 c-n2-a1
+c-n4 c-n4-a1
