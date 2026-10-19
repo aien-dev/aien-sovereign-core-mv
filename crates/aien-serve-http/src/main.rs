@@ -34,6 +34,7 @@ use aien_serve_http::kv_persist;
 use aien_serve_http::omega_engine::{
     parse_switch, OmegaDoor, PrefillMode, WHOLE_PROMPT_ENV, WP_DEVICE_HOST_ENV,
 };
+use aien_serve_http::qwen38_engine;
 use aien_serve_http::server::{serve_until, ServerConfig};
 
 const DEFAULT_MODEL_DIR: &str = "models/qwen3-30b-a3b-instruct-2507-fp8";
@@ -235,6 +236,36 @@ fn main() -> ExitCode {
         Arc::new(
             StubEngine::new(reply).with_max_context(args.cfg.max_context_tokens.unwrap_or(4096)),
         )
+    } else if args.engine == "omega" && qwen38_engine::is_qwen38_dir(&args.model_dir) {
+        // Qwen3.8-27B (config model_type qwen3_5): its own door; no persistent KV (DeltaNet state).
+        if let Some(us) = args.spin_us {
+            if let Err(e) = aien_omega_gpu::set_spin_us(us) {
+                eprintln!("aien-serve-http: spin: {e}");
+                return ExitCode::from(1);
+            }
+        }
+        if args.cfg.model_id == ServerConfig::default().model_id {
+            args.cfg.model_id = qwen38_engine::DEFAULT_MODEL_ID.into();
+        }
+        if std::env::var_os("AIEN_KV_STORE_DIR").is_some() {
+            eprintln!(
+                "aien-serve-http: AIEN_KV_STORE_DIR ignored: the qwen38 door has no persistent KV"
+            );
+        }
+        eprintln!(
+            "aien-serve-http: loading Qwen3.8 (qwen3_5) onto the Omega engine from {}",
+            args.model_dir.display()
+        );
+        match qwen38_engine::Qwen38Door::load(
+            &args.model_dir,
+            args.cfg.max_context_tokens.unwrap_or(32768),
+        ) {
+            Ok(door) => Arc::new(door),
+            Err(e) => {
+                eprintln!("aien-serve-http: qwen38 load failed: {e}");
+                return ExitCode::from(1);
+            }
+        }
     } else if args.engine == "omega" {
         eprintln!(
             "aien-serve-http: loading {:?} weights onto the Omega engine from {} (spin {:?} us)",

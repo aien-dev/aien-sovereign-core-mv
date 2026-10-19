@@ -50,7 +50,10 @@ fn rendering_matches_the_jinja_reference_rendering() {
             .iter()
             .map(|p| (p[0].as_str().unwrap().into(), p[1].as_str().unwrap().into()))
             .collect();
-        let refs: Vec<(&str, &str)> = turns.iter().map(|(r, c)| (r.as_str(), c.as_str())).collect();
+        let refs: Vec<(&str, &str)> = turns
+            .iter()
+            .map(|(r, c)| (r.as_str(), c.as_str()))
+            .collect();
         let o = opts(&case["options"]);
         assert_eq!(
             tpl.try_render_with(&refs, &o).unwrap(),
@@ -59,7 +62,10 @@ fn rendering_matches_the_jinja_reference_rendering() {
         );
         // The default is the template's default (thinking on, effort xhigh).
         if o == ChatOptions::default() {
-            assert_eq!(tpl.try_render(&refs).unwrap(), case["text"].as_str().unwrap());
+            assert_eq!(
+                tpl.try_render(&refs).unwrap(),
+                case["text"].as_str().unwrap()
+            );
         }
     }
 }
@@ -68,7 +74,9 @@ fn rendering_matches_the_jinja_reference_rendering() {
 fn options_change_the_rendering_and_bad_ones_are_refused() {
     let tpl = t();
     let turns = [("user", "Hi")];
-    let on = tpl.try_render_with(&turns, &ChatOptions::default()).unwrap();
+    let on = tpl
+        .try_render_with(&turns, &ChatOptions::default())
+        .unwrap();
     let off = tpl
         .try_render_with(
             &turns,
@@ -87,7 +95,10 @@ fn options_change_the_rendering_and_bad_ones_are_refused() {
     };
     assert!(tpl.try_render_with(&turns, &bad).is_err());
     assert!(tpl
-        .try_render_with(&[("user", "a"), ("system", "late")], &ChatOptions::default())
+        .try_render_with(
+            &[("user", "a"), ("system", "late")],
+            &ChatOptions::default()
+        )
         .is_err());
     assert!(tpl
         .try_render_with(&[("assistant", "no user")], &ChatOptions::default())
@@ -118,7 +129,10 @@ fn golden_prompt_tokenizes_to_the_reference_ids() {
     };
     let text = tk
         .try_format_chat_with(
-            &[("user", "Write a C function that returns the larger of two ints.")],
+            &[(
+                "user",
+                "Write a C function that returns the larger of two ints.",
+            )],
             &off,
         )
         .unwrap();
@@ -126,7 +140,10 @@ fn golden_prompt_tokenizes_to_the_reference_ids() {
     // Negative control: the thinking-on rendering of the same question must not match.
     let on = tk
         .try_format_chat_with(
-            &[("user", "Write a C function that returns the larger of two ints.")],
+            &[(
+                "user",
+                "Write a C function that returns the larger of two ints.",
+            )],
             &ChatOptions::default(),
         )
         .unwrap();

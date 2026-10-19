@@ -200,7 +200,9 @@ fn render_qwen38(turns: &[(&str, &str)], opts: &ChatOptions) -> Result<String, T
                 out.push_str(content);
                 out.push_str("<|im_end|>\n");
             }
-            other => return refuse(format!("role {other} refused: the Qwen3.8 layout here is text-only system/user/assistant")),
+            other => return refuse(format!(
+                "role {other} refused: the Qwen3.8 layout here is text-only system/user/assistant"
+            )),
         }
     }
     out.push_str("<|im_start|>assistant\n");
@@ -476,7 +478,10 @@ impl ChatTemplate {
                 Self::Llama3 => out.push_str(&format!(
                     "<|start_header_id|>{role}<|end_header_id|>\n\n{body}<|eot_id|>"
                 )),
-                Self::ChatMl { .. } | Self::ChatMlQwen3 | Self::ChatMlQwen3NoThink | Self::Qwen38 => {
+                Self::ChatMl { .. }
+                | Self::ChatMlQwen3
+                | Self::ChatMlQwen3NoThink
+                | Self::Qwen38 => {
                     unreachable!("ChatML returned above")
                 }
                 Self::None => unreachable!("plain model refused above"),
@@ -486,7 +491,10 @@ impl ChatTemplate {
             out.push_str(match self {
                 Self::Zephyr => "<|assistant|>\n",
                 Self::Llama3 => "<|start_header_id|>assistant<|end_header_id|>\n\n",
-                Self::ChatMl { .. } | Self::ChatMlQwen3 | Self::ChatMlQwen3NoThink | Self::Qwen38 => {
+                Self::ChatMl { .. }
+                | Self::ChatMlQwen3
+                | Self::ChatMlQwen3NoThink
+                | Self::Qwen38 => {
                     unreachable!("ChatML returned above")
                 }
                 Self::None => unreachable!("plain model refused above"),

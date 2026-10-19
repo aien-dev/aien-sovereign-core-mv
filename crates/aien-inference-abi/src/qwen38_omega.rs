@@ -27,7 +27,9 @@ use aien_omega_gpu::ResidentTensor;
 use aien_omega_q38::{Attn256Cache, Gdn, GraphConfig, GraphStats, Q38Graph};
 
 mod prefill;
+mod session;
 pub use prefill::PrefillStats;
+pub use session::{plan_reuse, FeedStats, Qwen38Session, Reuse, IM_START};
 
 use crate::qwen38::{read_bf16_words, read_matrix, read_vec, text_prefix, Matrix, Qwen38Config};
 use crate::qwen3_moe::bf16_to_f32;
@@ -79,6 +81,52 @@ impl std::fmt::Debug for Qwen38Omega {
             self.config.layers, self.pos, self.max_pos
         )
     }
+}
+
+/// The DeltaNet tails and states at a position ([`Qwen38Omega::snapshot`]), in host memory.
+#[derive(Debug, Default, Clone)]
+pub struct Qwen38Snapshot {
+    pub pos: usize,
+    tails: Vec<f32>,
+    states: Vec<f32>,
+}
+
+/// Memory the whole model needs with a KV cache of `max_pos` positions and prefill buffers for
+/// `chunk` tokens (device and host: the box's memory is one pool). Counted from the config:
+/// weights, KV cache, prefill buffers, the host embedding table and one state snapshot, plus
+/// `RUNTIME_SLACK` for what the count misses (allocator rounding, the tokenizer, host staging).
+/// The 2026-10-18 128k TTFT run measured RSS 39 GiB where the old count said 35.5 GiB; the
+/// embedding (2.37 GiB) and the slack close that gap.
+pub fn need_bytes(c: &Qwen38Config, max_pos: usize, chunk: usize) -> u64 {
+    const RUNTIME_SLACK: u64 = 3 << 30;
+    let h = c.hidden as u64;
+    let mlp = 3 * c.intermediate as u64 * h;
+    let o = h * (c.heads * c.head_dim) as u64;
+    let layers: u64 = c
+        .full_attention
+        .iter()
+        .map(|&attn| {
+            if attn {
+                (2 * c.heads * c.head_dim + 2 * c.kv_dim()) as u64 * h + o + mlp
+            } else {
+                (c.conv_dim() + c.lin_value_dim()) as u64 * h + o + mlp + 4 * 2 * 2 * 48 * h
+            }
+        })
+        .sum();
+    let weights = layers + layers / 4096 + 2 * c.vocab as u64 * h;
+    let n_attn = c.full_attention.iter().filter(|&&a| a).count() as u64;
+    let n_gdn = c.layers as u64 - n_attn;
+    let kv = n_attn * 2 * 4 * max_pos as u64 * 512 + max_pos as u64 * 1024;
+    // xin, xq, xs, mix, act, out, plus the DeltaNet prefill scratch (omega_gpu_gdn_api.h).
+    let m = chunk as u64;
+    let bufs = m * (6144 * 4 + 17408 + 136 * 4 + 16384 * 4 + 17408 * 2 + 5120 * 4)
+        + m * (40960 + 3 * 24576 + 384)
+        + m.div_ceil(8) * 8 * 74496;
+    let embed = 2 * c.vocab as u64 * h;
+    let state =
+        n_gdn * 4 * (aien_omega_q38::GDN_TAIL_FLOATS + aien_omega_q38::GDN_STATE_FLOATS) as u64;
+    // Device state plus one host snapshot.
+    weights + kv + bufs + embed + 2 * state + RUNTIME_SLACK
 }
 
 fn gpu(stage: &str) -> impl Fn(aien_omega_gpu::OmegaGpuError) -> String + '_ {
@@ -540,6 +588,65 @@ impl Qwen38Omega {
             .read(None, None, Some(&mut l))
             .map_err(gpu("q38 read logits"))?;
         Ok(l)
+    }
+
+    /// Positions the KV cache holds (the longest sequence).
+    pub fn max_pos(&self) -> usize {
+        self.max_pos
+    }
+
+    /// Copies every DeltaNet layer's conv tail and state and the position into `snap` (host
+    /// memory, reused between calls): [`Self::restore`] continues the sequence from here. The
+    /// attention KV needs no copy: rows past the restored position are rewritten before they
+    /// are read.
+    pub fn snapshot(&mut self, snap: &mut Qwen38Snapshot) -> Result<(), String> {
+        let Some(g) = self.gdn.as_mut() else {
+            snap.pos = self.pos;
+            return Ok(());
+        };
+        let n = g.layers();
+        let (tf, sf) = (
+            aien_omega_q38::GDN_TAIL_FLOATS,
+            aien_omega_q38::GDN_STATE_FLOATS,
+        );
+        snap.tails.resize(n * tf, 0.0);
+        snap.states.resize(n * sf, 0.0);
+        for (l, (t, st)) in snap
+            .tails
+            .chunks_exact_mut(tf)
+            .zip(snap.states.chunks_exact_mut(sf))
+            .enumerate()
+        {
+            g.get_state(l, t, st).map_err(gpu("gdn get_state"))?;
+        }
+        snap.pos = self.pos;
+        Ok(())
+    }
+
+    /// Puts a [`Self::snapshot`] back: the next token goes at `snap.pos`.
+    pub fn restore(&mut self, snap: &Qwen38Snapshot) -> Result<(), String> {
+        if snap.pos > self.max_pos {
+            return Err(format!("restore: position {} past the cache", snap.pos));
+        }
+        if let Some(g) = self.gdn.as_mut() {
+            let (tf, sf) = (
+                aien_omega_q38::GDN_TAIL_FLOATS,
+                aien_omega_q38::GDN_STATE_FLOATS,
+            );
+            if snap.tails.len() != g.layers() * tf || snap.states.len() != g.layers() * sf {
+                return Err("restore: the snapshot is not of this model".into());
+            }
+            for (l, (t, st)) in snap
+                .tails
+                .chunks_exact(tf)
+                .zip(snap.states.chunks_exact(sf))
+                .enumerate()
+            {
+                g.set_state(l, t, st).map_err(gpu("gdn set_state"))?;
+            }
+        }
+        self.pos = snap.pos;
+        Ok(())
     }
 
     /// The graph, for traces and timelines.

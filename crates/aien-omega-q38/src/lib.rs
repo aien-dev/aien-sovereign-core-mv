@@ -581,7 +581,10 @@ impl Gdn {
         check_len("gdn tail", GDN_TAIL_FLOATS, tail.len())?;
         check_len("gdn state", GDN_STATE_FLOATS, state.len())?;
         if layer >= self.layers {
-            return Err(bad(format!("gdn get_state: layer {layer} of {}", self.layers)));
+            return Err(bad(format!(
+                "gdn get_state: layer {layer} of {}",
+                self.layers
+            )));
         }
         #[cfg(has_omega_q38)]
         {
@@ -606,11 +609,19 @@ impl Gdn {
     }
 
     /// Writes layer `layer`'s conv tail and recurrent state ([`Self::get_state`]'s layouts).
-    pub fn set_state(&mut self, layer: usize, tail: &[f32], state: &[f32]) -> Result<(), OmegaGpuError> {
+    pub fn set_state(
+        &mut self,
+        layer: usize,
+        tail: &[f32],
+        state: &[f32],
+    ) -> Result<(), OmegaGpuError> {
         check_len("gdn tail", GDN_TAIL_FLOATS, tail.len())?;
         check_len("gdn state", GDN_STATE_FLOATS, state.len())?;
         if layer >= self.layers {
-            return Err(bad(format!("gdn set_state: layer {layer} of {}", self.layers)));
+            return Err(bad(format!(
+                "gdn set_state: layer {layer} of {}",
+                self.layers
+            )));
         }
         #[cfg(has_omega_q38)]
         {

@@ -21,10 +21,13 @@ use tokio::sync::{mpsc, Mutex, OwnedMutexGuard};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 
+use aien_inference_abi::tokenizer::ChatOptions;
+
 use crate::codec::{Codec, CodecError};
 use crate::engine::{Engine, EngineError, FinishReason, GenerateParams};
 use crate::openai::{
-    chunk_json, completion_json, ChatRequest, ErrorBody, ModelCard, ModelList, Usage,
+    chunk_json, chunk_json_with, completion_json, ChatRequest, ErrorBody, ModelCard, ModelList,
+    Usage,
 };
 use crate::sampling::SamplingRecord;
 use crate::text::{Push, TextAssembler};
@@ -157,15 +160,21 @@ struct Prepared {
     params: GenerateParams,
     stop_strings: Vec<String>,
     stream: bool,
+    /// The prompt opens a thinking block: reply tokens up to this id are reasoning.
+    reasoning_end: Option<u32>,
+    return_ids: bool,
 }
 
 /// What the generation thread sends to the HTTP side.
 enum Ev {
     Delta(String),
+    /// Text of the thinking block (`reasoning_content`).
+    Reasoning(String),
     Done {
         finish: &'static str,
         completion_tokens: usize,
         sampling: Option<SamplingRecord>,
+        token_ids: Option<Vec<u32>>,
     },
     Error(String),
     /// The engine could not get the shared chip: 503 before any token.
@@ -446,10 +455,14 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
         .iter()
         .map(|(r, c)| (r.as_str(), c.as_str()))
         .collect();
-    let prompt_text = state.codec.render_chat(&turn_refs).map_err(|e| match e {
-        CodecError::Unrenderable(m) => ApiError::bad_request(m),
-        CodecError::Failed(m) => ApiError::internal(m),
-    })?;
+    let opts = chat_options(&req)?;
+    let prompt_text = state
+        .codec
+        .render_chat_with(&turn_refs, &opts)
+        .map_err(|e| match e {
+            CodecError::Unrenderable(m) => ApiError::bad_request(m),
+            CodecError::Failed(m) => ApiError::internal(m),
+        })?;
     let prompt_tokens = state
         .codec
         .encode(&prompt_text)
@@ -536,7 +549,46 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
         },
         stop_strings,
         stream: req.stream,
+        reasoning_end: if prompt_text.ends_with("<think>\n") {
+            state.codec.reasoning_end_id()
+        } else {
+            None
+        },
+        return_ids: req.aien_return_token_ids,
     })
+}
+
+/// The template switches of a request: `chat_template_kwargs.enable_thinking` /
+/// `.reasoning_effort`, and the top-level `reasoning_effort`.
+fn chat_options(req: &ChatRequest) -> Result<ChatOptions, ApiError> {
+    let mut o = ChatOptions::default();
+    if let Some(kw) = req.chat_template_kwargs.as_ref().filter(|v| !v.is_null()) {
+        let Some(map) = kw.as_object() else {
+            return Err(ApiError::bad_request(
+                "chat_template_kwargs must be an object",
+            ));
+        };
+        if let Some(v) = map.get("enable_thinking").filter(|v| !v.is_null()) {
+            o.enable_thinking = Some(v.as_bool().ok_or_else(|| {
+                ApiError::bad_request("chat_template_kwargs.enable_thinking must be a boolean")
+            })?);
+        }
+        if let Some(v) = map.get("reasoning_effort").filter(|v| !v.is_null()) {
+            o.reasoning_effort = Some(
+                v.as_str()
+                    .ok_or_else(|| {
+                        ApiError::bad_request(
+                            "chat_template_kwargs.reasoning_effort must be a string",
+                        )
+                    })?
+                    .to_string(),
+            );
+        }
+    }
+    if let Some(e) = req.reasoning_effort.as_deref() {
+        o.reasoning_effort = Some(e.to_string());
+    }
+    Ok(o)
 }
 
 /// Runs on a blocking thread holding the generation lock (`guard`). The lock is released as soon
@@ -550,15 +602,55 @@ fn run_generation(
     guard: OwnedMutexGuard<()>,
     id: &str,
 ) {
-    let mut asm = TextAssembler::new(codec, prepared.stop_strings);
+    let mut asm = TextAssembler::new(Arc::clone(&codec), prepared.stop_strings);
+    // The thinking block (prompt ends in `<think>\n`): its text goes out as reasoning, the
+    // closing token is dropped, and the answer's leading newlines are trimmed (the template
+    // puts `\n</think>\n\n` between the two).
+    let mut thinking = prepared
+        .reasoning_end
+        .map(|end| (end, TextAssembler::new(codec, Vec::new())));
+    let mut answer_started = prepared.reasoning_end.is_none();
+    let mut ids = prepared.return_ids.then(Vec::new);
     let mut stopped_by_string = false;
     let mut client_gone = false;
-    let result = engine.generate(
-        &prepared.prompt_tokens,
-        &prepared.params,
-        &mut |tok| match asm.push(tok) {
+    let result = engine.generate(&prepared.prompt_tokens, &prepared.params, &mut |tok| {
+        if let Some(ids) = ids.as_mut() {
+            ids.push(tok);
+        }
+        if let Some((end, rasm)) = thinking.as_mut() {
+            let ev = if tok == *end {
+                let rest = rasm.finish();
+                thinking = None;
+                rest
+            } else {
+                match rasm.push(tok) {
+                    Push::Delta(d) | Push::StopAt(d) => Some(d),
+                    Push::Hold => None,
+                }
+            };
+            if let Some(d) = ev.filter(|d| !d.is_empty()) {
+                if tx.blocking_send(Ev::Reasoning(d)).is_err() {
+                    client_gone = true;
+                    return false;
+                }
+            }
+            return true;
+        }
+        let trim = |d: String, started: &mut bool| {
+            if *started {
+                return d;
+            }
+            let t = d.trim_start_matches('\n');
+            *started = !t.is_empty();
+            t.to_string()
+        };
+        match asm.push(tok) {
             Push::Hold => true,
             Push::Delta(d) => {
+                let d = trim(d, &mut answer_started);
+                if d.is_empty() {
+                    return true;
+                }
                 if tx.blocking_send(Ev::Delta(d)).is_err() {
                     client_gone = true;
                     false
@@ -568,13 +660,14 @@ fn run_generation(
             }
             Push::StopAt(d) => {
                 stopped_by_string = true;
+                let d = trim(d, &mut answer_started);
                 if !d.is_empty() {
                     let _ = tx.blocking_send(Ev::Delta(d));
                 }
                 false
             }
-        },
-    );
+        }
+    });
     drop(guard);
     match result {
         Err(EngineError::Busy(m)) => {
@@ -593,8 +686,20 @@ fn run_generation(
                 );
                 return;
             }
+            if let Some((_, mut rasm)) = thinking.take() {
+                if let Some(rest) = rasm.finish().filter(|r| !r.is_empty()) {
+                    let _ = tx.blocking_send(Ev::Reasoning(rest));
+                }
+            }
             if let Some(rest) = asm.finish() {
-                let _ = tx.blocking_send(Ev::Delta(rest));
+                let rest = if answer_started {
+                    rest
+                } else {
+                    rest.trim_start_matches('\n').to_string()
+                };
+                if !rest.is_empty() {
+                    let _ = tx.blocking_send(Ev::Delta(rest));
+                }
             }
             let finish = if stopped_by_string {
                 "stop"
@@ -625,6 +730,7 @@ fn run_generation(
                 finish,
                 completion_tokens: out.emitted_tokens,
                 sampling: out.sampling,
+                token_ids: ids,
             });
         }
     }
@@ -638,22 +744,27 @@ async fn collect_response(
     mut rx: mpsc::Receiver<Ev>,
 ) -> Result<Response, ApiError> {
     let mut content = String::new();
+    let mut reasoning: Option<String> = None;
     while let Some(ev) = rx.recv().await {
         match ev {
             Ev::Delta(d) => content.push_str(&d),
+            Ev::Reasoning(d) => reasoning.get_or_insert_with(String::new).push_str(&d),
             Ev::Done {
                 finish,
                 completion_tokens,
                 sampling,
+                token_ids,
             } => {
                 let usage = Usage {
                     prompt_tokens,
                     completion_tokens,
                     total_tokens: prompt_tokens + completion_tokens,
                     aien_sampling: sampling,
+                    aien_token_ids: token_ids,
                 };
+                let reasoning = reasoning.as_deref().map(str::trim);
                 return Ok(Json(completion_json(
-                    &id, created, model, &content, finish, &usage,
+                    &id, created, model, &content, reasoning, finish, &usage,
                 ))
                 .into_response());
             }
@@ -689,16 +800,28 @@ fn stream_response(
         while let Some(ev) = rx.recv().await {
             let item = match ev {
                 Ev::Delta(d) => data(chunk_json(&id, created, &model, None, Some(&d), None, None)),
+                Ev::Reasoning(d) => data(chunk_json_with(
+                    &id,
+                    created,
+                    &model,
+                    None,
+                    None,
+                    Some(&d),
+                    None,
+                    None,
+                )),
                 Ev::Done {
                     finish,
                     completion_tokens,
                     sampling,
+                    token_ids,
                 } => {
                     let usage = Usage {
                         prompt_tokens,
                         completion_tokens,
                         total_tokens: prompt_tokens + completion_tokens,
                         aien_sampling: sampling,
+                        aien_token_ids: token_ids,
                     };
                     let last =
                         chunk_json(&id, created, &model, None, None, Some(finish), Some(&usage));

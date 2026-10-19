@@ -28,7 +28,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use aien_inference_abi::qwen38::{argmax, Qwen38Config};
-use aien_inference_abi::qwen38_omega::{PrefillStats, Qwen38Omega};
+use aien_inference_abi::qwen38_omega::{need_bytes, PrefillStats, Qwen38Omega};
 use aien_inference_abi::qwen3_moe::parity_stats;
 use aien_inference_abi::tokenizer::ChatTokenizer;
 use serde_json::{json, Value};
@@ -44,34 +44,6 @@ fn mem_available() -> Result<u64, String> {
         .and_then(|v| v.trim().trim_end_matches("kB").trim().parse::<u64>().ok())
         .map(|kb| kb * 1024)
         .ok_or_else(|| "/proc/meminfo: no MemAvailable".into())
-}
-
-/// Device bytes for the whole model, its KV cache at `max_pos` and the prefill buffers for
-/// `chunk` tokens; from the config, not measured.
-fn need_bytes(c: &Qwen38Config, max_pos: usize, chunk: usize) -> u64 {
-    let h = c.hidden as u64;
-    let mlp = 3 * c.intermediate as u64 * h;
-    let o = h * (c.heads * c.head_dim) as u64;
-    let layers: u64 = c
-        .full_attention
-        .iter()
-        .map(|&attn| {
-            if attn {
-                (2 * c.heads * c.head_dim + 2 * c.kv_dim()) as u64 * h + o + mlp
-            } else {
-                (c.conv_dim() + c.lin_value_dim()) as u64 * h + o + mlp + 4 * 2 * 2 * 48 * h
-            }
-        })
-        .sum();
-    let weights = layers + layers / 4096 + 2 * c.vocab as u64 * h;
-    let n_attn = c.full_attention.iter().filter(|&&a| a).count() as u64;
-    let kv = n_attn * 2 * 4 * max_pos as u64 * 512 + max_pos as u64 * 1024;
-    // xin, xq, xs, mix, act, out, plus the DeltaNet prefill scratch (omega_gpu_gdn_api.h).
-    let m = chunk as u64;
-    let bufs = m * (6144 * 4 + 17408 + 136 * 4 + 16384 * 4 + 17408 * 2 + 5120 * 4)
-        + m * (40960 + 3 * 24576 + 384)
-        + m.div_ceil(8) * 8 * 74496;
-    weights + kv + bufs
 }
 
 fn open(dir: &Path, max_pos: usize, chunk: usize) -> Result<Qwen38Omega, String> {

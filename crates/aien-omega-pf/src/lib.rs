@@ -1064,7 +1064,7 @@ impl PrefillAttention for OmegaPrefillAttention<'_> {
             if let Err(e) = self.check(layer, pos0, m) {
                 return Some(Err(e));
             }
-            if qkv_va == 0 || out_va == 0 || qkv_va % 16 != 0 || out_va % 16 != 0 {
+            if qkv_va == 0 || out_va == 0 || !qkv_va.is_multiple_of(16) || !out_va.is_multiple_of(16) {
                 return Some(Err(
                     "prefill attn dev: addresses must be non-zero and 16-byte aligned".into(),
                 ));
