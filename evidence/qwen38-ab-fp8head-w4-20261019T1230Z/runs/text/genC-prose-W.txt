@@ -1,0 +1,13 @@
+=== prompt (34 ids)
+<|im_start|>user
+Write a short story, about three paragraphs, about a lighthouse keeper who finds a message in a bottle.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+=== generated (256 ids)
+The salt spray had long since worn the paint from the lighthouse’s white walls, leaving them a mottled gray that matched the perpetual overcast of the North Sea. Elias, a man whose joints ached with the same rhythm as the tides, was sweeping the shingle beach when his broom struck something hard and glassy. He knelt, brushing away the wet sand to reveal a green bottle, its cork swollen with years of brine. Inside, a rolled piece of parchment was visible, the ink faded but legible, bearing a date from forty years ago and a name that made Elias’s breath catch in his throat: *For Arthur, if you ever find this, I am sorry. I am coming home.*
+
+Elias had been Arthur’s brother, the one who stayed behind to keep the light burning while Arthur had sailed off to chase a dream of distant shores. They had not spoken in decades, not since the argument that had driven Arthur away, a dispute over their father’s legacy that had turned into a chasm of silence. The message was not a plea for help, but a confession, a final act of love sent out into the void before Arthur’s ship was lost to a storm in 1984. Elias held

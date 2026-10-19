@@ -119,7 +119,8 @@ Reference = the same model with 8-bit weights and the 16-bit last step (the old 
   only near ties. Perplexity-style score (lower is better, nats per word), reference to 4-bit: licence 0.087 to 0.093
   (W) / 0.089 (WW); C source 2.118 to 2.165 (W) / 2.175 (WW); architecture 2.104 to 2.144 (W).
 - Free-running writing: the 4-bit code sample reads as correct, sensible C (runs/text/genB-codelong-WW.txt). The 4-bit
-  story samples and the W code sample were blocked by the memory guard: NOT MEASURED.
+  story with W (runs/text/genC-prose-W.txt) is fluent, sensible English about the keeper and the bottle; it tells a different
+  story from the reference from the first word (same prompt). Still NOT MEASURED: WW story, W code sample (queued).
 - Our existing full-model accuracy check, written for 8-bit agreement, FAILS for every reduced setup (8-bit last step
   included), although all of them produce the same 24 reference words when writing freely, except WW, which makes
   1 different choice out of 24 (a close call). A check fit for 4-bit is owed.
@@ -164,3 +165,4 @@ leaving about 16 GB free; each run needs about 56 GB. The queue (bin/chain-c.sh,
 itself and takes the GPU only when the memory is there. When results land they get added to the tables above.
 Until then the decision stands on the measured runs; the BEST rule is NOT MEASURED on the chip and stays off
 (default OCP).
+## Log 23:2xZ: one.sh v3 (v2 kept): v2's non-blocking tries lost every race to other jobs' blocking waiters (dumpC-arch-WW polled 77 min with 69 GiB free). v3 waits for memory, queues on the lock normally, retries when the tool's memory guard refuses (refusals.txt). Stopped my own idle v2 wrapper (no chip child); chain-e retries arch-WW.
