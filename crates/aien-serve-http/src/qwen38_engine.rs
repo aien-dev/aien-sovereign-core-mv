@@ -270,7 +270,7 @@ impl Engine for Qwen38Door {
                 StepRule::Force(f) if p.stop_token_ids.contains(f) => {}
                 StepRule::Force(_) => {
                     chip_ns += s.push(tok).map_err(EngineError::Failed)?;
-                    mask.note_head_skipped();
+                    mask.note_logits_skipped();
                 }
                 StepRule::Any | StepRule::Allow(_) => {
                     let (next, ns) = s.advance(tok).map_err(EngineError::Failed)?;
@@ -288,11 +288,11 @@ impl Engine for Qwen38Door {
         drop(lock);
         let m = mask.record();
         eprintln!(
-            "aien-serve-http: qwen38: constraint {}: lock wait {lock_wait_ms} ms, prompt {} tok, reuse {reused} tok, prefill {prefill_ms} ms, decode {emitted} tok in {decode_ms} ms ({heads} heads read, {} forced, {} heads skipped), constraint {} us total, {} us max step, chip {:.1} ms/token, wall {:.1} ms/token",
+            "aien-serve-http: qwen38: constraint {}: lock wait {lock_wait_ms} ms, prompt {} tok, reuse {reused} tok, prefill {prefill_ms} ms, decode {emitted} tok in {decode_ms} ms ({heads} logits read, {} forced, {} logits skipped), constraint {} us total, {} us max step, chip {:.1} ms/token, wall {:.1} ms/token",
             m.kind,
             prompt.len(),
             m.forced,
-            m.head_skipped,
+            m.logits_skipped,
             m.rule_us,
             m.rule_us_max,
             chip_ns as f64 / 1e6 / steps,
