@@ -54,7 +54,7 @@ aien-serve-27b                 # http://127.0.0.1:18091/v1, prints how to stop i
 aien-serve-http --version      # shows whether the Omega engine is linked (native) or a stub
 ```
 
-`tools/qwen38_serve_gate.sh http://127.0.0.1:18091 "" <out-dir>` checks a running server against the shipped host reference (`crates/aien-inference-abi/fixtures/qwen38/`). The server needs about 38.5 GiB of free memory.
+`tools/qwen38_serve_gate.sh http://127.0.0.1:18091 "" <out-dir>` checks a running server against the shipped host reference (`crates/aien-inference-abi/fixtures/qwen38/`), and `tools/qwen38_serve_speed.sh http://127.0.0.1:18091 "" <out-dir>` measures it; both write a `receipt.json` (binary sha256, build, model folder, machine state, figures, MATCH or MISMATCH). Model checksums, the memory speed ceiling and how to check: [docs/qwen38/](docs/qwen38/README.md). The server needs about 38.5 GiB of free memory.
 
 Installing a release (state on 2026-10-11, from `install.sh` and the dry-run artifact of Actions run 38105672607, nothing else):
 
