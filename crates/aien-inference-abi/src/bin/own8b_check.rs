@@ -2,6 +2,7 @@
 //! against the host reference path (design `~/handoffs/2026-10-15-own8b-design.md`, section 2.4).
 //!
 //!   own8b_check golden <checkpoint> <golden.json> [--new N] [--prompts 1,2,3,4,5]
+//!                      [--w4] [--prompt-ids FILE]   (aien-rig: MXFP4 oracle; exact prompt ids from a server)
 //!       Host only: the same engine code with host GEMVs and the host bf16 KV pool (oracle A),
 //!       greedy continuations of the 5 fixed prompts (4 chat prompts + a 512-token prompt),
 //!       top-2 margins, the shard SHA256s. Recorded once, then sealed.
@@ -9,6 +10,8 @@
 //!                    [--layers 0,17,35] [--parity-prompts 1,2,3,4] [--max-context 4096]
 //!                    [--speed-tokens 128] [--upload-mutant swap-kv|transpose-scales]
 //!                    [--kernel-mutant N] [--attention-mutant] [--no-host] [--force-memory]
+//!                    [--w4]   (aien-rig: FP8 projections converted to MXFP4 at load, omega W4 GEMV;
+//!                             rule from AIEN_Q38_W4_RULE = floor (default) / ceil / mse)
 //!       Omega: loads the resident model; oracle A per layer (chip traces against the host
 //!       engine teacher-forced on the golden tokens, cosine >= 0.9999 and p95_rel <= 2e-3 per
 //!       traced layer, thresholds fixed by the design); greedy tokens against the golden
@@ -23,7 +26,7 @@ use std::time::Instant;
 
 use aien_inference_abi::qwen3_dense_omega::engine::{
     DenseLayerTrace, DenseUploadMutant, HostDenseUploader, MutantUploader, OmegaDenseUploader,
-    Qwen3DenseOmegaEngine,
+    Qwen3DenseOmegaEngine, W4DenseUploader,
 };
 use aien_inference_abi::qwen3_dense_omega::{DenseUploader, DenseWeightFormat, Qwen3DenseConfig};
 use aien_inference_abi::qwen3_moe::parity_stats;
@@ -61,7 +64,8 @@ fn prompts(tok: &Tokenizer) -> Vec<(String, Vec<u32>)> {
             let ids = if *name == "p1-one-token" {
                 tok.encode_with_special(text, false).expect("encode")
             } else {
-                tok.encode_with_special(&chatml(text), false).expect("encode")
+                tok.encode_with_special(&chatml(text), false)
+                    .expect("encode")
             };
             (name.to_string(), ids)
         })
@@ -70,7 +74,11 @@ fn prompts(tok: &Tokenizer) -> Vec<(String, Vec<u32>)> {
         .map(|i| format!("Section {i}. {}\n", PROMPT_TEXTS[2].1))
         .collect();
     let mut ids = tok.encode_with_special(&long, false).expect("encode");
-    assert!(ids.len() >= LONG_PROMPT_TOKENS, "long prompt has {} ids", ids.len());
+    assert!(
+        ids.len() >= LONG_PROMPT_TOKENS,
+        "long prompt has {} ids",
+        ids.len()
+    );
     ids.truncate(LONG_PROMPT_TOKENS);
     out.push(("p5-512".into(), ids));
     out
@@ -93,6 +101,11 @@ struct Args {
     attention_mutant: bool,
     no_host: bool,
     force_memory: bool,
+    /// aien-rig: projections converted from FP8 to MXFP4 at load (chip: omega W4 GEMV; host: the same bytes
+    /// through omega's W4 oracle). Rule from AIEN_Q38_W4_RULE (floor default, ceil, mse).
+    w4: bool,
+    /// `--prompt-ids FILE` (golden mode): run these prompt ids instead of the built-in prompts.
+    prompt_file: Option<PathBuf>,
 }
 
 fn usage() -> ! {
@@ -126,6 +139,8 @@ fn parse() -> Args {
         attention_mutant: false,
         no_host: false,
         force_memory: false,
+        w4: false,
+        prompt_file: None,
     };
     let mut pos = Vec::new();
     let mut i = 1;
@@ -152,6 +167,12 @@ fn parse() -> Args {
             }
             "--no-host" => {
                 a.no_host = true;
+                i += 1;
+                continue;
+            }
+            "--prompt-ids" => a.prompt_file = Some(PathBuf::from(v())),
+            "--w4" => {
+                a.w4 = true;
                 i += 1;
                 continue;
             }
@@ -235,13 +256,11 @@ fn config_json(c: &Qwen3DenseConfig) -> serde_json::Value {
 fn golden(a: &Args) {
     let tok = Tokenizer::from_file(a.checkpoint.join("tokenizer.json")).expect("tokenizer");
     let t0 = Instant::now();
-    let (mut e, report) = Qwen3DenseOmegaEngine::load_host(
-        &a.checkpoint,
-        &HostDenseUploader,
-        a.max_context,
-        &mut |_| {},
-    )
-    .expect("host load");
+    let host_w4 = W4DenseUploader::host(&HostDenseUploader);
+    let host_up: &dyn DenseUploader = if a.w4 { &host_w4 } else { &HostDenseUploader };
+    let (mut e, report) =
+        Qwen3DenseOmegaEngine::load_host(&a.checkpoint, host_up, a.max_context, &mut |_| {})
+            .expect("host load");
     let config = e.config().clone();
     eprintln!(
         "host reference loaded in {:.0}s ({:.2} GB)",
@@ -249,10 +268,32 @@ fn golden(a: &Args) {
         report.resident_bytes as f64 / 1e9
     );
     let mut out = Vec::new();
-    for (idx, (name, ids)) in prompts(&tok).into_iter().enumerate() {
-        if !a.prompt_ids.contains(&(idx + 1)) {
-            continue;
+    // `--prompt-ids FILE` (aien-rig HTTP gate): the exact prompts a server tokenised, as a JSON
+    // array of {"name", "ids"}; they replace the built-in prompts (all of them are run).
+    let chosen: Vec<(String, Vec<u32>)> = match &a.prompt_file {
+        Some(f) => {
+            let v: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(f).expect("prompt-ids file"))
+                    .expect("prompt-ids json");
+            v.as_array()
+                .expect("prompt-ids: a JSON array")
+                .iter()
+                .map(|p| {
+                    (
+                        p["name"].as_str().unwrap_or("prompt").to_string(),
+                        serde_json::from_value(p["ids"].clone()).expect("prompt-ids: ids"),
+                    )
+                })
+                .collect()
         }
+        None => prompts(&tok)
+            .into_iter()
+            .enumerate()
+            .filter(|(idx, _)| a.prompt_ids.contains(&(idx + 1)))
+            .map(|(_, p)| p)
+            .collect(),
+    };
+    for (name, ids) in chosen {
         let t1 = Instant::now();
         e.reset();
         let mut hidden = e.step_batch(&ids).expect("prefill");
@@ -283,7 +324,8 @@ fn golden(a: &Args) {
         "shards": shard_digests(&a.checkpoint),
         "config": config_json(&config),
         "max_new": a.new_tokens,
-        "oracle": "Qwen3DenseOmegaEngine on the host (HostDenseUploader: HostFp8Gemv / HostBf16Gemv, f32 sums in column order; HostPoolKv bf16 KV), greedy, stop on eos",
+        "oracle": if a.w4 { format!("Qwen3DenseOmegaEngine on the host, projections MXFP4 converted from the FP8 checkpoint (rule {}, weight rel RMS error {:.4}) through omega_w4_gemv_oracle (double sums), bf16 lm_head HostBf16Gemv, HostPoolKv bf16 KV, greedy, stop on eos", std::env::var("AIEN_Q38_W4_RULE").unwrap_or_else(|_| "floor".into()), host_w4.stats().stats.rel_rms()) } else { "Qwen3DenseOmegaEngine on the host (HostDenseUploader: HostFp8Gemv / HostBf16Gemv, f32 sums in column order; HostPoolKv bf16 KV), greedy, stop on eos".to_string() },
+        "w4": a.w4,
         "prompts": out,
     });
     std::fs::write(&a.golden, serde_json::to_string_pretty(&doc).unwrap()).expect("write golden");
@@ -314,7 +356,9 @@ fn compare_traces(chip: &[DenseLayerTrace], host: &[DenseLayerTrace], layer: usi
         };
         let x = parity_stats(&c.x_out, &h.x_out);
         w.positions += 1;
-        w.x_cos = w.x_cos.min(if x.non_finite > 0 { f64::NAN } else { x.cosine });
+        w.x_cos = w
+            .x_cos
+            .min(if x.non_finite > 0 { f64::NAN } else { x.cosine });
         w.x_p95 = w.x_p95.max(x.p95_rel);
         w.attn_cos = w.attn_cos.min(parity_stats(&c.attn, &h.attn).cosine);
         w.mlp_cos = w.mlp_cos.min(parity_stats(&c.mlp_out, &h.mlp_out).cosine);
@@ -331,7 +375,8 @@ fn chip(a: &Args) {
         log.push(s);
     };
     let config = Qwen3DenseConfig::from_checkpoint(&a.checkpoint).expect("config");
-    let need_gb = config.model_resident_bytes() as f64 / 1e9 * if a.no_host { 1.2 } else { 2.4 } + 4.0;
+    let need_gb =
+        config.model_resident_bytes() as f64 / 1e9 * if a.no_host { 1.2 } else { 2.4 } + 4.0;
     let avail = mem_available_gb();
     say(format!(
         "mem available before load: {avail:.1} GB, this run needs about {need_gb:.1} GB"
@@ -341,15 +386,23 @@ fn chip(a: &Args) {
         std::process::exit(3);
     }
     let golden: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&a.golden).expect("golden file")).expect("golden json");
-    let gprompts = golden["prompts"].as_array().expect("golden prompts").clone();
+        serde_json::from_slice(&std::fs::read(&a.golden).expect("golden file"))
+            .expect("golden json");
+    let gprompts = golden["prompts"]
+        .as_array()
+        .expect("golden prompts")
+        .clone();
     let tok = Tokenizer::from_file(a.checkpoint.join("tokenizer.json")).expect("tokenizer");
     let ours = prompts(&tok);
     for (i, gp) in gprompts.iter().enumerate() {
         let ids: Vec<u32> = serde_json::from_value(gp["prompt_tokens"].clone()).unwrap();
         let name = gp["name"].as_str().unwrap_or("");
         let mine = ours.iter().find(|p| p.0 == name).map(|p| &p.1);
-        assert_eq!(mine, Some(&ids), "golden prompt {i} ({name}) is not this binary's prompt");
+        assert_eq!(
+            mine,
+            Some(&ids),
+            "golden prompt {i} ({name}) is not this binary's prompt"
+        );
     }
     let (bf16_native, fp8_native) = OmegaDenseUploader::native();
     say(format!(
@@ -363,14 +416,16 @@ fn chip(a: &Args) {
 
     // --- load (chip) ---
     let t0 = Instant::now();
-    let omega = OmegaDenseUploader;
+    let omega_plain = OmegaDenseUploader;
+    let omega_w4 = W4DenseUploader::chip(&omega_plain);
+    let omega: &dyn DenseUploader = if a.w4 { &omega_w4 } else { &omega_plain };
     let mutant_up;
     let up: &dyn DenseUploader = match a.upload_mutant {
         Some(m) => {
-            mutant_up = MutantUploader::new(&omega, m, &config);
+            mutant_up = MutantUploader::new(omega, m, &config);
             &mutant_up
         }
-        None => &omega,
+        None => omega,
     };
     let (mut e, report) =
         Qwen3DenseOmegaEngine::load_omega(&a.checkpoint, up, a.max_context, &mut |_| {})
@@ -380,6 +435,27 @@ fn chip(a: &Args) {
             });
     let load_s = t0.elapsed().as_secs_f64();
     e.attention_mutant = a.attention_mutant;
+    if let Some(s) = aien_omega_gpu::alloc_stats() {
+        say(format!(
+            "DEVICE omega allocations since start: {} buffers, {} bytes ({:.3} GiB), {} frees, {} refusals",
+            s.allocs,
+            s.alloc_bytes,
+            s.alloc_bytes as f64 / (1u64 << 30) as f64,
+            s.frees,
+            s.alloc_failures
+        ));
+    }
+    if a.w4 {
+        let st = omega_w4.stats();
+        say(format!(
+            "W4 MXFP4 rule {} tensors {} weights {} weight rel RMS error {:.4} zero groups {}",
+            std::env::var("AIEN_Q38_W4_RULE").unwrap_or_else(|_| "floor".into()),
+            st.tensors,
+            st.stats.weights,
+            st.stats.rel_rms(),
+            st.stats.zero_groups
+        ));
+    }
     if a.kernel_mutant != 0 {
         if config.format == DenseWeightFormat::Fp8Block128 {
             aien_omega_fp8::test_set_mutant(a.kernel_mutant);
@@ -409,14 +485,15 @@ fn chip(a: &Args) {
     // --- oracle A: per-layer parity against the host engine, teacher-forced ---
     if !a.no_host {
         let t1 = Instant::now();
-        let (mut host, _) = Qwen3DenseOmegaEngine::load_host(
-            &a.checkpoint,
-            &HostDenseUploader,
-            a.max_context,
-            &mut |_| {},
-        )
-        .expect("host load");
-        say(format!("host reference loaded in {:.1}s", t1.elapsed().as_secs_f64()));
+        let host_w4 = W4DenseUploader::host(&HostDenseUploader);
+        let host_up: &dyn DenseUploader = if a.w4 { &host_w4 } else { &HostDenseUploader };
+        let (mut host, _) =
+            Qwen3DenseOmegaEngine::load_host(&a.checkpoint, host_up, a.max_context, &mut |_| {})
+                .expect("host load");
+        say(format!(
+            "host reference loaded in {:.1}s",
+            t1.elapsed().as_secs_f64()
+        ));
         e.trace_layers = layers.clone();
         host.trace_layers = layers.clone();
         let mut worst: Vec<LayerWorst> = Vec::new();
@@ -543,10 +620,14 @@ fn chip(a: &Args) {
     e.reset();
     let mut n = 0usize;
     let o = e
-        .generate(&ids, &GenerateParams::greedy(a.speed_tokens, Vec::new()), &mut |_| {
-            n += 1;
-            true
-        })
+        .generate(
+            &ids,
+            &GenerateParams::greedy(a.speed_tokens, Vec::new()),
+            &mut |_| {
+                n += 1;
+                true
+            },
+        )
         .expect("speed run");
     let dt = o.decode_timing;
     let steps = o.emitted_tokens.max(1) as f64;
@@ -583,8 +664,11 @@ fn chip(a: &Args) {
         "speed": {"tokens": o.emitted_tokens, "decode_ms": o.decode_ms, "tok_s": tok_s, "chip_ns": dt.chip_ns, "host_ns": dt.host_ns, "attention_ns": dt.attention_ns, "mlp_ns": dt.experts_ns, "lm_head_ns": dt.lm_head_ns, "launches": dt.launches, "prefill_ms": o.prefill_ms, "prompt_tokens": o.prompt_tokens},
         "verdict": verdict,
     });
-    std::fs::write(receipt.join("run.json"), serde_json::to_string_pretty(&doc).unwrap())
-        .expect("run.json");
+    std::fs::write(
+        receipt.join("run.json"),
+        serde_json::to_string_pretty(&doc).unwrap(),
+    )
+    .expect("run.json");
     std::fs::write(receipt.join("log.txt"), log.join("\n") + "\n").expect("log");
     std::process::exit(if pass { 0 } else { 1 });
 }

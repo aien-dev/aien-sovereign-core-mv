@@ -106,6 +106,11 @@ pub trait Engine: Send + Sync {
     fn persistence_status(&self) -> Option<serde_json::Value> {
         None
     }
+    /// Memory plan and measured device bytes for `/health` (aien-rig dense door). `None` (the
+    /// default) leaves `/health` as it was.
+    fn memory_status(&self) -> Option<serde_json::Value> {
+        None
+    }
 }
 
 /// Test engine: ignores the prompt and replays a fixed token list, optionally

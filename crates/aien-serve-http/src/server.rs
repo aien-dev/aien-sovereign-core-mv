@@ -279,6 +279,9 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
     if let (Some(pk), Some(obj)) = (state.engine.persistence_status(), v.as_object_mut()) {
         obj.insert("persistent_kv".into(), pk);
     }
+    if let (Some(m), Some(obj)) = (state.engine.memory_status(), v.as_object_mut()) {
+        obj.insert("memory".into(), m);
+    }
     Json(v)
 }
 
