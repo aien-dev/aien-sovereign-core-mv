@@ -30,9 +30,9 @@ repo=$(cd "$(dirname "$0")/../.." && pwd)
 	echo "loadavg $(cat /proc/loadavg)"; grep MemAvailable /proc/meminfo
 } > "$d/ground.txt"
 
-# The server holds the shared chip lock while it runs (flock execs the server, so $pid is the server);
-# the host reference below runs after it stops, without the lock.
-AIEN_RIG_IDS_LOG="$ids" setsid nohup flock /tmp/aien-gb10.lock "$BIN" --engine omega --model-dir "$ckpt" --port "$port" \
+# The server takes the shared chip lock itself (at load and per request): never wrap it in flock, that
+# deadlocks (measured: the wrapped server sat 21 minutes in flock(2) on its own lock).
+AIEN_RIG_IDS_LOG="$ids" setsid nohup "$BIN" --engine omega --model-dir "$ckpt" --port "$port" \
 	${w4[*]:+--weights w4} "$@" > "$d/server.log" 2>&1 < /dev/null &
 pid=$!; echo "$pid" > "$d/server.pid"
 stop() { kill -TERM "$pid" 2>/dev/null; for _ in $(seq 1 60); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done; }

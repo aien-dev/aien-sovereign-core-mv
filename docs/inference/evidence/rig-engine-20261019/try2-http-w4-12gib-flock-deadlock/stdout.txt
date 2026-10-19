@@ -1,0 +1,27 @@
+server exited before serving
+aien-serve-http: tokenizer from /home/drakestapleton/models/qwen3-8b-fp8 (chat layout chatml-qwen3-nothink (Qwen3-8B, thinking off), stop ids [151645, 151643])
+aien-serve-http: loading dense Qwen3 (W4) onto the Omega engine from /home/drakestapleton/models/qwen3-8b-fp8
+aien-serve-http: memory budget 12.000 GiB: weights 4.596 (W4) + KV 4.500 (32768 tokens x 147456 B) + scratch 0.251 = 9.346 GiB; embedding 1.159 GiB stays in system RAM
+{
+ "name": "rig-http-w4-12gib",
+ "cmd": "nice -n 10 tools/rig/http-gate.sh /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019 http-w4-12gib/gate 18120 /home/drakestapleton/models/qwen3-8b-fp8 --w4 -- --mem-budget-gib 12 --max-context 32768",
+ "exit": 1,
+ "git_head": "f04ea21e",
+ "start": "2026-10-19T13:53:47.225946",
+ "seconds": 1379.042,
+ "samples": 651,
+ "wall_W_mean": 250.32258064516128,
+ "wall_J": 345205.2717614943,
+ "idle_W_before": 290.7142857142857,
+ "incremental_J": -55701.84475312038,
+ "gpu_W_mean": 9.299016897081414,
+ "gpu_util_mean": 6.291858678955453,
+ "load1_start": "39.14",
+ "load1_end": "12.47",
+ "mem_avail_kB_start": "26863332",
+ "mem_avail_kB_end": "73946760",
+ "lock_holders_max": 9,
+ "nvrm_errors_delta": 4,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-rig-http-w4-12gib.json

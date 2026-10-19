@@ -2,3 +2,4 @@ Two first attempts of the HTTP gate, kept as they happened:
 - try1-http-w4-12gib-chip-error-no-lock: the server could not open a chip channel (RM_ALLOC status 0x51) while it ran without the shared chip lock.
 - try1-http-fp8-12gib-gate-asked-wrong-model-name: the server loaded and stayed inside 12 GiB (health.json), but the gate script asked for model "x" and every request was refused; the three MATCH lines compare empty replies and the control also said MATCH, so the verdict was FAIL.
 Fix (tools/rig/http-gate.sh): the server now runs under the chip lock, the model id is read from /v1/models, and an empty reply can never pass.
+- try2-http-w4-12gib-flock-deadlock: my fix wrapped the server in flock; the server takes the same chip lock itself, so it waited on its own lock for 21 minutes (0 percent CPU, in flock(2)) and I stopped it. Fixed: tools/rig/http-gate.sh no longer wraps the server.
