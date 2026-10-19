@@ -261,6 +261,80 @@ pub enum Matrix {
     },
 }
 
+/// Host MXFP4 simulation for the reference (study of the 4-bit decode path, cascade/w4-gemv): 0 off; otherwise every
+/// FP8 projection is widened, then rounded to MXFP4 (32 weights along k share one power-of-two scale X, values e2m1
+/// RNE saturating at 6) and widened back, so the reference computes with exactly the weights a 4-bit chip holds.
+/// 1 `floor`: X = 2^(floor(log2 amax) - 2) (the OCP / f7 rule, the omega converter omega_gpu_w4_from_fp8);
+/// 2 `ceil`: X = 2^ceil(log2(amax / 6)) (never clips); 3 `mse`: of floor and floor + 1 the one with less squared error.
+/// The bf16 lm_head is never touched. Process-wide: set before a forward pass.
+pub static REF_W4_RULE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// `REF_W4_RULE` value for a rule name (`off`, `floor`, `ceil`, `mse`).
+pub fn ref_w4_rule(name: &str) -> Option<u8> {
+    match name {
+        "off" => Some(0),
+        "floor" => Some(1),
+        "ceil" => Some(2),
+        "mse" => Some(3),
+        _ => None,
+    }
+}
+
+/// e2m1 magnitude of `a >= 0` (grid 0, .5, 1, 1.5, 2, 3, 4, 6), round to nearest, ties to the even index,
+/// saturating at 6: the omega converter's `omega_w4_e2m1_rne`.
+fn e2m1_rne(a: f64) -> f64 {
+    const G: [f64; 8] = [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0];
+    if a >= 6.0 {
+        return 6.0;
+    }
+    let mut i = 0;
+    while i < 7 && G[i + 1] <= a {
+        i += 1;
+    }
+    let mid = (G[i] + G[i + 1]) / 2.0;
+    if a < mid || (a == mid && i % 2 == 0) {
+        G[i]
+    } else {
+        G[i + 1]
+    }
+}
+
+/// One 32-weight group to MXFP4 and back in place under `rule` (1 floor, 2 ceil, 3 mse).
+pub fn w4_roundtrip_group(g: &mut [f32], rule: u8) {
+    let amax = g.iter().fold(0f64, |m, &v| m.max((v as f64).abs()));
+    if amax == 0.0 {
+        return;
+    }
+    let fl = amax.log2().floor() as i32 - 2;
+    let q = |e: i32, g: &[f32]| -> (f64, Vec<f32>) {
+        let x = 2f64.powi(e);
+        let mut err = 0.0;
+        let out = g
+            .iter()
+            .map(|&v| {
+                let v = v as f64;
+                let b = e2m1_rne(v.abs() / x).copysign(v) * x;
+                err += (b - v) * (b - v);
+                b as f32
+            })
+            .collect();
+        (err, out)
+    };
+    let pick = match rule {
+        1 => q(fl, g),
+        2 => q((amax / 6.0).log2().ceil() as i32, g),
+        _ => {
+            let (a, b) = (q(fl, g), q(fl + 1, g));
+            if b.0 < a.0 {
+                b
+            } else {
+                a
+            }
+        }
+    };
+    g.copy_from_slice(&pick.1);
+}
+
 /// Rows per parallel task: one task widens this many rows and runs every token through them.
 const ROWS_PER_TASK: usize = 16;
 
@@ -309,6 +383,12 @@ impl Matrix {
                         let scale = bf16_to_f32(srow[b]);
                         for (o, &q) in o.iter_mut().zip(s) {
                             *o = lut[q as usize] * scale;
+                        }
+                        let rule = REF_W4_RULE.load(std::sync::atomic::Ordering::Relaxed);
+                        if rule != 0 {
+                            for g in o.chunks_exact_mut(32) {
+                                w4_roundtrip_group(g, rule);
+                            }
                         }
                     }
                 }
@@ -1127,6 +1207,41 @@ mod tests {
         assert!(Qwen38Config::from_json(&tied, None).is_err());
         let int8 = json.replace("\"fp8\"", "\"int8\"");
         assert!(Qwen38Config::from_json(&int8, None).is_err());
+    }
+
+    #[test]
+    fn w4_roundtrip_rules() {
+        // amax 7 -> floor X = 1 clips 7 to 6; ceil X = 2 keeps 7 as 3.5 -> 4 * 2 = 8; mse picks the smaller error.
+        let base: Vec<f32> = (0..32)
+            .map(|i| {
+                if i == 0 {
+                    7.0
+                } else {
+                    0.25 * (i % 5) as f32 - 0.5
+                }
+            })
+            .collect();
+        let mut fl = base.clone();
+        w4_roundtrip_group(&mut fl, 1);
+        assert_eq!(fl[0], 6.0);
+        assert_eq!(fl[1], 0.0); // -0.25 is a tie between 0 and 0.5: the even index, 0
+        assert_eq!(fl[4], 0.5);
+        assert_eq!(fl[5], -0.5);
+        let mut ce = base.clone();
+        w4_roundtrip_group(&mut ce, 2);
+        assert_eq!(ce[0], 8.0);
+        let err = |g: &[f32]| {
+            g.iter()
+                .zip(&base)
+                .map(|(a, b)| ((a - b) as f64).powi(2))
+                .sum::<f64>()
+        };
+        let mut ms = base.clone();
+        w4_roundtrip_group(&mut ms, 3);
+        assert!(err(&ms) <= err(&fl) && err(&ms) <= err(&ce));
+        let mut z = vec![0f32; 32];
+        w4_roundtrip_group(&mut z, 1);
+        assert!(z.iter().all(|&v| v == 0.0));
     }
 
     #[test]
