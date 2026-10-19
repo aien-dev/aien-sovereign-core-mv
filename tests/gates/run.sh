@@ -169,6 +169,27 @@ case "$step" in
     fi
     bash scripts/test-release-real-tree.sh
     ;;
+  # Qwen3.8-27B serve and speed gates (QWEN38-SERVE, QWEN38-SPEED; ledger L006). No hosted
+  # mirror: these need the GB10 and the 27B checkpoint. The server is built here from this tree
+  # against the omega commit in omega.lock (the same pins install.sh --with-server uses, made
+  # offline from ../omega like linked-compose), then tools/qwen38_gate_run.sh starts it on a test
+  # port, measures, and stops it. Outputs go under $TARGET/qwen38-gates (never into the tree).
+  qwen38-build|qwen38-serve|qwen38-speed)
+    omega_sha="$(tr -d '[:space:]' < omega.lock)"
+    pin omega omega "$omega_sha"
+    pin physics physics "$(tr -d '[:space:]' < "$PINS/omega/physics.lock")"
+    pin aienos aienos "$(awk 'NF && $1 !~ /^#/ {print $1; exit}' "$PINS/omega/aienos.lock")"
+    # The same environment scripts/pins.sh --gpu writes to env.sh (install.sh --with-server).
+    export AIEN_OMEGA_DIR="$PINS/omega" AIEN_OMEGA_COMPOSE_DIR="$PINS/omega" \
+           AIEN_PHYSICS_DIR="$PINS/physics" AIEN_AIENOS_LOCK_REPO="$PINS/aienos" \
+           AIEN_REQUIRE_NATIVE_LIBS=1
+    unset AIEN_OMEGA_GPU_LIB AIEN_OMEGA_COMPOSE_LIB AIEN_OMEGA_COMPOSE_SHA AIEN_FORCE_CPU_STUB AIEN_DEV_FALLBACK
+    cargo build --locked --release -p aien-serve-http
+    obs server_binary_sha256 "\"$(sha256sum "$TARGET/release/aien-serve-http" | cut -d' ' -f1)\""
+    if [ "$step" = qwen38-build ]; then "$TARGET/release/aien-serve-http" --version; exit 0; fi
+    SERVER_BIN="$TARGET/release/aien-serve-http" \
+      bash tools/qwen38_gate_run.sh "${step#qwen38-}" "$TARGET/qwen38-gates/${step#qwen38-}"
+    ;;
   # sovereign-inquisitor.yml (pull_request_target: needs the PR diff and GITHUB_TOKEN)
   inquisitor)
     cargo build --release -p spark-inquisitor

@@ -1,0 +1,45 @@
+# tests/gates/qwen38-serve.gate
+# QWEN38-SERVE (ledger L006): the Qwen3.8-27B model server built from this tree, on AIEN's own
+# Omega GPU engine, answers through the real HTTP door exactly as the shipped host reference says.
+# run.sh builds aien-serve-http against omega.lock (pins made offline from ../omega), then
+# tools/qwen38_gate_run.sh starts it on a free test port (18391-18399, never the live server's
+# 18091), waits for /v1/models, runs tools/qwen38_serve_gate.sh (24 greedy ids against
+# crates/aien-inference-abi/fixtures/qwen38/gen-chat-max-24.json, a negative control, and
+# snapshot/live/cold next-turn resume), then stops the server.
+# Memory: the loader needs 41,305 MiB + 8,192 MiB kept free (about 48.3 GiB MemAvailable). Short
+# of that after a bounded wait the gate FAILS with refusal "memory_short" and starts nothing.
+# Bundle fields (AIEN-OBS, see tools/qwen38_gate_run.sh header): golden_ids, serve_gate_verdict,
+# server_binary_sha256, server_build, omega_commit, model_dir, model_sha256_list_sha256,
+# mem_available_kib_at_load, mem_needed_kib, loadavg_at_load, loadavg_at_end, port,
+# server_ready_s, server_exit, receipt, refusal (FAIL only).
+# cache: never because the checkpoint and the chip are outside the tree.
+gate: QWEN38-SERVE
+manifest_version: 2
+owner: aien-sovereign-core
+requires:
+  - gb10
+inputs:
+  - omega.lock
+  - native-artifacts.lock
+  - Cargo.lock
+  - crates/aien-serve-http/
+  - crates/aien-omega-gpu/
+  - crates/aien-omega-q38/
+  - crates/aien-inference-abi/
+  - tools/qwen38_gate_run.sh
+  - tools/qwen38_serve_gate.sh
+  - tools/qwen38_receipt.sh
+  - tools/serve-27b.sh
+  - docs/qwen38/
+  - tests/gates/
+run:
+  exec: tests/gates/run.sh
+  args: ["qwen38-serve"]
+expects:
+  exit: 0
+  observe: ["golden_ids == \"MATCH\"", "serve_gate_verdict == \"PASS\""]
+  verdict: PASS
+timeout: 90m
+exactness: EXACT
+cache_scope: hardware
+cache: never

@@ -1,0 +1,50 @@
+# tests/gates/qwen38-speed.gate
+# QWEN38-SPEED (ledger L006): how fast the Qwen3.8-27B server built from this tree writes
+# tokens, measured the way evidence/qwen38-serve-fast-20261019 was: 256 greedy tokens of the
+# lighthouse prompt, the server's own chip ms/token per reply, the median over the decode runs
+# (tools/qwen38_serve_speed.sh: 3 decodes, plus cold TTFT at 1.7k and 30k prompt tokens and a
+# next-turn TTFT, all in the receipt). The number is reported beside the memory ceiling of
+# docs/qwen38/CEILING.md (10.15 tokens per second), never against a bar: PASS means the
+# measurement completed, every decode's ids equal the shipped reference
+# (crates/aien-inference-abi/fixtures/qwen38/decode-lighthouses-256.json) and the fraction was
+# computed. Its own server on a test port (same build, load and memory rule as QWEN38-SERVE);
+# runs only when QWEN38-SERVE currently passes.
+# Bundle fields (AIEN-OBS, strings for the figures because observations take no floats):
+# decode_tokens_per_s (e.g. "7.63"), decode_median_chip_ms_per_token (e.g. "131.05"),
+# ceiling_tokens_per_s "10.15", share_of_ceiling (e.g. "0.752"), decode_runs (integer),
+# decode_ids, measurement_completed, fraction_computed, server_binary_sha256, server_build,
+# omega_commit, model_dir, model_sha256_list_sha256, mem_available_kib_at_load, mem_needed_kib,
+# loadavg_at_load, loadavg_at_end, port, server_ready_s, server_exit, receipt, refusal (FAIL only).
+# cache: never because the checkpoint and the chip are outside the tree.
+gate: QWEN38-SPEED
+manifest_version: 2
+owner: aien-sovereign-core
+requires:
+  - gb10
+depends_on:
+  - QWEN38-SERVE
+inputs:
+  - omega.lock
+  - native-artifacts.lock
+  - Cargo.lock
+  - crates/aien-serve-http/
+  - crates/aien-omega-gpu/
+  - crates/aien-omega-q38/
+  - crates/aien-inference-abi/
+  - tools/qwen38_gate_run.sh
+  - tools/qwen38_serve_speed.sh
+  - tools/qwen38_receipt.sh
+  - tools/serve-27b.sh
+  - docs/qwen38/
+  - tests/gates/
+run:
+  exec: tests/gates/run.sh
+  args: ["qwen38-speed"]
+expects:
+  exit: 0
+  observe: ["measurement_completed == true", "decode_ids == \"MATCH\"", "fraction_computed == true"]
+  verdict: PASS
+timeout: 90m
+exactness: EXACT
+cache_scope: hardware
+cache: never
