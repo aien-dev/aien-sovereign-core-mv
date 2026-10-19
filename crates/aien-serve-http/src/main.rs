@@ -37,6 +37,7 @@ use aien_serve_http::kv_persist;
 use aien_serve_http::omega_engine::{
     parse_switch, OmegaDoor, PrefillMode, WHOLE_PROMPT_ENV, WP_DEVICE_HOST_ENV,
 };
+use aien_serve_http::qwen38_batch;
 use aien_serve_http::qwen38_engine;
 use aien_serve_http::server::{serve_until, ServerConfig};
 
@@ -52,13 +53,15 @@ struct Args {
     whole_prompt: Option<bool>,
     wp_device_host: Option<bool>,
     prefill: PrefillMode,
+    /// Qwen3.8 only: conversations stacked on one weight read (0: the one-at-a-time door).
+    batch_slots: usize,
 }
 
 fn usage() -> String {
     "usage: aien-serve-http [--engine cpu|stub|omega] [--weights bf16|fp8-experts|fp8] [--spin-us N] \
      [--model-dir DIR] [--port N] [--bind ADDR] [--model-id ID] [--max-context N] \
      [--max-tokens-cap N] [--stub-reply TEXT] [--whole-prompt on|off] [--prefill-device-host on|off] \
-     [--thinking on|off|template]"
+     [--thinking on|off|template] [--batch-slots N]"
         .to_string()
 }
 
@@ -77,6 +80,7 @@ fn parse_args() -> Result<Args, String> {
         whole_prompt: None,
         wp_device_host: None,
         prefill: PrefillMode::default(),
+        batch_slots: 0,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -129,6 +133,9 @@ fn parse_args() -> Result<Args, String> {
                 }
             }
             "--spin-us" => a.spin_us = Some(val()?.parse().map_err(|e| format!("--spin-us: {e}"))?),
+            "--batch-slots" => {
+                a.batch_slots = val()?.parse().map_err(|e| format!("--batch-slots: {e}"))?
+            }
             "--whole-prompt" => a.whole_prompt = Some(parse_switch("--whole-prompt", &val()?)?),
             "--prefill-device-host" => {
                 a.wp_device_host = Some(parse_switch("--prefill-device-host", &val()?)?)
@@ -272,14 +279,26 @@ fn main() -> ExitCode {
             "aien-serve-http: loading Qwen3.8 (qwen3_5) onto the Omega engine from {}",
             args.model_dir.display()
         );
-        match qwen38_engine::Qwen38Door::load(
-            &args.model_dir,
-            args.cfg.max_context_tokens.unwrap_or(32768),
-        ) {
-            Ok(door) => Arc::new(door),
-            Err(e) => {
-                eprintln!("aien-serve-http: qwen38 load failed: {e}");
-                return ExitCode::from(1);
+        let max_context = args.cfg.max_context_tokens.unwrap_or(32768);
+        if args.batch_slots > 0 {
+            match qwen38_batch::Qwen38BatchDoor::load(
+                &args.model_dir,
+                max_context,
+                args.batch_slots,
+            ) {
+                Ok(door) => Arc::new(door),
+                Err(e) => {
+                    eprintln!("aien-serve-http: qwen38-batch load failed: {e}");
+                    return ExitCode::from(1);
+                }
+            }
+        } else {
+            match qwen38_engine::Qwen38Door::load(&args.model_dir, max_context) {
+                Ok(door) => Arc::new(door),
+                Err(e) => {
+                    eprintln!("aien-serve-http: qwen38 load failed: {e}");
+                    return ExitCode::from(1);
+                }
             }
         }
     } else if args.engine == "omega" {

@@ -97,23 +97,54 @@ pub struct GdnRows {
     ab: Vec<f32>,
 }
 
-/// The mixer of one layer of a rows pass.
+/// The mixer of one layer of a rows pass (which kernel, which layer index, its weights).
 pub(super) enum Mixer<'a> {
     Attn {
-        cache: &'a mut Attn256Cache,
         idx: usize,
         gather: &'a [u32],
     },
     Gdn {
-        gdn: &'a mut Gdn,
         idx: usize,
         ab: &'a Bf16Tensor,
         keep: Option<&'a mut GdnRows>,
     },
 }
 
+/// Where row `r` of a rows pass keeps its state: one sequence's rows share a cache and a
+/// DeltaNet state at consecutive positions ([`OneSequence`]); independent conversations each
+/// bring their own ([`super::batch::Streams`]). Either way every row's mixer is the same
+/// `attn256 decode` or `gdn_step` call on its own state, so a row's maths do not depend on
+/// how many rows ride the pass or whose they are.
+pub(super) trait RowTargets {
+    /// The attention cache and position of row `r`.
+    fn attn(&mut self, r: usize) -> (&mut Attn256Cache, usize);
+    /// The DeltaNet state of row `r`.
+    fn gdn(&mut self, r: usize) -> &mut Gdn;
+}
+
+/// Rows of one sequence at positions `pos0 ..`.
+pub(super) struct OneSequence<'a> {
+    pub attn: Option<&'a mut Attn256Cache>,
+    pub gdn: Option<&'a mut Gdn>,
+    pub pos0: usize,
+}
+
+impl RowTargets for OneSequence<'_> {
+    fn attn(&mut self, r: usize) -> (&mut Attn256Cache, usize) {
+        (
+            self.attn
+                .as_deref_mut()
+                .expect("an attention layer has a cache"),
+            self.pos0 + r,
+        )
+    }
+    fn gdn(&mut self, _r: usize) -> &mut Gdn {
+        self.gdn.as_deref_mut().expect("a DeltaNet layer has state")
+    }
+}
+
 /// Row-table GEMM over one dense FP8 tensor: `y[m][n] = W . x[m][k]`.
-fn gemm(
+pub(super) fn gemm(
     w: &aien_omega_fp8::Fp8Tensor,
     x: &[f32],
     y: &mut [f32],
@@ -142,7 +173,7 @@ pub(super) fn layer_rows(
     in_norm: &[f32],
     post_norm: &[f32],
     mixer: Mixer<'_>,
-    pos0: usize,
+    targets: &mut dyn RowTargets,
     m: usize,
     eps: f32,
     x: &mut [f32],
@@ -160,7 +191,7 @@ pub(super) fn layer_rows(
     gemm(&lt.mix, &xn, &mut mix, m, "mixer", st)?;
     let mut att = vec![0f32; m * mo];
     match mixer {
-        Mixer::Attn { cache, idx, gather } => {
+        Mixer::Attn { idx, gather } => {
             let (gq, gg) = gather.split_at(q::ATT_QKV);
             let (mut qkv, mut gate) = (vec![0f32; q::ATT_QKV], vec![0f32; mo]);
             for (r, out) in att.chunks_exact_mut(mo).enumerate() {
@@ -174,8 +205,9 @@ pub(super) fn layer_rows(
                 }
                 st.host_ns += ns(t);
                 let t = Instant::now();
+                let (cache, pos) = targets.attn(r);
                 cache
-                    .decode(idx, pos0 + r, &qkv, eps, out)
+                    .decode(idx, pos, &qkv, eps, out)
                     .map_err(|e| format!("attention row {r}: {e}"))?;
                 st.attn_ns += ns(t);
                 st.attn_calls += 1;
@@ -186,12 +218,7 @@ pub(super) fn layer_rows(
                 st.host_ns += ns(t);
             }
         }
-        Mixer::Gdn {
-            gdn,
-            idx,
-            ab,
-            mut keep,
-        } => {
+        Mixer::Gdn { idx, ab, mut keep } => {
             let t = Instant::now();
             let mut abr = vec![0f32; m * q::AB];
             let mut xs = vec![0f32; h];
@@ -214,16 +241,18 @@ pub(super) fn layer_rows(
                 let row = &mix[r * mix_n..(r + 1) * mix_n];
                 let (qkv, z) = row[..q::GDN_MIX].split_at(q::GDN_QKV);
                 let t = Instant::now();
-                gdn.step(
-                    idx,
-                    qkv,
-                    z,
-                    &abr[r * q::AB..(r + 1) * q::AB],
-                    EPS_L2,
-                    eps,
-                    out,
-                )
-                .map_err(|e| format!("gdn row {r}: {e}"))?;
+                targets
+                    .gdn(r)
+                    .step(
+                        idx,
+                        qkv,
+                        z,
+                        &abr[r * q::AB..(r + 1) * q::AB],
+                        EPS_L2,
+                        eps,
+                        out,
+                    )
+                    .map_err(|e| format!("gdn row {r}: {e}"))?;
                 st.gdn_ns += ns(t);
                 st.gdn_calls += 1;
                 if let Some(k) = keep.as_deref_mut() {
@@ -306,6 +335,11 @@ impl Qwen38Omega {
             k.resize_with(n_gdn, GdnRows::default);
         }
         let (pos0, eps) = (self.pos, self.config.eps);
+        let mut targets = OneSequence {
+            attn: self.attn.as_mut(),
+            gdn: self.gdn.as_mut(),
+            pos0,
+        };
         let (mut gi, mut ai) = (0usize, 0usize);
         for l in 0..self.config.layers {
             let lt = &self.layers[l];
@@ -313,21 +347,29 @@ impl Qwen38Omega {
             let mixer = if self.config.full_attention[l] {
                 ai += 1;
                 Mixer::Attn {
-                    cache: self.attn.as_mut().expect("an attention layer has a cache"),
                     idx: ai - 1,
                     gather: &gather,
                 }
             } else {
                 gi += 1;
                 Mixer::Gdn {
-                    gdn: self.gdn.as_mut().expect("a DeltaNet layer has state"),
                     idx: gi - 1,
                     ab: lt.ab.as_ref().expect("a DeltaNet layer has a|b"),
                     keep: keep.as_deref_mut().map(|k| &mut k[gi - 1]),
                 }
             };
-            layer_rows(lt, in_norm, post_norm, mixer, pos0, m, eps, &mut x, st)
-                .map_err(|e| format!("layer {l}: {e}"))?;
+            layer_rows(
+                lt,
+                in_norm,
+                post_norm,
+                mixer,
+                &mut targets,
+                m,
+                eps,
+                &mut x,
+                st,
+            )
+            .map_err(|e| format!("layer {l}: {e}"))?;
         }
         self.pos += m;
         st.rows += m as u64;
@@ -616,9 +658,13 @@ impl Mtp {
             return Err(format!("mtp feed: position {pos} + {m} past the cache"));
         }
         let mixer = Mixer::Attn {
-            cache: &mut self.attn,
             idx: 0,
             gather: &self.gather,
+        };
+        let mut targets = OneSequence {
+            attn: Some(&mut self.attn),
+            gdn: None,
+            pos0: pos,
         };
         let (in_norm, post_norm) = &self.norms;
         layer_rows(
@@ -626,7 +672,7 @@ impl Mtp {
             in_norm,
             post_norm,
             mixer,
-            pos,
+            &mut targets,
             m,
             self.eps,
             &mut x,

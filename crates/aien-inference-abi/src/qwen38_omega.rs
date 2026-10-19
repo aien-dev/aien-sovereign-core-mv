@@ -26,9 +26,11 @@ use aien_omega_fp8::Fp8Tensor;
 use aien_omega_gpu::ResidentTensor;
 use aien_omega_q38::{Attn256Cache, Gdn, GraphConfig, GraphStats, Q38Graph};
 
+pub mod batch;
 mod prefill;
 mod session;
 pub mod spec;
+pub use batch::{RowInput, RowOutput, Stream};
 pub use prefill::PrefillStats;
 pub use session::{plan_reuse, FeedStats, Qwen38Session, Reuse, IM_START};
 
@@ -75,6 +77,19 @@ pub struct Qwen38Omega {
     ab_mm: Vec<ResidentTensor>,
     /// The prefill's buffers, made by the first [`Self::prefill`].
     pf: Option<prefill::PfState>,
+    /// Every attention layer's (q_norm, k_norm) and every DeltaNet layer's kernel parameters,
+    /// kept on the host so [`Self::new_stream`] can set up another conversation's state.
+    attn_norms: Vec<(Vec<f32>, Vec<f32>)>,
+    gdn_params: Vec<GdnParams>,
+}
+
+/// One DeltaNet layer's per-state kernel parameters (what `Gdn::set_layer` takes).
+#[derive(Debug, Clone)]
+struct GdnParams {
+    conv: Vec<f32>,
+    a_log: Vec<f32>,
+    dt_bias: Vec<f32>,
+    norm: Vec<f32>,
 }
 
 impl std::fmt::Debug for Qwen38Omega {
@@ -353,6 +368,8 @@ impl Qwen38Omega {
         let mut layers = Vec::with_capacity(c.layers);
         let mut norms = Vec::with_capacity(c.layers);
         let mut ab_mm = Vec::with_capacity(n_gdn);
+        let mut attn_norms = Vec::with_capacity(n_attn);
+        let mut gdn_params = Vec::with_capacity(n_gdn);
         let (mut gi, mut ai) = (0usize, 0usize);
         for l in 0..c.layers {
             let p = format!("{prefix}layers.{}", first + l);
@@ -387,6 +404,7 @@ impl Qwen38Omega {
                     .expect("an attention layer has a cache")
                     .set_norms(ai, &q_norm, &k_norm)
                     .map_err(gpu("attn256 set_norms"))?;
+                attn_norms.push((q_norm, k_norm));
                 ai += 1;
                 (mix, None, o)
             } else {
@@ -430,6 +448,12 @@ impl Qwen38Omega {
                     .expect("a DeltaNet layer has state")
                     .set_layer(gi, &conv, &a_log, &dt_bias, &norm)
                     .map_err(gpu("gdn set_layer"))?;
+                gdn_params.push(GdnParams {
+                    conv,
+                    a_log,
+                    dt_bias,
+                    norm,
+                });
                 gi += 1;
                 (mix, Some(ab), o)
             };
@@ -519,6 +543,8 @@ impl Qwen38Omega {
             final_norm,
             ab_mm,
             pf: None,
+            attn_norms,
+            gdn_params,
         })
     }
 

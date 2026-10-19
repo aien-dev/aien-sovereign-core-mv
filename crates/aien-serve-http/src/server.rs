@@ -1,6 +1,7 @@
 //! The HTTP surface: `GET /v1/models`, `POST /v1/chat/completions` (JSON or SSE),
-//! `GET /health`. Every error is OpenAI error JSON. One generation at a time: the
-//! second request while one runs gets 503 `server_busy` with `Retry-After: 1`.
+//! `GET /health`. Every error is OpenAI error JSON. As many generations at a time as the
+//! engine says it takes ([`Engine::concurrency`], 1 unless the engine batches): the next
+//! request while all those run gets 503 `server_busy` with `Retry-After: 1`.
 
 use std::convert::Infallible;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -17,7 +18,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde_json::Value;
-use tokio::sync::{mpsc, Mutex, OwnedMutexGuard};
+use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -79,7 +80,8 @@ pub struct AppState {
     engine: Arc<dyn Engine>,
     codec: Arc<dyn Codec>,
     cfg: ServerConfig,
-    gate: Arc<Mutex<()>>,
+    /// One permit per generation the engine runs at once.
+    gate: Arc<Semaphore>,
     started: Instant,
     counter: AtomicU64,
 }
@@ -231,11 +233,12 @@ pub async fn serve_until(
     }
     let listener = tokio::net::TcpListener::bind(SocketAddr::new(cfg.bind, cfg.port)).await?;
     let addr = listener.local_addr()?;
+    let gate = Arc::new(Semaphore::new(engine.concurrency().max(1)));
     let state = Arc::new(AppState {
         engine,
         codec,
         cfg,
-        gate: Arc::new(Mutex::new(())),
+        gate,
         started: Instant::now(),
         counter: AtomicU64::new(0),
     });
@@ -285,9 +288,19 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
         "status": "ok",
         "model": state.cfg.model_id,
         "engine": state.engine.kind(),
-        "busy": state.gate.try_lock().is_err(),
+        "busy": state.gate.available_permits() == 0,
         "uptime_s": state.started.elapsed().as_secs(),
     });
+    // A batching engine says how many it runs at once; one-at-a-time engines leave `/health`
+    // exactly as it was.
+    let n = state.engine.concurrency();
+    if let (true, Some(obj)) = (n > 1, v.as_object_mut()) {
+        obj.insert("concurrency".into(), n.into());
+        obj.insert(
+            "in_flight".into(),
+            (n - state.gate.available_permits().min(n)).into(),
+        );
+    }
     // Persistent KV (sc#505): present only when AIEN_KV_STORE_DIR asked for it.
     if let (Some(pk), Some(obj)) = (state.engine.persistence_status(), v.as_object_mut()) {
         obj.insert("persistent_kv".into(), pk);
@@ -326,7 +339,7 @@ async fn handle_chat(
         .map_err(|e| ApiError::bad_request(format!("invalid JSON request: {e}")))?;
     let prepared = prepare(&state, req)?;
     let guard = Arc::clone(&state.gate)
-        .try_lock_owned()
+        .try_acquire_owned()
         .map_err(|_| ApiError::busy())?;
 
     let (created, nanos) = unix_now();
@@ -606,7 +619,7 @@ fn run_generation(
     codec: Arc<dyn Codec>,
     prepared: Prepared,
     tx: mpsc::Sender<Ev>,
-    guard: OwnedMutexGuard<()>,
+    guard: OwnedSemaphorePermit,
     id: &str,
 ) {
     let mut asm = TextAssembler::new(Arc::clone(&codec), prepared.stop_strings);
