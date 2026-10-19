@@ -13,12 +13,13 @@
 //! * `eval`       Open any URL and evaluate a JavaScript expression (value returned as JSON).
 //!
 //! Every mode spawns its own Chrome with a private profile directory and kills it
-//! when done, whatever happened in between.
+//! and every helper process it started when done, whatever happened in between.
 
 use serde_json::{json, Value};
 use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpStream;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -32,6 +33,11 @@ const CHROME_BOOT_TIMEOUT: Duration = Duration::from_secs(20);
 const CDP_REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 /// Largest websocket message we accept (screenshots are a few MB).
 const MAX_WS_MESSAGE: usize = 64 * 1024 * 1024;
+/// How long dropping a browser may take to see every one of its processes gone.
+const REAP_TIMEOUT: Duration = Duration::from_secs(5);
+/// Environment variable carrying a per-browser tag. Chrome's crash reporters detach into
+/// their own session, so they escape the process group; the inherited tag still finds them.
+const TAG_VAR: &str = "AIEN_BROWSER_MIRROR_TAG";
 
 /// Where screenshots and reports land when no `--out-dir` is given.
 pub fn default_out_dir() -> PathBuf {
@@ -386,17 +392,22 @@ struct ChromeProcess {
     child: Child,
     profile_dir: PathBuf,
     port: u16,
+    /// Value of `TAG_VAR` in every process this browser started (unique per spawn).
+    tag: String,
 }
 
 impl ChromeProcess {
     fn spawn(binary: &str, url: &str) -> Result<Self, String> {
-        let profile_dir = std::env::temp_dir().join(format!(
-            "aien-browser-mirror-{}-{}",
-            std::process::id(),
-            now_nanos()
-        ));
+        let tag = format!("aien-browser-mirror-{}-{}", std::process::id(), now_nanos());
+        let profile_dir = std::env::temp_dir().join(&tag);
         fs::create_dir_all(&profile_dir).map_err(|e| format!("profile dir: {}", e))?;
-        let child = Command::new(binary)
+        // Chrome leads its own process group so drop can signal all of it at once.
+        // --disable-software-rasterizer: with --disable-gpu, Chrome otherwise falls back to
+        // a SwiftShader GPU process, and on aarch64 (Chrome 153, DGX Spark) Page.captureScreenshot
+        // then gets no reply at all (sovereign-core #661).
+        let spawned = Command::new(binary)
+            .env(TAG_VAR, &tag)
+            .process_group(0)
             .arg("--headless=new")
             .arg("--remote-debugging-port=0")
             .arg(format!("--user-data-dir={}", profile_dir.display()))
@@ -405,18 +416,26 @@ impl ChromeProcess {
             .arg("--no-default-browser-check")
             .arg("--disable-dev-shm-usage")
             .arg("--disable-gpu")
+            .arg("--disable-software-rasterizer")
             .arg("--no-sandbox")
             .arg("--window-size=1280,900")
             .arg(url)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| format!("spawn {}: {}", binary, e))?;
+            .spawn();
+        let child = match spawned {
+            Ok(c) => c,
+            Err(e) => {
+                fs::remove_dir_all(&profile_dir).ok();
+                return Err(format!("spawn {}: {}", binary, e));
+            }
+        };
         let mut me = ChromeProcess {
             child,
             profile_dir,
             port: 0,
+            tag,
         };
         // Chrome writes "<port>\n<browser ws path>" once the debugger listens.
         let deadline = Instant::now() + CHROME_BOOT_TIMEOUT;
@@ -467,10 +486,55 @@ impl ChromeProcess {
     }
 }
 
+/// Pids of live processes whose environment holds `TAG_VAR=tag`. Only descendants of the
+/// browser that was spawned with this tag can carry it, so nothing else is ever matched.
+fn tagged_pids(tag: &str) -> Vec<u32> {
+    let needle = format!("{}={}", TAG_VAR, tag);
+    let Ok(entries) = fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(|e| e.ok()?.file_name().to_str()?.parse::<u32>().ok())
+        .filter(|pid| {
+            fs::read(format!("/proc/{}/environ", pid))
+                .map(|env| env.split(|b| *b == 0).any(|kv| kv == needle.as_bytes()))
+                .unwrap_or(false)
+        })
+        .collect()
+}
+
+impl ChromeProcess {
+    /// Kills the whole browser: its process group (renderers, GPU process, zygotes, the
+    /// launcher's pipes) and every tagged process that left the group (crash reporters).
+    /// Returns once none is left or `REAP_TIMEOUT` passes.
+    fn reap(&mut self) {
+        let pgid = self.child.id() as libc::pid_t;
+        let deadline = Instant::now() + REAP_TIMEOUT;
+        loop {
+            // SAFETY: plain syscalls. The kernel keeps the pgid number reserved while any
+            // member (zombies included) is left, so the group signal only reaches this browser.
+            let group_alive = unsafe { libc::kill(-pgid, libc::SIGKILL) } == 0;
+            let tagged = tagged_pids(&self.tag);
+            for &pid in &tagged {
+                unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
+            }
+            // Collect the main child as soon as it dies: its zombie would keep the group alive.
+            self.child.try_wait().ok();
+            if !group_alive && tagged.is_empty() {
+                break;
+            }
+            if Instant::now() >= deadline {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        self.child.wait().ok();
+    }
+}
+
 impl Drop for ChromeProcess {
     fn drop(&mut self) {
-        self.child.kill().ok();
-        self.child.wait().ok();
+        self.reap();
         fs::remove_dir_all(&self.profile_dir).ok();
     }
 }
@@ -939,5 +1003,168 @@ mod tests {
         );
         assert_eq!(ev["status"], "ok", "{}", ev);
         assert_eq!(ev["value"], "mirror:42");
+    }
+
+    /// `(state, ppid, starttime)` from `/proc/<pid>/stat`, or `None` once the pid is gone.
+    fn proc_stat(pid: u32) -> Option<(char, u32, u64)> {
+        let stat = fs::read_to_string(format!("/proc/{}/stat", pid)).ok()?;
+        // Fields after "(comm)": state ppid pgrp session tty tpgid flags ... starttime is the 20th.
+        let rest: Vec<&str> = stat.rsplit_once(')')?.1.split_whitespace().collect();
+        Some((
+            rest.first()?.chars().next()?,
+            rest.get(1)?.parse().ok()?,
+            rest.get(19)?.parse().ok()?,
+        ))
+    }
+
+    /// Every process the browser started, as `(pid, starttime)`: the descendants of `root`
+    /// plus the crash reporters they name with `--crashpad-handler-pid`, which detach into
+    /// their own session and so are nobody's child.
+    fn chrome_family(root: u32) -> Vec<(u32, u64)> {
+        let all: Vec<u32> = fs::read_dir("/proc")
+            .unwrap()
+            .filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
+            .collect();
+        let mut family: Vec<u32> = vec![root];
+        let mut grew = true;
+        while grew {
+            grew = false;
+            for &p in &all {
+                if !family.contains(&p)
+                    && proc_stat(p).is_some_and(|(_, ppid, _)| family.contains(&ppid))
+                {
+                    family.push(p);
+                    grew = true;
+                }
+            }
+        }
+        let mut named: Vec<u32> = Vec::new();
+        for &p in &family {
+            let cmd = fs::read(format!("/proc/{}/cmdline", p)).unwrap_or_default();
+            for arg in cmd.split(|b| *b == 0) {
+                if let Some(n) = arg.strip_prefix(b"--crashpad-handler-pid=") {
+                    if let Some(n) = std::str::from_utf8(n).ok().and_then(|s| s.parse().ok()) {
+                        named.push(n);
+                    }
+                }
+            }
+        }
+        family.extend(named);
+        family.sort_unstable();
+        family.dedup();
+        family
+            .into_iter()
+            .filter_map(|p| proc_stat(p).map(|(_, _, start)| (p, start)))
+            .collect()
+    }
+
+    /// True while `pid` is the same process (same start time) and not a zombie.
+    fn still_running(pid: u32, start: u64) -> bool {
+        proc_stat(pid).is_some_and(|(state, _, s)| s == start && state != 'Z' && state != 'X')
+    }
+
+    /// Dropping the Chrome handle must leave none of its processes behind: not the GPU
+    /// process, not the renderers, not the crash reporters that detach from the group.
+    #[test]
+    fn dropping_chrome_reaps_every_helper() {
+        let Some(binary) = find_chrome() else {
+            eprintln!("skipping dropping_chrome_reaps_every_helper: no Chrome binary found");
+            return;
+        };
+        let dir = tempfile::tempdir().expect("tempdir");
+        let page = dir.path().join("stub.html");
+        fs::write(&page, "<!doctype html><title>reap</title><h1>reap</h1>").unwrap();
+        let chrome = ChromeProcess::spawn(&binary, &format!("file://{}", page.display()))
+            .expect("spawn chrome");
+        chrome.page_ws_url().expect("page target");
+        // The tag reaches the processes that leave the group (crash reporters).
+        let tag = chrome.tag.clone();
+        let tagged = tagged_pids(&tag);
+        assert!(!tagged.is_empty(), "no process carries the tag");
+        let mut family = chrome_family(chrome.child.id());
+        family.extend(
+            tagged
+                .iter()
+                .filter_map(|&p| proc_stat(p).map(|(_, _, s)| (p, s))),
+        );
+        family.sort_unstable();
+        family.dedup();
+        // Short-lived helpers may exit on their own between listing and checking.
+        let family: Vec<(u32, u64)> = family
+            .into_iter()
+            .filter(|&(p, s)| still_running(p, s))
+            .collect();
+
+        // Negative control: the detector sees the live helpers, so "none left" below is a
+        // real observation and not a detector that cannot see anything.
+        assert!(
+            family.len() >= 3,
+            "detector found too few chrome processes: {:?}",
+            family
+        );
+
+        drop(chrome);
+        // Orphaned zombies are reaped by init; give that a moment, never the processes.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut left: Vec<(u32, u64)> = family.clone();
+        while !left.is_empty() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(100));
+            left.retain(|&(p, s)| still_running(p, s));
+        }
+        let names: Vec<String> = left
+            .iter()
+            .map(|(p, _)| {
+                let comm = fs::read_to_string(format!("/proc/{}/cmdline", p)).unwrap_or_default();
+                format!(
+                    "{} {}",
+                    p,
+                    comm.replace('\0', " ").chars().take(80).collect::<String>()
+                )
+            })
+            .collect();
+        assert!(
+            left.is_empty(),
+            "chrome processes left running: {:#?}",
+            names
+        );
+        assert_eq!(
+            tagged_pids(&tag),
+            Vec::<u32>::new(),
+            "tagged processes left"
+        );
+    }
+
+    /// The tag sweep finds exactly the processes spawned with its tag. Negative control:
+    /// a process with a different tag, and one with none, are never matched (so drop can
+    /// never kill a stranger).
+    #[test]
+    fn tag_sweep_matches_only_its_own_tag() {
+        let tag = format!("sweep-test-{}-{}", std::process::id(), now_nanos());
+        let spawn = |value: Option<&str>| {
+            let mut c = Command::new("sleep");
+            c.arg("30").stdin(Stdio::null()).stdout(Stdio::null());
+            if let Some(v) = value {
+                c.env(TAG_VAR, v);
+            }
+            c.spawn().expect("spawn sleep")
+        };
+        let mut mine = spawn(Some(&tag));
+        let mut prefix = spawn(Some(&tag[..tag.len() - 1]));
+        let mut other = spawn(Some("sweep-test-someone-else"));
+        let mut none = spawn(None);
+        // A freshly forked child may still hold the parent's environment until exec.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut found = tagged_pids(&tag);
+        while found.is_empty() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+            found = tagged_pids(&tag);
+        }
+        let ids = [mine.id(), prefix.id(), other.id(), none.id()];
+        for c in [&mut mine, &mut prefix, &mut other, &mut none] {
+            c.kill().ok();
+            c.wait().ok();
+        }
+        assert_eq!(found, vec![ids[0]], "sweep must match only {:?}", ids);
+        assert!(tagged_pids(&tag).is_empty());
     }
 }
