@@ -135,12 +135,10 @@ pub fn crumb_status(root: &Path, commit: &str, crumb: Option<&str>) -> (String, 
         Err(e) => return ("STALE".into(), format!("cannot run git: {e}")),
     };
     drop(out);
-    let result = if !tmp.join(".crumb").exists() {
-        (
-            "STALE".to_string(),
-            "no .crumb at the repository root".to_string(),
-        )
-    } else {
+    // The crumb tool decides, exactly as the CRUMB-VERIFY gate does. A repository with no crumbs at all
+    // (benchmarks, interplane) is "OK: 0 crumbs current" to the tool; calling it STALE here published every
+    // PASS head of those repos as BLOCKED/error (2026-10-16..19).
+    let result = {
         let mut cmd = Command::new(crumb);
         cmd.args(["verify", "."]).current_dir(&tmp);
         match process::output_gated(&mut cmd) {
@@ -638,5 +636,39 @@ mod tests {
             .lines
             .iter()
             .any(|l| l.starts_with("Problem: no bundle at ")));
+    }
+
+    /// A fake crumb on disk that prints `out` and exits `rc`.
+    fn fake_crumb(dir: &Path, out: &str, rc: i32) -> String {
+        use std::os::unix::fs::PermissionsExt;
+        let p = dir.join("crumb");
+        fs::write(&p, format!("#!/bin/sh\necho '{out}'\nexit {rc}\n")).unwrap();
+        fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
+        p.display().to_string()
+    }
+
+    #[test]
+    fn repo_without_crumbs_asks_the_tool() {
+        // benchmarks and interplane have no .crumb at all; the gate's tool says OK, so readiness must too.
+        let repo = crate::testutil::init_repo("verify-nocrumb", &[("README", "x\n", false)]);
+        let head = plan::resolve(repo.path(), "HEAD").unwrap();
+        let bin = crate::testutil::TempDir::new("verify-fake-crumb");
+        let ok = fake_crumb(bin.path(), "crumb verify: OK: 0 crumbs current", 0);
+        assert_eq!(
+            crumb_status(repo.path(), &head, Some(&ok)),
+            (
+                "CURRENT".to_string(),
+                "crumb verify: OK: 0 crumbs current".to_string()
+            )
+        );
+        // The tool still has the last word: if it fails, readiness is STALE.
+        let bad = fake_crumb(
+            bin.path(),
+            "crumb verify: FAIL: 1 of 1 crumbs stale; run: crumb compile",
+            1,
+        );
+        assert_eq!(crumb_status(repo.path(), &head, Some(&bad)).0, "STALE");
+        // No tool configured: still STALE (not proven current).
+        assert_eq!(crumb_status(repo.path(), &head, None).0, "STALE");
     }
 }
