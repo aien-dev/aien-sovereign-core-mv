@@ -52,6 +52,9 @@ pub struct Qwen38Omega {
     graph: Q38Graph,
     layers: Vec<LayerTensors>,
     lm_head: Bf16Tensor,
+    /// FP8 copy of lm_head (env `AIEN_Q38_FP8_HEAD=1`, qwen38/decode-speed): the decode graph reads it instead.
+    #[allow(dead_code)] // owned only: the graph points at it until it is dropped first
+    lm_head8: Option<Fp8Tensor>,
     gdn: Option<Gdn>,
     attn: Option<Attn256Cache>,
     pub config: Qwen38Config,
@@ -253,8 +256,17 @@ impl Qwen38Omega {
         let (v, h) = (c.vocab, c.hidden);
         let embed = read_bf16_words(source, &format!("{prefix}embed_tokens.weight"), &[v, h])?;
         let final_norm = fold(read_vec(source, &format!("{prefix}norm.weight"), h)?);
-        let lm_head = match read_matrix(source, "lm_head.weight", v, h)? {
-            Matrix::Bf16 { n, k, w } => Bf16Tensor::upload(n, k, &w).map_err(gpu("lm_head"))?,
+        let (lm_head, lm_head8) = match read_matrix(source, "lm_head.weight", v, h)? {
+            Matrix::Bf16 { n, k, w } => {
+                let head8 = if std::env::var("AIEN_Q38_FP8_HEAD").as_deref() == Ok("1") {
+                    let (w8, s) = aien_omega_q38::quantize_fp8_bf16(n, k, &w, 16)
+                        .map_err(gpu("lm_head fp8 quantise"))?;
+                    Some(Fp8Tensor::upload(1, n, k, &w8, &s).map_err(gpu("lm_head fp8"))?)
+                } else {
+                    None
+                };
+                (Bf16Tensor::upload(n, k, &w).map_err(gpu("lm_head"))?, head8)
+            }
             Matrix::Fp8 { .. } => return Err("lm_head: FP8 (the graph takes a bf16 head)".into()),
         };
 
@@ -428,10 +440,16 @@ impl Qwen38Omega {
         graph
             .set_final_norm(&final_norm)
             .map_err(gpu("q38 graph set_final_norm"))?;
+        if let Some(h8) = &lm_head8 {
+            // SAFETY: lm_head8 is owned by the returned value and dropped after the graph (field order).
+            unsafe { graph.set_lm_head_fp8(h8.as_raw()) }
+                .map_err(gpu("q38 graph set_lm_head_fp8"))?;
+        }
         Ok(Self {
             graph,
             layers,
             lm_head,
+            lm_head8,
             gdn,
             attn,
             config,
