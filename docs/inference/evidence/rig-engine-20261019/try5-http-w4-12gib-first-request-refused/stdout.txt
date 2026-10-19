@@ -1,0 +1,35 @@
+serving: aien-serve-http: memory budget 12.000 GiB: weights 4.596 (W4) + KV 4.500 (32768 tokens x 147456 B) + scratch 0.251 = 9.346 GiB; embedding 1.159 GiB stays in system RAM aien-serve-http: dense load: W4 context 32768 in 59.1 s, weights resident 7.629 GiB, omega device allocations 9.096 GiB, attention split, kv resident true, MXFP4 weight rel RMS error 11.76% 
+server stopped
+reference rc=0
+gate-0 server ids vs host reference: MATCH (64 tokens); control (reference id 3 changed): MISMATCH
+gate-1 server ids vs host reference: MATCH (64 tokens); control (reference id 3 changed): MISMATCH
+gate-2 server ids vs host reference: MISMATCH (256 tokens); control (reference id 3 changed): MISMATCH
+speed: decode 256 tok in 8696 ms = 29.44 tok/s; chip 29.81 ms/token; prefill 33 tok (32 reused) in 24 ms; lock wait 53518 ms
+speed: decode 256 tok in 9125 ms = 28.05 tok/s; chip 30.73 ms/token; prefill 33 tok (32 reused) in 30 ms; lock wait 814 ms
+speed-1 client wall 14.822126 s
+speed-2 client wall 62.242237 s
+speed-3 client wall 9.971814 s
+VERDICT FAIL
+{
+ "name": "rig-http-w4-12gib",
+ "cmd": "nice -n 10 tools/rig/http-gate.sh /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019 http-w4-12gib/gate 18120 /home/drakestapleton/models/qwen3-8b-fp8 --w4 -- --mem-budget-gib 12 --max-context 32768",
+ "exit": 1,
+ "git_head": "c03bef7b",
+ "start": "2026-10-19T15:00:42.426892",
+ "seconds": 1497.408,
+ "samples": 702,
+ "wall_W_mean": 252.69230769230768,
+ "wall_J": 378383.39704293467,
+ "idle_W_before": 210.0,
+ "incremental_J": 63927.78854150036,
+ "gpu_W_mean": 17.473632478632478,
+ "gpu_util_mean": 30.205128205128204,
+ "load1_start": "17.29",
+ "load1_end": "45.30",
+ "mem_avail_kB_start": "47778048",
+ "mem_avail_kB_end": "33075620",
+ "lock_holders_max": 8,
+ "nvrm_errors_delta": 0,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-rig-http-w4-12gib.json

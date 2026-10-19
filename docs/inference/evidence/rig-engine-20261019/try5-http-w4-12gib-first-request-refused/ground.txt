@@ -1,0 +1,13 @@
+start 2026-10-19T20:00:42Z
+host spark-b87b chip GB10 (DGX Spark), NOT an RTX 5070
+sc c03bef7bb2ebb06f0132a4d59920b52647974e43 branch rig/engine-12gb dirty 2
+binary tools/rig/http-gate.sh sha256 7c08386f46cd7019aa47281c9d2782fa8e4266d046c634be5ddff4687930d0c8
+omega archive /home/drakestapleton/workspace/targets/rig-engine/omega/libomega_gpu.a sha256 eafe3317a0dc6e7877e293c0e08d54fd0be395332e250dd73b7e62ebb36f86d5
+env AIEN_Q38_W4_RULE=ceil
+cmd tools/rig/http-gate.sh /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019 http-w4-12gib/gate 18120 /home/drakestapleton/models/qwen3-8b-fp8 --w4 -- --mem-budget-gib 12 --max-context 32768
+loadavg 17.29 17.13 16.00 5/2333 223015
+MemAvailable:   47166924 kB
+7.0.0-1019-nvidia
+end 2026-10-19T20:25:42Z
+loadavg 43.91 52.60 44.29 62/2398 997239
+MemAvailable:   34091020 kB

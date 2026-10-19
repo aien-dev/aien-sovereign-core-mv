@@ -1,0 +1,13 @@
+start 2026-10-19T20:00:42Z
+chip GB10 (DGX Spark), NOT an RTX 5070
+sc c03bef7bb2ebb06f0132a4d59920b52647974e43 dirty 2
+binary /home/drakestapleton/workspace/targets/rig-engine/target/release/aien-serve-http sha256 9f6e07c28b874d8e3055af562cf6d199f9c76f34c80974814fe39be8a2267411
+server: /home/drakestapleton/workspace/targets/rig-engine/target/release/aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3-8b-fp8 --port 18120 --weights w4 --mem-budget-gib 12 --max-context 32768
+env AIEN_Q38_W4_RULE=ceil
+loadavg 17.29 17.13 16.00 6/2325 223079
+MemAvailable:   47181148 kB
+attempt 1 start 2026-10-19T20:00:42Z MemFree 20 GiB
+model id qwen3-dense
+end 2026-10-19T20:25:39Z
+loadavg 45.30 53.02 44.38 46/2435 995092
+MemAvailable:   34600292 kB
