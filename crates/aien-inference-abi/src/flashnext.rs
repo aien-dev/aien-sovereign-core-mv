@@ -1525,11 +1525,24 @@ impl<S: TensorSource> FlashNextReference<S> {
                 shard_rows: 2_500_012,
                 row_len: rl,
             };
+            let mut missing = Vec::new();
             for (j, &id) in ids.iter().enumerate() {
-                rows.row(id, &mut buf)?;
+                match rows.row(id, &mut buf) {
+                    Ok(()) => {}
+                    Err(e) if e.starts_with("missing ngram row") => {
+                        missing.push(id.to_string());
+                        continue;
+                    }
+                    Err(e) => return Err(e),
+                }
                 for (o, &b) in emb[j * rl..(j + 1) * rl].iter_mut().zip(&buf) {
                     *o = fp8_e4m3fn_to_f32(b) * w.table_scale;
                 }
+            }
+            if !missing.is_empty() {
+                missing.sort();
+                missing.dedup();
+                return Err(format!("missing ngram rows: {}", missing.join(" ")));
             }
         }
         let mut key = w.key.matmul(&emb, t);

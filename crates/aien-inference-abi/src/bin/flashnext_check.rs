@@ -4,6 +4,9 @@
 //!   flashnext_check formats BF16_DIR FP8_DIR NVFP4_DIR OUT.json LAYER:EXPERT...
 //!     Per expert: weight error of every stored or convertible 4-bit / 8-bit form against the bf16 checkpoint
 //!     (relative RMS over the three matrices) and the expert MLP output error on fixed inputs.
+//!   flashnext_check nv4-fixture NVFP4_DIR OUT_DIR LAYER:EXPERT...
+//!     Real NVFP4 experts as the chip's NV4 blocks (gate|up fused, down) plus the host reference's f32 outputs on fixed
+//!     inputs, for omega tests/gpu_nv4_api_test.c --fixture. Derived weights: never commit OUT_DIR, only its SHA256SUMS.
 //!   flashnext_check tokenize TOKENIZER_JSON TEXT
 //!   flashnext_check run CONFIG_JSON DIR LAYERS stored|mxfp4 OUT_DIR ID...
 //!     The first LAYERS layers on DIR's tensors. Exit 3 with "MISSING ..." lines when experts or n-gram rows are
@@ -22,6 +25,7 @@ fn main() {
         Some("formats") if a.len() >= 7 => formats(&a[2], &a[3], &a[4], &a[5], &a[6..]),
         Some("tokenize") if a.len() == 4 => tokenize(&a[2], &a[3]),
         Some("run") if a.len() >= 8 => run(&a[2], &a[3], &a[4], &a[5], &a[6], &a[7..]),
+        Some("nv4-fixture") if a.len() >= 5 => nv4_fixture(&a[2], &a[3], &a[4..]),
         _ => Err("usage: see the file header".into()),
     };
     match r {
@@ -344,5 +348,76 @@ fn moe_fixtures(
             .map_err(|e| e.to_string())?;
         }
     }
+    Ok(())
+}
+
+fn nv4_parts(p: &Proj) -> Result<(&[u8], &[u8], f32), String> {
+    match p {
+        Proj::Nvfp4 {
+            packed,
+            scales,
+            global,
+            ..
+        } => Ok((packed, scales, *global)),
+        _ => Err("expected an NVFP4 projection".into()),
+    }
+}
+
+fn nv4_fixture(dir: &str, out: &str, items: &[String]) -> Result<(), String> {
+    let c = FlashNextConfig::from_json(include_str!("../../fixtures/flashnext/config.json"))?;
+    let (h, m) = (c.hidden, c.moe_inter);
+    let mut src = ShardSource::open(Path::new(dir))?;
+    let outp = PathBuf::from(out);
+    std::fs::create_dir_all(&outp).map_err(|e| e.to_string())?;
+    let g = items.len();
+    let x: Vec<f32> = (0..g * h)
+        .map(|i| prand(2000 + (i / h) as u64, i) * 1.732)
+        .collect();
+    let (mut act, mut gu_ref, mut dn_ref) = (Vec::new(), Vec::new(), Vec::new());
+    let mut cases = String::from("# case index per line; source layer:expert in the same order: ");
+    cases.push_str(&items.join(" "));
+    cases.push('\n');
+    for (i, it) in items.iter().enumerate() {
+        let (l, e) = it.split_once(':').ok_or("LAYER:EXPERT")?;
+        let mlp = format!("model.language_model.layers.{l}.mlp");
+        let mut q = QuantStats::default();
+        let ex = read_expert(
+            &mut src,
+            &mlp,
+            e.parse().map_err(|_| "expert")?,
+            &c,
+            ExpertFormat::AsStored,
+            &mut q,
+        )?;
+        let xi = &x[i * h..(i + 1) * h];
+        let gt = ex.gate.matmul(xi, 1);
+        let up = ex.up.matmul(xi, 1);
+        // act on fixed values (not silu(gate) * up, so down is tested on a well-scaled input of its own)
+        let a: Vec<f32> = (0..m).map(|j| prand(3000 + i as u64, j) * 1.732).collect();
+        let d = ex.down.matmul(&a, 1);
+        gu_ref.extend_from_slice(&gt);
+        gu_ref.extend_from_slice(&up);
+        act.extend_from_slice(&a);
+        dn_ref.extend_from_slice(&d);
+        let (gn, gs, gg) = nv4_parts(&ex.gate)?;
+        let (un, us, ug) = nv4_parts(&ex.up)?;
+        let (dn, ds, dg) = nv4_parts(&ex.down)?;
+        let w =
+            |name: String, b: &[u8]| std::fs::write(outp.join(name), b).map_err(|e| e.to_string());
+        w(format!("{i}.gu.nib"), &[gn, un].concat())?;
+        w(format!("{i}.gu.sc"), &[gs, us].concat())?;
+        let gl: Vec<f32> = (0..2 * m).map(|r| if r < m { gg } else { ug }).collect();
+        write_f32(&outp.join(format!("{i}.gu.g")), &gl)?;
+        w(format!("{i}.dn.nib"), dn)?;
+        w(format!("{i}.dn.sc"), ds)?;
+        write_f32(&outp.join(format!("{i}.dn.g")), &vec![dg; h])?;
+        cases.push_str(&format!("{i}\n"));
+    }
+    write_f32(&outp.join("x.f32"), &x)?;
+    write_f32(&outp.join("act.f32"), &act)?;
+    write_f32(&outp.join("gu_ref.f32"), &gu_ref)?;
+    write_f32(&outp.join("dn_ref.f32"), &dn_ref)?;
+    std::fs::write(outp.join("cases.txt"), cases).map_err(|e| e.to_string())?;
+    println!("PASS nv4-fixture: {g} experts -> {out}");
     Ok(())
 }
