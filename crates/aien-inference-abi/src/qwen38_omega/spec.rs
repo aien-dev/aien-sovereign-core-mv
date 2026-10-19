@@ -423,7 +423,9 @@ impl Default for MtpOptions {
 
 /// The checkpoint's MTP head on the device.
 pub struct Mtp {
-    fc: Bf16Tensor,
+    /// `mtp.fc` `[5120][10240]` as its two column halves `[5120][5120]` (the bf16 GEMV takes k up to
+    /// 5120 here: k 10240 needs more registers than the file holds): `fc . [a ; b] = fc0 . a + fc1 . b`.
+    fc: [Bf16Tensor; 2],
     norm_e: Vec<f32>,
     norm_h: Vec<f32>,
     layer: LayerTensors,
@@ -460,7 +462,17 @@ impl Mtp {
         let h = c.hidden;
         let rm = |s: &mut dyn TensorSource, name: &str, n, k| read_matrix(s, name, n, k);
         let fc = match rm(src, "mtp.fc.weight", h, 2 * h)? {
-            Matrix::Bf16 { n, k, w } => Bf16Tensor::upload(n, k, &w).map_err(gpu("mtp.fc"))?,
+            Matrix::Bf16 { n, k, w } => {
+                let half = |i: usize| -> Vec<u16> {
+                    w.chunks_exact(k)
+                        .flat_map(|r| r[i * k / 2..(i + 1) * k / 2].iter().copied())
+                        .collect()
+                };
+                [
+                    Bf16Tensor::upload(n, k / 2, &half(0)).map_err(gpu("mtp.fc[:, :h]"))?,
+                    Bf16Tensor::upload(n, k / 2, &half(1)).map_err(gpu("mtp.fc[:, h:]"))?,
+                ]
+            }
             Matrix::Fp8 { .. } => return Err("mtp.fc: expected bf16".into()),
         };
         let raw_e = read_vec(src, "mtp.pre_fc_norm_embedding.weight", h)?;
@@ -535,7 +547,8 @@ impl Mtp {
 
     /// Bytes the head holds on the device (fc, the layer; the KV cache not counted).
     pub fn weight_bytes(&self) -> usize {
-        self.fc.resident_bytes()
+        self.fc[0].resident_bytes()
+            + self.fc[1].resident_bytes()
             + self.layer.mix.resident_bytes()
             + self.layer.o.resident_bytes()
             + self.layer.gate_up.resident_bytes()
@@ -586,7 +599,16 @@ impl Mtp {
             rmsnorm(hsrc, &self.norm_h, self.eps, hd);
             st.host_ns += ns(t);
             let t = Instant::now();
-            self.fc.gemv_f32(&cat, xr).map_err(gpu("mtp.fc"))?;
+            let mut y1 = vec![0f32; h];
+            self.fc[0]
+                .gemv_f32(&cat[..h], xr)
+                .map_err(gpu("mtp.fc[:, :h]"))?;
+            self.fc[1]
+                .gemv_f32(&cat[h..], &mut y1)
+                .map_err(gpu("mtp.fc[:, h:]"))?;
+            for (a, b) in xr.iter_mut().zip(&y1) {
+                *a += b;
+            }
             st.ab_ns += ns(t);
         }
         let pos = pos0 + self.opts.pos_offset;
@@ -775,8 +797,10 @@ pub fn generate(
         if run.tokens.len() < n {
             run.tokens.push(next);
         }
+        // An accepted draft can be the stop token; the round's later rows are past the end.
         if let Some(s) = run.tokens.iter().position(|x| stop.contains(x)) {
             run.tokens.truncate(s + 1);
+            break;
         }
         if j < drafts {
             run.rollbacks += 1;

@@ -7,7 +7,7 @@
 //!     - rollback: snapshot, a 5-row pass, restore, replay of j rows leaves the DeltaNet state
 //!       bit for bit where j one-row passes leave it (control: replay j + 1 rows);
 //!     - costs: snapshot, restore, exact pass at m = 1 and 5, decode graph token.
-//!   qwen38_spec gen <checkpoint-dir> <out.json> [--k 0,1,2,3,4] [--n 256] [--prompt code|prose|tune|golden]
+//!   qwen38_spec gen <checkpoint-dir> <out.json> [--k 0,1,2,3,4] [--n 256] [--prompt code|codelong|prose|tune|golden]
 //!                   [--order embed|hidden] [--normed 0|1] [--offset 0|1] [--mutant none|extra|norollback|rowshift]
 //!                   [--graph 0|1] [--golden <gen-chat-max-24.json>]
 //!     The whole model. For each k: greedy tokens, acceptance, wall per token and its parts; PASS when
@@ -35,6 +35,7 @@ const MTP_BYTES: u64 = 1 << 30;
 const PROMPT_CODE: &str = "Write a C function that returns the larger of two ints.";
 const PROMPT_PROSE: &str = "Write a short story, about three paragraphs, about a lighthouse keeper who finds a message in a bottle.";
 const PROMPT_TUNE: &str = "Explain how the gears on a bicycle work and when a rider should shift.";
+const PROMPT_CODE_LONG: &str = "Write a C program that reads lines from standard input, counts how often each word appears using a hash table you implement yourself, and prints the 10 most frequent words. Include comments.";
 
 fn mem_available() -> Result<u64, String> {
     let m = std::fs::read_to_string("/proc/meminfo").map_err(|e| format!("/proc/meminfo: {e}"))?;
@@ -93,7 +94,8 @@ fn prompt_ids(dir: &Path, which: &str, golden: Option<&Value>) -> Result<Vec<u32
         "code" => PROMPT_CODE,
         "prose" => PROMPT_PROSE,
         "tune" => PROMPT_TUNE,
-        other => return Err(format!("--prompt {other}: code|prose|tune|golden")),
+        "codelong" => PROMPT_CODE_LONG,
+        other => return Err(format!("--prompt {other}: code|codelong|prose|tune|golden")),
     };
     let tok = ChatTokenizer::from_model_dir(dir, None).map_err(|e| e.to_string())?;
     let opts = ChatOptions {
@@ -419,6 +421,42 @@ fn gen(args: &[String]) -> Result<bool, String> {
     };
     eprintln!("uploaded in {:.1} s", t.elapsed().as_secs_f64());
 
+    if flag(args, "--sweep-mtp") == Some("1") {
+        // Draft quality of every MTP wiring at k = 1 (the tuning prompt; output is the k = 0 path's
+        // whatever the wiring, so only acceptance is compared).
+        let m = mtp.as_mut().ok_or("--sweep-mtp needs k > 0 in --k")?;
+        let mut rows = Vec::new();
+        let orders = match flag(args, "--sweep-order") {
+            Some("embed") => vec![FcOrder::EmbedFirst],
+            _ => vec![FcOrder::EmbedFirst, FcOrder::HiddenFirst],
+        };
+        for order in orders {
+            for normed_hidden in [false, true] {
+                for pos_offset in [0usize, 1] {
+                    m.opts = MtpOptions {
+                        order,
+                        normed_hidden,
+                        pos_offset,
+                    };
+                    let r = generate(&mut model, Some(&mut *m), &prompt, n, 1, &stop, 64, mutant)?;
+                    let rate = r.accepted as f64 / r.drafted.max(1) as f64;
+                    eprintln!(
+                        "mtp {:?}: accept {}/{} = {rate:.3}",
+                        m.opts, r.accepted, r.drafted
+                    );
+                    rows.push(
+                        json!({"options": format!("{:?}", m.opts), "accepted": r.accepted,
+                        "drafted": r.drafted, "accept_rate": rate, "tokens": r.tokens}),
+                    );
+                }
+            }
+        }
+        let rec = json!({"tool": "qwen38_spec gen --sweep-mtp", "prompt": which, "n": n, "variants": rows});
+        std::fs::write(out, serde_json::to_string_pretty(&rec).unwrap())
+            .map_err(|e| format!("{out}: {e}"))?;
+        println!("QWEN38_SPEC_SWEEP prompt {which} n {n}: done");
+        return Ok(true);
+    }
     let mut runs = Vec::new();
     let mut base: Option<Vec<u32>> = None;
     let mut pass = true;
