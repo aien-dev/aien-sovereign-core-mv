@@ -1,0 +1,22 @@
+start 2026-10-19T20:26:10Z
+chip GB10 (DGX Spark), NOT an RTX 5070
+sc 48531570e2646c06c841a385d76e31a0e623788e dirty 2
+binary /home/drakestapleton/workspace/targets/rig-engine/target/release/aien-serve-http sha256 9f6e07c28b874d8e3055af562cf6d199f9c76f34c80974814fe39be8a2267411
+server: /home/drakestapleton/workspace/targets/rig-engine/target/release/aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3-8b-fp8 --port 18120  --mem-budget-gib 12 --max-context 32768
+env AIEN_Q38_W4_RULE=unset
+loadavg 39.89 50.97 43.97 27/2443 1025076
+MemAvailable:   41791188 kB
+attempt 1 start 2026-10-19T20:26:10Z MemFree 18 GiB
+attempt 1: server exited before serving: aien-serve-http: dense load refused: layer 0 q|k|v [6144][4096] upload: omega_gpu rc=-4 (CHIP_FAIL: m16_native_create_channel: RM_ALLOC class 0xcec0 status 0x51)
+attempt 2 start 2026-10-19T20:27:28Z MemFree 17 GiB
+attempt 2: server exited before serving: aien-serve-http: dense load refused: layer 0 q|k|v [6144][4096] upload: omega_gpu rc=-4 (CHIP_FAIL: m16_native_create_channel: RM_ALLOC class 0xcec0 status 0x51)
+attempt 3 start 2026-10-19T20:29:34Z MemFree 22 GiB
+attempt 3: server exited before serving: aien-serve-http: dense load refused: layer 0 q|k|v [6144][4096] upload: omega_gpu rc=-4 (CHIP_FAIL: m16_native_create_channel: RM_ALLOC class 0xcec0 status 0x51)
+attempt 4 start 2026-10-19T20:35:34Z MemFree 16 GiB
+attempt 4: server exited before serving: aien-serve-http: dense load refused: layer 0 q|k|v [6144][4096] upload: omega_gpu rc=-4 (CHIP_FAIL: m16_native_create_channel: RM_ALLOC class 0xcec0 status 0x51)
+attempt 5 start 2026-10-19T20:36:35Z MemFree 23 GiB
+model id qwen3-dense
+request /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019/http-fp8-12gib/gate/speed-3.json try 1 refused: {"error":"GPU busy with another job"}
+end 2026-10-19T20:49:11Z
+loadavg 44.48 37.15 35.71 25/2389 1373790
+MemAvailable:   39658048 kB

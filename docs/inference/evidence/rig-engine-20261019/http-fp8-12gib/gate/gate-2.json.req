@@ -1,0 +1,11 @@
+{
+  "model": "qwen3-dense",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Explain in plain words why a bigger graphics card memory lets a language model remember a longer conversation."
+    }
+  ],
+  "temperature": 0,
+  "max_tokens": 64
+}

@@ -1,0 +1,11 @@
+{
+  "model": "qwen3-dense",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Write a 300-word story about a lighthouse keeper who finds a message in a bottle."
+    }
+  ],
+  "temperature": 0,
+  "max_tokens": 256
+}

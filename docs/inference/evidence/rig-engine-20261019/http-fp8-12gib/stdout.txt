@@ -1,0 +1,40 @@
+attempt 1: server exited before serving: aien-serve-http: dense load refused: layer 0 q|k|v [6144][4096] upload: omega_gpu rc=-4 (CHIP_FAIL: m16_native_create_channel: RM_ALLOC class 0xcec0 status 0x51)
+attempt 2: server exited before serving: aien-serve-http: dense load refused: layer 0 q|k|v [6144][4096] upload: omega_gpu rc=-4 (CHIP_FAIL: m16_native_create_channel: RM_ALLOC class 0xcec0 status 0x51)
+attempt 3: server exited before serving: aien-serve-http: dense load refused: layer 0 q|k|v [6144][4096] upload: omega_gpu rc=-4 (CHIP_FAIL: m16_native_create_channel: RM_ALLOC class 0xcec0 status 0x51)
+attempt 4: server exited before serving: aien-serve-http: dense load refused: layer 0 q|k|v [6144][4096] upload: omega_gpu rc=-4 (CHIP_FAIL: m16_native_create_channel: RM_ALLOC class 0xcec0 status 0x51)
+serving: aien-serve-http: memory budget 12.000 GiB: weights 7.630 (Checkpoint) + KV 3.973 (28928 tokens x 147456 B) + scratch 0.391 = 11.993 GiB (context shrunk from 32768 to fit); embedding 1.159 GiB stays in system RAM aien-serve-http: dense load: Checkpoint context 28928 in 13.2 s, weights resident 7.629 GiB, omega device allocations 11.602 GiB, attention split, kv resident true 
+server stopped
+reference rc=0
+gate-0 server ids vs host reference: MATCH (7 tokens); control (reference id 3 changed): MISMATCH
+gate-1 server ids vs host reference: MATCH (64 tokens); control (reference id 3 changed): MISMATCH
+gate-2 server ids vs host reference: MATCH (64 tokens); control (reference id 3 changed): MISMATCH
+speed: decode 256 tok in 11204 ms = 22.85 tok/s; chip 40.61 ms/token; prefill 33 tok (3 reused) in 693 ms; lock wait 0 ms
+speed: decode 256 tok in 11192 ms = 22.87 tok/s; chip 40.55 ms/token; prefill 33 tok (32 reused) in 41 ms; lock wait 94617 ms
+speed: decode 256 tok in 12138 ms = 21.09 tok/s; chip 43.42 ms/token; prefill 33 tok (32 reused) in 44 ms; lock wait 82150 ms
+speed-1 client wall 11.899793 s
+speed-2 client wall 105.851983 s
+speed-3 client wall 94.333944 s
+VERDICT PASS
+{
+ "name": "rig-http-fp8-12gib",
+ "cmd": "nice -n 10 tools/rig/http-gate.sh /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019 http-fp8-12gib/gate 18120 /home/drakestapleton/models/qwen3-8b-fp8 -- --mem-budget-gib 12 --max-context 32768",
+ "exit": 0,
+ "git_head": "48531570",
+ "start": "2026-10-19T15:26:09.988056",
+ "seconds": 1381.798,
+ "samples": 652,
+ "wall_W_mean": 251.42638036809817,
+ "wall_J": 347420.4927029968,
+ "idle_W_before": 270.0,
+ "incremental_J": -25664.99217125169,
+ "gpu_W_mean": 29.861625766871164,
+ "gpu_util_mean": 70.69478527607362,
+ "load1_start": "39.89",
+ "load1_end": "44.48",
+ "mem_avail_kB_start": "42639232",
+ "mem_avail_kB_end": "34557484",
+ "lock_holders_max": 4,
+ "nvrm_errors_delta": 16,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-rig-http-fp8-12gib.json
