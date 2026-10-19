@@ -4,7 +4,10 @@
 #   mode single : the one-at-a-time door (no --batch-slots): single-stream greedy references, 8 prompts alone
 #   mode batch  : --batch-slots 8: n=1 (each prompt alone), then n=2,4,8 for ROUNDS rounds
 # Env: MAXT (max_tokens, default 256), ROUNDS (default 3), CTX (max-context, default 4096)
-# The server takes /tmp/aien-gb10.lock itself at load and per busy spell; this script holds no lock.
+# Locks: every timed bench call runs under flock -x /tmp/aien-quiet.lock (coordinator rule 16:35Z).
+# The GPU lock /tmp/aien-gb10.lock is taken by the server itself (at load and for each busy spell,
+# first arrival to last leave); wrapping the client in it too would deadlock the server, so the
+# client does not take it. loadavg is recorded at start and end of every call in <outdir>/locks.log.
 set -euo pipefail
 MODE=$1; OUT=$2; MAXT=${MAXT:-256}; ROUNDS=${ROUNDS:-3}; CTX=${CTX:-4096}
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -27,12 +30,18 @@ for _ in $(seq 900); do
 done
 grep VmHWM /proc/$SPID/status > "$OUT/vm-after-load.txt"; grep VmRSS /proc/$SPID/status >> "$OUT/vm-after-load.txt"
 grep MemAvailable /proc/meminfo >> "$OUT/vm-after-load.txt"
+m() { echo "start $(date -u +%FT%TZ) load $(cat /proc/loadavg) :: $*" >> "$OUT/locks.log"; flock -x /tmp/aien-quiet.lock "$@"; echo "end   $(date -u +%FT%TZ) load $(cat /proc/loadavg)" >> "$OUT/locks.log"; }
+m() {
+  echo "start $(date -u +%FT%TZ) load $(cat /proc/loadavg) :: $*" >> "$OUT/locks.log"
+  flock -x /tmp/aien-quiet.lock "$@"
+  echo "end   $(date -u +%FT%TZ) load $(cat /proc/loadavg)" >> "$OUT/locks.log"
+}
 if [ "$MODE" = single ]; then
-  for i in 0 1 2 3 4 5 6 7; do "$HERE/bench.sh" $URL "$OUT" single-p$i 1 "$MAXT" $i; done
+  for i in 0 1 2 3 4 5 6 7; do m "$HERE/bench.sh" $URL "$OUT" single-p$i 1 "$MAXT" $i; done
 else
-  for i in 0 1 2 3 4 5 6 7; do "$HERE/bench.sh" $URL "$OUT" n1-p$i 1 "$MAXT" $i; done
+  for i in 0 1 2 3 4 5 6 7; do m "$HERE/bench.sh" $URL "$OUT" n1-p$i 1 "$MAXT" $i; done
   for r in $(seq "$ROUNDS"); do
-    for n in 2 4 8; do "$HERE/bench.sh" $URL "$OUT" n$n-r$r "$n" "$MAXT"; done
+    for n in 2 4 8; do m "$HERE/bench.sh" $URL "$OUT" n$n-r$r "$n" "$MAXT"; done
   done
 fi
 curl -s $URL/health > "$OUT/health-end.json"
