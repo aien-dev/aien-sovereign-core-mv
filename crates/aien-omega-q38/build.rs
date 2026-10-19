@@ -13,6 +13,9 @@
 //! (`omega_gpu_gdn_prefill` and `omega_gpu_prefill_attn256`, omega#543 / #545; with
 //! `AIEN_OMEGA_DIR`, the header `src/omega_gpu_prefill_attn256_api.h`).
 //!
+//! `cfg(has_omega_q38_w4)`: the MXFP4 GEMV and the graph's 4-bit entries are linked too
+//! (`omega_gpu_q38_graph_set_layer_w4`, omega qwen38/w4-gemv; with `AIEN_OMEGA_DIR`, `src/omega_gpu_w4_api.h`).
+//!
 //! `cfg(has_omega_q38)` is set only when native. A stub never fails the build: the Qwen3.8
 //! engine reports itself unavailable, and `is_native()` says which one a binary carries.
 use std::path::Path;
@@ -21,6 +24,7 @@ use std::process::Command;
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(has_omega_q38)");
     println!("cargo:rustc-check-cfg=cfg(has_omega_q38_prefill)");
+    println!("cargo:rustc-check-cfg=cfg(has_omega_q38_w4)");
     for v in [
         "AIEN_FORCE_CPU_STUB",
         "AIEN_OMEGA_GPU_LIB",
@@ -35,6 +39,9 @@ fn main() {
         println!("cargo:rerun-if-changed={lib}");
         if archive_defines(Path::new(&lib), "omega_gpu_q38_graph_create") {
             println!("cargo:rustc-cfg=has_omega_q38");
+            if archive_defines(Path::new(&lib), "omega_gpu_q38_graph_set_layer_w4") {
+                println!("cargo:rustc-cfg=has_omega_q38_w4");
+            }
             if archive_defines(Path::new(&lib), "omega_gpu_gdn_prefill")
                 && archive_defines(Path::new(&lib), "omega_gpu_prefill_attn256")
             {
@@ -50,6 +57,9 @@ fn main() {
         println!("cargo:rerun-if-changed={}", header.display());
         if header.is_file() {
             println!("cargo:rustc-cfg=has_omega_q38");
+            if Path::new(&dir).join("src/omega_gpu_w4_api.h").is_file() {
+                println!("cargo:rustc-cfg=has_omega_q38_w4");
+            }
             if Path::new(&dir)
                 .join("src/omega_gpu_prefill_attn256_api.h")
                 .is_file()
