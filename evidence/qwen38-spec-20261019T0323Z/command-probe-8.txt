@@ -1,0 +1,4 @@
+flock /tmp/aien-gb10.lock nice /tmp/f7-spec-decode-scratch/qwen38_spec.probe1 probe /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a 8 evidence/qwen38-spec-20261019T0323Z/probe-8.json
+git a271d23af951c30da437d9c9ce108c187b7a6c90 + uncommitted spec.rs/qwen38_spec.rs; lib 
+run2 (omega archive 6e905209, qwen38/fp8gemm-k32768 37034f03): flock /tmp/aien-gb10.lock nice /tmp/f7-spec-decode-scratch/qwen38_spec.probe2 probe /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a 8 evidence/qwen38-spec-20261019T0323Z/probe-8.json
+run3 (replay advances pos): flock /tmp/aien-gb10.lock nice /tmp/f7-spec-decode-scratch/qwen38_spec.probe3 probe /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a 8 evidence/qwen38-spec-20261019T0323Z/probe-8.json

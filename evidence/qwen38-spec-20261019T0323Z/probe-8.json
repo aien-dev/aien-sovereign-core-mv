@@ -1,0 +1,118 @@
+{
+  "checks": [
+    {
+      "check": "whole_sequence_rows",
+      "first_diff": null,
+      "identical": true,
+      "pass_ms": 600.198929,
+      "rows": 48,
+      "singles_ms": 1192.2974550000001
+    },
+    {
+      "check": "mid_rows",
+      "heads": [
+        220,
+        220
+      ],
+      "identical": true,
+      "m": 2
+    },
+    {
+      "check": "mid_rows",
+      "heads": [
+        220,
+        220,
+        220
+      ],
+      "identical": true,
+      "m": 3
+    },
+    {
+      "check": "mid_rows",
+      "heads": [
+        220,
+        220,
+        220,
+        220
+      ],
+      "identical": true,
+      "m": 4
+    },
+    {
+      "check": "mid_rows",
+      "heads": [
+        220,
+        220,
+        220,
+        220,
+        220
+      ],
+      "identical": true,
+      "m": 5
+    },
+    {
+      "check": "rollback",
+      "control_caught": true,
+      "identical": true,
+      "j": 1
+    },
+    {
+      "check": "rollback",
+      "control_caught": true,
+      "identical": true,
+      "j": 2
+    },
+    {
+      "check": "rollback",
+      "control_caught": true,
+      "identical": true,
+      "j": 3
+    },
+    {
+      "check": "rollback",
+      "control_caught": true,
+      "identical": true,
+      "j": 4
+    }
+  ],
+  "costs": {
+    "exact_pass_m1_ms_median": 25.634679,
+    "exact_pass_m1_parts": {
+      "ab_ms": 0.659606,
+      "attn_calls": 2,
+      "attn_ms": 0.212802,
+      "gdn_calls": 6,
+      "gdn_ms": 1.302554,
+      "gemm_calls": 32,
+      "gemm_ms": 23.323586,
+      "head_calls": 0,
+      "head_ms": 0.0,
+      "host_ms": 0.55663,
+      "passes": 1,
+      "rows": 1
+    },
+    "exact_pass_m5_ms_median": 77.268599,
+    "exact_pass_m5_parts": {
+      "ab_ms": 3.247548,
+      "attn_calls": 10,
+      "attn_ms": 1.15681,
+      "gdn_calls": 30,
+      "gdn_ms": 6.317094,
+      "gemm_calls": 32,
+      "gemm_ms": 66.824027,
+      "head_calls": 0,
+      "head_ms": 0.0,
+      "host_ms": 3.87576,
+      "passes": 1,
+      "rows": 5
+    },
+    "graph_token_total_ms_median": 30.198829,
+    "graph_vs_exact_head_tokens_agree": 25,
+    "positions": 25,
+    "restore_ms_median": 0.62559,
+    "snapshot_ms_median": 0.794774
+  },
+  "layers": 8,
+  "pass": true,
+  "tool": "qwen38_spec probe"
+}
