@@ -1,0 +1,6 @@
+drift-fp8 rc=0 2026-10-19T04:05:00Z
+drift-fp8-repeat rc=0 2026-10-19T04:06:08Z
+drift-mxfp4 rc=0 2026-10-19T04:27:54Z
+gen-golden-mxfp4 rc=0 2026-10-19T04:49:32Z
+ALLDONE
+gen-prose-mxfp4 rc=0 2026-10-19T05:11:55Z

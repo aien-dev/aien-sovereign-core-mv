@@ -1,0 +1,3 @@
+memory: probe model needs 10884 MiB, keep 12288 MiB free, MemAvailable 72069 MiB
+uploaded 8 layers in 4.8 s
+qwen38_spec: layer 0: down gemm x48: omega_gpu rc=-3 (CODEGEN_FAIL: fp8 gemm codegen refused the shape)

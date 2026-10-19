@@ -1,0 +1,10 @@
+memory: whole model + MTP head needs 32663 MiB, keep 12288 MiB free, MemAvailable 72769 MiB
+MTP head: 455 MiB, raw norm means (embed, hidden, final) [-0.46056232, -0.15720086, 1.2520472], options MtpOptions { order: EmbedFirst, normed_hidden: false, pos_offset: 0 }
+uploaded in 38.5 s
+k=0: 256 tokens, 212.51 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, identical_to_k0 None
+k=1: 256 tokens, 169.06 ms/token decode, accept 103/152 (0.678), 1.68 tokens/round, identical_to_k0 Some(true)
+k=2: 256 tokens, 253.11 ms/token decode, accept 127/258 (0.492), 1.98 tokens/round, identical_to_k0 Some(true)
+k=3: 256 tokens, 255.79 ms/token decode, accept 136/363 (0.375), 2.11 tokens/round, identical_to_k0 Some(true)
+k=4: 256 tokens, 349.46 ms/token decode, accept 138/480 (0.287), 2.12 tokens/round, identical_to_k0 Some(true)
+graph: 256 tokens, chip 156.14 ms/token, wall 156.26 ms/token, agrees with the exact path for the first Some(256) tokens
+QWEN38_SPEC_GEN prompt prose n 256 k [0, 1, 2, 3, 4] mutant None: PASS

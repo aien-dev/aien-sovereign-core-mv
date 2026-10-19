@@ -1,0 +1,3 @@
+memory: whole model needs 31639 MiB, keep 12288 MiB free, MemAvailable 71902 MiB
+uploaded in 41.5 s, weights fp8, 0 tensors converted, 0 weights below the block range
+QWEN38_SPEC_DRIFT weights fp8: mean NLL 0.08708 (record 0.08707), perplexity 1.09099, accuracy 0.9882, control 21.393: PASS

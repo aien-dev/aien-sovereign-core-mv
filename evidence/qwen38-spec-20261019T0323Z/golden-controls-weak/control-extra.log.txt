@@ -1,0 +1,7 @@
+prompt golden: 24 tokens; golden prompt equals the rendered code prompt
+memory: whole model + MTP head needs 32647 MiB, keep 12288 MiB free, MemAvailable 73035 MiB
+MTP head: 455 MiB, raw norm means (embed, hidden, final) [-0.46056232, -0.15720086, 1.2520472], options MtpOptions { order: EmbedFirst, normed_hidden: false, pos_offset: 0 }
+uploaded in 38.2 s
+k=0: 30 tokens, 222.90 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, identical_to_k0 None
+k=2: 30 tokens, 206.06 ms/token decode, accept 23/24 (0.958), 2.42 tokens/round, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt golden n 96 k [0, 2] mutant ExtraAccept: PASS

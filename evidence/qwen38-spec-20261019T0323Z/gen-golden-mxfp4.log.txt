@@ -1,0 +1,6 @@
+prompt golden: 24 tokens; golden prompt equals the rendered code prompt
+memory: whole model + MTP head needs 32647 MiB, keep 12288 MiB free, MemAvailable 67000 MiB
+uploaded in 1280.3 s
+k=0: 30 tokens, 209.12 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, identical_to_k0 None
+graph: 30 tokens, chip 154.39 ms/token, wall 154.50 ms/token, agrees with the exact path for the first Some(30) tokens
+QWEN38_SPEC_GEN prompt golden n 96 k [0] mutant None: PASS

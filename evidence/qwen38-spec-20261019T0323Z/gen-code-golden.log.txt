@@ -1,0 +1,11 @@
+prompt golden: 24 tokens; golden prompt equals the rendered code prompt
+memory: whole model + MTP head needs 32663 MiB, keep 12288 MiB free, MemAvailable 72382 MiB
+MTP head: 455 MiB, raw norm means (embed, hidden, final) [-0.46056232, -0.15720086, 1.2520472], options MtpOptions { order: EmbedFirst, normed_hidden: false, pos_offset: 0 }
+uploaded in 39.4 s
+k=0: 30 tokens, 203.53 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, identical_to_k0 None
+k=1: 30 tokens, 143.35 ms/token decode, accept 15/15 (1.000), 1.93 tokens/round, identical_to_k0 Some(true)
+k=2: 30 tokens, 186.88 ms/token decode, accept 20/20 (1.000), 2.90 tokens/round, identical_to_k0 Some(true)
+k=3: 30 tokens, 155.52 ms/token decode, accept 23/24 (0.958), 3.62 tokens/round, identical_to_k0 Some(true)
+k=4: 30 tokens, 169.48 ms/token decode, accept 23/28 (0.821), 4.14 tokens/round, identical_to_k0 Some(true)
+graph: 30 tokens, chip 155.36 ms/token, wall 155.48 ms/token, agrees with the exact path for the first Some(30) tokens
+QWEN38_SPEC_GEN prompt golden n 256 k [0, 1, 2, 3, 4] mutant None: PASS

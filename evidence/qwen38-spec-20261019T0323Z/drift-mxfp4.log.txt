@@ -1,0 +1,3 @@
+memory: whole model needs 31639 MiB, keep 12288 MiB free, MemAvailable 73232 MiB
+uploaded in 1274.7 s, weights mxfp4, 400 tensors converted, 0 weights below the block range
+QWEN38_SPEC_DRIFT weights mxfp4: mean NLL 0.09249 (record 0.08707), perplexity 1.09691, accuracy 0.9882, control 21.639, argmax agree 255/255, KL mean 2.818e-3 max 2.040e-1: PASS
