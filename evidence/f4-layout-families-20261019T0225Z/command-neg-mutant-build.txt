@@ -1,0 +1,1 @@
+AIEN_Q38_LAYOUT_MUTANT_NOFOLD=layers.0.in_norm /tmp/f4-layout-families-scratch/bin/qwen38_layout build /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a /tmp/f4-layout-families-scratch/mutant-pack 16

@@ -1,0 +1,29 @@
+{
+  "count": 64,
+  "first": 0,
+  "hash_s": 14.673707203,
+  "image_bytes": 29520480256,
+  "images": 963,
+  "mem_available_after": 49285087232,
+  "mem_available_before": 74799374336,
+  "read_s": 0.0,
+  "resident_after": {
+    "anon": 5578752,
+    "driver": 27170836480,
+    "other_file": 2584576,
+    "pack": 2479882240
+  },
+  "resident_before": {
+    "anon": 479232,
+    "driver": 0,
+    "other_file": 2256896,
+    "pack": 331776
+  },
+  "source": "pack a6edf91182a0bd38827b94121f5e11cc8318a5f0aeb420e76e98217ff84d27a0",
+  "step_chip_ns": 155342268,
+  "step_token": 49276,
+  "total_s": 26.420590728,
+  "upload_s": 11.679067090999999,
+  "wall_s": 26.420593352,
+  "window_layout_id": "a6edf91182a0bd38827b94121f5e11cc8318a5f0aeb420e76e98217ff84d27a0"
+}

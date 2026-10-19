@@ -1,0 +1,29 @@
+{
+  "count": 64,
+  "first": 0,
+  "hash_s": 1.3554619559999992,
+  "image_bytes": 29520480256,
+  "images": 963,
+  "mem_available_after": 46230790144,
+  "mem_available_before": 75506012160,
+  "read_s": 18.971381603999983,
+  "resident_after": {
+    "anon": 2609602560,
+    "driver": 27170836480,
+    "other_file": 2650112,
+    "pack": 0
+  },
+  "resident_before": {
+    "anon": 225280,
+    "driver": 0,
+    "other_file": 2187264,
+    "pack": 0
+  },
+  "source": "checkpoint",
+  "step_chip_ns": 153224050,
+  "step_token": 49276,
+  "total_s": 35.779271924,
+  "upload_s": 13.23842819700001,
+  "wall_s": 35.780662416,
+  "window_layout_id": "a6edf91182a0bd38827b94121f5e11cc8318a5f0aeb420e76e98217ff84d27a0"
+}

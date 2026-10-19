@@ -1,0 +1,1 @@
+nice ionice -c3 /tmp/f4-layout-families-scratch/bin/qwen38_layout build ~/models/qwen3.8-27b-fp8-017b9c7a /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a.layouts

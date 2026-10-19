@@ -93,12 +93,24 @@ fn open(dir: &Path, max_pos: usize, chunk: usize) -> Result<Qwen38Omega, String>
         need >> 20,
         avail >> 20
     );
-    match PACK.get().and_then(Option::as_ref) {
+    let engine = match PACK.get().and_then(Option::as_ref) {
         Some(p) => {
-            Qwen38Omega::open_pack(dir, p, None, max_pos, layout::flip_from_env().as_deref())
+            Qwen38Omega::open_pack(dir, p, None, max_pos, layout::flip_from_env().as_deref())?
         }
-        None => Qwen38Omega::open(dir, None, max_pos),
-    }
+        None => Qwen38Omega::open(dir, None, max_pos)?,
+    };
+    let ld = engine.load_stats();
+    eprintln!(
+        "load: {} in {:.2} s (read {:.2}, hash {:.2}, upload {:.2}); layout {}; resident {:?}",
+        ld.source,
+        ld.total_s,
+        ld.read_s,
+        ld.hash_s,
+        ld.upload_s,
+        engine.layout().id(),
+        layout::resident_split()?
+    );
+    Ok(engine)
 }
 
 /// The layout pack from `--layout` (sc #676), opened once against the pinned id.
