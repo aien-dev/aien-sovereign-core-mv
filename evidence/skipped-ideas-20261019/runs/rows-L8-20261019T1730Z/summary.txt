@@ -1,0 +1,13 @@
+rows 1: pass (8 layers) median 31.88 ms, lm_head x1 13.10 ms
+rows 2: pass (8 layers) median 33.34 ms, lm_head x2 26.44 ms
+rows 4: pass (8 layers) median 52.94 ms, lm_head x4 53.24 ms
+rows 8: pass (8 layers) median 116.13 ms, lm_head x8 104.56 ms
+decode graph token (8 layers) median 32.88 ms
+rows 1: body x1.000 of 1 row; whole-model est 268.1 ms per step = x1.000, 268.1 ms per answer token
+rows 2: body x1.046 of 1 row; whole-model est 293.2 ms per step = x1.094, 146.6 ms per answer token
+rows 4: body x1.661 of 1 row; whole-model est 476.8 ms per step = x1.778, 119.2 ms per answer token
+rows 8: body x3.643 of 1 row; whole-model est 1033.6 ms per step = x3.855, 129.2 ms per answer token
+{
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-skipped-rows-L8-20261019T1730Z.json
+rc=0

@@ -1,0 +1,22 @@
+{
+ "name": "skipped-rows-L8-20261019T1730Z",
+ "cmd": "/home/drakestapleton/workspace/targets/skipped/release/qwen38_lab rows /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a 8 7 /home/drakestapleton/workspace/skipped-work/runs/rows-L8-20261019T1730Z/out.json",
+ "exit": 0,
+ "git_head": null,
+ "start": "2026-10-19T12:51:10.237348",
+ "seconds": 16.912,
+ "samples": 8,
+ "wall_W_mean": 250.0,
+ "wall_J": 4228.019177913666,
+ "idle_W_before": 253.33333333333334,
+ "incremental_J": -56.37358903884904,
+ "gpu_W_mean": 15.053749999999999,
+ "gpu_util_mean": 31.125,
+ "load1_start": "82.85",
+ "load1_end": "84.34",
+ "mem_avail_kB_start": "42662332",
+ "mem_avail_kB_end": "35739124",
+ "lock_holders_max": 5,
+ "nvrm_errors_delta": 0,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}
