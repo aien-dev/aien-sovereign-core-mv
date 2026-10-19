@@ -30,7 +30,6 @@ for _ in $(seq 900); do
 done
 grep VmHWM /proc/$SPID/status > "$OUT/vm-after-load.txt"; grep VmRSS /proc/$SPID/status >> "$OUT/vm-after-load.txt"
 grep MemAvailable /proc/meminfo >> "$OUT/vm-after-load.txt"
-m() { echo "start $(date -u +%FT%TZ) load $(cat /proc/loadavg) :: $*" >> "$OUT/locks.log"; flock -x /tmp/aien-quiet.lock "$@"; echo "end   $(date -u +%FT%TZ) load $(cat /proc/loadavg)" >> "$OUT/locks.log"; }
 m() {
   if [ "${QUIET:-1}" = 0 ]; then echo "start $(date -u +%FT%TZ) load $(cat /proc/loadavg) NO QUIET LOCK (correctness only, timings not published) :: $*" >> "$OUT/locks.log"; "$@"; echo "end   $(date -u +%FT%TZ) load $(cat /proc/loadavg)" >> "$OUT/locks.log"; return; fi
   echo "start $(date -u +%FT%TZ) load $(cat /proc/loadavg) :: $*" >> "$OUT/locks.log"
