@@ -1,0 +1,7 @@
+Mon Oct 19 04:47:57 PM UTC 2026
+ 11:47:57 up 1 day,  6:55, 45 users,  load average: 59.64, 45.99, 31.10
+MemAvailable:   29093192 kB
+891d33c68b373a81d17273f49a3b9e9e841a2d46
+ M crates/aien-inference-abi/src/qwen38.rs
+?? crates/aien-inference-abi/src/bin/qwen38_lab.rs
+?? crates/aien-inference-abi/src/qwen38/

@@ -41,6 +41,8 @@ use rayon::prelude::*;
 use crate::qwen3_moe::{bf16_to_f32, fp8_table, FP8_BLOCK};
 use crate::qwen3_moe_omega::{ShardSource, TensorSource};
 
+pub mod lab;
+
 /// The text model's shape, read from `config.json` (`text_config` of a `qwen3_5` checkpoint).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Qwen38Config {
