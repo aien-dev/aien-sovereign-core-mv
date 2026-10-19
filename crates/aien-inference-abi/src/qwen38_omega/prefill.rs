@@ -378,7 +378,7 @@ impl Qwen38Omega {
             .iter()
             .flat_map(|&tk| {
                 let r = tk as usize * h;
-                self.embed[r..r + h].iter().map(|&b| bf16_to_f32(b))
+                self.embed.u16()[r..r + h].iter().map(|&b| bf16_to_f32(b))
             })
             .collect();
         let mut xn = vec![0f32; m * h];

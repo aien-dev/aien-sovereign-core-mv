@@ -27,6 +27,7 @@ aien-omega-dgraph = { path = "../aien-omega-dgraph" }
 aien-omega-q38 = { path = "../aien-omega-q38" }
 parking_lot = "0.12"
 sha2 = "0.10"
+libc = "0.2"
 regex-syntax = "0.8"
 
 

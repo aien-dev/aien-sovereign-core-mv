@@ -953,7 +953,7 @@ pub fn argmax(logits: &[f32]) -> usize {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::qwen3_moe::{f32_to_bf16, f32_to_fp8_e4m3fn};
     use std::collections::HashMap;
@@ -970,7 +970,7 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct Mem {
+    pub(crate) struct Mem {
         tensors: HashMap<String, (String, Vec<usize>, Vec<u8>)>,
         seed: u64,
     }
@@ -1023,7 +1023,7 @@ mod tests {
         }
     }
 
-    fn tiny() -> Qwen38Config {
+    pub(crate) fn tiny() -> Qwen38Config {
         Qwen38Config {
             hidden: 256,
             layers: 4,
@@ -1045,7 +1045,7 @@ mod tests {
         }
     }
 
-    fn tiny_source(c: &Qwen38Config) -> Mem {
+    pub(crate) fn tiny_source(c: &Qwen38Config) -> Mem {
         let mut m = Mem::default();
         let (h, p) = (c.hidden, "model.language_model.");
         m.bf16(&format!("{p}embed_tokens.weight"), &[c.vocab, h], 1.0, 0.0);
