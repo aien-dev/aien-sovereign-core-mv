@@ -27,6 +27,7 @@ pub mod qwen3_moe_omega;
 pub mod qwen3_moe_omega_dattn;
 pub mod qwen3_moe_omega_prefill;
 pub mod resident;
+pub mod storage_map;
 pub mod strict;
 pub mod tensor;
 pub mod tensor_abi;
