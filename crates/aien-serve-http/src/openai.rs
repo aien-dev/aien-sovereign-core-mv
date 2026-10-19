@@ -48,7 +48,7 @@ pub struct ChatRequest {
     #[serde(default)]
     pub aien_return_token_ids: bool,
     /// AIEN extra (document memory gates): `"cold"` feeds the whole prompt from scratch, using
-    /// and saving no stored state (the recomputed reference); absent or `"default"` reuses.
+    /// and saving no stored state (the recomputed reference); `"join:ID_A,ID_B:last|first"` (experiment) joins two separately read documents approximately; absent reuses.
     #[serde(default)]
     pub aien_reuse: Option<String>,
 }

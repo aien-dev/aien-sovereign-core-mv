@@ -106,17 +106,17 @@ pub trait Engine: Send + Sync {
     fn persistence_status(&self) -> Option<serde_json::Value> {
         None
     }
-    /// [`Self::generate`] with a reuse mode (document memory): `cold` feeds the whole prompt
+    /// [`Self::generate`] with a reuse mode (document memory): `"cold"` feeds the whole prompt
     /// from scratch and neither reads nor writes saved state. Engines without saved state
     /// ignore it.
     fn generate_mode(
         &self,
         prompt: &[u32],
         params: &GenerateParams,
-        cold: bool,
+        reuse: &str,
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, EngineError> {
-        let _ = cold;
+        let _ = reuse;
         self.generate(prompt, params, on_token)
     }
     /// Document memory: start reading `prompt` (up to its last turn header) in the background.

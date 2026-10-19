@@ -561,6 +561,140 @@ fn turn_header(prompt: &[u32]) -> Option<usize> {
         .filter(|&k| k > 0)
 }
 
+fn bf16_to_f32(b: u16) -> f32 {
+    f32::from_bits((b as u32) << 16)
+}
+
+/// Round to nearest even (no NaN in KV rows).
+fn f32_to_bf16(x: f32) -> u16 {
+    let u = x.to_bits();
+    let r = 0x7fff + ((u >> 16) & 1);
+    (u.wrapping_add(r) >> 16) as u16
+}
+
+/// Moves stored K rows (kernel slot order, RoPE already applied at their own positions) by
+/// `delta` positions: the rotate-half pairs `(i, i + 128)`, `i < rotary / 2`, turn by
+/// `delta * theta^(-2i / rotary)` ([`aien_omega_q38::perm_slot`], `omega_dattn256_rope_row`).
+/// Rounded back to bf16, so not bit-exact even where the rest would be.
+pub fn rope_shift_rows(k: &mut [u16], delta: usize, theta: f64, rotary: usize) {
+    let p = rotary / 2;
+    let rot: Vec<(f64, f64)> = (0..p)
+        .map(|i| {
+            let inv = theta.powf(-((2 * i) as f64) / rotary as f64);
+            let a = delta as f64 * inv;
+            (a.cos(), a.sin())
+        })
+        .collect();
+    for row in k.as_chunks_mut::<{ aien_omega_q38::HEAD_DIM }>().0 {
+        for (i, &(c, s)) in rot.iter().enumerate() {
+            let (x1, x2) = (bf16_to_f32(row[i]) as f64, bf16_to_f32(row[i + 128]) as f64);
+            row[i] = f32_to_bf16((x1 * c - x2 * s) as f32);
+            row[i + 128] = f32_to_bf16((x2 * c + x1 * s) as f32);
+        }
+    }
+}
+
+/// The approximate-join experiment (`aien_reuse: "join:A,B:MODE"`): conversation A's state is
+/// restored exactly, the prompt is fed exactly up to where B's saved tokens appear in it, then
+/// B's saved KV rows are written there with their RoPE moved to the new positions, and the
+/// DeltaNet state is set by MODE: `last` (B's own end state: forgets A), `first` (the state
+/// after A and the gap: ignores B), `sum` (A's plus B's states, B's conv tails). Exactness is
+/// impossible (B's rows never saw A; the DeltaNet recurrence is order dependent); this measures
+/// how close it gets. Returns the log fragment.
+fn join_restore(
+    s: &mut Qwen38Session,
+    store: &ConvStore,
+    prompt: &[u32],
+    spec: &str,
+) -> Result<String, String> {
+    let t0 = Instant::now();
+    let (ids, mode) = spec.split_once(':').ok_or("join: want A,B:MODE")?;
+    let (a, b) = ids.split_once(',').ok_or("join: want A,B:MODE")?;
+    if !matches!(mode, "last" | "first" | "sum") {
+        return Err(format!("join: mode {mode} (last, first, sum)"));
+    }
+    let tokens_of = |key: &str| -> Result<Vec<u32>, String> {
+        store
+            .with_entry(key, |e| e.tokens[..e.kv_rows.min(e.tokens.len())].to_vec())?
+            .ok_or_else(|| format!("join: no conversation {key}"))
+    };
+    let ta = tokens_of(a)?;
+    let tb = tokens_of(b)?;
+    store.unpin();
+    if !prompt.starts_with(&ta) {
+        return Err("join: the prompt does not start with A".into());
+    }
+    let lb = tb.len();
+    let o = (ta.len()..prompt.len().saturating_sub(lb))
+        .find(|&o| prompt[o..o + lb] == tb[..])
+        .ok_or("join: B's tokens are not in the prompt after A")?;
+    // A exactly.
+    let ma = Match {
+        key: a.to_string(),
+        pos: ta.len(),
+        kind: CkptKind::DocumentEnd,
+        shared: ta.len(),
+        entry_len: ta.len(),
+        residency: conv_store::Residency::Resident,
+    };
+    let r = restore_from_store(s, store, &ma);
+    store.unpin();
+    r?;
+    // The gap exactly.
+    if o > ta.len() {
+        s.feed_prefix(&prompt[..o], &mut |_, _| Ok(()))?;
+    }
+    let mut after_a = Qwen38Snapshot::default();
+    s.model_mut().snapshot(&mut after_a)?;
+    let (theta, rotary) = (s.model().config.rope_theta, s.model().config.rotary_dim);
+    // B's rows moved by o, and B's end checkpoint.
+    let b_end = store.with_entry(b, |e| -> Result<Qwen38Snapshot, String> {
+        let kv = e.kv.as_ref().ok_or("join: B not resident")?;
+        let model = s.model_mut();
+        for layer in 0..model.attn_layers() {
+            for head in 0..conv_store::KV_HEADS {
+                let mut k = kv.plane_words(layer, head, 0, 0, lb).to_vec();
+                rope_shift_rows(&mut k, o, theta, rotary);
+                let v = kv.plane_words(layer, head, 1, 0, lb);
+                model.kv_write_rows(layer, head, o, &k, v)?;
+            }
+        }
+        let ck = e
+            .checkpoint_at(lb)
+            .ok_or("join: B has no checkpoint at its end")?;
+        Ok(Qwen38Snapshot::from_parts(
+            o + lb,
+            ck.snap.tails().to_vec(),
+            ck.snap.states().to_vec(),
+        ))
+    });
+    store.unpin();
+    let b_end = b_end?.ok_or("join: B vanished")??;
+    let snap = match mode {
+        "last" => b_end,
+        "first" => {
+            Qwen38Snapshot::from_parts(o + lb, after_a.tails().to_vec(), after_a.states().to_vec())
+        }
+        _ => Qwen38Snapshot::from_parts(
+            o + lb,
+            b_end.tails().to_vec(),
+            after_a
+                .states()
+                .iter()
+                .zip(b_end.states())
+                .map(|(x, y)| x + y)
+                .collect(),
+        ),
+    };
+    s.adopt(&prompt[..o + lb], &snap)?;
+    Ok(format!(
+        ", approximate join A {a} ({} tok) + gap {} tok + B {b} ({lb} tok at {o}, RoPE moved), DeltaNet state {mode}, {:.1} ms",
+        ta.len(),
+        o - ta.len(),
+        ms(t0)
+    ))
+}
+
 impl Engine for Qwen38Door {
     fn kind(&self) -> &str {
         "omega-qwen38"
@@ -576,14 +710,14 @@ impl Engine for Qwen38Door {
         p: &GenerateParams,
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, EngineError> {
-        self.generate_mode(prompt, p, false, on_token)
+        self.generate_mode(prompt, p, "", on_token)
     }
 
     fn generate_mode(
         &self,
         prompt: &[u32],
         p: &GenerateParams,
-        cold: bool,
+        reuse: &str,
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, EngineError> {
         if prompt.is_empty() {
@@ -604,12 +738,27 @@ impl Engine for Qwen38Door {
             .lock()
             .map_err(|_| EngineError::Failed("qwen38 session poisoned".into()))?;
         let t0 = Instant::now();
-        // `cold`: the recomputed reference: no live state, no store, nothing saved.
-        let mem = self.mem.as_ref().filter(|_| !cold);
-        if cold {
+        // `cold`: the recomputed reference: no live state, no store, nothing saved. `join:...`:
+        // the approximate-join experiment (two separately read documents), nothing saved.
+        let cold = reuse == "cold";
+        let join = reuse.strip_prefix("join:");
+        let mem = self.mem.as_ref().filter(|_| !cold && join.is_none());
+        if cold || join.is_some() {
             s.forget();
         }
         let mut store_line = String::new();
+        if let Some(spec) = join {
+            let dm = self
+                .mem
+                .as_ref()
+                .ok_or_else(|| EngineError::Failed("join: document memory is off".into()))?;
+            let r = join_restore(&mut s, &dm.store, prompt, spec);
+            dm.store.unpin();
+            store_line = r.map_err(|e| {
+                s.forget();
+                EngineError::Failed(e)
+            })?;
+        }
         let mut target: Option<String> = None;
         let mut matched_pos = 0usize;
         if let Some(dm) = mem {
@@ -733,7 +882,7 @@ impl Engine for Qwen38Door {
         eprintln!(
             "aien-serve-http: qwen38: lock wait {lock_wait_ms} ms, prompt {} tok{}, reuse {:?} ({reused} tok){store_line}, fed {} ({} stepped), prefill {prefill_ms} ms (gemm chip {} ms, gdn chip {} ms, attn chip {} ms, host {} ms, restore {} ms, snapshot {} ms, hook {} ms), decode {emitted} tok in {decode_ms} ms, graph chip {:.1} ms/token, wall {:.1} ms/token{save_line}",
             prompt.len(),
-            if cold { " (cold requested)" } else { "" },
+            if cold { " (cold requested)" } else if join.is_some() { " (approximate join)" } else { "" },
             fs.reuse.unwrap_or(Reuse::Cold),
             fs.fed,
             fs.stepped,
@@ -807,5 +956,45 @@ impl Engine for Qwen38Door {
             }
         };
         Ok(serde_json::json!({"id": id, "action": action, "done": ok}))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rope_shift_moves_rotary_pairs_and_composes() {
+        // A row rotated to position 5 then moved by 7 equals the row rotated to 12 (within
+        // bf16 rounding), on the rotary pairs; the other slots are untouched.
+        let (theta, rotary) = (1e7, 64usize);
+        let base: Vec<f32> = (0..256)
+            .map(|i| ((i * 37 % 19) as f32 - 9.0) / 7.0)
+            .collect();
+        let at = |pos: usize| -> Vec<u16> {
+            let mut r = vec![0u16; 256];
+            for i in 0..256 {
+                r[i] = f32_to_bf16(base[i]);
+            }
+            rope_shift_rows(&mut r, pos, theta, rotary);
+            r
+        };
+        let mut moved = at(5);
+        rope_shift_rows(&mut moved, 7, theta, rotary);
+        let direct = at(12);
+        for i in 0..256 {
+            let (a, b) = (bf16_to_f32(moved[i]), bf16_to_f32(direct[i]));
+            assert!(
+                (a - b).abs() <= 0.02 * (1.0 + b.abs()),
+                "slot {i}: {a} vs {b}"
+            );
+        }
+        assert_eq!(moved[40], f32_to_bf16(base[40]));
+        assert_eq!(moved[200], f32_to_bf16(base[200]));
+        // Negative control: moving by 0 changes nothing; moving by 7 changes a rotary slot.
+        let mut z = at(5);
+        rope_shift_rows(&mut z, 0, theta, rotary);
+        assert_eq!(z, at(5));
+        assert_ne!(at(5)[0], at(12)[0]);
     }
 }

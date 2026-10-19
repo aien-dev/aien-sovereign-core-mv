@@ -168,7 +168,7 @@ struct Prepared {
     reasoning_end: Option<u32>,
     return_ids: bool,
     /// `aien_reuse: "cold"`: recompute from scratch, no saved state (document memory gates).
-    cold: bool,
+    reuse: String,
 }
 
 /// What the generation thread sends to the HTTP side.
@@ -608,7 +608,7 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
             None
         },
         return_ids: req.aien_return_token_ids,
-        cold: req.aien_reuse.as_deref() == Some("cold"),
+        reuse: req.aien_reuse.clone().unwrap_or_default(),
     })
 }
 
@@ -667,11 +667,11 @@ fn run_generation(
     let mut ids = prepared.return_ids.then(Vec::new);
     let mut stopped_by_string = false;
     let mut client_gone = false;
-    let cold = prepared.cold;
+    let reuse = prepared.reuse.clone();
     let result = engine.generate_mode(
         &prepared.prompt_tokens,
         &prepared.params,
-        cold,
+        &reuse,
         &mut |tok| {
             if let Some(ids) = ids.as_mut() {
                 ids.push(tok);
