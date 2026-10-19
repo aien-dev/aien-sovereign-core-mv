@@ -436,7 +436,8 @@ unmapped path, no blocked gate, no problem line.
   evidence/<repo>/<sha>/<digest>.json    receipts of that run
   bundles/<repo>/<sha>/bundle.json       the signed bundle
   trigger/<repo>.<sha>                   a run request (removed when served)
-  locks/judging/<repo>.<sha>            held while one process judges that head  outbox/<seq>.<repo>.<sha>.json         a commit status waiting for GitHub, in queue order
+  locks/judging/<repo>.<sha>            held while one process judges that head
+  outbox/<seq>.<repo>.<sha>.json         a commit status waiting for GitHub, in queue order
   journal.jsonl                          one line per finished head
   worker.heartbeat                       pid, phase, repo, sha, utc
 /var/lib/aien-run/wt/<repo>/<sha>/       the run directory of one head (operator, 0755)
