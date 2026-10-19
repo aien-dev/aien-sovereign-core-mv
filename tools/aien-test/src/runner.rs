@@ -1176,6 +1176,7 @@ pub fn run_graph(
 mod tests {
     use super::*;
     use crate::resources::{acquire_gpu, GpuWait};
+    use crate::testutil::queued_on;
     use crate::testutil::{git, init_repo, write_file, TempDir};
     use std::os::unix::fs::PermissionsExt;
 
@@ -1790,12 +1791,21 @@ mod tests {
         let mut opts = gb10_opts(&fx);
         opts.gpu.wait = GpuWait::Bounded(Duration::from_secs(20));
         let held = acquire_gpu(&GpuConfig::rooted_at(fx.scratch.path())).unwrap();
+        // Let go 300 ms after the kernel shows the gate queued behind us, so
+        // the wait is real however long the gate takes to reach the lock.
+        let lock = opts.gpu.lock_path.clone();
         let holder = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(700));
+            let t0 = std::time::Instant::now();
+            while !queued_on(&lock) && t0.elapsed() < Duration::from_secs(15) {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            let seen = queued_on(&lock);
+            std::thread::sleep(Duration::from_millis(300));
             drop(held);
+            seen
         });
         let o = run(&fx, &opts);
-        holder.join().unwrap();
+        assert!(holder.join().unwrap(), "the gate never queued on the lock");
         assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
         let r = read_json(&o.receipt_path.unwrap());
         let w = &r["volatile"]["gpu_wait"];
@@ -1803,7 +1813,7 @@ mod tests {
         assert_eq!(w["bound_ms"], 20_000);
         assert_eq!(w["acquired"], true);
         let waited = w["waited_ms"].as_u64().unwrap();
-        assert!((600..20_000).contains(&waited), "waited {waited} ms");
+        assert!((250..20_000).contains(&waited), "waited {waited} ms");
     }
 
     #[test]
