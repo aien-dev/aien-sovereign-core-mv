@@ -1,0 +1,953 @@
+{
+  "baseline": {
+    "driver_maps": 0,
+    "driver_rss": 0,
+    "driver_size": 0,
+    "file_rss": 2355200,
+    "heap": 438272,
+    "mem_available": 61360603136,
+    "omega_alloc_bytes": 0,
+    "omega_allocs": 0,
+    "omega_frees": 0,
+    "vm_hwm": 2945024,
+    "vm_rss": 2945024
+  },
+  "calls": [
+    {
+      "call": "lm_head upload (first omega call: opens the session)",
+      "measured": 2544119808,
+      "planned": 2544119808
+    },
+    {
+      "call": "gdn alloc",
+      "measured": 10911744,
+      "planned": 10911744
+    },
+    {
+      "call": "attn256 cache alloc",
+      "measured": 22790144,
+      "planned": 22790144
+    },
+    {
+      "call": "L00 gdn qkv|z fp8",
+      "measured": 83906560,
+      "planned": 83906560
+    },
+    {
+      "call": "L00 gdn a|b bf16 (graph)",
+      "measured": 983040,
+      "planned": 983040
+    },
+    {
+      "call": "L00 gdn a|b bf16 (prefill matmul)",
+      "measured": 983040,
+      "planned": 983040
+    },
+    {
+      "call": "L00 gdn out_proj fp8",
+      "measured": 31465472,
+      "planned": 31465472
+    },
+    {
+      "call": "L00 mlp gate|up fp8",
+      "measured": 178302976,
+      "planned": 178302976
+    },
+    {
+      "call": "L00 mlp down fp8",
+      "measured": 89153536,
+      "planned": 89153536
+    },
+    {
+      "call": "L01 gdn qkv|z fp8",
+      "measured": 83906560,
+      "planned": 83906560
+    },
+    {
+      "call": "L01 gdn a|b bf16 (graph)",
+      "measured": 983040,
+      "planned": 983040
+    },
+    {
+      "call": "L01 gdn a|b bf16 (prefill matmul)",
+      "measured": 983040,
+      "planned": 983040
+    },
+    {
+      "call": "L01 gdn out_proj fp8",
+      "measured": 31465472,
+      "planned": 31465472
+    },
+    {
+      "call": "L01 mlp gate|up fp8",
+      "measured": 178302976,
+      "planned": 178302976
+    },
+    {
+      "call": "L01 mlp down fp8",
+      "measured": 89153536,
+      "planned": 89153536
+    },
+    {
+      "call": "L02 gdn qkv|z fp8",
+      "measured": 83906560,
+      "planned": 83906560
+    },
+    {
+      "call": "L02 gdn a|b bf16 (graph)",
+      "measured": 983040,
+      "planned": 983040
+    },
+    {
+      "call": "L02 gdn a|b bf16 (prefill matmul)",
+      "measured": 983040,
+      "planned": 983040
+    },
+    {
+      "call": "L02 gdn out_proj fp8",
+      "measured": 31465472,
+      "planned": 31465472
+    },
+    {
+      "call": "L02 mlp gate|up fp8",
+      "measured": 178302976,
+      "planned": 178302976
+    },
+    {
+      "call": "L02 mlp down fp8",
+      "measured": 89153536,
+      "planned": 89153536
+    },
+    {
+      "call": "L03 attn q|gate|k|v fp8",
+      "measured": 73420800,
+      "planned": 73420800
+    },
+    {
+      "call": "L03 attn o_proj fp8",
+      "measured": 31465472,
+      "planned": 31465472
+    },
+    {
+      "call": "L03 mlp gate|up fp8",
+      "measured": 178302976,
+      "planned": 178302976
+    },
+    {
+      "call": "L03 mlp down fp8",
+      "measured": 89153536,
+      "planned": 89153536
+    },
+    {
+      "call": "q38 graph create",
+      "measured": 6049792,
+      "planned": 6049792
+    },
+    {
+      "call": "prefill buffers",
+      "measured": 670277632,
+      "planned": 670277632
+    },
+    {
+      "call": "first prefill (omega's lazy scratch and kernels)",
+      "measured": 1105326080,
+      "planned": 1105326080
+    },
+    {
+      "call": "first host-path lm_head GEMV",
+      "measured": 1024000,
+      "planned": 1024000
+    },
+    {
+      "call": "first decode step",
+      "measured": 61440,
+      "planned": 61440
+    }
+  ],
+  "check": {
+    "pass": true,
+    "peak_covered": true,
+    "stage": "end",
+    "unaccounted_driver_max": 67108864,
+    "unaccounted_heap_max": 134217728
+  },
+  "entries": [
+    {
+      "bytes": 2542796800,
+      "call": "embedding bf16 [vocab][hidden]",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "embedding bf16 [vocab][hidden]",
+      "owner": "Qwen38Omega.embed",
+      "space": "heap",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 67108864,
+      "call": "process heap: checkpoint index, read buffers, allocator slack",
+      "derived": false,
+      "lifetime": "engine",
+      "name": "process heap: checkpoint index, read buffers, allocator slack",
+      "owner": "process",
+      "space": "heap",
+      "transient": false,
+      "writers": [
+        "load",
+        "prefill"
+      ]
+    },
+    {
+      "bytes": 2542796800,
+      "call": "lm_head upload (first omega call: opens the session)",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "lm_head bf16 [vocab][hidden]",
+      "owner": "Qwen38Omega.lm_head",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 1323008,
+      "call": "lm_head upload (first omega call: opens the session)",
+      "derived": false,
+      "lifetime": "engine",
+      "name": "omega session (pushbuffer, banks, marker, QMD, driver maps)",
+      "owner": "omega session",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "omega session open"
+      ]
+    },
+    {
+      "bytes": 2542796800,
+      "call": "lm_head host copy (read before the upload)",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "lm_head host copy (read before the upload)",
+      "owner": "load_at",
+      "space": "heap",
+      "transient": true,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 495616,
+      "call": "gdn alloc",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "gdn params (conv, A_log, dt_bias, norm)",
+      "owner": "Qwen38Omega.gdn",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load (set_layer)"
+      ]
+    },
+    {
+      "bytes": 884736,
+      "call": "gdn alloc",
+      "derived": true,
+      "lifetime": "conversation",
+      "name": "gdn conv tails",
+      "owner": "Qwen38Omega.gdn",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "gdn decode step",
+        "gdn prefill post"
+      ]
+    },
+    {
+      "bytes": 9437184,
+      "call": "gdn alloc",
+      "derived": true,
+      "lifetime": "conversation",
+      "name": "gdn states (48 x 128x128 f32 per layer)",
+      "owner": "Qwen38Omega.gdn",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "gdn decode step",
+        "gdn prefill scan"
+      ]
+    },
+    {
+      "bytes": 94208,
+      "call": "gdn alloc",
+      "derived": true,
+      "lifetime": "token",
+      "name": "gdn launch buffer",
+      "owner": "Qwen38Omega.gdn",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "gdn decode step"
+      ]
+    },
+    {
+      "bytes": 17846272,
+      "call": "attn256 cache alloc",
+      "derived": true,
+      "lifetime": "conversation",
+      "name": "attn256 KV planes (K|V per layer)",
+      "owner": "Qwen38Omega.attn",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "attn256 decode append",
+        "attn256 prefill append"
+      ]
+    },
+    {
+      "bytes": 4456448,
+      "call": "attn256 cache alloc",
+      "derived": true,
+      "lifetime": "cache",
+      "name": "attn256 RoPE rows",
+      "owner": "Qwen38Omega.attn",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "attn256 cache alloc"
+      ]
+    },
+    {
+      "bytes": 4096,
+      "call": "attn256 cache alloc",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "attn256 q/k norms",
+      "owner": "Qwen38Omega.attn",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load (set_norms)"
+      ]
+    },
+    {
+      "bytes": 483328,
+      "call": "attn256 cache alloc",
+      "derived": true,
+      "lifetime": "token",
+      "name": "attn256 decode scratch (partials, counters, qkv, out)",
+      "owner": "Qwen38Omega.attn",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "attn256 decode"
+      ]
+    },
+    {
+      "bytes": 83906560,
+      "call": "L00 gdn qkv|z fp8",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "L00 gdn qkv|z fp8",
+      "owner": "Qwen38Omega.layers",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 983040,
+      "call": "L00 gdn a|b bf16 (graph)",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "L00 gdn a|b bf16 (graph)",
+      "owner": "Qwen38Omega.layers",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 983040,
+      "call": "L00 gdn a|b bf16 (prefill matmul)",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "L00 gdn a|b bf16 (prefill matmul)",
+      "owner": "Qwen38Omega.layers",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 31465472,
+      "call": "L00 gdn out_proj fp8",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "L00 gdn out_proj fp8",
+      "owner": "Qwen38Omega.layers",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 178302976,
+      "call": "L00 mlp gate|up fp8",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "L00 mlp gate|up fp8",
+      "owner": "Qwen38Omega.layers",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 89153536,
+      "call": "L00 mlp down fp8",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "L00 mlp down fp8",
+      "owner": "Qwen38Omega.layers",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 83906560,
+      "call": "L01 gdn qkv|z fp8",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "L01 gdn qkv|z fp8",
+      "owner": "Qwen38Omega.layers",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 983040,
+      "call": "L01 gdn a|b bf16 (graph)",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "L01 gdn a|b bf16 (graph)",
+      "owner": "Qwen38Omega.layers",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 983040,
+      "call": "L01 gdn a|b bf16 (prefill matmul)",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "L01 gdn a|b bf16 (prefill matmul)",
+      "owner": "Qwen38Omega.layers",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 31465472,
+      "call": "L01 gdn out_proj fp8",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "L01 gdn out_proj fp8",
+      "owner": "Qwen38Omega.layers",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 178302976,
+      "call": "L01 mlp gate|up fp8",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "L01 mlp gate|up fp8",
+      "owner": "Qwen38Omega.layers",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 89153536,
+      "call": "L01 mlp down fp8",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "L01 mlp down fp8",
+      "owner": "Qwen38Omega.layers",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 83906560,
+      "call": "L02 gdn qkv|z fp8",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "L02 gdn qkv|z fp8",
+      "owner": "Qwen38Omega.layers",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 983040,
+      "call": "L02 gdn a|b bf16 (graph)",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "L02 gdn a|b bf16 (graph)",
+      "owner": "Qwen38Omega.layers",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 983040,
+      "call": "L02 gdn a|b bf16 (prefill matmul)",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "L02 gdn a|b bf16 (prefill matmul)",
+      "owner": "Qwen38Omega.layers",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 31465472,
+      "call": "L02 gdn out_proj fp8",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "L02 gdn out_proj fp8",
+      "owner": "Qwen38Omega.layers",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 178302976,
+      "call": "L02 mlp gate|up fp8",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "L02 mlp gate|up fp8",
+      "owner": "Qwen38Omega.layers",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 89153536,
+      "call": "L02 mlp down fp8",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "L02 mlp down fp8",
+      "owner": "Qwen38Omega.layers",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 73420800,
+      "call": "L03 attn q|gate|k|v fp8",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "L03 attn q|gate|k|v fp8",
+      "owner": "Qwen38Omega.layers",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 31465472,
+      "call": "L03 attn o_proj fp8",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "L03 attn o_proj fp8",
+      "owner": "Qwen38Omega.layers",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 178302976,
+      "call": "L03 mlp gate|up fp8",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "L03 mlp gate|up fp8",
+      "owner": "Qwen38Omega.layers",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 89153536,
+      "call": "L03 mlp down fp8",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "L03 mlp down fp8",
+      "owner": "Qwen38Omega.layers",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 356559360,
+      "call": "layer upload host copies (gate|up parts and fused)",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "layer upload host copies (gate|up parts and fused)",
+      "owner": "load_at",
+      "space": "heap",
+      "transient": true,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 1699840,
+      "call": "q38 graph create",
+      "derived": true,
+      "lifetime": "token",
+      "name": "q38 graph buffer (activations, norms, tables)",
+      "owner": "Qwen38Omega.graph",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "decode graph"
+      ]
+    },
+    {
+      "bytes": 4280320,
+      "call": "q38 graph create",
+      "derived": true,
+      "lifetime": "engine",
+      "name": "q38 graph command list (banks, QMDs, semaphores, stamps, scratch)",
+      "owner": "Qwen38Omega.graph",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "decode graph record"
+      ]
+    },
+    {
+      "bytes": 69632,
+      "call": "q38 graph create",
+      "derived": false,
+      "lifetime": "engine",
+      "name": "q38 graph kernel code",
+      "owner": "Qwen38Omega.graph",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "omega code generator"
+      ]
+    },
+    {
+      "bytes": 61440,
+      "call": "first decode step",
+      "derived": false,
+      "lifetime": "engine",
+      "name": "first decode step (lazy omega allocations)",
+      "owner": "Qwen38Omega.graph",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "omega"
+      ]
+    },
+    {
+      "bytes": 1015808,
+      "call": "first host-path lm_head GEMV",
+      "derived": true,
+      "lifetime": "token",
+      "name": "bf16 GEMV staging (lm_head x, y)",
+      "owner": "omega bf16 gemv",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "head_logits"
+      ]
+    },
+    {
+      "bytes": 8192,
+      "call": "first host-path lm_head GEMV",
+      "derived": false,
+      "lifetime": "engine",
+      "name": "lm_head GEMV kernel code",
+      "owner": "omega bf16 gemv",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "omega code generator"
+      ]
+    },
+    {
+      "bytes": 184320,
+      "call": "norms f32 (input, post-attention per layer; final)",
+      "derived": true,
+      "lifetime": "weights",
+      "name": "norms f32 (input, post-attention per layer; final)",
+      "owner": "Qwen38Omega.norms",
+      "space": "heap",
+      "transient": false,
+      "writers": [
+        "load"
+      ]
+    },
+    {
+      "bytes": 100663296,
+      "call": "prefill buffers",
+      "derived": true,
+      "lifetime": "token",
+      "name": "prefill xin HOST f32 [m][6144]",
+      "owner": "Qwen38Omega.pf",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "host norm",
+        "host gate"
+      ]
+    },
+    {
+      "bytes": 72417280,
+      "call": "prefill buffers",
+      "derived": true,
+      "lifetime": "token",
+      "name": "prefill xq DEV e4m3 [m+bm][17408]",
+      "owner": "Qwen38Omega.pf",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "pf quant"
+      ]
+    },
+    {
+      "bytes": 2265088,
+      "call": "prefill buffers",
+      "derived": true,
+      "lifetime": "token",
+      "name": "prefill xs DEV f32 scales [m+bm][136]",
+      "owner": "Qwen38Omega.pf",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "pf quant"
+      ]
+    },
+    {
+      "bytes": 268435456,
+      "call": "prefill buffers",
+      "derived": true,
+      "lifetime": "token",
+      "name": "prefill mix HOST f32 [m][16384]",
+      "owner": "Qwen38Omega.pf",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "pf qgemm (mixer)"
+      ]
+    },
+    {
+      "bytes": 142606336,
+      "call": "prefill buffers",
+      "derived": true,
+      "lifetime": "token",
+      "name": "prefill act DEV bf16 [m][17408]",
+      "owner": "Qwen38Omega.pf",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "pf qgemm (gate|up SwiGLU)"
+      ]
+    },
+    {
+      "bytes": 83886080,
+      "call": "prefill buffers",
+      "derived": true,
+      "lifetime": "token",
+      "name": "prefill out HOST f32 [m][5120]",
+      "owner": "Qwen38Omega.pf",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "pf qgemm (o_proj, down)"
+      ]
+    },
+    {
+      "bytes": 4096,
+      "call": "prefill buffers",
+      "derived": true,
+      "lifetime": "token",
+      "name": "prefill GEMM tile table",
+      "owner": "Qwen38Omega.pf",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "host tiles"
+      ]
+    },
+    {
+      "bytes": 57344,
+      "call": "prefill gather table",
+      "derived": true,
+      "lifetime": "cache",
+      "name": "prefill gather table",
+      "owner": "Qwen38Omega.pf",
+      "space": "heap",
+      "transient": false,
+      "writers": [
+        "pf open"
+      ]
+    },
+    {
+      "bytes": 776470528,
+      "call": "first prefill (omega's lazy scratch and kernels)",
+      "derived": true,
+      "lifetime": "token",
+      "name": "gdn prefill scratch (qkv, z, ab, out, o, records)",
+      "owner": "omega gdn",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "gdn prefill"
+      ]
+    },
+    {
+      "bytes": 285212672,
+      "call": "first prefill (omega's lazy scratch and kernels)",
+      "derived": true,
+      "lifetime": "token",
+      "name": "attn256 prefill staging (qf, qkv, out)",
+      "owner": "omega prefill attn256",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "attn256 prefill"
+      ]
+    },
+    {
+      "bytes": 43515904,
+      "call": "first prefill (omega's lazy scratch and kernels)",
+      "derived": true,
+      "lifetime": "token",
+      "name": "resident matmul staging (a|b: A bf16, C f32)",
+      "owner": "omega matmul",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "a|b matmul"
+      ]
+    },
+    {
+      "bytes": 126976,
+      "call": "first prefill (omega's lazy scratch and kernels)",
+      "derived": false,
+      "lifetime": "engine",
+      "name": "prefill kernel code",
+      "owner": "omega",
+      "space": "driver",
+      "transient": false,
+      "writers": [
+        "omega code generator"
+      ]
+    },
+    {
+      "bytes": 806879232,
+      "call": "prefill chunk host vectors (x, xn, att, mix, qkv, z, ab)",
+      "derived": true,
+      "lifetime": "token",
+      "name": "prefill chunk host vectors (x, xn, att, mix, qkv, z, ab)",
+      "owner": "prefill_chunk",
+      "space": "heap",
+      "transient": true,
+      "writers": [
+        "host"
+      ]
+    }
+  ],
+  "label": "qwen38_prefill end",
+  "mismatches": [],
+  "now": {
+    "driver_maps": 111,
+    "driver_rss": 5887221760,
+    "driver_size": 5887287296,
+    "file_rss": 3919872,
+    "heap": 2569076736,
+    "mem_available": 62642552832,
+    "omega_alloc_bytes": 5668814848,
+    "omega_allocs": 104,
+    "omega_frees": 0,
+    "vm_hwm": 9195065344,
+    "vm_rss": 8460218368
+  },
+  "storage_map": 1,
+  "totals": {
+    "driver_by_lifetime": {
+      "cache": 4456448,
+      "conversation": 28168192,
+      "engine": 5869568,
+      "token": 1778769920,
+      "weights": 4070023168
+    },
+    "heap_by_lifetime": {
+      "cache": 57344,
+      "conversation": 0,
+      "engine": 67108864,
+      "token": 806879232,
+      "weights": 5442337280
+    },
+    "held_driver": 5887287296,
+    "held_heap": 2568638464,
+    "held_peak": 9192120320,
+    "measured_driver_calls": 5887287296,
+    "named": 8497434624,
+    "named_driver": 5887287296,
+    "named_heap": 2610147328,
+    "peak_margin": 112193536,
+    "planned_peak": 9304313856,
+    "unaccounted_driver": 0,
+    "unaccounted_heap": -41508864
+  },
+  "unprobed": []
+}

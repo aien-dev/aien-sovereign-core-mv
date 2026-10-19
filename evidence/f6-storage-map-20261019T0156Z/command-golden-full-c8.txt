@@ -1,0 +1,1 @@
+flock /tmp/aien-gb10.lock /tmp/f6-storage-map-scratch/qwen38_prefill.r5 golden /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a /home/drakestapleton/handoffs/qwen38-ref/gen-chat-max-24.json 8 evidence/f6-storage-map-20261019T0156Z/golden-full-c8.json

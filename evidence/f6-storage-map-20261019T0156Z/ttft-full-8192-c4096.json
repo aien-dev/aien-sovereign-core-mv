@@ -1,0 +1,59 @@
+{
+  "chunk": 4096,
+  "corpus": "/tmp/f6-storage-map-scratch/corpus-32768.txt",
+  "mode": "ttft",
+  "runs": [
+    {
+      "first_token": 65,
+      "stats": {
+        "ab_call_ns": 1918136744,
+        "attn_call_ns": 2939202855,
+        "attn_chip_ns": 1792191610,
+        "chunks": 2,
+        "gdn_call_ns": 5354312815,
+        "gdn_chip_ns": 1629954397,
+        "gemm_call_ns": 19925147466,
+        "gemm_chip_ns": 19916198470,
+        "gemm_launches": 1024,
+        "head_ns": 250953910,
+        "host_ns": 11947238672,
+        "tokens": 8192,
+        "wall_ns": 52134463174
+      },
+      "tokens": 8192,
+      "ttft_s": 52.134463174
+    }
+  ],
+  "storage_map": {
+    "mismatches": [],
+    "pass": true,
+    "stage": "end",
+    "totals": {
+      "driver_by_lifetime": {
+        "cache": 8388608,
+        "conversation": 702349312,
+        "engine": 5869568,
+        "token": 1781604352,
+        "weights": 26978365440
+      },
+      "heap_by_lifetime": {
+        "cache": 57344,
+        "conversation": 0,
+        "engine": 140668928,
+        "token": 806879232,
+        "weights": 5444794880
+      },
+      "held_driver": 29476515840,
+      "held_heap": 2621661184,
+      "held_peak": 32901255168,
+      "measured_driver_calls": 29476515840,
+      "named": 32162742272,
+      "named_driver": 29476577280,
+      "named_heap": 2686164992,
+      "peak_margin": 68366336,
+      "planned_peak": 32969621504,
+      "unaccounted_driver": -61440,
+      "unaccounted_heap": -64503808
+    }
+  }
+}

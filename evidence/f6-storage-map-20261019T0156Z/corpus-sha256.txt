@@ -1,0 +1,2 @@
+0fdee20e683131f48408fc4db9f7231e9ea7d9f264450bff3a84c0f5e54679fa  /tmp/f6-storage-map-scratch/corpus-32768.txt
+corpus = ~/yardsticks/qwen38-27b/prompts/prompt-32768.txt (copied to /tmp/f6-storage-map-scratch/corpus-32768.txt)

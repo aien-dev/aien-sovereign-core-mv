@@ -1,0 +1,68 @@
+STORAGE MAP qwen38_prefill end
+name                                         space           bytes lifetime     owner                      writers
+embedding bf16 [vocab][hidden]               heap       2542796800 weights      Qwen38Omega.embed          load
+process heap: checkpoint index, read buffers, allocator slack heap         67108864 engine       process                    load,prefill [allowance, not derived]
+lm_head bf16 [vocab][hidden]                 driver     2542796800 weights      Qwen38Omega.lm_head        load
+omega session (pushbuffer, banks, marker, QMD, driver maps) driver        1323008 engine       omega session              omega session open [allowance, not derived]
+lm_head host copy (read before the upload)   heap       2542796800 weights      load_at                    load [transient]
+gdn params (conv, A_log, dt_bias, norm)      driver         495616 weights      Qwen38Omega.gdn            load (set_layer)
+gdn conv tails                               driver         884736 conversation Qwen38Omega.gdn            gdn decode step,gdn prefill post
+gdn states (48 x 128x128 f32 per layer)      driver        9437184 conversation Qwen38Omega.gdn            gdn decode step,gdn prefill scan
+gdn launch buffer                            driver          94208 token        Qwen38Omega.gdn            gdn decode step
+attn256 KV planes (K|V per layer)            driver        2117632 conversation Qwen38Omega.attn           attn256 decode append,attn256 prefill append
+attn256 RoPE rows                            driver         524288 cache        Qwen38Omega.attn           attn256 cache alloc
+attn256 q/k norms                            driver           4096 weights      Qwen38Omega.attn           load (set_norms)
+attn256 decode scratch (partials, counters, qkv, out) driver         114688 token        Qwen38Omega.attn           attn256 decode
+L00 gdn qkv|z fp8                            driver       83906560 weights      Qwen38Omega.layers         load
+L00 gdn a|b bf16 (graph)                     driver         983040 weights      Qwen38Omega.layers         load
+L00 gdn a|b bf16 (prefill matmul)            driver         983040 weights      Qwen38Omega.layers         load
+L00 gdn out_proj fp8                         driver       31465472 weights      Qwen38Omega.layers         load
+L00 mlp gate|up fp8                          driver      178302976 weights      Qwen38Omega.layers         load
+L00 mlp down fp8                             driver       89153536 weights      Qwen38Omega.layers         load
+L01 gdn qkv|z fp8                            driver       83906560 weights      Qwen38Omega.layers         load
+L01 gdn a|b bf16 (graph)                     driver         983040 weights      Qwen38Omega.layers         load
+L01 gdn a|b bf16 (prefill matmul)            driver         983040 weights      Qwen38Omega.layers         load
+L01 gdn out_proj fp8                         driver       31465472 weights      Qwen38Omega.layers         load
+L01 mlp gate|up fp8                          driver      178302976 weights      Qwen38Omega.layers         load
+L01 mlp down fp8                             driver       89153536 weights      Qwen38Omega.layers         load
+L02 gdn qkv|z fp8                            driver       83906560 weights      Qwen38Omega.layers         load
+L02 gdn a|b bf16 (graph)                     driver         983040 weights      Qwen38Omega.layers         load
+L02 gdn a|b bf16 (prefill matmul)            driver         983040 weights      Qwen38Omega.layers         load
+L02 gdn out_proj fp8                         driver       31465472 weights      Qwen38Omega.layers         load
+L02 mlp gate|up fp8                          driver      178302976 weights      Qwen38Omega.layers         load
+L02 mlp down fp8                             driver       89153536 weights      Qwen38Omega.layers         load
+L03 attn q|gate|k|v fp8                      driver       73420800 weights      Qwen38Omega.layers         load
+L03 attn o_proj fp8                          driver       31465472 weights      Qwen38Omega.layers         load
+L03 mlp gate|up fp8                          driver      178302976 weights      Qwen38Omega.layers         load
+L03 mlp down fp8                             driver       89153536 weights      Qwen38Omega.layers         load
+layer upload host copies (gate|up parts and fused) heap        356559360 weights      load_at                    load [transient]
+q38 graph buffer (activations, norms, tables) driver        1699840 token        Qwen38Omega.graph          decode graph
+q38 graph command list (banks, QMDs, semaphores, stamps, scratch) driver        4280320 engine       Qwen38Omega.graph          decode graph record
+q38 graph kernel code                        driver          69632 engine       Qwen38Omega.graph          omega code generator [allowance, not derived]
+first decode step (lazy omega allocations)   driver          61440 engine       Qwen38Omega.graph          omega [allowance, not derived]
+bf16 GEMV staging (lm_head x, y)             driver        1015808 token        omega bf16 gemv            head_logits
+lm_head GEMV kernel code                     driver           8192 engine       omega bf16 gemv            omega code generator [allowance, not derived]
+norms f32 (input, post-attention per layer; final) heap           184320 weights      Qwen38Omega.norms          load
+prefill xin HOST f32 [m][6144]               driver        3145728 token        Qwen38Omega.pf             host norm,host gate
+prefill xq DEV e4m3 [m+bm][17408]            driver        3342336 token        Qwen38Omega.pf             pf quant
+prefill xs DEV f32 scales [m+bm][136]        driver         106496 token        Qwen38Omega.pf             pf quant
+prefill mix HOST f32 [m][16384]              driver        8388608 token        Qwen38Omega.pf             pf qgemm (mixer)
+prefill act DEV bf16 [m][17408]              driver        4456448 token        Qwen38Omega.pf             pf qgemm (gate|up SwiGLU)
+prefill out HOST f32 [m][5120]               driver        2621440 token        Qwen38Omega.pf             pf qgemm (o_proj, down)
+prefill GEMM tile table                      driver           4096 token        Qwen38Omega.pf             host tiles
+prefill gather table                         heap            57344 cache        Qwen38Omega.pf             pf open
+gdn prefill scratch (qkv, z, ab, out, o, records) driver       24264704 token        omega gdn                  gdn prefill
+attn256 prefill staging (qf, qkv, out)       driver        8912896 token        omega prefill attn256      attn256 prefill
+resident matmul staging (a|b: A bf16, C f32) driver        1359872 token        omega matmul               a|b matmul
+prefill kernel code                          driver         126976 engine       omega                      omega code generator [allowance, not derived]
+prefill chunk host vectors (x, xn, att, mix, qkv, z, ab) heap         25214976 token        prefill_chunk              host [transient]
+planned peak 7696822272 (7340.3 MiB), held peak (VmHWM - baseline VmRSS) 7630766080 (7277.3 MiB), peak margin 66056192
+named driver by lifetime: weights=4070023168 conversation=12439552 token=59527168 cache=524288 engine=5869568
+named heap by lifetime: weights=5442337280 conversation=0 token=25214976 cache=57344 engine=67108864
+named driver 4148383744 (3956.2 MiB), held driver 4148387840 (3956.2 MiB), UNACCOUNTED driver 4096
+named heap 2610147328 (2489.2 MiB), held heap 2572632064 (2453.5 MiB), UNACCOUNTED heap -37515264
+named total 6758531072 (6445.4 MiB); VmRSS 6725271552 VmHWM 7633715200 MemAvailable 64667435008; driver maps 112 (rss 4148322304); omega counters allocs Some(105) bytes Some(4139298816) frees Some(0)
+probed calls 30: measured driver 4148387840 vs planned 4148383744; unprobed calls: []
+plan vs measured mismatches: 1
+  first prefill (omega's lazy scratch and kernels): planned 34664448 measured 34668544 (diff 4096)
+storage check (end): |unaccounted driver| 4096 <= 67108864, |unaccounted heap| 37515264 <= 134217728, planned peak >= held peak true: PASS

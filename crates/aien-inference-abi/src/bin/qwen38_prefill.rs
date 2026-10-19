@@ -32,7 +32,7 @@ use std::time::Instant;
 use aien_inference_abi::qwen38::{argmax, Qwen38Config};
 use aien_inference_abi::qwen38_omega::{storage, PrefillStats, Qwen38Omega};
 use aien_inference_abi::qwen3_moe::parity_stats;
-use aien_inference_abi::storage_map::{ProcMemory, Receipt, Space};
+use aien_inference_abi::storage_map::{Lifetime, ProcMemory, Receipt, Space, StorageMap};
 use aien_inference_abi::tokenizer::ChatTokenizer;
 use aien_omega_pf::{OmegaPfDevice, PfBuffer, PfMem, PrefillDevice};
 use serde_json::{json, Value};
@@ -64,6 +64,27 @@ static MAP_OUT: OnceLock<String> = OnceLock::new();
 /// The negative control's blocks (AIEN_STORAGE_MAP_LEAK_BYTES): made after the load, never
 /// registered in the map, kept until the process ends.
 static LEAK: Mutex<Vec<(PfMem, Vec<u8>)>> = Mutex::new(Vec::new());
+/// Heap the process held beyond the baseline just before the model opened (the tokenizer and
+/// corpus of the ttft mode, the allocator's keep of them): measured there, named in every receipt.
+static PRE_OPEN_HEAP: OnceLock<u64> = OnceLock::new();
+
+/// The model's map with the pre-open heap named first (it is there before the model is).
+fn run_map(e: &Qwen38Omega) -> StorageMap {
+    let mut m = StorageMap::new();
+    let pre = PRE_OPEN_HEAP.get().copied().unwrap_or(0);
+    let x = m.add(
+        "process heap before the model (tokenizer, corpus; measured)",
+        Space::Heap,
+        pre,
+        "qwen38_prefill",
+        &["mode setup"],
+        Lifetime::Engine,
+    );
+    x.derived = false;
+    m.entries.extend(e.storage_map().entries.iter().cloned());
+    m.measured = e.storage_map().measured.clone();
+    m
+}
 
 /// Unaccounted bytes a run may hold, per space, before its storage check fails; set from the
 /// measured clean runs (evidence/f6-storage-map-*/).
@@ -94,7 +115,7 @@ fn storage_receipt(e: &Qwen38Omega, stage: &str) -> Result<(bool, Value), String
     let base = *BASELINE.get().ok_or("no baseline")?;
     let r = Receipt::new(
         format!("qwen38_prefill {stage}"),
-        e.storage_map().clone(),
+        run_map(e),
         base,
         ProcMemory::read()?,
     );
@@ -158,7 +179,10 @@ fn open_layers(
             .prefix(n)
             .ok_or_else(|| format!("layers {n}: outside the model"))?,
     };
-    let need = need_bytes(&c, max_pos, chunk.min(max_pos));
+    let base = BASELINE.get().ok_or("no baseline")?.heap;
+    let pre = ProcMemory::read()?.heap.saturating_sub(base);
+    let _ = PRE_OPEN_HEAP.set(pre);
+    let need = need_bytes(&c, max_pos, chunk.min(max_pos)) + pre;
     let avail = mem_available()?;
     if avail < need + KEEP_FREE {
         return Err(format!(

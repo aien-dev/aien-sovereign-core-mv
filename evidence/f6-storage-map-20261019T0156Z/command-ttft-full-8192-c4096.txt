@@ -1,0 +1,1 @@
+flock /tmp/aien-gb10.lock /tmp/f6-storage-map-scratch/qwen38_prefill.r5 ttft /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a /tmp/f6-storage-map-scratch/corpus-32768.txt 8192 4096 evidence/f6-storage-map-20261019T0156Z/ttft-full-8192-c4096.json

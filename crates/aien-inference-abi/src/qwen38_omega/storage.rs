@@ -542,7 +542,7 @@ mod tests {
     use super::*;
 
     /// The Qwen3.8-27B text config (HF config @ 017b9c7a, every 4th layer full attention).
-    fn config() -> Qwen38Config {
+    pub(super) fn config_27b() -> Qwen38Config {
         Qwen38Config {
             hidden: 5120,
             layers: 64,
@@ -576,7 +576,7 @@ mod tests {
 
     #[test]
     fn plan_names_every_layer_and_is_stable() {
-        let c = config();
+        let c = config_27b();
         let a = plan(&c, 4096, Some((256, 128)));
         let b = plan(&c, 4096, Some((256, 128)));
         assert_eq!(a, b);
@@ -591,7 +591,7 @@ mod tests {
 
     #[test]
     fn plan_counts_what_the_old_estimate_missed() {
-        let c = config();
+        let c = config_27b();
         let s = plan(&c, 131072, Some((4096, 128)));
         // The host embedding: 248320 x 5120 bf16.
         assert_eq!(
@@ -605,5 +605,25 @@ mod tests {
             s.peak() > s.total(None),
             "the chunk vectors count in the peak only"
         );
+    }
+}
+
+#[cfg(test)]
+mod incident {
+    /// The 2026-10-18 19:20Z near miss: cold TTFT at 131072 tokens in chunks of 4096 (bm 64 on
+    /// the GB10, `omega_gpu_pf_qgemm_bm`). The old formula said 35509 MiB; the process held
+    /// about 39 GiB. Prints the plan's figure for the receipt.
+    #[test]
+    fn plan_at_128k_chunk_4096() {
+        let c = super::tests::config_27b();
+        let s = super::plan(&c, 131072, Some((4096, 64)));
+        println!(
+            "PLAN 128k c4096: held {} peak {} (MiB {} / {})",
+            s.total(None),
+            s.peak(),
+            s.total(None) >> 20,
+            s.peak() >> 20
+        );
+        assert!(s.peak() >> 20 > 35509);
     }
 }

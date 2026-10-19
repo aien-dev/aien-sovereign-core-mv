@@ -1,0 +1,82 @@
+{
+  "chunk": 256,
+  "layers": 4,
+  "mismatched_calls": 5,
+  "mode": "storage",
+  "pass": false,
+  "stats": {
+    "ab_call_ns": 13465267,
+    "attn_call_ns": 7996270,
+    "attn_chip_ns": 2557017,
+    "chunks": 2,
+    "gdn_call_ns": 25828430,
+    "gdn_chip_ns": 8862087,
+    "gemm_call_ns": 79431429,
+    "gemm_chip_ns": 77205360,
+    "gemm_launches": 64,
+    "head_ns": 113265554,
+    "host_ns": 37390303,
+    "tokens": 512,
+    "wall_ns": 438174166
+  },
+  "storage_map": {
+    "mismatches": [
+      {
+        "measured": 2544119808,
+        "name": "lm_head upload (first omega call: opens the session)",
+        "planned": 2542796800
+      },
+      {
+        "measured": 6049792,
+        "name": "q38 graph create",
+        "planned": 5980160
+      },
+      {
+        "measured": 69201920,
+        "name": "first prefill (omega's lazy scratch and kernels)",
+        "planned": 136183808
+      },
+      {
+        "measured": 1024000,
+        "name": "first host-path lm_head GEMV",
+        "planned": 1015808
+      },
+      {
+        "measured": 61440,
+        "name": "first decode step",
+        "planned": 0
+      }
+    ],
+    "pass": false,
+    "stage": "end",
+    "totals": {
+      "driver_by_lifetime": {
+        "cache": 786432,
+        "conversation": 13488128,
+        "engine": 4280320,
+        "token": 182108160,
+        "weights": 4070023168
+      },
+      "heap_by_lifetime": {
+        "cache": 57344,
+        "conversation": 0,
+        "engine": 0,
+        "token": 50429952,
+        "weights": 2542981120
+      },
+      "held_driver": 4205166592,
+      "held_heap": 2597814272,
+      "held_peak": 7629930496,
+      "measured_driver_calls": 4205166592,
+      "named": 6813724672,
+      "named_driver": 4270686208,
+      "named_heap": 2543038464,
+      "peak_margin": -765775872,
+      "planned_peak": 6864154624,
+      "unaccounted_driver": -65519616,
+      "unaccounted_heap": 54775808
+    }
+  },
+  "tokens": 512,
+  "unprobed_calls": 0
+}

@@ -1,0 +1,128 @@
+{
+  "chunk": 8,
+  "control_cosine_vs_previous_position": 0.4139962431040394,
+  "cosine_min": 0.999,
+  "cosine_vs_decode_graph": 0.9928993630379012,
+  "expected": [
+    71093,
+    66,
+    198,
+    390,
+    1866,
+    1494,
+    264,
+    11,
+    514,
+    292,
+    8,
+    313,
+    198,
+    262,
+    460,
+    318,
+    64,
+    835,
+    292,
+    8,
+    907,
+    264,
+    535,
+    292
+  ],
+  "first_token_decode_graph": 71093,
+  "first_token_prefill": 71093,
+  "generated": [
+    71093,
+    66,
+    198,
+    390,
+    1866,
+    1494,
+    264,
+    11,
+    514,
+    292,
+    8,
+    313,
+    198,
+    262,
+    460,
+    318,
+    64,
+    835,
+    292,
+    8,
+    907,
+    264,
+    535,
+    292
+  ],
+  "max_abs_vs_decode_graph": 1.010373592376709,
+  "mode": "golden",
+  "pass": false,
+  "prompt_tokens": 24,
+  "stats": {
+    "ab_call_ns": 21942591,
+    "attn_call_ns": 13191122,
+    "attn_chip_ns": 10477943,
+    "chunks": 3,
+    "gdn_call_ns": 66839134,
+    "gdn_chip_ns": 59336580,
+    "gemm_call_ns": 460913969,
+    "gemm_chip_ns": 457355377,
+    "gemm_launches": 1536,
+    "head_ns": 259494912,
+    "host_ns": 152672398,
+    "tokens": 24,
+    "wall_ns": 1521923123
+  },
+  "storage_map": {
+    "mismatches": [
+      {
+        "measured": 69632,
+        "name": "first decode step",
+        "planned": 61440
+      },
+      {
+        "measured": 2371584,
+        "name": "first prefill (omega's lazy scratch and kernels)",
+        "planned": 2375680
+      },
+      {
+        "measured": 1015808,
+        "name": "first host-path lm_head GEMV",
+        "planned": 1024000
+      }
+    ],
+    "pass": true,
+    "stage": "end",
+    "totals": {
+      "driver_by_lifetime": {
+        "cache": 262144,
+        "conversation": 182255616,
+        "engine": 5869568,
+        "token": 10072064,
+        "weights": 26978365440
+      },
+      "heap_by_lifetime": {
+        "cache": 57344,
+        "conversation": 0,
+        "engine": 67301376,
+        "token": 1575936,
+        "weights": 5444794880
+      },
+      "held_driver": 27176820736,
+      "held_heap": 2554089472,
+      "held_peak": 29799473152,
+      "measured_driver_calls": 27176820736,
+      "named": 29789622272,
+      "named_driver": 27176824832,
+      "named_heap": 2612797440,
+      "peak_margin": 329574912,
+      "planned_peak": 30129048064,
+      "unaccounted_driver": -4096,
+      "unaccounted_heap": -58707968
+    }
+  },
+  "tokens_equal": true
+}

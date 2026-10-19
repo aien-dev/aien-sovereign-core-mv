@@ -1,0 +1,56 @@
+{
+  "chunk": 256,
+  "layers": 4,
+  "mismatched_calls": 0,
+  "mode": "storage",
+  "pass": false,
+  "stats": {
+    "ab_call_ns": 8857538,
+    "attn_call_ns": 8545377,
+    "attn_chip_ns": 2038675,
+    "chunks": 2,
+    "gdn_call_ns": 24309416,
+    "gdn_chip_ns": 7940749,
+    "gemm_call_ns": 76893162,
+    "gemm_chip_ns": 75015463,
+    "gemm_launches": 64,
+    "head_ns": 102733776,
+    "host_ns": 38051674,
+    "tokens": 512,
+    "wall_ns": 436152077
+  },
+  "storage_map": {
+    "mismatches": [],
+    "pass": false,
+    "stage": "end",
+    "totals": {
+      "driver_by_lifetime": {
+        "cache": 786432,
+        "conversation": 13488128,
+        "engine": 5869568,
+        "token": 114999296,
+        "weights": 4070023168
+      },
+      "heap_by_lifetime": {
+        "cache": 57344,
+        "conversation": 0,
+        "engine": 67108864,
+        "token": 50429952,
+        "weights": 5442337280
+      },
+      "held_driver": 4473602048,
+      "held_heap": 2866274304,
+      "held_peak": 7631601664,
+      "measured_driver_calls": 4205166592,
+      "named": 6815313920,
+      "named_driver": 4205166592,
+      "named_heap": 2610147328,
+      "peak_margin": 65220608,
+      "planned_peak": 7696822272,
+      "unaccounted_driver": 268435456,
+      "unaccounted_heap": 256126976
+    }
+  },
+  "tokens": 512,
+  "unprobed_calls": 0
+}
