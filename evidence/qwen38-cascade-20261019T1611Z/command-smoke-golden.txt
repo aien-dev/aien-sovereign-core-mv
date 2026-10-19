@@ -1,0 +1,5 @@
+bin sha 9aece7168e8ce5baa42fd0dce97f19858afcb2899dfd2e7f06d54fb475d051f8
+lib ~/workspace/targets/q38-f7-omega/libomega_gpu.a sha 6e90520913032ee8653ebbe325c485d329daa0a749840303a44b68b97ca17bff (omega 37034f03)
+flock /tmp/aien-gb10.lock nice -n 10 /home/drakestapleton/workspace/targets/sc-cascade/release/qwen38_spec gen /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a evidence/qwen38-cascade-20261019T1611Z/smoke-golden.json --prompt golden --golden /home/drakestapleton/handoffs/qwen38-ref/gen-chat-max-24.json --n 64 --k 0,4,8
+2026-10-19T16:11:51Z
+exit 0 2026-10-19T16:17:04Z

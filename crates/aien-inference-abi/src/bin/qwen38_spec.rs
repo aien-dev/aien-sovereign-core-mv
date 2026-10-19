@@ -7,9 +7,14 @@
 //!     - rollback: snapshot, a 5-row pass, restore, replay of j rows leaves the DeltaNet state
 //!       bit for bit where j one-row passes leave it (control: replay j + 1 rows);
 //!     - costs: snapshot, restore, exact pass at m = 1 and 5, decode graph token.
-//!   qwen38_spec gen <checkpoint-dir> <out.json> [--k 0,1,2,3,4] [--n 256] [--prompt code|codelong|prose|tune|golden]
+//!   qwen38_spec gen <checkpoint-dir> <out.json> [--k 0,1,2,3,4] [--n 256] [--prompt code|codelong|codeedit|quote|prose|tune|golden]
 //!                   [--order embed|hidden] [--normed 0|1] [--offset 0|1] [--mutant none|extra|norollback|rowshift]
 //!                   [--graph 0|1] [--golden <gen-chat-max-24.json>] [--weights fp8|mxfp4]
+//!                   [--rows all|accepted] [--source mtp|ngram|ngram-first|agree|merge] [--ngram <max>,<min>]
+//!     k up to 8 (the cascade's chain). --rows all (default) runs the lm_head and the MTP head on every
+//!     row of the verify pass (the cascade shape); accepted runs them on the accepted rows only (the
+//!     pre-cascade shape, fewer lm_head calls today). --source picks the draft source: the MTP chain,
+//!     the prompt-lookup n-gram drafter (spans of <max> down to <min> tokens, default 6,2), or a mix.
 //!     The whole model. For each k: greedy tokens, acceptance, wall per token and its parts; PASS when
 //!     every k > 0 run's tokens equal the k = 0 run's (the same exact path one token at a time) and,
 //!     with --golden on the golden prompt, the first 24 equal the golden record. --graph 1 also runs
@@ -31,7 +36,8 @@ use std::time::Instant;
 use aien_inference_abi::qwen38::Qwen38Config;
 use aien_inference_abi::qwen38_omega::spec::argmax;
 use aien_inference_abi::qwen38_omega::spec::{
-    generate, FcOrder, GdnRows, Mtp, MtpOptions, RowStats, SpecMutant, SpecRun,
+    generate, DraftSource, FcOrder, GdnRows, HeadRows, Mtp, MtpOptions, NgramDraft, RowStats,
+    SpecMutant, SpecOptions, SpecRun, VerifyKernel,
 };
 use aien_inference_abi::qwen38_omega::{need_bytes, w4, Qwen38Omega, Qwen38Snapshot};
 use aien_inference_abi::tokenizer::{ChatOptions, ChatTokenizer};
@@ -45,6 +51,43 @@ const PROMPT_CODE: &str = "Write a C function that returns the larger of two int
 const PROMPT_PROSE: &str = "Write a short story, about three paragraphs, about a lighthouse keeper who finds a message in a bottle.";
 const PROMPT_TUNE: &str = "Explain how the gears on a bicycle work and when a rider should shift.";
 const PROMPT_CODE_LONG: &str = "Write a C program that reads lines from standard input, counts how often each word appears using a hash table you implement yourself, and prints the 10 most frequent words. Include comments.";
+const PROMPT_CODE_EDIT: &str = "Here is a C function:
+
+```c
+#include <stdio.h>
+#include <string.h>
+
+static int count_words(const char *line) {
+    int count = 0;
+    int in_word = 0;
+    for (const char *p = line; *p; p++) {
+        if (*p == ' ' || *p == '\t' || *p == '\n') {
+            in_word = 0;
+        } else if (!in_word) {
+            in_word = 1;
+            count++;
+        }
+    }
+    return count;
+}
+
+int main(void) {
+    char line[1024];
+    int total = 0;
+    while (fgets(line, sizeof line, stdin)) {
+        total += count_words(line);
+    }
+    printf(\"%d\\n\", total);
+    return 0;
+}
+```
+
+Change it so that it also counts lines and characters, and prints all three numbers on one line separated by spaces. Return the complete modified program and nothing else.";
+const PROMPT_QUOTE: &str = "Read this passage:
+
+The lighthouse at Point Harrow was built in 1847 from local granite, and for the first sixty years its lamp burned whale oil carried up the spiral stair by hand every evening. The keeper, a position held by the same family for three generations, lived in the small cottage at its base with a vegetable garden walled against the wind. In 1908 the oil lamp was replaced by an acetylene burner that could be left to run through the night, and the keeper's duties shrank to cleaning the lens and keeping the log. The lens itself, a second-order Fresnel made in Paris, weighs nearly two tonnes and floats on a bath of mercury so that a clockwork motor can turn it with one finger. Ships approaching from the south see one long flash every fifteen seconds; from the north, where the rocks are worse, the pattern is two short flashes. The station was automated in 1974 and the cottage is now a museum open on summer weekends. Visitors who climb the one hundred and twelve steps can still see the brass plate recording the names of the eleven keepers.
+
+First, quote word for word the sentence about the lens. Then quote word for word the sentence about what ships see. Then say in one sentence why the two flash patterns differ.";
 
 fn mem_available() -> Result<u64, String> {
     let m = std::fs::read_to_string("/proc/meminfo").map_err(|e| format!("/proc/meminfo: {e}"))?;
@@ -104,7 +147,13 @@ fn prompt_ids(dir: &Path, which: &str, golden: Option<&Value>) -> Result<Vec<u32
         "prose" => PROMPT_PROSE,
         "tune" => PROMPT_TUNE,
         "codelong" => PROMPT_CODE_LONG,
-        other => return Err(format!("--prompt {other}: code|codelong|prose|tune|golden")),
+        "codeedit" => PROMPT_CODE_EDIT,
+        "quote" => PROMPT_QUOTE,
+        other => {
+            return Err(format!(
+                "--prompt {other}: code|codelong|codeedit|quote|prose|tune|golden"
+            ))
+        }
     };
     let tok = ChatTokenizer::from_model_dir(dir, None).map_err(|e| e.to_string())?;
     let opts = ChatOptions {
@@ -349,6 +398,12 @@ fn run_json(k: usize, r: &SpecRun) -> Value {
         "decode_ms_per_token": ms(r.decode_ns) / (gen - 1.0).max(1.0),
         "draft_ms": ms(r.draft_ns), "verify_ms": ms(r.verify_ns), "snapshot_ms": ms(r.snapshot_ns),
         "rollback_ms": ms(r.rollback_ns), "main": stats_json(&r.main), "mtp": stats_json(&r.mtp),
+        "ngram_rounds": r.ngram_rounds, "ngram_drafted": r.ngram_drafted, "ngram_accepted": r.ngram_accepted,
+        "accepted_hist": r.accepted_hist,
+        "accepted_per_round": if r.rounds > 0 { r.accepted as f64 / r.rounds as f64 } else { 0.0 },
+        "verify_ms_per_round": if r.rounds > 0 { ms(r.verify_ns) / r.rounds as f64 } else { 0.0 },
+        "draft_ms_per_round": if r.rounds > 0 { ms(r.draft_ns) / r.rounds as f64 } else { 0.0 },
+        "state_ms_per_round": if r.rounds > 0 { ms(r.snapshot_ns + r.rollback_ns) / r.rounds as f64 } else { 0.0 },
     })
 }
 
@@ -392,6 +447,36 @@ fn gen(args: &[String]) -> Result<bool, String> {
         "mxfp4" => w4::set_mxfp4(true),
         o => return Err(format!("--weights {o}: fp8|mxfp4")),
     }
+    let rows = match flag(args, "--rows").unwrap_or("all") {
+        "all" => HeadRows::All,
+        "accepted" => HeadRows::Accepted,
+        o => return Err(format!("--rows {o}: all|accepted")),
+    };
+    let source = match flag(args, "--source").unwrap_or("mtp") {
+        "mtp" => DraftSource::Mtp,
+        "ngram" => DraftSource::Ngram,
+        "ngram-first" => DraftSource::NgramFirst,
+        "agree" => DraftSource::Agree,
+        "merge" => DraftSource::Merge,
+        o => return Err(format!("--source {o}: mtp|ngram|ngram-first|agree|merge")),
+    };
+    let ngram = match flag(args, "--ngram") {
+        None => NgramDraft::default(),
+        Some(s) => {
+            let (a, b) = s.split_once(',').ok_or("--ngram max,min")?;
+            NgramDraft {
+                max_n: a.parse().map_err(|e| format!("--ngram: {e}"))?,
+                min_n: b.parse().map_err(|e| format!("--ngram: {e}"))?,
+            }
+        }
+    };
+    let sopts = SpecOptions {
+        kernel: VerifyKernel::ExactRows,
+        rows,
+        source,
+        ngram,
+        mutant,
+    };
     let graph = flag(args, "--graph").unwrap_or("0") == "1";
     let golden: Option<Value> = match flag(args, "--golden") {
         Some(p) => Some(
@@ -453,7 +538,7 @@ fn gen(args: &[String]) -> Result<bool, String> {
                         normed_hidden,
                         pos_offset,
                     };
-                    let r = generate(&mut model, Some(&mut *m), &prompt, n, 1, &stop, 64, mutant)?;
+                    let r = generate(&mut model, Some(&mut *m), &prompt, n, 1, &stop, 64, sopts)?;
                     let rate = r.accepted as f64 / r.drafted.max(1) as f64;
                     eprintln!(
                         "mtp {:?}: accept {}/{} = {rate:.3}",
@@ -484,7 +569,7 @@ fn gen(args: &[String]) -> Result<bool, String> {
             k,
             &stop,
             64,
-            mutant,
+            sopts,
         )?;
         let mut j = run_json(k, &r);
         let same = match &base {
@@ -519,13 +604,16 @@ fn gen(args: &[String]) -> Result<bool, String> {
             }
         }
         eprintln!(
-            "k={k}: {} tokens, {:.2} ms/token decode, accept {}/{} ({:.3}), {:.2} tokens/round, identical_to_k0 {:?}",
+            "k={k}: {} tokens, {:.2} ms/token decode, accept {}/{} ({:.3}), {:.2} tokens/round, ngram rounds {} accept {}/{}, identical_to_k0 {:?}",
             r.tokens.len(),
             j["decode_ms_per_token"].as_f64().unwrap_or(0.0),
             r.accepted,
             r.drafted,
             j["accept_rate"].as_f64().unwrap_or(0.0),
             j["tokens_per_round"].as_f64().unwrap_or(0.0),
+            r.ngram_rounds,
+            r.ngram_accepted,
+            r.ngram_drafted,
             same
         );
         runs.push(j);
@@ -568,12 +656,12 @@ fn gen(args: &[String]) -> Result<bool, String> {
         .map(|b| tok.decode(b).unwrap_or_default())
         .unwrap_or_default();
     let rec = json!({"tool": "qwen38_spec gen", "prompt": which, "prompt_ids": prompt, "n": n,
-        "mtp_options": format!("{opts:?}"), "mutant": format!("{mutant:?}"), "pass": pass,
+        "mtp_options": format!("{opts:?}"), "mutant": format!("{mutant:?}"), "spec_options": format!("{sopts:?}"), "pass": pass,
         "runs": runs, "graph": graph_rec, "k0_text": text});
     std::fs::write(out, serde_json::to_string_pretty(&rec).unwrap())
         .map_err(|e| format!("{out}: {e}"))?;
     println!(
-        "QWEN38_SPEC_GEN prompt {which} n {n} k {ks:?} mutant {mutant:?}: {}",
+        "QWEN38_SPEC_GEN prompt {which} n {n} k {ks:?} rows {rows:?} source {source:?} mutant {mutant:?}: {}",
         if pass { "PASS" } else { "FAIL" }
     );
     Ok(pass)

@@ -33,6 +33,16 @@
 //! full-attention layer with its own KV cache, `mtp.norm`, and the model's lm_head. Which half of
 //! the `fc` input comes first, whether `h_t` is the residual stream or the final-normed hidden,
 //! and the RoPE position are [`MtpOptions`]; they only change how many drafts are accepted.
+//!
+//! The cascade (2026-10-19, handoff moonshot-e-cascade): a round is one [`verify_pass`] over the
+//! last token and a chain of up to [`MAX_CHAIN`] drafts. Inside that pass the MTP head runs as
+//! "layer 65" on every row, paired with the row's own greedy token, so the accepted tip's next
+//! draft is a by-product of the pass (no model call between passes except the chain's further
+//! levels). Drafts come from the MTP chain, from the prompt-lookup n-gram drafter
+//! ([`NgramDraft`], no model call), or a mix ([`DraftSource`]). The DeltaNet state is one
+//! committed state rebuilt from the accepted rows only (one copy per pass, replay of the accepted
+//! rows, never a snapshot per draft). [`verify_pass`] is the one boundary the fast tree-verify
+//! GEMM (omega branch cascade/tree-verify-gemm) drops into: [`VerifyKernel`].
 use std::path::Path;
 use std::time::Instant;
 
@@ -441,6 +451,8 @@ pub struct Mtp {
     /// The last MTP output (residual stream after its layer) and the position of the next step.
     last: Vec<f32>,
     next_pos: usize,
+    /// Every row of the last [`Self::layer65`], `[m][hidden]`.
+    rows: Vec<f32>,
 }
 
 impl std::fmt::Debug for Mtp {
@@ -542,6 +554,7 @@ impl Mtp {
             eps: c.eps,
             last: Vec::new(),
             next_pos: 0,
+            rows: Vec::new(),
         })
     }
 
@@ -567,6 +580,26 @@ impl Mtp {
         pos0: usize,
         st: &mut RowStats,
     ) -> Result<u32, String> {
+        let m = next.len();
+        self.layer65(model, hidden, next, pos0, st)?;
+        self.set_tip(m - 1, pos0 + m);
+        self.draft_head(model, st)
+    }
+
+    /// "Layer 65": the head's fc and attention layer on `m` pairs (`hidden[r]`, `next[r]`) at
+    /// MTP positions `pos0 + r + offset`, every row kept in [`Self::rows`] (`[m][hidden]`). The
+    /// cascade runs this on every row of a verify pass, so whichever row turns out to be the
+    /// accepted tip, its MTP output (and with [`Self::head_rows`], its draft) is already there.
+    /// Row `r` reads only the head's KV at positions `<= pos0 + r + offset`, so rows `0 .. j`
+    /// are bit for bit what feeding the accepted rows alone would give.
+    pub fn layer65(
+        &mut self,
+        model: &mut Qwen38Omega,
+        hidden: &[f32],
+        next: &[u32],
+        pos0: usize,
+        st: &mut RowStats,
+    ) -> Result<(), String> {
         let h = q::HIDDEN;
         let m = next.len();
         if hidden.len() != m * h || m == 0 {
@@ -633,9 +666,38 @@ impl Mtp {
             st,
         )
         .map_err(|e| format!("mtp layer: {e}"))?;
-        self.last = x[(m - 1) * h..].to_vec();
-        self.next_pos = pos0 + m;
-        self.draft_head(model, st)
+        self.rows = x;
+        Ok(())
+    }
+
+    /// Makes row `row` of the last [`Self::layer65`] the tip the next [`Self::chain`] continues
+    /// from, at MTP position `next_pos`.
+    pub fn set_tip(&mut self, row: usize, next_pos: usize) {
+        let h = q::HIDDEN;
+        self.last = self.rows[row * h..(row + 1) * h].to_vec();
+        self.next_pos = next_pos;
+    }
+
+    /// The MTP output rows of the last [`Self::layer65`], `[m][hidden]`.
+    pub fn rows(&self) -> &[f32] {
+        &self.rows
+    }
+
+    /// `mtp.norm`, the lm_head and argmax over every row of the last [`Self::layer65`]: the
+    /// draft that follows each row's pair.
+    pub fn head_rows(
+        &mut self,
+        model: &mut Qwen38Omega,
+        st: &mut RowStats,
+    ) -> Result<Vec<u32>, String> {
+        let h = q::HIDDEN;
+        let rows = std::mem::take(&mut self.rows);
+        let mut out = Vec::with_capacity(rows.len() / h);
+        for r in rows.chunks_exact(h) {
+            out.push(self.head_of(model, r, st)?);
+        }
+        self.rows = rows;
+        Ok(out)
     }
 
     /// One more draft after [`Self::feed`] or [`Self::chain`]: pairs the head's own last output
@@ -646,19 +708,51 @@ impl Mtp {
         token: u32,
         st: &mut RowStats,
     ) -> Result<u32, String> {
+        self.chain_layer(model, token, st)?;
+        self.draft_head(model, st)
+    }
+
+    /// [`Self::chain`] without the word-scoring head: the pair (`last`, `token`) through the
+    /// layer only, the output the new tip. For walking the head through tokens drafted by
+    /// another source (the n-gram lookup) without paying the lm_head for each.
+    pub fn chain_layer(
+        &mut self,
+        model: &mut Qwen38Omega,
+        token: u32,
+        st: &mut RowStats,
+    ) -> Result<(), String> {
         let hidden = std::mem::take(&mut self.last);
+        let pos0 = self.next_pos;
         // The head's own output stands in for the main model's hidden: never final-normed twice.
         let normed = std::mem::replace(&mut self.opts.normed_hidden, false);
-        let r = self.feed(model, &hidden, &[token], self.next_pos, st);
+        let r = self.layer65(model, &hidden, &[token], pos0, st);
         self.opts.normed_hidden = normed;
-        r
+        r?;
+        self.set_tip(0, pos0 + 1);
+        Ok(())
     }
 
     /// `mtp.norm`, the model's lm_head, argmax over the last output.
-    fn draft_head(&mut self, model: &mut Qwen38Omega, st: &mut RowStats) -> Result<u32, String> {
+    pub fn draft_head(
+        &mut self,
+        model: &mut Qwen38Omega,
+        st: &mut RowStats,
+    ) -> Result<u32, String> {
+        let last = std::mem::take(&mut self.last);
+        let r = self.head_of(model, &last, st);
+        self.last = last;
+        r
+    }
+
+    fn head_of(
+        &self,
+        model: &mut Qwen38Omega,
+        row: &[f32],
+        st: &mut RowStats,
+    ) -> Result<u32, String> {
         let t = Instant::now();
         let mut hn = vec![0f32; q::HIDDEN];
-        rmsnorm(&self.last, &self.final_norm, self.eps, &mut hn);
+        rmsnorm(row, &self.final_norm, self.eps, &mut hn);
         let mut logits = vec![0f32; model.config.vocab];
         model
             .lm_head
@@ -683,6 +777,200 @@ pub enum SpecMutant {
     RowShift,
 }
 
+/// Which routine runs the verify pass (the one function boundary the fast tree-verify GEMM
+/// drops into: [`verify_pass`]). Everything else in the cascade (draft sources, acceptance,
+/// state rebuild, the chain) is the same whichever kernel runs the rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VerifyKernel {
+    /// Today's exact rows path: `omega_gpu_fp8gemm_f32` in row pairs (compute bound past one
+    /// pair), bf16 lm_head GEMV per row, per-row glue on the host.
+    #[default]
+    ExactRows,
+}
+
+/// Which rows the verify pass scores with the lm_head and runs the MTP head on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HeadRows {
+    /// The cascade shape: every row of the pass (main head, MTP layer 65, MTP head), so the
+    /// tip's draft is a by-product of the pass whichever row the tip turns out to be.
+    #[default]
+    All,
+    /// The pre-cascade shape: main head row by row until a draft is refused, then the MTP head
+    /// over the accepted rows only. Same tokens, same acceptance; fewer lm_head calls while the
+    /// head is a per-row GEMV. Kept so the cost of `All` can be measured against it.
+    Accepted,
+}
+
+/// What one verify pass returns: the acceptance decision and the next round's seed.
+#[derive(Debug, Clone, Default)]
+pub struct VerifyOut {
+    /// Residual rows after the last layer, `[m][hidden]`.
+    pub hidden: Vec<f32>,
+    /// Row `r`'s greedy token for every scored row (`accepted + 1` rows at least).
+    pub tokens: Vec<u32>,
+    /// Drafts `feed[1..=accepted]` were the model's own tokens.
+    pub accepted: usize,
+    /// The model's own token after the accepted rows (`tokens[accepted]`).
+    pub next: u32,
+    /// With an MTP head: its draft for the token after `next` (the seed of the next chain).
+    pub draft: Option<u32>,
+}
+
+/// ONE verify pass: `feed` (the last token and its drafts) through the whole model as `m`
+/// rows, the lm_head on the rows, the acceptance decision, and the MTP head ("layer 65") on
+/// the rows so the next round's first draft comes out of the same pass.
+///
+/// Contract for any [`VerifyKernel`]: row `r` of `hidden` and `tokens[r]` equal what the
+/// one-row path gives over the same history (bit for bit for `ExactRows`), `keep` receives the
+/// DeltaNet row inputs for [`Qwen38Omega::replay_gdn`], and the model's position advances by
+/// `m`. `mtp`, when given, is left with its tip on the accepted row (`Mtp::chain` continues the
+/// draft from there) and its KV rows `0 ..= accepted` at `pos0 ..` as a feed of the accepted
+/// rows would leave them.
+#[allow(clippy::too_many_arguments)]
+pub fn verify_pass(
+    kernel: VerifyKernel,
+    model: &mut Qwen38Omega,
+    mtp: Option<&mut Mtp>,
+    feed: &[u32],
+    keep: Option<&mut Vec<GdnRows>>,
+    rows: HeadRows,
+    mutant: SpecMutant,
+    st: &mut RowStats,
+    st_mtp: &mut RowStats,
+) -> Result<VerifyOut, String> {
+    let VerifyKernel::ExactRows = kernel;
+    let h = q::HIDDEN;
+    let m = feed.len();
+    let drafts = m - 1;
+    let pos0 = model.pos;
+    let hidden = model.exact_rows(feed, keep, st)?;
+    let mut tokens = Vec::with_capacity(m);
+    // Rows in order until a draft is refused (the acceptance rule); `All` scores the rest too.
+    let mut j = 0;
+    let mut extra = mutant == SpecMutant::ExtraAccept;
+    let mut deciding = true;
+    for r in 0..m {
+        let row = match mutant {
+            SpecMutant::RowShift if r < drafts => r + 1,
+            _ => r,
+        };
+        tokens.push(model.head_token(&hidden[row * h..(row + 1) * h], st)?);
+        if deciding {
+            if j < drafts && (tokens[r] == feed[r + 1] || std::mem::take(&mut extra)) {
+                j += 1;
+            } else {
+                deciding = false;
+                if rows == HeadRows::Accepted {
+                    break;
+                }
+            }
+        }
+    }
+    let next = tokens[j];
+    let draft = match mtp {
+        None => None,
+        Some(mt) => {
+            let n = match rows {
+                HeadRows::All => m,
+                HeadRows::Accepted => j + 1,
+            };
+            // Pair row r with the model's own token for row r: for r < j that is the accepted
+            // draft feed[r + 1], for r = j it is `next`, so the pairs equal a feed of the
+            // accepted rows and the tip's pair is already among them.
+            mt.layer65(model, &hidden[..n * h], &tokens[..n], pos0, st_mtp)?;
+            mt.set_tip(j, pos0 + j + 1);
+            let d = match rows {
+                HeadRows::All => mt.head_rows(model, st_mtp)?[j],
+                HeadRows::Accepted => mt.draft_head(model, st_mtp)?,
+            };
+            Some(d)
+        }
+    };
+    Ok(VerifyOut {
+        hidden,
+        tokens,
+        accepted: j,
+        next,
+        draft,
+    })
+}
+
+/// Prompt-lookup drafting: when the last `n` tokens of the history (prompt plus the answer so
+/// far) appeared earlier, propose the tokens that followed that earlier span. No model call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NgramDraft {
+    /// Longest and shortest span tried, longest first.
+    pub max_n: usize,
+    pub min_n: usize,
+}
+
+impl Default for NgramDraft {
+    fn default() -> Self {
+        Self { max_n: 6, min_n: 2 }
+    }
+}
+
+/// What the n-gram lookup found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NgramHit {
+    /// Span length matched.
+    pub n: usize,
+    /// Where the earlier copy of the span starts.
+    pub at: usize,
+    /// The tokens that followed it, at most `max` of them.
+    pub tokens: Vec<u32>,
+}
+
+impl NgramDraft {
+    /// The latest earlier occurrence of the longest matching suffix (length `min_n ..= max_n`)
+    /// of `history`, and up to `max` tokens after it (never fewer than one).
+    pub fn draft(&self, history: &[u32], max: usize) -> Option<NgramHit> {
+        let len = history.len();
+        if max == 0 || self.min_n == 0 || self.max_n < self.min_n {
+            return None;
+        }
+        for n in (self.min_n..=self.max_n.min(len.saturating_sub(1))).rev() {
+            let suffix = &history[len - n..];
+            // Rightmost start i with history[i .. i + n] == suffix and at least one token after
+            // the span before the suffix itself begins.
+            let mut i = len - n;
+            while i > 0 {
+                i -= 1;
+                if &history[i..i + n] == suffix {
+                    let from = i + n;
+                    let to = (from + max).min(len);
+                    if to > from {
+                        return Some(NgramHit {
+                            n,
+                            at: i,
+                            tokens: history[from..to].to_vec(),
+                        });
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
+/// Where a round's drafts come from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DraftSource {
+    /// The MTP chain only.
+    #[default]
+    Mtp,
+    /// The n-gram lookup when it matches, else the one free MTP draft (no chain).
+    Ngram,
+    /// The n-gram lookup when it matches, else the MTP chain.
+    NgramFirst,
+    /// The n-gram lookup when it matches and its first token is the MTP's free draft (the two
+    /// sources agree on the next word), else the MTP chain.
+    Agree,
+    /// `NgramFirst`, and an n-gram chain shorter than `k` is extended by the MTP chain walked
+    /// through the n-gram tokens (layer only, no lm_head, until the last).
+    Merge,
+}
+
 /// What one generation cost and did.
 #[derive(Debug, Clone, Default)]
 pub struct SpecRun {
@@ -693,6 +981,12 @@ pub struct SpecRun {
     pub accepted: u64,
     /// Rounds that refused a draft (state put back).
     pub rollbacks: u64,
+    /// Rounds drafted by the n-gram lookup, drafts and accepted of those.
+    pub ngram_rounds: u64,
+    pub ngram_drafted: u64,
+    pub ngram_accepted: u64,
+    /// Accepted drafts per round, the histogram `[0 ..= k]`.
+    pub accepted_hist: Vec<u64>,
     /// Decode wall time (prompt excluded) and its parts.
     pub decode_ns: u64,
     pub prompt_ns: u64,
@@ -704,8 +998,23 @@ pub struct SpecRun {
     pub mtp: RowStats,
 }
 
+/// The cascade's knobs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SpecOptions {
+    pub kernel: VerifyKernel,
+    pub rows: HeadRows,
+    pub source: DraftSource,
+    pub ngram: NgramDraft,
+    pub mutant: SpecMutant,
+}
+
 /// Greedy generation on the exact rows path: `k = 0` is the plain path one token at a time;
-/// `k >= 1` drafts `k` tokens per round with `mtp` and checks them in one pass.
+/// `k >= 1` drafts up to `k` tokens per round and checks them in one [`verify_pass`].
+///
+/// State: one committed DeltaNet state. Before a pass with drafts its tails and states are
+/// copied once (`snapshot`); the pass runs every row through the recurrence; a refused draft
+/// puts the copy back and replays only the accepted rows from the kept inputs (`replay_gdn`),
+/// so the state after a round is bit for bit the state of the accepted tokens one at a time.
 #[allow(clippy::too_many_arguments)]
 pub fn generate(
     model: &mut Qwen38Omega,
@@ -715,7 +1024,7 @@ pub fn generate(
     k: usize,
     stop: &[u32],
     chunk: usize,
-    mutant: SpecMutant,
+    opts: SpecOptions,
 ) -> Result<SpecRun, String> {
     if prompt.is_empty() || n == 0 {
         return Err("generate: empty prompt or n = 0".into());
@@ -723,8 +1032,15 @@ pub fn generate(
     if k > 0 && mtp.is_none() {
         return Err("generate: k > 0 needs the MTP head".into());
     }
+    if k > MAX_CHAIN {
+        return Err(format!("generate: k {k} > {MAX_CHAIN}"));
+    }
     let h = q::HIDDEN;
-    let mut run = SpecRun::default();
+    let mutant = opts.mutant;
+    let mut run = SpecRun {
+        accepted_hist: vec![0; k + 1],
+        ..SpecRun::default()
+    };
     model.reset()?;
     let t0 = Instant::now();
     let mut rows = Vec::with_capacity(prompt.len() * h);
@@ -745,6 +1061,8 @@ pub fn generate(
     }
     run.prompt_ns = ns(t0);
     drop(rows);
+    let mut history: Vec<u32> = prompt.to_vec();
+    history.push(t);
 
     let t1 = Instant::now();
     let mut snap = Qwen38Snapshot::default();
@@ -752,20 +1070,64 @@ pub fn generate(
     while run.tokens.len() < n && !stop.contains(&t) {
         run.rounds += 1;
         let p = model.pos;
-        // Drafts: the first came from the last feed; chain the rest.
+        let room = (model.max_pos() - p).saturating_sub(1).min(k);
+        // Drafts: the first MTP draft came out of the last pass; chain the rest, or look the
+        // continuation up in the history.
         let td = Instant::now();
         let mut feed = vec![t];
+        let mut from_ngram = false;
         if let Some(m) = mtp.as_deref_mut() {
-            let mut d = draft.take().expect("a feed made the first draft");
-            feed.push(d);
-            while feed.len() < k + 1 && p + feed.len() < model.max_pos() {
-                d = m.chain(model, d, &mut run.mtp)?;
+            let Some(d0) = draft.take() else {
+                return Err("generate: out of positions for a draft".into());
+            };
+            let hit = match opts.source {
+                DraftSource::Mtp => None,
+                _ => opts.ngram.draft(&history, room),
+            };
+            let use_hit = match (&hit, opts.source) {
+                (Some(_), DraftSource::Ngram | DraftSource::NgramFirst | DraftSource::Merge) => {
+                    true
+                }
+                (Some(hit), DraftSource::Agree) => hit.tokens[0] == d0,
+                _ => false,
+            };
+            if use_hit {
+                let hit = hit.expect("checked");
+                from_ngram = true;
+                feed.extend(hit.tokens.iter().copied().take(room));
+                if opts.source == DraftSource::Merge && feed.len() < room + 1 {
+                    // Walk the head through the n-gram tokens (layer only), then chain.
+                    for &tk in &feed[1..] {
+                        m.chain_layer(model, tk, &mut run.mtp)?;
+                    }
+                    let mut d = m.draft_head(model, &mut run.mtp)?;
+                    feed.push(d);
+                    while feed.len() < room + 1 {
+                        d = m.chain(model, d, &mut run.mtp)?;
+                        feed.push(d);
+                    }
+                }
+            } else {
+                let mut d = d0;
                 feed.push(d);
+                let want = match opts.source {
+                    DraftSource::Ngram => 1,
+                    _ => room,
+                };
+                while feed.len() < want + 1 {
+                    d = m.chain(model, d, &mut run.mtp)?;
+                    feed.push(d);
+                }
             }
+            feed.truncate(room + 1);
         }
         run.draft_ns += ns(td);
         let drafts = feed.len() - 1;
         run.drafted += drafts as u64;
+        if from_ngram {
+            run.ngram_rounds += 1;
+            run.ngram_drafted += drafts as u64;
+        }
 
         let ts = Instant::now();
         if drafts > 0 {
@@ -773,30 +1135,35 @@ pub fn generate(
         }
         run.snapshot_ns += ns(ts);
         let tv = Instant::now();
-        let out = model.exact_rows(&feed, (drafts > 0).then_some(&mut keep), &mut run.main)?;
-        // Row r's greedy token, row by row until a draft is refused.
-        let mut j = 0;
-        let mut extra = mutant == SpecMutant::ExtraAccept;
-        let next = loop {
-            let row = match mutant {
-                SpecMutant::RowShift if j < drafts => j + 1,
-                _ => j,
-            };
-            let pj = model.head_token(&out[row * h..(row + 1) * h], &mut run.main)?;
-            if j < drafts && (pj == feed[j + 1] || std::mem::take(&mut extra)) {
-                j += 1;
-                continue;
-            }
-            break pj;
-        };
+        let out = verify_pass(
+            opts.kernel,
+            model,
+            if drafts > 0 { mtp.as_deref_mut() } else { None },
+            &feed,
+            (drafts > 0).then_some(&mut keep),
+            opts.rows,
+            mutant,
+            &mut run.main,
+            &mut run.mtp,
+        )?;
         run.verify_ns += ns(tv);
+        let j = out.accepted;
+        let next = out.next;
         run.accepted += j as u64;
+        if from_ngram {
+            run.ngram_accepted += j as u64;
+        }
+        if let Some(c) = run.accepted_hist.get_mut(j) {
+            *c += 1;
+        }
         let emitted = &feed[1..=j];
-        let room = n - run.tokens.len();
-        run.tokens.extend(emitted.iter().take(room));
+        let room_out = n - run.tokens.len();
+        run.tokens.extend(emitted.iter().take(room_out));
         if run.tokens.len() < n {
             run.tokens.push(next);
         }
+        history.extend_from_slice(emitted);
+        history.push(next);
         // An accepted draft can be the stop token; the round's later rows are past the end.
         if let Some(s) = run.tokens.iter().position(|x| stop.contains(x)) {
             run.tokens.truncate(s + 1);
@@ -823,17 +1190,25 @@ pub fn generate(
         t = next;
         if let Some(m) = mtp.as_deref_mut() {
             if run.tokens.len() < n && model.pos < model.max_pos() {
-                let mut nexts = feed[1..=j].to_vec();
-                nexts.push(next);
-                let td = Instant::now();
-                draft = Some(m.feed(model, &out[..(j + 1) * h], &nexts, p, &mut run.mtp)?);
-                run.draft_ns += ns(td);
+                draft = match out.draft {
+                    Some(d) => Some(d),
+                    // A round without drafts (no room) ran no MTP: feed the one row.
+                    None => {
+                        let td = Instant::now();
+                        let d = m.feed(model, &out.hidden[..h], &[next], p, &mut run.mtp)?;
+                        run.draft_ns += ns(td);
+                        Some(d)
+                    }
+                };
             }
         }
     }
     run.decode_ns = ns(t1);
     Ok(run)
 }
+
+/// Longest chain of drafts one pass checks (`k`).
+pub const MAX_CHAIN: usize = 8;
 
 #[cfg(test)]
 mod tests {
@@ -851,5 +1226,26 @@ mod tests {
         assert_eq!(o.order, FcOrder::EmbedFirst);
         assert!(!o.normed_hidden);
         assert_eq!(o.pos_offset, 0);
+    }
+
+    #[test]
+    fn ngram_finds_the_latest_longest_span() {
+        let g = NgramDraft { max_n: 3, min_n: 2 };
+        // history: a b c d | a b c e | a b
+        let hist = [1, 2, 3, 4, 1, 2, 3, 5, 1, 2];
+        let hit = g.draft(&hist, 4).unwrap();
+        assert_eq!(hit.n, 2);
+        assert_eq!(hit.at, 4);
+        assert_eq!(hit.tokens, vec![3, 5, 1, 2]);
+        // A 3-span wins over the latest 2-span.
+        let hist = [1, 2, 3, 9, 7, 2, 3, 8, 1, 2, 3];
+        let hit = g.draft(&hist, 2).unwrap();
+        assert_eq!((hit.n, hit.at, hit.tokens), (3, 0, vec![9, 7]));
+        // No earlier copy: nothing.
+        assert!(g.draft(&[1, 2, 3, 4], 4).is_none());
+        // A match whose continuation runs into the suffix is cut at the end of the history.
+        let hit = g.draft(&[5, 6, 5, 6], 8).unwrap();
+        assert_eq!((hit.n, hit.at, hit.tokens), (2, 0, vec![5, 6]));
+        assert!(g.draft(&[1, 2], 0).is_none());
     }
 }
