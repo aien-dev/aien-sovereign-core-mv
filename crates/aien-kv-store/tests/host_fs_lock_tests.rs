@@ -12,9 +12,23 @@ mod rig;
 use aien_kv_store::host_fs::{HostFsConfig, HostFsStore};
 use aien_platform::PlatformError;
 use rig::Fx;
+use std::sync::{RwLock, RwLockReadGuard};
 
 /// The child process of the cross-process test reads its store root here.
 const CHILD_ROOT_ENV: &str = "AIEN_KV_LOCK_TEST_CHILD_ROOT";
+
+/// Tests run on parallel threads of one process. While the cross-process test
+/// spawns its child, the child holds a copy of every descriptor open in this
+/// process until its exec closes them (they are close-on-exec), and `flock`
+/// belongs to the open file, not the descriptor: a store another test drops
+/// in that window stays locked, and that test's reopen is refused. The
+/// spawning test takes this for writing and every other test for reading, so
+/// no store opens or drops while a child is being spawned.
+static SPAWN: RwLock<()> = RwLock::new(());
+
+fn no_spawn() -> RwLockReadGuard<'static, ()> {
+    SPAWN.read().unwrap_or_else(|e| e.into_inner())
+}
 
 fn in_use(r: Result<HostFsStore, PlatformError>) -> bool {
     matches!(r, Err(PlatformError::TaskRejected(ref m)) if m.contains("in use"))
@@ -22,6 +36,7 @@ fn in_use(r: Result<HostFsStore, PlatformError>) -> bool {
 
 #[test]
 fn a_second_open_of_a_held_store_directory_is_refused() {
+    let _g = no_spawn();
     let fx = Fx::new();
     let first = fx.open();
     assert!(fx.root().join("LOCK").exists());
@@ -31,6 +46,7 @@ fn a_second_open_of_a_held_store_directory_is_refused() {
 
 #[test]
 fn a_refused_second_open_leaves_the_first_stores_temp_files_alone() {
+    let _g = no_spawn();
     let fx = Fx::new();
     let first = fx.open();
     // Stands for a park the first store has in flight.
@@ -51,6 +67,7 @@ fn a_refused_second_open_leaves_the_first_stores_temp_files_alone() {
 
 #[test]
 fn the_lock_is_released_when_the_store_drops() {
+    let _g = no_spawn();
     let fx = Fx::new();
     for _ in 0..3 {
         drop(fx.open());
@@ -59,6 +76,7 @@ fn the_lock_is_released_when_the_store_drops() {
 
 #[test]
 fn a_store_directory_held_by_another_process_is_refused() {
+    let _g = SPAWN.write().unwrap_or_else(|e| e.into_inner());
     let fx = Fx::new();
     let first = fx.open();
     let out = std::process::Command::new(std::env::current_exe().unwrap())

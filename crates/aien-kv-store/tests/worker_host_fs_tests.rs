@@ -310,6 +310,14 @@ fn worker_over_host_fs_shutdown_with_a_stalled_job_then_restart_recovers() {
     // Restart: leave debris a crash would leave, reopen, recover, restore.
     let Rigged { fx, store, worker } = r;
     drop(worker);
+    // As in the test above: the worker thread still holds two clones of the
+    // store until its loop returns, and the LOCK (#521) lives as long as any
+    // clone, so reopen only once the thread let go.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Arc::strong_count(&store) > 1 {
+        assert!(Instant::now() < deadline, "worker thread kept the store");
+        std::thread::sleep(Duration::from_millis(1));
+    }
     drop(store);
     std::fs::write(fx.root().join("tmp").join("leftover.1.2.3.part"), b"x").unwrap();
     let (junk, _) = fx.chunk(42, 8);
