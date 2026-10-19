@@ -1,0 +1,25 @@
+memory: whole model + MTP head needs 32663 MiB, keep 12288 MiB free, MemAvailable 67952 MiB
+MTP head: 455 MiB, raw norm means (embed, hidden, final) [-0.46056232, -0.15720086, 1.2520472], options MtpOptions { order: EmbedFirst, normed_hidden: false, pos_offset: 0 }
+uploaded in 40.5 s
+suite: merge-codeedit start
+k=0: 192 tokens, 214.89 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 192 tokens, 209.51 ms/token decode, accept 160/248 (0.645), 6.16 tokens/round, ngram rounds 25 accept 127/200, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt codeedit n 192 k [0, 8] rows All source Merge tree None mutant None: PASS
+suite: merge-codeedit PASS
+suite: merge-quote start
+k=0: 85 tokens, 214.55 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 85 tokens, 237.25 ms/token decode, accept 73/120 (0.608), 5.60 tokens/round, ngram rounds 10 accept 49/80, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt quote n 192 k [0, 8] rows All source Merge tree None mutant None: PASS
+suite: merge-quote PASS
+suite: merge-codelong start
+k=0: 192 tokens, 215.17 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 192 tokens, 360.14 ms/token decode, accept 142/400 (0.355), 3.82 tokens/round, ngram rounds 8 accept 10/64, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt codelong n 192 k [0, 8] rows All source Merge tree None mutant None: PASS
+suite: merge-codelong PASS
+suite: merge-prose start
+k=0: 192 tokens, 213.53 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 192 tokens, 641.54 ms/token decode, accept 103/720 (0.143), 2.12 tokens/round, ngram rounds 3 accept 1/24, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt prose n 192 k [0, 8] rows All source Merge tree None mutant None: PASS
+suite: merge-prose PASS
+suite: ngramfirst-codeedit start
+k=0: 192 tokens, 221.60 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
