@@ -11,14 +11,16 @@ use crate::crumbs::{
     format_dir_crumb_tui, leave_dir_whisper, load_or_init_dir_crumb, record_directory_crumb,
     save_dir_crumb, sniff_dir_crumb, CrumbPurpose,
 };
-use crate::safety::{
-    contains_unmasked_secret, is_high_risk_command, is_high_risk_path, is_secret_leak_path,
-};
+use crate::safety::{contains_unmasked_secret, is_secret_leak_path};
 use crate::ui::{print_safety_prompt, print_tool_done, print_tool_start};
 use crate::vault::{redact_secrets, vault_dispatch_tool};
 use chrono::Utc;
 
 pub fn dispatch_tool(name: &str, args: &Value) -> Value {
+    dispatch_tool_with(name, args, &crate::approval::GateContext::from_env())
+}
+
+pub fn dispatch_tool_with(name: &str, args: &Value, ctx: &crate::approval::GateContext) -> Value {
     let start = Instant::now();
     let summary = match name {
         "run_command" => args.get("command").and_then(Value::as_str).unwrap_or(""),
@@ -72,26 +74,13 @@ pub fn dispatch_tool(name: &str, args: &Value) -> Value {
         _ => "",
     };
 
-    // 1. Antigravity-style 9-tier Safety Engine Evaluation
-    let safety_engine = crate::safety::SafetyEngine::default_sovereign_engine();
-    match safety_engine.evaluate(name, args) {
-        crate::safety::SafetyDecision::Deny(reason) => {
-            let res =
-                serde_json::json!({"error": format!("SECURITY DENIAL [SafetyEngine]: {}", reason)});
-            print_tool_start(name, summary);
-            print_tool_done(name, start.elapsed().as_millis(), false);
-            return res;
-        }
-        crate::safety::SafetyDecision::AskUser(reason) => {
-            println!("{}", format!("⚠️  SAFETY GATE: {}", reason).yellow().bold());
-            if !print_safety_prompt(&format!("Tool: '{}' with summary: '{}'", name, summary)) {
-                let res = serde_json::json!({"error": "Operation aborted by operator safety gate"});
-                print_tool_start(name, summary);
-                print_tool_done(name, start.elapsed().as_millis(), false);
-                return res;
-            }
-        }
-        crate::safety::SafetyDecision::Allow => {}
+    // 1. The approval gate (sc#667): floors first in every mode, then the
+    // nine-tier SafetyEngine's denials, mode, allowlist, presence, danger,
+    // guardian and person. See approval.rs for the ordering rule.
+    if let Err(res) = gate_tool(name, args, summary, ctx) {
+        print_tool_start(name, summary);
+        print_tool_done(name, start.elapsed().as_millis(), false);
+        return res;
     }
 
     print_tool_start(name, summary);
@@ -121,18 +110,9 @@ pub fn dispatch_tool(name: &str, args: &Value) -> Value {
                 .and_then(Value::as_str)
                 .unwrap_or(".");
 
-            if is_high_risk_command(cmd) {
-                if !print_safety_prompt(cmd) {
-                    (
-                        json!({"error": "Operation aborted by user safety gate"}),
-                        false,
-                    )
-                } else {
-                    exec_command(cmd, cwd)
-                }
-            } else {
-                exec_command(cmd, cwd)
-            }
+            // The approval gate decided before this point (sc#667); a second
+            // prompt here would re-ask the person and override yolo/off.
+            exec_command(cmd, cwd)
         }
         "view_file" => {
             let path = args
@@ -188,17 +168,12 @@ pub fn dispatch_tool(name: &str, args: &Value) -> Value {
                     json!({"error": format!("REJECTED BY SOVEREIGN VAULT POLICY: {}. Never commit or write plaintext keys into files. Use 'atlas-vault add <KEY>'.", reason)}),
                     false,
                 )
-            } else if is_high_risk_path(path) {
-                if !print_safety_prompt(path) {
-                    (
-                        json!({"error": "Write to system path aborted by user safety gate"}),
-                        false,
-                    )
-                } else {
-                    exec_write_file(path, content, overwrite, intent, vector)
-                }
             } else {
-                exec_write_file(path, content, overwrite, intent, vector)
+                // System paths were already put to the person by the
+                // approval gate (sc#667); one decision, never two.
+                recorded_write("write_to_file", path, || {
+                    exec_write_file(path, content, overwrite, intent, vector)
+                })
             }
         }
         "replace_file_content" | "edit_file" => {
@@ -240,7 +215,9 @@ pub fn dispatch_tool(name: &str, args: &Value) -> Value {
                     false,
                 )
             } else {
-                exec_replace_file(path, target, replacement, intent, vector)
+                recorded_write("replace_file_content", path, || {
+                    exec_replace_file(path, target, replacement, intent, vector)
+                })
             }
         }
         "list_dir" | "list_directory" => {
@@ -573,6 +550,91 @@ fn exec_view_file(path: &str, start_line: usize, end_line: usize) -> (Value, boo
             (resp, true)
         }
         Err(e) => (json!({"error": e.to_string()}), false),
+    }
+}
+
+/// Run the approval gate for one request. `Err` carries the tool result to
+/// hand back to the model when the request does not run.
+fn gate_tool(
+    name: &str,
+    args: &Value,
+    summary: &str,
+    ctx: &crate::approval::GateContext,
+) -> Result<(), Value> {
+    use crate::approval::{after_guardian, decide, Gate, Verdict};
+    let base = crate::safety::SafetyEngine::default_sovereign_engine().evaluate(name, args);
+    let mut verdict = decide(&Gate {
+        tool: name,
+        args,
+        base: &base,
+        mode: ctx.mode,
+        presence: ctx.presence,
+        policy: &ctx.policy,
+        facts: &ctx.facts,
+        guardian_ready: crate::approval::guardian_ready(),
+    });
+    if let Verdict::AskGuardian { reason } = verdict {
+        let answer = ask_guardian(name, summary, &reason);
+        crate::approval::record_guardian(&answer);
+        verdict = after_guardian(&answer, reason);
+    }
+    match verdict {
+        Verdict::Allow { .. } => Ok(()),
+        Verdict::Deny { by, reason } => Err(json!({
+            "error": format!("SECURITY DENIAL [{:?}]: {}", by, reason)
+        })),
+        Verdict::AskGuardian { .. } => unreachable!("guardian answered above"),
+        Verdict::AskPerson { reason } => {
+            println!("{}", format!("⚠️  SAFETY GATE: {}", reason).yellow().bold());
+            if print_safety_prompt(&format!("Tool: '{}' with summary: '{}'", name, summary)) {
+                Ok(())
+            } else {
+                Err(json!({"error": "Operation aborted by operator safety gate"}))
+            }
+        }
+    }
+}
+
+/// Ask the guardian model (smart mode). Any transport failure, timeout or
+/// unparseable reply is `Failed`, which escalates to the person and counts
+/// against the breaker.
+fn ask_guardian(name: &str, summary: &str, reason: &str) -> crate::approval::GuardianAnswer {
+    use crate::approval::GuardianAnswer;
+    let Ok(handle) = tokio::runtime::Handle::try_current() else {
+        return GuardianAnswer::Failed("no async runtime for the guardian".into());
+    };
+    let messages = vec![
+        json!({"role": "system", "content": crate::approval::GUARDIAN_PROMPT}),
+        json!({"role": "user", "content": format!(
+            "tool: {name}\nrequest: {}\nflagged because: {reason}",
+            redact_secrets(summary)
+        )}),
+    ];
+    let client = crate::client::ChatClient::new(None, None);
+    let reply = tokio::task::block_in_place(|| {
+        handle.block_on(client.stream_turn_with_limit(&messages, false, 32))
+    });
+    match reply {
+        Ok(text) => crate::approval::parse_guardian_reply(&text),
+        Err(err) => GuardianAnswer::Failed(err),
+    }
+}
+
+/// Run a file tool's write as a recorded agent write (sc#667): prior content
+/// kept, one ledger line after. Without an active chat session this is a
+/// plain call.
+fn recorded_write(tool: &str, path: &str, write: impl FnOnce() -> (Value, bool)) -> (Value, bool) {
+    let home = crate::platform::PlatformContext::detect().home_dir;
+    let cwd = std::env::current_dir().unwrap_or_else(|_| home.clone());
+    let abs = crate::approval::lexical_abs(path, &home, &cwd);
+    match crate::checkpoint::record_agent_write(&abs, tool, write) {
+        Ok(((mut res, ok), warning)) => {
+            if let (Some(w), Some(obj)) = (warning, res.as_object_mut()) {
+                obj.insert("checkpoint_warning".into(), json!(w));
+            }
+            (res, ok)
+        }
+        Err(refusal) => (json!({"error": refusal}), false),
     }
 }
 
@@ -1210,6 +1272,116 @@ mod tests {
             );
             assert_eq!(std::fs::read_to_string(&path).unwrap(), "approved");
             let _ = std::fs::remove_file(path);
+        });
+    }
+
+    fn gate_ctx(
+        mode: crate::approval::ApprovalMode,
+        deny: &[&str],
+    ) -> crate::approval::GateContext {
+        use crate::approval::*;
+        GateContext {
+            mode,
+            presence: Presence::Person,
+            policy: CompiledPolicy::compile(&OperatorPolicy {
+                mode: None,
+                deny: deny.iter().map(|s| s.to_string()).collect(),
+                allow: Vec::new(),
+            }),
+            facts: RuntimeFacts {
+                protected: Vec::new(),
+                home: std::path::PathBuf::from("/tmp"),
+                cwd: std::path::PathBuf::from("/tmp"),
+            },
+        }
+    }
+
+    /// sc#667 acceptance through the real dispatcher: an operator deny
+    /// pattern stops a real command in every mode; without the pattern the
+    /// same command runs (negative control).
+    #[test]
+    fn operator_deny_pattern_blocks_a_real_command_in_every_mode() {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            for mode in crate::approval::ALL_MODES {
+                let dir = tempfile::Builder::new()
+                    .prefix("aien-sc667-deny-")
+                    .tempdir_in("/tmp")
+                    .unwrap();
+                let marker = dir.path().join("marker");
+                let args = json!({
+                    "command": format!("touch {}", marker.display()),
+                    "cwd": dir.path().to_string_lossy(),
+                });
+                let res =
+                    dispatch_tool_with("run_command", &args, &gate_ctx(mode, &[r"touch .*marker"]));
+                let err = res.get("error").and_then(Value::as_str).unwrap_or("");
+                assert!(err.contains("OperatorDeny"), "{mode:?}: {res}");
+                assert!(!marker.exists(), "{mode:?}: command ran despite the floor");
+
+                let res = dispatch_tool_with("run_command", &args, &gate_ctx(mode, &[]));
+                assert!(res.get("error").is_none(), "{mode:?}: {res}");
+                assert!(marker.exists(), "{mode:?}: control command did not run");
+            }
+        });
+    }
+
+    /// sc#667 acceptance through the real dispatcher: agent writes go to the
+    /// ledger; a rollback after mixed operator and agent edits restores only
+    /// the agent's files.
+    #[test]
+    fn rollback_through_the_dispatcher_spares_operator_edits() {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let home = tempfile::tempdir().unwrap();
+            let work = tempfile::Builder::new()
+                .prefix("aien-sc667-work-")
+                .tempdir_in("/tmp")
+                .unwrap();
+            let work = work.path().canonicalize().unwrap();
+            let agent_file = work.join("agent.txt");
+            let created = work.join("created.txt");
+            let operator_file = work.join("operator.txt");
+            std::fs::write(&agent_file, "original").unwrap();
+            std::fs::write(&operator_file, "operator v0").unwrap();
+
+            let session = format!("sc667-dispatch-{}", std::process::id());
+            crate::checkpoint::start_scoped_session(home.path(), &session, work.clone()).unwrap();
+            crate::checkpoint::begin_turn();
+            let ctx = gate_ctx(crate::approval::ApprovalMode::Manual, &[]);
+            for (p, text) in [(&agent_file, "agent edit"), (&created, "agent new")] {
+                let args = json!({"path": p.to_string_lossy(), "content": text, "overwrite": true});
+                let res = dispatch_tool_with("write_to_file", &args, &ctx);
+                assert!(res.get("error").is_none(), "{res}");
+            }
+            let args = json!({
+                "path": agent_file.to_string_lossy(),
+                "target": "edit",
+                "replacement": "edit twice",
+            });
+            let res = dispatch_tool_with("replace_file_content", &args, &ctx);
+            assert!(res.get("error").is_none(), "{res}");
+            crate::checkpoint::stop_session();
+
+            std::fs::write(&operator_file, "operator v1").unwrap();
+
+            let (_, report) =
+                crate::checkpoint::rollback(home.path(), Some(1), Some(&session)).unwrap();
+            assert_eq!(std::fs::read_to_string(&agent_file).unwrap(), "original");
+            assert!(!created.exists());
+            assert_eq!(
+                std::fs::read_to_string(&operator_file).unwrap(),
+                "operator v1"
+            );
+            assert!(report
+                .spared
+                .contains(&operator_file.to_string_lossy().into_owned()));
         });
     }
 }
