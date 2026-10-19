@@ -1,0 +1,28 @@
+loadavg_start 69.31 78.24 80.22 56/2431 1911402 memavail_kb 24253880 2026-10-19T18:12:26Z
+docmem_bench: alloc: omega_gpu rc=-4 (attn256 alloc: CHIP_FAIL: m16_native_create_channel: RM_ALLOC class 0xcec0 status 0x51)
+{
+ "name": "docmem-kv-4096",
+ "cmd": "/home/drakestapleton/.local/bin/quiet-measure flock -w 1800 /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/docmem/bin-e07a3b4c/docmem_bench kv 4096",
+ "exit": 1,
+ "git_head": "368bec0d",
+ "start": "2026-10-19T13:12:26.824133",
+ "seconds": 212.582,
+ "samples": 97,
+ "wall_W_mean": 301.340206185567,
+ "wall_J": 64059.45651427987,
+ "idle_W_before": 300.0,
+ "incremental_J": 284.9035014319671,
+ "gpu_W_mean": 36.20298969072165,
+ "gpu_util_mean": 78.21649484536083,
+ "load1_start": "69.31",
+ "load1_end": "57.47",
+ "mem_avail_kB_start": "24481688",
+ "mem_avail_kB_end": "24036232",
+ "lock_holders_max": 5,
+ "nvrm_errors_delta": 0,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-docmem-kv-4096.json
+exit 1
+loadavg_end 58.31 68.28 75.82 58/2336 1977485 2026-10-19T18:16:02Z
+loadavg_start 58.31 68.28 75.82 51/2329 1977492 memavail_kb 53679092 2026-10-19T18:16:02Z

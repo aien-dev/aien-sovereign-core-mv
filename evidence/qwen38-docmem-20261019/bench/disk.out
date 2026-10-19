@@ -42,3 +42,64 @@ receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-docmem-disk-4096.js
 exit 0
 loadavg_end 73.16 79.58 79.70 75/2418 1725845 2026-10-19T18:05:32Z
 loadavg_start 73.16 79.58 79.70 56/2417 1725850 memavail_kb 12767460 2026-10-19T18:05:32Z
+aien-serve-http: conv store: /home/drakestapleton/workspace/targets/docmem/convstore-bench (0 conversations on disk, 0.00 GB; 0 of other namespaces, 0 unreadable), RAM budget 18446744073.71 GB, disk budget 18446744073.71 GB, checkpoint every 4096 tokens
+aien-serve-http: conv store: wrote 0e64f141b065cce3eb9fe2d42521093b to NVMe: 1.701 GB in 3.915 s (0.43 GB/s)
+aien-serve-http: conv store: spilled 0e64f141b065cce3eb9fe2d42521093b (1.701 GB freed)
+aien-serve-http: conv store: loaded 0e64f141b065cce3eb9fe2d42521093b from NVMe: 16384 rows, 4 checkpoints, 1.701 GB in 2.647 s (0.64 GB/s)
+{"checkpoints":4,"checkpoints_back":4,"dir":"/home/drakestapleton/workspace/targets/docmem/convstore-bench","file_bytes":1701396480,"load_gb_s":0.6427800679445628,"load_plus_check_s":3.884490043,"load_s":2.646934099,"mismatched_words":0,"rows":16384,"spill_gb_s":0.37746884461741986,"spill_s":4.507382541,"what":"conversation spill and load, O_DIRECT"}
+{
+ "name": "docmem-disk-16384",
+ "cmd": "/home/drakestapleton/.local/bin/quiet-measure /home/drakestapleton/workspace/targets/docmem/bin-e07a3b4c/docmem_bench disk 16384 4 /home/drakestapleton/workspace/targets/docmem/convstore-bench",
+ "exit": 0,
+ "git_head": "db7adeb9",
+ "start": "2026-10-19T13:05:32.397038",
+ "seconds": 60.586,
+ "samples": 26,
+ "wall_W_mean": 285.38461538461536,
+ "wall_J": 17290.39122544802,
+ "idle_W_before": 260.0,
+ "incremental_J": 1537.9593273309545,
+ "gpu_W_mean": 37.29461538461538,
+ "gpu_util_mean": 86.1923076923077,
+ "load1_start": "73.16",
+ "load1_end": "87.39",
+ "mem_avail_kB_start": "12556268",
+ "mem_avail_kB_end": "13153128",
+ "lock_holders_max": 5,
+ "nvrm_errors_delta": 36,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-docmem-disk-16384.json
+exit 0
+loadavg_end 88.72 82.96 80.86 113/2461 1756267 2026-10-19T18:06:36Z
+loadavg_start 88.72 82.96 80.86 107/2465 1756296 memavail_kb 20628256 2026-10-19T18:06:36Z
+aien-serve-http: conv store: /home/drakestapleton/workspace/targets/docmem/convstore-bench (0 conversations on disk, 0.00 GB; 0 of other namespaces, 0 unreadable), RAM budget 18446744073.71 GB, disk budget 18446744073.71 GB, checkpoint every 4096 tokens
+aien-serve-http: conv store: wrote 7d8f7ef6faa6afc659d54d1c3fce61fa to NVMe: 3.403 GB in 4.443 s (0.77 GB/s)
+aien-serve-http: conv store: spilled 7d8f7ef6faa6afc659d54d1c3fce61fa (3.403 GB freed)
+aien-serve-http: conv store: loaded 7d8f7ef6faa6afc659d54d1c3fce61fa from NVMe: 32768 rows, 8 checkpoints, 3.403 GB in 1.749 s (1.95 GB/s)
+{"checkpoints":8,"checkpoints_back":8,"dir":"/home/drakestapleton/workspace/targets/docmem/convstore-bench","file_bytes":3402776576,"load_gb_s":1.945231160610645,"load_plus_check_s":2.702227343,"load_s":1.749291624,"mismatched_words":0,"rows":32768,"spill_gb_s":0.671010705796113,"spill_s":5.071121141,"what":"conversation spill and load, O_DIRECT"}
+{
+ "name": "docmem-disk-32768",
+ "cmd": "/home/drakestapleton/.local/bin/quiet-measure /home/drakestapleton/workspace/targets/docmem/bin-e07a3b4c/docmem_bench disk 32768 8 /home/drakestapleton/workspace/targets/docmem/convstore-bench",
+ "exit": 0,
+ "git_head": "368bec0d",
+ "start": "2026-10-19T13:06:36.320193",
+ "seconds": 347.308,
+ "samples": 153,
+ "wall_W_mean": 289.6078431372549,
+ "wall_J": 100583.17880995134,
+ "idle_W_before": 282.3076923076923,
+ "incremental_J": 2535.4022469671613,
+ "gpu_W_mean": 34.55967320261438,
+ "gpu_util_mean": 74.97385620915033,
+ "load1_start": "88.72",
+ "load1_end": "70.91",
+ "mem_avail_kB_start": "20768368",
+ "mem_avail_kB_end": "21668996",
+ "lock_holders_max": 5,
+ "nvrm_errors_delta": 0,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-docmem-disk-32768.json
+exit 0
+loadavg_end 69.31 78.24 80.22 38/2431 1911398 2026-10-19T18:12:26Z
