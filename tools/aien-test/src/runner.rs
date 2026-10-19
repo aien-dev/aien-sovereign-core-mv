@@ -27,7 +27,7 @@ use crate::graph::Graph;
 use crate::manifest::{self, Manifest};
 use crate::process::{self, RunSpec};
 use crate::resources::{
-    self, acquire_gpu, lock, GpuConfig, GpuGuard, Hardware, Permit, Pool, PoolSizes, Pools,
+    self, acquire_gpu_timed, lock, GpuConfig, GpuGuard, Hardware, Permit, Pool, PoolSizes, Pools,
     GPU_LOCK_HELD_MARKER,
 };
 use crate::sandbox::{self, Sandbox};
@@ -698,10 +698,20 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
         None
     };
 
-    // A gb10 gate takes the GPU locks only when nothing else already stops it.
-    // A refusal (quiet flag, est_load, a held lock) becomes the gate's reason.
+    // A gb10 gate takes the GPU locks only when nothing else already stops it,
+    // waiting for a held lock as `opts.gpu.wait` says. A refusal (quiet flag,
+    // est_load, a lock still held at the bound) becomes the gate's reason;
+    // the wait goes into the receipt (`volatile.gpu_wait`) either way.
+    let mut gpu_wait = Value::Null;
     let gpu: Option<GpuGuard> = if m.pool() == "gb10" && verdict::pre_run(m, &facts).is_none() {
-        match acquire_gpu(&opts.gpu) {
+        let attempt = acquire_gpu_timed(&opts.gpu);
+        gpu_wait = json!({
+            "mode": opts.gpu.wait.mode(),
+            "bound_ms": opts.gpu.wait.bound_ms(),
+            "waited_ms": attempt.waited.as_millis() as u64,
+            "acquired": attempt.result.is_ok(),
+        });
+        match attempt.result {
             Ok(g) => Some(g),
             Err(r) => {
                 facts.refusal = Some(r.reason().to_string());
@@ -852,6 +862,7 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
         "runner": { "name": "aien-test", "version": env!("CARGO_PKG_VERSION"), "impl": "rust" },
         "cache": cache::cache_member(&cache_key, None, mode),
         "timeout_exceeded": timeout_exceeded,
+        "gpu_wait": gpu_wait,
     });
 
     let receipt = build_receipt(Value::Object(core), volatile);
@@ -1164,6 +1175,7 @@ pub fn run_graph(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::resources::{acquire_gpu, GpuWait};
     use crate::testutil::{git, init_repo, write_file, TempDir};
     use std::os::unix::fs::PermissionsExt;
 
@@ -1744,6 +1756,90 @@ mod tests {
         let o = run(&fx, &opts);
         assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
         assert!(fx.marker().exists());
+    }
+
+    /// The machine's default GPU options (what `run`, `test` and the worker
+    /// start from) with the lock paths moved to scratch: a holder that keeps
+    /// the lock for a moment, as the live model server does around every
+    /// request, must not make the gate NOT_RUN. Written against fields both
+    /// the old and the new `GpuConfig` have, so it runs on either.
+    #[test]
+    fn gb10_gate_with_the_default_options_waits_out_a_brief_holder() {
+        let fx = gb10_fixture(TOUCH_MARKER, "20s");
+        let mut opts = gb10_opts(&fx);
+        let scratch = opts.gpu.clone();
+        opts.gpu = GpuConfig::detect();
+        opts.gpu.lock_path = scratch.lock_path;
+        opts.gpu.proof_lock_path = None;
+        opts.gpu.quiet_flag = scratch.quiet_flag;
+        opts.gpu.proc_dir = scratch.proc_dir;
+        let held = acquire_gpu(&GpuConfig::rooted_at(fx.scratch.path())).unwrap();
+        let holder = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(1500));
+            drop(held);
+        });
+        let o = run(&fx, &opts);
+        holder.join().unwrap();
+        assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
+        assert!(fx.marker().exists());
+    }
+
+    #[test]
+    fn gb10_gate_records_the_wait_and_runs_when_the_holder_lets_go() {
+        let fx = gb10_fixture(TOUCH_MARKER, "20s");
+        let mut opts = gb10_opts(&fx);
+        opts.gpu.wait = GpuWait::Bounded(Duration::from_secs(20));
+        let held = acquire_gpu(&GpuConfig::rooted_at(fx.scratch.path())).unwrap();
+        let holder = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(700));
+            drop(held);
+        });
+        let o = run(&fx, &opts);
+        holder.join().unwrap();
+        assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
+        let r = read_json(&o.receipt_path.unwrap());
+        let w = &r["volatile"]["gpu_wait"];
+        assert_eq!(w["mode"], "bounded");
+        assert_eq!(w["bound_ms"], 20_000);
+        assert_eq!(w["acquired"], true);
+        let waited = w["waited_ms"].as_u64().unwrap();
+        assert!((600..20_000).contains(&waited), "waited {waited} ms");
+    }
+
+    #[test]
+    fn gb10_gate_held_past_the_bound_is_not_run_with_the_wait_recorded() {
+        let fx = gb10_fixture(TOUCH_MARKER, "20s");
+        let mut opts = gb10_opts(&fx);
+        opts.gpu.wait = GpuWait::Bounded(Duration::from_millis(400));
+        let held = acquire_gpu(&GpuConfig::rooted_at(fx.scratch.path())).unwrap();
+        let o = run(&fx, &opts);
+        assert_eq!(
+            (o.verdict, o.reason.as_str()),
+            (Verdict::NotRun, "gpu_lock")
+        );
+        assert!(!fx.marker().exists(), "a refused job must not run");
+        let r = read_json(&o.receipt_path.unwrap());
+        assert_eq!(r["core"]["reason"], "gpu_lock");
+        let w = &r["volatile"]["gpu_wait"];
+        assert_eq!(w["mode"], "bounded");
+        assert_eq!(w["bound_ms"], 400);
+        assert_eq!(w["acquired"], false);
+        assert!(w["waited_ms"].as_u64().unwrap() >= 400, "{w}");
+        // The waiter given up on must hand the lock back once the holder
+        // lets go, so the next gate gets it.
+        drop(held);
+        opts.gpu.wait = GpuWait::Bounded(Duration::from_secs(20));
+        let o = run(&fx, &opts);
+        assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
+    }
+
+    #[test]
+    fn host_gate_records_no_gpu_wait() {
+        let fx = fixture(TOUCH_MARKER, 0, &[], "20s", "");
+        let o = run(&fx, &fx.opts());
+        assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
+        let r = read_json(&o.receipt_path.unwrap());
+        assert_eq!(r["volatile"]["gpu_wait"], Value::Null);
     }
 
     #[test]
