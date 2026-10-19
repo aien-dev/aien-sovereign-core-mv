@@ -68,7 +68,7 @@ manifests at COMMIT and rejects a bundle whose digest differs.
   (`BAD_MANIFEST`, exit 1), never NOT_RUN and never a silent run. A path that
   leaves the repository through a symlink (`tools/run.sh -> /bin/true`) is
   treated as absent: `MISSING_IMPLEMENTATION`, never run, never PASS.
-- A name **without a slash** (`crumb`, `true`) is a program on a PATH. Under
+- A name **without a slash** (`git`, `true`) is a program on a PATH. Under
   `--sandbox none` that is the runner's own PATH. Under `--sandbox user` it
   is the exec helper's trusted PATH
   (`/var/lib/aien-run/cargo/bin:/usr/local/bin:/usr/bin:/bin`, the
@@ -76,11 +76,6 @@ manifests at COMMIT and rejects a bundle whose digest differs.
   hands the helper the full path, so the program hashed into the receipt and
   the cache key (`binary_sha256`) is the program that runs. A name not found
   there is `MISSING_IMPLEMENTATION`.
-
-This is what lets the shared gate template say `exec: crumb` with
-`args: [verify, .]`: INFRA installs a pinned `crumb` at `/usr/local/bin/crumb`
-(root-owned, on the trusted PATH). Proven end to end on 2026-10-11: a gate
-running `crumb verify .` as `aien-run` in a worker checkout passed.
 
 ## The sandbox seam (C8)
 
@@ -295,7 +290,7 @@ For one head `REPO SHA`:
    apart: `verify-bundle` reports such a bundle as NOT_RUN (see below).
 8. Run the independent check on the bundle just written, exactly as
    `aien-test verify` does (keys at BASE, signature, graph digest, check ids,
-   receipts and their manifests, crumb). The journal records `verify: READY`
+   receipts and their manifests). The journal records `verify: READY`
    or `BLOCKED` with the reasons.
 9. Heartbeat (`worker.heartbeat`), journal line (`journal.jsonl`), `crumb
    close aien-worker . worker test`, remove the worktree (`wt.sh remove`
@@ -363,7 +358,7 @@ Executed gates: ...
 Cached gates: ...
 Failed gates: ...
 Blocked gates: ...
-Crumb status: CURRENT | STALE
+Crumb status: not checked (crumbs are advisory, RFC-0003 Am2)
 Evidence status: VERIFIED | INVALID
 Hardware status: QUALIFIED | NOT_REQUIRED | BLOCKED
 Final verdict: PASS | FAIL | NOT_RUN | BLOCKED
@@ -374,7 +369,7 @@ Total time: N ms | n/a
 MERGE ELIGIBILITY: READY | BLOCKED
 ```
 
-Lines after the block (`Evidence note`, `Crumb note`, `Verdict reason`,
+Lines after the block (`Evidence note`, `Verdict reason`,
 `Unmapped`, `Problem`, `Bundle`) say why. Checks, in order: the bundle's
 shape and signature against the keys at BASE (several keys allowed, one hex
 per line, `#` comments; the key the bundle names must be one of them, else
@@ -387,14 +382,15 @@ same gate, commit and verdict (an altered receipt no longer matches its
 digest and is reported missing) and with the `manifest_digest` of the gate's
 manifest at COMMIT (`MANIFEST_MISMATCH`); then the plan judge. Every
 rejection is a `Problem` or `Evidence note` line and leaves READY out of
-reach; no path defaults to PASS. Crumb status comes from `crumb verify .` in a temporary
-detached worktree at COMMIT, removed afterwards. Queue time is the sum of
+reach; no path defaults to PASS. Crumbs are advisory notes (RFC-0003
+Amendment 2): `verify` never reads them, and the `Crumb status` line is a
+fixed text kept so log readers do not break. Queue time is the sum of
 `pool_wait_ms`, test time the sum of `duration_ms` over the executed
 receipts, total time the bundle's `finished_utc - started_utc`; build time
 is not measured yet.
 
-`READY` requires: evidence VERIFIED, final verdict PASS, crumb CURRENT, no
-unmapped path, no blocked gate, no problem line.
+`READY` requires: evidence VERIFIED, final verdict PASS, no unmapped path,
+no blocked gate, no problem line. Crumbs never affect it.
 
 ## File layout
 

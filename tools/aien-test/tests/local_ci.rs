@@ -224,7 +224,6 @@ impl World {
             release: false,
             operator: false,
             hardware_identity: String::new(),
-            crumb: Some(self.crumb.display().to_string()),
             keys_override: None,
         }
     }
@@ -289,7 +288,7 @@ fn worker_then_verify_is_ready() {
     let r = w.verify(&w.ask(&w.head));
     assert_eq!(r.lines[0], "AIEN LOCAL VERIFICATION");
     assert_eq!(line(&r, "Evidence status:"), "Evidence status: VERIFIED");
-    assert_eq!(line(&r, "Crumb status:"), "Crumb status: CURRENT");
+    assert_eq!(line(&r, "Crumb status:"), verify::CRUMB_LINE);
     assert_eq!(
         line(&r, "Hardware status:"),
         "Hardware status: NOT_REQUIRED"
@@ -311,9 +310,50 @@ fn worker_then_verify_is_ready() {
     assert!(!w.wt_root.join(REPO).join(&w.head).exists());
     assert_eq!(git(&w.clone, &["rev-parse", "HEAD"]), w.base);
     assert_eq!(git(&w.clone, &["status", "--porcelain"]), "");
-    // Fresh crumb check leaves no worktree behind.
+    // verify never checks out the tree (no crumb check any more).
     assert!(!git(&w.clone, &["worktree", "list"]).contains("aien-verify-"));
     let _ = &w.origin;
+}
+
+/// Crumbs are advisory (RFC-0003 Am2): a head that deletes the root `.crumb`
+/// and carries a stale `a/.crumb`, checked while every `crumb` command
+/// fails, is still READY when everything else passes.
+#[test]
+fn stale_or_missing_crumbs_never_block_readiness() {
+    let w = world();
+    // Every crumb command now fails, as a stale tree would make `crumb verify` fail.
+    fs::write(
+        &w.crumb,
+        "#!/bin/sh\necho \"crumb: 3 of 3 crumbs stale\" >&2\nexit 1\n",
+    )
+    .unwrap();
+    git(&w.origin, &["checkout", "-q", "-b", "topic-crumb", "main"]);
+    git(&w.origin, &["rm", "-q", ".crumb"]);
+    git(&w.origin, &["commit", "-q", "-m", "drop root crumb"]);
+    git(&w.origin, &["checkout", "-q", "main"]);
+    let head = commit_on(
+        &w,
+        "topic-crumb",
+        &[
+            ("a/a.txt", "3\n"),
+            ("a/.crumb", "{\"name\": \"a\", \"stale\": true}\n"),
+        ],
+        "change a with a stale crumb",
+    );
+    assert!(plan::show(&w.clone, &head, ".crumb").is_none());
+    let s = worker::run_once(&w.config(), REPO, &head).expect("worker");
+    assert_eq!(s.verdict, Verdict::Pass, "{} {:?}", s.reason, s.notes);
+    let r = w.verify(&w.ask(&head));
+    assert_eq!(line(&r, "Crumb status:"), verify::CRUMB_LINE);
+    assert!(!r.lines.iter().any(|l| l.starts_with("Crumb note:")));
+    assert_eq!(line(&r, "Evidence status:"), "Evidence status: VERIFIED");
+    assert_eq!(
+        line(&r, "MERGE ELIGIBILITY:"),
+        "MERGE ELIGIBILITY: READY",
+        "{:#?}",
+        r.lines
+    );
+    assert!(r.ready);
 }
 
 #[test]
