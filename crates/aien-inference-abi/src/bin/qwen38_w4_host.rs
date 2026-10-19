@@ -115,7 +115,8 @@ fn run() -> Result<(), String> {
         }
     }
     for r in &rules {
-        ref_w4_rule(r).ok_or_else(|| format!("unknown rule {r} (off, floor, ceil, mse)"))?;
+        ref_w4_rule(r)
+            .ok_or_else(|| format!("unknown rule {r} (off, floor, ceil, mse, nvfp4, int3)"))?;
     }
     let seq: Value = serde_json::from_str(
         &std::fs::read_to_string(seq_path).map_err(|e| format!("{seq_path}: {e}"))?,
@@ -189,7 +190,10 @@ fn run() -> Result<(), String> {
     }
     let mut chip_out = Vec::new();
     for c in &chips {
-        let cl = read_f32(c)?;
+        let Ok(cl) = read_f32(c) else {
+            println!("chip {c}: missing, skipped");
+            continue;
+        };
         if cl.len() < t * vocab {
             return Err(format!("{c}: {} floats, want {}", cl.len(), t * vocab));
         }

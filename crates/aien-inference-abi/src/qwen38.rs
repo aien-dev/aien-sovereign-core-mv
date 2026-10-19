@@ -266,6 +266,9 @@ pub enum Matrix {
 /// RNE saturating at 6) and widened back, so the reference computes with exactly the weights a 4-bit chip holds.
 /// 1 `floor`: X = 2^(floor(log2 amax) - 2) (the OCP / f7 rule, the omega converter omega_gpu_w4_from_fp8);
 /// 2 `ceil`: X = 2^ceil(log2(amax / 6)) (never clips); 3 `mse`: of floor and floor + 1 the one with less squared error.
+/// Two more for comparison only (no chip kernel reads them): 4 `nvfp4`: e2m1 in groups of 16 with a scale of
+/// amax / 6 rounded to 4 significant bits (an e4m3 scale under an ideal per-tensor factor); 5 `int3`: 3-bit signed
+/// integers -3..3 in groups of 32 with an exact f32 scale amax / 3 (a best case for any 3-bit format at this group).
 /// The bf16 lm_head is never touched. Process-wide: set before a forward pass.
 pub static REF_W4_RULE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
@@ -276,6 +279,8 @@ pub fn ref_w4_rule(name: &str) -> Option<u8> {
         "floor" => Some(1),
         "ceil" => Some(2),
         "mse" => Some(3),
+        "nvfp4" => Some(4),
+        "int3" => Some(5),
         _ => None,
     }
 }
@@ -299,8 +304,47 @@ fn e2m1_rne(a: f64) -> f64 {
     }
 }
 
-/// One 32-weight group to MXFP4 and back in place under `rule` (1 floor, 2 ceil, 3 mse).
+/// `v` rounded to `bits` significant bits (round to nearest even), `v > 0`.
+fn round_sig(v: f64, bits: i32) -> f64 {
+    let e = v.log2().floor() as i32 - (bits - 1);
+    let u = 2f64.powi(e);
+    let q = v / u;
+    let r = q.round();
+    let r = if (q - q.floor() - 0.5).abs() < 1e-12 && r % 2.0 != 0.0 {
+        r - 1.0
+    } else {
+        r
+    };
+    r * u
+}
+
+/// One 32-weight group to MXFP4 and back in place under `rule` (1 floor, 2 ceil, 3 mse; 4 nvfp4, 5 int3).
 pub fn w4_roundtrip_group(g: &mut [f32], rule: u8) {
+    if rule == 4 {
+        for h in g.chunks_mut(16) {
+            let amax = h.iter().fold(0f64, |m, &v| m.max((v as f64).abs()));
+            if amax == 0.0 {
+                continue;
+            }
+            let sc = round_sig(amax / 6.0, 4);
+            for v in h.iter_mut() {
+                let x = *v as f64;
+                *v = (e2m1_rne(x.abs() / sc).copysign(x) * sc) as f32;
+            }
+        }
+        return;
+    }
+    if rule == 5 {
+        let amax = g.iter().fold(0f64, |m, &v| m.max((v as f64).abs()));
+        if amax == 0.0 {
+            return;
+        }
+        let sc = amax / 3.0;
+        for v in g.iter_mut() {
+            *v = (((*v as f64) / sc).round().clamp(-3.0, 3.0) * sc) as f32;
+        }
+        return;
+    }
     let amax = g.iter().fold(0f64, |m, &v| m.max((v as f64).abs()));
     if amax == 0.0 {
         return;
@@ -1239,6 +1283,16 @@ mod tests {
         let mut ms = base.clone();
         w4_roundtrip_group(&mut ms, 3);
         assert!(err(&ms) <= err(&fl) && err(&ms) <= err(&ce));
+        let mut n4 = base.clone();
+        w4_roundtrip_group(&mut n4, 4);
+        assert_eq!(n4[0], 6.75); // amax 7: scale 7/6 rounds to 1.125 (4 bits); 7 / 1.125 = 6.22 clips to 6 -> 6.75
+        let mut i3 = base.clone();
+        w4_roundtrip_group(&mut i3, 5);
+        assert_eq!(i3[0], 7.0);
+        assert!(i3
+            .iter()
+            .all(|&v| v == 0.0
+                || (v.abs() / (7.0 / 3.0) - (v.abs() / (7.0 / 3.0)).round()).abs() < 1e-5));
         let mut z = vec![0f32; 32];
         w4_roundtrip_group(&mut z, 1);
         assert!(z.iter().all(|&v| v == 0.0));
