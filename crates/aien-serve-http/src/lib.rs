@@ -5,6 +5,7 @@
 //! engine. The Omega GPU engine plugs into the same trait.
 
 pub mod codec;
+pub mod conv_store;
 pub mod cpu_engine;
 pub mod engine;
 pub mod kv_persist;

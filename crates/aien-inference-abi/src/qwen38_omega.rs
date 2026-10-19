@@ -28,8 +28,8 @@ use aien_omega_q38::{Attn256Cache, Gdn, GraphConfig, GraphStats, Q38Graph};
 
 mod prefill;
 mod session;
-pub use prefill::PrefillStats;
-pub use session::{plan_reuse, FeedStats, Qwen38Session, Reuse, IM_START};
+pub use prefill::{chunk_lengths, PrefillStats};
+pub use session::{plan_reuse, ChunkHook, FeedStats, Qwen38Session, Reuse, IM_START};
 
 use crate::qwen38::{read_bf16_words, read_matrix, read_vec, text_prefix, Matrix, Qwen38Config};
 use crate::qwen3_moe::bf16_to_f32;
@@ -92,6 +92,30 @@ pub struct Qwen38Snapshot {
     pub pos: usize,
     tails: Vec<f32>,
     states: Vec<f32>,
+}
+
+impl Qwen38Snapshot {
+    /// Every DeltaNet layer's conv tail, layer-major ([`aien_omega_q38::GDN_TAIL_FLOATS`] each).
+    pub fn tails(&self) -> &[f32] {
+        &self.tails
+    }
+
+    /// Every DeltaNet layer's recurrent state, layer-major
+    /// ([`aien_omega_q38::GDN_STATE_FLOATS`] each).
+    pub fn states(&self) -> &[f32] {
+        &self.states
+    }
+
+    /// A snapshot from stored parts (a conversation store's checkpoint). The lengths are checked
+    /// against the model by [`Qwen38Omega::restore`].
+    pub fn from_parts(pos: usize, tails: Vec<f32>, states: Vec<f32>) -> Self {
+        Self { pos, tails, states }
+    }
+
+    /// Host bytes this snapshot holds.
+    pub fn bytes(&self) -> usize {
+        4 * (self.tails.len() + self.states.len())
+    }
 }
 
 /// Memory the whole model needs with a KV cache of `max_pos` positions and prefill buffers for
@@ -670,5 +694,64 @@ impl Qwen38Omega {
     /// The graph, for traces and timelines.
     pub fn graph_mut(&mut self) -> &mut Q38Graph {
         &mut self.graph
+    }
+
+    /// Attention layers the KV cache holds (16 on Qwen3.8-27B).
+    pub fn attn_layers(&self) -> usize {
+        self.attn.as_ref().map_or(0, Attn256Cache::layers)
+    }
+
+    /// DeltaNet layers (48 on Qwen3.8-27B).
+    pub fn gdn_layers(&self) -> usize {
+        self.gdn.as_ref().map_or(0, Gdn::layers)
+    }
+
+    /// Copies the K and V rows of attention layer `layer` (its index among the attention
+    /// layers), KV head `kv_head`, positions `from .. to` out of the cache into `k` and `v`
+    /// (`(to - from) * 256` bf16 words each, row-major). One locked copy per row (the engine's
+    /// read entry is one row wide); no launch, no change to the cache.
+    pub fn kv_read_rows(
+        &mut self,
+        layer: usize,
+        kv_head: usize,
+        from: usize,
+        to: usize,
+        k: &mut [u16],
+        v: &mut [u16],
+    ) -> Result<(), String> {
+        let n = to.saturating_sub(from);
+        let w = aien_omega_q38::HEAD_DIM;
+        if k.len() != n * w || v.len() != n * w {
+            return Err(format!(
+                "kv_read_rows: {} and {} words for {n} rows of {w}",
+                k.len(),
+                v.len()
+            ));
+        }
+        let Some(a) = self.attn.as_mut() else {
+            return Err("kv_read_rows: no attention cache".into());
+        };
+        for (i, pos) in (from..to).enumerate() {
+            a.read_row(layer, kv_head, pos, &mut k[i * w..(i + 1) * w], &mut v[i * w..(i + 1) * w])
+                .map_err(gpu("attn256 read_row"))?;
+        }
+        Ok(())
+    }
+
+    /// Writes `k.len() / 256` K and V rows of attention layer `layer`, KV head `kv_head` from
+    /// position `pos` (bytes a [`Self::kv_read_rows`] returned). One copy and one sync.
+    pub fn kv_write_rows(
+        &mut self,
+        layer: usize,
+        kv_head: usize,
+        pos: usize,
+        k: &[u16],
+        v: &[u16],
+    ) -> Result<(), String> {
+        let Some(a) = self.attn.as_mut() else {
+            return Err("kv_write_rows: no attention cache".into());
+        };
+        a.write_rows(layer, kv_head, pos, k, v)
+            .map_err(gpu("attn256 write_rows"))
     }
 }

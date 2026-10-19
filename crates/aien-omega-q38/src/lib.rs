@@ -286,6 +286,23 @@ mod ffi {
             k_norm: *const f32,
         ) -> i32;
         pub fn omega_gpu_decode_attn_last_error() -> *const c_char;
+        pub fn omega_gpu_decode_attn256_cache_write(
+            c: *mut OmegaGpuDecodeAttn256Cache,
+            layer: u32,
+            kv_head: u32,
+            pos: u32,
+            count: u32,
+            k_bf16: *const u16,
+            v_bf16: *const u16,
+        ) -> i32;
+        pub fn omega_gpu_decode_attn256_cache_read(
+            c: *mut OmegaGpuDecodeAttn256Cache,
+            layer: u32,
+            kv_head: u32,
+            pos: u32,
+            k_bf16: *mut u16,
+            v_bf16: *mut u16,
+        ) -> i32;
 
         pub fn omega_gpu_q38_graph_create(
             cfg: *const GraphConfig,
@@ -822,6 +839,109 @@ impl Attn256Cache {
 
     pub fn max_pos(&self) -> usize {
         self.max_pos
+    }
+
+    /// KV heads per attention layer (the cache's fixed shape).
+    pub const KV_HEADS: usize = 4;
+    /// Bytes of one K or V row: 256 bf16.
+    pub const ROW_BYTES: usize = HEAD_DIM * 2;
+
+    /// Copies one K row and one V row (256 bf16 each, K in the kernel's permuted order) of
+    /// attention layer `layer`, KV head `kv_head`, position `pos` out of the cache
+    /// (`omega_gpu_decode_attn256_cache_read`: one row per call; the cache is host-visible
+    /// memory, so this is a locked copy, no launch). Rows come back exactly as the prefill or
+    /// decode kernel wrote them, so a later [`Self::write_rows`] of the same bytes restores the
+    /// position bit for bit.
+    pub fn read_row(
+        &mut self,
+        layer: usize,
+        kv_head: usize,
+        pos: usize,
+        k: &mut [u16],
+        v: &mut [u16],
+    ) -> Result<(), OmegaGpuError> {
+        check_len("attn256 read k", HEAD_DIM, k.len())?;
+        check_len("attn256 read v", HEAD_DIM, v.len())?;
+        if layer >= self.layers || kv_head >= Self::KV_HEADS || pos >= self.max_pos {
+            return Err(bad(format!(
+                "attn256 read_row: layer {layer} of {}, head {kv_head}, pos {pos} of {}",
+                self.layers, self.max_pos
+            )));
+        }
+        #[cfg(has_omega_q38)]
+        {
+            // SAFETY: ptr is live; k and v hold 256 u16 each (checked).
+            let rc = unsafe {
+                ffi::omega_gpu_decode_attn256_cache_read(
+                    self.ptr,
+                    layer as u32,
+                    kv_head as u32,
+                    pos as u32,
+                    k.as_mut_ptr(),
+                    v.as_mut_ptr(),
+                )
+            };
+            if rc != 0 {
+                // SAFETY: no arguments.
+                let detail = c_text(unsafe { ffi::omega_gpu_decode_attn_last_error() });
+                return Err(rc_err("attn256 read_row", rc, detail));
+            }
+            Ok(())
+        }
+        #[cfg(not(has_omega_q38))]
+        Err(OmegaGpuError::Unavailable)
+    }
+
+    /// Writes `k.len() / 256` consecutive K and V rows of attention layer `layer`, KV head
+    /// `kv_head` from position `pos` (`omega_gpu_decode_attn256_cache_write`: one copy and one
+    /// sync per call). The bytes are what [`Self::read_row`] returned.
+    pub fn write_rows(
+        &mut self,
+        layer: usize,
+        kv_head: usize,
+        pos: usize,
+        k: &[u16],
+        v: &[u16],
+    ) -> Result<(), OmegaGpuError> {
+        let count = k.len() / HEAD_DIM;
+        if count == 0 || k.len() != count * HEAD_DIM || v.len() != k.len() {
+            return Err(bad(format!(
+                "attn256 write_rows: k {} and v {} values (whole rows of {HEAD_DIM}, at least one)",
+                k.len(),
+                v.len()
+            )));
+        }
+        if layer >= self.layers || kv_head >= Self::KV_HEADS || pos + count > self.max_pos {
+            return Err(bad(format!(
+                "attn256 write_rows: layer {layer} of {}, head {kv_head}, rows {pos}..{} of {}",
+                self.layers,
+                pos + count,
+                self.max_pos
+            )));
+        }
+        #[cfg(has_omega_q38)]
+        {
+            // SAFETY: ptr is live; k and v hold count * 256 u16 each (checked).
+            let rc = unsafe {
+                ffi::omega_gpu_decode_attn256_cache_write(
+                    self.ptr,
+                    layer as u32,
+                    kv_head as u32,
+                    pos as u32,
+                    count as u32,
+                    k.as_ptr(),
+                    v.as_ptr(),
+                )
+            };
+            if rc != 0 {
+                // SAFETY: no arguments.
+                let detail = c_text(unsafe { ffi::omega_gpu_decode_attn_last_error() });
+                return Err(rc_err("attn256 write_rows", rc, detail));
+            }
+            Ok(())
+        }
+        #[cfg(not(has_omega_q38))]
+        Err(OmegaGpuError::Unavailable)
     }
 
     /// The C handle (`OmegaGpuDecodeAttn256Cache *`) for [`GraphConfig::attn`]; null in the

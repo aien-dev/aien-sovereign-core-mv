@@ -161,7 +161,7 @@ fn argmax(v: &[f32]) -> u32 {
 
 /// Chunk lengths for `n` tokens: at most `chunk` each, none shorter than the DeltaNet prefill's
 /// minimum (the second to last chunk gives up tokens when the remainder would be too short).
-pub(super) fn chunk_lengths(n: usize, chunk: usize) -> Vec<usize> {
+pub fn chunk_lengths(n: usize, chunk: usize) -> Vec<usize> {
     let min = q::GDN_PF_MIN_T;
     let mut out = Vec::with_capacity(n.div_ceil(chunk.max(1)));
     let mut rem = n;
@@ -283,6 +283,20 @@ impl Qwen38Omega {
         st.head_ns = ns(t);
         st.wall_ns = ns(t0);
         Ok((next, logits, st))
+    }
+
+    /// Makes the prefill buffers at least `m` tokens wide (what [`Self::prefill_rows`] would size
+    /// them for a call of `m` tokens), so a feed split into separate calls runs on the same
+    /// buffers one call over all of them would.
+    pub fn reserve_prefill(&mut self, m: usize) -> Result<(), String> {
+        if m == 0 || m > q::PATTN_MAX_M {
+            return Err(format!("qwen38 reserve_prefill: {m} tokens (1..={})", q::PATTN_MAX_M));
+        }
+        if self.pf.as_ref().is_none_or(|p| p.m < m) {
+            self.pf = None;
+            self.pf = Some(PfState::new(m, self.config.rotary_dim)?);
+        }
+        Ok(())
     }
 
     /// The final norm and the bf16 lm_head on one residual row (`[hidden]`): `[vocab]` logits.

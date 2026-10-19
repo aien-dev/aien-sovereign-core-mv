@@ -2,7 +2,7 @@
 //! replies through the decode graph, and the next turn resumed from what the device holds.
 //!
 //! The DeltaNet layers carry a recurrent state that cannot be rewound, so a turn can only reuse
-//! a state whose tokens are an exact prefix of the new prompt. Two such states are kept:
+//! a state whose tokens are an exact prefix of the new prompt. Two such states are kept here:
 //!
 //! - live: everything fed so far (the last prompt and the reply tokens fed back). It matches the
 //!   next prompt only when the client returns the reply byte for byte, thinking included.
@@ -14,8 +14,15 @@
 //!
 //! The longer of the two that is a strict prefix of the prompt wins; otherwise the state is reset
 //! and the whole prompt is fed (cold).
+//!
+//! A third source of state lives outside this type: a conversation store (the server's
+//! `conv_store`) that keeps many conversations' KV rows and DeltaNet checkpoints in host memory
+//! and on disk. It puts one back with [`Qwen38Session::adopt`] (after writing the KV rows
+//! through [`Qwen38Omega::kv_write_rows`]) and watches long prefills through the chunk hook of
+//! [`Qwen38Session::start_with`] / [`Qwen38Session::feed_prefix`] to take its own checkpoints.
 use std::time::Instant;
 
+use super::prefill::chunk_lengths;
 use super::{PrefillStats, Qwen38Omega, Qwen38Snapshot};
 use aien_omega_q38 as q;
 
@@ -69,6 +76,8 @@ pub struct FeedStats {
     pub prefill: PrefillStats,
     pub restore_ns: u64,
     pub snapshot_ns: u64,
+    /// Time inside the chunk hook (a store taking checkpoints), not the model's.
+    pub hook_ns: u64,
     pub wall_ns: u64,
 }
 
@@ -91,6 +100,11 @@ fn add(sum: &mut PrefillStats, s: &PrefillStats) {
     sum.host_ns += s.host_ns;
     sum.head_ns += s.head_ns;
 }
+
+/// Called after every prefill chunk of a long feed with the model (its `pos` is the number of
+/// tokens fed so far) and the tokens fed so far. A store takes a DeltaNet checkpoint here when
+/// its policy says so. An error aborts the feed.
+pub type ChunkHook<'a> = dyn FnMut(&mut Qwen38Omega, &[u32]) -> Result<(), String> + 'a;
 
 /// The resident model plus the token record of its live state and of its snapshot.
 #[derive(Debug)]
@@ -124,6 +138,11 @@ impl Qwen38Session {
         &mut self.model
     }
 
+    /// The prefill chunk length.
+    pub fn chunk(&self) -> usize {
+        self.chunk
+    }
+
     /// Tokens the live state holds.
     pub fn history(&self) -> &[u32] {
         &self.history
@@ -132,6 +151,11 @@ impl Qwen38Session {
     /// Tokens the snapshot holds.
     pub fn snapshot_tokens(&self) -> Option<&[u32]> {
         self.snap_tokens.as_deref()
+    }
+
+    /// The snapshot itself (valid when [`Self::snapshot_tokens`] is `Some`).
+    pub fn snapshot(&self) -> &Qwen38Snapshot {
+        &self.snap
     }
 
     /// Positions the KV cache holds: prompt plus reply must stay below this.
@@ -145,17 +169,48 @@ impl Qwen38Session {
         self.snap_tokens = None;
     }
 
+    /// Makes `snap` (taken after `tokens[..snap.pos]`, whose KV rows the caller has already
+    /// written into the cache) the live state: the next prompt that starts with those tokens
+    /// continues from them. The store's restore path.
+    pub fn adopt(&mut self, tokens: &[u32], snap: &Qwen38Snapshot) -> Result<(), String> {
+        if snap.pos > tokens.len() {
+            return Err(format!(
+                "qwen38 session adopt: snapshot at {} past {} tokens",
+                snap.pos,
+                tokens.len()
+            ));
+        }
+        self.history.clear();
+        self.model.restore(snap)?;
+        self.history.extend_from_slice(&tokens[..snap.pos]);
+        Ok(())
+    }
+
     /// Feeds `prompt` (reusing what [`plan_reuse`] allows) and returns the logits after its last
     /// token. On any error the live state is dropped (the snapshot, a host copy, stays valid).
     pub fn start(&mut self, prompt: &[u32]) -> Result<(Vec<f32>, FeedStats), String> {
-        let r = self.start_inner(prompt);
+        self.start_with(prompt, &mut |_, _| Ok(()))
+    }
+
+    /// [`Self::start`] with a chunk hook: called after every prefill chunk of the long part of
+    /// the feed (everything before the prompt's last turn header).
+    pub fn start_with(
+        &mut self,
+        prompt: &[u32],
+        hook: &mut ChunkHook<'_>,
+    ) -> Result<(Vec<f32>, FeedStats), String> {
+        let r = self.start_inner(prompt, hook);
         if r.is_err() {
             self.history.clear();
         }
         r
     }
 
-    fn start_inner(&mut self, prompt: &[u32]) -> Result<(Vec<f32>, FeedStats), String> {
+    fn start_inner(
+        &mut self,
+        prompt: &[u32],
+        hook: &mut ChunkHook<'_>,
+    ) -> Result<(Vec<f32>, FeedStats), String> {
         let t0 = Instant::now();
         if prompt.is_empty() {
             return Err("qwen38 session: empty prompt".into());
@@ -194,7 +249,7 @@ impl Qwen38Session {
             .rposition(|&t| t == IM_START)
             .filter(|&k| k >= from)
         {
-            self.feed_rows(&prompt[from..k], &mut st)?;
+            self.feed_rows(&prompt[from..k], &mut st, hook)?;
             if self.snap_tokens.as_deref() != Some(&prompt[..k]) && k > 0 {
                 let t = Instant::now();
                 self.snap_tokens = None;
@@ -209,18 +264,73 @@ impl Qwen38Session {
         Ok((logits, st))
     }
 
-    /// Feeds `tokens` without the head (the residual rows are dropped).
-    fn feed_rows(&mut self, tokens: &[u32], st: &mut FeedStats) -> Result<(), String> {
+    /// Feeds `tokens[history.len()..]` without the head (`tokens` must extend the live history),
+    /// chunk by chunk with the hook after each chunk. The ingest path: a document read in the
+    /// background, checkpointed as it goes. On error the live state is dropped.
+    pub fn feed_prefix(
+        &mut self,
+        tokens: &[u32],
+        hook: &mut ChunkHook<'_>,
+    ) -> Result<FeedStats, String> {
+        let t0 = Instant::now();
+        if !tokens.starts_with(&self.history) {
+            self.history.clear();
+            return Err("qwen38 session feed_prefix: the tokens do not extend the live state".into());
+        }
+        if tokens.len() > self.model.max_pos() {
+            return Err(format!(
+                "qwen38 session feed_prefix: {} tokens, the KV cache holds {}",
+                tokens.len(),
+                self.model.max_pos()
+            ));
+        }
+        let from = self.history.len();
+        let mut st = FeedStats {
+            reuse: Some(if from == 0 { Reuse::Cold } else { Reuse::Live(from) }),
+            fed: tokens.len() - from,
+            ..Default::default()
+        };
+        if from == 0 {
+            self.model.reset()?;
+        }
+        let r = self.feed_rows(&tokens[from..], &mut st, hook);
+        if r.is_err() {
+            self.history.clear();
+        }
+        r?;
+        st.wall_ns = ns(t0);
+        Ok(st)
+    }
+
+    /// Feeds `tokens` without the head (the residual rows are dropped), one prefill call per
+    /// chunk of [`chunk_lengths`] (the same chunks one call over all of them would run, so the
+    /// numbers are the same), the hook after each.
+    fn feed_rows(
+        &mut self,
+        tokens: &[u32],
+        st: &mut FeedStats,
+        hook: &mut ChunkHook<'_>,
+    ) -> Result<(), String> {
         if tokens.len() >= q::GDN_PF_MIN_T {
-            let (_, s) = self.model.prefill_rows(tokens, self.chunk, false)?;
-            add(&mut st.prefill, &s);
+            self.model.reserve_prefill(self.chunk.min(tokens.len()))?;
+            let mut done = 0;
+            for m in chunk_lengths(tokens.len(), self.chunk) {
+                let piece = &tokens[done..done + m];
+                let (_, s) = self.model.prefill_rows(piece, self.chunk, false)?;
+                add(&mut st.prefill, &s);
+                self.history.extend_from_slice(piece);
+                done += m;
+                let t = Instant::now();
+                hook(&mut self.model, &self.history)?;
+                st.hook_ns += ns(t);
+            }
         } else {
             for &t in tokens {
                 self.model.step(t)?;
+                self.history.push(t);
             }
             st.stepped += tokens.len();
         }
-        self.history.extend_from_slice(tokens);
         Ok(())
     }
 
