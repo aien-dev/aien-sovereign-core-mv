@@ -517,6 +517,32 @@ fn golden(dir: &str, out: &str, layers: &str, gen: &str, ids: &[String]) -> Resu
         positions.push(e);
     }
 
+    // router fixtures for the chip (omega tests/gpu_router_fn_test.c --fixture): the real router and shared gate of the
+    // listed layers on the real MoE inputs of pass A, with the host reference's decisions. Derived data: never commit.
+    if let Ok(list) = std::env::var("FLASHNEXT_FIXTURE_LAYERS") {
+        for ls in list.split(',').filter(|x| !x.is_empty()) {
+            let layer: usize = ls.parse().map_err(|_| "FLASHNEXT_FIXTURE_LAYERS")?;
+            if layer >= c.layers {
+                return Err(format!("fixture layer {layer} outside the {} layers run", c.layers));
+            }
+            let d = outp.join(format!("moe/L{layer}"));
+            std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
+            let p = format!("{}layers.{layer}", r.prefix);
+            let mw = r.read_moe(&p)?;
+            write_bf16(&d.join("router.bf16"), &mw.router)?;
+            write_bf16(&d.join("shared_gate.bf16"), &mw.shared_gate)?;
+            write_f32(&d.join("x.f32"), &r.moe_inputs[layer])?;
+            let trace = r.traces[layer].clone();
+            let mut f = std::fs::File::create(d.join("routing.txt")).map_err(|e| e.to_string())?;
+            writeln!(f, "# tokens {} hidden {} experts {} top_k {}: ids | weights | sigmoid(shared gate)", tokens.len(), c.hidden, c.experts, c.top_k).map_err(|e| e.to_string())?;
+            for i in 0..tokens.len() {
+                let ids: Vec<String> = trace.ids[i].iter().map(|v| v.to_string()).collect();
+                let ws: Vec<String> = trace.weights[i].iter().map(|v| format!("{v:.9e}")).collect();
+                writeln!(f, "{} | {} | {:.9e}", ids.join(" "), ws.join(" "), trace.shared_gate[i]).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+
     // pass B: the same tokens one at a time (recurrent state, conv state, indexer and n-gram history)
     let t1 = std::time::Instant::now();
     let mut st = r.new_state();
