@@ -70,3 +70,4 @@ control-code-nopair try 3 start 2026-10-19T22:56:52Z loadavg 8.19 6.43 10.26 10/
 control-code-nopair try 3 end 2026-10-19T23:09:32Z rc 2 loadavg 10.07 9.79 9.42 7/3699 1180835
 control-code-convswap try 1 start 2026-10-19T23:09:34Z loadavg 9.74 9.73 9.41 13/3728 1181249 memavail_kb 68392752
 control-code-convswap try 1 end 2026-10-19T23:32:05Z rc 0 loadavg 7.62 15.91 14.37 7/3900 1721363
+control-code-norollback try 1 start 2026-10-19T23:32:06Z loadavg 7.62 15.91 14.37 5/3896 1722214 memavail_kb 69687844
