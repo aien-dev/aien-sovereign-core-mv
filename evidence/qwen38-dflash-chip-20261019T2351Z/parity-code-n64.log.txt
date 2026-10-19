@@ -1,0 +1,2 @@
+memory: whole model + MTP head + drafter needs 40839 MiB, keep 12288 MiB free, MemAvailable 68020 MiB
+qwen38_dflash: gdn alloc: omega_gpu rc=-4 (gdn alloc: CHIP_FAIL: marker wait timed out (latched))
