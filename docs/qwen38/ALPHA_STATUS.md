@@ -8,11 +8,11 @@ word "alpha" than it means here.
 One thing: the Qwen3.8-27B model server built from this repository, running on AIEN's own
 Omega engine on a DGX Spark.
 
-- Install: `install.sh --with-server` from public sources (this repository plus the pinned
-  public `omega-mv`, `physics-mv` and `aienos-mv` repositories). Source build only.
+- Install: `install.sh --with-server --with-model` from public sources (this repository plus
+  the pinned public `omega-mv`, `physics-mv` and `aienos-mv` repositories). Source build only.
 - Model: Hugging Face `Qwen/Qwen3.8-27B-FP8`, revision
-  `017b9c7af6b5689d5dd426a76e0bc077eb5ca20a`, checked against the list in
-  [qwen3.8-27b-fp8-017b9c7a.sha256](qwen3.8-27b-fp8-017b9c7a.sha256).
+  `017b9c7af6b5689d5dd426a76e0bc077eb5ca20a`, downloaded by `--with-model` and checked against
+  the list in [qwen3.8-27b-fp8-017b9c7a.sha256](qwen3.8-27b-fp8-017b9c7a.sha256).
 - Run: `aien-serve-27b` (the shipped `tools/serve-27b.sh`), OpenAI-style chat completions on
   `http://127.0.0.1:18091/v1`, text only, one request at a time, no tool calls.
 - Check: `tools/qwen38_serve_gate.sh` and `tools/qwen38_serve_speed.sh`, each writing a
@@ -53,6 +53,17 @@ sha256 `df936011...` (`evidence/qwen38-serve-fast-20261019/README.md`):
 - Decode speed 7.63 tokens per second, median of four runs:
   `evidence/qwen38-serve-fast-20261019/after/runs.tsv`; share of the 10.15 tokens per second
   memory ceiling 0.752: [CEILING.md](CEILING.md) and `calc-receipts/`.
+- Ceilings: memory ceiling 10.15 tokens per second for one token at a time (8.14 at our measured
+  219 GB/s); compute ceiling about 4,050 tokens per second in total at the 207.7 TFLOPS FP8
+  figure measured by a third party, 4,880 at NVIDIA's specification, about twice that with FP4
+  weights. Arithmetic, sources and which figure is measured: [CEILING.md](CEILING.md).
+- Memory: peak resident memory 36.7 GiB (38,499,160 kB, VmHWM) of the live server on this
+  binary: `evidence/qwen38-serve-memory-20261019/proc-status.txt`, calc:39181948. Plan on about
+  that much free for a second 27B server on the same Spark. Of the peak resident memory now, 35,469,640 kB is file-backed
+  (RssFile in the same file); whether a second server reading the same model folder shares part
+  of it has not been measured.
+- Model download: `install.sh --with-model` run on our Spark (2 files fetched, 1 resumed, all 81
+  pass `sha256sum -c`): `evidence/qwen38-install-with-model-20261019/realrun.log`.
 - Correctness gate `GATE PASS`, 24 of 24 greedy ids equal to the host reference:
   `evidence/qwen38-serve-fast-20261019/gate-live/summary.txt`.
 - 256-token answer identical across four runs (ids hash `ceb68306ae2d`):

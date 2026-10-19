@@ -5,6 +5,8 @@
 # Also checks the opt-in model server path (--with-server): it refuses the wrong
 # machine and a release install before building anything, refuses a CPU stub
 # build, and installs aien-serve-http plus aien-serve-27b from a native build.
+# And the opt-in model download (--with-model): over file:// from a small fake folder, it
+# resumes a partial file, refuses a checksum mismatch, and checks free disk first.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -32,10 +34,11 @@ printf '%s\n' "\$*" >> "\$MOCK_STATE/git.calls"
 case "\$1" in
     clone)
         dest="\${!#}"
-        mkdir -p "\$dest/scripts" "\$dest/tools"
+        mkdir -p "\$dest/scripts" "\$dest/tools" "\$dest/docs/qwen38"
         printf '[workspace]\n' > "\$dest/Cargo.toml"
         cp "$WORK/mocks/pins.sh" "\$dest/scripts/pins.sh"
         cp "$ROOT/tools/serve-27b.sh" "\$dest/tools/serve-27b.sh"
+        cp "$WORK/fake-hf/model.sha256" "\$dest/docs/qwen38/qwen3.8-27b-fp8-017b9c7a.sha256"
         ;;
     -C)
         case "\$3" in
@@ -96,6 +99,25 @@ esac
 EOF
 chmod 755 "$WORK/mocks/git" "$WORK/mocks/cargo" "$WORK/mocks/pins.sh" "$WORK/mocks/uname"
 
+# Fake model source for --with-model: a local folder served over file:// in place of
+# huggingface.co (no network, no 31 GB), with its own checksum list in the shipped format.
+# The stand-in git puts that list where the real one lives in a checkout.
+mkdir -p "$WORK/fake-hf/files"
+printf '{"architectures": ["Fake"]}\n' > "$WORK/fake-hf/files/config.json"
+head -c 300000 /dev/urandom > "$WORK/fake-hf/files/model-00001-of-00002.safetensors"
+head -c 200000 /dev/urandom > "$WORK/fake-hf/files/model-00002-of-00002.safetensors"
+(cd "$WORK/fake-hf/files" && sha256sum config.json model-00001-of-00002.safetensors model-00002-of-00002.safetensors) \
+    > "$WORK/fake-hf/model.sha256"
+MODEL_URL="file://$WORK/fake-hf/files"
+# Stand-in curl: logs its arguments, then runs the real curl.
+REAL_CURL="$(command -v curl)"
+cat > "$WORK/mocks/curl" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "\$MOCK_STATE/curl.calls"
+exec "$REAL_CURL" "\$@"
+EOF
+chmod 755 "$WORK/mocks/curl"
+
 # run_case <name> [install.sh args...]: fresh state dirs, piped install from an empty cwd.
 # Extra environment comes from the caller (VAR=value run_case ...). Sets $status.
 run_case() {
@@ -105,9 +127,12 @@ run_case() {
     set +e
     (
         cd "$C/cwd"
-        unset AIEN_SOURCE_DIR AIEN_REV AIEN_INSTALL_SERVER CARGO_TARGET_DIR AIEN_PINS_DIR
+        unset AIEN_SOURCE_DIR AIEN_REV AIEN_INSTALL_SERVER CARGO_TARGET_DIR AIEN_PINS_DIR AIEN_INSTALL_MODEL AIEN_MODEL_DIR
         # CASE_INSTALL_SERVER=1 tests the environment form of --with-server.
         [[ -z "${CASE_INSTALL_SERVER:-}" ]] || export AIEN_INSTALL_SERVER=1
+        # CASE_INSTALL_MODEL=1 and CASE_MODEL_DIR test the environment form of --with-model.
+        [[ -z "${CASE_INSTALL_MODEL:-}" ]] || export AIEN_INSTALL_MODEL=1
+        [[ -z "${CASE_MODEL_DIR:-}" ]] || export AIEN_MODEL_DIR="$CASE_MODEL_DIR"
         PATH="$WORK/mocks:$PATH" \
         MOCK_STATE="$C/state" \
         TMPDIR="$C/tmp" \
@@ -135,6 +160,7 @@ grep -q 'clone --quiet https://github.com/aien-dev/aien-sovereign-core-mv.git' "
 [[ -z "$(ls -A "$C/tmp")" ]] || fail "installer left its temporary checkout behind"
 [[ -z "$(ls -A "$C/cwd")" ]] || fail "installer wrote into the caller's working directory"
 grep -q "aien compose desk-key --create 1" "$WORK/install.log" || fail "quickstart must list the desk-key step before aien start (sc#414)"
+grep -q "Model and access-token provisioning remain" "$WORK/install.log" || fail "default install must say the model is not provisioned"
 ! grep -q "aien harness" "$WORK/install.log" || fail "quickstart must not offer aien harness, which is not shipped (sc#414)"
 echo "PASS: piped installer bootstraps a checkout and installs the CLI from an arbitrary cwd"
 
@@ -168,3 +194,59 @@ grep -q "server build" "$C/state/cargo.calls" || fail "server install must build
 [[ -x "$C/bin/aien" ]] || fail "server install must still install the CLI"
 [[ -z "$(ls -A "$C/tmp")" ]] || fail "server install left its temporary checkout behind"
 echo "PASS: --with-server (AIEN_INSTALL_SERVER=1) builds with the pinned GPU env and installs the server and its start script"
+
+# 6. --with-model=... over file:// from the fake folder: one file starts as a partial
+#    download (<file>.part holding its first 100000 bytes) and must be resumed, not refetched;
+#    every file ends identical to the source; a rerun fetches nothing.
+F="$WORK/fake-hf/files"
+M="$WORK/case-model/models/qwen"
+mkdir -p "$M"
+head -c 100000 "$F/model-00001-of-00002.safetensors" > "$M/model-00001-of-00002.safetensors.part"
+AIEN_TEST_MODEL_NEED_BYTES=1000000 AIEN_MODEL_BASE_URL="$MODEL_URL" run_case model --model-dir="$M"
+[[ $status -eq 0 ]] || fail "--with-model install exited with status $status"
+grep -q "resuming model-00001-of-00002.safetensors" "$WORK/install.log" || fail "--with-model did not resume the partial file"
+grep -q -- "-C - -o $M/model-00001-of-00002.safetensors.part file://" "$C/state/curl.calls" || fail "--with-model must ask curl to resume (-C -)"
+for f in config.json model-00001-of-00002.safetensors model-00002-of-00002.safetensors; do
+    cmp -s "$F/$f" "$M/$f" || fail "--with-model: $f differs from the source"
+done
+[[ -z "$(find "$M" -name '*.part')" ]] || fail "--with-model left a .part file behind"
+grep -q "all 3 files match" "$WORK/install.log" || fail "--with-model must report the sha256 check"
+! grep -q "Model and access-token provisioning remain" "$WORK/install.log" || fail "after a checked model download the banner must not say the model remains"
+grep -q "Access-token provisioning remains" "$WORK/install.log" || fail "after a checked model download the banner must still name the access token"
+grep -q "Model: Qwen3.8-27B-FP8 downloaded and checked in $M" "$WORK/install.log" || fail "after a checked model download the banner must name the model folder"
+calls=$(grep -c . "$C/state/curl.calls")
+AIEN_TEST_MODEL_NEED_BYTES=1000000 AIEN_MODEL_BASE_URL="$MODEL_URL" run_case model --model-dir="$M"
+[[ $status -eq 0 ]] || fail "--with-model rerun exited with status $status"
+[[ $(grep -c . "$C/state/curl.calls") -eq "$calls" ]] || fail "--with-model rerun on a complete folder must not download again"
+echo "PASS: --with-model (--model-dir=DIR) resumes a partial file, fetches the rest, passes sha256sum -c, and a rerun downloads nothing"
+
+# 7. A file that does not match the list (here: a partial whose first bytes are wrong, so the
+#    resumed file is corrupt): the installer refuses, sets the file aside, keeps the good ones.
+M="$WORK/case-mismatch/models/qwen"
+mkdir -p "$M"
+head -c 100000 /dev/urandom > "$M/model-00002-of-00002.safetensors.part"
+AIEN_TEST_MODEL_NEED_BYTES=1000000 AIEN_MODEL_BASE_URL="$MODEL_URL" CASE_INSTALL_MODEL=1 CASE_MODEL_DIR="$M" run_case mismatch
+[[ $status -ne 0 ]] || fail "--with-model must fail when a file does not match its sha256"
+grep -q "does not match the shipped checksums" "$WORK/install.log" || fail "--with-model mismatch must say so"
+grep -q "model-00002-of-00002.safetensors: FAILED" "$WORK/install.log" || fail "--with-model mismatch must name the file"
+[[ -f "$M/model-00002-of-00002.safetensors.mismatch" && ! -e "$M/model-00002-of-00002.safetensors" ]] \
+    || fail "--with-model must set the mismatched file aside as .mismatch"
+cmp -s "$F/model-00001-of-00002.safetensors" "$M/model-00001-of-00002.safetensors" || fail "--with-model mismatch must keep the good files"
+! grep -q "downloaded and checked" "$WORK/install.log" || fail "a refused model folder must never be reported as checked"
+echo "PASS: --with-model (AIEN_INSTALL_MODEL=1) refuses a folder that fails sha256sum -c and sets the bad file aside"
+
+# 8. Not enough free disk: refused before anything is cloned, built or downloaded.
+AIEN_TEST_MODEL_NEED_BYTES=1000000000000000000 AIEN_MODEL_BASE_URL="$MODEL_URL" run_case nodisk --model-dir="$WORK/case-nodisk/models/qwen"
+[[ $status -ne 0 ]] || fail "--with-model must fail without enough free disk"
+grep -q "not enough free disk for the model" "$WORK/install.log" || fail "--with-model must say the disk is too small"
+[[ ! -e "$C/state/git.calls" && ! -e "$C/state/cargo.calls" && ! -e "$C/state/curl.calls" ]] \
+    || fail "--with-model without disk must stop before cloning, building or downloading"
+echo "PASS: --with-model checks free disk before cloning, building or downloading"
+
+# 9. The real list the installer reads: 81 well-formed lines; install.sh points at it.
+LIST="docs/qwen38/qwen3.8-27b-fp8-017b9c7a.sha256"
+[[ $(grep -c . "$ROOT/$LIST") -eq 81 ]] || fail "$LIST must list 81 files"
+[[ $(grep -c -E '^[0-9a-f]{64}  [A-Za-z0-9._-]+$' "$ROOT/$LIST") -eq 81 ]] || fail "$LIST has a malformed line"
+grep -q "^AIEN_MODEL_LIST=\"$LIST\"$" "$ROOT/install.sh" || fail "install.sh does not read $LIST"
+grep -q '^AIEN_MODEL_REV="017b9c7af6b5689d5dd426a76e0bc077eb5ca20a"$' "$ROOT/install.sh" || fail "install.sh model revision is not 017b9c7a..."
+echo "PASS: the shipped model list has 81 well-formed lines and install.sh reads it at revision 017b9c7a"

@@ -6,7 +6,8 @@
 - Report a run, working or not, with the alpha tester issue template
   (`.github/ISSUE_TEMPLATE/alpha-tester-report.md`).
 - Model: Hugging Face `Qwen/Qwen3.8-27B-FP8`, revision `017b9c7af6b5689d5dd426a76e0bc077eb5ca20a`,
-  Apache 2.0, 81 files, 30,890,049,597 bytes (about 30.9 GB). Download:
+  Apache 2.0, 81 files, 30,890,049,597 bytes (about 30.9 GB). Download and check it with
+  `install.sh --with-model` (see the guide, section 3), or by hand:
   `hf download Qwen/Qwen3.8-27B-FP8 --revision 017b9c7af6b5689d5dd426a76e0bc077eb5ca20a --local-dir ~/models/qwen3.8-27b-fp8-017b9c7a`
 - Checksums: `qwen3.8-27b-fp8-017b9c7a.sha256` lists the sha256 of all 81 upstream files. Check a
   download with `cd ~/models/qwen3.8-27b-fp8-017b9c7a && sha256sum -c <repo>/docs/qwen38/qwen3.8-27b-fp8-017b9c7a.sha256`.
@@ -19,4 +20,4 @@
   server binary sha256, its build, the model folder, the machine state, every request's figures
   and a MATCH or MISMATCH line against the references in
   `crates/aien-inference-abi/fixtures/qwen38/`. `AIEN_CHECK_MODEL=1` also checks the model files.
-- Speed limit set by memory: [CEILING.md](CEILING.md).
+- Speed limits, memory and compute: [CEILING.md](CEILING.md).

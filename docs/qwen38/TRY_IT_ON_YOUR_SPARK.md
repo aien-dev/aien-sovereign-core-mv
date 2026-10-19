@@ -28,12 +28,18 @@ Hardware and system (the only setup tested):
   `/dev/nvidia-uvm`. On our Spark these device files are readable and writable by every user
   (mode 666). No root is needed except for `apt`.
 - Free memory: the installer and the start script warn when less than 40 GiB is available
-  (`install.sh`, `tools/serve-27b.sh`). The figure behind that threshold, about 38.5 GiB, was
-  measured on an earlier build of the server (peak resident memory 40,358,896 kB, recorded in
-  `evidence/qwen38-serve-fast-20261019/README.md`); the current build's peak has not been
-  recorded yet. Close other large programs before you start the server.
+  (`install.sh`, `tools/serve-27b.sh`). The live server on the current build (binary sha256
+  `df936011...`) peaked at 38,499,160 kB of resident memory, 38,499,160 / 1,048,576 = 36.7 GiB
+  (calc:39181948), read from `/proc/<pid>/status` (VmHWM, the same measure as the earlier figure)
+  after 2 hours 48 minutes of service
+  with up to 131,072 tokens of context allowed: `evidence/qwen38-serve-memory-20261019/proc-status.txt`.
+  An earlier build peaked at 40,358,896 kB, 38.5 GiB (calc:f6c02d78,
+  `evidence/qwen38-serve-fast-20261019/README.md`). Close other large programs before you start
+  the server.
 - Disk: 30.9 GB for the model (30,890,049,597 bytes in 81 files, see
-  [README.md](README.md)). The sources and the build took under 1.5 GB on our Spark on
+  [README.md](README.md)); `install.sh --with-model` asks for that plus 2 GB of room,
+  (30,890,049,597 + 2,000,000,000) / 1,000,000,000 = 32.9 GB (calc:8af38ffd), less whatever an
+  earlier run already put in the folder. The sources and the build took under 1.5 GB on our Spark on
   2026-10-19 (clone 321 MB, pinned Omega sources 386 MB, release build 561 MB, measured with
   `du`), plus the Rust toolchain and its download cache (1.6 GB on ours, shared with other
   builds). Have 40 GB free and you are safe.
@@ -59,17 +65,21 @@ Spark (`evidence/qwen38-serve-fast-20261019/README.md`, "load 64 s").
 cd ~
 git clone https://github.com/aien-dev/aien-sovereign-core-mv
 cd aien-sovereign-core-mv
-./install.sh --with-server 2>&1 | tee ~/aien-install.log
+./install.sh --with-server --with-model 2>&1 | tee ~/aien-install.log
 ```
+
+`--with-model` also downloads and checks the model (section 3). Leave it out if you want to
+fetch the model yourself.
 
 Keep `~/aien-install.log`: it is one of the things to paste when you report a problem.
 
-What the installer does with `--with-server`, in order:
+What the installer does with `--with-server --with-model`, in order:
 
 1. Checks the machine (the block that starts with `[*] Model server: checking this machine`):
    Linux on aarch64, the six programs above, the NVIDIA driver version, the three device files,
-   free memory. A failed check stops the installer before anything is cloned or built and says
-   what is wrong in plain words.
+   free memory. Then free disk for the model (the block that starts with
+   `[*] Model download: checking`). A failed check stops the installer before anything is
+   cloned, built or downloaded and says what is wrong in plain words.
 2. Fetches the pinned Omega, physics and aienos sources from GitHub into `target/pins/`
    (`scripts/pins.sh --gpu`). The exact commits are in `omega.lock` and the lock files next to
    it.
@@ -81,6 +91,8 @@ What the installer does with `--with-server`, in order:
 5. Installs `aien-serve-http` and the start script `aien-serve-27b` into `~/.local/bin`, along
    with the repository's other command line tools (those tools are not part of the alpha; you do
    not need them for the server).
+6. Downloads the model into `~/models/qwen3.8-27b-fp8-017b9c7a` and checks every file
+   (section 3).
 
 The installer also appends a line to your `~/.bashrc`, `~/.zshrc` or `~/.profile` so that
 `~/.local/bin` is on your `PATH`. Open a new shell afterwards, or run
@@ -109,10 +121,33 @@ The weights are the public Hugging Face model `Qwen/Qwen3.8-27B-FP8` at revision
 `017b9c7af6b5689d5dd426a76e0bc077eb5ca20a`, Apache 2.0 licence, not gated, no account needed.
 The server reads that folder directly; no conversion step.
 
-Our own copy was fetched file by file from `https://huggingface.co/Qwen/Qwen3.8-27B-FP8/resolve/<revision>/<file>`
-(the record is in `~/models/qwen3.8-27b-fp8-017b9c7a.SOURCE` on our Spark). This loop does the
-same, taking the 81 file names from the shipped checksum list, and skips files that are already
-there, so you can rerun it after an interruption:
+With `--with-model` (section 2) the installer does all of this section for you:
+
+- It fetches the 81 files named in the shipped checksum list
+  (`docs/qwen38/qwen3.8-27b-fp8-017b9c7a.sha256`) one by one with `curl` from
+  `https://huggingface.co/Qwen/Qwen3.8-27B-FP8/resolve/<revision>/<file>`, the same place our
+  own copy came from.
+- A file that is being downloaded is called `<file>.part`. If the download is interrupted, run
+  the same install command again: files already complete are kept and each `.part` file carries
+  on where it stopped.
+- At the end it runs `sha256sum -c` on all 81 files. If any file does not match, the installer
+  stops with an error, renames the bad file to `<file>.mismatch` and tells you to rerun it, which
+  fetches that file again. It never reports a folder that failed the check as ready.
+- The folder is `~/models/qwen3.8-27b-fp8-017b9c7a`; choose another with `--model-dir=DIR` (then
+  start the server with `MODEL_DIR=DIR aien-serve-27b`).
+
+To fetch or re-check only the model later, run `./install.sh --with-model` again from the
+checkout (it also runs the command line tools build again).
+
+What we ran: on our Spark, `install.sh --model-dir=...` with real downloads from huggingface.co
+into a folder missing two small files and holding a third as a partial download fetched 2 files,
+resumed the third, and `sha256sum -c` passed for all 81 files; a second run fetched nothing and
+passed again (`evidence/qwen38-install-with-model-20261019/realrun.log`). The full 31 GB download
+from an empty folder has not been timed. `scripts/test-install.sh` checks resuming, the refusal
+on a mismatch and the disk check against a small local stand-in folder.
+
+By hand, if you prefer: this loop does the same download, taking the 81 file names from the
+shipped checksum list, and skips files that are already there:
 
 ```bash
 REV=017b9c7af6b5689d5dd426a76e0bc077eb5ca20a
@@ -133,7 +168,8 @@ hf download Qwen/Qwen3.8-27B-FP8 --revision 017b9c7af6b5689d5dd426a76e0bc077eb5c
   --local-dir ~/models/qwen3.8-27b-fp8-017b9c7a
 ```
 
-Then check every file against the list shipped in this repository:
+Then check every file against the list shipped in this repository (the installer's
+`--with-model` already did this; it is safe to run again):
 
 ```bash
 cd ~/models/qwen3.8-27b-fp8-017b9c7a
@@ -301,8 +337,8 @@ decode runs) because greedy decoding is deterministic; a mismatch is a bug and w
 about it. The chip ms per token should be close to ours on an idle Spark; our four runs were
 taken while other jobs were using the machine (the `lock wait` figures in `runs.tsv` show
 requests waiting up to 186 seconds for the chip), so a somewhat faster number on a quiet machine
-would not surprise us. The ceiling arithmetic in `calc-receipts/` is stored as the expression
-and its exact result, so you can redo it by hand.
+would not surprise us. The ceiling arithmetic is written out in [CEILING.md](CEILING.md), and
+`calc-receipts/` stores each expression and its exact result, so you can redo it by hand.
 
 Our evidence folders were produced by an earlier version of these scripts, before they wrote
 `receipt.json`, so there is no `receipt.json` of ours to diff against yet; the files in the table
@@ -326,13 +362,14 @@ Stated here so nobody is surprised; they are the same limits that sit next to th
   `evidence/qwen38-serve-20261019T0128Z/`). Longer prompts are untested and the first token on a
   long prompt takes a long time; first-token times for the current build have not been measured.
 - Each reply is capped at 16,384 tokens by the start script.
-- Memory: about 38.5 GiB on an earlier build; the current build's peak is not recorded. Running
+- Memory: the server's peak was about 36.7 GiB on the current build (section 1). Running
   anything else large on the Spark at the same time can get the server killed by the kernel.
 - Nothing restarts the server after a reboot, and there is no authentication; it listens on
   `127.0.0.1` only. Do not expose the port.
 - The speed figure is a small sample (four runs) on a busy machine. It is the chip time of the
   decoding loop; the time you see at the client includes reading the prompt and any waiting.
-- The model download is a manual step (section 3); nothing in the installer fetches it.
+- The model download (`--with-model`, section 3) has been run on our Spark only for a few
+  missing files plus the full check, not as a full 31 GB download into an empty folder.
 - Everything else in this repository and in the AIEN project (the `aien` command line tools, the
   daemon, the other model paths, the AIENOS kernel, the Omega compiler, physics) stays pre-alpha.
   See [ALPHA_STATUS.md](ALPHA_STATUS.md).

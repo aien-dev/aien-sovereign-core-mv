@@ -19,13 +19,19 @@ ACTION="install"
 ALLOW_DOWNGRADE=0
 # Opt-in model server (DGX Spark only): --with-server or AIEN_INSTALL_SERVER=1.
 WITH_SERVER="${AIEN_INSTALL_SERVER:-0}"
+# Opt-in model download: --with-model or AIEN_INSTALL_MODEL=1; folder: --model-dir=DIR or AIEN_MODEL_DIR.
+WITH_MODEL="${AIEN_INSTALL_MODEL:-0}"
+MODEL_DIR="${AIEN_MODEL_DIR:-$HOME/models/qwen3.8-27b-fp8-017b9c7a}"
+MODEL_OK=0   # set to 1 only when model_download's sha256 check passed
 for arg in "$@"; do
     case "$arg" in
         --rollback) ACTION="rollback" ;;
         --allow-downgrade) ALLOW_DOWNGRADE=1 ;;
         --with-server) WITH_SERVER=1 ;;
+        --with-model) WITH_MODEL=1 ;;
+        --model-dir=*) MODEL_DIR="${arg#--model-dir=}"; WITH_MODEL=1 ;;
         -h|--help)
-            echo "usage: install.sh [--rollback] [--allow-downgrade] [--with-server]"
+            echo "usage: install.sh [--rollback] [--allow-downgrade] [--with-server] [--with-model] [--model-dir=DIR]"
             echo "  (none)             source build, or with AIEN_RELEASE_TAG=vX.Y.Z a signed release install"
             echo "  --rollback         switch back to the one previous release kept by the last upgrade"
             echo "  --allow-downgrade  accept a release whose candidate is older than the installed one"
@@ -34,6 +40,15 @@ for arg in "$@"; do
             echo "                     DGX Spark (aarch64 Linux, NVIDIA GB10) only, source build only."
             echo "                     Same as AIEN_INSTALL_SERVER=1. AIEN_PINS_DIR sets where the pinned"
             echo "                     omega, physics and aienos sources are fetched (default target/pins)."
+            echo "  --with-model       also download the model weights the server reads: Hugging Face"
+            echo "                     Qwen/Qwen3.8-27B-FP8 at revision 017b9c7af6b5689d5dd426a76e0bc077eb5ca20a,"
+            echo "                     the 81 files of docs/qwen38/qwen3.8-27b-fp8-017b9c7a.sha256 (about 30.9 GB)."
+            echo "                     Checks free disk first, resumes partial files when rerun, then runs"
+            echo "                     sha256sum -c and refuses the folder if any file does not match."
+            echo "                     Same as AIEN_INSTALL_MODEL=1. Source build only."
+            echo "  --model-dir=DIR    where the model goes (implies --with-model; default"
+            echo "                     ~/models/qwen3.8-27b-fp8-017b9c7a, the folder aien-serve-27b reads)."
+            echo "                     Same as AIEN_MODEL_DIR=DIR."
             exit 0 ;;
         *) echo "Error: unknown argument: $arg" >&2; exit 2 ;;
     esac
@@ -314,7 +329,7 @@ server_preflight() {
     local avail_kib
     avail_kib="$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
     if [[ "${avail_kib:-0}" -lt $((40 * 1024 * 1024)) ]]; then
-        server_warn "only $((avail_kib / 1024 / 1024)) GiB of memory is free now; the 27B server needs about 38.5 GiB when it runs."
+        server_warn "only $((avail_kib / 1024 / 1024)) GiB of memory is free now; the 27B server's peak was about 36.7 GiB on the current build (evidence/qwen38-serve-memory-20261019)."
     else
         echo "    free memory: $((avail_kib / 1024 / 1024)) GiB"
     fi
@@ -357,7 +372,111 @@ server_build() {
     sed 's/^/      /' <<<"$info"
 }
 
+# ------------------------------------------------------------------------------
+# Model download (--with-model): Qwen3.8-27B-FP8 at one fixed revision, file by file
+# from the list of 81 files and sha256 values shipped in docs/qwen38/. Free disk is
+# checked before anything is cloned or built; the download resumes partial files
+# (<file>.part) when rerun; at the end sha256sum -c must pass for every file.
+# ------------------------------------------------------------------------------
+AIEN_MODEL_REPO="Qwen/Qwen3.8-27B-FP8"
+AIEN_MODEL_REV="017b9c7af6b5689d5dd426a76e0bc077eb5ca20a"
+AIEN_MODEL_LIST="docs/qwen38/qwen3.8-27b-fp8-017b9c7a.sha256"
+# Sum of the 81 file sizes (docs/qwen38/README.md) plus 2 GB of room.
+AIEN_MODEL_BYTES=30890049597
+AIEN_MODEL_MARGIN_BYTES=2000000000
+model_die() {
+    echo "" >&2
+    echo "Error (model download): $*" >&2
+    exit 1
+}
+
+sha256_check() {
+    if command -v sha256sum >/dev/null 2>&1; then sha256sum -c --quiet "$1"
+    else shasum -a 256 -c --quiet "$1"; fi
+}
+
+# Bytes free on the file system that will hold $1 (the nearest folder of $1 that exists).
+free_bytes_for() {
+    local d="$1"
+    while [[ ! -d "$d" ]]; do d="$(dirname "$d")"; done
+    df -Pk "$d" | awk 'NR == 2 { printf "%.0f\n", $4 * 1024 }'
+}
+
+model_preflight() {
+    echo "[*] Model download: checking curl, sha256 and free disk for $MODEL_DIR"
+    [[ -z "$RELEASE_TAG" ]] || model_die "--with-model needs the source checkout (it reads the checksum list from it) and cannot be combined with AIEN_RELEASE_TAG. Unset AIEN_RELEASE_TAG."
+    command -v curl >/dev/null 2>&1 || model_die "curl is needed and was not found. On DGX OS / Ubuntu: sudo apt install curl"
+    command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1 \
+        || model_die "sha256sum is needed and was not found. On DGX OS / Ubuntu: sudo apt install coreutils"
+    local need have free
+    if [[ -n "${AIEN_TEST_MODEL_NEED_BYTES:-}" ]]; then
+        # Test hook (scripts/test-install.sh only): a fixed need instead of the model's size.
+        echo "[test] model download: need set to $AIEN_TEST_MODEL_NEED_BYTES bytes (AIEN_TEST_MODEL_NEED_BYTES)" >&2
+        need="$AIEN_TEST_MODEL_NEED_BYTES"
+    else
+        # What is already in the folder from an earlier run does not need room again.
+        have=0
+        [[ ! -d "$MODEL_DIR" ]] || have=$(( $(du -sk "$MODEL_DIR" | cut -f1) * 1024 ))
+        need=$((AIEN_MODEL_BYTES + AIEN_MODEL_MARGIN_BYTES - have))
+        [[ "$need" -ge "$AIEN_MODEL_MARGIN_BYTES" ]] || need="$AIEN_MODEL_MARGIN_BYTES"
+    fi
+    free="$(free_bytes_for "$MODEL_DIR")"
+    [[ "$free" -ge "$need" ]] \
+        || model_die "not enough free disk for the model: $((free / 1000000000)) GB free where $MODEL_DIR goes, $((need / 1000000000 + 1)) GB needed (30.9 GB of weights plus 2 GB of room, less what is already there). Free some space or choose another folder with --model-dir=DIR. Nothing was downloaded."
+    echo "    free disk: $((free / 1000000000)) GB, needed: $((need / 1000000000 + 1)) GB"
+    echo "[+] Model download: checks passed"
+}
+
+# model_download: fetch every listed file into $MODEL_DIR, then sha256sum -c all of them.
+model_download() {
+    local list="$SOURCE_ROOT/$AIEN_MODEL_LIST"
+    local base="${AIEN_MODEL_BASE_URL:-https://huggingface.co/$AIEN_MODEL_REPO/resolve/$AIEN_MODEL_REV}"
+    [[ -f "$list" ]] || model_die "the checksum list $AIEN_MODEL_LIST is missing from the checkout."
+    mkdir -p "$MODEL_DIR"
+    echo "[*] Model download: $AIEN_MODEL_REPO at revision $AIEN_MODEL_REV into $MODEL_DIR"
+    local sha f n=0 fetched=0
+    while read -r sha f; do
+        [[ "$sha" =~ ^[0-9a-f]{64}$ && -n "$f" ]] || model_die "bad line in $AIEN_MODEL_LIST: $sha $f"
+        case "$f" in /*|*..*) model_die "unsafe file name in $AIEN_MODEL_LIST: $f" ;; esac
+        n=$((n + 1))
+        # A complete file from an earlier run is kept (the sha256 check below judges it);
+        # <file>.part is an interrupted download and is resumed where it stopped.
+        if [[ -f "$MODEL_DIR/$f" && ! -e "$MODEL_DIR/$f.part" ]]; then continue; fi
+        mkdir -p "$(dirname "$MODEL_DIR/$f")"
+        if [[ -s "$MODEL_DIR/$f.part" ]]; then
+            echo "    resuming $f ($(du -k "$MODEL_DIR/$f.part" | cut -f1) KiB already here)"
+        else
+            echo "    fetching $f"
+        fi
+        if ! curl --proto '=https,file' --fail --location --silent --show-error \
+                --retry 5 --retry-delay 5 -C - -o "$MODEL_DIR/$f.part" "$base/$f"; then
+            # curl refuses to resume a .part that is already complete; accept it if it matches.
+            [[ -f "$MODEL_DIR/$f.part" && "$(sha256_of "$MODEL_DIR/$f.part")" == "$sha" ]] \
+                || model_die "download of $f failed (see the curl line above). What arrived is kept in $MODEL_DIR/$f.part; rerun the installer to resume."
+        fi
+        mv -f "$MODEL_DIR/$f.part" "$MODEL_DIR/$f"
+        fetched=$((fetched + 1))
+    done < "$list"
+    [[ "$n" -gt 0 ]] || model_die "$AIEN_MODEL_LIST lists no files."
+    echo "[*] Model download: $fetched of $n files fetched now; checking all $n with sha256sum -c"
+    local out bad
+    if ! out="$(cd "$MODEL_DIR" && sha256_check "$list" 2>&1)"; then
+        echo "$out" >&2
+        # Set mismatched files aside so a rerun fetches them fresh.
+        bad=0
+        while IFS= read -r f; do
+            [[ -n "$f" && -f "$MODEL_DIR/$f" ]] || continue
+            mv -f "$MODEL_DIR/$f" "$MODEL_DIR/$f.mismatch"
+            bad=$((bad + 1))
+        done < <(sed -n 's/: FAILED.*$//p' <<<"$out")
+        model_die "the model folder does not match the shipped checksums ($bad file(s) set aside as <file>.mismatch, listed above). Do not start the server on it. Rerun the installer to fetch those files again."
+    fi
+    echo "[+] Model download: all $n files match $AIEN_MODEL_LIST"
+    MODEL_OK=1
+}
+
 [[ "$WITH_SERVER" != 1 ]] || server_preflight
+[[ "$WITH_MODEL" != 1 ]] || model_preflight
 
 # Release signing keys, pinned here so a release can be verified with nothing but this file and the assets
 # (offline). scripts/test-install-release.sh checks both lines against their files in docs/release/.
@@ -592,6 +711,10 @@ if [[ "$WITH_SERVER" == 1 ]]; then
     server_build
 fi
 
+if [[ "$WITH_MODEL" == 1 ]]; then
+    model_download
+fi
+
 echo "[*] Initializing Sovereign Operator Profile..."
 if [ ! -f "$CONFIG_DIR/operator.toml" ]; then
     GIT_NAME="$(git config user.name 2>/dev/null || echo "Sovereign Operator")"
@@ -625,8 +748,13 @@ if [[ -n "$IMPRINT_SRC" && -d "$IMPRINT_SRC" ]]; then
 fi
 
 echo "=================================================================="
+if [[ "$MODEL_OK" == 1 ]]; then
+echo "  ⚡ Portable binaries installed. Access-token provisioning remains."
+echo "  Model: Qwen3.8-27B-FP8 downloaded and checked in $MODEL_DIR; see docs/FIRST_RUN.md for the rest."
+else
 echo "  ⚡ Portable binaries installed. Model and access-token provisioning remain."
-echo "  The installer does not provision a model; see docs/FIRST_RUN.md."
+echo "  The installer does not provision a model unless run with --with-model; see docs/FIRST_RUN.md."
+fi
 echo "=================================================================="
 echo "  Primary Command: aien"
 echo ""
@@ -641,9 +769,16 @@ echo "    aien doctor     # System diagnostic and TPM key vault audit"
 echo "=================================================================="
 if [[ "$WITH_SERVER" == 1 ]]; then
 echo "  Model server (Qwen3.8-27B on the Omega engine):"
-echo "    1. Download the weights (about 31 GB) into ~/models/qwen3.8-27b-fp8-017b9c7a:"
+if [[ "$WITH_MODEL" == 1 ]]; then
+echo "    1. Weights downloaded and checked in $MODEL_DIR"
+else
+echo "    1. Download and check the weights (about 31 GB): rerun with --with-model, or by hand:"
 echo "       Hugging Face Qwen/Qwen3.8-27B-FP8, revision 017b9c7af6b5689d5dd426a76e0bc077eb5ca20a"
+echo "       into ~/models/qwen3.8-27b-fp8-017b9c7a"
+fi
 echo "    2. aien-serve-27b        # starts it on http://127.0.0.1:18091/v1 and prints how to stop it"
 echo "       (MODEL_DIR, PORT and BIN override the defaults; aien-serve-27b --help)"
+[[ "$WITH_MODEL" != 1 || "$MODEL_DIR" == "$HOME/models/qwen3.8-27b-fp8-017b9c7a" ]] \
+    || echo "       Your model folder is not the default: start it with MODEL_DIR=$MODEL_DIR aien-serve-27b"
 echo "=================================================================="
 fi
