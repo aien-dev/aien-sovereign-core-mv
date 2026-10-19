@@ -341,6 +341,30 @@ fn compare(a: &str, b: &str, out: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// `decode <ckpt> <run.json> <out.txt>`: the fed prompt (teacher-forced ids) and the generated ids as text.
+fn decode(dir: &Path, run_json: &str, out: &str) -> Result<(), String> {
+    let tk = ChatTokenizer::from_file(dir.join("tokenizer.json")).map_err(|e| e.to_string())?;
+    let v = read_json(run_json)?;
+    let fed: Vec<u32> = v["rows"]
+        .as_array()
+        .ok_or("no rows")?
+        .iter()
+        .take(v["teacher_forced"].as_u64().unwrap_or(0) as usize + 1)
+        .map(|r| r["fed"].as_u64().unwrap_or(0) as u32)
+        .collect();
+    let gen = ids(&v, "generated_ids")?;
+    let prompt = tk.decode(&fed).map_err(|e| e.to_string())?;
+    let text = tk.decode(&gen).map_err(|e| e.to_string())?;
+    std::fs::write(
+        out,
+        format!(
+            "=== prompt ({} ids)\n{prompt}\n=== generated ({} ids)\n{text}\n",
+            fed.len(),
+            gen.len()
+        ),
+    )
+    .map_err(|e| format!("{out}: {e}"))
+}
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     let r = match a.get(1).map(String::as_str) {
@@ -354,7 +378,8 @@ fn main() {
             .map_err(|_| "--gen N".to_string())
             .and_then(|g| run(Path::new(&a[2]), &a[3], &a[4], g)),
         Some("compare") if a.len() == 5 => compare(&a[2], &a[3], &a[4]),
-        _ => Err("usage: qwen38_ab text <ckpt> <text-file> <n> <seq.json> | run <ckpt> <seq.json> <out-prefix> [--gen N] | compare <a> <b> <out.json>".into()),
+        Some("decode") if a.len() == 5 => decode(Path::new(&a[2]), &a[3], &a[4]),
+        _ => Err("usage: qwen38_ab text <ckpt> <text-file> <n> <seq.json> | run <ckpt> <seq.json> <out-prefix> [--gen N] | compare <a> <b> <out.json> | decode <ckpt> <run.json> <out.txt>".into()),
     };
     if let Err(e) = r {
         eprintln!("qwen38_ab: {e}");
