@@ -221,7 +221,8 @@ pub struct Config {
     /// worker user, who can read the signing key). Never with `github`.
     pub allow_unsandboxed: bool,
     /// Per-repository cargo target directories by trust class
-    /// (`<target_root>/<repo>/main|pr`), used under `Sandbox::User`.
+    /// (`<target_root>/<repo>/main|pr/<sha>`, one per head), used under
+    /// `Sandbox::User`.
     pub target_root: PathBuf,
     /// INFRA's worktree tool (`tools/aien-local-ci/wt.sh`). Under
     /// `Sandbox::User` every checkout is made and removed with it; without it
@@ -919,7 +920,7 @@ fn run_in_worktree(
     fs::create_dir_all(&evidence_dir).map_err(|e| format!("cannot create evidence dir: {e}"))?;
     let mut opts = Options::new(evidence_dir.clone());
     opts.sandbox = cfg.sandbox;
-    opts.cargo_target_dir = target_dir_for(cfg, repo, on_main);
+    opts.cargo_target_dir = target_dir_for(cfg, repo, sha, on_main);
     opts.target_lock_dir = cfg.state.target_lock_dir();
     opts.pool_sizes = opts.pool_sizes.with(cfg.jobs);
     opts.pins = pins;
@@ -1151,18 +1152,24 @@ fn run_in_worktree(
 }
 
 /// `CARGO_TARGET_DIR` for the gates of one head. Under the user sandbox it is
-/// the INFRA target dir of the head's trust class (A2):
-/// `<target_root>/<repo>/main` for a head on the base line, `.../pr`
-/// otherwise. The exec helper accepts only exactly those two paths under
-/// `/var/lib/aien-run/target` and creates the class dir on demand. Never the
-/// worker's own target dir, which `aien-run` cannot write. Without the
+/// the head's OWN dir inside its trust class (A2):
+/// `<target_root>/<repo>/main/<sha>` for a head on the base line,
+/// `.../pr/<sha>` otherwise. Never shared between heads: cargo calls a
+/// workspace crate fresh by file times and a path relative to the workspace,
+/// so with one dir per class a head that built after this one was checked out
+/// had its binaries linked and run here, with its checkout path baked in
+/// (sc #605: SC-TEST, SC-AGENT-PREFLIGHT, SC-VERIFY-CLOSURE "No such file" in
+/// another head's worktree; #452: PREFILL-E2E-2 running a mutant). The exec
+/// helper accepts only this shape, with `<sha>` equal to the worktree's, and
+/// creates it on demand; `wt.sh remove` deletes it with the worktree. Never
+/// the worker's own target dir, which `aien-run` cannot write. Without the
 /// sandbox, the worker's own `CARGO_TARGET_DIR`.
-fn target_dir_for(cfg: &Config, repo: &str, on_main: bool) -> Option<PathBuf> {
+fn target_dir_for(cfg: &Config, repo: &str, sha: &str, on_main: bool) -> Option<PathBuf> {
     match cfg.sandbox {
         Sandbox::None => std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from),
         Sandbox::User => {
             let class = if on_main { "main" } else { "pr" };
-            Some(cfg.target_root.join(repo).join(class))
+            Some(cfg.target_root.join(repo).join(class).join(sha))
         }
     }
 }
@@ -1480,6 +1487,37 @@ pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_head_gets_its_own_target_dir_inside_its_trust_class() {
+        let mut cfg = Config::new(
+            StateDir::new(Path::new("/s")),
+            Path::new("/k"),
+            Path::new("/c"),
+            Path::new("/w"),
+        );
+        cfg.sandbox = Sandbox::User;
+        let (a, b) = ("a".repeat(40), "b".repeat(40));
+        let pr_a = target_dir_for(&cfg, "aien-sovereign-core", &a, false).unwrap();
+        let pr_b = target_dir_for(&cfg, "aien-sovereign-core", &b, false).unwrap();
+        let main_a = target_dir_for(&cfg, "aien-sovereign-core", &a, true).unwrap();
+        assert_eq!(
+            pr_a,
+            Path::new(TARGET_ROOT)
+                .join("aien-sovereign-core/pr")
+                .join(&a)
+        );
+        assert_eq!(
+            main_a,
+            Path::new(TARGET_ROOT)
+                .join("aien-sovereign-core/main")
+                .join(&a)
+        );
+        // Two heads never share a dir (cargo would link one head's build into
+        // the other, sc #605), and a head's pr dir is never its main dir (A2).
+        assert_ne!(pr_a, pr_b);
+        assert_ne!(pr_a, main_a);
+    }
 
     #[test]
     fn pin_list_selects_the_repository_and_refuses_bad_lines() {
