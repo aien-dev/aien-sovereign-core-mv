@@ -1,0 +1,2 @@
+memory: whole model + MTP head + drafter needs 36759 MiB, keep 12288 MiB free, MemAvailable 40084 MiB
+qwen38_dflash: whole model + MTP head + drafter: needs 36759 MiB with 12288 MiB kept free, MemAvailable 40084 MiB; refusing
