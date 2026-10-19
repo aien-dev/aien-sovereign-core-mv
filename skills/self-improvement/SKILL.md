@@ -102,6 +102,8 @@ aien-browser-mirror --eval "<javascript>" --url U   # evaluate an expression on 
 
 Defaults: `--url http://127.0.0.1:18095` (override with `--url` or `AIEN_COCKPIT_URL`), `--out-dir ~/basecamp/ui-tests`, Chrome found as `google-chrome`, `chromium` or `AIEN_CHROME`. Exit status 0 means PASSED, COMPLETED or ok.
 
+Each run starts Chrome in its own process group with an `AIEN_BROWSER_MIRROR_TAG` environment tag, and on exit kills the group plus every tagged process (the crash reporters leave the group), so no Chrome helper outlives the run. Chrome runs with `--disable-gpu --disable-software-rasterizer`: without the second flag, Chrome 153 on aarch64 falls back to a SwiftShader GPU process that never answers a screenshot (sovereign-core #661).
+
 The self-test checks hydration (title, `#chat-input`, navigation controls), a live chat reply sent through `#btn-send` that stops growing, and every `[data-view]` or `[data-tab]` control switching to a present view. Screenshots land as `cockpit_init.png`, `cockpit_chat_stream.png` and `cockpit_actions.png`, next to `report.json`. The mentor run writes `cockpit_mentor_response.png` and `mentor_response.json` (COMPLETED when the reply is longer than 50 characters). The Cockpit must be running for the self-test; against a dead port the report says FAILED with `chat_input: false`.
 
 ## 5. Cortex Memory Commitment
