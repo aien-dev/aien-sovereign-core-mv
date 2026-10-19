@@ -86,7 +86,22 @@ impl PrefillMode {
 }
 
 /// An exclusive hold of the hive's GPU lock (released on drop).
-pub struct GpuLock(#[allow(dead_code)] File);
+pub struct GpuLock(#[allow(dead_code)] Option<File>);
+
+impl GpuLock {
+    /// True when the hive lock at `path` is already held for this process by its parent: the judge
+    /// (and `tools/qwen38_gate_run.sh` run by hand) hold `/tmp/aien-gb10.lock` around the whole gate and
+    /// say so with `AIEN_GB10_LOCK_HELD=1`. A second `flock` on a new descriptor would wait on that
+    /// parent forever (sc#580), so the server takes no lock of its own then. Private lock paths (tests)
+    /// are never skipped.
+    fn parent_holds(path: &Path, marker: Option<&str>) -> bool {
+        path == Path::new(GPU_LOCK_PATH) && marker == Some("1")
+    }
+
+    fn parent_holds_env(path: &Path) -> bool {
+        Self::parent_holds(path, std::env::var("AIEN_GB10_LOCK_HELD").ok().as_deref())
+    }
+}
 
 impl GpuLock {
     /// Takes the lock, polling until `wait` has passed. `Err` = still held by someone else.
@@ -96,6 +111,9 @@ impl GpuLock {
 
     /// [`Self::acquire`] on the lock file at `path` (tests pass a private file).
     pub fn acquire_at(path: &Path, wait: Duration) -> Result<Self, String> {
+        if Self::parent_holds_env(path) {
+            return Ok(Self(None));
+        }
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -108,7 +126,7 @@ impl GpuLock {
             // SAFETY: flock on a valid open descriptor; non-blocking so the wait is bounded.
             let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
             if rc == 0 {
-                return Ok(Self(file));
+                return Ok(Self(Some(file)));
             }
             let err = std::io::Error::last_os_error();
             if err.raw_os_error() != Some(libc::EWOULDBLOCK) {
@@ -132,6 +150,9 @@ impl GpuLock {
     pub fn acquire_queued_at(path: &Path, wait: Duration) -> Result<Self, String> {
         use std::sync::atomic::AtomicBool;
         use std::sync::{mpsc, Arc};
+        if Self::parent_holds_env(path) {
+            return Ok(Self(None));
+        }
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -141,7 +162,7 @@ impl GpuLock {
             .map_err(|e| format!("{}: {e}", path.display()))?;
         // SAFETY: flock on a valid open descriptor; non-blocking fast path.
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-            return Ok(Self(file));
+            return Ok(Self(Some(file)));
         }
         let (tx, rx) = mpsc::channel();
         let gave_up = Arc::new(AtomicBool::new(false));
@@ -163,7 +184,7 @@ impl GpuLock {
             }
         });
         match rx.recv_timeout(wait) {
-            Ok(r) => r.map(Self),
+            Ok(r) => r.map(|f| Self(Some(f))),
             Err(_) => {
                 gave_up.store(true, Ordering::SeqCst);
                 // The helper may have sent just before the flag: take and drop it.
@@ -494,6 +515,15 @@ impl Engine for OmegaDoor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_parent_held_marker_skips_only_the_hive_lock() {
+        let hive = Path::new(GPU_LOCK_PATH);
+        assert!(GpuLock::parent_holds(hive, Some("1")));
+        assert!(!GpuLock::parent_holds(hive, None));
+        assert!(!GpuLock::parent_holds(hive, Some("0")));
+        assert!(!GpuLock::parent_holds(Path::new("/tmp/private-test.lock"), Some("1")));
+    }
 
     #[test]
     fn queued_lock_waits_its_turn_and_gives_up_cleanly() {
