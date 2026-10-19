@@ -1,0 +1,36 @@
+mem available before load: 28.8 GB, this run needs about 13.8 GB
+omega native: bf16 GEMV true, FP8 GEMV true, FP8 GEMM true
+DEVICE omega allocations since start: 150 buffers, 5538717696 bytes (5.158 GiB), 0 frees, 0 refusals
+W4 MXFP4 rule ceil tensors 144 weights 6945767424 weight rel RMS error 0.1176 zero groups 0
+LOAD /home/drakestapleton/models/qwen3-8b-fp8 format Fp8Block128 tied false layers 36 resident 8.191 GB uploads 145 in 42.6s, kv split resident true context 4096, controls: upload_mutant None kernel_mutant 0 attention_mutant false
+PREFILL 512 tokens in 21.259s (92160 launches, chip 18497.1 ms), last hidden vs token-at-a-time: bit-equal true, cosine 1.000000000
+TOKENS p1-one-token: 32 of 32 golden tokens, identical -> PASS
+TOKENS p2-short: 32 of 32 golden tokens, identical -> PASS
+TOKENS p3-medium: 32 of 32 golden tokens, identical -> PASS
+TOKENS p4-code: 32 of 32 golden tokens, identical -> PASS
+TOKENS p5-512: 32 of 32 golden tokens, identical -> PASS
+SPEED decode 256 tokens in 12694 ms = 20.17 tok/s; per token: chip 43.81 ms, host 2.48 ms, attention 16.01 ms, mlp 26.69 ms, lm_head 6.26 ms, 180 launches; prefill 56 tokens in 2456 ms
+SUMMARY PASS (parity 0 layers, tokens identical, prefill bit-equal true)
+{
+ "name": "rig-chip-w4-ceil",
+ "cmd": "flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/rig-engine/target/release/own8b_check chip /home/drakestapleton/models/qwen3-8b-fp8 /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019/SMOKE-8B-W4-ceil.golden.json /home/drakestapleton/workspace/sc-rig-engine/docs/inference/evidence/rig-engine-20261019/chip-w4-ceil/check --no-host --w4 --speed-tokens 256",
+ "exit": 0,
+ "git_head": "15f19990",
+ "start": "2026-10-19T13:28:58.679542",
+ "seconds": 586.399,
+ "samples": 279,
+ "wall_W_mean": 247.41935483870967,
+ "wall_J": 145086.5229996558,
+ "idle_W_before": 249.28571428571428,
+ "incremental_J": -1094.4317715563554,
+ "gpu_W_mean": 11.42415770609319,
+ "gpu_util_mean": 8.5663082437276,
+ "load1_start": "40.92",
+ "load1_end": "26.54",
+ "mem_avail_kB_start": "26050192",
+ "mem_avail_kB_end": "21140240",
+ "lock_holders_max": 6,
+ "nvrm_errors_delta": 1,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-rig-chip-w4-ceil.json

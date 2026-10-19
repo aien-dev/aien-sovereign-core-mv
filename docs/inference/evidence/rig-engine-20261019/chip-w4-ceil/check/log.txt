@@ -1,0 +1,13 @@
+mem available before load: 28.8 GB, this run needs about 13.8 GB
+omega native: bf16 GEMV true, FP8 GEMV true, FP8 GEMM true
+DEVICE omega allocations since start: 150 buffers, 5538717696 bytes (5.158 GiB), 0 frees, 0 refusals
+W4 MXFP4 rule ceil tensors 144 weights 6945767424 weight rel RMS error 0.1176 zero groups 0
+LOAD /home/drakestapleton/models/qwen3-8b-fp8 format Fp8Block128 tied false layers 36 resident 8.191 GB uploads 145 in 42.6s, kv split resident true context 4096, controls: upload_mutant None kernel_mutant 0 attention_mutant false
+PREFILL 512 tokens in 21.259s (92160 launches, chip 18497.1 ms), last hidden vs token-at-a-time: bit-equal true, cosine 1.000000000
+TOKENS p1-one-token: 32 of 32 golden tokens, identical -> PASS
+TOKENS p2-short: 32 of 32 golden tokens, identical -> PASS
+TOKENS p3-medium: 32 of 32 golden tokens, identical -> PASS
+TOKENS p4-code: 32 of 32 golden tokens, identical -> PASS
+TOKENS p5-512: 32 of 32 golden tokens, identical -> PASS
+SPEED decode 256 tokens in 12694 ms = 20.17 tok/s; per token: chip 43.81 ms, host 2.48 ms, attention 16.01 ms, mlp 26.69 ms, lm_head 6.26 ms, 180 launches; prefill 56 tokens in 2456 ms
+SUMMARY PASS (parity 0 layers, tokens identical, prefill bit-equal true)
