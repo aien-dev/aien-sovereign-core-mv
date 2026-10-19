@@ -29,7 +29,7 @@ use crate::evidence::{canonical, canonical_digest, sha256_hex, utc_string};
 use crate::graph;
 use crate::plan::{self, Known, Section};
 use crate::process;
-use crate::resources::{Hardware, JobsSpec};
+use crate::resources::{GpuWait, Hardware, JobsSpec, DEFAULT_GPU_WAIT};
 use crate::runner::{self, CacheNote, Options};
 use crate::sandbox::Sandbox;
 use crate::verdict::Verdict;
@@ -240,6 +240,9 @@ pub struct Config {
     pub jobs: JobsSpec,
     /// `--no-cache`: run every selected gate, reuse no receipt.
     pub no_cache: bool,
+    /// How a gb10 gate waits for a held GPU lock (`--gpu-wait`, `--wait-gpu`;
+    /// default the bounded `resources::DEFAULT_GPU_WAIT`).
+    pub gpu_wait: GpuWait,
 }
 
 impl Config {
@@ -265,6 +268,7 @@ impl Config {
             siblings: None,
             jobs: JobsSpec::default(),
             no_cache: false,
+            gpu_wait: GpuWait::Bounded(DEFAULT_GPU_WAIT),
         }
     }
 
@@ -923,6 +927,7 @@ fn run_in_worktree(
     opts.cargo_target_dir = target_dir_for(cfg, repo, sha, on_main);
     opts.target_lock_dir = cfg.state.target_lock_dir();
     opts.pool_sizes = opts.pool_sizes.with(cfg.jobs);
+    opts.gpu.wait = cfg.gpu_wait;
     opts.pins = pins;
     // The same operator permission the plan had: an operator gate the plan
     // put in Required under `--operator` must not be refused by the runner.

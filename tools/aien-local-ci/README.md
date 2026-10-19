@@ -113,7 +113,7 @@ added by this lane.
 | `cargo/bin` | root | the operator's `rustup` binary + proxy symlinks; no second rustup install |
 | `rustup/` | root, read-only | `settings.toml` (default 1.98.1) + `toolchains/1.98.1-aarch64-unknown-linux-gnu` copied (631 MB) |
 | `.gitconfig` | root 0644 | `safe.directory = *` (git 2.43 has no path globs; aien-run reaches nothing else) |
-| `/tmp/aien-gb10.lock` | root 0664, ACL `u:drakestapleton:rw-`, `u:aien-run:rw-` | the one GB10 chip lock for operator runs and sandboxed gb10 gates; root ownership gets past `fs.protected_regular=2` in sticky `/tmp`; `/etc/tmpfiles.d/aien-gb10.conf` recreates it at boot (#627) |
+| `/tmp/aien-gb10.lock` | root 0664, ACL `u:drakestapleton:rw-`, `u:aien-run:rw-` | the one GB10 chip lock for operator runs and sandboxed gb10 gates; root ownership gets past `fs.protected_regular=2` in sticky `/tmp`; `/etc/tmpfiles.d/aien-gb10.conf` recreates it at boot (#627); a gb10 gate waits for it in the kernel queue up to 30 min by default (`aien-test --gpu-wait`, between the live server's requests), then is NOT_RUN `gpu_lock`; the wait is in each receipt (`volatile.gpu_wait`) |
 | `mirror/<repo>.git` | drakestapleton 0755 | bare mirror of the trusted clone, refreshed by `wt.sh sync`; unwritable by aien-run |
 | `wt/<repo>/<sha>` | root dir drakestapleton:aien-run 1775, `.git` root 0644, files aien-run | checkouts; aien-run can add files, cannot replace `.git` or write the mirror |
 | `target/`, `target/<repo>/` | root 0755 | parents cannot be swapped by aien-run |

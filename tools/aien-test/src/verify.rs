@@ -83,7 +83,9 @@ impl Found {
     }
 }
 
-fn sum_u64(index: &Index, digests: &[String], key: &str) -> Option<u64> {
+/// The sum of `volatile<pointer>` (a JSON pointer such as `/pool_wait_ms`)
+/// over the receipts; None when no receipt has it.
+fn sum_u64(index: &Index, digests: &[String], pointer: &str) -> Option<u64> {
     let mut total = 0u64;
     let mut any = false;
     for d in digests {
@@ -91,7 +93,7 @@ fn sum_u64(index: &Index, digests: &[String], key: &str) -> Option<u64> {
             if let Some(v) = s
                 .value
                 .get("volatile")
-                .and_then(|o| o.get(key))
+                .and_then(|o| o.pointer(pointer))
                 .and_then(Value::as_u64)
             {
                 total += v;
@@ -516,14 +518,16 @@ pub fn run(root: &Path, ask: &Ask) -> Report {
         _ => "NOT_RUN".to_string(),
     };
     lines.push(format!("Final verdict: {final_verdict}"));
-    let queue = sum_u64(&found.index, &run_digests, "pool_wait_ms");
-    let test = sum_u64(&found.index, &run_digests, "duration_ms");
+    let queue = sum_u64(&found.index, &run_digests, "/pool_wait_ms");
+    let test = sum_u64(&found.index, &run_digests, "/duration_ms");
+    let gpu_wait = sum_u64(&found.index, &run_digests, "/gpu_wait/waited_ms");
     let total = bundle.as_ref().and_then(|b| {
         let s = utc_secs(b["started_utc"].as_str()?)?;
         let f = utc_secs(b["finished_utc"].as_str()?)?;
         Some(f.saturating_sub(s) * 1000)
     });
     lines.push(format!("Queue time: {}", ms(queue)));
+    lines.push(format!("GPU lock wait: {}", ms(gpu_wait)));
     lines.push("Build time: n/a".to_string());
     lines.push(format!("Test time: {}", ms(test)));
     lines.push(format!("Total time: {}", ms(total)));

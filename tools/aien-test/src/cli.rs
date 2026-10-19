@@ -16,7 +16,7 @@
 //!
 //! `--host/--qemu/--gb10` and `--mutants` are later slices and are refused.
 
-use crate::resources::{parse_jobs, JobsSpec};
+use crate::resources::{parse_jobs, GpuWait, JobsSpec};
 use crate::sandbox::Sandbox;
 use std::path::PathBuf;
 
@@ -31,7 +31,7 @@ pub const USAGE: &str = "usage:
   aien-test verify COMMIT [--repo NAME] [--base REF] [--state-dir DIR] [--release]
   aien-test worker [--once REPO SHA] [--poll SECS] [--repos A,B] [--github] [--iterations N]
                    [--state-dir DIR] [--key FILE] [--clones DIR] [--wt-root DIR] [--wt-tool FILE] [--siblings FILE] [--sandbox user|none --dev-unsandboxed]
-flags: --evidence-dir DIR  --allow-dirty  --no-cache  --release  --jobs host=N,qemu=M  --wait-gpu
+flags: --evidence-dir DIR  --allow-dirty  --no-cache  --release  --jobs host=N,qemu=M  --gpu-wait 0|DURATION  --wait-gpu
        --sandbox none|user  --base REF  --operator";
 
 /// Which gates `test` runs.
@@ -74,8 +74,10 @@ pub struct Cli {
     pub args: Option<Vec<String>>,
     /// `--jobs host=N,qemu=M`: the pool sizes that were named.
     pub jobs: JobsSpec,
-    /// `--wait-gpu`: wait for a held GPU lock instead of refusing.
-    pub wait_gpu: bool,
+    /// `--gpu-wait 0|DURATION` (refuse at once, or wait up to DURATION) or
+    /// `--wait-gpu` (no bound) for a held GPU lock; None: the default bound
+    /// (`resources::DEFAULT_GPU_WAIT`).
+    pub gpu_wait: Option<GpuWait>,
     /// `identity` only: the compiler identity string (default empty: nothing
     /// here builds yet).
     pub compiler_identity: String,
@@ -176,7 +178,7 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
     let mut release = false;
     let mut args: Option<Vec<String>> = None;
     let mut jobs = JobsSpec::default();
-    let mut wait_gpu = false;
+    let mut gpu_wait: Option<GpuWait> = None;
     let mut compiler_identity = String::new();
     let mut flags: Vec<String> = Vec::new();
     let mut hardware_identity: Option<String> = None;
@@ -230,7 +232,17 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
         } else if a == "--release" {
             release = true;
         } else if a == "--wait-gpu" {
-            wait_gpu = true;
+            gpu_wait = Some(GpuWait::Forever);
+        } else if a == "--gpu-wait" {
+            let d = value(&mut i, a)?;
+            gpu_wait = Some(if d == "0" {
+                GpuWait::Refuse
+            } else {
+                let ms = crate::manifest::parse_duration_ms(&d).ok_or_else(|| {
+                    format!("--gpu-wait needs 0 or a duration like 90s or 30m, not {d:?}")
+                })?;
+                GpuWait::Bounded(std::time::Duration::from_millis(ms))
+            });
         } else if a == "--operator" {
             operator = true;
         } else if a == "--base" {
@@ -371,7 +383,7 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
         release,
         args,
         jobs,
-        wait_gpu,
+        gpu_wait,
         compiler_identity,
         flags,
         hardware_identity,
@@ -417,7 +429,7 @@ mod tests {
         assert!(!c.allow_dirty);
         assert!(!c.no_cache);
         assert!(!c.release);
-        assert!(!c.wait_gpu);
+        assert_eq!(c.gpu_wait, None);
         assert_eq!(c.args, None);
         assert_eq!(c.evidence_dir, None);
         assert_eq!(c.jobs, JobsSpec::default());
@@ -489,6 +501,19 @@ mod tests {
     }
 
     #[test]
+    fn gpu_wait_takes_zero_or_a_duration() {
+        let c = parse_args(&v(&["worker", "--gpu-wait", "0"])).unwrap();
+        assert_eq!(c.gpu_wait, Some(GpuWait::Refuse));
+        let c = parse_args(&v(&["run", "g", "--gpu-wait", "90s"])).unwrap();
+        assert_eq!(
+            c.gpu_wait,
+            Some(GpuWait::Bounded(std::time::Duration::from_secs(90)))
+        );
+        assert!(parse_args(&v(&["run", "g", "--gpu-wait", "soon"])).is_err());
+        assert!(parse_args(&v(&["run", "g", "--gpu-wait"])).is_err());
+    }
+
+    #[test]
     fn jobs_and_wait_gpu() {
         let c = parse_args(&v(&[
             "test",
@@ -500,7 +525,7 @@ mod tests {
         .unwrap();
         assert_eq!(c.jobs.host, Some(3));
         assert_eq!(c.jobs.qemu, Some(2));
-        assert!(c.wait_gpu);
+        assert_eq!(c.gpu_wait, Some(GpuWait::Forever));
         let c = parse_args(&v(&["test", "./...", "--jobs", "qemu=1"])).unwrap();
         assert_eq!(c.jobs.host, None);
         assert_eq!(c.jobs.qemu, Some(1));
