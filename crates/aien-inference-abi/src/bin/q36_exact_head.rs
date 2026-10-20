@@ -3,6 +3,7 @@
 //!   q36_exact_head hidden  <checkpoint-dir> <out.bin> <gen.json>...
 //!   q36_exact_head passage <checkpoint-dir> <out.bin> <text-file> <count> <source-id>
 //!   q36_exact_head analyze <checkpoint-dir> <hidden.bin> <out.json>
+//!   q36_exact_head export  <checkpoint-dir> <out-dir>
 //!   q36_exact_head gate    <checkpoint-dir> <w4|fp8> <row|group|linf|min> <scale> <out.json> <gen.json>...
 //!
 //! `hidden` replays each golden run (prompt_ids, then generated_ids token by token, exactly as
@@ -349,6 +350,42 @@ fn gate(dir: &Path, kind: ScreenKind, bk: BoundKind, scale: f64, out_path: &str,
     Ok(pass)
 }
 
+/// Roundings per term the chip screen may add: k products and sums plus the 16 block partials.
+const CHIP_GAMMA_LEN: usize = 2100;
+
+/// The chip test's inputs (weights: outside git): head.bf16 [n][k] u16, fp8b.codes [n][k] e4m3,
+/// fp8b.scales [n/128][k/128] bf16, coef.f32 [n] (the Row bound coefficient, gamma(2100)).
+fn export(dir: &Path, out: &str) -> Result<(), String> {
+    let model = Qwen38Reference::open(dir)?;
+    let head = model.lm_head();
+    let (n, k) = (head.n(), head.k());
+    std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
+    let put = |name: &str, bytes: &[u8]| std::fs::write(format!("{out}/{name}"), bytes).map_err(|e| format!("{name}: {e}"));
+    let mut raw = Vec::with_capacity(n * k * 2);
+    for r in 0..n {
+        raw.extend(head.bf16_row(r).unwrap().iter().flat_map(|v| v.to_le_bytes()));
+    }
+    put("head.bf16", &raw)?;
+    drop(raw);
+    let scales = exact_head::fp8_block_scales(head);
+    let codes = exact_head::fp8_block_codes(head, &scales);
+    let screen = Screen::build(head, ScreenKind::Fp8Block)?;
+    let bad = screen.codes_mismatch(&codes, &scales);
+    if bad != 0 {
+        return Err(format!("export: {bad} rows of codes do not reproduce the screen"));
+    }
+    put("fp8b.codes", &codes)?;
+    let sb: Vec<u8> = scales.iter().flat_map(|&s| aien_inference_abi::qwen3_moe::f32_to_bf16(s).to_le_bytes()).collect();
+    put("fp8b.scales", &sb)?;
+    let coef = screen.row_coef(CHIP_GAMMA_LEN);
+    put("coef.f32", &coef.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>())?;
+    let manifest = serde_json::json!({ "n": n, "k": k, "group": GROUP, "gamma_len": CHIP_GAMMA_LEN,
+        "files": ["head.bf16", "fp8b.codes", "fp8b.scales", "coef.f32"], "codes_reproduce_screen_rows": n });
+    put("manifest.json", serde_json::to_string_pretty(&manifest).unwrap().as_bytes())?;
+    eprintln!("export: {n} x {k} to {out}, codes reproduce the fp8b screen on every row");
+    Ok(())
+}
+
 fn run() -> Result<i32, String> {
     let a: Vec<String> = std::env::args().collect();
     let usage = "usage: q36_exact_head hidden|passage|analyze|gate ... (see the file header)";
@@ -360,6 +397,7 @@ fn run() -> Result<i32, String> {
             passage(Path::new(&a[2]), &a[3], &a[4], count, src).map(|_| 0)
         }
         Some("analyze") if a.len() == 5 => analyze(Path::new(&a[2]), &a[3], &a[4]).map(|_| 0),
+        Some("export") if a.len() == 4 => export(Path::new(&a[2]), &a[3]).map(|_| 0),
         Some("gate") if a.len() >= 8 => {
             let kind = ScreenKind::parse(&a[3]).ok_or(usage)?;
             let bk = BoundKind::parse(&a[4]).ok_or(usage)?;
