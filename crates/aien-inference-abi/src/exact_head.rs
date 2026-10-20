@@ -130,7 +130,72 @@ pub struct Screen {
     rnorm: Vec<f32>,
 }
 
+/// [`ScreenKind::Fp8Block`] scales, `[n / 128][k / 128]`: bf16 rounded UP (absmax / 448), so
+/// `|w / scale| <= 448` always (no e4m3 saturation). Every value is a bf16, so it uploads as is.
+pub fn fp8_block_scales(head: &Matrix) -> Vec<f32> {
+    let (n, g) = (head.n(), head.k() / GROUP);
+    (0..(n / GROUP) * g)
+        .into_par_iter()
+        .map(|b| {
+            let (br, gi) = (b / g, b % g);
+            let amax = (br * GROUP..(br + 1) * GROUP)
+                .flat_map(|r| head.bf16_row(r).unwrap()[gi * GROUP..(gi + 1) * GROUP].iter())
+                .map(|&v| bf16_to_f32(v).abs())
+                .fold(0f32, f32::max);
+            bf16_up(amax as f64 / 448.0)
+        })
+        .collect()
+}
+
+/// e4m3 codes of a bf16 `head` under `scales` ([`fp8_block_scales`]), `[n][k]`: the bytes the
+/// chip screen reads. `lut[code] * scale` is exactly the screen's `w~`.
+pub fn fp8_block_codes(head: &Matrix, scales: &[f32]) -> Vec<u8> {
+    let (n, k) = (head.n(), head.k());
+    let g = k / GROUP;
+    let mut out = vec![0u8; n * k];
+    out.par_chunks_mut(k).enumerate().for_each(|(r, o)| {
+        for (c, (d, &b)) in o.iter_mut().zip(head.bf16_row(r).unwrap()).enumerate() {
+            let s = scales[(r / GROUP) * g + c / GROUP];
+            *d = if s == 0.0 { 0 } else { f32_to_fp8_e4m3fn(bf16_to_f32(b) / s) };
+        }
+    });
+    out
+}
+
 impl Screen {
+    /// The chip's Row-bound coefficient per row: `c_i >= |D_i| + gamma(len) (|w_i| + |w~_i|)`
+    /// rounded up to f32 and widened `2^-20`; the chip bound is `c_i |h|` (its own margins on top).
+    /// `len` covers the chip screen's roundings per term (k products + the block partial sums).
+    pub fn row_coef(&self, len: usize) -> Vec<f32> {
+        let gm = gamma(len);
+        self.drow
+            .iter()
+            .zip(&self.rnorm)
+            .map(|(&d, &r)| {
+                let x = (d as f64 + gm * r as f64) * (1.0 + 2f64.powi(-20));
+                let mut v = x as f32;
+                if (v as f64) < x {
+                    v = f32::from_bits(v.to_bits() + 1);
+                }
+                v
+            })
+            .collect()
+    }
+
+    /// Rows whose exported e4m3 `codes` under block `scales` do not reproduce `w~` bit for bit.
+    pub fn codes_mismatch(&self, codes: &[u8], scales: &[f32]) -> usize {
+        let (k, g) = (self.k, self.k / GROUP);
+        let lut = fp8_table();
+        (0..self.n)
+            .into_par_iter()
+            .filter(|&r| {
+                (0..k).any(|c| {
+                    let s = scales[(r / GROUP) * g + c / GROUP];
+                    (lut[codes[r * k + c] as usize] * s).to_bits() != self.deq[r * k + c].to_bits()
+                })
+            })
+            .count()
+    }
     /// Quantizes every row of the bf16 `head` (`k` a multiple of [`GROUP`]).
     pub fn build(head: &Matrix, kind: ScreenKind) -> Result<Self, String> {
         let (n, k) = (head.n(), head.k());
@@ -147,22 +212,7 @@ impl Screen {
         if kind == ScreenKind::Fp8Block && n % GROUP != 0 {
             return Err(format!("screen: fp8b needs n % {GROUP} == 0"));
         }
-        // Fp8Block: one scale per [128 rows][128 cols], rounded up so |w / scale| <= 448 always.
-        let block: Vec<f32> = if kind == ScreenKind::Fp8Block {
-            (0..(n / GROUP) * g)
-                .into_par_iter()
-                .map(|b| {
-                    let (br, gi) = (b / g, b % g);
-                    let amax = (br * GROUP..(br + 1) * GROUP)
-                        .flat_map(|r| head.bf16_row(r).unwrap()[gi * GROUP..(gi + 1) * GROUP].iter())
-                        .map(|&v| bf16_to_f32(v).abs())
-                        .fold(0f32, f32::max);
-                    bf16_up(amax as f64 / 448.0)
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
+        let block = if kind == ScreenKind::Fp8Block { fp8_block_scales(head) } else { Vec::new() };
         deq.par_chunks_mut(k)
             .zip(dnorm.par_chunks_mut(g))
             .zip(dmax.par_chunks_mut(g))
