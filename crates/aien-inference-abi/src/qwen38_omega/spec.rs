@@ -1423,6 +1423,8 @@ pub enum DraftSource {
 #[derive(Debug, Clone, Default)]
 pub struct SpecRun {
     pub tokens: Vec<u32>,
+    /// The receiver refused a token (decode_rounds' on_token returned false).
+    pub cancelled: bool,
     pub rounds: u64,
     /// Drafts made and drafts accepted.
     pub drafted: u64,
@@ -1753,7 +1755,6 @@ pub fn generate(
         return Err(format!("generate: k {k} > {MAX_CHAIN}"));
     }
     let h = q::HIDDEN;
-    let mutant = opts.mutant;
     let mut run = SpecRun {
         accepted_hist: vec![0; k + 1],
         ..SpecRun::default()
@@ -1765,7 +1766,7 @@ pub fn generate(
         rows.extend(model.exact_rows(c, None, &mut run.main)?);
     }
     let last = rows[(prompt.len() - 1) * h..].to_vec();
-    let mut t = model.head_token(&last, &mut run.main)?;
+    let t = model.head_token(&last, &mut run.main)?;
     run.tokens.push(t);
     let mut draft = None;
     if k > 0 {
@@ -1780,9 +1781,46 @@ pub fn generate(
     drop(rows);
     let mut history: Vec<u32> = prompt.to_vec();
     history.push(t);
+    decode_rounds(
+        model,
+        mtp,
+        n,
+        k,
+        stop,
+        opts,
+        &mut run,
+        &mut history,
+        t,
+        draft,
+        &mut |_| true,
+    )?;
+    Ok(run)
+}
 
-    // The decode rounds (drafts and verify passes) on the chosen kernel's GEMM route; the prompt above
-    // stays on the row-pair GEMM (chunks larger than the tv GEMM's 64 rows).
+/// The decode rounds of [`generate`] after the prompt: `t` is the last emitted token (not yet fed),
+/// `draft` the MTP head's guess for the token after it (with `mtp`), `history` the prompt plus the
+/// emitted tokens. Appends to `run.tokens` until `n` tokens, a stop token, or `on_token` (called once
+/// per newly emitted token, in order; a stop token is not passed) returns false (`run.cancelled`).
+/// Every round ends with the model's state holding exactly `history` without its last token (the
+/// last emitted token is not fed), also when it ends early. Shared by the tool and the server
+/// (speed2/specdecode). The prompt before it stays on the row-pair GEMM (chunks larger than the tv
+/// GEMM's 64 rows); the rounds run on the chosen kernel's GEMM route.
+#[allow(clippy::too_many_arguments)]
+pub fn decode_rounds(
+    model: &mut Qwen38Omega,
+    mut mtp: Option<&mut Mtp>,
+    n: usize,
+    k: usize,
+    stop: &[u32],
+    opts: SpecOptions,
+    run: &mut SpecRun,
+    history: &mut Vec<u32>,
+    mut t: u32,
+    mut draft: Option<u32>,
+    on_token: &mut dyn FnMut(u32) -> bool,
+) -> Result<(), String> {
+    let h = q::HIDDEN;
+    let mutant = opts.mutant;
     let _route = opts.kernel.select();
     let t1 = Instant::now();
     let mut snap = Qwen38Snapshot::default();
@@ -1802,7 +1840,7 @@ pub fn generate(
             };
             let hit = match opts.source {
                 DraftSource::Mtp => None,
-                _ => opts.ngram.draft(&history, room),
+                _ => opts.ngram.draft(history, room),
             };
             let use_hit = match (&hit, opts.source) {
                 (Some(_), DraftSource::Ngram | DraftSource::NgramFirst | DraftSource::Merge) => {
@@ -1879,17 +1917,13 @@ pub fn generate(
         }
         let emitted = &feed[1..=j];
         let room_out = n - run.tokens.len();
+        let before = run.tokens.len();
         run.tokens.extend(emitted.iter().take(room_out));
         if run.tokens.len() < n {
             run.tokens.push(next);
         }
         history.extend_from_slice(emitted);
         history.push(next);
-        // An accepted draft can be the stop token; the round's later rows are past the end.
-        if let Some(s) = run.tokens.iter().position(|x| stop.contains(x)) {
-            run.tokens.truncate(s + 1);
-            break;
-        }
         if j < drafts {
             run.rollbacks += 1;
             if opts.kernel == VerifyKernel::Graph {
@@ -1910,6 +1944,25 @@ pub fn generate(
                 model.pos = p + j + 1;
             }
         }
+        // An accepted draft can be the stop token; the round's later rows are past the end. Stream
+        // the new tokens up to a stop token (not streamed) or the receiver's refusal. The rollback
+        // above already ran, so the state still matches `history` when the rounds end here.
+        let mut end = None;
+        for i in before..run.tokens.len() {
+            if stop.contains(&run.tokens[i]) {
+                end = Some(i + 1);
+                break;
+            }
+            if !on_token(run.tokens[i]) {
+                run.cancelled = true;
+                end = Some(i + 1);
+                break;
+            }
+        }
+        if let Some(e) = end {
+            run.tokens.truncate(e);
+            break;
+        }
         t = next;
         if let Some(m) = mtp.as_deref_mut() {
             if run.tokens.len() < n && model.pos < model.max_pos() {
@@ -1927,7 +1980,7 @@ pub fn generate(
         }
     }
     run.decode_ns = ns(t1);
-    Ok(run)
+    Ok(())
 }
 
 /// Longest chain of drafts one pass checks (`k`).

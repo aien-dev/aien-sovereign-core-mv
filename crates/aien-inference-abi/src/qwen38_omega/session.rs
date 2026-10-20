@@ -148,14 +148,18 @@ impl Qwen38Session {
     /// Feeds `prompt` (reusing what [`plan_reuse`] allows) and returns the logits after its last
     /// token. On any error the live state is dropped (the snapshot, a host copy, stays valid).
     pub fn start(&mut self, prompt: &[u32]) -> Result<(Vec<f32>, FeedStats), String> {
-        let r = self.start_inner(prompt);
+        let r = self.start_inner(prompt, None);
         if r.is_err() {
             self.history.clear();
         }
         r
     }
 
-    fn start_inner(&mut self, prompt: &[u32]) -> Result<(Vec<f32>, FeedStats), String> {
+    fn start_inner(
+        &mut self,
+        prompt: &[u32],
+        mut rows: Option<&mut Vec<f32>>,
+    ) -> Result<(Vec<f32>, FeedStats), String> {
         let t0 = Instant::now();
         if prompt.is_empty() {
             return Err("qwen38 session: empty prompt".into());
@@ -194,7 +198,10 @@ impl Qwen38Session {
             .rposition(|&t| t == IM_START)
             .filter(|&k| k >= from)
         {
-            self.feed_rows(&prompt[from..k], &mut st)?;
+            match rows.as_deref_mut() {
+                Some(r) => self.feed_collect(&prompt[from..k], &mut st, r)?,
+                None => self.feed_rows(&prompt[from..k], &mut st)?,
+            }
             if self.snap_tokens.as_deref() != Some(&prompt[..k]) && k > 0 {
                 let t = Instant::now();
                 self.snap_tokens = None;
@@ -204,7 +211,18 @@ impl Qwen38Session {
             }
         }
         let rest = &prompt[self.history.len()..];
-        let logits = self.feed_last(rest, &mut st)?;
+        let logits = match rows {
+            Some(r) => {
+                if rest.is_empty() {
+                    return Err("qwen38 session: nothing to feed".into());
+                }
+                self.feed_collect(rest, &mut st, r)?;
+                let h = self.model.config.hidden;
+                let last = r[r.len() - h..].to_vec();
+                self.model.head_logits(&last)?
+            }
+            None => self.feed_last(rest, &mut st)?,
+        };
         st.wall_ns = ns(t0);
         Ok((logits, st))
     }
@@ -242,6 +260,60 @@ impl Qwen38Session {
         };
         self.history.extend_from_slice(tokens);
         Ok(logits)
+    }
+
+    /// [`Self::feed_rows`] that also appends every fed token's residual row (`[n][hidden]`) to `rows`.
+    fn feed_collect(
+        &mut self,
+        tokens: &[u32],
+        st: &mut FeedStats,
+        rows: &mut Vec<f32>,
+    ) -> Result<(), String> {
+        if tokens.len() >= q::GDN_PF_MIN_T {
+            let (r, s) = self.model.prefill_rows(tokens, self.chunk, true)?;
+            add(&mut st.prefill, &s);
+            rows.extend_from_slice(&r);
+        } else {
+            for &t in tokens {
+                self.model.step(t)?;
+                rows.extend(self.model.residual()?);
+            }
+            st.stepped += tokens.len();
+        }
+        self.history.extend_from_slice(tokens);
+        Ok(())
+    }
+
+    /// speed2/specdecode: [`Self::start`] for a speculative reply. Same reuse plan and snapshot
+    /// point; also returns the residual row of every token it fed (`[fed][hidden]`, positions
+    /// `first ..`, for the MTP head) and takes the next-token logits from the host head over the
+    /// last row. Returns (logits, rows, first, stats).
+    pub fn start_rows(
+        &mut self,
+        prompt: &[u32],
+    ) -> Result<(Vec<f32>, Vec<f32>, usize, FeedStats), String> {
+        let mut rows = Vec::new();
+        match self.start_inner(prompt, Some(&mut rows)) {
+            Ok((logits, st)) => {
+                let first = prompt.len() - st.fed;
+                Ok((logits, rows, first, st))
+            }
+            Err(e) => {
+                self.history.clear();
+                Err(e)
+            }
+        }
+    }
+
+    /// After a speculative reply fed `tokens` (decode_rounds' history past the prompt, without the
+    /// last emitted token, which is not fed): the live history follows the model again.
+    pub fn extend_history(&mut self, tokens: &[u32]) {
+        self.history.extend_from_slice(tokens);
+    }
+
+    /// A failed speculative reply: the live state no longer matches any history.
+    pub fn forget_live(&mut self) {
+        self.history.clear();
     }
 
     /// Feeds one reply token through the decode graph: the logits after it and the graph's

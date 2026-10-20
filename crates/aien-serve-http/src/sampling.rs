@@ -250,6 +250,12 @@ impl SamplingObserver {
         token
     }
 
+    /// Counts `n` greedy draws made outside [`Self::sample`] (the qwen38 speculative path takes
+    /// argmax inside its verify passes).
+    pub fn note_greedy(&mut self, n: usize) {
+        self.greedy += n;
+    }
+
     /// The record of every draw so far.
     pub fn record(&self) -> SamplingRecord {
         let mut sorted = self.kept.clone();
