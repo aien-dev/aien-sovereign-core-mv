@@ -146,6 +146,46 @@ pub fn sandbox_refused(sandbox: Sandbox, exit: Option<i32>, stderr: &[u8]) -> bo
     sandbox == Sandbox::User && exit == Some(2) && stderr.starts_with(b"aien-run-exec:")
 }
 
+/// The run was stopped by the machine, not decided by the gate. Two cases:
+/// SANDBOX_START, the helper's `systemd-run` could not start the scope
+/// because a shutdown or reboot is queued (exit 1, nothing ran); and
+/// KILLED_BY_SHUTDOWN, SIGTERM (exit 143 or the signal itself) while the
+/// machine is stopping. `stopping` is the machine state, passed in so the
+/// rule stays testable. A timeout is the gate's own and is decided earlier.
+pub fn infra_failure(
+    sandbox: Sandbox,
+    exit: Option<i32>,
+    signal: Option<i32>,
+    stderr: &[u8],
+    stopping: bool,
+) -> Option<&'static str> {
+    let text = String::from_utf8_lossy(stderr);
+    if sandbox == Sandbox::User
+        && exit == Some(1)
+        && text.contains("Failed to start transient scope unit")
+        && (text.contains("shutdown.target")
+            || text.contains("reboot.target")
+            || text.contains("poweroff.target")
+            || text.contains("halt.target"))
+    {
+        return Some("SANDBOX_START");
+    }
+    if stopping && (exit == Some(143) || signal == Some(libc::SIGTERM)) {
+        return Some("KILLED_BY_SHUTDOWN");
+    }
+    None
+}
+
+/// systemd says the machine is going down (`is-system-running` prints
+/// `stopping`). Best effort: no systemctl, or no answer, is "not stopping".
+fn machine_stopping() -> bool {
+    std::process::Command::new("systemctl")
+        .arg("is-system-running")
+        .output()
+        .map(|o| o.stdout.starts_with(b"stopping"))
+        .unwrap_or(false)
+}
+
 fn git_out(root: &Path, args: &[&str]) -> Result<String, String> {
     // Several jobs may ask for the status at once; the status command must
     // not take the index lock (and fail the other caller) to refresh it.
@@ -769,6 +809,14 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
                     facts.exit_status = None;
                 }
                 facts.timed_out = o.timed_out;
+                if !o.timed_out {
+                    // Ask systemd only when the program ended on SIGTERM.
+                    let sigterm = o.exit_code == Some(143) || o.signal == Some(libc::SIGTERM);
+                    let stopping = sigterm && machine_stopping();
+                    facts.infra_reason =
+                        infra_failure(opts.sandbox, o.exit_code, o.signal, &o.stderr, stopping)
+                            .map(str::to_string);
+                }
                 timeout_exceeded = o.timeout_exceeded;
                 stdout = o.stdout;
                 stderr = o.stderr;
@@ -1386,6 +1434,51 @@ mod tests {
         );
         let r = read_json(&o.receipt_path.unwrap());
         assert_eq!(r["core"]["exit_status"], 2);
+    }
+
+    const SCOPE_REFUSED: &[u8] = b"Failed to start transient scope unit: Transaction for aien-run-exec-1.scope/start is destructive (reboot.target has 'start' job queued, but 'stop' is included in transaction).\n";
+
+    #[test]
+    fn a_sandbox_that_could_not_start_is_not_a_result() {
+        // The exact stderr of the 2026-10-20 22:57Z reboot (aienos 77e346e6).
+        for target in ["reboot", "shutdown", "poweroff", "halt"] {
+            let text = String::from_utf8_lossy(SCOPE_REFUSED).replace("reboot", target);
+            assert_eq!(
+                infra_failure(Sandbox::User, Some(1), None, text.as_bytes(), false),
+                Some("SANDBOX_START"),
+                "{target}"
+            );
+        }
+        // Only the user sandbox, only exit 1, only a shutdown-class refusal.
+        let ok = |s, e| infra_failure(s, e, None, SCOPE_REFUSED, false);
+        assert_eq!(ok(Sandbox::None, Some(1)), None);
+        assert_eq!(ok(Sandbox::User, Some(2)), None);
+        let other = b"Failed to start transient scope unit: Unit already exists.\n";
+        assert_eq!(
+            infra_failure(Sandbox::User, Some(1), None, other, false),
+            None
+        );
+        // A gate that fails for its own reasons stays a FAIL.
+        assert_eq!(
+            infra_failure(Sandbox::User, Some(1), None, b"assertion failed\n", true),
+            None
+        );
+    }
+
+    #[test]
+    fn a_run_killed_by_the_shutdown_is_not_a_result() {
+        let kill =
+            |exit, signal, stopping| infra_failure(Sandbox::None, exit, signal, b"", stopping);
+        assert_eq!(kill(Some(143), None, true), Some("KILLED_BY_SHUTDOWN"));
+        assert_eq!(
+            kill(None, Some(libc::SIGTERM), true),
+            Some("KILLED_BY_SHUTDOWN")
+        );
+        // SIGTERM with the machine up (a deterministic failure) is still FAIL.
+        assert_eq!(kill(Some(143), None, false), None);
+        assert_eq!(kill(None, Some(libc::SIGTERM), false), None);
+        // While stopping, an ordinary non-zero exit is still the gate's own.
+        assert_eq!(kill(Some(1), None, true), None);
     }
 
     #[test]

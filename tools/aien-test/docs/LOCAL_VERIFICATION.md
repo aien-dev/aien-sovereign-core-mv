@@ -274,6 +274,15 @@ lowercase `not_run_reason` is the general rule (`verdict::SELF_NOT_RUN_EXIT`);
 without that observation, or when a manifest itself expects 77, it is an
 ordinary exit.
 
+A run the machine stopped is not a gate result either (sc L320, after the
+2026-10-20 22:57Z reboot cached FAIL for eight gates). Under `--sandbox user`,
+exit 1 with `Failed to start transient scope unit` and a shutdown, reboot,
+poweroff or halt target in the message is NOT_RUN `SANDBOX_START`; SIGTERM
+(exit 143) while `systemctl is-system-running` says `stopping` is NOT_RUN
+`KILLED_BY_SHUTDOWN` (`runner::infra_failure`). NOT_RUN is never reused by the
+cache. Receipts written before this change still say FAIL `rc_nonzero`: rejudge
+them once with `aien-local-ci once <repo> <sha> --operator --no-cache`.
+
 The mutant gates apply their patch to a private copy of the tree in `/tmp`,
 never to the checkout: the gates of one head run in parallel in one checkout,
 and a patched file there would fail every other gate's clean-tree check.

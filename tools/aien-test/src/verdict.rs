@@ -178,6 +178,10 @@ pub struct Facts {
     /// `git status --porcelain` differed after the run.
     pub tree_changed_after: bool,
     pub head_moved: bool,
+    /// The run never produced a program result because the machine, not the
+    /// gate, stopped it (SANDBOX_START, KILLED_BY_SHUTDOWN). Decided by the
+    /// runner from the sandbox's own words and the machine state.
+    pub infra_reason: Option<String>,
     /// The operator started this run by hand (`--operator`). It is the only
     /// thing that lets a `requires: operator` gate run (ADR 0033 Decision 2).
     pub operator: bool,
@@ -287,6 +291,10 @@ pub fn derive(m: &Manifest, f: &Facts) -> Derived {
         (Verdict::Fail, "timeout".to_string())
     } else if let Some(r) = self_not_run(m, f) {
         (Verdict::NotRun, r)
+    } else if let Some(r) = &f.infra_reason {
+        // The gate did not get to answer: never FAIL, so the cache cannot
+        // hand this back as the gate's verdict.
+        (Verdict::NotRun, r.clone())
     } else if f.exit_status != Some(m.expect_exit) {
         (Verdict::Fail, "rc_nonzero".to_string())
     } else if let Some(idx) = rules.iter().position(|r| !r.1) {
@@ -341,8 +349,32 @@ mod tests {
             timed_out: false,
             tree_changed_after: false,
             head_moved: false,
+            infra_reason: None,
             operator: false,
         }
+    }
+
+    #[test]
+    fn an_infra_stop_is_not_run_never_fail_or_pass() {
+        // aienos 77e346e6: sandbox could not start, runner saw exit 1.
+        for reason in ["SANDBOX_START", "KILLED_BY_SHUTDOWN"] {
+            for exit in [Some(1), Some(143), Some(0), None] {
+                let mut f = good_facts();
+                f.exit_status = exit;
+                f.infra_reason = Some(reason.to_string());
+                let d = derive(&m(None), &f);
+                assert_eq!((d.verdict, d.reason.as_str()), (Verdict::NotRun, reason));
+            }
+        }
+        // A timeout is still the gate's own, and without the reason rc_nonzero stays FAIL.
+        let mut f = good_facts();
+        f.exit_status = Some(1);
+        f.infra_reason = Some("SANDBOX_START".to_string());
+        f.timed_out = true;
+        assert_eq!(derive(&m(None), &f).reason, "timeout");
+        f.timed_out = false;
+        f.infra_reason = None;
+        assert_eq!(derive(&m(None), &f).reason, "rc_nonzero");
     }
 
     #[test]
