@@ -14,6 +14,11 @@ Arms: **S** = 4-bit only from the store (the new default), **F** = 8-bit weights
 | S | 69.957 | 14.29 (calc:f0c1b118) | 20.01 (calc:07f2175b) | 0.714 (calc:babb1a77) |
 | F | 117.614 | 8.50 (calc:69c20e5a) | 10.64 (calc:905bdd97) | 0.799 (calc:cf5b6ca5) |
 
+These are chip step times (`chip_ns_all_windows`, pooled medians recomputed by `jq -s` over the four report.json files
+per arm), the same measure as the 10-19 base. Wall clock over a whole 289-step free run (`decode_unix` in the gen runs)
+is slower: S 12.39 words per second (calc:2e64d8f1), 0.619 of ceiling (calc:4148346f); F 7.78 (calc:d9936e7b), 0.732 of
+ceiling (calc:ef825856).
+
 S is 1.68 times F (calc:40e77198) and 1.034 times the 10-19 4-bit result of 13.82 words per second (calc:d48c71f1).
 Round medians: S 69.55 / 71.19 / 69.72 / 69.79 ms, F 117.21 / 117.34 / 129.16 / 116.29 ms. The box ran at load average
 about 33 beside the live server, so these are shared-box numbers. Every round gave the same words as the others.
@@ -29,12 +34,16 @@ reduced setup fails. F: 24/24 golden words, cosine min 0.9994. S: 23/24, residua
 | F | 28.19 GB | 114.6 s (gen run), uploads 50.3 to 85.0 s |
 | L (old 4-bit way) | 40.52 GB | 334.6 s |
 
-The store removes 26.88 GB of weights against the old 4-bit way (calc:70171787). Peak process memory: UNMEASURED.
+The store removes 26.88 GB of weights against the old 4-bit way (calc:70171787). These are weight bytes allocated on
+the chip (`weight_bytes`); peak process memory is UNMEASURED. F's 28.19 GB includes the 16-bit head (2.54 GB), which the
+loader still uploads but the FP8-head arm never reads; that is why the F ceiling uses 25.65 GB per word.
 
 ## Energy (256-word free run on the prose prompt, 289 steps, whole-box wall power from the UPS, coarse)
 
 S 23.5 J per word (calc:f92829fe), F 31.8 J per word (calc:b1828c30). The wall figure includes the live server and every
-other job on the box; read it as a comparison inside this window only.
+other job on the box; read it as a comparison inside this window only. The box drew 238 to 310 W idle before the runs, the same range
+as while running (receipt speed-S-r1 even shows negative incremental joules), so the model's own energy
+is UNMEASURED and the J-per-word ratio is mostly the time ratio.
 
 ## 4-bit fit gate (`qwen38_ab gate4`, limits frozen 02:35Z before the window in `docs/inference/qwen38/w4-fit-gate.json`)
 
@@ -53,6 +62,13 @@ other job on the box; read it as a comparison inside this window only.
 
 Pooled over the five scored texts: 0.938 with near ties (limit 0.87), 0.896 without (calc:6bc81f7b).
 
+What PASS means: the limits are the 10-19 measurement of the same 4-bit arm plus a stated margin, and the store is bit
+exact to that arm, so PASS says the stored 4-bit default did not get worse; it is not an independent quality bar.
+
+Chip test before the speed rounds (`runs/chip-graph-w4only-*`): `gpu_q38_graph_test` 38 checks, 0 failed; the 4-bit-only
+graph equals the 8-bit plus 4-bit graph bit for bit on all tokens, and both refusal controls (half-set 8-bit layer,
+graph with no head) were refused.
+
 ## What went wrong on the way (kept, not hidden)
 
 - `runs/aborted-1`: first start. S runs refused by a Rust check that still demanded a 16-bit head (fixed in sc d964ec7c);
@@ -61,7 +77,8 @@ Pooled over the five scored texts: 0.938 with near ties (limit 0.87), 0.896 with
   dropped and one L golden dump kept for the exactness line.
 - `runs/aborted-2`: five drift dumps (golden, license, prose, arch H0; prose S) refused at channel setup in session 2
   (RM_ALLOC 0xcec0 status 0x51: the driver's main context buffer needs one contiguous block, Cortex lesson 45a41b22).
-  None reached a measurement. Each was rerun once in the same window (`bin/session3.sh`, free large blocks logged in
+  None reached a measurement. Their run logs and ground files are kept; their spark-receipts were overwritten by the
+  reruns (same receipt name). Each was rerun once in the same window (`bin/session3.sh`, free large blocks logged in
   `session.log`), all five completed.
 - An earlier window, 07:31Z, was closed one second after opening by another agent's close request (reported on L113).
 
