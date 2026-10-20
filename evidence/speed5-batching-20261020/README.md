@@ -118,3 +118,4 @@ resident).
   Told L159 and L125 on the ledger; the tool hazard (close with no id closes whoever's window is current) is on L113,
   already reported there by L125. My scripts pass the id from now on.
 - 2026-10-20T07:40Z compare.sh over A, B, C, D, E (compare*.txt in each folder).
+- 2026-10-20T08:50Z host tests at aac74813 (same three crates, CPU stub): 449 passed, 0 failed, 22 ignored (host-tests-aac74813.txt).
