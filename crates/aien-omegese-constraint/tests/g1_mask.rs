@@ -179,7 +179,10 @@ impl Scorer for Teacher {
             Some(self.stop)
         } else if self.target.starts_with(written) {
             let rest = std::str::from_utf8(&self.target[written.len()..]).unwrap();
-            self.table.encode(rest).ok().and_then(|v| v.first().copied())
+            self.table
+                .encode(rest)
+                .ok()
+                .and_then(|v| v.first().copied())
         } else {
             None
         };
@@ -192,8 +195,7 @@ impl Scorer for Teacher {
     }
 }
 
-/// Noise, lifted on structure so walks end: the closing fence most, then newlines and Omegese's
-/// fixed words.
+/// Noise, lifted on structure (see `lifts`) so walks write words, newlines and sometimes end.
 struct Wanderer {
     lift: Arc<Vec<f32>>,
     rng: XorShift,
@@ -300,8 +302,9 @@ fn g1_reproduces_every_worked_example_under_a_decoy() {
             non_canonical: 0,
         };
         let mut ctl = GenerationController::new(TextModel::new(table.clone(), teacher));
-        let mut k = OmegeseConstraint::new(table.clone(), LinkedOracle::new().unwrap(), framing(stop))
-            .unwrap();
+        let mut k =
+            OmegeseConstraint::new(table.clone(), LinkedOracle::new().unwrap(), framing(stop))
+                .unwrap();
         let mut out = Vec::new();
         let o = ctl
             .generate(
@@ -344,16 +347,20 @@ fn g1_reproduces_every_worked_example_under_a_decoy() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
-/// The lift of every token: the closing fence most, then newlines and the fixed words.
+/// Lifts over noise in [0, 1): a fixed word 2.5, one newline 2.0, the closing fence 2.75 (a walk that
+/// could end does so about 7 times in 10; at 2.0, 40 walks of 40 went on to the cap), other blank runs with a newline 0.5, everything else
+/// 0. The first cut (newlines 1.5 over words 1.0) wrote only blank space: hundreds of blank tokens
+/// beat the one legal word (G1, 2026-10-20).
 fn lifts(table: &TokenTable, words: &[String]) -> Vec<f32> {
     (0..table.len() as u32)
         .map(|i| match table.text(i) {
-            Some(t) if t.contains(&b'`') => 8.0,
-            Some(t) if t.contains(&b'\n') => 1.5,
+            Some(t) if t.contains(&b'`') => 2.75,
+            Some(t) if t == b"\n" => 2.0,
+            Some(t) if t.contains(&b'\n') && t.iter().all(u8::is_ascii_whitespace) => 0.5,
             Some(t) => {
                 let w = std::str::from_utf8(t).unwrap_or("").trim();
                 if words.iter().any(|x| x == w) {
-                    1.0
+                    2.5
                 } else {
                     0.0
                 }
@@ -385,7 +392,7 @@ fn g1_random_walks_are_all_accepted_by_emit() {
     let max = env_num("G1_MAX_TOKENS", 160);
     let threads = env_num("G1_THREADS", 8).max(1);
     let next = AtomicU64::new(0);
-    let tally = Mutex::new((0u64, 0u64, 0u64, Vec::<String>::new())); // ended, cut, accepted, refusals
+    let tally = Mutex::new((0u64, 0u64, 0u64, Vec::<String>::new(), Vec::<usize>::new())); // ended, cut, accepted, refusals, non-blank bytes
     let steps = Mutex::new((0u64, 0u64, 0u64, Vec::<Duration>::new())); // masked, forced, calls, step times
     let t0 = Instant::now();
     std::thread::scope(|s| {
@@ -403,9 +410,12 @@ fn g1_random_walks_are_all_accepted_by_emit() {
                     },
                 );
                 let mut ctl = GenerationController::new(model);
-                let mut k =
-                    OmegeseConstraint::new(table.clone(), LinkedOracle::new().unwrap(), framing(stop))
-                        .unwrap();
+                let mut k = OmegeseConstraint::new(
+                    table.clone(),
+                    LinkedOracle::new().unwrap(),
+                    framing(stop),
+                )
+                .unwrap();
                 let o = ctl.generate(
                     &[1, 2, 3],
                     &params(max, stop),
@@ -416,9 +426,10 @@ fn g1_random_walks_are_all_accepted_by_emit() {
                 let prog = k.program().to_vec();
                 let (ended, verdict) = match o {
                     Err(e) => (false, Err(format!("walk {w}: the constraint failed: {e}"))),
-                    Ok(o) if o.finish == FinishReason::Stop && k.finished() => {
-                        (true, emit(&bin, &prog).map_err(|e| format!("walk {w} (ended): {e}")))
-                    }
+                    Ok(o) if o.finish == FinishReason::Stop && k.finished() => (
+                        true,
+                        emit(&bin, &prog).map_err(|e| format!("walk {w} (ended): {e}")),
+                    ),
                     Ok(_) => (
                         false,
                         complete(&bin, &prog)
@@ -439,6 +450,7 @@ fn g1_random_walks_are_all_accepted_by_emit() {
                     g.3.extend_from_slice(&st.step_times);
                 }
                 let mut g = tally.lock().unwrap();
+                g.4.push(prog.iter().filter(|b| !b.is_ascii_whitespace()).count());
                 if ended {
                     g.0 += 1;
                 } else {
@@ -454,11 +466,13 @@ fn g1_random_walks_are_all_accepted_by_emit() {
             });
         }
     });
-    let (ended, cut, accepted, refusals) = tally.into_inner().unwrap();
+    let (ended, cut, accepted, refusals, mut text) = tally.into_inner().unwrap();
+    text.sort_unstable();
+    let blank = text.iter().filter(|&&n| n == 0).count();
     let (masked, forced, calls, mut times) = steps.into_inner().unwrap();
     receipt(&format!(
         "G1-WALKS {}: {walks} walks ({threads} threads, cap {max} tokens) in {:.1} s: {ended} ended on the closing fence and stop, {cut} cut and completed; {accepted} accepted by omegese emit, {} refused",
-        if refusals.is_empty() && accepted == walks as u64 { "PASS" } else { "FAIL" },
+        if refusals.is_empty() && accepted == walks as u64 && blank == 0 { "PASS" } else { "FAIL" },
         t0.elapsed().as_secs_f64(),
         refusals.len()
     ));
@@ -469,9 +483,16 @@ fn g1_random_walks_are_all_accepted_by_emit() {
         pct(&mut times, 0.95),
         pct(&mut times, 1.0)
     ));
+    receipt(&format!(
+        "G1-WALKS text: non-blank bytes the walk wrote (before any ending) min {}, median {}, max {}; walks with none: {blank} (must be 0: a blank walk tests nothing)",
+        text.first().copied().unwrap_or(0),
+        text.get(text.len() / 2).copied().unwrap_or(0),
+        text.last().copied().unwrap_or(0)
+    ));
     for r in refusals.iter().take(5) {
         receipt(&format!("G1-WALKS refusal: {r}"));
     }
     assert!(refusals.is_empty(), "{} refusals", refusals.len());
+    assert_eq!(blank, 0, "walks that wrote only blank space");
     assert_eq!(accepted, walks as u64);
 }

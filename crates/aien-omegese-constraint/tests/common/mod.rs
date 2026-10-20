@@ -4,6 +4,7 @@
 
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use aien_omegese_constraint::constraint::canonical_seps;
 use aien_omegese_constraint::word::{current_word, is_sep};
@@ -132,10 +133,13 @@ pub fn omegese_bin() -> PathBuf {
     p
 }
 
+/// A fresh file per call: tests run walks on several threads of one process, and a shared name
+/// let one thread's `emit` read another thread's program (G1, 2026-10-20).
 fn scratch(name: &str, body: &[u8]) -> PathBuf {
+    static N: AtomicU64 = AtomicU64::new(0);
     let dir = std::env::temp_dir().join(format!("omegese-constraint-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let p = dir.join(name);
+    let p = dir.join(format!("{}-{name}", N.fetch_add(1, Ordering::Relaxed)));
     std::fs::write(&p, body).unwrap();
     p
 }
@@ -150,6 +154,8 @@ pub fn emit(bin: &PathBuf, program: &[u8]) -> Result<(), String> {
         .arg(&out)
         .output()
         .unwrap();
+    let _ = std::fs::remove_file(&src);
+    let _ = std::fs::remove_file(&out);
     match o.status.code() {
         Some(0) => Ok(()),
         _ => Err(String::from_utf8_lossy(&o.stdout).trim().to_string()),
@@ -164,6 +170,7 @@ pub fn complete(bin: &PathBuf, prefix: &[u8]) -> Result<Vec<u8>, String> {
         .arg(&src)
         .output()
         .unwrap();
+    let _ = std::fs::remove_file(&src);
     match o.status.code() {
         Some(0) => Ok(o.stdout),
         _ => Err(String::from_utf8_lossy(&o.stdout).trim().to_string()),
