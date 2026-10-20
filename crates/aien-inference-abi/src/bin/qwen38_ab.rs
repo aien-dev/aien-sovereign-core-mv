@@ -495,6 +495,13 @@ fn speed(dir: &Path, ctx: usize, steps: usize, seed: u32, out: &str) -> Result<(
     // any in-vocab token; greedy from there
     let mut fed = 0u32;
     let (mut chip, mut wall) = (Vec::with_capacity(steps), Vec::with_capacity(steps));
+    let unix = || {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0.0, |d| d.as_secs_f64())
+    };
+    // the steps' span in wall-clock time: energy per token comes from the wall-power log over it
+    let steps_t0 = unix();
     for _ in 0..steps {
         let t = Instant::now();
         let (top, st) = e.step(fed)?;
@@ -502,6 +509,7 @@ fn speed(dir: &Path, ctx: usize, steps: usize, seed: u32, out: &str) -> Result<(
         chip.push(st.chip_ns as f64 / 1e6);
         fed = top;
     }
+    let steps_t1 = unix();
     let med = |v: &[f64]| {
         let mut s = v.to_vec();
         s.sort_by(|a, b| a.total_cmp(b));
@@ -521,6 +529,7 @@ fn speed(dir: &Path, ctx: usize, steps: usize, seed: u32, out: &str) -> Result<(
         "chip_ms_median": cm, "chip_ms_min": c0, "chip_ms_max": c1,
         "wall_ms_median": wm, "wall_ms_min": w0, "wall_ms_max": w1,
         "tok_s_wall_median": 1e3 / wm, "tok_s_chip_median": 1e3 / cm,
+        "steps_t0_unix": steps_t0, "steps_t1_unix": steps_t1,
         "open_s": open_s, "fill_s": fill_s, "chip_ms": chip, "wall_ms": wall,
     });
     std::fs::write(out, serde_json::to_string_pretty(&v).unwrap())
