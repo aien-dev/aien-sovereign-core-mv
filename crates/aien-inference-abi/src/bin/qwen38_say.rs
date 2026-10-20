@@ -19,7 +19,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use aien_inference_abi::qwen38_omega::Qwen38Omega;
-use aien_inference_abi::tokenizer::ChatTokenizer;
+use aien_inference_abi::tokenizer::{eos_token_ids_from_json, ChatTokenizer};
 use serde_json::json;
 
 /// GB10 LPDDR5X peak, bytes per second (NVIDIA DGX Spark spec: 273 GB/s).
@@ -59,12 +59,22 @@ fn run() -> Result<(), String> {
         return Err("--gen must be at least 1".into());
     }
 
-    let tk = ChatTokenizer::from_model_dir(dir, None).map_err(|e| e.to_string())?;
-    let text = tk
-        .template()
-        .try_render(&[("user", prompt.as_str())])
-        .map_err(|e| e.to_string())?;
+    let tk = ChatTokenizer::from_file(dir.join("tokenizer.json")).map_err(|e| e.to_string())?;
+    // What the checkpoint's chat_template.jinja renders for one user turn with enable_thinking=false and no system
+    // message or tools (the shared ChatML renderer refuses this template because of its tool and reasoning branches).
+    let text = format!(
+        "<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+        prompt.trim()
+    );
     let ids = tk.encode(&text).map_err(|e| e.to_string())?;
+    let gen_cfg: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(dir.join("generation_config.json"))
+            .map_err(|e| format!("generation_config.json: {e}"))?,
+    )
+    .map_err(|e| format!("generation_config.json: {e}"))?;
+    let mut stop =
+        eos_token_ids_from_json(&gen_cfg).ok_or("generation_config.json: no eos_token_id")?;
+    stop.extend(tk.token_to_id("<|im_end|>"));
     if ids.is_empty() {
         return Err("the prompt encodes to no tokens".into());
     }
@@ -92,7 +102,7 @@ fn run() -> Result<(), String> {
     let mut stdout = std::io::stdout();
     writeln!(stdout, "--- answer").ok();
     let t_gen = Instant::now();
-    while out.len() < gen && !tk.is_stop_token(next) {
+    while out.len() < gen && !stop.contains(&next) {
         let (top, st) = e.step(next)?;
         chip_ms.push(st.chip_ns as f64 / 1e6);
         next = top;
