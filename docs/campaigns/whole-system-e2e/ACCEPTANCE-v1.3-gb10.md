@@ -69,4 +69,4 @@ detached, never killed. If it aborts for a harness defect, the folder stays and 
 note. Nothing under `runs/` is edited after the run. `quietlock check` before the start. No cache drops, no other GPU
 lease touched. `git status --ignored` on the run folder and `sha256sum -c chain/SHA256SUMS` from the committed tree are
 checked before the evidence PR. A PASS of any row here says nothing about an installed artifact, a public model,
-native AIENOS, a second machine or a hostile operator.
+native Aienux, a second machine or a hostile operator.

@@ -1,5 +1,5 @@
 //! Profile store tests. FIXTURE-ONLY: identities here are fixed byte arrays,
-//! not subjects resolved from AIENOS. No model is involved.
+//! not subjects resolved from Aienux. No model is involved.
 use aien_allen_profile::{
     Changes, Identity, PersonaContext, PersonaState, PrefChange, ProfileRefusal as R, Scope, Store,
     Tone, Verbosity, WriteStep, CONTEXT_MAX_BYTES,

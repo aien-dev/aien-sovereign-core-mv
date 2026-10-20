@@ -1,7 +1,7 @@
 //! TEST-ONLY subject fixture builder. A second, independent encoder of the
 //! kind-24 layout (aienos ADR 0018 s2.2). It lives under tests/ so the
 //! production crate gains no provisioning path: real subjects are created
-//! only by AIENOS `cs_provision`. Anything built here is a fixture.
+//! only by Aienux `cs_provision`. Anything built here is a fixture.
 #![allow(dead_code)]
 use aien_allen::subject_v0::object_id;
 use sha2::{Digest, Sha256};

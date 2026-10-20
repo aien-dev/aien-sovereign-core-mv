@@ -1,6 +1,6 @@
 //! ALLEN identity gate (aien-architecture ADR 0035, aienos ADR 0018).
 //!
-//! RESOLVE ONLY. This crate reads a kind-24 SubjectState object that AIENOS
+//! RESOLVE ONLY. This crate reads a kind-24 SubjectState object that Aienux
 //! provisioned and exported; it never creates, encodes or edits one (I8: ALLEN
 //! is never created implicitly). The logical agent identity, the machine id
 //! (host pin record) and the model binding (deployment record) are three

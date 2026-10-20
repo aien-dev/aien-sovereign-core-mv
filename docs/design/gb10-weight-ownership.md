@@ -311,7 +311,7 @@ low-MemFree state where the unchanged baseline fails, without dropping the page 
   production-strict run (no `AIEN_DEV_FALLBACK=1`), with the native engine and streamed resident
   weights; `0` (or any other value, including non-UTF8) refuses it by name.
   Evidence limits: the pass is [#277 comment 6059774846](https://github.com/aien-spark/aien-sovereign-core/issues/277#issuecomment-6059774846),
-  on a Linux-hosted GB10 only (not native AIENOS), one prompt, context 4096, no endurance run,
+  on a Linux-hosted GB10 only (not native Aienux), one prompt, context 4096, no endurance run,
   no failing baseline, cache partly scripted.
 - Do not drop caches to qualify. If the organic state never recurs, the answer is "not
   qualified", not a staged state.

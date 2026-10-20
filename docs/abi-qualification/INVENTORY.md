@@ -13,8 +13,8 @@ sovereign-core main `bd438bcc`. Tags: **implemented** (true before this work), *
 |---|---|---|---|
 | rxc_host v2 (composition facade) | om `src/runtime/rxc_host_abi.h`, `.c`; archive `librx_compose.a` (`mk/rx_compose_lib.mk`) | sc `crates/aien-omega-compose` | yes (aien-runtime, aien-cli) |
 | omega GPU engine | om `src/omega_gpu_{matmul_api,session,serving,elementwise_api,attention_api}.h`; `libomega_gpu.a` | sc `crates/aien-omega-gpu`, used by `aien-inference-abi` | yes on the GB10 build |
-| AIENOS capability authority (C, 64-bit generation) | ao `native/capability/aienos_capability.h` | om `src/runtime/aienos_cap.h` (hand copy), merged into `librx_compose.a` | yes, through librx_compose.a |
-| AIENOS capability (Rust, 32-bit generation) | ao `crates/aienos-capability-ffi` | nothing in sc, om or ao links it (grep, 2026-10-11) | no |
+| Aienux capability authority (C, 64-bit generation) | ao `native/capability/aienos_capability.h` | om `src/runtime/aienos_cap.h` (hand copy), merged into `librx_compose.a` | yes, through librx_compose.a |
+| Aienux capability (Rust, 32-bit generation) | ao `crates/aienos-capability-ffi` | nothing in sc, om or ao links it (grep, 2026-10-11) | no |
 
 ## Section 4: ABI compatibility (rxc_host and GPU)
 
@@ -45,7 +45,7 @@ already required). Results on the Spark: compose 4 structs, 13 functions, 2 call
 parameter, callback, version constant, removed field, missing symbol, truncated archive,
 missing struct.
 
-## Section 6: AIENOS capability
+## Section 6: Aienux capability
 
 Ruling: two separate implementations that exported the same 17 `aienos_cap_*` symbols with
 incompatible `AienosCapRef` layouts (C 16 bytes, 64-bit generation; Rust 8 bytes, 32-bit).

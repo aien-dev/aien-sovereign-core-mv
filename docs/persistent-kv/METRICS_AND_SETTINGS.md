@@ -37,7 +37,7 @@ Existing settings that this design reads and never redefines: `AIEN_KV_CONTEXT_T
 | `KV_SLAB_SLOT_UNITS` | 4096-byte units | 1 + ceil(max_chunk_bytes / 4080) | slab superblock |
 | `KV_PUMP_BUDGET_CMDS` | disk commands per pump call | 2 | `infer.c` (between-steps hook and the idle pump, ADR 9 item 3) |
 | `KV_PARK_STAGE_BYTES` | bytes | one chunk of sealed envelopes plus export (to be sized in N3) | `kv_store.c` (bound on queued sealed data, ADR 10) |
-| `KV_SLAB_PI_UNITS` | 4096-byte units | 32768 (128 MiB), inside the AIENOS partition view | Pi superblock and `KV.MAP` (ADR 16.2) |
+| `KV_SLAB_PI_UNITS` | 4096-byte units | 32768 (128 MiB), inside the Aienux partition view | Pi superblock and `KV.MAP` (ADR 16.2) |
 | `KV_QUEUE_DEPTH` | requests | `DISK_QUEUE_DEPTH` (32) | `disk.h` (reused, not redefined) |
 
 ## Metrics (host)

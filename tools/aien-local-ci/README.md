@@ -3,7 +3,7 @@
 Owner: lane INFRA of the sovereign local pipeline mission (inventory and contracts in
 `~/handoffs/2026-10-11-sovereign-pipeline-M1-inventory.md`, contracts C3, C7, C8, A2, A3).
 Everything here is bash. No Python. Host systemd units are used only for transient scopes; nothing here touches
-AIENOS.
+Aienux.
 
 ## Files
 

@@ -31,4 +31,4 @@ criterion is the same as v1 and is incorporated here by reference.
    `candidate stack at <commit>, not main`.
 
 No other change. In particular: no retry with a changed prompt beyond change 1, the same models, the same
-kill -9 restarts, real-CPU label, GB10 and native AIENOS NOT_RUN.
+kill -9 restarts, real-CPU label, GB10 and native Aienux NOT_RUN.

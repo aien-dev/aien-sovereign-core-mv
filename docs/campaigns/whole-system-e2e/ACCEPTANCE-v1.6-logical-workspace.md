@@ -78,4 +78,4 @@ blocked on the real signing key, the qualified public model and the CAND-5 pins.
 ## Not part of this control
 
 The public model (Drake D1: Qwen3-8B evaluation and a frozen v7 campaign), the release signing ceremony (D3), the
-install run (R8) and the native AIENOS work (D4) are separate lanes with their own pre-registered controls.
+install run (R8) and the native Aienux work (D4) are separate lanes with their own pre-registered controls.

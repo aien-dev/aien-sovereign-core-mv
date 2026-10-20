@@ -152,7 +152,7 @@ Target ratios and which cut earns each are in ADR 15.8; none is a result until i
 
 | cut | content | depends on | red tests |
 |---|---|---|---|
-| P1 | 128 MiB (32768 unit) slab inside the AIENOS partition view, `KV.MAP` on the ESP written by the `pi5-run.sh` path, Store shrink and one reformat plan, state record; aarch64 emulation of the card layout | N2, N4 | `slab_lies_inside_partition_view`, `kv_map_stale_or_missing_means_no_slab`, `state_record_roundtrip_across_reformat_plan`, `existing_store_gates_pass_with_pi_layout` |
+| P1 | 128 MiB (32768 unit) slab inside the Aienux partition view, `KV.MAP` on the ESP written by the `pi5-run.sh` path, Store shrink and one reformat plan, state record; aarch64 emulation of the card layout | N2, N4 | `slab_lies_inside_partition_view`, `kv_map_stale_or_missing_means_no_slab`, `state_record_roundtrip_across_reformat_plan`, `existing_store_gates_pass_with_pi_layout` |
 | P2 | native CPU park and restore in the pi5-agent session, emulator run reproducing the golden 17 ids and 8 output ids | P1, N4 | `pi_agent_parks_after_reply_and_restores_on_next_boot_emulated`, `pi_restore_prefills_only_suffix`, `pi_flipped_superblock_byte_refuses_restore` |
 | P3 | the physical run: park, real cold boot via tryboot, restore, golden continuation, negative control; labelled "native physical (Pi 5)"; kept separate from Spark-native (NOT_RUN under aienos#336) and hosted results. Drake authorizes it because it reformats the test card's Store and occupies the Pi | P2, Pi free per the Pi lane owner | `golden_ids_equal_after_cold_boot`, `restored_tokens_greater_than_zero`, `restored_prefill_time_below_cold_control`, `corrupted_slab_falls_back_to_prefill`; receipt recorded in `docs/evidence/kv-native.md` |
 

@@ -12,7 +12,7 @@ PHYSICS 6d7cf0d4, the same environment as ~/workspace/hive/Q277/DECLARATION.md. 
 `~/workspace/hive/Q277/bin/aien-cli-main`, sha256 `152c0aecce662f618bf683c8854d6de56a7075e0461c2433570f4c15b68571a5`
 (Q277 `SHA256SUMS`, `IDENTITY.txt`). The driver checks the file against that sha256 (written in the script and in `SHA256SUMS`)
 and refuses on any mismatch, and refuses unless the tree is 6bbe2ec2 plus demo-only files. All client commands and the M-B
-daemon use the v3-style CPU build of the same tree. Environment label: Linux-hosted GB10. Not native AIENOS.
+daemon use the v3-style CPU build of the same tree. Environment label: Linux-hosted GB10. Not native Aienux.
 
 GB10 daemon environment: `AIEN_GB10_QWEN3_DECLARED_ATTEMPT=1 AIEN_REQUIRE_BLACKWELL=1 AIEN_REQUIRE_CHECKPOINT=1
 AIEN_KV_CONTEXT_TOKENS=4096`, `AIEN_MODEL_PATH=<model>/model.safetensors.index.json`; `AIEN_OMEGA_*`, `AIEN_FORCE_CPU_STUB`,

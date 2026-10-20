@@ -704,7 +704,7 @@ impl OmegaGb10Backend {
 /// Llama-architecture models are not touched by this check.
 ///
 /// Evidence limits: the #277 attempt 3 pass (issue comment 6059774846) covers a Linux-hosted
-/// GB10 only (not native AIENOS), one prompt, context 4096, no endurance run and no failing
+/// GB10 only (not native Aienux), one prompt, context 4096, no endurance run and no failing
 /// baseline. So the default (switch unset) enables Qwen3 only on a production-strict run; under
 /// `AIEN_DEV_FALLBACK=1` it is refused unless the switch is explicitly `1`.
 ///

@@ -86,7 +86,7 @@ pub fn compose_dir_from_env() -> Result<PathBuf, String> {
 }
 
 /// The provisioned machine root: 32 random bytes kept beside the home
-/// (`<home>.machine-root`, mode 0600), created once. STOPGAP until AIENOS
+/// (`<home>.machine-root`, mode 0600), created once. STOPGAP until Aienux
 /// machine provisioning owns the AienMachineId root.
 fn machine_root(dir: &Path) -> Result<Vec<u8>, String> {
     use std::io::Read;

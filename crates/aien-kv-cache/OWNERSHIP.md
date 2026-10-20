@@ -25,7 +25,7 @@ and GPU visibility.
   **[S]** source-observed (the quoted line is in the linked source),
   **[H]** host-tested (named test, CPU only, passes at `deff6f7`),
   **[C]** chip-tested (named receipt; hosted Linux, GB10 through the NVIDIA Linux driver),
-  **[N]** native-hardware-tested (named receipt; AIENOS on real hardware, no Linux),
+  **[N]** native-hardware-tested (named receipt; Aienux on real hardware, no Linux),
   **[I]** inferred (reasoning from the cited lines, not run),
   **UNVERIFIED** / **NOT_RUN** (nothing proves it).
 - An asynchronous API is not an overlap proof. No receipt below shows storage I/O overlapping chip
@@ -41,8 +41,8 @@ and GPU visibility.
 | Linux-hosted Spark, CPU reference backend | `AienKvManager` + `UnifiedKvTensorPool` on a host-mapped `LinuxUnifiedBuffer`; persistent KV through `aien-kv-store` | [H] the tests named below |
 | Linux-hosted Spark, GB10 through the NVIDIA Linux driver (`OmegaGb10Backend`, 8B daemon path) | same manager, pool memory from omega's resident allocation | [C] `docs/inference/evidence/cta1024-20261012T0315Z/` (section 4) |
 | Linux-hosted Spark, OWN-30B door (`aien-serve-http`) | the engine's own single-sequence KV (`OmegaPagedKv`, `OmegaFusedKv`), not `AienKvManager` block tables; park/restore through `kv_persist.rs` | [H] host engine tests; chip check `crates/aien-serve-http/tests/kv_persist_chip.rs` is `#[ignore]`, NOT_RUN (sc#507) |
-| Native AIENOS, Pi 5 CPU | `aienos-infer` `DecodeState`: one dense f32 cache, no paging, no sharing, no persistence | [N] aienos `docs/native/PI5-6-INFER-RUNS.md` (8 tokens equal llama.cpp, "KV capacity 64 in this probe") |
-| Native AIENOS, GB10 GPU | none: no native GPU platform implementation exists | NOT_RUN (aienos#327; omega `docs/numeric/OMEGA_GPU_NATIVE_BOUNDARY.md` section 2 rows NOT_RUN) |
+| Native Aienux, Pi 5 CPU | `aienos-infer` `DecodeState`: one dense f32 cache, no paging, no sharing, no persistence | [N] aienos `docs/native/PI5-6-INFER-RUNS.md` (8 tokens equal llama.cpp, "KV capacity 64 in this probe") |
+| Native Aienux, GB10 GPU | none: no native GPU platform implementation exists | NOT_RUN (aienos#327; omega `docs/numeric/OMEGA_GPU_NATIVE_BOUNDARY.md` section 2 rows NOT_RUN) |
 | Emulator / QEMU only | native persistent-KV slab is PLANNED in QEMU (ADR 0003 section 11, cuts N2/N3/N5); no code exists | NOT_RUN (aienos#367) |
 
 A hosted chip result never stands in for native GB10, and a Pi 5 result never stands in for the Spark.

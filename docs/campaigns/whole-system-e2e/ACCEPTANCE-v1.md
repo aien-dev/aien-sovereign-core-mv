@@ -69,6 +69,6 @@ the manifest is written; one attempt per declared run, a failed run stays record
 
 ## 5. What a PASS of any row does not show
 
-Nothing about an installed artifact, a public model, the GB10 path, native AIENOS, a hostile operator, or the
+Nothing about an installed artifact, a public model, the GB10 path, native Aienux, a hostile operator, or the
 correctness of the prose beyond the stated checks. Nothing here is evidence for the program's milestone R5;
 this is milestone R4 (harness merged, first dry run recorded).

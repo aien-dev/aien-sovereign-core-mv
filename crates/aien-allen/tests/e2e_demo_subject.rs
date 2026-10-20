@@ -2,7 +2,7 @@
 //! NOT a test: it is `#[ignore]`d and does nothing unless the demo driver sets
 //! its environment. It writes ONE exported kind-24 subject head object, bound
 //! to the lineage of the demo's Cortex journal, using the TEST-ONLY fixture
-//! encoder. Real subjects are created only by AIENOS `cs_provision`, so the
+//! encoder. Real subjects are created only by Aienux `cs_provision`, so the
 //! demo labels this subject a host-built fixture.
 //!   DEMO_SUBJECT_OUT      path of the head object file to write
 //!   DEMO_LINEAGE_HEX      64 hex: digest of Cortex record 1 of the demo home

@@ -20,7 +20,7 @@ new required = the five feature checks of Section 3 (v8-checks.sh); a v8 PASS ne
 
 No row, threshold, task, cap, time budget, retry limit or effect authorization changes. Qwen3-8B is promoted only if the whole frozen v8
 campaign passes; a FAIL blocks the public bundle (ruling 2). If v8 fails, the remaining failures are classified before any other model or
-acceleration is proposed. AIENOS CPU int8 and Omega GB10 inference acceleration are separate workstreams and not part of v8.
+acceleration is proposed. Aienux CPU int8 and Omega GB10 inference acceleration are separate workstreams and not part of v8.
 
 ## 1. Product change: corrective retry (sc#460)
 
