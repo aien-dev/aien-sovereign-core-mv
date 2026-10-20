@@ -459,6 +459,34 @@ unmapped path, no blocked gate, no problem line.
 `<repo>` is the last segment of the repository name
 (`github.com/aien-spark/aien-sovereign-core` gives `aien-sovereign-core`).
 
+## Merge train, host verdict note and gate memo (L164, 2026-10-20)
+
+`aien-test train REPO [--dry-run] [--operator]` reads the READY lines of the PR desk log
+(`~/handoffs/2026-10-18-pr-desk.md`) for one repository in desk order, rebases each branch in turn onto a
+candidate that starts at main (in a scratch clone under `<state>/train/<repo>.work`), and judges the
+candidate once with the real judge (`aien-local-ci once`). A conflict only in `.crumb` files takes main's
+copy and the crumbs are recompiled once at the end with the pinned crumb tool; any other conflict leaves the
+branch out and says where. A branch stacked on another unmerged branch rides only behind its parent. A
+branch that changes the judge's own setup needs `--operator`. Green: `<state>/train/<repo>.land.json` names
+the judged candidate sha and every branch in it; the desk lands it as one train PR merged with
+`--match-head-commit`, so the merged tree is the judged tree. Red: the branches whose own changes touch a
+failing gate's `inputs:` (or its manifest) are dropped and the rest is judged again; a gate already red on
+main blames nobody.
+
+`aien-test queue [REPO]...` prints the train state in plain words: main's verdict, the candidate, and every
+READY branch with why it waits (in the candidate, left out and why, judged alone, host verdict while the chip
+is busy).
+
+Host verdict note: as soon as every host and qemu gate of a head has finished, the runner writes
+`<state>/interim/<repo>.<sha>.json` (`host_verdict`, `host_not_pass`, `silicon_left`). The queue page shows
+it as "host PASS, silicon queued N".
+
+Gate memo (`--memo off|ancestor|any`, default off): the cache key may find a fresh PASS of another judged
+head of the same repository with the same toolchain id (recorded in `volatile.toolchain`). Off by default:
+it trusts `inputs:` lists to be complete; see `evidence/MERGE-TRAIN/README.md` for the replay (1.4% to 4.2%
+of gate-minutes) and the test that shows the risk. `aien-test memo-replay --state-dir DIR` replays the
+evidence store.
+
 ## Tests
 
 `cargo test -p aien-test` covers the planner (selection, sections, A1, A4,

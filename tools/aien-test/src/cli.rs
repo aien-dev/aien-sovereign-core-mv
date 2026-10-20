@@ -115,7 +115,7 @@ pub struct Cli {
     pub once: Option<(String, String)>,
     /// worker: `--poll SECS` (default 30).
     pub poll: Option<u64>,
-    /// worker: `--memo off|ancestor|any` (L164 gate memo; default ancestor).
+    /// worker: `--memo off|ancestor|any` (L164 gate memo; default off).
     pub memo: Option<crate::memo::Policy>,
     /// worker: `--repos A,B`.
     pub repos: Vec<String>,

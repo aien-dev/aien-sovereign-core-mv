@@ -277,7 +277,7 @@ impl Config {
             jobs: JobsSpec::default(),
             no_cache: false,
             gpu_wait: GpuWait::Bounded(DEFAULT_GPU_WAIT),
-            memo: crate::memo::Policy::Ancestor,
+            memo: crate::memo::Policy::Off,
         }
     }
 
@@ -956,12 +956,8 @@ fn run_in_worktree(
         if let Some(repo_ev) = evidence_dir.parent() {
             let anc = |a: &str, b: &str| crate::memo::git_is_ancestor(clone, a, b);
             let sources = crate::memo::sources(repo_ev, sha, cfg.memo, &anc);
-            let memo = crate::memo::Memo::build(
-                cfg.memo,
-                &sources,
-                &toolchain,
-                &runner::captured_env(),
-            );
+            let memo =
+                crate::memo::Memo::build(cfg.memo, &sources, &toolchain, &runner::captured_env());
             notes.push(format!(
                 "memo ({}): {} judged heads read, {} reusable results",
                 cfg.memo.as_str(),

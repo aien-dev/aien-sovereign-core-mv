@@ -672,7 +672,11 @@ mod tests {
         fx.commit("README", "changed\n");
         let second = fx.run(&head_opts(&fx, "h2", "tc1", &[(&h1, "h1")]));
         assert_eq!(second.verdict, Verdict::Pass);
-        assert_eq!(fx.runs("a"), 1, "the memo answered; the program did not run");
+        assert_eq!(
+            fx.runs("a"),
+            1,
+            "the memo answered; the program did not run"
+        );
         match &second.cache {
             CacheNote::Reused { from, from_commit } => {
                 assert_eq!(Some(from.as_str()), first.receipt_digest.as_deref());
@@ -689,12 +693,20 @@ mod tests {
         // Another toolchain: never answered.
         let third = fx.run(&head_opts(&fx, "h3", "tc2", &[(&h1, "h1")]));
         assert_eq!(fx.runs("a"), 2, "a changed toolchain runs the gate");
-        assert!(matches!(third.cache, CacheNote::Miss(_)), "{:?}", third.cache);
+        assert!(
+            matches!(third.cache, CacheNote::Miss(_)),
+            "{:?}",
+            third.cache
+        );
         // A changed input: never answered.
         fx.commit("data/in.txt", "two\n");
         let fourth = fx.run(&head_opts(&fx, "h4", "tc1", &[(&h1, "h1")]));
         assert_eq!(fx.runs("a"), 3, "a changed input runs the gate");
-        assert!(matches!(fourth.cache, CacheNote::Miss(_)), "{:?}", fourth.cache);
+        assert!(
+            matches!(fourth.cache, CacheNote::Miss(_)),
+            "{:?}",
+            fourth.cache
+        );
     }
 
     #[test]

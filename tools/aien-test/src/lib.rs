@@ -50,6 +50,7 @@ pub mod resources;
 pub mod runner;
 pub mod sandbox;
 pub mod status;
+pub mod train;
 pub mod verdict;
 pub mod verify;
 pub mod why;

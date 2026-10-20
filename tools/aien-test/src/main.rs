@@ -39,8 +39,17 @@ fn real_main() -> i32 {
     if argv.first().is_some_and(|c| bundle::is_bundle_command(c)) {
         return bundle::cli_main(&argv);
     }
-    if argv.first().is_some_and(|c| aien_test::memo::is_memo_command(c)) {
+    if argv
+        .first()
+        .is_some_and(|c| aien_test::memo::is_memo_command(c))
+    {
         return aien_test::memo::cli_main(&argv);
+    }
+    if argv
+        .first()
+        .is_some_and(|c| aien_test::train::is_train_command(c))
+    {
+        return aien_test::train::cli_main(&argv);
     }
     let cli = match parse_args(&argv) {
         Ok(c) => c,

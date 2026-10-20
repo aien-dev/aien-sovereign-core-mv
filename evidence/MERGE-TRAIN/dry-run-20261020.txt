@@ -1,0 +1,83 @@
+=========== omega
+Train for omega: main a8ffd2b912c8 has not been judged.
+Candidate 8244eb8ef20b = main a8ffd2b912c8 + 10 branch(es), one judge run. 6 crumb files recompiled, crumb verify OK
+  IN    docs/readme-2026-10-19 (2676fd67a64e)  -> 2676fd67a64e (2 commit(s), desk line 177)
+  IN    984b7eed9b86  -> e37e59aeded7 (1 commit(s), desk line 220)
+  IN    fix/action-graph-load (ca8ac474e66c)  -> 960a61553386 (2 commit(s), desk line 288)
+  IN    fix/tcgemm-nj (35eecb3ce207)  -> 7f63e93d55f4 (1 commit(s), desk line 336)
+  OUT   fix/gb10-gate-prepare (f906a0c72bf3)  changes the judge's own setup (tests/gates/omega-composition-gate-gpu.gate); needs an operator train (--operator)
+  IN    seed/rungs56 (217b7cc82b8d)  -> 2defece3dd0b (14 commit(s), desk line 364)
+  IN    feat/580-chords (b6fbc8f44ec7)  -> 083a0bfd9c13 (10 commit(s), desk line 366)
+  IN    feat/omegese-mask-lib (9ea8815a9737)  -> ca940be25774 (6 commit(s), desk line 371)
+  IN    doc/machine-ceiling (3c8ce2394be8)  -> 68e4e846cc6d (4 commit(s), desk line 374)
+  IN    fix/omegese-maxwords-boundary (af31a025328c)  -> 6eaef0dc90b0 (1 commit(s), desk line 384)
+  OUT   fix/r14-recovery-flake (e5404a0566a3)  did not rebase cleanly: conflicts with the branches before it in: tests/runtime/rx_action_graph.c
+  OUT   fix/speed-check-cpu-busy-not-run (ccae45c2d737)  changes the judge's own setup (tests/gates/run.sh); needs an operator train (--operator)
+  OUT   fix/tv-inserver (3208be4ba528)  stacked on cascade/tree-verify-gemm, which is not in this train (it lands after its parent)
+  OUT   fix/r14-e-seat-claim (2e1455fed1e7)  changes the judge's own setup (tests/gates/run.sh); needs an operator train (--operator)
+  OUT   speed5/handle-slots (66e84cf6a0d2)  did not rebase cleanly: conflicts with the branches before it in: README.md
+        note: 77 commits since main: probably stacked on another unmerged branch
+  OUT   speed1/w4-default (d2d740415316)  did not rebase cleanly: conflicts with the branches before it in: README.md
+  OUT   speed3/w4-gemv (8655007f0f09)  stacked on qwen38/w4-gemv, which is not in this train (it lands after its parent)
+  IN    doc/program (4aa7d6cacf1f)  -> 37708cce4bcb (6 commit(s), desk line 434)
+Dry run: nothing judged, nothing pushed.
+=========== aien-sovereign-core
+Train for aien-sovereign-core: main 5ae9d6a396d7 has not been judged.
+Candidate 409cb425b133 = main 5ae9d6a396d7 + 2 branch(es), one judge run. 3 crumb files recompiled, crumb verify OK
+  OUT   docs/readme-2026-10-19 (b6becabd7436)  did not rebase cleanly: conflicts with the branches before it in: tools/aien-local-ci/README.md
+  IN    cedcf072baa9  -> 75432f8b0dce (1 commit(s), desk line 220)
+  OUT   fix/trigger-claim-once (034d6147ec65)  changes the judge's own setup (tools/aien-test/docs/LOCAL_VERIFICATION.md); needs an operator train (--operator)
+        note: the branch has moved since this READY line (tip 9ac35b3ba35a); the train uses the READY commit
+  OUT   crumb/advisory (380b3f6e206e)  changes the judge's own setup (.aien/always); needs an operator train (--operator)
+  OUT   fix/serve27b-mem-after-lock (6a4a86faee56)  stacked on alpha/try-it-guide, which is not in this train (it lands after its parent)
+  OUT   2a33909e2163  stacked on qwen38/serve-fast, which is not in this train (it lands after its parent)
+  IN    cascade/mtp-chain (230574e0f731)  -> 815cda5abf79 (38 commit(s), desk line 334)
+  OUT   fix/gb10-gate-prepare (85e0cb953e10)  changes the judge's own setup (tools/aien-test/docs/LOCAL_VERIFICATION.md); needs an operator train (--operator)
+        note: the branch has moved since this READY line (tip d3a874b8968a); the train uses the READY commit
+  OUT   feat/omegese-mask (c751e656ffb5)  did not rebase cleanly: conflicts with the branches before it in: crates/aien-serve-http/src/openai.rs, crates/aien-serve-http/src/server.rs
+  OUT   fix/kv-lock-held-flake (4ddea8686577)  already on main (the same changes landed)
+  OUT   16288198a671  already on main
+  OUT   speed5/batching (fcadf6e567f7)  did not rebase cleanly: conflicts with the branches before it in: README.md
+  OUT   speed1/w4-default (8e43126a8307)  did not rebase cleanly: conflicts with the branches before it in: README.md
+  OUT   qwen38/w4-decode (a657886266bd)  did not rebase cleanly: conflicts with the branches before it in: README.md
+  OUT   7c2ae49e  its commit is not in the trusted clone (not pushed, or not fetched yet)
+Dry run: nothing judged, nothing pushed.
+=========== aienos
+Train for aienos: main 18e276590424 was judged NOT_RUN.
+Candidate e066ae5452fc = main 18e276590424 + 2 branch(es), one judge run. 1 crumb files recompiled, crumb verify OK
+  IN    docs/readme-2026-10-19 (3ab0a75872f1)  -> 8989ee8f52e4 (2 commit(s), desk line 176)
+  IN    f1a43bfabd60  -> 254e3b1088f2 (2 commit(s), desk line 220)
+  OUT   feat/goodbye-panel-off (2954f5ea061e)  did not rebase cleanly: conflicts with the branches before it in: README.md
+  OUT   qual/assumptions-ktap (cf33ef273bd4)  did not rebase cleanly: conflicts with the branches before it in: README.md
+  OUT   feat/goodbye-event-horizon (903277b7ac58)  did not rebase cleanly: conflicts with the branches before it in: README.md
+  OUT   feat/allen-through-the-model (f49854f60a9c)  did not rebase cleanly: conflicts with the branches before it in: README.md
+        note: 61 commits since main: probably stacked on another unmerged branch
+  OUT   position/brightness/colour (3f48a887be33)  did not rebase cleanly: conflicts with the branches before it in: README.md
+        note: the branch is gone from origin
+  OUT   feat/allen-canvas (e57ef1e895d0)  did not rebase cleanly: conflicts with the branches before it in: README.md
+        note: 68 commits since main: probably stacked on another unmerged branch
+  OUT   feat/imac-gpu-bench (6885ebdd9e40)  did not rebase cleanly: conflicts with the branches before it in: README.md
+        note: the branch has moved since this READY line (tip 2e529eae4ea9); the train uses the READY commit
+  OUT   feat/imac-gpu-shader (5b56323cd879)  did not rebase cleanly: conflicts with the branches before it in: README.md
+  OUT   feat/real-sky (2f149000e7cd)  did not rebase cleanly: conflicts with the branches before it in: README.md
+        note: 70 commits since main: probably stacked on another unmerged branch
+  OUT   feat/imac-gpu-core (81ba5ff91b00)  did not rebase cleanly: conflicts with the branches before it in: README.md
+        note: 61 commits since main: probably stacked on another unmerged branch
+Dry run: nothing judged, nothing pushed.
+=========== physics
+Train for physics: main 14273c5ce7d1 was judged PASS.
+Candidate c3b47b2ae146 = main 14273c5ce7d1 + 2 branch(es), one judge run. crumbs current, crumb verify OK
+  OUT   docs/readme-2026-10-19 (10c5ec3c38c3)  already on main (its changes are there)
+        note: the branch has moved since this READY line (tip a7c525ca0dab); the train uses the READY commit
+  IN    f8001f7ec21e  -> f8001f7ec21e (1 commit(s), desk line 220)
+  IN    doc/driver-floor (30cf10a3f8a4)  -> c3b47b2ae146 (1 commit(s), desk line 349)
+Dry run: nothing judged, nothing pushed.
+=========== aien-architecture
+Train for aien-architecture: main 134920d2ee78 was judged PASS.
+Candidate d8639a6ec5ba = main 134920d2ee78 + 2 branch(es), one judge run. crumbs not recompiled: no crumb.lock and no pinned crumb tool in aien-verification.yml
+  OUT   docs/readme-2026-10-19 (ac8ba251aced)  did not rebase cleanly: conflicts with the branches before it in: README.md
+        note: the branch has moved since this READY line (tip 3ef9d056d6c5); the train uses the READY commit
+  IN    ops/core-split (3da7e4004f2b)  -> 3da7e4004f2b (9 commit(s), desk line 383)
+  OUT   fix/spark-window-close (fdabc61c6e3b)  did not rebase cleanly: conflicts with the branches before it in: README.md
+  IN    doc/seed-lineage (fa57eacbd82d)  -> d8639a6ec5ba (1 commit(s), desk line 434)
+Dry run: nothing judged, nothing pushed.

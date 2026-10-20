@@ -20,10 +20,19 @@
 //!   pass every check of [`cache::usable`] in its own store;
 //! - a gate whose manifest declares no `inputs` always runs (its digest would
 //!   cover nothing); `cache: never` gates always run (the author's rule);
-//! - the policy says which heads may be sources: `ancestor` (default: judged
-//!   heads that are ancestors of the head being judged, so main's receipts
-//!   serve every branch built on it), `any` (every judged head of the
-//!   repository) or `off`;
+//! - the policy says which heads may be sources: `off` (the worker's
+//!   default), `ancestor` (judged heads that are ancestors of the head being
+//!   judged, so main's receipts serve every branch built on it) or `any`
+//!   (every judged head of the repository).
+//!
+//! Why `off` is the default: the memo trusts a gate's `inputs:` list to be
+//! complete. A gate that reads a file it does not declare would get an old
+//! PASS on a commit that breaks it (tests/local_ci.rs
+//! `worker_never_reuses_a_pass_when_an_undeclared_file_changed_across_commits`
+//! is that case). The replay of 2026-10-20 measured the gain at 1.4%
+//! (ancestor) to 4.2% (any) of gate-minutes (evidence/MERGE-TRAIN), which
+//! does not pay for that risk. Turn it on for a repository only once its
+//! gates' inputs are shown complete.
 //! - the reuse receipt names the source receipt (`cache.reused_from`) and the
 //!   source commit (`volatile.memo.from_commit`), and the source receipt and
 //!   its logs are copied into this head's store so `why` and `verify` find
@@ -528,7 +537,11 @@ pub fn cli_main(argv: &[String]) -> i32 {
     let mut tsv: Option<PathBuf> = None;
     let mut it = argv.iter().skip(1);
     while let Some(a) = it.next() {
-        let mut val = || it.next().cloned().ok_or_else(|| format!("{a} needs a value"));
+        let mut val = || {
+            it.next()
+                .cloned()
+                .ok_or_else(|| format!("{a} needs a value"))
+        };
         let r: Result<(), String> = (|| {
             match a.as_str() {
                 "--state-dir" => state = Some(PathBuf::from(val()?)),
@@ -565,11 +578,16 @@ pub fn cli_main(argv: &[String]) -> i32 {
         repos.sort();
     }
     let mut rows: Vec<String> = vec![
-        "policy\trepo\tcommit\tgate\tstarted_utc\tduration_ms\tverdict\tfate\tfrom_or_why".to_string(),
+        "policy\trepo\tcommit\tgate\tstarted_utc\tduration_ms\tverdict\tfate\tfrom_or_why"
+            .to_string(),
     ];
     for policy in &policies {
         let mut tot = (0u64, 0u64, 0usize, 0usize);
-        println!("== policy {} (runs started at or after {:?})", policy.as_str(), since);
+        println!(
+            "== policy {} (runs started at or after {:?})",
+            policy.as_str(),
+            since
+        );
         println!("repo\thead\tgate_runs\treused\tgate_min_before\tgate_min_after");
         for repo in &repos {
             let runs = runs_of(repo, &ev.join(repo));
@@ -678,11 +696,11 @@ mod tests {
     fn replay_reuses_only_an_earlier_pass_of_another_commit_with_the_same_key() {
         let runs = vec![
             run("a", "G", "k1", "01", "02", true),
-            run("b", "G", "k1", "03", "04", true),  // reused from a
-            run("c", "G", "k2", "05", "06", true),  // other key: runs
+            run("b", "G", "k1", "03", "04", true), // reused from a
+            run("c", "G", "k2", "05", "06", true), // other key: runs
             run("d", "H", "k3", "07", "08", false), // FAIL is never a source
-            run("e", "H", "k3", "09", "10", true),  // so this runs
-            run("f", "G", "k1", "01", "05", true),  // started before a finished: runs
+            run("e", "H", "k3", "09", "10", true), // so this runs
+            run("f", "G", "k1", "01", "05", true), // started before a finished: runs
         ];
         let mut runs = runs;
         runs.sort_by(|x, y| x.started_utc.cmp(&y.started_utc));
@@ -692,7 +710,10 @@ mod tests {
             .zip(fates)
             .map(|(r, f)| ((r.commit.clone(), r.gate.clone()), f))
             .collect();
-        assert_eq!(by[&("b".into(), "G".into())], Fate::Reused { from: "a".into() });
+        assert_eq!(
+            by[&("b".into(), "G".into())],
+            Fate::Reused { from: "a".into() }
+        );
         assert!(matches!(by[&("c".into(), "G".into())], Fate::Ran(_)));
         assert!(matches!(by[&("e".into(), "H".into())], Fate::Ran(_)));
         assert!(matches!(by[&("f".into(), "G".into())], Fate::Ran(_)));
@@ -738,7 +759,11 @@ mod tests {
         let b = toolchain_id_in(&p, &rh);
         assert_ne!(a, b, "a changed compiler flips the toolchain id");
         fs::write(&mf, b"rustc 1.1").unwrap();
-        assert_ne!(b, toolchain_id_in(&p, &rh), "a changed rustc release flips it");
+        assert_ne!(
+            b,
+            toolchain_id_in(&p, &rh),
+            "a changed rustc release flips it"
+        );
         fs::write(t.path().join("unrelated"), b"x").unwrap();
         let c = toolchain_id_in(&p, &rh);
         fs::write(t.path().join("unrelated"), b"y").unwrap();

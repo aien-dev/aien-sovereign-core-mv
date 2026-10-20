@@ -215,6 +215,15 @@ or configuration error. Overrides: `AIEN_STATE`, `AIEN_CLONES`, `AIEN_RECEIPTS`,
   is queued or in progress. Then `gh pr merge N -R <slug> --merge --match-head-commit <sha>`. Never `--admin`. A base
   branch without required status checks (or whose protection cannot be read) is refused, not merged.
 
+## Merge train and the queue page (L164, 2026-10-20)
+
+One judge run per batch instead of one per branch. `aien-test train <repo> --dry-run` shows the candidate it
+would build from the READY lines of the PR desk log (what is in, what is out and why); without `--dry-run`
+it judges the candidate once and, when green, writes `<state>/train/<repo>.land.json` for the desk.
+`aien-local-ci queue` (= `aien-test queue`) is the one page to read: main's verdict, the candidate, and
+every READY branch with the reason it waits. Details: `tools/aien-test/docs/LOCAL_VERIFICATION.md`
+(section "Merge train"), numbers: `evidence/MERGE-TRAIN/README.md`.
+
 ## Operate
 
 ```

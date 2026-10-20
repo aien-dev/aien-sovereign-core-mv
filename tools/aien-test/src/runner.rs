@@ -2366,7 +2366,10 @@ mod tests {
         };
         let mut results: Vec<Option<Outcome>> = vec![None; g.len()];
         results[idx("H-A")] = Some(out(Verdict::Pass));
-        assert!(host_verdict(&g, &all, &results).is_none(), "a host gate is still running");
+        assert!(
+            host_verdict(&g, &all, &results).is_none(),
+            "a host gate is still running"
+        );
         results[idx("H-B")] = Some(out(Verdict::Fail));
         let v = host_verdict(&g, &all, &results).unwrap();
         assert_eq!(v["host_verdict"], "FAIL");
