@@ -35,6 +35,7 @@ fn main() {
     let r = match a.get(1).map(String::as_str) {
         Some("vocab") if a.len() >= 6 => vocab(&a[2], &a[3], &a[4], &a[5..]),
         Some("tensors") if a.len() == 6 => tensors(&a[2], &a[3], &a[4], &a[5]),
+        Some("user") if a.len() == 4 => user_text(&a[2], &a[3]),
         Some("ringcheck") if a.len() == 7 => ringcheck(&a[2], &a[3], a[4].parse().map_err(|_| "N").unwrap_or(0), a[5].parse().unwrap_or(0), &a[6]),
         Some("accept") if a.len() >= 8 => accept(&a[2], &a[3], &a[4], &a[5], &a[6], &a[7..]),
         Some("oneread") if a.len() >= 4 => oneread(&a[2], &a[3], a.get(4).and_then(|r| r.parse().ok()).unwrap_or(2)),
@@ -827,5 +828,21 @@ fn ringcheck(d30: &str, out: &str, n: usize, slots: usize, input: &str) -> Resul
         return Err("FAIL control: corrupted digests were not refused".into());
     }
     println!("PASS ringcheck: {same}/{} tokens logits bit-equal, {ring_ms:.0} ms/token on the ring, corrupt digest refused", feed.len());
+    Ok(())
+}
+
+/// The user turn of an L080 input (prompt ids decoded with the 27B tokenizer), printed as-is.
+fn user_text(t27: &str, input: &str) -> Result<(), String> {
+    let v27 = ByteVocab::from_file(Path::new(t27))?;
+    let j = read_json(input)?;
+    let all = ids(&j["ids"]);
+    let pl = j["prompt_len"].as_u64().ok_or("prompt_len")? as usize;
+    let prompt = String::from_utf8_lossy(&v27.decode(&all[..pl])).to_string();
+    let user = prompt
+        .split_once("user\n")
+        .and_then(|(_, r)| r.split_once("<|im_end|>"))
+        .map(|(u, _)| u.to_string())
+        .ok_or("no user turn in the prompt")?;
+    print!("{user}");
     Ok(())
 }
