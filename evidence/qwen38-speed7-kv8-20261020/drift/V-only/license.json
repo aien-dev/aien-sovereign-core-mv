@@ -1,0 +1,22 @@
+{
+  "a": "drift-P-20261020T100548Z/license",
+  "a_chip_ms_median": 132.153792,
+  "a_generated": [],
+  "a_margin_min": 0.6411724090576172,
+  "a_mean_nll_fed": 0.08708163079983339,
+  "argmax_agree": 255,
+  "b": "drift-PV-20261020T110411Z/license",
+  "b_chip_ms_median": 126.622356,
+  "b_generated": [],
+  "b_mean_nll_fed": 0.08775697725597485,
+  "cosine_mean": 0.9999179324269493,
+  "cosine_min": 0.9866198953384848,
+  "first_input_difference": null,
+  "flips": [],
+  "kl_max": 0.0029011729884689903,
+  "kl_mean": 0.00001612730642737666,
+  "logits_from": 0,
+  "mode": "compare",
+  "positions": 255,
+  "same_input_positions": 255
+}

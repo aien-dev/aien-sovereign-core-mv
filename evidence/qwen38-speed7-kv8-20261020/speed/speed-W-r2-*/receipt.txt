@@ -1,0 +1,1 @@
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-20-l131-speed-W-r2.json

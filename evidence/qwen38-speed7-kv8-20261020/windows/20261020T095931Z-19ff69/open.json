@@ -1,0 +1,7 @@
+{"window_id": "20261020T095931Z-19ff69", "name": "l131-measure", "owner": "L131", "lease_min": 150, "gb10": "exclusive", "waited_s": 11, "state": {"utc": "2026-10-20T09:59:42Z", "loadavg": "35.82 33.91 34.43 26/2626 2439072", "mem_avail_kB": 51840924, "gpu_util_pct": "96", "gpu_W": "38.49",
+ "gb10_lock_holders": "holds exclusive pid 2431036 (s) (set by a finished flock; the open window 20261020T095931Z-19ff69 holder 2431013 keeps it); queued exclusive pid 988592 (39362s) /home/drakestapleton/workspace/pipeline/target-sc/release/aien-test worker --poll 60 --github --repos omega,ai; queued exclusive pid 1527223 (47065s) ./aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a --port 18091; ",
+ "quiet_lock_holders": "holds exclusive pid 2439021 (s) (set by a finished flock; the open window 20261020T095931Z-19ff69 holder 2431013 keeps it); ",
+ "quiet_waiters": "",
+ "gpu_apps": "1527223, 34716 MiB, ./aien-serve-http;",
+ "sensors_row": "1792490382,2026-10-20T04:59:42-05:00,250,40.46,94,35.82,52355312,4,511", "sensors_row_age_s": 0}
+}

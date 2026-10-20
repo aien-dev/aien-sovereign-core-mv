@@ -1,0 +1,3 @@
+QWEN38_AB speed context 8192 kv V8: wall median 209.009 ms (4.78 tok/s), chip median 208.863 ms, 512 steps
+QWEN38_AB speed context 32768 kv V8: wall median 235.569 ms (4.25 tok/s), chip median 235.401 ms, 512 steps
+QWEN38_AB speed context 65536 kv V8: wall median 262.231 ms (3.81 tok/s), chip median 261.967 ms, 512 steps

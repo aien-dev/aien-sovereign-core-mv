@@ -1,0 +1,44 @@
+{
+  "a": "drift-P-20261020T100548Z/prose",
+  "a_chip_ms_median": 129.010258,
+  "a_generated": [],
+  "a_margin_min": 0.003284454345703125,
+  "a_mean_nll_fed": 0.9894833253037852,
+  "argmax_agree": 286,
+  "b": "drift-PV-20261020T110411Z/prose",
+  "b_chip_ms_median": 127.258762,
+  "b_generated": [],
+  "b_mean_nll_fed": 0.9886970201478316,
+  "cosine_mean": 0.9999788763100965,
+  "cosine_min": 0.998883586695978,
+  "first_input_difference": null,
+  "flips": [
+    {
+      "a": 5392,
+      "a_margin": 0.003284454345703125,
+      "b": 25570,
+      "b_margin": 0.053531646728515625,
+      "p": 174
+    },
+    {
+      "a": 7168,
+      "a_margin": 0.0052547454833984375,
+      "b": 10326,
+      "b_margin": 0.005512237548828125,
+      "p": 218
+    },
+    {
+      "a": 10287,
+      "a_margin": 0.009189605712890625,
+      "b": 995,
+      "b_margin": 0.02684783935546875,
+      "p": 240
+    }
+  ],
+  "kl_max": 0.0016872355511887089,
+  "kl_mean": 0.00007466613262635478,
+  "logits_from": 0,
+  "mode": "compare",
+  "positions": 289,
+  "same_input_positions": 289
+}

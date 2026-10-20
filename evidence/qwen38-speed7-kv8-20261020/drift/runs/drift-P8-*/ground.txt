@@ -1,0 +1,10 @@
+Tue Oct 20 10:16:59 AM UTC 2026
+env: AIEN_Q38_KV8=1
+window: 20261020T095931Z-19ff69
+b0d5f1002aa9623c7f54592a0b097bb925c470a9d59d3e9e9ebfc2bd6d499b81  /home/drakestapleton/workspace/targets/speed7/release/qwen38_ab
+071cbff82795d7caafc20357a0f9ed6bc19070cc315873f63ace24a9b9fbff4a  /home/drakestapleton/workspace/omega-speed7-fp8kv/lib-kv8/libomega_gpu.a
+c39d41584a4231023521d2c4b1520c305739a68f
+27123ed71fa7e3954ce0ccb2615305039d7a2042
+MemAvailable:   63124172 kB
+Tue Oct 20 10:28:15 AM UTC 2026
+MemAvailable:   63836044 kB

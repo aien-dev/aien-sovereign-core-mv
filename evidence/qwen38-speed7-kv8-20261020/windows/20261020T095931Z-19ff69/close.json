@@ -1,0 +1,7 @@
+{"window_id": "20261020T095931Z-19ff69", "closed_by": "spark-window close", "reason": "closed", "held_s": 1714, "state": {"utc": "2026-10-20T10:28:16Z", "loadavg": "31.48 36.12 35.88 9/2556 3791485", "mem_avail_kB": 63783728, "gpu_util_pct": "0", "gpu_W": "7.57",
+ "gb10_lock_holders": "holds exclusive pid 988592 (41076s) /home/drakestapleton/workspace/pipeline/target-sc/release/aien-test worker --poll 60 --github --repos omega,ai; queued exclusive pid 1527223 (48780s) ./aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a --port 18091; queued exclusive pid 1527223 (48780s) ./aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a --port 18091; queued exclusive pid 1527223 (48780s) ./aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a --port 18091; queued exclusive pid 1527223 (48780s) ./aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a --port 18091; queued exclusive pid 1527223 (48780s) ./aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a --port 18091; queued exclusive pid 1527223 (48780s) ./aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a --port 18091; ",
+ "quiet_lock_holders": "",
+ "quiet_waiters": "",
+ "gpu_apps": "1527223, 34716 MiB, ./aien-serve-http;",
+ "sensors_row": "1792492095,2026-10-20T05:28:15-05:00,310,7.62,0,31.48,63855404,3,515", "sensors_row_age_s": 1}
+}

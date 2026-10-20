@@ -1,0 +1,1 @@
+ spark-receipt l131-gold-PK -- env AIEN_Q38_KV8=3 /home/drakestapleton/workspace/targets/speed7/release/qwen38_omega_full /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a 64 /home/drakestapleton/workspace/speed7-work/seq/golden-full.json report.json

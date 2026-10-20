@@ -1,0 +1,1 @@
+QWEN38_OMEGA_FULL layers 64 windows 1 positions 47: generated 24/24 identical to golden, cosine(min) 0.996425 p95_rel(max) 0.9644 greedy agrees control caught -> FAIL

@@ -1,0 +1,7 @@
+{"closed_by": "spark-window reap", "reason": "holder process gone", "state": {"utc": "2026-10-20T20:12:03Z", "loadavg": "53.03 49.21 48.91 76/2107 1516686", "mem_avail_kB": 30355784, "gpu_util_pct": "90", "gpu_W": "48.44",
+ "gb10_lock_holders": "holds exclusive pid 1527223 (83806s) ./aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a --port 18091; ",
+ "quiet_lock_holders": "",
+ "quiet_waiters": "",
+ "gpu_apps": "1527223, 34817 MiB, ./aien-serve-http;1449176, 7245 MiB, /home/drakestapleton/.venv/bin/python;1452448, 32112 MiB, /home/drakestapleton/workspace/targets/speed7/release/qwen38_ab;",
+ "sensors_row": "1792527121,2026-10-20T15:12:01-05:00,310,50.74,94,53.03,30468936,1,721", "sensors_row_age_s": 2}
+}

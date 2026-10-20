@@ -1,0 +1,1 @@
+QWEN38_AB run 32767 steps: chip median 90.20 ms (min 72.69 max 932.36), mean NLL of fed text 0.44700, generated 0

@@ -1,0 +1,7 @@
+{"window_id": "20261020T105636Z-3b0e4b", "name": "l131-measure", "owner": "L131", "lease_min": 150, "gb10": "exclusive", "waited_s": 5, "state": {"utc": "2026-10-20T10:56:41Z", "loadavg": "48.03 40.06 38.12 32/2524 1133687", "mem_avail_kB": 63115568, "gpu_util_pct": "0", "gpu_W": "14.41",
+ "gb10_lock_holders": "holds exclusive pid 1130403 (s) (set by a finished flock; the open window 20261020T105636Z-3b0e4b holder 1130365 keeps it); queued exclusive pid 1527223 (50484s) ./aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a --port 18091; ",
+ "quiet_lock_holders": "holds exclusive pid 1133000 (s) (set by a finished flock; the open window 20261020T105636Z-3b0e4b holder 1130365 keeps it); ",
+ "quiet_waiters": "",
+ "gpu_apps": "1527223, 34716 MiB, ./aien-serve-http;",
+ "sensors_row": "1792493801,2026-10-20T05:56:41-05:00,300,31.34,0,48.03,62717636,2,519", "sensors_row_age_s": 0}
+}

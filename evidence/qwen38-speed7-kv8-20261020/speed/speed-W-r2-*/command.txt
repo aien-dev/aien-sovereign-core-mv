@@ -1,0 +1,1 @@
+ spark-receipt l131-speed-W-r2 -- env AIEN_Q38_W4=1 AIEN_Q38_FP8_HEAD=1 /home/drakestapleton/workspace/targets/speed7/release/qwen38_ab speed /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a 65536,32768,8192 512 7 speed.json

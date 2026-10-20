@@ -1,0 +1,1 @@
+ spark-receipt l131-long-W -- env AIEN_Q38_W4=1 AIEN_Q38_FP8_HEAD=1 /home/drakestapleton/workspace/targets/speed7/release/qwen38_ab run /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a /home/drakestapleton/workspace/speed7-work/seq/long32k.json long --tail 512

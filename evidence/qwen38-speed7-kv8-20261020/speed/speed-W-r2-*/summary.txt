@@ -1,0 +1,3 @@
+QWEN38_AB speed context 65536 kv Bf16: wall median 305.265 ms (3.28 tok/s), chip median 304.943 ms, 512 steps
+QWEN38_AB speed context 32768 kv Bf16: wall median 268.691 ms (3.72 tok/s), chip median 268.478 ms, 512 steps
+QWEN38_AB speed context 8192 kv Bf16: wall median 240.184 ms (4.16 tok/s), chip median 239.916 ms, 512 steps

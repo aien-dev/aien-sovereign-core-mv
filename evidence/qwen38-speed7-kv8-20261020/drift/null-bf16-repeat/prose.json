@@ -1,0 +1,22 @@
+{
+  "a": "drift-P-20261020T100548Z/prose",
+  "a_chip_ms_median": 129.010258,
+  "a_generated": [],
+  "a_margin_min": 0.003284454345703125,
+  "a_mean_nll_fed": 0.9894833253037852,
+  "argmax_agree": 289,
+  "b": "drift-P2-20261020T114013Z/prose",
+  "b_chip_ms_median": 125.834771,
+  "b_generated": [],
+  "b_mean_nll_fed": 0.9894833253037852,
+  "cosine_mean": 1.0,
+  "cosine_min": 0.9999999999999998,
+  "first_input_difference": null,
+  "flips": [],
+  "kl_max": 0.0,
+  "kl_mean": 0.0,
+  "logits_from": 0,
+  "mode": "compare",
+  "positions": 289,
+  "same_input_positions": 289
+}

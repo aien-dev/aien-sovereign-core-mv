@@ -1,0 +1,17 @@
+Tue Oct 20 11:27:45 AM UTC 2026
+env: AIEN_Q38_KV8=2
+window: 20261020T105636Z-3b0e4b
+8f3cd027ed7e153473d59c48ceaf1d9796d7132e5ff3bdbe17a9a67fdcc160b5  /home/drakestapleton/workspace/targets/speed7/release/qwen38_omega_full
+e54444bb5a365522347b54cd6256532301906228bcd699f275afb414a7ccf4f2  /home/drakestapleton/workspace/omega-speed7-fp8kv/lib-kv8/libomega_gpu.a
+3efab8c10bc83b29ec041770d95e56ab42863f65
+3fc1132eeb517cd4516819c756a9f6bcd736f4a0
+MemAvailable:   65457440 kB
+loadavg: 33.99 36.76 39.00 27/2383 2503581
+%CPU     ELAPSED COMMAND
+ 931       40:08 qwen38_subbit.v
+99.7       00:04 runtime_end_to_
+98.3  2-01:35:10 nvidia-modeset/kthread_q
+88.8       00:00 git
+ 2.8    10:32:42 bash
+Tue Oct 20 11:31:34 AM UTC 2026
+MemAvailable:   58106072 kB

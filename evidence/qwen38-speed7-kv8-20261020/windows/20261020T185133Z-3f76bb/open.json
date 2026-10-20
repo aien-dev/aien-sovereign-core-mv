@@ -1,0 +1,7 @@
+{"window_id": "20261020T185133Z-3f76bb", "name": "l131-measure", "owner": "L131", "lease_min": 150, "gb10": "exclusive", "waited_s": 3541, "state": {"utc": "2026-10-20T19:50:34Z", "loadavg": "45.60 45.82 50.87 48/2080 1217635", "mem_avail_kB": 67458952, "gpu_util_pct": "96", "gpu_W": "47.16",
+ "gb10_lock_holders": "holds exclusive pid 1187766 (s) (set by a finished flock; the open window 20261020T185133Z-3f76bb holder 3949910 keeps it); ",
+ "quiet_lock_holders": "holds exclusive pid 1217367 (s) (set by a finished flock; the open window 20261020T185133Z-3f76bb holder 3949910 keeps it); ",
+ "quiet_waiters": "",
+ "gpu_apps": "1527223, 34817 MiB, ./aien-serve-http;1194585, 6229 MiB, /home/drakestapleton/.venv/bin/python;",
+ "sensors_row": "1792525832,2026-10-20T14:50:32-05:00,310,46.92,96,45.57,67233556,3,718", "sensors_row_age_s": 2}
+}
