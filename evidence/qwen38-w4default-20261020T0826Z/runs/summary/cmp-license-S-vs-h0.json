@@ -1,0 +1,30 @@
+{
+  "a": "/home/drakestapleton/workspace/speed1-work/runs/dump-license-H0-20261020T094251Z/out",
+  "a_chip_ms_median": 130.706436,
+  "a_generated": [],
+  "a_margin_min": 0.6411724090576172,
+  "a_mean_nll_fed": 0.08708163079983339,
+  "argmax_agree": 254,
+  "b": "/home/drakestapleton/workspace/speed1-work/runs/dump-license-S-20261020T091421Z/out",
+  "b_chip_ms_median": 73.193704,
+  "b_generated": [],
+  "b_mean_nll_fed": 0.08869412719391041,
+  "cosine_mean": 0.9780157481895059,
+  "cosine_min": 0.8863475454886287,
+  "first_input_difference": null,
+  "flips": [
+    {
+      "a": 2,
+      "a_margin": 0.6411724090576172,
+      "b": 464,
+      "b_margin": 0.05342674255371094,
+      "p": 0
+    }
+  ],
+  "kl_max": 0.19699815818791333,
+  "kl_mean": 0.0025912175156755407,
+  "max_abs_diff": 10.43415641784668,
+  "mode": "compare",
+  "positions": 255,
+  "same_input_positions": 255
+}

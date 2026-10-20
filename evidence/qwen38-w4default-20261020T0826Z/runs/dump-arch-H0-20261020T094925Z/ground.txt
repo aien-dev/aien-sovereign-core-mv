@@ -1,0 +1,8 @@
+Tue Oct 20 09:49:25 AM UTC 2026
+window: 20261020T082430Z-0d26f5
+env: AIEN_Q38_W4_STORE=off
+9fa4a19b85bef7b9f2f63cafca1aaf138a9903de6580f9268430d3e7d531052d  /home/drakestapleton/workspace/targets/speed1/sc/release/qwen38_ab
+317f498064e504e305c8a71d34ea9b4588c1f72870771a6f38592ffb7ad05fe8  /home/drakestapleton/workspace/targets/speed1/omega/libomega_gpu.a
+MemAvailable:   65435444 kB
+Tue Oct 20 09:56:17 AM UTC 2026
+MemAvailable:   64510260 kB

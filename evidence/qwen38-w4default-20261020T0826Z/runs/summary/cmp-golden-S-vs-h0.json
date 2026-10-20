@@ -1,0 +1,37 @@
+{
+  "a": "/home/drakestapleton/workspace/speed1-work/runs/dump-golden-H0-20261020T094042Z/out",
+  "a_chip_ms_median": 126.719279,
+  "a_generated": [],
+  "a_margin_min": 0.0771331787109375,
+  "a_mean_nll_fed": 2.0293924602553473,
+  "argmax_agree": 45,
+  "b": "/home/drakestapleton/workspace/speed1-work/runs/dump-golden-S-20261020T091312Z/out",
+  "b_chip_ms_median": 74.266131,
+  "b_generated": [],
+  "b_mean_nll_fed": 1.901199113557872,
+  "cosine_mean": 0.9743601261908393,
+  "cosine_min": 0.7770493601183891,
+  "first_input_difference": null,
+  "flips": [
+    {
+      "a": 248068,
+      "a_margin": 6.618814468383789,
+      "b": 198,
+      "b_margin": 0.25568580627441406,
+      "p": 18
+    },
+    {
+      "a": 318,
+      "a_margin": 0.7445640563964844,
+      "b": 264,
+      "b_margin": 0.09758949279785156,
+      "p": 38
+    }
+  ],
+  "kl_max": 0.8436785598995111,
+  "kl_mean": 0.03376222520542344,
+  "max_abs_diff": 8.797868728637695,
+  "mode": "compare",
+  "positions": 47,
+  "same_input_positions": 47
+}

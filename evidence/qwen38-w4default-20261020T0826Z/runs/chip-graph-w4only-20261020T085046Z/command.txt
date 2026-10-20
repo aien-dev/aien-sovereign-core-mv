@@ -1,0 +1,1 @@
+[window holds the chip lock: 1] env  nice /home/drakestapleton/workspace/targets/speed1/omega/gpu_q38_graph_test --w4 --w4-head --reps 5 --tl-reps 3

@@ -24,6 +24,12 @@ model held about 44 GB. L125 changes three things:
    word on at least a set share of six texts, how far the word probabilities moved (KL), how much the text score moved
    (NLL), and no confident disagreement beyond a limit.
 
+## Measured on 2026-10-20 (evidence/qwen38-w4default-20261020T0826Z)
+
+- 4-bit from the store: 14.29 words per second, 0.714 of its 20.01 ceiling; 8-bit: 8.50, 0.799 of its 10.64 ceiling.
+- Weights held: 13.65 GB from the store, against 40.52 GB the old 4-bit way and 28.19 GB for 8-bit.
+- The 4-bit fit gate passes every line; the store gives exactly the same answers as converting at load.
+
 ## What can never load by mistake
 
 The store records a fingerprint of the checkpoint (config, index, every shard's size and header), a check value per

@@ -1,0 +1,4 @@
+ "calibration": null
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-20-l125-speed-F-r4.json
+rc=1

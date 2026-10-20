@@ -1,0 +1,1 @@
+[window holds the chip lock: 1] env AIEN_Q38_W4_STORE=off nice /home/drakestapleton/workspace/targets/speed1/sc/release/qwen38_ab run /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a /home/drakestapleton/workspace/ab-w4-work/seq/arch.json out

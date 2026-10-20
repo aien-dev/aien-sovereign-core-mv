@@ -1,0 +1,2 @@
+F span_s 37.13 samples 18 mean_W 247.8 joules 9183.6 tokens 289 J_per_token 31.777
+S span_s 23.32 samples 12 mean_W 290.0 joules 6795.7 tokens 289 J_per_token 23.515

@@ -1,0 +1,1 @@
+[window holds the chip lock: 1] env AIEN_L125_ARM=S nice /home/drakestapleton/workspace/targets/speed1/sc/release/qwen38_omega_full /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a 64 /home/drakestapleton/workspace/ab-w4-work/seq/golden-full.json report.json

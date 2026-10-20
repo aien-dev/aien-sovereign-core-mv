@@ -1,0 +1,8 @@
+Tue Oct 20 08:58:46 AM UTC 2026
+window: 20261020T082430Z-0d26f5
+env: AIEN_Q38_W4_STORE=off AIEN_Q38_FP8_HEAD=1
+11f6b153d2c79db3c87c8d453fd5e93cbcf77994ee099c8b406dc115becc2822  /home/drakestapleton/workspace/targets/speed1/sc/release/qwen38_omega_full
+317f498064e504e305c8a71d34ea9b4588c1f72870771a6f38592ffb7ad05fe8  /home/drakestapleton/workspace/targets/speed1/omega/libomega_gpu.a
+MemAvailable:   65634460 kB
+Tue Oct 20 09:01:20 AM UTC 2026
+MemAvailable:   65853972 kB

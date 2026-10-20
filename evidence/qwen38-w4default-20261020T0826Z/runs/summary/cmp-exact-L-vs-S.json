@@ -1,0 +1,22 @@
+{
+  "a": "/home/drakestapleton/workspace/speed1-work/runs/dump-golden-L-20261020T093335Z/out",
+  "a_chip_ms_median": 77.048218,
+  "a_generated": [],
+  "a_margin_min": 0.09758949279785156,
+  "a_mean_nll_fed": 1.901199113557872,
+  "argmax_agree": 47,
+  "b": "/home/drakestapleton/workspace/speed1-work/runs/dump-golden-S-20261020T091312Z/out",
+  "b_chip_ms_median": 74.266131,
+  "b_generated": [],
+  "b_mean_nll_fed": 1.901199113557872,
+  "cosine_mean": 1.0,
+  "cosine_min": 0.9999999999999998,
+  "first_input_difference": null,
+  "flips": [],
+  "kl_max": 0.0,
+  "kl_mean": 0.0,
+  "max_abs_diff": 0.0,
+  "mode": "compare",
+  "positions": 47,
+  "same_input_positions": 47
+}
