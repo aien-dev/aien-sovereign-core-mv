@@ -1,1 +1,2 @@
 QWEN38_DFLASH prompt tune n 256 mutant NoPairwise norollback false: replay 3.368 words/pass -> PASS
+DONE 2026-10-20T00:14:20Z
