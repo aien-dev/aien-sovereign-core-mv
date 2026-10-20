@@ -32,6 +32,9 @@ pub enum ScreenKind {
     W4,
     /// e4m3, scale = bf16(absmax / 448), round to nearest even.
     Fp8,
+    /// e4m3 with one scale per 128 x 128 block, scale = bf16 rounded UP (absmax / 448): the layout
+    /// omega's FP8 GEMV reads (`weight_scale_inv` [n/128][k/128]), so the chip screen reuses it.
+    Fp8Block,
 }
 
 /// Which upper bound on `|L_i - s_i|` builds the candidate set.
@@ -52,6 +55,7 @@ impl ScreenKind {
         match s {
             "w4" => Some(Self::W4),
             "fp8" => Some(Self::Fp8),
+            "fp8b" => Some(Self::Fp8Block),
             _ => None,
         }
     }
@@ -61,6 +65,7 @@ impl ScreenKind {
         let codes = match self {
             Self::W4 => n * k / 2,
             Self::Fp8 => n * k,
+            Self::Fp8Block => return (n * k + (n / GROUP) * (k / GROUP) * 2) as u64,
         };
         (codes + n * (k / GROUP) * 2) as u64
     }
@@ -139,6 +144,25 @@ impl Screen {
         let mut dmax = vec![0f32; n * g];
         let mut drow = vec![0f32; n];
         let mut rnorm = vec![0f32; n];
+        if kind == ScreenKind::Fp8Block && n % GROUP != 0 {
+            return Err(format!("screen: fp8b needs n % {GROUP} == 0"));
+        }
+        // Fp8Block: one scale per [128 rows][128 cols], rounded up so |w / scale| <= 448 always.
+        let block: Vec<f32> = if kind == ScreenKind::Fp8Block {
+            (0..(n / GROUP) * g)
+                .into_par_iter()
+                .map(|b| {
+                    let (br, gi) = (b / g, b % g);
+                    let amax = (br * GROUP..(br + 1) * GROUP)
+                        .flat_map(|r| head.bf16_row(r).unwrap()[gi * GROUP..(gi + 1) * GROUP].iter())
+                        .map(|&v| bf16_to_f32(v).abs())
+                        .fold(0f32, f32::max);
+                    bf16_up(amax as f64 / 448.0)
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         deq.par_chunks_mut(k)
             .zip(dnorm.par_chunks_mut(g))
             .zip(dmax.par_chunks_mut(g))
@@ -154,6 +178,7 @@ impl Screen {
                     let scale = match kind {
                         ScreenKind::W4 => bf16_to_f32(f32_to_bf16(amax / 7.0)),
                         ScreenKind::Fp8 => bf16_to_f32(f32_to_bf16(amax / 448.0)),
+                        ScreenKind::Fp8Block => block[(r / GROUP) * g + gi],
                     };
                     let (mut gd2, mut gmax) = (0f64, 0f64);
                     for (o, &b) in dst.iter_mut().zip(src) {
@@ -163,7 +188,7 @@ impl Screen {
                         } else {
                             match kind {
                                 ScreenKind::W4 => (w / scale).round().clamp(-8.0, 7.0) * scale,
-                                ScreenKind::Fp8 => lut[f32_to_fp8_e4m3fn(w / scale) as usize] * scale,
+                                ScreenKind::Fp8 | ScreenKind::Fp8Block => lut[f32_to_fp8_e4m3fn(w / scale) as usize] * scale,
                             }
                         };
                         let d = w as f64 - *o as f64;
@@ -312,7 +337,7 @@ mod tests {
     #[test]
     fn two_pass_equals_full_argmax_on_random_heads() {
         let (n, k) = (4096, 256);
-        for kind in [ScreenKind::W4, ScreenKind::Fp8] {
+        for kind in [ScreenKind::W4, ScreenKind::Fp8, ScreenKind::Fp8Block] {
             let m = head(n, k, 7);
             let scr = Screen::build(&m, kind).unwrap();
             for t in 0..40 {
