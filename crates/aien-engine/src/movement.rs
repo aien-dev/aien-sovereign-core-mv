@@ -87,7 +87,10 @@ impl MovementEngine {
         let streamer = Streamer::open(&m.shard_paths(), cfg).map_err(|e| e.to_string())?;
         let staging = match engines {
             Engines::Direct => None,
-            Engines::Staged => Some(Arc::new(Ring::new(2 * sched.slots as usize, slot_bytes))),
+            // One staging buffer per cylinder buffer: with B buffers in flight the crank issues fill b+B at the start of beat b+1,
+            // before the RAM engine has finished beat b+1; a staging pair (for_beat % 2) made b+B and b+1 share a slot, and the
+            // RAM engine found it "not published" (30B run 20261020T2343Z, buffers 3, all couplings). for_beat % B never does.
+            Engines::Staged => Some(Arc::new(Ring::new(sched.buffers.max(1) as usize * sched.slots as usize, slot_bytes))),
         };
         let mut entries = Vec::with_capacity(sched.parts.len());
         for p in &sched.parts {
@@ -118,7 +121,7 @@ impl MovementEngine {
     }
 
     /// Stage 0, the NVMe engine: every part of `f` from disk into `ring` (the cylinder on the direct path, the
-    /// staging pair on the staged path; staging buffer = for_beat % 2). Returns (read, digest, lease-wait, bytes) sums.
+    /// staging ring on the staged path; staging buffer = for_beat % buffers). Returns (read, digest, lease-wait, bytes) sums.
     fn nvme_stage(&self, f: &Fill, ring: &Ring, slot_of: &(dyn Fn(usize) -> usize + Sync)) -> Result<(u64, u64, u64, u64), String> {
         let w = self.workers.min(f.parts.len()).max(1);
         let hits = AtomicU32::new(0);
@@ -264,7 +267,7 @@ impl MovementEngine {
                         for f in jobs {
                             let issue = me.ns();
                             let slots = me.sched.slots as usize;
-                            let sbuf = (f.for_beat % 2) as usize;
+                            let sbuf = (f.for_beat % me.sched.buffers.max(1)) as usize;
                             match me.nvme_stage(&f, &staging, &|i| sbuf * slots + i) {
                                 Ok((rd, dg, wt, by)) => {
                                     let st = FillStamp { for_beat: f.for_beat, buffer: f.buffer, bytes: by, issue_ns: issue, nvme_done_ns: me.ns(), read_ns_sum: rd, digest_ns_sum: dg, lease_wait_ns_sum: wt, ..Default::default() };
