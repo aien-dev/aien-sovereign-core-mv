@@ -24,7 +24,9 @@ use std::path::Path;
 use aien_omega_bf16::Bf16Tensor;
 use aien_omega_fp8::Fp8Tensor;
 use aien_omega_gpu::ResidentTensor;
-use aien_omega_q38::{Attn256Cache, Gdn, GraphConfig, GraphStats, Q38Graph, W4Stats, W4Tensor};
+use aien_omega_q38::{
+    Attn256Cache, Gdn, GraphConfig, GraphStats, KvForm, Q38Graph, W4Stats, W4Tensor,
+};
 
 mod prefill;
 pub use prefill::PrefillStats;
@@ -64,8 +66,9 @@ pub struct Qwen38Omega {
     /// The MXFP4 converter tally over every converted tensor (projections and head), when any.
     pub w4_stats: Option<W4Stats>,
     gdn: Option<Gdn>,
-    /// The attention KV cache: bf16, or 8-bit rows with a scale each (env `AIEN_Q38_KV8=1`,
-    /// SPEED-7 L131; decode only, the prompt reader refuses it).
+    /// The attention KV cache: bf16, or 8-bit rows with a scale each for K and V (env
+    /// `AIEN_Q38_KV8=1`), V only (`2`) or K only (`3`) (SPEED-7 L131; decode only, the prompt
+    /// reader refuses any 8-bit side).
     attn: Option<Attn256Cache>,
     pub config: Qwen38Config,
     /// bf16 `[vocab][hidden]`.
@@ -108,6 +111,14 @@ const W4_THREADS: usize = 16;
 
 fn env_on(name: &str) -> bool {
     std::env::var(name).as_deref() == Ok("1")
+}
+
+/// The KV cache form from `AIEN_Q38_KV8` (unset or 0 bf16, 1 K and V 8-bit, 2 V only, 3 K only).
+fn kv_form_env() -> Result<KvForm, String> {
+    let v = std::env::var("AIEN_Q38_KV8").unwrap_or_default();
+    KvForm::from_code(&v).ok_or_else(|| {
+        format!("AIEN_Q38_KV8={v}: 0 (bf16), 1 (K and V 8-bit), 2 (V only) or 3 (K only)")
+    })
 }
 
 /// FP8 -> MXFP4 (`stats` Some) of an FP8 projection already on the host, uploaded; the tally adds into `stats`.
@@ -331,14 +342,8 @@ impl Qwen38Omega {
         };
         let mut attn = if n_attn > 0 {
             Some(
-                Attn256Cache::alloc_kv(
-                    n_attn,
-                    max_pos,
-                    c.rope_theta,
-                    c.rotary_dim,
-                    env_on("AIEN_Q38_KV8"),
-                )
-                .map_err(gpu("attn256 alloc"))?,
+                Attn256Cache::alloc_kv(n_attn, max_pos, c.rope_theta, c.rotary_dim, kv_form_env()?)
+                    .map_err(gpu("attn256 alloc"))?,
             )
         } else {
             None
@@ -573,18 +578,20 @@ impl Qwen38Omega {
     /// Bytes the KV cache holds on the device (every attention layer at `max_pos`).
     pub fn kv_bytes(&self) -> usize {
         self.attn.as_ref().map_or(0, |a| {
-            a.layers()
-                * if a.kv8() {
-                    Attn256Cache::layer_bytes_kv8(a.max_pos())
-                } else {
-                    Attn256Cache::layer_bytes(a.max_pos())
-                }
+            a.layers() * Attn256Cache::layer_bytes_form(a.max_pos(), a.kv_form())
         })
     }
 
-    /// True when the attention KV cache is the 8-bit form (`AIEN_Q38_KV8=1`).
+    /// True when the attention KV cache has an 8-bit side (`AIEN_Q38_KV8` 1, 2 or 3).
     pub fn kv8(&self) -> bool {
         self.attn.as_ref().is_some_and(Attn256Cache::kv8)
+    }
+
+    /// The attention KV cache form (`AIEN_Q38_KV8`); bf16 when the model has no attention layers.
+    pub fn kv_form(&self) -> KvForm {
+        self.attn
+            .as_ref()
+            .map_or(KvForm::Bf16, Attn256Cache::kv_form)
     }
 
     /// BENCHMARK ONLY: fills every attention layer's positions `0..pos` with a bounded pattern

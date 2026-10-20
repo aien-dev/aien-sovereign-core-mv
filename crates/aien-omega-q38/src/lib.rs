@@ -672,7 +672,68 @@ pub struct Attn256Cache {
     layers: usize,
     max_pos: usize,
     rotary: usize,
-    kv8: bool,
+    kv: KvForm,
+}
+
+/// The attention KV cache form (SPEED-7, ledger L131): which of K and V are stored as 8-bit rows
+/// (256 e4m3 bytes and one f32 power-of-two scale) instead of bf16. 8-bit K and V together failed
+/// the drift gate; V alone and K alone are separate forms so each can be judged on its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum KvForm {
+    /// K and V bf16.
+    #[default]
+    Bf16,
+    /// K and V 8-bit.
+    Both8,
+    /// V 8-bit, K bf16.
+    V8,
+    /// K 8-bit, V bf16.
+    K8,
+}
+
+impl KvForm {
+    /// From the env value: unset or "0" bf16, "1" both 8-bit, "2" V only, "3" K only.
+    pub fn from_code(code: &str) -> Option<Self> {
+        match code {
+            "" | "0" => Some(Self::Bf16),
+            "1" => Some(Self::Both8),
+            "2" => Some(Self::V8),
+            "3" => Some(Self::K8),
+            _ => None,
+        }
+    }
+
+    /// The omega launcher's mode number (`OMEGA_DATTN256_KV8_*`).
+    pub const fn code(self) -> u32 {
+        match self {
+            Self::Bf16 => 0,
+            Self::Both8 => 1,
+            Self::V8 => 2,
+            Self::K8 => 3,
+        }
+    }
+
+    pub const fn k8(self) -> bool {
+        matches!(self, Self::Both8 | Self::K8)
+    }
+
+    pub const fn v8(self) -> bool {
+        matches!(self, Self::Both8 | Self::V8)
+    }
+
+    /// Bytes of one cache row of K plus one of V: 512 for a bf16 side, 256 + a 4-byte scale for an
+    /// 8-bit side.
+    pub const fn row_pair_bytes(self) -> usize {
+        (if self.k8() {
+            HEAD_DIM + 4
+        } else {
+            HEAD_DIM * 2
+        }) + if self.v8() {
+            HEAD_DIM + 4
+        } else {
+            HEAD_DIM * 2
+        }
+    }
 }
 
 // SAFETY: an owning handle to device buffers; moved between threads, never shared unlocked.
@@ -682,8 +743,8 @@ impl fmt::Debug for Attn256Cache {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Attn256Cache {{ layers: {}, max_pos: {}, rotary: {}, kv8: {} }}",
-            self.layers, self.max_pos, self.rotary, self.kv8
+            "Attn256Cache {{ layers: {}, max_pos: {}, rotary: {}, kv: {:?} }}",
+            self.layers, self.max_pos, self.rotary, self.kv
         )
     }
 }
@@ -694,10 +755,10 @@ impl Attn256Cache {
         2 * 4 * max_pos * HEAD_DIM * 2
     }
 
-    /// Bytes one layer's 8-bit cache holds: K and V, 4 KV heads x `max_pos` x (256 bytes + one
-    /// f32 row scale).
-    pub const fn layer_bytes_kv8(max_pos: usize) -> usize {
-        2 * 4 * max_pos * (HEAD_DIM + 4)
+    /// Bytes one layer's cache holds in form `kv`: 4 KV heads x `max_pos` x one K and one V row
+    /// ([`KvForm::row_pair_bytes`]).
+    pub const fn layer_bytes_form(max_pos: usize, kv: KvForm) -> usize {
+        4 * max_pos * kv.row_pair_bytes()
     }
 
     /// Allocates `layers` attention entries of `max_pos` positions; RoPE with `theta` on the
@@ -708,17 +769,17 @@ impl Attn256Cache {
         theta: f64,
         rotary: usize,
     ) -> Result<Self, OmegaGpuError> {
-        Self::alloc_kv(layers, max_pos, theta, rotary, false)
+        Self::alloc_kv(layers, max_pos, theta, rotary, KvForm::Bf16)
     }
 
-    /// [`alloc`](Self::alloc) with the cache form chosen: `kv8` stores 8-bit rows. Decode only:
-    /// [`prefill`](Self::prefill) refuses an 8-bit cache (the prompt reader is bf16 only).
+    /// [`alloc`](Self::alloc) with the cache form chosen. Any 8-bit side is decode only:
+    /// [`prefill`](Self::prefill) refuses it (the prompt reader is bf16 only).
     pub fn alloc_kv(
         layers: usize,
         max_pos: usize,
         theta: f64,
         rotary: usize,
-        kv8: bool,
+        kv: KvForm,
     ) -> Result<Self, OmegaGpuError> {
         if layers == 0 || layers > MAX_LAYERS {
             return Err(bad(format!(
@@ -734,7 +795,7 @@ impl Attn256Cache {
             return Err(bad(format!("attn256: rotary {rotary} (even, 2..=256)")));
         }
         #[cfg(not(has_omega_q38_kv8))]
-        if kv8 {
+        if kv != KvForm::Bf16 {
             return Err(bad(
                 "attn256: 8-bit cache asked for, but the linked omega has no 8-bit cache (SPEED-7, L131)"
                     .into(),
@@ -752,7 +813,7 @@ impl Attn256Cache {
                         max_pos as u32,
                         theta,
                         rotary as u32,
-                        u32::from(kv8),
+                        kv.code(),
                         &mut ptr,
                     )
                 }
@@ -777,13 +838,13 @@ impl Attn256Cache {
                 layers,
                 max_pos,
                 rotary,
-                kv8,
+                kv,
             })
         }
         #[cfg(not(has_omega_q38))]
         {
             let _ = theta;
-            let _ = kv8;
+            let _ = kv;
             Err(OmegaGpuError::Unavailable)
         }
     }
@@ -796,9 +857,14 @@ impl Attn256Cache {
         self.max_pos
     }
 
-    /// True for the 8-bit cache form ([`alloc_kv`](Self::alloc_kv)).
+    /// True when K or V (or both) are 8-bit ([`alloc_kv`](Self::alloc_kv)).
     pub fn kv8(&self) -> bool {
-        self.kv8
+        self.kv != KvForm::Bf16
+    }
+
+    /// The cache form ([`alloc_kv`](Self::alloc_kv)).
+    pub fn kv_form(&self) -> KvForm {
+        self.kv
     }
 
     /// BENCHMARK ONLY: fills positions `0..count` of every layer with a bounded pattern (not a
@@ -919,9 +985,9 @@ impl Attn256Cache {
                 self.layers
             )));
         }
-        if self.kv8 {
+        if self.kv8() {
             return Err(bad(
-                "attn256 prefill: the prompt reader reads bf16 rows only; an 8-bit cache is decode only (SPEED-7, L131)"
+                "attn256 prefill: the prompt reader reads bf16 rows only; an 8-bit cache side is decode only (SPEED-7, L131)"
                     .into(),
             ));
         }
@@ -1320,6 +1386,27 @@ impl Drop for Q38Graph {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kv_form_codes_and_row_bytes() {
+        let forms = [
+            ("0", KvForm::Bf16, 0, 1024),
+            ("1", KvForm::Both8, 1, 520),
+            ("2", KvForm::V8, 2, 772),
+            ("3", KvForm::K8, 3, 772),
+        ];
+        for (env, form, code, bytes) in forms {
+            assert_eq!(KvForm::from_code(env), Some(form));
+            assert_eq!(form.code(), code);
+            assert_eq!(form.row_pair_bytes(), bytes);
+        }
+        assert_eq!(KvForm::from_code(""), Some(KvForm::Bf16));
+        assert_eq!(KvForm::from_code("4"), None);
+        assert_eq!(
+            Attn256Cache::layer_bytes_form(256, KvForm::Bf16),
+            Attn256Cache::layer_bytes(256)
+        );
+    }
 
     #[test]
     fn gather_table_is_a_permutation_and_matches_omega() {

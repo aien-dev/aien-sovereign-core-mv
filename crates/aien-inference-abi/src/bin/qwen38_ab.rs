@@ -12,7 +12,7 @@
 //!       text stays small) and `<out-prefix>.json` (per step: fed token, chip
 //!       argmax, top-two margin, chip ms, and the negative log-likelihood of the next fed token).
 //!       The engine variant comes from the environment (AIEN_Q38_FP8_HEAD=1, AIEN_Q38_W4=1,
-//!       AIEN_Q38_KV8=1 for the 8-bit attention cache).
+//!       AIEN_Q38_KV8=1 for the 8-bit attention cache, 2 for 8-bit V only, 3 for 8-bit K only).
 //!   qwen38_ab compare <a-prefix> <b-prefix> <out.json>
 //!       position by position, A taken as the reference: argmax agreement, A's top-two margin
 //!       where they differ, logits cosine, KL(A || B), and both texts' mean NLL. Two runs fed the
@@ -33,6 +33,7 @@ use std::time::Instant;
 use aien_inference_abi::qwen38::{argmax, Qwen38Config};
 use aien_inference_abi::qwen38_omega::Qwen38Omega;
 use aien_inference_abi::tokenizer::ChatTokenizer;
+use aien_omega_q38::KvForm;
 use serde_json::{json, Value};
 
 const KEEP_FREE: u64 = 12 << 30;
@@ -85,15 +86,13 @@ fn variant() -> Value {
 }
 
 /// Attention KV cache bytes at `max_pos`: 16 layers x K and V x 4 KV heads x 256 wide, bf16
-/// (512 bytes a row) or 8-bit (256 bytes + a 4-byte scale).
+/// (512 bytes a row) or 8-bit (256 bytes + a 4-byte scale) per side, by `AIEN_Q38_KV8` (an
+/// unknown value counts as bf16, the larger; the engine refuses it at open).
 fn kv_cache_bytes(c: &Qwen38Config, max_pos: usize) -> u64 {
     let n_attn = c.full_attention.iter().filter(|&&a| a).count() as u64;
-    let row = if std::env::var("AIEN_Q38_KV8").as_deref() == Ok("1") {
-        256 + 4
-    } else {
-        512
-    };
-    n_attn * 2 * 4 * max_pos as u64 * row
+    let kv =
+        KvForm::from_code(&std::env::var("AIEN_Q38_KV8").unwrap_or_default()).unwrap_or_default();
+    n_attn * 4 * max_pos as u64 * kv.row_pair_bytes() as u64
 }
 
 /// Refuses to start unless MemAvailable covers the model (its variant's copies), the KV cache at
@@ -545,7 +544,7 @@ fn speed(dir: &Path, ctxs: &[usize], steps: usize, seed: u32, out: &str) -> Resu
     let mut e = Qwen38Omega::open(dir, None, max_pos)?;
     let open_s = t_open.elapsed().as_secs_f64();
     let n_attn = config.full_attention.iter().filter(|&&a| a).count();
-    let row = if e.kv8() { 256 + 4 } else { 512 };
+    let row_pair = e.kv_form().row_pair_bytes();
     let unix = || {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -578,10 +577,10 @@ fn speed(dir: &Path, ctxs: &[usize], steps: usize, seed: u32, out: &str) -> Resu
         let (cm, c0, c1) = med(&chip);
         let (wm, w0, w1) = med(&wall);
         // attention rows read by the median step (position ctx - steps / 2), K and V of all heads
-        let kv_read = (n_attn * 2 * 4 * (start + steps / 2 + 1) * row) as u64;
+        let kv_read = (n_attn * 4 * (start + steps / 2 + 1) * row_pair) as u64;
         eprintln!(
-            "QWEN38_AB speed context {ctx} kv8 {}: wall median {wm:.3} ms ({:.2} tok/s), chip median {cm:.3} ms, {steps} steps",
-            e.kv8(),
+            "QWEN38_AB speed context {ctx} kv {:?}: wall median {wm:.3} ms ({:.2} tok/s), chip median {cm:.3} ms, {steps} steps",
+            e.kv_form(),
             1e3 / wm
         );
         points.push(json!({
@@ -595,7 +594,7 @@ fn speed(dir: &Path, ctxs: &[usize], steps: usize, seed: u32, out: &str) -> Resu
         }));
     }
     let v = json!({
-        "mode": "speed", "benchmark_only": true, "variant": variant, "kv8": e.kv8(),
+        "mode": "speed", "benchmark_only": true, "variant": variant, "kv8": e.kv8(), "kv_form": e.kv_form().code(),
         "steps": steps, "seed": seed, "max_pos": max_pos,
         "kv_cache_bytes": e.kv_bytes(), "weight_bytes_resident": e.weight_bytes(),
         "open_s": open_s, "points": points,
