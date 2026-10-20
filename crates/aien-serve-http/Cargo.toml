@@ -24,6 +24,8 @@ aien-omega-gpu = { path = "../aien-omega-gpu" }
 aien-omega-q38 = { path = "../aien-omega-q38" }
 libc = "0.2"
 aien-kv-store = { path = "../aien-kv-store" }
+aien-wormhole = { path = "../aien-wormhole" }
+aien-heartbeat = { path = "../aien-heartbeat" }
 aien-platform = { path = "../aien-platform" }
 aien-runtime = { path = "../aien-runtime" }
 sha2 = "0.10"

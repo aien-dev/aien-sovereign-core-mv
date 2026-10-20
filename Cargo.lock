@@ -517,12 +517,14 @@ dependencies = [
 name = "aien-serve-http"
 version = "0.1.0"
 dependencies = [
+ "aien-heartbeat",
  "aien-inference-abi",
  "aien-kv-store",
  "aien-omega-gpu",
  "aien-omega-q38",
  "aien-platform",
  "aien-runtime",
+ "aien-wormhole",
  "axum 0.7.9",
  "libc",
  "serde",

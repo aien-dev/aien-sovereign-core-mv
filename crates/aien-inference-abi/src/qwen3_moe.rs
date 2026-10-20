@@ -616,9 +616,12 @@ fn quantize_block128_in_place(values: &mut [f32]) {
 
 /// FP32 router logits [tokens, 128] from BF16-representable inputs.
 pub fn reference_router_logits(layer: &Qwen3MoeLayer, x: &[f32], tokens: usize) -> Vec<f32> {
-    let h = layer.hidden;
-    let router: Vec<f32> = layer
-        .router_bf16()
+    reference_router_logits_bf16(layer.router_bf16(), layer.hidden, x, tokens)
+}
+
+/// [`reference_router_logits`] from the router's raw BF16 words `[EXPERTS][h]` (no packed layer needed).
+pub fn reference_router_logits_bf16(router_bf16: &[u16], h: usize, x: &[f32], tokens: usize) -> Vec<f32> {
+    let router: Vec<f32> = router_bf16
         .iter()
         .map(|&b| bf16_to_f32(b))
         .collect();
@@ -681,15 +684,44 @@ pub fn reference_moe_forward_with(
     plan: &MoeBatchPlan,
     activations: OracleActivations,
 ) -> Vec<f32> {
-    let quantize = activations == OracleActivations::Fp8Block128;
     let (h, i) = (layer.hidden, layer.intermediate);
-    let lut = fp8_table();
     let gate_up = layer.gate_up_fp8();
     let gate_up_scales = layer.gate_up_scale_inv_bf16();
     let down = layer.down_fp8();
     let down_scales = layer.down_scale_inv_bf16();
     let gu_scale_len = (2 * i / BLOCK) * (h / BLOCK);
     let down_scale_len = (h / BLOCK) * (i / BLOCK);
+    reference_moe_forward_experts(h, i, x, plan, activations, &|e| ExpertView {
+        gate_up: &gate_up[e * 2 * i * h..(e + 1) * 2 * i * h],
+        gate_up_scales: &gate_up_scales[e * gu_scale_len..(e + 1) * gu_scale_len],
+        down: &down[e * h * i..(e + 1) * h * i],
+        down_scales: &down_scales[e * down_scale_len..(e + 1) * down_scale_len],
+    })
+}
+
+/// One routed expert's bytes as the reference reads them: FP8 E4M3 weights (gate rows then up rows for
+/// `gate_up`, `[2i][h]`; `down` `[h][i]`) and their BF16 block-128 inverse scales.
+#[derive(Clone, Copy)]
+pub struct ExpertView<'a> {
+    pub gate_up: &'a [u8],
+    pub gate_up_scales: &'a [u16],
+    pub down: &'a [u8],
+    pub down_scales: &'a [u16],
+}
+
+/// [`reference_moe_forward_with`] with each expert's bytes from `expert(e)` instead of a packed layer, so
+/// a caller can hold only the routed experts (L190: the 30B drafter with its experts streamed by the
+/// heartbeat ring). The arithmetic and its order are the same, so the result is bit for bit the same.
+pub fn reference_moe_forward_experts<'a>(
+    h: usize,
+    i: usize,
+    x: &[f32],
+    plan: &MoeBatchPlan,
+    activations: OracleActivations,
+    expert: &(dyn Fn(usize) -> ExpertView<'a> + Sync),
+) -> Vec<f32> {
+    let quantize = activations == OracleActivations::Fp8Block128;
+    let lut = fp8_table();
     let mut output = vec![0.0f32; plan.tokens * h];
     output.par_chunks_mut(h).enumerate().for_each(|(t, out)| {
         let mut xt = x[t * h..(t + 1) * h].to_vec();
@@ -700,9 +732,10 @@ pub fn reference_moe_forward_with(
             let assignment = t * plan.top_k + slot;
             let e = plan.topk_experts[assignment] as usize;
             let weight = plan.topk_weights[assignment];
+            let ev = expert(e);
             let projected = dequant_matvec(
-                &gate_up[e * 2 * i * h..(e + 1) * 2 * i * h],
-                &gate_up_scales[e * gu_scale_len..(e + 1) * gu_scale_len],
+                ev.gate_up,
+                ev.gate_up_scales,
                 2 * i,
                 h,
                 &xt,
@@ -718,8 +751,8 @@ pub fn reference_moe_forward_with(
                 quantize_block128_in_place(&mut hidden);
             }
             let expert_out = dequant_matvec(
-                &down[e * h * i..(e + 1) * h * i],
-                &down_scales[e * down_scale_len..(e + 1) * down_scale_len],
+                ev.down,
+                ev.down_scales,
                 h,
                 i,
                 &hidden,
@@ -781,6 +814,68 @@ pub fn parity_stats(actual: &[f32], expected: &[f32]) -> ParityStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// L190: the per-expert path (views copied out of the packed layer, as the ring hands them over) is
+    /// bit for bit the packed reference; a view of the wrong expert is caught.
+    #[test]
+    fn experts_view_path_equals_packed_reference() {
+        let (h, i) = (128usize, 128usize);
+        let mut s = 0x9e37_79b9_7f4a_7c15u64;
+        let mut rnd = move || {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            s
+        };
+        // finite E4M3 bytes only (0x7f / 0xff are NaN)
+        let mut fp8 = |n: usize| -> Vec<u8> { (0..n).map(|_| (rnd() as u8) & 0x7e).collect() };
+        let gate_up = fp8(EXPERTS * 2 * i * h);
+        let down = fp8(EXPERTS * h * i);
+        let mut s2 = 7u32;
+        let mut words = |n: usize, base: u16| -> Vec<u16> {
+            (0..n)
+                .map(|_| {
+                    s2 = s2.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                    base + ((s2 >> 16) as u16 & 0x7f)
+                })
+                .collect()
+        };
+        let gus = words(EXPERTS * 2 * (i / BLOCK) * (h / BLOCK), 0x3b00);
+        let ds = words(EXPERTS * (h / BLOCK) * (i / BLOCK), 0x3b00);
+        let router = words(EXPERTS * h, 0x3c00);
+        let layer = Qwen3MoeLayer::from_parts(h, i, &router, &gate_up, &gus, &down, &ds).unwrap();
+        let x: Vec<f32> = (0..h).map(|j| ((j * 37 % 101) as f32 - 50.0) / 64.0).collect();
+        let logits = reference_router_logits(&layer, &x, 1);
+        assert_eq!(logits, reference_router_logits_bf16(&router, h, &x, 1));
+        let plan = MoeBatchPlan::qwen3_coder_a3b(&logits, 1).unwrap();
+        let want = reference_moe_forward(&layer, &x, &plan);
+        let (gul, dl) = (2 * (i / BLOCK) * (h / BLOCK), (h / BLOCK) * (i / BLOCK));
+        let owned: Vec<(Vec<u8>, Vec<u16>, Vec<u8>, Vec<u16>)> = (0..EXPERTS)
+            .map(|e| {
+                (
+                    gate_up[e * 2 * i * h..(e + 1) * 2 * i * h].to_vec(),
+                    gus[e * gul..(e + 1) * gul].to_vec(),
+                    down[e * h * i..(e + 1) * h * i].to_vec(),
+                    ds[e * dl..(e + 1) * dl].to_vec(),
+                )
+            })
+            .collect();
+        let view = |e: usize| ExpertView {
+            gate_up: &owned[e].0,
+            gate_up_scales: &owned[e].1,
+            down: &owned[e].2,
+            down_scales: &owned[e].3,
+        };
+        let got = reference_moe_forward_experts(h, i, &x, &plan, OracleActivations::Fp32, &view);
+        assert_eq!(
+            got.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+            want.iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+        );
+        // negative control: hand over the neighbour expert
+        let wrong = |e: usize| view((e + 1) % EXPERTS);
+        let bad = reference_moe_forward_experts(h, i, &x, &plan, OracleActivations::Fp32, &wrong);
+        assert_ne!(bad, want, "a view of the wrong expert must change the output");
+    }
 
     #[test]
     fn fp8_e4m3fn_decodes_known_values() {

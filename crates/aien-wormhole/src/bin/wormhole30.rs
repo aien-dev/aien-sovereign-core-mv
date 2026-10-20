@@ -19,6 +19,10 @@
 //!     W3 forward acceptance, host only: the 30B CPU reference drafts k words, the 27B (its recorded greedy
 //!     chip output in INPUT) verifies through the text bridge; output must equal the record for every k, and
 //!     an accept-one-extra control (k=4) must differ. Needs about 35 GB (refuses below 45 GB available).
+//!
+//!   wormhole30 ringcheck DIR_30B OUT.json N SLOTS INPUT.json
+//!     W2 host ring: the 30B with experts through the heartbeat ring (SLOTS slots) vs the resident reference,
+//!     teacher-forced over the first N ids; logits bit for bit; corrupted digests must be refused.
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Instant;
@@ -31,6 +35,7 @@ fn main() {
     let r = match a.get(1).map(String::as_str) {
         Some("vocab") if a.len() >= 6 => vocab(&a[2], &a[3], &a[4], &a[5..]),
         Some("tensors") if a.len() == 6 => tensors(&a[2], &a[3], &a[4], &a[5]),
+        Some("ringcheck") if a.len() == 7 => ringcheck(&a[2], &a[3], a[4].parse().map_err(|_| "N").unwrap_or(0), a[5].parse().unwrap_or(0), &a[6]),
         Some("accept") if a.len() >= 8 => accept(&a[2], &a[3], &a[4], &a[5], &a[6], &a[7..]),
         Some("oneread") if a.len() >= 4 => oneread(&a[2], &a[3], a.get(4).and_then(|r| r.parse().ok()).unwrap_or(2)),
         _ => Err("usage: see the file header".into()),
@@ -746,5 +751,81 @@ fn accept(d30: &str, t27: &str, t30: &str, out: &str, ks: &str, inputs: &[String
         return Err("FAIL control: accepting one refused draft did not change any output".into());
     }
     println!("PASS accept: every k equal to the 27B's own output; control differs");
+    Ok(())
+}
+
+fn logits_digest(l: &[f32]) -> String {
+    let mut b = Vec::with_capacity(l.len() * 4);
+    for v in l {
+        b.extend_from_slice(&v.to_bits().to_le_bytes());
+    }
+    blake3::hash(&b).to_hex()[..16].to_string()
+}
+
+/// W2 host ring exactness: the 30B with its experts through the heartbeat ring (SLOTS slots) against the
+/// resident CPU reference, teacher-forced over the first N ids of INPUT; logits must match bit for bit.
+/// Then the control: every expert digest of layer 0 corrupted, the next step must refuse (fail closed).
+/// Ring first (about 6 GB + slots), resident after (about 35 GB), so the peak is the resident one.
+fn ringcheck(d30: &str, out: &str, n: usize, slots: usize, input: &str) -> Result<(), String> {
+    use aien_wormhole::moe30::{argmax, Moe30Ring};
+    let j = read_json(input)?;
+    let all = ids(&j["ids"]);
+    let feed: Vec<u32> = all.iter().copied().take(n).collect();
+    let avail0 = meminfo_kb("MemAvailable:");
+    let t = Instant::now();
+    let manifest = aien_heartbeat::manifest::Manifest::build(Path::new(d30)).map_err(|e| e.to_string())?;
+    let manifest_s = t.elapsed().as_secs_f64();
+    let t = Instant::now();
+    let mut ring = Moe30Ring::open(Path::new(d30), manifest, slots, 8, true)?;
+    let open_s = t.elapsed().as_secs_f64();
+    let avail1 = meminfo_kb("MemAvailable:");
+    let mut ring_rows = Vec::new();
+    for &x in &feed {
+        let l = ring.step(x)?;
+        ring_rows.push((argmax(&l), logits_digest(&l)));
+    }
+    let ring_ms = ring.ns as f64 / 1e6 / feed.len() as f64;
+    let stats = serde_json::to_value(&ring.cache.stats).map_err(|e| e.to_string())?;
+    let dense = ring.dense_bytes();
+    let slot_bytes = aien_heartbeat::stream::Streamer::slot_bytes(&ring.cache.manifest);
+    for e in 0..128u16 {
+        ring.cache.corrupt_digest(0, e);
+    }
+    ring.cache.evict_all();
+    let control = (0..4).map(|k| ring.step(feed[k % feed.len()])).find_map(Result::err);
+    drop(ring);
+    if meminfo_kb("MemAvailable:") as f64 * 1.024e-6 < 45.0 {
+        return Err("MemAvailable < 45 GB for the resident reference; refusing".into());
+    }
+    let w = aien_inference_abi::qwen3_coder::load_qwen3_coder(Path::new(d30)).map_err(|e| format!("{e:?}"))?;
+    let mut st = aien_inference_abi::qwen3_coder::Qwen3CoderState::new();
+    let mut same = 0usize;
+    let mut first_diff = None;
+    for (p, &x) in feed.iter().enumerate() {
+        let h = aien_inference_abi::qwen3_coder::forward_token(&w, x, p, &mut st);
+        let l = aien_inference_abi::qwen3_coder::compute_logits(&w, &h);
+        if (argmax(&l), logits_digest(&l)) == ring_rows[p] {
+            same += 1;
+        } else if first_diff.is_none() {
+            first_diff = Some(p);
+        }
+    }
+    let r = json!({
+        "what": "L190 W2 host ring exactness: 30B experts through the heartbeat ring vs the resident CPU reference",
+        "input": input, "tokens": feed.len(), "slots": slots, "slot_bytes": slot_bytes,
+        "ring_bytes": slots * slot_bytes, "dense_bytes": dense, "manifest_build_s": manifest_s, "ring_open_s": open_s,
+        "mem_available_kb_before": avail0, "mem_available_kb_after_open": avail1,
+        "ring_ms_per_token": ring_ms, "cache": stats,
+        "logits_bit_equal": same, "first_diff": first_diff,
+        "control_corrupt_digest_refused": control.is_some(), "control_error": control,
+    });
+    std::fs::write(out, serde_json::to_string_pretty(&r).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    if same != feed.len() {
+        return Err(format!("FAIL: {same}/{} tokens bit-equal, first diff at {first_diff:?}", feed.len()));
+    }
+    if control.is_none() {
+        return Err("FAIL control: corrupted digests were not refused".into());
+    }
+    println!("PASS ringcheck: {same}/{} tokens logits bit-equal, {ring_ms:.0} ms/token on the ring, corrupt digest refused", feed.len());
     Ok(())
 }

@@ -268,6 +268,83 @@ pub fn generate_bridged<D: Lm, V: Lm, DV: Vocab, VV: Vocab>(
     Ok((out, s))
 }
 
+/// The pair as a server runs it (L190 endpoint): the verifier's own loop is untouched, every token is the
+/// verifier's own choice, so the output is the verifier alone by construction. The drafter keeps a queue of
+/// guesses in the verifier's ids (through the text bridge) and is scored against each token the verifier
+/// writes; an empty or refuted queue is redrafted from the text written so far.
+pub struct DraftQueue<'a, D: Lm, DV: Vocab, VV: Vocab> {
+    d: Fed<'a, D>,
+    dv: &'a DV,
+    vv: &'a VV,
+    k: usize,
+    d_prompt: Vec<u32>,
+    text: Vec<u8>,
+    queue: std::collections::VecDeque<u32>,
+    pub stats: BridgeStats,
+    /// host nanoseconds spent drafting (drafter steps and the bridge)
+    pub draft_ns: u128,
+}
+
+impl<'a, D: Lm, DV: Vocab, VV: Vocab> DraftQueue<'a, D, DV, VV> {
+    /// `d_prompt`: the drafter's own rendering of the prompt; `k` drafter tokens per draft.
+    pub fn new(d: &'a mut D, dv: &'a DV, vv: &'a VV, d_prompt: Vec<u32>, k: usize) -> Self {
+        assert!(k >= 1);
+        Self {
+            d: Fed { m: d, ids: Vec::new(), rows: Vec::new() },
+            dv,
+            vv,
+            k,
+            d_prompt,
+            text: Vec::new(),
+            queue: Default::default(),
+            stats: BridgeStats::default(),
+            draft_ns: 0,
+        }
+    }
+
+    /// The verifier wrote `tok` (its own choice). Scores the queued guess, redrafts when the queue is empty.
+    pub fn observe(&mut self, tok: u32) -> Result<(), String> {
+        self.text.extend_from_slice(self.vv.token_bytes(tok));
+        match self.queue.pop_front() {
+            Some(g) if g == tok => self.stats.accepted += 1,
+            Some(_) => self.queue.clear(),
+            None => {}
+        }
+        if self.queue.is_empty() {
+            self.redraft()?;
+        }
+        Ok(())
+    }
+
+    fn redraft(&mut self) -> Result<(), String> {
+        let t = Instant::now();
+        let mut ctx = self.d_prompt.clone();
+        ctx.extend(self.dv.encode_bytes(&self.text)?.0);
+        let (mut next, fed) = self.d.sync(&ctx)?;
+        self.stats.drafter_refeed += fed;
+        let mut draft = Vec::with_capacity(self.k);
+        for j in 0..self.k {
+            draft.push(next);
+            if j + 1 < self.k {
+                next = self.d.step(next)?;
+            }
+        }
+        self.stats.drafter_steps += fed + self.k - 1;
+        self.stats.drafted_d += draft.len();
+        let tb = Instant::now();
+        let (vids, used) = self.vv.encode_bytes(&self.dv.decode(&draft))?;
+        self.stats.bridge_ns += tb.elapsed().as_nanos();
+        if used < self.dv.decode(&draft).len() {
+            self.stats.cut_tails += 1;
+        }
+        self.stats.drafted_v += vids.len();
+        self.stats.rounds += 1;
+        self.queue.extend(vids);
+        self.draft_ns += t.elapsed().as_nanos();
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -409,6 +486,26 @@ mod tests {
         // verifier cuts the draft bytes on their own, which can differ from how it would have cut its own text.
         let (_, _, s) = run(4, 0, Fault::None);
         assert!(s.verifier_passes * 2 < 60 && s.accepted > 0, "the bridge saved too few verifier passes: {s:?}");
+    }
+
+    #[test]
+    fn draft_queue_scores_a_good_drafter_and_not_a_bad_one() {
+        let vv = ToyVocab::new(&["ab", "cd", "abc", "efg", "ha"]);
+        let dv = ToyVocab::new(&["bc", "de", "fgh", "ca", "hab"]);
+        let vp = vec![0u32, 1, 2];
+        let alone = generate_alone_lm(&mut ToyV { voc: &vv, ids: vec![] }, &vp, 60, &[]).unwrap();
+        let mut score = |bad: u64| {
+            let mut d = ToyD { dvoc: &dv, vvoc: &vv, vprompt: vp.clone(), dprompt_len: 1, bad, ids: vec![] };
+            let mut q = DraftQueue::new(&mut d, &dv, &vv, vec![7], 4);
+            for &t in &alone {
+                q.observe(t).unwrap();
+            }
+            q.stats.clone()
+        };
+        let good = score(0);
+        let bad = score(1);
+        assert!(good.accepted * 3 > alone.len(), "good drafter scored too little: {good:?}");
+        assert!(bad.accepted < good.accepted, "a drafter wrong on every context must score less: {bad:?} vs {good:?}");
     }
 
     #[test]

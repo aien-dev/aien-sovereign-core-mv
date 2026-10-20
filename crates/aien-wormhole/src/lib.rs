@@ -8,5 +8,6 @@
 
 pub mod align;
 pub mod cache;
+pub mod moe30;
 pub mod source;
 pub mod spec;

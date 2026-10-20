@@ -79,6 +79,13 @@ impl ExpertCache {
         }
     }
 
+    /// Forget every resident expert (the slots stay allocated): the next lookup of any expert refills it
+    /// from the SSD and checks its digest again (L190 fail-closed control).
+    pub fn evict_all(&mut self) {
+        self.slot_of.clear();
+        self.owner.iter_mut().for_each(|o| *o = None);
+    }
+
     fn victim(&self) -> usize {
         if let Some(s) = self.owner.iter().position(|o| o.is_none()) {
             return s;

@@ -52,10 +52,14 @@ struct Args {
     whole_prompt: Option<bool>,
     wp_device_host: Option<bool>,
     prefill: PrefillMode,
+    /// `--engine wormhole`: the 30B drafter checkpoint (None with --no-draft), drafter tokens per draft, ring slots
+    draft_dir: Option<PathBuf>,
+    draft_k: usize,
+    ring_slots: usize,
 }
 
 fn usage() -> String {
-    "usage: aien-serve-http [--engine cpu|stub|omega] [--weights bf16|fp8-experts|fp8] [--spin-us N] \
+    "usage: aien-serve-http [--engine cpu|stub|omega|wormhole] [--draft-dir DIR_30B | --no-draft] [--draft-k K] [--ring-slots N] [--weights bf16|fp8-experts|fp8] [--spin-us N] \
      [--model-dir DIR] [--port N] [--bind ADDR] [--model-id ID] [--max-context N] \
      [--max-tokens-cap N] [--stub-reply TEXT] [--whole-prompt on|off] [--prefill-device-host on|off] \
      [--thinking on|off|template]"
@@ -77,6 +81,9 @@ fn parse_args() -> Result<Args, String> {
         whole_prompt: None,
         wp_device_host: None,
         prefill: PrefillMode::default(),
+        draft_dir: None,
+        draft_k: 4,
+        ring_slots: 1024,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -133,11 +140,15 @@ fn parse_args() -> Result<Args, String> {
             "--prefill-device-host" => {
                 a.wp_device_host = Some(parse_switch("--prefill-device-host", &val()?)?)
             }
+            "--draft-dir" => a.draft_dir = Some(PathBuf::from(val()?)),
+            "--no-draft" => a.draft_dir = None,
+            "--draft-k" => a.draft_k = val()?.parse().map_err(|e| format!("--draft-k: {e}"))?,
+            "--ring-slots" => a.ring_slots = val()?.parse().map_err(|e| format!("--ring-slots: {e}"))?,
             "-h" | "--help" => return Err(usage()),
             other => return Err(format!("unknown flag {other}\n{}", usage())),
         }
     }
-    if !matches!(a.engine.as_str(), "cpu" | "stub" | "omega") {
+    if !matches!(a.engine.as_str(), "cpu" | "stub" | "omega" | "wormhole") {
         return Err(format!(
             "--engine must be cpu, stub or omega, got {}",
             a.engine
@@ -252,6 +263,24 @@ fn main() -> ExitCode {
         Arc::new(
             StubEngine::new(reply).with_max_context(args.cfg.max_context_tokens.unwrap_or(4096)),
         )
+    } else if args.engine == "wormhole" {
+        // L190: the 27B (model dir) writes every token; the 30B (--draft-dir) drafts beside it.
+        if args.cfg.model_id == ServerConfig::default().model_id {
+            args.cfg.model_id = aien_serve_http::wormhole_engine::DEFAULT_MODEL_ID.into();
+        }
+        match aien_serve_http::wormhole_engine::WormholeDoor::load(
+            &args.model_dir,
+            args.draft_dir.as_deref(),
+            args.cfg.max_context_tokens.unwrap_or(8192),
+            args.draft_k,
+            args.ring_slots,
+        ) {
+            Ok(door) => Arc::new(door),
+            Err(e) => {
+                eprintln!("aien-serve-http: wormhole load failed: {e}");
+                return ExitCode::from(1);
+            }
+        }
     } else if args.engine == "omega" && qwen38_engine::is_qwen38_dir(&args.model_dir) {
         // Qwen3.8-27B (config model_type qwen3_5): its own door; no persistent KV (DeltaNet state).
         if let Some(us) = args.spin_us {

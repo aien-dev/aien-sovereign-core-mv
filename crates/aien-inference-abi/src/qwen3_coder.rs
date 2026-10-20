@@ -252,6 +252,22 @@ pub fn load_qwen3_coder_tapped(
     checkpoint_dir: &Path,
     tap: &mut dyn FnMut(&str, &[u8]),
 ) -> Result<Qwen3CoderWeights, Qwen3CoderError> {
+    load_coder(checkpoint_dir, Some(tap)).map(|(w, _)| w)
+}
+
+/// Everything but the routed experts (L190: about 6 GB instead of 35; the experts come from the heartbeat
+/// ring): `moes` is empty, and each layer's router comes back as raw BF16 words `[128][2048]` for
+/// [`forward_token_with`].
+pub fn load_qwen3_coder_dense(
+    checkpoint_dir: &Path,
+) -> Result<(Qwen3CoderWeights, Vec<Vec<u16>>), Qwen3CoderError> {
+    load_coder(checkpoint_dir, None)
+}
+
+fn load_coder(
+    checkpoint_dir: &Path,
+    mut experts: Option<&mut dyn FnMut(&str, &[u8])>,
+) -> Result<(Qwen3CoderWeights, Vec<Vec<u16>>), Qwen3CoderError> {
     let h = QWEN3_CODER_HIDDEN;
     let qd = QWEN3_CODER_Q_DIM;
     let kvd = QWEN3_CODER_KV_DIM;
@@ -264,6 +280,7 @@ pub fn load_qwen3_coder_tapped(
 
     let mut attns = Vec::with_capacity(QWEN3_CODER_LAYERS);
     let mut moes = Vec::with_capacity(QWEN3_CODER_LAYERS);
+    let mut routers = Vec::new();
     for layer in 0..QWEN3_CODER_LAYERS {
         let p = format!("model.layers.{layer}");
         let q_proj = cache.read_fp8_f32(&format!("{p}.self_attn.q_proj.weight"), qd, h)?;
@@ -285,16 +302,28 @@ pub fn load_qwen3_coder_tapped(
             input_norm,
             post_norm,
         });
-        moes.push(load_qwen3_fp8_moe_layer_tapped(checkpoint_dir, layer, tap)?);
+        match experts.as_deref_mut() {
+            Some(tap) => moes.push(load_qwen3_fp8_moe_layer_tapped(checkpoint_dir, layer, tap)?),
+            None => routers.push(bf16_words(&cache.read_raw(
+                &format!("model.layers.{layer}.mlp.gate.weight"),
+                "BF16",
+                &[crate::moe_plan::QWEN3_CODER_A3B_EXPERTS, h],
+                2,
+            )?)
+            .to_vec()),
+        }
     }
 
-    Ok(Qwen3CoderWeights {
-        embed,
-        attns,
-        moes,
-        final_norm,
-        lm_head,
-    })
+    Ok((
+        Qwen3CoderWeights {
+            embed,
+            attns,
+            moes,
+            final_norm,
+            lm_head,
+        },
+        routers,
+    ))
 }
 
 pub(crate) fn rmsnorm_per_head(
@@ -323,6 +352,23 @@ pub fn forward_token(
     pos: usize,
     state: &mut Qwen3CoderState,
 ) -> Vec<f32> {
+    forward_token_with(weights, token_id, pos, state, &mut |layer, post| {
+        let moe = &weights.moes[layer];
+        let router = reference_router_logits(moe, post, 1);
+        let plan = MoeBatchPlan::qwen3_coder_a3b(&router, 1).expect("routing plan must build");
+        reference_moe_forward(moe, post, &plan)
+    })
+}
+
+/// [`forward_token`] with the routed-expert block of every layer computed by `moe(layer, post_norm_x)`;
+/// `weights.moes` is not read (L190: the 30B drafter with its experts streamed by the heartbeat ring).
+pub fn forward_token_with(
+    weights: &Qwen3CoderWeights,
+    token_id: u32,
+    pos: usize,
+    state: &mut Qwen3CoderState,
+    moe: &mut dyn FnMut(usize, &[f32]) -> Vec<f32>,
+) -> Vec<f32> {
     let h = QWEN3_CODER_HIDDEN;
     let qd = QWEN3_CODER_Q_DIM;
     let kvd = QWEN3_CODER_KV_DIM;
@@ -332,7 +378,7 @@ pub fn forward_token(
     let token_idx = (token_id as usize) % QWEN3_CODER_VOCAB;
     let mut x = weights.embed[token_idx * h..(token_idx + 1) * h].to_vec();
 
-    for (layer_idx, (attn, moe)) in weights.attns.iter().zip(weights.moes.iter()).enumerate() {
+    for (layer_idx, attn) in weights.attns.iter().enumerate() {
         let kv = &mut state.layers[layer_idx];
 
         let mut x_norm = vec![0.0f32; h];
@@ -383,9 +429,7 @@ pub fn forward_token(
         let mut post = vec![0.0f32; h];
         rmsnorm(&x, &attn.post_norm, eps, &mut post);
 
-        let router = reference_router_logits(moe, &post, 1);
-        let plan = MoeBatchPlan::qwen3_coder_a3b(&router, 1).expect("routing plan must build");
-        let moe_out = reference_moe_forward(moe, &post, &plan);
+        let moe_out = moe(layer_idx, &post);
         for i in 0..h {
             x[i] += moe_out[i];
         }

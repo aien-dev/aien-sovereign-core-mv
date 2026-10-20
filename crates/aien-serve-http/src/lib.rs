@@ -13,6 +13,7 @@ pub mod openai;
 pub mod qwen38_engine;
 pub mod sampling;
 pub mod server;
+pub mod wormhole_engine;
 pub mod text;
 
 pub use codec::{ByteCodec, Codec, HfCodec};
