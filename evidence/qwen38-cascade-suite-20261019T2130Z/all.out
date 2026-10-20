@@ -19,3 +19,10 @@ remote: GitHub found 1 vulnerability on aien-dev/aien-sovereign-core-mv's defaul
 remote:      https://github.com/aien-dev/aien-sovereign-core-mv/security/dependabot/1        
 remote: 
 d8eb33b2 evidence: cascade batches progress 2026-10-19T23:54:17Z
+remote: This repository moved. Please use the new location:        
+remote:   git@github.com:aien-dev/aien-sovereign-core-mv.git        
+remote: 
+remote: GitHub found 1 vulnerability on aien-dev/aien-sovereign-core-mv's default branch (1 low). To find out more, visit:        
+remote:      https://github.com/aien-dev/aien-sovereign-core-mv/security/dependabot/1        
+remote: 
+a9fdbd33 evidence: cascade batches progress 2026-10-20T01:26:41Z
