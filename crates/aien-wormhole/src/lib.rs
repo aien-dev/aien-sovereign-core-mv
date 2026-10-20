@@ -6,6 +6,7 @@
 //! Host-only in this crate: the cache, the tensor source the Flash-Next reference reads through, and the
 //! round. The chip forward of Flash-Next is the flashnext/port work (ledger L020).
 
+pub mod align;
 pub mod cache;
 pub mod source;
 pub mod spec;

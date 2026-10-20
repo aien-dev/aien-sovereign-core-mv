@@ -1,0 +1,397 @@
+//! wormhole30: L190 checks for the 27B + 30B wormhole (docs/WORMHOLE-30B.md). Host only, no timing claims
+//! except the bridge's own host cost.
+//!
+//!   wormhole30 vocab TOK_27B.json TOK_30B.json OUT.json INPUT.json...
+//!     W1 vocabulary receipt: sizes, tokens with the same bytes (and the same id), and on every text of the
+//!     INPUT files (L080 inputs: 27B prompt ids + 27B chip continuation; the user message and the continuation
+//!     are the texts) the token counts, the share of each model's token boundaries that are also the other's,
+//!     exact round trips, and the bridge cost per block (drafter ids -> bytes -> verifier ids) for k = 1..16.
+//!
+//!   wormhole30 tensors DIR_27B DIR_30B OUT.json LIST.tsv
+//!     M0 shared-weights receipt: every tensor of both checkpoints (name, dtype, shape, sha256), identical
+//!     tensors, identical 64 KiB byte ranges anywhere, and shapes the two have in common.
+use std::collections::HashMap;
+use std::path::Path;
+use std::time::Instant;
+
+use aien_wormhole::align::{ByteVocab, Vocab};
+use serde_json::{json, Value};
+
+fn main() {
+    let a: Vec<String> = std::env::args().collect();
+    let r = match a.get(1).map(String::as_str) {
+        Some("vocab") if a.len() >= 6 => vocab(&a[2], &a[3], &a[4], &a[5..]),
+        Some("tensors") if a.len() == 6 => tensors(&a[2], &a[3], &a[4], &a[5]),
+        _ => Err("usage: see the file header".into()),
+    };
+    if let Err(e) = r {
+        eprintln!("FAIL: {e}");
+        std::process::exit(1);
+    }
+}
+
+fn read_json(p: &str) -> Result<Value, String> {
+    serde_json::from_str(&std::fs::read_to_string(p).map_err(|e| format!("{p}: {e}"))?).map_err(|e| format!("{p}: {e}"))
+}
+
+fn ids(v: &Value) -> Vec<u32> {
+    v.as_array().map(|a| a.iter().filter_map(|x| x.as_u64()).map(|x| x as u32).collect()).unwrap_or_default()
+}
+
+/// Byte offsets where each token ends (the token boundaries inside the text).
+fn ends(voc: &ByteVocab, ids: &[u32]) -> Vec<usize> {
+    let mut at = 0;
+    ids.iter()
+        .map(|&i| {
+            at += voc.token_bytes(i).len();
+            at
+        })
+        .collect()
+}
+
+/// Mean host nanoseconds to carry blocks of `k` ids of `from` into `to` over the whole text.
+fn bridge_ns(from: &ByteVocab, to: &ByteVocab, ids: &[u32], k: usize) -> Result<(f64, usize, f64), String> {
+    let mut total = 0u128;
+    let mut blocks = 0usize;
+    let mut out_ids = 0usize;
+    for _rep in 0..5 {
+        for c in ids.chunks(k) {
+            let t = Instant::now();
+            let b = from.decode(c);
+            let (o, _) = to.encode_bytes(&b)?;
+            total += t.elapsed().as_nanos();
+            blocks += 1;
+            out_ids += o.len();
+        }
+    }
+    Ok((total as f64 / blocks as f64, blocks / 5, out_ids as f64 / blocks as f64))
+}
+
+fn vocab(t27: &str, t30: &str, out: &str, inputs: &[String]) -> Result<(), String> {
+    let v27 = ByteVocab::from_file(Path::new(t27))?;
+    let v30 = ByteVocab::from_file(Path::new(t30))?;
+    let sha = |p: &str| -> Result<String, String> {
+        let b = std::fs::read(p).map_err(|e| e.to_string())?;
+        Ok(blake3::hash(&b).to_hex().to_string())
+    };
+    // vocabulary level: same byte string, same id
+    let mut by_bytes30: HashMap<&[u8], u32> = HashMap::new();
+    for id in 0..v30.len() as u32 {
+        if !v30.added[id as usize] && !v30.token_bytes(id).is_empty() {
+            by_bytes30.insert(v30.token_bytes(id), id);
+        }
+    }
+    let (mut normal27, mut same_bytes, mut same_id) = (0usize, 0usize, 0usize);
+    for id in 0..v27.len() as u32 {
+        if v27.added[id as usize] || v27.token_bytes(id).is_empty() {
+            continue;
+        }
+        normal27 += 1;
+        if let Some(&j) = by_bytes30.get(v27.token_bytes(id)) {
+            same_bytes += 1;
+            if j == id {
+                same_id += 1;
+            }
+        }
+    }
+    let first_diff = (0..v30.len().min(v27.len()) as u32)
+        .find(|&i| !v30.added[i as usize] && v27.token_bytes(i) != v30.token_bytes(i));
+    let special = |v: &ByteVocab| -> Vec<Value> {
+        (0..v.len())
+            .filter(|&i| v.special[i])
+            .take(8)
+            .map(|i| json!([i, String::from_utf8_lossy(v.token_bytes(i as u32))]))
+            .collect()
+    };
+
+    let mut texts = Vec::new();
+    let mut agg = [0usize; 6]; // n27, n30, ends27 in 30, ends30 in 27, same spans, bytes
+    for p in inputs {
+        let j = read_json(p)?;
+        let all = ids(&j["ids"]);
+        let pl = j["prompt_len"].as_u64().ok_or("prompt_len")? as usize;
+        let prompt = String::from_utf8_lossy(&v27.decode(&all[..pl])).to_string();
+        let user = prompt
+            .split_once("user\n")
+            .and_then(|(_, r)| r.split_once("<|im_end|>"))
+            .map(|(u, _)| u.to_string())
+            .ok_or("no user turn in the prompt")?;
+        let cont: Vec<u32> = all[pl..].iter().copied().take_while(|&i| !v27.special[i as usize]).collect();
+        let cont_text = String::from_utf8(v27.decode(&cont)).map_err(|e| e.to_string())?;
+        for (kind, text) in [("prompt", user), ("continuation", cont_text)] {
+            let a = v27.encode_str(&text)?;
+            let b = v30.encode_str(&text)?;
+            let rt27 = v27.decode(&a) == text.as_bytes();
+            let rt30 = v30.decode(&b) == text.as_bytes();
+            let e27 = ends(&v27, &a);
+            let e30 = ends(&v30, &b);
+            let s30: std::collections::HashSet<usize> = e30.iter().copied().collect();
+            let s27: std::collections::HashSet<usize> = e27.iter().copied().collect();
+            let in30 = e27.iter().filter(|e| s30.contains(e)).count();
+            let in27 = e30.iter().filter(|e| s27.contains(e)).count();
+            // tokens whose byte span is one whole token in the other cut
+            let starts27: Vec<usize> = std::iter::once(0).chain(e27.iter().copied()).collect();
+            let spans27: std::collections::HashSet<(usize, usize)> = starts27.windows(2).map(|w| (w[0], w[1])).collect();
+            let starts30: Vec<usize> = std::iter::once(0).chain(e30.iter().copied()).collect();
+            let same_spans = starts30.windows(2).filter(|w| spans27.contains(&(w[0], w[1]))).count();
+            // the 27B's own chip ids for its continuation vs a fresh cut of the same text
+            let own_cut_equal = (kind == "continuation").then(|| a == cont);
+            let mut cost = Vec::new();
+            for k in [1usize, 2, 4, 8, 16] {
+                let (f, nb, avg) = bridge_ns(&v30, &v27, &b, k)?;
+                let (r, _, ravg) = bridge_ns(&v27, &v30, &a, k)?;
+                cost.push(json!({"k": k, "blocks": nb, "30b_to_27b_ns": f, "27b_ids_per_block": avg,
+                                 "27b_to_30b_ns": r, "30b_ids_per_block": ravg}));
+            }
+            let t = Instant::now();
+            let _ = v30.encode_bytes(text.as_bytes())?;
+            let reencode_30_ns = t.elapsed().as_nanos();
+            let t = Instant::now();
+            let _ = v27.encode_bytes(text.as_bytes())?;
+            let reencode_27_ns = t.elapsed().as_nanos();
+            for (i, x) in [a.len(), b.len(), in30, in27, same_spans, text.len()].iter().enumerate() {
+                agg[i] += x;
+            }
+            texts.push(json!({
+                "input": p, "kind": kind, "bytes": text.len(), "tokens_27b": a.len(), "tokens_30b": b.len(),
+                "roundtrip_27b": rt27, "roundtrip_30b": rt30, "own_chip_ids_equal_fresh_cut": own_cut_equal,
+                "ends_27b_also_30b": in30, "ends_30b_also_27b": in27, "same_token_spans": same_spans,
+                "share_27b_ends_in_30b": in30 as f64 / a.len() as f64, "share_30b_ends_in_27b": in27 as f64 / b.len() as f64,
+                "bridge_cost": cost, "whole_text_reencode_ns": {"30b": reencode_30_ns, "27b": reencode_27_ns},
+            }));
+        }
+    }
+    let r = json!({
+        "what": "L190 W1 vocabulary receipt (host only)",
+        "tokenizer_27b": {"path": t27, "blake3": sha(t27)?, "size_with_added": v27.len(), "normal": normal27,
+                          "special_first": special(&v27)},
+        "tokenizer_30b": {"path": t30, "blake3": sha(t30)?, "size_with_added": v30.len(), "normal": by_bytes30.len(),
+                          "special_first": special(&v30)},
+        "normal_27b_tokens_whose_bytes_are_a_30b_token": same_bytes,
+        "of_those_same_id": same_id,
+        "first_id_with_different_bytes": first_diff,
+        "texts": texts,
+        "all_texts": {"bytes": agg[5], "tokens_27b": agg[0], "tokens_30b": agg[1],
+                      "share_27b_ends_in_30b": agg[2] as f64 / agg[0] as f64,
+                      "share_30b_ends_in_27b": agg[3] as f64 / agg[1] as f64,
+                      "same_token_spans_of_30b": agg[4] as f64 / agg[1] as f64,
+                      "same_token_spans_of_27b": agg[4] as f64 / agg[0] as f64},
+    });
+    std::fs::write(out, serde_json::to_string_pretty(&r).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    println!(
+        "PASS vocab: 27B {} ids, 30B {} ids, same bytes {} (same id {}), texts {}, 27B ends in 30B {:.4}, 30B ends in 27B {:.4}",
+        v27.len(), v30.len(), same_bytes, same_id, r["texts"].as_array().map_or(0, Vec::len),
+        r["all_texts"]["share_27b_ends_in_30b"].as_f64().unwrap_or(0.0), r["all_texts"]["share_30b_ends_in_27b"].as_f64().unwrap_or(0.0)
+    );
+    Ok(())
+}
+
+/// One tensor of a safetensors file: absolute byte range in the file.
+struct Tensor {
+    name: String,
+    dtype: String,
+    shape: Vec<u64>,
+    file: std::path::PathBuf,
+    start: u64,
+    len: u64,
+}
+
+fn safetensors_index(dir: &str) -> Result<Vec<Tensor>, String> {
+    let mut files: Vec<_> = std::fs::read_dir(dir)
+        .map_err(|e| format!("{dir}: {e}"))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "safetensors"))
+        .collect();
+    files.sort();
+    let mut out = Vec::new();
+    for f in files {
+        use std::io::Read;
+        let mut fh = std::fs::File::open(&f).map_err(|e| format!("{}: {e}", f.display()))?;
+        let mut n = [0u8; 8];
+        fh.read_exact(&mut n).map_err(|e| e.to_string())?;
+        let n = u64::from_le_bytes(n);
+        let mut h = vec![0u8; n as usize];
+        fh.read_exact(&mut h).map_err(|e| e.to_string())?;
+        let h: Value = serde_json::from_slice(&h).map_err(|e| format!("{}: {e}", f.display()))?;
+        for (name, t) in h.as_object().ok_or("header is not an object")? {
+            if name == "__metadata__" {
+                continue;
+            }
+            let (a, b) = (
+                t["data_offsets"][0].as_u64().ok_or("data_offsets")?,
+                t["data_offsets"][1].as_u64().ok_or("data_offsets")?,
+            );
+            out.push(Tensor {
+                name: name.clone(),
+                dtype: t["dtype"].as_str().unwrap_or("?").to_string(),
+                shape: t["shape"].as_array().map(|s| s.iter().filter_map(Value::as_u64).collect()).unwrap_or_default(),
+                file: f.clone(),
+                start: 8 + n + a,
+                len: b - a,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// Chunk size for the byte-range comparison (aligned to each tensor's start).
+const CHUNK: usize = 64 * 1024;
+
+struct Hashed {
+    sha256: String,
+    chunks: Vec<[u8; 32]>,
+}
+
+/// sha256 of every tensor's bytes and blake3 of every 64 KiB chunk, one read of each file, files in parallel.
+fn hash_all(ts: &[Tensor], threads: usize) -> Result<(Vec<Hashed>, u64, f64), String> {
+    use sha2::Digest;
+    use std::os::unix::fs::FileExt;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let mut by_file: HashMap<&Path, Vec<usize>> = HashMap::new();
+    for (i, t) in ts.iter().enumerate() {
+        by_file.entry(t.file.as_path()).or_default().push(i);
+    }
+    let jobs: Vec<Vec<usize>> = by_file.into_values().collect();
+    let next = AtomicUsize::new(0);
+    let t0 = Instant::now();
+    let results: Vec<Result<Vec<(usize, Hashed)>, String>> = std::thread::scope(|s| {
+        let hs: Vec<_> = (0..threads)
+            .map(|_| {
+                s.spawn(|| {
+                    let mut got = Vec::new();
+                    let mut buf = Vec::new();
+                    loop {
+                        let j = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(job) = jobs.get(j) else { return Ok(got) };
+                        let fh = std::fs::File::open(&ts[job[0]].file).map_err(|e| e.to_string())?;
+                        let mut order = job.clone();
+                        order.sort_by_key(|&i| ts[i].start);
+                        for i in order {
+                            let t = &ts[i];
+                            buf.resize(t.len as usize, 0);
+                            fh.read_exact_at(&mut buf, t.start).map_err(|e| format!("{}: {e}", t.name))?;
+                            let sha256 = sha2::Sha256::digest(&buf).iter().map(|b| format!("{b:02x}")).collect();
+                            let chunks = buf.chunks(CHUNK).map(|c| *blake3::hash(c).as_bytes()).collect();
+                            got.push((i, Hashed { sha256, chunks }));
+                        }
+                    }
+                })
+            })
+            .collect();
+        hs.into_iter().map(|h| h.join().unwrap_or_else(|_| Err("hash thread panicked".into()))).collect()
+    });
+    let secs = t0.elapsed().as_secs_f64();
+    let mut out: Vec<Option<Hashed>> = (0..ts.len()).map(|_| None).collect();
+    for r in results {
+        for (i, h) in r? {
+            out[i] = Some(h);
+        }
+    }
+    let bytes = ts.iter().map(|t| t.len).sum();
+    Ok((out.into_iter().map(|h| h.expect("every tensor hashed")).collect(), bytes, secs))
+}
+
+/// Drake 2026-10-20T17:20Z: do the 27B and the 30B share any weights that could be read from NVMe once for both?
+fn tensors(d27: &str, d30: &str, out: &str, list: &str) -> Result<(), String> {
+    let t27 = safetensors_index(d27)?;
+    let t30 = safetensors_index(d30)?;
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get()).min(8);
+    let (h27, b27, s27) = hash_all(&t27, threads)?;
+    let (h30, b30, s30) = hash_all(&t30, threads)?;
+
+    // whole tensors with the same bytes
+    let mut by_sha30: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (i, h) in h30.iter().enumerate() {
+        by_sha30.entry(h.sha256.as_str()).or_default().push(i);
+    }
+    let mut same_tensors = Vec::new();
+    let mut same_tensor_bytes = 0u64;
+    for (i, h) in h27.iter().enumerate() {
+        if let Some(js) = by_sha30.get(h.sha256.as_str()) {
+            same_tensor_bytes += t27[i].len;
+            same_tensors.push(json!({"27b": t27[i].name, "30b": js.iter().map(|&j| t30[j].name.clone()).collect::<Vec<_>>(),
+                                     "bytes": t27[i].len, "sha256": h.sha256}));
+        }
+    }
+    // 64 KiB byte ranges with the same bytes (all-zero chunks counted apart: they say nothing about shared weights)
+    let zero = *blake3::hash(&[0u8; CHUNK]).as_bytes();
+    let mut c30: HashMap<[u8; 32], ()> = HashMap::new();
+    for h in &h30 {
+        for c in &h.chunks {
+            c30.insert(*c, ());
+        }
+    }
+    let (mut chunks27, mut shared_chunks, mut shared_zero) = (0u64, 0u64, 0u64);
+    for h in &h27 {
+        for c in &h.chunks {
+            chunks27 += 1;
+            if c30.contains_key(c) {
+                if *c == zero {
+                    shared_zero += 1;
+                } else {
+                    shared_chunks += 1;
+                }
+            }
+        }
+    }
+    // shapes that match even if the bytes differ
+    let mut shapes: std::collections::BTreeMap<String, (u64, u64, Vec<String>, Vec<String>)> = Default::default();
+    for (ts, side) in [(&t27, 0), (&t30, 1)] {
+        for t in ts.iter() {
+            let e = shapes.entry(format!("{:?}", t.shape)).or_default();
+            if side == 0 {
+                e.0 += 1;
+                if e.2.len() < 3 {
+                    e.2.push(format!("{} {}", t.name, t.dtype));
+                }
+            } else {
+                e.1 += 1;
+                if e.3.len() < 3 {
+                    e.3.push(format!("{} {}", t.name, t.dtype));
+                }
+            }
+        }
+    }
+    let shape_matches: Vec<Value> = shapes
+        .iter()
+        .filter(|(_, v)| v.0 > 0 && v.1 > 0)
+        .map(|(s, v)| json!({"shape": s, "count_27b": v.0, "count_30b": v.1, "e_g_27b": v.2, "e_g_30b": v.3}))
+        .collect();
+    let cfg = |d: &str| -> Result<Value, String> {
+        let c = read_json(&format!("{d}/config.json"))?;
+        let t = if c["text_config"].is_object() { c["text_config"].clone() } else { c };
+        Ok(json!({"hidden_size": t["hidden_size"], "vocab_size": t["vocab_size"], "layers": t["num_hidden_layers"],
+                  "head_dim": t["head_dim"], "heads": t["num_attention_heads"], "kv_heads": t["num_key_value_heads"],
+                  "intermediate_size": t["intermediate_size"], "moe_intermediate_size": t["moe_intermediate_size"],
+                  "experts": t["num_experts"]}))
+    };
+    let gb = |b: u64| b as f64 / 1e9;
+    let r = json!({
+        "what": "L190 M0: shared weights between the 27B and the 30B (Drake 2026-10-20T17:20Z), host only",
+        "method": "every tensor of every *.safetensors file: name, dtype, shape, sha256 of its bytes; plus blake3 of every 64 KiB chunk (aligned to the tensor start) for byte ranges shared at any position",
+        "model_27b": {"dir": d27, "tensors": t27.len(), "bytes": b27, "gb": gb(b27), "hash_seconds": s27, "config": cfg(d27)?},
+        "model_30b": {"dir": d30, "tensors": t30.len(), "bytes": b30, "gb": gb(b30), "hash_seconds": s30, "config": cfg(d30)?},
+        "identical_tensors": same_tensors.len(), "identical_tensor_bytes": same_tensor_bytes,
+        "identical_tensor_list": same_tensors,
+        "chunks_64k_27b": chunks27, "chunks_64k_27b_also_in_30b_nonzero": shared_chunks,
+        "chunks_64k_27b_also_in_30b_all_zero": shared_zero,
+        "shared_nonzero_bytes_upper_bound": shared_chunks * CHUNK as u64,
+        "gb_saved_if_loaded_once": gb(same_tensor_bytes.max(shared_chunks * CHUNK as u64)),
+        "shape_matches": shape_matches,
+        "per_tensor_list": list,
+    });
+    std::fs::write(out, serde_json::to_string_pretty(&r).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let mut tsv = String::from("model\tname\tdtype\tshape\tbytes\tsha256\n");
+    for (m, ts, hs) in [("27b", &t27, &h27), ("30b", &t30, &h30)] {
+        for (t, h) in ts.iter().zip(hs.iter()) {
+            tsv += &format!("{m}\t{}\t{}\t{:?}\t{}\t{}\n", t.name, t.dtype, t.shape, t.len, h.sha256);
+        }
+    }
+    std::fs::write(list, tsv).map_err(|e| e.to_string())?;
+    println!(
+        "PASS tensors: 27B {} tensors {:.2} GB ({:.1} s), 30B {} tensors {:.2} GB ({:.1} s); identical tensors {} ({} bytes); shared nonzero 64 KiB chunks {} (zero chunks {}); shapes in common {}",
+        t27.len(), gb(b27), s27, t30.len(), gb(b30), s30, same_tensors.len(), same_tensor_bytes, shared_chunks, shared_zero,
+        r["shape_matches"].as_array().map_or(0, Vec::len)
+    );
+    Ok(())
+}

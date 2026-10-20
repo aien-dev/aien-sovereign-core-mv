@@ -1,0 +1,66 @@
+{
+  "chunks_64k_27b": 471996,
+  "chunks_64k_27b_also_in_30b_all_zero": 0,
+  "chunks_64k_27b_also_in_30b_nonzero": 0,
+  "gb_saved_if_loaded_once": 0.0,
+  "identical_tensor_bytes": 0,
+  "identical_tensor_list": [],
+  "identical_tensors": 0,
+  "method": "every tensor of every *.safetensors file: name, dtype, shape, sha256 of its bytes; plus blake3 of every 64 KiB chunk (aligned to the tensor start) for byte ranges shared at any position",
+  "model_27b": {
+    "bytes": 30866663264,
+    "config": {
+      "experts": null,
+      "head_dim": 256,
+      "heads": 24,
+      "hidden_size": 5120,
+      "intermediate_size": 17408,
+      "kv_heads": 4,
+      "layers": 64,
+      "moe_intermediate_size": null,
+      "vocab_size": 248320
+    },
+    "dir": "/home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a",
+    "gb": 30.866663264,
+    "hash_seconds": 44.739462609,
+    "tensors": 1606
+  },
+  "model_30b": {
+    "bytes": 31170895872,
+    "config": {
+      "experts": 128,
+      "head_dim": 128,
+      "heads": 32,
+      "hidden_size": 2048,
+      "intermediate_size": 6144,
+      "kv_heads": 4,
+      "layers": 48,
+      "moe_intermediate_size": 768,
+      "vocab_size": 151936
+    },
+    "dir": "/home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8",
+    "gb": 31.170895872,
+    "hash_seconds": 58.728847315,
+    "tensors": 37491
+  },
+  "per_tensor_list": "01-tensors.tsv.gz",
+  "shape_matches": [
+    {
+      "count_27b": 48,
+      "count_30b": 96,
+      "e_g_27b": [
+        "model.language_model.layers.0.linear_attn.norm.weight BF16",
+        "model.language_model.layers.1.linear_attn.norm.weight BF16",
+        "model.language_model.layers.10.linear_attn.norm.weight BF16"
+      ],
+      "e_g_30b": [
+        "model.layers.0.self_attn.k_norm.weight BF16",
+        "model.layers.0.self_attn.q_norm.weight BF16",
+        "model.layers.1.self_attn.k_norm.weight BF16"
+      ],
+      "shape": "[128]"
+    }
+  ],
+  "shared_nonzero_bytes_upper_bound": 0,
+  "what": "L190 M0: shared weights between the 27B and the 30B (Drake 2026-10-20T17:20Z), host only"
+}
