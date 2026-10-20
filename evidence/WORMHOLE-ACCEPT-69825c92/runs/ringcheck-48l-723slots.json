@@ -1,0 +1,62 @@
+{
+  "all_logits_bit_identical": true,
+  "argmax_same_positions": 24,
+  "control": {
+    "corrupted": [
+      0,
+      136
+    ],
+    "error": "heartbeat fill (0, 136): digest mismatch for expert (0, 136)",
+    "result": "caught (failed closed)"
+  },
+  "ids": [
+    248045,
+    846,
+    198,
+    7734,
+    264,
+    351,
+    709,
+    421,
+    4523,
+    279,
+    7875,
+    314,
+    1330,
+    52883,
+    13,
+    248046,
+    198,
+    248045,
+    74455,
+    198,
+    248068,
+    271,
+    248069,
+    271
+  ],
+  "layers": 48,
+  "loadavg_end": "46.13 50.71 53.62 32/2981 3971349",
+  "loadavg_start": "51.18 51.58 54.90 41/2969 3612965",
+  "manifest": "/home/drakestapleton/wormhole-scratch/fn-experts.manifest.json",
+  "max_abs_logit_diff": 0.0,
+  "model": "/home/drakestapleton/models/qwen3.8-flash-next-nvfp4-fc694b54",
+  "pass": true,
+  "plain": "whole prompt in one call",
+  "positions": 24,
+  "ring": "one word at a time, experts from published digest-checked slots",
+  "ring_stats": {
+    "fill_bytes": 18781449432,
+    "fill_s": 24.9203997609999,
+    "hits": 0,
+    "lookups": 0,
+    "misses": 0,
+    "prefetched": 0
+  },
+  "slots": 723,
+  "wall_s": {
+    "plain": 139.476001176,
+    "ring": 224.60963971
+  },
+  "what": "Flash-Next routed experts through the Heartbeat ring vs the plain checkpoint reader (CPU reference)"
+}

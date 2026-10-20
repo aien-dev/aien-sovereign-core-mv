@@ -1,0 +1,724 @@
+{
+ "forward": {
+  "code-golden": {
+   "1": {
+    "accept_rate": 1.0,
+    "accepted": 15,
+    "drafted": 15,
+    "k": 1,
+    "rounds": 15,
+    "tokens": 30,
+    "tokens_per_round": 2.0
+   },
+   "2": {
+    "accept_rate": 0.9090909090909091,
+    "accepted": 20,
+    "drafted": 22,
+    "k": 2,
+    "rounds": 11,
+    "tokens": 30,
+    "tokens_per_round": 2.727272727272727
+   },
+   "3": {
+    "accept_rate": 1.0,
+    "accepted": 23,
+    "drafted": 23,
+    "k": 3,
+    "rounds": 8,
+    "tokens": 30,
+    "tokens_per_round": 3.75
+   },
+   "4": {
+    "accept_rate": 0.8571428571428571,
+    "accepted": 24,
+    "drafted": 28,
+    "k": 4,
+    "rounds": 7,
+    "tokens": 30,
+    "tokens_per_round": 4.285714285714286
+   },
+   "6": {
+    "accept_rate": 0.8333333333333334,
+    "accepted": 25,
+    "drafted": 30,
+    "k": 6,
+    "rounds": 5,
+    "tokens": 30,
+    "tokens_per_round": 6.0
+   },
+   "8": {
+    "accept_rate": 0.9310344827586207,
+    "accepted": 27,
+    "drafted": 29,
+    "k": 8,
+    "rounds": 4,
+    "tokens": 30,
+    "tokens_per_round": 7.5
+   },
+   "12": {
+    "accept_rate": 0.7297297297297297,
+    "accepted": 27,
+    "drafted": 37,
+    "k": 12,
+    "rounds": 4,
+    "tokens": 30,
+    "tokens_per_round": 7.5
+   },
+   "16": {
+    "accept_rate": 0.9666666666666667,
+    "accepted": 29,
+    "drafted": 30,
+    "k": 16,
+    "rounds": 2,
+    "tokens": 30,
+    "tokens_per_round": 15.0
+   }
+  },
+  "prose": {
+   "1": {
+    "accept_rate": 0.7297297297297297,
+    "accepted": 108,
+    "drafted": 148,
+    "k": 1,
+    "rounds": 148,
+    "tokens": 256,
+    "tokens_per_round": 1.7297297297297298
+   },
+   "2": {
+    "accept_rate": 0.6327433628318584,
+    "accepted": 143,
+    "drafted": 226,
+    "k": 2,
+    "rounds": 113,
+    "tokens": 256,
+    "tokens_per_round": 2.265486725663717
+   },
+   "3": {
+    "accept_rate": 0.5132450331125827,
+    "accepted": 155,
+    "drafted": 302,
+    "k": 3,
+    "rounds": 101,
+    "tokens": 256,
+    "tokens_per_round": 2.5346534653465347
+   },
+   "4": {
+    "accept_rate": 0.46368715083798884,
+    "accepted": 166,
+    "drafted": 358,
+    "k": 4,
+    "rounds": 90,
+    "tokens": 256,
+    "tokens_per_round": 2.8444444444444446
+   },
+   "6": {
+    "accept_rate": 0.3509127789046653,
+    "accepted": 173,
+    "drafted": 493,
+    "k": 6,
+    "rounds": 83,
+    "tokens": 256,
+    "tokens_per_round": 3.0843373493975905
+   },
+   "8": {
+    "accept_rate": 0.2903752039151713,
+    "accepted": 178,
+    "drafted": 613,
+    "k": 8,
+    "rounds": 78,
+    "tokens": 256,
+    "tokens_per_round": 3.282051282051282
+   },
+   "12": {
+    "accept_rate": 0.20270270270270271,
+    "accepted": 180,
+    "drafted": 888,
+    "k": 12,
+    "rounds": 76,
+    "tokens": 256,
+    "tokens_per_round": 3.3684210526315788
+   },
+   "16": {
+    "accept_rate": 0.15616911130284727,
+    "accepted": 181,
+    "drafted": 1159,
+    "k": 16,
+    "rounds": 75,
+    "tokens": 256,
+    "tokens_per_round": 3.4133333333333336
+   }
+  },
+  "codelong": {
+   "1": {
+    "accept_rate": 0.8623188405797102,
+    "accepted": 119,
+    "drafted": 138,
+    "k": 1,
+    "rounds": 138,
+    "tokens": 256,
+    "tokens_per_round": 1.855072463768116
+   },
+   "2": {
+    "accept_rate": 0.797979797979798,
+    "accepted": 158,
+    "drafted": 198,
+    "k": 2,
+    "rounds": 99,
+    "tokens": 256,
+    "tokens_per_round": 2.585858585858586
+   },
+   "3": {
+    "accept_rate": 0.7436974789915967,
+    "accepted": 177,
+    "drafted": 238,
+    "k": 3,
+    "rounds": 80,
+    "tokens": 256,
+    "tokens_per_round": 3.2
+   },
+   "4": {
+    "accept_rate": 0.75,
+    "accepted": 192,
+    "drafted": 256,
+    "k": 4,
+    "rounds": 64,
+    "tokens": 256,
+    "tokens_per_round": 4.0
+   },
+   "6": {
+    "accept_rate": 0.6435331230283912,
+    "accepted": 204,
+    "drafted": 317,
+    "k": 6,
+    "rounds": 53,
+    "tokens": 256,
+    "tokens_per_round": 4.830188679245283
+   },
+   "8": {
+    "accept_rate": 0.5660377358490566,
+    "accepted": 210,
+    "drafted": 371,
+    "k": 8,
+    "rounds": 47,
+    "tokens": 256,
+    "tokens_per_round": 5.446808510638298
+   },
+   "12": {
+    "accept_rate": 0.47288503253796094,
+    "accepted": 218,
+    "drafted": 461,
+    "k": 12,
+    "rounds": 39,
+    "tokens": 256,
+    "tokens_per_round": 6.564102564102564
+   },
+   "16": {
+    "accept_rate": 0.4051094890510949,
+    "accepted": 222,
+    "drafted": 548,
+    "k": 16,
+    "rounds": 35,
+    "tokens": 256,
+    "tokens_per_round": 7.314285714285714
+   }
+  },
+  "all": {
+   "1": {
+    "accepted": 242,
+    "drafted": 301,
+    "tokens": 542,
+    "rounds": 301,
+    "accept_rate": 0.8039867109634552,
+    "tokens_per_round": 1.8006644518272426
+   },
+   "2": {
+    "accepted": 321,
+    "drafted": 446,
+    "tokens": 542,
+    "rounds": 223,
+    "accept_rate": 0.7197309417040358,
+    "tokens_per_round": 2.430493273542601
+   },
+   "4": {
+    "accepted": 382,
+    "drafted": 642,
+    "tokens": 542,
+    "rounds": 161,
+    "accept_rate": 0.5950155763239875,
+    "tokens_per_round": 3.3664596273291925
+   },
+   "8": {
+    "accepted": 415,
+    "drafted": 1013,
+    "tokens": 542,
+    "rounds": 129,
+    "accept_rate": 0.4096742349457058,
+    "tokens_per_round": 4.2015503875969
+   },
+   "16": {
+    "accepted": 432,
+    "drafted": 1737,
+    "tokens": 542,
+    "rounds": 112,
+    "accept_rate": 0.24870466321243523,
+    "tokens_per_round": 4.839285714285714
+   }
+  }
+ },
+ "reverse": {
+  "code-golden": {
+   "1": {
+    "accept_rate": 1.0,
+    "accepted": 14,
+    "drafted": 14,
+    "k": 1,
+    "rounds": 14,
+    "tokens": 28,
+    "tokens_per_round": 2.0
+   },
+   "2": {
+    "accept_rate": 0.9,
+    "accepted": 18,
+    "drafted": 20,
+    "k": 2,
+    "rounds": 10,
+    "tokens": 28,
+    "tokens_per_round": 2.8
+   },
+   "3": {
+    "accept_rate": 1.0,
+    "accepted": 21,
+    "drafted": 21,
+    "k": 3,
+    "rounds": 7,
+    "tokens": 28,
+    "tokens_per_round": 4.0
+   },
+   "4": {
+    "accept_rate": 0.8461538461538461,
+    "accepted": 22,
+    "drafted": 26,
+    "k": 4,
+    "rounds": 7,
+    "tokens": 28,
+    "tokens_per_round": 4.0
+   },
+   "6": {
+    "accept_rate": 0.8275862068965517,
+    "accepted": 24,
+    "drafted": 29,
+    "k": 6,
+    "rounds": 5,
+    "tokens": 28,
+    "tokens_per_round": 5.6
+   },
+   "8": {
+    "accept_rate": 0.9259259259259259,
+    "accepted": 25,
+    "drafted": 27,
+    "k": 8,
+    "rounds": 4,
+    "tokens": 28,
+    "tokens_per_round": 7.0
+   },
+   "12": {
+    "accept_rate": 0.7222222222222222,
+    "accepted": 26,
+    "drafted": 36,
+    "k": 12,
+    "rounds": 3,
+    "tokens": 28,
+    "tokens_per_round": 9.333333333333334
+   },
+   "16": {
+    "accept_rate": 0.9642857142857143,
+    "accepted": 27,
+    "drafted": 28,
+    "k": 16,
+    "rounds": 2,
+    "tokens": 28,
+    "tokens_per_round": 14.0
+   }
+  },
+  "prose": {
+   "1": {
+    "accept_rate": 0.8428571428571429,
+    "accepted": 59,
+    "drafted": 70,
+    "k": 1,
+    "rounds": 70,
+    "tokens": 128,
+    "tokens_per_round": 1.8285714285714285
+   },
+   "2": {
+    "accept_rate": 0.6727272727272727,
+    "accepted": 74,
+    "drafted": 110,
+    "k": 2,
+    "rounds": 55,
+    "tokens": 128,
+    "tokens_per_round": 2.327272727272727
+   },
+   "3": {
+    "accept_rate": 0.631578947368421,
+    "accepted": 84,
+    "drafted": 133,
+    "k": 3,
+    "rounds": 45,
+    "tokens": 128,
+    "tokens_per_round": 2.8444444444444446
+   },
+   "4": {
+    "accept_rate": 0.5304878048780488,
+    "accepted": 87,
+    "drafted": 164,
+    "k": 4,
+    "rounds": 41,
+    "tokens": 128,
+    "tokens_per_round": 3.1219512195121952
+   },
+   "6": {
+    "accept_rate": 0.46798029556650245,
+    "accepted": 95,
+    "drafted": 203,
+    "k": 6,
+    "rounds": 34,
+    "tokens": 128,
+    "tokens_per_round": 3.764705882352941
+   },
+   "8": {
+    "accept_rate": 0.383399209486166,
+    "accepted": 97,
+    "drafted": 253,
+    "k": 8,
+    "rounds": 32,
+    "tokens": 128,
+    "tokens_per_round": 4.0
+   },
+   "12": {
+    "accept_rate": 0.2932551319648094,
+    "accepted": 100,
+    "drafted": 341,
+    "k": 12,
+    "rounds": 29,
+    "tokens": 128,
+    "tokens_per_round": 4.413793103448276
+   },
+   "16": {
+    "accept_rate": 0.22075055187637968,
+    "accepted": 100,
+    "drafted": 453,
+    "k": 16,
+    "rounds": 29,
+    "tokens": 128,
+    "tokens_per_round": 4.413793103448276
+   }
+  },
+  "codelong": {
+   "1": {
+    "accept_rate": 0.9104477611940298,
+    "accepted": 61,
+    "drafted": 67,
+    "k": 1,
+    "rounds": 67,
+    "tokens": 128,
+    "tokens_per_round": 1.9104477611940298
+   },
+   "2": {
+    "accept_rate": 0.8723404255319149,
+    "accepted": 82,
+    "drafted": 94,
+    "k": 2,
+    "rounds": 47,
+    "tokens": 128,
+    "tokens_per_round": 2.723404255319149
+   },
+   "3": {
+    "accept_rate": 0.8198198198198198,
+    "accepted": 91,
+    "drafted": 111,
+    "k": 3,
+    "rounds": 37,
+    "tokens": 128,
+    "tokens_per_round": 3.4594594594594597
+   },
+   "4": {
+    "accept_rate": 0.7089552238805971,
+    "accepted": 95,
+    "drafted": 134,
+    "k": 4,
+    "rounds": 34,
+    "tokens": 128,
+    "tokens_per_round": 3.764705882352941
+   },
+   "6": {
+    "accept_rate": 0.6375,
+    "accepted": 102,
+    "drafted": 160,
+    "k": 6,
+    "rounds": 27,
+    "tokens": 128,
+    "tokens_per_round": 4.7407407407407405
+   },
+   "8": {
+    "accept_rate": 0.585635359116022,
+    "accepted": 106,
+    "drafted": 181,
+    "k": 8,
+    "rounds": 23,
+    "tokens": 128,
+    "tokens_per_round": 5.565217391304348
+   },
+   "12": {
+    "accept_rate": 0.4954954954954955,
+    "accepted": 110,
+    "drafted": 222,
+    "k": 12,
+    "rounds": 19,
+    "tokens": 128,
+    "tokens_per_round": 6.7368421052631575
+   },
+   "16": {
+    "accept_rate": 0.4132841328413284,
+    "accepted": 112,
+    "drafted": 271,
+    "k": 16,
+    "rounds": 17,
+    "tokens": 128,
+    "tokens_per_round": 7.529411764705882
+   }
+  },
+  "all": {
+   "1": {
+    "accepted": 134,
+    "drafted": 151,
+    "tokens": 284,
+    "rounds": 151,
+    "accept_rate": 0.8874172185430463,
+    "tokens_per_round": 1.880794701986755
+   },
+   "2": {
+    "accepted": 174,
+    "drafted": 224,
+    "tokens": 284,
+    "rounds": 112,
+    "accept_rate": 0.7767857142857143,
+    "tokens_per_round": 2.5357142857142856
+   },
+   "4": {
+    "accepted": 204,
+    "drafted": 324,
+    "tokens": 284,
+    "rounds": 82,
+    "accept_rate": 0.6296296296296297,
+    "tokens_per_round": 3.4634146341463414
+   },
+   "8": {
+    "accepted": 228,
+    "drafted": 461,
+    "tokens": 284,
+    "rounds": 59,
+    "accept_rate": 0.4945770065075922,
+    "tokens_per_round": 4.813559322033898
+   },
+   "16": {
+    "accepted": 239,
+    "drafted": 752,
+    "tokens": 284,
+    "rounds": 48,
+    "accept_rate": 0.3178191489361702,
+    "tokens_per_round": 5.916666666666667
+   }
+  }
+ },
+ "agree": {
+  "code-golden": [
+   30,
+   30
+  ],
+  "prose": [
+   256,
+   256
+  ],
+  "codelong": [
+   255,
+   256
+  ]
+ },
+ "hitrate": {
+  "caches": [
+   {
+    "cache_experts": 723,
+    "cache_gb": 2.0,
+    "lookups": 260160,
+    "lru_hit_rate_warm_across_prompts": 0.4507380073800738,
+    "per_prompt": [
+     {
+      "file": "/home/drakestapleton/wormhole-scratch/runs/fnscore-code-golden.json",
+      "lookups": 14400,
+      "lru_hit_rate": 0.37493055555555554,
+      "lru_hits": 5399
+     },
+     {
+      "file": "/home/drakestapleton/wormhole-scratch/runs/fnscore-prose.json",
+      "lookups": 122880,
+      "lru_hit_rate": 0.4424072265625,
+      "lru_hits": 54363
+     },
+     {
+      "file": "/home/drakestapleton/wormhole-scratch/runs/fnscore-codelong.json",
+      "lookups": 122880,
+      "lru_hit_rate": 0.46795247395833334,
+      "lru_hits": 57502
+     }
+    ],
+    "pinned_hot_heldout_hit_rate": 0.014452644526445265,
+    "share_of_all_experts": 0.0294189453125
+   },
+   {
+    "cache_experts": 1446,
+    "cache_gb": 4.0,
+    "lookups": 260160,
+    "lru_hit_rate_warm_across_prompts": 0.6221171586715867,
+    "per_prompt": [
+     {
+      "file": "/home/drakestapleton/wormhole-scratch/runs/fnscore-code-golden.json",
+      "lookups": 14400,
+      "lru_hit_rate": 0.5970833333333333,
+      "lru_hits": 8598
+     },
+     {
+      "file": "/home/drakestapleton/wormhole-scratch/runs/fnscore-prose.json",
+      "lookups": 122880,
+      "lru_hit_rate": 0.6111409505208333,
+      "lru_hits": 75097
+     },
+     {
+      "file": "/home/drakestapleton/wormhole-scratch/runs/fnscore-codelong.json",
+      "lookups": 122880,
+      "lru_hit_rate": 0.6360270182291666,
+      "lru_hits": 78155
+     }
+    ],
+    "pinned_hot_heldout_hit_rate": 0.06128920664206642,
+    "share_of_all_experts": 0.058837890625
+   },
+   {
+    "cache_experts": 2893,
+    "cache_gb": 8.0,
+    "lookups": 260160,
+    "lru_hit_rate_warm_across_prompts": 0.7648370233702337,
+    "per_prompt": [
+     {
+      "file": "/home/drakestapleton/wormhole-scratch/runs/fnscore-code-golden.json",
+      "lookups": 14400,
+      "lru_hit_rate": 0.7210416666666667,
+      "lru_hits": 10383
+     },
+     {
+      "file": "/home/drakestapleton/wormhole-scratch/runs/fnscore-prose.json",
+      "lookups": 122880,
+      "lru_hit_rate": 0.7722330729166667,
+      "lru_hits": 94892
+     },
+     {
+      "file": "/home/drakestapleton/wormhole-scratch/runs/fnscore-codelong.json",
+      "lookups": 122880,
+      "lru_hit_rate": 0.7625732421875,
+      "lru_hits": 93705
+     }
+    ],
+    "pinned_hot_heldout_hit_rate": 0.145079950799508,
+    "share_of_all_experts": 0.11771647135416667
+   },
+   {
+    "cache_experts": 5786,
+    "cache_gb": 16.0,
+    "lookups": 260160,
+    "lru_hit_rate_warm_across_prompts": 0.9007111008610086,
+    "per_prompt": [
+     {
+      "file": "/home/drakestapleton/wormhole-scratch/runs/fnscore-code-golden.json",
+      "lookups": 14400,
+      "lru_hit_rate": 0.8022222222222222,
+      "lru_hits": 11552
+     },
+     {
+      "file": "/home/drakestapleton/wormhole-scratch/runs/fnscore-prose.json",
+      "lookups": 122880,
+      "lru_hit_rate": 0.9136800130208333,
+      "lru_hits": 112273
+     },
+     {
+      "file": "/home/drakestapleton/wormhole-scratch/runs/fnscore-codelong.json",
+      "lookups": 122880,
+      "lru_hit_rate": 0.8992838541666667,
+      "lru_hits": 110504
+     }
+    ],
+    "pinned_hot_heldout_hit_rate": 0.29487238622386225,
+    "share_of_all_experts": 0.23543294270833334
+   },
+   {
+    "cache_experts": 11573,
+    "cache_gb": 32.0,
+    "lookups": 260160,
+    "lru_hit_rate_warm_across_prompts": 0.9518450184501845,
+    "per_prompt": [
+     {
+      "file": "/home/drakestapleton/wormhole-scratch/runs/fnscore-code-golden.json",
+      "lookups": 14400,
+      "lru_hit_rate": 0.8053472222222222,
+      "lru_hits": 11597
+     },
+     {
+      "file": "/home/drakestapleton/wormhole-scratch/runs/fnscore-prose.json",
+      "lookups": 122880,
+      "lru_hit_rate": 0.9576334635416667,
+      "lru_hits": 117674
+     },
+     {
+      "file": "/home/drakestapleton/wormhole-scratch/runs/fnscore-codelong.json",
+      "lookups": 122880,
+      "lru_hit_rate": 0.9632242838541667,
+      "lru_hits": 118361
+     }
+    ],
+    "pinned_hot_heldout_hit_rate": 0.5365236777367773,
+    "share_of_all_experts": 0.4709065755208333
+   }
+  ],
+  "distinct_per_block": [
+   {
+    "blocks": 542,
+    "k": 1,
+    "mean_bytes": 1327115520.0,
+    "mean_distinct_experts": 480.0
+   },
+   {
+    "blocks": 135,
+    "k": 4,
+    "mean_bytes": 3329790184.177778,
+    "mean_distinct_experts": 1204.3407407407408
+   },
+   {
+    "blocks": 67,
+    "k": 8,
+    "mean_bytes": 5265669207.044776,
+    "mean_distinct_experts": 1904.5223880597016
+   },
+   {
+    "blocks": 33,
+    "k": 16,
+    "mean_bytes": 8142155332.363637,
+    "mean_distinct_experts": 2944.909090909091
+   }
+  ],
+  "expert_bytes": 2764824.0,
+  "files": [
+   "/home/drakestapleton/wormhole-scratch/runs/fnscore-code-golden.json",
+   "/home/drakestapleton/wormhole-scratch/runs/fnscore-prose.json",
+   "/home/drakestapleton/wormhole-scratch/runs/fnscore-codelong.json"
+  ]
+ }
+}
