@@ -56,3 +56,6 @@ pub mod worker;
 
 #[cfg(test)]
 pub mod testutil;
+
+#[cfg(test)]
+mod judge_once_tests;

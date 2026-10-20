@@ -881,9 +881,29 @@ pub fn run_once_in(
         .join("locks")
         .join("head")
         .join(format!("{repo}.{sha}.lock"));
-    let _head = crate::resources::try_lock(&head_lock)
-        .map_err(|e| format!("cannot take the head lock {}: {e}", head_lock.display()))?
-        .ok_or_else(|| format!("{repo} {sha} is already being judged by another worker"))?;
+    // Tried for up to two seconds: a child another thread forks holds a copy
+    // of the descriptor until it execs, so a lock just released can look held
+    // for a moment; a real second judge holds it for the whole run.
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    let _head = loop {
+        match crate::resources::try_lock(&head_lock) {
+            Ok(Some(l)) => break l,
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(50))
+            }
+            Ok(None) => {
+                return Err(format!(
+                    "{repo} {sha} is already being judged by another worker"
+                ))
+            }
+            Err(e) => {
+                return Err(format!(
+                    "cannot take the head lock {}: {e}",
+                    head_lock.display()
+                ))
+            }
+        }
+    };
     cfg.state.beat(repo, sha, "checkout");
     // Heads of one batch share the clones and mirrors: checkouts, pins and
     // sibling worktrees are made one head at a time (git's own locks refuse
