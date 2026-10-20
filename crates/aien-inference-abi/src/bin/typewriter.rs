@@ -302,6 +302,7 @@ fn main() {
         Some("heads") => heads(&args[2..]),
         Some("plan") => plan(&args[2..]),
         Some("load") => load(&args[2..]),
+        Some("trace") => trace_cmd(&args[2..]),
         _ => Err(USAGE.into()),
     };
     if let Err(e) = r {
@@ -362,6 +363,9 @@ fn part_of(name: &str) -> (&'static str, Option<usize>, Option<usize>) {
     let layer = num_after(".layers.");
     if name.starts_with("mtp") {
         return ("mtp", layer, None);
+    }
+    if name.contains("visual") || name.contains("vision") {
+        return ("vision", layer, None);
     }
     if let Some(e) = num_after(".experts.") {
         return ("expert", layer, Some(e));
@@ -632,4 +636,173 @@ fn load(args: &[String]) -> Result<(), String> {
         "tensors": parts.len(), "head_bytes": total, "packed_file": packed, "rounds": rows,
     });
     write_json(&args[5], &out)
+}
+
+/// `typewriter trace <heads.json> <one-expert-bytes> <out.json> <domain>=<fit.json>,<held.json> ...`:
+/// offline analyses from recorded routes (no model): H4 prefetch hit rates one token ahead and
+/// task-switch detection delay; H6 growth of the expert union when N sequences share one beat.
+fn trace_cmd(args: &[String]) -> Result<(), String> {
+    if args.len() < 4 {
+        return Err("usage: typewriter trace <heads.json> <one-expert-bytes> <out.json> <domain>=<fit.json>,<held.json> ...".into());
+    }
+    let heads = read_json(&args[0])?;
+    let expert_b: f64 = args[1].parse().map_err(|_| "one-expert-bytes".to_string())?;
+    let mut fit: BTreeMap<String, Trace> = BTreeMap::new();
+    let mut held: BTreeMap<String, Trace> = BTreeMap::new();
+    for spec in &args[3..] {
+        let (name, files) = spec.split_once('=').ok_or("domain=fit,held")?;
+        let (f, h) = files.split_once(',').ok_or("domain=fit,held")?;
+        fit.insert(name.into(), trace(f)?);
+        held.insert(name.into(), trace(h)?);
+    }
+    let names: Vec<String> = held.keys().cloned().collect();
+    let t0 = &held[&names[0]];
+    let (experts, k, layers) = (t0.experts, t0.top_k, t0.routes.len());
+    let head_mask = |d: &str| -> Vec<Vec<bool>> {
+        (0..layers)
+            .map(|l| {
+                let mut m = vec![false; experts];
+                if let Some(a) = heads["heads"][d]["layers"][l].as_array() {
+                    a.iter().filter_map(|x| x.as_u64()).for_each(|e| m[e as usize] = true);
+                }
+                m
+            })
+            .collect()
+    };
+
+    // H4a: predictors of token i+1's experts per layer, scored as hits / k, with the bytes each
+    // predictor would have had in flight (the predicted set size).
+    let mut h4 = serde_json::Map::new();
+    for d in &names {
+        let t = &held[d];
+        let n = t.routes[0].len() / k;
+        let mask = head_mask(d);
+        let mut rows = serde_json::Map::new();
+        for w in [1usize, 2, 4, 8, 16] {
+            // "recent w": the union of the last w tokens' experts (a cache of the last w beats).
+            let (mut hit, mut tot, mut set_sz) = (0usize, 0usize, 0usize);
+            let (mut hit_h, mut set_h) = (0usize, 0usize);
+            for l in 0..layers {
+                for i in w..n {
+                    let mut pred = vec![false; experts];
+                    for j in i - w..i {
+                        tok(t, k, l, j).iter().for_each(|&e| pred[e as usize] = true);
+                    }
+                    let sz = pred.iter().filter(|&&p| p).count();
+                    let act = tok(t, k, l, i);
+                    hit += act.iter().filter(|&&e| pred[e as usize]).count();
+                    hit_h += act.iter().filter(|&&e| pred[e as usize] || mask[l][e as usize]).count();
+                    set_h += (0..experts).filter(|&e| pred[e] || mask[l][e]).count();
+                    tot += k;
+                    set_sz += sz;
+                }
+            }
+            let beats = (tot / k).max(1) as f64;
+            rows.insert(format!("recent_{w}"), json!({
+                "hit_rate": hit as f64 / tot as f64,
+                "experts_in_flight_per_layer": set_sz as f64 / beats,
+                "with_head_hit_rate": hit_h as f64 / tot as f64,
+                "with_head_experts_per_layer": set_h as f64 / beats,
+            }));
+        }
+        h4.insert(d.clone(), Value::Object(rows));
+    }
+    // H4b: task-switch detection. Stream domain A's held-out routes then domain B's; every token,
+    // score each domain by the log-probability of the last `win` tokens' routed experts under
+    // that domain's fit-text usage (per layer, add-one smoothed); the detector says the domain
+    // with the highest score. Delay = tokens after the switch until it says B and keeps saying B
+    // to the end of B's first 128 tokens. Fit and held-out texts are different documents.
+    let logp: BTreeMap<String, Vec<Vec<f64>>> = names
+        .iter()
+        .map(|d| {
+            let t = &fit[d];
+            let tabs = (0..layers)
+                .map(|l| {
+                    let mut c = vec![1f64; experts];
+                    t.routes[l].iter().for_each(|&e| c[e as usize] += 1.0);
+                    let s: f64 = c.iter().sum();
+                    c.iter().map(|v| (v / s).ln()).collect()
+                })
+                .collect();
+            (d.clone(), tabs)
+        })
+        .collect();
+    let share = |t: &Trace, i: usize, d: &str| -> f64 {
+        let lp = &logp[d];
+        (0..layers).map(|l| tok(t, k, l, i).iter().map(|&e| lp[l][e as usize]).sum::<f64>()).sum()
+    };
+    let mut h4b = serde_json::Map::new();
+    for win in [1usize, 4, 8, 16, 32] {
+        let mut delays = serde_json::Map::new();
+        let mut correct = 0usize;
+        let mut total = 0usize;
+        for a in &names {
+            for b in &names {
+                if a == b {
+                    continue;
+                }
+                let (ta, tb) = (&held[a], &held[b]);
+                let na = (ta.routes[0].len() / k).min(256);
+                let nb = (tb.routes[0].len() / k).min(128);
+                let seq: Vec<(&Trace, usize)> = (na - win.min(na)..na).map(|i| (ta, i)).chain((0..nb).map(|i| (tb, i))).collect();
+                let off = win.min(na);
+                let mut says_b = Vec::with_capacity(nb);
+                for p in off..seq.len() {
+                    let lo = p + 1 - win.min(p + 1);
+                    let best = names
+                        .iter()
+                        .map(|d| (d, seq[lo..=p].iter().map(|&(t, i)| share(t, i, d)).sum::<f64>()))
+                        .max_by(|x, y| x.1.total_cmp(&y.1))
+                        .map(|x| x.0.clone())
+                        .unwrap_or_default();
+                    says_b.push(best == *b);
+                }
+                let delay = (0..says_b.len()).find(|&s| says_b[s..].iter().all(|&x| x)).unwrap_or(says_b.len());
+                delays.insert(format!("{a}->{b}"), json!(delay));
+                correct += says_b[says_b.len() / 2..].iter().filter(|&&x| x).count();
+                total += says_b.len() - says_b.len() / 2;
+            }
+        }
+        h4b.insert(format!("window_{win}"), json!({"delay_tokens": Value::Object(delays), "steady_accuracy": correct as f64 / total.max(1) as f64}));
+    }
+    // H6: N independent sequences on one beat. Draw N token positions from the pooled held-out
+    // routes (fixed seed, 64 draws per N); per layer the union of their experts is what one weight
+    // stroke must read. Bytes per beat for the routed part = union x one expert.
+    let pool: Vec<(&Trace, usize)> = names.iter().flat_map(|d| { let t = &held[d]; (0..t.routes[0].len() / k).map(move |i| (t, i)) }).collect();
+    let mut seed = 0x2545_f491_4f6c_dd1du64;
+    let mut h6 = Vec::new();
+    for nseq in [1usize, 2, 4, 8, 16, 32, 64, 128] {
+        let mut uni = 0f64;
+        let draws = 64;
+        for _ in 0..draws {
+            let mut picks = Vec::with_capacity(nseq);
+            for _ in 0..nseq {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                picks.push(pool[(seed % pool.len() as u64) as usize]);
+            }
+            for l in 0..layers {
+                let mut u = vec![false; experts];
+                picks.iter().for_each(|&(t, i)| tok(t, k, l, i).iter().for_each(|&e| u[e as usize] = true));
+                uni += u.iter().filter(|&&x| x).count() as f64;
+            }
+        }
+        let per_layer = uni / (draws * layers) as f64;
+        h6.push(json!({
+            "sequences": nseq, "union_experts_per_layer": per_layer,
+            "routed_bytes_per_beat": per_layer * layers as f64 * expert_b,
+            "routed_bytes_per_token": per_layer * layers as f64 * expert_b / nseq as f64,
+        }));
+    }
+    let out = json!({"mode": "trace", "experts": experts, "top_k": k, "layers": layers, "one_expert_bytes": expert_b,
+        "h4_prefetch": Value::Object(h4), "h4_switch": Value::Object(h4b), "h6_union": h6});
+    write_json(&args[2], &out)?;
+    eprintln!("{}", serde_json::to_string_pretty(&out["h6_union"]).unwrap_or_default());
+    Ok(())
+}
+
+/// Token `i`'s routed experts at layer `l`.
+fn tok(t: &Trace, k: usize, l: usize, i: usize) -> &[u16] {
+    &t.routes[l][i * k..(i + 1) * k]
 }
