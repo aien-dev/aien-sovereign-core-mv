@@ -201,19 +201,15 @@ impl ExpertCache {
             self.stats.lookups += 1;
         }
         let slot = match self.slot_of.get(&key) {
-            Some(&s) if self.ring.tag(s).map(|t| (t.layer, t.expert)) == Some(key) => {
-                if first {
-                    self.stats.hits += 1;
-                }
-                s
-            }
+            Some(&s) if self.ring.tag(s).map(|t| (t.layer, t.expert)) == Some(key) => s,
             _ => {
-                if first {
-                    self.stats.misses += 1;
-                }
+                // one demand fill per missed expert, whichever of its tensors is read first (L190: the 30B
+                // drafter reads gate_proj first, not tensors[0]; counting on tensors[0] reported 0 misses)
+                self.stats.misses += 1;
                 self.fill(key)?
             }
         };
+        self.stats.hits = self.stats.lookups.saturating_sub(self.stats.misses);
         self.tick += 1;
         self.owner[slot] = Some((key, self.tick));
         let lease = self
