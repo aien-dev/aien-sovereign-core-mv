@@ -230,3 +230,22 @@ Measured 2026-10-11 (sovereign-core 5ef7720, 20 cores, caches seeded): cold `car
 --locked --offline` as aien-run 65.0 s (target dir 27 GB); warm rebuild after touching one crate 2.2 s. After the
 read-only home change: full workspace build of worktree 62542eb into the existing `pr` target 49.9 s (new worktree
 path, so workspace crates rebuilt; dependencies reused), exit 0.
+
+## Judge once, reuse everywhere (aien-test, 2026-10-20)
+
+The judge no longer reruns a gate whose experiment it has already judged for another head of the same repository.
+Every result that could be reused inside one head is also published to `~/.local/state/aien-local-ci/gate-cache/<repo>/`;
+another head whose key matches imports it, and its receipt and bundle entry say which receipt and which commit it came
+from (`reused_from`, `reused_from_commit`, `resolution.resolved_from_commit`). What may travel:
+
+| Gate | Reused by another head when |
+|---|---|
+| `cache: never`, gb10/nvrm, bare_metal, `requires: operator`, `cache_scope: hardware`, APPROXIMATE/ADVISORY | never (per-head cache only) |
+| any other gate (default) | the other head's whole tree is identical (main after a squash merge of an up-to-date PR, a re-push, a duplicate PR) |
+| a gate whose manifest says `cache: inputs_complete` | its declared inputs, the repository build files and everything else in the key are identical |
+
+The key also carries the judge binary's sha256 and the exec helper's, so a new judge or helper never reuses an old
+result. A FAIL is reused as FAIL. `aien-test worker --batch REPO SHA...` (and the loop, 6 heads at a time) judges
+several heads together: shared gates first, host gates of different heads side by side within `--batch-host N`
+slots (default half the CPUs), GPU gates one at a time. Shown on the Spark: unit and end-to-end tests in
+`tools/aien-test` (`judge_once_tests.rs`, `tests/local_ci.rs`); the wall-time receipt is in the handoff.
