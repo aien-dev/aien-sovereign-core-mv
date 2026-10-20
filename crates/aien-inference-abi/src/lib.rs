@@ -20,6 +20,7 @@ pub mod native_ops;
 pub mod omega_backend;
 pub mod qwen38;
 pub mod qwen38_omega;
+pub mod qwen38_subbit;
 pub mod qwen3_coder;
 pub mod qwen3_dense_omega;
 pub mod qwen3_moe;

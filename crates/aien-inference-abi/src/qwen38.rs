@@ -259,6 +259,12 @@ pub enum Matrix {
         k: usize,
         w: Vec<u16>,
     },
+    /// Already widened (a weight transform in `qwen38_subbit` hands back what it rebuilt).
+    F32 {
+        n: usize,
+        k: usize,
+        w: Vec<f32>,
+    },
 }
 
 /// Rows per parallel task: one task widens this many rows and runs every token through them.
@@ -281,13 +287,13 @@ fn dot(a: &[f32], b: &[f32]) -> f32 {
 impl Matrix {
     pub fn n(&self) -> usize {
         match self {
-            Self::Fp8 { n, .. } | Self::Bf16 { n, .. } => *n,
+            Self::Fp8 { n, .. } | Self::Bf16 { n, .. } | Self::F32 { n, .. } => *n,
         }
     }
 
     pub fn k(&self) -> usize {
         match self {
-            Self::Fp8 { k, .. } | Self::Bf16 { k, .. } => *k,
+            Self::Fp8 { k, .. } | Self::Bf16 { k, .. } | Self::F32 { k, .. } => *k,
         }
     }
 
@@ -318,7 +324,23 @@ impl Matrix {
                     *o = bf16_to_f32(b);
                 }
             }
+            Self::F32 { k, w, .. } => {
+                dst[..rows * k].copy_from_slice(&w[r0 * k..(r0 + rows) * k]);
+            }
         }
+    }
+
+    /// The whole matrix as f32, `[n][k]`.
+    pub fn to_f32(&self) -> Vec<f32> {
+        let (n, k) = (self.n(), self.k());
+        let mut out = vec![0f32; n * k];
+        let lut = fp8_table();
+        out.par_chunks_mut(ROWS_PER_TASK * k)
+            .enumerate()
+            .for_each(|(task, dst)| {
+                self.widen_rows(task * ROWS_PER_TASK, dst.len() / k, &lut, dst);
+            });
+        out
     }
 
     /// `y[t][r] = sum_c W[r][c] * x[t][c]` for `t` rows of `x` (`[t][k]`), returned `[t][n]`.
@@ -558,6 +580,43 @@ fn rope(x: &mut [f32], pos: usize, rotary: usize, theta: f64) {
 // The reference.
 // ---------------------------------------------------------------------------
 
+/// Mean square of every matmul input channel over the rows seen, per layer (calibration for the
+/// activation-weighted sub-4-bit codes). `xn`: after the input norm (q/k/v, in_proj_*); `mix`:
+/// the mixer output going into o_proj / out_proj; `mlp_in`: after the post norm (gate, up); `act`:
+/// silu(gate) * up (down).
+#[derive(Debug, Default, Clone)]
+pub struct Calib {
+    pub rows: u64,
+    pub xn: Vec<Vec<f64>>,
+    pub mix: Vec<Vec<f64>>,
+    pub mlp_in: Vec<Vec<f64>>,
+    pub act: Vec<Vec<f64>>,
+}
+
+thread_local! {
+    static MIXER_IN: std::cell::RefCell<Option<Vec<f32>>> = const { std::cell::RefCell::new(None) };
+}
+
+fn capture_mixer_in(v: &[f32]) {
+    MIXER_IN.with(|c| {
+        if let Some(slot) = c.borrow_mut().as_mut() {
+            slot.clear();
+            slot.extend_from_slice(v);
+        }
+    });
+}
+
+fn add_squares(acc: &mut Vec<f64>, x: &[f32], width: usize) {
+    if acc.is_empty() {
+        acc.resize(width, 0.0);
+    }
+    for row in x.chunks_exact(width) {
+        for (a, &v) in acc.iter_mut().zip(row) {
+            *a += (v as f64) * (v as f64);
+        }
+    }
+}
+
 /// Where the logits come from in a [`Qwen38Reference::forward`] call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Logits {
@@ -592,7 +651,13 @@ pub struct Qwen38Reference<S: TensorSource> {
     embed: Vec<u16>,
     final_norm: Vec<f32>,
     lm_head: Matrix,
+    /// Rebuilds every projection as it is read (the sub-4-bit drift study quantises here).
+    xform: Option<WeightTransform>,
+    calib: Option<Calib>,
 }
+
+/// Called with the tensor name and the matrix as stored; returns the matrix to compute with.
+pub type WeightTransform = Box<dyn FnMut(&str, Matrix) -> Matrix + Send>;
 
 impl Qwen38Reference<ShardSource> {
     /// Opens a checkpoint directory (`config.json`, `model.safetensors.index.json` and shards).
@@ -621,7 +686,41 @@ impl<S: TensorSource> Qwen38Reference<S> {
             embed,
             final_norm,
             lm_head,
+            xform: None,
+            calib: None,
         })
+    }
+
+    /// Every projection read from now on goes through `f` (layers are read per pass).
+    pub fn set_weight_transform(&mut self, f: WeightTransform) {
+        self.xform = Some(f);
+    }
+
+    /// Rebuilds the word-scoring head with `f`.
+    pub fn transform_head(&mut self, f: &mut dyn FnMut(&str, Matrix) -> Matrix) {
+        let h = std::mem::replace(&mut self.lm_head, Matrix::F32 { n: 0, k: 0, w: Vec::new() });
+        self.lm_head = f("lm_head.weight", h);
+    }
+
+    /// Starts collecting [`Calib`] sums during [`Self::forward_hidden_multi`].
+    pub fn enable_calibration(&mut self) {
+        self.calib = Some(Calib {
+            xn: vec![Vec::new(); self.config.layers],
+            mix: vec![Vec::new(); self.config.layers],
+            mlp_in: vec![Vec::new(); self.config.layers],
+            act: vec![Vec::new(); self.config.layers],
+            ..Calib::default()
+        });
+    }
+
+    /// The collected sums (divide by `rows` for the mean square).
+    pub fn take_calibration(&mut self) -> Option<Calib> {
+        self.calib.take()
+    }
+
+    /// The scoring head, `[vocab][hidden]`.
+    pub fn head(&self) -> &Matrix {
+        &self.lm_head
     }
 
     pub fn new_state(&self) -> Qwen38State {
@@ -633,18 +732,26 @@ impl<S: TensorSource> Qwen38Reference<S> {
         let p = format!("{}layers.{l}", self.prefix);
         let src: &mut dyn TensorSource = &mut self.source;
         let h = c.hidden;
+        let xform = &mut self.xform;
+        let mut rm = |src: &mut dyn TensorSource, name: &str, n: usize, k: usize| {
+            let m = read_matrix(src, name, n, k)?;
+            Ok::<Matrix, String>(match xform.as_mut() {
+                Some(f) => f(name, m),
+                None => m,
+            })
+        };
         let mixer = if c.full_attention[l] {
             let a = format!("{p}.self_attn");
             Mixer::Attention(AttentionWeights {
-                q: read_matrix(
+                q: rm(
                     src,
                     &format!("{a}.q_proj.weight"),
                     2 * c.heads * c.head_dim,
                     h,
                 )?,
-                k: read_matrix(src, &format!("{a}.k_proj.weight"), c.kv_dim(), h)?,
-                v: read_matrix(src, &format!("{a}.v_proj.weight"), c.kv_dim(), h)?,
-                o: read_matrix(src, &format!("{a}.o_proj.weight"), h, c.heads * c.head_dim)?,
+                k: rm(src, &format!("{a}.k_proj.weight"), c.kv_dim(), h)?,
+                v: rm(src, &format!("{a}.v_proj.weight"), c.kv_dim(), h)?,
+                o: rm(src, &format!("{a}.o_proj.weight"), h, c.heads * c.head_dim)?,
                 q_norm: read_vec(src, &format!("{a}.q_norm.weight"), c.head_dim)?,
                 k_norm: read_vec(src, &format!("{a}.k_norm.weight"), c.head_dim)?,
             })
@@ -652,10 +759,10 @@ impl<S: TensorSource> Qwen38Reference<S> {
             let a = format!("{p}.linear_attn");
             let conv_shape = [c.conv_dim(), 1, c.conv_kernel];
             Mixer::DeltaNet(DeltaNetWeights {
-                in_qkv: read_matrix(src, &format!("{a}.in_proj_qkv.weight"), c.conv_dim(), h)?,
-                in_z: read_matrix(src, &format!("{a}.in_proj_z.weight"), c.lin_value_dim(), h)?,
-                in_a: read_matrix(src, &format!("{a}.in_proj_a.weight"), c.lin_v_heads, h)?,
-                in_b: read_matrix(src, &format!("{a}.in_proj_b.weight"), c.lin_v_heads, h)?,
+                in_qkv: rm(src, &format!("{a}.in_proj_qkv.weight"), c.conv_dim(), h)?,
+                in_z: rm(src, &format!("{a}.in_proj_z.weight"), c.lin_value_dim(), h)?,
+                in_a: rm(src, &format!("{a}.in_proj_a.weight"), c.lin_v_heads, h)?,
+                in_b: rm(src, &format!("{a}.in_proj_b.weight"), c.lin_v_heads, h)?,
                 conv: read_bf16_words(src, &format!("{a}.conv1d.weight"), &conv_shape)?
                     .into_iter()
                     .map(bf16_to_f32)
@@ -663,7 +770,7 @@ impl<S: TensorSource> Qwen38Reference<S> {
                 a_log: read_vec(src, &format!("{a}.A_log"), c.lin_v_heads)?,
                 dt_bias: read_vec(src, &format!("{a}.dt_bias"), c.lin_v_heads)?,
                 norm: read_vec(src, &format!("{a}.norm.weight"), c.lin_v_dim)?,
-                out: read_matrix(src, &format!("{a}.out_proj.weight"), h, c.lin_value_dim())?,
+                out: rm(src, &format!("{a}.out_proj.weight"), h, c.lin_value_dim())?,
             })
         };
         let m = format!("{p}.mlp");
@@ -671,9 +778,9 @@ impl<S: TensorSource> Qwen38Reference<S> {
             input_norm: read_vec(src, &format!("{p}.input_layernorm.weight"), h)?,
             post_norm: read_vec(src, &format!("{p}.post_attention_layernorm.weight"), h)?,
             mixer,
-            gate: read_matrix(src, &format!("{m}.gate_proj.weight"), c.intermediate, h)?,
-            up: read_matrix(src, &format!("{m}.up_proj.weight"), c.intermediate, h)?,
-            down: read_matrix(src, &format!("{m}.down_proj.weight"), h, c.intermediate)?,
+            gate: rm(src, &format!("{m}.gate_proj.weight"), c.intermediate, h)?,
+            up: rm(src, &format!("{m}.up_proj.weight"), c.intermediate, h)?,
+            down: rm(src, &format!("{m}.down_proj.weight"), h, c.intermediate)?,
         })
     }
 
@@ -686,6 +793,78 @@ impl<S: TensorSource> Qwen38Reference<S> {
         logits: Logits,
     ) -> Result<Vec<f32>, String> {
         self.forward_tapped(state, tokens, logits, &[], &mut Vec::new())
+    }
+
+    /// Several independent sequences through one read of the checkpoint: each layer is read (and
+    /// transformed) once and every sequence runs through it. Returns, per sequence, the rows
+    /// after the final norm (`[t][hidden]`), ready for the scoring head.
+    pub fn forward_hidden_multi(
+        &mut self,
+        seqs: &mut [(Qwen38State, Vec<u32>)],
+    ) -> Result<Vec<Vec<f32>>, String> {
+        let c = self.config.clone();
+        let h = c.hidden;
+        let mut xs: Vec<Vec<f32>> = Vec::new();
+        for (_, tokens) in seqs.iter() {
+            if tokens.is_empty() {
+                return Err("forward_hidden_multi: a sequence has no tokens".into());
+            }
+            let mut x = vec![0f32; tokens.len() * h];
+            for (row, &tok) in x.chunks_exact_mut(h).zip(tokens) {
+                let tok = tok as usize;
+                if tok >= c.vocab {
+                    return Err(format!("token {tok} outside the vocab {}", c.vocab));
+                }
+                for (o, &b) in row.iter_mut().zip(&self.embed[tok * h..(tok + 1) * h]) {
+                    *o = bf16_to_f32(b);
+                }
+            }
+            xs.push(x);
+        }
+        for l in 0..c.layers {
+            let w = self.read_layer(l)?;
+            for ((state, tokens), x) in seqs.iter_mut().zip(xs.iter_mut()) {
+                let t = tokens.len();
+                let mut xn = x.clone();
+                rms_norm_zc(&mut xn, &w.input_norm, c.eps);
+                if let Some(cb) = self.calib.as_mut() {
+                    add_squares(&mut cb.xn[l], &xn, h);
+                    cb.rows += if l == 0 { t as u64 } else { 0 };
+                    MIXER_IN.with(|m| *m.borrow_mut() = Some(Vec::new()));
+                }
+                let mixed = match (&w.mixer, &mut state.layers[l]) {
+                    (Mixer::DeltaNet(d), LayerState::DeltaNet { conv, s }) => {
+                        delta_net(&c, d, &xn, t, conv, s)
+                    }
+                    (Mixer::Attention(a), LayerState::Attention { k, v }) => {
+                        attention(&c, a, &xn, t, state.pos, k, v)
+                    }
+                    _ => return Err(format!("layer {l}: state kind differs from the weights")),
+                };
+                x.iter_mut().zip(&mixed).for_each(|(a, b)| *a += b);
+                let mut xn = x.clone();
+                rms_norm_zc(&mut xn, &w.post_norm, c.eps);
+                let gate = w.gate.matmul(&xn, t);
+                let up = w.up.matmul(&xn, t);
+                let act: Vec<f32> = gate.iter().zip(&up).map(|(&g, &u)| silu(g) * u).collect();
+                if let Some(cb) = self.calib.as_mut() {
+                    let mix = MIXER_IN.with(|m| m.borrow_mut().take()).unwrap_or_default();
+                    if !mix.is_empty() {
+                        add_squares(&mut cb.mix[l], &mix, mix.len() / t);
+                    }
+                    add_squares(&mut cb.mlp_in[l], &xn, h);
+                    add_squares(&mut cb.act[l], &act, c.intermediate);
+                }
+                let down = w.down.matmul(&act, t);
+                x.iter_mut().zip(&down).for_each(|(a, b)| *a += b);
+            }
+            eprintln!("layer {l} done");
+        }
+        for ((state, tokens), x) in seqs.iter_mut().zip(xs.iter_mut()) {
+            state.pos += tokens.len();
+            rms_norm_zc(x, &self.final_norm, c.eps);
+        }
+        Ok(xs)
     }
 
     /// [`Self::forward`] that also copies the residual stream entering layer `b` (`[t][hidden]`,
@@ -867,6 +1046,7 @@ fn delta_net(
             *v = *v * inv * g * silu(zz);
         }
     }
+    capture_mixer_in(&core);
     w.out.matmul(&core, t)
 }
 
@@ -931,6 +1111,7 @@ fn attention(
             *ov = *ov / sum * sigmoid(gv);
         }
     });
+    capture_mixer_in(&out);
     w.o.matmul(&out, t)
 }
 

@@ -152,6 +152,7 @@ fn fuse_fp8(
                     "{name}: a bf16 part (the graph takes FP8 projections)"
                 ))
             }
+            Matrix::F32 { .. } => return Err(format!("{name}: a widened part (host study only)")),
         }
     }
     let k = k0.ok_or_else(|| format!("{name}: no parts"))?;
@@ -318,6 +319,7 @@ impl Qwen38Omega {
                 )
             }
             Matrix::Fp8 { .. } => return Err("lm_head: FP8 (the graph takes a bf16 head)".into()),
+            Matrix::F32 { .. } => return Err("lm_head: f32 (host study only)".into()),
         };
 
         let n_attn = c.full_attention.iter().filter(|&&a| a).count();
