@@ -1,0 +1,76 @@
+prompt golden: 24 tokens; golden prompt equals the rendered code prompt
+memory: whole model + MTP head needs 32663 MiB, keep 12288 MiB free, MemAvailable 60694 MiB
+MTP head: 455 MiB, raw norm means (embed, hidden, final) [-0.46056232, -0.15720086, 1.2520472], options MtpOptions { order: EmbedFirst, normed_hidden: false, pos_offset: 0 }
+uploaded in 129.2 s
+suite: golden-graph start
+k=0: 30 tokens, 176.99 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 30 tokens, 75.32 ms/token decode, accept 25/40 (0.625), 5.80 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt golden n 64 k [0, 8] rows All source Mtp tree None mutant None: PASS
+suite: golden-graph PASS
+suite: graph-codelong start
+k=0: 256 tokens, 163.72 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=4: 256 tokens, 104.78 ms/token decode, accept 174/324 (0.537), 3.15 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+k=8: 256 tokens, 133.66 ms/token decode, accept 186/560 (0.332), 3.64 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+graph: 256 tokens, chip 123.24 ms/token, wall 123.47 ms/token, agrees with the exact path for the first Some(256) tokens
+QWEN38_SPEC_GEN prompt codelong n 256 k [0, 4, 8] rows All source Mtp tree None mutant None: PASS
+suite: graph-codelong PASS
+suite: graph-prose start
+k=0: 256 tokens, 164.04 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=4: 256 tokens, 163.95 ms/token decode, accept 138/484 (0.285), 2.11 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+k=8: 256 tokens, 232.29 ms/token decode, accept 141/952 (0.148), 2.14 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+graph: 256 tokens, chip 119.28 ms/token, wall 119.47 ms/token, agrees with the exact path for the first Some(209) tokens
+QWEN38_SPEC_GEN prompt prose n 256 k [0, 4, 8] rows All source Mtp tree None mutant None: PASS
+suite: graph-prose PASS
+suite: mutant-extra-graph start
+k=0: 96 tokens, 165.62 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 96 tokens, 129.17 ms/token decode, accept 70/216 (0.324), 3.52 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(false)
+QWEN38_SPEC_GEN prompt prose n 96 k [0, 8] rows All source Mtp tree None mutant ExtraAccept: FAIL
+suite: mutant-extra-graph FAIL
+suite: mutant-norollback-graph start
+k=0: 96 tokens, 161.71 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 96 tokens, 79.91 ms/token decode, accept 84/136 (0.618), 5.59 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(false)
+QWEN38_SPEC_GEN prompt prose n 96 k [0, 8] rows All source Mtp tree None mutant NoRollback: FAIL
+suite: mutant-norollback-graph FAIL
+suite: mutant-rowshift-graph start
+k=0: 96 tokens, 165.79 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 96 tokens, 194.07 ms/token decode, accept 67/288 (0.233), 2.64 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(false)
+QWEN38_SPEC_GEN prompt prose n 96 k [0, 8] rows All source Mtp tree None mutant RowShift: FAIL
+suite: mutant-rowshift-graph FAIL
+suite: tree-codelong start
+k=0: 256 tokens, 531.31 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=4: 256 tokens, 324.96 ms/token decode, accept 180/308 (0.584), 3.31 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+k=8: 256 tokens, 406.30 ms/token decode, accept 196/520 (0.377), 3.92 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt codelong n 256 k [0, 4, 8] rows All source Mtp tree None mutant None: PASS
+suite: tree-codelong PASS
+suite: tree-prose start
+k=0: 256 tokens, 518.83 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=4: 256 tokens, 563.59 ms/token decode, accept 135/484 (0.279), 2.11 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+k=8: 256 tokens, 831.80 ms/token decode, accept 136/960 (0.142), 2.12 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt prose n 256 k [0, 4, 8] rows All source Mtp tree None mutant None: PASS
+suite: tree-prose PASS
+QWEN38_SPEC_SUITE 8 items: FAIL
+{
+ "name": "speed2-suite-graph",
+ "cmd": "nice -n 10 /home/drakestapleton/workspace/targets/speed2/pinned/qwen38_spec-e6bd69c9-omega4b20a9c5 suite /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a /home/drakestapleton/workspace/sc-speed2-specdecode/evidence/speed2-specdecode-20261020 /home/drakestapleton/workspace/sc-speed2-specdecode/evidence/speed2-specdecode-20261020/plan-graph.txt",
+ "exit": 1,
+ "git_head": null,
+ "start": "2026-10-19T23:32:01.454962",
+ "seconds": 1454.940,
+ "samples": 676,
+ "wall_W_mean": 269.2159763,
+ "wall_J": 391693.0192,
+ "idle_W_before": 310.0,
+ "incremental_J": -59338.29627,
+ "gpu_W_mean": 20.18244083,
+ "gpu_util_mean": 42.4852071,
+ "load1_start": "47.85",
+ "load1_end": "52.77",
+ "mem_avail_kB_start": "62629480",
+ "mem_avail_kB_end": "43493348",
+ "lock_holders_max": 4,
+ "nvrm_errors_delta": 0,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone",
+ "window_id": "20261020T043024Z-0b576d",
+ "calibration": null
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-speed2-suite-graph.json

@@ -1,0 +1,8 @@
+golden-graph --prompt golden --golden /home/drakestapleton/handoffs/qwen38-ref/gen-chat-max-24.json --n 64 --k 0,8 --verify graph
+graph-codelong --prompt codelong --n 256 --k 0,4,8 --verify graph --source mtp --graph 1
+graph-prose --prompt prose --n 256 --k 0,4,8 --verify graph --source mtp --graph 1
+mutant-extra-graph --prompt prose --n 96 --k 0,8 --verify graph --mutant extra
+mutant-norollback-graph --prompt prose --n 96 --k 0,8 --verify graph --mutant norollback
+mutant-rowshift-graph --prompt prose --n 96 --k 0,8 --verify graph --mutant rowshift
+tree-codelong --prompt codelong --n 256 --k 0,4,8 --verify tree --source mtp
+tree-prose --prompt prose --n 256 --k 0,4,8 --verify tree --source mtp

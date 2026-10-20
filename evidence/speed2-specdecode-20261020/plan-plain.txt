@@ -1,0 +1,2 @@
+plain-codelong --prompt codelong --n 256 --k 0 --graph 1
+plain-prose --prompt prose --n 256 --k 0 --graph 1
