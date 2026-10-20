@@ -59,6 +59,14 @@ fn run() -> Result<(), String> {
         return Err("--gen must be at least 1".into());
     }
 
+    // Open the GPU first, before any large host allocation. The driver serves the channel's main graphics context
+    // buffer as one physically contiguous block; the 2.5 GB embedding read that comes first in Qwen38Omega::open can
+    // take the last free blocks of that size, and channel creation then fails with NV_ERR_NO_MEMORY (0x51)
+    // (Cortex 45a41b22: kgraphicsShouldForceMainCtxContiguity, nv-vm.c alloc_pages). A 128 x 512 upload (k must be a multiple of 512) opens it.
+    drop(
+        aien_omega_q38::W4Tensor::upload(128, 512, &[0u8; 128 * 512 / 2], &[127u8; 128 * 512 / 32])
+            .map_err(|e| format!("opening the GPU: {e:?} (NO_MEMORY here means the driver found no large unbroken block of free memory: stop other models, or run `sudo sysctl vm.compact_memory=1`, then try again)"))?,
+    );
     let tk = ChatTokenizer::from_file(dir.join("tokenizer.json")).map_err(|e| e.to_string())?;
     // What the checkpoint's chat_template.jinja renders for one user turn with enable_thinking=false and no system
     // message or tools (the shared ChatML renderer refuses this template because of its tool and reasoning branches).
