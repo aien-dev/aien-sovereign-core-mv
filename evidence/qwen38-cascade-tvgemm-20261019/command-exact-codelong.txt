@@ -1,0 +1,4 @@
+bin sha 9275c473c51243bc205a7124ac2584189492db972088d2894ed5beb5d4a678ea
+spark-receipt tvw-exact-codelong -- quiet-measure nice -n 10 flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/cascade-sc/pinned/qwen38_spec-e2080d1e gen M evidence/qwen38-cascade-tvgemm-20261019/exact-codelong.json --prompt codelong --n 192 --k 0,4,8 --source mtp --verify exact
+queued 2026-10-19T22:13:28Z load 8.69 12.57 18.26 6/3582 4028568 MemAvailable:   68419224 kB
+end 2026-10-19T22:52:43Z rc 2 load 4.65 5.62 11.31 6/3370 707988 MemAvailable:   67556800 kB
