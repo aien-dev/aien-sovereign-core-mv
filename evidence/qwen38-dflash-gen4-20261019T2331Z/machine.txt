@@ -1,2 +1,4 @@
 codelong-n256 try 1 start 2026-10-19T23:51:27Z loadavg 27.09 34.67 32.41 27/3996 2249177 memavail_kb 39144800
 codelong-n256 try 1 end 2026-10-20T00:03:31Z rc 0 loadavg 16.60 20.06 26.43 21/4146 2556484
+control-code-nopair try 1 start 2026-10-20T00:03:33Z loadavg 16.60 20.06 26.43 21/4155 2558111 memavail_kb 60517736
+control-code-nopair try 1 end 2026-10-20T00:08:55Z rc 0 loadavg 7.97 14.18 22.29 4/3975 2707307
