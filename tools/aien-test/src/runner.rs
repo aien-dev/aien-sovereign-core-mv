@@ -641,7 +641,7 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
     // verdict or a dependency that is not PASS is reported as it is, never
     // hidden behind an old result.
     if mode == cache::Mode::Allow && !evidence_inside && verdict::pre_run(m, &facts).is_none() {
-        match cache::lookup(&index, &store, &cache_key, &captured_env()) {
+        match cache::lookup(&index, &store, &cache_key, &captured_env(), &commit) {
             cache::Lookup::Hit(src) => {
                 let reused_verdict = src
                     .verdict()
