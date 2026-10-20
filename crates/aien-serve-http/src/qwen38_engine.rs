@@ -201,11 +201,17 @@ impl Engine for Qwen38Door {
         })
     }
 
-    /// The loop of `generate` under a constraint. The constraint is asked for the next step's rule
-    /// as soon as a token is emitted, before the token is fed: when that rule is `Force` the token
-    /// is fed without reading the logits ([`Qwen38Session::push`]; the output head and argmax still
-    /// run inside the chip graph's step); when it is `Finish` or a forced stop it is not fed at all.
-    /// Only `Any` and `Allow` read the logits and sample.
+    /// The loop of `generate` under a constraint. A token's logits are needed only when the rule
+    /// for the step after it is `Any` or `Allow`, so the constraint is asked for that rule as soon
+    /// as a token is emitted, and tokens are fed only then:
+    ///
+    /// - next rule `Force`: the token waits, unfed, with any forced tokens before it;
+    /// - next rule `Any` or `Allow`: every waiting token is fed and the logits after the last are
+    ///   read. One waiting token goes through the decode graph (as in `generate`); a run of
+    ///   [`aien_omega_q38::GDN_PF_MIN_T`] or more goes through the prefill in one call, the way
+    ///   a prompt does ([`Qwen38Session::start`] continues the live state), so a run of forced
+    ///   tokens costs one batched call instead of one decode step each;
+    /// - next rule `Finish` or a forced stop: the reply is over, nothing more is fed.
     fn generate_masked(
         &self,
         prompt: &[u32],
@@ -236,8 +242,14 @@ impl Engine for Qwen38Door {
         let prefill_ms = t0.elapsed().as_millis() as u64;
         let t1 = Instant::now();
         let mut observer = SamplingObserver::new(p);
-        let mut generated: Vec<u32> = Vec::new();
-        let (mut emitted, mut chip_ns, mut heads) = (0usize, 0u64, 0usize);
+        // `fed`: how many of `seq`'s tokens (prompt, then reply) the session holds.
+        let mut seq: Vec<u32> = prompt.to_vec();
+        let mut fed = seq.len();
+        let mut emitted = 0usize;
+        // Logits reads in the reply; decode steps (one token each) and batched feeds (tokens,
+        // calls), with their wall time.
+        let (mut reads, mut steps, mut step_ns) = (0usize, 0usize, 0u64);
+        let (mut batched, mut batches, mut batch_ns) = (0usize, 0usize, 0u64);
         let mut next_rule: Option<StepRule> = None;
         let finish = loop {
             if emitted >= p.max_new_tokens || prompt.len() + emitted >= self.max_context {
@@ -245,7 +257,7 @@ impl Engine for Qwen38Door {
             }
             let rule = match next_rule.take() {
                 Some(r) => r,
-                None => mask.rule(prompt, &generated).map_err(failed)?,
+                None => mask.rule(prompt, &seq[prompt.len()..]).map_err(failed)?,
             };
             let tok = match rule {
                 StepRule::Finish => break FinishReason::Stop,
@@ -258,46 +270,69 @@ impl Engine for Qwen38Door {
                 break FinishReason::Stop;
             }
             emitted += 1;
-            generated.push(tok);
+            seq.push(tok);
             if !on_token(tok) {
                 break FinishReason::Cancelled;
             }
             if emitted >= p.max_new_tokens || prompt.len() + emitted >= self.max_context {
                 break FinishReason::Length;
             }
-            let r = mask.rule(prompt, &generated).map_err(failed)?;
-            match &r {
-                StepRule::Finish => {}
-                StepRule::Force(f) if p.stop_token_ids.contains(f) => {}
-                StepRule::Force(_) => {
-                    chip_ns += s.push(tok).map_err(EngineError::Failed)?;
+            let r = mask.rule(prompt, &seq[prompt.len()..]).map_err(failed)?;
+            if let StepRule::Any | StepRule::Allow(_) = r {
+                let waiting = seq.len() - fed;
+                let t = Instant::now();
+                if waiting == 1 {
+                    let (next, _) = s.advance(tok).map_err(EngineError::Failed)?;
+                    logits = next;
+                    steps += 1;
+                    step_ns += t.elapsed().as_nanos() as u64;
+                } else {
+                    // The forced run and the token before it, fed as the live state's
+                    // continuation (`start` reuses everything already fed).
+                    let (next, st) = s.start(&seq).map_err(EngineError::Failed)?;
+                    if st.reuse != Some(Reuse::Live(fed)) {
+                        return Err(EngineError::Failed(format!(
+                            "constraint: the session did not continue its live state ({:?}, {fed} fed)",
+                            st.reuse
+                        )));
+                    }
+                    logits = next;
+                    if st.stepped > 0 {
+                        steps += st.stepped;
+                        step_ns += t.elapsed().as_nanos() as u64;
+                    } else {
+                        batched += waiting;
+                        batches += 1;
+                        batch_ns += t.elapsed().as_nanos() as u64;
+                    }
+                }
+                for _ in 1..waiting {
                     mask.note_logits_skipped();
                 }
-                StepRule::Any | StepRule::Allow(_) => {
-                    let (next, ns) = s.advance(tok).map_err(EngineError::Failed)?;
-                    logits = next;
-                    chip_ns += ns;
-                    heads += 1;
-                }
+                reads += 1;
+                fed = seq.len();
             }
             next_rule = Some(r);
         };
         let decode_ms = t1.elapsed().as_millis() as u64;
-        let steps = emitted.saturating_sub(1).max(1) as f64;
         let reused = fs.reuse.map_or(0, Reuse::tokens);
         drop(s);
         drop(lock);
+        mask.note_feeds(steps as u64, batched as u64, batches as u64);
         let m = mask.record();
         eprintln!(
-            "aien-serve-http: qwen38: constraint {}: lock wait {lock_wait_ms} ms, prompt {} tok, reuse {reused} tok, prefill {prefill_ms} ms, decode {emitted} tok in {decode_ms} ms ({heads} logits read, {} forced, {} logits skipped), constraint {} us total, {} us max step, chip {:.1} ms/token, wall {:.1} ms/token",
+            "aien-serve-http: qwen38: constraint {}: lock wait {lock_wait_ms} ms, prompt {} tok, reuse {reused} tok, prefill {prefill_ms} ms, decode {emitted} tok in {decode_ms} ms ({} forced, {reads} logits read, {} logits skipped), fed {steps} tok by decode step in {:.1} ms ({:.1} ms/step), {batched} tok in {batches} batched feeds in {:.1} ms ({:.1} ms/feed), constraint {} us total, {} us max step, wall {:.1} ms/token",
             m.kind,
             prompt.len(),
             m.forced,
             m.logits_skipped,
+            step_ns as f64 / 1e6,
+            step_ns as f64 / 1e6 / steps.max(1) as f64,
+            batch_ns as f64 / 1e6,
+            batch_ns as f64 / 1e6 / batches.max(1) as f64,
             m.rule_us,
             m.rule_us_max,
-            chip_ns as f64 / 1e6 / steps,
-            decode_ms as f64 / steps,
+            decode_ms as f64 / emitted.saturating_sub(1).max(1) as f64,
         );
         Ok(GenerateOutcome {
             emitted_tokens: emitted,
