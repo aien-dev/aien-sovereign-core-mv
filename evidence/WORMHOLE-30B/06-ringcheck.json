@@ -1,0 +1,26 @@
+{
+  "cache": {
+    "fill_bytes": 64657320768,
+    "fill_s": 82.28945333800017,
+    "hits": 24576,
+    "lookups": 24576,
+    "misses": 0,
+    "prefetched": 0
+  },
+  "control_corrupt_digest_refused": true,
+  "control_error": "layer 0 expert 75: heartbeat fill (0, 75): digest mismatch for expert (0, 75)",
+  "dense_bytes": 6139207680,
+  "first_diff": null,
+  "input": "evidence/WORMHOLE-ACCEPT-69825c92/inputs/q38-codelong.json",
+  "logits_bit_equal": 64,
+  "manifest_build_s": 10.2565217,
+  "mem_available_kb_after_open": 65672692,
+  "mem_available_kb_before": 75231000,
+  "ring_bytes": 2428502016,
+  "ring_ms_per_token": 4412.746833828125,
+  "ring_open_s": 6.747318645,
+  "slot_bytes": 4743168,
+  "slots": 512,
+  "tokens": 64,
+  "what": "L190 W2 host ring exactness: 30B experts through the heartbeat ring vs the resident CPU reference"
+}
