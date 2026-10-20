@@ -30,6 +30,7 @@ mod prefill;
 pub use prefill::PrefillStats;
 
 use crate::qwen38::{read_bf16_words, read_matrix, read_vec, text_prefix, Matrix, Qwen38Config};
+use crate::qwen38_w4_store::{layer_projs, read_fused, W4Store, LM_HEAD};
 use crate::qwen3_moe::bf16_to_f32;
 use crate::qwen3_moe_omega::{ShardSource, TensorSource};
 
@@ -38,11 +39,12 @@ const EPS_L2: f32 = 1e-6;
 
 /// One layer's device tensors (kept alive for the graph).
 struct LayerTensors {
-    mix: Fp8Tensor,
+    /// FP8 mix, o, gate_up, down: None when the layer is W4-only (a W4 store, L125).
+    mix: Option<Fp8Tensor>,
     ab: Option<Bf16Tensor>,
-    o: Fp8Tensor,
-    gate_up: Fp8Tensor,
-    down: Fp8Tensor,
+    o: Option<Fp8Tensor>,
+    gate_up: Option<Fp8Tensor>,
+    down: Option<Fp8Tensor>,
     /// MXFP4 copies of mix, o, gate_up, down (env `AIEN_Q38_W4=1`, qwen38/w4-decode): the decode graph reads these;
     /// the prefill keeps the FP8 ones.
     w4: Option<[W4Tensor; 4]>,
@@ -54,7 +56,8 @@ struct LayerTensors {
 pub struct Qwen38Omega {
     graph: Q38Graph,
     layers: Vec<LayerTensors>,
-    lm_head: Bf16Tensor,
+    /// None when W4-only (the MXFP4 head below is the only head).
+    lm_head: Option<Bf16Tensor>,
     /// FP8 copy of lm_head (env `AIEN_Q38_FP8_HEAD=1`, qwen38/decode-speed): the decode graph reads it instead.
     #[allow(dead_code)] // owned only: the graph points at it until it is dropped first
     lm_head8: Option<Fp8Tensor>,
@@ -63,6 +66,8 @@ pub struct Qwen38Omega {
     lm_head4: Option<W4Tensor>,
     /// The MXFP4 converter tally over every converted tensor (projections and head), when any.
     pub w4_stats: Option<W4Stats>,
+    /// The W4 store this model was loaded from (W4-only: no FP8 projection, no bf16 head on the device), L125.
+    pub w4_store: Option<std::path::PathBuf>,
     gdn: Option<Gdn>,
     attn: Option<Attn256Cache>,
     pub config: Qwen38Config,
@@ -124,47 +129,37 @@ fn w4_copy(
     total.add(&st);
     Ok(Some(t))
 }
-/// FP8 projections stacked by rows into one tensor (every part `[n_i][k]`, whole 128 blocks).
-fn fuse_fp8(
-    name: &str,
-    parts: Vec<Matrix>,
-    w4: &mut Option<W4Stats>,
-) -> Result<(Fp8Tensor, Option<W4Tensor>), String> {
-    let (mut n, mut k0) = (0usize, None);
-    let (mut w, mut scales) = (Vec::new(), Vec::new());
-    for m in parts {
-        match m {
-            Matrix::Fp8 {
-                n: pn,
-                k,
-                w: pw,
-                scales: ps,
-            } => {
-                if *k0.get_or_insert(k) != k {
-                    return Err(format!("{name}: parts with different k"));
-                }
-                n += pn;
-                w.extend_from_slice(&pw);
-                scales.extend_from_slice(&ps);
-            }
-            Matrix::Bf16 { .. } => {
-                return Err(format!(
-                    "{name}: a bf16 part (the graph takes FP8 projections)"
-                ))
-            }
-        }
-    }
-    let k = k0.ok_or_else(|| format!("{name}: no parts"))?;
-    let f8 = Fp8Tensor::upload(1, n, k, &w, &scales).map_err(gpu(name))?;
-    Ok((f8, w4_copy(name, n, k, &w, &scales, w4)?))
+/// The W4 store for `dir` (env `AIEN_Q38_W4_STORE`, else the default beside the checkpoint), opened and checked.
+fn open_store(dir: &Path) -> Result<Option<W4Store>, String> {
+    crate::qwen38_w4_store::resolve(dir)?
+        .map(|p| W4Store::open(&p, dir))
+        .transpose()
 }
 
-fn upload_fp8(
-    name: &str,
-    m: Matrix,
+fn raw(t: &Option<Fp8Tensor>) -> *const std::ffi::c_void {
+    t.as_ref()
+        .map_or(std::ptr::null(), |t| t.as_raw().cast_const())
+}
+
+/// One decode projection: from the MXFP4 store when there is one (no FP8 read, no FP8 copy), else the FP8 parts stacked
+/// by rows (every part `[n_i][k]`, whole 128 blocks) plus the MXFP4 copy converted at load when `w4` is Some.
+fn proj(
+    source: &mut dyn TensorSource,
+    store: Option<&W4Store>,
+    (name, parts): crate::qwen38_w4_store::Proj,
     w4: &mut Option<W4Stats>,
-) -> Result<(Fp8Tensor, Option<W4Tensor>), String> {
-    fuse_fp8(name, vec![m], w4)
+) -> Result<(Option<Fp8Tensor>, Option<W4Tensor>), String> {
+    if let Some(s) = store {
+        let (n, k) = (parts.iter().map(|p| p.1).sum(), parts[0].2);
+        let (w, e) = s.read(&name, n, k)?;
+        return Ok((
+            None,
+            Some(W4Tensor::upload(n, k, &w, &e).map_err(gpu(&name))?),
+        ));
+    }
+    let (n, k, w, scales) = read_fused(source, &name, &parts)?;
+    let f8 = Fp8Tensor::upload(1, n, k, &w, &scales).map_err(gpu(&name))?;
+    Ok((Some(f8), w4_copy(&name, n, k, &w, &scales, w4)?))
 }
 
 /// `in_proj_a` / `in_proj_b` interleaved by rows and scaled by 2^-64 (exact for every normal
@@ -231,7 +226,14 @@ impl Qwen38Omega {
                 .prefix(n)
                 .ok_or_else(|| format!("layers {n}: outside 1..={}", full.layers))?,
         };
-        Self::load(config, &mut ShardSource::open(dir)?, max_pos)
+        let store = open_store(dir)?;
+        Self::load_at(
+            config,
+            0,
+            &mut ShardSource::open(dir)?,
+            store.as_ref(),
+            max_pos,
+        )
     }
 
     /// Opens a checkpoint directory and uploads model layers `first .. first + count` as a stack
@@ -248,7 +250,14 @@ impl Qwen38Omega {
         let config = full
             .window(first, count)
             .ok_or_else(|| format!("window {first}+{count}: outside the {} layers", full.layers))?;
-        Self::load_at(config, first, &mut ShardSource::open(dir)?, max_pos)
+        let store = open_store(dir)?;
+        Self::load_at(
+            config,
+            first,
+            &mut ShardSource::open(dir)?,
+            store.as_ref(),
+            max_pos,
+        )
     }
 
     /// Uploads `config.layers` layers from `source`.
@@ -257,7 +266,7 @@ impl Qwen38Omega {
         source: &mut dyn TensorSource,
         max_pos: usize,
     ) -> Result<Self, String> {
-        Self::load_at(config, 0, source, max_pos)
+        Self::load_at(config, 0, source, None, max_pos)
     }
 
     /// Uploads `config.layers` layers from `source`, reading model layer `first + l` for layer `l`.
@@ -265,6 +274,7 @@ impl Qwen38Omega {
         config: Qwen38Config,
         first: usize,
         source: &mut dyn TensorSource,
+        store: Option<&W4Store>,
         max_pos: usize,
     ) -> Result<Self, String> {
         use aien_omega_q38 as q;
@@ -297,27 +307,44 @@ impl Qwen38Omega {
         let embed = read_bf16_words(source, &format!("{prefix}embed_tokens.weight"), &[v, h])?;
         let final_norm = fold(read_vec(source, &format!("{prefix}norm.weight"), h)?);
         // Some: every projection also as MXFP4 (AIEN_Q38_W4=1); the tally of the conversions so far.
-        let mut w4l = env_on("AIEN_Q38_W4").then(W4Stats::default);
-        let mut w4h = env_on("AIEN_Q38_W4_HEAD").then(W4Stats::default);
-        let (lm_head, lm_head8, lm_head4) = match read_matrix(source, "lm_head.weight", v, h)? {
-            Matrix::Bf16 { n, k, w } => {
-                let (mut head8, mut head4) = (None, None);
-                if env_on("AIEN_Q38_FP8_HEAD") || w4h.is_some() {
-                    let (w8, s) = aien_omega_q38::quantize_fp8_bf16(n, k, &w, 16)
-                        .map_err(gpu("lm_head fp8 quantise"))?;
-                    if env_on("AIEN_Q38_FP8_HEAD") {
-                        head8 =
-                            Some(Fp8Tensor::upload(1, n, k, &w8, &s).map_err(gpu("lm_head fp8"))?);
+        // A W4 store wins over all three: W4-only, nothing converted here.
+        let mut w4l = (store.is_none() && env_on("AIEN_Q38_W4")).then(W4Stats::default);
+        let mut w4h = (store.is_none() && env_on("AIEN_Q38_W4_HEAD")).then(W4Stats::default);
+        if store.is_some()
+            && ["AIEN_Q38_W4", "AIEN_Q38_W4_HEAD", "AIEN_Q38_FP8_HEAD"]
+                .iter()
+                .any(|e| env_on(e))
+        {
+            return Err("qwen38 omega: a W4 store is loaded (W4-only); unset AIEN_Q38_W4, AIEN_Q38_W4_HEAD and AIEN_Q38_FP8_HEAD, or set AIEN_Q38_W4_STORE=off".into());
+        }
+        let (lm_head, lm_head8, lm_head4) = if let Some(s) = store {
+            let (w, e) = s.read(LM_HEAD, v, h)?;
+            let t = W4Tensor::upload(v, h, &w, &e).map_err(gpu("lm_head w4 (store)"))?;
+            (None, None, Some(t))
+        } else {
+            match read_matrix(source, "lm_head.weight", v, h)? {
+                Matrix::Bf16 { n, k, w } => {
+                    let (mut head8, mut head4) = (None, None);
+                    if env_on("AIEN_Q38_FP8_HEAD") || w4h.is_some() {
+                        let (w8, s) = aien_omega_q38::quantize_fp8_bf16(n, k, &w, 16)
+                            .map_err(gpu("lm_head fp8 quantise"))?;
+                        if env_on("AIEN_Q38_FP8_HEAD") {
+                            head8 = Some(
+                                Fp8Tensor::upload(1, n, k, &w8, &s).map_err(gpu("lm_head fp8"))?,
+                            );
+                        }
+                        head4 = w4_copy("lm_head w4", n, k, &w8, &s, &mut w4h)?;
                     }
-                    head4 = w4_copy("lm_head w4", n, k, &w8, &s, &mut w4h)?;
+                    (
+                        Some(Bf16Tensor::upload(n, k, &w).map_err(gpu("lm_head"))?),
+                        head8,
+                        head4,
+                    )
                 }
-                (
-                    Bf16Tensor::upload(n, k, &w).map_err(gpu("lm_head"))?,
-                    head8,
-                    head4,
-                )
+                Matrix::Fp8 { .. } => {
+                    return Err("lm_head: FP8 (the graph takes a bf16 head)".into())
+                }
             }
-            Matrix::Fp8 { .. } => return Err("lm_head: FP8 (the graph takes a bf16 head)".into()),
         };
 
         let n_attn = c.full_attention.iter().filter(|&&a| a).count();
@@ -348,32 +375,12 @@ impl Qwen38Omega {
         for l in 0..c.layers {
             let p = format!("{prefix}layers.{}", first + l);
             let rm = |s: &mut dyn TensorSource, name: String, n, k| read_matrix(s, &name, n, k);
-            let (mix, ab, o, mix4, o4) = if c.full_attention[l] {
+            let attention = c.full_attention[l];
+            let [pm, po, pg, pd] = layer_projs(c, &prefix, first + l, attention);
+            let (mix, mix4) = proj(source, store, pm, &mut w4l)?;
+            let (o, o4) = proj(source, store, po, &mut w4l)?;
+            let ab = if attention {
                 let a = format!("{p}.self_attn");
-                let (mix, mix4) = fuse_fp8(
-                    &format!("{a} q|k|v"),
-                    vec![
-                        rm(
-                            source,
-                            format!("{a}.q_proj.weight"),
-                            2 * c.heads * c.head_dim,
-                            h,
-                        )?,
-                        rm(source, format!("{a}.k_proj.weight"), c.kv_dim(), h)?,
-                        rm(source, format!("{a}.v_proj.weight"), c.kv_dim(), h)?,
-                    ],
-                    &mut w4l,
-                )?;
-                let (o, o4) = upload_fp8(
-                    &format!("{a}.o_proj"),
-                    rm(
-                        source,
-                        format!("{a}.o_proj.weight"),
-                        h,
-                        c.heads * c.head_dim,
-                    )?,
-                    &mut w4l,
-                )?;
                 let q_norm = read_vec(source, &format!("{a}.q_norm.weight"), c.head_dim)?;
                 let k_norm = read_vec(source, &format!("{a}.k_norm.weight"), c.head_dim)?;
                 attn.as_mut()
@@ -381,22 +388,9 @@ impl Qwen38Omega {
                     .set_norms(ai, &q_norm, &k_norm)
                     .map_err(gpu("attn256 set_norms"))?;
                 ai += 1;
-                (mix, None, o, mix4, o4)
+                None
             } else {
                 let a = format!("{p}.linear_attn");
-                let (mix, mix4) = fuse_fp8(
-                    &format!("{a} qkv|z"),
-                    vec![
-                        rm(source, format!("{a}.in_proj_qkv.weight"), c.conv_dim(), h)?,
-                        rm(
-                            source,
-                            format!("{a}.in_proj_z.weight"),
-                            c.lin_value_dim(),
-                            h,
-                        )?,
-                    ],
-                    &mut w4l,
-                )?;
                 let ia = rm(source, format!("{a}.in_proj_a.weight"), c.lin_v_heads, h)?;
                 let ib = rm(source, format!("{a}.in_proj_b.weight"), c.lin_v_heads, h)?;
                 let (an, ak, aw) = ab_rows(&ia, &ib).map_err(|e| format!("{a}: {e}"))?;
@@ -405,11 +399,6 @@ impl Qwen38Omega {
                     ResidentTensor::upload_bf16(ak, an, &ab_plain_transposed(an, ak, &aw))
                         .map_err(gpu("in_proj_a|b matmul"))?,
                 );
-                let (o, o4) = upload_fp8(
-                    &format!("{a}.out_proj"),
-                    rm(source, format!("{a}.out_proj.weight"), h, c.lin_value_dim())?,
-                    &mut w4l,
-                )?;
                 let conv: Vec<f32> = read_bf16_words(
                     source,
                     &format!("{a}.conv1d.weight"),
@@ -426,22 +415,10 @@ impl Qwen38Omega {
                     .set_layer(gi, &conv, &a_log, &dt_bias, &norm)
                     .map_err(gpu("gdn set_layer"))?;
                 gi += 1;
-                (mix, Some(ab), o, mix4, o4)
+                Some(ab)
             };
-            let m = format!("{p}.mlp");
-            let (gate_up, gu4) = fuse_fp8(
-                &format!("{m} gate|up"),
-                vec![
-                    rm(source, format!("{m}.gate_proj.weight"), c.intermediate, h)?,
-                    rm(source, format!("{m}.up_proj.weight"), c.intermediate, h)?,
-                ],
-                &mut w4l,
-            )?;
-            let (down, dn4) = upload_fp8(
-                &format!("{m}.down_proj"),
-                rm(source, format!("{m}.down_proj.weight"), h, c.intermediate)?,
-                &mut w4l,
-            )?;
+            let (gate_up, gu4) = proj(source, store, pg, &mut w4l)?;
+            let (down, dn4) = proj(source, store, pd, &mut w4l)?;
             let w4 = match (mix4, o4, gu4, dn4) {
                 (Some(a), Some(b), Some(g), Some(d)) => Some([a, b, g, d]),
                 (None, None, None, None) => None,
@@ -474,7 +451,9 @@ impl Qwen38Omega {
             attn: attn
                 .as_ref()
                 .map_or(std::ptr::null_mut(), Attn256Cache::as_raw),
-            lm_head: lm_head.as_raw(),
+            lm_head: lm_head
+                .as_ref()
+                .map_or(std::ptr::null(), |t| t.as_raw().cast_const()),
         };
         // SAFETY: gdn, attn and lm_head are live omega objects owned by the returned value, which
         // drops the graph before them (field order).
@@ -488,11 +467,11 @@ impl Qwen38Omega {
             unsafe {
                 graph.set_layer(
                     l,
-                    t.mix.as_raw(),
+                    raw(&t.mix),
                     ab,
-                    t.o.as_raw(),
-                    t.gate_up.as_raw(),
-                    t.down.as_raw(),
+                    raw(&t.o),
+                    raw(&t.gate_up),
+                    raw(&t.down),
                     in_norm,
                     post_norm,
                 )
@@ -533,6 +512,7 @@ impl Qwen38Omega {
             lm_head8,
             lm_head4,
             w4_stats,
+            w4_store: store.map(|s| s.path.clone()),
             gdn,
             attn,
             config,
@@ -546,9 +526,10 @@ impl Qwen38Omega {
         })
     }
 
-    /// Bytes resident on the device for the weights (tensors as uploaded, not the KV cache).
+    /// Bytes resident on the device for the weights: every tensor uploaded (FP8, bf16, MXFP4 copies and heads), not the KV cache.
     pub fn weight_bytes(&self) -> usize {
-        let fp8 = |t: &Fp8Tensor| t.resident_bytes();
+        let fp8 = |t: &Option<Fp8Tensor>| t.as_ref().map_or(0, Fp8Tensor::resident_bytes);
+        let w4 = |t: &W4Tensor| t.resident_bytes();
         self.layers
             .iter()
             .map(|t| {
@@ -557,9 +538,17 @@ impl Qwen38Omega {
                     + fp8(&t.gate_up)
                     + fp8(&t.down)
                     + t.ab.as_ref().map_or(0, Bf16Tensor::resident_bytes)
+                    + t.w4.as_ref().map_or(0, |q| q.iter().map(w4).sum())
             })
             .sum::<usize>()
-            + self.lm_head.resident_bytes()
+            + self.lm_head.as_ref().map_or(0, Bf16Tensor::resident_bytes)
+            + fp8(&self.lm_head8)
+            + self.lm_head4.as_ref().map_or(0, w4)
+    }
+
+    /// True when the model was loaded from a W4 store: no FP8 projection and no bf16 head on the device.
+    pub fn w4_only(&self) -> bool {
+        self.w4_store.is_some()
     }
 
     /// Bytes the KV cache holds on the device (every attention layer at `max_pos`).

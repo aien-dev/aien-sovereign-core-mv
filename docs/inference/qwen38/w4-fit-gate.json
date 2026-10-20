@@ -1,0 +1,33 @@
+{
+  "gate": "QWEN38-W4-FIT v1",
+  "frozen": "2026-10-20T02:35Z, before any L125 measurement window (ledger L125, SPEED-1)",
+  "source": "advisor review of the measured WW numbers in ~/handoffs/2026-10-19-ab-fp8head-4bit.md (cmpB, calc:8156c35f); same-pick floor = measured minus about 3 points, KL mean <= 1.5x measured, NLL delta <= measured + 0.03 nats/token",
+  "reference": "h0: FP8 weights + bf16 lm_head, teacher-forced through the decode graph (qwen38_ab run, AIEN_Q38_W4_STORE=off, no other switch)",
+  "candidate": "W4-only from the MXFP4 store (qwen38_ab run with the store), same token sequences",
+  "exact": {
+    "what": "store is lossless: WW converted at load (AIEN_Q38_W4=1 AIEN_Q38_W4_HEAD=1, no store) vs W4-only store on golden",
+    "argmax_agree_all": true,
+    "max_abs_diff_max": 0.0
+  },
+  "near_tie_margin": 0.25,
+  "confident_margin": 1.0,
+  "flip_margin_max": 10.0,
+  "texts": {
+    "golden":   { "positions": 47,   "agree_min": 44,  "kl_mean_max": 0.05,  "kl_max_max": 1.3 },
+    "license":  { "positions": 255,  "agree_min": 250, "kl_mean_max": 0.004, "nll_delta_max": 0.035 },
+    "prose":    { "positions": 289,  "agree_min": 245, "kl_mean_max": 0.12,  "nll_delta_max": 0.06 },
+    "codelong": { "positions": 305,  "agree_min": 275, "kl_mean_max": 0.09,  "nll_delta_max": 0.02 },
+    "code":     { "positions": 1023, "agree_min": 850, "kl_mean_max": 0.11,  "nll_delta_max": 0.09 },
+    "arch":     { "positions": 2047, "provisional": true }
+  },
+  "pooled_agree_min": 0.87,
+  "pooled_texts": ["golden", "license", "prose", "codelong", "code"],
+  "residual_cosine_min": 0.70,
+  "notes": [
+    "A flip where the reference's top-two margin is under near_tie_margin is free (Task A's largest such margin was 0.186).",
+    "Flips at margin >= confident_margin are counted and reported; any flip at margin >= flip_margin_max fails (largest seen 9.46 on arch).",
+    "arch is a first measurement, reported but not a pass line.",
+    "residual_cosine_min reads the qwen38_omega_full golden report of the W4-only run (measured 0.777 for WW).",
+    "The strict gate (24 golden words, logits cosine 0.9999) stays for exactness claims; this gate decides whether 4-bit is fit to serve."
+  ]
+}

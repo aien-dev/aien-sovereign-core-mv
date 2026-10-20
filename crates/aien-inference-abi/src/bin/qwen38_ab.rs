@@ -9,6 +9,8 @@
 //!       (f32, vocab per step, step order) and `<out-prefix>.json` (per step: fed token, chip
 //!       argmax, top-two margin, chip ms, and the negative log-likelihood of the next fed token).
 //!       The engine variant comes from the environment (AIEN_Q38_FP8_HEAD=1, AIEN_Q38_W4=1).
+//!   qwen38_ab gate4 <thresholds.json> <out.json> exact=<cmp> golden=<cmp> ... full=<omega_full report>
+//!       the 4-bit fit gate (L125): thresholds frozen before the run (docs/inference/qwen38/w4-fit-gate.json).
 //!   qwen38_ab compare <a-prefix> <b-prefix> <out.json>
 //!       position by position, A taken as the reference: argmax agreement, A's top-two margin
 //!       where they differ, logits cosine, KL(A || B), and both texts' mean NLL. Two runs fed the
@@ -30,6 +32,13 @@ const KEEP_FREE: u64 = 12 << 30;
 /// Host copies held while loading (token embeddings, one converted layer, slack).
 const HOST_SLACK: u64 = 6 << 30;
 const TOKENIZE_PIECE: usize = 2000;
+
+/// Seconds since 1970 (decode start and end, to read the wall meter log over exactly that span).
+fn unix_s() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_secs_f64())
+}
 
 fn mem_available() -> Result<u64, String> {
     let m = std::fs::read_to_string("/proc/meminfo").map_err(|e| format!("/proc/meminfo: {e}"))?;
@@ -130,6 +139,11 @@ fn run(dir: &Path, seq_path: &str, prefix: &str, gen: usize) -> Result<(), Strin
     let fp8 = model_bytes(&config);
     let head = 2 * config.vocab as u64 * config.hidden as u64;
     let mut need = fp8 + HOST_SLACK;
+    let w4_only = aien_inference_abi::qwen38_w4_store::resolve(dir)?.is_some();
+    if w4_only {
+        // W4 store (L125): MXFP4 projections and head only, 17 / 32 byte per weight; the bf16 a|b rows are small
+        need = (fp8 - head) * 17 / 32 + head / 2 * 17 / 32 + HOST_SLACK;
+    }
     if std::env::var("AIEN_Q38_W4").as_deref() == Ok("1") {
         need += (fp8 - head) * 17 / 32;
     }
@@ -157,6 +171,8 @@ fn run(dir: &Path, seq_path: &str, prefix: &str, gen: usize) -> Result<(), Strin
         "AIEN_Q38_W4": std::env::var("AIEN_Q38_W4").ok(),
         "AIEN_Q38_W4_HEAD": std::env::var("AIEN_Q38_W4_HEAD").ok(),
         "AIEN_Q38_W4_RULE": std::env::var("AIEN_Q38_W4_RULE").ok(),
+        "AIEN_Q38_W4_STORE": std::env::var("AIEN_Q38_W4_STORE").ok(),
+        "w4_only": w4_only,
     });
     eprintln!(
         "variant {variant}; {steps} steps; MemAvailable {} MiB",
@@ -174,6 +190,7 @@ fn run(dir: &Path, seq_path: &str, prefix: &str, gen: usize) -> Result<(), Strin
     let mut nll_sum = 0f64;
     let mut nll_n = 0usize;
     let t_all = Instant::now();
+    let d0 = unix_s();
     for p in 0..steps {
         let t = Instant::now();
         let (top, st) = e.step(fed)?;
@@ -215,6 +232,7 @@ fn run(dir: &Path, seq_path: &str, prefix: &str, gen: usize) -> Result<(), Strin
         .iter()
         .map(|r| r["chip_ms"].as_f64().unwrap())
         .collect();
+    let d1 = unix_s();
     chip.sort_by(|a, b| a.total_cmp(b));
     let median = chip[chip.len() / 2];
     let out = json!({
@@ -223,6 +241,8 @@ fn run(dir: &Path, seq_path: &str, prefix: &str, gen: usize) -> Result<(), Strin
         "mean_nll_fed": if nll_n > 0 { nll_sum / nll_n as f64 } else { f64::NAN },
         "chip_ms_median": median, "chip_ms_min": chip[0], "chip_ms_max": chip[chip.len() - 1],
         "open_s": open_s, "run_s": t_all.elapsed().as_secs_f64(),
+        "decode_unix": [d0, d1],
+        "weight_bytes": e.weight_bytes(), "w4_store": e.w4_store.as_ref().map(|p| p.display().to_string()),
         "w4_rel_rms": e.w4_stats.map(|s| s.rel_rms()), "w4_weights": e.w4_stats.map(|s| s.weights),
         "w4_zero_groups": e.w4_stats.map(|s| s.zero_groups), "w4_saturated": e.w4_stats.map(|s| s.saturated),
         "rows": rows,
@@ -262,6 +282,7 @@ fn compare(a: &str, b: &str, out: &str) -> Result<(), String> {
     let (mut ba, mut bb) = (vec![0u8; vocab * 4], vec![0u8; vocab * 4]);
     let (mut agree, mut same_input) = (0usize, 0usize);
     let (mut cos_min, mut cos_sum, mut kl_sum, mut kl_max) = (f64::INFINITY, 0f64, 0f64, 0f64);
+    let mut max_abs_diff = 0f64;
     let mut flips = Vec::new();
     let mut first_input_diff = None;
     for p in 0..n {
@@ -297,6 +318,12 @@ fn compare(a: &str, b: &str, out: &str) -> Result<(), String> {
         }
         let (mut dot, mut na, mut nb) = (0f64, 0f64, 0f64);
         for (&x, &y) in la.iter().zip(&lb) {
+            let d = (x - y).abs() as f64;
+            max_abs_diff = if d.is_nan() {
+                f64::INFINITY
+            } else {
+                max_abs_diff.max(d)
+            };
             dot += x as f64 * y as f64;
             na += x as f64 * x as f64;
             nb += y as f64 * y as f64;
@@ -327,6 +354,7 @@ fn compare(a: &str, b: &str, out: &str) -> Result<(), String> {
         "argmax_agree": agree, "flips": flips,
         "cosine_min": cos_min, "cosine_mean": cos_sum / m,
         "kl_mean": kl_sum / m, "kl_max": kl_max, "a_margin_min": margin_min,
+        "max_abs_diff": max_abs_diff,
         "a_mean_nll_fed": ja["mean_nll_fed"], "b_mean_nll_fed": jb["mean_nll_fed"],
         "a_generated": ja["generated_ids"], "b_generated": jb["generated_ids"],
         "a_chip_ms_median": ja["chip_ms_median"], "b_chip_ms_median": jb["chip_ms_median"],
@@ -439,6 +467,147 @@ fn w4err(dir: &Path, out: &str) -> Result<(), String> {
     std::fs::write(out, serde_json::to_string_pretty(&v).unwrap())
         .map_err(|e| format!("{out}: {e}"))
 }
+/// `gate4 <thresholds.json> <out.json> name=<compare.json>... [full=<omega_full report.json>]`: the 4-bit fit gate
+/// (L125, thresholds frozen in docs/inference/qwen38/w4-fit-gate.json before the run). `exact` = store vs convert at
+/// load (must be bit-identical); every other name is a text compared against h0 (A = h0, B = the 4-bit candidate).
+fn gate4(thresholds: &str, out: &str, inputs: &[String]) -> Result<bool, String> {
+    let th = read_json(thresholds)?;
+    let num = |v: &Value, k: &str| v[k].as_f64().ok_or_else(|| format!("{k}: missing"));
+    let (near, conf, flip_max) = (
+        num(&th, "near_tie_margin")?,
+        num(&th, "confident_margin")?,
+        num(&th, "flip_margin_max")?,
+    );
+    let mut rows = Vec::new();
+    let mut fails: Vec<String> = Vec::new();
+    let (mut pool_agree, mut pool_n) = (0u64, 0u64);
+    let pooled: Vec<&str> = th["pooled_texts"]
+        .as_array()
+        .ok_or("pooled_texts: missing")?
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    let mut seen = Vec::new();
+    for arg in inputs {
+        let (name, path) = arg
+            .split_once('=')
+            .ok_or_else(|| format!("{arg}: expected name=path"))?;
+        let v = read_json(path)?;
+        seen.push(name.to_string());
+        if name == "full" {
+            let cos = v["windows"]
+                .as_array()
+                .ok_or("full: no windows")?
+                .iter()
+                .filter_map(|w| w["residual_cosine_min"].as_f64())
+                .fold(f64::INFINITY, f64::min);
+            let ok = cos >= num(&th, "residual_cosine_min")?;
+            if !ok {
+                fails.push(format!("full: residual cosine min {cos:.4}"));
+            }
+            rows.push(json!({"name": name, "residual_cosine_min": cos, "pass": ok}));
+            continue;
+        }
+        let n = v["same_input_positions"]
+            .as_u64()
+            .ok_or("same_input_positions")?;
+        let agree = v["argmax_agree"].as_u64().ok_or("argmax_agree")?;
+        let (kl_mean, kl_max) = (num(&v, "kl_mean")?, num(&v, "kl_max")?);
+        if name == "exact" {
+            let e = &th["exact"];
+            let mad = num(&v, "max_abs_diff")?;
+            let ok = agree == n && n > 0 && mad <= num(e, "max_abs_diff_max")?;
+            if !ok {
+                fails.push(format!("exact: agree {agree}/{n}, max |diff| {mad}"));
+            }
+            rows.push(json!({"name": name, "positions": n, "agree": agree, "max_abs_diff": mad, "pass": ok}));
+            continue;
+        }
+        let t = &th["texts"][name];
+        if t.is_null() {
+            return Err(format!("{name}: not a text of the gate"));
+        }
+        let flips = v["flips"].as_array().ok_or("flips")?;
+        let m = |f: &Value| f["a_margin"].as_f64().unwrap_or(f64::INFINITY);
+        let near_ties = flips.iter().filter(|f| m(f) < near).count();
+        let confident = flips.iter().filter(|f| m(f) >= conf).count();
+        let worst = flips.iter().map(m).fold(0f64, f64::max);
+        let nll_delta = num(&v, "b_mean_nll_fed")? - num(&v, "a_mean_nll_fed")?;
+        let mut why = Vec::new();
+        let provisional = t["provisional"].as_bool() == Some(true);
+        if let Some(p) = t["positions"].as_u64() {
+            if p != n {
+                why.push(format!("{n} positions, the gate wants {p}"));
+            }
+        }
+        // near ties are free: they count as agreement
+        let agree_eff = agree + near_ties as u64;
+        if let Some(a) = t["agree_min"].as_u64() {
+            if agree_eff < a {
+                why.push(format!(
+                    "agree {agree_eff} (incl. {near_ties} near ties) < {a}"
+                ));
+            }
+        }
+        if let Some(x) = t["kl_mean_max"].as_f64() {
+            if kl_mean > x {
+                why.push(format!("KL mean {kl_mean:.4} > {x}"));
+            }
+        }
+        if let Some(x) = t["kl_max_max"].as_f64() {
+            if kl_max > x {
+                why.push(format!("KL max {kl_max:.4} > {x}"));
+            }
+        }
+        if let Some(x) = t["nll_delta_max"].as_f64() {
+            if nll_delta > x {
+                why.push(format!("NLL delta {nll_delta:+.4} > {x}"));
+            }
+        }
+        if worst >= flip_max {
+            why.push(format!(
+                "a flip at reference margin {worst:.2} >= {flip_max}"
+            ));
+        }
+        if pooled.contains(&name) {
+            pool_agree += agree_eff;
+            pool_n += n;
+        }
+        let ok = why.is_empty();
+        if !ok && !provisional {
+            fails.push(format!("{name}: {}", why.join("; ")));
+        }
+        rows.push(json!({"name": name, "positions": n, "agree": agree, "near_ties": near_ties,
+            "agree_counted": agree_eff, "confident_flips": confident, "worst_flip_margin": worst,
+            "kl_mean": kl_mean, "kl_max": kl_max, "nll_delta": nll_delta, "provisional": provisional,
+            "pass": ok, "why": why}));
+    }
+    for want in pooled.iter().copied().chain(["exact", "full"]) {
+        if !seen.iter().any(|s| s == want) {
+            fails.push(format!("{want}: not given"));
+        }
+    }
+    let pool = pool_agree as f64 / pool_n.max(1) as f64;
+    if pool < num(&th, "pooled_agree_min")? {
+        fails.push(format!("pooled agree {pool:.4}"));
+    }
+    let pass = fails.is_empty();
+    let v = json!({"mode": "gate4", "gate": th["gate"], "thresholds": thresholds, "rows": rows,
+        "pooled_agree": pool, "pooled_agree_counted": pool_agree, "pooled_positions": pool_n,
+        "fails": fails, "pass": pass});
+    std::fs::write(out, serde_json::to_string_pretty(&v).unwrap()).map_err(|e| e.to_string())?;
+    eprintln!(
+        "QWEN38_W4_FIT {}: pooled agree {pool:.4} ({pool_agree}/{pool_n}); {}",
+        if pass { "PASS" } else { "FAIL" },
+        if pass {
+            "every line met".to_string()
+        } else {
+            fails.join(" | ")
+        }
+    );
+    Ok(pass)
+}
+
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     let r = match a.get(1).map(String::as_str) {
@@ -455,7 +624,14 @@ fn main() {
         Some("decode") if a.len() == 5 => decode(Path::new(&a[2]), &a[3], &a[4]),
         Some("timeline") if a.len() == 5 => timeline(Path::new(&a[2]), &a[3], &a[4]),
         Some("w4err") if a.len() == 4 => w4err(Path::new(&a[2]), &a[3]),
-        _ => Err("usage: qwen38_ab text <ckpt> <text-file> <n> <seq.json> | run <ckpt> <seq.json> <out-prefix> [--gen N] | compare <a> <b> <out.json> | decode <ckpt> <run.json> <out.txt> | timeline <ckpt> <seq.json> <out.json> | w4err <ckpt> <out.json>".into()),
+        Some("gate4") if a.len() >= 5 => gate4(&a[2], &a[3], &a[4..]).and_then(|ok| {
+            if ok {
+                Ok(())
+            } else {
+                Err("4-bit fit gate FAIL".into())
+            }
+        }),
+        _ => Err("usage: qwen38_ab text <ckpt> <text-file> <n> <seq.json> | run <ckpt> <seq.json> <out-prefix> [--gen N] | compare <a> <b> <out.json> | decode <ckpt> <run.json> <out.txt> | timeline <ckpt> <seq.json> <out.json> | w4err <ckpt> <out.json> | gate4 <thresholds.json> <out.json> name=<compare.json>... [full=<report.json>]".into()),
     };
     if let Err(e) = r {
         eprintln!("qwen38_ab: {e}");

@@ -220,7 +220,7 @@ pub struct GraphConfig {
     pub gdn: *mut c_void,
     /// [`Attn256Cache::as_raw`]: one entry per attention layer, in model order; rotary 64.
     pub attn: *mut c_void,
-    /// `Bf16Tensor::as_raw`, `[vocab][HIDDEN]`.
+    /// `Bf16Tensor::as_raw`, `[vocab][HIDDEN]`; null when an FP8 or MXFP4 head is set before the first token (W4-only).
     pub lm_head: *const c_void,
 }
 
@@ -969,6 +969,7 @@ impl Q38Graph {
     /// `[HIDDEN]` each, already folded to `1 + w`). DeltaNet: `mix` `[16384][5120]`, `ab` bf16
     /// `[96][5120]` (a/b interleaved, each value times 2^-64). Attention: `mix` `[14336][5120]`,
     /// `ab` null. Both: `o` `[5120][6144]`, `gate_up` `[34816][5120]`, `down` `[5120][17408]`.
+    /// All four projections null: a W4-only layer (no FP8 copy); [`Self::set_layer_w4`] must follow before a token.
     ///
     /// # Safety
     /// The handles are live `OmegaGpuFp8Tensor` / `OmegaGpuBf16Tensor` pointers that outlive the
@@ -990,9 +991,14 @@ impl Q38Graph {
         if layer >= self.layers {
             return Err(bad(format!("q38 graph: layer {layer} of {}", self.layers)));
         }
-        if mix.is_null() || o.is_null() || gate_up.is_null() || down.is_null() {
+        // All four null = a W4-only layer (speed1/w4-default): `set_layer_w4` must follow before a token.
+        let nulls = [mix, o, gate_up, down]
+            .iter()
+            .filter(|p| p.is_null())
+            .count();
+        if nulls != 0 && nulls != 4 {
             return Err(bad(format!(
-                "q38 graph layer {layer}: a projection has no device handle"
+                "q38 graph layer {layer}: some projections have no device handle (all four or none)"
             )));
         }
         if ab.is_null() != self.is_attention(layer) {

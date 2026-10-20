@@ -276,6 +276,19 @@ impl Qwen38Omega {
         chunk: usize,
     ) -> Result<(u32, Vec<f32>, PrefillStats), String> {
         let t0 = Instant::now();
+        if self.w4_only() {
+            // W4-only (L125): no FP8 copy for the batched path; the prompt goes through the decode graph token by token.
+            let mut next = 0;
+            for &t in tokens {
+                next = self.step(t)?.0;
+            }
+            let st = PrefillStats {
+                tokens: tokens.len(),
+                wall_ns: ns(t0),
+                ..PrefillStats::default()
+            };
+            return Ok((next, self.logits()?, st));
+        }
         let (last, mut st) = self.prefill_rows(tokens, chunk, false)?;
         let t = Instant::now();
         let logits = self.head_logits(&last)?;
@@ -298,6 +311,8 @@ impl Qwen38Omega {
         rmsnorm(residual, &self.final_norm, self.config.eps, &mut hidden);
         let mut logits = vec![0f32; self.config.vocab];
         self.lm_head
+            .as_ref()
+            .ok_or("head_logits: W4-only model (no bf16 lm_head); use step and logits")?
             .gemv_f32(&hidden, &mut logits)
             .map_err(gpu("lm_head"))?;
         Ok(logits)
@@ -388,6 +403,13 @@ impl Qwen38Omega {
         let (mut gi, mut ai) = (0usize, 0usize);
         for l in 0..layers {
             let lt = &self.layers[l];
+            let (Some(lt_mix), Some(lt_o), Some(lt_gate_up), Some(lt_down)) =
+                (&lt.mix, &lt.o, &lt.gate_up, &lt.down)
+            else {
+                return Err(
+                    "qwen38 prefill: W4-only model (no FP8 copy for the batched path)".into(),
+                );
+            };
             let (in_norm, post_norm) = &self.norms[l];
             let attention = self.config.full_attention[l];
 
@@ -402,7 +424,7 @@ impl Qwen38Omega {
                 .map_err(|e| format!("layer {l} quant x: {e}"))?;
             let mix_n = if attention { q::ATT_MIX } else { q::GDN_MIX };
             let mix_va = pf.mix.va();
-            pf.gemm(&lt.mix, mix_n, h, Layout::Plain, mix_va, m, st)
+            pf.gemm(lt_mix, mix_n, h, Layout::Plain, mix_va, m, st)
                 .map_err(|e| format!("layer {l} mixer gemm x{m}: {e}"))?;
 
             let t = Instant::now();
@@ -479,7 +501,7 @@ impl Qwen38Omega {
             pf.quant(mo, QuantIn::F32, xin_va, m, st)
                 .map_err(|e| format!("layer {l} quant mixer out: {e}"))?;
             let out_va = pf.out.va();
-            pf.gemm(&lt.o, h, mo, Layout::Plain, out_va, m, st)
+            pf.gemm(lt_o, h, mo, Layout::Plain, out_va, m, st)
                 .map_err(|e| format!("layer {l} o gemm x{m}: {e}"))?;
             let t = Instant::now();
             let o = copy_out(&pf.out, "out", m * h)?;
@@ -496,11 +518,11 @@ impl Qwen38Omega {
             pf.quant(h, QuantIn::F32, xin_va, m, st)
                 .map_err(|e| format!("layer {l} quant post: {e}"))?;
             let act_va = pf.act.va();
-            pf.gemm(&lt.gate_up, 2 * inter, h, Layout::SwigluNat, act_va, m, st)
+            pf.gemm(lt_gate_up, 2 * inter, h, Layout::SwigluNat, act_va, m, st)
                 .map_err(|e| format!("layer {l} gate|up gemm x{m}: {e}"))?;
             pf.quant(inter, QuantIn::Bf16, act_va, m, st)
                 .map_err(|e| format!("layer {l} quant act: {e}"))?;
-            pf.gemm(&lt.down, h, inter, Layout::Plain, out_va, m, st)
+            pf.gemm(lt_down, h, inter, Layout::Plain, out_va, m, st)
                 .map_err(|e| format!("layer {l} down gemm x{m}: {e}"))?;
             let t = Instant::now();
             let d = copy_out(&pf.out, "out", m * h)?;

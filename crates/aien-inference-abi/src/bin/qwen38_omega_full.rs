@@ -35,26 +35,42 @@ const COSINE_MIN: f64 = 0.9999;
 /// server). A window is uploaded only when MemAvailable covers it plus this margin.
 const KEEP_FREE: u64 = 12 << 30;
 
-/// Device bytes a window takes: its FP8 weights (1 byte each; the 128x128 block scales add 1/4096),
-/// the bf16 a|b rows of its DeltaNet layers, and the bf16 lm_head; from the config, not measured.
-fn window_bytes(c: &Qwen38Config, first: usize, count: usize) -> u64 {
+/// Device bytes a window takes: its projection weights (FP8: 1 byte each, the 128x128 block scales add 1/4096; W4-only
+/// from a W4 store, L125: half a byte each plus one scale byte per 32), the bf16 a|b rows of its DeltaNet layers, and
+/// the lm_head (bf16, or MXFP4 when W4-only); from the config, not measured.
+fn window_bytes(c: &Qwen38Config, first: usize, count: usize, w4_only: bool) -> u64 {
     let h = c.hidden as u64;
     let mlp = 3 * c.intermediate as u64 * h;
     let o = h * (c.heads * c.head_dim) as u64;
-    let layers: u64 = c.full_attention[first..first + count]
+    let (weights, ab): (u64, u64) = c.full_attention[first..first + count]
         .iter()
         .map(|&attn| {
             if attn {
-                (2 * c.heads * c.head_dim + 2 * c.kv_dim()) as u64 * h + o + mlp
+                (
+                    (2 * c.heads * c.head_dim + 2 * c.kv_dim()) as u64 * h + o + mlp,
+                    0,
+                )
             } else {
-                (c.conv_dim() + c.lin_value_dim()) as u64 * h
-                    + o
-                    + mlp
-                    + 2 * 2 * c.lin_v_heads as u64 * h
+                (
+                    (c.conv_dim() + c.lin_value_dim()) as u64 * h + o + mlp,
+                    2 * 2 * c.lin_v_heads as u64 * h,
+                )
             }
         })
-        .sum();
-    layers + layers / 4096 + 2 * c.vocab as u64 * h
+        .fold((0, 0), |(a, b), (x, y)| (a + x, b + y));
+    let head = c.vocab as u64 * h;
+    if w4_only {
+        (weights + head) / 2 + (weights + head) / 32 + ab
+    } else {
+        weights + weights / 4096 + ab + 2 * head
+    }
+}
+
+/// Seconds since 1970 (decode start and end, to read the wall meter log over exactly that span).
+fn unix_s() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_secs_f64())
 }
 
 /// MemAvailable from /proc/meminfo, in bytes.
@@ -121,6 +137,8 @@ fn run() -> Result<bool, String> {
         return Err(format!("window {wl} does not divide {layers} layers"));
     }
     let windows = layers / wl;
+    // W4-only when a W4 store resolves for this checkpoint (the loader takes the same one).
+    let w4_only = aien_inference_abi::qwen38_w4_store::resolve(dir)?.is_some();
     let (h, vocab) = (config.hidden, config.vocab);
     eprintln!(
         "model: {layers} layers in {windows} windows of {wl}; {t} positions ({} generated)",
@@ -160,7 +178,7 @@ fn run() -> Result<bool, String> {
     let mut weight_bytes = 0usize;
     for (w, tap) in taps.iter().enumerate().take(windows) {
         let first = w * wl;
-        let need = window_bytes(&config, first, wl);
+        let need = window_bytes(&config, first, wl, w4_only);
         let avail = mem_available()?;
         if avail < need + KEEP_FREE {
             return Err(format!(
@@ -174,6 +192,7 @@ fn run() -> Result<bool, String> {
         let mut engine = Qwen38Omega::open_window(dir, first, wl, t.max(256))?;
         let ls = t1.elapsed().as_secs_f64();
         upload_s += ls;
+        let d0 = unix_s();
         weight_bytes += engine.weight_bytes();
         eprintln!(
             "window {w} (layers {first}..{}): uploaded in {ls:.1} s, weights {} MB, KV {} MB",
@@ -197,6 +216,7 @@ fn run() -> Result<bool, String> {
             }
         }
 
+        let d1 = unix_s();
         let (mut cos_min, mut p95_max) = (f64::INFINITY, 0f32);
         for (p, x) in x_out.iter().enumerate() {
             let s = parity_stats(x, &tap[p * h..(p + 1) * h]);
@@ -209,7 +229,7 @@ fn run() -> Result<bool, String> {
         }
         println!("window {w} layers {first}..{}: residual cosine(min) {cos_min:.6} p95_rel(max) {p95_max:.4}", first + wl - 1);
         win_report.push(json!({"window": w, "first_layer": first, "layers": wl, "upload_s": ls,
-            "weight_bytes": engine.weight_bytes(), "residual_cosine_min": cos_min, "residual_p95_rel_max": p95_max}));
+            "weight_bytes": engine.weight_bytes(), "residual_cosine_min": cos_min, "residual_p95_rel_max": p95_max, "decode_unix": [d0, d1]}));
         x_in = x_out;
         drop(engine);
     }
