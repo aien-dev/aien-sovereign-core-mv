@@ -49,10 +49,10 @@ pub async fn handle_slash_command(cmd: &str) -> bool {
             let turn = parts.get(1).and_then(|t| t.parse::<u64>().ok());
             let session = parts.get(if turn.is_some() { 2 } else { 1 }).copied();
             match crate::checkpoint::rollback(&home, turn, session) {
-                Ok((id, r)) => {
+                Ok(r) => {
                     println!(
                         "{}",
-                        format!("Rolled back session {} from turn {}", id, r.from_turn)
+                        format!("Rolled back from turn {}", r.from_turn)
                             .cyan()
                             .bold()
                     );
@@ -75,11 +75,11 @@ pub async fn handle_slash_command(cmd: &str) -> bool {
         "/checkpoints" => {
             let home = crate::platform::PlatformContext::detect().home_dir;
             match crate::checkpoint::list_turns(&home, parts.get(1).copied()) {
-                Ok((id, turns)) if turns.is_empty() => {
-                    println!("Session {}: no agent file writes recorded.", id)
+                Ok(turns) if turns.is_empty() => {
+                    println!("No agent file writes recorded in that session.")
                 }
-                Ok((id, turns)) => {
-                    println!("{}", format!("Session {}: agent writes by turn", id).cyan());
+                Ok(turns) => {
+                    println!("{}", "Agent writes by turn".cyan());
                     for (t, n) in turns {
                         println!("  turn {}: {} file(s)", t, n);
                     }

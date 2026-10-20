@@ -597,29 +597,33 @@ pub fn record_agent_write<T>(
     Ok((out, warn))
 }
 
-/// Turns of an active session or of `session` by id.
-pub fn list_turns(
-    home: &Path,
-    session: Option<&str>,
-) -> Result<(String, Vec<(u64, usize)>), String> {
-    let id = match session {
-        Some(s) => s.to_string(),
-        None => {
-            active_session_id().ok_or("no active session; name one: /checkpoints <session-id>")?
-        }
-    };
+/// The session `session` names, or else the active one.
+fn session_or_active(session: Option<&str>) -> Result<String, String> {
+    match session {
+        Some(s) => Ok(s.to_string()),
+        None => active_session_id()
+            .ok_or_else(|| "no active session; name one: /checkpoints <session-id>".to_string()),
+    }
+}
+
+/// Turns (turn number, file writes) of an active session or of `session`.
+/// The session id is deliberately not in the result: callers that print the
+/// turns do not print the id (sc#689, cleartext logging of a session id).
+pub fn list_turns(home: &Path, session: Option<&str>) -> Result<Vec<(u64, usize)>, String> {
+    let id = session_or_active(session)?;
     let s = Session::open(CheckpointStore::new(store_root(home)), &id)?;
-    Ok((id, s.turns()?))
+    Ok(s.turns()?)
 }
 
 /// Roll back `session` (default: the active one) from `turn` (default: its
-/// last turn with agent writes).
+/// last turn with agent writes). Returns the report only; see `list_turns`.
 pub fn rollback(
     home: &Path,
     turn: Option<u64>,
     session: Option<&str>,
-) -> Result<(String, RollbackReport), String> {
-    let (id, turns) = list_turns(home, session)?;
+) -> Result<RollbackReport, String> {
+    let id = session_or_active(session)?;
+    let turns = list_turns(home, Some(id.as_str()))?;
     let Some(last) = turns.last().map(|(t, _)| *t) else {
         return Err(format!("session {id} has no agent writes to roll back"));
     };
@@ -627,7 +631,7 @@ pub fn rollback(
     let store = CheckpointStore::new(store_root(home));
     // Hold the active session lock so no agent write lands mid-rollback.
     let _guard = active().lock();
-    Ok((id.clone(), store.rollback(&id, from)?))
+    store.rollback(&id, from)
 }
 
 #[cfg(test)]
