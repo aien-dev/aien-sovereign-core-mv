@@ -9,7 +9,7 @@
 set -euo pipefail
 OUT=$1; shift
 HERE=$(cd "$(dirname "$0")" && pwd)
-SLOTS=${SLOTS:-32}; MAXT=${MAXT:-256}; CTX=${CTX:-4096}; MINMEM_GIB=${MINMEM_GIB:-50}
+SLOTS=${SLOTS:-32}; MAXT=${MAXT:-256}; CTX=${CTX:-4096}; MINMEM_GIB=${MINMEM_GIB:-46}
 BIN=${BIN:?BIN=path of aien-serve-http}
 MODEL=$HOME/models/qwen3.8-27b-fp8-017b9c7a
 PORT=${PORT:-18193}; URL=http://127.0.0.1:$PORT
