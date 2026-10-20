@@ -142,7 +142,8 @@ the worker's, never the gate's. Without it two gates built in one target dir
 at once and one relinked a test binary the other was executing (sc fix/521:
 SC-AGENT-PREFLIGHT under SC-TEST, `current_exe: NotFound`, a false FAIL).
 Gates given different target dirs still run at the same time. The fixed lock
-order of one gate is: pool slot, target-dir lock, `/tmp/aien-gb10.lock`,
+order of one gate is: pool slot, target-dir lock, `prepare` (if any),
+`/tmp/aien-gb10.lock`,
 aien-proof `slots/gpu.lock`; the worker's target priming takes only the
 target-dir lock. Known limit: a gb10 gate is never killed on timeout, so a
 hung one holds the target dir until it exits on its own.
@@ -162,7 +163,22 @@ server's own upload wait); `--gpu-wait 0` refuses at once, `--gpu-wait 90s`
 sets another bound, `--wait-gpu` waits without one. While it waits the gate
 keeps its pool slot and target-dir lock (never the GPU idle), so other gates
 of the same target dir wait too, at most the bound. Every gb10 receipt
-records `volatile.gpu_wait`: `mode`, `bound_ms`, `waited_ms`, `acquired`.
+records `volatile.gpu_wait`: `mode`, `bound_ms`, `waited_ms`, `acquired`,
+and `volatile.gpu_held_ms`, how long the run held the GPU locks.
+
+A gb10 gate that must build before it touches the chip names the build in a
+v2 `prepare:` key (same shape as `run:`: `exec` plus a one-line `args` list).
+The runner runs it after the pool slot and target-dir lock and BEFORE
+`/tmp/aien-gb10.lock`, under the host sandbox profile with the gate's timeout
+enforced, without `AIEN_GB10_LOCK_HELD`; then it takes the GPU locks for `run`
+alone. A prepare that exits non-zero or times out fails the gate
+(`prepare_failed`), `run` never starts and the GPU lock is never asked for;
+its exit status and output are the receipt's. `volatile.prepare` records
+`duration_ms`, `exit_status`, `timed_out` and the two output blob hashes. Why
+(L154, 2026-10-20): omega's chip gates build their program inside the lock,
+so one PR run held the chip 84 minutes for three gates while the GPU sat idle
+compiling (OMEGA-COMPOSITION-GATE-GPU 846 s, OMEGA-M17 2233 s, OMEGA-M19
+1933 s, omega 47699e9d). A gate without `prepare` behaves as before.
 
 Under `--sandbox user` every checkout is made with INFRA's worktree tool
 (`--wt-tool`, default `<clones>/aien-sovereign-core/tools/aien-local-ci/wt.sh`;
