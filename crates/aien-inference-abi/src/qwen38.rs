@@ -693,6 +693,12 @@ pub struct Qwen38Reference<S: TensorSource> {
     pub routing_mutant: u8,
     /// MoE only: per layer, the routed expert ids of the last call, `[t][top_k]` flattened.
     pub routes: Vec<Vec<u16>>,
+    /// MoE only: the renormalised weights beside [`Self::routes`], same layout.
+    pub route_weights: Vec<Vec<f32>>,
+    /// L308 typewriter head: per layer, the experts routing may use (`None` = all). A masked
+    /// expert's logit is treated as minus infinity, so softmax, top-k and renormalisation run
+    /// over the allowed set only. Output differs from the model whenever a mask bites.
+    pub expert_mask: Option<Vec<Vec<bool>>>,
 }
 
 impl Qwen38Reference<ShardSource> {
@@ -724,6 +730,8 @@ impl<S: TensorSource> Qwen38Reference<S> {
             lm_head,
             routing_mutant: 0,
             routes: Vec::new(),
+            route_weights: Vec::new(),
+            expert_mask: None,
         })
     }
 
@@ -798,7 +806,17 @@ impl<S: TensorSource> Qwen38Reference<S> {
         let logits = w.router.matmul(xn, t);
         let mut picks: Vec<Vec<(usize, f32)>> = Vec::with_capacity(t);
         for row in logits.chunks_exact(s.experts) {
-            picks.push(route(row, s.top_k, self.routing_mutant));
+            match self.expert_mask.as_ref().and_then(|m| m.get(l)) {
+                Some(allow) => {
+                    let masked: Vec<f32> = row
+                        .iter()
+                        .zip(allow)
+                        .map(|(&v, &ok)| if ok { v } else { f32::NEG_INFINITY })
+                        .collect();
+                    picks.push(route(&masked, s.top_k, self.routing_mutant));
+                }
+                None => picks.push(route(row, s.top_k, self.routing_mutant)),
+            }
         }
         if self.routes.len() <= l {
             self.routes.resize(l + 1, Vec::new());
@@ -807,6 +825,10 @@ impl<S: TensorSource> Qwen38Reference<S> {
             .iter()
             .flat_map(|p| p.iter().map(|&(e, _)| e as u16))
             .collect();
+        if self.route_weights.len() <= l {
+            self.route_weights.resize(l + 1, Vec::new());
+        }
+        self.route_weights[l] = picks.iter().flat_map(|p| p.iter().map(|&(_, w)| w)).collect();
         let mut users: Vec<Vec<(usize, f32)>> = vec![Vec::new(); s.experts];
         for (i, p) in picks.iter().enumerate() {
             for &(e, wt) in p {
@@ -1487,6 +1509,35 @@ mod tests {
             .map(|(a, b)| (a - b).abs())
             .fold(0f32, f32::max);
         assert!(moved > 1e-3, "mutant moved the logits by only {moved}");
+    }
+
+    /// L308: the head mask keeps routing inside the allowed experts, the weights still sum to one,
+    /// a mask that allows every expert changes nothing, and a biting mask moves the logits.
+    #[test]
+    fn expert_mask_restricts_routing() {
+        let c = tiny_moe();
+        let s = c.moe.clone().unwrap();
+        let tokens = [5u32, 17, 3, 42, 8, 8, 60];
+        let mut free = Qwen38Reference::new(c.clone(), tiny_source(&c)).unwrap();
+        let mut st = free.new_state();
+        let base = free.forward(&mut st, &tokens, Logits::All).unwrap();
+        let mut all = Qwen38Reference::new(c.clone(), tiny_source(&c)).unwrap();
+        all.expert_mask = Some(vec![vec![true; s.experts]; c.layers]);
+        let mut st = all.new_state();
+        assert_eq!(all.forward(&mut st, &tokens, Logits::All).unwrap(), base);
+        let allow: Vec<bool> = (0..s.experts).map(|e| e < s.top_k).collect();
+        let mut head = Qwen38Reference::new(c.clone(), tiny_source(&c)).unwrap();
+        head.expert_mask = Some(vec![allow; c.layers]);
+        let mut st = head.new_state();
+        let out = head.forward(&mut st, &tokens, Logits::All).unwrap();
+        for l in 0..c.layers {
+            assert!(head.routes[l].iter().all(|&e| (e as usize) < s.top_k), "layer {l}: {:?}", head.routes[l]);
+            for w in head.route_weights[l].chunks(s.top_k) {
+                assert!((w.iter().sum::<f32>() - 1.0).abs() < 1e-5);
+            }
+        }
+        let moved = base.iter().zip(&out).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
+        assert!(moved > 1e-4, "a biting mask moved the logits by only {moved}");
     }
 
     /// The sparse block against a brute-force f64 evaluation from the raw tensors.
