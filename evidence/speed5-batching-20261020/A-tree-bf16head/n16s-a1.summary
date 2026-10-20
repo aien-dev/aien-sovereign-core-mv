@@ -1,0 +1,17 @@
+n16s-a1 req 16 completion_tokens 256 finish length
+n16s-a1 req 17 completion_tokens 256 finish length
+n16s-a1 req 18 completion_tokens 256 finish length
+n16s-a1 req 19 completion_tokens 256 finish length
+n16s-a1 req 20 completion_tokens 256 finish length
+n16s-a1 req 21 completion_tokens 256 finish length
+n16s-a1 req 22 completion_tokens 256 finish length
+n16s-a1 req 23 completion_tokens 256 finish length
+n16s-a1 req 24 completion_tokens 256 finish length
+n16s-a1 req 25 completion_tokens 256 finish length
+n16s-a1 req 26 completion_tokens 256 finish length
+n16s-a1 req 27 completion_tokens 256 finish length
+n16s-a1 req 28 completion_tokens 256 finish length
+n16s-a1 req 29 completion_tokens 256 finish length
+n16s-a1 req 30 completion_tokens 256 finish length
+n16s-a1 req 31 completion_tokens 256 finish length
+n16s-a1 n=16 total_completion_tokens=4096 client_wall_ms=320118

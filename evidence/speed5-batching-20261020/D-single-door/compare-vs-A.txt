@@ -1,0 +1,3 @@
+D-single-door single-p0 prompt 0 tokens 184 SAME
+D-single-door single-p3 prompt 3 tokens 169 DIFF at 43 (169 vs 179 tokens)
+TOTAL vs reference: 1 same, 1 different; negative control: 2 differ, 0 same (must be 0)

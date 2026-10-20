@@ -50,11 +50,32 @@ host glue 231.2. The weight read is no longer the binding term; per-call host wo
   host calls per step; the decode graph issues one.
 - E, as B with the SiLU on 8 host threads: N=8 4.591 tok/s, a loss (threads fight the loaded box). n32 stopped by me
   to leave window time for A: not a result.
-- A, tree GEMM with the bf16 head, the correctness pass: see "Correctness".
+- A, tree GEMM with the bf16 head: the correctness pass, see "Correctness".
 
 ## Correctness
 
-A_PENDING
+Token ids of every answer, compared with compare.sh (one line per stream in each <session>/compare*.txt). The
+reference for prompts 0 to 3 is the prompt answered alone (n1-p0..p2 from partial-A-0533Z-nice10, same binary and
+settings; n1-p3 from A); for prompts 4 to 31 it is that prompt's stream in A n32. Negative control: every stream is
+also compared with the next prompt's reference and must differ; it differed every time.
+
+- A (tree GEMM, bf16 head), the gate: 79 of 79 streams SAME (A-tree-bf16head/compare.txt). Of these, 28 are A n32
+  against itself (prompts 4 to 31), so 51 are real checks: prompts 0 to 3 at N = 2, 4, 8, 16, 32 against the stream
+  alone, prompts 4 to 15 at N = 8 and 16, and prompts 16 to 31 run as a second group of 16 (n16s), all against N = 32.
+  A row's answer does not change with how many other rows share the step.
+- B (FP8 head) against A: 46 of 64 streams differ; 24 of the 32 prompts change at some position (first difference at
+  generated position 1 to 251). This is the FP8 head rounding near-tied scores differently, not batching: B against
+  itself (B n1 for prompt 0, B n32 for the rest) is 64 of 64 SAME (B-tree-fp8head/compare-self.txt). The FP8 head is
+  a speed option with a word-drift cost, not the reference.
+- E (8 host threads) against B: 8 of 8 SAME. Host threads do not change bits.
+- C (row-pair GEMM, the other GEMM kernel) against A: 3 of 9 differ (prompts 3, 5, 7). D (one-at-a-time door) against
+  A: prompt 0 SAME, prompt 3 differs at position 43, the same position C differs at. Different GEMM kernels round
+  differently; reported as counts, not as a gate.
+
+A timing (A-tree-bf16head/*.summary) is not comparable with B: box load was 45 to 74 during A against 30 to 37 during
+B, and the host-driven path slows with load (L159). One thing A does show: the bf16 head costs 491 ms per step at
+N = 32 against 28.5 ms for the FP8 head, the largest single term after the GEMMs. A n16s ran 56 s past the lease end
+(07:30:01Z): its timing is NOT A RESULT, its bits are. A n1-last was not run (lease over).
 
 ## Not results
 
@@ -74,10 +95,19 @@ resident).
 ## Side findings (handed on)
 
 - L159 (fixer): the tree GEMM runs about 3.5x slower inside the server than alone, and the gap tracks box load; the
-  decode graph is not affected. Probes: probe-tv-nice, probe-tvtab.
+  decode graph is not affected. Probes: probe-tv-nice, probe-tvtab. L159 found the cause on the host: each GEMM call
+  waited for the chip by spinning a CPU core, and under box load that thread was taken off the CPU. Fix pushed on
+  sovereign-core fix/tv-inserver 3208be4b (sleep-poll wait); chip check pending in its own window. The B numbers above
+  are before that fix.
 - gpu_tcgemm_test xf32 form errors at N 17 to 32 on q38o and q38down shapes (pre-existing, not on the tv_f32 path).
 
 ## Log
 - 2026-10-20T03:20Z host tests (CPU stub; aien-serve-http, aien-inference-abi, aien-omega-fp8) at 1636f455: 448 passed,
   0 failed, 22 ignored (host-tests-1636f455.txt). 7c3b0381 adds par_rows + its test (passed alone).
 - 2026-10-20T05:00Z to 07:30Z window 20261020T045957Z-8afb15: B, C, D, E in window.sh; A rerun after a refused load.
+- 2026-10-20T06:47Z to 07:31Z session A rerun in the same window (after-window.sh). The lease ended 07:30:01Z, 56 s
+  before A finished. Then after-window.sh ran `spark-window close` without the window id and closed the next window,
+  L159's (opened 07:30:47Z, its chip run cut short). L159's script then closed L125's queued window the same way.
+  Told L159 and L125 on the ledger; the tool hazard (close with no id closes whoever's window is current) is on L113,
+  already reported there by L125. My scripts pass the id from now on.
+- 2026-10-20T07:40Z compare.sh over A, B, C, D, E (compare*.txt in each folder).

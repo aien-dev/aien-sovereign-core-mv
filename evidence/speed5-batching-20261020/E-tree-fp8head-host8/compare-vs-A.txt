@@ -1,0 +1,9 @@
+E-tree-fp8head-host8 n8 prompt 0 tokens 190 DIFF at 35 (190 vs 184 tokens)
+E-tree-fp8head-host8 n8 prompt 1 tokens 118 SAME
+E-tree-fp8head-host8 n8 prompt 2 tokens 256 SAME
+E-tree-fp8head-host8 n8 prompt 3 tokens 179 SAME
+E-tree-fp8head-host8 n8 prompt 4 tokens 256 DIFF at 19 (256 vs 256 tokens)
+E-tree-fp8head-host8 n8 prompt 5 tokens 256 DIFF at 85 (256 vs 256 tokens)
+E-tree-fp8head-host8 n8 prompt 6 tokens 256 DIFF at 18 (256 vs 256 tokens)
+E-tree-fp8head-host8 n8 prompt 7 tokens 256 DIFF at 8 (256 vs 256 tokens)
+TOTAL vs reference: 3 same, 5 different; negative control: 8 differ, 0 same (must be 0)

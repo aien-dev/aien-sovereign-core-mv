@@ -1,0 +1,10 @@
+C-rowpair-bf16head n1 prompt 0 tokens 184 SAME
+C-rowpair-bf16head n8 prompt 0 tokens 184 SAME
+C-rowpair-bf16head n8 prompt 1 tokens 118 SAME
+C-rowpair-bf16head n8 prompt 2 tokens 256 SAME
+C-rowpair-bf16head n8 prompt 3 tokens 171 DIFF at 43 (171 vs 179 tokens)
+C-rowpair-bf16head n8 prompt 4 tokens 256 SAME
+C-rowpair-bf16head n8 prompt 5 tokens 256 DIFF at 231 (256 vs 256 tokens)
+C-rowpair-bf16head n8 prompt 6 tokens 256 SAME
+C-rowpair-bf16head n8 prompt 7 tokens 256 DIFF at 138 (256 vs 256 tokens)
+TOTAL vs reference: 6 same, 3 different; negative control: 9 differ, 0 same (must be 0)

@@ -1,0 +1,65 @@
+B-tree-fp8head n1 prompt 0 tokens 190 DIFF at 35 (190 vs 184 tokens)
+B-tree-fp8head n2 prompt 0 tokens 190 DIFF at 35 (190 vs 184 tokens)
+B-tree-fp8head n2 prompt 1 tokens 118 SAME
+B-tree-fp8head n4 prompt 0 tokens 190 DIFF at 35 (190 vs 184 tokens)
+B-tree-fp8head n4 prompt 1 tokens 118 SAME
+B-tree-fp8head n4 prompt 2 tokens 256 SAME
+B-tree-fp8head n4 prompt 3 tokens 179 SAME
+B-tree-fp8head n8 prompt 0 tokens 190 DIFF at 35 (190 vs 184 tokens)
+B-tree-fp8head n8 prompt 1 tokens 118 SAME
+B-tree-fp8head n8 prompt 2 tokens 256 SAME
+B-tree-fp8head n8 prompt 3 tokens 179 SAME
+B-tree-fp8head n8 prompt 4 tokens 256 DIFF at 19 (256 vs 256 tokens)
+B-tree-fp8head n8 prompt 5 tokens 256 DIFF at 85 (256 vs 256 tokens)
+B-tree-fp8head n8 prompt 6 tokens 256 DIFF at 18 (256 vs 256 tokens)
+B-tree-fp8head n8 prompt 7 tokens 256 DIFF at 8 (256 vs 256 tokens)
+B-tree-fp8head n16 prompt 0 tokens 190 DIFF at 35 (190 vs 184 tokens)
+B-tree-fp8head n16 prompt 10 tokens 256 DIFF at 27 (256 vs 256 tokens)
+B-tree-fp8head n16 prompt 11 tokens 256 DIFF at 115 (256 vs 256 tokens)
+B-tree-fp8head n16 prompt 12 tokens 256 DIFF at 53 (256 vs 256 tokens)
+B-tree-fp8head n16 prompt 13 tokens 256 DIFF at 28 (256 vs 256 tokens)
+B-tree-fp8head n16 prompt 14 tokens 256 DIFF at 11 (256 vs 256 tokens)
+B-tree-fp8head n16 prompt 15 tokens 256 DIFF at 165 (256 vs 256 tokens)
+B-tree-fp8head n16 prompt 1 tokens 118 SAME
+B-tree-fp8head n16 prompt 2 tokens 256 SAME
+B-tree-fp8head n16 prompt 3 tokens 179 SAME
+B-tree-fp8head n16 prompt 4 tokens 256 DIFF at 19 (256 vs 256 tokens)
+B-tree-fp8head n16 prompt 5 tokens 256 DIFF at 85 (256 vs 256 tokens)
+B-tree-fp8head n16 prompt 6 tokens 256 DIFF at 18 (256 vs 256 tokens)
+B-tree-fp8head n16 prompt 7 tokens 256 DIFF at 8 (256 vs 256 tokens)
+B-tree-fp8head n16 prompt 8 tokens 256 DIFF at 28 (256 vs 256 tokens)
+B-tree-fp8head n16 prompt 9 tokens 256 DIFF at 62 (256 vs 256 tokens)
+B-tree-fp8head n32 prompt 0 tokens 190 DIFF at 35 (190 vs 184 tokens)
+B-tree-fp8head n32 prompt 10 tokens 256 DIFF at 27 (256 vs 256 tokens)
+B-tree-fp8head n32 prompt 11 tokens 256 DIFF at 115 (256 vs 256 tokens)
+B-tree-fp8head n32 prompt 12 tokens 256 DIFF at 53 (256 vs 256 tokens)
+B-tree-fp8head n32 prompt 13 tokens 256 DIFF at 28 (256 vs 256 tokens)
+B-tree-fp8head n32 prompt 14 tokens 256 DIFF at 11 (256 vs 256 tokens)
+B-tree-fp8head n32 prompt 15 tokens 256 DIFF at 165 (256 vs 256 tokens)
+B-tree-fp8head n32 prompt 16 tokens 256 DIFF at 10 (256 vs 256 tokens)
+B-tree-fp8head n32 prompt 17 tokens 256 DIFF at 32 (256 vs 256 tokens)
+B-tree-fp8head n32 prompt 18 tokens 256 DIFF at 1 (256 vs 256 tokens)
+B-tree-fp8head n32 prompt 19 tokens 256 SAME
+B-tree-fp8head n32 prompt 1 tokens 118 SAME
+B-tree-fp8head n32 prompt 20 tokens 256 SAME
+B-tree-fp8head n32 prompt 21 tokens 256 SAME
+B-tree-fp8head n32 prompt 22 tokens 256 DIFF at 200 (256 vs 256 tokens)
+B-tree-fp8head n32 prompt 23 tokens 256 DIFF at 64 (256 vs 256 tokens)
+B-tree-fp8head n32 prompt 24 tokens 256 DIFF at 142 (256 vs 256 tokens)
+B-tree-fp8head n32 prompt 25 tokens 256 DIFF at 221 (256 vs 256 tokens)
+B-tree-fp8head n32 prompt 26 tokens 256 DIFF at 68 (256 vs 256 tokens)
+B-tree-fp8head n32 prompt 27 tokens 256 SAME
+B-tree-fp8head n32 prompt 28 tokens 256 SAME
+B-tree-fp8head n32 prompt 29 tokens 256 DIFF at 187 (256 vs 256 tokens)
+B-tree-fp8head n32 prompt 2 tokens 256 SAME
+B-tree-fp8head n32 prompt 30 tokens 256 DIFF at 5 (256 vs 256 tokens)
+B-tree-fp8head n32 prompt 31 tokens 256 DIFF at 251 (256 vs 256 tokens)
+B-tree-fp8head n32 prompt 3 tokens 179 SAME
+B-tree-fp8head n32 prompt 4 tokens 256 DIFF at 19 (256 vs 256 tokens)
+B-tree-fp8head n32 prompt 5 tokens 256 DIFF at 85 (256 vs 256 tokens)
+B-tree-fp8head n32 prompt 6 tokens 256 DIFF at 18 (256 vs 256 tokens)
+B-tree-fp8head n32 prompt 7 tokens 256 DIFF at 8 (256 vs 256 tokens)
+B-tree-fp8head n32 prompt 8 tokens 256 DIFF at 28 (256 vs 256 tokens)
+B-tree-fp8head n32 prompt 9 tokens 256 DIFF at 62 (256 vs 256 tokens)
+B-tree-fp8head n1-last prompt 0 tokens 190 DIFF at 35 (190 vs 184 tokens)
+TOTAL vs reference: 18 same, 46 different; negative control: 64 differ, 0 same (must be 0)
