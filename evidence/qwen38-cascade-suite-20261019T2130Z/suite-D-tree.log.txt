@@ -1,0 +1,25 @@
+memory: whole model + MTP head needs 32663 MiB, keep 12288 MiB free, MemAvailable 73973 MiB
+MTP head: 455 MiB, raw norm means (embed, hidden, final) [-0.46056232, -0.15720086, 1.2520472], options MtpOptions { order: EmbedFirst, normed_hidden: false, pos_offset: 0 }
+uploaded in 31.8 s
+suite: tree-213-codelong start
+k=0: 192 tokens, 216.60 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 192 tokens, 397.75 ms/token decode, accept 147/540 (0.272), 4.24 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt codelong n 192 k [0, 8] rows All source Mtp tree Some(TreeSpec { w1: 2, w2: 1, side: 3 }) mutant None: PASS
+suite: tree-213-codelong PASS
+suite: tree-332-codelong start
+k=0: 192 tokens, 213.93 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 192 tokens, 586.32 ms/token decode, accept 149/860 (0.173), 4.44 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt codelong n 192 k [0, 8] rows All source Mtp tree Some(TreeSpec { w1: 3, w2: 3, side: 2 }) mutant None: PASS
+suite: tree-332-codelong PASS
+suite: tree-213-prose start
+k=0: 192 tokens, 217.89 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 192 tokens, 668.77 ms/token decode, accept 115/936 (0.123), 2.45 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt prose n 192 k [0, 8] rows All source Mtp tree Some(TreeSpec { w1: 2, w2: 1, side: 3 }) mutant None: PASS
+suite: tree-213-prose PASS
+suite: tree-332-prose start
+k=0: 192 tokens, 213.84 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 192 tokens, 944.29 ms/token decode, accept 123/1400 (0.088), 2.73 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt prose n 192 k [0, 8] rows All source Mtp tree Some(TreeSpec { w1: 3, w2: 3, side: 2 }) mutant None: PASS
+suite: tree-332-prose PASS
+suite: tree-213-codeedit start
+k=0: 192 tokens, 219.29 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
