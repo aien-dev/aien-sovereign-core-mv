@@ -1,0 +1,12 @@
+{
+  "agree": 254,
+  "agree_pct": 99.21875,
+  "flips": 2,
+  "kl_max": 2.9113869598121234,
+  "kl_mean": 0.017568183513276676,
+  "largest_ref_margin_at_a_flip": 11.126256942749023,
+  "nll_coded_mean": 0.10453441347891247,
+  "nll_ref_mean": 0.08707134525032276,
+  "positions": 256,
+  "text": "license"
+}

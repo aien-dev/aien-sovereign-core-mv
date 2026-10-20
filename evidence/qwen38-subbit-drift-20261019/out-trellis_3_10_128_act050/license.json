@@ -1,0 +1,30 @@
+{
+  "agree": 245,
+  "agree_pct": 95.703125,
+  "flips": 11,
+  "kl_max": 9.284816624162442,
+  "kl_mean": 0.19128083287209946,
+  "largest_ref_margin_at_a_flip": 16.868154525756836,
+  "nll_coded_mean": 0.27837473771997207,
+  "nll_ref_mean": 0.08707134525032276,
+  "positions": 256,
+  "text": "license",
+  "windows_of_128": [
+    {
+      "agree": 120,
+      "from": 0,
+      "kl_mean": 0.27228541564026254,
+      "n": 128,
+      "nll_coded_sum": 56.86580046372685,
+      "nll_ref_sum": 22.200621417774663
+    },
+    {
+      "agree": 125,
+      "from": 128,
+      "kl_mean": 0.1102762501039364,
+      "n": 128,
+      "nll_coded_sum": 14.119757654866085,
+      "nll_ref_sum": 0.0025716210576405274
+    }
+  ]
+}

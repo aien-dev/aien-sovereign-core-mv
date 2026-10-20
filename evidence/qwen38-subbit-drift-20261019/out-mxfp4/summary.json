@@ -1,0 +1,92 @@
+{
+  "bits_per_weight_k5120": 4.25,
+  "body_seconds": 2428.591147134,
+  "head": "keep",
+  "texts": [
+    {
+      "agree": 48,
+      "agree_pct": 100.0,
+      "flips": 0,
+      "kl_max": 0.5882383208058309,
+      "kl_mean": 0.026558999086973886,
+      "largest_ref_margin_at_a_flip": 0.0,
+      "nll_coded_mean": 1.8649347328639025,
+      "nll_ref_mean": 2.0310367754748344,
+      "positions": 48,
+      "text": "golden"
+    },
+    {
+      "agree": 256,
+      "agree_pct": 100.0,
+      "flips": 0,
+      "kl_max": 0.2063541850579725,
+      "kl_mean": 0.0028089361965880385,
+      "largest_ref_margin_at_a_flip": 0.0,
+      "nll_coded_mean": 0.09251522127508117,
+      "nll_ref_mean": 0.08707134525032276,
+      "positions": 256,
+      "text": "license"
+    },
+    {
+      "agree": 257,
+      "agree_pct": 88.62068965517241,
+      "flips": 33,
+      "kl_max": 0.7414993017258189,
+      "kl_mean": 0.06694322732755434,
+      "largest_ref_margin_at_a_flip": 1.6699905395507812,
+      "nll_coded_mean": 0.9798825880349281,
+      "nll_ref_mean": 0.9895823300642334,
+      "positions": 290,
+      "text": "prose"
+    },
+    {
+      "agree": 286,
+      "agree_pct": 93.4640522875817,
+      "flips": 20,
+      "kl_max": 2.8489263860134884,
+      "kl_mean": 0.05727108806099648,
+      "largest_ref_margin_at_a_flip": 2.2054271697998047,
+      "nll_coded_mean": 0.9312203222539421,
+      "nll_ref_mean": 0.9640075703439508,
+      "positions": 306,
+      "text": "codelong"
+    },
+    {
+      "agree": 902,
+      "agree_pct": 88.0859375,
+      "flips": 122,
+      "kl_max": 1.1926732922216976,
+      "kl_mean": 0.062473697463372585,
+      "largest_ref_margin_at_a_flip": 1.7171878814697266,
+      "nll_coded_mean": 2.164528601999912,
+      "nll_ref_mean": 2.1176090506220566,
+      "positions": 1024,
+      "text": "code"
+    },
+    {
+      "agree": 1819,
+      "agree_pct": 88.818359375,
+      "flips": 229,
+      "kl_max": 14.558602384643931,
+      "kl_mean": 0.09367616239325521,
+      "largest_ref_margin_at_a_flip": 9.446691513061523,
+      "nll_coded_mean": 2.143837341351227,
+      "nll_ref_mean": 2.1038812055916702,
+      "positions": 2048,
+      "text": "arch"
+    }
+  ],
+  "variant": "mxfp4",
+  "weight_relative_error_energy_by_role_mean_over_layers": {
+    "down_proj": 0.013742503284536833,
+    "gate_proj": 0.013668069679021153,
+    "in_proj_qkv": 0.013458343680152524,
+    "in_proj_z": 0.013480320326959845,
+    "k_proj": 0.014261326413759013,
+    "o_proj": 0.013551251280060227,
+    "out_proj": 0.013514778738754786,
+    "q_proj": 0.013595643723217376,
+    "up_proj": 0.013680757600053358,
+    "v_proj": 0.013943958323829162
+  }
+}

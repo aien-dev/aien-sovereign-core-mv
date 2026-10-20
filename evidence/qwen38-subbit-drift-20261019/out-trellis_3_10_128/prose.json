@@ -1,0 +1,12 @@
+{
+  "agree": 250,
+  "agree_pct": 86.20689655172414,
+  "flips": 40,
+  "kl_max": 1.226273467147219,
+  "kl_mean": 0.10780796600163736,
+  "largest_ref_margin_at_a_flip": 2.0114192962646484,
+  "nll_coded_mean": 1.041406569646136,
+  "nll_ref_mean": 0.9895823300642334,
+  "positions": 290,
+  "text": "prose"
+}

@@ -1,0 +1,12 @@
+{
+  "agree": 0,
+  "agree_pct": null,
+  "flips": 0,
+  "kl_max": 0.0,
+  "kl_mean": 0.0,
+  "largest_ref_margin_at_a_flip": 0.0,
+  "nll_coded_mean": 0.0,
+  "nll_ref_mean": 0.9640075703439508,
+  "positions": 306,
+  "text": "codelong"
+}

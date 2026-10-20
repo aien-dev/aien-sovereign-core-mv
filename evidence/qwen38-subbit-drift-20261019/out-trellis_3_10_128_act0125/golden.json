@@ -1,0 +1,22 @@
+{
+  "agree": 48,
+  "agree_pct": 100.0,
+  "flips": 0,
+  "kl_max": 0.28261790126172,
+  "kl_mean": 0.010525891259038918,
+  "largest_ref_margin_at_a_flip": 0.0,
+  "nll_coded_mean": 1.8855133593900664,
+  "nll_ref_mean": 2.0310367754748344,
+  "positions": 48,
+  "text": "golden",
+  "windows_of_128": [
+    {
+      "agree": 48,
+      "from": 0,
+      "kl_mean": 0.010525891259038918,
+      "n": 48,
+      "nll_coded_sum": 88.61912789133312,
+      "nll_ref_sum": 95.45872844731721
+    }
+  ]
+}

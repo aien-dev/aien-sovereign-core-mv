@@ -1,0 +1,12 @@
+{
+  "agree": 902,
+  "agree_pct": 88.0859375,
+  "flips": 122,
+  "kl_max": 2.9829711805965724,
+  "kl_mean": 0.10252765261725186,
+  "largest_ref_margin_at_a_flip": 3.2125015258789062,
+  "nll_coded_mean": 2.18864901330789,
+  "nll_ref_mean": 2.1176090506220566,
+  "positions": 1024,
+  "text": "code"
+}

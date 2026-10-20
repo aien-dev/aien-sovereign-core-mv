@@ -1,0 +1,12 @@
+{
+  "agree": 1676,
+  "agree_pct": 81.8359375,
+  "flips": 372,
+  "kl_max": 32.564818932515045,
+  "kl_mean": 0.5386093362010624,
+  "largest_ref_margin_at_a_flip": 12.613969802856445,
+  "nll_coded_mean": 2.6758712069256223,
+  "nll_ref_mean": 2.1038812055916702,
+  "positions": 2048,
+  "text": "arch"
+}

@@ -1,0 +1,12 @@
+{
+  "agree": 48,
+  "agree_pct": 100.0,
+  "flips": 0,
+  "kl_max": 0.5882383208058309,
+  "kl_mean": 0.026558999086973886,
+  "largest_ref_margin_at_a_flip": 0.0,
+  "nll_coded_mean": 1.8649347328639025,
+  "nll_ref_mean": 2.0310367754748344,
+  "positions": 48,
+  "text": "golden"
+}

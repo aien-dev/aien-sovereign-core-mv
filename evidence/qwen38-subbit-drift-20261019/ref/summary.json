@@ -1,0 +1,81 @@
+{
+  "bits_per_weight_k5120": null,
+  "body_seconds": 1816.90137199,
+  "head": "keep",
+  "texts": [
+    {
+      "agree": 0,
+      "agree_pct": null,
+      "flips": 0,
+      "kl_max": 0.0,
+      "kl_mean": 0.0,
+      "largest_ref_margin_at_a_flip": 0.0,
+      "nll_coded_mean": 0.0,
+      "nll_ref_mean": 2.0310367754748344,
+      "positions": 48,
+      "text": "golden"
+    },
+    {
+      "agree": 0,
+      "agree_pct": null,
+      "flips": 0,
+      "kl_max": 0.0,
+      "kl_mean": 0.0,
+      "largest_ref_margin_at_a_flip": 0.0,
+      "nll_coded_mean": 0.0,
+      "nll_ref_mean": 0.08707134525032276,
+      "positions": 256,
+      "text": "license"
+    },
+    {
+      "agree": 0,
+      "agree_pct": null,
+      "flips": 0,
+      "kl_max": 0.0,
+      "kl_mean": 0.0,
+      "largest_ref_margin_at_a_flip": 0.0,
+      "nll_coded_mean": 0.0,
+      "nll_ref_mean": 0.9895823300642334,
+      "positions": 290,
+      "text": "prose"
+    },
+    {
+      "agree": 0,
+      "agree_pct": null,
+      "flips": 0,
+      "kl_max": 0.0,
+      "kl_mean": 0.0,
+      "largest_ref_margin_at_a_flip": 0.0,
+      "nll_coded_mean": 0.0,
+      "nll_ref_mean": 0.9640075703439508,
+      "positions": 306,
+      "text": "codelong"
+    },
+    {
+      "agree": 0,
+      "agree_pct": null,
+      "flips": 0,
+      "kl_max": 0.0,
+      "kl_mean": 0.0,
+      "largest_ref_margin_at_a_flip": 0.0,
+      "nll_coded_mean": 0.0,
+      "nll_ref_mean": 2.1176090506220566,
+      "positions": 1024,
+      "text": "code"
+    },
+    {
+      "agree": 0,
+      "agree_pct": null,
+      "flips": 0,
+      "kl_max": 0.0,
+      "kl_mean": 0.0,
+      "largest_ref_margin_at_a_flip": 0.0,
+      "nll_coded_mean": 0.0,
+      "nll_ref_mean": 2.1038812055916702,
+      "positions": 2048,
+      "text": "arch"
+    }
+  ],
+  "variant": "ref",
+  "weight_relative_error_energy_by_role_mean_over_layers": {}
+}
