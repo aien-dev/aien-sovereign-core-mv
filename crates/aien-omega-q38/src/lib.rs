@@ -898,9 +898,7 @@ pub fn check_config(cfg: &GraphConfig) -> Result<(), OmegaGpuError> {
             "q38 graph: a layer kind in use has no device state (gdn or attn handle)".into(),
         ));
     }
-    if cfg.lm_head.is_null() {
-        return Err(bad("q38 graph: the lm_head must be a device tensor".into()));
-    }
+    // lm_head may be null (W4-only, L125): omega then refuses a token until an FP8 or MXFP4 head is set.
     Ok(())
 }
 
