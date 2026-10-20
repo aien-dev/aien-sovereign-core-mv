@@ -118,6 +118,16 @@ impl Manifest {
     /// Build from `<model_dir>/model.safetensors.index.json`, reading every
     /// expert span once to compute its digest. Read-only on the model.
     pub fn build(model_dir: &Path) -> Result<Self, HeartbeatError> {
+        Self::build_with(model_dir, true)
+    }
+
+    /// The same layout without reading any expert byte: every `digest` is empty. For a caller that
+    /// reads the experts anyway and digests them on the way (one NVMe read for two consumers, L190).
+    pub fn layout(model_dir: &Path) -> Result<Self, HeartbeatError> {
+        Self::build_with(model_dir, false)
+    }
+
+    fn build_with(model_dir: &Path, digest: bool) -> Result<Self, HeartbeatError> {
         let idx_path = model_dir.join("model.safetensors.index.json");
         let idx: Index = serde_json::from_slice(
             &std::fs::read(&idx_path).map_err(|e| HeartbeatError::io("index", e))?,
@@ -203,38 +213,43 @@ impl Manifest {
             .unwrap_or(4);
         let chunk = experts.len().div_ceil(workers).max(1);
         let files = &files;
-        std::thread::scope(|sc| -> Result<(), HeartbeatError> {
-            let hs: Vec<_> = experts
-                .chunks_mut(chunk)
-                .map(|part| {
-                    sc.spawn(move || -> Result<(), HeartbeatError> {
-                        let mut buf = Vec::new();
-                        for e in part {
-                            let mut h = blake3::Hasher::new();
-                            for seg in &e.segments {
-                                buf.resize(seg.len as usize, 0);
-                                files[seg.shard as usize]
-                                    .read_exact_at(&mut buf, seg.start)
-                                    .map_err(|err| {
-                                        HeartbeatError::io(
-                                            format!("digest read ({},{})", e.layer, e.expert),
-                                            err,
-                                        )
-                                    })?;
-                                h.update(&buf);
+        let digest_all = |experts: &mut [ExpertEntry]| {
+            std::thread::scope(|sc| -> Result<(), HeartbeatError> {
+                let hs: Vec<_> = experts
+                    .chunks_mut(chunk)
+                    .map(|part| {
+                        sc.spawn(move || -> Result<(), HeartbeatError> {
+                            let mut buf = Vec::new();
+                            for e in part {
+                                let mut h = blake3::Hasher::new();
+                                for seg in &e.segments {
+                                    buf.resize(seg.len as usize, 0);
+                                    files[seg.shard as usize]
+                                        .read_exact_at(&mut buf, seg.start)
+                                        .map_err(|err| {
+                                            HeartbeatError::io(
+                                                format!("digest read ({},{})", e.layer, e.expert),
+                                                err,
+                                            )
+                                        })?;
+                                    h.update(&buf);
+                                }
+                                e.digest = h.finalize().to_hex().to_string();
                             }
-                            e.digest = h.finalize().to_hex().to_string();
-                        }
-                        Ok(())
+                            Ok(())
+                        })
                     })
-                })
-                .collect();
-            for h in hs {
-                h.join()
-                    .map_err(|_| HeartbeatError::Manifest("digest worker panicked".into()))??;
-            }
-            Ok(())
-        })?;
+                    .collect();
+                for h in hs {
+                    h.join()
+                        .map_err(|_| HeartbeatError::Manifest("digest worker panicked".into()))??;
+                }
+                Ok(())
+            })
+        };
+        if digest {
+            digest_all(&mut experts)?;
+        }
         let num_layers = experts.iter().map(|e| e.layer + 1).max().unwrap_or(0);
         let experts_per_layer = experts.iter().map(|e| e.expert + 1).max().unwrap_or(0);
         if experts.len() != num_layers as usize * experts_per_layer as usize {
@@ -297,13 +312,18 @@ mod tests {
         assert_eq!(parse_expert_name("model.layers.7.mlp.gate.weight"), None);
         assert_eq!(parse_expert_name("lm_head.weight"), None);
         assert_eq!(
-            parse_expert_name("model.language_model.layers.47.mlp.experts.511.down_proj.weight_scale_2"),
+            parse_expert_name(
+                "model.language_model.layers.47.mlp.experts.511.down_proj.weight_scale_2"
+            ),
             Some((47, 511))
         );
         assert_eq!(
             parse_expert_name("model.language_model.layers.4.mlp.shared_expert.up_proj.weight"),
             None
         );
-        assert_eq!(parse_expert_name("mtp.layers.0.mlp.experts.3.up_proj.weight"), None);
+        assert_eq!(
+            parse_expert_name("mtp.layers.0.mlp.experts.3.up_proj.weight"),
+            None
+        );
     }
 }

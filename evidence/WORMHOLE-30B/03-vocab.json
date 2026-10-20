@@ -1,0 +1,463 @@
+{
+  "all_texts": {
+    "bytes": 2570,
+    "same_token_spans_of_27b": 0.8858075040783034,
+    "same_token_spans_of_30b": 0.9394463667820069,
+    "share_27b_ends_in_30b": 0.9429037520391517,
+    "share_30b_ends_in_27b": 1.0,
+    "tokens_27b": 613,
+    "tokens_30b": 578
+  },
+  "first_id_with_different_bytes": 280,
+  "normal_27b_tokens_whose_bytes_are_a_30b_token": 131586,
+  "of_those_same_id": 281,
+  "texts": [
+    {
+      "bridge_cost": [
+        {
+          "27b_ids_per_block": 1.0,
+          "27b_to_30b_ns": 1950.15,
+          "30b_ids_per_block": 1.0,
+          "30b_to_27b_ns": 2137.366666666667,
+          "blocks": 12,
+          "k": 1
+        },
+        {
+          "27b_ids_per_block": 2.0,
+          "27b_to_30b_ns": 5479.5,
+          "30b_ids_per_block": 2.0,
+          "30b_to_27b_ns": 3290.1666666666665,
+          "blocks": 6,
+          "k": 2
+        },
+        {
+          "27b_ids_per_block": 4.0,
+          "27b_to_30b_ns": 5247.0,
+          "30b_ids_per_block": 4.0,
+          "30b_to_27b_ns": 6578.2,
+          "blocks": 3,
+          "k": 4
+        },
+        {
+          "27b_ids_per_block": 6.0,
+          "27b_to_30b_ns": 8625.7,
+          "30b_ids_per_block": 6.0,
+          "30b_to_27b_ns": 10873.7,
+          "blocks": 2,
+          "k": 8
+        },
+        {
+          "27b_ids_per_block": 12.0,
+          "27b_to_30b_ns": 17657.8,
+          "30b_ids_per_block": 12.0,
+          "30b_to_27b_ns": 18406.6,
+          "blocks": 1,
+          "k": 16
+        }
+      ],
+      "bytes": 55,
+      "ends_27b_also_30b": 12,
+      "ends_30b_also_27b": 12,
+      "input": "evidence/WORMHOLE-ACCEPT-69825c92/inputs/q38-code-golden.json",
+      "kind": "prompt",
+      "own_chip_ids_equal_fresh_cut": null,
+      "roundtrip_27b": true,
+      "roundtrip_30b": true,
+      "same_token_spans": 12,
+      "share_27b_ends_in_30b": 1.0,
+      "share_30b_ends_in_27b": 1.0,
+      "tokens_27b": 12,
+      "tokens_30b": 12,
+      "whole_text_reencode_ns": {
+        "27b": 19120,
+        "30b": 19312
+      }
+    },
+    {
+      "bridge_cost": [
+        {
+          "27b_ids_per_block": 1.1153846153846154,
+          "27b_to_30b_ns": 1479.848275862069,
+          "30b_ids_per_block": 1.0,
+          "30b_to_27b_ns": 1485.923076923077,
+          "blocks": 26,
+          "k": 1
+        },
+        {
+          "27b_ids_per_block": 2.230769230769231,
+          "27b_to_30b_ns": 2162.8,
+          "30b_ids_per_block": 1.8,
+          "30b_to_27b_ns": 2384.2615384615383,
+          "blocks": 13,
+          "k": 2
+        },
+        {
+          "27b_ids_per_block": 4.142857142857143,
+          "27b_to_30b_ns": 4376.025,
+          "30b_ids_per_block": 3.375,
+          "30b_to_27b_ns": 4994.8,
+          "blocks": 7,
+          "k": 4
+        },
+        {
+          "27b_ids_per_block": 7.25,
+          "27b_to_30b_ns": 8992.9,
+          "30b_ids_per_block": 6.5,
+          "30b_to_27b_ns": 11504.1,
+          "blocks": 4,
+          "k": 8
+        },
+        {
+          "27b_ids_per_block": 14.5,
+          "27b_to_30b_ns": 15353.8,
+          "30b_ids_per_block": 13.0,
+          "30b_to_27b_ns": 17382.5,
+          "blocks": 2,
+          "k": 16
+        }
+      ],
+      "bytes": 62,
+      "ends_27b_also_30b": 26,
+      "ends_30b_also_27b": 26,
+      "input": "evidence/WORMHOLE-ACCEPT-69825c92/inputs/q38-code-golden.json",
+      "kind": "continuation",
+      "own_chip_ids_equal_fresh_cut": true,
+      "roundtrip_27b": true,
+      "roundtrip_30b": true,
+      "same_token_spans": 23,
+      "share_27b_ends_in_30b": 0.896551724137931,
+      "share_30b_ends_in_27b": 1.0,
+      "tokens_27b": 29,
+      "tokens_30b": 26,
+      "whole_text_reencode_ns": {
+        "27b": 24400,
+        "30b": 23568
+      }
+    },
+    {
+      "bridge_cost": [
+        {
+          "27b_ids_per_block": 1.0,
+          "27b_to_30b_ns": 2248.172727272727,
+          "30b_ids_per_block": 1.0,
+          "30b_to_27b_ns": 1856.7454545454545,
+          "blocks": 22,
+          "k": 1
+        },
+        {
+          "27b_ids_per_block": 2.0,
+          "27b_to_30b_ns": 2593.7818181818184,
+          "30b_ids_per_block": 2.0,
+          "30b_to_27b_ns": 4312.472727272727,
+          "blocks": 11,
+          "k": 2
+        },
+        {
+          "27b_ids_per_block": 3.6666666666666665,
+          "27b_to_30b_ns": 4501.9,
+          "30b_ids_per_block": 3.6666666666666665,
+          "30b_to_27b_ns": 5037.366666666667,
+          "blocks": 6,
+          "k": 4
+        },
+        {
+          "27b_ids_per_block": 7.333333333333333,
+          "27b_to_30b_ns": 7603.266666666666,
+          "30b_ids_per_block": 7.333333333333333,
+          "30b_to_27b_ns": 8165.466666666666,
+          "blocks": 3,
+          "k": 8
+        },
+        {
+          "27b_ids_per_block": 11.0,
+          "27b_to_30b_ns": 9068.9,
+          "30b_ids_per_block": 11.0,
+          "30b_to_27b_ns": 10460.9,
+          "blocks": 2,
+          "k": 16
+        }
+      ],
+      "bytes": 103,
+      "ends_27b_also_30b": 22,
+      "ends_30b_also_27b": 22,
+      "input": "evidence/WORMHOLE-ACCEPT-69825c92/inputs/q38-prose.json",
+      "kind": "prompt",
+      "own_chip_ids_equal_fresh_cut": null,
+      "roundtrip_27b": true,
+      "roundtrip_30b": true,
+      "same_token_spans": 22,
+      "share_27b_ends_in_30b": 1.0,
+      "share_30b_ends_in_27b": 1.0,
+      "tokens_27b": 22,
+      "tokens_30b": 22,
+      "whole_text_reencode_ns": {
+        "27b": 19392,
+        "30b": 18976
+      }
+    },
+    {
+      "bridge_cost": [
+        {
+          "27b_ids_per_block": 1.0078740157480315,
+          "27b_to_30b_ns": 1701.190625,
+          "30b_ids_per_block": 1.0,
+          "30b_to_27b_ns": 1703.9913385826771,
+          "blocks": 254,
+          "k": 1
+        },
+        {
+          "27b_ids_per_block": 2.015748031496063,
+          "27b_to_30b_ns": 2313.821875,
+          "30b_ids_per_block": 2.0,
+          "30b_to_27b_ns": 2362.428346456693,
+          "blocks": 127,
+          "k": 2
+        },
+        {
+          "27b_ids_per_block": 4.0,
+          "27b_to_30b_ns": 3762.8375,
+          "30b_ids_per_block": 4.0,
+          "30b_to_27b_ns": 3958.840625,
+          "blocks": 64,
+          "k": 4
+        },
+        {
+          "27b_ids_per_block": 8.0,
+          "27b_to_30b_ns": 6509.76875,
+          "30b_ids_per_block": 7.96875,
+          "30b_to_27b_ns": 7561.86875,
+          "blocks": 32,
+          "k": 8
+        },
+        {
+          "27b_ids_per_block": 16.0,
+          "27b_to_30b_ns": 12046.725,
+          "30b_ids_per_block": 15.9375,
+          "30b_to_27b_ns": 12332.9125,
+          "blocks": 16,
+          "k": 16
+        }
+      ],
+      "bytes": 1217,
+      "ends_27b_also_30b": 254,
+      "ends_30b_also_27b": 254,
+      "input": "evidence/WORMHOLE-ACCEPT-69825c92/inputs/q38-prose.json",
+      "kind": "continuation",
+      "own_chip_ids_equal_fresh_cut": true,
+      "roundtrip_27b": true,
+      "roundtrip_30b": true,
+      "same_token_spans": 252,
+      "share_27b_ends_in_30b": 0.9921875,
+      "share_30b_ends_in_27b": 1.0,
+      "tokens_27b": 256,
+      "tokens_30b": 254,
+      "whole_text_reencode_ns": {
+        "27b": 217042,
+        "30b": 217698
+      }
+    },
+    {
+      "bridge_cost": [
+        {
+          "27b_ids_per_block": 1.0,
+          "27b_to_30b_ns": 1633.278947368421,
+          "30b_ids_per_block": 1.0,
+          "30b_to_27b_ns": 1668.6473684210525,
+          "blocks": 38,
+          "k": 1
+        },
+        {
+          "27b_ids_per_block": 2.0,
+          "27b_to_30b_ns": 2325.073684210526,
+          "30b_ids_per_block": 2.0,
+          "30b_to_27b_ns": 2359.7684210526318,
+          "blocks": 19,
+          "k": 2
+        },
+        {
+          "27b_ids_per_block": 3.8,
+          "27b_to_30b_ns": 3467.88,
+          "30b_ids_per_block": 3.8,
+          "30b_to_27b_ns": 3607.08,
+          "blocks": 10,
+          "k": 4
+        },
+        {
+          "27b_ids_per_block": 7.6,
+          "27b_to_30b_ns": 6691.24,
+          "30b_ids_per_block": 7.6,
+          "30b_to_27b_ns": 7312.72,
+          "blocks": 5,
+          "k": 8
+        },
+        {
+          "27b_ids_per_block": 12.666666666666666,
+          "27b_to_30b_ns": 10675.333333333334,
+          "30b_ids_per_block": 12.666666666666666,
+          "30b_to_27b_ns": 11438.0,
+          "blocks": 3,
+          "k": 16
+        }
+      ],
+      "bytes": 190,
+      "ends_27b_also_30b": 38,
+      "ends_30b_also_27b": 38,
+      "input": "evidence/WORMHOLE-ACCEPT-69825c92/inputs/q38-codelong.json",
+      "kind": "prompt",
+      "own_chip_ids_equal_fresh_cut": null,
+      "roundtrip_27b": true,
+      "roundtrip_30b": true,
+      "same_token_spans": 38,
+      "share_27b_ends_in_30b": 1.0,
+      "share_30b_ends_in_27b": 1.0,
+      "tokens_27b": 38,
+      "tokens_30b": 38,
+      "whole_text_reencode_ns": {
+        "27b": 34992,
+        "30b": 35264
+      }
+    },
+    {
+      "bridge_cost": [
+        {
+          "27b_ids_per_block": 1.1327433628318584,
+          "27b_to_30b_ns": 1665.290625,
+          "30b_ids_per_block": 1.0,
+          "30b_to_27b_ns": 1794.2681415929203,
+          "blocks": 226,
+          "k": 1
+        },
+        {
+          "27b_ids_per_block": 2.265486725663717,
+          "27b_to_30b_ns": 2207.3734375,
+          "30b_ids_per_block": 1.8984375,
+          "30b_to_27b_ns": 2314.500884955752,
+          "blocks": 113,
+          "k": 2
+        },
+        {
+          "27b_ids_per_block": 4.491228070175438,
+          "27b_to_30b_ns": 3363.534375,
+          "30b_ids_per_block": 3.640625,
+          "30b_to_27b_ns": 3844.245614035088,
+          "blocks": 57,
+          "k": 4
+        },
+        {
+          "27b_ids_per_block": 8.827586206896552,
+          "27b_to_30b_ns": 7188.06875,
+          "30b_ids_per_block": 7.125,
+          "30b_to_27b_ns": 7741.31724137931,
+          "blocks": 29,
+          "k": 8
+        },
+        {
+          "27b_ids_per_block": 17.066666666666666,
+          "27b_to_30b_ns": 10637.9,
+          "30b_ids_per_block": 14.125,
+          "30b_to_27b_ns": 11620.6,
+          "blocks": 15,
+          "k": 16
+        }
+      ],
+      "bytes": 943,
+      "ends_27b_also_30b": 226,
+      "ends_30b_also_27b": 226,
+      "input": "evidence/WORMHOLE-ACCEPT-69825c92/inputs/q38-codelong.json",
+      "kind": "continuation",
+      "own_chip_ids_equal_fresh_cut": true,
+      "roundtrip_27b": true,
+      "roundtrip_30b": true,
+      "same_token_spans": 196,
+      "share_27b_ends_in_30b": 0.8828125,
+      "share_30b_ends_in_27b": 1.0,
+      "tokens_27b": 256,
+      "tokens_30b": 226,
+      "whole_text_reencode_ns": {
+        "27b": 183618,
+        "30b": 180338
+      }
+    }
+  ],
+  "tokenizer_27b": {
+    "blake3": "f937fa059a976a7aa9a7ac7c32265ad21fbabfa8c1339fb731c276bd923921a3",
+    "normal": 248044,
+    "path": "/home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a/tokenizer.json",
+    "size_with_added": 248077,
+    "special_first": [
+      [
+        248044,
+        "<|endoftext|>"
+      ],
+      [
+        248045,
+        "<|im_start|>"
+      ],
+      [
+        248046,
+        "<|im_end|>"
+      ],
+      [
+        248047,
+        "<|object_ref_start|>"
+      ],
+      [
+        248048,
+        "<|object_ref_end|>"
+      ],
+      [
+        248049,
+        "<|box_start|>"
+      ],
+      [
+        248050,
+        "<|box_end|>"
+      ],
+      [
+        248051,
+        "<|quad_start|>"
+      ]
+    ]
+  },
+  "tokenizer_30b": {
+    "blake3": "b0cb923fc505fdf0a53f0287654fa26577d3f333d4134350da0a97664b228739",
+    "normal": 151643,
+    "path": "/home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8/tokenizer.json",
+    "size_with_added": 151669,
+    "special_first": [
+      [
+        151643,
+        "<|endoftext|>"
+      ],
+      [
+        151644,
+        "<|im_start|>"
+      ],
+      [
+        151645,
+        "<|im_end|>"
+      ],
+      [
+        151646,
+        "<|object_ref_start|>"
+      ],
+      [
+        151647,
+        "<|object_ref_end|>"
+      ],
+      [
+        151648,
+        "<|box_start|>"
+      ],
+      [
+        151649,
+        "<|box_end|>"
+      ],
+      [
+        151650,
+        "<|quad_start|>"
+      ]
+    ]
+  },
+  "what": "L190 W1 vocabulary receipt (host only)"
+}

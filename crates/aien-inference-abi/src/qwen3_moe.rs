@@ -418,11 +418,23 @@ pub fn load_qwen3_fp8_moe_layer(
     checkpoint_dir: &Path,
     layer: usize,
 ) -> Result<Qwen3MoeLayer, Qwen3MoeError> {
+    load_qwen3_fp8_moe_layer_tapped(checkpoint_dir, layer, &mut |_, _| {})
+}
+
+/// As [`load_qwen3_fp8_moe_layer`], handing every tensor's raw checkpoint bytes to `tap` (name, bytes)
+/// right after they are read, so a second consumer (the heartbeat manifest digests, L190) needs no
+/// second read.
+pub fn load_qwen3_fp8_moe_layer_tapped(
+    checkpoint_dir: &Path,
+    layer: usize,
+    tap: &mut dyn FnMut(&str, &[u8]),
+) -> Result<Qwen3MoeLayer, Qwen3MoeError> {
     load_moe_layer(
         checkpoint_dir,
         layer,
         QWEN3_A3B_HIDDEN,
         QWEN3_A3B_INTERMEDIATE,
+        tap,
     )
 }
 
@@ -431,6 +443,7 @@ fn load_moe_layer(
     layer: usize,
     h: usize,
     i: usize,
+    tap: &mut dyn FnMut(&str, &[u8]),
 ) -> Result<Qwen3MoeLayer, Qwen3MoeError> {
     if layer >= QWEN3_A3B_LAYERS {
         return Err(Qwen3MoeError::Contract(format!(
@@ -460,7 +473,9 @@ fn load_moe_layer(
                 let shard = Shard::open(&shard_path(checkpoint_dir, filename)?)?;
                 shards.insert(filename.to_string(), shard);
             }
-            shards[filename].read(name, dtype, shape, dst)
+            shards[filename].read(name, dtype, shape, dst)?;
+            tap(name, dst);
+            Ok(())
         };
 
     Qwen3MoeLayer::build(h, i, |tensor, dst| match tensor {
@@ -973,7 +988,7 @@ mod tests {
         };
         write_index(&weight_map);
 
-        let layer = load_moe_layer(&dir, 3, h, i).unwrap();
+        let layer = load_moe_layer(&dir, 3, h, i, &mut |_, _| {}).unwrap();
         let per_expert = 2 * i * h;
         for expert in [0usize, 63, 64, 127] {
             let tag = expert as u8;
@@ -983,7 +998,7 @@ mod tests {
         }
         assert!(layer.router_bf16().iter().all(|&v| v == 0x1111));
         assert!(
-            load_moe_layer(&dir, 4, h, i).is_err(),
+            load_moe_layer(&dir, 4, h, i, &mut |_, _| {}).is_err(),
             "layer 4 is not in the checkpoint"
         );
         assert!(load_qwen3_fp8_moe_layer(&dir, QWEN3_A3B_LAYERS).is_err());
@@ -995,7 +1010,7 @@ mod tests {
         );
         write_index(&escaping);
         assert!(matches!(
-            load_moe_layer(&dir, 3, h, i),
+            load_moe_layer(&dir, 3, h, i, &mut |_, _| {}),
             Err(Qwen3MoeError::Index(_))
         ));
 
@@ -1006,7 +1021,7 @@ mod tests {
         );
         write_index(&wrong_shard);
         assert!(matches!(
-            load_moe_layer(&dir, 3, h, i),
+            load_moe_layer(&dir, 3, h, i, &mut |_, _| {}),
             Err(Qwen3MoeError::Contract(_))
         ));
         std::fs::remove_dir_all(&dir).unwrap();

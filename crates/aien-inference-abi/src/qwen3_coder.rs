@@ -14,7 +14,7 @@ use rayon::prelude::*;
 
 use crate::moe_plan::MoeBatchPlan;
 use crate::qwen3_moe::{
-    bf16_to_f32, fp8_table, load_qwen3_fp8_moe_layer, reference_moe_forward,
+    bf16_to_f32, fp8_table, load_qwen3_fp8_moe_layer_tapped, reference_moe_forward,
     reference_router_logits, shard_path, Qwen3MoeError, Qwen3MoeLayer, Shard, FP8_BLOCK,
     QWEN3_A3B_HIDDEN, QWEN3_A3B_LAYERS,
 };
@@ -243,6 +243,15 @@ impl CoderShardCache {
 
 /// Loads all 48 layers plus embeddings, final norm, and LM head.
 pub fn load_qwen3_coder(checkpoint_dir: &Path) -> Result<Qwen3CoderWeights, Qwen3CoderError> {
+    load_qwen3_coder_tapped(checkpoint_dir, &mut |_, _| {})
+}
+
+/// As [`load_qwen3_coder`], handing every routed-expert tensor's raw checkpoint bytes to `tap` (name,
+/// bytes) as they are read (L190: one NVMe read feeds the reference and the heartbeat digests).
+pub fn load_qwen3_coder_tapped(
+    checkpoint_dir: &Path,
+    tap: &mut dyn FnMut(&str, &[u8]),
+) -> Result<Qwen3CoderWeights, Qwen3CoderError> {
     let h = QWEN3_CODER_HIDDEN;
     let qd = QWEN3_CODER_Q_DIM;
     let kvd = QWEN3_CODER_KV_DIM;
@@ -276,7 +285,7 @@ pub fn load_qwen3_coder(checkpoint_dir: &Path) -> Result<Qwen3CoderWeights, Qwen
             input_norm,
             post_norm,
         });
-        moes.push(load_qwen3_fp8_moe_layer(checkpoint_dir, layer)?);
+        moes.push(load_qwen3_fp8_moe_layer_tapped(checkpoint_dir, layer, tap)?);
     }
 
     Ok(Qwen3CoderWeights {

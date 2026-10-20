@@ -10,6 +10,10 @@
 //!   wormhole30 tensors DIR_27B DIR_30B OUT.json LIST.tsv
 //!     M0 shared-weights receipt: every tensor of both checkpoints (name, dtype, shape, sha256), identical
 //!     tensors, identical 64 KiB byte ranges anywhere, and shapes the two have in common.
+//!
+//!   wormhole30 oneread DIR_30B OUT.json [ROUNDS]
+//!     M0b: cold-cache load of the 30B CPU reference plus the heartbeat manifest digests, two NVMe reads
+//!     (Manifest::build, then load_qwen3_coder) against one (load_qwen3_coder_tapped digesting on the way).
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Instant;
@@ -22,6 +26,7 @@ fn main() {
     let r = match a.get(1).map(String::as_str) {
         Some("vocab") if a.len() >= 6 => vocab(&a[2], &a[3], &a[4], &a[5..]),
         Some("tensors") if a.len() == 6 => tensors(&a[2], &a[3], &a[4], &a[5]),
+        Some("oneread") if a.len() >= 4 => oneread(&a[2], &a[3], a.get(4).and_then(|r| r.parse().ok()).unwrap_or(2)),
         _ => Err("usage: see the file header".into()),
     };
     if let Err(e) = r {
@@ -392,6 +397,187 @@ fn tensors(d27: &str, d30: &str, out: &str, list: &str) -> Result<(), String> {
         "PASS tensors: 27B {} tensors {:.2} GB ({:.1} s), 30B {} tensors {:.2} GB ({:.1} s); identical tensors {} ({} bytes); shared nonzero 64 KiB chunks {} (zero chunks {}); shapes in common {}",
         t27.len(), gb(b27), s27, t30.len(), gb(b30), s30, same_tensors.len(), same_tensor_bytes, shared_chunks, shared_zero,
         r["shape_matches"].as_array().map_or(0, Vec::len)
+    );
+    Ok(())
+}
+
+/// Storage bytes this process has read so far (`/proc/self/io` read_bytes: block-device reads, not page-cache hits).
+fn io_read_bytes() -> u64 {
+    std::fs::read_to_string("/proc/self/io")
+        .ok()
+        .and_then(|s| s.lines().find_map(|l| l.strip_prefix("read_bytes: ").and_then(|v| v.trim().parse().ok())))
+        .unwrap_or(0)
+}
+
+fn meminfo_kb(key: &str) -> u64 {
+    std::fs::read_to_string("/proc/meminfo")
+        .ok()
+        .and_then(|s| s.lines().find_map(|l| l.strip_prefix(key).and_then(|v| v.split_whitespace().next()?.parse().ok())))
+        .unwrap_or(0)
+}
+
+/// Drop this checkpoint's pages from the page cache (POSIX_FADV_DONTNEED, no root needed) so the next load
+/// reads the NVMe.
+fn make_cold(dir: &str) -> Result<(), String> {
+    use std::os::fd::AsRawFd;
+    for e in std::fs::read_dir(dir).map_err(|e| e.to_string())? {
+        let p = e.map_err(|e| e.to_string())?.path();
+        if p.extension().is_some_and(|x| x == "safetensors") {
+            let f = std::fs::File::open(&p).map_err(|e| e.to_string())?;
+            // SAFETY: valid open fd, whole-file range.
+            let rc = unsafe { libc::posix_fadvise(f.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED) };
+            if rc != 0 {
+                return Err(format!("{}: posix_fadvise {rc}", p.display()));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Before: the heartbeat manifest reads every expert to digest it, then the CPU reference reads them again.
+fn load_two_reads(dir: &Path) -> Result<(Value, Vec<String>), String> {
+    let io0 = io_read_bytes();
+    let t = Instant::now();
+    let m = aien_heartbeat::manifest::Manifest::build(dir).map_err(|e| e.to_string())?;
+    let manifest_s = t.elapsed().as_secs_f64();
+    let io1 = io_read_bytes();
+    let w = aien_inference_abi::qwen3_coder::load_qwen3_coder(dir).map_err(|e| format!("{e:?}"))?;
+    let total_s = t.elapsed().as_secs_f64();
+    let io2 = io_read_bytes();
+    drop(w);
+    Ok((
+        json!({"path": "two reads", "seconds": total_s, "manifest_seconds": manifest_s,
+               "reference_seconds": total_s - manifest_s, "nvme_bytes": io2 - io0,
+               "nvme_bytes_manifest": io1 - io0, "nvme_bytes_reference": io2 - io1}),
+        m.experts.iter().map(|e| e.digest.clone()).collect(),
+    ))
+}
+
+/// After: one read. The CPU reference loader hands each expert tensor's bytes to a tap that assembles the
+/// expert's heartbeat payload (segments in file order) and, once complete, digests it on worker threads.
+fn load_one_read(dir: &Path) -> Result<(Value, Vec<String>), String> {
+    use std::sync::mpsc;
+    let io0 = io_read_bytes();
+    let t = Instant::now();
+    let m = aien_heartbeat::manifest::Manifest::layout(dir).map_err(|e| e.to_string())?;
+    // tensor name -> (expert index, offset in its payload)
+    let mut at: HashMap<String, (usize, usize)> = HashMap::new();
+    for (i, e) in m.experts.iter().enumerate() {
+        for tr in &e.tensors {
+            at.insert(tr.name.clone(), (i, tr.offset as usize));
+        }
+    }
+    let mut payload: Vec<Option<(Vec<u8>, u64)>> = (0..m.experts.len()).map(|_| None).collect();
+    let workers = std::thread::available_parallelism().map_or(4, |n| n.get()).min(8);
+    let (tx, rx) = mpsc::sync_channel::<(usize, Vec<u8>)>(workers * 4);
+    let rx = std::sync::Mutex::new(rx);
+    let (digests, w, tap_stray) = std::thread::scope(|s| -> Result<_, String> {
+        let hs: Vec<_> = (0..workers)
+            .map(|_| {
+                s.spawn(|| {
+                    let mut got = Vec::new();
+                    loop {
+                        let job = rx.lock().map_err(|_| "rx poisoned".to_string())?.recv();
+                        let Ok((i, b)) = job else { return Ok::<_, String>(got) };
+                        got.push((i, blake3::hash(&b).to_hex().to_string()));
+                    }
+                })
+            })
+            .collect();
+        let mut stray = 0usize;
+        let mut send_err = None;
+        let w = aien_inference_abi::qwen3_coder::load_qwen3_coder_tapped(dir, &mut |name, bytes| {
+            let Some(&(i, off)) = at.get(name) else {
+                stray += 1;
+                return;
+            };
+            let len = m.experts[i].len;
+            let slot = payload[i].get_or_insert_with(|| (vec![0u8; len as usize], 0));
+            slot.0[off..off + bytes.len()].copy_from_slice(bytes);
+            slot.1 += bytes.len() as u64;
+            if slot.1 == len {
+                let (b, _) = payload[i].take().expect("slot");
+                if tx.send((i, b)).is_err() {
+                    send_err = Some("digest workers gone");
+                }
+            }
+        });
+        drop(tx);
+        let mut digests = vec![String::new(); m.experts.len()];
+        for h in hs {
+            for (i, d) in h.join().map_err(|_| "digest thread panicked".to_string())?? {
+                digests[i] = d;
+            }
+        }
+        if let Some(e) = send_err {
+            return Err(e.into());
+        }
+        Ok((digests, w.map_err(|e| format!("{e:?}"))?, stray))
+    })?;
+    let total_s = t.elapsed().as_secs_f64();
+    let io1 = io_read_bytes();
+    let incomplete = payload.iter().filter(|p| p.is_some()).count();
+    drop(w);
+    Ok((
+        json!({"path": "one read", "seconds": total_s, "nvme_bytes": io1 - io0,
+               "expert_payloads_incomplete": incomplete, "tapped_tensors_not_in_manifest": tap_stray}),
+        digests,
+    ))
+}
+
+/// Drake 2026-10-20T17:20Z, the two-birds path when the two models share nothing: one NVMe read of the 30B
+/// experts feeds both the heartbeat ring's manifest digests and the CPU reference. Alternates two-read and
+/// one-read loads from a cold cache; the one-read digests must equal the manifest's own.
+fn oneread(d30: &str, out: &str, rounds: usize) -> Result<(), String> {
+    let avail_gb = meminfo_kb("MemAvailable:") as f64 / 1e6 * 1.024;
+    if avail_gb < 45.0 {
+        return Err(format!("MemAvailable {avail_gb:.1} GB < 45 GB: the CPU reference (about 35 GB) would crowd other tenants; refusing"));
+    }
+    let dir = Path::new(d30);
+    let mut runs = Vec::new();
+    let mut want: Option<Vec<String>> = None;
+    let mut mismatches = 0usize;
+    for r in 0..rounds {
+        for one in [false, true] {
+            make_cold(d30)?;
+            let load = std::fs::read_to_string("/proc/loadavg").unwrap_or_default();
+            let (mut v, digests) = if one { load_one_read(dir)? } else { load_two_reads(dir)? };
+            match &want {
+                None if !one => want = Some(digests),
+                Some(w) => {
+                    let bad = w.iter().zip(&digests).filter(|(a, b)| a != b).count() + w.len().abs_diff(digests.len());
+                    mismatches += bad;
+                    v["digest_mismatches_vs_manifest_build"] = json!(bad);
+                }
+                None => return Err("first run must be the two-read path".into()),
+            }
+            v["round"] = json!(r);
+            v["loadavg"] = json!(load.trim());
+            eprintln!("{v}");
+            runs.push(v);
+        }
+    }
+    let mean = |p: &str, k: &str| -> f64 {
+        let xs: Vec<f64> = runs.iter().filter(|v| v["path"] == p).filter_map(|v| v[k].as_f64()).collect();
+        xs.iter().sum::<f64>() / xs.len().max(1) as f64
+    };
+    let r = json!({
+        "what": "L190 M0b: one NVMe read of the 30B experts feeds the heartbeat manifest digests and the CPU reference (host only)",
+        "dir": d30, "rounds": rounds, "experts": want.as_ref().map_or(0, Vec::len),
+        "cold_cache": "posix_fadvise DONTNEED on every shard before each load; nvme_bytes from /proc/self/io read_bytes",
+        "mean_seconds_two_reads": mean("two reads", "seconds"), "mean_seconds_one_read": mean("one read", "seconds"),
+        "mean_nvme_gb_two_reads": mean("two reads", "nvme_bytes") / 1e9, "mean_nvme_gb_one_read": mean("one read", "nvme_bytes") / 1e9,
+        "digest_mismatches": mismatches,
+        "runs": runs,
+    });
+    std::fs::write(out, serde_json::to_string_pretty(&r).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    if mismatches > 0 {
+        return Err(format!("{mismatches} expert digests from the one-read path differ from Manifest::build"));
+    }
+    println!(
+        "PASS oneread: two reads {:.1} s ({:.1} GB from NVMe), one read {:.1} s ({:.1} GB), {} experts, digests equal",
+        r["mean_seconds_two_reads"].as_f64().unwrap_or(0.0), r["mean_nvme_gb_two_reads"].as_f64().unwrap_or(0.0),
+        r["mean_seconds_one_read"].as_f64().unwrap_or(0.0), r["mean_nvme_gb_one_read"].as_f64().unwrap_or(0.0), r["experts"]
     );
     Ok(())
 }
