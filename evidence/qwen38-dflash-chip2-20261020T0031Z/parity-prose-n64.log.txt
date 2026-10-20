@@ -1,0 +1,6 @@
+memory: whole model + MTP head + drafter needs 40839 MiB, keep 12288 MiB free, MemAvailable 70357 MiB
+drafter 3670 MiB in 5.0 s, model in 35.5 s, prompt prose 34 tokens
+capture: 64 tokens in 16892 ms
+drafter on the chip: 3427 MiB in 2.4 s, chip conv true
+replay: 28 rounds, 35 accepted of 187 drafted, 2.250 words per pass
+qwen38_dflash: dflash gemv: omega_gpu rc=-3 (CODEGEN_FAIL: bf16 codegen refused the shape)
