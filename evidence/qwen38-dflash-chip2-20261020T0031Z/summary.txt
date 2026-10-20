@@ -1,0 +1,1 @@
+qwen38_dflash: dflash gemv: omega_gpu rc=-3 (CODEGEN_FAIL: bf16 codegen refused the shape)
