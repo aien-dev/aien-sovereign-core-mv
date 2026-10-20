@@ -83,6 +83,10 @@ pub struct Options {
     /// `volatile.toolchain` of every fresh receipt. A memo source must carry
     /// the same one.
     pub toolchain: Option<String>,
+    /// Where to write the host verdict as soon as every selected host and
+    /// qemu gate has finished, while gb10 gates may still wait for the chip
+    /// (L164: "host PASS, silicon queued N"). None: not written.
+    pub interim: Option<PathBuf>,
 }
 
 impl Options {
@@ -106,6 +110,7 @@ impl Options {
             operator: false,
             memo: None,
             toolchain: None,
+            interim: None,
         }
     }
 }
@@ -1066,6 +1071,8 @@ struct Sched {
     results: Vec<Option<Outcome>>,
     /// Selected gates that have not finished.
     remaining: usize,
+    /// The host verdict file was written (L164).
+    host_done: bool,
     /// The first fatal error; it stops the campaign.
     error: Option<RunError>,
 }
@@ -1192,6 +1199,14 @@ impl GraphRun<'_> {
                 Ok(o) => {
                     st.results[i] = Some(o);
                     st.remaining = st.remaining.saturating_sub(1);
+                    if !st.host_done {
+                        if let Some(path) = &self.opts.interim {
+                            if let Some(v) = host_verdict(self.graph, self.selection, &st.results) {
+                                st.host_done = true;
+                                write_interim(path, &v);
+                            }
+                        }
+                    }
                     for &d in self.graph.direct_dependents(i) {
                         if self.selection.contains(&d) {
                             st.waiting_on[d] = st.waiting_on[d].saturating_sub(1);
@@ -1213,6 +1228,58 @@ impl GraphRun<'_> {
             // can use the slot as soon as they wake.
             self.cv.notify_all();
         }
+    }
+}
+
+/// The host verdict (L164), once every selected gate outside the gb10 pool
+/// has a result: PASS when all of them passed, else the worst of them (the
+/// ADR 0028 exit rule). `silicon_left` names the gb10 gates still without a
+/// result. None while a host or qemu gate is still running or waiting.
+pub fn host_verdict(
+    graph: &Graph,
+    selection: &BTreeSet<usize>,
+    results: &[Option<Outcome>],
+) -> Option<Value> {
+    let mut host: Vec<(String, Verdict)> = Vec::new();
+    let mut silicon_left: Vec<String> = Vec::new();
+    let mut silicon_done = 0usize;
+    for &i in selection {
+        let n = graph.node(i);
+        let on_chip = pool_of(&n.manifest) == Pool::Gb10;
+        match (&results[i], on_chip) {
+            (Some(o), false) => host.push((n.id.clone(), o.verdict)),
+            (None, false) => return None,
+            (Some(_), true) => silicon_done += 1,
+            (None, true) => silicon_left.push(n.id.clone()),
+        }
+    }
+    let verdicts: Vec<Verdict> = host.iter().map(|(_, v)| *v).collect();
+    let verdict = campaign_verdict(&verdicts);
+    let not_pass: Vec<String> = host
+        .iter()
+        .filter(|(_, v)| *v != Verdict::Pass)
+        .map(|(g, v)| format!("{g}:{}", v.as_str()))
+        .collect();
+    Some(json!({
+        "schema": "aien-host-verdict/1",
+        "utc": utc_string(now_secs()),
+        "host_verdict": verdict.as_str(),
+        "host_gates": host.len(),
+        "host_not_pass": not_pass,
+        "silicon_done": silicon_done,
+        "silicon_left": silicon_left,
+    }))
+}
+
+/// Best effort: the note is for people; a failure to write it never changes
+/// a verdict.
+fn write_interim(path: &Path, v: &Value) {
+    if let Some(dir) = path.parent() {
+        let _ = fs::create_dir_all(dir);
+    }
+    let tmp = path.with_extension("tmp");
+    if fs::write(&tmp, format!("{v}\n")).is_ok() {
+        let _ = fs::rename(&tmp, path);
     }
 }
 
@@ -1272,6 +1339,7 @@ pub fn run_graph(
             ready_at,
             results: vec![None; graph.len()],
             remaining: selection.len(),
+            host_done: false,
             error: None,
         }),
         cv: Condvar::new(),
@@ -2279,6 +2347,42 @@ mod tests {
 
     /// Without a `CARGO_TARGET_DIR` the gates of one run still share the
     /// worktree's own `target/`, so they are serialised on that path.
+    #[test]
+    fn host_verdict_is_written_once_host_gates_finish_and_names_chip_gates_left() {
+        let fx = gfx(&[
+            ("H-A", "", "host", logging("H-A", 0)),
+            ("H-B", "", "host", logging("H-B", 1)),
+            ("G-C", "", "gb10", logging("G-C", 0)),
+        ]);
+        let g = fx.graph();
+        let all: BTreeSet<usize> = (0..g.len()).collect();
+        let idx = |id: &str| g.index_of(id).unwrap();
+        let out = |v: Verdict| Outcome {
+            verdict: v,
+            reason: String::new(),
+            receipt_path: None,
+            receipt_digest: None,
+            cache: CacheNote::Skipped(String::new()),
+        };
+        let mut results: Vec<Option<Outcome>> = vec![None; g.len()];
+        results[idx("H-A")] = Some(out(Verdict::Pass));
+        assert!(host_verdict(&g, &all, &results).is_none(), "a host gate is still running");
+        results[idx("H-B")] = Some(out(Verdict::Fail));
+        let v = host_verdict(&g, &all, &results).unwrap();
+        assert_eq!(v["host_verdict"], "FAIL");
+        assert_eq!(v["host_gates"], 2);
+        assert_eq!(v["host_not_pass"], json!(["H-B:FAIL"]));
+        assert_eq!(v["silicon_left"], json!(["G-C"]));
+        // A real campaign writes the note.
+        let mut opts = fx.opts();
+        let note = fx.scratch.path().join("interim/r.sha.json");
+        opts.interim = Some(note.clone());
+        fx.campaign(&opts);
+        let v: Value = serde_json::from_str(&fs::read_to_string(&note).unwrap()).unwrap();
+        assert_eq!(v["host_verdict"], "FAIL");
+        assert_eq!(v["host_gates"], 2);
+    }
+
     #[test]
     fn gates_without_a_target_dir_serialise_on_the_worktree_target() {
         let fx = gfx(&[

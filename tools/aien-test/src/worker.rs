@@ -134,6 +134,12 @@ impl StateDir {
         self.root.join("locks").join("target")
     }
 
+    /// The host verdict note of one head (L164), written by the runner as
+    /// soon as every host and qemu gate has finished.
+    pub fn interim(&self, repo: &str, sha: &str) -> PathBuf {
+        self.root.join("interim").join(format!("{repo}.{sha}.json"))
+    }
+
     pub fn bundle_path(&self, repo: &str, sha: &str) -> PathBuf {
         self.root
             .join("bundles")
@@ -943,6 +949,7 @@ fn run_in_worktree(
     }
     // The gate memo (L164): PASS receipts of other judged heads of this
     // repository answer a gate whose cache key and toolchain are the same.
+    opts.interim = Some(cfg.state.interim(repo, sha));
     let toolchain = crate::memo::toolchain_id(cfg.sandbox);
     opts.toolchain = Some(toolchain.clone());
     if !opts.no_cache && cfg.memo != crate::memo::Policy::Off {
