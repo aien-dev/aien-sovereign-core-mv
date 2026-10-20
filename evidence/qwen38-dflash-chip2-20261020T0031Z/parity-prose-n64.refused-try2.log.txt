@@ -1,0 +1,2 @@
+memory: whole model + MTP head + drafter needs 40839 MiB, keep 12288 MiB free, MemAvailable 73429 MiB
+qwen38_dflash: lm_head: omega_gpu rc=-4 (CHIP_FAIL: m16_native_create_channel: RM_ALLOC class 0xcec0 status 0x51)
