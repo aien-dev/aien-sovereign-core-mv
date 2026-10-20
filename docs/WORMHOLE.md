@@ -138,53 +138,92 @@ Receipts: `evidence/WORMHOLE-ACCEPT-69825c92/README.md` (tables are appended the
   digests its 24,576 experts on 8 threads; `Streamer::load_one` is public for demand fill. Its 9 + 8 tests
   pass (three runs; `writer_waits_for_lease_release` failed once under load 37 because it relies on a
   10 ms sleep, which is a test timing assumption, not a ring fault; it passed the next three times).
-- `wormhole_run ring-check` and `wormhole_run pair` (the real-weight exactness tests) are written and
-  queued; their results land in the receipt README.
+- `wormhole_run ring-check` (Flash-Next's real experts through the ring, bit for bit, plus a corrupted
+  digest that must fail closed) and `wormhole_run pair` (real weights: Flash-Next drafts through the ring,
+  the 27B verifies, output must equal the 27B alone; and the accept-one-extra control) are written; their
+  runs are chained after the acceptance runs and land in the receipt README. Until then they are not results.
 
-### 9.2 Acceptance so far (code-golden, 30 words; prose and codelong queued)
+### 9.2 Acceptance: Flash-Next drafting, 27B verifying (all three prompt sets)
 
-Flash-Next drafting for the 27B agreed with the 27B on 29 of 30 words. Words delivered per round:
-k=1 2.00, k=2 2.73, k=4 4.29, k=8 7.50, k=16 15.0. Expert LRU hit on that trace: 4 GB 0.60, 8 GB 0.72,
-16 GB 0.80. This prompt is easy code; the longer prose and code sets decide it.
+Verifier text = the 27B's own chip greedy output. Cell = accepted / drafted, then words delivered per round.
 
-### 9.3 Break-even and ceiling from those numbers
-
-Floors from section 6 (Flash-Next on the chip at the same 273 GB/s as the 27B, misses not hidden):
-
-| cache | Flash-Next word | k=1 | k=2 | k=4 | k=8 | k=16 | 27B alone |
+| prompt set | words | Flash-Next top-1 = 27B word | k=1 | k=2 | k=4 | k=8 | k=16 |
 |---|---|---|---|---|---|---|---|
-| perfect (all experts in memory) | 36.4 ms | 14.8 | 15.9 | 17.6 | 19.3 | 22.0 tok/s | 10.15 |
-| 8 GB, hit 0.72 | 73.3 ms | 11.6 | 11.1 | 10.9 | 11.0 | 11.8 tok/s | 10.15 |
-| 4 GB, hit 0.60 | 89.7 ms | 10.6 | 9.8 | 9.4 | 9.2 | 9.8 tok/s | 10.15 |
+| code-golden | 30 | 29 / 30 | 15/15, 2.00 | 20/22, 2.73 | 24/28, 4.29 | 27/29, 7.50 | 29/30, 15.0 |
+| prose | 256 | 181 / 256 | 108/148, 1.73 | 143/226, 2.27 | 166/358, 2.84 | 178/613, 3.28 | 181/1159, 3.41 |
+| codelong | 256 | 227 / 256 | 119/138, 1.86 | 158/198, 2.59 | 192/256, 4.00 | 210/371, 5.45 | 222/548, 7.31 |
 
-Plainly: on this one easy prompt the pairing only just beats the 27B ceiling with an 8 GB cache, and loses
-with 4 GB. The SSD misses eat almost all of the gain. The whole lever is the cache.
+For scale, the 27B's own MTP head on the same codelong text (qwen38-spec evidence): k=1 120/136,
+k=4 185/288. Flash-Next guesses about as well as the 27B's own small MTP head, and the MTP head costs about
+0.48 GB per guess against Flash-Next's 9.95 GB plus SSD misses.
 
-### 9.4 What would make it win (the next tests)
+### 9.3 Expert cache on the real traces
 
-1. Hide the misses behind the verify pass. While the 27B verifies a round (98.5 ms), the SSD can deliver
-   0.99 GB = about 357 experts. That only helps if the next round's experts can be predicted. Measured on
-   the code-golden trace: the experts the previous word used in the same layer cover 0.366 of the next
-   word's experts; the last 2, 4 and 8 words cover 0.490, 0.572 and 0.646. Routing is not sticky enough
-   for history alone to hide the misses. The next test is look-ahead routing: apply layer L+1's router to
-   layer L's output (the hidden state changes little between layers) and measure how many of layer L+1's
-   real experts it names, on the CPU reference; if that is high, the ring can fetch layer L+1's experts
-   while layer L computes. A limit to know before building it: one Flash-Next layer computes in about
-   0.76 ms at the memory floor (36.4 ms / 48), while 10 cold experts take 2.76 ms from the SSD. So even a
-   perfect one-layer look-ahead hides at most about a quarter of a full miss; it has to predict several
-   layers ahead, or hide the misses inside the 27B verify pass, to matter.
-2. A deeper cache: the 16 GB row (hit 0.80 even on a cold 30-word trace) needs tenants to give back memory.
-3. Pick k per measured acceptance. At 8 GB the table is flat (10.9 to 11.8 tok/s for k = 1 to 16): each
-   drafted word costs most of what it saves, so k only matters once misses are hidden.
-4. The Flash-Next chip forward (L020) has to exist before any of this can be timed.
+All three traces (542 words of 27B text, 480 expert lookups per word), LRU with each prompt warming it:
 
-### 9.5 Race
+| cache | experts | share of 24,576 | LRU hit | hot set chosen on the other prompts |
+|---|---|---|---|---|
+| 2 GB | 723 | 2.9% | 0.451 | 0.015 |
+| 4 GB | 1,446 | 5.9% | 0.622 | 0.061 |
+| 8 GB | 2,893 | 11.8% | 0.765 | 0.145 |
+| 16 GB | 5,786 | 23.5% | 0.901 | 0.295 |
+| 32 GB | 11,573 | 47.1% | 0.952 | 0.537 |
+
+Two findings. There are no globally hot experts: a set pinned from other prompts hits about as often as
+chance, so the cache must follow the current text (LRU), not a fixed favourite list. And routing is only
+partly sticky from word to word: the previous word's experts in the same layer cover 0.37 to 0.44 of the
+next word's, the last 8 words 0.65 to 0.69.
+
+### 9.4 Break-even and ceiling (bytes per round over measured bandwidth)
+
+Section 6 formula, Flash-Next assumed to run on the chip at the 27B's 273 GB/s, misses not hidden. tok/s at
+the best k for each cache; 27B alone is 10.15 at the same ceiling.
+
+| cache (hit) | Flash-Next word | code-golden | prose | codelong |
+|---|---|---|---|---|
+| perfect (1.000) | 36.4 ms | 22.0 (k=16) | 13.3 (k=2) | 16.4 (k=4) |
+| 32 GB (0.952) | 42.7 ms | 19.2 (k=16) | 12.3 (k=2) | 14.8 (k=4) |
+| 16 GB (0.901) | 49.5 ms | 16.8 (k=16) | 11.7 (k=1) | 13.5 (k=4) |
+| 8 GB (0.765) | 67.5 ms | 12.7 (k=16) | 10.4 (k=1) | 11.2 (k=1) |
+| 4 GB (0.622) | 86.4 ms | 10.8 (k=1) | 9.4 (k=1) | 10.1 (k=1) |
+
+Hit rate needed just to tie the 27B alone: prose 0.73 at k=1 (0.93 at k=4), codelong 0.64 at k=1
+(0.72 at k=4). The cache that fits beside the 27B today is about 4 GB (hit 0.62): below break-even on
+every long set. Even with all 68 GB of experts in memory, which cannot fit, the best case is 13.3 tok/s on
+prose and 16.4 on codelong.
+
+Against the 27B's own MTP head on the same formula (0.48 GB per guess, 1.75 ms; codelong k=1 delivers
+256 words in 136 rounds = 1.88 per round): 1.88 / (98.5 + 1.75) ms = 18.8 tok/s ceiling. That beats every
+Flash-Next row, including the impossible perfect cache. The plain answer: as a drafter for the 27B,
+Flash-Next cannot beat what the 27B already has.
+
+Reversed (27B drafting, Flash-Next verifying): each guess costs a whole 27B pass (98.5 ms) while Flash-Next
+alone costs 36.4 to 86 ms a word, so it is slower than Flash-Next alone at any acceptance. Its acceptance is
+still measured (queued) for the record.
+
+### 9.5 What would make it win (tested so far, and next)
+
+1. Hide misses behind the verify pass. While the 27B verifies (98.5 ms) the SSD delivers 0.99 GB, about
+   357 experts; that helps only if the next word's experts can be predicted. History predicts 0.37 to 0.69
+   (above), not enough. One Flash-Next layer computes in 0.76 ms at the floor while its 10 cold experts take
+   2.76 ms from the SSD, so even perfect one-layer look-ahead routing hides at most a quarter of a miss.
+   Untested: look-ahead several layers deep (layer L+n's router on layer L's output) on the CPU reference.
+2. A deeper cache: 16 GB (hit 0.90) gets prose to 11.7 and codelong to 13.5, still under the MTP head's
+   18.8 ceiling, and 16 GB is not free on this box under tenant load.
+3. Smaller block: already in the table; k=1 or 2 is best whenever misses are real.
+4. Use the pair the other way round in role, not in output: Flash-Next as the product, with its own small
+   drafter (its MTP head, 2.7 GB, or the 27B's text as a hint) is the only arrangement where Flash-Next's
+   cost is not pure overhead. That is a different product (Flash-Next's text) and needs L020's chip forward.
+5. The real lever for the 27B is cheap drafting (its MTP head now, DFlash L019) plus the L013 block verify,
+   not a second large model.
+
+### 9.6 Race
 
 | racer | tok/s | ceiling | status |
 |---|---|---|---|
 | 27B alone (shared baseline, not re-measured) | 7.63 live | 10.15 | receipt from serve-fast |
 | 27B + DFlash (L019) | none | not computed (no acceptance yet) | no run: L019's chip runs were refused for memory (36.8 GB needed with 12 GB kept free) and failed a channel alloc; not run here by agreement with L019 |
-| 27B verifying, Flash-Next drafting | none | section 9.3 | cannot run: there is no Flash-Next chip forward yet (L020 kernels are simulation proven only) |
+| 27B verifying, Flash-Next drafting | none | 9.4 to 16.4 by cache and text, 10.1 to 10.8 with the 4 GB that fits (section 9.4) | cannot run: there is no Flash-Next chip forward yet (L020 kernels are simulation proven only) |
 | Flash-Next verifying, 27B drafting | none | below Flash-Next alone at any acceptance (section 6) | cannot run, same reason; physically cannot win |
 
 No timed race was run. The result for the race is INCONCLUSIVE, not a pass.

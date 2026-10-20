@@ -6,8 +6,9 @@ FN=~/models/qwen3.8-flash-next-nvfp4-fc694b54
 Q=~/models/qwen3.8-27b-fp8-017b9c7a
 I=~/wormhole-scratch/inputs; R=~/wormhole-scratch/runs; mkdir -p $R
 export RAYON_NUM_THREADS=8
-step() { local name=$1; shift; [ -s $R/$name.json ] && { echo "skip $name"; return; }
-  echo "== $name $(date -Is)"; ~/.local/bin/quiet-build nice -n 5 "$@" > $R/$name.log 2>&1; echo "rc $? $(date -Is)"; tail -2 $R/$name.log; }
+guard() { while [ "$(awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo)" -lt 40 ]; do sleep 60; done; }
+step() { guard; local name=$1; shift; [ -s $R/$name.json ] && { echo "skip $name"; return; }
+  echo "== $name $(date -Is)"; nice -n 19 ionice -c3 "$@" > $R/$name.log 2>&1; echo "rc $? $(date -Is)"; tail -2 $R/$name.log; }
 for s in code-golden prose codelong; do
   ids=$(jq -r ".ids|map(tostring)|join(\" \")" $I/q38-$s.json); pl=$(jq .prompt_len $I/q38-$s.json)
   step fnscore-$s $B fn-score $FN $R/fnscore-$s.json $pl $ids
