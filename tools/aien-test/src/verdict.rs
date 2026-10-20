@@ -181,6 +181,9 @@ pub struct Facts {
     /// The operator started this run by hand (`--operator`). It is the only
     /// thing that lets a `requires: operator` gate run (ADR 0033 Decision 2).
     pub operator: bool,
+    /// The manifest's `prepare` step ran and did not exit 0 (or timed out),
+    /// so `run` never started.
+    pub prepare_failed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -283,7 +286,9 @@ pub fn derive(m: &Manifest, f: &Facts) -> Derived {
         .iter()
         .map(|r| (r.text.clone(), eval_rule(r, &f.observations)))
         .collect();
-    let (verdict, reason) = if f.timed_out {
+    let (verdict, reason) = if f.prepare_failed {
+        (Verdict::Fail, "prepare_failed".to_string())
+    } else if f.timed_out {
         (Verdict::Fail, "timeout".to_string())
     } else if let Some(r) = self_not_run(m, f) {
         (Verdict::NotRun, r)
@@ -342,6 +347,7 @@ mod tests {
             tree_changed_after: false,
             head_moved: false,
             operator: false,
+            prepare_failed: false,
         }
     }
 
@@ -458,6 +464,21 @@ mod tests {
         f.exit_status = None;
         let d = derive(&m(None), &f);
         assert_eq!((d.verdict, d.reason.as_str()), (Verdict::Fail, "timeout"));
+    }
+
+    #[test]
+    fn a_failed_prepare_fails_even_when_its_exit_matches() {
+        // The prepare exit is never compared with expects.exit: a gate that
+        // expects exit 1 must not pass because its build failed with 1.
+        let mo = m(Some(("  exit: 0\n", "  exit: 1\n")));
+        let mut f = good_facts();
+        f.prepare_failed = true;
+        f.exit_status = Some(1);
+        let d = derive(&mo, &f);
+        assert_eq!(
+            (d.verdict, d.reason.as_str()),
+            (Verdict::Fail, "prepare_failed")
+        );
     }
 
     #[test]
