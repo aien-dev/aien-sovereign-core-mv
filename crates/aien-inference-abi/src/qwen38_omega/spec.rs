@@ -44,6 +44,7 @@
 //! rows, never a snapshot per draft). [`verify_pass`] is the one boundary the fast tree-verify
 //! GEMM (omega branch cascade/tree-verify-gemm) drops into: [`VerifyKernel`].
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use aien_omega_bf16::Bf16Tensor;
@@ -64,6 +65,9 @@ use crate::tensor::rmsnorm;
 const VERIFY_GEMM_MT: u32 = 2;
 const VERIFY_GEMM_CTAS: u32 = 192;
 static VERIFY_GEMM_SHAPE: std::sync::Once = std::sync::Once::new();
+/// Set by a verify pass for its whole duration: the dense projections run on the tensor-core
+/// verify GEMM ([`VerifyKernel::TreeGemm`]) instead of the row-pair GEMM.
+static TREE_GEMM: AtomicBool = AtomicBool::new(false);
 
 fn ns(t: Instant) -> u64 {
     t.elapsed().as_nanos() as u64
@@ -234,6 +238,14 @@ fn gemm(
     what: &str,
     st: &mut RowStats,
 ) -> Result<(), String> {
+    if TREE_GEMM.load(Ordering::Relaxed) {
+        let t = Instant::now();
+        w.tv_f32(m, x, y)
+            .map_err(|e| format!("{what} tree-verify gemm x{m}: {e}"))?;
+        st.gemm_ns += ns(t);
+        st.gemm_calls += 1;
+        return Ok(());
+    }
     VERIFY_GEMM_SHAPE.call_once(|| {
         aien_omega_fp8::gemm_set_shape(VERIFY_GEMM_MT, 0);
         aien_omega_fp8::gemm_set_cta_budget(VERIFY_GEMM_CTAS);
@@ -1087,6 +1099,29 @@ pub enum VerifyKernel {
     /// pair), bf16 lm_head GEMV per row, per-row glue on the host.
     #[default]
     ExactRows,
+    /// The dense projections (mixer, o_proj, gate|up, down) on omega's tensor-core verify GEMM
+    /// (branch cascade/tree-verify-gemm, `omega_gpu_tv_f32`): the weights are read once for all
+    /// the rows of the pass (up to 64) and row `r` is the same bits as the one-row path gives.
+    /// Everything else (lm_head, glue, acceptance, state rebuild) is the `ExactRows` code.
+    TreeGemm,
+}
+
+impl VerifyKernel {
+    /// Routes the dense projections of the pass about to run (the process-wide switch the
+    /// row GEMM wrapper reads) until the returned guard drops, so rows run outside a verify pass
+    /// (prefill chunks) keep the row-pair GEMM.
+    fn select(self) -> TreeGemmGuard {
+        TREE_GEMM.store(self == VerifyKernel::TreeGemm, Ordering::Relaxed);
+        TreeGemmGuard
+    }
+}
+
+struct TreeGemmGuard;
+
+impl Drop for TreeGemmGuard {
+    fn drop(&mut self) {
+        TREE_GEMM.store(false, Ordering::Relaxed);
+    }
 }
 
 /// Which rows the verify pass scores with the lm_head and runs the MTP head on.
@@ -1139,7 +1174,7 @@ pub fn verify_pass(
     st: &mut RowStats,
     st_mtp: &mut RowStats,
 ) -> Result<VerifyOut, String> {
-    let VerifyKernel::ExactRows = kernel;
+    let _route = kernel.select();
     let h = q::HIDDEN;
     let m = feed.len();
     let drafts = m - 1;
@@ -1354,7 +1389,7 @@ pub fn verify_tree(
     st: &mut RowStats,
     st_mtp: &mut RowStats,
 ) -> Result<TreeOut, String> {
-    let VerifyKernel::ExactRows = kernel;
+    let _route = kernel.select();
     let h = q::HIDDEN;
     let pos0 = model.pos;
     let hidden = model.tree_rows(tokens, shape, committed, keep, kv, st)?;

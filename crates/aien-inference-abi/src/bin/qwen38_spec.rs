@@ -494,6 +494,11 @@ fn parse_gen_item(args: &[String]) -> Result<GenItem, String> {
         "accepted" => HeadRows::Accepted,
         o => return Err(format!("--rows {o}: all|accepted")),
     };
+    let kernel = match flag(args, "--verify").unwrap_or("exact") {
+        "exact" => VerifyKernel::ExactRows,
+        "tree" => VerifyKernel::TreeGemm,
+        o => return Err(format!("--verify {o}: exact|tree")),
+    };
     let source = match flag(args, "--source").unwrap_or("mtp") {
         "mtp" => DraftSource::Mtp,
         "ngram" => DraftSource::Ngram,
@@ -513,7 +518,7 @@ fn parse_gen_item(args: &[String]) -> Result<GenItem, String> {
         }
     };
     let sopts = SpecOptions {
-        kernel: VerifyKernel::ExactRows,
+        kernel,
         rows,
         source,
         ngram,

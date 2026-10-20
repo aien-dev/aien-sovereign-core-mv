@@ -1,0 +1,27 @@
+memory: whole model + MTP head needs 32663 MiB, keep 12288 MiB free, MemAvailable 58181 MiB
+MTP head: 455 MiB, raw norm means (embed, hidden, final) [-0.46056232, -0.15720086, 1.2520472], options MtpOptions { order: EmbedFirst, normed_hidden: false, pos_offset: 0 }
+uploaded in 51.6 s
+qwen38_spec: layer 0: down gemm x50: omega_gpu rc=-3 (CODEGEN_FAIL: fp8 gemm codegen refused the shape)
+{
+ "name": "tvw-tree-codelong",
+ "cmd": "/home/drakestapleton/.local/bin/quiet-measure nice -n 10 flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/cascade-sc/pinned/qwen38_spec-e2080d1e gen /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a evidence/qwen38-cascade-tvgemm-20261019/tree-codelong.json --prompt codelong --n 192 --k 0,4,8 --source mtp --verify tree",
+ "exit": 2,
+ "git_head": "0329d62d",
+ "start": "2026-10-19T17:01:51.874211",
+ "seconds": 693.739,
+ "samples": 320,
+ "wall_W_mean": 264.875,
+ "wall_J": 183754.08866035938,
+ "idle_W_before": 258.57142857142856,
+ "incremental_J": 4373.032649976878,
+ "gpu_W_mean": 35.01090625,
+ "gpu_util_mean": 76.365625,
+ "load1_start": "27.29",
+ "load1_end": "9.01",
+ "mem_avail_kB_start": "65137100",
+ "mem_avail_kB_end": "56049104",
+ "lock_holders_max": 6,
+ "nvrm_errors_delta": 5,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-tvw-tree-codelong.json

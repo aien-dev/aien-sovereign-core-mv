@@ -1,0 +1,22 @@
+{
+ "name": "tvw-exact-codelong",
+ "cmd": "/home/drakestapleton/.local/bin/quiet-measure nice -n 10 flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/cascade-sc/pinned/qwen38_spec-e2080d1e gen /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a evidence/qwen38-cascade-tvgemm-20261019/exact-codelong.json --prompt codelong --n 192 --k 0,4,8 --source mtp --verify exact",
+ "exit": 2,
+ "git_head": "0329d62d",
+ "start": "2026-10-19T17:13:28.677064",
+ "seconds": 2351.504,
+ "samples": 1104,
+ "wall_W_mean": 226.268115942029,
+ "wall_J": 532070.4839231743,
+ "idle_W_before": 201.42857142857142,
+ "incremental_J": 58410.299722001975,
+ "gpu_W_mean": 18.266322463768116,
+ "gpu_util_mean": 36.42934782608695,
+ "load1_start": "8.69",
+ "load1_end": "4.65",
+ "mem_avail_kB_start": "68084012",
+ "mem_avail_kB_end": "53973208",
+ "lock_holders_max": 8,
+ "nvrm_errors_delta": 8,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone"
+}

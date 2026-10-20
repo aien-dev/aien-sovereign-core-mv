@@ -1,0 +1,4 @@
+bin sha 9275c473c51243bc205a7124ac2584189492db972088d2894ed5beb5d4a678ea
+spark-receipt tvw-tree-codelong -- quiet-measure nice -n 10 flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/cascade-sc/pinned/qwen38_spec-e2080d1e gen M evidence/qwen38-cascade-tvgemm-20261019/tree-codelong.json --prompt codelong --n 192 --k 0,4,8 --source mtp --verify tree
+queued 2026-10-19T22:01:51Z load 27.29 19.95 23.56 42/4160 3561109 MemAvailable:   64589636 kB
+end 2026-10-19T22:13:28Z rc 2 load 8.69 12.57 18.26 7/3582 4028557 MemAvailable:   68459212 kB
