@@ -23,7 +23,7 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::codec::{Codec, CodecError};
 use crate::engine::{Engine, EngineError, FinishReason, GenerateParams};
-use crate::mask::{ConstraintRequest, Mask};
+use crate::mask::{ConstraintRequest, Mask, MaskRecord};
 use crate::openai::{
     chunk_json, completion_json, ChatRequest, ErrorBody, ModelCard, ModelList, Usage,
 };
@@ -588,7 +588,7 @@ fn run_generation(
     let mut stopped_by_string = false;
     let mut client_gone = false;
     let mut mask = prepared.mask;
-    let mut on_token = |tok| match asm.push(tok) {
+    let mut on_token = |tok: u32| match asm.push(tok) {
             Push::Hold => true,
             Push::Delta(d) => {
                 if tx.blocking_send(Ev::Delta(d)).is_err() {

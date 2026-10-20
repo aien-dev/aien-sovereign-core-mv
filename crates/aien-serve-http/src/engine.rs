@@ -104,8 +104,6 @@ pub trait Engine: Send + Sync {
         params: &GenerateParams,
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, EngineError>;
-    /// Persistent KV status and counters for `/health` (sc#505). `None` (the default, and the
-    /// omega door with `AIEN_KV_STORE_DIR` unset) leaves `/health` exactly as it was.
     /// `generate` under a per-request constraint ([`Mask`]): the engine asks `mask.rule` once per
     /// step before its logits and takes the token it gives (`Force`), stops (`Finish`), or samples
     /// through `mask.choose`. The default refuses: an engine takes a constraint only when its loop
@@ -122,6 +120,8 @@ pub trait Engine: Send + Sync {
             self.kind()
         )))
     }
+    /// Persistent KV status and counters for `/health` (sc#505). `None` (the default, and the
+    /// omega door with `AIEN_KV_STORE_DIR` unset) leaves `/health` exactly as it was.
     fn persistence_status(&self) -> Option<serde_json::Value> {
         None
     }

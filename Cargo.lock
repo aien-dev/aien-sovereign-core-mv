@@ -502,6 +502,7 @@ dependencies = [
  "aien-inference-abi",
  "aien-kv-store",
  "aien-omega-gpu",
+ "aien-omegese-constraint",
  "aien-platform",
  "aien-runtime",
  "axum 0.7.9",
