@@ -1,0 +1,2 @@
+control-tune-nopair try 1 start 2026-10-20T00:10:28Z loadavg 17.26 15.60 22.04 11/4004 2768382 memavail_kb 30134696
+control-tune-nopair try 1 end 2026-10-20T00:14:18Z rc 0 loadavg 21.44 16.57 20.89 7/4193 2903453
