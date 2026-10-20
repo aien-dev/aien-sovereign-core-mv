@@ -1,0 +1,25 @@
+{
+ "name": "speed2-serve-spec-k4",
+ "cmd": "sh /home/drakestapleton/workspace/targets/speed2/runs/serve-one.sh spec-k4 4 /home/drakestapleton/workspace/targets/speed2/pinned/aien-serve-http-e6bd69c9-omega4b20a9c5 /home/drakestapleton/workspace/sc-speed2-specdecode/evidence/speed2-specdecode-20261020/serve fp8",
+ "exit": 0,
+ "git_head": null,
+ "start": "2026-10-20T05:51:25.993490",
+ "seconds": 132.061,
+ "samples": 63,
+ "wall_W_mean": 260.952381,
+ "wall_J": 34461.63795,
+ "idle_W_before": 284.0,
+ "incremental_J": -3043.692111,
+ "gpu_W_mean": 20.62793651,
+ "gpu_util_mean": 48.25396825,
+ "load1_start": "35.38",
+ "load1_end": "35.59",
+ "mem_avail_kB_start": "68466384",
+ "mem_avail_kB_end": "64718224",
+ "lock_holders_max": 2,
+ "nvrm_errors_delta": 0,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone",
+ "window_id": "20261020T104028Z-12a88e",
+ "calibration": null
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-20-speed2-serve-spec-k4.json
