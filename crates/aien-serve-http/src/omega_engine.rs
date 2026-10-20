@@ -4,8 +4,9 @@
 //!
 //! Chip etiquette: `/tmp/aien-gb10.lock` is the hive's GPU lock. The server never holds it
 //! while idle; `generate` takes it (waiting up to [`LOCK_WAIT`]) and releases it when the
-//! reply is done. If another job holds it past the wait the request fails with
-//! [`EngineError::Busy`], which the server turns into HTTP 503.
+//! reply is done. On release it hands the lock to any process already queued on it (up to
+//! [`GPU_LOCK_YIELD`]; flock has no queue order, L188). If another job holds it past the wait
+//! the request fails with [`EngineError::Busy`], which the server turns into HTTP 503.
 
 use std::fs::{File, OpenOptions};
 use std::os::fd::AsRawFd;
@@ -86,7 +87,7 @@ impl PrefillMode {
 }
 
 /// An exclusive hold of the hive's GPU lock (released on drop).
-pub struct GpuLock(#[allow(dead_code)] File);
+pub struct GpuLock(File);
 
 impl GpuLock {
     /// Takes the lock, polling until `wait` has passed. `Err` = still held by someone else.
@@ -123,6 +124,69 @@ impl GpuLock {
             std::thread::sleep(Duration::from_millis(50));
         }
     }
+}
+
+/// Dropping the lock hands it to a process already queued on it. flock has no queue order, and
+/// the kernel takes a woken waiter off its blocked list before the waiter runs, so a process
+/// that unlocks and re-locks at once beats a waiting `flock -x` every time (L188: 18 h of
+/// back-to-back requests starved every measurement). So when another process is blocked on the
+/// lock at release time, the release waits until that process holds the lock, for at most
+/// [`GPU_LOCK_YIELD`]. Nobody queued, or /proc/locks unreadable = no delay.
+impl Drop for GpuLock {
+    fn drop(&mut self) {
+        let waiter = other_process_row(&self.0, true);
+        // SAFETY: unlock on a valid open descriptor.
+        unsafe { libc::flock(self.0.as_raw_fd(), libc::LOCK_UN) };
+        if !waiter {
+            return;
+        }
+        let t0 = Instant::now();
+        let max = gpu_lock_yield();
+        while t0.elapsed() < max && !other_process_row(&self.0, false) {
+            std::thread::sleep(YIELD_POLL);
+        }
+    }
+}
+
+/// How long a release waits for a queued process to take the lock.
+pub const GPU_LOCK_YIELD: Duration = Duration::from_secs(2);
+const YIELD_POLL: Duration = Duration::from_millis(2);
+
+/// [`GPU_LOCK_YIELD`], or `AIEN_GPU_LOCK_YIELD_MS` when set (0 turns yielding off).
+fn gpu_lock_yield() -> Duration {
+    std::env::var("AIEN_GPU_LOCK_YIELD_MS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .map(Duration::from_millis)
+        .unwrap_or(GPU_LOCK_YIELD)
+}
+
+/// True when a process other than this one is blocked on (`blocked`) or holds (`!blocked`) the
+/// lock `file`, per /proc/locks (the table `spark-window locks` reads). Unreadable table = false.
+fn other_process_row(file: &File, blocked: bool) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let Ok(meta) = file.metadata() else {
+        return false;
+    };
+    let Ok(table) = std::fs::read_to_string("/proc/locks") else {
+        return false;
+    };
+    lock_row_of_other(&table, meta.dev(), meta.ino(), std::process::id(), blocked)
+}
+
+/// True when a /proc/locks `table` has a `->` (blocked) row, or with `!blocked` a holder row,
+/// for (`dev`, `ino`) from a pid other than `own_pid`.
+fn lock_row_of_other(table: &str, dev: u64, ino: u64, own_pid: u32, blocked: bool) -> bool {
+    // Rows: `1: FLOCK  ADVISORY  WRITE 1234 08:01:131075 0 EOF`, blocked ones `1: -> FLOCK ...`.
+    let key = format!("{:02x}:{:02x}:{ino}", libc::major(dev), libc::minor(dev));
+    table.lines().any(|line| {
+        let mut f = line.split_whitespace().skip(1).peekable();
+        let arrow = f.next_if_eq(&"->").is_some();
+        // class, mode, rw, then pid and dev:ino.
+        let mut rest = f.skip(3);
+        let pid = rest.next().and_then(|p| p.parse::<u32>().ok());
+        arrow == blocked && pid != Some(own_pid) && rest.next() == Some(key.as_str())
+    })
 }
 
 /// `MemAvailable` from /proc/meminfo in GB (0 when unreadable).
@@ -468,6 +532,148 @@ mod tests {
         );
         drop(b);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A second process (forked, so /proc/locks shows a pid other than ours) that blocks on the
+    /// lock, then on getting it writes one byte to `done_fd`, holds it 100 ms and exits. Only
+    /// async-signal-safe calls run in the child.
+    fn fork_waiter(path: &Path, done_fd: libc::c_int) -> libc::pid_t {
+        let c_path = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
+        // SAFETY: the child only calls close/alarm/open/flock/write/nanosleep/_exit.
+        unsafe {
+            let pid = libc::fork();
+            assert!(pid >= 0, "fork");
+            if pid == 0 {
+                // Drop every inherited descriptor but the pipe: a copy of the parent's lock file
+                // description would keep the lock held after the parent releases it, and an
+                // inherited quiet-lock descriptor would block every quiet-measure on the box.
+                for fd in 3..1024 {
+                    if fd != done_fd {
+                        libc::close(fd);
+                    }
+                }
+                // Never outlive a stuck test.
+                libc::alarm(30);
+                let fd = libc::open(c_path.as_ptr(), libc::O_RDWR);
+                if fd < 0 || libc::flock(fd, libc::LOCK_EX) != 0 {
+                    libc::_exit(1);
+                }
+                libc::write(done_fd, b"x".as_ptr().cast(), 1);
+                let hold = libc::timespec {
+                    tv_sec: 0,
+                    tv_nsec: 100_000_000,
+                };
+                libc::nanosleep(&hold, std::ptr::null_mut());
+                libc::_exit(0);
+            }
+            pid
+        }
+    }
+
+    fn pipe_pair() -> (libc::c_int, libc::c_int) {
+        let mut fds = [0; 2];
+        // SAFETY: fds has room for the two descriptors; the read end never blocks (O_NONBLOCK).
+        assert_eq!(
+            unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_NONBLOCK) },
+            0
+        );
+        (fds[0], fds[1])
+    }
+
+    fn pipe_has_byte(rd: libc::c_int) -> bool {
+        let mut b = [0u8; 1];
+        // SAFETY: one byte into a valid buffer, non-blocking descriptor.
+        unsafe { libc::read(rd, b.as_mut_ptr().cast(), 1) == 1 }
+    }
+
+    fn private_lock_path(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("gpu-lock-yield-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("lock")
+    }
+
+    /// L188: the server releases the lock between requests and the next request re-takes it
+    /// at once. Linux flock has no queue order, so a `flock -x` job that was already waiting
+    /// never got a turn (spark-window waited 90 min, chip gates 18 h behind aien-translate).
+    /// With a waiter queued, the next acquire must let that waiter take the lock first.
+    #[test]
+    fn gpu_lock_gives_a_queued_waiter_the_next_turn() {
+        let path = private_lock_path("turn");
+        let held = GpuLock::acquire_at(&path, Duration::from_secs(1)).unwrap();
+        let (rd, wr) = pipe_pair();
+        let child = fork_waiter(&path, wr);
+        let t0 = Instant::now();
+        while queued_rows_in_proc(&path) == 0 {
+            assert!(t0.elapsed() < Duration::from_secs(5), "waiter never queued");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        drop(held);
+        // The server's next request, straight after the release.
+        let again = GpuLock::acquire_at(&path, Duration::from_secs(10)).expect("reacquire");
+        assert!(
+            pipe_has_byte(rd),
+            "the waiting process must have had the lock before the server took it again"
+        );
+        drop(again);
+        let mut status = 0;
+        // SAFETY: reaping our own child.
+        unsafe { libc::waitpid(child, &mut status, 0) };
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn lock_row_of_other_tells_blocked_from_holder_rows_of_this_lock() {
+        let table = "\
+1: FLOCK  ADVISORY  WRITE 100 08:01:777 0 EOF
+1: -> FLOCK  ADVISORY  WRITE 200 08:01:777 0 EOF
+2: FLOCK  ADVISORY  WRITE 300 08:01:999 0 EOF
+";
+        let dev = libc::makedev(8, 1);
+        assert!(lock_row_of_other(table, dev, 777, 100, true));
+        assert!(!lock_row_of_other(table, dev, 777, 200, true), "own pid");
+        assert!(lock_row_of_other(table, dev, 777, 200, false));
+        assert!(
+            !lock_row_of_other(table, dev, 999, 100, true),
+            "no waiter there"
+        );
+        assert!(
+            !lock_row_of_other(table, dev, 555, 100, true),
+            "other inode"
+        );
+        assert!(
+            !lock_row_of_other(table, libc::makedev(8, 2), 777, 100, true),
+            "other device"
+        );
+    }
+
+    /// With nobody waiting, back-to-back requests are not delayed at all.
+    #[test]
+    fn gpu_lock_does_not_delay_when_nobody_waits() {
+        let path = private_lock_path("idle");
+        let t0 = Instant::now();
+        for _ in 0..20 {
+            let lock = GpuLock::acquire_at(&path, Duration::from_secs(1)).unwrap();
+            drop(lock);
+        }
+        assert!(
+            t0.elapsed() < Duration::from_millis(500),
+            "20 uncontended acquires took {:?}",
+            t0.elapsed()
+        );
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    /// Independent of the production parser: how many `->` (blocked) rows /proc/locks shows for
+    /// this lock file's inode.
+    fn queued_rows_in_proc(path: &Path) -> usize {
+        use std::os::unix::fs::MetadataExt;
+        let ino = std::fs::metadata(path).unwrap().ino();
+        let tail = format!(":{ino} ");
+        std::fs::read_to_string("/proc/locks")
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| l.contains(" -> ") && l.contains(&tail))
+            .count()
     }
 
     #[test]
