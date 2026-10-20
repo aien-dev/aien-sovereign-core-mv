@@ -57,9 +57,16 @@ pub struct MaskRecord {
     /// Steps with exactly one legal token: taken without sampling, and without reading the
     /// logits where the engine can skip that.
     pub forced: u64,
-    /// Of `forced`, the steps whose logits the engine neither read nor sampled (on the 27B door
-    /// the output head still runs inside the step: it is fused into the chip graph).
+    /// Reply tokens the engine fed without reading the logits after them (the next token was
+    /// forced). On the 27B door the output head still runs inside a decode step (it is fused into
+    /// the chip graph); a batched feed computes it once, for the last token.
     pub logits_skipped: u64,
+    /// Reply tokens fed one decode step each, and tokens fed in batched calls (a run of forced
+    /// tokens fed at once, the way a prompt is), with the number of such calls. Zero where the
+    /// engine does not report its feeds.
+    pub fed_by_step: u64,
+    pub fed_batched: u64,
+    pub batches: u64,
     /// Steps sampled from the masked logits.
     pub allowed: u64,
     /// Steps sampled with no mask (`Any`).
@@ -114,6 +121,13 @@ impl Mask {
     /// Counts a forced step whose logits the engine did not read.
     pub fn note_logits_skipped(&mut self) {
         self.rec.logits_skipped += 1;
+    }
+
+    /// The engine's feeds for the reply: tokens by decode step, tokens batched, batched calls.
+    pub fn note_feeds(&mut self, by_step: u64, batched: u64, batches: u64) {
+        self.rec.fed_by_step += by_step;
+        self.rec.fed_batched += batched;
+        self.rec.batches += batches;
     }
 
     /// The token for an `Any` or `Allow` step: `sample` (the engine's sampler) on the logits,
