@@ -125,4 +125,66 @@ word, so the reversed pair is slower than Flash-Next alone at any acceptance.
 
 ## 9. Status and numbers
 
-(filled from the receipts; see evidence/WORMHOLE-ACCEPT-*/README.md)
+Receipts: `evidence/WORMHOLE-ACCEPT-69825c92/README.md` (tables are appended there as runs land).
+
+### 9.1 What is built and passing
+
+- `crates/aien-wormhole`: the expert cache on the Heartbeat ring (`cache.rs`: versioned slots, demand fill
+  into the least recently used slot, parallel `prefetch`, fail closed on a digest mismatch), the tensor
+  source the Flash-Next reference reads its routed experts through (`source.rs`), and the round
+  (`spec.rs`). Unit tests pass: exactness against the verifier alone for k = 1 to 16 with four drafter
+  qualities, and both negative controls change the output as they must.
+- `aien-heartbeat`: the manifest now reads Flash-Next's `model.language_model.layers.*` expert names and
+  digests its 24,576 experts on 8 threads; `Streamer::load_one` is public for demand fill. Its 9 + 8 tests
+  pass (three runs; `writer_waits_for_lease_release` failed once under load 37 because it relies on a
+  10 ms sleep, which is a test timing assumption, not a ring fault; it passed the next three times).
+- `wormhole_run ring-check` and `wormhole_run pair` (the real-weight exactness tests) are written and
+  queued; their results land in the receipt README.
+
+### 9.2 Acceptance so far (code-golden, 30 words; prose and codelong queued)
+
+Flash-Next drafting for the 27B agreed with the 27B on 29 of 30 words. Words delivered per round:
+k=1 2.00, k=2 2.73, k=4 4.29, k=8 7.50, k=16 15.0. Expert LRU hit on that trace: 4 GB 0.60, 8 GB 0.72,
+16 GB 0.80. This prompt is easy code; the longer prose and code sets decide it.
+
+### 9.3 Break-even and ceiling from those numbers
+
+Floors from section 6 (Flash-Next on the chip at the same 273 GB/s as the 27B, misses not hidden):
+
+| cache | Flash-Next word | k=1 | k=2 | k=4 | k=8 | k=16 | 27B alone |
+|---|---|---|---|---|---|---|---|
+| perfect (all experts in memory) | 36.4 ms | 14.8 | 15.9 | 17.6 | 19.3 | 22.0 tok/s | 10.15 |
+| 8 GB, hit 0.72 | 73.3 ms | 11.6 | 11.1 | 10.9 | 11.0 | 11.8 tok/s | 10.15 |
+| 4 GB, hit 0.60 | 89.7 ms | 10.6 | 9.8 | 9.4 | 9.2 | 9.8 tok/s | 10.15 |
+
+Plainly: on this one easy prompt the pairing only just beats the 27B ceiling with an 8 GB cache, and loses
+with 4 GB. The SSD misses eat almost all of the gain. The whole lever is the cache.
+
+### 9.4 What would make it win (the next tests)
+
+1. Hide the misses behind the verify pass. While the 27B verifies a round (98.5 ms), the SSD can deliver
+   0.99 GB = about 357 experts. That only helps if the next round's experts can be predicted. Measured on
+   the code-golden trace: the experts the previous word used in the same layer cover 0.366 of the next
+   word's experts; the last 2, 4 and 8 words cover 0.490, 0.572 and 0.646. Routing is not sticky enough
+   for history alone to hide the misses. The next test is look-ahead routing: apply layer L+1's router to
+   layer L's output (the hidden state changes little between layers) and measure how many of layer L+1's
+   real experts it names, on the CPU reference; if that is high, the ring can fetch layer L+1's experts
+   while layer L computes. A limit to know before building it: one Flash-Next layer computes in about
+   0.76 ms at the memory floor (36.4 ms / 48), while 10 cold experts take 2.76 ms from the SSD. So even a
+   perfect one-layer look-ahead hides at most about a quarter of a full miss; it has to predict several
+   layers ahead, or hide the misses inside the 27B verify pass, to matter.
+2. A deeper cache: the 16 GB row (hit 0.80 even on a cold 30-word trace) needs tenants to give back memory.
+3. Pick k per measured acceptance. At 8 GB the table is flat (10.9 to 11.8 tok/s for k = 1 to 16): each
+   drafted word costs most of what it saves, so k only matters once misses are hidden.
+4. The Flash-Next chip forward (L020) has to exist before any of this can be timed.
+
+### 9.5 Race
+
+| racer | tok/s | ceiling | status |
+|---|---|---|---|
+| 27B alone (shared baseline, not re-measured) | 7.63 live | 10.15 | receipt from serve-fast |
+| 27B + DFlash (L019) | none | not computed (no acceptance yet) | no run: L019's chip runs were refused for memory (36.8 GB needed with 12 GB kept free) and failed a channel alloc; not run here by agreement with L019 |
+| 27B verifying, Flash-Next drafting | none | section 9.3 | cannot run: there is no Flash-Next chip forward yet (L020 kernels are simulation proven only) |
+| Flash-Next verifying, 27B drafting | none | below Flash-Next alone at any acceptance (section 6) | cannot run, same reason; physically cannot win |
+
+No timed race was run. The result for the race is INCONCLUSIVE, not a pass.
