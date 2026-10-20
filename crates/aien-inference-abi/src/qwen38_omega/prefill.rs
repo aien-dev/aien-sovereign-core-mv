@@ -284,7 +284,11 @@ impl Qwen38Omega {
                 next = self.step(t)?.0;
             }
             let logits = self.logits()?;
-            let st = PrefillStats { tokens: tokens.len(), wall_ns: ns(t0), ..Default::default() };
+            let st = PrefillStats {
+                tokens: tokens.len(),
+                wall_ns: ns(t0),
+                ..Default::default()
+            };
             return Ok((next, logits, st));
         }
         let (last, mut st) = self.prefill_rows(tokens, chunk, false)?;
@@ -336,7 +340,14 @@ impl Qwen38Omega {
                 }
             }
             let _ = (chunk, v);
-            return Ok((rows, PrefillStats { tokens: n, wall_ns: ns(t0), ..Default::default() }));
+            return Ok((
+                rows,
+                PrefillStats {
+                    tokens: n,
+                    wall_ns: ns(t0),
+                    ..Default::default()
+                },
+            ));
         }
         if !q::has_prefill() {
             return Err("qwen38 prefill: omega's prefill entries are not linked".into());

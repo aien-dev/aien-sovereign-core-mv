@@ -29,6 +29,7 @@ use aien_omega_q38::{Attn256Cache, Gdn, GraphConfig, GraphStats, Q38Graph};
 use aien_omega_router::Router;
 
 mod moe;
+pub use moe::router_probe;
 mod prefill;
 mod session;
 pub use prefill::PrefillStats;
@@ -57,7 +58,11 @@ enum Graph {
 }
 
 impl Graph {
-    fn token(&mut self, x: &[f32], pos: usize) -> Result<(u32, GraphStats), aien_omega_gpu::OmegaGpuError> {
+    fn token(
+        &mut self,
+        x: &[f32],
+        pos: usize,
+    ) -> Result<(u32, GraphStats), aien_omega_gpu::OmegaGpuError> {
         match self {
             Graph::Dense(g) => g.token(x, pos),
             Graph::Moe(g) => g.token(x, pos),

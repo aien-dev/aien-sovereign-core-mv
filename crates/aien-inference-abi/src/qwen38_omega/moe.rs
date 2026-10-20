@@ -26,7 +26,10 @@ use crate::qwen3_moe_omega::TensorSource;
 
 /// The checkpoint shape the 35B graph is built for (config.json, checked before any upload).
 fn check_shape(c: &Qwen38Config) -> Result<(), String> {
-    let m = c.moe.as_ref().ok_or("qwen36: not a qwen3_5_moe checkpoint")?;
+    let m = c
+        .moe
+        .as_ref()
+        .ok_or("qwen36: not a qwen3_5_moe checkpoint")?;
     let ok = c.hidden == q::HIDDEN
         && m.experts == 256
         && m.top_k == 8
@@ -45,41 +48,84 @@ fn check_shape(c: &Qwen38Config) -> Result<(), String> {
         && c.conv_kernel == aien_omega_q38::GDN_CONV_KERNEL
         && c.rotary_dim == 64;
     if !ok {
-        return Err("qwen36 omega: the checkpoint is not the Qwen3.6-35B-A3B shape the graph is built for".into());
+        return Err(
+            "qwen36 omega: the checkpoint is not the Qwen3.6-35B-A3B shape the graph is built for"
+                .into(),
+        );
     }
     if c.layers > aien_omega_q38::MAX_LAYERS {
-        return Err(format!("qwen36 omega: {} layers (at most {})", c.layers, aien_omega_q38::MAX_LAYERS));
+        return Err(format!(
+            "qwen36 omega: {} layers (at most {})",
+            c.layers,
+            aien_omega_q38::MAX_LAYERS
+        ));
     }
     Ok(())
 }
 
 /// Appends one FP8 matrix (whole 128-blocks, `[n][k]`) to an expert tensor's bytes and scales.
-fn push_fp8(name: &str, m: Matrix, n: usize, k: usize, w: &mut Vec<u8>, s: &mut Vec<u16>) -> Result<(), String> {
+fn push_fp8(
+    name: &str,
+    m: Matrix,
+    n: usize,
+    k: usize,
+    w: &mut Vec<u8>,
+    s: &mut Vec<u16>,
+) -> Result<(), String> {
     match m {
-        Matrix::Fp8 { n: mn, k: mk, w: mw, scales } if (mn, mk) == (n, k) => {
+        Matrix::Fp8 {
+            n: mn,
+            k: mk,
+            w: mw,
+            scales,
+        } if (mn, mk) == (n, k) => {
             w.extend_from_slice(&mw);
             s.extend_from_slice(&scales);
             Ok(())
         }
-        Matrix::Fp8 { n: mn, k: mk, .. } => Err(format!("{name}: [{mn}][{mk}], expected [{n}][{k}]")),
+        Matrix::Fp8 { n: mn, k: mk, .. } => {
+            Err(format!("{name}: [{mn}][{mk}], expected [{n}][{k}]"))
+        }
         Matrix::Bf16 { .. } => Err(format!("{name}: bf16 (the expert tensors take FP8)")),
     }
 }
 
 /// The layer's 257-expert gate|up and down tensors (routed 0..256, then the shared expert).
-fn upload_experts(source: &mut dyn TensorSource, m: &str, h: usize) -> Result<(Fp8Tensor, Fp8Tensor), String> {
+fn upload_experts(
+    source: &mut dyn TensorSource,
+    m: &str,
+    h: usize,
+) -> Result<(Fp8Tensor, Fp8Tensor), String> {
     let i = q::EXPERT_INTER;
     let rows = q::EXPERT_ROWS;
     let (mut gw, mut gs) = (Vec::with_capacity(rows * 2 * i * h), Vec::new());
     let (mut dw, mut ds) = (Vec::with_capacity(rows * h * i), Vec::new());
     for e in 0..rows {
-        let p = if e + 1 == rows { format!("{m}.shared_expert") } else { format!("{m}.experts.{e}") };
+        let p = if e + 1 == rows {
+            format!("{m}.shared_expert")
+        } else {
+            format!("{m}.experts.{e}")
+        };
         for part in ["gate_proj", "up_proj"] {
             let name = format!("{p}.{part}.weight");
-            push_fp8(&name, read_matrix(source, &name, i, h)?, i, h, &mut gw, &mut gs)?;
+            push_fp8(
+                &name,
+                read_matrix(source, &name, i, h)?,
+                i,
+                h,
+                &mut gw,
+                &mut gs,
+            )?;
         }
         let name = format!("{p}.down_proj.weight");
-        push_fp8(&name, read_matrix(source, &name, h, i)?, h, i, &mut dw, &mut ds)?;
+        push_fp8(
+            &name,
+            read_matrix(source, &name, h, i)?,
+            h,
+            i,
+            &mut dw,
+            &mut ds,
+        )?;
     }
     let gu = Fp8Tensor::upload(rows, 2 * i, h, &gw, &gs).map_err(gpu("experts gate|up"))?;
     let dn = Fp8Tensor::upload(rows, h, i, &dw, &ds).map_err(gpu("experts down"))?;
@@ -92,7 +138,11 @@ fn router_rows(source: &mut dyn TensorSource, m: &str, h: usize) -> Result<Vec<u
         Matrix::Bf16 { w, .. } => w,
         Matrix::Fp8 { .. } => return Err(format!("{m}.gate.weight: FP8 (the router takes bf16)")),
     };
-    rows.extend(read_bf16_words(source, &format!("{m}.shared_expert_gate.weight"), &[1, h])?);
+    rows.extend(read_bf16_words(
+        source,
+        &format!("{m}.shared_expert_gate.weight"),
+        &[1, h],
+    )?);
     Ok(rows)
 }
 
@@ -102,7 +152,12 @@ impl Qwen38Omega {
         Self::open(dir, layers, max_pos)
     }
 
-    pub(super) fn load_moe(config: Qwen38Config, first: usize, source: &mut dyn TensorSource, max_pos: usize) -> Result<Self, String> {
+    pub(super) fn load_moe(
+        config: Qwen38Config,
+        first: usize,
+        source: &mut dyn TensorSource,
+        max_pos: usize,
+    ) -> Result<Self, String> {
         let c = &config;
         check_shape(c)?;
         let prefix = text_prefix(source)?;
@@ -115,17 +170,33 @@ impl Qwen38Omega {
         };
         let n_attn = c.full_attention.iter().filter(|&&a| a).count();
         let n_gdn = c.layers - n_attn;
-        let mut gdn = if n_gdn > 0 { Some(Gdn::alloc_ratio(n_gdn, q::GDN_RATIO).map_err(gpu("gdn alloc"))?) } else { None };
+        let mut gdn = if n_gdn > 0 {
+            Some(Gdn::alloc_ratio(n_gdn, q::GDN_RATIO).map_err(gpu("gdn alloc"))?)
+        } else {
+            None
+        };
         let mut attn = if n_attn > 0 {
             Some(
-                Attn256Cache::alloc_shape(n_attn, max_pos, c.rope_theta, c.rotary_dim, q::Q_HEADS, q::KV_HEADS, q::Q_PER_CTA)
-                    .map_err(gpu("attn256 alloc"))?,
+                Attn256Cache::alloc_shape(
+                    n_attn,
+                    max_pos,
+                    c.rope_theta,
+                    c.rotary_dim,
+                    q::Q_HEADS,
+                    q::KV_HEADS,
+                    q::Q_PER_CTA,
+                )
+                .map_err(gpu("attn256 alloc"))?,
             )
         } else {
             None
         };
         let mut router = Router::alloc_shape(c.layers, 256, 1).map_err(gpu("router alloc"))?;
-        let attn_mask = c.full_attention.iter().enumerate().fold(0u64, |m, (l, &a)| if a { m | 1 << l } else { m });
+        let attn_mask = c
+            .full_attention
+            .iter()
+            .enumerate()
+            .fold(0u64, |m, (l, &a)| if a { m | 1 << l } else { m });
 
         let mut layers = Vec::with_capacity(c.layers);
         let mut norms = Vec::with_capacity(c.layers);
@@ -138,15 +209,31 @@ impl Qwen38Omega {
                 let mix = fuse_fp8(
                     &format!("{a} q|k|v"),
                     vec![
-                        rm(source, format!("{a}.q_proj.weight"), 2 * c.heads * c.head_dim, h)?,
+                        rm(
+                            source,
+                            format!("{a}.q_proj.weight"),
+                            2 * c.heads * c.head_dim,
+                            h,
+                        )?,
                         rm(source, format!("{a}.k_proj.weight"), c.kv_dim(), h)?,
                         rm(source, format!("{a}.v_proj.weight"), c.kv_dim(), h)?,
                     ],
                 )?;
-                let o = upload_fp8(&format!("{a}.o_proj"), rm(source, format!("{a}.o_proj.weight"), h, c.heads * c.head_dim)?)?;
+                let o = upload_fp8(
+                    &format!("{a}.o_proj"),
+                    rm(
+                        source,
+                        format!("{a}.o_proj.weight"),
+                        h,
+                        c.heads * c.head_dim,
+                    )?,
+                )?;
                 let q_norm = read_vec(source, &format!("{a}.q_norm.weight"), c.head_dim)?;
                 let k_norm = read_vec(source, &format!("{a}.k_norm.weight"), c.head_dim)?;
-                attn.as_mut().expect("an attention layer has a cache").set_norms(ai, &q_norm, &k_norm).map_err(gpu("attn256 set_norms"))?;
+                attn.as_mut()
+                    .expect("an attention layer has a cache")
+                    .set_norms(ai, &q_norm, &k_norm)
+                    .map_err(gpu("attn256 set_norms"))?;
                 ai += 1;
                 (mix, None, o)
             } else {
@@ -155,18 +242,30 @@ impl Qwen38Omega {
                     &format!("{a} qkv|z"),
                     vec![
                         rm(source, format!("{a}.in_proj_qkv.weight"), c.conv_dim(), h)?,
-                        rm(source, format!("{a}.in_proj_z.weight"), c.lin_value_dim(), h)?,
+                        rm(
+                            source,
+                            format!("{a}.in_proj_z.weight"),
+                            c.lin_value_dim(),
+                            h,
+                        )?,
                     ],
                 )?;
                 let ia = rm(source, format!("{a}.in_proj_a.weight"), c.lin_v_heads, h)?;
                 let ib = rm(source, format!("{a}.in_proj_b.weight"), c.lin_v_heads, h)?;
                 let (an, ak, aw) = ab_rows(&ia, &ib).map_err(|e| format!("{a}: {e}"))?;
                 let ab = Bf16Tensor::upload(an, ak, &aw).map_err(gpu("in_proj_a|b"))?;
-                let o = upload_fp8(&format!("{a}.out_proj"), rm(source, format!("{a}.out_proj.weight"), h, c.lin_value_dim())?)?;
-                let conv: Vec<f32> = read_bf16_words(source, &format!("{a}.conv1d.weight"), &[c.conv_dim(), 1, c.conv_kernel])?
-                    .into_iter()
-                    .map(bf16_to_f32)
-                    .collect();
+                let o = upload_fp8(
+                    &format!("{a}.out_proj"),
+                    rm(source, format!("{a}.out_proj.weight"), h, c.lin_value_dim())?,
+                )?;
+                let conv: Vec<f32> = read_bf16_words(
+                    source,
+                    &format!("{a}.conv1d.weight"),
+                    &[c.conv_dim(), 1, c.conv_kernel],
+                )?
+                .into_iter()
+                .map(bf16_to_f32)
+                .collect();
                 let a_log = read_vec(source, &format!("{a}.A_log"), c.lin_v_heads)?;
                 let dt_bias = read_vec(source, &format!("{a}.dt_bias"), c.lin_v_heads)?;
                 let norm = read_vec(source, &format!("{a}.norm.weight"), c.lin_v_dim)?;
@@ -180,17 +279,34 @@ impl Qwen38Omega {
             let m = format!("{p}.mlp");
             let (gate_up, down) = upload_experts(source, &m, h)?;
             let in_norm = fold(read_vec(source, &format!("{p}.input_layernorm.weight"), h)?);
-            let post_norm = fold(read_vec(source, &format!("{p}.post_attention_layernorm.weight"), h)?);
-            router.set_layer(l, &router_rows(source, &m, h)?, &post_norm).map_err(gpu("router set_layer"))?;
-            let (mut gu_dir, mut dn_dir) = (Vec::with_capacity(2 * q::EXPERT_ROWS), Vec::with_capacity(2 * q::EXPERT_ROWS));
+            let post_norm = fold(read_vec(
+                source,
+                &format!("{p}.post_attention_layernorm.weight"),
+                h,
+            )?);
+            router
+                .set_layer(l, &router_rows(source, &m, h)?, &post_norm)
+                .map_err(gpu("router set_layer"))?;
+            let (mut gu_dir, mut dn_dir) = (
+                Vec::with_capacity(2 * q::EXPERT_ROWS),
+                Vec::with_capacity(2 * q::EXPERT_ROWS),
+            );
             for e in 0..q::EXPERT_ROWS {
                 let (w, s) = gate_up.entry(e).map_err(gpu("experts gate|up entry"))?;
                 gu_dir.extend([w, s]);
                 let (w, s) = down.entry(e).map_err(gpu("experts down entry"))?;
                 dn_dir.extend([w, s]);
             }
-            router.set_directory(l, &gu_dir, &dn_dir).map_err(gpu("router set_directory"))?;
-            layers.push(LayerTensors { mix, ab, o, gate_up, down });
+            router
+                .set_directory(l, &gu_dir, &dn_dir)
+                .map_err(gpu("router set_directory"))?;
+            layers.push(LayerTensors {
+                mix,
+                ab,
+                o,
+                gate_up,
+                down,
+            });
             norms.push((in_norm, post_norm));
         }
 
@@ -201,22 +317,41 @@ impl Qwen38Omega {
             eps: c.eps,
             eps_l2: EPS_L2,
             gdn: gdn.as_ref().map_or(std::ptr::null_mut(), Gdn::as_raw),
-            attn: attn.as_ref().map_or(std::ptr::null_mut(), Attn256Cache::as_raw),
+            attn: attn
+                .as_ref()
+                .map_or(std::ptr::null_mut(), Attn256Cache::as_raw),
             router: router.as_raw(),
             lm_head: lm_head.as_raw(),
         };
         // SAFETY: every handle is live and owned by the returned struct, which drops the graph first.
         let mut graph = unsafe { Q36Graph::create(&cfg) }.map_err(gpu("q36 graph create"))?;
         for (l, (t, (in_norm, _))) in layers.iter().zip(&norms).enumerate() {
-            let ab = t.ab.as_ref().map_or(std::ptr::null_mut(), Bf16Tensor::as_raw);
+            let ab =
+                t.ab.as_ref()
+                    .map_or(std::ptr::null_mut(), Bf16Tensor::as_raw);
             // SAFETY: the tensors live in `layers`, owned beside the graph.
-            unsafe { graph.set_layer(l, t.mix.as_raw(), ab, t.o.as_raw(), t.gate_up.as_raw(), t.down.as_raw(), in_norm) }
-                .map_err(gpu("q36 graph set_layer"))?;
+            unsafe {
+                graph.set_layer(
+                    l,
+                    t.mix.as_raw(),
+                    ab,
+                    t.o.as_raw(),
+                    t.gate_up.as_raw(),
+                    t.down.as_raw(),
+                    in_norm,
+                )
+            }
+            .map_err(gpu("q36 graph set_layer"))?;
         }
-        graph.set_final_norm(&final_norm).map_err(gpu("q36 graph set_final_norm"))?;
+        graph
+            .set_final_norm(&final_norm)
+            .map_err(gpu("q36 graph set_final_norm"))?;
         // Negative controls for the gates (TEST ONLY): AIEN_Q36_TEST_MUTANT=4 drops the shared expert
         // from COMBINE, 1 shifts the SWIGLU up half, 2 the attention GATHER, 3 drops the attention gate.
-        if let Some(m) = std::env::var("AIEN_Q36_TEST_MUTANT").ok().and_then(|v| v.parse::<i32>().ok()) {
+        if let Some(m) = std::env::var("AIEN_Q36_TEST_MUTANT")
+            .ok()
+            .and_then(|v| v.parse::<i32>().ok())
+        {
             eprintln!("qwen36 omega: TEST MUTANT {m} set (negative control; never serve this)");
             graph.test_set_mutant(m);
         }
@@ -238,4 +373,38 @@ impl Qwen38Omega {
             pf: None,
         })
     }
+}
+
+/// TEST ONLY (L306 router probe): the 35B's router alone on the chip, every layer's gate rows and
+/// folded post-attention norm uploaded exactly as [`Qwen38Omega::load_moe`] does, with
+/// placeholder directories (the probe reads ids and weights, never the group tables' targets).
+pub fn router_probe(dir: &Path) -> Result<(Router, Qwen38Config), String> {
+    let c = Qwen38Config::from_checkpoint(dir)?;
+    check_shape(&c)?;
+    let mut source = crate::qwen3_moe_omega::ShardSource::open(dir)?;
+    let prefix = text_prefix(&mut source)?;
+    let h = c.hidden;
+    let mut router = Router::alloc_shape(c.layers, 256, 1).map_err(gpu("router alloc"))?;
+    let dir_words: Vec<u64> = (0..2 * q::EXPERT_ROWS as u64)
+        .map(|i| 0x1000 + i * 0x100)
+        .collect();
+    for l in 0..c.layers {
+        let p = format!("{prefix}layers.{l}");
+        let post_norm = fold(read_vec(
+            &mut source,
+            &format!("{p}.post_attention_layernorm.weight"),
+            h,
+        )?);
+        router
+            .set_layer(
+                l,
+                &router_rows(&mut source, &format!("{p}.mlp"), h)?,
+                &post_norm,
+            )
+            .map_err(gpu("router set_layer"))?;
+        router
+            .set_directory(l, &dir_words, &dir_words)
+            .map_err(gpu("router set_directory"))?;
+    }
+    Ok((router, c))
 }

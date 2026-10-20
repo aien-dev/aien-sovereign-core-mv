@@ -487,7 +487,12 @@ pub fn route(logits: &[f32], k: usize, mutant: u8) -> Vec<(usize, f32)> {
     let sel: f32 = pick.iter().map(|&e| probs[e] / sum).sum();
     let n = logits.len();
     pick.into_iter()
-        .map(|e| (if mutant == 2 { (e + 1) % n } else { e }, probs[e] / sum / sel))
+        .map(|e| {
+            (
+                if mutant == 2 { (e + 1) % n } else { e },
+                probs[e] / sum / sel,
+            )
+        })
         .collect()
 }
 
@@ -693,6 +698,21 @@ pub struct Qwen38Reference<S: TensorSource> {
     pub routing_mutant: u8,
     /// MoE only: per layer, the routed expert ids of the last call, `[t][top_k]` flattened.
     pub routes: Vec<Vec<u16>>,
+    /// MoE only: per layer, the router logit gap between the `top_k`-th and `top_k + 1`-th
+    /// expert of each row of the last call (how close the pick was to flipping).
+    pub route_gaps: Vec<Vec<f32>>,
+    /// TEST ONLY noise-floor probe (L306): `(where, rel)` multiplies each element of the MoE input
+    /// row by `1 + rel * u` (u in [-1, 1], fixed per layer and index). `where` 0 off (default),
+    /// 1 only the router's input, 2 only the experts' and shared expert's input.
+    pub jitter: (u8, f32),
+    /// TEST ONLY (L306 router probe): when set, [`Self::moe_x`] keeps every MoE layer's input
+    /// residual (before the post-attention norm, `[t][hidden]`) of the last call.
+    pub moe_capture: bool,
+    pub moe_x: Vec<Vec<f32>>,
+    /// MoE only: per layer, the routed weights `[t][top_k]` and the shared expert gate
+    /// sigmoid(shared_gate . xn) `[t]` of the last call (beside [`Self::routes`]).
+    pub route_wts: Vec<Vec<f32>>,
+    pub shared_g: Vec<Vec<f32>>,
 }
 
 impl Qwen38Reference<ShardSource> {
@@ -724,6 +744,12 @@ impl<S: TensorSource> Qwen38Reference<S> {
             lm_head,
             routing_mutant: 0,
             routes: Vec::new(),
+            route_gaps: Vec::new(),
+            jitter: (0, 0.0),
+            moe_capture: false,
+            moe_x: Vec::new(),
+            route_wts: Vec::new(),
+            shared_g: Vec::new(),
         })
     }
 
@@ -774,10 +800,14 @@ impl<S: TensorSource> Qwen38Reference<S> {
             None => Mlp::Dense(read_ffn(src, &m, c.intermediate, h)?),
             Some(s) => Mlp::Moe(MoeWeights {
                 router: read_matrix(src, &format!("{m}.gate.weight"), s.experts, h)?,
-                shared_gate: read_bf16_words(src, &format!("{m}.shared_expert_gate.weight"), &[1, h])?
-                    .into_iter()
-                    .map(bf16_to_f32)
-                    .collect(),
+                shared_gate: read_bf16_words(
+                    src,
+                    &format!("{m}.shared_expert_gate.weight"),
+                    &[1, h],
+                )?
+                .into_iter()
+                .map(bf16_to_f32)
+                .collect(),
                 shared: read_ffn(src, &format!("{m}.shared_expert"), s.shared_inter, h)?,
             }),
         };
@@ -795,14 +825,52 @@ impl<S: TensorSource> Qwen38Reference<S> {
     fn moe(&mut self, l: usize, w: &MoeWeights, xn: &[f32], t: usize) -> Result<Vec<f32>, String> {
         let s = self.config.moe.clone().ok_or("moe: dense config")?;
         let h = self.config.hidden;
-        let logits = w.router.matmul(xn, t);
+        let (jw, rel) = self.jitter;
+        let jittered: Vec<f32> = if jw == 0 {
+            Vec::new()
+        } else {
+            xn.iter()
+                .enumerate()
+                .map(|(i, &v)| {
+                    let mut z =
+                        ((l as u64) << 32 | (i % h) as u64).wrapping_add(0x9e37_79b9_7f4a_7c15);
+                    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+                    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+                    z ^= z >> 31;
+                    let u = (z >> 40) as f32 / (1u64 << 23) as f32 - 1.0;
+                    v * (1.0 + rel * u)
+                })
+                .collect()
+        };
+        let (xr, xn) = match jw {
+            1 => (&jittered[..], xn),
+            2 => (xn, &jittered[..]),
+            _ => (xn, xn),
+        };
+        let logits = w.router.matmul(xr, t);
         let mut picks: Vec<Vec<(usize, f32)>> = Vec::with_capacity(t);
+        let mut gaps = Vec::with_capacity(t);
         for row in logits.chunks_exact(s.experts) {
             picks.push(route(row, s.top_k, self.routing_mutant));
+            let mut v = row.to_vec();
+            v.sort_by(|a, b| b.total_cmp(a));
+            gaps.push(if s.top_k < v.len() {
+                v[s.top_k - 1] - v[s.top_k]
+            } else {
+                f32::INFINITY
+            });
         }
         if self.routes.len() <= l {
             self.routes.resize(l + 1, Vec::new());
+            self.route_gaps.resize(l + 1, Vec::new());
+            self.route_wts.resize(l + 1, Vec::new());
+            self.shared_g.resize(l + 1, Vec::new());
         }
+        self.route_wts[l] = picks
+            .iter()
+            .flat_map(|p| p.iter().map(|&(_, wt)| wt))
+            .collect();
+        self.route_gaps[l] = gaps;
         self.routes[l] = picks
             .iter()
             .flat_map(|p| p.iter().map(|&(e, _)| e as u16))
@@ -814,10 +882,13 @@ impl<S: TensorSource> Qwen38Reference<S> {
             }
         }
         let mut out = w.shared.run(xn, t);
+        let mut gates = Vec::with_capacity(t);
         for (i, row) in out.chunks_exact_mut(h).enumerate() {
             let g = sigmoid(dot(&w.shared_gate, &xn[i * h..(i + 1) * h]));
             row.iter_mut().for_each(|v| *v *= g);
+            gates.push(g);
         }
+        self.shared_g[l] = gates;
         let p = format!("{}layers.{l}.mlp.experts", self.prefix);
         for (e, rows) in users.iter().enumerate() {
             if rows.is_empty() {
@@ -901,6 +972,12 @@ impl<S: TensorSource> Qwen38Reference<S> {
                 _ => return Err(format!("layer {l}: state kind differs from the weights")),
             };
             x.iter_mut().zip(&mixed).for_each(|(a, b)| *a += b);
+            if self.moe_capture && matches!(w.mlp, Mlp::Moe(_)) {
+                if self.moe_x.len() <= l {
+                    self.moe_x.resize(l + 1, Vec::new());
+                }
+                self.moe_x[l] = x.clone();
+            }
             let mut xn = x.clone();
             rms_norm_zc(&mut xn, &w.post_norm, c.eps);
             let down = match &w.mlp {
@@ -1280,7 +1357,12 @@ mod tests {
                 None => ffn(&mut m, &mp, c.intermediate),
                 Some(s) => {
                     m.bf16(&format!("{mp}.gate.weight"), &[s.experts, h], 0.5, 0.0);
-                    m.bf16(&format!("{mp}.shared_expert_gate.weight"), &[1, h], 0.2, 0.0);
+                    m.bf16(
+                        &format!("{mp}.shared_expert_gate.weight"),
+                        &[1, h],
+                        0.2,
+                        0.0,
+                    );
                     ffn(&mut m, &format!("{mp}.shared_expert"), s.shared_inter);
                     for e in 0..s.experts {
                         ffn(&mut m, &format!("{mp}.experts.{e}"), s.expert_inter);
@@ -1518,13 +1600,31 @@ mod tests {
         };
         let mv = |w: &[f64], x: &[f64], n: usize| -> Vec<f64> {
             let k = x.len();
-            (0..n).map(|r| (0..k).map(|c| w[r * k + c] * x[c]).sum()).collect()
+            (0..n)
+                .map(|r| (0..k).map(|c| w[r * k + c] * x[c]).sum())
+                .collect()
         };
         let ffn = |src: &mut Mem, q: &str, inter: usize, x: &[f64]| -> Vec<f64> {
-            let g = mv(&wide(src, &format!("{q}.gate_proj.weight"), inter, h), x, inter);
-            let u = mv(&wide(src, &format!("{q}.up_proj.weight"), inter, h), x, inter);
-            let a: Vec<f64> = g.iter().zip(&u).map(|(&g, &u)| g / (1.0 + (-g).exp()) * u).collect();
-            mv(&wide(src, &format!("{q}.down_proj.weight"), h, inter), &a, h)
+            let g = mv(
+                &wide(src, &format!("{q}.gate_proj.weight"), inter, h),
+                x,
+                inter,
+            );
+            let u = mv(
+                &wide(src, &format!("{q}.up_proj.weight"), inter, h),
+                x,
+                inter,
+            );
+            let a: Vec<f64> = g
+                .iter()
+                .zip(&u)
+                .map(|(&g, &u)| g / (1.0 + (-g).exp()) * u)
+                .collect();
+            mv(
+                &wide(src, &format!("{q}.down_proj.weight"), h, inter),
+                &a,
+                h,
+            )
         };
         let router = wide(&mut src, &format!("{p}.gate.weight"), s.experts, h);
         let sg = wide(&mut src, &format!("{p}.shared_expert_gate.weight"), 1, h);
@@ -1537,17 +1637,22 @@ mod tests {
             let top = &order[..s.top_k];
             let z: f64 = top.iter().map(|&e| logits[e].exp()).sum();
             let gate = 1.0 / (1.0 + (-mv(&sg, &x, 1)[0]).exp());
-            let mut want: Vec<f64> = ffn(&mut src, &format!("{p}.shared_expert"), s.shared_inter, &x)
-                .into_iter()
-                .map(|v| v * gate)
-                .collect();
+            let mut want: Vec<f64> =
+                ffn(&mut src, &format!("{p}.shared_expert"), s.shared_inter, &x)
+                    .into_iter()
+                    .map(|v| v * gate)
+                    .collect();
             for &e in top {
                 let y = ffn(&mut src, &format!("{p}.experts.{e}"), s.expert_inter, &x);
                 let wt = logits[e].exp() / z;
                 want.iter_mut().zip(&y).for_each(|(o, v)| *o += wt * v);
             }
             let ids: Vec<u16> = r.routes[0][i * s.top_k..(i + 1) * s.top_k].to_vec();
-            assert_eq!(ids, top.iter().map(|&e| e as u16).collect::<Vec<_>>(), "row {i}");
+            assert_eq!(
+                ids,
+                top.iter().map(|&e| e as u16).collect::<Vec<_>>(),
+                "row {i}"
+            );
             for (j, w) in want.iter().enumerate() {
                 let d = (got[i * h + j] as f64 - w).abs() / (1.0 + w.abs());
                 worst = worst.max(d);
