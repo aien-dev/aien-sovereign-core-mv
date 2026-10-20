@@ -115,6 +115,8 @@ pub struct Cli {
     pub once: Option<(String, String)>,
     /// worker: `--poll SECS` (default 30).
     pub poll: Option<u64>,
+    /// worker: `--memo off|ancestor|any` (L164 gate memo; default ancestor).
+    pub memo: Option<crate::memo::Policy>,
     /// worker: `--repos A,B`.
     pub repos: Vec<String>,
     /// worker: `--github`: poll GitHub and post commit statuses.
@@ -147,7 +149,8 @@ fn parse_selection(s: &str) -> Result<Selection, String> {
 const COMMANDS: [&str; 9] = [
     "run", "test", "why", "list", "identity", "plan", "status", "verify", "worker",
 ];
-const WORKER_FLAGS: [&str; 13] = [
+const WORKER_FLAGS: [&str; 14] = [
+    "--memo",
     "--dev-unsandboxed",
     "--key",
     "--clones",
@@ -197,6 +200,7 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
     let mut siblings: Option<PathBuf> = None;
     let mut once: Option<(String, String)> = None;
     let mut poll: Option<u64> = None;
+    let mut memo: Option<crate::memo::Policy> = None;
     let mut repos: Vec<String> = Vec::new();
     let mut github = false;
     let mut iterations: Option<u64> = None;
@@ -277,6 +281,10 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
                 return Err("--once needs REPO and a 40-hex SHA".to_string());
             }
             once = Some((r, s.to_ascii_lowercase()));
+        } else if a == "--memo" {
+            worker_flags.push("--memo");
+            let v = value(&mut i, a)?;
+            memo = Some(crate::memo::Policy::parse(&v)?);
         } else if a == "--poll" {
             worker_flags.push("--poll");
             let v = value(&mut i, a)?;
@@ -401,6 +409,7 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
         siblings,
         once,
         poll,
+        memo,
         repos,
         github,
         iterations,

@@ -39,6 +39,9 @@ fn real_main() -> i32 {
     if argv.first().is_some_and(|c| bundle::is_bundle_command(c)) {
         return bundle::cli_main(&argv);
     }
+    if argv.first().is_some_and(|c| aien_test::memo::is_memo_command(c)) {
+        return aien_test::memo::cli_main(&argv);
+    }
     let cli = match parse_args(&argv) {
         Ok(c) => c,
         Err(e) => {
@@ -124,7 +127,7 @@ fn repo_root_or_report(cwd: &Path) -> Result<PathBuf, i32> {
 /// fresh run.
 fn print_cache(note: &CacheNote) {
     match note {
-        CacheNote::Reused { from } => {
+        CacheNote::Reused { from, .. } => {
             println!("REUSED {from}");
             println!(
                 "CACHE reused: an earlier run of exactly this experiment already has this result, so it was not run again (use --no-cache to force a fresh run)"
@@ -565,6 +568,9 @@ fn cmd_worker(cli: &Cli) -> i32 {
         cfg.gpu_wait = w;
     }
     cfg.no_cache = cli.no_cache;
+    if let Some(p) = cli.memo {
+        cfg.memo = p;
+    }
     cfg.hardware_identity = cli.hardware_identity.clone().unwrap_or_default();
     if let Some((repo, sha)) = &cli.once {
         return match worker::run_once(&cfg, repo, sha) {

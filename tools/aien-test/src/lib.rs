@@ -43,6 +43,7 @@ pub mod evidence;
 pub mod graph;
 pub mod identity;
 pub mod manifest;
+pub mod memo;
 pub mod plan;
 pub mod process;
 pub mod resources;

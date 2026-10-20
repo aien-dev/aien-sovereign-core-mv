@@ -76,6 +76,13 @@ pub struct Options {
     /// `requires: operator` gate runs instead of staying OPERATOR_STEP_PENDING
     /// (ADR 0033 Decision 2). Never set by the automatic loop.
     pub operator: bool,
+    /// The gate memo (L164): PASS receipts of other judged heads of this
+    /// repository, found by the same cache key. None: same-commit cache only.
+    pub memo: Option<crate::memo::Memo>,
+    /// The toolchain id ([`crate::memo::toolchain_id`]), recorded in
+    /// `volatile.toolchain` of every fresh receipt. A memo source must carry
+    /// the same one.
+    pub toolchain: Option<String>,
 }
 
 impl Options {
@@ -97,6 +104,8 @@ impl Options {
             release: false,
             pins: json!([]),
             operator: false,
+            memo: None,
+            toolchain: None,
         }
     }
 }
@@ -133,7 +142,11 @@ pub struct Outcome {
 pub enum CacheNote {
     /// The result was reused, not rerun. Holds the digest of the fresh
     /// receipt it was taken from.
-    Reused { from: String },
+    Reused {
+        from: String,
+        /// Set when the gate memo took it from another judged head (L164).
+        from_commit: Option<String>,
+    },
     /// The cache was consulted and had nothing usable; the gate ran.
     Miss(String),
     /// The cache was not consulted; the gate ran (or was refused). Holds why.
@@ -666,10 +679,53 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
                     receipt_digest: Some(digest),
                     cache: CacheNote::Reused {
                         from: src.digest.clone(),
+                        from_commit: None,
                     },
                 });
             }
             cache::Lookup::Miss(miss) => note = CacheNote::Miss(miss.text()),
+        }
+        // The gate memo (L164): the same key, a fresh PASS of another judged
+        // head of this repository, made with the same toolchain.
+        if let (Some(memo), Some(tc)) = (&opts.memo, &opts.toolchain) {
+            let hit = match crate::memo::ineligible(m) {
+                Some(_) => None,
+                None if memo.toolchain == *tc => memo.find(&cache_key),
+                None => None,
+            };
+            if let Some(hit) = hit {
+                crate::memo::import(hit, &store).map_err(fatal)?;
+                let volatile = json!({
+                    "started_utc": utc_string(started),
+                    "finished_utc": utc_string(now_secs()),
+                    "duration_ms": t0.elapsed().as_millis() as u64,
+                    "pool": m.pool(),
+                    "pool_wait_ms": job.pool_wait_ms,
+                    "runner": { "name": "aien-test", "version": env!("CARGO_PKG_VERSION"), "impl": "rust" },
+                    "cache": cache::cache_member(&cache_key, Some(&hit.digest), mode),
+                    "memo": { "from_commit": hit.commit, "toolchain": tc },
+                    "toolchain": tc,
+                    "timeout_exceeded": false,
+                });
+                let mut core = hit.value["core"].clone();
+                core["commit"] = json!(commit);
+                let receipt = build_receipt(core, volatile);
+                let (digest, path) = store.put_receipt(&receipt).map_err(fatal)?;
+                drop(permit);
+                return Ok(Outcome {
+                    verdict: Verdict::Pass,
+                    reason: hit.value["core"]["reason"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string(),
+                    receipt_path: Some(path),
+                    receipt_digest: Some(digest),
+                    cache: CacheNote::Reused {
+                        from: hit.digest.clone(),
+                        from_commit: Some(hit.commit.clone()),
+                    },
+                });
+            }
         }
     }
 
@@ -938,6 +994,9 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
     });
     if !prepare_note.is_null() {
         volatile["prepare"] = prepare_note;
+    }
+    if let Some(tc) = &opts.toolchain {
+        volatile["toolchain"] = json!(tc);
     }
 
     let receipt = build_receipt(Value::Object(core), volatile);

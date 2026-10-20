@@ -243,6 +243,8 @@ pub struct Config {
     /// How a gb10 gate waits for a held GPU lock (`--gpu-wait`, `--wait-gpu`;
     /// default the bounded `resources::DEFAULT_GPU_WAIT`).
     pub gpu_wait: GpuWait,
+    /// `--memo`: which other judged heads may answer a gate (L164).
+    pub memo: crate::memo::Policy,
 }
 
 impl Config {
@@ -269,6 +271,7 @@ impl Config {
             jobs: JobsSpec::default(),
             no_cache: false,
             gpu_wait: GpuWait::Bounded(DEFAULT_GPU_WAIT),
+            memo: crate::memo::Policy::Ancestor,
         }
     }
 
@@ -304,6 +307,9 @@ pub struct Summary {
     /// What the independent check (`verify`) said about the bundle.
     pub ready: bool,
     pub notes: Vec<String>,
+    /// Gates the memo answered: gate id to the judged commit it took the
+    /// PASS from (L164).
+    pub memo: BTreeMap<String, String>,
 }
 
 fn run_cmd(cwd: &Path, program: &str, args: &[&str]) -> Result<String, String> {
@@ -935,6 +941,29 @@ fn run_in_worktree(
     if fresh || cfg.no_cache {
         opts.no_cache = true;
     }
+    // The gate memo (L164): PASS receipts of other judged heads of this
+    // repository answer a gate whose cache key and toolchain are the same.
+    let toolchain = crate::memo::toolchain_id(cfg.sandbox);
+    opts.toolchain = Some(toolchain.clone());
+    if !opts.no_cache && cfg.memo != crate::memo::Policy::Off {
+        if let Some(repo_ev) = evidence_dir.parent() {
+            let anc = |a: &str, b: &str| crate::memo::git_is_ancestor(clone, a, b);
+            let sources = crate::memo::sources(repo_ev, sha, cfg.memo, &anc);
+            let memo = crate::memo::Memo::build(
+                cfg.memo,
+                &sources,
+                &toolchain,
+                &runner::captured_env(),
+            );
+            notes.push(format!(
+                "memo ({}): {} judged heads read, {} reusable results",
+                cfg.memo.as_str(),
+                memo.sources,
+                memo.len()
+            ));
+            opts.memo = Some(memo);
+        }
+    }
     let mut known: BTreeMap<String, Known> = BTreeMap::new();
     let mut notes_cache: BTreeMap<String, CacheNote> = BTreeMap::new();
     if plan.blocked.is_none() && !plan.entries.is_empty() {
@@ -969,6 +998,16 @@ fn run_in_worktree(
         }
     }
     let judged = plan::judge(&plan, &known);
+    let memo_from: BTreeMap<String, String> = notes_cache
+        .iter()
+        .filter_map(|(g, n)| match n {
+            CacheNote::Reused {
+                from_commit: Some(c),
+                ..
+            } => Some((g.clone(), c.clone())),
+            _ => None,
+        })
+        .collect();
 
     // The bundle.
     cfg.state.beat(repo, sha, "bundle");
@@ -990,7 +1029,7 @@ fn run_in_worktree(
         let (status, verdict, extra): (&str, String, Value) =
             match (e.section, k, notes_cache.get(&e.gate)) {
                 (Section::Blocked, _, _) => ("blocked", bundle_verdict(eff), json!({})),
-                (_, Some(k), Some(CacheNote::Reused { from })) if k.receipt.is_some() => (
+                (_, Some(k), Some(CacheNote::Reused { from, .. })) if k.receipt.is_some() => (
                     "cached",
                     bundle_verdict(eff),
                     json!({ "resolution": { "resolved_from": from, "receipt": k.receipt } }),
@@ -1133,7 +1172,10 @@ fn run_in_worktree(
         "bundle": bundle_path.display().to_string(),
         "bundle_digest": bundle_digest,
         "graph_digest": plan.graph_digest,
-        "gates": gates.iter().map(|(g, s, v)| json!({ "gate": g, "status": s, "verdict": v.as_str() })).collect::<Vec<_>>(),
+        "gates": gates.iter().map(|(g, s, v)| match memo_from.get(g) {
+            Some(c) => json!({ "gate": g, "status": s, "verdict": v.as_str(), "from_commit": c }),
+            None => json!({ "gate": g, "status": s, "verdict": v.as_str() }),
+        }).collect::<Vec<_>>(),
         "unmapped": unmapped,
         "verify": if ready { "READY" } else { "BLOCKED" },
         "verify_notes": check_problems,
@@ -1153,6 +1195,7 @@ fn run_in_worktree(
         publication,
         ready,
         notes: Vec::new(),
+        memo: memo_from,
     })
 }
 

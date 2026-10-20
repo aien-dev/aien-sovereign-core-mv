@@ -496,11 +496,14 @@ mod tests {
             let scratch = TempDir::new("c-scratch");
             let counter = scratch.path().join("a.count");
             let gate = gate_text("C-A", &[], &counter, "");
+            Fx::with_gate(script, &gate, scratch)
+        }
+        fn with_gate(script: &str, gate: &str, scratch: TempDir) -> Fx {
             let repo = init_repo(
                 "c-repo",
                 &[
                     ("tools/run.sh", script, true),
-                    ("tests/a.gate", gate.as_str(), false),
+                    ("tests/a.gate", gate, false),
                     ("data/in.txt", "one\n", false),
                     ("README", "hello\n", false),
                 ],
@@ -554,7 +557,7 @@ mod tests {
 
     fn reused_from(o: &Outcome) -> Option<&str> {
         match &o.cache {
-            CacheNote::Reused { from } => Some(from),
+            CacheNote::Reused { from, .. } => Some(from),
             _ => None,
         }
     }
@@ -634,6 +637,89 @@ mod tests {
         assert_eq!(second.reason, first.reason);
         assert_eq!(reused_from(&second), first.receipt_digest.as_deref());
         assert_eq!(fx.runs("a"), 1);
+    }
+
+    // ---- the gate memo (L164): another head's store ---------------------
+
+    fn head_opts(fx: &Fx, dir: &str, tc: &str, sources: &[(&str, &str)]) -> Options {
+        let mut o = fx.opts();
+        o.evidence_dir = fx.ev.path().join(dir);
+        o.toolchain = Some(tc.to_string());
+        let src: Vec<crate::memo::Source> = sources
+            .iter()
+            .map(|(c, d)| crate::memo::Source {
+                commit: c.to_string(),
+                dir: fx.ev.path().join(d),
+            })
+            .collect();
+        o.memo = Some(crate::memo::Memo::build(
+            crate::memo::Policy::Any,
+            &src,
+            tc,
+            &runner::captured_env(),
+        ));
+        o
+    }
+
+    #[test]
+    fn memo_answers_from_another_heads_store_with_the_same_inputs_and_toolchain() {
+        let fx = Fx::new(SCRIPT);
+        let h1 = fx.head();
+        let first = fx.run(&head_opts(&fx, "h1", "tc1", &[]));
+        assert_eq!(first.verdict, Verdict::Pass, "reason {}", first.reason);
+        assert_eq!(fx.receipt(&first)["volatile"]["toolchain"], "tc1");
+        // An unrelated file changes: the memo answers, nothing runs.
+        fx.commit("README", "changed\n");
+        let second = fx.run(&head_opts(&fx, "h2", "tc1", &[(&h1, "h1")]));
+        assert_eq!(second.verdict, Verdict::Pass);
+        assert_eq!(fx.runs("a"), 1, "the memo answered; the program did not run");
+        match &second.cache {
+            CacheNote::Reused { from, from_commit } => {
+                assert_eq!(Some(from.as_str()), first.receipt_digest.as_deref());
+                assert_eq!(from_commit.as_deref(), Some(h1.as_str()));
+            }
+            other => panic!("expected a memo reuse, got {other:?}"),
+        }
+        let r2 = fx.receipt(&second);
+        assert_eq!(r2["core"]["commit"], fx.head());
+        assert_eq!(r2["volatile"]["memo"]["from_commit"], h1);
+        // The source receipt and its logs were copied into this head's store.
+        let d = first.receipt_digest.clone().unwrap();
+        assert!(fx.ev.path().join("h2").join(format!("{d}.json")).is_file());
+        // Another toolchain: never answered.
+        let third = fx.run(&head_opts(&fx, "h3", "tc2", &[(&h1, "h1")]));
+        assert_eq!(fx.runs("a"), 2, "a changed toolchain runs the gate");
+        assert!(matches!(third.cache, CacheNote::Miss(_)), "{:?}", third.cache);
+        // A changed input: never answered.
+        fx.commit("data/in.txt", "two\n");
+        let fourth = fx.run(&head_opts(&fx, "h4", "tc1", &[(&h1, "h1")]));
+        assert_eq!(fx.runs("a"), 3, "a changed input runs the gate");
+        assert!(matches!(fourth.cache, CacheNote::Miss(_)), "{:?}", fourth.cache);
+    }
+
+    #[test]
+    fn memo_never_takes_a_fail() {
+        let fx = Fx::new(FAILING_SCRIPT);
+        let h1 = fx.head();
+        let first = fx.run(&head_opts(&fx, "h1", "tc1", &[]));
+        assert_eq!(first.verdict, Verdict::Fail);
+        fx.commit("README", "changed\n");
+        let second = fx.run(&head_opts(&fx, "h2", "tc1", &[(&h1, "h1")]));
+        assert_eq!(second.verdict, Verdict::Fail);
+        assert_eq!(fx.runs("a"), 2, "a FAIL is never a memo source");
+    }
+
+    #[test]
+    fn memo_never_answers_a_gate_with_cache_never() {
+        let scratch = TempDir::new("c-scratch-never");
+        let counter = scratch.path().join("a.count");
+        let gate = gate_text("C-A", &[], &counter, "cache: never\n");
+        let fx = Fx::with_gate(SCRIPT, &gate, scratch);
+        let h1 = fx.head();
+        fx.run(&head_opts(&fx, "h1", "tc1", &[]));
+        fx.commit("README", "changed\n");
+        fx.run(&head_opts(&fx, "h2", "tc1", &[(&h1, "h1")]));
+        assert_eq!(fx.runs("a"), 2);
     }
 
     // ---- misses --------------------------------------------------------
