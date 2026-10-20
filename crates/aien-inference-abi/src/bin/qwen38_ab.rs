@@ -3,10 +3,11 @@
 //!
 //!   qwen38_ab text <checkpoint-dir> <text-file> <n> <seq.json>
 //!       the first `n` tokens of a plain text (no chat template), as `{"ids": [...]}`.
-//!   qwen38_ab run <checkpoint-dir> <seq.json> <out-prefix> [--gen N]
+//!   qwen38_ab run <checkpoint-dir> <seq.json> <out-prefix> [--gen N] [--tail N]
 //!       teacher-forced: feeds `ids` one decode step at a time; with `--gen N` the ids are a
 //!       prompt and N more tokens follow greedily (free running). Writes `<out-prefix>.logits`
-//!       (f32, vocab per step, step order) and `<out-prefix>.json` (per step: fed token, chip
+//!       (f32, vocab per step, step order) (with `--tail N` only the last N steps' logits, so a long
+//!       text stays small) and `<out-prefix>.json` (per step: fed token, chip
 //!       argmax, top-two margin, chip ms, and the negative log-likelihood of the next fed token).
 //!       The engine variant comes from the environment (AIEN_Q38_FP8_HEAD=1, AIEN_Q38_W4=1,
 //!       AIEN_Q38_KV8=1 for the 8-bit attention cache).
@@ -174,7 +175,7 @@ fn text(dir: &Path, file: &str, n: usize, out: &str) -> Result<(), String> {
         .map_err(|e| format!("{out}: {e}"))
 }
 
-fn run(dir: &Path, seq_path: &str, prefix: &str, gen: usize) -> Result<(), String> {
+fn run(dir: &Path, seq_path: &str, prefix: &str, gen: usize, tail: usize) -> Result<(), String> {
     let seq = ids(&read_json(seq_path)?, "ids")?;
     if seq.len() < 2 && gen == 0 {
         return Err("seq: fewer than 2 ids".into());
@@ -188,6 +189,12 @@ fn run(dir: &Path, seq_path: &str, prefix: &str, gen: usize) -> Result<(), Strin
             seq.len() - 1
         },
     );
+    // logits are written from this step on (`--tail N`: the last N steps; a 32k text would be 32 GB)
+    let logits_from = if tail > 0 {
+        steps.saturating_sub(tail)
+    } else {
+        0
+    };
     let max_pos = (steps + 1).max(256).next_multiple_of(256);
     let avail = memory_guard(&config, max_pos)?;
     let variant = variant();
@@ -228,8 +235,10 @@ fn run(dir: &Path, seq_path: &str, prefix: &str, gen: usize) -> Result<(), Strin
             nll_sum += nll;
             nll_n += 1;
         }
-        for v in &l {
-            f.write_all(&v.to_le_bytes()).map_err(|e| e.to_string())?;
+        if p >= logits_from {
+            for v in &l {
+                f.write_all(&v.to_le_bytes()).map_err(|e| e.to_string())?;
+            }
         }
         rows.push(json!({
             "p": p, "fed": fed, "top": top, "margin": margin(&l), "next": next, "nll": nll,
@@ -251,7 +260,7 @@ fn run(dir: &Path, seq_path: &str, prefix: &str, gen: usize) -> Result<(), Strin
     chip.sort_by(|a, b| a.total_cmp(b));
     let median = chip[chip.len() / 2];
     let out = json!({
-        "mode": "run", "seq": seq_path, "variant": variant, "steps": steps, "vocab": vocab,
+        "mode": "run", "seq": seq_path, "variant": variant, "steps": steps, "vocab": vocab, "logits_from": logits_from,
         "teacher_forced": seq.len() - 1, "generated_ids": generated,
         "mean_nll_fed": if nll_n > 0 { nll_sum / nll_n as f64 } else { f64::NAN },
         "chip_ms_median": median, "chip_ms_min": chip[0], "chip_ms_max": chip[chip.len() - 1],
@@ -290,6 +299,12 @@ fn compare(a: &str, b: &str, out: &str) -> Result<(), String> {
         .map(|r| r["fed"].as_u64().unwrap_or(u64::MAX))
         .collect();
     let n = ra.len().min(rb.len());
+    // runs made with `--tail` hold logits from this step on; the earlier steps are checked for
+    // the same input only (their NLL is in the rows)
+    let lf = ja["logits_from"].as_u64().unwrap_or(0) as usize;
+    if jb["logits_from"].as_u64().unwrap_or(0) as usize != lf {
+        return Err("a and b hold logits from different steps (--tail)".into());
+    }
     let mut fa = std::fs::File::open(format!("{a}.logits")).map_err(|e| e.to_string())?;
     let mut fb = std::fs::File::open(format!("{b}.logits")).map_err(|e| e.to_string())?;
     let (mut ba, mut bb) = (vec![0u8; vocab * 4], vec![0u8; vocab * 4]);
@@ -298,13 +313,18 @@ fn compare(a: &str, b: &str, out: &str) -> Result<(), String> {
     let mut flips = Vec::new();
     let mut first_input_diff = None;
     for p in 0..n {
-        fa.read_exact(&mut ba).map_err(|e| e.to_string())?;
-        fb.read_exact(&mut bb).map_err(|e| e.to_string())?;
+        if p >= lf {
+            fa.read_exact(&mut ba).map_err(|e| e.to_string())?;
+            fb.read_exact(&mut bb).map_err(|e| e.to_string())?;
+        }
         if rb[p]["fed"].as_u64() != Some(fed_a[p]) {
             first_input_diff.get_or_insert(p);
             continue; // free-run texts diverged: positions after it see different inputs
         }
         if first_input_diff.is_some() {
+            continue;
+        }
+        if p < lf {
             continue;
         }
         same_input += 1;
@@ -355,7 +375,7 @@ fn compare(a: &str, b: &str, out: &str) -> Result<(), String> {
         .map(|r| r["margin"].as_f64().unwrap_or(f64::NAN))
         .fold(f64::INFINITY, f64::min);
     let v = json!({
-        "mode": "compare", "a": a, "b": b, "positions": n, "same_input_positions": same_input,
+        "mode": "compare", "a": a, "b": b, "positions": n, "logits_from": lf, "same_input_positions": same_input,
         "first_input_difference": first_input_diff,
         "argmax_agree": agree, "flips": flips,
         "cosine_min": cos_min, "cosine_mean": cos_sum / m,
@@ -535,6 +555,21 @@ fn w4err(dir: &Path, out: &str) -> Result<(), String> {
     std::fs::write(out, serde_json::to_string_pretty(&v).unwrap())
         .map_err(|e| format!("{out}: {e}"))
 }
+/// `[--gen N] [--tail N]` of `run`.
+fn run_args(a: &[String]) -> Result<(usize, usize), String> {
+    let (mut gen, mut tail) = (0, 0);
+    let mut it = a.iter();
+    while let Some(k) = it.next() {
+        let v = it.next().and_then(|v| v.parse().ok());
+        match (k.as_str(), v) {
+            ("--gen", Some(n)) => gen = n,
+            ("--tail", Some(n)) => tail = n,
+            _ => return Err(format!("run: {k}: expected --gen N or --tail N")),
+        }
+    }
+    Ok((gen, tail))
+}
+
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     let r = match a.get(1).map(String::as_str) {
@@ -542,11 +577,8 @@ fn main() {
             .parse()
             .map_err(|_| "n".to_string())
             .and_then(|n| text(Path::new(&a[2]), &a[3], n, &a[5])),
-        Some("run") if a.len() == 5 => run(Path::new(&a[2]), &a[3], &a[4], 0),
-        Some("run") if a.len() == 7 && a[5] == "--gen" => a[6]
-            .parse()
-            .map_err(|_| "--gen N".to_string())
-            .and_then(|g| run(Path::new(&a[2]), &a[3], &a[4], g)),
+        Some("run") if a.len() >= 5 => run_args(&a[5..])
+            .and_then(|(g, t)| run(Path::new(&a[2]), &a[3], &a[4], g, t)),
         Some("compare") if a.len() == 5 => compare(&a[2], &a[3], &a[4]),
         Some("decode") if a.len() == 5 => decode(Path::new(&a[2]), &a[3], &a[4]),
         Some("timeline") if a.len() == 5 => timeline(Path::new(&a[2]), &a[3], &a[4]),
@@ -555,7 +587,7 @@ fn main() {
             (Ok(ctx), Ok(n), Ok(seed)) => speed(Path::new(&a[2]), ctx, n, seed, &a[6]),
             _ => Err("speed <ckpt> <ctx> <steps> <seed> <out.json>".into()),
         },
-        _ => Err("usage: qwen38_ab text <ckpt> <text-file> <n> <seq.json> | run <ckpt> <seq.json> <out-prefix> [--gen N] | compare <a> <b> <out.json> | decode <ckpt> <run.json> <out.txt> | timeline <ckpt> <seq.json> <out.json> | w4err <ckpt> <out.json> | speed <ckpt> <ctx> <steps> <seed> <out.json>".into()),
+        _ => Err("usage: qwen38_ab text <ckpt> <text-file> <n> <seq.json> | run <ckpt> <seq.json> <out-prefix> [--gen N] [--tail N] | compare <a> <b> <out.json> | decode <ckpt> <run.json> <out.txt> | timeline <ckpt> <seq.json> <out.json> | w4err <ckpt> <out.json> | speed <ckpt> <ctx> <steps> <seed> <out.json>".into()),
     };
     if let Err(e) = r {
         eprintln!("qwen38_ab: {e}");
