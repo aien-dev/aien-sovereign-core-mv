@@ -14,6 +14,8 @@ No Python in this repo (a CI guard, `scripts/check-no-python.sh`, fails the buil
 
 Research-grade and pre-alpha. Crates build and have unit tests on the DGX Spark; execution is CPU plus GPU through AIEN's own Omega kernels. Modular MAX and Mojo were removed from the project on 2026-10-15. Nothing here is qualified on hardware as a finished system. Live status and sequencing: [CURRENT_EXECUTION_PLAN.md](https://github.com/aien-spark/aien-architecture/blob/main/CURRENT_EXECUTION_PLAN.md) and the [implementation status snapshot](https://github.com/aien-spark/aien-architecture/blob/main/docs/02-implementation-status.md). Component detail and platform status: [docs/PLATFORM_MATRIX.md](docs/PLATFORM_MATRIX.md), [docs/AIEN_RUNTIME_ARCHITECTURE.md](docs/AIEN_RUNTIME_ARCHITECTURE.md).
 
+Omegese mask (`crates/aien-omegese-constraint`, request field `"constraint": "omegese"` on `aien-serve-http` built with `--features omegese`): at every decode step the model may only pick tokens that keep its reply a valid Omegese program, using omega's own reader linked in as a C library. Shown on the Spark with the 27B: same answers as unmasked on the 10 dev tasks, 14.82 ms of host time per token; one reader bug found at the 96-words-per-line limit (being fixed in omega). Evidence: [evidence/OMEGESE-MASK](evidence/OMEGESE-MASK/README.md).
+
 Known limits: the GPU fallback counter covers only instrumented operations, so execution is not exclusively accelerated; Qwen full-runtime qualification is not complete; the C1 evidence campaign is in progress.
 
 ## Measured results

@@ -347,10 +347,9 @@ fn g1_reproduces_every_worked_example_under_a_decoy() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
-/// Lifts over noise in [0, 1): a fixed word 2.5, one newline 2.0, the closing fence 2.75 (a walk that
-/// could end does so about 7 times in 10; at 2.0, 40 walks of 40 went on to the cap), other blank runs with a newline 0.5, everything else
-/// 0. The first cut (newlines 1.5 over words 1.0) wrote only blank space: hundreds of blank tokens
-/// beat the one legal word (G1, 2026-10-20).
+/// Lifts over noise in [0, 1): a fixed word 2.5, one newline 2.0, the closing fence 2.75, other
+/// blank runs with a newline 0.5, everything else 0. The first cut (newlines 1.5 over words 1.0)
+/// wrote only blank space: hundreds of blank tokens beat the one legal word (G1, 2026-10-20).
 fn lifts(table: &TokenTable, words: &[String]) -> Vec<f32> {
     (0..table.len() as u32)
         .map(|i| match table.text(i) {
