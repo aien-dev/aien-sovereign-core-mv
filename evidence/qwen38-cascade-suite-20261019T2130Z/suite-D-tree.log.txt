@@ -1,0 +1,79 @@
+memory: whole model + MTP head needs 32663 MiB, keep 12288 MiB free, MemAvailable 73973 MiB
+MTP head: 455 MiB, raw norm means (embed, hidden, final) [-0.46056232, -0.15720086, 1.2520472], options MtpOptions { order: EmbedFirst, normed_hidden: false, pos_offset: 0 }
+uploaded in 31.8 s
+suite: tree-213-codelong start
+k=0: 192 tokens, 216.60 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 192 tokens, 397.75 ms/token decode, accept 147/540 (0.272), 4.24 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt codelong n 192 k [0, 8] rows All source Mtp tree Some(TreeSpec { w1: 2, w2: 1, side: 3 }) mutant None: PASS
+suite: tree-213-codelong PASS
+suite: tree-332-codelong start
+k=0: 192 tokens, 213.93 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 192 tokens, 586.32 ms/token decode, accept 149/860 (0.173), 4.44 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt codelong n 192 k [0, 8] rows All source Mtp tree Some(TreeSpec { w1: 3, w2: 3, side: 2 }) mutant None: PASS
+suite: tree-332-codelong PASS
+suite: tree-213-prose start
+k=0: 192 tokens, 217.89 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 192 tokens, 668.77 ms/token decode, accept 115/936 (0.123), 2.45 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt prose n 192 k [0, 8] rows All source Mtp tree Some(TreeSpec { w1: 2, w2: 1, side: 3 }) mutant None: PASS
+suite: tree-213-prose PASS
+suite: tree-332-prose start
+k=0: 192 tokens, 213.84 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 192 tokens, 944.29 ms/token decode, accept 123/1400 (0.088), 2.73 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt prose n 192 k [0, 8] rows All source Mtp tree Some(TreeSpec { w1: 3, w2: 3, side: 2 }) mutant None: PASS
+suite: tree-332-prose PASS
+suite: tree-213-codeedit start
+k=0: 192 tokens, 219.29 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 192 tokens, 263.98 ms/token decode, accept 164/336 (0.488), 6.82 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt codeedit n 192 k [0, 8] rows All source Mtp tree Some(TreeSpec { w1: 2, w2: 1, side: 3 }) mutant None: PASS
+suite: tree-213-codeedit PASS
+suite: tree-332-codeedit start
+k=0: 192 tokens, 218.60 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 192 tokens, 404.90 ms/token decode, accept 164/560 (0.293), 6.82 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt codeedit n 192 k [0, 8] rows All source Mtp tree Some(TreeSpec { w1: 3, w2: 3, side: 2 }) mutant None: PASS
+suite: tree-332-codeedit PASS
+suite: tree-213-quote start
+k=0: 85 tokens, 221.83 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 85 tokens, 279.49 ms/token decode, accept 75/156 (0.481), 6.46 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt quote n 192 k [0, 8] rows All source Mtp tree Some(TreeSpec { w1: 2, w2: 1, side: 3 }) mutant None: PASS
+suite: tree-213-quote PASS
+suite: tree-332-quote start
+k=0: 85 tokens, 215.27 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 85 tokens, 426.69 ms/token decode, accept 75/260 (0.288), 6.46 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt quote n 192 k [0, 8] rows All source Mtp tree Some(TreeSpec { w1: 3, w2: 3, side: 2 }) mutant None: PASS
+suite: tree-332-quote PASS
+suite: tree-412-codelong start
+k=0: 192 tokens, 213.18 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 192 tokens, 504.74 ms/token decode, accept 148/748 (0.198), 4.34 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt codelong n 192 k [0, 8] rows All source Mtp tree Some(TreeSpec { w1: 4, w2: 1, side: 2 }) mutant None: PASS
+suite: tree-412-codelong PASS
+suite: tree-412-prose start
+k=0: 192 tokens, 217.43 ms/token decode, accept 0/0 (0.000), 1.00 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 None
+k=8: 192 tokens, 860.90 ms/token decode, accept 117/1292 (0.091), 2.51 tokens/round, ngram rounds 0 accept 0/0, identical_to_k0 Some(true)
+QWEN38_SPEC_GEN prompt prose n 192 k [0, 8] rows All source Mtp tree Some(TreeSpec { w1: 4, w2: 1, side: 2 }) mutant None: PASS
+suite: tree-412-prose PASS
+QWEN38_SPEC_SUITE 10 items: PASS
+{
+ "name": "cascade-suite-D-tree",
+ "cmd": "/home/drakestapleton/.local/bin/quiet-measure nice -n 10 flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/sc-cascade/pinned/qwen38_spec-e166f57f suite /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a evidence/qwen38-cascade-suite-20261019T2130Z evidence/qwen38-cascade-suite-20261019T2130Z/plan-D-tree.txt",
+ "exit": 0,
+ "git_head": "d8eb33b2",
+ "start": "2026-10-19T18:54:19.279953",
+ "seconds": 5539.432,
+ "samples": 2604,
+ "wall_W_mean": 233.2795699,
+ "wall_J": 1292236.265,
+ "idle_W_before": 290.0,
+ "incremental_J": -314198.9536,
+ "gpu_W_mean": 23.76326805,
+ "gpu_util_mean": 46.76536098,
+ "load1_start": "28.67",
+ "load1_end": "12.38",
+ "mem_avail_kB_start": "63109276",
+ "mem_avail_kB_end": "71254736",
+ "lock_holders_max": 10,
+ "nvrm_errors_delta": 13,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone",
+ "window_id": null,
+ "calibration": null
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-19-cascade-suite-D-tree.json

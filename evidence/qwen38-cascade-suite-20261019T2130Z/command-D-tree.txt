@@ -1,0 +1,5 @@
+bin sha 3816e6de63803b414c4be2f03e24a07d790c9000dc483f3cc7dba2df31290d3c (built from e166f57f)
+lib ~/workspace/targets/q38-f7-omega/libomega_gpu.a sha 6e90520913032ee8653ebbe325c485d329daa0a749840303a44b68b97ca17bff (omega 37034f03)
+spark-receipt cascade-suite-D-tree -- ~/.local/bin/quiet-measure nice -n 10 flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/sc-cascade/pinned/qwen38_spec-e166f57f suite M evidence/qwen38-cascade-suite-20261019T2130Z evidence/qwen38-cascade-suite-20261019T2130Z/plan-D-tree.txt
+queued 2026-10-19T23:54:19Z load 28.67 31.81 31.66 71/4050 2313653 MemAvailable:   63412988 kB
+end 2026-10-20T01:26:41Z rc 0 load 12.43 7.25 7.26 12/3021 1407964 MemAvailable:   72036964 kB
