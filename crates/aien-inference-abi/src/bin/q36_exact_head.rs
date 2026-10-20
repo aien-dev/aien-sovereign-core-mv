@@ -192,7 +192,7 @@ fn analyze(dir: &Path, hidden_path: &str, out_path: &str) -> Result<(), String> 
     eprintln!("full head on every record in {:.1} s", t0.elapsed().as_secs_f64());
     let stored = recs.iter().zip(&full).filter(|(r, f)| r.full != NONE && r.full as usize != f.0).count();
     let mut variants = Vec::new();
-    for kind in [ScreenKind::W4, ScreenKind::Fp8] {
+    for kind in [ScreenKind::W4, ScreenKind::Fp8, ScreenKind::Fp8Block] {
         let t0 = Instant::now();
         let screen = Screen::build(head, kind)?;
         eprintln!("{kind:?} screen built in {:.1} s", t0.elapsed().as_secs_f64());
