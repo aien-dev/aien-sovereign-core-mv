@@ -114,6 +114,9 @@ fn run() -> Result<(), String> {
         let (top, st) = e.step(next)?;
         chip_ms.push(st.chip_ns as f64 / 1e6);
         next = top;
+        if stop.contains(&top) {
+            break; // the end-of-turn token was computed (and timed) but is not part of the answer
+        }
         out.push(top);
         let s = tk.decode(&out).map_err(|e| e.to_string())?;
         // Print only whole characters: a partial UTF-8 sequence decodes as U+FFFD until complete.
