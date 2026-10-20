@@ -45,6 +45,9 @@ fn run() -> Result<(), String> {
 
     let t0 = Instant::now();
     let mut model = Qwen38Reference::open(dir)?;
+    // Negative control (Q36): AIEN_Q36_ROUTING_MUTANT=1 swaps each token's 8th expert for its 9th,
+    // =2 sends every routed pick to the next expert id.
+    model.routing_mutant = std::env::var("AIEN_Q36_ROUTING_MUTANT").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
     let open_s = t0.elapsed().as_secs_f64();
     eprintln!("opened in {open_s:.1} s (embedding, final norm, lm_head)");
     let vocab = model.config.vocab;
@@ -85,6 +88,7 @@ fn run() -> Result<(), String> {
             let t1 = Instant::now();
             let mut logits = model.forward(&mut state, &prompt, Logits::Last)?;
             let prefill_s = t1.elapsed().as_secs_f64();
+            let mut routes = vec![model.routes.clone()];
             let mut out = Vec::new();
             let mut step_s = Vec::new();
             for step in 0..count {
@@ -98,6 +102,7 @@ fn run() -> Result<(), String> {
                 }
                 let t2 = Instant::now();
                 logits = model.forward(&mut state, &[next], Logits::Last)?;
+                routes.push(model.routes.clone());
                 step_s.push(t2.elapsed().as_secs_f64());
             }
             let text_out = tokenizer.decode(&out).map_err(|e| e.to_string())?;
@@ -106,6 +111,7 @@ fn run() -> Result<(), String> {
                 "mode": "generate", "prompt_file": text_path, "prompt_ids": prompt,
                 "generated_ids": out, "generated_text": text_out, "top5": steps,
                 "prefill_seconds": prefill_s, "step_seconds": step_s, "open_seconds": open_s,
+                "routes": routes,
             })
         }
         _ => return Err(usage.into()),
