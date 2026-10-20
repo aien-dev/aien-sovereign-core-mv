@@ -409,6 +409,27 @@ mod ffi {
         pub fn omega_q38_gather_table(tab: *mut u32);
     }
 
+    // speed2/specdecode: rows mode (omega_gpu_q38_graph.h, speculative verify pass)
+    #[cfg(has_omega_q38_rows)]
+    extern "C" {
+        pub fn omega_gpu_q38_graph_set_tv(on: i32);
+        pub fn omega_gpu_q38_graph_rows_reserve(g: *mut OmegaGpuQ38Graph, max_rows: u32) -> i32;
+        pub fn omega_gpu_q38_graph_rows(
+            g: *mut OmegaGpuQ38Graph,
+            x_embed: *const f32,
+            m: u32,
+            pos0: u32,
+            tokens: *mut u32,
+            x_out: *mut f32,
+            st: *mut super::GraphStats,
+        ) -> i32;
+        pub fn omega_gpu_q38_graph_rows_commit(
+            g: *mut OmegaGpuQ38Graph,
+            keep: u32,
+            st: *mut super::GraphStats,
+        ) -> i32;
+    }
+
     #[cfg(has_omega_q38_prefill)]
     extern "C" {
         pub fn omega_gpu_gdn_prefill(
@@ -1353,6 +1374,104 @@ impl Q38Graph {
         #[cfg(not(has_omega_q38))]
         {
             let _ = pos;
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
+
+    /// Rows mode capacity (omega `OMEGA_GPU_Q38_MAX_ROWS`).
+    pub const MAX_ROWS: usize = 32;
+
+    /// Process-wide switch (omega `omega_gpu_q38_graph_set_tv`): the one-row token path runs every FP8
+    /// projection on the tensor-core verify GEMM. The rows mode always does, so with `set_tv(true)` a
+    /// one-row token has the bits of a rows-mode row over the same history. Call before the first token.
+    pub fn set_tv(on: bool) -> Result<(), OmegaGpuError> {
+        #[cfg(has_omega_q38_rows)]
+        {
+            // SAFETY: a process-wide flag read when a token is recorded.
+            unsafe { ffi::omega_gpu_q38_graph_set_tv(i32::from(on)) };
+            Ok(())
+        }
+        #[cfg(not(has_omega_q38_rows))]
+        {
+            let _ = on;
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
+
+    /// Sizes the rows-mode buffers and the GDN checkpoint for passes of up to `max_rows` rows.
+    pub fn rows_reserve(&mut self, max_rows: usize) -> Result<(), OmegaGpuError> {
+        if max_rows == 0 || max_rows > Self::MAX_ROWS {
+            return Err(bad(format!("q38 rows: max_rows {max_rows} outside 1..={}", Self::MAX_ROWS)));
+        }
+        #[cfg(has_omega_q38_rows)]
+        {
+            // SAFETY: ptr is live.
+            let rc = unsafe { ffi::omega_gpu_q38_graph_rows_reserve(self.ptr, max_rows as u32) };
+            if rc != 0 {
+                return Err(session_err("q38 rows reserve", rc));
+            }
+            Ok(())
+        }
+        #[cfg(not(has_omega_q38_rows))]
+        Err(OmegaGpuError::Unavailable)
+    }
+
+    /// ONE pass over `m = tokens.len()` rows of one sequence at positions `pos0 ..` (omega
+    /// `omega_gpu_q38_graph_rows`): `x_embed` is `[m][HIDDEN]`, `tokens[r]` the greedy token after row
+    /// `r`, `x_out` (`[m][HIDDEN]`) the residual after the last layer. [`Self::rows_commit`] must follow.
+    pub fn rows(
+        &mut self,
+        x_embed: &[f32],
+        pos0: usize,
+        tokens: &mut [u32],
+        x_out: Option<&mut [f32]>,
+    ) -> Result<GraphStats, OmegaGpuError> {
+        let m = tokens.len();
+        if m == 0 || m > Self::MAX_ROWS {
+            return Err(bad(format!("q38 rows: {m} rows outside 1..={}", Self::MAX_ROWS)));
+        }
+        check_len("q38 rows x_embed", m * HIDDEN, x_embed.len())?;
+        if let Some(x) = x_out.as_deref() {
+            check_len("q38 rows x_out", m * HIDDEN, x.len())?;
+        }
+        let pos0 = u32::try_from(pos0).map_err(|_| bad(format!("q38 rows: pos {pos0} too large")))?;
+        #[cfg(has_omega_q38_rows)]
+        {
+            let mut st = GraphStats::default();
+            let xo = x_out.map_or(std::ptr::null_mut(), |x| x.as_mut_ptr());
+            // SAFETY: ptr is live; lengths checked above; st is local.
+            let rc = unsafe {
+                ffi::omega_gpu_q38_graph_rows(self.ptr, x_embed.as_ptr(), m as u32, pos0, tokens.as_mut_ptr(), xo, &mut st)
+            };
+            if rc != 0 {
+                return Err(session_err("q38 rows", rc));
+            }
+            Ok(st)
+        }
+        #[cfg(not(has_omega_q38_rows))]
+        {
+            let _ = (pos0, x_out);
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
+
+    /// Keeps rows `0 .. keep` of the last [`Self::rows`] pass as the sequence (omega
+    /// `omega_gpu_q38_graph_rows_commit`: GDN restore + replay on the chip when `keep` < m).
+    pub fn rows_commit(&mut self, keep: usize) -> Result<GraphStats, OmegaGpuError> {
+        #[cfg(has_omega_q38_rows)]
+        {
+            let mut st = GraphStats::default();
+            let keep = u32::try_from(keep).map_err(|_| bad(format!("q38 rows commit: keep {keep}")))?;
+            // SAFETY: ptr is live; st is local.
+            let rc = unsafe { ffi::omega_gpu_q38_graph_rows_commit(self.ptr, keep, &mut st) };
+            if rc != 0 {
+                return Err(session_err("q38 rows commit", rc));
+            }
+            Ok(st)
+        }
+        #[cfg(not(has_omega_q38_rows))]
+        {
+            let _ = keep;
             Err(OmegaGpuError::Unavailable)
         }
     }

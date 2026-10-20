@@ -123,6 +123,13 @@ pub struct RowStats {
     pub host_ns: u64,
     pub head_ns: u64,
     pub head_calls: u64,
+    /// VerifyKernel::Graph: the rows pass (wall, chip, launches, submits) and the commit (wall, chip).
+    pub graph_ns: u64,
+    pub graph_chip_ns: u64,
+    pub graph_launches: u64,
+    pub graph_submits: u64,
+    pub commit_ns: u64,
+    pub commit_chip_ns: u64,
 }
 
 /// One DeltaNet layer's inputs for the rows of a pass (`[m][10240]`, `[m][6144]`, `[m][96]`),
@@ -1063,10 +1070,20 @@ impl Mtp {
         let mut hn = vec![0f32; q::HIDDEN];
         rmsnorm(row, &self.final_norm, self.eps, &mut hn);
         let mut logits = vec![0f32; model.config.vocab];
-        model
-            .lm_head
-            .gemv_f32(&hn, &mut logits)
-            .map_err(gpu("mtp lm_head"))?;
+        match (&model.lm_head8, TREE_GEMM.load(Ordering::Relaxed)) {
+            // speed2: with a fast kernel and the FP8 head loaded, drafts read the FP8 head on the tv
+            // GEMM (half the bytes of bf16). Drafts only: acceptance is decided by the verify pass.
+            (Some(h8), true) => {
+                h8.tv_f32(1, &hn, &mut logits)
+                    .map_err(gpu("mtp lm_head fp8"))?;
+            }
+            _ => {
+                model
+                    .lm_head
+                    .gemv_f32(&hn, &mut logits)
+                    .map_err(gpu("mtp lm_head"))?;
+            }
+        }
         st.head_ns += ns(t);
         st.head_calls += 1;
         Ok(logits)
@@ -1104,6 +1121,13 @@ pub enum VerifyKernel {
     /// the rows of the pass (up to 64) and row `r` is the same bits as the one-row path gives.
     /// Everything else (lm_head, glue, acceptance, state rebuild) is the `ExactRows` code.
     TreeGemm,
+    /// speed2/specdecode (L126): the whole pass as the decode graph's rows mode (omega
+    /// `omega_gpu_q38_graph_rows`): one command list per pass, every FP8 projection and the FP8
+    /// lm_head (when loaded) read once for all the rows on the tv GEMM, argmax per row on the chip,
+    /// the DeltaNet rollback on the chip (`rows_commit`). Row `r` equals the graph's one-row token
+    /// in tv mode (`Q38Graph::set_tv`), so `k = 0` (one row per pass) is the plain greedy reference
+    /// of the same configuration. Chains only (no `--tree`).
+    Graph,
 }
 
 impl VerifyKernel {
@@ -1111,16 +1135,17 @@ impl VerifyKernel {
     /// row GEMM wrapper reads) until the returned guard drops, so rows run outside a verify pass
     /// (prefill chunks) keep the row-pair GEMM.
     fn select(self) -> TreeGemmGuard {
-        TREE_GEMM.store(self == VerifyKernel::TreeGemm, Ordering::Relaxed);
-        TreeGemmGuard
+        TreeGemmGuard(TREE_GEMM.swap(self != VerifyKernel::ExactRows, Ordering::Relaxed))
     }
 }
 
-struct TreeGemmGuard;
+/// Puts the previous route back on drop (guards nest: generate holds one for its drafts, every
+/// verify pass another).
+struct TreeGemmGuard(bool);
 
 impl Drop for TreeGemmGuard {
     fn drop(&mut self) {
-        TREE_GEMM.store(false, Ordering::Relaxed);
+        TREE_GEMM.store(self.0, Ordering::Relaxed);
     }
 }
 
@@ -1152,6 +1177,90 @@ pub struct VerifyOut {
     pub draft: Option<u32>,
 }
 
+/// [`verify_pass`] for [`VerifyKernel::Graph`]: the rows pass and the commit on the decode graph
+/// (module doc of the variant). Same contract, except that the model's position and DeltaNet state
+/// come back already rolled to the accepted rows (`pos0 + accepted + 1`; the chip replays them),
+/// so the caller skips its own snapshot and replay. `NoRollback` keeps every row's state instead.
+#[allow(clippy::too_many_arguments)]
+fn verify_pass_graph(
+    model: &mut Qwen38Omega,
+    mtp: Option<&mut Mtp>,
+    feed: &[u32],
+    rows: HeadRows,
+    mutant: SpecMutant,
+    st: &mut RowStats,
+    st_mtp: &mut RowStats,
+) -> Result<VerifyOut, String> {
+    let h = q::HIDDEN;
+    let m = feed.len();
+    let drafts = m - 1;
+    let pos0 = model.pos;
+    if pos0 + m > model.max_pos() {
+        return Err(format!("graph verify: {m} rows from {pos0} pass the KV cache ({})", model.max_pos()));
+    }
+    let t = Instant::now();
+    let mut x = Vec::with_capacity(m * h);
+    for &tok in feed {
+        x.extend_from_slice(&model.embed_row(tok));
+    }
+    st.host_ns += ns(t);
+    let mut raw = vec![0u32; m];
+    let mut hidden = vec![0f32; m * h];
+    let t = Instant::now();
+    let gs = {
+        let g = model.graph_mut();
+        g.rows_reserve(MAX_CHAIN + 1).map_err(gpu("q38 rows reserve"))?;
+        g.rows(&x, pos0, &mut raw, Some(&mut hidden)).map_err(gpu("q38 rows"))?
+    };
+    st.graph_ns += ns(t);
+    st.graph_chip_ns += gs.chip_ns;
+    st.graph_launches += u64::from(gs.launches);
+    st.graph_submits += u64::from(gs.submits);
+    st.rows += m as u64;
+    st.passes += 1;
+    let tokens: Vec<u32> = (0..m)
+        .map(|r| match mutant {
+            SpecMutant::RowShift if r < drafts => raw[r + 1],
+            _ => raw[r],
+        })
+        .collect();
+    let mut j = 0;
+    let mut extra = mutant == SpecMutant::ExtraAccept;
+    while j < drafts && (tokens[j] == feed[j + 1] || std::mem::take(&mut extra)) {
+        j += 1;
+    }
+    let next = tokens[j];
+    let keep = if mutant == SpecMutant::NoRollback { m } else { j + 1 };
+    let t = Instant::now();
+    let cs = model.graph_mut().rows_commit(keep).map_err(gpu("q38 rows commit"))?;
+    st.commit_ns += ns(t);
+    st.commit_chip_ns += cs.chip_ns;
+    model.pos = pos0 + j + 1;
+    let draft = match mtp {
+        None => None,
+        Some(mt) => {
+            let n = match rows {
+                HeadRows::All => m,
+                HeadRows::Accepted => j + 1,
+            };
+            mt.layer65(model, &hidden[..n * h], &tokens[..n], pos0, st_mtp)?;
+            mt.set_tip(j, pos0 + j + 1);
+            let d = match rows {
+                HeadRows::All => mt.head_rows(model, st_mtp)?[j],
+                HeadRows::Accepted => mt.draft_head(model, st_mtp)?,
+            };
+            Some(d)
+        }
+    };
+    Ok(VerifyOut {
+        hidden,
+        tokens,
+        accepted: j,
+        next,
+        draft,
+    })
+}
+
 /// ONE verify pass: `feed` (the last token and its drafts) through the whole model as `m`
 /// rows, the lm_head on the rows, the acceptance decision, and the MTP head ("layer 65") on
 /// the rows so the next round's first draft comes out of the same pass.
@@ -1175,6 +1284,9 @@ pub fn verify_pass(
     st_mtp: &mut RowStats,
 ) -> Result<VerifyOut, String> {
     let _route = kernel.select();
+    if kernel == VerifyKernel::Graph {
+        return verify_pass_graph(model, mtp, feed, rows, mutant, st, st_mtp);
+    }
     let h = q::HIDDEN;
     let m = feed.len();
     let drafts = m - 1;
@@ -1474,6 +1586,9 @@ pub fn generate_tree(
     if !(1..=8).contains(&spec.w1) || !(1..=8).contains(&spec.w2) {
         return Err("generate_tree: widths 1..=8".into());
     }
+    if opts.kernel == VerifyKernel::Graph {
+        return Err("generate_tree: the graph kernel runs chains only (--verify exact or tree for --tree)".into());
+    }
     let h = q::HIDDEN;
     let mutant = opts.mutant;
     let max_depth = k.max(spec.side + 2);
@@ -1666,6 +1781,9 @@ pub fn generate(
     let mut history: Vec<u32> = prompt.to_vec();
     history.push(t);
 
+    // The decode rounds (drafts and verify passes) on the chosen kernel's GEMM route; the prompt above
+    // stays on the row-pair GEMM (chunks larger than the tv GEMM's 64 rows).
+    let _route = opts.kernel.select();
     let t1 = Instant::now();
     let mut snap = Qwen38Snapshot::default();
     let mut keep: Vec<GdnRows> = Vec::new();
@@ -1732,7 +1850,8 @@ pub fn generate(
         }
 
         let ts = Instant::now();
-        if drafts > 0 {
+        // The graph kernel rolls the DeltaNet state back on the chip (rows_commit): no host snapshot.
+        if drafts > 0 && opts.kernel != VerifyKernel::Graph {
             model.snapshot(&mut snap)?;
         }
         run.snapshot_ns += ns(ts);
@@ -1773,7 +1892,9 @@ pub fn generate(
         }
         if j < drafts {
             run.rollbacks += 1;
-            if mutant != SpecMutant::NoRollback {
+            if opts.kernel == VerifyKernel::Graph {
+                // verify_pass_graph committed the accepted rows (or, NoRollback, every row).
+            } else if mutant != SpecMutant::NoRollback {
                 let tr = Instant::now();
                 model.restore(&snap)?;
                 model.replay_gdn(&keep, j + 1, &mut run.main)?;

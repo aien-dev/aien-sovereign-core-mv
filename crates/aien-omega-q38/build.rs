@@ -21,6 +21,7 @@ use std::process::Command;
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(has_omega_q38)");
     println!("cargo:rustc-check-cfg=cfg(has_omega_q38_prefill)");
+    println!("cargo:rustc-check-cfg=cfg(has_omega_q38_rows)");
     for v in [
         "AIEN_FORCE_CPU_STUB",
         "AIEN_OMEGA_GPU_LIB",
@@ -39,6 +40,10 @@ fn main() {
                 && archive_defines(Path::new(&lib), "omega_gpu_prefill_attn256")
             {
                 println!("cargo:rustc-cfg=has_omega_q38_prefill");
+            }
+            // speed2/specdecode: the rows mode (speculative verify pass) and the tv switch
+            if archive_defines(Path::new(&lib), "omega_gpu_q38_graph_rows") {
+                println!("cargo:rustc-cfg=has_omega_q38_rows");
             }
         } else {
             println!("cargo:warning=aien-omega-q38: {lib} does not define the q38 graph API; the Qwen3.8 decode is stubbed");

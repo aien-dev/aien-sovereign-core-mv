@@ -11,7 +11,12 @@
 //!                   [--order embed|hidden] [--normed 0|1] [--offset 0|1] [--mutant none|extra|norollback|rowshift]
 //!                   [--graph 0|1] [--golden <gen-chat-max-24.json>] [--weights fp8|mxfp4]
 //!                   [--rows all|accepted] [--source mtp|ngram|ngram-first|agree|merge] [--ngram <max>,<min>]
-//!                   [--tree <w1>,<w2>,<side>] [--mutant ...|treenorebuild|treenokv]
+//!                   [--verify exact|tree|graph] [--tree <w1>,<w2>,<side>] [--mutant ...|treenorebuild|treenokv]
+//!     --verify picks the routine of the verify pass: exact (row-pair GEMM, host glue), tree (the
+//!     dense projections on the tv GEMM, host glue), graph (speed2: the whole pass as ONE decode graph
+//!     command list over all rows, DeltaNet rollback on the chip; chains only; with AIEN_Q38_FP8_HEAD=1
+//!     the head is the FP8 one on the tv GEMM for every row and draft). Each kernel's k = 0 is its own
+//!     plain greedy reference.
 //!     --tree replaces the chain with a small tree: the MTP chain of k as the trunk, the next
 //!     w1 - 1 best first words and w2 - 1 best second words as side branches, each continued
 //!     by an MTP chain of <side> words; one tree pass, rebuild-only-accepted state.
@@ -141,7 +146,9 @@ fn first_diff(a: &[f32], b: &[f32]) -> Option<usize> {
 fn stats_json(s: &RowStats) -> Value {
     json!({"rows": s.rows, "passes": s.passes, "gemm_ms": ms(s.gemm_ns), "gemm_calls": s.gemm_calls,
            "ab_ms": ms(s.ab_ns), "gdn_ms": ms(s.gdn_ns), "gdn_calls": s.gdn_calls, "attn_ms": ms(s.attn_ns),
-           "attn_calls": s.attn_calls, "host_ms": ms(s.host_ns), "head_ms": ms(s.head_ns), "head_calls": s.head_calls})
+           "attn_calls": s.attn_calls, "host_ms": ms(s.host_ns), "head_ms": ms(s.head_ns), "head_calls": s.head_calls,
+           "graph_ms": ms(s.graph_ns), "graph_chip_ms": ms(s.graph_chip_ns), "graph_launches": s.graph_launches, "graph_submits": s.graph_submits,
+           "commit_ms": ms(s.commit_ns), "commit_chip_ms": ms(s.commit_chip_ns)})
 }
 
 fn prompt_ids(dir: &Path, which: &str, golden: Option<&Value>) -> Result<Vec<u32>, String> {
@@ -497,7 +504,8 @@ fn parse_gen_item(args: &[String]) -> Result<GenItem, String> {
     let kernel = match flag(args, "--verify").unwrap_or("exact") {
         "exact" => VerifyKernel::ExactRows,
         "tree" => VerifyKernel::TreeGemm,
-        o => return Err(format!("--verify {o}: exact|tree")),
+        "graph" => VerifyKernel::Graph,
+        o => return Err(format!("--verify {o}: exact|tree|graph")),
     };
     let source = match flag(args, "--source").unwrap_or("mtp") {
         "mtp" => DraftSource::Mtp,
