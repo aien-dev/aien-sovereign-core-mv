@@ -38,7 +38,7 @@ use std::path::Path;
 
 use rayon::prelude::*;
 
-use crate::qwen3_moe::{bf16_to_f32, fp8_table, FP8_BLOCK};
+use crate::qwen3_moe::{bf16_to_f32, f32_to_bf16, fp8_e4m3fn_to_f32, fp8_table, FP8_BLOCK};
 use crate::qwen3_moe_omega::{ShardSource, TensorSource};
 
 /// The text model's shape, read from `config.json` (`text_config` of a `qwen3_5` checkpoint).
@@ -496,6 +496,27 @@ pub fn route(logits: &[f32], k: usize, mutant: u8) -> Vec<(usize, f32)> {
         .collect()
 }
 
+/// Rows (`top_k` ids each, in pick order) whose expert set differs between `a` and `b`.
+pub fn route_flips(a: &[u16], b: &[u16], k: usize) -> usize {
+    a.chunks_exact(k)
+        .zip(b.chunks_exact(k))
+        .filter(|(x, y)| x.iter().any(|e| !y.contains(e)))
+        .count()
+}
+
+/// L313 forced routing: the expert ids are given (taken from another run at the same layer and
+/// row), the weights come from these `logits` exactly as [`route`] computes them (softmax over
+/// all experts, renormalised over the picked set). Separates state drift from router flips.
+pub fn route_forced(logits: &[f32], ids: &[u16]) -> Vec<(usize, f32)> {
+    let max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let probs: Vec<f32> = logits.iter().map(|&v| (v - max).exp()).collect();
+    let sum: f32 = probs.iter().sum();
+    let sel: f32 = ids.iter().map(|&e| probs[e as usize] / sum).sum();
+    ids.iter()
+        .map(|&e| (e as usize, probs[e as usize] / sum / sel))
+        .collect()
+}
+
 // ---------------------------------------------------------------------------
 // One layer's weights, read on demand.
 // ---------------------------------------------------------------------------
@@ -574,11 +595,101 @@ enum LayerState {
     Attention { k: Vec<f32>, v: Vec<f32> },
 }
 
+/// How the DeltaNet state is kept between tokens (L313). The recurrence always computes in f32;
+/// after each token's update and output the state is rounded to the stored format, so the next
+/// token reads exactly what a chip storing that format would read back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StateStore {
+    /// f32, the reference (4 B per value).
+    #[default]
+    F32,
+    /// bf16, round to nearest even (2 B per value).
+    Bf16,
+    /// e4m3fn with one f32 scale per (value head, k row) of `v_dim` values: `scale = max|row| /
+    /// 448`, round to nearest even (1 B per value + 4 B per row).
+    Fp8E4m3Row,
+}
+
+impl StateStore {
+    pub const ALL: [StateStore; 3] = [Self::F32, Self::Bf16, Self::Fp8E4m3Row];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::F32 => "f32",
+            Self::Bf16 => "bf16",
+            Self::Fp8E4m3Row => "fp8-e4m3-row",
+        }
+    }
+
+    /// Bytes one stored `[k_dim][v_dim]` head state takes.
+    pub fn head_bytes(self, k_dim: usize, v_dim: usize) -> usize {
+        match self {
+            Self::F32 => 4 * k_dim * v_dim,
+            Self::Bf16 => 2 * k_dim * v_dim,
+            Self::Fp8E4m3Row => k_dim * v_dim + 4 * k_dim,
+        }
+    }
+
+    /// Rounds one head state `[k_dim][v_dim]` in place to this format.
+    pub fn round_head(self, s: &mut [f32], v_dim: usize, codes: &[f32; 127]) {
+        match self {
+            Self::F32 => {}
+            Self::Bf16 => s.iter_mut().for_each(|v| *v = bf16_to_f32(f32_to_bf16(*v))),
+            Self::Fp8E4m3Row => {
+                for row in s.chunks_exact_mut(v_dim) {
+                    let amax = row.iter().fold(0f32, |m, v| m.max(v.abs()));
+                    if amax == 0.0 {
+                        continue;
+                    }
+                    let scale = amax / 448.0;
+                    row.iter_mut()
+                        .for_each(|v| *v = round_e4m3(*v / scale, codes) * scale);
+                }
+            }
+        }
+    }
+}
+
+/// The 127 non-negative finite e4m3fn values, ascending (codes 0x00..=0x7e).
+pub fn e4m3_codes() -> [f32; 127] {
+    std::array::from_fn(|i| fp8_e4m3fn_to_f32(i as u8))
+}
+
+/// Rounds to the nearest e4m3fn value, ties to the even code, saturating at +/-448: equal to
+/// `fp8_e4m3fn_to_f32(f32_to_fp8_e4m3fn(x))` for finite `x`, without the per-value search.
+fn round_e4m3(x: f32, codes: &[f32; 127]) -> f32 {
+    let m = x.abs();
+    let hi = codes.partition_point(|&c| c <= m);
+    let v = if hi == 0 {
+        return x; // NaN: no code is <= it; keep it visible
+    } else if hi == codes.len() {
+        codes[126]
+    } else {
+        let (lo, below, above) = (hi - 1, codes[hi - 1], codes[hi]);
+        match (m - below).partial_cmp(&(above - m)) {
+            Some(std::cmp::Ordering::Less) => below,
+            Some(std::cmp::Ordering::Greater) => above,
+            _ if lo & 1 == 0 => below,
+            _ => above,
+        }
+    };
+    v.copysign(x)
+}
+
 /// Everything a later call needs to continue the sequence.
 #[derive(Debug, Clone)]
 pub struct Qwen38State {
     pub pos: usize,
     layers: Vec<LayerState>,
+    /// How the DeltaNet states are kept between tokens (default f32, the reference).
+    pub store: StateStore,
+    /// In [`Qwen38Reference::forward_lockstep`] (not `states[0]`): take the expert ids `states[0]`
+    /// picked at the same layer and row instead of routing on this state's own logits.
+    pub force_routes: bool,
+    /// L313 part 2: when above 1, a call with several tokens updates each DeltaNet head state once
+    /// per block of `chunk` tokens in the chunked (WY) form, see [`delta_chunk`]; 0 or 1 is the
+    /// token-by-token recurrence.
+    pub chunk: usize,
 }
 
 impl Qwen38State {
@@ -600,7 +711,21 @@ impl Qwen38State {
                 }
             })
             .collect();
-        Self { pos: 0, layers }
+        Self {
+            pos: 0,
+            layers,
+            store: StateStore::F32,
+            force_routes: false,
+            chunk: 0,
+        }
+    }
+
+    /// The DeltaNet states in layer order, each `[v_heads][k_dim][v_dim]`.
+    pub fn delta_states(&self) -> impl Iterator<Item = &[f32]> {
+        self.layers.iter().filter_map(|l| match l {
+            LayerState::DeltaNet { s, .. } => Some(s.as_slice()),
+            LayerState::Attention { .. } => None,
+        })
     }
 }
 
@@ -713,6 +838,9 @@ pub struct Qwen38Reference<S: TensorSource> {
     /// sigmoid(shared_gate . xn) `[t]` of the last call (beside [`Self::routes`]).
     pub route_wts: Vec<Vec<f32>>,
     pub shared_g: Vec<Vec<f32>>,
+    /// L313: per state of the last [`Self::forward_lockstep`] call, the MoE rows (layer x token)
+    /// whose expert set differs from `states[0]` (0 for `states[0]` and forced states).
+    pub lockstep_flips: Vec<usize>,
 }
 
 impl Qwen38Reference<ShardSource> {
@@ -750,6 +878,7 @@ impl<S: TensorSource> Qwen38Reference<S> {
             moe_x: Vec::new(),
             route_wts: Vec::new(),
             shared_g: Vec::new(),
+            lockstep_flips: Vec::new(),
         })
     }
 
@@ -822,7 +951,14 @@ impl<S: TensorSource> Qwen38Reference<S> {
     /// The sparse block over `t` rows of `xn` (post-attention normed): routes every row, reads
     /// each routed expert of layer `l` once and adds `weight * expert(x)` plus the gated shared
     /// expert. Records the routed ids in [`Self::routes`].
-    fn moe(&mut self, l: usize, w: &MoeWeights, xn: &[f32], t: usize) -> Result<Vec<f32>, String> {
+    fn moe(
+        &mut self,
+        l: usize,
+        w: &MoeWeights,
+        xn: &[f32],
+        t: usize,
+        force: Option<&[u16]>,
+    ) -> Result<Vec<f32>, String> {
         let s = self.config.moe.clone().ok_or("moe: dense config")?;
         let h = self.config.hidden;
         let (jw, rel) = self.jitter;
@@ -850,8 +986,11 @@ impl<S: TensorSource> Qwen38Reference<S> {
         let logits = w.router.matmul(xr, t);
         let mut picks: Vec<Vec<(usize, f32)>> = Vec::with_capacity(t);
         let mut gaps = Vec::with_capacity(t);
-        for row in logits.chunks_exact(s.experts) {
-            picks.push(route(row, s.top_k, self.routing_mutant));
+        for (i, row) in logits.chunks_exact(s.experts).enumerate() {
+            picks.push(match force {
+                Some(ids) => route_forced(row, &ids[i * s.top_k..(i + 1) * s.top_k]),
+                None => route(row, s.top_k, self.routing_mutant),
+            });
             let mut v = row.to_vec();
             v.sort_by(|a, b| b.total_cmp(a));
             gaps.push(if s.top_k < v.len() {
@@ -960,43 +1099,110 @@ impl<S: TensorSource> Qwen38Reference<S> {
                 taps.push(x.clone());
             }
             let w = self.read_layer(l)?;
-            let mut xn = x.clone();
-            rms_norm_zc(&mut xn, &w.input_norm, c.eps);
-            let mixed = match (&w.mixer, &mut state.layers[l]) {
-                (Mixer::DeltaNet(d), LayerState::DeltaNet { conv, s }) => {
-                    delta_net(&c, d, &xn, t, conv, s)
-                }
-                (Mixer::Attention(a), LayerState::Attention { k, v }) => {
-                    attention(&c, a, &xn, t, state.pos, k, v)
-                }
-                _ => return Err(format!("layer {l}: state kind differs from the weights")),
-            };
-            x.iter_mut().zip(&mixed).for_each(|(a, b)| *a += b);
-            if self.moe_capture && matches!(w.mlp, Mlp::Moe(_)) {
-                if self.moe_x.len() <= l {
-                    self.moe_x.resize(l + 1, Vec::new());
-                }
-                self.moe_x[l] = x.clone();
-            }
-            let mut xn = x.clone();
-            rms_norm_zc(&mut xn, &w.post_norm, c.eps);
-            let down = match &w.mlp {
-                Mlp::Dense(f) => f.run(&xn, t),
-                Mlp::Moe(m) => self.moe(l, m, &xn, t)?,
-            };
-            x.iter_mut().zip(&down).for_each(|(a, b)| *a += b);
+            self.layer_step(l, &w, state, &mut x, t, None)?;
         }
         if at.contains(&c.layers) {
             taps.push(x.clone());
         }
         state.pos += t;
+        Ok(self.head(&x, t, logits))
+    }
+
+    /// [`Self::forward`] for several sequences that all take the same `tokens` (L313: one state
+    /// per storage format, teacher-forced on the same ids). Each layer is read once and run for
+    /// every state in turn, so the result per state equals its own `forward` call. A state with
+    /// `force_routes` takes the expert ids `states[0]` picked at the same layer and row;
+    /// [`Self::lockstep_flips`] counts, per state, the rows whose expert set differs from `states[0]`.
+    pub fn forward_lockstep(
+        &mut self,
+        states: &mut [Qwen38State],
+        tokens: &[u32],
+        logits: Logits,
+    ) -> Result<Vec<Vec<f32>>, String> {
+        let (t, h) = (tokens.len(), self.config.hidden);
+        if t == 0 || tokens.iter().any(|&tok| tok as usize >= self.config.vocab) {
+            return Err(format!("forward_lockstep: bad tokens {tokens:?}"));
+        }
+        let mut x0 = vec![0f32; t * h];
+        for (row, &tok) in x0.chunks_exact_mut(h).zip(tokens) {
+            let tok = tok as usize;
+            for (o, &b) in row.iter_mut().zip(&self.embed[tok * h..(tok + 1) * h]) {
+                *o = bf16_to_f32(b);
+            }
+        }
+        let mut xs = vec![x0; states.len()];
+        self.lockstep_flips = vec![0; states.len()];
+        for l in 0..self.config.layers {
+            let w = self.read_layer(l)?;
+            let mut first: Vec<u16> = Vec::new();
+            for (i, (state, x)) in states.iter_mut().zip(xs.iter_mut()).enumerate() {
+                let force = (i > 0 && state.force_routes).then_some(&first[..]);
+                self.layer_step(l, &w, state, x, t, force)?;
+                if !matches!(w.mlp, Mlp::Moe(_)) {
+                    continue;
+                }
+                if i == 0 {
+                    first = self.routes[l].clone();
+                } else if let Some(k) = self.config.moe.as_ref().map(|m| m.top_k) {
+                    self.lockstep_flips[i] += route_flips(&first, &self.routes[l], k);
+                }
+            }
+        }
+        states.iter_mut().for_each(|s| s.pos += t);
+        Ok(xs.iter().map(|x| self.head(x, t, logits)).collect())
+    }
+
+    /// One decoder layer over the `t` rows of the residual `x`, in place.
+    fn layer_step(
+        &mut self,
+        l: usize,
+        w: &LayerWeights,
+        state: &mut Qwen38State,
+        x: &mut [f32],
+        t: usize,
+        force: Option<&[u16]>,
+    ) -> Result<(), String> {
+        let c = &self.config;
+        let mut xn = x.to_vec();
+        rms_norm_zc(&mut xn, &w.input_norm, c.eps);
+        let store = state.store;
+        let chunk = state.chunk;
+        let mixed = match (&w.mixer, &mut state.layers[l]) {
+            (Mixer::DeltaNet(d), LayerState::DeltaNet { conv, s }) => {
+                delta_net(c, d, &xn, t, conv, s, store, chunk)
+            }
+            (Mixer::Attention(a), LayerState::Attention { k, v }) => {
+                attention(c, a, &xn, t, state.pos, k, v)
+            }
+            _ => return Err(format!("layer {l}: state kind differs from the weights")),
+        };
+        x.iter_mut().zip(&mixed).for_each(|(a, b)| *a += b);
+        if self.moe_capture && matches!(w.mlp, Mlp::Moe(_)) {
+            if self.moe_x.len() <= l {
+                self.moe_x.resize(l + 1, Vec::new());
+            }
+            self.moe_x[l] = x.to_vec();
+        }
+        let mut xn = x.to_vec();
+        rms_norm_zc(&mut xn, &w.post_norm, c.eps);
+        let down = match &w.mlp {
+            Mlp::Dense(f) => f.run(&xn, t),
+            Mlp::Moe(m) => self.moe(l, m, &xn, t, force)?,
+        };
+        x.iter_mut().zip(&down).for_each(|(a, b)| *a += b);
+        Ok(())
+    }
+
+    /// Final norm and lm_head over the last row or every row of `x`.
+    fn head(&self, x: &[f32], t: usize, logits: Logits) -> Vec<f32> {
+        let h = self.config.hidden;
         let rows = match logits {
             Logits::Last => &x[(t - 1) * h..],
-            Logits::All => &x[..],
+            Logits::All => x,
         };
         let mut rows = rows.to_vec();
-        rms_norm_zc(&mut rows, &self.final_norm, c.eps);
-        Ok(self.lm_head.matmul(&rows, rows.len() / h))
+        rms_norm_zc(&mut rows, &self.final_norm, self.config.eps);
+        self.lm_head.matmul(&rows, rows.len() / h)
     }
 }
 
@@ -1008,6 +1214,8 @@ fn delta_net(
     t: usize,
     conv_tail: &mut [f32],
     state: &mut [f32],
+    store: StateStore,
+    chunk: usize,
 ) -> Vec<f32> {
     let (cd, kern) = (c.conv_dim(), c.conv_kernel);
     let qkv = w.in_qkv.matmul(xn, t);
@@ -1048,7 +1256,9 @@ fn delta_net(
         }
     }
 
-    // The recurrence, one value head per task.
+    // The recurrence, one value head per task. Each token computes in f32 from the stored state,
+    // then the state is rounded to `store` (what the next token reads back).
+    let codes = e4m3_codes();
     let mut core = vec![0f32; t * vh * vd];
     let mut per_head: Vec<Vec<f32>> = vec![Vec::new(); vh];
     state
@@ -1060,6 +1270,23 @@ fn delta_net(
             let decay_rate = -w.a_log[hv].exp();
             out.resize(t * vd, 0.0);
             let mut kv = vec![0f32; vd];
+            if chunk > 1 && t > 1 {
+                let rows: Vec<ChunkRow> = (0..t)
+                    .map(|i| ChunkRow {
+                        k: &k[i * key_dim + hk * kd..i * key_dim + (hk + 1) * kd],
+                        q: &q[i * key_dim + hk * kd..i * key_dim + (hk + 1) * kd],
+                        v: &mixed
+                            [i * cd + 2 * key_dim + hv * vd..i * cd + 2 * key_dim + (hv + 1) * vd],
+                        g: decay_rate * softplus(a[i * vh + hv] + w.dt_bias[hv]),
+                        beta: sigmoid(b[i * vh + hv]),
+                    })
+                    .collect();
+                for (block, o) in rows.chunks(chunk).zip(out.chunks_mut(chunk * vd)) {
+                    delta_chunk(s, vd, block, o);
+                    store.round_head(s, vd, &codes);
+                }
+                return;
+            }
             for i in 0..t {
                 let kt = &k[i * key_dim + hk * kd..i * key_dim + (hk + 1) * kd];
                 let qt = &q[i * key_dim + hk * kd..i * key_dim + (hk + 1) * kd];
@@ -1088,6 +1315,7 @@ fn delta_net(
                         *ov += sv * qr;
                     }
                 }
+                store.round_head(s, vd, &codes);
             }
         });
     for (hv, out) in per_head.iter().enumerate() {
@@ -1106,6 +1334,75 @@ fn delta_net(
         }
     }
     w.out.matmul(&core, t)
+}
+
+/// One token's inputs to one DeltaNet head: normalised key and query, value, log decay `g` and
+/// write strength `beta`.
+struct ChunkRow<'a> {
+    k: &'a [f32],
+    q: &'a [f32],
+    v: &'a [f32],
+    g: f32,
+    beta: f32,
+}
+
+/// L313 part 2: the gated delta rule for a block of `C` tokens with one read and one write of the
+/// head state `s` (`[kd][vd]`), the chunked (WY) form prefill kernels use. With
+/// `G_i = g_0 + .. + g_i` and `W = S0^T k_i`, `P = S0^T q_i` (the only reads of `S0`):
+///   u_j = beta_j (v_j - e^{G_j} S0^T k_j - sum_{m<j} e^{G_j - G_m} (k_j . k_m) u_m)
+///   o_i = e^{G_i} S0^T q_i + sum_{j<=i} e^{G_i - G_j} (q_i . k_j) u_j
+///   S_C = e^{G_C-1} S0 + sum_j e^{G_C-1 - G_j} k_j u_j^T
+/// Equal in exact arithmetic to the token-by-token recurrence in [`delta_net`] (decay, read,
+/// correct, write, then read the output); f32 rounding differs. `out` is `[C][vd]`.
+fn delta_chunk(s: &mut [f32], vd: usize, rows: &[ChunkRow], out: &mut [f32]) {
+    let n = rows.len();
+    let mut gc = Vec::with_capacity(n);
+    rows.iter().fold(0f32, |acc, r| {
+        gc.push(acc + r.g);
+        acc + r.g
+    });
+    let read = |x: &[f32]| -> Vec<f32> {
+        let mut y = vec![0f32; vd];
+        for (r, &xr) in x.iter().enumerate() {
+            for (o, &sv) in y.iter_mut().zip(&s[r * vd..(r + 1) * vd]) {
+                *o += sv * xr;
+            }
+        }
+        y
+    };
+    let mut u: Vec<Vec<f32>> = Vec::with_capacity(n);
+    for (j, rj) in rows.iter().enumerate() {
+        let w = read(rj.k);
+        let gj = gc[j].exp();
+        let mut uj: Vec<f32> = rj.v.iter().zip(&w).map(|(&v, &w)| v - gj * w).collect();
+        for (m, um) in u.iter().enumerate() {
+            let c = (gc[j] - gc[m]).exp() * dot(rj.k, rows[m].k);
+            uj.iter_mut().zip(um).for_each(|(a, &b)| *a -= c * b);
+        }
+        uj.iter_mut().for_each(|a| *a *= rj.beta);
+        u.push(uj);
+    }
+    for (i, (ri, o)) in rows.iter().zip(out.chunks_exact_mut(vd)).enumerate() {
+        let p = read(ri.q);
+        let gi = gc[i].exp();
+        o.iter_mut().zip(&p).for_each(|(a, &b)| *a = gi * b);
+        for (j, uj) in u.iter().enumerate().take(i + 1) {
+            let c = (gc[i] - gc[j]).exp() * dot(ri.q, rows[j].k);
+            o.iter_mut().zip(uj).for_each(|(a, &b)| *a += c * b);
+        }
+    }
+    let last = gc[n - 1];
+    let g_all = last.exp();
+    s.iter_mut().for_each(|v| *v *= g_all);
+    for (rj, (uj, &gj)) in rows.iter().zip(u.iter().zip(&gc)) {
+        let c = (last - gj).exp();
+        for (r, &kr) in rj.k.iter().enumerate() {
+            let f = c * kr;
+            for (sv, &d) in s[r * vd..(r + 1) * vd].iter_mut().zip(uj) {
+                *sv += f * d;
+            }
+        }
+    }
 }
 
 /// One gated full-attention mixer over `t` new tokens starting at position `pos0`; appends their
@@ -1583,7 +1880,7 @@ mod tests {
         let xn: Vec<f32> = (0..t * h).map(|i| prand(77, i)).collect();
         let w = r.read_layer(0).unwrap();
         let Mlp::Moe(m) = &w.mlp else { panic!() };
-        let got = r.moe(0, m, &xn, t).unwrap();
+        let got = r.moe(0, m, &xn, t, None).unwrap();
         let p = "model.language_model.layers.0.mlp";
         let lut = fp8_table();
         let wide = |src: &mut Mem, name: &str, n: usize, k: usize| -> Vec<f64> {
@@ -1659,5 +1956,99 @@ mod tests {
             }
         }
         assert!(worst < 1e-4, "worst relative error {worst}");
+    }
+
+    /// L313: e4m3 rounding without the search equals the encoder round trip.
+    #[test]
+    fn round_e4m3_equals_encoder_round_trip() {
+        use crate::qwen3_moe::f32_to_fp8_e4m3fn;
+        let codes = e4m3_codes();
+        let mut x = 1e-4f32;
+        while x < 1000.0 {
+            for v in [x, -x, x * 1.0001, -x * 0.9999] {
+                let want = fp8_e4m3fn_to_f32(f32_to_fp8_e4m3fn(v));
+                assert_eq!(round_e4m3(v, &codes), want, "x = {v}");
+            }
+            x *= 1.013;
+        }
+        // Exact codes and their midpoints (ties to even).
+        for i in 0..126usize {
+            let mid = (codes[i] + codes[i + 1]) / 2.0;
+            let want = fp8_e4m3fn_to_f32(f32_to_fp8_e4m3fn(mid));
+            assert_eq!(round_e4m3(mid, &codes), want, "mid {i}");
+        }
+    }
+
+    /// L313: lockstep with f32 states equals separate forward calls bit for bit; bf16 and fp8
+    /// stores move the logits a little; forced routes on an f32 state change nothing.
+    #[test]
+    fn lockstep_matches_forward_and_stores_drift() {
+        let c = tiny_moe();
+        let mut solo = Qwen38Reference::new(c.clone(), tiny_source(&c)).unwrap();
+        let mut lock = Qwen38Reference::new(c.clone(), tiny_source(&c)).unwrap();
+        let tokens = [5u32, 17, 3, 42, 8, 8, 60];
+        let mut s0 = solo.new_state();
+        let mut want = solo.forward(&mut s0, &tokens[..3], Logits::All).unwrap();
+        for &tok in &tokens[3..] {
+            want.extend(solo.forward(&mut s0, &[tok], Logits::Last).unwrap());
+        }
+        let mut states: Vec<Qwen38State> = (0..4).map(|_| lock.new_state()).collect();
+        states[1].force_routes = true;
+        states[2].store = StateStore::Bf16;
+        states[3].store = StateStore::Fp8E4m3Row;
+        let mut got: Vec<Vec<f32>> = lock
+            .forward_lockstep(&mut states, &tokens[..3], Logits::All)
+            .unwrap();
+        for &tok in &tokens[3..] {
+            let rows = lock
+                .forward_lockstep(&mut states, &[tok], Logits::Last)
+                .unwrap();
+            got.iter_mut().zip(rows).for_each(|(g, r)| g.extend(r));
+            assert_eq!(lock.lockstep_flips[1], 0);
+        }
+        assert_eq!(got[0], want, "f32 lockstep differs from forward");
+        assert_eq!(got[1], want, "forced routes on f32 differ");
+        let diff = |a: &[f32], b: &[f32]| {
+            a.iter()
+                .zip(b)
+                .map(|(x, y)| (x - y).abs())
+                .fold(0f32, f32::max)
+        };
+        let (d16, d8) = (diff(&got[2], &want), diff(&got[3], &want));
+        assert!(d16 > 0.0 && d16 < 1e-1, "bf16 drift {d16}");
+        assert!(d8 > d16 && d8 < 1.0, "fp8 drift {d8} (bf16 {d16})");
+        assert_eq!(
+            states[0].delta_states().count(),
+            states[2].delta_states().count()
+        );
+    }
+
+    /// L313 part 2: the chunked (WY) state update equals the token-by-token recurrence.
+    #[test]
+    fn chunked_delta_equals_token_by_token() {
+        let c = tiny_moe();
+        let mut m = Qwen38Reference::new(c.clone(), tiny_source(&c)).unwrap();
+        let tokens = [5u32, 17, 3, 42, 8, 8, 60, 11, 2, 29];
+        let mut seq = m.new_state();
+        let want = m.forward(&mut seq, &tokens, Logits::All).unwrap();
+        for chunk in [2usize, 3, 4, 16] {
+            let mut st = m.new_state();
+            st.chunk = chunk;
+            let got = m.forward(&mut st, &tokens, Logits::All).unwrap();
+            let d = got
+                .iter()
+                .zip(&want)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0f32, f32::max);
+            assert!(d < 1e-4, "chunk {chunk}: max logit difference {d}");
+            for (a, b) in st.delta_states().zip(seq.delta_states()) {
+                let e = a
+                    .iter()
+                    .zip(b)
+                    .map(|(x, y)| (x - y).abs())
+                    .fold(0f32, f32::max);
+                assert!(e < 1e-5, "chunk {chunk}: state difference {e}");
+            }
+        }
     }
 }
