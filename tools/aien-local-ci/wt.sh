@@ -24,19 +24,29 @@
 # through the mirror) but cannot change it.
 set -euo pipefail
 RUN_USER=aien-run
-BASE=/var/lib/aien-run
+BASE=${AIEN_WT_BASE:-/var/lib/aien-run}   # AIEN_WT_BASE: tests only (tests/wt_mirror_lock_test.sh)
 MIRROR="$BASE/mirror"
 WT="$BASE/wt"
 OPERATOR=$(id -un)
 
 die() { printf 'wt.sh: %s\n' "$*" >&2; exit 2; }
 name_ok() { [[ $1 =~ ^[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]]; }
+# One lock for every change to the mirrors (fetch, worktree add, worktree prune). Pollers run wt.sh at the same
+# time for the same mirror (a repo's own poller and every poller that makes it a sibling); two fetches into one
+# bare repo race on its ref locks ("cannot lock ref ... is at X but expected Y"), and a prune can drop a worktree
+# another process is still adding. Held until wt.sh exits; each holder takes seconds.
+mirror_lock() {
+  mkdir -p "$MIRROR"
+  exec 9>"$MIRROR/.wt.lock"
+  flock -w 900 9 || die "mirror lock busy for 15 min: $MIRROR/.wt.lock"
+}
 cmd=${1:-}; shift || true
 case "$cmd" in
   sync)
     repo=${1:?repo}; clone=${2:?trusted-clone-dir}
     name_ok "$repo" || die "bad repo name"
     git -C "$clone" rev-parse --git-dir >/dev/null || die "not a git dir: $clone"
+    mirror_lock
     m="$MIRROR/$repo.git"
     if [[ ! -d $m ]]; then
       git init --bare --quiet "$m"
@@ -52,6 +62,7 @@ case "$cmd" in
   add)
     repo=${1:?repo}; sha=${2:?sha}
     name_ok "$repo" && [[ $sha =~ ^[0-9a-f]{7,40}$ ]] || die "bad repo or sha"
+    mirror_lock
     m="$MIRROR/$repo.git"; [[ -d $m ]] || die "no mirror for $repo (run: wt.sh sync $repo <clone>)"
     full=$(git -C "$m" rev-parse --verify "$sha^{commit}") || die "unknown commit $sha"
     c="$WT/$repo/$full"; d="$c/$repo"
@@ -70,6 +81,7 @@ case "$cmd" in
     [[ $dir != "$repo" ]] || die "a sibling cannot take the checkout's own name: $dir"
     c="$WT/$repo/$sha"; [[ -d $c/$repo && ! -L $c ]] || die "no checkout at $c/$repo (run: wt.sh add $repo $sha)"
     s="$c/$dir"; [[ ! -e $s ]] || die "exists: $s"
+    mirror_lock
     m="$MIRROR/$src.git"; [[ -d $m ]] || die "no mirror for $src (run: wt.sh sync $src <clone>)"
     full=$(git -C "$m" rev-parse --verify "$ssha^{commit}") || die "unknown commit $ssha in $src"
     git -C "$m" worktree add --quiet --detach "$s" "$full"
@@ -90,6 +102,7 @@ case "$cmd" in
       done
     fi
     # The checkout and its siblings were worktrees of (possibly) several mirrors.
+    mirror_lock
     for m in "$MIRROR"/*.git; do [[ -d $m ]] && git -C "$m" worktree prune; done
     printf 'removed %s\n' "$d"
     ;;
