@@ -378,57 +378,8 @@ pub fn forward_token_with(
     let token_idx = (token_id as usize) % QWEN3_CODER_VOCAB;
     let mut x = weights.embed[token_idx * h..(token_idx + 1) * h].to_vec();
 
-    for (layer_idx, attn) in weights.attns.iter().enumerate() {
-        let kv = &mut state.layers[layer_idx];
-
-        let mut x_norm = vec![0.0f32; h];
-        rmsnorm(&x, &attn.input_norm, eps, &mut x_norm);
-
-        let mut q = vec![0.0f32; qd];
-        let mut k = vec![0.0f32; kvd];
-        let mut v = vec![0.0f32; kvd];
-        matvec_f32_parallel(&x_norm, &attn.q_proj, &mut q, h, qd);
-        matvec_f32_parallel(&x_norm, &attn.k_proj, &mut k, h, kvd);
-        matvec_f32_parallel(&x_norm, &attn.v_proj, &mut v, h, kvd);
-
-        let mut qn = vec![0.0f32; qd];
-        let mut kn = vec![0.0f32; kvd];
-        rmsnorm_per_head(&q, &attn.q_norm, eps, QWEN3_CODER_Q_HEADS, hd, &mut qn);
-        rmsnorm_per_head(&k, &attn.k_norm, eps, QWEN3_CODER_KV_HEADS, hd, &mut kn);
-
-        apply_rope(
-            &mut qn,
-            &mut kn,
-            pos,
-            QWEN3_CODER_Q_HEADS,
-            QWEN3_CODER_KV_HEADS,
-            hd,
-            QWEN3_CODER_ROPE_THETA,
-        );
-
-        kv.keys.push(kn);
-        kv.values.push(v);
-
-        let mut attn_out = vec![0.0f32; qd];
-        scaled_dot_product_attention_single(
-            &qn,
-            &kv.keys,
-            &kv.values,
-            QWEN3_CODER_Q_HEADS,
-            QWEN3_CODER_KV_HEADS,
-            hd,
-            &mut attn_out,
-        );
-
-        let mut attn_proj = vec![0.0f32; h];
-        matvec_f32_parallel(&attn_out, &attn.o_proj, &mut attn_proj, qd, h);
-        for i in 0..h {
-            x[i] += attn_proj[i];
-        }
-
-        let mut post = vec![0.0f32; h];
-        rmsnorm(&x, &attn.post_norm, eps, &mut post);
-
+    for layer_idx in 0..weights.attns.len() {
+        let post = forward_layer_attn(weights, layer_idx, &mut x, pos, &mut state.layers[layer_idx]);
         let moe_out = moe(layer_idx, &post);
         for i in 0..h {
             x[i] += moe_out[i];
@@ -539,4 +490,80 @@ mod tests {
         let y = dequant_matvec(&w, &s, 2, 128, &v, &lut);
         assert!((y[0] - 128.0).abs() < 1e-3);
     }
+}
+
+/// One layer's attention block of the exact reference (L312): everything `forward_token_with` does for a layer
+/// before the MoE, factored out so N sequences can share one expert read per beat. Same statements in the same
+/// order as before the split, so results are bit-identical by construction. Adds the attention output to `x`
+/// (the residual) and returns the post-attention norm the router and experts read.
+pub fn forward_layer_attn(weights: &Qwen3CoderWeights, layer_idx: usize, x: &mut [f32], pos: usize, kv: &mut Qwen3CoderLayerKv) -> Vec<f32> {
+    let h = QWEN3_CODER_HIDDEN;
+    let qd = QWEN3_CODER_Q_DIM;
+    let kvd = QWEN3_CODER_KV_DIM;
+    let hd = QWEN3_CODER_HEAD_DIM;
+    let eps = QWEN3_CODER_RMS_EPS;
+    let attn = &weights.attns[layer_idx];
+
+        let mut x_norm = vec![0.0f32; h];
+        rmsnorm(&x, &attn.input_norm, eps, &mut x_norm);
+
+        let mut q = vec![0.0f32; qd];
+        let mut k = vec![0.0f32; kvd];
+        let mut v = vec![0.0f32; kvd];
+        matvec_f32_parallel(&x_norm, &attn.q_proj, &mut q, h, qd);
+        matvec_f32_parallel(&x_norm, &attn.k_proj, &mut k, h, kvd);
+        matvec_f32_parallel(&x_norm, &attn.v_proj, &mut v, h, kvd);
+
+        let mut qn = vec![0.0f32; qd];
+        let mut kn = vec![0.0f32; kvd];
+        rmsnorm_per_head(&q, &attn.q_norm, eps, QWEN3_CODER_Q_HEADS, hd, &mut qn);
+        rmsnorm_per_head(&k, &attn.k_norm, eps, QWEN3_CODER_KV_HEADS, hd, &mut kn);
+
+        apply_rope(
+            &mut qn,
+            &mut kn,
+            pos,
+            QWEN3_CODER_Q_HEADS,
+            QWEN3_CODER_KV_HEADS,
+            hd,
+            QWEN3_CODER_ROPE_THETA,
+        );
+
+        kv.keys.push(kn);
+        kv.values.push(v);
+
+        let mut attn_out = vec![0.0f32; qd];
+        scaled_dot_product_attention_single(
+            &qn,
+            &kv.keys,
+            &kv.values,
+            QWEN3_CODER_Q_HEADS,
+            QWEN3_CODER_KV_HEADS,
+            hd,
+            &mut attn_out,
+        );
+
+        let mut attn_proj = vec![0.0f32; h];
+        matvec_f32_parallel(&attn_out, &attn.o_proj, &mut attn_proj, qd, h);
+        for i in 0..h {
+            x[i] += attn_proj[i];
+        }
+
+        let mut post = vec![0.0f32; h];
+        rmsnorm(&x, &attn.post_norm, eps, &mut post);
+    post
+}
+
+/// Embedding row of a token (the start of the residual stream), as `forward_token_with` does it.
+pub fn embed_token(weights: &Qwen3CoderWeights, token_id: u32) -> Vec<f32> {
+    let h = QWEN3_CODER_HIDDEN;
+    let token_idx = (token_id as usize) % QWEN3_CODER_VOCAB;
+    weights.embed[token_idx * h..(token_idx + 1) * h].to_vec()
+}
+
+/// Final norm of the residual stream, as `forward_token_with` returns it.
+pub fn final_hidden(weights: &Qwen3CoderWeights, x: &[f32]) -> Vec<f32> {
+    let mut x_final = vec![0.0f32; QWEN3_CODER_HIDDEN];
+    rmsnorm(x, &weights.final_norm, QWEN3_CODER_RMS_EPS, &mut x_final);
+    x_final
 }

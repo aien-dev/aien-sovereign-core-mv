@@ -21,3 +21,5 @@ pub mod timing;
 pub const HIDDEN: usize = 2048;
 pub const INTER: usize = 768;
 pub const BLOCK: usize = 128;
+/// Routed experts per layer of the 30B.
+pub const EXPERTS: usize = 128;

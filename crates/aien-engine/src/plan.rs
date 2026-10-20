@@ -111,3 +111,30 @@ impl RouteTrace {
         std::fs::write(p, serde_json::to_vec(self).map_err(|e| e.to_string())?).map_err(|e| format!("{}: {e}", p.display()))
     }
 }
+
+impl PlacementPlan {
+    /// Synthetic plan over several traces (H6: N heads on one stroke): head(layer) = union of the experts any of
+    /// the traces routed to in that layer, so every head's own routing is covered and bytes per beat do not depend
+    /// on how many heads ride the stroke.
+    pub fn synthetic_from_traces(model: &str, model_dir: &Path, traces: &[RouteTrace], k: usize, buffers: usize) -> Self {
+        let layers: Vec<u16> = (0..k as u16).collect();
+        let heads = layers
+            .iter()
+            .map(|&l| {
+                let set: BTreeSet<u16> = traces.iter().flat_map(|tr| tr.routes.iter().flat_map(move |t| t[l as usize].iter().copied())).collect();
+                Head { layer: l, experts: set.into_iter().collect() }
+            })
+            .collect();
+        Self {
+            schema: "aien-engine-plan/1".into(),
+            model: model.into(),
+            model_dir: model_dir.display().to_string(),
+            synthetic: true,
+            source: format!("union of routed experts per layer over {} traces, {} positions", traces.len(), traces.iter().map(|t| t.routes.len()).sum::<usize>()),
+            layers,
+            heads,
+            head_tier: Tier::Nvme,
+            buffers_in_flight: buffers,
+        }
+    }
+}

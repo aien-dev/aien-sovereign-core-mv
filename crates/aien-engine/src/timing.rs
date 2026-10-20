@@ -73,6 +73,8 @@ pub struct Summary {
     pub fire_us: Series,
     pub beat_us: Series,
     pub gap_us: Series,
+    /// Piston idle before each fire: fire_start(b) - fire_done(b-1). Zero = the piston never waited for fuel.
+    pub idle_us: Series,
     pub late_beats: usize,
     pub payload_gbps_during_fill: f64,
     pub beats_per_s: f64,
@@ -84,6 +86,7 @@ pub fn summarize(t: &[BeatTrace]) -> Summary {
     let fire: Vec<f64> = t.iter().map(|b| us(b.fire_ns())).collect();
     let gap: Vec<f64> = t.iter().map(|b| us(b.gap_ns())).collect();
     let beat: Vec<f64> = t.windows(2).map(|w| us(w[1].fire_start_ns - w[0].fire_start_ns)).collect();
+    let idle: Vec<f64> = t.windows(2).map(|w| us(w[1].fire_start_ns - w[0].fire_done_ns)).collect();
     let bytes: Vec<f64> = t.iter().map(|b| b.bytes as f64).collect();
     let fill_s: f64 = t.iter().map(|b| b.fill_ns() as f64).sum::<f64>() / 1e9;
     let total_bytes: f64 = bytes.iter().sum();
@@ -96,6 +99,7 @@ pub fn summarize(t: &[BeatTrace]) -> Summary {
         fire_us: series(&fire),
         beat_us: series(&beat),
         gap_us: series(&gap),
+        idle_us: series(&idle),
         late_beats: t.iter().filter(|b| b.gap_ns() < 0).count(),
         payload_gbps_during_fill: if fill_s > 0.0 { total_bytes / fill_s / 1e9 } else { 0.0 },
         beats_per_s: if span_s > 0.0 { t.len() as f64 / span_s } else { 0.0 },

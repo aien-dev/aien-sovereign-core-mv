@@ -318,3 +318,125 @@ mod tests {
         assert!(s.check().pass());
     }
 }
+
+/// The dependency graph of a schedule, by edge kind. Drake (2026-10-20): only the true dependencies are edges;
+/// every other order is left to the engine that wants it.
+/// * `fuel`: fill(for_beat = b) -> fire(b). The buffer must be full before the beat fires.
+/// * `residual`: fire(b) -> fire(b + 1) when both beats are layers of the same token (layer L+1 reads what L wrote).
+/// * `token`: fire(last layer of token t) -> fire(first layer of token t + 1) of the same sequence.
+/// * `release`: fire(b') -> fill issued at beat b for the buffer b' fired on (the buffer is free again). The fill
+///   issued during beat b targets a buffer whose last fire was at a beat < b (the buffer beat b fires on is a violation).
+/// * `free_parts`: the parts of one fill carry no order between them (sum over fills): the movement engine lands
+///   them in any order, on any worker.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct EdgeReport {
+    pub fuel: usize,
+    pub residual: usize,
+    pub token: usize,
+    pub release: usize,
+    pub free_parts: usize,
+    /// Edges that point backwards or sideways in beat order (must be 0) and fills that would overwrite a buffer
+    /// before its last fire (must be 0).
+    pub violations: Vec<String>,
+}
+
+impl Schedule {
+    /// Enumerate the edges and prove there are exactly these: fuel = beats, residual = (layers - 1) x tokens,
+    /// token = tokens - 1, release = in-beat fills whose buffer was fired on before; no edge points backwards.
+    pub fn edges(&self) -> EdgeReport {
+        let mut r = EdgeReport::default();
+        let mut last_fire: HashMap<u32, u32> = HashMap::new();
+        for (i, beat) in self.beats.iter().enumerate() {
+            r.fuel += 1;
+            if i > 0 {
+                let prev = &self.beats[i - 1];
+                if prev.token == beat.token {
+                    r.residual += 1;
+                } else if prev.token + 1 == beat.token {
+                    r.token += 1;
+                } else {
+                    r.violations.push(format!("beat {}: token {} follows token {}", beat.b, beat.token, prev.token));
+                }
+            }
+            // record this beat's fire first: a fill issued during beat b that targets the buffer b fires on is a violation
+            last_fire.insert(beat.fire_buffer, beat.b);
+            if let Some(f) = &beat.fill {
+                if let Some(&lf) = last_fire.get(&f.buffer) {
+                    if lf >= beat.b {
+                        r.violations.push(format!("beat {}: fill targets buffer {} fired at beat {lf} (not released)", beat.b, f.buffer));
+                    }
+                    r.release += 1;
+                }
+                r.free_parts += f.parts.len().saturating_sub(1);
+            }
+        }
+        for f in &self.prime {
+            r.free_parts += f.parts.len().saturating_sub(1);
+        }
+        r
+    }
+
+    /// The expected edge counts for a table with this many tokens, layers and fills: the host test for
+    /// "exactly those edges and no others".
+    pub fn expected_edges(&self) -> EdgeReport {
+        let k = self.layers.len();
+        let t = self.tokens as usize;
+        let in_beat_fills = self.beats.iter().filter(|b| b.fill.is_some()).count();
+        EdgeReport {
+            fuel: self.beats.len(),
+            residual: (k - 1) * t,
+            token: t.saturating_sub(1),
+            // after the B - 1 prime fills, only the first in-beat fill (for beat B - 1, buffer B - 1) targets a buffer
+            // never fired on; every later in-beat fill at beat b refills the buffer fired on at beat b - 1
+            release: in_beat_fills.saturating_sub(1),
+            free_parts: self.beats.iter().filter_map(|b| b.fill.as_ref()).chain(self.prime.iter()).map(|f| f.parts.len().saturating_sub(1)).sum(),
+            violations: vec![],
+        }
+    }
+}
+
+#[cfg(test)]
+mod edge_tests {
+    use super::*;
+    use crate::plan::{Head, PlacementPlan, Tier};
+
+    fn toy(k: u16, experts: u16, buffers: usize, tokens: u32) -> Schedule {
+        let mut m = Manifest { schema: "toy".into(), model_dir: "/nonexistent".into(), shards: vec!["s0".into()], num_layers: k, experts_per_layer: experts, experts: vec![] };
+        for l in 0..k {
+            for e in 0..experts {
+                m.experts.push(ExpertEntry { layer: l, expert: e, segments: vec![Segment { shard: 0, start: 0, len: 10 }], len: 10, tensors: vec![], digest: "0".repeat(64) });
+            }
+        }
+        let plan = PlacementPlan { schema: "p".into(), model: "toy".into(), model_dir: "/nonexistent".into(), synthetic: true, source: "t".into(), layers: (0..k).collect(), heads: (0..k).map(|l| Head { layer: l, experts: (0..experts).collect() }).collect(), head_tier: Tier::Nvme, buffers_in_flight: buffers };
+        Schedule::build(&plan, &m, tokens).unwrap()
+    }
+
+    #[test]
+    fn exactly_the_true_edges_two_buffers() {
+        let s = toy(4, 3, 2, 5);
+        let got = s.edges();
+        assert_eq!(got, s.expected_edges(), "{got:?}");
+        assert_eq!(got.fuel, 20);
+        assert_eq!(got.residual, 15);
+        assert_eq!(got.token, 4);
+        assert_eq!(got.release, 18); // 19 in-beat fills, the first targets buffer 1 never fired on
+        assert_eq!(got.free_parts, 40); // 20 fills x (3 - 1)
+    }
+
+    #[test]
+    fn exactly_the_true_edges_three_buffers() {
+        let s = toy(3, 2, 3, 4);
+        let got = s.edges();
+        assert_eq!(got, s.expected_edges(), "{got:?}");
+        assert!(got.violations.is_empty());
+    }
+
+    #[test]
+    fn unreleased_buffer_is_a_violation() {
+        let mut s = toy(2, 2, 2, 3);
+        // sabotage: the fill issued at beat 2 targets the buffer beat 2 itself fires on
+        let fb = s.beats[2].fire_buffer;
+        s.beats[2].fill.as_mut().unwrap().buffer = fb;
+        assert!(!s.edges().violations.is_empty());
+    }
+}
