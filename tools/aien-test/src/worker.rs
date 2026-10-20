@@ -1453,7 +1453,27 @@ pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
                 }
             }
         }
-        for (repo, sha, trigger) in heads {
+        // Desk blocks (L309): an open block's head goes before every other head
+        // of its repository, and the heads it carries are not judged by
+        // themselves. The block files are read again before each head, so a
+        // block the desk opens during a long round is served next, not next round.
+        let mut queue: std::collections::VecDeque<(String, String, Option<PathBuf>)> = heads.into();
+        let mut tried = std::collections::HashSet::new();
+        loop {
+            let blocks = if cfg.github {
+                crate::block_first::open_blocks(&cfg.state.root, &cfg.repos, SystemTime::now())
+            } else {
+                Vec::new()
+            };
+            let Some((repo, sha, trigger)) = crate::block_first::next_head(
+                &mut queue,
+                &blocks,
+                &cfg.state.trigger_dir(),
+                &|r, s| cfg.state.bundle_path(r, s).exists(),
+                &mut tried,
+            ) else {
+                break;
+            };
             match run_once(cfg, &repo, &sha) {
                 Ok(s) => {
                     println!(

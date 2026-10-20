@@ -36,6 +36,7 @@
 //! `CHECK_ID` and the `OBJECT` it hashed (and the ids of the gates it rests
 //! on).
 
+pub mod block_first;
 pub mod bundle;
 pub mod cache;
 pub mod cli;
