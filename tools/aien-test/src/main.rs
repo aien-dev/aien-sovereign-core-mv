@@ -124,8 +124,8 @@ fn repo_root_or_report(cwd: &Path) -> Result<PathBuf, i32> {
 /// fresh run.
 fn print_cache(note: &CacheNote) {
     match note {
-        CacheNote::Reused { from } => {
-            println!("REUSED {from}");
+        CacheNote::Reused { from, commit } => {
+            println!("REUSED {from} (made at commit {commit})");
             println!(
                 "CACHE reused: an earlier run of exactly this experiment already has this result, so it was not run again (use --no-cache to force a fresh run)"
             );

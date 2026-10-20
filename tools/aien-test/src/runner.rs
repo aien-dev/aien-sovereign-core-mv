@@ -76,6 +76,10 @@ pub struct Options {
     /// `requires: operator` gate runs instead of staying OPERATOR_STEP_PENDING
     /// (ADR 0033 Decision 2). Never set by the automatic loop.
     pub operator: bool,
+    /// The cross-head store (`cache::Shared`, `<state>/gate-cache/<repo>`).
+    /// None keeps the cache inside `evidence_dir`, as before. The worker sets
+    /// it; a lone `run` does not.
+    pub shared_cache: Option<cache::Shared>,
 }
 
 impl Options {
@@ -97,6 +101,7 @@ impl Options {
             release: false,
             pins: json!([]),
             operator: false,
+            shared_cache: None,
         }
     }
 }
@@ -132,8 +137,9 @@ pub struct Outcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CacheNote {
     /// The result was reused, not rerun. Holds the digest of the fresh
-    /// receipt it was taken from.
-    Reused { from: String },
+    /// receipt it was taken from and the commit that receipt was made for
+    /// (another head when it came through the cross-head store).
+    Reused { from: String, commit: String },
     /// The cache was consulted and had nothing usable; the gate ran.
     Miss(String),
     /// The cache was not consulted; the gate ran (or was refused). Holds why.
@@ -182,6 +188,18 @@ pub fn head(root: &Path) -> Result<String, String> {
         Ok(s)
     } else {
         Err(format!("HEAD is not a 40-hex commit: {s:?}"))
+    }
+}
+
+/// The tree id of HEAD: equal for two commits whose every file is identical.
+pub fn head_tree(root: &Path) -> Result<String, String> {
+    let s = git_out(root, &["rev-parse", "HEAD^{tree}"])?
+        .trim()
+        .to_string();
+    if s.len() == 40 && s.bytes().all(|c| c.is_ascii_hexdigit()) {
+        Ok(s)
+    } else {
+        Err(format!("HEAD^{{tree}} is not a 40-hex id: {s:?}"))
     }
 }
 
@@ -383,13 +401,19 @@ fn exec_path_in(root: &Path, exec: &str, path: Option<std::ffi::OsString>) -> Op
 }
 
 /// sha256 over the canonical list of (path, file sha256) for the explicit
-/// `inputs` plus the D3 convention-implied inputs of `tests/<dir>/<name>.gate`.
+/// `inputs`, the D3 convention-implied inputs of `tests/<dir>/<name>.gate` and
+/// the repository build files in [`IMPLIED_BUILD_FILES`] that exist.
 /// A listed path that does not exist is recorded with a null digest. Compiler
 /// identity is not included yet because nothing here builds.
 pub fn build_inputs_digest(root: &Path, manifest_rel: Option<&Path>, m: &Manifest) -> String {
     let mut paths: BTreeSet<String> = BTreeSet::new();
     for i in &m.inputs {
         collect_files(root, i, &mut paths);
+    }
+    for f in IMPLIED_BUILD_FILES {
+        if root.join(f).is_file() {
+            paths.insert(f.to_string());
+        }
     }
     if let Some(rel) = manifest_rel {
         let dir = rel.parent().unwrap_or(Path::new(""));
@@ -434,6 +458,37 @@ pub fn build_inputs_digest(root: &Path, manifest_rel: Option<&Path>, m: &Manifes
         .collect();
     canonical_digest(&json!({ "inputs": entries })).unwrap_or_default()
 }
+
+/// sha256 of the running aien-test binary, read once. None when the binary
+/// cannot be read (then no result made under None matches one made under a
+/// readable binary).
+pub fn judge_sha256() -> Option<String> {
+    static SHA: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    SHA.get_or_init(|| {
+        std::env::current_exe()
+            .and_then(fs::read)
+            .ok()
+            .map(|b| sha256_hex(&b))
+    })
+    .clone()
+}
+
+/// Repository build files that change what any gate builds or runs even when
+/// its manifest does not list them (the workspace manifest and lock, the
+/// toolchain pin, cargo's config). Each one that exists joins every gate's
+/// `build_inputs_digest`: a gate like SC-INQUISITOR builds with cargo and
+/// lists no Cargo.toml. Adding a file to the key can only turn a hit into a
+/// miss, never the other way.
+pub const IMPLIED_BUILD_FILES: [&str; 8] = [
+    "Cargo.toml",
+    "Cargo.lock",
+    "rust-toolchain",
+    "rust-toolchain.toml",
+    ".cargo/config",
+    ".cargo/config.toml",
+    "native-artifacts.lock",
+    "mojoproject.toml",
+];
 
 pub(crate) fn machine(hw: &Hardware) -> Value {
     let kernel = fs::read_to_string("/proc/sys/kernel/osrelease")
@@ -521,6 +576,10 @@ pub(crate) fn identity(
         machine["sandbox_helper_sha256"] =
             json!(fs::read(sandbox::EXEC_HELPER).ok().map(|b| sha256_hex(&b)));
     }
+    // The judge that derives the verdict is part of the machine too: a result
+    // made by another build of aien-test is never reused, inside one head or
+    // across heads (a new rule in the verdict, a new receipt member).
+    machine["judge_sha256"] = json!(judge_sha256());
     let machine_digest = canonical_digest(&machine)?;
     Ok(Identity {
         binary_sha,
@@ -615,10 +674,19 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
     let dependencies: Vec<(String, String)> = dependency_rows(&facts.deps).into_iter().collect();
     // Receipts are read when a lookup may happen, and to follow a reused
     // dependency back to the receipt it stands for.
-    let index = if mode == cache::Mode::Allow || !dependencies.is_empty() {
+    let mut index = if mode == cache::Mode::Allow || !dependencies.is_empty() {
         Index::load(&store)
     } else {
         Index::default()
+    };
+    // The cross-head store, only for a gate whose result may leave this head
+    // (`cache::cross_head`); every other gate keeps its cache inside this
+    // head. The reach decides the entry name: the key, or the key and the
+    // tree id when the manifest does not promise complete inputs.
+    let reach = cache::cross_head(m).ok();
+    let shared: Option<(&cache::Shared, cache::Reach)> = match (opts.shared_cache.as_ref(), reach) {
+        (Some(sh), Some(r)) => Some((sh, r)),
+        _ => None,
     };
     let experiment = cache::Experiment {
         manifest_digest: m.digest.clone(),
@@ -640,8 +708,37 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
     // Reuse only when the gate would really have run: a refusal, a blocked
     // verdict or a dependency that is not PASS is reported as it is, never
     // hidden behind an old result.
+    // Held from the shared lookup until this head's result is published, so
+    // another judge of the same key waits for it instead of running it too.
+    let mut key_lock: Option<cache::KeyLock> = None;
+    let mut shared_note: Option<String> = None;
+    let mut shared_slot: Option<String> = None;
     if mode == cache::Mode::Allow && !evidence_inside && verdict::pre_run(m, &facts).is_none() {
-        match cache::lookup(&index, &store, &cache_key, &captured_env()) {
+        let env = captured_env();
+        let local_hit = matches!(
+            cache::lookup(&index, &store, &cache_key, &env),
+            cache::Lookup::Hit(_)
+        );
+        if let (false, Some((sh, reach))) = (local_hit, shared) {
+            let tree = head_tree(root).map_err(RunError::Fatal)?;
+            let name = cache::slot(&cache_key, reach, &tree);
+            key_lock =
+                Some(sh.lock(&name).map_err(|e| {
+                    fatal(format!("cannot lock cache key {}: {e}", &cache_key[..12]))
+                })?);
+            match sh.import(&name, &cache_key, &store) {
+                Ok(Some(_)) => index = Index::load(&store),
+                Ok(None) => {
+                    shared_note = Some(match reach {
+                        cache::Reach::Inputs => "no other head has this key yet".to_string(),
+                        cache::Reach::Tree => "no other head with this exact tree has this key yet (the manifest does not say cache: inputs_complete)".to_string(),
+                    })
+                }
+                Err(e) => shared_note = Some(format!("the cross-head entry could not be read ({e})")),
+            }
+            shared_slot = Some(name);
+        }
+        match cache::lookup(&index, &store, &cache_key, &env) {
             cache::Lookup::Hit(src) => {
                 let reused_verdict = src
                     .verdict()
@@ -656,6 +753,10 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
                     "cache": cache::cache_member(&cache_key, Some(&src.digest), mode),
                     "timeout_exceeded": false,
                 });
+                let mut volatile = volatile;
+                // Which head the result was made for: this one, or another
+                // head whose result came through the cross-head store.
+                volatile["cache"]["reused_from_commit"] = json!(src.commit());
                 let receipt = build_receipt(cache::reused_core(src, &commit), volatile);
                 let (digest, path) = store.put_receipt(&receipt).map_err(fatal)?;
                 drop(permit);
@@ -666,10 +767,16 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
                     receipt_digest: Some(digest),
                     cache: CacheNote::Reused {
                         from: src.digest.clone(),
+                        commit: src.commit().to_string(),
                     },
                 });
             }
-            cache::Lookup::Miss(miss) => note = CacheNote::Miss(miss.text()),
+            cache::Lookup::Miss(miss) => {
+                note = CacheNote::Miss(match &shared_note {
+                    Some(s) => format!("{}; across heads: {s}", miss.text()),
+                    None => miss.text(),
+                })
+            }
         }
     }
 
@@ -867,6 +974,22 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
 
     let receipt = build_receipt(Value::Object(core), volatile);
     let (digest, path) = store.put_receipt(&receipt).map_err(fatal)?;
+    // Offer the result to other heads only if `lookup` would reuse it here
+    // (PASS or FAIL, clean tree, in time, key recomputes, logs present): a
+    // failed publication costs the next head a run, never a wrong verdict.
+    if let (Some((sh, _)), Some(name), Some(_held)) =
+        (shared, shared_slot.as_ref(), key_lock.as_ref())
+    {
+        let idx = Index::load(&store);
+        if let Some(r) = idx.get(&digest) {
+            if cache::usable(r, &cache_key, &idx, &store, &captured_env()).is_ok() {
+                if let Err(e) = sh.publish(name, &digest, &store) {
+                    eprintln!("aien-test: {} not shared with other heads: {e}", m.gate);
+                }
+            }
+        }
+    }
+    drop(key_lock);
     Ok(Outcome {
         verdict: derived.verdict,
         reason: derived.reason,

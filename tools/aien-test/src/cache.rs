@@ -453,6 +453,230 @@ pub fn explain_chain(
     out
 }
 
+// ---- across heads ------------------------------------------------------
+//
+// The key above has no commit in it, but the worker gives every head its own
+// evidence store (`evidence/<repo>/<sha>`), so a result made for one head was
+// never found by another. The shared store below closes that gap without a
+// second cache: a fresh receipt that `usable` accepts is copied, with its log
+// blobs and the dependency receipts its key rests on, into
+// `<state>/gate-cache/<repo>/` (itself a `Store`) under a pointer
+// `keys/<key>`. A head that misses in its own store imports that closure into
+// its own store and then takes the ordinary hit path: the reuse receipt says
+// `reused_from` (the source digest) and `reused_from_commit` (the source
+// head), the bundle entry is `cached` with the same two facts. Nothing is
+// reused that `lookup` would not reuse inside one head.
+//
+// Only a gate whose result is a function of its key may cross heads; see
+// [`cross_head`]. A gate whose author has not promised complete inputs
+// (`cache: inputs_complete`) crosses heads only between byte-identical trees:
+// SC-TEST reads the root README.md and lists only crates/, tools/, scripts/
+// (tests/local_ci.rs, the U gate). The judge binary and the exec helper are part of the
+// machine object (`runner::identity`), so an entry never outlives either.
+
+/// Why a gate's result stays inside the head it was made for. A gate that
+/// gets one of these still uses the per-head cache exactly as before.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Local {
+    /// `cache: never`: the author's rule.
+    CacheNever,
+    /// gb10 or nvrm: the result depends on chip state (clocks, memory left,
+    /// other holders of the GPU), which no input file describes.
+    ChipState,
+    /// bare_metal or aarch64-only boot gates: the machine is the input.
+    BareMetal,
+    /// `requires: operator`: a person ran a step the manifest cannot see.
+    Operator,
+    /// `cache_scope: hardware`: the author says the result belongs to one
+    /// piece of hardware (timing and chip gates use it).
+    HardwareScope,
+    /// `exactness: APPROXIMATE` or `ADVISORY`: the result is not exact, so
+    /// equal inputs do not promise an equal result (timing, sampling).
+    NotExact,
+}
+
+impl Local {
+    pub fn text(self) -> &'static str {
+        match self {
+            Local::CacheNever => "the manifest says cache: never",
+            Local::ChipState => "a GPU gate: its result depends on chip state no input describes",
+            Local::BareMetal => "a bare-metal gate: the machine itself is the input",
+            Local::Operator => "an operator step: a person did something the inputs cannot show",
+            Local::HardwareScope => {
+                "cache_scope: hardware, the result belongs to one piece of hardware"
+            }
+            Local::NotExact => {
+                "not EXACT or BOUNDED, so equal inputs do not promise an equal result"
+            }
+        }
+    }
+}
+
+/// How far a gate's result may travel to other heads with the same key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reach {
+    /// `cache: inputs_complete` and real inputs: any head whose declared
+    /// inputs (and the rest of the key) are identical.
+    Inputs,
+    /// Any other cacheable gate: only a head whose whole tree is identical
+    /// (a squash merge of an up-to-date PR, a re-push, a duplicate PR). Its
+    /// manifest promises no more, so the whole tree is its input.
+    Tree,
+}
+
+/// May this gate's result be reused by another head with the same key, and
+/// how far? The first reason it may not wins (fail closed).
+pub fn cross_head(m: &crate::manifest::Manifest) -> Result<Reach, Local> {
+    use crate::manifest::{CacheScope, Exactness};
+    let req = |r: &str| m.requires.iter().any(|x| x == r);
+    if !m.cache_allowed {
+        return Err(Local::CacheNever);
+    }
+    if req("gb10") || req("nvrm") {
+        return Err(Local::ChipState);
+    }
+    if req("bare_metal") || req("analog_eligible") {
+        return Err(Local::BareMetal);
+    }
+    if req("operator") {
+        return Err(Local::Operator);
+    }
+    if m.cache_scope == CacheScope::Hardware {
+        return Err(Local::HardwareScope);
+    }
+    if !matches!(m.exactness, Exactness::Exact | Exactness::Bounded) {
+        return Err(Local::NotExact);
+    }
+    let whole = |i: &str| {
+        let t = i.trim().trim_start_matches("./").trim_end_matches('/');
+        t.is_empty() || t == "."
+    };
+    // No promise, no inputs, or the whole tree as an input: the key cannot
+    // tell two trees apart, so the tree id must.
+    if !m.inputs_complete || m.inputs.is_empty() || m.inputs.iter().any(|i| whole(i)) {
+        return Ok(Reach::Tree);
+    }
+    Ok(Reach::Inputs)
+}
+
+/// The name of a shared entry: the key alone for [`Reach::Inputs`], the key
+/// and the tree id for [`Reach::Tree`].
+pub fn slot(key: &str, reach: Reach, tree: &str) -> String {
+    match reach {
+        Reach::Inputs => key.to_string(),
+        Reach::Tree => format!("{key}-{tree}"),
+    }
+}
+
+/// The cross-head store of one repository: `<dir>/<digest>.json`,
+/// `<dir>/blobs/`, `<dir>/keys/<key>` (one line: the receipt digest) and
+/// `<dir>/locks/<key>.lock`.
+#[derive(Debug, Clone)]
+pub struct Shared {
+    dir: std::path::PathBuf,
+}
+
+/// Held while one head decides about a key and, on a miss, runs the gate and
+/// publishes the result, so a second judge of the same key waits and reuses
+/// instead of running it again.
+pub struct KeyLock {
+    _lock: crate::resources::TargetLock,
+}
+
+impl Shared {
+    pub fn new(dir: &Path) -> Shared {
+        Shared {
+            dir: dir.to_path_buf(),
+        }
+    }
+
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    fn store(&self) -> Store {
+        Store::new(&self.dir)
+    }
+
+    fn pointer(&self, slot: &str) -> std::path::PathBuf {
+        self.dir.join("keys").join(slot)
+    }
+
+    pub fn lock(&self, slot: &str) -> std::io::Result<KeyLock> {
+        let path = self.dir.join("locks").join(format!("{slot}.lock"));
+        Ok(KeyLock {
+            _lock: crate::resources::lock_target_dir(&path)?,
+        })
+    }
+
+    /// The source receipt the pointer for `key` names, if the store holds it
+    /// intact and it really carries that key.
+    pub fn source(&self, slot: &str, key: &str) -> Option<Stored> {
+        let digest = std::fs::read_to_string(self.pointer(slot)).ok()?;
+        let src = self.store().get_receipt(digest.trim())?;
+        (src.value["volatile"]["cache"]["key"] == key).then_some(src)
+    }
+
+    /// Copy `digest` and everything its key rests on from `from` to `to`:
+    /// the receipt, its log blobs, every dependency receipt it names and, for
+    /// a dependency that was itself reused, the receipt it was reused from.
+    fn copy_closure(from: &Store, to: &Store, digest: &str) -> Result<(), String> {
+        let mut todo = vec![digest.to_string()];
+        let mut seen = std::collections::BTreeSet::new();
+        while let Some(d) = todo.pop() {
+            if !seen.insert(d.clone()) {
+                continue;
+            }
+            let r = from
+                .get_receipt(&d)
+                .ok_or_else(|| format!("receipt {} is missing or damaged", short(&d)))?;
+            for member in ["stdout_sha256", "stderr_sha256"] {
+                if let Some(sha) = r.value["core"][member].as_str() {
+                    if let Some(bytes) = from.read_blob(sha) {
+                        to.put_blob(&bytes).map_err(|e| e.to_string())?;
+                    }
+                }
+            }
+            to.put_receipt(&r.value).map_err(|e| e.to_string())?;
+            if let Some(deps) = r.value["core"]["dependencies"].as_array() {
+                todo.extend(
+                    deps.iter()
+                        .filter_map(|x| x["receipt"].as_str().map(str::to_string)),
+                );
+            }
+            if let Some(src) = r.value["volatile"]["cache"]["reused_from"].as_str() {
+                todo.push(src.to_string());
+            }
+        }
+        Ok(())
+    }
+
+    /// Bring the shared source of `key` into a head's own store. Ok(None)
+    /// when there is none; the head's own `lookup` then decides as always.
+    pub fn import(&self, slot: &str, key: &str, head: &Store) -> Result<Option<String>, String> {
+        let Some(src) = self.source(slot, key) else {
+            return Ok(None);
+        };
+        Self::copy_closure(&self.store(), head, &src.digest)?;
+        Ok(Some(src.digest))
+    }
+
+    /// Publish the fresh receipt `digest` of a head's store for `key`. The
+    /// caller has checked it with `usable`; the pointer is written last, by
+    /// rename, so a reader sees either no entry or a whole one.
+    pub fn publish(&self, slot: &str, digest: &str, head: &Store) -> Result<(), String> {
+        Self::copy_closure(head, &self.store(), digest)?;
+        let keys = self.dir.join("keys");
+        std::fs::create_dir_all(&keys)
+            .map_err(|e| format!("cannot create {}: {e}", keys.display()))?;
+        let tmp = keys.join(format!(".tmp-{slot}-{}", std::process::id()));
+        std::fs::write(&tmp, format!("{digest}\n"))
+            .map_err(|e| format!("cannot write key pointer: {e}"))?;
+        std::fs::rename(&tmp, self.pointer(slot))
+            .map_err(|e| format!("cannot publish key pointer: {e}"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -554,7 +778,7 @@ mod tests {
 
     fn reused_from(o: &Outcome) -> Option<&str> {
         match &o.cache {
-            CacheNote::Reused { from } => Some(from),
+            CacheNote::Reused { from, .. } => Some(from),
             _ => None,
         }
     }

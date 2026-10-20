@@ -126,6 +126,12 @@ impl StateDir {
         self.root.join("evidence").join(repo).join(sha)
     }
 
+    /// `<state>/gate-cache/<repo>`: the cross-head store (`cache::Shared`)
+    /// every head of one repository reads and publishes to.
+    pub fn gate_cache(&self, repo: &str) -> PathBuf {
+        self.root.join("gate-cache").join(repo)
+    }
+
     /// `<state>/locks/target`: the per-target-dir lock files
     /// (`resources::target_lock_path`). Every holder of a cargo target dir,
     /// a gate run by this worker or the worker's own priming of
@@ -846,10 +852,11 @@ pub fn run_once(cfg: &Config, repo: &str, sha: &str) -> Result<Summary, String> 
     // after `check_worktree_link` (see `process::trust_worktree`).
     let trust = (cfg.sandbox == Sandbox::User).then(|| process::trust_worktree(&wt));
     // Every sibling's commit is in `opts.pins` (`core.pins` and `cache.key`),
-    // and the evidence directory is this head's own (`evidence/<repo>/<sha>`),
-    // so a result is reused only for this same commit with every sibling at
-    // the same commit. A declared sibling that could not be made turns the
-    // cache off for the whole head.
+    // and the evidence directory is this head's own (`evidence/<repo>/<sha>`):
+    // a result from another head arrives only through the shared store, for a
+    // gate `cache::cross_head` lets out, with every sibling at the same commit.
+    // A declared sibling that could not be made turns the cache off for the
+    // whole head.
     let fresh = made.len() < sibs.len();
     let result = run_in_worktree(cfg, repo, sha, &co, fresh, pin_values, &mut notes);
     crumb(
@@ -935,6 +942,9 @@ fn run_in_worktree(
     if fresh || cfg.no_cache {
         opts.no_cache = true;
     }
+    // A result whose key another head of this repository already has is
+    // reused from there (`cache::Shared`); the bundle entry names that head.
+    opts.shared_cache = Some(crate::cache::Shared::new(&cfg.state.gate_cache(repo)));
     let mut known: BTreeMap<String, Known> = BTreeMap::new();
     let mut notes_cache: BTreeMap<String, CacheNote> = BTreeMap::new();
     if plan.blocked.is_none() && !plan.entries.is_empty() {
@@ -990,10 +1000,14 @@ fn run_in_worktree(
         let (status, verdict, extra): (&str, String, Value) =
             match (e.section, k, notes_cache.get(&e.gate)) {
                 (Section::Blocked, _, _) => ("blocked", bundle_verdict(eff), json!({})),
-                (_, Some(k), Some(CacheNote::Reused { from })) if k.receipt.is_some() => (
+                (_, Some(k), Some(CacheNote::Reused { from, commit })) if k.receipt.is_some() => (
                     "cached",
                     bundle_verdict(eff),
-                    json!({ "resolution": { "resolved_from": from, "receipt": k.receipt } }),
+                    json!({ "resolution": {
+                        "resolved_from": from,
+                        "resolved_from_commit": commit,
+                        "receipt": k.receipt,
+                    } }),
                 ),
                 (_, Some(k), _) if k.receipt.is_some() => {
                     ("run", bundle_verdict(eff), json!({ "receipt": k.receipt }))

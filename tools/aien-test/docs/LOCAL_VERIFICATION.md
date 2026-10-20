@@ -232,13 +232,30 @@ The one rule:
    worker records each sibling made (`name` = its `dir`) and each operator
    pin (`name` = `pin:<source>`) with its commit in the receipt's `pins`,
    which is part of the cache key. The worker's evidence directory is per
-   head (`evidence/<repo>/<sha>/`), so a result is reused only when the same
-   commit runs again with every sibling at the same commit; a sibling that
-   moved runs every gate fresh. A declared sibling that cannot be made turns
-   the cache off for the head (`no_cache`). Results are never reused across
-   commits in the worker: gates read files they do not declare as `inputs`
-   (SC-TEST reads the root `README.md` and `COVENANT.md`), so a key built
-   from declared inputs alone could hand a commit another commit's PASS.
+   head (`evidence/<repo>/<sha>/`); results cross heads only through the
+   shared store `<state>/gate-cache/<repo>/` (judge once, Drake 2026-10-20),
+   and only as far as the gate allows (`cache::cross_head`):
+   - **Never across heads:** `cache: never`, gb10/nvrm (chip state),
+     bare_metal/analog, `requires: operator`, `cache_scope: hardware`,
+     APPROXIMATE/ADVISORY. These keep the per-head cache only.
+   - **Whole tree identical:** every other gate, by default. Gates read files
+     they do not declare (SC-TEST reads the root `README.md` and
+     `COVENANT.md`), so declared inputs alone could hand a commit another
+     commit's PASS. Two heads with the same tree id (a squash merge of an
+     up-to-date PR, a re-push, a duplicate PR) share every such result.
+   - **Declared inputs identical:** a gate whose manifest says
+     `cache: inputs_complete`, the author's promise that `inputs` name every
+     file the gate reads. Any head with the same key reuses it.
+   The key adds the repository build files (`runner::IMPLIED_BUILD_FILES`:
+   Cargo.toml, Cargo.lock, rust-toolchain(.toml), .cargo/config(.toml),
+   native-artifacts.lock, mojoproject.toml) and the judge's own sha256
+   (`machine.judge_sha256`), so an entry dies with a new judge or exec
+   helper. A FAIL is reused as FAIL. The reuse receipt says
+   `volatile.cache.reused_from` and `reused_from_commit`; the bundle entry
+   is `cached` with `resolution.resolved_from` and `resolved_from_commit`.
+   One flock per entry (`locks/<entry>.lock`) makes a second judge of the
+   same key wait and reuse instead of running it again. A declared sibling
+   that cannot be made turns the cache off for the head (`no_cache`).
 
 `wt.sh remove` takes the whole run directory away (checkout and siblings)
 and prunes every mirror's worktree list. An older `wt.sh` that still makes
