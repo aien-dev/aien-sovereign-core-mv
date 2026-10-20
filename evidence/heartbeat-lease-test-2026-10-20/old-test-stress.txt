@@ -1,0 +1,47 @@
+stress pids started: 40; load: 56.06 50.06 43.54
+run 1 FAIL load=59.66
+ring::tests::writer_waits_for_lease_release --- FAILED
+thread 'ring::tests::writer_waits_for_lease_release' (3899441) panicked at crates/aien-heartbeat/src/ring.rs:400:9:
+assertion failed: waited >= Duration::from_millis(20)
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.01s
+error: test failed, to rerun pass `-p aien-heartbeat --lib`
+run 2 PASS load=59.66
+run 3 PASS load=59.66
+run 4 PASS load=59.66
+run 5 PASS load=59.66
+run 6 PASS load=62.17
+run 7 FAIL load=62.17
+ring::tests::writer_waits_for_lease_release --- FAILED
+thread 'ring::tests::writer_waits_for_lease_release' (3904328) panicked at crates/aien-heartbeat/src/ring.rs:400:9:
+assertion failed: waited >= Duration::from_millis(20)
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.01s
+error: test failed, to rerun pass `-p aien-heartbeat --lib`
+run 8 PASS load=62.17
+run 9 FAIL load=62.17
+ring::tests::writer_waits_for_lease_release --- FAILED
+thread 'ring::tests::writer_waits_for_lease_release' (3906673) panicked at crates/aien-heartbeat/src/ring.rs:400:9:
+assertion failed: waited >= Duration::from_millis(20)
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.02s
+error: test failed, to rerun pass `-p aien-heartbeat --lib`
+run 10 PASS load=65.28
+run 11 PASS load=65.28
+run 12 PASS load=65.28
+run 13 FAIL load=65.28
+ring::tests::writer_waits_for_lease_release --- FAILED
+thread 'ring::tests::writer_waits_for_lease_release' (3910898) panicked at crates/aien-heartbeat/src/ring.rs:400:9:
+assertion failed: waited >= Duration::from_millis(20)
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.10s
+error: test failed, to rerun pass `-p aien-heartbeat --lib`
+run 14 PASS load=68.94
+run 15 PASS load=68.94
+run 16 PASS load=68.94
+run 17 PASS load=68.94
+run 18 PASS load=68.94
+run 19 FAIL load=68.94
+ring::tests::writer_waits_for_lease_release --- FAILED
+thread 'ring::tests::writer_waits_for_lease_release' (3914257) panicked at crates/aien-heartbeat/src/ring.rs:400:9:
+assertion failed: waited >= Duration::from_millis(20)
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.05s
+error: test failed, to rerun pass `-p aien-heartbeat --lib`
+run 20 PASS load=71.91
+SUMMARY pass=15 fail=5

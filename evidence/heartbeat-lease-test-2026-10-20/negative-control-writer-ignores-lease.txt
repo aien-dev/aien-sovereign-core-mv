@@ -1,0 +1,2 @@
+thread 'ring::tests::writer_waits_for_lease_release' (3947409) panicked at crates/aien-heartbeat/src/ring.rs:431:13:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.00s

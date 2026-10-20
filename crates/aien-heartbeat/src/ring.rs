@@ -11,6 +11,8 @@
 //!   later `begin_fill` and `lease` returns [`HeartbeatError::RingFailed`].
 
 use std::cell::UnsafeCell;
+#[cfg(test)]
+use std::sync::atomic::AtomicU32;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -46,6 +48,9 @@ struct Slot {
     buf: UnsafeCell<AlignedBuf>,
     state: Mutex<SlotState>,
     released: Condvar,
+    /// Test-only: writers currently blocked in `begin_fill` on this slot.
+    #[cfg(test)]
+    writers_waiting: AtomicU32,
 }
 
 // SAFETY: `buf` is written only by the holder of the unique FillGuard while
@@ -78,6 +83,8 @@ impl Ring {
                     ranges: Vec::new(),
                 }),
                 released: Condvar::new(),
+                #[cfg(test)]
+                writers_waiting: AtomicU32::new(0),
             })
             .collect();
         Self {
@@ -163,11 +170,15 @@ impl Ring {
             if left.is_zero() {
                 return Err(HeartbeatError::SlotBusy(slot));
             }
+            #[cfg(test)]
+            s.writers_waiting.fetch_add(1, Ordering::SeqCst);
             st = s
                 .released
                 .wait_timeout(st, left)
                 .unwrap_or_else(|p| p.into_inner())
                 .0;
+            #[cfg(test)]
+            s.writers_waiting.fetch_sub(1, Ordering::SeqCst);
         }
         st.phase = Phase::Filling;
         st.tag = None;
@@ -387,18 +398,42 @@ mod tests {
     fn writer_waits_for_lease_release() {
         let ring = Arc::new(Ring::new(1, 4096));
         fill(&ring, 0, 1, 1, 9);
+        // Ordering comes from events, never from wall time: the reader signals
+        // once it holds the lease, the main thread signals once the writer is
+        // observed blocked inside `begin_fill`, and only then does the reader
+        // read and release.
+        let (leased_tx, leased_rx) = std::sync::mpsc::channel::<()>();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
         let r2 = ring.clone();
         let reader = std::thread::spawn(move || {
             let l = r2.lease(1, 1).unwrap().unwrap();
-            std::thread::sleep(Duration::from_millis(50));
+            leased_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
             let v = l.to_vec();
             drop(l);
             v
         });
-        std::thread::sleep(Duration::from_millis(10));
-        let (g, waited) = ring.begin_fill(0, Duration::from_secs(5)).unwrap();
-        assert!(waited >= Duration::from_millis(20));
-        g.discard();
+        leased_rx.recv().unwrap();
+        let r3 = ring.clone();
+        let writer = std::thread::spawn(move || {
+            let (g, _) = r3.begin_fill(0, Duration::from_secs(60)).unwrap();
+            g.discard();
+        });
+        // The counter is raised under the slot mutex, so once it reads 1 the
+        // writer is parked on the condvar and the lease is still held. The
+        // deadline only stops a broken build from hanging forever.
+        let hang_guard = Instant::now();
+        while ring.slots[0].writers_waiting.load(Ordering::SeqCst) == 0 {
+            assert!(
+                hang_guard.elapsed() < Duration::from_secs(60),
+                "writer never reached the lease wait"
+            );
+            assert!(!writer.is_finished(), "writer passed a held lease");
+            std::thread::yield_now();
+        }
+        assert!(!writer.is_finished(), "writer passed a held lease");
+        release_tx.send(()).unwrap();
+        writer.join().unwrap();
         assert_eq!(reader.join().unwrap(), vec![9u8; 16]);
     }
 

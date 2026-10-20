@@ -1,0 +1,22 @@
+stress pids started: 40; load: 65.43 54.60 45.55
+run 1 PASS load=69.24
+run 2 PASS load=75.27
+run 3 PASS load=76.77
+run 4 PASS load=81.65
+run 5 PASS load=83.12
+run 6 PASS load=83.12
+run 7 PASS load=84.63
+run 8 PASS load=86.65
+run 9 PASS load=87.72
+run 10 PASS load=87.72
+run 11 PASS load=87.72
+run 12 PASS load=88.94
+run 13 PASS load=88.94
+run 14 PASS load=90.39
+run 15 PASS load=90.39
+run 16 PASS load=91.40
+run 17 PASS load=91.40
+run 18 PASS load=91.40
+run 19 PASS load=91.40
+run 20 PASS load=92.41
+SUMMARY pass=20 fail=0
