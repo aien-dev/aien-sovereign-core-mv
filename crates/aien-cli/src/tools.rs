@@ -1093,6 +1093,9 @@ mod tests {
 
     #[test]
     fn effect_receipt_is_hashed_and_secret_free() {
+        let _env = crate::objective::PROVENANCE_ENV
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         std::env::set_var("AIEN_PROVENANCE_DIR", dir.path());
         let _ = record_effect_receipt(
