@@ -472,19 +472,23 @@ fn read_ffn(source: &mut dyn TensorSource, p: &str, inter: usize, h: usize) -> R
 
 /// The router's choice for one row of logits: softmax over every expert, the `k` largest
 /// probabilities (larger logit first, the lower id on ties), renormalised to sum 1. `mutant`
-/// swaps the k-th pick for the (k+1)-th (negative control).
-pub fn route(logits: &[f32], k: usize, mutant: bool) -> Vec<(usize, f32)> {
+/// (negative control): 1 swaps the k-th pick for the (k+1)-th; 2 keeps the weights but sends
+/// every pick to the next expert id (a wrong expert).
+pub fn route(logits: &[f32], k: usize, mutant: u8) -> Vec<(usize, f32)> {
     let max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
     let probs: Vec<f32> = logits.iter().map(|&v| (v - max).exp()).collect();
     let sum: f32 = probs.iter().sum();
     let mut order: Vec<usize> = (0..logits.len()).collect();
     order.sort_by(|&a, &b| logits[b].total_cmp(&logits[a]).then(a.cmp(&b)));
     let mut pick: Vec<usize> = order[..k].to_vec();
-    if mutant && k < order.len() {
+    if mutant == 1 && k < order.len() {
         pick[k - 1] = order[k];
     }
     let sel: f32 = pick.iter().map(|&e| probs[e] / sum).sum();
-    pick.into_iter().map(|e| (e, probs[e] / sum / sel)).collect()
+    let n = logits.len();
+    pick.into_iter()
+        .map(|e| (if mutant == 2 { (e + 1) % n } else { e }, probs[e] / sum / sel))
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -684,9 +688,9 @@ pub struct Qwen38Reference<S: TensorSource> {
     embed: Vec<u16>,
     final_norm: Vec<f32>,
     lm_head: Matrix,
-    /// TEST ONLY negative control: the MoE router picks the `top_k + 1`-th expert in place of the
-    /// `top_k`-th (a wrong expert with a plausible weight). Off by default.
-    pub routing_mutant: bool,
+    /// TEST ONLY negative control for the MoE router, see [`route`]: 0 off (default), 1 the
+    /// `top_k + 1`-th expert in place of the `top_k`-th, 2 every pick sent to the next expert id.
+    pub routing_mutant: u8,
     /// MoE only: per layer, the routed expert ids of the last call, `[t][top_k]` flattened.
     pub routes: Vec<Vec<u16>>,
 }
@@ -718,7 +722,7 @@ impl<S: TensorSource> Qwen38Reference<S> {
             embed,
             final_norm,
             lm_head,
-            routing_mutant: false,
+            routing_mutant: 0,
             routes: Vec::new(),
         })
     }
@@ -1437,13 +1441,13 @@ mod tests {
     #[test]
     fn route_renormalises_and_breaks_ties_low() {
         let l = [0.5f32, 2.0, 2.0, -1.0, 1.0];
-        let r = route(&l, 3, false);
+        let r = route(&l, 3, 0);
         assert_eq!(r.iter().map(|p| p.0).collect::<Vec<_>>(), vec![1, 2, 4]);
         let s: f32 = r.iter().map(|p| p.1).sum();
         assert!((s - 1.0).abs() < 1e-6);
         let (e2, e1) = (2f32.exp(), 1f32.exp());
         assert!((r[0].1 - e2 / (2.0 * e2 + e1)).abs() < 1e-6);
-        let m = route(&l, 3, true);
+        let m = route(&l, 3, 1);
         assert_eq!(m.iter().map(|p| p.0).collect::<Vec<_>>(), vec![1, 2, 0]);
     }
 
@@ -1474,7 +1478,7 @@ mod tests {
         assert!(sets.len() > 1, "{sets:?}");
         // The routing mutant moves the logits.
         let mut mutant = Qwen38Reference::new(c.clone(), tiny_source(&c)).unwrap();
-        mutant.routing_mutant = true;
+        mutant.routing_mutant = 1;
         let mut s3 = mutant.new_state();
         let bad = mutant.forward(&mut s3, &tokens, Logits::All).unwrap();
         let moved = all
