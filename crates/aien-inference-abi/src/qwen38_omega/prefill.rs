@@ -276,6 +276,17 @@ impl Qwen38Omega {
         chunk: usize,
     ) -> Result<(u32, Vec<f32>, PrefillStats), String> {
         let t0 = Instant::now();
+        if self.is_moe() {
+            // The 35B: the prompt goes through the decode graph token by token (correct first,
+            // PRIORITY CHANGE 2026-10-20; the batched sparse prefill is a later lever).
+            let mut next = 0u32;
+            for &t in tokens {
+                next = self.step(t)?.0;
+            }
+            let logits = self.logits()?;
+            let st = PrefillStats { tokens: tokens.len(), wall_ns: ns(t0), ..Default::default() };
+            return Ok((next, logits, st));
+        }
         let (last, mut st) = self.prefill_rows(tokens, chunk, false)?;
         let t = Instant::now();
         let logits = self.head_logits(&last)?;
@@ -315,6 +326,18 @@ impl Qwen38Omega {
         let t0 = Instant::now();
         let n = tokens.len();
         let (h, v) = (self.config.hidden, self.config.vocab);
+        if self.is_moe() {
+            // As prefill: token by token through the decode graph; the rows are its residual x.
+            let mut rows = Vec::with_capacity(if all { n * h } else { h });
+            for (i, &t) in tokens.iter().enumerate() {
+                self.step(t)?;
+                if all || i + 1 == n {
+                    rows.extend(self.residual()?);
+                }
+            }
+            let _ = (chunk, v);
+            return Ok((rows, PrefillStats { tokens: n, wall_ns: ns(t0), ..Default::default() }));
+        }
         if !q::has_prefill() {
             return Err("qwen38 prefill: omega's prefill entries are not linked".into());
         }

@@ -24,8 +24,11 @@ use std::path::Path;
 use aien_omega_bf16::Bf16Tensor;
 use aien_omega_fp8::Fp8Tensor;
 use aien_omega_gpu::ResidentTensor;
+use aien_omega_q38::q36::Q36Graph;
 use aien_omega_q38::{Attn256Cache, Gdn, GraphConfig, GraphStats, Q38Graph};
+use aien_omega_router::Router;
 
+mod moe;
 mod prefill;
 mod session;
 pub use prefill::PrefillStats;
@@ -47,11 +50,41 @@ struct LayerTensors {
     down: Fp8Tensor,
 }
 
+/// The decode graph: the 27B's dense one or the 35B's sparse one (sc L306).
+enum Graph {
+    Dense(Q38Graph),
+    Moe(Q36Graph),
+}
+
+impl Graph {
+    fn token(&mut self, x: &[f32], pos: usize) -> Result<(u32, GraphStats), aien_omega_gpu::OmegaGpuError> {
+        match self {
+            Graph::Dense(g) => g.token(x, pos),
+            Graph::Moe(g) => g.token(x, pos),
+        }
+    }
+
+    fn read(
+        &mut self,
+        x: Option<&mut [f32]>,
+        hidden: Option<&mut [f32]>,
+        logits: Option<&mut [f32]>,
+    ) -> Result<(), aien_omega_gpu::OmegaGpuError> {
+        match self {
+            Graph::Dense(g) => g.read(x, hidden, logits),
+            Graph::Moe(g) => g.read(x, hidden, logits),
+        }
+    }
+}
+
 /// The whole model resident on the device plus the host embedding.
 ///
 /// Field order is drop order: the graph goes first, then the tensors and state it points at.
 pub struct Qwen38Omega {
-    graph: Q38Graph,
+    graph: Graph,
+    /// The 35B's router (sparse MLP only); the graph points at it, so it drops after the graph.
+    #[allow(dead_code)] // owned only
+    router: Option<Router>,
     layers: Vec<LayerTensors>,
     lm_head: Bf16Tensor,
     /// FP8 copy of lm_head (env `AIEN_Q38_FP8_HEAD=1`, qwen38/decode-speed): the decode graph reads it instead.
@@ -103,6 +136,38 @@ pub struct Qwen38Snapshot {
 pub fn need_bytes(c: &Qwen38Config, max_pos: usize, chunk: usize) -> u64 {
     const RUNTIME_SLACK: u64 = 3 << 30;
     let h = c.hidden as u64;
+    if let Some(m) = &c.moe {
+        // Qwen3.6-35B-A3B (sc L306): FP8 mixers and experts (routed + shared, one byte per weight
+        // plus a bf16 scale per 128 x 128 block), bf16 a|b, router, lm_head and host embedding; no
+        // prefill buffers (the prompt runs through the decode graph).
+        let experts = (m.experts + 1) as u64 * 3 * m.expert_inter as u64 * h;
+        let o = h * (c.heads * c.head_dim) as u64;
+        let fp8: u64 = c
+            .full_attention
+            .iter()
+            .map(|&attn| {
+                let mix = if attn {
+                    (2 * c.heads * c.head_dim + 2 * c.kv_dim()) as u64 * h
+                } else {
+                    (c.conv_dim() + c.lin_value_dim()) as u64 * h
+                };
+                mix + o + experts
+            })
+            .sum();
+        let n_attn = c.full_attention.iter().filter(|&&a| a).count() as u64;
+        let n_gdn = c.layers as u64 - n_attn;
+        let ab = n_gdn * 2 * 2 * c.lin_v_heads as u64 * h;
+        let router = c.layers as u64 * 2 * (m.experts + 1) as u64 * h;
+        let weights = fp8 + fp8 / 8192 + ab + router + 2 * c.vocab as u64 * h;
+        let kv = n_attn * 2 * c.kv_heads as u64 * max_pos as u64 * 2 * c.head_dim as u64
+            + max_pos as u64 * 1024;
+        let embed = 2 * c.vocab as u64 * h;
+        let tail = (c.conv_kernel as u64 - 1) * c.conv_dim() as u64;
+        let st = (c.lin_v_heads * c.lin_v_dim * c.lin_v_dim) as u64;
+        let state = n_gdn * 4 * (tail + st);
+        let _ = chunk;
+        return weights + kv + embed + 2 * state + RUNTIME_SLACK;
+    }
     let mlp = 3 * c.intermediate as u64 * h;
     let o = h * (c.heads * c.head_dim) as u64;
     let layers: u64 = c
@@ -275,6 +340,9 @@ impl Qwen38Omega {
         source: &mut dyn TensorSource,
         max_pos: usize,
     ) -> Result<Self, String> {
+        if config.moe.is_some() {
+            return Self::load_moe(config, first, source, max_pos);
+        }
         use aien_omega_q38 as q;
         let c = &config;
         let shape_ok = c.hidden == q::HIDDEN
@@ -494,7 +562,8 @@ impl Qwen38Omega {
                 .map_err(gpu("q38 graph set_lm_head_fp8"))?;
         }
         Ok(Self {
-            graph,
+            graph: Graph::Dense(graph),
+            router: None,
             layers,
             lm_head,
             lm_head8,
@@ -623,10 +692,7 @@ impl Qwen38Omega {
             return Ok(());
         };
         let n = g.layers();
-        let (tf, sf) = (
-            aien_omega_q38::GDN_TAIL_FLOATS,
-            aien_omega_q38::GDN_STATE_FLOATS,
-        );
+        let (tf, sf) = (g.tail_floats(), g.state_floats());
         snap.tails.resize(n * tf, 0.0);
         snap.states.resize(n * sf, 0.0);
         for (l, (t, st)) in snap
@@ -647,10 +713,7 @@ impl Qwen38Omega {
             return Err(format!("restore: position {} past the cache", snap.pos));
         }
         if let Some(g) = self.gdn.as_mut() {
-            let (tf, sf) = (
-                aien_omega_q38::GDN_TAIL_FLOATS,
-                aien_omega_q38::GDN_STATE_FLOATS,
-            );
+            let (tf, sf) = (g.tail_floats(), g.state_floats());
             if snap.tails.len() != g.layers() * tf || snap.states.len() != g.layers() * sf {
                 return Err("restore: the snapshot is not of this model".into());
             }
@@ -668,7 +731,15 @@ impl Qwen38Omega {
     }
 
     /// The graph, for traces and timelines.
-    pub fn graph_mut(&mut self) -> &mut Q38Graph {
-        &mut self.graph
+    pub fn graph_mut(&mut self) -> Option<&mut Q38Graph> {
+        match &mut self.graph {
+            Graph::Dense(g) => Some(g),
+            Graph::Moe(_) => None,
+        }
+    }
+
+    /// True for the sparse (Qwen3.6-35B-A3B) model.
+    pub fn is_moe(&self) -> bool {
+        matches!(self.graph, Graph::Moe(_))
     }
 }
