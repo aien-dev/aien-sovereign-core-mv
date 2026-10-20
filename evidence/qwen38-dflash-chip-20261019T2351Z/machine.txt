@@ -1,2 +1,4 @@
 parity-code-n64 try 1 start 2026-10-19T23:51:24Z loadavg 27.09 34.67 32.41 26/3997 2248525 memavail_kb 39343484
 parity-code-n64 try 1 end 2026-10-19T23:58:46Z rc 2 loadavg 13.09 27.57 30.51 4/3931 2410196
+chipbackend-code-n128 try 1 start 2026-10-19T23:58:47Z loadavg 13.09 27.57 30.51 5/3937 2410642 memavail_kb 68209656
+chipbackend-code-n128 try 1 end 2026-10-20T00:07:26Z rc 2 loadavg 7.60 16.28 23.72 5/4021 2678739
