@@ -64,6 +64,8 @@ pub struct Qwen38Omega {
     /// The MXFP4 converter tally over every converted tensor (projections and head), when any.
     pub w4_stats: Option<W4Stats>,
     gdn: Option<Gdn>,
+    /// The attention KV cache: bf16, or 8-bit rows with a scale each (env `AIEN_Q38_KV8=1`,
+    /// SPEED-7 L131; decode only, the prompt reader refuses it).
     attn: Option<Attn256Cache>,
     pub config: Qwen38Config,
     /// bf16 `[vocab][hidden]`.
@@ -329,8 +331,14 @@ impl Qwen38Omega {
         };
         let mut attn = if n_attn > 0 {
             Some(
-                Attn256Cache::alloc(n_attn, max_pos, c.rope_theta, c.rotary_dim)
-                    .map_err(gpu("attn256 alloc"))?,
+                Attn256Cache::alloc_kv(
+                    n_attn,
+                    max_pos,
+                    c.rope_theta,
+                    c.rotary_dim,
+                    env_on("AIEN_Q38_KV8"),
+                )
+                .map_err(gpu("attn256 alloc"))?,
             )
         } else {
             None
@@ -564,9 +572,39 @@ impl Qwen38Omega {
 
     /// Bytes the KV cache holds on the device (every attention layer at `max_pos`).
     pub fn kv_bytes(&self) -> usize {
-        self.attn
-            .as_ref()
-            .map_or(0, |a| a.layers() * Attn256Cache::layer_bytes(a.max_pos()))
+        self.attn.as_ref().map_or(0, |a| {
+            a.layers()
+                * if a.kv8() {
+                    Attn256Cache::layer_bytes_kv8(a.max_pos())
+                } else {
+                    Attn256Cache::layer_bytes(a.max_pos())
+                }
+        })
+    }
+
+    /// True when the attention KV cache is the 8-bit form (`AIEN_Q38_KV8=1`).
+    pub fn kv8(&self) -> bool {
+        self.attn.as_ref().is_some_and(Attn256Cache::kv8)
+    }
+
+    /// BENCHMARK ONLY: fills every attention layer's positions `0..pos` with a bounded pattern
+    /// (not a prompt) and moves the next position to `pos`, so decode speed at long context can
+    /// be timed without reading a long prompt. The DeltaNet state is left as it is (its size does
+    /// not depend on the position). Tokens produced after this are meaningless.
+    pub fn bench_seek(&mut self, pos: usize, seed: u32) -> Result<(), String> {
+        if pos >= self.max_pos {
+            return Err(format!(
+                "bench_seek: position {pos}, the KV cache holds {}",
+                self.max_pos
+            ));
+        }
+        if pos > 0 {
+            if let Some(a) = self.attn.as_mut() {
+                a.bench_fill(pos, seed).map_err(gpu("attn256 bench_fill"))?;
+            }
+        }
+        self.pos = pos;
+        Ok(())
     }
 
     /// A new sequence: DeltaNet state to zero, position 0 (attention rows are overwritten as the

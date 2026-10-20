@@ -16,6 +16,10 @@
 //! `cfg(has_omega_q38_w4)`: the MXFP4 GEMV and the graph's 4-bit entries are linked too
 //! (`omega_gpu_q38_graph_set_layer_w4`, omega qwen38/w4-gemv; with `AIEN_OMEGA_DIR`, `src/omega_gpu_w4_api.h`).
 //!
+//! `cfg(has_omega_q38_kv8)`: the 8-bit (e4m3 + row scale) attention cache entries are linked
+//! (`omega_gpu_decode_attn256_cache_alloc_kv`, SPEED-7 L131; with `AIEN_OMEGA_DIR`, the name in
+//! `src/omega_gpu_decode_attn256_api.h`).
+//!
 //! `cfg(has_omega_q38)` is set only when native. A stub never fails the build: the Qwen3.8
 //! engine reports itself unavailable, and `is_native()` says which one a binary carries.
 use std::path::Path;
@@ -25,6 +29,7 @@ fn main() {
     println!("cargo:rustc-check-cfg=cfg(has_omega_q38)");
     println!("cargo:rustc-check-cfg=cfg(has_omega_q38_prefill)");
     println!("cargo:rustc-check-cfg=cfg(has_omega_q38_w4)");
+    println!("cargo:rustc-check-cfg=cfg(has_omega_q38_kv8)");
     for v in [
         "AIEN_FORCE_CPU_STUB",
         "AIEN_OMEGA_GPU_LIB",
@@ -41,6 +46,9 @@ fn main() {
             println!("cargo:rustc-cfg=has_omega_q38");
             if archive_defines(Path::new(&lib), "omega_gpu_q38_graph_set_layer_w4") {
                 println!("cargo:rustc-cfg=has_omega_q38_w4");
+            }
+            if archive_defines(Path::new(&lib), "omega_gpu_decode_attn256_cache_alloc_kv") {
+                println!("cargo:rustc-cfg=has_omega_q38_kv8");
             }
             if archive_defines(Path::new(&lib), "omega_gpu_gdn_prefill")
                 && archive_defines(Path::new(&lib), "omega_gpu_prefill_attn256")
@@ -59,6 +67,12 @@ fn main() {
             println!("cargo:rustc-cfg=has_omega_q38");
             if Path::new(&dir).join("src/omega_gpu_w4_api.h").is_file() {
                 println!("cargo:rustc-cfg=has_omega_q38_w4");
+            }
+            let attn_h = Path::new(&dir).join("src/omega_gpu_decode_attn256_api.h");
+            if std::fs::read_to_string(&attn_h)
+                .is_ok_and(|t| t.contains("omega_gpu_decode_attn256_cache_alloc_kv"))
+            {
+                println!("cargo:rustc-cfg=has_omega_q38_kv8");
             }
             if Path::new(&dir)
                 .join("src/omega_gpu_prefill_attn256_api.h")

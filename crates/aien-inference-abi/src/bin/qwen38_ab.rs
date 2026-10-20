@@ -8,14 +8,20 @@
 //!       prompt and N more tokens follow greedily (free running). Writes `<out-prefix>.logits`
 //!       (f32, vocab per step, step order) and `<out-prefix>.json` (per step: fed token, chip
 //!       argmax, top-two margin, chip ms, and the negative log-likelihood of the next fed token).
-//!       The engine variant comes from the environment (AIEN_Q38_FP8_HEAD=1, AIEN_Q38_W4=1).
+//!       The engine variant comes from the environment (AIEN_Q38_FP8_HEAD=1, AIEN_Q38_W4=1,
+//!       AIEN_Q38_KV8=1 for the 8-bit attention cache).
 //!   qwen38_ab compare <a-prefix> <b-prefix> <out.json>
 //!       position by position, A taken as the reference: argmax agreement, A's top-two margin
 //!       where they differ, logits cosine, KL(A || B), and both texts' mean NLL. Two runs fed the
 //!       same tokens see the same inputs, so with teacher forcing only the variant differs.
 //!
-//! A run refuses to start unless MemAvailable covers the model plus 12 GiB for everything else
-//! on the box (the live server shares the pool).
+//!   qwen38_ab speed <checkpoint-dir> <ctx> <steps> <seed> <out.json>
+//!       BENCHMARK ONLY: decode speed at context `ctx` without reading a prompt. The attention
+//!       cache is filled with a bounded pattern up to `ctx - steps`, then `steps` greedy steps
+//!       run; the tokens are meaningless, the chip and wall times per step are the result.
+//!
+//! A run refuses to start unless MemAvailable covers the model, its KV cache and 12 GiB
+//! for everything else on the box (the live server shares the pool).
 
 use std::io::{Read, Write};
 use std::path::Path;
@@ -61,6 +67,54 @@ fn model_bytes(c: &Qwen38Config) -> u64 {
         })
         .sum();
     layers + layers / 4096 + 2 * c.vocab as u64 * h
+}
+
+/// The engine variant as the environment sets it, recorded in every output.
+fn variant() -> Value {
+    let v = |k: &str| std::env::var(k).ok();
+    json!({
+        "AIEN_Q38_FP8_HEAD": v("AIEN_Q38_FP8_HEAD"),
+        "AIEN_Q38_W4": v("AIEN_Q38_W4"),
+        "AIEN_Q38_W4_HEAD": v("AIEN_Q38_W4_HEAD"),
+        "AIEN_Q38_W4_RULE": v("AIEN_Q38_W4_RULE"),
+        "AIEN_Q38_KV8": v("AIEN_Q38_KV8"),
+    })
+}
+
+/// Attention KV cache bytes at `max_pos`: 16 layers x K and V x 4 KV heads x 256 wide, bf16
+/// (512 bytes a row) or 8-bit (256 bytes + a 4-byte scale).
+fn kv_cache_bytes(c: &Qwen38Config, max_pos: usize) -> u64 {
+    let n_attn = c.full_attention.iter().filter(|&&a| a).count() as u64;
+    let row = if std::env::var("AIEN_Q38_KV8").as_deref() == Ok("1") {
+        256 + 4
+    } else {
+        512
+    };
+    n_attn * 2 * 4 * max_pos as u64 * row
+}
+
+/// Refuses to start unless MemAvailable covers the model (its variant's copies), the KV cache at
+/// `max_pos`, host slack and 12 GiB kept free. Returns MemAvailable.
+fn memory_guard(config: &Qwen38Config, max_pos: usize) -> Result<u64, String> {
+    // the MXFP4 copies sit beside the FP8 tensors (the prefill keeps FP8): + 17 / 32 of the projection bytes, + the head's
+    let fp8 = model_bytes(config);
+    let head = 2 * config.vocab as u64 * config.hidden as u64;
+    let mut need = fp8 + HOST_SLACK + kv_cache_bytes(config, max_pos);
+    if std::env::var("AIEN_Q38_W4").as_deref() == Ok("1") {
+        need += (fp8 - head) * 17 / 32;
+    }
+    if std::env::var("AIEN_Q38_W4_HEAD").as_deref() == Ok("1") {
+        need += head / 2 * 17 / 32;
+    }
+    let avail = mem_available()?;
+    if avail < need + KEEP_FREE {
+        return Err(format!(
+            "memory guard: MemAvailable {} MiB < model + KV cache {} MiB + 12 GiB kept free",
+            avail >> 20,
+            need >> 20
+        ));
+    }
+    Ok(avail)
 }
 
 fn margin(logits: &[f32]) -> f32 {
@@ -126,24 +180,6 @@ fn run(dir: &Path, seq_path: &str, prefix: &str, gen: usize) -> Result<(), Strin
         return Err("seq: fewer than 2 ids".into());
     }
     let config = Qwen38Config::from_checkpoint(dir)?;
-    // the MXFP4 copies sit beside the FP8 tensors (the prefill keeps FP8): + 17 / 32 of the projection bytes, + the head's
-    let fp8 = model_bytes(&config);
-    let head = 2 * config.vocab as u64 * config.hidden as u64;
-    let mut need = fp8 + HOST_SLACK;
-    if std::env::var("AIEN_Q38_W4").as_deref() == Ok("1") {
-        need += (fp8 - head) * 17 / 32;
-    }
-    if std::env::var("AIEN_Q38_W4_HEAD").as_deref() == Ok("1") {
-        need += head / 2 * 17 / 32;
-    }
-    let avail = mem_available()?;
-    if avail < need + KEEP_FREE {
-        return Err(format!(
-            "memory guard: MemAvailable {} MiB < model {} MiB + 12 GiB kept free",
-            avail >> 20,
-            need >> 20
-        ));
-    }
     let (vocab, steps) = (
         config.vocab,
         if gen > 0 {
@@ -152,18 +188,15 @@ fn run(dir: &Path, seq_path: &str, prefix: &str, gen: usize) -> Result<(), Strin
             seq.len() - 1
         },
     );
-    let variant = json!({
-        "AIEN_Q38_FP8_HEAD": std::env::var("AIEN_Q38_FP8_HEAD").ok(),
-        "AIEN_Q38_W4": std::env::var("AIEN_Q38_W4").ok(),
-        "AIEN_Q38_W4_HEAD": std::env::var("AIEN_Q38_W4_HEAD").ok(),
-        "AIEN_Q38_W4_RULE": std::env::var("AIEN_Q38_W4_RULE").ok(),
-    });
+    let max_pos = (steps + 1).max(256).next_multiple_of(256);
+    let avail = memory_guard(&config, max_pos)?;
+    let variant = variant();
     eprintln!(
         "variant {variant}; {steps} steps; MemAvailable {} MiB",
         avail >> 20
     );
     let t_open = Instant::now();
-    let mut e = Qwen38Omega::open(dir, None, (steps + 1).max(256).next_multiple_of(256))?;
+    let mut e = Qwen38Omega::open(dir, None, max_pos)?;
     let open_s = t_open.elapsed().as_secs_f64();
     let mut f = std::io::BufWriter::new(
         std::fs::File::create(format!("{prefix}.logits")).map_err(|e| format!("{prefix}: {e}"))?,
@@ -411,10 +444,73 @@ fn timeline(dir: &Path, seq_path: &str, out: &str) -> Result<(), String> {
     let s = med(&mut span);
     eprintln!("    span {s:8.3} ms over {} tokens", span.len());
     let v = json!({"mode": "timeline", "seq": seq_path, "tokens": span.len(), "span_ms_median": s, "kinds": rows,
-        "variant": {"AIEN_Q38_FP8_HEAD": std::env::var("AIEN_Q38_FP8_HEAD").ok(), "AIEN_Q38_W4": std::env::var("AIEN_Q38_W4").ok(),
-                    "AIEN_Q38_W4_HEAD": std::env::var("AIEN_Q38_W4_HEAD").ok()}});
+        "variant": variant()});
     std::fs::write(out, serde_json::to_string_pretty(&v).unwrap())
         .map_err(|e| format!("{out}: {e}"))
+}
+
+/// `speed <ckpt> <ctx> <steps> <seed> <out.json>`: decode speed at long context, BENCHMARK ONLY.
+/// The attention cache is filled with a bounded pattern up to `ctx - steps` (no prompt is read),
+/// then `steps` greedy steps run at positions `ctx - steps .. ctx`. The tokens are meaningless;
+/// only the times count. Per step: chip ms (GPU work) and wall ms (the whole step call).
+fn speed(dir: &Path, ctx: usize, steps: usize, seed: u32, out: &str) -> Result<(), String> {
+    if steps == 0 || steps > ctx {
+        return Err(format!("speed: {steps} steps at context {ctx}"));
+    }
+    let config = Qwen38Config::from_checkpoint(dir)?;
+    let max_pos = ctx.max(256).next_multiple_of(256);
+    let avail = memory_guard(&config, max_pos)?;
+    let variant = variant();
+    eprintln!(
+        "variant {variant}; context {ctx}, {steps} steps; MemAvailable {} MiB",
+        avail >> 20
+    );
+    let t_open = Instant::now();
+    let mut e = Qwen38Omega::open(dir, None, max_pos)?;
+    let open_s = t_open.elapsed().as_secs_f64();
+    let start = ctx - steps;
+    let t_fill = Instant::now();
+    e.bench_seek(start, seed)?;
+    let fill_s = t_fill.elapsed().as_secs_f64();
+    // any in-vocab token; greedy from there
+    let mut fed = 0u32;
+    let (mut chip, mut wall) = (Vec::with_capacity(steps), Vec::with_capacity(steps));
+    for _ in 0..steps {
+        let t = Instant::now();
+        let (top, st) = e.step(fed)?;
+        wall.push(t.elapsed().as_secs_f64() * 1e3);
+        chip.push(st.chip_ns as f64 / 1e6);
+        fed = top;
+    }
+    let med = |v: &[f64]| {
+        let mut s = v.to_vec();
+        s.sort_by(|a, b| a.total_cmp(b));
+        (s[s.len() / 2], s[0], s[s.len() - 1])
+    };
+    let (cm, c0, c1) = med(&chip);
+    let (wm, w0, w1) = med(&wall);
+    // attention rows read by the median step (position ctx - steps / 2), K and V of all heads
+    let n_attn = config.full_attention.iter().filter(|&&a| a).count();
+    let row = if e.kv8() { 256 + 4 } else { 512 };
+    let kv_read = (n_attn * 2 * 4 * (start + steps / 2 + 1) * row) as u64;
+    let v = json!({
+        "mode": "speed", "benchmark_only": true, "variant": variant, "kv8": e.kv8(),
+        "context": ctx, "steps": steps, "first_position": start, "seed": seed, "max_pos": max_pos,
+        "kv_cache_bytes": e.kv_bytes(), "kv_read_bytes_median_step": kv_read,
+        "weight_bytes_resident": e.weight_bytes(),
+        "chip_ms_median": cm, "chip_ms_min": c0, "chip_ms_max": c1,
+        "wall_ms_median": wm, "wall_ms_min": w0, "wall_ms_max": w1,
+        "tok_s_wall_median": 1e3 / wm, "tok_s_chip_median": 1e3 / cm,
+        "open_s": open_s, "fill_s": fill_s, "chip_ms": chip, "wall_ms": wall,
+    });
+    std::fs::write(out, serde_json::to_string_pretty(&v).unwrap())
+        .map_err(|e| format!("{out}: {e}"))?;
+    eprintln!(
+        "QWEN38_AB speed context {ctx} kv8 {}: wall median {wm:.3} ms ({:.2} tok/s), chip median {cm:.3} ms, {steps} steps",
+        e.kv8(),
+        1e3 / wm
+    );
+    Ok(())
 }
 
 /// `w4err <ckpt> <out.json>`: host only, every projection under the OCP, FIT and BEST MXFP4 scale rules.
@@ -455,7 +551,11 @@ fn main() {
         Some("decode") if a.len() == 5 => decode(Path::new(&a[2]), &a[3], &a[4]),
         Some("timeline") if a.len() == 5 => timeline(Path::new(&a[2]), &a[3], &a[4]),
         Some("w4err") if a.len() == 4 => w4err(Path::new(&a[2]), &a[3]),
-        _ => Err("usage: qwen38_ab text <ckpt> <text-file> <n> <seq.json> | run <ckpt> <seq.json> <out-prefix> [--gen N] | compare <a> <b> <out.json> | decode <ckpt> <run.json> <out.txt> | timeline <ckpt> <seq.json> <out.json> | w4err <ckpt> <out.json>".into()),
+        Some("speed") if a.len() == 7 => match (a[3].parse(), a[4].parse(), a[5].parse()) {
+            (Ok(ctx), Ok(n), Ok(seed)) => speed(Path::new(&a[2]), ctx, n, seed, &a[6]),
+            _ => Err("speed <ckpt> <ctx> <steps> <seed> <out.json>".into()),
+        },
+        _ => Err("usage: qwen38_ab text <ckpt> <text-file> <n> <seq.json> | run <ckpt> <seq.json> <out-prefix> [--gen N] | compare <a> <b> <out.json> | decode <ckpt> <run.json> <out.txt> | timeline <ckpt> <seq.json> <out.json> | w4err <ckpt> <out.json> | speed <ckpt> <ctx> <steps> <seed> <out.json>".into()),
     };
     if let Err(e) = r {
         eprintln!("qwen38_ab: {e}");

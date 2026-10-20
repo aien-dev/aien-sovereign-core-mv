@@ -291,6 +291,8 @@ fn run() -> Result<bool, String> {
         "control_shift_best_cosine": shift_cos, "control_window_short_best_cosine": short_cos,
         "control_caught": caught, "thresholds": {"cosine_min": COSINE_MIN, "margin_min": MARGIN_MIN},
         "steps": steps, "pass": pass,
+        "variant": {"AIEN_Q38_KV8": std::env::var("AIEN_Q38_KV8").ok(), "AIEN_Q38_W4": std::env::var("AIEN_Q38_W4").ok(),
+                    "AIEN_Q38_FP8_HEAD": std::env::var("AIEN_Q38_FP8_HEAD").ok()},
     });
     std::fs::write(out_path, serde_json::to_string_pretty(&report).unwrap())
         .map_err(|e| format!("{out_path}: {e}"))?;

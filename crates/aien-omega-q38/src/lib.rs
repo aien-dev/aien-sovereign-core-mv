@@ -254,6 +254,7 @@ mod ffi {
         ) -> i32;
         pub fn omega_gpu_gdn_reset(g: *mut OmegaGpuGdn) -> i32;
 
+        #[cfg(not(has_omega_q38_kv8))]
         pub fn omega_gpu_decode_attn256_cache_alloc(
             layers: u32,
             max_pos: u32,
@@ -262,6 +263,21 @@ mod ffi {
             out: *mut *mut OmegaGpuDecodeAttn256Cache,
         ) -> i32;
         pub fn omega_gpu_decode_attn256_cache_free(c: *mut OmegaGpuDecodeAttn256Cache);
+        #[cfg(has_omega_q38_kv8)]
+        pub fn omega_gpu_decode_attn256_cache_alloc_kv(
+            layers: u32,
+            max_pos: u32,
+            rope_theta: f64,
+            rotary_dim: u32,
+            kv8: u32,
+            out: *mut *mut OmegaGpuDecodeAttn256Cache,
+        ) -> i32;
+        #[cfg(has_omega_q38_kv8)]
+        pub fn omega_gpu_decode_attn256_cache_bench_fill(
+            c: *mut OmegaGpuDecodeAttn256Cache,
+            count: u32,
+            seed: u32,
+        ) -> i32;
         pub fn omega_gpu_decode_attn256_set_norms(
             c: *mut OmegaGpuDecodeAttn256Cache,
             layer: u32,
@@ -647,13 +663,16 @@ impl Drop for Gdn {
 // head_dim-256 KV cache
 // ---------------------------------------------------------------------------
 
-/// Every attention layer's bf16 KV cache, RoPE table and q/k norm weights.
+/// Every attention layer's bf16 or 8-bit KV cache, RoPE table and q/k norm weights.
+/// The 8-bit form (SPEED-7, L131) keeps each 256-wide K or V row as 256 e4m3 bytes and one
+/// power-of-two f32 scale: 520 bytes per position and KV head instead of 1024.
 pub struct Attn256Cache {
     #[cfg(has_omega_q38)]
     ptr: *mut ffi::OmegaGpuDecodeAttn256Cache,
     layers: usize,
     max_pos: usize,
     rotary: usize,
+    kv8: bool,
 }
 
 // SAFETY: an owning handle to device buffers; moved between threads, never shared unlocked.
@@ -663,8 +682,8 @@ impl fmt::Debug for Attn256Cache {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Attn256Cache {{ layers: {}, max_pos: {}, rotary: {} }}",
-            self.layers, self.max_pos, self.rotary
+            "Attn256Cache {{ layers: {}, max_pos: {}, rotary: {}, kv8: {} }}",
+            self.layers, self.max_pos, self.rotary, self.kv8
         )
     }
 }
@@ -675,6 +694,12 @@ impl Attn256Cache {
         2 * 4 * max_pos * HEAD_DIM * 2
     }
 
+    /// Bytes one layer's 8-bit cache holds: K and V, 4 KV heads x `max_pos` x (256 bytes + one
+    /// f32 row scale).
+    pub const fn layer_bytes_kv8(max_pos: usize) -> usize {
+        2 * 4 * max_pos * (HEAD_DIM + 4)
+    }
+
     /// Allocates `layers` attention entries of `max_pos` positions; RoPE with `theta` on the
     /// first `rotary` dims (even, 2..=256).
     pub fn alloc(
@@ -682,6 +707,18 @@ impl Attn256Cache {
         max_pos: usize,
         theta: f64,
         rotary: usize,
+    ) -> Result<Self, OmegaGpuError> {
+        Self::alloc_kv(layers, max_pos, theta, rotary, false)
+    }
+
+    /// [`alloc`](Self::alloc) with the cache form chosen: `kv8` stores 8-bit rows. Decode only:
+    /// [`prefill`](Self::prefill) refuses an 8-bit cache (the prompt reader is bf16 only).
+    pub fn alloc_kv(
+        layers: usize,
+        max_pos: usize,
+        theta: f64,
+        rotary: usize,
+        kv8: bool,
     ) -> Result<Self, OmegaGpuError> {
         if layers == 0 || layers > MAX_LAYERS {
             return Err(bad(format!(
@@ -696,18 +733,39 @@ impl Attn256Cache {
         if !(2..=HEAD_DIM).contains(&rotary) || !rotary.is_multiple_of(2) {
             return Err(bad(format!("attn256: rotary {rotary} (even, 2..=256)")));
         }
+        #[cfg(not(has_omega_q38_kv8))]
+        if kv8 {
+            return Err(bad(
+                "attn256: 8-bit cache asked for, but the linked omega has no 8-bit cache (SPEED-7, L131)"
+                    .into(),
+            ));
+        }
         #[cfg(has_omega_q38)]
         {
             let mut ptr = std::ptr::null_mut();
             // SAFETY: out pointer is local; plain arguments.
             let rc = unsafe {
-                ffi::omega_gpu_decode_attn256_cache_alloc(
-                    layers as u32,
-                    max_pos as u32,
-                    theta,
-                    rotary as u32,
-                    &mut ptr,
-                )
+                #[cfg(has_omega_q38_kv8)]
+                {
+                    ffi::omega_gpu_decode_attn256_cache_alloc_kv(
+                        layers as u32,
+                        max_pos as u32,
+                        theta,
+                        rotary as u32,
+                        u32::from(kv8),
+                        &mut ptr,
+                    )
+                }
+                #[cfg(not(has_omega_q38_kv8))]
+                {
+                    ffi::omega_gpu_decode_attn256_cache_alloc(
+                        layers as u32,
+                        max_pos as u32,
+                        theta,
+                        rotary as u32,
+                        &mut ptr,
+                    )
+                }
             };
             if rc != 0 || ptr.is_null() {
                 // SAFETY: no arguments.
@@ -719,11 +777,13 @@ impl Attn256Cache {
                 layers,
                 max_pos,
                 rotary,
+                kv8,
             })
         }
         #[cfg(not(has_omega_q38))]
         {
             let _ = theta;
+            let _ = kv8;
             Err(OmegaGpuError::Unavailable)
         }
     }
@@ -734,6 +794,41 @@ impl Attn256Cache {
 
     pub fn max_pos(&self) -> usize {
         self.max_pos
+    }
+
+    /// True for the 8-bit cache form ([`alloc_kv`](Self::alloc_kv)).
+    pub fn kv8(&self) -> bool {
+        self.kv8
+    }
+
+    /// BENCHMARK ONLY: fills positions `0..count` of every layer with a bounded pattern (not a
+    /// prompt) so decode speed at long context can be timed without reading a long prompt.
+    /// The model output after this is meaningless; use it for timing only.
+    pub fn bench_fill(&mut self, count: usize, seed: u32) -> Result<(), OmegaGpuError> {
+        if count == 0 || count > self.max_pos {
+            return Err(bad(format!(
+                "attn256 bench_fill: {count} positions, 1..={}",
+                self.max_pos
+            )));
+        }
+        #[cfg(has_omega_q38_kv8)]
+        {
+            // SAFETY: ptr is live; plain arguments.
+            let rc = unsafe {
+                ffi::omega_gpu_decode_attn256_cache_bench_fill(self.ptr, count as u32, seed)
+            };
+            if rc != 0 {
+                // SAFETY: no arguments.
+                let detail = c_text(unsafe { ffi::omega_gpu_decode_attn_last_error() });
+                return Err(rc_err("attn256 bench_fill", rc, detail));
+            }
+            Ok(())
+        }
+        #[cfg(not(has_omega_q38_kv8))]
+        {
+            let _ = seed;
+            Err(OmegaGpuError::Unavailable)
+        }
     }
 
     /// The C handle (`OmegaGpuDecodeAttn256Cache *`) for [`GraphConfig::attn`]; null in the
@@ -823,6 +918,12 @@ impl Attn256Cache {
                 "attn256 prefill: layer {layer} of {}",
                 self.layers
             )));
+        }
+        if self.kv8 {
+            return Err(bad(
+                "attn256 prefill: the prompt reader reads bf16 rows only; an 8-bit cache is decode only (SPEED-7, L131)"
+                    .into(),
+            ));
         }
         #[cfg(has_omega_q38_prefill)]
         {
