@@ -1,0 +1,8 @@
+/home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a total 30866663264
+  other               17116170240
+  deltanet             5588296704
+  lm_head              2542796800
+  embed                2542796800
+  attention            1677942784
+  vision                921460192
+  mtp                   477199744

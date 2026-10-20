@@ -1,0 +1,14 @@
+/home/drakestapleton/models/qwen3.8-flash-next-nvfp4-fc694b54 total 132639846394
+  routed_experts      67948314624
+  ngram_table         51200245762
+  deltanet             4173020928
+  mtp                  2698026496
+  hyper_conn           1281249280
+  lm_head              1271398400
+  embed                1271398400
+  attention            1234716672
+  vision                897862112
+  shared_expert         472104960
+  router                125829120
+  ple_other              65679640
+  experts 24576 bytes/expert {2764824}
