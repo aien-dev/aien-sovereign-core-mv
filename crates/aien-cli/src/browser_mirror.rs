@@ -548,16 +548,16 @@ impl CdpClient {
     }
 
     /// Waits until the page's `document.readyState` is complete (or the deadline passes).
-    fn wait_loaded(&mut self, timeout: Duration) {
+    /// Chrome's first document is `about:blank`, already complete, so unless that is the
+    /// target the page must also have left it.
+    fn wait_loaded(&mut self, url: &str, timeout: Duration) {
+        let blank_ok = url == "about:blank";
         let deadline = Instant::now() + timeout;
         while Instant::now() < deadline {
-            if self
-                .eval("document.readyState", false)
-                .ok()
-                .as_ref()
-                .and_then(Value::as_str)
-                == Some("complete")
-            {
+            let state = self
+                .eval("[document.readyState, location.href]", false)
+                .unwrap_or(Value::Null);
+            if state[0] == "complete" && (blank_ok || state[1] != "about:blank") {
                 return;
             }
             std::thread::sleep(Duration::from_millis(200));
@@ -582,7 +582,7 @@ impl Mirror {
         let mut cdp = CdpClient::connect(&ws_url)?;
         cdp.send("Page.enable", json!({}))?;
         cdp.send("Runtime.enable", json!({}))?;
-        cdp.wait_loaded(Duration::from_secs(15));
+        cdp.wait_loaded(url, Duration::from_secs(15));
         Ok(Mirror {
             _chrome: chrome,
             cdp,
