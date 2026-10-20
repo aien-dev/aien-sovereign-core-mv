@@ -612,7 +612,7 @@ fn session_or_active(session: Option<&str>) -> Result<String, String> {
 pub fn list_turns(home: &Path, session: Option<&str>) -> Result<Vec<(u64, usize)>, String> {
     let id = session_or_active(session)?;
     let s = Session::open(CheckpointStore::new(store_root(home)), &id)?;
-    Ok(s.turns()?)
+    s.turns()
 }
 
 /// Roll back `session` (default: the active one) from `turn` (default: its
