@@ -1,0 +1,8 @@
+Tue Oct 20 12:06:35 AM UTC 2026
+env: AIEN_Q38_W4=1 AIEN_Q38_W4_HEAD=1 AIEN_Q38_W4_RULE=best
+1c324d28bb4456bab34d97fffd754943b7a9e927721b0c012a63d6a9d7c3643e  /home/drakestapleton/workspace/targets/ab-w4/sc-t/release/qwen38_ab
+ede0cfe2c2d074f1aaaefc83a6af3a6cd8e0f799a90108a89162c5ddf4ad07be  /home/drakestapleton/workspace/targets/ab-w4/lib-c/libomega_gpu.a
+MemAvailable:   68037340 kB
+server pid 1527223
+Tue Oct 20 12:11:12 AM UTC 2026
+MemAvailable:   69383244 kB

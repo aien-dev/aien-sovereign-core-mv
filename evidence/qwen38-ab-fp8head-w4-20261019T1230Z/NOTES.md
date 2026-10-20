@@ -118,9 +118,10 @@ Reference = the same model with 8-bit weights and the 16-bit last step (the old 
   was sure of its word by a margin up to 9.5 on the architecture text, 6.6 on the reference sentence), so it is not
   only near ties. Perplexity-style score (lower is better, nats per word), reference to 4-bit: licence 0.087 to 0.093
   (W) / 0.089 (WW); C source 2.118 to 2.165 (W) / 2.175 (WW); architecture 2.104 to 2.144 (W).
-- Free-running writing: the 4-bit code sample reads as correct, sensible C (runs/text/genB-codelong-WW.txt). The 4-bit
-  story with W (runs/text/genC-prose-W.txt) is fluent, sensible English about the keeper and the bottle; it tells a different
-  story from the reference from the first word (same prompt). Still NOT MEASURED: WW story, W code sample (queued).
+- Free-running writing (256 words each, runs/text): all four 4-bit samples read as fluent and sensible. Story with W and
+  with WW: well-formed English about the keeper and the bottle, each a different story from the reference from the first
+  word. Code with W and with WW: correct-looking, well-commented C for the asked word counter, close to the reference in
+  structure (genC-prose-W, genC-prose-WW, genC-codelong-W, genB-codelong-WW).
 - Our existing full-model accuracy check, written for 8-bit agreement, FAILS for every reduced setup (8-bit last step
   included), although all of them produce the same 24 reference words when writing freely, except WW, which makes
   1 different choice out of 24 (a close call). A check fit for 4-bit is owed.
@@ -166,3 +167,4 @@ itself and takes the GPU only when the memory is there. When results land they g
 Until then the decision stands on the measured runs; the BEST rule is NOT MEASURED on the chip and stays off
 (default OCP).
 ## Log 23:2xZ: one.sh v3 (v2 kept): v2's non-blocking tries lost every race to other jobs' blocking waiters (dumpC-arch-WW polled 77 min with 69 GiB free). v3 waits for memory, queues on the lock normally, retries when the tool's memory guard refuses (refusals.txt). Stopped my own idle v2 wrapper (no chip child); chain-e retries arch-WW.
+## Log 00:2xZ: BEST rule first chip results (WWb = WW with AIEN_Q38_W4_RULE=best; on-chip rel RMS 0.11267, 365,005,796 clipped vs OCP 0.11675 / 664,861,399): golden vs h0 47/47 (OCP 45/47), KL mean 0.0124 (0.0338), cosine min 0.799 (0.777); code vs h0 894/1023 (880), KL mean 0.0705 (0.0758), cosine min 0.619 (0.538), but mean NLL 2.1851 (OCP 2.1754, h0 2.1176): the fixed-text score got slightly worse. Mixed so far; waiting for arch, license, Wb code/arch before choosing the default.

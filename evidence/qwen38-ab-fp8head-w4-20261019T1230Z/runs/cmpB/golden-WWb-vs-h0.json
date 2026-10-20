@@ -1,0 +1,21 @@
+{
+  "a": "dumpA-golden-h0-20261019T130509Z/out",
+  "a_chip_ms_median": 140.619038,
+  "a_generated": [],
+  "a_margin_min": 0.0771331787109375,
+  "a_mean_nll_fed": 2.0293924602553473,
+  "argmax_agree": 47,
+  "b": "dumpD-golden-WWb-20261020T000635Z/out",
+  "b_chip_ms_median": 70.993732,
+  "b_generated": [],
+  "b_mean_nll_fed": 1.9589382605073389,
+  "cosine_mean": 0.9763174171920184,
+  "cosine_min": 0.7990910409507395,
+  "first_input_difference": null,
+  "flips": [],
+  "kl_max": 0.22325433117719748,
+  "kl_mean": 0.01241246782272034,
+  "mode": "compare",
+  "positions": 47,
+  "same_input_positions": 47
+}
