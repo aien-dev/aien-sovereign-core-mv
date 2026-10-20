@@ -372,13 +372,34 @@ Forgejo). Merging a pull request on GitHub does not wake it.
 
 `--jobs host=N,qemu=M` and `--no-cache` apply to the runs the worker starts,
 as they do for `aien-test test`. `--no-cache` runs every selected gate again
-(a head reuses only its own earlier results, see "Sibling checkouts"). `--jobs host=1`
+(results come from this head or, through the shared store, from another head
+with the same key, see "Sibling checkouts"). `--jobs host=1`
 runs one host gate at a time: omega's gates share one checkout's `build/`
 and pin clones, and on main 771af52 ten of them failed from parallel races
 ("Text file busy" on `build/omegatool`, concurrent clones of
 `build/pins/aienos-src`); its operator runs use
 `aien-local-ci once omega <sha> --operator --jobs host=1` until the gates or
 a per-repository pool setting make them safe in parallel.
+
+### Batches: shared gates once and first (judge once, 2026-10-20)
+
+`aien-test worker --batch REPO SHA SHA...` judges several heads of one
+repository together, and the loop does the same for the heads it finds of
+one repository, `--batch-heads N` at a time (default 6). The heads run side
+by side; each gate that will really run takes a slot of one budget the batch
+shares, `--batch-host N` host slots (default half the CPUs), and every gb10
+gate takes the batch's single gb10 slot before `/tmp/aien-gb10.lock`, so GPU
+gates stay one at a time and heads never spend their bounded GPU wait on each
+other. A gate that other heads of the batch also select (same manifest, same
+blob ids for its inputs and the repository build files, read from git before
+checkout: `worker::batch_first`) is picked first in its head and served first
+from the budget, so the shared gates run before the per-head ones. Two heads
+that reach the same key meet at that key's lock: the second waits, then
+reuses. The ordering is only a hint; the cache key alone decides reuse. A
+head is judged by one worker at a time (`<state>/locks/head/<repo>.<sha>.lock`,
+non-blocking: a second judge of the same head is refused), and checkouts,
+pins, siblings and worktree removal are done one head at a time.
+`--jobs host=1` still limits each head's own pool (omega).
 
 ## verify-bundle and the vacuous PASS
 

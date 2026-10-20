@@ -35,7 +35,7 @@ use crate::sandbox::Sandbox;
 use crate::verdict::Verdict;
 use crate::verify;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -188,7 +188,12 @@ impl StateDir {
             "phase": phase,
         });
         let _ = fs::create_dir_all(&self.root);
-        let tmp = self.root.join("worker.heartbeat.tmp");
+        // One temp name per thread: heads of a batch beat at the same time.
+        let tmp = self.root.join(format!(
+            "worker.heartbeat.tmp.{}.{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
         if fs::write(&tmp, serde_json::to_string(&v).unwrap_or_default()).is_ok() {
             let _ = fs::rename(&tmp, self.heartbeat());
         }
@@ -249,6 +254,12 @@ pub struct Config {
     /// How a gb10 gate waits for a held GPU lock (`--gpu-wait`, `--wait-gpu`;
     /// default the bounded `resources::DEFAULT_GPU_WAIT`).
     pub gpu_wait: GpuWait,
+    /// `--batch-host N`: host slots the heads of one batch share (None: half
+    /// the CPUs, `resources::BatchShare::default_host`).
+    pub batch_host: Option<usize>,
+    /// `--batch-heads N`: how many heads of one repository the loop checks
+    /// out and judges together (default 6; 1 judges one head at a time).
+    pub batch_heads: usize,
 }
 
 impl Config {
@@ -275,6 +286,8 @@ impl Config {
             jobs: JobsSpec::default(),
             no_cache: false,
             gpu_wait: GpuWait::Bounded(DEFAULT_GPU_WAIT),
+            batch_host: None,
+            batch_heads: 6,
         }
     }
 
@@ -819,6 +832,23 @@ fn crumb(cfg: &Config, wt: &Path, args: &[&str], notes: &mut Vec<String>) {
 
 /// Verify one head end to end. Never panics on GitHub trouble.
 pub fn run_once(cfg: &Config, repo: &str, sha: &str) -> Result<Summary, String> {
+    run_once_in(cfg, repo, sha, None)
+}
+
+/// What one head of a batch gets from `run_batch`: the shared budget and the
+/// gates other heads of the batch also select.
+pub type Share = (
+    std::sync::Arc<crate::resources::BatchShare>,
+    BTreeSet<String>,
+);
+
+/// `run_once` as one head of a batch (`share`), or alone (None).
+pub fn run_once_in(
+    cfg: &Config,
+    repo: &str,
+    sha: &str,
+    share: Option<&Share>,
+) -> Result<Summary, String> {
     // Refusals first: nothing is fetched, checked out or run before these.
     if !valid_repo_key(repo) {
         return Err(format!("refusing repository name {repo:?}"));
@@ -843,10 +873,26 @@ pub fn run_once(cfg: &Config, repo: &str, sha: &str) -> Result<Summary, String> 
     let sibs = siblings_for(cfg, repo)?;
     let pins = pins_for(cfg, repo)?;
     let mut notes: Vec<String> = Vec::new();
+    // One judge per head at a time, across processes (the batch, `--once`,
+    // the loop): a second one would rewrite the same bundle and evidence.
+    let head_lock = cfg
+        .state
+        .root
+        .join("locks")
+        .join("head")
+        .join(format!("{repo}.{sha}.lock"));
+    let _head = crate::resources::try_lock(&head_lock)
+        .map_err(|e| format!("cannot take the head lock {}: {e}", head_lock.display()))?
+        .ok_or_else(|| format!("{repo} {sha} is already being judged by another worker"))?;
     cfg.state.beat(repo, sha, "checkout");
+    // Heads of one batch share the clones and mirrors: checkouts, pins and
+    // sibling worktrees are made one head at a time (git's own locks refuse
+    // concurrent `worktree add` on one repository).
+    let prep = lock_prep();
     let co = checkout(cfg, repo, sha, &mut notes)?;
     ensure_pins(&cfg.clones, &pins, &sibs, &mut notes);
     let (made, pin_values) = provision_siblings(cfg, repo, sha, &co, &sibs, &pins, &mut notes);
+    drop(prep);
     let (clone, wt) = (co.clone.clone(), co.wt.clone());
     // A wt.sh worktree belongs to aien-run; the operator's git opens it only
     // after `check_worktree_link` (see `process::trust_worktree`).
@@ -858,7 +904,18 @@ pub fn run_once(cfg: &Config, repo: &str, sha: &str) -> Result<Summary, String> 
     // A declared sibling that could not be made turns the cache off for the
     // whole head.
     let fresh = made.len() < sibs.len();
-    let result = run_in_worktree(cfg, repo, sha, &co, fresh, pin_values, &mut notes);
+    let result = run_in_worktree(
+        cfg,
+        repo,
+        sha,
+        &co,
+        HeadCache {
+            fresh,
+            pins: pin_values,
+            share,
+        },
+        &mut notes,
+    );
     crumb(
         cfg,
         &wt,
@@ -873,6 +930,7 @@ pub fn run_once(cfg: &Config, repo: &str, sha: &str) -> Result<Summary, String> 
         &mut notes,
     );
     drop(trust);
+    let prep = lock_prep();
     if cfg.sandbox == Sandbox::User {
         if let Some(tool) = &cfg.wt_tool {
             let tool = tool.display().to_string();
@@ -883,10 +941,20 @@ pub fn run_once(cfg: &Config, repo: &str, sha: &str) -> Result<Summary, String> 
     } else {
         remove_checkout(&co, &made);
     }
+    drop(prep);
     cfg.state.beat(repo, sha, "idle");
     let mut summary = result?;
     summary.notes.append(&mut notes);
     Ok(summary)
+}
+
+/// What the cache of one head rests on: `fresh` (a declared sibling could not
+/// be made, so nothing is reused), the sibling and operator `pins`, and the
+/// batch it belongs to, if any.
+struct HeadCache<'a> {
+    fresh: bool,
+    pins: Value,
+    share: Option<&'a Share>,
 }
 
 fn run_in_worktree(
@@ -894,10 +962,10 @@ fn run_in_worktree(
     repo: &str,
     sha: &str,
     co: &Checkout,
-    fresh: bool,
-    pins: Value,
+    hc: HeadCache<'_>,
     notes: &mut Vec<String>,
 ) -> Result<Summary, String> {
+    let HeadCache { fresh, pins, share } = hc;
     let (clone, wt) = (co.clone.as_path(), co.wt.as_path());
     let started = now_secs();
     crumb(
@@ -945,6 +1013,10 @@ fn run_in_worktree(
     // A result whose key another head of this repository already has is
     // reused from there (`cache::Shared`); the bundle entry names that head.
     opts.shared_cache = Some(crate::cache::Shared::new(&cfg.state.gate_cache(repo)));
+    if let Some((budget, first)) = share {
+        opts.batch = Some(budget.clone());
+        opts.first = first.clone();
+    }
     let mut known: BTreeMap<String, Known> = BTreeMap::new();
     let mut notes_cache: BTreeMap<String, CacheNote> = BTreeMap::new();
     if plan.blocked.is_none() && !plan.entries.is_empty() {
@@ -1431,6 +1503,117 @@ pub fn github_heads(gh: &str, repository: &str) -> Result<Vec<String>, String> {
 /// The loop: flush the outbox, serve trigger files, poll GitHub when asked,
 /// sleep. `iterations` bounds the rounds (None: forever). Returns the number
 /// of heads served.
+/// Checkouts, pins, sibling worktrees and worktree removal touch the shared
+/// clones and mirrors; heads of one batch do them one at a time.
+fn lock_prep() -> std::sync::MutexGuard<'static, ()> {
+    static PREP: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    PREP.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// For each head, the gates whose experiment another head of the batch is
+/// likely to share, read from git objects before anything is checked out: a
+/// gate whose manifest blob, declared inputs and repository build files have
+/// the same blob ids at two heads (and, for a gate without `cache:
+/// inputs_complete`, the same tree). Only an ordering hint: whether a result
+/// is really reused is decided by the cache key, never by this.
+pub fn batch_first(clone: &Path, shas: &[String]) -> BTreeMap<String, BTreeSet<String>> {
+    let mut prints: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+    for sha in shas {
+        let tree = git(clone, &["rev-parse", &format!("{sha}^{{tree}}")]).unwrap_or_default();
+        let files = git(clone, &["ls-tree", "-r", "--name-only", sha]).unwrap_or_default();
+        let mut mine = Vec::new();
+        for path in files.lines().filter(|p| p.ends_with(".gate")) {
+            let Ok(bytes) = git(clone, &["show", &format!("{sha}:{path}")]) else {
+                continue;
+            };
+            let Ok(m) = crate::manifest::parse(bytes.as_bytes()) else {
+                continue;
+            };
+            let Ok(reach) = crate::cache::cross_head(&m) else {
+                continue;
+            };
+            let mut args: Vec<String> =
+                vec!["ls-tree".into(), "-r".into(), sha.clone(), "--".into()];
+            args.extend(m.inputs.iter().cloned());
+            args.extend(runner::IMPLIED_BUILD_FILES.iter().map(|s| s.to_string()));
+            let argv: Vec<&str> = args.iter().map(String::as_str).collect();
+            let listing = git(clone, &argv).unwrap_or_default();
+            let scope = match reach {
+                crate::cache::Reach::Inputs => String::new(),
+                crate::cache::Reach::Tree => tree.trim().to_string(),
+            };
+            let print = sha256_hex(format!("{}\n{scope}\n{listing}", m.digest).as_bytes());
+            mine.push((m.gate.clone(), print));
+        }
+        prints.insert(sha.clone(), mine);
+    }
+    let mut count: BTreeMap<&str, usize> = BTreeMap::new();
+    for p in prints.values().flatten() {
+        *count.entry(p.1.as_str()).or_default() += 1;
+    }
+    prints
+        .iter()
+        .map(|(sha, v)| {
+            let first = v
+                .iter()
+                .filter(|(_, p)| count.get(p.as_str()).copied().unwrap_or(0) > 1)
+                .map(|(g, _)| g.clone())
+                .collect();
+            (sha.clone(), first)
+        })
+        .collect()
+}
+
+/// Judge several heads of one repository together (Drake 2026-10-20: "do all
+/// the similar ones first and then you go to the ones that are unique"). The
+/// heads run side by side; their host gates share one budget of
+/// `cfg.batch_host` slots (default half the CPUs) in which gates another head
+/// also selects go first, and their gb10 gates take one batch slot, one at a
+/// time, before `/tmp/aien-gb10.lock`. A gate with a key another head is
+/// running waits on that key's lock and then reuses the result. Results come
+/// back in the order of `shas`.
+pub fn run_batch(
+    cfg: &Config,
+    repo: &str,
+    shas: &[String],
+) -> Vec<(String, Result<Summary, String>)> {
+    let mut seen = BTreeSet::new();
+    let shas: Vec<String> = shas
+        .iter()
+        .filter(|s| seen.insert((*s).clone()))
+        .cloned()
+        .collect();
+    let budget = std::sync::Arc::new(crate::resources::BatchShare::new(
+        cfg.batch_host
+            .unwrap_or_else(crate::resources::BatchShare::default_host),
+    ));
+    let first = if valid_repo_key(repo) {
+        batch_first(&cfg.clones.join(repo), &shas)
+    } else {
+        BTreeMap::new()
+    };
+    let shares: Vec<Share> = shas
+        .iter()
+        .map(|s| (budget.clone(), first.get(s).cloned().unwrap_or_default()))
+        .collect();
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = shas
+            .iter()
+            .zip(&shares)
+            .map(|(sha, share)| scope.spawn(move || run_once_in(cfg, repo, sha, Some(share))))
+            .collect();
+        shas.iter()
+            .zip(handles)
+            .map(|(sha, h)| {
+                let r = h
+                    .join()
+                    .unwrap_or_else(|_| Err(format!("internal error while judging {sha}")));
+                (sha.clone(), r)
+            })
+            .collect()
+    })
+}
+
 pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
     let mut served = 0;
     let mut round = 0u64;
@@ -1467,32 +1650,59 @@ pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
                 }
             }
         }
+        // Heads of one repository are judged together (`run_batch`): shared
+        // gates once and first, then the per-head ones, side by side.
+        let mut by_repo: BTreeMap<String, Vec<(String, Option<PathBuf>)>> = BTreeMap::new();
         for (repo, sha, trigger) in heads {
-            match run_once(cfg, &repo, &sha) {
-                Ok(s) => {
-                    println!(
-                        "HEAD {repo} {sha} {} {} bundle {} publication {}",
-                        s.verdict.as_str(),
-                        s.reason,
-                        s.bundle_path.display(),
-                        s.publication
-                    );
-                    served += 1;
-                }
-                Err(e) => {
-                    println!("HEAD {repo} {sha} ERROR {e}");
-                    let _ = cfg.state.journal_append(&json!({
-                        "utc": utc_string(now_secs()),
-                        "repo": repo,
-                        "sha": sha,
-                        "verdict": "NOT_RUN",
-                        "reason": format!("WORKER_ERROR:{e}"),
-                        "publication": "none",
-                    }));
-                }
-            }
-            if let Some(f) = trigger {
+            let list = by_repo.entry(repo).or_default();
+            if !list.iter().any(|(s, _)| *s == sha) {
+                list.push((sha, trigger));
+            } else if let Some(f) = trigger {
                 let _ = fs::remove_file(f);
+            }
+        }
+        for (repo, list) in by_repo {
+            let shas: Vec<String> = list.iter().map(|(s, _)| s.clone()).collect();
+            // At most `cfg.batch_heads` heads are checked out at once.
+            let results: Vec<(String, Result<Summary, String>)> = shas
+                .chunks(cfg.batch_heads.max(1))
+                .flat_map(|c| {
+                    if c.len() > 1 {
+                        run_batch(cfg, &repo, c)
+                    } else {
+                        c.iter()
+                            .map(|s| (s.clone(), run_once(cfg, &repo, s)))
+                            .collect()
+                    }
+                })
+                .collect();
+            for ((sha, result), (_, trigger)) in results.into_iter().zip(list) {
+                match result {
+                    Ok(s) => {
+                        println!(
+                            "HEAD {repo} {sha} {} {} bundle {} publication {}",
+                            s.verdict.as_str(),
+                            s.reason,
+                            s.bundle_path.display(),
+                            s.publication
+                        );
+                        served += 1;
+                    }
+                    Err(e) => {
+                        println!("HEAD {repo} {sha} ERROR {e}");
+                        let _ = cfg.state.journal_append(&json!({
+                            "utc": utc_string(now_secs()),
+                            "repo": repo,
+                            "sha": sha,
+                            "verdict": "NOT_RUN",
+                            "reason": format!("WORKER_ERROR:{e}"),
+                            "publication": "none",
+                        }));
+                    }
+                }
+                if let Some(f) = trigger {
+                    let _ = fs::remove_file(f);
+                }
             }
         }
         if iterations.is_some_and(|n| round >= n) {

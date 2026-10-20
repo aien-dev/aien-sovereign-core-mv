@@ -80,6 +80,12 @@ pub struct Options {
     /// None keeps the cache inside `evidence_dir`, as before. The worker sets
     /// it; a lone `run` does not.
     pub shared_cache: Option<cache::Shared>,
+    /// The budget every head of one `worker --batch` shares (host slots, one
+    /// gb10 slot). None outside a batch: only this run's own pools apply.
+    pub batch: Option<std::sync::Arc<crate::resources::BatchShare>>,
+    /// Gates other heads of the batch also select: picked before the others
+    /// and ahead of them for the batch budget (shared first, unique after).
+    pub first: BTreeSet<String>,
 }
 
 impl Options {
@@ -102,6 +108,8 @@ impl Options {
             pins: json!([]),
             operator: false,
             shared_cache: None,
+            batch: None,
+            first: BTreeSet::new(),
         }
     }
 }
@@ -780,6 +788,17 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
         }
     }
 
+    // In a batch, a host gate that will really run takes one slot of the
+    // batch budget (shared gates ahead of the rest), and a gb10 gate takes
+    // the batch's one gb10 slot, so heads of the batch never compete for
+    // `/tmp/aien-gb10.lock` and spend their bounded wait on each other. A
+    // reused result above never got here, so it costs no slot.
+    let runs = verdict::pre_run(m, &facts).is_none();
+    let _batch_slot = match (&opts.batch, m.pool(), runs) {
+        (Some(b), "host", true) => Some(b.host.acquire(opts.first.contains(&m.gate))),
+        (Some(b), "gb10", true) => Some(b.gb10.acquire(true)),
+        _ => None,
+    };
     // A gate that will run holds its target dir for the whole run (build and
     // run), so no other gate builds in it or relinks a binary this one is
     // executing (sc fix/521). Every gate, not only those whose manifest
@@ -1115,7 +1134,16 @@ impl GraphRun<'_> {
     /// work). Called with the scheduler lock held.
     fn pick(&self, st: &mut Sched) -> Option<Pick<'_>> {
         let mut chosen = None;
-        for &i in &st.ready {
+        // Gates other heads of a batch share go first (`Options::first`).
+        let shared = |i: &usize| self.opts.first.contains(&self.graph.node(*i).id);
+        let order: Vec<usize> = st
+            .ready
+            .iter()
+            .filter(|i| shared(i))
+            .chain(st.ready.iter().filter(|i| !shared(i)))
+            .copied()
+            .collect();
+        for i in order {
             let deps = self.dep_facts(&st.results, i);
             if !deps.iter().all(|d| d.verdict == Some(Verdict::Pass)) {
                 chosen = Some(Pick {
