@@ -728,23 +728,33 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
             cache::Lookup::Hit(_)
         );
         if let (false, Some((sh, reach))) = (local_hit, shared) {
-            let tree = head_tree(root).map_err(RunError::Fatal)?;
-            let name = cache::slot(&cache_key, reach, &tree);
-            key_lock =
-                Some(sh.lock(&name).map_err(|e| {
-                    fatal(format!("cannot lock cache key {}: {e}", &cache_key[..12]))
-                })?);
-            match sh.import(&name, &cache_key, &store) {
-                Ok(Some(_)) => index = Index::load(&store),
-                Ok(None) => {
-                    shared_note = Some(match reach {
-                        cache::Reach::Inputs => "no other head has this key yet".to_string(),
-                        cache::Reach::Tree => "no other head with this exact tree has this key yet (the manifest does not say cache: inputs_complete)".to_string(),
-                    })
+            // The shared store is an extra: if the tree id or the entry lock
+            // cannot be had, this head decides alone, as before.
+            let named = head_tree(root)
+                .map(|tree| cache::slot(&cache_key, reach, &tree))
+                .and_then(|name| match sh.lock(&name) {
+                    Ok(l) => Ok((name, l)),
+                    Err(e) => Err(format!("cannot lock the entry: {e}")),
+                });
+            match named {
+                Err(e) => shared_note = Some(format!("the cross-head store was not used ({e})")),
+                Ok((name, l)) => {
+                    key_lock = Some(l);
+                    match sh.import(&name, &cache_key, &store) {
+                        Ok(Some(_)) => index = Index::load(&store),
+                        Ok(None) => {
+                            shared_note = Some(match reach {
+                                cache::Reach::Inputs => "no other head has this key yet".to_string(),
+                                cache::Reach::Tree => "no other head with this exact tree has this key yet (the manifest does not say cache: inputs_complete)".to_string(),
+                            })
+                        }
+                        Err(e) => {
+                            shared_note = Some(format!("the cross-head entry could not be read ({e})"))
+                        }
+                    }
+                    shared_slot = Some(name);
                 }
-                Err(e) => shared_note = Some(format!("the cross-head entry could not be read ({e})")),
             }
-            shared_slot = Some(name);
         }
         match cache::lookup(&index, &store, &cache_key, &env) {
             cache::Lookup::Hit(src) => {
