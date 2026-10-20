@@ -511,6 +511,7 @@ dependencies = [
  "aien-kv-store",
  "aien-omega-gpu",
  "aien-omega-q38",
+ "aien-omegese-constraint",
  "aien-platform",
  "aien-runtime",
  "axum 0.7.9",
