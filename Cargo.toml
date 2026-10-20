@@ -61,6 +61,7 @@ members = [
     "crates/aien-localhttp",
     "crates/aien-heartbeat",
     "crates/aien-wormhole",
+    "crates/aien-engine",
 ]
 
 [workspace.package]

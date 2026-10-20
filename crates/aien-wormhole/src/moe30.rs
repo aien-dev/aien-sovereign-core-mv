@@ -42,6 +42,8 @@ pub struct Moe30Ring {
     len: usize,
     pub steps: usize,
     pub ns: u128,
+    /// L312: routed expert ids per layer of the last `step` (the model's own routing, recorded for the engine's schedule).
+    pub last_routes: Vec<Vec<u16>>,
 }
 
 impl Moe30Ring {
@@ -49,7 +51,7 @@ impl Moe30Ring {
     pub fn open(dir: &Path, manifest: Manifest, slots: usize, workers: usize, direct: bool) -> Result<Self, String> {
         let (w, routers) = load_qwen3_coder_dense(dir).map_err(|e| format!("{e:?}"))?;
         let cache = ExpertCache::new(manifest, slots, workers, direct)?;
-        Ok(Self { w, routers, cache, st: Qwen3CoderState::new(), len: 0, steps: 0, ns: 0 })
+        Ok(Self { w, routers, cache, st: Qwen3CoderState::new(), len: 0, steps: 0, ns: 0, last_routes: Vec::new() })
     }
 
     fn expert(cache: &mut ExpertCache, layer: usize, e: usize) -> Result<Owned, String> {
@@ -76,6 +78,8 @@ impl Moe30Ring {
         let t0 = Instant::now();
         let mut err = None;
         let (cache, routers) = (&mut self.cache, &self.routers);
+        self.last_routes.clear();
+        let last_routes = &mut self.last_routes;
         let h = forward_token_with(&self.w, token, self.len, &mut self.st, &mut |layer, post| {
             let logits = reference_router_logits_bf16(&routers[layer], H, post, 1);
             let plan = match MoeBatchPlan::qwen3_coder_a3b(&logits, 1) {
@@ -85,6 +89,7 @@ impl Moe30Ring {
                     return vec![0.0; H];
                 }
             };
+            last_routes.push(plan.topk_experts[..plan.top_k].iter().map(|&e| e as u16).collect());
             let mut owned: Vec<(usize, Owned)> = Vec::with_capacity(plan.top_k);
             for &e in &plan.topk_experts[..plan.top_k] {
                 match Self::expert(cache, layer, e as usize) {
