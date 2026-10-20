@@ -1374,8 +1374,7 @@ mod tests {
 
             std::fs::write(&operator_file, "operator v1").unwrap();
 
-            let report =
-                crate::checkpoint::rollback(home.path(), Some(1), Some(&session)).unwrap();
+            let report = crate::checkpoint::rollback(home.path(), Some(1), Some(&session)).unwrap();
             assert_eq!(std::fs::read_to_string(&agent_file).unwrap(), "original");
             assert!(!created.exists());
             assert_eq!(

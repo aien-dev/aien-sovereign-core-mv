@@ -567,7 +567,7 @@ pub fn begin_turn() {
     }
 }
 
-pub fn active_session_id() -> Option<String> {
+pub fn active_ledger_name() -> Option<String> {
     active().lock().ok()?.as_ref().map(|s| s.id.clone())
 }
 
@@ -601,7 +601,7 @@ pub fn record_agent_write<T>(
 fn session_or_active(session: Option<&str>) -> Result<String, String> {
     match session {
         Some(s) => Ok(s.to_string()),
-        None => active_session_id()
+        None => active_ledger_name()
             .ok_or_else(|| "no active session; name one: /checkpoints <session-id>".to_string()),
     }
 }
