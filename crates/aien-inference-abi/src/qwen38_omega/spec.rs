@@ -184,6 +184,47 @@ pub(super) fn gemm(
     Ok(())
 }
 
+/// Host threads for the per-row SiLU of a rows pass (`AIEN_Q38_HOST_THREADS`, default 1 = on the caller's
+/// thread). Each row is computed by the same code whichever thread runs it, so the bits do not change.
+fn host_threads() -> usize {
+    static N: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("AIEN_Q38_HOST_THREADS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1usize)
+            .clamp(1, 64)
+    })
+}
+
+/// `f(r, row)` for every row of `out` (rows of `width`), split over [`host_threads`] threads when
+/// there are at least 8 rows (below that the thread start costs more than it saves).
+fn par_rows(out: &mut [f32], width: usize, f: impl Fn(usize, &mut [f32]) + Sync) {
+    par_rows_n(out, width, host_threads(), f)
+}
+
+fn par_rows_n(out: &mut [f32], width: usize, threads: usize, f: impl Fn(usize, &mut [f32]) + Sync) {
+    let m = out.len() / width;
+    let threads = threads.min(m);
+    if threads <= 1 || m < 8 {
+        for (r, o) in out.chunks_exact_mut(width).enumerate() {
+            f(r, o);
+        }
+        return;
+    }
+    let per = m.div_ceil(threads);
+    std::thread::scope(|s| {
+        for (c, chunk) in out.chunks_mut(per * width).enumerate() {
+            let f = &f;
+            s.spawn(move || {
+                for (j, o) in chunk.chunks_exact_mut(width).enumerate() {
+                    f(c * per + j, o);
+                }
+            });
+        }
+    });
+}
+
 /// `m` rows of the residual stream `x` (`[m][hidden]`, positions `pos0 ..`) through one layer.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn layer_rows(
@@ -294,12 +335,12 @@ pub(super) fn layer_rows(
     gemm(&lt.gate_up, &xn, &mut gu, m, "gate|up", st)?;
     let t = Instant::now();
     let mut act = vec![0f32; m * inter];
-    for (a, r) in act.chunks_exact_mut(inter).zip(gu.chunks_exact(2 * inter)) {
-        let (g, u) = r.split_at(inter);
+    par_rows(&mut act, inter, |r, a| {
+        let (g, u) = gu[r * 2 * inter..(r + 1) * 2 * inter].split_at(inter);
         for ((a, &g), &u) in a.iter_mut().zip(g).zip(u) {
             *a = g / (1.0 + (-g).exp()) * u;
         }
-    }
+    });
     st.host_ns += ns(t);
     gemm(&lt.down, &act, &mut o, m, "down", st)?;
     let t = Instant::now();
@@ -915,5 +956,25 @@ mod tests {
         assert_eq!(o.order, FcOrder::EmbedFirst);
         assert!(!o.normed_hidden);
         assert_eq!(o.pos_offset, 0);
+    }
+
+    #[test]
+    fn par_rows_same_bits_as_one_thread() {
+        let (m, w) = (13usize, 37usize);
+        let src: Vec<f32> = (0..m * w).map(|i| (i as f32 * 0.37).sin() * 9.0).collect();
+        let silu = |r: usize, o: &mut [f32]| {
+            for (c, v) in o.iter_mut().enumerate() {
+                let g = src[r * w + c];
+                *v = g / (1.0 + (-g).exp()) * (c as f32 + 0.5);
+            }
+        };
+        let mut one = vec![0f32; m * w];
+        par_rows_n(&mut one, w, 1, silu);
+        for threads in [2, 3, 4, 8, 64] {
+            let mut many = vec![f32::NAN; m * w];
+            par_rows_n(&mut many, w, threads, silu);
+            let same = one.iter().zip(&many).all(|(a, b)| a.to_bits() == b.to_bits());
+            assert!(same, "{threads} threads changed the bits");
+        }
     }
 }
