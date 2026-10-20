@@ -39,7 +39,12 @@ const KEEP_FREE: u64 = 12 << 30;
 /// the bf16 a|b rows of its DeltaNet layers, and the bf16 lm_head; from the config, not measured.
 fn window_bytes(c: &Qwen38Config, first: usize, count: usize) -> u64 {
     let h = c.hidden as u64;
-    let mlp = 3 * c.intermediate as u64 * h;
+    // Qwen3.6-35B-A3B (sc L306): every layer holds 257 FP8 experts (256 routed + the shared one)
+    // and a bf16 router of 257 rows.
+    let mlp = match &c.moe {
+        Some(m) => (m.experts as u64 + 1) * (3 * m.expert_inter as u64 * h + 2 * h),
+        None => 3 * c.intermediate as u64 * h,
+    };
     let o = h * (c.heads * c.head_dim) as u64;
     let layers: u64 = c.full_attention[first..first + count]
         .iter()

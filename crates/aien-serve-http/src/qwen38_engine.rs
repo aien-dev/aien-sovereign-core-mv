@@ -20,6 +20,8 @@ use crate::sampling::SamplingObserver;
 
 /// Model id the door answers to unless `--model-id` says otherwise.
 pub const DEFAULT_MODEL_ID: &str = "qwen3.8-27b-fp8";
+/// The same for the sparse sibling, Qwen3.6-35B-A3B (config model_type qwen3_5_moe, sc L306).
+pub const DEFAULT_MODEL_ID_MOE: &str = "qwen3.6-35b-a3b-fp8";
 /// Prefill chunk length (the 2026-10-18 TTFT receipts ran 4096).
 pub const PREFILL_CHUNK: usize = 4096;
 /// How long a request waits in the chip lock's queue before answering busy (the hive's chip
@@ -31,12 +33,31 @@ pub const LOAD_LOCK_WAIT: Duration = Duration::from_secs(1800);
 /// Memory kept free beyond [`need_bytes`] at load (other jobs share the box).
 pub const KEEP_FREE: u64 = 8 << 30;
 
-/// `config.json` says `model_type: qwen3_5` (the Qwen3.8 family this door serves).
-pub fn is_qwen38_dir(dir: &Path) -> bool {
+fn model_type(dir: &Path) -> Option<String> {
     std::fs::read_to_string(dir.join("config.json"))
         .ok()
         .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        .is_some_and(|v| v["model_type"].as_str() == Some("qwen3_5"))
+        .and_then(|v| v["model_type"].as_str().map(str::to_owned))
+}
+
+/// `config.json` says `model_type: qwen3_5` (Qwen3.8-27B) or `qwen3_5_moe` (Qwen3.6-35B-A3B):
+/// the family this door serves.
+pub fn is_qwen38_dir(dir: &Path) -> bool {
+    matches!(model_type(dir).as_deref(), Some("qwen3_5" | "qwen3_5_moe"))
+}
+
+/// The sparse member (`qwen3_5_moe`).
+pub fn is_moe_dir(dir: &Path) -> bool {
+    model_type(dir).as_deref() == Some("qwen3_5_moe")
+}
+
+/// The model id a checkpoint answers to by default.
+pub fn default_model_id(dir: &Path) -> &'static str {
+    if is_moe_dir(dir) {
+        DEFAULT_MODEL_ID_MOE
+    } else {
+        DEFAULT_MODEL_ID
+    }
 }
 
 fn mem_available() -> u64 {
@@ -69,7 +90,8 @@ impl Qwen38Door {
         if !aien_omega_gpu::is_native() {
             return Err("this binary carries the CPU stub of the Omega engine".into());
         }
-        if !aien_omega_q38::has_prefill() {
+        // The 35B runs prompts through its decode graph (no prefill entries needed).
+        if !is_moe_dir(dir) && !aien_omega_q38::has_prefill() {
             return Err("this binary has no qwen38 prefill entries linked (build against omega qwen38/prefill-graph)".into());
         }
         let c = Qwen38Config::from_checkpoint(dir)?;
@@ -92,6 +114,9 @@ impl Qwen38Door {
             need >> 20,
             avail >> 20
         );
+        if is_moe_dir(dir) && !aien_omega_q38::q36::is_native() {
+            return Err("this binary has no q36 decode graph linked (build against omega q36/serve)".into());
+        }
         let model = Qwen38Omega::open(dir, None, max_pos)?;
         eprintln!(
             "aien-serve-http: qwen38 engine ready in {:.1} s: context {max_context} tokens, weights {:.2} GB resident, KV {:.2} GB, rss {:.2} GB, prefill chunk {PREFILL_CHUNK}, spin_us {:?}",

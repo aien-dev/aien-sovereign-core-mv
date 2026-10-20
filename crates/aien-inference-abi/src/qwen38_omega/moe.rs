@@ -214,6 +214,12 @@ impl Qwen38Omega {
                 .map_err(gpu("q36 graph set_layer"))?;
         }
         graph.set_final_norm(&final_norm).map_err(gpu("q36 graph set_final_norm"))?;
+        // Negative controls for the gates (TEST ONLY): AIEN_Q36_TEST_MUTANT=4 drops the shared expert
+        // from COMBINE, 1 shifts the SWIGLU up half, 2 the attention GATHER, 3 drops the attention gate.
+        if let Some(m) = std::env::var("AIEN_Q36_TEST_MUTANT").ok().and_then(|v| v.parse::<i32>().ok()) {
+            eprintln!("qwen36 omega: TEST MUTANT {m} set (negative control; never serve this)");
+            graph.test_set_mutant(m);
+        }
         Ok(Self {
             graph: Graph::Moe(graph),
             router: Some(router),

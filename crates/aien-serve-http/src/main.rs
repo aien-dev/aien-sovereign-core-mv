@@ -261,7 +261,7 @@ fn main() -> ExitCode {
             }
         }
         if args.cfg.model_id == ServerConfig::default().model_id {
-            args.cfg.model_id = qwen38_engine::DEFAULT_MODEL_ID.into();
+            args.cfg.model_id = qwen38_engine::default_model_id(&args.model_dir).into();
         }
         if std::env::var_os("AIEN_KV_STORE_DIR").is_some() {
             eprintln!(
