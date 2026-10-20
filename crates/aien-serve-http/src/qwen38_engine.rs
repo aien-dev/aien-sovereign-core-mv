@@ -203,8 +203,9 @@ impl Engine for Qwen38Door {
 
     /// The loop of `generate` under a constraint. The constraint is asked for the next step's rule
     /// as soon as a token is emitted, before the token is fed: when that rule is `Force` the token
-    /// is fed without reading the output head ([`Qwen38Session::push`]); when it is `Finish` or a
-    /// forced stop it is not fed at all. Only `Any` and `Allow` read a head and sample.
+    /// is fed without reading the logits ([`Qwen38Session::push`]; the output head and argmax still
+    /// run inside the chip graph's step); when it is `Finish` or a forced stop it is not fed at all.
+    /// Only `Any` and `Allow` read the logits and sample.
     fn generate_masked(
         &self,
         prompt: &[u32],

@@ -25,7 +25,7 @@ use aien_inference_abi::tokenizer::ChatOptions;
 
 use crate::codec::{Codec, CodecError};
 use crate::engine::{Engine, EngineError, FinishReason, GenerateParams};
-use crate::mask::{ConstraintRequest, Mask};
+use crate::mask::{ConstraintRequest, Mask, MaskRecord};
 use crate::openai::{
     chunk_json, chunk_json_with, completion_json, ChatRequest, ErrorBody, ModelCard, ModelList,
     Usage,
