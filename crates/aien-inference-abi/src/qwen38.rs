@@ -63,6 +63,22 @@ pub struct Qwen38Config {
     pub conv_kernel: usize,
     pub eps: f32,
     pub eos_token_ids: Vec<u32>,
+    /// `Some` for the MoE variant (`qwen3_5_moe`, Qwen3.6-35B-A3B): every layer's MLP is a routed
+    /// sparse block plus a gated shared expert, and `intermediate` is unused (0).
+    pub moe: Option<MoeShape>,
+}
+
+/// The sparse MLP of a `qwen3_5_moe` layer (transformers `Qwen3_5MoeSparseMoeBlock`): router
+/// logits `W_gate x` (bf16 `[experts][hidden]`), softmax over all experts, the `top_k` largest,
+/// their probabilities renormalised to sum 1 (always: the router has no `norm_topk_prob` switch);
+/// each selected expert is a SiLU MLP of width `expert_inter`. Plus a shared expert (width
+/// `shared_inter`) scaled by `sigmoid(shared_expert_gate x)` (bf16 `[1][hidden]`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct MoeShape {
+    pub experts: usize,
+    pub top_k: usize,
+    pub expert_inter: usize,
+    pub shared_inter: usize,
 }
 
 fn field<'a>(v: &'a serde_json::Value, key: &str) -> Result<&'a serde_json::Value, String> {
@@ -97,14 +113,26 @@ impl Qwen38Config {
     pub fn from_json(config_json: &str, generation_json: Option<&str>) -> Result<Self, String> {
         let raw: serde_json::Value =
             serde_json::from_str(config_json).map_err(|e| format!("config.json: {e}"))?;
-        let text = match raw.get("model_type").and_then(|v| v.as_str()) {
-            Some("qwen3_5") => field(&raw, "text_config")?,
-            Some("qwen3_5_text") => &raw,
+        let (text, sparse) = match raw.get("model_type").and_then(|v| v.as_str()) {
+            Some("qwen3_5") => (field(&raw, "text_config")?, false),
+            Some("qwen3_5_text") => (&raw, false),
+            Some("qwen3_5_moe") => (field(&raw, "text_config")?, true),
+            Some("qwen3_5_moe_text") => (&raw, true),
             other => {
                 return Err(format!(
-                    "config.json: model_type {other:?}, this reference runs qwen3_5 only"
+                    "config.json: model_type {other:?}, this reference runs qwen3_5 and qwen3_5_moe only"
                 ))
             }
+        };
+        let moe = if sparse {
+            Some(MoeShape {
+                experts: usize_field(text, "num_experts")?,
+                top_k: usize_field(text, "num_experts_per_tok")?,
+                expert_inter: usize_field(text, "moe_intermediate_size")?,
+                shared_inter: usize_field(text, "shared_expert_intermediate_size")?,
+            })
+        } else {
+            None
         };
         let tied = text
             .get("tie_word_embeddings")
@@ -165,7 +193,11 @@ impl Qwen38Config {
             hidden: usize_field(text, "hidden_size")?,
             layers,
             vocab: usize_field(text, "vocab_size")?,
-            intermediate: usize_field(text, "intermediate_size")?,
+            intermediate: if sparse {
+                0
+            } else {
+                usize_field(text, "intermediate_size")?
+            },
             full_attention,
             heads: usize_field(text, "num_attention_heads")?,
             kv_heads: usize_field(text, "num_key_value_heads")?,
@@ -179,6 +211,7 @@ impl Qwen38Config {
             conv_kernel: usize_field(text, "linear_conv_kernel_dim")?,
             eps: f64_field(text, "rms_norm_eps")? as f32,
             eos_token_ids,
+            moe,
         };
         c.validate()?;
         Ok(c)
@@ -199,6 +232,11 @@ impl Qwen38Config {
         }
         if self.conv_kernel < 1 {
             return bad("conv kernel must be at least 1");
+        }
+        if let Some(m) = &self.moe {
+            if m.top_k == 0 || m.top_k > m.experts {
+                return bad("num_experts_per_tok must be 1..=num_experts");
+            }
         }
         Ok(())
     }
@@ -423,6 +461,32 @@ pub(crate) fn read_matrix(
     }
 }
 
+/// `{p}.gate_proj` / `up_proj` (`[inter][h]`) and `down_proj` (`[h][inter]`).
+fn read_ffn(source: &mut dyn TensorSource, p: &str, inter: usize, h: usize) -> Result<Ffn, String> {
+    Ok(Ffn {
+        gate: read_matrix(source, &format!("{p}.gate_proj.weight"), inter, h)?,
+        up: read_matrix(source, &format!("{p}.up_proj.weight"), inter, h)?,
+        down: read_matrix(source, &format!("{p}.down_proj.weight"), h, inter)?,
+    })
+}
+
+/// The router's choice for one row of logits: softmax over every expert, the `k` largest
+/// probabilities (larger logit first, the lower id on ties), renormalised to sum 1. `mutant`
+/// swaps the k-th pick for the (k+1)-th (negative control).
+pub fn route(logits: &[f32], k: usize, mutant: bool) -> Vec<(usize, f32)> {
+    let max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let probs: Vec<f32> = logits.iter().map(|&v| (v - max).exp()).collect();
+    let sum: f32 = probs.iter().sum();
+    let mut order: Vec<usize> = (0..logits.len()).collect();
+    order.sort_by(|&a, &b| logits[b].total_cmp(&logits[a]).then(a.cmp(&b)));
+    let mut pick: Vec<usize> = order[..k].to_vec();
+    if mutant && k < order.len() {
+        pick[k - 1] = order[k];
+    }
+    let sel: f32 = pick.iter().map(|&e| probs[e] / sum).sum();
+    pick.into_iter().map(|e| (e, probs[e] / sum / sel)).collect()
+}
+
 // ---------------------------------------------------------------------------
 // One layer's weights, read on demand.
 // ---------------------------------------------------------------------------
@@ -458,9 +522,37 @@ struct LayerWeights {
     input_norm: Vec<f32>,
     post_norm: Vec<f32>,
     mixer: Mixer,
+    mlp: Mlp,
+}
+
+/// One SiLU MLP: `down(silu(gate x) * up x)`.
+struct Ffn {
     gate: Matrix,
     up: Matrix,
     down: Matrix,
+}
+
+impl Ffn {
+    fn run(&self, xn: &[f32], t: usize) -> Vec<f32> {
+        let gate = self.gate.matmul(xn, t);
+        let up = self.up.matmul(xn, t);
+        let act: Vec<f32> = gate.iter().zip(&up).map(|(&g, &u)| silu(g) * u).collect();
+        self.down.matmul(&act, t)
+    }
+}
+
+/// The sparse block's always-resident part (the experts are read per call, only those routed).
+struct MoeWeights {
+    /// bf16 `[experts][hidden]`.
+    router: Matrix,
+    /// `shared_expert_gate`, `[hidden]`.
+    shared_gate: Vec<f32>,
+    shared: Ffn,
+}
+
+enum Mlp {
+    Dense(Ffn),
+    Moe(MoeWeights),
 }
 
 /// Per layer state between calls.
@@ -592,6 +684,11 @@ pub struct Qwen38Reference<S: TensorSource> {
     embed: Vec<u16>,
     final_norm: Vec<f32>,
     lm_head: Matrix,
+    /// TEST ONLY negative control: the MoE router picks the `top_k + 1`-th expert in place of the
+    /// `top_k`-th (a wrong expert with a plausible weight). Off by default.
+    pub routing_mutant: bool,
+    /// MoE only: per layer, the routed expert ids of the last call, `[t][top_k]` flattened.
+    pub routes: Vec<Vec<u16>>,
 }
 
 impl Qwen38Reference<ShardSource> {
@@ -621,6 +718,8 @@ impl<S: TensorSource> Qwen38Reference<S> {
             embed,
             final_norm,
             lm_head,
+            routing_mutant: false,
+            routes: Vec::new(),
         })
     }
 
@@ -667,14 +766,72 @@ impl<S: TensorSource> Qwen38Reference<S> {
             })
         };
         let m = format!("{p}.mlp");
+        let mlp = match &c.moe {
+            None => Mlp::Dense(read_ffn(src, &m, c.intermediate, h)?),
+            Some(s) => Mlp::Moe(MoeWeights {
+                router: read_matrix(src, &format!("{m}.gate.weight"), s.experts, h)?,
+                shared_gate: read_bf16_words(src, &format!("{m}.shared_expert_gate.weight"), &[1, h])?
+                    .into_iter()
+                    .map(bf16_to_f32)
+                    .collect(),
+                shared: read_ffn(src, &format!("{m}.shared_expert"), s.shared_inter, h)?,
+            }),
+        };
         Ok(LayerWeights {
             input_norm: read_vec(src, &format!("{p}.input_layernorm.weight"), h)?,
             post_norm: read_vec(src, &format!("{p}.post_attention_layernorm.weight"), h)?,
             mixer,
-            gate: read_matrix(src, &format!("{m}.gate_proj.weight"), c.intermediate, h)?,
-            up: read_matrix(src, &format!("{m}.up_proj.weight"), c.intermediate, h)?,
-            down: read_matrix(src, &format!("{m}.down_proj.weight"), h, c.intermediate)?,
+            mlp,
         })
+    }
+
+    /// The sparse block over `t` rows of `xn` (post-attention normed): routes every row, reads
+    /// each routed expert of layer `l` once and adds `weight * expert(x)` plus the gated shared
+    /// expert. Records the routed ids in [`Self::routes`].
+    fn moe(&mut self, l: usize, w: &MoeWeights, xn: &[f32], t: usize) -> Result<Vec<f32>, String> {
+        let s = self.config.moe.clone().ok_or("moe: dense config")?;
+        let h = self.config.hidden;
+        let logits = w.router.matmul(xn, t);
+        let mut picks: Vec<Vec<(usize, f32)>> = Vec::with_capacity(t);
+        for row in logits.chunks_exact(s.experts) {
+            picks.push(route(row, s.top_k, self.routing_mutant));
+        }
+        if self.routes.len() <= l {
+            self.routes.resize(l + 1, Vec::new());
+        }
+        self.routes[l] = picks
+            .iter()
+            .flat_map(|p| p.iter().map(|&(e, _)| e as u16))
+            .collect();
+        let mut users: Vec<Vec<(usize, f32)>> = vec![Vec::new(); s.experts];
+        for (i, p) in picks.iter().enumerate() {
+            for &(e, wt) in p {
+                users[e].push((i, wt));
+            }
+        }
+        let mut out = w.shared.run(xn, t);
+        for (i, row) in out.chunks_exact_mut(h).enumerate() {
+            let g = sigmoid(dot(&w.shared_gate, &xn[i * h..(i + 1) * h]));
+            row.iter_mut().for_each(|v| *v *= g);
+        }
+        let p = format!("{}layers.{l}.mlp.experts", self.prefix);
+        for (e, rows) in users.iter().enumerate() {
+            if rows.is_empty() {
+                continue;
+            }
+            let f = read_ffn(&mut self.source, &format!("{p}.{e}"), s.expert_inter, h)?;
+            let mut xs = Vec::with_capacity(rows.len() * h);
+            for &(i, _) in rows {
+                xs.extend_from_slice(&xn[i * h..(i + 1) * h]);
+            }
+            let y = f.run(&xs, rows.len());
+            for (yr, &(i, wt)) in y.chunks_exact(h).zip(rows) {
+                for (o, &v) in out[i * h..(i + 1) * h].iter_mut().zip(yr) {
+                    *o += wt * v;
+                }
+            }
+        }
+        Ok(out)
     }
 
     /// Runs `tokens` after what `state` already holds and returns logits, `[rows][vocab]` with
@@ -742,10 +899,10 @@ impl<S: TensorSource> Qwen38Reference<S> {
             x.iter_mut().zip(&mixed).for_each(|(a, b)| *a += b);
             let mut xn = x.clone();
             rms_norm_zc(&mut xn, &w.post_norm, c.eps);
-            let gate = w.gate.matmul(&xn, t);
-            let up = w.up.matmul(&xn, t);
-            let act: Vec<f32> = gate.iter().zip(&up).map(|(&g, &u)| silu(g) * u).collect();
-            let down = w.down.matmul(&act, t);
+            let down = match &w.mlp {
+                Mlp::Dense(f) => f.run(&xn, t),
+                Mlp::Moe(m) => self.moe(l, m, &xn, t)?,
+            };
             x.iter_mut().zip(&down).for_each(|(a, b)| *a += b);
         }
         if at.contains(&c.layers) {
@@ -1042,6 +1199,20 @@ mod tests {
             conv_kernel: 4,
             eps: 1e-6,
             eos_token_ids: vec![1],
+            moe: None,
+        }
+    }
+
+    fn tiny_moe() -> Qwen38Config {
+        Qwen38Config {
+            intermediate: 0,
+            moe: Some(MoeShape {
+                experts: 8,
+                top_k: 3,
+                expert_inter: 128,
+                shared_inter: 256,
+            }),
+            ..tiny()
         }
     }
 
@@ -1096,9 +1267,22 @@ mod tests {
                 m.fp8(&format!("{a}.out_proj.weight"), h, c.lin_value_dim());
             }
             let mp = format!("{lp}.mlp");
-            m.fp8(&format!("{mp}.gate_proj.weight"), c.intermediate, h);
-            m.fp8(&format!("{mp}.up_proj.weight"), c.intermediate, h);
-            m.fp8(&format!("{mp}.down_proj.weight"), h, c.intermediate);
+            let mut ffn = |m: &mut Mem, p: &str, inter: usize| {
+                m.fp8(&format!("{p}.gate_proj.weight"), inter, h);
+                m.fp8(&format!("{p}.up_proj.weight"), inter, h);
+                m.fp8(&format!("{p}.down_proj.weight"), h, inter);
+            };
+            match &c.moe {
+                None => ffn(&mut m, &mp, c.intermediate),
+                Some(s) => {
+                    m.bf16(&format!("{mp}.gate.weight"), &[s.experts, h], 0.5, 0.0);
+                    m.bf16(&format!("{mp}.shared_expert_gate.weight"), &[1, h], 0.2, 0.0);
+                    ffn(&mut m, &format!("{mp}.shared_expert"), s.shared_inter);
+                    for e in 0..s.experts {
+                        ffn(&mut m, &format!("{mp}.experts.{e}"), s.expert_inter);
+                    }
+                }
+            }
         }
         m
     }
@@ -1217,5 +1401,154 @@ mod tests {
         assert_eq!(argmax(&l), 1);
         let z: f64 = l.iter().map(|&v| (v as f64).exp()).sum();
         assert!((negative_log_likelihood(&l, 2) - (z.ln() - 1.0)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn reads_the_35b_config() {
+        let json = r#"{"model_type":"qwen3_5_moe","tie_word_embeddings":false,
+          "quantization_config":{"quant_method":"fp8","fmt":"e4m3","weight_block_size":[128,128]},
+          "text_config":{"attn_output_gate":true,"hidden_act":"silu","hidden_size":2048,
+          "num_hidden_layers":4,"vocab_size":248320,"moe_intermediate_size":512,
+          "shared_expert_intermediate_size":512,"num_experts":256,"num_experts_per_tok":8,
+          "layer_types":["linear_attention","linear_attention","linear_attention","full_attention"],
+          "num_attention_heads":16,"num_key_value_heads":2,"head_dim":256,
+          "rope_parameters":{"rope_theta":10000000,"partial_rotary_factor":0.25},
+          "linear_num_key_heads":16,"linear_num_value_heads":32,"linear_key_head_dim":128,
+          "linear_value_head_dim":128,"linear_conv_kernel_dim":4,"rms_norm_eps":1e-6,
+          "eos_token_id":248044}}"#;
+        let c = Qwen38Config::from_json(json, None).unwrap();
+        assert_eq!(c.conv_dim(), 8192);
+        assert_eq!(c.lin_value_dim(), 4096);
+        assert_eq!(c.kv_dim(), 512);
+        assert_eq!(c.intermediate, 0);
+        assert_eq!(
+            c.moe,
+            Some(MoeShape {
+                experts: 256,
+                top_k: 8,
+                expert_inter: 512,
+                shared_inter: 512
+            })
+        );
+        let bad = json.replace("\"num_experts_per_tok\":8", "\"num_experts_per_tok\":300");
+        assert!(Qwen38Config::from_json(&bad, None).is_err());
+    }
+
+    #[test]
+    fn route_renormalises_and_breaks_ties_low() {
+        let l = [0.5f32, 2.0, 2.0, -1.0, 1.0];
+        let r = route(&l, 3, false);
+        assert_eq!(r.iter().map(|p| p.0).collect::<Vec<_>>(), vec![1, 2, 4]);
+        let s: f32 = r.iter().map(|p| p.1).sum();
+        assert!((s - 1.0).abs() < 1e-6);
+        let (e2, e1) = (2f32.exp(), 1f32.exp());
+        assert!((r[0].1 - e2 / (2.0 * e2 + e1)).abs() < 1e-6);
+        let m = route(&l, 3, true);
+        assert_eq!(m.iter().map(|p| p.0).collect::<Vec<_>>(), vec![1, 2, 0]);
+    }
+
+    #[test]
+    fn moe_one_call_equals_token_by_token() {
+        let c = tiny_moe();
+        let mut whole = Qwen38Reference::new(c.clone(), tiny_source(&c)).unwrap();
+        let mut steps = Qwen38Reference::new(c.clone(), tiny_source(&c)).unwrap();
+        let tokens = [5u32, 17, 3, 42, 8, 8, 60];
+        let mut s1 = whole.new_state();
+        let all = whole.forward(&mut s1, &tokens, Logits::All).unwrap();
+        let mut s2 = steps.new_state();
+        let mut rows = steps.forward(&mut s2, &tokens[..2], Logits::All).unwrap();
+        for &tok in &tokens[2..] {
+            rows.extend(steps.forward(&mut s2, &[tok], Logits::Last).unwrap());
+        }
+        let max_diff = all
+            .iter()
+            .zip(&rows)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0f32, f32::max);
+        assert!(max_diff < 1e-4, "max logit difference {max_diff}");
+        assert_eq!(whole.routes.len(), c.layers);
+        assert_eq!(whole.routes[0].len(), tokens.len() * 3);
+        // More than one expert set in use (the router is not degenerate).
+        let mut sets: Vec<Vec<u16>> = whole.routes[0].chunks(3).map(|s| s.to_vec()).collect();
+        sets.dedup();
+        assert!(sets.len() > 1, "{sets:?}");
+        // The routing mutant moves the logits.
+        let mut mutant = Qwen38Reference::new(c.clone(), tiny_source(&c)).unwrap();
+        mutant.routing_mutant = true;
+        let mut s3 = mutant.new_state();
+        let bad = mutant.forward(&mut s3, &tokens, Logits::All).unwrap();
+        let moved = all
+            .iter()
+            .zip(&bad)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0f32, f32::max);
+        assert!(moved > 1e-3, "mutant moved the logits by only {moved}");
+    }
+
+    /// The sparse block against a brute-force f64 evaluation from the raw tensors.
+    #[test]
+    fn moe_block_matches_brute_force() {
+        let c = tiny_moe();
+        let s = c.moe.clone().unwrap();
+        let mut src = tiny_source(&c);
+        let mut r = Qwen38Reference::new(c.clone(), tiny_source(&c)).unwrap();
+        let h = c.hidden;
+        let t = 4;
+        let xn: Vec<f32> = (0..t * h).map(|i| prand(77, i)).collect();
+        let w = r.read_layer(0).unwrap();
+        let Mlp::Moe(m) = &w.mlp else { panic!() };
+        let got = r.moe(0, m, &xn, t).unwrap();
+        let p = "model.language_model.layers.0.mlp";
+        let lut = fp8_table();
+        let wide = |src: &mut Mem, name: &str, n: usize, k: usize| -> Vec<f64> {
+            match read_matrix(src, name, n, k).unwrap() {
+                Matrix::Fp8 { w, scales, .. } => (0..n * k)
+                    .map(|i| {
+                        let (r, c) = (i / k, i % k);
+                        lut[w[i] as usize] as f64
+                            * bf16_to_f32(scales[(r / 128) * (k / 128) + c / 128]) as f64
+                    })
+                    .collect(),
+                Matrix::Bf16 { w, .. } => w.iter().map(|&b| bf16_to_f32(b) as f64).collect(),
+            }
+        };
+        let mv = |w: &[f64], x: &[f64], n: usize| -> Vec<f64> {
+            let k = x.len();
+            (0..n).map(|r| (0..k).map(|c| w[r * k + c] * x[c]).sum()).collect()
+        };
+        let ffn = |src: &mut Mem, q: &str, inter: usize, x: &[f64]| -> Vec<f64> {
+            let g = mv(&wide(src, &format!("{q}.gate_proj.weight"), inter, h), x, inter);
+            let u = mv(&wide(src, &format!("{q}.up_proj.weight"), inter, h), x, inter);
+            let a: Vec<f64> = g.iter().zip(&u).map(|(&g, &u)| g / (1.0 + (-g).exp()) * u).collect();
+            mv(&wide(src, &format!("{q}.down_proj.weight"), h, inter), &a, h)
+        };
+        let router = wide(&mut src, &format!("{p}.gate.weight"), s.experts, h);
+        let sg = wide(&mut src, &format!("{p}.shared_expert_gate.weight"), 1, h);
+        let mut worst = 0f64;
+        for i in 0..t {
+            let x: Vec<f64> = xn[i * h..(i + 1) * h].iter().map(|&v| v as f64).collect();
+            let logits = mv(&router, &x, s.experts);
+            let mut order: Vec<usize> = (0..s.experts).collect();
+            order.sort_by(|&a, &b| logits[b].total_cmp(&logits[a]));
+            let top = &order[..s.top_k];
+            let z: f64 = top.iter().map(|&e| logits[e].exp()).sum();
+            let gate = 1.0 / (1.0 + (-mv(&sg, &x, 1)[0]).exp());
+            let mut want: Vec<f64> = ffn(&mut src, &format!("{p}.shared_expert"), s.shared_inter, &x)
+                .into_iter()
+                .map(|v| v * gate)
+                .collect();
+            for &e in top {
+                let y = ffn(&mut src, &format!("{p}.experts.{e}"), s.expert_inter, &x);
+                let wt = logits[e].exp() / z;
+                want.iter_mut().zip(&y).for_each(|(o, v)| *o += wt * v);
+            }
+            let ids: Vec<u16> = r.routes[0][i * s.top_k..(i + 1) * s.top_k].to_vec();
+            assert_eq!(ids, top.iter().map(|&e| e as u16).collect::<Vec<_>>(), "row {i}");
+            for (j, w) in want.iter().enumerate() {
+                let d = (got[i * h + j] as f64 - w).abs() / (1.0 + w.abs());
+                worst = worst.max(d);
+            }
+        }
+        assert!(worst < 1e-4, "worst relative error {worst}");
     }
 }
