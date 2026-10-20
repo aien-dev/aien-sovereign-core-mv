@@ -7,6 +7,7 @@
 //!   engine plan trace TRACE MODEL_DIR OUT.json [--buffers B] synthetic plan: head(layer) = union of routed experts
 //!   engine plan union MODEL_DIR OUT.json [--buffers B] TRACE...   same over several traces (N heads on one stroke)
 //!   engine plan fixed MODEL_DIR OUT.json --layers K --experts E [--buffers B]
+//!   engine plan l308 MODEL_DIR HEADS.json DOMAIN OUT.json [--buffers B] [--layers K]   L308 measured heads file -> plan (synthetic false)
 //!   engine schedule PLAN MANIFEST TOKENS OUT.json            build + host proof (complete, acyclic, no collision, edges)
 //!   engine move SCHEDULE MANIFEST OUT_DIR [--workers W] [--fire-us U] [--direct 0|1] [--engines 1|2]
 //!               [--coupling brigade|clock|reservoir] [--period-us T]
@@ -15,6 +16,8 @@
 //!                                                           both engines on the host: identical tokens gate + timing diagram
 //!   engine stroke SCHEDULE MANIFEST MODEL_DIR OUT_DIR --n N --traces A.json,B.json,... [--positions P] [--workers W] [--engines E]
 //!                                                           H6: N heads on one stroke; gate per head vs its own trace
+//!   engine swap PLAN_A PLAN_B|shift:N MANIFEST OUT_DIR [--tokens T] [--swap-at K] [--lead L] [--fire-us U] [--workers W]
+//!                                                           H4: head A resident in RAM, head B from token K, loader L tokens early
 //!   engine union OUT.json [--positions P] TRACE...          H6 offline: expert union vs N from the traces
 //!   engine today URL MODEL_DIR TRACE OUT.json               today's path (the live server) on the same prompt: agreement count
 use aien_engine::movement::{Engines, FillStamp, MovementEngine};
@@ -128,7 +131,12 @@ fn cmd_plan(a: &[String]) -> Result<(), String> {
             let dir = Path::new(&pos[1]);
             (PlacementPlan::synthetic_fixed(&dir.file_name().unwrap().to_string_lossy(), dir, opt_usize(a, "--layers", 4), opt_usize(a, "--experts", 8) as u16, buffers), pos[2].clone())
         }
-        x => return Err(format!("plan {x}: trace|union|fixed")),
+        "l308" => {
+            let dir = Path::new(&pos[1]);
+            let model = dir.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+            (PlacementPlan::from_l308_heads(&model, dir, Path::new(&pos[2]), &pos[3], opt_usize(a, "--layers", 0), buffers)?, pos[4].clone())
+        }
+        x => return Err(format!("plan {x}: trace|union|fixed|l308")),
     };
     plan.save(Path::new(&out))?;
     let sizes: Vec<usize> = plan.heads.iter().map(|h| h.experts.len()).collect();
@@ -275,6 +283,165 @@ fn cmd_move(a: &[String]) -> Result<(), String> {
     write_receipts(&out, &traces, json!({"mode": "movement-only", "model": s.model, "workers": workers, "direct": direct, "fire_us_setting": fire_us, "engines": engines.count(), "coupling": coupling, "period_us_setting": if coupling == "clock" { period_us } else { 0 }, "buffers": s.buffers, "slots": s.slots, "layers": s.layers.len(), "tokens": s.tokens, "stages": stage_series(&stamps)}))
 }
 
+
+/// H4 head swap mid-run (movement engines + stand-in piston, like `move`): head A is resident in host RAM before the run;
+/// tokens from `--swap-at K` fire on head B. A loader brings B into the resident tier starting `--lead L` tokens before
+/// the swap (L = -1: never, every B part comes from the disk). Receipt: per-token time, the extra time the user sees
+/// after the swap against the steady token before it, and the hit rate (parts served from RAM) after the swap.
+fn cmd_swap(a: &[String]) -> Result<(), String> {
+    let pa = PlacementPlan::load(Path::new(&a[0]))?;
+    let pb = if let Some(sh) = a[1].strip_prefix("shift:") {
+        // head B = head A with every expert id moved by `sh` (mod the expert count): a disjoint head of the same size
+        let sh: u16 = sh.parse().map_err(|_| "shift:N")?;
+        let n = opt_usize(a, "--experts-per-layer", EXPERTS) as u16;
+        let mut b = pa.clone();
+        for h in &mut b.heads {
+            h.experts = h.experts.iter().map(|x| (x + sh) % n).collect();
+        }
+        b.source = format!("{} shifted by {sh} of {n}", pa.source);
+        b
+    } else {
+        PlacementPlan::load(Path::new(&a[1]))?
+    };
+    let m = Manifest::load(Path::new(&a[2])).map_err(|e| e.to_string())?;
+    let out = PathBuf::from(&a[3]);
+    let tokens = opt_usize(a, "--tokens", 24) as u32;
+    let swap_at = opt_usize(a, "--swap-at", 12) as u32;
+    let lead: i64 = opt(a, "--lead").map(|s| s.parse().unwrap_or(-1)).unwrap_or(-1);
+    let workers = opt_usize(a, "--workers", 8);
+    let fire_us = opt_usize(a, "--fire-us", 2000) as i64;
+    let s = Arc::new(Schedule::build_swap(&pa, &pb, &m, tokens, swap_at)?);
+    let rep = s.check();
+    if !rep.pass() {
+        return Err(format!("swap schedule check FAIL: {:?}", rep.problems));
+    }
+    let k = s.layers.len() as u32;
+    let part_ids = |pl: &PlacementPlan| -> Vec<u32> {
+        let mut v: Vec<u32> = pl.heads.iter().flat_map(|h| h.experts.iter().map(move |x| (h.layer, *x))).filter_map(|(l, x)| s.parts.iter().find(|p| p.layer == l && p.expert == x).map(|p| p.id)).collect();
+        v.sort_unstable();
+        v.dedup();
+        v
+    };
+    let (ia, ib) = (part_ids(&pa), part_ids(&pb));
+    let slot_bytes = aien_heartbeat::stream::Streamer::slot_bytes(&m);
+    let resident = Arc::new(aien_heartbeat::ring::Ring::new(ia.len() + ib.len(), slot_bytes));
+    let cfg = aien_heartbeat::stream::StreamConfig { slots: ia.len() + ib.len(), workers, direct: true, publish: true, lease_wait: std::time::Duration::from_secs(60) };
+    let loader = Arc::new(aien_heartbeat::stream::Streamer::open(&m.shard_paths(), cfg).map_err(|e| e.to_string())?);
+    let entry = |pid: u32| -> Result<aien_heartbeat::manifest::ExpertEntry, String> {
+        let p = &s.parts[pid as usize];
+        m.experts.iter().find(|e| e.layer == p.layer && e.expert == p.expert).cloned().ok_or(format!("part {pid}: not in the manifest"))
+    };
+    let ea: Vec<_> = ia.iter().map(|&p| entry(p)).collect::<Result<_, _>>()?;
+    let eb: Vec<_> = ib.iter().map(|&p| entry(p)).collect::<Result<_, _>>()?;
+    let load_head = |es: &[aien_heartbeat::manifest::ExpertEntry], base: usize, ld: &aien_heartbeat::stream::Streamer, res: &aien_heartbeat::ring::Ring| -> Result<(), String> {
+        std::thread::scope(|sc| {
+            let hs: Vec<_> = (0..workers.max(1))
+                .map(|wi| {
+                    sc.spawn(move || -> Result<(), String> {
+                        for (i, e) in es.iter().enumerate().filter(|(i, _)| i % workers.max(1) == wi) {
+                            ld.load_one(res, base + i, e).map_err(|x| x.to_string())?;
+                        }
+                        Ok(())
+                    })
+                })
+                .collect();
+            hs.into_iter().map(|h| h.join().unwrap_or(Err("loader panicked".into()))).collect::<Result<Vec<()>, String>>()
+        })?;
+        Ok(())
+    };
+    let t_pre = Instant::now();
+    load_head(&ea, 0, &loader, &resident)?;
+    let head_a_load_ms = t_pre.elapsed().as_secs_f64() * 1e3;
+    let t0 = Instant::now();
+    let mut me = MovementEngine::open(s.clone(), &m, workers, true, Engines::Direct, t0)?;
+    me.set_resident(resident.clone());
+    let ring = me.ring();
+    let (jtx, jrx) = mpsc::channel();
+    let (stx, srx) = mpsc::channel();
+    let h = std::thread::spawn(move || me.serve(jrx, stx));
+    let mut crank = Crank::new(s.clone(), ring, jtx, srx, t0);
+    // the loader: waits for the trigger beat, then brings head B into the resident tier
+    let beat_now = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let trigger: Option<u32> = (lead >= 0).then(|| (swap_at as i64 - lead).max(0) as u32 * k);
+    let lt = {
+        let (beat_now, loader, resident, eb) = (beat_now.clone(), loader.clone(), resident.clone(), eb.clone());
+        let base = ia.len();
+        std::thread::spawn(move || -> Result<(i64, i64), String> {
+            let Some(tb) = trigger else { return Ok((-1, -1)) };
+            while beat_now.load(std::sync::atomic::Ordering::Acquire) < tb {
+                std::hint::spin_loop();
+            }
+            let st = t0.elapsed().as_nanos() as i64;
+            let w = workers.max(1);
+            std::thread::scope(|sc| {
+                let hs: Vec<_> = (0..w)
+                    .map(|wi| {
+                        let (eb, loader, resident) = (&eb, &loader, &resident);
+                        sc.spawn(move || -> Result<(), String> {
+                            for (i, e) in eb.iter().enumerate().filter(|(i, _)| i % w == wi) {
+                                loader.load_one(resident, base + i, e).map_err(|x| x.to_string())?;
+                            }
+                            Ok(())
+                        })
+                    })
+                    .collect();
+                hs.into_iter().map(|h| h.join().unwrap_or(Err("loader panicked".into()))).collect::<Result<Vec<()>, String>>()
+            })?;
+            Ok((st, t0.elapsed().as_nanos() as i64))
+        })
+    };
+    crank.prime()?;
+    let mut traces = Vec::with_capacity(s.beats.len());
+    let mut hits = Vec::with_capacity(s.beats.len());
+    for beat in &s.beats {
+        beat_now.store(beat.b, std::sync::atomic::Ordering::Release);
+        if let Some(f) = &beat.fill {
+            crank.issue(f)?;
+        }
+        let stamp = crank.wait_fill(beat.b)?;
+        let fire_start = crank.now_ns();
+        if fire_us > 0 {
+            spin_until(&crank, fire_start + fire_us * 1000);
+        }
+        let fire_done = crank.now_ns();
+        hits.push((stamp.hits, beat.fire_parts.len() as u32));
+        traces.push(BeatTrace { b: beat.b, token: beat.token, layer: beat.layer, buffer: beat.fire_buffer, bytes: stamp.bytes, fill_issue_ns: stamp.issue_ns, fill_done_ns: stamp.done_ns, fire_start_ns: fire_start, fire_done_ns: fire_done, misfire: false });
+    }
+    beat_now.store(u32::MAX, std::sync::atomic::Ordering::Release);
+    drop(crank);
+    h.join().map_err(|_| "movement thread panicked")?;
+    let (load_b_start, load_b_done) = lt.join().map_err(|_| "loader thread panicked")??;
+    // per token: time from the previous token's last fire done to this token's last fire done (token 0: from the first fire start)
+    let mut tok_ms = Vec::with_capacity(tokens as usize);
+    for t in 0..tokens as usize {
+        let end = traces[(t + 1) * k as usize - 1].fire_done_ns;
+        let start = if t == 0 { traces[0].fire_start_ns } else { traces[t * k as usize - 1].fire_done_ns };
+        tok_ms.push((end - start) as f64 / 1e6);
+    }
+    let mut before: Vec<f64> = tok_ms[1..swap_at as usize].to_vec();
+    before.sort_by(|x, y| x.partial_cmp(y).unwrap());
+    let steady = before.get(before.len() / 2).copied().unwrap_or(0.0);
+    let extra_ms: f64 = tok_ms[swap_at as usize..].iter().map(|t| (t - steady).max(0.0)).sum();
+    let first_extra_ms = tok_ms.get(swap_at as usize).map(|t| t - steady).unwrap_or(0.0);
+    let sb = (swap_at * k) as usize;
+    let (h_after, n_after): (u32, u32) = hits[sb..].iter().fold((0, 0), |a, x| (a.0 + x.0, a.1 + x.1));
+    let (h_before, n_before): (u32, u32) = hits[..sb].iter().fold((0, 0), |a, x| (a.0 + x.0, a.1 + x.1));
+    let first_all_hit = (swap_at as usize..tokens as usize).find(|&t| hits[t * k as usize..(t + 1) * k as usize].iter().all(|x| x.0 == x.1));
+    let swap_beat_ns = traces[sb].fill_issue_ns;
+    write_receipts(
+        &out,
+        &traces,
+        json!({"mode": "head-swap", "model": s.model, "workers": workers, "fire_us_setting": fire_us, "tokens": tokens, "swap_at_token": swap_at, "lead_tokens": lead,
+               "layers": k, "buffers": s.buffers, "head_a_parts": ia.len(), "head_b_parts": ib.len(), "head_b_source": pb.source, "head_a_load_ms": head_a_load_ms,
+               "head_b_load_ms": if load_b_done > 0 { (load_b_done - load_b_start) as f64 / 1e6 } else { -1.0 },
+               "head_b_load_start_vs_swap_ms": if load_b_start > 0 { (load_b_start - swap_beat_ns) as f64 / 1e6 } else { 0.0 },
+               "token_ms": tok_ms, "steady_token_ms_before_swap": steady, "first_token_after_swap_extra_ms": first_extra_ms, "user_visible_extra_ms_total": extra_ms,
+               "hit_rate_before_swap": h_before as f64 / n_before.max(1) as f64, "hit_rate_after_swap": h_after as f64 / n_after.max(1) as f64,
+               "first_all_hit_token_after_swap": first_all_hit}),
+    )?;
+    println!("swap lead {lead}: steady {steady:.2} ms/token, first token after swap +{first_extra_ms:.2} ms, total extra {extra_ms:.1} ms, hit rate after {:.3}, head B load {:.1} ms", h_after as f64 / n_after.max(1) as f64, if load_b_done > 0 { (load_b_done - load_b_start) as f64 / 1e6 } else { -1.0 });
+    Ok(())
+}
 fn replay_sequence(tr: &RouteTrace) -> Vec<u32> {
     tr.prompt_tokens.iter().copied().chain(tr.argmax[tr.prompt_tokens.len() - 1..tr.argmax.len() - 1].iter().copied()).collect()
 }
@@ -481,6 +648,7 @@ fn main() {
         Some("plan") => cmd_plan(&args[1..]),
         Some("schedule") => cmd_schedule(&args[1..]),
         Some("move") => cmd_move(&args[1..]),
+        Some("swap") => cmd_swap(&args[1..]),
         Some("run") => cmd_run(&args[1..]),
         Some("stroke") => cmd_stroke(&args[1..]),
         Some("union") => cmd_union(&args[1..]),

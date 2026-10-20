@@ -91,6 +91,15 @@ fn entry<'m>(m: &'m Manifest, layer: u16, expert: u16) -> Result<&'m ExpertEntry
 impl Schedule {
     /// Build the table: `tokens` passes over `plan.layers`, B = plan.buffers_in_flight (>= 1).
     pub fn build(plan: &PlacementPlan, m: &Manifest, tokens: u32) -> Result<Self, String> {
+        Self::build_swap(plan, plan, m, tokens, tokens)
+    }
+
+    /// H4 head swap: tokens before `swap_token` fire on `plan`'s heads, tokens from `swap_token` on `next`'s. Same layers
+    /// and buffers; the parts table holds both heads. `build` is the no-swap case.
+    pub fn build_swap(plan: &PlacementPlan, next: &PlacementPlan, m: &Manifest, tokens: u32, swap_token: u32) -> Result<Self, String> {
+        if next.layers != plan.layers || next.buffers_in_flight != plan.buffers_in_flight {
+            return Err("swap: both plans must have the same layers and buffers".into());
+        }
         let bcount = plan.buffers_in_flight.max(1) as u32;
         let k = plan.layers.len() as u32;
         if k == 0 || tokens == 0 {
@@ -99,8 +108,8 @@ impl Schedule {
         let mut parts: Vec<Part> = Vec::new();
         let mut id_of: HashMap<(u16, u16), u32> = HashMap::new();
         let mut slots = 0u32;
-        for l in &plan.layers {
-            let h = plan.head(*l).ok_or(format!("layer {l}: no head in the plan"))?;
+        for (pl, l) in [plan, next].iter().flat_map(|pl| pl.layers.iter().map(move |l| (*pl, l))) {
+            let h = pl.head(*l).ok_or(format!("layer {l}: no head in the plan"))?;
             slots = slots.max(h.experts.len() as u32);
             for &x in &h.experts {
                 if id_of.contains_key(&(*l, x)) {
@@ -114,7 +123,8 @@ impl Schedule {
         let total = tokens * k;
         let head_parts = |b: u32| -> Vec<u32> {
             let l = plan.layers[(b % k) as usize];
-            plan.head(l).unwrap().experts.iter().map(|x| id_of[&(l, *x)]).collect()
+            let pl = if b / k < swap_token { plan } else { next };
+            pl.head(l).unwrap().experts.iter().map(|x| id_of[&(l, *x)]).collect()
         };
         let prime: Vec<Fill> = (0..(bcount - 1).min(total)).map(|b| Fill { for_beat: b, buffer: b % bcount, parts: head_parts(b) }).collect();
         let beats = (0..total)

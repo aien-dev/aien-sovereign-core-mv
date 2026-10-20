@@ -90,6 +90,55 @@ impl PlacementPlan {
         }
     }
 
+    /// L308's measured heads file (`evidence/typewriter/heads-0.90.json` on omega feat/typewriter-experts):
+    /// `{mode, heads: {DOMAIN: {layers: [[expert ids] per layer, in layer order]}}}`. One domain becomes one plan:
+    /// layer l's head = that domain's expert list for layer l, every layer in order (or the first `k` when `k` > 0).
+    /// This is the measured plan, so `synthetic` is false; the source names the file and the domain.
+    pub fn from_l308_heads(model: &str, model_dir: &Path, heads_path: &Path, domain: &str, k: usize, buffers: usize) -> Result<Self, String> {
+        let text = std::fs::read_to_string(heads_path).map_err(|e| format!("{}: {e}", heads_path.display()))?;
+        Self::from_l308_heads_str(model, model_dir, &text, &heads_path.display().to_string(), domain, k, buffers)
+    }
+
+    pub fn from_l308_heads_str(model: &str, model_dir: &Path, text: &str, name: &str, domain: &str, k: usize, buffers: usize) -> Result<Self, String> {
+        let v: serde_json::Value = serde_json::from_str(text).map_err(|e| format!("{name}: {e}"))?;
+        let dom = v.get("heads").and_then(|h| h.get(domain)).ok_or_else(|| {
+            let have: Vec<String> = v.get("heads").and_then(|h| h.as_object()).map(|o| o.keys().cloned().collect()).unwrap_or_default();
+            format!("{name}: no head for domain {domain:?} (have {have:?})")
+        })?;
+        let layers_v = dom.get("layers").and_then(|l| l.as_array()).ok_or(format!("{name}: heads.{domain}.layers is not an array"))?;
+        if layers_v.is_empty() {
+            return Err(format!("{name}: heads.{domain}.layers is empty"));
+        }
+        let n = if k > 0 { k.min(layers_v.len()) } else { layers_v.len() };
+        let mut heads = Vec::with_capacity(n);
+        for (l, row) in layers_v.iter().take(n).enumerate() {
+            let mut experts: Vec<u16> = row
+                .as_array()
+                .ok_or(format!("{name}: layer {l} is not an array"))?
+                .iter()
+                .map(|x| x.as_u64().and_then(|x| u16::try_from(x).ok()).ok_or(format!("{name}: layer {l}: expert id {x} is not a small integer")))
+                .collect::<Result<_, _>>()?;
+            experts.sort_unstable();
+            experts.dedup();
+            if experts.is_empty() {
+                return Err(format!("{name}: layer {l} has no experts"));
+            }
+            heads.push(Head { layer: l as u16, experts });
+        }
+        let mode = v.get("mode").and_then(|m| m.as_str()).unwrap_or("?");
+        Ok(Self {
+            schema: "aien-engine-plan/1".into(),
+            model: model.into(),
+            model_dir: model_dir.display().to_string(),
+            synthetic: false,
+            source: format!("L308 measured heads {name}, domain {domain}, mode {mode}, {} of {} layers", n, layers_v.len()),
+            layers: (0..n as u16).collect(),
+            heads,
+            head_tier: Tier::Nvme,
+            buffers_in_flight: buffers,
+        })
+    }
+
     pub fn head(&self, layer: u16) -> Option<&Head> {
         self.heads.iter().find(|h| h.layer == layer)
     }
@@ -136,5 +185,36 @@ impl PlacementPlan {
             head_tier: Tier::Nvme,
             buffers_in_flight: buffers,
         }
+    }
+}
+
+#[cfg(test)]
+mod l308_tests {
+    use super::*;
+
+    const HEADS: &str = r#"{"mode":"coverage-0.90","heads":{"prose":{"layers":[[5,1,3,1],[7],[2,0]]},"code":{"layers":[[9],[8],[6]]}}}"#;
+
+    #[test]
+    fn l308_heads_become_a_measured_plan() {
+        let p = PlacementPlan::from_l308_heads_str("m", Path::new("/models/m"), HEADS, "heads.json", "prose", 0, 2).unwrap();
+        assert!(!p.synthetic);
+        assert_eq!(p.layers, vec![0, 1, 2]);
+        assert_eq!(p.head(0).unwrap().experts, vec![1, 3, 5]); // sorted, duplicates dropped
+        assert_eq!(p.head(1).unwrap().experts, vec![7]);
+        assert_eq!(p.head(2).unwrap().experts, vec![0, 2]);
+        assert!(p.source.contains("prose") && p.source.contains("coverage-0.90"));
+        let first2 = PlacementPlan::from_l308_heads_str("m", Path::new("/models/m"), HEADS, "heads.json", "code", 2, 2).unwrap();
+        assert_eq!(first2.layers, vec![0, 1]);
+        assert_eq!(first2.heads.len(), 2);
+    }
+
+    #[test]
+    fn l308_heads_unknown_domain_or_bad_rows_fail_closed() {
+        let e = PlacementPlan::from_l308_heads_str("m", Path::new("/m"), HEADS, "h", "math", 0, 2).unwrap_err();
+        assert!(e.contains("math") && e.contains("prose"), "{e}");
+        let bad = r#"{"heads":{"x":{"layers":[[1],[]]}}}"#;
+        assert!(PlacementPlan::from_l308_heads_str("m", Path::new("/m"), bad, "h", "x", 0, 2).unwrap_err().contains("no experts"));
+        let big = r#"{"heads":{"x":{"layers":[[70000]]}}}"#;
+        assert!(PlacementPlan::from_l308_heads_str("m", Path::new("/m"), big, "h", "x", 0, 2).is_err());
     }
 }

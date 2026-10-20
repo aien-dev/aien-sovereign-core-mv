@@ -16,6 +16,7 @@ use aien_heartbeat::ring::Ring;
 use aien_heartbeat::stream::{StreamConfig, Streamer};
 use serde::{Deserialize, Serialize};
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -56,6 +57,9 @@ pub struct FillStamp {
     pub read_ns_sum: u64,
     pub digest_ns_sum: u64,
     pub lease_wait_ns_sum: u64,
+    /// Parts of this fill served from the resident tier (a copy from host RAM) instead of the disk (H4 head swap).
+    #[serde(default)]
+    pub hits: u32,
 }
 
 pub struct MovementEngine {
@@ -67,6 +71,9 @@ pub struct MovementEngine {
     workers: usize,
     engines: Engines,
     t0: Instant,
+    /// H4: the resident tier (a head held in host RAM). A part published there is copied from it, not read from disk.
+    resident: Option<Arc<Ring>>,
+    last_hits: AtomicU32,
 }
 
 const LEASE_WAIT: Duration = Duration::from_secs(60);
@@ -90,7 +97,12 @@ impl MovementEngine {
             }
             entries.push(e.clone());
         }
-        Ok(Self { ring, streamer, staging, sched, entries, workers: workers.max(1), engines, t0 })
+        Ok(Self { ring, streamer, staging, sched, entries, workers: workers.max(1), engines, t0, resident: None, last_hits: AtomicU32::new(0) })
+    }
+
+    /// H4: serve parts from `r` when they are published there (the resident head); misses go to the disk.
+    pub fn set_resident(&mut self, r: Arc<Ring>) {
+        self.resident = Some(r);
     }
 
     pub fn ring(&self) -> Arc<Ring> {
@@ -109,10 +121,11 @@ impl MovementEngine {
     /// staging pair on the staged path; staging buffer = for_beat % 2). Returns (read, digest, lease-wait, bytes) sums.
     fn nvme_stage(&self, f: &Fill, ring: &Ring, slot_of: &(dyn Fn(usize) -> usize + Sync)) -> Result<(u64, u64, u64, u64), String> {
         let w = self.workers.min(f.parts.len()).max(1);
+        let hits = AtomicU32::new(0);
         let results: Vec<Result<(u64, u64, u64, u64), String>> = std::thread::scope(|sc| {
             let hs: Vec<_> = (0..w)
                 .map(|wi| {
-                    let (streamer, entries) = (&self.streamer, &self.entries);
+                    let (streamer, entries, resident, hits) = (&self.streamer, &self.entries, &self.resident, &hits);
                     sc.spawn(move || {
                         let (mut rd, mut dg, mut wt, mut by) = (0u64, 0u64, 0u64, 0u64);
                         for (i, &p) in f.parts.iter().enumerate() {
@@ -120,6 +133,34 @@ impl MovementEngine {
                                 continue;
                             }
                             let slot = slot_of(i);
+                            let e = &entries[p as usize];
+                            // H4: a part the resident head holds is copied from host RAM and verified again on publish
+                            if let Some(res) = resident {
+                                if let Some(lease) = res.lease(e.layer, e.expert).map_err(|x| x.to_string())? {
+                                    let t = Instant::now();
+                                    let (mut g, waited) = ring.begin_fill(slot, LEASE_WAIT).map_err(|x| format!("beat {} part {p} slot {slot}: {x}", f.for_beat))?;
+                                    let mut off = 0usize;
+                                    {
+                                        let dst = g.buf_mut();
+                                        for seg in lease.segments() {
+                                            if off + seg.len() > dst.len() {
+                                                return Err(format!("beat {} part {p}: payload {} > slot {}", f.for_beat, off + seg.len(), dst.len()));
+                                            }
+                                            dst[off..off + seg.len()].copy_from_slice(seg);
+                                            off += seg.len();
+                                        }
+                                    }
+                                    drop(lease);
+                                    let expected = e.digest_bytes().map_err(|x| x.to_string())?;
+                                    let (_tag, d) = g.publish(e.layer, e.expert, &[(0, off)], &expected).map_err(|x| format!("beat {} part {p}: {x}", f.for_beat))?;
+                                    rd += (t.elapsed() - d).as_nanos() as u64;
+                                    dg += d.as_nanos() as u64;
+                                    wt += waited.as_nanos() as u64;
+                                    by += e.len;
+                                    hits.fetch_add(1, Ordering::Relaxed);
+                                    continue;
+                                }
+                            }
                             let (r, d, waited, _dev) = streamer.load_one(ring, slot, &entries[p as usize]).map_err(|e| format!("beat {} part {p} slot {slot}: {e}", f.for_beat))?;
                             rd += r.as_nanos() as u64;
                             dg += d.as_nanos() as u64;
@@ -137,6 +178,7 @@ impl MovementEngine {
             let (a, b, c, d) = r?;
             acc = (acc.0 + a, acc.1 + b, acc.2 + c, acc.3 + d);
         }
+        self.last_hits.store(hits.load(Ordering::Relaxed), Ordering::Relaxed);
         Ok(acc)
     }
 
@@ -193,7 +235,7 @@ impl MovementEngine {
         let sched = &self.sched;
         let (rd, dg, wt, by) = self.nvme_stage(f, &self.ring, &|i| sched.slot(f.buffer, i))?;
         let done = self.ns();
-        Ok(FillStamp { for_beat: f.for_beat, buffer: f.buffer, bytes: by, issue_ns: issue, done_ns: done, nvme_done_ns: done, ram_start_ns: done, read_ns_sum: rd, digest_ns_sum: dg, lease_wait_ns_sum: wt })
+        Ok(FillStamp { for_beat: f.for_beat, buffer: f.buffer, bytes: by, issue_ns: issue, done_ns: done, nvme_done_ns: done, ram_start_ns: done, read_ns_sum: rd, digest_ns_sum: dg, lease_wait_ns_sum: wt, hits: self.last_hits.load(Ordering::Relaxed) })
     }
 
     /// Run as the intake: fills arrive in beat order on `jobs`; each stamp goes back on `stamps`. An error is sent
