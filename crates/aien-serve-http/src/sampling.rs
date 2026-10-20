@@ -20,7 +20,9 @@
 
 use std::sync::OnceLock;
 
-use aien_inference_abi::transformer_backend::{decode_sampling_seed, sample_with_params_traced};
+use aien_inference_abi::transformer_backend::{
+    decode_sampling_seed, sample_top_k_traced, sample_with_params_traced,
+};
 use aien_inference_abi::{DecodeObservation, SamplingParams};
 use serde::Serialize;
 
@@ -223,14 +225,7 @@ impl SamplingObserver {
     pub fn sample(&mut self, logits: &[f32], step: usize) -> u32 {
         let temperature = self.temperature();
         let k = self.params.top_k;
-        let masked;
-        let logits = if k > 0 && k < logits.len() && temperature > 0.001 {
-            self.top_k_applied = true;
-            masked = top_k_mask(logits, k);
-            masked.as_slice()
-        } else {
-            logits
-        };
+        let top_k = k > 0 && k < logits.len() && temperature > 0.001;
         let sp = SamplingParams {
             temperature,
             top_p: self.params.top_p,
@@ -238,7 +233,22 @@ impl SamplingObserver {
             stop_token_ids: Vec::new(),
         };
         let seed = decode_sampling_seed(self.seed(), step);
-        let (token, logprob, trace) = sample_with_params_traced(logits, &sp, seed, &mut self.obs);
+        self.top_k_applied |= top_k;
+        // Top-k draws work on the k winners only; the masked full-vocabulary
+        // pass remains for the inputs the fast draw declines (NaN, infinities).
+        let fast = if top_k {
+            sample_top_k_traced(logits, k, &sp, seed, &mut self.obs)
+        } else {
+            None
+        };
+        let (token, logprob, trace) = match fast {
+            Some(draw) => draw,
+            None if top_k => {
+                let masked = top_k_mask(logits, k);
+                sample_with_params_traced(&masked, &sp, seed, &mut self.obs)
+            }
+            None => sample_with_params_traced(logits, &sp, seed, &mut self.obs),
+        };
         if temperature > 0.001 {
             self.kept.push(trace.kept);
             self.top_prob_min = self.top_prob_min.min(trace.top_prob);
@@ -576,6 +586,194 @@ mod tests {
                 assert_eq!(o.sample(&logits, step), r.sample(&reference, step));
             }
             assert_eq!(o.record().kept, r.record().kept);
+        }
+    }
+
+    /// The draw as it was before the fast path: full-sort mask, then the
+    /// full-vocabulary sampler.
+    fn old_draw(
+        logits: &[f32],
+        k: usize,
+        sp: &SamplingParams,
+        seed: u64,
+        obs: &mut DecodeObservation,
+    ) -> (u32, f32, aien_inference_abi::transformer_backend::DrawTrace) {
+        sample_with_params_traced(&top_k_mask_full_sort(logits, k), sp, seed, obs)
+    }
+
+    fn sp(temperature: f32, top_p: f32) -> SamplingParams {
+        SamplingParams {
+            temperature,
+            top_p,
+            max_tokens: 1,
+            stop_token_ids: Vec::new(),
+        }
+    }
+
+    /// New draw against old draw: token, log-probability bits, trace bits and
+    /// the observation counters must all agree.
+    fn check_draw(logits: &[f32], k: usize, params: &SamplingParams, seed: u64) {
+        if logits.iter().all(|v| *v == f32::NEG_INFINITY) {
+            let mut o = DecodeObservation::default();
+            assert!(sample_top_k_traced(logits, k, params, seed, &mut o).is_none());
+            return;
+        }
+        let (mut on, mut oo) = (DecodeObservation::default(), DecodeObservation::default());
+        let new = sample_top_k_traced(logits, k, params, seed, &mut on)
+            .expect("finite logits take the fast path");
+        let old = old_draw(logits, k, params, seed, &mut oo);
+        assert_eq!(new.0, old.0, "token k={k} {params:?} seed={seed}");
+        assert_eq!(new.1.to_bits(), old.1.to_bits(), "logprob k={k} {params:?}");
+        assert_eq!(new.2.kept, old.2.kept, "kept k={k} {params:?}");
+        assert_eq!(new.2.top_prob.to_bits(), old.2.top_prob.to_bits());
+        assert_eq!(on, oo, "observation k={k} {params:?}");
+    }
+
+    const TEMPS: [f32; 5] = [0.002, 0.3, 0.7, 1.0, 2.5];
+    const TOP_PS: [f32; 6] = [0.0, 0.3, 0.9, 0.95, 0.9999, 1.0];
+
+    #[test]
+    fn fast_draw_matches_old_draw_at_full_vocabulary() {
+        let (vocab, k) = (248_320usize, 20usize);
+        let mut st = 0xC0FFEEu64;
+        let gauss = |st: &mut u64, scale: f32| -> f32 {
+            let s: f32 = (0..4).map(|_| (rng(st) % 10_000) as f32 / 10_000.0).sum();
+            (s - 2.0) * scale
+        };
+        for (n, scale) in [(0, 3.0f32), (1, 8.0), (2, 0.5)] {
+            let mut v: Vec<f32> = (0..vocab).map(|_| gauss(&mut st, scale)).collect();
+            if n == 1 {
+                // A confident head, like a model that is sure of its next word.
+                v[123_456] += 40.0;
+            }
+            for &t in &TEMPS {
+                for &tp in &TOP_PS {
+                    for seed in [rng(&mut st), rng(&mut st), 0, u64::MAX] {
+                        check_draw(&v, k, &sp(t, tp), seed);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fast_draw_matches_old_draw_random_ties_and_masks() {
+        let mut st = 0xFA57u64;
+        for round in 0..400 {
+            let len = [2usize, 3, 7, 50, 300, 2048][round % 6];
+            let ks: Vec<usize> = [1usize, 2, 5, 20, len / 2, len - 1]
+                .into_iter()
+                .filter(|&k| k >= 1 && k < len)
+                .collect();
+            let v: Vec<f32> = match round % 4 {
+                // Random finite.
+                0 => (0..len)
+                    .map(|_| (rng(&mut st) % 20001) as f32 / 1000.0 - 10.0)
+                    .collect(),
+                // Tie-heavy, with both zeros.
+                1 => (0..len)
+                    .map(|_| [-1.0f32, 0.0, -0.0, 2.5][(rng(&mut st) % 4) as usize])
+                    .collect(),
+                // Some -inf (banned tokens), maybe fewer finite than k.
+                2 => (0..len)
+                    .map(|_| match rng(&mut st) % 3 {
+                        0 => f32::NEG_INFINITY,
+                        _ => (rng(&mut st) % 7) as f32,
+                    })
+                    .collect(),
+                // All equal.
+                _ => vec![1.5; len],
+            };
+            for &k in &ks {
+                for &t in &TEMPS {
+                    for &tp in &TOP_PS {
+                        check_draw(&v, k, &sp(t, tp), rng(&mut st));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fast_draw_declines_what_it_cannot_match() {
+        let mut o = DecodeObservation::default();
+        let draw = |l: &[f32], k, t, o: &mut DecodeObservation| {
+            sample_top_k_traced(l, k, &sp(t, 0.9), 5, o)
+        };
+        assert!(draw(&[1.0, f32::NAN, 0.5, 0.2], 2, 1.0, &mut o).is_none());
+        assert!(draw(&[1.0, 0.1, f32::NAN, 0.2], 2, 1.0, &mut o).is_none());
+        assert!(draw(&[1.0, f32::INFINITY, 0.5, 0.2], 2, 1.0, &mut o).is_none());
+        assert!(draw(&[f32::NEG_INFINITY; 4], 2, 1.0, &mut o).is_none());
+        assert!(draw(&[1.0, 2.0, 3.0], 0, 1.0, &mut o).is_none());
+        assert!(draw(&[1.0, 2.0, 3.0], 3, 1.0, &mut o).is_none());
+        assert!(draw(&[1.0, 2.0, 3.0], 2, 0.0, &mut o).is_none());
+        assert_eq!(o, DecodeObservation::default(), "declined draws leave obs untouched");
+    }
+
+    #[test]
+    fn observer_with_nan_logits_keeps_the_old_answer() {
+        let logits = [1.0, f32::NAN, 3.0, 2.0, 0.5];
+        let params = GenerateParams {
+            top_p: 0.9,
+            ..p(0.8, 2)
+        };
+        let mut o = SamplingObserver::with_mutant(&params, None);
+        let mut r = SamplingObserver::with_mutant(
+            &GenerateParams {
+                top_k: 0,
+                ..params.clone()
+            },
+            None,
+        );
+        let reference = top_k_mask_full_sort(&logits, 2);
+        for step in 0..20 {
+            assert_eq!(o.sample(&logits, step), r.sample(&reference, step));
+        }
+        assert!(o.record().top_k_applied);
+    }
+
+    /// Microbenchmark of one sampled decode step at the Qwen vocabulary, old
+    /// path against new: `cargo test --release -p aien-serve-http --lib
+    /// sampling::tests::bench_sampled_step -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn bench_sampled_step() {
+        let (vocab, k) = (248_320usize, 20usize);
+        let mut st = 3u64;
+        let logits: Vec<f32> = (0..vocab)
+            .map(|_| (rng(&mut st) % 100_000) as f32 / 5000.0 - 10.0)
+            .collect();
+        for (t, tp) in [(0.7f32, 0.8f32), (1.0, 0.95), (0.7, 1.0)] {
+            let params = sp(t, tp);
+            type Path = fn(&[f32], usize, &SamplingParams, u64) -> u32;
+            let paths: [(&str, Path); 3] = [
+                ("old(full sort + full sampler)", |l, k, p, s| {
+                    old_draw(l, k, p, s, &mut DecodeObservation::default()).0
+                }),
+                ("pr646(select + full sampler)", |l, k, p, s| {
+                    let m = top_k_mask(l, k);
+                    sample_with_params_traced(&m, p, s, &mut DecodeObservation::default()).0
+                }),
+                ("new(k-entry draw)", |l, k, p, s| {
+                    sample_top_k_traced(l, k, p, s, &mut DecodeObservation::default())
+                        .unwrap()
+                        .0
+                }),
+            ];
+            for (name, f) in paths {
+                let mut us: Vec<f64> = (0..101u64)
+                    .map(|i| {
+                        let s = std::time::Instant::now();
+                        std::hint::black_box(f(std::hint::black_box(&logits), k, &params, i));
+                        s.elapsed().as_secs_f64() * 1e6
+                    })
+                    .collect();
+                us.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                println!(
+                    "T={t} top_p={tp} k={k} V={vocab} {name:<30} median {:.1} us  min {:.1}  max {:.1}",
+                    us[50], us[0], us[100]
+                );
+            }
         }
     }
 

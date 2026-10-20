@@ -157,6 +157,114 @@ pub fn sample_with_params_traced(
     (last as u32, logprob, trace)
 }
 
+/// The draw `sample_with_params_traced` makes over `logits` with everything
+/// outside the `k` best set to -inf, computed from those `k` entries alone: one
+/// O(V) scan for the winners, then softmax, nucleus cut and draw over `k`.
+///
+/// The result is bit-identical to masking then calling
+/// `sample_with_params_traced` (token, log-probability and trace): winners rank
+/// by higher logit then lower token id; the softmax sum adds the winners' terms
+/// in ascending token id, which is the order the full pass adds its non-zero
+/// terms (the masked terms are exact zeros); the nucleus order is probability
+/// descending, lower id first. Returns `None`, leaving `obs` untouched, whenever
+/// that equality is not guaranteed (a NaN or infinite maximum, a nucleus that
+/// never reaches `top_p`, a draw that falls off the end, `temperature <= 0.001`,
+/// `k` of 0 or at least the vocabulary): the caller then takes the full path.
+pub fn sample_top_k_traced(
+    logits: &[f32],
+    k: usize,
+    params: &SamplingParams,
+    seed: u64,
+    obs: &mut DecodeObservation,
+) -> Option<(u32, f32, DrawTrace)> {
+    if params.temperature <= 0.001 || k == 0 || k >= logits.len() {
+        return None;
+    }
+    // Winners, best first: (logit, token id). Scanning ascending ids means a
+    // later equal logit never displaces an earlier one, so the tie rule holds.
+    let mut win: Vec<(f32, u32)> = Vec::with_capacity(k);
+    for (i, &v) in logits[..k].iter().enumerate() {
+        if v.is_nan() {
+            return None;
+        }
+        let at = win.partition_point(|w| w.0 >= v);
+        win.insert(at, (v, i as u32));
+    }
+    let mut floor = win[k - 1].0;
+    for (i, &v) in logits.iter().enumerate().skip(k) {
+        // `!(v <= floor)` is also true for NaN, which bails below.
+        if !(v <= floor) {
+            if v.is_nan() {
+                return None;
+            }
+            let at = win.partition_point(|w| w.0 >= v);
+            win.insert(at, (v, i as u32));
+            win.pop();
+            floor = win[k - 1].0;
+        }
+    }
+    let max = win[0].0 as f64;
+    if !max.is_finite() {
+        return None;
+    }
+    // Ascending token id: the summation order of the full pass.
+    win.sort_unstable_by_key(|w| w.1);
+    let inv_t = 1.0f64 / params.temperature as f64;
+    let mut probs: Vec<(u32, f64)> = win
+        .iter()
+        .map(|&(v, i)| (i, ((v as f64 - max) * inv_t).exp()))
+        .collect();
+    let sum: f64 = probs.iter().map(|p| p.1).sum();
+    for p in probs.iter_mut() {
+        p.1 /= sum;
+    }
+
+    let top_p = params.top_p as f64;
+    let cut = top_p > 0.0 && top_p < 1.0;
+    if cut {
+        probs.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.0.cmp(&b.0))
+        });
+        let mut cum = 0.0f64;
+        let mut keep = 0usize;
+        let mut reached = false;
+        for p in &probs {
+            cum += p.1;
+            keep += 1;
+            if cum >= top_p {
+                reached = true;
+                break;
+            }
+        }
+        if !reached {
+            return None;
+        }
+        probs.truncate(keep);
+    }
+
+    let mass: f64 = probs.iter().map(|p| p.1).sum();
+    let trace = DrawTrace {
+        kept: probs.iter().filter(|p| p.1 > 0.0).count(),
+        top_prob: 1.0 / sum,
+    };
+    let r = ((seed >> 11) as f64 / (1u64 << 53) as f64) * mass;
+    let mut cum = 0.0f64;
+    for &(i, p) in &probs {
+        cum += p;
+        if r < cum {
+            obs.sampled_tokens += 1;
+            obs.temperature = Some(params.temperature);
+            if cut {
+                obs.top_p = Some(params.top_p);
+            }
+            return Some((i, (p / mass).max(1e-300).ln() as f32, trace));
+        }
+    }
+    None
+}
+
 /// Fully native Rust transformer backend executing real tensor forward computation.
 /// Decouples execution orchestration from compute hardware via the TensorBackend trait.
 pub struct NativeTransformerBackend {
