@@ -14,6 +14,11 @@
 //!   wormhole30 oneread DIR_30B OUT.json [ROUNDS]
 //!     M0b: cold-cache load of the 30B CPU reference plus the heartbeat manifest digests, two NVMe reads
 //!     (Manifest::build, then load_qwen3_coder) against one (load_qwen3_coder_tapped digesting on the way).
+//!
+//!   wormhole30 accept DIR_30B TOK_27B TOK_30B OUT.json K,K,.. INPUT.json...
+//!     W3 forward acceptance, host only: the 30B CPU reference drafts k words, the 27B (its recorded greedy
+//!     chip output in INPUT) verifies through the text bridge; output must equal the record for every k, and
+//!     an accept-one-extra control (k=4) must differ. Needs about 35 GB (refuses below 45 GB available).
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Instant;
@@ -26,6 +31,7 @@ fn main() {
     let r = match a.get(1).map(String::as_str) {
         Some("vocab") if a.len() >= 6 => vocab(&a[2], &a[3], &a[4], &a[5..]),
         Some("tensors") if a.len() == 6 => tensors(&a[2], &a[3], &a[4], &a[5]),
+        Some("accept") if a.len() >= 8 => accept(&a[2], &a[3], &a[4], &a[5], &a[6], &a[7..]),
         Some("oneread") if a.len() >= 4 => oneread(&a[2], &a[3], a.get(4).and_then(|r| r.parse().ok()).unwrap_or(2)),
         _ => Err("usage: see the file header".into()),
     };
@@ -579,5 +585,166 @@ fn oneread(d30: &str, out: &str, rounds: usize) -> Result<(), String> {
         r["mean_seconds_two_reads"].as_f64().unwrap_or(0.0), r["mean_nvme_gb_two_reads"].as_f64().unwrap_or(0.0),
         r["mean_seconds_one_read"].as_f64().unwrap_or(0.0), r["mean_nvme_gb_one_read"].as_f64().unwrap_or(0.0), r["experts"]
     );
+    Ok(())
+}
+
+/// The 27B as verifier through its own recorded greedy output (the L080 inputs: prompt + the 27B chip
+/// continuation). While the fed ids equal that record, its choice after position p is the record's id p+1;
+/// after a wrong id its choice is unknown (u32::MAX), which the round never commits unless the bridge is
+/// wrong, and then the output differs from the record and the run fails.
+struct Recorded {
+    known: Vec<u32>,
+    ids: Vec<u32>,
+}
+
+impl aien_wormhole::align::Lm for Recorded {
+    fn feed(&mut self, t: &[u32]) -> Result<Vec<u32>, String> {
+        let mut r = Vec::with_capacity(t.len());
+        for &x in t {
+            self.ids.push(x);
+            let n = self.ids.len();
+            let on_record = n < self.known.len() && self.known[..n] == self.ids[..];
+            r.push(if on_record { self.known[n] } else { u32::MAX });
+        }
+        Ok(r)
+    }
+    fn truncate(&mut self, len: usize) -> Result<(), String> {
+        self.ids.truncate(len);
+        Ok(())
+    }
+    fn len(&self) -> usize {
+        self.ids.len()
+    }
+}
+
+/// The 30B CPU reference (`load_qwen3_coder`, experts exact) as a greedy model with a cut-back KV cache.
+struct Moe30Ref<'a> {
+    w: &'a aien_inference_abi::qwen3_coder::Qwen3CoderWeights,
+    st: aien_inference_abi::qwen3_coder::Qwen3CoderState,
+    len: usize,
+    steps: usize,
+    ns: u128,
+}
+
+impl aien_wormhole::align::Lm for Moe30Ref<'_> {
+    fn feed(&mut self, t: &[u32]) -> Result<Vec<u32>, String> {
+        use aien_inference_abi::qwen3_coder::{compute_logits, forward_token};
+        let mut r = Vec::with_capacity(t.len());
+        for &x in t {
+            let t0 = Instant::now();
+            let h = forward_token(self.w, x, self.len, &mut self.st);
+            let l = compute_logits(self.w, &h);
+            self.ns += t0.elapsed().as_nanos();
+            self.len += 1;
+            self.steps += 1;
+            // first index of the largest logit (the greedy rule every L080 tool uses)
+            let mut best = 0usize;
+            for (i, &v) in l.iter().enumerate() {
+                if v > l[best] {
+                    best = i;
+                }
+            }
+            r.push(best as u32);
+        }
+        Ok(r)
+    }
+    fn truncate(&mut self, len: usize) -> Result<(), String> {
+        for kv in &mut self.st.layers {
+            kv.keys.truncate(len);
+            kv.values.truncate(len);
+        }
+        self.len = len.min(self.len);
+        Ok(())
+    }
+    fn len(&self) -> usize {
+        self.len
+    }
+}
+
+/// W3 forward acceptance on the host: the 30B drafts, the 27B (its recorded greedy output) verifies, through
+/// the text bridge, for every k; gate: output equal to the 27B's record, and the accept-one-extra control
+/// must differ on at least one text.
+fn accept(d30: &str, t27: &str, t30: &str, out: &str, ks: &str, inputs: &[String]) -> Result<(), String> {
+    use aien_wormhole::align::generate_bridged;
+    use aien_wormhole::spec::Fault;
+    let ks: Vec<usize> = ks.split(',').map(|k| k.parse().map_err(|_| format!("bad k {k}"))).collect::<Result<_, _>>()?;
+    let v27 = ByteVocab::from_file(Path::new(t27))?;
+    let v30 = ByteVocab::from_file(Path::new(t30))?;
+    let avail_gb = meminfo_kb("MemAvailable:") as f64 * 1.024e-6;
+    if avail_gb < 45.0 {
+        return Err(format!("MemAvailable {avail_gb:.1} GB < 45 GB for the 30B CPU reference (about 35 GB); refusing"));
+    }
+    let t = Instant::now();
+    let w = aien_inference_abi::qwen3_coder::load_qwen3_coder(Path::new(d30)).map_err(|e| format!("{e:?}"))?;
+    let load_s = t.elapsed().as_secs_f64();
+    let mut results = Vec::new();
+    let mut fails = Vec::new();
+    let mut control_differs = false;
+    for p in inputs {
+        let j = read_json(p)?;
+        let all = ids(&j["ids"]);
+        let pl = j["prompt_len"].as_u64().ok_or("prompt_len")? as usize;
+        let n = all[pl..].iter().take_while(|&&i| !v27.special[i as usize]).count();
+        let known = all[..pl + n].to_vec();
+        let prompt27 = String::from_utf8_lossy(&v27.decode(&all[..pl])).to_string();
+        let user = prompt27
+            .split_once("user\n")
+            .and_then(|(_, r)| r.split_once("<|im_end|>"))
+            .map(|(u, _)| u.to_string())
+            .ok_or("no user turn in the prompt")?;
+        let d_prompt = v30.encode_str(&format!("<|im_start|>user\n{user}<|im_end|>\n<|im_start|>assistant\n"))?;
+        let runs: Vec<(usize, Fault)> = ks
+            .iter()
+            .map(|&k| (k, Fault::None))
+            .chain(std::iter::once((4, Fault::AcceptOneExtra)))
+            .collect();
+        for (k, fault) in runs {
+            let mut d = Moe30Ref { w: &w, st: aien_inference_abi::qwen3_coder::Qwen3CoderState::new(), len: 0, steps: 0, ns: 0 };
+            let mut v = Recorded { known: known.clone(), ids: Vec::new() };
+            let t = Instant::now();
+            let (got, s) = match generate_bridged(&mut d, &v30, &mut v, &v27, &d_prompt, &all[..pl], n, k, &[], fault) {
+                Ok(x) => x,
+                // a control that breaks the round outright also went red
+                Err(e) if fault != Fault::None => {
+                    eprintln!("control {fault:?} k={k} {p}: {e}");
+                    control_differs = true;
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
+            let equal = got[..] == known[pl..];
+            let first_diff = got.iter().zip(&known[pl..]).position(|(a, b)| a != b);
+            let e = s.accepted as f64 / s.rounds.max(1) as f64 + 1.0;
+            let r = json!({"input": p, "k": k, "fault": format!("{fault:?}"), "words": n, "equal_to_verifier": equal,
+                           "first_diff": first_diff, "accepted": s.accepted, "drafted_27b_ids": s.drafted_v,
+                           "drafted_30b_ids": s.drafted_d, "rounds": s.rounds, "words_per_round": n as f64 / s.rounds.max(1) as f64,
+                           "accepted_per_round_plus_one": e, "drafter_steps": d.steps, "drafter_refeed": s.drafter_refeed,
+                           "cut_tails": s.cut_tails, "bridge_ns": s.bridge_ns, "drafter_s": d.ns as f64 / 1e9,
+                           "wall_s": t.elapsed().as_secs_f64()});
+            eprintln!("{r}");
+            match fault {
+                Fault::None if !equal => fails.push(format!("{p} k={k}: output differs from the 27B at {first_diff:?}")),
+                Fault::None => {}
+                _ => control_differs |= !equal,
+            }
+            results.push(r);
+            std::fs::write(out, serde_json::to_string_pretty(&json!({"partial": true, "runs": results})).map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    let r = json!({
+        "what": "L190 W3 forward acceptance (host only): 30B CPU reference drafts, the 27B's recorded chip greedy output verifies, through the text bridge",
+        "dir_30b": d30, "load_seconds": load_s, "ks": ks,
+        "gate_output_equal_to_verifier": fails.is_empty(), "fails": fails, "control_accept_one_extra_differs": control_differs,
+        "runs": results,
+    });
+    std::fs::write(out, serde_json::to_string_pretty(&r).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    if !r["fails"].as_array().is_some_and(Vec::is_empty) {
+        return Err(format!("FAIL gate: {}", r["fails"]));
+    }
+    if !control_differs {
+        return Err("FAIL control: accepting one refused draft did not change any output".into());
+    }
+    println!("PASS accept: every k equal to the 27B's own output; control differs");
     Ok(())
 }
