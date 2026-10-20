@@ -20,7 +20,7 @@ while :; do
   [ "$a" -ge "$MINMEM_GIB" ] && break
   echo "$(date -u +%FT%TZ) waiting: MemAvailable $a GiB < $MINMEM_GIB" >> "$OUT/memwait.log"; sleep 30
 done
-{ date -u +%FT%TZ; sha256sum "$BIN"; cat /proc/loadavg; grep MemAvailable /proc/meminfo; env | grep -E '^(SLOTS|KERNEL|FP8HEAD|MAXT|CTX|SPARK_WINDOW)=' || true; } > "$OUT/env.txt"
+{ date -u +%FT%TZ; sha256sum "$BIN"; cat /proc/loadavg; grep MemAvailable /proc/meminfo; env | grep -E '^(SLOTS|KERNEL|FP8HEAD|MAXT|CTX|SPARK_WINDOW|AIEN_Q38_HOST_THREADS)=' || true; } > "$OUT/env.txt"
 ARGS=(--engine omega --model-dir "$MODEL" --port $PORT --max-context "$CTX" --max-tokens-cap 16384 --thinking off)
 [ "$SLOTS" -gt 0 ] && ARGS+=(--batch-slots "$SLOTS")
 export AIEN_Q38_BATCH_KERNEL=${KERNEL:-tree}
