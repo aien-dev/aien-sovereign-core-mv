@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use aien_inference_abi::qwen38::Qwen38Config;
 use aien_inference_abi::qwen38_omega::spec::RowStats;
-use aien_inference_abi::qwen38_omega::{need_bytes, Qwen38Omega, RowInput, Stream};
+use aien_inference_abi::qwen38_omega::{need_bytes, Qwen38Omega, RowInput, RowKernel, Stream};
 
 use crate::engine::{Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams};
 use crate::omega_engine::{GpuLock, GPU_LOCK_PATH};
@@ -33,6 +33,18 @@ use crate::sampling::SamplingObserver;
 /// Most conversations one door stacks (the multi-row GEMM takes up to 1024 rows; the chip
 /// memory for the slots is the practical limit).
 pub const MAX_SLOTS: usize = 64;
+
+/// The step kernel: `AIEN_Q38_BATCH_KERNEL=tree` (default when the tree-verify GEMM is linked) or
+/// `rowpair` (the first batch cut, kept for side by side runs).
+fn row_kernel() -> Result<RowKernel, String> {
+    match std::env::var("AIEN_Q38_BATCH_KERNEL").as_deref() {
+        Ok("tree") => Ok(RowKernel::Tree),
+        Ok("rowpair") => Ok(RowKernel::RowPair),
+        Ok(other) => Err(format!("AIEN_Q38_BATCH_KERNEL={other}: tree or rowpair")),
+        Err(_) if aien_inference_abi::qwen38_omega::has_tree_gemm() => Ok(RowKernel::Tree),
+        Err(_) => Ok(RowKernel::RowPair),
+    }
+}
 
 fn mem_available() -> u64 {
     (crate::omega_engine::mem_available_gb() * (1u64 << 30) as f64) as u64
@@ -146,9 +158,19 @@ impl Qwen38BatchDoor {
             after >> 20,
             rss_bytes() as f64 / 1e9,
         );
+        let kernel = row_kernel()?;
+        eprintln!(
+            "aien-serve-http: qwen38-batch: step kernel {kernel:?}, lm_head {}",
+            if kernel == RowKernel::Tree && model.has_fp8_head() {
+                "fp8, one tree-verify GEMM per step"
+            } else {
+                "bf16, one GEMV per row"
+            }
+        );
         let (tx, rx) = mpsc::channel::<Job>();
         let sched = Scheduler {
             model,
+            kernel,
             free: streams,
             rx,
             lock_path: PathBuf::from(GPU_LOCK_PATH),
@@ -247,6 +269,7 @@ impl Engine for Qwen38BatchDoor {
 
 struct Scheduler {
     model: Qwen38Omega,
+    kernel: RowKernel,
     free: Vec<Stream>,
     rx: mpsc::Receiver<Job>,
     lock_path: PathBuf,
@@ -266,7 +289,7 @@ impl Scheduler {
             if active.is_empty() {
                 if lock.take().is_some() {
                     eprintln!(
-                        "aien-serve-http: qwen38-batch: spell over: {spell_steps} steps, {} rows, {:.1} ms/step wall, chip gemm {} ms, gdn {} ms, attn {} ms, head {} ms, host {} ms, spell {:.1} s",
+                        "aien-serve-http: qwen38-batch: spell over: {spell_steps} steps, {} rows, {:.1} ms/step wall, chip gemm {} ms, gdn {} ms, attn {} ms, head {} ms, host {} ms, spell {:.1} s, gemm launches {} ms, a|b {} ms, kernel {:?}",
                         spell.rows,
                         spell_wall_ns as f64 / 1e6 / spell_steps.max(1) as f64,
                         spell.gemm_ns / 1_000_000,
@@ -275,6 +298,9 @@ impl Scheduler {
                         spell.head_ns / 1_000_000,
                         spell.host_ns / 1_000_000,
                         spell_t0.elapsed().as_secs_f64(),
+                        spell.gemm_chip_ns / 1_000_000,
+                        spell.ab_ns / 1_000_000,
+                        self.kernel,
                     );
                 }
                 let Ok(job) = self.rx.recv() else {
@@ -333,7 +359,7 @@ impl Scheduler {
                         token: a.next.expect("a surviving row has a token to feed"),
                     })
                     .collect();
-                self.model.step_rows(&mut rows, &mut st)
+                self.model.step_rows(&mut rows, self.kernel, &mut st)
             };
             let wall = t.elapsed().as_nanos() as u64;
             let m = active.len() as u64;
@@ -469,6 +495,7 @@ fn add(sum: &mut RowStats, s: &RowStats) {
     sum.passes += s.passes;
     sum.gemm_ns += s.gemm_ns;
     sum.gemm_calls += s.gemm_calls;
+    sum.gemm_chip_ns += s.gemm_chip_ns;
     sum.ab_ns += s.ab_ns;
     sum.gdn_ns += s.gdn_ns;
     sum.gdn_calls += s.gdn_calls;

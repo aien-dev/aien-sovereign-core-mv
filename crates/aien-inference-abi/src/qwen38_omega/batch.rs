@@ -22,9 +22,44 @@ use std::time::Instant;
 use aien_omega_q38 as q;
 use aien_omega_q38::{Attn256Cache, Gdn};
 
-use super::spec::{layer_rows, Mixer, RowStats, RowTargets};
+use std::sync::atomic::Ordering;
+
+use super::spec::{layer_rows, Mixer, RowStats, RowTargets, TREE_GEMM};
 use super::{gpu, PrefillStats, Qwen38Omega};
 use crate::qwen3_moe::bf16_to_f32;
+use crate::tensor::rmsnorm;
+
+/// How one [`Qwen38Omega::step_rows`] call reads the weights (speed5/batching).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RowKernel {
+    /// Dense projections on the row-pair FP8 GEMM (row for row the per-row GEMV, but each
+    /// extra row costs close to another weight read: 2 rows per pass), bf16 lm_head GEMV per row.
+    #[default]
+    RowPair,
+    /// Dense projections on the tensor-core tree-verify GEMM (omega cascade/tree-verify-gemm):
+    /// the weights are read once for up to [`aien_omega_fp8::TV_MAX_ROWS`] rows, and row `r` is
+    /// the same bits whatever the row count or the other rows (activations go in as bf16, so
+    /// these bits are not the row-pair GEMM's). With the FP8 lm_head loaded
+    /// (`AIEN_Q38_FP8_HEAD=1`) the head is one tree-verify GEMM over every row as well;
+    /// without it the head stays bf16 per row.
+    Tree,
+}
+
+/// Clears [`TREE_GEMM`] when a step ends, error or not.
+struct TreeGemmOn;
+
+impl TreeGemmOn {
+    fn set(on: bool) -> Self {
+        TREE_GEMM.store(on, Ordering::Relaxed);
+        TreeGemmOn
+    }
+}
+
+impl Drop for TreeGemmOn {
+    fn drop(&mut self) {
+        TREE_GEMM.store(false, Ordering::Relaxed);
+    }
+}
 
 /// One conversation's chip state: DeltaNet tails and states for every DeltaNet layer, a KV
 /// cache of `max_pos` positions for every attention layer, and the next token's position.
@@ -198,15 +233,17 @@ impl Qwen38Omega {
     pub fn step_rows(
         &mut self,
         rows: &mut [RowInput<'_>],
+        kernel: RowKernel,
         st: &mut RowStats,
     ) -> Result<Vec<RowOutput>, String> {
         let m = rows.len();
         let (h, v) = (self.config.hidden, self.config.vocab);
-        if m == 0 || m > aien_omega_fp8::GEMM_MAX_ROWS {
-            return Err(format!(
-                "step_rows: {m} rows (1..={})",
-                aien_omega_fp8::GEMM_MAX_ROWS
-            ));
+        let max_rows = match kernel {
+            RowKernel::RowPair => aien_omega_fp8::GEMM_MAX_ROWS,
+            RowKernel::Tree => aien_omega_fp8::TV_MAX_ROWS,
+        };
+        if m == 0 || m > max_rows {
+            return Err(format!("step_rows: {m} rows (1..={max_rows}, {kernel:?})"));
         }
         for (r, row) in rows.iter().enumerate() {
             if row.token as usize >= v {
@@ -233,6 +270,7 @@ impl Qwen38Omega {
         let gather = q::gather_table(self.config.rotary_dim);
         st.host_ns += ns(t);
         let eps = self.config.eps;
+        let tree = TreeGemmOn::set(kernel == RowKernel::Tree);
         let mut targets = Streams(rows);
         let (mut gi, mut ai) = (0usize, 0usize);
         for l in 0..self.config.layers {
@@ -265,11 +303,29 @@ impl Qwen38Omega {
             )
             .map_err(|e| format!("layer {l}: {e}"))?;
         }
+        drop(tree);
         for row in targets.0.iter_mut() {
             row.stream.pos += 1;
         }
         st.rows += m as u64;
         st.passes += 1;
+        if let (RowKernel::Tree, Some(h8)) = (kernel, self.lm_head8.as_ref()) {
+            // One read of the FP8 head for every row (decode-graph head rule: final norm, then W . x).
+            let t = Instant::now();
+            let mut hidden = vec![0f32; m * h];
+            for (o, r) in hidden.chunks_exact_mut(h).zip(x.chunks_exact(h)) {
+                rmsnorm(r, &self.final_norm, eps, o);
+            }
+            let mut logits = vec![0f32; m * v];
+            h8.tv_f32(m, &hidden, &mut logits)
+                .map_err(|e| format!("lm_head fp8 tree-verify gemm x{m}: {e}"))?;
+            st.head_ns += ns(t);
+            st.head_calls += 1;
+            return Ok(logits
+                .chunks_exact(v)
+                .map(|l| RowOutput { logits: l.to_vec() })
+                .collect());
+        }
         let mut out = Vec::with_capacity(m);
         for r in 0..m {
             let t = Instant::now();

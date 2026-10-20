@@ -1,0 +1,32 @@
+Explain in plain English why the sky is blue, in about 150 words.
+Write a Python function that returns the n-th Fibonacci number iteratively, with a short docstring.
+List five practical tips for keeping a small vegetable garden healthy in late summer.
+Summarise the plot of Romeo and Juliet in one paragraph.
+What is the difference between TCP and UDP? Give three concrete differences.
+Write a short, calm bedtime story about a lighthouse keeper and a seagull.
+Describe how a bicycle's gears change the effort needed to pedal uphill.
+Give a recipe for a simple tomato soup for two people, with steps.
+Explain in at least 400 words how a refrigerator moves heat out of its inside.
+Write a detailed, 400-word history of the printing press and its effect on Europe.
+Describe in at least 400 words how bees find flowers and tell each other where they are.
+Write a long letter, at least 400 words, from a sailor to his family after a storm at sea.
+Explain in at least 400 words how a steam locomotive works, from the firebox to the wheels.
+Write a 400-word guide to planning a week of cheap, healthy family dinners.
+Describe in at least 400 words how rivers carve valleys over thousands of years.
+Explain in at least 400 words how vaccines teach the body to fight an infection.
+Write a 400-word story about a clockmaker who builds a clock that runs backwards.
+Explain in at least 400 words how a suspension bridge carries its load.
+Describe in at least 400 words a walk through a busy market in the morning.
+Explain in at least 400 words how the moon causes tides in the oceans.
+Write a 400-word guide for a beginner learning to bake bread at home.
+Explain in at least 400 words how electricity gets from a power station to a house.
+Write a 400-word story about two friends crossing a desert on camels.
+Describe in at least 400 words how a forest recovers after a wildfire.
+Explain in at least 400 words how an airplane wing produces lift.
+Write a 400-word description of a lighthouse during a winter gale.
+Explain in at least 400 words how a combustion engine turns fuel into motion.
+Write a 400-word guide to looking after a dog in its first month at home.
+Describe in at least 400 words how glass is made from sand.
+Explain in at least 400 words how a compass works and why it points north.
+Write a 400-word story about a child who finds a map in an old book.
+Explain in at least 400 words how coral reefs grow and why they matter.

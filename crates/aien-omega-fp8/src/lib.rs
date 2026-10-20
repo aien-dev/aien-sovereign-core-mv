@@ -39,6 +39,25 @@ pub const fn has_gemm() -> bool {
     cfg!(has_omega_fp8gemm)
 }
 
+/// True when the tensor-core verify GEMM (`omega_gpu_tv_f32`, `src/omega_gpu_tvgemm.h`) is linked.
+pub const fn has_tvgemm() -> bool {
+    cfg!(has_omega_tvgemm)
+}
+
+/// Most rows one tree-verify GEMM launch takes (`OMEGA_GPU_TV_MAX_ROWS`).
+pub const TV_MAX_ROWS: usize = 64;
+
+/// Mirror of `OmegaGpuTvInfo`: what the chip did for one tree-verify GEMM call.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TvInfo {
+    pub chip_ns: u64,
+    pub call_ns: u64,
+    pub rt: u32,
+    pub ct: u32,
+    pub warps: u32,
+}
+
 /// Most rows one GEMM launch takes (`OMEGA_GPU_FP8GEMM_MAX_ROWS`).
 pub const GEMM_MAX_ROWS: usize = 1024;
 /// Most distinct experts (segments) one GEMM launch takes (`OMEGA_GPU_FP8GEMM_MAX_SEGMENTS`).
@@ -152,6 +171,17 @@ mod ffi {
             w_va: *mut u64,
             s_va: *mut u64,
         ) -> i32;
+    }
+    #[cfg(has_omega_tvgemm)]
+    extern "C" {
+        pub fn omega_gpu_tv_f32(
+            t: *const OmegaGpuFp8Tensor,
+            rows: u32,
+            x: *const f32,
+            y: *mut f32,
+            info: *mut super::TvInfo,
+        ) -> i32;
+        pub fn omega_gpu_tcgemm_last_error() -> *const std::os::raw::c_char;
     }
     #[cfg(has_omega_fp8gemm)]
     extern "C" {
@@ -566,6 +596,48 @@ impl Fp8Tensor {
         #[cfg(not(has_omega_fp8gemm))]
         {
             let _ = (x_rows, y);
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
+}
+
+impl Fp8Tensor {
+    /// The tensor-core verify GEMM (`omega_gpu_tv_f32`): `y[r][n] = W . x[r][k]` for `rows`
+    /// activation rows (1..=[`TV_MAX_ROWS`]) of one dense tensor (`experts == 1`), the weights
+    /// read once whatever the row count. Row `r` is the same bits whatever `rows` is and whatever
+    /// other rows share the call (one code path for decode and verify).
+    pub fn tv_f32(&self, rows: usize, x: &[f32], y: &mut [f32]) -> Result<TvInfo, OmegaGpuError> {
+        if rows == 0 || rows > TV_MAX_ROWS {
+            return Err(bad(format!("tv gemm rows {rows} outside 1..={TV_MAX_ROWS}")));
+        }
+        if self.experts != 1 {
+            return Err(bad(format!("tv gemm needs a dense tensor, experts {}", self.experts)));
+        }
+        check_len("tv gemm x (rows*k)", rows * self.k, x.len())?;
+        check_len("tv gemm y (rows*n)", rows * self.n, y.len())?;
+        #[cfg(has_omega_tvgemm)]
+        {
+            let mut info = TvInfo::default();
+            // SAFETY: lengths checked above; the tensor is live for &self.
+            let rc = unsafe {
+                ffi::omega_gpu_tv_f32(self.ptr, rows as u32, x.as_ptr(), y.as_mut_ptr(), &mut info)
+            };
+            if rc != 0 {
+                // SAFETY: the C side returns a NUL-terminated string valid until the next call.
+                let name = unsafe {
+                    let e = ffi::omega_gpu_tcgemm_last_error();
+                    if e.is_null() {
+                        String::from("?")
+                    } else {
+                        std::ffi::CStr::from_ptr(e).to_string_lossy().into_owned()
+                    }
+                };
+                return Err(OmegaGpuError::Rc { rc, name });
+            }
+            Ok(info)
+        }
+        #[cfg(not(has_omega_tvgemm))]
+        {
             Err(OmegaGpuError::Unavailable)
         }
     }

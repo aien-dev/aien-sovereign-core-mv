@@ -30,7 +30,12 @@ pub mod batch;
 mod prefill;
 mod session;
 pub mod spec;
-pub use batch::{RowInput, RowOutput, Stream};
+pub use batch::{RowInput, RowKernel, RowOutput, Stream};
+
+/// True when omega's tree-verify GEMM is linked ([`RowKernel::Tree`] can run).
+pub const fn has_tree_gemm() -> bool {
+    aien_omega_fp8::has_tvgemm()
+}
 pub use prefill::PrefillStats;
 pub use session::{plan_reuse, FeedStats, Qwen38Session, Reuse, IM_START};
 
@@ -58,7 +63,7 @@ pub struct Qwen38Omega {
     layers: Vec<LayerTensors>,
     lm_head: Bf16Tensor,
     /// FP8 copy of lm_head (env `AIEN_Q38_FP8_HEAD=1`, qwen38/decode-speed): the decode graph reads it instead.
-    #[allow(dead_code)] // owned only: the graph points at it until it is dropped first
+    /// The batch door (speed5/batching) also reads it directly, as one tree-verify GEMM per step.
     lm_head8: Option<Fp8Tensor>,
     gdn: Option<Gdn>,
     attn: Option<Attn256Cache>,
@@ -546,6 +551,11 @@ impl Qwen38Omega {
             attn_norms,
             gdn_params,
         })
+    }
+
+    /// True when the FP8 copy of lm_head was loaded (`AIEN_Q38_FP8_HEAD=1`).
+    pub fn has_fp8_head(&self) -> bool {
+        self.lm_head8.is_some()
     }
 
     /// Bytes resident on the device for the weights (tensors as uploaded, not the KV cache).

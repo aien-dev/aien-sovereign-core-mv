@@ -34,6 +34,7 @@
 //! the `fc` input comes first, whether `h_t` is the residual stream or the final-normed hidden,
 //! and the RoPE position are [`MtpOptions`]; they only change how many drafts are accepted.
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use aien_omega_bf16::Bf16Tensor;
@@ -54,6 +55,11 @@ use crate::tensor::rmsnorm;
 const VERIFY_GEMM_MT: u32 = 2;
 const VERIFY_GEMM_CTAS: u32 = 192;
 static VERIFY_GEMM_SHAPE: std::sync::Once = std::sync::Once::new();
+/// Set for the duration of a pass that runs its dense projections (mixer, o_proj, gate|up, down)
+/// on omega's tensor-core verify GEMM (`omega_gpu_tv_f32`, branch cascade/tree-verify-gemm)
+/// instead of the row-pair GEMM: the batch door (speed5/batching) and the tree verify
+/// (cascade/tree-verify-wire) both route through [`gemm`]. Read by [`gemm`] only.
+pub(super) static TREE_GEMM: AtomicBool = AtomicBool::new(false);
 
 fn ns(t: Instant) -> u64 {
     t.elapsed().as_nanos() as u64
@@ -78,6 +84,8 @@ pub struct RowStats {
     pub passes: u64,
     pub gemm_ns: u64,
     pub gemm_calls: u64,
+    /// Chip time of the tree-verify GEMM launches alone (`TvInfo::chip_ns`); 0 on the row-pair path.
+    pub gemm_chip_ns: u64,
     pub ab_ns: u64,
     pub gdn_ns: u64,
     pub gdn_calls: u64,
@@ -152,6 +160,16 @@ pub(super) fn gemm(
     what: &str,
     st: &mut RowStats,
 ) -> Result<(), String> {
+    if TREE_GEMM.load(Ordering::Relaxed) {
+        let t = Instant::now();
+        let info = w
+            .tv_f32(m, x, y)
+            .map_err(|e| format!("{what} tree-verify gemm x{m}: {e}"))?;
+        st.gemm_ns += ns(t);
+        st.gemm_chip_ns += info.chip_ns;
+        st.gemm_calls += 1;
+        return Ok(());
+    }
     VERIFY_GEMM_SHAPE.call_once(|| {
         aien_omega_fp8::gemm_set_shape(VERIFY_GEMM_MT, 0);
         aien_omega_fp8::gemm_set_cta_budget(VERIFY_GEMM_CTAS);
