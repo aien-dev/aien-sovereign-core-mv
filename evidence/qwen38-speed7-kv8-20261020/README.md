@@ -9,12 +9,14 @@ omega `evidence/SPEED7-KV8-3efab8c1-20261020`. An 8-bit row is 256 e4m3 bytes pl
 1. Quality (drift gate written down before any run, unchanged since): V only PASS 6 of 6 texts. K and V together
    FAIL 3 of 6. K only FAIL 4 of 6. The loss sits where the text copies an earlier passage (arch text, positions
    1312-1366): 8-bit K blurs the sharp attention that copying needs; 8-bit V does not (INFERRED from where the loss sits).
-2. Null control: the same bf16 run on two builds is bit-identical on all 6 texts (OBSERVED).
+2. Build repeat: the same bf16 run on two builds is bit-identical on all 6 texts (OBSERVED). This shows the reference
+   is stable; it does not measure the gate's noise floor. The pre-registered summation-order null control was NOT RUN
+   (the engine has no knob for it).
 3. Speed: NOT MEASURED. The pre-registered rule was "ship V only after it is timed at 8k, 32k, 64k and 128k against
    bf16". The timing runs exist but are not valid (below), and the 27B model was retired and its weights deleted on
    2026-10-20 (Drake, 20:28Z: MoE only), so they cannot be repeated. V only is therefore NOT shipped.
-4. Paper saving for V only: 772 of 1024 bytes per position per head = 0.754 of the bf16 cache (calc:49c732fd).
-   At 32k that is 525 MB less read per token, at most 1.92 ms per token at the 273 GB/s ceiling (calc:929b1e49),
+4. Paper saving for V only: 772 of 1024 bytes per position per head = 0.754 of the bf16 cache (calc:49c732fde45c).
+   At 32k that is 528 MB less read per token (calc:0a8ccce531af), at most 1.94 ms per token at the 273 GB/s ceiling (calc:46f1a8434225),
    and less in practice because the kernel is not limited by memory traffic (omega evidence: bf16 reaches 0.25 of
    the ceiling, 8-bit 0.16).
 
@@ -28,7 +30,7 @@ Rule per text, reference A = bf16 cache, plain FP8 weights: top-pick agreement >
 | K+V 8-bit | dNLL +0.0171 FAIL | pass | dNLL +0.0052 FAIL | pass | pass | dNLL +0.0244 FAIL | FAIL 3/6 |
 | V only | pass | pass | pass | pass | pass | pass (2036/2047, +0.0011) | PASS 6/6 |
 | K only | dNLL +0.0083 FAIL | pass | dNLL +0.0059 FAIL | dNLL +0.0057 FAIL | pass | dNLL +0.0245 FAIL | FAIL 4/6 |
-| bf16 repeat (null) | identical | identical | identical | identical | identical | identical | PASS |
+| bf16 build repeat | identical | identical | identical | identical | identical | identical | PASS |
 
 The per-text comparison files are in `drift/<form>/<text>.json`. The raw per-token dumps they were made from were
 removed from the Spark during the 15:59Z cleanup; the comparison files are the record.
@@ -49,17 +51,18 @@ Window 20261020T185133Z-3f76bb (windows/), 4-bit weights + FP8 head, 512 steps p
 
 (chip median ms per token, copied from `speed/*/summary.txt`)
 
-- The same setting differs 2.63 times between its two rounds (bf16 8k, calc:bb2254ef), and single steps inside one run
-  range from 107 to 253 ms. No ordering of these numbers says anything about the format.
-- At window open the GPU was already 96% busy: the 27B server on port 18091 (34.8 GB) and a Python GPU job ran on the
+- The same setting differs 2.58 times between its two rounds (bf16 8k, calc:4c1fab6bddcc), and single steps inside one point
+  range from 79.8 to 255.9 ms (bf16 8k r1, 512 steps). No ordering of these numbers says anything about the format.
+- At window open the GPU was already 96% busy: the 27B server on port 18091 (34 GiB) and a Python GPU job ran on the
   chip without honouring the window (open.json `gpu_apps`; ledger L113). Load average 45 to 53.
-- The window holder was reaped at 20:12Z; the last round (bf16 r2, 20:18Z) ran after the window had closed.
+- The window holder was reaped at 20:12Z: V only r2 (started 20:09Z) straddled the close and bf16 r2 (20:18Z) ran wholly outside the window.
 - `speed/energy-table-raw.txt` also shows a "fraction of 273 GB/s" above 1.0, which is impossible: the script counts
   every resident weight copy (26.9 GB, FP8 originals beside the 4-bit copies) as read per token. That column is wrong
   for 4-bit runs; the fraction of the memory ceiling for these runs is UNMEASURED. J/token there is wall power of the
   whole loaded box over the steps' span, not this job's energy: UNMEASURED for the job.
 - Not run: 128k point, third round pair, 32k long drift for V only (`long/` has only the bf16 baseline: 32767 steps,
-  chip median 90.20 ms, mean NLL 0.44700; the V only run failed at channel create on low GPU memory).
+  chip median 90.20 ms, mean NLL 0.44700, at load average 113 in an earlier window, so its timing is contaminated too;
+  the V only run failed at channel create on low GPU memory).
 
 ## What carries over
 
