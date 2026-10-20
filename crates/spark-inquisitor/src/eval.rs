@@ -49,7 +49,7 @@ impl TestimonyEvaluator {
         let mut score = 0.0;
         let mut flags = Vec::new();
 
-        // 1. Checks for oath affirmation
+        // 1. Checks for an explicit certification (the retired oath wording still counts)
         let has_oath = lower.contains("certify")
             || lower.contains("swear")
             || lower.contains("affirm")
