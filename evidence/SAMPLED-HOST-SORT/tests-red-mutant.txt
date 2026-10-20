@@ -1,0 +1,31 @@
+warning: aien-omega-gpu@0.1.0: aien-omega-gpu: no AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB, building the CPU stub
+warning: aien-omega-compose@0.1.0: aien-omega-compose: no AIEN_OMEGA_COMPOSE_DIR, AIEN_OMEGA_DIR or AIEN_OMEGA_COMPOSE_LIB, building the stub
+   Compiling aien-inference-abi v0.1.0 (/home/drakestapleton/workspace/fix-sampled-host-sort/crates/aien-inference-abi)
+   Compiling aien-scheduler v0.1.0 (/home/drakestapleton/workspace/fix-sampled-host-sort/crates/aien-scheduler)
+   Compiling aien-runtime v0.1.0 (/home/drakestapleton/workspace/fix-sampled-host-sort/crates/aien-runtime)
+   Compiling aien-serve-http v0.1.0 (/home/drakestapleton/workspace/fix-sampled-host-sort/crates/aien-serve-http)
+    Finished `release` profile [optimized] target(s) in 54.83s
+     Running unittests src/lib.rs (target/release/deps/aien_serve_http-3f0e2f93ead309d4)
+
+running 3 tests
+test sampling::tests::fast_draw_declines_what_it_cannot_match ... ok
+test sampling::tests::fast_draw_matches_old_draw_random_ties_and_masks ... FAILED
+test sampling::tests::fast_draw_matches_old_draw_at_full_vocabulary ... ok
+
+failures:
+
+---- sampling::tests::fast_draw_matches_old_draw_random_ties_and_masks stdout ----
+
+thread 'sampling::tests::fast_draw_matches_old_draw_random_ties_and_masks' (2768259) panicked at crates/aien-serve-http/src/sampling.rs:625:9:
+assertion `left == right` failed: token k=2 SamplingParams { temperature: 0.7, top_p: 1.0, max_tokens: 1, stop_token_ids: [] } seed=358367305995854726
+  left: 2
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    sampling::tests::fast_draw_matches_old_draw_random_ties_and_masks
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 26 filtered out; finished in 7.77s
+
+error: test failed, to rerun pass `-p aien-serve-http --lib`

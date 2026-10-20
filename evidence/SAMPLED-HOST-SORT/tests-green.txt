@@ -1,0 +1,16 @@
+test sampling::tests::bench_sampled_step ... ignored
+test sampling::tests::bench_top_k ... ignored
+test sampling::tests::fast_draw_declines_what_it_cannot_match ... ok
+test sampling::tests::greedy_is_argmax ... ok
+test sampling::tests::mutant_variable_is_refused_without_debug_assertions ... ok
+test sampling::tests::record_counts_kept_sets_and_modes ... ok
+test sampling::tests::observer_with_nan_logits_keeps_the_old_answer ... ok
+test sampling::tests::same_seed_same_token ... ok
+test sampling::tests::seeds_spread_and_mutants_break_the_spread ... ok
+test sampling::tests::top_k_never_picks_outside_the_k_best ... ok
+test sampling::tests::top_k_ties_at_cutoff_keep_lower_token_id ... ok
+test sampling::tests::top_k_selection_matches_full_sort_random_and_tied ... ok
+test sampling::tests::sampled_tokens_and_record_match_with_reference_mask ... ok
+test sampling::tests::fast_draw_matches_old_draw_random_ties_and_masks ... ok
+test sampling::tests::fast_draw_matches_old_draw_at_full_vocabulary ... ok
+test result: ok. 13 passed; 0 failed; 2 ignored; 0 measured; 14 filtered out; finished in 6.43s

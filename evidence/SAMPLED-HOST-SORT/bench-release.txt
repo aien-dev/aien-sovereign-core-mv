@@ -1,0 +1,15 @@
+
+running 1 test
+test sampling::tests::bench_sampled_step ... T=0.7 top_p=0.8 k=20 V=248320 old(full sort + full sampler)  median 32421.4 us  min 31335.8  max 33583.8
+T=0.7 top_p=0.8 k=20 V=248320 pr646(select + full sampler)   median 8251.4 us  min 7730.6  max 10096.2
+T=0.7 top_p=0.8 k=20 V=248320 new(k-entry draw)              median 163.9 us  min 163.6  max 401.6
+T=1 top_p=0.95 k=20 V=248320 old(full sort + full sampler)  median 31878.7 us  min 30202.5  max 36994.8
+T=1 top_p=0.95 k=20 V=248320 pr646(select + full sampler)   median 7984.3 us  min 7460.7  max 9167.1
+T=1 top_p=0.95 k=20 V=248320 new(k-entry draw)              median 165.6 us  min 163.5  max 288.4
+T=0.7 top_p=1 k=20 V=248320 old(full sort + full sampler)  median 28780.2 us  min 27809.5  max 30217.6
+T=0.7 top_p=1 k=20 V=248320 pr646(select + full sampler)   median 6075.5 us  min 5728.5  max 6945.1
+T=0.7 top_p=1 k=20 V=248320 new(k-entry draw)              median 165.4 us  min 163.2  max 329.9
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 28 filtered out; finished in 11.74s
+
