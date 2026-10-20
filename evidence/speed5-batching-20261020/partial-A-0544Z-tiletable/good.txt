@@ -1,0 +1,5 @@
+n1-p3 n1-p3-a1
+n2 n2-a1
+n4 n4-a1
+n8 FAILED after 6 attempts
+n16 FAILED after 6 attempts

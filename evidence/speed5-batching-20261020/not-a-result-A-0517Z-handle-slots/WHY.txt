@@ -1,0 +1,1 @@
+32-slot load refused: dma_alloc REFUSED_LIMIT (omega OMEGA_GPU_HANDLE_SLOTS 1024, about 29 buffers per conversation slot). B stopped by me during load. No measurement.

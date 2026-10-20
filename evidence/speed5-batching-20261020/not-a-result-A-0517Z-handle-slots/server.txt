@@ -1,0 +1,4 @@
+aien-serve-http: tokenizer from /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a (chat layout qwen3.8 (Qwen3.8-27B, thinking per request, template default on), stop ids [248046, 248044])
+aien-serve-http: loading Qwen3.8 (qwen3_5) onto the Omega engine from /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a
+aien-serve-http: qwen38-batch: uploading 64 layers, 32 slots of 4096 positions (model needs 33245 MiB, MemAvailable 57465 MiB)
+aien-serve-http: qwen38-batch load failed: stream attn256 alloc: omega_gpu rc=-4 (attn256 alloc: CHIP_FAIL: dma_alloc: REFUSED_LIMIT)

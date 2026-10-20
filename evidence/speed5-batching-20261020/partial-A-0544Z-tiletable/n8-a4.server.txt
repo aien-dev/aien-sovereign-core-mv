@@ -1,0 +1,27 @@
+aien-serve-http: qwen38-batch: chip lock after 0 ms
+aien-serve-http: qwen38-batch: join: prompt 31 tok, queued 0 ms, prefill 2856 ms (gemm chip 170 ms, gdn chip 10 ms, attn chip 1 ms), now 1 rows
+aien-serve-http: qwen38-batch: join: prompt 32 tok, queued 2839 ms, prefill 2065 ms (gemm chip 179 ms, gdn chip 10 ms, attn chip 1 ms), now 2 rows
+aien-serve-http: qwen38-batch: join: prompt 26 tok, queued 4901 ms, prefill 2220 ms (gemm chip 164 ms, gdn chip 9 ms, attn chip 1 ms), now 3 rows
+aien-serve-http: qwen38-batch: join: prompt 27 tok, queued 7119 ms, prefill 2174 ms (gemm chip 172 ms, gdn chip 10 ms, attn chip 1 ms), now 4 rows
+aien-serve-http: qwen38-batch: join: prompt 30 tok, queued 9293 ms, prefill 794 ms (gemm chip 169 ms, gdn chip 10 ms, attn chip 1 ms), now 5 rows
+aien-serve-http: qwen38-batch: join: prompt 26 tok, queued 10088 ms, prefill 1736 ms (gemm chip 163 ms, gdn chip 9 ms, attn chip 1 ms), now 6 rows
+aien-serve-http: qwen38-batch: join: prompt 25 tok, queued 11824 ms, prefill 1690 ms (gemm chip 164 ms, gdn chip 9 ms, attn chip 1 ms), now 7 rows
+aien-serve-http: qwen38-batch: join: prompt 27 tok, queued 13515 ms, prefill 1430 ms (gemm chip 164 ms, gdn chip 9 ms, attn chip 1 ms), now 8 rows
+aien-serve-http: qwen38-batch: step over 8 rows failed: layer 0: mixer tree-verify gemm x8: omega_gpu rc=-2 (tv gemm: tile table full)
+aien-serve-http: qwen38-batch: leave: prompt 31 tok, prefill 2856 ms, decode 1 tok in 12156 ms over 0 steps, mean rows 0.00, wall 12156.0 ms/token, Length
+aien-serve-http: qwen38-batch: leave: prompt 32 tok, prefill 2065 ms, decode 1 tok in 10091 ms over 0 steps, mean rows 0.00, wall 10091.0 ms/token, Length
+aien-serve-http: qwen38-batch: leave: prompt 26 tok, prefill 2220 ms, decode 1 tok in 7870 ms over 0 steps, mean rows 0.00, wall 7870.0 ms/token, Length
+aien-serve-http: qwen38-batch: leave: prompt 27 tok, prefill 2174 ms, decode 1 tok in 5696 ms over 0 steps, mean rows 0.00, wall 5696.0 ms/token, Length
+aien-serve-http: chatcmpl-18e026d8be8dcde50021: engine failed: layer 0: mixer tree-verify gemm x8: omega_gpu rc=-2 (tv gemm: tile table full)
+aien-serve-http: qwen38-batch: leave: prompt 30 tok, prefill 794 ms, decode 1 tok in 4901 ms over 0 steps, mean rows 0.00, wall 4901.0 ms/token, Length
+aien-serve-http: qwen38-batch: leave: prompt 26 tok, prefill 1736 ms, decode 1 tok in 3165 ms over 0 steps, mean rows 0.00, wall 3165.0 ms/token, Length
+aien-serve-http: qwen38-batch: leave: prompt 25 tok, prefill 1690 ms, decode 1 tok in 1474 ms over 0 steps, mean rows 0.00, wall 1474.0 ms/token, Length
+aien-serve-http: chatcmpl-18e026d8bf9d96be0022: engine failed: layer 0: mixer tree-verify gemm x8: omega_gpu rc=-2 (tv gemm: tile table full)
+aien-serve-http: chatcmpl-18e026d8b6b563010020: engine failed: layer 0: mixer tree-verify gemm x8: omega_gpu rc=-2 (tv gemm: tile table full)
+aien-serve-http: chatcmpl-18e026d8b64a3a0f001f: engine failed: layer 0: mixer tree-verify gemm x8: omega_gpu rc=-2 (tv gemm: tile table full)
+aien-serve-http: chatcmpl-18e026d8bffa46980026: engine failed: layer 0: mixer tree-verify gemm x8: omega_gpu rc=-2 (tv gemm: tile table full)
+aien-serve-http: qwen38-batch: leave: prompt 27 tok, prefill 1430 ms, decode 1 tok in 47 ms over 0 steps, mean rows 0.00, wall 47.0 ms/token, Length
+aien-serve-http: chatcmpl-18e026d8bf9e882f0023: engine failed: layer 0: mixer tree-verify gemm x8: omega_gpu rc=-2 (tv gemm: tile table full)
+aien-serve-http: qwen38-batch: spell over: 1 steps, 0 rows, 0.3 ms/step wall, chip gemm 0 ms, gdn 0 ms, attn 0 ms, head 0 ms, host 0 ms, spell 15.0 s, gemm launches 0 ms, a|b 0 ms, kernel Tree
+aien-serve-http: chatcmpl-18e026d8bff816e70024: engine failed: layer 0: mixer tree-verify gemm x8: omega_gpu rc=-2 (tv gemm: tile table full)
+aien-serve-http: chatcmpl-18e026d8bff8f0f70025: engine failed: layer 0: mixer tree-verify gemm x8: omega_gpu rc=-2 (tv gemm: tile table full)

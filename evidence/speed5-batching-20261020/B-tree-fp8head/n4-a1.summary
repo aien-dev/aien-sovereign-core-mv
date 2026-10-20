@@ -1,0 +1,5 @@
+n4-a1 req 0 completion_tokens 190 finish stop
+n4-a1 req 1 completion_tokens 118 finish stop
+n4-a1 req 2 completion_tokens 256 finish length
+n4-a1 req 3 completion_tokens 179 finish stop
+n4-a1 n=4 total_completion_tokens=743 client_wall_ms=81183

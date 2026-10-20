@@ -1,0 +1,26 @@
+aien-serve-http: qwen38-batch: chip lock after 0 ms
+aien-serve-http: qwen38-batch: join: prompt 31 tok, queued 35 ms, prefill 330 ms (gemm chip 175 ms, gdn chip 10 ms, attn chip 1 ms), now 1 rows
+aien-serve-http: qwen38-batch: join: prompt 32 tok, queued 366 ms, prefill 273 ms (gemm chip 168 ms, gdn chip 10 ms, attn chip 1 ms), now 2 rows
+aien-serve-http: qwen38-batch: join: prompt 27 tok, queued 592 ms, prefill 256 ms (gemm chip 165 ms, gdn chip 9 ms, attn chip 1 ms), now 3 rows
+aien-serve-http: qwen38-batch: join: prompt 25 tok, queued 703 ms, prefill 254 ms (gemm chip 164 ms, gdn chip 9 ms, attn chip 1 ms), now 4 rows
+aien-serve-http: qwen38-batch: join: prompt 26 tok, queued 948 ms, prefill 294 ms (gemm chip 164 ms, gdn chip 12 ms, attn chip 1 ms), now 5 rows
+aien-serve-http: qwen38-batch: join: prompt 26 tok, queued 1225 ms, prefill 256 ms (gemm chip 166 ms, gdn chip 9 ms, attn chip 1 ms), now 6 rows
+aien-serve-http: qwen38-batch: join: prompt 30 tok, queued 1481 ms, prefill 263 ms (gemm chip 166 ms, gdn chip 10 ms, attn chip 1 ms), now 7 rows
+aien-serve-http: qwen38-batch: join: prompt 27 tok, queued 1738 ms, prefill 320 ms (gemm chip 170 ms, gdn chip 10 ms, attn chip 1 ms), now 8 rows
+aien-serve-http: qwen38-batch: leave: prompt 32 tok, prefill 273 ms, decode 118 tok in 307313 ms over 118 steps, mean rows 8.00, wall 2604.3 ms/token, Stop
+aien-serve-http: chatcmpl-18e02965c463fcd80001: prompt 32 tok, reply 118 tok, finish stop, prefill 273 ms, decode 307313 ms (0.38 tok/s), sampling mode=greedy seed=1792478164461812232 temp=0 top_p=0.95 top_k=20 greedy=119 sampled=0 kept(min/med/mean/max)=0/0/0.00/0 kept1=0/0 top_prob(min/mean)=1.0000/1.0000 p_repeat=1.000e0
+aien-serve-http: qwen38-batch: leave: prompt 25 tok, prefill 254 ms, decode 179 tok in 345403 ms over 179 steps, mean rows 7.66, wall 1929.6 ms/token, Stop
+aien-serve-http: chatcmpl-18e02965cfc9c1620003: prompt 25 tok, reply 179 tok, finish stop, prefill 254 ms, decode 345403 ms (0.52 tok/s), sampling mode=greedy seed=1792478173242964770 temp=0 top_p=0.95 top_k=20 greedy=180 sampled=0 kept(min/med/mean/max)=0/0/0.00/0 kept1=0/0 top_prob(min/mean)=1.0000/1.0000 p_repeat=1.000e0
+aien-serve-http: qwen38-batch: leave: prompt 31 tok, prefill 330 ms, decode 190 tok in 349824 ms over 190 steps, mean rows 7.56, wall 1841.2 ms/token, Stop
+aien-serve-http: chatcmpl-18e02965c45fb7550000: prompt 31 tok, reply 190 tok, finish stop, prefill 330 ms, decode 349824 ms (0.54 tok/s), sampling mode=greedy seed=1792478168756498629 temp=0 top_p=0.95 top_k=20 greedy=191 sampled=0 kept(min/med/mean/max)=0/0/0.00/0 kept1=0/0 top_prob(min/mean)=1.0000/1.0000 p_repeat=1.000e0
+aien-serve-http: qwen38-batch: leave: prompt 26 tok, prefill 256 ms, decode 256 tok in 383188 ms over 255 steps, mean rows 6.91, wall 1502.7 ms/token, Length
+aien-serve-http: chatcmpl-18e02965d172c73b0005: prompt 26 tok, reply 256 tok, finish length, prefill 256 ms, decode 383188 ms (0.67 tok/s), sampling mode=greedy seed=1792478147501015867 temp=0 top_p=0.95 top_k=20 greedy=256 sampled=0 kept(min/med/mean/max)=0/0/0.00/0 kept1=0/0 top_prob(min/mean)=1.0000/1.0000 p_repeat=1.000e0
+aien-serve-http: qwen38-batch: leave: prompt 26 tok, prefill 294 ms, decode 256 tok in 383446 ms over 255 steps, mean rows 6.91, wall 1503.7 ms/token, Length
+aien-serve-http: chatcmpl-18e02965d05d2ade0004: prompt 26 tok, reply 256 tok, finish length, prefill 294 ms, decode 383446 ms (0.67 tok/s), sampling mode=greedy seed=1792478151777789502 temp=0 top_p=0.95 top_k=20 greedy=256 sampled=0 kept(min/med/mean/max)=0/0/0.00/0 kept1=0/0 top_prob(min/mean)=1.0000/1.0000 p_repeat=1.000e0
+aien-serve-http: qwen38-batch: leave: prompt 30 tok, prefill 263 ms, decode 256 tok in 382926 ms over 255 steps, mean rows 6.91, wall 1501.7 ms/token, Length
+aien-serve-http: qwen38-batch: leave: prompt 27 tok, prefill 256 ms, decode 256 tok in 383997 ms over 255 steps, mean rows 6.91, wall 1505.9 ms/token, Length
+aien-serve-http: chatcmpl-18e02965d174f46d0006: prompt 30 tok, reply 256 tok, finish length, prefill 263 ms, decode 382926 ms (0.67 tok/s), sampling mode=greedy seed=1792478160386061165 temp=0 top_p=0.95 top_k=20 greedy=256 sampled=0 kept(min/med/mean/max)=0/0/0.00/0 kept1=0/0 top_prob(min/mean)=1.0000/1.0000 p_repeat=1.000e0
+aien-serve-http: chatcmpl-18e02965c7247d4f0002: prompt 27 tok, reply 256 tok, finish length, prefill 256 ms, decode 383997 ms (0.67 tok/s), sampling mode=greedy seed=1792478177392883151 temp=0 top_p=0.95 top_k=20 greedy=256 sampled=0 kept(min/med/mean/max)=0/0/0.00/0 kept1=0/0 top_prob(min/mean)=1.0000/1.0000 p_repeat=1.000e0
+aien-serve-http: qwen38-batch: leave: prompt 27 tok, prefill 320 ms, decode 256 tok in 382607 ms over 255 steps, mean rows 6.91, wall 1500.4 ms/token, Length
+aien-serve-http: qwen38-batch: spell over: 255 steps, 1762 rows, 1472.6 ms/step wall, chip gemm 176529 ms, gdn 18820 ms, attn 7932 ms, head 5127 ms, host 159156 ms, spell 384.9 s, gemm launches 133138 ms, a|b 5317 ms, kernel Tree
+aien-serve-http: chatcmpl-18e02965d1e5c5030007: prompt 27 tok, reply 256 tok, finish length, prefill 320 ms, decode 382607 ms (0.67 tok/s), sampling mode=greedy seed=1792478156098486483 temp=0 top_p=0.95 top_k=20 greedy=256 sampled=0 kept(min/med/mean/max)=0/0/0.00/0 kept1=0/0 top_prob(min/mean)=1.0000/1.0000 p_repeat=1.000e0

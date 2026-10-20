@@ -1,0 +1,1 @@
+{"model":"qwen3.8-27b-fp8","messages":[{"role":"user","content":"Describe in at least 400 words a walk through a busy market in the morning."}],"temperature":0,"max_tokens":256,"aien_return_token_ids":true,"chat_template_kwargs":{"enable_thinking":false}}

@@ -1,0 +1,9 @@
+aien-serve-http: tokenizer from /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a (chat layout qwen3.8 (Qwen3.8-27B, thinking per request, template default on), stop ids [248046, 248044])
+aien-serve-http: loading Qwen3.8 (qwen3_5) onto the Omega engine from /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a
+aien-serve-http: qwen38: uploading 64 layers, KV 1024 positions (need 33050 MiB, MemAvailable 62411 MiB)
+aien-serve-http: qwen38 engine ready in 111.7 s: context 1024 tokens, weights 26.92 GB resident, KV 0.07 GB, rss 29.88 GB, prefill chunk 4096, spin_us Some(2000)
+aien-serve-http: serving qwen3.8-27b-fp8 at http://127.0.0.1:18193/v1 (engine omega)
+aien-serve-http: qwen38: lock wait 0 ms, prompt 31 tok, reuse Cold (0 tok), fed 31 (0 stepped), prefill 2294 ms (gemm chip 331 ms, gdn chip 15 ms, attn chip 2 ms, host 1831 ms, restore 0 ms, snapshot 48 ms), decode 184 tok in 24892 ms, graph chip 131.3 ms/token, wall 136.0 ms/token
+aien-serve-http: chatcmpl-18e02922f0425a960000: prompt 31 tok, reply 184 tok, finish stop, prefill 2294 ms, decode 24892 ms (7.39 tok/s), sampling mode=greedy seed=1792477881729963558 temp=0 top_p=0.95 top_k=20 greedy=185 sampled=0 kept(min/med/mean/max)=0/0/0.00/0 kept1=0/0 top_prob(min/mean)=1.0000/1.0000 p_repeat=1.000e0
+aien-serve-http: qwen38: lock wait 0 ms, prompt 25 tok, reuse Cold (0 tok), fed 25 (0 stepped), prefill 4695 ms (gemm chip 517 ms, gdn chip 13 ms, attn chip 2 ms, host 4059 ms, restore 0 ms, snapshot 39 ms), decode 169 tok in 22340 ms, graph chip 129.2 ms/token, wall 133.0 ms/token
+aien-serve-http: chatcmpl-18e0292a914221bc0001: prompt 25 tok, reply 169 tok, finish stop, prefill 4695 ms, decode 22340 ms (7.56 tok/s), sampling mode=greedy seed=1792477918790818636 temp=0 top_p=0.95 top_k=20 greedy=170 sampled=0 kept(min/med/mean/max)=0/0/0.00/0 kept1=0/0 top_prob(min/mean)=1.0000/1.0000 p_repeat=1.000e0

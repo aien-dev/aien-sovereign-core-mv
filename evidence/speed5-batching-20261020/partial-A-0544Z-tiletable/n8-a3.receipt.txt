@@ -1,0 +1,25 @@
+{
+ "name": "speed5-A-tree-bf16head-n8-a3",
+ "cmd": "/home/drakestapleton/workspace/sc-speed5-batching/evidence/speed5-batching-20261020/bench.sh http://127.0.0.1:18193 /home/drakestapleton/workspace/sc-speed5-batching/evidence/speed5-batching-20261020/A-tree-bf16head n8-a3 256 0 1 2 3 4 5 6 7",
+ "exit": 0,
+ "git_head": "946f6fed",
+ "start": "2026-10-20T00:49:06.702936",
+ "seconds": 12.054,
+ "samples": 6,
+ "wall_W_mean": 266.6666667,
+ "wall_J": 3214.319229,
+ "idle_W_before": 267.8571429,
+ "incremental_J": -14.34963942,
+ "gpu_W_mean": 13.555,
+ "gpu_util_mean": 14.66666667,
+ "load1_start": "37.29",
+ "load1_end": "38.86",
+ "mem_avail_kB_start": "16119164",
+ "mem_avail_kB_end": "30219836",
+ "lock_holders_max": 3,
+ "nvrm_errors_delta": 0,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone",
+ "window_id": "20261020T045957Z-8afb15",
+ "calibration": null
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-20-speed5-A-tree-bf16head-n8-a3.json

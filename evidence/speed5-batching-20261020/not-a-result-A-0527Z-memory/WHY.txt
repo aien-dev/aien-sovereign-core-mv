@@ -1,0 +1,1 @@
+32 slots of 4096 positions refused after the upload: need 12980 MiB + 8192 kept free, MemAvailable 13286 MiB (box memory moved during the load). No measurement. Rerun at CTX 1024 (prompt + 256 tokens never exceed ~330).

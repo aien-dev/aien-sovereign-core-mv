@@ -1,0 +1,1 @@
+n1-p3, n2, n4 good (token ids usable); n8/n16/n32 refused 'tv gemm: tile table full' (1024 keys). Fixed in omega 66e84cf6. Speeds from this folder not published (old library).

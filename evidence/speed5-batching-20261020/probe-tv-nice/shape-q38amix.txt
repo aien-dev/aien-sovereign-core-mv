@@ -1,0 +1,12 @@
+tv q38amix: n 14336 k 5120 (weights 73.4 MB), rows 1,32, weight cache 0
+tv N 32: emulation check on 2 rows: 0 of 28672 differ (bit-identical)
+tv N 32: rt 2 ct 2 warps 4; 0 of 458752 outputs differ from the N=32 pass (same bits); 0 unwritten, 0 written beyond row N
+tv xf32 N 32: rt 2 ct 2 warps 4; ok, 0 of 458752 differ from the reference (same bits); chip median 431.1 us (21), weights 170.2 GB/s
+tv f32 call N 32: ok, 0 of 458752 differ from the device pass; whole call median 1438.7 us (5 calls)
+TVGEMM q38amix N 32 (median of 21, min 423.6, max 1257.8 us): chip 428.4 us; weights 171.3 GB/s; 10.96 TFLOPS
+tv N 1: rt 1 ct 4 warps 4; 0 of 14336 outputs differ from the N=32 pass (same bits); 0 unwritten, 0 written beyond row N
+tv xf32 N 1: rt 1 ct 4 warps 4; ok, 0 of 14336 differ from the reference (same bits); chip median 396.3 us (21), weights 185.2 GB/s
+tv f32 call N 1: ok, 0 of 14336 differ from the device pass; whole call median 453.1 us (5 calls)
+TVGEMM q38amix N 1 (median of 21, min 388.6, max 456.4 us): chip 397.7 us; weights 184.6 GB/s; 0.37 TFLOPS
+tv: PASS
+GPU_TCGEMM: PASS

@@ -1,0 +1,12 @@
+tv q38o: n 5120 k 6144 (weights 31.5 MB), rows 1,32, weight cache 0
+tv N 32: emulation check on 2 rows: 0 of 10240 differ (bit-identical)
+tv N 32: rt 2 ct 2 warps 2; 0 of 163840 outputs differ from the N=32 pass (same bits); 0 unwritten, 0 written beyond row N
+tv xf32 N 32: rt 2 ct 2 warps 2; ERROR, 0 of 163840 differ from the reference (same bits); chip median 0.0 us (0), weights 0.0 GB/s
+tv f32 call N 32: ok, 0 of 163840 differ from the device pass; whole call median 582.9 us (5 calls)
+TVGEMM q38o N 32 (median of 21, min 194.1, max 229.8 us): chip 203.8 us; weights 154.3 GB/s; 9.88 TFLOPS
+tv N 1: rt 1 ct 4 warps 2; 0 of 5120 outputs differ from the N=32 pass (same bits); 0 unwritten, 0 written beyond row N
+tv xf32 N 1: rt 1 ct 4 warps 2; ok, 0 of 5120 differ from the reference (same bits); chip median 204.3 us (21), weights 154.0 GB/s
+tv f32 call N 1: ok, 0 of 5120 differ from the device pass; whole call median 236.3 us (5 calls)
+TVGEMM q38o N 1 (median of 21, min 194.3, max 224.0 us): chip 200.3 us; weights 157.0 GB/s; 0.31 TFLOPS
+tv: FAIL
+GPU_TCGEMM: FAIL

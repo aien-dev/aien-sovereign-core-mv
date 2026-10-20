@@ -1,0 +1,1 @@
+Session at nice 10 on a box at load 57-69: n1-p0, n1-p1 done (600 and 631 ms/step, TV chip 503 ms/step at 1 row, 4x the isolated kernel figure). Stopped by me to test whether host priority causes it. Token ids kept for the correctness compare; speeds NOT published.

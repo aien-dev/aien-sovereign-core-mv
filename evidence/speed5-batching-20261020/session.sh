@@ -2,14 +2,14 @@
 # One server session on test port 18193 (never the live 18091; 18191 is used by L112), run inside an open spark-window.
 # usage: session.sh <outdir> <call>...   each call is LABEL=i,j,k (prompt indexes sent at once)
 # Env: SLOTS (0 = one-at-a-time door, else --batch-slots), KERNEL (tree|rowpair -> AIEN_Q38_BATCH_KERNEL),
-#      FP8HEAD (1 -> AIEN_Q38_FP8_HEAD=1), MAXT (default 256), CTX (default 4096), BIN, MINMEM_GIB (default 50).
+#      FP8HEAD (1 -> AIEN_Q38_FP8_HEAD=1), MAXT (default 256), CTX (default 1024), BIN, MINMEM_GIB (default 50).
 # Every call goes through bench.sh; the server.log lines it produced are cut into <label>.server.txt, so
 # summarize.sh never has to guess which spell belongs to which call. A call that comes back with an
 # empty answer (the door gave up on the GPU lock) is repeated as LABEL-aK, every attempt kept.
 set -euo pipefail
 OUT=$1; shift
 HERE=$(cd "$(dirname "$0")" && pwd)
-SLOTS=${SLOTS:-32}; MAXT=${MAXT:-256}; CTX=${CTX:-4096}; MINMEM_GIB=${MINMEM_GIB:-46}
+SLOTS=${SLOTS:-32}; MAXT=${MAXT:-256}; CTX=${CTX:-1024}; MINMEM_GIB=${MINMEM_GIB:-46}
 BIN=${BIN:?BIN=path of aien-serve-http}
 MODEL=$HOME/models/qwen3.8-27b-fp8-017b9c7a
 PORT=${PORT:-18193}; URL=http://127.0.0.1:$PORT

@@ -1,0 +1,7 @@
+n1 n1-a1
+n2 n2-a1
+n4 n4-a1
+n8 n8-a1
+n16 n16-a1
+n32 n32-a1
+n1-last n1-last-a1

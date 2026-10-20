@@ -1,0 +1,1 @@
+Server waited on the chip lock its own spark-window held (branch did not honour AIEN_GB10_LOCK_HELD); stopped by me at 05:13Z, no measurement. Fixed in 946f6fed.

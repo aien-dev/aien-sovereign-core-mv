@@ -1,0 +1,25 @@
+{
+ "name": "speed5-D-single-door-single-p3-a1",
+ "cmd": "/home/drakestapleton/workspace/sc-speed5-batching/evidence/speed5-batching-20261020/bench.sh http://127.0.0.1:18193 /home/drakestapleton/workspace/sc-speed5-batching/evidence/speed5-batching-20261020/D-single-door single-p3-a1 256 3",
+ "exit": 0,
+ "git_head": "946f6fed",
+ "start": "2026-10-20T01:31:54.099437",
+ "seconds": 27.474,
+ "samples": 12,
+ "wall_W_mean": 295.8333333,
+ "wall_J": 8127.674774,
+ "idle_W_before": 265.0,
+ "incremental_J": 847.1097652,
+ "gpu_W_mean": 33.5,
+ "gpu_util_mean": 64.08333333,
+ "load1_start": "32.20",
+ "load1_end": "48.11",
+ "mem_avail_kB_start": "32873792",
+ "mem_avail_kB_end": "32452304",
+ "lock_holders_max": 4,
+ "nvrm_errors_delta": 0,
+ "note": "wall W = UPS ups.load x 10 (CP1500PFCLCD, 1 percent steps, ~2 s); whole UPS output, not the Spark alone",
+ "window_id": "20261020T045957Z-8afb15",
+ "calibration": null
+}
+receipt: /home/drakestapleton/yardsticks/receipts/2026-10-20-speed5-D-single-door-single-p3-a1.json

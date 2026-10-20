@@ -1,0 +1,2 @@
+single-p3-a1 req 3 completion_tokens 169 finish stop
+single-p3-a1 n=1 total_completion_tokens=169 client_wall_ms=27392

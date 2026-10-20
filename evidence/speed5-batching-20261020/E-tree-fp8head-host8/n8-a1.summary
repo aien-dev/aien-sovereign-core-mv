@@ -1,0 +1,9 @@
+n8-a1 req 0 completion_tokens 190 finish stop
+n8-a1 req 1 completion_tokens 118 finish stop
+n8-a1 req 2 completion_tokens 256 finish length
+n8-a1 req 3 completion_tokens 179 finish stop
+n8-a1 req 4 completion_tokens 256 finish length
+n8-a1 req 5 completion_tokens 256 finish length
+n8-a1 req 6 completion_tokens 256 finish length
+n8-a1 req 7 completion_tokens 256 finish length
+n8-a1 n=8 total_completion_tokens=1767 client_wall_ms=384937

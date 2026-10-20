@@ -1,0 +1,4 @@
+tv q38o: n 5120 k 6144 (weights 31.5 MB), rows 64, weight cache 1
+tv N 64: call failed -3: prefill codegen refused the shape
+tv: FAIL
+GPU_TCGEMM: FAIL

@@ -1,0 +1,5 @@
+aien-serve-http: qwen38-batch: chip lock after 0 ms
+aien-serve-http: qwen38-batch: join: prompt 31 tok, queued 0 ms, prefill 1457 ms (gemm chip 170 ms, gdn chip 10 ms, attn chip 1 ms), now 1 rows
+aien-serve-http: qwen38-batch: leave: prompt 31 tok, prefill 1457 ms, decode 184 tok in 72794 ms over 184 steps, mean rows 1.00, wall 395.6 ms/token, Stop
+aien-serve-http: qwen38-batch: spell over: 184 steps, 184 rows, 393.4 ms/step wall, chip gemm 66233 ms, gdn 1155 ms, attn 444 ms, head 2363 ms, host 1764 ms, spell 74.3 s, gemm launches 0 ms, a|b 324 ms, kernel RowPair
+aien-serve-http: chatcmpl-18e0288faca96a850000: prompt 31 tok, reply 184 tok, finish stop, prefill 1457 ms, decode 72794 ms (2.53 tok/s), sampling mode=greedy seed=1792477249235674453 temp=0 top_p=0.95 top_k=20 greedy=185 sampled=0 kept(min/med/mean/max)=0/0/0.00/0 kept1=0/0 top_prob(min/mean)=1.0000/1.0000 p_repeat=1.000e0

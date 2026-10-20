@@ -1,0 +1,1 @@
+{"model":"qwen3.8-27b-fp8","messages":[{"role":"user","content":"Write a 400-word guide to looking after a dog in its first month at home."}],"temperature":0,"max_tokens":256,"aien_return_token_ids":true,"chat_template_kwargs":{"enable_thinking":false}}

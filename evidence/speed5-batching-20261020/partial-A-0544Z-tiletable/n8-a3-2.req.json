@@ -1,0 +1,1 @@
+{"model":"qwen3.8-27b-fp8","messages":[{"role":"user","content":"List five practical tips for keeping a small vegetable garden healthy in late summer."}],"temperature":0,"max_tokens":256,"aien_return_token_ids":true,"chat_template_kwargs":{"enable_thinking":false}}
