@@ -49,11 +49,12 @@ without calibration 0.0201 (the calibrated runs trade weight error for output er
 - Without calibration the 3-bit trellis is not good enough: same as MXFP4 on code and codelong, worse on prose, and the
   architecture text collapses (NLL +0.57). The collapse sits in a few places (the calibrated run shows one 128-position window
   with KL 1.32, rest 0.02 to 0.07), not everywhere.
-- With a small held-out calibration the same 3.15-bit code is equal to or better than 4.25-bit MXFP4 on 5 of 6 texts by same pick
-  (code +3.7 points, codelong +2.3, arch +0.8) and 0.4 points lower on license. NLL is mixed: better on code and arch,
+- With a small held-out calibration the same 3.15-bit code is better than 4.25-bit MXFP4 on 3 of 6 texts by same pick
+  (code +3.7 points, codelong +2.3, arch +0.8), equal on 2 (golden, prose) and 0.4 points lower on license. NLL is mixed: better on code and arch,
   worse by 0.02 to 0.06 on prose and codelong. The exponent is flat between 0.125 and 0.25 and worse at 0.5.
-- With the 4-bit head added (the moonshot row 6 configuration, 10.26 GB per word) it matches or beats the GPU's MXFP4+MXFP4
-  setup on every text that setup was measured on, while reading 25 percent fewer bytes.
+- With the 4-bit head added (the moonshot row 6 configuration, 10.26 GB per word) it is within 0.4 points of the GPU MXFP4+MXFP4
+  setup on golden, license, prose and codelong (0.4 lower on license and 0.3 lower on codelong, equal on prose, +0.1 on golden)
+  and 4.3 points better on code, while reading 25 percent fewer bytes (10.26 vs 13.65 GB per word).
 - The calibrated trellis is also a better 4-bit code: at 4.15 bits it is 5 to 6 points closer to FP8 than MXFP4 on prose, code and arch.
 
 ## Limits (say them out loud)
