@@ -302,7 +302,7 @@ pub enum Matrix {
 /// Rows per parallel task: one task widens this many rows and runs every token through them.
 const ROWS_PER_TASK: usize = 16;
 
-fn dot(a: &[f32], b: &[f32]) -> f32 {
+pub(crate) fn dot(a: &[f32], b: &[f32]) -> f32 {
     // Eight independent lanes so the compiler can keep it in vector registers.
     let mut acc = [0f32; 8];
     let (ca, cb) = (a.chunks_exact(8), b.chunks_exact(8));
@@ -356,6 +356,14 @@ impl Matrix {
                     *o = bf16_to_f32(b);
                 }
             }
+        }
+    }
+
+    /// Row `r` of a bf16 matrix as stored (`None` for FP8).
+    pub fn bf16_row(&self, r: usize) -> Option<&[u16]> {
+        match self {
+            Self::Bf16 { k, w, .. } => Some(&w[r * k..(r + 1) * k]),
+            Self::Fp8 { .. } => None,
         }
     }
 
@@ -725,6 +733,18 @@ impl<S: TensorSource> Qwen38Reference<S> {
             routing_mutant: 0,
             routes: Vec::new(),
         })
+    }
+
+    /// The bf16 lm_head as read (the exact two-pass head screens it, see [`crate::exact_head`]).
+    pub fn lm_head(&self) -> &Matrix {
+        &self.lm_head
+    }
+
+    /// The final norm over residual rows `x` (`[t][hidden]`): the vector the lm_head multiplies.
+    pub fn final_hidden(&self, x: &[f32]) -> Vec<f32> {
+        let mut rows = x.to_vec();
+        rms_norm_zc(&mut rows, &self.final_norm, self.config.eps);
+        rows
     }
 
     pub fn new_state(&self) -> Qwen38State {
