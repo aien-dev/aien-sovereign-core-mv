@@ -618,9 +618,19 @@ fn corrupt_payload_byte_fails_segment_hash_and_deletes() {
     let s = fx.open();
     let a = fx.put_full(&s, 1);
     let path = fx.object_file(&a.key);
-    let f = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
-    // One byte in the second segment (second pool block).
-    f.write_all_at(&[0x00], 4096 + BS as u64 + 17).unwrap();
+    let f = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&path)
+        .unwrap();
+    // One byte in the second segment (second pool block). The payload on disk
+    // is AES-GCM ciphertext under a fresh random nonce, so a fixed value would
+    // already be there one run in 256 and the object would load intact; flip
+    // the byte instead so it always changes.
+    let off = 4096 + BS as u64 + 17;
+    let mut b = [0u8; 1];
+    f.read_exact_at(&mut b, off).unwrap();
+    f.write_all_at(&[b[0] ^ 0xFF], off).unwrap();
     drop(f);
     let (t, mem) = fx.load(&s, a.key, &a.header);
     assert_eq!(*failed(&t.unwrap()), PlatformError::InvalidLayout);
