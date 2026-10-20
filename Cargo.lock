@@ -151,6 +151,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "aien-engine"
+version = "0.1.0"
+dependencies = [
+ "aien-heartbeat",
+ "aien-inference-abi",
+ "aien-wormhole",
+ "serde",
+ "serde_json",
+ "tokenizers",
+]
+
+[[package]]
 name = "aien-evaluation-protocol"
 version = "0.1.0"
 source = "git+https://github.com/aien-dev/aien-protocols?rev=7ac6facb630ca7e9a6ab4125b292203fe2bb6687#7ac6facb630ca7e9a6ab4125b292203fe2bb6687"
