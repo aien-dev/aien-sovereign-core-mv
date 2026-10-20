@@ -4,6 +4,8 @@
 //!   qwen38_ab text <checkpoint-dir> <text-file> <n> <seq.json>
 //!       the first `n` tokens of a plain text (no chat template), as `{"ids": [...]}`.
 //!   qwen38_ab run <checkpoint-dir> <seq.json> <out-prefix> [--gen N] [--tail N]
+//!       (`seq.json` and `out-prefix` may be comma-separated lists, paired in order: the model
+//!       loads once and each text starts at position 0)
 //!       teacher-forced: feeds `ids` one decode step at a time; with `--gen N` the ids are a
 //!       prompt and N more tokens follow greedily (free running). Writes `<out-prefix>.logits`
 //!       (f32, vocab per step, step order) (with `--tail N` only the last N steps' logits, so a long
@@ -16,10 +18,10 @@
 //!       where they differ, logits cosine, KL(A || B), and both texts' mean NLL. Two runs fed the
 //!       same tokens see the same inputs, so with teacher forcing only the variant differs.
 //!
-//!   qwen38_ab speed <checkpoint-dir> <ctx> <steps> <seed> <out.json>
-//!       BENCHMARK ONLY: decode speed at context `ctx` without reading a prompt. The attention
-//!       cache is filled with a bounded pattern up to `ctx - steps`, then `steps` greedy steps
-//!       run; the tokens are meaningless, the chip and wall times per step are the result.
+//!   qwen38_ab speed <checkpoint-dir> <ctx[,ctx...]> <steps> <seed> <out.json>
+//!       BENCHMARK ONLY: decode speed at each context without reading a prompt (one model load).
+//!       The attention cache is filled with a bounded pattern up to `ctx - steps`, then `steps`
+//!       greedy steps run; the tokens are meaningless, the chip and wall times per step are the result.
 //!
 //! A run refuses to start unless MemAvailable covers the model, its KV cache and 12 GiB
 //! for everything else on the box (the live server shares the pool).
@@ -175,36 +177,83 @@ fn text(dir: &Path, file: &str, n: usize, out: &str) -> Result<(), String> {
         .map_err(|e| format!("{out}: {e}"))
 }
 
-fn run(dir: &Path, seq_path: &str, prefix: &str, gen: usize, tail: usize) -> Result<(), String> {
-    let seq = ids(&read_json(seq_path)?, "ids")?;
-    if seq.len() < 2 && gen == 0 {
-        return Err("seq: fewer than 2 ids".into());
+/// `run` over one or more texts (comma-separated `seq.json` and out-prefix lists, paired in
+/// order): the model loads once and [`Qwen38Omega::reset`] starts each text at position 0.
+fn run(dir: &Path, seqs: &str, prefixes: &str, gen: usize, tail: usize) -> Result<(), String> {
+    let (paths, outs): (Vec<&str>, Vec<&str>) =
+        (seqs.split(',').collect(), prefixes.split(',').collect());
+    if paths.len() != outs.len() {
+        return Err(format!(
+            "run: {} texts but {} out-prefixes",
+            paths.len(),
+            outs.len()
+        ));
     }
-    let config = Qwen38Config::from_checkpoint(dir)?;
-    let (vocab, steps) = (
-        config.vocab,
-        if gen > 0 {
+    let mut texts = Vec::with_capacity(paths.len());
+    for p in &paths {
+        let seq = ids(&read_json(p)?, "ids")?;
+        if seq.len() < 2 && gen == 0 {
+            return Err(format!("{p}: fewer than 2 ids"));
+        }
+        let steps = if gen > 0 {
             seq.len() + gen - 1
         } else {
             seq.len() - 1
-        },
+        };
+        texts.push((seq, steps));
+    }
+    let config = Qwen38Config::from_checkpoint(dir)?;
+    let longest = texts.iter().map(|t| t.1).max().unwrap_or(0);
+    let max_pos = (longest + 1).max(256).next_multiple_of(256);
+    let avail = memory_guard(&config, max_pos)?;
+    let variant = variant();
+    eprintln!(
+        "variant {variant}; {} texts, longest {longest} steps; MemAvailable {} MiB",
+        texts.len(),
+        avail >> 20
     );
+    let t_open = Instant::now();
+    let mut e = Qwen38Omega::open(dir, None, max_pos)?;
+    let open_s = t_open.elapsed().as_secs_f64();
+    for (i, ((seq, steps), (path, prefix))) in texts.iter().zip(paths.iter().zip(&outs)).enumerate()
+    {
+        if i > 0 {
+            e.reset()?;
+        }
+        run_seq(
+            &mut e,
+            config.vocab,
+            path,
+            seq,
+            *steps,
+            prefix,
+            tail,
+            &variant,
+            open_s,
+        )?;
+    }
+    Ok(())
+}
+
+/// One text of [`run`] on an engine at position 0.
+#[allow(clippy::too_many_arguments)]
+fn run_seq(
+    e: &mut Qwen38Omega,
+    vocab: usize,
+    seq_path: &str,
+    seq: &[u32],
+    steps: usize,
+    prefix: &str,
+    tail: usize,
+    variant: &Value,
+    open_s: f64,
+) -> Result<(), String> {
     // logits are written from this step on (`--tail N`: the last N steps; a 32k text would be 32 GB)
     let logits_from = if tail > 0 {
         steps.saturating_sub(tail)
     } else {
         0
     };
-    let max_pos = (steps + 1).max(256).next_multiple_of(256);
-    let avail = memory_guard(&config, max_pos)?;
-    let variant = variant();
-    eprintln!(
-        "variant {variant}; {steps} steps; MemAvailable {} MiB",
-        avail >> 20
-    );
-    let t_open = Instant::now();
-    let mut e = Qwen38Omega::open(dir, None, max_pos)?;
-    let open_s = t_open.elapsed().as_secs_f64();
     let mut f = std::io::BufWriter::new(
         std::fs::File::create(format!("{prefix}.logits")).map_err(|e| format!("{prefix}: {e}"))?,
     );
@@ -469,77 +518,90 @@ fn timeline(dir: &Path, seq_path: &str, out: &str) -> Result<(), String> {
         .map_err(|e| format!("{out}: {e}"))
 }
 
-/// `speed <ckpt> <ctx> <steps> <seed> <out.json>`: decode speed at long context, BENCHMARK ONLY.
-/// The attention cache is filled with a bounded pattern up to `ctx - steps` (no prompt is read),
-/// then `steps` greedy steps run at positions `ctx - steps .. ctx`. The tokens are meaningless;
-/// only the times count. Per step: chip ms (GPU work) and wall ms (the whole step call).
-fn speed(dir: &Path, ctx: usize, steps: usize, seed: u32, out: &str) -> Result<(), String> {
-    if steps == 0 || steps > ctx {
-        return Err(format!("speed: {steps} steps at context {ctx}"));
+/// `speed <ckpt> <ctx[,ctx...]> <steps> <seed> <out.json>`: decode speed at long context,
+/// BENCHMARK ONLY. The model loads once; for each context in the order given, the attention
+/// cache is filled with a bounded pattern up to `ctx - steps` (no prompt is read), then `steps`
+/// greedy steps run at positions `ctx - steps .. ctx`. The tokens are meaningless; only the
+/// times count. Per step: chip ms (GPU work) and wall ms (the whole step call).
+fn speed(dir: &Path, ctxs: &[usize], steps: usize, seed: u32, out: &str) -> Result<(), String> {
+    if ctxs.is_empty() || steps == 0 || ctxs.iter().any(|&c| steps > c) {
+        return Err(format!("speed: {steps} steps at contexts {ctxs:?}"));
     }
     let config = Qwen38Config::from_checkpoint(dir)?;
-    let max_pos = ctx.max(256).next_multiple_of(256);
+    let max_pos = ctxs
+        .iter()
+        .copied()
+        .max()
+        .unwrap_or(0)
+        .max(256)
+        .next_multiple_of(256);
     let avail = memory_guard(&config, max_pos)?;
     let variant = variant();
     eprintln!(
-        "variant {variant}; context {ctx}, {steps} steps; MemAvailable {} MiB",
+        "variant {variant}; contexts {ctxs:?}, {steps} steps each; MemAvailable {} MiB",
         avail >> 20
     );
     let t_open = Instant::now();
     let mut e = Qwen38Omega::open(dir, None, max_pos)?;
     let open_s = t_open.elapsed().as_secs_f64();
-    let start = ctx - steps;
-    let t_fill = Instant::now();
-    e.bench_seek(start, seed)?;
-    let fill_s = t_fill.elapsed().as_secs_f64();
-    // any in-vocab token; greedy from there
-    let mut fed = 0u32;
-    let (mut chip, mut wall) = (Vec::with_capacity(steps), Vec::with_capacity(steps));
+    let n_attn = config.full_attention.iter().filter(|&&a| a).count();
+    let row = if e.kv8() { 256 + 4 } else { 512 };
     let unix = || {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0.0, |d| d.as_secs_f64())
     };
-    // the steps' span in wall-clock time: energy per token comes from the wall-power log over it
-    let steps_t0 = unix();
-    for _ in 0..steps {
-        let t = Instant::now();
-        let (top, st) = e.step(fed)?;
-        wall.push(t.elapsed().as_secs_f64() * 1e3);
-        chip.push(st.chip_ns as f64 / 1e6);
-        fed = top;
-    }
-    let steps_t1 = unix();
     let med = |v: &[f64]| {
         let mut s = v.to_vec();
         s.sort_by(|a, b| a.total_cmp(b));
         (s[s.len() / 2], s[0], s[s.len() - 1])
     };
-    let (cm, c0, c1) = med(&chip);
-    let (wm, w0, w1) = med(&wall);
-    // attention rows read by the median step (position ctx - steps / 2), K and V of all heads
-    let n_attn = config.full_attention.iter().filter(|&&a| a).count();
-    let row = if e.kv8() { 256 + 4 } else { 512 };
-    let kv_read = (n_attn * 2 * 4 * (start + steps / 2 + 1) * row) as u64;
+    let mut points = Vec::with_capacity(ctxs.len());
+    for &ctx in ctxs {
+        let start = ctx - steps;
+        let t_fill = Instant::now();
+        e.bench_seek(start, seed)?;
+        let fill_s = t_fill.elapsed().as_secs_f64();
+        // any in-vocab token; greedy from there
+        let mut fed = 0u32;
+        let (mut chip, mut wall) = (Vec::with_capacity(steps), Vec::with_capacity(steps));
+        // the steps' span in wall-clock time: energy per token comes from the wall-power log over it
+        let steps_t0 = unix();
+        for _ in 0..steps {
+            let t = Instant::now();
+            let (top, st) = e.step(fed)?;
+            wall.push(t.elapsed().as_secs_f64() * 1e3);
+            chip.push(st.chip_ns as f64 / 1e6);
+            fed = top;
+        }
+        let steps_t1 = unix();
+        let (cm, c0, c1) = med(&chip);
+        let (wm, w0, w1) = med(&wall);
+        // attention rows read by the median step (position ctx - steps / 2), K and V of all heads
+        let kv_read = (n_attn * 2 * 4 * (start + steps / 2 + 1) * row) as u64;
+        eprintln!(
+            "QWEN38_AB speed context {ctx} kv8 {}: wall median {wm:.3} ms ({:.2} tok/s), chip median {cm:.3} ms, {steps} steps",
+            e.kv8(),
+            1e3 / wm
+        );
+        points.push(json!({
+            "context": ctx, "first_position": start, "fill_s": fill_s,
+            "kv_read_bytes_median_step": kv_read,
+            "chip_ms_median": cm, "chip_ms_min": c0, "chip_ms_max": c1,
+            "wall_ms_median": wm, "wall_ms_min": w0, "wall_ms_max": w1,
+            "tok_s_wall_median": 1e3 / wm, "tok_s_chip_median": 1e3 / cm,
+            "steps_t0_unix": steps_t0, "steps_t1_unix": steps_t1,
+            "chip_ms": chip, "wall_ms": wall,
+        }));
+    }
     let v = json!({
         "mode": "speed", "benchmark_only": true, "variant": variant, "kv8": e.kv8(),
-        "context": ctx, "steps": steps, "first_position": start, "seed": seed, "max_pos": max_pos,
-        "kv_cache_bytes": e.kv_bytes(), "kv_read_bytes_median_step": kv_read,
-        "weight_bytes_resident": e.weight_bytes(),
-        "chip_ms_median": cm, "chip_ms_min": c0, "chip_ms_max": c1,
-        "wall_ms_median": wm, "wall_ms_min": w0, "wall_ms_max": w1,
-        "tok_s_wall_median": 1e3 / wm, "tok_s_chip_median": 1e3 / cm,
-        "steps_t0_unix": steps_t0, "steps_t1_unix": steps_t1,
-        "open_s": open_s, "fill_s": fill_s, "chip_ms": chip, "wall_ms": wall,
+        "steps": steps, "seed": seed, "max_pos": max_pos,
+        "kv_cache_bytes": e.kv_bytes(), "weight_bytes_resident": e.weight_bytes(),
+        "open_s": open_s, "points": points,
     });
     std::fs::write(out, serde_json::to_string_pretty(&v).unwrap())
-        .map_err(|e| format!("{out}: {e}"))?;
-    eprintln!(
-        "QWEN38_AB speed context {ctx} kv8 {}: wall median {wm:.3} ms ({:.2} tok/s), chip median {cm:.3} ms, {steps} steps",
-        e.kv8(),
-        1e3 / wm
-    );
-    Ok(())
+        .map_err(|e| format!("{out}: {e}"))
 }
 
 /// `w4err <ckpt> <out.json>`: host only, every projection under the OCP, FIT and BEST MXFP4 scale rules.
@@ -592,11 +654,15 @@ fn main() {
         Some("decode") if a.len() == 5 => decode(Path::new(&a[2]), &a[3], &a[4]),
         Some("timeline") if a.len() == 5 => timeline(Path::new(&a[2]), &a[3], &a[4]),
         Some("w4err") if a.len() == 4 => w4err(Path::new(&a[2]), &a[3]),
-        Some("speed") if a.len() == 7 => match (a[3].parse(), a[4].parse(), a[5].parse()) {
-            (Ok(ctx), Ok(n), Ok(seed)) => speed(Path::new(&a[2]), ctx, n, seed, &a[6]),
-            _ => Err("speed <ckpt> <ctx> <steps> <seed> <out.json>".into()),
+        Some("speed") if a.len() == 7 => match (
+            a[3].split(',').map(str::parse).collect::<Result<Vec<usize>, _>>(),
+            a[4].parse(),
+            a[5].parse(),
+        ) {
+            (Ok(ctxs), Ok(n), Ok(seed)) => speed(Path::new(&a[2]), &ctxs, n, seed, &a[6]),
+            _ => Err("speed <ckpt> <ctx[,ctx...]> <steps> <seed> <out.json>".into()),
         },
-        _ => Err("usage: qwen38_ab text <ckpt> <text-file> <n> <seq.json> | run <ckpt> <seq.json> <out-prefix> [--gen N] [--tail N] | compare <a> <b> <out.json> | decode <ckpt> <run.json> <out.txt> | timeline <ckpt> <seq.json> <out.json> | w4err <ckpt> <out.json> | speed <ckpt> <ctx> <steps> <seed> <out.json>".into()),
+        _ => Err("usage: qwen38_ab text <ckpt> <text-file> <n> <seq.json> | run <ckpt> <seq.json> <out-prefix> [--gen N] [--tail N] | compare <a> <b> <out.json> | decode <ckpt> <run.json> <out.txt> | timeline <ckpt> <seq.json> <out.json> | w4err <ckpt> <out.json> | speed <ckpt> <ctx[,ctx...]> <steps> <seed> <out.json>".into()),
     };
     if let Err(e) = r {
         eprintln!("qwen38_ab: {e}");
