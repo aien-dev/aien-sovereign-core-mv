@@ -253,7 +253,14 @@ struct Job {
 
 /// The merge train's switches the batch door applies per request (`Engine::test_switches_honored`).
 #[cfg(feature = "aien-test-switches")]
-const TEST_SWITCHES_HONORED: &[&str] = &["stroke", "exact_head", "mutant", "row_swap"];
+const TEST_SWITCHES_HONORED: &[&str] = &[
+    "stroke",
+    "exact_head",
+    "mutant",
+    "row_swap",
+    "prefix_pool",
+    "prefix_mutant",
+];
 
 /// The per-step row switches of a request (`stroke`, `exact_head`, `mutant`).
 fn row_test(t: &TestSwitches) -> RowTest {
@@ -905,17 +912,23 @@ impl<S: RowStep> Scheduler<S> {
             let mut pf_err: Option<String> = None;
             if self.pf_chunk > 0 {
                 for (k, a) in active.iter_mut().enumerate() {
-                    if !a.prefilling()
-                        || a.snap_at == Some(a.fed)
-                        || !row_test(&a.job.test).is_plain()
-                    {
+                    if !a.prefilling() || !row_test(&a.job.test).is_plain() {
+                        continue;
+                    }
+                    // The prompt cache's checkpoint here (L375); chunks stop at the next one.
+                    if a.cps.first() == Some(&a.fed) {
+                        a.cps.remove(0);
+                        self.save_checkpoint(a.row, &a.job.prompt[..a.fed]);
+                    }
+                    if a.snap_at == Some(a.fed) {
                         continue;
                     }
                     let plen = a.job.prompt.len();
-                    let stop = match a.snap_at {
-                        Some(s) if s > a.fed => s,
-                        _ => plen,
-                    };
+                    let stop = [a.snap_at, a.cps.first().copied()]
+                        .into_iter()
+                        .flatten()
+                        .filter(|&s| s > a.fed)
+                        .fold(plen, usize::min);
                     let n = (stop - a.fed).min(self.pf_chunk);
                     if n < self.pf_min {
                         continue;
@@ -1077,7 +1090,9 @@ impl<S: RowStep> Scheduler<S> {
         let fits = |s: &[u32]| !s.is_empty() && s.len() < plen && job.prompt.starts_with(s);
         // (index in `free`, tokens reused, from the copy)
         let mut best: Option<(usize, usize, bool)> = None;
-        for (i, &r) in self.free.iter().enumerate() {
+        // The merge train's `prefix_pool: false`: a cold read, nothing reused or saved.
+        let cold = job.test.prefix_pool == Some(false);
+        for (i, &r) in self.free.iter().enumerate().filter(|_| !cold) {
             let row = &self.rows[r];
             for (s, from_snap) in [(&row.history, false), (&row.snap_tokens, true)] {
                 if fits(s) && best.is_none_or(|(_, n, _)| s.len() > n) {
@@ -1086,7 +1101,7 @@ impl<S: RowStep> Scheduler<S> {
             }
         }
         // The pool, when it reaches further than every free row.
-        let from_pool = if self.pool.on() {
+        let from_pool = if self.pool.on() && !cold {
             let hit = self
                 .pool
                 .longest(&job.prompt, plen - 1)
@@ -1106,7 +1121,8 @@ impl<S: RowStep> Scheduler<S> {
         };
         let row = self.free.swap_remove(i);
         let r = if let Some((id, n)) = from_pool {
-            self.restore_from_pool(row, id, &job.prompt[..n])
+            let off = job.test.prefix_mutant == Some(true);
+            self.restore_from_pool(row, id, &job.prompt[..n], off)
         } else {
             let rr = &mut self.rows[row];
             if from_snap {
@@ -1209,8 +1225,17 @@ impl<S: RowStep> Scheduler<S> {
 
     /// Copies pool node `id` (the state after `tokens`) into `row`: the K/V pieces root first,
     /// then the DeltaNet state and position. On an error the row's state is unknown (the caller
-    /// empties its bookkeeping; the next cold join resets it).
-    fn restore_from_pool(&mut self, row: usize, id: u64, tokens: &[u32]) -> Result<(), String> {
+    /// empties its bookkeeping; the next cold join resets it). `off_by_one` (the merge train's
+    /// `prefix_mutant`, or `AIEN_Q36_PREFIX_MUTANT` for the whole door): the gate's control, the
+    /// row continues one position early.
+    fn restore_from_pool(
+        &mut self,
+        row: usize,
+        id: u64,
+        tokens: &[u32],
+        off_by_one: bool,
+    ) -> Result<(), String> {
+        let off_by_one = off_by_one || self.pool.mutant();
         let t = Instant::now();
         let rr = &mut self.rows[row];
         rr.history.clear();
@@ -1226,7 +1251,7 @@ impl<S: RowStep> Scheduler<S> {
         }
         let mut bytes = 0usize;
         for &(from, kv) in &rs.kv {
-            let count = if vals == 0 { 0 } else { kv.len() / vals };
+            let count = kv.len().checked_div(vals).unwrap_or(0);
             if count * vals != kv.len() {
                 return Err("prompt cache: K/V piece of another shape".into());
             }
@@ -1235,8 +1260,7 @@ impl<S: RowStep> Scheduler<S> {
         }
         self.model.row_restore(row, rs.snap)?;
         bytes += rs.snap.host_bytes();
-        if self.pool.mutant() {
-            // The gate's control: the row continues one position early.
+        if off_by_one {
             self.model.row_set_pos(row, tokens.len() - 1)?;
         }
         self.rows[row].history = tokens.to_vec();
@@ -1245,7 +1269,7 @@ impl<S: RowStep> Scheduler<S> {
             tokens.len(),
             bytes as f64 / (1u64 << 20) as f64,
             t.elapsed().as_millis(),
-            if self.pool.mutant() { " (POSITION MUTANT)" } else { "" },
+            if off_by_one { " (POSITION MUTANT)" } else { "" },
         );
         Ok(())
     }
@@ -1255,8 +1279,12 @@ impl<S: RowStep> Scheduler<S> {
     /// least `MARK_GAP` apart), the end of the first turn, the last turn header, and where the
     /// prompt leaves the pool's longest match (the next prompt that changes there restores up to
     /// it: coordinator 12:10Z, diff on arrival).
+    /// Only a row on the served path saves: none with a merge-train switch other than
+    /// `prefix_pool: true` (a mutant's state must never reach another conversation).
     fn checkpoints(&self, job: &Job, reused: usize) -> Vec<usize> {
-        if !self.pool.on() {
+        let mut served = job.test.clone();
+        served.prefix_pool = served.prefix_pool.filter(|&on| !on);
+        if !self.pool.on() || !served.is_empty() {
             return Vec::new();
         }
         let (p, plen) = (&job.prompt, job.prompt.len());
@@ -1388,6 +1416,12 @@ impl<S: RowStep> Scheduler<S> {
             || a.job.test.mutant.is_some_and(|m| m != 0)
             || a.job.test.row_swap.is_some()
         {
+            row.history.clear();
+            row.snap_tokens.clear();
+        }
+        if a.job.test.mutant.is_some_and(|m| m != 0) || a.job.test.prefix_mutant == Some(true) {
+            // A merge-train mutant left this row's state (and its copy) off its history: the
+            // next conversation on the row starts cold.
             row.history.clear();
             row.snap_tokens.clear();
         }
