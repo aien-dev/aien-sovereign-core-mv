@@ -116,7 +116,7 @@
       "id": "L375",
       "name": "shared prompt prefix",
       "present": {
-        "build": "prefix"
+        "switch": "prefix_pool"
       },
       "arms": [
         "plain"
@@ -375,6 +375,23 @@
         "$OUT/readers-gate"
       ],
       "about": "L371 eight readers: id listed; short input == plain ids; a ~5.6k-token excerpt is read by 8 readers (contiguous parts, notes each) and the final answer joins two far-apart facts; plain id has no aien_readers (red control). Needs 8 free rows (L371_READERS overrides). Not an exactness gate: readers are opt-in by id."
+    },
+    {
+      "id": "l375-prefix",
+      "kind": "script",
+      "script": "evidence/merge-train/l375/prefix.sh",
+      "arms": [
+        "plain"
+      ],
+      "levers": [
+        "L375"
+      ],
+      "args": [
+        "$PORT",
+        "$OUT/l375-prefix",
+        "$SERVER_LOG"
+      ],
+      "about": "L375 shared prompt cache: Hermes-shaped ~17k-token chats on the train server, cache on vs aien_test.prefix_pool false (cold) word for word (a new user message, then one changed tool), aien_test.prefix_mutant red; time-to-first-word receipts in RESULTS.txt. Needs MERGE_TRAIN_CTX >= 18432"
     }
   ]
 }
