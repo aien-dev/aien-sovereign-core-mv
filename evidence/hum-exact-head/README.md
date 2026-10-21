@@ -27,7 +27,7 @@ identical to the golden and to the lever switched off (5 of 5 extra requests), a
 a time, the chip spent 21.8 ms per word instead of 24.0 (`serve-combined/README.md`). Sampled requests still use the
 full head. See "Serving" below.
 
-Chip receipt: see "Chip" below (pending its turn on the GPU when this page was written).
+Chip receipt: 1010 of 1010 tokens identical on the chip, and the head step takes 2.04x less time (4.77 to 2.34 ms), now at the memory-speed limit. See "Chip" below.
 
 ## Method
 
@@ -81,8 +81,27 @@ ARGMAX reads 1,998,848 + 31 bf16 rows 126,976 = 519,686,784 B (calc:e42a986f) vs
 
 ## Chip
 
-Pending at the time of writing; filled in from `chip-receipt.json` when the window ran.
+`chip/` (2026-10-21 12:3xZ, omega hum/exact-head-stroke 41269bd8 at physics.lock 6d7cf0d4, `chip-run.sh`, inputs and
+hashes in `chip/inputs.txt`). omega `gpu_exact_head_test --chip` runs the full bf16 head list and the two-pass list on
+the chip for each of the 1010 hidden records (the same records as the host analysis), under `quiet-measure` and the
+chip lock.
 
+| check | result |
+|---|---|
+| two-pass token == full head token | 1010 / 1010 (`chip/chip-receipt.json`) |
+| candidate logits bit-identical to the full head's | 0 differ, full argmax never outside the candidates |
+| candidate set size | mean 31.2, p99 496, max 769 rows of 248,320 |
+| red control `--mutant 1` (XBOUND without the bound) | loses 4 of 200 tokens, as required (`chip/chip-mutant1.json`) |
+| head list time, p50 (p99) | full 4774.1 us (4987.4), two-pass 2340.5 us (2648.8) |
+
+The two-pass head takes 2.040x less time (calc:91a93d74), 2433.6 us less per token (calc:6e461e53). Both lists run at
+the memory-speed limit: full head 1,017,118,720 B in 4774.1 us = 213.0 GB/s (calc:27f0a0a0), two-pass 519,686,784 B
+in 2340.5 us = 222.0 GB/s (calc:85b9bfd9), inside the measured 207 to 237 GB/s. So the head is now as fast as the
+bytes it reads allow; going further means reading fewer bytes. The served per-token saving (24.0 to 21.8 ms) matches.
+
+`chip/attempt1-hung/`: the first chip run (11:39Z) waited on itself for 28 min while holding the chip lock: the test made
+its command lists while holding the session lock, and `omega_gpu_cmdlist_create` takes that lock too. Fixed in
+41269bd8; runs are now capped at 300 s.
 ## Serving
 
 - `serve/`: bin-e1f02b29, the exact head alone. `serve-combined/`: bin-409c8ffa, with the L356 levers (the swap request).
