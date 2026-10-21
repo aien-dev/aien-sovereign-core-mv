@@ -150,6 +150,8 @@ mod ffi {
         pub fn omega_gpu_q36_graph_set_exact_head(g: *mut OmegaGpuQ36Graph, screen: *const c_void, coef: *const f32) -> i32;
         pub fn omega_gpu_q36_graph_set_exact_head_on(g: *mut OmegaGpuQ36Graph, on: i32);
         pub fn omega_gpu_q36_graph_exact_head_active(g: *const OmegaGpuQ36Graph) -> i32;
+        pub fn omega_gpu_q36_graph_set_head_exact_head_on(g: *mut OmegaGpuQ36Graph, head: u32, on: i32);
+        pub fn omega_gpu_q36_graph_exact_head_active_head(g: *const OmegaGpuQ36Graph, head: u32) -> i32;
     }
 }
 
@@ -689,6 +691,32 @@ impl Q36Graph {
         #[cfg(not(has_omega_q36))]
         false
     }
+    /// Strokes: the exact head on / off for one head slot (a stroke may mix greedy and sampled
+    /// rows). Call between tokens; out-of-range heads are ignored.
+    pub fn set_head_exact_head_on(&mut self, head: usize, on: bool) {
+        #[cfg(has_omega_q36)]
+        // SAFETY: ptr is live; plain integer arguments.
+        unsafe {
+            ffi::omega_gpu_q36_graph_set_head_exact_head_on(self.ptr, head as u32, on as i32)
+        }
+        #[cfg(not(has_omega_q36))]
+        let _ = (head, on);
+    }
+
+    /// The next stroke runs the exact two-pass head on this head slot.
+    pub fn exact_head_active_head(&self, head: usize) -> bool {
+        #[cfg(has_omega_q36)]
+        // SAFETY: ptr is live.
+        unsafe {
+            ffi::omega_gpu_q36_graph_exact_head_active_head(self.ptr, head as u32) != 0
+        }
+        #[cfg(not(has_omega_q36))]
+        {
+            let _ = head;
+            false
+        }
+    }
+
     /// Chip timestamps around every launch of the next tokens (a timeline; off by default).
     pub fn set_stamps(&mut self, on: bool) {
         #[cfg(has_omega_q36)]
@@ -742,6 +770,33 @@ impl Q36Graph {
             "?".into()
         }
     }
+
+    /// The last token's timeline: `launches + 1` GPU timestamps (ns) and one kind per launch
+    /// (launch `i` took `stamps[i + 1] - stamps[i]`). Refused when stamps are off or the token
+    /// failed.
+    pub fn stamps(&self) -> Result<(Vec<u64>, Vec<u8>), OmegaGpuError> {
+        #[cfg(has_omega_q36)]
+        {
+            // 11 per layer + 4, with room to spare.
+            let cap = (self.layers * 16 + 16) as u32;
+            let mut stamps = vec![0u64; cap as usize + 1];
+            let mut kinds = vec![0u8; cap as usize + 1];
+            // SAFETY: ptr is live; both buffers hold cap + 1 entries.
+            let n = unsafe {
+                ffi::omega_gpu_q36_graph_stamps(self.ptr, stamps.as_mut_ptr(), kinds.as_mut_ptr(), cap + 1)
+            };
+            if n < 0 {
+                return Err(session_err("q36 graph stamps", n));
+            }
+            let n = n as usize;
+            stamps.truncate(n + 1);
+            kinds.truncate(n);
+            Ok((stamps, kinds))
+        }
+        #[cfg(not(has_omega_q36))]
+        Err(OmegaGpuError::Unavailable)
+    }
+
     /// 1: submit after every launch (the comparison path).
     pub fn set_flush_each(&mut self, on: bool) {
         #[cfg(has_omega_q36)]
@@ -775,4 +830,18 @@ impl Drop for Q36Graph {
             ffi::omega_gpu_q36_graph_free(self.ptr)
         }
     }
+}
+
+/// omega's own name for a 35B launch kind (`omega_gpu_q36_graph_kind_name`).
+pub fn kind_name(kind: u8) -> String {
+    #[cfg(has_omega_q36)]
+    {
+        // SAFETY: returns a static NUL-terminated string or NULL.
+        let p = unsafe { ffi::omega_gpu_q36_graph_kind_name(kind) };
+        if !p.is_null() {
+            // SAFETY: non-null static string.
+            return unsafe { std::ffi::CStr::from_ptr(p) }.to_string_lossy().into_owned();
+        }
+    }
+    format!("kind{kind}")
 }
