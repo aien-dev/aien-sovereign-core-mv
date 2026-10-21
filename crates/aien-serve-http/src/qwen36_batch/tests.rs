@@ -95,27 +95,34 @@ impl RowStep for Fake {
             self.rows.swap(feed[0].row, feed[1].row);
             self.kv.swap(feed[0].row, feed[1].row);
         }
-        let mut outs = Vec::new();
-        for f in feed {
-            let (st, pos) = &mut self.rows[f.row];
-            let kv = &mut self.kv[f.row];
-            let att = kv[..*pos].iter().fold(0u64, |h, &v| mix(h ^ u64::from(v)));
-            *st = mix(*st ^ (u64::from(f.token) << 20) ^ *pos as u64 ^ (att << 1));
-            kv[*pos] = (mix(*st ^ 7) & 0xffff) as u16;
-            *pos += 1;
-            self.fed.fetch_add(1, Ordering::SeqCst);
-            let logits: Vec<f32> = (0..VOCAB)
-                .map(|j| (mix(*st ^ j as u64) % 1_000_000) as f32)
-                .collect();
-            // The chip's argmax follows the host greedy rule.
-            let token = crate::sampling::sample_next(&logits, &greedy(1), 0);
-            outs.push(RowOut {
-                token,
-                logits: f.logits.then_some(logits),
-                stats: GraphStats::default(),
-            });
+        Ok(feed.iter().map(|f| self.step_one(f, 0)).collect())
+    }
+}
+
+impl Fake {
+    /// One row's step: the state folds the token, the position and every K/V value before it
+    /// (attention) and leaves its own K/V value; `mutant != 0` changes this row's state only.
+    fn step_one(&mut self, f: &RowFeed, mutant: i32) -> RowOut {
+        let (st, pos) = &mut self.rows[f.row];
+        let kv = &mut self.kv[f.row];
+        let att = kv[..*pos].iter().fold(0u64, |h, &v| mix(h ^ u64::from(v)));
+        *st = mix(*st ^ (u64::from(f.token) << 20) ^ *pos as u64 ^ (att << 1));
+        if mutant != 0 {
+            *st = mix(*st ^ 0xdead_0000 ^ mutant as u64);
         }
-        Ok(outs)
+        kv[*pos] = (mix(*st ^ 7) & 0xffff) as u16;
+        *pos += 1;
+        self.fed.fetch_add(1, Ordering::SeqCst);
+        let logits: Vec<f32> = (0..VOCAB)
+            .map(|j| (mix(*st ^ j as u64) % 1_000_000) as f32)
+            .collect();
+        // The chip's argmax follows the host greedy rule.
+        let token = crate::sampling::sample_next(&logits, &greedy(1), 0);
+        RowOut {
+            token,
+            logits: f.logits.then_some(logits),
+            stats: GraphStats::default(),
+        }
     }
 }
 
@@ -320,27 +327,10 @@ fn the_graphs_greedy_token_equals_the_host_argmax_path() {
 /// other row's; strokes and the exact head leave the words alone (the chip's contract for them).
 impl Fake {
     fn step_rows_switched(&mut self, feed: &[RowFeed], tests: &[RowTest]) -> Vec<RowOut> {
-        let mut outs = Vec::new();
-        for (i, f) in feed.iter().enumerate() {
-            let t = tests.get(i).copied().unwrap_or_default();
-            let (st, pos) = &mut self.rows[f.row];
-            *st = mix(*st ^ (u64::from(f.token) << 20) ^ *pos as u64);
-            if t.mutant != 0 {
-                *st = mix(*st ^ 0xdead_0000 ^ t.mutant as u64);
-            }
-            *pos += 1;
-            self.fed.fetch_add(1, Ordering::SeqCst);
-            let logits: Vec<f32> = (0..VOCAB)
-                .map(|j| (mix(*st ^ j as u64) % 1_000_000) as f32)
-                .collect();
-            let token = crate::sampling::sample_next(&logits, &greedy(1), 0);
-            outs.push(RowOut {
-                token,
-                logits: f.logits.then_some(logits),
-                stats: GraphStats::default(),
-            });
-        }
-        outs
+        feed.iter()
+            .enumerate()
+            .map(|(i, f)| self.step_one(f, tests.get(i).map_or(0, |t| t.mutant)))
+            .collect()
     }
 }
 
@@ -360,6 +350,30 @@ impl RowStep for SwitchedFake {
     }
     fn row_reset(&mut self, r: usize) -> Result<(), String> {
         self.0.row_reset(r)
+    }
+    fn row_kv_values(&self) -> usize {
+        self.0.row_kv_values()
+    }
+    fn row_kv_read(
+        &mut self,
+        r: usize,
+        from: usize,
+        n: usize,
+        out: &mut Vec<u16>,
+    ) -> Result<(), String> {
+        self.0.row_kv_read(r, from, n, out)
+    }
+    fn row_kv_write(
+        &mut self,
+        r: usize,
+        from: usize,
+        n: usize,
+        data: &[u16],
+    ) -> Result<(), String> {
+        self.0.row_kv_write(r, from, n, data)
+    }
+    fn row_set_pos(&mut self, r: usize, pos: usize) -> Result<(), String> {
+        self.0.row_set_pos(r, pos)
     }
     fn step_rows(&mut self, feed: &[RowFeed]) -> Result<Vec<RowOut>, String> {
         self.0.step_rows(feed)
@@ -390,7 +404,7 @@ fn switched_door(rows: usize) -> Qwen36BatchDoor {
 
 fn run_test(d: &Qwen36BatchDoor, prompt: &[u32], n: usize, t: TestSwitches) -> Vec<u32> {
     let mut words = Vec::new();
-    d.generate_test(prompt, &greedy(n), t, &mut |tok| {
+    d.generate_test(prompt, &[], &greedy(n), t, &mut |tok| {
         words.push(tok);
         true
     })
@@ -505,6 +519,7 @@ fn no_switches_is_the_served_path_on_a_stepper_without_them() {
     assert_eq!(run_test(&d, &p, 5, TestSwitches::default()), alone(&p, 5));
     let r = d.generate_test(
         &p,
+        &[],
         &greedy(5),
         TestSwitches {
             mutant: Some(4),
@@ -519,7 +534,8 @@ fn no_switches_is_the_served_path_on_a_stepper_without_them() {
 fn the_switch_names_round_trip_from_json() {
     let t = TestSwitches::from_json(&serde_json::json!({
         "stroke": false, "exact_head": true, "mutant": 4, "row_swap": 7,
-        "prefill_chunk": 128, "prefix_pool": false, "state_bf16": null
+        "prefill_chunk": 128, "prefix_pool": false, "prefix_mutant": true,
+        "state_bf16": null
     }))
     .unwrap();
     assert_eq!(
@@ -530,7 +546,8 @@ fn the_switch_names_round_trip_from_json() {
             "mutant",
             "row_swap",
             "prefill_chunk",
-            "prefix_pool"
+            "prefix_pool",
+            "prefix_mutant"
         ]
     );
     assert!(TestSwitches::from_json(&serde_json::json!({"strokes": true})).is_err());
@@ -690,4 +707,75 @@ fn a_cold_prompt_on_a_row_voids_the_rows_own_header_copy() {
     run(&d, &b, &greedy(4));
     let (w, _) = run(&d, &a2, &greedy(6));
     assert_eq!(w, alone(&a2, 6));
+}
+
+#[test]
+fn prefix_pool_off_reads_the_whole_prompt_cold() {
+    // The merge train's reference: `prefix_pool: false` reuses nothing, the pool on the next.
+    let (a, b) = (hermes(40, 120), hermes(60, 120));
+    let (d, fed) = pool_door(2, 32, false);
+    run(&d, &a, &greedy(6));
+    let off = TestSwitches {
+        prefix_pool: Some(false),
+        ..TestSwitches::default()
+    };
+    let n0 = fed.load(Ordering::SeqCst);
+    let w_off = run_test(&d, &b, 6, off);
+    let n1 = fed.load(Ordering::SeqCst);
+    assert_eq!(w_off, alone(&b, 6));
+    assert_eq!(n1 - n0, b.len() + 5, "a cold read feeds every prompt token");
+    let mut b2 = hermes(80, 120);
+    b2.push(9);
+    let (w_on, _) = run(&d, &b2, &greedy(6));
+    assert_eq!(w_on, alone(&b2, 6));
+    assert!(fed.load(Ordering::SeqCst) - n1 < b2.len() - 100);
+}
+
+#[test]
+fn prefix_mutant_goes_red_and_poisons_nothing() {
+    // One row: chat a fills the pool; b restores one position off (red); b's next turn on the
+    // same row must not continue the mutant's state, and the pool must hold none of it.
+    let (a, b) = (hermes(40, 120), hermes(60, 120));
+    let (d, _) = pool_door(1, 32, false);
+    run(&d, &a, &greedy(6));
+    let mutant = TestSwitches {
+        prefix_mutant: Some(true),
+        ..TestSwitches::default()
+    };
+    let wb = run_test(&d, &b, 6, mutant);
+    assert_ne!(
+        wb,
+        alone(&b, 6),
+        "restoring one position off must change the words"
+    );
+    let mut b2 = b.clone();
+    b2.extend(&wb[..5]);
+    b2.extend([IM_START, 8, 9, 10]);
+    let (w2, _) = run(&d, &b2, &greedy(6));
+    assert_eq!(
+        w2,
+        alone(&b2, 6),
+        "the mutant's row or checkpoints were reused"
+    );
+}
+
+#[test]
+fn a_graph_mutant_row_starts_its_next_conversation_cold() {
+    // L384's `mutant` switch leaves the row's state off its history; the next turn must not
+    // continue it.
+    let d = switched_door(1);
+    let p = hermes(40, 60);
+    let w = run_test(
+        &d,
+        &p,
+        6,
+        TestSwitches {
+            mutant: Some(4),
+            ..TestSwitches::default()
+        },
+    );
+    let mut p2 = p.clone();
+    p2.extend(&w[..5]);
+    p2.extend([IM_START, 8, 9, 10]);
+    assert_eq!(run_test(&d, &p2, 6, TestSwitches::default()), alone(&p2, 6));
 }

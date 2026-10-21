@@ -119,7 +119,11 @@ impl ToolCache {
             }
         }
         kept.sort_unstable();
-        let idx: Vec<usize> = kept.iter().map(|&(_, i)| i).chain(moved.iter().copied()).collect();
+        let idx: Vec<usize> = kept
+            .iter()
+            .map(|&(_, i)| i)
+            .chain(moved.iter().copied())
+            .collect();
         if !moved.is_empty() {
             let changed: Vec<&str> = moved.iter().map(|&i| keys[i].0.as_str()).collect();
             g.order.retain(|(n, _)| !changed.contains(&n.as_str()));
@@ -147,7 +151,13 @@ impl ToolCache {
     /// Token positions of `tokens` (the encoded `text`) right after each tool line of the tools
     /// block (`tools` as rendered, in order); only positions where the encoded text up to the
     /// boundary is exactly a prefix of `tokens`.
-    pub fn marks(&self, codec: &dyn Codec, text: &str, tools: &[Value], tokens: &[u32]) -> Vec<usize> {
+    pub fn marks(
+        &self,
+        codec: &dyn Codec,
+        text: &str,
+        tools: &[Value],
+        tokens: &[u32],
+    ) -> Vec<usize> {
         if !self.on || tools.is_empty() {
             return Vec::new();
         }
@@ -159,7 +169,7 @@ impl ToolCache {
         for t in tools {
             let line = format!("\n{}", crate::tools::tojson(t));
             match text[at..].find(&line) {
-                Some(k) if k == 0 => {
+                Some(0) => {
                     cuts.push(at + 1);
                     at += line.len();
                 }
@@ -170,7 +180,7 @@ impl ToolCache {
             return Vec::new();
         }
         cuts.push(at + 1);
-        let key: [u8; 32] = Sha256::digest(text[..at].as_bytes()).into();
+        let key: [u8; 32] = Sha256::digest(&text.as_bytes()[..at]).into();
         let Ok(mut g) = self.inner.lock() else {
             return Vec::new();
         };
