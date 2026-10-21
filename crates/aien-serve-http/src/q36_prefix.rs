@@ -54,6 +54,10 @@ const FILE_EXT: &str = "q36p";
 pub trait PoolSnap: Send + Sync + 'static {
     fn host_bytes(&self) -> usize;
     fn to_bytes(&self) -> Vec<u8>;
+    /// `to_bytes().len()` without making the bytes.
+    fn bytes_len(&self) -> usize {
+        self.to_bytes().len()
+    }
     fn from_bytes(b: &[u8]) -> Result<Self, String>
     where
         Self: Sized;
@@ -65,6 +69,9 @@ impl PoolSnap for aien_inference_abi::qwen38_omega::Qwen38Snapshot {
     }
     fn to_bytes(&self) -> Vec<u8> {
         Self::to_bytes(self)
+    }
+    fn bytes_len(&self) -> usize {
+        24 + self.bytes()
     }
     fn from_bytes(b: &[u8]) -> Result<Self, String> {
         Self::from_bytes(b)
@@ -688,9 +695,8 @@ impl Store {
     }
 
     fn write<S: PoolSnap>(&self, n: &Node<S>, parent: Option<[u8; 32]>) {
-        // The state's byte length goes in the header: one serialisation, on the writer thread,
-        // is checked against it there.
-        let snap_len = n.snap.to_bytes().len();
+        // The state's byte length goes in the header; the writer thread checks its bytes against it.
+        let snap_len = n.snap.bytes_len();
         self.send(Msg::Write {
             name: file_name(&n.digest, n.tokens.len()),
             region: header(n, parent, &self.ns, snap_len),
