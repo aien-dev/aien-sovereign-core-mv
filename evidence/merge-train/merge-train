@@ -31,7 +31,7 @@ MODEL_DIR=${MERGE_TRAIN_MODEL_DIR:-$HOME/models/$MODEL_NAME}
 REFS=$STATE/refs/$MODEL_NAME
 DEFAULTS=$(jq -c .defaults "$SUITE")
 mapfile -t PROMPTS < "$REPO/$(jq -r .prompts "$SUITE")"
-LOG=/dev/null; RUN=""; MODEL=""; SERVER_LOG=/dev/null
+LOG=/dev/null; RUN=${MERGE_TRAIN_RUN:-}; MODEL=""; SERVER_LOG=/dev/null
 ntok() { if [ "$1" = 0 ]; then echo 24; else echo $(( 8 + ($1 * 7) % 41 )); fi; }   # suite.json "ntok", as code
 say() { echo "$(date -u +%FT%TZ) $*" | tee -a "$LOG"; }
 die() { say "merge-train: $*" >&2; exit 2; }
@@ -203,21 +203,7 @@ presence() {
 # ---------- the verdict table: lever x case ----------
 lever_table() { # <run-dir>
   local run=$1
-  jq -s --slurpfile s "$SUITE" --slurpfile present "$run/present.json" '
-    def rank: {"FAIL":6, "RED-FAIL":6, "ERROR":5, "NOT-ON-TRAIN":4, "SKIP":3, "PASS":1, "RED-OK":1, "-":0}[.];
-    . as $cells | $s[0] as $suite | $present[0] as $pr | ($suite.cases | map(.id)) as $ids
-    | {cases: $ids,
-       levers: [$suite.levers[] | . as $l | $pr[$l.id] as $p
-         | ($ids | map(. as $cid | [$cells[] | select(.case == $cid and (($l.arms | index(.arm)) != null) and (($suite.cases[] | select(.id == $cid) | .levers // null) == null or (($suite.cases[] | select(.id == $cid) | .levers) | index($l.id)) != null)) | .verdict]
-              | if length == 0 then "-" else max_by(rank) end)) as $row
-         | {id: $l.id, name: $l.name, present: $p, cells: ($row),
-            verdict: (if $p == "no" then "NOT-ON-TRAIN"
-                      else ($row | map(select(. != "-")) | if length == 0 then "-"
-                        elif any(. == "FAIL" or . == "RED-FAIL") then "FAIL" elif any(. == "ERROR") then "ERROR"
-                        elif any(. == "NOT-ON-TRAIN") then "NOT-ON-TRAIN" elif any(. == "SKIP") then "SKIP" else "PASS" end)
-                        + (if $p == "unknown" then "?" else "" end) end)}],
-       red_controls: {ran: ([$cells[] | select(.case | test("red|isolated")) | select(.verdict == "RED-OK" or .verdict == "RED-FAIL")] | length),
-                      ok: ([$cells[] | select(.verdict == "RED-OK")] | length), total: ([$suite.cases[] | select(.id | test("red|isolated"))] | length)}}' "$run/cells.jsonl" > "$run/verdict.json"
+  jq -s --slurpfile s "$SUITE" --slurpfile present "$run/present.json" -f "$MT_DIR/verdict.jq" "$run/cells.jsonl" > "$run/verdict.json" || { echo "merge-train: verdict table failed" >&2; return 1; }
   {
     echo "# merge-train verdict: $(basename "$run")"; echo
     [ -f "$run/receipt.json" ] && echo "candidate bin-$(jq -r .candidate "$run/receipt.json"); $(jq -r '"\(.loads) load(s); load \(.load_s) s + suite \(.suite_s) s = \(.wall_s) s wall"' "$run/receipt.json"); reference $(cat "$REFS/CURRENT/alone/done" 2>/dev/null | cut -d' ' -f2-3)" && echo

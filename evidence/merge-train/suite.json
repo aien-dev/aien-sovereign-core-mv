@@ -10,7 +10,7 @@
     "stroke-off":     {"aien_test": {"stroke": false},     "about": "rows in turn on their own graphs (L312's fallback path)"},
     "exact-head-off": {"aien_test": {"exact_head": false}, "about": "the plain one-pass head (L314's fallback path)"},
     "state-bf16":     {"server_env": {"AIEN_OMEGA_GDN_STATE_BF16": "1"}, "log_proof": "bf16", "enabled": false,
-                       "about": "L313's bf16 DeltaNet state: load-only, so a second server; enabled when L354 merges omega hum/state-precision"},
+                       "about": "L313's bf16 DeltaNet state: load-only, so a second server. NOT bit-exact by design: enable only with L313's drift-rule cases (cases listing arms [state-bf16]); the shared identity cases would be red by construction"},
     "board":          {"server_env": {"AIEN_BOARD_DIR": "$OUT/board"}, "enabled": false,
                        "about": "L376's team board: on only with a board dir at start; enabled when L354 merges serve/q36-board"}
   },
