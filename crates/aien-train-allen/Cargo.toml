@@ -1,0 +1,14 @@
+[package]
+name = "aien-train-allen"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Small Allen trainer (L389): LoRA fine-tune of the Qwen3.5-0.8B student on the host CPU, own maths end to end"
+license.workspace = true
+publish = false
+
+[dependencies]
+aien-inference-abi = { path = "../aien-inference-abi" }
+rayon = "1.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

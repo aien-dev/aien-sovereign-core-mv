@@ -1,0 +1,4 @@
+{"counted_gflop":249.9018752,"gflop_per_s":130.46308902108495,"loss_rows":50,"mean_nll":14.943739787597904,"rep":0,"seconds":1.915498683,"threads":12,"tokens":100,"tokens_per_s":52.20572631424774}
+{"counted_gflop":249.9018752,"gflop_per_s":133.39919150575582,"loss_rows":50,"mean_nll":14.943739787597904,"rep":1,"seconds":1.8733387540000002,"threads":12,"tokens":100,"tokens_per_s":53.380628456266905}
+{"counted_gflop":639.748800512,"gflop_per_s":171.713342634657,"loss_rows":128,"mean_nll":14.760060189835917,"rep":0,"seconds":3.725679034,"threads":12,"tokens":256,"tokens_per_s":68.71230657922531}
+{"counted_gflop":639.748800512,"gflop_per_s":177.03008595023672,"loss_rows":128,"mean_nll":14.760060189835917,"rep":1,"seconds":3.613785742,"threads":12,"tokens":256,"tokens_per_s":70.8398389602147}

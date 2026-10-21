@@ -1,0 +1,13 @@
+{
+  "argmax_differ_clear": 0,
+  "argmax_differ_within_0.02_gap": 0,
+  "max_abs_logit_diff": 0.0000749826431274414,
+  "mean_nll_reference": 0.8151693023698321,
+  "mean_nll_trainer": 0.8151687782285091,
+  "pass": true,
+  "reference_s": 2.65630278,
+  "tokens": 64,
+  "tolerance": "max_abs <= 0.02, no argmax change where the reference top-2 gap > 0.02, |mean nll diff| <= 1e-3 (pre-registered)",
+  "trainer_forward_s": 0.480431874,
+  "trainer_load_s": 2.315089491
+}

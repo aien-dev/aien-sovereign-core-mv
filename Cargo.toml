@@ -21,6 +21,7 @@ members = [
     "crates/spark-harvester",
     "crates/spark-aegis",
     "crates/aien-inference-abi",
+    "crates/aien-train-allen",
     "crates/aien-kv-cache",
     "crates/aien-kv-store",
     "crates/aien-scheduler",

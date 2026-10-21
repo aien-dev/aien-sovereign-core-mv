@@ -1,0 +1,93 @@
+warning: aien-omega-gpu@0.1.0: aien-omega-gpu: no AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB, building the CPU stub
+warning: unused variable: `pos`
+   --> crates/aien-omega-q38/src/q36.rs:285:13
+    |
+285 |         let pos: Vec<u32> = pos
+    |             ^^^ help: if this is intentional, prefix it with an underscore: `_pos`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `aien-omega-q38` (lib) generated 1 warning (run `cargo fix --lib -p aien-omega-q38` to apply 1 suggestion)
+warning: `aien-omega-q38` (lib) generated 1 warning (1 duplicate)
+    Finished `release` profile [optimized] target(s) in 0.25s
+     Running tests/gradcheck.rs (target/release/deps/gradcheck-c95854efc2995fc5)
+
+running 2 tests
+test backward_matches_finite_differences_and_mutants_fail ... layers.0.linear_attn.in_proj_qkv.lora_A      analytic +9.919139e0 fd +9.881897e0
+layers.0.linear_attn.in_proj_qkv.lora_B      analytic +4.245991e0 fd +4.241524e0
+layers.0.linear_attn.in_proj_z.lora_A        analytic -4.283090e0 fd -4.282509e0
+layers.0.linear_attn.in_proj_z.lora_B        analytic +5.831512e-1 fd +5.830775e-1
+layers.0.linear_attn.out_proj.lora_A         analytic -8.029432e0 fd -8.030140e0
+layers.0.linear_attn.out_proj.lora_B         analytic +9.892928e-1 fd +9.894364e-1
+layers.0.mlp.gate_proj.lora_A                analytic -3.135588e0 fd -3.135844e0
+layers.0.mlp.gate_proj.lora_B                analytic +1.187628e0 fd +1.187525e0
+layers.0.mlp.up_proj.lora_A                  analytic +4.354217e-1 fd +4.348489e-1
+layers.0.mlp.up_proj.lora_B                  analytic -4.570559e-1 fd -4.575101e-1
+layers.0.mlp.down_proj.lora_A                analytic +1.598088e0 fd +1.598075e0
+layers.0.mlp.down_proj.lora_B                analytic -2.072779e0 fd -2.072738e0
+layers.1.self_attn.q_proj.lora_A             analytic +7.381528e-1 fd +7.378310e-1
+layers.1.self_attn.q_proj.lora_B             analytic -8.581172e-4 fd -4.581530e-4
+layers.1.self_attn.k_proj.lora_A             analytic -1.578477e-1 fd -1.577706e-1
+layers.1.self_attn.k_proj.lora_B             analytic +1.397599e0 fd +1.397808e0
+layers.1.self_attn.v_proj.lora_A             analytic +1.642689e0 fd +1.642627e0
+layers.1.self_attn.v_proj.lora_B             analytic +2.974105e-1 fd +2.979898e-1
+layers.1.self_attn.o_proj.lora_A             analytic +1.628379e0 fd +1.628787e0
+layers.1.self_attn.o_proj.lora_B             analytic +2.270187e0 fd +2.269927e0
+layers.1.mlp.gate_proj.lora_A                analytic +7.952946e-1 fd +7.948313e-1
+layers.1.mlp.gate_proj.lora_B                analytic +1.104657e0 fd +1.105182e0
+layers.1.mlp.up_proj.lora_A                  analytic -1.147507e-1 fd -1.150195e-1
+layers.1.mlp.up_proj.lora_B                  analytic -7.552363e-1 fd -7.548821e-1
+layers.1.mlp.down_proj.lora_A                analytic -3.909560e0 fd -3.909749e0
+layers.1.mlp.down_proj.lora_B                analytic +3.062694e-1 fd +3.065712e-1
+layers.2.linear_attn.in_proj_qkv.lora_A      analytic -3.583196e0 fd -3.584351e0
+layers.2.linear_attn.in_proj_qkv.lora_B      analytic -1.978113e0 fd -1.978550e0
+layers.2.linear_attn.in_proj_z.lora_A        analytic +8.626056e-1 fd +8.628236e-1
+layers.2.linear_attn.in_proj_z.lora_B        analytic +8.000422e-1 fd +8.003794e-1
+layers.2.linear_attn.out_proj.lora_A         analytic +2.386771e0 fd +2.386754e0
+layers.2.linear_attn.out_proj.lora_B         analytic -2.667721e-1 fd -2.667057e-1
+layers.2.mlp.gate_proj.lora_A                analytic +1.746723e0 fd +1.746665e0
+layers.2.mlp.gate_proj.lora_B                analytic -1.096833e0 fd -1.096583e0
+layers.2.mlp.up_proj.lora_A                  analytic +2.492250e0 fd +2.492233e0
+layers.2.mlp.up_proj.lora_B                  analytic -1.943531e-1 fd -1.947036e-1
+layers.2.mlp.down_proj.lora_A                analytic +2.552747e0 fd +2.552834e0
+layers.2.mlp.down_proj.lora_B                analytic +2.816126e-1 fd +2.815613e-1
+layers.3.self_attn.q_proj.lora_A             analytic +1.589172e-1 fd +1.587039e-1
+layers.3.self_attn.q_proj.lora_B             analytic -3.630568e-2 fd -3.653125e-2
+layers.3.self_attn.k_proj.lora_A             analytic +5.808414e-2 fd +5.780330e-2
+layers.3.self_attn.k_proj.lora_B             analytic -5.551906e-1 fd -5.549863e-1
+layers.3.self_attn.v_proj.lora_A             analytic +2.476823e0 fd +2.476756e0
+layers.3.self_attn.v_proj.lora_B             analytic -2.723781e-1 fd -2.723705e-1
+layers.3.self_attn.o_proj.lora_A             analytic -1.035935e0 fd -1.036068e0
+layers.3.self_attn.o_proj.lora_B             analytic +1.642549e-1 fd +1.642282e-1
+layers.3.mlp.gate_proj.lora_A                analytic -8.742833e-1 fd -8.742993e-1
+layers.3.mlp.gate_proj.lora_B                analytic -1.032607e0 fd -1.033214e0
+layers.3.mlp.up_proj.lora_A                  analytic +8.912507e-1 fd +8.911630e-1
+layers.3.mlp.up_proj.lora_B                  analytic -1.011108e0 fd -1.011024e0
+layers.3.mlp.down_proj.lora_A                analytic -1.332229e0 fd -1.332033e0
+layers.3.mlp.down_proj.lora_B                analytic +5.463339e-1 fd +5.460701e-1
+mutant 1: 18 tensors fail
+mutant 2: 38 tensors fail
+ok
+test step_by_step_decode_equals_the_whole_sequence_forward ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.94s
+
+== AIEN_FD_EPS=3e-2 (attention q/k rows)
+layers.1.self_attn.q_proj.lora_A             analytic +7.381528e-1 fd +7.382375e-1
+layers.1.self_attn.q_proj.lora_B             analytic -8.581172e-4 fd -7.563813e-4
+layers.1.self_attn.k_proj.lora_A             analytic -1.578477e-1 fd -1.571301e-1
+layers.1.self_attn.k_proj.lora_B             analytic +1.397599e0 fd +1.397044e0
+layers.3.self_attn.q_proj.lora_A             analytic +1.589172e-1 fd +1.588105e-1
+layers.3.self_attn.q_proj.lora_B             analytic -3.630568e-2 fd -3.644114e-2
+layers.3.self_attn.k_proj.lora_A             analytic +5.808414e-2 fd +5.829047e-2
+layers.3.self_attn.k_proj.lora_B             analytic -5.551906e-1 fd -5.552131e-1
+== AIEN_FD_EPS=3e-3 (attention q/k rows)
+layers.1.self_attn.q_proj.lora_A             analytic +7.381528e-1 fd +7.373475e-1
+layers.1.self_attn.q_proj.lora_B             analytic -8.581172e-4 fd +4.583999e-5
+layers.1.self_attn.k_proj.lora_A             analytic -1.578477e-1 fd -1.578586e-1
+layers.1.self_attn.k_proj.lora_B             analytic +1.397599e0 fd +1.398840e0
+layers.3.self_attn.q_proj.lora_A             analytic +1.589172e-1 fd +1.578040e-1
+layers.3.self_attn.q_proj.lora_B             analytic -3.630568e-2 fd -3.354626e-2
+layers.3.self_attn.k_proj.lora_A             analytic +5.808414e-2 fd +5.937056e-2
+layers.3.self_attn.k_proj.lora_B             analytic -5.551906e-1 fd -5.562858e-1
+failed: ["layers.3.self_attn.q_proj.lora_B"]

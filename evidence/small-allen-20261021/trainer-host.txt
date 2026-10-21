@@ -1,0 +1,6 @@
+CPU(s):                                  20
+Model name:                              Cortex-X925
+CPU(s) scaling MHz:                      100%
+Model name:                              Cortex-A725
+CPU(s) scaling MHz:                      100%
+ 17:52:33 up 23:33, 25 users,  load average: 14.35, 13.80, 11.67
