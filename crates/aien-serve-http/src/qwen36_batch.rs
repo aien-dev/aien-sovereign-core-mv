@@ -47,6 +47,20 @@ pub const MAX_SLOTS: usize = 64;
 /// time to first token), the total is the same.
 pub const PROMPT_PER_BEAT: usize = 16;
 
+/// L369: prompt tokens per prefill chunk (the chip's most) and the fewest worth a chunk.
+pub const PREFILL_CHUNK: usize = 112;
+pub const PREFILL_MIN: usize = 16;
+
+fn env_usize(name: &str, default: usize) -> usize {
+    match std::env::var(name) {
+        Ok(v) => v.parse().unwrap_or_else(|_| {
+            eprintln!("aien-serve-http: {name}={v} is not a whole number, using {default}");
+            default
+        }),
+        Err(_) => default,
+    }
+}
+
 fn prompt_per_beat() -> Result<usize, String> {
     match std::env::var("AIEN_Q36_PROMPT_PER_BEAT") {
         Ok(v) => match v.parse::<usize>() {
@@ -69,6 +83,21 @@ pub trait RowStep: Send + 'static {
     fn row_reset(&mut self, r: usize) -> Result<(), String>;
     /// One token into each listed row; each row's greedy token and (when asked) logits.
     fn step_rows(&mut self, feed: &[RowFeed]) -> Result<Vec<RowOut>, String>;
+    /// L369: a prompt chunk into row `r` in one call (the chip's prefill); the last token's greedy
+    /// token and (when asked) logits. The state must end as `tokens.len()` single steps leave it;
+    /// the default is exactly those steps.
+    fn prefill_row(&mut self, r: usize, tokens: &[u32], logits: bool) -> Result<RowOut, String> {
+        let mut last = None;
+        for (i, &token) in tokens.iter().enumerate() {
+            let feed = [RowFeed {
+                row: r,
+                token,
+                logits: logits && i + 1 == tokens.len(),
+            }];
+            last = self.step_rows(&feed)?.pop();
+        }
+        last.ok_or_else(|| "prefill_row: no tokens".to_string())
+    }
     /// A host copy of a row's state.
     type Snap: Default + Send;
     fn row_snapshot(&mut self, r: usize, snap: &mut Self::Snap) -> Result<(), String>;
@@ -85,6 +114,9 @@ impl RowStep for Qwen38Omega {
     }
     fn step_rows(&mut self, feed: &[RowFeed]) -> Result<Vec<RowOut>, String> {
         Qwen38Omega::step_rows(self, feed)
+    }
+    fn prefill_row(&mut self, r: usize, tokens: &[u32], logits: bool) -> Result<RowOut, String> {
+        Qwen38Omega::prefill_row(self, r, tokens, logits)
     }
     type Snap = Qwen38Snapshot;
     fn row_snapshot(&mut self, r: usize, snap: &mut Qwen38Snapshot) -> Result<(), String> {
@@ -276,6 +308,8 @@ impl Qwen36BatchDoor {
             lock_wait,
             max_context,
             per_beat: prompt_per_beat.max(1),
+            pf_chunk: env_usize("AIEN_Q36_PREFILL_CHUNK", PREFILL_CHUNK).min(PREFILL_CHUNK),
+            pf_min: env_usize("AIEN_Q36_PREFILL_MIN", PREFILL_MIN).max(1),
             chip_greedy,
             beat: 0,
         };
@@ -378,6 +412,10 @@ struct Scheduler<S: RowStep> {
     lock_wait: Duration,
     max_context: usize,
     per_beat: usize,
+    /// L369 prefill: prompt tokens per chunk (`AIEN_Q36_PREFILL_CHUNK`, 0 = off) and the fewest
+    /// left before a row reads a chunk instead of single tokens (`AIEN_Q36_PREFILL_MIN`).
+    pf_chunk: usize,
+    pf_min: usize,
     /// Greedy replies take the graph's token (`AIEN_SERVE_CHIP_GREEDY=0` turns it off).
     chip_greedy: bool,
     beat: u64,
@@ -467,6 +505,62 @@ impl<S: RowStep> Scheduler<S> {
             }
             self.beat += 1;
             spell.beats += 1;
+            // L369: a row with a long stretch of prompt left reads one chunk of it through the chip's
+            // prefill this beat (its state ends as token by token would leave it). A chunk stops at
+            // the row's snapshot point, so the copy at the last turn header is taken as before.
+            let mut chunked = vec![false; active.len()];
+            let mut pf_err: Option<String> = None;
+            if self.pf_chunk > 0 {
+                for (k, a) in active.iter_mut().enumerate() {
+                    if !a.prefilling() || a.snap_at == Some(a.fed) {
+                        continue;
+                    }
+                    let plen = a.job.prompt.len();
+                    let stop = match a.snap_at {
+                        Some(s) if s > a.fed => s,
+                        _ => plen,
+                    };
+                    let n = (stop - a.fed).min(self.pf_chunk);
+                    if n < self.pf_min {
+                        continue;
+                    }
+                    let (from, end) = (a.fed, a.fed + n);
+                    let logits = end == plen;
+                    let t = Instant::now();
+                    let r = self.model.prefill_row(a.row, &a.job.prompt[from..end], logits);
+                    spell.wall_ns += t.elapsed().as_nanos() as u64;
+                    spell.steps += 1;
+                    spell.row_tokens += n as u64;
+                    match r {
+                        Ok(o) => {
+                            spell.chip_ns += o.stats.chip_ns;
+                            self.rows[a.row]
+                                .history
+                                .extend_from_slice(&a.job.prompt[from..end]);
+                            a.fed = end;
+                            if !a.prefilling() {
+                                a.prefill_ms = a.t_admit.elapsed().as_millis() as u64;
+                                a.t_decode = Instant::now();
+                            }
+                            if logits {
+                                a.logits = o.logits;
+                            }
+                            chunked[k] = true;
+                        }
+                        Err(e) => {
+                            pf_err = Some(format!("prefill of row {} failed: {e}", a.row));
+                            break;
+                        }
+                    }
+                }
+            }
+            if let Some(e) = pf_err {
+                eprintln!("aien-serve-http: qwen36-batch: {e}");
+                for a in active.drain(..) {
+                    self.finish(a, FinishReason::Length, Some(e.clone()));
+                }
+                continue;
+            }
             // One beat: every decoding row feeds its sampled token in the first step; the rows
             // still feeding their prompt feed up to `per_beat` prompt tokens, one per step.
             for sub in 0..self.per_beat {
@@ -490,7 +584,7 @@ impl<S: RowStep> Scheduler<S> {
                 let mut feed = Vec::with_capacity(active.len());
                 let mut who = Vec::with_capacity(active.len());
                 for (k, a) in active.iter().enumerate() {
-                    if a.prefilling() {
+                    if a.prefilling() && !chunked[k] {
                         let plen = a.job.prompt.len();
                         feed.push(RowFeed {
                             row: a.row,
@@ -498,7 +592,7 @@ impl<S: RowStep> Scheduler<S> {
                             logits: a.fed + 1 == plen,
                         });
                         who.push(k);
-                    } else if sub == 0 {
+                    } else if sub == 0 && !a.prefilling() {
                         if let Some(t) = a.next {
                             feed.push(RowFeed {
                                 row: a.row,
