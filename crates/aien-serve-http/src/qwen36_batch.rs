@@ -261,13 +261,14 @@ impl Qwen36BatchDoor {
             );
         }
         eprintln!(
-            "aien-serve-http: qwen36-batch engine ready in {:.1} s: context {max_context} tokens, {slots} rows, {weights_line}, per-row state {:.1} MiB on paper, {:.1} MiB measured (MemAvailable {} MiB -> {} MiB), rss {:.2} GB, prompt tokens per beat {per_beat}",
+            "aien-serve-http: qwen36-batch engine ready in {:.1} s: context {max_context} tokens, {slots} rows, {weights_line}, per-row state {:.1} MiB on paper, {:.1} MiB measured (MemAvailable {} MiB -> {} MiB), rss {:.2} GB, own device allocations {:.2} GB (imports not counted), prompt tokens per beat {per_beat}",
             t0.elapsed().as_secs_f64(),
             on_paper as f64 / (1u64 << 20) as f64,
             measured as f64 / slots as f64 / (1u64 << 20) as f64,
             before >> 20,
             after >> 20,
             rss_bytes() as f64 / 1e9,
+            aien_omega_gpu::alloc_stats().map_or(0.0, |s| s.alloc_bytes as f64 / 1e9),
         );
         let mut door = Self::with_stepper(
             model,
