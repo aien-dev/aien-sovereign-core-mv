@@ -40,14 +40,17 @@ Rule: docs/inference/q36/w4-gate.md (frozen before every run). Evidence: evidenc
   activations. A slip in that path cannot be ruled out; the held-out result (w4g about equal to w4e) and the method's
   known weak spot on MoE experts (one input H per layer for all 257 experts' gate|up) fit the result without one.
 
-## Open item: the FP8 timing run is not word-identical on gen-p4
+## Settled: the FP8 gen-p4 near-tie flip is the chip FP8 graph, not this branch
 evidence/l355-w4/levers-fp8.json (03:52Z, eight minutes after the 03:44Z RM_ALLOC fault) has `all_identical: false`:
 gen-p4 differs at generated token 4 (chip 8432, golden 7592). The reference margin there is 0.010 logit (L313
 drift-p4 f32_margin[4]), a near-tie inside the identity gate's 0.1 band; p1, p2, p3 and chat are identical and both W4
 arms are identical 5/5 to their host goldens. Not isolated: the flip came either with L356's a|b overlap lever
 (0915000b, `AIEN_OMEGA_Q36_OVERLAP_AB`, merged into this branch) or with this branch's FP8-path edits (loader Option
 fields, need_bytes, moe.rs). Two one-variable runs settle it (this build with the overlap switch off on gen-p4; the
-pinned bin-0915000b on gen-p4); both are full-35B loads and wait for a coordinator slot (L366 admission rule). Until
-then 39.90 / 47.94 / 54.07 tok/s are timing only.
+pinned bin-0915000b on gen-p4). Done 2026-10-21 12:10Z (the full tool's memory margin cannot be met beside the 8-row 18091,
+so through qwen38_omega_full, WL=5, FP8, gen-p4): base (sc 0915000b + lib 678df626) and this branch (pre-merge + lib 979f928a)
+give the same JSON in every field except timings, both 31/32 with token 4 = 8432 (one flip inside the 0.1 band);
+evidence/l355-w4/p4check/. The overlap lever was off in the original run (omega default, no env), so it is excluded too.
+The flip is the chip FP8 arithmetic at a 0.010 margin; this branch's FP8 path changes no number.
 
 Receipts are the JSON files under evidence/l355-w4/ (the per-run .log.txt captures came out empty and were removed).

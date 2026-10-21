@@ -1,0 +1,11 @@
+2026-10-21T11:28:32Z base bin 872866b0a04ba010 avail_kb 50458680
+2026-10-21T11:28:32Z base exit 0 q36_levers: needs 37291 MiB + 12288 MiB free, MemAvailable 49276 MiB; refusing
+2026-10-21T11:28:32Z mine bin 304806b5b0bf64b5 avail_kb 50458680
+2026-10-21T11:28:32Z mine exit 0 q36_levers: needs 37291 MiB + 12288 MiB free, MemAvailable 49276 MiB; refusing
+2026-10-21T11:29:09Z base bin 872866b0a04ba010 avail_kb 50774400
+2026-10-21T11:35:20Z win-base try 1 bin 7c75dd62203810ae avail_kb 48421452
+2026-10-21T11:36:43Z win-base exit 0 QWEN38_OMEGA_FULL layers 40 windows 8 positions 39: generated 31/32 identical to golden (1 flips inside the written margin band 0.1, 0 beyond it), cosine(min) 0.998920 (floor 0.9999 NOT held: open precision item, recorded not gated) p95_rel(max) 0.4416 greedy 
+2026-10-21T11:36:43Z win-mine try 1 bin fc3a056d094f3987 avail_kb 44179988
+2026-10-21T11:37:17Z win-mine exit 2 
+2026-10-21T11:38:17Z win-mine try 2 bin fc3a056d094f3987 avail_kb 18734256
+2026-10-21T12:09:42Z win-mine exit 0 QWEN38_OMEGA_FULL layers 40 windows 8 positions 39: generated 31/32 identical to golden (1 flips inside the written margin band 0.1, 0 beyond it), cosine(min) 0.998920 (floor 0.9999 NOT held: open precision item, recorded not gated) p95_rel(max) 0.4416 greedy 

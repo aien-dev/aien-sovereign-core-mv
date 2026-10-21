@@ -4,7 +4,7 @@
 #   heldout.sh <name> <store|default>  -> runs/forced-<name>-h<i>.json (drift arm w4e on that store, forced on the fp8 ids)
 set -u
 NAME=$1; STORE=${2:-}
-B=$HOME/workspace/targets/l355/sc/release/q36_w4_drift; M=$HOME/models/qwen3.6-35b-a3b-fp8-95a723d0
+B=${BIN:-$HOME/workspace/targets/l355/sc/release/q36_w4_drift}; M=$HOME/models/qwen3.6-35b-a3b-fp8-95a723d0
 D=$HOME/workspace/sc-l355/evidence/l355-w4; O=$D/runs
 echo "$(date -u +%FT%TZ) [heldout $NAME] start (store ${STORE:-none})" >> $O/run.out
 one() {
