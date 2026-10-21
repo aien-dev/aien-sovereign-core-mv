@@ -147,6 +147,16 @@
         "plain",
         "board"
       ]
+    },
+    {
+      "id": "L383",
+      "name": "shared weights: test copies borrow the train server's upload",
+      "present": {
+        "build": "shared-weights"
+      },
+      "arms": [
+        "plain"
+      ]
     }
   ],
   "cases": [
@@ -321,6 +331,23 @@
         "$OUT"
       ],
       "about": "L369 chip prefill on the door: ~256/~2k/~8k-token prompts + one sampled request + the 32 short prompts at once, then turn 2; ids == the reference build alone (refs <CURRENT>/l369-long) and == the store (short). Needs MERGE_TRAIN_CTX >= 9216 (L387)"
+    },
+    {
+      "id": "l383-borrow",
+      "kind": "script",
+      "script": "evidence/l383-shared-weights/borrow.sh",
+      "arms": [
+        "plain"
+      ],
+      "levers": [
+        "L383"
+      ],
+      "args": [
+        "$PORT",
+        "$OUT/l383-borrow",
+        "$SERVER_LOG"
+      ],
+      "about": "L383: copies start on the train server's weights (--weights-from); golden + identity vs the train server alone and at once, 3 copies, crash, write mutant (SIGSEGV); receipts: start time, own memory"
     }
   ]
 }
