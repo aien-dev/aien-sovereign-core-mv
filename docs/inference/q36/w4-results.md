@@ -16,13 +16,21 @@ Rule: docs/inference/q36/w4-gate.md (frozen before every run). Evidence: evidenc
 | w4em0: experts, layers 0-9 kept FP8 | 1.0978 | 0.9970 | not run | REJECT |
 | w4g: experts, error-feedback (GPTQ-style) rounding | 1.1645 | 0.9957 | 1.1473 | REJECT |
 | w4et: experts + trunk, BEST | 1.3678 | 0.9902 | not run | REJECT |
+| nv16: experts, e2m1 x e4m3 scale per 16 x f32 global | not run | not run | not run | NO-GO before the arm (weight error) |
 
 - Control (FP8 arm == L313 f32 reference on p1, 512/512, margins equal) PASS in every run; the 3-bit mutant REJECTs.
 - Bootstrap 95 % intervals of R1 (blocks of 64 steps): w4g goldens 1.086-1.287, held-out 1.088-1.208; w4e held-out
   1.081-1.198. Paired w4g - w4e: +0.0037 nats per step, interval -0.0003 to +0.0080: error feedback did not help.
 - The excess sits on a few positions per text (Fable review of the GPTQ plan: 20 positions carry 74 % of it), the
-  pattern of a few fragile positions rather than smooth rounding error (whether they are flipped expert choices was not
-  measured). That fits better rounding of the same grid not moving it.
+  pattern of a few fragile positions rather than smooth rounding error (whether they are flipped expert choices: measured
+  below, they are not). That fits better rounding of the same grid not moving it.
+- Router-flip check (NV16 go/no-go (a), frozen in w4-gate.md, evidence/l355-w4/routes/verdict.json): on the w4e forced
+  runs (1024 steps) the 20 steps with the most excess differ from FP8 in the top-8 expert picks on 18.8 layers on average,
+  the other steps on 23.2 (ratio 0.81; NO-GO needs 2 or more). The excess is not driven by flipped expert choices: GO.
+- Weight-error check (NV16 go/no-go (b), evidence/l355-w4/nv16-gonogo-b.json): the held-out gap needs the squared weight
+  error at about half of BEST's, limit 0.5 x 0.112546^2 = 0.0063333 (calc:466b6d16). The full nv16 store (160 tensors,
+  33.6 G weights, 263 s) gives rel_rms 0.092202, squared 0.0085: NO-GO. Finer scales cut the rms error by 18 %
+  (calc:7f0abae2), short of the halved square the gap needs, so the rule stopped the nv16 arm before a model load.
 
 ## What this means
 - The 4-bit expert format with one power-of-two scale per 32 weights (MXFP4) is not accurate enough to serve on this
@@ -32,9 +40,9 @@ Rule: docs/inference/q36/w4-gate.md (frozen before every run). Evidence: evidenc
   bytes per emitted token on p1, 1.365x on chat at k=1, with the bf16 head 1.335x / 1.177x; the 4-bit figures assume
   FP8 acceptance, the 4-bit head is not measured: the store holds no lm_head or mtp.* tensors yet). The verify pass keeps the
   words exact, so a 4-bit draft only lowers acceptance, measured before it ships.
-- Paths that could make 4-bit experts pass, both kernel changes, not tried here: finer scales (16 weights per scale with
-  an FP8 scale, NVFP4-style) or a block Hadamard rotation of x before the expert matmul (MR-GPTQ). Each needs its own
-  frozen arm.
+- Finer scales (nv16, NVFP4-style) were tried host-side and fail the weight-error go/no-go above. The one path left
+  for 4-bit experts is a block Hadamard rotation of x before the expert matmul (MR-GPTQ), a kernel change that needs its own
+  frozen arm, or mixed precision inside the expert (gate|up 4-bit, down FP8, by measured sensitivity). Neither is tried here.
 - Limit, said plainly: the error-feedback arm was checked on synthetic data (output error drops; H = I gives omega's
   exact bytes; a rounding mutant goes red), not by a per-layer output-error measurement on the real calibration
   activations. A slip in that path cannot be ruled out; the held-out result (w4g about equal to w4e) and the method's

@@ -1,0 +1,8 @@
+{
+  "nv16_rel_rms": 0.092202,
+  "nv16_sq": 0.008501208804000002,
+  "best_rel_rms": 0.112546,
+  "limit_sq": 0.0063333,
+  "limit_calc": "calc:466b6d16",
+  "verdict": "NO-GO"
+}

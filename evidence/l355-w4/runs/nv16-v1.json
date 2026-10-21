@@ -1,0 +1,1 @@
+{"store":"/home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0.mxfp4/q36-nv16-v1.store","rule":"nv16","tensors":160,"weights":33617346560,"saturated":827773846,"rel_rms":0.092202,"seconds":262.7}

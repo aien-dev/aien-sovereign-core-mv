@@ -105,3 +105,4 @@
 2026-10-21T06:15:43Z [heldout w4g] h5 exit 0
 2026-10-21T06:15:43Z [heldout w4g] end
 2026-10-21T06:15:43Z [gptq chain] verdict REJECT
+2026-10-21T12:38:07Z [nv16 chain] go/no-go (b): rel_rms 0.092202 -> NO-GO
