@@ -401,7 +401,7 @@ pub fn write_store(
                 let u = hinv_upper(&calib.h_gu[l], h)?;
                 let mut wf = widen_fp8(n, k, w8, s);
                 let (w4, e8, se, sr) = round_matrix(&mut wf, n, k, &u, threads)?;
-                Ok((w4, e8, stats(se, sr)))
+                Ok((w4, e8, None, stats(se, sr)))
             }
             3 => {
                 if k != inter || !n.is_multiple_of(h) {
@@ -454,9 +454,10 @@ pub fn write_store(
                     return Err(m);
                 }
                 unseen += un;
-                Ok((w4, e8, stats(se, sr)))
+                Ok((w4, e8, None, stats(se, sr)))
             }
             _ => aien_omega_q38::w4::from_fp8(n, k, w8, s, threads, aien_omega_q38::w4::W4_RULE_BEST)
+                .map(|(a, b, st)| (a, b, None, st))
                 .map_err(|e| format!("{name}: {e}")),
         }
     };

@@ -297,12 +297,15 @@ pub enum Matrix {
         k: usize,
         w: Vec<u16>,
     },
-    /// MXFP4 (L355): e2m1 nibbles `[n][k/2]` and E8M0 scales `[n][k/32]`, the bytes the chip uploads.
+    /// 4-bit (L355): e2m1 nibbles `[n][k/2]` and scale bytes: `global` None = MXFP4, E8M0 per 32 `[n][k/32]` (the bytes the
+    /// chip uploads); Some = nv16, e4m3 per 16 `[n][k/16]`, and one f32 global per row (its linear's), applied to each
+    /// output once after the dot, as the chip's epilogue would (q36_w4_nv, host arm).
     W4 {
         n: usize,
         k: usize,
         w4: Vec<u8>,
         e8: Vec<u8>,
+        global: Option<Vec<f32>>,
     },
 }
 
@@ -363,9 +366,14 @@ impl Matrix {
                     *o = bf16_to_f32(b);
                 }
             }
-            Self::W4 { k, w4, e8, .. } => {
+            Self::W4 { k, w4, e8, global, .. } => {
                 for r in 0..rows {
-                    aien_omega_q38::w4::widen_row(w4, e8, *k, r0 + r, &mut dst[r * k..(r + 1) * k]);
+                    let o = &mut dst[r * k..(r + 1) * k];
+                    match global {
+                        None => aien_omega_q38::w4::widen_row(w4, e8, *k, r0 + r, o),
+                        // without the global: matmul scales each output (exact e2m1 x e4m3 products here)
+                        Some(_) => crate::q36_w4_nv::widen_row(w4, e8, 1.0, *k, r0 + r, o),
+                    }
                 }
             }
         }
@@ -380,6 +388,10 @@ impl Matrix {
             "matmul [{n}][{k}] given {} values for {t} rows",
             x.len()
         );
+        let row_scale = |r: usize| match self {
+            Self::W4 { global: Some(g), .. } => g[r],
+            _ => 1.0,
+        };
         let lut = fp8_table();
         // Worked as `[n][t]` so each task owns a contiguous run of output rows.
         let mut by_row = vec![0f32; n * t];
@@ -394,7 +406,7 @@ impl Matrix {
                 for tt in 0..t {
                     let xv = &x[tt * k..(tt + 1) * k];
                     for r in 0..rows {
-                        out[r * t + tt] = dot(&buf[r * k..(r + 1) * k], xv);
+                        out[r * t + tt] = dot(&buf[r * k..(r + 1) * k], xv) * row_scale(r0 + r);
                     }
                 }
             });
@@ -783,6 +795,9 @@ pub struct W4Host {
     pub fp8_layers: u64,
     /// The shared expert stays FP8 (AIEN_Q36_W4_SHARED_FP8=1, host only: the chip slab holds it as group 256).
     pub shared_fp8: bool,
+    /// Diagnostic control for nv16 (w4-gate.md "NV16 arm"): every e4m3 scale byte's mantissa cleared, so the scales are powers of
+    /// two at group 16: tells whether the gain comes from the scale mantissa or from the group size.
+    pub scale_mutant: bool,
 }
 
 impl W4Host {
@@ -793,7 +808,9 @@ impl W4Host {
         let (_, k) = self.store.shape(name).ok_or_else(|| format!("w4 store: no tensor {name}"))?;
         let (w4, e8) = self.store.read_rows(name, row0, rows)?;
         let w4 = if self.mutant { w4.into_iter().map(|b| b & 0xEE).collect() } else { w4 };
-        Ok(Matrix::W4 { n: rows, k, w4, e8 })
+        let e8 = if self.scale_mutant { e8.into_iter().map(|b| if b >= 8 { b & 0xF8 } else { b }).collect() } else { e8 };
+        let global = self.store.globals(name).map(|(g, per)| (row0..row0 + rows).map(|r| g[r / per]).collect());
+        Ok(Matrix::W4 { n: rows, k, w4, e8, global })
     }
 }
 

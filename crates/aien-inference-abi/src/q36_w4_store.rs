@@ -27,7 +27,8 @@ pub const MAGIC: &[u8; 8] = b"AIENW4S1";
 pub const FORMAT: u32 = 1;
 const ALIGN: u64 = 4096;
 
-/// One stored tensor: nibbles at `w_off` (`n * k / 2` bytes), scales at `e_off` (`n * k / 32`).
+/// One stored tensor: nibbles at `w_off` (`n * k / 2` bytes), scales at `e_off` (`n * k / group`: 32 E8M0 for MXFP4 rules,
+/// 16 e4m3 for `nv16`, [`group_of`]).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Entry {
     pub name: String,
@@ -37,6 +38,12 @@ pub struct Entry {
     pub e_off: u64,
     /// [`check64`] of the nibbles then the scales, hex.
     pub check: String,
+    /// `nv16` only: one f32 global scale per `global_rows` rows (one per linear: each expert's gate, up and down), as bits
+    /// (value = e2m1 x e4m3 x global).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub global_bits: Option<Vec<u32>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub global_rows: Option<usize>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -270,7 +277,7 @@ pub fn write_store(
     log: &mut dyn FnMut(&str),
 ) -> Result<Header, String> {
     let quant = &mut |_l: usize, _p: usize, name: &str, n: usize, k: usize, w8: &[u8], s: &[u16]| {
-        aien_omega_q38::w4::from_fp8(n, k, w8, s, threads, rule).map_err(|e| format!("{name}: {e}"))
+        aien_omega_q38::w4::from_fp8(n, k, w8, s, threads, rule).map(|(a, b, st)| (a, b, None, st)).map_err(|e| format!("{name}: {e}"))
     };
     let converter = "omega omega_gpu_w4_from_fp8_rule (each FP8 checkpoint tensor, rows stacked)";
     write_store_with(dir, out, rule_name(rule), converter, canary(rule)?, quant, log)
@@ -278,7 +285,15 @@ pub fn write_store(
 
 /// One fused tensor to MXFP4: `(layer, projection index in [`layer_projs`], name, n, k, FP8 rows, block scales)` to
 /// `(nibbles, scale bytes, stats)`.
-pub type Quantizer<'a> = dyn FnMut(usize, usize, &str, usize, usize, &[u8], &[u16]) -> Result<(Vec<u8>, Vec<u8>, aien_omega_q38::w4::W4Stats), String> + 'a;
+pub type Quantizer<'a> = dyn FnMut(usize, usize, &str, usize, usize, &[u8], &[u16]) -> Result<Quantized, String> + 'a;
+
+/// One quantized tensor: nibbles, scale bytes, the `nv16` globals and the rows each covers (None for MXFP4), stats.
+pub type Quantized = (Vec<u8>, Vec<u8>, Option<(Vec<f32>, usize)>, aien_omega_q38::w4::W4Stats);
+
+/// Weights per scale byte for a store rule: 16 for `nv16`, 32 (MXFP4) otherwise.
+pub fn group_of(rule: &str) -> usize {
+    if rule == "nv16" { crate::q36_w4_nv::GROUP } else { 32 }
+}
 
 /// [`write_store`] with any rounding: `rule` / `converter` / `canary` go in the header ([`W4Store::open`] checks the
 /// canary against the linked rounding of that rule).
@@ -315,7 +330,7 @@ pub fn write_store_with(
                    f: &mut BufWriter<File>,
                    pos: &mut u64|
      -> Result<aien_omega_q38::w4::W4Stats, String> {
-        let (w4, e8, st) = quant(l, pi, &name, n, k, w8, s)?;
+        let (w4, e8, global, st) = quant(l, pi, &name, n, k, w8, s)?;
         align(f, pos)?;
         let w_off = *pos;
         f.write_all(&w4).map_err(|e| format!("store write: {e}"))?;
@@ -331,6 +346,8 @@ pub fn write_store_with(
             w_off,
             e_off,
             check: format!("{:016x}", check64(&[&w4, &e8])),
+            global_rows: global.as_ref().map(|g| g.1),
+            global_bits: global.map(|g| g.0.into_iter().map(f32::to_bits).collect()),
         });
         Ok(st)
     };
@@ -431,9 +448,13 @@ impl W4Store {
             "fit" => aien_omega_q38::w4::W4_RULE_FIT,
             "best" => aien_omega_q38::w4::W4_RULE_BEST,
             "gptq" => -1,
+            "nv16" => -2,
             r => return Err(e(format!("rule {r}"))),
         };
-        if rule < 0 && crate::q36_w4_gptq::canary()? != header.canary {
+        if rule == -2 && crate::q36_w4_nv::canary()? != header.canary {
+            return Err(e("the linked nv16 rounding differs from the one that wrote this store (canary)".into()));
+        }
+        if rule == -1 && crate::q36_w4_gptq::canary()? != header.canary {
             return Err(e("the linked error-feedback rounding differs from the one that wrote this store (canary)".into()));
         }
         if rule >= 0 && aien_omega_q38::w4::native() && canary(rule)? != header.canary {
@@ -442,7 +463,15 @@ impl W4Store {
             ));
         }
         for t in &header.tensors {
-            let end = t.e_off + (t.n * t.k / 32) as u64;
+            let end = t.e_off + (t.n * t.k / group_of(&header.rule)) as u64;
+            let globals_ok = match (&t.global_bits, t.global_rows) {
+                (Some(g), Some(per)) => per > 0 && g.len() * per == t.n,
+                (None, None) => true,
+                _ => false,
+            };
+            if (header.rule == "nv16") != t.global_bits.is_some() || !globals_ok {
+                return Err(e(format!("{}: global scales missing, misplaced or not covering the rows", t.name)));
+            }
             if t.w_off + (t.n * t.k / 2) as u64 > t.e_off || end > len - 16 - hl {
                 return Err(e(format!("{}: offsets outside the payload", t.name)));
             }
@@ -469,7 +498,7 @@ impl W4Store {
             ));
         }
         let mut w4 = vec![0u8; n * k / 2];
-        let mut e8 = vec![0u8; n * k / 32];
+        let mut e8 = vec![0u8; n * k / self.group()];
         self.file
             .read_exact_at(&mut w4, t.w_off)
             .and_then(|_| self.file.read_exact_at(&mut e8, t.e_off))
@@ -501,10 +530,11 @@ impl W4Store {
             return Err(format!("w4 store: {name} [{}][{}] has no rows {row0}..{}", t.n, t.k, row0 + rows));
         }
         let mut w4 = vec![0u8; rows * t.k / 2];
-        let mut e8 = vec![0u8; rows * t.k / 32];
+        let g = self.group();
+        let mut e8 = vec![0u8; rows * t.k / g];
         self.file
             .read_exact_at(&mut w4, t.w_off + (row0 * t.k / 2) as u64)
-            .and_then(|_| self.file.read_exact_at(&mut e8, t.e_off + (row0 * t.k / 32) as u64))
+            .and_then(|_| self.file.read_exact_at(&mut e8, t.e_off + (row0 * t.k / g) as u64))
             .map_err(|x| format!("w4 store {}: {name}: {x}", self.path.display()))?;
         Ok((w4, e8))
     }
@@ -515,6 +545,17 @@ impl W4Store {
             self.read(&t.name, t.n, t.k)?;
         }
         Ok(())
+    }
+
+    /// Weights per scale byte (16 for `nv16`, 32 for the MXFP4 rules).
+    pub fn group(&self) -> usize {
+        group_of(&self.header.rule)
+    }
+
+    /// The `nv16` global scales of `name` and the rows each covers (None for MXFP4 stores).
+    pub fn globals(&self, name: &str) -> Option<(Vec<f32>, usize)> {
+        let t = self.header.tensors.iter().find(|t| t.name == name)?;
+        Some((t.global_bits.as_ref()?.iter().map(|&b| f32::from_bits(b)).collect(), t.global_rows?))
     }
 
     /// `(n, k)` of `name`.

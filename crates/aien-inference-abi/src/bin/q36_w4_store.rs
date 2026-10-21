@@ -1,6 +1,6 @@
 //! The Qwen3.6-35B-A3B MXFP4 store (L355): convert once, check, survey the scale rules.
 //!
-//!   q36_w4_store write <checkpoint dir> <out store> <ocp|fit|best> [threads]
+//!   q36_w4_store write <checkpoint dir> <out store> <ocp|fit|best|nv16> [threads]
 //!   q36_w4_store gptq <checkpoint dir> <out store> <calibration.txt> <tokens> [threads]
 //!   q36_w4_store check <checkpoint dir> <store>
 //!   q36_w4_store survey <checkpoint dir> [experts per layer, default 16]
@@ -119,6 +119,15 @@ fn main() {
     let a: Vec<String> = std::env::args().collect();
     let t0 = Instant::now();
     let r = match a.get(1).map(String::as_str) {
+        Some("write") if a.len() >= 5 && a[4] == "nv16" => {
+            let th = a.get(5).and_then(|s| s.parse().ok()).unwrap_or_else(threads);
+            aien_inference_abi::q36_w4_nv::write_store(Path::new(&a[2]), Path::new(&a[3]), th, &mut |m| eprintln!("{m}")).map(|h| {
+                println!(
+                    "{{\"store\":\"{}\",\"rule\":\"{}\",\"tensors\":{},\"weights\":{},\"saturated\":{},\"rel_rms\":{:.6},\"seconds\":{:.1}}}",
+                    a[3], h.rule, h.tensors.len(), h.weights, h.saturated, h.rel_rms, t0.elapsed().as_secs_f64()
+                );
+            })
+        }
         Some("write") if a.len() >= 5 => rule_of(&a[4]).and_then(|rule| {
             let th = a.get(5).and_then(|s| s.parse().ok()).unwrap_or_else(threads);
             let h = write_store(Path::new(&a[2]), Path::new(&a[3]), rule, th, &mut |m| eprintln!("{m}"))?;
@@ -138,7 +147,7 @@ fn main() {
             gptq(Path::new(&a[2]), Path::new(&a[3]), Path::new(&a[4]), n, th)
         }),
         Some("survey") if a.len() >= 3 => survey(Path::new(&a[2]), a.get(3).and_then(|s| s.parse().ok()).unwrap_or(16)),
-        _ => Err("usage: q36_w4_store write <dir> <out> <ocp|fit|best> [threads] | gptq <dir> <out> <calibration.txt> <tokens> [threads] | check <dir> <store> | survey <dir> [n]".into()),
+        _ => Err("usage: q36_w4_store write <dir> <out> <ocp|fit|best|nv16> [threads] | gptq <dir> <out> <calibration.txt> <tokens> [threads] | check <dir> <store> | survey <dir> [n]".into()),
     };
     if let Err(e) = r {
         eprintln!("q36_w4_store: {e}");

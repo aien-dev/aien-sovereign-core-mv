@@ -1,0 +1,1 @@
+{"steps":1024,"total_excess":13.0556,"top20_excess":14.2691,"top20_share":1.0929,"mean_diff_layers_top20":18.800,"mean_diff_layers_rest":23.176,"ratio":0.811,"verdict":"GO (not router-flip dominated)"}

@@ -51,15 +51,19 @@ fn arm_host(arm: &str, dir: &Path) -> Result<Option<W4Host>, String> {
         "fp8" => return Ok(None),
         "w4e" => (true, false, false),
         "w4et" => (true, true, false),
-        "w4e-mut" => (true, false, true),
-        a => return Err(format!("arm {a} (fp8, w4e, w4et, w4e-mut)")),
+        "w4e-mut" | "w4e-smut" => (true, false, arm == "w4e-mut"),
+        a => return Err(format!("arm {a} (fp8, w4e, w4et, w4e-mut, w4e-smut)")),
     };
     let p = aien_inference_abi::q36_w4_store::resolve(dir)?
         .ok_or("AIEN_Q36_W4_STORE (store path or default) is not set")?;
     let store = W4Store::open(&p, dir)?;
     let fp8_layers = aien_inference_abi::q36_w4_store::fp8_layers_from_env()?;
     let shared_fp8 = std::env::var("AIEN_Q36_W4_SHARED_FP8").as_deref() == Ok("1");
-    Ok(Some(W4Host { store: Arc::new(store), experts, trunk, mutant, fp8_layers, shared_fp8 }))
+    let scale_mutant = arm == "w4e-smut";
+    if scale_mutant && store.group() != 16 {
+        return Err("w4e-smut is the nv16 scale control (needs an nv16 store)".into());
+    }
+    Ok(Some(W4Host { store: Arc::new(store), experts, trunk, mutant, fp8_layers, shared_fp8, scale_mutant }))
 }
 
 fn run() -> Result<(), String> {
@@ -93,11 +97,22 @@ fn run() -> Result<(), String> {
             }
             let ref_margin: Vec<f64> = g["f32_margin"].as_array().or(g["ref_margin"].as_array())
                 .map(|v| v.iter().filter_map(Value::as_f64).collect()).unwrap_or_default();
+            // AIEN_L355_ROUTES=1 (diagnostic, w4-results.md): the routed expert ids of every layer at every step (the
+            // top-k picks of the row whose logits are scored), to see whether the 4-bit excess sits on router flips
+            let want_routes = std::env::var("AIEN_L355_ROUTES").as_deref() == Ok("1");
+            let k_top = model.config.moe.as_ref().map_or(0, |m| m.top_k);
+            let last_picks = |m: &Qwen38Reference<_>| -> Vec<Vec<u16>> {
+                m.routes.iter().take(m.config.layers).map(|r| r[r.len().saturating_sub(k_top)..].to_vec()).collect()
+            };
             let mut st = model.new_state();
             let mut logits = model.forward(&mut st, &prompt, Logits::Last)?;
+            let mut routes: Vec<Vec<Vec<u16>>> = Vec::new();
             let (mut am, mut mg, mut nll, mut fed, mut secs) = (vec![], vec![], vec![], vec![], vec![]);
             for t in 0..count {
                 let ts = Instant::now();
+                if want_routes {
+                    routes.push(last_picks(&model));
+                }
                 let pick = argmax(&logits) as u32;
                 let want = if greedy { pick } else { refs[t] };
                 am.push(pick);
@@ -116,6 +131,7 @@ fn run() -> Result<(), String> {
                     "argmax": am, "margin": mg, "nll": nll, "agree": agree,
                     "store": std::env::var("AIEN_Q36_W4_STORE").ok().filter(|_| arm != "fp8"),
                     "fp8_layers": std::env::var("AIEN_Q36_W4_FP8_LAYERS").ok(), "shared_fp8": std::env::var("AIEN_Q36_W4_SHARED_FP8").ok(),
+                    "routes": if want_routes { json!(routes) } else { Value::Null },
                     "step_seconds": secs, "seconds": t0.elapsed().as_secs_f64(),
                 });
                 write(out, &rep)?;

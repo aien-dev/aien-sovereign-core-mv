@@ -301,6 +301,9 @@ impl Qwen38Omega {
             let w4_up = |name: String| -> Result<aien_omega_q38::w4::W4Tensor, String> {
                 let st = &w4.as_ref().expect("checked by the caller").store;
                 let (n, k) = st.shape(&name).ok_or_else(|| format!("w4 store: no tensor {name}"))?;
+                if st.group() != 32 {
+                    return Err(format!("w4 store {}: rule {} has no chip kernel (host arm only)", st.path.display(), st.header.rule));
+                }
                 let (mut b4, e8) = st.read(&name, n, k)?;
                 // Negative control (TEST ONLY): AIEN_Q36_W4_TEST_MUTANT=1 clears the low mantissa bit of every 4-bit
                 // weight on the chip only (the host reference keeps the clean store), so the gate must go red.
