@@ -96,6 +96,18 @@ mod ffi {
             tokens: *mut u32,
             st: *mut GraphStats,
         ) -> i32;
+        pub fn omega_gpu_q36_graph_prefill_alloc(g: *mut OmegaGpuQ36Graph, cap: u32) -> i32;
+        pub fn omega_gpu_q36_graph_prefill_cap(g: *const OmegaGpuQ36Graph) -> u32;
+        pub fn omega_gpu_q36_graph_prefill(
+            g: *mut OmegaGpuQ36Graph,
+            head: u32,
+            x_embed: *const f32,
+            n: u32,
+            pos0: u32,
+            want_token: i32,
+            token: *mut u32,
+            st: *mut GraphStats,
+        ) -> i32;
         pub fn omega_gpu_q36_graph_read_head(
             g: *mut OmegaGpuQ36Graph,
             head: u32,
@@ -123,6 +135,16 @@ mod ffi {
             n: u32,
         ) -> i32;
         pub fn omega_gpu_q36_graph_set_flush_each(g: *mut OmegaGpuQ36Graph, on: i32);
+        pub fn omega_gpu_q36_graph_set_batch(g: *mut OmegaGpuQ36Graph, on: i32) -> i32;
+        pub fn omega_gpu_q36_graph_batch(g: *const OmegaGpuQ36Graph) -> i32;
+        pub fn omega_gpu_q36_graph_set_stamps(g: *mut OmegaGpuQ36Graph, on: i32);
+        pub fn omega_gpu_q36_graph_stamps(
+            g: *const OmegaGpuQ36Graph,
+            stamps: *mut u64,
+            kinds: *mut u8,
+            cap: u32,
+        ) -> i32;
+        pub fn omega_gpu_q36_graph_kind_name(kind: u8) -> *const std::ffi::c_char;
         pub fn omega_gpu_q36_graph_test_set_mutant(g: *mut OmegaGpuQ36Graph, mutant: i32);
         pub fn omega_gpu_q36_graph_set_exact_head(g: *mut OmegaGpuQ36Graph, screen: *const c_void, coef: *const f32) -> i32;
         pub fn omega_gpu_q36_graph_set_exact_head_on(g: *mut OmegaGpuQ36Graph, on: i32);
@@ -151,8 +173,10 @@ pub enum Q36Buf {
     Dn,
 }
 
-/// Heads per stroke the chip library lays out at most (one 2048-launch command list holds four 40-layer tokens).
-pub const MAX_HEADS: usize = 4;
+/// Heads per stroke the chip library lays out at most (one 4096-launch command list holds eight 40-layer tokens of 444 launches).
+pub const MAX_HEADS: usize = 8;
+/// Most tokens one prefill chunk carries (`OMEGA_GPU_Q36_PREFILL_MAX_ROWS`).
+pub const PREFILL_MAX_ROWS: usize = 112;
 
 pub struct Q36Graph {
     #[cfg(has_omega_q36)]
@@ -295,6 +319,78 @@ impl Q36Graph {
                 return Err(session_err("q36 graph stroke", rc));
             }
             Ok((tokens, st))
+        }
+        #[cfg(not(has_omega_q36))]
+        Err(OmegaGpuError::Unavailable)
+    }
+
+    /// L369 prefill: the chunk size the buffers hold (0 before [`Self::prefill_alloc`]).
+    pub fn prefill_cap(&self) -> usize {
+        #[cfg(has_omega_q36)]
+        {
+            // SAFETY: ptr is live.
+            unsafe { ffi::omega_gpu_q36_graph_prefill_cap(self.ptr) as usize }
+        }
+        #[cfg(not(has_omega_q36))]
+        0
+    }
+
+    /// L369 prefill: sizes the chunk buffers for up to `cap` tokens (1..=[`PREFILL_MAX_ROWS`]).
+    pub fn prefill_alloc(&mut self, cap: usize) -> Result<(), OmegaGpuError> {
+        if cap == 0 || cap > PREFILL_MAX_ROWS {
+            return Err(bad(format!("q36 graph: prefill cap {cap} (1..={PREFILL_MAX_ROWS})")));
+        }
+        #[cfg(has_omega_q36)]
+        {
+            // SAFETY: ptr is live.
+            let rc = unsafe { ffi::omega_gpu_q36_graph_prefill_alloc(self.ptr, cap as u32) };
+            if rc != 0 {
+                return Err(session_err("q36 graph prefill_alloc", rc));
+            }
+            Ok(())
+        }
+        #[cfg(not(has_omega_q36))]
+        Err(OmegaGpuError::Unavailable)
+    }
+
+    /// L369 prefill: `n` prompt tokens (embeddings `x_embed`, `[n][HIDDEN]`) of the conversation in
+    /// head slot `head` at positions `pos0..pos0 + n`, each as if it went through a token step in
+    /// turn (the decode step's kernels, so the state matches token by token bit for bit). With
+    /// `want_token` the last token's greedy token (and [`Self::read_head`] for its logits).
+    pub fn prefill(
+        &mut self,
+        head: usize,
+        x_embed: &[f32],
+        pos0: usize,
+        want_token: bool,
+    ) -> Result<(Option<u32>, GraphStats), OmegaGpuError> {
+        let n = x_embed.len() / HIDDEN;
+        if head >= self.heads || n == 0 {
+            return Err(bad(format!("q36 graph: prefill head {head} of {}, {n} tokens", self.heads)));
+        }
+        check_len("q36 graph prefill x_embed", HIDDEN * n, x_embed.len())?;
+        let pos0 = u32::try_from(pos0).map_err(|_| bad(format!("q36 graph: pos {pos0} too large")))?;
+        #[cfg(has_omega_q36)]
+        {
+            let mut token = 0u32;
+            let mut st = GraphStats::default();
+            // SAFETY: ptr is live; x_embed holds HIDDEN * n f32 (checked).
+            let rc = unsafe {
+                ffi::omega_gpu_q36_graph_prefill(
+                    self.ptr,
+                    head as u32,
+                    x_embed.as_ptr(),
+                    n as u32,
+                    pos0,
+                    want_token as i32,
+                    &mut token,
+                    &mut st,
+                )
+            };
+            if rc != 0 {
+                return Err(session_err("q36 graph prefill", rc));
+            }
+            Ok((want_token.then_some(token), st))
         }
         #[cfg(not(has_omega_q36))]
         Err(OmegaGpuError::Unavailable)
@@ -549,6 +645,88 @@ impl Q36Graph {
         }
         #[cfg(not(has_omega_q36))]
         false
+    }
+    /// The batch (v2, L312): each layer recorded for every conversation at once, one weight read per layer.
+    /// Pins the GEMM kernels on the session; `Err` carries the chip rc.
+    pub fn set_batch(&mut self, on: bool) -> Result<(), i32> {
+        #[cfg(has_omega_q36)]
+        // SAFETY: ptr is live.
+        unsafe {
+            let rc = ffi::omega_gpu_q36_graph_set_batch(self.ptr, on as i32);
+            if rc == 0 {
+                Ok(())
+            } else {
+                Err(rc)
+            }
+        }
+        #[cfg(not(has_omega_q36))]
+        {
+            let _ = on;
+            Err(-1)
+        }
+    }
+    /// Whether the batch is on (also set by `AIEN_OMEGA_Q36_BATCH=1` at create).
+    pub fn batch(&self) -> bool {
+        #[cfg(has_omega_q36)]
+        // SAFETY: ptr is live.
+        unsafe {
+            ffi::omega_gpu_q36_graph_batch(self.ptr) != 0
+        }
+        #[cfg(not(has_omega_q36))]
+        false
+    }
+    /// Chip timestamps around every launch of the next tokens (a timeline; off by default).
+    pub fn set_stamps(&mut self, on: bool) {
+        #[cfg(has_omega_q36)]
+        // SAFETY: ptr is live.
+        unsafe {
+            ffi::omega_gpu_q36_graph_set_stamps(self.ptr, on as i32);
+        }
+        #[cfg(not(has_omega_q36))]
+        let _ = on;
+    }
+    /// The last token's timeline: (kind, chip ns) per launch, in launch order. Needs `set_stamps(true)`
+    /// before that token; Err(rc) when there is none.
+    pub fn timeline(&self) -> Result<Vec<(u8, u64)>, i32> {
+        #[cfg(has_omega_q36)]
+        // SAFETY: ptr is live; the buffers hold the most launches one command list carries, plus one.
+        unsafe {
+            const CAP: usize = 4097;
+            let mut stamps = vec![0u64; CAP];
+            let mut kinds = vec![0u8; CAP];
+            let n = ffi::omega_gpu_q36_graph_stamps(
+                self.ptr,
+                stamps.as_mut_ptr(),
+                kinds.as_mut_ptr(),
+                CAP as u32,
+            );
+            if n < 0 {
+                return Err(n);
+            }
+            let n = n as usize;
+            Ok((0..n)
+                .map(|i| (kinds[i], stamps[i + 1].wrapping_sub(stamps[i])))
+                .collect())
+        }
+        #[cfg(not(has_omega_q36))]
+        Err(-1)
+    }
+    /// omega's own name for a launch kind of the 35B graph.
+    pub fn kind_name(kind: u8) -> String {
+        #[cfg(has_omega_q36)]
+        // SAFETY: the library returns a static NUL-terminated string for every kind value.
+        unsafe {
+            let p = ffi::omega_gpu_q36_graph_kind_name(kind);
+            if p.is_null() {
+                return "?".into();
+            }
+            std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned()
+        }
+        #[cfg(not(has_omega_q36))]
+        {
+            let _ = kind;
+            "?".into()
+        }
     }
     /// 1: submit after every launch (the comparison path).
     pub fn set_flush_each(&mut self, on: bool) {
