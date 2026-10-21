@@ -25,7 +25,7 @@ SPID=""
 start() {
   local tag=$1; shift
   echo "$(date -u +%FT%TZ) phase $tag: waiting for the q36-extra slot" | tee -a "$OD/gate.log"
-  Q36_EXTRA_WAIT=7200 Q36_EXTRA_NEED_GB=$NEED q36-extra env AIEN_Q36_STROKE=0 AIEN_Q36_PREFIX_POOL_GB=$POOL_GB "$@" \
+  Q36_EXTRA_LEDGER=L375 Q36_EXTRA_WAIT=7200 Q36_EXTRA_NEED_GB=$NEED q36-extra env AIEN_Q36_STROKE=0 AIEN_Q36_PREFIX_POOL_GB=$POOL_GB "$@" \
     "$BIN/aien-serve-http" --engine omega --model-dir "$M" --port $PORT --max-context 32768 \
     --max-tokens-cap 512 --thinking off --batch-slots 1 > "$OD/server-$tag.log" 2>&1 &
   SPID=$!
