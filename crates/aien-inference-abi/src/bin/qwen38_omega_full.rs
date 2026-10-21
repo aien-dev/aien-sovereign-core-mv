@@ -15,15 +15,18 @@
 //! output residual is also held to the reference's residual at that layer boundary.
 //!
 //! PASS (the identity gate Drake set for the motor, 2026-10-21, L312) when every generated
-//! position's chip token equals the golden token, except where the reference's top-two margin is
-//! smaller than the chip's measured logit error at that step (`max_abs`): two float orders cannot
-//! be asked to agree inside their own error band, so such a flip is reported as allowed, while a
-//! flip at a margin wider than the error is a wrong kernel and fails. The logits' cosine is
-//! recorded at every step (the earlier 0.9999 floor is an open precision item, not a gate), and
-//! both controls must be caught: (1) each step against the reference's NEXT position, (2) the
-//! final residual against the reference's residual one window earlier (the last window must
-//! matter; n/a with one window). A check that cannot fail proves nothing: the negative control
-//! (`AIEN_Q36_TEST_MUTANT`) must fail this rule.
+//! position's chip token equals the golden token, except where the reference's own top-two margin
+//! is below a band WRITTEN IN ADVANCE (`MARGIN_MIN`, 0.1 logit): two float orders cannot be asked
+//! to agree on a decision the reference itself made by less than that, so such a flip is reported
+//! as allowed, while a flip at a wider margin is a wrong kernel and fails. The band is never taken
+//! from the run under test (2026-10-21 01:58Z: a band equal to the run's own max logit error let
+//! the shared-expert mutant through with 22 flips at max error 23.8: a broken run excused itself).
+//! The same band gates the chip's greedy choice at every position, prompt included. The logits'
+//! cosine and max error are recorded at every step (the earlier 0.9999 cosine floor is an open
+//! precision item, not a gate), and both controls must be caught: (1) each step against the
+//! reference's NEXT position, (2) the final residual against the reference's residual one window
+//! earlier (the last window must matter; n/a with one window). A check that cannot fail proves
+//! nothing: the negative control (`AIEN_Q36_TEST_MUTANT`) must fail this rule.
 
 use std::path::Path;
 use std::time::Instant;
@@ -76,6 +79,11 @@ fn mem_available() -> Result<u64, String> {
         .map(|kb| kb << 10)
         .ok_or_else(|| "/proc/meminfo: no MemAvailable".into())
 }
+/// The written band: the reference's top-two logit margin below which two float orders may
+/// legitimately disagree. Fixed in advance, never taken from the run under test. Every correct run
+/// held it (2026-10-21 p1..p4: 127/128 words identical, the one flip at margin 0.0096) and the
+/// shared-expert mutant broke it (22 flips, smallest margin 0.214, 10 of them wider than even the
+/// correct runs' largest vocabulary-wide logit error 2.425).
 const MARGIN_MIN: f32 = 0.1;
 
 fn margin(logits: &[f32]) -> f32 {
@@ -228,7 +236,7 @@ fn run() -> Result<bool, String> {
     let (mut cos_min, mut p95_max, mut greedy_ok, mut golden_ok) =
         (f64::INFINITY, 0f32, true, true);
     let mut gen_tokens = Vec::new();
-    // Golden flips inside the chip's error band (allowed, reported) and beyond it (wrong kernel).
+    // Golden flips inside the written margin band (allowed, reported) and beyond it (wrong kernel).
     let (mut flips_allowed, mut flips_beyond) = (Vec::new(), Vec::new());
     for p in 0..t {
         let logits = &gpu_logits[p];
@@ -246,7 +254,7 @@ fn run() -> Result<bool, String> {
             if tok != g {
                 golden_ok = false;
                 let flip = json!({"pos": p, "token": tok, "golden": g, "ref_margin": m, "max_abs": s.max_abs});
-                if m < s.max_abs {
+                if m < MARGIN_MIN {
                     flips_allowed.push(flip);
                 } else {
                     flips_beyond.push(flip);
@@ -292,9 +300,9 @@ fn run() -> Result<bool, String> {
     let text_ok = gen_tokens.len() == generated.len();
     let words_ok = flips_beyond.is_empty();
     let cosine_floor_held = cos_min >= COSINE_MIN;
-    let pass = words_ok && text_ok && caught && ref_matches_golden;
+    let pass = words_ok && greedy_ok && text_ok && caught && ref_matches_golden;
     println!(
-        "QWEN38_OMEGA_FULL layers {layers} windows {windows} positions {t}: generated {}/{} identical to golden ({} flips inside the chip's error band, {} beyond it), cosine(min) {cos_min:.6} (floor {COSINE_MIN} {}, recorded not gated) p95_rel(max) {p95_max:.4} greedy {} control {} -> {}",
+        "QWEN38_OMEGA_FULL layers {layers} windows {windows} positions {t}: generated {}/{} identical to golden ({} flips inside the written margin band {MARGIN_MIN}, {} beyond it), cosine(min) {cos_min:.6} (floor {COSINE_MIN} {}, recorded not gated) p95_rel(max) {p95_max:.4} greedy {} control {} -> {}",
         gen_tokens.iter().zip(&generated).filter(|(a, b)| **a == **b as usize).count(),
         generated.len(),
         flips_allowed.len(),
@@ -310,12 +318,12 @@ fn run() -> Result<bool, String> {
         "reference_s": ref_s, "reference_matches_golden": ref_matches_golden, "upload_s": upload_s,
         "weight_bytes": weight_bytes, "cosine_min": cos_min, "p95_rel_max": p95_max,
         "greedy_agrees": greedy_ok, "golden_identical": golden_ok,
-        "words_identical_outside_error_band": words_ok,
+        "words_identical_outside_margin_band": words_ok,
         "flips_allowed": flips_allowed, "flips_beyond_error": flips_beyond,
         "cosine_floor_held": cosine_floor_held, "cosine_floor_gated": false,
         "control_shift_best_cosine": shift_cos, "control_window_short_best_cosine": short_cos,
-        "control_caught": caught, "thresholds": {"cosine_min_recorded": COSINE_MIN, "margin_min": MARGIN_MIN},
-        "gate": "words identical to the golden except inside the chip's measured error band (margin < max_abs); controls caught; reference equals golden (Drake 2026-10-21, L312)",
+        "control_caught": caught, "thresholds": {"cosine_min_recorded": COSINE_MIN, "margin_band_logits": MARGIN_MIN},
+        "gate": "words identical to the golden except where the reference's top-two margin is below the written band (0.1 logit, fixed in advance, never from the run under test); chip greedy agrees at every position outside the band; controls caught; reference equals golden (Drake 2026-10-21, L312; band fixed 02:10Z after a self-measured band let mutant 4 through)",
         "steps": steps, "pass": pass,
     });
     std::fs::write(out_path, serde_json::to_string_pretty(&report).unwrap())
