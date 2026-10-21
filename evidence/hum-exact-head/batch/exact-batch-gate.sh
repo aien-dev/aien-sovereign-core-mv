@@ -17,6 +17,8 @@ down() { local p=$(cat $S/batch-$PORT.pid); ps -o args= -p $p | grep -q "port $P
 run() { # <label> <want rc> [env]
   local label=$1 want=$2 rc=2; shift 2
   for t in 1 2 3; do
+    # the live batch door holds ~58 GB with 8 slots: wait (up to 40 min) for the 45.4 GB this load needs before each try
+    for w in $(seq 1 240); do [ "$(awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo)" -ge 46 ] && break; sleep 10; done
     log "$label: start bin-$SHA $SLOTS slots ($*) MemAvailable $(awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo) GB"
     env "$@" $G/serve-batch.sh $SHA $SLOTS 2048 $label >> $L 2>&1
     if ! up; then log "$label: server did not come up: $(tail -1 $S/batch-$PORT.log | cut -c1-300)"; down; sleep 60; continue; fi
@@ -30,5 +32,5 @@ run() { # <label> <want rc> [env]
 : > $R
 run l314-real$SLOTS-$SHA 0
 run l314-mut5-$SLOTS-$SHA 1 AIEN_Q36_TEST_MUTANT=5
-V=FAIL; grep -q "real.*rc=0 want=0" $R && grep -q "mut5.*rc=1 want=1" $R && V=PASS
+V=FAIL; grep -q "rc=2" $R && V="NO VERDICT (a run never loaded)"; grep -q "real.*rc=0 want=0" $R && grep -q "mut5.*rc=1 want=1" $R && V=PASS
 log "VERDICT $V"; echo "VERDICT $V" >> $R
