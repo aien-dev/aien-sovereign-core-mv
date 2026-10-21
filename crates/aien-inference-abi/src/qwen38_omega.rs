@@ -172,6 +172,20 @@ pub struct Qwen38Snapshot {
     states: Vec<f32>,
 }
 
+impl Qwen38Snapshot {
+    /// The first f32 (tails, then states) whose bits differ from `o`'s, or the length when one
+    /// holds more; `None`: the same position and the same bits throughout.
+    pub fn first_diff(&self, o: &Self) -> Option<usize> {
+        let a = self.tails.iter().chain(&self.states);
+        let b = o.tails.iter().chain(&o.states);
+        if let Some(i) = a.zip(b).position(|(x, y)| x.to_bits() != y.to_bits()) {
+            return Some(i);
+        }
+        let (na, nb) = (self.tails.len() + self.states.len(), o.tails.len() + o.states.len());
+        (na != nb || self.pos != o.pos).then_some(na.min(nb))
+    }
+}
+
 /// Memory the whole model needs with a KV cache of `max_pos` positions and prefill buffers for
 /// `chunk` tokens (device and host: the box's memory is one pool). Counted from the config:
 /// weights, KV cache, prefill buffers, the host embedding table and one state snapshot, plus
@@ -777,7 +791,7 @@ impl Qwen38Omega {
         }
     }
 
-    fn head_pos_mut(&mut self, head: usize) -> Result<&mut usize, String> {
+    pub(super) fn head_pos_mut(&mut self, head: usize) -> Result<&mut usize, String> {
         let heads = self.heads();
         match head {
             0 => Ok(&mut self.pos),

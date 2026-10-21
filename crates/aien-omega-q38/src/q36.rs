@@ -94,6 +94,18 @@ mod ffi {
             tokens: *mut u32,
             st: *mut GraphStats,
         ) -> i32;
+        pub fn omega_gpu_q36_graph_prefill_alloc(g: *mut OmegaGpuQ36Graph, cap: u32) -> i32;
+        pub fn omega_gpu_q36_graph_prefill_cap(g: *const OmegaGpuQ36Graph) -> u32;
+        pub fn omega_gpu_q36_graph_prefill(
+            g: *mut OmegaGpuQ36Graph,
+            head: u32,
+            x_embed: *const f32,
+            n: u32,
+            pos0: u32,
+            want_token: i32,
+            token: *mut u32,
+            st: *mut GraphStats,
+        ) -> i32;
         pub fn omega_gpu_q36_graph_read_head(
             g: *mut OmegaGpuQ36Graph,
             head: u32,
@@ -158,6 +170,8 @@ pub enum Q36Buf {
 
 /// Heads per stroke the chip library lays out at most (one 4096-launch command list holds eight 40-layer tokens of 444 launches).
 pub const MAX_HEADS: usize = 8;
+/// Most tokens one prefill chunk carries (`OMEGA_GPU_Q36_PREFILL_MAX_ROWS`).
+pub const PREFILL_MAX_ROWS: usize = 112;
 
 pub struct Q36Graph {
     #[cfg(has_omega_q36)]
@@ -300,6 +314,78 @@ impl Q36Graph {
                 return Err(session_err("q36 graph stroke", rc));
             }
             Ok((tokens, st))
+        }
+        #[cfg(not(has_omega_q36))]
+        Err(OmegaGpuError::Unavailable)
+    }
+
+    /// L369 prefill: the chunk size the buffers hold (0 before [`Self::prefill_alloc`]).
+    pub fn prefill_cap(&self) -> usize {
+        #[cfg(has_omega_q36)]
+        {
+            // SAFETY: ptr is live.
+            unsafe { ffi::omega_gpu_q36_graph_prefill_cap(self.ptr) as usize }
+        }
+        #[cfg(not(has_omega_q36))]
+        0
+    }
+
+    /// L369 prefill: sizes the chunk buffers for up to `cap` tokens (1..=[`PREFILL_MAX_ROWS`]).
+    pub fn prefill_alloc(&mut self, cap: usize) -> Result<(), OmegaGpuError> {
+        if cap == 0 || cap > PREFILL_MAX_ROWS {
+            return Err(bad(format!("q36 graph: prefill cap {cap} (1..={PREFILL_MAX_ROWS})")));
+        }
+        #[cfg(has_omega_q36)]
+        {
+            // SAFETY: ptr is live.
+            let rc = unsafe { ffi::omega_gpu_q36_graph_prefill_alloc(self.ptr, cap as u32) };
+            if rc != 0 {
+                return Err(session_err("q36 graph prefill_alloc", rc));
+            }
+            Ok(())
+        }
+        #[cfg(not(has_omega_q36))]
+        Err(OmegaGpuError::Unavailable)
+    }
+
+    /// L369 prefill: `n` prompt tokens (embeddings `x_embed`, `[n][HIDDEN]`) of the conversation in
+    /// head slot `head` at positions `pos0..pos0 + n`, each as if it went through a token step in
+    /// turn (the decode step's kernels, so the state matches token by token bit for bit). With
+    /// `want_token` the last token's greedy token (and [`Self::read_head`] for its logits).
+    pub fn prefill(
+        &mut self,
+        head: usize,
+        x_embed: &[f32],
+        pos0: usize,
+        want_token: bool,
+    ) -> Result<(Option<u32>, GraphStats), OmegaGpuError> {
+        let n = x_embed.len() / HIDDEN;
+        if head >= self.heads || n == 0 {
+            return Err(bad(format!("q36 graph: prefill head {head} of {}, {n} tokens", self.heads)));
+        }
+        check_len("q36 graph prefill x_embed", HIDDEN * n, x_embed.len())?;
+        let pos0 = u32::try_from(pos0).map_err(|_| bad(format!("q36 graph: pos {pos0} too large")))?;
+        #[cfg(has_omega_q36)]
+        {
+            let mut token = 0u32;
+            let mut st = GraphStats::default();
+            // SAFETY: ptr is live; x_embed holds HIDDEN * n f32 (checked).
+            let rc = unsafe {
+                ffi::omega_gpu_q36_graph_prefill(
+                    self.ptr,
+                    head as u32,
+                    x_embed.as_ptr(),
+                    n as u32,
+                    pos0,
+                    want_token as i32,
+                    &mut token,
+                    &mut st,
+                )
+            };
+            if rc != 0 {
+                return Err(session_err("q36 graph prefill", rc));
+            }
+            Ok((want_token.then_some(token), st))
         }
         #[cfg(not(has_omega_q36))]
         Err(OmegaGpuError::Unavailable)
