@@ -27,6 +27,9 @@
 //! The tool takes the hive's chip lock itself around the chip part. Inside a `spark-window` (whose
 //! holder already owns that lock) set `AIEN_STROKE_IN_WINDOW=1` to skip it; never elsewhere.
 //!
+//! `AIEN_STROKE_STAMPS=1`: chip timestamps around every launch; the last stroke's chip time per launch kind
+//! is printed and written as `timeline_last_stroke` (stamps cost chip time: never for the speed receipt).
+//!
 //! `AIEN_STROKE_V2=1`: the batch (L312 v2, "the ignition"): each layer is recorded for every head at
 //! once and every weight is read once per layer for all of them; the same gate, the same controls.
 //! The report carries `"batch": true`.
@@ -316,6 +319,13 @@ fn run() -> Result<bool, String> {
     }
     let batch = engine.batch();
     eprintln!("graph: batch (v2) {}", if batch { "ON" } else { "off" });
+    // AIEN_STROKE_STAMPS=1: chip timestamps around every launch; the last stroke's time per launch kind
+    // goes to the report ("timeline_last_stroke"). Stamps cost chip time: not for the speed receipt.
+    let stamps = std::env::var("AIEN_STROKE_STAMPS").is_ok_and(|v| v == "1");
+    if stamps {
+        engine.set_stamps(true)?;
+        eprintln!("graph: stamps ON (a timeline per stroke; slower)");
+    }
     eprintln!(
         "graph: {heads} heads uploaded in {upload_s:.1} s, weights {} MB, KV {} MB per head",
         engine.weight_bytes() >> 20,
@@ -350,6 +360,36 @@ fn run() -> Result<bool, String> {
             }
         }
     }
+    let timeline = if stamps {
+        let tl = engine.timeline()?;
+        let mut per: std::collections::BTreeMap<String, (u64, u64)> =
+            std::collections::BTreeMap::new();
+        let mut total = 0u64;
+        for (k, ns) in &tl {
+            let e = per.entry(k.clone()).or_insert((0, 0));
+            e.0 += 1;
+            e.1 += ns;
+            total += ns;
+        }
+        let mut rows: Vec<_> = per.iter().collect();
+        rows.sort_by_key(|r| std::cmp::Reverse(r.1 .1));
+        for (k, (n, ns)) in &rows {
+            eprintln!(
+                "timeline: {k:>8} {n:5} launches {:9.3} ms ({:5.1}%)",
+                *ns as f64 / 1e6,
+                100.0 * *ns as f64 / total.max(1) as f64
+            );
+        }
+        eprintln!(
+            "timeline: total {:.3} ms over {} launches (last stroke)",
+            total as f64 / 1e6,
+            tl.len()
+        );
+        json!({"launches": tl.len(), "total_ns": total,
+            "per_kind": per.iter().map(|(k, (n, ns))| json!({"kind": k, "launches": n, "ns": ns})).collect::<Vec<_>>()})
+    } else {
+        serde_json::Value::Null
+    };
     drop(engine);
     drop(lock);
 
@@ -465,6 +505,7 @@ fn run() -> Result<bool, String> {
         "swap_mode": match swap { Swap::None => "none", Swap::Control => "control", Swap::Feature => "feature" },
         "swapped_at_step": swapped_at,
         "stroke_chip_ns": stroke_ns, "stroke_chip_ns_median": med,
+        "stamps": stamps, "timeline_last_stroke": timeline,
         "thresholds": {"cosine_min_recorded": COSINE_MIN, "margin_band_logits": MARGIN_MIN},
         "gate": "every conversation: words identical to its golden except where the reference's top-two margin is below the written band (0.1 logit, fixed in advance, never from the run under test); chip greedy agrees at every position outside the band; shifted-by-one caught; reference equals golden. Controls: AIEN_Q36_TEST_MUTANT=4 and AIEN_STROKE_SWAP=control must FAIL; AIEN_STROKE_SWAP=feature must PASS (L312 stroke v1)",
         "conversations": convs_report, "pass": all_pass,

@@ -887,7 +887,9 @@ impl Qwen38Omega {
     /// layer for all of them. 35B graph only; pins the GEMM kernels on the session.
     pub fn set_batch(&mut self, on: bool) -> Result<(), String> {
         match &mut self.graph {
-            Graph::Moe(g) => g.set_batch(on).map_err(|rc| format!("q36 set_batch: rc {rc}")),
+            Graph::Moe(g) => g
+                .set_batch(on)
+                .map_err(|rc| format!("q36 set_batch: rc {rc}")),
             Graph::Dense(_) => Err("set_batch: the 27B dense graph has no batch".into()),
         }
     }
@@ -896,6 +898,31 @@ impl Qwen38Omega {
         match &self.graph {
             Graph::Moe(g) => g.batch(),
             Graph::Dense(_) => false,
+        }
+    }
+    /// Chip timestamps around every launch of the next strokes (35B graph only): a timeline per token.
+    pub fn set_stamps(&mut self, on: bool) -> Result<(), String> {
+        match &mut self.graph {
+            Graph::Moe(g) => {
+                g.set_stamps(on);
+                Ok(())
+            }
+            Graph::Dense(_) => Err("set_stamps: the 27B dense graph has no stroke timeline".into()),
+        }
+    }
+    /// The last stroke's timeline: (launch kind name, chip ns) per launch in launch order; needs
+    /// [`Self::set_stamps`] before that stroke.
+    pub fn timeline(&self) -> Result<Vec<(String, u64)>, String> {
+        match &self.graph {
+            Graph::Moe(g) => g
+                .timeline()
+                .map(|v| {
+                    v.into_iter()
+                        .map(|(k, ns)| (Q36Graph::kind_name(k), ns))
+                        .collect()
+                })
+                .map_err(|rc| format!("q36 timeline: rc {rc}")),
+            Graph::Dense(_) => Err("timeline: the 27B dense graph has no stroke timeline".into()),
         }
     }
 

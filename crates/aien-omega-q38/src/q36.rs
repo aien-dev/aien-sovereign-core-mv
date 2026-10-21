@@ -123,6 +123,14 @@ mod ffi {
         pub fn omega_gpu_q36_graph_set_flush_each(g: *mut OmegaGpuQ36Graph, on: i32);
         pub fn omega_gpu_q36_graph_set_batch(g: *mut OmegaGpuQ36Graph, on: i32) -> i32;
         pub fn omega_gpu_q36_graph_batch(g: *const OmegaGpuQ36Graph) -> i32;
+        pub fn omega_gpu_q36_graph_set_stamps(g: *mut OmegaGpuQ36Graph, on: i32);
+        pub fn omega_gpu_q36_graph_stamps(
+            g: *const OmegaGpuQ36Graph,
+            stamps: *mut u64,
+            kinds: *mut u8,
+            cap: u32,
+        ) -> i32;
+        pub fn omega_gpu_q36_graph_kind_name(kind: u8) -> *const std::ffi::c_char;
         pub fn omega_gpu_q36_graph_test_set_mutant(g: *mut OmegaGpuQ36Graph, mutant: i32);
     }
 }
@@ -505,7 +513,11 @@ impl Q36Graph {
         // SAFETY: ptr is live.
         unsafe {
             let rc = ffi::omega_gpu_q36_graph_set_batch(self.ptr, on as i32);
-            if rc == 0 { Ok(()) } else { Err(rc) }
+            if rc == 0 {
+                Ok(())
+            } else {
+                Err(rc)
+            }
         }
         #[cfg(not(has_omega_q36))]
         {
@@ -522,6 +534,59 @@ impl Q36Graph {
         }
         #[cfg(not(has_omega_q36))]
         false
+    }
+    /// Chip timestamps around every launch of the next tokens (a timeline; off by default).
+    pub fn set_stamps(&mut self, on: bool) {
+        #[cfg(has_omega_q36)]
+        // SAFETY: ptr is live.
+        unsafe {
+            ffi::omega_gpu_q36_graph_set_stamps(self.ptr, on as i32);
+        }
+        #[cfg(not(has_omega_q36))]
+        let _ = on;
+    }
+    /// The last token's timeline: (kind, chip ns) per launch, in launch order. Needs `set_stamps(true)`
+    /// before that token; Err(rc) when there is none.
+    pub fn timeline(&self) -> Result<Vec<(u8, u64)>, i32> {
+        #[cfg(has_omega_q36)]
+        // SAFETY: ptr is live; the buffers hold the most launches one command list carries, plus one.
+        unsafe {
+            const CAP: usize = 4097;
+            let mut stamps = vec![0u64; CAP];
+            let mut kinds = vec![0u8; CAP];
+            let n = ffi::omega_gpu_q36_graph_stamps(
+                self.ptr,
+                stamps.as_mut_ptr(),
+                kinds.as_mut_ptr(),
+                CAP as u32,
+            );
+            if n < 0 {
+                return Err(n);
+            }
+            let n = n as usize;
+            Ok((0..n)
+                .map(|i| (kinds[i], stamps[i + 1].wrapping_sub(stamps[i])))
+                .collect())
+        }
+        #[cfg(not(has_omega_q36))]
+        Err(-1)
+    }
+    /// omega's own name for a launch kind of the 35B graph.
+    pub fn kind_name(kind: u8) -> String {
+        #[cfg(has_omega_q36)]
+        // SAFETY: the library returns a static NUL-terminated string for every kind value.
+        unsafe {
+            let p = ffi::omega_gpu_q36_graph_kind_name(kind);
+            if p.is_null() {
+                return "?".into();
+            }
+            std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned()
+        }
+        #[cfg(not(has_omega_q36))]
+        {
+            let _ = kind;
+            "?".into()
+        }
     }
     /// 1: submit after every launch (the comparison path).
     pub fn set_flush_each(&mut self, on: bool) {
