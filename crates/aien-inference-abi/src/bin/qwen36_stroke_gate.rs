@@ -40,6 +40,8 @@ use serde_json::{json, Value};
 const COSINE_MIN: f64 = 0.9999;
 /// The written band (`qwen38_omega_full::MARGIN_MIN`): fixed 2026-10-21 02:10Z, never from the run.
 const MARGIN_MIN: f32 = 0.1;
+/// How long the memory wait may go on, with or without the lock, before the tool refuses.
+const MEMORY_WAIT: Duration = Duration::from_secs(40 * 60);
 
 fn margin(logits: &[f32]) -> f32 {
     let top = argmax(logits);
@@ -112,6 +114,16 @@ enum Swap {
 /// The hive's chip lock (`/tmp/aien-gb10.lock`, taken as aien-serve-http takes it): held from the
 /// upload to the end of the strokes and released when the file drops. The host reference runs
 /// before it, so the chip is never held idle; the memory wait runs before it too.
+/// This binary's sha256, stamped on every receipt: the script's start line is not enough once the
+/// binary is rebuilt while a run is queued.
+fn self_sha256() -> String {
+    use sha2::Digest;
+    match std::fs::read("/proc/self/exe") {
+        Ok(b) => format!("{:x}", sha2::Sha256::digest(&b)),
+        Err(e) => format!("unreadable: {e}"),
+    }
+}
+
 fn chip_lock() -> Result<std::fs::File, String> {
     use std::os::fd::AsRawFd;
     let f = std::fs::OpenOptions::new()
@@ -131,7 +143,7 @@ fn chip_lock() -> Result<std::fs::File, String> {
     Ok(f)
 }
 
-/// Waits (no lock held) until the box has `need` plus KEEP_FREE available, at most 40 minutes:
+/// Waits (no lock held) until the box has `need` plus KEEP_FREE available, at most MEMORY_WAIT:
 /// test servers on 18093 come and go, and an upload into a full box reaches the OOM killer.
 fn wait_for_memory(need: u64) -> Result<u64, String> {
     let t0 = Instant::now();
@@ -142,7 +154,7 @@ fn wait_for_memory(need: u64) -> Result<u64, String> {
             return Ok(avail);
         }
         let s = t0.elapsed().as_secs();
-        if s >= 40 * 60 {
+        if t0.elapsed() >= MEMORY_WAIT {
             return Err(format!(
                 "the whole stack needs {} MiB with {} MiB kept free, MemAvailable {} MiB after {s} s; refusing",
                 need >> 20,
@@ -184,6 +196,8 @@ fn run() -> Result<bool, String> {
         .map(|p| load_conv(p))
         .collect::<Result<_, _>>()?;
     let heads = convs.len();
+    let bin_sha = self_sha256();
+    eprintln!("binary sha256 {bin_sha}");
     let swap = match std::env::var("AIEN_STROKE_SWAP").ok().as_deref() {
         None | Some("") => Swap::None,
         Some("control") => Swap::Control,
@@ -246,28 +260,44 @@ fn run() -> Result<bool, String> {
     // the box keeps KEEP_FREE after it (the 18091 server shares the pool; never starve it), and
     // only under the hive's chip lock.
     let need = window_bytes(&config, 0, layers);
-    let avail = wait_for_memory(need)?;
-    eprintln!(
-        "memory: MemAvailable {} MiB for {} MiB; taking the chip lock",
-        avail >> 20,
-        need >> 20
-    );
     let in_window = std::env::var("AIEN_STROKE_IN_WINDOW").is_ok_and(|v| v == "1");
-    let lock = if in_window {
-        eprintln!("AIEN_STROKE_IN_WINDOW=1: the spark-window holds the chip lock; not taking it");
-        None
-    } else {
-        Some(chip_lock()?)
-    };
-    let avail = mem_available()?;
-    if avail < need + KEEP_FREE {
-        return Err(format!(
-            "the whole stack needs {} MiB with {} MiB kept free, MemAvailable {} MiB under the lock; refusing",
+    // Memory moves between the wait and the lock (another lane's server loads while this process
+    // queues for the lock), so: wait, lock, look again under the lock; if short, let the lock go
+    // (the lane holding the memory may need the chip to finish) and wait on, up to MEMORY_WAIT.
+    let t_mem = Instant::now();
+    let lock = loop {
+        let avail = wait_for_memory(need)?;
+        if in_window {
+            eprintln!(
+                "AIEN_STROKE_IN_WINDOW=1: the spark-window holds the chip lock; not taking it"
+            );
+            break None;
+        }
+        eprintln!(
+            "memory: MemAvailable {} MiB for {} MiB; taking the chip lock",
+            avail >> 20,
+            need >> 20
+        );
+        let lock = chip_lock()?;
+        let avail = mem_available()?;
+        if avail >= need + KEEP_FREE {
+            break Some(lock);
+        }
+        eprintln!(
+            "under the lock MemAvailable is {} MiB (need {} + {} MiB); letting the lock go, waiting on",
+            avail >> 20,
             need >> 20,
-            KEEP_FREE >> 20,
-            avail >> 20
-        ));
-    }
+            KEEP_FREE >> 20
+        );
+        drop(lock);
+        if t_mem.elapsed() >= MEMORY_WAIT {
+            return Err(format!(
+                "memory never stayed free under the lock within {} min; refusing",
+                MEMORY_WAIT.as_secs() / 60
+            ));
+        }
+        std::thread::sleep(Duration::from_secs(10));
+    };
     let t1 = Instant::now();
     let mut engine = Qwen38Omega::open_window_heads(dir, 0, layers, t_max.max(256), heads)?;
     let upload_s = t1.elapsed().as_secs_f64();
@@ -414,6 +444,7 @@ fn run() -> Result<bool, String> {
     let report = json!({
         "checkpoint": dir.display().to_string(), "layers": layers, "heads": heads,
         "reference_s": ref_s, "upload_s": upload_s,
+        "bin_sha256": bin_sha,
         "in_window": in_window,
         "swap_mode": match swap { Swap::None => "none", Swap::Control => "control", Swap::Feature => "feature" },
         "swapped_at_step": swapped_at,
