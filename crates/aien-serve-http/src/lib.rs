@@ -33,6 +33,7 @@ pub mod readers;
 pub mod sampling;
 pub mod server;
 pub mod text;
+pub mod tool_cache;
 pub mod tools;
 
 pub use codec::{ByteCodec, Codec, HfCodec};
