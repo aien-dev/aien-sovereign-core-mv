@@ -1,0 +1,38 @@
+{
+  "agree": 1,
+  "argmax": [
+    11751
+  ],
+  "arm": "w4e",
+  "complete": false,
+  "fp8_layers": "0-9",
+  "greedy_self_reference": false,
+  "input": "/home/drakestapleton/workspace/sc-hum-state-precision/evidence/hum-state-precision/drift-p1.json",
+  "margin": [
+    1.373016357421875
+  ],
+  "mode": "forced",
+  "nll": [
+    0.6186213599423311
+  ],
+  "prompt_ids": [
+    760,
+    6511,
+    314,
+    9338,
+    369
+  ],
+  "ref_ids": [
+    11751
+  ],
+  "ref_margin": [
+    1.4914627075195312
+  ],
+  "seconds": 7.763305878,
+  "shared_fp8": null,
+  "step_seconds": [
+    2.163257255
+  ],
+  "steps": 1,
+  "store": "default"
+}

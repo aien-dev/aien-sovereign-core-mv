@@ -1,0 +1,62 @@
+2026-10-21T02:42:55Z start golden-w4e-p1 MemAvailable 2632452 kB
+2026-10-21T02:43:33Z end golden-w4e-p1 exit 0
+2026-10-21T02:43:33Z start golden-w4e-p2 MemAvailable 55874832 kB
+2026-10-21T02:44:33Z end golden-w4e-p2 exit 0
+2026-10-21T02:44:33Z start golden-w4e-p3 MemAvailable 66296280 kB
+2026-10-21T02:45:09Z end golden-w4e-p3 exit 0
+2026-10-21T02:45:09Z start golden-w4e-p4 MemAvailable 39530460 kB
+2026-10-21T02:46:13Z end golden-w4e-p4 exit 0
+2026-10-21T02:46:13Z start forced-fp8-p1 MemAvailable 74543492 kB
+2026-10-21T02:49:54Z [mtp] start mtp-fp8-p1 MemAvailable 17038564 kB
+2026-10-21T02:58:10Z end forced-fp8-p1 exit 0
+2026-10-21T02:58:10Z start forced-w4e-p1 MemAvailable 60477908 kB
+2026-10-21T03:03:14Z [mtp] end mtp-fp8-p1 exit 0
+2026-10-21T03:03:14Z [mtp] start mtp-fp8-p2 MemAvailable 58275264 kB
+2026-10-21T03:09:16Z end forced-w4e-p1 exit 0
+2026-10-21T03:09:16Z start forced-w4e-p2 MemAvailable 27998728 kB
+2026-10-21T03:20:04Z [w4et-gold] start p1
+2026-10-21T03:22:05Z [w4et-gold] end p1 exit 0
+2026-10-21T03:22:05Z [w4et-gold] start p2
+2026-10-21T03:24:01Z [w4et-gold] end p2 exit 0
+2026-10-21T03:24:01Z [w4et-gold] start p3
+2026-10-21T03:26:06Z [w4et-gold] end p3 exit 0
+2026-10-21T03:26:06Z [w4et-gold] start p4
+2026-10-21T03:27:16Z end forced-w4e-p2 exit 0
+2026-10-21T03:27:16Z start forced-w4e-p3 MemAvailable 25000088 kB
+2026-10-21T03:28:09Z [w4et-gold] end p4 exit 0
+2026-10-21T03:28:09Z [w4et-gold] start chat-max-24
+2026-10-21T03:29:26Z [w4et-gold] end chat-max-24 exit 0
+2026-10-21T03:29:45Z [mtp] end mtp-fp8-p2 exit 0
+2026-10-21T03:29:45Z [mtp] start mtp-fp8-p3 MemAvailable 43746012 kB
+2026-10-21T03:39:46Z end forced-w4e-p3 exit 0
+2026-10-21T03:39:46Z start forced-w4e-p4 MemAvailable 45326440 kB
+2026-10-21T03:42:08Z [mtp] end mtp-fp8-p3 exit 0
+2026-10-21T03:42:08Z [mtp] start mtp-fp8-p4 MemAvailable 48140284 kB
+2026-10-21T03:51:33Z end forced-w4e-p4 exit 0
+2026-10-21T03:51:33Z start forced-w4e-chat-max-24 MemAvailable 104550836 kB
+2026-10-21T03:53:31Z [mtp] end mtp-fp8-p4 exit 0
+2026-10-21T03:53:31Z [mtp] start mtp-fp8-chat-max-24 MemAvailable 85538856 kB
+2026-10-21T04:01:42Z end forced-w4e-chat-max-24 exit 0
+2026-10-21T04:01:42Z start score-fp8 MemAvailable 82694128 kB
+2026-10-21T04:02:15Z end score-fp8 exit 0
+2026-10-21T04:02:15Z start score-w4e MemAvailable 105460660 kB
+2026-10-21T04:02:44Z end score-w4e exit 0
+2026-10-21T04:02:44Z start score-w4e-mut MemAvailable 106807428 kB
+2026-10-21T04:03:15Z end score-w4e-mut exit 0
+2026-10-21T04:03:15Z start forced-w4e-mut-p1 MemAvailable 92137336 kB
+2026-10-21T04:03:17Z [mtp] end mtp-fp8-chat-max-24 exit 0
+2026-10-21T04:12:39Z [sens] g2 p4 exit 0
+2026-10-21T04:12:42Z [sens] g0 p4 exit 0
+2026-10-21T04:12:44Z [sens] g3 p4 exit 0
+2026-10-21T04:12:46Z [sens] g1 p4 exit 0
+2026-10-21T04:14:33Z end forced-w4e-mut-p1 exit 0
+2026-10-21T04:14:33Z start forced-w4e-mut-p2 MemAvailable 86472444 kB
+2026-10-21T04:19:06Z [sens] g2 chat-max-24 exit 0
+2026-10-21T04:19:07Z [sens] g3 chat-max-24 exit 0
+2026-10-21T04:19:08Z [sens] g0 chat-max-24 exit 0
+2026-10-21T04:19:10Z [sens] g1 chat-max-24 exit 0
+2026-10-21T04:24:30Z [sens] g2 p3 exit 0
+2026-10-21T04:24:32Z [sens] g0 p3 exit 0
+2026-10-21T04:24:33Z [sens] g3 p3 exit 0
+2026-10-21T04:24:39Z [sens] g1 p3 exit 0
+2026-10-21T04:24:59Z [arm w4em0] start (w4e, fp8 layers 0-9)
