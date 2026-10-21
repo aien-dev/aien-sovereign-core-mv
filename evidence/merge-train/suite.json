@@ -24,7 +24,8 @@
     {"id": "L371", "name": "eight readers",                           "present": {"model": "readers"},     "arms": ["plain"]},
     {"id": "L355", "name": "W4 experts store",                        "present": {"build": "W4"},          "arms": ["plain"]},
     {"id": "L313", "name": "bf16 DeltaNet state",                     "present": {"build": "bf16|state-precision"}, "arms": ["plain", "state-bf16"]},
-    {"id": "L376", "name": "team board",                              "present": {"health": ".board.tools"}, "arms": ["plain", "board"]}
+    {"id": "L376", "name": "team board",                              "present": {"health": ".board.tools"}, "arms": ["plain", "board"]},
+    {"id": "L383", "name": "shared weights: test copies borrow the train server's upload", "present": {"build": "shared-weights"}, "arms": ["plain"]}
   ],
   "cases": [
     {"id": "golden-chat-max-24", "kind": "golden", "golden": "evidence/q36-host-20261020/gen-chat-max-24.json", "max_tokens": 24,
@@ -59,6 +60,9 @@
      "about": "8 rows at once, row 3 trades rows with another conversation at its 2nd step: both go red, the rest identical"},
     {"id": "board-gate", "kind": "script", "script": "evidence/q36-board-20261021/gate.sh", "arms": ["board"], "levers": ["L376"],
      "args": ["$PORT", "$OUT/board-gate", "$SERVER_LOG", "$OUT/board"],
-     "about": "L376's 10 board cases (ledger note on L384, 14:12Z) as the owner's gate against the train's server"}
+     "about": "L376's 10 board cases (ledger note on L384, 14:12Z) as the owner's gate against the train's server"},
+    {"id": "l383-borrow", "kind": "script", "script": "evidence/l383-shared-weights/borrow.sh", "arms": ["plain"], "levers": ["L383"],
+     "args": ["$PORT", "$OUT/l383-borrow", "$SERVER_LOG"],
+     "about": "L383: copies start on the train server's weights (--weights-from); golden + identity vs the train server alone and at once, 3 copies, crash, write mutant (SIGSEGV); receipts: start time, own memory"}
   ]
 }

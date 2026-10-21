@@ -222,7 +222,10 @@ start_server() { # <bin-dir> <port> <log> <pidfile> [VAR=value ...]
   ss -ltn 2>/dev/null | grep -q "127.0.0.1:$port " && die "port $port already in use"
   ( cd "$bin" && sha256sum -c --quiet SHA256SUMS ) || die "$bin: SHA256SUMS do not match"
   echo "=== $(date -u +%FT%TZ) merge-train start $(basename "$bin") on $port env: $* MemAvailable $(awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo) GB" >> "$log"
-  ( cd "$bin" && env "$@" Q36_EXTRA_LEDGER="$LEDGER_ID" AIEN_SERVE_KEEP_FREE_MIB="${AIEN_SERVE_KEEP_FREE_MIB:-2048}" setsid nohup "$Q36_EXTRA" ./aien-serve-http --engine omega \
+  # L383: every train server publishes its weights (owner-only unix socket; a build without the feature ignores the
+  # variable), so script cases can start test copies that borrow them instead of loading another 35B
+  mkdir -p -m 700 "$HOME/.local/state/aien-mt"
+  ( cd "$bin" && env "$@" Q36_EXTRA_LEDGER="$LEDGER_ID" AIEN_SERVE_WEIGHTS_PUBLISH="$HOME/.local/state/aien-mt/w-$port.sock" AIEN_SERVE_KEEP_FREE_MIB="${AIEN_SERVE_KEEP_FREE_MIB:-2048}" setsid nohup "$Q36_EXTRA" ./aien-serve-http --engine omega \
       --model-dir "$MODEL_DIR" --port "$port" --max-context "${MERGE_TRAIN_CTX:-2048}" --max-tokens-cap 16384 --thinking off --batch-slots "${MERGE_TRAIN_SLOTS:-8}" >> "$log" 2>&1 < /dev/null & echo $! > "$pidf" )
   say "server $(basename "$bin") starting on $port (pid $(cat "$pidf"), q36-extra slot wait + load; log $log)"
 }
