@@ -27,7 +27,9 @@ use aien_inference_abi::tokenizer::ChatOptions;
 
 use crate::board::{self, Board, Conversation, List, Patch};
 use crate::codec::{Codec, CodecError};
-use crate::engine::{Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams};
+use crate::engine::{
+    Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams, TestSwitches,
+};
 use crate::openai::{
     chunk_json, chunk_json_with, completion_json, ChatRequest, ErrorBody, ModelCard, ModelList,
     Usage,
@@ -137,7 +139,7 @@ impl ApiError {
             status: StatusCode::SERVICE_UNAVAILABLE,
             body: ErrorBody::new(
                 "server_busy",
-                "one generation at a time: the engine is busy with another request, retry shortly",
+                "every generation slot is taken (the engine's concurrency): retry shortly",
             ),
             retry_after: Some(1),
         }
@@ -185,6 +187,8 @@ struct Prepared {
     opts: ChatOptions,
     /// The conversation's board state to commit when the request is admitted.
     board: Option<BoardPending>,
+    /// The merge train's switches for this request (empty: none; `aien_test` absent).
+    test: TestSwitches,
 }
 
 /// A conversation's cursors and patches after this request's delivery, committed on admission.
@@ -220,7 +224,9 @@ impl BoardPending {
 /// Most built-in tool rounds one request runs (each continues the same turn in place).
 const MAX_TOOL_ROUNDS: usize = 4;
 
-/// What the generation thread sends to the HTTP side.
+/// What the generation thread sends to the HTTP side. `Done` is sent once per request, so its size
+/// (past clippy's line since `aien_test` joined it) costs nothing.
+#[allow(clippy::large_enum_variant)]
 enum Ev {
     Delta(String),
     /// Text of the thinking block (`reasoning_content`).
@@ -230,6 +236,8 @@ enum Ev {
         completion_tokens: usize,
         sampling: Option<SamplingRecord>,
         token_ids: Option<Vec<u32>>,
+        /// The `aien_test` switches applied (`usage.aien_test.applied`), when the request set any.
+        test: Option<Vec<&'static str>>,
     },
     Error(String),
     /// The engine could not get the shared chip: 503 before any token.
@@ -380,6 +388,19 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
                 "conversations": conversations,
                 "tools": b.offers_tools(),
             }),
+        );
+    }
+    // The merge train (L384): which `aien_test` switches this build honors, so the train marks a
+    // lever NOT-ON-TRAIN instead of PASS when its switch is not in the candidate. Test builds only.
+    // Absent for an engine with no switches, so its /health stays exactly as it was.
+    #[cfg(feature = "aien-test-switches")]
+    if let (false, Some(obj)) = (
+        state.engine.test_switches_honored().is_empty(),
+        v.as_object_mut(),
+    ) {
+        obj.insert(
+            "aien_test".into(),
+            serde_json::json!({ "honored": state.engine.test_switches_honored() }),
         );
     }
     Json(v)
@@ -820,7 +841,41 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
         opts,
         ctx,
         board: board_pending,
+        test: test_switches(state, req.aien_test.as_ref())?,
     })
+}
+
+/// The merge train's `aien_test` field. A build without the `aien-test-switches` feature (the
+/// live server) refuses the field outright; a test build parses it and refuses any switch the
+/// engine does not honor, so no switch is ever ignored in silence and no verdict rests on one.
+fn test_switches(state: &AppState, v: Option<&Value>) -> Result<TestSwitches, ApiError> {
+    let Some(v) = v.filter(|v| !v.is_null()) else {
+        return Ok(TestSwitches::default());
+    };
+    #[cfg(not(feature = "aien-test-switches"))]
+    {
+        let _ = (state, v);
+        Err(ApiError::bad_request(
+            "aien_test: this server was built without the merge train's test switches (cargo feature aien-test-switches); it never serves a test case",
+        ))
+    }
+    #[cfg(feature = "aien-test-switches")]
+    {
+        let t = TestSwitches::from_json(v).map_err(ApiError::bad_request)?;
+        let honored = state.engine.test_switches_honored();
+        let unhonored: Vec<&str> = t
+            .names()
+            .into_iter()
+            .filter(|n| !honored.contains(n))
+            .collect();
+        if !unhonored.is_empty() {
+            return Err(ApiError::bad_request(format!(
+                "aien_test: switches {unhonored:?} are not honored by this server's {} engine (it honors {honored:?}); a load-only switch needs its own server",
+                state.engine.kind()
+            )));
+        }
+        Ok(t)
+    }
 }
 
 /// The conversation key and author name of a request. Key: `aien_conversation` (our agents send
@@ -1022,6 +1077,7 @@ fn run_generation(
     let mut sent = SendState::default();
     let mut rounds = 0usize;
     let mut per_round: Vec<usize> = Vec::new();
+    let test_report = (!prepared.test.is_empty()).then(|| prepared.test.names());
     let mut stopped_by_string;
     let last: GenerateOutcome;
     loop {
@@ -1108,9 +1164,9 @@ fn run_generation(
             }
         };
         let result = if rounds == 1 {
-            engine.generate(&prompt, &params, on_tok)
+            engine.generate_with_test(&prompt, &params, &prepared.test, on_tok)
         } else {
-            engine.generate_continuation(&prompt, &params, on_tok)
+            engine.generate_continuation(&prompt, &params, &prepared.test, on_tok)
         };
         let out = match result {
             Err(EngineError::Busy(m)) => {
@@ -1259,6 +1315,7 @@ fn run_generation(
         completion_tokens: total_emitted,
         sampling: out.sampling,
         token_ids: ids,
+        test: test_report,
     });
 }
 
@@ -1320,6 +1377,7 @@ async fn collect_response(
                 completion_tokens,
                 sampling,
                 token_ids,
+                test,
             } => {
                 let usage = Usage {
                     prompt_tokens,
@@ -1327,6 +1385,7 @@ async fn collect_response(
                     total_tokens: prompt_tokens + completion_tokens,
                     aien_sampling: sampling,
                     aien_token_ids: token_ids,
+                    aien_test: test.map(|n| serde_json::json!({ "applied": n })),
                 };
                 let reasoning = reasoning.as_deref().map(str::trim);
                 let (text, calls) = if tools && finish == "stop" {
@@ -1428,6 +1487,7 @@ fn stream_response(
                     completion_tokens,
                     sampling,
                     token_ids,
+                    test,
                 } => {
                     let usage = Usage {
                         prompt_tokens,
@@ -1435,6 +1495,7 @@ fn stream_response(
                         total_tokens: prompt_tokens + completion_tokens,
                         aien_sampling: sampling,
                         aien_token_ids: token_ids,
+                        aien_test: test.map(|n| serde_json::json!({ "applied": n })),
                     };
                     let mut finish = finish;
                     if tools && !held.is_empty() {

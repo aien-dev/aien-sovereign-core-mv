@@ -1,5 +1,5 @@
 //! `aien-serve-http`: the OpenAI-compatible HTTP door for AIEN's own-kernel model
-//! serving (OWN-30B cut 4). Loopback only, one generation at a time, no CUDA, no
+//! serving (OWN-30B cut 4). Loopback only, one generation at a time unless the engine has more slots (--batch-slots), no CUDA, no
 //! Python. The engine behind the door is a trait ([`engine::Engine`]); this crate
 //! ships a stub engine for tests and the CPU reference forward as a real-but-slow
 //! engine. The Omega GPU engine plugs into the same trait.

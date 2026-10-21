@@ -1,7 +1,7 @@
 //! Stroke gate: N conversations per stroke on the chip, judged word for word (L312, the motor).
 //!
 //! ```text
-//!   qwen36_stroke_gate <checkpoint-dir> <out.json> <golden.json>...   (2..=4 goldens, one per head)
+//!   qwen36_stroke_gate <checkpoint-dir> <out.json> <golden.json>...   (1..=8 goldens, one per head)
 //! ```
 //!
 //! Every golden is a `qwen38_check generate` record (`prompt_ids`, `generated_ids`); conversation
@@ -26,6 +26,13 @@
 //!
 //! The tool takes the hive's chip lock itself around the chip part. Inside a `spark-window` (whose
 //! holder already owns that lock) set `AIEN_STROKE_IN_WINDOW=1` to skip it; never elsewhere.
+//!
+//! `AIEN_STROKE_STAMPS=1`: chip timestamps around every launch; the last stroke's chip time per launch kind
+//! is printed and written as `timeline_last_stroke` (stamps cost chip time: never for the speed receipt).
+//!
+//! `AIEN_STROKE_V2=1`: the batch (L312 v2, "the ignition"): each layer is recorded for every head at
+//! once and every weight is read once per layer for all of them; the same gate, the same controls.
+//! The report carries `"batch": true`.
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -40,6 +47,8 @@ use serde_json::{json, Value};
 const COSINE_MIN: f64 = 0.9999;
 /// The written band (`qwen38_omega_full::MARGIN_MIN`): fixed 2026-10-21 02:10Z, never from the run.
 const MARGIN_MIN: f32 = 0.1;
+/// How long the memory wait may go on, with or without the lock, before the tool refuses.
+const MEMORY_WAIT: Duration = Duration::from_secs(40 * 60);
 
 fn margin(logits: &[f32]) -> f32 {
     let top = argmax(logits);
@@ -112,6 +121,16 @@ enum Swap {
 /// The hive's chip lock (`/tmp/aien-gb10.lock`, taken as aien-serve-http takes it): held from the
 /// upload to the end of the strokes and released when the file drops. The host reference runs
 /// before it, so the chip is never held idle; the memory wait runs before it too.
+/// This binary's sha256, stamped on every receipt: the script's start line is not enough once the
+/// binary is rebuilt while a run is queued.
+fn self_sha256() -> String {
+    use sha2::Digest;
+    match std::fs::read("/proc/self/exe") {
+        Ok(b) => format!("{:x}", sha2::Sha256::digest(&b)),
+        Err(e) => format!("unreadable: {e}"),
+    }
+}
+
 fn chip_lock() -> Result<std::fs::File, String> {
     use std::os::fd::AsRawFd;
     let f = std::fs::OpenOptions::new()
@@ -131,7 +150,7 @@ fn chip_lock() -> Result<std::fs::File, String> {
     Ok(f)
 }
 
-/// Waits (no lock held) until the box has `need` plus KEEP_FREE available, at most 40 minutes:
+/// Waits (no lock held) until the box has `need` plus KEEP_FREE available, at most MEMORY_WAIT:
 /// test servers on 18093 come and go, and an upload into a full box reaches the OOM killer.
 fn wait_for_memory(need: u64) -> Result<u64, String> {
     let t0 = Instant::now();
@@ -142,7 +161,7 @@ fn wait_for_memory(need: u64) -> Result<u64, String> {
             return Ok(avail);
         }
         let s = t0.elapsed().as_secs();
-        if s >= 40 * 60 {
+        if t0.elapsed() >= MEMORY_WAIT {
             return Err(format!(
                 "the whole stack needs {} MiB with {} MiB kept free, MemAvailable {} MiB after {s} s; refusing",
                 need >> 20,
@@ -173,8 +192,8 @@ fn median(v: &mut [u64]) -> u64 {
 
 fn run() -> Result<bool, String> {
     let args: Vec<String> = std::env::args().collect();
-    let usage = "usage: qwen36_stroke_gate <checkpoint-dir> <out.json> <golden.json>... (2..=4)";
-    if args.len() < 5 || args.len() > 7 {
+    let usage = "usage: qwen36_stroke_gate <checkpoint-dir> <out.json> <golden.json>... (1..=8)";
+    if args.len() < 4 || args.len() > 11 {
         return Err(usage.into());
     }
     let dir = Path::new(&args[1]);
@@ -184,12 +203,19 @@ fn run() -> Result<bool, String> {
         .map(|p| load_conv(p))
         .collect::<Result<_, _>>()?;
     let heads = convs.len();
+    let bin_sha = self_sha256();
+    eprintln!("binary sha256 {bin_sha}");
     let swap = match std::env::var("AIEN_STROKE_SWAP").ok().as_deref() {
         None | Some("") => Swap::None,
         Some("control") => Swap::Control,
         Some("feature") => Swap::Feature,
         Some(v) => return Err(format!("AIEN_STROKE_SWAP={v}: control, feature or unset")),
     };
+    if swap != Swap::None && heads < 2 {
+        return Err(format!(
+            "AIEN_STROKE_SWAP exchanges slots 0 and 1: {heads} head(s) given, two needed"
+        ));
+    }
 
     let config = Qwen38Config::from_checkpoint(dir)?;
     let layers = config.layers;
@@ -246,31 +272,60 @@ fn run() -> Result<bool, String> {
     // the box keeps KEEP_FREE after it (the 18091 server shares the pool; never starve it), and
     // only under the hive's chip lock.
     let need = window_bytes(&config, 0, layers);
-    let avail = wait_for_memory(need)?;
-    eprintln!(
-        "memory: MemAvailable {} MiB for {} MiB; taking the chip lock",
-        avail >> 20,
-        need >> 20
-    );
     let in_window = std::env::var("AIEN_STROKE_IN_WINDOW").is_ok_and(|v| v == "1");
-    let lock = if in_window {
-        eprintln!("AIEN_STROKE_IN_WINDOW=1: the spark-window holds the chip lock; not taking it");
-        None
-    } else {
-        Some(chip_lock()?)
-    };
-    let avail = mem_available()?;
-    if avail < need + KEEP_FREE {
-        return Err(format!(
-            "the whole stack needs {} MiB with {} MiB kept free, MemAvailable {} MiB under the lock; refusing",
+    // Memory moves between the wait and the lock (another lane's server loads while this process
+    // queues for the lock), so: wait, lock, look again under the lock; if short, let the lock go
+    // (the lane holding the memory may need the chip to finish) and wait on, up to MEMORY_WAIT.
+    let t_mem = Instant::now();
+    let lock = loop {
+        let avail = wait_for_memory(need)?;
+        if in_window {
+            eprintln!(
+                "AIEN_STROKE_IN_WINDOW=1: the spark-window holds the chip lock; not taking it"
+            );
+            break None;
+        }
+        eprintln!(
+            "memory: MemAvailable {} MiB for {} MiB; taking the chip lock",
+            avail >> 20,
+            need >> 20
+        );
+        let lock = chip_lock()?;
+        let avail = mem_available()?;
+        if avail >= need + KEEP_FREE {
+            break Some(lock);
+        }
+        eprintln!(
+            "under the lock MemAvailable is {} MiB (need {} + {} MiB); letting the lock go, waiting on",
+            avail >> 20,
             need >> 20,
-            KEEP_FREE >> 20,
-            avail >> 20
-        ));
-    }
+            KEEP_FREE >> 20
+        );
+        drop(lock);
+        if t_mem.elapsed() >= MEMORY_WAIT {
+            return Err(format!(
+                "memory never stayed free under the lock within {} min; refusing",
+                MEMORY_WAIT.as_secs() / 60
+            ));
+        }
+        std::thread::sleep(Duration::from_secs(10));
+    };
     let t1 = Instant::now();
     let mut engine = Qwen38Omega::open_window_heads(dir, 0, layers, t_max.max(256), heads)?;
     let upload_s = t1.elapsed().as_secs_f64();
+    // AIEN_STROKE_V2=1: the batch (every layer recorded for all heads at once, one weight read per layer)
+    if std::env::var("AIEN_STROKE_V2").is_ok_and(|v| v == "1") {
+        engine.set_batch(true)?;
+    }
+    let batch = engine.batch();
+    eprintln!("graph: batch (v2) {}", if batch { "ON" } else { "off" });
+    // AIEN_STROKE_STAMPS=1: chip timestamps around every launch; the last stroke's time per launch kind
+    // goes to the report ("timeline_last_stroke"). Stamps cost chip time: not for the speed receipt.
+    let stamps = std::env::var("AIEN_STROKE_STAMPS").is_ok_and(|v| v == "1");
+    if stamps {
+        engine.set_stamps(true)?;
+        eprintln!("graph: stamps ON (a timeline per stroke; slower)");
+    }
     eprintln!(
         "graph: {heads} heads uploaded in {upload_s:.1} s, weights {} MB, KV {} MB per head",
         engine.weight_bytes() >> 20,
@@ -305,6 +360,36 @@ fn run() -> Result<bool, String> {
             }
         }
     }
+    let timeline = if stamps {
+        let tl = engine.timeline()?;
+        let mut per: std::collections::BTreeMap<String, (u64, u64)> =
+            std::collections::BTreeMap::new();
+        let mut total = 0u64;
+        for (k, ns) in &tl {
+            let e = per.entry(k.clone()).or_insert((0, 0));
+            e.0 += 1;
+            e.1 += ns;
+            total += ns;
+        }
+        let mut rows: Vec<_> = per.iter().collect();
+        rows.sort_by_key(|r| std::cmp::Reverse(r.1 .1));
+        for (k, (n, ns)) in &rows {
+            eprintln!(
+                "timeline: {k:>8} {n:5} launches {:9.3} ms ({:5.1}%)",
+                *ns as f64 / 1e6,
+                100.0 * *ns as f64 / total.max(1) as f64
+            );
+        }
+        eprintln!(
+            "timeline: total {:.3} ms over {} launches (last stroke)",
+            total as f64 / 1e6,
+            tl.len()
+        );
+        json!({"launches": tl.len(), "total_ns": total,
+            "per_kind": per.iter().map(|(k, (n, ns))| json!({"kind": k, "launches": n, "ns": ns})).collect::<Vec<_>>()})
+    } else {
+        serde_json::Value::Null
+    };
     drop(engine);
     drop(lock);
 
@@ -414,10 +499,13 @@ fn run() -> Result<bool, String> {
     let report = json!({
         "checkpoint": dir.display().to_string(), "layers": layers, "heads": heads,
         "reference_s": ref_s, "upload_s": upload_s,
+        "bin_sha256": bin_sha,
         "in_window": in_window,
+        "batch": batch,
         "swap_mode": match swap { Swap::None => "none", Swap::Control => "control", Swap::Feature => "feature" },
         "swapped_at_step": swapped_at,
         "stroke_chip_ns": stroke_ns, "stroke_chip_ns_median": med,
+        "stamps": stamps, "timeline_last_stroke": timeline,
         "thresholds": {"cosine_min_recorded": COSINE_MIN, "margin_band_logits": MARGIN_MIN},
         "gate": "every conversation: words identical to its golden except where the reference's top-two margin is below the written band (0.1 logit, fixed in advance, never from the run under test); chip greedy agrees at every position outside the band; shifted-by-one caught; reference equals golden. Controls: AIEN_Q36_TEST_MUTANT=4 and AIEN_STROKE_SWAP=control must FAIL; AIEN_STROKE_SWAP=feature must PASS (L312 stroke v1)",
         "conversations": convs_report, "pass": all_pass,

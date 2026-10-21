@@ -32,7 +32,7 @@ mod moe;
 pub use moe::router_probe;
 mod prefill;
 mod rows;
-pub use rows::{RowFeed, RowOut};
+pub use rows::{RowFeed, RowOut, RowTest};
 mod session;
 pub use prefill::PrefillStats;
 pub use session::{plan_reuse, FeedStats, Qwen38Session, Reuse, IM_START};
@@ -186,6 +186,20 @@ pub struct Qwen38Snapshot {
     pub pos: usize,
     tails: Vec<f32>,
     states: Vec<f32>,
+}
+
+impl Qwen38Snapshot {
+    /// The first f32 (tails, then states) whose bits differ from `o`'s, or the length when one
+    /// holds more; `None`: the same position and the same bits throughout.
+    pub fn first_diff(&self, o: &Self) -> Option<usize> {
+        let a = self.tails.iter().chain(&self.states);
+        let b = o.tails.iter().chain(&o.states);
+        if let Some(i) = a.zip(b).position(|(x, y)| x.to_bits() != y.to_bits()) {
+            return Some(i);
+        }
+        let (na, nb) = (self.tails.len() + self.states.len(), o.tails.len() + o.states.len());
+        (na != nb || self.pos != o.pos).then_some(na.min(nb))
+    }
 }
 
 /// Memory the whole model needs with a KV cache of `max_pos` positions and prefill buffers for
@@ -798,7 +812,7 @@ impl Qwen38Omega {
         }
     }
 
-    fn head_pos_mut(&mut self, head: usize) -> Result<&mut usize, String> {
+    pub(super) fn head_pos_mut(&mut self, head: usize) -> Result<&mut usize, String> {
         let heads = self.heads();
         match head {
             0 => Ok(&mut self.pos),
@@ -901,6 +915,49 @@ impl Qwen38Omega {
                 self.pos = s.pos;
             }
             h => self.extra_heads[h - 1] = s,
+        }
+    }
+
+    /// The batch (L312 v2): each layer recorded for every conversation at once, one weight read per
+    /// layer for all of them. 35B graph only; pins the GEMM kernels on the session.
+    pub fn set_batch(&mut self, on: bool) -> Result<(), String> {
+        match &mut self.graph {
+            Graph::Moe(g) => g
+                .set_batch(on)
+                .map_err(|rc| format!("q36 set_batch: rc {rc}")),
+            Graph::Dense(_) => Err("set_batch: the 27B dense graph has no batch".into()),
+        }
+    }
+    /// Whether the 35B graph records in the batch (also `AIEN_OMEGA_Q36_BATCH=1` at open).
+    pub fn batch(&self) -> bool {
+        match &self.graph {
+            Graph::Moe(g) => g.batch(),
+            Graph::Dense(_) => false,
+        }
+    }
+    /// Chip timestamps around every launch of the next strokes (35B graph only): a timeline per token.
+    pub fn set_stamps(&mut self, on: bool) -> Result<(), String> {
+        match &mut self.graph {
+            Graph::Moe(g) => {
+                g.set_stamps(on);
+                Ok(())
+            }
+            Graph::Dense(_) => Err("set_stamps: the 27B dense graph has no stroke timeline".into()),
+        }
+    }
+    /// The last stroke's timeline: (launch kind name, chip ns) per launch in launch order; needs
+    /// [`Self::set_stamps`] before that stroke.
+    pub fn timeline(&self) -> Result<Vec<(String, u64)>, String> {
+        match &self.graph {
+            Graph::Moe(g) => g
+                .timeline()
+                .map(|v| {
+                    v.into_iter()
+                        .map(|(k, ns)| (Q36Graph::kind_name(k), ns))
+                        .collect()
+                })
+                .map_err(|rc| format!("q36 timeline: rc {rc}")),
+            Graph::Dense(_) => Err("timeline: the 27B dense graph has no stroke timeline".into()),
         }
     }
 

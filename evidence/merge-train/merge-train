@@ -1,0 +1,311 @@
+#!/bin/bash
+# merge-train: the 35B levers are tested and merged on ONE train (Drake 2026-10-21: "batch the tests ... make this the
+# standard ... call it the merge train"; ledger L384). One candidate build, one 35B load, one shared suite
+# (suite.json, data), stored references, one verdict per lever. The standard: docs/MERGE_TRAIN.md.
+#
+#   merge-train run <bin-dir> [--post] [--no-second]   load the candidate under q36-extra on $PORT (default 18100), run
+#                                                       every arm of the suite, write runs/<stamp>-<sha8>/verdict.md,
+#                                                       --post: one BOARD line + a ledger note on every lever
+#   merge-train suite <port> [bin-dir]                  the request arms against a server that is already up (no load)
+#   merge-train ref <port> <sha8>                       compute the reference store (every prompt alone + turn 2) from the
+#                                                       reference build <sha8> serving on <port>; makes it CURRENT
+#   merge-train ref-import <alone-dir> <sha8>           import an L354 gate alone/ folder as the reference for build <sha8>
+#   merge-train ref-use <sha8>                          switch CURRENT to a stored reference
+#   merge-train table <run-dir>                         print a run's verdict table again
+#
+# Switches per request go in `aien_test` (a build with the cargo feature aien-test-switches; any other build answers 400,
+# and the train records ERROR, never PASS). Load-only switches (server_env arms) get a second server, so a cycle loads
+# twice at most. Extra 35B loads only via q36-extra; never port 18091. bash + jq + curl only (house style).
+set -uo pipefail
+MT_DIR=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+REPO=$(cd "$MT_DIR/../.." && pwd)
+SUITE=${MERGE_TRAIN_SUITE:-$MT_DIR/suite.json}
+STATE=${MERGE_TRAIN_STATE:-$HOME/.local/state/aien-q36/merge-train}
+LEDGER_ID=${MERGE_TRAIN_LEDGER:-L384}
+PORT=${PORT:-18100}
+Q36_EXTRA=${Q36_EXTRA:-$HOME/.local/bin/q36-extra}
+BOARD=${MERGE_TRAIN_BOARD:-$HOME/handoffs/BOARD.md}
+[ -f "$SUITE" ] || { echo "merge-train: no suite at $SUITE" >&2; exit 2; }
+MODEL_NAME=$(jq -r .model_dir "$SUITE")
+MODEL_DIR=${MERGE_TRAIN_MODEL_DIR:-$HOME/models/$MODEL_NAME}
+REFS=$STATE/refs/$MODEL_NAME
+DEFAULTS=$(jq -c .defaults "$SUITE")
+mapfile -t PROMPTS < "$REPO/$(jq -r .prompts "$SUITE")"
+LOG=/dev/null; RUN=${MERGE_TRAIN_RUN:-}; MODEL=""; SERVER_LOG=/dev/null
+ntok() { if [ "$1" = 0 ]; then echo 24; else echo $(( 8 + ($1 * 7) % 41 )); fi; }   # suite.json "ntok", as code
+say() { echo "$(date -u +%FT%TZ) $*" | tee -a "$LOG"; }
+die() { say "merge-train: $*" >&2; exit 2; }
+model_of() { curl -s -m 10 "http://127.0.0.1:$1/v1/models" | jq -r '.data[0].id // empty' 2>/dev/null; }
+health_of() { curl -s -m 10 "http://127.0.0.1:$1/health" 2>/dev/null || echo '{}'; }
+user_msg() { jq -cn --arg c "$1" '[{role:"user", content:$c}]'; }
+# body <messages> <max_tokens> <aien_test|null> [extra-json]
+body() {
+  jq -cn --arg m "$MODEL" --argjson msg "$1" --argjson n "$2" --argjson t "$3" --argjson x "${4:-{\}}" --argjson d "$DEFAULTS" \
+    '$d + {model:$m, messages:$msg, max_tokens:$n} + (if $t == null then {} else {aien_test:$t} end) + $x'
+}
+# ask <port> <body> <out.json>: one chat completion; a real client's retry on 503 server_busy; the reply summarized
+ask() {
+  local t0 busy=0 code; t0=$(date +%s.%N)
+  while code=$(curl -s -m 1800 -o "$3.raw" -w '%{http_code}' "http://127.0.0.1:$1/v1/chat/completions" -H 'Content-Type: application/json' -d "$2"); \
+        grep -q '"server_busy"' "$3.raw" 2>/dev/null && [ $busy -lt 2400 ]; do busy=$((busy+1)); sleep 0.5; done
+  jq --arg t0 "$t0" --arg t1 "$(date +%s.%N)" --argjson code "${code:-0}" --argjson busy $busy \
+    '{status:$code, ids:(.usage.aien_token_ids // null), text:(.choices[0].message.content // null), tool_calls:(.choices[0].message.tool_calls // null),
+      finish:(.choices[0].finish_reason // null), prompt_tokens:(.usage.prompt_tokens // null), applied:(.usage.aien_test.applied // null),
+      error:(.error.message // null), t0:$t0, t1:$t1, busy_retries:$busy}' "$3.raw" > "$3" 2>/dev/null \
+    || jq -n --argjson code "${code:-0}" '{status:$code, ids:null, error:"unparsable reply"}' > "$3"
+}
+# merge_sw <arm aien_test|null> <case/row aien_test|null> -> the request's aien_test or null
+merge_sw() { jq -cn --argjson a "$1" --argjson b "$2" '(($a // {}) + ($b // {})) | if . == {} then null else . end'; }
+# echoed <reply.json> <aien_test|null>: 0 when every switch sent came back in usage.aien_test.applied
+echoed() { [ "$2" = null ] && return 0; jq -e --argjson t "$2" '(.applied // []) as $a | ($t | keys) | all(. as $k | $a | index($k))' "$1" > /dev/null; }
+cell() { # <arm> <case> <verdict> <detail> [dir]
+  jq -cn --arg arm "$1" --arg case "$2" --arg v "$3" --arg d "$4" --arg dir "${5:-}" --arg at "$(date -u +%FT%TZ)" \
+    '{at:$at, arm:$arm, case:$case, verdict:$v, detail:$d, dir:$dir}' >> "$RUN/cells.jsonl"
+  say "  [$1] $2: $3 ($4)"
+}
+
+# ---------- reference store ----------
+turn2_messages() { # <alone-dir>: the turn2 case's messages = prompt p, its alone reply, the follow-up
+  local p fu; p=$(jq -r '[.cases[]|select(.kind=="turn2")][0].prompt' "$SUITE"); fu=$(jq -r '[.cases[]|select(.kind=="turn2")][0].follow_up' "$SUITE")
+  jq -cn --arg a "${PROMPTS[$p]}" --arg r "$(jq -r .text "$1/$p.json")" --arg f "$fu" '[{role:"user",content:$a},{role:"assistant",content:$r},{role:"user",content:$f}]'
+}
+cmd_ref() { # <port> <sha8>
+  local port=$1 tag=$2 d="$REFS/$2/alone" i; MODEL=$(model_of "$port"); [ -n "$MODEL" ] || die "no answer from port $port"
+  mkdir -p "$d"; echo "merge-train ref: ${#PROMPTS[@]} prompts alone on port $port (build $tag) -> $d"
+  for ((i=0; i<${#PROMPTS[@]}; i++)); do
+    ask "$port" "$(body "$(user_msg "${PROMPTS[$i]}")" "$(ntok $i)" null)" "$d/$i.json"
+    [ "$(jq -r .status "$d/$i.json")" = 200 ] && [ "$(jq -c .ids "$d/$i.json")" != null ] || die "alone $i failed: $(jq -r .error "$d/$i.json")"
+  done
+  turn2_messages "$d" > "$d/turn2.messages.json"
+  ask "$port" "$(body "$(cat "$d/turn2.messages.json")" "$(jq -r '[.cases[]|select(.kind=="turn2")][0].max_tokens' "$SUITE")" null)" "$d/turn2.json"
+  echo "$(date -u +%FT%TZ) build $tag model $MODEL port $port" > "$d/done"
+  ln -sfn "$tag" "$REFS/CURRENT"; echo "reference $tag stored and CURRENT"
+}
+cmd_ref_import() { # <alone-dir> <sha8>
+  local src=$1 tag=$2 d="$REFS/$2/alone" i; mkdir -p "$d"
+  for ((i=0; i<${#PROMPTS[@]}; i++)); do [ -f "$src/$i.json" ] || die "missing $src/$i.json"; jq '{status:200} + .' "$src/$i.json" > "$d/$i.json"; done
+  [ -f "$src/turn2.json" ] && [ -f "$src/turn2.messages.json" ] || die "missing $src/turn2.json or turn2.messages.json"
+  cp "$src/turn2.messages.json" "$d/"; jq '{status:200} + .' "$src/turn2.json" > "$d/turn2.json"
+  echo "$(date -u +%FT%TZ) build $tag imported from $src (its stamp: $(cat "$src/done" 2>/dev/null))" > "$d/done"
+  ln -sfn "$tag" "$REFS/CURRENT"; echo "reference $tag imported ($(ls "$d" | grep -c '^[0-9]*\.json$') alone replies + turn2) and CURRENT"
+}
+cmd_ref_use() { [ -f "$REFS/$1/alone/done" ] || die "no stored reference $1 under $REFS"; ln -sfn "$1" "$REFS/CURRENT"; echo "CURRENT -> $1"; }
+
+# ---------- one case under one arm ----------
+run_case() { # <port> <arm> <case-json> <cell-dir>
+  local port=$1 arm=$2 c=$3 cell=$4 kind id V="" D="" sw want got n st ref i t0 t1
+  mkdir -p "$cell"; kind=$(jq -r .kind <<<"$c"); id=$(jq -r .id <<<"$c")
+  sw=$(merge_sw "$(jq -c --arg a "$arm" '.arms[$a].aien_test // null' "$SUITE")" "$(jq -c '.aien_test // null' <<<"$c")")
+  t0=$(date +%s.%N)
+  case $kind in
+  golden)
+    want=$(jq -c .generated_ids "$REPO/$(jq -r .golden <<<"$c")")
+    ask "$port" "$(body "$(user_msg "$(jq -r .user <<<"$c")")" "$(jq -r .max_tokens <<<"$c")" "$sw")" "$cell/reply.json"
+    got=$(jq -c .ids "$cell/reply.json")
+    if [ "$(jq -r .status "$cell/reply.json")" != 200 ] || [ "$got" = null ]; then V=ERROR; D="$(jq -r '.error // "no token ids in the reply"' "$cell/reply.json")"
+    elif ! echoed "$cell/reply.json" "$sw"; then V=ERROR; D="server did not echo the switches $sw in usage.aien_test"
+    elif [ "$(jq -r '.expect // "same"' <<<"$c")" = red ]; then
+      if [ "$got" != "$want" ]; then V=RED-OK; D="switched reply differs from the golden, as required"; else V=RED-FAIL; D="switched reply EQUALS the golden: the switch did nothing"; fi
+    elif [ "$got" = "$want" ]; then V=PASS; D="ids identical to the golden ($(jq -r .prompt_tokens "$cell/reply.json") prompt tokens)"
+    else V=FAIL; D="ids DIFFER from the golden (first differing position $(jq -n --argjson a "$got" --argjson b "$want" '[range(0; ([$a,$b]|map(length)|max))] | map(select($a[.] != $b[.])) | first // "none"'))"; fi ;;
+  together)
+    n=$(jq -r .n <<<"$c"); st=$(jq -r '.stagger_ms // 0' <<<"$c"); ref="$REFS/CURRENT/alone"
+    if [ ! -f "$ref/done" ]; then V=ERROR; D="no reference store at $ref (merge-train ref <port> <sha8>)"
+    else
+      local swi mark=0; [ -f "$SERVER_LOG" ] && mark=$(wc -l < "$SERVER_LOG")
+      for ((i=0; i<n; i++)); do
+        swi=$(merge_sw "$sw" "$(jq -c --arg i "$i" '.aien_test_on[$i] // null' <<<"$c")")
+        ( sleep "$(echo "scale=3; ($i % 8) * $st / 1000" | bc)"; ask "$port" "$(body "$(user_msg "${PROMPTS[$i]}")" "$(ntok $i)" "$swi")" "$cell/$i.json" ) &
+      done; wait
+      local same=() diff=() err=() noecho=()
+      for ((i=0; i<n; i++)); do
+        swi=$(merge_sw "$sw" "$(jq -c --arg i "$i" '.aien_test_on[$i] // null' <<<"$c")")
+        if [ "$(jq -r .status "$cell/$i.json")" != 200 ] || [ "$(jq -c .ids "$cell/$i.json")" = null ]; then err+=("$i")
+        elif ! echoed "$cell/$i.json" "$swi"; then noecho+=("$i")
+        elif [ "$(jq -c .ids "$cell/$i.json")" = "$(jq -c .ids "$ref/$i.json")" ]; then same+=("$i"); else diff+=("$i"); fi
+      done
+      local dj swaps=0; dj=$(jq -nc '[$ARGS.positional[] | tonumber]' --args ${diff[@]+"${diff[@]}"})
+      [ -f "$SERVER_LOG" ] && swaps=$(tail -n +$((mark + 1)) "$SERVER_LOG" | grep -c 'TEST ROW SWAP')
+      if [ ${#err[@]} -gt 0 ]; then V=ERROR; D="no reply or no ids for rows ${err[*]}: $(jq -r '.error // "?"' "$cell/${err[0]}.json")"
+      elif [ ${#noecho[@]} -gt 0 ]; then V=ERROR; D="server did not echo the switches for rows ${noecho[*]}"
+      elif [ "$(jq -c '.expect_red // []' <<<"$c")" = '[]' ]; then
+        if [ ${#diff[@]} = 0 ]; then V=PASS; D="${#same[@]}/$n replies identical to the reference (alone)"; else V=FAIL; D="${#diff[@]}/$n DIFFER from alone: rows ${diff[*]}"; fi
+      else
+        local ok; ok=$(jq -n --argjson d "$dj" --argjson c "$c" '($c.expect_red) as $r | ($c.expect_red_min // ($r|length)) as $min | ($c.others_red_max // 0) as $om
+          | (($r - $d) | length == 0) and (($d|length) >= $min) and ((($d - $r) | length) <= $om)')
+        if [ "$ok" = true ]; then V=RED-OK; D="rows ${diff[*]} differ from alone as required (expected red $(jq -c .expect_red <<<"$c"), ${#same[@]} others identical, $swaps swap(s) logged)"
+        else V=RED-FAIL; D="red rows were ${diff[*]:-none} (expected $(jq -c .expect_red <<<"$c"), others_red_max $(jq -r '.others_red_max // 0' <<<"$c"), $swaps swap(s) logged)"; fi
+      fi
+      jq -n --arg same "${same[*]}" --arg diff "${diff[*]}" --arg err "${err[*]}" '{same:$same, differ:$diff, error:$err}' > "$cell/compare.json"
+    fi ;;
+  turn2)
+    ref="$REFS/CURRENT/alone"
+    if [ ! -f "$ref/turn2.messages.json" ]; then V=ERROR; D="no reference turn2 at $ref"
+    else
+      ask "$port" "$(body "$(cat "$ref/turn2.messages.json")" "$(jq -r .max_tokens <<<"$c")" "$sw")" "$cell/reply.json"
+      got=$(jq -c .ids "$cell/reply.json"); want=$(jq -c .ids "$ref/turn2.json")
+      if [ "$(jq -r .status "$cell/reply.json")" != 200 ] || [ "$got" = null ]; then V=ERROR; D="$(jq -r '.error // "no token ids"' "$cell/reply.json")"
+      elif ! echoed "$cell/reply.json" "$sw"; then V=ERROR; D="server did not echo the switches $sw"
+      elif [ "$got" = "$want" ]; then V=PASS; D="turn 2 identical to alone"; else V=FAIL; D="turn 2 DIFFERS from alone"; fi
+    fi ;;
+  tool)
+    ask "$port" "$(body "$(user_msg "$(jq -r .user <<<"$c")")" "$(jq -r .max_tokens <<<"$c")" "$sw" "$(jq -c '{tools: .tools}' <<<"$c")")" "$cell/reply.json"
+    local name; name=$(jq -r '.tool_calls[0].function.name // empty' "$cell/reply.json")
+    if [ "$(jq -r .status "$cell/reply.json")" != 200 ]; then V=ERROR; D="$(jq -r '.error // "no reply"' "$cell/reply.json")"
+    elif ! echoed "$cell/reply.json" "$sw"; then V=ERROR; D="server did not echo the switches $sw"
+    elif [ "$name" = "$(jq -r .expect_tool <<<"$c")" ]; then V=PASS; D="reply is a parsed tool call to $name ($(jq -c '.tool_calls[0].function.arguments' "$cell/reply.json" | cut -c1-80))"
+    else V=FAIL; D="no tool call to $(jq -r .expect_tool <<<"$c") (finish $(jq -r .finish "$cell/reply.json"), text: $(jq -r '.text // ""' "$cell/reply.json" | tr '\n' ' ' | cut -c1-80))"; fi ;;
+  script)
+    local s args rc; s="$REPO/$(jq -r .script <<<"$c")"
+    mapfile -t args < <(jq -r '.args[]' <<<"$c" | sed "s|\$PORT|$port|g; s|\$OUT|$RUN|g; s|\$SERVER_LOG|$SERVER_LOG|g")
+    if [ ! -f "$s" ]; then V=ERROR; D="no script $s"
+    else bash "$s" "${args[@]}" > "$cell/script.log" 2>&1; rc=$?
+      case $rc in 0) V=PASS; D="owner's gate exit 0";; 1) V=FAIL; D="owner's gate exit 1: $(grep -m1 FAIL "$cell/script.log" | cut -c1-120)";; *) V=ERROR; D="owner's gate exit $rc (no verdict)";; esac; fi ;;
+  *) V=ERROR; D="unknown case kind $kind" ;;
+  esac
+  t1=$(date +%s.%N)
+  jq -n --arg arm "$arm" --arg case "$id" --arg v "$V" --arg d "$D" --argjson sw "$sw" --arg wall "$(echo "$t1 - $t0" | bc)" '{arm:$arm, case:$case, verdict:$v, detail:$d, aien_test:$sw, wall_s:($wall|tonumber)}' > "$cell/cell.json"
+  cell "$arm" "$id" "$V" "$D" "$cell"
+}
+# run_arm <port> <arm>: every case the arm covers
+run_arm() {
+  local port=$1 arm=$2 honored armsw c id missing
+  honored=$(health_of "$port" | jq -c '.aien_test.honored // []')
+  armsw=$(jq -c --arg a "$arm" '.arms[$a].aien_test // null' "$SUITE")
+  say "arm $arm on port $port (switches $armsw; this build honors $honored)"
+  while IFS= read -r c; do
+    id=$(jq -r .id <<<"$c")
+    # which switches would this case send under this arm, and does the build honor them all?
+    missing=$(jq -nc --argjson a "$armsw" --argjson c "$c" --argjson h "$honored" \
+      '[(($a // {}) | keys[]), (($c.aien_test // {}) | keys[]), (($c.aien_test_on // {}) | .[] | keys[])] | unique | map(select(. as $k | ($h | index($k)) == null))')
+    if [ "$missing" != '[]' ]; then cell "$arm" "$id" NOT-ON-TRAIN "switches $missing not honored by this build (its /health says $honored)"; continue; fi
+    run_case "$port" "$arm" "$c" "$RUN/cells/$arm/$id"
+  done < <(jq -c --arg a "$arm" '.cases[] | select((.arms // null) == null or (.arms | index($a)))' "$SUITE")
+}
+skip_arm() { # <arm> <reason>
+  local c id; while IFS= read -r c; do id=$(jq -r .id <<<"$c"); cell "$1" "$id" SKIP "$2"; done < <(jq -c --arg a "$1" '.cases[] | select((.arms // null) == null or (.arms | index($a)))' "$SUITE")
+}
+# presence <bin-dir|-> <port> -> {"Lnnn": "yes"|"no"|"unknown"}: is the lever in this candidate at all?
+presence() {
+  local bin=$1 port=$2 h m build="" hasbuild=no
+  h=$(health_of "$port"); m=$(curl -s -m 10 "http://127.0.0.1:$port/v1/models" | jq -c '[.data[].id]' 2>/dev/null || echo '[]')
+  [ "$bin" != - ] && [ -f "$bin/BUILD.txt" ] && { build=$(cat "$bin/BUILD.txt"); hasbuild=yes; }
+  jq -c --argjson h "$h" --argjson m "$m" --arg build "$build" --arg hasbuild "$hasbuild" '
+    ($h.aien_test.honored // []) as $hon
+    | [.levers[] | . as $l | {($l.id): (
+        if $l.present.always then "yes"
+        elif $l.present.switch then (if ($hon | index($l.present.switch)) != null then "yes" else "no" end)
+        elif $l.present.health then ($l.present.health | ltrimstr(".") | split(".")) as $p | (if ($h | getpath($p)) then "yes" else "no" end)
+        elif $l.present.model then ($l.present.model) as $re | (if ($m | map(test($re)) | any) then "yes" else "no" end)
+        elif $l.present.build then (if $hasbuild == "no" then "unknown" elif ($build | test($l.present.build; "i")) then "yes" else "no" end)
+        else "unknown" end)}] | add' "$SUITE"
+}
+# ---------- the verdict table: lever x case ----------
+lever_table() { # <run-dir>
+  local run=$1
+  jq -s --slurpfile s "$SUITE" --slurpfile present "$run/present.json" -f "$MT_DIR/verdict.jq" "$run/cells.jsonl" > "$run/verdict.json" || { echo "merge-train: verdict table failed" >&2; return 1; }
+  {
+    echo "# merge-train verdict: $(basename "$run")"; echo
+    [ -f "$run/receipt.json" ] && echo "candidate bin-$(jq -r .candidate "$run/receipt.json"); $(jq -r '"\(.loads) load(s); load \(.load_s) s + suite \(.suite_s) s = \(.wall_s) s wall"' "$run/receipt.json"); reference $(cat "$REFS/CURRENT/alone/done" 2>/dev/null | cut -d' ' -f2-3)" && echo
+    echo "PASS/FAIL: identical / not identical to the reference. RED-OK/RED-FAIL: a control that must differ did / did not. NOT-ON-TRAIN: the lever (or its switch) is not in this candidate. SKIP: arm disabled in suite.json. ERROR: no verdict (no reply, 400, missing reference). -: the lever has no case there. A cell is the worst of the lever's arms."; echo
+    jq -r '.cases | "| lever | name | VERDICT | " + join(" | ") + " |", "|---|---|---|" + (map("---") | join("|")) + "|"' "$run/verdict.json"
+    jq -r '.levers[] | "| \(.id) | \(.name) | **\(.verdict)** | " + (.cells | join(" | ")) + " |"' "$run/verdict.json"
+    echo; jq -r '"red controls (the comparison can fail): \(.red_controls.ok) RED-OK of \(.red_controls.ran) run, \(.red_controls.total) in the suite"' "$run/verdict.json"
+    echo; echo "## cells (arm x case)"; echo; echo "| arm | case | verdict | detail |"; echo "|---|---|---|---|"
+    jq -r '"| \(.arm) | \(.case) | \(.verdict) | \(.detail | gsub("\\|"; "/")) |"' "$run/cells.jsonl"
+  } > "$run/verdict.md"
+}
+# ---------- servers (always under q36-extra; never 18091) ----------
+start_server() { # <bin-dir> <port> <log> <pidfile> [VAR=value ...]
+  local bin=$1 port=$2 log=$3 pidf=$4; shift 4
+  [ "$port" != 18091 ] || die "never the live port"
+  ss -ltn 2>/dev/null | grep -q "127.0.0.1:$port " && die "port $port already in use"
+  ( cd "$bin" && sha256sum -c --quiet SHA256SUMS ) || die "$bin: SHA256SUMS do not match"
+  echo "=== $(date -u +%FT%TZ) merge-train start $(basename "$bin") on $port env: $* MemAvailable $(awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo) GB" >> "$log"
+  ( cd "$bin" && env "$@" Q36_EXTRA_LEDGER="$LEDGER_ID" AIEN_SERVE_KEEP_FREE_MIB="${AIEN_SERVE_KEEP_FREE_MIB:-2048}" setsid nohup "$Q36_EXTRA" ./aien-serve-http --engine omega \
+      --model-dir "$MODEL_DIR" --port "$port" --max-context "${MERGE_TRAIN_CTX:-2048}" --max-tokens-cap 16384 --thinking off --batch-slots "${MERGE_TRAIN_SLOTS:-8}" >> "$log" 2>&1 < /dev/null & echo $! > "$pidf" )
+  say "server $(basename "$bin") starting on $port (pid $(cat "$pidf"), q36-extra slot wait + load; log $log)"
+}
+wait_ready() { # <port> <pidfile> [max_s]
+  local i; for ((i=0; i<${3:-1800}; i+=5)); do
+    kill -0 "$(cat "$2")" 2>/dev/null || { say "server exited before serving (q36-extra refused, or the load failed): $(tail -3 "$SERVER_LOG" | tr '\n' ' ' | cut -c1-300)"; return 1; }
+    [ -n "$(model_of "$1")" ] && return 0; sleep 5
+  done; say "server not serving after ${3:-1800} s"; return 1
+}
+tree_of() { local c; echo "$1"; for c in $(pgrep -P "$1"); do tree_of "$c"; done; }   # a pid and all its descendants
+stop_server() { # <pidfile> <port>: the wrapper, q36-extra and the server it exec'd (own session), then check the port is free
+  local p pids; p=$(cat "$1" 2>/dev/null) || return 0
+  pids=$(tree_of "$p" | tr '\n' ' ')
+  kill $pids 2>/dev/null; for _ in $(seq 1 90); do alive=0; for q in $pids; do kill -0 "$q" 2>/dev/null && alive=1; done; [ $alive = 0 ] && break; sleep 1; done
+  kill -9 $pids 2>/dev/null; sleep 1
+  ss -ltn 2>/dev/null | grep -q "127.0.0.1:$2 " && say "WARNING: port $2 still in use after stopping pids $pids"
+  say "server stopped (pids $pids, port $2)"
+}
+# ---------- commands ----------
+cmd_suite() { # <port> [bin-dir]
+  local port=$1 bin=${2:--} arm
+  RUN=${RUN:-$MT_DIR/runs/$(date -u +%Y%m%dT%H%MZ)-port$port}; mkdir -p "$RUN/cells"; LOG=$RUN/train.log
+  MODEL=$(model_of "$port"); [ -n "$MODEL" ] || die "no answer from port $port"
+  : > "$RUN/cells.jsonl"; presence "$bin" "$port" > "$RUN/present.json"
+  say "suite $(jq -r '.cases|length' "$SUITE") cases on port $port, model $MODEL, presence $(cat "$RUN/present.json")"
+  for arm in $(jq -r '.arms | to_entries[] | select(.value.server_env == null) | .key' "$SUITE"); do run_arm "$port" "$arm"; done
+  for arm in $(jq -r '.arms | to_entries[] | select(.value.server_env != null) | .key' "$SUITE"); do skip_arm "$arm" "load-only arm: needs its own server (merge-train run)"; done
+  lever_table "$RUN"; cat "$RUN/verdict.md"
+}
+cmd_run() { # <bin-dir> [--post] [--no-second]
+  local bin post=no second=yes sha8 arm T0 TR T1 loads=1 loads_before enabled envs proof
+  bin=$(readlink -f "${1:?bin-dir}"); shift; for a in "$@"; do case $a in --post) post=yes;; --no-second) second=no;; *) die "unknown flag $a";; esac; done
+  [ -x "$bin/aien-serve-http" ] || die "$bin has no aien-serve-http"
+  sha8=$(basename "$bin" | sed 's/^bin-//')
+  RUN=$MT_DIR/runs/$(date -u +%Y%m%dT%H%MZ)-$sha8; mkdir -p "$RUN/cells"; LOG=$RUN/train.log; : > "$RUN/cells.jsonl"
+  loads_before=$(grep -c 'aien-serve-http' /tmp/aien-q36-extra.log 2>/dev/null || echo 0)
+  say "MERGE TRAIN run $(basename "$RUN"): candidate bin-$sha8 ($(head -1 "$bin/BUILD.txt" 2>/dev/null | cut -c1-120)), port $PORT, reference $(cat "$REFS/CURRENT/alone/done" 2>/dev/null || echo NONE)"
+  T0=$(date +%s); SERVER_LOG=$RUN/server.log
+  CUR_PIDF=$RUN/server.pid; trap '[ -n "${CUR_PIDF:-}" ] && stop_server "$CUR_PIDF" "$PORT"' EXIT   # never leave a 35B copy behind
+  start_server "$bin" "$PORT" "$SERVER_LOG" "$RUN/server.pid"
+  wait_ready "$PORT" "$RUN/server.pid" "${MERGE_TRAIN_READY_S:-1800}" || { cell plain '*' ERROR "candidate never served"; lever_table "$RUN"; exit 2; }
+  TR=$(date +%s); MODEL=$(model_of "$PORT"); say "ready after $((TR - T0)) s: model $MODEL, /health $(health_of "$PORT" | jq -c '{concurrency, aien_test}')"
+  presence "$bin" "$PORT" > "$RUN/present.json"; say "presence $(cat "$RUN/present.json")"
+  for arm in $(jq -r '.arms | to_entries[] | select(.value.server_env == null) | .key' "$SUITE"); do run_arm "$PORT" "$arm"; done
+  stop_server "$RUN/server.pid" "$PORT"
+  CUR_PIDF=""
+  for arm in $(jq -r '.arms | to_entries[] | select(.value.server_env != null) | .key' "$SUITE"); do
+    enabled=$(jq -r --arg a "$arm" '.arms[$a].enabled // true' "$SUITE")
+    if [ "$enabled" != true ]; then skip_arm "$arm" "arm disabled in suite.json (its lever is not in the candidate yet)"; continue; fi
+    if [ "$second" != yes ]; then skip_arm "$arm" "--no-second: the second (load-only) server was not loaded"; continue; fi
+    mapfile -t envs < <(jq -r --arg a "$arm" '.arms[$a].server_env | to_entries[] | "\(.key)=\(.value)"' "$SUITE" | sed "s|\$OUT|$RUN|g")
+    mkdir -p "$RUN/board" 2>/dev/null; SERVER_LOG=$RUN/server-$arm.log
+    start_server "$bin" "$PORT" "$SERVER_LOG" "$RUN/server-$arm.pid" "${envs[@]}"; loads=$((loads + 1))
+    CUR_PIDF=$RUN/server-$arm.pid
+    if ! wait_ready "$PORT" "$RUN/server-$arm.pid" "${MERGE_TRAIN_READY_S:-1800}"; then skip_arm "$arm" "second server never served"; continue; fi
+    proof=$(jq -r --arg a "$arm" '.arms[$a].log_proof // empty' "$SUITE")
+    if [ -n "$proof" ] && ! grep -Eqi "$proof" "$SERVER_LOG"; then
+      while IFS= read -r c; do cell "$arm" "$(jq -r .id <<<"$c")" NOT-ON-TRAIN "server log shows no '$proof': the build ignored ${envs[*]}"; done < <(jq -c --arg a "$arm" '.cases[] | select((.arms // null) == null or (.arms | index($a)))' "$SUITE")
+    else run_arm "$PORT" "$arm"; fi
+    stop_server "$RUN/server-$arm.pid" "$PORT"
+    CUR_PIDF=""
+  done
+  T1=$(date +%s)
+  jq -n --arg c "$sha8" --argjson loads $loads --argjson load_s $((TR - T0)) --argjson suite_s $((T1 - TR)) --argjson wall_s $((T1 - T0)) --argjson before "$loads_before" \
+    --arg ref "$(cat "$REFS/CURRENT/alone/done" 2>/dev/null)" --arg at "$(date -u +%FT%TZ)" --arg port "$PORT" \
+    '{at:$at, candidate:$c, port:$port, loads:$loads, load_s:$load_s, suite_s:$suite_s, wall_s:$wall_s, reference:$ref, extra_loads_logged_before_this_run:$before}' > "$RUN/receipt.json"
+  lever_table "$RUN"; cat "$RUN/verdict.md"
+  if [ "$post" = yes ]; then
+    local line; line=$(jq -r '[.levers[] | select(.verdict != "-") | "\(.id) \(.verdict)"] | join(", ")' "$RUN/verdict.json")
+    echo "$(date -u +%FT%H:%MZ) $LEDGER_ID to all|$(jq -r '[.levers[].id] | join("|")' "$RUN/verdict.json"): MERGE TRAIN $(basename "$RUN") on bin-$sha8: $line ($loads load(s), $((T1 - T0)) s wall; table $RUN/verdict.md)" >> "$BOARD"
+    jq -r '.levers[] | select(.verdict != "-") | "\(.id)\t\(.verdict)\t" + ([.cells[]] | join(" "))' "$RUN/verdict.json" | while IFS=$'\t' read -r lid v cells; do
+      ledger note "$lid" "merge-train $(basename "$RUN") candidate bin-$sha8: $lid $v (cells: $cells; table $RUN/verdict.md)" > /dev/null 2>&1 || say "ledger note $lid failed"
+    done
+    say "posted: BOARD line + ledger notes"
+  fi
+  jq -e '[.levers[].verdict] | all(. == "PASS" or . == "-" or . == "NOT-ON-TRAIN" or . == "SKIP")' "$RUN/verdict.json" > /dev/null
+}
+case ${1:-} in
+  run) shift; cmd_run "$@" ;;
+  suite) shift; cmd_suite "$@" ;;
+  ref) shift; cmd_ref "${1:?port}" "${2:?sha8}" ;;
+  ref-import) shift; cmd_ref_import "${1:?alone-dir}" "${2:?sha8}" ;;
+  ref-use) shift; cmd_ref_use "${1:?sha8}" ;;
+  table) shift; RUN=${1:?run-dir}; lever_table "$RUN"; cat "$RUN/verdict.md" ;;
+  *) sed -n '2,20p' "$0"; exit 2 ;;
+esac

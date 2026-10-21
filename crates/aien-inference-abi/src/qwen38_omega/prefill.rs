@@ -38,7 +38,7 @@ use aien_omega_pf::{
 use aien_omega_q38 as q;
 use rayon::prelude::*;
 
-use super::{gpu, Qwen38Omega, EPS_L2};
+use super::{gpu, Graph, Qwen38Omega, EPS_L2};
 use crate::qwen3_moe::bf16_to_f32;
 use crate::tensor::rmsnorm;
 
@@ -277,11 +277,26 @@ impl Qwen38Omega {
     ) -> Result<(u32, Vec<f32>, PrefillStats), String> {
         let t0 = Instant::now();
         if self.is_moe() {
-            // The 35B: the prompt goes through the decode graph token by token (correct first,
-            // PRIORITY CHANGE 2026-10-20; the batched sparse prefill is a later lever).
+            // The 35B: chunks of the prompt through the chip as rows (L369, the decode step's kernels,
+            // the state bit for bit as token by token); AIEN_Q36_PREFILL_CHUNK=0 feeds the decode
+            // graph token by token (the old path).
+            let chunk = q36_prefill_chunk()?;
             let mut next = 0u32;
-            for &t in tokens {
-                next = self.step(t)?.0;
+            if chunk == 0 {
+                for &t in tokens {
+                    next = self.step(t)?.0;
+                }
+            } else {
+                let (n, chunks) = self.prefill_moe(tokens, chunk)?;
+                next = n;
+                let logits = self.logits()?;
+                let st = PrefillStats {
+                    tokens: tokens.len(),
+                    chunks,
+                    wall_ns: ns(t0),
+                    ..Default::default()
+                };
+                return Ok((next, logits, st));
             }
             let logits = self.logits()?;
             let st = PrefillStats {
@@ -572,5 +587,97 @@ mod tests {
     #[test]
     fn argmax_takes_the_first_maximum() {
         assert_eq!(argmax(&[0.0, 2.0, 1.0, 2.0]), 1);
+    }
+}
+
+/// Prompt tokens per 35B prefill chunk (`AIEN_Q36_PREFILL_CHUNK`, default the graph's most,
+/// [`q::q36::PREFILL_MAX_ROWS`]); 0 = token by token through the decode graph.
+pub fn q36_prefill_chunk() -> Result<usize, String> {
+    match std::env::var("AIEN_Q36_PREFILL_CHUNK") {
+        Ok(v) => match v.parse::<usize>() {
+            Ok(n) if n <= q::q36::PREFILL_MAX_ROWS => Ok(n),
+            _ => Err(format!(
+                "AIEN_Q36_PREFILL_CHUNK={v}: 0 (off) ..= {}",
+                q::q36::PREFILL_MAX_ROWS
+            )),
+        },
+        Err(_) => Ok(q::q36::PREFILL_MAX_ROWS),
+    }
+}
+
+impl Qwen38Omega {
+    /// L369: fp8 GEMM weight bytes the 35B prefill has streamed so far on this graph (0 for other
+    /// models); see `Graph::prefill_streamed`.
+    pub fn q36_prefill_streamed(&self) -> u64 {
+        match &self.graph {
+            Graph::Moe(g) => g.prefill_streamed(),
+            _ => 0,
+        }
+    }
+
+    /// The 35B prefill (L369): `tokens` at the next positions of head 0 in chunks of at most
+    /// `chunk` (1..=[`q::q36::PREFILL_MAX_ROWS`]); returns the last token's greedy token and the
+    /// chunk count. The graph's logits / [`Self::logits`] are the last token's, as after `step`.
+    pub fn prefill_moe(&mut self, tokens: &[u32], chunk: usize) -> Result<(u32, usize), String> {
+        let (next, chunks) = self.prefill_moe_head(0, tokens, chunk, true)?;
+        Ok((next.unwrap_or(0), chunks))
+    }
+
+    /// As [`Self::prefill_moe`] for graph head slot `head` at its next position (which moves on by
+    /// `tokens.len()`); `want_token`: the last token's head and argmax.
+    pub fn prefill_moe_head(
+        &mut self,
+        head: usize,
+        tokens: &[u32],
+        chunk: usize,
+        want_token: bool,
+    ) -> Result<(Option<u32>, usize), String> {
+        let (h, v) = (self.config.hidden, self.config.vocab);
+        let pos0 = self.head_pos(head)?;
+        if tokens.is_empty() || chunk == 0 || chunk > q::q36::PREFILL_MAX_ROWS {
+            return Err(format!(
+                "q36 prefill: {} tokens in chunks of {chunk}",
+                tokens.len()
+            ));
+        }
+        if pos0 + tokens.len() > self.max_pos {
+            return Err(format!(
+                "q36 prefill: positions {pos0}..{} past the KV cache's {}",
+                pos0 + tokens.len(),
+                self.max_pos
+            ));
+        }
+        if let Some(&t) = tokens.iter().find(|&&t| t as usize >= v) {
+            return Err(format!("q36 prefill: token {t} outside the vocab {v}"));
+        }
+        let embed = &self.embed;
+        let Graph::Moe(g) = &mut self.graph else {
+            return Err("q36 prefill: not the 35B graph".into());
+        };
+        if g.prefill_cap() < chunk {
+            g.prefill_alloc(chunk).map_err(gpu("q36 prefill_alloc"))?;
+        }
+        let mut next = None;
+        let mut pos = pos0;
+        let n_chunks = tokens.len().div_ceil(chunk);
+        for (i, c) in tokens.chunks(chunk).enumerate() {
+            let mut x = vec![0f32; c.len() * h];
+            for (row, &t) in x.chunks_mut(h).zip(c) {
+                let t = t as usize;
+                for (d, &b) in row.iter_mut().zip(&embed[t * h..(t + 1) * h]) {
+                    *d = bf16_to_f32(b);
+                }
+            }
+            let last = i + 1 == n_chunks;
+            let (tok, _) = g
+                .prefill(head, &x, pos, last && want_token)
+                .map_err(gpu("q36 prefill"))?;
+            if last {
+                next = tok;
+            }
+            pos += c.len();
+        }
+        *self.head_pos_mut(head)? = pos;
+        Ok((next, n_chunks))
     }
 }

@@ -26,7 +26,14 @@ req() {
     '{model:$model, temperature:0, max_tokens:300, chat_template_kwargs:{enable_thinking:false}, aien_return_token_ids:true,
       aien_conversation:$c, aien_agent:$a, tools:$tools, messages:([{role:"system",content:$sys}] + $m)} + $x' > "$O/$n.req.json"
   local t0 t1 code; t0=$(date +%s.%N)
-  code=$(curl -s -o "$O/$n.json" -w '%{http_code}' --max-time 1800 -H 'Content-Type: application/json' --data-binary @"$O/$n.req.json" "$U/v1/chat/completions")
+  # A real client retries 503 (the chip lock was busy, nothing generated). The board commits a
+  # delivery on admission, so a retry renders the same prompt: the patch is re-applied, not new.
+  local try=0
+  while :; do
+    code=$(curl -s -o "$O/$n.json" -w '%{http_code}' --max-time 1800 -H 'Content-Type: application/json' --data-binary @"$O/$n.req.json" "$U/v1/chat/completions")
+    try=$((try + 1)); [ "$code" = 503 ] && [ $try -lt 8 ] || break
+    say "$n http 503 (try $try), retrying in 15 s"; sleep 15
+  done
   t1=$(date +%s.%N)
   sleep 0.3
   tail -n +$((mark + 1)) "$SLOG" | grep -E "join:|built-in|board" > "$O/$n.server.log"

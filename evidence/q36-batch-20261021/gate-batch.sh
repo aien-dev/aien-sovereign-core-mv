@@ -25,7 +25,9 @@ ask() { # <port> <model> <max_tokens> <messages json> <out>
   jq --arg t0 "$t0" --arg t1 "$(date +%s.%N)" '{ids:.usage.aien_token_ids, text:.choices[0].message.content, finish:.choices[0].finish_reason, prompt_tokens:.usage.prompt_tokens, t0:$t0, t1:$t1, busy_retries:($busy|tonumber)}' --arg busy $busy "$5.raw" > "$5" 2>/dev/null || echo '{"ids":null}' > "$5"; }
 ntok() { if [ "$1" = 0 ]; then echo 24; else echo $(( 8 + ($1 * 7) % 41 )); fi; }
 user() { jq -cn --arg c "$1" '[{role:"user", content:$c}]'; }
-MA=$(model $A); MB=$( [ "$B" = - ] && echo - || model $B)
+MB=$( [ "$B" = - ] && echo - || model $B)
+# The alone replies are kept ($AL/done): then 18091 need not serve (it may be stopped for tests).
+if [ -f $AL/done ] && [ "$B" != - ]; then MA=$MB; else MA=$(model $A); fi
 [ -n "$MA" ] && [ -n "$MB" ] || { echo "gate-batch $L: no answer from port $A or $B -> ERROR (not a verdict)"; exit 2; }
 mkdir -p "$AL" "$L"
 if [ ! -f $AL/done ]; then

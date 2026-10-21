@@ -18,7 +18,9 @@ use std::time::{Duration, Instant};
 use aien_inference_abi::tokenizer::ChatOptions;
 use aien_serve_http::board::{self, Board, Conversation, List, Settings};
 use aien_serve_http::codec::{ByteCodec, Codec, CodecError};
-use aien_serve_http::engine::{Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams};
+use aien_serve_http::engine::{
+    Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams, TestSwitches,
+};
 use aien_serve_http::server::{serve_with_board, ServerConfig};
 use aien_serve_http::tools;
 use serde_json::{json, Value};
@@ -156,6 +158,7 @@ impl Engine for Script {
         &self,
         prompt: &[u32],
         params: &GenerateParams,
+        _test: &TestSwitches,
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, EngineError> {
         self.run(prompt, params, on_token, true)
@@ -187,6 +190,7 @@ impl Engine for IdScript {
         &self,
         prompt: &[u32],
         params: &GenerateParams,
+        _test: &TestSwitches,
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, EngineError> {
         self.go(prompt, params, on_token, true)

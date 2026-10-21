@@ -1,0 +1,327 @@
+{
+  "merge_train": 1,
+  "about": "The merge train's one shared suite (L384, Drake 2026-10-21: 'batch the tests ... call it the merge train'). Data, not code: a case is requests to the door plus what the replies must equal. See docs/MERGE_TRAIN.md.",
+  "model_dir": "qwen3.6-35b-a3b-fp8-95a723d0",
+  "defaults": {
+    "temperature": 0,
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    },
+    "aien_return_token_ids": true
+  },
+  "prompts": "evidence/q36-batch-20261021/prompts.txt",
+  "ntok": "i == 0 ? 24 : 8 + (i * 7) % 41",
+  "arms": {
+    "plain": {
+      "about": "the served path, every lever as the candidate ships it"
+    },
+    "stroke-off": {
+      "aien_test": {
+        "stroke": false
+      },
+      "about": "rows in turn on their own graphs (L312's fallback path)"
+    },
+    "exact-head-off": {
+      "aien_test": {
+        "exact_head": false
+      },
+      "about": "the plain one-pass head (L314's fallback path)"
+    },
+    "state-bf16": {
+      "server_env": {
+        "AIEN_OMEGA_GDN_STATE_BF16": "1"
+      },
+      "log_proof": "bf16",
+      "enabled": false,
+      "about": "L313's bf16 DeltaNet state: load-only, so a second server. NOT bit-exact by design: enable only with L313's drift-rule cases (cases listing arms [state-bf16]); the shared identity cases would be red by construction"
+    },
+    "board": {
+      "server_env": {
+        "AIEN_BOARD_DIR": "$OUT/board"
+      },
+      "enabled": true,
+      "about": "L376 team board: load-only (AIEN_BOARD_DIR at start), so a second server; on in serve/q36-board-ship (ship/motor-l387 + board). log_proof: the board must be ON in the server log, else NOT-ON-TRAIN",
+      "log_proof": "team board ON"
+    }
+  },
+  "levers": [
+    {
+      "id": "L354",
+      "name": "batch door: many conversations per beat",
+      "present": {
+        "always": true
+      },
+      "arms": [
+        "plain"
+      ]
+    },
+    {
+      "id": "L312",
+      "name": "strokes v2: rows ride one graph",
+      "present": {
+        "switch": "stroke"
+      },
+      "arms": [
+        "plain",
+        "stroke-off"
+      ]
+    },
+    {
+      "id": "L314",
+      "name": "exact two-pass head",
+      "present": {
+        "switch": "exact_head"
+      },
+      "arms": [
+        "plain",
+        "exact-head-off"
+      ]
+    },
+    {
+      "id": "L374",
+      "name": "tool calling",
+      "present": {
+        "build": "tools"
+      },
+      "arms": [
+        "plain"
+      ]
+    },
+    {
+      "id": "L369",
+      "name": "chunked prefill",
+      "present": {
+        "build": "prefill"
+      },
+      "arms": [
+        "plain"
+      ]
+    },
+    {
+      "id": "L375",
+      "name": "shared prompt prefix",
+      "present": {
+        "build": "prefix"
+      },
+      "arms": [
+        "plain"
+      ]
+    },
+    {
+      "id": "L371",
+      "name": "eight readers",
+      "present": {
+        "model": "readers"
+      },
+      "arms": [
+        "plain"
+      ]
+    },
+    {
+      "id": "L355",
+      "name": "W4 experts store",
+      "present": {
+        "build": "W4"
+      },
+      "arms": [
+        "plain"
+      ]
+    },
+    {
+      "id": "L313",
+      "name": "bf16 DeltaNet state",
+      "present": {
+        "build": "bf16|state-precision"
+      },
+      "arms": [
+        "plain",
+        "state-bf16"
+      ]
+    },
+    {
+      "id": "L376",
+      "name": "team board",
+      "present": {
+        "health": ".board.tools"
+      },
+      "arms": [
+        "plain",
+        "board"
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "id": "golden-chat-max-24",
+      "kind": "golden",
+      "golden": "evidence/q36-host-20261020/gen-chat-max-24.json",
+      "max_tokens": 24,
+      "user": "Write a C function that returns the larger of two ints.",
+      "about": "gate2-http: the motor's chat golden through the door (host reference, no load needed)"
+    },
+    {
+      "id": "golden-chat-code",
+      "kind": "golden",
+      "golden": "evidence/q36-host-20261020/gen-chat-code.json",
+      "max_tokens": 32,
+      "user": "Write a Rust function that reverses the words in a sentence, keeping the words themselves intact."
+    },
+    {
+      "id": "golden-chat-prose2",
+      "kind": "golden",
+      "golden": "evidence/q36-host-20261020/gen-chat-prose2.json",
+      "max_tokens": 32,
+      "user": "Write one short paragraph, in plain prose, about a baker opening the shop before dawn on the first cold morning of autumn."
+    },
+    {
+      "id": "golden-chat-chat",
+      "kind": "golden",
+      "golden": "evidence/q36-host-20261020/gen-chat-chat.json",
+      "max_tokens": 32,
+      "user": "I have a free Saturday and want to go on a day hike with a friend who has never hiked. How should we plan it?"
+    },
+    {
+      "id": "golden-chat-review",
+      "kind": "golden",
+      "golden": "evidence/q36-host-20261020/gen-chat-review.json",
+      "max_tokens": 32,
+      "user": "Review this C function and point out any bugs:\n\nint sum(int *a, int n) {\n    int s;\n    for (int i = 0; i <= n; i++) s += a[i];\n    return s;\n}"
+    },
+    {
+      "id": "concurrent-32",
+      "kind": "together",
+      "ref": "alone",
+      "n": 32,
+      "stagger_ms": 250,
+      "about": "all 32 prompts at once, rows joining and leaving mid-spell; every reply == the same request alone (reference store)"
+    },
+    {
+      "id": "turn2",
+      "kind": "turn2",
+      "ref": "alone",
+      "prompt": 5,
+      "max_tokens": 16,
+      "follow_up": "Now say it again in one short sentence.",
+      "about": "a second turn on prompt 5's conversation after the concurrent run == the same turn alone"
+    },
+    {
+      "id": "tool-call",
+      "kind": "tool",
+      "max_tokens": 200,
+      "expect_tool": "get_weather",
+      "user": "What is the weather in Paris right now? Use the tool.",
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_weather",
+            "description": "Current weather for a city",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "city": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "city"
+              ]
+            }
+          }
+        }
+      ],
+      "about": "the reply is a parsed tool call to get_weather (L374 tools build; Hermes depends on it)"
+    },
+    {
+      "id": "mutant-4-red",
+      "kind": "golden",
+      "golden": "evidence/q36-host-20261020/gen-chat-max-24.json",
+      "max_tokens": 24,
+      "user": "Write a C function that returns the larger of two ints.",
+      "aien_test": {
+        "mutant": 4
+      },
+      "expect": "red",
+      "arms": [
+        "plain"
+      ],
+      "about": "negative control: mutant 4 (shared expert dropped) on this request only must NOT equal the golden"
+    },
+    {
+      "id": "mutant-row-isolated",
+      "kind": "together",
+      "ref": "alone",
+      "n": 8,
+      "stagger_ms": 0,
+      "arms": [
+        "plain"
+      ],
+      "aien_test_on": {
+        "5": {
+          "mutant": 4
+        }
+      },
+      "expect_red": [
+        5
+      ],
+      "others_red_max": 0,
+      "about": "8 rows at once, mutant on row 5 only: row 5 red, the 7 others identical (the switch is per request)"
+    },
+    {
+      "id": "row-swap-red",
+      "kind": "together",
+      "ref": "alone",
+      "n": 8,
+      "stagger_ms": 0,
+      "arms": [
+        "plain"
+      ],
+      "aien_test_on": {
+        "3": {
+          "row_swap": 2
+        }
+      },
+      "expect_red": [
+        3
+      ],
+      "expect_red_min": 2,
+      "others_red_max": 1,
+      "about": "8 rows at once, row 3 trades rows with another conversation at its 2nd step: both go red, the rest identical"
+    },
+    {
+      "id": "board-gate",
+      "kind": "script",
+      "script": "evidence/q36-board-20261021/gate.sh",
+      "arms": [
+        "board"
+      ],
+      "levers": [
+        "L376"
+      ],
+      "args": [
+        "$PORT",
+        "$OUT/board-gate",
+        "$SERVER_LOG",
+        "$OUT/board"
+      ],
+      "about": "L376's 10 board cases (ledger note on L384, 14:12Z) as the owner's gate against the train's server"
+    },
+    {
+      "id": "l369-long-prompts",
+      "kind": "script",
+      "script": "evidence/merge-train/l369/long-prompts.sh",
+      "arms": [
+        "plain"
+      ],
+      "levers": [
+        "L369"
+      ],
+      "args": [
+        "run",
+        "$PORT",
+        "$OUT"
+      ],
+      "about": "L369 chip prefill on the door: ~256/~2k/~8k-token prompts + one sampled request + the 32 short prompts at once, then turn 2; ids == the reference build alone (refs <CURRENT>/l369-long) and == the store (short). Needs MERGE_TRAIN_CTX >= 9216 (L387)"
+    }
+  ]
+}
