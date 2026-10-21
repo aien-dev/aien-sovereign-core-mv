@@ -581,7 +581,7 @@ fn header<S: PoolSnap>(
     {
         r[112 + i * 8..120 + i * 8].copy_from_slice(&(v as u64).to_le_bytes());
     }
-    debug_assert!(152 <= SEAL_SLOT_OFFSET);
+    const { assert!(152 <= SEAL_SLOT_OFFSET) };
     r
 }
 
@@ -617,15 +617,19 @@ fn read_node(p: &Path, key: &SealKey, ns: &[u8; 32], kv_values: usize) -> Result
     key.open_payload(region, payload)
         .map_err(|e| format!("seal refused ({e:?})"))?;
     let tokens: Vec<u32> = payload[..nt * 4]
-        .chunks_exact(4)
-        .map(|c| u32::from_le_bytes(c.try_into().expect("4")))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| u32::from_le_bytes(*c))
         .collect();
     if digest_of(&tokens)[..] != region[48..80] {
         return Err("token digest does not match".into());
     }
     let kv: Vec<u16> = payload[nt * 4..nt * 4 + nkv * 2]
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes(c.try_into().expect("2")))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| u16::from_le_bytes(*c))
         .collect();
     let mut pd = [0u8; 32];
     pd.copy_from_slice(&region[80..112]);
@@ -651,9 +655,12 @@ enum Msg<S> {
     Flush(mpsc::SyncSender<()>),
 }
 
+/// One write or delete, run on the writer thread with the store dir and key.
+type StoreJob = Box<dyn FnOnce(&Path, &SealKey) + Send>;
+
 /// The writer thread: seals and writes nodes, deletes evicted ones.
 struct Store {
-    tx: mpsc::Sender<Box<dyn FnOnce(&Path, &SealKey) + Send>>,
+    tx: mpsc::Sender<StoreJob>,
     ns: [u8; 32],
 }
 
@@ -672,7 +679,7 @@ impl Store {
     }
 
     fn send<S: PoolSnap>(&self, m: Msg<S>) {
-        let job: Box<dyn FnOnce(&Path, &SealKey) + Send> = Box::new(move |dir, key| match m {
+        let job: StoreJob = Box::new(move |dir, key| match m {
             Msg::Write {
                 name,
                 region,
