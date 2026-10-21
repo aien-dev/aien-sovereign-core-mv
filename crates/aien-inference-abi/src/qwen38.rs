@@ -841,6 +841,9 @@ pub struct Qwen38Reference<S: TensorSource> {
     /// L313: per state of the last [`Self::forward_lockstep`] call, the MoE rows (layer x token)
     /// whose expert set differs from `states[0]` (0 for `states[0]` and forced states).
     pub lockstep_flips: Vec<usize>,
+    /// L313: during [`Self::forward_lockstep`], the experts already read for the current layer
+    /// (every state routes there; each expert is read once per layer, not once per state).
+    expert_cache: Option<(usize, std::collections::HashMap<usize, std::rc::Rc<Ffn>>)>,
 }
 
 impl Qwen38Reference<ShardSource> {
@@ -879,6 +882,7 @@ impl<S: TensorSource> Qwen38Reference<S> {
             route_wts: Vec::new(),
             shared_g: Vec::new(),
             lockstep_flips: Vec::new(),
+            expert_cache: None,
         })
     }
 
@@ -1033,7 +1037,27 @@ impl<S: TensorSource> Qwen38Reference<S> {
             if rows.is_empty() {
                 continue;
             }
-            let f = read_ffn(&mut self.source, &format!("{p}.{e}"), s.expert_inter, h)?;
+            let f = match &mut self.expert_cache {
+                Some((cl, cache)) if *cl == l => match cache.get(&e) {
+                    Some(f) => f.clone(),
+                    None => {
+                        let f = std::rc::Rc::new(read_ffn(
+                            &mut self.source,
+                            &format!("{p}.{e}"),
+                            s.expert_inter,
+                            h,
+                        )?);
+                        cache.insert(e, f.clone());
+                        f
+                    }
+                },
+                _ => std::rc::Rc::new(read_ffn(
+                    &mut self.source,
+                    &format!("{p}.{e}"),
+                    s.expert_inter,
+                    h,
+                )?),
+            };
             let mut xs = Vec::with_capacity(rows.len() * h);
             for &(i, _) in rows {
                 xs.extend_from_slice(&xn[i * h..(i + 1) * h]);
@@ -1135,6 +1159,7 @@ impl<S: TensorSource> Qwen38Reference<S> {
         for l in 0..self.config.layers {
             let w = self.read_layer(l)?;
             let mut first: Vec<u16> = Vec::new();
+            self.expert_cache = Some((l, Default::default()));
             for (i, (state, x)) in states.iter_mut().zip(xs.iter_mut()).enumerate() {
                 let force = (i > 0 && state.force_routes).then_some(&first[..]);
                 self.layer_step(l, &w, state, x, t, force)?;
@@ -1148,6 +1173,7 @@ impl<S: TensorSource> Qwen38Reference<S> {
                 }
             }
         }
+        self.expert_cache = None;
         states.iter_mut().for_each(|s| s.pos += t);
         Ok(xs.iter().map(|x| self.head(x, t, logits)).collect())
     }
