@@ -223,8 +223,56 @@ stroke median there, 100.061 ms, is not the speed number), against the v2 timeli
 Next, in the order the table gives: (2) the router once for all heads (320 launches of 36 us: 95.608 - 11.514 + 40 x 0.05 = 86.1 ms a
 stroke, calc:2fece473, 92.9 tok/s, calc:a2081447, if one launch a layer costs what a glue launch costs); (3) the dense GEMM at M = 8
 (131 to 141 GB/s, a CTA-budget sweep); (4) GDN and attention over heads (13.6 ms, 320 launches). The expert union is the floor.
+## Lever 2: the router once per layer for every head (`AIEN_STROKE_V2=1`; omega 0bef2e59, lib 5418e32d, bin 29ced9ac)
+The router kernel gained the ROWS form: one launch of N CTAs routes the N heads of one layer, CTA h reading head h's residual
+row (x + h x 8192 bytes) and writing head h's buffer (x', ids, weights, both group tables at + h x the buffer stride); the gate
+table, the norm weight and the two directories are read once per launch instead of once per head. Each CTA runs the plain
+program on its own row, so every head's outputs are bit-identical to its own launch (`gpu_router_test --sim`: rows 2, 3, 8 bit
+for bit equal to the plain kernel per row in both builds, 128 experts and 256 + shared; mutant 6, every CTA reading row 0's x,
+caught; the 60 plain router kernel hashes are unchanged). In batch mode the stroke records one router launch per layer (40 a
+stroke instead of 320). The same gate, set c, red before green:
+
+| run | heads | result |
+|---|---|---|
+| `stroke8l2-mutant4` 06:11Z | 8 | FAIL as required; its chip tokens equal the lever 1 mutant run (`stroke8l1-mutant4`) on all 8 heads |
+| `stroke8l2-swap-control` 06:13Z | 8 | FAIL as required (control swap at step 18) |
+| `stroke8l2-real` 06:14Z | 8 | PASS 8/8; chip tokens equal `stroke8l1-real` on all 8 heads and equal every run alone (`stroke8l2-vs-alone.txt`) |
+| `stroke8l2-swap-feature` 06:16Z | 8 | PASS (feature swap at step 18) |
+| `stroke{1,2,4}l2-real` 06:17-06:18Z | 1, 2, 4 | PASS |
+
+Ladder, lever 2 against lever 1, v2 and v1 (the same command and goldens, back to back; shared chip, not a speed receipt):
+
+| heads | lever 2 ms per stroke (median) | ms per token | tok/s total | lever 1 ms per stroke | lever 1 / lever 2 | v2 / lever 2 | v1 / lever 2 |
+|---|---|---|---|---|---|---|---|
+| 1 | 25.320 (36 strokes) | 25.32 | 39.49 (calc:45d17375) | 26.485 | 1.05 (calc:bf2e16f3; the plain kernel both times, chip noise) | 1.08 (calc:0a620387) | 0.96 (calc:d41e53ae; alone, the plain kernel) |
+| 2 | 32.465 (46) | 16.23 (calc:ca4a11f9) | 61.60 (calc:dfa2db4f) | 34.440 | 1.06 (calc:c34bd2a0) | 1.27 (calc:53156428) | 1.51 (calc:7cc5ba83) |
+| 4 | 44.351 (46) | 11.09 (calc:1c56e5fd) | 90.19 (calc:d43f78dc) | 50.273 | 1.13 (calc:2255a9b0) | 1.53 (calc:db89a783) | 2.21 (calc:06a31f62) |
+| 8 | 85.428 (97) | 10.68 (calc:689d938e) | 93.65 (calc:d76d6e6b) | 95.608 | 1.12 (calc:c6020ecf) | 1.50 (calc:d55aaead) | 2.27 (calc:35ecb239) |
+
+The eight-head beat lost 10.18 ms (calc:23efb153) where the lever 1 timeline predicted 9.5 (320 router launches at 36 us
+replaced by 40; the measured saving is 1.07x that, calc:eaa9b6e4, shared-chip noise either way). The beat is now 8.59 ms per
+extra head (calc:c795debd; lever 1 was 9.87) and the eight-head stroke moves its 11.5 GB of distinct weights at 135 GB/s
+(calc:9e950a60) against the 273 GB/s ceiling.
+
+Chip timeline of one eight-head stroke with lever 2, `AIEN_STROKE_STAMPS=1` (`stroke8l2-stamps.log`; stamps cost chip time, the
+stroke median there, 84.076 ms, is not the speed number), against the lever 1 timeline above:
+
+| launch kind | lever 1 launches | lever 1 ms | lever 2 launches | lever 2 ms | what changed |
+|---|---|---|---|---|---|
+| router | 320 | 11.514 | 40 | 2.131 | one launch per layer for the eight heads: 5.40x (calc:c0c4e703); 53.3 us a launch (calc:8514ee0e), 1.48x the one-head launch (calc:81005ab3), the gate table pulled from memory once and served to the other seven CTAs from the cache |
+| gate_up + down (experts) | 80 | 40.709 | 80 | 38.698 | unchanged, now 50% of the beat (calc:afd565f2), at 93% of the ceiling already |
+| lm_head (bf16) | 2 | 10.627 | 2 | 9.619 | unchanged (lever 1) |
+| gdn + attn (per head) | 320 | 13.604 | 320 | 12.538 | unchanged, the next lever after the dense sweep |
+| mix + o_proj (dense) | 80 | 9.523 | 80 | 8.935 | unchanged |
+| res, ab, swiglu, gather, gate, argmax, norm | 577 | 4.138 | 577 | 3.809 | unchanged |
+| perm + group | 410 | 1.945 | 410 | 2.009 | unchanged |
+| total timeline | 1749 | 92.057 | 1469 | 77.738 | 14.319 ms less (calc:627bb831): 9.383 from the router (calc:d0543128) and 4.938 drift across the unchanged kinds (calc:3b94520e; shared chip, every unchanged kind ran a little faster this time) |
+
+Next levers, in the order of the timeline: (3) the dense GEMMs (mix + o_proj, 8.9 ms, at about half the ceiling: a CTA-budget
+sweep), (4) GDN and attention over heads (12.5 ms). The expert union (38.7 ms, 93% of the ceiling) is the floor.
+
 ## Files
 `gate1-*.json/.log` first pass (band withdrawn, data kept), `gate1b-*.json/.log` the rerun, `gate2-*.json` the door, `stroke-*.json/.log`
-the four stroke runs (`stroke_chip_ns` per stroke, `conversations[].steps`), `stroke8-*` and `stroke8b-*` the eight-head sets, `stroke8v2-*` the v2 set, `stroke8l1-*` the lever 1 set (`*-stamps` the timelines), `stroke1-*`
-the runs alone, `stroke{1,2,4}-real`, `stroke{1,2,4}v2-real`, `stroke{1,2,4}l1-real` the ladders, `*-vs-alone.txt`, `expert-union-*.json`, `scripts/` the scripts that produced them, `run.log`
+the four stroke runs (`stroke_chip_ns` per stroke, `conversations[].steps`), `stroke8-*` and `stroke8b-*` the eight-head sets, `stroke8v2-*` the v2 set, `stroke8l1-*` the lever 1 set, `stroke8l2-*` the lever 2 set (`*-stamps` the timelines), `stroke1-*`
+the runs alone, `stroke{1,2,4}-real`, `stroke{1,2,4}v2-real`, `stroke{1,2,4}l1-real`, `stroke{1,2,4}l2-real` the ladders, `*-vs-alone.txt`, `expert-union-*.json`, `scripts/` the scripts that produced them, `run.log`
 the chip log with binary and lib shas; the scripts live in `~/handoffs/motor-scripts/` (not in the repo: they carry home paths).
