@@ -182,7 +182,11 @@ impl Qwen38Omega {
             eprintln!(
                 "qwen36 omega: rows ride strokes of up to {} ({}; AIEN_Q36_STROKE=0 rows in turn)",
                 q::MAX_HEADS,
-                if batch { "batch v2, AIEN_Q36_STROKE_V2=0 for v1" } else { "v1 (AIEN_Q36_STROKE_V2=0)" }
+                if batch {
+                    "batch v2, AIEN_Q36_STROKE_V2=0 for v1"
+                } else {
+                    "v1 (AIEN_Q36_STROKE_V2=0)"
+                }
             );
             self.row_stroke = Some(g);
         }
@@ -323,7 +327,7 @@ impl Qwen38Omega {
     /// One token into each listed row (each row at most once): each row's greedy token, and its
     /// logits when asked. On an error no position has moved past the failing row.
     pub fn step_rows(&mut self, feed: &[RowFeed]) -> Result<Vec<RowOut>, String> {
-        let (v, h) = (self.config.vocab, self.config.hidden);
+        let v = self.config.vocab;
         for (i, f) in feed.iter().enumerate() {
             if f.row >= self.rows.len() {
                 return Err(format!("step_rows: row {} of {}", f.row, self.rows.len()));
@@ -361,9 +365,36 @@ impl Qwen38Omega {
             }
         }
         let mut outs = Vec::with_capacity(feed.len());
-        // Strokes (L312): up to MAX_HEADS rows per command list, the head slots pointed at them.
-        if let Some(sg) = self.row_stroke.as_mut() {
+        // Strokes (L312) for two rows or more; a lone row takes its own one-row graph (with the exact
+        // head): one head costs more in a stroke (L312: N=1 v2 27.3 ms vs 24.4 ms v1).
+        if feed.len() >= 2 && self.row_stroke.is_some() {
+            let mut sg = self.row_stroke.take().expect("checked above");
+            let r = self.stroke_chunks(&mut sg, feed, &mut outs);
+            self.row_stroke = Some(sg);
+            r?;
+            return Ok(outs);
+        }
+        for f in feed {
+            outs.push(self.row_token(f)?);
+        }
+        Ok(outs)
+    }
+
+    /// Up to MAX_HEADS rows per command list, the head slots pointed at them; a chunk of one row
+    /// takes the row's own graph.
+    fn stroke_chunks(
+        &mut self,
+        sg: &mut Q36Graph,
+        feed: &[RowFeed],
+        outs: &mut Vec<RowOut>,
+    ) -> Result<(), String> {
+        let (v, h) = (self.config.vocab, self.config.hidden);
+        {
             for chunk in feed.chunks(q::MAX_HEADS) {
+                if let [f] = chunk {
+                    outs.push(self.row_token(f)?);
+                    continue;
+                }
                 // The exact head (when built) makes off-candidate logits -inf: on for the whole stroke only
                 // when no row in it reads logits (sampled rows need every one).
                 sg.set_exact_head_on(!chunk.iter().any(|f| f.logits));
@@ -412,40 +443,42 @@ impl Qwen38Omega {
                     });
                 }
             }
-            return Ok(outs);
         }
-        for f in feed {
-            let t = f.token as usize;
-            let x: Vec<f32> = self.embed[t * h..(t + 1) * h]
-                .iter()
-                .map(|&b| bf16_to_f32(b))
-                .collect();
-            let row = &mut self.rows[f.row];
-            if row.pos >= row.max_pos {
-                return Err(format!(
-                    "step_rows: row {} holds {} positions",
-                    f.row, row.max_pos
-                ));
-            }
-            row.graph.set_exact_head_on(!f.logits);
-            let (token, stats) = row.graph.token(&x, row.pos).map_err(gpu("row q36 token"))?;
-            row.pos += 1;
-            let logits = if f.logits {
-                let mut l = vec![0f32; v];
-                row.graph
-                    .read(None, None, Some(&mut l))
-                    .map_err(gpu("row q36 read logits"))?;
-                Some(l)
-            } else {
-                None
-            };
-            outs.push(RowOut {
-                token,
-                logits,
-                stats,
-            });
+        Ok(())
+    }
+
+    /// One row's token through its own one-row graph.
+    fn row_token(&mut self, f: &RowFeed) -> Result<RowOut, String> {
+        let (v, h) = (self.config.vocab, self.config.hidden);
+        let t = f.token as usize;
+        let x: Vec<f32> = self.embed[t * h..(t + 1) * h]
+            .iter()
+            .map(|&b| bf16_to_f32(b))
+            .collect();
+        let row = &mut self.rows[f.row];
+        if row.pos >= row.max_pos {
+            return Err(format!(
+                "step_rows: row {} holds {} positions",
+                f.row, row.max_pos
+            ));
         }
-        Ok(outs)
+        row.graph.set_exact_head_on(!f.logits);
+        let (token, stats) = row.graph.token(&x, row.pos).map_err(gpu("row q36 token"))?;
+        row.pos += 1;
+        let logits = if f.logits {
+            let mut l = vec![0f32; v];
+            row.graph
+                .read(None, None, Some(&mut l))
+                .map_err(gpu("row q36 read logits"))?;
+            Some(l)
+        } else {
+            None
+        };
+        Ok(RowOut {
+            token,
+            logits,
+            stats,
+        })
     }
 }
 
