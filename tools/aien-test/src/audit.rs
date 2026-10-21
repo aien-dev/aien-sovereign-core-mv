@@ -257,6 +257,11 @@ pub fn judge(m: &Manifest, places: &Places, opened: &[Opened]) -> Report {
             bump(&mut r, "git (commit metadata, config, objects)");
             continue;
         }
+        // rm opens directories to delete what is inside them, never to read.
+        if o.comm == "rm" {
+            bump(&mut r, "rm (deleting, not reading)");
+            continue;
+        }
         let p = o.path.as_str();
         let p_dir = format!("{}/", p.trim_end_matches('/'));
         if p_dir.starts_with(&target) {
