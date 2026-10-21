@@ -1,0 +1,17 @@
+step 32 at 53 s; first divergence: fp8-e4m3-col None, fp8-e4m3-col+forced None
+step 64 at 122 s; first divergence: fp8-e4m3-col Some(34), fp8-e4m3-col+forced None
+step 96 at 187 s; first divergence: fp8-e4m3-col Some(34), fp8-e4m3-col+forced None
+step 128 at 256 s; first divergence: fp8-e4m3-col Some(34), fp8-e4m3-col+forced None
+step 160 at 327 s; first divergence: fp8-e4m3-col Some(34), fp8-e4m3-col+forced None
+step 192 at 385 s; first divergence: fp8-e4m3-col Some(34), fp8-e4m3-col+forced None
+step 224 at 453 s; first divergence: fp8-e4m3-col Some(34), fp8-e4m3-col+forced None
+step 256 at 511 s; first divergence: fp8-e4m3-col Some(34), fp8-e4m3-col+forced Some(248)
+step 288 at 573 s; first divergence: fp8-e4m3-col Some(34), fp8-e4m3-col+forced Some(248)
+step 320 at 631 s; first divergence: fp8-e4m3-col Some(34), fp8-e4m3-col+forced Some(248)
+step 352 at 686 s; first divergence: fp8-e4m3-col Some(34), fp8-e4m3-col+forced Some(248)
+step 384 at 733 s; first divergence: fp8-e4m3-col Some(34), fp8-e4m3-col+forced Some(248)
+step 416 at 773 s; first divergence: fp8-e4m3-col Some(34), fp8-e4m3-col+forced Some(248)
+step 448 at 825 s; first divergence: fp8-e4m3-col Some(34), fp8-e4m3-col+forced Some(248)
+step 480 at 870 s; first divergence: fp8-e4m3-col Some(34), fp8-e4m3-col+forced Some(248)
+step 512 at 925 s; first divergence: fp8-e4m3-col Some(34), fp8-e4m3-col+forced Some(248)
+done in 925 s -> /home/drakestapleton/workspace/sc-hum-state-precision/evidence/hum-state-precision/drift-col-p1.json
