@@ -87,7 +87,47 @@ and consumed inside one head's contiguous launches (barriers between launches by
 
 Chip time per stroke (shared chip, no quiet window, four tokens per stroke; a receipt only under `spark-window`): real run median 92.887032 ms per stroke of four tokens (46 strokes, min 90.378, max 101.353 ms) = 43.06 tok/s across the four heads (calc:9c07e26f), 23.22 ms per token-equivalent (calc:3ae78e68); swap-feature median 93.448174 ms = 42.80 tok/s (calc:18064ffe), 23.36 ms per token-equivalent (calc:ab4e0439); the red runs sat at 94.228 and 93.206 ms. Against the single-head medians above (21.86 to 22.99 ms per token, same shared chip) a v1 stroke costs about four single tokens, as built: every head reads the weights once per stroke; v2 batches the dense GEMVs at M = 4. Not a speed receipt: the 18091 server and two other lanes' tools shared the chip, and the `spark-window` line was stuck during these runs (the window run is still owed).
 
+## Eight conversations per command list (`qwen36_stroke_gate`, sc 4e0d36d2 over omega 52dd18a8, lib 580171ef, bin 0d1f796b)
+Coordinator 02:22Z: eight at once. omega: list cap 2048 -> 4096 launches, MAX_HEADS 8 (444 launches a token, 3552 for eight; the
+submit already splits a list over the 64 KB ring as it needs). Four more goldens from the host reference join p1..p4
+(`../q36-host-20261020/gen-chat-{code,prose,chat,review}.json`, chat template, 32 tokens each, `qwen38_check` bin 565cccf3).
+Same rule per conversation as above. Two sets, because one prompt fails alone:
+
+| run | heads | result |
+|---|---|---|
+| `stroke8-mutant4` 03:58Z | 8 (set a: p1-p4, code, prose, chat, review) | FAIL as required: every head diverges (p1 10/32 ... prose 5/32), 1 to 27 flips beyond the band each |
+| `stroke8-swap-control` 04:00Z | 8 | FAIL as required: p1 and p2 diverge from step 18 (25/32, 28/32); the untouched heads unchanged |
+| `stroke8-real` 04:02Z | 8 | 7 of 8 PASS; `gen-chat-prose` FAILS the band rule at pos 63 (chip 8720, host 26606, margin 0.194, max_abs 0.98; cosine min 0.9914 at step 28) |
+| `stroke1-prose` 04:03Z | 1 | the same conversation ALONE: the same 67 per-step lines, the same tokens (31/32, the same flip at 63). One-token chip precision, not the stroke; noted to L313 |
+| `stroke1-{code,chat,review,prose2}` 04:05-04:07Z | 1 | each alone 32/32 |
+| `stroke8-vs-alone.txt` | | every head of `stroke8-real` equals its run alone, 8 of 8 (p1-p4 against `gate1b-p<n>.json`) |
+| `stroke8b-mutant4` 04:10Z | 8 (set b: prose -> prose2) | FAIL as required |
+| `stroke8b-swap-control` 04:12Z | 8 | FAIL as required |
+| `stroke8b-real` 04:14Z | 8 | PASS: p1, p2, p3 32/32, p4 31/32 (its known in-band flip), code, prose2, chat, review 32/32; every head equals its run alone (`stroke8b-vs-alone.txt`) |
+| `stroke8b-swap-feature` 04:16Z | 8 | PASS: p1 ends in slot 1, p2 in slot 0, all eight identical to golden and to their runs alone (`stroke8b-feature-vs-alone.txt`) |
+
+Ladder, the same command and binary back to back (`stroke1-real`, `stroke2-real`, `stroke4-real`, `stroke8b-real`; shared chip next
+to other lanes' tools, the 18091 server was down at the time; not a speed receipt, that needs `spark-window`):
+
+| heads | ms per stroke (median) | ms per token | tok/s total |
+|---|---|---|---|
+| 1 | 24.380 (36 strokes) | 24.38 | 41.02 (calc:eab1e7fb) |
+| 2 | 49.096 (46) | 24.55 (calc:946a5354) | 40.74 (calc:35ba22a1) |
+| 4 | 97.805 (46) | 24.45 (calc:73a5fb9b) | 40.90 (calc:24df1ea6) |
+| 8 | 194.143 (97) | 24.27 (calc:dbf658ca) | 41.21 (calc:2172b972) |
+
+v1 is linear in N, as built: every head reads the weights once per stroke, so eight conversations cost eight single tokens and the
+total rate stays at one conversation's. The gain is v2: one weight read per layer for all heads (the dense GEMVs batched at
+M = heads through the segment-table GEMM, which is bit-identical to the GEMV per row; the experts merged over the heads' picks).
+
+Expert union per layer per decode step, from the goldens' routes (`scripts/expert-union.sh`, `expert-union-*.json`): 8 different real
+prompts 54.7 (set a) / 54.5 (set b), min 33-35, max 63-64 per cell, against 57.42 for independent draws (calc:aa517f3a); 4 chat
+prompts 29.7 against 30.53; 2 code prompts 15.3 against 15.75. Different real conversations route almost independently. The 30.5 at
+N = 8 in ENGINE.md's stroke table came from 32 traces of one prompt family (correlated rows), the optimistic case; a byte budget for
+eight conversations must count about 55 of 256 experts per layer per beat.
+
 ## Files
 `gate1-*.json/.log` first pass (band withdrawn, data kept), `gate1b-*.json/.log` the rerun, `gate2-*.json` the door, `stroke-*.json/.log`
-the four stroke runs (`stroke_chip_ns` per stroke, `conversations[].steps`), `run.log`
+the four stroke runs (`stroke_chip_ns` per stroke, `conversations[].steps`), `stroke8-*` and `stroke8b-*` the eight-head sets, `stroke1-*`
+the runs alone, `stroke{1,2,4}-real` the ladder, `*-vs-alone.txt`, `expert-union-*.json`, `scripts/` the scripts that produced them, `run.log`
 the chip log with binary and lib shas; the scripts live in `~/handoffs/motor-scripts/` (not in the repo: they carry home paths).
