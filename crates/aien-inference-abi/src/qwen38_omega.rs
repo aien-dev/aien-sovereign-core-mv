@@ -883,6 +883,22 @@ impl Qwen38Omega {
         }
     }
 
+    /// The batch (L312 v2): each layer recorded for every conversation at once, one weight read per
+    /// layer for all of them. 35B graph only; pins the GEMM kernels on the session.
+    pub fn set_batch(&mut self, on: bool) -> Result<(), String> {
+        match &mut self.graph {
+            Graph::Moe(g) => g.set_batch(on).map_err(|rc| format!("q36 set_batch: rc {rc}")),
+            Graph::Dense(_) => Err("set_batch: the 27B dense graph has no batch".into()),
+        }
+    }
+    /// Whether the 35B graph records in the batch (also `AIEN_OMEGA_Q36_BATCH=1` at open).
+    pub fn batch(&self) -> bool {
+        match &self.graph {
+            Graph::Moe(g) => g.batch(),
+            Graph::Dense(_) => false,
+        }
+    }
+
     /// Head swap: slots `a` and `b` exchange conversations (state objects and positions); the
     /// graph is re-pointed, nothing is copied. After it, the stroke feeding slot `a` continues
     /// the conversation that was in `b`.

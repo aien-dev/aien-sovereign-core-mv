@@ -26,6 +26,10 @@
 //!
 //! The tool takes the hive's chip lock itself around the chip part. Inside a `spark-window` (whose
 //! holder already owns that lock) set `AIEN_STROKE_IN_WINDOW=1` to skip it; never elsewhere.
+//!
+//! `AIEN_STROKE_V2=1`: the batch (L312 v2, "the ignition"): each layer is recorded for every head at
+//! once and every weight is read once per layer for all of them; the same gate, the same controls.
+//! The report carries `"batch": true`.
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -306,6 +310,12 @@ fn run() -> Result<bool, String> {
     let t1 = Instant::now();
     let mut engine = Qwen38Omega::open_window_heads(dir, 0, layers, t_max.max(256), heads)?;
     let upload_s = t1.elapsed().as_secs_f64();
+    // AIEN_STROKE_V2=1: the batch (every layer recorded for all heads at once, one weight read per layer)
+    if std::env::var("AIEN_STROKE_V2").is_ok_and(|v| v == "1") {
+        engine.set_batch(true)?;
+    }
+    let batch = engine.batch();
+    eprintln!("graph: batch (v2) {}", if batch { "ON" } else { "off" });
     eprintln!(
         "graph: {heads} heads uploaded in {upload_s:.1} s, weights {} MB, KV {} MB per head",
         engine.weight_bytes() >> 20,
@@ -451,6 +461,7 @@ fn run() -> Result<bool, String> {
         "reference_s": ref_s, "upload_s": upload_s,
         "bin_sha256": bin_sha,
         "in_window": in_window,
+        "batch": batch,
         "swap_mode": match swap { Swap::None => "none", Swap::Control => "control", Swap::Feature => "feature" },
         "swapped_at_step": swapped_at,
         "stroke_chip_ns": stroke_ns, "stroke_chip_ns_median": med,

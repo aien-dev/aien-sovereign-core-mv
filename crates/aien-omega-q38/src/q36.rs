@@ -121,6 +121,8 @@ mod ffi {
             n: u32,
         ) -> i32;
         pub fn omega_gpu_q36_graph_set_flush_each(g: *mut OmegaGpuQ36Graph, on: i32);
+        pub fn omega_gpu_q36_graph_set_batch(g: *mut OmegaGpuQ36Graph, on: i32) -> i32;
+        pub fn omega_gpu_q36_graph_batch(g: *const OmegaGpuQ36Graph) -> i32;
         pub fn omega_gpu_q36_graph_test_set_mutant(g: *mut OmegaGpuQ36Graph, mutant: i32);
     }
 }
@@ -496,6 +498,31 @@ impl Q36Graph {
         }
     }
 
+    /// The batch (v2, L312): each layer recorded for every conversation at once, one weight read per layer.
+    /// Pins the GEMM kernels on the session; `Err` carries the chip rc.
+    pub fn set_batch(&mut self, on: bool) -> Result<(), i32> {
+        #[cfg(has_omega_q36)]
+        // SAFETY: ptr is live.
+        unsafe {
+            let rc = ffi::omega_gpu_q36_graph_set_batch(self.ptr, on as i32);
+            if rc == 0 { Ok(()) } else { Err(rc) }
+        }
+        #[cfg(not(has_omega_q36))]
+        {
+            let _ = on;
+            Err(-1)
+        }
+    }
+    /// Whether the batch is on (also set by `AIEN_OMEGA_Q36_BATCH=1` at create).
+    pub fn batch(&self) -> bool {
+        #[cfg(has_omega_q36)]
+        // SAFETY: ptr is live.
+        unsafe {
+            ffi::omega_gpu_q36_graph_batch(self.ptr) != 0
+        }
+        #[cfg(not(has_omega_q36))]
+        false
+    }
     /// 1: submit after every launch (the comparison path).
     pub fn set_flush_each(&mut self, on: bool) {
         #[cfg(has_omega_q36)]
