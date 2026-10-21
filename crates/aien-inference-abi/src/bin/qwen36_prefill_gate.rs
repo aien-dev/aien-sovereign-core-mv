@@ -18,7 +18,8 @@
 //! Prompt tokens per second, A and B, are in the record (a receipt only inside a chip window).
 //!
 //! Negative controls, each must FAIL: `AIEN_OMEGA_Q36_PF_MUTANT=1` (the last two tokens' GDN
-//! steps swapped) and `=2` (every expert segment one row short).
+//! steps swapped), `=2` (every expert segment one row short) and `=3` (each token's DeltaNet output copied
+//! after the whole chunk instead of right after its step).
 //!
 //! `layers`: a model prefix (the first `layers` layers) for a small load; the full 35B loads only
 //! under `q36-extra` (one extra 35B beside the live server).

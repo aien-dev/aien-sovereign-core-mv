@@ -48,8 +48,8 @@ pub const MAX_SLOTS: usize = 64;
 pub const PROMPT_PER_BEAT: usize = 16;
 
 /// L369: prompt tokens per prefill chunk (the chip's most) and the fewest worth a chunk.
-pub const PREFILL_CHUNK: usize = 112;
-pub const PREFILL_MIN: usize = 16;
+pub const Q36_PREFILL_CHUNK: usize = 128;
+pub const Q36_PREFILL_MIN: usize = 16;
 
 fn env_usize(name: &str, default: usize) -> usize {
     match std::env::var(name) {
@@ -308,8 +308,8 @@ impl Qwen36BatchDoor {
             lock_wait,
             max_context,
             per_beat: prompt_per_beat.max(1),
-            pf_chunk: env_usize("AIEN_Q36_PREFILL_CHUNK", PREFILL_CHUNK).min(PREFILL_CHUNK),
-            pf_min: env_usize("AIEN_Q36_PREFILL_MIN", PREFILL_MIN).max(1),
+            pf_chunk: env_usize("AIEN_Q36_PREFILL_CHUNK", Q36_PREFILL_CHUNK).min(Q36_PREFILL_CHUNK),
+            pf_min: env_usize("AIEN_Q36_PREFILL_MIN", Q36_PREFILL_MIN).max(1),
             chip_greedy,
             beat: 0,
         };
