@@ -6,7 +6,9 @@
 //! handles of a [`crate::Gdn`] (ratio 2), an [`crate::Attn256Cache`] (shape 16 / 2 / 4), an
 //! `aien_omega_router::Router` (shape 256 + 1 shared, every layer and directory set) and the FP8 /
 //! bf16 tensors, which must outlive the graph and not be used concurrently with a token.
-use crate::{bad, check_len, session_err, GraphStats};
+use crate::{bad, check_len, GraphStats};
+#[cfg(has_omega_q36)]
+use crate::session_err;
 use aien_omega_gpu::OmegaGpuError;
 use std::ffi::c_void;
 use std::fmt;
@@ -302,7 +304,10 @@ impl Q36Graph {
             Ok((tokens, st))
         }
         #[cfg(not(has_omega_q36))]
-        Err(OmegaGpuError::Unavailable)
+        {
+            let _ = pos;
+            Err(OmegaGpuError::Unavailable)
+        }
     }
 
     /// As [`Self::read`], for head `head` of the last stroke.
