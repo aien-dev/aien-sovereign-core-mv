@@ -6,6 +6,7 @@
 set -uo pipefail
 TAG=$1; BIN=$2
 E=$(cd "$(dirname "$0")"; pwd); S=$HOME/.local/state/aien-q36; PORT=18098
+export Q36_EXTRA_WAIT=${Q36_EXTRA_WAIT:-14400}   # the extra-35B line is long today; wait up to 4 h for the slot
 LOG=$E/server-$TAG.log; BD=$E/board-$TAG; OUT=$E/chip-$TAG
 cd "$S/$BIN" && sha256sum -c --quiet SHA256SUMS || exit 2
 ss -ltn | grep -q "127.0.0.1:$PORT " && { echo "$PORT in use"; exit 2; }
