@@ -352,6 +352,7 @@ pub fn recheck(head: &Matrix, h: &[f32], cands: &[u32]) -> (usize, f32) {
 
 /// The two-pass head end to end: `(argmax, |C|)`.
 pub fn argmax(head: &Matrix, screen: &Screen, h: &[f32], kind: BoundKind, scale: f64) -> (usize, usize) {
+    assert_eq!(h.len(), screen.k, "exact_head::argmax: h must be one hidden vector of k values");
     let s = screen.logits(h);
     let b = screen.bounds(h, kind, scale);
     let c = candidates(&s, &b);

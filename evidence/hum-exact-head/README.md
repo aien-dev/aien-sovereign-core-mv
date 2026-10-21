@@ -65,7 +65,7 @@ softmax and top-p. Candidates that certify the exact top 20 (`candidates_topk`: 
 the draw a function of exact logits only: bit-identical draws, no fallback needed. Checked with the Group bound
 (`Min` rows of `analyze.json`, which equal Group here): 8080 draws (1010 records x 8 seeds), 0 differ. Not yet
 checked with the Row bound the chip uses. Certifying 20 rows costs more rechecks than greedy: fp8b Row |C| mean
-712.8, max 13452 rows (about 2.9 MB mean, 55 MB worst, still far below the 1.017 GB head); fp8b Group mean 667.0,
+712.8, max 13452 rows (about 2.92 MB mean calc:a9bb7f70, 55.1 MB worst calc:55b06ae3, still far below the 1.017 GB head); fp8b Group mean 667.0,
 max 12617. The chip pipeline here is greedy only; the top-20 chip path is the next step. A request with top_k = 0
 and temperature > 0 needs every logit: the full head runs, always.
 

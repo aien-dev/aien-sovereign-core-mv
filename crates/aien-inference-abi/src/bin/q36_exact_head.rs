@@ -13,7 +13,8 @@
 //! `analyze` builds the W4 and FP8 screens of the bf16 lm_head and reports |C| for every bound,
 //! the bytes per token, and checks the two-pass argmax against the full one on every record.
 //! `gate` decodes greedily with the two-pass head choosing every token and compares the ids with
-//! the golden run; `scale` < 1 is the mutant.
+//! the golden run; 0 <= `scale` < 1 is a shrunken-bound mutant, `scale` < 0 drops the full argmax from the
+//! candidates (a mutant that must fail).
 use aien_inference_abi::exact_head::{self, BoundKind, Screen, ScreenKind, GROUP};
 use aien_inference_abi::qwen38::{argmax, Logits, Qwen38Reference};
 use aien_inference_abi::qwen3_moe_omega::{sample_next, GenerateParams};
@@ -323,12 +324,25 @@ fn gate(dir: &Path, kind: ScreenKind, bk: BoundKind, scale: f64, out_path: &str,
     for path in goldens {
         let (prompt, gen) = golden(path)?;
         let mut state = model.new_state();
-        let (mut row, mut full) = step(&mut model, &mut state, &prompt)?;
+        let (rows, mut full) = step(&mut model, &mut state, &prompt)?;
+        // step returns the normed rows of every prompt position: the next token reads the last one.
+        let k = model.config.hidden;
+        let mut row = rows[rows.len() - k..].to_vec();
         let mut out = Vec::new();
         let mut cs = Vec::new();
         let mut diverged = None;
         for i in 0..gen.len() {
-            let (tok, c) = exact_head::argmax(model.lm_head(), &screen, &row, bk, scale);
+            let (tok, c) = if scale < 0.0 {
+                // Guaranteed-red mutant: the proven candidate set minus the full argmax.
+                let s = screen.logits(&row);
+                let b = screen.bounds(&row, bk, 1.0);
+                let mut c = exact_head::candidates(&s, &b);
+                c.retain(|&r| r as usize != full);
+                // An empty set (the winner was the only candidate) picks no row: a divergence.
+                if c.is_empty() { (usize::MAX, 0) } else { (exact_head::recheck(model.lm_head(), &row, &c).0, c.len()) }
+            } else {
+                exact_head::argmax(model.lm_head(), &screen, &row, bk, scale)
+            };
             out.push(tok as u32);
             cs.push(c);
             if tok as u32 != gen[i] || tok != full {
