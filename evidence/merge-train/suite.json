@@ -59,6 +59,9 @@
      "about": "8 rows at once, row 3 trades rows with another conversation at its 2nd step: both go red, the rest identical"},
     {"id": "board-gate", "kind": "script", "script": "evidence/q36-board-20261021/gate.sh", "arms": ["board"], "levers": ["L376"],
      "args": ["$PORT", "$OUT/board-gate", "$SERVER_LOG", "$OUT/board"],
-     "about": "L376's 10 board cases (ledger note on L384, 14:12Z) as the owner's gate against the train's server"}
+     "about": "L376's 10 board cases (ledger note on L384, 14:12Z) as the owner's gate against the train's server"},
+    {"id": "readers-gate", "kind": "script", "script": "evidence/q36-readers-train/gate.sh", "arms": ["plain"], "levers": ["L371"],
+     "args": ["$PORT", "$OUT/readers-gate"],
+     "about": "L371 eight readers: id listed, short input == plain ids, long input read by >= 2 readers (contiguous parts, notes, the last part's fact), plain id has no aien_readers (red control). Not an exactness gate: readers are opt-in by id."}
   ]
 }
