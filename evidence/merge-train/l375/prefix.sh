@@ -30,14 +30,16 @@ req() { # <tag> <user message> <changed tool index or -1> <aien_test json or nul
     "$O/$1.base.json" > "$O/$1.json"
 }
 ask() { # <tag>: one streamed request; ids, time to first word, the server log lines it wrote
-  local n0; n0=$(wc -l < "$LOG")
+  local n0 k; n0=$(wc -l < "$LOG")
   bash "$REPO/evidence/l375/ask.sh" "$P" "$O/$1.json" "$1" "$O" > /dev/null
   tail -n +"$((n0 + 1))" "$LOG" | grep -E 'qwen36-batch: (join|leave|prompt cache)|tool (order|marks)' > "$O/$1.log"
   grep -q 'context_length_exceeded' "$O/$1.sse" && nov "$1: prompt over the server's context (needs MERGE_TRAIN_CTX >= 18432)"
-  [ -s "$O/$1.ids" ] || nov "$1: no token ids (see $O/$1.sse)"
-  if jq -e '.aien_test' "$O/$1.json" > /dev/null; then
-    grep -q '"applied"' "$O/$1.sse" || nov "$1: the reply does not echo usage.aien_test.applied"
+  if grep -qE '^(data: )?\{"error":' "$O/$1.sse" || [ ! -s "$O/$1.ids" ]; then
+    echo "l375 prefix: FAIL: $1: the server failed the request (see $O/$1.sse)" | tee "$O/verdict.txt"; exit 1
   fi
+  for k in $(jq -r '.aien_test // {} | keys[]' "$O/$1.json"); do
+    grep -q "\"applied\":\[[^]]*\"$k\"" "$O/$1.sse" || nov "$1: the reply does not echo $k in usage.aien_test.applied"
+  done
 }
 restored() { grep -q 'join: .*(prompt cache, row' "$O/$1.log"; }
 
@@ -54,6 +56,8 @@ cmp -s "$O/b-pool.ids" "$O/b-cold.ids" || fail+=("chat B: cache words != cold wo
 cmp -s "$O/c-pool.ids" "$O/c-cold.ids" || fail+=("chat C (tool changed): cache words != cold words")
 cmp -s "$O/d-mutant.ids" "$O/d-cold.ids" && fail+=("RED-FAIL: the one-position-off restore gave the cold words")
 for t in b-pool c-pool d-mutant; do restored "$t" || fail+=("$t: no prompt cache restore in the server log"); done
+for t in b-cold c-cold d-cold; do grep -q "join: prompt [0-9]* tok, reuse 0 tok (cold" "$O/$t.log" || fail+=("$t: not a cold read in the server log"); done
+grep -q "POSITION MUTANT" "$O/d-mutant.log" || fail+=("d-mutant: no POSITION MUTANT restore in the server log")
 
 {
   echo "L375 prompt cache on the merge train, port $P, model $M, $(date -u +%FT%H:%MZ)"
