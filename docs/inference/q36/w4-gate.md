@@ -57,3 +57,26 @@ format and kernel. Everything below is fixed now; nothing is retuned after a res
   h3 `fn main() {\n    let numbers = vec![3, 1, 4, 1, 5, 9];\n`
   h4 `Photosynthesis is the process by which`
   h5 `<|im_start|>user\nWrite a short email asking a colleague to move our Thursday meeting to Friday.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n`
+
+## NV16 arm (written 2026-10-21 ~12:00Z before any nv16 or route run; plan ~/handoffs/l355/plan-nv16.md, Fable review adopted)
+A finer 4-bit grid, NVFP4-style (sc q36_w4_nv.rs): e2m1 x e4m3 scale per 16 weights x one f32 global per linear (each
+expert's gate, up and down), global = amax / (448 x 6), scale = nearest e4m3 code (one up when a value clips and that lowers
+the squared error), e2m1 ties to the even code (cvt.rn). Host widen applies the global to each output once (the chip's
+epilogue). An ACCEPT here says nothing about speed: that needs the chip kernel and the 8-head stroke receipt.
+Order and go / no-go, decided now:
+1. Diagnostics first (no verdict arm before both):
+   a. Router flips: forced runs of the FP8 arm and w4e (MXFP4 BEST store) on gen-p4 and chat-max-24 with AIEN_L355_ROUTES=1
+      (each step's top-8 per layer). Per step: layers whose top-8 set differs from FP8; excess = NLL(w4e) - NLL(FP8).
+      NO-GO for every 4-bit grid if the mean count of differing layers at the 20 steps with the largest excess is at least
+      2x the mean over the other steps AND those 20 steps carry at least half of the excess: then the error is router flips and
+      W4 experts close for this model.
+   b. Weight error: the nv16 store's squared relative error (rel_rms^2 over all its tensors) must be at most half of the BEST
+      store's: rel_rms^2 <= 0.0063333 (= 0.5 x 0.112546^2, calc:466b6d16). Otherwise NO-GO (under the second-order
+      reading, the held-out gap needs about that cut).
+2. Then arm w4n: experts from the nv16 store, trunk FP8. ACCEPT = A (frozen rule, five goldens, control rerun with this build:
+   forced fp8 p1 must equal forced-fp8-p1.json) AND B (held-out h1..h5) AND C (paired block bootstrap vs w4e, upper bound < 0).
+   Controls: the mantissa mutant still REJECTs; the scale control w4e-smut (e4m3 scale mantissa cleared, powers of two at
+   group 16) runs on the goldens, reported, not gated: it says whether a gain comes from the scale mantissa or the group size.
+3. Fallback named now: if (1) says the error is smooth but w4n misses B, the next arm is mixed inside the expert (gate|up
+   nv16, down FP8, or the reverse by per-matrix sensitivity), same A + B + C. If (1a) says router flips: no more 4-bit expert
+   arms for this model; bytes go to the draft head and the accuracy-free levers.
