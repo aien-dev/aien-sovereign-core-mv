@@ -20,8 +20,10 @@ k = drafts chained per step (each draft fed to the next MTP step); tokens per pa
 | input | k=1 | k=2 | k=3 | k=4 | draft 1 accepted |
 |---|---|---|---|---|---|
 | p1 | 1.934 | 2.713 | 3.273 | 3.605 | 93.4 % |
-| p2 | 1.979 | 2.910 | 3.752 | 4.391 | |
-| p3, p4, chat-max-24 | pending (evidence/l355-w4/runs/mtp-fp8-*.json) | | | | |
+| p2 | 1.979 | 2.910 | 3.752 | 4.391 | 97.9 % |
+| p3 | 1.895 | 2.596 | 3.109 | 3.428 | 89.5 % |
+| p4 | 1.877 | 2.592 | 3.107 | 3.471 | 87.7 % |
+| chat-max-24 (chat traffic) | 1.705 | 2.074 | 2.201 | 2.293 | 70.5 % |
 
 ## Bytes: when a draft pays (stop rule from the plan review)
 
@@ -35,9 +37,12 @@ draft rows (drafts of one conversation share experts at least as much as separat
 - The draft itself is not free: per drafted token the MTP layer reads about 73 MB plus the lm_head, 1.017 GB bf16.
   One conversation, k=1, p1 acceptance: 1.335x fewer bytes per emitted token with the bf16 head (calc:483f647d), 1.547x
   with a 4-bit draft head (calc:d91c918b; the draft only needs a top-1 guess, the verify pass keeps words exact).
+  Chat traffic (1.705 at k=1): 1.177x with the bf16 head (calc:ad3a09fe), 1.365x with a 4-bit draft head (calc:4ea59c1e).
+  Deeper chains on chat lose with the bf16 head (each extra draft reads the 1 GB head for about 0.1 to 0.4 extra tokens): k=1
+  is the setting for chat, k=2..4 only with the 4-bit draft head or on code-like text.
   At N conversations the draft head is read once per beat for all rows (batched), so its share falls as 1/N.
 
-Rule: build the chip path because accepted tokens per pass (1.93 to 1.98 at k=1 on p1/p2) exceed the byte ratio at
+Rule: build the chip path because accepted tokens per pass (1.71 on chat, 1.88 to 1.98 on p1..p4 at k=1) exceed the byte ratio at
 every measured N. The ratios assume the v2 engine reads each union expert once per beat (L312 v2); with v1 strokes
 (each head re-reads its weights) a draft row costs about a full row, so k=1 reads about 2x the bytes for 1.93 tokens:
 no gain. MTP rides on v2.
