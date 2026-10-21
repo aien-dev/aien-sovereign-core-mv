@@ -7,14 +7,15 @@ tables `table.sh` -> DRIFT-TABLE.md. Every number below is from the JSON receipt
 ## For Drake, in plain words
 
 The model keeps a running memory for each conversation: 63 MB per conversation in full precision,
-read and rewritten for every word it writes. Past about 8 conversations at once, that memory moves
-more bytes than the model's own weights. We tested two ways to shrink that traffic.
+read and rewritten for every word it writes. When many conversations run at once, past about 8 of them
+that memory moves more bytes than the weights they all share (coordinator figure, brief and
+~/handoffs/2026-10-20-q36-ceiling-numbers.md, not measured here). We tested two ways to shrink that traffic.
 
 1. **Store the memory smaller.** Half size (bf16) halves the memory traffic. On five test prompts,
    512 words each, the half-size memory wrote exactly the same words as full size on four, and on
    the fifth it differed once, at word 265, on a word where the model's top two choices were
    0.005 apart (a coin toss). That holds when the experts each word is sent to are held the same.
-   When the experts are free to choose, a word or two in a few hundred differs earlier: the tiny
+   When the experts are free to choose, one to three words in 512 differ, starting earlier: the tiny
    memory difference tips experts that were tied, the same thing that made gate 1 fail on the chip.
    Quality on the two scoring texts did not change (within 0.01 of the full-size score).
    **Verdict: accept, with measured drift (not identical).**
@@ -22,7 +23,7 @@ more bytes than the model's own weights. We tested two ways to shrink that traff
    97-99% of words still the same, scoring texts within about 0.03 nats (a nat is the unit of
    surprise per word; a known wrong-expert swap moves it by 0.07). **Usable, but clearly lossier; second
    choice after half size.** Scaling the quarter-size memory per column instead of per row gave
-   about the same words but four times the memory error, still growing at 512 words, so per row
+   about the same words but 2 to 4 times the memory error, still growing at 512 words, so per row
    (which the chip word-by-word routine also does cheaply) is the one to keep.
 
 2. **Touch the memory once for several words.** When the chip checks k guessed words in one go, it
@@ -47,9 +48,11 @@ more bytes than the model's own weights. We tested two ways to shrink that traff
 - A divergence where the f32 top-1 minus top-2 logit is under 0.1 (L306 gate-1 margin floor) is
   tagged near-tie.
 - REJECT rule (set before the runs finished, from the advisor review): on the AGPL passage, the
-  forced variant's mean NLL rising by more than 0.06936 nats over f32, the measured effect of
-  swapping every row's 8th expert for the 9th (ORACLE.md mutant 1: 0.16450 - 0.09514,
-  calc:54abc4c6022bfce48ed40e6b3c0ec6dd35431f8bd95143d6906bfdc730a7f171). A state format costing
+  forced variant's mean NLL rising by more than 0.06936 nats over f32, the size of the NLL move
+  measured when every row's 8th expert is swapped for the 9th (ORACLE.md mutant 1: 0.16450 - 0.09514,
+  calc:54abc4c6022bfce48ed40e6b3c0ec6dd35431f8bd95143d6906bfdc730a7f171). That swap lowered the
+  NLL and ORACLE.md calls it no quality oracle; the figure is used only as the magnitude of
+  router jitter, applied to a rise. A state format costing
   more than that is worse than router jitter the chip already lives with. The wrong-expert mutant
   2 gap (4.43 nats) would pass anything, so it is not used. README passage (ppl 17.5) is
   report-only, added because AGPL (ppl 1.18) is near-saturated.
@@ -60,8 +63,8 @@ more bytes than the model's own weights. We tested two ways to shrink that traff
 |---|---|---|---|---|---|
 | f32 | 125,829,120 | reference | reference | 0 / 0 | reference |
 | bf16 | 62,914,560 | identical 512/512 on p1, p2, p3, chat; p4 first diff at 265 (near-tie 0.005) | first diff 4 to 99 (near-ties) on p1-p4; chat 82 (margin 1.43) | -0.0023 / +0.0003 | ACCEPT, PARTLY (measured drift; not EXACT-EQUIVALENT) |
-| fp8 e4m3, scale per k row | 32,440,320 | first diff 4 to 144; 496-511 of 512 agree | first diff 4 to 58; 497-510 of 512 | -0.0104 / +0.0143 | PARTLY: under the REJECT line, clearly lossier than bf16 |
-| fp8 e4m3, scale per v column | 32,440,320 | first diff 79 to 283; 503-511 of 512 agree | first diff 4 to 210; 503-511 of 512 | +0.0318 / +0.0034 | PARTLY: under the REJECT line, tokens on a par with row scaling, but state error about 4x row (0.25-0.29 vs 0.06-0.07 at 512 tokens, still rising): row scaling preferred |
+| fp8 e4m3, scale per k row | 32,440,320 | first diff 4 to 144; 496-511 of 512 agree | first diff 4 to 58; 497-510 of 512 | -0.0104 / +0.0143 | ACCEPT, PARTLY (second choice): under the REJECT line, clearly lossier than bf16 |
+| fp8 e4m3, scale per v column | 32,440,320 | first diff 79 to 283; 503-511 of 512 agree | first diff 4 to 210; 503-511 of 512 | +0.0318 / +0.0034 | ACCEPT, PARTLY (row scaling preferred): under the REJECT line, tokens on a par with row scaling, but state error 0.25-0.29 at 512 tokens vs row 0.06-0.07 on p1-p4 and 0.12-0.13 on chat (2.3x to 4.2x), still rising |
 
 EXACT-EQUIVALENT (greedy identical to 512 on every golden) is met by no reduced format. Bytes:
 2 x the state (KTOKEN-STATE.md, calc:18861a5d... and calc:9eacec99...). Column-scaled fp8 has a
@@ -70,7 +73,7 @@ per-column scale instead of per-row; same byte count at 128 x 128.
 Chunked (WY) state update, f32: first divergence none, 511/511 on all five prompts at chunk 2, 4,
 8 and 16, free and forced. On the chat prompt, chunk 2 and 4 flipped 804 expert rows (logits cosine
 min 0.919, state rel err 0.019) and still gave the same 511 tokens; elsewhere state rel err about
-1e-6.
+1e-6, except p1 chunk 4 and 8 (2e-5, 2e-4).
 
 ## Limits and caveats
 
