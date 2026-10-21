@@ -1,0 +1,9 @@
+gate a43672a392c3420e
+real rc=0 4 PASS 0 FAIL 
+mut1 rc=1 0 PASS 4 FAIL 
+mut2 rc=1 0 PASS 4 FAIL 
+mut3 rc=1 0 PASS 4 FAIL 
+mut5 rc=1 0 PASS 4 FAIL 
+mut6 rc=0 4 PASS 0 FAIL 
+gdn0 rc=0 4 PASS 0 FAIL 
+attn0 rc=0 4 PASS 0 FAIL 

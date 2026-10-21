@@ -1,0 +1,179 @@
+{
+  "gate": "qwen36_prefill_gate",
+  "layers": 40,
+  "mutant": "",
+  "pass": true,
+  "runs": [
+    {
+      "chunk": 128,
+      "chunked_fp8_gb_s": 139.00173912306076,
+      "chunked_fp8_streamed_bytes": 129164640256,
+      "chunked_ms": 929.2303899999999,
+      "chunked_tok_s": 275.49680117543295,
+      "chunks": 2,
+      "decode_first_diff": null,
+      "decode_tokens": [
+        [
+          63,
+          735,
+          1100,
+          1510,
+          3431,
+          14,
+          24289,
+          7148,
+          7891,
+          12480,
+          24822,
+          63,
+          735,
+          9542,
+          735,
+          198
+        ],
+        [
+          63,
+          735,
+          1100,
+          1510,
+          3431,
+          14,
+          24289,
+          7148,
+          7891,
+          12480,
+          24822,
+          63,
+          735,
+          9542,
+          735,
+          198
+        ]
+      ],
+      "len": 256,
+      "logits_first_diff": null,
+      "next": [
+        24822,
+        24822
+      ],
+      "pass": true,
+      "state_first_diff": null,
+      "token_by_token_ms": 5147.7354860000005,
+      "token_by_token_tok_s": 49.73060498081699
+    },
+    {
+      "chunk": 128,
+      "chunked_fp8_gb_s": 124.9160214950808,
+      "chunked_fp8_streamed_bytes": 1023537053696,
+      "chunked_ms": 8193.801255,
+      "chunked_tok_s": 249.94504214393467,
+      "chunks": 16,
+      "decode_first_diff": null,
+      "decode_tokens": [
+        [
+          1174,
+          198,
+          63,
+          74689,
+          38,
+          5409,
+          5115,
+          63,
+          369,
+          1510,
+          11174,
+          63,
+          524,
+          1510,
+          11806,
+          63
+        ],
+        [
+          1174,
+          198,
+          63,
+          74689,
+          38,
+          5409,
+          5115,
+          63,
+          369,
+          1510,
+          11174,
+          63,
+          524,
+          1510,
+          11806,
+          63
+        ]
+      ],
+      "len": 2048,
+      "logits_first_diff": null,
+      "next": [
+        15,
+        15
+      ],
+      "pass": true,
+      "state_first_diff": null,
+      "token_by_token_ms": 42158.18712,
+      "token_by_token_tok_s": 48.578938989253196
+    },
+    {
+      "chunk": 128,
+      "chunked_fp8_gb_s": 98.97618136574062,
+      "chunked_fp8_streamed_bytes": 4120537726976,
+      "chunked_ms": 41631.609445,
+      "chunked_tok_s": 196.77356002348517,
+      "chunks": 64,
+      "decode_first_diff": null,
+      "decode_tokens": [
+        [
+          948,
+          279,
+          18583,
+          579,
+          33633,
+          4203,
+          318,
+          2720,
+          220,
+          16,
+          13,
+          17,
+          13,
+          17,
+          8,
+          735
+        ],
+        [
+          948,
+          279,
+          18583,
+          579,
+          33633,
+          4203,
+          318,
+          2720,
+          220,
+          16,
+          13,
+          17,
+          13,
+          17,
+          8,
+          735
+        ]
+      ],
+      "len": 8192,
+      "logits_first_diff": null,
+      "next": [
+        76138,
+        76138
+      ],
+      "pass": true,
+      "state_first_diff": null,
+      "token_by_token_ms": 180843.429729,
+      "token_by_token_tok_s": 45.29885333559527
+    }
+  ]
+}
