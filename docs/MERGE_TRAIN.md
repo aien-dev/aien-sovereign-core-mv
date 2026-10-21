@@ -43,7 +43,7 @@ Honesty rules, enforced in code:
 - Rows without switches take the served path unchanged (the strokes, the exact head). A switched row steps alone that beat. The other rows' words are unchanged, and the suite checks that (`mutant-row-isolated`).
 
 **Load-only switches** (a setting read once at start, such as `AIEN_OMEGA_GDN_STATE_BF16=1` or `AIEN_BOARD_DIR`) are a suite
-*arm* with `server_env`. The train loads a second server for them after the first one stops, so a cycle loads twice at most.
+*arm* with `server_env`. The train loads a second server for them after the first one stops, only when a lever of that arm is in the candidate, and never more than `MERGE_TRAIN_MAX_LOADS` (default 2) loads per cycle. An arm past the cap is SKIP and rides the next cycle. The ready clock (`MERGE_TRAIN_READY_S`, default 1800 s) counts loading only, not time queued in q36-extra.
 An arm can name `log_proof`, a word the server log must show, so a build that ignored the setting is marked NOT-ON-TRAIN, not PASS.
 
 ## 2. The suite format (`suite.json`)

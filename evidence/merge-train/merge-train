@@ -280,6 +280,10 @@ cmd_run() { # <bin-dir> [--post] [--no-second]
     enabled=$(jq -r --arg a "$arm" '.arms[$a].enabled // true' "$SUITE")
     if [ "$enabled" != true ]; then skip_arm "$arm" "arm disabled in suite.json (its lever is not in the candidate yet)"; continue; fi
     if [ "$second" != yes ]; then skip_arm "$arm" "--no-second: the second (load-only) server was not loaded"; continue; fi
+    # a load costs a whole 35B copy: only for an arm whose lever is in this candidate, and two loads per cycle at most
+    if jq -e --arg a "$arm" --slurpfile p "$RUN/present.json" '[.levers[] | select(.arms | index($a)) | $p[0][.id] // "unknown"] | all(. == "no")' "$SUITE" > /dev/null; then
+      skip_arm "$arm" "no lever of this arm is in the candidate: no second load"; continue; fi
+    if [ $loads -ge "${MERGE_TRAIN_MAX_LOADS:-2}" ]; then skip_arm "$arm" "load cap ${MERGE_TRAIN_MAX_LOADS:-2} per cycle reached: rides the next cycle"; continue; fi
     mapfile -t envs < <(jq -r --arg a "$arm" '.arms[$a].server_env | to_entries[] | "\(.key)=\(.value)"' "$SUITE" | sed "s|\$OUT|$RUN|g")
     mkdir -p "$RUN/board" 2>/dev/null; SERVER_LOG=$RUN/server-$arm.log
     start_server "$bin" "$PORT" "$SERVER_LOG" "$RUN/server-$arm.pid" "${envs[@]}"; loads=$((loads + 1))
