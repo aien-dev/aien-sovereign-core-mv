@@ -98,6 +98,7 @@ mod ffi {
         ) -> i32;
         pub fn omega_gpu_q36_graph_prefill_alloc(g: *mut OmegaGpuQ36Graph, cap: u32) -> i32;
         pub fn omega_gpu_q36_graph_prefill_cap(g: *const OmegaGpuQ36Graph) -> u32;
+        pub fn omega_gpu_q36_graph_prefill_streamed(g: *const OmegaGpuQ36Graph) -> u64;
         pub fn omega_gpu_q36_graph_prefill(
             g: *mut OmegaGpuQ36Graph,
             head: u32,
@@ -330,6 +331,18 @@ impl Q36Graph {
         {
             // SAFETY: ptr is live.
             unsafe { ffi::omega_gpu_q36_graph_prefill_cap(self.ptr) as usize }
+        }
+        #[cfg(not(has_omega_q36))]
+        0
+    }
+
+    /// L369 prefill: fp8 GEMM weight bytes every prefill call so far streamed (a running count; the
+    /// difference around a call over its time against the memory bandwidth is the ceiling receipt).
+    pub fn prefill_streamed(&self) -> u64 {
+        #[cfg(has_omega_q36)]
+        {
+            // SAFETY: ptr is live.
+            unsafe { ffi::omega_gpu_q36_graph_prefill_streamed(self.ptr) }
         }
         #[cfg(not(has_omega_q36))]
         0

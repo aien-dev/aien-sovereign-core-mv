@@ -84,9 +84,11 @@ fn one(m: &mut Qwen38Omega, prompt: &[u32], chunk: usize, decode: usize) -> Resu
     }
     let ms_a = t.elapsed().as_secs_f64() * 1e3;
     let logits_a = m.logits_head(0)?;
+    let s0 = m.q36_prefill_streamed();
     let t = Instant::now();
     let (next_b, chunks) = m.prefill_moe_head(1, prompt, chunk, true)?;
     let ms_b = t.elapsed().as_secs_f64() * 1e3;
+    let streamed = m.q36_prefill_streamed() - s0;
     let next_b = next_b.ok_or("prefill gave no token")?;
     let logits_b = m.logits_head(1)?;
     let logits_diff = first_bit_diff(&logits_a, &logits_b);
@@ -112,12 +114,14 @@ fn one(m: &mut Qwen38Omega, prompt: &[u32], chunk: usize, decode: usize) -> Resu
         "token_by_token_tok_s": n as f64 / (ms_a / 1e3), "chunked_tok_s": n as f64 / (ms_b / 1e3),
         "next": [next_a, next_b], "logits_first_diff": logits_diff, "state_first_diff": state_diff,
         "decode_first_diff": decode_diff, "decode_tokens": [toks_a, toks_b],
+        "chunked_fp8_streamed_bytes": streamed, "chunked_fp8_gb_s": streamed as f64 / (ms_b * 1e6),
     });
     eprintln!(
-        "len {n}: {} | token by token {ms_a:.0} ms ({:.1} tok/s), chunked {ms_b:.0} ms ({:.1} tok/s, {chunks} chunks) | logits {:?} state {:?} decode {:?}",
+        "len {n}: {} | token by token {ms_a:.0} ms ({:.1} tok/s), chunked {ms_b:.0} ms ({:.1} tok/s, {chunks} chunks, fp8 {:.1} GB/s) | logits {:?} state {:?} decode {:?}",
         if pass { "PASS" } else { "FAIL" },
         n as f64 / (ms_a / 1e3),
         n as f64 / (ms_b / 1e3),
+        streamed as f64 / (ms_b * 1e6),
         logits_diff,
         state_diff,
         decode_diff

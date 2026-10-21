@@ -606,6 +606,15 @@ pub fn q36_prefill_chunk() -> Result<usize, String> {
 }
 
 impl Qwen38Omega {
+    /// L369: fp8 GEMM weight bytes the 35B prefill has streamed so far on this graph (0 for other
+    /// models); see `Graph::prefill_streamed`.
+    pub fn q36_prefill_streamed(&self) -> u64 {
+        match &self.graph {
+            Graph::Moe(g) => g.prefill_streamed(),
+            _ => 0,
+        }
+    }
+
     /// The 35B prefill (L369): `tokens` at the next positions of head 0 in chunks of at most
     /// `chunk` (1..=[`q::q36::PREFILL_MAX_ROWS`]); returns the last token's greedy token and the
     /// chunk count. The graph's logits / [`Self::logits`] are the last token's, as after `step`.
