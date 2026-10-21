@@ -112,6 +112,139 @@ pub trait Engine: Send + Sync {
     fn concurrency(&self) -> usize {
         1
     }
+    /// The merge train's per-request switches this engine honors (`TestSwitches` field names).
+    /// Empty for every engine without them; the server refuses a request whose `aien_test`
+    /// names a switch outside this list, so a switch is never ignored in silence.
+    fn test_switches_honored(&self) -> &'static [&'static str] {
+        &[]
+    }
+    /// `generate` with the merge train's switches applied to this one request. The default
+    /// refuses any switch (no engine honors one unless it says so) and is plain `generate`
+    /// for an empty set.
+    fn generate_with_test(
+        &self,
+        prompt: &[u32],
+        params: &GenerateParams,
+        test: &TestSwitches,
+        on_token: &mut dyn FnMut(u32) -> bool,
+    ) -> Result<GenerateOutcome, EngineError> {
+        if !test.is_empty() {
+            return Err(EngineError::Failed(format!(
+                "aien_test switches {:?} are not honored by the {} engine",
+                test.names(),
+                self.kind()
+            )));
+        }
+        self.generate(prompt, params, on_token)
+    }
+}
+
+/// The merge train's per-request switches (L384, Drake 2026-10-21: "batch these tests
+/// together"): one loaded test server runs every lever's on/off and mutant cases, each request
+/// saying which path it takes. `None` = the server's default. Only a build with the cargo
+/// feature `aien-test-switches` applies them; every other build refuses a request that carries
+/// `aien_test` (a live server never serves a mutant by accident, and never ignores a switch).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TestSwitches {
+    /// Rows ride L312's strokes (`false`: this row's own one-row graph, in turn).
+    pub stroke: Option<bool>,
+    /// L314's exact two-pass head for this row's greedy steps (`false`: the plain head).
+    pub exact_head: Option<bool>,
+    /// Negative control: the graph mutant (`AIEN_Q36_TEST_MUTANT` numbers) for this row only.
+    pub mutant: Option<i32>,
+    /// Negative control: at this request's `k`th decode step (from 1) it trades rows with
+    /// another live conversation; both must go red.
+    pub row_swap: Option<u64>,
+    /// L369 chunked prompt reading: tokens per chunk for this prompt (`0` = token by token).
+    pub prefill_chunk: Option<usize>,
+    /// L375 shared prompt cache: may this request read from or write to the pool.
+    pub prefix_pool: Option<bool>,
+    /// L313 bf16 DeltaNet state: load-only on the chip (the train starts a second server
+    /// for it); listed so a case can name it and the server can say so.
+    pub state_bf16: Option<bool>,
+}
+
+impl TestSwitches {
+    /// Every switch name, in the request's spelling.
+    pub const NAMES: [&'static str; 7] = [
+        "stroke",
+        "exact_head",
+        "mutant",
+        "row_swap",
+        "prefill_chunk",
+        "prefix_pool",
+        "state_bf16",
+    ];
+
+    /// Parses the request's `aien_test` object; an unknown key or a wrong type is an error (a
+    /// misspelt switch must never pass as "default").
+    pub fn from_json(v: &serde_json::Value) -> Result<Self, String> {
+        let Some(map) = v.as_object() else {
+            return Err("aien_test must be an object".into());
+        };
+        let mut t = Self::default();
+        for (k, v) in map {
+            if v.is_null() {
+                continue;
+            }
+            let bool_ = || {
+                v.as_bool()
+                    .ok_or_else(|| format!("aien_test.{k} must be a boolean"))
+            };
+            let uint = || {
+                v.as_u64()
+                    .ok_or_else(|| format!("aien_test.{k} must be a whole number >= 0"))
+            };
+            match k.as_str() {
+                "stroke" => t.stroke = Some(bool_()?),
+                "exact_head" => t.exact_head = Some(bool_()?),
+                "mutant" => {
+                    let m = v
+                        .as_i64()
+                        .filter(|m| (0..=64).contains(m))
+                        .ok_or_else(|| format!("aien_test.{k} must be a whole number 0..=64"))?;
+                    t.mutant = Some(m as i32);
+                }
+                "row_swap" => t.row_swap = Some(uint()?),
+                "prefill_chunk" => t.prefill_chunk = Some(uint()? as usize),
+                "prefix_pool" => t.prefix_pool = Some(bool_()?),
+                "state_bf16" => t.state_bf16 = Some(bool_()?),
+                other => return Err(format!("aien_test.{other}: no such switch")),
+            }
+        }
+        Ok(t)
+    }
+
+    /// The switches this request sets, by name.
+    pub fn names(&self) -> Vec<&'static str> {
+        let mut n = Vec::new();
+        if self.stroke.is_some() {
+            n.push("stroke");
+        }
+        if self.exact_head.is_some() {
+            n.push("exact_head");
+        }
+        if self.mutant.is_some() {
+            n.push("mutant");
+        }
+        if self.row_swap.is_some() {
+            n.push("row_swap");
+        }
+        if self.prefill_chunk.is_some() {
+            n.push("prefill_chunk");
+        }
+        if self.prefix_pool.is_some() {
+            n.push("prefix_pool");
+        }
+        if self.state_bf16.is_some() {
+            n.push("state_bf16");
+        }
+        n
+    }
+
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 /// Test engine: ignores the prompt and replays a fixed token list, optionally

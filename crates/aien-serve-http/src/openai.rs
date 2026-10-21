@@ -48,6 +48,12 @@ pub struct ChatRequest {
     /// AIEN extra: return the generated token ids in `usage.aien_token_ids` (correctness gates).
     #[serde(default)]
     pub aien_return_token_ids: bool,
+    /// AIEN extra, the merge train (L384): per-request test switches
+    /// (`{"stroke": bool, "exact_head": bool, "mutant": k, "row_swap": k, ...}`, see
+    /// [`crate::engine::TestSwitches`]). Honored only by a build with the cargo feature
+    /// `aien-test-switches`; every other build answers 400 when the field is present.
+    #[serde(default)]
+    pub aien_test: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -109,6 +115,9 @@ pub struct Usage {
     /// The generated token ids, when the request set `aien_return_token_ids`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aien_token_ids: Option<Vec<u32>>,
+    /// The merge train's switches this request set (`{"applied": [names]}`), when it set any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aien_test: Option<Value>,
 }
 
 #[derive(Debug, Serialize)]

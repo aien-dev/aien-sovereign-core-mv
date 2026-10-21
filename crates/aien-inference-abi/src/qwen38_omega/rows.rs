@@ -65,6 +65,37 @@ pub struct RowFeed {
     pub logits: bool,
 }
 
+/// The merge train's switches for one row of a [`Qwen38Omega::step_rows_test`] call (L384):
+/// which path this row's token takes this step. The default is the plain served path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RowTest {
+    /// Ride a stroke with the other plain rows (`false`: this row's own one-row graph).
+    pub stroke: bool,
+    /// The exact two-pass head for this row's greedy token (`false`: the plain head).
+    pub exact_head: bool,
+    /// `AIEN_Q36_TEST_MUTANT` number for this row's step only (`0`: none). Set on the row's
+    /// own graph before its token is recorded and cleared after: the command list is recorded
+    /// afresh every token, so the mutant kernels are chosen for this step and no other.
+    pub mutant: i32,
+}
+
+impl Default for RowTest {
+    fn default() -> Self {
+        Self {
+            stroke: true,
+            exact_head: true,
+            mutant: 0,
+        }
+    }
+}
+
+impl RowTest {
+    /// The served path: nothing to apply.
+    pub fn is_plain(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 /// What one row got from a step.
 #[derive(Debug, Clone)]
 pub struct RowOut {
@@ -324,6 +355,88 @@ impl Qwen38Omega {
         self.rows.get(r).map(|row| (row.pos, row.max_pos))
     }
 
+    /// [`Self::step_rows`] with the merge train's switches per row (`tests[i]` goes with
+    /// `feed[i]`; shorter or empty = plain). Plain rows ride strokes together as in `step_rows`;
+    /// a row that turns strokes off, turns the exact head off or asks for a mutant takes its own
+    /// one-row graph for this step with those settings, so no other row's bits can change.
+    /// Outputs are in feed order.
+    pub fn step_rows_test(
+        &mut self,
+        feed: &[RowFeed],
+        tests: &[RowTest],
+    ) -> Result<Vec<RowOut>, String> {
+        if tests.iter().all(RowTest::is_plain) {
+            return self.step_rows(feed);
+        }
+        self.check_feed(feed)?;
+        self.row_steps += 1;
+        let test = |i: usize| tests.get(i).copied().unwrap_or_default();
+        let plain: Vec<usize> = (0..feed.len()).filter(|&i| test(i).is_plain()).collect();
+        let mut outs: Vec<Option<RowOut>> = vec![None; feed.len()];
+        if !plain.is_empty() {
+            let sub: Vec<RowFeed> = plain.iter().map(|&i| feed[i]).collect();
+            let mut got = Vec::with_capacity(sub.len());
+            if sub.len() >= 2 && self.row_stroke.is_some() {
+                let mut sg = self.row_stroke.take().expect("checked above");
+                let r = self.stroke_chunks(&mut sg, &sub, &mut got);
+                self.row_stroke = Some(sg);
+                r?;
+            } else {
+                for f in &sub {
+                    got.push(self.row_token(f)?);
+                }
+            }
+            for (i, o) in plain.into_iter().zip(got) {
+                outs[i] = Some(o);
+            }
+        }
+        for (i, f) in feed.iter().enumerate() {
+            let t = test(i);
+            if t.is_plain() {
+                continue;
+            }
+            outs[i] = Some(self.row_token_test(f, t)?);
+        }
+        Ok(outs
+            .into_iter()
+            .map(|o| o.expect("every row answered"))
+            .collect())
+    }
+
+    /// One row's token through its own graph with the row's switches: the mutant set for this
+    /// record only (the graph's standing mutant, if the process has one, is put back after).
+    fn row_token_test(&mut self, f: &RowFeed, t: RowTest) -> Result<RowOut, String> {
+        let standing = self.row_src.as_ref().and_then(|s| s.mutant).unwrap_or(0);
+        if t.mutant != 0 {
+            self.rows[f.row].graph.test_set_mutant(t.mutant);
+        }
+        let r = self.row_token_with_head(f, t.exact_head);
+        if t.mutant != 0 {
+            self.rows[f.row].graph.test_set_mutant(standing);
+        }
+        r
+    }
+
+    /// Argument checks shared by [`Self::step_rows`] and [`Self::step_rows_test`].
+    fn check_feed(&self, feed: &[RowFeed]) -> Result<(), String> {
+        let v = self.config.vocab;
+        for (i, f) in feed.iter().enumerate() {
+            if f.row >= self.rows.len() {
+                return Err(format!("step_rows: row {} of {}", f.row, self.rows.len()));
+            }
+            if feed[..i].iter().any(|g| g.row == f.row) {
+                return Err(format!("step_rows: row {} fed twice", f.row));
+            }
+            if f.token as usize >= v {
+                return Err(format!(
+                    "step_rows: token {} outside the vocab {v}",
+                    f.token
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// One token into each listed row (each row at most once): each row's greedy token, and its
     /// logits when asked. On an error no position has moved past the failing row.
     pub fn step_rows(&mut self, feed: &[RowFeed]) -> Result<Vec<RowOut>, String> {
@@ -449,6 +562,12 @@ impl Qwen38Omega {
 
     /// One row's token through its own one-row graph.
     fn row_token(&mut self, f: &RowFeed) -> Result<RowOut, String> {
+        self.row_token_with_head(f, true)
+    }
+
+    /// [`Self::row_token`]; `exact_head` false keeps the plain head for this token (the merge
+    /// train's `exact_head: false` arm; the words must not change).
+    fn row_token_with_head(&mut self, f: &RowFeed, exact_head: bool) -> Result<RowOut, String> {
         let (v, h) = (self.config.vocab, self.config.hidden);
         let t = f.token as usize;
         let x: Vec<f32> = self.embed[t * h..(t + 1) * h]
@@ -462,7 +581,7 @@ impl Qwen38Omega {
                 f.row, row.max_pos
             ));
         }
-        row.graph.set_exact_head_on(!f.logits);
+        row.graph.set_exact_head_on(exact_head && !f.logits);
         let (token, stats) = row.graph.token(&x, row.pos).map_err(gpu("row q36 token"))?;
         row.pos += 1;
         let logits = if f.logits {

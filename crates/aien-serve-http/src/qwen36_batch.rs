@@ -28,10 +28,12 @@ use std::time::{Duration, Instant};
 
 use aien_inference_abi::qwen38::Qwen38Config;
 use aien_inference_abi::qwen38_omega::{
-    need_bytes, Qwen38Omega, Qwen38Snapshot, RowFeed, RowOut, IM_START,
+    need_bytes, Qwen38Omega, Qwen38Snapshot, RowFeed, RowOut, RowTest, IM_START,
 };
 
-use crate::engine::{Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams};
+use crate::engine::{
+    Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams, TestSwitches,
+};
 use crate::omega_engine::{GpuLock, GPU_LOCK_PATH};
 use crate::qwen38_engine::{
     is_moe_dir, rss_bytes, CHIP_GREEDY_ENV, KEEP_FREE, LOAD_LOCK_WAIT, PREFILL_CHUNK,
@@ -81,6 +83,19 @@ pub trait RowStep: Send + 'static {
     fn row_reset(&mut self, r: usize) -> Result<(), String>;
     /// One token into each listed row; each row's greedy token and (when asked) logits.
     fn step_rows(&mut self, feed: &[RowFeed]) -> Result<Vec<RowOut>, String>;
+    /// `step_rows` with the merge train's switches per row (`tests[i]` with `feed[i]`). The
+    /// default refuses a non-plain switch: a stepper that cannot apply it must say so, never
+    /// step as if it had.
+    fn step_rows_test(
+        &mut self,
+        feed: &[RowFeed],
+        tests: &[RowTest],
+    ) -> Result<Vec<RowOut>, String> {
+        if tests.iter().any(|t| !t.is_plain()) {
+            return Err("this row stepper has no test switches".into());
+        }
+        self.step_rows(feed)
+    }
     /// A host copy of a row's state.
     type Snap: Default + Send;
     fn row_snapshot(&mut self, r: usize, snap: &mut Self::Snap) -> Result<(), String>;
@@ -97,6 +112,13 @@ impl RowStep for Qwen38Omega {
     }
     fn step_rows(&mut self, feed: &[RowFeed]) -> Result<Vec<RowOut>, String> {
         Qwen38Omega::step_rows(self, feed)
+    }
+    fn step_rows_test(
+        &mut self,
+        feed: &[RowFeed],
+        tests: &[RowTest],
+    ) -> Result<Vec<RowOut>, String> {
+        Qwen38Omega::step_rows_test(self, feed, tests)
     }
     type Snap = Qwen38Snapshot;
     fn row_snapshot(&mut self, r: usize, snap: &mut Qwen38Snapshot) -> Result<(), String> {
@@ -115,6 +137,21 @@ struct Job {
     /// Set by the request thread when `on_token` says stop (client gone, stop string).
     cancel: Arc<AtomicBool>,
     t_queued: Instant,
+    /// The merge train's switches for this request (empty on the served path).
+    test: TestSwitches,
+}
+
+/// The merge train's switches the batch door applies per request (`Engine::test_switches_honored`).
+#[cfg(feature = "aien-test-switches")]
+const TEST_SWITCHES_HONORED: &[&str] = &["stroke", "exact_head", "mutant", "row_swap"];
+
+/// The per-step row switches of a request (`stroke`, `exact_head`, `mutant`).
+fn row_test(t: &TestSwitches) -> RowTest {
+    RowTest {
+        stroke: t.stroke.unwrap_or(true),
+        exact_head: t.exact_head.unwrap_or(true),
+        mutant: t.mutant.unwrap_or(0),
+    }
 }
 
 enum Ev {
@@ -159,6 +196,9 @@ struct Active {
     /// Beats this row decoded in and the rows that rode with it (for the mean batch size).
     steps: u64,
     rows_sum: u64,
+    /// The merge train's row swap still owed: at this decode step (from 1), at the first beat
+    /// from it on with another conversation decoding, the two trade rows (negative control).
+    swap_due: Option<u64>,
 }
 
 impl Active {
@@ -325,6 +365,44 @@ impl Engine for Qwen36BatchDoor {
         p: &GenerateParams,
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, EngineError> {
+        self.generate_test(prompt, p, TestSwitches::default(), on_token)
+    }
+
+    #[cfg(feature = "aien-test-switches")]
+    fn test_switches_honored(&self) -> &'static [&'static str] {
+        TEST_SWITCHES_HONORED
+    }
+
+    #[cfg(feature = "aien-test-switches")]
+    fn generate_with_test(
+        &self,
+        prompt: &[u32],
+        p: &GenerateParams,
+        test: &TestSwitches,
+        on_token: &mut dyn FnMut(u32) -> bool,
+    ) -> Result<GenerateOutcome, EngineError> {
+        if let Some(bad) = test
+            .names()
+            .into_iter()
+            .find(|n| !TEST_SWITCHES_HONORED.contains(n))
+        {
+            return Err(EngineError::Failed(format!(
+                "aien_test.{bad} is not a switch of the batch door (honored: {TEST_SWITCHES_HONORED:?})"
+            )));
+        }
+        self.generate_test(prompt, p, test.clone(), on_token)
+    }
+}
+
+impl Qwen36BatchDoor {
+    /// The request path; `test` is empty on the served path (`Engine::generate`).
+    fn generate_test(
+        &self,
+        prompt: &[u32],
+        p: &GenerateParams,
+        test: TestSwitches,
+        on_token: &mut dyn FnMut(u32) -> bool,
+    ) -> Result<GenerateOutcome, EngineError> {
         if prompt.is_empty() {
             return Err(EngineError::Failed("empty prompt".into()));
         }
@@ -342,6 +420,7 @@ impl Engine for Qwen36BatchDoor {
             out: otx,
             cancel: Arc::clone(&cancel),
             t_queued: Instant::now(),
+            test,
         };
         {
             let tx = self
@@ -480,6 +559,7 @@ impl<S: RowStep> Scheduler<S> {
             }
             self.beat += 1;
             spell.beats += 1;
+            Self::row_swaps_due(&mut active, &mut self.rows);
             // One beat: every decoding row feeds its sampled token in the first step; the rows
             // still feeding their prompt feed up to `per_beat` prompt tokens, one per step.
             for sub in 0..self.per_beat {
@@ -502,6 +582,7 @@ impl<S: RowStep> Scheduler<S> {
                 }
                 let mut feed = Vec::with_capacity(active.len());
                 let mut who = Vec::with_capacity(active.len());
+                let mut tests = Vec::with_capacity(active.len());
                 for (k, a) in active.iter().enumerate() {
                     if a.prefilling() {
                         let plen = a.job.prompt.len();
@@ -511,6 +592,7 @@ impl<S: RowStep> Scheduler<S> {
                             logits: a.fed + 1 == plen,
                         });
                         who.push(k);
+                        tests.push(row_test(&a.job.test));
                     } else if sub == 0 {
                         if let Some(t) = a.next {
                             feed.push(RowFeed {
@@ -519,6 +601,7 @@ impl<S: RowStep> Scheduler<S> {
                                 logits: !a.chip_greedy,
                             });
                             who.push(k);
+                            tests.push(row_test(&a.job.test));
                         }
                     }
                 }
@@ -526,7 +609,13 @@ impl<S: RowStep> Scheduler<S> {
                     break;
                 }
                 let t = Instant::now();
-                let r = self.model.step_rows(&feed);
+                // The served path calls `step_rows` exactly as before; only a beat with a
+                // switched row goes through `step_rows_test`.
+                let r = if tests.iter().all(RowTest::is_plain) {
+                    self.model.step_rows(&feed)
+                } else {
+                    self.model.step_rows_test(&feed, &tests)
+                };
                 spell.wall_ns += t.elapsed().as_nanos() as u64;
                 spell.steps += 1;
                 spell.row_tokens += feed.len() as u64;
@@ -630,6 +719,7 @@ impl<S: RowStep> Scheduler<S> {
             active.len() + 1,
         );
         let observer = SamplingObserver::new(&job.params);
+        let job_swap = job.test.row_swap.filter(|&k| k >= 1);
         let chip_greedy = self.chip_greedy && observer.is_greedy();
         active.push(Active {
             job,
@@ -648,7 +738,38 @@ impl<S: RowStep> Scheduler<S> {
             t_decode: Instant::now(),
             steps: 0,
             rows_sum: 0,
+            swap_due: job_swap,
         });
+    }
+
+    /// The merge train's `row_swap: k` (negative control, per request): a conversation whose
+    /// `k`th decode step is up trades rows with the first other conversation that is decoding,
+    /// so both continue from each other's state; the per-row identity gate must go red for the
+    /// two. Fires once per request; waits while it is the only one decoding. Both rows' kept
+    /// tokens are forgotten (their states are no longer what their histories say).
+    fn row_swaps_due(active: &mut [Active], rows: &mut [Row<S::Snap>]) {
+        for i in 0..active.len() {
+            let Some(k) = active[i].swap_due else {
+                continue;
+            };
+            if active[i].prefilling() || active[i].steps + 1 < k {
+                continue;
+            }
+            let Some(j) = (0..active.len()).find(|&j| j != i && !active[j].prefilling()) else {
+                continue;
+            };
+            active[i].swap_due = None;
+            let (ri, rj) = (active[i].row, active[j].row);
+            active[i].row = rj;
+            active[j].row = ri;
+            for r in [ri, rj] {
+                rows[r].history.clear();
+                rows[r].snap_tokens.clear();
+            }
+            eprintln!(
+                "aien-serve-http: qwen36-batch: TEST ROW SWAP (aien_test.row_swap {k}): rows {ri} and {rj} trade conversations (negative control; never serve this)"
+            );
+        }
     }
 
     /// Samples the row's next token from its logits and emits it; `Some(reason)` when the row is
