@@ -1,0 +1,3 @@
+model: 40 layers in 8 windows of 5; 39 positions (32 generated)
+reference: 39 positions in 36.4 s; its greedy tokens equal the golden record
+qwen38_omega_full: window 0: needs 4985 MiB with 12288 MiB kept free, MemAvailable 11640 MiB; refusing (use a smaller window)

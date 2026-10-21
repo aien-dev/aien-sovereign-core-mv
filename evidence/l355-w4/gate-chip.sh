@@ -9,7 +9,7 @@ M=$HOME/models/qwen3.6-35b-a3b-fp8-95a723d0
 E=$HOME/workspace/sc-l355/evidence/l355-w4
 G=$HOME/workspace/sc-l355/evidence/q36-host-20261020
 export AIEN_Q36_W4_STORE=default
-WL=${WL:-40}
+WL=${WL:-5}
 cd $E || exit 2
 log() { echo "$(date -u +%FT%TZ) $*" | tee -a $E/gate-chip.log.txt; }
 for p in p1 p2 p3 p4; do
@@ -24,7 +24,7 @@ run() { # label env...
   log "$label exit=$rc: $(grep '^QWEN38_OMEGA_FULL' $E/chip-$label.log.txt | cut -c1-320)"
   return $rc
 }
-GOLD=gold-w4e-p1.json run p1-mutant4 AIEN_Q36_TEST_MUTANT=4 && { log "STOP: mutant 4 did not go red"; exit 4; }
-GOLD=gold-w4e-p1.json run p1-w4mut AIEN_Q36_W4_TEST_MUTANT=1 && { log "STOP: W4 mutant did not go red"; exit 4; }
+GOLD=gold-w4e-p1.json run p1-mutant4 AIEN_Q36_TEST_MUTANT=4; [ $? -eq 1 ] || { log "STOP: mutant 4 did not give a FAIL verdict (exit 1)"; exit 4; }
+GOLD=gold-w4e-p1.json run p1-w4mut AIEN_Q36_W4_TEST_MUTANT=1; [ $? -eq 1 ] || { log "STOP: W4 mutant did not give a FAIL verdict (exit 1)"; exit 4; }
 for p in p1 p2 p3 p4; do GOLD=gold-w4e-$p.json run $p AIEN_L355=1; done
 log "gate-chip done"

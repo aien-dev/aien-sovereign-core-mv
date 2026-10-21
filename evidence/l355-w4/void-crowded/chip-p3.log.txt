@@ -1,0 +1,4 @@
+model: 40 layers in 8 windows of 5; 42 positions (32 generated)
+reference: 42 positions in 18.9 s; its greedy tokens equal the golden record
+qwen36 omega: 4-bit store /home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0.mxfp4/aien-w4-q36.store (best rule), experts from it (lossy lever, L355)
+qwen38_omega_full: lm_head: omega_gpu rc=-4 (CHIP_FAIL: m16_native_create_channel: RM_ALLOC class 0xcec0 status 0x51)
