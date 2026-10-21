@@ -26,6 +26,7 @@ pub mod engine;
 pub mod kv_persist;
 pub mod omega_engine;
 pub mod openai;
+pub mod q36_prefix;
 pub mod qwen36_batch;
 pub mod qwen38_engine;
 pub mod readers;
