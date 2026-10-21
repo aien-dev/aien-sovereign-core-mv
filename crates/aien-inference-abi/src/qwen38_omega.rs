@@ -755,6 +755,14 @@ impl Qwen38Omega {
         }
     }
 
+    /// The 35B graph, for timelines.
+    pub fn q36_graph_mut(&mut self) -> Option<&mut Q36Graph> {
+        match &mut self.graph {
+            Graph::Moe(g) => Some(g),
+            Graph::Dense(_) => None,
+        }
+    }
+
     /// True for the sparse (Qwen3.6-35B-A3B) model.
     pub fn is_moe(&self) -> bool {
         matches!(self.graph, Graph::Moe(_))

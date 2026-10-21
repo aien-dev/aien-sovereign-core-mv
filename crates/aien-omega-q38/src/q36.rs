@@ -102,6 +102,14 @@ mod ffi {
         ) -> i32;
         pub fn omega_gpu_q36_graph_set_flush_each(g: *mut OmegaGpuQ36Graph, on: i32);
         pub fn omega_gpu_q36_graph_test_set_mutant(g: *mut OmegaGpuQ36Graph, mutant: i32);
+        pub fn omega_gpu_q36_graph_set_stamps(g: *mut OmegaGpuQ36Graph, on: i32);
+        pub fn omega_gpu_q36_graph_stamps(
+            g: *const OmegaGpuQ36Graph,
+            stamps: *mut u64,
+            kinds: *mut u8,
+            cap: u32,
+        ) -> i32;
+        pub fn omega_gpu_q36_graph_kind_name(kind: u8) -> *const std::ffi::c_char;
     }
 }
 
@@ -349,6 +357,44 @@ impl Q36Graph {
         let _ = on;
     }
 
+    /// Timeline (measurement): when on, every later token also records a GPU timestamp before
+    /// the first launch and after each launch. Call between tokens. Off by default.
+    pub fn set_stamps(&mut self, on: bool) {
+        #[cfg(has_omega_q36)]
+        // SAFETY: ptr is live; plain integer argument.
+        unsafe {
+            ffi::omega_gpu_q36_graph_set_stamps(self.ptr, on as i32)
+        }
+        #[cfg(not(has_omega_q36))]
+        let _ = on;
+    }
+
+    /// The last token's timeline: `launches + 1` GPU timestamps (ns) and one kind per launch
+    /// (launch `i` took `stamps[i + 1] - stamps[i]`). Refused when stamps are off or the token
+    /// failed.
+    pub fn stamps(&self) -> Result<(Vec<u64>, Vec<u8>), OmegaGpuError> {
+        #[cfg(has_omega_q36)]
+        {
+            // 11 per layer + 4, with room to spare.
+            let cap = (self.layers * 16 + 16) as u32;
+            let mut stamps = vec![0u64; cap as usize + 1];
+            let mut kinds = vec![0u8; cap as usize + 1];
+            // SAFETY: ptr is live; both buffers hold cap + 1 entries.
+            let n = unsafe {
+                ffi::omega_gpu_q36_graph_stamps(self.ptr, stamps.as_mut_ptr(), kinds.as_mut_ptr(), cap + 1)
+            };
+            if n < 0 {
+                return Err(session_err("q36 graph stamps", n));
+            }
+            let n = n as usize;
+            stamps.truncate(n + 1);
+            kinds.truncate(n);
+            Ok((stamps, kinds))
+        }
+        #[cfg(not(has_omega_q36))]
+        Err(OmegaGpuError::Unavailable)
+    }
+
     /// TEST ONLY (negative controls): 1 SWIGLU up half off by one, 2 GATHER index + 1, 3 GATE
     /// dropped, 4 COMBINE skips the shared expert. 0 none.
     pub fn test_set_mutant(&mut self, mutant: i32) {
@@ -370,4 +416,18 @@ impl Drop for Q36Graph {
             ffi::omega_gpu_q36_graph_free(self.ptr)
         }
     }
+}
+
+/// omega's own name for a 35B launch kind (`omega_gpu_q36_graph_kind_name`).
+pub fn kind_name(kind: u8) -> String {
+    #[cfg(has_omega_q36)]
+    {
+        // SAFETY: returns a static NUL-terminated string or NULL.
+        let p = unsafe { ffi::omega_gpu_q36_graph_kind_name(kind) };
+        if !p.is_null() {
+            // SAFETY: non-null static string.
+            return unsafe { std::ffi::CStr::from_ptr(p) }.to_string_lossy().into_owned();
+        }
+    }
+    format!("kind{kind}")
 }

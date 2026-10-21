@@ -1,0 +1,9 @@
+aien-serve-http for the Qwen3.6-35B-A3B FP8 MoE (ledger L356 quick levers), pinned 2026-10-21T02:37:29Z
+sc (aien-sovereign-core) levers/q36-quick 0915000b (on motor/serve 06d1ce85), cargo build --release -p aien-serve-http
+  CARGO_TARGET_DIR=/home/drakestapleton/workspace/targets/levers/sc
+  AIEN_OMEGA_GPU_LIB=/home/drakestapleton/workspace/targets/q36/omega-new/libomega_gpu.a (prebuilt, sha256 verified by build.rs)
+omega q36/serve 739c80e80379c2e8052692b22e901cd8f0ce26c4, libomega_gpu.a sha256 678df626b03d8735823b228b3c1108a091b842786bd445a2f571da5395852357
+  (the same lib as bin-5b726818: no kernel change)
+change vs bin-5b726818: lever ON by default: AIEN_OMEGA_Q36_OVERLAP_AB=1 (each DeltaNet layer's a|b GEMV runs beside its mix
+  GEMV, values identical by construction); an explicit AIEN_OMEGA_Q36_OVERLAP_AB=0 restores the serial order.
+model /home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0, served id qwen3.6-35b-a3b-fp8
