@@ -263,7 +263,7 @@ cmd_run() { # <bin-dir> [--post] [--no-second]
   T0=$(date +%s); SERVER_LOG=$RUN/server.log
   CUR_PIDF=$RUN/server.pid; trap '[ -n "${CUR_PIDF:-}" ] && stop_server "$CUR_PIDF" "$PORT"' EXIT   # never leave a 35B copy behind
   start_server "$bin" "$PORT" "$SERVER_LOG" "$RUN/server.pid"
-  wait_ready "$PORT" "$RUN/server.pid" || { cell plain '*' ERROR "candidate never served"; lever_table "$RUN"; exit 2; }
+  wait_ready "$PORT" "$RUN/server.pid" "${MERGE_TRAIN_READY_S:-1800}" || { cell plain '*' ERROR "candidate never served"; lever_table "$RUN"; exit 2; }
   TR=$(date +%s); MODEL=$(model_of "$PORT"); say "ready after $((TR - T0)) s: model $MODEL, /health $(health_of "$PORT" | jq -c '{concurrency, aien_test}')"
   presence "$bin" "$PORT" > "$RUN/present.json"; say "presence $(cat "$RUN/present.json")"
   for arm in $(jq -r '.arms | to_entries[] | select(.value.server_env == null) | .key' "$SUITE"); do run_arm "$PORT" "$arm"; done
@@ -277,7 +277,7 @@ cmd_run() { # <bin-dir> [--post] [--no-second]
     mkdir -p "$RUN/board" 2>/dev/null; SERVER_LOG=$RUN/server-$arm.log
     start_server "$bin" "$PORT" "$SERVER_LOG" "$RUN/server-$arm.pid" "${envs[@]}"; loads=$((loads + 1))
     CUR_PIDF=$RUN/server-$arm.pid
-    if ! wait_ready "$PORT" "$RUN/server-$arm.pid"; then skip_arm "$arm" "second server never served"; continue; fi
+    if ! wait_ready "$PORT" "$RUN/server-$arm.pid" "${MERGE_TRAIN_READY_S:-1800}"; then skip_arm "$arm" "second server never served"; continue; fi
     proof=$(jq -r --arg a "$arm" '.arms[$a].log_proof // empty' "$SUITE")
     if [ -n "$proof" ] && ! grep -Eqi "$proof" "$SERVER_LOG"; then
       while IFS= read -r c; do cell "$arm" "$(jq -r .id <<<"$c")" NOT-ON-TRAIN "server log shows no '$proof': the build ignored ${envs[*]}"; done < <(jq -c --arg a "$arm" '.cases[] | select((.arms // null) == null or (.arms | index($a)))' "$SUITE")
