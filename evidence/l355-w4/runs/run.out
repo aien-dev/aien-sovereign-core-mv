@@ -60,3 +60,11 @@
 2026-10-21T04:24:33Z [sens] g3 p3 exit 0
 2026-10-21T04:24:39Z [sens] g1 p3 exit 0
 2026-10-21T04:24:59Z [arm w4em0] start (w4e, fp8 layers 0-9)
+2026-10-21T04:27:14Z end forced-w4e-mut-p2 exit 0
+2026-10-21T04:27:14Z skip mtp-fp8-p1
+2026-10-21T04:27:14Z skip mtp-fp8-p2
+2026-10-21T04:27:14Z skip mtp-fp8-p3
+2026-10-21T04:27:14Z skip mtp-fp8-p4
+2026-10-21T04:27:14Z skip mtp-fp8-chat-max-24
+2026-10-21T04:27:14Z start forced-w4et-p1 MemAvailable 98791232 kB
+2026-10-21T04:39:02Z [arm w4em0] end
