@@ -172,6 +172,18 @@ impl Qwen38Omega {
             let mut g = unsafe { Q36Graph::create_heads(&cfg, q::MAX_HEADS) }
                 .map_err(gpu("rows stroke graph create"))?;
             self.wire(&mut g)?;
+            // L312 v2 (the batch): every layer recorded for all heads at once, one weight read per layer;
+            // its final reads the lm_head once per group of heads (the exact head is left out there).
+            let batch = batch_on();
+            if batch {
+                g.set_batch(true)
+                    .map_err(|rc| format!("rows stroke set_batch: rc {rc}"))?;
+            }
+            eprintln!(
+                "qwen36 omega: rows ride strokes of up to {} ({}; AIEN_Q36_STROKE=0 rows in turn)",
+                q::MAX_HEADS,
+                if batch { "batch v2, AIEN_Q36_STROKE_V2=0 for v1" } else { "v1 (AIEN_Q36_STROKE_V2=0)" }
+            );
             self.row_stroke = Some(g);
         }
         Ok(first)
@@ -449,4 +461,8 @@ fn row_swap_step() -> Option<u64> {
 /// Strokes for the rows (`AIEN_Q36_STROKE=0`: each row's own one-row graph, in turn).
 fn stroke_on() -> bool {
     std::env::var("AIEN_Q36_STROKE").as_deref() != Ok("0")
+}
+
+fn batch_on() -> bool {
+    std::env::var("AIEN_Q36_STROKE_V2").as_deref() != Ok("0")
 }

@@ -178,12 +178,11 @@ fn run() -> Result<bool, String> {
         let wall = t.elapsed().as_nanos() as u64;
         if stamp {
             let g = m.q36_graph_mut().ok_or("no q36 graph")?;
-            let (s, k) = g.stamps().map_err(|e| format!("stamps: {e:?}"))?;
+            let tl = g.timeline().map_err(|rc| format!("stamps: rc {rc}"))?;
             g.set_stamps(false);
             let mut per: Vec<(String, u64, u32)> = Vec::new();
-            for (i, kind) in k.iter().enumerate() {
-                let name = q36::kind_name(*kind);
-                let d = s[i + 1].saturating_sub(s[i]);
+            for &(kind, d) in &tl {
+                let name = q36::Q36Graph::kind_name(kind);
                 match per.iter_mut().find(|e| e.0 == name) {
                     Some(e) => {
                         e.1 += d;
@@ -192,12 +191,12 @@ fn run() -> Result<bool, String> {
                     None => per.push((name, d, 1)),
                 }
             }
-            let span = s[s.len() - 1] - s[0];
+            let span: u64 = tl.iter().map(|e| e.1).sum();
             let mut rows = Vec::new();
             let mut byte_total = 0.0;
             eprintln!(
                 "timeline pos {pos}: {} launches, span {:.1} us, chip {:.1} us",
-                k.len(),
+                tl.len(),
                 span as f64 / 1e3,
                 st.chip_ns as f64 / 1e3
             );
@@ -221,7 +220,7 @@ fn run() -> Result<bool, String> {
                 byte_total / 1e6,
                 byte_total / BW * 1e6
             );
-            stamped.push(json!({"pos": pos, "launches": k.len(), "span_ns": span, "chip_ns": st.chip_ns, "wall_ns": wall,
+            stamped.push(json!({"pos": pos, "launches": tl.len(), "span_ns": span, "chip_ns": st.chip_ns, "wall_ns": wall,
                                 "bytes": byte_total, "byte_ns": byte_total / BW * 1e9, "kinds": rows}));
         } else {
             let b = bands
