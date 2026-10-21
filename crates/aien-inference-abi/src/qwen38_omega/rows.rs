@@ -303,6 +303,73 @@ impl Qwen38Omega {
         Ok(())
     }
 
+    /// bf16 values one position of a row's KV cache holds (every attention layer, K and V).
+    pub fn row_kv_values(&self) -> usize {
+        self.rows
+            .first()
+            .and_then(|r| r.attn.as_ref())
+            .map_or(0, Attn256Cache::pos_values)
+    }
+
+    /// Copies row `r`'s attention K/V at positions `from .. from + count` into `out` (host
+    /// memory). With [`Self::row_snapshot`] (DeltaNet state and position) this is the whole
+    /// conversation state: the shared prompt cache (sc L375) restores both into any row.
+    pub fn row_kv_read(
+        &mut self,
+        r: usize,
+        from: usize,
+        count: usize,
+        out: &mut Vec<u16>,
+    ) -> Result<(), String> {
+        let n = self.rows.len();
+        let row = self
+            .rows
+            .get_mut(r)
+            .ok_or_else(|| format!("row {r} of {n}"))?;
+        match row.attn.as_mut() {
+            Some(a) => a.read_rows(from, count, out).map_err(gpu("row kv read")),
+            None => {
+                out.clear();
+                Ok(())
+            }
+        }
+    }
+
+    /// Writes [`Self::row_kv_read`]'s copy back into row `r` at positions `from .. from + count`.
+    pub fn row_kv_write(
+        &mut self,
+        r: usize,
+        from: usize,
+        count: usize,
+        data: &[u16],
+    ) -> Result<(), String> {
+        let n = self.rows.len();
+        let row = self
+            .rows
+            .get_mut(r)
+            .ok_or_else(|| format!("row {r} of {n}"))?;
+        match row.attn.as_mut() {
+            Some(a) => a.write_rows(from, count, data).map_err(gpu("row kv write")),
+            None if data.is_empty() => Ok(()),
+            None => Err("row_kv_write: this model has no attention cache".into()),
+        }
+    }
+
+    /// Moves row `r`'s next position (the prompt cache's position mutant only: the state is not
+    /// touched).
+    pub fn row_set_pos(&mut self, r: usize, pos: usize) -> Result<(), String> {
+        let n = self.rows.len();
+        let row = self
+            .rows
+            .get_mut(r)
+            .ok_or_else(|| format!("row {r} of {n}"))?;
+        if pos > row.max_pos {
+            return Err(format!("row_set_pos: {pos} past the row's {}", row.max_pos));
+        }
+        row.pos = pos;
+        Ok(())
+    }
+
     /// Tokens row `r` holds (its next position) and the most it holds.
     pub fn row_pos(&self, r: usize) -> Option<(usize, usize)> {
         self.rows.get(r).map(|row| (row.pos, row.max_pos))

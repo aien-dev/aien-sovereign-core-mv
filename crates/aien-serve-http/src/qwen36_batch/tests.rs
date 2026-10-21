@@ -13,9 +13,12 @@ fn mix(mut z: u64) -> u64 {
     z ^ (z >> 31)
 }
 
-/// A row model whose next token depends on every token fed so far and its position.
+/// A row model whose next token depends on every token fed so far and its position: a running
+/// state (the DeltaNet part, copied by `row_snapshot`) and one K/V value per position (copied by
+/// `row_kv_read`), every one of which the next step reads, like attention.
 struct Fake {
     rows: Vec<(u64, usize)>,
+    kv: Vec<Vec<u16>>,
     /// Swap the first two fed rows' states once, at the first step from this one on that feeds two.
     swap_at: Option<u64>,
     steps: u64,
@@ -28,6 +31,7 @@ impl Fake {
         (
             Self {
                 rows: vec![(0, 0); n],
+                kv: vec![vec![0; 4096]; n],
                 swap_at,
                 steps: 0,
                 fed: Arc::clone(&fed),
@@ -50,6 +54,33 @@ impl RowStep for Fake {
     fn row_count(&self) -> usize {
         self.rows.len()
     }
+    fn row_kv_values(&self) -> usize {
+        1
+    }
+    fn row_kv_read(
+        &mut self,
+        r: usize,
+        from: usize,
+        count: usize,
+        out: &mut Vec<u16>,
+    ) -> Result<(), String> {
+        *out = self.kv[r][from..from + count].to_vec();
+        Ok(())
+    }
+    fn row_kv_write(
+        &mut self,
+        r: usize,
+        from: usize,
+        count: usize,
+        data: &[u16],
+    ) -> Result<(), String> {
+        self.kv[r][from..from + count].copy_from_slice(data);
+        Ok(())
+    }
+    fn row_set_pos(&mut self, r: usize, pos: usize) -> Result<(), String> {
+        self.rows[r].1 = pos;
+        Ok(())
+    }
     fn row_reset(&mut self, r: usize) -> Result<(), String> {
         self.rows[r] = (0, 0);
         Ok(())
@@ -62,11 +93,15 @@ impl RowStep for Fake {
         if feed.len() >= 2 && self.swap_at.is_some_and(|k| self.steps >= k) {
             self.swap_at = None;
             self.rows.swap(feed[0].row, feed[1].row);
+            self.kv.swap(feed[0].row, feed[1].row);
         }
         let mut outs = Vec::new();
         for f in feed {
             let (st, pos) = &mut self.rows[f.row];
-            *st = mix(*st ^ (u64::from(f.token) << 20) ^ *pos as u64);
+            let kv = &mut self.kv[f.row];
+            let att = kv[..*pos].iter().fold(0u64, |h, &v| mix(h ^ u64::from(v)));
+            *st = mix(*st ^ (u64::from(f.token) << 20) ^ *pos as u64 ^ (att << 1));
+            kv[*pos] = (mix(*st ^ 7) & 0xffff) as u16;
             *pos += 1;
             self.fed.fetch_add(1, Ordering::SeqCst);
             let logits: Vec<f32> = (0..VOCAB)
@@ -277,4 +312,127 @@ fn the_graphs_greedy_token_equals_the_host_argmax_path() {
         })
         .collect();
     assert_eq!(concurrent(8, None, 16), want);
+}
+
+impl PoolSnap for (u64, usize) {
+    fn host_bytes(&self) -> usize {
+        16
+    }
+    fn to_bytes(&self) -> Vec<u8> {
+        [self.0.to_le_bytes(), (self.1 as u64).to_le_bytes()].concat()
+    }
+    fn from_bytes(b: &[u8]) -> Result<Self, String> {
+        let w = |i: usize| u64::from_le_bytes(b[i * 8..i * 8 + 8].try_into().unwrap());
+        (b.len() == 16)
+            .then(|| (w(0), w(1) as usize))
+            .ok_or_else(|| "16 bytes".to_string())
+    }
+}
+
+/// A door with the shared prompt cache (checkpoint every `every` tokens).
+fn pool_door(rows: usize, every: usize, mutant: bool) -> (Qwen36BatchDoor, Arc<AtomicUsize>) {
+    let cfg = PoolConfig::from_lookup(|k| match k {
+        "AIEN_Q36_PREFIX_EVERY" => Some(every.to_string()),
+        "AIEN_Q36_PREFIX_MUTANT" => mutant.then(|| "1".into()),
+        _ => None,
+    })
+    .unwrap();
+    let (f, fed) = Fake::new(rows, None);
+    let d = Qwen36BatchDoor::with_stepper_pool(
+        f,
+        4096,
+        lock_file(),
+        Duration::from_secs(5),
+        16,
+        true,
+        PrefixPool::new(&cfg),
+    )
+    .unwrap();
+    (d, fed)
+}
+
+/// A Hermes-shaped prompt: a long shared head (the tools block and system text), then `tail`.
+fn hermes(tail: u32, head: usize) -> Vec<u32> {
+    let mut p = vec![IM_START];
+    p.extend((0..head as u32).map(|i| 3 + i % 89));
+    p.push(IM_START);
+    p.extend([5, 6, 7, tail, tail + 1, tail + 2]);
+    p.push(IM_START);
+    p.extend([8, 9]);
+    p
+}
+
+#[test]
+fn a_new_chat_restores_the_shared_head_and_says_the_same_words() {
+    let (a, b) = (hermes(40, 120), hermes(60, 120));
+    let cold = alone(&b, 12);
+    let (d, fed) = pool_door(2, 32, false);
+    let (wa, _) = run(&d, &a, &greedy(12));
+    assert_eq!(wa, alone(&a, 12));
+    // b shares 122 tokens with a; the pool's deepest common node is the end of the first turn.
+    let before = fed.load(Ordering::SeqCst);
+    let (wb, _) = run(&d, &b, &greedy(12));
+    let fed_b = fed.load(Ordering::SeqCst) - before;
+    assert_eq!(wb, cold, "restored words differ from the cold read");
+    assert!(
+        fed_b < b.len() - 100,
+        "the shared head was read again ({fed_b} tokens fed for a {}-token prompt)",
+        b.len()
+    );
+}
+
+#[test]
+fn the_restore_position_mutant_is_caught() {
+    let (a, b) = (hermes(40, 120), hermes(60, 120));
+    let cold = alone(&b, 12);
+    let (d, _) = pool_door(2, 32, true);
+    run(&d, &a, &greedy(12));
+    let (wb, _) = run(&d, &b, &greedy(12));
+    assert_ne!(wb, cold, "restoring one position off must change the words");
+}
+
+#[test]
+fn a_changed_token_rereads_from_the_nearest_checkpoint_and_the_next_chat_from_the_change() {
+    // Chat 2 changes one token at 100 (inside the head): it restores the checkpoint at 96 and
+    // saves one at 100 on the way in, so chat 3 (another change at 101) restores 100.
+    let a = hermes(40, 200);
+    let mut b = a.clone();
+    b[100] = 2;
+    let mut c = b.clone();
+    c[101] = 2;
+    let (d, fed) = pool_door(3, 32, false);
+    run(&d, &a, &greedy(4));
+    let n0 = fed.load(Ordering::SeqCst);
+    let (wb, _) = run(&d, &b, &greedy(4));
+    let n1 = fed.load(Ordering::SeqCst);
+    assert_eq!(wb, alone(&b, 4));
+    assert_eq!(
+        n1 - n0,
+        b.len() - 96 + 3,
+        "chat 2 should read from the checkpoint at 96"
+    );
+    let (wc, _) = run(&d, &c, &greedy(4));
+    let n2 = fed.load(Ordering::SeqCst);
+    assert_eq!(wc, alone(&c, 4));
+    assert_eq!(
+        n2 - n1,
+        c.len() - 100 + 3,
+        "chat 3 should read from the change at 100"
+    );
+}
+
+#[test]
+fn a_cold_prompt_on_a_row_voids_the_rows_own_header_copy() {
+    // One row: a (with turn headers) leaves its own copy at its last header; b (no header past
+    // 0, so no new copy) rewrites the row's K/V from 0; a continued must not restore a's copy
+    // over b's K/V.
+    let a = hermes(40, 30);
+    let b: Vec<u32> = (0..80).map(|i| 1 + (i * 7) % 90).collect();
+    let mut a2 = a[..a.len() - 2].to_vec();
+    a2.extend([11, 12, IM_START, 13]);
+    let (d, _) = door(1, None, 16);
+    run(&d, &a, &greedy(4));
+    run(&d, &b, &greedy(4));
+    let (w, _) = run(&d, &a2, &greedy(6));
+    assert_eq!(w, alone(&a2, 6));
 }
