@@ -76,6 +76,18 @@ fn kind_bytes(c: &Qwen38Config, kind: &str, pos: usize) -> f64 {
     }
 }
 
+/// Env vars worth recording in the evidence JSON: the AIEN_/OMEGA/Q36_ ones, minus anything whose name
+/// looks like a secret (KEY, TOKEN, SECRET, PASS, CRED, any case). Evidence files get committed.
+fn evidence_env(vars: impl Iterator<Item = (String, String)>) -> Vec<(String, String)> {
+    const SECRET_WORDS: [&str; 5] = ["KEY", "TOKEN", "SECRET", "PASS", "CRED"];
+    vars.filter(|(k, _)| k.starts_with("AIEN_") || k.starts_with("OMEGA") || k.starts_with("Q36_"))
+        .filter(|(k, _)| {
+            let up = k.to_ascii_uppercase();
+            !SECRET_WORDS.iter().any(|w| up.contains(w))
+        })
+        .collect()
+}
+
 fn run() -> Result<bool, String> {
     let a: Vec<String> = std::env::args().collect();
     if a.len() < 4 {
@@ -103,9 +115,7 @@ fn run() -> Result<bool, String> {
             avail >> 20
         ));
     }
-    let env: Vec<(String, String)> = std::env::vars()
-        .filter(|(k, _)| k.starts_with("AIEN_") || k.starts_with("OMEGA") || k.starts_with("Q36_"))
-        .collect();
+    let env = evidence_env(std::env::vars());
     eprintln!("upload: need {} MiB, MemAvailable {} MiB, env {env:?}", need >> 20, avail >> 20);
     let t = Instant::now();
     let mut m = Qwen38Omega::open(dir, None, max_pos)?;
@@ -246,5 +256,24 @@ fn main() {
             eprintln!("q36_levers: {e}");
             std::process::exit(2);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::evidence_env;
+
+    fn kv(k: &str) -> (String, String) {
+        (k.to_string(), "v".to_string())
+    }
+
+    #[test]
+    fn secret_looking_names_are_dropped_and_the_rest_kept() {
+        let input = [
+            "AIEN_COORD_KEY", "AIEN_api_token", "OMEGA_SECRET_X", "Q36_PASSWORD", "AIEN_DB_CRED",
+            "AIEN_PASSPHRASE", "AIEN_GRAPH", "OMEGA_FLAGS", "Q36_LEVERS_POS", "HOME", "PATH",
+        ];
+        let kept: Vec<String> = evidence_env(input.iter().map(|k| kv(k))).into_iter().map(|(k, _)| k).collect();
+        assert_eq!(kept, ["AIEN_GRAPH", "OMEGA_FLAGS", "Q36_LEVERS_POS"]);
     }
 }
