@@ -173,6 +173,14 @@ fn parse_args() -> Result<Args, String> {
     if let Some(v) = a.wp_device_host {
         a.prefill.device_host = v;
     }
+    // L383: the same two settings by environment, for launchers that pass env only (the merge train's
+    // server_env arms). A flag wins over the variable.
+    if a.weights_publish.is_none() {
+        a.weights_publish = std::env::var_os("AIEN_SERVE_WEIGHTS_PUBLISH").map(PathBuf::from);
+    }
+    if a.weights_from.is_none() {
+        a.weights_from = std::env::var_os("AIEN_SERVE_WEIGHTS_FROM").map(PathBuf::from);
+    }
     Ok(a)
 }
 
