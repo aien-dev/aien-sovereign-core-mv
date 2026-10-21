@@ -181,7 +181,12 @@ pub fn need_bytes(c: &Qwen38Config, max_pos: usize, chunk: usize) -> u64 {
         // Qwen3.6-35B-A3B (sc L306): FP8 mixers and experts (routed + shared, one byte per weight
         // plus a bf16 scale per 128 x 128 block), bf16 a|b, router, lm_head and host embedding; no
         // prefill buffers (the prompt runs through the decode graph).
-        let experts = (m.experts + 1) as u64 * 3 * m.expert_inter as u64 * h;
+        // L355: tensors loaded from a 4-bit store (AIEN_Q36_W4_STORE) take 17/32 byte per weight (e2m1 nibble plus one
+        // E8M0 scale per 32) instead of one; the trunk too with AIEN_Q36_W4=all.
+        let w4 = !matches!(std::env::var("AIEN_Q36_W4_STORE").as_deref(), Ok("off") | Ok("0") | Ok("") | Err(_));
+        let w4_trunk = w4 && std::env::var("AIEN_Q36_W4").as_deref() == Ok("all");
+        let bytes = |weights: u64, four: bool| if four { weights * 17 / 32 } else { weights };
+        let experts = bytes((m.experts + 1) as u64 * 3 * m.expert_inter as u64 * h, w4);
         let o = h * (c.heads * c.head_dim) as u64;
         let fp8: u64 = c
             .full_attention
@@ -192,7 +197,7 @@ pub fn need_bytes(c: &Qwen38Config, max_pos: usize, chunk: usize) -> u64 {
                 } else {
                     (c.conv_dim() + c.lin_value_dim()) as u64 * h
                 };
-                mix + o + experts
+                bytes(mix + o, w4_trunk) + experts
             })
             .sum();
         let n_attn = c.full_attention.iter().filter(|&&a| a).count() as u64;
