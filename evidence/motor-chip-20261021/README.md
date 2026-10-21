@@ -126,6 +126,35 @@ prompts 29.7 against 30.53; 2 code prompts 15.3 against 15.75. Different real co
 N = 8 in ENGINE.md's stroke table came from 32 traces of one prompt family (correlated rows), the optimistic case; a byte budget for
 eight conversations must count about 55 of 256 experts per layer per beat.
 
+## v2, the ignition: one weight read per layer for all heads (`AIEN_STROKE_V2=1`; omega d1fca73c, sc 380e65e9, lib 008f5c1a, bin 751d4ec7)
+Each layer is recorded once for every head in the stroke: the dense mixer and o_proj GEMVs run as one FP8 segment-table GEMM at
+M = heads (bit-identical to the GEMV per row, `gpu_fp8gemm_test`), the N routers write their picks into per-conversation launch
+buffers, a GROUP glue kernel on the chip sorts the N x 9 picks into expert segments with row maps (`q36_dec_sim_test`, byte-identical
+to a host sort, three mutants caught), and one gate_up and one down grouped GEMM serve all heads (host-only runs in `v2-gemm-sim.log`).
+GDN, attention, the router and the combine stay per head; the final head (lm_head, argmax) stays per head. The same gate, set b:
+
+| run | heads | result |
+|---|---|---|
+| `stroke8v2-mutant4` 05:07Z | 8 | FAIL as required; its chip tokens equal the v1 mutant run (`stroke8b-mutant4`) on all 8 heads |
+| `stroke8v2-swap-control` 05:09Z | 8 | FAIL as required (p1, p2 diverge from step 18) |
+| `stroke8v2-real` 05:11Z | 8 | PASS 8/8; chip tokens equal `stroke8b-real` (v1) on all 8 heads and equal every run alone (`stroke8v2-vs-alone.txt`) |
+| `stroke8v2-swap-feature` 05:13Z | 8 | PASS (p1 ends in slot 1, p2 in slot 0) |
+| `stroke{1,2,4}v2-real` 05:14-05:16Z | 1, 2, 4 | PASS |
+
+Ladder, v2 against v1 (the same command, binary and goldens, back to back; shared chip, not a speed receipt):
+
+| heads | v2 ms per stroke (median) | v2 ms per token | v2 tok/s total | v1 ms per stroke | v1 / v2 |
+|---|---|---|---|---|---|
+| 1 | 27.294 (36 strokes) | 27.29 | 36.64 (calc:9795d31a) | 24.380 | 0.89 (v2 costs 1.12x alone, calc:1262c85d) |
+| 2 | 41.221 (46) | 20.61 (calc:4cbfde45) | 48.52 (calc:4776090d) | 49.096 | 1.19 (calc:3512da13) |
+| 4 | 68.037 (46) | 17.01 (calc:62cb0468) | 58.79 (calc:e9287378) | 97.805 | 1.44 (calc:0c8385cb) |
+| 8 | 127.753 (97) | 15.97 (calc:1750973d) | 62.62 (calc:941ee66f) | 194.143 | 1.52 (calc:cbb28558) |
+
+v2 is no longer linear in N but it is still close: 14.35 ms per extra head (calc:5397d25b, N=1 to N=8), where the byte model says
+0.21 GB = 0.77 ms per row at the 273 GB/s ceiling. The eight-head beat moves about 11.5 GB of weights (union 57 experts) in 127.75 ms,
+90 GB/s against the 273 GB/s ceiling (calc:48eb2528). The per-head launches (GDN, attention, router, combine, lm_head: about 240 per
+head per stroke) carry the cost now; the next receipt is the chip timeline per launch kind (`AIEN_STROKE_STAMPS=1`, `stroke8v2-stamps`).
+
 ## Files
 `gate1-*.json/.log` first pass (band withdrawn, data kept), `gate1b-*.json/.log` the rerun, `gate2-*.json` the door, `stroke-*.json/.log`
 the four stroke runs (`stroke_chip_ns` per stroke, `conversations[].steps`), `stroke8-*` and `stroke8b-*` the eight-head sets, `stroke1-*`

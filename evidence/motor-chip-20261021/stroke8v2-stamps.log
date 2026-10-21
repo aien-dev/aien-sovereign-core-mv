@@ -1,0 +1,4 @@
+binary sha256 97bc307435a87a6fd759aa92a79dc6db00147fb26b4b3e7a6638af430d9d0210
+model: 40 layers, 8 heads; positions gen-p1 36, gen-p2 46, gen-p3 42, gen-p4 39, gen-chat-code 62, gen-chat-prose2 68, gen-chat-chat 71, gen-chat-review 97; swap none
+reference: 8 conversations in 71.2 s; greedy tokens equal the golden records
+memory: MemAvailable 80941 MiB for 33085 MiB; taking the chip lock
