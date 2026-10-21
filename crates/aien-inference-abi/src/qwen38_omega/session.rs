@@ -244,6 +244,22 @@ impl Qwen38Session {
         Ok(logits)
     }
 
+    /// Feeds one reply token through the decode graph without reading the logits: the graph's
+    /// greedy token after it (chosen on the chip) and the step's chip time (ns). For greedy
+    /// replies (L356: no 1 MB logits copy and host argmax per token).
+    pub fn advance_greedy(&mut self, token: u32) -> Result<(u32, u64), String> {
+        match self.model.step(token) {
+            Ok((next, stats)) => {
+                self.history.push(token);
+                Ok((next, stats.chip_ns))
+            }
+            Err(e) => {
+                self.history.clear();
+                Err(e)
+            }
+        }
+    }
+
     /// Feeds one reply token through the decode graph: the logits after it and the graph's
     /// chip time for the step (ns).
     pub fn advance(&mut self, token: u32) -> Result<(Vec<f32>, u64), String> {

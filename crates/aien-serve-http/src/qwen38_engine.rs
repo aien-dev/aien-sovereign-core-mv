@@ -34,6 +34,8 @@ pub const LOAD_LOCK_WAIT: Duration = Duration::from_secs(1800);
 pub const KEEP_FREE: u64 = 8 << 30;
 /// omega's switch for the 35B graph's a|b beside mix overlap (L356: ON unless set).
 pub const Q36_OVERLAP_AB_ENV: &str = "AIEN_OMEGA_Q36_OVERLAP_AB";
+/// 0: greedy replies read the logits and take the host argmax every token (L356: the chip's token otherwise).
+pub const CHIP_GREEDY_ENV: &str = "AIEN_SERVE_CHIP_GREEDY";
 
 fn model_type(dir: &Path) -> Option<String> {
     std::fs::read_to_string(dir.join("config.json"))
@@ -186,12 +188,23 @@ impl Engine for Qwen38Door {
         let prefill_ms = t0.elapsed().as_millis() as u64;
         let t1 = Instant::now();
         let mut observer = SamplingObserver::new(p);
+        // L356: a greedy reply takes the decode graph's own token (argmax on the chip, the
+        // host rule) and skips the logits copy and host argmax per token. The first token comes
+        // from the prefill logits as before. AIEN_SERVE_CHIP_GREEDY=0: the host path throughout.
+        let chip_greedy = observer.is_greedy() && std::env::var(CHIP_GREEDY_ENV).as_deref() != Ok("0");
+        let mut chip_next: Option<u32> = None;
         let (mut emitted, mut chip_ns) = (0usize, 0u64);
         let finish = loop {
             if emitted >= p.max_new_tokens || prompt.len() + emitted >= self.max_context {
                 break FinishReason::Length;
             }
-            let tok = observer.sample(&logits, emitted);
+            let tok = match chip_next.take() {
+                Some(t) => {
+                    observer.note_greedy();
+                    t
+                }
+                None => observer.sample(&logits, emitted),
+            };
             if p.stop_token_ids.contains(&tok) {
                 break FinishReason::Stop;
             }
@@ -203,9 +216,15 @@ impl Engine for Qwen38Door {
             if emitted >= p.max_new_tokens || prompt.len() + emitted >= self.max_context {
                 break FinishReason::Length;
             }
-            let (next, ns) = s.advance(tok).map_err(EngineError::Failed)?;
-            logits = next;
-            chip_ns += ns;
+            if chip_greedy {
+                let (next, ns) = s.advance_greedy(tok).map_err(EngineError::Failed)?;
+                chip_next = Some(next);
+                chip_ns += ns;
+            } else {
+                let (next, ns) = s.advance(tok).map_err(EngineError::Failed)?;
+                logits = next;
+                chip_ns += ns;
+            }
         };
         let decode_ms = t1.elapsed().as_millis() as u64;
         let steps = emitted.saturating_sub(1).max(1) as f64;
@@ -214,7 +233,7 @@ impl Engine for Qwen38Door {
         drop(lock);
         let pf = &fs.prefill;
         eprintln!(
-            "aien-serve-http: qwen38: lock wait {lock_wait_ms} ms, prompt {} tok, reuse {:?} ({reused} tok), fed {} ({} stepped), prefill {prefill_ms} ms (gemm chip {} ms, gdn chip {} ms, attn chip {} ms, host {} ms, restore {} ms, snapshot {} ms), decode {emitted} tok in {decode_ms} ms, graph chip {:.1} ms/token, wall {:.1} ms/token",
+            "aien-serve-http: qwen38: lock wait {lock_wait_ms} ms, prompt {} tok, reuse {:?} ({reused} tok), fed {} ({} stepped), prefill {prefill_ms} ms (gemm chip {} ms, gdn chip {} ms, attn chip {} ms, host {} ms, restore {} ms, snapshot {} ms), decode {emitted} tok in {decode_ms} ms, graph chip {:.1} ms/token, wall {:.1} ms/token, chip greedy {chip_greedy}",
             prompt.len(),
             fs.reuse.unwrap_or(Reuse::Cold),
             fs.fed,
