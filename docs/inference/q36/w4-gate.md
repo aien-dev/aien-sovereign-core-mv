@@ -80,3 +80,10 @@ Order and go / no-go, decided now:
 3. Fallback named now: if (1) says the error is smooth but w4n misses B, the next arm is mixed inside the expert (gate|up
    nv16, down FP8, or the reverse by per-matrix sensitivity), same A + B + C. If (1a) says router flips: no more 4-bit expert
    arms for this model; bytes go to the draft head and the accuracy-free levers.
+4. Mixed go / no-go (written 2026-10-21 ~13:00Z after (1b) said NO-GO for nv16, before any split was measured; Fable
+   final review point 2): `q36_w4_store split <dir> [n]` converts the survey's expert sample (ids 0, n/16 apart, plus the
+   shared expert, every layer) with BEST and nv16 and prints sq_err and sq_ref for gate|up and down apart. Mixed arm
+   m-gu (nv16 gate|up, FP8 down): sq = nv16 sq_err(gate|up) / sq_ref(all experts); m-dn (FP8 gate|up, nv16 down):
+   sq = nv16 sq_err(down) / sq_ref(all experts). Each passes (b) only if its sq <= 0.5 x BEST's sq on the same sample.
+   A pass only opens the mixed arm (needs per-tensor mixing in the loader and host reference, then A + B + C, then an nv16
+   chip kernel); a fail for both closes 4-bit experts at any grid without a rotation.
