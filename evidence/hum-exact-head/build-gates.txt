@@ -1,0 +1,31 @@
+warning: aien-omega-gpu@0.1.0: aien-omega-gpu: linking prebuilt /home/drakestapleton/workspace/targets/q36/omega-new/libomega_gpu.a (sha256 678df626b03d8735823b228b3c1108a091b842786bd445a2f571da5395852357): a development override, not a qualified build
+    Finished `release` profile [optimized] target(s) in 0.12s
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+warning: aien-omega-gpu@0.1.0: aien-omega-gpu: linking prebuilt /home/drakestapleton/workspace/targets/q36/omega-new/libomega_gpu.a (sha256 678df626b03d8735823b228b3c1108a091b842786bd445a2f571da5395852357): a development override, not a qualified build
+   Compiling aien-inference-abi v0.1.0 (/home/drakestapleton/workspace/sc-hum-exact-head/crates/aien-inference-abi)
+warning: variable does not need to be mutable
+    --> crates/aien-inference-abi/src/qwen38.rs:1294:17
+     |
+1294 |             let mut ffn = |m: &mut Mem, p: &str, inter: usize| {
+     |                 ----^^^
+     |                 |
+     |                 help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `aien-inference-abi` (lib test) generated 1 warning (run `cargo fix --lib -p aien-inference-abi --tests` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 44.35s
+     Running unittests src/lib.rs (/home/drakestapleton/workspace/targets/hum-exact-head/sc/release/deps/aien_inference_abi-4f7b2b2b037b859f)
+
+running 5 tests
+test exact_head::tests::bf16_up_never_rounds_down ... ok
+test exact_head::tests::ties_go_to_the_first_row_like_the_full_argmax ... ok
+test exact_head::tests::a_zero_bound_mutant_can_lose_the_argmax ... ok
+test exact_head::tests::topk_candidates_hold_the_exact_top_k ... ok
+test exact_head::tests::two_pass_equals_full_argmax_on_random_heads ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 280 filtered out; finished in 0.14s
+
+build+test ok

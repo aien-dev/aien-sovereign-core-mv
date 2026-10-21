@@ -1,0 +1,6 @@
+/home/drakestapleton/workspace/sc-hum-exact-head/evidence/q36-host-20261020/gen-p1.json: IDENTICAL (32 tokens, max |C| 10)
+/home/drakestapleton/workspace/sc-hum-exact-head/evidence/q36-host-20261020/gen-p2.json: IDENTICAL (32 tokens, max |C| 3)
+/home/drakestapleton/workspace/sc-hum-exact-head/evidence/q36-host-20261020/gen-p3.json: IDENTICAL (32 tokens, max |C| 11)
+/home/drakestapleton/workspace/sc-hum-exact-head/evidence/q36-host-20261020/gen-p4.json: IDENTICAL (32 tokens, max |C| 5)
+/home/drakestapleton/workspace/sc-hum-exact-head/evidence/q36-host-20261020/gen-chat-max-24.json: IDENTICAL (24 tokens, max |C| 2)
+gate x0.5 rc 0

@@ -1,0 +1,6 @@
+/home/drakestapleton/workspace/sc-hum-exact-head/evidence/q36-host-20261020/gen-p1.json: DIVERGED (1 tokens, max |C| 17)
+/home/drakestapleton/workspace/sc-hum-exact-head/evidence/q36-host-20261020/gen-p2.json: DIVERGED (1 tokens, max |C| 0)
+/home/drakestapleton/workspace/sc-hum-exact-head/evidence/q36-host-20261020/gen-p3.json: DIVERGED (1 tokens, max |C| 15)
+/home/drakestapleton/workspace/sc-hum-exact-head/evidence/q36-host-20261020/gen-p4.json: DIVERGED (1 tokens, max |C| 15)
+/home/drakestapleton/workspace/sc-hum-exact-head/evidence/q36-host-20261020/gen-chat-max-24.json: DIVERGED (1 tokens, max |C| 1)
+gate x-1 rc 1

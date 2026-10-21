@@ -1,0 +1,3 @@
+warning: aien-omega-gpu@0.1.0: aien-omega-gpu: linking prebuilt /home/drakestapleton/workspace/targets/q36/omega-new/libomega_gpu.a (sha256 678df626b03d8735823b228b3c1108a091b842786bd445a2f571da5395852357): a development override, not a qualified build
+   Compiling aien-inference-abi v0.1.0 (/home/drakestapleton/workspace/sc-hum-exact-head/crates/aien-inference-abi)
+    Finished `release` profile [optimized] target(s) in 17.30s
