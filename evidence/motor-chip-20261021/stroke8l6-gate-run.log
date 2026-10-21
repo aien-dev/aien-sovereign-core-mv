@@ -1,0 +1,6 @@
+2026-10-21T14:35:57Z stroke8l6 gate3 start bin sha b45cf6e11e53450b (binary's lib sha is stamped per cell) V2=1 START=1 TAG=stroke8l6 PROSE=gen-chat-prose2
+2026-10-21T15:07:52Z stroke8l6-mutant4 exit 1: QWEN36_STROKE_GATE heads 8 strokes 97: chip per stroke median 71.486 ms (8 tokens per stroke; shared chip, a receipt only under spark-window); swap none; FAIL
+2026-10-21T15:51:54Z stroke8l6-real attempt 1: memory guard refused (qwen36_stroke_gate: the whole stack needs 33085 MiB with 12288 MiB kept free, MemAvailable 32173 MiB after 2400 s; refus); retrying
+2026-10-21T21:57:42Z stroke8l6-real exit 0: QWEN36_STROKE_GATE heads 8 strokes 97: chip per stroke median 72.771 ms (8 tokens per stroke; shared chip, a receipt only under spark-window); swap none; PASS
+2026-10-21T22:08:31Z stroke8l6-stamps exit 75: 
+2026-10-21T22:18:32Z stroke1l6-real exit 75: 

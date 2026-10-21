@@ -287,6 +287,25 @@ swap-control red, real = alone, swap-feature, ladder, stamps) are queued behind 
 The stroke tool and the gate scripts are unchanged; the levers are selected by the lib (`AIEN_OMEGA_GPU_LIB_SHA256` is stamped
 per cell). Gate binaries per lever: `sc-l4` c345faa2, `sc-l5` 712b5272, `sc-l6` b45cf6e1 (lib 3df5feb7).
 
+### Levers 3 to 6 on the 35B (stroke gate gate3, lib of omega 6f2f54cb, shared chip)
+| run | when (UTC) | result | chip per 8-head stroke (median of 97) |
+|---|---|---|---|
+| `stroke8l6-mutant4` (shared slot dropped) | 15:07:52 | exit 1, RED as it must be | 71.486 ms |
+| `stroke8l6-real` (8 conversations, each against its alone golden) | 21:57:42 | exit 0, PASS | 72.771 ms |
+| `stroke8l6-stamps` (timeline) | 22:08:31 | exit 75 (q36-extra gave up in the 18091 restart window), no timeline | |
+
+Against lever 2's 85.428 ms the stroke is 1.174x faster (calc:639a878f): 109.93 tokens/s across 8 conversations
+(calc:cc673566) against 93.646 (calc:a66639be). Shared chip (18091 and test copies loaded), so this is a gate number,
+not a quiet-window receipt. Run log `stroke8l6-gate-run.log`.
+
+### Lever 7 and the merge onto the ship candidate
+Lever 7 (omega 881f4397): the combine+norm of every head (L356's rows form) and the attention gate of every head in one
+launch each; chip unit 36/36 (`lever7-cl-chip.*`), sim 34. motor/serve no longer merged cleanly onto ship/motor-l387
+(L369 prefill, L314 exact head, L313 bf16 state touched the same kernels), so omega `motor/levers-on-ship` 0473989f
+is the merge: one GATE rows form (L369's layout), the GDN multi-token and heads kernels both resident, the attention
+heads form refused with multi, bf16 MASK and XBATCH 8 side by side. The 509 ship program hashes are unchanged; every
+simulator suite passes; chip unit results in `ship-merge/`.
+
 ## Files
 `gate1-*.json/.log` first pass (band withdrawn, data kept), `gate1b-*.json/.log` the rerun, `gate2-*.json` the door, `stroke-*.json/.log`
 the four stroke runs (`stroke_chip_ns` per stroke, `conversations[].steps`), `stroke8-*` and `stroke8b-*` the eight-head sets, `stroke8v2-*` the v2 set, `stroke8l1-*` the lever 1 set, `stroke8l2-*` the lever 2 set (`*-stamps` the timelines), `lever3-*` to `lever6-*` the kernel-level receipts of levers 3 to 6 (sweep, simulator, host, chip parity), `stroke1-*`
