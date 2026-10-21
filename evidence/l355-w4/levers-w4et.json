@@ -1,0 +1,749 @@
+{
+  "all_identical": true,
+  "bands": [
+    {
+      "chip_ms": 18.075095034482757,
+      "graph_total_ms": 18.194403431034484,
+      "hi": 64,
+      "lo": 0,
+      "tok_s": 54.95230176683597,
+      "tokens": 58,
+      "wall_ms": 18.197599879310342
+    },
+    {
+      "chip_ms": 18.37009634375,
+      "graph_total_ms": 18.49090072321429,
+      "hi": 288,
+      "lo": 64,
+      "tok_s": 54.07147032589729,
+      "tokens": 224,
+      "wall_ms": 18.49404120089286
+    },
+    {
+      "chip_ms": 18.672739479452055,
+      "graph_total_ms": 18.7961481702544,
+      "hi": 800,
+      "lo": 288,
+      "tok_s": 53.193013320382356,
+      "tokens": 511,
+      "wall_ms": 18.79946138747554
+    },
+    {
+      "chip_ms": 18.83549389297659,
+      "graph_total_ms": 18.955802558528426,
+      "hi": 1100,
+      "lo": 800,
+      "tok_s": 52.745438997369256,
+      "tokens": 299,
+      "wall_ms": 18.95898525083612
+    }
+  ],
+  "env": [
+    "AIEN_Q36_W4_STORE=default",
+    "AIEN_Q36_W4=all"
+  ],
+  "goldens": [
+    {
+      "first_diff": null,
+      "golden": "gold-w4et-p1.json",
+      "got": [
+        11751,
+        11,
+        264,
+        3177,
+        34756,
+        364,
+        1141,
+        25438,
+        57902,
+        1680,
+        430,
+        279,
+        242476,
+        300,
+        21262,
+        11,
+        279,
+        9440,
+        46890,
+        15849,
+        11,
+        321,
+        42027,
+        9141,
+        368,
+        54832,
+        13,
+        11751,
+        369,
+        1048,
+        10919,
+        364
+      ],
+      "identical": true,
+      "logits_fnv": [
+        "20ea484daac51a1a",
+        "27bf9e168ee65364",
+        "34ae129b7d2ae0fa",
+        "29371d5b9801d892",
+        "b61afd21d69ee23d",
+        "2572fd759d359be2",
+        "525c62e411c2576e",
+        "ab47ac23f09e4249",
+        "1258c7203cc5373f",
+        "9580cac7da9e785a",
+        "8b740aa0835eedf6",
+        "7cdf49fcb71b4001",
+        "9489c687aaa4aaf8",
+        "468dd1d1721eb2dc",
+        "d352acf17fc27bf6",
+        "3284e2ee8a3fa61e",
+        "2701aba2f430e93c",
+        "1c270d64ff49fa01",
+        "9f02067023b8ad84",
+        "92ef6482213ae958",
+        "b7f51ac504e9be0c",
+        "523b654b6ad89cb6",
+        "993ca6f47d3a93ea",
+        "0de97bee5c64a538",
+        "bd052a32aa0b030d",
+        "e161f40f635a9395",
+        "004f8bd6fd81d3df",
+        "8a529e0b220d752a",
+        "2c158698abf3e730",
+        "de97654e1a184a64",
+        "a44dd36f88666ac0",
+        "5e9a97962c49e992"
+      ]
+    },
+    {
+      "first_diff": null,
+      "golden": "gold-w4et-p2.json",
+      "got": [
+        262,
+        413,
+        307,
+        2564,
+        220,
+        15,
+        25,
+        198,
+        285,
+        460,
+        220,
+        15,
+        198,
+        262,
+        4265,
+        307,
+        606,
+        220,
+        16,
+        25,
+        198,
+        285,
+        460,
+        220,
+        16,
+        198,
+        262,
+        745,
+        25,
+        198,
+        285,
+        460
+      ],
+      "identical": true,
+      "logits_fnv": [
+        "dab4ba246e4138b8",
+        "7fbebf8643a09563",
+        "1e11f7e86184a0e5",
+        "bf5ac1000fa63ec3",
+        "0f13495b4043a0d6",
+        "ad764b793bbbef0a",
+        "d4632885825608b4",
+        "f15b14a80a406d85",
+        "4dd4396c850e698b",
+        "49c8e19fc6850985",
+        "ffc378b9607fb1a8",
+        "2c16991c9d72b454",
+        "288f6aa31507260c",
+        "35de227076abaef5",
+        "ba58c77d0ee3fe52",
+        "1362af70252298d1",
+        "8ca7a1c4b05f095b",
+        "d6dd3720efa9b46f",
+        "c4f0e83ce7725389",
+        "2cbe31e8811805bc",
+        "00330c66447bb0bd",
+        "358b8cb2c678b1de",
+        "f5d671e609b30120",
+        "25579931b4c440b3",
+        "9826ee9680ecaef6",
+        "962deda914f78321",
+        "1ee8e8632b51628e",
+        "b7ded57dbe0c043c",
+        "0b990aeb0524f155",
+        "a2fa75a3b1e93187",
+        "eb0a3567f12f5da3",
+        "c00880b1829f24cc"
+      ]
+    },
+    {
+      "first_diff": null,
+      "golden": "gold-w4et-p3.json",
+      "got": [
+        279,
+        42900,
+        7035,
+        369,
+        4570,
+        13,
+        271,
+        32,
+        13,
+        2912,
+        198,
+        33,
+        13,
+        3439,
+        271,
+        248068,
+        271,
+        248069,
+        271,
+        332,
+        32,
+        13,
+        2912,
+        332,
+        271,
+        332,
+        24342,
+        286,
+        64700,
+        198,
+        760,
+        48161
+      ],
+      "identical": true,
+      "logits_fnv": [
+        "bf43aa0ba00ca28d",
+        "8532726f755cf327",
+        "07cd1aeef6da634a",
+        "c5bcf78635e09d19",
+        "929c19a8caa9009e",
+        "407c5701d06816d9",
+        "c38ca372be8d55f6",
+        "15229caa10b24de5",
+        "9289222f0beada22",
+        "08f6cab9e3e9c791",
+        "58ee4536ab1521d7",
+        "f65255428db5eb7c",
+        "9bc44fc8ba224182",
+        "e34b352e3d85bfe1",
+        "46baa95742f2f7ec",
+        "a08568dc368662f1",
+        "16bdab146d9740da",
+        "388c5a58690588df",
+        "9247fd2b2395c5c1",
+        "98097734dd72c3e3",
+        "b59492429112ae42",
+        "34a56a700a76f81e",
+        "28d67d10a62785b6",
+        "8ca7ddc1617c726a",
+        "1bdc9cb4bea6728c",
+        "04cab66eaaab9818",
+        "0c7b38693f7ed941",
+        "854ef8bd83eb0d5d",
+        "b0441bd7da3a0592",
+        "831356b4f2cf8c49",
+        "ed5d7826eed09816",
+        "618a8ec2eb8880fd"
+      ]
+    },
+    {
+      "first_diff": null,
+      "golden": "gold-w4et-p4.json",
+      "got": [
+        3605,
+        198,
+        17,
+        13,
+        8432,
+        198,
+        18,
+        13,
+        24655,
+        271,
+        248068,
+        271,
+        248069,
+        271,
+        760,
+        2250,
+        5839,
+        7736,
+        513,
+        25,
+        271,
+        16,
+        13,
+        2972,
+        5844,
+        332,
+        198,
+        17,
+        13,
+        2972,
+        10025,
+        332
+      ],
+      "identical": true,
+      "logits_fnv": [
+        "c2d68d2e7a74b2c6",
+        "771a5add287fad89",
+        "ca7dc59252a09675",
+        "d5438c9cb111ad6a",
+        "51462e3c9a758a8b",
+        "f1ab3b50d320b532",
+        "23e1ee53e4bf9b61",
+        "9b4ed194a55c5200",
+        "25ae3abe2ad71abe",
+        "5178e36d2bbd68ed",
+        "1cd9ac41a6fd5223",
+        "b138adeadf3e4a23",
+        "3e73b1116ac2aa62",
+        "8d9cc2886951ae0a",
+        "0d8ee5b2810fe64a",
+        "260f05926005362f",
+        "3cc8c07b30f0b0a6",
+        "e80992e25a5a364b",
+        "018104cc90afb103",
+        "cf06f1d1a6b2273b",
+        "426b3968f4848a3b",
+        "7435df1039e16a8e",
+        "1333ed74cef12e51",
+        "92fd4f769873d49a",
+        "b410c4899f28ecdf",
+        "2919c39570b900d8",
+        "9def379cb9b01bca",
+        "53f2e8c00eb2d970",
+        "202f2db0d89533b5",
+        "3ed3dfbfea5e39ae",
+        "f51e0476d80e0e86",
+        "3156ae10d98a82c3"
+      ]
+    },
+    {
+      "first_diff": null,
+      "golden": "gold-w4et-chat-max-24.json",
+      "got": [
+        71093,
+        66,
+        198,
+        390,
+        1866,
+        1494,
+        264,
+        11,
+        514,
+        292,
+        8,
+        313,
+        198,
+        262,
+        460,
+        318,
+        64,
+        835,
+        292,
+        8,
+        907,
+        264,
+        535,
+        292
+      ],
+      "identical": true,
+      "logits_fnv": [
+        "fbe9d455679ffb96",
+        "e2d68c65117fc3eb",
+        "827c4ace3f420c7a",
+        "6e3de0cea55f1ccf",
+        "a56f3d0f51f33855",
+        "5c880bd0be821f82",
+        "842cc948c2857889",
+        "9bd17328cc809660",
+        "6a84c884aab916c4",
+        "bda5a4e5457b9c87",
+        "89f74e6576ed0d9e",
+        "d82446f1f78d180b",
+        "27adc0d2ed7ffdfd",
+        "b2ce9f3d5a0011bb",
+        "1535785002a052e9",
+        "a2064dbb8ba9d057",
+        "70aca921d7c51013",
+        "f85d407d5ca090dd",
+        "8de37ad800732d3e",
+        "16772cfd3adfb974",
+        "0b2998daf27885c1",
+        "2f41d5acc7ec5bbc",
+        "c44ecedb46a8dc8c",
+        "910477d18eed25b5"
+      ]
+    }
+  ],
+  "model": "/home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0",
+  "open_s": 18.194354268,
+  "timelines": [
+    {
+      "byte_ns": 15813524.210526314,
+      "bytes": 3605483520.0,
+      "chip_ns": 18279750,
+      "kinds": [
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "norm",
+          "launches": 1,
+          "ns": 31296
+        },
+        {
+          "byte_ns": 4139115.789473684,
+          "bytes": 943718400.0,
+          "kind": "mix",
+          "launches": 40,
+          "ns": 2875072
+        },
+        {
+          "byte_ns": 34492.63157894737,
+          "bytes": 7864320.0,
+          "kind": "ab",
+          "launches": 30,
+          "ns": 349312
+        },
+        {
+          "byte_ns": 551882.1052631579,
+          "bytes": 125829120.0,
+          "kind": "gdn",
+          "launches": 30,
+          "ns": 972000
+        },
+        {
+          "byte_ns": 1471685.6140350876,
+          "bytes": 335544320.0,
+          "kind": "o_proj",
+          "launches": 40,
+          "ns": 1744512
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "res",
+          "launches": 80,
+          "ns": 548864
+        },
+        {
+          "byte_ns": 184679.29824561405,
+          "bytes": 42106880.0,
+          "kind": "router",
+          "launches": 40,
+          "ns": 1803936
+        },
+        {
+          "byte_ns": 3311292.6315789474,
+          "bytes": 754974720.0,
+          "kind": "gate_up",
+          "launches": 40,
+          "ns": 2745312
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "swiglu",
+          "launches": 40,
+          "ns": 108800
+        },
+        {
+          "byte_ns": 1655646.3157894737,
+          "bytes": 377487360.0,
+          "kind": "down",
+          "launches": 40,
+          "ns": 1311232
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gather",
+          "launches": 10,
+          "ns": 33248
+        },
+        {
+          "byte_ns": 3682.8070175438597,
+          "bytes": 839680.0,
+          "kind": "attn",
+          "launches": 10,
+          "ns": 552736
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gate",
+          "launches": 10,
+          "ns": 26880
+        },
+        {
+          "byte_ns": 4461047.01754386,
+          "bytes": 1017118720.0,
+          "kind": "lm_head",
+          "launches": 1,
+          "ns": 5093184
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "argmax",
+          "launches": 2,
+          "ns": 20864
+        }
+      ],
+      "launches": 414,
+      "pos": 40,
+      "span_ns": 18217248,
+      "wall_ns": 18396855
+    },
+    {
+      "byte_ns": 15836878.596491227,
+      "bytes": 3610808320.0,
+      "chip_ns": 18693882,
+      "kinds": [
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "norm",
+          "launches": 1,
+          "ns": 9312
+        },
+        {
+          "byte_ns": 4139115.789473684,
+          "bytes": 943718400.0,
+          "kind": "mix",
+          "launches": 40,
+          "ns": 2881376
+        },
+        {
+          "byte_ns": 34492.63157894737,
+          "bytes": 7864320.0,
+          "kind": "ab",
+          "launches": 30,
+          "ns": 341504
+        },
+        {
+          "byte_ns": 551882.1052631579,
+          "bytes": 125829120.0,
+          "kind": "gdn",
+          "launches": 30,
+          "ns": 931008
+        },
+        {
+          "byte_ns": 1471685.6140350876,
+          "bytes": 335544320.0,
+          "kind": "o_proj",
+          "launches": 40,
+          "ns": 1651360
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "res",
+          "launches": 80,
+          "ns": 530848
+        },
+        {
+          "byte_ns": 184679.29824561405,
+          "bytes": 42106880.0,
+          "kind": "router",
+          "launches": 40,
+          "ns": 1696096
+        },
+        {
+          "byte_ns": 3311292.6315789474,
+          "bytes": 754974720.0,
+          "kind": "gate_up",
+          "launches": 40,
+          "ns": 2853952
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "swiglu",
+          "launches": 40,
+          "ns": 110336
+        },
+        {
+          "byte_ns": 1655646.3157894737,
+          "bytes": 377487360.0,
+          "kind": "down",
+          "launches": 40,
+          "ns": 1340224
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gather",
+          "launches": 10,
+          "ns": 35712
+        },
+        {
+          "byte_ns": 27037.19298245614,
+          "bytes": 6164480.0,
+          "kind": "attn",
+          "launches": 10,
+          "ns": 1050432
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gate",
+          "launches": 10,
+          "ns": 27008
+        },
+        {
+          "byte_ns": 4461047.01754386,
+          "bytes": 1017118720.0,
+          "kind": "lm_head",
+          "launches": 1,
+          "ns": 5060864
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "argmax",
+          "launches": 2,
+          "ns": 20512
+        }
+      ],
+      "launches": 414,
+      "pos": 300,
+      "span_ns": 18540544,
+      "wall_ns": 18815579
+    },
+    {
+      "byte_ns": 15899755.789473686,
+      "bytes": 3625144320.0,
+      "chip_ns": 19273503,
+      "kinds": [
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "norm",
+          "launches": 1,
+          "ns": 9952
+        },
+        {
+          "byte_ns": 4139115.789473684,
+          "bytes": 943718400.0,
+          "kind": "mix",
+          "launches": 40,
+          "ns": 2869344
+        },
+        {
+          "byte_ns": 34492.63157894737,
+          "bytes": 7864320.0,
+          "kind": "ab",
+          "launches": 30,
+          "ns": 354080
+        },
+        {
+          "byte_ns": 551882.1052631579,
+          "bytes": 125829120.0,
+          "kind": "gdn",
+          "launches": 30,
+          "ns": 1056288
+        },
+        {
+          "byte_ns": 1471685.6140350876,
+          "bytes": 335544320.0,
+          "kind": "o_proj",
+          "launches": 40,
+          "ns": 1687424
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "res",
+          "launches": 80,
+          "ns": 676896
+        },
+        {
+          "byte_ns": 184679.29824561405,
+          "bytes": 42106880.0,
+          "kind": "router",
+          "launches": 40,
+          "ns": 1828832
+        },
+        {
+          "byte_ns": 3311292.6315789474,
+          "bytes": 754974720.0,
+          "kind": "gate_up",
+          "launches": 40,
+          "ns": 2974528
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "swiglu",
+          "launches": 40,
+          "ns": 116832
+        },
+        {
+          "byte_ns": 1655646.3157894737,
+          "bytes": 377487360.0,
+          "kind": "down",
+          "launches": 40,
+          "ns": 1368800
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gather",
+          "launches": 10,
+          "ns": 39360
+        },
+        {
+          "byte_ns": 89914.38596491229,
+          "bytes": 20500480.0,
+          "kind": "attn",
+          "launches": 10,
+          "ns": 1271904
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gate",
+          "launches": 10,
+          "ns": 29280
+        },
+        {
+          "byte_ns": 4461047.01754386,
+          "bytes": 1017118720.0,
+          "kind": "lm_head",
+          "launches": 1,
+          "ns": 4905568
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "argmax",
+          "launches": 2,
+          "ns": 20736
+        }
+      ],
+      "launches": 414,
+      "pos": 1000,
+      "span_ns": 19209824,
+      "wall_ns": 19406720
+    }
+  ],
+  "tool": "q36_levers"
+}

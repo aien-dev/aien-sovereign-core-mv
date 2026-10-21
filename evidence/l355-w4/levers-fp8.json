@@ -1,0 +1,748 @@
+{
+  "all_identical": false,
+  "bands": [
+    {
+      "chip_ms": 24.602606689655172,
+      "graph_total_ms": 24.730891689655174,
+      "hi": 64,
+      "lo": 0,
+      "tok_s": 40.429671858416725,
+      "tokens": 58,
+      "wall_ms": 24.7343090862069
+    },
+    {
+      "chip_ms": 24.90473734375,
+      "graph_total_ms": 25.05305010714286,
+      "hi": 288,
+      "lo": 64,
+      "tok_s": 39.89808923686791,
+      "tokens": 224,
+      "wall_ms": 25.06385691964286
+    },
+    {
+      "chip_ms": 24.969593180039137,
+      "graph_total_ms": 25.098882113502935,
+      "hi": 800,
+      "lo": 288,
+      "tok_s": 39.837377457474965,
+      "tokens": 511,
+      "wall_ms": 25.102053996086106
+    },
+    {
+      "chip_ms": 25.37559878595318,
+      "graph_total_ms": 25.514013013377927,
+      "hi": 1100,
+      "lo": 800,
+      "tok_s": 39.18882395345905,
+      "tokens": 299,
+      "wall_ms": 25.517479197324413
+    }
+  ],
+  "env": [
+    "AIEN_COORD_KEY=[REDACTED]"
+  ],
+  "goldens": [
+    {
+      "first_diff": null,
+      "golden": "/home/drakestapleton/workspace/sc-l355/evidence/q36-host-20261020/gen-p1.json",
+      "got": [
+        11751,
+        11,
+        264,
+        3177,
+        34756,
+        364,
+        1141,
+        25438,
+        57902,
+        1680,
+        430,
+        279,
+        242476,
+        300,
+        21262,
+        11,
+        279,
+        9440,
+        46890,
+        15849,
+        11,
+        321,
+        279,
+        42027,
+        9141,
+        368,
+        54832,
+        13,
+        11751,
+        369,
+        1048,
+        10919
+      ],
+      "identical": true,
+      "logits_fnv": [
+        "5f01d4f90a888ac7",
+        "acefa1cde82184e5",
+        "3aafc1fca1b9d423",
+        "7294802b77c30df4",
+        "fc3bf8687d866203",
+        "e923f35aea12f141",
+        "8bb416b23cf2cd32",
+        "a3d2a17c5369acfb",
+        "452e87be5adf2ea1",
+        "178cfc70652f1850",
+        "4c2cd0bfccdf6284",
+        "3dc3d51c26236d4d",
+        "a5bb84b8a4672c92",
+        "40de0ac032d27257",
+        "e77be35ea70b51cc",
+        "42e34c15264bf59f",
+        "6313118182e48974",
+        "a7599a39b1e1af29",
+        "ba5933eedf32459c",
+        "e70f6592654bb2e8",
+        "1ee3fc8587d38c15",
+        "f79fd5c48013759f",
+        "a2ae7ea3b0f68907",
+        "9d8af31e463b9f62",
+        "5b9427a27fdc2e7c",
+        "d891d6671054a4fa",
+        "a28c7fb2acbe5369",
+        "75b38ea490322ed0",
+        "0129f1596724fbec",
+        "0519223306d77eaf",
+        "11a3896b64c01462",
+        "16f7f2f807698532"
+      ]
+    },
+    {
+      "first_diff": null,
+      "golden": "/home/drakestapleton/workspace/sc-l355/evidence/q36-host-20261020/gen-p2.json",
+      "got": [
+        262,
+        413,
+        307,
+        2564,
+        220,
+        15,
+        25,
+        198,
+        285,
+        460,
+        220,
+        15,
+        198,
+        262,
+        4265,
+        307,
+        606,
+        220,
+        16,
+        25,
+        198,
+        285,
+        460,
+        220,
+        16,
+        198,
+        262,
+        745,
+        25,
+        198,
+        285,
+        460
+      ],
+      "identical": true,
+      "logits_fnv": [
+        "301eb181097b9810",
+        "5a4f6832698ffce9",
+        "44dd1d14db0d8c7c",
+        "91f968914b7a1856",
+        "f3fb517c814dd58b",
+        "73f7639569248f2d",
+        "363af40194dde09f",
+        "7453f8f6ac07dcc9",
+        "c6571c6231b772f6",
+        "e507e0b137506993",
+        "11a6c0f385677d93",
+        "923a98219e529380",
+        "51f255b314d26ac4",
+        "8d49d6e52754e07b",
+        "6bbae9906de983c8",
+        "c58bde469c77b9c1",
+        "637fef9c82b1ffd9",
+        "bf45e9ffb531533e",
+        "624ea670901ab08d",
+        "ad6ed893f6235db5",
+        "471ffc338085ef46",
+        "9dda44ec8435f4cd",
+        "145f47f1edbad625",
+        "6ade97352aa2b60e",
+        "cac6b20150f213ad",
+        "82f52b812349b1d4",
+        "9577861ca6ebf929",
+        "51025673a2c67e56",
+        "40031fefdde02ed4",
+        "4c342eeb009e1083",
+        "709ed969caf79b87",
+        "875c697838ddb1d2"
+      ]
+    },
+    {
+      "first_diff": null,
+      "golden": "/home/drakestapleton/workspace/sc-l355/evidence/q36-host-20261020/gen-p3.json",
+      "got": [
+        279,
+        42900,
+        7035,
+        369,
+        4570,
+        13,
+        271,
+        248068,
+        271,
+        248069,
+        271,
+        1919,
+        4952,
+        369,
+        2972,
+        19321,
+        159034,
+        271,
+        8160,
+        369,
+        279,
+        2923,
+        13909,
+        28253,
+        19214,
+        37557,
+        24228,
+        3069,
+        411,
+        13273,
+        25,
+        271
+      ],
+      "identical": true,
+      "logits_fnv": [
+        "dde211ec2dec92b5",
+        "46af3bb849d952d6",
+        "4e65d55bdd616255",
+        "0081252b1a95ea1b",
+        "f89c94431df532ec",
+        "150ddc3a7e43ed2b",
+        "7f3b51ccd8b4ca13",
+        "e61407a28ba28468",
+        "32b7a5c2c52a6e0a",
+        "86e3afe2b1606bb0",
+        "473da43a1176cbb9",
+        "15df22579a657b7e",
+        "d432f4cb134804a5",
+        "e574efa20a0d210d",
+        "854525eb259ba1dd",
+        "89334f630a43d95e",
+        "a9258daca1ec685e",
+        "13ca42f9f49d3827",
+        "86ce5aa4d80185af",
+        "fdde4e1fb2e40db4",
+        "f7c4d1f0ea91803a",
+        "d323a20724aaaece",
+        "54b75bccd08431e3",
+        "85f7e1b953a13810",
+        "142110b5be8f8bfd",
+        "9998e249c0b04375",
+        "5e7265d4dbba6f6a",
+        "129acb83bf6890af",
+        "f9fdbd87b086a2bc",
+        "7bac9bf1872ad5de",
+        "d7b12ec90a4be569",
+        "9dc52adb2a98e429"
+      ]
+    },
+    {
+      "first_diff": 4,
+      "golden": "/home/drakestapleton/workspace/sc-l355/evidence/q36-host-20261020/gen-p4.json",
+      "got": [
+        3605,
+        198,
+        17,
+        13,
+        8432,
+        198,
+        18,
+        13,
+        24655,
+        271,
+        248068,
+        271,
+        248069,
+        271,
+        27775,
+        383,
+        279,
+        8343,
+        2972,
+        10916,
+        33,
+        318,
+        5844,
+        28184,
+        5131,
+        12,
+        10025,
+        31230,
+        1829,
+        1558,
+        11,
+        864
+      ],
+      "identical": false,
+      "logits_fnv": [
+        "ff4382a40cf196f3",
+        "6d63dbea751f544a",
+        "5570a071e8118dde",
+        "1634059be3a50d24",
+        "b6185021222f3c93",
+        "d00a15c5342c59b6",
+        "2217e50d9ae1c6dc",
+        "778a978cc5adc0f3",
+        "b8aee7d8e5850318",
+        "b832018fe8f6c804",
+        "67d7112071fcb0d9",
+        "796fbdea0de02ef8",
+        "72bc9ce4137d4eee",
+        "6f54e05f27e233a2",
+        "dfff505ad63951de",
+        "4731a91240d3a147",
+        "19a8b8c6256a3c05",
+        "c5de085d3cc55176",
+        "8a71b237cc254d2b",
+        "8fc4faf60bfd6cd8",
+        "8267978b22e9b7ef",
+        "a8a684107ecb1700",
+        "1fc1945fb00556db",
+        "77b92a895fc68f42",
+        "61a851a63d3f13a3",
+        "fe3f0c3a704fe23c",
+        "b65ee208043e75f1",
+        "0bcf5dbd2f68dafb",
+        "4287fa425e437de2",
+        "67393cc324f4cb46",
+        "b7f418b4faed96f4",
+        "3d9f966e82d87ff2"
+      ]
+    },
+    {
+      "first_diff": null,
+      "golden": "/home/drakestapleton/workspace/sc-l355/evidence/q36-host-20261020/gen-chat-max-24.json",
+      "got": [
+        71093,
+        66,
+        198,
+        390,
+        1866,
+        1494,
+        264,
+        11,
+        514,
+        292,
+        8,
+        313,
+        198,
+        262,
+        460,
+        318,
+        64,
+        835,
+        292,
+        8,
+        907,
+        264,
+        535,
+        292
+      ],
+      "identical": true,
+      "logits_fnv": [
+        "cef90bd523cb36ea",
+        "ff9a2aa0340cca65",
+        "4fe9989c74e1c63a",
+        "c60b00ab9e3774eb",
+        "fbf2da2d3bbfa82d",
+        "4fa4de6b4ec32d97",
+        "2e26a38b32ba716f",
+        "0bdc2fcdb67a5679",
+        "5a18793a7e6ff051",
+        "8c56a8b9f64d7076",
+        "6a1844fcecbc3062",
+        "eec442ab67ed04af",
+        "2c969cca5404fd0d",
+        "6a46d0984cf52afa",
+        "9424ccacf37e6366",
+        "a3f2f445ab822746",
+        "916a2621efb951a2",
+        "b27f2739e881a5b3",
+        "1834a5455a0d4b51",
+        "98f752241e6acc9c",
+        "ffd3e0914287c1a9",
+        "4812c8c47eaf04df",
+        "beaea473141fe81c",
+        "06637c6012a737bd"
+      ]
+    }
+  ],
+  "model": "/home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0",
+  "open_s": 27.806346499,
+  "timelines": [
+    {
+      "byte_ns": 15813524.210526314,
+      "bytes": 3605483520.0,
+      "chip_ns": 24568306,
+      "kinds": [
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "norm",
+          "launches": 1,
+          "ns": 9248
+        },
+        {
+          "byte_ns": 4139115.789473684,
+          "bytes": 943718400.0,
+          "kind": "mix",
+          "launches": 40,
+          "ns": 4832128
+        },
+        {
+          "byte_ns": 34492.63157894737,
+          "bytes": 7864320.0,
+          "kind": "ab",
+          "launches": 30,
+          "ns": 327072
+        },
+        {
+          "byte_ns": 551882.1052631579,
+          "bytes": 125829120.0,
+          "kind": "gdn",
+          "launches": 30,
+          "ns": 943712
+        },
+        {
+          "byte_ns": 1471685.6140350876,
+          "bytes": 335544320.0,
+          "kind": "o_proj",
+          "launches": 40,
+          "ns": 2431488
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "res",
+          "launches": 80,
+          "ns": 534624
+        },
+        {
+          "byte_ns": 184679.29824561405,
+          "bytes": 42106880.0,
+          "kind": "router",
+          "launches": 40,
+          "ns": 1736704
+        },
+        {
+          "byte_ns": 3311292.6315789474,
+          "bytes": 754974720.0,
+          "kind": "gate_up",
+          "launches": 40,
+          "ns": 4953120
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "swiglu",
+          "launches": 40,
+          "ns": 113760
+        },
+        {
+          "byte_ns": 1655646.3157894737,
+          "bytes": 377487360.0,
+          "kind": "down",
+          "launches": 40,
+          "ns": 2743776
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gather",
+          "launches": 10,
+          "ns": 37312
+        },
+        {
+          "byte_ns": 3682.8070175438597,
+          "bytes": 839680.0,
+          "kind": "attn",
+          "launches": 10,
+          "ns": 544224
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gate",
+          "launches": 10,
+          "ns": 27968
+        },
+        {
+          "byte_ns": 4461047.01754386,
+          "bytes": 1017118720.0,
+          "kind": "lm_head",
+          "launches": 1,
+          "ns": 5203872
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "argmax",
+          "launches": 2,
+          "ns": 21696
+        }
+      ],
+      "launches": 414,
+      "pos": 40,
+      "span_ns": 24460704,
+      "wall_ns": 24747684
+    },
+    {
+      "byte_ns": 15836878.596491227,
+      "bytes": 3610808320.0,
+      "chip_ns": 25844455,
+      "kinds": [
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "norm",
+          "launches": 1,
+          "ns": 8576
+        },
+        {
+          "byte_ns": 4139115.789473684,
+          "bytes": 943718400.0,
+          "kind": "mix",
+          "launches": 40,
+          "ns": 4677056
+        },
+        {
+          "byte_ns": 34492.63157894737,
+          "bytes": 7864320.0,
+          "kind": "ab",
+          "launches": 30,
+          "ns": 326176
+        },
+        {
+          "byte_ns": 551882.1052631579,
+          "bytes": 125829120.0,
+          "kind": "gdn",
+          "launches": 30,
+          "ns": 923264
+        },
+        {
+          "byte_ns": 1471685.6140350876,
+          "bytes": 335544320.0,
+          "kind": "o_proj",
+          "launches": 40,
+          "ns": 2352544
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "res",
+          "launches": 80,
+          "ns": 535200
+        },
+        {
+          "byte_ns": 184679.29824561405,
+          "bytes": 42106880.0,
+          "kind": "router",
+          "launches": 40,
+          "ns": 1728288
+        },
+        {
+          "byte_ns": 3311292.6315789474,
+          "bytes": 754974720.0,
+          "kind": "gate_up",
+          "launches": 40,
+          "ns": 4876768
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "swiglu",
+          "launches": 40,
+          "ns": 112832
+        },
+        {
+          "byte_ns": 1655646.3157894737,
+          "bytes": 377487360.0,
+          "kind": "down",
+          "launches": 40,
+          "ns": 2726656
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gather",
+          "launches": 10,
+          "ns": 39264
+        },
+        {
+          "byte_ns": 27037.19298245614,
+          "bytes": 6164480.0,
+          "kind": "attn",
+          "launches": 10,
+          "ns": 1053120
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gate",
+          "launches": 10,
+          "ns": 27424
+        },
+        {
+          "byte_ns": 4461047.01754386,
+          "bytes": 1017118720.0,
+          "kind": "lm_head",
+          "launches": 1,
+          "ns": 5852768
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "argmax",
+          "launches": 2,
+          "ns": 21856
+        }
+      ],
+      "launches": 414,
+      "pos": 300,
+      "span_ns": 25261792,
+      "wall_ns": 25976920
+    },
+    {
+      "byte_ns": 15899755.789473686,
+      "bytes": 3625144320.0,
+      "chip_ns": 25292338,
+      "kinds": [
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "norm",
+          "launches": 1,
+          "ns": 8736
+        },
+        {
+          "byte_ns": 4139115.789473684,
+          "bytes": 943718400.0,
+          "kind": "mix",
+          "launches": 40,
+          "ns": 4809408
+        },
+        {
+          "byte_ns": 34492.63157894737,
+          "bytes": 7864320.0,
+          "kind": "ab",
+          "launches": 30,
+          "ns": 323488
+        },
+        {
+          "byte_ns": 551882.1052631579,
+          "bytes": 125829120.0,
+          "kind": "gdn",
+          "launches": 30,
+          "ns": 951392
+        },
+        {
+          "byte_ns": 1471685.6140350876,
+          "bytes": 335544320.0,
+          "kind": "o_proj",
+          "launches": 40,
+          "ns": 2424192
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "res",
+          "launches": 80,
+          "ns": 522368
+        },
+        {
+          "byte_ns": 184679.29824561405,
+          "bytes": 42106880.0,
+          "kind": "router",
+          "launches": 40,
+          "ns": 1747968
+        },
+        {
+          "byte_ns": 3311292.6315789474,
+          "bytes": 754974720.0,
+          "kind": "gate_up",
+          "launches": 40,
+          "ns": 4939968
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "swiglu",
+          "launches": 40,
+          "ns": 153792
+        },
+        {
+          "byte_ns": 1655646.3157894737,
+          "bytes": 377487360.0,
+          "kind": "down",
+          "launches": 40,
+          "ns": 2772768
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gather",
+          "launches": 10,
+          "ns": 38272
+        },
+        {
+          "byte_ns": 89914.38596491229,
+          "bytes": 20500480.0,
+          "kind": "attn",
+          "launches": 10,
+          "ns": 1222112
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gate",
+          "launches": 10,
+          "ns": 27328
+        },
+        {
+          "byte_ns": 4461047.01754386,
+          "bytes": 1017118720.0,
+          "kind": "lm_head",
+          "launches": 1,
+          "ns": 5182112
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "argmax",
+          "launches": 2,
+          "ns": 19904
+        }
+      ],
+      "launches": 414,
+      "pos": 1000,
+      "span_ns": 25143808,
+      "wall_ns": 25413267
+    }
+  ],
+  "tool": "q36_levers"
+}

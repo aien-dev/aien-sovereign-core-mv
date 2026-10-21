@@ -1,0 +1,63 @@
+upload: need 22833 MiB, MemAvailable 61381 MiB, env [("AIEN_COORD_KEY", "[REDACTED]"), ("AIEN_Q36_W4_STORE", "default")]
+qwen36 omega: 4-bit store /home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0.mxfp4/aien-w4-q36.store (best rule), experts from it (lossy lever, L355)
+identity gold-w4e-p1.json: IDENTICAL (32 tokens)
+identity gold-w4e-p2.json: IDENTICAL (32 tokens)
+identity gold-w4e-p3.json: IDENTICAL (32 tokens)
+identity gold-w4e-p4.json: IDENTICAL (32 tokens)
+identity gold-w4e-chat-max-24.json: IDENTICAL (24 tokens)
+timeline pos 40: 414 launches, span 21168.4 us, chip 21326.1 us
+      norm:    1 launches       9.3 us (  0.0%),     0.00 MB, byte time      0.0 us, gap      9.3 us,   9.31 us/launch
+       mix:   40 launches    4940.9 us ( 23.3%),   943.72 MB, byte time   4139.1 us, gap    801.8 us, 123.52 us/launch
+        ab:   30 launches     306.7 us (  1.4%),     7.86 MB, byte time     34.5 us, gap    272.2 us,  10.22 us/launch
+       gdn:   30 launches    1006.0 us (  4.8%),   125.83 MB, byte time    551.9 us, gap    454.1 us,  33.53 us/launch
+    o_proj:   40 launches    2521.2 us ( 11.9%),   335.54 MB, byte time   1471.7 us, gap   1049.5 us,  63.03 us/launch
+       res:   80 launches     549.6 us (  2.6%),     0.00 MB, byte time      0.0 us, gap    549.6 us,   6.87 us/launch
+    router:   40 launches    1765.6 us (  8.3%),    42.11 MB, byte time    184.7 us, gap   1581.0 us,  44.14 us/launch
+   gate_up:   40 launches    2823.8 us ( 13.3%),   754.97 MB, byte time   3311.3 us, gap   -487.5 us,  70.60 us/launch
+    swiglu:   40 launches     114.1 us (  0.5%),     0.00 MB, byte time      0.0 us, gap    114.1 us,   2.85 us/launch
+      down:   40 launches    1414.7 us (  6.7%),   377.49 MB, byte time   1655.6 us, gap   -241.0 us,  35.37 us/launch
+    gather:   10 launches      38.5 us (  0.2%),     0.00 MB, byte time      0.0 us, gap     38.5 us,   3.85 us/launch
+      attn:   10 launches     574.9 us (  2.7%),     0.84 MB, byte time      3.7 us, gap    571.2 us,  57.49 us/launch
+      gate:   10 launches      28.4 us (  0.1%),     0.00 MB, byte time      0.0 us, gap     28.4 us,   2.84 us/launch
+   lm_head:    1 launches    5032.4 us ( 23.8%),  1017.12 MB, byte time   4461.0 us, gap    571.3 us, 5032.38 us/launch
+    argmax:    2 launches      42.2 us (  0.2%),     0.00 MB, byte time      0.0 us, gap     42.2 us,  21.10 us/launch
+  total bytes 3605.5 MB, byte time 15813.5 us
+timeline pos 300: 414 launches, span 20563.5 us, chip 20669.7 us
+      norm:    1 launches       8.8 us (  0.0%),     0.00 MB, byte time      0.0 us, gap      8.8 us,   8.83 us/launch
+       mix:   40 launches    4631.8 us ( 22.5%),   943.72 MB, byte time   4139.1 us, gap    492.7 us, 115.80 us/launch
+        ab:   30 launches     324.2 us (  1.6%),     7.86 MB, byte time     34.5 us, gap    289.7 us,  10.81 us/launch
+       gdn:   30 launches     923.0 us (  4.5%),   125.83 MB, byte time    551.9 us, gap    371.1 us,  30.77 us/launch
+    o_proj:   40 launches    2295.6 us ( 11.2%),   335.54 MB, byte time   1471.7 us, gap    824.0 us,  57.39 us/launch
+       res:   80 launches     532.7 us (  2.6%),     0.00 MB, byte time      0.0 us, gap    532.7 us,   6.66 us/launch
+    router:   40 launches    1690.3 us (  8.2%),    42.11 MB, byte time    184.7 us, gap   1505.6 us,  42.26 us/launch
+   gate_up:   40 launches    2611.4 us ( 12.7%),   754.97 MB, byte time   3311.3 us, gap   -699.9 us,  65.28 us/launch
+    swiglu:   40 launches     109.2 us (  0.5%),     0.00 MB, byte time      0.0 us, gap    109.2 us,   2.73 us/launch
+      down:   40 launches    1335.9 us (  6.5%),   377.49 MB, byte time   1655.6 us, gap   -319.8 us,  33.40 us/launch
+    gather:   10 launches      34.6 us (  0.2%),     0.00 MB, byte time      0.0 us, gap     34.6 us,   3.46 us/launch
+      attn:   10 launches    1022.0 us (  5.0%),     6.16 MB, byte time     27.0 us, gap    994.9 us, 102.20 us/launch
+      gate:   10 launches      27.7 us (  0.1%),     0.00 MB, byte time      0.0 us, gap     27.7 us,   2.77 us/launch
+   lm_head:    1 launches    4997.5 us ( 24.3%),  1017.12 MB, byte time   4461.0 us, gap    536.4 us, 4997.47 us/launch
+    argmax:    2 launches      18.9 us (  0.1%),     0.00 MB, byte time      0.0 us, gap     18.9 us,   9.46 us/launch
+  total bytes 3610.8 MB, byte time 15836.9 us
+timeline pos 1000: 414 launches, span 20805.6 us, chip 20944.3 us
+      norm:    1 launches       9.1 us (  0.0%),     0.00 MB, byte time      0.0 us, gap      9.1 us,   9.09 us/launch
+       mix:   40 launches    4610.2 us ( 22.2%),   943.72 MB, byte time   4139.1 us, gap    471.1 us, 115.25 us/launch
+        ab:   30 launches     323.9 us (  1.6%),     7.86 MB, byte time     34.5 us, gap    289.4 us,  10.80 us/launch
+       gdn:   30 launches     926.4 us (  4.5%),   125.83 MB, byte time    551.9 us, gap    374.5 us,  30.88 us/launch
+    o_proj:   40 launches    2301.8 us ( 11.1%),   335.54 MB, byte time   1471.7 us, gap    830.1 us,  57.54 us/launch
+       res:   80 launches     521.5 us (  2.5%),     0.00 MB, byte time      0.0 us, gap    521.5 us,   6.52 us/launch
+    router:   40 launches    1703.3 us (  8.2%),    42.11 MB, byte time    184.7 us, gap   1518.6 us,  42.58 us/launch
+   gate_up:   40 launches    2607.6 us ( 12.5%),   754.97 MB, byte time   3311.3 us, gap   -703.7 us,  65.19 us/launch
+    swiglu:   40 launches     108.5 us (  0.5%),     0.00 MB, byte time      0.0 us, gap    108.5 us,   2.71 us/launch
+      down:   40 launches    1329.2 us (  6.4%),   377.49 MB, byte time   1655.6 us, gap   -326.4 us,  33.23 us/launch
+    gather:   10 launches      35.9 us (  0.2%),     0.00 MB, byte time      0.0 us, gap     35.9 us,   3.59 us/launch
+      attn:   10 launches    1264.4 us (  6.1%),    20.50 MB, byte time     89.9 us, gap   1174.4 us, 126.44 us/launch
+      gate:   10 launches      26.8 us (  0.1%),     0.00 MB, byte time      0.0 us, gap     26.8 us,   2.68 us/launch
+   lm_head:    1 launches    5018.1 us ( 24.1%),  1017.12 MB, byte time   4461.0 us, gap    557.0 us, 5018.08 us/launch
+    argmax:    2 launches      19.0 us (  0.1%),     0.00 MB, byte time      0.0 us, gap     19.0 us,   9.50 us/launch
+  total bytes 3625.1 MB, byte time 15899.8 us
+band pos [0, 64): 58 tokens, chip 20.453 ms, graph total 20.571 ms, wall 20.574 ms, 48.60 tok/s (wall)
+band pos [64, 288): 224 tokens, chip 20.732 ms, graph total 20.857 ms, wall 20.861 ms, 47.94 tok/s (wall)
+band pos [288, 800): 511 tokens, chip 21.125 ms, graph total 21.246 ms, wall 21.249 ms, 47.06 tok/s (wall)
+band pos [800, 1100): 299 tokens, chip 21.068 ms, graph total 21.197 ms, wall 21.201 ms, 47.17 tok/s (wall)
+identity: ALL IDENTICAL

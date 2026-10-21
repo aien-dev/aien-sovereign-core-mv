@@ -1,0 +1,26 @@
+2026-10-21T03:19:01Z w4e try 1 bin 71f107fee095c025 memavail_kb 25130484
+2026-10-21T03:19:16Z w4e exit=2 q36_levers: needs 22833 MiB + 12288 MiB free, MemAvailable 24694 MiB; refusing
+2026-10-21T03:19:52Z w4e try 1 bin 71f107fee095c025 memavail_kb 25281784
+2026-10-21T03:20:01Z w4e exit=2 q36_levers: needs 22833 MiB + 12288 MiB free, MemAvailable 24625 MiB; refusing
+2026-10-21T03:22:01Z w4e try 2 bin 71f107fee095c025 memavail_kb 22698680
+2026-10-21T03:22:56Z w4e exit=2 q36_levers: needs 22833 MiB + 12288 MiB free, MemAvailable 22384 MiB; refusing
+2026-10-21T03:24:56Z w4e try 3 bin 71f107fee095c025 memavail_kb 23085052
+2026-10-21T03:26:19Z w4e exit=2 q36_levers: needs 22833 MiB + 12288 MiB free, MemAvailable 22605 MiB; refusing
+2026-10-21T03:28:19Z w4e try 4 bin 71f107fee095c025 memavail_kb 23203888
+2026-10-21T03:28:37Z w4e exit=2 q36_levers: needs 22833 MiB + 12288 MiB free, MemAvailable 22472 MiB; refusing
+2026-10-21T03:30:37Z w4e try 5 bin 71f107fee095c025 memavail_kb 26645224
+2026-10-21T03:31:42Z w4e exit=2 q36_levers: needs 22833 MiB + 12288 MiB free, MemAvailable 24335 MiB; refusing
+2026-10-21T03:33:42Z w4e try 6 bin 71f107fee095c025 memavail_kb 62407204
+2026-10-21T03:35:59Z w4e exit=2 q36_levers: needs 22833 MiB + 12288 MiB free, MemAvailable 27275 MiB; refusing
+2026-10-21T03:37:59Z w4e try 7 bin 71f107fee095c025 memavail_kb 28804844
+2026-10-21T03:39:53Z w4e exit=0 identity: ALL IDENTICAL
+2026-10-21T03:39:53Z fp8 try 1 bin 71f107fee095c025 memavail_kb 63889656
+2026-10-21T03:44:37Z fp8 exit=2 q36_levers: lm_head: omega_gpu rc=-4 (CHIP_FAIL: m16_native_create_channel: RM_ALLOC class 0xcec0 status 0x51)
+2026-10-21T03:46:37Z fp8 try 2 bin 71f107fee095c025 memavail_kb 35588628
+2026-10-21T03:47:11Z fp8 exit=2 q36_levers: needs 37291 MiB + 12288 MiB free, MemAvailable 25041 MiB; refusing
+2026-10-21T03:49:12Z fp8 try 3 bin 71f107fee095c025 memavail_kb 22752824
+2026-10-21T03:50:03Z fp8 exit=2 q36_levers: needs 37291 MiB + 12288 MiB free, MemAvailable 25183 MiB; refusing
+2026-10-21T03:52:03Z fp8 try 4 bin 71f107fee095c025 memavail_kb 74398160
+2026-10-21T03:53:13Z fp8 exit=1 identity: DIFFER
+2026-10-21T03:53:13Z levers-ab done
+2026-10-21T03:58:45Z w4et exit=0 identity: ALL IDENTICAL

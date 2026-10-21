@@ -1,0 +1,64 @@
+model: 40 layers in 8 windows of 5; 36 positions (32 generated)
+reference: 36 positions in 21.6 s; its greedy tokens equal the golden record
+qwen36 omega: 4-bit store /home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0.mxfp4/aien-w4-q36.store (best rule), experts + trunk from it (lossy lever, L355)
+window 0 (layers 0..4): uploaded in 6.8 s, weights 3100 MB, KV 1 MB
+window 0 layers 0..4: residual cosine(min) 0.740855 p95_rel(max) 0.8320
+qwen36 omega: 4-bit store /home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0.mxfp4/aien-w4-q36.store (best rule), experts + trunk from it (lossy lever, L355)
+window 1 (layers 5..9): uploaded in 6.5 s, weights 3100 MB, KV 1 MB
+window 1 layers 5..9: residual cosine(min) 0.625001 p95_rel(max) 1.1801
+qwen36 omega: 4-bit store /home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0.mxfp4/aien-w4-q36.store (best rule), experts + trunk from it (lossy lever, L355)
+window 2 (layers 10..14): uploaded in 6.6 s, weights 3100 MB, KV 1 MB
+window 2 layers 10..14: residual cosine(min) 0.416071 p95_rel(max) 1.6354
+qwen36 omega: 4-bit store /home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0.mxfp4/aien-w4-q36.store (best rule), experts + trunk from it (lossy lever, L355)
+window 3 (layers 15..19): uploaded in 6.7 s, weights 3097 MB, KV 2 MB
+window 3 layers 15..19: residual cosine(min) 0.506786 p95_rel(max) 1.7552
+qwen36 omega: 4-bit store /home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0.mxfp4/aien-w4-q36.store (best rule), experts + trunk from it (lossy lever, L355)
+window 4 (layers 20..24): uploaded in 6.4 s, weights 3100 MB, KV 1 MB
+window 4 layers 20..24: residual cosine(min) 0.436622 p95_rel(max) 1.9525
+qwen36 omega: 4-bit store /home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0.mxfp4/aien-w4-q36.store (best rule), experts + trunk from it (lossy lever, L355)
+window 5 (layers 25..29): uploaded in 6.1 s, weights 3100 MB, KV 1 MB
+window 5 layers 25..29: residual cosine(min) 0.454518 p95_rel(max) 1.9793
+qwen36 omega: 4-bit store /home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0.mxfp4/aien-w4-q36.store (best rule), experts + trunk from it (lossy lever, L355)
+window 6 (layers 30..34): uploaded in 5.3 s, weights 3100 MB, KV 1 MB
+window 6 layers 30..34: residual cosine(min) 0.343802 p95_rel(max) 3.0329
+qwen36 omega: 4-bit store /home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0.mxfp4/aien-w4-q36.store (best rule), experts + trunk from it (lossy lever, L355)
+window 7 (layers 35..39): uploaded in 5.7 s, weights 3097 MB, KV 2 MB
+window 7 layers 35..39: residual cosine(min) 0.350602 p95_rel(max) 5.9526
+step   0: token    220 ref   2614 margin   0.673 cosine 0.753190 p95_rel 3.9044 max_abs 12.3883 chip 53.94 ms  (differs)
+step   1: token    314 ref    314 margin   2.421 cosine 0.917418 p95_rel 5.0611 max_abs 6.4587 chip 53.23 ms
+step   2: token    279 ref    279 margin   2.414 cosine 0.982070 p95_rel 1.1350 max_abs 3.7914 chip 54.12 ms
+step   3: token    369 ref    369 margin   0.234 cosine 0.904097 p95_rel 6.2148 max_abs 4.8275 chip 53.37 ms
+step   4: token  11751 ref  11751 golden  11751 margin   1.500 cosine 0.935628 p95_rel 5.2044 max_abs 4.5286 chip 55.87 ms
+step   5: token     13 ref     11 golden     11 margin   0.147 cosine 0.951952 p95_rel 3.3878 max_abs 4.1766 chip 53.41 ms  GOLDEN DIFFERS
+step   6: token    264 ref    264 golden    264 margin   1.615 cosine 0.915843 p95_rel 6.1150 max_abs 4.6231 chip 53.46 ms
+step   7: token   3177 ref   3177 golden   3177 margin   1.900 cosine 0.884982 p95_rel 9.2736 max_abs 6.2458 chip 54.96 ms
+step   8: token    421 ref  34756 golden  34756 margin   0.852 cosine 0.920740 p95_rel 5.9277 max_abs 4.6784 chip 54.59 ms  GOLDEN DIFFERS
+step   9: token    364 ref    364 golden    364 margin   2.994 cosine 0.912775 p95_rel 5.1010 max_abs 5.5044 chip 55.08 ms
+step  10: token   1141 ref   1141 golden   1141 margin   4.839 cosine 0.891899 p95_rel 7.1836 max_abs 5.6058 chip 54.56 ms
+step  11: token   1880 ref  25438 golden  25438 margin   0.602 cosine 0.906406 p95_rel 6.4222 max_abs 6.1642 chip 53.80 ms  GOLDEN DIFFERS
+step  12: token  57902 ref  57902 golden  57902 margin   3.432 cosine 0.939493 p95_rel 3.6748 max_abs 6.6302 chip 54.85 ms
+step  13: token     11 ref   1680 golden   1680 margin   0.520 cosine 0.930798 p95_rel 4.1341 max_abs 5.7363 chip 54.75 ms  GOLDEN DIFFERS
+step  14: token    430 ref    430 golden    430 margin   8.331 cosine 0.964996 p95_rel 2.9134 max_abs 4.7671 chip 54.47 ms
+step  15: token    279 ref    279 golden    279 margin   6.053 cosine 0.964226 p95_rel 3.1790 max_abs 4.4904 chip 54.05 ms
+step  16: token 242476 ref 242476 golden 242476 margin   5.734 cosine 0.959114 p95_rel 3.7291 max_abs 5.4606 chip 54.65 ms
+step  17: token    300 ref    300 golden    300 margin   9.102 cosine 0.923942 p95_rel 3.3511 max_abs 8.5627 chip 54.54 ms
+step  18: token  21262 ref  21262 golden  21262 margin   9.426 cosine 0.922864 p95_rel 2.3797 max_abs 9.5541 chip 54.69 ms
+step  19: token    321 ref     11 golden     11 margin   0.179 cosine 0.882529 p95_rel 5.8937 max_abs 5.7359 chip 54.95 ms  GOLDEN DIFFERS
+step  20: token    279 ref    279 golden    279 margin   1.137 cosine 0.903825 p95_rel 7.7568 max_abs 5.9610 chip 54.87 ms
+step  21: token   9440 ref   9440 golden   9440 margin   1.948 cosine 0.904639 p95_rel 7.5523 max_abs 6.3897 chip 54.09 ms
+step  22: token    571 ref  46890 golden  46890 margin   9.341 cosine 0.883843 p95_rel 5.1084 max_abs 11.8663 chip 54.96 ms  GOLDEN DIFFERS
+step  23: token  15849 ref  15849 golden  15849 margin   1.939 cosine 0.939695 p95_rel 3.9248 max_abs 5.9396 chip 54.23 ms
+step  24: token     11 ref     11 golden     11 margin   4.099 cosine 0.848731 p95_rel 6.2660 max_abs 6.5027 chip 56.67 ms
+step  25: token    321 ref    321 golden    321 margin   2.749 cosine 0.924822 p95_rel 6.1751 max_abs 5.1479 chip 54.34 ms
+step  26: token    279 ref  42027 golden  42027 margin   0.493 cosine 0.920054 p95_rel 6.1611 max_abs 5.8110 chip 54.09 ms  GOLDEN DIFFERS
+step  27: token   9141 ref   9141 golden   9141 margin   2.941 cosine 0.943565 p95_rel 3.2660 max_abs 6.8205 chip 54.58 ms
+step  28: token    368 ref    368 golden    368 margin   9.715 cosine 0.822270 p95_rel 8.8389 max_abs 11.1300 chip 54.59 ms
+step  29: token     13 ref  54832 golden  54832 margin   5.104 cosine 0.955615 p95_rel 2.5196 max_abs 5.2169 chip 54.24 ms  GOLDEN DIFFERS
+step  30: token     13 ref     13 golden     13 margin   2.273 cosine 0.868587 p95_rel 5.1527 max_abs 5.9231 chip 54.64 ms
+step  31: token    561 ref  11751 golden  11751 margin   1.359 cosine 0.947836 p95_rel 3.0182 max_abs 5.1652 chip 54.98 ms  GOLDEN DIFFERS
+step  32: token    369 ref    369 golden    369 margin   1.942 cosine 0.919805 p95_rel 4.4130 max_abs 6.1397 chip 55.17 ms
+step  33: token   1048 ref   1048 golden   1048 margin   0.665 cosine 0.895669 p95_rel 5.4039 max_abs 6.0126 chip 55.70 ms
+step  34: token    264 ref  10919 golden  10919 margin   1.223 cosine 0.908997 p95_rel 4.5902 max_abs 5.9282 chip 54.71 ms  GOLDEN DIFFERS
+step  35: token    364 ref    364 golden    364 margin   8.190 cosine 0.913398 p95_rel 3.5032 max_abs 6.7098 chip 53.83 ms
+CONTROL shifted-by-one: best cosine 0.915800; one window short: best cosine 0.623223 -> caught
+QWEN38_OMEGA_FULL layers 40 windows 8 positions 36: generated 22/32 identical to golden (0 flips inside the written margin band 0.1, 10 beyond it), cosine(min) 0.753190 (floor 0.9999 NOT held: open precision item, recorded not gated) p95_rel(max) 9.2736 greedy DIFFERS control caught -> FAIL
