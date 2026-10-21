@@ -32,53 +32,13 @@ use std::path::Path;
 use std::time::Instant;
 
 use aien_inference_abi::qwen38::{argmax, Logits, Qwen38Config, Qwen38Reference};
-use aien_inference_abi::qwen38_omega::Qwen38Omega;
+use aien_inference_abi::qwen38_omega::{mem_available, window_bytes, Qwen38Omega, KEEP_FREE};
 use aien_inference_abi::qwen3_moe::parity_stats;
 use aien_inference_abi::qwen3_moe_omega::ShardSource;
 use serde_json::{json, Value};
 
 const COSINE_MIN: f64 = 0.9999;
-/// Free memory kept for everything else on the box (the resident 30B server shares this pool:
-/// 2026-10-18 16:43:58Z a 32-layer window pushed the kernel into the OOM killer, which took the
-/// server). A window is uploaded only when MemAvailable covers it plus this margin.
-const KEEP_FREE: u64 = 12 << 30;
 
-/// Device bytes a window takes: its FP8 weights (1 byte each; the 128x128 block scales add 1/4096),
-/// the bf16 a|b rows of its DeltaNet layers, and the bf16 lm_head; from the config, not measured.
-fn window_bytes(c: &Qwen38Config, first: usize, count: usize) -> u64 {
-    let h = c.hidden as u64;
-    // Qwen3.6-35B-A3B (sc L306): every layer holds 257 FP8 experts (256 routed + the shared one)
-    // and a bf16 router of 257 rows.
-    let mlp = match &c.moe {
-        Some(m) => (m.experts as u64 + 1) * (3 * m.expert_inter as u64 * h + 2 * h),
-        None => 3 * c.intermediate as u64 * h,
-    };
-    let o = h * (c.heads * c.head_dim) as u64;
-    let layers: u64 = c.full_attention[first..first + count]
-        .iter()
-        .map(|&attn| {
-            if attn {
-                (2 * c.heads * c.head_dim + 2 * c.kv_dim()) as u64 * h + o + mlp
-            } else {
-                (c.conv_dim() + c.lin_value_dim()) as u64 * h
-                    + o
-                    + mlp
-                    + 2 * 2 * c.lin_v_heads as u64 * h
-            }
-        })
-        .sum();
-    layers + layers / 4096 + 2 * c.vocab as u64 * h
-}
-
-/// MemAvailable from /proc/meminfo, in bytes.
-fn mem_available() -> Result<u64, String> {
-    let m = std::fs::read_to_string("/proc/meminfo").map_err(|e| format!("/proc/meminfo: {e}"))?;
-    m.lines()
-        .find_map(|l| l.strip_prefix("MemAvailable:"))
-        .and_then(|v| v.trim().trim_end_matches("kB").trim().parse::<u64>().ok())
-        .map(|kb| kb << 10)
-        .ok_or_else(|| "/proc/meminfo: no MemAvailable".into())
-}
 /// The written band: the reference's top-two logit margin below which two float orders may
 /// legitimately disagree. Fixed in advance, never taken from the run under test. Every correct run
 /// held it (2026-10-21 p1..p4: 127/128 words identical, the one flip at margin 0.0096) and the

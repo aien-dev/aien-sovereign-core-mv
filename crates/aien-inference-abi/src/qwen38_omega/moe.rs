@@ -19,7 +19,9 @@ use aien_omega_q38::q36::{self as q, Q36Config, Q36Graph};
 use aien_omega_q38::{Attn256Cache, Gdn};
 use aien_omega_router::Router;
 
-use super::{ab_rows, fold, fuse_fp8, gpu, upload_fp8, Graph, LayerTensors, Qwen38Omega, EPS_L2};
+use super::{
+    ab_rows, fold, fuse_fp8, gpu, upload_fp8, Graph, HeadState, LayerTensors, Qwen38Omega, EPS_L2,
+};
 use crate::qwen38::{read_bf16_words, read_matrix, read_vec, text_prefix, Matrix, Qwen38Config};
 use crate::qwen3_moe::bf16_to_f32;
 use crate::qwen3_moe_omega::TensorSource;
@@ -157,10 +159,17 @@ impl Qwen38Omega {
         first: usize,
         source: &mut dyn TensorSource,
         max_pos: usize,
+        heads: usize,
         w4: Option<super::W4Plan>,
     ) -> Result<Self, String> {
         let c = &config;
         check_shape(c)?;
+        if heads == 0 || heads > q::MAX_HEADS {
+            return Err(format!(
+                "qwen36 omega: {heads} heads (the graph strokes 1..={})",
+                q::MAX_HEADS
+            ));
+        }
         let prefix = text_prefix(source)?;
         let (v, h) = (c.vocab, c.hidden);
         let embed = read_bf16_words(source, &format!("{prefix}embed_tokens.weight"), &[v, h])?;
@@ -171,27 +180,33 @@ impl Qwen38Omega {
         };
         let n_attn = c.full_attention.iter().filter(|&&a| a).count();
         let n_gdn = c.layers - n_attn;
-        let mut gdn = if n_gdn > 0 {
-            Some(Gdn::alloc_ratio(n_gdn, q::GDN_RATIO).map_err(gpu("gdn alloc"))?)
-        } else {
-            None
-        };
-        let mut attn = if n_attn > 0 {
-            Some(
-                Attn256Cache::alloc_shape(
-                    n_attn,
-                    max_pos,
-                    c.rope_theta,
-                    c.rotary_dim,
-                    q::Q_HEADS,
-                    q::KV_HEADS,
-                    q::Q_PER_CTA,
-                )
-                .map_err(gpu("attn256 alloc"))?,
-            )
-        } else {
-            None
-        };
+        // One DeltaNet state and one attention cache per head (every head carries the same
+        // per-layer parameters, so a head swap can point any slot at any conversation).
+        let mut gdns: Vec<Option<Gdn>> = (0..heads)
+            .map(|_| {
+                (n_gdn > 0)
+                    .then(|| Gdn::alloc_ratio(n_gdn, q::GDN_RATIO).map_err(gpu("gdn alloc")))
+                    .transpose()
+            })
+            .collect::<Result<_, _>>()?;
+        let mut attns: Vec<Option<Attn256Cache>> = (0..heads)
+            .map(|_| {
+                (n_attn > 0)
+                    .then(|| {
+                        Attn256Cache::alloc_shape(
+                            n_attn,
+                            max_pos,
+                            c.rope_theta,
+                            c.rotary_dim,
+                            q::Q_HEADS,
+                            q::KV_HEADS,
+                            q::Q_PER_CTA,
+                        )
+                        .map_err(gpu("attn256 alloc"))
+                    })
+                    .transpose()
+            })
+            .collect::<Result<_, _>>()?;
         let mut router = Router::alloc_shape(c.layers, 256, 1).map_err(gpu("router alloc"))?;
         let attn_mask = c
             .full_attention
@@ -231,10 +246,12 @@ impl Qwen38Omega {
                 )?;
                 let q_norm = read_vec(source, &format!("{a}.q_norm.weight"), c.head_dim)?;
                 let k_norm = read_vec(source, &format!("{a}.k_norm.weight"), c.head_dim)?;
-                attn.as_mut()
-                    .expect("an attention layer has a cache")
-                    .set_norms(ai, &q_norm, &k_norm)
-                    .map_err(gpu("attn256 set_norms"))?;
+                for attn in attns.iter_mut() {
+                    attn.as_mut()
+                        .expect("an attention layer has a cache")
+                        .set_norms(ai, &q_norm, &k_norm)
+                        .map_err(gpu("attn256 set_norms"))?;
+                }
                 ai += 1;
                 (mix, None, o)
             } else {
@@ -270,10 +287,12 @@ impl Qwen38Omega {
                 let a_log = read_vec(source, &format!("{a}.A_log"), c.lin_v_heads)?;
                 let dt_bias = read_vec(source, &format!("{a}.dt_bias"), c.lin_v_heads)?;
                 let norm = read_vec(source, &format!("{a}.norm.weight"), c.lin_v_dim)?;
-                gdn.as_mut()
-                    .expect("a DeltaNet layer has state")
-                    .set_layer(gi, &conv, &a_log, &dt_bias, &norm)
-                    .map_err(gpu("gdn set_layer"))?;
+                for gdn in gdns.iter_mut() {
+                    gdn.as_mut()
+                        .expect("a DeltaNet layer has state")
+                        .set_layer(gi, &conv, &a_log, &dt_bias, &norm)
+                        .map_err(gpu("gdn set_layer"))?;
+                }
                 gi += 1;
                 (mix, Some(ab), o)
             };
@@ -352,15 +371,29 @@ impl Qwen38Omega {
             vocab: v as u32,
             eps: c.eps,
             eps_l2: EPS_L2,
-            gdn: gdn.as_ref().map_or(std::ptr::null_mut(), Gdn::as_raw),
-            attn: attn
+            gdn: gdns[0].as_ref().map_or(std::ptr::null_mut(), Gdn::as_raw),
+            attn: attns[0]
                 .as_ref()
                 .map_or(std::ptr::null_mut(), Attn256Cache::as_raw),
             router: router.as_raw(),
             lm_head: lm_head.as_raw(),
         };
         // SAFETY: every handle is live and owned by the returned struct, which drops the graph first.
-        let mut graph = unsafe { Q36Graph::create(&cfg) }.map_err(gpu("q36 graph create"))?;
+        let mut graph =
+            unsafe { Q36Graph::create_heads(&cfg, heads) }.map_err(gpu("q36 graph create"))?;
+        for h in 1..heads {
+            // SAFETY: the states live in `gdns` / `attns`, owned beside the graph (dropped after it).
+            unsafe {
+                graph.set_head_state(
+                    h,
+                    gdns[h].as_ref().map_or(std::ptr::null_mut(), Gdn::as_raw),
+                    attns[h]
+                        .as_ref()
+                        .map_or(std::ptr::null_mut(), Attn256Cache::as_raw),
+                )
+            }
+            .map_err(gpu("q36 graph set_head_state"))?;
+        }
         for (l, (t, (in_norm, _))) in layers.iter().zip(&norms).enumerate() {
             let ab =
                 t.ab.as_ref()
@@ -396,6 +429,13 @@ impl Qwen38Omega {
             eprintln!("qwen36 omega: TEST MUTANT {m} set (negative control; never serve this)");
             graph.test_set_mutant(m);
         }
+        let gdn = gdns.remove(0);
+        let attn = attns.remove(0);
+        let extra_heads = gdns
+            .into_iter()
+            .zip(attns)
+            .map(|(gdn, attn)| HeadState { gdn, attn, pos: 0 })
+            .collect();
         Ok(Self {
             graph: Graph::Moe(graph),
             router: Some(router),
@@ -404,6 +444,7 @@ impl Qwen38Omega {
             lm_head8: None,
             gdn,
             attn,
+            extra_heads,
             config,
             embed,
             pos: 0,
