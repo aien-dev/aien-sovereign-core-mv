@@ -36,8 +36,9 @@ draft rows (drafts of one conversation share experts at least as much as separat
   each 1.206x (calc:c9494aca).
 - The draft itself is not free: per drafted token the MTP layer reads about 73 MB plus the lm_head, 1.017 GB bf16.
   One conversation, k=1, p1 acceptance: 1.335x fewer bytes per emitted token with the bf16 head (calc:483f647d), 1.547x
-  with a 4-bit draft head (calc:d91c918b; the draft only needs a top-1 guess, the verify pass keeps words exact).
-  Chat traffic (1.705 at k=1): 1.177x with the bf16 head (calc:ad3a09fe), 1.365x with a 4-bit draft head (calc:4ea59c1e).
+  with a 4-bit draft head (calc:d91c918b; the draft only needs a top-1 guess, the verify pass keeps words exact; assumes
+  FP8 acceptance, 4-bit head not measured).
+  Chat traffic (1.705 at k=1): 1.177x with the bf16 head (calc:ad3a09fe), 1.365x with a 4-bit draft head (calc:4ea59c1e; same assumption, not measured).
   Deeper chains on chat lose with the bf16 head (each extra draft reads the 1 GB head for about 0.1 to 0.4 extra tokens): k=1
   is the setting for chat, k=2..4 only with the 4-bit draft head or on code-like text.
   At N conversations the draft head is read once per beat for all rows (batched), so its share falls as 1/N.

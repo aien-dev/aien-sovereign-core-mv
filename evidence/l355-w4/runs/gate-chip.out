@@ -1,0 +1,14 @@
+2026-10-21T02:52:21Z goldens ready; bin 07789e4629607e26 lib 979f928a4bac6d32 memavail_kb 55934844
+2026-10-21T02:52:21Z p1-mutant4 waiting for the chip lock
+2026-10-21T02:54:40Z p1-mutant4 exit=1: QWEN38_OMEGA_FULL layers 40 windows 8 positions 36: generated 9/32 identical to golden (0 flips inside the written margin band 0.1, 23 beyond it), cosine(min) 0.131091 (floor 0.9999 NOT held: open precision item, recorded not gated) p95_rel(max) 22.3047 greedy DIFFERS control caught -> FAIL
+2026-10-21T02:54:40Z p1-w4mut waiting for the chip lock
+2026-10-21T02:56:23Z p1-w4mut exit=1: QWEN38_OMEGA_FULL layers 40 windows 8 positions 36: generated 22/32 identical to golden (0 flips inside the written margin band 0.1, 10 beyond it), cosine(min) 0.840626 (floor 0.9999 NOT held: open precision item, recorded not gated) p95_rel(max) 11.2160 greedy DIFFERS control caught -> FAIL
+2026-10-21T02:56:23Z p1 waiting for the chip lock
+2026-10-21T02:57:09Z p1 exit=0: QWEN38_OMEGA_FULL layers 40 windows 8 positions 36: generated 32/32 identical to golden (0 flips inside the written margin band 0.1, 0 beyond it), cosine(min) 0.999258 (floor 0.9999 NOT held: open precision item, recorded not gated) p95_rel(max) 0.3430 greedy agrees control caught -> PASS
+2026-10-21T02:57:09Z p2 waiting for the chip lock
+2026-10-21T02:59:22Z p2 exit=0: QWEN38_OMEGA_FULL layers 40 windows 8 positions 46: generated 32/32 identical to golden (0 flips inside the written margin band 0.1, 0 beyond it), cosine(min) 0.981714 (floor 0.9999 NOT held: open precision item, recorded not gated) p95_rel(max) 1.7624 greedy agrees control caught -> PASS
+2026-10-21T02:59:22Z p3 waiting for the chip lock
+2026-10-21T03:00:34Z p3 exit=2: 
+2026-10-21T03:00:34Z p4 waiting for the chip lock
+2026-10-21T03:01:48Z p4 exit=2: 
+2026-10-21T03:01:48Z gate-chip done

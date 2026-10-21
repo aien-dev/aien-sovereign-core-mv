@@ -1,0 +1,11 @@
+2026-10-21T03:02:21Z p3 try 1 waiting for the chip lock (memavail_kb 45989164)
+2026-10-21T03:03:17Z p3 exit=0: QWEN38_OMEGA_FULL layers 40 windows 8 positions 42: generated 32/32 identical to golden (0 flips inside the written margin band 0.1, 0 beyond it), cosine(min) 0.997461 (floor 0.9999 NOT held: open precision item, recorded not gated) p95_rel(max) 0.6397 greedy agrees control caught -> PASS
+2026-10-21T03:03:17Z p4 try 1 waiting for the chip lock (memavail_kb 61348624)
+2026-10-21T03:06:21Z p4 exit=2: qwen38_omega_full: lm_head: omega_gpu rc=-4 (CHIP_FAIL: m16_native_create_channel: RM_ALLOC class 0xcec0 status 0x51)
+2026-10-21T03:08:21Z p4 try 2 waiting for the chip lock (memavail_kb 27960156)
+2026-10-21T03:09:36Z p4 exit=2: qwen38_omega_full: lm_head: omega_gpu rc=-4 (CHIP_FAIL: m16_native_create_channel: RM_ALLOC class 0xcec0 status 0x51)
+2026-10-21T03:11:36Z p4 try 3 waiting for the chip lock (memavail_kb 25049144)
+2026-10-21T03:12:36Z p4 exit=2: qwen38_omega_full: lm_head: omega_gpu rc=-4 (CHIP_FAIL: m16_native_create_channel: RM_ALLOC class 0xcec0 status 0x51)
+2026-10-21T03:14:36Z p4 try 4 waiting for the chip lock (memavail_kb 11762476)
+2026-10-21T03:16:17Z p4 exit=0: QWEN38_OMEGA_FULL layers 40 windows 8 positions 39: generated 32/32 identical to golden (0 flips inside the written margin band 0.1, 0 beyond it), cosine(min) 0.997088 (floor 0.9999 NOT held: open precision item, recorded not gated) p95_rel(max) 0.7505 greedy agrees control caught -> PASS
+2026-10-21T03:16:17Z retry done

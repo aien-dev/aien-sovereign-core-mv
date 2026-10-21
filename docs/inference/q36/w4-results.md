@@ -29,7 +29,8 @@ Rule: docs/inference/q36/w4-gate.md (frozen before every run). Evidence: evidenc
   model, with either rounding. W4 stays off in the served build. The code (kernel, loader, store, gates) is kept: it is
   correct on chip and is reused below.
 - Use that does not need the accuracy: the MTP draft head in 4 bits (docs/inference/q36/mtp-draft.md: 1.547x fewer
-  bytes per emitted token on p1, 1.365x on chat at k=1, with the bf16 head 1.335x / 1.177x). The verify pass keeps the
+  bytes per emitted token on p1, 1.365x on chat at k=1, with the bf16 head 1.335x / 1.177x; the 4-bit figures assume
+  FP8 acceptance, the 4-bit head is not measured: the store holds no lm_head or mtp.* tensors yet). The verify pass keeps the
   words exact, so a 4-bit draft only lowers acceptance, measured before it ships.
 - Paths that could make 4-bit experts pass, both kernel changes, not tried here: finer scales (16 weights per scale with
   an FP8 scale, NVFP4-style) or a block Hadamard rotation of x before the expert matmul (MR-GPTQ). Each needs its own
@@ -38,3 +39,15 @@ Rule: docs/inference/q36/w4-gate.md (frozen before every run). Evidence: evidenc
   exact bytes; a rounding mutant goes red), not by a per-layer output-error measurement on the real calibration
   activations. A slip in that path cannot be ruled out; the held-out result (w4g about equal to w4e) and the method's
   known weak spot on MoE experts (one input H per layer for all 257 experts' gate|up) fit the result without one.
+
+## Open item: the FP8 timing run is not word-identical on gen-p4
+evidence/l355-w4/levers-fp8.json (03:52Z, eight minutes after the 03:44Z RM_ALLOC fault) has `all_identical: false`:
+gen-p4 differs at generated token 4 (chip 8432, golden 7592). The reference margin there is 0.010 logit (L313
+drift-p4 f32_margin[4]), a near-tie inside the identity gate's 0.1 band; p1, p2, p3 and chat are identical and both W4
+arms are identical 5/5 to their host goldens. Not isolated: the flip came either with L356's a|b overlap lever
+(0915000b, `AIEN_OMEGA_Q36_OVERLAP_AB`, merged into this branch) or with this branch's FP8-path edits (loader Option
+fields, need_bytes, moe.rs). Two one-variable runs settle it (this build with the overlap switch off on gen-p4; the
+pinned bin-0915000b on gen-p4); both are full-35B loads and wait for a coordinator slot (L366 admission rule). Until
+then 39.90 / 47.94 / 54.07 tok/s are timing only.
+
+Receipts are the JSON files under evidence/l355-w4/ (the per-run .log.txt captures came out empty and were removed).
