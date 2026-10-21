@@ -670,7 +670,7 @@ pub enum Logits {
 
 /// Where the text model's tensors live: the multimodal checkpoint nests it under
 /// `model.language_model.`, a text-only one under `model.`.
-pub(crate) fn text_prefix(source: &mut dyn TensorSource) -> Result<String, String> {
+pub fn text_prefix(source: &mut dyn TensorSource) -> Result<String, String> {
     ["model.language_model.", "model."]
         .into_iter()
         .find(|p| {

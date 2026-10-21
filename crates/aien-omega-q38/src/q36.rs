@@ -73,6 +73,15 @@ mod ffi {
             in_norm: *const f32,
         ) -> i32;
         pub fn omega_gpu_q36_graph_set_final_norm(g: *mut OmegaGpuQ36Graph, final_norm: *const f32) -> i32;
+        #[cfg(has_omega_q36_w4)]
+        pub fn omega_gpu_q36_graph_set_layer_w4(
+            g: *mut OmegaGpuQ36Graph,
+            layer: u32,
+            mix4: *const c_void,
+            o4: *const c_void,
+            gu4: *const c_void,
+            dn4: *const c_void,
+        ) -> i32;
         pub fn omega_gpu_q36_graph_token(
             g: *mut OmegaGpuQ36Graph,
             x_embed: *const f32,
@@ -186,8 +195,9 @@ impl Q36Graph {
         if layer >= self.layers {
             return Err(bad(format!("q36 graph: layer {layer} of {}", self.layers)));
         }
-        if mix.is_null() || o.is_null() || gate_up.is_null() || down.is_null() {
-            return Err(bad(format!("q36 graph layer {layer}: a projection has no device handle")));
+        // L355: mix + o both null (a W4 trunk follows, [`Self::set_layer_w4`]) or both set; gate_up + down likewise.
+        if mix.is_null() != o.is_null() || gate_up.is_null() != down.is_null() {
+            return Err(bad(format!("q36 graph layer {layer}: a projection pair is half set")));
         }
         if ab.is_null() != self.is_attention(layer) {
             return Err(bad(format!("q36 graph layer {layer}: the a|b tensor is for DeltaNet layers only")));
@@ -204,6 +214,35 @@ impl Q36Graph {
         Err(OmegaGpuError::Unavailable)
     }
 
+
+    /// L355: MXFP4 tensors in place of FP8 ones (omega `omega_gpu_q36_graph_set_layer_w4`). `mix4` / `o4` the trunk
+    /// projections (None = keep FP8); `experts` = (gate_up slab of 257 blocks `[1024][2048]`, down slab of 257 blocks
+    /// `[2048][512]`), written into the router directory, so call after the FP8 directory is set.
+    pub fn set_layer_w4(
+        &mut self,
+        layer: usize,
+        mix4: Option<&crate::w4::W4Tensor>,
+        o4: Option<&crate::w4::W4Tensor>,
+        experts: Option<(&crate::w4::W4Tensor, &crate::w4::W4Tensor)>,
+    ) -> Result<(), OmegaGpuError> {
+        if layer >= self.layers {
+            return Err(bad(format!("q36 graph: layer {layer} of {}", self.layers)));
+        }
+        let raw = |t: Option<&crate::w4::W4Tensor>| t.map_or(std::ptr::null_mut(), |t| t.as_raw());
+        let (gu, dn) = experts.map_or((None, None), |(g, d)| (Some(g), Some(d)));
+        let _ = (raw(mix4), raw(o4), raw(gu), raw(dn));
+        #[cfg(has_omega_q36_w4)]
+        {
+            // SAFETY: the handles are live W4 tensors (or null) and outlive the graph by the caller's ownership.
+            let rc = unsafe { ffi::omega_gpu_q36_graph_set_layer_w4(self.ptr, layer as u32, raw(mix4), raw(o4), raw(gu), raw(dn)) };
+            if rc != 0 {
+                return Err(session_err("q36 graph set_layer_w4", rc));
+            }
+            Ok(())
+        }
+        #[cfg(not(has_omega_q36_w4))]
+        Err(OmegaGpuError::Unavailable)
+    }
     pub fn set_final_norm(&mut self, final_norm: &[f32]) -> Result<(), OmegaGpuError> {
         check_len("q36 graph final_norm", HIDDEN, final_norm.len())?;
         #[cfg(has_omega_q36)]

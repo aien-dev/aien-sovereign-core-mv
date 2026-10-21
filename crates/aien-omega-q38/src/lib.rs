@@ -16,6 +16,7 @@
 use aien_omega_gpu::OmegaGpuError;
 
 pub mod q36;
+pub mod w4;
 use std::ffi::c_void;
 use std::fmt;
 

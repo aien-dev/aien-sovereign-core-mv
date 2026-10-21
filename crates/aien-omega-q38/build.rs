@@ -22,6 +22,8 @@ fn main() {
     println!("cargo:rustc-check-cfg=cfg(has_omega_q38)");
     println!("cargo:rustc-check-cfg=cfg(has_omega_q38_prefill)");
     println!("cargo:rustc-check-cfg=cfg(has_omega_q36)");
+    println!("cargo:rustc-check-cfg=cfg(has_omega_w4)");
+    println!("cargo:rustc-check-cfg=cfg(has_omega_q36_w4)");
     for v in [
         "AIEN_FORCE_CPU_STUB",
         "AIEN_OMEGA_GPU_LIB",
@@ -38,6 +40,13 @@ fn main() {
             println!("cargo:rustc-cfg=has_omega_q38");
             if archive_defines(Path::new(&lib), "omega_gpu_q36_graph_create") {
                 println!("cargo:rustc-cfg=has_omega_q36");
+            }
+            // L355: the MXFP4 converter + GEMV, and the 35B graph's 4-bit entries (omega l355/w4-experts)
+            if archive_defines(Path::new(&lib), "omega_gpu_w4_from_fp8_rule") {
+                println!("cargo:rustc-cfg=has_omega_w4");
+            }
+            if archive_defines(Path::new(&lib), "omega_gpu_q36_graph_set_layer_w4") {
+                println!("cargo:rustc-cfg=has_omega_q36_w4");
             }
             if archive_defines(Path::new(&lib), "omega_gpu_gdn_prefill")
                 && archive_defines(Path::new(&lib), "omega_gpu_prefill_attn256")
@@ -56,6 +65,10 @@ fn main() {
             println!("cargo:rustc-cfg=has_omega_q38");
             if Path::new(&dir).join("src/omega_gpu_q36_graph.h").is_file() {
                 println!("cargo:rustc-cfg=has_omega_q36");
+            }
+            if Path::new(&dir).join("src/omega_gpu_w4_api.h").is_file() {
+                println!("cargo:rustc-cfg=has_omega_w4");
+                println!("cargo:rustc-cfg=has_omega_q36_w4");
             }
             if Path::new(&dir)
                 .join("src/omega_gpu_prefill_attn256_api.h")
