@@ -345,7 +345,9 @@ impl Qwen38Omega {
                 .prefix(n)
                 .ok_or_else(|| format!("layers {n}: outside 1..={}", full.layers))?,
         };
-        Self::load(config, &mut ShardSource::open(dir)?, max_pos)
+        // L355: the server path reads the 4-bit store too, only when AIEN_Q36_W4_STORE names one
+        let w4 = if config.moe.is_some() { W4Plan::from_env(dir)? } else { None };
+        Self::load_at(config, 0, &mut ShardSource::open(dir)?, max_pos, w4)
     }
 
     /// Opens a checkpoint directory and uploads model layers `first .. first + count` as a stack

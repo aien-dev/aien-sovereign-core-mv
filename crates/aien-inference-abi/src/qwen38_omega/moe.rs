@@ -282,7 +282,12 @@ impl Qwen38Omega {
             let w4_up = |name: String| -> Result<aien_omega_q38::w4::W4Tensor, String> {
                 let st = &w4.as_ref().expect("checked by the caller").store;
                 let (n, k) = st.shape(&name).ok_or_else(|| format!("w4 store: no tensor {name}"))?;
-                let (b4, e8) = st.read(&name, n, k)?;
+                let (mut b4, e8) = st.read(&name, n, k)?;
+                // Negative control (TEST ONLY): AIEN_Q36_W4_TEST_MUTANT=1 clears the low mantissa bit of every 4-bit
+                // weight on the chip only (the host reference keeps the clean store), so the gate must go red.
+                if std::env::var("AIEN_Q36_W4_TEST_MUTANT").as_deref() == Ok("1") {
+                    b4.iter_mut().for_each(|b| *b &= 0xEE);
+                }
                 aien_omega_q38::w4::W4Tensor::upload(n, k, &b4, &e8).map_err(gpu("w4 upload"))
             };
             let mut w4l = super::W4Layer::default();
