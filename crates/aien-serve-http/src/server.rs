@@ -566,7 +566,7 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
 }
 
 /// The template switches of a request: `chat_template_kwargs.enable_thinking` /
-/// `.reasoning_effort`, and the top-level `reasoning_effort`.
+/// `.reasoning_effort` / `.preserve_thinking`, and the top-level `reasoning_effort`.
 fn chat_options(req: &ChatRequest) -> Result<ChatOptions, ApiError> {
     let mut o = ChatOptions::default();
     if let Some(kw) = req.chat_template_kwargs.as_ref().filter(|v| !v.is_null()) {
@@ -578,6 +578,11 @@ fn chat_options(req: &ChatRequest) -> Result<ChatOptions, ApiError> {
         if let Some(v) = map.get("enable_thinking").filter(|v| !v.is_null()) {
             o.enable_thinking = Some(v.as_bool().ok_or_else(|| {
                 ApiError::bad_request("chat_template_kwargs.enable_thinking must be a boolean")
+            })?);
+        }
+        if let Some(v) = map.get("preserve_thinking").filter(|v| !v.is_null()) {
+            o.preserve_thinking = Some(v.as_bool().ok_or_else(|| {
+                ApiError::bad_request("chat_template_kwargs.preserve_thinking must be a boolean")
             })?);
         }
         if let Some(v) = map.get("reasoning_effort").filter(|v| !v.is_null()) {

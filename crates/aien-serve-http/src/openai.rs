@@ -37,8 +37,9 @@ pub struct ChatRequest {
     pub functions: Option<Vec<Value>>,
     #[serde(default)]
     pub stream_options: Option<StreamOptions>,
-    /// Template switches (`{"enable_thinking": bool, "reasoning_effort": "low|medium|xhigh"}`),
-    /// read only by templates that define them (Qwen3.8-27B).
+    /// Template switches (`{"enable_thinking": bool, "reasoning_effort": "low|medium|xhigh",
+    /// "preserve_thinking": bool}`), read only by templates that define them (Qwen3.8-27B:
+    /// thinking and effort; Qwen3.6-35B-A3B: thinking and preserve).
     #[serde(default)]
     pub chat_template_kwargs: Option<Value>,
     /// Same as `chat_template_kwargs.reasoning_effort` (the OpenAI field name).

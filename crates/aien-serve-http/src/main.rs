@@ -20,7 +20,7 @@
 //! `AIEN_KV_TEST_FAULT` (chip acceptance checks only) stalls one store step; see `kv_persist`.
 //! `--thinking on|off|template` sets `enable_thinking` for requests that do not set it themselves
 //! (`chat_template_kwargs.enable_thinking`); `template` (the default) leaves the chat template's
-//! own default (Qwen3.8-27B: on). Templates without a thinking switch ignore it.
+//! own default (Qwen3.8-27B and Qwen3.6-35B-A3B: on). Templates without a thinking switch ignore it.
 //! `stub` replays `--stub-reply` for every request, using the model directory's
 //! tokenizer when it exists (so Odysseus can be wired before the weights load).
 

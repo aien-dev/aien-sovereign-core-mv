@@ -109,6 +109,7 @@ fn run() -> Result<bool, String> {
     let off = ChatOptions {
         enable_thinking: Some(false),
         reasoning_effort: None,
+        preserve_thinking: None,
     };
     let enc = |turns: &[(&str, &str)]| -> Result<Vec<u32>, String> {
         let text = tk
