@@ -31,6 +31,8 @@ use aien_omega_router::Router;
 mod moe;
 pub use moe::router_probe;
 mod prefill;
+mod rows;
+pub use rows::{RowFeed, RowOut};
 mod session;
 pub use prefill::PrefillStats;
 pub use session::{plan_reuse, FeedStats, Qwen38Session, Reuse, IM_START};
@@ -87,6 +89,9 @@ impl Graph {
 /// Field order is drop order: the graph goes first, then the tensors and state it points at.
 pub struct Qwen38Omega {
     graph: Graph,
+    /// Extra conversations over the same weights (the 35B only, [`Self::add_rows`]); they point at
+    /// the router, lm_head and layers below, so they drop right after the main graph.
+    rows: Vec<rows::Q36Row>,
     /// The 35B's router (sparse MLP only); the graph points at it, so it drops after the graph.
     #[allow(dead_code)] // owned only
     router: Option<Router>,
@@ -112,6 +117,10 @@ pub struct Qwen38Omega {
     ab_mm: Vec<ResidentTensor>,
     /// The prefill's buffers, made by the first [`Self::prefill`].
     pf: Option<prefill::PfState>,
+    /// What a new row needs (the 35B only).
+    row_src: Option<rows::RowSource>,
+    /// Multi-row steps so far (the row-swap negative control counts them).
+    row_steps: u64,
 }
 
 impl std::fmt::Debug for Qwen38Omega {
@@ -582,6 +591,9 @@ impl Qwen38Omega {
             final_norm,
             ab_mm,
             pf: None,
+            rows: Vec::new(),
+            row_src: None,
+            row_steps: 0,
         })
     }
 

@@ -19,6 +19,7 @@ use aien_omega_q38::q36::{self as q, Q36Config, Q36Graph};
 use aien_omega_q38::{Attn256Cache, Gdn};
 use aien_omega_router::Router;
 
+use super::rows::{GdnParams, RowSource};
 use super::{ab_rows, fold, fuse_fp8, gpu, upload_fp8, Graph, LayerTensors, Qwen38Omega, EPS_L2};
 use crate::qwen38::{read_bf16_words, read_matrix, read_vec, text_prefix, Matrix, Qwen38Config};
 use crate::qwen3_moe::bf16_to_f32;
@@ -198,6 +199,7 @@ impl Qwen38Omega {
             .enumerate()
             .fold(0u64, |m, (l, &a)| if a { m | 1 << l } else { m });
 
+        let (mut gdn_params, mut attn_norms) = (Vec::new(), Vec::new());
         let mut layers = Vec::with_capacity(c.layers);
         let mut norms = Vec::with_capacity(c.layers);
         let (mut gi, mut ai) = (0usize, 0usize);
@@ -234,6 +236,7 @@ impl Qwen38Omega {
                     .expect("an attention layer has a cache")
                     .set_norms(ai, &q_norm, &k_norm)
                     .map_err(gpu("attn256 set_norms"))?;
+                attn_norms.push((q_norm, k_norm));
                 ai += 1;
                 (mix, None, o)
             } else {
@@ -273,6 +276,12 @@ impl Qwen38Omega {
                     .expect("a DeltaNet layer has state")
                     .set_layer(gi, &conv, &a_log, &dt_bias, &norm)
                     .map_err(gpu("gdn set_layer"))?;
+                gdn_params.push(GdnParams {
+                    conv,
+                    a_log,
+                    dt_bias,
+                    norm,
+                });
                 gi += 1;
                 (mix, Some(ab), o)
             };
@@ -348,13 +357,21 @@ impl Qwen38Omega {
             .map_err(gpu("q36 graph set_final_norm"))?;
         // Negative controls for the gates (TEST ONLY): AIEN_Q36_TEST_MUTANT=4 drops the shared expert
         // from COMBINE, 1 shifts the SWIGLU up half, 2 the attention GATHER, 3 drops the attention gate.
-        if let Some(m) = std::env::var("AIEN_Q36_TEST_MUTANT")
-            .ok()
-            .and_then(|v| v.parse::<i32>().ok())
-        {
+        if let Some(m) = graph_mutant() {
             eprintln!("qwen36 omega: TEST MUTANT {m} set (negative control; never serve this)");
             graph.test_set_mutant(m);
         }
+        let row_src = RowSource {
+            layers: c.layers,
+            attn_mask,
+            vocab: v,
+            eps: c.eps,
+            rope_theta: c.rope_theta,
+            rotary_dim: c.rotary_dim,
+            gdn_params,
+            attn_norms,
+            mutant: graph_mutant(),
+        };
         Ok(Self {
             graph: Graph::Moe(graph),
             router: Some(router),
@@ -371,8 +388,18 @@ impl Qwen38Omega {
             final_norm,
             ab_mm: Vec::new(),
             pf: None,
+            rows: Vec::new(),
+            row_src: Some(row_src),
+            row_steps: 0,
         })
     }
+}
+
+/// `AIEN_Q36_TEST_MUTANT` (the gates' negative controls), read once per graph made.
+fn graph_mutant() -> Option<i32> {
+    std::env::var("AIEN_Q36_TEST_MUTANT")
+        .ok()
+        .and_then(|v| v.parse::<i32>().ok())
 }
 
 /// TEST ONLY (L306 router probe): the 35B's router alone on the chip, every layer's gate rows and

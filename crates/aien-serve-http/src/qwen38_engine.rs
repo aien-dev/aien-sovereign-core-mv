@@ -115,7 +115,9 @@ impl Qwen38Door {
             avail >> 20
         );
         if is_moe_dir(dir) && !aien_omega_q38::q36::is_native() {
-            return Err("this binary has no q36 decode graph linked (build against omega q36/serve)".into());
+            return Err(
+                "this binary has no q36 decode graph linked (build against omega q36/serve)".into(),
+            );
         }
         let model = Qwen38Omega::open(dir, None, max_pos)?;
         eprintln!(

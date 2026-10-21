@@ -249,7 +249,11 @@ mod ffi {
         _private: [u8; 0],
     }
     extern "C" {
-        pub fn omega_gpu_gdn_alloc_ratio(layers: u32, ratio: u32, out: *mut *mut OmegaGpuGdn) -> i32;
+        pub fn omega_gpu_gdn_alloc_ratio(
+            layers: u32,
+            ratio: u32,
+            out: *mut *mut OmegaGpuGdn,
+        ) -> i32;
         pub fn omega_gpu_gdn_free(g: *mut OmegaGpuGdn);
         pub fn omega_gpu_gdn_set_layer(
             g: *mut OmegaGpuGdn,
@@ -490,7 +494,11 @@ unsafe impl Send for Gdn {}
 
 impl fmt::Debug for Gdn {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Gdn {{ layers: {}, ratio: {} }}", self.layers, self.ratio)
+        write!(
+            f,
+            "Gdn {{ layers: {}, ratio: {} }}",
+            self.layers, self.ratio
+        )
     }
 }
 

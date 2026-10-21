@@ -86,7 +86,15 @@ impl PrefillMode {
 }
 
 /// An exclusive hold of the hive's GPU lock (released on drop).
-pub struct GpuLock(#[allow(dead_code)] File);
+/// `None` = the chip lock is already held for this process by the open spark-window (see [`window_holds`]).
+pub struct GpuLock(#[allow(dead_code)] Option<File>);
+
+/// True when `path` is the chip lock and the spark-window this process runs in holds it
+/// (`AIEN_GB10_LOCK_HELD=1`, set by `spark-window run` for a window opened with `--gb10 exclusive|shared`):
+/// taking it again would queue behind our own window until the window closes.
+fn window_holds(path: &Path) -> bool {
+    path == Path::new(GPU_LOCK_PATH) && std::env::var("AIEN_GB10_LOCK_HELD").as_deref() == Ok("1")
+}
 
 impl GpuLock {
     /// Takes the lock, polling until `wait` has passed. `Err` = still held by someone else.
@@ -96,6 +104,9 @@ impl GpuLock {
 
     /// [`Self::acquire`] on the lock file at `path` (tests pass a private file).
     pub fn acquire_at(path: &Path, wait: Duration) -> Result<Self, String> {
+        if window_holds(path) {
+            return Ok(Self(None));
+        }
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -108,7 +119,7 @@ impl GpuLock {
             // SAFETY: flock on a valid open descriptor; non-blocking so the wait is bounded.
             let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
             if rc == 0 {
-                return Ok(Self(file));
+                return Ok(Self(Some(file)));
             }
             let err = std::io::Error::last_os_error();
             if err.raw_os_error() != Some(libc::EWOULDBLOCK) {
@@ -130,6 +141,9 @@ impl GpuLock {
     /// thread), so jobs that wait with `flock(1)` cannot starve it the way polling can. After
     /// `wait` without the lock: `Err`, and the helper drops the lock the moment it gets it.
     pub fn acquire_queued_at(path: &Path, wait: Duration) -> Result<Self, String> {
+        if window_holds(path) {
+            return Ok(Self(None));
+        }
         use std::sync::atomic::AtomicBool;
         use std::sync::{mpsc, Arc};
         let file = OpenOptions::new()
@@ -141,7 +155,7 @@ impl GpuLock {
             .map_err(|e| format!("{}: {e}", path.display()))?;
         // SAFETY: flock on a valid open descriptor; non-blocking fast path.
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-            return Ok(Self(file));
+            return Ok(Self(Some(file)));
         }
         let (tx, rx) = mpsc::channel();
         let gave_up = Arc::new(AtomicBool::new(false));
@@ -163,7 +177,7 @@ impl GpuLock {
             }
         });
         match rx.recv_timeout(wait) {
-            Ok(r) => r.map(Self),
+            Ok(r) => r.map(|f| Self(Some(f))),
             Err(_) => {
                 gave_up.store(true, Ordering::SeqCst);
                 // The helper may have sent just before the flag: take and drop it.
