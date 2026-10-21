@@ -165,7 +165,9 @@ impl Codec for ByteCodec {
     }
 
     fn tool_round_tail(&self, tool_turn: &str, _opts: &ChatOptions) -> Option<String> {
-        Some(format!("</assistant>\n<user>{tool_turn}</user>\n<assistant>"))
+        Some(format!(
+            "</assistant>\n<user>{tool_turn}</user>\n<assistant>"
+        ))
     }
 
     fn encode(&self, text: &str) -> Result<Vec<u32>, CodecError> {

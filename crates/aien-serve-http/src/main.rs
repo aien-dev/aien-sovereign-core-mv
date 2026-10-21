@@ -30,6 +30,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use aien_inference_abi::qwen3_moe_omega::WeightFormat;
+use aien_serve_http::board::{Board, Settings as BoardSettings};
 use aien_serve_http::codec::{ByteCodec, Codec, HfCodec};
 use aien_serve_http::cpu_engine::CpuReferenceEngine;
 use aien_serve_http::engine::{Engine, StubEngine};
@@ -39,7 +40,6 @@ use aien_serve_http::omega_engine::{
 };
 use aien_serve_http::qwen36_batch;
 use aien_serve_http::qwen38_engine;
-use aien_serve_http::board::{Board, Settings as BoardSettings};
 use aien_serve_http::server::{serve_with_board, ServerConfig};
 
 const DEFAULT_MODEL_DIR: &str = "models/qwen3-30b-a3b-instruct-2507-fp8";
@@ -367,7 +367,9 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    // Team board (L376): on unless AIEN_BOARD=0; a state dir that cannot be read refuses loudly.
+    // Team board (L376): on unless AIEN_BOARD=0. A dir that cannot be opened (held by another
+    // server, unreadable, unwritable) turns the board OFF with one loud line: the notice board
+    // never keeps the motor from serving.
     let board = match BoardSettings::from_lookup(|n| std::env::var(n).ok()) {
         None => {
             eprintln!("aien-serve-http: team board OFF (AIEN_BOARD=0)");
@@ -384,8 +386,8 @@ fn main() -> ExitCode {
                 Some(Arc::new(b))
             }
             Err(e) => {
-                eprintln!("aien-serve-http: team board: {e}");
-                return ExitCode::from(1);
+                eprintln!("aien-serve-http: team board OFF: {e}");
+                None
             }
         },
     };

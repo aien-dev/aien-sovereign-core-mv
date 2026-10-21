@@ -178,6 +178,9 @@ struct Prepared {
     /// The built-in board tools were offered: a round whose calls are all built-in is answered in
     /// the server and the same turn continues in place.
     builtin_tools: bool,
+    /// The context this request was checked against (the smaller of the door's and the engine's):
+    /// a built-in round's continuation stays under the same ceiling.
+    ctx: usize,
     /// The template switches, for the in-place tool round's tail.
     opts: ChatOptions,
     /// The conversation's board state to commit when the request is admitted.
@@ -443,9 +446,10 @@ async fn board_post(
         .and_then(Value::as_str)
         .ok_or_else(|| ApiError::bad_request("'text' (a string) is required"))?;
     let author = v.get("author").and_then(Value::as_str).unwrap_or("http");
-    let entry = b
-        .post(list, author, text, None)
-        .map_err(ApiError::bad_request)?;
+    let entry = b.post(list, author, text, None).map_err(|e| match e {
+        board::PostError::Invalid(m) => ApiError::bad_request(m),
+        board::PostError::Io(m) => ApiError::internal(m),
+    })?;
     Ok(Json(serde_json::to_value(entry).expect("entry serializes")))
 }
 
@@ -540,7 +544,14 @@ async fn handle_chat(
     });
     let rx = frx;
     if stream {
-        Ok(stream_response(id, created, model, prompt_tokens, rx, tools))
+        Ok(stream_response(
+            id,
+            created,
+            model,
+            prompt_tokens,
+            rx,
+            tools,
+        ))
     } else {
         collect_response(id, created, &model, prompt_tokens, rx, tools).await
     }
@@ -672,7 +683,10 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
             _ => {
                 turns.insert(
                     0,
-                    ("system".into(), crate::tools::system_with_tools(&tool_defs, None)),
+                    (
+                        "system".into(),
+                        crate::tools::system_with_tools(&tool_defs, None),
+                    ),
                 );
                 system_inserted = 1;
             }
@@ -804,6 +818,7 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
         tools: has_tools,
         builtin_tools,
         opts,
+        ctx,
         board: board_pending,
     })
 }
@@ -817,7 +832,8 @@ fn conversation_key(req: &ChatRequest, turns: &[(String, String)]) -> (String, S
     fn clean(s: Option<&str>) -> Option<&str> {
         s.map(str::trim).filter(|s| !s.is_empty())
     }
-    let named = clean(req.aien_conversation.as_deref()).or(clean(req.session_id.as_deref()));
+    let named = clean(req.aien_conversation.as_deref())
+        .or(clean(req.session_id.as_ref().and_then(Value::as_str)));
     let key = match named {
         Some(n) => format!("id-{}", board::digest(n)),
         None => {
@@ -832,14 +848,14 @@ fn conversation_key(req: &ChatRequest, turns: &[(String, String)]) -> (String, S
                 .map(|(_, c)| c.as_str())
                 .unwrap_or("");
             let fp = board::fingerprint(system, first_user);
-            match clean(req.user.as_deref()) {
+            match clean(req.user.as_ref().and_then(Value::as_str)) {
                 Some(u) => format!("u-{}-{fp}", board::digest(u)),
                 None => fp,
             }
         }
     };
     let author = clean(req.aien_agent.as_deref())
-        .or(clean(req.user.as_deref()))
+        .or(clean(req.user.as_ref().and_then(Value::as_str)))
         .map(str::to_string)
         .unwrap_or_else(|| format!("conv-{}", &key[key.len().saturating_sub(8)..]));
     (key, author)
@@ -892,19 +908,25 @@ fn board_deliver(board: &Board, req: &ChatRequest, turns: &mut [(String, String)
         *c = board::apply_block(c, &p.text);
     }
     let last = turns.len() - 1;
-    let fresh_turn = conv.patches.last().is_none_or(|p| p.turn < last);
+    let fresh_turn = turns[last].0 == "user" && conv.patches.last().is_none_or(|p| p.turn < last);
+    let carried: usize = conv.patches.iter().map(|p| p.text.len()).sum();
     let mut delivered = None;
-    if turns[last].0 == "user" && fresh_turn {
+    if fresh_turn && carried >= board::PATCH_BUDGET {
+        eprintln!(
+            "aien-serve-http: board: {key}: paused: {carried} chars of blocks in this conversation (budget {}); a new conversation key gets the board again",
+            board::PATCH_BUDGET
+        );
+    } else if fresh_turn {
         let unseen = board.unseen(&key, &conv);
-        if let Some(block) = unseen.block() {
+        if let Some(r) = unseen.render() {
             let original = std::mem::take(&mut turns[last].1);
-            turns[last].1 = board::apply_block(&original, &block);
+            turns[last].1 = board::apply_block(&original, &r.text);
             conv.patches.push(Patch {
                 turn: last,
                 hash: board::digest(&original),
-                text: block,
-                board_seen: unseen.board_newest,
-                memory_seen: unseen.memory_newest,
+                text: r.text,
+                board_seen: r.board_seen,
+                memory_seen: r.memory_seen,
             });
             delivered = Some(Delivered {
                 turn: last,
@@ -912,9 +934,12 @@ fn board_deliver(board: &Board, req: &ChatRequest, turns: &mut [(String, String)
                 board_seen: conv.board_seen,
                 memory_seen: conv.memory_seen,
             });
+            conv.board_seen = r.board_seen;
+            conv.memory_seen = r.memory_seen;
+        } else {
+            conv.board_seen = unseen.board_newest;
+            conv.memory_seen = unseen.memory_newest;
         }
-        conv.board_seen = unseen.board_newest;
-        conv.memory_seen = unseen.memory_newest;
     }
     BoardPending {
         key,
@@ -986,7 +1011,7 @@ fn run_generation(
         _ => None,
     };
     let builtin = conv.is_some();
-    let max_ctx = engine.max_context_tokens();
+    let max_ctx = prepared.ctx;
     let first_prompt_len = prepared.prompt_tokens.len();
     let mut prompt = prepared.prompt_tokens;
     let mut params = prepared.params;
@@ -996,6 +1021,7 @@ fn run_generation(
     let mut decode_ms = 0u64;
     let mut sent = SendState::default();
     let mut rounds = 0usize;
+    let mut per_round: Vec<usize> = Vec::new();
     let mut stopped_by_string;
     let last: GenerateOutcome;
     loop {
@@ -1102,6 +1128,7 @@ fn run_generation(
             Ok(out) => out,
         };
         total_emitted += out.emitted_tokens;
+        per_round.push(out.emitted_tokens);
         prefill_ms += out.prefill_ms;
         decode_ms += out.decode_ms;
         if let Some(ids) = ids.as_mut() {
@@ -1219,7 +1246,8 @@ fn run_generation(
         .map(|s| format!(", {}", s.log_fields()))
         .unwrap_or_default();
     let rounds_field = if rounds > 1 {
-        format!(", {rounds} rounds (built-in tools)")
+        let per: Vec<String> = per_round.iter().map(|n| n.to_string()).collect();
+        format!(", {rounds} rounds (built-in tools: {} tok)", per.join("+"))
     } else {
         String::new()
     };
@@ -1306,7 +1334,8 @@ async fn collect_response(
                 } else {
                     (content.clone(), Vec::new())
                 };
-                let mut body = completion_json(&id, created, model, &text, reasoning, finish, &usage);
+                let mut body =
+                    completion_json(&id, created, model, &text, reasoning, finish, &usage);
                 if !calls.is_empty() {
                     let msg = &mut body["choices"][0]["message"];
                     msg["tool_calls"] = Value::Array(calls);
@@ -1373,7 +1402,15 @@ fn stream_response(
                     if out.is_empty() {
                         continue;
                     }
-                    data(chunk_json(&id, created, &model, None, Some(&out), None, None))
+                    data(chunk_json(
+                        &id,
+                        created,
+                        &model,
+                        None,
+                        Some(&out),
+                        None,
+                        None,
+                    ))
                 }
                 Ev::Delta(d) => data(chunk_json(&id, created, &model, None, Some(&d), None, None)),
                 Ev::Reasoning(d) => data(chunk_json_with(
@@ -1408,10 +1445,19 @@ fn stream_response(
                         } else {
                             (std::mem::take(&mut held), Vec::new())
                         };
-                        if !text.is_empty() && etx
-                            .send(data(chunk_json(&id, created, &model, None, Some(&text), None, None)))
-                            .await
-                            .is_err()
+                        if !text.is_empty()
+                            && etx
+                                .send(data(chunk_json(
+                                    &id,
+                                    created,
+                                    &model,
+                                    None,
+                                    Some(&text),
+                                    None,
+                                    None,
+                                )))
+                                .await
+                                .is_err()
                         {
                             return;
                         }

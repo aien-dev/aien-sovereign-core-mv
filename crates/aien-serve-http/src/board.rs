@@ -45,6 +45,9 @@ pub const BLOCK_MAX_ENTRIES: usize = 24;
 pub const BLOCK_MAX_CHARS: usize = 6000;
 /// Most conversations remembered (oldest `last_used` forgotten first).
 pub const MAX_CONVERSATIONS: usize = 4096;
+/// Most chars of blocks one conversation carries (every patched turn is re-applied each request
+/// and written whole on admission); past it the conversation gets no new blocks, with a log line.
+pub const PATCH_BUDGET: usize = 1 << 20;
 
 pub const BOARD_HEAD: &str = "[team board, new since your last turn]";
 pub const MEMORY_HEAD: &str = "[team memory, new since your last turn]";
@@ -133,9 +136,29 @@ impl Conversation {
     }
 }
 
-/// `key-<digest of the rewritten turn>`: the key of a fork.
+/// The key without its fork suffix (`-f<16 hex>`): the conversation a fork and its forks belong to.
+pub fn base_key(key: &str) -> &str {
+    match key.rfind("-f") {
+        Some(i)
+            if key.len() - i == 18
+                && key[i + 2..]
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) =>
+        {
+            &key[..i]
+        }
+        _ => key,
+    }
+}
+
+/// `<base key>-f<digest of (key, rewritten turn)>`: the key of a fork. One suffix only, so a
+/// conversation rewritten many times (a client compacting its history) keeps a bounded key.
 pub fn fork_key(key: &str, turn_text: &str) -> String {
-    format!("{key}-f{}", digest(turn_text))
+    format!(
+        "{}-f{}",
+        base_key(key),
+        digest(&format!("{key}\0{turn_text}"))
+    )
 }
 
 /// Keys name files under `conversations/`: lowercase letters, digits, `-`, `_`, `.` (not leading).
@@ -143,9 +166,9 @@ pub fn file_safe(key: &str) -> bool {
     !key.is_empty()
         && key.len() <= 160
         && !key.starts_with('.')
-        && key
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_' || b == b'.')
+        && key.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_' || b == b'.'
+        })
 }
 
 struct Inner {
@@ -153,6 +176,23 @@ struct Inner {
     memory: Vec<Entry>,
     convs: HashMap<String, Conversation>,
     dir: Option<PathBuf>,
+    /// The exclusive lock on `<dir>/lock`, held for the life of the board.
+    _lock: Option<fs::File>,
+}
+
+/// Why a post was refused: the caller's text (a 400) or the board's disk (a 500).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PostError {
+    Invalid(String),
+    Io(String),
+}
+
+impl std::fmt::Display for PostError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Invalid(s) | Self::Io(s) => f.write_str(s),
+        }
+    }
 }
 
 /// The shared board, memory and conversation cursors. One per server.
@@ -221,11 +261,21 @@ pub fn fingerprint(system: &str, first_user: &str) -> String {
     h.update([0u8]);
     h.update(first_user.as_bytes());
     let h = h.finalize();
-    format!("fp-{}", h.iter().take(8).map(|b| format!("{b:02x}")).collect::<String>())
+    format!(
+        "fp-{}",
+        h.iter()
+            .take(8)
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    )
 }
 
 /// Reads a list file. A last line that does not parse (torn by a crash mid-write) is cut off the
 /// file and reported on stderr; any other bad line, or a seq out of order, refuses the file.
+/// Reads one list file. A torn last line (a crash mid-write) is cut off. Any other damage (a bad
+/// line in the middle, seq out of order: two processes on one dir) sets the whole file aside as
+/// `<file>.bad-<unix secs>` with one loud line, and the list starts empty: the notice board
+/// never keeps the motor from serving.
 fn read_list(path: &Path) -> Result<Vec<Entry>, String> {
     let text = match fs::read_to_string(path) {
         Ok(t) => t,
@@ -235,14 +285,16 @@ fn read_list(path: &Path) -> Result<Vec<Entry>, String> {
     let mut out: Vec<Entry> = Vec::new();
     let mut good_end = 0usize;
     let mut lines = text.split_inclusive('\n').enumerate().peekable();
-    while let Some((n, raw)) = lines.next() {
+    let damage: Option<String> = loop {
+        let Some((n, raw)) = lines.next() else {
+            break None;
+        };
         let line = raw.trim_end_matches(['\n', '\r']);
         if line.trim().is_empty() {
             good_end += raw.len();
             continue;
         }
-        let parsed: Result<Entry, _> = serde_json::from_str(line);
-        let e = match parsed {
+        let e = match serde_json::from_str::<Entry>(line) {
             Ok(e) => e,
             Err(err) if lines.peek().is_none() => {
                 eprintln!(
@@ -250,21 +302,23 @@ fn read_list(path: &Path) -> Result<Vec<Entry>, String> {
                     path.display(),
                     n + 1
                 );
-                let f = OpenOptions::new()
+                let cut = OpenOptions::new()
                     .write(true)
                     .open(path)
-                    .map_err(|e| format!("{}: {e}", path.display()))?;
-                f.set_len(good_end as u64)
-                    .and_then(|_| f.sync_data())
-                    .map_err(|e| format!("{}: {e}", path.display()))?;
-                break;
+                    .and_then(|f| f.set_len(good_end as u64).and_then(|_| f.sync_data()));
+                break match cut {
+                    Ok(()) => None,
+                    Err(e) => Some(format!(
+                        "line {} is torn and could not be cut off: {e}",
+                        n + 1
+                    )),
+                };
             }
-            Err(err) => return Err(format!("{}: line {}: {err}", path.display(), n + 1)),
+            Err(err) => break Some(format!("line {}: {err}", n + 1)),
         };
         if out.last().is_some_and(|last| e.seq <= last.seq) {
-            return Err(format!(
-                "{}: line {}: seq {} is not after {}",
-                path.display(),
+            break Some(format!(
+                "line {}: seq {} is not after {}",
                 n + 1,
                 e.seq,
                 out.last().map(|l| l.seq).unwrap_or(0)
@@ -272,8 +326,64 @@ fn read_list(path: &Path) -> Result<Vec<Entry>, String> {
         }
         out.push(e);
         good_end += raw.len();
+    };
+    let Some(why) = damage else {
+        return Ok(out);
+    };
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("list");
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let aside = path.with_file_name(format!("{name}.bad-{nanos}"));
+    fs::rename(path, &aside).map_err(|e| {
+        format!(
+            "{}: {why}; could not set it aside as {}: {e}",
+            path.display(),
+            aside.display()
+        )
+    })?;
+    eprintln!(
+        "aien-serve-http: board: {}: {why}; set aside as {} and starting empty",
+        path.display(),
+        aside.display()
+    );
+    Ok(Vec::new())
+}
+
+/// One server per board dir: an exclusive `flock` on `<dir>/lock`, held for the life of the
+/// board, the holder's pid in the file. A second server on the same dir would interleave its own
+/// seq numbers into the lists and leave them unreadable at the next restart.
+fn take_lock(dir: &Path) -> Result<fs::File, String> {
+    use std::os::unix::io::AsRawFd;
+    let path = dir.join("lock");
+    let mut f = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    // SAFETY: flock on a valid open descriptor; non-blocking, so a held lock answers at once.
+    let rc = unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    if rc != 0 {
+        let err = std::io::Error::last_os_error();
+        let holder = fs::read_to_string(&path).unwrap_or_default();
+        let holder = holder.trim();
+        return Err(if err.raw_os_error() == Some(libc::EWOULDBLOCK) {
+            format!(
+                "{} is held by another server (pid {})",
+                dir.display(),
+                if holder.is_empty() { "unknown" } else { holder }
+            )
+        } else {
+            format!("{}: flock: {err}", path.display())
+        });
     }
-    Ok(out)
+    let _ = f
+        .set_len(0)
+        .and_then(|_| f.write_all(format!("{}\n", std::process::id()).as_bytes()));
+    Ok(f)
 }
 
 /// Loads every `conversations/<key>.json`; a file that does not parse is reported and skipped.
@@ -295,9 +405,10 @@ fn read_conversations(dir: &Path) -> Result<HashMap<String, Conversation>, Strin
         else {
             continue;
         };
-        match fs::read_to_string(&path).map_err(|e| e.to_string()).and_then(|t| {
-            serde_json::from_str::<Conversation>(&t).map_err(|e| e.to_string())
-        }) {
+        match fs::read_to_string(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|t| serde_json::from_str::<Conversation>(&t).map_err(|e| e.to_string()))
+        {
             Ok(c) => {
                 out.insert(key.to_string(), c);
             }
@@ -322,15 +433,16 @@ fn append_line(path: &Path, line: &str) -> Result<(), String> {
 impl Board {
     /// Opens (or creates) the board under `settings.dir`; `dir: None` keeps everything in memory (tests).
     pub fn open(settings: &Settings) -> Result<Self, String> {
-        let (board, memory, convs) = match &settings.dir {
+        let (board, memory, convs, lock) = match &settings.dir {
             Some(dir) => {
                 fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+                let lock = take_lock(dir)?;
                 let board = read_list(&dir.join(List::Board.file()))?;
                 let memory = read_list(&dir.join(List::Memory.file()))?;
                 let convs = read_conversations(dir)?;
-                (board, memory, convs)
+                (board, memory, convs, Some(lock))
             }
-            None => (Vec::new(), Vec::new(), HashMap::new()),
+            None => (Vec::new(), Vec::new(), HashMap::new(), None),
         };
         Ok(Self {
             inner: Mutex::new(Inner {
@@ -338,6 +450,7 @@ impl Board {
                 memory,
                 convs,
                 dir: settings.dir.clone(),
+                _lock: lock,
             }),
             tools: settings.tools,
         })
@@ -368,14 +481,18 @@ impl Board {
         author: &str,
         text: &str,
         conv: Option<&str>,
-    ) -> Result<Entry, String> {
+    ) -> Result<Entry, PostError> {
         let text = text.trim();
         if text.is_empty() {
-            return Err("the text is empty".into());
+            return Err(PostError::Invalid("the text is empty".into()));
         }
         let text: String = text.chars().take(MAX_TEXT_CHARS).collect();
         let author = author.trim();
-        let author = if author.is_empty() { "anonymous" } else { author };
+        let author = if author.is_empty() {
+            "anonymous"
+        } else {
+            author
+        };
         let author: String = author.chars().take(80).collect();
         let mut g = self.lock();
         let entries = match list {
@@ -400,8 +517,8 @@ impl Board {
             conv: conv.map(str::to_string),
         };
         if let Some(dir) = g.dir.clone() {
-            let line = serde_json::to_string(&entry).map_err(|e| e.to_string())?;
-            append_line(&dir.join(list.file()), &line)?;
+            let line = serde_json::to_string(&entry).map_err(|e| PostError::Io(e.to_string()))?;
+            append_line(&dir.join(list.file()), &line).map_err(PostError::Io)?;
         }
         match list {
             List::Board => g.board.push(entry.clone()),
@@ -447,11 +564,25 @@ impl Board {
         }
         conv.last_used = now_secs();
         let mut g = self.lock();
+        // Nothing new (no block this turn, cursors unchanged): the file is already right.
+        let same = g.convs.get(key).is_some_and(|old| {
+            old.author == conv.author
+                && old.board_seen == conv.board_seen
+                && old.memory_seen == conv.memory_seen
+                && old.patches == conv.patches
+                && old.forked_from == conv.forked_from
+        });
         g.convs.insert(key.to_string(), conv);
+        if same {
+            return Ok(Duration::ZERO);
+        }
         let mut evicted = Vec::new();
         if g.convs.len() > MAX_CONVERSATIONS {
-            let mut by_age: Vec<(u64, String)> =
-                g.convs.iter().map(|(k, c)| (c.last_used, k.clone())).collect();
+            let mut by_age: Vec<(u64, String)> = g
+                .convs
+                .iter()
+                .map(|(k, c)| (c.last_used, k.clone()))
+                .collect();
             by_age.sort();
             for (_, k) in by_age.iter().take(g.convs.len() - MAX_CONVERSATIONS) {
                 g.convs.remove(k);
@@ -479,11 +610,12 @@ impl Board {
     /// and how many older board entries fall outside the block cap.
     pub fn unseen(&self, key: &str, conv: &Conversation) -> Unseen {
         let g = self.lock();
+        let base = base_key(key);
         let pick = |entries: &[Entry], since: u64| -> Vec<Entry> {
             let start = entries.partition_point(|e| e.seq <= since);
             entries[start..]
                 .iter()
-                .filter(|e| e.conv.as_deref() != Some(key))
+                .filter(|e| !e.conv.as_deref().is_some_and(|c| base_key(c) == base))
                 .cloned()
                 .collect()
         };
@@ -507,24 +639,43 @@ pub struct Unseen {
     pub memory_newest: u64,
 }
 
+/// A rendered block and the cursors a conversation holds after it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rendered {
+    pub text: String,
+    pub board_seen: u64,
+    pub memory_seen: u64,
+}
+
 impl Unseen {
     pub fn is_empty(&self) -> bool {
         self.board.is_empty() && self.memory.is_empty()
     }
 
-    /// The text block appended to the newest user turn: memory first (durable), then the board,
-    /// newest entries kept when the cap cuts (older ones counted; `board_read` reaches them).
-    pub fn block(&self) -> Option<String> {
+    /// The text block appended to the newest user turn, with the cursors after it. Memory first
+    /// (durable facts), OLDEST first within the caps and the rest carried to the next turn (the
+    /// memory cursor stops at the last note shown, so no note is ever skipped). Then the board,
+    /// NEWEST kept when the cap cuts (older ones counted; `board_read` reaches them) and the
+    /// board cursor at the newest entry.
+    pub fn render(&self) -> Option<Rendered> {
         if self.is_empty() {
             return None;
         }
         let mut out = String::new();
         let mut budget = BLOCK_MAX_CHARS;
+        let mut memory_seen = self.memory_newest;
         if !self.memory.is_empty() {
             out.push_str(MEMORY_HEAD);
             out.push('\n');
-            let (lines, _) = render_lines(&self.memory, BLOCK_MAX_ENTRIES, &mut budget);
+            let (lines, shown) = render_oldest(&self.memory, BLOCK_MAX_ENTRIES, &mut budget);
             out.push_str(&lines);
+            let left = self.memory.len() - shown;
+            if left > 0 {
+                memory_seen = self.memory[shown - 1].seq;
+                out.push_str(&format!(
+                    "(+{left} more team memory notes follow next turn)\n"
+                ));
+            }
         }
         if !self.board.is_empty() {
             if !out.is_empty() {
@@ -541,12 +692,30 @@ impl Unseen {
             }
         }
         out.push_str(BLOCK_TAIL);
-        Some(out)
+        Some(Rendered {
+            text: out,
+            board_seen: self.board_newest,
+            memory_seen,
+        })
+    }
+
+    /// The block's text alone.
+    pub fn block(&self) -> Option<String> {
+        self.render().map(|r| r.text)
     }
 }
 
-/// `- MM-DD HH:MMZ author: text` lines for the newest `max` entries within `budget` chars; the
-/// count of entries left out.
+/// `- MM-DD HH:MMZ author: text`.
+fn line_of(e: &Entry) -> String {
+    format!(
+        "- {} {}: {}\n",
+        stamp(e.time),
+        e.author,
+        e.text.replace('\n', " ")
+    )
+}
+
+/// Lines for the NEWEST `max` entries within `budget` chars (at least one); the count left out.
 fn render_lines(entries: &[Entry], max: usize, budget: &mut usize) -> (String, usize) {
     let mut picked: Vec<String> = Vec::new();
     let mut used = 0usize;
@@ -554,12 +723,7 @@ fn render_lines(entries: &[Entry], max: usize, budget: &mut usize) -> (String, u
         if picked.len() >= max {
             break;
         }
-        let line = format!(
-            "- {} {}: {}\n",
-            stamp(e.time),
-            e.author,
-            e.text.replace('\n', " ")
-        );
+        let line = line_of(e);
         if used + line.len() > *budget && !picked.is_empty() {
             break;
         }
@@ -570,6 +734,25 @@ fn render_lines(entries: &[Entry], max: usize, budget: &mut usize) -> (String, u
     let hidden = entries.len() - picked.len();
     picked.reverse();
     (picked.concat(), hidden)
+}
+
+/// Lines for the OLDEST `max` entries within `budget` chars (at least one); the count taken.
+fn render_oldest(entries: &[Entry], max: usize, budget: &mut usize) -> (String, usize) {
+    let mut out = String::new();
+    let mut taken = 0usize;
+    for e in entries {
+        if taken >= max {
+            break;
+        }
+        let line = line_of(e);
+        if out.len() + line.len() > *budget && taken > 0 {
+            break;
+        }
+        out.push_str(&line);
+        taken += 1;
+    }
+    *budget = budget.saturating_sub(out.len());
+    (out, taken)
 }
 
 /// Whether a user turn's text is shaped like the template's tool-response turn (the Qwen3.6
@@ -602,12 +785,12 @@ pub fn tool_defs() -> Vec<Value> {
                 "text": {"type": "string", "description": "The line to post: one plain fact, with the sha, path or number in it."}
             }, "required": ["text"]}}}),
         serde_json::json!({"type": "function", "function": {
-            "name": "board_read",
-            "description": "Read the team board: the entries after a sequence number (0 = from the start), newest last.",
-            "parameters": {"type": "object", "properties": {
-                "since": {"type": "integer", "description": "Return entries with a sequence number greater than this (default 0)."},
-                "limit": {"type": "integer", "description": "At most this many of the newest matching entries (default 20, max 200)."}
-            }}}}),
+        "name": "board_read",
+        "description": "Read the team board: the entries after a sequence number (0 = from the start), newest last.",
+        "parameters": {"type": "object", "properties": {
+            "since": {"type": "integer", "description": "Return entries with a sequence number greater than this (default 0)."},
+            "limit": {"type": "integer", "description": "At most this many of the newest matching entries (default 20, max 200)."}
+        }}}}),
         serde_json::json!({"type": "function", "function": {
             "name": "memory_note",
             "description": "Keep one durable fact in the team's shared memory (facts that stay true: decisions, paths, measured numbers). Every conversation receives it at its next turn.",
@@ -680,11 +863,16 @@ mod tests {
     #[test]
     fn post_read_and_unseen_skip_own_posts() {
         let b = Board::in_memory();
-        let a = b.post(List::Board, "alice", "fact one", Some("conv-a")).unwrap();
+        let a = b
+            .post(List::Board, "alice", "fact one", Some("conv-a"))
+            .unwrap();
         assert_eq!(a.seq, 1);
-        let m = b.post(List::Memory, "alice", "durable", Some("conv-a")).unwrap();
+        let m = b
+            .post(List::Memory, "alice", "durable", Some("conv-a"))
+            .unwrap();
         assert_eq!(m.seq, 1);
-        b.post(List::Board, "bob", "fact two", Some("conv-b")).unwrap();
+        b.post(List::Board, "bob", "fact two", Some("conv-b"))
+            .unwrap();
         let (got, newest) = b.read(List::Board, 0, 10);
         assert_eq!(got.len(), 2);
         assert_eq!(newest, 2);
@@ -719,7 +907,8 @@ mod tests {
     fn block_caps_entries_and_counts_the_rest() {
         let b = Board::in_memory();
         for i in 0..(BLOCK_MAX_ENTRIES + 5) {
-            b.post(List::Board, "a", &format!("entry {i}"), None).unwrap();
+            b.post(List::Board, "a", &format!("entry {i}"), None)
+                .unwrap();
         }
         let u = b.unseen("k", &Conversation::default());
         let block = u.block().unwrap();
@@ -734,7 +923,10 @@ mod tests {
         let t = "<tool_response>\nok\n</tool_response>";
         let out = apply_block(t, "B");
         assert!(is_tool_response_turn(&out));
-        assert_eq!(out, "<tool_response>\nok\n</tool_response>\n<tool_response>\nB\n</tool_response>");
+        assert_eq!(
+            out,
+            "<tool_response>\nok\n</tool_response>\n<tool_response>\nB\n</tool_response>"
+        );
         assert_eq!(apply_block("hello  \n", "B"), "hello\n\nB");
     }
 
@@ -800,7 +992,11 @@ mod tests {
         let dir = temp_dir("torn");
         fs::create_dir_all(&dir).unwrap();
         let good = "{\"seq\":1,\"time\":1,\"author\":\"a\",\"text\":\"x\"}\n";
-        fs::write(dir.join("board.jsonl"), format!("{good}{{\"seq\":2,\"time\":1,\"au")).unwrap();
+        fs::write(
+            dir.join("board.jsonl"),
+            format!("{good}{{\"seq\":2,\"time\":1,\"au"),
+        )
+        .unwrap();
         let s = Settings {
             dir: Some(dir.clone()),
             tools: true,
@@ -868,20 +1064,192 @@ mod tests {
         assert!(!file_safe("") && !file_safe("../x") && !file_safe("A") && !file_safe("a b"));
     }
 
+    fn set_aside_files(dir: &Path) -> Vec<String> {
+        let mut v: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("board.jsonl.bad-"))
+            .collect();
+        v.sort();
+        v
+    }
+
     #[test]
-    fn open_refuses_a_corrupt_list() {
+    fn a_damaged_list_is_set_aside_and_the_board_opens() {
         let dir = temp_dir("bad");
         fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("board.jsonl"), "{\"seq\":2,\"time\":1,\"author\":\"a\",\"text\":\"x\"}\n{\"seq\":1,\"time\":1,\"author\":\"a\",\"text\":\"y\"}\n").unwrap();
         let s = Settings {
             dir: Some(dir.clone()),
             tools: true,
         };
-        let e = Board::open(&s).err().expect("refused");
-        assert!(e.contains("seq 1 is not after 2"), "{e}");
+        // seq out of order: two processes appended to one file.
+        fs::write(dir.join("board.jsonl"), "{\"seq\":2,\"time\":1,\"author\":\"a\",\"text\":\"x\"}\n{\"seq\":1,\"time\":1,\"author\":\"a\",\"text\":\"y\"}\n").unwrap();
+        let b = Board::open(&s).expect("the motor still serves");
+        assert_eq!(b.counts().0, 0);
+        assert_eq!(set_aside_files(&dir).len(), 1);
+        assert!(!dir.join("board.jsonl").exists());
+        // The board goes on in a fresh file.
+        assert_eq!(b.post(List::Board, "a", "fresh", None).unwrap().seq, 1);
+        drop(b);
+        // A bad line in the middle.
         fs::write(dir.join("board.jsonl"), "{\"seq\":1,\"time\":1,\"author\":\"a\",\"text\":\"x\"}\nnot json\n{\"seq\":2,\"time\":1,\"author\":\"a\",\"text\":\"y\"}\n").unwrap();
-        let e = Board::open(&s).err().expect("refused");
-        assert!(e.contains("line 2"), "{e}");
+        let b = Board::open(&s).expect("opens");
+        assert_eq!(b.counts().0, 0);
+        let aside = set_aside_files(&dir);
+        assert_eq!(aside.len(), 2, "{aside:?}");
+        let kept = fs::read_to_string(dir.join(&aside[1])).unwrap();
+        assert!(kept.contains("not json"), "the damaged file is kept whole");
+        drop(b);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn one_server_per_board_dir() {
+        let dir = temp_dir("lock");
+        let s = Settings {
+            dir: Some(dir.clone()),
+            tools: true,
+        };
+        let first = Board::open(&s).expect("opens");
+        let e = Board::open(&s).err().expect("a second opener is refused");
+        let me = std::process::id().to_string();
+        assert!(
+            e.contains("held by another server") && e.contains(&me),
+            "{e}"
+        );
+        drop(first);
+        let again = Board::open(&s).expect("free once the holder is gone");
+        drop(again);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn forks_keep_one_suffix_and_stay_file_safe() {
+        let dir = temp_dir("forks");
+        let s = Settings {
+            dir: Some(dir.clone()),
+            tools: true,
+        };
+        let b = Board::open(&s).unwrap();
+        let base = "u-0123456789abcdef-fp-fedcba9876543210";
+        let mut key = base.to_string();
+        let mut seen = std::collections::HashSet::new();
+        for i in 0..10 {
+            key = fork_key(&key, &format!("rewrite {i}"));
+            assert_eq!(key.len(), base.len() + 18, "{key}");
+            assert!(file_safe(&key), "{key}");
+            assert_eq!(base_key(&key), base);
+            assert!(seen.insert(key.clone()), "fork keys repeat: {key}");
+            b.commit(&key, Conversation::default()).expect("stored");
+            assert!(dir
+                .join("conversations")
+                .join(format!("{key}.json"))
+                .exists());
+        }
+        // The same rewrite from the same key is the same fork (a retried request finds its record).
+        assert_eq!(fork_key("id-00ff", "x"), fork_key("id-00ff", "x"));
+        assert_ne!(fork_key("id-00ff", "x"), fork_key("id-00ff", "y"));
+        assert_eq!(base_key("id-00ff"), "id-00ff");
+        assert_eq!(base_key("fp-f123456789abcdef"), "fp-f123456789abcdef");
+        drop(b);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn memory_notes_arrive_oldest_first_and_none_is_skipped() {
+        let b = Board::in_memory();
+        for i in 1..=30 {
+            b.post(List::Memory, "a", &format!("note {i}"), None)
+                .unwrap();
+        }
+        let mut conv = Conversation::default();
+        let has = |text: &str, i: usize| text.contains(&format!(": note {i}\n"));
+        let r1 = b.unseen("k", &conv).render().expect("first turn");
+        assert!(
+            (1..=BLOCK_MAX_ENTRIES).all(|i| has(&r1.text, i)),
+            "{}",
+            r1.text
+        );
+        assert!((BLOCK_MAX_ENTRIES + 1..=30).all(|i| !has(&r1.text, i)));
+        assert!(r1
+            .text
+            .contains("(+6 more team memory notes follow next turn)"));
+        assert_eq!(r1.memory_seen, BLOCK_MAX_ENTRIES as u64);
+        conv.board_seen = r1.board_seen;
+        conv.memory_seen = r1.memory_seen;
+        let r2 = b.unseen("k", &conv).render().expect("second turn");
+        assert!(
+            (BLOCK_MAX_ENTRIES + 1..=30).all(|i| has(&r2.text, i)),
+            "{}",
+            r2.text
+        );
+        assert!((1..=BLOCK_MAX_ENTRIES).all(|i| !has(&r2.text, i)));
+        assert!(!r2.text.contains("follow next turn"));
+        assert_eq!(r2.memory_seen, 30);
+        conv.memory_seen = r2.memory_seen;
+        assert!(b.unseen("k", &conv).render().is_none());
+    }
+
+    #[test]
+    fn a_fork_does_not_get_its_own_posts_back() {
+        let b = Board::in_memory();
+        let fork = fork_key("id-00ff", "rewritten");
+        b.post(List::Board, "a", "mine", Some(&fork)).unwrap();
+        b.post(List::Board, "b", "theirs", Some("id-00aa")).unwrap();
+        let texts = |u: Unseen| u.board.iter().map(|e| e.text.clone()).collect::<Vec<_>>();
+        assert_eq!(
+            texts(b.unseen("id-00ff", &Conversation::default())),
+            ["theirs"]
+        );
+        let again = fork_key(&fork, "again");
+        assert_eq!(
+            texts(b.unseen(&again, &Conversation::default())),
+            ["theirs"]
+        );
+        assert_eq!(
+            texts(b.unseen("id-00aa", &Conversation::default())),
+            ["mine"]
+        );
+    }
+
+    #[test]
+    fn a_big_record_commits_in_bounded_time_and_an_unchanged_one_skips_the_write() {
+        let dir = temp_dir("big");
+        let s = Settings {
+            dir: Some(dir.clone()),
+            tools: true,
+        };
+        let b = Board::open(&s).unwrap();
+        let conv = Conversation {
+            author: "a".into(),
+            board_seen: 64,
+            memory_seen: 0,
+            patches: (0..64)
+                .map(|i| Patch {
+                    turn: 2 * i + 1,
+                    hash: digest("x"),
+                    text: "y".repeat(BLOCK_MAX_CHARS),
+                    board_seen: i as u64,
+                    memory_seen: 0,
+                })
+                .collect(),
+            last_used: 0,
+            forked_from: None,
+        };
+        let took = b.commit("id-00ff", conv.clone()).unwrap();
+        eprintln!(
+            "receipt: commit of 64 patches x {BLOCK_MAX_CHARS} chars took {} us",
+            took.as_micros()
+        );
+        assert!(took < Duration::from_secs(1), "{took:?}");
+        let again = b.commit("id-00ff", conv).unwrap();
+        assert_eq!(
+            again,
+            Duration::ZERO,
+            "an unchanged record is not rewritten"
+        );
+        drop(b);
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -892,7 +1260,10 @@ mod tests {
             _ => None,
         })
         .unwrap();
-        assert_eq!(s.dir.as_deref(), Some(Path::new("/h/.local/state/aien-q36/board")));
+        assert_eq!(
+            s.dir.as_deref(),
+            Some(Path::new("/h/.local/state/aien-q36/board"))
+        );
         assert!(s.tools);
         assert!(Settings::from_lookup(|n| (n == ON_ENV).then(|| "0".into())).is_none());
         let s = Settings::from_lookup(|n| match n {
@@ -908,14 +1279,38 @@ mod tests {
     #[test]
     fn builtin_calls_round_trip() {
         let b = Board::in_memory();
-        let r = call(&b, "k", "alice", "board_post", &serde_json::json!({"text": "sha 1234"}));
+        let r = call(
+            &b,
+            "k",
+            "alice",
+            "board_post",
+            &serde_json::json!({"text": "sha 1234"}),
+        );
         assert_eq!(r, "posted to the team board as entry 1");
-        let r = call(&b, "k", "alice", "memory_note", &serde_json::json!({"text": "path /x"}));
+        let r = call(
+            &b,
+            "k",
+            "alice",
+            "memory_note",
+            &serde_json::json!({"text": "path /x"}),
+        );
         assert_eq!(r, "kept in the team memory as entry 1");
-        let r = call(&b, "k", "alice", "board_read", &serde_json::json!({"since": "0"}));
+        let r = call(
+            &b,
+            "k",
+            "alice",
+            "board_read",
+            &serde_json::json!({"since": "0"}),
+        );
         assert!(r.starts_with("1 "));
         assert!(r.contains("alice: sha 1234\n(newest entry is 1)"));
-        let r = call(&b, "k", "alice", "board_read", &serde_json::json!({"since": 1}));
+        let r = call(
+            &b,
+            "k",
+            "alice",
+            "board_read",
+            &serde_json::json!({"since": 1}),
+        );
         assert!(r.contains("no entries after 1"));
         let r = call(&b, "k", "alice", "board_post", &serde_json::json!({}));
         assert!(r.starts_with("board_post refused"));

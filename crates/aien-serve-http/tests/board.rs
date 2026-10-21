@@ -62,7 +62,12 @@ impl Script {
             .push_back(Err(EngineError::Failed(msg.into())));
     }
     fn prompts(&self) -> Vec<Vec<u32>> {
-        self.seen.lock().unwrap().iter().map(|(p, _)| p.clone()).collect()
+        self.seen
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(p, _)| p.clone())
+            .collect()
     }
     fn texts(&self) -> Vec<String> {
         self.prompts()
@@ -99,7 +104,11 @@ impl Script {
         let t0 = Instant::now();
         let mut emitted = 0usize;
         let mut finish = FinishReason::Stop;
-        for tok in reply.bytes().map(u32::from).chain(THINK_MARK.iter().copied().take(0)) {
+        for tok in reply
+            .bytes()
+            .map(u32::from)
+            .chain(THINK_MARK.iter().copied().take(0))
+        {
             if emitted >= params.max_new_tokens || prompt.len() + emitted >= self.max_context {
                 finish = FinishReason::Length;
                 break;
@@ -427,7 +436,10 @@ fn block_lands_once_per_conversation_and_own_posts_are_skipped() {
     assert_eq!(json(&r)["seq"], 1);
 
     // Turn 1 of c1: the block is the end of the user turn.
-    assert_eq!(content(&chat(s.addr, &chat_req("c1", &[("user", "hi")]))), "ok");
+    assert_eq!(
+        content(&chat(s.addr, &chat_req("c1", &[("user", "hi")]))),
+        "ok"
+    );
     let p1 = eng.texts()[0].clone();
     assert!(p1.contains(board::BOARD_HEAD), "{p1}");
     assert!(p1.contains("L371: reader 3: part ok, sha abc"), "{p1}");
@@ -445,11 +457,17 @@ fn block_lands_once_per_conversation_and_own_posts_are_skipped() {
     assert_eq!(content(&chat(s.addr, &chat_req("c1", &hist))), "ok");
     let p2 = eng.texts()[1].clone();
     let stem = p1.strip_suffix("<assistant>").unwrap();
-    assert!(p2.starts_with(stem), "turn 2 does not extend turn 1:\n{p1}\n----\n{p2}");
+    assert!(
+        p2.starts_with(stem),
+        "turn 2 does not extend turn 1:\n{p1}\n----\n{p2}"
+    );
     assert_eq!(count(&p2, board::BOARD_HEAD), 1);
 
     // c2 has its own cursor: it gets the entry at its first turn.
-    assert_eq!(content(&chat(s.addr, &chat_req("c2", &[("user", "yo")]))), "ok");
+    assert_eq!(
+        content(&chat(s.addr, &chat_req("c2", &[("user", "yo")]))),
+        "ok"
+    );
     assert!(eng.texts()[2].contains("sha abc"));
 
     // c1's own post is not delivered back to c1, and reaches c2.
@@ -496,34 +514,55 @@ fn block_lands_once_per_conversation_and_own_posts_are_skipped() {
 #[test]
 fn a_block_pasted_by_hand_gives_the_same_prompt_tokens() {
     let board = Arc::new(Board::in_memory());
-    board.post(List::Memory, "L354", "live door is 18091", None).unwrap();
-    board.post(List::Board, "L371", "readers: 8/8 parts ok", None).unwrap();
-    board.post(List::Board, "L375", "pool: prefix 17k shared", None).unwrap();
-    let block = board
-        .unseen("x", &Conversation::default())
-        .block()
+    board
+        .post(List::Memory, "L354", "live door is 18091", None)
         .unwrap();
+    board
+        .post(List::Board, "L371", "readers: 8/8 parts ok", None)
+        .unwrap();
+    board
+        .post(List::Board, "L375", "pool: prefix 17k shared", None)
+        .unwrap();
+    let block = board.unseen("x", &Conversation::default()).block().unwrap();
 
     let with = Script::new();
     let s = start(with.clone(), Arc::new(ByteCodec), Some(board.clone()));
-    let turns = [("system", "be brief"), ("user", "hi"), ("assistant", "ok"), ("user", "status?")];
+    let turns = [
+        ("system", "be brief"),
+        ("user", "hi"),
+        ("assistant", "ok"),
+        ("user", "status?"),
+    ];
     assert_eq!(content(&chat(s.addr, &chat_req("c1", &turns))), "ok");
 
     // The same server, delivery off for the request (`aien_board: false`), the block pasted.
     let pasted = board::apply_block("status?", &block);
-    let by_hand = [("system", "be brief"), ("user", "hi"), ("assistant", "ok"), ("user", pasted.as_str())];
+    let by_hand = [
+        ("system", "be brief"),
+        ("user", "hi"),
+        ("assistant", "ok"),
+        ("user", pasted.as_str()),
+    ];
     let mut req = chat_req("c9", &by_hand);
     req["aien_board"] = json!(false);
     assert_eq!(content(&chat(s.addr, &req)), "ok");
     let p = with.prompts();
     assert_eq!(p[0], p[1], "board prompt != pasted prompt");
-    assert_eq!(board.conversation(&key_of("c9")), Conversation::default(), "no record");
+    assert_eq!(
+        board.conversation(&key_of("c9")),
+        Conversation::default(),
+        "no record"
+    );
     // A server without a board has no routes for it.
     let plain = Script::new();
     let off = start(plain.clone(), Arc::new(ByteCodec), None);
     assert_eq!(request(off.addr, "GET", "/v1/aien/board", None).status, 404);
     assert_eq!(content(&chat(off.addr, &chat_req("c1", &by_hand))), "ok");
-    assert_eq!(plain.prompts()[0], p[0], "no-board server: pasted prompt differs");
+    assert_eq!(
+        plain.prompts()[0],
+        p[0],
+        "no-board server: pasted prompt differs"
+    );
 
     // A tool-response turn: the block rides in its own <tool_response> (the template's last_query
     // rule is untouched), and pasting it as one more tool message gives the same tokens.
@@ -564,14 +603,21 @@ fn a_builtin_tool_round_continues_the_same_prompt_in_place() {
     let v = json(&r);
     assert_eq!(v["choices"][0]["message"]["content"], "done");
     assert_eq!(v["choices"][0]["finish_reason"], "stop");
-    assert!(v["choices"][0]["message"]["tool_calls"].is_null(), "{}", r.body);
+    assert!(
+        v["choices"][0]["message"]["tool_calls"].is_null(),
+        "{}",
+        r.body
+    );
     assert!(!r.body.contains("tool_call"), "{}", r.body);
 
     let prompts = eng.prompts();
     assert_eq!(prompts.len(), 2);
     assert_eq!(eng.continuations(), vec![false, true]);
     assert_eq!(v["usage"]["prompt_tokens"], prompts[0].len());
-    assert_eq!(v["usage"]["completion_tokens"], (r1.len() + "done".len()) as u64);
+    assert_eq!(
+        v["usage"]["completion_tokens"],
+        (r1.len() + "done".len()) as u64
+    );
     let tail = ByteCodec
         .tool_round_tail(
             &tools::tool_responses(&["posted to the team board as entry 1".into()]),
@@ -581,7 +627,12 @@ fn a_builtin_tool_round_continues_the_same_prompt_in_place() {
     let mut want = prompts[0].clone();
     want.extend(ByteCodec.encode(&r1).unwrap());
     want.extend(ByteCodec.encode(&tail).unwrap());
-    assert_eq!(prompts[1], want, "round 2 is not prompt ++ reply ++ tail:\n{}", eng.texts()[1]);
+    assert_eq!(
+        prompts[1],
+        want,
+        "round 2 is not prompt ++ reply ++ tail:\n{}",
+        eng.texts()[1]
+    );
     let p0 = eng.texts()[0].clone();
     assert!(p0.contains("board_post") && p0.contains("board_read") && p0.contains("memory_note"));
     assert!(p0.contains("read_file"));
@@ -593,11 +644,25 @@ fn a_builtin_tool_round_continues_the_same_prompt_in_place() {
     assert_eq!(entries[0].conv.as_deref(), Some(key_of("c1").as_str()));
 
     // The other conversation reads it at its next turn; the poster does not get it back.
-    assert_eq!(content(&chat(s.addr, &chat_req("c2", &[("user", "news?")]))), "ok");
+    assert_eq!(
+        content(&chat(s.addr, &chat_req("c2", &[("user", "news?")]))),
+        "ok"
+    );
     assert!(eng.texts()[2].contains("L376: sha 1234 pushed"));
-    let hist = [("user", "push it and tell the team"), ("assistant", "done"), ("user", "thanks")];
-    assert_eq!(content(&chat(s.addr, &with_tools(chat_req("c1", &hist)))), "ok");
-    assert!(!eng.texts()[3].contains(board::BOARD_HEAD), "{}", eng.texts()[3]);
+    let hist = [
+        ("user", "push it and tell the team"),
+        ("assistant", "done"),
+        ("user", "thanks"),
+    ];
+    assert_eq!(
+        content(&chat(s.addr, &with_tools(chat_req("c1", &hist)))),
+        "ok"
+    );
+    assert!(
+        !eng.texts()[3].contains(board::BOARD_HEAD),
+        "{}",
+        eng.texts()[3]
+    );
 
     // Four built-in rounds at most: the fifth call is left in the text as plain reply.
     for _ in 0..5 {
@@ -605,7 +670,11 @@ fn a_builtin_tool_round_continues_the_same_prompt_in_place() {
     }
     let r = chat(s.addr, &with_tools(chat_req("c4", &[("user", "loop")])));
     assert_eq!(r.status, 200, "{}", r.body);
-    assert_eq!(eng.prompts().len() - 4, 4, "four rounds for the looping conversation");
+    assert_eq!(
+        eng.prompts().len() - 4,
+        4,
+        "four rounds for the looping conversation"
+    );
 }
 
 #[test]
@@ -613,11 +682,18 @@ fn the_tail_follows_the_thinking_switch_each_round() {
     for thinking in [Some(false), None] {
         let inner = Script::new();
         let r1: Vec<u32> = if thinking == Some(false) {
-            call("board_post", "text", "fact").bytes().map(u32::from).collect()
+            call("board_post", "text", "fact")
+                .bytes()
+                .map(u32::from)
+                .collect()
         } else {
             let mut v: Vec<u32> = "plan".bytes().map(u32::from).collect();
             v.push(THINK_END);
-            v.extend(format!("\n\n{}", call("board_post", "text", "fact")).bytes().map(u32::from));
+            v.extend(
+                format!("\n\n{}", call("board_post", "text", "fact"))
+                    .bytes()
+                    .map(u32::from),
+            );
             v
         };
         let r2: Vec<u32> = if thinking == Some(false) {
@@ -632,7 +708,11 @@ fn the_tail_follows_the_thinking_switch_each_round() {
             inner: inner.clone(),
             replies: Mutex::new(VecDeque::from(vec![r1.clone(), r2])),
         });
-        let s = start(eng, Arc::new(ThinkCodec), Some(Arc::new(Board::in_memory())));
+        let s = start(
+            eng,
+            Arc::new(ThinkCodec),
+            Some(Arc::new(Board::in_memory())),
+        );
         let mut req = with_tools(chat_req("c1", &[("user", "go")]));
         if let Some(t) = thinking {
             req["chat_template_kwargs"] = json!({"enable_thinking": t});
@@ -640,9 +720,14 @@ fn the_tail_follows_the_thinking_switch_each_round() {
         let r = chat(s.addr, &req);
         assert_eq!(r.status, 200, "{}", r.body);
         let v = json(&r);
-        assert_eq!(v["choices"][0]["message"]["content"], "done", "{thinking:?}");
+        assert_eq!(
+            v["choices"][0]["message"]["content"], "done",
+            "{thinking:?}"
+        );
         if thinking.is_none() {
-            let reasoning = v["choices"][0]["message"]["reasoning_content"].as_str().unwrap();
+            let reasoning = v["choices"][0]["message"]["reasoning_content"]
+                .as_str()
+                .unwrap();
             assert!(reasoning.contains("plan2"), "{reasoning}");
         }
         let prompts = inner.prompts();
@@ -684,11 +769,21 @@ fn a_mixed_round_answers_the_builtin_call_and_forwards_the_clients() {
     assert_eq!(calls.len(), 1, "{}", r.body);
     assert_eq!(calls[0]["function"]["name"], "read_file");
     assert_eq!(v["choices"][0]["message"]["content"], "Let me note that.");
-    assert_eq!(eng.prompts().len(), 1, "no second round: the client runs its call");
+    assert_eq!(
+        eng.prompts().len(),
+        1,
+        "no second round: the client runs its call"
+    );
     assert_eq!(board.counts(), (0, 1, 1));
-    assert_eq!(content(&chat(s.addr, &chat_req("c2", &[("user", "hi")]))), "ok");
+    assert_eq!(
+        content(&chat(s.addr, &chat_req("c2", &[("user", "hi")]))),
+        "ok"
+    );
     let p = eng.texts()[1].clone();
-    assert!(p.contains(board::MEMORY_HEAD) && p.contains("the live door is 18091"), "{p}");
+    assert!(
+        p.contains(board::MEMORY_HEAD) && p.contains("the live door is 18091"),
+        "{p}"
+    );
     assert!(!p.contains(board::BOARD_HEAD), "{p}");
 }
 
@@ -707,13 +802,23 @@ fn builtin_tools_off_forwards_board_calls_to_the_client() {
     let r = chat(s.addr, &with_tools(chat_req("c1", &[("user", "go")])));
     let v = json(&r);
     assert_eq!(v["choices"][0]["finish_reason"], "tool_calls", "{}", r.body);
-    assert_eq!(v["choices"][0]["message"]["tool_calls"][0]["function"]["name"], "board_post");
+    assert_eq!(
+        v["choices"][0]["message"]["tool_calls"][0]["function"]["name"],
+        "board_post"
+    );
     assert!(!eng.texts()[0].contains("memory_note"));
     assert_eq!(board.counts().0, 0);
     // No tools in the request: no built-in tools either.
     let eng2 = Script::new();
-    let s2 = start(eng2.clone(), Arc::new(ByteCodec), Some(Arc::new(Board::in_memory())));
-    assert_eq!(content(&chat(s2.addr, &chat_req("c1", &[("user", "go")]))), "ok");
+    let s2 = start(
+        eng2.clone(),
+        Arc::new(ByteCodec),
+        Some(Arc::new(Board::in_memory())),
+    );
+    assert_eq!(
+        content(&chat(s2.addr, &chat_req("c1", &[("user", "go")]))),
+        "ok"
+    );
     assert!(!eng2.texts()[0].contains("board_post"));
 }
 
@@ -730,7 +835,10 @@ fn the_board_survives_a_restart() {
         let board = Arc::new(Board::open(&settings).unwrap());
         let s = start(eng.clone(), Arc::new(ByteCodec), Some(board));
         assert_eq!(post(s.addr, "board", "L371", "part 1 ok").status, 200);
-        assert_eq!(content(&chat(s.addr, &chat_req("c1", &[("user", "hi")]))), "ok");
+        assert_eq!(
+            content(&chat(s.addr, &chat_req("c1", &[("user", "hi")]))),
+            "ok"
+        );
         assert!(eng.texts()[0].contains("part 1 ok"));
     }
     let board = Arc::new(Board::open(&settings).unwrap());
@@ -751,14 +859,23 @@ fn the_board_survives_a_restart() {
 
 #[test]
 fn http_routes_list_post_and_refuse() {
-    let s = start(Script::new(), Arc::new(ByteCodec), Some(Arc::new(Board::in_memory())));
+    let s = start(
+        Script::new(),
+        Arc::new(ByteCodec),
+        Some(Arc::new(Board::in_memory())),
+    );
     for i in 1..=5 {
         let r = post(s.addr, "board", "L371", &format!("note {i}"));
         assert_eq!(r.status, 200, "{}", r.body);
         assert_eq!(json(&r)["seq"], i);
     }
     assert_eq!(post(s.addr, "memory", "L354", "keep this").status, 200);
-    let v = json(&request(s.addr, "GET", "/v1/aien/board?since=2&limit=2", None));
+    let v = json(&request(
+        s.addr,
+        "GET",
+        "/v1/aien/board?since=2&limit=2",
+        None,
+    ));
     assert_eq!(v["object"], "list");
     assert_eq!(v["list"], "board");
     assert_eq!(v["newest"], 5);
@@ -769,10 +886,18 @@ fn http_routes_list_post_and_refuse() {
     let m = json(&request(s.addr, "GET", "/v1/aien/memory", None));
     assert_eq!(m["entries"][0]["author"], "L354");
     assert_eq!(request(s.addr, "GET", "/v1/aien/nope", None).status, 404);
-    assert_eq!(request(s.addr, "GET", "/v1/aien/board?since=x", None).status, 400);
+    assert_eq!(
+        request(s.addr, "GET", "/v1/aien/board?since=x", None).status,
+        400
+    );
     let r = post(s.addr, "board", "a", "   ");
     assert_eq!(r.status, 400, "{}", r.body);
-    let r = request(s.addr, "POST", "/v1/aien/board", Some("{\"text\": \"no author\"}"));
+    let r = request(
+        s.addr,
+        "POST",
+        "/v1/aien/board",
+        Some("{\"text\": \"no author\"}"),
+    );
     assert_eq!(r.status, 200, "{}", r.body);
     assert_eq!(json(&r)["author"], "http");
     // The same poster, the same text: one entry.
@@ -789,7 +914,10 @@ fn a_retry_after_an_engine_error_gets_identical_tokens() {
     let r = chat(s.addr, &chat_req("c1", &[("user", "hi")]));
     assert_eq!(r.status, 500, "{}", r.body);
     board.post(List::Board, "L371", "second", None).unwrap();
-    assert_eq!(content(&chat(s.addr, &chat_req("c1", &[("user", "hi")]))), "ok");
+    assert_eq!(
+        content(&chat(s.addr, &chat_req("c1", &[("user", "hi")]))),
+        "ok"
+    );
     let p = eng.prompts();
     assert_eq!(p.len(), 2);
     assert_eq!(p[0], p[1], "the retry rendered a different prompt");
@@ -805,7 +933,10 @@ fn a_rewritten_turn_forks_the_conversation() {
     let board = Arc::new(Board::in_memory());
     let s = start(eng.clone(), Arc::new(ByteCodec), Some(board.clone()));
     board.post(List::Board, "L371", "fact one", None).unwrap();
-    assert_eq!(content(&chat(s.addr, &chat_req("c1", &[("user", "hi")]))), "ok");
+    assert_eq!(
+        content(&chat(s.addr, &chat_req("c1", &[("user", "hi")]))),
+        "ok"
+    );
     board.post(List::Board, "L371", "fact two", None).unwrap();
     let hist = [("user", "hi"), ("assistant", "ok"), ("user", "more")];
     assert_eq!(content(&chat(s.addr, &chat_req("c1", &hist))), "ok");
@@ -815,7 +946,11 @@ fn a_rewritten_turn_forks_the_conversation() {
 
     // The client edits turn 1 and resends: a fork with turn 1's patch dropped, the cursors
     // rolled back to before it, the old record untouched.
-    let edited = [("user", "hi"), ("assistant", "ok"), ("user", "more, edited")];
+    let edited = [
+        ("user", "hi"),
+        ("assistant", "ok"),
+        ("user", "more, edited"),
+    ];
     assert_eq!(content(&chat(s.addr, &chat_req("c1", &edited))), "ok");
     let fork = board::fork_key(&key, "more, edited");
     let f = board.conversation(&fork);
@@ -839,7 +974,10 @@ fn a_rewritten_turn_forks_the_conversation() {
     ];
     assert_eq!(content(&chat(s.addr, &chat_req("c1", &edited2))), "ok");
     let p2 = eng.texts()[3].clone();
-    assert!(p2.starts_with(p.strip_suffix("<assistant>").unwrap()), "{p}\n----\n{p2}");
+    assert!(
+        p2.starts_with(p.strip_suffix("<assistant>").unwrap()),
+        "{p}\n----\n{p2}"
+    );
     assert_eq!(board.counts().2, 2);
 }
 
@@ -853,7 +991,12 @@ fn concurrent_posts_and_one_conversation_in_flight_twice() {
         .map(|i| {
             std::thread::spawn(move || {
                 for j in 0..5 {
-                    let r = post(addr, "board", &format!("agent-{i}"), &format!("note {i}.{j}"));
+                    let r = post(
+                        addr,
+                        "board",
+                        &format!("agent-{i}"),
+                        &format!("note {i}.{j}"),
+                    );
                     assert_eq!(r.status, 200, "{}", r.body);
                 }
             })
@@ -882,7 +1025,13 @@ fn concurrent_posts_and_one_conversation_in_flight_twice() {
         };
         (ra.join().unwrap(), rb.join().unwrap())
     };
-    assert_eq!((ra.status, rb.status), (200, 200), "{} / {}", ra.body, rb.body);
+    assert_eq!(
+        (ra.status, rb.status),
+        (200, 200),
+        "{} / {}",
+        ra.body,
+        rb.body
+    );
     let p = eng.prompts();
     assert_eq!(p.len(), 2);
     assert_eq!(p[0], p[1]);
@@ -900,7 +1049,10 @@ fn a_block_that_would_not_fit_is_left_out_and_the_cursor_stays() {
     board
         .post(List::Board, "L371", &"x".repeat(120), None)
         .unwrap();
-    assert_eq!(content(&chat(s.addr, &chat_req("c1", &[("user", "hi")]))), "ok");
+    assert_eq!(
+        content(&chat(s.addr, &chat_req("c1", &[("user", "hi")]))),
+        "ok"
+    );
     let p = eng.texts()[0].clone();
     assert!(!p.contains(board::BOARD_HEAD), "{p}");
     let c = board.conversation(&key_of("c1"));
@@ -925,11 +1077,97 @@ fn a_reply_cut_by_the_length_cap_runs_no_builtin_call() {
     assert_eq!(r.status, 200, "{}", r.body);
     let v = json(&r);
     assert_eq!(v["choices"][0]["finish_reason"], "length", "{}", r.body);
-    assert!(v["choices"][0]["message"]["tool_calls"].is_null(), "{}", r.body);
+    assert!(
+        v["choices"][0]["message"]["tool_calls"].is_null(),
+        "{}",
+        r.body
+    );
     assert_eq!(
         v["choices"][0]["message"]["content"].as_str().unwrap(),
         &full[..full.len() - 10]
     );
     assert_eq!(board.counts().0, 0, "a cut call must not be run");
     assert_eq!(eng.prompts().len(), 1);
+}
+
+#[test]
+fn a_numeric_user_or_session_id_is_accepted_not_refused() {
+    let eng = Script::new();
+    let s = start(
+        eng.clone(),
+        Arc::new(ByteCodec),
+        Some(Arc::new(Board::in_memory())),
+    );
+    eng.say("hello");
+    // llama.cpp clients send integer ids; some SDKs send objects. 61cad330 ignored them: so do we.
+    let req = json!({"model": "test-model", "messages": msgs(&[("user", "hi")]), "user": 42, "session_id": {"id": 7}});
+    let r = chat(s.addr, &req);
+    assert_eq!(r.status, 200, "{}", r.body);
+    assert_eq!(content(&r), "hello");
+}
+
+#[test]
+fn a_conversation_past_the_patch_budget_gets_no_new_block_and_keeps_its_cursor() {
+    let eng = Script::with(4_000_000, 1, Duration::ZERO);
+    let board = Arc::new(Board::in_memory());
+    let s = start(eng.clone(), Arc::new(ByteCodec), Some(board.clone()));
+    // A record whose blocks sum past the budget, every patch matching its turn.
+    let n = board::PATCH_BUDGET / board::BLOCK_MAX_CHARS + 2;
+    let mut turns: Vec<(String, String)> = Vec::new();
+    let mut patches = Vec::new();
+    for i in 0..n {
+        let u = format!("turn {i}");
+        patches.push(board::Patch {
+            turn: 2 * i,
+            hash: board::digest(&u),
+            text: format!("[block {i}] {}", "y".repeat(board::BLOCK_MAX_CHARS - 16)),
+            board_seen: 1,
+            memory_seen: 0,
+        });
+        turns.push(("user".into(), u));
+        turns.push(("assistant".into(), "ok".into()));
+    }
+    let carried: usize = patches.iter().map(|p| p.text.len()).sum();
+    assert!(carried >= board::PATCH_BUDGET);
+    board
+        .commit(
+            &key_of("c1"),
+            Conversation {
+                author: "c1".into(),
+                board_seen: 1,
+                memory_seen: 0,
+                patches,
+                last_used: 0,
+                forked_from: None,
+            },
+        )
+        .unwrap();
+    let p = post(s.addr, "board", "other", "a new fact");
+    assert_eq!(p.status, 200, "{}", p.body);
+    turns.push(("user".into(), "and now?".into()));
+    let refs: Vec<(&str, &str)> = turns
+        .iter()
+        .map(|(r, c)| (r.as_str(), c.as_str()))
+        .collect();
+    eng.say("fine");
+    let r = chat(s.addr, &chat_req("c1", &refs));
+    assert_eq!(r.status, 200, "{}", r.body);
+    let c = board.conversation(&key_of("c1"));
+    assert_eq!(c.patches.len(), n, "no new block past the budget");
+    assert_eq!(
+        c.board_seen, 1,
+        "the cursor stays: the fact waits, it is not lost"
+    );
+    let prompt: String = eng
+        .prompts()
+        .last()
+        .unwrap()
+        .iter()
+        .map(|&t| t as u8 as char)
+        .collect();
+    assert!(
+        prompt.contains("[block 0]") && prompt.contains(&format!("[block {}]", n - 1)),
+        "earlier blocks still re-applied"
+    );
+    assert!(!prompt.contains("a new fact"), "nothing new appended");
 }
