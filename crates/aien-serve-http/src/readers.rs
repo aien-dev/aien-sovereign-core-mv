@@ -374,10 +374,10 @@ pub fn map_body(
         "You are reader {k} of {n}. A long input ({total} tokens, {lines} lines) was split into {n} parts; you read part {k} only. The other readers have the other parts, and a final writer will connect every reader's notes to answer the user.\n\n\
          {ask}:\n<<<\n{q}\n>>>\n\n\
          Part {k} of {n} ({range}):\n<<<\n{text}\n>>>\n\n\
-         Write notes on this part only, under these headings:\n\
-         Summary: 2 to 5 sentences.\n\
-         Key facts: bullet points with exact quotes, numbers, names and dates as written.\n\
-         For the request: what in this part answers or bears on the user's request (\"nothing\" if none).\n\
+         Write notes on this part only, under these headings, in this order (your notes may be cut short, so the request comes first):\n\
+         For the request: every fact in this part that answers or bears on the user's request, with exact quotes, numbers, names, ids and times as written (\"nothing\" if none).\n\
+         Key facts: other important facts, as bullet points, exact as written.\n\
+         Summary: 2 to 4 sentences.\n\
          Open questions: what this part leaves unclear, or points to elsewhere, worth following up.\n\
          Links: names, terms, ids and references that may connect to other parts.\n\
          Be concise. Write nothing that is not in the part.",
@@ -418,7 +418,7 @@ pub fn notes_block(plan: &Plan, notes: &[String]) -> String {
         ));
     }
     s.push_str(
-        "\nAnswer the user's request from these notes. Connect facts across the parts, say which part a fact comes from when it matters, and say so when the notes do not cover something.",
+        "\nAnswer the user's request from these notes. Connect facts across the parts, say which part a fact comes from when it matters, and say so when the notes do not cover something. The parts are different stretches of the input: events or items reported by different parts with different times or ids are different events; count each once.",
     );
     s
 }
