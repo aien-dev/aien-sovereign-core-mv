@@ -153,7 +153,29 @@ Ladder, v2 against v1 (the same command, binary and goldens, back to back; share
 v2 is no longer linear in N but it is still close: 14.35 ms per extra head (calc:5397d25b, N=1 to N=8), where the byte model says
 0.21 GB = 0.77 ms per row at the 273 GB/s ceiling. The eight-head beat moves about 11.5 GB of weights (union 57 experts) in 127.75 ms,
 90 GB/s against the 273 GB/s ceiling (calc:48eb2528). The per-head launches (GDN, attention, router, combine, lm_head: about 240 per
-head per stroke) carry the cost now; the next receipt is the chip timeline per launch kind (`AIEN_STROKE_STAMPS=1`, `stroke8v2-stamps`).
+head per stroke) carry the cost now; the chip timeline per launch kind below says which.
+
+Chip timeline of one eight-head stroke, `AIEN_STROKE_STAMPS=1` (bin 97bc3074, lib fbd53817; stamps cost chip time, so the stroke
+medians here, 127.461 v2 and 183.022 v1, are not the speed numbers; `stroke8v2-stamps.log`, `stroke8b-stamps.log`, the full table in
+each log and `timeline_last_stroke` in the json):
+
+| launch kind | v1 launches | v1 ms | v2 launches | v2 ms | what changed |
+|---|---|---|---|---|---|
+| lm_head (bf16, per head) | 8 | 38.717 | 8 | 38.836 | unchanged: 1.017 GB (calc:82fb7315) read eight times, 4.854 ms a head (calc:287e5639) = 209.5 GB/s (calc:82d6edb1) |
+| gate_up + down (experts) | 640 | 54.361 | 80 | 40.792 | 72 expert reads a layer (13.59 GB, calc:57a6878b, 250 GB/s calc:7153d616) became the union of 55 (10.38 GB, calc:40ba16a5, 254.5 GB/s calc:803d5a45) |
+| mix + o_proj (dense) | 640 | 52.554 | 80 | 9.255 | read once for all heads: 5.68x (calc:b05616ee); mix 0.944 GB (calc:a04c7dfc) at 140.9 GB/s (calc:e9dc266c), o_proj at 131.3 GB/s (calc:cdeb028d) |
+| router (per head) | 320 | 11.826 | 320 | 12.027 | unchanged, 37.6 us a launch (calc:0e8ebea6) |
+| gdn + attn (per head) | 320 | 13.288 | 320 | 12.976 | unchanged |
+| res, ab, swiglu, gather, gate, argmax, norm | 1384 | 8.243 | 585 | 4.123 | fewer, wider |
+| perm + group (v2 only) | 0 | 0 | 410 | 2.047 | the price of the batch |
+| total timeline | 3312 | 178.989 | 1755 | 120.056 | |
+
+The order of the levers now follows from the table: (1) the lm_head once for all heads (a y-stride argument in the GEMM so eight
+logits rows land in the slots; with the FP8 head 0.51 GB): 127.753 - 38.836 + 4.854 = 93.8 ms per stroke (calc:9c9d33dc), 85.3 tok/s
+(calc:a93a26c5) at today's other costs; (2) the router once for all heads (one 256 x 2048 bf16 read, 12 ms -> about 2); (3) the dense
+GEMM at M = 8 runs at 131-141 GB/s, half the ceiling (cta budget 96 at one segment: sweep it); (4) GDN and attention over heads.
+The expert GEMMs are at 93% of the 273 GB/s ceiling already (calc:803d5a45); the beat's floor at union 55 is their 10.4 GB plus the
+dense 1.3 GB plus the head 0.5 GB = about 12 GB = 45 ms, 178 tok/s for eight.
 
 ## Files
 `gate1-*.json/.log` first pass (band withdrawn, data kept), `gate1b-*.json/.log` the rerun, `gate2-*.json` the door, `stroke-*.json/.log`
