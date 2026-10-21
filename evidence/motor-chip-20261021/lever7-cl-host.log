@@ -1,0 +1,8 @@
+codegen axpy: 23 insns, peak 12 gprs, declared 16
+codegen res add|norm: 128 insns, peak 40 gprs, declared 48
+codegen res combine|norm: 264 insns, peak 49 gprs, declared 56
+codegen res add: 45 insns, peak 28 gprs, declared 32
+codegen swiglu: 29 insns, peak 16 gprs, declared 24
+codegen argmax: 165 insns, peak 32 gprs, declared 40
+codegen argmax indexed: 160 insns, peak 40 gprs, declared 48
+host-only: 27 checks, 0 failed: PASS

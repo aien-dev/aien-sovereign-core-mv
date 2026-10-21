@@ -1,0 +1,14 @@
+L=64: baseline 102.3 us/launch (chip 102.3 us, wall 102.8 us per launch); PCAS ok 3.24 us/launch (wall 3.25, 1 submits); INLINE ok 4.87 us/launch (1 submits)
+L=289: baseline 103.5 us/launch (chip 103.5 us, wall 104.0 us per launch); PCAS ok 2.86 us/launch (wall 2.86, 1 submits); INLINE ok 3.95 us/launch (4 submits)
+L=1024: baseline 103.4 us/launch (chip 103.4 us, wall 104.0 us per launch); PCAS ok 2.81 us/launch (wall 2.82, 1 submits); INLINE ok 3.95 us/launch (13 submits)
+negative control skip_launch=33: rc -1 first_missing 32 sems_done 63/64 x x0+63a
+heavy chain (32 x 1M elements): WFI rc 0 0 differ 1373.6 us; BARRIER_NONE rc 0 15616 differ 1759.4 us (informational: grids overlapped without the barrier: the WFI is load-bearing)
+glue list tie 0: rc 0, 5 launches in 1 submit(s) 110.3 us chip; x identical, y 0 bad, act 0 bad, argmax 45508 (ref 45508)
+glue list tie 1: rc 0, 5 launches in 1 submit(s) 107.1 us chip; x identical, y 0 bad, act 0 bad, argmax 1007 (ref 1007)
+chip mutant 1: rc 0, x same, y 2048 bad, argmax 1007 (ref 1007): caught
+chip mutant 2: rc 0, x differs, y 2047 bad, argmax 1007 (ref 1007): caught
+chip mutant 3: rc 0, x same, y 0 bad, argmax 83730 (ref 1007): caught
+rows real: rc 0, 8 launches 112.9 us chip; combine+norm x differ 0 y differ 0, gate differ 0
+rows mutants: rc 0, 8 launches 107.3 us chip; combine+norm x differ 0x7 y differ 0x7, gate differ 0x6
+chip: 36 checks, 0 failed: PASS
+exit 0 at 2026-10-21T15:08:48Z

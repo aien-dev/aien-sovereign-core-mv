@@ -1,0 +1,28 @@
+COMBINE|NORM 9 groups seed 1 scale 1: x and y worst rel 9.78e-08
+COMBINE|NORM 9 groups seed 2 scale 2^64: x and y worst rel 1.13e-07
+COMBINE|NORM 9 groups seed 3 scale 1: x and y worst rel 1.18e-07
+COMBINE mutant 2: caught (x and y worst rel 1.53e-01)
+COMBINE mutant 3: caught (x and y worst rel 2.38e-02)
+SWIGLU width 512 x 9 groups seed 11: act worst rel 3.11e-07
+SWIGLU width 512 x 9 groups seed 12: act worst rel 3.07e-07
+SWIGLU mutant 1: caught (act worst rel 1.87e+03)
+GROUP 9 slots: 202 instructions, 40 registers
+GROUP seed 21: heads 8 rows 72 distinct 65: seg_gu ok, seg_dn ok, xmap ok, ymap ok
+GROUP all-same seed 22: heads 8 rows 72 distinct 9: seg_gu ok, seg_dn ok, xmap ok, ymap ok
+GROUP seed 23: heads 1 rows 9 distinct 9: seg_gu ok, seg_dn ok, xmap ok, ymap ok
+GROUP seed 24: heads 3 rows 27 distinct 25: seg_gu ok, seg_dn ok, xmap ok, ymap ok
+GROUP seed 25: heads 8 rows 72 distinct 65: seg_gu ok, seg_dn ok, xmap ok, ymap ok
+GROUP all-same seed 26: heads 2 rows 18 distinct 9: seg_gu ok, seg_dn ok, xmap ok, ymap ok
+GROUP mutant 1: caught (heads 8 rows 72 distinct 65: seg_gu ok, seg_dn ok, xmap WRONG, ymap WRONG)
+GROUP mutant 2: caught (heads 8 rows 72 distinct 65: seg_gu WRONG, seg_dn WRONG, xmap ok, ymap ok)
+GROUP mutant 3: caught (heads 8 rows 72 distinct 65: seg_gu WRONG, seg_dn WRONG, xmap ok, ymap ok)
+COMBINE|NORM rows (L356): 1 heads: 0 of 4096 x and y floats differ from the one-head program
+COMBINE|NORM rows (L356): 3 heads: 0 of 12288 x and y floats differ from the one-head program
+COMBINE|NORM rows (L356): 8 heads: 0 of 32768 x and y floats differ from the one-head program
+COMBINE rows mutant 3: caught (8 heads: 32768 of 32768 x and y floats differ from the one-head program)
+GATE rows (L312 lever 7): 1 heads: 0 of 4096 gate outputs differ from the one-row program
+GATE rows (L312 lever 7): 3 heads: 0 of 12288 gate outputs differ from the one-row program
+GATE rows (L312 lever 7): 8 heads: 0 of 32768 gate outputs differ from the one-row program
+GATE rows mutant 1: caught (3 heads: 12288 of 12288 gate outputs differ from the one-row program)
+GATE rows mutant 2: caught (3 heads: 8192 of 12288 gate outputs differ from the one-row program)
+q36_dec_sim_test: 34 checks, 0 failed: PASS

@@ -1,0 +1,29 @@
+sim res mode 5 scale 1 mutant 0: x identical, y 0/2048 outside tolerance
+sim res mode 5 scale 1 mutant 1: x identical, y 2047/2048 outside tolerance
+sim res mode 6 scale 1 mutant 0: x identical, y 0/2048 outside tolerance
+sim res mode 6 scale 1 mutant 1: x DIFFERS, y 2047/2048 outside tolerance
+sim res mode 5 scale 2^64 mutant 0: x identical, y 0/2048 outside tolerance
+sim res mode 5 scale 2^64 mutant 1: x identical, y 2047/2048 outside tolerance
+sim res mode 6 scale 2^64 mutant 0: x identical, y 0/2048 outside tolerance
+sim res mode 6 scale 2^64 mutant 1: x DIFFERS, y 2048/2048 outside tolerance
+sim swiglu mutant 0: 0/6144 outside tolerance
+sim swiglu mutant 1: 6144/6144 outside tolerance
+sim argmax tie 0 mutant 0: index 151625 value 49.9996 (ref 151625)
+sim argmax tie 0 mutant 1: index 151625 value 49.9996 (ref 151625)
+sim argmax tie 1 mutant 0: index 1007 value 60 (ref 1007)
+sim argmax tie 1 mutant 1: index 28784 value 49.9999 (ref 1007)
+sim res width 5120 mode 5 mutant 0: x identical, y 0/5120 outside tolerance
+sim res width 5120 mode 5 mutant 1: x identical, y 5120/5120 outside tolerance
+sim res width 5120 mode 4 mutant 0: x identical, y 0/5120 outside tolerance
+sim res width 5120 mode 4 mutant 1: x identical, y 5120/5120 outside tolerance
+sim res width 5120 mode 1 mutant 0: x identical, y 0/5120 outside tolerance
+sim swiglu width 17408 mutant 0: 0/17408 outside tolerance
+sim swiglu width 17408 mutant 1: 17407/17408 outside tolerance
+sim res rows 3 x 5120 mutant 0: x identical, y 0/15360 outside tolerance
+sim res rows 3 x 5120 mutant 1: x identical, y 15360/15360 outside tolerance
+sim gather 3 x 14336 mutant 0: 0/43008 wrong
+sim gather 3 x 14336 mutant 1: 43008/43008 wrong
+sim gate 6244 mutant 0: 0/6244 outside tolerance
+sim gate 6244 mutant 1: 6244/6244 outside tolerance
+sim swiglu rows 3 x 17408: 0 outside tolerance
+sim: 74 checks, 0 failed: PASS
