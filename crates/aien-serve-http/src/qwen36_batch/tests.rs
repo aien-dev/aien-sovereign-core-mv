@@ -480,3 +480,30 @@ fn the_switch_names_round_trip_from_json() {
         .unwrap()
         .is_empty());
 }
+
+#[test]
+fn long_prompts_go_in_as_chunks_and_keep_the_turn_header_copy() {
+    // L369: a row with more than Q36_PREFILL_MIN prompt tokens left reads a chunk per beat
+    // (prefill_row); the replies are the request's alone, and a chunk stops at the last turn
+    // header, so the copy there is taken and a reworded next turn restores it.
+    let im = IM_START;
+    let body = |seed: u32, n: u32| -> Vec<u32> {
+        (0..n)
+            .map(|i| 1 + (seed.wrapping_mul(7919) ^ i.wrapping_mul(31)) % 90)
+            .collect()
+    };
+    let mut p1 = body(1, 300);
+    p1.push(im);
+    p1.extend(body(2, 40));
+    let (d, fed) = door(2, None, 4);
+    let (r1, _) = run(&d, &p1, &greedy(4));
+    assert_eq!(r1, alone(&p1, 4));
+    let other = (r1[0] + 1) % VOCAB as u32;
+    let mut p2 = p1.clone();
+    p2.extend([other, 78, im]);
+    p2.extend(body(3, 150));
+    let before = fed.load(Ordering::SeqCst);
+    let (r2, _) = run(&d, &p2, &greedy(5));
+    assert_eq!(r2, alone(&p2, 5), "restored row == cold row");
+    assert_eq!(fed.load(Ordering::SeqCst) - before, (p2.len() - 300) + 4);
+}
