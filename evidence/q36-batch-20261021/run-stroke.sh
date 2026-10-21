@@ -1,5 +1,6 @@
 #!/bin/bash
-# L354: the stroke build through the same gate: 8 slots (real + row swap), then 32 slots (real). Results in run-gate.result.
-cd "$(dirname "$0")"; ./run-gate.sh 829a2dfd 8; mv run-gate.result run-gate-829a2dfd-8.result
-sed -i 's/^run swap40-\$SLOTS 1 AIEN_Q36_TEST_ROW_SWAP=40$/[ "$SLOTS" = 8 ] \&\& run swap40-$SLOTS 1 AIEN_Q36_TEST_ROW_SWAP=40/' run-gate.sh
-./run-gate.sh 829a2dfd 32; mv run-gate.result run-gate-829a2dfd-32.result
+# L354: a stroke build through the same gate: 8 slots (real + row swap), then 32 slots (real only, SWAP=0).
+# Usage: run-stroke.sh [sha8, default 13f06473 = strokes + exact head + levers]. Results in run-gate-<sha>-<slots>.result.
+cd "$(dirname "$0")"; SHA=${1:-13f06473}
+./run-gate.sh $SHA 8; mv run-gate.result run-gate-$SHA-8.result
+SWAP=0 ./run-gate.sh $SHA 32; mv run-gate.result run-gate-$SHA-32.result
