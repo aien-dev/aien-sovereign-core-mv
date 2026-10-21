@@ -352,9 +352,11 @@ impl Qwen38Omega {
         // Strokes (L312): up to MAX_HEADS rows per command list, the head slots pointed at them.
         if let Some(sg) = self.row_stroke.as_mut() {
             for chunk in feed.chunks(q::MAX_HEADS) {
-                // The exact head (when built) makes off-candidate logits -inf: on for the whole stroke only
-                // when no row in it reads logits (sampled rows need every one).
-                sg.set_exact_head_on(!chunk.iter().any(|f| f.logits));
+                // The exact head (when built) makes off-candidate logits -inf: on per head slot, for the
+                // rows that read no logits (sampled rows need every one).
+                for (hd, f) in chunk.iter().enumerate() {
+                    sg.set_head_exact_head_on(hd, !f.logits);
+                }
                 let mut x = Vec::with_capacity(chunk.len() * h);
                 let mut pos = Vec::with_capacity(chunk.len());
                 for (hd, f) in chunk.iter().enumerate() {
