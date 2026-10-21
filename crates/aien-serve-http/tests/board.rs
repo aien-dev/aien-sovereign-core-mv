@@ -911,3 +911,25 @@ fn a_block_that_would_not_fit_is_left_out_and_the_cursor_stays() {
     let r = chat(s.addr, &chat_req("c1", &[("user", long.as_str())]));
     assert_eq!(r.status, 400, "{}", r.body);
 }
+
+#[test]
+fn a_reply_cut_by_the_length_cap_runs_no_builtin_call() {
+    let eng = Script::new();
+    let board = Arc::new(Board::in_memory());
+    let s = start(eng.clone(), Arc::new(ByteCodec), Some(board.clone()));
+    let full = call("board_post", "text", "half written");
+    eng.say(&full);
+    let mut req = with_tools(chat_req("c1", &[("user", "go")]));
+    req["max_tokens"] = json!(full.len() - 10);
+    let r = chat(s.addr, &req);
+    assert_eq!(r.status, 200, "{}", r.body);
+    let v = json(&r);
+    assert_eq!(v["choices"][0]["finish_reason"], "length", "{}", r.body);
+    assert!(v["choices"][0]["message"]["tool_calls"].is_null(), "{}", r.body);
+    assert_eq!(
+        v["choices"][0]["message"]["content"].as_str().unwrap(),
+        &full[..full.len() - 10]
+    );
+    assert_eq!(board.counts().0, 0, "a cut call must not be run");
+    assert_eq!(eng.prompts().len(), 1);
+}

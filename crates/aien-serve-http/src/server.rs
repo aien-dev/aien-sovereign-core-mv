@@ -1138,7 +1138,8 @@ fn run_generation(
             break;
         };
         let (before, calls) = crate::tools::parse_reply(&held, id);
-        if calls.is_empty() {
+        // A reply cut by the length cap may hold a half-written call: not run, not forwarded as a call.
+        if calls.is_empty() || out.finish != FinishReason::Stop {
             let _ = send_delta(&tx, std::mem::take(&mut held), &mut sent);
             last = out;
             break;
@@ -1300,7 +1301,7 @@ async fn collect_response(
                     aien_token_ids: token_ids,
                 };
                 let reasoning = reasoning.as_deref().map(str::trim);
-                let (text, calls) = if tools {
+                let (text, calls) = if tools && finish == "stop" {
                     crate::tools::parse_reply(&content, &id)
                 } else {
                     (content.clone(), Vec::new())
@@ -1400,7 +1401,13 @@ fn stream_response(
                     };
                     let mut finish = finish;
                     if tools && !held.is_empty() {
-                        let (text, calls) = crate::tools::parse_reply(&held, &id);
+                        // A reply cut by the length cap may hold a half-written call: it goes
+                        // out as text, never as a call.
+                        let (text, calls) = if finish == "stop" {
+                            crate::tools::parse_reply(&held, &id)
+                        } else {
+                            (std::mem::take(&mut held), Vec::new())
+                        };
                         if !text.is_empty() && etx
                             .send(data(chunk_json(&id, created, &model, None, Some(&text), None, None)))
                             .await
