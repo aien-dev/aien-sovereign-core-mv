@@ -338,6 +338,9 @@ fn run() -> Result<bool, String> {
         .collect();
     let mut gpu_logits: Vec<Vec<Vec<f32>>> = (0..heads).map(|_| Vec::new()).collect();
     let mut stroke_ns = Vec::with_capacity(t_max);
+    // L356: where a stroke's host time goes (record = begin to submit, while the chip waits; total = begin
+    // to end; wall = around engine.stroke, the Rust side included).
+    let (mut record_ns, mut total_ns, mut wall_ns) = (Vec::with_capacity(t_max), Vec::with_capacity(t_max), Vec::with_capacity(t_max));
     let mut swapped_at = None;
     for p in 0..t_max {
         if p == swap_at && swap != Swap::None {
@@ -351,8 +354,12 @@ fn run() -> Result<bool, String> {
         for (c, conv) in convs.iter().enumerate() {
             feed[slot_of[c]] = conv.seq[p.min(conv.seq.len() - 1)];
         }
+        let t_stroke = Instant::now();
         let (out, st) = engine.stroke(&feed)?;
+        wall_ns.push(t_stroke.elapsed().as_nanos() as u64);
         stroke_ns.push(st.chip_ns);
+        record_ns.push(st.record_ns);
+        total_ns.push(st.total_ns);
         for (c, conv) in convs.iter().enumerate() {
             if p < conv.seq.len() {
                 tokens[c].push(out[slot_of[c]]);
@@ -483,6 +490,11 @@ fn run() -> Result<bool, String> {
 
     let mut ns = stroke_ns.clone();
     let med = median(&mut ns);
+    let (rec_med, tot_med, wall_med) = (median(&mut record_ns.clone()), median(&mut total_ns.clone()), median(&mut wall_ns.clone()));
+    println!(
+        "QWEN36_STROKE_HOST heads {heads}: median per stroke: record {:.3} ms, graph total {:.3} ms, chip {:.3} ms, wall {:.3} ms",
+        rec_med as f64 / 1e6, tot_med as f64 / 1e6, med as f64 / 1e6, wall_med as f64 / 1e6
+    );
     println!(
         "QWEN36_STROKE_GATE heads {heads} strokes {}: chip per stroke median {:.3} ms ({} tokens per stroke; shared chip, a receipt only under spark-window); swap {}; {}",
         stroke_ns.len(),
@@ -505,6 +517,8 @@ fn run() -> Result<bool, String> {
         "swap_mode": match swap { Swap::None => "none", Swap::Control => "control", Swap::Feature => "feature" },
         "swapped_at_step": swapped_at,
         "stroke_chip_ns": stroke_ns, "stroke_chip_ns_median": med,
+        "stroke_record_ns_median": rec_med, "stroke_total_ns_median": tot_med, "stroke_wall_ns_median": wall_med,
+        "stroke_record_ns": record_ns, "stroke_total_ns": total_ns, "stroke_wall_ns": wall_ns,
         "stamps": stamps, "timeline_last_stroke": timeline,
         "thresholds": {"cosine_min_recorded": COSINE_MIN, "margin_band_logits": MARGIN_MIN},
         "gate": "every conversation: words identical to its golden except where the reference's top-two margin is below the written band (0.1 logit, fixed in advance, never from the run under test); chip greedy agrees at every position outside the band; shifted-by-one caught; reference equals golden. Controls: AIEN_Q36_TEST_MUTANT=4 and AIEN_STROKE_SWAP=control must FAIL; AIEN_STROKE_SWAP=feature must PASS (L312 stroke v1)",
