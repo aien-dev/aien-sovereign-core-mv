@@ -37,6 +37,12 @@ Rule: docs/inference/q36/w4-gate.md (frozen before every run). Evidence: evidenc
   grows about linearly, projecting 1.1128), and nv16 clips 1.74x more values than BEST. Limit: the held-out interval
   1.081 to 1.198 projects to about 1.054 to 1.133, so this is a point-estimate stop whose interval includes a pass; a
   follow-up re-opens nv16 with that evidence, not by argument.
+- Mixed inside the expert (w4-gate.md NV16 item 4, frozen before the measurement; evidence/l355-w4/split/split-16.json):
+  on the survey's expert sample (16 experts + the shared one per layer, 2.14 G weights; its nv16 squared error 0.0085029
+  matches the full store's 0.0085012), BEST 0.0126745, limit 0.0063373. nv16 gate|up with FP8 down (m-gu) 0.0057170: GO;
+  FP8 gate|up with nv16 down (m-dn) 0.0027859: GO. Per matrix the two formats err alike (gate|up 0.0922, down 0.0922 rms),
+  so the split follows the bytes. m-gu (0.708 of FP8 expert bytes, calc:449379b7) runs first as host arm w4mgu, A + B + C,
+  every load under q36-extra; m-dn only if m-gu REJECTs. Result: see the verdict files verdict-w4mgu.json / verdict-w4mdn.json.
 
 ## What this means
 - The 4-bit expert format with one power-of-two scale per 32 weights (MXFP4) is not accurate enough to serve on this
