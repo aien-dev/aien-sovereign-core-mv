@@ -1,5 +1,5 @@
 #!/bin/bash
-# borrow.sh PORT OUT SERVER_LOG SOCK: L383 merge-train case. Test copies borrow the train server's weights
+# borrow.sh PORT OUT SERVER_LOG [SOCK]: L383 merge-train case. Test copies borrow the train server's weights
 # (it runs with AIEN_SERVE_WEIGHTS_PUBLISH=SOCK) instead of loading their own 35 GB. No extra 35B load.
 #  1. copy A starts with --weights-from SOCK (2 rows x 8192): its start time and own memory are the receipt;
 #     golden-chat-max-24 ids on A == the host golden; 4 prompts greedy + 1 sampled on A == the same on the
@@ -10,7 +10,7 @@
 #     SIGSEGV (read-only mapping) without "LANDED"; the train server still gives the golden afterwards.
 # Exit 0 PASS, 1 FAIL (identity, crash or mutant), 2 ERROR (no publisher, no copy came up).
 set -u
-PORT=${1:?port}; OUT=${2:?out}; SLOG=${3:-}; SOCK=${4:?socket}
+PORT=${1:?port}; OUT=${2:?out}; SLOG=${3:-}; SOCK=${4:-$HOME/.local/state/aien-mt/w-$1.sock} # the merge train publishes there
 mkdir -p "$OUT"; R=$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)
 GOLD=$R/evidence/q36-host-20261020/gen-chat-max-24.json
 log() { echo "$(date -u +%FT%TZ) $*" | tee -a "$OUT/borrow.txt"; }
