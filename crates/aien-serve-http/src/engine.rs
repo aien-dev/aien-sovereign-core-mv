@@ -101,6 +101,19 @@ pub trait Engine: Send + Sync {
         params: &GenerateParams,
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, EngineError>;
+    /// [`Self::generate_with_test`] with token positions of `prompt` worth a prompt cache
+    /// checkpoint (sc L375: the tool boundaries). Engines without a prompt cache ignore them.
+    fn generate_marked(
+        &self,
+        prompt: &[u32],
+        marks: &[usize],
+        params: &GenerateParams,
+        test: &TestSwitches,
+        on_token: &mut dyn FnMut(u32) -> bool,
+    ) -> Result<GenerateOutcome, EngineError> {
+        let _ = marks;
+        self.generate_with_test(prompt, params, test, on_token)
+    }
     /// Persistent KV status and counters for `/health` (sc#505). `None` (the default, and the
     /// omega door with `AIEN_KV_STORE_DIR` unset) leaves `/health` exactly as it was.
     fn persistence_status(&self) -> Option<serde_json::Value> {
