@@ -482,6 +482,68 @@ impl Qwen38Omega {
     }
 }
 
+impl Qwen38Omega {
+    /// L369: `tokens` (a prompt chunk, at most [`q::PREFILL_MAX_ROWS`]) into row `r` at its next
+    /// positions through the chip's prefill: the state ends bit for bit as `tokens.len()` steps of
+    /// [`Self::step_rows`] would leave it. The last token's greedy token, and its logits when asked
+    /// (then the exact head is off for that token, as in a stroke with a row reading logits).
+    pub fn prefill_row(&mut self, r: usize, tokens: &[u32], logits: bool) -> Result<RowOut, String> {
+        let (v, h) = (self.config.vocab, self.config.hidden);
+        let n = tokens.len();
+        if r >= self.rows.len() {
+            return Err(format!("prefill_row: row {r} of {}", self.rows.len()));
+        }
+        if n == 0 || n > q::PREFILL_MAX_ROWS {
+            return Err(format!("prefill_row: {n} tokens (1..={})", q::PREFILL_MAX_ROWS));
+        }
+        if let Some(&t) = tokens.iter().find(|&&t| t as usize >= v) {
+            return Err(format!("prefill_row: token {t} outside the vocab {v}"));
+        }
+        let (pos, max_pos) = (self.rows[r].pos, self.rows[r].max_pos);
+        if pos + n > max_pos {
+            return Err(format!("prefill_row: row {r} holds {max_pos} positions, {pos} + {n} asked"));
+        }
+        let mut x = Vec::with_capacity(n * h);
+        for &t in tokens {
+            let t = t as usize;
+            x.extend(self.embed[t * h..(t + 1) * h].iter().map(|&b| bf16_to_f32(b)));
+        }
+        // The stroke graph's head slot 0 pointed at the row (its prefill buffers serve every row), or
+        // the row's own graph when the strokes are off.
+        let row = &mut self.rows[r];
+        let g: &mut Q36Graph = match self.row_stroke.as_mut() {
+            Some(sg) => {
+                let (gd, a) = (
+                    row.gdn.as_ref().map_or(std::ptr::null_mut(), Gdn::as_raw),
+                    row.attn.as_ref().map_or(std::ptr::null_mut(), Attn256Cache::as_raw),
+                );
+                // SAFETY: the row's state lives in `self.rows`, which outlives the stroke graph.
+                unsafe { sg.set_head_state(0, gd, a) }.map_err(gpu("prefill_row set_head_state"))?;
+                sg
+            }
+            None => &mut row.graph,
+        };
+        if g.prefill_cap() < n {
+            g.prefill_alloc(q::PREFILL_MAX_ROWS).map_err(gpu("prefill_row alloc"))?;
+        }
+        g.set_exact_head_on(!logits);
+        let (token, stats) = g.prefill(0, &x, pos, true).map_err(gpu("prefill_row"))?;
+        let out_logits = if logits {
+            let mut l = vec![0f32; v];
+            g.read_head(0, None, None, Some(&mut l)).map_err(gpu("prefill_row read logits"))?;
+            Some(l)
+        } else {
+            None
+        };
+        self.rows[r].pos += n;
+        Ok(RowOut {
+            token: token.ok_or("prefill_row: no token")?,
+            logits: out_logits,
+            stats,
+        })
+    }
+}
+
 /// The row-swap negative control fires once per process.
 static ROW_SWAPPED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
