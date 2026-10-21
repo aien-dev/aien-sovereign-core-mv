@@ -565,10 +565,14 @@ struct Ffn {
 
 impl Ffn {
     fn run(&self, xn: &[f32], t: usize) -> Vec<f32> {
+        self.down.matmul(&self.act(xn, t), t)
+    }
+
+    /// `silu(gate x) * up x`, the down projection's input (`[t][inter]`).
+    fn act(&self, xn: &[f32], t: usize) -> Vec<f32> {
         let gate = self.gate.matmul(xn, t);
         let up = self.up.matmul(xn, t);
-        let act: Vec<f32> = gate.iter().zip(&up).map(|(&g, &u)| silu(g) * u).collect();
-        self.down.matmul(&act, t)
+        gate.iter().zip(&up).map(|(&g, &u)| silu(g) * u).collect()
     }
 }
 
@@ -737,6 +741,8 @@ pub struct Qwen38Reference<S: TensorSource> {
     pub shared_g: Vec<Vec<f32>>,
     /// L355: 4-bit tensors read from a store in place of the FP8 ones ([`Self::set_w4`]).
     w4: Option<W4Host>,
+    /// Calibration statistics for the error-feedback 4-bit rounding (L355): when set, every MoE call adds its inputs.
+    pub calib: Option<crate::q36_w4_gptq::Calib>,
     /// L355: the MTP head's own weights, read on first use ([`Self::mtp_step`]).
     mtp: Option<MtpWeights>,
 }
@@ -827,6 +833,7 @@ impl<S: TensorSource> Qwen38Reference<S> {
             route_wts: Vec::new(),
             shared_g: Vec::new(),
             w4: None,
+            calib: None,
             mtp: None,
         })
     }
@@ -1035,7 +1042,20 @@ impl<S: TensorSource> Qwen38Reference<S> {
                 users[e].push((i, wt));
             }
         }
-        let mut out = w.shared.run(xn, t);
+        let mut out = match self.calib.as_mut() {
+            Some(c) => {
+                c.add_gu(l, xn, t);
+                let act = w.shared.act(xn, t);
+                let mut wa = act.clone();
+                for (i, r) in wa.chunks_exact_mut(s.shared_inter).enumerate() {
+                    let g = sigmoid(dot(&w.shared_gate, &xn[i * h..(i + 1) * h]));
+                    r.iter_mut().for_each(|v| *v *= g);
+                }
+                c.add_dn(l, s.experts, &wa, t);
+                w.shared.down.matmul(&act, t)
+            }
+            None => w.shared.run(xn, t),
+        };
         let mut gates = Vec::with_capacity(t);
         for (i, row) in out.chunks_exact_mut(h).enumerate() {
             let g = sigmoid(dot(&w.shared_gate, &xn[i * h..(i + 1) * h]));
@@ -1057,7 +1077,18 @@ impl<S: TensorSource> Qwen38Reference<S> {
             for &(i, _) in rows {
                 xs.extend_from_slice(&xn[i * h..(i + 1) * h]);
             }
-            let y = f.run(&xs, rows.len());
+            let y = match self.calib.as_mut() {
+                Some(c) => {
+                    let act = f.act(&xs, rows.len());
+                    let mut wa = act.clone();
+                    for (r, &(_, wt)) in wa.chunks_exact_mut(s.expert_inter).zip(rows) {
+                        r.iter_mut().for_each(|v| *v *= wt);
+                    }
+                    c.add_dn(l, e, &wa, rows.len());
+                    f.down.matmul(&act, rows.len())
+                }
+                None => f.run(&xs, rows.len()),
+            };
             for (yr, &(i, wt)) in y.chunks_exact(h).zip(rows) {
                 for (o, &v) in out[i * h..(i + 1) * h].iter_mut().zip(yr) {
                     *o += wt * v;

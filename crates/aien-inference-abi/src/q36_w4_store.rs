@@ -269,6 +269,28 @@ pub fn write_store(
     threads: usize,
     log: &mut dyn FnMut(&str),
 ) -> Result<Header, String> {
+    let quant = &mut |_l: usize, _p: usize, name: &str, n: usize, k: usize, w8: &[u8], s: &[u16]| {
+        aien_omega_q38::w4::from_fp8(n, k, w8, s, threads, rule).map_err(|e| format!("{name}: {e}"))
+    };
+    let converter = "omega omega_gpu_w4_from_fp8_rule (each FP8 checkpoint tensor, rows stacked)";
+    write_store_with(dir, out, rule_name(rule), converter, canary(rule)?, quant, log)
+}
+
+/// One fused tensor to MXFP4: `(layer, projection index in [`layer_projs`], name, n, k, FP8 rows, block scales)` to
+/// `(nibbles, scale bytes, stats)`.
+pub type Quantizer<'a> = dyn FnMut(usize, usize, &str, usize, usize, &[u8], &[u16]) -> Result<(Vec<u8>, Vec<u8>, aien_omega_q38::w4::W4Stats), String> + 'a;
+
+/// [`write_store`] with any rounding: `rule` / `converter` / `canary` go in the header ([`W4Store::open`] checks the
+/// canary against the linked rounding of that rule).
+pub fn write_store_with(
+    dir: &Path,
+    out: &Path,
+    rule: &str,
+    converter: &str,
+    canary: String,
+    quant: &mut Quantizer,
+    log: &mut dyn FnMut(&str),
+) -> Result<Header, String> {
     let c = Qwen38Config::from_checkpoint(dir)?;
     let mut source = ShardSource::open(dir)?;
     let prefix = text_prefix(&mut source)?;
@@ -283,7 +305,9 @@ pub fn write_store(
     let mut pos = MAGIC.len() as u64;
     let mut tensors = Vec::new();
     let mut tally = aien_omega_q38::w4::W4Stats::default();
-    let mut put = |name: String,
+    let mut put = |l: usize,
+                   pi: usize,
+                   name: String,
                    n: usize,
                    k: usize,
                    w8: &[u8],
@@ -291,8 +315,7 @@ pub fn write_store(
                    f: &mut BufWriter<File>,
                    pos: &mut u64|
      -> Result<aien_omega_q38::w4::W4Stats, String> {
-        let (w4, e8, st) = aien_omega_q38::w4::from_fp8(n, k, w8, s, threads, rule)
-            .map_err(|e| format!("{name}: {e}"))?;
+        let (w4, e8, st) = quant(l, pi, &name, n, k, w8, s)?;
         align(f, pos)?;
         let w_off = *pos;
         f.write_all(&w4).map_err(|e| format!("store write: {e}"))?;
@@ -312,22 +335,21 @@ pub fn write_store(
         Ok(st)
     };
     for l in 0..c.layers {
-        for (name, parts) in layer_projs(&c, &prefix, l, c.full_attention[l])? {
+        for (pi, (name, parts)) in layer_projs(&c, &prefix, l, c.full_attention[l])?.into_iter().enumerate() {
             let (n, k, w, s) = read_fused(&mut source, &name, &parts)?;
-            tally.add(&put(name, n, k, &w, &s, &mut f, &mut pos)?);
+            tally.add(&put(l, pi, name, n, k, &w, &s, &mut f, &mut pos)?);
         }
         log(&format!("w4 store: layer {l} of {} converted", c.layers));
     }
     let proj_rel_rms = tally.rel_rms();
     let header = Header {
         format: FORMAT,
-        rule: rule_name(rule).into(),
-        converter:
-            "omega omega_gpu_w4_from_fp8_rule (each FP8 checkpoint tensor, rows stacked)".into(),
+        rule: rule.into(),
+        converter: converter.into(),
         source: format!("{source_fp:016x}"),
         layers: c.layers,
         tensors,
-        canary: canary(rule)?,
+        canary,
         weights: tally.weights,
         saturated: tally.saturated,
         rel_rms: tally.rel_rms(),
@@ -408,9 +430,13 @@ impl W4Store {
             "ocp" => aien_omega_q38::w4::W4_RULE_OCP,
             "fit" => aien_omega_q38::w4::W4_RULE_FIT,
             "best" => aien_omega_q38::w4::W4_RULE_BEST,
+            "gptq" => -1,
             r => return Err(e(format!("rule {r}"))),
         };
-        if aien_omega_q38::w4::native() && canary(rule)? != header.canary {
+        if rule < 0 && crate::q36_w4_gptq::canary()? != header.canary {
+            return Err(e("the linked error-feedback rounding differs from the one that wrote this store (canary)".into()));
+        }
+        if rule >= 0 && aien_omega_q38::w4::native() && canary(rule)? != header.canary {
             return Err(e(
                 "the linked MXFP4 converter rounds differently from the one that wrote this store (canary)".into(),
             ));

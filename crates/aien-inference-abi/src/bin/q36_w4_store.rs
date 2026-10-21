@@ -1,6 +1,7 @@
 //! The Qwen3.6-35B-A3B MXFP4 store (L355): convert once, check, survey the scale rules.
 //!
 //!   q36_w4_store write <checkpoint dir> <out store> <ocp|fit|best> [threads]
+//!   q36_w4_store gptq <checkpoint dir> <out store> <calibration.txt> <tokens> [threads]
 //!   q36_w4_store check <checkpoint dir> <store>
 //!   q36_w4_store survey <checkpoint dir> [experts per layer, default 16]
 //!
@@ -66,6 +67,54 @@ fn survey(dir: &Path, per_layer: usize) -> Result<(), String> {
     Ok(())
 }
 
+/// Runs the FP8 host reference over the first `tokens` tokens of `text` with the calibration tap on, then writes the
+/// error-feedback store (docs/inference/q36/w4-gate.md, GPTQ arm). The calibration text must not be gate text.
+fn gptq(dir: &Path, out: &Path, text_path: &Path, tokens: usize, th: usize) -> Result<(), String> {
+    use aien_inference_abi::qwen38::{Logits, Qwen38Reference};
+    use aien_inference_abi::tokenizer::ChatTokenizer;
+    let t0 = Instant::now();
+    let text = std::fs::read_to_string(text_path).map_err(|e| format!("{}: {e}", text_path.display()))?;
+    let tok = ChatTokenizer::from_file(dir.join("tokenizer.json")).map_err(|e| e.to_string())?;
+    // the tokenizer takes at most 2048 tokens per call: encode pieces of about 4000 characters cut at line ends
+    let mut ids = Vec::new();
+    let mut piece = String::new();
+    for line in text.split_inclusive('\n') {
+        piece.push_str(line);
+        if piece.len() >= 4000 {
+            ids.extend(tok.encode(&piece).map_err(|e| e.to_string())?);
+            piece.clear();
+        }
+    }
+    if !piece.is_empty() {
+        ids.extend(tok.encode(&piece).map_err(|e| e.to_string())?);
+    }
+    if ids.len() < tokens {
+        return Err(format!("{}: {} tokens, {tokens} asked", text_path.display(), ids.len()));
+    }
+    ids.truncate(tokens);
+    let mut model = Qwen38Reference::open(dir)?;
+    let c = model.config.clone();
+    let s = c.moe.clone().ok_or("not a MoE checkpoint")?;
+    model.calib = Some(aien_inference_abi::q36_w4_gptq::Calib::new(c.layers, c.hidden, s.expert_inter, s.experts, th));
+    // windows of 2048 tokens (a fresh context each, like separate conversations), fed in chunks of 512
+    let mut st = model.new_state();
+    for (i, chunk) in ids.chunks(512).enumerate() {
+        if i % 4 == 0 {
+            st = model.new_state();
+        }
+        model.forward(&mut st, chunk, Logits::Last)?;
+        eprintln!("gptq calibration: {} of {tokens} tokens, {:.0} s", i * 512 + chunk.len(), t0.elapsed().as_secs_f64());
+    }
+    let calib = model.calib.take().ok_or("calibration lost")?;
+    drop(model);
+    let h = aien_inference_abi::q36_w4_gptq::write_store(dir, out, &calib, th, &mut |m| eprintln!("{m}"))?;
+    println!(
+        "{{\"store\":\"{}\",\"rule\":\"{}\",\"calibration\":\"{}\",\"tokens\":{tokens},\"tensors\":{},\"weights\":{},\"rel_rms\":{:.6},\"seconds\":{:.1}}}",
+        out.display(), h.rule, text_path.display(), h.tensors.len(), h.weights, h.rel_rms, t0.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     let t0 = Instant::now();
@@ -84,8 +133,12 @@ fn main() {
             println!("{{\"store\":\"{}\",\"check\":\"PASS\",\"tensors\":{},\"seconds\":{:.1}}}", a[3], s.header.tensors.len(), t0.elapsed().as_secs_f64());
             Ok(())
         }),
+        Some("gptq") if a.len() >= 6 => a[5].parse().map_err(|_| "tokens".to_string()).and_then(|n| {
+            let th = a.get(6).and_then(|s| s.parse().ok()).unwrap_or_else(threads);
+            gptq(Path::new(&a[2]), Path::new(&a[3]), Path::new(&a[4]), n, th)
+        }),
         Some("survey") if a.len() >= 3 => survey(Path::new(&a[2]), a.get(3).and_then(|s| s.parse().ok()).unwrap_or(16)),
-        _ => Err("usage: q36_w4_store write <dir> <out> <ocp|fit|best> [threads] | check <dir> <store> | survey <dir> [n]".into()),
+        _ => Err("usage: q36_w4_store write <dir> <out> <ocp|fit|best> [threads] | gptq <dir> <out> <calibration.txt> <tokens> [threads] | check <dir> <store> | survey <dir> [n]".into()),
     };
     if let Err(e) = r {
         eprintln!("q36_w4_store: {e}");

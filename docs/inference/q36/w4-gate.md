@@ -33,3 +33,27 @@ A run that changes these numbers after seeing results is void.
 evidence/l355-w4/survey.jsonl (16 routed experts per layer + the shared expert, and the whole trunk, every layer): relative
 RMS error experts OCP 0.116313, FIT 0.118971, BEST 0.112581; trunk OCP 0.118405, FIT 0.121358, BEST 0.114692. The store uses
 BEST (the smaller squared error per 32-weight group of OCP and FIT; the chip decodes every rule the same way).
+
+## GPTQ arm (written 2026-10-21 before its calibration ran; stricter than the rule above, never looser)
+Plain rounding (BEST) REJECTed: R1 1.0945, R2 confident 0.9970 (evidence/l355-w4/verdict-w4e.json); the layers 0-9 FP8 mix
+REJECTed too (verdict-w4em0.json). One more arm, then no more: error-feedback rounding (sc q36_w4_gptq.rs), same store
+format and kernel. Everything below is fixed now; nothing is retuned after a result.
+- Arm w4g: experts (routed + shared) from a store with rule `gptq`; trunk unchanged (FP8). Calibration: FP8 host reference
+  over ~/handoffs/l355/calib/calib-v1.txt (mind-map notes and ideas, repo docs, Rust and C sources; files holding any gate
+  prompt or GNU licence text skipped; sha256 prefix 2bcdb4691789d2c6; file list in evidence/l355-w4/calib-v1-files.txt),
+  first 32768 tokens, fresh context every 2048. H for gate|up = sum x x^T of every token's MoE input per layer; H for each
+  down = sum g^2 a a^T over the rows routed to that expert (g = router weight, the shared expert's gate). Damp 0.01 x mean
+  diagonal; BEST-style scale per group on the error-updated values (one up when the pass clips, lower loss wins).
+- ACCEPT needs all three:
+  A. The frozen rule above (control, R1, R1b, R2; mutant still REJECTs) on the five goldens.
+  B. R1 and R2 (same thresholds) on five held-out prompts no arm has run before this line: h1..h5 below, 512 steps each,
+     reference = the FP8 arm's own greedy ids, margins and NLL on them, the arm teacher-forced on those ids.
+  C. Paired against plain rounding: per-step NLL(w4g) - NLL(w4e) over the 5120 steps of A and B (w4e also run on h1..h5),
+     block bootstrap (blocks of 64 consecutive steps, 10000 resamples, seed 355): the 95 % upper bound of the mean
+     difference is below 0. The verdict prints the bootstrap 95 % interval of the R1 ratio for A and for B.
+- Held-out prompts (raw text, `\n` = newline):
+  h1 `The main reasons the Roman Empire declined were`
+  h2 `<|im_start|>user\nExplain how a refrigerator keeps food cold, in simple terms.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n`
+  h3 `fn main() {\n    let numbers = vec![3, 1, 4, 1, 5, 9];\n`
+  h4 `Photosynthesis is the process by which`
+  h5 `<|im_start|>user\nWrite a short email asking a colleague to move our Thursday meeting to Friday.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n`

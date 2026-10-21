@@ -7,7 +7,7 @@
 //! cleared: the calibrated mutant). The store comes from AIEN_Q36_W4_STORE (a path, or default) for every arm but fp8.
 //! forced: the prompt (`prompt_ids`) then `steps` tokens teacher-forced on the reference ids (`f32_ids` of an L313
 //! drift file, else `ref_ids` of an fp8 forced output); with neither (a golden file) the arm runs greedy and its own picks
-//! become `ref_ids`. Per step: the arm's argmax, its top-1 margin and the NLL of the reference id. score: NLL per token.
+//! become `ref_ids` (a golden may give `prompt_text` instead of `prompt_ids`). Per step: the arm's argmax, its top-1 margin and the NLL of the reference id. score: NLL per token.
 //!   q36_w4_drift mtp    <checkpoint dir> <ref.json> <steps> <arm> <out.json>   (AIEN_L355_MTP_K, default 4)
 //! mtp: teacher-forced on the reference ids like forced; at every step the MTP head drafts a chain of up to K tokens
 //! (each draft fed to the next) and the step records how many of them equal the reference continuation (the drafts a
@@ -77,7 +77,12 @@ fn run() -> Result<(), String> {
     match mode {
         "forced" => {
             let g: Value = serde_json::from_str(&text).map_err(|e| format!("{input}: {e}"))?;
-            let prompt = ids_of(&g, "prompt_ids");
+            let mut prompt = ids_of(&g, "prompt_ids");
+            if let (true, Some(pt)) = (prompt.is_empty(), g["prompt_text"].as_str()) {
+                // a held-out prompt written as text (w4-gate.md, GPTQ arm): the tokenizer's ids, special tokens included
+                let tok = ChatTokenizer::from_file(dir.join("tokenizer.json")).map_err(|e| e.to_string())?;
+                prompt = tok.encode(pt).map_err(|e| e.to_string())?;
+            }
             let mut refs = ids_of(&g, "f32_ids");
             if refs.is_empty() {
                 refs = ids_of(&g, "ref_ids");
