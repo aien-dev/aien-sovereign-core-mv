@@ -7,7 +7,7 @@ def rank: {"FAIL":6, "RED-FAIL":6, "ERROR":5, "NOT-ON-TRAIN":4, "SKIP":3, "PASS"
      | [$ids[] | . as $cid
          | ([$suite.cases[] | select(.id == $cid)][0].levers // null) as $only
          | [$cells[] | . as $x
-             | select($x.case == $cid and (($l.arms | index($x.arm)) != null)
+             | select(($x.case == $cid or $x.case == "*") and (($l.arms | index($x.arm)) != null)
                       and ($only == null or (($only | index($l.id)) != null)))
              | $x.verdict]
          | if length == 0 then "-" else max_by(rank) end] as $row

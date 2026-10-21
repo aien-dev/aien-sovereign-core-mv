@@ -226,11 +226,17 @@ start_server() { # <bin-dir> <port> <log> <pidfile> [VAR=value ...]
       --model-dir "$MODEL_DIR" --port "$port" --max-context "${MERGE_TRAIN_CTX:-2048}" --max-tokens-cap 16384 --thinking off --batch-slots "${MERGE_TRAIN_SLOTS:-8}" >> "$log" 2>&1 < /dev/null & echo $! > "$pidf" )
   say "server $(basename "$bin") starting on $port (pid $(cat "$pidf"), q36-extra slot wait + load; log $log)"
 }
-wait_ready() { # <port> <pidfile> [max_s]
-  local i; for ((i=0; i<${3:-1800}; i+=5)); do
-    kill -0 "$(cat "$2")" 2>/dev/null || { say "server exited before serving (q36-extra refused, or the load failed): $(tail -3 "$SERVER_LOG" | tr '\n' ' ' | cut -c1-300)"; return 1; }
-    [ -n "$(model_of "$1")" ] && return 0; sleep 5
-  done; say "server not serving after ${3:-1800} s"; return 1
+wait_ready() { # <port> <pidfile> [max_s]: max_s counts from the moment q36-extra execs the server (queue time is not
+  # counted: q36-extra gives up on its own after Q36_EXTRA_WAIT, and a coordinator pause holds every load)
+  local loading=0 queued=0 p q; p=$(cat "$2")
+  while :; do
+    kill -0 "$p" 2>/dev/null || { say "server exited before serving (q36-extra refused, or the load failed): $(tail -3 "$SERVER_LOG" | tr '\n' ' ' | cut -c1-300)"; return 1; }
+    [ -n "$(model_of "$1")" ] && { say "serving after ${queued} s in the q36-extra queue + ${loading} s loading"; return 0; }
+    if tree_of "$p" | while read -r q; do [ "$(cat /proc/$q/comm 2>/dev/null)" = aien-serve-http ] && echo y; done | grep -q y; then
+      loading=$((loading + 5)); [ $loading -ge "${3:-1800}" ] && { say "server loading for ${loading} s and not serving"; return 1; }
+    else queued=$((queued + 5)); [ $((queued % 600)) = 0 ] && say "still queued in q36-extra after ${queued} s"; fi
+    sleep 5
+  done
 }
 tree_of() { local c; echo "$1"; for c in $(pgrep -P "$1"); do tree_of "$c"; done; }   # a pid and all its descendants
 stop_server() { # <pidfile> <port>: the wrapper, q36-extra and the server it exec'd (own session), then check the port is free
@@ -263,7 +269,8 @@ cmd_run() { # <bin-dir> [--post] [--no-second]
   T0=$(date +%s); SERVER_LOG=$RUN/server.log
   CUR_PIDF=$RUN/server.pid; trap '[ -n "${CUR_PIDF:-}" ] && stop_server "$CUR_PIDF" "$PORT"' EXIT   # never leave a 35B copy behind
   start_server "$bin" "$PORT" "$SERVER_LOG" "$RUN/server.pid"
-  wait_ready "$PORT" "$RUN/server.pid" || { cell plain '*' ERROR "candidate never served"; lever_table "$RUN"; exit 2; }
+  echo "{}" > "$RUN/present.json"   # the table works even when the candidate never serves
+  wait_ready "$PORT" "$RUN/server.pid" "${MERGE_TRAIN_READY_S:-1800}" || { cell plain '*' ERROR "candidate never served"; lever_table "$RUN"; exit 2; }
   TR=$(date +%s); MODEL=$(model_of "$PORT"); say "ready after $((TR - T0)) s: model $MODEL, /health $(health_of "$PORT" | jq -c '{concurrency, aien_test}')"
   presence "$bin" "$PORT" > "$RUN/present.json"; say "presence $(cat "$RUN/present.json")"
   for arm in $(jq -r '.arms | to_entries[] | select(.value.server_env == null) | .key' "$SUITE"); do run_arm "$PORT" "$arm"; done
@@ -277,7 +284,7 @@ cmd_run() { # <bin-dir> [--post] [--no-second]
     mkdir -p "$RUN/board" 2>/dev/null; SERVER_LOG=$RUN/server-$arm.log
     start_server "$bin" "$PORT" "$SERVER_LOG" "$RUN/server-$arm.pid" "${envs[@]}"; loads=$((loads + 1))
     CUR_PIDF=$RUN/server-$arm.pid
-    if ! wait_ready "$PORT" "$RUN/server-$arm.pid"; then skip_arm "$arm" "second server never served"; continue; fi
+    if ! wait_ready "$PORT" "$RUN/server-$arm.pid" "${MERGE_TRAIN_READY_S:-1800}"; then skip_arm "$arm" "second server never served"; continue; fi
     proof=$(jq -r --arg a "$arm" '.arms[$a].log_proof // empty' "$SUITE")
     if [ -n "$proof" ] && ! grep -Eqi "$proof" "$SERVER_LOG"; then
       while IFS= read -r c; do cell "$arm" "$(jq -r .id <<<"$c")" NOT-ON-TRAIN "server log shows no '$proof': the build ignored ${envs[*]}"; done < <(jq -c --arg a "$arm" '.cases[] | select((.arms // null) == null or (.arms | index($a)))' "$SUITE")
