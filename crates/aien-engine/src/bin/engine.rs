@@ -23,12 +23,18 @@
 //!                                                           H4: head A resident in RAM, head B from token K, loader L tokens early
 //!   engine union OUT.json [--positions P] TRACE...          H6 offline: expert union vs N from the traces
 //!   engine today URL MODEL_DIR TRACE OUT.json               today's path (the live server) on the same prompt: agreement count
+//!   engine stage35 --model DIR --goldens A,B,.. --index I --of N --first F --last L --convs C [--steps S] --prev [listen:|dial:]ADDR
+//!                  --next [listen:|dial:]ADDR --source ring|shards [--manifest M] [--no-boundary-check] --out DIR
+//!                                                           L258: one stage of the 35B split (layers F..=L), residual over TCP
+//!   engine pipe-report OUT STEPS STAGE_DIR... --goldens A,B,..  L258 gate over a split run + cross-stage timing diagram
+//!   engine pack35 MODEL_DIR FIRST LAST OUT_DIR              L258: the layer files of one stage, for a machine holding only it
 use aien_engine::movement::{Engines, FillStamp, MovementEngine};
 use aien_engine::piston35::{golden_to_trace, RingSource, Shared};
 use aien_inference_abi::qwen38::{argmax as argmax38, Logits, Qwen38Config, Qwen38Reference};
 use aien_engine::piston::{argmax, gate_identical, Crank, HostPiston, HostPistonBank, StrokeBeat};
 use aien_engine::plan::{PlacementPlan, RouteTrace};
-use aien_engine::schedule::Schedule;
+use aien_engine::pipeline::{overlap, pipe_diagram, run_stage, stage_plan, stage_schedule, End, StageReport, Wire};
+use aien_engine::schedule::{Schedule, Stage};
 use aien_engine::timing::{png_diagram, series, summarize, text_diagram, BeatTrace};
 use aien_engine::EXPERTS;
 use aien_heartbeat::manifest::Manifest;
@@ -752,10 +758,173 @@ fn main() {
         Some("stroke") => cmd_stroke(&args[1..]),
         Some("union") => cmd_union(&args[1..]),
         Some("today") => cmd_today(&args[1..]),
+        Some("stage35") => cmd_stage35(&args[1..]),
+        Some("pipe-report") => cmd_pipe_report(&args[1..]),
+        Some("pack35") => cmd_pack35(&args[1..]),
         _ => Err("engine manifest|trace|plan|schedule|move|run|stroke|union|today (see the file header)".to_string()),
     };
     if let Err(e) = r {
         eprintln!("engine: {e}");
         std::process::exit(1);
     }
+}
+
+/// L258 goldens (L306's gen-p*.json) as traces, in conversation order.
+fn goldens_of(a: &[String], model: &str) -> Result<Vec<RouteTrace>, String> {
+    opt(a, "--goldens").ok_or("--goldens a.json,b.json,...")?.split(',').map(|p| {
+        let g: Value = serde_json::from_slice(&std::fs::read(p).map_err(|e| format!("{p}: {e}"))?).map_err(|e| format!("{p}: {e}"))?;
+        golden_to_trace(&g, model)
+    }).collect()
+}
+
+fn stage_of(a: &[String], model_layers: u16) -> Result<Stage, String> {
+    let n = |k: &str| opt(a, k).ok_or(format!("{k} N")).and_then(|v| v.parse::<u32>().map_err(|e| format!("{k}: {e}")));
+    Ok(Stage { index: n("--index")?, of: n("--of")?, first: n("--first")? as u16, last: n("--last")? as u16, model_layers, convs: n("--convs")? })
+}
+
+/// One stage of the 35B split (L258). `--source ring`: experts from the heartbeat ring along the stage's own schedule
+/// (the motor); `--source shards`: the exact reference reading its layer files directly (a machine without the
+/// manifest, e.g. the Pi with its layers packed in RAM). Writes OUT/stage.json (+ the ring's beats and diagram).
+fn cmd_stage35(a: &[String]) -> Result<(), String> {
+    let dir = PathBuf::from(opt(a, "--model").ok_or("--model DIR")?);
+    let out = PathBuf::from(opt(a, "--out").ok_or("--out DIR")?);
+    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+    let config = Qwen38Config::from_checkpoint(&dir)?;
+    let st = stage_of(a, config.layers as u16)?;
+    let steps = opt_usize(a, "--steps", 32) as u32;
+    let model_name = dir.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+    let goldens = goldens_of(a, &model_name)?;
+    let check = !a.iter().any(|x| x == "--no-boundary-check");
+    let source = opt(a, "--source").unwrap_or_else(|| "ring".into());
+    let host = std::fs::read_to_string("/etc/hostname").unwrap_or_default().trim().to_string();
+    let (embed, head) = (st.index == 0, st.index + 1 == st.of);
+    let wire = |st: &Stage| -> Result<Option<Wire>, String> {
+        if st.of == 1 {
+            return Ok(None);
+        }
+        let prev = End::parse(&opt(a, "--prev").ok_or("--prev [listen:|dial:]ADDR")?, true);
+        let next = End::parse(&opt(a, "--next").ok_or("--next [listen:|dial:]ADDR")?, false);
+        Ok(Some(Wire::open(st, prev, next, check)?))
+    };
+    let t_open = Instant::now();
+    let mut rep = match source.as_str() {
+        "shards" => {
+            let mut model = Qwen38Reference::new_stage(config, aien_inference_abi::qwen3_moe_omega::ShardSource::open(&dir)?, embed, head)?;
+            let open_s = t_open.elapsed().as_secs_f64();
+            let w = wire(&st)?;
+            let mut r = run_stage(&mut model, &st, &goldens, steps, w, check, &mut |_| {});
+            r.open_seconds = open_s;
+            r
+        }
+        "ring" => {
+            let m = Manifest::load(Path::new(&opt(a, "--manifest").ok_or("--manifest M")?)).map_err(|e| e.to_string())?;
+            let plan = stage_plan(&model_name, &dir, &goldens[..st.convs as usize], st.first, st.last, opt_usize(a, "--buffers", 3));
+            let s = Arc::new(stage_schedule(&plan, &m, &st, steps)?);
+            s.save(&out.join("schedule.json"))?;
+            let t0 = Instant::now();
+            let (crank, h) = start_engines(s.clone(), &m, opt_usize(a, "--workers", 8), opt_usize(a, "--direct", 1) == 1, engines_of(a)?, t0)?;
+            let shared = Arc::new(Shared::default());
+            let src = RingSource::open(&dir, crank.ring(), s.clone(), crank, shared.clone())?;
+            src.prime()?;
+            let mut model = Qwen38Reference::new_stage(config, src, embed, head)?;
+            shared.armed.store(true, std::sync::atomic::Ordering::Release);
+            let open_s = t_open.elapsed().as_secs_f64();
+            let w = wire(&st)?;
+            let sh = shared.clone();
+            let mut r = run_stage(&mut model, &st, &goldens, steps, w, check, &mut |p| sh.token.store(p, std::sync::atomic::Ordering::Release));
+            shared.close(t0.elapsed().as_nanos() as i64);
+            drop(model);
+            h.join().map_err(|_| "movement thread panicked")?;
+            r.open_seconds = open_s;
+            let traces = shared.traces.lock().unwrap().clone();
+            let misfires = traces.iter().filter(|t| t.misfire).count();
+            write_receipts(&out.join("beats"), &traces, json!({"mode": "stage35-ring", "stage": st, "misfires": misfires, "eager_expert_reads_at_open": shared.eager_expert_reads.load(std::sync::atomic::Ordering::Relaxed)}))?;
+            r
+        }
+        other => return Err(format!("--source {other}: ring or shards")),
+    };
+    rep.host = host;
+    rep.source = source;
+    write_json(&out.join("stage.json"), &serde_json::to_value(&rep).unwrap())?;
+    let n = rep.events.len();
+    match &rep.failure {
+        Some(f) => Err(format!("stage {} FAILED closed after {n} passes: {f}", st.index)),
+        None => {
+            println!("stage {} of {} layers {}..={} ({}): {n} passes in {:.2} s, routes identical {:?}", st.index, st.of, st.first, st.last, rep.source, rep.wall_seconds, rep.routes_identical);
+            Ok(())
+        }
+    }
+}
+
+/// L258 gate over a split run: stage 0's tokens identical to every golden, routes identical in every stage, plus the
+/// cross-stage timing diagram, the overlap and tokens per second. `engine pipe-report OUT STEPS STAGE_DIR...`
+fn cmd_pipe_report(a: &[String]) -> Result<(), String> {
+    let out = PathBuf::from(&a[0]);
+    let steps: usize = a[1].parse().map_err(|_| "STEPS")?;
+    let reps: Vec<StageReport> = a[2..].iter().map(|d| serde_json::from_slice(&std::fs::read(Path::new(d).join("stage.json")).map_err(|e| format!("{d}: {e}"))?).map_err(|e| format!("{d}: {e}"))).collect::<Result<_, String>>()?;
+    let goldens = goldens_of(a, "")?;
+    let s0 = reps.first().ok_or("no stages")?;
+    let convs = s0.tokens.len();
+    let mut same = 0;
+    let mut of = 0;
+    let mut per_conv = Vec::new();
+    for (c, got) in s0.tokens.iter().enumerate() {
+        let want = &goldens[c].argmax[..steps.min(goldens[c].argmax.len())];
+        let (s, n) = (got.iter().zip(want).filter(|(x, y)| x == y).count(), want.len());
+        same += s;
+        of += n;
+        per_conv.push(json!({"conv": c, "same": s, "of": n, "got": got, "expected": want}));
+    }
+    let failures: Vec<Value> = reps.iter().filter_map(|r| r.failure.clone().map(|f| json!({"stage": r.stage.as_ref().map(|s| s.index), "failure": f}))).collect();
+    let routes_ok = reps.iter().all(|r| r.routes_identical.iter().all(|&n| n as usize == steps));
+    let identical = failures.is_empty() && same == of && of == convs * steps && s0.tokens.iter().all(|t| t.len() == steps);
+    // wall time on the clocks of stage 0 and the last stage (the Spark); a remote middle stage may be offset
+    let t0 = s0.events.iter().map(|e| e.start_ns).min().unwrap_or(0);
+    let t_end = s0.events.iter().map(|e| e.sent_ns).chain(reps.last().unwrap().events.iter().map(|e| e.sent_ns)).max().unwrap_or(t0);
+    let wall = (t_end - t0) as f64 / 1e9;
+    let (busy, both) = overlap(&reps);
+    // per-token latency at stage 0: token arrival minus the send of the pass that produced it
+    let lat: Vec<f64> = s0.events.iter().filter(|e| e.step > 0).filter_map(|e| s0.events.iter().find(|x| x.conv == e.conv && x.step + 1 == e.step).map(|x| (e.recv_ns - x.start_ns) as f64 / 1e6)).collect();
+    let gate = json!({"identical_tokens": identical, "same": same, "of": of, "convs": convs, "steps": steps, "routes_identical_all_stages": routes_ok, "routes_identical": reps.iter().map(|r| r.routes_identical.clone()).collect::<Vec<_>>(), "failures": failures, "per_conv": per_conv});
+    let summary = json!({"stages": reps.iter().map(|r| json!({"stage": r.stage, "host": r.host, "source": r.source, "boundary_check": r.boundary_check, "passes": r.events.len(), "open_s": r.open_seconds, "wall_s": r.wall_seconds, "fire_ms": series(&r.events.iter().map(|e| (e.done_ns - e.start_ns) as f64 / 1e6).collect::<Vec<_>>())})).collect::<Vec<_>>(),
+        "wall_s": wall, "tokens": of, "tok_per_s": of as f64 / wall, "busy_fraction": busy, "two_or_more_stages_busy_fraction": both, "token_latency_ms": series(&lat), "gate": gate.clone()});
+    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+    write_json(&out.join("gate.json"), &gate)?;
+    write_json(&out.join("summary.json"), &summary)?;
+    let d = pipe_diagram(&reps, 160);
+    std::fs::write(out.join("diagram.txt"), &d).map_err(|e| e.to_string())?;
+    print!("{d}");
+    println!("pipe gate {}: tokens {same}/{of} over {convs} conversations x {steps} steps, routes identical in every stage {routes_ok}, {:.3} tok/s, overlap {:.3}", if identical && routes_ok { "PASS" } else { "FAIL" }, of as f64 / wall, both);
+    if identical && routes_ok { Ok(()) } else { Err("pipe gate FAIL".into()) }
+}
+
+/// L258 stage pack: the layer files of `first..=last` + config + an index naming only them (a machine that holds one
+/// stage gets only its own weights). `engine pack35 MODEL_DIR FIRST LAST OUT_DIR`
+fn cmd_pack35(a: &[String]) -> Result<(), String> {
+    let (dir, out) = (Path::new(&a[0]), Path::new(&a[3]));
+    let (first, last): (usize, usize) = (a[1].parse().map_err(|_| "FIRST")?, a[2].parse().map_err(|_| "LAST")?);
+    std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
+    let idx: Value = serde_json::from_slice(&std::fs::read(dir.join("model.safetensors.index.json")).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let map = idx["weight_map"].as_object().ok_or("index: no weight_map")?;
+    let keep = |name: &str| -> bool {
+        name.find("layers.").and_then(|i| name[i + 7..].split('.').next()?.parse::<usize>().ok()).map(|l| (first..=last).contains(&l) && !name.contains("visual") && !name.starts_with("mtp")).unwrap_or(false)
+    };
+    let mut files = std::collections::BTreeSet::new();
+    let mut kept = serde_json::Map::new();
+    for (k, v) in map {
+        if keep(k) {
+            files.insert(v.as_str().ok_or("index: non-string file")?.to_string());
+            kept.insert(k.clone(), v.clone());
+        }
+    }
+    let mut bytes = 0u64;
+    for f in &files {
+        bytes += std::fs::copy(dir.join(f), out.join(f)).map_err(|e| format!("{f}: {e}"))?;
+    }
+    for f in ["config.json", "generation_config.json"] {
+        std::fs::copy(dir.join(f), out.join(f)).map_err(|e| format!("{f}: {e}"))?;
+    }
+    write_json(&out.join("model.safetensors.index.json"), &json!({"metadata": {"l258_stage_pack": format!("layers {first}..={last} of {}", dir.display())}, "weight_map": kept}))?;
+    println!("pack35: layers {first}..={last}: {} tensors in {} files, {bytes} bytes", kept.len(), files.len());
+    Ok(())
 }

@@ -11,7 +11,9 @@
 //!   is the next cut. It never fetches.
 //! * [`timing`]: the timing diagram. Per beat: fill issued, fill done, fire start, fire done; the ignition gap is
 //!   fire start minus fill done. Text table and a PNG, no outside tools.
+pub mod link;
 pub mod movement;
+pub mod pipeline;
 pub mod piston;
 pub mod piston35;
 pub mod plan;

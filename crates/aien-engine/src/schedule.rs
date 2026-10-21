@@ -62,6 +62,10 @@ pub struct Schedule {
     pub parts: Vec<Part>,
     pub prime: Vec<Fill>,
     pub beats: Vec<Beat>,
+    /// L258 pipeline stage: this table fires only layers `first..=last` of the model, one stage of a split. `None` for
+    /// a whole-model table (and for every file written before the field existed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<Stage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -147,6 +151,7 @@ impl Schedule {
             parts,
             prime,
             beats,
+            stage: None,
         })
     }
 
@@ -208,6 +213,12 @@ impl Schedule {
                     r.problems.push(format!("beat {}: fill targets buffer {} while it fires", beat.b, f.buffer));
                 }
                 apply(f, beat.b as i64, &mut state, &mut r);
+            }
+        }
+        if let Some(st) = &self.stage {
+            for p in st.problems(&self.layers) {
+                r.complete = false;
+                r.problems.push(p);
             }
         }
         r.fills = fills;
@@ -448,5 +459,52 @@ mod edge_tests {
         let fb = s.beats[2].fire_buffer;
         s.beats[2].fill.as_mut().unwrap().buffer = fb;
         assert!(!s.edges().violations.is_empty());
+    }
+}
+
+/// L258: one stage of a pipeline split across processes or machines. The boundary is a field of the table, so both
+/// sides of a hop are built from the same numbers and a stage that disagrees with its neighbour is refused at hello.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Stage {
+    /// 0 = the first stage (owns the embedding), `of - 1` = the last (owns the lm_head).
+    pub index: u32,
+    pub of: u32,
+    /// Model layers this stage fires, inclusive; the residual entering `first` crosses the wire from stage `index - 1`.
+    pub first: u16,
+    pub last: u16,
+    pub model_layers: u16,
+    /// Conversations in flight, interleaved round robin: schedule pass `p` is step `p / convs` of conversation
+    /// `p % convs`, in every stage, so the stages need no run-time agreement on order.
+    pub convs: u32,
+}
+
+impl Stage {
+    pub fn pass(&self, conv: u32, step: u32) -> u32 {
+        step * self.convs + conv
+    }
+
+    /// The table's own layers must be exactly `first..=last`, inside the model, with a sane index.
+    pub fn problems(&self, layers: &[u16]) -> Vec<String> {
+        let mut p = Vec::new();
+        if self.of == 0 || self.index >= self.of {
+            p.push(format!("stage {} of {}: index out of range", self.index, self.of));
+        }
+        if self.first > self.last || self.last >= self.model_layers {
+            p.push(format!("stage layers {}..={} outside the model's 0..{}", self.first, self.last, self.model_layers));
+        }
+        if (self.index == 0) != (self.first == 0) {
+            p.push(format!("stage {}: only the first stage starts at layer 0 (first = {})", self.index, self.first));
+        }
+        if (self.index + 1 == self.of) != (self.last + 1 == self.model_layers) {
+            p.push(format!("stage {} of {}: only the last stage ends at the model's last layer (last = {})", self.index, self.of, self.last));
+        }
+        let want: Vec<u16> = (self.first..=self.last).collect();
+        if layers != want.as_slice() {
+            p.push(format!("stage {}: table layers {:?} are not {}..={}", self.index, layers, self.first, self.last));
+        }
+        if self.convs == 0 {
+            p.push("stage: zero conversations".into());
+        }
+        p
     }
 }

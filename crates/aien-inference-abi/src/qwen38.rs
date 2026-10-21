@@ -663,6 +663,22 @@ pub enum Logits {
     All,
 }
 
+/// The text prefix for a stage that holds no embedding (L258 middle or last stage on another
+/// machine, packed with its own layers only): the first prefix under which any layer is present.
+fn stage_prefix(source: &mut dyn TensorSource, layers: usize) -> Result<String, String> {
+    if let Ok(p) = text_prefix(source) {
+        return Ok(p);
+    }
+    for p in ["model.language_model.", "model."] {
+        for l in 0..layers {
+            if matches!(source.dtype_of(&format!("{p}layers.{l}.input_layernorm.weight")), Ok(Some(_))) {
+                return Ok(p.to_string());
+            }
+        }
+    }
+    Err("checkpoint: no embed_tokens.weight and no layer under model.language_model. or model.".into())
+}
+
 /// Where the text model's tensors live: the multimodal checkpoint nests it under
 /// `model.language_model.`, a text-only one under `model.`.
 pub(crate) fn text_prefix(source: &mut dyn TensorSource) -> Result<String, String> {
@@ -705,16 +721,26 @@ impl Qwen38Reference<ShardSource> {
 
 impl<S: TensorSource> Qwen38Reference<S> {
     /// Reads the embedding, final norm and lm_head; layers are read per call.
-    pub fn new(config: Qwen38Config, mut source: S) -> Result<Self, String> {
-        let prefix = text_prefix(&mut source)?;
+    pub fn new(config: Qwen38Config, source: S) -> Result<Self, String> {
+        Self::new_stage(config, source, true, true)
+    }
+
+    /// A pipeline stage (L258): the first stage needs the embedding, the last the final norm and
+    /// lm_head; a middle stage needs neither (it holds only its layers, about 1 GB less each).
+    /// [`Self::forward`] on a stage without both ends fails closed.
+    pub fn new_stage(config: Qwen38Config, mut source: S, embed: bool, head: bool) -> Result<Self, String> {
+        let prefix = if embed { text_prefix(&mut source)? } else { stage_prefix(&mut source, config.layers)? };
         let (v, h) = (config.vocab, config.hidden);
-        let embed = read_bf16_words(
-            &mut source,
-            &format!("{prefix}embed_tokens.weight"),
-            &[v, h],
-        )?;
-        let final_norm = read_vec(&mut source, &format!("{prefix}norm.weight"), h)?;
-        let lm_head = read_matrix(&mut source, "lm_head.weight", v, h)?;
+        let embed = if embed {
+            read_bf16_words(&mut source, &format!("{prefix}embed_tokens.weight"), &[v, h])?
+        } else {
+            Vec::new()
+        };
+        let (final_norm, lm_head) = if head {
+            (read_vec(&mut source, &format!("{prefix}norm.weight"), h)?, read_matrix(&mut source, "lm_head.weight", v, h)?)
+        } else {
+            (Vec::new(), Matrix::Bf16 { n: 0, k: h, w: Vec::new() })
+        };
         Ok(Self {
             config,
             source,
@@ -861,9 +887,39 @@ impl<S: TensorSource> Qwen38Reference<S> {
         taps: &mut Vec<Vec<f32>>,
     ) -> Result<Vec<f32>, String> {
         let c = self.config.clone();
+        if self.embed.is_empty() || self.lm_head.n() == 0 {
+            return Err("forward: this is a pipeline stage (no embedding or no lm_head); use forward_stage".into());
+        }
+        let t = tokens.len();
+        let mut x = self.embed_rows(tokens)?;
+        if at.windows(2).any(|p| p[0] >= p[1]) || at.iter().any(|&b| b > c.layers) {
+            return Err(format!(
+                "forward: taps {at:?} not ascending within 0..={}",
+                c.layers
+            ));
+        }
+        for l in 0..c.layers {
+            if at.contains(&l) {
+                taps.push(x.clone());
+            }
+            self.layer(l, state, &mut x, t)?;
+        }
+        if at.contains(&c.layers) {
+            taps.push(x.clone());
+        }
+        state.pos += t;
+        Ok(self.head_logits(&x, t, logits))
+    }
+
+    /// Token rows -> the residual entering layer 0 (`[t][hidden]`, bf16 widened).
+    fn embed_rows(&self, tokens: &[u32]) -> Result<Vec<f32>, String> {
+        let c = &self.config;
         let (t, h) = (tokens.len(), c.hidden);
         if t == 0 {
             return Err("forward: no tokens".into());
+        }
+        if self.embed.is_empty() {
+            return Err("forward: this stage has no embedding (it is not the first stage)".into());
         }
         let mut x = vec![0f32; t * h];
         for (row, &tok) in x.chunks_exact_mut(h).zip(tokens) {
@@ -878,49 +934,109 @@ impl<S: TensorSource> Qwen38Reference<S> {
                 *o = bf16_to_f32(b);
             }
         }
-        if at.windows(2).any(|p| p[0] >= p[1]) || at.iter().any(|&b| b > c.layers) {
-            return Err(format!(
-                "forward: taps {at:?} not ascending within 0..={}",
-                c.layers
-            ));
-        }
-        for l in 0..c.layers {
-            if at.contains(&l) {
-                taps.push(x.clone());
-            }
-            let w = self.read_layer(l)?;
-            let mut xn = x.clone();
-            rms_norm_zc(&mut xn, &w.input_norm, c.eps);
-            let mixed = match (&w.mixer, &mut state.layers[l]) {
-                (Mixer::DeltaNet(d), LayerState::DeltaNet { conv, s }) => {
-                    delta_net(&c, d, &xn, t, conv, s)
-                }
-                (Mixer::Attention(a), LayerState::Attention { k, v }) => {
-                    attention(&c, a, &xn, t, state.pos, k, v)
-                }
-                _ => return Err(format!("layer {l}: state kind differs from the weights")),
-            };
-            x.iter_mut().zip(&mixed).for_each(|(a, b)| *a += b);
-            let mut xn = x.clone();
-            rms_norm_zc(&mut xn, &w.post_norm, c.eps);
-            let down = match &w.mlp {
-                Mlp::Dense(f) => f.run(&xn, t),
-                Mlp::Moe(m) => self.moe(l, m, &xn, t)?,
-            };
-            x.iter_mut().zip(&down).for_each(|(a, b)| *a += b);
-        }
-        if at.contains(&c.layers) {
-            taps.push(x.clone());
-        }
-        state.pos += t;
+        Ok(x)
+    }
+
+    /// The residual leaving the last layer -> logits (final norm, lm_head).
+    fn head_logits(&self, x: &[f32], t: usize, logits: Logits) -> Vec<f32> {
+        let h = self.config.hidden;
         let rows = match logits {
             Logits::Last => &x[(t - 1) * h..],
-            Logits::All => &x[..],
+            Logits::All => x,
         };
         let mut rows = rows.to_vec();
-        rms_norm_zc(&mut rows, &self.final_norm, c.eps);
-        Ok(self.lm_head.matmul(&rows, rows.len() / h))
+        rms_norm_zc(&mut rows, &self.final_norm, self.config.eps);
+        self.lm_head.matmul(&rows, rows.len() / h)
     }
+
+    /// One decoder layer `l` over `t` rows of the residual `x`, in place (mixer, then the MLP).
+    fn layer(&mut self, l: usize, state: &mut Qwen38State, x: &mut [f32], t: usize) -> Result<(), String> {
+        let c = self.config.clone();
+        let w = self.read_layer(l)?;
+        let mut xn = x.to_vec();
+        rms_norm_zc(&mut xn, &w.input_norm, c.eps);
+        let mixed = match (&w.mixer, &mut state.layers[l]) {
+            (Mixer::DeltaNet(d), LayerState::DeltaNet { conv, s }) => {
+                delta_net(&c, d, &xn, t, conv, s)
+            }
+            (Mixer::Attention(a), LayerState::Attention { k, v }) => {
+                attention(&c, a, &xn, t, state.pos, k, v)
+            }
+            _ => return Err(format!("layer {l}: state kind differs from the weights")),
+        };
+        x.iter_mut().zip(&mixed).for_each(|(a, b)| *a += b);
+        let mut xn = x.to_vec();
+        rms_norm_zc(&mut xn, &w.post_norm, c.eps);
+        let down = match &w.mlp {
+            Mlp::Dense(f) => f.run(&xn, t),
+            Mlp::Moe(m) => self.moe(l, m, &xn, t)?,
+        };
+        x.iter_mut().zip(&down).for_each(|(a, b)| *a += b);
+        Ok(())
+    }
+
+    /// A pipeline stage (L258): layers `first..=last` of the model over `t` new rows. Input is token
+    /// ids when `first == 0` (this stage owns the embedding) or the residual entering `first` from
+    /// the previous stage; output is the residual leaving `last` (all rows, the next stage needs
+    /// them for its own mixer state) or, when `last` is the model's last layer, the logits. Each
+    /// stage keeps the state of its own layers only (`state` from [`Self::new_state`]; the rest of
+    /// it stays empty). The arithmetic is [`Self::forward`]'s, layer for layer.
+    pub fn forward_stage(
+        &mut self,
+        state: &mut Qwen38State,
+        input: StageInput,
+        first: usize,
+        last: usize,
+        logits: Logits,
+    ) -> Result<StageOutput, String> {
+        let (n, h) = (self.config.layers, self.config.hidden);
+        if first > last || last >= n {
+            return Err(format!("forward_stage: layers {first}..={last} outside 0..{n}"));
+        }
+        let mut x = match input {
+            StageInput::Tokens(tokens) => {
+                if first != 0 {
+                    return Err(format!("forward_stage: token ids enter layer 0, not {first}"));
+                }
+                self.embed_rows(tokens)?
+            }
+            StageInput::Residual(x) => {
+                if first == 0 {
+                    return Err("forward_stage: layer 0 takes token ids, not a residual".into());
+                }
+                if x.is_empty() || x.len() % h != 0 {
+                    return Err(format!("forward_stage: residual of {} floats is not whole rows of {h}", x.len()));
+                }
+                x.to_vec()
+            }
+        };
+        let t = x.len() / h;
+        for l in first..=last {
+            self.layer(l, state, &mut x, t)?;
+        }
+        state.pos += t;
+        if last + 1 == n {
+            if self.lm_head.n() == 0 {
+                return Err("forward_stage: the last stage needs the lm_head (opened without it)".into());
+            }
+            Ok(StageOutput::Logits(self.head_logits(&x, t, logits)))
+        } else {
+            Ok(StageOutput::Residual(x))
+        }
+    }
+}
+
+/// What a pipeline stage takes in: token ids (first stage) or the residual rows from the previous stage.
+pub enum StageInput<'a> {
+    Tokens(&'a [u32]),
+    Residual(&'a [f32]),
+}
+
+/// What a pipeline stage hands on: the residual rows (to the next stage) or the logits (last stage).
+#[derive(Debug)]
+pub enum StageOutput {
+    Residual(Vec<f32>),
+    Logits(Vec<f32>),
 }
 
 /// One DeltaNet mixer over `t` new tokens; updates the conv tail and the state.
@@ -1554,5 +1670,33 @@ mod tests {
             }
         }
         assert!(worst < 1e-4, "worst relative error {worst}");
+    }
+
+    /// L258: the model cut into stages (prefill, then decode steps) gives the whole forward's
+    /// logits bit for bit, and a wrong boundary (a layer run twice) does not.
+    #[test]
+    fn stages_equal_the_whole_and_a_wrong_boundary_does_not() {
+        let c = tiny_moe();
+        let mut whole = Qwen38Reference::new(c.clone(), tiny_source(&c)).unwrap();
+        let mut a = Qwen38Reference::new_stage(c.clone(), tiny_source(&c), true, false).unwrap();
+        let mut b = Qwen38Reference::new_stage(c.clone(), tiny_source(&c), false, true).unwrap();
+        let mut bad = Qwen38Reference::new_stage(c.clone(), tiny_source(&c), false, true).unwrap();
+        let (mut sw, mut sa, mut sb, mut sbad) = (whole.new_state(), a.new_state(), b.new_state(), bad.new_state());
+        let steps: [&[u32]; 3] = [&[5, 17, 3], &[42], &[8]];
+        let k = 1; // stage A runs layers 0..=1, stage B 2..=3
+        let mut moved = 0f32;
+        for ids in steps {
+            let want = whole.forward(&mut sw, ids, Logits::Last).unwrap();
+            let StageOutput::Residual(x) = a.forward_stage(&mut sa, StageInput::Tokens(ids), 0, k, Logits::Last).unwrap() else { panic!("A must hand on a residual") };
+            assert_eq!(x.len(), ids.len() * c.hidden);
+            let StageOutput::Logits(got) = b.forward_stage(&mut sb, StageInput::Residual(&x), k + 1, c.layers - 1, Logits::Last).unwrap() else { panic!("B must give logits") };
+            assert!(want.iter().zip(&got).all(|(p, q)| p.to_bits() == q.to_bits()), "stages differ from the whole");
+            let StageOutput::Logits(off) = bad.forward_stage(&mut sbad, StageInput::Residual(&x), k, c.layers - 1, Logits::Last).unwrap() else { panic!() };
+            moved = moved.max(want.iter().zip(&off).map(|(p, q)| (p - q).abs()).fold(0f32, f32::max));
+        }
+        assert!(moved > 1e-3, "wrong boundary moved the logits by only {moved}");
+        assert!(a.forward(&mut a.new_state(), &[1], Logits::Last).is_err(), "a stage must refuse the whole forward");
+        assert!(a.forward_stage(&mut sa, StageInput::Tokens(&[1]), 1, 2, Logits::Last).is_err(), "tokens enter layer 0 only");
+        assert!(b.forward_stage(&mut sb, StageInput::Residual(&[0.0; 3]), 2, 3, Logits::Last).is_err(), "partial rows refused");
     }
 }
