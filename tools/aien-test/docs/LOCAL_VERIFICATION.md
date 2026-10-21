@@ -246,6 +246,18 @@ The one rule:
    - **Declared inputs identical:** a gate whose manifest says
      `cache: inputs_complete`, the author's promise that `inputs` name every
      file the gate reads. Any head with the same key reuses it.
+     A promise is checked, not trusted: `aien-audit-inputs GATE_FILE` runs the
+     gate once under `strace -f -y -Y` (cold target dir, private TMPDIR) and
+     lists every file it opened that the manifest does not cover; RESULT FAIL
+     means the promise is false. Three manifest keys say what `inputs` alone
+     cannot (L335): `outside_inputs` (files outside the repository, `~/` or
+     absolute, hashed into the key: the PREFILL-E2E-2 checkpoint), `listed`
+     (directories whose entry names, not bytes, join the key: cargo lists
+     `tests/`, `src/bin/`, `examples/` of every workspace member to load the
+     workspace) and `*` patterns in `inputs` and `listed`
+     (`crates/*/Cargo.toml`). `target_lock: none` lets a gate that never
+     starts cargo (the audit refuses it if it does) skip the head's target-dir
+     lock instead of queueing behind every cargo gate.
    The key adds the repository build files (`runner::IMPLIED_BUILD_FILES`:
    Cargo.toml, Cargo.lock, rust-toolchain(.toml), .cargo/config(.toml),
    native-artifacts.lock, mojoproject.toml) and the judge's own sha256
