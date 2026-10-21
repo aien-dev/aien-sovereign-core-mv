@@ -39,7 +39,8 @@ use aien_serve_http::omega_engine::{
 };
 use aien_serve_http::qwen36_batch;
 use aien_serve_http::qwen38_engine;
-use aien_serve_http::server::{serve_until, ServerConfig};
+use aien_serve_http::board::{Board, Settings as BoardSettings};
+use aien_serve_http::server::{serve_with_board, ServerConfig};
 
 const DEFAULT_MODEL_DIR: &str = "models/qwen3-30b-a3b-instruct-2507-fp8";
 
@@ -366,6 +367,29 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    // Team board (L376): on unless AIEN_BOARD=0; a state dir that cannot be read refuses loudly.
+    let board = match BoardSettings::from_lookup(|n| std::env::var(n).ok()) {
+        None => {
+            eprintln!("aien-serve-http: team board OFF (AIEN_BOARD=0)");
+            None
+        }
+        Some(s) => match Board::open(&s) {
+            Ok(b) => {
+                let (entries, memory, conversations) = b.counts();
+                eprintln!(
+                    "aien-serve-http: team board ON: {entries} entries, {memory} memory, {conversations} conversations in {} (built-in tools {})",
+                    s.dir.as_deref().map(|d| d.display().to_string()).unwrap_or_default(),
+                    if s.tools { "on" } else { "off" }
+                );
+                Some(Arc::new(b))
+            }
+            Err(e) => {
+                eprintln!("aien-serve-http: team board: {e}");
+                return ExitCode::from(1);
+            }
+        },
+    };
+
     rt.block_on(async move {
         let model_id = args.cfg.model_id.clone();
         // SIGTERM or SIGINT: stop accepting, let the request in flight finish, then drop the
@@ -373,7 +397,7 @@ fn main() -> ExitCode {
         let keep = Arc::clone(&engine);
         // The handlers are installed here, before "serving" is printed, so an early SIGTERM drains too.
         let signals = shutdown_signals();
-        match serve_until(args.cfg, engine, codec, signals).await {
+        match serve_with_board(args.cfg, engine, codec, board, signals).await {
             Ok((addr, handle)) => {
                 eprintln!(
                     "aien-serve-http: serving {model_id} at http://{addr}/v1 (engine {})",

@@ -48,6 +48,24 @@ pub struct ChatRequest {
     /// AIEN extra: return the generated token ids in `usage.aien_token_ids` (correctness gates).
     #[serde(default)]
     pub aien_return_token_ids: bool,
+    /// OpenAI `user`: a stable id of the end user / chat; the team board (L376) uses it as the
+    /// conversation key and author name when `aien_conversation` / `aien_agent` are absent.
+    #[serde(default)]
+    pub user: Option<String>,
+    /// llama.cpp / Odysseus `session_id`: the conversation key when nothing else names it.
+    #[serde(default)]
+    pub session_id: Option<String>,
+    /// AIEN extra: the conversation key for the team board (cursor per conversation).
+    #[serde(default)]
+    pub aien_conversation: Option<String>,
+    /// AIEN extra: the name the team board shows as the author of this conversation's posts.
+    #[serde(default)]
+    pub aien_agent: Option<String>,
+    /// AIEN extra: `false` skips the team board delivery for this request (nothing appended, the
+    /// cursors untouched); the built-in tools stay. For clients that read the board themselves
+    /// and for the words-identical gate (the block pasted by hand).
+    #[serde(default)]
+    pub aien_board: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -59,6 +59,12 @@ pub trait Codec: Send + Sync {
     fn reasoning_end_id(&self) -> Option<u32> {
         None
     }
+    /// The text that continues the SAME turn after a tool call the server answered itself (L376
+    /// built-in tools): closes the reply, renders one tool-response user turn and the generation
+    /// prompt again. `None`: this layout has no tool turn, the built-in tools are not offered.
+    fn tool_round_tail(&self, _tool_turn: &str, _opts: &ChatOptions) -> Option<String> {
+        None
+    }
     fn encode(&self, text: &str) -> Result<Vec<u32>, CodecError>;
     /// Decodes without special tokens. A sequence cut inside a multi-byte
     /// character must decode with a trailing U+FFFD, never fail.
@@ -99,6 +105,10 @@ impl Codec for HfCodec {
         opts: &ChatOptions,
     ) -> Result<String, CodecError> {
         Ok(self.tokenizer.try_format_chat_with(turns, opts)?)
+    }
+
+    fn tool_round_tail(&self, tool_turn: &str, opts: &ChatOptions) -> Option<String> {
+        self.tokenizer.template().tool_round_tail(tool_turn, opts)
     }
 
     fn reasoning_end_id(&self) -> Option<u32> {
@@ -152,6 +162,10 @@ impl Codec for ByteCodec {
         }
         out.push_str("<assistant>");
         Ok(out)
+    }
+
+    fn tool_round_tail(&self, tool_turn: &str, _opts: &ChatOptions) -> Option<String> {
+        Some(format!("</assistant>\n<user>{tool_turn}</user>\n<assistant>"))
     }
 
     fn encode(&self, text: &str) -> Result<Vec<u32>, CodecError> {

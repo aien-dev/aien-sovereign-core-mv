@@ -112,6 +112,18 @@ pub trait Engine: Send + Sync {
     fn concurrency(&self) -> usize {
         1
     }
+    /// [`Self::generate`] for a prompt that continues the turn this engine just generated (L376
+    /// built-in tool rounds: the previous prompt, its reply's own tokens, a tool-response tail).
+    /// An engine with per-conversation reuse points keeps them where they were: the client's
+    /// next request renders the turn without the hidden exchange. The default just generates.
+    fn generate_continuation(
+        &self,
+        prompt: &[u32],
+        params: &GenerateParams,
+        on_token: &mut dyn FnMut(u32) -> bool,
+    ) -> Result<GenerateOutcome, EngineError> {
+        self.generate(prompt, params, on_token)
+    }
 }
 
 /// Test engine: ignores the prompt and replays a fixed token list, optionally

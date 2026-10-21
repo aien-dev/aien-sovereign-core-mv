@@ -272,3 +272,45 @@ mod tests {
         assert_eq!(partial_open_len("x<"), 1);
     }
 }
+
+/// `text` without the `<tool_call>` blocks whose function `keep(name)` is false (the built-in
+/// board calls the server answered itself, when the same reply also calls the client's tools).
+pub fn strip_calls(text: &str, keep: impl Fn(&str) -> bool) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(p) = rest.find(OPEN) {
+        let body_start = p + OPEN.len();
+        let (block_end, next) = match rest[body_start..].find(CLOSE) {
+            Some(e) => (body_start + e + CLOSE.len(), &rest[body_start + e + CLOSE.len()..]),
+            None => (rest.len(), ""),
+        };
+        let name = parse_call(&rest[body_start..block_end.min(rest.len())])
+            .map(|(n, _)| n)
+            .unwrap_or_default();
+        if keep(&name) {
+            out.push_str(&rest[..block_end]);
+        } else {
+            out.push_str(rest[..p].trim_end_matches('\n'));
+        }
+        rest = next;
+    }
+    out.push_str(rest);
+    out
+}
+
+#[cfg(test)]
+mod strip_tests {
+    use super::*;
+
+    #[test]
+    fn strip_keeps_client_calls_and_text() {
+        let r = "Note.\n\n<tool_call>\n<function=board_post>\n<parameter=text>\nf\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=read_file>\n<parameter=path>\n/a\n</parameter>\n</function>\n</tool_call>";
+        let s = strip_calls(r, |n| n != "board_post");
+        assert_eq!(s, "Note.\n<tool_call>\n<function=read_file>\n<parameter=path>\n/a\n</parameter>\n</function>\n</tool_call>");
+        let (c, calls) = parse_reply(&s, "x");
+        assert_eq!(c, "Note.");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["function"]["name"], "read_file");
+        assert_eq!(strip_calls("plain", |_| true), "plain");
+    }
+}

@@ -103,6 +103,9 @@ struct Job {
     /// Set by the request thread when `on_token` says stop (client gone, stop string).
     cancel: Arc<AtomicBool>,
     t_queued: Instant,
+    /// A continuation of the turn just generated (L376 built-in tool round): the row's
+    /// snapshot stays where it is, so the client's next request lands on it.
+    keep_snapshot: bool,
 }
 
 enum Ev {
@@ -293,24 +296,14 @@ impl Qwen36BatchDoor {
     }
 }
 
-impl Engine for Qwen36BatchDoor {
-    fn kind(&self) -> &str {
-        "omega-qwen36-batch"
-    }
-
-    fn max_context_tokens(&self) -> usize {
-        self.max_context
-    }
-
-    fn concurrency(&self) -> usize {
-        self.slots
-    }
-
-    fn generate(
+impl Qwen36BatchDoor {
+    /// Queue one job and relay its tokens. `keep_snapshot` marks an L376 continuation.
+    fn submit(
         &self,
         prompt: &[u32],
         p: &GenerateParams,
         on_token: &mut dyn FnMut(u32) -> bool,
+        keep_snapshot: bool,
     ) -> Result<GenerateOutcome, EngineError> {
         if prompt.is_empty() {
             return Err(EngineError::Failed("empty prompt".into()));
@@ -329,6 +322,7 @@ impl Engine for Qwen36BatchDoor {
             out: otx,
             cancel: Arc::clone(&cancel),
             t_queued: Instant::now(),
+            keep_snapshot,
         };
         {
             let tx = self
@@ -366,6 +360,37 @@ impl Engine for Qwen36BatchDoor {
                 Err(_) => return Err(EngineError::Failed("qwen36-batch scheduler gone".into())),
             }
         }
+    }
+}
+
+impl Engine for Qwen36BatchDoor {
+    fn kind(&self) -> &str {
+        "omega-qwen36-batch"
+    }
+
+    fn max_context_tokens(&self) -> usize {
+        self.max_context
+    }
+
+    fn concurrency(&self) -> usize {
+        self.slots
+    }
+
+    fn generate(
+        &self,
+        prompt: &[u32],
+        p: &GenerateParams,
+        on_token: &mut dyn FnMut(u32) -> bool,
+    ) -> Result<GenerateOutcome, EngineError> {
+        self.submit(prompt, p, on_token, false)
+    }
+    fn generate_continuation(
+        &self,
+        prompt: &[u32],
+        p: &GenerateParams,
+        on_token: &mut dyn FnMut(u32) -> bool,
+    ) -> Result<GenerateOutcome, EngineError> {
+        self.submit(prompt, p, on_token, true)
     }
 }
 
@@ -605,14 +630,18 @@ impl<S: RowStep> Scheduler<S> {
             self.free.push(row);
             return;
         }
+        // A continuation (L376) keeps the snapshot at the first round's header: the client's
+        // next request renders the turn without the built-in exchange and lands on it.
         let snap_at = job
             .prompt
             .iter()
             .rposition(|&t| t == IM_START)
-            .filter(|&k| k > 0 && k >= reused && self.rows[row].snap_tokens[..] != job.prompt[..k]);
+            .filter(|&k| k > 0 && k >= reused && self.rows[row].snap_tokens[..] != job.prompt[..k])
+            .filter(|_| !job.keep_snapshot);
         eprintln!(
-            "aien-serve-http: qwen36-batch: join: prompt {plen} tok, reuse {reused} tok ({}, row {row}), queued {} ms, now {} rows",
+            "aien-serve-http: qwen36-batch: join: prompt {plen} tok, reuse {reused} tok ({}, row {row}){}, queued {} ms, now {} rows",
             if reused == 0 { "cold" } else if from_snap { "snapshot" } else { "live" },
+            if job.keep_snapshot { ", continuation" } else { "" },
             job.t_queued.elapsed().as_millis(),
             active.len() + 1,
         );
