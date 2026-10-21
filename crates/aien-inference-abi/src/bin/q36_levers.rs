@@ -17,7 +17,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use aien_inference_abi::qwen38::Qwen38Config;
-use aien_inference_abi::qwen38_omega::{need_bytes, Qwen38Omega};
+use aien_inference_abi::qwen38_omega::{need_bytes, Qwen38Omega, SharedWeights};
 use aien_omega_q38::q36;
 use serde_json::{json, Value};
 
@@ -81,7 +81,9 @@ fn kind_bytes(c: &Qwen38Config, kind: &str, pos: usize) -> f64 {
 }
 
 fn run() -> Result<bool, String> {
-    let a: Vec<String> = std::env::args().collect();
+    let mut a: Vec<String> = std::env::args().collect();
+    // --weights-from <socket> (L383 shared weights): map a running owner's upload instead of loading
+    let shared = take_weights_from(&mut a)?;
     if a.len() < 4 {
         return Err("usage: q36_levers <checkpoint-dir> <out.json> <golden.json>...".into());
     }
@@ -97,7 +99,11 @@ fn run() -> Result<bool, String> {
     let stamp_at = env_list("Q36_LEVERS_STAMPS", "40,300,1000");
     let max_pos = 2048.max(end_pos + 1);
     let c = Qwen38Config::from_checkpoint(dir)?;
-    let need = need_bytes(&c, max_pos, 4096);
+    let need = if shared.is_some() {
+        0
+    } else {
+        need_bytes(&c, max_pos, 4096)
+    };
     let avail = mem_available()?;
     if avail < need + KEEP_FREE {
         return Err(format!(
@@ -116,7 +122,10 @@ fn run() -> Result<bool, String> {
         avail >> 20
     );
     let t = Instant::now();
-    let mut m = Qwen38Omega::open(dir, None, max_pos)?;
+    let mut m = match &shared {
+        Some(s) => Qwen38Omega::open_shared(dir, s, max_pos, 1)?,
+        None => Qwen38Omega::open(dir, None, max_pos)?,
+    };
     let open_s = t.elapsed().as_secs_f64();
     if !m.is_moe() {
         return Err("not the 35B (sparse) model".into());
@@ -268,6 +277,25 @@ fn run() -> Result<bool, String> {
         if all_ok { "ALL IDENTICAL" } else { "DIFFER" }
     );
     Ok(all_ok)
+}
+
+/// Pulls `--weights-from <socket>` out of the argument list and fetches the owner's manifest.
+fn take_weights_from(a: &mut Vec<String>) -> Result<Option<SharedWeights>, String> {
+    let Some(i) = a.iter().position(|s| s == "--weights-from") else {
+        return Ok(None);
+    };
+    if i + 1 >= a.len() {
+        return Err("--weights-from needs a socket path".into());
+    }
+    let sock = a.remove(i + 1);
+    a.remove(i);
+    let s = SharedWeights::fetch(Path::new(&sock))?;
+    eprintln!(
+        "shared weights: from pid {} at {sock} ({} tensors)",
+        s.owner_pid,
+        s.tensors.len()
+    );
+    Ok(Some(s))
 }
 
 fn main() {

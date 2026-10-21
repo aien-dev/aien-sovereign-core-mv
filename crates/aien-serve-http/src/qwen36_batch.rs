@@ -28,7 +28,7 @@ use std::time::{Duration, Instant};
 
 use aien_inference_abi::qwen38::Qwen38Config;
 use aien_inference_abi::qwen38_omega::{
-    need_bytes, Qwen38Omega, Qwen38Snapshot, RowFeed, RowOut, RowTest, IM_START,
+    need_bytes, Qwen38Omega, Qwen38Snapshot, RowFeed, RowOut, RowTest, SharedWeights, IM_START,
 };
 
 use crate::engine::{
@@ -254,6 +254,20 @@ impl Qwen36BatchDoor {
     /// Uploads the 35B checkpoint at `dir` once and makes `slots` conversation rows of
     /// `max_context` positions each (rounded up to whole 256-position passes), under the GPU lock.
     pub fn load(dir: &Path, max_context: usize, slots: usize) -> Result<Self, String> {
+        Self::load_with(dir, max_context, slots, None, None)
+    }
+
+    /// As [`Self::load`]; with `shared` the big tensors are imported from another process's upload
+    /// (L383 shared weights: read-only mappings, no copy, only the rows and the host-side pieces are
+    /// this process's own), with `publish` this process serves its own upload at that unix socket
+    /// for other copies (`--weights-publish`).
+    pub fn load_with(
+        dir: &Path,
+        max_context: usize,
+        slots: usize,
+        shared: Option<&SharedWeights>,
+        publish: Option<&Path>,
+    ) -> Result<Self, String> {
         if !aien_omega_gpu::is_native() {
             return Err("this binary carries the CPU stub of the Omega engine".into());
         }
@@ -272,10 +286,14 @@ impl Qwen36BatchDoor {
         let c = Qwen38Config::from_checkpoint(dir)?;
         let max_pos = max_context.next_multiple_of(256);
         // The main graph is never stepped here: its own state is one 256-position pass.
-        let need = need_bytes(&c, 256, PREFILL_CHUNK);
+        let need = if shared.is_some() {
+            0
+        } else {
+            need_bytes(&c, 256, PREFILL_CHUNK)
+        };
         let keep = keep_free()?;
         let avail = mem_available();
-        if avail < need + keep {
+        if shared.is_none() && avail < need + keep {
             return Err(format!(
                 "needs {} MiB plus {} MiB kept free, MemAvailable {} MiB (another model may be loaded); refusing",
                 need >> 20,
@@ -291,7 +309,20 @@ impl Qwen36BatchDoor {
             need >> 20,
             avail >> 20
         );
-        let mut model = Qwen38Omega::open(dir, None, 256)?;
+        let mut model = match shared {
+            Some(s) => Qwen38Omega::open_shared(dir, s, 256, 1)?,
+            None => Qwen38Omega::open(dir, None, 256)?,
+        };
+        let weights_line = match shared {
+            Some(s) => format!(
+                "weights shared from pid {} (read-only mappings, no copy)",
+                s.owner_pid
+            ),
+            None => format!(
+                "weights {:.2} GB resident",
+                model.weight_bytes() as f64 / 1e9
+            ),
+        };
         let on_paper = model.row_bytes(max_pos);
         let rows_need = on_paper as u64 * slots as u64;
         let before = mem_available();
@@ -307,10 +338,16 @@ impl Qwen36BatchDoor {
         let after = mem_available();
         let measured = before.saturating_sub(after);
         drop(lock);
+        if let Some(sock) = publish {
+            model.share(dir)?.publish(sock)?;
+            eprintln!(
+                "aien-serve-http: qwen36-batch: weights published at {} (unix socket, this user only; test copies start with --weights-from)",
+                sock.display()
+            );
+        }
         eprintln!(
-            "aien-serve-http: qwen36-batch engine ready in {:.1} s: context {max_context} tokens, {slots} rows, weights {:.2} GB resident, per-row state {:.1} MiB on paper, {:.1} MiB measured (MemAvailable {} MiB -> {} MiB), rss {:.2} GB, prompt tokens per beat {per_beat}",
+            "aien-serve-http: qwen36-batch engine ready in {:.1} s: context {max_context} tokens, {slots} rows, {weights_line}, per-row state {:.1} MiB on paper, {:.1} MiB measured (MemAvailable {} MiB -> {} MiB), rss {:.2} GB, prompt tokens per beat {per_beat}",
             t0.elapsed().as_secs_f64(),
-            model.weight_bytes() as f64 / 1e9,
             on_paper as f64 / (1u64 << 20) as f64,
             measured as f64 / slots as f64 / (1u64 << 20) as f64,
             before >> 20,

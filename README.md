@@ -18,6 +18,8 @@ Qwen3.8-27B (the hybrid DeltaNet + attention model, FP8) has a host reference in
 
 The OWN-30B server (`aien-serve-http --engine omega`, Qwen3-30B-A3B FP8) holds up to 128k context with `--max-context 131072` (default 32768) and refuses to start when its KV cache cannot hold what was asked. On the Spark GPU it recalled a code word from the first line of a 118,186-token prompt ([evidence](docs/inference/evidence/own30b-128k-20261018/NOTES.md)).
 
+Shared weights (L383): the 35B batch server can publish its uploaded weights (`--weights-publish SOCK`, a unix socket only this user can open) and a test server can start on them (`--weights-from SOCK`) instead of uploading its own 35 GB: the driver maps the same pages read-only into the second process, which keeps its own rows and KV cache. Status: host-tested (manifest, refusals, simulated driver); the GPU test pair on the Spark is in progress.
+
 Known limits: the GPU fallback counter covers only instrumented operations, so execution is not exclusively accelerated; Qwen full-runtime qualification is not complete; the C1 evidence campaign is in progress.
 
 ## Measured results

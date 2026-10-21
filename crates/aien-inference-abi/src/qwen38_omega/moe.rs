@@ -21,7 +21,8 @@ use aien_omega_router::Router;
 
 use super::rows::{GdnParams, RowSource};
 use super::{
-    ab_rows, fold, fuse_fp8, gpu, upload_fp8, Graph, HeadState, LayerTensors, Qwen38Omega, EPS_L2,
+    ab_rows, fold, fuse_fp8, gpu, upload_fp8, Graph, HeadState, LayerTensors, Qwen38Omega,
+    SharedWeights, EPS_L2,
 };
 use crate::qwen38::{read_bf16_words, read_matrix, read_vec, text_prefix, Matrix, Qwen38Config};
 use crate::qwen3_moe::bf16_to_f32;
@@ -161,6 +162,7 @@ impl Qwen38Omega {
         source: &mut dyn TensorSource,
         max_pos: usize,
         heads: usize,
+        shared: Option<&SharedWeights>,
     ) -> Result<Self, String> {
         let c = &config;
         check_shape(c)?;
@@ -174,10 +176,23 @@ impl Qwen38Omega {
         let (v, h) = (c.vocab, c.hidden);
         let embed = read_bf16_words(source, &format!("{prefix}embed_tokens.weight"), &[v, h])?;
         let final_norm = fold(read_vec(source, &format!("{prefix}norm.weight"), h)?);
-        let head = read_matrix(source, "lm_head.weight", v, h)?;
-        let lm_head = match &head {
-            Matrix::Bf16 { n, k, w } => Bf16Tensor::upload(*n, *k, w).map_err(gpu("lm_head"))?,
-            Matrix::Fp8 { .. } => return Err("lm_head: FP8 (the graph takes a bf16 head)".into()),
+        // Shared weights (L383): the big tensors come from the owner's upload, nothing of them is
+        // read here; the host-side pieces (config, embedding, norms, router rows, DeltaNet and
+        // attention parameters) still come from the checkpoint.
+        let key = |l: usize, what: &str| format!("layer{}.{what}", first + l);
+        let head = match shared {
+            Some(_) => None,
+            None => Some(read_matrix(source, "lm_head.weight", v, h)?),
+        };
+        let lm_head = match (shared, &head) {
+            (Some(s), _) => s.bf16("lm_head")?,
+            (None, Some(Matrix::Bf16 { n, k, w })) => {
+                Bf16Tensor::upload(*n, *k, w).map_err(gpu("lm_head"))?
+            }
+            (None, Some(Matrix::Fp8 { .. })) => {
+                return Err("lm_head: FP8 (the graph takes a bf16 head)".into())
+            }
+            (None, None) => unreachable!("the head is read when nothing is shared"),
         };
         let n_attn = c.full_attention.iter().filter(|&&a| a).count();
         let n_gdn = c.layers - n_attn;
@@ -224,28 +239,34 @@ impl Qwen38Omega {
             let rm = |s: &mut dyn TensorSource, name: String, n, k| read_matrix(s, &name, n, k);
             let (mix, ab, o) = if c.full_attention[l] {
                 let a = format!("{p}.self_attn");
-                let mix = fuse_fp8(
-                    &format!("{a} q|k|v"),
-                    vec![
+                let mix = match shared {
+                    Some(s) => s.fp8(&key(l, "mix"))?,
+                    None => fuse_fp8(
+                        &format!("{a} q|k|v"),
+                        vec![
+                            rm(
+                                source,
+                                format!("{a}.q_proj.weight"),
+                                2 * c.heads * c.head_dim,
+                                h,
+                            )?,
+                            rm(source, format!("{a}.k_proj.weight"), c.kv_dim(), h)?,
+                            rm(source, format!("{a}.v_proj.weight"), c.kv_dim(), h)?,
+                        ],
+                    )?,
+                };
+                let o = match shared {
+                    Some(s) => s.fp8(&key(l, "o"))?,
+                    None => upload_fp8(
+                        &format!("{a}.o_proj"),
                         rm(
                             source,
-                            format!("{a}.q_proj.weight"),
-                            2 * c.heads * c.head_dim,
+                            format!("{a}.o_proj.weight"),
                             h,
+                            c.heads * c.head_dim,
                         )?,
-                        rm(source, format!("{a}.k_proj.weight"), c.kv_dim(), h)?,
-                        rm(source, format!("{a}.v_proj.weight"), c.kv_dim(), h)?,
-                    ],
-                )?;
-                let o = upload_fp8(
-                    &format!("{a}.o_proj"),
-                    rm(
-                        source,
-                        format!("{a}.o_proj.weight"),
-                        h,
-                        c.heads * c.head_dim,
                     )?,
-                )?;
+                };
                 let q_norm = read_vec(source, &format!("{a}.q_norm.weight"), c.head_dim)?;
                 let k_norm = read_vec(source, &format!("{a}.k_norm.weight"), c.head_dim)?;
                 for attn in attns.iter_mut() {
@@ -259,26 +280,37 @@ impl Qwen38Omega {
                 (mix, None, o)
             } else {
                 let a = format!("{p}.linear_attn");
-                let mix = fuse_fp8(
-                    &format!("{a} qkv|z"),
-                    vec![
-                        rm(source, format!("{a}.in_proj_qkv.weight"), c.conv_dim(), h)?,
-                        rm(
-                            source,
-                            format!("{a}.in_proj_z.weight"),
-                            c.lin_value_dim(),
-                            h,
-                        )?,
-                    ],
-                )?;
-                let ia = rm(source, format!("{a}.in_proj_a.weight"), c.lin_v_heads, h)?;
-                let ib = rm(source, format!("{a}.in_proj_b.weight"), c.lin_v_heads, h)?;
-                let (an, ak, aw) = ab_rows(&ia, &ib).map_err(|e| format!("{a}: {e}"))?;
-                let ab = Bf16Tensor::upload(an, ak, &aw).map_err(gpu("in_proj_a|b"))?;
-                let o = upload_fp8(
-                    &format!("{a}.out_proj"),
-                    rm(source, format!("{a}.out_proj.weight"), h, c.lin_value_dim())?,
-                )?;
+                let mix = match shared {
+                    Some(s) => s.fp8(&key(l, "mix"))?,
+                    None => fuse_fp8(
+                        &format!("{a} qkv|z"),
+                        vec![
+                            rm(source, format!("{a}.in_proj_qkv.weight"), c.conv_dim(), h)?,
+                            rm(
+                                source,
+                                format!("{a}.in_proj_z.weight"),
+                                c.lin_value_dim(),
+                                h,
+                            )?,
+                        ],
+                    )?,
+                };
+                let ab = match shared {
+                    Some(s) => s.bf16(&key(l, "ab"))?,
+                    None => {
+                        let ia = rm(source, format!("{a}.in_proj_a.weight"), c.lin_v_heads, h)?;
+                        let ib = rm(source, format!("{a}.in_proj_b.weight"), c.lin_v_heads, h)?;
+                        let (an, ak, aw) = ab_rows(&ia, &ib).map_err(|e| format!("{a}: {e}"))?;
+                        Bf16Tensor::upload(an, ak, &aw).map_err(gpu("in_proj_a|b"))?
+                    }
+                };
+                let o = match shared {
+                    Some(s) => s.fp8(&key(l, "o"))?,
+                    None => upload_fp8(
+                        &format!("{a}.out_proj"),
+                        rm(source, format!("{a}.out_proj.weight"), h, c.lin_value_dim())?,
+                    )?,
+                };
                 let conv: Vec<f32> = read_bf16_words(
                     source,
                     &format!("{a}.conv1d.weight"),
@@ -306,7 +338,10 @@ impl Qwen38Omega {
                 (mix, Some(ab), o)
             };
             let m = format!("{p}.mlp");
-            let (gate_up, down) = upload_experts(source, &m, h)?;
+            let (gate_up, down) = match shared {
+                Some(s) => (s.fp8(&key(l, "gate_up"))?, s.fp8(&key(l, "down"))?),
+                None => upload_experts(source, &m, h)?,
+            };
             let in_norm = fold(read_vec(source, &format!("{p}.input_layernorm.weight"), h)?);
             let post_norm = fold(read_vec(
                 source,
@@ -392,16 +427,43 @@ impl Qwen38Omega {
         // HUM L314 exact two-pass head, on by default (AIEN_Q36_EXACT_HEAD=0 keeps the plain head):
         // greedy tokens identical to the full bf16 head by construction (exact_head.rs), half the
         // head's bytes. The engine turns it off for sampled requests.
-        let (head_screen, head_coef) = if std::env::var("AIEN_Q36_EXACT_HEAD").as_deref() == Ok("0") {
+        let (head_screen, head_coef) = if std::env::var("AIEN_Q36_EXACT_HEAD").as_deref() == Ok("0")
+        {
             eprintln!("qwen36 omega: exact two-pass head OFF (AIEN_Q36_EXACT_HEAD=0)");
             (None, None)
+        } else if let Some(s) = shared {
+            match (s.has("head_screen"), &s.head_coef) {
+                (true, Some(coef)) => {
+                    let screen = s.fp8("head_screen")?;
+                    // SAFETY: the screen is owned by the returned value and dropped after the graph (field order).
+                    unsafe { graph.set_exact_head(screen.as_raw(), coef) }
+                        .map_err(gpu("q36 graph set_exact_head"))?;
+                    eprintln!(
+                        "qwen36 omega: exact two-pass head ON (screen shared from pid {})",
+                        s.owner_pid
+                    );
+                    (Some(screen), Some(coef.clone()))
+                }
+                _ => {
+                    eprintln!("qwen36 omega: exact two-pass head OFF (the owner published none)");
+                    (None, None)
+                }
+            }
         } else {
             let t = std::time::Instant::now();
-            let (codes, scales, coef) = crate::exact_head::chip_screen(&head)?;
-            let screen = Fp8Tensor::upload(1, v, h, &codes, &scales).map_err(gpu("exact head screen"))?;
+            let head = head
+                .as_ref()
+                .expect("the head is read when nothing is shared");
+            let (codes, scales, coef) = crate::exact_head::chip_screen(head)?;
+            let screen =
+                Fp8Tensor::upload(1, v, h, &codes, &scales).map_err(gpu("exact head screen"))?;
             // SAFETY: the screen is owned by the returned value and dropped after the graph (field order).
-            unsafe { graph.set_exact_head(screen.as_raw(), &coef) }.map_err(gpu("q36 graph set_exact_head"))?;
-            eprintln!("qwen36 omega: exact two-pass head ON (fp8b screen + Row bound, built in {:.1} s)", t.elapsed().as_secs_f64());
+            unsafe { graph.set_exact_head(screen.as_raw(), &coef) }
+                .map_err(gpu("q36 graph set_exact_head"))?;
+            eprintln!(
+                "qwen36 omega: exact two-pass head ON (fp8b screen + Row bound, built in {:.1} s)",
+                t.elapsed().as_secs_f64()
+            );
             (Some(screen), Some(coef))
         };
         drop(head);

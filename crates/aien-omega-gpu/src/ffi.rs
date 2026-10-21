@@ -94,6 +94,44 @@ impl OmegaGpuMatmulInfo {
 pub struct OmegaGpuTensor {
     _private: [u8; 0],
 }
+
+/// omega `OmegaGpuShareToken` (`src/omega_gpu_platform.h`, ABI 1.3, L383): one DATA buffer another
+/// process of the same user may import read-only. Field for field; probe: 24 bytes, `bytes` at 16.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct OmegaGpuShareToken {
+    pub hclient: u32,
+    pub hmemory: u32,
+    pub flags: u32,
+    pub bytes: u64,
+}
+
+/// omega `OmegaGpuTensorShare` (`src/omega_gpu_matmul_api.h`, L383): a resident matmul weight published
+/// for import. Probe: 40 bytes, `mem` at 16.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct OmegaGpuTensorShare {
+    pub k: u32,
+    pub n: u32,
+    pub kp: u32,
+    pub np: u32,
+    pub mem: OmegaGpuShareToken,
+}
+
+// L383 shared weights: declared outside the manifest lists on purpose. An archive older than omega
+// feat/shared-weights has no sharing; `ResidentTensor::export` / `import` then fail at link time
+// instead of the manifest check failing every older archive.
+#[cfg(has_omega_gpu)]
+extern "C" {
+    pub fn omega_gpu_tensor_export(
+        t: *const OmegaGpuTensor,
+        out: *mut OmegaGpuTensorShare,
+    ) -> c_int;
+    pub fn omega_gpu_tensor_import(
+        s: *const OmegaGpuTensorShare,
+        out: *mut *mut OmegaGpuTensor,
+    ) -> c_int;
+}
 abi_struct! {
 /// omega `OmegaGpuAllocStats` (`src/omega_gpu_session.h`), field for field.
 #[repr(C)]
