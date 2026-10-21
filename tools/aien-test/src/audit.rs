@@ -48,6 +48,9 @@ pub struct Opened {
     pub write_only: bool,
     /// Opened as a directory (`O_DIRECTORY`): a listing of its names.
     pub dir: bool,
+    /// Opened with `O_TRUNC`: the run replaced the file, so a later read of
+    /// it reads the run's own output.
+    pub truncates: bool,
 }
 
 /// Parse `strace -f -qq -Y -y -e trace=open,openat,openat2,execve
@@ -71,6 +74,7 @@ pub fn parse_strace(text: &str) -> Vec<Opened> {
                         path: p,
                         write_only: false,
                         dir: false,
+                        truncates: false,
                     });
                 }
             }
@@ -100,11 +104,13 @@ pub fn parse_strace(text: &str) -> Vec<Opened> {
         }
         let write_only = call[..eq].contains("O_WRONLY");
         let dir = call[..eq].contains("O_DIRECTORY");
+        let truncates = call[..eq].contains("O_TRUNC");
         out.push(Opened {
             comm,
             path,
             write_only,
             dir,
+            truncates,
         });
     }
     out
@@ -243,9 +249,15 @@ pub fn judge(m: &Manifest, places: &Places, opened: &[Opened]) -> Report {
             }
         })
         .collect();
+    // Files the run truncated (a log it writes, then greps): reads after that
+    // see its own output, not an input.
+    let mut made: BTreeSet<&str> = BTreeSet::new();
     for o in opened {
         if CARGO_PROGRAMS.contains(&o.comm.as_str()) {
             r.uses_cargo = true;
+        }
+        if o.truncates {
+            made.insert(o.path.as_str());
         }
         if o.write_only {
             bump(&mut r, "opened for writing only");
@@ -262,6 +274,13 @@ pub fn judge(m: &Manifest, places: &Places, opened: &[Opened]) -> Report {
             bump(&mut r, "rm (deleting, not reading)");
             continue;
         }
+        // Any program reading a git directory (cargo lists a path package's
+        // files through the git index; gix reads the excludes) reads the tree's
+        // own record of itself, which the declared files already pin.
+        if o.path.contains("/.git/") || o.path.ends_with("/.git") {
+            bump(&mut r, "git metadata (.git)");
+            continue;
+        }
         let p = o.path.as_str();
         let p_dir = format!("{}/", p.trim_end_matches('/'));
         if p_dir.starts_with(&target) {
@@ -272,7 +291,13 @@ pub fn judge(m: &Manifest, places: &Places, opened: &[Opened]) -> Report {
         // that file (a copy of the tree); the rest is the run's scratch.
         if let Some(t) = p.strip_prefix(&tmpdir) {
             let tail = t.split_once('/').map(|x| x.1).unwrap_or("");
-            if !tail.is_empty() && places.root.join(tail).exists() && !tail.starts_with(".git") {
+            if o.comm == "tar" {
+                // tar -x making the copy: it writes, it does not read.
+                bump(&mut r, "tar writing the copy");
+            } else if !tail.is_empty()
+                && places.root.join(tail).exists()
+                && !tail.starts_with(".git")
+            {
                 judge_repo(m, places, tail, o, &mut r);
             } else {
                 bump(&mut r, "private TMPDIR scratch");
@@ -302,6 +327,12 @@ pub fn judge(m: &Manifest, places: &Places, opened: &[Opened]) -> Report {
             }
             continue;
         }
+        // Only outside the tree and its TMPDIR copy: a copied repository file
+        // is written by tar first and is still that repository file.
+        if made.contains(p) {
+            bump(&mut r, "made earlier by the run (truncated, then read)");
+            continue;
+        }
         if outside
             .iter()
             .any(|d| p == d || p.starts_with(&format!("{d}/")))
@@ -318,8 +349,11 @@ pub fn judge(m: &Manifest, places: &Places, opened: &[Opened]) -> Report {
         }
         // cargo reads git's user config for git dependencies and fetches;
         // with every dependency locked by Cargo.lock it does not change a build.
-        if p == format!("{home}/.gitconfig") {
-            bump(&mut r, "~/.gitconfig (cargo net settings)");
+        if p == format!("{home}/.gitconfig") || p == format!("{home}/.gitignore_global") {
+            bump(
+                &mut r,
+                "~/.gitconfig, ~/.gitignore_global (git user config)",
+            );
             continue;
         }
         if SYSTEM.iter().any(|s| p_dir.starts_with(s)) || p == "/" {
@@ -439,10 +473,12 @@ mod tests {
                 comm: "sh".into(),
                 path: "/r/a".into(),
                 write_only: false,
-                dir: false
+                dir: false,
+                truncates: false
             }
         );
         assert!(o[1].write_only);
+        assert!(o[1].truncates);
         assert_eq!(o[2].path, "/usr/bin/cargo");
     }
 
@@ -498,6 +534,39 @@ mod tests {
         let m2 = gate("outside_inputs:\n  - ~/models/T/\n");
         let rep = judge(&m2, &places(&dir), &opened);
         assert!(rep.ok(&m2), "{}", render(&m2, &rep));
+    }
+
+    #[test]
+    fn a_file_the_run_truncated_is_its_output_but_a_read_before_is_an_input() {
+        let dir = tempdir();
+        let log = "/home/op/logs/run.log";
+        let write = format!(
+            "7<sh> openat(AT_FDCWD</r>, \"x\", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 3<{log}>\n"
+        );
+        // Written, then grepped: its own output.
+        let after = parse_strace(&(write.clone() + &line("grep", log)));
+        let m = gate("");
+        let rep = judge(&m, &places(&dir), &after);
+        assert!(rep.ok(&m), "{}", render(&m, &rep));
+        // Read before the run replaced it: the old bytes were an input.
+        let before = parse_strace(&(line("grep", log) + &write));
+        assert_eq!(
+            judge(&m, &places(&dir), &before).undeclared_outside.len(),
+            1
+        );
+        // The TMPDIR copy of a repository file is written by tar, then read:
+        // still that repository file.
+        std::fs::create_dir_all(dir.join("crates/z")).unwrap();
+        std::fs::write(dir.join("crates/z/lib.rs"), "x").unwrap();
+        let copy = "/audit/tmp/tmp.Ab12/crates/z/lib.rs";
+        let t = format!(
+            "7<tar> openat(AT_FDCWD</r>, \"x\", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 3<{copy}>\n"
+        ) + &line("rustc", copy);
+        let rep = judge(&m, &places(&dir), &parse_strace(&t));
+        assert_eq!(
+            rep.undeclared.keys().collect::<Vec<_>>(),
+            vec!["crates/z/lib.rs"]
+        );
     }
 
     #[test]

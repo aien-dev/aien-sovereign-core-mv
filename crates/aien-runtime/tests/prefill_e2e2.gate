@@ -13,6 +13,12 @@ inputs:
   - Cargo.lock
   - crates/
   - tools/
+  # Read outside crates/ (aien-audit-inputs, L335): the C1 acceptance file at
+  # run time, two campaign files compiled in by include_str!, and omega.lock
+  # through a build script.
+  - docs/campaigns/c1/
+  - docs/campaigns/next-phase-1/
+  - omega.lock
 run:
   exec: crates/aien-runtime/tests/prefill_e2e2_run.sh
   args: ["main"]
