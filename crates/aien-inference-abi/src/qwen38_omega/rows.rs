@@ -14,7 +14,7 @@
 use aien_omega_q38::q36::{self as q, Q36Config, Q36Graph};
 use aien_omega_q38::{Attn256Cache, Gdn, GraphStats};
 
-use super::{gpu, Qwen38Omega};
+use super::{gpu, Qwen38Omega, Qwen38Snapshot};
 use crate::qwen3_moe::bf16_to_f32;
 
 /// One DeltaNet layer's parameters as the upload set them (host copy, for each new row's state).
@@ -200,6 +200,63 @@ impl Qwen38Omega {
             g.reset().map_err(gpu("row gdn reset"))?;
         }
         row.pos = 0;
+        Ok(())
+    }
+
+    /// Copies row `r`'s DeltaNet tails and states and its position into `snap` (host memory,
+    /// reused between calls), as [`Self::snapshot`] does for the main state.
+    pub fn row_snapshot(&mut self, r: usize, snap: &mut Qwen38Snapshot) -> Result<(), String> {
+        let n = self.rows.len();
+        let row = self
+            .rows
+            .get_mut(r)
+            .ok_or_else(|| format!("row {r} of {n}"))?;
+        snap.pos = row.pos;
+        let Some(g) = row.gdn.as_mut() else {
+            return Ok(());
+        };
+        let (tf, sf) = (g.tail_floats(), g.state_floats());
+        snap.tails.resize(g.layers() * tf, 0.0);
+        snap.states.resize(g.layers() * sf, 0.0);
+        for (l, (t, st)) in snap
+            .tails
+            .chunks_exact_mut(tf)
+            .zip(snap.states.chunks_exact_mut(sf))
+            .enumerate()
+        {
+            g.get_state(l, t, st).map_err(gpu("row gdn get_state"))?;
+        }
+        Ok(())
+    }
+
+    /// Puts a [`Self::row_snapshot`] back into row `r` (any row: the copy is plain host memory).
+    pub fn row_restore(&mut self, r: usize, snap: &Qwen38Snapshot) -> Result<(), String> {
+        let n = self.rows.len();
+        let row = self
+            .rows
+            .get_mut(r)
+            .ok_or_else(|| format!("row {r} of {n}"))?;
+        if snap.pos > row.max_pos {
+            return Err(format!(
+                "row_restore: position {} past the row's {}",
+                snap.pos, row.max_pos
+            ));
+        }
+        if let Some(g) = row.gdn.as_mut() {
+            let (tf, sf) = (g.tail_floats(), g.state_floats());
+            if snap.tails.len() != g.layers() * tf || snap.states.len() != g.layers() * sf {
+                return Err("row_restore: the snapshot is not of this model".into());
+            }
+            for (l, (t, st)) in snap
+                .tails
+                .chunks_exact(tf)
+                .zip(snap.states.chunks_exact(sf))
+                .enumerate()
+            {
+                g.set_state(l, t, st).map_err(gpu("row gdn set_state"))?;
+            }
+        }
+        row.pos = snap.pos;
         Ok(())
     }
 

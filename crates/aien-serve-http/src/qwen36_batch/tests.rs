@@ -38,6 +38,15 @@ impl Fake {
 }
 
 impl RowStep for Fake {
+    type Snap = (u64, usize);
+    fn row_snapshot(&mut self, r: usize, snap: &mut (u64, usize)) -> Result<(), String> {
+        *snap = self.rows[r];
+        Ok(())
+    }
+    fn row_restore(&mut self, r: usize, snap: &(u64, usize)) -> Result<(), String> {
+        self.rows[r] = *snap;
+        Ok(())
+    }
     fn row_count(&self) -> usize {
         self.rows.len()
     }
@@ -216,4 +225,29 @@ fn cancel_frees_the_row_and_stop_ends() {
     let (w, o) = run(&d, &p, &stop);
     assert_eq!(o.finish, FinishReason::Stop);
     assert_eq!(w, full[..first]);
+}
+
+#[test]
+fn a_reworded_next_turn_restores_the_turn_header_copy() {
+    let (d, fed) = door(1, None, 4);
+    let im = IM_START;
+    let p1 = vec![1, 2, 3, im, 5, 6];
+    let (r1, _) = run(&d, &p1, &greedy(4));
+    // Turn 2 renders turn 1's reply differently (so the live tokens do not match) but keeps
+    // everything before turn 1's header: the copy taken there is restored.
+    let other = (r1[0] + 1) % VOCAB as u32;
+    let p2 = vec![1, 2, 3, im, 5, 6, other, 78, im, 4];
+    let before = fed.load(Ordering::SeqCst);
+    let (r2, _) = run(&d, &p2, &greedy(5));
+    assert_eq!(r2, alone(&p2, 5), "restored row == cold row");
+    assert_eq!(fed.load(Ordering::SeqCst) - before, 7 + 4);
+    // Turn 3 continues turn 2 live: its copy (taken at p2's last header) is shorter than the live
+    // tokens, so the live state wins.
+    let mut p3 = p2.clone();
+    p3.extend(&r2);
+    p3.extend([im, 9]);
+    let before = fed.load(Ordering::SeqCst);
+    let (r3, _) = run(&d, &p3, &greedy(2));
+    assert_eq!(r3, alone(&p3, 2));
+    assert_eq!(fed.load(Ordering::SeqCst) - before, 3 + 1);
 }

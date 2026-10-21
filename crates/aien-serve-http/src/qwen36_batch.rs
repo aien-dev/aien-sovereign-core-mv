@@ -27,7 +27,9 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use aien_inference_abi::qwen38::Qwen38Config;
-use aien_inference_abi::qwen38_omega::{need_bytes, Qwen38Omega, RowFeed, RowOut};
+use aien_inference_abi::qwen38_omega::{
+    need_bytes, Qwen38Omega, Qwen38Snapshot, RowFeed, RowOut, IM_START,
+};
 
 use crate::engine::{Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams};
 use crate::omega_engine::{GpuLock, GPU_LOCK_PATH};
@@ -66,6 +68,11 @@ pub trait RowStep: Send + 'static {
     fn row_reset(&mut self, r: usize) -> Result<(), String>;
     /// One token into each listed row; each row's greedy token and (when asked) logits.
     fn step_rows(&mut self, feed: &[RowFeed]) -> Result<Vec<RowOut>, String>;
+    /// A host copy of a row's state.
+    type Snap: Default + Send;
+    fn row_snapshot(&mut self, r: usize, snap: &mut Self::Snap) -> Result<(), String>;
+    /// Puts a copy back into row `r` (any row).
+    fn row_restore(&mut self, r: usize, snap: &Self::Snap) -> Result<(), String>;
 }
 
 impl RowStep for Qwen38Omega {
@@ -77,6 +84,13 @@ impl RowStep for Qwen38Omega {
     }
     fn step_rows(&mut self, feed: &[RowFeed]) -> Result<Vec<RowOut>, String> {
         Qwen38Omega::step_rows(self, feed)
+    }
+    type Snap = Qwen38Snapshot;
+    fn row_snapshot(&mut self, r: usize, snap: &mut Qwen38Snapshot) -> Result<(), String> {
+        Qwen38Omega::row_snapshot(self, r, snap)
+    }
+    fn row_restore(&mut self, r: usize, snap: &Qwen38Snapshot) -> Result<(), String> {
+        Qwen38Omega::row_restore(self, r, snap)
     }
 }
 
@@ -97,10 +111,14 @@ enum Ev {
     Failed(String),
 }
 
-/// A row between conversations: the tokens its state holds (for the next turn's reuse).
-struct Row {
+/// A row between conversations: the tokens its state holds and a host copy of its state at its
+/// last prompt's last turn header (the single door's two reuse points, per row).
+struct Row<T> {
     history: Vec<u32>,
     last_used: u64,
+    /// The tokens `snap` holds (empty: none).
+    snap_tokens: Vec<u32>,
+    snap: T,
 }
 
 /// One conversation in flight on the scheduler thread.
@@ -110,6 +128,8 @@ struct Active {
     /// Prompt tokens in the row's state (the reused ones included).
     fed: usize,
     reused: usize,
+    /// Where to copy the state on the way in: the prompt's last turn header (`<|im_start|>`).
+    snap_at: Option<usize>,
     observer: SamplingObserver,
     emitted: usize,
     /// Logits after the last fed token, until sampled.
@@ -239,6 +259,8 @@ impl Qwen36BatchDoor {
                 .map(|_| Row {
                     history: Vec::new(),
                     last_used: 0,
+                    snap_tokens: Vec::new(),
+                    snap: S::Snap::default(),
                 })
                 .collect(),
             free: (0..slots).rev().collect(),
@@ -341,7 +363,7 @@ impl Engine for Qwen36BatchDoor {
 
 struct Scheduler<S: RowStep> {
     model: S,
-    rows: Vec<Row>,
+    rows: Vec<Row<S::Snap>>,
     free: Vec<usize>,
     rx: mpsc::Receiver<Job>,
     lock_path: PathBuf,
@@ -438,6 +460,23 @@ impl<S: RowStep> Scheduler<S> {
             // One beat: every decoding row feeds its sampled token in the first step; the rows
             // still feeding their prompt feed up to `per_beat` prompt tokens, one per step.
             for sub in 0..self.per_beat {
+                // Each joining prompt's state copy at its last turn header, before that token goes in.
+                for a in active.iter_mut() {
+                    if a.prefilling() && a.snap_at == Some(a.fed) {
+                        a.snap_at = None;
+                        let row = &mut self.rows[a.row];
+                        match self.model.row_snapshot(a.row, &mut row.snap) {
+                            Ok(()) => row.snap_tokens = a.job.prompt[..a.fed].to_vec(),
+                            Err(e) => {
+                                row.snap_tokens.clear();
+                                eprintln!(
+                                    "aien-serve-http: qwen36-batch: row {} snapshot failed: {e}",
+                                    a.row
+                                );
+                            }
+                        }
+                    }
+                }
                 let mut feed = Vec::with_capacity(active.len());
                 let mut who = Vec::with_capacity(active.len());
                 for (k, a) in active.iter().enumerate() {
@@ -508,41 +547,59 @@ impl<S: RowStep> Scheduler<S> {
         }
     }
 
-    /// Seats the request on a free row: the one whose tokens the prompt continues (the longest),
-    /// else the least recently used one, emptied.
+    /// Seats the request on a free row: the longest state some free row holds that the prompt
+    /// continues (its live tokens, or its copy at its last turn header), else the least recently
+    /// used row, emptied. The single door's reuse rule ([`aien_inference_abi::qwen38_omega::plan_reuse`]), per row.
     fn admit(&mut self, job: Job, active: &mut Vec<Active>) {
         let plen = job.prompt.len();
-        let reuse = self
-            .free
-            .iter()
-            .enumerate()
-            .filter(|(_, &r)| {
-                let h = &self.rows[r].history;
-                !h.is_empty() && h.len() < plen && job.prompt.starts_with(h)
-            })
-            .max_by_key(|(_, &r)| self.rows[r].history.len())
-            .map(|(i, _)| i);
-        let (i, reused) = match reuse {
-            Some(i) => (i, self.rows[self.free[i]].history.len()),
-            None => {
-                let i = (0..self.free.len())
-                    .min_by_key(|&i| self.rows[self.free[i]].last_used)
-                    .expect("admit is called with a free row");
-                (i, 0)
-            }
-        };
-        let row = self.free.swap_remove(i);
-        if reused == 0 {
-            self.rows[row].history.clear();
-            if let Err(e) = self.model.row_reset(row) {
-                eprintln!("aien-serve-http: qwen36-batch: row {row} reset failed: {e}");
-                let _ = job.out.send(Ev::Failed(e));
-                self.free.push(row);
-                return;
+        let fits = |s: &[u32]| !s.is_empty() && s.len() < plen && job.prompt.starts_with(s);
+        // (index in `free`, tokens reused, from the copy)
+        let mut best: Option<(usize, usize, bool)> = None;
+        for (i, &r) in self.free.iter().enumerate() {
+            let row = &self.rows[r];
+            for (s, from_snap) in [(&row.history, false), (&row.snap_tokens, true)] {
+                if fits(s) && best.is_none_or(|(_, n, _)| s.len() > n) {
+                    best = Some((i, s.len(), from_snap));
+                }
             }
         }
+        let (i, reused, from_snap) = best.unwrap_or_else(|| {
+            let i = (0..self.free.len())
+                .min_by_key(|&i| self.rows[self.free[i]].last_used)
+                .expect("admit is called with a free row");
+            (i, 0, false)
+        });
+        let row = self.free.swap_remove(i);
+        let r = {
+            let rr = &mut self.rows[row];
+            if from_snap {
+                self.model
+                    .row_restore(row, &rr.snap)
+                    .map(|()| rr.history = rr.snap_tokens.clone())
+            } else if reused == 0 {
+                rr.history.clear();
+                self.model.row_reset(row)
+            } else {
+                Ok(())
+            }
+        };
+        if let Err(e) = r {
+            eprintln!("aien-serve-http: qwen36-batch: row {row} reset/restore failed: {e}");
+            let rr = &mut self.rows[row];
+            rr.history.clear();
+            rr.snap_tokens.clear();
+            let _ = job.out.send(Ev::Failed(e));
+            self.free.push(row);
+            return;
+        }
+        let snap_at = job
+            .prompt
+            .iter()
+            .rposition(|&t| t == IM_START)
+            .filter(|&k| k > 0 && k >= reused && self.rows[row].snap_tokens[..] != job.prompt[..k]);
         eprintln!(
-            "aien-serve-http: qwen36-batch: join: prompt {plen} tok, reuse {reused} tok (row {row}), queued {} ms, now {} rows",
+            "aien-serve-http: qwen36-batch: join: prompt {plen} tok, reuse {reused} tok ({}, row {row}), queued {} ms, now {} rows",
+            if reused == 0 { "cold" } else if from_snap { "snapshot" } else { "live" },
             job.t_queued.elapsed().as_millis(),
             active.len() + 1,
         );
@@ -552,6 +609,7 @@ impl<S: RowStep> Scheduler<S> {
             row,
             fed: reused,
             reused,
+            snap_at,
             observer,
             emitted: 0,
             logits: None,
