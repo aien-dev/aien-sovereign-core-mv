@@ -28,5 +28,11 @@ aien-platform = { path = "../aien-platform" }
 aien-runtime = { path = "../aien-runtime" }
 sha2 = "0.10"
 
+[features]
+# The merge train's per-request test switches (L384): `aien_test` in a chat request picks this
+# request's path (strokes on/off, exact head on/off, a graph mutant, a row swap). TEST BUILDS
+# ONLY: the live server is built without it and refuses any request carrying `aien_test`.
+aien-test-switches = []
+
 [dev-dependencies]
 aien-inference-abi = { path = "../aien-inference-abi", features = ["host-test-engine"] }

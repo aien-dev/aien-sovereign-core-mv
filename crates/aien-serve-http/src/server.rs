@@ -25,7 +25,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use aien_inference_abi::tokenizer::ChatOptions;
 
 use crate::codec::{Codec, CodecError};
-use crate::engine::{Engine, EngineError, FinishReason, GenerateParams};
+use crate::engine::{Engine, EngineError, FinishReason, GenerateParams, TestSwitches};
 use crate::openai::{
     chunk_json, chunk_json_with, completion_json, ChatRequest, ErrorBody, ModelCard, ModelList,
     Usage,
@@ -171,9 +171,13 @@ struct Prepared {
     return_ids: bool,
     /// The request carried tools: parse `<tool_call>` blocks out of the reply.
     tools: bool,
+    /// The merge train's switches for this request (empty: none; `aien_test` absent).
+    test: TestSwitches,
 }
 
-/// What the generation thread sends to the HTTP side.
+/// What the generation thread sends to the HTTP side. `Done` is sent once per request, so its size
+/// (past clippy's line since `aien_test` joined it) costs nothing.
+#[allow(clippy::large_enum_variant)]
 enum Ev {
     Delta(String),
     /// Text of the thinking block (`reasoning_content`).
@@ -183,6 +187,8 @@ enum Ev {
         completion_tokens: usize,
         sampling: Option<SamplingRecord>,
         token_ids: Option<Vec<u32>>,
+        /// The `aien_test` switches applied (`usage.aien_test.applied`), when the request set any.
+        test: Option<Vec<&'static str>>,
     },
     Error(String),
     /// The engine could not get the shared chip: 503 before any token.
@@ -307,6 +313,19 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
     if let (Some(pk), Some(obj)) = (state.engine.persistence_status(), v.as_object_mut()) {
         obj.insert("persistent_kv".into(), pk);
     }
+    // The merge train (L384): which `aien_test` switches this build honors, so the train marks a
+    // lever NOT-ON-TRAIN instead of PASS when its switch is not in the candidate. Test builds only.
+    // Absent for an engine with no switches, so its /health stays exactly as it was.
+    #[cfg(feature = "aien-test-switches")]
+    if let (false, Some(obj)) = (
+        state.engine.test_switches_honored().is_empty(),
+        v.as_object_mut(),
+    ) {
+        obj.insert(
+            "aien_test".into(),
+            serde_json::json!({ "honored": state.engine.test_switches_honored() }),
+        );
+    }
     Json(v)
 }
 
@@ -387,7 +406,14 @@ async fn handle_chat(
     });
     let rx = frx;
     if stream {
-        Ok(stream_response(id, created, model, prompt_tokens, rx, tools))
+        Ok(stream_response(
+            id,
+            created,
+            model,
+            prompt_tokens,
+            rx,
+            tools,
+        ))
     } else {
         collect_response(id, created, &model, prompt_tokens, rx, tools).await
     }
@@ -497,7 +523,10 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
             }
             _ => turns.insert(
                 0,
-                ("system".into(), crate::tools::system_with_tools(&tool_defs, None)),
+                (
+                    "system".into(),
+                    crate::tools::system_with_tools(&tool_defs, None),
+                ),
             ),
         }
     }
@@ -609,7 +638,41 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
         },
         return_ids: req.aien_return_token_ids,
         tools: has_tools,
+        test: test_switches(state, req.aien_test.as_ref())?,
     })
+}
+
+/// The merge train's `aien_test` field. A build without the `aien-test-switches` feature (the
+/// live server) refuses the field outright; a test build parses it and refuses any switch the
+/// engine does not honor, so no switch is ever ignored in silence and no verdict rests on one.
+fn test_switches(state: &AppState, v: Option<&Value>) -> Result<TestSwitches, ApiError> {
+    let Some(v) = v.filter(|v| !v.is_null()) else {
+        return Ok(TestSwitches::default());
+    };
+    #[cfg(not(feature = "aien-test-switches"))]
+    {
+        let _ = (state, v);
+        Err(ApiError::bad_request(
+            "aien_test: this server was built without the merge train's test switches (cargo feature aien-test-switches); it never serves a test case",
+        ))
+    }
+    #[cfg(feature = "aien-test-switches")]
+    {
+        let t = TestSwitches::from_json(v).map_err(ApiError::bad_request)?;
+        let honored = state.engine.test_switches_honored();
+        let unhonored: Vec<&str> = t
+            .names()
+            .into_iter()
+            .filter(|n| !honored.contains(n))
+            .collect();
+        if !unhonored.is_empty() {
+            return Err(ApiError::bad_request(format!(
+                "aien_test: switches {unhonored:?} are not honored by this server's {} engine (it honors {honored:?}); a load-only switch needs its own server",
+                state.engine.kind()
+            )));
+        }
+        Ok(t)
+    }
 }
 
 /// The template switches of a request: `chat_template_kwargs.enable_thinking` /
@@ -672,61 +735,67 @@ fn run_generation(
     let mut ids = prepared.return_ids.then(Vec::new);
     let mut stopped_by_string = false;
     let mut client_gone = false;
-    let result = engine.generate(&prepared.prompt_tokens, &prepared.params, &mut |tok| {
-        if let Some(ids) = ids.as_mut() {
-            ids.push(tok);
-        }
-        if let Some((end, rasm)) = thinking.as_mut() {
-            let ev = if tok == *end {
-                let rest = rasm.finish();
-                thinking = None;
-                rest
-            } else {
-                match rasm.push(tok) {
-                    Push::Delta(d) | Push::StopAt(d) => Some(d),
-                    Push::Hold => None,
-                }
-            };
-            if let Some(d) = ev.filter(|d| !d.is_empty()) {
-                if tx.blocking_send(Ev::Reasoning(d)).is_err() {
-                    client_gone = true;
-                    return false;
-                }
+    let test_report = (!prepared.test.is_empty()).then(|| prepared.test.names());
+    let result = engine.generate_with_test(
+        &prepared.prompt_tokens,
+        &prepared.params,
+        &prepared.test,
+        &mut |tok| {
+            if let Some(ids) = ids.as_mut() {
+                ids.push(tok);
             }
-            return true;
-        }
-        let trim = |d: String, started: &mut bool| {
-            if *started {
-                return d;
-            }
-            let t = d.trim_start_matches('\n');
-            *started = !t.is_empty();
-            t.to_string()
-        };
-        match asm.push(tok) {
-            Push::Hold => true,
-            Push::Delta(d) => {
-                let d = trim(d, &mut answer_started);
-                if d.is_empty() {
-                    return true;
-                }
-                if tx.blocking_send(Ev::Delta(d)).is_err() {
-                    client_gone = true;
-                    false
+            if let Some((end, rasm)) = thinking.as_mut() {
+                let ev = if tok == *end {
+                    let rest = rasm.finish();
+                    thinking = None;
+                    rest
                 } else {
-                    true
+                    match rasm.push(tok) {
+                        Push::Delta(d) | Push::StopAt(d) => Some(d),
+                        Push::Hold => None,
+                    }
+                };
+                if let Some(d) = ev.filter(|d| !d.is_empty()) {
+                    if tx.blocking_send(Ev::Reasoning(d)).is_err() {
+                        client_gone = true;
+                        return false;
+                    }
+                }
+                return true;
+            }
+            let trim = |d: String, started: &mut bool| {
+                if *started {
+                    return d;
+                }
+                let t = d.trim_start_matches('\n');
+                *started = !t.is_empty();
+                t.to_string()
+            };
+            match asm.push(tok) {
+                Push::Hold => true,
+                Push::Delta(d) => {
+                    let d = trim(d, &mut answer_started);
+                    if d.is_empty() {
+                        return true;
+                    }
+                    if tx.blocking_send(Ev::Delta(d)).is_err() {
+                        client_gone = true;
+                        false
+                    } else {
+                        true
+                    }
+                }
+                Push::StopAt(d) => {
+                    stopped_by_string = true;
+                    let d = trim(d, &mut answer_started);
+                    if !d.is_empty() {
+                        let _ = tx.blocking_send(Ev::Delta(d));
+                    }
+                    false
                 }
             }
-            Push::StopAt(d) => {
-                stopped_by_string = true;
-                let d = trim(d, &mut answer_started);
-                if !d.is_empty() {
-                    let _ = tx.blocking_send(Ev::Delta(d));
-                }
-                false
-            }
-        }
-    });
+        },
+    );
     drop(guard);
     match result {
         Err(EngineError::Busy(m)) => {
@@ -790,6 +859,7 @@ fn run_generation(
                 completion_tokens: out.emitted_tokens,
                 sampling: out.sampling,
                 token_ids: ids,
+                test: test_report,
             });
         }
     }
@@ -814,6 +884,7 @@ async fn collect_response(
                 completion_tokens,
                 sampling,
                 token_ids,
+                test,
             } => {
                 let usage = Usage {
                     prompt_tokens,
@@ -821,6 +892,7 @@ async fn collect_response(
                     total_tokens: prompt_tokens + completion_tokens,
                     aien_sampling: sampling,
                     aien_token_ids: token_ids,
+                    aien_test: test.map(|n| serde_json::json!({ "applied": n })),
                 };
                 let reasoning = reasoning.as_deref().map(str::trim);
                 let (text, calls) = if tools {
@@ -828,7 +900,8 @@ async fn collect_response(
                 } else {
                     (content.clone(), Vec::new())
                 };
-                let mut body = completion_json(&id, created, model, &text, reasoning, finish, &usage);
+                let mut body =
+                    completion_json(&id, created, model, &text, reasoning, finish, &usage);
                 if !calls.is_empty() {
                     let msg = &mut body["choices"][0]["message"];
                     msg["tool_calls"] = Value::Array(calls);
@@ -895,7 +968,15 @@ fn stream_response(
                     if out.is_empty() {
                         continue;
                     }
-                    data(chunk_json(&id, created, &model, None, Some(&out), None, None))
+                    data(chunk_json(
+                        &id,
+                        created,
+                        &model,
+                        None,
+                        Some(&out),
+                        None,
+                        None,
+                    ))
                 }
                 Ev::Delta(d) => data(chunk_json(&id, created, &model, None, Some(&d), None, None)),
                 Ev::Reasoning(d) => data(chunk_json_with(
@@ -913,6 +994,7 @@ fn stream_response(
                     completion_tokens,
                     sampling,
                     token_ids,
+                    test,
                 } => {
                     let usage = Usage {
                         prompt_tokens,
@@ -920,14 +1002,24 @@ fn stream_response(
                         total_tokens: prompt_tokens + completion_tokens,
                         aien_sampling: sampling,
                         aien_token_ids: token_ids,
+                        aien_test: test.map(|n| serde_json::json!({ "applied": n })),
                     };
                     let mut finish = finish;
                     if tools && !held.is_empty() {
                         let (text, calls) = crate::tools::parse_reply(&held, &id);
-                        if !text.is_empty() && etx
-                            .send(data(chunk_json(&id, created, &model, None, Some(&text), None, None)))
-                            .await
-                            .is_err()
+                        if !text.is_empty()
+                            && etx
+                                .send(data(chunk_json(
+                                    &id,
+                                    created,
+                                    &model,
+                                    None,
+                                    Some(&text),
+                                    None,
+                                    None,
+                                )))
+                                .await
+                                .is_err()
                         {
                             return;
                         }

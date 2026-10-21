@@ -32,7 +32,7 @@ mod moe;
 pub use moe::router_probe;
 mod prefill;
 mod rows;
-pub use rows::{RowFeed, RowOut};
+pub use rows::{RowFeed, RowOut, RowTest};
 mod session;
 pub use prefill::PrefillStats;
 pub use session::{plan_reuse, FeedStats, Qwen38Session, Reuse, IM_START};
