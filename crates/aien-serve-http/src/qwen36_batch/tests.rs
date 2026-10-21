@@ -311,7 +311,9 @@ fn group_jobs() -> Vec<GroupJob> {
 
 fn run_group(d: &Qwen36BatchDoor, jobs: &[GroupJob]) -> Vec<Vec<u32>> {
     let mut words = vec![Vec::new(); jobs.len()];
-    let outs = d.generate_group(jobs, &mut |i, t| {
+    // Through the trait object, as the server calls it (an inherent method of the same name would
+    // shadow a missing trait override).
+    let outs = (d as &dyn Engine).generate_group(jobs, &mut |i, t| {
         words[i].push(t);
         true
     });
