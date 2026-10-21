@@ -32,6 +32,8 @@ pub const REQUEST_LOCK_WAIT: Duration = Duration::from_secs(300);
 pub const LOAD_LOCK_WAIT: Duration = Duration::from_secs(1800);
 /// Memory kept free beyond [`need_bytes`] at load (other jobs share the box).
 pub const KEEP_FREE: u64 = 8 << 30;
+/// omega's switch for the 35B graph's a|b beside mix overlap (L356: ON unless set).
+pub const Q36_OVERLAP_AB_ENV: &str = "AIEN_OMEGA_Q36_OVERLAP_AB";
 
 fn model_type(dir: &Path) -> Option<String> {
     std::fs::read_to_string(dir.join("config.json"))
@@ -117,7 +119,19 @@ impl Qwen38Door {
         if is_moe_dir(dir) && !aien_omega_q38::q36::is_native() {
             return Err("this binary has no q36 decode graph linked (build against omega q36/serve)".into());
         }
+        // L356 (Drake 2026-10-21 02:25Z: the quick levers ON): the 35B graph runs each DeltaNet
+        // layer's a|b GEMV beside its mix GEMV (both only read xq and write their own buffers;
+        // the GDN step waits for both), values identical. An explicit AIEN_OMEGA_Q36_OVERLAP_AB
+        // (0 = the old serial order) wins; omega reads it once, at the first token.
+        if std::env::var_os(Q36_OVERLAP_AB_ENV).is_none() {
+            // Set during startup, before the engine or any worker thread reads the environment.
+            std::env::set_var(Q36_OVERLAP_AB_ENV, "1");
+        }
         let model = Qwen38Omega::open(dir, None, max_pos)?;
+        eprintln!(
+            "aien-serve-http: qwen38: {Q36_OVERLAP_AB_ENV}={}",
+            std::env::var(Q36_OVERLAP_AB_ENV).unwrap_or_default()
+        );
         eprintln!(
             "aien-serve-http: qwen38 engine ready in {:.1} s: context {max_context} tokens, weights {:.2} GB resident, KV {:.2} GB, rss {:.2} GB, prefill chunk {PREFILL_CHUNK}, spin_us {:?}",
             t0.elapsed().as_secs_f64(),
