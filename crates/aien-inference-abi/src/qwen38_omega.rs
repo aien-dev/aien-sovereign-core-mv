@@ -29,7 +29,7 @@ use aien_omega_q38::{Attn256Cache, Gdn, GraphConfig, GraphStats, Q38Graph};
 use aien_omega_router::Router;
 
 mod moe;
-pub use moe::router_probe;
+pub use moe::{expert_probe, router_probe};
 mod prefill;
 mod session;
 pub use prefill::PrefillStats;

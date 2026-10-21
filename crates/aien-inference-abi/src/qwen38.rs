@@ -709,6 +709,8 @@ pub struct Qwen38Reference<S: TensorSource> {
     /// residual (before the post-attention norm, `[t][hidden]`) of the last call.
     pub moe_capture: bool,
     pub moe_x: Vec<Vec<f32>>,
+    /// The same rows after the post-attention norm (the router's and experts' input).
+    pub moe_xn: Vec<Vec<f32>>,
     /// MoE only: per layer, the routed weights `[t][top_k]` and the shared expert gate
     /// sigmoid(shared_gate . xn) `[t]` of the last call (beside [`Self::routes`]).
     pub route_wts: Vec<Vec<f32>>,
@@ -748,6 +750,7 @@ impl<S: TensorSource> Qwen38Reference<S> {
             jitter: (0, 0.0),
             moe_capture: false,
             moe_x: Vec::new(),
+            moe_xn: Vec::new(),
             route_wts: Vec::new(),
             shared_g: Vec::new(),
         })
@@ -980,6 +983,12 @@ impl<S: TensorSource> Qwen38Reference<S> {
             }
             let mut xn = x.clone();
             rms_norm_zc(&mut xn, &w.post_norm, c.eps);
+            if self.moe_capture && matches!(w.mlp, Mlp::Moe(_)) {
+                if self.moe_xn.len() <= l {
+                    self.moe_xn.resize(l + 1, Vec::new());
+                }
+                self.moe_xn[l] = xn.clone();
+            }
             let down = match &w.mlp {
                 Mlp::Dense(f) => f.run(&xn, t),
                 Mlp::Moe(m) => self.moe(l, m, &xn, t)?,

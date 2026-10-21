@@ -408,3 +408,94 @@ pub fn router_probe(dir: &Path) -> Result<(Router, Qwen38Config), String> {
     }
     Ok((router, c))
 }
+
+/// TEST ONLY (L306 expert probe): per layer in `layers`, every routed expert of every row and
+/// the shared expert, the chip's FP8 GEMV (`Fp8Tensor::gemv_f32`, the kernel the graph's grouped
+/// launches run) against the host [`Matrix::matmul`] of the same checkpoint tensors, on the
+/// host's own input rows: gate|up on `xn`, down on the host SwiGLU of the host gate|up.
+/// `xn[l]` is `[t][h]` (post-attention normed), `picks[l]` the routed ids `[t][top_k]`.
+/// Returns one line per layer: worst relative max error and worst cosine of each projection.
+pub fn expert_probe(
+    dir: &Path,
+    layers: &[usize],
+    xn: &[Vec<f32>],
+    picks: &[Vec<u16>],
+    top_k: usize,
+) -> Result<Vec<String>, String> {
+    let c = Qwen38Config::from_checkpoint(dir)?;
+    check_shape(&c)?;
+    let mut source = crate::qwen3_moe_omega::ShardSource::open(dir)?;
+    let prefix = text_prefix(&mut source)?;
+    let (h, i) = (c.hidden, q::EXPERT_INTER);
+    let stats = |a: &[f32], b: &[f32]| -> (f32, f64) {
+        let m = b.iter().fold(0f32, |m, v| m.max(v.abs())).max(1e-30);
+        let e = a.iter().zip(b).fold(0f32, |e, (x, y)| e.max((x - y).abs()));
+        let (mut ab, mut aa, mut bb) = (0f64, 0f64, 0f64);
+        for (&x, &y) in a.iter().zip(b) {
+            ab += x as f64 * y as f64;
+            aa += x as f64 * x as f64;
+            bb += y as f64 * y as f64;
+        }
+        (e / m, ab / (aa.sqrt() * bb.sqrt()).max(1e-300))
+    };
+    let mut out = Vec::new();
+    for &l in layers {
+        let m = format!("{prefix}layers.{l}.mlp");
+        let (gu, dn) = upload_experts(&mut source, &m, h)?;
+        let t = xn[l].len() / h;
+        let mut used: Vec<usize> = picks[l].iter().map(|&e| e as usize).collect();
+        used.push(q::EXPERT_ROWS - 1);
+        used.sort_unstable();
+        used.dedup();
+        let (mut gu_rel, mut gu_cos, mut dn_rel, mut dn_cos) = (0f32, 1f64, 0f32, 1f64);
+        let mut worst = (0usize, 0usize);
+        for &e in &used {
+            let p = if e + 1 == q::EXPERT_ROWS {
+                format!("{m}.shared_expert")
+            } else {
+                format!("{m}.experts.{e}")
+            };
+            let g = read_matrix(&mut source, &format!("{p}.gate_proj.weight"), i, h)?;
+            let u = read_matrix(&mut source, &format!("{p}.up_proj.weight"), i, h)?;
+            let d = read_matrix(&mut source, &format!("{p}.down_proj.weight"), h, i)?;
+            for r in 0..t {
+                let routed = picks[l][r * top_k..(r + 1) * top_k]
+                    .iter()
+                    .any(|&v| v as usize == e);
+                if !routed && e + 1 != q::EXPERT_ROWS {
+                    continue;
+                }
+                let x = &xn[l][r * h..(r + 1) * h];
+                let mut want = g.matmul(x, 1);
+                want.extend(u.matmul(x, 1));
+                let mut got = vec![0f32; 2 * i];
+                gu.gemv_f32(e, x, &mut got).map_err(gpu("probe gate|up"))?;
+                let (re, co) = stats(&got, &want);
+                if re > gu_rel {
+                    worst = (e, r);
+                }
+                gu_rel = gu_rel.max(re);
+                gu_cos = gu_cos.min(co);
+                let act: Vec<f32> = (0..i)
+                    .map(|j| {
+                        let a = want[j];
+                        a / (1.0 + (-a).exp()) * want[i + j]
+                    })
+                    .collect();
+                let want_d = d.matmul(&act, 1);
+                let mut got_d = vec![0f32; h];
+                dn.gemv_f32(e, &act, &mut got_d)
+                    .map_err(gpu("probe down"))?;
+                let (re, co) = stats(&got_d, &want_d);
+                dn_rel = dn_rel.max(re);
+                dn_cos = dn_cos.min(co);
+            }
+        }
+        out.push(format!(
+            "layer {l}: {} experts used; gate|up rel_max {gu_rel:.2e} cosine(min) {gu_cos:.7} (worst expert {} row {}); down rel_max {dn_rel:.2e} cosine(min) {dn_cos:.7}",
+            used.len(), worst.0, worst.1
+        ));
+        eprintln!("{}", out.last().unwrap());
+    }
+    Ok(out)
+}
