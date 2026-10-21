@@ -19,6 +19,6 @@ sys=""
 for i in $(seq 40 69); do sys+=$(head -c 900 "${docs[$i]}" | tr -s '\n' ' ')$'\n\n'; done
 sys+=$'Current date: 2026-10-21 (Tuesday)\n\nMEMORY:\n- Drake prefers plain English.\n- The Spark serves the 35B on port 18091.\n'
 jq -n --argjson tools "$tools" --arg sys "$sys" --arg user "$user" \
-  '{model:"q36", stream:true, temperature:0, max_tokens:48, aien_return_token_ids:true, tools:$tools,
+  '{model:"qwen3.6-35b-a3b-fp8", stream:true, temperature:0, max_tokens:48, aien_return_token_ids:true, tools:$tools,
     messages:[{role:"system",content:$sys},{role:"user",content:$user}]}' > "$out"
 echo "$out: $(wc -c < "$out") bytes"
