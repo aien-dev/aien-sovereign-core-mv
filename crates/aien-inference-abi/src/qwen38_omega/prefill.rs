@@ -436,7 +436,7 @@ impl Qwen38Omega {
                 .map_err(|e| format!("layer {l} quant x: {e}"))?;
             let mix_n = if attention { q::ATT_MIX } else { q::GDN_MIX };
             let mix_va = pf.mix.va();
-            pf.gemm(&lt.mix, mix_n, h, Layout::Plain, mix_va, m, st)
+            pf.gemm(lt.mix.as_ref().ok_or("prefill: a 4-bit layer has no FP8 copy (W4 prompts go token by token)")?, mix_n, h, Layout::Plain, mix_va, m, st)
                 .map_err(|e| format!("layer {l} mixer gemm x{m}: {e}"))?;
 
             let t = Instant::now();
@@ -513,7 +513,7 @@ impl Qwen38Omega {
             pf.quant(mo, QuantIn::F32, xin_va, m, st)
                 .map_err(|e| format!("layer {l} quant mixer out: {e}"))?;
             let out_va = pf.out.va();
-            pf.gemm(&lt.o, h, mo, Layout::Plain, out_va, m, st)
+            pf.gemm(lt.o.as_ref().ok_or("prefill: a 4-bit layer has no FP8 copy (W4 prompts go token by token)")?, h, mo, Layout::Plain, out_va, m, st)
                 .map_err(|e| format!("layer {l} o gemm x{m}: {e}"))?;
             let t = Instant::now();
             let o = copy_out(&pf.out, "out", m * h)?;
@@ -530,11 +530,11 @@ impl Qwen38Omega {
             pf.quant(h, QuantIn::F32, xin_va, m, st)
                 .map_err(|e| format!("layer {l} quant post: {e}"))?;
             let act_va = pf.act.va();
-            pf.gemm(&lt.gate_up, 2 * inter, h, Layout::SwigluNat, act_va, m, st)
+            pf.gemm(lt.gate_up.as_ref().ok_or("prefill: a 4-bit layer has no FP8 copy (W4 prompts go token by token)")?, 2 * inter, h, Layout::SwigluNat, act_va, m, st)
                 .map_err(|e| format!("layer {l} gate|up gemm x{m}: {e}"))?;
             pf.quant(inter, QuantIn::Bf16, act_va, m, st)
                 .map_err(|e| format!("layer {l} quant act: {e}"))?;
-            pf.gemm(&lt.down, h, inter, Layout::Plain, out_va, m, st)
+            pf.gemm(lt.down.as_ref().ok_or("prefill: a 4-bit layer has no FP8 copy (W4 prompts go token by token)")?, h, inter, Layout::Plain, out_va, m, st)
                 .map_err(|e| format!("layer {l} down gemm x{m}: {e}"))?;
             let t = Instant::now();
             let d = copy_out(&pf.out, "out", m * h)?;

@@ -1,0 +1,6 @@
+{"rule":"ocp","tensors":"experts","weights":2139095040,"saturated":48612404,"zero_groups":390656,"rel_rms":0.116313}
+{"rule":"ocp","tensors":"trunk","weights":1279262720,"saturated":29059492,"zero_groups":28160,"rel_rms":0.118405}
+{"rule":"fit","tensors":"experts","weights":2139095040,"saturated":0,"zero_groups":390656,"rel_rms":0.118971}
+{"rule":"fit","tensors":"trunk","weights":1279262720,"saturated":0,"zero_groups":28160,"rel_rms":0.121358}
+{"rule":"best","tensors":"experts","weights":2139095040,"saturated":30277846,"zero_groups":390656,"rel_rms":0.112581}
+{"rule":"best","tensors":"trunk","weights":1279262720,"saturated":14792864,"zero_groups":28160,"rel_rms":0.114692}

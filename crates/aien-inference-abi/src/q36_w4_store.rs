@@ -214,7 +214,7 @@ pub fn read_fused(
                 w.extend_from_slice(&pw);
                 s.extend_from_slice(&scales);
             }
-            Matrix::Bf16 { .. } => {
+            Matrix::Bf16 { .. } | Matrix::W4 { .. } => {
                 return Err(format!(
                     "{store_name}: a bf16 part (the store converts FP8 projections)"
                 ))
@@ -510,7 +510,7 @@ pub fn resolve(dir: &Path) -> Result<Option<PathBuf>, String> {
                 Err(format!("AIEN_Q36_W4_STORE=default: no store at {}", p.display()))
             }
         }
-        Ok(p) if !p.is_empty() => {
+        Ok(p) => {
             let p = PathBuf::from(p);
             if p.is_file() {
                 Ok(Some(p))

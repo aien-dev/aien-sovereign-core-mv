@@ -42,13 +42,49 @@ use crate::qwen3_moe_omega::{ShardSource, TensorSource};
 /// l2norm eps of the DeltaNet q/k (the reference's constant).
 const EPS_L2: f32 = 1e-6;
 
-/// One layer's device tensors (kept alive for the graph).
+/// One layer's device tensors (kept alive for the graph). L355: on the 35B a pair (mix + o, gate_up + down) is None
+/// when its 4-bit copy from the store is loaded instead (`w4`); the 27B always has every FP8 tensor.
 struct LayerTensors {
-    mix: Fp8Tensor,
+    mix: Option<Fp8Tensor>,
     ab: Option<Bf16Tensor>,
-    o: Fp8Tensor,
-    gate_up: Fp8Tensor,
-    down: Fp8Tensor,
+    o: Option<Fp8Tensor>,
+    gate_up: Option<Fp8Tensor>,
+    down: Option<Fp8Tensor>,
+    w4: W4Layer,
+}
+
+/// L355: one 35B layer's 4-bit tensors (trunk mix + o, expert slabs gate|up + down), each None = FP8.
+#[derive(Default)]
+struct W4Layer {
+    mix: Option<aien_omega_q38::w4::W4Tensor>,
+    o: Option<aien_omega_q38::w4::W4Tensor>,
+    gate_up: Option<aien_omega_q38::w4::W4Tensor>,
+    down: Option<aien_omega_q38::w4::W4Tensor>,
+}
+
+/// L355: what the 35B load takes from the 4-bit store: always the experts (routed + shared slabs), the trunk (mix + o) too
+/// with `AIEN_Q36_W4=all` (`experts` is the default when a store is named).
+pub(crate) struct W4Plan {
+    store: crate::q36_w4_store::W4Store,
+    trunk: bool,
+}
+
+impl W4Plan {
+    fn from_env(dir: &Path) -> Result<Option<Self>, String> {
+        let Some(p) = crate::q36_w4_store::resolve(dir)? else { return Ok(None) };
+        let trunk = match std::env::var("AIEN_Q36_W4").as_deref() {
+            Ok("all") => true,
+            Ok("experts") | Err(_) => false,
+            Ok(o) => return Err(format!("AIEN_Q36_W4={o} (experts or all)")),
+        };
+        let store = crate::q36_w4_store::W4Store::open(&p, dir)?;
+        eprintln!("qwen36 omega: 4-bit store {} ({} rule), experts{} from it (lossy lever, L355)", p.display(), store.header.rule, if trunk { " + trunk" } else { "" });
+        Ok(Some(Self { store, trunk }))
+    }
+}
+
+fn fp8_raw(t: &Option<Fp8Tensor>) -> *mut std::ffi::c_void {
+    t.as_ref().map_or(std::ptr::null_mut(), |t| t.as_raw())
 }
 
 /// The decode graph: the 27B's dense one or the 35B's sparse one (sc L306).
@@ -230,7 +266,7 @@ fn fuse_fp8(name: &str, parts: Vec<Matrix>) -> Result<Fp8Tensor, String> {
                 w.extend_from_slice(&pw);
                 scales.extend_from_slice(&ps);
             }
-            Matrix::Bf16 { .. } => {
+            Matrix::Bf16 { .. } | Matrix::W4 { .. } => {
                 return Err(format!(
                     "{name}: a bf16 part (the graph takes FP8 projections)"
                 ))
@@ -326,7 +362,9 @@ impl Qwen38Omega {
         let config = full
             .window(first, count)
             .ok_or_else(|| format!("window {first}+{count}: outside the {} layers", full.layers))?;
-        Self::load_at(config, first, &mut ShardSource::open(dir)?, max_pos)
+        // L355: a 4-bit store only when AIEN_Q36_W4_STORE names one (q36_w4_store::resolve), checked against this checkpoint
+        let w4 = if config.moe.is_some() { W4Plan::from_env(dir)? } else { None };
+        Self::load_at(config, first, &mut ShardSource::open(dir)?, max_pos, w4)
     }
 
     /// Uploads `config.layers` layers from `source`.
@@ -335,7 +373,7 @@ impl Qwen38Omega {
         source: &mut dyn TensorSource,
         max_pos: usize,
     ) -> Result<Self, String> {
-        Self::load_at(config, 0, source, max_pos)
+        Self::load_at(config, 0, source, max_pos, None)
     }
 
     /// Uploads `config.layers` layers from `source`, reading model layer `first + l` for layer `l`.
@@ -344,9 +382,10 @@ impl Qwen38Omega {
         first: usize,
         source: &mut dyn TensorSource,
         max_pos: usize,
+        w4: Option<W4Plan>,
     ) -> Result<Self, String> {
         if config.moe.is_some() {
-            return Self::load_moe(config, first, source, max_pos);
+            return Self::load_moe(config, first, source, max_pos, w4);
         }
         use aien_omega_q38 as q;
         let c = &config;
@@ -388,7 +427,7 @@ impl Qwen38Omega {
                 };
                 (Bf16Tensor::upload(n, k, &w).map_err(gpu("lm_head"))?, head8)
             }
-            Matrix::Fp8 { .. } => return Err("lm_head: FP8 (the graph takes a bf16 head)".into()),
+            Matrix::Fp8 { .. } | Matrix::W4 { .. } => return Err("lm_head: FP8 (the graph takes a bf16 head)".into()),
         };
 
         let n_attn = c.full_attention.iter().filter(|&&a| a).count();
@@ -514,11 +553,12 @@ impl Qwen38Omega {
                 h,
             )?);
             layers.push(LayerTensors {
-                mix,
+                mix: Some(mix),
                 ab,
-                o,
-                gate_up,
-                down,
+                o: Some(o),
+                gate_up: Some(gate_up),
+                down: Some(down),
+                w4: W4Layer::default(),
             });
             norms.push((in_norm, post_norm));
         }
@@ -547,11 +587,11 @@ impl Qwen38Omega {
             unsafe {
                 graph.set_layer(
                     l,
-                    t.mix.as_raw(),
+                    fp8_raw(&t.mix),
                     ab,
-                    t.o.as_raw(),
-                    t.gate_up.as_raw(),
-                    t.down.as_raw(),
+                    fp8_raw(&t.o),
+                    fp8_raw(&t.gate_up),
+                    fp8_raw(&t.down),
                     in_norm,
                     post_norm,
                 )
@@ -587,7 +627,8 @@ impl Qwen38Omega {
 
     /// Bytes resident on the device for the weights (tensors as uploaded, not the KV cache).
     pub fn weight_bytes(&self) -> usize {
-        let fp8 = |t: &Fp8Tensor| t.resident_bytes();
+        let fp8 = |t: &Option<Fp8Tensor>| t.as_ref().map_or(0, Fp8Tensor::resident_bytes);
+        let w4 = |t: &Option<aien_omega_q38::w4::W4Tensor>| t.as_ref().map_or(0, |t| t.resident_bytes());
         self.layers
             .iter()
             .map(|t| {
@@ -595,6 +636,10 @@ impl Qwen38Omega {
                     + fp8(&t.o)
                     + fp8(&t.gate_up)
                     + fp8(&t.down)
+                    + w4(&t.w4.mix)
+                    + w4(&t.w4.o)
+                    + w4(&t.w4.gate_up)
+                    + w4(&t.w4.down)
                     + t.ab.as_ref().map_or(0, Bf16Tensor::resident_bytes)
             })
             .sum::<usize>()

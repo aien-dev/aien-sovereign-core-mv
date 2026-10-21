@@ -151,6 +151,13 @@ fn run() -> Result<bool, String> {
     let mut taps = Vec::new();
     let reference = {
         let mut r = Qwen38Reference::new(config.clone(), ShardSource::open(dir)?)?;
+        // L355: with AIEN_Q36_W4_STORE set the chip loads the 4-bit store, so the reference reads the same 4-bit bytes
+        // (experts; trunk too with AIEN_Q36_W4=all): the gate then checks the chip's 4-bit maths, not the format's drift.
+        if let Some(p) = aien_inference_abi::q36_w4_store::resolve(dir)? {
+            let trunk = std::env::var("AIEN_Q36_W4").as_deref() == Ok("all");
+            let store = aien_inference_abi::q36_w4_store::W4Store::open(&p, dir)?;
+            r.set_w4(Some(aien_inference_abi::qwen38::W4Host { store: std::sync::Arc::new(store), experts: true, trunk, mutant: false }));
+        }
         let mut state = r.new_state();
         r.forward_tapped(&mut state, &seq, Logits::All, &bounds, &mut taps)?
     };

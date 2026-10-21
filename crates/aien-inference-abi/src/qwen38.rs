@@ -297,6 +297,13 @@ pub enum Matrix {
         k: usize,
         w: Vec<u16>,
     },
+    /// MXFP4 (L355): e2m1 nibbles `[n][k/2]` and E8M0 scales `[n][k/32]`, the bytes the chip uploads.
+    W4 {
+        n: usize,
+        k: usize,
+        w4: Vec<u8>,
+        e8: Vec<u8>,
+    },
 }
 
 /// Rows per parallel task: one task widens this many rows and runs every token through them.
@@ -319,13 +326,13 @@ fn dot(a: &[f32], b: &[f32]) -> f32 {
 impl Matrix {
     pub fn n(&self) -> usize {
         match self {
-            Self::Fp8 { n, .. } | Self::Bf16 { n, .. } => *n,
+            Self::Fp8 { n, .. } | Self::Bf16 { n, .. } | Self::W4 { n, .. } => *n,
         }
     }
 
     pub fn k(&self) -> usize {
         match self {
-            Self::Fp8 { k, .. } | Self::Bf16 { k, .. } => *k,
+            Self::Fp8 { k, .. } | Self::Bf16 { k, .. } | Self::W4 { k, .. } => *k,
         }
     }
 
@@ -354,6 +361,11 @@ impl Matrix {
             Self::Bf16 { k, w, .. } => {
                 for (o, &b) in dst[..rows * k].iter_mut().zip(&w[r0 * k..(r0 + rows) * k]) {
                     *o = bf16_to_f32(b);
+                }
+            }
+            Self::W4 { k, w4, e8, .. } => {
+                for r in 0..rows {
+                    aien_omega_q38::w4::widen_row(w4, e8, *k, r0 + r, &mut dst[r * k..(r + 1) * k]);
                 }
             }
         }
@@ -467,6 +479,16 @@ fn read_ffn(source: &mut dyn TensorSource, p: &str, inter: usize, h: usize) -> R
         gate: read_matrix(source, &format!("{p}.gate_proj.weight"), inter, h)?,
         up: read_matrix(source, &format!("{p}.up_proj.weight"), inter, h)?,
         down: read_matrix(source, &format!("{p}.down_proj.weight"), h, inter)?,
+    })
+}
+
+/// Expert `e` of the layer whose mlp prefix is `m` from the 4-bit slabs (block e: gate rows then up rows; down block e).
+fn w4_ffn(w: &W4Host, m: &str, e: usize, inter: usize, h: usize) -> Result<Ffn, String> {
+    let gu = format!("{m}.experts gate|up");
+    Ok(Ffn {
+        gate: w.rows(&gu, e * 2 * inter, inter)?,
+        up: w.rows(&gu, e * 2 * inter + inter, inter)?,
+        down: w.rows(&format!("{m}.experts down"), e * h, h)?,
     })
 }
 
@@ -713,6 +735,53 @@ pub struct Qwen38Reference<S: TensorSource> {
     /// sigmoid(shared_gate . xn) `[t]` of the last call (beside [`Self::routes`]).
     pub route_wts: Vec<Vec<f32>>,
     pub shared_g: Vec<Vec<f32>>,
+    /// L355: 4-bit tensors read from a store in place of the FP8 ones ([`Self::set_w4`]).
+    w4: Option<W4Host>,
+    /// L355: the MTP head's own weights, read on first use ([`Self::mtp_step`]).
+    mtp: Option<MtpWeights>,
+}
+
+struct MtpWeights {
+    fc: Matrix,
+    norm_e: Vec<f32>,
+    norm_h: Vec<f32>,
+    norm: Vec<f32>,
+}
+
+/// The MTP head's attention cache (its one layer); `truncate` drops speculative rows.
+#[derive(Default, Clone)]
+pub struct MtpState {
+    k: Vec<f32>,
+    v: Vec<f32>,
+}
+
+impl MtpState {
+    /// Rows held (positions written).
+    pub fn rows(&self, c: &Qwen38Config) -> usize {
+        self.k.len() / c.kv_dim()
+    }
+    pub fn truncate(&mut self, c: &Qwen38Config, rows: usize) {
+        self.k.truncate(rows * c.kv_dim());
+        self.v.truncate(rows * c.kv_dim());
+    }
+}
+
+/// Which tensors the host reference reads from the 4-bit store (L355), and the calibrated mutant (every e2m1 mantissa bit
+/// cleared: a 3-bit grid), the negative control of docs/inference/q36/w4-gate.md.
+pub struct W4Host {
+    pub store: std::sync::Arc<crate::q36_w4_store::W4Store>,
+    pub experts: bool,
+    pub trunk: bool,
+    pub mutant: bool,
+}
+
+impl W4Host {
+    fn rows(&self, name: &str, row0: usize, rows: usize) -> Result<Matrix, String> {
+        let (_, k) = self.store.shape(name).ok_or_else(|| format!("w4 store: no tensor {name}"))?;
+        let (w4, e8) = self.store.read_rows(name, row0, rows)?;
+        let w4 = if self.mutant { w4.into_iter().map(|b| b & 0xEE).collect() } else { w4 };
+        Ok(Matrix::W4 { n: rows, k, w4, e8 })
+    }
 }
 
 impl Qwen38Reference<ShardSource> {
@@ -750,7 +819,61 @@ impl<S: TensorSource> Qwen38Reference<S> {
             moe_x: Vec::new(),
             route_wts: Vec::new(),
             shared_g: Vec::new(),
+            w4: None,
+            mtp: None,
         })
+    }
+
+    /// L355: read the experts (routed + shared) and/or the trunk (mix + o) from a 4-bit store from now on.
+    pub fn set_w4(&mut self, w4: Option<W4Host>) {
+        self.w4 = w4;
+    }
+
+    /// L355: one step of the checkpoint's MTP head (Qwen3.5 layout, the 27B's spec decode defaults: embedding half
+    /// first, `h_prev` the residual stream before the final norm, position `pos` = the position of `h_prev`):
+    /// `x = fc([norm_e(embed(next)) ; norm_h(h_prev)])`, the MTP decoder layer (full attention with its own cache in
+    /// `st`, then the sparse block), logits = lm_head(mtp.norm(x)). Returns `(logits, x)`; `x` feeds a chained draft.
+    pub fn mtp_step(&mut self, st: &mut MtpState, h_prev: &[f32], next: u32, pos: usize) -> Result<(Vec<f32>, Vec<f32>), String> {
+        let c = self.config.clone();
+        let h = c.hidden;
+        if h_prev.len() != h || next as usize >= c.vocab {
+            return Err("mtp_step: hidden width or token out of range".into());
+        }
+        if self.mtp.is_none() {
+            let src: &mut dyn TensorSource = &mut self.source;
+            self.mtp = Some(MtpWeights {
+                fc: read_matrix(src, "mtp.fc.weight", h, 2 * h)?,
+                norm_e: read_vec(src, "mtp.pre_fc_norm_embedding.weight", h)?,
+                norm_h: read_vec(src, "mtp.pre_fc_norm_hidden.weight", h)?,
+                norm: read_vec(src, "mtp.norm.weight", h)?,
+            });
+        }
+        let m = self.mtp.as_ref().expect("loaded above");
+        let mut e: Vec<f32> = self.embed[next as usize * h..(next as usize + 1) * h].iter().map(|&b| bf16_to_f32(b)).collect();
+        rms_norm_zc(&mut e, &m.norm_e, c.eps);
+        let mut hn = h_prev.to_vec();
+        rms_norm_zc(&mut hn, &m.norm_h, c.eps);
+        e.extend_from_slice(&hn);
+        let mut x = m.fc.matmul(&e, 1);
+        let norm = m.norm.clone();
+        let w = self.read_layer(c.layers)?;
+        let mut xn = x.clone();
+        rms_norm_zc(&mut xn, &w.input_norm, c.eps);
+        let mixed = match &w.mixer {
+            Mixer::Attention(a) => attention(&c, a, &xn, 1, pos, &mut st.k, &mut st.v),
+            Mixer::DeltaNet(_) => return Err("mtp layer: not full attention".into()),
+        };
+        x.iter_mut().zip(&mixed).for_each(|(a, b)| *a += b);
+        let mut xn = x.clone();
+        rms_norm_zc(&mut xn, &w.post_norm, c.eps);
+        let down = match &w.mlp {
+            Mlp::Moe(mw) => self.moe(c.layers, mw, &xn, 1)?,
+            Mlp::Dense(f) => f.run(&xn, 1),
+        };
+        x.iter_mut().zip(&down).for_each(|(a, b)| *a += b);
+        let mut rows = x.clone();
+        rms_norm_zc(&mut rows, &norm, c.eps);
+        Ok((self.lm_head.matmul(&rows, 1), x))
     }
 
     pub fn new_state(&self) -> Qwen38State {
@@ -759,10 +882,12 @@ impl<S: TensorSource> Qwen38Reference<S> {
 
     fn read_layer(&mut self, l: usize) -> Result<LayerWeights, String> {
         let c = self.config.clone();
-        let p = format!("{}layers.{l}", self.prefix);
+        // L355: layer index `layers` is the MTP head's one decoder layer (full attention + the sparse block, `mtp.layers.0`)
+        let mtp = l >= c.layers;
+        let p = if mtp { "mtp.layers.0".to_string() } else { format!("{}layers.{l}", self.prefix) };
         let src: &mut dyn TensorSource = &mut self.source;
         let h = c.hidden;
-        let mixer = if c.full_attention[l] {
+        let mixer = if mtp || c.full_attention[l] {
             let a = format!("{p}.self_attn");
             Mixer::Attention(AttentionWeights {
                 q: read_matrix(
@@ -795,6 +920,25 @@ impl<S: TensorSource> Qwen38Reference<S> {
                 out: read_matrix(src, &format!("{a}.out_proj.weight"), h, c.lin_value_dim())?,
             })
         };
+        let mut mixer = mixer;
+        if let Some(w) = self.w4.as_ref().filter(|w| w.trunk && !mtp) {
+            // the store's fused tensors stack the checkpoint parts by rows (q36_w4_store::layer_projs)
+            match &mut mixer {
+                Mixer::Attention(a) => {
+                    let (nm, qn, kv) = (format!("{p}.self_attn q|k|v"), 2 * c.heads * c.head_dim, c.kv_dim());
+                    a.q = w.rows(&nm, 0, qn)?;
+                    a.k = w.rows(&nm, qn, kv)?;
+                    a.v = w.rows(&nm, qn + kv, kv)?;
+                    a.o = w.rows(&format!("{p}.self_attn.o_proj"), 0, h)?;
+                }
+                Mixer::DeltaNet(d) => {
+                    let nm = format!("{p}.linear_attn qkv|z");
+                    d.in_qkv = w.rows(&nm, 0, c.conv_dim())?;
+                    d.in_z = w.rows(&nm, c.conv_dim(), c.lin_value_dim())?;
+                    d.out = w.rows(&format!("{p}.linear_attn.out_proj"), 0, h)?;
+                }
+            }
+        }
         let m = format!("{p}.mlp");
         let mlp = match &c.moe {
             None => Mlp::Dense(read_ffn(src, &m, c.intermediate, h)?),
@@ -808,7 +952,10 @@ impl<S: TensorSource> Qwen38Reference<S> {
                 .into_iter()
                 .map(bf16_to_f32)
                 .collect(),
-                shared: read_ffn(src, &format!("{m}.shared_expert"), s.shared_inter, h)?,
+                shared: match self.w4.as_ref().filter(|w| w.experts && !mtp) {
+                    Some(w) => w4_ffn(w, &m, s.experts, s.shared_inter, h)?,
+                    None => read_ffn(src, &format!("{m}.shared_expert"), s.shared_inter, h)?,
+                },
             }),
         };
         Ok(LayerWeights {
@@ -889,12 +1036,16 @@ impl<S: TensorSource> Qwen38Reference<S> {
             gates.push(g);
         }
         self.shared_g[l] = gates;
-        let p = format!("{}layers.{l}.mlp.experts", self.prefix);
+        let mtp = l >= self.config.layers; // the MTP head's layer (L355): its experts are not in the 4-bit store
+        let p = if mtp { "mtp.layers.0.mlp.experts".to_string() } else { format!("{}layers.{l}.mlp.experts", self.prefix) };
         for (e, rows) in users.iter().enumerate() {
             if rows.is_empty() {
                 continue;
             }
-            let f = read_ffn(&mut self.source, &format!("{p}.{e}"), s.expert_inter, h)?;
+            let f = match self.w4.as_ref().filter(|w| w.experts && !mtp) {
+                Some(w) => w4_ffn(w, &format!("{}layers.{l}.mlp", self.prefix), e, s.expert_inter, h)?,
+                None => read_ffn(&mut self.source, &format!("{p}.{e}"), s.expert_inter, h)?,
+            };
             let mut xs = Vec::with_capacity(rows.len() * h);
             for &(i, _) in rows {
                 xs.extend_from_slice(&xn[i * h..(i + 1) * h]);

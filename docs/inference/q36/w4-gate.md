@@ -1,6 +1,6 @@
 # Qwen3.6-35B-A3B 4-bit weights: accuracy gate (L355), frozen before any lossy run
 
-Written 2026-10-21 ~02:55Z, before any W4 drift number exists. Adopted from plan review (Fable, ~/handoffs/l355/review-v1.txt).
+Written 2026-10-21 ~02:15Z, before any W4 drift number exists. Adopted from plan review (Fable, ~/handoffs/l355/review-v1.txt).
 A run that changes these numbers after seeing results is void.
 
 ## Arms and reference
@@ -28,3 +28,8 @@ A run that changes these numbers after seeing results is void.
   same build) is judged under this same rule.
 - Chip implementation check (separate from accuracy): the chip with the 4-bit store must give the host 4-bit arm's words,
   by the motor identity gate (sc qwen38_omega_full, error band written in advance, L312).
+
+## Scale rule (chosen by the survey, before any drift run)
+evidence/l355-w4/survey.jsonl (16 routed experts per layer + the shared expert, and the whole trunk, every layer): relative
+RMS error experts OCP 0.116313, FIT 0.118971, BEST 0.112581; trunk OCP 0.118405, FIT 0.121358, BEST 0.114692. The store uses
+BEST (the smaller squared error per 32-weight group of OCP and FIT; the chip decodes every rule the same way).

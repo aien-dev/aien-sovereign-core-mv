@@ -86,7 +86,7 @@ fn push_fp8(
         Matrix::Fp8 { n: mn, k: mk, .. } => {
             Err(format!("{name}: [{mn}][{mk}], expected [{n}][{k}]"))
         }
-        Matrix::Bf16 { .. } => Err(format!("{name}: bf16 (the expert tensors take FP8)")),
+        Matrix::Bf16 { .. } | Matrix::W4 { .. } => Err(format!("{name}: bf16 (the expert tensors take FP8)")),
     }
 }
 
@@ -136,7 +136,7 @@ fn upload_experts(
 fn router_rows(source: &mut dyn TensorSource, m: &str, h: usize) -> Result<Vec<u16>, String> {
     let mut rows = match read_matrix(source, &format!("{m}.gate.weight"), 256, h)? {
         Matrix::Bf16 { w, .. } => w,
-        Matrix::Fp8 { .. } => return Err(format!("{m}.gate.weight: FP8 (the router takes bf16)")),
+        Matrix::Fp8 { .. } | Matrix::W4 { .. } => return Err(format!("{m}.gate.weight: FP8 (the router takes bf16)")),
     };
     rows.extend(read_bf16_words(
         source,
@@ -157,6 +157,7 @@ impl Qwen38Omega {
         first: usize,
         source: &mut dyn TensorSource,
         max_pos: usize,
+        w4: Option<super::W4Plan>,
     ) -> Result<Self, String> {
         let c = &config;
         check_shape(c)?;
@@ -166,7 +167,7 @@ impl Qwen38Omega {
         let final_norm = fold(read_vec(source, &format!("{prefix}norm.weight"), h)?);
         let lm_head = match read_matrix(source, "lm_head.weight", v, h)? {
             Matrix::Bf16 { n, k, w } => Bf16Tensor::upload(n, k, &w).map_err(gpu("lm_head"))?,
-            Matrix::Fp8 { .. } => return Err("lm_head: FP8 (the graph takes a bf16 head)".into()),
+            Matrix::Fp8 { .. } | Matrix::W4 { .. } => return Err("lm_head: FP8 (the graph takes a bf16 head)".into()),
         };
         let n_attn = c.full_attention.iter().filter(|&&a| a).count();
         let n_gdn = c.layers - n_attn;
@@ -277,7 +278,31 @@ impl Qwen38Omega {
                 (mix, Some(ab), o)
             };
             let m = format!("{p}.mlp");
-            let (gate_up, down) = upload_experts(source, &m, h)?;
+            // L355: the expert slabs from the 4-bit store (no FP8 copy on the device), else FP8 as before
+            let w4_up = |name: String| -> Result<aien_omega_q38::w4::W4Tensor, String> {
+                let st = &w4.as_ref().expect("checked by the caller").store;
+                let (n, k) = st.shape(&name).ok_or_else(|| format!("w4 store: no tensor {name}"))?;
+                let (b4, e8) = st.read(&name, n, k)?;
+                aien_omega_q38::w4::W4Tensor::upload(n, k, &b4, &e8).map_err(gpu("w4 upload"))
+            };
+            let mut w4l = super::W4Layer::default();
+            let (gate_up, down) = if w4.is_some() {
+                w4l.gate_up = Some(w4_up(format!("{m}.experts gate|up"))?);
+                w4l.down = Some(w4_up(format!("{m}.experts down"))?);
+                (None, None)
+            } else {
+                let (g, d) = upload_experts(source, &m, h)?;
+                (Some(g), Some(d))
+            };
+            let (mix, o) = if w4.as_ref().is_some_and(|w| w.trunk) {
+                let a = if c.full_attention[l] { format!("{p}.self_attn") } else { format!("{p}.linear_attn") };
+                let (mn, on) = if c.full_attention[l] { (format!("{a} q|k|v"), format!("{a}.o_proj")) } else { (format!("{a} qkv|z"), format!("{a}.out_proj")) };
+                w4l.mix = Some(w4_up(mn)?);
+                w4l.o = Some(w4_up(on)?);
+                (None, None) // the FP8 trunk read above is dropped here (freed before the next layer)
+            } else {
+                (Some(mix), Some(o))
+            };
             let in_norm = fold(read_vec(source, &format!("{p}.input_layernorm.weight"), h)?);
             let post_norm = fold(read_vec(
                 source,
@@ -291,21 +316,25 @@ impl Qwen38Omega {
                 Vec::with_capacity(2 * q::EXPERT_ROWS),
                 Vec::with_capacity(2 * q::EXPERT_ROWS),
             );
-            for e in 0..q::EXPERT_ROWS {
-                let (w, s) = gate_up.entry(e).map_err(gpu("experts gate|up entry"))?;
-                gu_dir.extend([w, s]);
-                let (w, s) = down.entry(e).map_err(gpu("experts down entry"))?;
-                dn_dir.extend([w, s]);
+            // 4-bit experts: the graph's set_layer_w4 writes this layer's directory (W4 block entries) below
+            if let (Some(gate_up), Some(down)) = (&gate_up, &down) {
+                for e in 0..q::EXPERT_ROWS {
+                    let (w, s) = gate_up.entry(e).map_err(gpu("experts gate|up entry"))?;
+                    gu_dir.extend([w, s]);
+                    let (w, s) = down.entry(e).map_err(gpu("experts down entry"))?;
+                    dn_dir.extend([w, s]);
+                }
+                router
+                    .set_directory(l, &gu_dir, &dn_dir)
+                    .map_err(gpu("router set_directory"))?;
             }
-            router
-                .set_directory(l, &gu_dir, &dn_dir)
-                .map_err(gpu("router set_directory"))?;
             layers.push(LayerTensors {
                 mix,
                 ab,
                 o,
                 gate_up,
                 down,
+                w4: w4l,
             });
             norms.push((in_norm, post_norm));
         }
@@ -333,15 +362,20 @@ impl Qwen38Omega {
             unsafe {
                 graph.set_layer(
                     l,
-                    t.mix.as_raw(),
+                    super::fp8_raw(&t.mix),
                     ab,
-                    t.o.as_raw(),
-                    t.gate_up.as_raw(),
-                    t.down.as_raw(),
+                    super::fp8_raw(&t.o),
+                    super::fp8_raw(&t.gate_up),
+                    super::fp8_raw(&t.down),
                     in_norm,
                 )
             }
             .map_err(gpu("q36 graph set_layer"))?;
+            let w = &t.w4;
+            if w.mix.is_some() || w.gate_up.is_some() {
+                let ex = w.gate_up.as_ref().zip(w.down.as_ref());
+                graph.set_layer_w4(l, w.mix.as_ref(), w.o.as_ref(), ex).map_err(gpu("q36 graph set_layer_w4"))?;
+            }
         }
         graph
             .set_final_norm(&final_norm)
