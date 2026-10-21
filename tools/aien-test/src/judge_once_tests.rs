@@ -378,3 +378,77 @@ fn the_batch_budget_serves_shared_gates_before_the_others() {
     });
     assert_eq!(*order.lock().unwrap(), vec!["shared", "unique"]);
 }
+
+// ---- declared inputs outside the tree and by pattern (L335) ----------------
+
+/// A model checkpoint is not in the repository; `outside_inputs` puts its
+/// bytes in the key. Unchanged checkpoint: another head reuses. One byte of
+/// the checkpoint changed: the gate runs again.
+#[test]
+fn an_outside_input_is_in_the_key_and_one_changed_byte_runs_the_gate_again() {
+    let ckpt = TempDir::new("jo-ckpt");
+    fs::write(ckpt.path().join("model.safetensors"), "weights-1").unwrap();
+    let extra = format!("outside_inputs:\n  - {}/\ncache: inputs_complete\n", ckpt.path().display());
+    let fx = Fx::new(PASS, 1, &extra);
+    let first = fx.run();
+    assert_eq!((first.verdict, fx.runs()), (Verdict::Pass, 1));
+    fx.commit("README", "other head\n");
+    let second = fx.run();
+    assert_eq!(fx.runs(), 1, "same checkpoint, same declared inputs: reused");
+    assert!(reused(&second).is_some());
+    // Same length, other bytes (the memo is keyed on size, mtime and inode,
+    // so a rewrite is seen).
+    std::thread::sleep(Duration::from_millis(20));
+    fs::write(ckpt.path().join("model.safetensors"), "weights-2").unwrap();
+    fx.commit("README", "third head\n");
+    let third = fx.run();
+    assert_eq!((third.verdict, fx.runs()), (Verdict::Pass, 2));
+    assert_eq!(reused(&third), None);
+}
+
+#[test]
+fn an_outside_input_that_is_missing_is_a_null_row_not_a_match() {
+    let gone = TempDir::new("jo-gone");
+    let text = |p: &str| parsed(&gate(Path::new("/c"), 1, &format!("outside_inputs:\n  - {p}/x\n")));
+    let fx = Fx::new(PASS, 1, "");
+    let d_missing = runner::build_inputs_digest(fx.repo.path(), None, &text(&gone.path().display().to_string()));
+    fs::write(gone.path().join("x"), "").unwrap();
+    let d_empty = runner::build_inputs_digest(fx.repo.path(), None, &text(&gone.path().display().to_string()));
+    assert_ne!(d_missing, d_empty, "a missing file and an empty file are different keys");
+    // A manifest without outside_inputs keeps the digest it always had.
+    let plain = parsed(&gate(Path::new("/c"), 1, ""));
+    let before = runner::build_inputs_digest(fx.repo.path(), None, &plain);
+    assert_eq!(before, runner::build_inputs_digest(fx.repo.path(), None, &plain));
+}
+
+#[test]
+fn outside_inputs_must_be_home_or_absolute_paths_without_dotdot() {
+    for bad in ["models/x", "~/../etc", "/a/../b", "~/", "/"] {
+        let t = gate(Path::new("/c"), 1, &format!("outside_inputs:\n  - {bad}\n"));
+        assert!(manifest::parse(t.as_bytes()).is_err(), "{bad} must be refused");
+    }
+    let t = gate(Path::new("/c"), 1, "outside_inputs:\n  - ~/models/T/\n");
+    assert_eq!(parsed(&t).outside_inputs, vec!["~/models/T/".to_string()]);
+}
+
+/// `crates/*/Cargo.toml`: every member manifest is in the key (cargo reads
+/// them all to load the workspace), their sources are not.
+#[test]
+fn a_star_pattern_input_covers_each_match_and_nothing_else() {
+    let fx = Fx::new(PASS, 1, "");
+    fx.commit("crates/b/Cargo.toml", "[package]\n");
+    fx.commit("crates/b/src/lib.rs", "x\n");
+    let m = parsed(&gate(Path::new("/c"), 1, "").replace("  - data/\n", "  - crates/*/Cargo.toml\n"));
+    let digest = || runner::build_inputs_digest(fx.repo.path(), None, &m);
+    let d0 = digest();
+    fx.commit("crates/b/src/lib.rs", "y\n");
+    assert_eq!(digest(), d0, "a source file the pattern does not name");
+    fx.commit("crates/b/Cargo.toml", "[package]\nname = \"b\"\n");
+    let d1 = digest();
+    assert_ne!(d1, d0, "a matched member manifest");
+    fx.commit("crates/c/Cargo.toml", "[package]\n");
+    assert_ne!(digest(), d1, "a new member manifest");
+    // A pattern at the top is the whole tree for the cross-head rule.
+    let top = parsed(&gate(Path::new("/c"), 1, "cache: inputs_complete\n").replace("  - data/\n", "  - */Cargo.toml\n"));
+    assert_eq!(cache::cross_head(&top), Ok(Reach::Tree));
+}

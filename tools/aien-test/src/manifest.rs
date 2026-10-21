@@ -159,6 +159,15 @@ pub struct Manifest {
     /// declared inputs are byte-identical (`cache::cross_head`). Without it a
     /// result crosses heads only when the whole tree is identical.
     pub inputs_complete: bool,
+    /// `outside_inputs`: files or directories outside the repository the gate
+    /// reads (a model checkpoint under `~/models`, say). Each entry is `~/`
+    /// (the judge's home) or an absolute path; the bytes of every file under
+    /// it join the declared-inputs digest, so a changed checkpoint is a miss.
+    pub outside_inputs: Vec<String>,
+    /// `target_lock: none`: the gate never builds or runs anything from a cargo
+    /// target dir (a grep, a find, `crumb verify`), so it runs without waiting
+    /// for the head's target-dir lock. Default true (the lock is taken).
+    pub target_lock: bool,
     /// `manifest_version` (1 or 2). The fields below are v2 and hold their
     /// documented defaults for a v1 manifest.
     pub version: u8,
@@ -227,6 +236,16 @@ pub fn valid_obs_name(s: &str) -> bool {
 
 fn valid_rel_path(s: &str) -> bool {
     !s.is_empty() && !s.starts_with('/') && !s.contains('\0') && !s.split('/').any(|c| c == "..")
+}
+
+/// An `outside_inputs` entry: `~/REST` (the judge's home) or `/REST`, with
+/// something after the prefix and no `..` component.
+fn valid_outside_path(s: &str) -> bool {
+    let rest = match (s.strip_prefix("~/"), s.strip_prefix('/')) {
+        (Some(r), _) | (None, Some(r)) => r,
+        _ => return false,
+    };
+    !rest.trim_matches('/').is_empty() && !s.contains('\0') && !rest.split('/').any(|c| c == "..")
 }
 
 fn parse_val(s: &str, line: usize) -> Result<Val, ManifestError> {
@@ -707,7 +726,9 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, ManifestError> {
     }
     let entries = parse_entries(text)?;
 
-    const KNOWN: [&str; 19] = [
+    const KNOWN: [&str; 21] = [
+        "outside_inputs",
+        "target_lock",
         "gate",
         "manifest_version",
         "owner",
@@ -809,6 +830,30 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, ManifestError> {
             )));
         }
     }
+
+    let outside_inputs = match get("outside_inputs") {
+        Some(e) => list(e)?,
+        None => Vec::new(),
+    };
+    for o in &outside_inputs {
+        if !valid_outside_path(o) {
+            return Err(ManifestError(format!(
+                "outside_inputs path must start with ~/ or / and have no ..: {o:?}"
+            )));
+        }
+    }
+    let target_lock = match get("target_lock") {
+        None => true,
+        Some(e) => match scalar(e)?.as_str() {
+            "dir" => true,
+            "none" => false,
+            other => {
+                return Err(ManifestError(format!(
+                    "target_lock must be dir or none, got {other:?}"
+                )))
+            }
+        },
+    };
 
     let build = match get("build") {
         None => None,
@@ -925,6 +970,8 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, ManifestError> {
         checks,
         cache_allowed,
         inputs_complete,
+        outside_inputs,
+        target_lock,
         version,
         exactness,
         tolerance,
@@ -1153,6 +1200,8 @@ mod tests {
             checks: vec![],
             cache_allowed: true,
             inputs_complete: false,
+            outside_inputs: Vec::new(),
+            target_lock: true,
             version: 1,
             exactness: Exactness::Exact,
             tolerance: None,
