@@ -173,6 +173,8 @@ struct Prepared {
     /// The prompt opens a thinking block: reply tokens up to this id are reasoning.
     reasoning_end: Option<u32>,
     return_ids: bool,
+    /// The request carried tools: parse `<tool_call>` blocks out of the reply.
+    tools: bool,
 }
 
 /// What the generation thread sends to the HTTP side.
@@ -385,6 +387,7 @@ async fn handle_chat(
     let (created, id) = new_id(&state);
     let prompt_tokens = prepared.prompt_tokens.len();
     let stream = prepared.stream;
+    let tools = prepared.tools;
     let (tx, rx) = mpsc::channel::<Ev>(64);
     let engine = Arc::clone(&state.engine);
     let codec = Arc::clone(&state.codec);
@@ -392,7 +395,7 @@ async fn handle_chat(
     tokio::task::spawn_blocking(move || {
         run_generation(engine, codec, prepared, tx, guard, &log_id);
     });
-    respond(rx, stream, id, created, model, prompt_tokens).await
+    respond(rx, stream, id, created, model, prompt_tokens, tools).await
 }
 
 fn new_id(state: &AppState) -> (u64, String) {
@@ -452,7 +455,8 @@ async fn handle_readers(
         .collect::<Result<Vec<_>, _>>()?;
     // The connect request must be valid before any row reads (same checks, notes not yet known).
     let blank = vec![String::new(); plan.parts.len()];
-    let stream = from(readers::connect_body(raw, &plan, &blank, base))?.stream;
+    let check = from(readers::connect_body(raw, &plan, &blank, base))?;
+    let (stream, tools) = (check.stream, check.tools);
     let show_notes = raw
         .get("aien_show_notes")
         .and_then(Value::as_bool)
@@ -466,7 +470,9 @@ async fn handle_readers(
         run_readers(st, raw, plan, maps, permit, tx, stream, show_notes, &log_id);
     });
     let model = rc.model_id.clone();
-    respond(rx, stream, id, created, model, 0).await.map(Some)
+    respond(rx, stream, id, created, model, 0, tools)
+        .await
+        .map(Some)
 }
 
 /// Phase 1 (map: every part read at once through [`Engine::generate_group`]) and phase 2
@@ -648,6 +654,7 @@ async fn respond(
     created: u64,
     model: String,
     prompt_tokens: usize,
+    tools: bool,
 ) -> Result<Response, ApiError> {
     // The first event decides the status: a busy chip is a 503 with a plain body, before any
     // headers go out (streaming included). Everything else is forwarded unchanged.
@@ -677,9 +684,16 @@ async fn respond(
     });
     let rx = frx;
     if stream {
-        Ok(stream_response(id, created, model, prompt_tokens, rx))
+        Ok(stream_response(
+            id,
+            created,
+            model,
+            prompt_tokens,
+            rx,
+            tools,
+        ))
     } else {
-        collect_response(id, created, &model, prompt_tokens, rx).await
+        collect_response(id, created, &model, prompt_tokens, rx, tools).await
     }
 }
 
@@ -725,13 +739,17 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
     if matches!(req.n, Some(n) if n != 1) {
         return Err(ApiError::bad_request("n must be 1"));
     }
-    if req.tools.as_ref().is_some_and(|t| !t.is_empty())
-        || req.functions.as_ref().is_some_and(|f| !f.is_empty())
-    {
-        return Err(ApiError::bad_request(
-            "tool calling is not supported by this server (v1 is plain text)",
-        ));
-    }
+    // Tool calling (Qwen3.6 qwen3_coder XML, as the model's own template renders it): legacy
+    // `functions` are accepted as tools.
+    let tool_defs: Vec<Value> = match (&req.tools, &req.functions) {
+        (Some(t), _) if !t.is_empty() => t.clone(),
+        (_, Some(f)) if !f.is_empty() => f
+            .iter()
+            .map(|f| serde_json::json!({"type": "function", "function": f}))
+            .collect(),
+        _ => Vec::new(),
+    };
+    let has_tools = !tool_defs.is_empty();
     if req.messages.is_empty() {
         return Err(ApiError::bad_request("messages must be a non-empty array"));
     }
@@ -742,24 +760,53 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
             cfg.max_messages
         )));
     }
-    let mut turns: Vec<(String, String)> = Vec::with_capacity(req.messages.len());
+    let mut turns: Vec<(String, String)> = Vec::with_capacity(req.messages.len() + 1);
+    let mut pending_tool: Vec<String> = Vec::new();
     for m in &req.messages {
         let role = match m.role.trim().to_ascii_lowercase().as_str() {
             "system" | "developer" => "system",
             "user" => "user",
             "assistant" => "assistant",
-            "tool" | "function" => {
-                return Err(ApiError::bad_request(
-                    "role tool is not supported by this server (v1 is plain text)",
-                ))
-            }
+            "tool" | "function" => "tool",
             other => {
                 return Err(ApiError::bad_request(format!(
                     "unknown message role '{other}'"
                 )))
             }
         };
-        turns.push((role.to_string(), text_of_content(&m.content)?));
+        let text = text_of_content(&m.content)?;
+        if role == "tool" {
+            pending_tool.push(text);
+            continue;
+        }
+        if !pending_tool.is_empty() {
+            turns.push(("user".into(), crate::tools::tool_responses(&pending_tool)));
+            pending_tool.clear();
+        }
+        let text = match (role, &m.tool_calls) {
+            ("assistant", Some(calls)) if !calls.is_empty() => {
+                crate::tools::assistant_with_calls(&text, calls)
+            }
+            _ => text,
+        };
+        turns.push((role.to_string(), text));
+    }
+    if !pending_tool.is_empty() {
+        turns.push(("user".into(), crate::tools::tool_responses(&pending_tool)));
+    }
+    if has_tools {
+        match turns.first_mut() {
+            Some((r, c)) if r == "system" => {
+                *c = crate::tools::system_with_tools(&tool_defs, Some(c.as_str()));
+            }
+            _ => turns.insert(
+                0,
+                (
+                    "system".into(),
+                    crate::tools::system_with_tools(&tool_defs, None),
+                ),
+            ),
+        }
     }
     let turn_refs: Vec<(&str, &str)> = turns
         .iter()
@@ -868,6 +915,7 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
             None
         },
         return_ids: req.aien_return_token_ids,
+        tools: has_tools,
     })
 }
 
@@ -1060,6 +1108,7 @@ async fn collect_response(
     model: &str,
     mut prompt_tokens: usize,
     mut rx: mpsc::Receiver<Ev>,
+    tools: bool,
 ) -> Result<Response, ApiError> {
     let mut content = String::new();
     let mut reasoning: Option<String> = None;
@@ -1090,8 +1139,21 @@ async fn collect_response(
                     aien_token_ids: token_ids,
                 };
                 let reasoning = reasoning.as_deref().map(str::trim);
+                let (text, calls) = if tools {
+                    crate::tools::parse_reply(&content, &id)
+                } else {
+                    (content.clone(), Vec::new())
+                };
                 let mut body =
-                    completion_json(&id, created, model, &content, reasoning, finish, &usage);
+                    completion_json(&id, created, model, &text, reasoning, finish, &usage);
+                if !calls.is_empty() {
+                    let msg = &mut body["choices"][0]["message"];
+                    msg["tool_calls"] = Value::Array(calls);
+                    if text.trim().is_empty() {
+                        msg["content"] = Value::Null;
+                    }
+                    body["choices"][0]["finish_reason"] = Value::String("tool_calls".into());
+                }
                 if let Some(info) = readers {
                     body["aien_readers"] = info;
                 }
@@ -1110,9 +1172,14 @@ fn stream_response(
     model: String,
     mut prompt_tokens: usize,
     mut rx: mpsc::Receiver<Ev>,
+    tools: bool,
 ) -> Response {
     let (etx, erx) = mpsc::channel::<Result<Event, Infallible>>(64);
     tokio::spawn(async move {
+        // Tool requests: content streams until a `<tool_call>` opens (a possible split tag is held
+        // back); from there the reply is buffered and sent as one `tool_calls` delta at the end.
+        let mut held = String::new();
+        let mut in_call = false;
         let data = |v: Value| Ok(Event::default().data(v.to_string()));
         let first = chunk_json(
             &id,
@@ -1138,6 +1205,36 @@ fn stream_response(
                     v["aien_readers"] = info;
                     data(v)
                 }
+                Ev::Delta(d) if tools => {
+                    held.push_str(&d);
+                    if in_call {
+                        continue;
+                    }
+                    let out = if let Some(p) = held.find(crate::tools::OPEN) {
+                        in_call = true;
+                        let out = held[..p].to_string();
+                        held = held[p..].to_string();
+                        out
+                    } else {
+                        let keep = crate::tools::partial_open_len(&held);
+                        let cut = held.len() - keep;
+                        let out = held[..cut].to_string();
+                        held = held[cut..].to_string();
+                        out
+                    };
+                    if out.is_empty() {
+                        continue;
+                    }
+                    data(chunk_json(
+                        &id,
+                        created,
+                        &model,
+                        None,
+                        Some(&out),
+                        None,
+                        None,
+                    ))
+                }
                 Ev::Delta(d) => data(chunk_json(&id, created, &model, None, Some(&d), None, None)),
                 Ev::Reasoning(d) => data(chunk_json_with(
                     &id,
@@ -1162,6 +1259,42 @@ fn stream_response(
                         aien_sampling: sampling,
                         aien_token_ids: token_ids,
                     };
+                    let mut finish = finish;
+                    if tools && !held.is_empty() {
+                        let (text, calls) = crate::tools::parse_reply(&held, &id);
+                        if !text.is_empty()
+                            && etx
+                                .send(data(chunk_json(
+                                    &id,
+                                    created,
+                                    &model,
+                                    None,
+                                    Some(&text),
+                                    None,
+                                    None,
+                                )))
+                                .await
+                                .is_err()
+                        {
+                            return;
+                        }
+                        if !calls.is_empty() {
+                            let deltas: Vec<Value> = calls
+                                .into_iter()
+                                .enumerate()
+                                .map(|(i, mut c)| {
+                                    c["index"] = Value::from(i);
+                                    c
+                                })
+                                .collect();
+                            let mut ch = chunk_json(&id, created, &model, None, None, None, None);
+                            ch["choices"][0]["delta"]["tool_calls"] = Value::Array(deltas);
+                            if etx.send(data(ch)).await.is_err() {
+                                return;
+                            }
+                            finish = "tool_calls";
+                        }
+                    }
                     let last =
                         chunk_json(&id, created, &model, None, None, Some(finish), Some(&usage));
                     if etx.send(data(last)).await.is_err() {

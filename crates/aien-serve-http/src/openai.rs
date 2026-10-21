@@ -62,6 +62,12 @@ pub struct Message {
     /// A string, or an array of `{type: "text", text}` parts, or null.
     #[serde(default)]
     pub content: Value,
+    /// Assistant turn: the calls it made (OpenAI shape).
+    #[serde(default)]
+    pub tool_calls: Option<Vec<Value>>,
+    /// Tool turn: which call it answers (not rendered by the Qwen template).
+    #[serde(default)]
+    pub tool_call_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

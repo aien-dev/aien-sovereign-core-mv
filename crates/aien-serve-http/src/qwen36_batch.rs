@@ -207,7 +207,7 @@ impl Qwen36BatchDoor {
                 avail >> 20
             ));
         }
-        let lock = GpuLock::acquire_queued_at(Path::new(GPU_LOCK_PATH), LOAD_LOCK_WAIT)?;
+        let lock = GpuLock::acquire_queued_at(&serve_lock_path(), LOAD_LOCK_WAIT)?;
         let t0 = Instant::now();
         eprintln!(
             "aien-serve-http: qwen36-batch: uploading {} layers, {slots} rows of {max_pos} positions (model needs {} MiB, MemAvailable {} MiB)",
@@ -244,7 +244,7 @@ impl Qwen36BatchDoor {
         let mut door = Self::with_stepper(
             model,
             max_context,
-            PathBuf::from(GPU_LOCK_PATH),
+            serve_lock_path(),
             REQUEST_LOCK_WAIT,
             per_beat,
             std::env::var(CHIP_GREEDY_ENV).as_deref() != Ok("0"),
@@ -826,3 +826,12 @@ impl<S: RowStep> Scheduler<S> {
 
 #[cfg(test)]
 mod tests;
+
+/// The chip lock the live server takes per busy spell. `AIEN_SERVE_GPU_LOCK` points it at a private
+/// file so a live server never waits behind test jobs on `/tmp/aien-gb10.lock` (coordinator
+/// 2026-10-21: Drake tests the motor live from Hermes; serving has priority over chip tests).
+fn serve_lock_path() -> PathBuf {
+    std::env::var_os("AIEN_SERVE_GPU_LOCK")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(GPU_LOCK_PATH))
+}

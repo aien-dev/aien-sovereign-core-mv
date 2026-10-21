@@ -342,3 +342,35 @@ fn fewer_free_rows_mean_fewer_parts_and_one_engine_reads_in_turn() {
     assert_eq!(v["aien_readers"]["readers"], 4);
     assert_eq!(groups.lock().unwrap()[0].len(), 4);
 }
+
+/// Tool calling through the readers id (serve/q36-tools): a long tool result is read by the
+/// readers, the readers' prompts carry no tools, and the answer's tool call comes back parsed.
+#[test]
+fn a_long_tool_result_is_read_and_the_answer_can_call_a_tool() {
+    let call = "<tool_call>\n<function=read_file>\n<parameter=path>\nsrc/main.rs\n</parameter>\n</function>\n</tool_call>";
+    let (srv, groups) = start_spy(8, call);
+    let msgs = serde_json::json!([
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "Find the crash, then open the file it names."},
+        {"role": "assistant", "content": "", "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "read_log", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "c1", "content": long_doc()},
+    ]);
+    let tools = r#"[{"type":"function","function":{"name":"read_file","parameters":{"type":"object","properties":{"path":{"type":"string"}}}}}]"#;
+    let v = json(&chat(
+        srv.addr,
+        &format!(r#"{{"model":"test-model-readers","tools":{tools},"messages":{msgs}}}"#),
+    ));
+    assert_eq!(v["aien_readers"]["readers"], 8);
+    assert_eq!(v["choices"][0]["finish_reason"], "tool_calls", "{v}");
+    let tc = &v["choices"][0]["message"]["tool_calls"][0];
+    assert_eq!(tc["function"]["name"], "read_file");
+    assert!(tc["function"]["arguments"]
+        .as_str()
+        .unwrap()
+        .contains("src/main.rs"));
+    let g = groups.lock().unwrap();
+    for prompt in &g[0] {
+        assert!(!prompt.contains("<tools>"), "a reader got the tools");
+        assert!(prompt.contains("Find the crash, then open the file it names."));
+    }
+}
