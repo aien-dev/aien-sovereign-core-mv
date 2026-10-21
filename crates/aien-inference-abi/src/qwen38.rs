@@ -66,6 +66,9 @@ pub struct Qwen38Config {
     /// `Some` for the MoE variant (`qwen3_5_moe`, Qwen3.6-35B-A3B): every layer's MLP is a routed
     /// sparse block plus a gated shared expert, and `intermediate` is unused (0).
     pub moe: Option<MoeShape>,
+    /// `tie_word_embeddings`: the lm_head is the embedding table (Qwen3.5-0.8B, the small Allen
+    /// student, L389); the 27B and the 35B are untied.
+    pub tied_embeddings: bool,
 }
 
 /// The sparse MLP of a `qwen3_5_moe` layer (transformers `Qwen3_5MoeSparseMoeBlock`): router
@@ -139,9 +142,6 @@ impl Qwen38Config {
             .or_else(|| raw.get("tie_word_embeddings"))
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        if tied {
-            return Err("config.json: tied embeddings are not supported (27B is untied)".into());
-        }
         if text.get("attn_output_gate").and_then(|v| v.as_bool()) != Some(true) {
             return Err("config.json: attn_output_gate must be true".into());
         }
@@ -212,6 +212,7 @@ impl Qwen38Config {
             eps: f64_field(text, "rms_norm_eps")? as f32,
             eos_token_ids,
             moe,
+            tied_embeddings: tied,
         };
         c.validate()?;
         Ok(c)
@@ -429,6 +430,14 @@ pub(crate) fn read_vec(
     name: &str,
     len: usize,
 ) -> Result<Vec<f32>, String> {
+    // The 0.8B student (L389) stores A_log and the gated norm weight as F32; read those as is.
+    if source.dtype_of(name).ok().flatten().as_deref() == Some("F32") {
+        let mut v = vec![0f32; len];
+        // SAFETY: as bytes_of_words: any byte pattern is a valid f32, the length is the slice's size.
+        let bytes = unsafe { std::slice::from_raw_parts_mut(v.as_mut_ptr().cast::<u8>(), len * 4) };
+        source.read_into(name, "F32", &[len], bytes)?;
+        return Ok(v);
+    }
     Ok(read_bf16_words(source, name, &[len])?
         .into_iter()
         .map(bf16_to_f32)
@@ -742,7 +751,12 @@ impl<S: TensorSource> Qwen38Reference<S> {
             &[v, h],
         )?;
         let final_norm = read_vec(&mut source, &format!("{prefix}norm.weight"), h)?;
-        let lm_head = read_matrix(&mut source, "lm_head.weight", v, h)?;
+        let head_name = if config.tied_embeddings {
+            format!("{prefix}embed_tokens.weight")
+        } else {
+            "lm_head.weight".to_string()
+        };
+        let lm_head = read_matrix(&mut source, &head_name, v, h)?;
         Ok(Self {
             config,
             source,
@@ -1301,6 +1315,7 @@ mod tests {
             eps: 1e-6,
             eos_token_ids: vec![1],
             moe: None,
+            tied_embeddings: false,
         }
     }
 
@@ -1414,7 +1429,13 @@ mod tests {
             "\"tie_word_embeddings\":false",
             "\"tie_word_embeddings\":true",
         );
-        assert!(Qwen38Config::from_json(&tied, None).is_err());
+        assert!(!c.tied_embeddings);
+        // Tied tables (the 0.8B student, L389) are read as the lm_head, not refused.
+        assert!(
+            Qwen38Config::from_json(&tied, None)
+                .unwrap()
+                .tied_embeddings
+        );
         let int8 = json.replace("\"fp8\"", "\"int8\"");
         assert!(Qwen38Config::from_json(&int8, None).is_err());
     }
