@@ -50,6 +50,25 @@ pub enum BoundKind {
     Min,
 }
 
+/// Roundings per term the chip screen may add: k products and sums plus the 16 block partials.
+pub const CHIP_GAMMA_LEN: usize = 2100;
+
+/// What the chip's exact head uploads for a bf16 `head`: the e4m3 codes `[n][k]`, the block
+/// scales as bf16 words `[n / 128][k / 128]` and the Row coefficients `[n]`
+/// ([`Screen::row_coef`] at [`CHIP_GAMMA_LEN`]). Refuses when the codes do not reproduce the
+/// screen the bound was computed for, bit for bit.
+pub fn chip_screen(head: &Matrix) -> Result<(Vec<u8>, Vec<u16>, Vec<f32>), String> {
+    let scales = fp8_block_scales(head);
+    let codes = fp8_block_codes(head, &scales);
+    let screen = Screen::build(head, ScreenKind::Fp8Block)?;
+    let bad = screen.codes_mismatch(&codes, &scales);
+    if bad != 0 {
+        return Err(format!("exact head: {bad} rows of codes do not reproduce the screen"));
+    }
+    let coef = screen.row_coef(CHIP_GAMMA_LEN);
+    Ok((codes, scales.iter().map(|&s| f32_to_bf16(s)).collect(), coef))
+}
+
 impl ScreenKind {
     pub fn parse(s: &str) -> Option<Self> {
         match s {

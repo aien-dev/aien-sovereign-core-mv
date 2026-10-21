@@ -15,7 +15,7 @@
 //! `gate` decodes greedily with the two-pass head choosing every token and compares the ids with
 //! the golden run; 0 <= `scale` < 1 is a shrunken-bound mutant, `scale` < 0 drops the full argmax from the
 //! candidates (a mutant that must fail).
-use aien_inference_abi::exact_head::{self, BoundKind, Screen, ScreenKind, GROUP};
+use aien_inference_abi::exact_head::{self, BoundKind, Screen, ScreenKind, CHIP_GAMMA_LEN, GROUP};
 use aien_inference_abi::qwen38::{argmax, Logits, Qwen38Reference};
 use aien_inference_abi::qwen3_moe_omega::{sample_next, GenerateParams};
 use rayon::prelude::*;
@@ -363,9 +363,6 @@ fn gate(dir: &Path, kind: ScreenKind, bk: BoundKind, scale: f64, out_path: &str,
     std::fs::write(out_path, serde_json::to_string_pretty(&report).unwrap()).map_err(|e| e.to_string())?;
     Ok(pass)
 }
-
-/// Roundings per term the chip screen may add: k products and sums plus the 16 block partials.
-const CHIP_GAMMA_LEN: usize = 2100;
 
 /// The chip test's inputs (weights: outside git): head.bf16 [n][k] u16, fp8b.codes [n][k] e4m3,
 /// fp8b.scales [n/128][k/128] bf16, coef.f32 [n] (the Row bound coefficient, gamma(2100)).

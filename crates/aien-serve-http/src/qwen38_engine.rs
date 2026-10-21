@@ -167,6 +167,9 @@ impl Engine for Qwen38Door {
             .session
             .lock()
             .map_err(|_| EngineError::Failed("qwen38 session poisoned".into()))?;
+        // Greedy requests take the exact two-pass head (the same tokens, the logits read back are
+        // -inf off its candidates); sampled ones need every logit.
+        s.model_mut().set_exact_head_on(p.temperature <= 0.001);
         let t0 = Instant::now();
         let (mut logits, fs) = s.start(prompt).map_err(EngineError::Failed)?;
         let prefill_ms = t0.elapsed().as_millis() as u64;

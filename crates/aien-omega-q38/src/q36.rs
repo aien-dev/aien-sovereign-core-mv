@@ -89,6 +89,9 @@ mod ffi {
         pub fn omega_gpu_q36_graph_read_buf(g: *mut OmegaGpuQ36Graph, which: i32, out: *mut f32, n: u32) -> i32;
         pub fn omega_gpu_q36_graph_set_flush_each(g: *mut OmegaGpuQ36Graph, on: i32);
         pub fn omega_gpu_q36_graph_test_set_mutant(g: *mut OmegaGpuQ36Graph, mutant: i32);
+        pub fn omega_gpu_q36_graph_set_exact_head(g: *mut OmegaGpuQ36Graph, screen: *const c_void, coef: *const f32) -> i32;
+        pub fn omega_gpu_q36_graph_set_exact_head_on(g: *mut OmegaGpuQ36Graph, on: i32);
+        pub fn omega_gpu_q36_graph_exact_head_active(g: *const OmegaGpuQ36Graph) -> i32;
     }
 }
 
@@ -289,6 +292,55 @@ impl Q36Graph {
         }
     }
 
+    /// HUM L314 exact two-pass head (omega `omega_gpu_q36_graph_set_exact_head`): `screen` is the
+    /// fp8b copy of the bf16 lm_head (`[vocab][2048]`, one bf16 scale per 128 x 128 block),
+    /// `coef` the Row bound per row (`exact_head::Screen::row_coef`). The greedy token stays the
+    /// plain head's by construction; the logits read back are -inf off the candidates, so turn it
+    /// off ([`Self::set_exact_head_on`]) for any token that is sampled. Null `screen` removes it.
+    ///
+    /// # Safety
+    /// `screen` is null or a live `OmegaGpuFp8Tensor` that outlives every later token of this graph.
+    pub unsafe fn set_exact_head(&mut self, screen: *mut c_void, coef: &[f32]) -> Result<(), OmegaGpuError> {
+        if !screen.is_null() {
+            check_len("q36 graph exact head coef", self.vocab, coef.len())?;
+        }
+        #[cfg(has_omega_q36)]
+        {
+            // SAFETY: ptr is live; screen per the caller's contract; coef holds vocab f32 (checked).
+            let rc = unsafe { ffi::omega_gpu_q36_graph_set_exact_head(self.ptr, screen, coef.as_ptr()) };
+            if rc != 0 {
+                return Err(session_err("q36 graph set_exact_head", rc));
+            }
+            Ok(())
+        }
+        #[cfg(not(has_omega_q36))]
+        {
+            let _ = (screen, coef);
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
+
+    /// Use the exact two-pass head for the next tokens (greedy) or the plain head (sampled).
+    pub fn set_exact_head_on(&mut self, on: bool) {
+        #[cfg(has_omega_q36)]
+        // SAFETY: ptr is live.
+        unsafe {
+            ffi::omega_gpu_q36_graph_set_exact_head_on(self.ptr, on as i32)
+        }
+        #[cfg(not(has_omega_q36))]
+        let _ = on;
+    }
+
+    /// The next token runs the exact two-pass head (set, on, no FP8 lm_head).
+    pub fn exact_head_active(&self) -> bool {
+        #[cfg(has_omega_q36)]
+        // SAFETY: ptr is live.
+        unsafe {
+            ffi::omega_gpu_q36_graph_exact_head_active(self.ptr) != 0
+        }
+        #[cfg(not(has_omega_q36))]
+        false
+    }
     /// 1: submit after every launch (the comparison path).
     pub fn set_flush_each(&mut self, on: bool) {
         #[cfg(has_omega_q36)]
@@ -301,7 +353,8 @@ impl Q36Graph {
     }
 
     /// TEST ONLY (negative controls): 1 SWIGLU up half off by one, 2 GATHER index + 1, 3 GATE
-    /// dropped, 4 COMBINE skips the shared expert. 0 none.
+    /// dropped, 4 COMBINE skips the shared expert, 5 the exact head's MASK inverted, 6 its bound
+    /// dropped. 0 none.
     pub fn test_set_mutant(&mut self, mutant: i32) {
         #[cfg(has_omega_q36)]
         // SAFETY: ptr is live.
