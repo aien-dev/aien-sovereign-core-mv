@@ -232,10 +232,14 @@ wait_ready() { # <port> <pidfile> [max_s]
     [ -n "$(model_of "$1")" ] && return 0; sleep 5
   done; say "server not serving after ${3:-1800} s"; return 1
 }
-stop_server() { # <pidfile> <port>
-  local p; p=$(cat "$1" 2>/dev/null) || return 0
-  kill "$p" 2>/dev/null; for _ in $(seq 1 60); do kill -0 "$p" 2>/dev/null || break; sleep 1; done; kill -9 "$p" 2>/dev/null; sleep 1
-  say "server pid $p stopped (port $2)"
+tree_of() { local c; echo "$1"; for c in $(pgrep -P "$1"); do tree_of "$c"; done; }   # a pid and all its descendants
+stop_server() { # <pidfile> <port>: the wrapper, q36-extra and the server it exec'd (own session), then check the port is free
+  local p pids; p=$(cat "$1" 2>/dev/null) || return 0
+  pids=$(tree_of "$p" | tr '\n' ' ')
+  kill $pids 2>/dev/null; for _ in $(seq 1 90); do alive=0; for q in $pids; do kill -0 "$q" 2>/dev/null && alive=1; done; [ $alive = 0 ] && break; sleep 1; done
+  kill -9 $pids 2>/dev/null; sleep 1
+  ss -ltn 2>/dev/null | grep -q "127.0.0.1:$2 " && say "WARNING: port $2 still in use after stopping pids $pids"
+  say "server stopped (pids $pids, port $2)"
 }
 # ---------- commands ----------
 cmd_suite() { # <port> [bin-dir]
@@ -257,12 +261,14 @@ cmd_run() { # <bin-dir> [--post] [--no-second]
   loads_before=$(grep -c 'aien-serve-http' /tmp/aien-q36-extra.log 2>/dev/null || echo 0)
   say "MERGE TRAIN run $(basename "$RUN"): candidate bin-$sha8 ($(head -1 "$bin/BUILD.txt" 2>/dev/null | cut -c1-120)), port $PORT, reference $(cat "$REFS/CURRENT/alone/done" 2>/dev/null || echo NONE)"
   T0=$(date +%s); SERVER_LOG=$RUN/server.log
+  CUR_PIDF=$RUN/server.pid; trap '[ -n "${CUR_PIDF:-}" ] && stop_server "$CUR_PIDF" "$PORT"' EXIT   # never leave a 35B copy behind
   start_server "$bin" "$PORT" "$SERVER_LOG" "$RUN/server.pid"
   wait_ready "$PORT" "$RUN/server.pid" || { cell plain '*' ERROR "candidate never served"; lever_table "$RUN"; exit 2; }
   TR=$(date +%s); MODEL=$(model_of "$PORT"); say "ready after $((TR - T0)) s: model $MODEL, /health $(health_of "$PORT" | jq -c '{concurrency, aien_test}')"
   presence "$bin" "$PORT" > "$RUN/present.json"; say "presence $(cat "$RUN/present.json")"
   for arm in $(jq -r '.arms | to_entries[] | select(.value.server_env == null) | .key' "$SUITE"); do run_arm "$PORT" "$arm"; done
   stop_server "$RUN/server.pid" "$PORT"
+  CUR_PIDF=""
   for arm in $(jq -r '.arms | to_entries[] | select(.value.server_env != null) | .key' "$SUITE"); do
     enabled=$(jq -r --arg a "$arm" '.arms[$a].enabled // true' "$SUITE")
     if [ "$enabled" != true ]; then skip_arm "$arm" "arm disabled in suite.json (its lever is not in the candidate yet)"; continue; fi
@@ -270,12 +276,14 @@ cmd_run() { # <bin-dir> [--post] [--no-second]
     mapfile -t envs < <(jq -r --arg a "$arm" '.arms[$a].server_env | to_entries[] | "\(.key)=\(.value)"' "$SUITE" | sed "s|\$OUT|$RUN|g")
     mkdir -p "$RUN/board" 2>/dev/null; SERVER_LOG=$RUN/server-$arm.log
     start_server "$bin" "$PORT" "$SERVER_LOG" "$RUN/server-$arm.pid" "${envs[@]}"; loads=$((loads + 1))
+    CUR_PIDF=$RUN/server-$arm.pid
     if ! wait_ready "$PORT" "$RUN/server-$arm.pid"; then skip_arm "$arm" "second server never served"; continue; fi
     proof=$(jq -r --arg a "$arm" '.arms[$a].log_proof // empty' "$SUITE")
     if [ -n "$proof" ] && ! grep -Eqi "$proof" "$SERVER_LOG"; then
       while IFS= read -r c; do cell "$arm" "$(jq -r .id <<<"$c")" NOT-ON-TRAIN "server log shows no '$proof': the build ignored ${envs[*]}"; done < <(jq -c --arg a "$arm" '.cases[] | select((.arms // null) == null or (.arms | index($a)))' "$SUITE")
     else run_arm "$PORT" "$arm"; fi
     stop_server "$RUN/server-$arm.pid" "$PORT"
+    CUR_PIDF=""
   done
   T1=$(date +%s)
   jq -n --arg c "$sha8" --argjson loads $loads --argjson load_s $((TR - T0)) --argjson suite_s $((T1 - TR)) --argjson wall_s $((T1 - T0)) --argjson before "$loads_before" \
