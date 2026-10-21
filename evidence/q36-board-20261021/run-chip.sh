@@ -1,11 +1,12 @@
 #!/bin/bash
 # L376 chip run, detached. Usage: run-chip.sh TAG BIN
-# 1) test server (BIN, 8 rows x 16384, port 18098 (the port the coordinator assigned L376, 12:52Z), never 18091) loads under q36-extra (L366: one extra 35B,
+# 1) test server (BIN, 8 rows x 16384, port $PORT: 18098 per the coordinator map 12:52Z, or PORT=... when that port is taken; never 18091) loads under q36-extra (L366: one extra 35B,
 #    memory checked in its lock, oom 1000), its own board dir (never the live server's).
 # 2) spark-window --gb10 none (quiet lock: no builds during the timings), gate.sh, close. 3) server stopped.
 set -uo pipefail
 TAG=$1; BIN=$2
-E=$(cd "$(dirname "$0")"; pwd); S=$HOME/.local/state/aien-q36; PORT=18098
+E=$(cd "$(dirname "$0")"; pwd); S=$HOME/.local/state/aien-q36; PORT=${PORT:-18098}
+export Q36_EXTRA_LEDGER=L376   # q36-extra v3 priority rank (coordinator 13:54Z)
 export Q36_EXTRA_WAIT=${Q36_EXTRA_WAIT:-14400}   # the extra-35B line is long today; wait up to 4 h for the slot
 LOG=$E/server-$TAG.log; BD=$E/board-$TAG; OUT=$E/chip-$TAG
 cd "$S/$BIN" && sha256sum -c --quiet SHA256SUMS || exit 2
