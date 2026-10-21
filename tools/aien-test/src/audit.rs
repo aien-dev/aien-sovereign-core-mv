@@ -126,6 +126,9 @@ pub struct Places {
     /// (build outputs in the tree, say `build/`), so it is not an input. None:
     /// every path is judged.
     pub tracked: Option<BTreeSet<String>>,
+    /// Sibling checkouts the judge provides (`../<repo>`, canonical). Their
+    /// commits are in every key as pins, so reading them is covered.
+    pub siblings: Vec<PathBuf>,
 }
 
 /// The audit's findings.
@@ -239,6 +242,14 @@ pub fn judge(m: &Manifest, places: &Places, opened: &[Opened]) -> Report {
             } else {
                 bump(&mut r, "private TMPDIR scratch");
             }
+            continue;
+        }
+        if places
+            .siblings
+            .iter()
+            .any(|s| p_dir.starts_with(&format!("{}/", s.display())))
+        {
+            bump(&mut r, "sibling checkout (its commit is a pin in the key)");
             continue;
         }
         if p_dir.starts_with(&root) || p_dir == root {
@@ -364,6 +375,7 @@ mod tests {
             tmpdir: PathBuf::from("/audit/tmp"),
             home: PathBuf::from("/home/op"),
             tracked: None,
+            siblings: Vec::new(),
         }
     }
 

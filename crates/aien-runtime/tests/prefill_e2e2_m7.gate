@@ -30,4 +30,6 @@ expects:
 timeout: 60m
 checks:
   - clean_tree_after
-cache: never
+outside_inputs:
+  - ~/models/TinyLlama-1.1B-Chat-v1.0/
+cache: inputs_complete

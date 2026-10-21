@@ -3,7 +3,6 @@
 # prefix; only the new positions are computed. Same chain as the first forge
 # line for PE2E2-A: fmt check, clippy, then the ignored real-checkpoint test
 # (TinyLlama-1.1B on the host CPU, release mode). GB10 is not needed.
-# cache: never because the checkpoint directory is not an input we hash.
 gate: PREFILL-E2E-2
 manifest_version: 1
 owner: aien-sovereign-core
@@ -24,4 +23,6 @@ expects:
 timeout: 120m
 checks:
   - clean_tree_after
-cache: never
+outside_inputs:
+  - ~/models/TinyLlama-1.1B-Chat-v1.0/
+cache: inputs_complete

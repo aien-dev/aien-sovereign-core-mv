@@ -23,6 +23,7 @@ fn main() {
         Option<PathBuf>,
         Option<PathBuf>,
     ) = (None, None, None, None);
+    let mut siblings: Vec<PathBuf> = Vec::new();
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         let mut val = || {
@@ -35,6 +36,7 @@ fn main() {
             "--target-dir" => target = Some(val()),
             "--work" => work = Some(val()),
             "--trace" => trace = Some(val()),
+            "--sibling" => siblings.push(audit::canon(&val())),
             s if s.starts_with('-') => usage(&format!("unknown flag {s}")),
             _ => gate = Some(PathBuf::from(&a)),
         }
@@ -126,6 +128,7 @@ fn main() {
             .map(PathBuf::from)
             .unwrap_or_default(),
         tracked: Some(tracked),
+        siblings,
     };
     let report = audit::judge(&m, &places, &audit::parse_strace(&text));
     let out = audit::render(&m, &report);
@@ -149,7 +152,7 @@ fn main() {
 }
 
 fn usage(msg: &str) -> ! {
-    eprintln!("aien-audit-inputs: {msg}\nusage: aien-audit-inputs [--root DIR] --target-dir DIR --work DIR [--trace FILE] GATE_FILE");
+    eprintln!("aien-audit-inputs: {msg}\nusage: aien-audit-inputs [--root DIR] --target-dir DIR --work DIR [--trace FILE] [--sibling DIR]... GATE_FILE");
     exit(2)
 }
 
