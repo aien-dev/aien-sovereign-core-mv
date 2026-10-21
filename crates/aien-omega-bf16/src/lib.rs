@@ -9,7 +9,7 @@
 //! Rules omega refuses otherwise: `n >= 1`, `k % 256 == 0`, `256 <= k <= 16384`, and a NaN or
 //! infinite bf16 weight is refused at upload. Without the native library (`is_native()` false)
 //! every call returns `Unavailable`.
-use aien_omega_gpu::OmegaGpuError;
+use aien_omega_gpu::{OmegaGpuError, ShareToken};
 use std::fmt;
 
 /// Narrowest and widest `k` the kernel accepts, and its granule.
@@ -54,7 +54,7 @@ impl Default for Bf16Info {
 
 #[cfg(has_omega_bf16)]
 mod ffi {
-    use super::Bf16Info;
+    use super::{Bf16Info, Bf16Share};
     #[repr(C)]
     pub struct OmegaGpuBf16Tensor {
         _private: [u8; 0],
@@ -67,6 +67,14 @@ mod ffi {
             out: *mut *mut OmegaGpuBf16Tensor,
         ) -> i32;
         pub fn omega_gpu_bf16_tensor_free(t: *mut OmegaGpuBf16Tensor);
+        pub fn omega_gpu_bf16_tensor_export(
+            t: *const OmegaGpuBf16Tensor,
+            out: *mut Bf16Share,
+        ) -> i32;
+        pub fn omega_gpu_bf16_tensor_import(
+            s: *const Bf16Share,
+            out: *mut *mut OmegaGpuBf16Tensor,
+        ) -> i32;
         pub fn omega_gpu_bf16_gemv_f32(
             t: *const OmegaGpuBf16Tensor,
             x: *const f32,
@@ -130,6 +138,16 @@ pub fn check_shape(n: usize, k: usize) -> Result<(), OmegaGpuError> {
     Ok(())
 }
 
+/// A resident bf16 matrix published for import by another process of the same user (L383 shared
+/// weights). Mirrors omega `OmegaGpuBf16Share` (`src/omega_gpu_bf16_gemv_api.h`); probe: 32 bytes, `w` at 8.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Bf16Share {
+    pub n: u32,
+    pub k: u32,
+    pub w: ShareToken,
+}
+
 /// An `[n][k]` bf16 matrix resident on the device until dropped. Not `Sync`: callers
 /// serialise use behind a lock.
 pub struct Bf16Tensor {
@@ -161,6 +179,45 @@ impl Bf16Tensor {
         #[cfg(not(has_omega_bf16))]
         {
             std::ptr::null_mut()
+        }
+    }
+
+    /// Publishes this matrix for another process of the same user (L383 shared weights).
+    pub fn export(&self) -> Result<Bf16Share, OmegaGpuError> {
+        #[cfg(has_omega_bf16)]
+        {
+            let mut s = Bf16Share::default();
+            // SAFETY: ptr is a live owned tensor; s is a valid out-pointer.
+            let rc = unsafe { ffi::omega_gpu_bf16_tensor_export(self.ptr, &mut s) };
+            if rc != 0 {
+                return Err(rc_err(rc));
+            }
+            Ok(s)
+        }
+        #[cfg(not(has_omega_bf16))]
+        {
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
+
+    /// Maps a matrix another process published with [`Self::export`] into this process, read-only
+    /// and with no copy: a normal `Bf16Tensor` from here on.
+    pub fn import(s: &Bf16Share) -> Result<Self, OmegaGpuError> {
+        let (n, k) = (s.n as usize, s.k as usize);
+        check_shape(n, k)?;
+        #[cfg(has_omega_bf16)]
+        {
+            let mut ptr = std::ptr::null_mut();
+            // SAFETY: s is a valid share by value; ptr is a valid out-pointer.
+            let rc = unsafe { ffi::omega_gpu_bf16_tensor_import(s, &mut ptr) };
+            if rc != 0 || ptr.is_null() {
+                return Err(rc_err(rc));
+            }
+            Ok(Self { ptr, n, k })
+        }
+        #[cfg(not(has_omega_bf16))]
+        {
+            Err(OmegaGpuError::Unavailable)
         }
     }
 

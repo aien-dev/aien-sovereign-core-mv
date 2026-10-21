@@ -1,7 +1,7 @@
 //! `aien-serve-http`: OpenAI-compatible door on 127.0.0.1 for the OWN-30B model.
 //!
 //!   aien-serve-http [--engine cpu|stub|omega] [--weights bf16|fp8-experts|fp8] [--spin-us N]
-//!                   [--whole-prompt on|off] [--prefill-device-host on|off]
+//!                   [--whole-prompt on|     [--thinking on|off|template] [--batch-slots N] [--weights-publish SOCK] [--weights-from SOCK]"] [--prefill-device-host on|off]
 //!                   [--model-dir DIR] [--port 18091]
 //!                   [--bind 127.0.0.1] [--model-id ID] [--max-context N]
 //!                   [--max-tokens-cap N] [--stub-reply TEXT] [--thinking on|off|template]
@@ -55,6 +55,10 @@ struct Args {
     prefill: PrefillMode,
     /// Qwen3.6-35B-A3B only: conversations stacked on one beat (0: the one-at-a-time door).
     batch_slots: usize,
+    /// L383 shared weights (batch door only): serve this process's upload at a unix socket.
+    weights_publish: Option<PathBuf>,
+    /// L383 shared weights (batch door only): import the big tensors from the owner at that socket.
+    weights_from: Option<PathBuf>,
 }
 
 fn usage() -> String {
@@ -81,6 +85,8 @@ fn parse_args() -> Result<Args, String> {
         wp_device_host: None,
         prefill: PrefillMode::default(),
         batch_slots: 0,
+        weights_publish: None,
+        weights_from: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -136,6 +142,8 @@ fn parse_args() -> Result<Args, String> {
             "--batch-slots" => {
                 a.batch_slots = val()?.parse().map_err(|e| format!("--batch-slots: {e}"))?
             }
+            "--weights-publish" => a.weights_publish = Some(PathBuf::from(val()?)),
+            "--weights-from" => a.weights_from = Some(PathBuf::from(val()?)),
             "--whole-prompt" => a.whole_prompt = Some(parse_switch("--whole-prompt", &val()?)?),
             "--prefill-device-host" => {
                 a.wp_device_host = Some(parse_switch("--prefill-device-host", &val()?)?)
@@ -284,11 +292,37 @@ fn main() -> ExitCode {
             eprintln!("aien-serve-http: --batch-slots: this build batches the Qwen3.6-35B-A3B (qwen3_5_moe) only");
             return ExitCode::from(2);
         }
+        if (args.weights_from.is_some() || args.weights_publish.is_some()) && args.batch_slots == 0
+        {
+            eprintln!("aien-serve-http: --weights-from / --weights-publish: the batch door (--batch-slots N) only");
+            return ExitCode::from(2);
+        }
         if args.batch_slots > 0 {
-            match qwen36_batch::Qwen36BatchDoor::load(
+            // L383 shared weights: a test copy maps the owner's upload instead of loading its own.
+            let shared = match &args.weights_from {
+                Some(p) => match aien_inference_abi::qwen38_omega::SharedWeights::fetch(p) {
+                    Ok(s) => {
+                        eprintln!(
+                            "aien-serve-http: shared weights from pid {} at {} ({} tensors)",
+                            s.owner_pid,
+                            p.display(),
+                            s.tensors.len()
+                        );
+                        Some(s)
+                    }
+                    Err(e) => {
+                        eprintln!("aien-serve-http: --weights-from {}: {e}", p.display());
+                        return ExitCode::from(1);
+                    }
+                },
+                None => None,
+            };
+            match qwen36_batch::Qwen36BatchDoor::load_with(
                 &args.model_dir,
                 max_context,
                 args.batch_slots,
+                shared.as_ref(),
+                args.weights_publish.as_deref(),
             ) {
                 Ok(door) => Arc::new(door),
                 Err(e) => {
