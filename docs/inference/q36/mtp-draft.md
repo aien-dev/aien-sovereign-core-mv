@@ -33,7 +33,16 @@ draft rows (drafts of one conversation share experts at least as much as separat
 
 - One conversation, verify 2 rows costs 1.158x one row (calc:efc2b11f), 4 rows 1.396x (calc:2365c918).
 - Four conversations plus one draft each (8 rows) costs 1.257x the 4-row beat (calc:c18b6ce6); two plus one draft
-  each 1.206x (calc:c9494aca).
+  each 1.206x (calc:c9494aca). These two lines used the correlated union (the 30.5 at 8 rows came from one prompt
+  family); different conversations route almost independently (54.7 at 8 rows, Cortex a00808e4).
+- Eight different conversations plus one draft each (16 rows), measured from the host goldens' routes
+  (evidence/l355-w4/mtp-union/, union-draft.sh: rows s and s+1 of p1-p4 + chat code/prose/chat/review): union 81.2 per
+  layer against 54.7 for the 8 rows alone (set b with prose2: 80.7 / 54.5; four conversations 44.9-46.3 / 29.4-29.7; one
+  conversation 12.0-12.4 / 8, close to the 12.7 above). The 16-row beat reads 1.347x the 8-row beat (calc:e26d8efc),
+  1.460x with the MTP layer and the bf16 head read once for all drafts (calc:0898c6c2); at chat acceptance 1.705 that is
+  1.168x more tokens per byte (calc:7b25561d). The draft still pays for Drake's eight conversations, with a smaller margin
+  than the correlated lines suggested. Same v2 assumption (each weight read once per beat, lm_head batched); not measured
+  on chip.
 - The draft itself is not free: per drafted token the MTP layer reads about 73 MB plus the lm_head, 1.017 GB bf16.
   One conversation, k=1, p1 acceptance: 1.335x fewer bytes per emitted token with the bf16 head (calc:483f647d), 1.547x
   with a 4-bit draft head (calc:d91c918b; the draft only needs a top-1 guess, the verify pass keeps words exact; assumes

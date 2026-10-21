@@ -1,0 +1,16 @@
+{
+  "n": 1,
+  "decode_steps_used": 30,
+  "layers": 40,
+  "base_union": 8,
+  "draft_union": 12.445,
+  "draft_max": 16
+}
+{
+  "n": 1,
+  "decode_steps_used": 30,
+  "layers": 40,
+  "base_union": 8,
+  "draft_union": 12.049166666666666,
+  "draft_max": 16
+}

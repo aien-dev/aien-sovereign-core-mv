@@ -504,6 +504,25 @@ fn w4_ffn(w: &W4Host, m: &str, e: usize, inter: usize, h: usize) -> Result<Ffn, 
     })
 }
 
+/// [`w4_ffn`] with [`W4Host::fp8_part`] applied: the kept matrices come from the FP8 checkpoint at `p` (`{p}.gate_proj`, ..).
+fn w4_mixed_ffn(w: &W4Host, src: &mut dyn TensorSource, m: &str, p: &str, e: usize, inter: usize, h: usize) -> Result<Ffn, String> {
+    let gu = format!("{m}.experts gate|up");
+    let down = format!("{m}.experts down");
+    Ok(match w.fp8_part {
+        1 => Ffn {
+            gate: read_matrix(src, &format!("{p}.gate_proj.weight"), inter, h)?,
+            up: read_matrix(src, &format!("{p}.up_proj.weight"), inter, h)?,
+            down: w.rows(&down, e * h, h)?,
+        },
+        2 => Ffn {
+            gate: w.rows(&gu, e * 2 * inter, inter)?,
+            up: w.rows(&gu, e * 2 * inter + inter, inter)?,
+            down: read_matrix(src, &format!("{p}.down_proj.weight"), h, inter)?,
+        },
+        _ => w4_ffn(w, m, e, inter, h)?,
+    })
+}
+
 /// The router's choice for one row of logits: softmax over every expert, the `k` largest
 /// probabilities (larger logit first, the lower id on ties), renormalised to sum 1. `mutant`
 /// (negative control): 1 swaps the k-th pick for the (k+1)-th; 2 keeps the weights but sends
@@ -798,6 +817,9 @@ pub struct W4Host {
     /// Diagnostic control for nv16 (w4-gate.md "NV16 arm"): every e4m3 scale byte's mantissa cleared, so the scales are powers of
     /// two at group 16: tells whether the gain comes from the scale mantissa or from the group size.
     pub scale_mutant: bool,
+    /// Mixed inside the expert (w4-gate.md "NV16 arm" item 4): 1 keeps gate and up at FP8 (arm m-dn), 2 keeps down at FP8
+    /// (arm m-gu); 0 takes every expert matrix from the store.
+    pub fp8_part: u8,
 }
 
 impl W4Host {
@@ -984,7 +1006,7 @@ impl<S: TensorSource> Qwen38Reference<S> {
                 .map(bf16_to_f32)
                 .collect(),
                 shared: match self.w4.as_ref().filter(|w| w.experts && !mtp && w.on(l) && !w.shared_fp8) {
-                    Some(w) => w4_ffn(w, &m, s.experts, s.shared_inter, h)?,
+                    Some(w) => w4_mixed_ffn(w, src, &m, &format!("{m}.shared_expert"), s.experts, s.shared_inter, h)?,
                     None => read_ffn(src, &format!("{m}.shared_expert"), s.shared_inter, h)?,
                 },
             }),
@@ -1087,7 +1109,7 @@ impl<S: TensorSource> Qwen38Reference<S> {
                 continue;
             }
             let f = match self.w4.as_ref().filter(|w| w.experts && !mtp && w.on(l)) {
-                Some(w) => w4_ffn(w, &format!("{}layers.{l}.mlp", self.prefix), e, s.expert_inter, h)?,
+                Some(w) => w4_mixed_ffn(w, &mut self.source, &format!("{}layers.{l}.mlp", self.prefix), &format!("{p}.{e}"), e, s.expert_inter, h)?,
                 None => read_ffn(&mut self.source, &format!("{p}.{e}"), s.expert_inter, h)?,
             };
             let mut xs = Vec::with_capacity(rows.len() * h);

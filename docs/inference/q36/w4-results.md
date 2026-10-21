@@ -31,6 +31,12 @@ Rule: docs/inference/q36/w4-gate.md (frozen before every run). Evidence: evidenc
   error at about half of BEST's, limit 0.5 x 0.112546^2 = 0.0063333 (calc:466b6d16). The full nv16 store (160 tensors,
   33.6 G weights, 263 s) gives rel_rms 0.092202, squared 0.0085: NO-GO. Finer scales cut the rms error by 18 %
   (calc:7f0abae2), short of the halved square the gap needs, so the rule stopped the nv16 arm before a model load.
+  Fable's final review: the squared-error ratio nv16 / BEST is 0.671 (calc:4993a394); under the second-order reading the
+  projected held-out R1 is 1.0924 (over 1.07) while the goldens would project 1.0634 (under), so the stop is set by the
+  held-out line B. The second-order reading is the generous one (at a position where the nudge crosses a margin, loss
+  grows about linearly, projecting 1.1128), and nv16 clips 1.74x more values than BEST. Limit: the held-out interval
+  1.081 to 1.198 projects to about 1.054 to 1.133, so this is a point-estimate stop whose interval includes a pass; a
+  follow-up re-opens nv16 with that evidence, not by argument.
 
 ## What this means
 - The 4-bit expert format with one power-of-two scale per 32 weights (MXFP4) is not accurate enough to serve on this

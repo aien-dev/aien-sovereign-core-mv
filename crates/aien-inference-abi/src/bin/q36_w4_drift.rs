@@ -51,8 +51,8 @@ fn arm_host(arm: &str, dir: &Path) -> Result<Option<W4Host>, String> {
         "fp8" => return Ok(None),
         "w4e" => (true, false, false),
         "w4et" => (true, true, false),
-        "w4e-mut" | "w4e-smut" => (true, false, arm == "w4e-mut"),
-        a => return Err(format!("arm {a} (fp8, w4e, w4et, w4e-mut, w4e-smut)")),
+        "w4e-mut" | "w4e-smut" | "w4e-mgu" | "w4e-mdn" => (true, false, arm == "w4e-mut"),
+        a => return Err(format!("arm {a} (fp8, w4e, w4et, w4e-mut, w4e-smut, w4e-mgu, w4e-mdn)")),
     };
     let p = aien_inference_abi::q36_w4_store::resolve(dir)?
         .ok_or("AIEN_Q36_W4_STORE (store path or default) is not set")?;
@@ -63,7 +63,13 @@ fn arm_host(arm: &str, dir: &Path) -> Result<Option<W4Host>, String> {
     if scale_mutant && store.group() != 16 {
         return Err("w4e-smut is the nv16 scale control (needs an nv16 store)".into());
     }
-    Ok(Some(W4Host { store: Arc::new(store), experts, trunk, mutant, fp8_layers, shared_fp8, scale_mutant }))
+    // w4-gate.md "NV16 arm" item 4: m-gu keeps down at FP8, m-dn keeps gate and up at FP8
+    let fp8_part = match arm {
+        "w4e-mdn" => 1,
+        "w4e-mgu" => 2,
+        _ => 0,
+    };
+    Ok(Some(W4Host { store: Arc::new(store), experts, trunk, mutant, fp8_layers, shared_fp8, scale_mutant, fp8_part }))
 }
 
 fn run() -> Result<(), String> {

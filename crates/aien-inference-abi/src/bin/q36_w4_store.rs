@@ -4,6 +4,7 @@
 //!   q36_w4_store gptq <checkpoint dir> <out store> <calibration.txt> <tokens> [threads]
 //!   q36_w4_store check <checkpoint dir> <store>
 //!   q36_w4_store survey <checkpoint dir> [experts per layer, default 16]
+//!   q36_w4_store split <checkpoint dir> [experts per layer, default 16]
 //!
 //! `survey` converts a fixed sample of each layer's routed experts (ids 0, 16, 32, .. for 16) plus the shared expert and
 //! the trunk with every rule and prints one JSON line per rule: weights, saturated, relative RMS error. It picks no rule;
@@ -64,6 +65,58 @@ fn survey(dir: &Path, per_layer: usize) -> Result<(), String> {
             );
         }
     }
+    Ok(())
+}
+
+/// The survey's expert sample with BEST and nv16, gate|up and down apart (docs/inference/q36/w4-gate.md, NV16 arm item
+/// 4): one JSON line per rule and matrix with sq_err and sq_ref, then the mixed go / no-go against 0.5 x BEST's sq.
+fn split(dir: &Path, per_layer: usize) -> Result<(), String> {
+    use aien_inference_abi::{q36_w4_gptq::widen_fp8, q36_w4_nv};
+    let c = Qwen38Config::from_checkpoint(dir)?;
+    let mut source = ShardSource::open(dir)?;
+    let prefix = text_prefix(&mut source)?;
+    let s = c.moe.clone().ok_or("not a MoE checkpoint")?;
+    let step = (s.experts / per_layer.max(1)).max(1);
+    // [rule][matrix]: rule 0 = best, 1 = nv16; matrix 0 = gate|up, 1 = down
+    let mut st = [[W4Stats::default(); 2]; 2];
+    for l in 0..c.layers {
+        let projs = layer_projs(&c, &prefix, l, c.full_attention[l])?;
+        for (pi, (name, parts)) in projs.iter().enumerate().skip(2) {
+            let picked: Vec<_> = match pi {
+                2 => parts.chunks(2).enumerate().filter(|(e, _)| e % step == 0 || *e == s.experts).flat_map(|(_, p)| p.to_vec()).collect(),
+                _ => parts.iter().enumerate().filter(|(e, _)| e % step == 0 || *e == s.experts).map(|(_, p)| p.clone()).collect(),
+            };
+            for part in &picked {
+                // one part = one linear (gate, up or down), so nv16 gets one global per linear as in its store
+                let (n, k, w, sc) = read_fused(&mut source, name, std::slice::from_ref(part))?;
+                let (_, _, b) = from_fp8(n, k, &w, &sc, threads(), W4_RULE_BEST).map_err(|e| format!("{name}: {e}"))?;
+                let (_, _, _, v) = q36_w4_nv::quantize(&widen_fp8(n, k, &w, &sc), n, k, threads()).map_err(|e| format!("{name}: {e}"))?;
+                st[0][pi - 2].add(&b);
+                st[1][pi - 2].add(&v);
+            }
+        }
+        eprintln!("split: layer {l} of {}", c.layers);
+    }
+    for (ri, rname) in ["best", "nv16"].iter().enumerate() {
+        for (mi, what) in ["gate_up", "down"].iter().enumerate() {
+            let x = &st[ri][mi];
+            println!(
+                "{{\"rule\":\"{rname}\",\"matrix\":\"{what}\",\"weights\":{},\"saturated\":{},\"sq_err\":{:e},\"sq_ref\":{:e},\"rel_rms\":{:.6}}}",
+                x.weights, x.saturated, x.sq_err, x.sq_ref, x.rel_rms()
+            );
+        }
+    }
+    let r = st[0][0].sq_ref + st[0][1].sq_ref;
+    let limit = 0.5 * (st[0][0].sq_err + st[0][1].sq_err) / r;
+    let (gu, dn) = (st[1][0].sq_err / r, st[1][1].sq_err / r);
+    let v = |x: f64| if x <= limit { "GO" } else { "NO-GO" };
+    println!(
+        "{{\"best_sq\":{:.7},\"nv16_sq\":{:.7},\"limit_sq\":{limit:.7},\"m_gu_sq\":{gu:.7},\"m_gu\":\"{}\",\"m_dn_sq\":{dn:.7},\"m_dn\":\"{}\"}}",
+        2.0 * limit,
+        (st[1][0].sq_err + st[1][1].sq_err) / r,
+        v(gu),
+        v(dn)
+    );
     Ok(())
 }
 
@@ -147,7 +200,8 @@ fn main() {
             gptq(Path::new(&a[2]), Path::new(&a[3]), Path::new(&a[4]), n, th)
         }),
         Some("survey") if a.len() >= 3 => survey(Path::new(&a[2]), a.get(3).and_then(|s| s.parse().ok()).unwrap_or(16)),
-        _ => Err("usage: q36_w4_store write <dir> <out> <ocp|fit|best|nv16> [threads] | gptq <dir> <out> <calibration.txt> <tokens> [threads] | check <dir> <store> | survey <dir> [n]".into()),
+        Some("split") if a.len() >= 3 => split(Path::new(&a[2]), a.get(3).and_then(|s| s.parse().ok()).unwrap_or(16)),
+        _ => Err("usage: q36_w4_store write <dir> <out> <ocp|fit|best|nv16> [threads] | gptq <dir> <out> <calibration.txt> <tokens> [threads] | check <dir> <store> | survey <dir> [n] | split <dir> [n]".into()),
     };
     if let Err(e) = r {
         eprintln!("q36_w4_store: {e}");

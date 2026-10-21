@@ -87,3 +87,6 @@ Order and go / no-go, decided now:
    sq = nv16 sq_err(down) / sq_ref(all experts). Each passes (b) only if its sq <= 0.5 x BEST's sq on the same sample.
    A pass only opens the mixed arm (needs per-tensor mixing in the loader and host reference, then A + B + C, then an nv16
    chip kernel); a fail for both closes 4-bit experts at any grid without a rotation.
+   Order (written after the split, before any mixed run): m-gu first (more bytes off: 0.708 of FP8 expert bytes, calc:449379b7), m-dn only
+   if m-gu REJECTs. Host arms w4e-mgu / w4e-mdn on the nv16 store, every 35B load under q36-extra (L366), one at a time.
+   Sanity (reported, not gated): the mixed arm's per-prompt mean NLL beside the FP8 arm's and w4e's.
