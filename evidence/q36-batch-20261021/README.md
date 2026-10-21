@@ -31,3 +31,32 @@ identical between the two.
   Speed comes with L312's multi-row stroke behind the same `step_rows` call.
 - 32 rows need omega's 4096 handle slots (serve/q36-handles 5d3e28d0); not used in this build.
 - Context 2048 in the test; the swap config is 131072 per row (8 rows ~20.8 GiB on paper, calc:252e20b5).
+
+## Stage 2: rows on L312's batch strokes (bin-16b0e6f8, 2026-10-21)
+Build: sc serve/q36-batch-v2 16b0e6f8 (batch door + tools + L314 exact head + L356 levers + L312 stroke v2 through lever 2,
+8 rows per stroke, a lone row on its own graph), omega serve/q36-batch-v2 ab81d8f3 (509 q36 kernel hashes identical to
+L312's 0bef2e59; bf16 MASK and XBATCH forms both pass the simulator, both mutant 4 caught).
+
+Gate (same rule, alone = bin-5b726818 single door replies kept in `alone/`):
+| build | real8 | swap40-8 (must fail) | real32 (32 slots) |
+|---|---|---|---|
+| 16b27643 (v1 strokes) | PASS 32/32, turn2, golden | not run (superseded) | not run |
+| 8144655d (v2) | PASS 32/32, turn2, golden | FAIL as required: 30/32, prompts 3 and 28 | PASS 32/32 |
+| 16b0e6f8 (v2 + lone row) | PASS 32/32, turn2, golden | FAIL as required: 30/32, prompts 10 and 26 | PASS 32/32 |
+
+Timing (`time-run.sh 16b0e6f8`, spark-window 20261021T141700Z-f7b5e0, chip exclusive + quiet, 32 slots, ctx 2048,
+N requests at once, greedy, max 128 tokens, wall = first request out to last reply in, prompt reading included, 2 reps):
+| N | v2 tok/s | v1 tok/s | rows in turn tok/s |
+|---|---|---|---|
+| 1 | 21.95 / 22.46 | 22.67 / 22.63 | 22.65 / 22.75 |
+| 2 | 20.75 / 20.83 | 17.25 / 17.29 | 17.14 / 17.17 |
+| 4 | 42.27 / 44.59 | 31.63 / 31.49 | 30.84 / 30.89 |
+| 8 | 57.10 / 57.09 | 33.65 / 33.80 | 32.01 / 31.50 |
+| 16 | 62.42 / 62.40 | 33.63 / 33.38 | 31.12 / 32.01 |
+| 32 | 65.66 / 66.38 | 34.30 / 35.69 | 35.39 / 34.83 |
+v2 over rows in turn: N=8 1.799x (calc:3658d8e7), N=16 1.978x (calc:3adea8f3), N=32 1.881x (calc:01a7d873), N=1 0.977x
+(calc:9035675a, inside the run-to-run spread). N=8 total 57.11 tok/s (calc:f67ae6c1) vs 31.75 (calc:b261e933).
+Limits: short replies (many end before 128 tokens), so prompt reading (one token per beat today, L369) is a large share of
+the wall; the per-token decode speed alone is higher. 18091 was stopped for tests during the window (no live traffic).
+The one-conversation ceiling (63.25 tok/s) bounds N=1 only; batch strokes share the weight reads, so N >= 16 passes it.
+Raw: time-v2-16b0e6f8/, time-v1-16b0e6f8/, time-inturn-16b0e6f8/ (time.jsonl + every reply).
