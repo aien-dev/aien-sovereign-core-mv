@@ -1382,36 +1382,111 @@ pub fn triggers(state: &StateDir) -> Vec<(String, String, PathBuf)> {
     out
 }
 
-/// Open PR heads and the main head of `repo` from GitHub (bounded: one call
-/// per list). Errors are returned, never fatal to the loop.
-pub fn github_heads(gh: &str, repository: &str) -> Result<Vec<String>, String> {
-    let or = owner_repo(repository).ok_or("bad repository name")?;
-    let mut shas = Vec::new();
-    for args in [
-        vec![
-            "api",
-            &format!("repos/{or}/pulls?state=open&per_page=50"),
-            "--jq",
-            ".[].head.sha",
-        ],
-        vec!["api", &format!("repos/{or}/commits/main"), "--jq", ".sha"],
-    ] {
-        let mut cmd = Command::new(gh);
-        cmd.args(&args);
-        let out = process::output_gated(&mut cmd).map_err(|e| format!("cannot run {gh}: {e}"))?;
-        if !out.status.success() {
-            return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
-        }
-        for l in String::from_utf8_lossy(&out.stdout).lines() {
-            let l = l.trim().to_ascii_lowercase();
-            if valid_sha(&l) {
-                shas.push(l);
-            }
+/// What the last answer to one GitHub list request said, kept with its ETag so the next poll can ask
+/// "has it changed?" (a 304 reply costs nothing against the hourly allowance; L337, G3-ci-judge-7).
+#[derive(Default)]
+pub struct HeadCache {
+    entries: std::collections::HashMap<String, (String, Vec<String>)>,
+}
+
+/// One list request as a conditional GET. `pick` turns a 200 body into head shas. A 304 returns the shas of
+/// the answer the ETag belongs to; any other status is an error carrying gh's message.
+fn conditional_heads(
+    gh: &str,
+    path: &str,
+    pick: fn(&Value) -> Vec<String>,
+    cache: &mut HeadCache,
+) -> Result<Vec<String>, String> {
+    let mut cmd = Command::new(gh);
+    cmd.args(["api", "-i"]);
+    if let Some((etag, _)) = cache.entries.get(path) {
+        cmd.args(["-H", &format!("If-None-Match: {etag}")]);
+    }
+    cmd.arg(path);
+    let out = process::output_gated(&mut cmd).map_err(|e| format!("cannot run {gh}: {e}"))?;
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let (head, body) = text
+        .split_once("\r\n\r\n")
+        .or_else(|| text.split_once("\n\n"))
+        .unwrap_or((text.as_str(), ""));
+    let status = head
+        .lines()
+        .next()
+        .and_then(|l| l.split_whitespace().nth(1))
+        .unwrap_or("");
+    if status == "304" {
+        if let Some((_, shas)) = cache.entries.get(path) {
+            return Ok(shas.clone());
         }
     }
+    if status != "200" || !out.status.success() {
+        cache.entries.remove(path);
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(if err.is_empty() { head.lines().next().unwrap_or("no answer").to_string() } else { err });
+    }
+    let value: Value = serde_json::from_str(body).map_err(|e| format!("unreadable answer for {path}: {e}"))?;
+    let shas: Vec<String> = pick(&value)
+        .into_iter()
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| valid_sha(s))
+        .collect();
+    let etag = head
+        .lines()
+        .find_map(|l| l.split_once(':').filter(|(k, _)| k.eq_ignore_ascii_case("etag")))
+        .map(|(_, v)| v.trim().to_string());
+    match etag {
+        Some(etag) if !etag.is_empty() => {
+            cache.entries.insert(path.to_string(), (etag, shas.clone()));
+        }
+        _ => {
+            cache.entries.remove(path);
+        }
+    }
+    Ok(shas)
+}
+
+fn pull_heads(v: &Value) -> Vec<String> {
+    v.as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|p| p["head"]["sha"].as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn main_head(v: &Value) -> Vec<String> {
+    v["sha"].as_str().map(str::to_string).into_iter().collect()
+}
+
+/// Open PR heads and the main head of `repo` from GitHub (bounded: one conditional call per list). Errors are
+/// returned, never fatal to the loop. Unchanged lists answer 304 and cost no allowance.
+pub fn github_heads_cached(
+    gh: &str,
+    repository: &str,
+    cache: &mut HeadCache,
+) -> Result<Vec<String>, String> {
+    let or = owner_repo(repository).ok_or("bad repository name")?;
+    let mut shas = conditional_heads(
+        gh,
+        &format!("repos/{or}/pulls?state=open&per_page=50"),
+        pull_heads,
+        cache,
+    )?;
+    shas.extend(conditional_heads(
+        gh,
+        &format!("repos/{or}/commits/main"),
+        main_head,
+        cache,
+    )?);
     shas.sort();
     shas.dedup();
     Ok(shas)
+}
+
+/// `github_heads_cached` with no memory of earlier polls.
+pub fn github_heads(gh: &str, repository: &str) -> Result<Vec<String>, String> {
+    github_heads_cached(gh, repository, &mut HeadCache::default())
 }
 
 /// The loop: flush the outbox, serve trigger files, poll GitHub when asked,
@@ -1420,6 +1495,7 @@ pub fn github_heads(gh: &str, repository: &str) -> Result<Vec<String>, String> {
 pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
     let mut served = 0;
     let mut round = 0u64;
+    let mut head_cache = HeadCache::default();
     loop {
         round += 1;
         cfg.state.beat("-", "-", "poll");
@@ -1441,7 +1517,7 @@ pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
         if cfg.github {
             for repo in &cfg.repos {
                 let repository = plan::repository_name(&cfg.clones.join(repo), None);
-                match github_heads(&cfg.gh, &repository) {
+                match github_heads_cached(&cfg.gh, &repository, &mut head_cache) {
                     Ok(shas) => {
                         for s in shas {
                             if !cfg.state.bundle_path(repo, &s).exists() {
@@ -1523,6 +1599,71 @@ mod tests {
         assert_ne!(pr_a, pr_b);
         assert_ne!(pr_a, main_a);
     }
+    /// A fake `gh` that answers `gh api -i [-H If-None-Match: E] PATH` from files: `<key>.body` and `<key>.etag`
+    /// (key = the path with every non-alphanumeric byte as `_`), and logs every call to `log`.
+    fn fake_gh(dir: &Path) -> PathBuf {
+        let script = dir.join("gh");
+        fs::write(
+            &script,
+            r#"#!/bin/bash
+d=$(dirname "$0")
+echo "$*" >> "$d/log"
+path="${@: -1}"
+key=$(printf '%s' "$path" | tr -c 'A-Za-z0-9' '_')
+if [ ! -f "$d/$key.body" ]; then printf 'HTTP/2.0 404 Not Found\r\n\r\n{}'; echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi
+etag=$(cat "$d/$key.etag")
+if [[ " $* " == *"If-None-Match: $etag "* ]]; then printf 'HTTP/2.0 304 Not Modified\r\nEtag: %s\r\n\r\n' "$etag"; echo "gh: HTTP 304" >&2; exit 1; fi
+printf 'HTTP/2.0 200 OK\r\nEtag: %s\r\nContent-Type: application/json\r\n\r\n' "$etag"; cat "$d/$key.body"
+"#,
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        script
+    }
+
+    fn fake_answer(dir: &Path, path: &str, etag: &str, body: &str) {
+        let key: String = path.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+        fs::write(dir.join(format!("{key}.etag")), etag).unwrap();
+        fs::write(dir.join(format!("{key}.body")), body).unwrap();
+    }
+
+    #[test]
+    fn an_unchanged_list_is_asked_with_its_etag_and_answered_from_memory() {
+        let dir = std::env::temp_dir().join(format!("l337-heads-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let gh = fake_gh(&dir);
+        let gh = gh.to_str().unwrap();
+        let (p1, p2, m1) = ("1".repeat(40), "2".repeat(40), "3".repeat(40));
+        let pulls = "repos/aien-dev/demo/pulls?state=open&per_page=50";
+        let main = "repos/aien-dev/demo/commits/main";
+        fake_answer(&dir, pulls, "W/\"a\"", &format!(r#"[{{"head":{{"sha":"{p2}"}}}},{{"head":{{"sha":"{p1}"}}}}]"#));
+        fake_answer(&dir, main, "\"m\"", &format!(r#"{{"sha":"{m1}"}}"#));
+        let mut cache = HeadCache::default();
+        let first = github_heads_cached(gh, "github.com/aien-dev/demo", &mut cache).unwrap();
+        assert_eq!(first, vec![p1.clone(), p2.clone(), m1.clone()]);
+        let second = github_heads_cached(gh, "github.com/aien-dev/demo", &mut cache).unwrap();
+        assert_eq!(second, first, "a 304 gives back the earlier answer");
+        let log = fs::read_to_string(dir.join("log")).unwrap();
+        let lines: Vec<&str> = log.lines().collect();
+        assert_eq!(lines.len(), 4, "two calls per poll: {log}");
+        assert!(!lines[0].contains("If-None-Match") && !lines[1].contains("If-None-Match"), "first poll is unconditional: {log}");
+        assert!(lines[2].contains("If-None-Match: W/\"a\"") && lines[3].contains("If-None-Match: \"m\""), "second poll sends the etags: {log}");
+        // The list changes: the new etag brings the new answer.
+        let p3 = "4".repeat(40);
+        fake_answer(&dir, pulls, "W/\"b\"", &format!(r#"[{{"head":{{"sha":"{p3}"}}}}]"#));
+        let third = github_heads_cached(gh, "github.com/aien-dev/demo", &mut cache).unwrap();
+        assert_eq!(third, vec![p3, m1]);
+        // A repository GitHub does not know is an error, and forgets nothing it should not.
+        let err = github_heads_cached(gh, "github.com/aien-dev/missing", &mut cache).unwrap_err();
+        assert!(err.contains("404"), "{err}");
+        // With no memory (the old behaviour) every poll is unconditional.
+        let _ = github_heads(gh, "github.com/aien-dev/demo").unwrap();
+        let log = fs::read_to_string(dir.join("log")).unwrap();
+        assert!(!log.lines().last().unwrap().contains("If-None-Match"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
 
     #[test]
     fn pin_list_selects_the_repository_and_refuses_bad_lines() {

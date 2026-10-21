@@ -1,3 +1,8 @@
+if [[ $incl == 1 ]]; then
+  et="\"$(sha256sum "$f" | cut -c1-16)\""
+  if [[ $inm == "$et" ]]; then printf "HTTP/2.0 304 Not Modified\r\nEtag: %s\r\n\r\n" "$et"; echo "gh: HTTP 304" >&2; exit 1; fi
+  printf "HTTP/2.0 200 OK\r\nEtag: %s\r\nContent-Type: application/json\r\n\r\n" "$et"; cat "$f"; exit 0
+fi
 #!/usr/bin/env bash
 # pipeline_test.sh: offline proofs for tools/aien-local-ci/pipeline.sh (no network, no real gh, no real key).
 # Fakes: gh (answers from JSON files, applies the real --jq filter with jq), aien-test (exit code chosen by the
@@ -29,13 +34,18 @@ echo "gh $*" >> "$FAKE_LOG"
 if [[ $1 == pr && $2 == merge ]]; then exit 0; fi
 [[ $1 == api ]] || exit 9
 shift
-method=GET expr="" path=""
+method=GET expr="" path="" incl=0 inm=""
 while [[ $# -gt 0 ]]; do
-  case $1 in -X) method=$2; shift 2 ;; --jq) expr=$2; shift 2 ;; *) path=$1; shift ;; esac
+  case $1 in -X) method=$2; shift 2 ;; --jq) expr=$2; shift 2 ;; -i) incl=1; shift ;; -H) inm=${2#If-None-Match: }; shift 2 ;; *) path=$1; shift ;; esac
 done
 [[ $method == GET ]] || exit 0
 f=$FAKE_GH/$(printf '%s' "$path" | tr -c 'A-Za-z0-9._-' '_').json
 [[ -f $f ]] || { echo "gh: HTTP 404 $path" >&2; exit 1; }
+if [[ $incl == 1 ]]; then
+  et="\"$(sha256sum "$f" | cut -c1-16)\""
+  if [[ $inm == "$et" ]]; then printf 'HTTP/2.0 304 Not Modified\r\nEtag: %s\r\n\r\n' "$et"; echo "gh: HTTP 304" >&2; exit 1; fi
+  printf 'HTTP/2.0 200 OK\r\nEtag: %s\r\nContent-Type: application/json\r\n\r\n' "$et"; cat "$f"; exit 0
+fi
 if [[ -n $expr ]]; then jq -r "$expr" "$f"; else cat "$f"; fi
 EOF
 cat > "$T/bin/aien-test" <<'EOF'
@@ -279,6 +289,17 @@ d0=$(jl ".sha==\"$D\" and .result==\"refused\"")
 jq '.again = 1' "$AIEN_STATE/bundles/demo/$D/bundle.json" > "$T/d" && mv "$T/d" "$AIEN_STATE/bundles/demo/$D/bundle.json"
 bash "$PIPE" publish > "$T/out8h" 2>&1
 check "a rewritten bundle is judged again" [ "$(jl ".sha==\"$D\" and .result==\"refused\"")" = $((d0 + 1)) ]
+lists() { grep -c -- "^gh api -i .*repos/$S/pulls?state=open&per_page=100$" "$FAKE_LOG" || true; }
+conds() { grep -c -- "^gh api -i -H If-None-Match: .* repos/$S/pulls?state=open&per_page=100$" "$FAKE_LOG" || true; }
+l0=$(lists); c0=$(conds)
+bash "$PIPE" round > "$T/out8i" 2>&1
+check "PR list unchanged since the last round: both steps of the round ask with If-None-Match" [ "$(( $(conds) - c0 ))" = 2 ] && [ "$(( $(lists) - l0 ))" = 2 ]
+pulls "51:$M11:false:$L" "52:$M12:false:" "53:$(sha 53):false:"
+c0=$(conds)
+bash "$PIPE" rerun > "$T/out8j" 2>&1
+check "PR list changed: the new answer replaces the cached one" grep -lq "$(sha 53)" "$AIEN_STATE"/pipeline-etag/*.body
+bash "$PIPE" rerun > "$T/out8k" 2>&1
+check "and the next ask is conditional again" [ "$(( $(conds) - c0 ))" = 2 ]
 
 echo "== single instance"
 bundle demo "$(sha 99)" "$K2" 0

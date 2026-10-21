@@ -61,6 +61,7 @@ RERUN_FAILS=$STATE/pipeline-rerun-fails
 PUBLISHED=$STATE/pipeline-published
 SLUG_CACHE=$STATE/pipeline-slugs
 SEEN=$STATE/pipeline-seen
+ETAGS=$STATE/pipeline-etag
 exec 9>>"$STATE/pipeline.lock"
 flock -n 9 || exit 0
 WORK=$(mktemp -d "$STATE/.pipeline.XXXXXX")
@@ -153,6 +154,34 @@ load_seen() {
     mv -f "$SEEN.$$" "$SEEN"
   fi
   while IFS= read -r line; do SEEN_SET["$line"]=1; done < "$SEEN"
+}
+
+# ghget PATH JQ: GET PATH and print JQ applied to the answer, like `gh api PATH --jq JQ`, but conditional: the answer
+# and its ETag are kept under $STATE/pipeline-etag, and the next call sends If-None-Match. GitHub replies 304 when
+# nothing changed, which costs no allowance, so a PR list that did not change in 5 minutes is free, and the rerun and
+# merge steps of one round share one list (L337, G3-ci-judge-7). Non-zero when GitHub gives neither 200 nor 304.
+ghget() {
+  local path=$1 expr=$2 key f raw rc=0 head body status etag cond=()
+  mkdir -p "$ETAGS"
+  key=$(printf '%s' "$path" | sha256sum | cut -c1-32); f=$ETAGS/$key
+  [[ -s $f.etag && -f $f.body ]] && cond=(-H "If-None-Match: $(cat "$f.etag")")
+  raw=$("$GH" api -i "${cond[@]}" "$path" 2>/dev/null) || rc=$?
+  head=${raw%%$'\r\n\r\n'*}; body=${raw#*$'\r\n\r\n'}
+  status=$(printf '%s' "$head" | head -n 1 | awk '{print $2}')
+  if [[ $status == 304 && ${#cond[@]} -gt 0 ]]; then
+    body=$(cat "$f.body")
+  elif [[ $status == 200 ]]; then
+    etag=$(printf '%s\n' "$head" | tr -d '\r' | awk 'tolower($0) ~ /^etag:/ {sub(/^[^:]*: */, ""); print; exit}')
+    if [[ -n $etag ]]; then
+      printf '%s' "$body" > "$f.body.$$" && printf '%s' "$etag" > "$f.etag.$$" \
+        && mv -f "$f.body.$$" "$f.body" && mv -f "$f.etag.$$" "$f.etag"
+    else
+      rm -f "$f.etag" "$f.body"
+    fi
+  else
+    rm -f "$f.etag" "$f.body"; return 1
+  fi
+  jq -r "$expr" <<< "$body"
 }
 
 fetch_receipts() { "$GIT" -C "$RECEIPTS" fetch -q origin; }
@@ -268,7 +297,7 @@ do_rerun() {
   for repo in "${repo_list[@]}"; do
     [[ -d $CLONES/$repo ]] || continue
     if ! s=$(slug "$repo"); then journal action=rerun repo="$repo" result=refused reason="cannot resolve GitHub slug"; continue; fi
-    if ! prs=$("$GH" api "repos/$s/pulls?state=open&per_page=100" --jq '.[] | "\(.number) \(.head.sha)"'); then
+    if ! prs=$(ghget "repos/$s/pulls?state=open&per_page=100" '.[] | "\(.number) \(.head.sha)"'); then
       journal action=rerun repo="$repo" result=refused reason="cannot list pull requests"; continue
     fi
     while read -r num sha; do
@@ -390,7 +419,7 @@ do_merge() {
     if ! "$GIT" -C "$CLONES/$repo" fetch -q origin; then
       journal action=merge repo="$repo" result=refused reason="fetch of trusted clone failed"; continue
     fi
-    if ! prs=$("$GH" api "repos/$s/pulls?state=open&per_page=100" --jq \
+    if ! prs=$(ghget "repos/$s/pulls?state=open&per_page=100" \
       ".[] | [.number, .head.sha, .base.ref, .draft, ([.labels[].name] | index(\"$MERGE_LABEL\") != null)] | @tsv"); then
       journal action=merge repo="$repo" result=refused reason="cannot list pull requests"; continue
     fi
