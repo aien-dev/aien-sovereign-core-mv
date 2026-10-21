@@ -637,3 +637,58 @@ mod sampling_gate {
         assert!(picks.len() >= 2, "{picks:?}");
     }
 }
+
+const WRITE_TOOL: &str = r#""tools":[{"type":"function","function":{"name":"write_file","parameters":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"mode":{"type":"integer"}}}}}]"#;
+
+#[test]
+fn tool_call_values_keep_closing_tags_and_follow_the_schema() {
+    let doc = "<a>\n</parameter>\n</function>\n</tool_call>\n</a>";
+    let reply = format!(
+        "<tool_call>\n<function=write_file>\n<parameter=path>\n007\n</parameter>\n<parameter=content>\n{doc}\n</parameter>\n<parameter=mode>\n644\n</parameter>\n</function>\n</tool_call>"
+    );
+    let srv = start(stub(&reply), ServerConfig::default());
+    let body = format!(r#"{{"messages":[{{"role":"user","content":"go"}}],{WRITE_TOOL}}}"#);
+    let v = json(&chat(srv.addr, &body));
+    let call = &v["choices"][0]["message"]["tool_calls"][0];
+    let args: Value =
+        serde_json::from_str(call["function"]["arguments"].as_str().unwrap()).unwrap();
+    assert_eq!(args["path"], "007");
+    assert_eq!(args["content"], doc);
+    assert_eq!(args["mode"], 644);
+    // The streamed door types the arguments the same way.
+    let body =
+        format!(r#"{{"messages":[{{"role":"user","content":"go"}}],"stream":true,{WRITE_TOOL}}}"#);
+    let r = chat(srv.addr, &body);
+    let streamed = sse_data(&r.body)
+        .iter()
+        .filter_map(|d| serde_json::from_str::<Value>(d).ok())
+        .find_map(|c| {
+            c["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"]
+                .as_str()
+                .map(str::to_string)
+        })
+        .expect("a tool_calls delta");
+    let args: Value = serde_json::from_str(&streamed).unwrap();
+    assert_eq!(
+        (
+            args["path"].clone(),
+            args["content"].clone(),
+            args["mode"].clone()
+        ),
+        ("007".into(), doc.into(), 644.into())
+    );
+}
+
+#[test]
+fn a_malformed_tool_call_stays_in_the_content() {
+    let reply =
+        "Writing it.\n<tool_call>\n<function=write_file>\n<parameter=path>\na.txt\n</parameter>\n";
+    let srv = start(stub(reply), ServerConfig::default());
+    let body = format!(r#"{{"messages":[{{"role":"user","content":"go"}}],{WRITE_TOOL}}}"#);
+    let v = json(&chat(srv.addr, &body));
+    let msg = &v["choices"][0]["message"];
+    assert!(msg.get("tool_calls").is_none(), "{msg}");
+    let content = msg["content"].as_str().unwrap();
+    assert!(content.starts_with("Writing it."), "{content}");
+    assert!(content.contains("<function=write_file>"), "{content}");
+}

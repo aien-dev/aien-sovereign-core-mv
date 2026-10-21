@@ -169,8 +169,8 @@ struct Prepared {
     /// The prompt opens a thinking block: reply tokens up to this id are reasoning.
     reasoning_end: Option<u32>,
     return_ids: bool,
-    /// The request carried tools: parse `<tool_call>` blocks out of the reply.
-    tools: bool,
+    /// The request's tool definitions (empty = no tools): `<tool_call>` blocks are parsed out of the reply and typed by their schemas.
+    tools: Vec<Value>,
 }
 
 /// What the generation thread sends to the HTTP side.
@@ -349,7 +349,7 @@ async fn handle_chat(
     let id = format!("chatcmpl-{nanos:x}{n:04x}");
     let prompt_tokens = prepared.prompt_tokens.len();
     let stream = prepared.stream;
-    let tools = prepared.tools;
+    let tools = prepared.tools.clone();
     let (tx, mut rx) = mpsc::channel::<Ev>(64);
     let engine = Arc::clone(&state.engine);
     let codec = Arc::clone(&state.codec);
@@ -387,7 +387,14 @@ async fn handle_chat(
     });
     let rx = frx;
     if stream {
-        Ok(stream_response(id, created, model, prompt_tokens, rx, tools))
+        Ok(stream_response(
+            id,
+            created,
+            model,
+            prompt_tokens,
+            rx,
+            tools,
+        ))
     } else {
         collect_response(id, created, &model, prompt_tokens, rx, tools).await
     }
@@ -497,7 +504,10 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
             }
             _ => turns.insert(
                 0,
-                ("system".into(), crate::tools::system_with_tools(&tool_defs, None)),
+                (
+                    "system".into(),
+                    crate::tools::system_with_tools(&tool_defs, None),
+                ),
             ),
         }
     }
@@ -608,7 +618,7 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
             None
         },
         return_ids: req.aien_return_token_ids,
-        tools: has_tools,
+        tools: tool_defs,
     })
 }
 
@@ -801,7 +811,7 @@ async fn collect_response(
     model: &str,
     prompt_tokens: usize,
     mut rx: mpsc::Receiver<Ev>,
-    tools: bool,
+    tools: Vec<Value>,
 ) -> Result<Response, ApiError> {
     let mut content = String::new();
     let mut reasoning: Option<String> = None;
@@ -823,12 +833,15 @@ async fn collect_response(
                     aien_token_ids: token_ids,
                 };
                 let reasoning = reasoning.as_deref().map(str::trim);
-                let (text, calls) = if tools {
-                    crate::tools::parse_reply(&content, &id)
+                let (text, calls) = if !tools.is_empty() {
+                    let parsed = crate::tools::parse_reply(&content, &id, &tools);
+                    log_dropped(&id, &parsed.dropped);
+                    (parsed.content, parsed.calls)
                 } else {
                     (content.clone(), Vec::new())
                 };
-                let mut body = completion_json(&id, created, model, &text, reasoning, finish, &usage);
+                let mut body =
+                    completion_json(&id, created, model, &text, reasoning, finish, &usage);
                 if !calls.is_empty() {
                     let msg = &mut body["choices"][0]["message"];
                     msg["tool_calls"] = Value::Array(calls);
@@ -852,7 +865,7 @@ fn stream_response(
     model: String,
     prompt_tokens: usize,
     mut rx: mpsc::Receiver<Ev>,
-    tools: bool,
+    tools: Vec<Value>,
 ) -> Response {
     let (etx, erx) = mpsc::channel::<Result<Event, Infallible>>(64);
     tokio::spawn(async move {
@@ -875,7 +888,7 @@ fn stream_response(
         }
         while let Some(ev) = rx.recv().await {
             let item = match ev {
-                Ev::Delta(d) if tools => {
+                Ev::Delta(d) if !tools.is_empty() => {
                     held.push_str(&d);
                     if in_call {
                         continue;
@@ -895,7 +908,15 @@ fn stream_response(
                     if out.is_empty() {
                         continue;
                     }
-                    data(chunk_json(&id, created, &model, None, Some(&out), None, None))
+                    data(chunk_json(
+                        &id,
+                        created,
+                        &model,
+                        None,
+                        Some(&out),
+                        None,
+                        None,
+                    ))
                 }
                 Ev::Delta(d) => data(chunk_json(&id, created, &model, None, Some(&d), None, None)),
                 Ev::Reasoning(d) => data(chunk_json_with(
@@ -922,12 +943,23 @@ fn stream_response(
                         aien_token_ids: token_ids,
                     };
                     let mut finish = finish;
-                    if tools && !held.is_empty() {
-                        let (text, calls) = crate::tools::parse_reply(&held, &id);
-                        if !text.is_empty() && etx
-                            .send(data(chunk_json(&id, created, &model, None, Some(&text), None, None)))
-                            .await
-                            .is_err()
+                    if !tools.is_empty() && !held.is_empty() {
+                        let parsed = crate::tools::parse_reply(&held, &id, &tools);
+                        log_dropped(&id, &parsed.dropped);
+                        let (text, calls) = (parsed.content, parsed.calls);
+                        if !text.is_empty()
+                            && etx
+                                .send(data(chunk_json(
+                                    &id,
+                                    created,
+                                    &model,
+                                    None,
+                                    Some(&text),
+                                    None,
+                                    None,
+                                )))
+                                .await
+                                .is_err()
                         {
                             return;
                         }
@@ -978,4 +1010,11 @@ fn stream_response(
                 .text("keep-alive"),
         )
         .into_response()
+}
+
+/// One log line per tool call the parser could not read (its raw text stays in the reply content).
+fn log_dropped(id: &str, reasons: &[String]) {
+    for r in reasons {
+        eprintln!("aien-serve-http: {id}: tool call dropped: {r}");
+    }
 }
