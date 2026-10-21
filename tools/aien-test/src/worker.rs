@@ -1422,9 +1422,14 @@ fn conditional_heads(
     if status != "200" || !out.status.success() {
         cache.entries.remove(path);
         let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        return Err(if err.is_empty() { head.lines().next().unwrap_or("no answer").to_string() } else { err });
+        return Err(if err.is_empty() {
+            head.lines().next().unwrap_or("no answer").to_string()
+        } else {
+            err
+        });
     }
-    let value: Value = serde_json::from_str(body).map_err(|e| format!("unreadable answer for {path}: {e}"))?;
+    let value: Value =
+        serde_json::from_str(body).map_err(|e| format!("unreadable answer for {path}: {e}"))?;
     let shas: Vec<String> = pick(&value)
         .into_iter()
         .map(|s| s.trim().to_ascii_lowercase())
@@ -1432,7 +1437,10 @@ fn conditional_heads(
         .collect();
     let etag = head
         .lines()
-        .find_map(|l| l.split_once(':').filter(|(k, _)| k.eq_ignore_ascii_case("etag")))
+        .find_map(|l| {
+            l.split_once(':')
+                .filter(|(k, _)| k.eq_ignore_ascii_case("etag"))
+        })
         .map(|(_, v)| v.trim().to_string());
     match etag {
         Some(etag) if !etag.is_empty() => {
@@ -1623,7 +1631,10 @@ printf 'HTTP/2.0 200 OK\r\nEtag: %s\r\nContent-Type: application/json\r\n\r\n' "
     }
 
     fn fake_answer(dir: &Path, path: &str, etag: &str, body: &str) {
-        let key: String = path.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+        let key: String = path
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect();
         fs::write(dir.join(format!("{key}.etag")), etag).unwrap();
         fs::write(dir.join(format!("{key}.body")), body).unwrap();
     }
@@ -1637,7 +1648,12 @@ printf 'HTTP/2.0 200 OK\r\nEtag: %s\r\nContent-Type: application/json\r\n\r\n' "
         let (p1, p2, m1) = ("1".repeat(40), "2".repeat(40), "3".repeat(40));
         let pulls = "repos/aien-dev/demo/pulls?state=open&per_page=50";
         let main = "repos/aien-dev/demo/commits/main";
-        fake_answer(&dir, pulls, "W/\"a\"", &format!(r#"[{{"head":{{"sha":"{p2}"}}}},{{"head":{{"sha":"{p1}"}}}}]"#));
+        fake_answer(
+            &dir,
+            pulls,
+            "W/\"a\"",
+            &format!(r#"[{{"head":{{"sha":"{p2}"}}}},{{"head":{{"sha":"{p1}"}}}}]"#),
+        );
         fake_answer(&dir, main, "\"m\"", &format!(r#"{{"sha":"{m1}"}}"#));
         let mut cache = HeadCache::default();
         let first = github_heads_cached(gh, "github.com/aien-dev/demo", &mut cache).unwrap();
@@ -1647,13 +1663,25 @@ printf 'HTTP/2.0 200 OK\r\nEtag: %s\r\nContent-Type: application/json\r\n\r\n' "
         let log = fs::read_to_string(dir.join("log")).unwrap();
         let lines: Vec<&str> = log.lines().collect();
         assert_eq!(lines.len(), 4, "two calls per poll: {log}");
-        assert!(!lines[0].contains("If-None-Match") && !lines[1].contains("If-None-Match"), "first poll is unconditional: {log}");
-        assert!(lines[2].contains("If-None-Match: W/\"a\"") && lines[3].contains("If-None-Match: \"m\""), "second poll sends the etags: {log}");
+        assert!(
+            !lines[0].contains("If-None-Match") && !lines[1].contains("If-None-Match"),
+            "first poll is unconditional: {log}"
+        );
+        assert!(
+            lines[2].contains("If-None-Match: W/\"a\"")
+                && lines[3].contains("If-None-Match: \"m\""),
+            "second poll sends the etags: {log}"
+        );
         // The list changes: the new etag brings the new answer.
         let p3 = "4".repeat(40);
-        fake_answer(&dir, pulls, "W/\"b\"", &format!(r#"[{{"head":{{"sha":"{p3}"}}}}]"#));
+        fake_answer(
+            &dir,
+            pulls,
+            "W/\"b\"",
+            &format!(r#"[{{"head":{{"sha":"{p3}"}}}}]"#),
+        );
         let third = github_heads_cached(gh, "github.com/aien-dev/demo", &mut cache).unwrap();
-        assert_eq!(third, vec![p3, m1]);
+        assert_eq!(third, vec![m1, p3], "sorted, new list replaces the old");
         // A repository GitHub does not know is an error, and forgets nothing it should not.
         let err = github_heads_cached(gh, "github.com/aien-dev/missing", &mut cache).unwrap_err();
         assert!(err.contains("404"), "{err}");
@@ -1663,7 +1691,6 @@ printf 'HTTP/2.0 200 OK\r\nEtag: %s\r\nContent-Type: application/json\r\n\r\n' "
         assert!(!log.lines().last().unwrap().contains("If-None-Match"));
         let _ = fs::remove_dir_all(&dir);
     }
-
 
     #[test]
     fn pin_list_selects_the_repository_and_refuses_bad_lines() {
