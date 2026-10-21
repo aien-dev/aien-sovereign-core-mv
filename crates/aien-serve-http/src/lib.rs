@@ -15,6 +15,7 @@ pub mod qwen38_engine;
 pub mod sampling;
 pub mod server;
 pub mod text;
+pub mod tools;
 
 pub use codec::{ByteCodec, Codec, HfCodec};
 pub use engine::{Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams, StubEngine};
