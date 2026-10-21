@@ -57,6 +57,18 @@ fn prompt_per_beat() -> Result<usize, String> {
     }
 }
 
+/// Memory kept free beyond the load at load time: [`KEEP_FREE`], or `AIEN_SERVE_KEEP_FREE_MIB` for a test server
+/// loaded under q36-extra (L366: the kernel takes that one first on out of memory, never 18091).
+fn keep_free() -> Result<u64, String> {
+    match std::env::var("AIEN_SERVE_KEEP_FREE_MIB") {
+        Ok(v) => v
+            .parse::<u64>()
+            .map(|m| m << 20)
+            .map_err(|_| format!("AIEN_SERVE_KEEP_FREE_MIB={v}: a whole number of MiB")),
+        Err(_) => Ok(KEEP_FREE),
+    }
+}
+
 fn mem_available() -> u64 {
     (crate::omega_engine::mem_available_gb() * (1u64 << 30) as f64) as u64
 }
@@ -189,12 +201,13 @@ impl Qwen36BatchDoor {
         let max_pos = max_context.next_multiple_of(256);
         // The main graph is never stepped here: its own state is one 256-position pass.
         let need = need_bytes(&c, 256, PREFILL_CHUNK);
+        let keep = keep_free()?;
         let avail = mem_available();
-        if avail < need + KEEP_FREE {
+        if avail < need + keep {
             return Err(format!(
                 "needs {} MiB plus {} MiB kept free, MemAvailable {} MiB (another model may be loaded); refusing",
                 need >> 20,
-                KEEP_FREE >> 20,
+                keep >> 20,
                 avail >> 20
             ));
         }
@@ -210,11 +223,11 @@ impl Qwen36BatchDoor {
         let on_paper = model.row_bytes(max_pos);
         let rows_need = on_paper as u64 * slots as u64;
         let before = mem_available();
-        if before < rows_need + KEEP_FREE {
+        if before < rows_need + keep {
             return Err(format!(
                 "{slots} rows need {} MiB plus {} MiB kept free, MemAvailable {} MiB after the upload; refusing",
                 rows_need >> 20,
-                KEEP_FREE >> 20,
+                keep >> 20,
                 before >> 20
             ));
         }
