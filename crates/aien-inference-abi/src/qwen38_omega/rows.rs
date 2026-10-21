@@ -9,7 +9,8 @@
 //! the same rows and must keep that contract.
 //!
 //! Negative control (TEST ONLY): `AIEN_Q36_TEST_ROW_SWAP=<k>` swaps the states of the first two
-//! fed rows just before the `k`th multi-row step (counted from 1), so two conversations continue
+//! fed rows once, at the first multi-row step from the `k`th on (counted from 1) that feeds two or
+//! more rows, so two conversations continue
 //! from each other's state: the per-row identity gate must go red.
 use aien_omega_q38::q36::{self as q, Q36Config, Q36Graph};
 use aien_omega_q38::{Attn256Cache, Gdn, GraphStats};
@@ -284,7 +285,10 @@ impl Qwen38Omega {
             }
         }
         self.row_steps += 1;
-        if feed.len() >= 2 && row_swap_step() == Some(self.row_steps) {
+        if feed.len() >= 2
+            && row_swap_step().is_some_and(|k| self.row_steps >= k)
+            && !ROW_SWAPPED.swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
             eprintln!(
                 "qwen36 omega: TEST ROW SWAP at step {}: rows {} and {} trade state (negative control; never serve this)",
                 self.row_steps, feed[0].row, feed[1].row
@@ -327,6 +331,9 @@ impl Qwen38Omega {
         Ok(outs)
     }
 }
+
+/// The row-swap negative control fires once per process.
+static ROW_SWAPPED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn row_swap_step() -> Option<u64> {
     std::env::var("AIEN_Q36_TEST_ROW_SWAP")

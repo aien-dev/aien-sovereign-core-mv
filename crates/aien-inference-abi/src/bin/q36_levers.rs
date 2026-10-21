@@ -49,7 +49,11 @@ fn ids(v: &Value, k: &str) -> Result<Vec<u32>, String> {
     v[k].as_array()
         .ok_or(format!("golden: no {k}"))?
         .iter()
-        .map(|x| x.as_u64().map(|x| x as u32).ok_or(format!("golden: bad {k}")))
+        .map(|x| {
+            x.as_u64()
+                .map(|x| x as u32)
+                .ok_or(format!("golden: bad {k}"))
+        })
         .collect()
 }
 
@@ -106,7 +110,11 @@ fn run() -> Result<bool, String> {
     let env: Vec<(String, String)> = std::env::vars()
         .filter(|(k, _)| k.starts_with("AIEN_") || k.starts_with("OMEGA") || k.starts_with("Q36_"))
         .collect();
-    eprintln!("upload: need {} MiB, MemAvailable {} MiB, env {env:?}", need >> 20, avail >> 20);
+    eprintln!(
+        "upload: need {} MiB, MemAvailable {} MiB, env {env:?}",
+        need >> 20,
+        avail >> 20
+    );
     let t = Instant::now();
     let mut m = Qwen38Omega::open(dir, None, max_pos)?;
     let open_s = t.elapsed().as_secs_f64();
@@ -119,8 +127,10 @@ fn run() -> Result<bool, String> {
     let mut goldens = Vec::new();
     let mut first_prompt = Vec::new();
     for gpath in &a[3..] {
-        let g: Value = serde_json::from_str(&std::fs::read_to_string(gpath).map_err(|e| format!("{gpath}: {e}"))?)
-            .map_err(|e| format!("{gpath}: {e}"))?;
+        let g: Value = serde_json::from_str(
+            &std::fs::read_to_string(gpath).map_err(|e| format!("{gpath}: {e}"))?,
+        )
+        .map_err(|e| format!("{gpath}: {e}"))?;
         let (prompt, want) = (ids(&g, "prompt_ids")?, ids(&g, "generated_ids")?);
         if first_prompt.is_empty() {
             first_prompt = prompt.clone();
@@ -140,7 +150,11 @@ fn run() -> Result<bool, String> {
         let ok = got == want;
         all_ok &= ok;
         let first_diff = got.iter().zip(&want).position(|(x, y)| x != y);
-        eprintln!("identity {gpath}: {} ({} tokens)", if ok { "IDENTICAL" } else { "DIFFER" }, want.len());
+        eprintln!(
+            "identity {gpath}: {} ({} tokens)",
+            if ok { "IDENTICAL" } else { "DIFFER" },
+            want.len()
+        );
         goldens.push(json!({"golden": gpath, "identical": ok, "first_diff": first_diff, "got": got, "logits_fnv": hashes}));
     }
 
@@ -181,7 +195,12 @@ fn run() -> Result<bool, String> {
             let span = s[s.len() - 1] - s[0];
             let mut rows = Vec::new();
             let mut byte_total = 0.0;
-            eprintln!("timeline pos {pos}: {} launches, span {:.1} us, chip {:.1} us", k.len(), span as f64 / 1e3, st.chip_ns as f64 / 1e3);
+            eprintln!(
+                "timeline pos {pos}: {} launches, span {:.1} us, chip {:.1} us",
+                k.len(),
+                span as f64 / 1e3,
+                st.chip_ns as f64 / 1e3
+            );
             for (name, ns, n) in &per {
                 let b = kind_bytes(&c, name, pos);
                 byte_total += b;
@@ -197,11 +216,18 @@ fn run() -> Result<bool, String> {
                 );
                 rows.push(json!({"kind": name, "launches": n, "ns": ns, "bytes": b, "byte_ns": b / BW * 1e9}));
             }
-            eprintln!("  total bytes {:.1} MB, byte time {:.1} us", byte_total / 1e6, byte_total / BW * 1e6);
+            eprintln!(
+                "  total bytes {:.1} MB, byte time {:.1} us",
+                byte_total / 1e6,
+                byte_total / BW * 1e6
+            );
             stamped.push(json!({"pos": pos, "launches": k.len(), "span_ns": span, "chip_ns": st.chip_ns, "wall_ns": wall,
                                 "bytes": byte_total, "byte_ns": byte_total / BW * 1e9, "kinds": rows}));
         } else {
-            let b = bands.iter().position(|&(lo, hi)| pos >= lo && pos < hi).unwrap_or(0);
+            let b = bands
+                .iter()
+                .position(|&(lo, hi)| pos >= lo && pos < hi)
+                .unwrap_or(0);
             let e = &mut sums[b];
             e.0 += st.chip_ns;
             e.1 += st.total_ns;
@@ -233,8 +259,15 @@ fn run() -> Result<bool, String> {
         "tool": "q36_levers", "model": a[1], "open_s": open_s, "env": env.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>(),
         "all_identical": all_ok, "goldens": goldens, "bands": band_rows, "timelines": stamped,
     });
-    std::fs::write(&a[2], serde_json::to_string_pretty(&out).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-    eprintln!("identity: {}", if all_ok { "ALL IDENTICAL" } else { "DIFFER" });
+    std::fs::write(
+        &a[2],
+        serde_json::to_string_pretty(&out).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    eprintln!(
+        "identity: {}",
+        if all_ok { "ALL IDENTICAL" } else { "DIFFER" }
+    );
     Ok(all_ok)
 }
 
