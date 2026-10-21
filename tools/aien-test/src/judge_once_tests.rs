@@ -486,3 +486,18 @@ fn a_star_pattern_input_covers_each_match_and_nothing_else() {
     );
     assert_eq!(cache::cross_head(&top), Ok(Reach::Tree));
 }
+
+/// `listed`: a file added to a listed directory flips the key; a changed
+/// byte inside it does not (its contents are not declared by the listing).
+#[test]
+fn a_listed_directory_puts_its_names_in_the_key_not_its_bytes() {
+    let fx = Fx::new(PASS, 1, "");
+    fx.commit("crates/b/tests/one.rs", "x\n");
+    let m = parsed(&gate(Path::new("/c"), 1, "listed:\n  - crates/*/tests\n"));
+    let digest = || runner::build_inputs_digest(fx.repo.path(), None, &m);
+    let d0 = digest();
+    fx.commit("crates/b/tests/one.rs", "y\n");
+    assert_eq!(digest(), d0, "same names");
+    fx.commit("crates/b/tests/two.rs", "z\n");
+    assert_ne!(digest(), d0, "a new test target");
+}

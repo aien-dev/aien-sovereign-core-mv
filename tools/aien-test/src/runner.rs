@@ -396,6 +396,37 @@ fn collect_files(root: &Path, rel: &str, out: &mut BTreeSet<String>) {
     }
 }
 
+/// The existing directories a `listed` entry names (`*` per component).
+fn expand_dirs(root: &Path, pat: &str, out: &mut BTreeSet<String>) {
+    let mut cur: Vec<String> = vec![String::new()];
+    for c in pat.trim_end_matches('/').split('/') {
+        let mut next = Vec::new();
+        for base in &cur {
+            let join = |n: &str| {
+                if base.is_empty() {
+                    n.to_string()
+                } else {
+                    format!("{base}/{n}")
+                }
+            };
+            if c.contains('*') {
+                if let Ok(rd) = fs::read_dir(root.join(base)) {
+                    for e in rd.flatten() {
+                        let n = e.file_name().to_string_lossy().into_owned();
+                        if n != ".git" && wildcard_match(c, &n) && e.path().is_dir() {
+                            next.push(join(&n));
+                        }
+                    }
+                }
+            } else if root.join(join(c)).is_dir() {
+                next.push(join(c));
+            }
+        }
+        cur = next;
+    }
+    out.extend(cur.into_iter().filter(|d| !d.is_empty()));
+}
+
 /// `pat` against `name`, where `*` matches any run of characters (none too).
 pub(crate) fn wildcard_match(pat: &str, name: &str) -> bool {
     let pieces: Vec<&str> = pat.split('*').collect();
@@ -584,18 +615,41 @@ pub fn build_inputs_digest(root: &Path, manifest_rel: Option<&Path>, m: &Manifes
             json!({ "path": p, "sha256": digest })
         })
         .collect();
-    // Outside inputs join under their own member, so a manifest without any
-    // keeps the digest it always had.
-    if m.outside_inputs.is_empty() {
-        return canonical_digest(&json!({ "inputs": entries })).unwrap_or_default();
+    // Outside inputs and listings join under their own members, so a
+    // manifest without them keeps the digest it always had.
+    let mut obj = json!({ "inputs": entries });
+    if !m.outside_inputs.is_empty() {
+        let outside: Vec<Value> = m
+            .outside_inputs
+            .iter()
+            .flat_map(|o| outside_rows(o))
+            .map(|(p, d)| json!({ "path": p, "sha256": d }))
+            .collect();
+        obj["outside_inputs"] = json!(outside);
     }
-    let outside: Vec<Value> = m
-        .outside_inputs
-        .iter()
-        .flat_map(|o| outside_rows(o))
-        .map(|(p, d)| json!({ "path": p, "sha256": d }))
-        .collect();
-    canonical_digest(&json!({ "inputs": entries, "outside_inputs": outside })).unwrap_or_default()
+    if !m.listed.is_empty() {
+        let mut dirs: BTreeSet<String> = BTreeSet::new();
+        for l in &m.listed {
+            expand_dirs(root, l, &mut dirs);
+        }
+        let rows: Vec<Value> = dirs
+            .iter()
+            .map(|d| {
+                let mut names: Vec<String> = fs::read_dir(root.join(d))
+                    .map(|rd| {
+                        rd.flatten()
+                            .map(|e| e.file_name().to_string_lossy().into_owned())
+                            .filter(|n| n != ".git")
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                names.sort();
+                json!({ "dir": d, "names": names })
+            })
+            .collect();
+        obj["listed"] = json!(rows);
+    }
+    canonical_digest(&obj).unwrap_or_default()
 }
 
 /// sha256 of the running aien-test binary, read once. None when the binary

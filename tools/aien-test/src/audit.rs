@@ -46,6 +46,8 @@ pub struct Opened {
     pub path: String,
     /// Opened only for writing (`O_WRONLY`): not a read.
     pub write_only: bool,
+    /// Opened as a directory (`O_DIRECTORY`): a listing of its names.
+    pub dir: bool,
 }
 
 /// Parse `strace -f -qq -Y -y -e trace=open,openat,openat2,execve
@@ -68,6 +70,7 @@ pub fn parse_strace(text: &str) -> Vec<Opened> {
                         comm,
                         path: p,
                         write_only: false,
+                        dir: false,
                     });
                 }
             }
@@ -91,11 +94,17 @@ pub fn parse_strace(text: &str) -> Vec<Opened> {
             continue;
         }
         let path = ret[a + 1..b].to_string();
+        // A pipe or socket (`pipe:[123]`) is not a file.
+        if !path.starts_with('/') {
+            continue;
+        }
         let write_only = call[..eq].contains("O_WRONLY");
+        let dir = call[..eq].contains("O_DIRECTORY");
         out.push(Opened {
             comm,
             path,
             write_only,
+            dir,
         });
     }
     out
@@ -178,6 +187,20 @@ pub fn covered(m: &Manifest, manifest_rel: &str, rel: &str) -> bool {
     m.inputs.iter().any(|i| input_covers(i, rel))
 }
 
+/// A directory listing is covered when a `listed` entry names that very
+/// directory (component by component, `*` allowed): its names are in the key.
+fn listed_covers(m: &Manifest, rel: &str) -> bool {
+    let rp: Vec<&str> = rel.split('/').collect();
+    m.listed.iter().any(|l| {
+        let lp: Vec<&str> = l.trim_end_matches('/').split('/').collect();
+        lp.len() == rp.len()
+            && lp
+                .iter()
+                .zip(&rp)
+                .all(|(a, b)| runner::wildcard_match(a, b))
+    })
+}
+
 /// One declared input against one path: equal, inside a declared directory,
 /// or matched component by component by a `*` pattern (whose last component
 /// may itself be a directory the path is inside).
@@ -245,7 +268,7 @@ pub fn judge(m: &Manifest, places: &Places, opened: &[Opened]) -> Report {
         if let Some(t) = p.strip_prefix(&tmpdir) {
             let tail = t.split_once('/').map(|x| x.1).unwrap_or("");
             if !tail.is_empty() && places.root.join(tail).exists() && !tail.starts_with(".git") {
-                judge_repo(m, places, tail, &o.comm, &mut r);
+                judge_repo(m, places, tail, o, &mut r);
             } else {
                 bump(&mut r, "private TMPDIR scratch");
             }
@@ -270,7 +293,7 @@ pub fn judge(m: &Manifest, places: &Places, opened: &[Opened]) -> Report {
             } else if o.comm == "tar" {
                 bump(&mut r, "tar reading the tree (the copy step)");
             } else {
-                judge_repo(m, places, &rel, &o.comm, &mut r);
+                judge_repo(m, places, &rel, o, &mut r);
             }
             continue;
         }
@@ -286,6 +309,12 @@ pub fn judge(m: &Manifest, places: &Places, opened: &[Opened]) -> Report {
                 &mut r,
                 "toolchain and registry (rust-toolchain.toml, Cargo.lock)",
             );
+            continue;
+        }
+        // cargo reads git's user config for git dependencies and fetches;
+        // with every dependency locked by Cargo.lock it does not change a build.
+        if p == format!("{home}/.gitconfig") {
+            bump(&mut r, "~/.gitconfig (cargo net settings)");
             continue;
         }
         if SYSTEM.iter().any(|s| p_dir.starts_with(s)) || p == "/" {
@@ -307,7 +336,8 @@ fn bump(r: &mut Report, why: &'static str) {
     *r.ignored.entry(why).or_insert(0) += 1;
 }
 
-fn judge_repo(m: &Manifest, places: &Places, rel: &str, comm: &str, r: &mut Report) {
+fn judge_repo(m: &Manifest, places: &Places, rel: &str, o: &Opened, r: &mut Report) {
+    let comm = o.comm.as_str();
     if let Some(t) = &places.tracked {
         let dir = format!("{rel}/");
         let in_tree = t.contains(rel)
@@ -319,7 +349,7 @@ fn judge_repo(m: &Manifest, places: &Places, rel: &str, comm: &str, r: &mut Repo
             return;
         }
     }
-    if covered(m, &places.manifest_rel, rel) {
+    if covered(m, &places.manifest_rel, rel) || (o.dir && listed_covers(m, rel)) {
         r.covered.insert(rel.to_string());
     } else {
         r.undeclared
@@ -403,7 +433,8 @@ mod tests {
             Opened {
                 comm: "sh".into(),
                 path: "/r/a".into(),
-                write_only: false
+                write_only: false,
+                dir: false
             }
         );
         assert!(o[1].write_only);
@@ -509,6 +540,32 @@ mod tests {
             rep.ignored.get("not in the tree at HEAD (made by the run)"),
             Some(&1)
         );
+    }
+
+    #[test]
+    fn a_listing_is_covered_by_listed_and_only_by_it() {
+        let dir = tempdir();
+        std::fs::create_dir_all(dir.join("crates/b/tests")).unwrap();
+        std::fs::write(dir.join("crates/b/tests/t.rs"), "x").unwrap();
+        let t = format!(
+            "9<cargo> openat(AT_FDCWD</r>, \"x\", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3<{}/crates/b/tests>\n",
+            dir.display()
+        );
+        let opened = parse_strace(&t);
+        assert!(opened[0].dir);
+        let rep = judge(&gate(""), &places(&dir), &opened);
+        assert_eq!(
+            rep.undeclared.keys().collect::<Vec<_>>(),
+            vec!["crates/b/tests"]
+        );
+        let m = gate("listed:\n  - crates/*/tests\n");
+        assert!(judge(&m, &places(&dir), &opened).ok(&m));
+        // A file read inside a listed directory is not covered by the listing.
+        let f = format!(
+            "9<rustc> openat(AT_FDCWD</r>, \"x\", O_RDONLY) = 3<{}/crates/b/tests/t.rs>\n",
+            dir.display()
+        );
+        assert!(!judge(&m, &places(&dir), &parse_strace(&f)).ok(&m));
     }
 
     fn tempdir() -> PathBuf {

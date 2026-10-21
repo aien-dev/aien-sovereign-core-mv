@@ -164,6 +164,11 @@ pub struct Manifest {
     /// (the judge's home) or an absolute path; the bytes of every file under
     /// it join the declared-inputs digest, so a changed checkpoint is a miss.
     pub outside_inputs: Vec<String>,
+    /// `listed`: directories (repo-relative, `*` patterns allowed) whose entry
+    /// NAMES join the key, not their contents. cargo lists `tests/`, `src/bin/`,
+    /// `examples/` of every workspace member to find targets, so a file added
+    /// there changes what it loads even when no byte it compiles changed.
+    pub listed: Vec<String>,
     /// `target_lock: none`: the gate never builds or runs anything from a cargo
     /// target dir (a grep, a find, `crumb verify`), so it runs without waiting
     /// for the head's target-dir lock. Default true (the lock is taken).
@@ -726,7 +731,8 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, ManifestError> {
     }
     let entries = parse_entries(text)?;
 
-    const KNOWN: [&str; 21] = [
+    const KNOWN: [&str; 22] = [
+        "listed",
         "outside_inputs",
         "target_lock",
         "gate",
@@ -839,6 +845,17 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, ManifestError> {
         if !valid_outside_path(o) {
             return Err(ManifestError(format!(
                 "outside_inputs path must start with ~/ or / and have no ..: {o:?}"
+            )));
+        }
+    }
+    let listed = match get("listed") {
+        Some(e) => list(e)?,
+        None => Vec::new(),
+    };
+    for l in &listed {
+        if !valid_rel_path(l) {
+            return Err(ManifestError(format!(
+                "listed path must be repo-relative: {l:?}"
             )));
         }
     }
@@ -971,6 +988,7 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, ManifestError> {
         cache_allowed,
         inputs_complete,
         outside_inputs,
+        listed,
         target_lock,
         version,
         exactness,
@@ -1201,6 +1219,7 @@ mod tests {
             cache_allowed: true,
             inputs_complete: false,
             outside_inputs: Vec::new(),
+            listed: Vec::new(),
             target_lock: true,
             version: 1,
             exactness: Exactness::Exact,
