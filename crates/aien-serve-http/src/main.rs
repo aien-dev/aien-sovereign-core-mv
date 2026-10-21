@@ -366,6 +366,25 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    // The eight readers (sc L371): on by default for a batching engine.
+    match aien_serve_http::readers::ReadersConfig::from_env(
+        &args.cfg.model_id,
+        engine.concurrency() > 1,
+    ) {
+        Ok(r) => {
+            if let Some(r) = &r {
+                eprintln!(
+                    "aien-serve-http: readers: model id {} reads inputs over {} tokens in {} parts at once (notes up to {} tokens)",
+                    r.model_id, r.threshold_tokens, r.readers, r.note_tokens
+                );
+            }
+            args.cfg.readers = r;
+        }
+        Err(e) => {
+            eprintln!("aien-serve-http: {e}");
+            return ExitCode::from(2);
+        }
+    }
     rt.block_on(async move {
         let model_id = args.cfg.model_id.clone();
         // SIGTERM or SIGINT: stop accepting, let the request in flight finish, then drop the
