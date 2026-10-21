@@ -1,0 +1,8 @@
+2026-10-21T22:37:10Z waiting for the chip lock (omega 0473989f, lib 96b154cacbf2f4a4)
+2026-10-21T22:49:42Z chip lock held
+2026-10-21T22:50:00Z gpu_cmdlist_test rc=0: chip: 36 checks, 0 failed: PASS
+2026-10-21T22:50:03Z gpu_gdn_test rc=0: gpu_gdn_test: 64 checks, 0 failed: PASS
+2026-10-21T22:50:05Z gpu_decode_attn256_test rc=0: gpu_decode_attn256_test: 37 checks, 0 failed: PASS
+2026-10-21T22:50:07Z gpu_bf16_gemv_test rc=0: gpu_bf16_gemv_test: 19 checks, 0 failed: PASS
+2026-10-21T22:50:10Z gpu_fp8gemm_test rc=0: gpu_fp8gemm_test: 36 checks, 0 failed: PASS
+2026-10-21T22:50:10Z done

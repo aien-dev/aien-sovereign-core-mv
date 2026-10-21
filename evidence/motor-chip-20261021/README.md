@@ -304,7 +304,7 @@ launch each; chip unit 36/36 (`lever7-cl-chip.*`), sim 34. motor/serve no longer
 (L369 prefill, L314 exact head, L313 bf16 state touched the same kernels), so omega `motor/levers-on-ship` 0473989f
 is the merge: one GATE rows form (L369's layout), the GDN multi-token and heads kernels both resident, the attention
 heads form refused with multi, bf16 MASK and XBATCH 8 side by side. The 509 ship program hashes are unchanged; every
-simulator suite passes; chip unit results in `ship-merge/`.
+simulator suite passes; on the chip (22:50Z, `ship-merge/`) cmdlist 36, gdn 64, attn256 37, bf16 GEMV 19, fp8 GEMM 36 checks, all PASS.
 
 ## Files
 `gate1-*.json/.log` first pass (band withdrawn, data kept), `gate1b-*.json/.log` the rerun, `gate2-*.json` the door, `stroke-*.json/.log`

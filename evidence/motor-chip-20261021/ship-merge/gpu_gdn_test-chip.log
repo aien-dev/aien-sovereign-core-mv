@@ -1,0 +1,22 @@
+gdn alloc (2 layers): rc=OK 39.6 ms ()
+chip layer 1, 5 steps                         rc=OK err out 2.34e-07 tail 0 state 3.23e-07 
+chip layer 0, 5 steps, in 2^-10 out 2^64      rc=OK err out 3.03e-07 tail 0 state 3.64e-07 
+chip mutant 1                                 rc=OK err out 0.913 tail 0 state 0.983
+chip mutant 2                                 rc=OK err out 0.509 tail 0 state 0.973
+chip mutant 3                                 rc=OK err out 1.46 tail 0 state 2.24e-07
+chip mutant 4                                 rc=OK err out 1.02 tail 1.79 state 0.844
+chip record path, 2 chained steps             err out 2.3e-07 tail 0 state 2.19e-07
+chip heads form: 3 conversations in one launch, compared with their plain steps bit for bit
+chip prefill layer 1, T 37, then 3 decode steps       rc=OK err out 2.25e-07 tail 0 state 3.69e-07 
+chip prefill layer 0, T 3, then 1 decode step         rc=OK err out 2.1e-07 tail 0 state 2.55e-07 
+chip prefill layer 0, T 41, in 2^-10 out 2^64         rc=OK err out 3.04e-07 tail 0 state 4.03e-07 
+chip prefill mutant 1                                 rc=OK err out 0.967 tail 0 state 2
+chip prefill mutant 2                                 rc=OK err out 0.677 tail 0 state 1.68
+chip prefill mutant 3                                 rc=OK err out 0.969 tail 0 state 5.47e-07
+chip prefill mutant 4                                 rc=OK err out 3.57e-07 tail 1.79 state 5.47e-07
+chip record path, prefill 37 + 1 decode step          err out 2.2e-07 tail 0 state 3.06e-07
+timing prefill T 512 (medians of 5): prep 507.5 us, scan 1394.8 us, post 265.6 us, chip total 2167.9 us = 4.23 us/token, call 8369.3 us; insns 287/534/90, registers 96/104/28
+timing prefill T 2048 (medians of 5): prep 3745.3 us, scan 7814.8 us, post 2208.9 us, chip total 13768.9 us = 6.72 us/token, call 36720.2 us; insns 287/534/90, registers 96/104/28
+timing prefill T 8192 (medians of 5): prep 8148.3 us, scan 22908.4 us, post 6399.1 us, chip total 37455.8 us = 4.57 us/token, call 140472.5 us; insns 287/534/90, registers 96/104/28
+timing (medians of 50): chip 1319.3 us (state read + write 6.29 MB -> 4.8 GB/s; 273 GB/s nominal), call 1324.4 us; 665 insns, 116 registers
+gpu_gdn_test: 64 checks, 0 failed: PASS
