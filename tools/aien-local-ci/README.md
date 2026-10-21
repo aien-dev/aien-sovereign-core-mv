@@ -248,4 +248,9 @@ The key also carries the judge binary's sha256 and the exec helper's, so a new j
 result. A FAIL is reused as FAIL. `aien-test worker --batch REPO SHA...` (and the loop, 6 heads at a time) judges
 several heads together: shared gates first, host gates of different heads side by side within `--batch-host N`
 slots (default half the CPUs), GPU gates one at a time. Shown on the Spark: unit and end-to-end tests in
-`tools/aien-test` (`judge_once_tests.rs`, `tests/local_ci.rs`); the wall-time receipt is in the handoff.
+`tools/aien-test` (`judge_once_tests.rs`, `tests/local_ci.rs`); the wall-time receipt is in the handoff. A gate's
+receipt keeps its waits apart from its run: `batch_wait_ms` (a batch slot) and `target_wait_ms` (the target dir
+another gate holds) fall inside `duration_ms`, and `aien-test verify` counts them as queue time, not test time.
+Measured 2026-10-20 on 6 open sc PR heads: 6003 s one at a time, 2914 s as one batch. No result crossed heads in that
+set: the six trees differ and no manifest says `cache: inputs_complete` yet, so the saving there is the side by side
+running alone.

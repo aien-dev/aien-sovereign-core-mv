@@ -447,10 +447,11 @@ manifest at COMMIT (`MANIFEST_MISMATCH`); then the plan judge. Every
 rejection is a `Problem` or `Evidence note` line and leaves READY out of
 reach; no path defaults to PASS. Crumb status comes from `crumb verify .` in a temporary
 detached worktree at COMMIT, removed afterwards. Queue time is the sum of
-`pool_wait_ms`, GPU lock wait the sum of `gpu_wait.waited_ms` (gb10 gates:
+`pool_wait_ms`, `batch_wait_ms` (waiting for a slot of the `worker --batch`
+budget) and `target_wait_ms` (waiting for the target dir another gate holds), GPU lock wait the sum of `gpu_wait.waited_ms` (gb10 gates:
 how long each waited in the kernel queue of `/tmp/aien-gb10.lock`, see
 below), test time the sum of `duration_ms` over the executed
-receipts, total time the bundle's `finished_utc - started_utc`; build time
+receipts less those two waits (both fall inside `duration_ms`), total time the bundle's `finished_utc - started_utc`; build time
 is not measured yet.
 
 `READY` requires: evidence VERIFIED, final verdict PASS, crumb CURRENT, no

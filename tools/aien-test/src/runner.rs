@@ -803,12 +803,18 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
     // the batch's one gb10 slot, so heads of the batch never compete for
     // `/tmp/aien-gb10.lock` and spend their bounded wait on each other. A
     // reused result above never got here, so it costs no slot.
+    // Both waits below are timed and go into the receipt on their own
+    // (`batch_wait_ms`, `target_wait_ms`): `duration_ms` starts at `t0`, so
+    // without them a gate queued behind another head reads as a slow gate.
     let runs = verdict::pre_run(m, &facts).is_none();
+    let t_batch = Instant::now();
     let _batch_slot = match (&opts.batch, m.pool(), runs) {
         (Some(b), "host", true) => Some(b.host.acquire(opts.first.contains(&m.gate))),
         (Some(b), "gb10", true) => Some(b.gb10.acquire(true)),
         _ => None,
     };
+    let batch_wait_ms = t_batch.elapsed().as_millis() as u64;
+    let t_target = Instant::now();
     // A gate that will run holds its target dir for the whole run (build and
     // run), so no other gate builds in it or relinks a binary this one is
     // executing (sc fix/521). Every gate, not only those whose manifest
@@ -833,6 +839,7 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
     } else {
         None
     };
+    let target_wait_ms = t_target.elapsed().as_millis() as u64;
 
     // A gb10 gate takes the GPU locks only when nothing else already stops it,
     // waiting for a held lock as `opts.gpu.wait` says. A refusal (quiet flag,
@@ -995,6 +1002,8 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
         "duration_ms": t0.elapsed().as_millis() as u64,
         "pool": m.pool(),
         "pool_wait_ms": job.pool_wait_ms,
+        "batch_wait_ms": batch_wait_ms,
+        "target_wait_ms": target_wait_ms,
         "runner": { "name": "aien-test", "version": env!("CARGO_PKG_VERSION"), "impl": "rust" },
         "cache": cache::cache_member(&cache_key, None, mode),
         "timeout_exceeded": timeout_exceeded,
@@ -2266,6 +2275,38 @@ mod tests {
             &resolve(fx.repo.path()).join("target"),
         );
         assert!(lock.exists(), "lock {} never taken", lock.display());
+    }
+
+    /// The gate that waits for the target dir the other holds says so in its
+    /// receipt (`target_wait_ms`), so the wait never reads as test time; a
+    /// run outside a batch takes no batch slot (`batch_wait_ms` 0).
+    #[test]
+    fn a_target_dir_wait_is_recorded_apart_from_the_run() {
+        let fx = gfx(&[
+            ("G-A", "", "host", slow("G-A")),
+            ("G-B", "", "host", slow("G-B")),
+        ]);
+        let mut opts = fx.opts();
+        opts.target_lock_dir = fx.scratch.path().join("locks");
+        let c = fx.campaign(&opts);
+        assert_eq!(c.exit_code(), 0);
+        let second = fx.log()[2].trim_start_matches("start-").to_string();
+        let v = |id: &str| {
+            read_json(outcome(&c, id).receipt_path.as_ref().unwrap())["volatile"].clone()
+        };
+        let (late, early) = if second == "G-A" {
+            (v("G-A"), v("G-B"))
+        } else {
+            (v("G-B"), v("G-A"))
+        };
+        let waited = late["target_wait_ms"].as_u64().unwrap();
+        assert!(
+            waited >= 150,
+            "second gate waited {waited} ms for the target dir"
+        );
+        assert!(late["duration_ms"].as_u64().unwrap() >= waited);
+        assert!(early["target_wait_ms"].as_u64().unwrap() < 150);
+        assert_eq!(late["batch_wait_ms"], json!(0));
     }
 
     /// A gate may call cargo without naming `Cargo.toml` among its inputs
