@@ -66,7 +66,7 @@ fn env_usize(name: &str, default: usize) -> usize {
 
 /// Fewest tokens between two of the server's checkpoint marks the door keeps (each checkpoint
 /// holds a full DeltaNet state copy).
-pub const MARK_GAP: usize = 256;
+pub const MARK_GAP: usize = 512;
 
 fn prompt_per_beat() -> Result<usize, String> {
     match std::env::var("AIEN_Q36_PROMPT_PER_BEAT") {
