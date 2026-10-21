@@ -1,0 +1,5 @@
+binary sha256 fee73ac6c0237dcc0bb60838100738f77fcae3036564e266955c6db77d64bb63
+model: 40 layers, 8 heads; positions gen-p1 36, gen-p2 46, gen-p3 42, gen-p4 39, gen-chat-code 62, gen-chat-prose2 68, gen-chat-chat 71, gen-chat-review 97; swap none
+reference: 8 conversations in 105.1 s; greedy tokens equal the golden records
+memory: MemAvailable 100652 MiB for 33085 MiB; taking the chip lock
+qwen36_stroke_gate: gdn alloc: omega_gpu rc=-4 (gdn alloc: CHIP_FAIL: marker wait timed out (latched))
