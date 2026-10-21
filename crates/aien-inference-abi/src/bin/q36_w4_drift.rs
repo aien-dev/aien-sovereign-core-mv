@@ -4,7 +4,7 @@
 //!   q36_w4_drift score  <checkpoint dir> <passage.txt> <tokens> <arm> <out.json>
 //!
 //! arm: fp8 | w4e (experts from the store) | w4et (experts + trunk) | w4e-mut (experts, every e2m1 mantissa bit
-//! cleared: the calibrated mutant). The store comes from AIEN_Q36_W4_STORE (a path) for every arm but fp8.
+//! cleared: the calibrated mutant). The store comes from AIEN_Q36_W4_STORE (a path, or default) for every arm but fp8.
 //! forced: the prompt (`prompt_ids`) then `steps` tokens teacher-forced on the reference ids (`f32_ids` of an L313
 //! drift file, else `ref_ids` of an fp8 forced output); with neither (a golden file) the arm runs greedy and its own picks
 //! become `ref_ids`. Per step: the arm's argmax, its top-1 margin and the NLL of the reference id. score: NLL per token.
@@ -54,8 +54,9 @@ fn arm_host(arm: &str, dir: &Path) -> Result<Option<W4Host>, String> {
         "w4e-mut" => (true, false, true),
         a => return Err(format!("arm {a} (fp8, w4e, w4et, w4e-mut)")),
     };
-    let p = std::env::var("AIEN_Q36_W4_STORE").map_err(|_| "AIEN_Q36_W4_STORE (store path) is not set".to_string())?;
-    let store = W4Store::open(Path::new(&p), dir)?;
+    let p = aien_inference_abi::q36_w4_store::resolve(dir)?
+        .ok_or("AIEN_Q36_W4_STORE (store path or default) is not set")?;
+    let store = W4Store::open(&p, dir)?;
     Ok(Some(W4Host { store: Arc::new(store), experts, trunk, mutant }))
 }
 
