@@ -13,6 +13,9 @@
 //!               [--coupling brigade|clock|reservoir] [--period-us T]
 //!                                                           movement engines alone: a stand-in piston that only holds U us
 //!   engine run SCHEDULE MANIFEST TRACE MODEL_DIR OUT_DIR [--workers W] [--direct 0|1] [--engines 1|2]
+//!   engine trace35 GOLDEN.json MODEL_DIR OUT.json          L306 golden (prompt_ids, generated_ids, routes) -> trace
+//!   engine run35 SCHEDULE MANIFEST TRACE MODEL_DIR OUT_DIR [--workers W] [--direct 0|1] [--engines 1|2]
+//!                                                           the 35B motor on the host: L306 exact forward, experts from the ring
 //!                                                           both engines on the host: identical tokens gate + timing diagram
 //!   engine stroke SCHEDULE MANIFEST MODEL_DIR OUT_DIR --n N --traces A.json,B.json,... [--positions P] [--workers W] [--engines E]
 //!                                                           H6: N heads on one stroke; gate per head vs its own trace
@@ -21,6 +24,8 @@
 //!   engine union OUT.json [--positions P] TRACE...          H6 offline: expert union vs N from the traces
 //!   engine today URL MODEL_DIR TRACE OUT.json               today's path (the live server) on the same prompt: agreement count
 use aien_engine::movement::{Engines, FillStamp, MovementEngine};
+use aien_engine::piston35::{golden_to_trace, RingSource, Shared};
+use aien_inference_abi::qwen38::{argmax as argmax38, Logits, Qwen38Config, Qwen38Reference};
 use aien_engine::piston::{argmax, gate_identical, Crank, HostPiston, HostPistonBank, StrokeBeat};
 use aien_engine::plan::{PlacementPlan, RouteTrace};
 use aien_engine::schedule::Schedule;
@@ -442,6 +447,98 @@ fn cmd_swap(a: &[String]) -> Result<(), String> {
     println!("swap lead {lead}: steady {steady:.2} ms/token, first token after swap +{first_extra_ms:.2} ms, total extra {extra_ms:.1} ms, hit rate after {:.3}, head B load {:.1} ms", h_after as f64 / n_after.max(1) as f64, if load_b_done > 0 { (load_b_done - load_b_start) as f64 / 1e6 } else { -1.0 });
     Ok(())
 }
+
+/// L306's golden -> my trace format (token 0 = prefill with the union head, then one decode step per generated id).
+fn cmd_trace35(a: &[String]) -> Result<(), String> {
+    let g: serde_json::Value = serde_json::from_slice(&std::fs::read(&a[0]).map_err(|e| format!("{}: {e}", a[0]))?).map_err(|e| e.to_string())?;
+    let dir = Path::new(&a[1]);
+    let model = dir.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+    let tr = golden_to_trace(&g, &model)?;
+    tr.save(Path::new(&a[2]))?;
+    println!("trace35: {} steps ({} prompt ids, {} generated), {} layers, routed per layer at step 1: {:?}", tr.routes.len(), tr.prompt_tokens.len(), tr.argmax.len(), tr.routes[0].len(), tr.routes.get(1).map(|r| r.iter().map(|x| x.len()).collect::<Vec<_>>()));
+    Ok(())
+}
+
+/// The 35B motor on the host: L306's exact forward with every routed expert served from the ring along the schedule.
+/// Gate: tokens and routes identical to the golden the trace came from. Beats are drawn inside the source.
+fn cmd_run35(a: &[String]) -> Result<(), String> {
+    let s = Arc::new(Schedule::load(Path::new(&a[0]))?);
+    let m = Manifest::load(Path::new(&a[1])).map_err(|e| e.to_string())?;
+    let tr = RouteTrace::load(Path::new(&a[2]))?;
+    let dir = Path::new(&a[3]);
+    let out = PathBuf::from(&a[4]);
+    let workers = opt_usize(a, "--workers", 8);
+    let direct = opt_usize(a, "--direct", 1) == 1;
+    let engines = engines_of(a)?;
+    if !s.check().pass() {
+        return Err("schedule check FAIL".into());
+    }
+    let k = tr.routes.first().map(|r| r.len()).unwrap_or(0);
+    if s.layers.len() != k {
+        return Err(format!("schedule has {} layers per token, the trace {}: the 35B piston fires every layer", s.layers.len(), k));
+    }
+    let steps = (s.tokens as usize).min(tr.routes.len()).min(tr.argmax.len());
+    if steps == 0 {
+        return Err("no steps".into());
+    }
+    let t0 = Instant::now();
+    let (crank, h) = start_engines(s.clone(), &m, workers, direct, engines, t0)?;
+    let ring = crank.ring();
+    let shared = Arc::new(Shared::default());
+    let source = RingSource::open(dir, ring, s.clone(), crank, shared.clone())?;
+    source.prime()?;
+    let t_open = Instant::now();
+    let config = Qwen38Config::from_checkpoint(dir)?;
+    let mut model = Qwen38Reference::new(config, source)?;
+    let open_s = t_open.elapsed().as_secs_f64();
+    shared.armed.store(true, std::sync::atomic::Ordering::Release);
+    let mut state = model.new_state();
+    let mut got: Vec<u32> = Vec::with_capacity(steps);
+    let mut routes_seen: Vec<Vec<Vec<u16>>> = Vec::with_capacity(steps);
+    let mut step_s: Vec<f64> = Vec::with_capacity(steps);
+    let mut failure: Option<String> = None;
+    for step in 0..steps {
+        shared.token.store(step as u32, std::sync::atomic::Ordering::Release);
+        let ids: Vec<u32> = if step == 0 { tr.prompt_tokens.clone() } else { vec![tr.argmax[step - 1]] };
+        let ts = Instant::now();
+        match model.forward(&mut state, &ids, Logits::Last) {
+            Ok(logits) => {
+                step_s.push(ts.elapsed().as_secs_f64());
+                got.push(argmax38(&logits) as u32);
+                let mut r = model.routes.clone();
+                for v in &mut r {
+                    v.sort_unstable();
+                    v.dedup();
+                }
+                routes_seen.push(r);
+            }
+            Err(e) => {
+                failure = Some(format!("step {step}: {e}"));
+                break;
+            }
+        }
+    }
+    shared.close(t0.elapsed().as_nanos() as i64);
+    drop(model);
+    h.join().map_err(|_| "movement thread panicked")?;
+    let (same, total) = gate_identical(&tr, &got);
+    let routes_same = routes_seen.iter().zip(&tr.routes).filter(|(a, b)| a == b).count();
+    let eager = shared.eager_expert_reads.load(std::sync::atomic::Ordering::Relaxed);
+    let traces = shared.traces.lock().unwrap().clone();
+    let misfires = traces.iter().filter(|t| t.misfire).count();
+    let gate = json!({"identical_tokens": failure.is_none() && same == total && total == steps && steps > 0, "same": same, "of": total, "steps": steps, "routes_identical_steps": routes_same, "got": got, "expected": &tr.argmax[..steps], "failure": failure, "eager_expert_reads_at_open": eager, "misfires": misfires});
+    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+    write_json(&out.join("gate.json"), &gate)?;
+    write_receipts(&out, &traces, json!({"mode": "host-loop-35b", "model": s.model, "workers": workers, "direct": direct, "engines": engines.count(), "buffers": s.buffers, "slots": s.slots, "layers": s.layers.len(), "tokens": s.tokens, "steps": steps, "open_seconds": open_s, "step_seconds": step_s, "eager_expert_reads_at_open": eager, "gate": gate.clone()}))?;
+    if let Some(f) = failure {
+        return Err(format!("35B loop FAILED closed: {f} (tokens identical so far {same}/{total})"));
+    }
+    if same != total || total != steps {
+        return Err(format!("identity gate FAIL: {same} of {total} (steps {steps})"));
+    }
+    println!("identity gate PASS (35B): {same}/{total} tokens, routes identical at {routes_same}/{steps} steps, eager expert reads at open {eager}, {} beats, {misfires} misfires", traces.len());
+    Ok(())
+}
 fn replay_sequence(tr: &RouteTrace) -> Vec<u32> {
     tr.prompt_tokens.iter().copied().chain(tr.argmax[tr.prompt_tokens.len() - 1..tr.argmax.len() - 1].iter().copied()).collect()
 }
@@ -650,6 +747,8 @@ fn main() {
         Some("move") => cmd_move(&args[1..]),
         Some("swap") => cmd_swap(&args[1..]),
         Some("run") => cmd_run(&args[1..]),
+        Some("trace35") => cmd_trace35(&args[1..]),
+        Some("run35") => cmd_run35(&args[1..]),
         Some("stroke") => cmd_stroke(&args[1..]),
         Some("union") => cmd_union(&args[1..]),
         Some("today") => cmd_today(&args[1..]),

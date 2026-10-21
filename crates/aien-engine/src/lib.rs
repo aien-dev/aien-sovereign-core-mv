@@ -13,6 +13,7 @@
 //!   fire start minus fill done. Text table and a PNG, no outside tools.
 pub mod movement;
 pub mod piston;
+pub mod piston35;
 pub mod plan;
 pub mod schedule;
 pub mod timing;

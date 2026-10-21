@@ -39,6 +39,10 @@ impl Crank {
         self.t0.elapsed().as_nanos() as i64
     }
 
+    pub fn ring(&self) -> Arc<Ring> {
+        self.ring.clone()
+    }
+
     /// A second hand on the job channel (reservoir coupling: an issuer thread feeds the movement engines).
     pub fn issuer(&self) -> Sender<Fill> {
         self.jobs.clone()
@@ -80,7 +84,7 @@ fn words(b: &[u8]) -> Vec<u16> {
 }
 
 /// Copy one tensor out of a published slot (the lease's segments concatenated are the expert's payload).
-fn tensor_from_lease(ring: &Ring, sched: &Schedule, part: u32, name: &str, dst: &mut [u8]) -> Result<(), String> {
+pub fn tensor_from_lease(ring: &Ring, sched: &Schedule, part: u32, name: &str, dst: &mut [u8]) -> Result<(), String> {
     let p = sched.part(part);
     let lease = ring.lease(p.layer, p.expert).map_err(|e| e.to_string())?.ok_or_else(|| format!("layer {} expert {}: not in any buffer (misfire)", p.layer, p.expert))?;
     let (start, len) = (p.tensor_offset(name)?, dst.len() as u64);
