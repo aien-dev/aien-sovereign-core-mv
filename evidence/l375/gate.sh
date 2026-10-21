@@ -25,7 +25,7 @@ SPID=""
 start() {
   local tag=$1; shift
   echo "$(date -u +%FT%TZ) phase $tag: waiting for the q36-extra slot" | tee -a "$OD/gate.log"
-  Q36_EXTRA_NEED_GB=$NEED q36-extra env AIEN_Q36_STROKE=0 AIEN_Q36_PREFIX_POOL_GB=$POOL_GB "$@" \
+  Q36_EXTRA_WAIT=7200 Q36_EXTRA_NEED_GB=$NEED q36-extra env AIEN_Q36_STROKE=0 AIEN_Q36_PREFIX_POOL_GB=$POOL_GB "$@" \
     "$BIN/aien-serve-http" --engine omega --model-dir "$M" --port $PORT --max-context 32768 \
     --max-tokens-cap 512 --thinking off --batch-slots 1 > "$OD/server-$tag.log" 2>&1 &
   SPID=$!
@@ -46,7 +46,12 @@ stop() {
   kill $SPID; wait $SPID 2>/dev/null
   echo "$(date -u +%FT%TZ) stopped, store holds $(ls "$STORE" | grep -c q36p) nodes, $(du -sh "$STORE" | cut -f1)" | tee -a "$OD/gate.log"
 }
-ask() { ./ask.sh $PORT "$OD/$1.json" "$2" "$OD" >> "$OD/gate.log"; }
+ask() {
+  ./ask.sh $PORT "$OD/$1.json" "$2" "$OD" >> "$OD/gate.log"
+  if [ ! -s "$OD/$2.ids" ]; then
+    echo "ABORT: $2 gave no tokens: $(head -c 300 "$OD/$2.sse")" | tee -a "$OD/gate.log"; kill $SPID; wait $SPID 2>/dev/null; rm -rf "$STORE"; exit 1
+  fi
+}
 
 start B AIEN_Q36_PREFIX_DIR="$STORE" AIEN_KV_STORE_KEY="$KEY" || exit 1
 ask req1 b1; ask req2 b2; ask req1 b1r; ask req3 b3; ask req1 b1x
