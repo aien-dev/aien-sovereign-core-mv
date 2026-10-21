@@ -32,7 +32,7 @@ pub const USAGE: &str = "usage:
   aien-test worker [--once REPO SHA | --batch REPO SHA...] [--batch-host N] [--batch-heads N] [--poll SECS] [--repos A,B] [--github] [--iterations N]
                    [--state-dir DIR] [--key FILE] [--clones DIR] [--wt-root DIR] [--wt-tool FILE] [--siblings FILE] [--sandbox user|none --dev-unsandboxed]
 flags: --evidence-dir DIR  --allow-dirty  --no-cache  --release  --jobs host=N,qemu=M  --gpu-wait 0|DURATION  --wait-gpu
-       --sandbox none|user  --base REF  --operator";
+       --sandbox none|user  --base REF  --operator  --shared-cache DIR (run)";
 
 /// Which gates `test` runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,6 +81,9 @@ pub struct Cli {
     /// `identity` only: the compiler identity string (default empty: nothing
     /// here builds yet).
     pub compiler_identity: String,
+    /// `--shared-cache DIR` (run only): the cross-head store the worker keeps
+    /// in `<state>/gate-cache/<repo>`, for one gate judged by hand.
+    pub shared_cache: Option<PathBuf>,
     /// `identity` only: `--flag F`, repeatable, order kept.
     pub flags: Vec<String>,
     /// `identity` only: needed for `cache_scope: hardware`.
@@ -212,6 +215,7 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
     let mut repos: Vec<String> = Vec::new();
     let mut github = false;
     let mut iterations: Option<u64> = None;
+    let mut shared_cache: Option<PathBuf> = None;
     let mut worker_flags: Vec<&str> = Vec::new();
     let mut i = 1;
     let value = |i: &mut usize, a: &str| -> Result<String, String> {
@@ -227,6 +231,8 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
             break;
         } else if a == "--evidence-dir" {
             evidence_dir = Some(PathBuf::from(value(&mut i, a)?));
+        } else if a == "--shared-cache" {
+            shared_cache = Some(PathBuf::from(value(&mut i, a)?));
         } else if a == "--jobs" {
             jobs = parse_jobs(&value(&mut i, a)?)?;
         } else if a == "--compiler-identity" || a == "--flag" || a == "--hardware-identity" {
@@ -386,6 +392,9 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
     if repo.is_some() && !["plan", "verify", "worker"].contains(&name) {
         return Err("--repo only applies to plan, verify and worker".to_string());
     }
+    if shared_cache.is_some() && name != "run" {
+        return Err("--shared-cache only applies to run".to_string());
+    }
     if state_dir.is_some() && !["status", "verify", "worker"].contains(&name) {
         return Err("--state-dir only applies to status, verify and worker".to_string());
     }
@@ -451,6 +460,7 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
         repos,
         github,
         iterations,
+        shared_cache,
     })
 }
 
