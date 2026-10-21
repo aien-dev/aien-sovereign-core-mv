@@ -219,7 +219,7 @@ pub struct TestSwitches {
     /// L369 chunked prompt reading: tokens per chunk for this prompt (`0` = token by token).
     pub prefill_chunk: Option<usize>,
     /// L375 shared prompt cache: `false` reads this prompt cold (no pool, no row reuse, nothing
-    /// saved), the reference the cache must match.
+    /// saved to the pool), the reference the cache must match.
     pub prefix_pool: Option<bool>,
     /// L375 negative control: a restore from the pool lands one position early for this row (it
     /// must go red); the row saves nothing and starts its next conversation cold.

@@ -387,6 +387,10 @@ struct Row<T> {
     /// The tokens `snap` holds (empty: none).
     snap_tokens: Vec<u32>,
     snap: T,
+    /// A test mutant ran on this row (a graph mutant, or a pool restore one position off): its
+    /// state is off its history. It saves no checkpoint and is forgotten when its conversation
+    /// ends (the flag stays with the row through a test row swap).
+    tainted: bool,
 }
 
 /// One conversation in flight on the scheduler thread.
@@ -570,6 +574,7 @@ impl Qwen36BatchDoor {
                     history: Vec::new(),
                     last_used: 0,
                     snap_tokens: Vec::new(),
+                    tainted: false,
                     snap: S::Snap::default(),
                 })
                 .collect(),
@@ -1133,6 +1138,7 @@ impl<S: RowStep> Scheduler<S> {
                 // The new prompt rewrites the K/V the row's own copy relies on.
                 rr.history.clear();
                 rr.snap_tokens.clear();
+                rr.tainted = false;
                 self.model.row_reset(row)
             } else {
                 Ok(())
@@ -1169,6 +1175,9 @@ impl<S: RowStep> Scheduler<S> {
             active.len() + 1,
         );
         let observer = SamplingObserver::new(&job.params);
+        if job.test.mutant.is_some_and(|m| m != 0) {
+            self.rows[row].tainted = true;
+        }
         let job_swap = job.test.row_swap.filter(|&k| k >= 1);
         let chip_greedy = self.chip_greedy && observer.is_greedy();
         active.push(Active {
@@ -1261,6 +1270,7 @@ impl<S: RowStep> Scheduler<S> {
         self.model.row_restore(row, rs.snap)?;
         bytes += rs.snap.host_bytes();
         if off_by_one {
+            self.rows[row].tainted = true;
             self.model.row_set_pos(row, tokens.len() - 1)?;
         }
         self.rows[row].history = tokens.to_vec();
@@ -1314,6 +1324,9 @@ impl<S: RowStep> Scheduler<S> {
     /// Saves `row`'s state (it holds exactly `tokens`) into the pool: the K/V since the deepest
     /// node `tokens` continues, the DeltaNet state and position.
     fn save_checkpoint(&mut self, row: usize, tokens: &[u32]) {
+        if self.rows[row].tainted {
+            return;
+        }
         if self.pool.touch(tokens) {
             return;
         }
@@ -1419,11 +1432,12 @@ impl<S: RowStep> Scheduler<S> {
             row.history.clear();
             row.snap_tokens.clear();
         }
-        if a.job.test.mutant.is_some_and(|m| m != 0) || a.job.test.prefix_mutant == Some(true) {
-            // A merge-train mutant left this row's state (and its copy) off its history: the
-            // next conversation on the row starts cold.
+        if row.tainted {
+            // A test mutant left this row's state (and its copy) off its history: the next
+            // conversation on the row starts cold.
             row.history.clear();
             row.snap_tokens.clear();
+            row.tainted = false;
         }
         let ev = match err {
             Some(e) => Ev::Failed(e),
