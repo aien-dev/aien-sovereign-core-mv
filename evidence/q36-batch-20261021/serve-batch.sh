@@ -1,10 +1,10 @@
 #!/bin/bash
-# L354 test server: the batch door on 127.0.0.1:$PORT (env PORT, default 18094; never 18091), detached. Env passes through
+# L354 test server: the batch door on 127.0.0.1:$PORT (env PORT, default 18089 = L354 only; never 18091), detached. Env passes through
 # (AIEN_Q36_TEST_ROW_SWAP=k = the negative control). Loads under q36-extra (L366: one extra 35B at a time, memory
 # checked inside its lock, oom_score_adj 1000 so the kernel takes this server, never 18091). Usage: serve-batch.sh <bin-sha8> <slots> <max_context> <tag>
 # Stop: kill $(cat ~/.local/state/aien-q36/batch-$PORT.pid)
 set -euo pipefail
-PORT=${PORT:-18094}
+PORT=${PORT:-18089}
 S=$HOME/.local/state/aien-q36; BIN=bin-${1:?sha8}; SL=${2:?slots}; CTX=${3:?ctx}; TAG=${4:?tag}
 cd "$S/$BIN"; sha256sum -c --quiet SHA256SUMS
 ss -ltn | grep -q "127.0.0.1:$PORT " && { echo "$PORT already in use"; exit 2; }

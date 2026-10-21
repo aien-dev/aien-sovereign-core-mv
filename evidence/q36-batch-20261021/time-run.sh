@@ -1,11 +1,11 @@
 #!/bin/bash
 # L354 timing run, inside ONE spark-window (chip + quiet locks): for each mode (stroke, then rows in turn =
-# AIEN_Q36_STROKE=0) load the batch door (32 slots) on 18094 under q36-extra, time-batch.sh, stop it. The servers start
+# AIEN_Q36_STROKE=0) load the batch door (32 slots) on 18089 under q36-extra, time-batch.sh, stop it. The servers start
 # inside the window, so they carry AIEN_GB10_LOCK_HELD=1 and do not queue behind it. q36-extra waits at most
 # Q36_EXTRA_WAIT=300 s for the extra-35B slot (its holder may be waiting for the chip we hold), else the mode is skipped.
 #   time-run.sh <sha8>     (opens and closes the window itself; log time-run.log)
 set -u
-D=$(cd "$(dirname "$0")" && pwd); cd "$D"; S=$HOME/.local/state/aien-q36; SHA=${1:?sha8}; export PORT=18094
+D=$(cd "$(dirname "$0")" && pwd); cd "$D"; S=$HOME/.local/state/aien-q36; SHA=${1:?sha8}; export PORT=18089
 log() { echo "$(date -u +%FT%TZ) $*" >> time-run.log; }
 if [ -z "${SPARK_WINDOW:-}" ]; then
   log "waiting for a window"; spark-window open q36-batch --ledger L354 --lease 75 --wait >> time-run.log 2>&1 || { log "no window"; exit 3; }
