@@ -6,6 +6,11 @@
 //! and fails the forward closed; nothing is ever read from the disk on the fast path. Beats are detected inside the
 //! source: the first expert read of a (token, layer) pair is the fire start of that beat, so the timing diagram is the
 //! same one the 30B host piston drew, now around the 35B's own forward.
+//!
+//! The stroke (H6, N heads per beat): the driver steps N sequences one layer at a time, so all N heads read their
+//! experts of layer `l` inside the same beat; with `Shared::share_experts` set, an expert tensor is copied out of the
+//! cylinder once per beat and the other heads get the copy (one read per beat for the union of their routes, which is
+//! what a stroke is). The source counts the distinct experts and bytes each beat touched (`beat_union`).
 use crate::piston::{tensor_from_lease, Crank};
 use crate::plan::RouteTrace;
 use crate::schedule::Schedule;
@@ -13,9 +18,9 @@ use crate::timing::BeatTrace;
 use aien_heartbeat::ring::Ring;
 use aien_inference_abi::qwen3_moe_omega::{ShardSource, TensorSource};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// What the driver (the generation loop) and the source share: which token is being fired, the beats drawn so far,
@@ -27,6 +32,11 @@ pub struct Shared {
     /// Expert reads that happened before `armed` (at open): the lazy-expert claim is false if this is not 0.
     pub eager_expert_reads: AtomicU32,
     pub armed: AtomicBool,
+    /// Stroke mode: copy each expert tensor out of the cylinder once per beat, serve repeats from that copy.
+    pub share_experts: AtomicBool,
+    /// Distinct experts (parts) and their bytes read in the beat currently open; reset when a beat is entered.
+    pub beat_union: AtomicUsize,
+    pub beat_union_bytes: AtomicU64,
     pub traces: Mutex<Vec<BeatTrace>>,
     open: Mutex<Option<BeatTrace>>,
 }
@@ -62,6 +72,10 @@ pub struct RingSource {
     crank: Crank,
     shared: Arc<Shared>,
     cur_beat: Option<u32>,
+    /// Parts read so far in the open beat (the union across heads in a stroke).
+    seen: HashSet<u32>,
+    /// Stroke mode: expert tensors already copied out of the cylinder this beat, by tensor name.
+    cache: HashMap<String, Vec<u8>>,
 }
 
 impl RingSource {
@@ -69,7 +83,7 @@ impl RingSource {
         let shards = ShardSource::open(dir)?;
         let part_of = sched.parts.iter().map(|p| ((p.layer, p.expert), p.id)).collect();
         let layer_index = sched.layers.iter().enumerate().map(|(j, &l)| (l, j as u32)).collect();
-        Ok(Self { shards, ring, sched, part_of, layer_index, crank, shared, cur_beat: None })
+        Ok(Self { shards, ring, sched, part_of, layer_index, crank, shared, cur_beat: None, seen: HashSet::new(), cache: HashMap::new() })
     }
 
     /// Prime the fills the schedule wants before the first beat (B-1 ahead).
@@ -84,6 +98,10 @@ impl RingSource {
         }
         let now = self.crank.now_ns();
         self.shared.close(now);
+        self.seen.clear();
+        self.cache.clear();
+        self.shared.beat_union.store(0, Ordering::Relaxed);
+        self.shared.beat_union_bytes.store(0, Ordering::Relaxed);
         let b = self.sched.beats.get(beat as usize).ok_or(format!("beat {beat}: past the schedule ({} beats)", self.sched.beats.len()))?;
         if let Some(f) = &b.fill {
             self.crank.issue(f)?;
@@ -115,7 +133,25 @@ impl TensorSource for RingSource {
             }
             format!("beat {beat}: layer {layer} expert {expert} is not in the plan (misfire, fail closed)")
         })?;
-        tensor_from_lease(&self.ring, &self.sched, part, name, dst)
+        if self.seen.insert(part) {
+            self.shared.beat_union.fetch_add(1, Ordering::Relaxed);
+            self.shared.beat_union_bytes.fetch_add(self.sched.part(part).bytes, Ordering::Relaxed);
+        }
+        let share = self.shared.share_experts.load(Ordering::Relaxed);
+        if share {
+            if let Some(v) = self.cache.get(name) {
+                if v.len() != dst.len() {
+                    return Err(format!("{name}: cached {} bytes, asked {}", v.len(), dst.len()));
+                }
+                dst.copy_from_slice(v);
+                return Ok(());
+            }
+        }
+        tensor_from_lease(&self.ring, &self.sched, part, name, dst)?;
+        if share {
+            self.cache.insert(name.to_string(), dst.to_vec());
+        }
+        Ok(())
     }
 
     fn dtype_of(&mut self, name: &str) -> Result<Option<String>, String> {

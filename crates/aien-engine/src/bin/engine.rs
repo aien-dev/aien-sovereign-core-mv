@@ -13,15 +13,18 @@
 //!               [--coupling brigade|clock|reservoir] [--period-us T]
 //!                                                           movement engines alone: a stand-in piston that only holds U us
 //!   engine run SCHEDULE MANIFEST TRACE MODEL_DIR OUT_DIR [--workers W] [--direct 0|1] [--engines 1|2]
+//!                                                           both engines on the host (30B): identical tokens gate + timing diagram
 //!   engine trace35 GOLDEN.json MODEL_DIR OUT.json          L306 golden (prompt_ids, generated_ids, routes) -> trace
+//!   engine trace35 MODEL_DIR OUT.json --prompt TEXT [--gen G] [--positions P]   the exact 35B forward one token at a time -> trace (as `trace`)
 //!   engine run35 SCHEDULE MANIFEST TRACE MODEL_DIR OUT_DIR [--workers W] [--direct 0|1] [--engines 1|2]
 //!                                                           the 35B motor on the host: L306 exact forward, experts from the ring
-//!                                                           both engines on the host: identical tokens gate + timing diagram
+//!   engine stroke35 SCHEDULE MANIFEST MODEL_DIR OUT_DIR --n N --traces A.json,B.json,... [--positions P] [--workers W] [--engines E]
+//!                                                           H6 on the 35B: N heads step layer by layer, one expert read per beat
 //!   engine stroke SCHEDULE MANIFEST MODEL_DIR OUT_DIR --n N --traces A.json,B.json,... [--positions P] [--workers W] [--engines E]
 //!                                                           H6: N heads on one stroke; gate per head vs its own trace
 //!   engine swap PLAN_A PLAN_B|shift:N MANIFEST OUT_DIR [--tokens T] [--swap-at K] [--lead L] [--fire-us U] [--workers W]
 //!                                                           H4: head A resident in RAM, head B from token K, loader L tokens early
-//!   engine union OUT.json [--positions P] TRACE...          H6 offline: expert union vs N from the traces
+//!   engine union OUT.json [--positions P] [--experts N] [--expert-bytes B] TRACE...   H6 offline: expert union vs N (defaults 30B)
 //!   engine today URL MODEL_DIR TRACE OUT.json               today's path (the live server) on the same prompt: agreement count
 use aien_engine::movement::{Engines, FillStamp, MovementEngine};
 use aien_engine::piston35::{golden_to_trace, RingSource, Shared};
@@ -37,6 +40,7 @@ use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -450,6 +454,9 @@ fn cmd_swap(a: &[String]) -> Result<(), String> {
 
 /// L306's golden -> my trace format (token 0 = prefill with the union head, then one decode step per generated id).
 fn cmd_trace35(a: &[String]) -> Result<(), String> {
+    if let Some(prompt) = opt(a, "--prompt") {
+        return trace35_prompt(a, &prompt);
+    }
     let g: serde_json::Value = serde_json::from_slice(&std::fs::read(&a[0]).map_err(|e| format!("{}: {e}", a[0]))?).map_err(|e| e.to_string())?;
     let dir = Path::new(&a[1]);
     let model = dir.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
@@ -539,8 +546,14 @@ fn cmd_run35(a: &[String]) -> Result<(), String> {
     println!("identity gate PASS (35B): {same}/{total} tokens, routes identical at {routes_same}/{steps} steps, eager expert reads at open {eager}, {} beats, {misfires} misfires", traces.len());
     Ok(())
 }
+/// The tokens a trace fed, position by position: the prompt, then each greedy token the trace produced. A trace capped at
+/// fewer positions than its prompt (`trace35 --positions`) replays only the prompt tokens it actually fed.
 fn replay_sequence(tr: &RouteTrace) -> Vec<u32> {
-    tr.prompt_tokens.iter().copied().chain(tr.argmax[tr.prompt_tokens.len() - 1..tr.argmax.len() - 1].iter().copied()).collect()
+    let p = tr.prompt_tokens.len();
+    if tr.argmax.len() <= p {
+        return tr.prompt_tokens[..tr.argmax.len()].to_vec();
+    }
+    tr.prompt_tokens.iter().copied().chain(tr.argmax[p - 1..tr.argmax.len() - 1].iter().copied()).collect()
 }
 
 fn cmd_run(a: &[String]) -> Result<(), String> {
@@ -587,6 +600,188 @@ fn cmd_run(a: &[String]) -> Result<(), String> {
         return Err(format!("identity gate FAIL: {same} of {total}"));
     }
     println!("identity gate PASS: {same}/{total} tokens, routes identical at {routes_same}/{total} positions");
+    Ok(())
+}
+
+/// `trace35 MODEL OUT --prompt TEXT [--gen G]`: L306's exact 35B forward fed one token at a time (the prompt, then G
+/// greedy tokens), routes per position per layer (sorted) and argmax per position: the same shape as the 30B `trace`,
+/// so `plan union`, `union` and `stroke35` take it unchanged. Experts come from the shards (no ring, no schedule).
+fn trace35_prompt(a: &[String], prompt: &str) -> Result<(), String> {
+    let pos = positionals(a);
+    let (dir, out) = (Path::new(&pos[0]), Path::new(&pos[1]));
+    let gen = opt_usize(a, "--gen", 2);
+    let max_pos = opt_usize(a, "--positions", usize::MAX);
+    let tk = tokenizer(dir)?;
+    let text = format!("{}{}{}", TEMPLATE.0, prompt, TEMPLATE.1);
+    let ids: Vec<u32> = tk.encode(text, false).map_err(|e| e.to_string())?.get_ids().to_vec();
+    let mut model = Qwen38Reference::open(dir)?;
+    let mut state = model.new_state();
+    let model_name = dir.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+    let mut tr = RouteTrace { schema: "aien-engine-trace/1".into(), model: model_name, prompt_tokens: ids.clone(), ..Default::default() };
+    let t = Instant::now();
+    let mut seq = ids.clone();
+    let mut i = 0;
+    while i < seq.len() && i < max_pos {
+        let logits = model.forward(&mut state, &[seq[i]], Logits::Last)?;
+        let next = argmax38(&logits) as u32;
+        tr.argmax.push(next);
+        let mut r = model.routes.clone();
+        for v in &mut r {
+            v.sort_unstable();
+            v.dedup();
+        }
+        tr.routes.push(r);
+        i += 1;
+        if i == seq.len() && seq.len() < ids.len() + gen {
+            seq.push(next);
+        }
+    }
+    tr.host_ns_per_token = (t.elapsed().as_nanos() / i.max(1) as u128) as u64;
+    let gen_ids = &seq[ids.len()..];
+    let gen_text = tk.decode(gen_ids, true).map_err(|e| e.to_string())?;
+    tr.save(out)?;
+    let side = json!({"prompt": prompt, "prompt_tokens": ids.len(), "generated": gen_ids, "generated_text": gen_text, "positions": i, "positions_cap": max_pos, "host_ms_per_token": tr.host_ns_per_token as f64 / 1e6, "source": "shards (exact 35B forward, one token per step)"});
+    write_json(&out.with_extension("side.json"), &side)?;
+    println!("trace35: {} positions, generated {:?}, {:.0} ms per token", i, gen_text, tr.host_ns_per_token as f64 / 1e6);
+    Ok(())
+}
+
+/// `stroke35 SCHEDULE MANIFEST MODEL OUT --n N --traces A,B,... [--positions P] [--workers W] [--engines E]`: H6 on the
+/// 35B. N sequences step one layer at a time through L306's exact forward (embed, read_layer, layer_mix, layer_mlp,
+/// finish: the same pieces `forward` is made of), so every head reads its experts of layer l inside the same beat
+/// and the ring serves each expert once per beat for the union of the heads' routes. Trunk weights are read once per
+/// layer per stroke for all N heads. Gate: every head's token equals its own trace at every position (fail closed).
+fn cmd_stroke35(a: &[String]) -> Result<(), String> {
+    let pos = positionals(a);
+    let s = Arc::new(Schedule::load(Path::new(&pos[0]))?);
+    let m = Manifest::load(Path::new(&pos[1])).map_err(|e| e.to_string())?;
+    let dir = Path::new(&pos[2]);
+    let out = PathBuf::from(&pos[3]);
+    let n = opt_usize(a, "--n", 1);
+    let workers = opt_usize(a, "--workers", 8);
+    let direct = opt_usize(a, "--direct", 1) == 1;
+    let engines = engines_of(a)?;
+    let traces: Vec<RouteTrace> = opt(a, "--traces").ok_or("--traces A.json,B.json,...")?.split(',').map(|p| RouteTrace::load(Path::new(p))).collect::<Result<_, _>>()?;
+    if traces.len() < n {
+        return Err(format!("{} traces for {n} heads", traces.len()));
+    }
+    let traces = &traces[..n];
+    if !s.check().pass() {
+        return Err("schedule check FAIL".into());
+    }
+    let k = s.layers.len();
+    if traces.iter().any(|t| t.routes.first().map(|r| r.len()) != Some(k)) {
+        return Err(format!("schedule has {k} layers per token; every trace must route {k} layers (the stroke fires every layer)"));
+    }
+    let seqs: Vec<Vec<u32>> = traces.iter().map(replay_sequence).collect();
+    let p = opt_usize(a, "--positions", usize::MAX).min(seqs.iter().map(|q| q.len()).min().unwrap_or(0)).min(s.tokens as usize);
+    if p == 0 {
+        return Err("no positions".into());
+    }
+    let t0 = Instant::now();
+    let (crank, h) = start_engines(s.clone(), &m, workers, direct, engines, t0)?;
+    let ring = crank.ring();
+    let shared = Arc::new(Shared::default());
+    let source = RingSource::open(dir, ring, s.clone(), crank, shared.clone())?;
+    source.prime()?;
+    let t_open = Instant::now();
+    let config = Qwen38Config::from_checkpoint(dir)?;
+    if config.layers != k {
+        return Err(format!("the model has {} layers, the schedule {k}: the stroke fires every layer", config.layers));
+    }
+    let mut model = Qwen38Reference::new(config, source)?;
+    let open_s = t_open.elapsed().as_secs_f64();
+    shared.share_experts.store(n > 1, Ordering::Release);
+    shared.armed.store(true, Ordering::Release);
+    let mut states: Vec<_> = (0..n).map(|_| model.new_state()).collect();
+    let mut got: Vec<Vec<u32>> = vec![Vec::new(); n];
+    let mut routes_same = vec![0usize; n];
+    let mut strokes: Vec<StrokeBeat> = Vec::with_capacity(p * k);
+    let mut stroke_s: Vec<f64> = Vec::with_capacity(p);
+    let mut failure: Option<String> = None;
+    let now_ns = || t0.elapsed().as_nanos() as i64;
+    'strokes: for t in 0..p {
+        shared.token.store(t as u32, Ordering::Release);
+        let ts = Instant::now();
+        let mut xs: Vec<Vec<f32>> = Vec::with_capacity(n);
+        for (sidx, q) in seqs.iter().enumerate() {
+            match model.embed(&[q[t]]) {
+                Ok(x) => xs.push(x),
+                Err(e) => {
+                    failure = Some(format!("stroke {t} head {sidx}: {e}"));
+                    break 'strokes;
+                }
+            }
+        }
+        let mut routes_this: Vec<Vec<Vec<u16>>> = vec![Vec::with_capacity(k); n];
+        for l in 0..k {
+            let w = match model.read_layer(l) {
+                Ok(w) => w,
+                Err(e) => {
+                    failure = Some(format!("stroke {t} layer {l}: {e}"));
+                    break 'strokes;
+                }
+            };
+            let a0 = now_ns();
+            for sidx in 0..n {
+                if let Err(e) = model.layer_mix(l, &w, &mut states[sidx], &mut xs[sidx], 1) {
+                    failure = Some(format!("stroke {t} layer {l} head {sidx}: {e}"));
+                    break 'strokes;
+                }
+            }
+            let a1 = now_ns();
+            for sidx in 0..n {
+                if let Err(e) = model.layer_mlp(l, &w, &mut xs[sidx], 1) {
+                    failure = Some(format!("stroke {t} layer {l} head {sidx}: {e}"));
+                    break 'strokes;
+                }
+                let mut r = model.routes[l].clone();
+                r.sort_unstable();
+                r.dedup();
+                routes_this[sidx].push(r);
+            }
+            let a2 = now_ns();
+            strokes.push(StrokeBeat { b: (t * k + l) as u32, layer: s.layers[l], heads: n, union: shared.beat_union.load(Ordering::Relaxed), union_bytes: shared.beat_union_bytes.load(Ordering::Relaxed), attn_ns: a1 - a0, moe_ns: a2 - a1 });
+        }
+        for sidx in 0..n {
+            let logits = model.finish(&mut states[sidx], &xs[sidx], 1, Logits::Last);
+            got[sidx].push(argmax38(&logits) as u32);
+            if routes_this[sidx] == traces[sidx].routes[t] {
+                routes_same[sidx] += 1;
+            }
+        }
+        stroke_s.push(ts.elapsed().as_secs_f64());
+    }
+    shared.close(now_ns());
+    drop(model);
+    h.join().map_err(|_| "movement thread panicked")?;
+    let eager = shared.eager_expert_reads.load(Ordering::Relaxed);
+    let traces_out = shared.traces.lock().unwrap().clone();
+    let misfires = traces_out.iter().filter(|t| t.misfire).count();
+    let per_head: Vec<Value> = (0..n).map(|sidx| {
+        let (same, total) = gate_identical(&traces[sidx], &got[sidx]);
+        json!({"head": sidx, "same": same, "of": total, "routes_identical_positions": routes_same[sidx], "identical": failure.is_none() && same == total && total == p})
+    }).collect();
+    let all_identical = per_head.iter().all(|h| h["identical"].as_bool() == Some(true));
+    let union: Vec<f64> = strokes.iter().map(|x| x.union as f64).collect();
+    let union_bytes: Vec<f64> = strokes.iter().map(|x| x.union_bytes as f64).collect();
+    let attn: Vec<f64> = strokes.iter().map(|x| x.attn_ns as f64 / 1e3).collect();
+    let moe: Vec<f64> = strokes.iter().map(|x| x.moe_ns as f64 / 1e3).collect();
+    let span_s = traces_out.last().map(|l| (l.fire_done_ns - traces_out[0].fire_start_ns) as f64 / 1e9).unwrap_or(0.0);
+    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+    std::fs::write(out.join("strokes.json"), serde_json::to_vec(&strokes).unwrap()).map_err(|e| e.to_string())?;
+    let gate = json!({"identical_tokens_every_head": all_identical, "heads": per_head, "failure": failure, "eager_expert_reads_at_open": eager, "misfires": misfires, "strokes_done": stroke_s.len(), "of": p});
+    write_json(&out.join("gate.json"), &gate)?;
+    write_receipts(&out, &traces_out, json!({"mode": "stroke-35b", "model": s.model, "heads": n, "tokens_per_stroke": n, "strokes": p, "workers": workers, "engines": engines.count(), "buffers": s.buffers, "slots": s.slots, "layers": k,
+        "union_experts_per_beat": series(&union), "union_bytes_per_beat": series(&union_bytes), "attn_us": series(&attn), "moe_us": series(&moe), "open_seconds": open_s, "stroke_seconds": stroke_s,
+        "tokens_per_s_total": if span_s > 0.0 { (n * stroke_s.len()) as f64 / span_s } else { 0.0 }, "gate": gate.clone()}))?;
+    if let Some(f) = failure {
+        return Err(format!("35B stroke FAILED closed: {f}"));
+    }
+    if !all_identical {
+        return Err("stroke identity gate FAIL (see gate.json)".into());
+    }
+    println!("stroke identity gate PASS (35B): {n} heads x {p} strokes, every head equals its own trace; eager expert reads at open {eager}, {} beats, {misfires} misfires", traces_out.len());
     Ok(())
 }
 
@@ -667,6 +862,8 @@ fn cmd_union(a: &[String]) -> Result<(), String> {
     let p = opt_usize(a, "--positions", usize::MAX).min(traces.iter().map(|t| t.routes.len()).min().unwrap_or(0));
     let k = traces[0].routes[0].len();
     let top_k = traces[0].routes[0][0].len();
+    let experts = opt_usize(a, "--experts", EXPERTS);
+    let expert_bytes = opt_usize(a, "--expert-bytes", 4_719_168) as f64;
     let mut rows = Vec::new();
     let mut n = 1usize;
     while n <= traces.len() {
@@ -684,12 +881,12 @@ fn cmd_union(a: &[String]) -> Result<(), String> {
                 unions.push(set.len() as f64);
             }
         }
-        let indep = EXPERTS as f64 * (1.0 - (1.0 - top_k as f64 / EXPERTS as f64).powi(n as i32));
+        let indep = experts as f64 * (1.0 - (1.0 - top_k as f64 / experts as f64).powi(n as i32));
         let measured = series(&unions);
-        rows.push(json!({"n": n, "measured_union": measured, "independent_draw_expectation": indep, "below_independent": measured.mean < indep, "bytes_per_stroke_routed_mean": measured.mean * 4_719_168.0}));
+        rows.push(json!({"n": n, "measured_union": measured, "independent_draw_expectation": indep, "below_independent": measured.mean < indep, "bytes_per_stroke_routed_mean": measured.mean * expert_bytes}));
         n *= 2;
     }
-    let rec = json!({"traces": traces.len(), "positions": p, "layers": k, "top_k": top_k, "experts": EXPERTS, "formula": "experts * (1 - (1 - top_k/experts)^N)", "rows": rows});
+    let rec = json!({"traces": traces.len(), "positions": p, "layers": k, "top_k": top_k, "experts": experts, "expert_bytes": expert_bytes, "formula": "experts * (1 - (1 - top_k/experts)^N)", "rows": rows});
     write_json(out, &rec)?;
     println!("{}", serde_json::to_string_pretty(&rec["rows"]).unwrap());
     Ok(())
@@ -749,10 +946,11 @@ fn main() {
         Some("run") => cmd_run(&args[1..]),
         Some("trace35") => cmd_trace35(&args[1..]),
         Some("run35") => cmd_run35(&args[1..]),
+        Some("stroke35") => cmd_stroke35(&args[1..]),
         Some("stroke") => cmd_stroke(&args[1..]),
         Some("union") => cmd_union(&args[1..]),
         Some("today") => cmd_today(&args[1..]),
-        _ => Err("engine manifest|trace|plan|schedule|move|run|stroke|union|today (see the file header)".to_string()),
+        _ => Err("engine manifest|trace|plan|schedule|move|swap|run|stroke|union|today|trace35|run35|stroke35 (see the file header)".to_string()),
     };
     if let Err(e) = r {
         eprintln!("engine: {e}");

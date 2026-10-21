@@ -522,7 +522,8 @@ enum Mixer {
     Attention(AttentionWeights),
 }
 
-struct LayerWeights {
+/// One layer's always-resident weights (everything but the routed experts); opaque outside this module.
+pub struct LayerWeights {
     input_norm: Vec<f32>,
     post_norm: Vec<f32>,
     mixer: Mixer,
@@ -731,7 +732,8 @@ impl<S: TensorSource> Qwen38Reference<S> {
         Qwen38State::new(&self.config)
     }
 
-    fn read_layer(&mut self, l: usize) -> Result<LayerWeights, String> {
+    /// Reads layer `l`'s trunk (norms, mixer, router, shared expert) from the source.
+    pub fn read_layer(&mut self, l: usize) -> Result<LayerWeights, String> {
         let c = self.config.clone();
         let p = format!("{}layers.{l}", self.prefix);
         let src: &mut dyn TensorSource = &mut self.source;
@@ -852,6 +854,10 @@ impl<S: TensorSource> Qwen38Reference<S> {
     /// [`Self::forward`] that also copies the residual stream entering layer `b` (`[t][hidden]`,
     /// before its input norm) into `taps` for every `b` in `at` (ascending; `b == layers` is the
     /// residual before the final norm). The chip checks a model window by window against these.
+    ///
+    /// Composed of [`Self::embed`], [`Self::read_layer`] + [`Self::layer_mix`] + [`Self::layer_mlp`]
+    /// per layer, and [`Self::finish`], in that order; a driver that steps several sequences one
+    /// layer at a time (L312's stroke) calls the same pieces and gets the same floats.
     pub fn forward_tapped(
         &mut self,
         state: &mut Qwen38State,
@@ -860,7 +866,31 @@ impl<S: TensorSource> Qwen38Reference<S> {
         at: &[usize],
         taps: &mut Vec<Vec<f32>>,
     ) -> Result<Vec<f32>, String> {
-        let c = self.config.clone();
+        let layers = self.config.layers;
+        let t = tokens.len();
+        let mut x = self.embed(tokens)?;
+        if at.windows(2).any(|p| p[0] >= p[1]) || at.iter().any(|&b| b > layers) {
+            return Err(format!(
+                "forward: taps {at:?} not ascending within 0..={layers}"
+            ));
+        }
+        for l in 0..layers {
+            if at.contains(&l) {
+                taps.push(x.clone());
+            }
+            let w = self.read_layer(l)?;
+            self.layer_mix(l, &w, state, &mut x, t)?;
+            self.layer_mlp(l, &w, &mut x, t)?;
+        }
+        if at.contains(&layers) {
+            taps.push(x.clone());
+        }
+        Ok(self.finish(state, &x, t, logits))
+    }
+
+    /// The residual stream entering layer 0: the bf16 embedding of every token, `[t][hidden]`.
+    pub fn embed(&self, tokens: &[u32]) -> Result<Vec<f32>, String> {
+        let c = &self.config;
         let (t, h) = (tokens.len(), c.hidden);
         if t == 0 {
             return Err("forward: no tokens".into());
@@ -878,48 +908,67 @@ impl<S: TensorSource> Qwen38Reference<S> {
                 *o = bf16_to_f32(b);
             }
         }
-        if at.windows(2).any(|p| p[0] >= p[1]) || at.iter().any(|&b| b > c.layers) {
-            return Err(format!(
-                "forward: taps {at:?} not ascending within 0..={}",
-                c.layers
-            ));
-        }
-        for l in 0..c.layers {
-            if at.contains(&l) {
-                taps.push(x.clone());
+        Ok(x)
+    }
+
+    /// First half of layer `l` on `t` rows of `x`: `x += mixer(norm(x))` (DeltaNet or attention),
+    /// advancing `state`'s layer-`l` part. `w` comes from [`Self::read_layer`]`(l)`.
+    pub fn layer_mix(
+        &self,
+        l: usize,
+        w: &LayerWeights,
+        state: &mut Qwen38State,
+        x: &mut [f32],
+        t: usize,
+    ) -> Result<(), String> {
+        let c = &self.config;
+        let mut xn = x.to_vec();
+        rms_norm_zc(&mut xn, &w.input_norm, c.eps);
+        let mixed = match (&w.mixer, &mut state.layers[l]) {
+            (Mixer::DeltaNet(d), LayerState::DeltaNet { conv, s }) => {
+                delta_net(c, d, &xn, t, conv, s)
             }
-            let w = self.read_layer(l)?;
-            let mut xn = x.clone();
-            rms_norm_zc(&mut xn, &w.input_norm, c.eps);
-            let mixed = match (&w.mixer, &mut state.layers[l]) {
-                (Mixer::DeltaNet(d), LayerState::DeltaNet { conv, s }) => {
-                    delta_net(&c, d, &xn, t, conv, s)
-                }
-                (Mixer::Attention(a), LayerState::Attention { k, v }) => {
-                    attention(&c, a, &xn, t, state.pos, k, v)
-                }
-                _ => return Err(format!("layer {l}: state kind differs from the weights")),
-            };
-            x.iter_mut().zip(&mixed).for_each(|(a, b)| *a += b);
-            let mut xn = x.clone();
-            rms_norm_zc(&mut xn, &w.post_norm, c.eps);
-            let down = match &w.mlp {
-                Mlp::Dense(f) => f.run(&xn, t),
-                Mlp::Moe(m) => self.moe(l, m, &xn, t)?,
-            };
-            x.iter_mut().zip(&down).for_each(|(a, b)| *a += b);
-        }
-        if at.contains(&c.layers) {
-            taps.push(x.clone());
-        }
+            (Mixer::Attention(a), LayerState::Attention { k, v }) => {
+                attention(c, a, &xn, t, state.pos, k, v)
+            }
+            _ => return Err(format!("layer {l}: state kind differs from the weights")),
+        };
+        x.iter_mut().zip(&mixed).for_each(|(a, b)| *a += b);
+        Ok(())
+    }
+
+    /// Second half of layer `l`: `x += mlp(norm(x))`, the sparse block reading its routed experts
+    /// from the source (routes recorded in [`Self::routes`]`[l]`).
+    pub fn layer_mlp(
+        &mut self,
+        l: usize,
+        w: &LayerWeights,
+        x: &mut [f32],
+        t: usize,
+    ) -> Result<(), String> {
+        let eps = self.config.eps;
+        let mut xn = x.to_vec();
+        rms_norm_zc(&mut xn, &w.post_norm, eps);
+        let down = match &w.mlp {
+            Mlp::Dense(f) => f.run(&xn, t),
+            Mlp::Moe(m) => self.moe(l, m, &xn, t)?,
+        };
+        x.iter_mut().zip(&down).for_each(|(a, b)| *a += b);
+        Ok(())
+    }
+
+    /// After the last layer: advance the position by `t`, final norm, lm_head; logits `[rows][vocab]`.
+    pub fn finish(&self, state: &mut Qwen38State, x: &[f32], t: usize, logits: Logits) -> Vec<f32> {
+        let c = &self.config;
+        let h = c.hidden;
         state.pos += t;
         let rows = match logits {
             Logits::Last => &x[(t - 1) * h..],
-            Logits::All => &x[..],
+            Logits::All => x,
         };
         let mut rows = rows.to_vec();
         rms_norm_zc(&mut rows, &self.final_norm, c.eps);
-        Ok(self.lm_head.matmul(&rows, rows.len() / h))
+        self.lm_head.matmul(&rows, rows.len() / h)
     }
 }
 
