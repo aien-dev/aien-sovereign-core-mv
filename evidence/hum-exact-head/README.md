@@ -22,6 +22,11 @@ A deliberately broken version (error bounds shrunk) does change words, so the ch
 20,000 to 218,000 words to recheck. The worst-case bound is about 50 times wider than the typical error, and
 at 4 bits that swamps the gap between the best words.
 
+**Served (2026-10-21, Drake 02:25Z "just turn it on").** The served 35B uses it for every greedy request. The words are
+identical to the golden and to the lever switched off (5 of 5 extra requests), and a broken build fails. One request at
+a time, the chip spent 21.8 ms per word instead of 24.0 (`serve-combined/README.md`). Sampled requests still use the
+full head. See "Serving" below.
+
 Chip receipt: see "Chip" below (pending its turn on the GPU when this page was written).
 
 ## Method
@@ -77,3 +82,13 @@ ARGMAX reads 1,998,848 + 31 bf16 rows 126,976 = 519,686,784 B (calc:e42a986f) vs
 ## Chip
 
 Pending at the time of writing; filled in from `chip-receipt.json` when the window ran.
+
+## Serving
+
+- `serve/`: bin-e1f02b29, the exact head alone. `serve-combined/`: bin-409c8ffa, with the L356 levers (the swap request).
+- Engine: `qwen38_omega/moe.rs` builds `exact_head::chip_screen` at load (7 to 9 s) and `qwen38_engine.rs` turns it on per
+  request when temperature <= 0.001.
+- Graph: omega `omega_gpu_q36_graph_set_exact_head`, 5 extra launches per token: XBOUND SCALE, FP8 screen, XBOUND,
+  ARGMAX x2, then the bf16 MASK GEMV in place of the plain one.
+- The omega lib must be built against physics at `physics.lock`. A build with `PHYSICS_LOCK_CHECK=0` against a stale
+  checkout cannot load on the GB10 (`serve/attempt1-stale-physics/`).
