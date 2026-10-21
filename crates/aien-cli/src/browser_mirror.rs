@@ -405,6 +405,10 @@ impl ChromeProcess {
             .arg("--no-default-browser-check")
             .arg("--disable-dev-shm-usage")
             .arg("--disable-gpu")
+            // With --disable-gpu Chrome otherwise starts a SwiftShader GPU process, and on this
+            // aarch64 box Page.captureScreenshot then never answers (sovereign-core #661: 10/10
+            // runs hung without this flag, 6/6 passed in 1-2 s with it).
+            .arg("--disable-software-rasterizer")
             .arg("--no-sandbox")
             .arg("--window-size=1280,900")
             .arg(url)
@@ -547,22 +551,55 @@ impl CdpClient {
         Ok(path)
     }
 
-    /// Waits until the page's `document.readyState` is complete (or the deadline passes).
-    /// Chrome's first document is `about:blank`, already complete, so unless that is the
-    /// target the page must also have left it.
-    fn wait_loaded(&mut self, url: &str, timeout: Duration) {
-        let blank_ok = url == "about:blank";
+    /// Waits until the requested page is loaded: `document.readyState` is `complete` and
+    /// `location.href` is that page. Chrome's first document is `about:blank` (already
+    /// complete) and a failed load shows Chrome's own error page (complete as well), so
+    /// neither counts; an error page is navigated once more. Past the deadline the caller
+    /// gets what the tab showed, instead of a null element from a later `eval`.
+    fn wait_loaded(&mut self, url: &str, timeout: Duration) -> Result<(), String> {
         let deadline = Instant::now() + timeout;
-        while Instant::now() < deadline {
+        let mut renavigated = false;
+        loop {
             let state = self
-                .eval("[document.readyState, location.href]", false)
+                .eval(
+                    "[document.readyState, location.href, document.title]",
+                    false,
+                )
                 .unwrap_or(Value::Null);
-            if state[0] == "complete" && (blank_ok || state[1] != "about:blank") {
-                return;
+            let href = state[1].as_str().unwrap_or("");
+            if state[0] == "complete" && same_page(href, url) {
+                return Ok(());
+            }
+            if href.starts_with("chrome-error://") && !renavigated {
+                renavigated = true;
+                self.send("Page.navigate", json!({"url": url})).ok();
+            }
+            if Instant::now() >= deadline {
+                return Err(format!(
+                    "page did not load in {} s: wanted {}, tab shows readyState={} href={} title={}",
+                    timeout.as_secs(),
+                    url,
+                    state[0],
+                    state[1],
+                    state[2]
+                ));
             }
             std::thread::sleep(Duration::from_millis(200));
         }
     }
+}
+
+/// Whether a tab at `href` shows `url`: the same location (a trailing slash aside, and a
+/// page may add a fragment or a path under it), never `about:blank` nor Chrome's error page.
+fn same_page(href: &str, url: &str) -> bool {
+    if url == "about:blank" {
+        return href == "about:blank";
+    }
+    if href.is_empty() || href == "about:blank" || href.starts_with("chrome-error://") {
+        return false;
+    }
+    href.trim_end_matches('/')
+        .starts_with(url.trim_end_matches('/'))
 }
 
 /// A live browser: Chrome process plus the page session. Dropping it kills Chrome.
@@ -582,7 +619,7 @@ impl Mirror {
         let mut cdp = CdpClient::connect(&ws_url)?;
         cdp.send("Page.enable", json!({}))?;
         cdp.send("Runtime.enable", json!({}))?;
-        cdp.wait_loaded(url, Duration::from_secs(15));
+        cdp.wait_loaded(url, Duration::from_secs(15))?;
         Ok(Mirror {
             _chrome: chrome,
             cdp,
@@ -859,7 +896,18 @@ pub fn run_eval(url: &str, expr: &str) -> Value {
     };
     match mirror.cdp.eval(expr, true) {
         Ok(v) => json!({"mode": "eval", "status": "ok", "target_url": url, "value": v}),
-        Err(e) => json!({"mode": "eval", "status": "error", "error": e}),
+        Err(e) => {
+            // What the tab showed when the expression failed, so a null element names the
+            // page it was looked for on.
+            let page = mirror
+                .cdp
+                .eval(
+                    "[document.readyState, location.href, document.title]",
+                    false,
+                )
+                .unwrap_or(Value::Null);
+            json!({"mode": "eval", "status": "error", "error": e, "page": page})
+        }
     }
 }
 
