@@ -10,4 +10,5 @@ ss -ltn | grep -q "127.0.0.1:$PORT " && { echo "$PORT already in use"; exit 2; }
 echo "=== $(date -u +%FT%TZ) start batch door $TAG ($BIN, $SL slots, ctx $CTX, swap=${AIEN_Q36_TEST_ROW_SWAP:-none}) MemAvailable $(awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo) GB" >> "$S/batch-$PORT.log"
 setsid nohup ./aien-serve-http --engine omega --model-dir "$HOME/models/qwen3.6-35b-a3b-fp8-95a723d0" \
   --port $PORT --max-context $CTX --max-tokens-cap 16384 --thinking off --batch-slots $SL >> "$S/batch-$PORT.log" 2>&1 < /dev/null &
-echo $! > "$S/batch-$PORT.pid"; echo "pid $(cat "$S/batch-$PORT.pid"), log $S/batch-$PORT.log"
+echo $! > "$S/batch-$PORT.pid"; echo 1000 > /proc/$(cat "$S/batch-$PORT.pid")/oom_score_adj 2>/dev/null || true  # out of memory: the kernel takes this test server, never 18091
+echo "pid $(cat "$S/batch-$PORT.pid"), log $S/batch-$PORT.log"

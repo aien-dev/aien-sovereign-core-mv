@@ -13,8 +13,8 @@ client would). Negative control: `AIEN_Q36_TEST_ROW_SWAP=40` swaps two rows' sta
 ## Results (bin-99230310)
 | run | identical | differ | turn 2 | golden | verdict |
 |---|---|---|---|---|---|
-| real8 | 32/32 | none | identical | identical | PASS (want PASS) |
-| swap40-8 (row swap at step 54, rows 7 and 6) | 30/32 | prompts 0 and 3 (the two swapped rows) | identical | identical | FAIL (want FAIL) |
+| real8-99230310 | 32/32 | none | identical | identical | PASS (want PASS) |
+| swap40-8-99230310 (row swap at step 54, rows 7 and 6) | 30/32 | prompts 0 and 3 (the two swapped rows) | identical | identical | FAIL (want FAIL) |
 
 References: `alone/` from bin-5b726818 (02:42Z) and `alone-bin-0915000b/` from the live L356 build: 33/33 replies
 identical between the two.
