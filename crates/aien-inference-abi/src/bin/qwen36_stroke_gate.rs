@@ -1,7 +1,7 @@
 //! Stroke gate: N conversations per stroke on the chip, judged word for word (L312, the motor).
 //!
 //! ```text
-//!   qwen36_stroke_gate <checkpoint-dir> <out.json> <golden.json>...   (2..=4 goldens, one per head)
+//!   qwen36_stroke_gate <checkpoint-dir> <out.json> <golden.json>...   (1..=8 goldens, one per head)
 //! ```
 //!
 //! Every golden is a `qwen38_check generate` record (`prompt_ids`, `generated_ids`); conversation
@@ -185,8 +185,8 @@ fn median(v: &mut [u64]) -> u64 {
 
 fn run() -> Result<bool, String> {
     let args: Vec<String> = std::env::args().collect();
-    let usage = "usage: qwen36_stroke_gate <checkpoint-dir> <out.json> <golden.json>... (2..=4)";
-    if args.len() < 5 || args.len() > 7 {
+    let usage = "usage: qwen36_stroke_gate <checkpoint-dir> <out.json> <golden.json>... (1..=8)";
+    if args.len() < 4 || args.len() > 11 {
         return Err(usage.into());
     }
     let dir = Path::new(&args[1]);
@@ -204,6 +204,11 @@ fn run() -> Result<bool, String> {
         Some("feature") => Swap::Feature,
         Some(v) => return Err(format!("AIEN_STROKE_SWAP={v}: control, feature or unset")),
     };
+    if swap != Swap::None && heads < 2 {
+        return Err(format!(
+            "AIEN_STROKE_SWAP exchanges slots 0 and 1: {heads} head(s) given, two needed"
+        ));
+    }
 
     let config = Qwen38Config::from_checkpoint(dir)?;
     let layers = config.layers;

@@ -146,8 +146,8 @@ pub enum Q36Buf {
     Dn,
 }
 
-/// Heads per stroke the chip library lays out at most (one 2048-launch command list holds four 40-layer tokens).
-pub const MAX_HEADS: usize = 4;
+/// Heads per stroke the chip library lays out at most (one 4096-launch command list holds eight 40-layer tokens of 444 launches).
+pub const MAX_HEADS: usize = 8;
 
 pub struct Q36Graph {
     #[cfg(has_omega_q36)]
