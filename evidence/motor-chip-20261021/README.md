@@ -65,6 +65,29 @@ First pass medians of `chip_ns_all_windows`: p1 21.863782 ms = 45.74 tok/s (calc
 tool. The coordinator's read through the door at 02:04Z: 42.0 to 44.4 tok/s decode, 0.67 of the 63.25 tok/s ceiling at
 today's bytes.
 
+## Stroke v1, four conversations per command list (`qwen36_stroke_gate`, sc 5637a828 over omega a8036530, lib 18fabc97; bins 26343923 for the two red runs, 73dbaac6 and 789d87af for the two green ones, per row)
+One multi-head graph (`Q36Graph::create_heads`, at most 4: a 40-layer token records 11 x 40 + 4 launches and the list holds
+2048); p1..p4 live in slots 0..3 with their own DeltaNet state, attention cache and position; every step is ONE stroke
+(every head's layer l before layer l + 1, one submit), teacher forcing with each golden's own tokens; a head whose sequence
+ended keeps taking its last token and is not judged after its end. Rule per conversation = gate 1's written-band rule
+(0.1 logit, fixed in advance). Red before green, in this order:
+
+| run | what | result |
+|---|---|---|
+| `stroke-mutant4` 02:53Z | `AIEN_Q36_TEST_MUTANT=4`, must FAIL | FAIL (exit 1): p1 10/32, p2 30/32, p3 15/32, p4 13/32; 22, 1, 17, 18 flips beyond the band. Head 0's 36 tokens equal the single-head mutant run (`gate1b-p1-mutant4.log`) token for token: the stroke is the one-token mathematics |
+| `stroke-swap-control` 02:58Z | slots 0 and 1 exchange state objects at step 18, feeds stay; must FAIL | FAIL (exit 1): p1 and p2 diverge from step 18 on (25/32, 28/32); the untouched p3 32/32 and p4 31/32 (its known in-band flip at 11) stay identical, greedy agrees, shifted-by-one caught |
+| `stroke-p1234` 03:40Z (bin 73dbaac6, built from 5637a828 before the tool stamped its own sha) | the real run, must PASS | PASS (exit 0): p1 32/32, p2 32/32, p3 32/32, p4 31/32 (its one in-band flip at 11, margin 0.0096, is the same flip as the single-head run); every head's chip tokens equal its single-head run (`gate1b-p<n>.json` `chip_ids`) 32/32 on all four; greedy agrees outside the band, shifted-by-one caught; cosine min 0.9949 to 0.9995 recorded, not gated |
+| `stroke-swap-feature` 03:45Z (bin 789d87af, sc 3dbbad4d: the tool waits for memory in a loop and stamps its own sha, the gate code is unchanged) | the exchange with the feeds moved along (head swap as a feature), must PASS | PASS (exit 0): p1 ends in slot 1, p2 in slot 0; all four identical to the single-head runs 32/32 (p4 with the same in-band flip): a conversation follows its state and cache, the slot number means nothing |
+
+First run (lib 87ffd31e, bin ee17bec9, `~/handoffs/motor-stroke-run1/`): mutant red, BUT head 0 differed from the single-head
+mutant run at every position, which the same mutant cannot do. Cause (omega `omega_gpu_q36_graph.c` `record_head_layer`): the fused
+COMBINE|NORM writes the next layer's normalised input into `xq` and the next layer skips its NORM; `xq` was one shared slot, so
+with heads interleaved per layer every head read the last head's x'. Fixed per head (a8036530); the other scratch is produced
+and consumed inside one head's contiguous launches (barriers between launches by default) and stays shared.
+
+Chip time per stroke (shared chip, no quiet window, four tokens per stroke; a receipt only under `spark-window`): real run median 92.887032 ms per stroke of four tokens (46 strokes, min 90.378, max 101.353 ms) = 43.06 tok/s across the four heads (calc:9c07e26f), 23.22 ms per token-equivalent (calc:3ae78e68); swap-feature median 93.448174 ms = 42.80 tok/s (calc:18064ffe), 23.36 ms per token-equivalent (calc:ab4e0439); the red runs sat at 94.228 and 93.206 ms. Against the single-head medians above (21.86 to 22.99 ms per token, same shared chip) a v1 stroke costs about four single tokens, as built: every head reads the weights once per stroke; v2 batches the dense GEMVs at M = 4. Not a speed receipt: the 18091 server and two other lanes' tools shared the chip, and the `spark-window` line was stuck during these runs (the window run is still owed).
+
 ## Files
-`gate1-*.json/.log` first pass (band withdrawn, data kept), `gate1b-*.json/.log` the rerun, `gate2-*.json` the door, `run.log`
+`gate1-*.json/.log` first pass (band withdrawn, data kept), `gate1b-*.json/.log` the rerun, `gate2-*.json` the door, `stroke-*.json/.log`
+the four stroke runs (`stroke_chip_ns` per stroke, `conversations[].steps`), `run.log`
 the chip log with binary and lib shas; the scripts live in `~/handoffs/motor-scripts/` (not in the repo: they carry home paths).
