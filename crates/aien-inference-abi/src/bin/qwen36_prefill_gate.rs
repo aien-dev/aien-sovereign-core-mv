@@ -145,7 +145,9 @@ fn run(args: &[String]) -> Result<bool, String> {
         None => full.layers,
     };
     let t = Instant::now();
-    let mut m = Qwen38Omega::open_window_heads(dir, 0, count, max_len + decode + 1, 2)?;
+    // the attention cache holds whole score passes of 256 positions
+    let max_pos = (max_len + decode + 1).next_multiple_of(256);
+    let mut m = Qwen38Omega::open_window_heads(dir, 0, count, max_pos, 2)?;
     eprintln!("loaded {count} layers in {:.1} s", t.elapsed().as_secs_f64());
     let mut runs = Vec::new();
     let mut all = true;
