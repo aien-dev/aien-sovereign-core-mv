@@ -360,7 +360,11 @@ fn collect_files(root: &Path, rel: &str, out: &mut BTreeSet<String>) {
             .unwrap_or_default();
         names.sort();
         for n in names {
-            let mut child = if base.is_empty() { n } else { format!("{base}/{n}") };
+            let mut child = if base.is_empty() {
+                n
+            } else {
+                format!("{base}/{n}")
+            };
             if !rest.is_empty() {
                 child = format!("{child}/{rest}");
             }
@@ -958,18 +962,19 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
     // queued behind the head's cargo gates for up to the head's whole wall
     // (L335, finding G3-ci-judge-2); `aien-test audit-inputs` refuses the
     // promise when the traced run starts cargo or rustc.
-    let target_lock: Option<resources::TargetLock> = if m.target_lock && verdict::pre_run(m, &facts).is_none() {
-        let dir = opts
-            .cargo_target_dir
-            .clone()
-            .unwrap_or_else(|| resolve(root).join("target"));
-        let path = resources::target_lock_path(&opts.target_lock_dir, &dir);
-        Some(resources::lock_target_dir(&path).map_err(|e| {
-            RunError::Fatal(format!("cannot lock target dir {}: {e}", path.display()))
-        })?)
-    } else {
-        None
-    };
+    let target_lock: Option<resources::TargetLock> =
+        if m.target_lock && verdict::pre_run(m, &facts).is_none() {
+            let dir = opts
+                .cargo_target_dir
+                .clone()
+                .unwrap_or_else(|| resolve(root).join("target"));
+            let path = resources::target_lock_path(&opts.target_lock_dir, &dir);
+            Some(resources::lock_target_dir(&path).map_err(|e| {
+                RunError::Fatal(format!("cannot lock target dir {}: {e}", path.display()))
+            })?)
+        } else {
+            None
+        };
     let target_wait_ms = t_target.elapsed().as_millis() as u64;
 
     // A gb10 gate takes the GPU locks only when nothing else already stops it,
@@ -2463,7 +2468,10 @@ mod tests {
         );
         for id in ["G-A", "G-B"] {
             let v = read_json(outcome(&c, id).receipt_path.as_ref().unwrap())["volatile"].clone();
-            assert!(v["target_wait_ms"].as_u64().unwrap() < 150, "{id} waited: {v}");
+            assert!(
+                v["target_wait_ms"].as_u64().unwrap() < 150,
+                "{id} waited: {v}"
+            );
         }
     }
 

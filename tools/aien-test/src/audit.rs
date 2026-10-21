@@ -54,31 +54,48 @@ pub fn parse_strace(text: &str) -> Vec<Opened> {
     let mut out = Vec::new();
     for line in text.lines() {
         let Some(lt) = line.find('<') else { continue };
-        let Some(gt) = line[lt..].find("> ") else { continue };
+        let Some(gt) = line[lt..].find("> ") else {
+            continue;
+        };
         let comm = line[lt + 1..lt + gt].to_string();
         let call = &line[lt + gt + 2..];
         if call.starts_with("execve(") {
             // execve("/abs/path", ...) = 0: the program file itself is read.
             if let Some(p) = quoted(call) {
                 if p.starts_with('/') && call.trim_end().ends_with("= 0") {
-                    out.push(Opened { comm, path: p, write_only: false });
+                    out.push(Opened {
+                        comm,
+                        path: p,
+                        write_only: false,
+                    });
                 }
             }
             continue;
         }
-        if !(call.starts_with("openat(") || call.starts_with("open(") || call.starts_with("openat2(")) {
+        if !(call.starts_with("openat(")
+            || call.starts_with("open(")
+            || call.starts_with("openat2("))
+        {
             continue;
         }
         // ... ) = 3</resolved/path>
-        let Some(eq) = call.rfind(") = ") else { continue };
+        let Some(eq) = call.rfind(") = ") else {
+            continue;
+        };
         let ret = &call[eq + 4..];
-        let (Some(a), Some(b)) = (ret.find('<'), ret.rfind('>')) else { continue };
+        let (Some(a), Some(b)) = (ret.find('<'), ret.rfind('>')) else {
+            continue;
+        };
         if b <= a + 1 {
             continue;
         }
         let path = ret[a + 1..b].to_string();
         let write_only = call[..eq].contains("O_WRONLY");
-        out.push(Opened { comm, path, write_only });
+        out.push(Opened {
+            comm,
+            path,
+            write_only,
+        });
     }
     out
 }
@@ -130,12 +147,23 @@ impl Report {
     /// The promise holds: nothing undeclared, and a `target_lock: none` gate
     /// never started cargo.
     pub fn ok(&self, m: &Manifest) -> bool {
-        self.undeclared.is_empty() && self.undeclared_outside.is_empty() && (m.target_lock || !self.uses_cargo)
+        self.undeclared.is_empty()
+            && self.undeclared_outside.is_empty()
+            && (m.target_lock || !self.uses_cargo)
     }
 }
 
-const SYSTEM: [&str; 9] = ["/usr/", "/lib/", "/lib64/", "/bin/", "/sbin/", "/etc/", "/proc/", "/sys/", "/dev/"];
-const CARGO_PROGRAMS: [&str; 6] = ["cargo", "rustc", "clippy-driver", "cargo-clippy", "rustdoc", "cargo-fmt"];
+const SYSTEM: [&str; 9] = [
+    "/usr/", "/lib/", "/lib64/", "/bin/", "/sbin/", "/etc/", "/proc/", "/sys/", "/dev/",
+];
+const CARGO_PROGRAMS: [&str; 6] = [
+    "cargo",
+    "rustc",
+    "clippy-driver",
+    "cargo-clippy",
+    "rustdoc",
+    "cargo-fmt",
+];
 
 /// Is the repository path `rel` covered by the manifest's declarations?
 pub fn covered(m: &Manifest, manifest_rel: &str, rel: &str) -> bool {
@@ -159,7 +187,9 @@ fn input_covers(input: &str, rel: &str) -> bool {
     if rp.len() < ip.len() {
         return false;
     }
-    ip.iter().zip(&rp).all(|(a, b)| runner::wildcard_match(a, b))
+    ip.iter()
+        .zip(&rp)
+        .all(|(a, b)| runner::wildcard_match(a, b))
 }
 
 /// Judge every open of an audited run.
@@ -169,7 +199,12 @@ pub fn judge(m: &Manifest, places: &Places, opened: &[Opened]) -> Report {
     let target = places.target_dir.to_string_lossy().into_owned() + "/";
     let tmpdir = places.tmpdir.to_string_lossy().into_owned() + "/";
     let home = places.home.to_string_lossy().into_owned();
-    let toolchain = [format!("{home}/.rustup/"), format!("{home}/.cargo/"), "/var/lib/aien-run/rustup/".into(), "/var/lib/aien-run/cargo/".into()];
+    let toolchain = [
+        format!("{home}/.rustup/"),
+        format!("{home}/.cargo/"),
+        "/var/lib/aien-run/rustup/".into(),
+        "/var/lib/aien-run/cargo/".into(),
+    ];
     let outside: Vec<String> = m
         .outside_inputs
         .iter()
@@ -207,7 +242,9 @@ pub fn judge(m: &Manifest, places: &Places, opened: &[Opened]) -> Report {
             continue;
         }
         if p_dir.starts_with(&root) || p_dir == root {
-            let rel = p_dir[root.len().min(p_dir.len())..].trim_end_matches('/').to_string();
+            let rel = p_dir[root.len().min(p_dir.len())..]
+                .trim_end_matches('/')
+                .to_string();
             if rel.is_empty() {
                 bump(&mut r, "the repository root directory itself");
             } else if rel == ".git" || rel.starts_with(".git/") {
@@ -219,12 +256,18 @@ pub fn judge(m: &Manifest, places: &Places, opened: &[Opened]) -> Report {
             }
             continue;
         }
-        if outside.iter().any(|d| p == d || p.starts_with(&format!("{d}/"))) {
+        if outside
+            .iter()
+            .any(|d| p == d || p.starts_with(&format!("{d}/")))
+        {
             bump(&mut r, "declared outside_inputs");
             continue;
         }
         if toolchain.iter().any(|t| p_dir.starts_with(t.as_str())) {
-            bump(&mut r, "toolchain and registry (rust-toolchain.toml, Cargo.lock)");
+            bump(
+                &mut r,
+                "toolchain and registry (rust-toolchain.toml, Cargo.lock)",
+            );
             continue;
         }
         if SYSTEM.iter().any(|s| p_dir.starts_with(s)) || p == "/" {
@@ -235,7 +278,9 @@ pub fn judge(m: &Manifest, places: &Places, opened: &[Opened]) -> Report {
             bump(&mut r, "/tmp, /run (locks and scratch)");
             continue;
         }
-        r.undeclared_outside.entry(p.to_string()).or_insert_with(|| o.comm.clone());
+        r.undeclared_outside
+            .entry(p.to_string())
+            .or_insert_with(|| o.comm.clone());
     }
     r
 }
@@ -247,7 +292,10 @@ fn bump(r: &mut Report, why: &'static str) {
 fn judge_repo(m: &Manifest, places: &Places, rel: &str, comm: &str, r: &mut Report) {
     if let Some(t) = &places.tracked {
         let dir = format!("{rel}/");
-        let in_tree = t.contains(rel) || t.range(dir.clone()..).next().is_some_and(|f| f.starts_with(&dir));
+        let in_tree = t.contains(rel)
+            || t.range(dir.clone()..)
+                .next()
+                .is_some_and(|f| f.starts_with(&dir));
         if !in_tree {
             bump(r, "not in the tree at HEAD (made by the run)");
             return;
@@ -256,14 +304,21 @@ fn judge_repo(m: &Manifest, places: &Places, rel: &str, comm: &str, r: &mut Repo
     if covered(m, &places.manifest_rel, rel) {
         r.covered.insert(rel.to_string());
     } else {
-        r.undeclared.entry(rel.to_string()).or_insert_with(|| comm.to_string());
+        r.undeclared
+            .entry(rel.to_string())
+            .or_insert_with(|| comm.to_string());
     }
 }
 
 /// The report as text, one finding per line; `ok` decides the last line.
 pub fn render(m: &Manifest, r: &Report) -> String {
     let mut s = String::new();
-    s.push_str(&format!("AUDIT {} covered_repo_files={} uses_cargo={}\n", m.gate, r.covered.len(), r.uses_cargo));
+    s.push_str(&format!(
+        "AUDIT {} covered_repo_files={} uses_cargo={}\n",
+        m.gate,
+        r.covered.len(),
+        r.uses_cargo
+    ));
     for (why, n) in &r.ignored {
         s.push_str(&format!("IGNORED {n} {why}\n"));
     }
@@ -276,7 +331,11 @@ pub fn render(m: &Manifest, r: &Report) -> String {
     if !m.target_lock && r.uses_cargo {
         s.push_str("TARGET_LOCK_BROKEN target_lock: none but the run started cargo or rustc\n");
     }
-    s.push_str(if r.ok(m) { "RESULT PASS inputs complete\n" } else { "RESULT FAIL inputs incomplete\n" });
+    s.push_str(if r.ok(m) {
+        "RESULT PASS inputs complete\n"
+    } else {
+        "RESULT FAIL inputs incomplete\n"
+    });
     s
 }
 
@@ -320,7 +379,14 @@ mod tests {
                  13<cargo> +++ exited with 0 +++\n";
         let o = parse_strace(t);
         assert_eq!(o.len(), 3);
-        assert_eq!(o[0], Opened { comm: "sh".into(), path: "/r/a".into(), write_only: false });
+        assert_eq!(
+            o[0],
+            Opened {
+                comm: "sh".into(),
+                path: "/r/a".into(),
+                write_only: false
+            }
+        );
         assert!(o[1].write_only);
         assert_eq!(o[2].path, "/usr/bin/cargo");
     }
@@ -329,7 +395,11 @@ mod tests {
     fn a_dropped_input_is_caught_and_a_declared_one_is_not() {
         let dir = tempdir();
         let root = dir.as_path();
-        for f in ["crates/a/src/lib.rs", "crates/b/src/lib.rs", "crates/b/Cargo.toml"] {
+        for f in [
+            "crates/a/src/lib.rs",
+            "crates/b/src/lib.rs",
+            "crates/b/Cargo.toml",
+        ] {
             std::fs::create_dir_all(root.join(f).parent().unwrap()).unwrap();
             std::fs::write(root.join(f), "x").unwrap();
         }
@@ -343,21 +413,33 @@ mod tests {
         // crates/b/ is read but only its Cargo.toml is declared: FAIL.
         let m = gate("");
         let rep = judge(&m, &places(root), &opened);
-        assert_eq!(rep.undeclared.keys().collect::<Vec<_>>(), vec!["crates/b/src/lib.rs"]);
+        assert_eq!(
+            rep.undeclared.keys().collect::<Vec<_>>(),
+            vec!["crates/b/src/lib.rs"]
+        );
         assert!(!rep.ok(&m));
         // Declare it: PASS.
         let m2 = gate("  - crates/b/\n");
         let rep2 = judge(&m2, &places(root), &opened);
         assert!(rep2.ok(&m2), "{}", render(&m2, &rep2));
-        assert!(rep2.covered.contains("crates/b/Cargo.toml"), "the * pattern covers it");
+        assert!(
+            rep2.covered.contains("crates/b/Cargo.toml"),
+            "the * pattern covers it"
+        );
     }
 
     #[test]
     fn outside_reads_need_outside_inputs() {
         let dir = tempdir();
-        let opened = parse_strace(&line("prefill_e2e2-4", "/home/op/models/T/model.safetensors"));
+        let opened = parse_strace(&line(
+            "prefill_e2e2-4",
+            "/home/op/models/T/model.safetensors",
+        ));
         let m = gate("");
-        assert_eq!(judge(&m, &places(&dir), &opened).undeclared_outside.len(), 1);
+        assert_eq!(
+            judge(&m, &places(&dir), &opened).undeclared_outside.len(),
+            1
+        );
         let m2 = gate("outside_inputs:\n  - ~/models/T/\n");
         let rep = judge(&m2, &places(&dir), &opened);
         assert!(rep.ok(&m2), "{}", render(&m2, &rep));
@@ -372,7 +454,10 @@ mod tests {
             + &line("rustc", "/audit/tmp/tmp.Ab12/crates/z/lib.rs")
             + &line("rustc", "/audit/tmp/tmp.Ab12/scratch.o");
         let rep = judge(&gate(""), &places(&dir), &parse_strace(&trace));
-        assert_eq!(rep.undeclared.keys().collect::<Vec<_>>(), vec!["crates/z/lib.rs"]);
+        assert_eq!(
+            rep.undeclared.keys().collect::<Vec<_>>(),
+            vec!["crates/z/lib.rs"]
+        );
         assert_eq!(rep.ignored.get("private TMPDIR scratch"), Some(&1));
     }
 
@@ -392,15 +477,27 @@ mod tests {
         let mut p = places(&dir);
         p.tracked = Some(["src/x.c".to_string()].into_iter().collect());
         let r = dir.display();
-        let trace = line("cc", &format!("{r}/src/x.c")) + &line("ld", &format!("{r}/build/x.o")) + &line("make", &format!("{r}/src"));
+        let trace = line("cc", &format!("{r}/src/x.c"))
+            + &line("ld", &format!("{r}/build/x.o"))
+            + &line("make", &format!("{r}/src"));
         let rep = judge(&gate(""), &p, &parse_strace(&trace));
         // src/x.c and the src listing are tracked and undeclared; build/x.o is the run's own.
-        assert_eq!(rep.undeclared.keys().collect::<Vec<_>>(), vec!["src", "src/x.c"]);
-        assert_eq!(rep.ignored.get("not in the tree at HEAD (made by the run)"), Some(&1));
+        assert_eq!(
+            rep.undeclared.keys().collect::<Vec<_>>(),
+            vec!["src", "src/x.c"]
+        );
+        assert_eq!(
+            rep.ignored.get("not in the tree at HEAD (made by the run)"),
+            Some(&1)
+        );
     }
 
     fn tempdir() -> PathBuf {
-        let d = std::env::temp_dir().join(format!("aien-audit-{}-{:?}", std::process::id(), std::thread::current().id()));
+        let d = std::env::temp_dir().join(format!(
+            "aien-audit-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         canon(&d)
