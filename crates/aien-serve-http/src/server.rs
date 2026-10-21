@@ -133,7 +133,7 @@ impl ApiError {
             status: StatusCode::SERVICE_UNAVAILABLE,
             body: ErrorBody::new(
                 "server_busy",
-                "one generation at a time: the engine is busy with another request, retry shortly",
+                "every generation slot is taken (the engine's concurrency): retry shortly",
             ),
             retry_after: Some(1),
         }
