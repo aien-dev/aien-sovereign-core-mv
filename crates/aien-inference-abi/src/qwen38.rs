@@ -608,16 +608,20 @@ pub enum StateStore {
     /// e4m3fn with one f32 scale per (value head, k row) of `v_dim` values: `scale = max|row| /
     /// 448`, round to nearest even (1 B per value + 4 B per row).
     Fp8E4m3Row,
+    /// e4m3fn with one f32 scale per (value head, v column) of `k_dim` values, otherwise as
+    /// [`Self::Fp8E4m3Row`] (the axis a thread owns in the omega prefill scan).
+    Fp8E4m3Col,
 }
 
 impl StateStore {
-    pub const ALL: [StateStore; 3] = [Self::F32, Self::Bf16, Self::Fp8E4m3Row];
+    pub const ALL: [StateStore; 4] = [Self::F32, Self::Bf16, Self::Fp8E4m3Row, Self::Fp8E4m3Col];
 
     pub fn name(self) -> &'static str {
         match self {
             Self::F32 => "f32",
             Self::Bf16 => "bf16",
             Self::Fp8E4m3Row => "fp8-e4m3-row",
+            Self::Fp8E4m3Col => "fp8-e4m3-col",
         }
     }
 
@@ -627,6 +631,7 @@ impl StateStore {
             Self::F32 => 4 * k_dim * v_dim,
             Self::Bf16 => 2 * k_dim * v_dim,
             Self::Fp8E4m3Row => k_dim * v_dim + 4 * k_dim,
+            Self::Fp8E4m3Col => k_dim * v_dim + 4 * v_dim,
         }
     }
 
@@ -643,6 +648,23 @@ impl StateStore {
                     }
                     let scale = amax / 448.0;
                     row.iter_mut()
+                        .for_each(|v| *v = round_e4m3(*v / scale, codes) * scale);
+                }
+            }
+            Self::Fp8E4m3Col => {
+                for col in 0..v_dim {
+                    let amax = s
+                        .iter()
+                        .skip(col)
+                        .step_by(v_dim)
+                        .fold(0f32, |m, v| m.max(v.abs()));
+                    if amax == 0.0 {
+                        continue;
+                    }
+                    let scale = amax / 448.0;
+                    s.iter_mut()
+                        .skip(col)
+                        .step_by(v_dim)
                         .for_each(|v| *v = round_e4m3(*v / scale, codes) * scale);
                 }
             }
@@ -2018,10 +2040,11 @@ mod tests {
         for &tok in &tokens[3..] {
             want.extend(solo.forward(&mut s0, &[tok], Logits::Last).unwrap());
         }
-        let mut states: Vec<Qwen38State> = (0..4).map(|_| lock.new_state()).collect();
+        let mut states: Vec<Qwen38State> = (0..5).map(|_| lock.new_state()).collect();
         states[1].force_routes = true;
         states[2].store = StateStore::Bf16;
         states[3].store = StateStore::Fp8E4m3Row;
+        states[4].store = StateStore::Fp8E4m3Col;
         let mut got: Vec<Vec<f32>> = lock
             .forward_lockstep(&mut states, &tokens[..3], Logits::All)
             .unwrap();
@@ -2043,6 +2066,8 @@ mod tests {
         let (d16, d8) = (diff(&got[2], &want), diff(&got[3], &want));
         assert!(d16 > 0.0 && d16 < 1e-1, "bf16 drift {d16}");
         assert!(d8 > d16 && d8 < 1.0, "fp8 drift {d8} (bf16 {d16})");
+        let dc = diff(&got[4], &want);
+        assert!(dc > d16 && dc < 1.0, "fp8 column drift {dc} (bf16 {d16})");
         assert_eq!(
             states[0].delta_states().count(),
             states[2].delta_states().count()

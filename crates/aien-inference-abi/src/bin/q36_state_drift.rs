@@ -99,6 +99,23 @@ fn variants(mode: &str) -> Vec<Variant> {
             v("chunk16", StateStore::F32, false, 16),
             v("chunk16+forced", StateStore::F32, true, 16),
         ]
+    } else if std::env::var("AIEN_L313_SET").as_deref() == Ok("col") {
+        // The fp8 scale on the other axis (per v column, the prefill scan's thread axis).
+        vec![
+            v("f32", StateStore::F32, false, 0),
+            v("fp8-e4m3-col", StateStore::Fp8E4m3Col, false, 0),
+            v("fp8-e4m3-col+forced", StateStore::Fp8E4m3Col, true, 0),
+        ]
+    } else if std::env::var("AIEN_L313_SET").as_deref() == Ok("all") {
+        vec![
+            v("f32", StateStore::F32, false, 0),
+            v("bf16", StateStore::Bf16, false, 0),
+            v("bf16+forced", StateStore::Bf16, true, 0),
+            v("fp8-e4m3-row", StateStore::Fp8E4m3Row, false, 0),
+            v("fp8-e4m3-row+forced", StateStore::Fp8E4m3Row, true, 0),
+            v("fp8-e4m3-col", StateStore::Fp8E4m3Col, false, 0),
+            v("fp8-e4m3-col+forced", StateStore::Fp8E4m3Col, true, 0),
+        ]
     } else {
         vec![
             v("f32", StateStore::F32, false, 0),
