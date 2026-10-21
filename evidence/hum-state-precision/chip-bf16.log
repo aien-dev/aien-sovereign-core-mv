@@ -1,0 +1,24 @@
+2026-10-21T12:33:07Z
+== control: live gpu_gdn_test_r2
+timing prefill T 2048 (medians of 3): prep 1213.5 us, scan 3939.5 us, post 617.6 us, chip total 5770.6 us = 2.82 us/token, call 17855.0 us; insns 256/534/90, registers 80/104/28
+timing prefill T 8192 (medians of 3): prep 9129.8 us, scan 17553.9 us, post 2801.6 us, chip total 29485.3 us = 3.60 us/token, call 69407.7 us; insns 256/534/90, registers 80/104/28
+timing (medians of 3): chip 33.3 us (state read + write 4.19 MB -> 125.8 GB/s; 273 GB/s nominal), call 37.4 us; 665 insns, 116 registers
+gpu_gdn_test: 54 checks, 0 failed: PASS
+== control: pristine 739c80e8 q36
+timing prefill T 2048 (medians of 3): prep 1207.8 us, scan 3955.2 us, post 624.2 us, chip total 5787.2 us = 2.83 us/token, call 15922.0 us; insns 256/534/90, registers 80/104/28
+timing prefill T 8192 (medians of 3): prep 8831.8 us, scan 17607.2 us, post 2592.4 us, chip total 29031.4 us = 3.54 us/token, call 70033.6 us; insns 256/534/90, registers 80/104/28
+timing (medians of 3): chip 84.0 us (state read + write 4.19 MB -> 50.0 GB/s; 273 GB/s nominal), call 87.9 us; 665 insns, 116 registers
+gpu_gdn_test: 54 checks, 0 failed: PASS
+== ours f32 chip_run q36
+timing prefill T 2048 (medians of 3): prep 1167.8 us, scan 3939.5 us, post 504.0 us, chip total 5611.2 us = 2.74 us/token, call 15426.4 us; insns 256/534/90, registers 80/104/28
+timing prefill T 8192 (medians of 3): prep 9017.6 us, scan 17669.7 us, post 2712.3 us, chip total 29399.6 us = 3.59 us/token, call 70297.5 us; insns 256/534/90, registers 80/104/28
+timing (medians of 3): chip 32.9 us (state read + write 4.19 MB -> 127.4 GB/s; 273 GB/s nominal), call 37.3 us; 665 insns, 116 registers
+gpu_gdn_test: 54 checks, 0 failed: PASS
+== ours bf16 q36
+chip bf16 state: 5 calls (4 decode steps, 1 prefill of 19), rc=OK, outputs differing 0, tails differing 0, states != bf16_rn(f32) 0, rounded 2615903 of 2621440; decode step wall us (host-timed, 3 steps) bf16 704 f32 639 
+gpu_gdn_test: 6 checks, 0 failed: PASS
+== ours bf16 27B shape
+chip bf16 state: 5 calls (4 decode steps, 1 prefill of 19), rc=OK, outputs differing 0, tails differing 0, states != bf16_rn(f32) 0, rounded 3927799 of 3932160; decode step wall us (host-timed, 3 steps) bf16 756 f32 701 
+gpu_gdn_test: 6 checks, 0 failed: PASS
+2026-10-21T12:33:10Z
+ALL DONE

@@ -1,0 +1,11 @@
+2026-10-21T12:38:43Z
+== bf16 q36 (parity + interleaved chip timing, 50 reps)
+timing bf16 vs f32 state (medians of 50, interleaved): bf16 chip 24.7 us (state read + write 2.10 MB -> 85.0 GB/s), f32 chip 39.8 us (4.19 MB -> 105.5 GB/s); 273 GB/s nominal; bf16 729 insns 116 registers
+chip bf16 state: 5 calls (4 decode steps, 1 prefill of 19), rc=OK, outputs differing 0, tails differing 0, states != bf16_rn(f32) 0, rounded 2615903 of 2621440; decode step chip us (median) bf16 24.7 f32 39.8 
+gpu_gdn_test: 8 checks, 0 failed: PASS
+== bf16 27B shape
+timing bf16 vs f32 state (medians of 50, interleaved): bf16 chip 30.2 us (state read + write 3.15 MB -> 104.1 GB/s), f32 chip 51.8 us (6.29 MB -> 121.5 GB/s); 273 GB/s nominal; bf16 729 insns 116 registers
+chip bf16 state: 5 calls (4 decode steps, 1 prefill of 19), rc=OK, outputs differing 0, tails differing 0, states != bf16_rn(f32) 0, rounded 3927799 of 3932160; decode step chip us (median) bf16 30.2 f32 51.8 
+gpu_gdn_test: 8 checks, 0 failed: PASS
+2026-10-21T12:38:44Z
+ALL DONE

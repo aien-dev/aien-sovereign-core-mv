@@ -1,0 +1,18 @@
+2026-10-21T12:11:09Z
+== baseline live gpu_gdn_test_r2
+timing prefill T 2048 (medians of 3): prep 1159.7 us, scan 3941.3 us, post 546.5 us, chip total 5647.5 us = 2.76 us/token, call 16542.0 us; insns 256/534/90, registers 80/104/28
+timing prefill T 8192 (medians of 3): prep 9492.1 us, scan 17753.8 us, post 2686.8 us, chip total 29932.6 us = 3.65 us/token, call 75592.8 us; insns 256/534/90, registers 80/104/28
+timing (medians of 3): chip 32.9 us (state read + write 4.19 MB -> 127.4 GB/s; 273 GB/s nominal), call 37.0 us; 665 insns, 116 registers
+gpu_gdn_test: 54 checks, 0 failed: PASS
+== ours f32 chip_run q36
+gdn alloc (2 layers): rc=CHIP_FAIL 20855.0 ms (marker wait timed out (latched))
+FAIL: gdn alloc
+gpu_gdn_test: 1 checks, 1 failed: FAIL
+== ours bf16 q36
+FAIL: bf16 + f32 gdn alloc (marker wait timed out (latched))
+gpu_gdn_test: 1 checks, 1 failed: FAIL
+== ours bf16 27B shape
+FAIL: bf16 + f32 gdn alloc (marker wait timed out (latched))
+gpu_gdn_test: 1 checks, 1 failed: FAIL
+2026-10-21T12:12:13Z
+ALL DONE
