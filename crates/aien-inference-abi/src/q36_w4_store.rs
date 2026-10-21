@@ -460,20 +460,25 @@ impl W4Store {
     /// Block `idx` (rows `idx * block_rows ..`) of `name`: nibbles and scales, shape checked, NOT the 64-bit check (that
     /// covers the whole tensor; run [`Self::check_all`] once per session). The host reference reads experts this way.
     pub fn read_block(&self, name: &str, block_rows: usize, idx: usize) -> Result<(Vec<u8>, Vec<u8>), String> {
+        self.read_rows(name, idx * block_rows, block_rows)
+    }
+
+    /// Rows `row0 .. row0 + rows` of `name` (nibbles, scales), unchecked like [`Self::read_block`].
+    pub fn read_rows(&self, name: &str, row0: usize, rows: usize) -> Result<(Vec<u8>, Vec<u8>), String> {
         let t = self
             .header
             .tensors
             .iter()
             .find(|t| t.name == name)
             .ok_or_else(|| format!("w4 store {}: no tensor {name}", self.path.display()))?;
-        if block_rows == 0 || !t.n.is_multiple_of(block_rows) || idx >= t.n / block_rows {
-            return Err(format!("w4 store: {name} [{}][{}] has no block {idx} of {block_rows} rows", t.n, t.k));
+        if rows == 0 || row0 + rows > t.n {
+            return Err(format!("w4 store: {name} [{}][{}] has no rows {row0}..{}", t.n, t.k, row0 + rows));
         }
-        let mut w4 = vec![0u8; block_rows * t.k / 2];
-        let mut e8 = vec![0u8; block_rows * t.k / 32];
+        let mut w4 = vec![0u8; rows * t.k / 2];
+        let mut e8 = vec![0u8; rows * t.k / 32];
         self.file
-            .read_exact_at(&mut w4, t.w_off + (idx * block_rows * t.k / 2) as u64)
-            .and_then(|_| self.file.read_exact_at(&mut e8, t.e_off + (idx * block_rows * t.k / 32) as u64))
+            .read_exact_at(&mut w4, t.w_off + (row0 * t.k / 2) as u64)
+            .and_then(|_| self.file.read_exact_at(&mut e8, t.e_off + (row0 * t.k / 32) as u64))
             .map_err(|x| format!("w4 store {}: {name}: {x}", self.path.display()))?;
         Ok((w4, e8))
     }
