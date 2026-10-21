@@ -60,7 +60,6 @@ mod ffi {
         _private: [u8; 0],
     }
     extern "C" {
-        pub fn omega_gpu_q36_graph_create(cfg: *const Q36Config, out: *mut *mut OmegaGpuQ36Graph) -> i32;
         pub fn omega_gpu_q36_graph_free(g: *mut OmegaGpuQ36Graph);
         pub fn omega_gpu_q36_graph_set_layer(
             g: *mut OmegaGpuQ36Graph,
@@ -72,7 +71,36 @@ mod ffi {
             down: *const c_void,
             in_norm: *const f32,
         ) -> i32;
-        pub fn omega_gpu_q36_graph_set_final_norm(g: *mut OmegaGpuQ36Graph, final_norm: *const f32) -> i32;
+        pub fn omega_gpu_q36_graph_set_final_norm(
+            g: *mut OmegaGpuQ36Graph,
+            final_norm: *const f32,
+        ) -> i32;
+        pub fn omega_gpu_q36_graph_create_heads(
+            cfg: *const Q36Config,
+            heads: u32,
+            out: *mut *mut OmegaGpuQ36Graph,
+        ) -> i32;
+        pub fn omega_gpu_q36_graph_set_head_state(
+            g: *mut OmegaGpuQ36Graph,
+            head: u32,
+            gdn: *mut c_void,
+            attn: *mut c_void,
+        ) -> i32;
+        pub fn omega_gpu_q36_graph_stroke(
+            g: *mut OmegaGpuQ36Graph,
+            x_embed: *const f32,
+            pos: *const u32,
+            heads: u32,
+            tokens: *mut u32,
+            st: *mut GraphStats,
+        ) -> i32;
+        pub fn omega_gpu_q36_graph_read_head(
+            g: *mut OmegaGpuQ36Graph,
+            head: u32,
+            x: *mut f32,
+            hidden: *mut f32,
+            logits: *mut f32,
+        ) -> i32;
         pub fn omega_gpu_q36_graph_token(
             g: *mut OmegaGpuQ36Graph,
             x_embed: *const f32,
@@ -86,7 +114,12 @@ mod ffi {
             hidden: *mut f32,
             logits: *mut f32,
         ) -> i32;
-        pub fn omega_gpu_q36_graph_read_buf(g: *mut OmegaGpuQ36Graph, which: i32, out: *mut f32, n: u32) -> i32;
+        pub fn omega_gpu_q36_graph_read_buf(
+            g: *mut OmegaGpuQ36Graph,
+            which: i32,
+            out: *mut f32,
+            n: u32,
+        ) -> i32;
         pub fn omega_gpu_q36_graph_set_flush_each(g: *mut OmegaGpuQ36Graph, on: i32);
         pub fn omega_gpu_q36_graph_test_set_mutant(g: *mut OmegaGpuQ36Graph, mutant: i32);
     }
@@ -113,12 +146,16 @@ pub enum Q36Buf {
     Dn,
 }
 
+/// Heads per stroke the chip library lays out at most (one 2048-launch command list holds four 40-layer tokens).
+pub const MAX_HEADS: usize = 4;
+
 pub struct Q36Graph {
     #[cfg(has_omega_q36)]
     ptr: *mut ffi::OmegaGpuQ36Graph,
     layers: usize,
     attn_mask: u64,
     vocab: usize,
+    heads: usize,
 }
 
 // SAFETY: an owning handle to device buffers; moved between threads, never shared unlocked.
@@ -138,20 +175,163 @@ impl Q36Graph {
     /// # Safety
     /// Every handle in `cfg` must be live, of the shape the header names, and outlive the graph.
     pub unsafe fn create(cfg: &Q36Config) -> Result<Self, OmegaGpuError> {
-        if cfg.layers == 0 || cfg.layers > 64 || cfg.vocab == 0 {
-            return Err(bad(format!("q36 graph: layers {} vocab {}", cfg.layers, cfg.vocab)));
+        // SAFETY: the caller's contract, passed through.
+        unsafe { Self::create_heads(cfg, 1) }
+    }
+
+    /// A graph with `heads` slots (1..=MAX_HEADS): head 0 uses `cfg.gdn` / `cfg.attn`, the others take
+    /// their state objects from [`Self::set_head_state`] before a stroke.
+    ///
+    /// # Safety
+    /// As [`Self::create`].
+    pub unsafe fn create_heads(cfg: &Q36Config, heads: usize) -> Result<Self, OmegaGpuError> {
+        if heads == 0 || heads > MAX_HEADS {
+            return Err(bad(format!("q36 graph: heads {heads} (1..={MAX_HEADS})")));
         }
-        if cfg.gdn.is_null() || cfg.attn.is_null() || cfg.router.is_null() || cfg.lm_head.is_null() {
+        if cfg.layers == 0 || cfg.layers > 64 || cfg.vocab == 0 {
+            return Err(bad(format!(
+                "q36 graph: layers {} vocab {}",
+                cfg.layers, cfg.vocab
+            )));
+        }
+        if cfg.gdn.is_null() || cfg.attn.is_null() || cfg.router.is_null() || cfg.lm_head.is_null()
+        {
             return Err(bad("q36 graph: a state or weight handle is null".into()));
         }
         #[cfg(has_omega_q36)]
         {
             let mut ptr = std::ptr::null_mut();
-            let rc = ffi::omega_gpu_q36_graph_create(cfg, &mut ptr);
+            let rc = ffi::omega_gpu_q36_graph_create_heads(cfg, heads as u32, &mut ptr);
             if rc != 0 || ptr.is_null() {
                 return Err(session_err("q36 graph create", rc));
             }
-            Ok(Self { ptr, layers: cfg.layers as usize, attn_mask: cfg.attn_mask, vocab: cfg.vocab as usize })
+            Ok(Self {
+                ptr,
+                layers: cfg.layers as usize,
+                attn_mask: cfg.attn_mask,
+                vocab: cfg.vocab as usize,
+                heads,
+            })
+        }
+        #[cfg(not(has_omega_q36))]
+        Err(OmegaGpuError::Unavailable)
+    }
+
+    pub fn heads(&self) -> usize {
+        self.heads
+    }
+
+    /// Point head `head` at a DeltaNet state and an attention cache of the configured shapes (head swap).
+    ///
+    /// # Safety
+    /// Both handles must be live and outlive every stroke that uses the head.
+    pub unsafe fn set_head_state(
+        &mut self,
+        head: usize,
+        gdn: *mut c_void,
+        attn: *mut c_void,
+    ) -> Result<(), OmegaGpuError> {
+        if head >= self.heads || gdn.is_null() || attn.is_null() {
+            return Err(bad(format!(
+                "q36 graph: head {head} of {} or a null state handle",
+                self.heads
+            )));
+        }
+        #[cfg(has_omega_q36)]
+        {
+            // SAFETY: ptr is live; the handles are the caller's contract.
+            let rc = unsafe {
+                ffi::omega_gpu_q36_graph_set_head_state(self.ptr, head as u32, gdn, attn)
+            };
+            if rc != 0 {
+                return Err(session_err("q36 graph set_head_state", rc));
+            }
+            Ok(())
+        }
+        #[cfg(not(has_omega_q36))]
+        Err(OmegaGpuError::Unavailable)
+    }
+
+    /// One stroke: `pos.len()` heads through one command list (`x_embed` holds HIDDEN values per head,
+    /// head h at position `pos[h]`), one submit; the greedy token of every head.
+    pub fn stroke(
+        &mut self,
+        x_embed: &[f32],
+        pos: &[usize],
+    ) -> Result<(Vec<u32>, GraphStats), OmegaGpuError> {
+        let heads = pos.len();
+        if heads == 0 || heads > self.heads {
+            return Err(bad(format!(
+                "q36 graph: stroke of {heads} heads on a graph of {}",
+                self.heads
+            )));
+        }
+        check_len("q36 graph stroke x_embed", HIDDEN * heads, x_embed.len())?;
+        let pos: Vec<u32> = pos
+            .iter()
+            .map(|&p| u32::try_from(p).map_err(|_| bad(format!("q36 graph: pos {p} too large"))))
+            .collect::<Result<_, _>>()?;
+        #[cfg(has_omega_q36)]
+        {
+            let mut tokens = vec![0u32; heads];
+            let mut st = GraphStats::default();
+            // SAFETY: ptr is live; x_embed holds HIDDEN * heads f32 and pos/tokens heads u32 (checked).
+            let rc = unsafe {
+                ffi::omega_gpu_q36_graph_stroke(
+                    self.ptr,
+                    x_embed.as_ptr(),
+                    pos.as_ptr(),
+                    heads as u32,
+                    tokens.as_mut_ptr(),
+                    &mut st,
+                )
+            };
+            if rc != 0 {
+                return Err(session_err("q36 graph stroke", rc));
+            }
+            Ok((tokens, st))
+        }
+        #[cfg(not(has_omega_q36))]
+        Err(OmegaGpuError::Unavailable)
+    }
+
+    /// As [`Self::read`], for head `head` of the last stroke.
+    pub fn read_head(
+        &mut self,
+        head: usize,
+        x: Option<&mut [f32]>,
+        hidden: Option<&mut [f32]>,
+        logits: Option<&mut [f32]>,
+    ) -> Result<(), OmegaGpuError> {
+        if head >= self.heads {
+            return Err(bad(format!("q36 graph: head {head} of {}", self.heads)));
+        }
+        if let Some(x) = &x {
+            check_len("q36 graph read x", HIDDEN, x.len())?;
+        }
+        if let Some(h) = &hidden {
+            check_len("q36 graph read hidden", HIDDEN, h.len())?;
+        }
+        if let Some(l) = &logits {
+            check_len("q36 graph read logits", self.vocab, l.len())?;
+        }
+        #[cfg(has_omega_q36)]
+        {
+            let p = |s: Option<&mut [f32]>| s.map_or(std::ptr::null_mut(), |s| s.as_mut_ptr());
+            // SAFETY: ptr is live; every non-null pointer holds the length checked above.
+            let rc = unsafe {
+                ffi::omega_gpu_q36_graph_read_head(
+                    self.ptr,
+                    head as u32,
+                    p(x),
+                    p(hidden),
+                    p(logits),
+                )
+            };
+            if rc != 0 {
+                return Err(session_err("q36 graph read_head", rc));
+            }
+            Ok(())
         }
         #[cfg(not(has_omega_q36))]
         Err(OmegaGpuError::Unavailable)
@@ -187,14 +367,27 @@ impl Q36Graph {
             return Err(bad(format!("q36 graph: layer {layer} of {}", self.layers)));
         }
         if mix.is_null() || o.is_null() || gate_up.is_null() || down.is_null() {
-            return Err(bad(format!("q36 graph layer {layer}: a projection has no device handle")));
+            return Err(bad(format!(
+                "q36 graph layer {layer}: a projection has no device handle"
+            )));
         }
         if ab.is_null() != self.is_attention(layer) {
-            return Err(bad(format!("q36 graph layer {layer}: the a|b tensor is for DeltaNet layers only")));
+            return Err(bad(format!(
+                "q36 graph layer {layer}: the a|b tensor is for DeltaNet layers only"
+            )));
         }
         #[cfg(has_omega_q36)]
         {
-            let rc = ffi::omega_gpu_q36_graph_set_layer(self.ptr, layer as u32, mix, ab, o, gate_up, down, in_norm.as_ptr());
+            let rc = ffi::omega_gpu_q36_graph_set_layer(
+                self.ptr,
+                layer as u32,
+                mix,
+                ab,
+                o,
+                gate_up,
+                down,
+                in_norm.as_ptr(),
+            );
             if rc != 0 {
                 return Err(session_err("q36 graph set_layer", rc));
             }
@@ -209,7 +402,8 @@ impl Q36Graph {
         #[cfg(has_omega_q36)]
         {
             // SAFETY: ptr is live; the slice holds HIDDEN f32 (checked).
-            let rc = unsafe { ffi::omega_gpu_q36_graph_set_final_norm(self.ptr, final_norm.as_ptr()) };
+            let rc =
+                unsafe { ffi::omega_gpu_q36_graph_set_final_norm(self.ptr, final_norm.as_ptr()) };
             if rc != 0 {
                 return Err(session_err("q36 graph set_final_norm", rc));
             }
@@ -220,7 +414,11 @@ impl Q36Graph {
     }
 
     /// One whole token: the embedding row in, the greedy token out (position `pos`).
-    pub fn token(&mut self, x_embed: &[f32], pos: usize) -> Result<(u32, GraphStats), OmegaGpuError> {
+    pub fn token(
+        &mut self,
+        x_embed: &[f32],
+        pos: usize,
+    ) -> Result<(u32, GraphStats), OmegaGpuError> {
         check_len("q36 graph x_embed", HIDDEN, x_embed.len())?;
         let pos = u32::try_from(pos).map_err(|_| bad(format!("q36 graph: pos {pos} too large")))?;
         #[cfg(has_omega_q36)]
@@ -228,7 +426,9 @@ impl Q36Graph {
             let mut token = 0u32;
             let mut st = GraphStats::default();
             // SAFETY: ptr is live; x_embed holds HIDDEN f32 (checked); token and st are local.
-            let rc = unsafe { ffi::omega_gpu_q36_graph_token(self.ptr, x_embed.as_ptr(), pos, &mut token, &mut st) };
+            let rc = unsafe {
+                ffi::omega_gpu_q36_graph_token(self.ptr, x_embed.as_ptr(), pos, &mut token, &mut st)
+            };
             if rc != 0 {
                 return Err(session_err("q36 graph token", rc));
             }
@@ -276,7 +476,14 @@ impl Q36Graph {
         #[cfg(has_omega_q36)]
         {
             // SAFETY: ptr is live; omega refuses n above the buffer's capacity.
-            let rc = unsafe { ffi::omega_gpu_q36_graph_read_buf(self.ptr, which as i32, out.as_mut_ptr(), out.len() as u32) };
+            let rc = unsafe {
+                ffi::omega_gpu_q36_graph_read_buf(
+                    self.ptr,
+                    which as i32,
+                    out.as_mut_ptr(),
+                    out.len() as u32,
+                )
+            };
             if rc != 0 {
                 return Err(session_err("q36 graph read_buf", rc));
             }
