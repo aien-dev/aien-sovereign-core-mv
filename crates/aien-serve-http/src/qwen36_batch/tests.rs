@@ -72,9 +72,8 @@ impl RowStep for Fake {
             let logits: Vec<f32> = (0..VOCAB)
                 .map(|j| (mix(*st ^ j as u64) % 1_000_000) as f32)
                 .collect();
-            let token = (0..VOCAB)
-                .max_by(|&a, &b| logits[a].total_cmp(&logits[b]))
-                .unwrap() as u32;
+            // The chip's argmax follows the host greedy rule.
+            let token = crate::sampling::sample_next(&logits, &greedy(1), 0);
             outs.push(RowOut {
                 token,
                 logits: f.logits.then_some(logits),
@@ -95,9 +94,25 @@ fn lock_file() -> PathBuf {
 }
 
 fn door(rows: usize, swap_at: Option<u64>, per_beat: usize) -> (Qwen36BatchDoor, Arc<AtomicUsize>) {
+    door_with(rows, swap_at, per_beat, true)
+}
+
+fn door_with(
+    rows: usize,
+    swap_at: Option<u64>,
+    per_beat: usize,
+    chip_greedy: bool,
+) -> (Qwen36BatchDoor, Arc<AtomicUsize>) {
     let (f, fed) = Fake::new(rows, swap_at);
-    let d = Qwen36BatchDoor::with_stepper(f, 4096, lock_file(), Duration::from_secs(5), per_beat)
-        .unwrap();
+    let d = Qwen36BatchDoor::with_stepper(
+        f,
+        4096,
+        lock_file(),
+        Duration::from_secs(5),
+        per_beat,
+        chip_greedy,
+    )
+    .unwrap();
     (d, fed)
 }
 
@@ -250,4 +265,16 @@ fn a_reworded_next_turn_restores_the_turn_header_copy() {
     let (r3, _) = run(&d, &p3, &greedy(2));
     assert_eq!(r3, alone(&p3, 2));
     assert_eq!(fed.load(Ordering::SeqCst) - before, 3 + 1);
+}
+
+#[test]
+fn the_graphs_greedy_token_equals_the_host_argmax_path() {
+    let want: Vec<Vec<u32>> = prompts()
+        .iter()
+        .map(|(p, n)| {
+            let (d, _) = door_with(1, None, 1, false);
+            run(&d, p, &greedy(*n)).0
+        })
+        .collect();
+    assert_eq!(concurrent(8, None, 16), want);
 }

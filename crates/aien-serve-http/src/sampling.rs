@@ -352,14 +352,20 @@ mod tests {
     fn chip_greedy_draw_records_as_a_host_greedy_draw() {
         // L356: a greedy reply that takes the chip's token must leave the same record as one
         // that took the host argmax; a sampled reply is never greedy.
-        let (mut host, mut chip) = (SamplingObserver::new(&p(0.0, 20)), SamplingObserver::new(&p(0.0, 20)));
+        let (mut host, mut chip) = (
+            SamplingObserver::new(&p(0.0, 20)),
+            SamplingObserver::new(&p(0.0, 20)),
+        );
         assert!(chip.is_greedy());
         assert!(!SamplingObserver::new(&p(0.7, 20)).is_greedy());
         for step in 0..3 {
             host.sample(&[0.1, 5.0, 2.0], step);
             chip.note_greedy();
         }
-        assert_eq!(format!("{:?}", host.record()), format!("{:?}", chip.record()));
+        assert_eq!(
+            format!("{:?}", host.record()),
+            format!("{:?}", chip.record())
+        );
     }
 
     #[test]

@@ -34,7 +34,8 @@ use aien_inference_abi::qwen38_omega::{
 use crate::engine::{Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams};
 use crate::omega_engine::{GpuLock, GPU_LOCK_PATH};
 use crate::qwen38_engine::{
-    is_moe_dir, rss_bytes, KEEP_FREE, LOAD_LOCK_WAIT, PREFILL_CHUNK, REQUEST_LOCK_WAIT,
+    is_moe_dir, rss_bytes, CHIP_GREEDY_ENV, KEEP_FREE, LOAD_LOCK_WAIT, PREFILL_CHUNK,
+    REQUEST_LOCK_WAIT,
 };
 use crate::sampling::SamplingObserver;
 
@@ -136,6 +137,10 @@ struct Active {
     logits: Option<Vec<f32>>,
     /// The sampled token to feed next.
     next: Option<u32>,
+    /// A greedy reply takes the graph's own token (no logits copy per token, L356's single-door
+    /// lever); `chip_next` holds it until sampled.
+    chip_greedy: bool,
+    chip_next: Option<u32>,
     t_admit: Instant,
     prefill_ms: u64,
     t_decode: Instant,
@@ -233,6 +238,7 @@ impl Qwen36BatchDoor {
             PathBuf::from(GPU_LOCK_PATH),
             REQUEST_LOCK_WAIT,
             per_beat,
+            std::env::var(CHIP_GREEDY_ENV).as_deref() != Ok("0"),
         )?;
         door.slot_bytes_measured = measured;
         door.slot_bytes_on_paper = on_paper;
@@ -247,6 +253,7 @@ impl Qwen36BatchDoor {
         lock_path: PathBuf,
         lock_wait: Duration,
         prompt_per_beat: usize,
+        chip_greedy: bool,
     ) -> Result<Self, String> {
         let slots = model.row_count();
         if slots == 0 {
@@ -269,6 +276,7 @@ impl Qwen36BatchDoor {
             lock_wait,
             max_context,
             per_beat: prompt_per_beat.max(1),
+            chip_greedy,
             beat: 0,
         };
         std::thread::Builder::new()
@@ -370,6 +378,8 @@ struct Scheduler<S: RowStep> {
     lock_wait: Duration,
     max_context: usize,
     per_beat: usize,
+    /// Greedy replies take the graph's token (`AIEN_SERVE_CHIP_GREEDY=0` turns it off).
+    chip_greedy: bool,
     beat: u64,
 }
 
@@ -493,7 +503,7 @@ impl<S: RowStep> Scheduler<S> {
                             feed.push(RowFeed {
                                 row: a.row,
                                 token: t,
-                                logits: true,
+                                logits: !a.chip_greedy,
                             });
                             who.push(k);
                         }
@@ -522,6 +532,9 @@ impl<S: RowStep> Scheduler<S> {
                                 }
                             } else {
                                 a.next = None;
+                                if a.chip_greedy {
+                                    a.chip_next = Some(o.token);
+                                }
                                 a.steps += 1;
                                 a.rows_sum += m;
                                 spell.decode_tokens += 1;
@@ -604,6 +617,7 @@ impl<S: RowStep> Scheduler<S> {
             active.len() + 1,
         );
         let observer = SamplingObserver::new(&job.params);
+        let chip_greedy = self.chip_greedy && observer.is_greedy();
         active.push(Active {
             job,
             row,
@@ -614,6 +628,8 @@ impl<S: RowStep> Scheduler<S> {
             emitted: 0,
             logits: None,
             next: None,
+            chip_greedy,
+            chip_next: None,
             t_admit: Instant::now(),
             prefill_ms: 0,
             t_decode: Instant::now(),
@@ -630,13 +646,20 @@ impl<S: RowStep> Scheduler<S> {
         if a.job.cancel.load(Ordering::SeqCst) {
             return Some(FinishReason::Cancelled);
         }
-        let Some(logits) = a.logits.take() else {
+        if a.chip_next.is_none() && a.logits.is_none() {
             return None; // its sampled token has not been fed yet
-        };
+        }
         if a.emitted >= p.max_new_tokens || plen + a.emitted >= max_context {
             return Some(FinishReason::Length);
         }
-        let tok = a.observer.sample(&logits, a.emitted);
+        let tok = match (a.chip_next.take(), a.logits.take()) {
+            (Some(t), _) => {
+                a.observer.note_greedy();
+                t
+            }
+            (None, Some(logits)) => a.observer.sample(&logits, a.emitted),
+            (None, None) => unreachable!("checked above"),
+        };
         if p.stop_token_ids.contains(&tok) {
             return Some(FinishReason::Stop);
         }

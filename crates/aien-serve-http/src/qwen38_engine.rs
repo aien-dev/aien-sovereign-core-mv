@@ -193,7 +193,8 @@ impl Engine for Qwen38Door {
         // L356: a greedy reply takes the decode graph's own token (argmax on the chip, the
         // host rule) and skips the logits copy and host argmax per token. The first token comes
         // from the prefill logits as before. AIEN_SERVE_CHIP_GREEDY=0: the host path throughout.
-        let chip_greedy = observer.is_greedy() && std::env::var(CHIP_GREEDY_ENV).as_deref() != Ok("0");
+        let chip_greedy =
+            observer.is_greedy() && std::env::var(CHIP_GREEDY_ENV).as_deref() != Ok("0");
         let mut chip_next: Option<u32> = None;
         let (mut emitted, mut chip_ns) = (0usize, 0u64);
         let finish = loop {
