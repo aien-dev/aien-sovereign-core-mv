@@ -129,6 +129,40 @@ fn one(m: &mut Qwen38Omega, prompt: &[u32], chunk: usize, decode: usize) -> Resu
     Ok(rec)
 }
 
+/// `L369_PROFILE=1`: one chunk on head 1 with the launch timestamps on, chip time per kind of launch
+/// (the first launch of each list also carries the host gap before it). Not a receipt outside a window.
+fn profile(m: &mut Qwen38Omega, prompt: &[u32], chunk: usize) -> Result<(), String> {
+    use aien_omega_q38::q36;
+    m.reset_head(1)?;
+    m.q36_graph_mut().ok_or("no q36 graph")?.set_stamps(true);
+    let t = Instant::now();
+    let r = m.prefill_moe_head(1, prompt, chunk, true);
+    let wall = t.elapsed().as_secs_f64() * 1e3;
+    let g = m.q36_graph_mut().ok_or("no q36 graph")?;
+    let tl = g.timeline().map_err(|e| format!("timeline: {e}"));
+    g.set_stamps(false);
+    r?;
+    let tl = tl?;
+    let mut per: Vec<(String, u64, u32)> = Vec::new();
+    for &(kind, d) in &tl {
+        let name = q36::Q36Graph::kind_name(kind);
+        match per.iter_mut().find(|e| e.0 == name) {
+            Some(e) => {
+                e.1 += d;
+                e.2 += 1
+            }
+            None => per.push((name, d, 1)),
+        }
+    }
+    per.sort_by(|a, b| b.1.cmp(&a.1));
+    let span: u64 = tl.iter().map(|e| e.1).sum();
+    eprintln!("profile: {} tokens, wall {wall:.1} ms, {} launches, stamp span {:.1} ms", prompt.len(), tl.len(), span as f64 / 1e6);
+    for (name, ns, c) in per {
+        eprintln!("  {name:<12} {:>8.2} ms {:>5.1}%  {c} launches", ns as f64 / 1e6, 100.0 * ns as f64 / span as f64);
+    }
+    Ok(())
+}
+
 fn run(args: &[String]) -> Result<bool, String> {
     if args.len() < 7 {
         return Err("usage: qwen36_prefill_gate <checkpoint-dir> <corpus.txt> <len,len,...> <chunk> <decode> <out.json> [layers]".into());
@@ -159,6 +193,9 @@ fn run(args: &[String]) -> Result<bool, String> {
         let r = one(&mut m, &prompt[..len], chunk, decode)?;
         all &= r["pass"].as_bool() == Some(true);
         runs.push(r);
+    }
+    if std::env::var("L369_PROFILE").is_ok_and(|v| v == "1") {
+        profile(&mut m, &prompt[..chunk.min(max_len)], chunk)?;
     }
     let mutant = std::env::var("AIEN_OMEGA_Q36_PF_MUTANT").unwrap_or_default();
     let rec = json!({ "gate": "qwen36_prefill_gate", "pass": all, "layers": count, "mutant": mutant, "runs": runs });
