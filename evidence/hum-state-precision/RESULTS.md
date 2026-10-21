@@ -21,7 +21,9 @@ more bytes than the model's own weights. We tested two ways to shrink that traff
    Quarter size (fp8) quarters the traffic but drifts more: first differing word as early as word 4,
    97-99% of words still the same, scoring texts within about 0.03 nats (a nat is the unit of
    surprise per word; a known wrong-expert swap moves it by 0.07). **Usable, but clearly lossier; second
-   choice after half size.**
+   choice after half size.** Scaling the quarter-size memory per column instead of per row gave
+   about the same words but four times the memory error, still growing at 512 words, so per row
+   (which the chip word-by-word routine also does cheaply) is the one to keep.
 
 2. **Touch the memory once for several words.** When the chip checks k guessed words in one go, it
    can read and write the memory once instead of k times: 6.7x less memory traffic per word at 8
@@ -59,7 +61,7 @@ more bytes than the model's own weights. We tested two ways to shrink that traff
 | f32 | 125,829,120 | reference | reference | 0 / 0 | reference |
 | bf16 | 62,914,560 | identical 512/512 on p1, p2, p3, chat; p4 first diff at 265 (near-tie 0.005) | first diff 4 to 99 (near-ties) on p1-p4; chat 82 (margin 1.43) | -0.0023 / +0.0003 | ACCEPT, PARTLY (measured drift; not EXACT-EQUIVALENT) |
 | fp8 e4m3, scale per k row | 32,440,320 | first diff 4 to 144; 496-511 of 512 agree | first diff 4 to 58; 497-510 of 512 | -0.0104 / +0.0143 | PARTLY: under the REJECT line, clearly lossier than bf16 |
-| fp8 e4m3, scale per v column | 32,440,320 | COLSUMMARY | COLFREE | +0.0318 / +0.0034 | COLVERDICT |
+| fp8 e4m3, scale per v column | 32,440,320 | first diff 79 to 283; 503-511 of 512 agree | first diff 4 to 210; 503-511 of 512 | +0.0318 / +0.0034 | PARTLY: under the REJECT line, tokens on a par with row scaling, but state error about 4x row (0.25-0.29 vs 0.06-0.07 at 512 tokens, still rising): row scaling preferred |
 
 EXACT-EQUIVALENT (greedy identical to 512 on every golden) is met by no reduced format. Bytes:
 2 x the state (KTOKEN-STATE.md, calc:18861a5d... and calc:9eacec99...). Column-scaled fp8 has a
