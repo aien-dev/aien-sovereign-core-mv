@@ -144,8 +144,7 @@ mod tests {
     use crate::tool_plan::access_of;
     use crate::turn_journal::replay;
     use std::path::Path;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Mutex;
+    use std::sync::{Condvar, Mutex};
     use std::time::Duration;
 
     fn journal() -> (tempfile::TempDir, Journal, PathBuf) {
@@ -171,22 +170,55 @@ mod tests {
     }
 
     /// Counts how many calls run at the same moment.
+    ///
+    /// A sleep is not proof of overlap: under load the second thread can start
+    /// after the first has finished. So a call that is expected to run beside
+    /// `expect - 1` others waits (up to `DEADLINE`) until all `expect` calls
+    /// have entered, which makes `max == expect` certain if the batch really
+    /// runs them together, and the wait times out only if it serialises them.
+    /// With `expect == 1` a call holds for `HOLD`, or less if another call
+    /// enters meanwhile, so the "never together" tests still catch overlap.
     struct Overlap {
-        now: AtomicUsize,
-        max: AtomicUsize,
+        expect: usize,
+        state: Mutex<(usize, usize, usize)>, // (arrivals, running now, max running)
+        entered: Condvar,
     }
     impl Overlap {
-        fn new() -> Self {
+        const DEADLINE: Duration = Duration::from_secs(10);
+        const HOLD: Duration = Duration::from_millis(150);
+
+        fn alone() -> Self {
+            Self::together(1)
+        }
+        fn together(expect: usize) -> Self {
             Self {
-                now: AtomicUsize::new(0),
-                max: AtomicUsize::new(0),
+                expect,
+                state: Mutex::new((0, 0, 0)),
+                entered: Condvar::new(),
             }
         }
+        fn max(&self) -> usize {
+            self.state.lock().unwrap().2
+        }
         fn run(&self) -> Value {
-            let n = self.now.fetch_add(1, Ordering::SeqCst) + 1;
-            self.max.fetch_max(n, Ordering::SeqCst);
-            std::thread::sleep(Duration::from_millis(150));
-            self.now.fetch_sub(1, Ordering::SeqCst);
+            let mut s = self.state.lock().unwrap();
+            s.0 += 1;
+            s.1 += 1;
+            s.2 = s.2.max(s.1);
+            self.entered.notify_all();
+            s = if self.expect > 1 {
+                let expect = self.expect;
+                self.entered
+                    .wait_timeout_while(s, Self::DEADLINE, |s| s.0 < expect)
+                    .unwrap()
+                    .0
+            } else {
+                self.entered
+                    .wait_timeout_while(s, Self::HOLD, |s| s.1 < 2)
+                    .unwrap()
+                    .0
+            };
+            s.1 -= 1;
             json!({"ok": true})
         }
     }
@@ -195,13 +227,13 @@ mod tests {
     fn two_readers_of_one_path_run_together() {
         let (_d, mut j, _p) = journal();
         let mut msgs = Vec::new();
-        let o = Overlap::new();
+        let o = Overlap::together(2);
         let calls = vec![
             ("view_file".to_string(), json!({"path": "/w/a"})),
             ("view_file".to_string(), json!({"path": "/w/a"})),
         ];
         let r = run_batch(&mut j, &mut msgs, calls, &cfg(None), acc, |_, _| o.run()).unwrap();
-        assert_eq!(o.max.load(Ordering::SeqCst), 2);
+        assert_eq!(o.max(), 2);
         assert_eq!((r.segments, r.ran_together), (1, 2));
         assert_eq!(msgs.len(), 2);
     }
@@ -210,7 +242,7 @@ mod tests {
     fn two_writers_on_one_path_never_run_together() {
         let (_d, mut j, _p) = journal();
         let mut msgs = Vec::new();
-        let o = Overlap::new();
+        let o = Overlap::alone();
         let calls = vec![
             (
                 "write_to_file".to_string(),
@@ -223,7 +255,7 @@ mod tests {
             ("view_file".to_string(), json!({"path": "/w/a"})),
         ];
         let r = run_batch(&mut j, &mut msgs, calls, &cfg(None), acc, |_, _| o.run()).unwrap();
-        assert_eq!(o.max.load(Ordering::SeqCst), 1);
+        assert_eq!(o.max(), 1);
         assert_eq!((r.segments, r.ran_together), (3, 0));
     }
 
@@ -231,14 +263,14 @@ mod tests {
     fn a_shell_command_never_runs_beside_anything() {
         let (_d, mut j, _p) = journal();
         let mut msgs = Vec::new();
-        let o = Overlap::new();
+        let o = Overlap::alone();
         let calls = vec![
             ("view_file".to_string(), json!({"path": "/w/a"})),
             ("run_command".to_string(), json!({"command": "ls"})),
             ("view_file".to_string(), json!({"path": "/w/b"})),
         ];
         run_batch(&mut j, &mut msgs, calls, &cfg(None), acc, |_, _| o.run()).unwrap();
-        assert_eq!(o.max.load(Ordering::SeqCst), 1);
+        assert_eq!(o.max(), 1);
     }
 
     #[test]
