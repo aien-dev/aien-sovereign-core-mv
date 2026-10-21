@@ -177,8 +177,54 @@ GEMM at M = 8 runs at 131-141 GB/s, half the ceiling (cta budget 96 at one segme
 The expert GEMMs are at 93% of the 273 GB/s ceiling already (calc:803d5a45); the beat's floor at union 55 is their 10.4 GB plus the
 dense 1.3 GB plus the head 0.5 GB = about 12 GB = 45 ms, 178 tok/s for eight.
 
+## Lever 1: the lm_head once per four heads (`AIEN_STROKE_V2=1`; omega 7049cf7a, lib a79dc6ea, bin 3583a8c5)
+The bf16 GEMV gained the XBATCH form: up to four x rows (the heads' final hidden states, contiguous slots) are staged in one CTA's
+shared memory (4 x 8 KiB = the launch descriptor's 32 KiB limit) and every weight read feeds all four accumulators; each (weight
+row, x row) adds up in the one-row order, so every logits row is bit-identical to its own one-head launch (`gpu_bf16_gemv_test
+--sim`: xb 2, 3, 4 bit-identical to the host emulation; mutant 4, every row reading x row 0, caught). In batch mode stroke()
+records the final head for all heads: one lm_head launch per group of up to four heads, writing the logits slots at the slot
+stride, then the two-stage argmax per head. The same gate, set b, red before green:
+
+| run | heads | result |
+|---|---|---|
+| `stroke8l1-mutant4` 05:42Z | 8 | FAIL as required; its chip tokens equal the v2 mutant run (`stroke8v2-mutant4`) on all 8 heads |
+| `stroke8l1-swap-control` 05:44Z | 8 | FAIL as required (control swap at step 18) |
+| `stroke8l1-real` 05:46Z | 8 | PASS 8/8; chip tokens equal `stroke8v2-real` on all 8 heads and equal every run alone (`stroke8l1-vs-alone.txt`) |
+| `stroke8l1-swap-feature` 05:48Z | 8 | PASS (feature swap at step 18) |
+| `stroke{1,2,4}l1-real` 05:49-05:52Z | 1, 2, 4 | PASS |
+
+Ladder, lever 1 against v2 and v1 (the same command and goldens, back to back; shared chip, not a speed receipt):
+
+| heads | lever 1 ms per stroke (median) | ms per token | tok/s total | v2 ms per stroke | v2 / lever 1 | v1 / lever 1 |
+|---|---|---|---|---|---|---|
+| 1 | 26.485 (36 strokes) | 26.49 | 37.76 (calc:cfc8fbc7) | 27.294 | 1.03 (calc:1bba426c) | 0.92 (calc:9111f7f2; alone, the plain kernel) |
+| 2 | 34.440 (46) | 17.22 (calc:e2851d72) | 58.07 (calc:d90f79ea) | 41.221 | 1.20 (calc:bf7130dd) | 1.43 (calc:01375180) |
+| 4 | 50.273 (46) | 12.57 (calc:e67a8c20) | 79.57 (calc:4d1cb3f6) | 68.037 | 1.35 (calc:12a55e33) | 1.95 (calc:2e542e42) |
+| 8 | 95.608 (97) | 11.95 (calc:5ce9ea93) | 83.68 (calc:86f557ec) | 127.753 | 1.34 (calc:b12ce492) | 2.03 (calc:d54ef5c6) |
+
+The eight-head beat lost 32.1 ms (calc:42b63b8b) where the timeline predicted 29.1 (six of eight 4.854 ms head reads; the measured
+saving is 1.10x that, calc:5763df62, shared-chip noise either way). The beat is now 9.87 ms per extra head (calc:c82541a5; v2 was
+14.35) and the eight-head stroke moves its 11.5 GB of distinct weights at 120 GB/s (calc:90fc99cf) against the 273 GB/s ceiling.
+
+Chip timeline of one eight-head stroke with lever 1, `AIEN_STROKE_STAMPS=1` (`stroke8l1-stamps.log`; stamps cost chip time, the
+stroke median there, 100.061 ms, is not the speed number), against the v2 timeline above:
+
+| launch kind | v2 launches | v2 ms | lever 1 launches | lever 1 ms | what changed |
+|---|---|---|---|---|---|
+| lm_head (bf16) | 8 | 38.836 | 2 | 10.627 | read twice instead of eight times: 3.65x (calc:b32d5ef1); 5.314 ms a four-head launch (calc:775e9ddc), 1.095x the one-head launch (calc:5b5453c7), 191 GB/s (calc:354ef873) |
+| gate_up + down (experts) | 80 | 40.792 | 80 | 40.709 | unchanged, now 44% of the beat (calc:8cf5ddac), at 93% of the ceiling already |
+| router (per head) | 320 | 12.027 | 320 | 11.514 | unchanged, the next lever |
+| gdn + attn (per head) | 320 | 12.976 | 320 | 13.604 | unchanged |
+| mix + o_proj (dense) | 80 | 9.255 | 80 | 9.523 | unchanged |
+| res, ab, swiglu, gather, gate, argmax, norm | 585 | 4.123 | 577 | 4.138 | unchanged |
+| perm + group | 410 | 2.047 | 410 | 1.945 | unchanged |
+| total timeline | 1755 | 120.056 | 1749 | 92.057 | 28.0 ms less (calc:cea80142) |
+
+Next, in the order the table gives: (2) the router once for all heads (320 launches of 36 us: 95.608 - 11.514 + 40 x 0.05 = 86.1 ms a
+stroke, calc:2fece473, 92.9 tok/s, calc:a2081447, if one launch a layer costs what a glue launch costs); (3) the dense GEMM at M = 8
+(131 to 141 GB/s, a CTA-budget sweep); (4) GDN and attention over heads (13.6 ms, 320 launches). The expert union is the floor.
 ## Files
 `gate1-*.json/.log` first pass (band withdrawn, data kept), `gate1b-*.json/.log` the rerun, `gate2-*.json` the door, `stroke-*.json/.log`
-the four stroke runs (`stroke_chip_ns` per stroke, `conversations[].steps`), `stroke8-*` and `stroke8b-*` the eight-head sets, `stroke1-*`
-the runs alone, `stroke{1,2,4}-real` the ladder, `*-vs-alone.txt`, `expert-union-*.json`, `scripts/` the scripts that produced them, `run.log`
+the four stroke runs (`stroke_chip_ns` per stroke, `conversations[].steps`), `stroke8-*` and `stroke8b-*` the eight-head sets, `stroke8v2-*` the v2 set, `stroke8l1-*` the lever 1 set (`*-stamps` the timelines), `stroke1-*`
+the runs alone, `stroke{1,2,4}-real`, `stroke{1,2,4}v2-real`, `stroke{1,2,4}l1-real` the ladders, `*-vs-alone.txt`, `expert-union-*.json`, `scripts/` the scripts that produced them, `run.log`
 the chip log with binary and lib shas; the scripts live in `~/handoffs/motor-scripts/` (not in the repo: they carry home paths).
