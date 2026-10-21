@@ -20,6 +20,8 @@ struct Fake {
     swap_at: Option<u64>,
     steps: u64,
     fed: Arc<AtomicUsize>,
+    /// The rows each step fed, in order.
+    log: StepLog,
 }
 
 impl Fake {
@@ -31,6 +33,7 @@ impl Fake {
                 swap_at,
                 steps: 0,
                 fed: Arc::clone(&fed),
+                log: Arc::new(Mutex::new(Vec::new())),
             },
             fed,
         )
@@ -56,6 +59,10 @@ impl RowStep for Fake {
     }
     fn step_rows(&mut self, feed: &[RowFeed]) -> Result<Vec<RowOut>, String> {
         self.steps += 1;
+        self.log
+            .lock()
+            .unwrap()
+            .push(feed.iter().map(|f| f.row).collect());
         // A step takes a moment, as on the chip, so requests started together overlap.
         std::thread::sleep(Duration::from_micros(300));
         // As the chip's control: once, at the first step from k on that feeds two rows.
@@ -277,4 +284,130 @@ fn the_graphs_greedy_token_equals_the_host_argmax_path() {
         })
         .collect();
     assert_eq!(concurrent(8, None, 16), want);
+}
+
+type StepLog = Arc<Mutex<Vec<Vec<usize>>>>;
+
+/// A door whose fake logs the rows of every step.
+fn logged_door(rows: usize) -> (Arc<Qwen36BatchDoor>, StepLog) {
+    let (f, _) = Fake::new(rows, None);
+    let log = Arc::clone(&f.log);
+    let d = Qwen36BatchDoor::with_stepper(f, 4096, lock_file(), Duration::from_secs(5), 1, true)
+        .unwrap();
+    (Arc::new(d), log)
+}
+
+fn group_jobs() -> Vec<GroupJob> {
+    prompts()
+        .into_iter()
+        .take(8)
+        .map(|(p, n)| GroupJob {
+            prompt: p,
+            params: greedy(n),
+            cancel: None,
+        })
+        .collect()
+}
+
+fn run_group(d: &Qwen36BatchDoor, jobs: &[GroupJob]) -> Vec<Vec<u32>> {
+    let mut words = vec![Vec::new(); jobs.len()];
+    let outs = d.generate_group(jobs, &mut |i, t| {
+        words[i].push(t);
+        true
+    });
+    for o in &outs {
+        assert!(o.is_ok(), "{o:?}");
+    }
+    words
+}
+
+/// The readers' group (sc L371): eight jobs seated in one beat, beside a conversation already
+/// running, each job's words those of the same request alone, in job order.
+#[test]
+fn a_group_of_eight_joins_in_one_beat_and_keeps_its_order() {
+    let (d, log) = logged_door(10);
+    let solo: Vec<u32> = (0..6).collect();
+    let h = {
+        let d = Arc::clone(&d);
+        let solo = solo.clone();
+        std::thread::spawn(move || run(&d, &solo, &greedy(300)).0)
+    };
+    while log.lock().unwrap().len() < 5 {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let jobs = group_jobs();
+    let got = run_group(&d, &jobs);
+    let want: Vec<Vec<u32>> = jobs
+        .iter()
+        .map(|j| alone(&j.prompt, j.params.max_new_tokens))
+        .collect();
+    assert_eq!(got, want);
+    assert_eq!(h.join().unwrap(), alone(&solo, 300));
+    // Before the group one row steps; the first step with more has all nine.
+    let log = log.lock().unwrap();
+    let first = log
+        .iter()
+        .position(|s| s.len() > 1)
+        .expect("the group stepped");
+    assert!(first >= 5);
+    assert_eq!(log[first].len(), 9, "step {first}: {:?}", log[first]);
+}
+
+/// A group waits for enough free rows and nothing seats a part of it early.
+#[test]
+fn a_group_waits_for_its_rows_then_joins_whole() {
+    let (d, log) = logged_door(8);
+    let solo: Vec<u32> = (0..4).collect();
+    let h = {
+        let d = Arc::clone(&d);
+        std::thread::spawn(move || run(&d, &solo, &greedy(40)).0)
+    };
+    while log.lock().unwrap().is_empty() {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let got = run_group(&d, &group_jobs());
+    h.join().unwrap();
+    assert_eq!(got.len(), 8);
+    let log = log.lock().unwrap();
+    // One row (the single conversation) until it leaves, then all eight at once.
+    let first = log
+        .iter()
+        .position(|s| s.len() > 1)
+        .expect("the group stepped");
+    assert!(log[..first].iter().all(|s| s.len() == 1));
+    assert_eq!(log[first].len(), 8);
+    assert!(
+        first >= 40,
+        "the group started before the single left (step {first})"
+    );
+}
+
+#[test]
+fn a_group_larger_than_the_door_is_refused_whole() {
+    let (d, _) = door(4, None, 1);
+    let outs = d.generate_group(&group_jobs(), &mut |_, _| true);
+    assert_eq!(outs.len(), 8);
+    assert!(outs
+        .iter()
+        .all(|o| matches!(o, Err(EngineError::Failed(m)) if m.contains("needs 8 rows"))));
+}
+
+/// The caller's flag stops a job still taking in its prompt (the readers' client left).
+#[test]
+fn a_group_job_stops_on_the_callers_flag_while_prefilling() {
+    let (d, _) = door(8, None, 1);
+    let flag = Arc::new(AtomicBool::new(true));
+    let jobs: Vec<GroupJob> = group_jobs()
+        .into_iter()
+        .map(|mut j| {
+            j.cancel = Some(Arc::clone(&flag));
+            j
+        })
+        .collect();
+    let outs = d.generate_group(&jobs, &mut |_, _| true);
+    for o in outs {
+        let o = o.unwrap();
+        assert_eq!(o.finish, FinishReason::Cancelled);
+        assert_eq!(o.emitted_tokens, 0);
+    }
 }
