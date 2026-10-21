@@ -38,6 +38,9 @@ pub(super) struct RowSource {
     /// Every attention layer's (q_norm, k_norm) as the checkpoint stores them.
     pub attn_norms: Vec<(Vec<f32>, Vec<f32>)>,
     pub mutant: Option<i32>,
+    /// The exact two-pass head's Row coefficients (HUM L314), when the screen was built: every row
+    /// graph and the stroke graph screen with the door's `head_screen`.
+    pub head_coef: Option<Vec<f32>>,
 }
 
 /// One conversation's state and graph. Field order is drop order: the graph before the state it
@@ -199,6 +202,15 @@ impl Qwen38Omega {
         if let Some(m) = self.row_src.as_ref().and_then(|s| s.mutant) {
             graph.test_set_mutant(m);
         }
+        if let (Some(screen), Some(coef)) = (
+            self.head_screen.as_ref(),
+            self.row_src.as_ref().and_then(|s| s.head_coef.as_ref()),
+        ) {
+            // SAFETY: the screen lives in `self.head_screen`, which outlives the rows and the stroke
+            // graph (field order); the coefficients are copied.
+            unsafe { graph.set_exact_head(screen.as_raw(), coef) }
+                .map_err(gpu("row q36 graph set_exact_head"))?;
+        }
         Ok(())
     }
 
@@ -340,6 +352,9 @@ impl Qwen38Omega {
         // Strokes (L312): up to MAX_HEADS rows per command list, the head slots pointed at them.
         if let Some(sg) = self.row_stroke.as_mut() {
             for chunk in feed.chunks(q::MAX_HEADS) {
+                // The exact head (when built) makes off-candidate logits -inf: on for the whole stroke only
+                // when no row in it reads logits (sampled rows need every one).
+                sg.set_exact_head_on(!chunk.iter().any(|f| f.logits));
                 let mut x = Vec::with_capacity(chunk.len() * h);
                 let mut pos = Vec::with_capacity(chunk.len());
                 for (hd, f) in chunk.iter().enumerate() {
@@ -400,6 +415,7 @@ impl Qwen38Omega {
                     f.row, row.max_pos
                 ));
             }
+            row.graph.set_exact_head_on(!f.logits);
             let (token, stats) = row.graph.token(&x, row.pos).map_err(gpu("row q36 token"))?;
             row.pos += 1;
             let logits = if f.logits {

@@ -174,8 +174,9 @@ impl Qwen38Omega {
         let (v, h) = (c.vocab, c.hidden);
         let embed = read_bf16_words(source, &format!("{prefix}embed_tokens.weight"), &[v, h])?;
         let final_norm = fold(read_vec(source, &format!("{prefix}norm.weight"), h)?);
-        let lm_head = match read_matrix(source, "lm_head.weight", v, h)? {
-            Matrix::Bf16 { n, k, w } => Bf16Tensor::upload(n, k, &w).map_err(gpu("lm_head"))?,
+        let head = read_matrix(source, "lm_head.weight", v, h)?;
+        let lm_head = match &head {
+            Matrix::Bf16 { n, k, w } => Bf16Tensor::upload(*n, *k, w).map_err(gpu("lm_head"))?,
             Matrix::Fp8 { .. } => return Err("lm_head: FP8 (the graph takes a bf16 head)".into()),
         };
         let n_attn = c.full_attention.iter().filter(|&&a| a).count();
@@ -388,8 +389,25 @@ impl Qwen38Omega {
         graph
             .set_final_norm(&final_norm)
             .map_err(gpu("q36 graph set_final_norm"))?;
+        // HUM L314 exact two-pass head, on by default (AIEN_Q36_EXACT_HEAD=0 keeps the plain head):
+        // greedy tokens identical to the full bf16 head by construction (exact_head.rs), half the
+        // head's bytes. The engine turns it off for sampled requests.
+        let (head_screen, head_coef) = if std::env::var("AIEN_Q36_EXACT_HEAD").as_deref() == Ok("0") {
+            eprintln!("qwen36 omega: exact two-pass head OFF (AIEN_Q36_EXACT_HEAD=0)");
+            (None, None)
+        } else {
+            let t = std::time::Instant::now();
+            let (codes, scales, coef) = crate::exact_head::chip_screen(&head)?;
+            let screen = Fp8Tensor::upload(1, v, h, &codes, &scales).map_err(gpu("exact head screen"))?;
+            // SAFETY: the screen is owned by the returned value and dropped after the graph (field order).
+            unsafe { graph.set_exact_head(screen.as_raw(), &coef) }.map_err(gpu("q36 graph set_exact_head"))?;
+            eprintln!("qwen36 omega: exact two-pass head ON (fp8b screen + Row bound, built in {:.1} s)", t.elapsed().as_secs_f64());
+            (Some(screen), Some(coef))
+        };
+        drop(head);
         // Negative controls for the gates (TEST ONLY): AIEN_Q36_TEST_MUTANT=4 drops the shared expert
-        // from COMBINE, 1 shifts the SWIGLU up half, 2 the attention GATHER, 3 drops the attention gate.
+        // from COMBINE, 1 shifts the SWIGLU up half, 2 the attention GATHER, 3 drops the attention gate,
+        // 5 inverts the exact head's MASK, 6 drops its bound.
         if let Some(m) = graph_mutant() {
             eprintln!("qwen36 omega: TEST MUTANT {m} set (negative control; never serve this)");
             graph.test_set_mutant(m);
@@ -404,6 +422,7 @@ impl Qwen38Omega {
             gdn_params,
             attn_norms,
             mutant: graph_mutant(),
+            head_coef,
         };
         let gdn = gdns.remove(0);
         let attn = attns.remove(0);
@@ -418,6 +437,7 @@ impl Qwen38Omega {
             layers,
             lm_head,
             lm_head8: None,
+            head_screen,
             gdn,
             attn,
             extra_heads,

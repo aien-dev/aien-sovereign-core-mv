@@ -139,6 +139,10 @@ pub struct Qwen38Omega {
     /// FP8 copy of lm_head (env `AIEN_Q38_FP8_HEAD=1`, qwen38/decode-speed): the decode graph reads it instead.
     #[allow(dead_code)] // owned only: the graph points at it until it is dropped first
     lm_head8: Option<Fp8Tensor>,
+    /// The 35B's exact two-pass head screen (HUM L314, on unless `AIEN_Q36_EXACT_HEAD=0`): the fp8b copy
+    /// of lm_head the graph screens with, for greedy tokens only ([`Self::set_exact_head_on`]).
+    #[allow(dead_code)] // owned only: the graph points at it until it is dropped first
+    head_screen: Option<Fp8Tensor>,
     gdn: Option<Gdn>,
     attn: Option<Attn256Cache>,
     /// Heads 1.. of a multi-conversation graph ([`Self::open_window_heads`]): each one's own
@@ -657,6 +661,7 @@ impl Qwen38Omega {
             layers,
             lm_head,
             lm_head8,
+            head_screen: None,
             gdn,
             attn,
             extra_heads: Vec::new(),
@@ -991,6 +996,20 @@ impl Qwen38Omega {
             Graph::Dense(g) => Some(g),
             Graph::Moe(_) => None,
         }
+    }
+
+    /// Greedy tokens may use the exact two-pass head (35B, when loaded with it): the token is the
+    /// full head's, but the logits read back are -inf off the candidates. Sampled requests turn
+    /// it off and read every logit.
+    pub fn set_exact_head_on(&mut self, on: bool) {
+        if let Graph::Moe(g) = &mut self.graph {
+            g.set_exact_head_on(on);
+        }
+    }
+
+    /// True when the next token runs the exact two-pass head.
+    pub fn exact_head_active(&self) -> bool {
+        matches!(&self.graph, Graph::Moe(g) if g.exact_head_active())
     }
 
     /// The 35B graph, for timelines.

@@ -18,6 +18,7 @@ pub mod model_dir;
 pub mod moe_plan;
 pub mod native_ops;
 pub mod omega_backend;
+pub mod exact_head;
 pub mod qwen38;
 pub mod qwen38_omega;
 pub mod qwen3_coder;
