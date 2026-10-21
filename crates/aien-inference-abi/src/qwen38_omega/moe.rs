@@ -429,6 +429,7 @@ impl Qwen38Omega {
             final_norm,
             ab_mm: Vec::new(),
             pf: None,
+            row_stroke: None,
             rows: Vec::new(),
             row_src: Some(row_src),
             row_steps: 0,

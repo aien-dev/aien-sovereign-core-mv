@@ -3,10 +3,10 @@
 //! Qwen3.6-35B-A3B decode graph pointed at the SAME resident weights, router and lm_head.
 //!
 //! [`Qwen38Omega::step_rows`] feeds one token into each listed row and returns each row's greedy
-//! token and logits. Today it runs the rows' graphs one after the other (the one-row graph, so
-//! every row's bits are exactly what that conversation gets alone); the multi-row chip step
-//! (L312: one weight read per layer for all rows, experts = the union of the rows' routes) takes
-//! the same rows and must keep that contract.
+//! token and logits. With L312's strokes linked it feeds up to `MAX_HEADS` rows per command
+//! list (one stroke graph whose head slots are re-pointed at each chunk's rows, nothing copied);
+//! `AIEN_Q36_STROKE=0` runs each row's own one-row graph in turn (the first cut). Either way every
+//! row's bits must be exactly what that conversation gets alone (the gate checks it).
 //!
 //! Negative control (TEST ONLY): `AIEN_Q36_TEST_ROW_SWAP=<k>` swaps the states of the first two
 //! fed rows once, at the first multi-row step from the `k`th on (counted from 1) that feeds two or
@@ -139,28 +139,7 @@ impl Qwen38Omega {
             // lm_head live in `self`, which drops `rows` first (field order).
             let mut graph =
                 unsafe { Q36Graph::create(&cfg) }.map_err(gpu("row q36 graph create"))?;
-            for (l, (t, (in_norm, _))) in self.layers.iter().zip(&self.norms).enumerate() {
-                let ab = t.ab.as_ref().map_or(std::ptr::null_mut(), |b| b.as_raw());
-                // SAFETY: the tensors live in `self.layers`, which outlive the rows (field order).
-                unsafe {
-                    graph.set_layer(
-                        l,
-                        t.mix.as_raw(),
-                        ab,
-                        t.o.as_raw(),
-                        t.gate_up.as_raw(),
-                        t.down.as_raw(),
-                        in_norm,
-                    )
-                }
-                .map_err(gpu("row q36 graph set_layer"))?;
-            }
-            graph
-                .set_final_norm(&self.final_norm)
-                .map_err(gpu("row q36 graph set_final_norm"))?;
-            if let Some(m) = src.mutant {
-                graph.test_set_mutant(m);
-            }
+            self.wire(&mut graph)?;
             self.rows.push(Q36Row {
                 graph,
                 gdn,
@@ -169,7 +148,58 @@ impl Qwen38Omega {
                 max_pos,
             });
         }
+        // The strokes' graph (L312): MAX_HEADS head slots, pointed at each chunk's rows per step.
+        if self.row_stroke.is_none() && stroke_on() && !self.rows.is_empty() {
+            let r0 = &self.rows[0];
+            let cfg = Q36Config {
+                layers: src.layers as u32,
+                attn_mask: src.attn_mask,
+                vocab: src.vocab as u32,
+                eps: src.eps,
+                eps_l2: super::EPS_L2,
+                gdn: r0.gdn.as_ref().map_or(std::ptr::null_mut(), Gdn::as_raw),
+                attn: r0
+                    .attn
+                    .as_ref()
+                    .map_or(std::ptr::null_mut(), Attn256Cache::as_raw),
+                router,
+                lm_head,
+            };
+            // SAFETY: as the rows' graphs; `row_stroke` drops before `rows` (field order).
+            let mut g = unsafe { Q36Graph::create_heads(&cfg, q::MAX_HEADS) }
+                .map_err(gpu("rows stroke graph create"))?;
+            self.wire(&mut g)?;
+            self.row_stroke = Some(g);
+        }
         Ok(first)
+    }
+
+    /// Points a new graph at this upload's layers and final norm (and the test mutant).
+    fn wire(&self, graph: &mut Q36Graph) -> Result<(), String> {
+        for (l, (t, (in_norm, _))) in self.layers.iter().zip(&self.norms).enumerate() {
+            let ab = t.ab.as_ref().map_or(std::ptr::null_mut(), |b| b.as_raw());
+            // SAFETY: the tensors live in `self.layers`, which outlive the rows and the stroke
+            // graph (field order).
+            unsafe {
+                graph.set_layer(
+                    l,
+                    t.mix.as_raw(),
+                    ab,
+                    t.o.as_raw(),
+                    t.gate_up.as_raw(),
+                    t.down.as_raw(),
+                    in_norm,
+                )
+            }
+            .map_err(gpu("row q36 graph set_layer"))?;
+        }
+        graph
+            .set_final_norm(&self.final_norm)
+            .map_err(gpu("row q36 graph set_final_norm"))?;
+        if let Some(m) = self.row_src.as_ref().and_then(|s| s.mutant) {
+            graph.test_set_mutant(m);
+        }
+        Ok(())
     }
 
     /// Rows made so far.
@@ -297,7 +327,66 @@ impl Qwen38Omega {
             let (lo, hi) = self.rows.split_at_mut(b);
             std::mem::swap(&mut lo[a], &mut hi[0]);
         }
+        for f in feed {
+            let row = &self.rows[f.row];
+            if row.pos >= row.max_pos {
+                return Err(format!(
+                    "step_rows: row {} holds {} positions",
+                    f.row, row.max_pos
+                ));
+            }
+        }
         let mut outs = Vec::with_capacity(feed.len());
+        // Strokes (L312): up to MAX_HEADS rows per command list, the head slots pointed at them.
+        if let Some(sg) = self.row_stroke.as_mut() {
+            for chunk in feed.chunks(q::MAX_HEADS) {
+                let mut x = Vec::with_capacity(chunk.len() * h);
+                let mut pos = Vec::with_capacity(chunk.len());
+                for (hd, f) in chunk.iter().enumerate() {
+                    let t = f.token as usize;
+                    x.extend(
+                        self.embed[t * h..(t + 1) * h]
+                            .iter()
+                            .map(|&b| bf16_to_f32(b)),
+                    );
+                    let row = &self.rows[f.row];
+                    let (g, a) = (
+                        row.gdn.as_ref().map_or(std::ptr::null_mut(), Gdn::as_raw),
+                        row.attn
+                            .as_ref()
+                            .map_or(std::ptr::null_mut(), Attn256Cache::as_raw),
+                    );
+                    // SAFETY: the row's state lives in `self.rows`, which outlives the stroke
+                    // graph (field order); a re-point copies nothing.
+                    unsafe { sg.set_head_state(hd, g, a) }
+                        .map_err(gpu("rows stroke set_head_state"))?;
+                    pos.push(row.pos);
+                }
+                let (tokens, stats) = sg.stroke(&x, &pos).map_err(gpu("rows stroke"))?;
+                for (hd, (f, token)) in chunk.iter().zip(tokens).enumerate() {
+                    self.rows[f.row].pos += 1;
+                    let logits = if f.logits {
+                        let mut l = vec![0f32; v];
+                        sg.read_head(hd, None, None, Some(&mut l))
+                            .map_err(gpu("rows stroke read logits"))?;
+                        Some(l)
+                    } else {
+                        None
+                    };
+                    outs.push(RowOut {
+                        token,
+                        logits,
+                        // The chip time is the whole stroke's: counted once, on its first head.
+                        stats: if hd == 0 {
+                            stats
+                        } else {
+                            GraphStats::default()
+                        },
+                    });
+                }
+            }
+            return Ok(outs);
+        }
         for f in feed {
             let t = f.token as usize;
             let x: Vec<f32> = self.embed[t * h..(t + 1) * h]
@@ -339,4 +428,9 @@ fn row_swap_step() -> Option<u64> {
     std::env::var("AIEN_Q36_TEST_ROW_SWAP")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
+}
+
+/// Strokes for the rows (`AIEN_Q36_STROKE=0`: each row's own one-row graph, in turn).
+fn stroke_on() -> bool {
+    std::env::var("AIEN_Q36_STROKE").as_deref() != Ok("0")
 }

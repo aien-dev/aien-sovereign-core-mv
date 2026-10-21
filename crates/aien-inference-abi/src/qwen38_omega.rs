@@ -125,6 +125,9 @@ pub(crate) struct HeadState {
 /// Field order is drop order: the graph goes first, then the tensors and state it points at.
 pub struct Qwen38Omega {
     graph: Graph,
+    /// The rows' multi-conversation graph (L312's strokes): its head slots are pointed at the rows
+    /// of each [`Self::step_rows`] chunk; it points at their state, so it drops before them.
+    row_stroke: Option<Q36Graph>,
     /// Extra conversations over the same weights (the 35B only, [`Self::add_rows`]); they point at
     /// the router, lm_head and layers below, so they drop right after the main graph.
     rows: Vec<rows::Q36Row>,
@@ -665,6 +668,7 @@ impl Qwen38Omega {
             final_norm,
             ab_mm,
             pf: None,
+            row_stroke: None,
             rows: Vec::new(),
             row_src: None,
             row_steps: 0,

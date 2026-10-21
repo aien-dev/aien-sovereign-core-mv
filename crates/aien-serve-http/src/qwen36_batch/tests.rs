@@ -16,7 +16,7 @@ fn mix(mut z: u64) -> u64 {
 /// A row model whose next token depends on every token fed so far and its position.
 struct Fake {
     rows: Vec<(u64, usize)>,
-    /// Swap the first two decoding rows' states at the first step at or after this one.
+    /// Swap the first two fed rows' states once, at the first step from this one on that feeds two.
     swap_at: Option<u64>,
     steps: u64,
     fed: Arc<AtomicUsize>,
@@ -58,10 +58,10 @@ impl RowStep for Fake {
         self.steps += 1;
         // A step takes a moment, as on the chip, so requests started together overlap.
         std::thread::sleep(Duration::from_micros(300));
-        let dec: Vec<usize> = feed.iter().filter(|f| f.logits).map(|f| f.row).collect();
-        if dec.len() >= 2 && self.swap_at.is_some_and(|k| self.steps >= k) {
+        // As the chip's control: once, at the first step from k on that feeds two rows.
+        if feed.len() >= 2 && self.swap_at.is_some_and(|k| self.steps >= k) {
             self.swap_at = None;
-            self.rows.swap(dec[0], dec[1]);
+            self.rows.swap(feed[0].row, feed[1].row);
         }
         let mut outs = Vec::new();
         for f in feed {
