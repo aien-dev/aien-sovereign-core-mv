@@ -20,7 +20,8 @@
 //!   upgrade is not (a limit of this audit, stated in the report).
 //!
 //! Not judged as reads (each reported with a count, never silently):
-//! - `git` and `tar` opening the tree: the commit and the copy step. What the
+//! - `git` opening anything (the commit, its config and objects) and `tar`
+//!   opening the tree (the copy step). What the
 //!   copy's consumers read is mapped back (next item). A script that branches
 //!   on git output is not caught here; read the script.
 //! - files under the private `TMPDIR` the audit gives the run: a path
@@ -227,6 +228,12 @@ pub fn judge(m: &Manifest, places: &Places, opened: &[Opened]) -> Report {
             bump(&mut r, "opened for writing only");
             continue;
         }
+        // git reads its own records wherever they live (a worktree's common
+        // dir, a mirror, ~/.gitconfig): the commit, not a gate input.
+        if o.comm == "git" {
+            bump(&mut r, "git (commit metadata, config, objects)");
+            continue;
+        }
         let p = o.path.as_str();
         let p_dir = format!("{}/", p.trim_end_matches('/'));
         if p_dir.starts_with(&target) {
@@ -260,8 +267,8 @@ pub fn judge(m: &Manifest, places: &Places, opened: &[Opened]) -> Report {
                 bump(&mut r, "the repository root directory itself");
             } else if rel == ".git" || rel.starts_with(".git/") {
                 bump(&mut r, "git metadata (.git)");
-            } else if o.comm == "git" || o.comm == "tar" {
-                bump(&mut r, "git or tar reading the tree (commit, copy step)");
+            } else if o.comm == "tar" {
+                bump(&mut r, "tar reading the tree (the copy step)");
             } else {
                 judge_repo(m, places, &rel, &o.comm, &mut r);
             }
