@@ -7,6 +7,8 @@
 //!   allen_train train <model-dir> <train.jsonl> <val.jsonl> <run-dir> [key=value ...]
 //!       LoRA fine-tune; keys: rank alpha lr steps batch warmup max_len eval_every save_every seed
 //!       resumes from <run-dir>/adapters.bin; writes <run-dir>/merged at the end
+//!   allen_train export-gpu <model-dir> <out.bin>
+//!       the weights as one flat file for the iMac GPU kernels (see `io::export_gpu`)
 //!
 //! Threads: RAYON_NUM_THREADS (run it under `nice -n 19`; the GB10 is not used at all).
 
@@ -376,6 +378,9 @@ fn main() {
             Path::new(&a[4]),
             a.get(5).and_then(|v| v.parse().ok()).unwrap_or(160),
         ),
+        Some("export-gpu") if a.len() == 4 => {
+            io::load(Path::new(&a[2])).and_then(|m| io::export_gpu(&m, Path::new(&a[3])))
+        }
         Some("gemmbench") => {
             for &(m, k, n) in &[
                 (256usize, 1024usize, 3584usize),

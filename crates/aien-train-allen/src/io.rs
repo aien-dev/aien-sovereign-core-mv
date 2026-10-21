@@ -296,3 +296,86 @@ pub fn save_merged(
     std::fs::write(out_dir.join("README.md"), readme).map_err(|e| e.to_string())?;
     Ok(n_replaced)
 }
+
+/// Writes the model as one flat file for the iMac GPU kernels (`aienos native/kernel/gpu/kernels/allen`).
+///
+/// Little-endian throughout. A header of 16 `u32`: magic `AGP1`, version 1, hidden, layers, vocab,
+/// intermediate, heads, kv_heads, head_dim, rotary_dim, lin_k_heads, lin_v_heads, lin_k_dim,
+/// lin_v_dim, conv_kernel, the bits of eps. Then one `u32` per layer (0 DeltaNet, 1 attention).
+/// Then the tensors, each a `u32` dtype (0 bf16, 1 f32), a `u32` element count and the data:
+/// embed `[vocab][hidden]` bf16, final_norm f32; per layer input_norm, post_norm (f32); DeltaNet
+/// qkv, z, a, b (bf16 `[n][k]`), conv `[conv_dim][kernel]`, a_log, dt_bias, norm (f32), out
+/// (bf16); attention q, k, v, o (bf16), q_norm, k_norm (f32); then mlp gate, up, down (bf16).
+/// Adapters are folded in (rounded to bf16 as [`save_merged`] does).
+pub fn export_gpu(model: &Model, out: &Path) -> Result<(), String> {
+    let c = &model.c;
+    let mut f = std::io::BufWriter::new(File::create(out).map_err(|e| e.to_string())?);
+    let put = |v: u32, f: &mut std::io::BufWriter<File>| {
+        f.write_all(&v.to_le_bytes()).map_err(|e| e.to_string())
+    };
+    for v in [
+        u32::from_le_bytes(*b"AGP1"),
+        1,
+        c.hidden as u32,
+        c.layers as u32,
+        c.vocab as u32,
+        c.intermediate as u32,
+        c.heads as u32,
+        c.kv_heads as u32,
+        c.head_dim as u32,
+        c.rotary_dim as u32,
+        c.lin_k_heads as u32,
+        c.lin_v_heads as u32,
+        c.lin_k_dim as u32,
+        c.lin_v_dim as u32,
+        c.conv_kernel as u32,
+        c.eps.to_bits(),
+    ] {
+        put(v, &mut f)?;
+    }
+    for l in &model.layers {
+        put(matches!(l.mixer, Mixer::Attn(_)) as u32, &mut f)?;
+    }
+    fn tensor(f: &mut std::io::BufWriter<File>, v: &[f32], bf16: bool) -> Result<(), String> {
+        let e = |r: std::io::Result<()>| r.map_err(|e| e.to_string());
+        e(f.write_all(&(!bf16 as u32).to_le_bytes()))?;
+        e(f.write_all(&(v.len() as u32).to_le_bytes()))?;
+        for &x in v {
+            if bf16 {
+                e(f.write_all(&f32_to_bf16(x).to_le_bytes()))?;
+            } else {
+                e(f.write_all(&x.to_le_bytes()))?;
+            }
+        }
+        Ok(())
+    }
+    let lin = |f: &mut std::io::BufWriter<File>, l: &Lin| tensor(f, &l.merged(), true);
+    tensor(&mut f, &model.embed, true)?;
+    tensor(&mut f, &model.final_norm, false)?;
+    for l in &model.layers {
+        tensor(&mut f, &l.input_norm, false)?;
+        tensor(&mut f, &l.post_norm, false)?;
+        match &l.mixer {
+            Mixer::Gdn(d) => {
+                for m in [&d.qkv, &d.z, &d.a, &d.b] {
+                    lin(&mut f, m)?;
+                }
+                for v in [&d.conv, &d.a_log, &d.dt_bias, &d.norm] {
+                    tensor(&mut f, v, false)?;
+                }
+                lin(&mut f, &d.out)?;
+            }
+            Mixer::Attn(a) => {
+                for m in [&a.q, &a.k, &a.v, &a.o] {
+                    lin(&mut f, m)?;
+                }
+                tensor(&mut f, &a.q_norm, false)?;
+                tensor(&mut f, &a.k_norm, false)?;
+            }
+        }
+        for m in [&l.mlp.gate, &l.mlp.up, &l.mlp.down] {
+            lin(&mut f, m)?;
+        }
+    }
+    f.flush().map_err(|e| e.to_string())
+}
