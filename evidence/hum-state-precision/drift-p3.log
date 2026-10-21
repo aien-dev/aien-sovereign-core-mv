@@ -1,0 +1,17 @@
+step 32 at 108 s; first divergence: bf16 None, bf16+forced None, fp8-e4m3-row Some(7), fp8-e4m3-row+forced None
+step 64 at 162 s; first divergence: bf16 Some(41), bf16+forced None, fp8-e4m3-row Some(7), fp8-e4m3-row+forced None
+step 96 at 211 s; first divergence: bf16 Some(41), bf16+forced None, fp8-e4m3-row Some(7), fp8-e4m3-row+forced None
+step 128 at 252 s; first divergence: bf16 Some(41), bf16+forced None, fp8-e4m3-row Some(7), fp8-e4m3-row+forced Some(114)
+step 160 at 290 s; first divergence: bf16 Some(41), bf16+forced None, fp8-e4m3-row Some(7), fp8-e4m3-row+forced Some(114)
+step 192 at 325 s; first divergence: bf16 Some(41), bf16+forced None, fp8-e4m3-row Some(7), fp8-e4m3-row+forced Some(114)
+step 224 at 361 s; first divergence: bf16 Some(41), bf16+forced None, fp8-e4m3-row Some(7), fp8-e4m3-row+forced Some(114)
+step 256 at 396 s; first divergence: bf16 Some(41), bf16+forced None, fp8-e4m3-row Some(7), fp8-e4m3-row+forced Some(114)
+step 288 at 433 s; first divergence: bf16 Some(41), bf16+forced None, fp8-e4m3-row Some(7), fp8-e4m3-row+forced Some(114)
+step 320 at 468 s; first divergence: bf16 Some(41), bf16+forced None, fp8-e4m3-row Some(7), fp8-e4m3-row+forced Some(114)
+step 352 at 504 s; first divergence: bf16 Some(41), bf16+forced None, fp8-e4m3-row Some(7), fp8-e4m3-row+forced Some(114)
+step 384 at 540 s; first divergence: bf16 Some(41), bf16+forced None, fp8-e4m3-row Some(7), fp8-e4m3-row+forced Some(114)
+step 416 at 581 s; first divergence: bf16 Some(41), bf16+forced None, fp8-e4m3-row Some(7), fp8-e4m3-row+forced Some(114)
+step 448 at 618 s; first divergence: bf16 Some(41), bf16+forced None, fp8-e4m3-row Some(7), fp8-e4m3-row+forced Some(114)
+step 480 at 654 s; first divergence: bf16 Some(41), bf16+forced None, fp8-e4m3-row Some(7), fp8-e4m3-row+forced Some(114)
+step 512 at 690 s; first divergence: bf16 Some(41), bf16+forced None, fp8-e4m3-row Some(7), fp8-e4m3-row+forced Some(114)
+done in 690 s -> /home/drakestapleton/workspace/sc-hum-state-precision/evidence/hum-state-precision/drift-p3.json
