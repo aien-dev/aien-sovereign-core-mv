@@ -557,3 +557,41 @@ mod tests {
         );
     }
 }
+
+/// Layers kept at FP8 in a mixed 4-bit load: env `AIEN_Q36_W4_FP8_LAYERS` = comma list of layers or ranges `a-b`
+/// (inclusive), bit l of the mask; unset or empty = none (every layer from the store). Host reference and chip loader read
+/// the same variable so the gate compares the same mix.
+pub fn fp8_layers_from_env() -> Result<u64, String> {
+    let s = std::env::var("AIEN_Q36_W4_FP8_LAYERS").unwrap_or_default();
+    let mut mask = 0u64;
+    for part in s.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        let bad = || format!("AIEN_Q36_W4_FP8_LAYERS: '{part}' is not a layer or a range a-b below 64");
+        let (a, b) = match part.split_once('-') {
+            Some((a, b)) => (a.trim().parse::<u32>().map_err(|_| bad())?, b.trim().parse::<u32>().map_err(|_| bad())?),
+            None => {
+                let a = part.parse::<u32>().map_err(|_| bad())?;
+                (a, a)
+            }
+        };
+        if a > b || b >= 64 {
+            return Err(bad());
+        }
+        for l in a..=b {
+            mask |= 1u64 << l;
+        }
+    }
+    Ok(mask)
+}
+
+#[cfg(test)]
+mod fp8_layers_tests {
+    #[test]
+    fn parses_lists_and_ranges() {
+        std::env::set_var("AIEN_Q36_W4_FP8_LAYERS", "0-2, 39,10");
+        assert_eq!(super::fp8_layers_from_env().unwrap(), 0b111 | 1 << 39 | 1 << 10);
+        std::env::set_var("AIEN_Q36_W4_FP8_LAYERS", "5-3");
+        assert!(super::fp8_layers_from_env().is_err());
+        std::env::remove_var("AIEN_Q36_W4_FP8_LAYERS");
+        assert_eq!(super::fp8_layers_from_env().unwrap(), 0);
+    }
+}

@@ -773,9 +773,16 @@ pub struct W4Host {
     pub experts: bool,
     pub trunk: bool,
     pub mutant: bool,
+    /// Layers kept at FP8 (bit l), q36_w4_store::fp8_layers_from_env (AIEN_Q36_W4_FP8_LAYERS): the mixed arm.
+    pub fp8_layers: u64,
+    /// The shared expert stays FP8 (AIEN_Q36_W4_SHARED_FP8=1, host only: the chip slab holds it as group 256).
+    pub shared_fp8: bool,
 }
 
 impl W4Host {
+    fn on(&self, l: usize) -> bool {
+        l >= 64 || self.fp8_layers >> l & 1 == 0
+    }
     fn rows(&self, name: &str, row0: usize, rows: usize) -> Result<Matrix, String> {
         let (_, k) = self.store.shape(name).ok_or_else(|| format!("w4 store: no tensor {name}"))?;
         let (w4, e8) = self.store.read_rows(name, row0, rows)?;
@@ -921,7 +928,7 @@ impl<S: TensorSource> Qwen38Reference<S> {
             })
         };
         let mut mixer = mixer;
-        if let Some(w) = self.w4.as_ref().filter(|w| w.trunk && !mtp) {
+        if let Some(w) = self.w4.as_ref().filter(|w| w.trunk && !mtp && w.on(l)) {
             // the store's fused tensors stack the checkpoint parts by rows (q36_w4_store::layer_projs)
             match &mut mixer {
                 Mixer::Attention(a) => {
@@ -952,7 +959,7 @@ impl<S: TensorSource> Qwen38Reference<S> {
                 .into_iter()
                 .map(bf16_to_f32)
                 .collect(),
-                shared: match self.w4.as_ref().filter(|w| w.experts && !mtp) {
+                shared: match self.w4.as_ref().filter(|w| w.experts && !mtp && w.on(l) && !w.shared_fp8) {
                     Some(w) => w4_ffn(w, &m, s.experts, s.shared_inter, h)?,
                     None => read_ffn(src, &format!("{m}.shared_expert"), s.shared_inter, h)?,
                 },
@@ -1042,7 +1049,7 @@ impl<S: TensorSource> Qwen38Reference<S> {
             if rows.is_empty() {
                 continue;
             }
-            let f = match self.w4.as_ref().filter(|w| w.experts && !mtp) {
+            let f = match self.w4.as_ref().filter(|w| w.experts && !mtp && w.on(l)) {
                 Some(w) => w4_ffn(w, &format!("{}layers.{l}.mlp", self.prefix), e, s.expert_inter, h)?,
                 None => read_ffn(&mut self.source, &format!("{p}.{e}"), s.expert_inter, h)?,
             };
@@ -1747,9 +1754,10 @@ mod tests {
                     })
                     .collect(),
                 Matrix::Bf16 { w, .. } => w.iter().map(|&b| bf16_to_f32(b) as f64).collect(),
+                Matrix::W4 { .. } => unreachable!("read_matrix never yields a 4-bit matrix"),
             }
         };
-        let mv = |w: &[f64], x: &[f64], n: usize| -> Vec<f64> {
+        let mv =|w: &[f64], x: &[f64], n: usize| -> Vec<f64> {
             let k = x.len();
             (0..n)
                 .map(|r| (0..k).map(|c| w[r * k + c] * x[c]).sum())

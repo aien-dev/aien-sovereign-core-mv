@@ -290,6 +290,8 @@ impl Qwen38Omega {
                 }
                 aien_omega_q38::w4::W4Tensor::upload(n, k, &b4, &e8).map_err(gpu("w4 upload"))
             };
+            // a mixed load keeps the layers named in AIEN_Q36_W4_FP8_LAYERS at FP8
+            let w4 = w4.as_ref().filter(|w| w.fp8_layers >> (first + l) & 1 == 0);
             let mut w4l = super::W4Layer::default();
             let (gate_up, down) = if w4.is_some() {
                 w4l.gate_up = Some(w4_up(format!("{m}.experts gate|up"))?);
@@ -299,7 +301,7 @@ impl Qwen38Omega {
                 let (g, d) = upload_experts(source, &m, h)?;
                 (Some(g), Some(d))
             };
-            let (mix, o) = if w4.as_ref().is_some_and(|w| w.trunk) {
+            let (mix, o) = if w4.is_some_and(|w| w.trunk) {
                 let a = if c.full_attention[l] { format!("{p}.self_attn") } else { format!("{p}.linear_attn") };
                 let (mn, on) = if c.full_attention[l] { (format!("{a} q|k|v"), format!("{a}.o_proj")) } else { (format!("{a} qkv|z"), format!("{a}.out_proj")) };
                 w4l.mix = Some(w4_up(mn)?);

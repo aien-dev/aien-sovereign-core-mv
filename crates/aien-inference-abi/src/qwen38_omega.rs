@@ -67,6 +67,8 @@ struct W4Layer {
 pub(crate) struct W4Plan {
     store: crate::q36_w4_store::W4Store,
     trunk: bool,
+    /// layers kept at FP8 (bit l, model layer index), q36_w4_store::fp8_layers_from_env
+    fp8_layers: u64,
 }
 
 impl W4Plan {
@@ -79,7 +81,11 @@ impl W4Plan {
         };
         let store = crate::q36_w4_store::W4Store::open(&p, dir)?;
         eprintln!("qwen36 omega: 4-bit store {} ({} rule), experts{} from it (lossy lever, L355)", p.display(), store.header.rule, if trunk { " + trunk" } else { "" });
-        Ok(Some(Self { store, trunk }))
+        let fp8_layers = crate::q36_w4_store::fp8_layers_from_env()?;
+        if fp8_layers != 0 {
+            eprintln!("qwen36 omega: layers kept at FP8 (mask {fp8_layers:#x})");
+        }
+        Ok(Some(Self { store, trunk, fp8_layers }))
     }
 }
 

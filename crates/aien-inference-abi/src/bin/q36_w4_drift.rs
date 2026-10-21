@@ -57,7 +57,9 @@ fn arm_host(arm: &str, dir: &Path) -> Result<Option<W4Host>, String> {
     let p = aien_inference_abi::q36_w4_store::resolve(dir)?
         .ok_or("AIEN_Q36_W4_STORE (store path or default) is not set")?;
     let store = W4Store::open(&p, dir)?;
-    Ok(Some(W4Host { store: Arc::new(store), experts, trunk, mutant }))
+    let fp8_layers = aien_inference_abi::q36_w4_store::fp8_layers_from_env()?;
+    let shared_fp8 = std::env::var("AIEN_Q36_W4_SHARED_FP8").as_deref() == Ok("1");
+    Ok(Some(W4Host { store: Arc::new(store), experts, trunk, mutant, fp8_layers, shared_fp8 }))
 }
 
 fn run() -> Result<(), String> {
@@ -108,6 +110,7 @@ fn run() -> Result<(), String> {
                     "ref_ids": fed, "ref_margin": if greedy { json!(mg) } else { json!(ref_margin[..ref_margin.len().min(t + 1)]) },
                     "argmax": am, "margin": mg, "nll": nll, "agree": agree,
                     "store": std::env::var("AIEN_Q36_W4_STORE").ok().filter(|_| arm != "fp8"),
+                    "fp8_layers": std::env::var("AIEN_Q36_W4_FP8_LAYERS").ok(), "shared_fp8": std::env::var("AIEN_Q36_W4_SHARED_FP8").ok(),
                     "step_seconds": secs, "seconds": t0.elapsed().as_secs_f64(),
                 });
                 write(out, &rep)?;
@@ -200,6 +203,7 @@ fn run() -> Result<(), String> {
                 "mode": "score", "arm": arm, "passage": input, "tokens": ids.len(), "ids": ids, "nll": nll,
                 "mean_nll": mean, "top1_hits": hits,
                 "store": std::env::var("AIEN_Q36_W4_STORE").ok().filter(|_| arm != "fp8"),
+                "fp8_layers": std::env::var("AIEN_Q36_W4_FP8_LAYERS").ok(), "shared_fp8": std::env::var("AIEN_Q36_W4_SHARED_FP8").ok(),
                 "seconds": t0.elapsed().as_secs_f64(),
             }))
         }

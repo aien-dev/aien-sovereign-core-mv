@@ -6,7 +6,7 @@ set -u
 ARM=${1:?arm}; R=$HOME/workspace/sc-hum-state-precision/evidence/hum-state-precision; O=runs
 cd $HOME/workspace/sc-l355/evidence/l355-w4
 args=(); for p in p1 p2 p3 p4 chat-max-24; do args+=(--slurpfile a_$(echo $p | tr - _) $O/forced-$ARM-$p.json --slurpfile r_$(echo $p | tr - _) $R/drift-$p.json); done
-jq -n "${args[@]}" --slurpfile f $O/forced-fp8-p1.json --slurpfile sf $O/score-fp8.json --slurpfile sa $O/score-$ARM.json --arg arm $ARM '
+jq -n "${args[@]}" --slurpfile f $O/forced-fp8-p1.json --slurpfile sf $( [ -s $O/score-fp8.json ] && echo $O/score-fp8.json || echo /dev/null) --slurpfile sa $( [ -s $O/score-$ARM.json ] && echo $O/score-$ARM.json || echo /dev/null) --arg arm $ARM '
   def one(a; r): [range(0; (a.argmax|length))] as $ix |
     { n: ($ix|length), nll_arm: ([$ix[] | a.nll[.]]|add), nll_ref: ([$ix[] | r.states[0].per_row.nll_ref[.]]|add),
       t01: ($ix|map(select(r.f32_margin[.] >= 0.1))|length), a01: ($ix|map(select(r.f32_margin[.] >= 0.1 and a.argmax[.] == r.f32_ids[.]))|length),
@@ -18,9 +18,9 @@ jq -n "${args[@]}" --slurpfile f $O/forced-fp8-p1.json --slurpfile sf $O/score-f
   { arm: $arm, steps: ($all|map(.n)|add),
     control: ($ctl + {pass: ($ctl.ids_equal == 512 and $ctl.max_margin_diff <= 0.001)}),
     R1_nll_ratio: (($all|map(.nll_arm)|add) / ($all|map(.nll_ref)|add)),
-    R1b_agpl_rise: ($sa[0].mean_nll - $sf[0].mean_nll),
+    R1b_agpl_rise: (if ($sa|length) > 0 and ($sf|length) > 0 then $sa[0].mean_nll - $sf[0].mean_nll else null end),
     R2_pooled: (($all|map(.a01)|add) / ($all|map(.t01)|add)),
     R2_confident: (($all|map(.a1)|add) / ($all|map(.t1)|add)),
     per_golden: $g } |
-  . + { R1: (.R1_nll_ratio <= 1.07), R1b: (.R1b_agpl_rise <= 0.069), R2: (.R2_pooled >= 0.98 and .R2_confident >= 0.998) } |
-  . + { verdict: (if (.control.pass|not) then "VOID (exactness control failed)" elif (.steps == 2560 and .R1 and .R1b and .R2) then "ACCEPT" elif .steps < 2560 then "INCOMPLETE" else "REJECT" end) }'
+  . + { R1: (.R1_nll_ratio <= 1.07), R1b: (if .R1b_agpl_rise == null then null else .R1b_agpl_rise <= 0.069 end), R2: (.R2_pooled >= 0.98 and .R2_confident >= 0.998) } |
+  . + { verdict: (if (.control.pass|not) then "VOID (exactness control failed)" elif (.steps < 2560 or .R1b == null) and .R1 != false and .R2 != false then "INCOMPLETE" elif (.R1 and .R1b and .R2) then "ACCEPT" else "REJECT" end) }'

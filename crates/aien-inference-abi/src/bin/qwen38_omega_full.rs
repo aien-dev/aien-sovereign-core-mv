@@ -156,7 +156,8 @@ fn run() -> Result<bool, String> {
         if let Some(p) = aien_inference_abi::q36_w4_store::resolve(dir)? {
             let trunk = std::env::var("AIEN_Q36_W4").as_deref() == Ok("all");
             let store = aien_inference_abi::q36_w4_store::W4Store::open(&p, dir)?;
-            r.set_w4(Some(aien_inference_abi::qwen38::W4Host { store: std::sync::Arc::new(store), experts: true, trunk, mutant: false }));
+            r.set_w4(Some(aien_inference_abi::qwen38::W4Host { store: std::sync::Arc::new(store), experts: true, trunk, mutant: false,
+                fp8_layers: aien_inference_abi::q36_w4_store::fp8_layers_from_env()?, shared_fp8: false }));
         }
         let mut state = r.new_state();
         r.forward_tapped(&mut state, &seq, Logits::All, &bounds, &mut taps)?
