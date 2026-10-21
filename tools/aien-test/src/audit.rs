@@ -230,7 +230,7 @@ pub fn judge(m: &Manifest, places: &Places, opened: &[Opened]) -> Report {
         }
         // git reads its own records wherever they live (a worktree's common
         // dir, a mirror, ~/.gitconfig): the commit, not a gate input.
-        if o.comm == "git" {
+        if o.comm == "git" || o.comm.starts_with("git-") {
             bump(&mut r, "git (commit metadata, config, objects)");
             continue;
         }

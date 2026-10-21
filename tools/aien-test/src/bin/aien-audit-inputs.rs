@@ -24,6 +24,7 @@ fn main() {
         Option<PathBuf>,
     ) = (None, None, None, None);
     let mut siblings: Vec<PathBuf> = Vec::new();
+    let mut as_rel: Option<String> = None;
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         let mut val = || {
@@ -37,6 +38,7 @@ fn main() {
             "--work" => work = Some(val()),
             "--trace" => trace = Some(val()),
             "--sibling" => siblings.push(audit::canon(&val())),
+            "--manifest-rel" => as_rel = Some(val().to_string_lossy().into_owned()),
             s if s.starts_with('-') => usage(&format!("unknown flag {s}")),
             _ => gate = Some(PathBuf::from(&a)),
         }
@@ -53,10 +55,15 @@ fn main() {
     let bytes = std::fs::read(&gate_path)
         .unwrap_or_else(|e| fail(&format!("cannot read {}: {e}", gate_path.display())));
     let m = manifest::parse(&bytes).unwrap_or_else(|e| fail(&format!("bad manifest: {e:?}")));
-    let manifest_rel = audit::canon(&gate_path)
-        .strip_prefix(&root)
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| fail("the gate file is not inside --root"));
+    // `--manifest-rel REL`: judge an earlier trace with a manifest kept
+    // elsewhere (a later edit of the same gate), named as the repository path REL.
+    let manifest_rel = match &as_rel {
+        Some(r) => r.clone(),
+        None => audit::canon(&gate_path)
+            .strip_prefix(&root)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| fail("the gate file is not inside --root")),
+    };
     // The tree at HEAD: what is not in it was made by the run. A dirty tree
     // is judged anyway (its own files count as made by the run), with a warning.
     let ls = Command::new("git")
@@ -152,7 +159,7 @@ fn main() {
 }
 
 fn usage(msg: &str) -> ! {
-    eprintln!("aien-audit-inputs: {msg}\nusage: aien-audit-inputs [--root DIR] --target-dir DIR --work DIR [--trace FILE] [--sibling DIR]... GATE_FILE");
+    eprintln!("aien-audit-inputs: {msg}\nusage: aien-audit-inputs [--root DIR] --target-dir DIR --work DIR [--trace FILE] [--sibling DIR]... [--manifest-rel REL] GATE_FILE");
     exit(2)
 }
 
