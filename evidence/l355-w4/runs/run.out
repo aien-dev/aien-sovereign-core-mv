@@ -68,3 +68,40 @@
 2026-10-21T04:27:14Z skip mtp-fp8-chat-max-24
 2026-10-21T04:27:14Z start forced-w4et-p1 MemAvailable 98791232 kB
 2026-10-21T04:39:02Z [arm w4em0] end
+2026-10-21T04:43:13Z end forced-w4et-p1 exit 0
+2026-10-21T04:43:13Z start forced-w4et-p2 MemAvailable 108255164 kB
+2026-10-21T04:53:37Z end forced-w4et-p2 exit 0
+2026-10-21T04:53:37Z start forced-w4et-p3 MemAvailable 107937844 kB
+2026-10-21T05:00:00Z [heldout fp8] start (store none)
+2026-10-21T05:06:36Z end forced-w4et-p3 exit 0
+2026-10-21T05:06:36Z start forced-w4et-p4 MemAvailable 79193640 kB
+2026-10-21T05:09:30Z [heldout fp8] h1 exit 0
+2026-10-21T05:09:30Z [heldout fp8] h2 exit 0
+2026-10-21T05:18:40Z [heldout fp8] h4 exit 0
+2026-10-21T05:18:48Z [heldout fp8] h3 exit 0
+2026-10-21T05:22:39Z end forced-w4et-p4 exit 0
+2026-10-21T05:22:39Z start forced-w4et-chat-max-24 MemAvailable 81675764 kB
+2026-10-21T05:26:25Z [heldout fp8] h5 exit 0
+2026-10-21T05:26:25Z [heldout fp8] end
+2026-10-21T05:26:25Z [heldout w4e] start (store default)
+2026-10-21T05:35:15Z [heldout w4e] h1 exit 0
+2026-10-21T05:35:17Z [heldout w4e] h2 exit 0
+2026-10-21T05:35:51Z end forced-w4et-chat-max-24 exit 0
+2026-10-21T05:35:51Z start score-w4et MemAvailable 79608848 kB
+2026-10-21T05:36:24Z end score-w4et exit 0
+2026-10-21T05:36:24Z ALL DONE
+2026-10-21T05:43:53Z [heldout w4e] h4 exit 0
+2026-10-21T05:43:53Z [heldout w4e] h3 exit 0
+2026-10-21T05:52:14Z [gptq chain] store ready: {"store":"/home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0.mxfp4/q36-gptq-v1.store","rule":"gptq","calibration":"/home/drakestapleton/handoffs/l355/calib/calib-v1.txt","tokens":32768,"tensors":160,"weights":33617346560,"rel_rms":0.138352,"seconds":3243.4}
+2026-10-21T05:52:14Z [arm w4g] start (w4e, fp8 layers )
+2026-10-21T05:54:17Z [heldout w4e] h5 exit 0
+2026-10-21T05:54:17Z [heldout w4e] end
+2026-10-21T05:54:44Z [heldout w4g] start (store /home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0.mxfp4/q36-gptq-v1.store)
+2026-10-21T06:03:46Z [arm w4g] end
+2026-10-21T06:04:51Z [heldout w4g] h1 exit 0
+2026-10-21T06:04:52Z [heldout w4g] h2 exit 0
+2026-10-21T06:10:12Z [heldout w4g] h4 exit 0
+2026-10-21T06:10:15Z [heldout w4g] h3 exit 0
+2026-10-21T06:15:43Z [heldout w4g] h5 exit 0
+2026-10-21T06:15:43Z [heldout w4g] end
+2026-10-21T06:15:43Z [gptq chain] verdict REJECT

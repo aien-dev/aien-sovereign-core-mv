@@ -1,0 +1,1 @@
+{"store":"/home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0.mxfp4/q36-gptq-v1.store","rule":"gptq","calibration":"/home/drakestapleton/handoffs/l355/calib/calib-v1.txt","tokens":32768,"tensors":160,"weights":33617346560,"rel_rms":0.138352,"seconds":3243.4}

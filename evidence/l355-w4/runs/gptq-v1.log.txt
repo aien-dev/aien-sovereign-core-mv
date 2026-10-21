@@ -1,0 +1,105 @@
+gptq calibration: 512 of 32768 tokens, 64 s
+gptq calibration: 1024 of 32768 tokens, 103 s
+gptq calibration: 1536 of 32768 tokens, 151 s
+gptq calibration: 2048 of 32768 tokens, 203 s
+gptq calibration: 2560 of 32768 tokens, 250 s
+gptq calibration: 3072 of 32768 tokens, 297 s
+gptq calibration: 3584 of 32768 tokens, 344 s
+gptq calibration: 4096 of 32768 tokens, 393 s
+gptq calibration: 4608 of 32768 tokens, 431 s
+gptq calibration: 5120 of 32768 tokens, 474 s
+gptq calibration: 5632 of 32768 tokens, 522 s
+gptq calibration: 6144 of 32768 tokens, 566 s
+gptq calibration: 6656 of 32768 tokens, 623 s
+gptq calibration: 7168 of 32768 tokens, 672 s
+gptq calibration: 7680 of 32768 tokens, 726 s
+gptq calibration: 8192 of 32768 tokens, 774 s
+gptq calibration: 8704 of 32768 tokens, 815 s
+gptq calibration: 9216 of 32768 tokens, 867 s
+gptq calibration: 9728 of 32768 tokens, 918 s
+gptq calibration: 10240 of 32768 tokens, 965 s
+gptq calibration: 10752 of 32768 tokens, 1007 s
+gptq calibration: 11264 of 32768 tokens, 1052 s
+gptq calibration: 11776 of 32768 tokens, 1099 s
+gptq calibration: 12288 of 32768 tokens, 1142 s
+gptq calibration: 12800 of 32768 tokens, 1181 s
+gptq calibration: 13312 of 32768 tokens, 1230 s
+gptq calibration: 13824 of 32768 tokens, 1275 s
+gptq calibration: 14336 of 32768 tokens, 1324 s
+gptq calibration: 14848 of 32768 tokens, 1372 s
+gptq calibration: 15360 of 32768 tokens, 1412 s
+gptq calibration: 15872 of 32768 tokens, 1453 s
+gptq calibration: 16384 of 32768 tokens, 1492 s
+gptq calibration: 16896 of 32768 tokens, 1528 s
+gptq calibration: 17408 of 32768 tokens, 1564 s
+gptq calibration: 17920 of 32768 tokens, 1600 s
+gptq calibration: 18432 of 32768 tokens, 1639 s
+gptq calibration: 18944 of 32768 tokens, 1675 s
+gptq calibration: 19456 of 32768 tokens, 1713 s
+gptq calibration: 19968 of 32768 tokens, 1753 s
+gptq calibration: 20480 of 32768 tokens, 1794 s
+gptq calibration: 20992 of 32768 tokens, 1834 s
+gptq calibration: 21504 of 32768 tokens, 1871 s
+gptq calibration: 22016 of 32768 tokens, 1911 s
+gptq calibration: 22528 of 32768 tokens, 1955 s
+gptq calibration: 23040 of 32768 tokens, 1994 s
+gptq calibration: 23552 of 32768 tokens, 2033 s
+gptq calibration: 24064 of 32768 tokens, 2075 s
+gptq calibration: 24576 of 32768 tokens, 2117 s
+gptq calibration: 25088 of 32768 tokens, 2156 s
+gptq calibration: 25600 of 32768 tokens, 2194 s
+gptq calibration: 26112 of 32768 tokens, 2234 s
+gptq calibration: 26624 of 32768 tokens, 2275 s
+gptq calibration: 27136 of 32768 tokens, 2314 s
+gptq calibration: 27648 of 32768 tokens, 2349 s
+gptq calibration: 28160 of 32768 tokens, 2386 s
+gptq calibration: 28672 of 32768 tokens, 2425 s
+gptq calibration: 29184 of 32768 tokens, 2459 s
+gptq calibration: 29696 of 32768 tokens, 2496 s
+gptq calibration: 30208 of 32768 tokens, 2536 s
+gptq calibration: 30720 of 32768 tokens, 2584 s
+gptq calibration: 31232 of 32768 tokens, 2626 s
+gptq calibration: 31744 of 32768 tokens, 2679 s
+gptq calibration: 32256 of 32768 tokens, 2724 s
+gptq calibration: 32768 of 32768 tokens, 2772 s
+w4 store: layer 0 of 40 converted
+w4 store: layer 1 of 40 converted
+w4 store: layer 2 of 40 converted
+w4 store: layer 3 of 40 converted
+w4 store: layer 4 of 40 converted
+w4 store: layer 5 of 40 converted
+w4 store: layer 6 of 40 converted
+w4 store: layer 7 of 40 converted
+w4 store: layer 8 of 40 converted
+w4 store: layer 9 of 40 converted
+w4 store: layer 10 of 40 converted
+w4 store: layer 11 of 40 converted
+w4 store: layer 12 of 40 converted
+w4 store: layer 13 of 40 converted
+w4 store: layer 14 of 40 converted
+w4 store: layer 15 of 40 converted
+w4 store: layer 16 of 40 converted
+w4 store: layer 17 of 40 converted
+w4 store: layer 18 of 40 converted
+w4 store: layer 19 of 40 converted
+w4 store: layer 20 of 40 converted
+w4 store: layer 21 of 40 converted
+w4 store: layer 22 of 40 converted
+w4 store: layer 23 of 40 converted
+w4 store: layer 24 of 40 converted
+w4 store: layer 25 of 40 converted
+w4 store: layer 26 of 40 converted
+w4 store: layer 27 of 40 converted
+w4 store: layer 28 of 40 converted
+w4 store: layer 29 of 40 converted
+w4 store: layer 30 of 40 converted
+w4 store: layer 31 of 40 converted
+w4 store: layer 32 of 40 converted
+w4 store: layer 33 of 40 converted
+w4 store: layer 34 of 40 converted
+w4 store: layer 35 of 40 converted
+w4 store: layer 36 of 40 converted
+w4 store: layer 37 of 40 converted
+w4 store: layer 38 of 40 converted
+w4 store: layer 39 of 40 converted
+gptq store: 4 (layer, expert) pairs never routed in calibration, rounded plainly
