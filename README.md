@@ -1,3 +1,7 @@
+<!-- github-native-navigation -->
+[Source](https://github.com/aien-dev/aien-sovereign-core-mv) · [Walkthrough](TEACHING.md) · [Replay receipt](TEACHING-REPLAY.txt) · [Issues](https://github.com/aien-dev/aien-sovereign-core-mv/issues) · [Actual tags](https://github.com/aien-dev/aien-sovereign-core-mv/tags) · [Published releases](https://github.com/aien-dev/aien-sovereign-core-mv/releases)
+<!-- /github-native-navigation -->
+
 # aien-sovereign-core
 
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-blue.svg)](LICENSE)
@@ -62,3 +66,13 @@ Read [CONSTITUTION.md](CONSTITUTION.md) and [AGENTS.md](AGENTS.md) before openin
 ## License and values
 
 Licensed under the GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later). See [LICENSE](LICENSE) and [NOTICE](NOTICE). Values live in the nonbinding [COVENANT.md](COVENANT.md): keep foundational advances open. It grants and restricts no legal rights. Built for NVIDIA Blackwell hardware; full notices in [ATTRIBUTION.md](ATTRIBUTION.md).
+
+<details>
+<summary>Existing published tags and release scope</summary>
+
+- [v0.1.1](https://github.com/aien-dev/aien-sovereign-core-mv/releases/tag/v0.1.1) is marked **prerelease** by GitHub. Read its own assets, platform and limitations; this tag does not qualify the current branch.
+- [v0.1.0](https://github.com/aien-dev/aien-sovereign-core-mv/releases/tag/v0.1.0) is marked **prerelease** by GitHub. Read its own assets, platform and limitations; this tag does not qualify the current branch.
+
+No tags were created, renamed or moved for this documentation. Draft releases are not advertised as public availability.
+
+</details>
