@@ -58,6 +58,9 @@ pub struct ServerConfig {
     /// `enable_thinking` for requests that do not set it (`None`: the chat template's own
     /// default). Only templates with a thinking switch read it (Qwen3.8-27B).
     pub default_enable_thinking: Option<bool>,
+    /// The eight readers (sc L371): a second model id that reads a long input in parts at once.
+    /// `None`: one id, as before.
+    pub readers: Option<crate::readers::ReadersConfig>,
 }
 
 impl Default for ServerConfig {
@@ -76,6 +79,7 @@ impl Default for ServerConfig {
             default_top_k: 20,
             max_context_tokens: None,
             default_enable_thinking: None,
+            readers: None,
         }
     }
 }
@@ -242,6 +246,13 @@ enum Ev {
     Error(String),
     /// The engine could not get the shared chip: 503 before any token.
     Busy(String),
+    /// Readers, streaming: the reading has started (the response goes out; nothing is sent).
+    Reading,
+    /// Readers: what each reader found (`aien_readers`) and the connect prompt's length.
+    Readers {
+        info: Value,
+        prompt_tokens: usize,
+    },
 }
 
 fn unix_now() -> (u64, u128) {
@@ -327,8 +338,12 @@ pub async fn serve_with_board(
 }
 
 fn model_card(state: &AppState) -> ModelCard {
+    model_card_for(state, &state.cfg.model_id)
+}
+
+fn model_card_for(state: &AppState, id: &str) -> ModelCard {
     ModelCard {
-        id: state.cfg.model_id.clone(),
+        id: id.to_string(),
         object: "model",
         created: unix_now().0 - state.started.elapsed().as_secs(),
         owned_by: format!("aien/{}", state.engine.kind()),
@@ -338,7 +353,15 @@ fn model_card(state: &AppState) -> ModelCard {
 async fn list_models(State(state): State<Arc<AppState>>) -> Json<ModelList> {
     Json(ModelList {
         object: "list",
-        data: vec![model_card(&state)],
+        data: std::iter::once(model_card(&state))
+            .chain(
+                state
+                    .cfg
+                    .readers
+                    .as_ref()
+                    .map(|r| model_card_for(&state, &r.model_id)),
+            )
+            .collect(),
     })
 }
 
@@ -346,6 +369,9 @@ async fn get_model(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<ModelCard>, ApiError> {
+    if let Some(r) = state.cfg.readers.as_ref().filter(|r| r.model_id == id) {
+        return Ok(Json(model_card_for(&state, &r.model_id)));
+    }
     if id != state.cfg.model_id {
         return Err(ApiError::not_found(format!(
             "model '{id}' not found; this server serves '{}'",
@@ -501,7 +527,21 @@ async fn handle_chat(
             ApiError::bad_request(format!("could not read request body: {}", r.body_text()))
         }
     })?;
-    let req: ChatRequest = serde_json::from_slice(&body)
+    let mut raw: Value = serde_json::from_slice(&body)
+        .map_err(|e| ApiError::bad_request(format!("invalid JSON request: {e}")))?;
+    // The readers id: a long input goes to the readers, a short one takes the plain path; the
+    // reply names the id the client asked for.
+    let mut model = state.cfg.model_id.clone();
+    if let Some(rc) = state.cfg.readers.clone() {
+        if raw.get("model").and_then(Value::as_str) == Some(rc.model_id.as_str()) {
+            raw["model"] = Value::String(state.cfg.model_id.clone());
+            if let Some(r) = handle_readers(&state, &rc, &raw).await? {
+                return Ok(r);
+            }
+            model = rc.model_id;
+        }
+    }
+    let req: ChatRequest = serde_json::from_value(raw)
         .map_err(|e| ApiError::bad_request(format!("invalid JSON request: {e}")))?;
     let prepared = prepare(&state, req)?;
     let guard = Arc::clone(&state.gate)
@@ -522,21 +562,288 @@ async fn handle_chat(
     }
     let board = state.board.clone();
 
-    let (created, nanos) = unix_now();
-    let n = state.counter.fetch_add(1, Ordering::Relaxed);
-    let id = format!("chatcmpl-{nanos:x}{n:04x}");
+    let (created, id) = new_id(&state);
     let prompt_tokens = prepared.prompt_tokens.len();
     let stream = prepared.stream;
     let tools = prepared.tools;
-    let (tx, mut rx) = mpsc::channel::<Ev>(64);
+    let (tx, rx) = mpsc::channel::<Ev>(64);
     let engine = Arc::clone(&state.engine);
     let codec = Arc::clone(&state.codec);
-    let model = state.cfg.model_id.clone();
     let log_id = id.clone();
     tokio::task::spawn_blocking(move || {
         run_generation(engine, codec, prepared, tx, guard, &log_id, board);
     });
+    respond(rx, stream, id, created, model, prompt_tokens, tools).await
+}
 
+fn new_id(state: &AppState) -> (u64, String) {
+    let (created, nanos) = unix_now();
+    let n = state.counter.fetch_add(1, Ordering::Relaxed);
+    (created, format!("chatcmpl-{nanos:x}{n:04x}"))
+}
+
+/// A request to the readers id: `Ok(None)` when its long input is under the threshold (the caller
+/// serves it on the plain path). Otherwise the rows that are free now (up to `rc.readers`; one
+/// free row of a batching engine is 503 `server_busy`) each read one part, and one of them writes
+/// the answer from the notes.
+async fn handle_readers(
+    state: &Arc<AppState>,
+    rc: &crate::readers::ReadersConfig,
+    raw: &Value,
+) -> Result<Option<Response>, ApiError> {
+    use crate::readers;
+    let msgs: &[Value] = raw
+        .get("messages")
+        .and_then(Value::as_array)
+        .map_or(&[], Vec::as_slice);
+    let count = |s: &str| state.codec.encode(s).map_or(s.len() / 4, |t| t.len());
+    let Some(mut plan) = readers::plan(msgs, rc, &count) else {
+        return Ok(None);
+    };
+    let slots = state.engine.concurrency().max(1);
+    let want = plan.parts.len().min(slots);
+    let (permit, got) = (1..=want)
+        .rev()
+        .find_map(|k| {
+            Arc::clone(&state.gate)
+                .try_acquire_many_owned(k as u32)
+                .ok()
+                .map(|p| (p, k))
+        })
+        .ok_or_else(ApiError::busy)?;
+    if slots > 1 && got < 2 {
+        return Err(ApiError::busy());
+    }
+    if slots > 1 && got < plan.parts.len() {
+        let fewer = readers::ReadersConfig {
+            readers: got,
+            ..rc.clone()
+        };
+        plan = readers::plan(msgs, &fewer, &count)
+            .ok_or_else(|| ApiError::internal("readers: the plan vanished with fewer readers"))?;
+    }
+    let base = state.cfg.model_id.as_str();
+    let from = |v: Value| -> Result<Prepared, ApiError> {
+        let req: ChatRequest = serde_json::from_value(v)
+            .map_err(|e| ApiError::bad_request(format!("invalid JSON request: {e}")))?;
+        prepare(state, req)
+    };
+    let maps = (0..plan.parts.len())
+        .map(|i| {
+            // The readers ride the request's merge-train switches too.
+            let mut b = readers::map_body(msgs, &plan, i, base, rc);
+            if let Some(t) = raw.get("aien_test") {
+                b["aien_test"] = t.clone();
+            }
+            from(b)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    // The connect request must be valid before any row reads (same checks, notes not yet known).
+    let blank = vec![String::new(); plan.parts.len()];
+    let check = from(readers::connect_body(raw, &plan, &blank, base))?;
+    let (stream, tools) = (check.stream, check.tools);
+    let show_notes = raw
+        .get("aien_show_notes")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let (created, id) = new_id(state);
+    let (tx, rx) = mpsc::channel::<Ev>(64);
+    let st = Arc::clone(state);
+    let raw = raw.clone();
+    let log_id = id.clone();
+    tokio::task::spawn_blocking(move || {
+        run_readers(st, raw, plan, maps, permit, tx, stream, show_notes, &log_id);
+    });
+    let model = rc.model_id.clone();
+    respond(rx, stream, id, created, model, 0, tools)
+        .await
+        .map(Some)
+}
+
+/// Phase 1 (map: every part read at once through [`Engine::generate_group`]) and phase 2
+/// (connect: the notes into one answer on the usual generation path), on a blocking thread
+/// holding the readers' permits; all but one are given back when the notes are in.
+#[allow(clippy::too_many_arguments)]
+fn run_readers(
+    state: Arc<AppState>,
+    raw: Value,
+    plan: crate::readers::Plan,
+    maps: Vec<Prepared>,
+    mut permit: OwnedSemaphorePermit,
+    tx: mpsc::Sender<Ev>,
+    stream: bool,
+    show_notes: bool,
+    id: &str,
+) {
+    use crate::readers;
+    use std::sync::atomic::AtomicBool;
+    let n = maps.len();
+    let t0 = Instant::now();
+    if stream {
+        // The response goes out now; the reading takes a while.
+        let mut s = format!("Reading {} tokens in {n} parts at once:", plan.total_tokens);
+        for (k, p) in plan.parts.iter().enumerate() {
+            s.push_str(&format!(
+                " {}: lines {}-{} ({} tok);",
+                k + 1,
+                p.first_line,
+                p.last_line,
+                p.tokens
+            ));
+        }
+        s.push('\n');
+        if tx.blocking_send(Ev::Reading).is_err() || tx.blocking_send(Ev::Reasoning(s)).is_err() {
+            return;
+        }
+    }
+    let cancel = Arc::new(AtomicBool::new(false));
+    let jobs: Vec<crate::engine::GroupJob> = maps
+        .iter()
+        .map(|p| crate::engine::GroupJob {
+            prompt: p.prompt_tokens.clone(),
+            params: p.params.clone(),
+            cancel: Some(Arc::clone(&cancel)),
+            test: p.test.clone(),
+        })
+        .collect();
+    // A client that leaves stops every reader, even one still taking in its part.
+    let reading = Arc::new(AtomicBool::new(true));
+    {
+        let (tx, cancel, reading) = (tx.clone(), Arc::clone(&cancel), Arc::clone(&reading));
+        std::thread::spawn(move || {
+            while reading.load(Ordering::SeqCst) {
+                if tx.is_closed() {
+                    cancel.store(true, Ordering::SeqCst);
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
+        });
+    }
+    let mut toks: Vec<Vec<u32>> = vec![Vec::new(); n];
+    let outs = state.engine.generate_group(&jobs, &mut |i, t| {
+        toks[i].push(t);
+        !cancel.load(Ordering::SeqCst)
+    });
+    reading.store(false, Ordering::SeqCst);
+    let map_ms = t0.elapsed().as_millis() as u64;
+    if cancel.load(Ordering::SeqCst) && tx.is_closed() {
+        eprintln!("aien-serve-http: {id}: readers: client left while reading");
+        return;
+    }
+    let mut parts = Vec::with_capacity(n);
+    let mut notes = Vec::with_capacity(n);
+    for (k, (out, t)) in outs.into_iter().zip(&toks).enumerate() {
+        let out = match out {
+            Ok(o) => o,
+            Err(EngineError::Busy(m)) => {
+                let _ = tx.blocking_send(Ev::Busy(m));
+                return;
+            }
+            Err(e) => {
+                eprintln!("aien-serve-http: {id}: reader {} failed: {e}", k + 1);
+                let _ = tx.blocking_send(Ev::Error(format!("reader {} of {n}: {e}", k + 1)));
+                return;
+            }
+        };
+        let text = state.codec.decode(t).unwrap_or_default();
+        let note = readers::clean_notes(&text);
+        let p = &plan.parts[k];
+        parts.push(serde_json::json!({
+            "part": k + 1,
+            "lines": [p.first_line, p.last_line],
+            "tokens": p.tokens,
+            "prompt_tokens": maps[k].prompt_tokens.len(),
+            "note_tokens": out.emitted_tokens,
+            "finish": match out.finish {
+                FinishReason::Length => "length",
+                _ => "stop",
+            },
+            "notes": note,
+        }));
+        notes.push(note);
+    }
+    // Keep one row for the answer, give the others back.
+    let Some(one) = permit.split(1) else {
+        let _ = tx.blocking_send(Ev::Error("readers: no permit left for the answer".into()));
+        return;
+    };
+    drop(permit);
+    let body = readers::connect_body(&raw, &plan, &notes, &state.cfg.model_id);
+    let connect = match serde_json::from_value::<ChatRequest>(body)
+        .map_err(|e| e.to_string())
+        .and_then(|r| prepare(&state, r).map_err(|e| e.body.error.message))
+    {
+        Ok(p) => p,
+        Err(m) => {
+            let _ = tx.blocking_send(Ev::Error(format!("readers: connect request: {m}")));
+            return;
+        }
+    };
+    let info = serde_json::json!({
+        "readers": n,
+        "input_tokens": plan.total_tokens,
+        "input_lines": plan.total_lines,
+        "question_is_excerpt": plan.question_is_excerpt,
+        "map_ms": map_ms,
+        "map_prompt_tokens": maps.iter().map(|m| m.prompt_tokens.len()).sum::<usize>(),
+        "connect_prompt_tokens": connect.prompt_tokens.len(),
+        "parts": parts,
+    });
+    eprintln!(
+        "aien-serve-http: {id}: readers: {n} parts of {} tokens read in {map_ms} ms, notes {} tok, connect prompt {} tok",
+        plan.total_tokens,
+        parts.iter().map(|p| p["note_tokens"].as_u64().unwrap_or(0)).sum::<u64>(),
+        connect.prompt_tokens.len()
+    );
+    if stream {
+        let s = format!(
+            "Notes from {n} readers in {:.1} s; connecting them.\n",
+            map_ms as f64 / 1000.0
+        );
+        if tx.blocking_send(Ev::Reasoning(s)).is_err() {
+            return;
+        }
+    }
+    let prompt_tokens = connect.prompt_tokens.len();
+    if tx
+        .blocking_send(Ev::Readers {
+            info,
+            prompt_tokens,
+        })
+        .is_err()
+    {
+        return;
+    }
+    if show_notes
+        && tx
+            .blocking_send(Ev::Delta(readers::notes_preface(&plan, &notes)))
+            .is_err()
+    {
+        return;
+    }
+    run_generation(
+        Arc::clone(&state.engine),
+        Arc::clone(&state.codec),
+        connect,
+        tx,
+        one,
+        id,
+        // The connect turn is a normal request: the board (L376) applies exactly as it would to it.
+        state.board.clone(),
+    );
+}
+
+/// The response for a generation's events: the first decides the status (a busy chip is 503).
+async fn respond(
+    mut rx: mpsc::Receiver<Ev>,
+    stream: bool,
+    id: String,
+    created: u64,
+    model: String,
+    prompt_tokens: usize,
+    tools: bool,
+) -> Result<Response, ApiError> {
     // The first event decides the status: a busy chip is a 503 with a plain body, before any
     // headers go out (streaming included). Everything else is forwarded unchanged.
     let first = rx.recv().await;
@@ -1362,15 +1669,24 @@ async fn collect_response(
     id: String,
     created: u64,
     model: &str,
-    prompt_tokens: usize,
+    mut prompt_tokens: usize,
     mut rx: mpsc::Receiver<Ev>,
     tools: bool,
 ) -> Result<Response, ApiError> {
     let mut content = String::new();
     let mut reasoning: Option<String> = None;
+    let mut readers: Option<Value> = None;
     while let Some(ev) = rx.recv().await {
         match ev {
             Ev::Delta(d) => content.push_str(&d),
+            Ev::Reading => {}
+            Ev::Readers {
+                info,
+                prompt_tokens: p,
+            } => {
+                readers = Some(info);
+                prompt_tokens = p;
+            }
             Ev::Reasoning(d) => reasoning.get_or_insert_with(String::new).push_str(&d),
             Ev::Done {
                 finish,
@@ -1403,6 +1719,9 @@ async fn collect_response(
                     }
                     body["choices"][0]["finish_reason"] = Value::String("tool_calls".into());
                 }
+                if let Some(info) = readers {
+                    body["aien_readers"] = info;
+                }
                 return Ok(Json(body).into_response());
             }
             Ev::Error(m) => return Err(ApiError::internal(m)),
@@ -1416,7 +1735,7 @@ fn stream_response(
     id: String,
     created: u64,
     model: String,
-    prompt_tokens: usize,
+    mut prompt_tokens: usize,
     mut rx: mpsc::Receiver<Ev>,
     tools: bool,
 ) -> Response {
@@ -1441,6 +1760,16 @@ fn stream_response(
         }
         while let Some(ev) = rx.recv().await {
             let item = match ev {
+                Ev::Reading => continue,
+                Ev::Readers {
+                    info,
+                    prompt_tokens: p,
+                } => {
+                    prompt_tokens = p;
+                    let mut v = chunk_json(&id, created, &model, None, None, None, None);
+                    v["aien_readers"] = info;
+                    data(v)
+                }
                 Ev::Delta(d) if tools => {
                     held.push_str(&d);
                     if in_call {

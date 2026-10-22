@@ -32,7 +32,7 @@ use aien_inference_abi::qwen38_omega::{
 };
 
 use crate::engine::{
-    Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams, TestSwitches,
+    Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams, GroupJob, TestSwitches,
 };
 use crate::omega_engine::{GpuLock, GPU_LOCK_PATH};
 use crate::qwen38_engine::{
@@ -161,11 +161,14 @@ impl RowStep for Qwen38Omega {
     }
 }
 
-/// A request handed to the scheduler.
+/// A request handed to the scheduler. The channel carries a `Vec<Job>`: one request, or a group
+/// ([`Engine::generate_group`]) that is seated all in the same beat.
 struct Job {
     prompt: Vec<u32>,
     params: GenerateParams,
-    out: mpsc::SyncSender<Ev>,
+    /// The job's events go out tagged with its place in its group (0 for a single request).
+    out: mpsc::SyncSender<(usize, Ev)>,
+    tag: usize,
     /// Set by the request thread when `on_token` says stop (client gone, stop string).
     cancel: Arc<AtomicBool>,
     t_queued: Instant,
@@ -186,6 +189,12 @@ fn row_test(t: &TestSwitches) -> RowTest {
         stroke: t.stroke.unwrap_or(true),
         exact_head: t.exact_head.unwrap_or(true),
         mutant: t.mutant.unwrap_or(0),
+    }
+}
+
+impl Job {
+    fn send(&self, ev: Ev) -> Result<(), ()> {
+        self.out.send((self.tag, ev)).map_err(|_| ())
     }
 }
 
@@ -244,7 +253,7 @@ impl Active {
 
 /// The door: the server side of the scheduler thread.
 pub struct Qwen36BatchDoor {
-    tx: Mutex<Option<mpsc::Sender<Job>>>,
+    tx: Mutex<Option<mpsc::Sender<Vec<Job>>>>,
     slots: usize,
     max_context: usize,
     /// Memory the rows took on the box, measured at load (`MemAvailable` before and after).
@@ -347,7 +356,7 @@ impl Qwen36BatchDoor {
         if slots == 0 {
             return Err("qwen36-batch: no rows".into());
         }
-        let (tx, rx) = mpsc::channel::<Job>();
+        let (tx, rx) = mpsc::channel::<Vec<Job>>();
         let sched = Scheduler {
             model,
             rows: (0..slots)
@@ -359,6 +368,7 @@ impl Qwen36BatchDoor {
                 })
                 .collect(),
             free: (0..slots).rev().collect(),
+            waiting: None,
             rx,
             lock_path,
             lock_wait,
@@ -409,62 +419,142 @@ impl Qwen36BatchDoor {
         keep_snapshot: bool,
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, EngineError> {
-        if prompt.is_empty() {
-            return Err(EngineError::Failed("empty prompt".into()));
-        }
-        if prompt.len() >= self.max_context {
-            return Err(EngineError::PromptTooLong {
-                len: prompt.len(),
-                max: self.max_context,
-            });
-        }
-        let (otx, orx) = mpsc::sync_channel::<Ev>(256);
-        let cancel = Arc::new(AtomicBool::new(false));
-        let job = Job {
+        let job = GroupJob {
             prompt: prompt.to_vec(),
             params: p.clone(),
-            out: otx,
-            cancel: Arc::clone(&cancel),
-            t_queued: Instant::now(),
-            keep_snapshot,
+            cancel: None,
             test,
         };
-        {
-            let tx = self
-                .tx
-                .lock()
-                .map_err(|_| EngineError::Failed("qwen36-batch door poisoned".into()))?;
-            tx.as_ref()
-                .ok_or_else(|| EngineError::Failed("qwen36-batch scheduler stopped".into()))?
-                .send(job)
-                .map_err(|_| EngineError::Failed("qwen36-batch scheduler gone".into()))?;
+        self.run_jobs(std::slice::from_ref(&job), keep_snapshot, &mut |_, t| on_token(t))
+            .pop()
+            .expect("one outcome per job")
+    }
+}
+
+impl Qwen36BatchDoor {
+    /// Hands `jobs` to the scheduler as one message (seated together, in the same beat) and
+    /// relays their tokens until every one is done.
+    /// `keep_snapshot` (L376): every job is a continuation whose row snapshot stays where it is.
+    fn run_jobs(
+        &self,
+        jobs: &[GroupJob],
+        keep_snapshot: bool,
+        on_token: &mut dyn FnMut(usize, u32) -> bool,
+    ) -> Vec<Result<GenerateOutcome, EngineError>> {
+        let n = jobs.len();
+        if n == 0 {
+            return Vec::new();
         }
-        let mut delivered = 0usize;
-        let mut cancelled = false;
-        loop {
-            match orx.recv() {
-                Ok(Ev::Token(t)) => {
-                    if cancelled {
-                        continue;
-                    }
-                    delivered += 1;
-                    if !on_token(t) {
-                        cancelled = true;
-                        cancel.store(true, Ordering::SeqCst);
-                    }
-                }
-                Ok(Ev::Done(mut o)) => {
-                    if cancelled {
-                        o.finish = FinishReason::Cancelled;
-                        o.emitted_tokens = delivered;
-                    }
-                    return Ok(o);
-                }
-                Ok(Ev::Busy(m)) => return Err(EngineError::Busy(m)),
-                Ok(Ev::Failed(m)) => return Err(EngineError::Failed(m)),
-                Err(_) => return Err(EngineError::Failed("qwen36-batch scheduler gone".into())),
+        let mut res: Vec<Option<Result<GenerateOutcome, EngineError>>> = vec![None; n];
+        for (i, j) in jobs.iter().enumerate() {
+            if j.prompt.is_empty() {
+                res[i] = Some(Err(EngineError::Failed("empty prompt".into())));
+            } else if j.prompt.len() >= self.max_context {
+                res[i] = Some(Err(EngineError::PromptTooLong {
+                    len: j.prompt.len(),
+                    max: self.max_context,
+                }));
             }
         }
+        if n > self.slots {
+            let m = format!(
+                "a group of {n} needs {n} rows; this door has {}",
+                self.slots
+            );
+            return vec![Err(EngineError::Failed(m)); n];
+        }
+        if res.iter().any(Option::is_some) {
+            // A group goes in whole or not at all.
+            return res
+                .into_iter()
+                .map(|r| {
+                    r.unwrap_or_else(|| {
+                        Err(EngineError::Failed(
+                            "another job of the group was refused".into(),
+                        ))
+                    })
+                })
+                .collect();
+        }
+        let (otx, orx) = mpsc::sync_channel::<(usize, Ev)>(256 * n.max(1));
+        let cancel: Vec<Arc<AtomicBool>> = jobs
+            .iter()
+            .map(|j| {
+                j.cancel
+                    .clone()
+                    .unwrap_or_else(|| Arc::new(AtomicBool::new(false)))
+            })
+            .collect();
+        let t_queued = Instant::now();
+        let group: Vec<Job> = jobs
+            .iter()
+            .enumerate()
+            .map(|(i, j)| Job {
+                prompt: j.prompt.clone(),
+                params: j.params.clone(),
+                out: otx.clone(),
+                tag: i,
+                cancel: Arc::clone(&cancel[i]),
+                test: j.test.clone(),
+                t_queued,
+                keep_snapshot,
+            })
+            .collect();
+        drop(otx);
+        let sent = match self.tx.lock() {
+            Err(_) => Err("qwen36-batch door poisoned"),
+            Ok(tx) => match tx.as_ref() {
+                None => Err("qwen36-batch scheduler stopped"),
+                Some(tx) => tx.send(group).map_err(|_| "qwen36-batch scheduler gone"),
+            },
+        };
+        if let Err(m) = sent {
+            return vec![Err(EngineError::Failed(m.into())); n];
+        }
+        let mut delivered = vec![0usize; n];
+        let mut cancelled = vec![false; n];
+        let mut left = n;
+        while left > 0 {
+            let Ok((i, ev)) = orx.recv() else {
+                break;
+            };
+            let r = match ev {
+                Ev::Token(t) => {
+                    if !cancelled[i] {
+                        delivered[i] += 1;
+                        if !on_token(i, t) {
+                            cancelled[i] = true;
+                            cancel[i].store(true, Ordering::SeqCst);
+                        }
+                    }
+                    continue;
+                }
+                Ev::Done(mut o) => {
+                    if cancelled[i] {
+                        o.finish = FinishReason::Cancelled;
+                        o.emitted_tokens = delivered[i];
+                    }
+                    Ok(o)
+                }
+                Ev::Busy(m) => Err(EngineError::Busy(m)),
+                Ev::Failed(m) => {
+                    // A group fails whole: the others stop rather than read on for nothing.
+                    for c in &cancel {
+                        c.store(true, Ordering::SeqCst);
+                    }
+                    Err(EngineError::Failed(m))
+                }
+            };
+            if res[i].is_none() {
+                left -= 1;
+            }
+            res[i] = Some(r);
+        }
+        res.into_iter()
+            .map(|r| {
+                r.unwrap_or_else(|| Err(EngineError::Failed("qwen36-batch scheduler gone".into())))
+            })
+            .collect()
     }
 }
 
@@ -517,13 +607,23 @@ impl Engine for Qwen36BatchDoor {
         self.check_test(test)?;
         self.generate_test(prompt, p, test.clone(), false, on_token)
     }
+
+    fn generate_group(
+        &self,
+        jobs: &[GroupJob],
+        on_token: &mut dyn FnMut(usize, u32) -> bool,
+    ) -> Vec<Result<GenerateOutcome, EngineError>> {
+        self.run_jobs(jobs, false, on_token)
+    }
 }
 
 struct Scheduler<S: RowStep> {
     model: S,
     rows: Vec<Row<S::Snap>>,
     free: Vec<usize>,
-    rx: mpsc::Receiver<Job>,
+    rx: mpsc::Receiver<Vec<Job>>,
+    /// A group that waits for enough free rows; nothing else joins before it.
+    waiting: Option<Vec<Job>>,
     lock_path: PathBuf,
     lock_wait: Duration,
     max_context: usize,
@@ -569,14 +669,16 @@ impl<S: RowStep> Scheduler<S> {
                         spell_t0.elapsed().as_secs_f64(),
                     );
                 }
-                let Ok(job) = self.rx.recv() else {
+                let Some(group) = self.waiting.take().or_else(|| self.rx.recv().ok()) else {
                     return; // the door is gone
                 };
                 let t = Instant::now();
                 match GpuLock::acquire_queued_at(&self.lock_path, self.lock_wait) {
                     Ok(l) => lock = Some(l),
                     Err(m) => {
-                        let _ = job.out.send(Ev::Busy(m));
+                        for job in &group {
+                            let _ = job.send(Ev::Busy(m.clone()));
+                        }
                         continue;
                     }
                 }
@@ -586,13 +688,24 @@ impl<S: RowStep> Scheduler<S> {
                 );
                 spell = Spell::default();
                 spell_t0 = Instant::now();
-                self.admit(job, &mut active);
+                self.waiting = Some(group);
             }
-            // Join: every waiting request that fits.
-            while !self.free.is_empty() {
-                match self.rx.try_recv() {
-                    Ok(job) => self.admit(job, &mut active),
-                    Err(_) => break,
+            // Join: every waiting request or group that fits, in arrival order. A group joins whole,
+            // all its jobs in this beat; while it waits for rows nothing behind it joins.
+            loop {
+                let group = match self.waiting.take() {
+                    Some(g) => g,
+                    None => match self.rx.try_recv() {
+                        Ok(g) => g,
+                        Err(_) => break,
+                    },
+                };
+                if group.len() > self.free.len() {
+                    self.waiting = Some(group);
+                    break;
+                }
+                for job in group {
+                    self.admit(job, &mut active);
                 }
             }
             // Sample one token for every decoding row from its logits; leave on stop / length /
@@ -828,7 +941,7 @@ impl<S: RowStep> Scheduler<S> {
             let rr = &mut self.rows[row];
             rr.history.clear();
             rr.snap_tokens.clear();
-            let _ = job.out.send(Ev::Failed(e));
+            let _ = job.send(Ev::Failed(e));
             self.free.push(row);
             return;
         }
@@ -927,7 +1040,7 @@ impl<S: RowStep> Scheduler<S> {
             return Some(FinishReason::Stop);
         }
         a.emitted += 1;
-        if a.job.out.send(Ev::Token(tok)).is_err() {
+        if a.job.send(Ev::Token(tok)).is_err() {
             return Some(FinishReason::Cancelled);
         }
         // The last allowed token is not fed: nothing would read its logits.
@@ -975,7 +1088,7 @@ impl<S: RowStep> Scheduler<S> {
                 sampling: Some(a.observer.record()),
             }),
         };
-        let _ = a.job.out.send(ev);
+        let _ = a.job.send(ev);
         self.free.push(a.row);
     }
 }
