@@ -250,8 +250,16 @@ class Queue:
                 by_key[key] = dict(key=key, kind='pr', pr=p, active=True,
                     provenance='gh api graphql PR+contexts batch via guarded transport', remote_observed_at=now)
             entries = list(by_key.values())
+            if len(entries) > MAX_ENTRIES:
+                d = self.load()
+                d['diagnostic'] = 'queue capacity reached; retained work preserved, coordinator archive required'
+                d['failures'] += 1
+                d['next_sync'] = now + TTL
+                save(self.path, d)
+                self.sync_diagnostic = d['diagnostic']
+                return d, False
             entries.sort(key=lambda e: (bool(e.get('active')), e.get('remote_observed_at') or 0))
-            d.update(entries=entries[-MAX_ENTRIES:], observed_at=now, next_sync=now + TTL, failures=0, diagnostic='')
+            d.update(entries=entries, observed_at=now, next_sync=now + TTL, failures=0, diagnostic='')
             save(self.path, d)
             return d, True
 
@@ -378,6 +386,8 @@ class Queue:
                         'Reply JSON {"merge": true or false, "note": "one line"}.\n'
                         f'Repository {repository}, commit {sha}, base {base}\n{diff[:60000]}')
                     try:
+                        if mid != model:
+                            raise ValueError('local model changed during review')
                         parsed = json.loads(re.search(r'\{.*\}', text or '', re.S)[0])
                         if type(parsed.get('merge')) is not bool:
                             raise ValueError('non-boolean review')
@@ -391,7 +401,7 @@ class Queue:
                     plan=plan, receipt=receipt, created_at=time.time())
                 save(plan_path, record)
                 # This is an idempotent local intent for the existing desk, never the pipeline's signed outbox.
-                save(self.root / 'pending' / self.repo / (identity + '.json'), dict(
+                save(self.root / 'pending' / self.repo / (digest(e['key'].encode()) + '.json'), dict(
                     schema='renda-local-intent/1', key=e['key'], identity=identity,
                     state='waiting-for-sync', remote_eligible=False, plan=str(plan_path)))
                 output.append(f"{e['key']} local diff={digest(diff.encode())[:12]} review={decision}; host plan exit={plan['code']}; receipt={receipt.get('verdict', 'unverified')}; waiting-for-sync")

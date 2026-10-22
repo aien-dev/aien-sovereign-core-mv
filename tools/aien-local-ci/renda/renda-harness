@@ -20,9 +20,11 @@ mechanical steps (rebase, rerun, operator runs) carry on.
 import argparse, fcntl, json, os, re, subprocess, sys, time, urllib.request, urllib.error
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
+import tempfile
 sys.path.insert(0, os.path.join(os.path.expanduser("~"), ".local/lib/renda"))
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from local_queue import Queue, status as queued_status, valid_pr
+SOURCE_FILE = os.path.realpath(__file__)
 
 HOME = os.path.expanduser("~")
 STATE = os.environ.get("RENDA_STATE") or f"{HOME}/.local/state/aien-local-ci"
@@ -175,6 +177,18 @@ def review(full, pr, title):
     return bool(d.get("merge")), (str(d.get("note") or "")[:300] + f" [review by {mid}]")
 
 
+def guarded_git_source(repo, full, pinned):
+    """The existing crumb helper supports GIT injection. Recheck only at its final push."""
+    return ("#!/usr/bin/env python3\nimport importlib.util, importlib.machinery, os, sys\n"
+            f"p = {SOURCE_FILE!r}\n"
+            "s = importlib.util.spec_from_file_location('renda_push_guard', p, loader=importlib.machinery.SourceFileLoader('renda_push_guard', p))\n"
+            "m = importlib.util.module_from_spec(s); s.loader.exec_module(m)\n"
+            "if len(sys.argv) > 1 and sys.argv[1] == 'push':\n"
+            f"    ok, note = m.remote_admitted({repo!r}, {full!r}, {pinned!r})\n"
+            "    if not ok:\n        print('Renda push held: ' + note, file=sys.stderr); sys.exit(98)\n"
+            "os.execvp('git', ['git'] + sys.argv[1:])\n")
+
+
 def rebase(repo, full, pr, branch, sha):
     """Rebase branch onto main in our own clone; crumb-only conflicts via rebase-crumb.sh. Returns (ok, note)."""
     os.makedirs(WORK, exist_ok=True)
@@ -197,7 +211,19 @@ def rebase(repo, full, pr, branch, sha):
         if os.path.exists(cand):
             script = cand
     if script:
-        rc, out, err = run(["bash", script, wt, branch], cwd=wt, timeout=1800)
+        from local_queue import decode_one, graphql_args
+        try:
+            pinned = decode_one(gh_json(graphql_args(full, number=pr)))
+        except Exception as exc:
+            return False, 'rebase source unreadable: ' + str(exc)[-200:]
+        if pinned['headRefOid'] != sha:
+            return False, 'head moved before scripted rebase'
+        with tempfile.TemporaryDirectory(prefix='renda-rebase-', dir=STATE) as tmp:
+            wrapper = os.path.join(tmp, 'git-checked')
+            with open(wrapper, 'w') as f:
+                f.write(guarded_git_source(repo, full, pinned))
+            os.chmod(wrapper, 0o755)
+            rc, out, err = run(['env', 'GIT=' + wrapper, 'bash', script, wt, branch], cwd=wt, timeout=1800)
         if rc == 0:
             rc2, new, _ = run(["git", "rev-parse", "HEAD"], cwd=wt)
             return True, f"rebased onto main, new head {new.strip()[:8]} (rebase-crumb.sh)"
@@ -536,7 +562,7 @@ def lane_pass(repo):
         return res
     queue = Queue(STATE, repo, full, run, CLONES, WORK)
     snapshot, synced = queue.sync()
-    with open(__file__, 'rb') as source:
+    with open(SOURCE_FILE, 'rb') as source:
         policy_source = source.read()
     from local_queue import __file__ as queue_source
     with open(queue_source, 'rb') as source:
@@ -556,9 +582,16 @@ def lane_pass(repo):
     rows = []
     for p in prs:
         st, desc = queued_status(p)
+        # A locally retained failure remains a failure when status publication is unavailable.
+        try:
+            retained = operator_verdict(repo, p['headRefOid'])
+        except (TypeError, AttributeError):
+            retained = ('HOLD', 'malformed retained verdict')
+        if retained and retained[0] == 'FAIL':
+            st, desc = 'failure', 'retained local FAIL: ' + retained[1]
+        elif retained and retained[0] == 'HOLD':
+            st, desc = 'failure', retained[1]
         rows.append((p, st, desc))
-        if st == "none" or judging(p["headRefOid"]):
-            waiting += 1
     bst = load_block(repo)
     if bst.get("open"):
         finish_block(repo, full, bst, {p["number"]: p for p in prs}, res)
@@ -682,9 +715,18 @@ def main():
     ap.add_argument("--lanes")
     ap.add_argument("--once", action="store_true")
     ap.add_argument("--rest", type=int, default=60)
+    ap.add_argument('--seed-ready', help='import explicit local READY JSON for one --lanes repo, without remote calls')
     ap.add_argument("--operator-check", nargs=2, metavar=("REPO", "SHA"),
                     help="print what the operator step would do for this head, then exit (test hook)")
     a = ap.parse_args()
+    if a.seed_ready:
+        if not a.lanes or ',' in a.lanes:
+            ap.error('--seed-ready requires exactly one --lanes repo')
+        repo = a.lanes
+        full = f'aien-dev/{repo}-mv' if repo not in ('aien-rig', 'aien-train', 'synapse', 'CUDApp') else f'aien-dev/{repo}'
+        Queue(STATE, repo, full, run, CLONES, WORK).seed_ready(a.seed_ready)
+        print('local READY imported; remote identity and eligibility unchanged')
+        return
     if a.operator_check:
         ok, note = operator_run(*a.operator_check)
         print(("ACT " if ok else "SKIP ") + note)

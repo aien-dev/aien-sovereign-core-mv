@@ -179,6 +179,7 @@ class Offline(unittest.TestCase):
         with patch.object(qu, 'host_plan', return_value={'code': 2}), patch.object(r, 'ask_model') as ask:
             ask.return_value = ('{"merge":false,"note":"synthetic failed review"}', 'synthetic-model')
             for model, policy in [('m1', 'p1'), ('m2', 'p1'), ('m2', 'p2')]:
+                ask.return_value = ('{"merge":false,"note":"synthetic failed review"}', model)
                 qu.progress(self.doc, model, ask, policy)
             self.assertEqual(ask.call_count, 3)
             self.assertEqual(qu.review(self.pr, 'm2', 'p2')[0], False)
@@ -275,6 +276,52 @@ class Offline(unittest.TestCase):
     def test_retry_after_http_date(self):
         delay = q.retry_delay(1, 'Retry-After: Thu, 01 Jan 1970 01:00:00 GMT', 1, 1000)
         self.assertEqual(delay, 2600)
+
+    def test_scripted_rebase_final_push_guard_refuses_without_ownership(self):
+        wrapper = self.root / 'git-checked'
+        wrapper.write_text(r.guarded_git_source('omega', 'aien-dev/omega-mv', self.pr))
+        env = dict(os.environ, HOME=str(self.root), RENDA_STATE=str(self.state))
+        result = subprocess.run(['python3', str(wrapper), 'push', 'synthetic-remote'],
+                                text=True, capture_output=True, env=env)
+        self.assertEqual(result.returncode, 98)
+        self.assertIn('ownership', result.stderr)
+
+    def test_contexts_must_belong_to_exact_head(self):
+        value = wire([self.pr], single=True)
+        value['data']['repository']['pullRequest']['commits']['nodes'][0]['commit']['oid'] = 'b' * 40
+        with self.assertRaises(ValueError):
+            q.decode_one(value)
+
+    def test_capacity_refuses_new_work_without_losing_retained_pins(self):
+        fresh = [dict(self.pr, number=615), dict(self.pr, number=616)]
+        qu = self.queue(lambda *a, **kw: (0, json.dumps(wire(fresh)), ''))
+        with patch.object(q, 'MAX_ENTRIES', 2):
+            doc, synced = qu.sync(now=2000)
+        self.assertFalse(synced)
+        self.assertIn('capacity', doc['diagnostic'])
+        self.assertEqual(doc['entries'], self.doc['entries'])
+
+    def test_sync_interruption_reserves_durable_backoff(self):
+        def interrupted(*a, **kw):
+            raise KeyboardInterrupt('synthetic interrupted transport')
+        qu = self.queue(interrupted)
+        with self.assertRaises(KeyboardInterrupt):
+            qu.sync(now=2000)
+        with patch.object(qu, 'run') as run:
+            self.assertFalse(qu.sync(now=2001)[1])
+            run.assert_not_called()
+
+    def test_current_receipt_rechecked_despite_cached_refusal(self):
+        qu = self.queue()
+        with patch.object(qu, 'host_plan', return_value={'code': 2}), patch.object(r, 'ask_model') as ask, patch.object(qu, 'receipt') as receipt:
+            ask.return_value = ('{"merge":false,"note":"synthetic refusal"}', 'model')
+            receipt.side_effect = [dict(verified=True, eligible=False, verdict='FAIL'),
+                                   dict(verified=False, eligible=False, verdict='REJECTED')]
+            qu.progress(self.doc, 'model', ask, 'policy')
+            qu.progress(self.doc, 'model', ask, 'policy')
+            self.assertEqual(receipt.call_count, 2)
+            self.assertEqual(ask.call_count, 1)
+            self.assertEqual(qu.review(self.pr, 'model', 'policy')[0], False)
 
 
 if __name__ == '__main__':
