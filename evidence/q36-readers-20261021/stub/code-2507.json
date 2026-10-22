@@ -1,0 +1,1 @@
+{"choices":[{"finish_reason":"stop","index":0,"message":{"content":"","reasoning_content":"stub notes","role":"assistant"}}],"created":1792583898,"id":"chatcmpl-18e0898ede2ef99f0004","model":"qwen3-30b-a3b-instruct-2507","object":"chat.completion","usage":{"completion_tokens":2,"prompt_tokens":16628,"total_tokens":16630}}

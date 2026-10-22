@@ -1,0 +1,43 @@
+{
+  "design": {
+    "file": "design-roadmap.md",
+    "source": "aien-architecture doctrine/ROADMAP.md at 7bfbb63",
+    "question": "Answer from the document above, briefly:\n(a) What does the status label REOPENED / IN PROGRESS mean?\n(b) How many canonical qualification gates did the Physics Substrate pass, and how many cumulative Omega gates were passed across M4 to M15?\n(c) What is milestone M22 called and what does it cover?\n(d) In five bullets, the roadmap's overall arc from its first milestone to its last.",
+    "truth": {
+      "a": "Previously reported complete; reopened for requalification. Not complete. (line ~28, part 1)",
+      "b": "10/10; 121/121 cumulative M4-M15 (line ~174, middle)",
+      "c": "OMEGA_OPTIMIZER: Omega-native SGD, Adam, AdamW with CPU reference and optional accelerator-fused realizations (line ~322, end)",
+      "d": "spanning"
+    }
+  },
+  "log": {
+    "file": "log-serve.log",
+    "source": "~/.local/state/aien-q36/serve.log first 398 lines (18091 server log, 2026-10-21)",
+    "question": "Answer from the server log above, briefly:\n(a) How many times was the server started in this log, at what times (UTC), and which build (bin-...) each time?\n(b) What was MemAvailable at the first start?\n(c) What is the largest prompt (in tokens) any request had, and how long was its prefill?\n(d) Which sampling seed did request chatcmpl-18e07cf69c921c56003c use, and how many tokens did it reply?",
+    "truth": {
+      "a": "3: 01:55:26Z bin-5b726818, 02:45:16Z bin-0915000b, 07:24:56Z bin-0915000b (spanning)",
+      "b": "103 GB (part 1)",
+      "c": "19889 tokens, prefill 573663 ms (line 17, part 1; spanning max)",
+      "d": "seed 1792569861345514406, 39 tokens (line ~359, end)"
+    }
+  },
+  "code": {
+    "file": "code-kv_persist.rs",
+    "source": "sc crates/aien-serve-http/src/kv_persist.rs at 41f435a7",
+    "question": "Answer from the Rust file above, briefly:\n(a) What are the values of ARITH_ID and OMEGA_ENG_DOMAIN?\n(b) What fields does the PersistCounters struct hold?\n(c) What does open_with_test_fault do differently from open?\n(d) In five bullets, how persistent KV works end to end in this file.",
+    "truth": {
+      "a": "omega-qwen3-moe; b\"AIEN-PKV-OMEGA-ENG-V1\\0\" (line 57-59, part 1)",
+      "b": "parked_chunks, park_bytes, park_dedup, park_refused, park_failed, park_skipped, restores, restored_tokens, restore_bytes, restore_misses (BTreeMap), refusals (line 588, middle)",
+      "c": "open calls open_with_test_fault with Ok(None); the latter also takes the test-only stall fault (AIEN_KV_TEST_FAULT); Err refuses (line 1233-1255, end)",
+      "d": "spanning"
+    }
+  },
+  "big": {
+    "file": "big-logs.log",
+    "source": "~/.local/state/aien-q36/serve.log + batch-18094.log as of 2026-10-21T13:0xZ (35B server logs)",
+    "question": "Answer from the server log above, briefly:\n(a) How many times was the server started in this log, at what times (UTC), and which build (bin-...) each time?\n(b) What was MemAvailable at the first start?\n(c) What is the largest prompt (in tokens) any request had, and how long was its prefill?\n(d) Which sampling seed did request chatcmpl-18e07cf69c921c56003c use, and how many tokens did it reply?",
+    "truth": {
+      "note": "computed from the frozen file by grep after the run"
+    }
+  }
+}
