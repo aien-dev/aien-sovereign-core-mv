@@ -1,0 +1,11 @@
+# L609 cache-integrity correction
+
+Independent review of source3aae7e9c reproduced fabricated cached approvals with zero model calls. Parent reproduced the mutation-only counterexample RED, then introduced HMAC-SHA256 authentication over the complete chunk-cache payload. The stable per-host key is outside queue/cache storage at `~/.config/renda/review-cache.key`, generated with 0600 mode inside a service-owned directory. Initialization is flock-serialized, symlinks/nonregular/linked/insecure keys fail closed, and key bytes are never logged or shipped. No key enters the repository or release. All tests use private temporary key roots.
+
+Authentication protects cache-only modification/corruption, not arbitrary code execution as the service Unix UID. That UID can replace the controller or read its configuration; this is not a sandbox claim.
+
+Unsigned, tampered, malformed, differently rooted, stale-identity or differently segmented caches cannot approve. Complete authenticated coverage is required at PR-review, generic READY-publication (including small diffs), and site READY-publication boundaries. An explicit retained refusal dominates a positive cache; negative responses are not reinterpreted or retried.
+
+The first actual own-engine probe on the authentic374725-character625diff returned a negative for the artificial chunk boundary: “Diff is truncated and incomplete, preventing verification of file integrity and content.” This result is preserved, not an approval. It wrote no production review/PR state. Corrected the prompt's scope to distinguish intentional segmentation from missing delivery and clarify that its boolean is a segment verdict, not global merge permission. Concrete defects or genuinely missing context still require false; parser and terminal-refusal behavior remain unchanged. A captured-response regression proves the original negative remains negative.
+
+Final service regression suite:98/98PASS on Mac and Spark. RED evidence covers forged cached decisions, small-READY publication bypass, retained-refusal dominance, and missing segment-scope instructions. Synthetic callbacks are tests only, not model approval. An independent correction review and bounded actual-engine scope-conformance probe are required before deployment. No gate, receipt, fresh-ref, lane ownership, remote-readback or merge requirement was relaxed.

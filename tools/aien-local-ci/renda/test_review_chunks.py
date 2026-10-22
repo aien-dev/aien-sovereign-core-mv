@@ -2,11 +2,17 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import review_chunks as rc
 
 
 class ChunkReview(unittest.TestCase):
+    def setUp(self):
+        td=tempfile.TemporaryDirectory();self.addCleanup(td.cleanup)
+        auth=patch('review_chunks._key_path',return_value=Path(td.name)/'private/review.key')
+        auth.start();self.addCleanup(auth.stop)
+
     def run_review(self, diff, ask, cache, **overrides):
         args = dict(repository='github.com/aien-dev/omega-mv', key='omega-mv#9@' + 'a' * 40,
                     base='b' * 40, head='a' * 40, model='synthetic-model', policy='policy-v1',

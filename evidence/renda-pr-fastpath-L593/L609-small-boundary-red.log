@@ -1,0 +1,12 @@
+======================================================================
+FAIL: test_small_ready_cannot_publish_from_forged_review_cache (test_delivery.Delivery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/integrated/renda/test_delivery.py", line 99, in test_small_ready_cannot_publish_from_forged_review_cache
+    ok,note=self.publish();self.assertFalse(ok,note)
+AssertionError: True is not false : feat/test@a81e68575257 published as PR #42; exact head/base read back; merge checks remain mandatory
+
+----------------------------------------------------------------------
+Ran 25 tests in 5.361s
+
+FAILED (failures=1)

@@ -1,0 +1,12 @@
+======================================================================
+FAIL: test_completed_review_accepts_verified_legacy_source_repository_alias (test_local_queue.Offline)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/integrated/renda/test_local_queue.py", line 93, in test_completed_review_accepts_verified_legacy_source_repository_alias
+    self.assertIs(decision,False,'positive cache overrode an explicit retained refusal')
+AssertionError: True is not False : positive cache overrode an explicit retained refusal
+
+----------------------------------------------------------------------
+Ran 26 tests in 5.441s
+
+FAILED (failures=1)

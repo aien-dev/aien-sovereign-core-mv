@@ -3,15 +3,73 @@
 No transport, model, scheduler, or inference dependencies live here. The caller
 supplies one ask callback and a per-pass call budget.
 """
+import fcntl
 import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
 import re
+import stat
 import tempfile
 import time
 
-SCHEMA = 'renda-review-chunks/1'
+SCHEMA = 'renda-review-chunks/2'
+
+
+def _key_path():
+    return Path.home() / '.config/renda/review-cache.key'
+
+
+def _load_key(path=None):
+    """Local cache-integrity root, never a proof against arbitrary same-UID code."""
+    path = Path(path) if path is not None else _key_path()
+    path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+    parent = path.parent.stat()
+    if path.parent.is_symlink() or parent.st_uid != os.geteuid() or parent.st_mode & 0o022:
+        raise PermissionError('review key directory must be service-owned and not group/world writable')
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                or info.st_mode & 0o077 or info.st_nlink != 1 or info.st_size not in (0,32)):
+            raise PermissionError('review key must be private, regular, service-owned, and 32 bytes')
+        if info.st_size == 0:
+            raw = os.urandom(32)
+            if os.write(fd,raw) != 32:
+                raise OSError('incomplete review key initialization')
+            os.fsync(fd)
+            directory = os.open(path.parent,os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+        os.lseek(fd,0,os.SEEK_SET)
+        raw = os.read(fd,33)
+        if len(raw) != 32:
+            raise ValueError('invalid review key length')
+        return raw
+    finally:
+        os.close(fd)
+
+
+def _tag(value, key):
+    payload = {name:item for name,item in value.items() if name != 'auth_tag'}
+    raw = json.dumps(payload,sort_keys=True,separators=(',',':'),allow_nan=False).encode()
+    return hmac.new(key,raw,hashlib.sha256).hexdigest()
+
+
+def _authenticated(value, key):
+    try:
+        return hmac.compare_digest(value['auth_tag'],_tag(value,key))
+    except (KeyError,TypeError,ValueError,AttributeError):
+        return False
+
+
+def _save_cache(path,value,key):
+    value['auth_tag'] = _tag(value,key)
+    _atomic_json(path,value)
 
 
 def _digest(data):
@@ -70,10 +128,11 @@ def _make_chunks(diff, chunk_chars):
     return chunks
 
 
-def _valid_cache(value, identity, diff_digest, chunks):
+def _valid_cache(value, identity, diff_digest, chunks, key):
     if (not isinstance(value, dict) or value.get('schema') != SCHEMA
             or value.get('identity') != identity or value.get('diff_digest') != diff_digest
-            or not isinstance(value.get('chunks'), list) or len(value['chunks']) != len(chunks)):
+            or not isinstance(value.get('chunks'), list) or len(value['chunks']) != len(chunks)
+            or not _authenticated(value,key)):
         return False
     for expected, actual in zip(chunks, value['chunks']):
         if (not isinstance(actual, dict)
@@ -87,8 +146,14 @@ def _valid_cache(value, identity, diff_digest, chunks):
 def _prompt(repository, key, base, head, model, policy, identity, diff_digest, chunk, count):
     return (
         'Review this complete-diff segment as a bounded part of one pinned LOCAL review. '
-        'Qualification is pending; this review grants no merge authority. Inspect for concrete defects, '
-        'secrets, unrelated changes, or destructive edits. Return strict JSON '
+        'Qualification is pending; this review grants no merge authority. '
+        'This is intentional bounded segmentation, not a truncated delivery. Every other segment is queued '
+        'separately and complete review requires all segments. The merge boolean is a verdict on this '
+        'segment only, not approval to merge the PR. Artificial cuts are marked by offsets: an unfinished '
+        'line, JSON value, string, or hunk at an artificial cut is not by itself a source defect. Do not '
+        'confuse a segment boundary with actual source EOF. Inspect the shown bytes for concrete defects, '
+        'secrets, unrelated changes, or destructive edits. If a concrete concern genuinely needs unseen '
+        'context, return false and identify that concern and the required context. Return strict JSON '
         '{"merge": true or false, "note": "one line"}.\n'
         f'Repository {repository}; queue key {key}; base {base}; head {head}; model {model}; policy {policy}.\n'
         f'Full review identity {identity}; full diff digest {diff_digest}.\n'
@@ -121,18 +186,19 @@ def review_diff(diff, *, repository, key, base, head, model, policy, ask, cache_
         return dict(complete=False, decision=None, note='empty diff has no reviewable chunks', actual_calls=0,
                     total_chunks=0, reviewed_chunks=0, identity=identity)
     cache_path = Path(cache_path)
+    auth_key = _load_key()
     try:
         cached = json.loads(cache_path.read_text(encoding='utf-8'))
     except (OSError, ValueError, TypeError):
         cached = None
-    if _valid_cache(cached, identity, diff_digest, chunks):
+    if _valid_cache(cached, identity, diff_digest, chunks, auth_key):
         rows = cached['chunks']
         for source, target in zip(rows, chunks):
             target['decision'], target['note'] = source['decision'], source.get('note', '')
     else:
         rows = chunks
         cached = dict(schema=SCHEMA, identity=identity, diff_digest=diff_digest, chunks=rows)
-        _atomic_json(cache_path, cached)
+        _save_cache(cache_path, cached, auth_key)
     actual_calls = 0
     for chunk in rows:
         if any(row['decision'] is False for row in rows):
@@ -157,10 +223,10 @@ def review_diff(diff, *, repository, key, base, head, model, policy, ask, cache_
             except Exception as exc:
                 last_error = f'{type(exc).__name__}: {exc}'[:300]
                 chunk['note'] = 'incomplete response: ' + last_error
-                _atomic_json(cache_path, cached)
+                _save_cache(cache_path, cached, auth_key)
                 if attempts < max_attempts and actual_calls < budget:
                     time.sleep(min(1.0, 0.1 * (2 ** (attempts - 1))))
-        _atomic_json(cache_path, cached)
+        _save_cache(cache_path, cached, auth_key)
         if chunk['decision'] is False or actual_calls >= budget:
             break
     decisions = [chunk['decision'] for chunk in rows]

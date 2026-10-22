@@ -1,0 +1,21 @@
+{
+  "source_runtime": "3aae7e9ce51a2e8a30720c9b482374145a2e0e19",
+  "repository": "github.com/aien-dev/omega",
+  "head": "69790fb4ad1e803ca79245430745b96129d1dcf4",
+  "base": "a8ffd2b912c84197d08f963b05f9c7d8b30a3f8a",
+  "model": "qwen3.6-35b-a3b-fp8",
+  "actual_diff_chars": 374725,
+  "whole_PR_approval": false,
+  "production_state_writes": 0,
+  "remote_PR_writes": 0,
+  "result": {
+    "complete": false,
+    "decision": false,
+    "note": "Diff is truncated and incomplete, preventing verification of file integrity and content.",
+    "actual_calls": 1,
+    "total_chunks": 32,
+    "reviewed_chunks": 1,
+    "identity": "61ba5b3e5e1a841c460433afa195e90e71c5477c6b6821d74ab06e8ecf7ce728",
+    "diff_digest": "6f5f667789fce1d6d0c718a5879191035b3e259c52b286eaaef514355463e0f0"
+  }
+}

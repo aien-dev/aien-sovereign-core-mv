@@ -1,19 +1,19 @@
 {
   "files": {
-    "delivery.py": "6e1a350d5c6f7183be2cffbba9ea9b62e9db9d35457667e4bdcad8ed465f5fe5",
+    "delivery.py": "804b7c9da1d0aba7e27ce01578b3cbf88b964e911da35e170e4b5f36b4cec6bb",
     "install.py": "4b9d07ecf2921028c4be40e3133b971dc560fe09f1123614bc8b1e49be6fe7e1",
-    "local_queue.py": "51ff98c71eed44068e817eb6e7607d58b91287a3e9834e13f6d3e66df0a732fe",
+    "local_queue.py": "7aadd7bd9f8f678347f7dc112e072976de7176724774bec1a701d1e9084281f5",
     "renda-checked": "4a8291a2ad33b8a2665934f9e4e969bc3192f70ad77205c192cbe909d8a2b698",
-    "renda-harness": "2050f865bbdc50de605b95c1399d1faf3c28814cd5d27e9c569e49c7a417909f",
-    "review_chunks.py": "b7aa6db0248da882b3a17ea7e67cb8b721c8609209e12633adcb46eaca93e789",
+    "renda-harness": "8a686b674b046f66cad241f7be3b23683d7c773a2a4a165b7f05fe78ef100047",
+    "review_chunks.py": "1f880ee899fc367f7cd86cb43c9b370145a873f32585549ed1d04b7190dd13f7",
     "site_policy.py": "9526113b6b4a323b1d47f538d60261e499228cda89a31c5ba2090997dcea2cc3",
-    "test_delivery.py": "f77d169cdced5c43232e1db0a25809af9953051e65bf9f75a9661d39ffa22464",
-    "test_local_queue.py": "4fd030511fecbb60ed6c5da8de4978828d33ed898ffc26ece001c58ee32843fe",
+    "test_delivery.py": "936dacf7c2c93441f29a90dd03584fa200743642eb3cb8386a54fcf7713f600d",
+    "test_local_queue.py": "b36825395e08c2b8cdf89220cb3a38e49a8e4829f3509236e99a001b78c0ae4c",
     "test_reliability.py": "f924611a7988bd00df7f8bf81ddfa63731561e09035510854f86c40473bc2b55",
-    "test_review_chunks.py": "ab6073b6fc16045f1b25c52210e0e5a61150cad5d6941561d2407527861c7cdf",
-    "test_review_integration.py": "c9105fd56e3b3d28c81b0e677d9327484a5b0d164e8bec746056fb6b6dc35db7",
-    "test_site_policy.py": "2c6d39850022b093d50ddeed19ceb3516e93b543b500450099403c48a4355325"
+    "test_review_chunks.py": "7a8eb171a2127356471809fbd9d9e6997d363b02132881fcfd955cc8318eb58e",
+    "test_review_integration.py": "a52621adebe86ab46d66e70f3edbc8b27af604d77429d8d5491cb4d82b9f0a0a",
+    "test_site_policy.py": "f6a590ecb06eae9712b0d64d621baa5566ca49fb759a70f68372c444f2fed558"
   },
-  "item": "L593+L603",
+  "item": "L593+L603+L609",
   "schema": "renda-release/1"
 }

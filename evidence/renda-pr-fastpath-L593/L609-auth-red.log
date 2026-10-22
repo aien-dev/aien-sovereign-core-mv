@@ -1,0 +1,12 @@
+======================================================================
+FAIL: test_forged_cached_decisions_never_confer_approval (test_review_integration.ReviewIntegration)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/integrated/renda/test_review_integration.py", line 20, in test_forged_cached_decisions_never_confer_approval
+    self.assertFalse(result['complete'])
+AssertionError: True is not false
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.010s
+
+FAILED (failures=1)

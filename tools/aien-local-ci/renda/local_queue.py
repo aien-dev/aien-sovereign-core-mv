@@ -501,6 +501,8 @@ class Queue:
         source, repository = self.source(p['headRefOid'], p['baseRefOid'])
         if source is None or d.get('repository') != repository:
             return None, 'pinned local source repository changed or unavailable'
+        if d.get('review', {}).get('decision') is False:
+            return False, d['review'].get('note', 'retained concrete refusal')
         diff_path = Path(str(prefix) + '.diff')
         try:
             diff = diff_path.read_bytes()

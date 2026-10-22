@@ -23,6 +23,8 @@ class Delivery(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        auth=patch('review_chunks._key_path',return_value=self.root/'service-private/review.key')
+        auth.start();self.addCleanup(auth.stop)
         self.source = self.root / 'clones' / 'interplane'
         self.source.mkdir(parents=True)
         self.git('init', '-q')
@@ -49,9 +51,13 @@ class Delivery(unittest.TestCase):
         self.planfile = self.q.root / 'local' / self.q.repo / (digest(self.entry['key'].encode()) + '.plan.json')
         self.plan = dict(schema='renda-local-plan/1', key=self.entry['key'],
             repository='github.com/' + self.q.full, commit=self.head, base=self.base,
-            model='synthetic-model', policy='synthetic-policy', review=dict(decision=True, note='synthetic review'),
+            model='synthetic-model', policy='synthetic-policy', review=dict(decision=True, complete=True, note='synthetic review'),
             diff_digest=digest(self.diff.encode()), plan=dict(code=0, output='Plan verdict: RUNNABLE\n', gates_executed=False))
         save(self.planfile, self.plan)
+        import review_chunks
+        review_chunks.review_diff(self.diff,repository=self.plan['repository'],key=self.entry['key'],base=self.base,head=self.head,
+            model='synthetic-model',policy='synthetic-policy',ask=lambda prompt:('{"merge":true,"note":"synthetic approved"}','synthetic-model'),
+            cache_path=self.planfile.with_name(self.planfile.name.replace('.plan.json','.chunks.json')),budget=2)
         self.pr = dict(number=42, state='OPEN', headRefName='feat/test', headRefOid=self.head,
             baseRefName='main', baseRefOid=self.base, mergeStateStatus='BLOCKED')
         for name, value in [('STATE',str(self.q.state)),('PAUSE',str(self.root/'PAUSE')),('LOGDIR',str(self.root/'logs')),
@@ -83,6 +89,19 @@ class Delivery(unittest.TestCase):
 
     def writes(self):
         return [c for c in self.calls if c[:3]==['gh','pr','create']]
+
+    def test_small_ready_cannot_publish_from_forged_review_cache(self):
+        import review_chunks
+        path=self.planfile.with_name(self.planfile.name.replace('.plan.json','.chunks.json'))
+        path.unlink(missing_ok=True)
+        review_chunks.review_diff(self.diff,repository=self.plan['repository'],key=self.entry['key'],base=self.base,head=self.head,
+            model='synthetic-model',policy='synthetic-policy',ask=lambda prompt:self.fail('zero-budget model call'),cache_path=path,budget=0)
+        data=json.loads(path.read_text())
+        for row in data['chunks']:row['decision']=True
+        path.write_text(json.dumps(data))
+        self.plan['review']['complete']=True;save(self.planfile,self.plan)
+        ok,note=self.publish();self.assertFalse(ok,note)
+        self.assertEqual(self.writes(),[])
 
     def test_complete_large_ready_review_is_accepted_by_publication_boundary(self):
         import review_chunks

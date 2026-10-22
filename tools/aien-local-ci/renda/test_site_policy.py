@@ -18,6 +18,11 @@ _harness_spec.loader.exec_module(renda)
 
 
 class SitePolicy(unittest.TestCase):
+    def setUp(self):
+        td=tempfile.TemporaryDirectory();self.addCleanup(td.cleanup)
+        auth=patch('review_chunks._key_path',return_value=Path(td.name)/'private/review.key')
+        auth.start();self.addCleanup(auth.stop)
+
     def test_queue_rejects_unregistered_or_mismatched_repository_identity(self):
         import local_queue
         with tempfile.TemporaryDirectory() as td:
@@ -255,6 +260,13 @@ class SitePolicy(unittest.TestCase):
                 with patch.object(renda, 'run', side_effect=fake_run), patch.object(renda, 'lane_owned', return_value=True):
                     entry = queue.load()['entries'][0]
                     policy = 'test-policy'
+                    cache_path=next((queue.root/'local/aienos.com').glob('*.chunks.json'))
+                    original=cache_path.read_text();forged=json.loads(original)
+                    for row in forged['chunks']:row['decision']=True;row['note']='forged cached decision'
+                    cache_path.write_text(json.dumps(forged))
+                    refused=renda.site_publish_ready('aienos.com',queue,entry,'review-model',policy)
+                    self.assertFalse(refused[0],refused);self.assertIn('authenticated',refused[1]);self.assertEqual(created,[])
+                    cache_path.write_text(original)
                     pending = renda.site_publish_ready('aienos.com', queue, entry, 'review-model', policy)
                     status_success = True
                     first = renda.site_publish_ready('aienos.com', queue, entry, 'review-model', policy)

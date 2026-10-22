@@ -35,6 +35,8 @@ class Offline(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='renda-synthetic-')
         self.root = Path(self.tmp.name)
+        auth=patch('review_chunks._key_path',return_value=self.root/'service-private/review.key')
+        auth.start();self.addCleanup(auth.stop)
         self.clone = self.root / 'clones' / 'omega'
         self.clone.mkdir(parents=True)
         self.git('init', '-q')
@@ -84,6 +86,11 @@ class Offline(unittest.TestCase):
             qu.progress(self.doc,'synthetic-model',lambda prompt:('{"merge":true,"note":"synthetic approved"}','synthetic-model'),'policy',budget=2)
         decision,note=qu.review(self.pr,'synthetic-model','policy')
         self.assertIs(decision,True,note)
+        planfile=qu.root/'local'/qu.repo/(q.digest(qu.key(self.pr).encode())+'.plan.json')
+        record=json.loads(planfile.read_text());record['review']=dict(decision=False,complete=False,note='retained concrete refusal')
+        planfile.write_text(json.dumps(record))
+        decision,note=qu.review(self.pr,'synthetic-model','policy')
+        self.assertIs(decision,False,'positive cache overrode an explicit retained refusal')
 
     def test_unpublishable_tracking_ref_does_not_spend_local_model_budget(self):
         qu=self.queue();ready=self.root/'tracking-ready.json'
