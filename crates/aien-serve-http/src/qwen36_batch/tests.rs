@@ -404,6 +404,32 @@ fn a_mutant_switch_changes_only_its_own_row() {
 }
 
 #[test]
+fn a_negative_control_leaves_no_state_for_a_later_request() {
+    // L387 (train run 20261022T0119Z, row-swap-red): the mutant row's copy at its last turn
+    // header was kept, and the next request with the same prompt restored it and went red.
+    let mut p: Vec<u32> = (0..12u32).map(|k| 1 + (k * 13) % 90).collect();
+    p.push(IM_START);
+    p.extend((0..6u32).map(|k| 2 + (k * 7) % 90));
+    let want = alone(&p, 6);
+    let d = switched_door(1);
+    let red = run_test(
+        &d,
+        &p,
+        6,
+        TestSwitches {
+            mutant: Some(4),
+            ..TestSwitches::default()
+        },
+    );
+    assert_ne!(red, want, "the mutant must go red");
+    assert_eq!(
+        run_test(&d, &p, 6, TestSwitches::default()),
+        want,
+        "a plain request after a mutant must not reuse the mutant's state"
+    );
+}
+
+#[test]
 fn strokes_off_and_exact_head_off_equal_the_served_path() {
     let want: Vec<Vec<u32>> = prompts().iter().map(|(p, n)| alone(p, *n)).collect();
     let got = concurrent_switched(8, |i| TestSwitches {
