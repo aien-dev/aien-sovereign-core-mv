@@ -293,6 +293,26 @@ class Queue:
                 raise ValueError('queue capacity exceeded')
             d['entries'] = list(keyed.values())
             save(self.path, d)
+        if self.full == SITE_REPOSITORY:
+            per_item = []
+            for entry in entries:
+                item_ack = dict(schema='renda-intake-ack/1', repository=self.full,
+                    items=[dict(ref=entry['ref'], head=entry['sha'], base=entry['base'], number=None,
+                                remote_observed_at=None)],
+                    state='ACCEPTED_LOCAL_NOT_PUBLISHED', remote_eligible=False,
+                    provenance_sha256=digest(raw), input=str(Path(path).resolve()), acknowledged_at=time.time())
+                ack_path = self.root / 'acks' / (digest(json.dumps([self.full, [entry['key']]],
+                    sort_keys=True).encode()) + '.json')
+                item_ack['ack_path'] = str(ack_path)
+                save(ack_path, item_ack)
+                per_item.append(item_ack)
+            if len(per_item) == 1:
+                return per_item[0]
+            return dict(schema='renda-intake-ack/1', repository=self.full,
+                items=[item for ack in per_item for item in ack['items']],
+                state='ACCEPTED_LOCAL_NOT_PUBLISHED', remote_eligible=False,
+                provenance_sha256=digest(raw), input=str(Path(path).resolve()),
+                acknowledged_at=time.time(), ack_paths=[ack['ack_path'] for ack in per_item])
         ack = dict(schema='renda-intake-ack/1', repository=self.full,
             items=[dict(ref=e['ref'], head=e['sha'], base=e['base'], number=None,
                         remote_observed_at=None) for e in entries],

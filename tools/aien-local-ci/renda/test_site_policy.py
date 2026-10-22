@@ -45,6 +45,25 @@ class SitePolicy(unittest.TestCase):
             self.assertEqual(local_queue.read(queue.path)['entries'][0]['key'],
                 f"aien-dev/aienos.com:ready:{item['ref']}@{item['sha']}")
 
+    def test_site_ready_batch_ack_is_split_per_item_for_publication(self):
+        import local_queue
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            items = [dict(repository='aien-dev/aienos.com', ref='feat/one', sha='a' * 40, base='b' * 40),
+                dict(repository='aien-dev/aienos.com', ref='feat/two', sha='c' * 40, base='d' * 40)]
+            ready = root / 'ready.json'; ready.write_text(json.dumps(items))
+            queue = local_queue.Queue(root / 'state', 'aienos.com', 'aien-dev/aienos.com',
+                lambda *a, **k: (98, '', 'network denied'), root / 'clones', root / 'work')
+            ack = queue.seed_ready(ready)
+            self.assertEqual(len(ack['ack_paths']), 2)
+            for item, ack_path in zip(items, ack['ack_paths']):
+                stored = local_queue.read(Path(ack_path))
+                self.assertEqual(len(stored['items']), 1)
+                self.assertEqual(stored['items'][0]['ref'], item['ref'])
+                self.assertEqual(stored['items'][0]['head'], item['sha'])
+                self.assertEqual(stored['state'], 'ACCEPTED_LOCAL_NOT_PUBLISHED')
+                self.assertIsNone(stored['items'][0]['number'])
+
     def test_seed_ready_refuses_unregistered_source_and_no_wrong_queue_write(self):
         import local_queue
         with tempfile.TemporaryDirectory() as td:
