@@ -1,0 +1,718 @@
+#!/usr/bin/env python3
+"""renda-harness: the PR desk as code, with the local model (on our Omega engine) only where judgement is needed.
+
+Drake 2026-10-20: "build it a harness", "local and fast", "on my kernels". The old renda-local let a 30B model
+wander a shell for every step. Here every mechanical step is code, done in parallel per repo:
+
+  CLEAN + Spark SUCCESS on the exact head  -> read the diff, one short review call to the local model, squash merge
+                                              with --match-head-commit (one merge per repo per pass)
+  Spark SUCCESS, hosted check failed       -> confirm the bundle is in aien-receipts, rerun the hosted check
+  BLOCKED NOT_RUN PIPELINE_CONFIG_CHANGED  -> start the operator judge run (Drake's "merge everything" is the A4 OK),
+                                              one per repo at a time, never a second judge on one sha
+  DIRTY (behind main, conflicts)           -> rebase onto main (crumb-only conflicts resolved by rebase-crumb.sh),
+                                              push with a lease; the Spark workers judge the new head
+  Spark FAILURE / ERROR (not A4)           -> reported, never retried (a failing gate means the work is wrong)
+
+Workers: `renda-harness --name renda1 --lanes a,b,c` (loop forever) or `--once`. One instance per name (flock).
+Model: whatever 127.0.0.1:18091 serves (aien-serve-http --engine omega). If it is down, merges wait; the
+mechanical steps (rebase, rerun, operator runs) carry on.
+"""
+import argparse, fcntl, json, os, re, subprocess, sys, time, urllib.request, urllib.error
+from concurrent.futures import ThreadPoolExecutor
+import hashlib
+sys.path.insert(0, os.path.join(os.path.expanduser("~"), ".local/lib/renda"))
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from local_queue import Queue, status as queued_status, valid_pr
+
+HOME = os.path.expanduser("~")
+STATE = os.environ.get("RENDA_STATE") or f"{HOME}/.local/state/aien-local-ci"
+LANES = f"{STATE}/LANES"
+PAUSE = f"{STATE}/MERGE-PAUSE"
+DESKLOG = f"{HOME}/handoffs/2026-10-18-pr-desk.md"
+LOGDIR = f"{HOME}/handoffs/renda-local"
+WORK = f"{HOME}/workspace/hermes-desk/renda-harness"
+CLONES = f"{HOME}/workspace/pipeline/clones"
+ENDPOINT = "http://127.0.0.1:18091/v1"
+SPARK = "AIEN Verification (Spark)"
+HOSTED = "AIEN Verification"
+MAX_WAITING_JUDGE = 3          # rebased heads per repo allowed to wait for a judge at once
+REBASE_STATES = ("success", "none", "error")   # do not rebase heads whose gates FAILED: that needs a fix, not a rebase
+
+ENV = dict(os.environ)
+ENV["GIT_NO_LAZY_FETCH"] = "1"
+ENV["GIT_TERMINAL_PROMPT"] = "0"
+ENV["PATH"] = f"{HOME}/.local/bin:" + ENV.get("PATH", "")
+ENV["CLAUDE_JOB_DIR"] = f"{HOME}/.claude/jobs/renda"     # DESK job=renda
+try:
+    ENV["GH_DESK_KEY"] = open(f"{STATE}/DESK.key").read().strip()
+except OSError:
+    pass
+
+NAME = "renda"
+LOGF = None
+
+
+def log(msg):
+    line = "%s %s %s" % (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), NAME, msg)
+    print(line, flush=True)
+    if LOGF:
+        with open(LOGF, "a") as f:
+            f.write(line + "\n")
+
+
+def run(cmd, cwd=None, timeout=300):
+    try:
+        p = subprocess.run(cmd, shell=isinstance(cmd, str), cwd=cwd, env=ENV, capture_output=True, text=True, timeout=timeout)
+        err = p.stderr or ""
+        return p.returncode, (p.stdout or ""), err
+    except subprocess.TimeoutExpired:
+        return 124, "", "timeout"
+    except OSError as exc:
+        return 127, "", str(exc)
+
+
+def gh_json(args, timeout=120):
+    rc, out, err = run(["gh"] + args, timeout=timeout)
+    if rc != 0:
+        raise RuntimeError(err.strip()[-300:] or out[-300:])
+    if not out.strip():
+        raise RuntimeError("GitHub returned an empty JSON response")
+    value = json.loads(out)
+    if value is None:
+        raise RuntimeError("GitHub returned a null JSON response")
+    return value
+
+
+def lane_owned(repo):
+    try:
+        for line in open(LANES):
+            parts = line.split()
+            if len(parts) >= 3 and parts[0] == "lane" and parts[1] == repo:
+                return "renda" in line.lower()
+    except OSError:
+        pass
+    return False
+
+
+def held(repo, pr):
+    try:
+        for line in open(LANES):
+            parts = line.split()
+            if len(parts) >= 3 and parts[0] == "hold" and parts[1] == repo and parts[2].lstrip("#") == str(pr):
+                return " ".join(parts[3:])
+    except OSError:
+        pass
+    return None
+
+
+def model_id():
+    try:
+        with urllib.request.urlopen(ENDPOINT + "/models", timeout=5) as r:
+            return json.load(r)["data"][0]["id"]
+    except Exception:
+        return None
+
+
+def ask_model(prompt, max_tokens=200):
+    mid = model_id()
+    if not mid:
+        return None, "model server down"
+    body = json.dumps({"model": mid, "messages": [{"role": "user", "content": prompt}],
+                       "max_tokens": max_tokens, "temperature": 0}).encode()
+    for _ in range(60):  # one generation at a time on the server: wait our turn on 503
+        try:
+            req = urllib.request.Request(ENDPOINT + "/chat/completions", data=body, headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=600) as r:
+                d = json.load(r)
+            return d["choices"][0]["message"]["content"], mid
+        except urllib.error.HTTPError as e:
+            if e.code == 503:
+                time.sleep(3)
+                continue
+            return None, "http %d" % e.code
+        except Exception as e:
+            return None, str(e)[:200]
+    return None, "server busy for 3 minutes"
+
+
+def spark_status(full, sha):
+    try:
+        st = gh_json(["api", f"repos/{full}/commits/{sha}/statuses?per_page=100"])
+    except Exception:
+        return "none", ""
+    for s in st or []:  # newest first
+        if s.get("context") == SPARK:
+            return s.get("state", "none"), s.get("description") or ""
+    return "none", ""
+
+
+def judging(sha):
+    rc, out, _ = run("pgrep -af 'worker --once|aien-local-ci once|aien-local-ci trigger' || true")
+    return sha[:12] in out or sha in out
+
+
+def review(full, pr, title):
+    rc, diff, err = run(["gh", "pr", "diff", str(pr), "-R", full], timeout=180)
+    if rc != 0:
+        return False, "cannot read diff: " + err[-200:]
+    files = re.findall(r"^diff --git a/(\S+)", diff, re.M)
+    body = diff if len(diff) < 60000 else diff[:60000] + "\n[diff truncated at 60000 chars of %d]" % len(diff)
+    prompt = ("You review a pull request for the aien-dev project before it is merged. Its tests already passed on "
+              "the project's own judge. Refuse ONLY for a concrete problem you can point to in the diff: a secret or "
+              "key, a private path or personal data, debug junk left in, files clearly unrelated to the title, or a "
+              "change that deletes large working parts without saying why. Otherwise approve.\n"
+              f"Repository: {full}\nPR #{pr}: {title}\nFiles ({len(files)}): {', '.join(files[:60])}\n\n{body}\n\n"
+              'Reply with one JSON object only: {"merge": true or false, "note": "<one line: what the diff does, '
+              'or the concrete problem>"}')
+    text, mid = ask_model(prompt)
+    if text is None:
+        return None, mid
+    m = re.search(r"\{.*\}", text, re.S)
+    try:
+        d = json.loads(m.group(0))
+    except Exception:
+        return None, "unparsable review: " + text[:200]
+    return bool(d.get("merge")), (str(d.get("note") or "")[:300] + f" [review by {mid}]")
+
+
+def rebase(repo, full, pr, branch, sha):
+    """Rebase branch onto main in our own clone; crumb-only conflicts via rebase-crumb.sh. Returns (ok, note)."""
+    os.makedirs(WORK, exist_ok=True)
+    wt = f"{WORK}/{repo}"
+    if not os.path.isdir(f"{wt}/.git"):
+        ref = f"{CLONES}/{repo}"
+        rc, _, err = run(["git", "clone", "-q"] + (["--reference-if-able", ref] if os.path.isdir(ref) else [])
+                         + [f"https://github.com/{full}.git", wt], timeout=900)
+        if rc != 0:
+            return False, "clone failed: " + err[-200:]
+        run(["git", "config", "user.name", "Renda (aien-dev desk bot)"], cwd=wt)
+        run(["git", "config", "user.email", "drake@aienos.com"], cwd=wt)
+    run("git rebase --abort; git merge --abort; git reset -q --hard; git clean -qfdx", cwd=wt)
+    run(["git", "fetch", "-q", "origin", "main", branch], cwd=wt, timeout=600)
+    rc, cur, _ = run(["git", "rev-parse", f"origin/{branch}"], cwd=wt)
+    if cur.strip() != sha:
+        return False, f"head moved ({cur.strip()[:8]} != {sha[:8]}), next pass"
+    script = None
+    for cand in (f"{CLONES}/aien-architecture/scripts/rebase-crumb.sh",):
+        if os.path.exists(cand):
+            script = cand
+    if script:
+        rc, out, err = run(["bash", script, wt, branch], cwd=wt, timeout=1800)
+        if rc == 0:
+            rc2, new, _ = run(["git", "rev-parse", "HEAD"], cwd=wt)
+            return True, f"rebased onto main, new head {new.strip()[:8]} (rebase-crumb.sh)"
+        if rc == 3:
+            files = re.findall(r"^\s*(?:UU|AA|DU|UD)\s+(\S+)", out + err, re.M)
+            return False, "code conflict with main" + (": " + ", ".join(files[:8]) if files else "") + " (owner must rebase)"
+        return False, f"rebase-crumb.sh exit {rc}: " + (err or out).strip()[-200:]
+    # no script: plain rebase, push only if it applies cleanly
+    run(["git", "checkout", "-q", "-B", branch, f"origin/{branch}"], cwd=wt)
+    rc, out, err = run(["git", "rebase", "-q", "origin/main"], cwd=wt, timeout=900)
+    if rc != 0:
+        run("git rebase --abort", cwd=wt)
+        return False, "conflict with main (owner must rebase)"
+    from local_queue import decode_one, graphql_args
+    pinned = decode_one(gh_json(graphql_args(full, number=pr)))
+    if not valid_pr(pinned) or pinned['headRefOid'] != sha:
+        return False, 'head moved or unavailable before push'
+    admitted, reason = remote_admitted(repo, full, pinned)
+    if not admitted:
+        return False, reason
+    rc, out, err = run(["git", "push", "-q", f"--force-with-lease={branch}:{sha}", "origin", f"HEAD:{branch}"], cwd=wt, timeout=600)
+    return (rc == 0), ("rebased and pushed" if rc == 0 else "push failed: " + err[-200:])
+
+
+def hosted_rerun(full, sha, repo):
+    rc, out, _ = run(["gh", "api", f"repos/aien-dev/aien-receipts/contents/{repo}/{sha}", "--jq", "length"])
+    if rc != 0:
+        return False, "bundle not in aien-receipts yet"
+    try:
+        runs = gh_json(["api", f"repos/{full}/actions/runs?head_sha={sha}&per_page=50"])["workflow_runs"]
+    except Exception as e:
+        return False, "cannot list runs: %s" % e
+    for r in runs:
+        if r.get("name") == HOSTED and r.get("conclusion") not in ("success", None):
+            rc, _, err = run(["gh", "run", "rerun", str(r["id"]), "-R", full, "--failed"])
+            return rc == 0, ("hosted check rerun started" if rc == 0 else "rerun failed: " + err[-150:])
+    return False, "no failed hosted run to rerun"
+
+
+def operator_verdict(repo, sha):
+    """L319: the verdict an operator run already left on this exact head, or None.
+    A bundle whose reason is PIPELINE_CONFIG_CHANGED is the worker's refusal that asks for the operator run,
+    so it is not a verdict. A NOT_RUN caused by the gpu lock judged nothing and may be run again."""
+    try:
+        b = json.load(open(f"{STATE}/bundles/{repo}/{sha}/bundle.json"))
+    except (OSError, ValueError):
+        return None
+    verdict = b.get("verdict")
+    plan = b.get("plan") or {}
+    reason = plan.get("reason") or ""
+    if not verdict or reason == "PIPELINE_CONFIG_CHANGED":
+        return None
+    if verdict == "NOT_RUN" and reason.endswith(":gpu_lock"):
+        return None
+    return verdict, reason
+
+
+def operator_run(repo, sha):
+    """Never retry a verdict (Drake: a failing gate means the work is wrong). Say it once per head, leave it to the owner."""
+    v = operator_verdict(repo, sha)
+    if v:
+        what = f"{v[0]} {v[1]}".strip()
+        seen = f"{STATE}/renda-operator-reported-{repo}"
+        try:
+            known = open(seen).read().split()
+        except OSError:
+            known = []
+        if sha not in known:
+            with open(seen, "a") as f:
+                f.write(sha + "\n")
+            return True, f"operator verdict on this head: {what} (not run again; the PR owner fixes the head or pushes a new one)"
+        return False, f"operator verdict on this head: {what} (not run again)"
+    if judging(sha):
+        return False, "judge already running on this head"
+    rc, out, _ = run("pgrep -af 'aien-local-ci once' || true")
+    if f" {repo} " in out:
+        return False, "an operator run for this repo is already going"
+    logp = f"{LOGDIR}/operator-{repo}-{sha[:8]}.log"
+    if os.environ.get("RENDA_OPERATOR_DRY"):
+        return True, f"operator judge run started (dry run, log {logp})"
+    subprocess.Popen(f"setsid nohup aien-local-ci once {repo} {sha} --operator > {logp} 2>&1 < /dev/null &",
+                     shell=True, env=ENV)
+    return True, f"operator judge run started (log {logp})"
+
+
+BLOCK_MAX = 12
+
+
+def block_state_path(repo):
+    return f"{STATE}/renda-block-{repo}.json"
+
+
+def load_block(repo):
+    try:
+        return json.load(open(block_state_path(repo)))
+    except Exception:
+        return {"open": None, "size": BLOCK_MAX, "solo": []}
+
+
+def save_block(repo, st):
+    tmp = block_state_path(repo) + ".tmp"
+    json.dump(st, open(tmp, "w"), indent=1)
+    os.replace(tmp, block_state_path(repo))
+
+
+def clone_for(repo, full):
+    os.makedirs(WORK, exist_ok=True)
+    wt = f"{WORK}/{repo}"
+    if not os.path.isdir(f"{wt}/.git"):
+        ref = f"{CLONES}/{repo}"
+        rc, _, err = run(["git", "clone", "-q"] + (["--reference-if-able", ref] if os.path.isdir(ref) else [])
+                         + [f"https://github.com/{full}.git", wt], timeout=900)
+        if rc != 0:
+            raise RuntimeError("clone failed: " + err[-200:])
+        run(["git", "config", "user.name", "Renda (aien-dev desk bot)"], cwd=wt)
+        run(["git", "config", "user.email", "drake@aienos.com"], cwd=wt)
+    run("git rebase --abort; git merge --abort; git reset -q --hard; git clean -qfdx", cwd=wt)
+    return wt
+
+
+def build_block(repo, full, cands, res):
+    """One integration branch carrying many PRs, judged once (Drake: 'do this in blocks')."""
+    for candidate in cands:
+        admitted, reason = remote_admitted(repo, full, candidate)
+        if not admitted:
+            raise RuntimeError('block source admission refused: ' + reason)
+    wt = clone_for(repo, full)
+    branches = [p["headRefName"] for p in cands]
+    run(["git", "fetch", "-q", "origin", "main"] + branches, cwd=wt, timeout=900)
+    ts = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    b = f"desk/block-{repo}-{ts}"
+    run(["git", "checkout", "-q", "-B", b, "origin/main"], cwd=wt)
+    carried, skipped = [], []
+    for p in cands:
+        rc, cur, _ = run(["git", "rev-parse", f"origin/{p['headRefName']}"], cwd=wt)
+        if cur.strip() != p["headRefOid"]:
+            skipped.append((p, "head moved"))
+            continue
+        rc, out, err = run(["git", "merge", "-q", "--no-ff", "--no-edit", "-m",
+                            f"block: carry #{p['number']} {p['title'][:60]}", p["headRefOid"]], cwd=wt, timeout=600)
+        if rc != 0:
+            _, um, _ = run(["git", "diff", "--name-only", "--diff-filter=U"], cwd=wt)
+            um = [f for f in um.split() if f]
+            if um and all(f.endswith(".crumb") or os.path.basename(f) in ("crumb.lock",) for f in um):
+                run(["git", "checkout", "--ours", "--"] + um, cwd=wt)
+                run(["git", "add", "--"] + um, cwd=wt)
+                rc2, _, _ = run(["git", "-c", "core.editor=true", "commit", "-q", "--no-edit"], cwd=wt)
+                if rc2 == 0:
+                    carried.append(p)
+                    continue
+            run("git merge --abort", cwd=wt)
+            skipped.append((p, "conflicts with main or another PR in the block: " + ", ".join(um[:6])))
+            continue
+        carried.append(p)
+    if len(carried) < 2:
+        return None, skipped
+    # crumbs: recompile once for the whole block in repos that still gate on them
+    _, always, _ = run(["git", "show", "origin/main:.aien/always"], cwd=wt)
+    if "CRUMB-VERIFY" in always:
+        rc, out, err = run(["crumb", "compile", "."], cwd=wt, timeout=900)
+        _, ch, _ = run("git status --porcelain | awk '{print $2}' | grep -E '(\\.crumb$|crumb\\.lock$)' || true", cwd=wt)
+        files = [f for f in ch.split() if f]
+        if files:
+            run(["git", "add", "--"] + files, cwd=wt)
+            run(["git", "commit", "-q", "-m", "block: recompile crumbs once for the carried PRs"], cwd=wt)
+    for candidate in carried:
+        admitted, reason = remote_admitted(repo, full, candidate)
+        if not admitted:
+            raise RuntimeError('block publication refused: ' + reason)
+    rc, out, err = run(["git", "push", "-q", "origin", f"HEAD:refs/heads/{b}"], cwd=wt, timeout=900)
+    if rc != 0:
+        raise RuntimeError("push failed: " + err[-200:])
+    _, sha, _ = run(["git", "rev-parse", "HEAD"], cwd=wt)
+    nums = [p["number"] for p in carried]
+    body = ("Desk block built by renda-harness: one judge run for %d pull requests instead of %d "
+            "(Drake 2026-10-20: do the shared work once, in blocks).\n\nWhen this merges, each carried PR is closed with a "
+            "link here. If the judge fails, the block is split and retried in halves; nothing is waived.\n\n" % (len(nums), len(nums))
+            + "\n".join(f"Carries #{p['number']} ({p['headRefName']}@{p['headRefOid'][:8]}): {p['title']}" for p in carried)
+            + ("\n\nNot carried (left for their own path):\n" + "\n".join(f"- #{p['number']}: {why}" for p, why in skipped) if skipped else ""))
+    bf = f"{LOGDIR}/block-{repo}-{ts}.md"
+    open(bf, "w").write(body)
+    for candidate in carried:
+        admitted, reason = remote_admitted(repo, full, candidate)
+        if not admitted:
+            raise RuntimeError('block PR publication refused: ' + reason)
+    rc, out, err = run(["gh", "pr", "create", "-R", full, "--head", b, "--base", "main",
+                        "--title", f"desk block: {len(nums)} PRs ({', '.join('#%d' % n for n in nums[:8])}{'...' if len(nums) > 8 else ''})",
+                        "--body-file", bf], timeout=180)
+    if rc != 0:
+        raise RuntimeError("pr create failed: " + (err or out)[-200:])
+    m = re.search(r"/pull/(\d+)", out)
+    return {"pr": int(m.group(1)) if m else None, "branch": b, "sha": sha.strip(), "carried": nums,
+            "heads": {str(p["number"]): p["headRefOid"] for p in carried}, "at": ts}, skipped
+
+
+def queue_block_head(repo, sha):
+    """Ask the Spark judge for the block head now (L309): the worker serves trigger files and
+    judges an open block head before every other head of the repo."""
+    try:
+        d = f"{HOME}/.local/state/aien-local-ci/trigger"
+        os.makedirs(d, exist_ok=True)
+        with open(f"{d}/{repo}.{sha}", "w") as f:
+            f.write(f"manual 0000000000000000000000000000000000000000 {sha} {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n")
+    except OSError as e:
+        log(f"cannot queue block head {repo} {sha[:8]}: {e}")
+
+
+def finish_block(repo, full, st, prs_by_num, res):
+    """Handle the open block PR: merged -> close carried; failed -> split; else wait."""
+    blk = st["open"]
+    try:
+        d = gh_json(["pr", "view", str(blk["pr"]), "-R", full, "--json", "state,mergeCommit,headRefOid,mergeStateStatus"])
+        if not isinstance(d, dict) or d.get("state") not in ("OPEN", "CLOSED", "MERGED"):
+            raise RuntimeError("invalid block PR response")
+        if d["state"] == "OPEN" and (not re.fullmatch(r"[0-9a-f]{40}", str(d.get("headRefOid", "")))
+                                      or not isinstance(d.get("mergeStateStatus"), str)):
+            raise RuntimeError("incomplete open block PR response")
+        if d["state"] == "MERGED" and not (isinstance(d.get("mergeCommit"), dict)
+                                             and re.fullmatch(r"[0-9a-f]{40}", str(d["mergeCommit"].get("oid", "")))):
+            raise RuntimeError("merged block lacks a verified merge commit")
+    except Exception as e:
+        res["waiting"].append(f"block #{blk['pr']} unreadable: {e}")
+        return
+    if d["state"] == "MERGED":
+        if d.get('headRefOid') != blk.get('sha') or not lane_owned(repo):
+            res['waiting'].append('merged block identity or ownership changed, carried PRs retained')
+            return
+        mc = (d.get("mergeCommit") or {}).get("oid", "")[:8]
+        for n in blk["carried"]:
+            p = prs_by_num.get(n)
+            if not p or p['headRefOid'] != blk.get('heads', {}).get(str(n)):
+                res['waiting'].append(f'#{n} carried head moved or unavailable, close held')
+                return
+            admitted, reason = remote_admitted(repo, full, p, merge=True)
+            if not admitted:
+                res['waiting'].append(f'#{n} carried close held: {reason}')
+                return
+            rc, _, err = run(["gh", "pr", "close", str(n), "-R", full, "--comment",
+                              f"Carried by desk block #{blk['pr']}, merged to main as {mc} after the Spark judge passed on the block head. Closing as merged through the block."])
+            res["merged"].append(f"#{n} via block #{blk['pr']} -> {mc}" + ("" if rc == 0 else f" (close failed: {err[-80:]})"))
+            if rc:
+                res['waiting'].append(f'#{n} close incomplete, block state retained')
+                return
+        st["open"] = None
+        st["size"] = BLOCK_MAX
+        save_block(repo, st)
+        return
+    if d["state"] == "CLOSED":
+        st["open"] = None
+        save_block(repo, st)
+        return
+    if blk.get('sha') and d['headRefOid'] != blk['sha']:
+        res['waiting'].append('block head moved, no close or split authorized')
+        return
+    # Use the one per-repo batch rather than polling one status endpoint per PR.
+    block_pr = prs_by_num.get(blk['pr'])
+    s, desc = queued_status(block_pr) if block_pr else ('none', '')
+    if s not in ("failure",) and not (s == "error" and "PIPELINE_CONFIG_CHANGED" not in desc):
+        # The Spark judge's own verdict counts even when no GitHub status was posted
+        # (operator runs log to ~/handoffs/renda-local, not to the PR). Without this a
+        # failed block head froze every carried PR (omega 10-20 to 10-22).
+        v = operator_verdict(repo, d["headRefOid"])
+        if v and v[0] == "FAIL":
+            s, desc = "failure", f"operator verdict FAIL {v[1]}"
+    if s in ("failure",) or (s == "error" and "PIPELINE_CONFIG_CHANGED" not in desc):
+        if not block_pr:
+            res['waiting'].append('block metadata unavailable, split held')
+            return
+        admitted, reason = remote_admitted(repo, full, block_pr)
+        if not admitted:
+            res['waiting'].append('block close held: ' + reason)
+            return
+        res["blocked"].append(f"block #{blk['pr']} judge {s}: {desc[:160]}; splitting")
+        rc, _, err = run(["gh", "pr", "close", str(blk["pr"]), "-R", full, "--delete-branch", "--comment",
+             f"Judge {s} on the block head ({desc[:200]}). Splitting the block in halves; each half is judged on its own."])
+        if rc:
+            res['waiting'].append('block close failed; state retained: ' + err[-200:])
+            return
+        if len(blk["carried"]) <= 2:
+            st["solo"] = sorted(set(st.get("solo", []) + blk["carried"]))
+        st["size"] = max(2, len(blk["carried"]) // 2)
+        st["last_failed"] = blk["carried"]
+        st["open"] = None
+        save_block(repo, st)
+        return
+    res["waiting"].append(f"block #{blk['pr']} ({len(blk['carried'])} PRs) {d['mergeStateStatus']} spark={s}")
+
+
+def remote_admitted(repo, full, pinned, merge=False):
+    """Never reuse local review/cache as a statement of present remote eligibility."""
+    if not lane_owned(repo) or held(repo, pinned['number']):
+        return False, 'ownership or hold changed'
+    if merge and os.path.exists(PAUSE):
+        return False, 'MERGE-PAUSE'
+    try:
+        from local_queue import decode_one, graphql_args
+        fresh = decode_one(gh_json(graphql_args(full, number=pinned['number'])))
+        if (not valid_pr(fresh) or fresh['state'] != 'OPEN' or fresh['isDraft']
+                or fresh['headRefOid'] != pinned['headRefOid']
+                or fresh['baseRefOid'] != pinned['baseRefOid']):
+            return False, 'remote head/base moved, closed, draft or malformed'
+        if merge:
+            if fresh['mergeStateStatus'] != 'CLEAN':
+                return False, 'remote merge state is not CLEAN'
+            protection = gh_json(['api', f"repos/{full}/branches/{fresh['baseRefName']}/protection/required_status_checks"])
+            if not isinstance(protection, dict) or not isinstance(protection.get('contexts'), list):
+                return False, 'required contexts unreadable'
+            required = set(protection['contexts'])
+            for check in protection.get('checks', []):
+                required.add(check['context'])
+            if not required:
+                return False, 'required contexts empty'
+            required.update((SPARK, HOSTED))
+            for context in required:
+                checks = [s for s in fresh['statusCheckRollup'] if isinstance(s, dict)
+                          and (s.get('context') or s.get('name')) == context]
+                if not checks or any(str(s.get('state') or s.get('conclusion')).upper() != 'SUCCESS'
+                                     or (s.get('name') and s.get('status') != 'COMPLETED') for s in checks):
+                    return False, f'required context {context} not successful on fresh head'
+            queue = Queue(STATE, repo, full, run, CLONES, WORK)
+            source, repository = queue.source(pinned['headRefOid'], pinned['baseRefOid'])
+            if source is None or not queue.receipt(source, repository, pinned['headRefOid'], pinned['baseRefOid'])['eligible']:
+                return False, 'verified exact-source receipt and PASS plan required'
+        if not lane_owned(repo) or held(repo, pinned['number']) or (merge and os.path.exists(PAUSE)):
+            return False, 'ownership/hold/pause changed during checks'
+        return True, 'fresh exact head'
+    except Exception as exc:
+        return False, f'fresh remote check unavailable: {exc}'
+
+
+def lane_pass(repo):
+    full = f"aien-dev/{repo}-mv" if repo not in ("aien-rig", "aien-train", "synapse", "CUDApp") else f"aien-dev/{repo}"
+    res = {"repo": repo, "merged": [], "rebased": [], "rerun": [], "operator": [], "blocked": [], "waiting": []}
+    if not lane_owned(repo):
+        res["blocked"].append("lane no longer names renda; skipped")
+        return res
+    queue = Queue(STATE, repo, full, run, CLONES, WORK)
+    snapshot, synced = queue.sync()
+    with open(__file__, 'rb') as source:
+        policy_source = source.read()
+    from local_queue import __file__ as queue_source
+    with open(queue_source, 'rb') as source:
+        policy_source += source.read()
+    policy = hashlib.sha256(policy_source).hexdigest()
+    mid = model_id()
+    res["local"] = queue.progress(snapshot, mid, ask_model, policy)
+    res["sync_wait"] = []
+    if not synced:
+        res["sync_wait"].append("waiting-for-sync: " + (queue.sync_diagnostic or "cached metadata only"))
+        return res
+    prs = [e["pr"] for e in snapshot["entries"] if e["kind"] == "pr" and e.get("active") and not e["pr"]["isDraft"]]
+    prs.sort(key=lambda p: p["number"])   # oldest first: the backlog drains in order
+    paused = os.path.exists(PAUSE)
+    merged_one = False
+    waiting = 0
+    rows = []
+    for p in prs:
+        st, desc = queued_status(p)
+        rows.append((p, st, desc))
+        if st == "none" or judging(p["headRefOid"]):
+            waiting += 1
+    bst = load_block(repo)
+    if bst.get("open"):
+        finish_block(repo, full, bst, {p["number"]: p for p in prs}, res)
+    carried_now = set(bst["open"]["carried"]) if bst.get("open") else set()
+    block_cands = []
+    for p, st, desc in rows:
+        n, sha, ms, title = p["number"], p["headRefOid"], p["mergeStateStatus"], p["title"]
+        tag = f"#{n} {sha[:8]}"
+        h = held(repo, n)
+        if h:
+            res["blocked"].append(f"{tag} held: {h}")
+            continue
+        if ms == "CLEAN" and st == "success":
+            if paused or merged_one:
+                res["waiting"].append(f"{tag} ready ({'MERGE-PAUSE' if paused else 'one merge per repo per pass'})")
+                continue
+            ok, note = queue.review(p, mid, policy)
+            if ok is None:
+                res["waiting"].append(f"{tag} ready, review waiting: {note}")
+                continue
+            if not ok:
+                res["blocked"].append(f"{tag} review refused: {note}")
+                continue
+            ok, reason = remote_admitted(repo, full, p, merge=True)
+            if not ok:
+                res["waiting"].append(f"{tag} publish held: {reason}")
+                continue
+            rc, out, err = run(["gh", "pr", "merge", str(n), "-R", full, "--squash", "--match-head-commit", sha])
+            if rc == 0:
+                d = gh_json(["pr", "view", str(n), "-R", full, "--json", "state,mergedAt,mergeCommit"])
+                if d and d.get("state") == "MERGED":
+                    mc = (d.get("mergeCommit") or {}).get("oid", "")[:8]
+                    res["merged"].append(f"{tag} -> {mc}: {title[:70]} | {note}")
+                    with open(f"{HOME}/.claude/jobs/cc26184e/tmp/merged.log", "a") as f:
+                        f.write(f"{time.strftime('%FT%TZ', time.gmtime())} {full}#{n} {sha} -> {mc} by renda-harness/{NAME}\n")
+                    merged_one = True
+                    continue
+            res["blocked"].append(f"{tag} merge failed: {(err or out).strip()[-200:]}")
+        elif st == "success" and ms in ("BLOCKED", "UNSTABLE"):
+            admitted, reason = remote_admitted(repo, full, p)
+            ok, note = hosted_rerun(full, sha, repo) if admitted else (False, reason)
+            (res["rerun"] if ok else res["waiting"]).append(f"{tag} {note}")
+        elif n in carried_now:
+            res["waiting"].append(f"{tag} carried by block #{bst['open']['pr']}")
+        elif title.startswith("desk block:") and "PIPELINE_CONFIG_CHANGED" not in desc:
+            continue
+        elif st in REBASE_STATES and n not in bst.get("solo", []) and not title.startswith("desk block:"):
+            block_cands.append(p)
+        elif "PIPELINE_CONFIG_CHANGED" in desc and (ms != "DIRTY" or title.startswith("desk block:")):
+            admitted, reason = remote_admitted(repo, full, p)
+            ok, note = operator_run(repo, sha) if admitted else (False, reason)
+            (res["operator"] if ok else res["waiting"]).append(f"{tag} {note}")
+        elif ms in ("DIRTY", "BEHIND") and st in REBASE_STATES:
+            admitted, reason = remote_admitted(repo, full, p)
+            ok, note = rebase(repo, full, n, p["headRefName"], sha) if admitted else (False, reason)
+            (res["rebased"] if ok else res["blocked"]).append(f"{tag} solo: {note}")
+        elif st in ("failure", "error"):
+            res["blocked"].append(f"{tag} Spark {st}: {desc[:140]}")
+        else:
+            res["waiting"].append(f"{tag} {ms} spark={st}")
+    if block_cands and not bst.get("open") and lane_owned(repo):
+        size = bst.get("size", BLOCK_MAX)
+        last = bst.get("last_failed")
+        pool = [p for p in block_cands if (not last or p["number"] in last)] or block_cands
+        pick = pool[:size]
+        if len(pick) >= 2:
+            try:
+                blk, skipped = build_block(repo, full, pick, res)
+            except Exception as e:
+                blk, skipped = None, []
+                res["blocked"].append(f"block build failed: {e}")
+            for p, why in skipped:
+                res["blocked"].append(f"#{p['number']} not in block: {why}")
+            if blk and blk.get("pr"):
+                bst["open"] = blk
+                queue_block_head(repo, blk["sha"])
+                if last:
+                    rest = [x for x in last if x not in blk["carried"]]
+                    bst["last_failed"] = rest or None
+                save_block(repo, bst)
+                res["rebased"].append(f"block #{blk['pr']} opened carrying {', '.join('#%d' % x for x in blk['carried'])} (head {blk['sha'][:8]}); one judge run for all")
+        elif len(pick) == 1:
+            bst["solo"] = sorted(set(bst.get("solo", []) + [pick[0]["number"]]))
+            save_block(repo, bst)
+    return res
+
+
+def safe_lane_pass(repo):
+    """An unreadable lane must not terminate unrelated lanes or the desk loop."""
+    try:
+        return lane_pass(repo)
+    except Exception as exc:
+        return {"repo": repo, "merged": [], "rebased": [], "rerun": [], "operator": [],
+                "blocked": [f"lane error (no successful action claimed): {type(exc).__name__}: {exc}"],
+                "waiting": []}
+
+
+def report(results):
+    acted = any(r["merged"] or r["rebased"] or r["rerun"] or r["operator"] for r in results)
+    lines = []
+    for r in results:
+        for k in ("local", "sync_wait", "merged", "rebased", "rerun", "operator", "blocked", "waiting"):
+            for item in r.get(k, []):
+                lines.append(f"  {r['repo']} {k.upper()} {item}")
+    for l in lines:
+        log(l.strip())
+    if acted:
+        with open(DESKLOG, "a") as f:
+            f.write(f"\n{time.strftime('%FT%TZ', time.gmtime())} renda-harness({NAME}):\n")
+            for l in lines:
+                if " BLOCKED " in l or " WAITING " in l:
+                    continue
+                f.write(l + "\n")
+    return acted
+
+
+def main():
+    global NAME, LOGF
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--name", default="renda1")
+    ap.add_argument("--lanes")
+    ap.add_argument("--once", action="store_true")
+    ap.add_argument("--rest", type=int, default=60)
+    ap.add_argument("--operator-check", nargs=2, metavar=("REPO", "SHA"),
+                    help="print what the operator step would do for this head, then exit (test hook)")
+    a = ap.parse_args()
+    if a.operator_check:
+        ok, note = operator_run(*a.operator_check)
+        print(("ACT " if ok else "SKIP ") + note)
+        return
+    if not a.lanes:
+        ap.error("--lanes is required")
+    NAME = a.name
+    os.makedirs(LOGDIR, exist_ok=True)
+    LOGF = f"{LOGDIR}/harness-{NAME}.log"
+    lk = open(f"{STATE}/renda-harness-{NAME}.lock", "w")
+    try:
+        fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        sys.exit(0)
+    lanes = [x.strip() for x in a.lanes.split(",") if x.strip()]
+    log(f"start lanes={','.join(lanes)} model={model_id()}")
+    while True:
+        t0 = time.time()
+        with ThreadPoolExecutor(max_workers=len(lanes)) as ex:
+            results = list(ex.map(safe_lane_pass, lanes))
+        report(results)
+        log("pass done in %d s: merged %d, rebased %d, reruns %d, operator runs %d" % (
+            time.time() - t0, sum(len(r["merged"]) for r in results), sum(len(r["rebased"]) for r in results),
+            sum(len(r["rerun"]) for r in results), sum(len(r["operator"]) for r in results)))
+        if a.once:
+            break
+        time.sleep(a.rest)
+
+
+if __name__ == "__main__":
+    main()
