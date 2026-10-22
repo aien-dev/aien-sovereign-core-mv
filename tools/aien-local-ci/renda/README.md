@@ -52,6 +52,7 @@ python3 tools/aien-local-ci/renda/test_local_queue.py
 RENDA_CANDIDATE="$PWD/tools/aien-local-ci/renda/renda-harness" \
   python3 tools/aien-local-ci/renda/test_reliability.py
 python3 tools/aien-local-ci/renda/test_install.py
+python3 tools/aien-local-ci/renda/test_admission.py
 python3 tools/aien-local-ci/renda/measure_fixture.py --baseline /path/to/L509-renda-harness
 ```
 

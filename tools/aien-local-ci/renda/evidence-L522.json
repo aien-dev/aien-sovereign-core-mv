@@ -1,0 +1,86 @@
+{
+  "schema": "renda-L522-delivery/1",
+  "tracking_issue": "https://github.com/aien-dev/aien-sovereign-core-mv/issues/705",
+  "code_commit": "608710fb42ef08d834164163f81b56a7534e8daa",
+  "branch": "fix/renda-local-queue-L522",
+  "candidate_source_hashes": {
+    "renda-harness": "b362526aeb13ab1f897acfcc626283cc930188e8a0f9ee06db0d6e8edc89cbed",
+    "local_queue.py": "fc8bee2a56091e019e8e8dc60b2af5d2957d72774588eb5c750582fcec6316fe",
+    "test_reliability.py": "f924611a7988bd00df7f8bf81ddfa63731561e09035510854f86c40473bc2b55",
+    "test_local_queue.py": "d26618b8bf9f55a7f88c6d0eced21252ff1c640046ff34ccaef65477f37e78ce",
+    "renda-checked": "ae5302aaadcdec2019691428f9efc1bcb8aecefd25a9ad78ccf294d848833d39"
+  },
+  "release_manifest_sha": "4c9755631be6fff307a86b008bc94f6aceae70b6da8163e58588833ffbdbb1f2",
+  "install_state": "INSTALLED_PENDING_CLEAN_START",
+  "baseline_harness_sha": "3e949cae541d408454494447158bc0c24f188df19684ce9b07f4f0472c2d55dd",
+  "tests": {
+    "queue": 21,
+    "reliability_L509": 7,
+    "installer": 4,
+    "admission": 2,
+    "distinct_total": 34,
+    "verdict": "PASS"
+  },
+  "api_fixture": {
+    "fixture": "SYNTHETIC: 6 failing PRs, 10 passes at 60-second intervals",
+    "baseline_calls": 70,
+    "candidate_calls": 2,
+    "baseline_denied_calls": 10,
+    "candidate_denied_calls": 1,
+    "remote_writes": 0,
+    "live_performance": "NOT_MEASURED"
+  },
+  "offline": {
+    "metadata": "authentic retained guarded GraphQL snapshot",
+    "retained_prs": 63,
+    "commit": "19eebe0e04811002f641c0f7b58c1b87ea9b5c42",
+    "base": "a8ffd2b912c84197d08f963b05f9c7d8b30a3f8a",
+    "remote_attempts": 0,
+    "remote_writes": 0,
+    "gates_executed": 0,
+    "model_review": "NOT_RUN",
+    "receipt_sha256": "2d2b9290bd311f6c50ea41a646b0aabe44e3dd8748fc07e2214ee6aa1b6c1a40",
+    "receipt_verifier_codes": [
+      1
+    ],
+    "receipt_verdict": "FAIL",
+    "plan_verdict": "NOT_RUN UNMAPPED_PATH",
+    "unmapped": [
+      "bench/prime_race/tests/gb10_sieve_host_test.c"
+    ],
+    "remote_eligible": false
+  },
+  "installed_seed": {
+    "repositories": 7,
+    "retained_prs": 125,
+    "local_ready": 2,
+    "parent_L480_pins_preserved": true
+  },
+  "active_workers": {
+    "renda1": 3313633,
+    "renda2": 3294491,
+    "version": "PRE_INSTALL_L509, NOT RELOADED"
+  },
+  "not_run": [
+    "full workspace/model suite",
+    "scripts/agent-preflight.sh (invokes workspace suite)",
+    "independent reviewer",
+    "candidate live Renda passes (requires existing owner clean start)"
+  ],
+  "evidence_sha256": {
+    "red.log": "ea55447b21eb9b05daea7eab83b9fd5bf6e8ce4f2b6260f169bd3aa66f5e72e6",
+    "queue-green.log": "eb5f6f4b5ee2c46ff38dd4ca94e9cb033d8f10893dce3ecdc1ffb5a708a5b07c",
+    "reliability-green.log": "066545c66faf63e78b27ac1a9001521261c8219e6fb17868a91a252d9c5a0ffb",
+    "install-tests.log": "d330633b47cb568e28a9bcd8c0fc9ae74d5fcc31384a7fddfb0b8c8736378273",
+    "admission-tests.log": "23c9764e91d8ad7f2a40c48c34cc5f56143b6830b51fa452edbc66f8e4f1799f",
+    "api-counts.json": "aa6d13a00faf9aebf4bbf9ab6c6ee8ccc79d0930514ef451a3c315d4455ae3f7",
+    "offline-proof.json": "5267c9965199e3d9137c9078482a17adf9a0d87712aec266c3ce2829c64a1a7b",
+    "receipt-negative-controls.json": "9ee96230bef4d57611d51aebeb849c370fa234fcd4adba7f0056cac6ea156e6e",
+    "install.json": "cdbec6bc17f28ed0cd449e846abaff37927218a2c3cc3cc5972977b205edb4fe",
+    "seed-install.json": "0bbb3a551ec041b759c1bb7c4330e96ce0892c0b42b020f3c8718b6981abb24f"
+  },
+  "processes_signalled": false,
+  "pr_opened": false,
+  "merged": false,
+  "existing_verifier_sha256": "25fc9d345fe816c2580e990311fb6fbcd6c98ec63a14a108e4e7d78deb2269e1"
+}
