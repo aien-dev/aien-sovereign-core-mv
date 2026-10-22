@@ -1,0 +1,13 @@
+........F.............
+======================================================================
+FAIL: test_legacy_workflow_pin_is_used_when_repository_has_no_crumb_lock (__main__.Delivery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/source/L545-0f2d2b2636c08afa/test_delivery.py", line 169, in test_legacy_workflow_pin_is_used_when_repository_has_no_crumb_lock
+    ok,note=h.cheap_metadata(self.q,self.source,head,self.base);self.assertTrue(ok,note)
+AssertionError: False is not true : legacy crumb preflight needs exact crumb.lock; owner must qualify tool
+
+----------------------------------------------------------------------
+Ran 22 tests in 4.207s
+
+FAILED (failures=1)

@@ -1,0 +1,3 @@
+# Final service qualification
+
+75/75service testsPASS on Mac and Spark, including original53and22delivery/metadata/launch/provenance regressions. Final host admission also supports legacy core's explicit hosted-workflow compiler pin when crumb.lock is absent, matching both the named pin and the actual architecture checkout ref; no arbitrary fallback. This was discovered against authentic core source, regressionRED thenGREEN. Both original review fixes and guardian fd-isolation controls remain passing. Cached94fffbcfcompiler is already installed and selected explicitly for this branch's legacy metadata. Full core workspace/model/official operator/hostedqualification remain PENDING, not claimed from service tests.

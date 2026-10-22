@@ -149,6 +149,25 @@ class Delivery(unittest.TestCase):
         self.assertIn('test_delivery.py',install.FILES)
         self.assertIn('test_delivery.py',Path(__file__).with_name('renda-checked').read_text())
 
+    def test_legacy_workflow_pin_is_used_when_repository_has_no_crumb_lock(self):
+        (self.source/'.aien').mkdir();(self.source/'.aien/always').write_text('CRUMB-VERIFY\n')
+        workflow=self.source/'.github/workflows';workflow.mkdir(parents=True)
+        (workflow/'aien-verification.yml').write_text('''steps:
+  - name: Checkout the pinned crumb tool source (aien-architecture @ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)
+    uses: actions/checkout@v4
+    with:
+      repository: aien-spark/aien-architecture
+      ref: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      path: .crumb-tool-src
+  - name: Build the crumb tool
+    run: make
+''')
+        self.git('add','.');self.git('commit','-qm','synthetic explicit workflow pin')
+        head=self.git('rev-parse','HEAD').strip()
+        tool=self.q.state/'crumb-tools'/('a'*40)/'crumb';tool.parent.mkdir(parents=True)
+        tool.write_text('#!/bin/sh\nexit 0\n');tool.chmod(0o755)
+        ok,note=h.cheap_metadata(self.q,self.source,head,self.base);self.assertTrue(ok,note)
+
     def test_pinned_crumb_preflight_failure_blocks_admission_without_fallback(self):
         self.assertTrue(callable(getattr(h,'cheap_metadata',None)), 'pinned metadata preflight missing')
         (self.source/'.aien').mkdir()

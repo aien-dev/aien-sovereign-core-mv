@@ -32,8 +32,19 @@ def cheap_metadata(queue, source, sha, base):
         return True, 'legacy crumb gate not required'
     rc, text, _ = queue.run(['git','-C',str(source),'show',sha+':crumb.lock'])
     pin = text.strip()
-    if rc or not re.fullmatch(r'[0-9a-f]{40}',pin):
-        return False, 'legacy crumb preflight needs exact crumb.lock; owner must qualify tool'
+    if rc:
+        # Older core revisions pin the compiler in the hosted checkout recipe,
+        # not crumb.lock. Match both the named pin and the actual checkout ref.
+        rc, workflow, _ = queue.run(['git','-C',str(source),'show',sha+':.github/workflows/aien-verification.yml'])
+        blocks = re.findall(r'Checkout the pinned crumb tool source \(aien-architecture @ ([0-9a-f]{40})\)(.*?)(?=\n\s*- name:|\Z)',workflow,re.S) if not rc else []
+        pins = [named for named, block in blocks
+                if re.search(r'repository:\s*aien-(?:spark|dev)/aien-architecture\s*\n',block)
+                and re.search(r'ref:\s*'+named+r'\s*\n',block)]
+        if len(pins) != 1:
+            return False, 'legacy crumb preflight needs one exact compiler pin; owner must qualify tool'
+        pin = pins[0]
+    if not re.fullmatch(r'[0-9a-f]{40}',pin):
+        return False, 'legacy crumb preflight has malformed compiler pin'
     tool = queue.state / 'crumb-tools' / pin / 'crumb'
     if not tool.is_file() or not tool.stat().st_mode & 0o111:
         return False, 'pinned crumb tool not installed; no fallback or candidate build allowed'
