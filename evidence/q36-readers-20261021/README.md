@@ -65,3 +65,16 @@ the notes also open the reply as a collapsed `<details>` block. When streaming, 
   produced. Not repeated: one more try would hold the chip's quiet lock for more than 2.5 h. The ratio is a lower bound.
 - Inputs were 15k, 17k, 54k and 118k tokens (real docs), not the 8k/32k/100k in the brief. Below the threshold
   (3000 tokens) the readers id is the plain path (host test `a_short_input_on_the_readers_id_takes_the_plain_path`).
+
+## What these receipts do not cover (review by Codex Astra, 2026-10-22)
+
+- Build: every number above is bin-6aa63303. Not chip-run: the notes fix (21e94b0d), the ship merge
+  (serve/q36-readers-ship 72bb1ee6) and L369 chip prefill. On the ship build each reader still reads its part
+  through its own prefill calls, one row after another inside every beat (128-token chunks,
+  `qwen36_batch.rs` prefill loop): the eight parts advance together, but their prompt reading does not share a weight
+  read. Only the notes (decode) ride one weight read for all eight rows. The time gain on long inputs above comes
+  from short contexts per reader, not from shared prompt reading.
+- Quality after the notes fix, and readers on the ship build, are checked by the merge-train case `readers-gate`
+  (sc l371/train-cases 5c88dc85: 8 readers, the final answer must join two facts from far-apart parts). That
+  verdict, then the live check on 18091 after L387's swap (Hermes picks the readers id, notes visible, a tool call
+  round trip), are still pending.
