@@ -843,6 +843,11 @@ pub fn probe_cached(root: &Path, graph: &Graph, opts: &crate::runner::Options) -
     let env = crate::runner::captured_env();
     let mut stands_on: BTreeMap<usize, Option<String>> = BTreeMap::new();
     let mut out = BTreeSet::new();
+    // A result stands only for its own commit (sc#517); without a head
+    // nothing is cached.
+    let Ok(head) = crate::runner::head(root) else {
+        return out;
+    };
     for &i in graph.order() {
         let node = graph.node(i);
         let m = &node.manifest;
@@ -877,7 +882,7 @@ pub fn probe_cached(root: &Path, graph: &Graph, opts: &crate::runner::Options) -
                     args_override: None,
                 };
                 if let Ok(k) = cache::key(&now, &index) {
-                    if let Lookup::Hit(src) = cache::lookup(&index, &store, &k, &env) {
+                    if let Lookup::Hit(src) = cache::lookup(&index, &store, &k, &env, &head) {
                         if src.verdict() == Some(Verdict::Pass) {
                             reuse = Some(src.digest.clone());
                             out.insert(node.id.clone());
