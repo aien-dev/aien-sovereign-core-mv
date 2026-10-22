@@ -1,0 +1,42 @@
+{
+  "schema": "renda-isolated-install-proof/1",
+  "source": "867f88e739b1bc8bc09e091617a95f2cc4415613",
+  "private_home": "/home/drakestapleton/handoffs/pr-failure-triage-20261022/L603-isolated-install/home",
+  "production_install": false,
+  "production_workers_signalled": false,
+  "files_verified": 13,
+  "tests": 93,
+  "suites": [
+    {
+      "suite": "install-test_delivery.py.log",
+      "tests": 25,
+      "passed": true
+    },
+    {
+      "suite": "install-test_local_queue.py.log",
+      "tests": 26,
+      "passed": true
+    },
+    {
+      "suite": "install-test_reliability.py.log",
+      "tests": 7,
+      "passed": true
+    },
+    {
+      "suite": "install-test_review_chunks.py.log",
+      "tests": 10,
+      "passed": true
+    },
+    {
+      "suite": "install-test_review_integration.py.log",
+      "tests": 7,
+      "passed": true
+    },
+    {
+      "suite": "install-test_site_policy.py.log",
+      "tests": 18,
+      "passed": true
+    }
+  ],
+  "release": "/home/drakestapleton/handoffs/pr-failure-triage-20261022/L603-isolated-install/home/.local/lib/renda/releases/L603-4ff12c52384b31ac"
+}

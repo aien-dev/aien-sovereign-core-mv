@@ -1,0 +1,31 @@
+{
+  "source_runtime": "867f88e739b1bc8bc09e091617a95f2cc4415613",
+  "repository": "github.com/aien-dev/omega",
+  "head": "69790fb4ad1e803ca79245430745b96129d1dcf4",
+  "base": "a8ffd2b912c84197d08f963b05f9c7d8b30a3f8a",
+  "model": "qwen3.6-35b-a3b-fp8",
+  "returned_model": "qwen3.6-35b-a3b-fp8",
+  "actual_calls": 1,
+  "total_packets": 35,
+  "packet_index": 1,
+  "packet_start": 8672,
+  "packet_end": 13433,
+  "packet_chars": 4761,
+  "target_file": "evidence/UNIVERSAL-625/followup/arithmetic-replay.json",
+  "target_diff_start": 8672,
+  "target_diff_end": 12327,
+  "target_whole_in_packet": true,
+  "diff_digest": "6f5f667789fce1d6d0c718a5879191035b3e259c52b286eaaef514355463e0f0",
+  "review_identity": "0c059a19aebabb5c2c3f4ed3ecc174540fa3c57b3bf32c806b5835f91f8ab6d3",
+  "response_valid": true,
+  "response": {
+    "merge": true,
+    "note": "Evidence files are valid JSON/log artifacts with no source defects or secrets."
+  },
+  "raw_response": "{\n  \"merge\": true,\n  \"note\": \"Evidence files are valid JSON/log artifacts with no source defects or secrets.\"\n}",
+  "whole_review_complete": false,
+  "whole_PR_approval": false,
+  "production_review_state_writes": 0,
+  "remote_PR_writes": 0,
+  "prior_negatives_preserved": true
+}
