@@ -77,6 +77,76 @@ class Offline(unittest.TestCase):
     def git(self, *args):
         return subprocess.check_output(['git', '-C', str(self.clone), *args], text=True)
 
+    def test_large_diff_resumes_complete_chunks_with_repository_wide_call_budget(self):
+        self.git('checkout', '-q', self.base)
+        (self.clone / 'large-one.txt').write_text(('one-' + 'x' * 100 + '\n') * 850)
+        self.git('add', '.')
+        self.git('commit', '-qm', 'synthetic first large diff')
+        first_sha = self.git('rev-parse', 'HEAD').strip()
+        first_pr = dict(self.pr, number=614, headRefName='fix/large-one', headRefOid=first_sha)
+        self.git('checkout', '-q', self.base)
+        (self.clone / 'large-two.txt').write_text(('two-' + 'y' * 100 + '\n') * 850)
+        self.git('add', '.')
+        self.git('commit', '-qm', 'synthetic second large diff')
+        second_sha = self.git('rev-parse', 'HEAD').strip()
+        second_pr = dict(self.pr, number=615, headRefName='fix/large-two', headRefOid=second_sha)
+        doc = dict(self.doc, entries=[
+            dict(key=f'aien-dev/omega-mv#614@{first_sha}', kind='pr', pr=first_pr,
+                 provenance='synthetic retained', remote_observed_at=1000),
+            dict(key=f'aien-dev/omega-mv#615@{second_sha}', kind='pr', pr=second_pr,
+                 provenance='synthetic retained', remote_observed_at=1000)])
+        qu = self.queue()
+        calls = []
+        def ask(prompt):
+            calls.append(prompt)
+            return ('{"merge":true,"note":"synthetic complete chunk"}', 'synthetic-model')
+        with patch.object(qu, 'host_plan', return_value={'code': 2}):
+            qu.progress(doc, 'synthetic-model', ask, 'policy', budget=2)
+            self.assertEqual(len(calls), 2)
+            chunk_caches = list((self.state / 'renda-queue' / 'local' / 'omega').glob('*.chunks.json'))
+            self.assertEqual(len(chunk_caches), 2)
+            counts = sorted(sum(c.get('decision') is True for c in json.loads(path.read_text())['chunks'])
+                            for path in chunk_caches)
+            self.assertEqual(counts, [0, 2])
+            qu.progress(doc, 'synthetic-model', ask, 'policy', budget=2)
+            self.assertEqual(len(calls), 4)
+
+    def test_large_diff_is_not_marked_true_until_every_chunk_passes(self):
+        self.git('checkout', '-q', self.base)
+        (self.clone / 'large-only.txt').write_text('large-' + 'z' * 70000)
+        self.git('add', '.')
+        self.git('commit', '-qm', 'synthetic large diff')
+        sha = self.git('rev-parse', 'HEAD').strip()
+        pr = dict(self.pr, headRefOid=sha)
+        doc = dict(self.doc, entries=[dict(self.doc['entries'][0], key=f'aien-dev/omega-mv#614@{sha}', pr=pr)])
+        qu = self.queue()
+        calls = []
+        def ask(prompt):
+            calls.append(prompt)
+            return ('{"merge":true,"note":"synthetic approval"}', 'synthetic-model')
+        with patch.object(qu, 'host_plan', return_value={'code': 2}):
+            qu.progress(doc, 'synthetic-model', ask, 'policy', budget=2)
+            plan_path = next((self.state / 'renda-queue' / 'local' / 'omega').glob('*.plan.json'))
+            plan = json.loads(plan_path.read_text())
+            self.assertIsNone(plan['review']['decision'])
+            self.assertEqual(len(calls), 2)
+            while len(calls) < 20:
+                qu.progress(doc, 'synthetic-model', ask, 'policy', budget=2)
+                plan = json.loads(plan_path.read_text())
+                if plan['review']['decision'] is True:
+                    break
+            self.assertTrue(plan['review']['decision'])
+            self.assertTrue(plan['review']['complete'])
+            self.assertEqual(plan['review']['chunks_reviewed'], plan['review']['chunks_total'])
+            self.assertGreater(len(calls), 2)
+            cache_path = next((self.state / 'renda-queue' / 'local' / 'omega').glob('*.chunks.json'))
+            cache_path.write_text('{')
+            self.assertIsNone(qu.review(pr, 'synthetic-model', 'policy')[0])
+            qu.progress(doc, 'synthetic-model', ask, 'policy', budget=2)
+            plan = json.loads(plan_path.read_text())
+            self.assertIsNone(plan['review']['decision'])
+            self.assertEqual(plan['review']['chunks_reviewed'], 2)
+
     def test_network_denied_still_emits_actual_local_diff_and_plan(self):
         original = r.run
         calls = []

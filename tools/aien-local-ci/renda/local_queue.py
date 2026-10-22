@@ -12,6 +12,7 @@ import tempfile
 import time
 from site_policy import (repository_identity, SITE_REPOSITORY,
     verify_site_qualification)
+import review_chunks
 
 SCHEMA = 'renda-local-queue/1'
 TTL = 300
@@ -378,7 +379,7 @@ class Queue:
         with self.lock('local') as owned:
             if not owned:
                 return ['local work owned elsewhere']
-            count = 0
+            calls_used = 0
             for e in doc['entries']:
                 if e['kind'] == 'pr':
                     p = e['pr']
@@ -411,47 +412,46 @@ class Queue:
                 plan_path = Path(str(prefix) + '.plan.json')
                 old = read(plan_path)
                 if isinstance(old, dict) and old.get('identity') == identity:
-                    # Receipt and sync eligibility are deliberately not cached with review.
-                    old['receipt'] = receipt
-                    if qualification is not None:
-                        old['qualification'] = qualification
-                    save(plan_path, old)
-                    if self.full == SITE_REPOSITORY:
-                        qstatus = 'trusted PASS' if qualification and qualification.get('eligible') else 'HOLD'
-                        output.append(f"{e['key']} local review retained ({old['review']['decision']}); site qualification={qstatus}; Spark gates not run; waiting-for-sync")
-                    else:
-                        output.append(f"{e['key']} local review retained ({old['review']['decision']}); receipt={receipt.get('verdict', 'unverified')}; waiting-for-sync")
-                    continue
-                if count >= budget:
-                    continue
-                count += 1
+                    cached_review = review_chunks.review_diff(diff, repository=repository, key=e['key'],
+                        base=base, head=sha, model=model, policy=policy, ask=lambda _prompt: (None, None),
+                        cache_path=str(prefix) + '.chunks.json', budget=0)
+                    if (type(old.get('review', {}).get('decision')) is bool
+                            and old.get('review', {}).get('complete') is True
+                            and cached_review['complete']
+                            and cached_review['decision'] is old['review']['decision']):
+                        # Receipt and sync eligibility are deliberately not cached with review.
+                        old['receipt'] = receipt
+                        if qualification is not None:
+                            old['qualification'] = qualification
+                        save(plan_path, old)
+                        if self.full == SITE_REPOSITORY:
+                            qstatus = 'trusted PASS' if qualification and qualification.get('eligible') else 'HOLD'
+                            output.append(f"{e['key']} local review retained ({old['review']['decision']}); site qualification={qstatus}; Spark gates not run; waiting-for-sync")
+                        else:
+                            output.append(f"{e['key']} local review retained ({old['review']['decision']}); receipt={receipt.get('verdict', 'unverified')}; waiting-for-sync")
+                        continue
                 atomic(str(prefix) + '.diff', diff.encode())
                 if self.full == SITE_REPOSITORY:
                     plan = dict(code=None, output='site qualification is Mac-owned; no Spark gate invoked',
                                 gates_executed=False, kind='not-applicable')
                 else:
                     plan = self.host_plan(source, repository, sha, base)
-                decision, note = None, 'local model unavailable'
-                if len(diff) > 60000:
-                    note = 'review held: diff exceeds 60000 characters; full diff retained locally'
-                elif model:
-                    text, mid = ask('Review this pinned LOCAL diff. Qualification is pending; this review grants no merge authority. '
-                        'Report concrete defects, secrets, unrelated changes or destructive edits. '
-                        'Reply JSON {"merge": true or false, "note": "one line"}.\n'
-                        f'Repository {repository}, commit {sha}, base {base}\n{diff[:60000]}')
-                    try:
-                        if mid != model:
-                            raise ValueError('local model changed during review')
-                        parsed = json.loads(re.search(r'\{.*\}', text or '', re.S)[0])
-                        if type(parsed.get('merge')) is not bool:
-                            raise ValueError('non-boolean review')
-                        decision, note = parsed['merge'], str(parsed.get('note', ''))[:300]
-                    except (ValueError, TypeError, KeyError):
-                        note = 'unparsable local review: ' + str(text or mid)[:200]
+                if model:
+                    chunk_review = review_chunks.review_diff(diff, repository=repository, key=e['key'],
+                        base=base, head=sha, model=model, policy=policy, ask=ask,
+                        cache_path=str(prefix) + '.chunks.json', budget=max(0, budget - calls_used))
+                    calls_used += chunk_review['actual_calls']
+                    decision, note = chunk_review['decision'], chunk_review['note']
+                else:
+                    chunk_review = dict(complete=False, decision=None, note='local model unavailable',
+                                       actual_calls=0, total_chunks=0, reviewed_chunks=0)
+                    decision, note = None, chunk_review['note']
                 record = dict(schema='renda-local-plan/1', identity=identity, key=e['key'], repository=repository,
                     commit=sha, base=base, diff_digest=digest(diff.encode()), provenance=e['provenance'],
                     remote_observed_at=e['remote_observed_at'], remote_eligible=False,
-                    model=model, policy=policy, review=dict(decision=decision, note=note),
+                    model=model, policy=policy, review=dict(decision=decision, note=note,
+                        complete=chunk_review['complete'], chunks_reviewed=chunk_review['reviewed_chunks'],
+                        chunks_total=chunk_review['total_chunks'], actual_calls=chunk_review['actual_calls']),
                     plan=plan, receipt=receipt, qualification=qualification, created_at=time.time())
                 save(plan_path, record)
                 # This is an idempotent local intent for the existing desk, never the pipeline's signed outbox.
@@ -483,6 +483,31 @@ class Queue:
     def review(self, p, model, policy):
         prefix = self.root / 'local' / self.repo / digest(self.key(p).encode())
         d = read(str(prefix) + '.plan.json')
-        if not isinstance(d, dict) or d.get('commit') != p['headRefOid'] or d.get('base') != p['baseRefOid'] or d.get('model') != model or d.get('policy') != policy:
+        if (not isinstance(d, dict) or d.get('commit') != p['headRefOid']
+                or d.get('base') != p['baseRefOid'] or d.get('model') != model
+                or d.get('policy') != policy or d.get('key') != self.key(p)
+                or d.get('repository') != 'github.com/' + self.full):
             return None, 'pinned local review pending'
-        return d['review']['decision'], d['review']['note']
+        diff_path = Path(str(prefix) + '.diff')
+        try:
+            diff = diff_path.read_bytes()
+        except OSError:
+            return None, 'pinned local diff unavailable'
+        if digest(diff) != d.get('diff_digest'):
+            return None, 'pinned local diff identity mismatch'
+        expected = digest(json.dumps([d['key'], d['base'], d['diff_digest'], model, policy]).encode())
+        if expected != d.get('identity'):
+            return None, 'pinned local review identity mismatch'
+        decision = d.get('review', {}).get('decision')
+        if decision is not None and type(decision) is not bool:
+            return None, 'pinned local review invalid'
+        try:
+            review_state = review_chunks.review_diff(diff.decode('utf-8'), repository=d['repository'],
+                key=d['key'], base=d['base'], head=d['commit'], model=model, policy=policy,
+                ask=lambda _prompt: (None, None), cache_path=str(prefix) + '.chunks.json', budget=0)
+        except (KeyError, UnicodeDecodeError, TypeError, ValueError):
+            return None, 'pinned local chunk review invalid'
+        if decision is True and (d.get('review', {}).get('complete') is not True
+                                 or not review_state['complete'] or review_state['decision'] is not True):
+            return None, 'pinned local review incomplete or chunk cache invalid'
+        return review_state['decision'], d['review'].get('note', '')

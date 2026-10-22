@@ -1,16 +1,18 @@
 {
   "files": {
     "delivery.py": "573228317980b724483eaf0e44949f793dc3c29b29b039d0530c4e7a4f76060f",
-    "install.py": "72ca6365e08ee12205e354de0a4dfb77bf5cd9e5b7a9325b5544166f53911a1c",
-    "local_queue.py": "825c16a67a7f0f26780456491a46c7f015efb9ccdaa78ff82d3db73263258f16",
-    "renda-checked": "7333056832f851eb91bf49dc821b2a6d194c95d215a99c082c83940ebfbed840",
+    "install.py": "1c14146e301accb0c97981eee798a36c18fbb0828362d2eba906d21da7621ec4",
+    "local_queue.py": "b1d354558afb4e672ae6ff3708f7f36fee50580241315a8448a313645e31c51b",
+    "renda-checked": "87d0c891074b85a484daa8df4d0a84c1d7043758793ef39e34a105786ec164fb",
     "renda-harness": "d751d925f15d0fc31a986e886972ee8777efc0f05cdae3233600eaaa35b86f6a",
+    "review_chunks.py": "21bae346f13c0fc619215d1d96fbcbc0bc7e317a1ae00571ec78465ab8f840e7",
     "site_policy.py": "9526113b6b4a323b1d47f538d60261e499228cda89a31c5ba2090997dcea2cc3",
     "test_delivery.py": "f74d4d0161791ada6765566939c79381dbd2bc34af9aff92c09fc5d91135a7f4",
-    "test_local_queue.py": "d26618b8bf9f55a7f88c6d0eced21252ff1c640046ff34ccaef65477f37e78ce",
+    "test_local_queue.py": "96bba585cabe4405b10a67cf21928618753574fcf41d0c28d47247886b64624f",
     "test_reliability.py": "f924611a7988bd00df7f8bf81ddfa63731561e09035510854f86c40473bc2b55",
+    "test_review_chunks.py": "ab6073b6fc16045f1b25c52210e0e5a61150cad5d6941561d2407527861c7cdf",
     "test_site_policy.py": "2c6d39850022b093d50ddeed19ceb3516e93b543b500450099403c48a4355325"
   },
-  "item": "L593",
+  "item": "L603",
   "schema": "renda-release/1"
 }
