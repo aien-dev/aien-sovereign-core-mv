@@ -14,7 +14,7 @@ import stat
 import tempfile
 import time
 
-SCHEMA = 'renda-review-chunks/2'
+SCHEMA = 'renda-review-chunks/3'
 
 
 def _key_path():
@@ -110,8 +110,18 @@ def _make_chunks(diff, chunk_chars):
     headers = list(re.finditer(r'^diff --git a/(.*?) b/(.*?)$', diff, re.M))
     header_index = 0
     file_name = headers[0].group(2) if headers else '(diff preamble)'
-    for start in range(0, len(diff), chunk_chars):
+    start = 0
+    while start < len(diff):
         end = min(len(diff), start + chunk_chars)
+        if end < len(diff):
+            file_ends = [header.start() for header in headers if start < header.start() <= end]
+            if file_ends:
+                end = file_ends[-1]
+            else:
+                newline = diff.rfind('\n',start,end)
+                header_only = diff.startswith('diff --git ',start) and newline == diff.find('\n',start)
+                if newline >= start and not header_only:
+                    end = newline + 1
         while header_index + 1 < len(headers) and headers[header_index + 1].start() <= start:
             header_index += 1
             file_name = headers[header_index].group(2)
@@ -125,6 +135,7 @@ def _make_chunks(diff, chunk_chars):
                            file=', '.join(dict.fromkeys(files)),
                            chunk_digest=_digest(text.encode('utf-8')),
                            text=text, decision=None, note=''))
+        start = end
     return chunks
 
 

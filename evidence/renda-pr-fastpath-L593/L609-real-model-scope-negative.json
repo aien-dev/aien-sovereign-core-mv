@@ -1,0 +1,22 @@
+{
+  "source_runtime": "303310729dd7ef6242dc1ec3cb63019beb811325",
+  "repository": "github.com/aien-dev/omega",
+  "head": "69790fb4ad1e803ca79245430745b96129d1dcf4",
+  "base": "a8ffd2b912c84197d08f963b05f9c7d8b30a3f8a",
+  "model": "qwen3.6-35b-a3b-fp8",
+  "actual_diff_chars": 374725,
+  "whole_PR_approval": false,
+  "production_review_state_writes": 0,
+  "remote_PR_writes": 0,
+  "prior_actual_negative_preserved": "evidence/renda-pr-fastpath-L593/L603-real-model-probe.json",
+  "result": {
+    "complete": false,
+    "decision": false,
+    "note": "JSON artifact truncated at offset 12000, missing closing braces and remaining fields; requires full segment for validation.",
+    "actual_calls": 1,
+    "total_chunks": 32,
+    "reviewed_chunks": 1,
+    "identity": "b6c4a10d2cd4510b52cef6d0081e3e41213952fcb063d7e664117b6f7e1909eb",
+    "diff_digest": "6f5f667789fce1d6d0c718a5879191035b3e259c52b286eaaef514355463e0f0"
+  }
+}

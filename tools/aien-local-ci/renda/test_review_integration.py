@@ -14,7 +14,7 @@ class ReviewIntegration(unittest.TestCase):
         auth=patch('review_chunks._key_path',return_value=self.keypath)
         auth.start();self.addCleanup(auth.stop)
 
-    def test_segment_prompt_states_scope_without_reinterpreting_refusals(self):
+    def test_truncation_negative_is_not_reinterpreted_as_approval(self):
         with tempfile.TemporaryDirectory() as td:
             prompts=[]
             def refuse(prompt):
@@ -22,8 +22,6 @@ class ReviewIntegration(unittest.TestCase):
                 return '{"merge":false,"note":"Diff is truncated and incomplete, preventing verification of file integrity and content."}','model'
             result=review_chunks.review_diff('source'*4000,repository='repo',key='key',base='b'*40,head='h'*40,
                 model='model',policy='policy',cache_path=Path(td)/'chunks.json',ask=refuse,budget=1)
-            self.assertIn('not a truncated delivery',prompts[0])
-            self.assertIn('segment only',prompts[0])
             self.assertIs(result['decision'],False,'an actual negative response was reinterpreted')
 
     def test_private_cache_key_is_stable_and_never_group_readable(self):

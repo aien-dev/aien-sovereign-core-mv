@@ -1,0 +1,20 @@
+======================================================================
+FAIL: test_oversized_file_keeps_complete_lines_when_they_fit (test_review_chunks.ChunkReview)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/integrated/renda/test_review_chunks.py", line 29, in test_oversized_file_keeps_complete_lines_when_they_fit
+    self.assertTrue(all(row['text'].endswith('\n') for row in rows), 'a fitting log line was cut')
+AssertionError: False is not true : a fitting log line was cut
+
+======================================================================
+FAIL: test_small_complete_json_file_is_never_split_by_preceding_file (test_review_chunks.ChunkReview)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/integrated/renda/test_review_chunks.py", line 21, in test_small_complete_json_file_is_never_split_by_preceding_file
+    self.assertTrue(any(row['start']<=len(first) and row['end']>=len(diff) for row in rows),
+AssertionError: False is not true : complete 3KB JSON artifact was cut only because preceding file used the budget
+
+----------------------------------------------------------------------
+Ran 10 tests in 0.511s
+
+FAILED (failures=2)

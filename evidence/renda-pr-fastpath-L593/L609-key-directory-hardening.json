@@ -1,0 +1,8 @@
+{
+  "path": "/home/drakestapleton/.config/renda",
+  "before": "0o775",
+  "after": "0o755",
+  "reason": "L609 cache-integrity deployment prerequisite; loader remains fail-closed",
+  "credential_contents_read_or_changed": false,
+  "model_calls_before_refusal": 0
+}

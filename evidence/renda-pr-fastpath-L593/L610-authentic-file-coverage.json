@@ -1,0 +1,354 @@
+{
+  "schema": "renda-file-aligned-coverage/1",
+  "base": "a8ffd2b912c84197d08f963b05f9c7d8b30a3f8a",
+  "head": "69790fb4ad1e803ca79245430745b96129d1dcf4",
+  "diff_chars": 374725,
+  "diff_digest": "6f5f667789fce1d6d0c718a5879191035b3e259c52b286eaaef514355463e0f0",
+  "total_files": 39,
+  "total_packets": 35,
+  "exact_full_coverage": true,
+  "max_packet_chars": 11994,
+  "json_files": 13,
+  "all_fitting_files_kept_whole": true,
+  "files": [
+    {
+      "file": "docs/superpowers/plans/2026-10-22-universal-625.md",
+      "start": 0,
+      "end": 3480,
+      "chars": 3480,
+      "fits_budget": true,
+      "whole_in_one_packet": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/README.md",
+      "start": 3480,
+      "end": 8672,
+      "chars": 5192,
+      "fits_budget": true,
+      "whole_in_one_packet": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/followup/arithmetic-replay.json",
+      "start": 8672,
+      "end": 12327,
+      "chars": 3655,
+      "fits_budget": true,
+      "whole_in_one_packet": true,
+      "head_blob_bytes": 3313,
+      "head_json_parses": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/followup/arithmetic-replay.log",
+      "start": 12327,
+      "end": 13433,
+      "chars": 1106,
+      "fits_budget": true,
+      "whole_in_one_packet": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/followup/base-pinned.log",
+      "start": 13433,
+      "end": 67779,
+      "chars": 54346,
+      "fits_budget": false,
+      "whole_in_one_packet": false
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/followup/doctrine-corrected.log",
+      "start": 67779,
+      "end": 68207,
+      "chars": 428,
+      "fits_budget": true,
+      "whole_in_one_packet": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/followup/results.json",
+      "start": 68207,
+      "end": 69192,
+      "chars": 985,
+      "fits_budget": true,
+      "whole_in_one_packet": true,
+      "head_blob_bytes": 719,
+      "head_json_parses": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/initial/CUDApp.json",
+      "start": 69192,
+      "end": 69669,
+      "chars": 477,
+      "fits_budget": true,
+      "whole_in_one_packet": true,
+      "head_blob_bytes": 209,
+      "head_json_parses": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/initial/CUDApp.log",
+      "start": 69669,
+      "end": 277661,
+      "chars": 207992,
+      "fits_budget": false,
+      "whole_in_one_packet": false
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/initial/aien-architecture-mv.json",
+      "start": 277661,
+      "end": 278174,
+      "chars": 513,
+      "fits_budget": true,
+      "whole_in_one_packet": true,
+      "head_blob_bytes": 205,
+      "head_json_parses": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/initial/aien-architecture-mv.log",
+      "start": 278174,
+      "end": 278655,
+      "chars": 481,
+      "fits_budget": true,
+      "whole_in_one_packet": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/initial/aien-sovereign-core-mv.json",
+      "start": 278655,
+      "end": 279258,
+      "chars": 603,
+      "fits_budget": true,
+      "whole_in_one_packet": true,
+      "head_blob_bytes": 284,
+      "head_json_parses": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/initial/aien-sovereign-core-mv.log",
+      "start": 279258,
+      "end": 281589,
+      "chars": 2331,
+      "fits_budget": true,
+      "whole_in_one_packet": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/initial/aienux.json",
+      "start": 281589,
+      "end": 282097,
+      "chars": 508,
+      "fits_budget": true,
+      "whole_in_one_packet": true,
+      "head_blob_bytes": 239,
+      "head_json_parses": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/initial/aienux.log",
+      "start": 282097,
+      "end": 285040,
+      "chars": 2943,
+      "fits_budget": true,
+      "whole_in_one_packet": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/initial/arithmetic-author.json",
+      "start": 285040,
+      "end": 288692,
+      "chars": 3652,
+      "fits_budget": true,
+      "whole_in_one_packet": true,
+      "head_blob_bytes": 3313,
+      "head_json_parses": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/initial/base-unresolved-sibling.log",
+      "start": 288692,
+      "end": 298593,
+      "chars": 9901,
+      "fits_budget": true,
+      "whole_in_one_packet": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/initial/issue-audit.json",
+      "start": 298593,
+      "end": 309781,
+      "chars": 11188,
+      "fits_budget": true,
+      "whole_in_one_packet": true,
+      "head_blob_bytes": 10741,
+      "head_json_parses": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/initial/omega-mv.json",
+      "start": 309781,
+      "end": 310310,
+      "chars": 529,
+      "fits_budget": true,
+      "whole_in_one_packet": true,
+      "head_blob_bytes": 254,
+      "head_json_parses": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/initial/omega-mv.log",
+      "start": 310310,
+      "end": 325819,
+      "chars": 15509,
+      "fits_budget": false,
+      "whole_in_one_packet": false
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/initial/red.log",
+      "start": 325819,
+      "end": 326117,
+      "chars": 298,
+      "fits_budget": true,
+      "whole_in_one_packet": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/initial/repository-pins.json",
+      "start": 326117,
+      "end": 328170,
+      "chars": 2053,
+      "fits_budget": true,
+      "whole_in_one_packet": true,
+      "head_blob_bytes": 1757,
+      "head_json_parses": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/review-fix/corrected-replay.json",
+      "start": 328170,
+      "end": 331947,
+      "chars": 3777,
+      "fits_budget": true,
+      "whole_in_one_packet": true,
+      "head_blob_bytes": 3431,
+      "head_json_parses": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/review-fix/corrected-replay.log",
+      "start": 331947,
+      "end": 333478,
+      "chars": 1531,
+      "fits_budget": true,
+      "whole_in_one_packet": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/review-fix/evidence-lifecycle-red-expanded.log",
+      "start": 333478,
+      "end": 336207,
+      "chars": 2729,
+      "fits_budget": true,
+      "whole_in_one_packet": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/review-fix/evidence-lifecycle-red.log",
+      "start": 336207,
+      "end": 338239,
+      "chars": 2032,
+      "fits_budget": true,
+      "whole_in_one_packet": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/review-fix/result.json",
+      "start": 338239,
+      "end": 338844,
+      "chars": 605,
+      "fits_budget": true,
+      "whole_in_one_packet": true,
+      "head_blob_bytes": 359,
+      "head_json_parses": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/review-fix/review-L572.md",
+      "start": 338844,
+      "end": 342261,
+      "chars": 3417,
+      "fits_budget": true,
+      "whole_in_one_packet": true
+    },
+    {
+      "file": "evidence/UNIVERSAL-625/review-fix/review-fix-green.log",
+      "start": 342261,
+      "end": 343796,
+      "chars": 1535,
+      "fits_budget": true,
+      "whole_in_one_packet": true
+    },
+    {
+      "file": "mk/universal.mk",
+      "start": 343796,
+      "end": 344788,
+      "chars": 992,
+      "fits_budget": true,
+      "whole_in_one_packet": true
+    },
+    {
+      "file": "spec/universal/profiles.json",
+      "start": 344788,
+      "end": 345739,
+      "chars": 951,
+      "fits_budget": true,
+      "whole_in_one_packet": true,
+      "head_blob_bytes": 734,
+      "head_json_parses": true
+    },
+    {
+      "file": "spec/universal/semantics.md",
+      "start": 345739,
+      "end": 361057,
+      "chars": 15318,
+      "fits_budget": false,
+      "whole_in_one_packet": false
+    },
+    {
+      "file": "tests/universal/arithmetic.c",
+      "start": 361057,
+      "end": 361637,
+      "chars": 580,
+      "fits_budget": true,
+      "whole_in_one_packet": true
+    },
+    {
+      "file": "tests/universal/arithmetic.osc",
+      "start": 361637,
+      "end": 362023,
+      "chars": 386,
+      "fits_budget": true,
+      "whole_in_one_packet": true
+    },
+    {
+      "file": "tests/universal/arithmetic.py",
+      "start": 362023,
+      "end": 362594,
+      "chars": 571,
+      "fits_budget": true,
+      "whole_in_one_packet": true
+    },
+    {
+      "file": "tests/universal/arithmetic.rs",
+      "start": 362594,
+      "end": 363325,
+      "chars": 731,
+      "fits_budget": true,
+      "whole_in_one_packet": true
+    },
+    {
+      "file": "tests/universal/osc_probe.c",
+      "start": 363325,
+      "end": 365343,
+      "chars": 2018,
+      "fits_budget": true,
+      "whole_in_one_packet": true
+    },
+    {
+      "file": "tests/universal/semantics.py",
+      "start": 365343,
+      "end": 371635,
+      "chars": 6292,
+      "fits_budget": true,
+      "whole_in_one_packet": true
+    },
+    {
+      "file": "tests/universal/test_evidence_lifecycle.py",
+      "start": 371635,
+      "end": 374725,
+      "chars": 3090,
+      "fits_budget": true,
+      "whole_in_one_packet": true
+    }
+  ],
+  "model_approval": false
+}

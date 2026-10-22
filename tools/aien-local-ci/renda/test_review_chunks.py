@@ -13,6 +13,23 @@ class ChunkReview(unittest.TestCase):
         auth=patch('review_chunks._key_path',return_value=Path(td.name)/'private/review.key')
         auth.start();self.addCleanup(auth.stop)
 
+    def test_small_complete_json_file_is_never_split_by_preceding_file(self):
+        first='diff --git a/readme.md b/readme.md\n'+('x'*10000)+'\n'
+        second='diff --git a/artifact.json b/artifact.json\n'+json.dumps({'payload':'y'*3000})+'\n'
+        diff=first+second
+        rows=rc._make_chunks(diff,12000)
+        self.assertTrue(any(row['start']<=len(first) and row['end']>=len(diff) for row in rows),
+            'complete 3KB JSON artifact was cut only because preceding file used the budget')
+        self.assertEqual(''.join(row['text'] for row in rows),diff)
+        self.assertTrue(all(len(row['text'])<=12000 for row in rows))
+
+    def test_oversized_file_keeps_complete_lines_when_they_fit(self):
+        diff='diff --git a/trace.log b/trace.log\n'+(('z'*5000+'\n')*4)
+        rows=rc._make_chunks(diff,12000)
+        self.assertTrue(all(row['text'].endswith('\n') for row in rows), 'a fitting log line was cut')
+        self.assertEqual(''.join(row['text'] for row in rows),diff)
+        self.assertTrue(all(len(row['text'])<=12000 for row in rows))
+
     def run_review(self, diff, ask, cache, **overrides):
         args = dict(repository='github.com/aien-dev/omega-mv', key='omega-mv#9@' + 'a' * 40,
                     base='b' * 40, head='a' * 40, model='synthetic-model', policy='policy-v1',
