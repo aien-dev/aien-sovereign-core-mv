@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/run.sh: proves the C8 exec contract on this host. Run as drakestapleton (uses sudo -n). Exit 1 on any FAIL.
 set -uo pipefail
-X=/usr/local/sbin/aien-run-exec
+X=${AIEN_EXEC:-/usr/local/sbin/aien-run-exec}   # AIEN_EXEC: test a candidate helper before install.sh installs it
 RUN_HOME=/var/lib/aien-run
 OP_HOME=/home/drakestapleton
 pass=0; fail=0
@@ -69,17 +69,19 @@ sudo -n -u aien-run ls "$OP_HOME/workspace" >/dev/null 2>&1 && bad "workspace" "
 out=$(run --cwd /tmp --timeout 60 --profile host -- cargo --version 2>&1)
 [[ $out == cargo\ 1.98.1* ]] && ok "cargo as aien-run: $out" || bad "cargo" "$out"
 
-# 12 crash recovery: kill -9 the running child; exit non-zero, no strays in the scope
+# 12 crash recovery: kill -9 the running child; exit non-zero, no strays in the scope. Only this test's scope
+#    counts (its unit is named after the helper pid): a judge running at the same time holds scopes of its own.
 sudo -n "$X" --cwd /tmp --timeout 120 --profile host -- sh -c 'sleep 300 & exec sleep 200' >/dev/null 2>&1 &
 bg=$!
 sleep 2
 victim=$(pgrep -u aien-run -f '^sleep 200$' | head -1)
+helper=$(pgrep -P "$bg" | head -1)
 [[ -n $victim ]] && sudo -n kill -9 "$victim"
 wait $bg; rc=$?
 sleep 1
 strays=$(pgrep -u aien-run -f '^sleep 300$' | wc -l)
-scopes=$(systemctl list-units --no-legend --plain 'aien-run-exec-*.scope' 2>/dev/null | wc -l)
-[[ $rc -ne 0 && $strays -eq 0 && $scopes -eq 0 ]] && ok "crash recovery: rc=$rc, strays=0, scopes=0" || bad "crash recovery" "rc=$rc strays=$strays scopes=$scopes"
+scopes=$(systemctl list-units --no-legend --plain "aien-run-exec-${helper:-none}-*.scope" 2>/dev/null | wc -l)
+[[ -n $helper && $rc -ne 0 && $strays -eq 0 && $scopes -eq 0 ]] && ok "crash recovery: rc=$rc, strays=0, scopes=0" || bad "crash recovery" "helper=${helper:-not found} rc=$rc strays=$strays scopes=$scopes"
 
 # 13 worktree protection (if a worktree exists; also used by the tests below)
 # Only worktrees made by wt.sh (root-owned .git pointing into the mirror). Other lanes may be creating and removing
@@ -129,7 +131,9 @@ fi
 
 # ---- review fixes (INFRA-2): nothing a check writes can reach a later check ----
 refused() { [[ $1 -eq 2 ]]; }   # exit 2 = refused by aien-run-exec before anything ran
-T_PR="$RUN_HOME/target/aien-sovereign-core/pr"; T_MAIN="$RUN_HOME/target/aien-sovereign-core/main"
+T_SHA=0000000000000000000000000000000000000a15; T_SHA2=0000000000000000000000000000000000000b15
+T_PR="$RUN_HOME/target/aien-sovereign-core/pr/$T_SHA"; T_MAIN="$RUN_HOME/target/aien-sovereign-core/main/$T_SHA"
+T_PR2="$RUN_HOME/target/aien-sovereign-core/pr/$T_SHA2"
 
 # 14b the operator's ~/models is visible read-only at /var/lib/aien-run/models (model gates), never writable
 if [[ -d $HOME/models && -d /var/lib/aien-run/models ]]; then
@@ -155,12 +159,14 @@ for p in host gb10; do
   [[ $out == "done " ]] && ok "$p: sandbox home, CARGO_HOME, registry, proxies, .gitconfig all read-only" || bad "$p home read-only" "$out"
 done
 
-# 15 trust classes: a PR run can write target/<repo>/pr only, never main; a main run never pr; a run whose cwd is not
-#    in a worktree can write no worktree
-out=$(run --cwd /tmp --timeout 20 --profile host --env CARGO_TARGET_DIR="$T_PR" -- sh -c "touch $T_PR/.p && rm $T_PR/.p && echo pr-rw; touch $T_MAIN/.p 2>/dev/null && echo MAIN-WRITABLE; echo end" 2>&1 | tr '\n' ' ')
-[[ $out == "pr-rw end " ]] && ok "class pr: target/pr writable, target/main read-only" || bad "class pr" "$out"
+# 15 trust classes and heads: a PR run can write its own target/<repo>/pr/<sha> only, never main and never another
+#    head's dir; a main run never pr; a run whose cwd is not in a worktree can write no worktree
+sudo -n install -d -o aien-run -g aien-run -m 0755 "$T_PR2"
+out=$(run --cwd /tmp --timeout 20 --profile host --env CARGO_TARGET_DIR="$T_PR" -- sh -c "touch $T_PR/.p && rm $T_PR/.p && echo pr-rw; touch $T_MAIN/.p 2>/dev/null && echo MAIN-WRITABLE; touch $T_PR2/.p 2>/dev/null && echo OTHER-HEAD-WRITABLE; echo end" 2>&1 | tr '\n' ' ')
+[[ $out == "pr-rw end " ]] && ok "class pr: own head dir writable, main and another head's dir read-only" || bad "class pr" "$out"
 out=$(run --cwd /tmp --timeout 20 --profile gb10 --env CARGO_TARGET_DIR="$T_MAIN" -- sh -c "touch $T_MAIN/.p && rm $T_MAIN/.p && echo main-rw; touch $T_PR/.p 2>/dev/null && echo PR-WRITABLE; echo end" 2>&1 | tr '\n' ' ')
-[[ $out == "main-rw end " ]] && ok "class main (gb10): target/main writable, target/pr read-only" || bad "class main" "$out"
+[[ $out == "main-rw end " ]] && ok "class main (gb10): own head dir writable, target/pr read-only" || bad "class main" "$out"
+sudo -n rm -rf "$T_PR" "$T_MAIN" "$T_PR2"
 if [[ -n $wt ]]; then
   out=$(run --cwd /tmp --timeout 20 --profile host -- sh -c "touch $wt/.p 2>/dev/null && echo WT-WRITABLE; echo end" 2>&1 | tr '\n' ' ')
   [[ $out == "end " ]] && ok "a run outside a worktree cannot write any worktree" || bad "foreign worktree" "$out"
@@ -171,7 +177,23 @@ run --cwd /tmp --timeout 5 --profile host --env CARGO_TARGET_DIR=/tmp/t -- true 
 run --cwd /tmp --timeout 5 --profile host --env CARGO_TARGET_DIR="$RUN_HOME/target/../target/x/main" -- true >/dev/null 2>&1; r2=$?
 run --cwd /tmp --timeout 5 --profile host --env CARGO_TARGET_DIR="$RUN_HOME/target/aien-sovereign-core/other" -- true >/dev/null 2>&1; r3=$?
 run --cwd /tmp --timeout 5 --profile host --env FOO=1 --env FOO=2 -- true >/dev/null 2>&1; r4=$?
-refused $r1 && refused $r2 && refused $r3 && refused $r4 && ok "CARGO_TARGET_DIR outside target/<repo>/pr|main and duplicate --env refused" || bad "env refusals" "$r1 $r2 $r3 $r4"
+# the old shared class dir, a head dir with a bad sha, and a dir one level too deep
+run --cwd /tmp --timeout 5 --profile host --env CARGO_TARGET_DIR="$RUN_HOME/target/aien-sovereign-core/pr" -- true >/dev/null 2>&1; r5=$?
+run --cwd /tmp --timeout 5 --profile host --env CARGO_TARGET_DIR="$RUN_HOME/target/aien-sovereign-core/pr/abc" -- true >/dev/null 2>&1; r6=$?
+run --cwd /tmp --timeout 5 --profile host --env CARGO_TARGET_DIR="$T_PR/x" -- true >/dev/null 2>&1; r7=$?
+refused $r1 && refused $r2 && refused $r3 && refused $r4 && refused $r5 && refused $r6 && refused $r7 \
+  && ok "CARGO_TARGET_DIR other than target/<repo>/pr|main/<sha40> (incl. the old shared dir) and duplicate --env refused" \
+  || bad "env refusals" "$r1 $r2 $r3 $r4 $r5 $r6 $r7"
+if [[ -n $wt ]]; then
+  # inside a worktree the target dir must be that head's own: another head's dir is refused
+  wrel=${wt#"$RUN_HOME"/wt/}; wrepo=${wrel%%/*}; wsha=${wrel#*/}; wsha=${wsha%%/*}
+  had_class=0; [[ -d $RUN_HOME/target/$wrepo/pr ]] && had_class=1
+  run --cwd "$wt" --timeout 5 --profile host --env CARGO_TARGET_DIR="$RUN_HOME/target/$wrepo/pr/$T_SHA2" -- true >/dev/null 2>&1; r1=$?
+  run --cwd "$wt" --timeout 5 --profile host --env CARGO_TARGET_DIR="$RUN_HOME/target/$wrepo/pr/$wsha" -- true >/dev/null 2>&1; r2=$?
+  sudo -n rm -rf "$RUN_HOME/target/$wrepo/pr/$wsha"
+  (( had_class )) || sudo -n rmdir "$RUN_HOME/target/$wrepo/pr" 2>/dev/null || true
+  refused $r1 && [[ $r2 -eq 0 ]] && ok "in a worktree only that head's own target dir is accepted" || bad "head-bound target dir" "$r1 $r2"
+fi
 run --cwd "$RUN_HOME/target" --timeout 5 --profile host -- true >/dev/null 2>&1; r1=$?
 run --cwd "$RUN_HOME/cargo" --timeout 5 --profile host -- true >/dev/null 2>&1; r2=$?
 run --cwd "$RUN_HOME/wt/../wt" --timeout 5 --profile host -- true >/dev/null 2>&1; r3=$?

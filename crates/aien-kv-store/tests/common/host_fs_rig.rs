@@ -20,7 +20,7 @@ use aien_platform::PlatformError;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock, RwLockReadGuard};
 use std::time::{Duration, Instant, SystemTime};
 
 /// Bytes of one pool block: 2 layers x 2 planes x 4 tokens x 512-byte rows.
@@ -53,6 +53,21 @@ pub fn geometry() -> NamespaceFields<'static> {
         element_bytes: 2,
     };
     f
+}
+
+// ---- child processes -----------------------------------------------------
+
+/// Tests run on parallel threads of one process. While a test spawns a child
+/// process, the child holds a copy of every descriptor open in this process
+/// until its exec closes them (they are close-on-exec), and `flock` belongs to
+/// the open file, not the descriptor: a store another test drops in that
+/// window stays locked, and that test's reopen is refused (`LOCK` is held).
+/// A spawning test takes this for writing and every other test that opens a
+/// store for reading, so no store opens or drops while a child is spawned.
+pub static SPAWN: RwLock<()> = RwLock::new(());
+
+pub fn no_spawn() -> RwLockReadGuard<'static, ()> {
+    SPAWN.read().unwrap_or_else(|e| e.into_inner())
 }
 
 // ---- temporary directories -----------------------------------------------
