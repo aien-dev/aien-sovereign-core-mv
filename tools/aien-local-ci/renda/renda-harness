@@ -525,6 +525,12 @@ def remote_admitted(repo, full, pinned, merge=False):
                 or fresh['headRefOid'] != pinned['headRefOid']
                 or fresh['baseRefOid'] != pinned['baseRefOid']):
             return False, 'remote head/base moved, closed, draft or malformed'
+        if not merge:
+            if queued_status(fresh) != queued_status(pinned):
+                return False, 'remote verdict changed after sync; action held'
+            retained = operator_verdict(repo, pinned['headRefOid'])
+            if retained and retained[0] == 'FAIL' and queued_status(pinned)[0] != 'failure':
+                return False, 'retained failure arrived after sync; action held'
         if merge:
             if fresh['mergeStateStatus'] != 'CLEAN':
                 return False, 'remote merge state is not CLEAN'

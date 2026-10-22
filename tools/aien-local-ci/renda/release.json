@@ -2,7 +2,7 @@
   "schema": "renda-release/1",
   "ledger": "L522",
   "files": {
-    "renda-harness": "b362526aeb13ab1f897acfcc626283cc930188e8a0f9ee06db0d6e8edc89cbed",
+    "renda-harness": "b970febd40524ecd7aba0a8110e90d123175e865747341bdb95a83d4de663838",
     "local_queue.py": "fc8bee2a56091e019e8e8dc60b2af5d2957d72774588eb5c750582fcec6316fe",
     "test_reliability.py": "f924611a7988bd00df7f8bf81ddfa63731561e09035510854f86c40473bc2b55",
     "test_local_queue.py": "d26618b8bf9f55a7f88c6d0eced21252ff1c640046ff34ccaef65477f37e78ce",

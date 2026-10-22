@@ -38,6 +38,12 @@ class Admission(unittest.TestCase):
         self.assertIn('state retained', result['waiting'][0])
         save.assert_not_called()
 
+    def test_new_remote_failure_holds_rebase_or_operator_action(self):
+        f = self.fixture
+        fresh = dict(f.pr, statusCheckRollup=[dict(context=r.SPARK, state='FAILURE', description='new failure')])
+        with patch.object(r, 'gh_json', return_value=wire([fresh], single=True)):
+            self.assertFalse(r.remote_admitted('omega', 'aien-dev/omega-mv', f.pr)[0])
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
