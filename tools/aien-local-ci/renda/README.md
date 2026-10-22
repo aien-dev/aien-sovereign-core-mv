@@ -45,6 +45,42 @@ crumb helper and inject a final fresh-state check at its push boundary. Failed
 remote closes retain block state. Failed local heads remain failed when remote
 status publication is absent.
 
+## Website lane: exact identity, Mac qualification, and guarded PR intake
+
+The site lane key `aienos.com` maps only to `aien-dev/aienos.com`. The kernel lane
+`aienos` remains `aien-dev/aienos-mv`; the registry refuses `aienos.com-mv` and
+other unregistered identities. READY import writes an exact local acknowledgement
+with no PR number or remote timestamp. Local diff planning and full-diff review
+continue without GitHub access and do not run the Spark `aien-test` planner/gates.
+
+Website PR publication requires a detached Ed25519 signature over the exact
+canonical UTF-8 receipt bytes: `json.dumps(value, sort_keys=True,
+separators=(',', ':'), ensure_ascii=False, allow_nan=False).encode('utf-8')`,
+with no final newline. The base64 signature is stored separately. The receipt
+schema is `renda-site-qualification/1`, repository is `aien-dev/aienos.com`,
+commit and tree are full 40-hex IDs, recipe is
+`aienos.com/mac-site-tests-build-collector-v1`, `qualified` is true, and
+`platform` is `macOS`. The required exact argv rows are the two site-builder
+Cargo commands and `python3 scripts/test_renda_metrics.py`; every row also has
+exit code 0 and a 64-hex SHA-256 of its full log. The detached signature is
+verified only with the deployment-pinned PEM public key at the path named by
+`RENDA_SITE_QUALIFICATION_PUBKEY`. Never put private keys or a replacement public
+key in receipt JSON or source. Receipt files live at
+`$RENDA_STATE/renda-queue/site-qualification/<commit>.json` and `.sig`.
+
+Before opening a PR, Renda rechecks the trusted clone origin, immutable source
+commit/tree/diff, complete local review, signature, remote branch SHA and latest
+`main` SHA, merge-tree cleanliness, and existing PR identity. A malformed/closed/
+moved PR or any changed ref is held; an existing exact open PR is reused. PR
+PR creation uses the harness's inherited guarded `gh` transport, then reads back
+the exact PR and requires `OPEN` plus `CLEAN`. Before recording publication,
+Renda reads branch protection and active rulesets; every currently required
+status context must succeed in the exact PR's status rollup. No configured check
+is not a qualification exemption because the signed Mac recipe remains mandatory.
+The acknowledgement distinguishes `PR_OPEN_CLEAN_PUBLICATION_PENDING_REVIEW` from
+local intake. This path never merges a website PR and never claims a Spark gate;
+the existing desk controls merge review.
+
 Tests use explicitly synthetic repositories, model replies, and transport responses:
 
 ```sh

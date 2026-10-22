@@ -21,9 +21,13 @@ import argparse, fcntl, json, os, re, subprocess, sys, time, urllib.request, url
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import tempfile
+from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.expanduser("~"), ".local/lib/renda"))
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from local_queue import Queue, status as queued_status, valid_pr
+from local_queue import Queue, status as queued_status, valid_pr, digest, read, save
+from site_policy import (repository_identity, repository_policy, SITE_REPOSITORY,
+    SITE_POLICY_ID, inspect_site_pr_snapshot, exact_remote_refs, verify_site_qualification,
+    site_required_checks, required_checks_satisfied)
 SOURCE_FILE = os.path.realpath(__file__)
 
 HOME = os.path.expanduser("~")
@@ -560,18 +564,193 @@ def remote_admitted(repo, full, pinned, merge=False):
         return False, f'fresh remote check unavailable: {exc}'
 
 
+
+def site_required_status_contract(full):
+    """Read active required-check rules; absence means none required, not qualified."""
+    endpoint = f'repos/{full}/branches/main/protection/required_status_checks'
+    rc, out, err = run(['gh', 'api', endpoint], timeout=60)
+    if rc:
+        if 'HTTP 404' not in (out + err):
+            return None, f'branch protection lookup failed: {(err or out)[-200:]}'
+        protection = None
+    else:
+        try:
+            protection = json.loads(out)
+        except (ValueError, TypeError):
+            return None, 'branch protection response is malformed'
+    rc, out, err = run(['gh', 'api', f'repos/{full}/rulesets?includes=rules'], timeout=60)
+    if rc:
+        return None, f'ruleset lookup failed: {(err or out)[-200:]}'
+    try:
+        rulesets = json.loads(out)
+        return site_required_checks(protection, rulesets), None
+    except (ValueError, TypeError) as exc:
+        return None, f'branch rules are malformed: {exc}'
+
+
+def site_publish_ready(repo, queue, entry, model, policy):
+    """Publish one Mac-qualified site READY head through the guarded gh transport only."""
+    full = SITE_REPOSITORY
+    tag = f"{entry.get('ref')}@{str(entry.get('sha', ''))[:12]}"
+    if not lane_owned(repo):
+        return False, f"{tag} publication held: lane is not owned by renda"
+    if full != queue.full or repository_identity(repo) != full:
+        return False, f"{tag} publication held: repository identity mismatch"
+    sha, base, ref = entry.get('sha'), entry.get('base'), entry.get('ref')
+    if not isinstance(sha, str) or not re.fullmatch(r'[0-9a-f]{40}', sha) or not isinstance(base, str) or not re.fullmatch(r'[0-9a-f]{40}', base):
+        return False, f"{tag} publication held: malformed source pins"
+    if not isinstance(ref, str) or run(['git', 'check-ref-format', '--branch', ref])[0] != 0:
+        return False, f"{tag} publication held: invalid branch ref"
+    key = entry.get('key')
+    if key != f"{full}:ready:{ref}@{sha}":
+        return False, f"{tag} publication held: READY queue key mismatch"
+    ack_path = queue.root / 'acks' / (digest(json.dumps([full, [key]], sort_keys=True).encode()) + '.json')
+    ack = read(ack_path)
+    ack_items = ack.get('items', []) if isinstance(ack, dict) else []
+    ack_state = ack.get('state') if isinstance(ack, dict) else None
+    state_valid = ((ack_state == 'ACCEPTED_LOCAL_NOT_PUBLISHED' and ack.get('remote_eligible') is False)
+        or (ack_state == 'PR_OPEN_CLEAN_PUBLICATION_PENDING_REVIEW' and ack.get('remote_eligible') is True
+            and type(ack.get('pr_number')) is int and ack['pr_number'] > 0))
+    if (not isinstance(ack, dict) or ack.get('schema') != 'renda-intake-ack/1'
+            or ack.get('repository') != full or not state_valid
+            or not any(isinstance(row, dict) and row.get('ref') == ref and row.get('head') == sha
+                       and row.get('base') == base and row.get('number') is None
+                       and row.get('remote_observed_at') is None for row in ack_items)):
+        return False, f"{tag} publication held: exact local intake acknowledgement missing"
+    plan_path = queue.root / 'local' / repo / digest(key.encode())
+    plan_file = Path(str(plan_path) + '.plan.json')
+    plan = read(plan_file) if plan_file.is_file() else None
+    if (not isinstance(plan, dict) or plan.get('repository') != 'github.com/' + full
+            or plan.get('commit') != sha or plan.get('base') != base
+            or plan.get('model') != model or plan.get('policy') != policy
+            or plan.get('review', {}).get('decision') is not True):
+        return False, f"{tag} publication held: exact complete local review missing"
+    source, source_repo = queue.source(sha, base)
+    if source is None or source_repo != 'github.com/' + full:
+        return False, f"{tag} publication held: trusted exact repository source unavailable"
+    rc, diff, err = run(['git', '-C', str(source), 'diff', '--no-ext-diff', '--no-textconv', base + '...' + sha, '--'], timeout=120)
+    if rc or digest(diff.encode()) != plan.get('diff_digest'):
+        return False, f"{tag} publication held: source diff changed or unavailable"
+    qualification_root = queue.root / 'site-qualification'
+    qualification = verify_site_qualification(qualification_root / (sha + '.json'),
+        qualification_root / (sha + '.sig'), source, full, sha)
+    if not qualification.get('eligible'):
+        return False, f"{tag} publication held: {qualification.get('diagnostic', 'qualification unavailable')}"
+    rc, branch_out, err = run(['git', '-C', str(source), 'ls-remote', 'origin', 'refs/heads/' + ref], timeout=60)
+    if rc:
+        return False, f"{tag} publication held: remote branch read failed"
+    rc, base_out, err = run(['git', '-C', str(source), 'ls-remote', 'origin', 'refs/heads/main'], timeout=60)
+    if rc or not exact_remote_refs(branch_out, base_out, ref, sha, base):
+        return False, f"{tag} publication held: remote branch or main moved from exact READY pins"
+    required_checks, rules_error = site_required_status_contract(full)
+    if rules_error:
+        return False, f"{tag} publication held: {rules_error}"
+    rc, merged_tree, err = run(['git', '-C', str(source), 'merge-tree', '--write-tree', base, sha], timeout=60)
+    if rc:
+        return False, f"{tag} publication held: candidate does not merge cleanly with pinned main"
+    response = run(['gh', 'pr', 'list', '-R', full, '--head', ref, '--state', 'all', '--json',
+        'number,state,headRefName,headRefOid,baseRefName,baseRefOid'], timeout=120)
+    if response[0] != 0:
+        return False, f"{tag} publication held: existing PR lookup failed: {(response[2] or response[1])[-200:]}"
+    try:
+        rows = json.loads(response[1])
+    except (ValueError, TypeError):
+        rows = None
+    inspected = inspect_site_pr_snapshot(rows, ref, sha, base)
+    if inspected['action'] == 'refuse':
+        return False, f"{tag} publication held: {inspected['reason']}"
+    if inspected['action'] == 'reuse':
+        number = inspected['number']
+    else:
+        body = (f"Renda website intake\n\nRepository: {full}\nBranch: {ref}\n"
+            f"Head: {sha}\nBase: main@{base}\nQualification: {qualification['recipe_id']}"
+            f"\nReceipt SHA-256: {qualification['receipt_sha256']}\n"
+            f"Local full-diff review: approved by {model}\nNo Spark gate is claimed or run."
+            f"\nThis intake does not authorize merging.")
+        title = f"Renda website intake: {ref}"[:240]
+        rc, out, err = run(['gh', 'pr', 'create', '-R', full, '--head', ref, '--base', 'main',
+            '--title', title, '--body', body], timeout=120)
+        if rc:
+            return False, f"{tag} publication held: guarded PR create refused: {(err or out)[-240:]}"
+        match = re.search(r'/pull/(\d+)', out.strip())
+        if not match:
+            return False, f"{tag} publication ambiguous: create response has no PR number; reconcile exact branch before retry"
+        number = int(match[1])
+    try:
+        pr = gh_json(['pr', 'view', str(number), '-R', full, '--json',
+            'number,state,headRefName,headRefOid,baseRefName,baseRefOid,mergeStateStatus,statusCheckRollup'])
+    except Exception as exc:
+        return False, f"{tag} publication pending: PR #{number} readback failed: {exc}"
+    if (not isinstance(pr, dict) or type(pr.get('number')) is not int or pr['number'] != number
+            or pr.get('state') != 'OPEN' or pr.get('headRefName') != ref or pr.get('headRefOid') != sha
+            or pr.get('baseRefName') != 'main' or pr.get('baseRefOid') != base
+            or pr.get('mergeStateStatus') != 'CLEAN'):
+        return False, f"{tag} publication pending: PR #{number} is malformed, moved, closed or not CLEAN"
+    if not required_checks_satisfied(required_checks, pr.get('statusCheckRollup')):
+        return False, f"{tag} publication pending: PR #{number} required branch checks are missing or not successful"
+    ack['state'] = 'PR_OPEN_CLEAN_PUBLICATION_PENDING_REVIEW'
+    ack['remote_eligible'] = True
+    ack['pr_number'] = number
+    ack['remote_observed_at'] = time.time()
+    ack['qualification'] = qualification
+    save(ack_path, ack)
+    return True, f"{tag} published as PR #{number}; exact head/base read back CLEAN; merge remains desk-controlled"
+
+
+def site_lane_pass(repo, full, queue):
+    result = {"repo": repo, "merged": [], "rebased": [], "rerun": [], "operator": [],
+              "blocked": [], "waiting": [], "local": [], "sync_wait": []}
+    snapshot, synced = queue.sync()
+    with open(SOURCE_FILE, 'rb') as f:
+        policy_source = f.read()
+    from local_queue import __file__ as queue_source
+    with open(queue_source, 'rb') as f:
+        policy_source += f.read()
+    from site_policy import __file__ as site_policy_source
+    with open(site_policy_source, 'rb') as f:
+        policy_source += f.read()
+    policy = hashlib.sha256(policy_source).hexdigest()
+    mid = model_id()
+    result['local'] = queue.progress(snapshot, mid, ask_model, policy)
+    if not synced:
+        result['sync_wait'].append('waiting-for-sync: ' + (queue.sync_diagnostic or 'fresh remote state unavailable'))
+        return result
+    with queue.lock('publish') as owned:
+        if not owned:
+            result['waiting'].append('site publication lock held by another worker')
+            return result
+        for entry in snapshot['entries']:
+            if entry.get('kind') != 'ready':
+                continue
+            ok, note = site_publish_ready(repo, queue, entry, mid, policy)
+            if ok or 'publication pending:' in note or 'publication ambiguous:' in note:
+                result['waiting'].append(note)
+            else:
+                result['blocked'].append(note)
+        for entry in snapshot['entries']:
+            if entry.get('kind') == 'pr' and entry.get('active'):
+                pr = entry['pr']
+                result['waiting'].append(f"PR #{pr['number']} awaits independent desk merge review; website lane never auto-merges")
+    return result
+
+
 def lane_pass(repo):
-    full = f"aien-dev/{repo}-mv" if repo not in ("aien-rig", "aien-train", "synapse", "CUDApp") else f"aien-dev/{repo}"
+    full, repo_policy = repository_policy(repo)
     res = {"repo": repo, "merged": [], "rebased": [], "rerun": [], "operator": [], "blocked": [], "waiting": []}
     if not lane_owned(repo):
         res["blocked"].append("lane no longer names renda; skipped")
         return res
     queue = Queue(STATE, repo, full, run, CLONES, WORK)
+    if full == SITE_REPOSITORY:
+        return site_lane_pass(repo, full, queue)
     snapshot, synced = queue.sync()
     with open(SOURCE_FILE, 'rb') as source:
         policy_source = source.read()
     from local_queue import __file__ as queue_source
     with open(queue_source, 'rb') as source:
+        policy_source += source.read()
+    from site_policy import __file__ as site_policy_source
+    with open(site_policy_source, 'rb') as source:
         policy_source += source.read()
     policy = hashlib.sha256(policy_source).hexdigest()
     mid = model_id()
@@ -729,9 +908,9 @@ def main():
         if not a.lanes or ',' in a.lanes:
             ap.error('--seed-ready requires exactly one --lanes repo')
         repo = a.lanes
-        full = f'aien-dev/{repo}-mv' if repo not in ('aien-rig', 'aien-train', 'synapse', 'CUDApp') else f'aien-dev/{repo}'
-        Queue(STATE, repo, full, run, CLONES, WORK).seed_ready(a.seed_ready)
-        print('local READY imported; remote identity and eligibility unchanged')
+        full = repository_identity(repo)
+        ack = Queue(STATE, repo, full, run, CLONES, WORK).seed_ready(a.seed_ready)
+        print(json.dumps(ack, sort_keys=True))
         return
     if a.operator_check:
         ok, note = operator_run(*a.operator_check)

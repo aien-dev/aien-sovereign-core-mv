@@ -10,6 +10,8 @@ from pathlib import Path
 import re
 import tempfile
 import time
+from site_policy import (repository_identity, SITE_REPOSITORY,
+    verify_site_qualification)
 
 SCHEMA = 'renda-local-queue/1'
 TTL = 300
@@ -157,6 +159,8 @@ class Queue:
     def __init__(self, state, repo, full, run, clones, work):
         if not re.fullmatch(r'[A-Za-z0-9._-]+', repo) or repo in ('.', '..'):
             raise ValueError('invalid queue repository')
+        if repository_identity(repo) != repository_identity(full) or repository_identity(full) != full:
+            raise ValueError('queue key and exact repository identity disagree')
         self.state, self.repo, self.full = Path(state), repo, full
         self.run, self.clones, self.work = run, Path(clones), Path(work)
         self.root = self.state / 'renda-queue'
@@ -289,6 +293,16 @@ class Queue:
                 raise ValueError('queue capacity exceeded')
             d['entries'] = list(keyed.values())
             save(self.path, d)
+        ack = dict(schema='renda-intake-ack/1', repository=self.full,
+            items=[dict(ref=e['ref'], head=e['sha'], base=e['base'], number=None,
+                        remote_observed_at=None) for e in entries],
+            state='ACCEPTED_LOCAL_NOT_PUBLISHED', remote_eligible=False,
+            provenance_sha256=digest(raw), input=str(Path(path).resolve()), acknowledged_at=time.time())
+        ack_path = self.root / 'acks' / (digest(json.dumps([self.full, [e['key'] for e in entries]],
+            sort_keys=True).encode()) + '.json')
+        ack['ack_path'] = str(ack_path)
+        save(ack_path, ack)
+        return ack
 
     def source(self, sha, base):
         for source in (self.clones / self.repo, self.work / self.repo):
@@ -362,21 +376,41 @@ class Queue:
                 if rc:
                     output.append(f"{e['key']} diff unavailable: {err[-200:]}")
                     continue
-                receipt = self.receipt(source, repository, sha, base)
+                qualification = None
+                if self.full == SITE_REPOSITORY:
+                    qualification_root = self.root / 'site-qualification'
+                    receipt_path = qualification_root / (sha + '.json')
+                    signature_path = qualification_root / (sha + '.sig')
+                    qualification = verify_site_qualification(receipt_path, signature_path, source,
+                        self.full, sha)
+                    receipt = dict(verified=False, eligible=False,
+                        diagnostic='website qualification is independent of Spark aien-test bundles')
+                else:
+                    receipt = self.receipt(source, repository, sha, base)
                 identity = digest(json.dumps([e['key'], base, digest(diff.encode()), model, policy]).encode())
                 plan_path = Path(str(prefix) + '.plan.json')
                 old = read(plan_path)
                 if isinstance(old, dict) and old.get('identity') == identity:
                     # Receipt and sync eligibility are deliberately not cached with review.
                     old['receipt'] = receipt
+                    if qualification is not None:
+                        old['qualification'] = qualification
                     save(plan_path, old)
-                    output.append(f"{e['key']} local review retained ({old['review']['decision']}); receipt={receipt.get('verdict', 'unverified')}; waiting-for-sync")
+                    if self.full == SITE_REPOSITORY:
+                        qstatus = 'trusted PASS' if qualification and qualification.get('eligible') else 'HOLD'
+                        output.append(f"{e['key']} local review retained ({old['review']['decision']}); site qualification={qstatus}; Spark gates not run; waiting-for-sync")
+                    else:
+                        output.append(f"{e['key']} local review retained ({old['review']['decision']}); receipt={receipt.get('verdict', 'unverified')}; waiting-for-sync")
                     continue
                 if count >= budget:
                     continue
                 count += 1
                 atomic(str(prefix) + '.diff', diff.encode())
-                plan = self.host_plan(source, repository, sha, base)
+                if self.full == SITE_REPOSITORY:
+                    plan = dict(code=None, output='site qualification is Mac-owned; no Spark gate invoked',
+                                gates_executed=False, kind='not-applicable')
+                else:
+                    plan = self.host_plan(source, repository, sha, base)
                 decision, note = None, 'local model unavailable'
                 if len(diff) > 60000:
                     note = 'review held: diff exceeds 60000 characters; full diff retained locally'
@@ -398,13 +432,17 @@ class Queue:
                     commit=sha, base=base, diff_digest=digest(diff.encode()), provenance=e['provenance'],
                     remote_observed_at=e['remote_observed_at'], remote_eligible=False,
                     model=model, policy=policy, review=dict(decision=decision, note=note),
-                    plan=plan, receipt=receipt, created_at=time.time())
+                    plan=plan, receipt=receipt, qualification=qualification, created_at=time.time())
                 save(plan_path, record)
                 # This is an idempotent local intent for the existing desk, never the pipeline's signed outbox.
                 save(self.root / 'pending' / self.repo / (digest(e['key'].encode()) + '.json'), dict(
                     schema='renda-local-intent/1', key=e['key'], identity=identity,
                     state='waiting-for-sync', remote_eligible=False, plan=str(plan_path)))
-                output.append(f"{e['key']} local diff={digest(diff.encode())[:12]} review={decision}; host plan exit={plan['code']}; receipt={receipt.get('verdict', 'unverified')}; waiting-for-sync")
+                if self.full == SITE_REPOSITORY:
+                    qstatus = 'trusted PASS' if qualification and qualification.get('eligible') else 'HOLD'
+                    output.append(f"{e['key']} local diff={digest(diff.encode())[:12]} review={decision}; site qualification={qstatus}; Spark gates not run; waiting-for-sync")
+                else:
+                    output.append(f"{e['key']} local diff={digest(diff.encode())[:12]} review={decision}; host plan exit={plan['code']}; receipt={receipt.get('verdict', 'unverified')}; waiting-for-sync")
         return output
 
     def host_plan(self, source, repository, sha, base):
