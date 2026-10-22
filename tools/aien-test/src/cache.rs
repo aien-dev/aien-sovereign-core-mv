@@ -11,10 +11,17 @@
 //! receipts themselves: every receipt already carries `volatile.cache.key`,
 //! so a separate `index.jsonl` would only be a second copy that could drift.
 //!
+//! A result is reused only for the same commit it was made at (sc#517). The
+//! key covers a gate's declared inputs, but a gate may read files it did not
+//! declare (SC-TEST reads README.md and COVENANT.md and searches the tree),
+//! so an older commit's PASS could stand in for a commit that would fail.
+//! Direct runs now follow the worker's rule: same commit, same pins, or the
+//! gate runs again. Cross-commit reuse returns only once every gate's inputs
+//! are proven complete (ADR 0028 cache key).
+//!
 //! Choices where the ADR is silent or contradicts itself (recorded in the PR):
-//! - A reused receipt is the source receipt's `core` with one change: its
-//!   `commit` is the commit being checked. The ADR says "identical core" and
-//!   also "records that this commit was checked"; both cannot hold, and
+//! - A reused receipt is the source receipt's `core` with its `commit` set to
+//!   the commit being checked (the same commit, since reuse is bound to it).
 //!   `why`, `run` and the dependency lookups all match receipts by commit.
 //! - Dependencies enter the key as receipt digests, resolved to the original
 //!   fresh receipt when the dependency itself was reused. Without that step a
@@ -152,6 +159,9 @@ pub enum Unusable {
     UncleanTree,
     /// HEAD moved during the run.
     HeadMoved,
+    /// It was made at another commit; a result stands only for its own
+    /// commit (sc#517).
+    OtherCommit,
     /// The run went past its time limit.
     TimedOut,
     /// The key written in the receipt is not what its own contents hash to.
@@ -171,6 +181,9 @@ impl Unusable {
             Unusable::NotAnExperiment => "its verdict is not PASS or FAIL",
             Unusable::UncleanTree => "the tree had uncommitted changes when it ran",
             Unusable::HeadMoved => "HEAD moved while it ran",
+            Unusable::OtherCommit => {
+                "it was made at another commit (a result stands only for its own commit)"
+            }
             Unusable::TimedOut => "it ran past its time limit",
             Unusable::KeyMismatch => "its recorded key does not match its own contents",
             Unusable::MachineMismatch => "its machine descriptor does not match its machine digest",
@@ -180,18 +193,22 @@ impl Unusable {
     }
 }
 
-/// May `src` (which carries `key`) stand in for a run now? Fail closed: the
-/// first problem found makes it unusable.
+/// May `src` (which carries `key`) stand in for a run at `commit` now? Fail
+/// closed: the first problem found makes it unusable.
 pub fn usable(
     src: &Stored,
     key: &str,
     index: &Index,
     store: &Store,
     env: &Value,
+    commit: &str,
 ) -> Result<(), Unusable> {
     let (core, vol) = (&src.value["core"], &src.value["volatile"]);
     if vol["cache"]["reused"] != false {
         return Err(Unusable::AlreadyReused);
+    }
+    if src.commit() != commit {
+        return Err(Unusable::OtherCommit);
     }
     if !matches!(src.verdict(), Some(Verdict::Pass | Verdict::Fail)) {
         return Err(Unusable::NotAnExperiment);
@@ -255,14 +272,21 @@ pub enum Lookup<'a> {
     Miss(Miss),
 }
 
-/// The newest usable fresh receipt whose `cache.key` is `key`.
-pub fn lookup<'a>(index: &'a Index, store: &Store, key: &str, env: &Value) -> Lookup<'a> {
+/// The newest usable fresh receipt whose `cache.key` is `key`, made at
+/// `commit`.
+pub fn lookup<'a>(
+    index: &'a Index,
+    store: &Store,
+    key: &str,
+    env: &Value,
+    commit: &str,
+) -> Lookup<'a> {
     let mut first_rejection: Option<Miss> = None;
     for r in index.receipts().iter().rev() {
         if r.value["volatile"]["cache"]["key"] != key {
             continue;
         }
-        match usable(r, key, index, store, env) {
+        match usable(r, key, index, store, env, commit) {
             Ok(()) => return Lookup::Hit(r),
             Err(why) => {
                 first_rejection.get_or_insert(Miss::Unusable {
@@ -407,7 +431,7 @@ pub fn explain_chain(
                             };
                             match key(&now, index) {
                                 Err(e) => lines.push(format!("cache: miss, cannot build the key ({e})")),
-                                Ok(k) => match lookup(index, &store, &k, &env) {
+                                Ok(k) => match lookup(index, &store, &k, &env, commit) {
                                     Lookup::Hit(src) => {
                                         lines.push(format!(
                                             "cache: hit, a run would reuse receipt {} ({}, made at commit {}); key {}",
@@ -599,17 +623,21 @@ mod tests {
     }
 
     #[test]
-    fn reuse_across_commits_records_the_commit_that_was_checked() {
+    fn a_result_is_bound_to_its_commit_and_never_reused_for_another() {
+        // sc#517: the key covers only declared inputs, and a gate may read
+        // files it did not declare, so an older commit's PASS must not stand
+        // in for a new commit even when every declared input is unchanged.
         let fx = Fx::new(SCRIPT);
         let first = fresh_pass(&fx);
         let old_head = fx.head();
-        // A change to a file the gate does not depend on.
+        // A change to a file the gate does not declare.
         fx.commit("README", "changed\n");
         assert_ne!(fx.head(), old_head);
         let second = fx.run(&fx.opts());
-        assert_eq!(reused_from(&second), first.receipt_digest.as_deref());
-        assert_eq!(fx.runs("a"), 1);
-        let (mut c1, mut c2) = (
+        assert_eq!(reused_from(&second), None, "no reuse across commits");
+        assert_eq!(second.verdict, Verdict::Pass);
+        assert_eq!(fx.runs("a"), 2, "the gate ran again at the new commit");
+        let (c1, c2) = (
             fx.receipt(&first)["core"].clone(),
             fx.receipt(&second)["core"].clone(),
         );
@@ -617,11 +645,19 @@ mod tests {
         assert_eq!(
             c2["commit"],
             fx.head(),
-            "the reuse receipt is for this commit"
+            "the fresh receipt is for this commit"
         );
-        c1["commit"] = Value::Null;
-        c2["commit"] = Value::Null;
-        assert_eq!(c1, c2, "everything else in core is the source's");
+        // The same key, so only the commit rule kept the second run fresh.
+        let r1 = fx.receipt(&first);
+        let r2 = fx.receipt(&second);
+        assert_eq!(
+            r1["volatile"]["cache"]["key"],
+            r2["volatile"]["cache"]["key"]
+        );
+        // Back at the new commit a third run reuses the second (same commit).
+        let third = fx.run(&fx.opts());
+        assert_eq!(reused_from(&third), second.receipt_digest.as_deref());
+        assert_eq!(fx.runs("a"), 2);
     }
 
     #[test]
@@ -924,24 +960,29 @@ mod tests {
     }
 
     #[test]
-    fn a_change_under_a_dependency_reruns_it_and_everything_that_rests_on_it() {
+    fn a_new_commit_reruns_the_whole_chain_and_the_same_commit_reuses_it() {
+        // sc#517: a result stands only for its own commit, so any new commit
+        // reruns every gate, whatever its declared inputs did. Within one
+        // commit the chain is reused as a whole.
         let fx = two_gate_fixture();
         run_all(&fx, &fx.opts());
-        // Gate A's own input (data/ is shared by both gates here, so give B a
-        // different one first to see that only the chain moves).
         let b = gate_text("C-B", &["C-A"], &fx.counter("b"), "").replace("data/", "other/");
         fx.commit("other/x.txt", "x\n");
         fx.commit("tests/b.gate", &b);
-        run_all(&fx, &fx.opts());
-        assert_eq!((fx.runs("a"), fx.runs("b")), (1, 2), "only B changed");
-        fx.commit("data/in.txt", "two\n");
         let after = run_all(&fx, &fx.opts());
         assert!(after.values().all(|o| reused_from(o).is_none()));
         assert_eq!(
             (fx.runs("a"), fx.runs("b")),
-            (2, 3),
-            "A changed, so B reruns too"
+            (2, 2),
+            "a new commit: A reruns although its declared inputs are unchanged, and B with it"
         );
+        let again = run_all(&fx, &fx.opts());
+        assert!(again.values().all(|o| reused_from(o).is_some()));
+        assert_eq!((fx.runs("a"), fx.runs("b")), (2, 2), "same commit: reused");
+        fx.commit("data/in.txt", "two\n");
+        let after = run_all(&fx, &fx.opts());
+        assert!(after.values().all(|o| reused_from(o).is_none()));
+        assert_eq!((fx.runs("a"), fx.runs("b")), (3, 3));
     }
 
     // ---- the key itself -------------------------------------------------
@@ -1038,7 +1079,8 @@ mod tests {
         let store = Store::new(dir.path());
         let index = Index::load(&store);
         let k = original["volatile"]["cache"]["key"].as_str().unwrap();
-        match lookup(&index, &store, k, &runner::captured_env()) {
+        let commit = original["core"]["commit"].as_str().unwrap();
+        match lookup(&index, &store, k, &runner::captured_env(), commit) {
             Lookup::Hit(_) => Err(()),
             Lookup::Miss(Miss::Unusable { why, .. }) => Ok(why),
             Lookup::Miss(Miss::NoReceipt) => panic!("the forged receipt must be found by its key"),
@@ -1152,13 +1194,18 @@ mod tests {
             "{before}"
         );
         let first = fresh_pass(&fx);
-        fx.commit("README", "changed\n");
         let hit = why_lines(&fx);
         assert!(hit.contains("cache: hit"), "{hit}");
         assert!(
             hit.contains(&first.receipt_digest.clone().unwrap()[..12]),
             "{hit}"
         );
+        // sc#517: a new commit is a miss even when no declared input changed.
+        fx.commit("README", "changed\n");
+        let other = why_lines(&fx);
+        assert!(other.contains("cache: miss"), "{other}");
+        assert!(other.contains("made at another commit"), "{other}");
+        assert!(!other.contains("these changed"), "{other}");
         fx.commit("data/in.txt", "two\n");
         let miss = why_lines(&fx);
         assert!(miss.contains("cache: miss"), "{miss}");
@@ -1187,7 +1234,7 @@ mod tests {
     fn why_for_a_dependent_follows_a_reused_dependency() {
         let fx = two_gate_fixture();
         run_all(&fx, &fx.opts());
-        fx.commit("README", "changed\n");
+        // Same commit: B's dependency A is a hit, so B is one too.
         let g = graph::load(fx.repo.path()).unwrap();
         let index = Index::load(&fx.store());
         let b = g.index_of("C-B").unwrap();
