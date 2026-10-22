@@ -380,7 +380,7 @@ fn main() {
             println!("  - Invariant rules: Active");
             println!("  - Telemetry scanner: Active");
             println!("  - Unslop scanner: Active");
-            println!("  - Contributor Oath evaluator: Active");
+            println!("  - Contributor certification evaluator: Active");
             println!("  - Unified PR Reviewer: Active");
             println!("  - Issue Triage Engine: Active");
         }
