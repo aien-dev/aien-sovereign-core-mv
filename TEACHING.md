@@ -16,3 +16,8 @@ cargo test --locked --offline --lib -p aien-inference-abi generation::tests::gen
 ```
 
 Expected exit is 0 with one named test passed. [TEACHING-REPLAY.txt](TEACHING-REPLAY.txt) records the actual attempt. The synthetic test exercises one token control path, not the server, tokenizer, scheduler, Omega GPU path or a real generated sentence together. [FIRST_RUN.md](docs/FIRST_RUN.md) is the model and desk setup route; [issue 414](https://github.com/aien-dev/aien-sovereign-core-mv/issues/414) tracks release blockers. Published historical prereleases exist on the [GitHub releases page](https://github.com/aien-dev/aien-sovereign-core-mv/releases), but they do not qualify this source revision or provide evidence of a supported general installer. This tutorial does not enroll a machine or claim the model route passed.
+
+
+### Parent fresh-checkout replay
+
+A separate coordination replay is retained in [the parent receipt](docs/parent-replay-2026-10-22.txt). Its scope and observed exit are explicit; source review and final desk qualification remain separate. A recorded absence or expected failing baseline is not a passing implementation.
