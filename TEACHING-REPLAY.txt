@@ -1,0 +1,24 @@
+# Teaching replay record, 2026-10-22
+
+Repository: `aien-dev/aien-sovereign-core-mv`
+Base source revision: `754c07b118f41ad899607b60329bd851b1ccb13e` (fresh detached Spark checkout; documentation branch is a separate checkout)
+Host: `spark-b87b`, Linux 7.0.0-1019-nvidia aarch64
+Tools: gcc 13.3.0, git 2.43.0, QEMU 8.2.2, Rust/cargo 1.98.1 (only relevant tools used)
+Invocation: `quiet-build` wrapped CPU-heavy compilation where used; it does not change the test's assertion.
+
+From a fresh checkout detached at the base revision:
+
+```sh
+cargo test --locked --offline --lib -p aien-inference-abi generation::tests::generate_stops_on_stop_ids_caps_length_and_cancels -- --exact
+```
+
+Observed process exit: `0`
+Observed result: 1 named test passed; 265 filtered out; CPU stub
+Raw stdout/stderr: [TEACHING-REPLAY.raw.txt](TEACHING-REPLAY.raw.txt) (SHA-256 `ec2b15f8905372ebad4193b936afdb629123ab37daff4047b2c3068067a99e4c`).
+
+Source file hashes at the tested base:
+- `crates/aien-inference-abi/src/generation.rs`: SHA-256 `d1041abab300da2b1b8eb91a3e4f52a29e179b51b9ef8beaf731475e4d87dd9f`
+- `crates/aien-inference-abi/src/generation/tests.rs`: SHA-256 `c3ab2a13cb375af22b518acf79a43ce3739efdb7e2782cbd331002239ff1db26`
+- `crates/aien-kv-cache/src/lib.rs`: SHA-256 `f4ff10e5328d2ca0235b586e441c0c26877c7bbafa9eb4824bc3d8de03082af3`
+
+Limits: this is a scoped fixture, not a qualification of unrelated gates or physical hardware. The Omega program fixture is separate from OSC source compilation. No model was loaded.

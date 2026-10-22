@@ -10,6 +10,10 @@ No Python in this repo (a CI guard, `scripts/check-no-python.sh`, fails the buil
 
 > SUPERSEDED 2026-10-01 by [ADR 0024](https://github.com/aien-spark/aien-architecture/blob/main/docs/adr/0024-rust-scaffolding-omega-destination.md). Previous text, kept as history: **This repository is legacy.** The project's target language is C, and AIEN's own stack (the [aienos](https://github.com/aien-spark/aienos) kernel, the [omega](https://github.com/aien-spark/omega) runtime, [physics](https://github.com/aien-spark/physics) FORGE) is replacing it. No new Rust is added here, with one declared exception: the DEV-MODEL-0 program (a local development model on AIEN-owned inference) may temporarily extend this Rust substrate while the C replacements are built. Component ownership (for example the Cortex now owned by omega, per ADR 0022) is recorded in [aien-architecture](https://github.com/aien-spark/aien-architecture); here `crates/cortex-rs` is non-authoritative and to be retired, not ported.
 
+## How I built it: a small result you can reproduce
+
+I follow token generation through the controller and its synthetic model, including a stop/cancel boundary, then explain where scheduling, copy-on-write KV and Omega fit. [The worked lesson](TEACHING.md) and [replay record](TEACHING-REPLAY.txt) are model-free and do not claim a live inference run.
+
 ## Current state
 
 Research-grade and pre-alpha. Crates build and have unit tests on the DGX Spark; execution is CPU plus GPU through AIEN's own Omega kernels. Modular MAX and Mojo were removed from the project on 2026-10-15. Nothing here is qualified on hardware as a finished system. Live status and sequencing: [CURRENT_EXECUTION_PLAN.md](https://github.com/aien-spark/aien-architecture/blob/main/CURRENT_EXECUTION_PLAN.md) and the [implementation status snapshot](https://github.com/aien-spark/aien-architecture/blob/main/docs/02-implementation-status.md). Component detail and platform status: [docs/PLATFORM_MATRIX.md](docs/PLATFORM_MATRIX.md), [docs/AIEN_RUNTIME_ARCHITECTURE.md](docs/AIEN_RUNTIME_ARCHITECTURE.md).
