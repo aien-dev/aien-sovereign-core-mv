@@ -11,6 +11,7 @@
 #   PORT       TCP port on 127.0.0.1    default 18091
 #   STATE_DIR  log and pid file folder  default ${XDG_STATE_HOME:-$HOME/.local/state}/aien
 #   LOG        server log               default $STATE_DIR/serve-27b.log
+#   READY_TIMEOUT_SECONDS  API readiness limit, default 180 seconds
 #   MAX_CONTEXT, MAX_TOKENS_CAP         default 131072 and 16384
 # Exit: 0 started, 1 a check failed (nothing started).
 set -euo pipefail
@@ -21,6 +22,7 @@ PORT=${PORT:-18091}
 STATE_DIR=${STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/aien}
 LOG=${LOG:-$STATE_DIR/serve-27b.log}
 PIDFILE=$STATE_DIR/serve-27b.pid
+READY_TIMEOUT_SECONDS=${READY_TIMEOUT_SECONDS:-180}
 MAX_CONTEXT=${MAX_CONTEXT:-131072}
 MAX_TOKENS_CAP=${MAX_TOKENS_CAP:-16384}
 FOREGROUND=0
@@ -35,6 +37,7 @@ done
 fail() { echo "serve-27b: $*" >&2; exit 1; }
 
 [ -x "$BIN" ] || fail "server binary not found or not executable: $BIN (install it with install.sh --with-server, or set BIN)"
+[[ "$READY_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || fail "READY_TIMEOUT_SECONDS must be a positive integer"
 # The binary must have the real Omega engine linked. A CPU stub build would start and then fail
 # every request, so refuse it here.
 info=$("$BIN" --version 2>&1) || fail "$BIN --version failed; is it an aien-serve-http build from this branch or newer?
@@ -65,15 +68,78 @@ echo "$(date -u +%FT%TZ) serve-27b: starting $BIN ${ARGS[*]}" >> "$LOG"
 if [ "$FOREGROUND" -eq 1 ]; then
     exec "$BIN" "${ARGS[@]}"
 fi
-setsid nohup "$BIN" "${ARGS[@]}" >> "$LOG" 2>&1 < /dev/null &
-echo $! > "$PIDFILE"
-cat <<EOF
-serve-27b: started, pid $(cat "$PIDFILE")
+STATUSFILE=$STATE_DIR/serve-27b.$$.exit
+rm -f "$STATUSFILE"
+setsid nohup bash -c '
+    log=$1
+    status=$2
+    shift 2
+    "$@" >> "$log" 2>&1 &
+    child=$!
+    forward_term() { kill -TERM "$child" 2>/dev/null || true; }
+    trap forward_term TERM INT
+    while :; do
+        wait "$child"
+        rc=$?
+        kill -0 "$child" 2>/dev/null || break
+    done
+    printf "%s\n" "$rc" > "$status"
+    exit "$rc"
+' _ "$LOG" "$STATUSFILE" "$BIN" "${ARGS[@]}" < /dev/null &
+pid=$!
+echo "$pid" > "$PIDFILE"
+
+# Record process identity and verify it before signaling during cleanup.
+proc_start_time() {
+    local stat tail
+    [ -r "/proc/$1/stat" ] || return 1
+    stat=$(cat "/proc/$1/stat") || return 1
+    tail=${stat##*) }
+    set -- $tail
+    printf '%s\n' "${20}"
+}
+start_time=$(proc_start_time "$pid" 2>/dev/null || true)
+owns_process() {
+    [ -n "$start_time" ] \
+        && [ "$(proc_start_time "$pid" 2>/dev/null || true)" = "$start_time" ] \
+        && tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -Fq -- "$BIN" \
+        && [ "$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')" = "$pid" ]
+}
+cleanup_owned_process() {
+    if owns_process; then
+        kill -TERM -- "-$pid" 2>/dev/null || true
+        for _ in {1..50}; do
+            kill -0 -- "-$pid" 2>/dev/null || break
+            sleep 0.1
+        done
+        # The session ID remains reserved while any member of this owned group exists.
+        if kill -0 -- "-$pid" 2>/dev/null; then kill -KILL -- "-$pid" 2>/dev/null || true; fi
+    fi
+    if [ "$(cat "$PIDFILE" 2>/dev/null || true)" = "$pid" ]; then rm -f "$PIDFILE"; fi
+}
+
+deadline=$((SECONDS + READY_TIMEOUT_SECONDS))
+while (( SECONDS < deadline )); do
+    if response=$(curl --fail --silent --max-time 2 "http://127.0.0.1:$PORT/v1/models" 2>/dev/null) \
+        && grep -Eq '"id"[[:space:]]*:[[:space:]]*"qwen3\.8-27b-fp8"' <<<"$response"; then
+        rm -f "$STATUSFILE"
+        cat <<EOF
+serve-27b: ready, pid $pid
   log:     $LOG
-  loading takes about one to two minutes. It is ready when this lists qwen3.8-27b-fp8:
-           curl -s http://127.0.0.1:$PORT/v1/models
-  chat:    curl -s http://127.0.0.1:$PORT/v1/chat/completions -H 'Content-Type: application/json' \\
-             -d '{"messages":[{"role":"user","content":"Hello"}],"max_tokens":64}'
-  stop:    kill -TERM \$(cat $PIDFILE)
-           (it finishes the reply in progress, then exits; that can take a few minutes)
+  model:   qwen3.8-27b-fp8 at http://127.0.0.1:$PORT/v1/models
+  stop:    kill -TERM $(cat "$PIDFILE")
 EOF
+        exit 0
+    fi
+    if [ -f "$STATUSFILE" ]; then
+        child_status=$(cat "$STATUSFILE" 2>/dev/null || echo unknown)
+        tail_log=$(tail -n 20 "$LOG" 2>/dev/null || true)
+        cleanup_owned_process
+        fail "server process exited before API readiness (status $child_status); expected model qwen3.8-27b-fp8 at /v1/models. Recent log:\n$tail_log"
+    fi
+    sleep 1
+done
+
+tail_log=$(tail -n 20 "$LOG" 2>/dev/null || true)
+cleanup_owned_process
+fail "API readiness timed out after ${READY_TIMEOUT_SECONDS}s; expected model qwen3.8-27b-fp8 at /v1/models. Recent log:\n$tail_log"
