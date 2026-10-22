@@ -1,0 +1,47 @@
+{
+  "task": "L599 core historical qualification",
+  "date": "2026-10-22",
+  "host": "Spark",
+  "source_commit": "a844edd6955a2958d1395aa79536c70b6b81f35b",
+  "source_parent": "a2a41b10251b3fe6e0385765827d676457202051",
+  "worktree": "~/workspace/hermes-desk/core-qualification-L599",
+  "cargo_target_dir": "~/workspace/targets/core-qualification-L599",
+  "cargo_build_jobs": 4,
+  "worktree_clean": true,
+  "fixture_files": [
+    {
+      "path": "crates/aien-inference-abi/fixtures/openwaldo-byte/model.safetensors",
+      "present": true,
+      "size_bytes": 36632,
+      "sha256": "926db1cbbcea200d1acd12fa4b8a942a6b29f2339d2d35098b52231142dcec40"
+    },
+    {
+      "path": "crates/aien-inference-abi/fixtures/llama32_1b_oracle.safetensors",
+      "present": true,
+      "size_bytes": 50834760,
+      "sha256": "bf1d83edc1b802ad25cfbbce7a043658d3d4797bd67955447ce8630b51f515ed"
+    }
+  ],
+  "runs": [
+    {
+      "command": "cd /home/drakestapleton/workspace/hermes-desk/core-qualification-L599 && timeout 900 ~/.local/bin/quiet-build env CARGO_BUILD_JOBS=4 CARGO_TARGET_DIR=/home/drakestapleton/workspace/targets/core-qualification-L599 cargo test -p aien-allen --test deployment_test -- --nocapture",
+      "exit": 0,
+      "result": "PASS: 6 passed, 0 failed, 0 ignored",
+      "raw_log": "~/handoffs/pr-failure-triage-20261022/L599-deployment-test.raw.log",
+      "exit_file": "~/handoffs/pr-failure-triage-20261022/L599-deployment-test.exit"
+    },
+    {
+      "command": "cd /home/drakestapleton/workspace/hermes-desk/core-qualification-L599 && timeout 900 ~/.local/bin/quiet-build env CARGO_BUILD_JOBS=4 CARGO_TARGET_DIR=/home/drakestapleton/workspace/targets/core-qualification-L599 cargo test -p aien-runtime --test prefill_e2e2 --no-run",
+      "exit": 0,
+      "result": "PASS: test executable compiled; ignored behavioral test not run",
+      "reason_not_run": "Scope prohibits model loads. The test calls strict_load on a 2.2 GB TinyLlama checkpoint.",
+      "raw_log": "~/handoffs/pr-failure-triage-20261022/L599-prefill-compile.raw.log",
+      "exit_file": "~/handoffs/pr-failure-triage-20261022/L599-prefill-compile.exit"
+    }
+  ],
+  "historical_prefill_status": "UNQUALIFIED under current isolation; historical receipt is contaminated according to parent correction, behavior test not run due no-model-load constraint",
+  "gpu_or_model_loaded": false,
+  "official_judge_run": false,
+  "source_changes": false,
+  "handoff": "~/handoffs/pr-failure-triage-20261022/L599-qualification.md"
+}

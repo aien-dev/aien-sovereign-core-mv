@@ -1,0 +1,15 @@
+{
+  "source_commit": "a844edd6955a2958d1395aa79536c70b6b81f35b",
+  "gate": "PREFILL-E2E-2",
+  "checks": 9,
+  "result": "PASS",
+  "binary_sha256": "b7bf2f53a141d681a3c608ef94c3ee27f657482c1c7f398751f4f52b8e0a93a0",
+  "receipt_sha256": "a0b7051b45da6b500e063cae6f9a572f88aaaca488537e75e8adf431b05e0aee",
+  "source_test_sha256": "ea930365fb4f2104853ce46eeb03b52bb8898428cdd4c9763ed233d8abd73305",
+  "target": "/home/drakestapleton/workspace/targets/core-qualification-L599",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+  "gpu": "NOT_RUN",
+  "performance_claim": false,
+  "official_signed_CI_bundle": "NOT_REPLACED"
+}
