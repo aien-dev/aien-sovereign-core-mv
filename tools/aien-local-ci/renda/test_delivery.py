@@ -199,7 +199,7 @@ class Delivery(unittest.TestCase):
               'os.fstat(int(sys.argv[1]));Path(sys.argv[3]).write_text("ready");'
               '\nwhile not Path(sys.argv[2]).exists():time.sleep(0.01)\n')
         def spawn(cmd,**kwargs):
-            self.assertEqual(cmd[:2],['aien-local-ci','once'])
+            self.assertEqual(cmd[-5:-3],['aien-local-ci','once'])
             child=real_popen([sys.executable,'-c',code,str(kwargs['pass_fds'][0]),str(release),str(ready)],**kwargs)
             children.append(child);return child
         try:
@@ -219,6 +219,29 @@ class Delivery(unittest.TestCase):
             for child in children:self.assertEqual(child.wait(timeout=3),0)
         with open(self.q.state/'renda-operator-admission/interplane.lock','a') as lock:
             fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+
+    def test_judge_guard_holds_admission_but_does_not_leak_fd_to_gate(self):
+        import sys,fcntl,time
+        self.assertTrue(callable(getattr(h,'guarded_judge_command',None)), 'judge guardian missing')
+        lockpath=self.q.state/'fixture-admission.lock';lockpath.parent.mkdir(parents=True,exist_ok=True)
+        ready=self.root/'gate-ready';release=self.root/'release-gate'
+        code=('import os,sys,time;from pathlib import Path;'
+              '\ntry:os.fstat(int(sys.argv[1]));raise SystemExit(91)\nexcept OSError:pass\n'
+              'Path(sys.argv[2]).write_text("fd closed");'
+              '\nwhile not Path(sys.argv[3]).exists():time.sleep(0.01)\n')
+        with open(lockpath,'a') as lock:
+            fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            fd=lock.fileno()
+            child=subprocess.Popen(h.guarded_judge_command(fd,[sys.executable,'-c',code,str(fd),str(ready),str(release)]),pass_fds=(fd,))
+        try:
+            deadline=time.monotonic()+3
+            while not ready.exists() and child.poll() is None and time.monotonic()<deadline:time.sleep(0.01)
+            self.assertTrue(ready.exists(),'actual gate inherited admission fd or failed')
+            with open(lockpath,'a') as other:
+                with self.assertRaises(BlockingIOError):fcntl.flock(other,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        finally:
+            release.write_text('release');self.assertEqual(child.wait(timeout=3),0)
+        with open(lockpath,'a') as other:fcntl.flock(other,fcntl.LOCK_EX|fcntl.LOCK_NB)
 
     def test_forged_ack_shape_without_original_input_provenance_is_refused(self):
         original=read(Path(self.ack['ack_path']))

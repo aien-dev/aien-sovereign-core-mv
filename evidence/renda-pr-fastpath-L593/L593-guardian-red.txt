@@ -1,0 +1,13 @@
+.......F.............
+======================================================================
+FAIL: test_judge_guard_holds_admission_but_does_not_leak_fd_to_gate (__main__.Delivery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/source/L545-0f2d2b2636c08afa/test_delivery.py", line 225, in test_judge_guard_holds_admission_but_does_not_leak_fd_to_gate
+    self.assertTrue(callable(getattr(h,'guarded_judge_command',None)), 'judge guardian missing')
+AssertionError: False is not true : judge guardian missing
+
+----------------------------------------------------------------------
+Ran 21 tests in 4.022s
+
+FAILED (failures=1)

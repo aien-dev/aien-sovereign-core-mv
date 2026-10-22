@@ -4,9 +4,21 @@ from pathlib import Path
 import re
 import tempfile
 import time
+import sys
 
 from local_queue import digest, read, save
 from site_policy import exact_remote_refs, inspect_site_pr_snapshot, repository_identity
+
+
+def guarded_judge_command(admission_fd, command):
+    # A trusted waiter retains the admission FD while the real judge runs.
+    # The judge and its gate fixtures receive no FD, so an orphaned test server
+    # cannot hold this repository's admission indefinitely after the judge exits.
+    code = ('import os,subprocess,sys; '
+            'os.set_inheritable(int(sys.argv[1]),False); '
+            'rc=subprocess.call(sys.argv[2:],close_fds=True); '
+            'sys.exit(rc if rc>=0 else 128-rc)')
+    return [sys.executable,'-c',code,str(admission_fd),*command]
 
 
 def cheap_metadata(queue, source, sha, base):

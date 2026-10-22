@@ -26,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.expanduser("~"), ".local/lib/renda"))
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from local_queue import Queue, status as queued_status, valid_pr, digest, read, save
-from delivery import admit_plan, cheap_metadata, assessment, publish_candidate, report_transitions
+from delivery import admit_plan, cheap_metadata, assessment, publish_candidate, report_transitions, guarded_judge_command
 from site_policy import (repository_identity, repository_policy, SITE_REPOSITORY,
     SITE_POLICY_ID, inspect_site_pr_snapshot, exact_remote_refs, verify_site_qualification,
     site_required_checks, required_checks_satisfied)
@@ -387,7 +387,7 @@ def _operator_run(repo, sha, admission_fd):
         return True, f"operator judge run started (dry run, log {logp})"
     Path(LOGDIR).mkdir(parents=True, exist_ok=True)
     with open(logp, 'ab') as output:
-        child = subprocess.Popen(['aien-local-ci','once',repo,sha,'--operator'], env=ENV,
+        child = subprocess.Popen(guarded_judge_command(admission_fd,['aien-local-ci','once',repo,sha,'--operator']), env=ENV,
             stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
             start_new_session=True, pass_fds=(admission_fd,))
     save(Path(STATE) / 'renda-operator-admission' / (repo + '.json'),

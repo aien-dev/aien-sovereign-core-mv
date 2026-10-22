@@ -1,12 +1,12 @@
 {
   "files": {
-    "delivery.py": "7b287b390c12299bab5299bac4b7671cc2f95244c86ec5d744b9f05c2f26c989",
+    "delivery.py": "24e85199fc9eb78eb6ca121e8327edbcd70c2f207e25382b35c830427f8ccffc",
     "install.py": "72ca6365e08ee12205e354de0a4dfb77bf5cd9e5b7a9325b5544166f53911a1c",
     "local_queue.py": "825c16a67a7f0f26780456491a46c7f015efb9ccdaa78ff82d3db73263258f16",
     "renda-checked": "7333056832f851eb91bf49dc821b2a6d194c95d215a99c082c83940ebfbed840",
-    "renda-harness": "7885f55e59c6a8d9ace5bc0909207ed31eefe8d72ffa65e632e18221d949f52e",
+    "renda-harness": "d751d925f15d0fc31a986e886972ee8777efc0f05cdae3233600eaaa35b86f6a",
     "site_policy.py": "9526113b6b4a323b1d47f538d60261e499228cda89a31c5ba2090997dcea2cc3",
-    "test_delivery.py": "052064583b70915ac6ed6dc503ef0146148a9beffa467babe618e6c23a333e3d",
+    "test_delivery.py": "a28960b9d18eddd108590ca6b485eadda087a2b39438eecd9ef123fb8bebb11d",
     "test_local_queue.py": "d26618b8bf9f55a7f88c6d0eced21252ff1c640046ff34ccaef65477f37e78ce",
     "test_reliability.py": "f924611a7988bd00df7f8bf81ddfa63731561e09035510854f86c40473bc2b55",
     "test_site_policy.py": "2c6d39850022b093d50ddeed19ceb3516e93b543b500450099403c48a4355325"
