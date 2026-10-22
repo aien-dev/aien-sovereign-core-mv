@@ -270,7 +270,7 @@ cmd_run() { # <bin-dir> [--post] [--no-second]
   stop_server "$RUN/server.pid" "$PORT"
   CUR_PIDF=""
   for arm in $(jq -r '.arms | to_entries[] | select(.value.server_env != null) | .key' "$SUITE"); do
-    enabled=$(jq -r --arg a "$arm" '.arms[$a].enabled // true' "$SUITE")
+    enabled=$(jq -r --arg a "$arm" '.arms[$a].enabled != false' "$SUITE")
     if [ "$enabled" != true ]; then skip_arm "$arm" "arm disabled in suite.json (its lever is not in the candidate yet)"; continue; fi
     if [ "$second" != yes ]; then skip_arm "$arm" "--no-second: the second (load-only) server was not loaded"; continue; fi
     mapfile -t envs < <(jq -r --arg a "$arm" '.arms[$a].server_env | to_entries[] | "\(.key)=\(.value)"' "$SUITE" | sed "s|\$OUT|$RUN|g")
