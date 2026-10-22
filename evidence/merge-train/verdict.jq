@@ -1,6 +1,7 @@
 # merge-train: cells (one JSON per arm x case, slurped) -> the lever x case verdict table.
 # $s[0] = suite.json, $present[0] = {"Lnnn": "yes"|"no"|"unknown"}.
 def rank: {"FAIL":6, "RED-FAIL":6, "ERROR":5, "NOT-ON-TRAIN":4, "SKIP":3, "PASS":1, "RED-OK":1, "-":0}[.] // 5;
+# PARTIAL: some of the lever's own arms were SKIPPED (an arm disabled, or past the load cap): never read as PASS.
 . as $cells | $s[0] as $suite | $present[0] as $pr | ($suite.cases | map(.id)) as $ids
 | {cases: $ids,
    levers: [$suite.levers[] | . as $l | ($pr[$l.id] // "unknown") as $p
@@ -19,6 +20,7 @@ def rank: {"FAIL":6, "RED-FAIL":6, "ERROR":5, "NOT-ON-TRAIN":4, "SKIP":3, "PASS"
                           elif any(.[]; . == "ERROR") then "ERROR"
                           elif any(.[]; . == "NOT-ON-TRAIN") then "NOT-ON-TRAIN"
                           elif all(.[]; . == "SKIP") then "SKIP"
+                          elif any(.[]; . == "SKIP") then "PARTIAL"
                           else "PASS" end)
                        + (if $p == "unknown" then "?" else "" end) end)}],
    red_controls: {ran: ([$cells[] | select(.verdict == "RED-OK" or .verdict == "RED-FAIL")] | length),
