@@ -6,7 +6,7 @@ Modern inference engines expend substantial compute and memory overhead mitigati
 This research branch evaluates the thesis:
 > How much of modern LLM inference latency, memory pressure, and energy consumption belongs to forward tensor mathematics, and how much is an artifact of the software orchestration stack?
 
-By systematically replacing each layer of the inference engine with native compiled Rust and Omega kernels, we measure the empirical delta across each removal.
+By systematically replacing each layer of the inference engine with native compiled Rust and Omega kernels, I measure the empirical delta across each removal.
 
 ---
 

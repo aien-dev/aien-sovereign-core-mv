@@ -16,7 +16,7 @@ Downstream utilization, reproduction, distribution, compilation, or deployment o
 
 Artificial intelligence is an intellectual milestone of human civilization. True technological progress requires transparency, mutual trust, and global cooperation across national and institutional boundaries. 
 
-When organizations operate in isolation, conceal hardware bottlenecks, and accelerate competitive races without coordination, our species faces unnecessary risks. The AIEN Open Cooperation Covenant establishes an open framework for willing partners to share compute insights, demystify hardware scaling, publish open model weights, and guarantee research freedoms for developers worldwide.
+When organizations operate in isolation, conceal hardware bottlenecks, and accelerate competitive races without coordination, the human species faces unnecessary risks. The AIEN Open Cooperation Covenant establishes an open framework for willing partners to share compute insights, demystify hardware scaling, publish open model weights, and guarantee research freedoms for developers worldwide.
 
 ---
 

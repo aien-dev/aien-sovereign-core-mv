@@ -83,7 +83,7 @@ Chat template, VERIFIED (B/raw/main/chat_template.jinja, "Published: 2026-07-09"
 - Terms (standard Apache 2.0, from general knowledge of that license, UNVERIFIED against this page beyond the header): free use, modification, and redistribution including commercial; patent grant; you must give recipients a copy of the license, keep copyright, patent and attribution notices, and mark files you changed; keep any NOTICE file contents if one exists. No NOTICE file exists in the repo (VERIFIED by file list). Warranty disclaimer applies.
 - Important difference from earlier Gemma versions: Gemma 1 to 3 used a custom "Gemma Terms of Use". Gemma 4 here is Apache 2.0 with no click-through terms.
 - Prohibited use: a separate page exists, https://ai.google.dev/gemma/prohibited_use_policy (HTTP 200), but it is dated "Last modified: February 21, 2024" and speaks of "Gemma or Model Derivatives", wording tied to the old Gemma Terms of Use. The Gemma 4 model card does not link or reference it, and Apache 2.0 itself has no use restrictions. Whether Google intends it to bind Gemma 4 users is UNVERIFIED. Recommendation: treat it as a courtesy norm and have Drake's counsel or Drake decide; it does not block engineering work.
-- Attribution to carry in our repo: model name, source repo URL, license name and URL, and a statement of any changes (for example conversion to our own format).
+- Attribution to carry in my repo: model name, source repo URL, license name and URL, and a statement of any changes (for example conversion to my own format).
 
 ## 5. Access and download
 
@@ -91,9 +91,9 @@ Chat template, VERIFIED (B/raw/main/chat_template.jinja, "Published: 2026-07-09"
 - So Drake does NOT need an account, license acceptance, or token. No steps are required from him.
 - Download without Python, no credentials, resumable (it is a 23.9 GB file; check free disk first):
   `curl -L -C - -o model.safetensors https://huggingface.co/google/gemma-4-12B-it/resolve/main/model.safetensors`
-- This model is an open-weight input we use to build with. The weights are kept on local disk, and nothing is fetched at runtime; AIEN must work fully offline, so the download above is a one-time build-time step.
+- This model is an open-weight input I use to build with. The weights are kept on local disk, and nothing is fetched at runtime; AIEN must work fully offline, so the download above is a one-time build-time step.
   Repeat for config.json, generation_config.json, tokenizer.json, tokenizer_config.json, chat_template.jinja, processor_config.json (same URL pattern). Afterwards verify with `sha256sum model.safetensors` against 5a84cb313260ac447237b890387116dfa8682e49a6b44bc585ae8353abbff18d. git-lfs also works but is unnecessary.
-- If Hugging Face ever gates it, Drake would create a free HF account, open the model page, accept the terms, create a read-only token under Settings, then we would add `-H "Authorization: Bearer <token>"` to curl. Not needed today.
+- If Hugging Face ever gates it, Drake would create a free HF account, open the model page, accept the terms, create a read-only token under Settings, then I would add `-H "Authorization: Bearer <token>"` to curl. Not needed today.
 
 ## 6. Open items before implementation
 

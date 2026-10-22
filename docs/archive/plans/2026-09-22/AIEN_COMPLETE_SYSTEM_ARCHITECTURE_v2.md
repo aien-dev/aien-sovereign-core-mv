@@ -54,7 +54,7 @@ AIEN still needs one canonical layer that answers all of the following:
 5. **Can the work be explored in parallel branches?**
 6. **What state belongs to each branch?**
 7. **What effects are permitted?**
-8. **How do we prove what actually happened?**
+8. **How do I prove what actually happened?**
 9. **What should be remembered?**
 10. **How should the system improve from the result?**
 

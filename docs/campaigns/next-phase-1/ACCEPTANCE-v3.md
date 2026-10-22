@@ -34,7 +34,7 @@ composition, greedy, 48 tokens.
   `TinyLlama-1.1B-Chat-v1.0/tokenizer_config.json`, sha256
   `7b41ba7d0eb91e77914ca3dafde559ea3e19878769b7e68409e89bed5222e77a`, field `chat_template`.
   Rendered with the Hugging Face settings (trim_blocks, lstrip_blocks) it gives
-  `<|user|>\n{prompt}</s>\n<|assistant|>\n`, byte-identical to ours (PROVEN BY TEST:
+  `<|user|>\n{prompt}</s>\n<|assistant|>\n`, byte-identical to AIEN's (PROVEN BY TEST:
   `chat_template_test::streamturn_formatting_matches_the_model_template`; the hand rendering
   of the jinja is INFERRED, no jinja engine was run). With the real tokenizer the prompt starts
   with BOS (id 1) and holds one EOS (id 2): 135 tokens (PROVEN BY TEST).

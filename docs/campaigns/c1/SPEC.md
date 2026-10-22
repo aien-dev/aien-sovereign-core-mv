@@ -30,7 +30,7 @@ Three roles produce three levels of evidence. They are never merged.
 | Verifier | Runs `aien-campaign-verifier` over a frozen bundle against this spec | Modify code under test, interpret results outside the acceptance files |
 | Independent reproducer | Clones the pinned commit on another GB10 and reruns from published instructions | Receive help beyond the published instructions |
 
-Evidence levels: "passed on our machine" (builder), "artifacts satisfy the predefined acceptance criteria" (verifier), "someone else reproduced it" (reproducer). C1 targets the second level. The third is a follow-on.
+Evidence levels: "passed on my machine" (builder), "artifacts satisfy the predefined acceptance criteria" (verifier), "someone else reproduced it" (reproducer). C1 targets the second level. The third is a follow-on.
 
 ### 1.1 Freezing rules
 

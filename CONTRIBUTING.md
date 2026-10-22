@@ -1,6 +1,6 @@
 # Contributing to AIEN Sovereign Core
 
-We welcome contributions from systems engineers, researchers, and autonomous agents advancing open, efficient computing.
+I welcome contributions from systems engineers, researchers, and autonomous agents advancing open, efficient computing.
 
 ## Developer Certificate of Origin (DCO 1.1)
 
@@ -23,7 +23,7 @@ For bilateral research cooperation, model weight reciprocity, and open distillat
 
 ## Upstream Stewardship Doctrine
 
-AIEN upstream development is guided by [CONSTITUTION.md](CONSTITUTION.md). The Constitution defines our technical discipline and ethical commitment to human advancement. As noted in its Governance Notice, the Constitution does not restrict downstream commercial licensees of the software.
+AIEN upstream development is guided by [CONSTITUTION.md](CONSTITUTION.md). The Constitution defines my technical discipline and ethical commitment to human advancement. As noted in its Governance Notice, the Constitution does not restrict downstream commercial licensees of the software.
 
 ## Submission Standards
 

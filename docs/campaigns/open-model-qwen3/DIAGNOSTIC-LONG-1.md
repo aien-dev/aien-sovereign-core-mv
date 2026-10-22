@@ -7,7 +7,7 @@ session 031756, 2026-10-07. Nothing here has been run.
 
 ## 0. Question
 
-In v2 (VERDICT-v2.md), T4 and T6 were cut at 256 tokens and refused. We do not know what Qwen3-4B would
+In v2 (VERDICT-v2.md), T4 and T6 were cut at 256 tokens and refused. I do not know what Qwen3-4B would
 have written. Two readings: (a) it was writing a good document that needed more room (truncation hides
 a good answer), or (b) it would have kept going without finishing, or finished with something that fails
 the rows (truncation delays a bad one). The answer decides what the product needs: a larger budget for

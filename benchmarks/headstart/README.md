@@ -148,7 +148,7 @@ unchanged: nothing in this repository enables `-Zheadstart` or
 The toolchain was local only: built under a disposable directory outside
 the repository, never vendored or committed (the upstream patches carry no
 license), never installed into rustup or `~/.cargo/bin`, and never used by
-CI, release, signing or spark-rsi. Only digests and our own scripts are kept
+CI, release, signing or spark-rsi. Only digests and my own scripts are kept
 (`toolchain/digests.txt`, `toolchain/*.sh`).
 
 Pins: upstream headstart `ff81bfecda2116d54776a7fec538fc2f4e349d1f`, rustc
