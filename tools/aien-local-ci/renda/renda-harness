@@ -20,11 +20,13 @@ mechanical steps (rebase, rerun, operator runs) carry on.
 import argparse, fcntl, json, os, re, subprocess, sys, time, urllib.request, urllib.error
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
+import base64
 import tempfile
 from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.expanduser("~"), ".local/lib/renda"))
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from local_queue import Queue, status as queued_status, valid_pr, digest, read, save
+from delivery import admit_plan, cheap_metadata, assessment, publish_candidate, report_transitions
 from site_policy import (repository_identity, repository_policy, SITE_REPOSITORY,
     SITE_POLICY_ID, inspect_site_pr_snapshot, exact_remote_refs, verify_site_qualification,
     site_required_checks, required_checks_satisfied)
@@ -253,18 +255,60 @@ def rebase(repo, full, pr, branch, sha):
 
 
 def hosted_rerun(full, sha, repo):
-    rc, out, _ = run(["gh", "api", f"repos/aien-dev/aien-receipts/contents/{repo}/{sha}", "--jq", "length"])
+    """One evidence-correction dispatch, not a retry-until-green workflow loop."""
+    queue = Queue(STATE, repo, full, run, CLONES, WORK)
+    bases = {e['base'] if e['kind'] == 'ready' else e['pr']['baseRefOid']
+             for e in queue.load()['entries']
+             if (e.get('sha') if e['kind'] == 'ready' else e['pr']['headRefOid']) == sha}
+    if len(bases) != 1:
+        return False, 'exact local base required before hosted reconciliation'
+    base = bases.pop()
+    source, repository = queue.source(sha, base)
+    if source is None:
+        return False, 'trusted source unavailable before hosted reconciliation'
+    receipt = queue.receipt(source, repository, sha, base)
+    if receipt.get('eligible') is not True:
+        return False, 'eligible signed receipt and PASS plan required before hosted reconciliation'
+    rc, out, _ = run(['gh', 'api', f'repos/aien-dev/aien-receipts/contents/{repo}/{sha}/bundle.json'])
     if rc != 0:
-        return False, "bundle not in aien-receipts yet"
+        return False, 'bundle not in aien-receipts yet'
     try:
-        runs = gh_json(["api", f"repos/{full}/actions/runs?head_sha={sha}&per_page=50"])["workflow_runs"]
-    except Exception as e:
-        return False, "cannot list runs: %s" % e
-    for r in runs:
-        if r.get("name") == HOSTED and r.get("conclusion") not in ("success", None):
-            rc, _, err = run(["gh", "run", "rerun", str(r["id"]), "-R", full, "--failed"])
-            return rc == 0, ("hosted check rerun started" if rc == 0 else "rerun failed: " + err[-150:])
-    return False, "no failed hosted run to rerun"
+        remote_bundle = json.loads(out)
+        if remote_bundle.get('encoding') != 'base64':
+            raise ValueError('unsupported bundle content encoding')
+        raw = base64.b64decode(''.join(remote_bundle['content'].split()), validate=True)
+        if digest(raw) != receipt.get('digest'):
+            return False, 'published bundle differs from eligible local evidence; wait for publication'
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return False, 'published bundle content unreadable'
+    try:
+        runs = gh_json(['api', f'repos/{full}/actions/runs?head_sha={sha}&per_page=50'])['workflow_runs']
+    except Exception as exc:
+        return False, f'cannot list runs: {exc}'
+    candidates = [r for r in runs if r.get('name') == HOSTED and r.get('status') == 'completed'
+                  and r.get('head_sha', sha) == sha and r.get('conclusion') not in ('success', None)]
+    if not candidates:
+        return False, 'no failed completed hosted run to reconcile'
+    latest = max(candidates, key=lambda r: r['id'])
+    # A new attempt from this same dispatch still has the same evidence digest.
+    # It cannot be dispatched again unless corrected signed evidence arrives.
+    path = Path(STATE) / 'renda-hosted-dispatch' / repo / (sha + '.json')
+    identity = digest(json.dumps([full, sha, receipt.get('digest'), latest['id']], sort_keys=True).encode())
+    with queue.lock('hosted-dispatch') as owned:
+        if not owned:
+            return False, 'hosted reconciliation already owned'
+        prior = read(path) or {}
+        if prior.get('identity') == identity:
+            return False, 'unchanged evidence already dispatched; failure requires correction'
+        retained = operator_verdict(repo, sha)
+        if retained and retained[0] in ('FAIL', 'HOLD'):
+            return False, 'retained failure forbids hosted dispatch'
+        save(path, dict(identity=identity, run_id=latest['id'], evidence=receipt.get('digest'),
+                        state='DISPATCH_RESERVED', reserved_at=time.time()))
+        rc, _, err = run(['gh', 'run', 'rerun', str(latest['id']), '-R', full, '--failed'])
+        save(path, dict(identity=identity, run_id=latest['id'], evidence=receipt.get('digest'),
+                        state='DISPATCHED' if rc == 0 else 'REFUSED_OR_AMBIGUOUS', diagnostic=err[-300:]))
+        return rc == 0, ('hosted evidence-correction dispatch started' if rc == 0 else 'rerun refused: ' + err[-150:])
 
 
 def operator_verdict(repo, sha):
@@ -298,13 +342,31 @@ def operator_run(repo, sha):
         if sha not in known:
             with open(seen, "a") as f:
                 f.write(sha + "\n")
-            return True, f"operator verdict on this head: {what} (not run again; the PR owner fixes the head or pushes a new one)"
+            return False, f"operator verdict on this head: {what} (not run again; the PR owner fixes the head or pushes a new one)"
         return False, f"operator verdict on this head: {what} (not run again)"
     if judging(sha):
         return False, "judge already running on this head"
     rc, out, _ = run("pgrep -af 'aien-local-ci once' || true")
     if f" {repo} " in out:
         return False, "an operator run for this repo is already going"
+    full = repository_identity(repo)
+    queue = Queue(STATE, repo, full, run, CLONES, WORK)
+    snapshot = queue.load()
+    bases = {e['base'] if e['kind'] == 'ready' else e['pr']['baseRefOid']
+             for e in snapshot['entries']
+             if (e.get('sha') if e['kind'] == 'ready' else e['pr']['headRefOid']) == sha}
+    if len(bases) != 1:
+        return False, 'cheap admission held: unique exact local base required'
+    base = bases.pop()
+    source, repository = queue.source(sha, base)
+    if source is None:
+        return False, 'cheap admission held: trusted local source unavailable'
+    admitted, reason = admit_plan(queue.host_plan(source, repository, sha, base))
+    if not admitted:
+        return False, 'cheap admission held: ' + reason
+    admitted, reason = cheap_metadata(queue, source, sha, base)
+    if not admitted:
+        return False, 'cheap admission held: ' + reason
     logp = f"{LOGDIR}/operator-{repo}-{sha[:8]}.log"
     if os.environ.get("RENDA_OPERATOR_DRY"):
         return True, f"operator judge run started (dry run, log {logp})"
@@ -752,10 +814,35 @@ def lane_pass(repo):
     from site_policy import __file__ as site_policy_source
     with open(site_policy_source, 'rb') as source:
         policy_source += source.read()
+    with open(Path(SOURCE_FILE).with_name('delivery.py'), 'rb') as source:
+        policy_source += source.read()
     policy = hashlib.sha256(policy_source).hexdigest()
     mid = model_id()
     res["local"] = queue.progress(snapshot, mid, ask_model, policy)
     res["sync_wait"] = []
+    res['published'] = []
+    with queue.lock('publish') as owned:
+        if owned and not os.path.exists(PAUSE):
+            for entry in snapshot['entries']:
+                if entry.get('kind') != 'ready':
+                    continue
+                local, note = assessment(queue, entry, mid, policy)
+                if local is None:
+                    res['waiting'].append(entry['key'] + ' ' + note)
+                    continue
+                source, repository, record = local
+                receipt = queue.receipt(source, repository, entry['sha'], entry['base'])
+                if receipt.get('eligible') is not True:
+                    # Local qualification is independent of GitHub sync. The existing
+                    # runner keeps FAIL verdicts and refuses duplicate exact-head jobs.
+                    ok, note = operator_run(repo, entry['sha'])
+                    (res['operator'] if ok else res['waiting']).append(entry['key'] + ' ' + note)
+                    if ok:
+                        break  # One local READY judge admission per repository per pass.
+                elif synced:
+                    ok, note = publish_ready(repo, queue, entry, mid, policy)
+                    category = 'waiting' if ok and 'already published as PR #' in note else ('published' if ok else 'blocked')
+                    res[category].append(note)
     if not synced:
         res["sync_wait"].append("waiting-for-sync: " + (queue.sync_diagnostic or "cached metadata only"))
         return res
@@ -874,15 +961,18 @@ def safe_lane_pass(repo):
                 "waiting": []}
 
 
+def publish_ready(repo, queue, entry, model, policy):
+    return publish_candidate(repo, queue, entry, model, policy, globals())
+
+
 def report(results):
-    acted = any(r["merged"] or r["rebased"] or r["rerun"] or r["operator"] for r in results)
+    acted = any(r["merged"] or r["rebased"] or r["rerun"] or r["operator"] or r.get('published') for r in results)
     lines = []
     for r in results:
-        for k in ("local", "sync_wait", "merged", "rebased", "rerun", "operator", "blocked", "waiting"):
+        for k in ("local", "sync_wait", "merged", "rebased", "rerun", "operator", "published", "blocked", "waiting"):
             for item in r.get(k, []):
                 lines.append(f"  {r['repo']} {k.upper()} {item}")
-    for l in lines:
-        log(l.strip())
+    report_transitions(STATE, NAME, results, log)
     if acted:
         with open(DESKLOG, "a") as f:
             f.write(f"\n{time.strftime('%FT%TZ', time.gmtime())} renda-harness({NAME}):\n")

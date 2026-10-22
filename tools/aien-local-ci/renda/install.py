@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import time
 
-FILES = ('renda-harness', 'local_queue.py', 'site_policy.py', 'test_reliability.py', 'test_local_queue.py', 'test_site_policy.py', 'renda-checked')
+FILES = ('install.py', 'renda-harness', 'local_queue.py', 'site_policy.py', 'delivery.py', 'test_delivery.py', 'test_reliability.py', 'test_local_queue.py', 'test_site_policy.py', 'renda-checked')
 
 
 def sha(path):
@@ -34,7 +34,7 @@ def install(args):
         inputs = {'renda-harness': args.expected_harness, 'renda-checked': args.expected_wrapper}
         if any(sha(live / f) != value for f, value in inputs.items()):
             raise RuntimeError('live input changed, refusing install')
-        release = home / '.local/lib/renda/releases' / ('L545-' + args.manifest_sha[:16])
+        release = home / '.local/lib/renda/releases' / ('L593-' + args.manifest_sha[:16])
         release.mkdir(parents=True, exist_ok=True)
         for f in FILES:
             target = release / f
@@ -47,7 +47,7 @@ def install(args):
         env = dict(os.environ, RENDA_CANDIDATE=str(release / 'renda-harness'), PYTHONDONTWRITEBYTECODE='1')
         output = Path(args.output)
         output.mkdir(parents=True, exist_ok=True)
-        for test in ('test_reliability.py', 'test_local_queue.py', 'test_site_policy.py'):
+        for test in ('test_reliability.py', 'test_local_queue.py', 'test_site_policy.py', 'test_delivery.py'):
             result = subprocess.run(['python3', str(release / test)], env=env, text=True, capture_output=True)
             (output / ('install-' + test + '.log')).write_text(result.stdout + result.stderr)
             if result.returncode:
