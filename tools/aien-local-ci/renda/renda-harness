@@ -779,19 +779,20 @@ def site_publish_ready(repo, queue, entry, model, policy):
     return True, f"{tag} published as PR #{number}; exact head/base read back CLEAN; merge remains desk-controlled"
 
 
+def policy_hash():
+    root = Path(SOURCE_FILE).parent
+    policy = hashlib.sha256()
+    for name in ('renda-harness','local_queue.py','site_policy.py','delivery.py','review_chunks.py'):
+        raw = (root / name).read_bytes()
+        policy.update(name.encode() + b'\0' + len(raw).to_bytes(8,'big') + raw)
+    return policy.hexdigest()
+
+
 def site_lane_pass(repo, full, queue):
     result = {"repo": repo, "merged": [], "rebased": [], "rerun": [], "operator": [],
               "blocked": [], "waiting": [], "local": [], "sync_wait": []}
     snapshot, synced = queue.sync()
-    with open(SOURCE_FILE, 'rb') as f:
-        policy_source = f.read()
-    from local_queue import __file__ as queue_source
-    with open(queue_source, 'rb') as f:
-        policy_source += f.read()
-    from site_policy import __file__ as site_policy_source
-    with open(site_policy_source, 'rb') as f:
-        policy_source += f.read()
-    policy = hashlib.sha256(policy_source).hexdigest()
+    policy = policy_hash()
     mid = model_id()
     result['local'] = queue.progress(snapshot, mid, ask_model, policy)
     if not synced:
@@ -826,17 +827,7 @@ def lane_pass(repo):
     if full == SITE_REPOSITORY:
         return site_lane_pass(repo, full, queue)
     snapshot, synced = queue.sync()
-    with open(SOURCE_FILE, 'rb') as source:
-        policy_source = source.read()
-    from local_queue import __file__ as queue_source
-    with open(queue_source, 'rb') as source:
-        policy_source += source.read()
-    from site_policy import __file__ as site_policy_source
-    with open(site_policy_source, 'rb') as source:
-        policy_source += source.read()
-    with open(Path(SOURCE_FILE).with_name('delivery.py'), 'rb') as source:
-        policy_source += source.read()
-    policy = hashlib.sha256(policy_source).hexdigest()
+    policy = policy_hash()
     mid = model_id()
     res["local"] = queue.progress(snapshot, mid, ask_model, policy)
     res["sync_wait"] = []

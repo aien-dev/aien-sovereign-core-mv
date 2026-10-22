@@ -159,8 +159,15 @@ def assessment(queue, entry, model, policy):
     if source is None or record.get('repository') != repository:
         return None, 'trusted source repository unavailable or changed'
     rc, diff, _ = queue.run(['git', '-C', str(source), 'diff', '--no-ext-diff', '--no-textconv', base + '...' + sha, '--'], timeout=120)
-    if rc or len(diff) > 60000 or digest(diff.encode()) != record.get('diff_digest'):
+    if rc or digest(diff.encode()) != record.get('diff_digest'):
         return None, 'exact full source diff changed or unavailable'
+    if len(diff) > 60000:
+        from review_chunks import review_diff
+        chunks = review_diff(diff, repository=repository, key=key, base=base, head=sha,
+            model=model, policy=policy, ask=lambda prompt: (None, None),
+            cache_path=plan_path.with_name(plan_path.name.replace('.plan.json','.chunks.json')), budget=0)
+        if record['review'].get('complete') is not True or not chunks['complete'] or chunks['decision'] is not True:
+            return None, 'complete exact-source chunk review required for large diff'
     ok, note = admit_plan(record.get('plan'))
     if not ok:
         return None, note

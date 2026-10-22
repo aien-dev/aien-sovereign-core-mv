@@ -1,0 +1,5 @@
+# Complete-review integration
+
+Author source1c0f31ad passed85synthetic service tests. Parent independently reproduced six integration failures then fixed them: publication still capped large diffs; trusted legacy repository alias rejected by PR-review boundary; partial passes repeated exact-source host planning; cache text could replace actual pending source text; real refusals consumed further model budget; chunk implementation missing from policy identity. A seventh RED regression prevents unpublishable tracking refs spending the review budget.
+
+Final92/92service testsPASS on Mac and Spark. Publisher now checks complete exact-source chunk approval for large diffs; trusted repository identity is rechecked against configured source, not guessed suffixes; partial planner results are reused by exact identity; cached source text must match; actual refusal is terminal; review-policy hash covers every implementation module. Transport/incomplete results remain nonapprovals with bounded per-pass retries. No gate or receipt requirement relaxed. No actual model approval or PR delivery claimed from synthetic tests. Independent final source review is pending.

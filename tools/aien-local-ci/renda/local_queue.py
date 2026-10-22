@@ -387,6 +387,10 @@ class Queue:
                         continue
                     sha, base = p['headRefOid'], p['baseRefOid']
                 else:
+                    ref = e.get('ref')
+                    if not isinstance(ref, str) or not ref or ref.startswith(('refs/', '-')):
+                        output.append(f"{e['key']} intake held: submit a literal branch name; no review budget spent")
+                        continue
                     sha, base = e['sha'], e['base']
                 prefix = self.root / 'local' / self.repo / digest(e['key'].encode())
                 source, repository = self.source(sha, base)
@@ -415,10 +419,11 @@ class Queue:
                     cached_review = review_chunks.review_diff(diff, repository=repository, key=e['key'],
                         base=base, head=sha, model=model, policy=policy, ask=lambda _prompt: (None, None),
                         cache_path=str(prefix) + '.chunks.json', budget=0)
-                    if (type(old.get('review', {}).get('decision')) is bool
+                    refused = old.get('review', {}).get('decision') is False
+                    approved = (old.get('review', {}).get('decision') is True
                             and old.get('review', {}).get('complete') is True
-                            and cached_review['complete']
-                            and cached_review['decision'] is old['review']['decision']):
+                            and cached_review['complete'] and cached_review['decision'] is True)
+                    if refused or approved:
                         # Receipt and sync eligibility are deliberately not cached with review.
                         old['receipt'] = receipt
                         if qualification is not None:
@@ -435,7 +440,13 @@ class Queue:
                     plan = dict(code=None, output='site qualification is Mac-owned; no Spark gate invoked',
                                 gates_executed=False, kind='not-applicable')
                 else:
-                    plan = self.host_plan(source, repository, sha, base)
+                    prior_plan = old.get('plan') if isinstance(old, dict) and old.get('identity') == identity else None
+                    if isinstance(prior_plan, dict) and type(prior_plan.get('code')) is int:
+                        plan = prior_plan
+                    elif model and calls_used < budget:
+                        plan = self.host_plan(source, repository, sha, base)
+                    else:
+                        plan = dict(code=None, output='host plan pending review budget', gates_executed=False)
                 if model:
                     chunk_review = review_chunks.review_diff(diff, repository=repository, key=e['key'],
                         base=base, head=sha, model=model, policy=policy, ask=ask,
@@ -485,9 +496,11 @@ class Queue:
         d = read(str(prefix) + '.plan.json')
         if (not isinstance(d, dict) or d.get('commit') != p['headRefOid']
                 or d.get('base') != p['baseRefOid'] or d.get('model') != model
-                or d.get('policy') != policy or d.get('key') != self.key(p)
-                or d.get('repository') != 'github.com/' + self.full):
+                or d.get('policy') != policy or d.get('key') != self.key(p)):
             return None, 'pinned local review pending'
+        source, repository = self.source(p['headRefOid'], p['baseRefOid'])
+        if source is None or d.get('repository') != repository:
+            return None, 'pinned local source repository changed or unavailable'
         diff_path = Path(str(prefix) + '.diff')
         try:
             diff = diff_path.read_bytes()

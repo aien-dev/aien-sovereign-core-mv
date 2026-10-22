@@ -77,7 +77,7 @@ def _valid_cache(value, identity, diff_digest, chunks):
         return False
     for expected, actual in zip(chunks, value['chunks']):
         if (not isinstance(actual, dict)
-                or any(actual.get(k) != expected[k] for k in ('index', 'start', 'end', 'file', 'chunk_digest'))
+                or any(actual.get(k) != expected[k] for k in ('index', 'start', 'end', 'file', 'chunk_digest', 'text'))
                 or type(actual.get('decision')) not in (bool, type(None))
                 or not isinstance(actual.get('note', ''), str)):
             return False
@@ -135,6 +135,8 @@ def review_diff(diff, *, repository, key, base, head, model, policy, ask, cache_
         _atomic_json(cache_path, cached)
     actual_calls = 0
     for chunk in rows:
+        if any(row['decision'] is False for row in rows):
+            break  # A real defect is terminal, not a reason to spend another pass.
         if chunk['decision'] is not None:
             continue
         attempts = 0
@@ -159,7 +161,7 @@ def review_diff(diff, *, repository, key, base, head, model, policy, ask, cache_
                 if attempts < max_attempts and actual_calls < budget:
                     time.sleep(min(1.0, 0.1 * (2 ** (attempts - 1))))
         _atomic_json(cache_path, cached)
-        if actual_calls >= budget:
+        if chunk['decision'] is False or actual_calls >= budget:
             break
     decisions = [chunk['decision'] for chunk in rows]
     complete = all(type(answer) is bool for answer in decisions)

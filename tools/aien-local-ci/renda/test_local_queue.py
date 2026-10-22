@@ -77,6 +77,37 @@ class Offline(unittest.TestCase):
     def git(self, *args):
         return subprocess.check_output(['git', '-C', str(self.clone), *args], text=True)
 
+    def test_completed_review_accepts_verified_legacy_source_repository_alias(self):
+        self.git('remote','set-url','origin','https://github.com/aien-dev/omega.git')
+        qu=self.queue()
+        with patch.object(qu,'host_plan',return_value={'code':0,'output':'Plan verdict: RUNNABLE\n'}):
+            qu.progress(self.doc,'synthetic-model',lambda prompt:('{"merge":true,"note":"synthetic approved"}','synthetic-model'),'policy',budget=2)
+        decision,note=qu.review(self.pr,'synthetic-model','policy')
+        self.assertIs(decision,True,note)
+
+    def test_unpublishable_tracking_ref_does_not_spend_local_model_budget(self):
+        qu=self.queue();ready=self.root/'tracking-ready.json'
+        ready.write_text(json.dumps([dict(repository=qu.full,ref='refs/remotes/origin/fix/old',sha=self.sha,base=self.base)]))
+        qu.seed_ready(ready);doc=qu.load();doc['entries'].sort(key=lambda entry:entry['kind']!='ready')
+        calls=[]
+        def ask(prompt):
+            calls.append(prompt);return '{"merge":true,"note":"synthetic approval"}','synthetic-model'
+        with patch.object(qu,'host_plan',return_value={'code':0,'output':'Plan verdict: RUNNABLE\n'}):
+            output=qu.progress(doc,'synthetic-model',ask,'policy',budget=2)
+        self.assertEqual(len(calls),1,'unpublishable tracking-ref entry consumed review budget')
+        self.assertTrue(any('literal branch' in line for line in output))
+
+    def test_partial_review_reuses_exact_source_planner_on_budget_zero_pass(self):
+        (self.clone/'huge.txt').write_text('x'*70000)
+        self.git('add','.');self.git('commit','-qm','synthetic big candidate')
+        sha=self.git('rev-parse','HEAD').strip();pr=dict(self.pr,headRefOid=sha)
+        doc=dict(self.doc,entries=[dict(self.doc['entries'][0],key=f'aien-dev/omega-mv#614@{sha}',pr=pr)])
+        qu=self.queue()
+        with patch.object(qu,'host_plan',return_value={'code':0,'output':'Plan verdict: RUNNABLE\n'}) as planner:
+            qu.progress(doc,'synthetic-model',lambda prompt:('{"merge":true,"note":"synthetic approved"}','synthetic-model'),'policy',budget=1)
+            qu.progress(doc,'synthetic-model',lambda prompt:self.fail('budget-zero model call'),'policy',budget=0)
+            self.assertEqual(planner.call_count,1,'same source replanned while only chunk work remains')
+
     def test_large_diff_resumes_complete_chunks_with_repository_wide_call_budget(self):
         self.git('checkout', '-q', self.base)
         (self.clone / 'large-one.txt').write_text(('one-' + 'x' * 100 + '\n') * 850)

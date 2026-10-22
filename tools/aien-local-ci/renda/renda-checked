@@ -4,7 +4,7 @@ export RENDA_CANDIDATE="$HOME/.local/bin/renda-harness"
 STATE="$HOME/.local/state/aien-local-ci"
 RELEASE=$(dirname "$(readlink -f "$RENDA_CANDIDATE")")
 mkdir -p "$STATE" "$HOME/handoffs/renda-local"
-if ! { python3 "$RELEASE/test_reliability.py" && python3 "$RELEASE/test_local_queue.py" && python3 "$RELEASE/test_review_chunks.py" && python3 "$RELEASE/test_delivery.py"; } > "$STATE/renda-startup-check.log" 2>&1; then
+if ! { python3 "$RELEASE/test_reliability.py" && python3 "$RELEASE/test_local_queue.py" && python3 "$RELEASE/test_review_chunks.py" && python3 "$RELEASE/test_review_integration.py" && python3 "$RELEASE/test_delivery.py"; } > "$STATE/renda-startup-check.log" 2>&1; then
   printf '%s Renda startup REFUSED: regression failed; see %s/renda-startup-check.log\n' "$(date -u +%FT%TZ)" "$STATE" >> "$HOME/handoffs/renda-local/startup-errors.log"
   exit 1
 fi

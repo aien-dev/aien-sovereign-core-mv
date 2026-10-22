@@ -84,6 +84,32 @@ class Delivery(unittest.TestCase):
     def writes(self):
         return [c for c in self.calls if c[:3]==['gh','pr','create']]
 
+    def test_complete_large_ready_review_is_accepted_by_publication_boundary(self):
+        import review_chunks
+        (self.source/'large.txt').write_text('large-source-'+('x'*70000))
+        self.git('add','.');self.git('commit','-qm','synthetic large ready')
+        self.head=self.git('rev-parse','HEAD').strip()
+        ready=self.root/'ready.json';ready.write_text(json.dumps([dict(repository=self.q.full,ref='feat/test',sha=self.head,base=self.base)]))
+        self.ack=self.q.seed_ready(ready);self.entry=self.q.load()['entries'][-1]
+        self.diff=self.git('diff',self.base+'...'+self.head,'--')
+        self.plan=dict(self.plan,key=self.entry['key'],commit=self.head,diff_digest=digest(self.diff.encode()),review=dict(decision=True,complete=True))
+        self.planfile=self.q.root/'local'/self.q.repo/(digest(self.entry['key'].encode())+'.plan.json');save(self.planfile,self.plan)
+        review_chunks.review_diff(self.diff,repository=self.plan['repository'],key=self.entry['key'],base=self.base,head=self.head,
+            model='synthetic-model',policy='synthetic-policy',ask=lambda prompt:('{"merge":true,"note":"synthetic approval"}','synthetic-model'),
+            cache_path=self.planfile.with_name(self.planfile.name.replace('.plan.json','.chunks.json')),budget=100)
+        self.pr['headRefOid']=self.head
+        ok,note=self.publish();self.assertTrue(ok,note)
+        self.assertEqual(len(self.writes()),1)
+
+    def test_review_policy_identity_covers_chunk_implementation(self):
+        self.assertTrue(callable(getattr(h,'policy_hash',None)), 'complete policy identity helper missing')
+        package=self.root/'policy-package';package.mkdir()
+        for name in ('renda-harness','local_queue.py','site_policy.py','delivery.py','review_chunks.py'):
+            (package/name).write_text('synthetic '+name)
+        with patch.object(h,'SOURCE_FILE',str(package/'renda-harness')):
+            before=h.policy_hash();(package/'review_chunks.py').write_text('changed chunk semantics')
+            self.assertNotEqual(before,h.policy_hash())
+
     def test_exact_ready_creates_pr_once_readback_and_does_not_merge(self):
         ok,note=self.publish();self.assertTrue(ok,note)
         ok,note=self.publish();self.assertTrue(ok,note)
