@@ -1,0 +1,98 @@
+FFFFFFFFF
+======================================================================
+FAIL: test_exact_ready_creates_pr_once_readback_and_does_not_merge (__main__.Delivery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/source/L545-0f2d2b2636c08afa/test_delivery.py", line 88, in test_exact_ready_creates_pr_once_readback_and_does_not_merge
+    ok,note=self.publish();self.assertTrue(ok,note)
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/source/L545-0f2d2b2636c08afa/test_delivery.py", line 81, in publish
+    self.assertTrue(callable(getattr(h,'publish_ready',None)), 'generic READY publication path missing')
+AssertionError: False is not true : generic READY publication path missing
+
+======================================================================
+FAIL: test_fresh_remote_head_base_and_existing_closed_pr_refuse (__main__.Delivery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/source/L545-0f2d2b2636c08afa/test_delivery.py", line 118, in test_fresh_remote_head_base_and_existing_closed_pr_refuse
+    ok,_=self.publish();self.assertFalse(ok)
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/source/L545-0f2d2b2636c08afa/test_delivery.py", line 81, in publish
+    self.assertTrue(callable(getattr(h,'publish_ready',None)), 'generic READY publication path missing')
+AssertionError: False is not true : generic READY publication path missing
+
+======================================================================
+FAIL: test_malformed_identity_and_unacknowledged_intake_never_create (__main__.Delivery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/source/L545-0f2d2b2636c08afa/test_delivery.py", line 111, in test_malformed_identity_and_unacknowledged_intake_never_create
+    self.entry['key']='wrong';ok,_=self.publish();self.assertFalse(ok)
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/source/L545-0f2d2b2636c08afa/test_delivery.py", line 81, in publish
+    self.assertTrue(callable(getattr(h,'publish_ready',None)), 'generic READY publication path missing')
+AssertionError: False is not true : generic READY publication path missing
+
+======================================================================
+FAIL: test_missing_failed_or_unverified_receipt_never_creates (__main__.Delivery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/source/L545-0f2d2b2636c08afa/test_delivery.py", line 101, in test_missing_failed_or_unverified_receipt_never_creates
+    ok,note=self.publish();self.assertFalse(ok,note)
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/source/L545-0f2d2b2636c08afa/test_delivery.py", line 81, in publish
+    self.assertTrue(callable(getattr(h,'publish_ready',None)), 'generic READY publication path missing')
+AssertionError: False is not true : generic READY publication path missing
+
+======================================================================
+FAIL: test_operator_cheap_admission_rejects_unmapped_or_missing_plan (__main__.Delivery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/source/L545-0f2d2b2636c08afa/test_delivery.py", line 138, in test_operator_cheap_admission_rejects_unmapped_or_missing_plan
+    self.assertTrue(callable(getattr(h,'admit_plan',None)), 'cheap planner admission missing')
+AssertionError: False is not true : cheap planner admission missing
+
+======================================================================
+FAIL: test_pause_and_lost_lane_prevent_publication (__main__.Delivery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/source/L545-0f2d2b2636c08afa/test_delivery.py", line 126, in test_pause_and_lost_lane_prevent_publication
+    ok,_=self.publish();self.assertFalse(ok)
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/source/L545-0f2d2b2636c08afa/test_delivery.py", line 81, in publish
+    self.assertTrue(callable(getattr(h,'publish_ready',None)), 'generic READY publication path missing')
+AssertionError: False is not true : generic READY publication path missing
+
+======================================================================
+FAIL: test_refused_or_stale_review_never_creates (__main__.Delivery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/source/L545-0f2d2b2636c08afa/test_delivery.py", line 107, in test_refused_or_stale_review_never_creates
+    ok,note=self.publish();self.assertFalse(ok,note)
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/source/L545-0f2d2b2636c08afa/test_delivery.py", line 81, in publish
+    self.assertTrue(callable(getattr(h,'publish_ready',None)), 'generic READY publication path missing')
+AssertionError: False is not true : generic READY publication path missing
+
+======================================================================
+FAIL: test_repeated_reports_emit_changes_and_heartbeat_not_whole_queue (__main__.Delivery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/source/L545-0f2d2b2636c08afa/test_delivery.py", line 151, in test_repeated_reports_emit_changes_and_heartbeat_not_whole_queue
+    h.report([result]);self.assertEqual(emitted,[], 'unchanged blocked queue reprinted')
+AssertionError: Lists differ: ['interplane BLOCKED #42 2d8d28fd failed'] != []
+
+First list contains 1 additional elements.
+First extra element 0:
+'interplane BLOCKED #42 2d8d28fd failed'
+
+- ['interplane BLOCKED #42 2d8d28fd failed']
++ [] : unchanged blocked queue reprinted
+
+======================================================================
+FAIL: test_retained_failure_after_eligible_snapshot_prevents_write (__main__.Delivery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/source/L545-0f2d2b2636c08afa/test_delivery.py", line 134, in test_retained_failure_after_eligible_snapshot_prevents_write
+    ok,_=self.publish();self.assertFalse(ok)
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/source/L545-0f2d2b2636c08afa/test_delivery.py", line 81, in publish
+    self.assertTrue(callable(getattr(h,'publish_ready',None)), 'generic READY publication path missing')
+AssertionError: False is not true : generic READY publication path missing
+
+----------------------------------------------------------------------
+Ran 9 tests in 1.123s
+
+FAILED (failures=9)

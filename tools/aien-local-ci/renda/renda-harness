@@ -330,6 +330,21 @@ def operator_verdict(repo, sha):
 
 
 def operator_run(repo, sha):
+    # The child inherits this flock. Close the parent's fd without LOCK_UN:
+    # the judge retains admission until its own process tree exits.
+    directory = Path(STATE) / 'renda-operator-admission'
+    directory.mkdir(parents=True, exist_ok=True)
+    if not re.fullmatch(r'[A-Za-z0-9._-]+', repo) or repo in ('.','..'):
+        return False, 'invalid operator repository'
+    with open(directory / (repo + '.lock'), 'a') as admission:
+        try:
+            fcntl.flock(admission, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return False, 'operator admission already owned for this repository'
+        return _operator_run(repo, sha, admission.fileno())
+
+
+def _operator_run(repo, sha, admission_fd):
     """Never retry a verdict (Drake: a failing gate means the work is wrong). Say it once per head, leave it to the owner."""
     v = operator_verdict(repo, sha)
     if v:
@@ -370,8 +385,13 @@ def operator_run(repo, sha):
     logp = f"{LOGDIR}/operator-{repo}-{sha[:8]}.log"
     if os.environ.get("RENDA_OPERATOR_DRY"):
         return True, f"operator judge run started (dry run, log {logp})"
-    subprocess.Popen(f"setsid nohup aien-local-ci once {repo} {sha} --operator > {logp} 2>&1 < /dev/null &",
-                     shell=True, env=ENV)
+    Path(LOGDIR).mkdir(parents=True, exist_ok=True)
+    with open(logp, 'ab') as output:
+        child = subprocess.Popen(['aien-local-ci','once',repo,sha,'--operator'], env=ENV,
+            stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
+            start_new_session=True, pass_fds=(admission_fd,))
+    save(Path(STATE) / 'renda-operator-admission' / (repo + '.json'),
+         dict(schema='renda-operator-admission/1', repo=repo, head=sha, pid=child.pid, admitted_at=time.time()))
     return True, f"operator judge run started (log {logp})"
 
 

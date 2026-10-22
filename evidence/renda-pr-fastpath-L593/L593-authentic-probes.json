@@ -1,0 +1,163 @@
+{
+  "source_commit": "9ccfc410d1d78a00d389b097112daa1a1e991a6f",
+  "model_calls": 0,
+  "gates_executed": 0,
+  "remote_writes": 0,
+  "results": [
+    {
+      "repo": "omega",
+      "sha": "69790fb4ad1e803ca79245430745b96129d1dcf4",
+      "base": "a8ffd2b912c84197d08f963b05f9c7d8b30a3f8a",
+      "source": "/home/drakestapleton/workspace/pipeline/clones/omega",
+      "repository": "github.com/aien-dev/omega",
+      "planner": {
+        "code": 0,
+        "output": "AIEN PLAN\nRepository: github.com/aien-dev/omega\nBase: a8ffd2b912c84197d08f963b05f9c7d8b30a3f8a\nHead: 69790fb4ad1e803ca79245430745b96129d1dcf4\nChanged files: 39\n  docs/superpowers/plans/2026-10-22-universal-625.md\n  evidence/UNIVERSAL-625/README.md\n  evidence/UNIVERSAL-625/followup/arithmetic-replay.json\n  evidence/UNIVERSAL-625/followup/arithmetic-replay.log\n  evidence/UNIVERSAL-625/followup/base-pinned.log\n  evidence/UNIVERSAL-625/followup/doctrine-corrected.log\n  evidence/UNIVERSAL-625/followup/results.json\n  evidence/UNIVERSAL-625/initial/CUDApp.json\n  evidence/UNIVERSAL-625/initial/CUDApp.log\n  evidence/UNIVERSAL-625/initial/aien-architecture-mv.json\n  evidence/UNIVERSAL-625/initial/aien-architecture-mv.log\n  evidence/UNIVERSAL-625/initial/aien-sovereign-core-mv.json\n  evidence/UNIVERSAL-625/initial/aien-sovereign-core-mv.log\n  evidence/UNIVERSAL-625/initial/aienux.json\n  evidence/UNIVERSAL-625/initial/aienux.log\n  evidence/UNIVERSAL-625/initial/arithmetic-author.json\n  evidence/UNIVERSAL-625/initial/base-unresolved-sibling.log\n  evidence/UNIVERSAL-625/initial/issue-audit.json\n  evidence/UNIVERSAL-625/initial/omega-mv.json\n  evidence/UNIVERSAL-625/initial/omega-mv.log\n  evidence/UNIVERSAL-625/initial/red.log\n  evidence/UNIVERSAL-625/initial/repository-pins.json\n  evidence/UNIVERSAL-625/review-fix/corrected-replay.json\n  evidence/UNIVERSAL-625/review-fix/corrected-replay.log\n  evidence/UNIVERSAL-625/review-fix/evidence-lifecycle-red-expanded.log\n  evidence/UNIVERSAL-625/review-fix/evidence-lifecycle-red.log\n  evidence/UNIVERSAL-625/review-fix/result.json\n  evidence/UNIVERSAL-625/review-fix/review-L572.md\n  evidence/UNIVERSAL-625/review-fix/review-fix-green.log\n  mk/universal.mk\n  spec/universal/profiles.json\n  spec/universal/semantics.md\n  tests/universal/arithmetic.c\n  tests/universal/arithmetic.osc\n  tests/universal/arithmetic.py\n  tests/universal/arithmetic.rs\n  tests/universal/osc_probe.c\n  tests/universal/semantics.py\n  tests/universal/test_evidence_lifecycle.py\nGraph digest: 791094fa3a84344a3a1590f43312e3691467caa0c85f28982e11a82ec851d0d9\nRequired:\n  CRUMB-VERIFY pool=host exactness=EXACT check=f54a42c384a8 because=always\n  OMEGA-ALGEBRA pool=host exactness=EXACT check=2b7728397a3f because=mk/universal.mk\n  OMEGA-BASE pool=host exactness=EXACT check=0fca206a79d5 because=mk/universal.mk\n  OMEGA-BROWNIAN pool=host exactness=EXACT check=13a5663d051c because=mk/universal.mk\n  OMEGA-CHIP-TOOL-SELFTESTS pool=host exactness=EXACT check=70534190073a because=mk/universal.mk\n  OMEGA-CRUMBLINE pool=host exactness=EXACT check=c2826f6908aa because=mk/universal.mk\n  OMEGA-ESTIMATION pool=host exactness=EXACT check=78749170bb12 because=mk/universal.mk\n  OMEGA-EVIDENCE-IMMUTABLE pool=host exactness=EXACT check=cc93819aac47 because=always\n  OMEGA-FACULTY-ARM pool=host exactness=EXACT check=b0a0f6e71f22 because=mk/universal.mk\n  OMEGA-LANGUAGE pool=host exactness=EXACT check=d22513b87dfe because=mk/universal.mk\n  OMEGA-M10 pool=host exactness=EXACT check=859ee24c6969 because=mk/universal.mk\n  OMEGA-M11 pool=host exactness=EXACT check=83aa16dd2cd0 because=mk/universal.mk\n  OMEGA-M12 pool=host exactness=EXACT check=431a30ff9786 because=mk/universal.mk\n  OMEGA-M13 pool=host exactness=EXACT check=a8545a4577eb because=mk/universal.mk\n  OMEGA-M14 pool=host exactness=EXACT check=fe9b1e96ef14 because=mk/universal.mk\n  OMEGA-M15 pool=host exactness=EXACT check=09993de5c91d because=mk/universal.mk\n  OMEGA-M6 pool=host exactness=EXACT check=446045081b81 because=mk/universal.mk\n  OMEGA-M7 pool=host exactness=EXACT check=dc204c61f110 because=mk/universal.mk\n  OMEGA-M8 pool=host exactness=EXACT check=1933aa6c3684 because=mk/universal.mk\n  OMEGA-M9 pool=host exactness=EXACT check=5cfad7b9ad75 because=mk/universal.mk\n  OMEGA-NUMERIC-CPU pool=host exactness=EXACT check=1e46f28065d1 because=mk/universal.mk\n  OMEGA-NUMERIC-LIFECYCLE pool=host exactness=EXACT check=43fe656ae646 because=mk/universal.mk\n  OMEGA-NUMERIC-TRANSC pool=host exactness=EXACT check=2820ca243c1a because=mk/universal.mk\n  OMEGA-NUMERIC-TRANSC-DIGEST pool=host exactness=EXACT check=273d2ef3a710 because=mk/universal.mk\n  OMEGA-NUMERIC2 pool=host exactness=EXACT check=98b32248945a because=mk/universal.mk\n  OMEGA-PATH pool=host exactness=EXACT check=da37227fab8e because=mk/universal.mk\n  OMEGA-POLYGLOT pool=host exactness=EXACT check=04d999c7cae9 because=mk/universal.mk\n  OMEGA-RUNTIME pool=host exactness=EXACT check=a7e7ea692076 because=docs/superpowers/plans/2026-10-22-universal-625.md\n  OMEGA-RX-HOST-REFERENCE pool=host exactness=EXACT check=269873e5fd50 because=mk/universal.mk\n  OMEGA-TURING pool=host exactness=EXACT check=a48f400373eb because=mk/universal.mk\n  OMEGA-TURING-YIELD pool=host exactness=EXACT check=641b92df91c3 because=mk/universal.mk\n  OMEGA-VISOR pool=host exactness=EXACT check=e0881ec3f277 because=mk/universal.mk\n  OMEGA-ZERO-DISK-SECRETS pool=host exactness=EXACT check=7598c28708ce because=always\nCached:\n  (none)\nNeeds Spark:\n  OMEGA-R11-OWN-HOLD pool=host exactness=EXACT check=5dc172c89dc3 because=mk/universal.mk\n  OMEGA-R13-HOST pool=host exactness=EXACT check=9a81552f78ba because=mk/universal.mk\n  OMEGA-R13-TESTBUILD-HOST pool=host exactness=EXACT check=57997deace39 because=mk/universal.mk\n  OMEGA-R14-HOST pool=host exactness=EXACT check=e4f302c8b49a because=mk/universal.mk\n  OMEGA-R15-G7-HOST pool=host exactness=EXACT check=fc2f68e09761 because=mk/universal.mk\n  OMEGA-R15-PARITY-HOST pool=host exactness=EXACT check=37e40e675bd8 because=mk/universal.mk\n  OMEGA-R16-AUTHPATH pool=host exactness=EXACT check=7eafe7b2c912 because=mk/universal.mk\nNeeds GB10:\n  OMEGA-COMPOSITION-GATE-GPU pool=gb10 exactness=EXACT check=18691d70cce6 because=mk/universal.mk\n  OMEGA-M17 pool=gb10 exactness=EXACT check=9ec9f45a934b because=mk/universal.mk\n  OMEGA-M19 pool=gb10 exactness=EXACT check=b58526357309 because=mk/universal.mk\n  OMEGA-M5 pool=gb10 exactness=EXACT check=7f78d1314bd4 because=mk/universal.mk\n  OMEGA-PROD-HYGIENE-SILICON pool=gb10 exactness=EXACT check=4c91217878ec because=mk/universal.mk\n  OMEGA-R12-SILICON pool=gb10 exactness=EXACT check=665e756d3b0f because=mk/universal.mk\n  OMEGA-R13-SILICON pool=gb10 exactness=EXACT check=79b2d1fdde17 because=mk/universal.mk\n  OMEGA-R13-TESTBUILD-SILICON pool=gb10 exactness=EXACT check=96a946213c74 because=mk/universal.mk\n  OMEGA-R14-SILICON pool=gb10 exactness=EXACT check=7da00e9218f6 because=mk/universal.mk\n  OMEGA-R15-PARITY-SILICON pool=gb10 exactness=EXACT check=a13a7eeef3cc because=mk/universal.mk\n  OMEGA-R16-AUTHPATH-SILICON pool=gb10 exactness=EXACT check=b8cd298707af because=mk/universal.mk\nAdvisory:\n  (none)\nBlocked:\n  OMEGA-NUMERIC-TRANSC-FULL pool=host exactness=EXACT check=31795c5ca736 because=mk/universal.mk OPERATOR_STEP_PENDING\nUNMAPPED:\n  (none)\nNote: hardware identity not given; the machine digest stands in for cache_scope: hardware\nPlan verdict: RUNNABLE\n",
+        "gates_executed": false
+      },
+      "admission": true,
+      "note": "planner RUNNABLE",
+      "receipt": {
+        "verified": false,
+        "eligible": false,
+        "diagnostic": "missing, corrupt or wrong-identity receipt",
+        "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "repo": "omega",
+      "sha": "e466b138b57f6672afb26fc657fcdb28cc4c6293",
+      "base": "a8ffd2b912c84197d08f963b05f9c7d8b30a3f8a",
+      "source": "/home/drakestapleton/workspace/pipeline/clones/omega",
+      "repository": "github.com/aien-dev/omega",
+      "planner": {
+        "code": 0,
+        "output": "AIEN PLAN\nRepository: github.com/aien-dev/omega\nBase: a8ffd2b912c84197d08f963b05f9c7d8b30a3f8a\nHead: e466b138b57f6672afb26fc657fcdb28cc4c6293\nChanged files: 5\n  .crumb\n  src/.crumb\n  src/omega_blackwell_gates.c\n  src/omega_world_gates.c\n  tests/runtime/r11_own_hold_test.sh\nGraph digest: 0ca2fc39734f552dc58d9b63814c2d56755b00dd493a8c3e7ff141d25926100e\nRequired:\n  CRUMB-VERIFY pool=host exactness=EXACT check=d0ce30e21c0f because=always\n  OMEGA-ALGEBRA pool=host exactness=EXACT check=d9630f7fb85f because=src/.crumb\n  OMEGA-ANS pool=host exactness=EXACT check=a7f10196d3ef because=src/.crumb\n  OMEGA-ARGUS pool=host exactness=EXACT check=446418a5e6c1 because=tests/runtime/r11_own_hold_test.sh\n  OMEGA-BASE pool=host exactness=EXACT check=4eb5f7bb7ecd because=src/.crumb\n  OMEGA-BROWNIAN pool=host exactness=EXACT check=3528ff8838c2 because=src/.crumb\n  OMEGA-CHIP-TOOL-SELFTESTS pool=host exactness=EXACT check=9d48b95794bb because=src/.crumb\n  OMEGA-COMPILER pool=host exactness=EXACT check=9697af8d1c30 because=src/.crumb\n  OMEGA-CRUMBLINE pool=host exactness=EXACT check=22a4cf267103 because=src/.crumb\n  OMEGA-ESTIMATION pool=host exactness=EXACT check=6dd71b7ad43b because=src/.crumb\n  OMEGA-EVIDENCE-IMMUTABLE pool=host exactness=EXACT check=499f1448308f because=always\n  OMEGA-FACULTY-ARM pool=host exactness=EXACT check=87a07ab4e040 because=src/.crumb\n  OMEGA-LANGUAGE pool=host exactness=EXACT check=100b9b279dd8 because=src/.crumb\n  OMEGA-M10 pool=host exactness=EXACT check=045e2f1d417b because=src/.crumb\n  OMEGA-M11 pool=host exactness=EXACT check=f601d201f1ae because=src/.crumb\n  OMEGA-M12 pool=host exactness=EXACT check=f89db419bc4d because=src/.crumb\n  OMEGA-M13 pool=host exactness=EXACT check=3df5eb77eb63 because=src/.crumb\n  OMEGA-M14 pool=host exactness=EXACT check=f6be3845f837 because=src/.crumb\n  OMEGA-M15 pool=host exactness=EXACT check=118ab9ebc261 because=src/.crumb\n  OMEGA-M6 pool=host exactness=EXACT check=b85ed8f617ed because=src/.crumb\n  OMEGA-M7 pool=host exactness=EXACT check=31332c9099ec because=src/.crumb\n  OMEGA-M8 pool=host exactness=EXACT check=be4e2eb53a28 because=src/.crumb\n  OMEGA-M9 pool=host exactness=EXACT check=d0385f89dc40 because=src/.crumb\n  OMEGA-NUMERIC-CPU pool=host exactness=EXACT check=4967deddf4cd because=src/.crumb\n  OMEGA-NUMERIC-LIFECYCLE pool=host exactness=EXACT check=e7cbcf2dee99 because=src/.crumb\n  OMEGA-NUMERIC-TRANSC pool=host exactness=EXACT check=4735ee7f1e89 because=src/.crumb\n  OMEGA-NUMERIC-TRANSC-DIGEST pool=host exactness=EXACT check=27a2035a3f2c because=src/.crumb\n  OMEGA-NUMERIC2 pool=host exactness=EXACT check=f2cc6e8b4b38 because=src/.crumb\n  OMEGA-ONE-LAYER-ACCEPTANCE pool=host exactness=EXACT check=63c4bfd51bbb because=src/.crumb\n  OMEGA-PATH pool=host exactness=EXACT check=cae97a2965a7 because=src/.crumb\n  OMEGA-PHYSICS0 pool=host exactness=EXACT check=ddffbbe56905 because=src/.crumb\n  OMEGA-POLYGLOT pool=host exactness=EXACT check=09c0c25eb4d5 because=src/.crumb\n  OMEGA-RUNTIME pool=host exactness=EXACT check=2d13023a2943 because=src/.crumb\n  OMEGA-RX-HOST-REFERENCE pool=host exactness=EXACT check=1ab0312bade6 because=src/.crumb\n  OMEGA-SEARCHTRACE pool=host exactness=EXACT check=76d19a6658f7 because=src/.crumb\n  OMEGA-TENSOR pool=host exactness=EXACT check=4d769758d011 because=src/.crumb\n  OMEGA-TRAIN pool=host exactness=EXACT check=aabbc6828caa because=src/.crumb\n  OMEGA-TURING pool=host exactness=EXACT check=4d88ff30ae77 because=src/.crumb\n  OMEGA-TURING-YIELD pool=host exactness=EXACT check=05af016768ef because=src/.crumb\n  OMEGA-VISOR pool=host exactness=EXACT check=248d1dd7575a because=src/.crumb\n  OMEGA-ZERO-DISK-SECRETS pool=host exactness=EXACT check=7598c28708ce because=always\nCached:\n  (none)\nNeeds Spark:\n  OMEGA-R11-OWN-HOLD pool=host exactness=EXACT check=2759d98c3d78 because=src/.crumb\n  OMEGA-R13-HOST pool=host exactness=EXACT check=7c6a4e73a580 because=src/.crumb\n  OMEGA-R13-TESTBUILD-HOST pool=host exactness=EXACT check=2f85f3da7149 because=src/.crumb\n  OMEGA-R14-HOST pool=host exactness=EXACT check=ff983d0e7143 because=src/.crumb\n  OMEGA-R15-G7-HOST pool=host exactness=EXACT check=ae858a9f5070 because=src/.crumb\n  OMEGA-R15-PARITY-HOST pool=host exactness=EXACT check=373d247443c8 because=src/.crumb\n  OMEGA-R16-AUTHPATH pool=host exactness=EXACT check=07ad6e934fd6 because=src/.crumb\nNeeds GB10:\n  OMEGA-COMPOSITION-GATE-GPU pool=gb10 exactness=EXACT check=b406a098bcfd because=src/.crumb\n  OMEGA-M17 pool=gb10 exactness=EXACT check=9d0fe0628551 because=src/.crumb\n  OMEGA-M19 pool=gb10 exactness=EXACT check=3b1afbf0665a because=src/.crumb\n  OMEGA-M5 pool=gb10 exactness=EXACT check=3e6a0b1e77bb because=src/.crumb\n  OMEGA-PROD-HYGIENE-SILICON pool=gb10 exactness=EXACT check=2d01f542f6fc because=src/.crumb\n  OMEGA-R12-SILICON pool=gb10 exactness=EXACT check=542ad1bd2306 because=src/.crumb\n  OMEGA-R13-SILICON pool=gb10 exactness=EXACT check=0823230cf86e because=src/.crumb\n  OMEGA-R13-TESTBUILD-SILICON pool=gb10 exactness=EXACT check=f9466ea45a1b because=src/.crumb\n  OMEGA-R14-SILICON pool=gb10 exactness=EXACT check=22204bb68f56 because=src/.crumb\n  OMEGA-R15-PARITY-SILICON pool=gb10 exactness=EXACT check=2f7db8ae3ed8 because=src/.crumb\n  OMEGA-R16-AUTHPATH-SILICON pool=gb10 exactness=EXACT check=6bb538bf549d because=src/.crumb\nAdvisory:\n  (none)\nBlocked:\n  OMEGA-NUMERIC-TRANSC-FULL pool=host exactness=EXACT check=6e16a851c00a because=src/.crumb OPERATOR_STEP_PENDING\nUNMAPPED:\n  (none)\nNote: hardware identity not given; the machine digest stands in for cache_scope: hardware\nPlan verdict: RUNNABLE\n",
+        "gates_executed": false
+      },
+      "admission": true,
+      "note": "planner RUNNABLE",
+      "receipt": {
+        "verified": true,
+        "eligible": false,
+        "verdict": "FAIL",
+        "plan": {
+          "blocked": null,
+          "reason": "CRUMB-VERIFY:rc_nonzero",
+          "removed": [],
+          "unmapped": [],
+          "verdict": "FAIL"
+        },
+        "verifier_codes": [
+          1
+        ],
+        "digest": "7db8e19d6dfd70652046e293b0fb0fc35c42cf4e74b0620f2f8b06a4ad2d6f08",
+        "diagnostic": "existing verify-bundle; diagnostic only, fresh remote gates still required"
+      },
+      "metadata": [
+        false,
+        "pinned crumb verification failed: STALE      tests/runtime\nSTALE      tests\nSTALE      .\ncrumb verify: FAIL: 3 of 157 crumbs stale; run: crumb compile\n"
+      ]
+    },
+    {
+      "repo": "aien-architecture",
+      "sha": "b159d1d513ef63f322a6a36bf3ade50f1a202fce",
+      "base": "1a3594340c70969c245554b07062efd8ead8a026",
+      "source": "/home/drakestapleton/workspace/pipeline/clones/aien-architecture",
+      "repository": "github.com/aien-dev/aien-architecture",
+      "planner": {
+        "code": 4,
+        "output": "AIEN PLAN\nRepository: github.com/aien-dev/aien-architecture\nBase: 1a3594340c70969c245554b07062efd8ead8a026\nHead: b159d1d513ef63f322a6a36bf3ade50f1a202fce\nChanged files: 76\n  README.md\n  docs/ops/BROKER.md\n  evidence/spark-broker-20261019/RESULTS.txt\n  evidence/spark-broker-20261019/explore-B-N20/broker-events.log\n  evidence/spark-broker-20261019/explore-B-N20/jobs.log\n  evidence/spark-broker-20261019/explore-B-N20/metrics.txt\n  evidence/spark-broker-20261019/explore-B-N20/run.txt\n  evidence/spark-broker-20261019/live-jam-2350Z.txt\n  evidence/spark-broker-20261019/ps-waiters-2350Z.txt\n  evidence/spark-broker-20261019/receipts-tonight.txt\n  evidence/spark-broker-20261019/replay-A-base.out\n  evidence/spark-broker-20261019/replay-A-base/jobs.log\n  evidence/spark-broker-20261019/replay-A-base/metrics.txt\n  evidence/spark-broker-20261019/replay-A-base/overrides.log\n  evidence/spark-broker-20261019/replay-A-base/run.txt\n  evidence/spark-broker-20261019/replay-A-rep2.out\n  evidence/spark-broker-20261019/replay-A-rep2/jobs.log\n  evidence/spark-broker-20261019/replay-A-rep2/metrics.txt\n  evidence/spark-broker-20261019/replay-A-rep2/overrides.log\n  evidence/spark-broker-20261019/replay-A-rep2/run.txt\n  evidence/spark-broker-20261019/replay-A-srv.out\n  evidence/spark-broker-20261019/replay-A-srv/jobs.log\n  evidence/spark-broker-20261019/replay-A-srv/metrics.txt\n  evidence/spark-broker-20261019/replay-A-srv/overrides.log\n  evidence/spark-broker-20261019/replay-A-srv/run.txt\n  evidence/spark-broker-20261019/replay-A-x4.out\n  evidence/spark-broker-20261019/replay-A-x4/jobs.log\n  evidence/spark-broker-20261019/replay-A-x4/metrics.txt\n  evidence/spark-broker-20261019/replay-A-x4/overrides.log\n  evidence/spark-broker-20261019/replay-A-x4/run.txt\n  evidence/spark-broker-20261019/replay-A0-base.out\n  evidence/spark-broker-20261019/replay-A0-base/jobs.log\n  evidence/spark-broker-20261019/replay-A0-base/metrics.txt\n  evidence/spark-broker-20261019/replay-A0-base/run.txt\n  evidence/spark-broker-20261019/replay-B-base.out\n  evidence/spark-broker-20261019/replay-B-base/broker-events.log\n  evidence/spark-broker-20261019/replay-B-base/jobs.log\n  evidence/spark-broker-20261019/replay-B-base/metrics.txt\n  evidence/spark-broker-20261019/replay-B-base/run.txt\n  evidence/spark-broker-20261019/replay-B-rep2.out\n  evidence/spark-broker-20261019/replay-B-rep2/broker-events.log\n  evidence/spark-broker-20261019/replay-B-rep2/jobs.log\n  evidence/spark-broker-20261019/replay-B-rep2/metrics.txt\n  evidence/spark-broker-20261019/replay-B-rep2/run.txt\n  evidence/spark-broker-20261019/replay-B-srv.out\n  evidence/spark-broker-20261019/replay-B-srv/broker-events.log\n  evidence/spark-broker-20261019/replay-B-srv/jobs.log\n  evidence/spark-broker-20261019/replay-B-srv/metrics.txt\n  evidence/spark-broker-20261019/replay-B-srv/run.txt\n  evidence/spark-broker-20261019/replay-B-x4.out\n  evidence/spark-broker-20261019/replay-B-x4/broker-events.log\n  evidence/spark-broker-20261019/replay-B-x4/jobs.log\n  evidence/spark-broker-20261019/replay-B-x4/metrics.txt\n  evidence/spark-broker-20261019/replay-B-x4/run.txt\n  evidence/spark-broker-20261019/trace-20261019.tsv\n  evidence/spark-broker-20261019/transcript-calls.tsv\n  tests/gates/arch-name-check.gate\n  tests/gates/run.sh\n  tools/name-check/README.md\n  tools/name-check/name-check.sh\n  tools/name-check/test.sh\n  tools/ops/spark-broker/.gitignore\n  tools/ops/spark-broker/Makefile\n  tools/ops/spark-broker/README.md\n  tools/ops/spark-broker/install.sh\n  tools/ops/spark-broker/quiet-build\n  tools/ops/spark-broker/quiet-build.locks\n  tools/ops/spark-broker/quiet-measure\n  tools/ops/spark-broker/quiet-measure.locks\n  tools/ops/spark-broker/replay/fakejob\n  tools/ops/spark-broker/replay/metrics.sh\n  tools/ops/spark-broker/replay/quiet-build.pre-bandage\n  tools/ops/spark-broker/replay/replay.sh\n  tools/ops/spark-broker/spark-broker.c\n  tools/ops/spark-broker/spark-job.c\n  tools/ops/spark-broker/test.sh\nGraph digest: 6ec1f4e3f1a5b61c154c13fd42d3851ce598a2d30ee07eded3101889c3b32ff4\nRequired:\n  (none)\nCached:\n  (none)\nNeeds Spark:\n  (none)\nNeeds GB10:\n  (none)\nAdvisory:\n  (none)\nBlocked:\n  ARCH-CRUMB-TOOL-TEST pool=host exactness=EXACT check=67af89ee311c because=tests/gates/arch-name-check.gate PIPELINE_CONFIG_CHANGED\n  ARCH-DOCTRINE pool=host exactness=EXACT check=8c1d21b5b271 because=always PIPELINE_CONFIG_CHANGED\n  ARCH-NAME-CHECK pool=host exactness=EXACT check=d8e3170d908c because=tests/gates/arch-name-check.gate PIPELINE_CONFIG_CHANGED\n  ARCH-QUALIFICATION-STATUS pool=host exactness=EXACT check=e8afaedbcb8f because=always PIPELINE_CONFIG_CHANGED\n  ARCH-SCRIPT-TESTS pool=host exactness=EXACT check=83de8484bff2 because=tests/gates/arch-name-check.gate PIPELINE_CONFIG_CHANGED\n  CRUMB-VERIFY pool=host exactness=EXACT check=87d5e37008d8 because=always PIPELINE_CONFIG_CHANGED\nUNMAPPED:\n  evidence/spark-broker-20261019/RESULTS.txt\n  evidence/spark-broker-20261019/explore-B-N20/broker-events.log\n  evidence/spark-broker-20261019/explore-B-N20/jobs.log\n  evidence/spark-broker-20261019/explore-B-N20/metrics.txt\n  evidence/spark-broker-20261019/explore-B-N20/run.txt\n  evidence/spark-broker-20261019/live-jam-2350Z.txt\n  evidence/spark-broker-20261019/ps-waiters-2350Z.txt\n  evidence/spark-broker-20261019/receipts-tonight.txt\n  evidence/spark-broker-20261019/replay-A-base.out\n  evidence/spark-broker-20261019/replay-A-base/jobs.log\n  evidence/spark-broker-20261019/replay-A-base/metrics.txt\n  evidence/spark-broker-20261019/replay-A-base/overrides.log\n  evidence/spark-broker-20261019/replay-A-base/run.txt\n  evidence/spark-broker-20261019/replay-A-rep2.out\n  evidence/spark-broker-20261019/replay-A-rep2/jobs.log\n  evidence/spark-broker-20261019/replay-A-rep2/metrics.txt\n  evidence/spark-broker-20261019/replay-A-rep2/overrides.log\n  evidence/spark-broker-20261019/replay-A-rep2/run.txt\n  evidence/spark-broker-20261019/replay-A-srv.out\n  evidence/spark-broker-20261019/replay-A-srv/jobs.log\n  evidence/spark-broker-20261019/replay-A-srv/metrics.txt\n  evidence/spark-broker-20261019/replay-A-srv/overrides.log\n  evidence/spark-broker-20261019/replay-A-srv/run.txt\n  evidence/spark-broker-20261019/replay-A-x4.out\n  evidence/spark-broker-20261019/replay-A-x4/jobs.log\n  evidence/spark-broker-20261019/replay-A-x4/metrics.txt\n  evidence/spark-broker-20261019/replay-A-x4/overrides.log\n  evidence/spark-broker-20261019/replay-A-x4/run.txt\n  evidence/spark-broker-20261019/replay-A0-base.out\n  evidence/spark-broker-20261019/replay-A0-base/jobs.log\n  evidence/spark-broker-20261019/replay-A0-base/metrics.txt\n  evidence/spark-broker-20261019/replay-A0-base/run.txt\n  evidence/spark-broker-20261019/replay-B-base.out\n  evidence/spark-broker-20261019/replay-B-base/broker-events.log\n  evidence/spark-broker-20261019/replay-B-base/jobs.log\n  evidence/spark-broker-20261019/replay-B-base/metrics.txt\n  evidence/spark-broker-20261019/replay-B-base/run.txt\n  evidence/spark-broker-20261019/replay-B-rep2.out\n  evidence/spark-broker-20261019/replay-B-rep2/broker-events.log\n  evidence/spark-broker-20261019/replay-B-rep2/jobs.log\n  evidence/spark-broker-20261019/replay-B-rep2/metrics.txt\n  evidence/spark-broker-20261019/replay-B-rep2/run.txt\n  evidence/spark-broker-20261019/replay-B-srv.out\n  evidence/spark-broker-20261019/replay-B-srv/broker-events.log\n  evidence/spark-broker-20261019/replay-B-srv/jobs.log\n  evidence/spark-broker-20261019/replay-B-srv/metrics.txt\n  evidence/spark-broker-20261019/replay-B-srv/run.txt\n  evidence/spark-broker-20261019/replay-B-x4.out\n  evidence/spark-broker-20261019/replay-B-x4/broker-events.log\n  evidence/spark-broker-20261019/replay-B-x4/jobs.log\n  evidence/spark-broker-20261019/replay-B-x4/metrics.txt\n  evidence/spark-broker-20261019/replay-B-x4/run.txt\n  evidence/spark-broker-20261019/trace-20261019.tsv\n  evidence/spark-broker-20261019/transcript-calls.tsv\n  tools/ops/spark-broker/.gitignore\n  tools/ops/spark-broker/Makefile\n  tools/ops/spark-broker/install.sh\n  tools/ops/spark-broker/quiet-build\n  tools/ops/spark-broker/quiet-build.locks\n  tools/ops/spark-broker/quiet-measure\n  tools/ops/spark-broker/quiet-measure.locks\n  tools/ops/spark-broker/replay/fakejob\n  tools/ops/spark-broker/replay/metrics.sh\n  tools/ops/spark-broker/replay/quiet-build.pre-bandage\n  tools/ops/spark-broker/replay/replay.sh\n  tools/ops/spark-broker/spark-broker.c\n  tools/ops/spark-broker/spark-job.c\n  tools/ops/spark-broker/test.sh\nPlan verdict: BLOCKED_OPERATOR PIPELINE_CONFIG_CHANGED\n",
+        "gates_executed": false
+      },
+      "admission": false,
+      "note": "planner has UNMAPPED_PATH",
+      "receipt": {
+        "verified": true,
+        "eligible": false,
+        "verdict": "PASS",
+        "plan": {
+          "blocked": null,
+          "reason": "UNMAPPED_PATH",
+          "removed": [],
+          "unmapped": [
+            "evidence/spark-broker-20261019/RESULTS.txt",
+            "evidence/spark-broker-20261019/explore-B-N20/broker-events.log",
+            "evidence/spark-broker-20261019/explore-B-N20/jobs.log",
+            "evidence/spark-broker-20261019/explore-B-N20/metrics.txt",
+            "evidence/spark-broker-20261019/explore-B-N20/run.txt",
+            "evidence/spark-broker-20261019/live-jam-2350Z.txt",
+            "evidence/spark-broker-20261019/ps-waiters-2350Z.txt",
+            "evidence/spark-broker-20261019/receipts-tonight.txt",
+            "evidence/spark-broker-20261019/replay-A-base.out",
+            "evidence/spark-broker-20261019/replay-A-base/jobs.log",
+            "evidence/spark-broker-20261019/replay-A-base/metrics.txt",
+            "evidence/spark-broker-20261019/replay-A-base/overrides.log",
+            "evidence/spark-broker-20261019/replay-A-base/run.txt",
+            "evidence/spark-broker-20261019/replay-A-rep2.out",
+            "evidence/spark-broker-20261019/replay-A-rep2/jobs.log",
+            "evidence/spark-broker-20261019/replay-A-rep2/metrics.txt",
+            "evidence/spark-broker-20261019/replay-A-rep2/overrides.log",
+            "evidence/spark-broker-20261019/replay-A-rep2/run.txt",
+            "evidence/spark-broker-20261019/replay-A-srv.out",
+            "evidence/spark-broker-20261019/replay-A-srv/jobs.log",
+            "evidence/spark-broker-20261019/replay-A-srv/metrics.txt",
+            "evidence/spark-broker-20261019/replay-A-srv/overrides.log",
+            "evidence/spark-broker-20261019/replay-A-srv/run.txt",
+            "evidence/spark-broker-20261019/replay-A-x4.out",
+            "evidence/spark-broker-20261019/replay-A-x4/jobs.log",
+            "evidence/spark-broker-20261019/replay-A-x4/metrics.txt",
+            "evidence/spark-broker-20261019/replay-A-x4/overrides.log",
+            "evidence/spark-broker-20261019/replay-A-x4/run.txt",
+            "evidence/spark-broker-20261019/replay-A0-base.out",
+            "evidence/spark-broker-20261019/replay-A0-base/jobs.log",
+            "evidence/spark-broker-20261019/replay-A0-base/metrics.txt",
+            "evidence/spark-broker-20261019/replay-A0-base/run.txt",
+            "evidence/spark-broker-20261019/replay-B-base.out",
+            "evidence/spark-broker-20261019/replay-B-base/broker-events.log",
+            "evidence/spark-broker-20261019/replay-B-base/jobs.log",
+            "evidence/spark-broker-20261019/replay-B-base/metrics.txt",
+            "evidence/spark-broker-20261019/replay-B-base/run.txt",
+            "evidence/spark-broker-20261019/replay-B-rep2.out",
+            "evidence/spark-broker-20261019/replay-B-rep2/broker-events.log",
+            "evidence/spark-broker-20261019/replay-B-rep2/jobs.log",
+            "evidence/spark-broker-20261019/replay-B-rep2/metrics.txt",
+            "evidence/spark-broker-20261019/replay-B-rep2/run.txt",
+            "evidence/spark-broker-20261019/replay-B-srv.out",
+            "evidence/spark-broker-20261019/replay-B-srv/broker-events.log",
+            "evidence/spark-broker-20261019/replay-B-srv/jobs.log",
+            "evidence/spark-broker-20261019/replay-B-srv/metrics.txt",
+            "evidence/spark-broker-20261019/replay-B-srv/run.txt",
+            "evidence/spark-broker-20261019/replay-B-x4.out",
+            "evidence/spark-broker-20261019/replay-B-x4/broker-events.log",
+            "evidence/spark-broker-20261019/replay-B-x4/jobs.log",
+            "evidence/spark-broker-20261019/replay-B-x4/metrics.txt",
+            "evidence/spark-broker-20261019/replay-B-x4/run.txt",
+            "evidence/spark-broker-20261019/trace-20261019.tsv",
+            "evidence/spark-broker-20261019/transcript-calls.tsv",
+            "tools/ops/spark-broker/.gitignore",
+            "tools/ops/spark-broker/Makefile",
+            "tools/ops/spark-broker/install.sh",
+            "tools/ops/spark-broker/quiet-build",
+            "tools/ops/spark-broker/quiet-build.locks",
+            "tools/ops/spark-broker/quiet-measure",
+            "tools/ops/spark-broker/quiet-measure.locks",
+            "tools/ops/spark-broker/replay/fakejob",
+            "tools/ops/spark-broker/replay/metrics.sh",
+            "tools/ops/spark-broker/replay/quiet-build.pre-bandage",
+            "tools/ops/spark-broker/replay/replay.sh",
+            "tools/ops/spark-broker/spark-broker.c",
+            "tools/ops/spark-broker/spark-job.c",
+            "tools/ops/spark-broker/test.sh"
+          ],
+          "verdict": "NOT_RUN"
+        },
+        "verifier_codes": [
+          2
+        ],
+        "digest": "08c4bb38828dbd9a53e275c67fcbe379df3f0d5ee9dc798907133028320489d7",
+        "diagnostic": "existing verify-bundle; diagnostic only, fresh remote gates still required"
+      }
+    }
+  ]
+}

@@ -46,9 +46,12 @@ def admit_plan(plan):
     text = plan['output']
     # The existing planner emits text, not JSON. Accept only its explicit terminal
     # verdict, and never accept hidden unmapped paths even with an inconsistent rc.
-    unmapped = re.search(r'^UNMAPPED:\s*\n(.*?)(?=^\S|\Z)', text, re.M | re.S)
-    if unmapped and unmapped[1].strip() not in ('', '(none)'):
-        return False, 'planner has UNMAPPED_PATH'
+    for section in ('UNMAPPED', 'REMOVED', 'Removed gates'):
+        matches = re.findall(r'^'+re.escape(section)+r':[^\n]*\n(.*?)(?=^[A-Za-z][A-Za-z -]*:|\Z)', text, re.M | re.S)
+        if len(matches) > 1 or any(body.strip() != '(none)' for body in matches):
+            return False, 'planner has nonempty or malformed ' + section + ' section'
+    if 'GATE_REMOVED' in text:
+        return False, 'planner has GATE_REMOVED'
     verdicts = re.findall(r'^Plan verdict: (.+)$', text, re.M)
     if len(verdicts) != 1:
         return False, 'planner terminal verdict missing or ambiguous'
@@ -58,6 +61,38 @@ def admit_plan(plan):
     if plan['code'] == 4 and verdict == 'BLOCKED_OPERATOR PIPELINE_CONFIG_CHANGED':
         return True, 'operator admission required for pipeline configuration'
     return False, 'planner refuses candidate: ' + verdict
+
+
+def intake_ack_valid(queue, entry, ack, path):
+    """Audit local trusted intake provenance, not an authentication boundary against the OS user."""
+    if path.is_symlink() or not isinstance(ack, dict) or ack.get('ack_path') != str(path):
+        return False
+    if (ack.get('schema') != 'renda-intake-ack/1' or ack.get('repository') != queue.full
+            or ack.get('state') != 'ACCEPTED_LOCAL_NOT_PUBLISHED' or ack.get('remote_eligible') is not False):
+        return False
+    try:
+        source = Path(ack['input'])
+        if not source.is_absolute() or source.stat().st_size > 2_000_000:
+            return False
+        raw = source.read_bytes()
+        if digest(raw) != ack['provenance_sha256']:
+            return False
+        rows = json.loads(raw)
+        if not isinstance(rows, list) or not 0 < len(rows) <= 200:
+            return False
+        keys, items = [], []
+        for row in rows:
+            if (not isinstance(row, dict) or row.get('repository') != queue.full
+                    or not isinstance(row.get('ref'), str)
+                    or any(not re.fullmatch(r'[0-9a-f]{40}',str(row.get(k))) for k in ('sha','base'))):
+                return False
+            keys.append(f"{queue.full}:ready:{row['ref']}@{row['sha']}")
+            items.append(dict(ref=row['ref'],head=row['sha'],base=row['base'],number=None,remote_observed_at=None))
+        expected_name = digest(json.dumps([queue.full,keys],sort_keys=True).encode())+'.json'
+        return (path.name == expected_name and ack.get('items') == items
+                and entry['key'] in keys and entry.get('provenance') == f'local READY {source} sha256:{digest(raw)}')
+    except (OSError, ValueError, TypeError, KeyError):
+        return False
 
 
 def assessment(queue, entry, model, policy):
@@ -78,9 +113,7 @@ def assessment(queue, entry, model, policy):
     acknowledged = False
     for path in (queue.root / 'acks').glob('*.json'):
         ack = read(path)
-        if not isinstance(ack, dict) or ack.get('schema') != 'renda-intake-ack/1' or ack.get('repository') != full:
-            continue
-        if ack.get('state') != 'ACCEPTED_LOCAL_NOT_PUBLISHED' or ack.get('remote_eligible') is not False:
+        if not intake_ack_valid(queue, entry, ack, path):
             continue
         for item in ack.get('items', []):
             if (isinstance(item, dict) and item.get('ref') == ref and item.get('head') == sha

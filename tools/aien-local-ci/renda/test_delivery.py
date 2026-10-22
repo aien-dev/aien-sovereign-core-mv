@@ -54,7 +54,7 @@ class Delivery(unittest.TestCase):
         save(self.planfile, self.plan)
         self.pr = dict(number=42, state='OPEN', headRefName='feat/test', headRefOid=self.head,
             baseRefName='main', baseRefOid=self.base, mergeStateStatus='BLOCKED')
-        for name, value in [('STATE',str(self.q.state)),('PAUSE',str(self.root/'PAUSE')),
+        for name, value in [('STATE',str(self.q.state)),('PAUSE',str(self.root/'PAUSE')),('LOGDIR',str(self.root/'logs')),
                 ('run',self.transport),('lane_owned',lambda repo: True),('held',lambda *args: None),
                 ('operator_verdict',lambda *args: None)]:
             p=patch.object(h,name,value);p.start();self.addCleanup(p.stop)
@@ -169,6 +169,71 @@ class Delivery(unittest.TestCase):
         ok,note=h.cheap_metadata(self.q,self.source,head,self.base)
         self.assertFalse(ok,note)
         self.assertFalse(any(c[0]=='crumb' for c in self.calls))
+
+    def test_concurrent_operator_admission_starts_only_one_judge(self):
+        import threading
+        entered=threading.Event();release=threading.Event();calls=[];results=[]
+        def plan(*args):
+            calls.append('plan')
+            if len(calls)==1:
+                entered.set();self.assertTrue(release.wait(3))
+            return dict(code=0,output='Plan verdict: RUNNABLE\n')
+        with patch.object(h,'Queue',return_value=self.q),patch.object(h,'judging',return_value=False), \
+                patch.object(self.q,'source',return_value=(self.source,'github.com/'+self.q.full)), \
+                patch.object(self.q,'host_plan',side_effect=plan),patch.object(h,'cheap_metadata',return_value=(True,'ok')), \
+                patch.object(h,'run',return_value=(0,'','')),patch.object(h.subprocess,'Popen') as launch:
+            launch.return_value.pid=123456
+            first=threading.Thread(target=lambda:results.append(h.operator_run(self.q.repo,self.head)))
+            first.start();self.assertTrue(entered.wait(3))
+            second=h.operator_run(self.q.repo,self.head)
+            release.set();first.join(3);self.assertFalse(first.is_alive())
+            self.assertFalse(second[0],second)
+            self.assertEqual(launch.call_count,1)
+            self.assertTrue(results[0][0],results)
+
+    def test_operator_admission_lock_lives_with_child_after_parent_returns(self):
+        import sys,time,fcntl
+        real_popen=subprocess.Popen
+        release=self.root/'release-child';ready=self.root/'child-ready';children=[]
+        code=('import os,sys,time;from pathlib import Path;'
+              'os.fstat(int(sys.argv[1]));Path(sys.argv[3]).write_text("ready");'
+              '\nwhile not Path(sys.argv[2]).exists():time.sleep(0.01)\n')
+        def spawn(cmd,**kwargs):
+            self.assertEqual(cmd[:2],['aien-local-ci','once'])
+            child=real_popen([sys.executable,'-c',code,str(kwargs['pass_fds'][0]),str(release),str(ready)],**kwargs)
+            children.append(child);return child
+        try:
+            with patch.object(h,'Queue',return_value=self.q),patch.object(h,'judging',return_value=False), \
+                    patch.object(self.q,'source',return_value=(self.source,'github.com/'+self.q.full)), \
+                    patch.object(self.q,'host_plan',return_value=dict(code=0,output='Plan verdict: RUNNABLE\n')), \
+                    patch.object(h,'cheap_metadata',return_value=(True,'ok')),patch.object(h,'run',return_value=(0,'','')), \
+                    patch.object(h.subprocess,'Popen',side_effect=spawn):
+                ok,note=h.operator_run(self.q.repo,self.head);self.assertTrue(ok,note)
+                deadline=time.monotonic()+3
+                while not ready.exists() and time.monotonic()<deadline:time.sleep(0.01)
+                self.assertTrue(ready.exists())
+                ok,note=h.operator_run(self.q.repo,self.head);self.assertFalse(ok,note)
+                self.assertEqual(len(children),1)
+        finally:
+            release.write_text('release')
+            for child in children:self.assertEqual(child.wait(timeout=3),0)
+        with open(self.q.state/'renda-operator-admission/interplane.lock','a') as lock:
+            fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+
+    def test_forged_ack_shape_without_original_input_provenance_is_refused(self):
+        original=read(Path(self.ack['ack_path']))
+        Path(self.ack['ack_path']).unlink()
+        forged=dict(original)
+        forged.pop('provenance_sha256');forged.pop('input')
+        save(self.q.root/'acks/fake.json',forged)
+        ok,note=self.publish();self.assertFalse(ok,note)
+        self.assertEqual(self.writes(),[])
+
+    def test_malformed_unmapped_and_removed_planner_sections_refuse(self):
+        for text in ['UNMAPPED:\nhidden.c\nPlan verdict: RUNNABLE\n',
+                'REMOVED:\n  deleted.c\nPlan verdict: RUNNABLE\n',
+                'UNMAPPED:\n  (none)\nUNMAPPED:\n  hidden.c\nPlan verdict: RUNNABLE\n']:
+            ok,note=h.admit_plan(dict(code=0,output=text));self.assertFalse(ok,(text,note))
 
     def test_retained_verdict_is_not_reported_as_a_new_operator_action(self):
         with patch.object(h,'operator_verdict',return_value=('FAIL','known failure')):

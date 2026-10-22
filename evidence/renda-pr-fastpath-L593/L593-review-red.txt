@@ -1,0 +1,29 @@
+F.F.....F..........
+======================================================================
+FAIL: test_concurrent_operator_admission_starts_only_one_judge (__main__.Delivery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/source/L545-0f2d2b2636c08afa/test_delivery.py", line 190, in test_concurrent_operator_admission_starts_only_one_judge
+    self.assertFalse(second[0],second)
+AssertionError: True is not false : (True, 'operator judge run started (log /Users/drakestapleton/handoffs/renda-local/operator-interplane-829682a7.log)')
+
+======================================================================
+FAIL: test_forged_ack_shape_without_original_input_provenance_is_refused (__main__.Delivery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/source/L545-0f2d2b2636c08afa/test_delivery.py", line 200, in test_forged_ack_shape_without_original_input_provenance_is_refused
+    ok,note=self.publish();self.assertFalse(ok,note)
+AssertionError: True is not false : feat/test@829682a7b2ca published as PR #42; exact head/base read back; merge checks remain mandatory
+
+======================================================================
+FAIL: test_malformed_unmapped_and_removed_planner_sections_refuse (__main__.Delivery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-fastpath/source/L545-0f2d2b2636c08afa/test_delivery.py", line 207, in test_malformed_unmapped_and_removed_planner_sections_refuse
+    ok,note=h.admit_plan(dict(code=0,output=text));self.assertFalse(ok,(text,note))
+AssertionError: True is not false : ('UNMAPPED:\nhidden.c\nPlan verdict: RUNNABLE\n', 'planner RUNNABLE')
+
+----------------------------------------------------------------------
+Ran 19 tests in 3.518s
+
+FAILED (failures=3)
