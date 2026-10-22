@@ -1,24 +1,24 @@
 {
   "schema": "renda-L522-delivery/1",
   "tracking_issue": "https://github.com/aien-dev/aien-sovereign-core-mv/issues/705",
-  "code_commit": "608710fb42ef08d834164163f81b56a7534e8daa",
+  "code_commit": "00d089822719dd462bbb772d60bddc67df5e7f06",
   "branch": "fix/renda-local-queue-L522",
   "candidate_source_hashes": {
-    "renda-harness": "b362526aeb13ab1f897acfcc626283cc930188e8a0f9ee06db0d6e8edc89cbed",
+    "renda-harness": "b970febd40524ecd7aba0a8110e90d123175e865747341bdb95a83d4de663838",
     "local_queue.py": "fc8bee2a56091e019e8e8dc60b2af5d2957d72774588eb5c750582fcec6316fe",
     "test_reliability.py": "f924611a7988bd00df7f8bf81ddfa63731561e09035510854f86c40473bc2b55",
     "test_local_queue.py": "d26618b8bf9f55a7f88c6d0eced21252ff1c640046ff34ccaef65477f37e78ce",
     "renda-checked": "ae5302aaadcdec2019691428f9efc1bcb8aecefd25a9ad78ccf294d848833d39"
   },
-  "release_manifest_sha": "4c9755631be6fff307a86b008bc94f6aceae70b6da8163e58588833ffbdbb1f2",
+  "release_manifest_sha": "10f64197313afaa0db0194803a44ab904ecb6afae878e074ad86250fc6961689",
   "install_state": "INSTALLED_PENDING_CLEAN_START",
   "baseline_harness_sha": "3e949cae541d408454494447158bc0c24f188df19684ce9b07f4f0472c2d55dd",
   "tests": {
     "queue": 21,
     "reliability_L509": 7,
     "installer": 4,
-    "admission": 2,
-    "distinct_total": 34,
+    "admission": 3,
+    "distinct_total": 35,
     "verdict": "PASS"
   },
   "api_fixture": {
@@ -48,7 +48,9 @@
     "unmapped": [
       "bench/prime_race/tests/gb10_sieve_host_test.c"
     ],
-    "remote_eligible": false
+    "remote_eligible": false,
+    "executed_source_commit": "608710fb42ef08d834164163f81b56a7534e8daa",
+    "final_candidate_note": "Subsequent change is fresh remote-admission race handling only; final exact release reruns network-denied integration, receipt and startup regressions."
   },
   "installed_seed": {
     "repositories": 7,
@@ -69,15 +71,16 @@
   ],
   "evidence_sha256": {
     "red.log": "ea55447b21eb9b05daea7eab83b9fd5bf6e8ce4f2b6260f169bd3aa66f5e72e6",
-    "queue-green.log": "eb5f6f4b5ee2c46ff38dd4ca94e9cb033d8f10893dce3ecdc1ffb5a708a5b07c",
+    "queue-green.log": "4f3cfb1a850730f32d29455100e6f08594bf6dcdb89ff0e9d13464a0723fc088",
     "reliability-green.log": "066545c66faf63e78b27ac1a9001521261c8219e6fb17868a91a252d9c5a0ffb",
     "install-tests.log": "d330633b47cb568e28a9bcd8c0fc9ae74d5fcc31384a7fddfb0b8c8736378273",
-    "admission-tests.log": "23c9764e91d8ad7f2a40c48c34cc5f56143b6830b51fa452edbc66f8e4f1799f",
+    "admission-tests.log": "827cc1ccd647383a5f20bed97d81b7fbbc74c5850d672258186dc15b08f06c96",
     "api-counts.json": "aa6d13a00faf9aebf4bbf9ab6c6ee8ccc79d0930514ef451a3c315d4455ae3f7",
     "offline-proof.json": "5267c9965199e3d9137c9078482a17adf9a0d87712aec266c3ce2829c64a1a7b",
     "receipt-negative-controls.json": "9ee96230bef4d57611d51aebeb849c370fa234fcd4adba7f0056cac6ea156e6e",
-    "install.json": "cdbec6bc17f28ed0cd449e846abaff37927218a2c3cc3cc5972977b205edb4fe",
-    "seed-install.json": "0bbb3a551ec041b759c1bb7c4330e96ce0892c0b42b020f3c8718b6981abb24f"
+    "install.json": "882ad249bf0b972f7654c3554998b3d00c95ca4af24680193640f1b20f043c23",
+    "seed-install.json": "0bbb3a551ec041b759c1bb7c4330e96ce0892c0b42b020f3c8718b6981abb24f",
+    "admission-race-red.log": "03cd22cfaff027a98d0c34dfbdf5509c51146ae767a549ccc5cf90ade64b4388"
   },
   "processes_signalled": false,
   "pr_opened": false,
