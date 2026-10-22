@@ -311,6 +311,16 @@ class SitePolicy(unittest.TestCase):
         self.assertFalse(result['eligible'])
         self.assertIn('verification key', result['diagnostic'])
 
+    def test_receipt_rejects_commands_outside_pinned_recipe(self):
+        receipt = dict(schema=sp.SITE_RECEIPT_SCHEMA, repository='aien-dev/aienos.com',
+            commit='a' * 40, tree='b' * 40, recipe_id=sp.SITE_RECIPE_ID, qualified=True,
+            platform='macOS', commands=[dict(argv=list(argv), exit_code=0, log_sha256='a' * 64)
+                for argv in sp.SITE_REQUIRED_COMMANDS] + [dict(argv=['python3', '-c', 'untrusted'],
+                    exit_code=0, log_sha256='b' * 64)])
+        result = sp.validate_site_receipt(receipt, 'aien-dev/aienos.com', 'a' * 40, 'b' * 40)
+        self.assertFalse(result['eligible'])
+        self.assertIn('exact recipe', result['diagnostic'])
+
     def test_receipt_requires_all_exact_commands_zero_exit_and_valid_log_hashes(self):
         receipt = dict(schema=sp.SITE_RECEIPT_SCHEMA, repository='aien-dev/aienos.com',
             commit='a' * 40, tree='b' * 40, recipe_id=sp.SITE_RECIPE_ID, qualified=True,

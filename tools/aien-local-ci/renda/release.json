@@ -3,9 +3,9 @@
     "local_queue.py": "3a9ce053c614d21ad8abad4185e5f7c3afec56ad55020776db5cdbb529eca462",
     "renda-checked": "ae5302aaadcdec2019691428f9efc1bcb8aecefd25a9ad78ccf294d848833d39",
     "renda-harness": "63c215f092be0fe5382ea7c026ff85333748d19cf3bc6c75041649557faf4e14",
-    "site_policy.py": "997f2136c3282c8c83f48a72e6230049c054faf62abb21c3f55d5821dae0580b",
+    "site_policy.py": "9526113b6b4a323b1d47f538d60261e499228cda89a31c5ba2090997dcea2cc3",
     "test_local_queue.py": "d26618b8bf9f55a7f88c6d0eced21252ff1c640046ff34ccaef65477f37e78ce",
     "test_reliability.py": "f924611a7988bd00df7f8bf81ddfa63731561e09035510854f86c40473bc2b55",
-    "test_site_policy.py": "22a2c865dc4705959b41b2c5133a9d9e3a527edf894b02578da0fbf0a837965f"
+    "test_site_policy.py": "c16473361b9c09f9c32df2ffa25a8dedfe11ecfdd6b244f165b653804e9113ac"
   }
 }

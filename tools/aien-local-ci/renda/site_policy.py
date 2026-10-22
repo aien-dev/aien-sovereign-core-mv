@@ -202,9 +202,8 @@ def validate_site_receipt(receipt, repository, commit, tree):
             return {'eligible': False, 'diagnostic': 'qualification command did not exit zero'}
         if not isinstance(row.get('log_sha256'), str) or not HEX256.fullmatch(row['log_sha256']):
             return {'eligible': False, 'diagnostic': 'qualification command log hash invalid'}
-    missing = [list(argv) for argv in SITE_REQUIRED_COMMANDS if argv not in seen]
-    if missing:
-        return {'eligible': False, 'diagnostic': 'qualification commands incomplete'}
+    if [tuple(row['argv']) for row in commands if isinstance(row, dict) and isinstance(row.get('argv'), list)] != list(SITE_REQUIRED_COMMANDS):
+        return {'eligible': False, 'diagnostic': 'qualification commands do not match exact recipe'}
     return {'eligible': True, 'diagnostic': 'trusted recipe fields match exact repository, commit and tree',
             'commit': commit, 'tree': tree, 'recipe_id': SITE_RECIPE_ID}
 
