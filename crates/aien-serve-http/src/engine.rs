@@ -137,6 +137,39 @@ pub trait Engine: Send + Sync {
         }
         self.generate(prompt, params, on_token)
     }
+    /// Runs several generations that belong together (the eight readers of one long input, sc
+    /// L371) and returns one outcome per job, in order. `on_token(i, tok)` gets job `i`'s tokens;
+    /// `false` cancels that job only. The default runs them in turn; a batching engine seats them
+    /// all in the same beat so they share every weight read. The caller holds `jobs.len()`
+    /// permits (or all of them, when fewer).
+    fn generate_group(
+        &self,
+        jobs: &[GroupJob],
+        on_token: &mut dyn FnMut(usize, u32) -> bool,
+    ) -> Vec<Result<GenerateOutcome, EngineError>> {
+        let stopped = |j: &GroupJob| {
+            j.cancel
+                .as_ref()
+                .is_some_and(|c| c.load(std::sync::atomic::Ordering::SeqCst))
+        };
+        jobs.iter()
+            .enumerate()
+            .map(|(i, j)| {
+                if stopped(j) {
+                    return Ok(GenerateOutcome {
+                        emitted_tokens: 0,
+                        finish: FinishReason::Cancelled,
+                        prefill_ms: 0,
+                        decode_ms: 0,
+                        sampling: None,
+                    });
+                }
+                self.generate_with_test(&j.prompt, &j.params, &j.test, &mut |t| {
+                    on_token(i, t) && !stopped(j)
+                })
+            })
+            .collect()
+    }
 }
 
 /// The merge train's per-request switches (L384, Drake 2026-10-21: "batch these tests
@@ -245,6 +278,18 @@ impl TestSwitches {
     pub fn is_empty(&self) -> bool {
         *self == Self::default()
     }
+}
+
+/// One generation of a [`Engine::generate_group`].
+#[derive(Debug, Clone)]
+pub struct GroupJob {
+    pub prompt: Vec<u32>,
+    pub params: GenerateParams,
+    /// Set by the caller to stop this job even before it emits a token (a reader still taking in
+    /// its part when the client leaves). `None`: only `on_token` returning `false` stops it.
+    pub cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// The merge train's switches for this job (empty on the served path).
+    pub test: TestSwitches,
 }
 
 /// Test engine: ignores the prompt and replays a fixed token list, optionally

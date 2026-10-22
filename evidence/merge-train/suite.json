@@ -321,6 +321,22 @@
         "$OUT"
       ],
       "about": "L369 chip prefill on the door: ~256/~2k/~8k-token prompts + one sampled request + the 32 short prompts at once, then turn 2; ids == the reference build alone (refs <CURRENT>/l369-long) and == the store (short). Needs MERGE_TRAIN_CTX >= 9216 (L387)"
+    },
+    {
+      "id": "readers-gate",
+      "kind": "script",
+      "script": "evidence/q36-readers-train/gate.sh",
+      "arms": [
+        "plain"
+      ],
+      "levers": [
+        "L371"
+      ],
+      "args": [
+        "$PORT",
+        "$OUT/readers-gate"
+      ],
+      "about": "L371 eight readers: id listed; short input == plain ids; a ~5.6k-token excerpt is read by 8 readers (contiguous parts, notes each) and the final answer joins two far-apart facts; plain id has no aien_readers (red control). Needs 8 free rows (L371_READERS overrides). Not an exactness gate: readers are opt-in by id."
     }
   ]
 }
