@@ -97,7 +97,13 @@ pub enum SealError {
 /// The store key. Zeroed on drop; never printed.
 pub struct SealKey {
     bytes: Zeroizing<[u8; KEY_LEN]>,
+    #[cfg(test)]
+    nonce_source: Option<TestNonceSource>,
 }
+
+#[cfg(test)]
+type TestNonceSource =
+    std::sync::Arc<dyn Fn(&mut [u8; NONCE_LEN]) -> Result<(), SealError> + Send + Sync>;
 
 fn hex_val(c: u8) -> Option<u8> {
     match c {
@@ -113,6 +119,8 @@ impl SealKey {
         let mut b = bytes;
         let key = Self {
             bytes: Zeroizing::new(b),
+            #[cfg(test)]
+            nonce_source: None,
         };
         b.zeroize();
         key
@@ -122,6 +130,8 @@ impl SealKey {
     pub fn generate() -> Result<Self, SealError> {
         let mut key = Self {
             bytes: Zeroizing::new([0u8; KEY_LEN]),
+            #[cfg(test)]
+            nonce_source: None,
         };
         SystemRandom::new()
             .fill(&mut key.bytes[..])
@@ -138,6 +148,8 @@ impl SealKey {
         }
         let mut key = Self {
             bytes: Zeroizing::new([0u8; KEY_LEN]),
+            #[cfg(test)]
+            nonce_source: None,
         };
         for (i, [hi, lo]) in h.as_chunks::<2>().0.iter().enumerate() {
             match (hex_val(*hi), hex_val(*lo)) {
@@ -171,6 +183,12 @@ impl SealKey {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_source(mut self, source: TestNonceSource) -> Self {
+        self.nonce_source = Some(source);
+        self
+    }
+
     fn aead(&self) -> LessSafeKey {
         LessSafeKey::new(UnboundKey::new(&AES_256_GCM, &self.bytes[..]).expect("32-byte key"))
     }
@@ -189,17 +207,28 @@ impl SealKey {
         got
     }
 
+    fn fresh_nonce(&self) -> Result<[u8; NONCE_LEN], SealError> {
+        let mut nonce = [0u8; NONCE_LEN];
+        #[cfg(test)]
+        if let Some(source) = &self.nonce_source {
+            source(&mut nonce)?;
+            return Ok(nonce);
+        }
+        SystemRandom::new()
+            .fill(&mut nonce)
+            .map_err(|_| SealError::Random)?;
+        Ok(nonce)
+    }
+
     fn seal_inner(&self, file: &mut [u8]) -> Result<(), SealError> {
         if file.len() < HEADER_REGION_LEN {
             return Err(SealError::Short);
         }
+        // Obtain entropy before modifying any caller bytes. There is no fallback.
+        let nonce = self.fresh_nonce()?;
         let (region, payload) = file.split_at_mut(HEADER_REGION_LEN);
         region[O_MAGIC..O_MAGIC + 3].copy_from_slice(&SEAL_MAGIC);
         region[O_VERSION] = SEALED_FORMAT_VERSION;
-        let mut nonce = [0u8; NONCE_LEN];
-        SystemRandom::new()
-            .fill(&mut nonce)
-            .map_err(|_| SealError::Random)?;
         region[O_NONCE..O_TAG].copy_from_slice(&nonce);
         let tag = self
             .aead()
@@ -354,3 +383,7 @@ pub fn seal_timing() -> SealTiming {
         open_ns: r(&OPEN_TIMING.ns),
     }
 }
+
+#[cfg(test)]
+#[path = "nonce_tests.rs"]
+mod nonce_tests;

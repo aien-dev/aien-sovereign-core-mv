@@ -3577,6 +3577,7 @@ mod tests {
     use crate::pin::HolderGuard;
 
     const BS: usize = 8192;
+    include!("nonce_host_tests.rs");
 
     fn test_fields() -> NamespaceFields<'static> {
         let compute = ComputeConfig {
