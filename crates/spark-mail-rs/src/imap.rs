@@ -219,18 +219,11 @@ impl<S: Read + Write> Client<S> {
         ];
         for response in self.run(&args, false)? {
             // Servers may interleave unsolicited FETCH data for other messages.
-            if !is_fetch(&response.text[0]) || fetch_uid(&response) != Some(uid) {
+            if !is_fetch(&response.text[0]) {
                 continue;
             }
-            // A body sent as a quoted string would read as missing; refuse it. NIL (no
-            // such section) stays `None`.
-            if response.text.iter().any(|text| quotes_section(text, reply)) {
-                return Err(ImapError::Malformed("section sent as a quoted string"));
-            }
-            for (text, literal) in response.text.iter().zip(response.literals) {
-                if names_section(text, reply) {
-                    return Ok(Some(literal));
-                }
+            if let Some(index) = fetch_section(&response, uid, reply)? {
+                return Ok(response.literals.into_iter().nth(index));
             }
         }
         Ok(None)
@@ -493,49 +486,206 @@ fn is_fetch(line: &[u8]) -> bool {
         return false;
     };
     let (number, rest) = split_word(rest);
-    !number.is_empty()
-        && number.iter().all(u8::is_ascii_digit)
-        && rest.len() >= 5
-        && rest[..5].eq_ignore_ascii_case(b"FETCH")
+    let (word, _) = split_word(rest);
+    parse_uid(number).is_some() && word.eq_ignore_ascii_case(b"FETCH")
 }
 
-/// The value of the `UID` item in a FETCH response.
-fn fetch_uid(response: &Response) -> Option<u32> {
-    response.text.iter().find_map(|text| {
-        (1..text.len().saturating_sub(3)).find_map(|i| {
-            if !matches!(text[i - 1], b'(' | b' ') || !text[i..i + 4].eq_ignore_ascii_case(b"UID ")
-            {
-                return None;
+/// A streaming token view over response text. Literal payloads stay opaque
+/// and are referenced by index, never copied or interpreted as attributes.
+#[derive(Clone, Copy)]
+enum FetchToken<'a> {
+    Atom(&'a [u8]),
+    Quoted,
+    Literal(usize),
+    Open,
+    Close,
+}
+
+struct FetchCursor<'a> {
+    response: &'a Response,
+    part: usize,
+    pos: usize,
+    marker: Option<usize>,
+}
+
+impl<'a> FetchCursor<'a> {
+    fn next(&mut self) -> Result<Option<FetchToken<'a>>, ImapError> {
+        let text = &self.response.text[self.part];
+        while self.pos < text.len() && text[self.pos] == b' ' {
+            self.pos += 1;
+        }
+        if self.pos == text.len() {
+            if self.part < self.response.literals.len() {
+                return Err(ImapError::Malformed("unconsumed FETCH literal marker"));
             }
-            let digits = &text[i + 4..];
-            let end = digits
-                .iter()
-                .position(|b| !b.is_ascii_digit())
-                .unwrap_or(digits.len());
-            parse_uid(&digits[..end])
-        })
-    })
+            return Ok(None);
+        }
+        if self.marker == Some(self.pos) {
+            let index = self.part;
+            self.part += 1;
+            self.pos = 0;
+            self.marker = if self.part < self.response.literals.len() {
+                self.response.text[self.part]
+                    .iter()
+                    .rposition(|&b| b == b'{')
+            } else {
+                None
+            };
+            return Ok(Some(FetchToken::Literal(index)));
+        }
+        let start = self.pos;
+        self.pos += 1;
+        match text[start] {
+            b'(' => Ok(Some(FetchToken::Open)),
+            b')' => Ok(Some(FetchToken::Close)),
+            b'"' => {
+                while self.pos < text.len() {
+                    let b = text[self.pos];
+                    self.pos += 1;
+                    if b == b'"' {
+                        return Ok(Some(FetchToken::Quoted));
+                    }
+                    if b == b'\\' {
+                        if self.pos == text.len() {
+                            break;
+                        }
+                        self.pos += 1;
+                    }
+                }
+                Err(ImapError::Malformed("unterminated FETCH quoted string"))
+            }
+            _ => {
+                // Only BODY section selectors have structured whitespace.
+                // An ordinary extension atom may legitimately contain '['.
+                if text[start..]
+                    .get(..5)
+                    .is_some_and(|s| s.eq_ignore_ascii_case(b"BODY["))
+                {
+                    self.pos = start + 5;
+                    let mut lists = 0usize;
+                    let mut quoted = false;
+                    let mut closed = false;
+                    while self.pos < text.len() {
+                        let b = text[self.pos];
+                        self.pos += 1;
+                        if quoted {
+                            if b == b'\\' {
+                                if self.pos == text.len() {
+                                    break;
+                                }
+                                self.pos += 1;
+                            } else if b == b'"' {
+                                quoted = false;
+                            }
+                        } else {
+                            match b {
+                                b'"' => quoted = true,
+                                b'(' => lists += 1,
+                                b')' if lists > 0 => lists -= 1,
+                                b']' if lists == 0 => {
+                                    closed = true;
+                                    break;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    if !closed {
+                        return Err(ImapError::Malformed("unterminated FETCH section"));
+                    }
+                }
+                while self.pos < text.len() && !matches!(text[self.pos], b' ' | b'(' | b')') {
+                    self.pos += 1;
+                }
+                Ok(Some(FetchToken::Atom(&text[start..self.pos])))
+            }
+        }
+    }
+
+    /// Skip one value without recursion or a per-token allocation. Parentheses
+    /// in strings/literals are opaque; arbitrary nesting costs constant space.
+    fn skip_value(&mut self, first: FetchToken<'a>) -> Result<(), ImapError> {
+        let mut depth = match first {
+            FetchToken::Open => 1usize,
+            FetchToken::Close => return Err(ImapError::Malformed("missing FETCH value")),
+            _ => 0,
+        };
+        while depth != 0 {
+            match self.next()? {
+                Some(FetchToken::Open) => depth += 1,
+                Some(FetchToken::Close) => depth -= 1,
+                Some(_) => {}
+                None => return Err(ImapError::Malformed("unterminated FETCH list")),
+            }
+        }
+        Ok(())
+    }
 }
 
-/// Whether `text` carries `name` as a quoted string, as in `... BODY[] "..."`.
-fn quotes_section(text: &[u8], name: &[u8]) -> bool {
-    let mut quoted = name.to_vec();
-    quoted.extend_from_slice(b" \"");
-    text.windows(quoted.len()).enumerate().any(|(i, w)| {
-        w.eq_ignore_ascii_case(&quoted) && i > 0 && matches!(text[i - 1], b'(' | b' ')
-    })
-}
-
-/// Whether the text before a literal names `name` as the item it carries,
-/// as in `... BODY[HEADER] {123}`.
-fn names_section(text: &[u8], name: &[u8]) -> bool {
-    let Some(open) = text.iter().rposition(|&b| b == b'{') else {
-        return false;
+/// Read attribute/value pairs only at the outer FETCH list. UID text in an
+/// ENVELOPE, extension, string or literal cannot select another message, and
+/// a nested BODY attribute cannot supply the requested top-level section.
+fn fetch_section(
+    response: &Response,
+    wanted_uid: u32,
+    section: &[u8],
+) -> Result<Option<usize>, ImapError> {
+    let pos = response.text[0]
+        .iter()
+        .position(|&b| b == b'(')
+        .ok_or(ImapError::Malformed("FETCH has no attribute list"))?;
+    let mut cursor = FetchCursor {
+        response,
+        part: 0,
+        pos: pos + 1,
+        marker: if response.literals.is_empty() {
+            None
+        } else {
+            response.text[0].iter().rposition(|&b| b == b'{')
+        },
     };
-    let head = text[..open].trim_ascii_end();
-    head.len() > name.len()
-        && head[head.len() - name.len()..].eq_ignore_ascii_case(name)
-        && matches!(head[head.len() - name.len() - 1], b'(' | b' ')
+    let mut uid = None;
+    let mut body = None;
+    loop {
+        let name = match cursor.next()? {
+            Some(FetchToken::Close) => break,
+            Some(FetchToken::Atom(name)) => name,
+            _ => return Err(ImapError::Malformed("missing FETCH attribute")),
+        };
+        let value = cursor
+            .next()?
+            .ok_or(ImapError::Malformed("missing FETCH value"))?;
+        if name.eq_ignore_ascii_case(b"UID") {
+            if uid.is_some() {
+                return Err(ImapError::Malformed("duplicate FETCH UID"));
+            }
+            uid = match value {
+                FetchToken::Atom(atom) => {
+                    Some(parse_uid(atom).ok_or(ImapError::Malformed("invalid FETCH UID"))?)
+                }
+                _ => return Err(ImapError::Malformed("invalid FETCH UID")),
+            };
+        } else if name.eq_ignore_ascii_case(section) {
+            if body.is_some() {
+                return Err(ImapError::Malformed("duplicate FETCH section"));
+            }
+            body = Some(value);
+        }
+        cursor.skip_value(value)?;
+    }
+    if cursor.next()?.is_some() {
+        return Err(ImapError::Malformed("trailing FETCH data"));
+    }
+    if uid != Some(wanted_uid) {
+        return Ok(None);
+    }
+    match body {
+        Some(FetchToken::Literal(index)) => Ok(Some(index)),
+        None => Ok(None),
+        Some(FetchToken::Atom(atom)) if atom.eq_ignore_ascii_case(b"NIL") => Ok(None),
+        Some(FetchToken::Quoted) => Err(ImapError::Malformed("section sent as a quoted string")),
+        _ => Err(ImapError::Malformed("invalid FETCH section value")),
+    }
 }
 
 #[cfg(test)]
@@ -602,6 +752,120 @@ mod tests {
 
     fn written(client: &Client<Script>) -> String {
         String::from_utf8_lossy(&client.stream.written).into_owned()
+    }
+
+    #[test]
+    fn a_fetch_prefix_in_an_extension_name_is_not_fetch_data() {
+        let mut c = client(b"* 1 FETCHX (UID 9 BODY[HEADER] {3}\r\nbad)\r\nA0001 OK done\r\n");
+        assert_eq!(c.uid_fetch(9, Section::Header).unwrap(), None);
+    }
+
+    #[test]
+    fn ambiguous_or_trailing_fetch_attributes_are_refused() {
+        for attributes in [
+            "UID 9 UID 10 BODY[HEADER] {4}\r\ngood)",
+            "UID 9 BODY[HEADER] {4}\r\ngood BODY[HEADER] {3}\r\nbad)",
+            "UID 9 BODY[HEADER] {4}\r\ngood) trailing",
+            "UID 9 X-EXT (UID 10 BODY[HEADER] {4}\r\ngood)",
+        ] {
+            let replies = format!("* 1 FETCH ({attributes}\r\nA0001 OK done\r\n");
+            assert!(
+                matches!(
+                    client(replies.as_bytes()).uid_fetch(9, Section::Header),
+                    Err(ImapError::Malformed(_))
+                ),
+                "{attributes:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn structured_fetch_selection_survives_fragmentation_and_opaque_literals() {
+        for depth in [1, 8, 256] {
+            for uid in [9, 10] {
+                for after in [false, true] {
+                    let nested = format!(
+                        "{}\"escaped\\\" UID 9\"{}",
+                        "(".repeat(depth),
+                        ")".repeat(depth)
+                    );
+                    let prefix = format!("X-EXT {nested} X-ATOM UID X-LITERAL {{5}}\r\nUID 9 ");
+                    let attributes = if after {
+                        format!("{prefix}BODY[HEADER] {{4}}\r\ngood UID {uid}")
+                    } else {
+                        format!("UID {uid} {prefix}BODY[HEADER] {{4}}\r\ngood")
+                    };
+                    let all =
+                        format!("* OK ready\r\n* 1 FETCH ({attributes})\r\nA0001 OK done\r\n");
+                    for trickle in [false, true] {
+                        let stream = if trickle {
+                            Script::trickle(all.as_bytes())
+                        } else {
+                            Script::new(all.as_bytes())
+                        };
+                        let mut c = Client::connect(stream).unwrap();
+                        let expected = if uid == 9 {
+                            Some(b"good".to_vec())
+                        } else {
+                            None
+                        };
+                        assert_eq!(c.uid_fetch(9, Section::Header).unwrap(), expected);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unrelated_fetch_atoms_and_section_selectors_stay_opaque() {
+        for prefix in [
+            "X-ATOM foo[bar ",
+            "BODY[HEADER.FIELDS (\"odd]name\")] {3}\r\nxxx ",
+            "X-EXT (\"escaped\\\" UID 10\" (BODY[] {3}\r\nbad)) ",
+        ] {
+            let replies = format!(
+                "* 1 FETCH ({prefix}UID 9 BODY[HEADER] {{4}}\r\ngood)\r\nA0001 OK done\r\n"
+            );
+            let mut c = client(replies.as_bytes());
+            assert_eq!(
+                c.uid_fetch(9, Section::Header).unwrap(),
+                Some(b"good".to_vec()),
+                "{prefix:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn quoted_envelope_uid_text_cannot_select_another_message() {
+        let mut c = client(b"* 1 FETCH (ENVELOPE (NIL \"note UID 9\" NIL NIL NIL NIL NIL NIL NIL NIL) UID 10 BODY[HEADER] {3}\r\nbad)\r\nA0001 OK done\r\n");
+        assert_eq!(c.uid_fetch(9, Section::Header).unwrap(), None);
+    }
+
+    #[test]
+    fn nested_body_section_cannot_replace_the_top_level_body() {
+        let mut c = client(b"* 1 FETCH (UID 9 X-EXT (BODY[HEADER] {3}\r\nbad) BODY[HEADER] {4}\r\ngood)\r\nA0001 OK done\r\n");
+        assert_eq!(
+            c.uid_fetch(9, Section::Header).unwrap(),
+            Some(b"good".to_vec())
+        );
+    }
+
+    #[test]
+    fn malformed_uid_atom_is_not_a_matching_uid() {
+        let mut c = client(b"* 1 FETCH (UID 9x BODY[HEADER] {3}\r\nbad)\r\nA0001 OK done\r\n");
+        assert!(matches!(
+            c.uid_fetch(9, Section::Header),
+            Err(ImapError::Malformed(_))
+        ));
+    }
+
+    #[test]
+    fn uid_after_literal_and_nested_quoted_values_is_selected() {
+        let mut c = client(b"* 1 FETCH (X-EXT (\"note UID 10\") BODY[HEADER] {4}\r\ngood UID 9)\r\nA0001 OK done\r\n");
+        assert_eq!(
+            c.uid_fetch(9, Section::Header).unwrap(),
+            Some(b"good".to_vec())
+        );
     }
 
     #[test]
