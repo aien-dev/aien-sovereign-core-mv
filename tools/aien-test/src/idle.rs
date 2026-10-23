@@ -300,16 +300,20 @@ pub fn disk_verdict(
     }
 }
 
-/// Priming runs below the gates: `nice -n 19 ionice -c 3 <program> <args>`
-/// inside the sandbox (the unprivileged user may lower its own priority).
+/// Priming runs below the gates: `chrt --idle 0 <program> <args>` inside the
+/// sandbox. SCHED_IDLE (sched_setscheduler; any user may move itself there)
+/// is honoured across the whole machine, so it gets CPU only when the gates
+/// leave a core idle. `nice` would not do it: with autogroup a nice value
+/// only ranks processes inside priming's own session. Disk I/O gets no
+/// priority on purpose: the NVMe scheduler here is `none`, where ionice
+/// classes do nothing, so none is claimed. Priming yields the disk by stopping
+/// instead, the moment a real head, WAKE, PAUSE or the quiet flag appears.
 pub fn low_priority(program: &str, args: &[String]) -> (String, Vec<String>) {
-    let mut a: Vec<String> = ["-n", "19", "ionice", "-c", "3", program]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+    let mut a: Vec<String> = vec!["--idle".to_string(), "0".to_string(), program.to_string()];
     a.extend(args.iter().cloned());
-    ("nice".to_string(), a)
+    ("chrt".to_string(), a)
 }
+
 
 // ---------------------------------------------------------------- target lock
 
@@ -850,10 +854,11 @@ mod tests {
     }
 
     #[test]
-    fn req3_priming_runs_niced_and_idle_io() {
+    fn req3_priming_runs_sched_idle_and_fakes_no_io_priority() {
         let (p, a) = low_priority("cargo", &["check".to_string()]);
-        assert_eq!(p, "nice");
-        assert_eq!(a, ["-n", "19", "ionice", "-c", "3", "cargo", "check"]);
+        assert_eq!(p, "chrt");
+        assert_eq!(a, ["--idle", "0", "cargo", "check"]);
+        assert!(!a.iter().any(|s| s == "ionice" || s == "nice"));
     }
 
     #[test]

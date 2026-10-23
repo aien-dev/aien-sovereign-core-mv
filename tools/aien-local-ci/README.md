@@ -261,8 +261,10 @@ GitHub (the same one-call probe) for a head without a bundle that has not alread
 head that errored never gets a bundle, so it must not stop priming every round); any of them sends SIGTERM to the
 helper (its trap stops the scope). Only a new head, WAKE, PAUSE removal or a trigger file counts as activity, and
 then the loop runs the next round at once instead of sleeping; the quiet flag, PAUSE present or the disk bound do
-neither. Everything priming runs (cargo, du, the wipe) runs as `nice -n 19 ionice -c 3` inside the sandbox, below
-the gates. Never gb10, never QEMU, never a booted VM.
+neither. Everything priming runs (cargo, du, the wipe) runs as `chrt --idle 0` (SCHED_IDLE) inside the sandbox: it
+gets CPU only when no gate wants that core, machine-wide. (`nice 19` would not do it: with autogroup a nice value
+only ranks processes inside priming's own session.) Disk I/O has no priority: the NVMe scheduler is `none`, where
+ionice classes do nothing, so none is set or claimed; priming yields the disk by stopping on the signals above. Never gb10, never QEMU, never a booted VM.
 
 Disk bound. Priming takes the target dir lock, `<state>/locks/target/<sanitised target dir>.lock` (the flock the
 runner holds around a cargo gate, sc #584). It retries every 5 s and gives up on any stop reason, and never holds the
