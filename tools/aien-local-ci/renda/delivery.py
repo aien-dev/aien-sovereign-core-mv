@@ -109,7 +109,10 @@ def intake_ack_valid(queue, entry, ack, path):
                     or not isinstance(row.get('ref'), str)
                     or any(not re.fullmatch(r'[0-9a-f]{40}',str(row.get(k))) for k in ('sha','base'))):
                 return False
-            keys.append(f"{queue.full}:ready:{row['ref']}@{row['sha']}")
+            row_key = f"{queue.full}:ready:{row['ref']}@{row['sha']}"
+            if row_key == entry['key'] and row.get('target') != entry.get('target'):
+                return False
+            keys.append(row_key)
             items.append(dict(ref=row['ref'],head=row['sha'],base=row['base'],number=None,remote_observed_at=None))
         expected_name = digest(json.dumps([queue.full,keys],sort_keys=True).encode())+'.json'
         return (path.name == expected_name and ack.get('items') == items
@@ -204,12 +207,16 @@ def publish_candidate(repo, queue, entry, model, policy, ctx):
     rc, _, _ = queue.run(['git','-C',str(source),'merge-tree','--write-tree',base,sha],timeout=60)
     if rc:
         return refuse('candidate conflicts with pinned main')
-    rc, out, err = queue.run(['gh','pr','list','-R',full,'--head',ref,'--state','all','--json',
-        'number,state,headRefName,headRefOid,baseRefName,baseRefOid'],timeout=120)
-    if rc:
-        return refuse('existing PR lookup unavailable: '+(err or out)[-200:])
+    if entry.get('target') is not None:
+        from successor import promote_successor
+        return promote_successor(repo, queue, entry, source, owned, qualified, refs_match)
+    from publication_transport import list_by_head, view_by_number
     try:
-        inspection = inspect_site_pr_snapshot(json.loads(out),ref,sha,base)
+        rows = list_by_head(queue.run, full, ref, timeout=120)
+    except (ValueError, TypeError) as exc:
+        return refuse('existing PR lookup unavailable: '+str(exc)[-200:])
+    try:
+        inspection = inspect_site_pr_snapshot(rows,ref,sha,base)
     except (ValueError, TypeError):
         return refuse('existing PR response malformed')
     if inspection['action'] == 'refuse':
@@ -230,12 +237,10 @@ def publish_candidate(repo, queue, entry, model, policy, ctx):
         if not match:
             return refuse('create response ambiguous; exact branch reconciliation required')
         number = int(match[1])
-    rc, out, err = queue.run(['gh','pr','view',str(number),'-R',full,'--json',
-        'number,state,headRefName,headRefOid,baseRefName,baseRefOid,mergeStateStatus'],timeout=120)
     try:
-        pr = json.loads(out) if not rc else None
-    except (ValueError, TypeError):
-        pr = None
+        pr = view_by_number(queue.run, full, number, timeout=120)
+    except (ValueError, TypeError) as exc:
+        return refuse('created/reused PR read-back unavailable: '+str(exc)[-200:])
     check = inspect_site_pr_snapshot([pr],ref,sha,base)
     if check['action'] != 'reuse' or check.get('number') != number:
         return refuse('created/reused PR read-back missing or moved; publication not recorded')

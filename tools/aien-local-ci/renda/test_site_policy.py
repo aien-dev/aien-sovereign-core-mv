@@ -226,29 +226,32 @@ class SitePolicy(unittest.TestCase):
                 require_status = True
                 status_success = False
                 def fake_run(cmd, **kwargs):
-                    if cmd[0] == 'gh':
-                        if 'api' in cmd:
-                            endpoint = cmd[-1]
-                            if '/protection/required_status_checks' in endpoint:
-                                return 1, '', 'HTTP 404: no branch protection configured'
-                            if '/rulesets?' in endpoint:
-                                rulesets = ([dict(enforcement='active', rules=[dict(type='required_status_checks',
-                                    parameters={'required_status_checks':[dict(context='Hosted')]} )])]
-                                    if require_status else [])
-                                return 0, json.dumps(rulesets), ''
-                        if 'list' in cmd:
-                            if not created:
-                                return 0, '[]', ''
-                            return 0, json.dumps([dict(number=17, state='OPEN', headRefName='feat/site',
-                                headRefOid=head, baseRefName='main', baseRefOid=base)]), ''
-                        if 'create' in cmd:
-                            created.append(17)
-                            return 0, f"https://github.com/aien-dev/aienos.com/pull/17{chr(10)}", ''
-                        if 'view' in cmd:
-                            return 0, json.dumps(dict(number=17, state='OPEN', headRefName='feat/site',
-                                headRefOid=head, baseRefName='main', baseRefOid=base, mergeStateStatus='CLEAN',
-                                statusCheckRollup=([dict(context='Hosted', state='SUCCESS')]
-                                    if status_success else []))), ''
+                    if 'graphql' in cmd:
+                        query = next(arg for arg in cmd if arg.startswith('query='))
+                        pr = dict(number=17, title='site fixture', isDraft=False, headRefName='feat/site',
+                            headRefOid=head, baseRefName='main', baseRefOid=base, mergeStateStatus='CLEAN',
+                            state='OPEN', createdAt='2026-01-01T00:00:00Z', commits=dict(nodes=[dict(commit=dict(
+                                oid=head, statusCheckRollup=dict(contexts=dict(pageInfo=dict(hasNextPage=False),
+                                    nodes=([dict(__typename='StatusContext', context='Hosted', state='SUCCESS')]
+                                        if status_success else [])))))]))
+                        if 'pullRequest(number:$number)' in query:
+                            return 0, json.dumps(dict(data=dict(repository=dict(pullRequest=pr)))), ''
+                        nodes = [pr] if created else []
+                        connection = dict(nodes=nodes, pageInfo=dict(hasNextPage=False, endCursor=None))
+                        result = dict(data=dict(repository=dict(pullRequests=connection)))
+                        return 0, json.dumps(result), ''
+                    if 'api' in cmd:
+                        endpoint = cmd[-1]
+                        if '/protection/required_status_checks' in endpoint:
+                            return 1, '', 'HTTP 404: no branch protection configured'
+                        if '/rulesets?' in endpoint:
+                            rulesets = ([dict(enforcement='active', rules=[dict(type='required_status_checks',
+                                parameters={'required_status_checks':[dict(context='Hosted')]} )])]
+                                if require_status else [])
+                            return 0, json.dumps(rulesets), ''
+                    if cmd[0] == 'gh' and 'create' in cmd:
+                        created.append(17)
+                        return 0, f"https://github.com/aien-dev/aienos.com/pull/17{chr(10)}", ''
                     if cmd[0] == 'git' and 'ls-remote' in cmd:
                         ref = cmd[-1]
                         value = head if ref.endswith('feat/site') else base

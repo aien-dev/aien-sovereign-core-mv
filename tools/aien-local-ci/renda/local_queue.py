@@ -281,9 +281,15 @@ class Queue:
                     or not SHA.fullmatch(str(e.get('base', '')))
                     or not isinstance(e.get('ref'), str) or not e['ref']):
                 raise ValueError('invalid READY identity')
+            target = e.get('target')
+            if target is not None:
+                from successor import valid_target
+                if not valid_target(target):
+                    raise ValueError('invalid existing-PR successor target')
             entries.append(dict(key=f"{self.full}:ready:{e['ref']}@{e['sha']}", kind='ready',
                 sha=e['sha'], base=e['base'], ref=e['ref'], number=None, remote_observed_at=None,
-                provenance=f'local READY {Path(path).resolve()} sha256:{digest(raw)}'))
+                provenance=f'local READY {Path(path).resolve()} sha256:{digest(raw)}',
+                **({'target': dict(target)} if target is not None else {})))
         with self.lock() as owned:
             if not owned:
                 raise RuntimeError('sync busy')

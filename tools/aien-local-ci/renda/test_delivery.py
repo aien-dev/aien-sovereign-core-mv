@@ -77,6 +77,18 @@ class Delivery(unittest.TestCase):
             ref=cmd[-1];return 0, (self.base if ref=='refs/heads/main' else self.head)+'\t'+ref+'\n',''
         if cmd[0]=='git' or cmd[0]==str(self.q.state/'crumb-tools'/('a'*40)/'crumb'):
             p=subprocess.run(cmd,capture_output=True,text=True,**kwargs);return p.returncode,p.stdout,p.stderr
+        if cmd[:3]==['gh','api','graphql']:
+            query=next(arg for arg in cmd if arg.startswith('query='))
+            def graphql_pr(pr):
+                return dict(number=pr['number'],title='fixture',isDraft=False,headRefName=pr['headRefName'],
+                    headRefOid=pr['headRefOid'],baseRefName=pr['baseRefName'],baseRefOid=pr['baseRefOid'],
+                    mergeStateStatus=pr.get('mergeStateStatus','CLEAN'),state=pr['state'],createdAt='2026-01-01T00:00:00Z',
+                    commits=dict(nodes=[dict(commit=dict(oid=pr['headRefOid'],statusCheckRollup=None))]))
+            if 'pullRequest(number:$number)' in query:
+                return 0,json.dumps(dict(data=dict(repository=dict(pullRequest=graphql_pr(self.pr))))),''
+            result=dict(data=dict(repository=dict(pullRequests=dict(
+                nodes=[graphql_pr(pr) for pr in self.rows],pageInfo=dict(hasNextPage=False,endCursor=None)))))
+            return 0,json.dumps(result),''
         if cmd[:3]==['gh','pr','list']:return 0,json.dumps(self.rows),''
         if cmd[:3]==['gh','pr','create']:
             self.rows=[dict(self.pr)];return 0,'https://github.com/'+self.q.full+'/pull/42\n',''
@@ -123,7 +135,7 @@ class Delivery(unittest.TestCase):
     def test_review_policy_identity_covers_chunk_implementation(self):
         self.assertTrue(callable(getattr(h,'policy_hash',None)), 'complete policy identity helper missing')
         package=self.root/'policy-package';package.mkdir()
-        for name in ('renda-harness','local_queue.py','site_policy.py','delivery.py','review_chunks.py'):
+        for name in ('renda-harness','local_queue.py','site_policy.py','publication_transport.py','successor.py','delivery.py','review_chunks.py'):
             (package/name).write_text('synthetic '+name)
         with patch.object(h,'SOURCE_FILE',str(package/'renda-harness')):
             before=h.policy_hash();(package/'review_chunks.py').write_text('changed chunk semantics')
@@ -138,6 +150,14 @@ class Delivery(unittest.TestCase):
         pubs=list((self.q.root/'published'/self.q.repo).glob('*.json'))
         self.assertEqual(len(pubs),1)
         self.assertEqual(read(pubs[0])['head'],self.head)
+
+    def test_graphql_lookup_failure_holds_before_pr_create(self):
+        with patch('publication_transport.list_by_head', side_effect=ValueError('GraphQL errors')):
+            ok, note = self.publish()
+        self.assertFalse(ok, note)
+        self.assertIn('lookup unavailable', note)
+        self.assertEqual(self.writes(), [])
+        self.assertFalse((self.q.root/'published'/self.q.repo).exists())
 
     def test_missing_failed_or_unverified_receipt_never_creates(self):
         for receipt in [dict(verified=False,eligible=False),dict(verified=True,eligible=False,verdict='FAIL'),
@@ -190,9 +210,12 @@ class Delivery(unittest.TestCase):
 
     def test_release_installer_and_startup_include_delivery_regressions(self):
         import install
-        self.assertIn('delivery.py',install.FILES)
+        self.assertIn('publication_transport.py',install.FILES)
         self.assertIn('test_delivery.py',install.FILES)
-        self.assertIn('test_delivery.py',Path(__file__).with_name('renda-checked').read_text())
+        self.assertIn('test_publication_transport.py',install.FILES)
+        wrapper=Path(__file__).with_name('renda-checked').read_text()
+        self.assertIn('test_delivery.py',wrapper)
+        self.assertIn('test_publication_transport.py',wrapper)
 
     def test_legacy_workflow_pin_is_used_when_repository_has_no_crumb_lock(self):
         (self.source/'.aien').mkdir();(self.source/'.aien/always').write_text('CRUMB-VERIFY\n')

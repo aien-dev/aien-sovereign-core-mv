@@ -30,7 +30,7 @@ class Admission(unittest.TestCase):
         block_pr = dict(f.pr, number=620, statusCheckRollup=[dict(context=r.SPARK, state='FAILURE')])
         result = dict(waiting=[], blocked=[])
         fresh = dict(state='OPEN', headRefOid=f.sha, mergeStateStatus='BLOCKED')
-        with patch.object(r, 'gh_json', return_value=fresh), patch.object(r, 'remote_admitted', return_value=(True, 'synthetic fresh check')), \
+        with patch.object(r, 'gh_json', return_value=fresh), patch.object(r, 'failed_block_admitted', return_value=(True, 'synthetic fresh close-only check')), \
              patch.object(r, 'operator_verdict', return_value=None), patch.object(r, 'run', return_value=(98, '', 'synthetic guard98')), \
              patch.object(r, 'save_block') as save:
             r.finish_block('omega', 'aien-dev/omega-mv', state, {620: block_pr}, result)

@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.join(os.path.expanduser("~"), ".local/lib/renda"))
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from local_queue import Queue, status as queued_status, valid_pr, digest, read, save
 from delivery import admit_plan, cheap_metadata, assessment, publish_candidate, report_transitions, guarded_judge_command
+from publication_transport import list_by_head, view_by_number
 from site_policy import (repository_identity, repository_policy, SITE_REPOSITORY,
     SITE_POLICY_ID, inspect_site_pr_snapshot, exact_remote_refs, verify_site_qualification,
     site_required_checks, required_checks_satisfied)
@@ -578,15 +579,24 @@ def finish_block(repo, full, st, prs_by_num, res):
         if not block_pr:
             res['waiting'].append('block metadata unavailable, split held')
             return
-        admitted, reason = remote_admitted(repo, full, block_pr)
+        admitted, reason = failed_block_admitted(repo, full, block_pr)
         if not admitted:
             res['waiting'].append('block close held: ' + reason)
             return
         res["blocked"].append(f"block #{blk['pr']} judge {s}: {desc[:160]}; splitting")
-        rc, _, err = run(["gh", "pr", "close", str(blk["pr"]), "-R", full, "--delete-branch", "--comment",
+        rc, _, err = run(["gh", "pr", "close", str(blk["pr"]), "-R", full, "--comment",
              f"Judge {s} on the block head ({desc[:200]}). Splitting the block in halves; each half is judged on its own."])
         if rc:
             res['waiting'].append('block close failed; state retained: ' + err[-200:])
+            return
+        try:
+            closed = gh_json(['pr', 'view', str(blk['pr']), '-R', full,
+                              '--json', 'state,headRefOid'])
+            if (not isinstance(closed, dict) or closed.get('state') != 'CLOSED'
+                    or closed.get('headRefOid') != blk.get('sha')):
+                raise ValueError('closed state/exact head not confirmed')
+        except Exception as exc:
+            res['waiting'].append('block close readback failed; state retained: ' + str(exc)[-200:])
             return
         if len(blk["carried"]) <= 2:
             st["solo"] = sorted(set(st.get("solo", []) + blk["carried"]))
@@ -596,6 +606,30 @@ def finish_block(repo, full, st, prs_by_num, res):
         save_block(repo, st)
         return
     res["waiting"].append(f"block #{blk['pr']} ({len(blk['carried'])} PRs) {d['mergeStateStatus']} spark={s}")
+
+
+def failed_block_admitted(repo, full, pinned):
+    """A recorded FAIL permits retirement only, never merge/rebase/test approval."""
+    if (not valid_pr(pinned) or not pinned['title'].startswith('desk block:')
+            or not pinned['headRefName'].startswith('desk/block-')):
+        return False, 'not an exact desk block'
+    if not lane_owned(repo) or held(repo, pinned['number']) or os.path.exists(PAUSE):
+        return False, 'ownership, hold or pause changed'
+    try:
+        from local_queue import decode_one, graphql_args
+        fresh = decode_one(gh_json(graphql_args(full, number=pinned['number'])))
+        if (fresh['state'] != 'OPEN' or fresh['isDraft']
+                or any(fresh[k] != pinned[k] for k in
+                       ('number', 'headRefName', 'headRefOid', 'baseRefName', 'baseRefOid'))):
+            return False, 'block identity moved, closed or draft'
+        retained = operator_verdict(repo, pinned['headRefOid'])
+        if not ((retained and retained[0] == 'FAIL') or queued_status(fresh)[0] == 'failure'):
+            return False, 'no actual failed verdict; error or NOT_RUN is not failure'
+        if not lane_owned(repo) or held(repo, pinned['number']) or os.path.exists(PAUSE):
+            return False, 'ownership, hold or pause changed during read'
+        return True, 'exact failed block may be closed, evidence and branch retained'
+    except Exception as exc:
+        return False, 'block retirement read unavailable: ' + str(exc)[-200:]
 
 
 def remote_admitted(repo, full, pinned, merge=False):
@@ -736,14 +770,10 @@ def site_publish_ready(repo, queue, entry, model, policy):
     rc, merged_tree, err = run(['git', '-C', str(source), 'merge-tree', '--write-tree', base, sha], timeout=60)
     if rc:
         return False, f"{tag} publication held: candidate does not merge cleanly with pinned main"
-    response = run(['gh', 'pr', 'list', '-R', full, '--head', ref, '--state', 'all', '--json',
-        'number,state,headRefName,headRefOid,baseRefName,baseRefOid'], timeout=120)
-    if response[0] != 0:
-        return False, f"{tag} publication held: existing PR lookup failed: {(response[2] or response[1])[-200:]}"
     try:
-        rows = json.loads(response[1])
-    except (ValueError, TypeError):
-        rows = None
+        rows = list_by_head(run, full, ref, timeout=120)
+    except (ValueError, TypeError) as exc:
+        return False, f"{tag} publication held: existing PR lookup failed: {str(exc)[-200:]}"
     inspected = inspect_site_pr_snapshot(rows, ref, sha, base)
     if inspected['action'] == 'refuse':
         return False, f"{tag} publication held: {inspected['reason']}"
@@ -765,10 +795,9 @@ def site_publish_ready(repo, queue, entry, model, policy):
             return False, f"{tag} publication ambiguous: create response has no PR number; reconcile exact branch before retry"
         number = int(match[1])
     try:
-        pr = gh_json(['pr', 'view', str(number), '-R', full, '--json',
-            'number,state,headRefName,headRefOid,baseRefName,baseRefOid,mergeStateStatus,statusCheckRollup'])
-    except Exception as exc:
-        return False, f"{tag} publication pending: PR #{number} readback failed: {exc}"
+        pr = view_by_number(run, full, number, timeout=120)
+    except (ValueError, TypeError) as exc:
+        return False, f"{tag} publication pending: PR #{number} readback failed: {str(exc)[-200:]}"
     if (not isinstance(pr, dict) or type(pr.get('number')) is not int or pr['number'] != number
             or pr.get('state') != 'OPEN' or pr.get('headRefName') != ref or pr.get('headRefOid') != sha
             or pr.get('baseRefName') != 'main' or pr.get('baseRefOid') != base
@@ -788,7 +817,7 @@ def site_publish_ready(repo, queue, entry, model, policy):
 def policy_hash():
     root = Path(SOURCE_FILE).parent
     policy = hashlib.sha256()
-    for name in ('renda-harness','local_queue.py','site_policy.py','delivery.py','review_chunks.py'):
+    for name in ('renda-harness','local_queue.py','site_policy.py','publication_transport.py','successor.py','delivery.py','review_chunks.py'):
         raw = (root / name).read_bytes()
         policy.update(name.encode() + b'\0' + len(raw).to_bytes(8,'big') + raw)
     return policy.hexdigest()
