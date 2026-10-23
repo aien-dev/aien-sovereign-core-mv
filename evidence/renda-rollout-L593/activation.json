@@ -1,0 +1,45 @@
+{
+  "state": "ACTIVATED_TWO_NEW_WORKERS_COMPLETED_PASSES",
+  "source": "b1514c77f632bf3c036b20ba06a9b96213c43f00",
+  "expected_harness": "8a686b674b046f66cad241f7be3b23683d7c773a2a4a165b7f05fe78ef100047",
+  "installed_at": 1792713396.6421332,
+  "workers": {
+    "renda1": {
+      "old_pid": 324127,
+      "state": "NEW_PROCESS_COMPLETED_PASS",
+      "log_offset": 10706096,
+      "stopped_at": 1792713455.6904285,
+      "new_pids": [
+        1422194
+      ],
+      "start_lines": [
+        "2026-10-22T23:58:08Z renda1 start lanes=aien-sovereign-core,aien-architecture,aien-protocols,physics,benchmarks,interplane,aienos.com model=qwen3.6-35b-a3b-fp8"
+      ],
+      "completed_passes": [
+        "2026-10-23T00:01:02Z renda1 pass done in 173 s: merged 0, rebased 0, reruns 0, operator runs 0"
+      ],
+      "new_process_start_times": {
+        "1422194": 1792713481.51
+      }
+    },
+    "renda2": {
+      "old_pid": 286584,
+      "state": "NEW_PROCESS_COMPLETED_PASS",
+      "log_offset": 9894021,
+      "stopped_at": 1792713585.7560499,
+      "new_pids": [
+        1442173
+      ],
+      "start_lines": [
+        "2026-10-23T00:00:08Z renda2 start lanes=omega model=qwen3.6-35b-a3b-fp8"
+      ],
+      "completed_passes": [
+        "2026-10-23T00:01:22Z renda2 pass done in 73 s: merged 0, rebased 0, reruns 0, operator runs 0"
+      ],
+      "new_process_start_times": {
+        "1442173": 1792713601.58
+      }
+    }
+  },
+  "verified_at": 1792713683.0454545
+}

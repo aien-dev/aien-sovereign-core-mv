@@ -1,0 +1,36 @@
+{
+  "source": "b1514c77f632bf3c036b20ba06a9b96213c43f00",
+  "source_repository": "github.com/aien-dev/aien-sovereign-core",
+  "source_path": "/home/drakestapleton/workspace/pipeline/clones/aien-sovereign-core",
+  "intake": {
+    "schema": "renda-intake-ack/1",
+    "repository": "aien-dev/aien-sovereign-core-mv",
+    "items": [
+      {
+        "ref": "fix/renda-pr-fastpath-L593",
+        "head": "b1514c77f632bf3c036b20ba06a9b96213c43f00",
+        "base": "754c07b118f41ad899607b60329bd851b1ccb13e",
+        "number": null,
+        "remote_observed_at": null
+      }
+    ],
+    "state": "ACCEPTED_LOCAL_NOT_PUBLISHED",
+    "remote_eligible": false,
+    "provenance_sha256": "e70b63cd00d4941f2a38f06c489ef67d9e45e1360eaf38973ab703de8fb61dc2",
+    "input": "/home/drakestapleton/handoffs/pr-failure-triage-20261022/L603-ready-b1514c77.json",
+    "acknowledged_at": 1792713586.5816402,
+    "ack_path": "/home/drakestapleton/.local/state/aien-local-ci/renda-queue/acks/448feb0f8efa8b2e2fa9a8ed18f0cc95a02dde4e330650999172c4161f62de0d.json"
+  },
+  "readback": {
+    "base": "754c07b118f41ad899607b60329bd851b1ccb13e",
+    "key": "aien-dev/aien-sovereign-core-mv:ready:fix/renda-pr-fastpath-L593@b1514c77f632bf3c036b20ba06a9b96213c43f00",
+    "kind": "ready",
+    "number": null,
+    "provenance": "local READY /home/drakestapleton/handoffs/pr-failure-triage-20261022/L603-ready-b1514c77.json sha256:e70b63cd00d4941f2a38f06c489ef67d9e45e1360eaf38973ab703de8fb61dc2",
+    "ref": "fix/renda-pr-fastpath-L593",
+    "remote_observed_at": null,
+    "sha": "b1514c77f632bf3c036b20ba06a9b96213c43f00"
+  },
+  "desk_line": "READY aien-dev/aien-sovereign-core-mv fix/renda-pr-fastpath-L593 b1514c77f632bf3c036b20ba06a9b96213c43f00 base=754c07b118f41ad899607b60329bd851b1ccb13e L593+L603 complete bounded review release; supersedes prior READY heads on this branch. Independent reviews approved,100service/506property/93bundled tests PASS; authentic complete-JSON packet accepted by own engine, NOTwholePR/gateapproval. Signed exact-head operator/hosted checks and ordinary merge controls remain mandatory. Renda sole writer. Evidence=evidence/renda-pr-fastpath-L593/ source=b1514c77f632bf3c036b20ba06a9b96213c43f00",
+  "remote_PR_created": false
+}
