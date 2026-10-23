@@ -26,20 +26,6 @@ check_doc() {
   local n; for n in "$@"; do grep -qF -- "$n" "$f" || { failed="$failed D4"; break; }; done
   echo "${failed# }"
 }
-# ---- sc#386: ALLEN engagement and the E4 token budget -------------------------------------------------------
-# Memory belongs to an engaged ALLEN identity (aien-architecture#190 lane L3), so every daemon start from PRE
-# onward carries a host-built fixture subject, the way scripts/allen_e2e_demo.sh step S1 does. CTRL-E3a (no desk
-# key, refuses before serving) keeps its own start and carries none.
-# E4's second objective appends one line to a document; the small-edit path caps a reply at 48 tokens by default
-# (AIEN_COMPOSE_MAX_TOKENS) and the 1B model re-emits the whole report, so row E4 alone raises the cap to a
-# documented value (the report is at most 200 words, about 300 tokens, plus the added line). The value is
-# recorded in the E4 receipt. Later restarts (E6, CTRL-E4) keep the default.
-E4_MAX_TOKENS=400
-allen_env() { # subject_path [agent_hex]: the env lines that engage the fixture subject (adopt only the first time)
-  echo "AIEN_ALLEN_SUBJECT=$1"
-  [ -z "${2:-}" ] || echo "AIEN_ALLEN_ADOPT=$2"
-}
-
 selftest() {
   local t; t=$(mktemp -d); local rc=0
   printf '# Report\n\nabout alpha.txt, beta.txt and gamma.txt\n' >"$t/good.md"
@@ -47,12 +33,6 @@ selftest() {
   [ -z "$(check_doc "$t/good.md" alpha.txt beta.txt gamma.txt)" ] || { echo "selftest: good document failed: $(check_doc "$t/good.md" alpha.txt beta.txt gamma.txt)"; rc=1; }
   [ "$(check_doc "$t/bad.md" alpha.txt beta.txt gamma.txt)" = "D2 D4" ] || { echo "selftest: bad document gave '$(check_doc "$t/bad.md" alpha.txt beta.txt gamma.txt)', want 'D2 D4'"; rc=1; }
   [ "$(check_doc "$t/absent.md")" = "D1" ] || { echo "selftest: absent file not D1"; rc=1; }
-  # sc#386: the ALLEN engagement lines and the E4 token budget are fixed, documented values.
-  [ "$(allen_env /x/subject.bin abc123 | tr '\n' ' ')" = "AIEN_ALLEN_SUBJECT=/x/subject.bin AIEN_ALLEN_ADOPT=abc123 " ] || { echo "selftest: allen_env adopt lines wrong"; rc=1; }
-  [ "$(allen_env /x/subject.bin | tr '\n' ' ')" = "AIEN_ALLEN_SUBJECT=/x/subject.bin " ] || { echo "selftest: allen_env without adopt wrong"; rc=1; }
-  case ${E4_MAX_TOKENS:-} in ''|*[!0-9]*) echo "selftest: E4_MAX_TOKENS not a number"; rc=1 ;; *) { [ "$E4_MAX_TOKENS" -ge 48 ] && [ "$E4_MAX_TOKENS" -le 4096 ]; } || { echo "selftest: E4_MAX_TOKENS outside 48..4096"; rc=1; } ;; esac
-  # The budget is passed on the E4 daemon start only.
-  [ "$(grep -c 'AIEN_COMPOSE_MAX_TOKENS="\?\$E4_MAX_TOKENS' "$0")" = 1 ] || { echo "selftest: AIEN_COMPOSE_MAX_TOKENS must be set on exactly one start (E4)"; rc=1; }
   rm -rf "$t"; [ $rc -eq 0 ] && echo "selftest PASS"; return $rc
 }
 case ${1:-} in
@@ -144,7 +124,7 @@ rcpt() { # step status evidence [fields json]
 
 # ---- daemon control ----------------------------------------------------------------------------------------
 DN=0; DPID=""; CUR_BACKEND=""; RESTARTS=0; LAST_START_UTC=""; DLOG=/dev/null
-start_daemon_raw() { # [VAR=val ...]: one daemon start, no ALLEN subject unless the caller passes it
+start_daemon() { # [VAR=val ...]
   DN=$((DN + 1)); DLOG=$LOGS/daemon-$DN.log; rm -f "$SOCK"
   "${E[@]}" AIEN_MODEL_PATH="$MDIR/model.safetensors" AIEN_TOKENIZER_PATH="$MDIR/tokenizer.json" "$@" "$BIN" daemon >"$DLOG" 2>&1 &
   DPID=$!
@@ -159,31 +139,6 @@ start_daemon_raw() { # [VAR=val ...]: one daemon start, no ALLEN subject unless 
   CUR_BACKEND=$(grep -m1 '^  Backend:' "$DLOG" | sed 's/^ *//')
   case $CUR_BACKEND in *CPU-reference*) ;; *) echo "not the CPU reference backend: '$CUR_BACKEND'"; kill -9 "$DPID" 2>/dev/null; wait "$DPID" 2>/dev/null; DPID=""; return 1 ;; esac
   return 0
-}
-ALLEN_REQUIRE=1; SUBJ=""; ALLEN_ADOPT=""; ALLEN_FP=""; ALLEN_LINE=""; SUBJ_N=0
-build_subject() { # lineage_hex: host-built fixture subject bound to record 1 of the current compose home (demo S1)
-  SUBJ_N=$((SUBJ_N + 1)); SUBJ=$RUN/subject-$SUBJ_N.bin
-  local fx; fx=$(cd "$REPO" && env -u AIEN_OMEGA_DIR -u AIEN_OMEGA_COMPOSE_DIR AIEN_OMEGA_COMPOSE_LIB="$LIB" CARGO_TARGET_DIR="$D/target" \
-    DEMO_SUBJECT_OUT="$SUBJ" DEMO_LINEAGE_HEX="$1" DEMO_SUBJECT_NAME="whole-system-e2e-$SUBJ_N" \
-    cargo test --release -p aien-allen --test e2e_demo_subject -- --ignored --nocapture 2>&1)
-  ALLEN_ADOPT=$(printf '%s\n' "$fx" | sed -n 's/^AGENT=//p')
-  [ -n "$ALLEN_ADOPT" ] && [ -s "$SUBJ" ] || { echo "could not build the ALLEN fixture subject: $(printf '%s' "$fx" | tail -c 300)"; SUBJ=""; return 1; }
-}
-start_daemon() { # [VAR=val ...]: a daemon with the ALLEN fixture subject engaged; sets ALLEN_FP, ALLEN_LINE
-  local lin ea=()
-  if [ -z "$SUBJ" ]; then   # this compose home has no subject yet: open it once, bind a subject to its record 1
-    start_daemon_raw "$@" || return 1
-    lin=$(cli compose recall --ids 1 | jq -r '.recall.cited[0].digest // empty')
-    sigkill || true
-    [ -n "$lin" ] || { echo "no record 1 digest to bind the ALLEN subject to"; return 1; }
-    build_subject "$lin" || return 1
-  fi
-  mapfile -t ea < <(allen_env "$SUBJ" "$ALLEN_ADOPT")
-  start_daemon_raw "$@" "${ea[@]}" || return 1
-  ALLEN_ADOPT=""   # a subject is adopted once; later starts only name it
-  ALLEN_LINE=$(grep -m1 '^ALLEN: engaged' "$DLOG" | cut -c1-200)
-  ALLEN_FP=$(cli allen status 2>/dev/null | jq -r '.result.fingerprint // empty')
-  { [ "$ALLEN_REQUIRE" = 0 ] || { [ -n "$ALLEN_LINE" ] && [ -n "$ALLEN_FP" ]; }; } || { echo "ALLEN not engaged (log line '$ALLEN_LINE', fingerprint '$ALLEN_FP')"; kill -9 "$DPID" 2>/dev/null; wait "$DPID" 2>/dev/null; DPID=""; return 1; }
 }
 stop_graceful() { [ -n "$DPID" ] || return 0; cli compose shutdown >"$LOGS/shutdown-$DN.json" 2>&1; local i=0; while [ -d "/proc/$DPID" ] && [ $i -lt 600 ]; do sleep 0.1; i=$((i + 1)); done; wait "$DPID" 2>/dev/null; DPID=""; rm -f "$SOCK"; }
 KILL_RC=""
@@ -255,7 +210,7 @@ else
   ROUTE=$(ip route 2>/dev/null | head -5 | tr '\n' ';')
   rcpt PRE "$([ $PRE_OK = 1 ] && echo PASS || echo FAIL)" "$PRE_EV; backend '$CUR_BACKEND'" \
     "$(jq -nc --argjson fix "$FIX" --arg route "$ROUTE" --arg q "$([ -s "$QUIET" ] && echo held || echo not-held)" --arg cw "$C_W" --arg ct "$C_T" --arg cid "$C_ID" --arg mdir "$MDIR" \
-      --arg afp "$ALLEN_FP" --arg aline "$ALLEN_LINE" '{allen_identity_fingerprint:$afp, allen_log_line:$aline, allen_subject_kind:"host-built fixture subject (test-only encoder), adopted once by AIEN_ALLEN_ADOPT; same as scripts/allen_e2e_demo.sh S1", inbox_files:$fix, ip_route:$route, quiet_flag:$q, candidate_model_id:$cid, candidate_weights_sha256:$cw, candidate_tokenizer_sha256:$ct, model_dir:$mdir, network_check:"recorded in the NET receipt"}')"
+      '{inbox_files:$fix, ip_route:$route, quiet_flag:$q, candidate_model_id:$cid, candidate_weights_sha256:$cw, candidate_tokenizer_sha256:$ct, model_dir:$mdir, network_check:"recorded in the NET receipt"}')"
 fi
 if [ "$NK_RC" != killed ] && [ "$NK_RC" != 0 ] && [ -n "$NK_LINE" ]; then
   rcpt CTRL-E3a PASS "daemon without a desk key exited $NK_RC before serving; log: $NK_LINE" "$(jq -nc --arg rc "$NK_RC" --arg l "$NK_LINE" '{exit:$rc, log_line:$l}')"
@@ -305,7 +260,7 @@ if [ -z "$ABORT" ] && [ $E3M_OK = 1 ]; then
   REM_OK=$(jq -r '.ok // false' "$ART/E4-remember.json" 2>/dev/null)
   LINES_BEFORE=$(wc -l <"$REPORT"); SHA_BEFORE=$(sha_of "$REPORT")
   if sigkill; then KILLED="kill -9 (exit 137)"; else KILLED="kill rc=${KILL_RC:-none}"; fi
-  if start_daemon AIEN_COMPOSE_MAX_TOKENS=$E4_MAX_TOKENS; then
+  if start_daemon; then
     RESTARTS=$((RESTARTS + 1)); RESTART_UTC=$LAST_START_UTC
     REPL=$(grep -m1 -E 'Replay reconcile:|^Reconcile:' "$DLOG" | cut -c1-200)
     if task E4 "$WS" "$OBJ2" work; then
@@ -319,10 +274,10 @@ if [ -z "$ABORT" ] && [ $E3M_OK = 1 ]; then
       printf '%s' "$NEWLINE" | grep -qiF -- "$T1" || { OK=0; WHY="$WHY last-line-lacks-$T1"; }
       [ "$(sha_of "$REPORT")" != "$SHA_BEFORE" ] || { OK=0; WHY="$WHY report-unchanged"; }
       rcpt E4 "$([ $OK = 1 ] && echo PASS || echo FAIL)" "$KILLED then restart ($REPL); second objective state $T_STATE; memory $T_MEMCTX/$T_MEMN; lines $LINES_BEFORE->$LINES_AFTER; problems [${WHY# }]" \
-        "$(jq -nc --arg store "ALLEN scoped memory (aien-allen-memory) of the engaged identity, context work" --arg afp "$ALLEN_FP" --argjson mt "$E4_MAX_TOKENS" --arg item "$(sha_of "$ART/E4-remember.json")" --arg rk sigkill --arg ru "$RESTART_UTC" --arg cu "$RECALL_UTC" --arg nl "$NEWLINE" --arg mc "$T_MEMCTX" --argjson mn "${T_MEMN:-0}" --arg st "$T_STATE" --argjson g "$T_GRANT" --argjson rc "${T_RECEIPT:-null}" --arg p "${T_PATH:-}" \
-          '{memory_store:$store, allen_identity_fingerprint:$afp, compose_max_tokens:$mt, item_sha256:$item, recall_after_restart:($mn>=1), restart_kind:$rk, restart_utc:$ru, recall_utc:$cu, appended_line:$nl, memory_context:$mc, memory_items_included:$mn, effect_state:$st, grant_id:$g, written_path:$p, compose_receipt:$rc}')"
+        "$(jq -nc --arg store "compose home (AIEN_COMPOSE_DIR records; canonical store decided by lane L3)" --arg item "$(sha_of "$ART/E4-remember.json")" --arg rk sigkill --arg ru "$RESTART_UTC" --arg cu "$RECALL_UTC" --arg nl "$NEWLINE" --arg mc "$T_MEMCTX" --argjson mn "${T_MEMN:-0}" --arg st "$T_STATE" --argjson g "$T_GRANT" --argjson rc "${T_RECEIPT:-null}" --arg p "${T_PATH:-}" \
+          '{memory_store:$store, item_sha256:$item, recall_after_restart:($mn>=1), restart_kind:$rk, restart_utc:$ru, recall_utc:$cu, appended_line:$nl, memory_context:$mc, memory_items_included:$mn, effect_state:$st, grant_id:$g, written_path:$p, compose_receipt:$rc}')"
     else
-      rcpt E4 FAIL "$KILLED then restart ($REPL); second objective: $T_EV" "$(jq -nc --arg afp "$ALLEN_FP" --argjson mt "$E4_MAX_TOKENS" --arg rk sigkill --arg st "$T_STATE" --arg mc "$T_MEMCTX" --argjson mn "${T_MEMN:-0}" '{allen_identity_fingerprint:$afp, compose_max_tokens:$mt, restart_kind:$rk, effect_state:$st, memory_context:$mc, memory_items_included:$mn}')"
+      rcpt E4 FAIL "$KILLED then restart ($REPL); second objective: $T_EV" "$(jq -nc --arg rk sigkill --arg st "$T_STATE" --arg mc "$T_MEMCTX" --argjson mn "${T_MEMN:-0}" '{restart_kind:$rk, effect_state:$st, memory_context:$mc, memory_items_included:$mn}')"
     fi
   else
     rcpt E4 FAIL "$KILLED; daemon did not restart: $(tail -c 300 "$DLOG" | tr '\n' ' ')" '{"restart_kind":"sigkill"}'; ABORT=1
@@ -376,8 +331,6 @@ rcpt NET "$([ "${NET:-0}" = 0 ] && echo PASS || echo FAIL)" "established TCP soc
 if [ -z "$ABORT" ] && [ $E3M_OK = 1 ]; then
   stop_graceful
   SHA_BEFORE=$(sha_of "$REPORT"); mv "$RUN/compose" "$RUN/compose.removed-ctrl-e4"; mkdir -p "$RUN/compose"
-  # the home is refused at its integrity mark before ALLEN can resolve, so engagement is not required to start this daemon
-  ALLEN_REQUIRE=0
   cli compose desk-key --create 1 >"$ART/CTRL-E4-deskkey.json" 2>&1
   if start_daemon; then
     if task CTRL-E4 "$WS" "$OBJ2" work; then
