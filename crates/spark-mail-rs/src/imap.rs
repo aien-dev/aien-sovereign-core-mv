@@ -630,10 +630,22 @@ fn fetch_section(
     wanted_uid: u32,
     section: &[u8],
 ) -> Result<Option<usize>, ImapError> {
-    let pos = response.text[0]
-        .iter()
-        .position(|&b| b == b'(')
-        .ok_or(ImapError::Malformed("FETCH has no attribute list"))?;
+    let line = &response.text[0];
+    let rest = line
+        .strip_prefix(b"* ")
+        .ok_or(ImapError::Malformed("FETCH has no untagged prefix"))?;
+    let (_, rest) = split_word(rest);
+    let (word, attributes) = split_word(rest);
+    if !word.eq_ignore_ascii_case(b"FETCH") {
+        return Err(ImapError::Malformed("not a FETCH response"));
+    }
+    let attributes = attributes.trim_ascii_start();
+    if !attributes.starts_with(b"(") {
+        return Err(ImapError::Malformed(
+            "FETCH has no immediate attribute list",
+        ));
+    }
+    let pos = line.len() - attributes.len();
     let mut cursor = FetchCursor {
         response,
         part: 0,
@@ -752,6 +764,16 @@ mod tests {
 
     fn written(client: &Client<Script>) -> String {
         String::from_utf8_lossy(&client.stream.written).into_owned()
+    }
+
+    #[test]
+    fn fetch_cannot_hide_unparsed_text_before_its_attribute_list() {
+        let mut c =
+            client(b"* 1 FETCH garbage (UID 9 BODY[HEADER] {3}\r\nbad)\r\nA0001 OK done\r\n");
+        assert!(matches!(
+            c.uid_fetch(9, Section::Header),
+            Err(ImapError::Malformed(_))
+        ));
     }
 
     #[test]
