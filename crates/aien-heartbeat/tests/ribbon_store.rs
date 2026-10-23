@@ -541,3 +541,258 @@ fn simultaneous_requests_share_slots_and_wait_for_in_flight_fetches() {
     );
     assert_eq!(p.pinned(), 0);
 }
+
+// Weight-flow regressions. Removing overlap or pin cleanup must fail these tests.
+#[test]
+fn flow_prepares_next_during_compute_preserves_order_and_bounds() {
+    use aien_heartbeat::weight_flow::{run, FlowSettings};
+    use std::sync::atomic::AtomicBool;
+    let (_, m, file) = setup("flow-overlap");
+    let (p, be) = pager(&m, &file, 2);
+    let mut settings = FlowSettings::fixed(2);
+    let stop = AtomicBool::new(false);
+    let mut seen = Vec::new();
+    let trace = run(&p, 1, &[3, 0, 2], &mut settings, &stop, |i, pin| {
+        let id = be.data.lock().unwrap()[&pin.slots[0]].0;
+        seen.push(id);
+        if i == 0 {
+            let deadline = std::time::Instant::now() + Duration::from_secs(2);
+            while (be.loads.load(Ordering::Acquire) < 2 || p.pinned() < 2)
+                && std::time::Instant::now() < deadline
+            {
+                std::thread::yield_now();
+            }
+            assert_eq!(
+                be.loads.load(Ordering::Acquire),
+                2,
+                "next expert must load before current compute finishes"
+            );
+            assert_eq!(p.pinned(), 2, "current and next pinned, no third load");
+        }
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(seen, vec![(1, 3), (1, 0), (1, 2)]);
+    assert_eq!(trace.peak_inflight, 2);
+    assert_eq!(p.pinned(), 0);
+}
+
+#[test]
+fn flow_serial_control_and_capacity_one_do_not_overlap() {
+    use aien_heartbeat::weight_flow::{run, FlowSettings};
+    use std::sync::atomic::AtomicBool;
+    for (tag, slots, mut settings) in [
+        ("serial", 3, FlowSettings::synchronous()),
+        ("cap1", 1, FlowSettings::fixed(2)),
+    ] {
+        let (_, m, file) = setup(tag);
+        let (p, be) = pager(&m, &file, slots);
+        let trace = run(
+            &p,
+            0,
+            &[0, 1, 2],
+            &mut settings,
+            &AtomicBool::new(false),
+            |i, _| {
+                assert_eq!(be.loads.load(Ordering::Acquire), i as u64 + 1);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(trace.peak_inflight, 1);
+        assert_eq!(p.pinned(), 0);
+    }
+}
+
+#[test]
+fn flow_prevalidates_duplicates_unknowns_and_bounds_before_io() {
+    use aien_heartbeat::weight_flow::{run, FlowSettings};
+    use std::sync::atomic::AtomicBool;
+    for (n, ids, cap) in [
+        (0, vec![0, 0], 2),
+        (1, vec![0, 99], 2),
+        (2, vec![0], 0),
+        (3, vec![0], 33),
+    ] {
+        let (_, m, file) = setup(&format!("flow-invalid-{n}"));
+        let (p, be) = pager(&m, &file, 4);
+        let r = run(
+            &p,
+            0,
+            &ids,
+            &mut FlowSettings::fixed(cap),
+            &AtomicBool::new(false),
+            |_, _| Ok(()),
+        );
+        assert!(r.is_err());
+        assert_eq!(be.loads.load(Ordering::Relaxed), 0);
+        assert_eq!(p.pinned(), 0);
+    }
+}
+
+#[test]
+fn flow_drains_on_compute_error_cancel_and_panic() {
+    use aien_heartbeat::weight_flow::{run, FlowSettings};
+    use std::sync::atomic::AtomicBool;
+    for mode in 0..3 {
+        let (_, m, file) = setup(&format!("flow-cleanup-{mode}"));
+        let (p, _) = pager(&m, &file, 3);
+        let stop = AtomicBool::new(false);
+        let mut cfg = FlowSettings::fixed(2);
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            run(&p, 0, &[0, 1, 2], &mut cfg, &stop, |_, _| {
+                if mode == 0 {
+                    return Err("GPU error".into());
+                }
+                if mode == 1 {
+                    stop.store(true, Ordering::Release);
+                    return Ok(());
+                }
+                panic!("compute panic");
+            })
+        }));
+        assert!(r.is_err() || r.unwrap().is_err());
+        assert_eq!(p.pinned(), 0);
+        let pin = p.ensure(2, &[0, 1, 2]).unwrap();
+        p.release(&pin);
+        assert_eq!(p.pinned(), 0);
+    }
+}
+
+#[test]
+fn flow_native_adaptive_and_hot_reuse_use_real_file_bytes() {
+    use aien_heartbeat::weight_flow::{run, FlowSettings};
+    use std::sync::atomic::AtomicBool;
+    let (dir, m, _) = setup("flow-native");
+    let be = FakeBackend::new(4);
+    let reader = ReadAdapter::new(
+        m.clone(),
+        Arc::new(FileShards::open(&m.shard_paths(), false).unwrap()),
+        ReadConfig {
+            workers: 2,
+            queue_depth: 2,
+        },
+    );
+    let p = ExpertPager::new(m.clone(), SHAPE, reader, be.clone(), Duration::from_secs(2)).unwrap();
+    let binary = std::env::var_os("AIEN_WEIGHT_FLOW_POLICY").expect("set built native policy path");
+    let mut cfg = FlowSettings::adaptive(4, Path::new(&binary)).unwrap();
+    for _ in 0..3 {
+        let t = run(
+            &p,
+            1,
+            &[2, 0, 3, 1],
+            &mut cfg,
+            &AtomicBool::new(false),
+            |i, pin| {
+                let data = be.data.lock().unwrap();
+                let row = &data[&pin.slots[0]];
+                let id = [2, 0, 3, 1][i];
+                assert_eq!(row.0, (1, id));
+                let want = oracle(1, id);
+                assert_eq!(
+                    (&row.1, &row.2, &row.3, &row.4),
+                    (&want.0, &want.1, &want.2, &want.3)
+                );
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(t.experts, 4);
+        assert!(t.peak_inflight <= 4);
+        assert_eq!(p.pinned(), 0);
+        for e in t.events {
+            assert!(e.prepare_end_ns <= e.compute_start_ns);
+            assert!(e.compute_start_ns <= e.compute_end_ns);
+        }
+    }
+    assert_eq!(p.read_stats().reads_ok, 4);
+    assert_eq!(be.loads.load(Ordering::Acquire), 4);
+    drop(cfg);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn flow_corruption_and_copy_error_never_compute_bad_expert_and_release_future_pins() {
+    use aien_heartbeat::weight_flow::{run, FlowSettings};
+    use std::sync::atomic::AtomicBool;
+    for corrupt in [true, false] {
+        let (_, m, file) = setup(&format!("flow-fault-{corrupt}"));
+        let be = FakeBackend::new(4);
+        let dev = fake(&file, Duration::ZERO);
+        if corrupt {
+            dev.fault_at(0, Fault::Flip);
+        } else {
+            *be.fail_on.lock().unwrap() = Some((0, 0));
+        }
+        let reader = ReadAdapter::new(
+            m.clone(),
+            dev,
+            ReadConfig {
+                workers: 1,
+                queue_depth: 4,
+            },
+        );
+        let p = ExpertPager::new(m, SHAPE, reader, be, Duration::from_secs(2)).unwrap();
+        let mut calls = 0;
+        let result = run(
+            &p,
+            0,
+            &[0, 1, 2],
+            &mut FlowSettings::fixed(2),
+            &AtomicBool::new(false),
+            |_, _| {
+                calls += 1;
+                Ok(())
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(p.pinned(), 0);
+        if !corrupt {
+            assert_eq!(calls, 0);
+        }
+        // Different worker acquisition order can make either of two reads the corruption victim.
+        assert!(calls < 3);
+    }
+}
+
+#[test]
+fn flow_stalled_read_deadline_and_precancel_leave_no_pins() {
+    use aien_heartbeat::weight_flow::{run, FlowSettings};
+    use std::sync::atomic::AtomicBool;
+    let (_, m, file) = setup("flow-deadline");
+    let be = FakeBackend::new(2);
+    let dev = fake(&file, Duration::ZERO);
+    let (tx, rx) = mpsc::channel();
+    dev.fault_at(0, Fault::Stall(rx));
+    let reader = ReadAdapter::new(
+        m.clone(),
+        dev.clone(),
+        ReadConfig {
+            workers: 1,
+            queue_depth: 2,
+        },
+    );
+    let p = ExpertPager::new(m, SHAPE, reader, be, Duration::from_millis(40)).unwrap();
+    assert!(run(
+        &p,
+        1,
+        &[0],
+        &mut FlowSettings::fixed(2),
+        &AtomicBool::new(true),
+        |_, _| Ok(())
+    )
+    .is_err());
+    assert_eq!(dev.calls(), 0);
+    assert_eq!(p.pinned(), 0);
+    let result = run(
+        &p,
+        0,
+        &[0, 1],
+        &mut FlowSettings::fixed(2),
+        &AtomicBool::new(false),
+        |_, _| panic!("unready expert executed"),
+    );
+    assert!(result.unwrap_err().contains("Deadline"));
+    assert_eq!(p.pinned(), 0);
+    tx.send(()).unwrap();
+}

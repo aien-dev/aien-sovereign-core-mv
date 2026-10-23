@@ -17,7 +17,9 @@
 //! [`directory_placeholder`] fills the directory with fixed non-zero words (the router refuses zero
 //! words). A device-side slot table that would let the router address slots directly is P3, not here.
 
-use std::sync::Arc;
+use aien_heartbeat::weight_flow::{self, FlowSettings, FlowTrace};
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use aien_heartbeat::reader::ReadStats;
@@ -140,6 +142,8 @@ pub struct FfnTiming {
 /// The paged expert weights of every layer: one slot pool pair shared by all layers.
 pub struct PagedExperts {
     pager: ExpertPager,
+    flow: Mutex<Option<FlowSettings>>,
+    last_flow: Mutex<Option<FlowTrace>>,
     gate_up: Arc<dyn SlotGemv>,
     down: Arc<dyn SlotGemv>,
     inter: usize,
@@ -210,11 +214,25 @@ impl PagedExperts {
             .map_err(|e| e.to_string())?;
         Ok(Self {
             pager,
+            flow: Mutex::new(None),
+            last_flow: Mutex::new(None),
             gate_up,
             down,
             inter,
             hidden,
         })
+    }
+
+    /// Opt-in only; default retains the original grouped FFN. No environment lookup.
+    pub fn set_flow(&self, settings: FlowSettings) -> Result<(), String> {
+        if !(1..=32).contains(&settings.max_inflight) {
+            return Err("flow bound must be 1..32".into());
+        }
+        *self.flow.lock().map_err(|_| "flow state poisoned")? = Some(settings);
+        Ok(())
+    }
+    pub fn take_flow_trace(&self) -> Option<FlowTrace> {
+        self.last_flow.lock().ok()?.take()
     }
 
     pub fn capacity(&self) -> usize {
@@ -237,6 +255,68 @@ impl PagedExperts {
     }
     pub fn manifest(&self) -> &Manifest {
         self.pager.manifest()
+    }
+
+    fn flow_ffn(
+        &self,
+        layer: u16,
+        ids: &[u16],
+        x: &[f32],
+        gu_out: &mut [f32],
+        act_all: &mut [f32],
+        down_all: &mut [f32],
+        settings: &mut FlowSettings,
+    ) -> Result<FfnTiming, String> {
+        // Validation precedes allocations and all outputs remain unchanged on any stage failure.
+        if ids.len() > 32 {
+            return Err("weight flow supports at most 32 selected experts".into());
+        }
+        *self.last_flow.lock().map_err(|_| "flow trace poisoned")? = None;
+        let (i, h, k) = (self.inter, self.hidden, ids.len());
+        let mut gu = vec![0.0; k * 2 * i];
+        let mut act = vec![0.0; k * i];
+        let mut down = vec![0.0; k * h];
+        let mut timing = FfnTiming::default();
+        let trace = weight_flow::run(
+            &self.pager,
+            layer,
+            ids,
+            settings,
+            &AtomicBool::new(false),
+            |g, pin| {
+                let ver = pin.versions[0];
+                timing.chip_ns += self.gate_up.grouped(
+                    &pin.slots,
+                    &[ver.gate_up],
+                    x,
+                    &mut gu[g * 2 * i..(g + 1) * 2 * i],
+                )?;
+                timing.launches += 1;
+                let th = Instant::now();
+                super::swiglu(
+                    &gu[g * 2 * i..(g + 1) * 2 * i],
+                    i,
+                    &mut act[g * i..(g + 1) * i],
+                );
+                timing.host_ns += th.elapsed().as_nanos() as u64;
+                timing.chip_ns += self.down.grouped(
+                    &pin.slots,
+                    &[ver.down],
+                    &act[g * i..(g + 1) * i],
+                    &mut down[g * h..(g + 1) * h],
+                )?;
+                timing.launches += 1;
+                Ok(())
+            },
+        )?;
+        timing.page_ns = trace.wait_ns;
+        // Acquire the fallible trace lock before committing caller-visible results.
+        let mut recorded = self.last_flow.lock().map_err(|_| "flow trace poisoned")?;
+        gu_out[..gu.len()].copy_from_slice(&gu);
+        act_all[..act.len()].copy_from_slice(&act);
+        down_all[..down.len()].copy_from_slice(&down);
+        *recorded = Some(trace);
+        Ok(timing)
     }
 
     /// The expert FFN of one token in one layer: `gu_out = gate|up(x)`, SwiGLU into `act_all`,
@@ -265,6 +345,11 @@ impl PagedExperts {
             .map(|&e| u16::try_from(e).map_err(|_| format!("expert id {e}")))
             .collect::<Result<_, _>>()?;
         let layer16 = u16::try_from(layer).map_err(|_| format!("layer {layer}"))?;
+        let mut flow = self.flow.lock().map_err(|_| "flow state poisoned")?;
+        if let Some(settings) = flow.as_mut() {
+            return self.flow_ffn(layer16, &ids, x, gu_out, act_all, down_all, settings);
+        }
+        drop(flow);
         let mut t = FfnTiming::default();
         let t0 = Instant::now();
         let pinned = self
@@ -521,6 +606,127 @@ mod tests {
             out.push(lg.iter().map(|v| v.to_bits()).collect());
         }
         out
+    }
+
+    #[derive(Debug)]
+    struct FailSecondDown {
+        base: Arc<HostSlots>,
+        calls: std::sync::atomic::AtomicUsize,
+    }
+    impl SlotGemv for FailSecondDown {
+        fn slots(&self) -> usize {
+            self.base.slots()
+        }
+        fn n(&self) -> usize {
+            self.base.n()
+        }
+        fn k(&self) -> usize {
+            self.base.k()
+        }
+        fn load(&self, slot: u32, key: u64, w: &[u8], s: &[u16]) -> Result<u64, String> {
+            self.base.load(slot, key, w, s)
+        }
+        fn grouped(
+            &self,
+            slots: &[u32],
+            versions: &[u64],
+            x: &[f32],
+            y: &mut [f32],
+        ) -> Result<u64, String> {
+            if self
+                .calls
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                == 1
+            {
+                return Err("second down failed".into());
+            }
+            self.base.grouped(slots, versions, x, y)
+        }
+    }
+    #[test]
+    fn weight_flow_late_compute_failure_is_transactional() {
+        let c = tiny_config();
+        let dir = tmpdir("flow-transaction");
+        write_checkpoint(&MemorySource::for_config(&c), &dir);
+        let m = Arc::new(Manifest::build(&dir).unwrap());
+        let dev = Arc::new(aien_heartbeat::FileShards::open(&m.shard_paths(), false).unwrap());
+        let p = PagedExperts::new(
+            m,
+            c.hidden,
+            c.moe_intermediate,
+            dev,
+            ReadConfig {
+                workers: 2,
+                queue_depth: 2,
+            },
+            HostSlots::new(2, 2 * c.moe_intermediate, c.hidden, false),
+            Arc::new(FailSecondDown {
+                base: HostSlots::new(2, c.hidden, c.moe_intermediate, false),
+                calls: std::sync::atomic::AtomicUsize::new(0),
+            }),
+            Duration::from_secs(2),
+        )
+        .unwrap();
+        p.set_flow(FlowSettings::fixed(2)).unwrap();
+        let mut gu = vec![-0.0; 4 * c.moe_intermediate];
+        let mut act = vec![-0.0; 2 * c.moe_intermediate];
+        let mut dn = vec![-0.0; 2 * c.hidden];
+        let err = p
+            .ffn(
+                0,
+                &[0, 1],
+                &vec![0.25; c.hidden],
+                &mut gu,
+                &mut act,
+                &mut dn,
+            )
+            .unwrap_err();
+        assert!(err.contains("second down failed"));
+        assert!(gu
+            .iter()
+            .chain(&act)
+            .chain(&dn)
+            .all(|x| x.to_bits() == (-0.0f32).to_bits()));
+        assert_eq!(p.pinned(), 0);
+        assert!(p.take_flow_trace().is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn weight_flow_all_modes_match_resident_logits_and_record_real_execution() {
+        let c = tiny_config();
+        let dir = tmpdir("flow-model");
+        write_checkpoint(&MemorySource::for_config(&c), &dir);
+        let binary = std::env::var_os("AIEN_WEIGHT_FLOW_POLICY")
+            .expect("build native/weight-flow policy and set AIEN_WEIGHT_FLOW_POLICY");
+        for fakes in [false, true] {
+            let want = run(&mut resident_engine(&c, fakes), 10);
+            for cap in [1, 2, c.top_k, c.layers * c.experts] {
+                for mode in 0..3 {
+                    let (e, p) = paged_engine(&c, &dir, cap, fakes, false);
+                    let mut e = e;
+                    let cfg = match mode {
+                        0 => FlowSettings::synchronous(),
+                        1 => FlowSettings::fixed(2),
+                        _ => FlowSettings::adaptive(8, std::path::Path::new(&binary)).unwrap(),
+                    };
+                    p.set_flow(cfg).unwrap();
+                    assert_eq!(
+                        run(&mut e, 10),
+                        want,
+                        "mode {mode} cap {cap} router {fakes}"
+                    );
+                    let trace = p
+                        .take_flow_trace()
+                        .expect("flow execution must be attached, not silently ignored");
+                    assert_eq!(trace.experts, c.top_k);
+                    assert_eq!(trace.events.len(), c.top_k);
+                    assert!(trace.peak_inflight <= cap.min(8));
+                    assert_eq!(p.pinned(), 0);
+                }
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

@@ -6,6 +6,7 @@
 //!   own30b_check chip <checkpoint> <golden.json> <receipt-dir> [--new N] [--layers 0,23,47]
 //!                     [--max-context 8192] [--prompts 1,2,3,4] [--force-memory]
 //!                     [--paged-experts SLOTS [--manifest PATH] [--read-workers W] [--read-depth D]]
+//!                     [--weight-flow sync|fixed|adaptive|sweep --flow-policy PATH --flow-limit 8]
 //!                     [--weights bf16|fp8-experts|fp8]
 //!                     [--router auto|host|device] [--lm-head auto|dense|gemv] [--router-mutants 1,2,3,4]
 //!                     [--prefill auto|gemv|gemm] [--prefill-routing host|device] [--prefill-chunk N]
@@ -231,6 +232,9 @@ struct Args {
     ribbon_manifest: PathBuf,
     read_workers: usize,
     read_depth: usize,
+    weight_flow: Option<String>,
+    flow_policy: PathBuf,
+    flow_limit: usize,
 }
 
 fn parse_choice(v: &str, host_word: &str, flag: &str) -> PathChoice {
@@ -273,6 +277,9 @@ fn parse_args() -> Args {
         ribbon_manifest: std::env::temp_dir().join("aien-ribbon-manifest.json"),
         read_workers: 16,
         read_depth: 32,
+        weight_flow: None,
+        flow_policy: PathBuf::new(),
+        flow_limit: 8,
     };
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -337,6 +344,25 @@ fn parse_args() -> Args {
                     "dense",
                     "--lm-head",
                 )
+            }
+            "--weight-flow" => {
+                let mode = it.next().expect("--weight-flow sync|fixed|adaptive");
+                assert!(
+                    matches!(mode.as_str(), "sync" | "fixed" | "adaptive" | "sweep"),
+                    "invalid weight-flow mode"
+                );
+                a.weight_flow = Some(mode);
+            }
+            "--flow-policy" => {
+                a.flow_policy = PathBuf::from(it.next().expect("--flow-policy PATH"))
+            }
+            "--flow-limit" => {
+                a.flow_limit = it
+                    .next()
+                    .expect("--flow-limit 1..32")
+                    .parse()
+                    .expect("number");
+                assert!((1..=32).contains(&a.flow_limit));
             }
             "--tokens-only" => a.tokens_only = true,
             "--paged-experts" => {
@@ -974,96 +1000,143 @@ fn chip(a: &Args) {
 
     // ---- whole-model greedy tokens vs golden, with timing ----
     let mut tokens_pass = tokens_pass_prefill;
-    for (idx, (name, ids)) in ps.iter().enumerate() {
-        if !a.prompt_ids.contains(&(idx + 1)) {
-            continue;
+    // Sweep uses one loaded model; each generate resets its KV state. O_DIRECT bypasses page cache.
+    let flow_modes = match a.weight_flow.as_deref() {
+        Some("sweep") => vec!["legacy", "sync", "fixed", "adaptive"],
+        Some(mode) => vec![mode],
+        None => vec!["legacy"],
+    };
+    for flow_mode in &flow_modes {
+        if *flow_mode != "legacy" {
+            use aien_heartbeat::weight_flow::FlowSettings;
+            let p = paged
+                .as_ref()
+                .expect("--weight-flow requires --paged-experts");
+            let settings = match *flow_mode {
+                "sync" => FlowSettings::synchronous(),
+                "fixed" => FlowSettings::fixed(2),
+                _ => FlowSettings::adaptive(a.flow_limit, &a.flow_policy).expect("native policy"),
+            };
+            p.set_flow(settings).expect("weight flow configuration");
         }
-        let g = golden["prompts"]
-            .as_array()
-            .and_then(|arr| arr.iter().find(|p| p["name"] == *name));
-        let Some(g) = g else {
-            say(format!("{name}: no golden entry, skipped"));
-            continue;
-        };
-        let want: Vec<u32> = g["golden"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|v| v.as_u64().unwrap() as u32)
-            .collect();
-        let margins: Vec<f32> = g["margins"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|v| v.as_f64().unwrap() as f32)
-            .collect();
-        let golden_prompt: Vec<u32> = g["prompt_tokens"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|v| v.as_u64().unwrap() as u32)
-            .collect();
-        if golden_prompt != *ids {
-            say(format!(
-                "{name}: prompt tokens differ from the golden file's ({} vs {}), FAIL",
-                ids.len(),
-                golden_prompt.len()
-            ));
-            tokens_pass = false;
-            continue;
-        }
-        let mut got = Vec::new();
-        let params = GenerateParams::greedy(a.new_tokens, config.eos_token_ids.clone());
-        // Start this prompt's timeline from zero (earlier sections also ran graph tokens).
-        let _ = engine.take_decode_timeline();
-        let rb0 = paged.as_ref().map(|p| (p.stats(), p.read_stats()));
-        let o = engine
-            .generate(ids, &params, &mut |t| {
-                got.push(t);
-                true
-            })
-            .expect("generate");
-        // The golden list includes a final stop id when the CPU stopped; ours consumed it.
-        let want_cmp: Vec<u32> = want
-            .iter()
-            .copied()
-            .filter(|t| !config.eos_token_ids.contains(t))
-            .collect();
-        let first_diff = got.iter().zip(&want_cmp).position(|(x, y)| x != y).or(
-            if got.len() != want_cmp.len() {
-                Some(got.len().min(want_cmp.len()))
-            } else {
-                None
-            },
-        );
-        let verdict = match first_diff {
-            None => "IDENTICAL".to_string(),
-            Some(i) => {
-                let m = margins.get(i).copied().unwrap_or(f32::NAN);
-                format!(
-                    "DIVERGES at {i} (cpu top-2 margin {m:.4}; {})",
-                    if m < 1e-3 {
-                        "below the 1e-3 floor: recorded, not waved"
-                    } else {
-                        "FAIL"
-                    }
-                )
-            }
-        };
-        if let Some(i) = first_diff {
-            if margins.get(i).copied().unwrap_or(0.0) >= 1e-3 {
-                tokens_pass = false;
-            }
-        }
-        let dt = &o.decode_timing;
-        let steps = o.emitted_tokens.max(1) as f64;
-        let tok_s = if o.decode_ms > 0 {
-            o.emitted_tokens as f64 * 1000.0 / o.decode_ms as f64
-        } else {
-            0.0
-        };
-        let pt = &o.prefill_timing;
         say(format!(
+            "WEIGHT_FLOW mode={flow_mode} limit={}",
+            a.flow_limit
+        ));
+        for (idx, (name, ids)) in ps.iter().enumerate() {
+            if !a.prompt_ids.contains(&(idx + 1)) {
+                continue;
+            }
+            let g = golden["prompts"]
+                .as_array()
+                .and_then(|arr| arr.iter().find(|p| p["name"] == *name));
+            let Some(g) = g else {
+                say(format!("{name}: no golden entry, skipped"));
+                continue;
+            };
+            let want: Vec<u32> = g["golden"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_u64().unwrap() as u32)
+                .collect();
+            let margins: Vec<f32> = g["margins"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_f64().unwrap() as f32)
+                .collect();
+            let golden_prompt: Vec<u32> = g["prompt_tokens"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_u64().unwrap() as u32)
+                .collect();
+            if golden_prompt != *ids {
+                say(format!(
+                    "{name}: prompt tokens differ from the golden file's ({} vs {}), FAIL",
+                    ids.len(),
+                    golden_prompt.len()
+                ));
+                tokens_pass = false;
+                continue;
+            }
+            if a.weight_flow.is_some() {
+                engine.reset();
+            }
+            let mut logits_sha256 = Vec::new();
+            let mut got = Vec::new();
+            let mut emission_ns = Vec::new();
+            let emission_origin = Instant::now();
+            let params = GenerateParams::greedy(a.new_tokens, config.eos_token_ids.clone());
+            // Start this prompt's timeline from zero (earlier sections also ran graph tokens).
+            let _ = engine.take_decode_timeline();
+            let rb0 = paged.as_ref().map(|p| (p.stats(), p.read_stats()));
+            let mut emit = |t| {
+                got.push(t);
+                emission_ns.push(emission_origin.elapsed().as_nanos() as u64);
+                true
+            };
+            let o = if a.weight_flow.is_some() {
+                engine.generate_with(
+                    ids,
+                    &params,
+                    &mut |logits, step| {
+                        use sha2::{Digest, Sha256};
+                        let mut digest = Sha256::new();
+                        for value in logits {
+                            digest.update(value.to_bits().to_le_bytes());
+                        }
+                        logits_sha256.push(format!("{:x}", digest.finalize()));
+                        aien_inference_abi::qwen3_moe_omega::sample_next(logits, &params, step)
+                    },
+                    &mut emit,
+                )
+            } else {
+                engine.generate(ids, &params, &mut emit)
+            }
+            .expect("generate");
+            // The golden list includes a final stop id when the CPU stopped; ours consumed it.
+            let want_cmp: Vec<u32> = want
+                .iter()
+                .copied()
+                .filter(|t| !config.eos_token_ids.contains(t))
+                .collect();
+            let first_diff = got.iter().zip(&want_cmp).position(|(x, y)| x != y).or(
+                if got.len() != want_cmp.len() {
+                    Some(got.len().min(want_cmp.len()))
+                } else {
+                    None
+                },
+            );
+            let verdict = match first_diff {
+                None => "IDENTICAL".to_string(),
+                Some(i) => {
+                    let m = margins.get(i).copied().unwrap_or(f32::NAN);
+                    format!(
+                        "DIVERGES at {i} (cpu top-2 margin {m:.4}; {})",
+                        if m < 1e-3 {
+                            "below the 1e-3 floor: recorded, not waved"
+                        } else {
+                            "FAIL"
+                        }
+                    )
+                }
+            };
+            if let Some(i) = first_diff {
+                if margins.get(i).copied().unwrap_or(0.0) >= 1e-3 {
+                    tokens_pass = false;
+                }
+            }
+            let dt = &o.decode_timing;
+            let steps = o.emitted_tokens.max(1) as f64;
+            let tok_s = if o.decode_ms > 0 {
+                o.emitted_tokens as f64 * 1000.0 / o.decode_ms as f64
+            } else {
+                0.0
+            };
+            let pt = &o.prefill_timing;
+            say(format!(
             "TOKENS {name}: {} prompt tokens, prefill {:.2}s ({:.1} ms/token; chunk {}, per token attention {:.1} ms experts {:.1} ms host {:.1} ms launches {:.1}), decode {} tokens in {} ms = {:.1} ms/token = {tok_s:.1} tok/s; per step: attention {:.1} ms experts {:.1} ms lm_head {:.1} ms host {:.1} ms chip-reported {:.1} ms launches {}; {verdict}",
             ids.len(),
             o.prefill_ms as f64 / 1000.0,
@@ -1083,17 +1156,17 @@ fn chip(a: &Args) {
             dt.chip_ns as f64 / 1e6 / steps,
             dt.launches as f64 / steps,
         ));
-        // Every old-path launch is its own synchronous submission; a one-list token is one
-        // submission for all its launches.
-        let submits = dt.launches - dt.graph_launches + dt.graph_submits;
-        let per_graph = |v: u64| {
-            if dt.graph_tokens > 0 {
-                v as f64 / dt.graph_tokens as f64
-            } else {
-                0.0
-            }
-        };
-        say(format!(
+            // Every old-path launch is its own synchronous submission; a one-list token is one
+            // submission for all its launches.
+            let submits = dt.launches - dt.graph_launches + dt.graph_submits;
+            let per_graph = |v: u64| {
+                if dt.graph_tokens > 0 {
+                    v as f64 / dt.graph_tokens as f64
+                } else {
+                    0.0
+                }
+            };
+            say(format!(
             "  DECODE GRAPH {}: {} of {} decode steps as one list (the first step is the prefill's lm_head); per step launches {:.1} submits {:.1}; per graph token launches {:.1} submits {:.1} record {:.1} us",
             if engine.decode_graph_on() { "ON" } else { "OFF" },
             dt.graph_tokens,
@@ -1104,17 +1177,17 @@ fn chip(a: &Args) {
             per_graph(dt.graph_submits),
             per_graph(dt.graph_record_ns) / 1e3,
         ));
-        let mut ribbon_json = serde_json::Value::Null;
-        if let (Some(p), Some((s0, r0))) = (&paged, &rb0) {
-            let (s, r) = (p.stats(), p.read_stats());
-            let hit = s.experts_hit - s0.experts_hit;
-            let miss = s.experts_missed - s0.experts_missed;
-            let bytes = s.bytes_loaded - s0.bytes_loaded;
-            let slot_ns = s.slot_load_ns - s0.slot_load_ns;
-            let read_ns = s.read_wait_ns - s0.read_wait_ns;
-            let miss_wall = s.miss_wall_ns - s0.miss_wall_ns;
-            let dev_bytes = r.device_bytes - r0.device_bytes;
-            say(format!(
+            let mut ribbon_json = serde_json::Value::Null;
+            if let (Some(p), Some((s0, r0))) = (&paged, &rb0) {
+                let (s, r) = (p.stats(), p.read_stats());
+                let hit = s.experts_hit - s0.experts_hit;
+                let miss = s.experts_missed - s0.experts_missed;
+                let bytes = s.bytes_loaded - s0.bytes_loaded;
+                let slot_ns = s.slot_load_ns - s0.slot_load_ns;
+                let read_ns = s.read_wait_ns - s0.read_wait_ns;
+                let miss_wall = s.miss_wall_ns - s0.miss_wall_ns;
+                let dev_bytes = r.device_bytes - r0.device_bytes;
+                say(format!(
                 "  RIBBON {} slots: experts hit {hit} miss {miss} (hit rate {:.4}); loaded {bytes} B; miss wall {:.1} ms; per decode step page {:.2} ms; prefill page {:.1} ms; summed read wait {:.1} ms; summed slot load {:.1} ms; device read {dev_bytes} B; resident {}",
                 p.capacity(),
                 hit as f64 / (hit + miss).max(1) as f64,
@@ -1125,28 +1198,30 @@ fn chip(a: &Args) {
                 slot_ns as f64 / 1e6,
                 p.resident(),
             ));
-            ribbon_json = serde_json::json!({"slots": p.capacity(), "hit": hit, "miss": miss,
+                ribbon_json = serde_json::json!({"slots": p.capacity(), "hit": hit, "miss": miss,
                 "bytes_loaded": bytes, "miss_wall_ns": miss_wall, "read_wait_ns": read_ns,
                 "slot_load_ns": slot_ns, "device_read_bytes": dev_bytes, "decode_page_ns": dt.page_ns,
                 "prefill_page_ns": pt.page_ns, "decode_steps": o.emitted_tokens});
-        }
-        let mut timeline_json = serde_json::Value::Null;
-        if let Some(t) = engine.take_decode_timeline() {
-            let lines = timeline_table(&t, &config);
-            for l in &lines {
-                say(format!("  {l}"));
             }
-            timeline_json = serde_json::json!({"steps": t.steps, "launches": t.launches, "ns": t.ns, "span_ns": t.span_ns, "chip_ns": t.chip_ns, "table": lines});
-        }
-        say(format!(
-            "  chip text: {:?}",
-            tok.decode(&got).unwrap_or_default()
-        ));
-        say(format!(
-            "  cpu  text: {:?}",
-            g["text"].as_str().unwrap_or("")
-        ));
-        results.push(serde_json::json!({
+            let mut timeline_json = serde_json::Value::Null;
+            if let Some(t) = engine.take_decode_timeline() {
+                let lines = timeline_table(&t, &config);
+                for l in &lines {
+                    say(format!("  {l}"));
+                }
+                timeline_json = serde_json::json!({"steps": t.steps, "launches": t.launches, "ns": t.ns, "span_ns": t.span_ns, "chip_ns": t.chip_ns, "table": lines});
+            }
+            say(format!(
+                "  chip text: {:?}",
+                tok.decode(&got).unwrap_or_default()
+            ));
+            say(format!(
+                "  cpu  text: {:?}",
+                g["text"].as_str().unwrap_or("")
+            ));
+            results.push(serde_json::json!({
+            "weight_flow": flow_mode, "flow_limit": a.flow_limit, "emission_ns": emission_ns, "logits_sha256": logits_sha256,
+            "last_layer_flow": paged.as_ref().and_then(|p|p.take_flow_trace()),
             "name": name, "prompt_tokens": ids.len(), "chip": got, "golden": want, "first_diff": first_diff,
             "prefill_ms": o.prefill_ms, "decode_ms": o.decode_ms, "emitted": o.emitted_tokens, "tok_s": tok_s, "ribbon": ribbon_json,
             "per_step_ms": {"attention": dt.attention_ns as f64 / 1e6 / steps, "experts": dt.experts_ns as f64 / 1e6 / steps,
@@ -1155,6 +1230,24 @@ fn chip(a: &Args) {
             "decode_graph": {"on": engine.decode_graph_on(), "graph_tokens": dt.graph_tokens, "graph_launches": dt.graph_launches,
                 "graph_submits": dt.graph_submits, "graph_record_ns": dt.graph_record_ns, "submits": submits, "mutant": engine.decode_graph_mutant(), "timeline": timeline_json},
         }));
+        }
+    }
+    if a.weight_flow.as_deref() == Some("sweep") {
+        for row in &results {
+            let baseline = results
+                .iter()
+                .find(|r| r["weight_flow"] == "legacy" && r["name"] == row["name"])
+                .expect("sweep baseline");
+            let equal = row["chip"] == baseline["chip"]
+                && row["logits_sha256"] == baseline["logits_sha256"];
+            let attached = row["weight_flow"] == "legacy"
+                || row["last_layer_flow"]["experts"].as_u64().unwrap_or(0) > 0;
+            tokens_pass &= equal && attached;
+            say(format!(
+                "FLOW_EQUAL {} {} tokens_and_logits_equal={equal} attached={attached}",
+                row["weight_flow"], row["name"]
+            ));
+        }
     }
     // ---- a long prompt (new territory past 673 tokens): chunk 1 against the batched chunk ----
     let mut long_json = serde_json::Value::Null;

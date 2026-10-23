@@ -1,0 +1,134 @@
+note SPDX-License-Identifier: AGPL-3.0-or-later
+note WFL1 stateless scheduling policy, 80 input bytes, 16 output bytes.
+note Fields: version mode cap depth wait compute previous calm pressure reserved.
+note Only scheduling changes. Policy cannot access weights or router IDs.
+global inp uchar 80
+global out uchar 16
+fn field index ulong to ulong
+v = ulong 0
+for i ulong 8
+v = or v shl ulong get inp add mul index 8 i mul i 8
+end
+ret v
+end
+fn store index ulong v ulong to void
+for i ulong 8
+put out add mul index 8 i uchar and shr v mul i 8 255
+end
+end
+fn readframe to int
+p = ulong 0
+for attempt ulong 81
+if eq p 80
+ret 1
+end
+n = read 0 inp p sub 80 p
+if lt n 0
+ret 74
+end
+if eq n 0
+if eq p 0
+ret 0
+end
+ret 65
+end
+p = add p ulong n
+end
+ret 65
+end
+fn validate to bool
+if or ne field 0 1 gt field 1 2
+ret false
+end
+if or eq field 2 0 gt field 2 32
+ret false
+end
+if or eq field 3 0 gt field 3 field 2
+ret false
+end
+for i ulong 3
+if gt field add 4 i 9223372036854775807
+ret false
+end
+end
+if or gt field 7 3 gt field 8 1
+ret false
+end
+ret eq field 9 0
+end
+fn decide to void
+mode = field 1
+cap = field 2
+depth = field 3
+wait = field 4
+compute = field 5
+previous = field 6
+calm = ulong 0
+if eq mode 0
+depth = ulong 1
+else
+if eq mode 1
+depth = ulong 2
+else
+if or eq field 8 1 and gt previous 0 gt compute add previous div previous 4
+depth = div depth 2
+else
+if gt wait div compute 8
+depth = add depth 1
+else
+if eq wait 0
+calm = add field 7 1
+if eq calm 4
+if gt depth 2
+depth = sub depth 1
+end
+calm = ulong 0
+end
+end
+end
+end
+if lt depth 2
+depth = ulong 2
+end
+end
+end
+if gt depth cap
+depth = cap
+end
+if eq cap 1
+calm = ulong 0
+end
+store 0 depth
+store 1 calm
+end
+fn publish to int
+p = ulong 0
+for attempt ulong 17
+if eq p 16
+ret 0
+end
+n = write 1 out p sub 16 p
+if le n 0
+ret 74
+end
+p = add p ulong n
+end
+ret 74
+end
+fn main to int
+for txn ulong 1000000000
+status = readframe
+if ne status 1
+ret status
+end
+if not validate
+ret 65
+end
+decide
+status = publish
+if ne status 0
+ret status
+end
+end
+ret 65
+end

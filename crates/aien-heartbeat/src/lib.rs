@@ -19,6 +19,8 @@ pub mod reader;
 pub mod residency;
 pub mod ring;
 pub mod stream;
+pub mod weight_flow;
+pub mod weight_policy;
 
 pub use error::HeartbeatError;
 pub use layout::{ExpertLayout, ExpertParts, ExpertShape, Payload};
