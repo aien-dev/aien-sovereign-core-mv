@@ -17,6 +17,7 @@ class Successor(unittest.TestCase):
         self.target = dict(number=42, ref='fix/original', expected_head=self.base)
         self.target_head = self.base
         self.target_state = 'open'
+        self.pr_base = self.base
         self.fork = False
         self.pushes=[]
         self.obscure_readback=False
@@ -35,17 +36,37 @@ class Successor(unittest.TestCase):
             data=dict(number=42,state=self.target_state,draft=False,
                 head=dict(ref='fix/original',sha=self.target_head,
                     repo=dict(full_name='other/fork' if self.fork else self.q.full)),
-                base=dict(ref='main',sha=self.base,repo=dict(full_name=self.q.full)))
+                base=dict(ref='main',sha=self.pr_base,repo=dict(full_name=self.q.full)))
             if self.obscure_readback and self.pushes:data['head']['sha']='e'*40
             return 0,json.dumps(data),''
         if cmd[0]=='git' and 'push' in cmd:
             self.calls.append(cmd);self.pushes.append(cmd)
             self.target_head=self.head
+            self.pr_base=self.base
             return 0,'',''
         if cmd[0]=='git' and 'ls-remote' in cmd and cmd[-1]=='refs/heads/fix/original':
             self.calls.append(cmd)
             return 0,self.target_head+'\trefs/heads/fix/original\n',''
         return fixtures.Delivery.transport(self,cmd,**kwargs)
+
+    def test_explicit_old_pr_base_can_advance_to_qualified_current_main(self):
+        self.target['expected_base']='c'*40
+        self.pr_base='c'*40
+        try:
+            self._seed()
+        except ValueError as exc:
+            self.fail('explicit old PR base lease rejected: '+str(exc))
+        ok,note=self.publish();self.assertTrue(ok,note)
+        self.assertEqual(len(self.pushes),1)
+        self.assertEqual(self.writes(),[])
+        ok,note=self.publish();self.assertTrue(ok,note)
+        self.assertEqual(len(self.pushes),1)
+
+    def test_unexpected_pr_base_change_cannot_advance(self):
+        self.pr_base='d'*40
+        ok,note=self.publish();self.assertFalse(ok,note)
+        self.assertEqual(self.pushes,[])
+        self.assertEqual(self.writes(),[])
 
     def test_successor_target_is_retained_in_trusted_intake(self):
         self.assertEqual(self.entry.get('target'),self.target)

@@ -5,11 +5,12 @@ import time
 
 
 def valid_target(target):
-    return (isinstance(target, dict) and set(target) == {'number','ref','expected_head'}
+    return (isinstance(target, dict) and set(target) in ({'number','ref','expected_head'}, {'number','ref','expected_head','expected_base'})
         and type(target.get('number')) is int and target['number'] > 0
         and isinstance(target.get('ref'), str) and bool(target['ref'])
         and not target['ref'].startswith(('refs/','-'))
-        and re.fullmatch(r'[0-9a-f]{40}', str(target.get('expected_head'))) is not None)
+        and re.fullmatch(r'[0-9a-f]{40}', str(target.get('expected_head'))) is not None
+        and ('expected_base' not in target or re.fullmatch(r'[0-9a-f]{40}', str(target['expected_base'])) is not None))
 
 
 def promote_successor(repo, queue, entry, source, owned, qualified, refs_match):
@@ -25,6 +26,7 @@ def promote_successor(repo, queue, entry, source, owned, qualified, refs_match):
     number, ref, expected = target['number'], target['ref'], target['expected_head']
     if queue.run(['git','check-ref-format','--branch',ref])[0] or ref == 'main':
         return refuse('invalid target branch')
+    expected_base = target.get('expected_base', base)
     endpoint = f'repos/{full}/pulls/{number}'
     def snapshot():
         rc, out, err = queue.run(['gh','api',endpoint],timeout=120)
@@ -37,7 +39,7 @@ def promote_successor(repo, queue, entry, source, owned, qualified, refs_match):
                 or p.get('head',{}).get('repo',{}).get('full_name') != full
                 or p.get('base',{}).get('ref') != 'main'
                 or p.get('base',{}).get('repo',{}).get('full_name') != full
-                or p.get('base',{}).get('sha') != base):
+                or p.get('base',{}).get('sha') != (base if p.get('head',{}).get('sha') == sha else expected_base)):
             raise ValueError('target changed, draft, closed, forked or malformed')
         head = p['head']['sha']
         if head not in (expected, sha):
