@@ -1,0 +1,38 @@
+[
+  {
+    "repo": "aien-sovereign-core-mv",
+    "branch": "recovery/orphaned-work-20261023-l755",
+    "root": "a7bc89f90e96a3c21edf20625f7678475b6a98da",
+    "remoteReadback": "PASS",
+    "requiredReferences": 175,
+    "uniqueTips": 174,
+    "allRequiredReachable": true
+  },
+  {
+    "repo": "omega-mv",
+    "branch": "recovery/orphaned-work-20261023-l755",
+    "root": "69ee26a2c36d83c9280cfe2a2aa900d932f115a4",
+    "remoteReadback": "PASS",
+    "requiredReferences": 181,
+    "uniqueTips": 174,
+    "allRequiredReachable": true
+  },
+  {
+    "repo": "CUDApp",
+    "branch": "recovery/orphaned-work-20261023-l755",
+    "root": "22965981baf78b3ae8768444f071f9b2c5410a55",
+    "remoteReadback": "PASS",
+    "requiredReferences": 12,
+    "uniqueTips": 12,
+    "allRequiredReachable": true
+  },
+  {
+    "repo": "omega-bridge",
+    "branch": "recovery/orphaned-work-20261023-l755",
+    "root": "f5e4627cbd621dc4504c1128acfefa9b6e899884",
+    "remoteReadback": "PASS",
+    "requiredReferences": 3,
+    "uniqueTips": 3,
+    "allRequiredReachable": true
+  }
+]
