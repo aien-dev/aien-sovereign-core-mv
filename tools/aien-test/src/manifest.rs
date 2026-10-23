@@ -154,6 +154,11 @@ pub struct Manifest {
     pub mutants: Vec<String>,
     pub checks: Vec<String>,
     pub cache_allowed: bool,
+    /// `cache: inputs_complete`: the author promises `inputs` name every file
+    /// the gate reads, so a result may be reused by another head whose
+    /// declared inputs are byte-identical (`cache::cross_head`). Without it a
+    /// result crosses heads only when the whole tree is identical.
+    pub inputs_complete: bool,
     /// `manifest_version` (1 or 2). The fields below are v2 and hold their
     /// documented defaults for a v1 manifest.
     pub version: u8,
@@ -886,14 +891,15 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, ManifestError> {
             return Err(ManifestError(format!("unknown check {c:?}")));
         }
     }
-    let cache_allowed = match get("cache") {
-        None => true,
+    let (cache_allowed, inputs_complete) = match get("cache") {
+        None => (true, false),
         Some(e) => match scalar(e)?.as_str() {
-            "allow" => true,
-            "never" => false,
+            "allow" => (true, false),
+            "inputs_complete" => (true, true),
+            "never" => (false, false),
             other => {
                 return Err(ManifestError(format!(
-                    "cache must be allow or never, got {other:?}"
+                    "cache must be allow, inputs_complete or never, got {other:?}"
                 )))
             }
         },
@@ -918,6 +924,7 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, ManifestError> {
         mutants,
         checks,
         cache_allowed,
+        inputs_complete,
         version,
         exactness,
         tolerance,
@@ -1145,6 +1152,7 @@ mod tests {
             mutants: vec![],
             checks: vec![],
             cache_allowed: true,
+            inputs_complete: false,
             version: 1,
             exactness: Exactness::Exact,
             tolerance: None,

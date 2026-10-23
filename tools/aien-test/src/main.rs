@@ -124,8 +124,8 @@ fn repo_root_or_report(cwd: &Path) -> Result<PathBuf, i32> {
 /// fresh run.
 fn print_cache(note: &CacheNote) {
     match note {
-        CacheNote::Reused { from } => {
-            println!("REUSED {from}");
+        CacheNote::Reused { from, commit } => {
+            println!("REUSED {from} (made at commit {commit})");
             println!(
                 "CACHE reused: an earlier run of exactly this experiment already has this result, so it was not run again (use --no-cache to force a fresh run)"
             );
@@ -566,6 +566,43 @@ fn cmd_worker(cli: &Cli) -> i32 {
     }
     cfg.no_cache = cli.no_cache;
     cfg.hardware_identity = cli.hardware_identity.clone().unwrap_or_default();
+    cfg.batch_host = cli.batch_host;
+    if let Some(n) = cli.batch_heads {
+        cfg.batch_heads = n;
+    }
+    if let Some((repo, shas)) = &cli.batch {
+        // One line per head, then the worst exit code: 0 only if every head
+        // passed.
+        let t0 = std::time::Instant::now();
+        let mut code = 0;
+        for (sha, r) in worker::run_batch(&cfg, repo, shas) {
+            match r {
+                Ok(s) => {
+                    for (g, st, v) in &s.gates {
+                        println!("GATE {sha} {g} {st} {}", v.as_str());
+                    }
+                    println!(
+                        "HEAD {repo} {sha} {} {} bundle {} publication {}",
+                        s.verdict.as_str(),
+                        s.reason,
+                        s.bundle_path.display(),
+                        s.publication
+                    );
+                    code = code.max(s.verdict.exit_code());
+                }
+                Err(e) => {
+                    println!("HEAD {repo} {sha} ERROR {e}");
+                    code = code.max(1);
+                }
+            }
+        }
+        println!(
+            "BATCH {repo} heads={} wall_ms={}",
+            shas.len(),
+            t0.elapsed().as_millis()
+        );
+        return code;
+    }
     if let Some((repo, sha)) = &cli.once {
         return match worker::run_once(&cfg, repo, sha) {
             Ok(s) => {

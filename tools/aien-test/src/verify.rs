@@ -518,8 +518,12 @@ pub fn run(root: &Path, ask: &Ask) -> Report {
         _ => "NOT_RUN".to_string(),
     };
     lines.push(format!("Final verdict: {final_verdict}"));
-    let queue = sum_u64(&found.index, &run_digests, "/pool_wait_ms");
-    let test = sum_u64(&found.index, &run_digests, "/duration_ms");
+    // A gate's batch-slot and target-dir waits fall inside its `duration_ms`;
+    // they are queue time, not test time.
+    let held = sum_u64(&found.index, &run_digests, "/batch_wait_ms").unwrap_or(0)
+        + sum_u64(&found.index, &run_digests, "/target_wait_ms").unwrap_or(0);
+    let queue = sum_u64(&found.index, &run_digests, "/pool_wait_ms").map(|q| q + held);
+    let test = sum_u64(&found.index, &run_digests, "/duration_ms").map(|t| t.saturating_sub(held));
     let gpu_wait = sum_u64(&found.index, &run_digests, "/gpu_wait/waited_ms");
     let total = bundle.as_ref().and_then(|b| {
         let s = utc_secs(b["started_utc"].as_str()?)?;
