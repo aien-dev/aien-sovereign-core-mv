@@ -1,0 +1,10 @@
+{
+  "arm": "stroke-off",
+  "case": "concurrent-32",
+  "verdict": "PASS",
+  "detail": "32/32 replies identical to the reference (alone)",
+  "aien_test": {
+    "stroke": false
+  },
+  "wall_s": 68.652758553
+}

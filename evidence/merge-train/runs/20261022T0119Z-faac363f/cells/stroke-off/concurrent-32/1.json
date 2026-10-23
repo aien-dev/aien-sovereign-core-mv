@@ -1,0 +1,23 @@
+{
+  "status": 200,
+  "ids": [
+    760,
+    6511,
+    314,
+    8071,
+    369,
+    66463,
+    13
+  ],
+  "text": "The capital of Australia is Canberra.",
+  "tool_calls": null,
+  "finish": "stop",
+  "prompt_tokens": 24,
+  "applied": [
+    "stroke"
+  ],
+  "error": null,
+  "t0": "1792636689.579359130",
+  "t1": "1792636700.669329478",
+  "busy_retries": 0
+}

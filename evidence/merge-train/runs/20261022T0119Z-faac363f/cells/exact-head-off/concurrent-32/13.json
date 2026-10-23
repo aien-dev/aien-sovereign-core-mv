@@ -1,0 +1,33 @@
+{
+  "status": 200,
+  "ids": [
+    49604,
+    46303,
+    383,
+    2919,
+    1521,
+    424,
+    369,
+    2972,
+    1657,
+    27044,
+    332,
+    1056,
+    14058,
+    2919,
+    13,
+    271,
+    7732
+  ],
+  "text": "Ice floats on water because it is **less dense** than liquid water.\n\nWhile",
+  "tool_calls": null,
+  "finish": "length",
+  "prompt_tokens": 19,
+  "applied": [
+    "exact_head"
+  ],
+  "error": null,
+  "t0": "1792636789.905515378",
+  "t1": "1792636835.673131355",
+  "busy_retries": 65
+}

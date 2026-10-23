@@ -1,0 +1,48 @@
+{
+  "status": 200,
+  "ids": [
+    248058,
+    198,
+    27,
+    1628,
+    27362,
+    67017,
+    29,
+    198,
+    27,
+    15704,
+    28,
+    8656,
+    29,
+    198,
+    57590,
+    198,
+    510,
+    15704,
+    29,
+    198,
+    510,
+    1628,
+    29,
+    198,
+    248059
+  ],
+  "text": null,
+  "tool_calls": [
+    {
+      "function": {
+        "arguments": "{\"city\":\"Paris\"}",
+        "name": "get_weather"
+      },
+      "id": "call_chatcmpl-18e0b9649f08afb60026_0",
+      "type": "function"
+    }
+  ],
+  "finish": "tool_calls",
+  "prompt_tokens": 282,
+  "applied": null,
+  "error": null,
+  "t0": "1792636493.500304133",
+  "t1": "1792636496.916460839",
+  "busy_retries": 0
+}

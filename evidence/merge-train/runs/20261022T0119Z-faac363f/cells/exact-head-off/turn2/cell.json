@@ -1,0 +1,10 @@
+{
+  "arm": "exact-head-off",
+  "case": "turn2",
+  "verdict": "PASS",
+  "detail": "turn 2 identical to alone",
+  "aien_test": {
+    "exact_head": false
+  },
+  "wall_s": 3.611835440
+}

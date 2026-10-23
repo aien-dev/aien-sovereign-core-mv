@@ -1,0 +1,23 @@
+{
+  "status": 200,
+  "ids": [
+    2229,
+    5257,
+    919,
+    3656,
+    33190,
+    72491,
+    3717,
+    175926,
+    13
+  ],
+  "text": "Le train part à sept heures du matin.",
+  "tool_calls": null,
+  "finish": "stop",
+  "prompt_tokens": 25,
+  "applied": null,
+  "error": null,
+  "t0": "1792637213.749675677",
+  "t1": "1792637220.278113643",
+  "busy_retries": 0
+}

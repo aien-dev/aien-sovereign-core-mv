@@ -1,0 +1,8 @@
+{
+  "arm": "plain",
+  "case": "row-swap-red",
+  "verdict": "RED-FAIL",
+  "detail": "red rows were 0 3 5 (expected [3], others_red_max 1, 1 swap(s) logged)",
+  "aien_test": null,
+  "wall_s": 5.051923576
+}

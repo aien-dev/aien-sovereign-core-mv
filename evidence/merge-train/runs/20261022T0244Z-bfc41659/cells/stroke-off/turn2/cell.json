@@ -1,0 +1,10 @@
+{
+  "arm": "stroke-off",
+  "case": "turn2",
+  "verdict": "PASS",
+  "detail": "turn 2 identical to alone",
+  "aien_test": {
+    "stroke": false
+  },
+  "wall_s": 3.433805297
+}

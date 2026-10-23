@@ -1,0 +1,8 @@
+{
+  "arm": "plain",
+  "case": "turn2",
+  "verdict": "PASS",
+  "detail": "turn 2 identical to alone",
+  "aien_test": null,
+  "wall_s": 1.407226566
+}

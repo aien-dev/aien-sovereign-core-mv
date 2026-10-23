@@ -172,6 +172,9 @@ struct Job {
     /// Set by the request thread when `on_token` says stop (client gone, stop string).
     cancel: Arc<AtomicBool>,
     t_queued: Instant,
+    /// A continuation of the turn just generated (L376 built-in tool round): the row's
+    /// snapshot stays where it is, so the client's next request lands on it.
+    keep_snapshot: bool,
     /// The merge train's switches for this request (empty on the served path).
     test: TestSwitches,
 }
@@ -390,52 +393,22 @@ impl Qwen36BatchDoor {
     }
 }
 
-impl Engine for Qwen36BatchDoor {
-    fn kind(&self) -> &str {
-        "omega-qwen36-batch"
-    }
-
-    fn max_context_tokens(&self) -> usize {
-        self.max_context
-    }
-
-    fn concurrency(&self) -> usize {
-        self.slots
-    }
-
-    fn generate(
-        &self,
-        prompt: &[u32],
-        p: &GenerateParams,
-        on_token: &mut dyn FnMut(u32) -> bool,
-    ) -> Result<GenerateOutcome, EngineError> {
-        self.generate_test(prompt, p, TestSwitches::default(), on_token)
-    }
-
-    #[cfg(feature = "aien-test-switches")]
-    fn test_switches_honored(&self) -> &'static [&'static str] {
-        TEST_SWITCHES_HONORED
-    }
-
-    #[cfg(feature = "aien-test-switches")]
-    fn generate_with_test(
-        &self,
-        prompt: &[u32],
-        p: &GenerateParams,
-        test: &TestSwitches,
-        on_token: &mut dyn FnMut(u32) -> bool,
-    ) -> Result<GenerateOutcome, EngineError> {
-        if let Some(bad) = test
-            .names()
-            .into_iter()
-            .find(|n| !TEST_SWITCHES_HONORED.contains(n))
-        {
+impl Qwen36BatchDoor {
+    /// Refuses a switch the batch door does not honor (every switch, in a build without the
+    /// `aien-test-switches` feature), so none is ever ignored in silence.
+    fn check_test(&self, test: &TestSwitches) -> Result<(), EngineError> {
+        #[cfg(feature = "aien-test-switches")]
+        let honored: &[&str] = TEST_SWITCHES_HONORED;
+        #[cfg(not(feature = "aien-test-switches"))]
+        let honored: &[&str] = &[];
+        if let Some(bad) = test.names().into_iter().find(|n| !honored.contains(n)) {
             return Err(EngineError::Failed(format!(
-                "aien_test.{bad} is not a switch of the batch door (honored: {TEST_SWITCHES_HONORED:?})"
+                "aien_test.{bad} is not a switch of the batch door (honored: {honored:?})"
             )));
         }
-        self.generate_test(prompt, p, test.clone(), on_token)
+        Ok(())
     }
+<<<<<<< HEAD
 
     fn generate_group(
         &self,
@@ -445,20 +418,30 @@ impl Engine for Qwen36BatchDoor {
         self.run_jobs(jobs, on_token)
     }
 }
+=======
+>>>>>>> aiendev/serve/q36-board-ship
 
-impl Qwen36BatchDoor {
-    /// The request path; `test` is empty on the served path (`Engine::generate`).
+    /// The request path; `test` is empty on the served path (`Engine::generate`) and
+    /// `keep_snapshot` marks an L376 continuation (the row's snapshot stays where it is).
     fn generate_test(
         &self,
         prompt: &[u32],
         p: &GenerateParams,
         test: TestSwitches,
+        keep_snapshot: bool,
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, EngineError> {
         let job = GroupJob {
             prompt: prompt.to_vec(),
             params: p.clone(),
+<<<<<<< HEAD
             cancel: None,
+=======
+            out: otx,
+            cancel: Arc::clone(&cancel),
+            t_queued: Instant::now(),
+            keep_snapshot,
+>>>>>>> aiendev/serve/q36-board-ship
             test,
         };
         self.run_jobs(std::slice::from_ref(&job), &mut |_, t| on_token(t))
@@ -588,6 +571,57 @@ impl Qwen36BatchDoor {
                 r.unwrap_or_else(|| Err(EngineError::Failed("qwen36-batch scheduler gone".into())))
             })
             .collect()
+    }
+}
+
+impl Engine for Qwen36BatchDoor {
+    fn kind(&self) -> &str {
+        "omega-qwen36-batch"
+    }
+
+    fn max_context_tokens(&self) -> usize {
+        self.max_context
+    }
+
+    fn concurrency(&self) -> usize {
+        self.slots
+    }
+
+    fn generate(
+        &self,
+        prompt: &[u32],
+        p: &GenerateParams,
+        on_token: &mut dyn FnMut(u32) -> bool,
+    ) -> Result<GenerateOutcome, EngineError> {
+        self.generate_test(prompt, p, TestSwitches::default(), false, on_token)
+    }
+
+    fn generate_continuation(
+        &self,
+        prompt: &[u32],
+        p: &GenerateParams,
+        test: &TestSwitches,
+        on_token: &mut dyn FnMut(u32) -> bool,
+    ) -> Result<GenerateOutcome, EngineError> {
+        self.check_test(test)?;
+        self.generate_test(prompt, p, test.clone(), true, on_token)
+    }
+
+    #[cfg(feature = "aien-test-switches")]
+    fn test_switches_honored(&self) -> &'static [&'static str] {
+        TEST_SWITCHES_HONORED
+    }
+
+    #[cfg(feature = "aien-test-switches")]
+    fn generate_with_test(
+        &self,
+        prompt: &[u32],
+        p: &GenerateParams,
+        test: &TestSwitches,
+        on_token: &mut dyn FnMut(u32) -> bool,
+    ) -> Result<GenerateOutcome, EngineError> {
+        self.check_test(test)?;
+        self.generate_test(prompt, p, test.clone(), false, on_token)
     }
 }
 
@@ -919,14 +953,18 @@ impl<S: RowStep> Scheduler<S> {
             self.free.push(row);
             return;
         }
+        // A continuation (L376) keeps the snapshot at the first round's header: the client's
+        // next request renders the turn without the built-in exchange and lands on it.
         let snap_at = job
             .prompt
             .iter()
             .rposition(|&t| t == IM_START)
-            .filter(|&k| k > 0 && k >= reused && self.rows[row].snap_tokens[..] != job.prompt[..k]);
+            .filter(|&k| k > 0 && k >= reused && self.rows[row].snap_tokens[..] != job.prompt[..k])
+            .filter(|_| !job.keep_snapshot);
         eprintln!(
-            "aien-serve-http: qwen36-batch: join: prompt {plen} tok, reuse {reused} tok ({}, row {row}), queued {} ms, now {} rows",
+            "aien-serve-http: qwen36-batch: join: prompt {plen} tok, reuse {reused} tok ({}, row {row}){}, queued {} ms, now {} rows",
             if reused == 0 { "cold" } else if from_snap { "snapshot" } else { "live" },
+            if job.keep_snapshot { ", continuation" } else { "" },
             job.t_queued.elapsed().as_millis(),
             active.len() + 1,
         );

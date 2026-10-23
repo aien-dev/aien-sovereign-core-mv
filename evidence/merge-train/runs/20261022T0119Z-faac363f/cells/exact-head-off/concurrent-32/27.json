@@ -1,0 +1,40 @@
+{
+  "status": 200,
+  "ids": [
+    71093,
+    13670,
+    198,
+    1628,
+    369,
+    12777,
+    7815,
+    8,
+    313,
+    198,
+    262,
+    460,
+    1572,
+    984,
+    220,
+    17,
+    1981,
+    220,
+    15,
+    26,
+    198,
+    92,
+    198,
+    71093
+  ],
+  "text": "```javascript\nfunction isEven(num) {\n    return num % 2 === 0;\n}\n```",
+  "tool_calls": null,
+  "finish": "stop",
+  "prompt_tokens": 24,
+  "applied": [
+    "exact_head"
+  ],
+  "error": null,
+  "t0": "1792636790.227000886",
+  "t1": "1792636848.311179250",
+  "busy_retries": 82
+}

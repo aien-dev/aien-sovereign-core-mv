@@ -1,0 +1,25 @@
+{
+  "status": 200,
+  "ids": [
+    1206,
+    10724,
+    393,
+    16,
+    22,
+    1088,
+    14695,
+    220,
+    17
+  ],
+  "text": "To calculate $17 \\times 2",
+  "tool_calls": null,
+  "finish": "length",
+  "prompt_tokens": 26,
+  "applied": [
+    "exact_head"
+  ],
+  "error": null,
+  "t0": "1792637503.458864872",
+  "t1": "1792637515.360045683",
+  "busy_retries": 0
+}

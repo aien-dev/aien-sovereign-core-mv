@@ -1,0 +1,234 @@
+{
+  "cases": [
+    "golden-chat-max-24",
+    "golden-chat-code",
+    "golden-chat-prose2",
+    "golden-chat-chat",
+    "golden-chat-review",
+    "concurrent-32",
+    "turn2",
+    "tool-call",
+    "mutant-4-red",
+    "mutant-row-isolated",
+    "row-swap-red",
+    "board-gate",
+    "l369-long-prompts"
+  ],
+  "levers": [
+    {
+      "id": "L354",
+      "name": "batch door: many conversations per beat",
+      "present": "yes",
+      "cells": [
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "RED-OK",
+        "RED-OK",
+        "RED-OK",
+        "-",
+        "-"
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "id": "L312",
+      "name": "strokes v2: rows ride one graph",
+      "present": "yes",
+      "cells": [
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "RED-OK",
+        "RED-OK",
+        "RED-OK",
+        "-",
+        "-"
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "id": "L314",
+      "name": "exact two-pass head",
+      "present": "yes",
+      "cells": [
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "RED-OK",
+        "RED-OK",
+        "RED-OK",
+        "-",
+        "-"
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "id": "L374",
+      "name": "tool calling",
+      "present": "yes",
+      "cells": [
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "RED-OK",
+        "RED-OK",
+        "RED-OK",
+        "-",
+        "-"
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "id": "L369",
+      "name": "chunked prefill",
+      "present": "yes",
+      "cells": [
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "RED-OK",
+        "RED-OK",
+        "RED-OK",
+        "-",
+        "PASS"
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "id": "L375",
+      "name": "shared prompt prefix",
+      "present": "no",
+      "cells": [
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "RED-OK",
+        "RED-OK",
+        "RED-OK",
+        "-",
+        "-"
+      ],
+      "verdict": "NOT-ON-TRAIN"
+    },
+    {
+      "id": "L371",
+      "name": "eight readers",
+      "present": "no",
+      "cells": [
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "RED-OK",
+        "RED-OK",
+        "RED-OK",
+        "-",
+        "-"
+      ],
+      "verdict": "NOT-ON-TRAIN"
+    },
+    {
+      "id": "L355",
+      "name": "W4 experts store",
+      "present": "no",
+      "cells": [
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "RED-OK",
+        "RED-OK",
+        "RED-OK",
+        "-",
+        "-"
+      ],
+      "verdict": "NOT-ON-TRAIN"
+    },
+    {
+      "id": "L313",
+      "name": "bf16 DeltaNet state",
+      "present": "yes",
+      "cells": [
+        "SKIP",
+        "SKIP",
+        "SKIP",
+        "SKIP",
+        "SKIP",
+        "SKIP",
+        "SKIP",
+        "SKIP",
+        "RED-OK",
+        "RED-OK",
+        "RED-OK",
+        "-",
+        "-"
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "id": "L376",
+      "name": "team board",
+      "present": "no",
+      "cells": [
+        "SKIP",
+        "SKIP",
+        "SKIP",
+        "SKIP",
+        "SKIP",
+        "SKIP",
+        "SKIP",
+        "SKIP",
+        "RED-OK",
+        "RED-OK",
+        "RED-OK",
+        "SKIP",
+        "-"
+      ],
+      "verdict": "NOT-ON-TRAIN"
+    }
+  ],
+  "red_controls": {
+    "ran": 3,
+    "ok": 3,
+    "total": 3
+  }
+}

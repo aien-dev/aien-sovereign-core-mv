@@ -1,0 +1,10 @@
+{
+  "arm": "stroke-off",
+  "case": "tool-call",
+  "verdict": "PASS",
+  "detail": "reply is a parsed tool call to get_weather (\"{\\\"city\\\":\\\"Paris\\\"}\")",
+  "aien_test": {
+    "stroke": false
+  },
+  "wall_s": 11.381488147
+}

@@ -1,0 +1,8 @@
+{
+  "arm": "plain",
+  "case": "golden-chat-code",
+  "verdict": "PASS",
+  "detail": "ids identical to the golden (31 prompt tokens)",
+  "aien_test": null,
+  "wall_s": 2.169779865
+}

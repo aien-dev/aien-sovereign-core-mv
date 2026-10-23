@@ -1,0 +1,10 @@
+{
+  "arm": "stroke-off",
+  "case": "golden-chat-max-24",
+  "verdict": "PASS",
+  "detail": "ids identical to the golden (24 prompt tokens)",
+  "aien_test": {
+    "stroke": false
+  },
+  "wall_s": 2.252934162
+}

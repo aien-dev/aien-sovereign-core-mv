@@ -1,0 +1,8 @@
+{
+  "arm": "plain",
+  "case": "concurrent-32",
+  "verdict": "PASS",
+  "detail": "32/32 replies identical to the reference (alone)",
+  "aien_test": null,
+  "wall_s": 34.681618075
+}

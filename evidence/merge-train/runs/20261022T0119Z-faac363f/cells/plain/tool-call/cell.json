@@ -1,0 +1,8 @@
+{
+  "arm": "plain",
+  "case": "tool-call",
+  "verdict": "PASS",
+  "detail": "reply is a parsed tool call to get_weather (\"{\\\"city\\\":\\\"Paris\\\"}\")",
+  "aien_test": null,
+  "wall_s": 3.456878235
+}

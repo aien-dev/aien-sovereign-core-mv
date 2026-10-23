@@ -1,0 +1,33 @@
+{
+  "ids": [
+    760,
+    1414,
+    369,
+    449,
+    23269,
+    4038,
+    39087,
+    13190,
+    318,
+    93139,
+    8,
+    42724,
+    279,
+    7873,
+    314,
+    264,
+    2243,
+    290,
+    11,
+    21050,
+    12,
+    17,
+    20,
+    21
+  ],
+  "text": "The text is an Architectural Decision Record (ADR) detailing the implementation of a versioned, SHA-256",
+  "finish": "length",
+  "prompt_tokens": 2486,
+  "t0": "1792636514.935241158",
+  "t1": "1792636605.494588460"
+}

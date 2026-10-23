@@ -1,0 +1,29 @@
+{
+  "status": 200,
+  "ids": [
+    12646,
+    25,
+    997,
+    25,
+    28107,
+    80370,
+    471,
+    498,
+    62394,
+    31819,
+    14,
+    1851,
+    60
+  ],
+  "text": "Subject: Re: Meeting Invitation - [Meeting Topic/Date]",
+  "tool_calls": null,
+  "finish": "length",
+  "prompt_tokens": 21,
+  "applied": [
+    "exact_head"
+  ],
+  "error": null,
+  "t0": "1792637503.666141000",
+  "t1": "1792637531.961196478",
+  "busy_retries": 35
+}

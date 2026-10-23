@@ -1,0 +1,8 @@
+{
+  "arm": "plain",
+  "case": "l369-long-prompts",
+  "verdict": "PASS",
+  "detail": "owner's gate exit 0",
+  "aien_test": null,
+  "wall_s": 158.939360672
+}

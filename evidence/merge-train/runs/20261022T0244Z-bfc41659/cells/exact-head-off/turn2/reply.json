@@ -1,0 +1,26 @@
+{
+  "status": 200,
+  "ids": [
+    32,
+    324,
+    55965,
+    12965,
+    7239,
+    2272,
+    279,
+    12050,
+    13071,
+    13
+  ],
+  "text": "A lighthouse stands firm against the winter storm.",
+  "tool_calls": null,
+  "finish": "stop",
+  "prompt_tokens": 63,
+  "applied": [
+    "exact_head"
+  ],
+  "error": null,
+  "t0": "1792637576.360319133",
+  "t1": "1792637579.685647054",
+  "busy_retries": 0
+}

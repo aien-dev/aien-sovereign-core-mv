@@ -1,0 +1,10 @@
+{
+  "arm": "exact-head-off",
+  "case": "tool-call",
+  "verdict": "PASS",
+  "detail": "reply is a parsed tool call to get_weather (\"{\\\"city\\\":\\\"Paris\\\"}\")",
+  "aien_test": {
+    "exact_head": false
+  },
+  "wall_s": 14.838601584
+}

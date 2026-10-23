@@ -1,0 +1,10 @@
+{
+  "arm": "exact-head-off",
+  "case": "golden-chat-review",
+  "verdict": "PASS",
+  "detail": "ids identical to the golden (66 prompt tokens)",
+  "aien_test": {
+    "exact_head": false
+  },
+  "wall_s": 3.469361428
+}

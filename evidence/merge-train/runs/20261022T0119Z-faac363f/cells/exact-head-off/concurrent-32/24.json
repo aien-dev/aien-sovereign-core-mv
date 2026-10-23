@@ -1,0 +1,28 @@
+{
+  "status": 200,
+  "ids": [
+    760,
+    9662,
+    424,
+    1204,
+    4577,
+    3808,
+    279,
+    30065,
+    11,
+    198,
+    760,
+    16382
+  ],
+  "text": "The wind it howls across the foam,\nThe waves",
+  "tool_calls": null,
+  "finish": "length",
+  "prompt_tokens": 23,
+  "applied": [
+    "exact_head"
+  ],
+  "error": null,
+  "t0": "1792636790.161008891",
+  "t1": "1792636813.241132724",
+  "busy_retries": 25
+}

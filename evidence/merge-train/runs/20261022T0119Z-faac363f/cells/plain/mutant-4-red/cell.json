@@ -1,0 +1,10 @@
+{
+  "arm": "plain",
+  "case": "mutant-4-red",
+  "verdict": "RED-OK",
+  "detail": "switched reply differs from the golden, as required",
+  "aien_test": {
+    "mutant": 4
+  },
+  "wall_s": 2.346168750
+}

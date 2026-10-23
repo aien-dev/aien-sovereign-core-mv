@@ -1,0 +1,8 @@
+{
+  "arm": "plain",
+  "case": "mutant-row-isolated",
+  "verdict": "RED-OK",
+  "detail": "rows 5 differ from alone as required (expected red [5], 7 others identical, 0 swap(s) logged)",
+  "aien_test": null,
+  "wall_s": 9.478693986
+}

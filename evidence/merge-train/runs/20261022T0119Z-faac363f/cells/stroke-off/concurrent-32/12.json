@@ -1,0 +1,26 @@
+{
+  "status": 200,
+  "ids": [
+    71093,
+    3427,
+    198,
+    4703,
+    5813,
+    816,
+    11,
+    23241,
+    27733,
+    5574
+  ],
+  "text": "```sql\nSELECT customer_id, COUNT(*) AS",
+  "tool_calls": null,
+  "finish": "length",
+  "prompt_tokens": 22,
+  "applied": [
+    "stroke"
+  ],
+  "error": null,
+  "t0": "1792636689.680503421",
+  "t1": "1792636709.336434727",
+  "busy_retries": 22
+}

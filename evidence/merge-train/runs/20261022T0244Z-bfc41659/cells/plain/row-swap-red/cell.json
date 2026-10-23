@@ -1,0 +1,8 @@
+{
+  "arm": "plain",
+  "case": "row-swap-red",
+  "verdict": "RED-OK",
+  "detail": "rows 0 3 differ from alone as required (expected red [3], 6 others identical, 1 swap(s) logged)",
+  "aien_test": null,
+  "wall_s": 6.268366118
+}
