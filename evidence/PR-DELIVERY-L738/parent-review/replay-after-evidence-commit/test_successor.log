@@ -1,0 +1,13 @@
+test_explicit_old_pr_base_can_advance_to_qualified_current_main (__main__.Successor.test_explicit_old_pr_base_can_advance_to_qualified_current_main) ... ok
+test_successor_failed_gate_blocks_promotion (__main__.Successor.test_successor_failed_gate_blocks_promotion) ... ok
+test_successor_intake_target_tampering_cannot_authorize_push (__main__.Successor.test_successor_intake_target_tampering_cannot_authorize_push) ... ok
+test_successor_moved_closed_forked_targets_never_write (__main__.Successor.test_successor_moved_closed_forked_targets_never_write) ... ok
+test_successor_readback_failure_is_not_published (__main__.Successor.test_successor_readback_failure_is_not_published) ... ok
+test_successor_target_is_retained_in_trusted_intake (__main__.Successor.test_successor_target_is_retained_in_trusted_intake) ... ok
+test_successor_updates_existing_with_exact_lease_and_reads_back (__main__.Successor.test_successor_updates_existing_with_exact_lease_and_reads_back) ... ok
+test_unexpected_pr_base_change_cannot_advance (__main__.Successor.test_unexpected_pr_base_change_cannot_advance) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.793s
+
+OK

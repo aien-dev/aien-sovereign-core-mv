@@ -2,7 +2,8 @@ import pathlib, subprocess, tempfile, json, hashlib, os, re, sys, shutil
 h=pathlib.Path.home(); w=h/'workspace/hermes-desk/renda-planner-L738'
 sha='ce5cd74d68d7b766c5500a400c3e269866fda14b'; prefix='tools/aien-local-ci/renda/'
 def git(*a):return subprocess.check_output(['git','-C',str(w),*a])
-assert git('rev-parse','HEAD').decode().strip()==sha
+# Export the immutable reviewed commit even after evidence-only follow-ups.
+assert git('cat-file','-t',sha).strip()==b'commit'
 assert not git('status','--porcelain').strip()
 out=pathlib.Path(tempfile.mkdtemp(prefix='L738-parent-review-',dir=h/'handoffs')); pkg=out/'package';pkg.mkdir()
 def blob(name):return git('show',sha+':'+prefix+name)

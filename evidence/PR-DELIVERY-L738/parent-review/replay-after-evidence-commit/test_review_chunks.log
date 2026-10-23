@@ -1,0 +1,15 @@
+test_corrupt_cache_fails_closed (__main__.ChunkReview.test_corrupt_cache_fails_closed) ... ok
+test_each_exact_identity_field_invalidates_chunk_reuse (__main__.ChunkReview.test_each_exact_identity_field_invalidates_chunk_reuse) ... ok
+test_exact_identity_invalidates_reuse_and_partial_chunks_resume (__main__.ChunkReview.test_exact_identity_invalidates_reuse_and_partial_chunks_resume) ... ok
+test_full_diff_is_chunked_with_exact_character_coverage_and_context (__main__.ChunkReview.test_full_diff_is_chunked_with_exact_character_coverage_and_context) ... ok
+test_late_refusal_is_never_retried_and_never_turns_green (__main__.ChunkReview.test_late_refusal_is_never_retried_and_never_turns_green) ... ok
+test_non_boolean_and_wrong_model_are_incomplete (__main__.ChunkReview.test_non_boolean_and_wrong_model_are_incomplete) ... ok
+test_one_oversized_line_uses_exact_offsets_and_is_never_truncated (__main__.ChunkReview.test_one_oversized_line_uses_exact_offsets_and_is_never_truncated) ... ok
+test_oversized_file_keeps_complete_lines_when_they_fit (__main__.ChunkReview.test_oversized_file_keeps_complete_lines_when_they_fit) ... ok
+test_small_complete_json_file_is_never_split_by_preceding_file (__main__.ChunkReview.test_small_complete_json_file_is_never_split_by_preceding_file) ... ok
+test_transport_and_unparsable_results_are_incomplete_with_bounded_retry (__main__.ChunkReview.test_transport_and_unparsable_results_are_incomplete_with_bounded_retry) ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 0.897s
+
+OK

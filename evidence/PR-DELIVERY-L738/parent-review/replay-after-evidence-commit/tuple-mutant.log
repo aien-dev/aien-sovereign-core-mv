@@ -1,0 +1,13 @@
+F
+======================================================================
+FAIL: test_rc0_inconsistent_full_plan_refuses_without_status_write (test_delivery_status.ReceiptStatusDelivery.test_rc0_inconsistent_full_plan_refuses_without_status_write)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/handoffs/L738-parent-review-kw4xxmb8/tuple-mutant/test_delivery_status.py", line 88, in test_rc0_inconsistent_full_plan_refuses_without_status_write
+    self.assertFalse(ok, note)
+AssertionError: True is not false : interplane#48 Spark success read back on exact head aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+----------------------------------------------------------------------
+Ran 1 test in 0.001s
+
+FAILED (failures=1)

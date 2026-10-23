@@ -1,0 +1,9 @@
+test_candidate_hash_change_refused (__main__.Install.test_candidate_hash_change_refused) ... ok
+test_installed_release_and_backups_hash_exact (__main__.Install.test_installed_release_and_backups_hash_exact) ... ok
+test_live_input_change_refused (__main__.Install.test_live_input_change_refused) ... ok
+test_regression_failure_refuses_install (__main__.Install.test_regression_failure_refuses_install) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.248s
+
+OK

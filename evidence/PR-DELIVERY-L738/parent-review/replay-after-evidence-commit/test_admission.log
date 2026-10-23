@@ -1,0 +1,8 @@
+test_failed_remote_close_preserves_block_and_carried_heads (__main__.Admission.test_failed_remote_close_preserves_block_and_carried_heads) ... ok
+test_fresh_head_all_gates_and_verified_receipt_admit (__main__.Admission.test_fresh_head_all_gates_and_verified_receipt_admit) ... ok
+test_new_remote_failure_holds_rebase_or_operator_action (__main__.Admission.test_new_remote_failure_holds_rebase_or_operator_action) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.089s
+
+OK

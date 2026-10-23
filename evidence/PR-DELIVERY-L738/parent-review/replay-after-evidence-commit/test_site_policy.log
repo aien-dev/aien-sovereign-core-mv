@@ -1,0 +1,23 @@
+test_branch_rule_malformed_status_contract_fails_closed (__main__.SitePolicy.test_branch_rule_malformed_status_contract_fails_closed) ... ok
+test_branch_rule_required_checks_are_enforced_but_empty_rules_do_not_replace_mac_receipt (__main__.SitePolicy.test_branch_rule_required_checks_are_enforced_but_empty_rules_do_not_replace_mac_receipt) ... ok
+test_canonical_signed_site_qualification_is_exact_and_verifiable (__main__.SitePolicy.test_canonical_signed_site_qualification_is_exact_and_verifiable) ... ok
+test_closed_malformed_moved_or_duplicate_pr_snapshot_is_refused (__main__.SitePolicy.test_closed_malformed_moved_or_duplicate_pr_snapshot_is_refused) ... ok
+test_exact_repository_registry_and_unknown_identity_fail_closed (__main__.SitePolicy.test_exact_repository_registry_and_unknown_identity_fail_closed) ... ok
+test_existing_pr_snapshot_reuses_one_exact_open_pr_and_never_duplicates (__main__.SitePolicy.test_existing_pr_snapshot_reuses_one_exact_open_pr_and_never_duplicates) ... ok
+test_moved_commit_tree_repository_and_tampered_signature_refuse (__main__.SitePolicy.test_moved_commit_tree_repository_and_tampered_signature_refuse) ... ok
+test_queue_rejects_unregistered_or_mismatched_repository_identity (__main__.SitePolicy.test_queue_rejects_unregistered_or_mismatched_repository_identity) ... ok
+test_receipt_cannot_self_authorize_key_or_wrong_recipe (__main__.SitePolicy.test_receipt_cannot_self_authorize_key_or_wrong_recipe) ... ok
+test_receipt_rejects_commands_outside_pinned_recipe (__main__.SitePolicy.test_receipt_rejects_commands_outside_pinned_recipe) ... ok
+test_receipt_requires_all_exact_commands_zero_exit_and_valid_log_hashes (__main__.SitePolicy.test_receipt_requires_all_exact_commands_zero_exit_and_valid_log_hashes) ... ok
+test_remote_branch_and_base_must_match_exact_ready_pins (__main__.SitePolicy.test_remote_branch_and_base_must_match_exact_ready_pins) ... ok
+test_seed_ready_refuses_unregistered_source_and_no_wrong_queue_write (__main__.SitePolicy.test_seed_ready_refuses_unregistered_source_and_no_wrong_queue_write) ... ok
+test_signed_exact_site_ready_publishes_once_and_reads_back_clean_pr (__main__.SitePolicy.test_signed_exact_site_ready_publishes_once_and_reads_back_clean_pr) ... ok
+test_site_ready_batch_ack_is_split_per_item_for_publication (__main__.SitePolicy.test_site_ready_batch_ack_is_split_per_item_for_publication) ... ok
+test_site_ready_import_returns_exact_structured_local_ack (__main__.SitePolicy.test_site_ready_import_returns_exact_structured_local_ack) ... ok
+test_site_ready_progress_is_cold_start_local_only_without_spark_gate (__main__.SitePolicy.test_site_ready_progress_is_cold_start_local_only_without_spark_gate) ... ok
+test_unsigned_or_missing_external_key_qualification_fails_closed (__main__.SitePolicy.test_unsigned_or_missing_external_key_qualification_fails_closed) ... ok
+
+----------------------------------------------------------------------
+Ran 18 tests in 0.423s
+
+OK
