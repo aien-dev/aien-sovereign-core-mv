@@ -1,0 +1,84 @@
+{
+  "workers": {
+    "renda1": [
+      {
+        "pid": 3142568,
+        "argv": [
+          "python3",
+          "/home/drakestapleton/.local/bin/renda-harness",
+          "--name",
+          "renda1",
+          "--lanes",
+          "aien-sovereign-core,aien-architecture,aien-protocols,physics,benchmarks,interplane,aienos.com"
+        ],
+        "started_at": 1792752721.81,
+        "new_revision_start": true
+      }
+    ],
+    "renda2": [
+      {
+        "pid": 3198603,
+        "argv": [
+          "python3",
+          "/home/drakestapleton/.local/bin/renda-harness",
+          "--name",
+          "renda2",
+          "--lanes",
+          "omega,synapse,aegis-runtime,spark-rsi"
+        ],
+        "started_at": 1792752960.83,
+        "new_revision_start": true
+      }
+    ]
+  },
+  "logs": {
+    "renda1": [
+      "2026-10-23T10:51:14Z renda1 pass done in 1 s: merged 0, rebased 0, reruns 0, operator runs 0",
+      "2026-10-23T10:52:11Z renda1 start lanes=aien-sovereign-core,aien-architecture,aien-protocols,physics,benchmarks,interplane,aienos.com model=qwen3.6-35b-a3b-fp8"
+    ],
+    "renda2": [
+      "2026-10-23T10:56:08Z renda2 omega LOCAL aien-dev/omega-mv:ready:issues/receipt-reuse-review-fixes-20261022@63a92c55b9ab6f76bdbe47e4a85ad85bb85bc849 local review retained (False); receipt=unverified; waiting-for-sync",
+      "2026-10-23T10:56:08Z renda2 omega LOCAL aien-dev/omega-mv:ready:fix/decoder-corpus-ancestor-refusal@676a0b80ef71fba1cf5360da2e6cb9186789dfb5 local diff=82acf4a1b3ae review=None; host plan exit=2; receipt=unverified; waiting-for-sync",
+      "2026-10-23T10:56:08Z renda2 TRANSITION no longer reported: omega LOCAL aien-dev/omega-mv:ready:fix/decoder-corpus-ancestor-refusal@676a0b80ef71fba1cf5360da2e6cb9186789dfb5 local diff=82acf4a1b3ae review=None; host plan exit=None; receipt=unverified; waiting-for-sync",
+      "2026-10-23T10:56:08Z renda2 TRANSITION no longer reported: omega LOCAL aien-dev/omega-mv:ready:issues/receipt-reuse-review-fixes-20261022@63a92c55b9ab6f76bdbe47e4a85ad85bb85bc849 local diff=ec536eb3d2f1 review=False; host plan exit=2; receipt=unverified; waiting-for-sync",
+      "2026-10-23T10:56:08Z renda2 HEARTBEAT 91 current queue observations; unchanged details suppressed",
+      "2026-10-23T10:56:08Z renda2 pass done in 499 s: merged 0, rebased 0, reruns 0, operator runs 0",
+      "2026-10-23T10:56:10Z renda2 start lanes=omega,synapse,aegis-runtime,spark-rsi model=qwen3.6-35b-a3b-fp8"
+    ]
+  },
+  "loaded_completed_pass": {
+    "renda1": true,
+    "renda2": true
+  },
+  "checked_at": "2026-10-23T10:57:12.079655+00:00",
+  "installed_hashes_match": true,
+  "state": "LOADED_PASSES_VERIFIED",
+  "remote_readback": {
+    "data": {
+      "core": {
+        "p577": {
+          "state": "OPEN",
+          "headRefOid": "3ccf32ed42c645d33d4c44fe08eca5d21a1858b9",
+          "mergedAt": null
+        },
+        "p609": {
+          "state": "OPEN",
+          "headRefOid": "ad975aec00e15b6d7fca8e5dd382c81863b2824e",
+          "mergedAt": null
+        },
+        "p626": {
+          "state": "OPEN",
+          "headRefOid": "81760bedfe634ec1a439a2e3f3e72f9302d1a14a",
+          "mergedAt": null
+        }
+      },
+      "omega": {
+        "p620": {
+          "state": "OPEN",
+          "headRefOid": "7bc3f0b6ff41a83e5ac932d72b5544aaae8a8b52",
+          "mergedAt": null
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,7 @@
+aien-local-ci: LANE spark-rsi: OWNER = renda (desk bot, since 2026-10-20T14:51:50Z). Previous plan, kept as a note: #63 migration.
+NOTE sibling ../aien-protocols: aien-protocols origin/main 4529f393546c87d5ae673e5d66d700c8e8c5db03
+GATE CRUMB-VERIFY run PASS
+GATE RSI-ZERO-DISK-SECRETS run PASS
+BUNDLE /home/drakestapleton/.local/state/aien-local-ci/bundles/spark-rsi/4617501abc658519fce3c0755dac1ac7f5466b7b/bundle.json 077b14a42bac52cd97c6553d236ad8db4e4eed7091e7bf8bc090f36c27a36f59
+PUBLICATION local
+AIEN_TEST: PASS

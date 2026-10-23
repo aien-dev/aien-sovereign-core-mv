@@ -1,0 +1,8 @@
+aien-local-ci: LANE aegis-runtime: OWNER = renda (desk bot, since 2026-10-20T14:51:50Z). Previous plan, kept as a note: #70 migration.
+NOTE sibling ../aien-protocols: aien-protocols origin/main 4529f393546c87d5ae673e5d66d700c8e8c5db03
+GATE AEGIS-ANTI-SLOP run PASS
+GATE AEGIS-ZERO-DISK-SECRETS run PASS
+GATE CRUMB-VERIFY run PASS
+BUNDLE /home/drakestapleton/.local/state/aien-local-ci/bundles/aegis-runtime/76e706cb8bfab65daeeff9be1d27d714ce463e98/bundle.json 5a388151d29f148efc3bdfb10fc9615de2f14975f8a7733f69e70257fe8f1bbf
+PUBLICATION local
+AIEN_TEST: PASS
