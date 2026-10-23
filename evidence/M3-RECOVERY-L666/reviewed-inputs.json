@@ -1,0 +1,8 @@
+{
+  "crates/spark-harness/src/scheduler/core.rs": "c3533a2b793569ff6685bfbf68017f68caf4c13a6c4d60a1afcf8be4d61f14bb",
+  "crates/spark-harness/src/scheduler/mod.rs": "d975022b955bbbc8a8d417e6f062bf01bd96e00e84c2479e4429301661a0fc5d",
+  "crates/spark-harness/tests/provisional_commit.rs": "714b8255658b175be342c05ad729694143218f2701969b04ddbf5aeef6a6bbf7",
+  "crates/aien-runtime/src/provisional.rs": "c38dde0675ebb38cfc96f80c0615d1d93e6d2a53571382849ca11a631f01dcda",
+  "crates/aien-runtime/tests/provisional_prep_test.rs": "7c8259234c24cf919b43e81f23fadc8a0f0b382d6f1033981348fd59b9d9629d",
+  "docs/headstart/ROLLOUT.md": "2ba882fe387822e7ea9263fe03f748077d2343332a02c50cfa6305f9b196efd2"
+}

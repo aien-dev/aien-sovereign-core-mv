@@ -1,0 +1,26 @@
+{
+  "harness": {
+    "passed": 118,
+    "failed": 0,
+    "ignored": 1
+  },
+  "runtime-full-feature": {
+    "passed": 467,
+    "failed": 0,
+    "ignored": 169
+  },
+  "total_passed": 585,
+  "total_ignored": 170,
+  "runtime_ignore_reasons": {
+    "needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)": 39,
+    "needs librx_compose.a: stub build": 89,
+    "child mode, run by crash_before_and_during_execution_fail_closed": 1,
+    "needs the linked librx_compose.a": 32,
+    "A/B qualification sample: run by scripts/bench/headstart-m6-ab.sh": 1,
+    "A/B harness smoke run (not a measurement)": 1,
+    "": 3,
+    "PREFILL-E2E-0 real-checkpoint gate: run with --ignored and AIEN_E2E_CHECKPOINT + AIEN_E2E_RECEIPT set (forge on the Spark)": 1,
+    "PREFILL-E2E-1 real-checkpoint gate at N = 1/8/32/128/500: run with --ignored and AIEN_E2E_CHECKPOINT + AIEN_E2E1_RECEIPT set (forge on the Spark)": 1,
+    "PREFILL-E2E-2 real-checkpoint gate (append 24 tokens to a shared prefilled context): run with --ignored and AIEN_E2E_CHECKPOINT + AIEN_E2E2_RECEIPT set (forge on the Spark)": 1
+  }
+}

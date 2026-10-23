@@ -1,0 +1,657 @@
+COMMAND ['cargo', 'test', '--locked', '-p', 'aien-runtime', '--features', 'provisional-prep']
+warning: aien-omega-gpu@0.1.0: aien-omega-gpu: no AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB, building the CPU stub
+warning: aien-omega-compose@0.1.0: aien-omega-compose: no AIEN_OMEGA_COMPOSE_DIR, AIEN_OMEGA_DIR or AIEN_OMEGA_COMPOSE_LIB, building the stub
+   Compiling spark-harness v0.1.0 (/home/drakestapleton/workspace/hermes-desk/L666-m3/crates/spark-harness)
+   Compiling aien-runtime v0.1.0 (/home/drakestapleton/workspace/hermes-desk/L666-m3/crates/aien-runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 12s
+     Running unittests src/lib.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/aien_runtime-6eeead522fdd7bbb)
+
+running 104 tests
+test approved::toctou_tests::prior_changed_between_check_and_commit_is_refused ... ok
+test approved_auth::tests::hmac_matches_rfc4231_case_2 ... ok
+test approved_auth::tests::binding_is_sorted_compact_json ... ok
+test approved_auth::tests::ct_eq_and_unhex ... ok
+test compose::bridge::append_placement_tests::append_goal_with_several_new_lines_keeps_reply_order ... ok
+test compose::bridge::append_placement_tests::append_goal_places_new_lines_at_end ... ok
+test compose::bridge::dotslash_tests::leading_dot_slash_names_the_bare_path ... ok
+test compose::bridge::append_placement_tests::append_word_detection ... ok
+test compose::bridge::dotslash_tests::every_other_form_is_refused_as_before ... ok
+test compose::bridge::destination_enforcement_tests::reply_must_write_the_named_destination ... ok
+test compose::bridge::append_placement_tests::append_goal_still_needs_a_shared_line ... ok
+test compose::bridge::append_placement_tests::non_append_goal_keeps_anchor_placement ... ok
+test compose::bridge::multibyte_first_line_tests::multibyte_first_line_is_refused_without_panic ... ok
+test compose::bridge::dotslash_tests::an_edit_reply_naming_dot_slash_merges_into_the_named_file ... ok
+test compose::bridge::new_document_overwrite_tests::new_kind_proposal_never_replaces_an_existing_file ... ok
+test compose::bridge::verify_boundary_tests::refused_without_model_records_one_refused_attempt ... ok
+test control::tests::chat_template_opens_an_assistant_turn ... ok
+test compose::bridge::wall_clock_reason_tests::token_cut_and_wall_clock_reasons_are_distinct ... ok
+test compose::bridge::verify_boundary_tests::missing_requirement_record_is_refused_never_empty ... ok
+test compose::bridge::verify_boundary_tests::verify_accepts_exactly_the_recorded_bytes_that_meet_the_goal ... ok
+test cortex_mark::tests::digest_check ... ok
+test compose::bridge::verify_boundary_tests::uncertain_goal_is_refused_at_verify_even_when_bytes_look_fine ... ok
+test compose::bridge::folder_destination_enforcement_tests::proposal_in_the_folder_is_accepted_for_ctrl_goal ... ok
+test compose::bridge::requirement_tests::approved_text_is_checked_against_the_goal_requirements ... ok
+test cortex_mark::tests::refusal_text_names_the_code ... ok
+test control::tests::a_save_never_overwrites_damaged_state ... ok
+test cortex_mark::tests::lost_path_never_overwrites ... ok
+test destination::tests::host_names_are_not_files_unless_governed ... ok
+test cortex_mark::tests::events ... ok
+test cortex_mark::tests::plan_every_state ... ok
+test cortex_mark::tests::round_trip ... ok
+test destination::tests::of_phrases_resolve_by_what_they_point_at ... ok
+test destination::tests::rename_is_unsupported ... ok
+test destination::tests::an_existing_file_mentioned_first_is_read_not_written ... ok
+test destination::tests::several_destinations_are_ambiguous ... ok
+test destination::dotslash_tests::strip_leading_curdir_removes_only_leading_dot_slash ... ok
+test destination::dotslash_tests::a_goal_naming_dot_slash_names_the_bare_path ... ok
+test destination::tests::single_and_extensionless ... ok
+test destination::tests::source_is_not_the_destination ... ok
+test cortex_mark::tests::damaged_marks_are_named ... ok
+test destination::tests::unsafe_paths_are_named_not_skipped ... ok
+test destination::tests::source_only_goals_name_no_destination ... ok
+test destination::tests::verb_governing_the_path_beats_a_marker_adjective ... ok
+test destination::tests::a_file_operation_is_refused_only_when_asked_for ... ok
+test effects::tests::a_caller_written_grant_is_never_honoured ... ok
+test effects::tests::executor_liveness_uses_pid_and_start_time ... ok
+test effects::tests::generation_records_cannot_be_forged_through_compose_note ... ok
+test effects::tests::fresh_grant_opens_once ... ok
+test effects::tests::other_proposal_or_target_is_not_authorized ... ok
+test effects::tests::damaged_or_inconsistent_ledger_is_refused ... ok
+test effects::tests::provenance_cannot_be_set_through_compose_note ... ok
+test effects::tests::refusal_name_reads_only_the_name ... ok
+test effects::tests::held_handle_ignores_a_parent_swap ... ok
+test effects::tests::reserved_records_cannot_be_forged_through_compose_note ... ok
+test effects::tests::stop_resume_stale_and_revoke ... ok
+test effects::tests::old_records_without_provenance_read_as_explicit_none ... ok
+test effects::tests::objective_fields_are_additive_on_grants_and_intents ... ok
+test effects::tests::terminal_states_spend_the_grant ... ok
+test effects::tests::world_change_and_legacy_grants_are_stale ... ok
+test effects::tests::swap_between_confinement_and_read_is_not_done ... ok
+test objective::tests::id_is_the_cli_formula ... ok
+test effects::tests::fallback_walk_refuses_symlinks_and_outside_paths ... ok
+test objective::tests::provenance_default_is_durable_and_never_tmp ... ok
+test effects::tests::generation_records_change_no_decision ... ok
+test provisional::tests::the_whitelist_is_one_reversible_preparation_class ... ok
+test objective::tests::provenance_follows_the_compose_home_order_and_override_wins ... ok
+test sequence::tests::free_at_max_retires_slot_and_never_resurrects_stale_id ... ok
+test sequence::tests::free_below_max_advances_generation_and_reuses_slot ... ok
+test sequence::tests::retired_only_slot_exhausts_capacity ... ok
+test server::generation_record_tests::no_ledger_means_no_record ... ok
+test server::generation_record_tests::no_model_identity_means_no_record ... ok
+test shared_kv::tests::kv_context_cap_only_lowers_the_model_context ... ok
+test shared_kv::tests::kv_context_cap_parse_is_strict ... ok
+test shared_kv::tests::llama32_1b_plan_is_byte_identical_to_the_old_fixed_pool ... ok
+test shared_kv::tests::daemon_plan_refuses_before_allocating_and_sizes_the_manager ... ok
+test shared_kv::tests::mem_available_parses_kb_and_rejects_garbage ... ok
+test shared_kv::tests::log_line_names_bytes_gib_and_every_parameter ... ok
+test shared_kv::tests::memory_check_refuses_with_requested_and_available_bytes ... ok
+test effects::tests::grants_are_confined_and_the_approved_kind_is_reserved ... ok
+test shared_kv::tests::kv_context_cap_lets_a_long_context_model_fit_and_sizes_the_real_pool ... ok
+test shared_kv::tests::smollm2_plan_is_sized_from_its_own_context ... ok
+test shared_kv::tests::plan_rounds_a_partial_block_up_and_refuses_zero_or_overflow ... ok
+test shared_kv::tests::unparsable_meminfo_refuses_the_pool ... ok
+test shared_kv::tests::unreadable_meminfo_refuses_the_pool ... ok
+test shared_kv::tests::unreadable_meminfo_with_override_proceeds ... ok
+test swarm::tests::cancel_drops_branch_worlds_after_natural_completion ... ok
+test swarm::tests::natural_completion_reclaims_root_and_branch_worlds ... ok
+test swarm::tests::prefill_gate_branches_do_not_share_uncomputed_root_blocks ... ok
+test effects::tests::provenance_changes_no_decision ... ok
+test effects::tests::provenance_is_read_by_no_decision_code ... ok
+test effects::tests::world_state_reads_the_target ... ok
+test control::tests::path_is_fixed_at_construction ... ok
+test compose::bridge::requirement_tests::approved_run_reports_recognized_and_refuses_unmet_before_any_write ... ok
+test compose::bridge::verify_callback_integration_tests::lost_requirement_record_is_refused_by_the_real_verify_callback ... ok
+test effects::tests::a_commit_naming_no_generation_record_is_not_written ... ok
+test effects::tests::compose_spine_emits_correlation_events_without_content ... ok
+test effects::tests::write_approved_grant_records_the_prior_of_the_confined_file ... ok
+test control::tests::idempotency_survives_restart ... ok
+test server::generation_record_tests::a_failed_append_returns_no_id ... ok
+test cortex_mark::tests::failed_write_keeps_the_old_mark ... ok
+test control::tests::interrupted_save_leaves_the_last_good_state ... ok
+test cortex_mark::tests::write_is_atomic_and_leaves_no_tmp ... ok
+test control::tests::concurrent_saves_never_damage_or_drop_state ... ok
+test effects::tests::parent_swap_race_never_reads_outside_bytes ... ok
+
+test result: ok. 104 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.01s
+
+     Running tests/allen_memory_ipc_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/allen_memory_ipc_test-96b6f8aa743e4b23)
+
+running 1 test
+test allen_memory_commands_route_through_the_socket ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running tests/allen_memory_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/allen_memory_test-495db03e9f953a2a)
+
+running 19 tests
+test b_foreign_store_is_refused_and_compose_runs_with_no_memory ... ok
+test b_model_swap_leaves_memory_untouched ... ok
+test b_prompt_has_only_the_named_context_and_a_reply_cannot_write_memory ... ok
+test b_not_engaged_refuses_memory_but_compose_runs ... ok
+test b_restart_keeps_scopes_and_forget_holds_in_the_next_prompt_after_restart ... ok
+test child_mem ... ok
+test old_clients_without_a_context_still_parse ... ok
+test not_engaged_refuses_every_memory_command_in_plain_words ... ok
+test only_operator_commands_can_write_memory_or_choose_a_scope ... ok
+test damaged_store_is_refused_not_replaced ... ok
+test foreign_identity_is_refused_everywhere_and_compose_still_runs ... ok
+test no_context_means_no_memory_in_the_prompt ... ok
+test a_model_swap_record_leaves_memory_untouched ... ok
+test personal_never_reaches_work_and_project_a_never_reaches_project_b ... ok
+test owner_view_needs_the_explicit_flag_and_never_mixes_with_a_context ... ok
+test text_that_names_a_scope_does_not_widen_it ... ok
+test rendered_block_is_bounded_and_cuts_are_reported ... ok
+test restart_keeps_memories_in_their_scopes_and_forget_survives_it ... ok
+test recall_is_bounded ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.78s
+
+     Running tests/allen_persona_ipc_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/allen_persona_ipc_test-ce305d086c85e7ef)
+
+running 1 test
+test allen_commands_route_through_the_socket ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/allen_persona_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/allen_persona_test-71a1cea8bed8c03c)
+
+running 12 tests
+test child_task ... ok
+test b_engaged_task_uses_the_persona_and_a_reply_cannot_change_it ... ok
+test old_reports_without_persona_still_parse ... ok
+test not_engaged_refuses_profile_commands_and_changes_nothing ... ok
+test only_the_command_handler_can_write_the_profile ... ok
+test permission_keys_are_refused_through_the_command_path ... ok
+test prompt_carries_the_persona_and_keeps_the_task ... ok
+test restart_keeps_the_profile ... ok
+test foreign_profile_is_refused_and_not_used ... ok
+test damaged_profile_runs_with_defaults_and_says_so ... ok
+test a_model_swap_record_leaves_the_profile_untouched ... ok
+test engaged_set_show_history_revert_reset_and_stale ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/allen_spine_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/allen_spine_test-ef92f117b5690ed4)
+
+running 5 tests
+test adopt_restart_machine_change_and_foreign_journal ... ok
+test engaged_missing_subject_is_fatal_never_minted ... ok
+test child_open ... ok
+test engaged_without_pin_or_adopt_is_fatal_and_creates_nothing ... ok
+test not_engaged_path_is_unchanged ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/approved_attacks_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/approved_attacks_test-ac58efc0a6708928)
+
+running 35 tests
+test c01_forged_approver ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c02a_invalid_mac_random ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c02b_invalid_mac_empty_and_short ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c02c_invalid_mac_uppercase_of_the_real_one ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c02d_mac_from_another_desk_key ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c03_changed_trace_id ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c04_changed_request_id ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c05_changed_approval_id ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c06_changed_path ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c07_changed_content ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c08_desk_key_open_to_others_or_missing ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c09_same_process_replay ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c10_replay_after_daemon_restart ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c11_concurrent_duplicate_submissions ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c14a_retry_after_response_loss ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c14b_retry_after_immediate_hangup ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c15_forged_replay_records_via_compose_note ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c16_desk_signed_path_escaping_the_workspace ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c17_approval_redirected_to_another_workspace ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c17c_workspace_through_a_symlink ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c18_a1_raw_forged_authorization ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c19_a1b_forged_authorization_outside_workspace ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c19c_a1c_forged_authorization_names_its_own_workspace ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c20_workspace_containing_the_compose_home ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c21_symlink_swap_of_the_target ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c22_forged_approved_grant_via_socket ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c23_forged_grant_on_failed_claim ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c24a_forged_grant_on_uncertain_claim ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c24b_forged_grant_on_uncertain_claim_declared_committed ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c25_duplicate_approved_grant_for_one_committed_claim ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c25b_shutdown_closes_the_compose_home_while_a_connection_is_open ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c25c_a_closed_bridge_never_reopens_the_home ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c26_happy_path_one_approval_one_effect ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c28_parent_directory_swap_after_the_intent ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test c28b_parent_directory_swap_settled_by_reconcile ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+
+test result: ok. 0 passed; 0 failed; 35 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/approved_confinement_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/approved_confinement_test-5a06959825fa5993)
+
+running 1 test
+test forged_grants_are_confined_and_the_approved_kind_is_reserved ... ignored, needs librx_compose.a: stub build
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/approved_crash_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/approved_crash_test-a7adf29d67e95873)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/approved_daemon_ipc_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/approved_daemon_ipc_test-d106a45e94462fd7)
+
+running 2 tests
+test approved_proposal_over_the_daemon_socket ... ignored, needs librx_compose.a: stub build
+test old_recall_json_without_native_fields_deserializes ... ok
+
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/approved_proposal_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/approved_proposal_test-33b7c5119a3abda5)
+
+running 22 tests
+test approved_document_with_fences_is_saved_byte_exact_or_not_done ... ignored, needs librx_compose.a: stub build
+test approved_proposal_commits_then_effect_is_done ... ignored, needs librx_compose.a: stub build
+test approved_proposal_over_existing_file_commits_byte_exact ... ignored, needs librx_compose.a: stub build
+test concurrent_duplicates_run_once ... ignored, needs librx_compose.a: stub build
+test copied_approved_grant_opens_nothing ... ignored, needs librx_compose.a: stub build
+test duplicate_proposal_is_refused ... ignored, needs librx_compose.a: stub build
+test replay_is_refused_after_restart ... ignored, needs librx_compose.a: stub build
+test a_path_that_reads_like_a_requirement_is_not_one ... ok
+test added_line_goal_without_a_bound_base_or_with_a_stale_one_is_refused ... ok
+test approved_hash_is_the_interplane_form ... ok
+test compose_home_overlapping_the_workspace_is_refused ... ok
+test missing_requirement_binding_is_refused_even_when_signed ... ok
+test tampered_requirement_set_fails_the_mac ... ok
+test uncertain_bound_requirements_are_refused ... ok
+test approval_redirected_to_another_workspace_is_refused ... ok
+test bound_added_line_counts_are_measured_against_the_existing_file ... ok
+test bound_requirements_the_bytes_miss_are_refused_and_nothing_is_consumed ... ok
+test bytes_meeting_the_bound_requirements_commit_with_equal_sha256 ... ok
+test desk_key_file_rules ... ok
+test explicitly_signed_empty_requirements_are_allowed ... ok
+test unauthenticated_approval_is_refused_with_no_compose ... ok
+test unverified_proposal_is_refused_with_zero_effects ... ok
+
+test result: ok. 15 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/approved_replay_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/approved_replay_test-5149250f0419f536)
+
+running 9 tests
+test child_claim_then_crash ... ignored, child mode, run by crash_before_and_during_execution_fail_closed
+test claim_is_durable_and_single_use_across_restart ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test concurrent_duplicates_at_most_one_claim ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test crash_before_and_during_execution_fail_closed ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test failed_and_not_executed_claims_stay_consumed ... ignored, needs the linked librx_compose.a (AIEN_OMEGA_COMPOSE_LIB)
+test compose_note_cannot_forge_replay_records ... ok
+test ledger_each_key_is_claimed_on_its_own ... ok
+test ledger_refuses_corrupt_histories ... ok
+test ledger_lifecycle_and_refusal_names ... ok
+
+test result: ok. 4 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/authorize_desk_mac_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/authorize_desk_mac_test-9a673e1de95955c1)
+
+running 14 tests
+test switch_off_legacy_authorize_still_works ... ignored, needs the linked librx_compose.a
+test switch_on_correct_mac_mints_and_the_effect_runs ... ignored, needs the linked librx_compose.a
+test switch_on_every_bound_field_is_checked ... ignored, needs the linked librx_compose.a
+test switch_on_mac_for_proposal_a_fails_on_proposal_b ... ignored, needs the linked librx_compose.a
+test switch_on_missing_key_file_refuses_no_silent_fallback ... ignored, needs the linked librx_compose.a
+test switch_on_no_mac_is_refused_and_writes_nothing ... ignored, needs the linked librx_compose.a
+test switch_on_rejects_a_bad_nonce ... ignored, needs the linked librx_compose.a
+test switch_on_replay_mints_no_second_grant ... ignored, needs the linked librx_compose.a
+test switch_on_rotated_key_refuses_the_old_mac ... ignored, needs the linked librx_compose.a
+test switch_on_wrong_key_is_refused ... ignored, needs the linked librx_compose.a
+test the_env_switch_is_strict ... ok
+test the_desk_is_required_unless_a_dev_run_opts_out ... ok
+test a_new_bridge_requires_the_desk ... ok
+test the_wire_field_is_optional_and_old_clients_parse ... ok
+
+test result: ok. 4 passed; 0 failed; 10 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/chat_template_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/chat_template_test-c2574bea92a2364e)
+
+running 9 tests
+test llama3_model_dir_tokenizer_has_one_bos_and_eos_list ... ok
+test smollm2_model_dir_tokenizer_matches_the_publisher_template_ids ... ok
+test proposal_prompt_token_counts ... ok
+test template_encodes_bos_and_one_eos_token ... ok
+test warm_up_prompt_spans_two_prefill_chunks ... ok
+test llama3_template_renders_the_instruct_layout ... ok
+test streamturn_formatting_matches_the_model_template ... ok
+test assistant_prefix_follows_the_assistant_marker ... ok
+test chatml_compose_prefix_follows_the_im_start_assistant_marker ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/compose_budget_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/compose_budget_test-5452b220ed5a6882)
+
+running 4 tests
+test budget_rule_is_unchanged ... ignored, needs librx_compose.a: stub build
+test deadline_is_shared_across_attempts ... ignored, needs librx_compose.a: stub build
+test kind_selects_budget ... ignored, needs librx_compose.a: stub build
+test retry_is_capped_and_recorded ... ignored, needs librx_compose.a: stub build
+
+test result: ok. 0 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/compose_env_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/compose_env_test-e038c784bc6bee80)
+
+running 3 tests
+test compose_budget_settings_parse_and_refuse ... ok
+test environment_limits_are_read_and_bad_ones_refused ... ok
+test compose_doc_token_cap_parses_and_refuses ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/compose_task_ipc_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/compose_task_ipc_test-655a485fe70fb702)
+
+running 1 test
+test run_compose_task_over_socket ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/compose_task_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/compose_task_test-d535c5cdd85ebaf3)
+
+running 18 tests
+test finish_reason_is_recorded_per_attempt ... ignored, needs librx_compose.a: stub build
+test kind_selects_budget ... ignored, needs librx_compose.a: stub build
+test measured_attempt_budget_admits_a_second_attempt ... ignored, needs librx_compose.a: stub build
+test retry_is_capped_and_recorded ... ignored, needs librx_compose.a: stub build
+test token_cut_and_wall_clock_reasons_are_distinct ... ignored, needs librx_compose.a: stub build
+test finish_reason_labels_match_acceptance_v5 ... ok
+test bad_workspace_is_refused ... ok
+test proposal_template_parser ... ok
+test proposal_fence_plain_replies_unchanged ... ok
+test proposal_fence_inner_block_kept ... ok
+test proposal_fence_four_backtick_outer ... ok
+test proposal_fence_unbalanced_takes_last_bare_fence ... ok
+test proposal_fence_many_examples_and_trailing_text_keep_every_byte ... ok
+test proposal_fence_d5_reply_shape ... ok
+test compose_task_commits_and_survives_restart ... ok
+test failing_model_commits_nothing ... ok
+test torn_home_is_refused_by_name_then_recovered ... ok
+test unparseable_proposal_fails_the_aegis_contract ... ok
+
+test result: ok. 13 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/compose_wait_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/compose_wait_test-4fd01dbbd083c318)
+
+running 7 tests
+test missing_file_is_document ... ignored, needs librx_compose.a: stub build
+test one_deadline_is_shared_across_attempts ... ignored, needs librx_compose.a: stub build
+test outward_symlink_is_refused_and_directory_is_skipped ... ignored, needs librx_compose.a: stub build
+test run_task_sets_omega_wait_to_budget_plus_margin_for_both_kinds ... ignored, needs librx_compose.a: stub build
+test small_existing_file_is_edit ... ignored, needs librx_compose.a: stub build
+test non_utf8_existing_file_is_refused ... ok
+test large_existing_file_is_refused_not_document ... ok
+
+test result: ok. 2 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/compute_config_binding_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/compute_config_binding_test-cd366a189846208a)
+
+running 6 tests
+test conversion_refuses_values_that_do_not_fit_the_wire_width ... ok
+test host_reference_engine_identity_names_backend_epoch_and_build ... ok
+test arith_identity_and_epoch_change_the_compute_digest ... ok
+test each_engine_input_changes_the_bound_namespace ... ok
+test modelconfig_field_mutation_changes_compute_digest ... ok
+test arith_epoch_pinned_bytes ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/confine_race_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/confine_race_test-34de4340e477c6b3)
+
+running 2 tests
+test mint_records_the_prior_of_the_confined_file ... ignored, needs the linked librx_compose.a
+test open_intent_reads_the_confined_file_not_the_path ... ignored, needs the linked librx_compose.a
+
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/corrective_retry_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/corrective_retry_test-1a6895403292c51a)
+
+running 10 tests
+test after_a_timeout_the_v7_prompt_is_used ... ignored, needs librx_compose.a: stub build
+test attempt_limit_is_unchanged ... ignored, needs librx_compose.a: stub build
+test end_marker_inside_a_reply_is_neutralized ... ignored, needs librx_compose.a: stub build
+test long_reply_is_cut_and_marked ... ignored, needs librx_compose.a: stub build
+test no_reply_keeps_the_v7_retry_prompt ... ignored, needs librx_compose.a: stub build
+test refused_reply_is_quoted_with_the_exact_reason ... ignored, needs librx_compose.a: stub build
+test repeating_the_refused_reply_is_refused_again ... ignored, needs librx_compose.a: stub build
+test second_attempt_sees_the_first_refused_reply ... ignored, needs librx_compose.a: stub build
+test third_attempt_quotes_only_the_second_reply ... ignored, needs librx_compose.a: stub build
+test refused_reply_is_never_committed ... ok
+
+test result: ok. 1 passed; 0 failed; 9 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cortex_mark_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/cortex_mark_test-5aa12822811f3841)
+
+running 6 tests
+test repair_key_is_reserved ... ok
+test boundary_cut_is_refused_and_recover_keeps_the_old_mark ... ok
+test digest_mismatch_and_damaged_mark_are_refused ... ok
+test effect_commands_refuse_until_reconcile_succeeds ... ok
+test crash_between_append_and_mark_is_not_corruption ... ok
+test missing_mark_is_adopted_not_refused ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/decoding_observed_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/decoding_observed_test-fb9f30f231c14bbd)
+
+running 4 tests
+test record_field_matches_the_report_and_is_absent_without_one ... ok
+test a_backend_without_the_observation_makes_no_claim ... ok
+test greedy_request_reports_greedy_from_the_backend ... ok
+test sampled_request_reports_sampling_from_the_backend ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/desk_required_server_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/desk_required_server_test-6f6040a19d7a3101)
+
+running 2 tests
+test a_bridge_with_the_desk_off_is_refused_in_a_strict_run ... ok
+test a_bridge_that_requires_the_desk_refuses_to_start_without_its_key ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/destination_corpus_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/destination_corpus_test-14d2dfc82462afbb)
+
+running 2 tests
+test every_campaign_goal_reads_as_recorded ... ignored, needs librx_compose.a: stub build
+test v5_goals_resolve_to_their_declared_destinations ... ignored, needs librx_compose.a: stub build
+
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/destination_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/destination_test-22c06430549d0479)
+
+running 11 tests
+test append_to_existing_guide_is_an_edit ... ignored, needs librx_compose.a: stub build
+test create_new_file_about_an_existing_one_is_a_new_document ... ignored, needs librx_compose.a: stub build
+test missing_destination_with_existing_source_is_new ... ignored, needs librx_compose.a: stub build
+test new_document_prompt_states_the_destination ... ignored, needs librx_compose.a: stub build
+test source_only_goal_is_refused_with_candidates ... ignored, needs librx_compose.a: stub build
+test summary_of_source_into_destination_is_a_document ... ignored, needs librx_compose.a: stub build
+test u1_garage_goal_is_an_edit_of_the_named_file ... ignored, needs librx_compose.a: stub build
+test update_destination_using_a_source_is_an_edit_of_the_destination ... ignored, needs librx_compose.a: stub build
+test rename_is_refused ... ok
+test two_destinations_are_an_ambiguous_refusal_naming_both ... ok
+test unsafe_destinations_are_refused_with_a_reason ... ok
+
+test result: ok. 3 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/effects_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/effects_test-dba99d3a379f1608)
+
+running 1 test
+test effect_intents_are_at_most_once_or_unresolved ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/generation_record_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/generation_record_test-5546c3fa61ef81cc)
+
+running 7 tests
+test a_caller_cannot_write_a_generation_record ... ignored, needs librx_compose.a: stub build
+test no_model_identity_means_no_record_and_the_turn_succeeds ... ignored, needs librx_compose.a: stub build
+test record_carries_the_digests_of_the_turn ... ignored, needs librx_compose.a: stub build
+test record_states_the_decoding_the_backend_reported ... ignored, needs librx_compose.a: stub build
+test text_is_hashed_byte_exact_with_surrounding_whitespace ... ignored, needs librx_compose.a: stub build
+test two_identical_turns_make_two_records ... ignored, needs librx_compose.a: stub build
+test turn_finished_without_a_record_serializes_as_before ... ok
+
+test result: ok. 1 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/headstart_ab.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/headstart_ab-757658573a0f894b)
+
+running 2 tests
+test headstart_ab_sample ... ignored, A/B qualification sample: run by scripts/bench/headstart-m6-ab.sh
+test headstart_ab_smoke ... ignored, A/B harness smoke run (not a measurement)
+
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/inputs_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/inputs_test-10ae053c61da772f)
+
+running 12 tests
+test existing_destination_is_still_an_edit ... ignored, needs librx_compose.a: stub build
+test folder_phrase_resolves_done_ctrl_and_report_destinations ... ignored, needs librx_compose.a: stub build
+test folder_phrase_works_without_the_article_and_for_directory ... ignored, needs librx_compose.a: stub build
+test folder_source_phrase_includes_inputs_sorted_with_digests ... ignored, needs librx_compose.a: stub build
+test goal_without_inputs_keeps_prompt_byte_for_byte ... ignored, needs librx_compose.a: stub build
+test input_names_are_not_write_targets ... ignored, needs librx_compose.a: stub build
+test inputs_are_capped_and_omissions_are_listed ... ignored, needs librx_compose.a: stub build
+test named_files_become_inputs_but_destination_is_not ... ignored, needs librx_compose.a: stub build
+test non_utf8_and_non_regular_inputs_are_omitted_not_read ... ignored, needs librx_compose.a: stub build
+test compose_propose_report_lists_inputs_with_digests ... ok
+test named_input_escaping_workspace_is_refused_before_model ... ok
+test two_distinct_write_targets_stay_ambiguous ... ok
+
+test result: ok. 3 passed; 0 failed; 9 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/kv_concurrency_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/kv_concurrency_test-02523a1f8305bee0)
+
+running 9 tests
+test fork_then_cancel_parent_during_park_keeps_child_valid ... ok
+test preempted_sequence_resumes_without_re_emitting_tokens ... ok
+test late_attach_after_dispatch_shares_the_load_and_releases_its_landing ... ok
+test duplicate_restore_requests_share_one_load ... ok
+test coalesced_waiters_with_different_suffixes_get_independent_tables ... ok
+test resident_sequence_emits_tokens_before_unrelated_restore_completes ... ok
+test concurrent_park_and_restore_of_shared_prefix_preserve_bytes_and_refcounts ... ok
+test memory_pressure_restore_and_admission_make_progress_without_deadlock ... ok
+test queue_full_and_disk_full_under_load_never_lose_resident_progress ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/kv_park_restore_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/kv_park_restore_test-5726f1d7d7d304b2)
+
+running 13 tests
+test kv_persist_settings_are_off_by_default_and_refuse_bad_values ... ok
+test park_never_blocks_step ... ok
+test restore_miss_falls_back_to_plain_prefill_with_no_refusal ... ok
+test finished_turn_publishes_full_chunks_and_partial_tail ... ok
+test indeterminate_park_publication_is_counted ... ok
+test restore_refused_below_watermark_falls_back ... ok
+test restore_caps_prefix_at_prompt_len_minus_one ... ok
+test restore_failure_frees_holder_and_prefills ... ok
+test restore_txn_adopts_assembled_table_only_after_all_jobs_terminal ... ok
+test stale_completion_cannot_touch_reused_sequence_id ... ok
+test awaiting_restore_is_not_admitted_until_all_chunks_completed ... ok
+test multi_chunk_restore_failure_does_not_free_destination_in_use ... ok
+test restore_retry_window_prefills_without_lookup_after_two_failures ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/kv_restart_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/kv_restart_test-86a8860314ad6487)
+
+running 16 tests
+test restart_child ... ignored
+test step_log_line_carries_kv_counters ... ok
+test persistent_kv_settings_debug_never_shows_the_store_key ... ok
+test bad_persistent_kv_settings_fail_startup_with_the_setting_name ... ok
+test persistence_off_when_store_dir_unset_changes_nothing ... ok
+test metrics_report_allocated_bytes_separately_from_free_blocks ... FAILED
+test persistence_refused_without_a_valid_store_key_runs_plain_and_says_why ... ok
+test engine_build_change_is_never_served_after_restart ... FAILED
+test weight_format_change_is_never_served_after_restart ... FAILED
+test different_rms_norm_eps_namespace_is_never_served_after_restart ... FAILED
+test wrong_model_digest_namespace_is_never_served_after_restart ... FAILED
+test process_restart_rediscovers_and_restores_identical_bytes ... FAILED
+test greedy_continuation_after_restart_matches_uninterrupted_baseline ... FAILED
+test whole_prompt_prefill_change_is_never_served_after_restart ... FAILED
+test rounding_class_change_is_never_served_after_restart ... FAILED
+test guarantee_matrix_rows_are_labelled ... ok
+
+failures:
+
+---- metrics_report_allocated_bytes_separately_from_free_blocks stdout ----
+
+thread 'metrics_report_allocated_bytes_separately_from_free_blocks' (441758) panicked at crates/aien-runtime/tests/kv_restart_test.rs:270:6:
+enable persistent KV: "persistent KV store open at /home/drakestapleton/workspace/targets/L666/tmp/.tmprWnZvD (AIEN_KV_STORE_DIR): AccessDenied"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- engine_build_change_is_never_served_after_restart stdout ----
+child paint-park [("KV_RS_BUILD", "omega@aaaa")] failed: ExitStatus(unix_wait_status(25856))
+thread 'restart_child' (441776) panicked at crates/aien-runtime/tests/kv_restart_test.rs:270:6:
+
+thread 'engine_build_change_is_never_served_after_restart' (441755) panicked at crates/aien-runtime/tests/kv_restart_test.rs:776:5:
+assertion failed: run_child("paint-park", dir.path(), &[(var, parked)])
+
+---- weight_format_change_is_never_served_after_restart stdout ----
+child paint-park [("KV_RS_WF", "bf16")] failed: ExitStatus(unix_wait_status(25856))
+thread 'restart_child' (441777) panicked at crates/aien-runtime/tests/kv_restart_test.rs:270:6:
+
+thread 'weight_format_change_is_never_served_after_restart' (441765) panicked at crates/aien-runtime/tests/kv_restart_test.rs:776:5:
+assertion failed: run_child("paint-park", dir.path(), &[(var, parked)])
+
+---- different_rms_norm_eps_namespace_is_never_served_after_restart stdout ----
+child paint-park [("KV_RS_EPS", "0.00001")] failed: ExitStatus(unix_wait_status(25856))
+thread 'restart_child' (441780) panicked at crates/aien-runtime/tests/kv_restart_test.rs:270:6:
+
+thread 'different_rms_norm_eps_namespace_is_never_served_after_restart' (441754) panicked at crates/aien-runtime/tests/kv_restart_test.rs:751:5:
+assertion failed: run_child("paint-park", dir.path(), &[("KV_RS_EPS", "0.00001")])
+
+---- wrong_model_digest_namespace_is_never_served_after_restart stdout ----
+child paint-park [("KV_RS_SHA", "7")] failed: ExitStatus(unix_wait_status(25856))
+thread 'restart_child' (441782) panicked at crates/aien-runtime/tests/kv_restart_test.rs:270:6:
+
+thread 'wrong_model_digest_namespace_is_never_served_after_restart' (441767) panicked at crates/aien-runtime/tests/kv_restart_test.rs:730:5:
+assertion failed: run_child("paint-park", dir.path(), &[("KV_RS_SHA", "7")])
+
+---- process_restart_rediscovers_and_restores_identical_bytes stdout ----
+child paint-park [] failed: ExitStatus(unix_wait_status(25856))
+thread 'restart_child' (441781) panicked at crates/aien-runtime/tests/kv_restart_test.rs:270:6:
+
+thread 'process_restart_rediscovers_and_restores_identical_bytes' (441762) panicked at crates/aien-runtime/tests/kv_restart_test.rs:682:5:
+child 1 (park) failed
+
+---- greedy_continuation_after_restart_matches_uninterrupted_baseline stdout ----
+child greedy-park [] failed: ExitStatus(unix_wait_status(25856))
+thread 'restart_child' (441783) panicked at crates/aien-runtime/tests/kv_restart_test.rs:541:10:
+
+thread 'greedy_continuation_after_restart_matches_uninterrupted_baseline' (441756) panicked at crates/aien-runtime/tests/kv_restart_test.rs:703:5:
+cold child failed
+
+---- whole_prompt_prefill_change_is_never_served_after_restart stdout ----
+child paint-park [("KV_RS_WHOLE_PROMPT", "0")] failed: ExitStatus(unix_wait_status(25856))
+thread 'restart_child' (441779) panicked at crates/aien-runtime/tests/kv_restart_test.rs:270:6:
+
+thread 'whole_prompt_prefill_change_is_never_served_after_restart' (441766) panicked at crates/aien-runtime/tests/kv_restart_test.rs:776:5:
+assertion failed: run_child("paint-park", dir.path(), &[(var, parked)])
+
+---- rounding_class_change_is_never_served_after_restart stdout ----
+child paint-park [("KV_RS_ROUND", "class-a")] failed: ExitStatus(unix_wait_status(25856))
+thread 'restart_child' (441778) panicked at crates/aien-runtime/tests/kv_restart_test.rs:270:6:
+
+thread 'rounding_class_change_is_never_served_after_restart' (441763) panicked at crates/aien-runtime/tests/kv_restart_test.rs:776:5:
+assertion failed: run_child("paint-park", dir.path(), &[(var, parked)])
+
+
+failures:
+    different_rms_norm_eps_namespace_is_never_served_after_restart
+    engine_build_change_is_never_served_after_restart
+    greedy_continuation_after_restart_matches_uninterrupted_baseline
+    metrics_report_allocated_bytes_separately_from_free_blocks
+    process_restart_rediscovers_and_restores_identical_bytes
+    rounding_class_change_is_never_served_after_restart
+    weight_format_change_is_never_served_after_restart
+    whole_prompt_prefill_change_is_never_served_after_restart
+    wrong_model_digest_namespace_is_never_served_after_restart
+
+test result: FAILED. 6 passed; 9 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+error: test failed, to rerun pass `-p aien-runtime --test kv_restart_test`

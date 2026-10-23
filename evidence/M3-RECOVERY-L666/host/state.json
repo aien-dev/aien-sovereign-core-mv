@@ -1,0 +1,32 @@
+{
+  "source": "fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625",
+  "steps": [
+    {
+      "name": "harness",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "spark-harness"
+      ],
+      "exit": 0
+    },
+    {
+      "name": "feature",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "aien-runtime",
+        "--features",
+        "provisional-prep",
+        "--test",
+        "provisional_prep_test"
+      ],
+      "exit": 101
+    }
+  ],
+  "complete": false
+}

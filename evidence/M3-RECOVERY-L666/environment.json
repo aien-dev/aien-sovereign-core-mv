@@ -1,0 +1,13 @@
+{
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-unknown-linux-gnu\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+  "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)\n",
+  "uname": "Linux spark-b87b 7.0.0-1019-nvidia #19~24.04.2-Ubuntu SMP PREEMPT_DYNAMIC Sun Sep  6 18:35:11 UTC 2 aarch64 aarch64 aarch64 GNU/Linux\n",
+  "tmpdir": "/home/drakestapleton/workspace/targets/L666/tmp",
+  "tmp_mode": "0o700",
+  "initial_tmp_mode": "0o775",
+  "correction": "Only owned test-parent mode changed to0700; product KV checks unchanged",
+  "compose_link": "stub",
+  "gpu_link": "CPU stub",
+  "source": "834b55004acfd2e1c937e484e132635a83688ccc",
+  "crumb_tool": "94fffbcf88492c5a1c54211b5126c8a6c370a98d"
+}

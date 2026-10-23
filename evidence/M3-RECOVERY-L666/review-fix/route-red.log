@@ -1,0 +1,24 @@
+warning: aien-omega-gpu@0.1.0: aien-omega-gpu: no AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB, building the CPU stub
+warning: aien-omega-compose@0.1.0: aien-omega-compose: no AIEN_OMEGA_COMPOSE_DIR, AIEN_OMEGA_DIR or AIEN_OMEGA_COMPOSE_LIB, building the stub
+   Compiling aien-runtime v0.1.0 (/home/drakestapleton/workspace/hermes-desk/L666-m3/crates/aien-runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.06s
+     Running tests/provisional_prep_test.rs (/home/drakestapleton/workspace/targets/L666/fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625/debug/deps/provisional_prep_test-545956a8a1d68252)
+
+running 1 test
+test reclaimed_approval_still_routes_to_a_refusal_after_restart ... FAILED
+
+failures:
+
+---- reclaimed_approval_still_routes_to_a_refusal_after_restart stdout ----
+
+thread 'reclaimed_approval_still_routes_to_a_refusal_after_restart' (374051) panicked at crates/aien-runtime/tests/provisional_prep_test.rs:2524:9:
+reclaimed approval must not fall through to the original call: None
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    reclaimed_approval_still_routes_to_a_refusal_after_restart
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 48 filtered out; finished in 0.29s
+
+error: test failed, to rerun pass `-p aien-runtime --test provisional_prep_test`

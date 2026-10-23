@@ -1,0 +1,15 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "spark-harness",
+    "--test",
+    "provisional_commit",
+    "a_full_task_reclaims_its_superseded_bindings_oldest_first",
+    "--",
+    "--exact"
+  ],
+  "exit": 101
+}

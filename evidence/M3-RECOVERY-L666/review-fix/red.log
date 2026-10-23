@@ -1,0 +1,24 @@
+
+running 1 test
+test a_full_task_reclaims_its_superseded_bindings_oldest_first ... FAILED
+
+failures:
+
+---- a_full_task_reclaims_its_superseded_bindings_oldest_first stdout ----
+
+thread 'a_full_task_reclaims_its_superseded_bindings_oldest_first' (1498066) panicked at crates/spark-harness/tests/provisional_commit.rs:795:5:
+assertion `left == right` failed: reclamation must retain the old request fence
+  left: None
+ right: Some(("c", 1))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    a_full_task_reclaims_its_superseded_bindings_oldest_first
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.23s
+
+   Compiling spark-harness v0.1.0 (/Users/drakestapleton/.hermes/cache/scratch/loop19-m3-559/crates/spark-harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.30s
+     Running tests/provisional_commit.rs (/Users/drakestapleton/.hermes/cache/scratch/L666-target/debug/deps/provisional_commit-bb0e93cdbac85905)
+error: test failed, to rerun pass `-p spark-harness --test provisional_commit`

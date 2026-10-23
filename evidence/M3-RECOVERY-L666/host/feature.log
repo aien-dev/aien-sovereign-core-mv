@@ -1,0 +1,196 @@
+COMMAND ['cargo', 'test', '--locked', '-p', 'aien-runtime', '--features', 'provisional-prep', '--test', 'provisional_prep_test']
+   Compiling serde_core v1.0.229
+   Compiling serde v1.0.229
+   Compiling syn v3.0.6
+   Compiling syn v2.0.119
+   Compiling smallvec v1.16.1
+   Compiling serde_json v1.0.151
+   Compiling getrandom v0.3.4
+   Compiling aien-abi-conformance v0.1.0 (/Users/drakestapleton/.hermes/cache/scratch/loop19-m3-559/crates/aien-abi-conformance)
+   Compiling generic-array v0.14.7
+   Compiling parking_lot_core v0.9.12
+   Compiling serde_derive v1.0.229
+   Compiling synstructure v0.14.0
+   Compiling zerovec-derive v0.11.6
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.3
+   Compiling displaydoc v0.2.7
+   Compiling zerofrom v0.1.8
+   Compiling typenum v1.20.1
+   Compiling parking_lot v0.12.5
+   Compiling yoke v0.8.3
+   Compiling pkg-config v0.3.34
+   Compiling aien-omega-gpu v0.1.0 (/Users/drakestapleton/.hermes/cache/scratch/loop19-m3-559/crates/aien-omega-gpu)
+   Compiling zerovec v0.11.8
+   Compiling aho-corasick v1.1.5
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling zerotrie v0.2.5
+warning: aien-omega-gpu@0.1.0: aien-omega-gpu: no AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB, building the CPU stub
+   Compiling tokio-macros v2.7.2
+   Compiling tinystr v0.8.4
+   Compiling regex-automata v0.4.18
+   Compiling potential_utf v0.1.6
+   Compiling icu_locale_core v2.3.0
+   Compiling futures-core v0.3.34
+   Compiling rustversion v1.0.23
+   Compiling icu_collections v2.3.0
+   Compiling tokio v1.53.1
+   Compiling icu_provider v2.3.1
+   Compiling ahash v0.8.12
+   Compiling digest v0.10.7
+   Compiling tracing-attributes v0.1.31
+   Compiling cpufeatures v0.2.17
+   Compiling ryu v1.0.23
+   Compiling bitflags v2.13.2
+   Compiling fnv v1.0.7
+   Compiling either v1.18.0
+   Compiling ident_case v1.0.1
+   Compiling darling_core v0.20.11
+   Compiling tracing v0.1.44
+   Compiling sha2 v0.10.9
+   Compiling http v1.5.0
+   Compiling form_urlencoded v1.2.2
+   Compiling icu_properties v2.3.0
+   Compiling darling_macro v0.20.11
+   Compiling http-body v1.1.0
+   Compiling icu_normalizer v2.3.0
+   Compiling rayon v1.12.0
+   Compiling regex v1.13.1
+   Compiling thiserror v2.0.20
+   Compiling uuid v1.26.1
+   Compiling idna_adapter v1.2.2
+   Compiling darling v0.20.11
+   Compiling onig_sys v69.9.3
+   Compiling async-trait v0.1.92
+   Compiling thiserror-impl v2.0.20
+   Compiling tower-service v0.3.3
+   Compiling httparse v1.10.1
+   Compiling time-macros v0.2.32
+   Compiling derive_builder_core v0.20.2
+   Compiling idna v1.1.0
+   Compiling ppv-lite86 v0.2.21
+   Compiling thiserror-impl v1.0.69
+   Compiling rand_core v0.9.5
+   Compiling vcpkg v0.2.15
+   Compiling minimal-lexical v0.2.1
+   Compiling futures-task v0.3.34
+   Compiling aien-omega-dattn v0.1.0 (/Users/drakestapleton/.hermes/cache/scratch/loop19-m3-559/crates/aien-omega-dattn)
+   Compiling paste v1.0.15
+   Compiling slab v0.4.12
+   Compiling esaxx-rs v0.1.10
+   Compiling tower-layer v0.3.3
+   Compiling futures-util v0.3.34
+   Compiling libsqlite3-sys v0.28.0
+   Compiling nom v7.1.3
+   Compiling clap_derive v4.6.7
+   Compiling thiserror v1.0.69
+   Compiling url v2.5.8
+   Compiling time v0.3.55
+   Compiling rand_chacha v0.9.0
+   Compiling derive_builder_macro v0.20.2
+   Compiling chrono v0.4.45
+   Compiling http-body-util v0.1.5
+   Compiling castaway v0.2.4
+   Compiling itertools v0.14.0
+   Compiling futures-channel v0.3.34
+   Compiling monostate-impl v0.1.18
+   Compiling ring v0.17.14
+   Compiling aien-platform v0.1.0 (/Users/drakestapleton/.hermes/cache/scratch/loop19-m3-559/crates/aien-platform)
+   Compiling aien-omega-moe v0.1.0 (/Users/drakestapleton/.hermes/cache/scratch/loop19-m3-559/crates/aien-omega-moe)
+   Compiling atomic-waker v1.1.2
+   Compiling unicode-segmentation v1.13.3
+   Compiling aien-omega-bf16 v0.1.0 (/Users/drakestapleton/.hermes/cache/scratch/loop19-m3-559/crates/aien-omega-bf16)
+   Compiling pastey v0.2.3
+   Compiling macro_rules_attribute-proc_macro v0.2.3
+   Compiling sync_wrapper v1.0.2
+   Compiling aien-omega-pf v0.1.0 (/Users/drakestapleton/.hermes/cache/scratch/loop19-m3-559/crates/aien-omega-pf)
+   Compiling httpdate v1.0.3
+   Compiling static_assertions v1.1.0
+   Compiling aien-omega-fp8 v0.1.0 (/Users/drakestapleton/.hermes/cache/scratch/loop19-m3-559/crates/aien-omega-fp8)
+   Compiling aien-omega-dgraph v0.1.0 (/Users/drakestapleton/.hermes/cache/scratch/loop19-m3-559/crates/aien-omega-dgraph)
+   Compiling aien-omega-router v0.1.0 (/Users/drakestapleton/.hermes/cache/scratch/loop19-m3-559/crates/aien-omega-router)
+   Compiling base64 v0.13.1
+   Compiling spm_precompiled v0.1.4
+   Compiling onig v6.5.3
+   Compiling hyper v1.11.1
+   Compiling compact_str v0.9.1
+   Compiling macro_rules_attribute v0.2.3
+   Compiling rayon-cond v0.4.0
+   Compiling monostate v0.1.18
+   Compiling rand v0.9.5
+   Compiling derive_builder v0.20.2
+   Compiling clap v4.6.7
+   Compiling matchers v0.2.0
+   Compiling hashbrown v0.14.5
+   Compiling dary_heap v0.3.9
+   Compiling bincode v1.3.3
+   Compiling zeroize_derive v1.5.0
+   Compiling aien-omega-compose v0.1.0 (/Users/drakestapleton/.hermes/cache/scratch/loop19-m3-559/crates/aien-omega-compose)
+   Compiling unicode-normalization-alignments v0.1.12
+   Compiling csv-core v0.1.13
+   Compiling getrandom v0.2.17
+   Compiling untrusted v0.9.0
+   Compiling mime v0.3.17
+   Compiling unicode_categories v0.1.1
+   Compiling axum-core v0.4.5
+   Compiling csv v1.4.0
+   Compiling tokenizers v0.21.4
+   Compiling tracing-subscriber v0.3.23
+warning: aien-omega-compose@0.1.0: aien-omega-compose: no AIEN_OMEGA_COMPOSE_DIR, AIEN_OMEGA_DIR or AIEN_OMEGA_COMPOSE_LIB, building the stub
+   Compiling crumb-spec v1.0.0 (https://github.com/aien-dev/crumb-spec?rev=24194d1b7917ef19244aae6bcaff510686b75fef#24194d1b)
+   Compiling hashlink v0.9.1
+   Compiling zeroize v1.9.0
+   Compiling spark-crumbs v0.1.0 (https://github.com/aien-dev/spark-crumbs?rev=9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2#9355a92b)
+   Compiling hyper-util v0.1.20
+   Compiling fancy-regex v0.11.0
+   Compiling tower v0.5.3
+   Compiling aien-kv-cache v0.1.0 (/Users/drakestapleton/.hermes/cache/scratch/loop19-m3-559/crates/aien-kv-cache)
+   Compiling aien-localhttp v0.1.0 (/Users/drakestapleton/.hermes/cache/scratch/loop19-m3-559/crates/aien-localhttp)
+   Compiling aien-abi-core v0.1.0 (/Users/drakestapleton/.hermes/cache/scratch/loop19-m3-559/crates/aien-abi-core)
+   Compiling serde_urlencoded v0.7.1
+   Compiling aien-allen v0.1.0 (/Users/drakestapleton/.hermes/cache/scratch/loop19-m3-559/crates/aien-allen)
+   Compiling axum-macros v0.4.2
+   Compiling serde_path_to_error v0.1.20
+   Compiling matchit v0.7.3
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling fallible-iterator v0.3.0
+   Compiling rustix v1.1.5
+   Compiling rusqlite v0.31.0
+   Compiling axum v0.7.9
+   Compiling jsonschema v0.17.1
+   Compiling aien-inference-abi v0.1.0 (/Users/drakestapleton/.hermes/cache/scratch/loop19-m3-559/crates/aien-inference-abi)
+warning: ignoring -C extra-filename flag due to -o flag
+
+error[E0425]: cannot find function `external_default_buffer` in crate `aien_kv_cache`
+    --> crates/aien-inference-abi/src/omega_backend.rs:1140:28
+     |
+1140 |             aien_kv_cache::external_default_buffer(
+     |                            ^^^^^^^^^^^^^^^^^^^^^^^ not found in `aien_kv_cache`
+     |
+note: found an item that was configured out
+    --> crates/aien-kv-cache/src/lib.rs:367:15
+     |
+ 366 | #[cfg(target_os = "linux")]
+     |       ------------------- the item is gated behind the `linux` feature
+ 367 | pub unsafe fn external_default_buffer(
+     |               ^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0425]: cannot find function `external_default_buffer` in crate `aien_kv_cache`
+    --> crates/aien-inference-abi/src/qwen3_moe_omega.rs:2973:36
+     |
+2973 |                     aien_kv_cache::external_default_buffer(
+     |                                    ^^^^^^^^^^^^^^^^^^^^^^^ not found in `aien_kv_cache`
+     |
+note: found an item that was configured out
+    --> crates/aien-kv-cache/src/lib.rs:367:15
+     |
+ 366 | #[cfg(target_os = "linux")]
+     |       ------------------- the item is gated behind the `linux` feature
+ 367 | pub unsafe fn external_default_buffer(
+     |               ^^^^^^^^^^^^^^^^^^^^^^^
+
+For more information about this error, try `rustc --explain E0425`.
+warning: `aien-inference-abi` (lib) generated 1 warning
+error: could not compile `aien-inference-abi` (lib) due to 2 previous errors; 1 warning emitted
+warning: build failed, waiting for other jobs to finish...

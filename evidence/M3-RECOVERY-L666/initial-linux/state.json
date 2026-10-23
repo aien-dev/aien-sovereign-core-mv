@@ -1,0 +1,52 @@
+{
+  "source": "fc62b5f2cf576a24ac7200ed1cb660aa9ee1e625",
+  "steps": [
+    {
+      "name": "feature",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "aien-runtime",
+        "--features",
+        "provisional-prep",
+        "--test",
+        "provisional_prep_test"
+      ],
+      "exit": 0
+    },
+    {
+      "name": "default",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "aien-runtime",
+        "--no-default-features"
+      ],
+      "exit": 0
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "spark-harness",
+        "-p",
+        "aien-runtime",
+        "--features",
+        "aien-runtime/provisional-prep",
+        "--tests",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0
+    }
+  ],
+  "complete": true
+}

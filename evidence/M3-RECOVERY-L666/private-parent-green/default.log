@@ -1,0 +1,4 @@
+COMMAND ['cargo', 'check', '--locked', '-p', 'aien-runtime', '--no-default-features']
+warning: aien-omega-gpu@0.1.0: aien-omega-gpu: no AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB, building the CPU stub
+warning: aien-omega-compose@0.1.0: aien-omega-compose: no AIEN_OMEGA_COMPOSE_DIR, AIEN_OMEGA_DIR or AIEN_OMEGA_COMPOSE_LIB, building the stub
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.29s
