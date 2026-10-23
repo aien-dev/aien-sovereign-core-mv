@@ -11,7 +11,6 @@ description = "Repo agents and the change board (L088): measure what the judge s
 aien-test = { path = "../aien-test" }
 libc = "0.2"
 serde_json = "1.0"
-sha2 = "0.10"
 
 [[bin]]
 name = "aien-board"

@@ -74,6 +74,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "aien-board"
+version = "0.1.0"
+dependencies = [
+ "aien-test",
+ "libc",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "aien-campaign-verifier"
 version = "0.1.0"
 dependencies = [
