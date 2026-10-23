@@ -17,7 +17,8 @@ AIENOS.
 | `gc.sh` | worktree age + target-dir quota cleanup, dry run by default |
 | `tests/run.sh` | proofs of the contract on this host (33 checks with two wt.sh worktrees present) |
 | `pipeline.sh` | ADR 0033 phase 3: publish verified bundles to aien-receipts, rerun the GitHub thin gate, merge `ready-to-merge` PRs behind guards |
-| `tests/pipeline_test.sh` | offline proofs of `pipeline.sh` with fake `gh`, fake `aien-test` and throwaway git repositories (56 checks) |
+| `tests/pipeline_test.sh` | offline proofs of `pipeline.sh` with fake `gh`, fake `aien-test` and throwaway git repositories (77 checks) |
+| `repeat-gates.sh` | how much gate time went into running the same gate on the same head again (reads the receipts under `$STATE/evidence`; optional UTC start) |
 | `crumb-shim.sh` | the operator's `~/.local/bin/crumb`: runs the crumb tool the repository's own CRUMB-VERIFY gate uses (crumb.lock pin, own tree for aien-architecture, else the sandbox tool), so author, readiness check and gate never disagree |
 | `crumb-doctor` | drift check, cron (via cron-tick.sh): gate, readiness and hosted crumb tools agree on every main and tool-changing PR; worker sibling maps match origin/main; `--heal` keeps this clone's work tree on origin/main |
 | `tests/crumb_shim_test.sh`, `tests/crumb_doctor_test.sh` | offline proofs of both on throwaway fixtures (17 and 7 checks) |
@@ -207,6 +208,12 @@ or configuration error. Overrides: `AIEN_STATE`, `AIEN_CLONES`, `AIEN_RECEIPTS`,
   `$STATE/pipeline-reruns`: the latest `AIEN Verification` run for that head is rerun when it is completed and its
   latest attempt started (`run_started_at`, else `created_at`) before the publication (push time in
   `$STATE/pipeline-published`, else the receipts commit time). A queued or running run waits for a later round.
+* **what a round does not ask twice (L337)**: repository slugs are kept 24 h in `$STATE/pipeline-slugs`; PR lists are conditional
+  GETs (`$STATE/pipeline-etag`, `If-None-Match`; GitHub's 304 reply costs no allowance and the rerun and merge steps of one round
+  share one list); the local behind-main check runs before the first GitHub call for a PR; bundles already judged unpublishable
+  (plan.blocked, NOT_RUN, REJECTED) are remembered in `$STATE/pipeline-seen` keyed by repo, sha, bundle digest, trusted keys and
+  the verify-bundle binary, so a new key, a rebuilt binary or a rewritten bundle is judged again and nothing else is. The worker's
+  own PR polling (`github_heads_cached` in `tools/aien-test/src/worker.rs`) sends the same `If-None-Match`.
 * **merge**: only open PRs labeled exactly `ready-to-merge`, not draft, mergeable state not `dirty`, head unchanged
   since listing. All guards required: the local bundle for the head exists; its sha256 equals the published copy at
   receipts `origin/main`; `verify-bundle` exits 0 with a key from `origin/<base>:.aien/verify.pub` and `--require`

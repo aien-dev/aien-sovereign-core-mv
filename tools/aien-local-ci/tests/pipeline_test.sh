@@ -1,3 +1,8 @@
+if [[ $incl == 1 ]]; then
+  et="\"$(sha256sum "$f" | cut -c1-16)\""
+  if [[ $inm == "$et" ]]; then printf "HTTP/2.0 304 Not Modified\r\nEtag: %s\r\n\r\n" "$et"; echo "gh: HTTP 304" >&2; exit 1; fi
+  printf "HTTP/2.0 200 OK\r\nEtag: %s\r\nContent-Type: application/json\r\n\r\n" "$et"; cat "$f"; exit 0
+fi
 #!/usr/bin/env bash
 # pipeline_test.sh: offline proofs for tools/aien-local-ci/pipeline.sh (no network, no real gh, no real key).
 # Fakes: gh (answers from JSON files, applies the real --jq filter with jq), aien-test (exit code chosen by the
@@ -29,13 +34,18 @@ echo "gh $*" >> "$FAKE_LOG"
 if [[ $1 == pr && $2 == merge ]]; then exit 0; fi
 [[ $1 == api ]] || exit 9
 shift
-method=GET expr="" path=""
+method=GET expr="" path="" incl=0 inm=""
 while [[ $# -gt 0 ]]; do
-  case $1 in -X) method=$2; shift 2 ;; --jq) expr=$2; shift 2 ;; *) path=$1; shift ;; esac
+  case $1 in -X) method=$2; shift 2 ;; --jq) expr=$2; shift 2 ;; -i) incl=1; shift ;; -H) inm=${2#If-None-Match: }; shift 2 ;; *) path=$1; shift ;; esac
 done
 [[ $method == GET ]] || exit 0
 f=$FAKE_GH/$(printf '%s' "$path" | tr -c 'A-Za-z0-9._-' '_').json
 [[ -f $f ]] || { echo "gh: HTTP 404 $path" >&2; exit 1; }
+if [[ $incl == 1 ]]; then
+  et="\"$(sha256sum "$f" | cut -c1-16)\""
+  if [[ $inm == "$et" ]]; then printf 'HTTP/2.0 304 Not Modified\r\nEtag: %s\r\n\r\n' "$et"; echo "gh: HTTP 304" >&2; exit 1; fi
+  printf 'HTTP/2.0 200 OK\r\nEtag: %s\r\nContent-Type: application/json\r\n\r\n' "$et"; cat "$f"; exit 0
+fi
 if [[ -n $expr ]]; then jq -r "$expr" "$f"; else cat "$f"; fi
 EOF
 cat > "$T/bin/aien-test" <<'EOF'
@@ -132,6 +142,10 @@ check "publish made no GitHub call" bash -c "! grep -q '^gh ' '$FAKE_LOG'"
 before=$(remote_commits)
 bash "$PIPE" publish > "$T/out2" 2>&1
 check "identical bundles are not re-committed" [ "$(remote_commits)" = "$before" ]
+check "settled bundles are not journaled again (blocked)" [ "$(jl ".sha==\"$E\" and .result==\"skipped\"")" = 1 ]
+check "settled bundles are not journaled again (REJECTED)" [ "$(jl ".sha==\"$C\" and .result==\"refused\"")" = 1 ]
+check "settled bundles are not journaled again (NOT_RUN)" [ "$(jl ".sha==\"$D\" and .result==\"refused\"")" = 1 ]
+check "settled bundles are not verified again" [ "$(grep -c -- "--commit $C " "$FAKE_LOG")" = 2 ]
 
 echo "== publish: replacement by digest, with a racing push"
 digA0=$(sha256sum "$AIEN_STATE/bundles/demo/$A/bundle.json" | cut -d' ' -f1)
@@ -249,7 +263,43 @@ check "second PR left for the next round, no journal line" [ "$(jl ".action==\"m
 echo moved > "$AIEN_CLONES/demo/MOVED" && git -C "$AIEN_CLONES/demo" add MOVED && git -C "$AIEN_CLONES/demo" commit -q -m moved && git -C "$AIEN_CLONES/demo" push -q origin main
 bash "$PIPE" merge > "$T/out8c" 2>&1
 check "base moved: head behind origin/main refused" refused 52 "behind origin/main"
+check "base moved: the behind check came before any GitHub read of the PR" bash -c "! grep -q '^gh api repos/$S/pulls/52 ' '$FAKE_LOG'"
 check "base moved: nothing merged" [ "$(merges 51)$(merges 52)" = 10 ]
+
+echo "== what cannot change is not asked twice"
+check "repository slug asked of GitHub once for all the rounds above" [ "$(grep -c '^gh api repos/aien-dev/demo --jq .full_name$' "$FAKE_LOG")" = 1 ]
+check "slug cache file holds the canonical slug" grep -q "^demo $S [0-9]*$" "$AIEN_STATE/pipeline-slugs"
+awk '$1 == "demo" {$3 = 0} {print}' "$AIEN_STATE/pipeline-slugs" > "$T/slugs" && mv "$T/slugs" "$AIEN_STATE/pipeline-slugs"
+bash "$PIPE" rerun > "$T/out8d" 2>&1
+check "slug older than 24 h is asked again" [ "$(grep -c '^gh api repos/aien-dev/demo --jq .full_name$' "$FAKE_LOG")" = 2 ]
+check "rerun round with a fresh slug cache: no new lookup" bash -c "bash '$PIPE' rerun >/dev/null 2>&1; [ \$(grep -c '^gh api repos/aien-dev/demo --jq .full_name\$' '$FAKE_LOG') = 2 ]"
+verifies() { grep -c -- "--commit $1 " "$FAKE_LOG" || true; }
+v0=$(verifies "$C")
+printf '\n' >> "$T/bin/aien-test"
+bash "$PIPE" publish > "$T/out8e" 2>&1
+check "rebuilt verify-bundle binary: settled bundle judged again" [ "$(verifies "$C")" -gt "$v0" ]
+check "rebuilt binary: journaled again" [ "$(jl ".sha==\"$C\" and .result==\"refused\"")" = 2 ]
+bash "$PIPE" publish > "$T/out8f" 2>&1
+check "same binary again: nothing new" [ "$(jl ".sha==\"$C\" and .result==\"refused\"")" = 2 ]
+printf '%s\n' "$K3" >> "$AIEN_CLONES/demo/.aien/verify.pub"
+git -C "$AIEN_CLONES/demo" commit -q -am "trust K3" && git -C "$AIEN_CLONES/demo" push -q origin main
+bash "$PIPE" publish > "$T/out8g" 2>&1
+check "a newly trusted key publishes the bundle that was refused before" remote_has demo "$C"
+d0=$(jl ".sha==\"$D\" and .result==\"refused\"")
+jq '.again = 1' "$AIEN_STATE/bundles/demo/$D/bundle.json" > "$T/d" && mv "$T/d" "$AIEN_STATE/bundles/demo/$D/bundle.json"
+bash "$PIPE" publish > "$T/out8h" 2>&1
+check "a rewritten bundle is judged again" [ "$(jl ".sha==\"$D\" and .result==\"refused\"")" = $((d0 + 1)) ]
+lists() { grep -c -- "^gh api -i .*repos/$S/pulls?state=open&per_page=100$" "$FAKE_LOG" || true; }
+conds() { grep -c -- "^gh api -i -H If-None-Match: .* repos/$S/pulls?state=open&per_page=100$" "$FAKE_LOG" || true; }
+l0=$(lists); c0=$(conds)
+bash "$PIPE" round > "$T/out8i" 2>&1
+check "PR list unchanged since the last round: both steps of the round ask with If-None-Match" [ "$(( $(conds) - c0 ))" = 2 ] && [ "$(( $(lists) - l0 ))" = 2 ]
+pulls "51:$M11:false:$L" "52:$M12:false:" "53:$(sha 53):false:"
+c0=$(conds)
+bash "$PIPE" rerun > "$T/out8j" 2>&1
+check "PR list changed: the new answer replaces the cached one" grep -lq "$(sha 53)" "$AIEN_STATE"/pipeline-etag/*.body
+bash "$PIPE" rerun > "$T/out8k" 2>&1
+check "and the next ask is conditional again" [ "$(( $(conds) - c0 ))" = 2 ]
 
 echo "== single instance"
 bundle demo "$(sha 99)" "$K2" 0
