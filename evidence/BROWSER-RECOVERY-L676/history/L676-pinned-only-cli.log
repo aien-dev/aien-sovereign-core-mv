@@ -1,0 +1,13 @@
+warning: aien-omega-gpu@0.1.0: aien-omega-gpu: no AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB, building the CPU stub
+warning: aien-omega-compose@0.1.0: aien-omega-compose: no AIEN_OMEGA_COMPOSE_DIR, AIEN_OMEGA_DIR or AIEN_OMEGA_COMPOSE_LIB, building the stub
+   Compiling aien-cli v0.1.0 (/home/drakestapleton/workspace/hermes-desk/L676-browser/crates/aien-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.65s
+     Running unittests src/lib.rs (/home/drakestapleton/workspace/targets/L676/83394576f7bff8f18dd235b2dd58c5e90f8fd493/debug/deps/aien_cli-1f935d6b820ea560)
+
+running 6 tests
+test browser_mirror::tests::base64_roundtrip ... ok
+test browser_mirror::tests::unknown_action_is_an_error ... ok
+test browser_mirror::tests::stale_candidates_and_exited_pidfds_cannot_signal_a_stranger ... ok
+test browser_mirror::tests::tag_sweep_matches_only_its_own_tag ... ok
+test browser_mirror::tests::dropping_chrome_reaps_every_helper has been running for over 60 seconds
+test browser_mirror::tests::stub_page_screenshot_and_eval has been running for over 60 seconds

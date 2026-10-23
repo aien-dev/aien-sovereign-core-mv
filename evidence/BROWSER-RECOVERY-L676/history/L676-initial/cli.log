@@ -1,0 +1,242 @@
+COMMAND ['cargo', 'test', '--locked', '-p', 'aien-cli']
+warning: aien-omega-gpu@0.1.0: aien-omega-gpu: no AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB, building the CPU stub
+warning: aien-omega-compose@0.1.0: aien-omega-compose: no AIEN_OMEGA_COMPOSE_DIR, AIEN_OMEGA_DIR or AIEN_OMEGA_COMPOSE_LIB, building the stub
+   Compiling aien-cli v0.1.0 (/home/drakestapleton/workspace/hermes-desk/L676-browser/crates/aien-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.07s
+     Running unittests src/lib.rs (/home/drakestapleton/workspace/targets/L676/83394576f7bff8f18dd235b2dd58c5e90f8fd493/debug/deps/aien_cli-1f935d6b820ea560)
+
+running 5 tests
+test browser_mirror::tests::base64_roundtrip ... ok
+test browser_mirror::tests::unknown_action_is_an_error ... ok
+test browser_mirror::tests::tag_sweep_matches_only_its_own_tag ... ok
+test browser_mirror::tests::dropping_chrome_reaps_every_helper ... ok
+test browser_mirror::tests::stub_page_screenshot_and_eval ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.64s
+
+     Running unittests src/bin/aien-browser-mirror.rs (/home/drakestapleton/workspace/targets/L676/83394576f7bff8f18dd235b2dd58c5e90f8fd493/debug/deps/aien_browser_mirror-cedd269c4a94d8c5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (/home/drakestapleton/workspace/targets/L676/83394576f7bff8f18dd235b2dd58c5e90f8fd493/debug/deps/aien_cli-733af3aec764ff87)
+
+running 119 tests
+test allen::tests::set_requires_expect ... ok
+test allen::tests::bad_input_is_refused_before_any_call ... ok
+test allen::tests::set_parses_every_field ... ok
+test approval::tests::floors_come_before_mode_order_is_load_bearing ... ok
+test allen::tests::memory_calls_parse ... ok
+test allen::tests::memory_and_goal_calls_must_name_a_context ... ok
+test approval::tests::guardian_answers_and_breaker ... ok
+test approval::tests::modes_after_the_floors ... ok
+test approval::tests::hardline_negative_controls_pass ... ok
+test approval::tests::broken_policy_fails_closed_in_every_mode ... ok
+test approval::tests::unattended_defaults_to_deny_but_clear_requests_pass ... ok
+test approval::tests::operator_deny_covers_file_tools_by_path ... ok
+test approval::tests::decide_is_deterministic ... ok
+test checkpoint::tests::planner_restores_only_what_still_holds_the_agents_bytes ... ok
+test commands::tests::a_refused_reservation_stops_the_daemon_by_name_before_any_prepare ... ok
+test checkpoint::tests::ledger_chain_detects_edits_and_drops_a_torn_tail ... ok
+test commands::tests::a_prepare_failure_is_the_same_named_refusal_and_never_seals ... ok
+test approval::tests::operator_deny_outranks_the_allowlist_and_spelling_tricks ... ok
+test approval::tests::sudo_password_floor_holds_in_every_mode ... ok
+test approval::tests::runtime_floor_holds_in_every_mode ... ok
+test commands::tests::checkpoint_loaded_line_format_is_pinned ... ok
+test commands::tests::checkpoint_policy_reads_explicit_paths_and_flag ... ok
+test approval::tests::hardline_floor_holds_in_every_mode ... ok
+test commands::tests::cpu_only_switch_never_selects_gpu ... ok
+test commands::tests::daemon_cta_budget_defaults_to_1024_with_evidence ... ok
+test commands::tests::checkpoint_explicit_path_beats_directory_scan ... ok
+test client::tests::test_extract_tool_calls_robustness ... ok
+test commands::tests::default_path_makes_no_omega_call ... ok
+test commands::tests::harness_refuses_plainly_instead_of_faking_a_pass ... ok
+test approval::tests::allowlist_skips_the_question_not_a_floor ... ok
+test commands::tests::omega_cta_budget_helper_refuses_on_the_stub ... ok
+test commands::tests::start_refusal_names_the_exact_command ... ok
+test commands::tests::model_identity_needs_real_weights_and_a_parsed_tokenizer ... ok
+test commands::tests::strict_checkpoint_real_tinyllama_loads ... ignored, needs AIEN_E2E_CHECKPOINT (TinyLlama dir or model.safetensors); forge runs it
+test commands::tests::strict_checkpoint_refuses_empty_scan ... ok
+test commands::tests::strict_start_line_names_every_protection ... ok
+test commands::tests::the_shared_scheduler_config_is_the_daemons ... ok
+test commands::tests::verify_daemon_checkpoint_resolution_probe ... ok
+test commands::tests::strict_checkpoint_refuses_missing_file ... ok
+test compaction::tests::approval_marker_counts_only_as_a_parsed_tool_result_status ... ok
+test approval::tests::operator_deny_blocks_in_smart_mode ... ok
+test compaction::tests::estimate_is_conservative_against_known_counts ... ok
+test commands::tests::a_directory_or_an_index_without_shards_is_still_refused ... ok
+test commands::tests::strict_checkpoint_refuses_scan_mismatch ... ok
+test approval::tests::operator_deny_blocks_in_off_mode ... ok
+test commands::tests::strict_checkpoint_refuses_shape_mismatch ... ok
+test approval::tests::operator_deny_blocks_in_yolo_mode ... ok
+test approval::tests::operator_deny_blocks_in_manual_mode ... ok
+test checkpoint::tests::a_damaged_object_stops_the_restore ... ok
+test compaction::tests::historical_incomplete_group_refuses ... ok
+test compaction::tests::detached_tool_result_refuses ... ok
+test compaction::tests::replay_refuses_missing_or_empty_store ... ok
+test compaction::tests::sanitize_line_strips_markup_control_and_length ... ok
+test compaction::tests::secret_straddling_the_oversized_cut_is_redacted ... ok
+test commands::tests::opt_in_qwen3_gb10_reserves_prepares_every_shape_and_seals_in_order ... ok
+test compaction::tests::oversized_result_in_tail_is_truncated_and_recoverable ... ok
+test compaction::tests::hostile_tool_text_cannot_forge_authority_in_recap ... ok
+test compaction::tests::mixed_content_counts_toward_budget ... ok
+test compaction::tests::no_store_refuses_lossy_compaction ... ok
+test commands::tests::a_single_file_checkpoint_digest_is_the_file_sha256 ... ok
+test commands::tests::a_sharded_checkpoint_digest_binds_every_shard ... ok
+test context7::tests::error_text_does_not_keep_a_key ... ok
+test context7::tests::library_ids_match_context7_shape ... ok
+test compaction::tests::vault_redactor_strips_known_patterns ... ok
+test compaction::tests::pending_tool_call_in_tail_is_protected ... ok
+test compaction::tests::hostile_user_and_assistant_text_is_neutralised_in_recap ... ok
+test context7::tests::preferred_library_id_beats_the_first_hit ... ok
+test compaction::tests::approval_wait_protects_everything_after_it ... ok
+test context7::tests::sync_catalog_covers_the_stack_in_use ... ok
+test context7::tests::query_payload_clips_code_and_keeps_the_library_id ... ok
+test context7::tests::rendered_reference_names_the_library_and_clips ... ok
+test context7::tests::resolve_payload_keeps_five_ids_and_drops_the_rest ... ok
+test objective::default_dir_tests::cli_and_daemon_agree_and_default_is_not_tmp ... ok
+test safety::tests::test_path_confinement_validation ... ok
+test safety::tests::test_secret_leak_paths ... ok
+test safety::tests::test_policy_precedence_and_fail_closed ... ok
+test objective::tests::matching_objective_id_is_accepted_and_carried ... ok
+test safety::tests::test_unmasked_secret_patterns ... ok
+test sandbox::tests::test_sandbox_constants ... ok
+test sandbox::tests::test_sandbox_dispatch_unknown ... ok
+test science_context::tests::parses_seed_notes ... ok
+test science_context::tests::query_terms_drop_common_words ... ok
+test skills::tests::frontmatter_is_not_returned_as_body ... ok
+test skills::tests::preview_stops_at_the_first_paragraph ... ok
+test skills::tests::preview_uses_first_body_paragraph_and_budget ... ok
+test skills::tests::search_returns_one_matching_paragraph ... ok
+test subagents::tests::test_subagent_depth_guard ... ok
+test subagents::tests::test_subagent_root_spec ... ok
+test subagents::tests::test_subagent_spec_serialization ... ok
+test tools::tests::effect_receipt_is_hashed_and_secret_free ... ok
+test hooks::tests::test_unslop_hook ... ok
+test compaction::tests::under_threshold_is_not_needed ... ok
+test tools::tests::test_adapter_tool_dispatch_evaluate ... ok
+test hooks::tests::test_vault_redactor_hook ... ok
+test tools::tests::test_adapter_tool_dispatch_list ... ok
+test tools::tests::test_adapter_tool_dispatch_plan ... ok
+test tools::tests::test_path_confinement_in_tool_dispatch ... ok
+test subagents::tests::test_subagents_list_and_view ... ok
+test tools::tests::test_safety_engine_allows_adapter_and_socratic ... ok
+test ui::tests::banner_describes_native_runtime_not_max ... ok
+test compaction::tests::store_write_failure_leaves_list_untouched ... ok
+test sandbox::tests::test_sandbox_status_serialization ... ok
+test vault::tests::test_secret_redaction_patterns ... ok
+test compaction::tests::still_over_budget_is_reported_when_protected_tail_exceeds_max ... ok
+test compaction::tests::recap_naming_another_transcript_is_rejected ... ok
+test checkpoint::tests::negative_control_snapshot_alone_would_revert_operator_edits ... ok
+test compaction::tests::secrets_are_redacted_in_recap_and_stubs_but_kept_in_record ... ok
+test compaction::tests::recap_of_recap_keeps_earlier_lines_and_pointer ... ok
+test checkpoint::tests::one_snapshot_per_directory_per_turn_and_shared_objects ... ok
+test client::tests::native_chat_uses_the_runtime_socket_not_http ... ok
+test compaction::tests::tampered_record_is_rejected ... ok
+test compaction::tests::replay_after_restart_rebuilds_two_compactions ... ok
+test checkpoint::tests::rollback_after_mixed_edits_restores_only_the_agents_files ... ok
+test compaction::tests::tool_group_is_atomic_and_originals_reconstruct ... ok
+test tools::tests::operator_deny_pattern_blocks_a_real_command_in_every_mode ... ok
+test commands::tests::test_slash_command_adapter_suite ... ok
+test commands::tests::checkpoint_fallback_without_flag_is_reported ... ok
+test tools::tests::test_policy_approved_write_reaches_effect_handler ... ok
+test tools::tests::rollback_through_the_dispatcher_spares_operator_edits ... ok
+
+test result: ok. 118 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 7.48s
+
+     Running tests/allen_concurrency_test.rs (/home/drakestapleton/workspace/targets/L676/83394576f7bff8f18dd235b2dd58c5e90f8fd493/debug/deps/allen_concurrency_test-e75d9f68870e9b67)
+
+running 1 test
+test allen_concurrent_clients_one_daemon ... ignored, needs a compose-linked CPU aien-cli (see the file header); host CPU, not GB10
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/compose_memory_recall_test.rs (/home/drakestapleton/workspace/targets/L676/83394576f7bff8f18dd235b2dd58c5e90f8fd493/debug/deps/compose_memory_recall_test-584c4f63399a1baf)
+
+running 2 tests
+test remember_refuses_when_allen_not_engaged ... ignored, needs a compose-linked CPU aien-cli (see the file header)
+test remember_then_recall_includes_item_when_engaged ... ignored, needs a compose-linked CPU aien-cli (see the file header)
+
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/compose_ordinary_flow_test.rs (/home/drakestapleton/workspace/targets/L676/83394576f7bff8f18dd235b2dd58c5e90f8fd493/debug/deps/compose_ordinary_flow_test-34684a51f9567933)
+
+running 3 tests
+test a_client_written_authorization_note_is_refused_and_opens_nothing ... ignored, needs the linked librx_compose.a
+test authorize_without_the_desk_mac_is_refused_and_mints_nothing ... ignored, needs the linked librx_compose.a
+test ordinary_flow_propose_authorize_execute_reaches_done ... ignored, needs the linked librx_compose.a
+
+test result: ok. 0 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cpu_only_switch_test.rs (/home/drakestapleton/workspace/targets/L676/83394576f7bff8f18dd235b2dd58c5e90f8fd493/debug/deps/cpu_only_switch_test-497dcd9a4f67618a)
+
+running 2 tests
+test force_cpu_stub_alone_is_not_the_runtime_switch ... ok
+test cpu_only_daemon_never_reports_gb10 ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/desk_required_startup_test.rs (/home/drakestapleton/workspace/targets/L676/83394576f7bff8f18dd235b2dd58c5e90f8fd493/debug/deps/desk_required_startup_test-e13d5e7649be34ac)
+
+running 7 tests
+test s2_aien_harness_refuses_not_shipped ... ok
+test s1_aien_start_without_desk_key_refuses_with_the_command ... ok
+test d2_dev_opt_out_is_refused_in_a_strict_run ... ok
+test d1_no_desk_key_refuses_startup ... ok
+test d3_dev_opt_out_starts_and_says_so ... ok
+test a_failed_check_stops_its_daemon ... ok
+test d4_with_the_desk_key_the_daemon_serves_with_the_mac_on ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s
+
+     Running tests/objective_record_test.rs (/home/drakestapleton/workspace/targets/L676/83394576f7bff8f18dd235b2dd58c5e90f8fd493/debug/deps/objective_record_test-7d9090838e7fad97)
+
+running 6 tests
+test record_refuses_forbidden_effect_class_before_any_work ... ok
+test propose_with_missing_objective_id_is_refused ... ok
+test record_refuses_over_length_text ... ok
+test propose_with_mismatched_objective_id_is_refused ... ok
+test show_prints_the_record ... ok
+test record_writes_file_and_id_is_reproducible ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/provenance_link_live_test.rs (/home/drakestapleton/workspace/targets/L676/83394576f7bff8f18dd235b2dd58c5e90f8fd493/debug/deps/provenance_link_live_test-efefd63db181d014)
+
+running 1 test
+test a_live_model_commit_names_its_generation_record_and_weights_digest ... ignored, live: needs AIEN_BIN (compose-linked CPU build) and SmolLM2 on disk; minutes of CPU
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/recovery_matrix_test.rs (/home/drakestapleton/workspace/targets/L676/83394576f7bff8f18dd235b2dd58c5e90f8fd493/debug/deps/recovery_matrix_test-d1012db30daff16e)
+
+running 12 tests
+test m1_mac_replay_across_sigkill_restart ... ignored, needs AIEN_BIN: compose-linked CPU build with fault-hold
+test m2_rotated_desk_key_during_inflight_intent ... ignored, needs AIEN_BIN: compose-linked CPU build with fault-hold
+test r1_crash_before_commit ... ignored, needs AIEN_BIN: compose-linked CPU build with fault-hold
+test r2_crash_after_intent_before_write ... ignored, needs AIEN_BIN: compose-linked CPU build with fault-hold
+test r3_crash_after_write_before_ack ... ignored, needs AIEN_BIN: compose-linked CPU build with fault-hold
+test r3b_crash_after_write_then_file_modified_is_unresolved ... ignored, needs AIEN_BIN: compose-linked CPU build with fault-hold
+test r4_corrupted_state_is_refused_not_reinitialised ... ignored, needs AIEN_BIN: compose-linked CPU build with fault-hold
+test r5_missing_gpu_is_honest ... ignored, needs AIEN_BIN: compose-linked CPU build with fault-hold
+test r6_stale_permission_is_not_spendable ... ignored, needs AIEN_BIN: compose-linked CPU build with fault-hold
+test r7_different_model_on_restart ... ignored, needs AIEN_BIN: compose-linked CPU build with fault-hold
+test r8_foreign_identity_is_refused ... ignored, needs AIEN_BIN: compose-linked CPU build with fault-hold
+test r9_memory_does_not_leak ... ignored, needs AIEN_BIN: compose-linked CPU build with fault-hold
+
+test result: ok. 0 passed; 0 failed; 12 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/test_cli_runtime_ipc.rs (/home/drakestapleton/workspace/targets/L676/83394576f7bff8f18dd235b2dd58c5e90f8fd493/debug/deps/test_cli_runtime_ipc-1f0851be26af3c6f)
+
+running 1 test
+test test_cli_runtime_ipc_lifecycle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+   Doc-tests aien_cli
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

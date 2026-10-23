@@ -1,0 +1,11 @@
+
+running 6 tests
+test browser_mirror::tests::base64_roundtrip ... ok
+test browser_mirror::tests::dropping_chrome_reaps_every_helper ... ok
+test browser_mirror::tests::stale_candidates_and_exited_pidfds_cannot_signal_a_stranger ... ok
+test browser_mirror::tests::stub_page_screenshot_and_eval ... ok
+test browser_mirror::tests::tag_sweep_matches_only_its_own_tag ... ok
+test browser_mirror::tests::unknown_action_is_an_error ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.72s
+

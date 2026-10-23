@@ -1,0 +1,21 @@
+warning: aien-omega-gpu@0.1.0: aien-omega-gpu: no AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB, building the CPU stub
+warning: aien-omega-compose@0.1.0: aien-omega-compose: no AIEN_OMEGA_COMPOSE_DIR, AIEN_OMEGA_DIR or AIEN_OMEGA_COMPOSE_LIB, building the stub
+   Compiling aien-cli v0.1.0 (/home/drakestapleton/workspace/hermes-desk/L676-browser/crates/aien-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.82s
+     Running unittests src/lib.rs (/home/drakestapleton/workspace/targets/L676/83394576f7bff8f18dd235b2dd58c5e90f8fd493/debug/deps/aien_cli-1f935d6b820ea560)
+
+running 1 test
+
+thread 'browser_mirror::tests::undetected_child_does_not_extend_drop_past_cleanup_deadline' (3457321) panicked at crates/aien-cli/src/browser_mirror.rs:1393:9:
+drop exceeded deadline: 8.00078397s
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test browser_mirror::tests::undetected_child_does_not_extend_drop_past_cleanup_deadline ... FAILED
+
+failures:
+
+failures:
+    browser_mirror::tests::undetected_child_does_not_extend_drop_past_cleanup_deadline
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 8.00s
+
+error: test failed, to rerun pass `-p aien-cli --lib`
