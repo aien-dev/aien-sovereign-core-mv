@@ -38,7 +38,9 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use aien_inference_abi::qwen38::{argmax, Logits, Qwen38Config, Qwen38Reference};
-use aien_inference_abi::qwen38_omega::{mem_available, window_bytes, Qwen38Omega, KEEP_FREE};
+use aien_inference_abi::qwen38_omega::{
+    mem_available, window_bytes, Qwen38Omega, SharedWeights, KEEP_FREE,
+};
 use aien_inference_abi::qwen3_moe::parity_stats;
 use aien_inference_abi::qwen3_moe_omega::ShardSource;
 use serde_json::{json, Value};
@@ -191,8 +193,10 @@ fn median(v: &mut [u64]) -> u64 {
 }
 
 fn run() -> Result<bool, String> {
-    let args: Vec<String> = std::env::args().collect();
-    let usage = "usage: qwen36_stroke_gate <checkpoint-dir> <out.json> <golden.json>... (1..=8)";
+    let mut args: Vec<String> = std::env::args().collect();
+    // --weights-from <socket> (L383 shared weights): map a running owner's upload instead of loading
+    let shared = take_weights_from(&mut args)?;
+    let usage = "usage: qwen36_stroke_gate <checkpoint-dir> <out.json> <golden.json>... (1..=8) [--weights-from SOCK]";
     if args.len() < 4 || args.len() > 11 {
         return Err(usage.into());
     }
@@ -271,7 +275,11 @@ fn run() -> Result<bool, String> {
     // The chip: every conversation in its own head slot, one stroke per step. Uploaded only when
     // the box keeps KEEP_FREE after it (the 18091 server shares the pool; never starve it), and
     // only under the hive's chip lock.
-    let need = window_bytes(&config, 0, layers);
+    let need = if shared.is_some() {
+        0
+    } else {
+        window_bytes(&config, 0, layers)
+    };
     let in_window = std::env::var("AIEN_STROKE_IN_WINDOW").is_ok_and(|v| v == "1");
     // Memory moves between the wait and the lock (another lane's server loads while this process
     // queues for the lock), so: wait, lock, look again under the lock; if short, let the lock go
@@ -311,7 +319,10 @@ fn run() -> Result<bool, String> {
         std::thread::sleep(Duration::from_secs(10));
     };
     let t1 = Instant::now();
-    let mut engine = Qwen38Omega::open_window_heads(dir, 0, layers, t_max.max(256), heads)?;
+    let mut engine = match &shared {
+        Some(s) => Qwen38Omega::open_shared(dir, s, t_max.max(256), heads)?,
+        None => Qwen38Omega::open_window_heads(dir, 0, layers, t_max.max(256), heads)?,
+    };
     let upload_s = t1.elapsed().as_secs_f64();
     // AIEN_STROKE_V2=1: the batch (every layer recorded for all heads at once, one weight read per layer)
     if std::env::var("AIEN_STROKE_V2").is_ok_and(|v| v == "1") {
@@ -513,6 +524,25 @@ fn run() -> Result<bool, String> {
     std::fs::write(out_path, serde_json::to_string_pretty(&report).unwrap())
         .map_err(|e| format!("{out_path}: {e}"))?;
     Ok(all_pass)
+}
+
+/// Pulls `--weights-from <socket>` out of the argument list and fetches the owner's manifest.
+fn take_weights_from(a: &mut Vec<String>) -> Result<Option<SharedWeights>, String> {
+    let Some(i) = a.iter().position(|s| s == "--weights-from") else {
+        return Ok(None);
+    };
+    if i + 1 >= a.len() {
+        return Err("--weights-from needs a socket path".into());
+    }
+    let sock = a.remove(i + 1);
+    a.remove(i);
+    let s = SharedWeights::fetch(Path::new(&sock))?;
+    eprintln!(
+        "shared weights: from pid {} at {sock} ({} tensors)",
+        s.owner_pid,
+        s.tensors.len()
+    );
+    Ok(Some(s))
 }
 
 fn main() {
