@@ -1,1 +1,6 @@
 cnrows8-real rc=2
+cnrows8-mutant4 rc=143
+cnrows8-perhead rc=2
+real == cnrows8-perhead: IDENTICAL
+real vs L312 stroke8l2-real: DIFFER
+GATEDONE
