@@ -3841,11 +3841,37 @@ impl Qwen3MoeOmegaEngine {
         paths: DevicePaths,
         progress: &mut dyn FnMut(&str),
     ) -> Result<(Self, LoadReport), String> {
+        Self::load_omega_layers(dir, None, max_context, format, attn, paths, progress)
+    }
+
+    /// [`Self::load_omega_paths`] with only the first `layers` decoder layers loaded (`None`: all).
+    /// A truncated model's tokens are not the model's; L308 uses it for a small full loop whose
+    /// outputs are compared bit for bit between two placements of the same weights.
+    pub fn load_omega_layers(
+        dir: &Path,
+        layers: Option<usize>,
+        max_context: usize,
+        format: WeightFormat,
+        attn: AttnPath,
+        paths: DevicePaths,
+        progress: &mut dyn FnMut(&str),
+    ) -> Result<(Self, LoadReport), String> {
         if !aien_omega_gpu::is_native() {
             return Err("this binary carries the CPU stub of the Omega engine (build with AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB)".into());
         }
-        let (weights, report) =
-            load_qwen3_moe_omega_paths(dir, &OmegaModelUploader, format, paths, progress)?;
+        let mut config = Qwen3MoeConfig::from_checkpoint(dir)?;
+        if let Some(n) = layers {
+            config.layers = config.layers.min(n.max(1));
+        }
+        let mut source = ShardSource::open(dir)?;
+        let (weights, report) = load_qwen3_moe_omega_from_paths(
+            &config,
+            &mut source,
+            &OmegaModelUploader,
+            format,
+            paths,
+            progress,
+        )?;
         let geometry = KvGeometry::from(&weights.config);
         let fused = match attn {
             AttnPath::Split => false,
