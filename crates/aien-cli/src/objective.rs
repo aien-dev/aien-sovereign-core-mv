@@ -43,6 +43,12 @@ pub fn objective_id(text: &str) -> String {
     aien_runtime::objective::objective_id(text)
 }
 
+/// Tests that set or read `AIEN_PROVENANCE_DIR` hold this, so one test's
+/// `set_var` cannot land between another test's reads (the test harness runs
+/// them on parallel threads of one process).
+#[cfg(test)]
+pub(crate) static PROVENANCE_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// The same directory the daemon re-reads (sovereign-core #408).
 fn dir() -> PathBuf {
     aien_runtime::objective::dir()
@@ -199,6 +205,9 @@ mod tests {
 
     #[test]
     fn matching_objective_id_is_accepted_and_carried() {
+        let _env = super::PROVENANCE_ENV
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let t = tempfile::tempdir().unwrap();
         std::env::set_var("AIEN_PROVENANCE_DIR", t.path());
         let r = record("do the thing", None).unwrap();
@@ -220,6 +229,9 @@ mod default_dir_tests {
     /// or approval refuses ObjectiveMissing. Both call the one runtime function.
     #[test]
     fn cli_and_daemon_agree_and_default_is_not_tmp() {
+        let _env = super::PROVENANCE_ENV
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let with = |k: &str| {
             if k == "HOME" {
                 Some("/home/op".to_string())

@@ -1,5 +1,7 @@
 #![allow(clippy::type_complexity, clippy::needless_range_loop)]
 mod allen;
+mod approval;
+mod checkpoint;
 mod client;
 mod commands;
 pub mod compaction;
@@ -239,6 +241,7 @@ async fn main() {
     let platform = crate::platform::PlatformContext::detect();
     let sessions_dir = platform.home_dir.join("basecamp/sessions");
     let _ = fs::create_dir_all(&sessions_dir);
+    start_checkpoints(&platform.home_dir, &session_id);
 
     // Mandatory Nesting Ritual: Circle, Check Wind, Leave Scent, Flatten Terrain
     let nesting = perform_nesting_ritual(&session_id, true).await;
@@ -317,6 +320,7 @@ async fn main() {
                 let hook_registry = crate::hooks::HookRegistry::default_sovereign_registry();
                 let _ = hook_registry.run_pre_turn(&mut user_turn).await;
 
+                crate::checkpoint::begin_turn();
                 messages.push(json!({"role": "user", "content": user_turn}));
 
                 report_compaction(&compactor.compact_if_needed(&mut messages));
@@ -390,6 +394,8 @@ async fn run_single_prompt(prompt: &str) {
     let platform = crate::platform::PlatformContext::detect();
     let sessions_dir = platform.home_dir.join("basecamp/sessions");
     let _ = fs::create_dir_all(&sessions_dir);
+    start_checkpoints(&platform.home_dir, &session_id);
+    crate::checkpoint::begin_turn();
 
     // Mandatory Nesting Ritual: Required at startup across all modes
     let nesting = perform_nesting_ritual(&session_id, true).await;
@@ -638,5 +644,18 @@ fn report_compaction(report: &crate::compaction::CompactionReport) {
             .yellow()
             .dimmed()
         ),
+    }
+}
+
+/// sc#667: record the agent's file writes so `/rollback` can undo them
+/// without touching the operator's own edits. A store that cannot open is
+/// reported; the session still runs, with writes refused only if a later
+/// snapshot fails.
+fn start_checkpoints(home: &std::path::Path, session_id: &str) {
+    if let Err(err) = crate::checkpoint::start_session(home, session_id) {
+        eprintln!(
+            "{}",
+            format!("Checkpoints off for this session: {}", err).yellow()
+        );
     }
 }
