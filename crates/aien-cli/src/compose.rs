@@ -12,7 +12,7 @@
 //! Each subcommand prints one JSON object on stdout (`"ok": true|false`) and
 //! exits 1 on failure.
 //!
-//!   remember  --text T [--context C]                     S1 constraint record + ALLEN memory item (refused when ALLEN is not engaged)
+//!   remember  --text T                                   S1 constraint record
 //!   inspect   --workspace W                              S2 read-only listing + receipt
 //!   propose   --goal G --workspace W  [--context personal|work|project:NAME]  S3 one RunComposeTask
 //!   authorize --report S3.json --workspace W --approver NAME [--constraint ID]
@@ -27,7 +27,7 @@
 //!                                                        S5 the write, confined
 //!   explain   --report S3.json --cite ID,.. --receipts P,..
 //!                                                        S6 evidence-citing explanation
-//!   recall    [--ids ID,..] [--prefix N] [--context C]   S8 constraints + effects + ALLEN memory state
+//!   recall    [--ids ID,..] [--prefix N]                 S8 constraints + effects
 //!   shutdown                                             S7 stop the daemon (control Shutdown)
 //!   recover                                              repair a refused home
 //!   effects                                              the effect ledger (NEXT-PHASE-2)
@@ -150,43 +150,6 @@ async fn note(kind: &str, text: &str, links: Vec<u64>) -> Result<Value, String> 
     }
 }
 
-/// Put one item into ALLEN scoped memory (the existing aien-allen-memory path). A refusal
-/// (not engaged, foreign or damaged store) is returned as `Err` with its code and plain text.
-async fn memory_put(context: &str, text: &str) -> Result<Value, String> {
-    match send(ControlCommand::AllenMemoryPut {
-        context: context.into(),
-        kind: "fact".into(),
-        text: text.into(),
-    })
-    .await?
-    {
-        ControlResponse::AllenMemoryResult(r) => Ok(r.result),
-        ControlResponse::AllenRefused(e) => Err(format!("{} ({})", e.message, e.code)),
-        other => Err(format!("unexpected response {other:?}")),
-    }
-}
-
-/// ALLEN scoped memory of one context, as `recall` reports it: `not_engaged` (with the
-/// plain-language reason) rather than an empty success when there is no identity.
-async fn memory_view(context: &str) -> Result<Value, String> {
-    match send(ControlCommand::AllenMemoryRecall {
-        context: context.into(),
-        query: None,
-    })
-    .await?
-    {
-        ControlResponse::AllenMemoryResult(r) => Ok(json!({
-            "state": "included", "context": context,
-            "items": r.result["items"], "omitted": r.result["omitted"],
-            "unresolved": r.result["unresolved"],
-        })),
-        ControlResponse::AllenRefused(e) => Ok(json!({
-            "state": e.code, "context": context, "items": [], "reason": e.message,
-        })),
-        other => Err(format!("unexpected response {other:?}")),
-    }
-}
-
 async fn recall(ids: Vec<u64>, prefix: Option<u64>) -> Result<ComposeRecallReport, String> {
     match send(ControlCommand::ComposeRecall { ids, prefix }).await? {
         ControlResponse::ComposeRecalled(r) => Ok(*r),
@@ -267,12 +230,8 @@ async fn step(sub: &str, m: &HashMap<String, String>) -> Result<Value, String> {
     match sub {
         "remember" => {
             let text = need(m, "text")?;
-            let context = m.get("context").map_or("work", String::as_str);
-            // sc#386: memory lives with an engaged ALLEN identity. Put it there first; a refusal
-            // (not engaged) stops here and nothing is stored.
-            let mem = memory_put(context, text).await?;
             let n = note("constraint", text, vec![]).await?;
-            Ok(json!({"step": "S1", "constraint": n, "memory": mem, "context": context}))
+            Ok(json!({"step": "S1", "constraint": n}))
         }
         "inspect" => {
             let (_, ws) = confine(need(m, "workspace")?)?;
@@ -536,7 +495,6 @@ async fn step(sub: &str, m: &HashMap<String, String>) -> Result<Value, String> {
                 .map(|s| s.parse::<u64>().map_err(|e| format!("--prefix: {e}")))
                 .transpose()?;
             let rec = recall(want, prefix).await?;
-            let memory = memory_view(m.get("context").map_or("work", String::as_str)).await?;
             let of = |k: &str| -> Vec<Value> {
                 rec.host
                     .iter()
@@ -547,7 +505,7 @@ async fn step(sub: &str, m: &HashMap<String, String>) -> Result<Value, String> {
             };
             Ok(json!({"step": "S8", "machine_id": rec.machine_id,
                 "constraints": of("constraint"), "authorizations": of("authorization"),
-                "effects": of("effect"), "repairs": of("repair_tail"), "memory": memory, "recall": rec}))
+                "effects": of("effect"), "repairs": of("repair_tail"), "recall": rec}))
         }
         "shutdown" => {
             AienRuntimeClient::default_client().shutdown().await?;
