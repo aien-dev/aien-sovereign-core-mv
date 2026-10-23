@@ -1,0 +1,15 @@
+mem available before load: 72.2 GB, this run needs about 23.3 GB
+omega native: bf16 GEMV true, FP8 GEMV true, FP8 GEMM true
+LOAD /home/drakestapleton/models/qwen3-4b-instruct-2507-cdbee75 format Bf16 tied true layers 36 resident 8.045 GB uploads 145 in 4.0s, kv split resident true context 4096, controls: upload_mutant None kernel_mutant 0 attention_mutant true
+host reference loaded in 2.4s
+PARITY layer 0 over 261 positions: x_out cosine(min) 0.148546 p95_rel(max) 7.56e0, attention cosine(min) 0.158019, mlp cosine(min) 0.155682 -> FAIL
+PARITY layer 17 over 261 positions: x_out cosine(min) 0.121036 p95_rel(max) 4.07e1, attention cosine(min) -0.113803, mlp cosine(min) -0.209861 -> FAIL
+PARITY layer 35 over 261 positions: x_out cosine(min) -0.221177 p95_rel(max) 3.28e1, attention cosine(min) 0.009510, mlp cosine(min) -0.525866 -> FAIL
+PREFILL 512 tokens in 30.559s (92160 launches, chip 28529.8 ms), last hidden vs token-at-a-time: bit-equal true, cosine 1.000000000
+TOKENS p1-one-token: 1 of 32 golden tokens, first divergence at 1 (golden margin there 1.4777) -> FAIL
+TOKENS p2-short: 0 of 8 golden tokens, first divergence at 0 (golden margin there 18.2299) -> FAIL
+TOKENS p3-medium: 0 of 32 golden tokens, first divergence at 0 (golden margin there 24.1446) -> FAIL
+TOKENS p4-code: 0 of 32 golden tokens, first divergence at 0 (golden margin there 18.6877) -> FAIL
+TOKENS p5-512: 0 of 32 golden tokens, first divergence at 0 (golden margin there 20.2764) -> FAIL
+SPEED decode 128 tokens in 7981 ms = 16.04 tok/s; per token: chip 58.82 ms, host 1.45 ms, attention 19.50 ms, mlp 38.77 ms, lm_head 3.70 ms, 180 launches; prefill 56 tokens in 3299 ms
+SUMMARY FAIL (parity 3 layers, tokens differ, prefill bit-equal true)

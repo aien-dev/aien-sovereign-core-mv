@@ -19,6 +19,8 @@ What lives here:
 
 Research-grade and pre-alpha. Crates build and have unit tests on the DGX Spark; execution is CPU plus GPU through AIEN's own Omega kernels. Modular MAX and Mojo were removed from the project on 2026-10-15. Nothing here is qualified on hardware as a finished system, and no public release exists yet. Live status and sequencing: [CURRENT_EXECUTION_PLAN.md](https://github.com/aien-spark/aien-architecture/blob/main/CURRENT_EXECUTION_PLAN.md) and the [implementation status snapshot](https://github.com/aien-spark/aien-architecture/blob/main/docs/02-implementation-status.md). Component detail and platform status: [docs/PLATFORM_MATRIX.md](docs/PLATFORM_MATRIX.md), [docs/AIEN_RUNTIME_ARCHITECTURE.md](docs/AIEN_RUNTIME_ARCHITECTURE.md). Repository vocabulary and ownership notes: [CONTEXT.md](CONTEXT.md).
 
+Dense Qwen3 on Omega (OWN-8B stage 2, `crates/aien-inference-abi/src/qwen3_dense_omega_engine.rs`): `Qwen3DenseOmegaEngine` runs Qwen3-8B-FP8 (FP8 GEMV decode, FP8 GEMM prefill) and Qwen3-4B-Instruct-2507 (bf16, tied embeddings) with `step`, `step_batch`, `logits`, `rewind` and `generate_with`. Host tests pass; the chip check is `scripts/own8b-chip-run.sh` with `own8b_check` against the host-reference goldens in `docs/campaigns/open-model-qwen3/SMOKE-{4B-v1,8B-FP8-v1}.golden.json`. Chip results: not yet run.
+
 Known limits: the GPU fallback counter covers only instrumented operations, so execution is not exclusively accelerated; Qwen full-runtime qualification is not complete; the C1 evidence campaign is in progress.
 
 ## Measured results

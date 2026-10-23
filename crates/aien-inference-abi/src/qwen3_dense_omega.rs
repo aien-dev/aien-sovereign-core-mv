@@ -1,4 +1,4 @@
-//! Qwen3 dense (Qwen3-8B family, bf16) on AIEN's own GPU engine (Omega), OWN-8B Stage 1.
+//! Qwen3 dense (Qwen3-8B family, bf16) on AIEN's own GPU engine (Omega), OWN-8B Sage 1.
 //!
 //! Design: `~/handoffs/2026-10-15-own8b-design.md` (section 2.2, stage table row 1). This stage
 //! is host only: no launch, no chip. It is the dense sibling of `qwen3_moe_omega.rs`, which it
@@ -6,7 +6,7 @@
 //!
 //! - [`Qwen3DenseConfig`]: the shape, read from `config.json` through the strict Qwen3 reader of
 //!   `model_dir.rs`, then held to what the dense Omega engine can run: model_type `qwen3` (the
-//!   MoE family is refused by name), untied embeddings, plain rope, head_dim 64 or 128, every
+//!   MoE family is refused by name), tied or untied embeddings, plain rope, head_dim 64 or 128, every
 //!   projection inside the bf16 streaming GEMV rule (`k % 256 == 0`, `256 <= k <= 16384`) and
 //!   inside the resident matmul limits used for prefill (`K <= 16384`, `N <= 262144`).
 //! - The streaming loader: no f32 image of the model. Every matrix is read from the shards as raw
@@ -42,6 +42,10 @@ use crate::qwen3_moe_omega::{
 };
 
 // The loader reads little-endian bf16 words in place (see `read_bf16`).
+/// OWN-8B stage 2: the engine (decode, prefill, generation) over the loaded weights.
+#[path = "qwen3_dense_omega_engine.rs"]
+pub mod engine;
+
 const _: () = assert!(
     cfg!(target_endian = "little"),
     "the dense loader needs a little-endian host"
@@ -184,6 +188,9 @@ pub struct Qwen3DenseConfig {
     pub max_position: usize,
     /// Ids generation stops on (`generation_config.json` eos list, else `config.json` eos).
     pub eos_token_ids: Vec<u32>,
+    /// `tie_word_embeddings`: the lm_head is the embedding matrix (Qwen3-4B, 0.6B, 1.7B). The
+    /// loader then uploads the host embedding as the lm_head and reads no `lm_head.weight`.
+    pub tie_word_embeddings: bool,
 }
 
 impl Qwen3DenseConfig {
@@ -231,18 +238,6 @@ impl Qwen3DenseConfig {
                 }
             }
         }
-        // Named before the general reader so the refusal says which field.
-        if raw
-            .get("tie_word_embeddings")
-            .and_then(|t| t.as_bool())
-            .unwrap_or(false)
-        {
-            return Err(
-                "config refused: tie_word_embeddings=true is not implemented (the dense \
-                        engine streams a separate lm_head)"
-                    .into(),
-            );
-        }
         let format = DenseWeightFormat::from_config(&raw)?;
         // The strict Qwen3ForCausalLM reader: unknown keys, sliding window, biases, activation,
         // rope type, head_dim presence and the attention geometry are refused there by name. It
@@ -282,6 +277,7 @@ impl Qwen3DenseConfig {
             rope_theta: mc.rope_theta,
             max_position: mc.max_sequence_length,
             eos_token_ids: mc.eos_token_ids,
+            tie_word_embeddings: mc.tie_word_embeddings,
         };
         cfg.validate()?;
         Ok(cfg)
@@ -421,6 +417,8 @@ impl Qwen3DenseConfig {
     pub fn loader_buffer_words(&self) -> usize {
         self.matrices()
             .iter()
+            // A tied lm_head is uploaded from the host embedding, not read through the buffer.
+            .filter(|m| !(self.tie_word_embeddings && m.0 == DenseTensor::LmHead))
             .map(|&(what, n, k)| {
                 if self.is_fp8(what) {
                     (n * k).div_ceil(2)
@@ -482,6 +480,12 @@ pub trait DenseGemv: Send + Sync + std::fmt::Debug {
     fn k(&self) -> usize;
     /// Returns the device time in ns (0 when not measured).
     fn gemv_f32(&self, x: &[f32], y: &mut [f32]) -> Result<u64, String>;
+    /// `m` rows: `x` is `[m][k]`, `y` is `[m][n]`. Returns (device ns, launches). The default
+    /// runs the GEMV once per row; a multi-row kernel (omega's FP8 GEMM) must give the same
+    /// numbers bit for bit, so prefill and decode share one oracle.
+    fn rows_f32(&self, m: usize, x: &[f32], y: &mut [f32]) -> Result<(u64, u64), String> {
+        engine::rows_by_gemv(self, m, x, y)
+    }
 }
 
 /// Makes `[n][k]` bf16 matrices resident, byte for byte as given (the checkpoint row layout).
@@ -634,16 +638,19 @@ impl DenseGemv for HostFp8Gemv {
                 y.len()
             ));
         }
+        // Rows in parallel; each row sums its columns in order, so the result does not depend on
+        // the thread count.
+        use rayon::prelude::*;
         if let Some(d) = &self.dequantised {
-            for (r, out) in y.iter_mut().enumerate() {
+            y.par_iter_mut().enumerate().for_each(|(r, out)| {
                 let row = &d[r * k..(r + 1) * k];
                 *out = row.iter().zip(x).map(|(&w, &v)| bf16_to_f32(w) * v).sum();
-            }
+            });
             return Ok(0);
         }
         let lut = fp8_table();
         let kb = k / FP8_BLOCK;
-        for (r, out) in y.iter_mut().enumerate() {
+        y.par_iter_mut().enumerate().for_each(|(r, out)| {
             let row = &self.w[r * k..(r + 1) * k];
             let srow = &self.scales[(r / FP8_BLOCK) * kb..(r / FP8_BLOCK + 1) * kb];
             *out = row
@@ -652,7 +659,7 @@ impl DenseGemv for HostFp8Gemv {
                 .enumerate()
                 .map(|(c, (&w, &v))| lut[w as usize] * v * bf16_to_f32(srow[c / FP8_BLOCK]))
                 .sum();
-        }
+        });
         Ok(0)
     }
 }
@@ -976,12 +983,32 @@ pub fn load_qwen3_dense_omega_from(
     }
 
     let final_norm = s.norm("model.norm.weight", h)?;
-    let lm_head = s.matrix(
-        None,
-        DenseTensor::LmHead,
-        &[("lm_head.weight".to_string(), config.vocab)],
-        h,
-    )?;
+    let lm_head = if config.tie_word_embeddings {
+        // Tied: the lm_head is the embedding matrix (`[vocab][hidden]`, the GEMV's `[n][k]`),
+        // uploaded from the host copy; the checkpoint carries no `lm_head.weight`.
+        let m = s
+            .uploader
+            .upload_bf16(None, DenseTensor::LmHead, config.vocab, h, &embed_bf16)
+            .map_err(|e| format!("lm_head (tied to embed_tokens) upload: {e}"))?;
+        if m.n() != config.vocab || m.k() != h {
+            return Err(format!(
+                "lm_head (tied) upload returned [{}][{}], asked [{}][{h}]",
+                m.n(),
+                m.k(),
+                config.vocab
+            ));
+        }
+        s.resident += config.matrix_bytes(DenseTensor::LmHead, config.vocab, h);
+        s.uploads += 1;
+        m
+    } else {
+        s.matrix(
+            None,
+            DenseTensor::LmHead,
+            &[("lm_head.weight".to_string(), config.vocab)],
+            h,
+        )?
+    };
     progress("lm_head uploaded");
     let (resident, uploads) = (s.resident, s.uploads);
     drop(s);
@@ -1035,6 +1062,7 @@ pub(crate) mod test_support {
             rope_theta: 1e6,
             max_position: 4096,
             eos_token_ids: vec![3],
+            tie_word_embeddings: false,
         }
     }
 
@@ -1070,7 +1098,7 @@ pub(crate) mod test_support {
             "rope_scaling": null,
             "rope_theta": c.rope_theta,
             "sliding_window": null,
-            "tie_word_embeddings": false,
+            "tie_word_embeddings": c.tie_word_embeddings,
             "torch_dtype": "bfloat16",
             "transformers_version": "4.51.0",
             "use_cache": true,
@@ -1179,11 +1207,13 @@ pub(crate) mod test_support {
             spec.push((format!("{p}.mlp.down_proj.weight"), vec![h, i], Kind::Proj));
         }
         spec.push(("model.norm.weight".into(), vec![h], Kind::Plain(0.1, 1.0)));
-        spec.push((
-            "lm_head.weight".into(),
-            vec![c.vocab, h],
-            Kind::Plain(0.1, 0.0),
-        ));
+        if !c.tie_word_embeddings {
+            spec.push((
+                "lm_head.weight".into(),
+                vec![c.vocab, h],
+                Kind::Plain(0.1, 0.0),
+            ));
+        }
 
         let fp8 = c.format == DenseWeightFormat::Fp8Block128;
         let mut out = Vec::new();
@@ -1802,11 +1832,67 @@ mod tests {
     }
 
     #[test]
-    fn refuses_tied_embeddings() {
-        refused(
-            variant("tie_word_embeddings", true.into()),
-            "tie_word_embeddings",
-        );
+    fn tied_embeddings_config_parses() {
+        let c = variant("tie_word_embeddings", true.into()).unwrap();
+        assert!(c.tie_word_embeddings);
+        assert!(!variant("tie_word_embeddings", false.into())
+            .unwrap()
+            .tie_word_embeddings);
+        // The lm_head is not read through the loader buffer when tied: the largest projection
+        // (gate|up, 2 * 12288 x 4096 words) sets it, not the 151936 x 4096 lm_head.
+        assert_eq!(c.loader_buffer_words(), 2 * 12288 * 4096);
+    }
+
+    /// Qwen3-4B-Instruct-2507's shape (tied, k 2560 and 9728) is inside every kernel rule.
+    #[test]
+    fn qwen3_4b_config_parses_with_tied_embeddings() {
+        let cfg = r#"{"architectures": ["Qwen3ForCausalLM"], "attention_bias": false,
+  "attention_dropout": 0.0, "bos_token_id": 151643, "eos_token_id": 151645, "head_dim": 128,
+  "hidden_act": "silu", "hidden_size": 2560, "initializer_range": 0.02,
+  "intermediate_size": 9728, "max_position_embeddings": 262144, "max_window_layers": 36,
+  "model_type": "qwen3", "num_attention_heads": 32, "num_hidden_layers": 36,
+  "num_key_value_heads": 8, "rms_norm_eps": 1e-06, "rope_scaling": null,
+  "rope_theta": 5000000, "sliding_window": null, "tie_word_embeddings": true,
+  "torch_dtype": "bfloat16", "transformers_version": "4.51.0", "use_cache": true,
+  "use_sliding_window": false, "vocab_size": 151936}"#;
+        let c = Qwen3DenseConfig::from_json(cfg, None).unwrap();
+        assert!(c.tie_word_embeddings);
+        assert_eq!(c.format, DenseWeightFormat::Bf16);
+        assert_eq!((c.hidden, c.intermediate, c.layers), (2560, 9728, 36));
+        assert_eq!(c.qkv_n(), 6144);
+        assert_eq!(c.rope_theta, 5e6);
+    }
+
+    /// Tied: no `lm_head.weight` in the checkpoint, the lm_head upload is the embedding bit for
+    /// bit, and an untied config over the same tensors is refused (lm_head missing).
+    #[test]
+    fn tied_lm_head_is_the_embedding() {
+        let c = Qwen3DenseConfig {
+            tie_word_embeddings: true,
+            ..tiny_config()
+        };
+        let tensors = tensors(&c);
+        assert!(tensors.iter().all(|t| t.0 != "lm_head.weight"));
+        let up = RecordingDenseUploader::keeping();
+        let (w, report) =
+            load_qwen3_dense_omega_from(&c, &mut memory_source_of(tensors.clone()), &up, &mut |_| {})
+                .unwrap();
+        let records = up.records.lock().unwrap();
+        let lm = records
+            .iter()
+            .find(|r| r.what == DenseTensor::LmHead)
+            .unwrap();
+        assert_eq!(lm.matrix.as_ref().unwrap().bits, w.embed_bf16);
+        assert_eq!(report.uploads, 4 * c.layers + 1);
+        let untied = tiny_config();
+        let e = load_qwen3_dense_omega_from(
+            &untied,
+            &mut memory_source_of(tensors),
+            &RecordingDenseUploader::keeping(),
+            &mut |_| {},
+        )
+        .unwrap_err();
+        assert!(e.contains("lm_head"), "{e}");
     }
 
     #[test]
