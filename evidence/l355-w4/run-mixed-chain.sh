@@ -8,7 +8,16 @@ B=$HOME/workspace/targets/l355/sc-merged/release/q36_w4_drift; M=$HOME/models/qw
 R=$HOME/workspace/sc-hum-state-precision/evidence/hum-state-precision; G=$HOME/workspace/sc-l355/evidence/q36-host-20261020
 export Q36_EXTRA_WAIT=14400
 log() { echo "$(date -u +%FT%TZ) [mixed chain] $*" >> $O/run.out; }
-x() { local out=$1; shift; env -u AIEN_COORD_KEY q36-extra quiet-build nice -n 10 "$@" > $out.log.txt 2>&1; local rc=$?; log "$(basename $out) exit $rc"; return $rc; }
+# resumable: a run whose output exists is kept; a slot timeout (q36-extra exit 75) waits in line again
+x() {
+  local out=$1; shift; local rc
+  [ -s $out ] && jq -e .nll $out > /dev/null 2>&1 && { log "$(basename $out) kept"; return 0; }
+  [ -s $out ] && jq -e . $out > /dev/null 2>&1 && case $out in *score-*) log "$(basename $out) kept"; return 0 ;; esac
+  while :; do
+    env -u AIEN_COORD_KEY Q36_EXTRA_LEDGER=L355 q36-extra quiet-build nice -n 10 "$@" > $out.log.txt 2>&1; rc=$?
+    log "$(basename $out) exit $rc"; [ $rc = 75 ] || return $rc
+  done
+}
 x $O/forced-fp8m2-p1.json $B forced $M $R/drift-p1.json 512 fp8 $O/forced-fp8m2-p1.json
 ctl=$(jq -n --slurpfile a $O/forced-fp8m2-p1.json --slurpfile b $O/forced-fp8-p1.json '($a[0].argmax == $b[0].argmax) and ($a[0].nll == $b[0].nll) and ($a[0].margin == $b[0].margin)')
 log "control (this build fp8 p1 == forced-fp8-p1): $ctl"

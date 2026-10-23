@@ -106,3 +106,45 @@
 2026-10-21T06:15:43Z [heldout w4g] end
 2026-10-21T06:15:43Z [gptq chain] verdict REJECT
 2026-10-21T12:38:07Z [nv16 chain] go/no-go (b): rel_rms 0.092202 -> NO-GO
+2026-10-21T14:02:56Z [mixed chain] forced-fp8m2-p1.json exit 0
+2026-10-21T14:02:56Z [mixed chain] control (this build fp8 p1 == forced-fp8-p1): true
+2026-10-21T14:02:56Z [mixed chain] arm w4mgu (w4e-mgu) start
+2026-10-21T14:42:15Z [mixed chain] forced-w4mgu-p1.json exit 0
+2026-10-21T18:42:17Z [mixed chain] forced-w4mgu-p2.json exit 75
+2026-10-21T22:17:22Z [mixed chain] forced-fp8m2-p1.json kept
+2026-10-21T22:17:22Z [mixed chain] control (this build fp8 p1 == forced-fp8-p1): true
+2026-10-21T22:17:22Z [mixed chain] arm w4mgu (w4e-mgu) start
+2026-10-21T22:17:22Z [mixed chain] forced-w4mgu-p1.json kept
+2026-10-21T22:28:56Z [mixed chain] forced-w4mgu-p2.json exit 75
+2026-10-21T22:49:02Z [mixed chain] forced-w4mgu-p2.json exit 75
+2026-10-21T23:09:06Z [mixed chain] forced-w4mgu-p2.json exit 75
+2026-10-21T23:29:09Z [mixed chain] forced-w4mgu-p2.json exit 75
+2026-10-21T23:49:12Z [mixed chain] forced-w4mgu-p2.json exit 75
+2026-10-22T00:09:15Z [mixed chain] forced-w4mgu-p2.json exit 75
+2026-10-22T00:29:21Z [mixed chain] forced-w4mgu-p2.json exit 75
+2026-10-22T00:49:24Z [mixed chain] forced-w4mgu-p2.json exit 75
+2026-10-22T01:09:28Z [mixed chain] forced-w4mgu-p2.json exit 75
+2026-10-22T02:32:09Z [mixed chain] forced-w4mgu-p2.json exit 0
+2026-10-22T03:27:17Z [mixed chain] forced-w4mgu-p3.json exit 0
+2026-10-22T04:15:11Z [mixed chain] forced-w4mgu-p4.json exit 0
+2026-10-22T04:46:38Z [mixed chain] forced-w4mgu-chat-max-24.json exit 0
+2026-10-22T04:48:03Z [mixed chain] score-w4mgu.json exit 0
+2026-10-22T05:17:29Z [mixed chain] forced-w4mgu-h1.json exit 0
+2026-10-22T05:48:20Z [mixed chain] forced-w4mgu-h2.json exit 0
+2026-10-22T06:18:52Z [mixed chain] forced-w4mgu-h3.json exit 0
+2026-10-22T06:49:48Z [mixed chain] forced-w4mgu-h4.json exit 0
+2026-10-22T07:22:42Z [mixed chain] forced-w4mgu-h5.json exit 0
+2026-10-22T07:22:42Z [mixed chain] arm w4mgu verdict REJECT
+2026-10-22T07:22:42Z [mixed chain] arm w4mdn (w4e-mdn) start
+2026-10-22T07:39:24Z [mixed chain] forced-w4mdn-p1.json exit 0
+2026-10-22T07:55:04Z [mixed chain] forced-w4mdn-p2.json exit 0
+2026-10-22T08:10:42Z [mixed chain] forced-w4mdn-p3.json exit 0
+2026-10-22T08:27:07Z [mixed chain] forced-w4mdn-p4.json exit 0
+2026-10-22T08:42:57Z [mixed chain] forced-w4mdn-chat-max-24.json exit 0
+2026-10-22T08:43:46Z [mixed chain] score-w4mdn.json exit 0
+2026-10-22T08:59:32Z [mixed chain] forced-w4mdn-h1.json exit 0
+2026-10-22T09:15:36Z [mixed chain] forced-w4mdn-h2.json exit 0
+2026-10-22T09:32:01Z [mixed chain] forced-w4mdn-h3.json exit 0
+2026-10-22T09:47:30Z [mixed chain] forced-w4mdn-h4.json exit 0
+2026-10-22T10:02:41Z [mixed chain] forced-w4mdn-h5.json exit 0
+2026-10-22T10:02:41Z [mixed chain] arm w4mdn verdict REJECT
