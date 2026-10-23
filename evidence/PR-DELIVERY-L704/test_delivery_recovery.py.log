@@ -1,0 +1,12 @@
+$ python3 test_delivery_recovery.py
+test_missing_closed_readback_retains_local_block (__main__.Recovery.test_missing_closed_readback_retains_local_block) ... ok
+test_refusal_boundaries_never_close_or_mutate (__main__.Recovery.test_refusal_boundaries_never_close_or_mutate) ... ok
+test_retained_failure_can_retire_failed_block_without_merging (__main__.Recovery.test_retained_failure_can_retire_failed_block_without_merging) ... ok
+test_retained_failure_still_forbids_nonclose_actions (__main__.Recovery.test_retained_failure_still_forbids_nonclose_actions) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.005s
+
+OK
+
+exit_code=0

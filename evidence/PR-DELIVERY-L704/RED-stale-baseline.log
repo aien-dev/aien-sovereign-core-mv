@@ -1,0 +1,49 @@
+$ python3 -c <selected stale READY cases>
+test_superseded_ready_is_deferred_before_any_model_or_planner_call (test_local_queue.Offline.test_superseded_ready_is_deferred_before_any_model_or_planner_call) ... FAIL
+test_missing_or_ambiguous_local_ready_ref_fails_closed_without_spend (test_local_queue.Offline.test_missing_or_ambiguous_local_ready_ref_fails_closed_without_spend) ... FAIL
+test_multiple_ready_heads_on_one_ref_defer_only_the_ancestor (test_local_queue.Offline.test_multiple_ready_heads_on_one_ref_defer_only_the_ancestor) ... FAIL
+
+======================================================================
+FAIL: test_superseded_ready_is_deferred_before_any_model_or_planner_call (test_local_queue.Offline.test_superseded_ready_is_deferred_before_any_model_or_planner_call)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_local_queue.py", line 110, in test_superseded_ready_is_deferred_before_any_model_or_planner_call
+    self.assertEqual(calls,[],'known superseded head spent planner/model work')
+AssertionError: Lists differ: ['planner', 'model'] != []
+
+First list contains 2 additional elements.
+First extra element 0:
+'planner'
+
+- ['planner', 'model']
++ [] : known superseded head spent planner/model work
+
+======================================================================
+FAIL: test_missing_or_ambiguous_local_ready_ref_fails_closed_without_spend (test_local_queue.Offline.test_missing_or_ambiguous_local_ready_ref_fails_closed_without_spend)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_local_queue.py", line 165, in test_missing_or_ambiguous_local_ready_ref_fails_closed_without_spend
+    self.assertEqual(calls,[])
+AssertionError: Lists differ: ['planner', 'model'] != []
+
+First list contains 2 additional elements.
+First extra element 0:
+'planner'
+
+- ['planner', 'model']
++ []
+
+======================================================================
+FAIL: test_multiple_ready_heads_on_one_ref_defer_only_the_ancestor (test_local_queue.Offline.test_multiple_ready_heads_on_one_ref_defer_only_the_ancestor)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_local_queue.py", line 130, in test_multiple_ready_heads_on_one_ref_defer_only_the_ancestor
+    self.assertEqual(planner.call_count,1)
+AssertionError: 2 != 1
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.387s
+
+FAILED (failures=3)
+
+exit_code=1

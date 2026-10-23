@@ -1,0 +1,302 @@
+$ python3 test_delivery_status.py
+test_active_judge_for_exact_head_defers_status_delivery (__main__.ReceiptStatusDelivery.test_active_judge_for_exact_head_defers_status_delivery) ... FAIL
+test_changed_signed_receipt_before_write_is_refused (__main__.ReceiptStatusDelivery.test_changed_signed_receipt_before_write_is_refused) ... FAIL
+test_existing_spark_state_is_never_overwritten (__main__.ReceiptStatusDelivery.test_existing_spark_state_is_never_overwritten) ... 
+  test_existing_spark_state_is_never_overwritten (__main__.ReceiptStatusDelivery.test_existing_spark_state_is_never_overwritten) (state='failure') ... FAIL
+  test_existing_spark_state_is_never_overwritten (__main__.ReceiptStatusDelivery.test_existing_spark_state_is_never_overwritten) (state='error') ... FAIL
+  test_existing_spark_state_is_never_overwritten (__main__.ReceiptStatusDelivery.test_existing_spark_state_is_never_overwritten) (state='pending') ... FAIL
+  test_existing_spark_state_is_never_overwritten (__main__.ReceiptStatusDelivery.test_existing_spark_state_is_never_overwritten) (state='queued') ... FAIL
+  test_existing_spark_state_is_never_overwritten (__main__.ReceiptStatusDelivery.test_existing_spark_state_is_never_overwritten) (state='unexpected') ... FAIL
+test_existing_success_does_not_hide_a_retained_local_failure (__main__.ReceiptStatusDelivery.test_existing_success_does_not_hide_a_retained_local_failure) ... FAIL
+test_existing_success_is_idempotent_without_duplicate_write (__main__.ReceiptStatusDelivery.test_existing_success_is_idempotent_without_duplicate_write) ... FAIL
+test_failed_write_or_missing_readback_never_reports_success (__main__.ReceiptStatusDelivery.test_failed_write_or_missing_readback_never_reports_success) ... FAIL
+test_idempotent_success_is_reported_as_status_not_waiting (__main__.ReceiptStatusDelivery.test_idempotent_success_is_reported_as_status_not_waiting) ... ERROR
+test_lane_pass_routes_missing_spark_status_to_receipt_delivery (__main__.ReceiptStatusDelivery.test_lane_pass_routes_missing_spark_status_to_receipt_delivery) ... ERROR
+test_null_or_malformed_remote_reads_fail_closed (__main__.ReceiptStatusDelivery.test_null_or_malformed_remote_reads_fail_closed) ... FAIL
+test_qualified_exact_open_pr_posts_success_and_reads_it_back (__main__.ReceiptStatusDelivery.test_qualified_exact_open_pr_posts_success_and_reads_it_back) ... FAIL
+test_refuses_bad_review_receipt_or_current_plan (__main__.ReceiptStatusDelivery.test_refuses_bad_review_receipt_or_current_plan) ... FAIL
+test_refuses_changed_pr_identity_and_repository (__main__.ReceiptStatusDelivery.test_refuses_changed_pr_identity_and_repository) ... 
+  test_refuses_changed_pr_identity_and_repository (__main__.ReceiptStatusDelivery.test_refuses_changed_pr_identity_and_repository) (field='headRefOid') ... FAIL
+  test_refuses_changed_pr_identity_and_repository (__main__.ReceiptStatusDelivery.test_refuses_changed_pr_identity_and_repository) (field='baseRefOid') ... FAIL
+  test_refuses_changed_pr_identity_and_repository (__main__.ReceiptStatusDelivery.test_refuses_changed_pr_identity_and_repository) (field='state') ... FAIL
+  test_refuses_changed_pr_identity_and_repository (__main__.ReceiptStatusDelivery.test_refuses_changed_pr_identity_and_repository) (field='isDraft') ... FAIL
+  test_refuses_changed_pr_identity_and_repository (__main__.ReceiptStatusDelivery.test_refuses_changed_pr_identity_and_repository) (field='baseRefName') ... FAIL
+test_refuses_changed_pr_identity_and_repository (__main__.ReceiptStatusDelivery.test_refuses_changed_pr_identity_and_repository) ... FAIL
+test_refuses_hold_pause_and_local_fail_or_hold (__main__.ReceiptStatusDelivery.test_refuses_hold_pause_and_local_fail_or_hold) ... FAIL
+test_trusted_legacy_repository_source_identity_is_preserved (__main__.ReceiptStatusDelivery.test_trusted_legacy_repository_source_identity_is_preserved) ... FAIL
+test_unexpected_check_run_named_spark_is_never_replaced (__main__.ReceiptStatusDelivery.test_unexpected_check_run_named_spark_is_never_replaced) ... FAIL
+
+======================================================================
+ERROR: test_idempotent_success_is_reported_as_status_not_waiting (__main__.ReceiptStatusDelivery.test_idempotent_success_is_reported_as_status_not_waiting)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 142, in test_idempotent_success_is_reported_as_status_not_waiting
+    with patch.object(h,'Queue',return_value=self.q), patch.object(h,'policy_hash',return_value='synthetic-policy'), \
+  File "/usr/lib/python3.12/unittest/mock.py", line 1458, in __enter__
+    original, local = self.get_original()
+                      ^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/unittest/mock.py", line 1431, in get_original
+    raise AttributeError(
+AttributeError: <module 'renda_status_delivery_test' from '/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/renda-harness'> does not have the attribute 'deliver_receipt_status'
+
+======================================================================
+ERROR: test_lane_pass_routes_missing_spark_status_to_receipt_delivery (__main__.ReceiptStatusDelivery.test_lane_pass_routes_missing_spark_status_to_receipt_delivery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 130, in test_lane_pass_routes_missing_spark_status_to_receipt_delivery
+    with patch.object(h,'Queue',return_value=self.q), patch.object(h,'policy_hash',return_value='synthetic-policy'), \
+  File "/usr/lib/python3.12/unittest/mock.py", line 1458, in __enter__
+    original, local = self.get_original()
+                      ^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/unittest/mock.py", line 1431, in get_original
+    raise AttributeError(
+AttributeError: <module 'renda_status_delivery_test' from '/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/renda-harness'> does not have the attribute 'deliver_receipt_status'
+
+======================================================================
+FAIL: test_active_judge_for_exact_head_defers_status_delivery (__main__.ReceiptStatusDelivery.test_active_judge_for_exact_head_defers_status_delivery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 167, in test_active_judge_for_exact_head_defers_status_delivery
+    ok,note=self.deliver()
+            ^^^^^^^^^^^^^^
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 81, in deliver
+    self.assertTrue(callable(fn), 'receipt-to-status delivery function missing')
+AssertionError: False is not true : receipt-to-status delivery function missing
+
+======================================================================
+FAIL: test_changed_signed_receipt_before_write_is_refused (__main__.ReceiptStatusDelivery.test_changed_signed_receipt_before_write_is_refused)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 218, in test_changed_signed_receipt_before_write_is_refused
+    ok,note=self.deliver()
+            ^^^^^^^^^^^^^^
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 81, in deliver
+    self.assertTrue(callable(fn), 'receipt-to-status delivery function missing')
+AssertionError: False is not true : receipt-to-status delivery function missing
+
+======================================================================
+FAIL: test_existing_spark_state_is_never_overwritten (__main__.ReceiptStatusDelivery.test_existing_spark_state_is_never_overwritten) (state='failure')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 116, in test_existing_spark_state_is_never_overwritten
+    ok, note = self.deliver()
+               ^^^^^^^^^^^^^^
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 81, in deliver
+    self.assertTrue(callable(fn), 'receipt-to-status delivery function missing')
+AssertionError: False is not true : receipt-to-status delivery function missing
+
+======================================================================
+FAIL: test_existing_spark_state_is_never_overwritten (__main__.ReceiptStatusDelivery.test_existing_spark_state_is_never_overwritten) (state='error')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 116, in test_existing_spark_state_is_never_overwritten
+    ok, note = self.deliver()
+               ^^^^^^^^^^^^^^
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 81, in deliver
+    self.assertTrue(callable(fn), 'receipt-to-status delivery function missing')
+AssertionError: False is not true : receipt-to-status delivery function missing
+
+======================================================================
+FAIL: test_existing_spark_state_is_never_overwritten (__main__.ReceiptStatusDelivery.test_existing_spark_state_is_never_overwritten) (state='pending')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 116, in test_existing_spark_state_is_never_overwritten
+    ok, note = self.deliver()
+               ^^^^^^^^^^^^^^
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 81, in deliver
+    self.assertTrue(callable(fn), 'receipt-to-status delivery function missing')
+AssertionError: False is not true : receipt-to-status delivery function missing
+
+======================================================================
+FAIL: test_existing_spark_state_is_never_overwritten (__main__.ReceiptStatusDelivery.test_existing_spark_state_is_never_overwritten) (state='queued')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 116, in test_existing_spark_state_is_never_overwritten
+    ok, note = self.deliver()
+               ^^^^^^^^^^^^^^
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 81, in deliver
+    self.assertTrue(callable(fn), 'receipt-to-status delivery function missing')
+AssertionError: False is not true : receipt-to-status delivery function missing
+
+======================================================================
+FAIL: test_existing_spark_state_is_never_overwritten (__main__.ReceiptStatusDelivery.test_existing_spark_state_is_never_overwritten) (state='unexpected')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 116, in test_existing_spark_state_is_never_overwritten
+    ok, note = self.deliver()
+               ^^^^^^^^^^^^^^
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 81, in deliver
+    self.assertTrue(callable(fn), 'receipt-to-status delivery function missing')
+AssertionError: False is not true : receipt-to-status delivery function missing
+
+======================================================================
+FAIL: test_existing_success_does_not_hide_a_retained_local_failure (__main__.ReceiptStatusDelivery.test_existing_success_does_not_hide_a_retained_local_failure)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 107, in test_existing_success_does_not_hide_a_retained_local_failure
+    ok,note=self.deliver()
+            ^^^^^^^^^^^^^^
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 81, in deliver
+    self.assertTrue(callable(fn), 'receipt-to-status delivery function missing')
+AssertionError: False is not true : receipt-to-status delivery function missing
+
+======================================================================
+FAIL: test_existing_success_is_idempotent_without_duplicate_write (__main__.ReceiptStatusDelivery.test_existing_success_is_idempotent_without_duplicate_write)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 99, in test_existing_success_is_idempotent_without_duplicate_write
+    ok, note = self.deliver()
+               ^^^^^^^^^^^^^^
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 81, in deliver
+    self.assertTrue(callable(fn), 'receipt-to-status delivery function missing')
+AssertionError: False is not true : receipt-to-status delivery function missing
+
+======================================================================
+FAIL: test_failed_write_or_missing_readback_never_reports_success (__main__.ReceiptStatusDelivery.test_failed_write_or_missing_readback_never_reports_success)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 224, in test_failed_write_or_missing_readback_never_reports_success
+    ok, _ = self.deliver()
+            ^^^^^^^^^^^^^^
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 81, in deliver
+    self.assertTrue(callable(fn), 'receipt-to-status delivery function missing')
+AssertionError: False is not true : receipt-to-status delivery function missing
+
+======================================================================
+FAIL: test_null_or_malformed_remote_reads_fail_closed (__main__.ReceiptStatusDelivery.test_null_or_malformed_remote_reads_fail_closed)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 187, in test_null_or_malformed_remote_reads_fail_closed
+    ok,_=self.deliver()
+         ^^^^^^^^^^^^^^
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 81, in deliver
+    self.assertTrue(callable(fn), 'receipt-to-status delivery function missing')
+AssertionError: False is not true : receipt-to-status delivery function missing
+
+======================================================================
+FAIL: test_qualified_exact_open_pr_posts_success_and_reads_it_back (__main__.ReceiptStatusDelivery.test_qualified_exact_open_pr_posts_success_and_reads_it_back)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 85, in test_qualified_exact_open_pr_posts_success_and_reads_it_back
+    ok, note = self.deliver()
+               ^^^^^^^^^^^^^^
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 81, in deliver
+    self.assertTrue(callable(fn), 'receipt-to-status delivery function missing')
+AssertionError: False is not true : receipt-to-status delivery function missing
+
+======================================================================
+FAIL: test_refuses_bad_review_receipt_or_current_plan (__main__.ReceiptStatusDelivery.test_refuses_bad_review_receipt_or_current_plan)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 197, in test_refuses_bad_review_receipt_or_current_plan
+    self.assertFalse(self.deliver()[0])
+                     ^^^^^^^^^^^^^^
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 81, in deliver
+    self.assertTrue(callable(fn), 'receipt-to-status delivery function missing')
+AssertionError: False is not true : receipt-to-status delivery function missing
+
+======================================================================
+FAIL: test_refuses_changed_pr_identity_and_repository (__main__.ReceiptStatusDelivery.test_refuses_changed_pr_identity_and_repository) (field='headRefOid')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 156, in test_refuses_changed_pr_identity_and_repository
+    ok, _ = self.deliver()
+            ^^^^^^^^^^^^^^
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 81, in deliver
+    self.assertTrue(callable(fn), 'receipt-to-status delivery function missing')
+AssertionError: False is not true : receipt-to-status delivery function missing
+
+======================================================================
+FAIL: test_refuses_changed_pr_identity_and_repository (__main__.ReceiptStatusDelivery.test_refuses_changed_pr_identity_and_repository) (field='baseRefOid')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 156, in test_refuses_changed_pr_identity_and_repository
+    ok, _ = self.deliver()
+            ^^^^^^^^^^^^^^
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 81, in deliver
+    self.assertTrue(callable(fn), 'receipt-to-status delivery function missing')
+AssertionError: False is not true : receipt-to-status delivery function missing
+
+======================================================================
+FAIL: test_refuses_changed_pr_identity_and_repository (__main__.ReceiptStatusDelivery.test_refuses_changed_pr_identity_and_repository) (field='state')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 156, in test_refuses_changed_pr_identity_and_repository
+    ok, _ = self.deliver()
+            ^^^^^^^^^^^^^^
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 81, in deliver
+    self.assertTrue(callable(fn), 'receipt-to-status delivery function missing')
+AssertionError: False is not true : receipt-to-status delivery function missing
+
+======================================================================
+FAIL: test_refuses_changed_pr_identity_and_repository (__main__.ReceiptStatusDelivery.test_refuses_changed_pr_identity_and_repository) (field='isDraft')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 156, in test_refuses_changed_pr_identity_and_repository
+    ok, _ = self.deliver()
+            ^^^^^^^^^^^^^^
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 81, in deliver
+    self.assertTrue(callable(fn), 'receipt-to-status delivery function missing')
+AssertionError: False is not true : receipt-to-status delivery function missing
+
+======================================================================
+FAIL: test_refuses_changed_pr_identity_and_repository (__main__.ReceiptStatusDelivery.test_refuses_changed_pr_identity_and_repository) (field='baseRefName')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 156, in test_refuses_changed_pr_identity_and_repository
+    ok, _ = self.deliver()
+            ^^^^^^^^^^^^^^
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 81, in deliver
+    self.assertTrue(callable(fn), 'receipt-to-status delivery function missing')
+AssertionError: False is not true : receipt-to-status delivery function missing
+
+======================================================================
+FAIL: test_refuses_changed_pr_identity_and_repository (__main__.ReceiptStatusDelivery.test_refuses_changed_pr_identity_and_repository)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 161, in test_refuses_changed_pr_identity_and_repository
+    ok, _ = self.deliver()
+            ^^^^^^^^^^^^^^
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 81, in deliver
+    self.assertTrue(callable(fn), 'receipt-to-status delivery function missing')
+AssertionError: False is not true : receipt-to-status delivery function missing
+
+======================================================================
+FAIL: test_refuses_hold_pause_and_local_fail_or_hold (__main__.ReceiptStatusDelivery.test_refuses_hold_pause_and_local_fail_or_hold)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 173, in test_refuses_hold_pause_and_local_fail_or_hold
+    self.assertFalse(self.deliver()[0])
+                     ^^^^^^^^^^^^^^
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 81, in deliver
+    self.assertTrue(callable(fn), 'receipt-to-status delivery function missing')
+AssertionError: False is not true : receipt-to-status delivery function missing
+
+======================================================================
+FAIL: test_trusted_legacy_repository_source_identity_is_preserved (__main__.ReceiptStatusDelivery.test_trusted_legacy_repository_source_identity_is_preserved)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 93, in test_trusted_legacy_repository_source_identity_is_preserved
+    ok,note=self.deliver()
+            ^^^^^^^^^^^^^^
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 81, in deliver
+    self.assertTrue(callable(fn), 'receipt-to-status delivery function missing')
+AssertionError: False is not true : receipt-to-status delivery function missing
+
+======================================================================
+FAIL: test_unexpected_check_run_named_spark_is_never_replaced (__main__.ReceiptStatusDelivery.test_unexpected_check_run_named_spark_is_never_replaced)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 122, in test_unexpected_check_run_named_spark_is_never_replaced
+    ok, note = self.deliver()
+               ^^^^^^^^^^^^^^
+  File "/home/drakestapleton/.hermes/cache/scratch/L704-baseline-red-k7ubsqj4/renda/test_delivery_status.py", line 81, in deliver
+    self.assertTrue(callable(fn), 'receipt-to-status delivery function missing')
+AssertionError: False is not true : receipt-to-status delivery function missing
+
+----------------------------------------------------------------------
+Ran 15 tests in 0.003s
+
+FAILED (failures=22, errors=2)
+
+exit_code=1

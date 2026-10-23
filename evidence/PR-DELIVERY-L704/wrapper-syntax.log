@@ -1,0 +1,3 @@
+$ bash -n renda-checked
+
+exit_code=0

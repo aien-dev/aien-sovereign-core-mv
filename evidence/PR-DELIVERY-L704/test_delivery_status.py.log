@@ -1,0 +1,23 @@
+$ python3 test_delivery_status.py
+test_active_judge_for_exact_head_defers_status_delivery (__main__.ReceiptStatusDelivery.test_active_judge_for_exact_head_defers_status_delivery) ... ok
+test_changed_signed_receipt_before_write_is_refused (__main__.ReceiptStatusDelivery.test_changed_signed_receipt_before_write_is_refused) ... ok
+test_existing_spark_state_is_never_overwritten (__main__.ReceiptStatusDelivery.test_existing_spark_state_is_never_overwritten) ... ok
+test_existing_success_does_not_hide_a_retained_local_failure (__main__.ReceiptStatusDelivery.test_existing_success_does_not_hide_a_retained_local_failure) ... ok
+test_existing_success_is_idempotent_without_duplicate_write (__main__.ReceiptStatusDelivery.test_existing_success_is_idempotent_without_duplicate_write) ... ok
+test_failed_write_or_missing_readback_never_reports_success (__main__.ReceiptStatusDelivery.test_failed_write_or_missing_readback_never_reports_success) ... ok
+test_idempotent_success_is_reported_as_status_not_waiting (__main__.ReceiptStatusDelivery.test_idempotent_success_is_reported_as_status_not_waiting) ... ok
+test_lane_pass_routes_missing_spark_status_to_receipt_delivery (__main__.ReceiptStatusDelivery.test_lane_pass_routes_missing_spark_status_to_receipt_delivery) ... ok
+test_null_or_malformed_remote_reads_fail_closed (__main__.ReceiptStatusDelivery.test_null_or_malformed_remote_reads_fail_closed) ... ok
+test_qualified_exact_open_pr_posts_success_and_reads_it_back (__main__.ReceiptStatusDelivery.test_qualified_exact_open_pr_posts_success_and_reads_it_back) ... ok
+test_refuses_bad_review_receipt_or_current_plan (__main__.ReceiptStatusDelivery.test_refuses_bad_review_receipt_or_current_plan) ... ok
+test_refuses_changed_pr_identity_and_repository (__main__.ReceiptStatusDelivery.test_refuses_changed_pr_identity_and_repository) ... ok
+test_refuses_hold_pause_and_local_fail_or_hold (__main__.ReceiptStatusDelivery.test_refuses_hold_pause_and_local_fail_or_hold) ... ok
+test_trusted_legacy_repository_source_identity_is_preserved (__main__.ReceiptStatusDelivery.test_trusted_legacy_repository_source_identity_is_preserved) ... ok
+test_unexpected_check_run_named_spark_is_never_replaced (__main__.ReceiptStatusDelivery.test_unexpected_check_run_named_spark_is_never_replaced) ... ok
+
+----------------------------------------------------------------------
+Ran 15 tests in 0.002s
+
+OK
+
+exit_code=0
