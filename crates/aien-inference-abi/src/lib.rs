@@ -22,6 +22,7 @@ pub mod exact_head;
 pub mod qwen38;
 pub mod qwen38_omega;
 pub mod qwen3_coder;
+pub mod qwen3_dense_budget;
 pub mod qwen3_dense_omega;
 pub mod qwen3_moe;
 pub mod qwen3_moe_omega;
