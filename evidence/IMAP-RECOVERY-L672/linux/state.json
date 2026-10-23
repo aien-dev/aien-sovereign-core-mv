@@ -1,0 +1,41 @@
+{
+  "source": "2ea9ee1c804b84c23dc74651c085c00949110e36",
+  "input_sha256": "9291f51499805296893bb0c59bed3732dd264771d78c37ef3080081c29e7989a",
+  "steps": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "spark-mail-rs"
+      ],
+      "exit": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "spark-mail-rs",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit": 0
+    }
+  ],
+  "complete": true
+}

@@ -1,0 +1,24 @@
+
+running 1 test
+test imap::tests::a_fetch_prefix_in_an_extension_name_is_not_fetch_data ... FAILED
+
+failures:
+
+---- imap::tests::a_fetch_prefix_in_an_extension_name_is_not_fetch_data stdout ----
+
+thread 'imap::tests::a_fetch_prefix_in_an_extension_name_is_not_fetch_data' (1576295) panicked at crates/spark-mail-rs/src/imap.rs:750:9:
+assertion `left == right` failed
+  left: Some([98, 97, 100])
+ right: None
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    imap::tests::a_fetch_prefix_in_an_extension_name_is_not_fetch_data
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 60 filtered out; finished in 0.00s
+
+   Compiling spark-mail-rs v0.1.0 (/Users/drakestapleton/.hermes/cache/scratch/loop21-imap626/crates/spark-mail-rs)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.95s
+     Running unittests src/lib.rs (/Users/drakestapleton/.hermes/cache/scratch/L672-target/debug/deps/spark_mail-3e92b05e1284ca28)
+error: test failed, to rerun pass `-p spark-mail-rs --lib`

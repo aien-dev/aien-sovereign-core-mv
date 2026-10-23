@@ -1,0 +1,20 @@
+
+running 1 test
+test uid_inside_quoted_extension_is_not_the_messages_uid ... FAILED
+
+failures:
+
+---- uid_inside_quoted_extension_is_not_the_messages_uid stdout ----
+
+thread 'uid_inside_quoted_extension_is_not_the_messages_uid' (1558652) panicked at /Users/drakestapleton/.hermes/cache/scratch/L672-uid-probe.rs:11:5:
+assertion `left == right` failed: another message must not be selected by UID text inside its quoted metadata
+  left: Some([98, 97, 100])
+ right: None
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    uid_inside_quoted_extension_is_not_the_messages_uid
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 23 filtered out; finished in 0.00s
+

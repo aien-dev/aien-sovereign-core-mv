@@ -1,0 +1,22 @@
+
+running 1 test
+test imap::tests::unrelated_fetch_atoms_and_section_selectors_stay_opaque ... FAILED
+
+failures:
+
+---- imap::tests::unrelated_fetch_atoms_and_section_selectors_stay_opaque stdout ----
+
+thread 'imap::tests::unrelated_fetch_atoms_and_section_selectors_stay_opaque' (1574984) panicked at crates/spark-mail-rs/src/imap.rs:741:56:
+called `Result::unwrap()` on an `Err` value: Malformed("unterminated FETCH section")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    imap::tests::unrelated_fetch_atoms_and_section_selectors_stay_opaque
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 57 filtered out; finished in 0.00s
+
+   Compiling spark-mail-rs v0.1.0 (/Users/drakestapleton/.hermes/cache/scratch/loop21-imap626/crates/spark-mail-rs)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.27s
+     Running unittests src/lib.rs (/Users/drakestapleton/.hermes/cache/scratch/L672-target/debug/deps/spark_mail-3e92b05e1284ca28)
+error: test failed, to rerun pass `-p spark-mail-rs --lib`

@@ -1,0 +1,13 @@
+{
+  "source": "75f8b1e5ed659fa9855979fa1c991e27799a3de3",
+  "compile": [
+    "rustc",
+    "--edition=2024",
+    "--test",
+    "/Users/drakestapleton/.hermes/cache/scratch/L672-uid-probe.rs",
+    "-o",
+    "/Users/drakestapleton/.hermes/cache/scratch/L672-uid-probe"
+  ],
+  "build_exit": 0,
+  "test_exit": 101
+}

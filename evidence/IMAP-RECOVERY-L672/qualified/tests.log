@@ -1,0 +1,82 @@
+
+running 62 tests
+test api::access_tests::mail_access_fails_closed ... ok
+test effect::tests::aegis_membrane_rejects_an_empty_effect_name ... ok
+test effect::tests::aegis_allow_with_a_stalled_body_is_allowed ... ok
+test effect::tests::aegis_denial_with_a_stalled_body_is_still_permission_denied ... ok
+test effect::tests::confirm_aegis_fails_closed_when_unreachable_or_https ... ok
+test cortex_sync::tests::commit_mail_sends_the_same_request_with_bearer_token ... ok
+test cortex_sync::tests::check_health_is_true_only_for_2xx ... ok
+test cortex_sync::tests::commit_mail_reports_error_status_and_transport_failures ... ok
+test cortex_sync::tests::commit_mail_without_token_sends_no_authorization ... ok
+test effect::tests::deny_switch_blocks_before_any_network ... ok
+test effect::tests::inbound_body_cannot_become_instructions_or_tool_calls ... ok
+test effect::tests::mail_actions_have_settled_effect_classes ... ok
+test effect::tests::membrane_blocks_destructive_payload ... ok
+test effect::tests::confirm_aegis_non_2xx_is_permission_denied ... ok
+test effect::tests::confirm_aegis_posts_the_same_probe_and_allows_on_2xx ... ok
+test gandi::tests::empty_mail_is_rejected_before_vault_access ... ok
+test gandi::tests::identities_have_separate_vault_keys ... ok
+test gandi::tests::inbound_detail_stays_untrusted_data ... ok
+test effect::tests::confirm_aegis_works_inside_a_current_thread_runtime ... ok
+test gandi::tests::newest_first_lists_each_uid_once ... ok
+test imap::tests::a_fetch_prefix_in_an_extension_name_is_not_fetch_data ... ok
+test imap::tests::ambiguous_or_trailing_fetch_attributes_are_refused ... ok
+test effect::tests::probe_opinion_is_deterministic_for_one_payload ... ok
+test imap::tests::fetch_cannot_hide_unparsed_text_before_its_attribute_list ... ok
+test imap::tests::errors_never_carry_the_password ... ok
+test imap::tests::fetch_ignores_other_messages_and_unrequested_sections ... ok
+test imap::tests::fetch_of_a_missing_uid_is_none ... ok
+test imap::tests::greeting_must_be_ok ... ok
+test imap::tests::literal_login_refused_by_server_does_not_send_the_password ... ok
+test imap::tests::login_quotes_and_escapes_backslash_and_double_quote ... ok
+test imap::tests::line_exactly_at_the_limit_is_accepted_one_byte_per_read ... ok
+test imap::tests::login_refuses_cr_lf_nul_before_sending_anything ... ok
+test imap::tests::malformed_uid_atom_is_not_a_matching_uid ... ok
+test imap::tests::login_sends_eight_bit_password_as_a_literal_after_continuation ... ok
+test imap::tests::nested_body_section_cannot_replace_the_top_level_body ... ok
+test imap::tests::overlong_line_is_refused ... ok
+test imap::tests::oversized_literal_is_refused_without_reading_it ... ok
+test imap::tests::empty_literal_flood_is_charged_against_the_command_budget ... ok
+test imap::tests::quoted_envelope_uid_text_cannot_select_another_message ... ok
+test imap::tests::reads_headers_and_bodies_through_the_five_commands ... ok
+test imap::tests::response_flood_and_byte_flood_are_refused ... ok
+test imap::tests::section_sent_as_a_quoted_string_is_malformed_and_nil_is_none ... ok
+test imap::tests::server_text_is_reduced_to_printable_ascii ... ok
+test imap::tests::search_refuses_too_many_or_non_uid_results ... ok
+test imap::tests::tagged_and_continuation_lines_never_announce_literals ... ok
+test imap::tests::tagged_no_after_a_fetch_literal_and_bye_before_continuation_are_refused ... ok
+test imap::tests::tagged_no_and_bad_are_typed_refusals ... ok
+test imap::tests::truncated_line_and_truncated_literal_are_refused ... ok
+test imap::tests::uid_after_literal_and_nested_quoted_values_is_selected ... ok
+test imap::tests::unexpected_bye_foreign_tag_and_stray_continuation_are_refused ... ok
+test imap::tests::unrelated_fetch_atoms_and_section_selectors_stay_opaque ... ok
+test relay::tests::line_breaks_in_sender_recipient_or_subject_are_refused ... ok
+test imap::tests::structured_fetch_selection_survives_fragmentation_and_opaque_literals ... ok
+test relay::tests::unavailable_bridge_cannot_report_success ... ok
+test store::tests::test_mail_store_roundtrip ... ok
+test relay::tests::transport_requires_final_smtp_acceptance ... ok
+test relay::tests::sent_is_recorded_only_after_final_acceptance ... ok
+test imap::tests::one_byte_per_read_gives_the_same_transcript ... ok
+test effect::tests::allow_returns_a_receipt_without_touching_smtp ... ok
+test effect::tests::deny_path_records_denial_and_does_not_call_the_provider ... ok
+test effect::tests::allow_path_calls_provider_only_after_policy_allows ... ok
+test cortex_sync::tests::check_health_gives_up_after_500_ms ... ok
+
+test result: ok. 62 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Compiling spark-mail-rs v0.1.0 (/Users/drakestapleton/.hermes/cache/scratch/loop21-imap626/crates/spark-mail-rs)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.75s
+     Running unittests src/lib.rs (/Users/drakestapleton/.hermes/cache/scratch/L672-target/debug/deps/spark_mail-3e92b05e1284ca28)
+     Running unittests src/main.rs (/Users/drakestapleton/.hermes/cache/scratch/L672-target/debug/deps/spark_mail-daba4fed79c78ced)
+   Doc-tests spark_mail

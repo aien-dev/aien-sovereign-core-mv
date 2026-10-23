@@ -1,0 +1,22 @@
+
+running 1 test
+test imap::tests::fetch_cannot_hide_unparsed_text_before_its_attribute_list ... FAILED
+
+failures:
+
+---- imap::tests::fetch_cannot_hide_unparsed_text_before_its_attribute_list stdout ----
+
+thread 'imap::tests::fetch_cannot_hide_unparsed_text_before_its_attribute_list' (1580030) panicked at crates/spark-mail-rs/src/imap.rs:760:9:
+assertion failed: matches!(c.uid_fetch(9, Section::Header), Err(ImapError::Malformed(_)))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    imap::tests::fetch_cannot_hide_unparsed_text_before_its_attribute_list
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 61 filtered out; finished in 0.00s
+
+   Compiling spark-mail-rs v0.1.0 (/Users/drakestapleton/.hermes/cache/scratch/loop21-imap626/crates/spark-mail-rs)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.52s
+     Running unittests src/lib.rs (/Users/drakestapleton/.hermes/cache/scratch/L672-target/debug/deps/spark_mail-3e92b05e1284ca28)
+error: test failed, to rerun pass `-p spark-mail-rs --lib`
