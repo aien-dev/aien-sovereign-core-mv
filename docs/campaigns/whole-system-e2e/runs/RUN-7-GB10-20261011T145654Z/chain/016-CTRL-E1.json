@@ -1,0 +1,40 @@
+{
+  "objective_id": "093e66ec92a6b428b49a0aa2a75678e9fdb155f423e1e7c71c5ae9fef11a60b1",
+  "run_id": "37677a5162e52d96066b95664dfa75303d4cb9397aa4ec1f47bcb2b5f403ba77",
+  "step": "CTRL-E1",
+  "status": "NOT_RUN",
+  "utc": "2026-10-11T15:02:25Z",
+  "prev_receipt_sha256": "bc1f364f903eb9f064dd12ca2ecbb8ae173279925feb2088028965cadd015b0f",
+  "evidence": "no release artifact in RUN-1 (lane L5)",
+  "repo_commit": "00c45832fb247860078927c5f3bc0ecc5d352ca9",
+  "daemon_sha256": "319c082b398a4e21dd020d05fea680c1273e37317b7c13d522325460923eb887",
+  "cli_sha256": "319c082b398a4e21dd020d05fea680c1273e37317b7c13d522325460923eb887",
+  "model_weights_digest": "1ff795ff6a07e6a68085d206fb84417da2f083f68391c2843cd2b8ac6df8538f",
+  "tokenizer_sha256": "6b9e4e7fb171f92fd137b777cc2714bf87d11576700a1dcd7a399e7bbe39537b",
+  "backend_line": "Backend: NativeTransformerBackend/OmegaGb10Backend (native Omega engine, no CUDA, NVIDIA GB10 sm_121)",
+  "host": "spark-b87b",
+  "backend_mode": "gb10",
+  "gpu_executions": null,
+  "gpu_executions_process_total": null,
+  "gpu_executions_since": null,
+  "gpu_executions_source": "report.proposal_attempts[].ops.gpu_executions (sc#405, Omega chip_calls, process total)",
+  "fallback_count": 0,
+  "fallback_native_ops": 0,
+  "fallback_log_lines": 0,
+  "fallback_detected": false,
+  "pins": {
+    "omega": "6c6180cf378075b61291f4565d226eba38b4decd",
+    "physics": "6d7cf0d4d8eb2cda7b512100ff6058e25dbb3ddf",
+    "aienos": "b84c0a67590a934f3f3e001b12ec85ebc086a9eb",
+    "source": "scripts/pins.sh --gpu: omega.lock, then physics.lock and aienos.lock of that omega"
+  },
+  "nvidia_driver": "NVRM version: NVIDIA UNIX Open Kernel Module for aarch64 580.173.02 Release Build (dvs-builder@U22-A24-5-4) Tue Jun 23 08:34:19 UTC 2026",
+  "zero_cuda_gate_exit": "0",
+  "daemon_strict_line": "STRICT strict=true dev_fallback_build=false require_checkpoint=true backend=OmegaGb10Backend (native Omega engine, no CUDA, NVIDIA GB10 sm_121)",
+  "host_load": {
+    "loadavg": "1.63 2.97 4.05 1/2164 1877337",
+    "memfree_kb": 62282056,
+    "memavailable_kb": 101691924
+  },
+  "gb10_problems": ""
+}

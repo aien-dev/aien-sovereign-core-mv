@@ -1,0 +1,172 @@
+{
+  "backend_mode": "gb10",
+  "fallback_detected": false,
+  "fallback_log_lines_all_daemons": 0,
+  "daemon_starts": 8,
+  "backend_lines": [
+    "Backend: NativeTransformerBackend/OmegaGb10Backend (native Omega engine, no CUDA, NVIDIA GB10 sm_121)"
+  ],
+  "pins": {
+    "omega": "6c6180cf378075b61291f4565d226eba38b4decd",
+    "physics": "6d7cf0d4d8eb2cda7b512100ff6058e25dbb3ddf",
+    "aienos": "b84c0a67590a934f3f3e001b12ec85ebc086a9eb",
+    "source": "scripts/pins.sh --gpu: omega.lock, then physics.lock and aienos.lock of that omega"
+  },
+  "nvidia_driver": "NVRM version: NVIDIA UNIX Open Kernel Module for aarch64 580.173.02 Release Build (dvs-builder@U22-A24-5-4) Tue Jun 23 08:34:19 UTC 2026",
+  "zero_cuda_gate_exit": "0",
+  "rows": [
+    {
+      "step": "PRE",
+      "status": "PASS",
+      "gpu_executions": null,
+      "gpu_executions_process_total": null,
+      "gpu_executions_since": null,
+      "fallback_count": 0,
+      "gb10_problems": ""
+    },
+    {
+      "step": "CTRL-E3a",
+      "status": "PASS",
+      "gpu_executions": null,
+      "gpu_executions_process_total": null,
+      "gpu_executions_since": null,
+      "fallback_count": 0,
+      "gb10_problems": ""
+    },
+    {
+      "step": "E1",
+      "status": "NOT_RUN",
+      "gpu_executions": null,
+      "gpu_executions_process_total": null,
+      "gpu_executions_since": null,
+      "fallback_count": 0,
+      "gb10_problems": ""
+    },
+    {
+      "step": "E2",
+      "status": "PASS",
+      "gpu_executions": null,
+      "gpu_executions_process_total": null,
+      "gpu_executions_since": null,
+      "fallback_count": 0,
+      "gb10_problems": ""
+    },
+    {
+      "step": "CTRL-E2",
+      "status": "PASS",
+      "gpu_executions": null,
+      "gpu_executions_process_total": null,
+      "gpu_executions_since": null,
+      "fallback_count": 0,
+      "gb10_problems": ""
+    },
+    {
+      "step": "E3",
+      "status": "FAIL",
+      "gpu_executions": 54178,
+      "gpu_executions_process_total": 54178,
+      "gpu_executions_since": "daemon start",
+      "fallback_count": 0,
+      "gb10_problems": ""
+    },
+    {
+      "step": "E3m",
+      "status": "PASS",
+      "gpu_executions": 40716,
+      "gpu_executions_process_total": 94894,
+      "gpu_executions_since": "previous observation in daemon 3",
+      "fallback_count": 0,
+      "gb10_problems": ""
+    },
+    {
+      "step": "E4",
+      "status": "FAIL",
+      "gpu_executions": 175724,
+      "gpu_executions_process_total": 175724,
+      "gpu_executions_since": "daemon start",
+      "fallback_count": 0,
+      "gb10_problems": ""
+    },
+    {
+      "step": "E6",
+      "status": "PASS",
+      "gpu_executions": 19026,
+      "gpu_executions_process_total": 194750,
+      "gpu_executions_since": "previous observation in daemon 4",
+      "fallback_count": 0,
+      "gb10_problems": ""
+    },
+    {
+      "step": "CTRL-E3b",
+      "status": "PASS",
+      "gpu_executions": 29060,
+      "gpu_executions_process_total": 29060,
+      "gpu_executions_since": "daemon start",
+      "fallback_count": 0,
+      "gb10_problems": ""
+    },
+    {
+      "step": "NET",
+      "status": "PASS",
+      "gpu_executions": null,
+      "gpu_executions_process_total": null,
+      "gpu_executions_since": null,
+      "fallback_count": 0,
+      "gb10_problems": ""
+    },
+    {
+      "step": "CTRL-E4b",
+      "status": "RECORDED",
+      "gpu_executions": 162192,
+      "gpu_executions_process_total": 162192,
+      "gpu_executions_since": "daemon start",
+      "fallback_count": 0,
+      "gb10_problems": ""
+    },
+    {
+      "step": "CTRL-E6",
+      "status": "PASS",
+      "gpu_executions": 28900,
+      "gpu_executions_process_total": 28900,
+      "gpu_executions_since": "daemon start",
+      "fallback_count": 0,
+      "gb10_problems": ""
+    },
+    {
+      "step": "CTRL-E4",
+      "status": "PASS",
+      "gpu_executions": null,
+      "gpu_executions_process_total": null,
+      "gpu_executions_since": null,
+      "fallback_count": 0,
+      "gb10_problems": ""
+    },
+    {
+      "step": "E5",
+      "status": "NOT_RUN",
+      "gpu_executions": null,
+      "gpu_executions_process_total": null,
+      "gpu_executions_since": null,
+      "fallback_count": 0,
+      "gb10_problems": ""
+    },
+    {
+      "step": "CTRL-E1",
+      "status": "NOT_RUN",
+      "gpu_executions": null,
+      "gpu_executions_process_total": null,
+      "gpu_executions_since": null,
+      "fallback_count": 0,
+      "gb10_problems": ""
+    },
+    {
+      "step": "CTRL-E5",
+      "status": "FAIL",
+      "gpu_executions": null,
+      "gpu_executions_process_total": null,
+      "gpu_executions_since": null,
+      "fallback_count": 0,
+      "gb10_problems": ""
+    }
+  ]
+}

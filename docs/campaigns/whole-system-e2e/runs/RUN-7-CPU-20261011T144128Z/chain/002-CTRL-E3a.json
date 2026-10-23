@@ -1,0 +1,18 @@
+{
+  "objective_id": "093e66ec92a6b428b49a0aa2a75678e9fdb155f423e1e7c71c5ae9fef11a60b1",
+  "run_id": "85d4649e31523c2ea13cf00ae068b671db29d328a2f325a9f21fc8dadac97454",
+  "step": "CTRL-E3a",
+  "status": "PASS",
+  "utc": "2026-10-11T14:44:07Z",
+  "prev_receipt_sha256": "69f519de5a9687527b902de9c9549a355effd1c22a10ea284eaa10bfeb364110",
+  "evidence": "daemon without a desk key exited 1 before serving; log: Fatal: the approval desk is required (AIEN_COMPOSE_AUTHORIZE_REQUIRES_DESK unset or 1) but its key is not usable: PROPOSAL_REFUSED NoDesk: /home/drakestapleton/.aien-e2e/run/compose/approval-desk.key:",
+  "repo_commit": "8a05752310f188496ef96280fc851d66f2af9df8",
+  "daemon_sha256": "8b5279d053710b433859de219bd05f9a841f023f593c9d6880216a24caea5647",
+  "cli_sha256": "8b5279d053710b433859de219bd05f9a841f023f593c9d6880216a24caea5647",
+  "model_weights_digest": "1ff795ff6a07e6a68085d206fb84417da2f083f68391c2843cd2b8ac6df8538f",
+  "tokenizer_sha256": "6b9e4e7fb171f92fd137b777cc2714bf87d11576700a1dcd7a399e7bbe39537b",
+  "backend_line": "Backend: NativeTransformerBackend/CPU-reference (Omega GPU engine not linked, explicit fallback)",
+  "host": "spark-b87b",
+  "exit": "1",
+  "log_line": "Fatal: the approval desk is required (AIEN_COMPOSE_AUTHORIZE_REQUIRES_DESK unset or 1) but its key is not usable: PROPOSAL_REFUSED NoDesk: /home/drakestapleton/.aien-e2e/run/compose/approval-desk.key:"
+}

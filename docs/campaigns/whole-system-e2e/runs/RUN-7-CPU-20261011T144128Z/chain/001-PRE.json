@@ -1,0 +1,42 @@
+{
+  "objective_id": "093e66ec92a6b428b49a0aa2a75678e9fdb155f423e1e7c71c5ae9fef11a60b1",
+  "run_id": "85d4649e31523c2ea13cf00ae068b671db29d328a2f325a9f21fc8dadac97454",
+  "step": "PRE",
+  "status": "PASS",
+  "utc": "2026-10-11T14:44:07Z",
+  "prev_receipt_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "evidence": "host spark-b87b; model unsloth/Llama-3.2-1B-Instruct; backend 'Backend: NativeTransformerBackend/CPU-reference (Omega GPU engine not linked, explicit fallback)'",
+  "repo_commit": "8a05752310f188496ef96280fc851d66f2af9df8",
+  "daemon_sha256": "8b5279d053710b433859de219bd05f9a841f023f593c9d6880216a24caea5647",
+  "cli_sha256": "8b5279d053710b433859de219bd05f9a841f023f593c9d6880216a24caea5647",
+  "model_weights_digest": "1ff795ff6a07e6a68085d206fb84417da2f083f68391c2843cd2b8ac6df8538f",
+  "tokenizer_sha256": "6b9e4e7fb171f92fd137b777cc2714bf87d11576700a1dcd7a399e7bbe39537b",
+  "backend_line": "Backend: NativeTransformerBackend/CPU-reference (Omega GPU engine not linked, explicit fallback)",
+  "host": "spark-b87b",
+  "allen_identity_fingerprint": "b01c1da3",
+  "allen_log_line": "ALLEN: engaged agent=b01c1da3c99498ce17c6a21395523234391232b7f76fe2593a011fc95de8ad2b head_sequence=2 chain_verified=false (ADOPTED: pin written once, operator-approved)",
+  "allen_subject_kind": "host-built fixture subject (test-only encoder), adopted once by AIEN_ALLEN_ADOPT; same as scripts/allen_e2e_demo.sh S1",
+  "inbox_files": [
+    {
+      "name": "harbour-notes.txt",
+      "sha256": "67477d14dc47e0b8e299878677b5d85ac6338982acb24ea4b24173cbb59c8a07"
+    },
+    {
+      "name": "orchard-ledger.txt",
+      "sha256": "f0f03a116eebd299284b09b3624f0c2c57ac93ba971e58b6f41742bf76d7f6b9"
+    },
+    {
+      "name": "windmill-log.txt",
+      "sha256": "d8451041780fa0660e186c1112c73c682cb510dacf72f05d798826cd93892bf9"
+    }
+  ],
+  "ip_route": "default via 192.168.1.1 dev enP7s7 proto dhcp src 192.168.1.108 metric 100 ;172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1 ;172.18.0.0/16 dev br-0c02a93594d1 proto kernel scope link src 172.18.0.1 ;172.20.0.0/16 dev br-f8be5866d418 proto kernel scope link src 172.20.0.1 linkdown ;172.29.90.0/24 dev atlasci0 proto kernel scope link src 172.29.90.1 linkdown ;",
+  "quiet_flag": "not-held",
+  "candidate_model_id": "unsloth/Llama-3.2-1B-Instruct",
+  "candidate_weights_sha256": "1ff795ff6a07e6a68085d206fb84417da2f083f68391c2843cd2b8ac6df8538f",
+  "candidate_tokenizer_sha256": "6b9e4e7fb171f92fd137b777cc2714bf87d11576700a1dcd7a399e7bbe39537b",
+  "model_dir": "/home/drakestapleton/.cache/huggingface/hub/models--unsloth--Llama-3.2-1B-Instruct/snapshots/5a8abab4a5d6f164389b1079fb721cfab8d7126c/",
+  "network_check": "recorded in the NET receipt",
+  "run_root": "/home/drakestapleton/.aien-e2e/run",
+  "run_root_rule": "ACCEPTANCE-v1.5-fixed-root.md"
+}

@@ -1,0 +1,36 @@
+{
+  "objective_id": "093e66ec92a6b428b49a0aa2a75678e9fdb155f423e1e7c71c5ae9fef11a60b1",
+  "run_id": "85d4649e31523c2ea13cf00ae068b671db29d328a2f325a9f21fc8dadac97454",
+  "step": "E3m",
+  "status": "PASS",
+  "utc": "2026-10-11T14:46:09Z",
+  "prev_receipt_sha256": "d8863a031728c5a1b0ec684c9bc69808df857a43252b790c1b95b349bcad197a",
+  "evidence": "state DONE; written report.md; checks failed [none]; second execute: AlreadySpent",
+  "repo_commit": "8a05752310f188496ef96280fc851d66f2af9df8",
+  "daemon_sha256": "8b5279d053710b433859de219bd05f9a841f023f593c9d6880216a24caea5647",
+  "cli_sha256": "8b5279d053710b433859de219bd05f9a841f023f593c9d6880216a24caea5647",
+  "model_weights_digest": "1ff795ff6a07e6a68085d206fb84417da2f083f68391c2843cd2b8ac6df8538f",
+  "tokenizer_sha256": "6b9e4e7fb171f92fd137b777cc2714bf87d11576700a1dcd7a399e7bbe39537b",
+  "backend_line": "Backend: NativeTransformerBackend/CPU-reference (Omega GPU engine not linked, explicit fallback)",
+  "host": "spark-b87b",
+  "written_path": "/home/drakestapleton/.aien-e2e/run/ws/report.md",
+  "effect_state": "DONE",
+  "content_sha256": "e230a9b4baf7e1b6e2bb0a9eaea9aa725aa296d814d25f73cdd4981d2ce4e791",
+  "disk_sha256": "e230a9b4baf7e1b6e2bb0a9eaea9aa725aa296d814d25f73cdd4981d2ce4e791",
+  "grant_id": 38,
+  "desk": "required",
+  "checks_failed": "",
+  "compose_receipt": null,
+  "memory_context": "work",
+  "memory_items_included": 0,
+  "second_execute_refusal": "AlreadySpent",
+  "objective_text": "Write a Markdown report named report.md about the harbour, the orchard and the windmill. Start with a Markdown heading line that begins with \"# \". Use at most 200 words. Mention the harbour, the orchard and the windmill.",
+  "d4_rule": "case-insensitive whole word: LC_ALL=C grep -q -i -w (ACCEPTANCE-v1.3.1-e3m.md)",
+  "prompt_attempts": [
+    {
+      "prompt_tokens": 186,
+      "prompt_ids_sha256": "bf5c96beece0093c2e44ca616a7c56ae6f3a1f6ef3e0fc8215b7d199cabbafcf"
+    }
+  ],
+  "prompt_source": "report.proposal_attempts[].prompt_tokens and .prompt_ids_sha256 of the propose output (ACCEPTANCE-v1.5-fixed-root.md)"
+}

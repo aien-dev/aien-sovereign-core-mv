@@ -1,0 +1,1 @@
+{"error":"EFFECT_REFUSED AlreadySpent: authorization #23 was spent by intent #24 (DONE); a new effect needs a new authorization","ok":false,"step":"execute"}

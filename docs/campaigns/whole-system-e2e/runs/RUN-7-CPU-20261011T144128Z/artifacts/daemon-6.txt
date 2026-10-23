@@ -1,0 +1,19 @@
+⚡ Starting AIEN Sovereign Runtime Daemon...
+  STRICT strict=true dev_fallback_build=false require_checkpoint=true backend=ReferenceCpuBackend
+  KV pool: 8589934592 bytes (8.00 GiB) = 8192 blocks x 16 tokens x 16 layers x 8 kv heads x 64 head_dim x 2 (K,V) x 4 bytes; context 131072 tokens from model max_sequence_length (config.json max_position_embeddings)
+  KV pool memory check: needs 8589934592 bytes (8.00 GiB), MemAvailable 116070158336 bytes (108.10 GiB)
+  Backend: NativeTransformerBackend/CPU-reference (Omega GPU engine not linked, explicit fallback)
+  Model: checkpoint loaded from /home/drakestapleton/.cache/huggingface/hub/models--unsloth--Llama-3.2-1B-Instruct/snapshots/5a8abab4a5d6f164389b1079fb721cfab8d7126c//model.safetensors (tokenizer loaded, model_id=5a8abab4a5d6f164389b1079fb721cfab8d7126c, config=unsloth/Llama-3.2-1B-Instruct (config.json), model_sha256=1ff795ff6a07e6a68085d206fb84417da2f083f68391c2843cd2b8ac6df8538f, tokenizer_sha256=6b9e4e7fb171f92fd137b777cc2714bf87d11576700a1dcd7a399e7bbe39537b)
+  KV: one pooled KV shared by runtime and backend
+  Tokenizer: llama3 (Llama 3 instruct) chat template, stop ids [128001, 128008, 128009]
+✓ Binding socket at /home/drakestapleton/.aien-e2e/run/s
+OP_REPORT native=[rmsnorm,apply_rope,matmul_vec,matmul_batch,swiglu,gqa_attention,paged_attention,paged_attention_batch,compute_logits,rmsnorm_heads] reference=[] native_fallbacks=[] reference_runs=[] backend=ReferenceCpuBackend
+  Warm-up: 1 token in 4696 ms over 124 prompt tokens (discarded)
+Authorize MAC: on (aien compose authorize requires the approval desk key MAC)
+Compose: native (omega 6c6180cf378075b61291f4565d226eba38b4decd)
+ALLEN: engaged agent=b01c1da3c99498ce17c6a21395523234391232b7f76fe2593a011fc95de8ad2b head_sequence=2 chain_verified=false
+Reconcile: checked 0 unsettled effect(s): DONE 0, NOT_DONE 0, UNRESOLVED 0 recorded, 0 left as they were; []
+Replay reconcile: 0 claims, 0 -> NOT_EXECUTED, 0 -> UNCERTAIN
+OP_REPORT native=[rmsnorm,apply_rope,matmul_vec,matmul_batch,swiglu,gqa_attention,paged_attention,paged_attention_batch,compute_logits,rmsnorm_heads] reference=[] native_fallbacks=[] reference_runs=[] backend=ReferenceCpuBackend
+OP_REPORT native=[rmsnorm,apply_rope,matmul_vec,matmul_batch,swiglu,gqa_attention,paged_attention,paged_attention_batch,compute_logits,rmsnorm_heads] reference=[] native_fallbacks=[] reference_runs=[] backend=ReferenceCpuBackend
+OP_REPORT native=[rmsnorm,apply_rope,matmul_vec,matmul_batch,swiglu,gqa_attention,paged_attention,paged_attention_batch,compute_logits,rmsnorm_heads] reference=[] native_fallbacks=[] reference_runs=[] backend=ReferenceCpuBackend

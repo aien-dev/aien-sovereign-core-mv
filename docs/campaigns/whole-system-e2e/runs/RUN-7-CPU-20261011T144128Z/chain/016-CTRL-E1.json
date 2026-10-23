@@ -1,0 +1,16 @@
+{
+  "objective_id": "093e66ec92a6b428b49a0aa2a75678e9fdb155f423e1e7c71c5ae9fef11a60b1",
+  "run_id": "85d4649e31523c2ea13cf00ae068b671db29d328a2f325a9f21fc8dadac97454",
+  "step": "CTRL-E1",
+  "status": "NOT_RUN",
+  "utc": "2026-10-11T14:56:04Z",
+  "prev_receipt_sha256": "4a565f944e74694576ee303a45d8d9fcb5d2cd48e4f905d7b5e9e7288e2823ad",
+  "evidence": "no release artifact in RUN-1 (lane L5)",
+  "repo_commit": "8a05752310f188496ef96280fc851d66f2af9df8",
+  "daemon_sha256": "8b5279d053710b433859de219bd05f9a841f023f593c9d6880216a24caea5647",
+  "cli_sha256": "8b5279d053710b433859de219bd05f9a841f023f593c9d6880216a24caea5647",
+  "model_weights_digest": "1ff795ff6a07e6a68085d206fb84417da2f083f68391c2843cd2b8ac6df8538f",
+  "tokenizer_sha256": "6b9e4e7fb171f92fd137b777cc2714bf87d11576700a1dcd7a399e7bbe39537b",
+  "backend_line": "Backend: NativeTransformerBackend/CPU-reference (Omega GPU engine not linked, explicit fallback)",
+  "host": "spark-b87b"
+}

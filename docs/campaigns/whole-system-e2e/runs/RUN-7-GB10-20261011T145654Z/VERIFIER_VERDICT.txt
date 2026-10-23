@@ -1,0 +1,36 @@
+AIEN_E2E_VERDICT_V1
+objective_id 093e66ec92a6b428b49a0aa2a75678e9fdb155f423e1e7c71c5ae9fef11a60b1
+contract_sha256 9e3d5f4e23d65ac17be8f2f4ca48355f0aaa486f67ff5a8a8044dcdd646d34e8
+E1 NOT_RUN
+E2 PASS
+E3 FAIL
+E4 FAIL
+E5 NOT_RUN
+E6 PASS
+CTRL-E1 NOT_RUN
+CTRL-E2 PASS
+CTRL-E3 PASS
+CTRL-E4 NOT_RUN
+CTRL-E5 FAIL
+CTRL-E6 PASS
+verdict_id e603c4adf491688cdeecc2912b59ea63a74947ab955d0ba941416c364292999c
+chain_unbroken true
+base_verdict_id e603c4adf491688cdeecc2912b59ea63a74947ab955d0ba941416c364292999c
+# E1 NOT_RUN: no release artifact or signature check in the receipt
+# E2 PASS: objective recorded through aien-cli before any effect receipt
+# E3 FAIL: document rules: D4 required name(s) missing: ["harbour-notes.txt", "orchard-ledger.txt", "windmill-log.txt"]
+# E4 FAIL: second objective produced no effect (effect_state "none"); recall after restart not shown
+# E5 NOT_RUN: no --peer-verdict-id: cross-machine agreement not shown
+# E6 PASS: killed at after_authorize_before_execute, restarted, effect once, duplicates 0, third execute AlreadySpent
+# CTRL-E1 NOT_RUN: receipt lacks the facts this control needs
+# CTRL-E2 PASS: refused before execution: ForbiddenEffectClass
+# CTRL-E3 PASS: CTRL-E3a and CTRL-E3b both PASS
+# CTRL-E4 NOT_RUN: refusal named, but E4 did not show a recall, so the control tests store loss only, not memory loss
+# CTRL-E5 FAIL: mutated verdict id is not a different, well-formed id
+# CTRL-E6 PASS: durable state removed: refused E_MARK_TRUNCATED, no second effect
+# (supplementary) PRE PASS: model digests equal the candidate record; backend line and host present
+# (supplementary) E3m PASS: DONE, digest matches, 105 words, names present, grant spent once
+# (supplementary) CTRL-E3a PASS: daemon exited 1 before serving and names NoDesk
+# (supplementary) CTRL-E3b PASS: grant revoked before spend: refused Revoked, no file
+# (supplementary) NET PASS: daemon held no established TCP socket
+# status_disagreement: CTRL-E4 receipt says PASS but the facts derive NOT_RUN

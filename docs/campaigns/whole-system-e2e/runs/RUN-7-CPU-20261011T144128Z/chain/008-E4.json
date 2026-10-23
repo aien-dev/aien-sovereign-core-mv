@@ -1,0 +1,37 @@
+{
+  "objective_id": "093e66ec92a6b428b49a0aa2a75678e9fdb155f423e1e7c71c5ae9fef11a60b1",
+  "run_id": "85d4649e31523c2ea13cf00ae068b671db29d328a2f325a9f21fc8dadac97454",
+  "step": "E4",
+  "status": "FAIL",
+  "utc": "2026-10-11T14:50:14Z",
+  "prev_receipt_sha256": "39d72a0ef8c8d7860765a6103845324ab2535d6604c566776aadf4686b633e16",
+  "evidence": "kill -9 (exit 137) then restart (Reconcile: checked 0 unsettled effect(s): DONE 0, NOT_DONE 0, UNRESOLVED 0 recorded, 0 left as they were; []); second objective: propose did not commit: edit reply changes nothing in the file",
+  "repo_commit": "8a05752310f188496ef96280fc851d66f2af9df8",
+  "daemon_sha256": "8b5279d053710b433859de219bd05f9a841f023f593c9d6880216a24caea5647",
+  "cli_sha256": "8b5279d053710b433859de219bd05f9a841f023f593c9d6880216a24caea5647",
+  "model_weights_digest": "1ff795ff6a07e6a68085d206fb84417da2f083f68391c2843cd2b8ac6df8538f",
+  "tokenizer_sha256": "6b9e4e7fb171f92fd137b777cc2714bf87d11576700a1dcd7a399e7bbe39537b",
+  "backend_line": "Backend: NativeTransformerBackend/CPU-reference (Omega GPU engine not linked, explicit fallback)",
+  "host": "spark-b87b",
+  "allen_identity_fingerprint": "b01c1da3",
+  "compose_max_tokens": 400,
+  "restart_kind": "sigkill",
+  "effect_state": "none",
+  "memory_context": "",
+  "memory_items_included": 0,
+  "prompt_attempts": [
+    {
+      "prompt_tokens": 348,
+      "prompt_ids_sha256": "5589bd8fd4d450466a640798a1f36c56fe3fd0376a73645f6f9a70b652097e3d"
+    },
+    {
+      "prompt_tokens": 375,
+      "prompt_ids_sha256": "1b39ef362679d8dbdb5f213ca70b2a004bfd34e2c102b3f0156158991c0d0395"
+    },
+    {
+      "prompt_tokens": 375,
+      "prompt_ids_sha256": "1b39ef362679d8dbdb5f213ca70b2a004bfd34e2c102b3f0156158991c0d0395"
+    }
+  ],
+  "prompt_source": "report.proposal_attempts[].prompt_tokens and .prompt_ids_sha256 of the propose output (ACCEPTANCE-v1.5-fixed-root.md)"
+}

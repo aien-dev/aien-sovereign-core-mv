@@ -1,0 +1,53 @@
+{
+  "objective_id": "093e66ec92a6b428b49a0aa2a75678e9fdb155f423e1e7c71c5ae9fef11a60b1",
+  "run_id": "85d4649e31523c2ea13cf00ae068b671db29d328a2f325a9f21fc8dadac97454",
+  "step": "E3",
+  "status": "FAIL",
+  "utc": "2026-10-11T14:45:03Z",
+  "prev_receipt_sha256": "b8e65c677ae5b51a39f6fc0f4deda09583b7d7e15c8321ab1d33b365662cc85d",
+  "evidence": "state DONE; written outbox/report.md; inputs read by the proposer: 3; checks failed [D4]; second execute: AlreadySpent",
+  "repo_commit": "8a05752310f188496ef96280fc851d66f2af9df8",
+  "daemon_sha256": "8b5279d053710b433859de219bd05f9a841f023f593c9d6880216a24caea5647",
+  "cli_sha256": "8b5279d053710b433859de219bd05f9a841f023f593c9d6880216a24caea5647",
+  "model_weights_digest": "1ff795ff6a07e6a68085d206fb84417da2f083f68391c2843cd2b8ac6df8538f",
+  "tokenizer_sha256": "6b9e4e7fb171f92fd137b777cc2714bf87d11576700a1dcd7a399e7bbe39537b",
+  "backend_line": "Backend: NativeTransformerBackend/CPU-reference (Omega GPU engine not linked, explicit fallback)",
+  "host": "spark-b87b",
+  "written_path": "/home/drakestapleton/.aien-e2e/run/ws-contract/outbox/report.md",
+  "effect_state": "DONE",
+  "content_sha256": "99c136b4bd4a0e0c4867c215bc16b4c3c24e66d22c67ad911db89a8bbae89a1a",
+  "disk_sha256": "99c136b4bd4a0e0c4867c215bc16b4c3c24e66d22c67ad911db89a8bbae89a1a",
+  "grant_id": 23,
+  "desk": "required",
+  "checks_failed": "D4",
+  "compose_receipt": null,
+  "memory_context": "work",
+  "memory_items_included": 0,
+  "second_execute_refusal": "AlreadySpent",
+  "inputs": [
+    {
+      "bytes": 92,
+      "name": "inbox/harbour-notes.txt",
+      "sha256": "67477d14dc47e0b8e299878677b5d85ac6338982acb24ea4b24173cbb59c8a07"
+    },
+    {
+      "bytes": 95,
+      "name": "inbox/orchard-ledger.txt",
+      "sha256": "f0f03a116eebd299284b09b3624f0c2c57ac93ba971e58b6f41742bf76d7f6b9"
+    },
+    {
+      "bytes": 85,
+      "name": "inbox/windmill-log.txt",
+      "sha256": "d8451041780fa0660e186c1112c73c682cb510dacf72f05d798826cd93892bf9"
+    }
+  ],
+  "inputs_omitted": [],
+  "objective_record_id": "093e66ec92a6b428b49a0aa2a75678e9fdb155f423e1e7c71c5ae9fef11a60b1",
+  "prompt_attempts": [
+    {
+      "prompt_tokens": 322,
+      "prompt_ids_sha256": "588fd1a3598eb10b9c347d81b0f84a458a5b71a86056ddb0f0c8cd6d5954d95a"
+    }
+  ],
+  "prompt_source": "report.proposal_attempts[].prompt_tokens and .prompt_ids_sha256 of the propose output (ACCEPTANCE-v1.5-fixed-root.md)"
+}

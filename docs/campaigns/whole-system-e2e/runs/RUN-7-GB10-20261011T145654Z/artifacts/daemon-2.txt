@@ -1,0 +1,20 @@
+⚡ Starting AIEN Sovereign Runtime Daemon...
+  Omega CTA budget: 256 CTAs per matmul launch (AIEN default, AIEN_OMEGA_CTA_BUDGET unset; evidence docs/inference/evidence/t4fix-20261006T2254Z; omega library default 64 not used)
+  Omega marker spin: 2000 us (AIEN default, AIEN_OMEGA_SPIN_US unset; evidence docs/inference/evidence/spin-20261007T0726Z)
+  STRICT strict=true dev_fallback_build=false require_checkpoint=true backend=OmegaGb10Backend (native Omega engine, no CUDA, NVIDIA GB10 sm_121)
+  KV pool: 8589934592 bytes (8.00 GiB) = 8192 blocks x 16 tokens x 16 layers x 8 kv heads x 64 head_dim x 2 (K,V) x 4 bytes; context 131072 tokens from model max_sequence_length (config.json max_position_embeddings)
+  KV pool memory check: needs 8589934592 bytes (8.00 GiB), MemAvailable 116015222784 bytes (108.05 GiB)
+  GPU session: open on attempt 1/3 (MemAvailable 107996459008 bytes (100.58 GiB))
+  Backend: NativeTransformerBackend/OmegaGb10Backend (native Omega engine, no CUDA, NVIDIA GB10 sm_121)
+  Model: checkpoint loaded from /home/drakestapleton/.cache/huggingface/hub/models--unsloth--Llama-3.2-1B-Instruct/snapshots/5a8abab4a5d6f164389b1079fb721cfab8d7126c//model.safetensors (tokenizer loaded, model_id=5a8abab4a5d6f164389b1079fb721cfab8d7126c, config=unsloth/Llama-3.2-1B-Instruct (config.json), model_sha256=1ff795ff6a07e6a68085d206fb84417da2f083f68391c2843cd2b8ac6df8538f, tokenizer_sha256=6b9e4e7fb171f92fd137b777cc2714bf87d11576700a1dcd7a399e7bbe39537b)
+  KV: one pooled KV shared by runtime and backend
+  Tokenizer: llama3 (Llama 3 instruct) chat template, stop ids [128001, 128008, 128009]
+✓ Binding socket at /home/drakestapleton/.aien-e2e/run/s
+OP_REPORT native=[rmsnorm,apply_rope,matmul_vec,matmul_batch,swiglu,gqa_attention,paged_attention,paged_attention_batch,compute_logits,rmsnorm_heads] reference=[] native_fallbacks=[] reference_runs=[] gpu_executions=10034 backend=OmegaGb10Backend (native Omega engine, no CUDA, NVIDIA GB10 sm_121)
+  Warm-up: 1 token in 8405 ms over 124 prompt tokens (discarded)
+Authorize MAC: on (aien compose authorize requires the approval desk key MAC)
+Compose: native (omega 6c6180cf378075b61291f4565d226eba38b4decd)
+Reconcile: no compose home yet
+Replay reconcile: no compose home yet
+ALLEN: not engaged (AIEN_ALLEN_SUBJECT unset); no identity claim
+Cortex mark: mark created for a new home (seq 1, records 5)

@@ -1,0 +1,19 @@
+run folder: /home/drakestapleton/.claude/jobs/ade3c837/tmp/e2e/sc-main-run7/docs/campaigns/whole-system-e2e/runs/RUN-7-CPU-20261011T144128Z
+[14:44:07] PRE PASS: host spark-b87b; model unsloth/Llama-3.2-1B-Instruct; backend 'Backend: NativeTransformerBackend/CPU-reference (Omega GPU engine not linked, explicit fallback)'
+[14:44:07] CTRL-E3a PASS: daemon without a desk key exited 1 before serving; log: Fatal: the approval desk is required (AIEN_COMPOSE_AUTHORIZE_REQUIRES_DESK unset or 1) but its key is not usable: PROPOSAL_REFUSED NoDesk: /home/drakestapleton/.aien-e2e/run/compose/approval-desk.key:
+[14:44:07] E1 NOT_RUN: RUN-1 runs from a release build of this tree; nothing installed; RUN-3 measures E1
+[14:44:08] E2 PASS: aien-cli objective record: exit 0, id matches harness id=yes, record prov/objectives/093e66ec92a6b428b49a0aa2a75678e9fdb155f423e1e7c71c5ae9fef11a60b1.json sha256 5d5af6e7c3e3832ef60da7cdb1c44d99f739f5e794a5af4692c98814f6a9afae, objective show returns the text=yes; no effect recei
+[14:44:08] CTRL-E2 PASS: objective record with declared class EXTERNAL_IRREVERSIBLE: exit 1, refusal 'ForbiddenEffectClass', record absent=yes (the declared class is what is tested; the CLI does not classify prose)
+[14:45:03] E3 FAIL: state DONE; written outbox/report.md; inputs read by the proposer: 3; checks failed [D4]; second execute: AlreadySpent
+[14:46:09] E3m PASS: state DONE; written report.md; checks failed [none]; second execute: AlreadySpent
+[14:50:14] E4 FAIL: kill -9 (exit 137) then restart (Reconcile: checked 0 unsettled effect(s): DONE 0, NOT_DONE 0, UNRESOLVED 0 recorded, 0 left as they were; []); second objective: propose did not commit: edit reply changes nothing in the file
+[14:50:51] E6 PASS: kill -9 (exit 137) after authorize; execute while dead: state none (no refusal text), wrote=no; restart (Reconcile: checked 0 unsettled effect(s): DONE 0, NOT_DONE 0, UNRESOLVED 0 recorded, 0 left as they were; []); same grant: DONE; third execute: AlreadySpent; duplicates 0
+[14:51:02] CTRL-E3b PASS: revoke ok=true; execute refused 'Revoked'; ctrl.md absent=yes
+[14:51:02] NET PASS: established TCP sockets of the daemon pid: 0
+[14:55:02] CTRL-E4b RECORDED: memory files removed, home intact: refused (propose did not commit: edit reply changes nothing in the file); report changed=no (not judged)
+[14:56:04] CTRL-E6 PASS: kill -9 (exit 137) after authorize; home removed (cortex.cx jspace machine.id ), desk key and record mark kept; restart (Reconcile: no compose home yet); same grant: state none, refusal 'E_MARK_TRUNCATED'; state.md absent=yes
+[14:56:04] CTRL-E4 PASS: store removed: refused (propose did not commit: compose home /home/drakestapleton/.aien-e2e/run/compose refused: Cortex journal holds 0 records, its record mark says 123: 123 record(s) lost at a record boundary (E_MARK_TRUNCATED, mark seq 31). Run ); report changed=no; stop 
+[14:56:04] E5 NOT_RUN: cross-machine agreement is R7 (second machine); this machine's verifier (tools/aien-verify, sc#389) runs over the closed chain after this receipt and writes VERIFIER_VERDICT.txt and VERIFIER_RECEIPT.json outside the manifest
+[14:56:04] CTRL-E1 NOT_RUN: no release artifact in RUN-1 (lane L5)
+run folder written: /home/drakestapleton/.claude/jobs/ade3c837/tmp/e2e/sc-main-run7/docs/campaigns/whole-system-e2e/runs/RUN-7-CPU-20261011T144128Z (16 chain files); console closed; manifest and verifier follow
+[14:56:05] CTRL-E5 FAIL: byte 3 of artifacts/E3-report.md (61 to 58) on a scratch copy: rejected=true, chain_unbroken=false, verdict id 2e4fc8ef to 2e4fc8ef

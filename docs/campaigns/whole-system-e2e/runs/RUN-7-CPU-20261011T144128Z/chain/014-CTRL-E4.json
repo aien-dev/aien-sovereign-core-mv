@@ -1,0 +1,22 @@
+{
+  "objective_id": "093e66ec92a6b428b49a0aa2a75678e9fdb155f423e1e7c71c5ae9fef11a60b1",
+  "run_id": "85d4649e31523c2ea13cf00ae068b671db29d328a2f325a9f21fc8dadac97454",
+  "step": "CTRL-E4",
+  "status": "PASS",
+  "utc": "2026-10-11T14:56:04Z",
+  "prev_receipt_sha256": "01c5f15f6fcecddf3b7b376f4ee0d4dbd2b7722b955c920134470d0e8d667281",
+  "evidence": "store removed: refused (propose did not commit: compose home /home/drakestapleton/.aien-e2e/run/compose refused: Cortex journal holds 0 records, its record mark says 123: 123 record(s) lost at a record boundary (E_MARK_TRUNCATED, mark seq 31). Run ); report changed=no; stop before removal: SIGKILL (the CTRL-E6 kill; one removal serves both controls)",
+  "repo_commit": "8a05752310f188496ef96280fc851d66f2af9df8",
+  "daemon_sha256": "8b5279d053710b433859de219bd05f9a841f023f593c9d6880216a24caea5647",
+  "cli_sha256": "8b5279d053710b433859de219bd05f9a841f023f593c9d6880216a24caea5647",
+  "model_weights_digest": "1ff795ff6a07e6a68085d206fb84417da2f083f68391c2843cd2b8ac6df8538f",
+  "tokenizer_sha256": "6b9e4e7fb171f92fd137b777cc2714bf87d11576700a1dcd7a399e7bbe39537b",
+  "backend_line": "Backend: NativeTransformerBackend/CPU-reference (Omega GPU engine not linked, explicit fallback)",
+  "host": "spark-b87b",
+  "effect_state": "none",
+  "memory_context": "",
+  "memory_items_included": 0,
+  "report_changed": "no",
+  "stop_kind": "SIGKILL (the CTRL-E6 kill; one removal serves both controls)",
+  "kept": "approval-desk.key, compose.cortex-mark"
+}

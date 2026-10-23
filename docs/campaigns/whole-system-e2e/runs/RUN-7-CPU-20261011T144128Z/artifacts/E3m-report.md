@@ -1,0 +1,3 @@
+# Harbour, Orchard, and Windmill
+
+The harbour is a bustling hub of activity, with boats and ships coming and going at all hours. The harbour master is responsible for ensuring the safe and efficient operation of the harbour, and is often seen patrolling the waters. Nearby, the orchard is a tranquil oasis, filled with the sweet scent of ripe fruit. Visitors can stroll through the orchard's gates and sample the fresh produce on offer. Nearby, the windmill stands tall, its blades turning gently in the breeze. The windmill is a historic landmark, and is often used as a symbol of the area's rich agricultural heritage.

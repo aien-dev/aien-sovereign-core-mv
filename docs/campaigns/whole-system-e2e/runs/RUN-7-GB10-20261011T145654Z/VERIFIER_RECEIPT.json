@@ -1,0 +1,30 @@
+{
+  "verifier_sha256": "b1bf6ede8f2c38b2b09117bbbfb9ddd2f10f103daf8c890c135153f00bde6598",
+  "verifier_build_host": "spark-b87b",
+  "chain_unbroken": true,
+  "objective_id": "093e66ec92a6b428b49a0aa2a75678e9fdb155f423e1e7c71c5ae9fef11a60b1",
+  "contract_sha256": "9e3d5f4e23d65ac17be8f2f4ca48355f0aaa486f67ff5a8a8044dcdd646d34e8",
+  "rows": [
+    {"row": "E1", "verdict": "NOT_RUN", "reason": "no release artifact or signature check in the receipt"},
+    {"row": "E2", "verdict": "PASS", "reason": "objective recorded through aien-cli before any effect receipt"},
+    {"row": "E3", "verdict": "FAIL", "reason": "document rules: D4 required name(s) missing: [\"harbour-notes.txt\", \"orchard-ledger.txt\", \"windmill-log.txt\"]"},
+    {"row": "E4", "verdict": "FAIL", "reason": "second objective produced no effect (effect_state \"none\"); recall after restart not shown"},
+    {"row": "E5", "verdict": "NOT_RUN", "reason": "no --peer-verdict-id: cross-machine agreement not shown"},
+    {"row": "E6", "verdict": "PASS", "reason": "killed at after_authorize_before_execute, restarted, effect once, duplicates 0, third execute AlreadySpent"},
+    {"row": "CTRL-E1", "verdict": "NOT_RUN", "reason": "receipt lacks the facts this control needs"},
+    {"row": "CTRL-E2", "verdict": "PASS", "reason": "refused before execution: ForbiddenEffectClass"},
+    {"row": "CTRL-E3", "verdict": "PASS", "reason": "CTRL-E3a and CTRL-E3b both PASS"},
+    {"row": "CTRL-E4", "verdict": "NOT_RUN", "reason": "refusal named, but E4 did not show a recall, so the control tests store loss only, not memory loss"},
+    {"row": "CTRL-E5", "verdict": "FAIL", "reason": "mutated verdict id is not a different, well-formed id"},
+    {"row": "CTRL-E6", "verdict": "PASS", "reason": "durable state removed: refused E_MARK_TRUNCATED, no second effect"},
+    {"row": "supp:PRE", "verdict": "PASS", "reason": "model digests equal the candidate record; backend line and host present"},
+    {"row": "supp:E3m", "verdict": "PASS", "reason": "DONE, digest matches, 105 words, names present, grant spent once"},
+    {"row": "supp:CTRL-E3a", "verdict": "PASS", "reason": "daemon exited 1 before serving and names NoDesk"},
+    {"row": "supp:CTRL-E3b", "verdict": "PASS", "reason": "grant revoked before spend: refused Revoked, no file"},
+    {"row": "supp:NET", "verdict": "PASS", "reason": "daemon held no established TCP socket"}
+  ],
+  "chain_problems": [],
+  "status_disagreements": ["status_disagreement: CTRL-E4 receipt says PASS but the facts derive NOT_RUN"],
+  "base_verdict_id": "e603c4adf491688cdeecc2912b59ea63a74947ab955d0ba941416c364292999c",
+  "verdict_id": "e603c4adf491688cdeecc2912b59ea63a74947ab955d0ba941416c364292999c"
+}

@@ -1,0 +1,30 @@
+{
+  "objective_id": "093e66ec92a6b428b49a0aa2a75678e9fdb155f423e1e7c71c5ae9fef11a60b1",
+  "run_id": "85d4649e31523c2ea13cf00ae068b671db29d328a2f325a9f21fc8dadac97454",
+  "step": "CTRL-E5",
+  "status": "FAIL",
+  "utc": "2026-10-11T14:56:05Z",
+  "prev_receipt_sha256": "436dcc2a2639b63bc120b6d2c8f3394ce4d9e6d2d6f554a680d0b39c0a2990ad",
+  "evidence": "byte 3 of artifacts/E3-report.md (61 to 58) on a scratch copy: rejected=true, chain_unbroken=false, verdict id 2e4fc8ef to 2e4fc8ef",
+  "repo_commit": "8a05752310f188496ef96280fc851d66f2af9df8",
+  "daemon_sha256": "8b5279d053710b433859de219bd05f9a841f023f593c9d6880216a24caea5647",
+  "cli_sha256": "8b5279d053710b433859de219bd05f9a841f023f593c9d6880216a24caea5647",
+  "model_weights_digest": "1ff795ff6a07e6a68085d206fb84417da2f083f68391c2843cd2b8ac6df8538f",
+  "tokenizer_sha256": "6b9e4e7fb171f92fd137b777cc2714bf87d11576700a1dcd7a399e7bbe39537b",
+  "backend_line": "Backend: NativeTransformerBackend/CPU-reference (Omega GPU engine not linked, explicit fallback)",
+  "host": "spark-b87b",
+  "mutated_file": "artifacts/E3-report.md",
+  "mutation": {
+    "offset": 3,
+    "before_byte_hex": "61",
+    "after_byte_hex": "58"
+  },
+  "original_verdict_id": "2e4fc8ef98d27dfe10556712bbc23683ecb1fd395803b6a4c2644b04c89fb942",
+  "mutated_verdict_id": "2e4fc8ef98d27dfe10556712bbc23683ecb1fd395803b6a4c2644b04c89fb942",
+  "mutated_chain_unbroken": false,
+  "mutated_e3_row": "# E3 FAIL: DIGEST_MISMATCH: artifacts/E3-report.md hashes to e732e116a4c0f07e4da2837133feb9671405651e350f04ddeb065076e18c2d1a but the receipt content_sha256 is 99c136b4bd4a0e0c4867c215bc16b4c3c24e66d22c67ad911db89a8bbae89a1a",
+  "mutated_output_rejected": true,
+  "verifier_reason": "# E3 FAIL: DIGEST_MISMATCH: artifacts/E3-report.md hashes to e732e116a4c0f07e4da2837133feb9671405651e350f04ddeb065076e18",
+  "verifier_sha256": "b1bf6ede8f2c38b2b09117bbbfb9ddd2f10f103daf8c890c135153f00bde6598",
+  "verifier_source_sha256": "d603514f54f9de53e3c70c7c6f3ad3a27021a0309e5dca73269baf46b552da03"
+}
