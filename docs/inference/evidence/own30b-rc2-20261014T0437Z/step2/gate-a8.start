@@ -1,0 +1,4 @@
+start 2026-10-14T04:41:01Z
+cmd flock /tmp/aien-gb10.lock env AIEN_OMEGA_SPIN_US=2000 /home/drakestapleton/handoffs/rc2-bin-a08d2c9/own30b_wp_gate /home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8 /home/drakestapleton/workspace/sc-own30b-rc2/docs/inference/evidence/own30b-rc2-20261014T0437Z/step2/gate-a8 --lens 1,512,2048 --devhost --mutants --acts a8
+               total        used        free      shared  buff/cache   available
+Mem:             121          17          78           2          28         104

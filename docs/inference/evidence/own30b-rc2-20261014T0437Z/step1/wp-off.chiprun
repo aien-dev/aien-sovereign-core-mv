@@ -1,0 +1,8 @@
+wp-off rc=0
+LOAD: 18.2s resident 30.53 GB host 0.67 GB peak_rss 31.94 GB (before 0.13 GB) kv_resident=true mem_available_after 71.9 GB
+LOAD peak over resident+host: 0.74 GB (budget 6 GB) -> PASS
+TOKENS p1-one-token: 1 prompt tokens, prefill 0.03s (25.0 ms/token; chunk 64, per token attention 10.5 ms experts 14.7 ms host 0.6 ms launches 288.0), decode 16 tokens in 362 ms = 22.6 ms/token = 44.2 tok/s; per step: attention 0.0 ms experts 0.0 ms lm_head 0.2 ms host 0.1 ms chip-reported 22.6 ms launches 184.75; IDENTICAL
+TOKENS p2-short: 20 prompt tokens, prefill 0.34s (17.2 ms/token; chunk 64, per token attention 6.4 ms experts 10.7 ms host 0.2 ms launches 57.6), decode 7 tokens in 168 ms = 24.0 ms/token = 41.7 tok/s; per step: attention 0.0 ms experts 0.0 ms lm_head 0.4 ms host 0.0 ms chip-reported 24.0 ms launches 197.14285714285714; IDENTICAL
+TOKENS p3-medium: 204 prompt tokens, prefill 2.86s (14.0 ms/token; chunk 64, per token attention 6.0 ms experts 7.9 ms host 0.1 ms launches 51.1), decode 16 tokens in 373 ms = 23.3 ms/token = 42.9 tok/s; per step: attention 0.0 ms experts 0.0 ms lm_head 0.2 ms host 0.0 ms chip-reported 23.3 ms launches 184.75; IDENTICAL
+TOKENS p4-long: 657 prompt tokens, prefill 10.68s (16.3 ms/token; chunk 64, per token attention 6.8 ms experts 9.3 ms host 0.1 ms launches 51.0), decode 16 tokens in 384 ms = 24.0 ms/token = 41.7 tok/s; per step: attention 0.0 ms experts 0.0 ms lm_head 0.2 ms host 0.0 ms chip-reported 24.0 ms launches 184.75; IDENTICAL
+SUMMARY parity=PASS tokens=PASS peak_rss=32.15 GB

@@ -1,0 +1,55 @@
+== STEP 1: golden tokens + decode tok/s, RC2 defaults and each switch flipped
+T1 graph-off tokens = RC 1 server path (all 4 prompts): PASS
+T1 rc2 tokens = RC 1 server path (all 4 prompts): PASS
+T1 res-off tokens = RC 1 server path (all 4 prompts): PASS
+T1 devhost-off tokens = RC 1 server path (all 4 prompts): PASS
+T1 rc2-b tokens = RC 1 server path (all 4 prompts): PASS
+T2 wp-off golden IDENTICAL p1..p4: PASS
+T3 launches per graph token: rc2 197 < res-off 436 (resident ran): PASS
+a16-on tokens vs golden (info; judged in step 2): {"p1-one-token":"IDENTICAL","p2-short":"IDENTICAL","p3-medium":"IDENTICAL","p4-long":"IDENTICAL"}
+decode tok/s     p1     p2     p3     p4
+graph-off   38.1  35.9  37  36.4
+rc2         44.8  41.4  43  42.3
+rc2-b       44.4  41.2  42.8  42
+res-off     43.1  40  41.3  40.8
+wp-off      44.2  41.7  42.9  41.7
+devhost-off 44.7  41.4  42.8  41.9
+a16-on      44.2  40.9  42.4  41.6
+STEP1: tokens=PASS speed=GO (rc2 and rc2-b vs graph-off on all four prompts)
+== STEP 2: W-L1H W8A16 gate (W8A8 vs W8A16)
+  len 1 DRIFT acts a8 max_l relerr(ON,OFF) = 8.102e-1 top1 DIFFER
+  len 512 DRIFT acts a8 max_l relerr(ON,OFF) = 1.187e-1 top1 AGREE
+  len 2048 DRIFT acts a8 max_l relerr(ON,OFF) = 1.734e-1 top1 AGREE
+  len 1 DRIFT acts a16 max_l relerr(ON,OFF) = 3.448e-2 top1 AGREE
+  len 512 DRIFT acts a16 max_l relerr(ON,OFF) = 1.014e-1 top1 DIFFER
+  len 2048 DRIFT acts a16 max_l relerr(ON,OFF) = 1.435e-1 top1 AGREE
+  TTFT on(dev) median len 512: a8 306.75 ms a16 326.95 ms
+  TTFT on(dev) median len 2048: a8 872 ms a16 912.25 ms
+  gate-a16 negative controls caught 6 of 6
+        1 SUMMARY acts a16
+        1 SUMMARY acts a8
+        2 SUMMARY devhost vs host routing+combine BIT-IDENTICAL
+        1 SUMMARY FAIL
+        1 SUMMARY PASS
+        2 SUMMARY tokens DIFFER
+STEP2: R1 golden=FAIL R2 drift=FAIL R3 ttft=PASS R4 controls=PASS (W8A16 may be turned on only if all PASS)
+== STEP 3: server smoke on 127.0.0.1:18093 (RC2 defaults)
+  aien-serve-http: whole_prompt=on prefill_device_host=on prefill_acts=a8 (set in 0.02 s)
+  aien-serve-http: decode_graph=on resident_decode=on (grid 128 rows 2) (set in 0.00 s)
+  aien-serve-http: omega engine ready in 18.0 s: Fp8All weights, 30.53 GB resident, 0.67 GB host, peak rss 31.94 GB, window_api=true fp8_api=true dattn_api=true attention=fused router=device lm_head=gemv prefill=gemm prefill_chunk=64 spin_us=Some(2000)
+  turn 1 (non-stream): "The capital of France is Paris." (wall 0.84 s)
+  turn 2 (SSE, prefix reuse): "The capital of Italy is Rome." (wall 0.28 s)
+  turn 2 reused prompt tokens: 48 of 62
+  long prompt (1836 tokens): "The slowest load occurred in Block 60, which took 26" (wall 1.21 s); RC 1 answered "The slowest load occurred in Block 60, which took 26"
+  sampled turn (temperature 0.7): "The sea stretches endlessly, a vast mirror reflecting the sky's moods. Its waves whisper ancient secrets to those who listen." finish stop (wall 1.06 s)
+  lock wait 0 ms, prompt 41 tok, 0 reused from the previous turn, prefill 656 ms, decode 7 tok in 175 ms
+      = 40.0 tok/s
+  lock wait 0 ms, prompt 62 tok, 48 reused from the previous turn, prefill 106 ms, decode 7 tok in 175 ms
+      = 40.0 tok/s
+  lock wait 0 ms, prompt 1836 tok, 15 reused from the previous turn, prefill 796 ms, decode 16 tok in 414 ms
+      = 38.6 tok/s
+  lock wait 0 ms, prompt 35 tok, 15 reused from the previous turn, prefill 114 ms, decode 25 tok in 940 ms
+      = 26.6 tok/s
+  server pid 71607 stopped 2026-10-14T04:55:18Z
+STEP3: PASS
+RC2_GATE: step1 tokens=PASS speed=GO | step2 R1=FAIL R2=FAIL R3=PASS R4=PASS | step3 PASS | evidence /home/drakestapleton/workspace/sc-own30b-rc2/docs/inference/evidence/own30b-rc2-20261014T0437Z

@@ -1,0 +1,11 @@
+OWN-30B RC2 gate 2026-10-14T04:37:01Z
+sc d26b3c6ae1f1b7c7d132431e21af2317823e2b34 omega 848a999baf208ffc8c14872803cd56da6fb829d4 omega.lock 848a999baf208ffc8c14872803cd56da6fb829d4
+binaries /home/drakestapleton/handoffs/rc2-bin-a08d2c9:
+665cbed5ccc70cb42e67b8437aefec3cb79f5e5b162adbbc6fb434f32a2c2ec7  aien-serve-http
+d7584ce35ba32188982a2319f1d208781b60ec1094d103dbe0ae6dcd65844d0e  own30b_check
+d7ed47d56acba12b879e0767849939b861be715137dc04b8f04cb1150cb5b047  own30b_ttft
+e05ea8d95c67a20b5d2459547ae4cd3d64912072387e20ba290be1421f4c7199  own30b_wp_gate
+checkpoint /home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8
+golden sha256 957d0165544f379951590f33108a8f7b26c2d55a677fc72b27c4b370497e1ace
+               total        used        free      shared  buff/cache   available
+Mem:             121          17          49           2          57         103

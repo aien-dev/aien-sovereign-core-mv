@@ -1,0 +1,28 @@
+mem available before load: 103.8 GB
+engine native=true window_api=true fp8_api=true dattn_api=true weights=Fp8All attn=Fused spin_us=Some(2000) cta_budget=Some(64)
+prefill path gemm routing host (gemm_api=true)
+attention path fused prefill_chunk 64 batched_prefill_possible true
+router path device lm_head path gemv (router_api=true bf16_api=true)
+decode graph ON (dgraph_api=true, OWN30B_DECODE_GRAPH=1 to turn on) mutant none
+whole-prompt activations: a16
+whole-prompt prefill ON device router/combine ON
+LOAD: 17.5s resident 30.53 GB host 0.67 GB peak_rss 31.94 GB (before 0.13 GB) kv_resident=true mem_available_after 73.3 GB
+LOAD peak over resident+host: 0.74 GB (budget 6 GB) -> PASS
+TOKENS p1-one-token: 1 prompt tokens, prefill 0.19s (186.0 ms/token; chunk 64, per token attention 1.4 ms experts 0.0 ms host 1.7 ms launches 432.0), decode 16 tokens in 362 ms = 22.6 ms/token = 44.2 tok/s; per step: attention 0.0 ms experts 0.0 ms lm_head 0.2 ms host 0.1 ms chip-reported 22.5 ms launches 184.75; IDENTICAL
+  DECODE GRAPH ON: 15 of 16 decode steps as one list (the first step is the prefill's lm_head); per step launches 184.8 submits 1.0; per graph token launches 197.0 submits 1.0 record 79.1 us
+  chip text: " and welcome to the 2024-25 season of the National"
+  cpu  text: " and welcome to the 2024-25 season of the National"
+TOKENS p2-short: 20 prompt tokens, prefill 0.12s (6.0 ms/token; chunk 64, per token attention 0.1 ms experts 0.0 ms host 1.0 ms launches 21.6), decode 7 tokens in 171 ms = 24.4 ms/token = 40.9 tok/s; per step: attention 0.0 ms experts 0.0 ms lm_head 0.4 ms host 0.0 ms chip-reported 24.4 ms launches 197.14285714285714; IDENTICAL
+  DECODE GRAPH ON: 7 of 7 decode steps as one list (the first step is the prefill's lm_head); per step launches 197.1 submits 1.1; per graph token launches 197.0 submits 1.0 record 35.6 us
+  chip text: "The capital of France is Paris."
+  cpu  text: "The capital of France is Paris.<|im_end|>"
+TOKENS p3-medium: 204 prompt tokens, prefill 0.21s (1.0 ms/token; chunk 64, per token attention 0.0 ms experts 0.0 ms host 0.2 ms launches 2.1), decode 16 tokens in 377 ms = 23.6 ms/token = 42.4 tok/s; per step: attention 0.0 ms experts 0.0 ms lm_head 0.2 ms host 0.0 ms chip-reported 23.6 ms launches 184.75; IDENTICAL
+  DECODE GRAPH ON: 15 of 16 decode steps as one list (the first step is the prefill's lm_head); per step launches 184.8 submits 1.0; per graph token launches 197.0 submits 1.0 record 30.3 us
+  chip text: "- The DGX Spark uses the GB10 Grace Blackwell superchip,"
+  cpu  text: "- The DGX Spark uses the GB10 Grace Blackwell superchip,"
+TOKENS p4-long: 657 prompt tokens, prefill 0.40s (0.6 ms/token; chunk 64, per token attention 0.0 ms experts 0.0 ms host 0.1 ms launches 0.7), decode 16 tokens in 385 ms = 24.1 ms/token = 41.6 tok/s; per step: attention 0.0 ms experts 0.0 ms lm_head 0.2 ms host 0.0 ms chip-reported 24.0 ms launches 184.75; IDENTICAL
+  DECODE GRAPH ON: 15 of 16 decode steps as one list (the first step is the prefill's lm_head); per step launches 184.8 submits 1.0; per graph token launches 197.0 submits 1.0 record 29.1 us
+  chip text: "What went wrong:  \nIn **run 10**, the model's output"
+  cpu  text: "What went wrong:  \nIn **run 10**, the model's output"
+SUMMARY parity=PASS tokens=PASS peak_rss=33.27 GB
+receipt: /home/drakestapleton/workspace/sc-own30b-rc2/docs/inference/evidence/own30b-rc2-20261014T0437Z/step1/a16-on

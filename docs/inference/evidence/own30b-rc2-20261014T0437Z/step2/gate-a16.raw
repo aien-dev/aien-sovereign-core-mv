@@ -1,0 +1,193 @@
+mem available before load: 103.5 GB
+build native=true pf=true pattn=true pattn_dev=true
+LOAD 53.2s resident 30.53 GB attention fused mem_available_after 72.9 GB
+len 1 OFF  (per-token OFF kernels, f32 activations): 0.0 s
+len 1 CTRL (OFF kernels + the ON quantiser at every GEMM input): 0.0 s
+ON: routing path DEVICE (router launches 48, combine launches 48)
+len 1 ON   (whole-prompt path): 0.2 s
+len 1 per-layer relative error on x_out (L2 over all 1 tokens) | expert-set flips (tokens/ids):
+layer       ON-OFF     CTRL-OFF      ON-CTRL |      ON-OFF    CTRL-OFF     ON-CTRL
+    0     9.736e-4     3.985e-2     3.997e-2 |         0/0         1/1         1/1
+    1     1.365e-3     3.117e-2     3.357e-2 |         0/0         0/0         0/0
+    2     4.576e-3     4.824e-2     5.039e-2 |         0/0         0/0         0/0
+    3     2.661e-3     3.827e-2     3.942e-2 |         0/0         0/0         0/0
+    4     2.660e-3     3.827e-2     3.942e-2 |         0/0         0/0         0/0
+    5     2.660e-3     3.827e-2     3.942e-2 |         0/0         0/0         0/0
+    6     2.660e-3     3.827e-2     3.942e-2 |         0/0         0/0         0/0
+    7     2.660e-3     3.827e-2     3.942e-2 |         0/0         0/0         0/0
+    8     2.660e-3     3.827e-2     3.942e-2 |         0/0         0/0         0/0
+    9     2.659e-3     3.827e-2     3.942e-2 |         0/0         0/0         0/0
+   10     2.660e-3     3.827e-2     3.942e-2 |         0/0         0/0         0/0
+   11     2.660e-3     3.827e-2     3.942e-2 |         0/0         0/0         0/0
+   12     2.659e-3     3.827e-2     3.942e-2 |         0/0         0/0         0/0
+   13     2.660e-3     3.827e-2     3.942e-2 |         0/0         0/0         0/0
+   14     2.659e-3     3.827e-2     3.942e-2 |         0/0         0/0         0/0
+   15     2.659e-3     3.827e-2     3.942e-2 |         0/0         0/0         0/0
+   16     2.658e-3     3.823e-2     3.938e-2 |         0/0         0/0         0/0
+   17     2.658e-3     3.823e-2     3.938e-2 |         0/0         0/0         0/0
+   18     2.658e-3     3.823e-2     3.938e-2 |         0/0         0/0         0/0
+   19     2.658e-3     3.823e-2     3.938e-2 |         0/0         0/0         0/0
+   20     2.657e-3     3.823e-2     3.938e-2 |         0/0         0/0         0/0
+   21     2.656e-3     3.822e-2     3.937e-2 |         0/0         0/0         0/0
+   22     2.657e-3     3.823e-2     3.938e-2 |         0/0         0/0         0/0
+   23     2.657e-3     3.823e-2     3.938e-2 |         0/0         0/0         0/0
+   24     2.652e-3     3.822e-2     3.937e-2 |         0/0         1/1         1/1
+   25     2.649e-3     3.819e-2     3.934e-2 |         0/0         0/0         0/0
+   26     2.645e-3     3.805e-2     3.921e-2 |         0/0         0/0         0/0
+   27     2.645e-3     3.805e-2     3.921e-2 |         0/0         0/0         0/0
+   28     2.637e-3     3.805e-2     3.919e-2 |         0/0         0/0         0/0
+   29     2.637e-3     3.805e-2     3.919e-2 |         0/0         0/0         0/0
+   30     2.637e-3     3.805e-2     3.920e-2 |         0/0         0/0         0/0
+   31     2.637e-3     3.806e-2     3.920e-2 |         0/0         0/0         0/0
+   32     2.637e-3     3.806e-2     3.920e-2 |         0/0         1/1         1/1
+   33     2.638e-3     3.806e-2     3.921e-2 |         0/0         0/0         0/0
+   34     2.638e-3     3.806e-2     3.921e-2 |         0/0         0/0         0/0
+   35     2.638e-3     3.806e-2     3.921e-2 |         0/0         0/0         0/0
+   36     2.634e-3     3.804e-2     3.919e-2 |         0/0         0/0         0/0
+   37     2.634e-3     3.804e-2     3.919e-2 |         0/0         0/0         0/0
+   38     2.634e-3     3.804e-2     3.918e-2 |         0/0         0/0         0/0
+   39     2.634e-3     3.804e-2     3.919e-2 |         0/0         0/0         0/0
+   40     2.631e-3     3.797e-2     3.911e-2 |         0/0         0/0         0/0
+   41     2.631e-3     3.796e-2     3.911e-2 |         0/0         0/0         0/0
+   42     2.631e-3     3.796e-2     3.911e-2 |         0/0         0/0         0/0
+   43     2.665e-3     3.816e-2     3.933e-2 |         0/0         0/0         0/0
+   44     2.665e-3     3.817e-2     3.933e-2 |         0/0         0/0         0/0
+   45     2.661e-3     3.823e-2     3.939e-2 |         0/0         0/0         0/0
+   46     3.201e-3     7.308e-2     7.112e-2 |         0/0         0/0         0/0
+   47     3.448e-2     8.078e-1     7.389e-1 |         0/0         0/0         0/0
+len 1 ops at layer 0 (relative error): ON-OFF {"attn":0.0019047062146510371,"attn_quantised":0.008639878883326483,"logits":0.0002661120393368105,"moe_out":0.0012855425358860462,"moe_out_same_route":0.0012855425358860462,"oproj":0.0013695512117052522,"post":0.0012176347781513582,"post_quantised":0.007746400122679895,"qkv":0.0006342650177678251,"same_route_tokens":1,"x_norm":0.0,"x_norm_quantised":0.0} ; CTRL-OFF {"attn":0.02135821755725982,"attn_quantised":0.02893242082539543,"logits":0.0048727299185938305,"moe_out":0.060884174443310374,"moe_out_same_route":0.0,"oproj":0.022050412228887584,"post":0.01891314108763963,"post_quantised":0.03292497591360798,"qkv":0.01205003773164875,"same_route_tokens":0,"x_norm":0.0,"x_norm_quantised":0.0} ; ON-CTRL {"attn":0.02136499606566727,"attn_quantised":0.02812362830690128,"logits":0.005074257476415537,"moe_out":0.0616323177520312,"moe_out_same_route":0.0,"oproj":0.021979995790744288,"post":0.018868752974242904,"post_quantised":0.03281798421536802,"qkv":0.011978163956355785,"same_route_tokens":0,"x_norm":0.0,"x_norm_quantised":0.0}
+len 1 first-step logits cosine: ON-OFF 0.999966 CTRL-OFF 0.894522 ON-CTRL 0.890929; top-1 OFF 323 CTRL 25 ON 323
+len 1 DRIFT acts a16 max_l relerr(ON,OFF) = 3.448e-2 top1 AGREE
+len 1 RULE: budget B = max_l relerr(CTRL,OFF) = 8.078e-1; max_l relerr(ON,CTRL) = 7.389e-1 (0.91 x B); ops: qkv ON-CTRL 1.198e-2 <= CTRL-OFF 1.205e-2 ok, oproj ON-CTRL 2.198e-2 <= CTRL-OFF 2.205e-2 ok, moe_out ON-CTRL 6.163e-2 <= CTRL-OFF 6.088e-2 VIOLATED
+len 1 VERDICT: FAIL (ON differs from the W8A8 control beyond the rounding budget)
+MUT_ROUTING: routing path DEVICE (router launches 48, combine launches 48)
+len 1 NEGATIVE CONTROL MUT_ROUTING vs CTRL: max_l relerr 1.724e0 (2.1 x B), layer 0 out 5.749e-1 flips 1/8, logits cosine vs OFF 0.701644: CAUGHT (rule fails it)
+MUT_GUSCALES: routing path DEVICE (router launches 48, combine launches 48)
+len 1 NEGATIVE CONTROL MUT_GUSCALES vs CTRL: max_l relerr 3.007e0 (3.7 x B), layer 0 out 1.113e-1 flips 1/1, logits cosine vs OFF -0.080954: CAUGHT (rule fails it)
+len 512 OFF  (per-token OFF kernels, f32 activations): 15.6 s
+len 512 CTRL (OFF kernels + the ON quantiser at every GEMM input): 21.2 s
+ON: routing path DEVICE (router launches 48, combine launches 48)
+len 512 ON   (whole-prompt path): 0.5 s
+len 512 per-layer relative error on x_out (L2 over all 512 tokens) | expert-set flips (tokens/ids):
+layer       ON-OFF     CTRL-OFF      ON-CTRL |      ON-OFF    CTRL-OFF     ON-CTRL
+    0     1.738e-3     1.297e-2     1.313e-2 |         2/2       35/35       37/37
+    1     2.734e-3     4.069e-2     4.165e-2 |         5/5       55/55       59/59
+    2     3.457e-3     5.360e-2     4.763e-2 |       10/10       51/53       51/53
+    3     3.280e-3     4.311e-2     3.826e-2 |       18/18       99/99       97/98
+    4     3.354e-3     4.311e-2     3.827e-2 |       24/24       94/94       97/97
+    5     3.472e-3     4.312e-2     3.829e-2 |       34/34     104/106     106/109
+    6     3.675e-3     4.314e-2     3.831e-2 |       51/52     137/139     141/143
+    7     3.901e-3     4.317e-2     3.835e-2 |       66/67     150/156     159/166
+    8     4.191e-3     4.320e-2     3.840e-2 |       56/59     145/153     143/153
+    9     4.408e-3     4.322e-2     3.843e-2 |       52/52     121/126     122/125
+   10     4.656e-3     4.324e-2     3.846e-2 |       55/56     118/121     119/126
+   11     4.987e-3     4.330e-2     3.853e-2 |       68/68     130/136     135/140
+   12     5.377e-3     4.337e-2     3.860e-2 |       69/71     157/164     146/151
+   13     5.978e-3     4.350e-2     3.874e-2 |       74/77     157/169     147/159
+   14     6.693e-3     4.368e-2     3.891e-2 |      89/104     182/207     175/198
+   15     7.804e-3     4.395e-2     3.922e-2 |     102/113     179/214     179/206
+   16     8.238e-3     4.412e-2     3.940e-2 |      93/101     183/204     182/205
+   17     9.013e-3     4.437e-2     3.964e-2 |     100/120     172/216     165/204
+   18     1.081e-2     4.502e-2     4.021e-2 |     116/147     205/263     194/240
+   19     1.177e-2     4.551e-2     4.069e-2 |     127/156     204/277     205/264
+   20     1.420e-2     4.660e-2     4.180e-2 |     125/161     189/281     198/282
+   21     1.648e-2     4.759e-2     4.273e-2 |     114/157     171/252     170/241
+   22     1.952e-2     4.951e-2     4.457e-2 |     149/198     216/319     207/297
+   23     2.173e-2     5.101e-2     4.605e-2 |     151/191     204/303     203/279
+   24     2.470e-2     5.301e-2     4.795e-2 |     185/264     264/386     249/362
+   25     2.788e-2     5.544e-2     5.033e-2 |     181/228     223/312     217/298
+   26     2.990e-2     5.655e-2     5.146e-2 |     188/265     237/372     239/362
+   27     3.457e-2     5.980e-2     5.485e-2 |     211/304     278/435     257/405
+   28     3.566e-2     6.036e-2     5.545e-2 |     205/298     263/378     246/360
+   29     3.741e-2     6.174e-2     5.688e-2 |     184/269     255/368     244/356
+   30     3.907e-2     6.332e-2     5.792e-2 |     202/313     264/424     247/409
+   31     4.372e-2     6.669e-2     6.140e-2 |     224/335     285/465     272/441
+   32     4.863e-2     7.151e-2     6.521e-2 |     202/322     248/407     238/404
+   33     5.759e-2     7.867e-2     6.892e-2 |     200/322     236/401     233/400
+   34     6.326e-2     8.459e-2     7.492e-2 |     205/353     258/443     248/438
+   35     6.714e-2     8.899e-2     7.998e-2 |     209/330     250/435     243/425
+   36     6.880e-2     9.052e-2     8.274e-2 |     227/407     284/500     274/500
+   37     6.897e-2     9.147e-2     8.629e-2 |     209/322     238/382     230/381
+   38     7.036e-2     9.325e-2     8.833e-2 |     208/350     239/415     248/436
+   39     7.989e-2     1.038e-1     9.875e-2 |     221/342     247/410     239/407
+   40     8.011e-2     1.034e-1     9.919e-2 |     207/319     238/376     236/392
+   41     8.511e-2     1.080e-1     1.050e-1 |     195/281     245/376     230/363
+   42     9.676e-2     1.194e-1     1.179e-1 |     196/314     223/364     228/380
+   43     9.661e-2     1.204e-1     1.209e-1 |     209/350     252/429     245/427
+   44     9.243e-2     1.157e-1     1.169e-1 |     226/357     272/444     262/436
+   45     9.308e-2     1.170e-1     1.183e-1 |     223/363     288/467     272/445
+   46     1.014e-1     1.280e-1     1.288e-1 |     225/321     276/404     276/413
+   47     7.643e-2     9.485e-2     9.875e-2 |     199/274     215/312     217/307
+len 512 ops at layer 0 (relative error): ON-OFF {"attn":0.002292236305191646,"attn_quantised":0.010934629479434667,"logits":0.00025314757305161154,"moe_out":0.004436140519036266,"moe_out_same_route":0.0018003541807427913,"oproj":0.0010519592615792904,"post":0.001311675186941597,"post_quantised":0.007684046340909544,"qkv":0.0007231260729791114,"same_route_tokens":510,"x_norm":0.0,"x_norm_quantised":0.0} ; CTRL-OFF {"attn":0.019915045848053658,"attn_quantised":0.03407659076264011,"logits":0.0025974214007639072,"moe_out":0.030410977687698848,"moe_out_same_route":0.022643111976127457,"oproj":0.010844029828472608,"post":0.014389221306466304,"post_quantised":0.025990583615102276,"qkv":0.011455261349835268,"same_route_tokens":477,"x_norm":0.0,"x_norm_quantised":0.0} ; ON-CTRL {"attn":0.02006549842818427,"attn_quantised":0.03412109102604663,"logits":0.002625996005516785,"moe_out":0.030788361426436185,"moe_out_same_route":0.022683040929892716,"oproj":0.011006787912281463,"post":0.01447065560076291,"post_quantised":0.0261894464011988,"qkv":0.011663710909576385,"same_route_tokens":475,"x_norm":0.0,"x_norm_quantised":0.0}
+len 512 first-step logits cosine: ON-OFF 0.996213 CTRL-OFF 0.996162 ON-CTRL 0.996644; top-1 OFF 22 CTRL 22 ON 18
+len 512 DRIFT acts a16 max_l relerr(ON,OFF) = 1.014e-1 top1 DIFFER
+len 512 RULE: budget B = max_l relerr(CTRL,OFF) = 1.280e-1; max_l relerr(ON,CTRL) = 1.288e-1 (1.01 x B); ops: qkv ON-CTRL 1.166e-2 <= CTRL-OFF 1.146e-2 VIOLATED, oproj ON-CTRL 1.101e-2 <= CTRL-OFF 1.084e-2 VIOLATED, moe_out ON-CTRL 3.079e-2 <= CTRL-OFF 3.041e-2 VIOLATED
+len 512 VERDICT: FAIL (ON differs from the W8A8 control beyond the rounding budget)
+MUT_ROUTING: routing path DEVICE (router launches 48, combine launches 48)
+len 512 NEGATIVE CONTROL MUT_ROUTING vs CTRL: max_l relerr 1.166e0 (9.1 x B), layer 0 out 3.477e-1 flips 512/3989, logits cosine vs OFF 0.050206: CAUGHT (rule fails it)
+MUT_GUSCALES: routing path DEVICE (router launches 48, combine launches 48)
+len 512 NEGATIVE CONTROL MUT_GUSCALES vs CTRL: max_l relerr 8.643e-1 (6.8 x B), layer 0 out 1.585e-1 flips 37/37, logits cosine vs OFF 0.810634: CAUGHT (rule fails it)
+len 2048 OFF  (per-token OFF kernels, f32 activations): 64.4 s
+len 2048 CTRL (OFF kernels + the ON quantiser at every GEMM input): 90.7 s
+ON: routing path DEVICE (router launches 48, combine launches 48)
+len 2048 ON   (whole-prompt path): 1.4 s
+len 2048 per-layer relative error on x_out (L2 over all 2048 tokens) | expert-set flips (tokens/ids):
+layer       ON-OFF     CTRL-OFF      ON-CTRL |      ON-OFF    CTRL-OFF     ON-CTRL
+    0     1.861e-3     1.153e-2     1.169e-2 |       13/13     136/136     141/141
+    1     2.803e-3     3.801e-2     3.905e-2 |       20/20     210/211     204/205
+    2     3.465e-3     5.323e-2     4.736e-2 |       24/24     193/193     193/193
+    3     3.341e-3     4.290e-2     3.811e-2 |       64/64     425/431     418/425
+    4     3.515e-3     4.292e-2     3.815e-2 |       78/79     436/442     438/444
+    5     3.833e-3     4.296e-2     3.822e-2 |     121/124     476/490     483/497
+    6     4.270e-3     4.298e-2     3.827e-2 |     173/175     599/621     616/631
+    7     4.678e-3     4.303e-2     3.834e-2 |     195/201     602/636     601/636
+    8     5.230e-3     4.309e-2     3.844e-2 |     211/219     572/604     572/606
+    9     5.667e-3     4.314e-2     3.852e-2 |     210/215     556/588     565/594
+   10     6.207e-3     4.314e-2     3.859e-2 |     209/214     544/569     537/568
+   11     6.849e-3     4.333e-2     3.881e-2 |     233/236     567/593     553/577
+   12     7.630e-3     4.356e-2     3.907e-2 |     285/293     651/692     644/687
+   13     8.766e-3     4.401e-2     3.956e-2 |     282/292     704/748     678/720
+   14     1.013e-2     4.460e-2     4.019e-2 |     373/407     800/894     784/879
+   15     1.200e-2     4.552e-2     4.123e-2 |     444/480     833/971     844/982
+   16     1.280e-2     4.605e-2     4.180e-2 |     441/475     838/964     863/974
+   17     1.412e-2     4.704e-2     4.279e-2 |     417/467     787/954     769/937
+   18     1.714e-2     4.934e-2     4.506e-2 |     497/597    879/1131    884/1123
+   19     1.916e-2     5.094e-2     4.673e-2 |     564/684    930/1301    958/1309
+   20     2.359e-2     5.479e-2     5.070e-2 |     582/733    943/1336    951/1357
+   21     2.823e-2     5.872e-2     5.443e-2 |     609/798    906/1319    918/1339
+   22     3.489e-2     6.532e-2     6.089e-2 |     679/900   1031/1514   1002/1492
+   23     3.948e-2     7.046e-2     6.624e-2 |     700/877    983/1455    988/1430
+   24     4.588e-2     7.643e-2     7.224e-2 |    841/1185   1143/1836   1116/1823
+   25     5.196e-2     8.318e-2     7.926e-2 |    822/1023   1065/1529   1066/1523
+   26     5.546e-2     8.630e-2     8.257e-2 |    822/1219   1068/1827   1078/1825
+   27     6.273e-2     9.333e-2     8.972e-2 |    926/1420   1186/2086   1163/2070
+   28     6.333e-2     9.330e-2     8.978e-2 |    878/1309   1102/1810   1091/1798
+   29     6.712e-2     9.725e-2     9.348e-2 |    845/1217   1115/1785   1104/1795
+   30     6.816e-2     9.742e-2     9.364e-2 |    926/1457   1161/2031   1145/1979
+   31     7.289e-2     1.021e-1     9.797e-2 |   1040/1640   1313/2335   1308/2318
+   32     8.366e-2     1.145e-1     1.097e-1 |    903/1483   1126/2113   1126/2061
+   33     9.396e-2     1.266e-1     1.204e-1 |    907/1553   1080/2106   1089/2142
+   34     1.053e-1     1.386e-1     1.326e-1 |    897/1583   1099/2162   1079/2145
+   35     1.139e-1     1.480e-1     1.419e-1 |    923/1507   1130/2120   1125/2067
+   36     1.182e-1     1.512e-1     1.455e-1 |    941/1715   1149/2295   1139/2285
+   37     1.203e-1     1.521e-1     1.475e-1 |    903/1472   1092/1914   1094/1965
+   38     1.205e-1     1.523e-1     1.479e-1 |    930/1631   1087/2121   1102/2103
+   39     1.330e-1     1.659e-1     1.596e-1 |    967/1574   1125/2006   1117/1995
+   40     1.291e-1     1.606e-1     1.552e-1 |    912/1438   1105/1895   1126/1940
+   41     1.329e-1     1.641e-1     1.592e-1 |    900/1361   1079/1750   1058/1710
+   42     1.435e-1     1.749e-1     1.719e-1 |    949/1570   1112/2009   1117/1989
+   43     1.338e-1     1.635e-1     1.613e-1 |   1029/1730   1233/2182   1188/2147
+   44     1.235e-1     1.509e-1     1.490e-1 |   1025/1655   1212/2098   1196/2074
+   45     1.229e-1     1.501e-1     1.480e-1 |   1040/1687   1238/2128   1242/2125
+   46     1.253e-1     1.523e-1     1.508e-1 |   1060/1583   1241/1968   1245/1976
+   47     9.220e-2     1.097e-1     1.114e-1 |    926/1336   1071/1633   1059/1605
+len 2048 ops at layer 0 (relative error): ON-OFF {"attn":0.002160363519306758,"attn_quantised":0.010632646496757013,"logits":0.0002404865293566865,"moe_out":0.005077846639376558,"moe_out_same_route":0.0018192882567642902,"oproj":0.0010222367704011573,"post":0.0012744978409168022,"post_quantised":0.007648327451136162,"qkv":0.0007098946028210469,"same_route_tokens":2035,"x_norm":0.0,"x_norm_quantised":0.0} ; CTRL-OFF {"attn":0.019844126563670697,"attn_quantised":0.034504298123371226,"logits":0.0025875394690616973,"moe_out":0.02737460642841757,"moe_out_same_route":0.022629991328875707,"oproj":0.01057493924256455,"post":0.014099994226114396,"post_quantised":0.025897539957885223,"qkv":0.011336958574797874,"same_route_tokens":1912,"x_norm":0.0,"x_norm_quantised":0.0} ; ON-CTRL {"attn":0.01997376251202696,"attn_quantised":0.03459504616148847,"logits":0.002624396092058121,"moe_out":0.02769578784357724,"moe_out_same_route":0.022691762701130984,"oproj":0.010772935652862097,"post":0.014191093929941537,"post_quantised":0.026012849824774982,"qkv":0.01155055703619696,"same_route_tokens":1907,"x_norm":0.0,"x_norm_quantised":0.0}
+len 2048 first-step logits cosine: ON-OFF 0.995681 CTRL-OFF 0.996489 ON-CTRL 0.994816; top-1 OFF 18 CTRL 18 ON 18
+len 2048 DRIFT acts a16 max_l relerr(ON,OFF) = 1.435e-1 top1 AGREE
+len 2048 RULE: budget B = max_l relerr(CTRL,OFF) = 1.749e-1; max_l relerr(ON,CTRL) = 1.719e-1 (0.98 x B); ops: qkv ON-CTRL 1.155e-2 <= CTRL-OFF 1.134e-2 VIOLATED, oproj ON-CTRL 1.077e-2 <= CTRL-OFF 1.057e-2 VIOLATED, moe_out ON-CTRL 2.770e-2 <= CTRL-OFF 2.737e-2 VIOLATED
+len 2048 VERDICT: FAIL (ON differs from the W8A8 control beyond the rounding budget)
+MUT_ROUTING: routing path DEVICE (router launches 48, combine launches 48)
+len 2048 NEGATIVE CONTROL MUT_ROUTING vs CTRL: max_l relerr 1.391e0 (8.0 x B), layer 0 out 3.312e-1 flips 2048/15957, logits cosine vs OFF 0.171208: CAUGHT (rule fails it)
+MUT_GUSCALES: routing path DEVICE (router launches 48, combine launches 48)
+len 2048 NEGATIVE CONTROL MUT_GUSCALES vs CTRL: max_l relerr 8.012e-1 (4.6 x B), layer 0 out 1.500e-1 flips 141/141, logits cosine vs OFF 0.672416: CAUGHT (rule fails it)
+SUMMARY FAIL

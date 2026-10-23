@@ -1,0 +1,28 @@
+mem available before load: 103.3 GB
+build native=true pf=true pattn=true pattn_dev=true spin_us=Some(2000)
+LOAD 18.0s resident 30.53 GB attention fused prefill_gemm true chunk 64 mem_available_after 72.6 GB
+len 512 rep 0: TTFT off 7570.8 ms on 774.1 ms (x9.78); prefill_ms off 7566 on 769; decode 32 tokens off 892 ms on 899 ms; tokens DIFFER at 0 ; logits0 cosine 0.9962131 maxdiff 4.288e0 top1 22/18 margin 2.660/0.480
+  on: launches 432 chip(GEMM+quant) 260.0 ms attention chip 10.0 ms host 346.0 ms attn_dev true | off: chip 5755.6 ms launches 26112
+  on profile ms: wall 760.7 dev(calls) 414.1 | host: embed 0.8 norm_in 8.7 resid 15.3 norm_post 11.3 router 249.0 plan 28.9 tiles 0.5 combine 32.0 final 0.0
+len 512 rep 0 DEVHOST: TTFT off 7570.8 ms on(host) 774.1 ms on(dev) 328.7 ms (x23.03 vs off, x2.36 vs on-host); prefill_ms on(dev) 325; vs on-host tokens IDENTICAL logits0 bits differ 0; vs off tokens DIFFER at 0
+  on(dev): launches 432 + router 48 + combine 48 chip 242.8 ms attention 9.0 ms host 68.2 ms | profile ms: wall 321.6 dev(calls) 221.6 | host: embed 0.8 norm_in 11.6 resid 13.2 norm_post 12.0 router 25.0 plan 13.2 tiles 0.5 combine 23.7 final 0.0
+len 512 rep 1: TTFT off 7774.8 ms on 659.9 ms (x11.78); prefill_ms off 7771 on 656; decode 32 tokens off 889 ms on 891 ms; tokens DIFFER at 0 ; logits0 cosine 0.9962131 maxdiff 4.288e0 top1 22/18 margin 2.660/0.480
+  on: launches 432 chip(GEMM+quant) 263.8 ms attention chip 9.9 ms host 372.6 ms attn_dev true | off: chip 5948.1 ms launches 26112
+  on profile ms: wall 647.6 dev(calls) 274.5 | host: embed 0.8 norm_in 11.2 resid 13.7 norm_post 9.9 router 260.8 plan 37.9 tiles 0.5 combine 38.3 final 0.0
+len 512 rep 1 DEVHOST: TTFT off 7774.8 ms on(host) 659.9 ms on(dev) 325.2 ms (x23.91 vs off, x2.03 vs on-host); prefill_ms on(dev) 321; vs on-host tokens IDENTICAL logits0 bits differ 0; vs off tokens DIFFER at 0
+  on(dev): launches 432 + router 48 + combine 48 chip 243.9 ms attention 9.6 ms host 64.0 ms | profile ms: wall 318.4 dev(calls) 223.2 | host: embed 0.8 norm_in 11.5 resid 13.9 norm_post 9.7 router 25.0 plan 12.1 tiles 0.3 combine 21.9 final 0.0
+len 512 EXPERTS host vs device routing: 48 layers, 196608 expert slots, flips 0, first differing layer None; residual stream bits differ 0
+len 2048 rep 0: TTFT off 32575.3 ms on 2155.0 ms (x15.12); prefill_ms off 32572 on 2151; decode 32 tokens off 951 ms on 950 ms; tokens DIFFER at 1 ; logits0 cosine 0.9956809 maxdiff 1.766e0 top1 18/18 margin 6.326/5.855
+  on: launches 432 chip(GEMM+quant) 761.3 ms attention chip 58.5 ms host 1293.7 ms attn_dev true | off: chip 25339.1 ms launches 104448
+  on profile ms: wall 2115.5 dev(calls) 820.8 | host: embed 6.8 norm_in 21.9 resid 27.7 norm_post 26.5 router 959.9 plan 158.9 tiles 0.9 combine 91.9 final 0.0
+len 2048 rep 0 DEVHOST: TTFT off 32575.3 ms on(host) 2155.0 ms on(dev) 922.5 ms (x35.31 vs off, x2.34 vs on-host); prefill_ms on(dev) 919; vs on-host tokens IDENTICAL logits0 bits differ 0; vs off tokens DIFFER at 1
+  on(dev): launches 432 + router 48 + combine 48 chip 672.0 ms attention 58.0 ms host 172.9 ms | profile ms: wall 905.0 dev(calls) 665.4 | host: embed 3.2 norm_in 31.8 resid 35.5 norm_post 33.6 router 30.1 plan 33.2 tiles 0.8 combine 71.2 final 0.0
+len 2048 rep 1: TTFT off 32246.2 ms on 2136.1 ms (x15.10); prefill_ms off 32242 on 2132; decode 32 tokens off 948 ms on 953 ms; tokens DIFFER at 1 ; logits0 cosine 0.9956809 maxdiff 1.766e0 top1 18/18 margin 6.326/5.855
+  on: launches 432 chip(GEMM+quant) 758.5 ms attention chip 58.0 ms host 1278.1 ms attn_dev true | off: chip 24977.0 ms launches 104448
+  on profile ms: wall 2096.5 dev(calls) 817.5 | host: embed 3.2 norm_in 27.1 resid 32.3 norm_post 21.9 router 945.0 plan 143.1 tiles 0.8 combine 105.6 final 0.0
+len 2048 rep 1 DEVHOST: TTFT off 32246.2 ms on(host) 2136.1 ms on(dev) 902.0 ms (x35.75 vs off, x2.37 vs on-host); prefill_ms on(dev) 898; vs on-host tokens IDENTICAL logits0 bits differ 0; vs off tokens DIFFER at 1
+  on(dev): launches 432 + router 48 + combine 48 chip 680.0 ms attention 57.6 ms host 144.6 ms | profile ms: wall 884.0 dev(calls) 670.7 | host: embed 3.2 norm_in 26.5 resid 26.2 norm_post 25.5 router 33.8 plan 33.3 tiles 0.7 combine 64.1 final 0.0
+len 2048 EXPERTS host vs device routing: 48 layers, 786432 expert slots, flips 0, first differing layer None; residual stream bits differ 0
+SUMMARY acts a16
+SUMMARY tokens DIFFER
+SUMMARY devhost vs host routing+combine BIT-IDENTICAL

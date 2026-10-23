@@ -1,0 +1,7 @@
+mem available before load: 102.7 GB
+engine native=true window_api=true fp8_api=true dattn_api=true weights=Bf16 attn=Auto spin_us=Some(2000) cta_budget=Some(64)
+prefill path gemv routing host (gemm_api=true)
+attention path fused prefill_chunk 8 batched_prefill_possible false
+router path host lm_head path gemv (router_api=true bf16_api=true)
+decode graph OFF (dgraph_api=true, OWN30B_DECODE_GRAPH=1 to turn on) mutant none
+REFUSED: whole-prompt prefill: layer 0: the whole-prompt path needs FP8 attention and experts (WeightFormat::Fp8All)
