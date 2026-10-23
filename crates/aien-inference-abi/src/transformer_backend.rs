@@ -157,6 +157,152 @@ pub fn sample_with_params_traced(
     (last as u32, logprob, trace)
 }
 
+/// Copies `logits` with everything outside the `k` largest values set to -inf. Ties at the
+/// boundary keep the lower token id, matching the nucleus tie rule. The reference for
+/// [`sample_top_k_traced`]; it sorts the whole vocabulary.
+pub fn top_k_mask(logits: &[f32], k: usize) -> Vec<f32> {
+    let mut order: Vec<usize> = (0..logits.len()).collect();
+    order.sort_by(|&a, &b| {
+        logits[b]
+            .partial_cmp(&logits[a])
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.cmp(&b))
+    });
+    let mut out = vec![f32::NEG_INFINITY; logits.len()];
+    for &i in &order[..k] {
+        out[i] = logits[i];
+    }
+    out
+}
+
+/// The top-k rule of the HTTP door: `sample_with_params_traced(&top_k_mask(logits, k), ..)`
+/// when `0 < k < logits.len()` and `temperature > 0.001`, else `sample_with_params_traced`
+/// on `logits`. Same token, log-probability bits, trace and observation as that composition
+/// (L338, G2-sc-inference-1): one pass keeps the `k` best entries, then the softmax, the
+/// nucleus sort and the draw run over those `k` only. Every entry the mask sets to -inf has
+/// probability exactly 0 in the reference, and adding 0.0 leaves an f64 sum unchanged, so
+/// sums over the kept entries in index order are the reference's sums bit for bit. The rare
+/// inputs where that argument does not hold (a NaN or +inf logit, or a nucleus the kept
+/// mass cannot reach) take the reference path.
+pub fn sample_top_k_traced(
+    logits: &[f32],
+    k: usize,
+    params: &SamplingParams,
+    seed: u64,
+    obs: &mut DecodeObservation,
+) -> (u32, f32, DrawTrace) {
+    if k == 0 || k >= logits.len() || params.temperature <= 0.001 {
+        return sample_with_params_traced(logits, params, seed, obs);
+    }
+    if let Some((token, logprob, trace, nucleus)) = top_k_draw(logits, k, params, seed) {
+        obs.sampled_tokens += 1;
+        obs.temperature = Some(params.temperature);
+        if nucleus {
+            obs.top_p = Some(params.top_p);
+        }
+        return (token, logprob, trace);
+    }
+    sample_with_params_traced(&top_k_mask(logits, k), params, seed, obs)
+}
+
+thread_local! {
+    /// Whole-vocabulary draws [`sample_top_k_traced`] fell back to on this thread; the tests
+    /// read it to prove the fast path ran.
+    pub static TOP_K_REFERENCE_DRAWS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// The `k`-entry draw behind [`sample_top_k_traced`]; `None` sends the caller to the
+/// reference. The bool says the nucleus cut ran.
+fn top_k_draw(
+    logits: &[f32],
+    k: usize,
+    params: &SamplingParams,
+    seed: u64,
+) -> Option<(u32, f32, DrawTrace, bool)> {
+    let fallback = || {
+        TOP_K_REFERENCE_DRAWS.with(|c| c.set(c.get() + 1));
+        None
+    };
+    // `best` is ordered like the reference sort: value descending, lower id first among
+    // equal values (`partial_cmp`, so -0.0 equals 0.0). Entries arrive in id order, so a new
+    // entry ranks ahead of a kept one only when its value is strictly greater.
+    let mut best: Vec<(f32, usize)> = Vec::with_capacity(k + 1);
+    for (i, &v) in logits.iter().enumerate() {
+        if v.is_nan() {
+            return fallback();
+        }
+        if best.len() == k && !(v > best[k - 1].0) {
+            continue;
+        }
+        let at = best.partition_point(|&(w, _)| !(v > w));
+        best.insert(at, (v, i));
+        best.truncate(k);
+    }
+    // The reference max is the max over the kept values, which is best[0]; a +inf or an
+    // all -inf vocabulary makes the reference softmax NaN.
+    let max = best[0].0;
+    if !max.is_finite() {
+        return fallback();
+    }
+    best.sort_unstable_by_key(|&(_, i)| i);
+    let inv_t = 1.0f64 / params.temperature as f64;
+    let max = max as f64;
+    let mut probs: Vec<(usize, f64)> = best
+        .iter()
+        .map(|&(v, i)| (i, ((v as f64 - max) * inv_t).exp()))
+        .collect();
+    let sum: f64 = probs.iter().map(|&(_, p)| p).sum();
+    for (_, p) in probs.iter_mut() {
+        *p /= sum;
+    }
+    let top_p = params.top_p as f64;
+    let nucleus = top_p > 0.0 && top_p < 1.0;
+    // Without the nucleus cut the reference kept set is the whole vocabulary in id order;
+    // its last entry is the draw's rounding fallback.
+    let mut last = {
+        let id = logits.len() - 1;
+        let p = probs.last().filter(|&&(i, _)| i == id).map_or(0.0, |&(_, p)| p);
+        (id, p)
+    };
+    if nucleus {
+        probs.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.0.cmp(&b.0))
+        });
+        let mut cum = 0.0f64;
+        let mut keep = 0usize;
+        for &(_, p) in &probs {
+            cum += p;
+            keep += 1;
+            if cum >= top_p {
+                break;
+            }
+        }
+        if cum < top_p {
+            // The reference would walk on into the zero-probability entries.
+            return fallback();
+        }
+        probs.truncate(keep);
+        last = probs[keep - 1];
+    }
+    let mass: f64 = probs.iter().map(|&(_, p)| p).sum();
+    let trace = DrawTrace {
+        kept: probs.iter().filter(|&&(_, p)| p > 0.0).count(),
+        top_prob: 1.0 / sum,
+    };
+    let r = ((seed >> 11) as f64 / (1u64 << 53) as f64) * mass;
+    let mut cum = 0.0f64;
+    for &(i, p) in &probs {
+        cum += p;
+        if r < cum {
+            return Some((i as u32, (p / mass).max(1e-300).ln() as f32, trace, nucleus));
+        }
+    }
+    let (id, p) = last;
+    Some((id as u32, (p / mass).max(1e-300).ln() as f32, trace, nucleus))
+}
+
 /// Fully native Rust transformer backend executing real tensor forward computation.
 /// Decouples execution orchestration from compute hardware via the TensorBackend trait.
 pub struct NativeTransformerBackend {
@@ -3139,5 +3285,147 @@ mod tests {
         AienInferenceBackend::release_sequence(&mut b, 5).unwrap();
         assert_eq!(b.take_decode_observation(5), None);
         assert_eq!(b.take_decode_observation(6), None);
+    }
+
+    /// xorshift64*: test randomness without a dependency.
+    fn rng(state: &mut u64) -> u64 {
+        *state ^= *state >> 12;
+        *state ^= *state << 25;
+        *state ^= *state >> 27;
+        state.wrapping_mul(0x2545_f491_4f6c_dd1d)
+    }
+
+    /// One random logits array of length `v` in one of several shapes: spread, coarse
+    /// (many ties, also at the top-k boundary), signed zeros, -inf entries, a huge spread
+    /// (exp underflows to 0 inside the top k).
+    fn random_logits(s: &mut u64, v: usize) -> Vec<f32> {
+        let shape = rng(s) % 6;
+        (0..v)
+            .map(|_| {
+                let u = (rng(s) >> 11) as f64 / (1u64 << 53) as f64;
+                match shape {
+                    0 => (u * 30.0 - 15.0) as f32,
+                    1 => ((u * 8.0).floor() - 4.0) as f32,
+                    2 => [0.0f32, -0.0, 1.0, -1.0][(rng(s) % 4) as usize],
+                    3 if u < 0.3 => f32::NEG_INFINITY,
+                    3 => (u * 10.0) as f32,
+                    4 => (u * 4000.0 - 2000.0) as f32,
+                    _ => ((u * 3.0).floor() * 0.5) as f32,
+                }
+            })
+            .collect()
+    }
+
+    /// The top-k sampler (L338) gives the mask-then-sample reference's token, log-probability
+    /// bits, trace bits and observation on 10,000 random draws, ties and edge shapes included.
+    #[test]
+    fn top_k_sampler_matches_the_mask_reference() {
+        let mut s = 0x9e37_79b9_7f4a_7c15u64;
+        let temps = [0.0005f32, 0.05, 0.3, 0.7, 1.0, 2.5];
+        let top_ps = [0.0f32, 0.3, 0.8, 0.95, 0.999_999_94, 1.0];
+        for case in 0..10_000 {
+            let v = if case % 500 == 0 { 151_936 } else { 2 + (rng(&mut s) % 400) as usize };
+            let mut logits = random_logits(&mut s, v);
+            if case % 997 == 0 {
+                logits[(rng(&mut s) as usize) % v] = f32::NAN;
+            }
+            if case % 991 == 0 {
+                logits[(rng(&mut s) as usize) % v] = f32::INFINITY;
+            }
+            let k = match rng(&mut s) % 4 {
+                0 => 20.min(v + 1),
+                1 => 1,
+                _ => (rng(&mut s) as usize) % (v + 2),
+            };
+            let p = SamplingParams {
+                temperature: temps[(rng(&mut s) % temps.len() as u64) as usize],
+                top_p: top_ps[(rng(&mut s) % top_ps.len() as u64) as usize],
+                max_tokens: 1,
+                stop_token_ids: Vec::new(),
+            };
+            let seed = rng(&mut s);
+            let (mut obs_ref, mut obs_new) = (DecodeObservation::default(), DecodeObservation::default());
+            let reference = if k > 0 && k < v && p.temperature > 0.001 {
+                sample_with_params_traced(&top_k_mask(&logits, k), &p, seed, &mut obs_ref)
+            } else {
+                sample_with_params_traced(&logits, &p, seed, &mut obs_ref)
+            };
+            let new = sample_top_k_traced(&logits, k, &p, seed, &mut obs_new);
+            let bits = |(t, lp, tr): (u32, f32, DrawTrace)| (t, lp.to_bits(), tr.kept, tr.top_prob.to_bits());
+            assert_eq!(bits(new), bits(reference), "case {case}: v {v} k {k} {p:?} seed {seed}");
+            assert_eq!(obs_new, obs_ref, "case {case}");
+        }
+    }
+
+    /// At the served defaults (temperature 0.7, top_k 20, top_p 0.8) on a full vocabulary the
+    /// sampler never sorts the vocabulary. Red on the old door, which always took the
+    /// whole-vocabulary path (`top_k_mask` + `sample_with_params_traced`).
+    #[test]
+    fn served_defaults_take_the_k_entry_path() {
+        let p = SamplingParams {
+            temperature: 0.7,
+            top_p: 0.8,
+            max_tokens: 1,
+            stop_token_ids: Vec::new(),
+        };
+        let mut s = 7u64;
+        let before = TOP_K_REFERENCE_DRAWS.with(|c| c.get());
+        for step in 0..50 {
+            let logits = random_logits(&mut s, 151_936);
+            if logits.iter().all(|v| *v == f32::NEG_INFINITY) {
+                continue;
+            }
+            sample_top_k_traced(&logits, 20, &p, decode_sampling_seed(1, step), &mut DecodeObservation::default());
+        }
+        assert_eq!(TOP_K_REFERENCE_DRAWS.with(|c| c.get()) - before, 0);
+    }
+
+    /// Receipt (L338, run with `--ignored --nocapture` in release): nanoseconds per draw of the
+    /// reference and of the top-k sampler on a 151,936-entry vocabulary at the served defaults.
+    #[test]
+    #[ignore]
+    fn bench_top_k_sampler() {
+        let p = SamplingParams {
+            temperature: 0.7,
+            top_p: 0.8,
+            max_tokens: 1,
+            stop_token_ids: Vec::new(),
+        };
+        for v in [151_936usize, 248_320] {
+        let mut s = 11u64;
+        let arrays: Vec<Vec<f32>> = (0..16)
+            .map(|_| (0..v).map(|_| ((rng(&mut s) >> 40) as f32 / 16_777_216.0) * 30.0 - 15.0).collect())
+            .collect();
+        let draws = 1000;
+        let mut agree = 0usize;
+        let t = std::time::Instant::now();
+        let mut ref_tokens = Vec::with_capacity(draws);
+        for d in 0..draws {
+            let lg = &arrays[d % arrays.len()];
+            let mut o = DecodeObservation::default();
+            ref_tokens.push(sample_with_params_traced(&top_k_mask(lg, 20), &p, decode_sampling_seed(3, d), &mut o).0);
+        }
+        let ref_ns = t.elapsed().as_nanos() as f64 / draws as f64;
+        let t = std::time::Instant::now();
+        for d in 0..draws {
+            let lg = &arrays[d % arrays.len()];
+            let mut o = DecodeObservation::default();
+            let tok = sample_top_k_traced(lg, 20, &p, decode_sampling_seed(3, d), &mut o).0;
+            agree += usize::from(tok == ref_tokens[d]);
+        }
+        let new_ns = t.elapsed().as_nanos() as f64 / draws as f64;
+        println!(
+            "L338 sampler v={v} k=20 t=0.7 top_p=0.8 draws={draws}: reference_ns_per_draw={ref_ns:.0} top_k_ns_per_draw={new_ns:.0} same_tokens={agree}/{draws}"
+        );
+        assert_eq!(agree, draws);
+        // G2-sc-inference-4: the host argmax the chip argmax would replace (logits already on the host).
+        let t = std::time::Instant::now();
+        let mut acc = 0u64;
+        for d in 0..draws {
+            acc += u64::from(sample_argmax(&arrays[d % arrays.len()]).0);
+        }
+        let argmax_ns = t.elapsed().as_nanos() as f64 / draws as f64;
+        println!("L338 host argmax v={v} draws={draws}: ns_per_scan={argmax_ns:.0} (checksum {acc})");
+        }
     }
 }

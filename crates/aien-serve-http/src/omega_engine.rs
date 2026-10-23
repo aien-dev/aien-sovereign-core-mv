@@ -125,6 +125,60 @@ impl GpuLock {
     }
 }
 
+impl GpuLock {
+    /// Takes the lock at `path` by waiting in the kernel's queue (a blocking `flock` on a helper
+    /// thread), so jobs that wait with `flock(1)` cannot starve it the way polling can. After
+    /// `wait` without the lock: `Err`, and the helper drops the lock the moment it gets it.
+    pub fn acquire_queued_at(path: &Path, wait: Duration) -> Result<Self, String> {
+        use std::sync::atomic::AtomicBool;
+        use std::sync::{mpsc, Arc};
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        // SAFETY: flock on a valid open descriptor; non-blocking fast path.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            return Ok(Self(file));
+        }
+        let (tx, rx) = mpsc::channel();
+        let gave_up = Arc::new(AtomicBool::new(false));
+        let gave_up_t = Arc::clone(&gave_up);
+        let name = path.display().to_string();
+        std::thread::spawn(move || {
+            // SAFETY: as above; blocks in the kernel's wait queue until the lock is ours.
+            let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+            let r = if rc == 0 {
+                Ok(file)
+            } else {
+                Err(format!("flock {name}: {}", std::io::Error::last_os_error()))
+            };
+            if gave_up_t.load(Ordering::SeqCst) {
+                return; // dropping `r` closes the file and releases the lock
+            }
+            if let Err(mpsc::SendError(Ok(f))) = tx.send(r) {
+                drop(f);
+            }
+        });
+        match rx.recv_timeout(wait) {
+            Ok(r) => r.map(Self),
+            Err(_) => {
+                gave_up.store(true, Ordering::SeqCst);
+                // The helper may have sent just before the flag: take and drop it.
+                if let Ok(Ok(f)) = rx.try_recv() {
+                    drop(f);
+                }
+                Err(format!(
+                    "GPU lock held by other jobs for {} s",
+                    wait.as_secs()
+                ))
+            }
+        }
+    }
+}
+
 /// `MemAvailable` from /proc/meminfo in GB (0 when unreadable).
 pub fn mem_available_gb() -> f64 {
     std::fs::read_to_string("/proc/meminfo")
@@ -363,7 +417,7 @@ impl Engine for OmegaDoor {
         });
         let t_lock = Instant::now();
         let lock =
-            GpuLock::acquire_at(&self.lock_path, self.lock_wait).map_err(EngineError::Busy)?;
+            GpuLock::acquire_queued_at(&self.lock_path, self.lock_wait).map_err(EngineError::Busy)?;
         let lock_wait_ms = t_lock.elapsed().as_millis();
         if let (Some(pk), Some(f)) = (persist, fetched.as_ref()) {
             // All or nothing: on error the engine is reset and the prompt is prefilled.
@@ -432,6 +486,31 @@ impl Engine for OmegaDoor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn queued_lock_waits_its_turn_and_gives_up_cleanly() {
+        let dir = std::env::temp_dir().join(format!("q38-lock-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("lock");
+        let held = GpuLock::acquire_at(&path, Duration::from_secs(1)).unwrap();
+        // Gives up while held, and leaves nothing behind once the holder lets go.
+        assert!(GpuLock::acquire_queued_at(&path, Duration::from_millis(100)).is_err());
+        drop(held);
+        std::thread::sleep(Duration::from_millis(100));
+        let again =
+            GpuLock::acquire_at(&path, Duration::from_millis(200)).expect("helper released");
+        // Waits in the queue: the holder lets go after 300 ms, inside the 3 s wait.
+        let t = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            drop(again);
+        });
+        let t0 = Instant::now();
+        let got =
+            GpuLock::acquire_queued_at(&path, Duration::from_secs(3)).expect("queued acquire");
+        assert!(t0.elapsed() >= Duration::from_millis(250));
+        t.join().unwrap();
+        drop(got);
+    }
 
     #[test]
     fn gpu_lock_is_exclusive_and_released_on_drop() {
@@ -509,5 +588,54 @@ mod tests {
         assert!(PrefillMode::from_env(Some("of"), None).is_err());
         assert!(parse_switch("--whole-prompt", "maybe").is_err());
         assert!(parse_switch("--whole-prompt", " TRUE ").unwrap());
+    }
+
+    /// Milliseconds from the holder's release to the waiter holding the lock, `acquire` being
+    /// the wait under test (L338, G2-sc-inference-7). The holder lets go 310 ms after the waiter
+    /// starts, so a 50 ms poll wakes about 40 ms late.
+    fn wake_after_release_ms(acquire: fn(&Path, Duration) -> Result<GpuLock, String>) -> f64 {
+        let dir = std::env::temp_dir().join(format!("l338-wake-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("lock");
+        let held = GpuLock::acquire_at(&path, Duration::from_secs(1)).unwrap();
+        let released = std::sync::Arc::new(std::sync::Mutex::new(None::<Instant>));
+        let r = std::sync::Arc::clone(&released);
+        let t = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(310));
+            *r.lock().unwrap() = Some(Instant::now());
+            drop(held);
+        });
+        let got = acquire(&path, Duration::from_secs(5)).expect("acquire after release");
+        let woke = Instant::now();
+        t.join().unwrap();
+        drop(got);
+        let at = released.lock().unwrap().expect("released");
+        woke.saturating_duration_since(at).as_secs_f64() * 1e3
+    }
+
+    /// The request path's lock wait wakes on release (red on the 50 ms poll: about 40 ms late).
+    #[test]
+    fn request_lock_wakes_on_release() {
+        let best = (0..5)
+            .map(|_| wake_after_release_ms(GpuLock::acquire_queued_at))
+            .fold(f64::INFINITY, f64::min);
+        assert!(best < 15.0, "queued wait woke {best:.1} ms after release");
+    }
+
+    /// Receipt (run with `--ignored --nocapture`): wake-up after release, poll versus queue.
+    #[test]
+    #[ignore]
+    fn bench_lock_wake() {
+        for (name, f) in [
+            ("poll_50ms", GpuLock::acquire_at as fn(&Path, Duration) -> Result<GpuLock, String>),
+            ("queued", GpuLock::acquire_queued_at),
+        ] {
+            let mut v: Vec<f64> = (0..20).map(|_| wake_after_release_ms(f)).collect();
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "L338 lock wake {name}: trials=20 min_ms={:.3} median_ms={:.3} max_ms={:.3}",
+                v[0], v[10], v[19]
+            );
+        }
     }
 }

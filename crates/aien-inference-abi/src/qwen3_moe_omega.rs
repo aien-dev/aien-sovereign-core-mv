@@ -2492,8 +2492,8 @@ mod loader_tests {
 
 use crate::qwen3_coder::rmsnorm_per_head;
 use crate::tensor::{apply_rope, rmsnorm, scaled_dot_product_attention_single};
-use crate::transformer_backend::{decode_sampling_seed, sample_with_params};
-use aien_abi_core::SamplingParams;
+use crate::transformer_backend::{decode_sampling_seed, sample_top_k_traced};
+use aien_abi_core::{DecodeObservation, SamplingParams};
 
 /// Model-independent KV shape (ADR 0004 section 2.1). Produced by a model config, consumed by
 /// every cache constructor and by persistence. bf16 elements, `HostPagedPoolV1` payload (ADR 0003).
@@ -3228,31 +3228,14 @@ pub struct LayerTrace {
 /// Samples like the HTTP door's `sample_next`: top-k mask, then the workspace sampler with a
 /// per-step seed, so greedy and seeded replies match across engines.
 pub fn sample_next(logits: &[f32], params: &GenerateParams, step: usize) -> u32 {
-    let masked;
-    let logits = if params.top_k > 0 && params.top_k < logits.len() && params.temperature > 0.001 {
-        let mut order: Vec<usize> = (0..logits.len()).collect();
-        order.sort_by(|&a, &b| {
-            logits[b]
-                .partial_cmp(&logits[a])
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then(a.cmp(&b))
-        });
-        let mut out = vec![f32::NEG_INFINITY; logits.len()];
-        for &i in &order[..params.top_k] {
-            out[i] = logits[i];
-        }
-        masked = out;
-        masked.as_slice()
-    } else {
-        logits
-    };
     let sp = SamplingParams {
         temperature: params.temperature,
         top_p: params.top_p,
         max_tokens: 1,
         stop_token_ids: Vec::new(),
     };
-    sample_with_params(logits, &sp, decode_sampling_seed(params.seed, step)).0
+    let seed = decode_sampling_seed(params.seed, step);
+    sample_top_k_traced(logits, params.top_k, &sp, seed, &mut DecodeObservation::default()).0
 }
 
 /// Every run setting of a [`Qwen3MoeOmegaEngine`] that can change a K/V byte (persistent KV

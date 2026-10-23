@@ -20,7 +20,7 @@
 
 use std::sync::OnceLock;
 
-use aien_inference_abi::transformer_backend::{decode_sampling_seed, sample_with_params_traced};
+use aien_inference_abi::transformer_backend::{decode_sampling_seed, sample_top_k_traced};
 use aien_inference_abi::{DecodeObservation, SamplingParams};
 use serde::Serialize;
 
@@ -223,14 +223,9 @@ impl SamplingObserver {
     pub fn sample(&mut self, logits: &[f32], step: usize) -> u32 {
         let temperature = self.temperature();
         let k = self.params.top_k;
-        let masked;
-        let logits = if k > 0 && k < logits.len() && temperature > 0.001 {
+        if k > 0 && k < logits.len() && temperature > 0.001 {
             self.top_k_applied = true;
-            masked = top_k_mask(logits, k);
-            masked.as_slice()
-        } else {
-            logits
-        };
+        }
         let sp = SamplingParams {
             temperature,
             top_p: self.params.top_p,
@@ -238,7 +233,7 @@ impl SamplingObserver {
             stop_token_ids: Vec::new(),
         };
         let seed = decode_sampling_seed(self.seed(), step);
-        let (token, logprob, trace) = sample_with_params_traced(logits, &sp, seed, &mut self.obs);
+        let (token, logprob, trace) = sample_top_k_traced(logits, k, &sp, seed, &mut self.obs);
         if temperature > 0.001 {
             self.kept.push(trace.kept);
             self.top_prob_min = self.top_prob_min.min(trace.top_prob);
@@ -301,23 +296,6 @@ impl SamplingObserver {
 /// same choice as [`SamplingObserver::sample`]).
 pub fn sample_next(logits: &[f32], params: &GenerateParams, step: usize) -> u32 {
     SamplingObserver::new(params).sample(logits, step)
-}
-
-/// Copies `logits` with everything outside the `k` largest values set to -inf.
-/// Ties at the boundary keep the lower token id, matching the nucleus tie rule.
-fn top_k_mask(logits: &[f32], k: usize) -> Vec<f32> {
-    let mut order: Vec<usize> = (0..logits.len()).collect();
-    order.sort_by(|&a, &b| {
-        logits[b]
-            .partial_cmp(&logits[a])
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then(a.cmp(&b))
-    });
-    let mut out = vec![f32::NEG_INFINITY; logits.len()];
-    for &i in &order[..k] {
-        out[i] = logits[i];
-    }
-    out
 }
 
 #[cfg(test)]
