@@ -2503,6 +2503,46 @@ fn an_uncertain_commit_keeps_the_binding_so_the_request_stays_fenced() {
 }
 
 #[test]
+fn reclaimed_approval_still_routes_to_a_refusal_after_restart() {
+    let mut h = H::journaled(cfg(true, 4));
+    h.register("a", &[]);
+    let c = Compose::new(&h);
+    let proposal = c.approval("retired");
+    let old = FenceKey::Approval(proposal.approval_id.clone());
+    h.adapter.bind_approval(old.clone(), "a", 1).unwrap();
+    for i in 1..spark_harness::scheduler::MAX_APPROVAL_BINDINGS_PER_TASK {
+        h.adapter
+            .bind_approval(FenceKey::Approval(format!("z-{i}")), "a", 1)
+            .unwrap();
+    }
+    h.ok(EventKind::Cancel {
+        task: "a".into(),
+        generation: 1,
+    });
+    h.ok(EventKind::Retry {
+        task: "a".into(),
+        generation: 1,
+    });
+    h.adapter
+        .bind_approval(FenceKey::Approval("new-key".into()), "a", 2)
+        .unwrap();
+    let before = tree(c.bridge.dir());
+    let ws_before = tree(&h.ws());
+    for restart in [false, true] {
+        if restart {
+            h.restart(cfg(true, 4));
+        }
+        let response = h.adapter.route_approved(&c.bridge, &proposal, &c.ws);
+        assert!(
+            matches!(response, Some(ControlResponse::Error(ref s)) if s.contains("FENCE_REFUSED")),
+            "reclaimed approval must not fall through to the original call: {response:?}"
+        );
+        assert_eq!(tree(c.bridge.dir()), before);
+        assert_eq!(tree(&h.ws()), ws_before);
+    }
+}
+
+#[test]
 fn the_fence_events_are_refused_by_deliver() {
     let mut h = H::new(cfg(true, 4));
     h.register("a", &[]);

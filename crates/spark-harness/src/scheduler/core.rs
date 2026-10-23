@@ -128,15 +128,17 @@ pub enum EventKind {
     /// unknown, so a bound request delivered again is refused by the fence
     /// (the task is terminal) instead of running unfenced; only a request
     /// under a new key, which nobody bound, runs as the original call.
-    /// Each task holds at most [`MAX_APPROVAL_BINDINGS_PER_TASK`] keys, so
-    /// one task cannot take another task's slots and the table is bounded
-    /// by the number of tasks. A new key for a full task reclaims one of
+    /// Each task holds at most [`MAX_APPROVAL_BINDINGS_PER_TASK`] active
+    /// slots and the same number of retired refusal records, so one task
+    /// cannot take another task's slots and total memory stays bounded by
+    /// the number of tasks. A new key for a full task reclaims one of
     /// the task's bindings at a superseded generation (the lowest
     /// generation, then the lowest key, so a replay reclaims the same one);
-    /// the request that key named is then unbound, and its fence was
-    /// already a refusal (`StaleGeneration`). A full task whose bindings
-    /// are all at its current generation refuses the new key
-    /// (`BindingsFull`).
+    /// the old key remains fenced at its old generation in the retired
+    /// table, never silently unbound. Reclamation refuses with
+    /// `BindingsFull` if the retired budget is full or no superseded
+    /// active slot exists. An explicit rebind removes that key's retired
+    /// record transactionally and may reuse the freed retired capacity.
     BindApproval {
         key: String,
         task: String,
@@ -144,7 +146,7 @@ pub enum EventKind {
     },
 }
 
-/// Most request keys [`EventKind::BindApproval`] holds for one task.
+/// Per-task cap for each of the active and retired approval tables.
 pub const MAX_APPROVAL_BINDINGS_PER_TASK: usize = 64;
 /// Longest request key [`EventKind::BindApproval`] accepts, in bytes.
 pub const MAX_APPROVAL_KEY_LEN: usize = 512;
@@ -311,6 +313,9 @@ pub struct Core {
     pub(crate) seen: Seen,
     /// Bound requests by key ([`EventKind::BindApproval`]).
     pub(crate) approvals: BTreeMap<String, ApprovalBinding>,
+    /// Reclaimed keys still route through their old refusal fence. Bounded
+    /// separately, per task, by MAX_APPROVAL_BINDINGS_PER_TASK.
+    pub(crate) retired_approvals: BTreeMap<String, ApprovalBinding>,
     pub(crate) seq: u64,
     pub(crate) last_at: u64,
 }
@@ -940,7 +945,22 @@ impl Core {
                 )?;
                 let rebind = self.approvals.get(key).is_some_and(|b| b.task == *task);
                 let held = self.approvals.values().filter(|b| b.task == *task).count();
+                // An explicit rebind supersedes a refusal record. apply is
+                // transactional: a later refusal leaves the old core intact.
+                self.retired_approvals.remove(key);
                 if !rebind && held >= MAX_APPROVAL_BINDINGS_PER_TASK {
+                    if self
+                        .retired_approvals
+                        .values()
+                        .filter(|b| b.task == *task)
+                        .count()
+                        >= MAX_APPROVAL_BINDINGS_PER_TASK
+                    {
+                        return Err(SchedError::BindingsFull {
+                            task: task.clone(),
+                            capacity: MAX_APPROVAL_BINDINGS_PER_TASK,
+                        });
+                    }
                     // Reclaim one binding at a superseded generation:
                     // lowest generation, then lowest key (BTreeMap order),
                     // so a replay reclaims the same one.
@@ -953,7 +973,9 @@ impl Core {
                         .map(|(k, _)| k.clone());
                     match superseded {
                         Some(k) => {
-                            self.approvals.remove(&k);
+                            let binding =
+                                self.approvals.remove(&k).expect("selected binding exists");
+                            self.retired_approvals.insert(k, binding);
                         }
                         None => {
                             return Err(SchedError::BindingsFull {
@@ -979,6 +1001,11 @@ impl Core {
         // rebuilds the same table.
         let tasks = &self.tasks;
         self.approvals.retain(|_, b| {
+            tasks
+                .get(&b.task)
+                .is_some_and(|t| !bindings_released(t.state))
+        });
+        self.retired_approvals.retain(|_, b| {
             tasks
                 .get(&b.task)
                 .is_some_and(|t| !bindings_released(t.state))

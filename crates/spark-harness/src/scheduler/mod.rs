@@ -305,12 +305,20 @@ impl Scheduler {
 
     /// The fence a bound request key must pass ([`EventKind::BindApproval`]).
     pub fn approval(&self, key: &str) -> Option<&ApprovalBinding> {
-        self.core.approvals.get(key)
+        self.core
+            .approvals
+            .get(key)
+            .or_else(|| self.core.retired_approvals.get(key))
     }
 
-    /// How many request keys are bound.
+    /// Occupied active binding slots, excluding retired refusal records.
     pub fn approvals_len(&self) -> usize {
         self.core.approvals.len()
+    }
+
+    /// Retired keys still fenced at their original generation.
+    pub fn retired_approvals_len(&self) -> usize {
+        self.core.retired_approvals.len()
     }
 
     pub fn queue(&self) -> Vec<String> {

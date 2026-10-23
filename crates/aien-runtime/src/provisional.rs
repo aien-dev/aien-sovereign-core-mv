@@ -9,8 +9,9 @@
 //! request runs the original call unchanged. A binding is a journaled M2
 //! `BindApproval` event, so it survives a daemon restart (the replayed
 //! scheduler still fences the request). M2 drops the bindings of a task only
-//! when its commit ended (`Committed` or `CommitUncertain`) and refuses a
-//! binding to such a task; the request is then unbound again, the daemon
+//! when its commit landed (`Committed`) and refuses a new binding to either
+//! `Committed` or `CommitUncertain`; uncertain tasks keep existing bindings
+//! for good. After a known commit the request is unbound again, the daemon
 //! runs it as the original call and the canonical durable guards decide (see
 //! Duplicates below). An `Aborted` task (cancelled, failed, lease expired, a
 //! failed commit, or an abort cascaded from an ancestor) keeps its bindings,
@@ -18,7 +19,12 @@
 //! name a superseded generation and are refused (`StaleGeneration`) until
 //! they are bound again. A bound request never falls back to the unfenced
 //! call while its task may still commit. Each task holds at most
-//! `MAX_APPROVAL_BINDINGS_PER_TASK` keys; a new key past that is refused.
+//! `MAX_APPROVAL_BINDINGS_PER_TASK` active slots plus the same number of
+//! retired refusal records. Reclaiming a superseded slot retains its old
+//! key and generation for routing, including after replay. A full retired
+//! budget refuses reclamation rather than forgetting a fence; an explicit
+//! rebind can reuse a retired record's capacity. Both tables are released
+//! only after a known committed outcome.
 //!
 //! Two halves:
 //!
@@ -1158,10 +1164,11 @@ impl PrepAdapter {
     /// pass, as a journaled M2 `BindApproval`, so the binding survives a
     /// restart. Only bound requests are fenced; the daemon runs every other
     /// request exactly as before. A later binding for the same key replaces
-    /// the earlier one. M2 refuses a stale generation, a task whose commit
-    /// ended and a new key past the task's `MAX_APPROVAL_BINDINGS_PER_TASK`;
-    /// it drops the binding only when the task's commit ends (an aborted or
-    /// retried task keeps it, see the module docs).
+    /// the earlier one. M2 refuses a stale generation or a task whose commit
+    /// ended. A full active table may reclaim a superseded slot while its
+    /// bounded retired table has room; the old key keeps its refusal fence.
+    /// Exhausted history fails closed. Only a known committed outcome drops
+    /// bindings; aborted, retried and uncertain tasks keep them (module docs).
     pub fn bind_approval(
         &self,
         key: FenceKey,

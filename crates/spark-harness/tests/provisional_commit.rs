@@ -3,7 +3,7 @@
 //! them until a `CommitOutcome` is recorded; a replay that finds no outcome
 //! marks the task `CommitUncertain` and never runs it again. Bound request
 //! keys are journaled, kept while a task is aborted or retried, and dropped
-//! when its commit ended.
+//! only when its commit is known to have landed, including retired keys.
 
 mod common;
 
@@ -772,6 +772,71 @@ fn aborted_tasks_cannot_exhaust_the_table_for_other_tasks() {
 }
 
 #[test]
+fn retired_fences_are_bounded_and_rebinding_reuses_retired_capacity() {
+    let mut h = H::journaled(enabled());
+    h.register("c", 1, &[]);
+    for i in 0..MAX_APPROVAL_BINDINGS_PER_TASK {
+        bind(&mut h, &format!("old:{i:03}"), "c").unwrap();
+    }
+    cancel(&mut h, "c");
+    retry(&mut h, "c");
+    for i in 0..MAX_APPROVAL_BINDINGS_PER_TASK {
+        bind(&mut h, &format!("new:{i:03}"), "c").unwrap();
+    }
+    assert_eq!(h.sched.approvals_len(), MAX_APPROVAL_BINDINGS_PER_TASK);
+    assert_eq!(
+        h.sched.retired_approvals_len(),
+        MAX_APPROVAL_BINDINGS_PER_TASK
+    );
+    cancel(&mut h, "c");
+    retry(&mut h, "c");
+    assert!(matches!(
+        bind(&mut h, "overflow", "c"),
+        Err(SchedError::BindingsFull { .. })
+    ));
+    for i in 0..MAX_APPROVAL_BINDINGS_PER_TASK {
+        assert_eq!(bound(&h, &format!("old:{i:03}")), Some(("c".into(), 1)));
+        assert_eq!(bound(&h, &format!("new:{i:03}")), Some(("c".into(), 2)));
+    }
+    assert_eq!(bound(&h, "overflow"), None);
+    // Explicitly rebinding a retired key frees its refusal slot. The
+    // deterministically reclaimed active key takes that slot atomically.
+    bind(&mut h, "old:000", "c").unwrap();
+    assert_eq!(bound(&h, "old:000"), Some(("c".into(), 3)));
+    assert_eq!(bound(&h, "new:000"), Some(("c".into(), 2)));
+    assert_eq!(
+        h.sched.retired_approvals_len(),
+        MAX_APPROVAL_BINDINGS_PER_TASK
+    );
+    h.restart(enabled()).unwrap();
+    assert_eq!(bound(&h, "old:000"), Some(("c".into(), 3)));
+    assert_eq!(bound(&h, "new:000"), Some(("c".into(), 2)));
+    assert_eq!(
+        h.sched.retired_approvals_len(),
+        MAX_APPROVAL_BINDINGS_PER_TASK
+    );
+    assert!(matches!(
+        bind(&mut h, "overflow-again", "c"),
+        Err(SchedError::BindingsFull { .. })
+    ));
+    // Another task still gets its entire independent active share.
+    h.register("x", 1, &[]);
+    for i in 0..MAX_APPROVAL_BINDINGS_PER_TASK {
+        bind(&mut h, &format!("x:{i:03}"), "x").unwrap();
+    }
+    // Only a known committed outcome releases both active and retired keys.
+    h.finish("c");
+    begin(&mut h, "c").unwrap();
+    outcome(&mut h, "c", committed());
+    for i in 0..MAX_APPROVAL_BINDINGS_PER_TASK {
+        assert_eq!(bound(&h, &format!("old:{i:03}")), None);
+        assert_eq!(bound(&h, &format!("new:{i:03}")), None);
+        assert_eq!(bound(&h, &format!("x:{i:03}")), Some(("x".into(), 1)));
+    }
+    assert_eq!(h.sched.retired_approvals_len(), 0);
+}
+
+#[test]
 fn a_full_task_reclaims_its_superseded_bindings_oldest_first() {
     let mut h = H::journaled(enabled());
     h.register("a", 1, &[]);
@@ -792,11 +857,15 @@ fn a_full_task_reclaims_its_superseded_bindings_oldest_first() {
     // A new key reclaims the lowest superseded key (BTreeMap order:
     // "approval:c-0", then "approval:c-1", then "approval:c-10").
     bind(&mut h, "approval:c-new", "c").unwrap();
-    assert_eq!(bound(&h, "approval:c-0"), None);
+    assert_eq!(
+        bound(&h, "approval:c-0"),
+        Some(("c".into(), g1)),
+        "reclamation must retain the old request fence"
+    );
     assert_eq!(bound(&h, "approval:c-new"), Some(("c".into(), g2)));
     assert_eq!(h.sched.approvals_len(), MAX_APPROVAL_BINDINGS_PER_TASK);
     bind(&mut h, "approval:c-newer", "c").unwrap();
-    assert_eq!(bound(&h, "approval:c-1"), None);
+    assert_eq!(bound(&h, "approval:c-1"), Some(("c".into(), g1)));
     assert_eq!(bound(&h, "approval:c-10"), Some(("c".into(), g1)));
     assert_eq!(h.sched.approvals_len(), MAX_APPROVAL_BINDINGS_PER_TASK);
     // Rebinding a held key moves it to g2 without reclaiming anything.
@@ -808,7 +877,7 @@ fn a_full_task_reclaims_its_superseded_bindings_oldest_first() {
     bind(&mut h, "approval:x-0", "x").unwrap();
     bind(&mut h, "approval:c-newest", "c").unwrap();
     assert_eq!(bound(&h, "approval:x-0"), Some(("x".into(), 1)));
-    assert_eq!(bound(&h, "approval:c-11"), None);
+    assert_eq!(bound(&h, "approval:c-11"), Some(("c".into(), g1)));
     // A replay reclaims the same bindings.
     let table: Vec<(String, Option<(String, u64)>)> = ["c-0", "c-1", "c-10", "c-11", "c-12"]
         .iter()
@@ -823,6 +892,11 @@ fn a_full_task_reclaims_its_superseded_bindings_oldest_first() {
     // refuses new keys as before.
     for i in 0..MAX_APPROVAL_BINDINGS_PER_TASK {
         let key = format!("approval:c-{i}");
+        // The three reclaimed keys remain refusal-only records, not
+        // active slots. Rebind just the still-active old-generation keys.
+        if ["approval:c-0", "approval:c-1", "approval:c-11"].contains(&key.as_str()) {
+            continue;
+        }
         if bound(&h, &key).is_some_and(|(_, g)| g == g1) {
             bind(&mut h, &key, "c").unwrap();
         }
