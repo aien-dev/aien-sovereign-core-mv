@@ -1,0 +1,41 @@
+spin_us Some(2000)
+mem available before load: 102.1 GB
+decode_graph=true resident=Resident { on: true, grid: 128, rows: 2 } wp_device_host=true
+LOAD 40.9s attention=fused prefill_chunk=64 device_routing=true spec_possible=true whole_prompt=true (prefill and wp verify) verify=exact new=64
+spec tuning: max_draft=8 max_ngram=3 min_ngram=1 min_accept=0 break_even=true drafter=Suffix suffix_global=true
+suffix config: SuffixConfig { depth: 40, max_match: 24, min_match: 1, alpha: 4.0, prior: 4.0, min_cum: 0.05, gain: 1.1, global_max_nodes: 8000000, use_global: true, cost: CostModel { verify_base_ms: 24.3, verify_row_ms: 4.5, lm_ms: 2.9, plain_ms: 28.3 } }
+extra prompt p5-code-json: 506 tokens from /home/drakestapleton/workspace/sc-own30b-rc3/docs/inference/evidence/own30b-l4c-cut2-chip-20261014T0227Z/p5-code-json.txt
+p1-one-token run 1: OFF 41.3 tok/s (1550 ms, 64 tokens) | off-vs-golden differs at token 0 of the golden 16 (recorded; spec-off is the reference)
+p1-one-token run 1: ON verify=Exact 42.0 tok/s (1525 ms) vs off IDENTICAL | rounds 1 wp_rounds 0 plain 59 backoff 0 drafted 3 accepted 3 acceptance 1.000 | tokens/round 4.00 verify 54.0 ms/round global 0 | break-even plain 24.6 ms round 66.4 ms tokens/round 4.00 verify x1.43 pays=true
+p1-one-token negative control verify=Exact (accept one extra wrong draft): output unchanged (no rejected draft to corrupt)
+p1-one-token numerics control verify=Exact (ActFp8 in verify): output unchanged
+p1-one-token run 2: OFF 41.3 tok/s (1551 ms, 64 tokens) | off-vs-golden differs at token 0 of the golden 16 (recorded; spec-off is the reference)
+p1-one-token run 2: ON verify=Exact 42.3 tok/s (1513 ms) vs off IDENTICAL | rounds 1 wp_rounds 0 plain 60 backoff 0 drafted 2 accepted 2 acceptance 1.000 | tokens/round 3.00 verify 44.0 ms/round global 0 | break-even plain 24.6 ms round 53.2 ms tokens/round 3.00 verify x1.32 pays=true
+p2-short run 1: OFF 40.5 tok/s (173 ms, 7 tokens) | off-vs-golden IDENTICAL on the golden length 7
+p2-short run 1: ON verify=Exact 33.0 tok/s (212 ms) vs off IDENTICAL | rounds 1 wp_rounds 0 plain 6 backoff 0 drafted 3 accepted 0 acceptance 0.000 | tokens/round 1.00 verify 60.4 ms/round global 1 | break-even plain 24.2 ms round 63.5 ms tokens/round 1.00 verify x1.60 pays=false
+p2-short negative control verify=Exact (accept one extra wrong draft): output differs (CAUGHT)
+p2-short numerics control verify=Exact (ActFp8 in verify): output unchanged
+p2-short run 2: OFF 40.7 tok/s (172 ms, 7 tokens) | off-vs-golden IDENTICAL on the golden length 7
+p2-short run 2: ON verify=Exact 34.1 tok/s (205 ms) vs off IDENTICAL | rounds 1 wp_rounds 0 plain 6 backoff 0 drafted 3 accepted 0 acceptance 0.000 | tokens/round 1.00 verify 53.7 ms/round global 1 | break-even plain 24.2 ms round 56.8 ms tokens/round 1.00 verify x1.42 pays=false
+p3-medium run 1: OFF 39.8 tok/s (1609 ms, 64 tokens) | off-vs-golden IDENTICAL on the golden length 16
+p3-medium run 1: ON verify=Exact 40.1 tok/s (1597 ms) vs off IDENTICAL | rounds 1 wp_rounds 0 plain 60 backoff 0 drafted 3 accepted 2 acceptance 0.667 | tokens/round 3.00 verify 53.9 ms/round global 0 | break-even plain 25.6 ms round 63.2 ms tokens/round 3.00 verify x1.43 pays=true
+p3-medium negative control verify=Exact (accept one extra wrong draft): output differs (CAUGHT)
+p3-medium numerics control verify=Exact (ActFp8 in verify): output unchanged
+p3-medium run 2: OFF 39.7 tok/s (1614 ms, 64 tokens) | off-vs-golden IDENTICAL on the golden length 16
+p3-medium run 2: ON verify=Exact 39.8 tok/s (1607 ms) vs off IDENTICAL | rounds 1 wp_rounds 0 plain 60 backoff 0 drafted 3 accepted 2 acceptance 0.667 | tokens/round 3.00 verify 65.7 ms/round global 0 | break-even plain 25.6 ms round 74.9 ms tokens/round 3.00 verify x1.74 pays=true
+p4-long run 1: OFF 39.2 tok/s (1633 ms, 64 tokens) | off-vs-golden IDENTICAL on the golden length 16
+p4-long run 1: ON verify=Exact 38.5 tok/s (1662 ms) vs off IDENTICAL | rounds 2 wp_rounds 0 plain 60 backoff 16 drafted 3 accepted 1 acceptance 0.333 | tokens/round 1.50 verify 39.8 ms/round global 0 | break-even plain 25.7 ms round 44.5 ms tokens/round 1.50 verify x1.27 pays=false
+p4-long negative control verify=Exact (accept one extra wrong draft): output unchanged (no rejected draft to corrupt)
+p4-long numerics control verify=Exact (ActFp8 in verify): output unchanged
+p4-long run 2: OFF 39.3 tok/s (1629 ms, 64 tokens) | off-vs-golden IDENTICAL on the golden length 16
+p4-long run 2: ON verify=Exact 38.6 tok/s (1658 ms) vs off IDENTICAL | rounds 1 wp_rounds 0 plain 61 backoff 0 drafted 1 accepted 1 acceptance 1.000 | tokens/round 2.00 verify 38.9 ms/round global 0 | break-even plain 25.8 ms round 45.7 ms tokens/round 2.00 verify x1.35 pays=true
+p5-code-json run 1: OFF 38.8 tok/s (6605 ms, 256 tokens) | off-vs-golden no golden list
+p5-code-json OFF text (first 400 chars): "[\n  {\"id\": 101, \"tool\": \"read_file\", \"args\": {\"path\": \"src/server/router.rs\", \"start\": 1, \"end\": 120}, \"status\": \"done\", \"checked\": true, \"owner\": \"agent-a\"},\n  {\"id\": 102, \"tool\": \"grep\", \"args\": {\"pattern\": \"fn handle_request\", \"path\": \"src/server\"}, \"status\": \"done\", \"checked\": true, \"owner\": \"agent-a\"},\n  {\"id\": 103, \"tool\": \"read_file\", \"args\": {\"path\": \"src/server/handlers.rs\", \"start\": 40, "
+p5-code-json run 1: ON verify=Exact 44.5 tok/s (5747 ms) vs off IDENTICAL | rounds 17 wp_rounds 0 plain 146 backoff 0 drafted 96 accepted 92 acceptance 0.958 | tokens/round 6.41 verify 92.4 ms/round global 0 | break-even plain 25.8 ms round 122.5 ms tokens/round 6.50 verify x1.99 pays=true
+p5-code-json negative control verify=Exact (accept one extra wrong draft): output differs (CAUGHT)
+p5-code-json numerics control verify=Exact (ActFp8 in verify): output unchanged
+p5-code-json run 2: OFF 38.7 tok/s (6610 ms, 256 tokens) | off-vs-golden no golden list
+p5-code-json run 2: ON verify=Exact 39.8 tok/s (6430 ms) vs off IDENTICAL | rounds 5 wp_rounds 0 plain 225 backoff 0 drafted 25 accepted 25 acceptance 1.000 | tokens/round 6.00 verify 91.4 ms/round global 0 | break-even plain 25.8 ms round 116.7 ms tokens/round 6.25 verify x2.03 pays=true
+NUMERICS CONTROL (ActFp8): caught on 0 of 5 prompts
+FAIL: verify=Exact: the numerics mutant never changed the output; the identity check cannot see a rounding change on this data
+RESULT: FAIL

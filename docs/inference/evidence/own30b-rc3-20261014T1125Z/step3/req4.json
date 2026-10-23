@@ -1,0 +1,20 @@
+{
+  "model": "qwen3-30b-a3b-instruct-2507",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are Odysseus, a helpful personal assistant. Answer briefly."
+    },
+    {
+      "role": "user",
+      "content": "Write two sentences about the sea."
+    }
+  ],
+  "stream": false,
+  "temperature": 0.7,
+  "top_p": 0.8,
+  "seed": 7,
+  "max_tokens": 64,
+  "session_id": "rc3-smoke-2",
+  "think": false
+}

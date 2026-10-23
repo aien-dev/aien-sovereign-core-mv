@@ -1,0 +1,4 @@
+start 2026-10-14T11:25:37Z
+cmd flock /tmp/aien-gb10.lock env AIEN_OMEGA_SPIN_US=2000 AIEN_OWN30B_SPEC_BREAK_EVEN=0 /home/drakestapleton/handoffs/rc3-bin-0826a25/own30b_spec_check /home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8 /home/drakestapleton/workspace/sc-own30b-rc3/docs/inference/evidence/own30b-f-20261013T1745Z/golden.json /home/drakestapleton/workspace/sc-own30b-rc3/docs/inference/evidence/own30b-rc3-20261014T1125Z/step1/strict --drafter suffix --suffix-global --runs 2 --new 64 --extra-prompt p5-code-json /home/drakestapleton/workspace/sc-own30b-rc3/docs/inference/evidence/own30b-l4c-cut2-chip-20261014T0227Z/p5-code-json.txt --new-extra 256 --verify exact --wp-device-host --numerics-mutant act-fp8 --decode-graph off --resident off
+               total        used        free      shared  buff/cache   available
+Mem:             121          18          40           2          66         103

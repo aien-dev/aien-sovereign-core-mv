@@ -1,0 +1,10 @@
+OWN-30B RC3 gate 2026-10-14T11:25:36Z
+sc 0826a255ae52c1bca738f7feafc3722f4984d6dd omega 4f3d45e7f370c22169865c97445c6cadbd241342 omega.lock 4f3d45e7f370c22169865c97445c6cadbd241342
+binaries /home/drakestapleton/handoffs/rc3-bin-0826a25:
+c83fef926696562f63975082e5360818feb8acfe6df92353cb32c9d1ecdd4bde  aien-serve-http
+fa2d3c553c429c19d42524fa94f96ccc515a42abe9aca09f601ed221fb640f31  own30b_spec_check
+checkpoint /home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8
+golden sha256 957d0165544f379951590f33108a8f7b26c2d55a677fc72b27c4b370497e1ace
+p5 sha256 cd6735fed470503ead94771048047037bbcfc7431a91041b9616856d4b15629a
+               total        used        free      shared  buff/cache   available
+Mem:             121          18          40           2          66         103

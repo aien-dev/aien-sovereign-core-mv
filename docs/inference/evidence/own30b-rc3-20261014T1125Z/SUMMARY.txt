@@ -1,0 +1,74 @@
+preflight: --spec onn refused by the server binary: PASS
+== STEP 1: strict identity (one-list decode off, back-off off), exact verify
+  p1-one-token run 1: off 35 on 44.6 tok/s, acceptance 86%, IDENTICAL, off=golden false
+  p1-one-token run 2: off 37.5 on 45 tok/s, acceptance 86%, IDENTICAL, off=golden false
+  p2-short run 1: off 36.5 on 34.3 tok/s, acceptance 25%, IDENTICAL, off=golden true
+  p2-short run 2: off 36.6 on 34.1 tok/s, acceptance 25%, IDENTICAL, off=golden true
+  p3-medium run 1: off 36.1 on 38.1 tok/s, acceptance 52%, IDENTICAL, off=golden true
+  p3-medium run 2: off 35.9 on 37.7 tok/s, acceptance 52%, IDENTICAL, off=golden true
+  p4-long run 1: off 35.2 on 32 tok/s, acceptance 14%, IDENTICAL, off=golden true
+  p4-long run 2: off 35.7 on 32.3 tok/s, acceptance 14%, IDENTICAL, off=golden true
+  p5-code-json run 1: off 35.2 on 49.6 tok/s, acceptance 86%, IDENTICAL, off=golden false
+  p5-code-json run 2: off 35.3 on 52.9 tok/s, acceptance 86%, IDENTICAL, off=golden false
+  p1-one-token negative control verify=Exact (accept one extra wrong draft): output differs (CAUGHT)
+  p2-short negative control verify=Exact (accept one extra wrong draft): output differs (CAUGHT)
+  p3-medium negative control verify=Exact (accept one extra wrong draft): output differs (CAUGHT)
+  p4-long negative control verify=Exact (accept one extra wrong draft): output differs (CAUGHT)
+  p5-code-json negative control verify=Exact (accept one extra wrong draft): output differs (CAUGHT)
+  NUMERICS CONTROL (ActFp8): caught on 2 of 5 prompts
+  RESULT: PASS
+STEP1: S1 identity=PASS S2 controls=PASS
+== STEP 2: server path (one-list decode + resident on, back-off on), exact verify
+  p1-one-token run 1: off 41.3 on 42 tok/s, rounds 1 plain 59 paused 0 acceptance 100%, IDENTICAL (golden length 16), off=golden false
+  p1-one-token run 2: off 41.3 on 42.3 tok/s, rounds 1 plain 60 paused 0 acceptance 100%, IDENTICAL (golden length 16), off=golden false
+  p2-short run 1: off 40.5 on 33 tok/s, rounds 1 plain 6 paused 0 acceptance 0%, IDENTICAL (golden length 7), off=golden true
+  p2-short run 2: off 40.7 on 34.1 tok/s, rounds 1 plain 6 paused 0 acceptance 0%, IDENTICAL (golden length 7), off=golden true
+  p3-medium run 1: off 39.8 on 40.1 tok/s, rounds 1 plain 60 paused 0 acceptance 67%, IDENTICAL (golden length 16), off=golden true
+  p3-medium run 2: off 39.7 on 39.8 tok/s, rounds 1 plain 60 paused 0 acceptance 67%, IDENTICAL (golden length 16), off=golden true
+  p4-long run 1: off 39.2 on 38.5 tok/s, rounds 2 plain 60 paused 16 acceptance 33%, IDENTICAL (golden length 16), off=golden true
+  p4-long run 2: off 39.3 on 38.6 tok/s, rounds 1 plain 61 paused 0 acceptance 100%, IDENTICAL (golden length 16), off=golden true
+  p5-code-json run 1: off 38.8 on 44.5 tok/s, rounds 17 plain 146 paused 0 acceptance 96%, IDENTICAL (golden length 0), off=golden false
+  p5-code-json run 2: off 38.7 on 39.8 tok/s, rounds 5 plain 225 paused 0 acceptance 100%, IDENTICAL (golden length 0), off=golden false
+  divergences past the golden length (reported, not failed): []
+  p4 mean tok/s: off 39.23978923048527 on 38.55427283244714 (rule on >= 0.98 x off)
+  code/JSON mean tok/s: off 38.743857230058836 on 42.17917739757927 (rule on > off)
+  (info) p1-one-token negative control verify=Exact (accept one extra wrong draft): output unchanged (no rejected draft to corrupt)
+  (info) p2-short negative control verify=Exact (accept one extra wrong draft): output differs (CAUGHT)
+  (info) p3-medium negative control verify=Exact (accept one extra wrong draft): output differs (CAUGHT)
+  (info) p4-long negative control verify=Exact (accept one extra wrong draft): output unchanged (no rejected draft to corrupt)
+  (info) p5-code-json negative control verify=Exact (accept one extra wrong draft): output differs (CAUGHT)
+  (info) NUMERICS CONTROL (ActFp8): caught on 0 of 5 prompts
+  (info) RESULT: FAIL
+STEP2: G1 identity-in-golden=PASS G2 p4-no-loss=PASS G3 json-gain=PASS
+== STEP 3: server smoke on 127.0.0.1:18093 (--spec on, other switches at RC2 defaults)
+  aien-serve-http: whole_prompt=on prefill_device_host=on prefill_acts=a8 (set in 0.03 s)
+  aien-serve-http: decode_graph=on resident_decode=on (grid 128 rows 2) (set in 0.00 s)
+  aien-serve-http: spec=on (greedy requests: suffix drafter max_draft 8 with past requests, exact verify, break-even back-off on; plain steps one-list)
+  aien-serve-http: omega engine ready in 27.2 s: Fp8All weights, 30.53 GB resident, 0.67 GB host, peak rss 31.94 GB, window_api=true fp8_api=true dattn_api=true attention=fused router=device lm_head=gemv prefill=gemm prefill_chunk=64 spin_us=Some(2000)
+  turn 1 (non-stream): "The capital of France is Paris." (wall 0.90 s)
+  turn 2 (SSE, prefix reuse): "The capital of Italy is Rome." (wall 0.25 s)
+  long prompt (1836 tokens): "The slowest load occurred in Block 60, which took 26" (wall 1.47 s); RC 1 answered "The slowest load occurred in Block 60, which took 26"
+  code/JSON greedy request a: 256 tokens (wall 6.62 s)
+  code/JSON greedy request b: 256 tokens (wall 6.44 s)
+  spec rounds log lines: 5
+  sampled turn (temperature 0.7, plain decode): "The sea stretches endlessly, a vast mirror reflecting the sky's moods. Its waves whisper ancient secrets to those who listen." finish stop (wall 0.93 s)
+  lock wait 0 ms, prompt 41 tok, 0 reused from the previous turn, prefill 727 ms, decode 7 tok in 177 ms
+      = 39.5 tok/s
+  spec rounds 0 plain 7 paused 0 drafted 0 accepted 0 (acceptance 0.00, 0.00 tokens/round, verify 0.0 ms/round, 0 from past requests)
+  lock wait 0 ms, prompt 62 tok, 48 reused from the previous turn, prefill 92 ms, decode 7 tok in 160 ms
+      = 43.8 tok/s
+  spec rounds 1 plain 4 paused 0 drafted 2 accepted 2 (acceptance 1.00, 3.00 tokens/round, verify 49.0 ms/round, 0 from past requests)
+  lock wait 0 ms, prompt 1836 tok, 15 reused from the previous turn, prefill 845 ms, decode 16 tok in 622 ms
+      = 25.7 tok/s
+  spec rounds 1 plain 14 paused 14 drafted 5 accepted 0 (acceptance 0.00, 1.00 tokens/round, verify 100.3 ms/round, 1 from past requests)
+  lock wait 0 ms, prompt 526 tok, 15 reused from the previous turn, prefill 308 ms, decode 256 tok in 6310 ms
+      = 40.6 tok/s
+  spec rounds 9 plain 207 paused 16 drafted 47 accepted 39 (acceptance 0.83, 5.33 tokens/round, verify 86.9 ms/round, 1 from past requests)
+  lock wait 0 ms, prompt 526 tok, 525 reused from the previous turn, prefill 25 ms, decode 256 tok in 6411 ms
+      = 39.9 tok/s
+  spec rounds 4 plain 221 paused 0 drafted 30 accepted 30 (acceptance 1.00, 8.50 tokens/round, verify 136.3 ms/round, 4 from past requests)
+  lock wait 0 ms, prompt 35 tok, 23 reused from the previous turn, prefill 77 ms, decode 25 tok in 848 ms
+      = 29.5 tok/s
+  server pid 979165 stopped 2026-10-14T11:30:40Z
+STEP3: PASS
+RC3_GATE: step1 S1=PASS S2=PASS | step2 G1=PASS G2=PASS G3=PASS | step3 PASS | SPEC_ON=GO | evidence /home/drakestapleton/workspace/sc-own30b-rc3/docs/inference/evidence/own30b-rc3-20261014T1125Z
