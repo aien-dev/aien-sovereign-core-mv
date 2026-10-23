@@ -42,7 +42,7 @@ independent rebuild or process-environment verification was performed. These
 
 | Issue | Delivered here | Remaining acceptance |
 |---|---|---|
-| #710 | Native receipt arithmetic, contamination/order refusals, synthetic controls, predeclared quality thresholds, source/pin reconciliation | Restore/verify pinned checkpoint; freeze exact token arrays and held-out corpora/reference outputs; bind full native serving binary; calibrate hardware envelope; all real context/profile paired trials and complete metric summaries |
+| #710 | Native per-phase median/p95 and useful-output accounting, contamination/order refusals, synthetic controls, predeclared thresholds, source/pin reconciliation, restored and rehashed 81-file checkpoint | Freeze exact token arrays and held-out corpora/reference outputs; bind full native serving binary; calibrate hardware envelope; all real context/profile paired trials; transient-state memory and confidence intervals |
 | #711 | No W4 acceleration claim; old FP8-backed simulation identified | Native packed layout/loader, GEMV and small-row GEMM, all packed/layout numerical controls, quality study, physical traffic/allocation and full-model W4/W4+MTP measurements |
 | #712 | Receipt accounting includes draft/verify/commit and pending consumed prefix | Qualified MTP head, real endpoint integration, bounded adaptation/fallback, sampling distribution and all rejection/cancel/state tests, four-arm measurements |
 | #713 | Arithmetic boundary refuses mismatched consumed count or failed state assertion | Actual KV/GDN/conv/drafter commitment, restore-versus-prefill, branch/dependency controls, transient bytes and commit costs, measured tree disposition |
@@ -50,7 +50,8 @@ independent rebuild or process-environment verification was performed. These
 L408 owns compiler/FR4 floats, FR15 clocks, FR16 sockets and the seed/IR path.
 L605 owns the active native device continuation. Its open/ioctl work is not yet
 an acknowledged model allocation/upload/dispatch/wait/readback interface.
-L419 retains runtime/GPU migration ownership. L739's existing native serving
+L419 is the existing runtime/GPU migration slot but currently unassigned;
+no active implementer is established by that ledger entry. L739's existing native serving
 integration and L720 numerical primitives must be reused where applicable;
 their host primitives do not establish a Qwen3.8 forward pass. No dirty owner
 tree was edited. The native device/serving boundary needs immutable qualified

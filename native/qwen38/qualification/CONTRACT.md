@@ -1,4 +1,4 @@
-# Qwen3.8 qualification contract v1
+# Qwen3.8 qualification contract v2
 
 Core #710 under #679. This is a bounded experimental contract, not a release
 qualification. Frozen thresholds below precede any candidate measurement.
@@ -11,8 +11,11 @@ is native `.om` CPU code. Its synthetic tests are not inference measurements.
 Model: `Qwen/Qwen3.8-27B-FP8`, revision
 `017b9c7af6b5689d5dd426a76e0bc077eb5ca20a`. The recorded 81-file upstream
 manifest is retained with the evidence. Recheck every file before execution.
-The historical expected directory is absent on this host at inspection.
-The manifest proves historical identity, not current possession or loading.
+All 81 files were restored at the pinned revision on 2026-10-23 into
+`/home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a`. Every download matched
+the historical manifest; a second full SHA256 check passed. Raw recovery and
+recheck receipts are in `evidence/qwen38-710-native-v2/`. This establishes
+current checkpoint possession, not model loading or inference qualification.
 
 Before running, bind the following in one immutable experiment manifest:
 
@@ -136,11 +139,20 @@ producer can forge these values: exit 0 is **arithmetic consistency only**.
 | 20,21,22 | prompt count, consumed total prefix count, emitted pending token count 0/1 |
 | 23 | external full-state boundary check passed (1) |
 
-Each arm produces six newline-delimited integers: arm, median total us, p95
-total us, median queue us, median integer tokens/sec, maximum peak bytes.
-The raw input retains the remaining phase measurements. The checker currently
-does not compute phase percentiles, paired confidence intervals or authenticate
-quality results. Those remain acceptance work, not implicit capabilities.
+Output v2 emits 32 newline-delimited integers per arm (128 total): arm ID;
+median then nearest-rank p95 for each input field 2 through 13 in field order;
+median/p95 integer emitted tokens per total second; median/p95 queue-free
+service microseconds; median/p95 integer emitted tokens per service second;
+maximum peak bytes. Service is total minus queue and must be positive. Each
+rate is computed per request before sorting, not from separately aggregated
+counts and times. Zero service is refused before division. Warmup is excluded
+from every statistic, including peak memory.
+
+Version 2 changes the output layout, adds a zero-service refusal and extends
+synthetic checks. Input layout and predeclared quality thresholds are unchanged.
+No actual model trial existed under v1. Never combine output versions. Raw
+phase traces, transient state memory, paired confidence intervals and
+authenticated quality results remain required external acceptance work.
 
 Exit 2 malformed/capacity; 3 invalid timing/order/state/length; 4 contaminated;
 5 unqualified quality/backend/packing; 6 I/O. No summary is emitted until every
@@ -153,10 +165,11 @@ Consume Omega `migration/osc-to-seeded-omega` at
 `01b1545b23e8ff40cb5691e20b5df910ea4acaefde3495f0d62d270465b98cd6`.
 Compile each `.om` file with that executable on stdin and redirect stdout to
 its own executable output, checking exit status before marking it executable.
-`fixture.om` consumes one byte A..W. A and W emit valid **synthetic** data, with
-and without a pending token. B..Q introduce specific bad fields, R extra data,
+`fixture.om` consumes one byte A..Y. A, W and Y emit valid **synthetic** data, with
+and without a pending token; Y varies phase costs and output counts in shuffled
+order. B..Q introduce specific bad fields, R extra data,
 S missing data, T ordinary decoding with draft time, U context overflow and
-V an impossible first-token time. Feed its output
+V an impossible first-token time; X a queue-only request with zero service. Feed its output
 to the compiled receipt checker. Exact replay commands and exit table are in
 the evidence directory. Shell commands currently perform test invocation;
 native process/test orchestration remains with the existing compiler owners.

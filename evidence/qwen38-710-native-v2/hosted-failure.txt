@@ -1,0 +1,11 @@
+AIEN Verification	Crumbs must be exactly what the compiler produces now (stays GitHub-hosted, D11)	﻿2026-10-23T14:05:24.1318861Z ##[group]Run crumb verify .
+AIEN Verification	Crumbs must be exactly what the compiler produces now (stays GitHub-hosted, D11)	2026-10-23T14:05:24.1319161Z [36;1mcrumb verify .[0m
+AIEN Verification	Crumbs must be exactly what the compiler produces now (stays GitHub-hosted, D11)	2026-10-23T14:05:24.1386146Z shell: /usr/bin/bash -e {0}
+AIEN Verification	Crumbs must be exactly what the compiler produces now (stays GitHub-hosted, D11)	2026-10-23T14:05:24.1386411Z env:
+AIEN Verification	Crumbs must be exactly what the compiler produces now (stays GitHub-hosted, D11)	2026-10-23T14:05:24.1386632Z   REPO_SLUG: aien-dev/aien-sovereign-core
+AIEN Verification	Crumbs must be exactly what the compiler produces now (stays GitHub-hosted, D11)	2026-10-23T14:05:24.1386973Z   AIEN_TEST_PIN: c26f4d7ac3156088469b27462390f5b08ef4f436
+AIEN Verification	Crumbs must be exactly what the compiler produces now (stays GitHub-hosted, D11)	2026-10-23T14:05:24.1387443Z   RECEIPTS_RAW: https://raw.githubusercontent.com/aien-dev/aien-receipts/main
+AIEN Verification	Crumbs must be exactly what the compiler produces now (stays GitHub-hosted, D11)	2026-10-23T14:05:24.1387854Z ##[endgroup]
+AIEN Verification	Crumbs must be exactly what the compiler produces now (stays GitHub-hosted, D11)	2026-10-23T14:05:24.8677196Z STALE      .
+AIEN Verification	Crumbs must be exactly what the compiler produces now (stays GitHub-hosted, D11)	2026-10-23T14:05:24.8677953Z crumb verify: FAIL: 1 of 16 crumbs stale; run: crumb compile
+AIEN Verification	Crumbs must be exactly what the compiler produces now (stays GitHub-hosted, D11)	2026-10-23T14:05:24.8696620Z ##[error]Process completed with exit code 1.

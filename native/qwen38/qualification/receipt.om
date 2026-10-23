@@ -1,4 +1,4 @@
-note Core710 receipt arithmetic validator v1. Native CPU only, never hardware qualification.
+note Core710 receipt arithmetic validator v2. Native CPU only, never hardware qualification.
 note Input: 24 rows of 24 unsigned decimal fields. See CONTRACT.md for exact units and order.
 note Exit2 malformed,3 invalid experiment,4 contaminated,5 quality or backend unqualified,6 IO.
 note Producer attestations require external source-bound evidence; this checker cannot authenticate them.
@@ -7,9 +7,7 @@ global cur ulong 1
 global size ulong 1
 global val ulong 1
 global row ulong 24
-global times ulong 24
-global rates ulong 24
-global queues ulong 24
+global samples ulong 300
 global peaks ulong 4
 global out uchar 32
 
@@ -139,6 +137,9 @@ total = get row 12
 if or eq total 0 ne total sum
 ret 3
 end
+if le total get row 3
+ret 3
+end
 if or lt get row 6 earliest gt get row 6 total
 ret 3
 end
@@ -150,9 +151,13 @@ end
 
 fn save arm ulong round ulong to void
 idx = add mul arm 5 sub round 1
-put times idx get row 12
-put queues idx get row 3
-put rates idx div mul get row 2 1000000 get row 12
+for metric ulong 12
+put samples add mul metric 20 idx get row add metric 2
+end
+put samples add ulong 240 idx div mul get row 2 1000000 get row 12
+service = sub get row 12 get row 3
+put samples add ulong 260 idx service
+put samples add ulong 280 idx div mul get row 2 1000000 service
 if gt get row 13 get peaks arm
 put peaks arm get row 13
 end
@@ -169,32 +174,20 @@ p = add p 1
 end
 for arm ulong 4
 base = mul arm 5
-for j ulong 5
-put a j get times add base j
-end
-sort a 0
 if not emit arm
 ret 6
 end
+for metric ulong 15
+for j ulong 5
+put a j get samples add mul metric 20 add base j
+end
+sort a 0
 if not emit get a 2
 ret 6
 end
 if not emit get a 4
 ret 6
 end
-for j ulong 5
-put a j get queues add base j
-end
-sort a 0
-if not emit get a 2
-ret 6
-end
-for j ulong 5
-put a j get rates add base j
-end
-sort a 0
-if not emit get a 2
-ret 6
 end
 if not emit get peaks arm
 ret 6

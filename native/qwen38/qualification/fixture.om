@@ -1,5 +1,5 @@
 note Synthetic receipt fixture producer. NEVER a hardware measurement or quality result.
-note Input one byte: A valid; B through V negative controls; W valid with no pending token.
+note Input one byte: A valid; B through V negative controls; W no pending token; X zero service; Y shuffled phases.
 global out uchar 32
 global mode uchar 1
 global row ulong 24
@@ -30,7 +30,7 @@ if ne n 1
 ret 2
 end
 m = get mode 0
-if or lt m uchar 65 gt m uchar 87
+if or lt m uchar 65 gt m uchar 89
 ret 2
 end
 for i ulong 24
@@ -84,11 +84,50 @@ put row 3 add ulong 100 round
 put row 6 add ulong 700 round
 put row 12 add ulong 1800 round
 end
+if and eq m uchar 89 gt round 0
+d = ulong 3
+if eq round 1
+d = 5
+end
+if eq round 2
+d = 1
+end
+if eq round 3
+d = 4
+end
+if eq round 4
+d = 2
+end
+put row 2 add ulong 10 d
+put row 21 add ulong 41 d
+put row 3 add ulong 100 d
+put row 4 add ulong 200 d
+put row 5 add ulong 300 mul d 2
+put row 6 add ulong 700 mul d 4
+put row 7 add get row 7 mul d 3
+if eq rem arm 2 1
+put row 8 add ulong 100 d
+put row 9 add ulong 200 mul d 2
+end
+put row 10 add ulong 100 mul d 4
+put row 11 add ulong 100 mul d 5
+put row 12 add ulong 1800 mul d 16
+if eq rem arm 2 1
+put row 12 add ulong 1800 mul d 19
+end
+end
 if and eq m uchar 84 eq i 5
 put row 7 999
 put row 8 1
 end
 if eq i 6
+if eq m uchar 88
+for j ulong 8
+put row add j 4 0
+end
+put row 6 get row 3
+put row 12 get row 3
+end
 if eq m uchar 66
 put row 15 1
 end
