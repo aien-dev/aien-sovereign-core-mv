@@ -576,22 +576,19 @@ fn kill_tagged_pid(pid: u32, tag: &str) -> bool {
 }
 
 impl ChromeProcess {
-    /// On Linux, kill exact-tag pinned task identities, including detached
-    /// crash reporters; never use a numeric process group as signal authority.
+    /// Kills the whole browser: its process group (renderers, GPU process, zygotes, the
+    /// launcher's pipes) and every tagged process that left the group (crash reporters).
     /// Returns once none is left or `REAP_TIMEOUT` passes.
     fn reap(&mut self) {
         let pgid = self.child.id() as libc::pid_t;
         let deadline = Instant::now() + REAP_TIMEOUT;
-        // Linux signals only exact-tag pidfd identities, including the main
-        // child. Even an external SIGCHLD reaper cannot make a recycled
-        // numeric PID or PGID become a signal target.
-        #[cfg(not(target_os = "linux"))]
+        // Signal the group only once and only while the unreaped direct
+        // child reserves its PID. Never signal a numeric group after wait.
         if !self.main_reaped {
             unsafe { libc::kill(-pgid, libc::SIGKILL) };
+            // The direct child is still ours even if it changed its group.
             self.child.kill().ok();
         }
-        #[cfg(target_os = "linux")]
-        let _ = pgid;
         loop {
             let tagged = tagged_pids(&self.tag);
             for &pid in &tagged {
