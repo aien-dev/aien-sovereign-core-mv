@@ -1,0 +1,235 @@
+note SPDX-License-Identifier: AGPL-3.0-only
+global checks ulong 1
+global failures ulong 1
+fn number value ulong to void
+b = new uchar 32 0
+n = ulong 0
+v = value
+while ge v 10
+put b n uchar add rem v 10 48
+n = add n 1
+v = div v 10
+end
+put b n uchar add v 48
+n = add n 1
+while gt n 0
+n = sub n 1
+w = write 1 b n 1
+end
+put b 0 10
+w = write 1 b 0 1
+end
+fn check actual ulong expected ulong to void
+put checks 0 add get checks 0 1
+if ne actual expected
+put failures 0 add get failures 0 1
+end
+end
+fn setfield row ulong field ulong value ulong to void
+put rrows add mul row 22 field value
+end
+fn fixture to void
+for i ulong 352
+put rrows i 0
+end
+for i ulong 10
+put rcontrol i 0
+end
+put rcontrol 0 3
+put rcontrol 2 1000
+put rcontrol 3 100
+put rcontrol 4 5
+put rcontrol 5 10000
+put rcontrol 6 1000
+put rcontrol 9 1000
+for i ulong 32
+put rexpect i add i 1
+end
+for r ulong 16
+for i ulong 32
+put rident add mul r 32 i get rexpect i
+end
+end
+for r ulong 3
+setfield r 0 1
+setfield r 1 r
+setfield r 2 r
+setfield r 3 mul r 200
+setfield r 5 31
+setfield r 6 5
+setfield r 7 950
+setfield r 13 sub 1000 mul r 300
+setfield r 15 1000
+setfield r 20 1
+setfield r 21 1
+end
+end
+fn selected expected ulong to void
+check ulong rselect 0
+check get rresult 0 expected
+end
+fn main to int
+fixture
+selected 2
+check get rresult 1 400
+check get rresult 2 600
+note Disk has a longer prefix but actual read cost loses against RAM.
+setfield 2 9 400
+selected 1
+setfield 1 13 1100
+selected 2
+setfield 2 9 700
+selected 0
+note Every cost stage must influence the decision.
+for phase ulong 7
+fixture
+setfield 2 add phase 8 1200
+selected 1
+end
+note Every allocation class counts, including transient and shared references.
+for phase ulong 5
+fixture
+setfield 2 add phase 15 9001
+selected 1
+check get rreason 2 75
+end
+fixture
+setfield 2 15 9000
+selected 2
+setfield 2 16 1
+selected 1
+note Every identity word, not a single fast hash, must match.
+for i ulong 32
+fixture
+put rident add 64 i 0
+selected 1
+check get rreason 2 69
+end
+for i ulong 8
+fixture
+for j ulong 4
+put rexpect add mul i 4 j 0
+put rident add mul i 4 j 0
+end
+check ulong rselect 69
+check get rresult 3 0
+end
+note Stale reuse candidates are skipped; stale baseline disables cost selection.
+fixture
+setfield 2 7 899
+selected 1
+check get rreason 2 74
+setfield 0 7 899
+selected 0
+check get rresult 3 0
+check get rresult 4 1
+fixture
+setfield 2 7 1001
+selected 1
+fixture
+setfield 2 6 4
+selected 1
+fixture
+setfield 2 5 30
+selected 1
+check get rreason 2 76
+fixture
+setfield 2 20 0
+selected 1
+fixture
+setfield 2 21 0
+selected 1
+fixture
+setfield 2 3 1001
+selected 1
+fixture
+setfield 2 3 1000
+setfield 2 4 1
+selected 1
+fixture
+setfield 2 4 2
+selected 1
+fixture
+setfield 2 3 999
+setfield 2 4 1
+selected 2
+note Switching requires strictly more than the absolute plus relative margin.
+fixture
+put rcontrol 1 1
+put rcontrol 7 300
+selected 1
+put rcontrol 7 299
+selected 2
+put rcontrol 7 0
+put rcontrol 8 500000
+selected 1
+setfield 2 13 300
+selected 2
+note An invalid current snapshot cannot be retained by hysteresis.
+setfield 1 20 0
+selected 2
+note Duplicate stable IDs refuse instead of depending on enumeration order.
+fixture
+setfield 2 2 1
+check ulong rselect 65
+check get rresult 3 0
+fixture
+put rcontrol 0 17
+check ulong rselect 65
+fixture
+put rcontrol 6 10001
+check ulong rselect 75
+fixture
+setfield 2 8 18446744073709551615
+selected 1
+fixture
+setfield 2 15 18446744073709551615
+selected 1
+note Calibration refuses bad observations atomically and uses ceil EWMA.
+fixture
+for p ulong 7
+put robs p 0
+end
+put robs 5 800
+check ulong rcalib 2 1000 0
+check rfield 2 13 450
+check rfield 2 6 6
+check rfield 2 7 1000
+put robs 6 18446744073709551615
+check ulong rcalib 2 1000 65
+check rfield 2 13 450
+check rfield 2 6 6
+check ulong rcalib 2 999 74
+check ulong rcalib 16 1000 65
+fixture
+put rcontrol 6 18446744073709551615
+check ulong rcalib 2 1000 75
+check rfield 2 13 400
+note Exhaustive independent choice oracle on synthetic fresh/RAM/disk costs.
+for a ulong 20
+for b ulong 20
+for c ulong 20
+fixture
+setfield 0 13 add a 1
+setfield 1 13 add b 1
+setfield 2 13 add c 1
+want = ulong 0
+if lt b a
+want = 1
+end
+if lt c a
+if lt c b
+want = 2
+end
+end
+selected want
+end
+end
+end
+number get checks 0
+number get failures 0
+if ne get failures 0 0
+exit 1
+end
+ret 0
+end
