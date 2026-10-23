@@ -29,6 +29,22 @@ fn compare(a:&[f32],b:&[f32])->(f64,f64) {
     for (&x,&y) in a.iter().zip(b){let (x,y)=(x as f64,y as f64);ab+=x*y;aa+=x*x;bb+=y*y;kl+=(x-za).exp()*((x-za)-(y-zb));}
     (ab/(aa*bb).sqrt(),kl)
 }
+fn vector_error(a:&[f32],b:&[f32])->Result<Value,String>{
+    if a.is_empty() || a.len()!=b.len() || !a.iter().chain(b).all(|v|v.is_finite()) {return Err("invalid diagnostic vectors".into());}
+    let (mut aa,mut bb,mut ab,mut error,mut maximum)=(0f64,0f64,0f64,0f64,0f64);
+    let (mut zeros,mut spurious)=(0usize,0usize);
+    for (&x,&y) in a.iter().zip(b) {
+        let (x,y)=(x as f64,y as f64);let d=y-x;
+        aa+=x*x;bb+=y*y;ab+=x*y;error+=d*d;maximum=maximum.max(d.abs());
+        if x==0.0 {zeros+=1;if y!=0.0 {spurious+=1;}}
+    }
+    let relative=if aa>0.0 {Some((error/aa).sqrt())}else{None};
+    let cosine=if aa>0.0 && bb>0.0 {Some(ab/(aa*bb).sqrt())}else{None};
+    Ok(json!({"elements":a.len(),"squared_error":error,"reference_squared_norm":aa,
+              "mean_squared_error":error/a.len() as f64,"max_absolute_error":maximum,
+              "relative_l2":relative,"cosine":cosine,"zero_reference_elements":zeros,
+              "spurious_nonzero_outputs":spurious}))
+}
 fn read_span<R:std::io::Read+std::io::Seek>(file:&mut R,base:u64,start:u64,end:u64,size:u64)->Result<Vec<u8>,String>{
     if start>=end || base.checked_add(end).is_none_or(|x|x>size) {return Err("invalid tensor extent".into());}
     let count=usize::try_from(end-start).map_err(|_|"tensor too large")?;
@@ -76,6 +92,22 @@ fn precompute(args:&[String])->Result<(),String>{
 mod tests {
     use super::*;
     #[test]
+    fn activation_diagnostics_include_zero_reference_outputs() {
+        let r=vector_error(&[0.0,3.0,4.0],&[1.0,0.0,4.0]).unwrap();
+        assert_eq!(r["elements"],3);assert_eq!(r["max_absolute_error"],3.0);
+        assert_eq!(r["squared_error"],10.0);assert_eq!(r["reference_squared_norm"],25.0);
+        assert!((r["relative_l2"].as_f64().unwrap()-10f64.sqrt()/5.0).abs()<1e-12);
+        assert_eq!(r["zero_reference_elements"],1);assert_eq!(r["spurious_nonzero_outputs"],1);
+        let z=vector_error(&[0.0,-0.0],&[2.0,0.0]).unwrap();
+        assert!(z["relative_l2"].is_null());assert!(z["cosine"].is_null());
+        assert_eq!(z["squared_error"],4.0);assert_eq!(z["zero_reference_elements"],2);
+        assert_eq!(z["spurious_nonzero_outputs"],1);
+        assert!(vector_error(&[],&[]).is_err());
+        assert!(vector_error(&[1.0],&[1.0,2.0]).is_err());
+        assert!(vector_error(&[f32::NAN],&[1.0]).is_err());
+        assert!(vector_error(&[1.0],&[f32::INFINITY]).is_err());
+    }
+    #[test]
     fn exact_tensor_span_and_bounds() {
         let mut bytes=std::io::Cursor::new([1u8,2,3,4]);
         assert_eq!(read_span(&mut bytes,0,1,3,4).unwrap(),[2,3]);
@@ -113,6 +145,7 @@ pub fn run()->Result<(),String>{
     if baseline.len()!=tokens.len()*vocab || !baseline.iter().all(|v|v.is_finite()){return Err("invalid baseline logits".into());}
     let routes=model.routes.clone();
     let activation_hashes:Vec<String>=model.moe_x.iter().map(|v|digest_f32(v)).collect();
+    let activation_values=std::mem::take(&mut model.moe_x);
     let source=rotation_reference::finish_report()?;drop(model);drop(state);
     let mut rows=Vec::new();let mut exact=true;
     for (j,&target) in targets.iter().enumerate(){
@@ -138,6 +171,13 @@ pub fn run()->Result<(),String>{
             let route_changes=routes.iter().zip(&candidate.routes).filter(|(a,b)|a[(start+j)*8..(start+j+1)*8]!=b[(start+j)*8..(start+j+1)*8]).count();
             result.push(json!({"position":j,"target":target,"argmax":argmax(b),"reference_argmax":argmax(a),"reference_margin":margin(a),"reference_nll":negative_log_likelihood(a,target as usize),"nll":negative_log_likelihood(b,target as usize),"logit_cosine":cosine,"kl_reference_candidate":kl,"layers_with_changed_ordered_routes":route_changes}));
         }
+        if candidate.moe_x.len()!=activation_values.len() || activation_values.len()!=candidate.config.layers {return Err("incomplete activation coverage".into());}
+        let mut activation_errors=Vec::new();
+        for (layer,(a,b)) in activation_values.iter().zip(&candidate.moe_x).enumerate(){
+            activation_errors.push(json!({"layer":layer,"pre_post_attention_norm_residual":vector_error(a,b)?}));
+        }
+        let output_error=vector_error(&baseline,&logits)?;
+        write(&out.join(format!("{arm}-activation-errors.json")),&json!({"arm":arm,"input_tokens":tokens.len(),"scored_positions":targets.len(),"layers":activation_errors,"all_input_position_final_logits":output_error,"scope":"diagnostic residual-input and final-logit errors; not isolated linear-map or GPU qualification"}))?;
         let tensors=rotation_reference::finish_report()?;
         write(&out.join(format!("{arm}-tensors.json")),&tensors)?;
         write(&out.join(format!("{arm}.json")),&json!({"arm":arm,"mode":mode,"positions":result,"scored_positions":targets.len(),"full_model_layers":candidate.config.layers,"logits_sha256":digest_f32(&logits),"moe_activation_sha256":candidate.moe_x.iter().map(|x|digest_f32(x)).collect::<Vec<_>>(),"reference_wall_seconds_not_a_runtime_benchmark":clock.elapsed().as_secs_f64(),"native_binary_sha256":std::env::var("AIEN_ROTQUANT_SHA256").map_err(|e|e.to_string())?,"direct_packed_gpu_execution":false}))?;
