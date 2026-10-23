@@ -57,7 +57,7 @@ jobs:
         env:
           AIEN_PROOF_OFF: '1'
           # push to main validates an already-merged tree; PRs keep the developer branch policy
-          AIEN_PREFLIGHT_CONTEXT: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && 'merged-tree' || 'developer' }}
+          AIEN_PREFLIGHT_CONTEXT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'merged-tree' || 'developer' }}
         run: bash scripts/agent-preflight.sh
 
       - name: Enforce Zero Disk Secrets Invariant

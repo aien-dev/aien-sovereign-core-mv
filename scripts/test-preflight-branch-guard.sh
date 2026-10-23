@@ -16,13 +16,13 @@ expect() { # want(0|1) description env...
 }
 
 expect 1 "developer on main is refused"            AIEN_PREFLIGHT_CONTEXT=developer
-expect 1 "default context on main is refused"      -u AIEN_PREFLIGHT_CONTEXT
+expect 1 "default context on main is refused"      AIEN_PREFLIGHT_UNUSED=1
 expect 0 "merged-tree on CI runner for main is accepted" AIEN_PREFLIGHT_CONTEXT=merged-tree GITHUB_ACTIONS=true GITHUB_REF=refs/heads/main
 expect 1 "merged-tree from a local shell is refused"     AIEN_PREFLIGHT_CONTEXT=merged-tree
 expect 1 "merged-tree on CI for a PR ref is refused"     AIEN_PREFLIGHT_CONTEXT=merged-tree GITHUB_ACTIONS=true GITHUB_REF=refs/pull/1/merge
+expect 1 "unknown context is refused"              AIEN_PREFLIGHT_CONTEXT=mereged-tree
 git checkout -q -b feat/x
 expect 0 "developer on feature branch is accepted" AIEN_PREFLIGHT_CONTEXT=developer
-expect 1 "unknown context is refused on a feature branch" AIEN_PREFLIGHT_CONTEXT=mereged-tree
 git checkout -q --detach
 expect 0 "developer on detached PR merge ref is accepted" AIEN_PREFLIGHT_CONTEXT=developer
 echo "PREFLIGHT_BRANCH_GUARD_TESTS_PASS"
