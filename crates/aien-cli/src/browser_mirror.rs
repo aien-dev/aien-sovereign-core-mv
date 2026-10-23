@@ -634,8 +634,9 @@ impl ChromeProcess {
     /// Linux teardown pins tasks and revalidates their exact tag or private
     /// profile identity before fd signaling. Rewritten Chrome titles require
     /// a Chrome image, its exact executable prefix and a complete profile flag.
-    /// Returns once none is left or `REAP_TIMEOUT` passes.
-    fn reap(&mut self) {
+    /// Returns true only after the child is reaped and no owned task remains.
+    /// A timeout returns false without a final unbounded child wait.
+    fn reap(&mut self) -> bool {
         let deadline = Instant::now() + REAP_TIMEOUT;
         // Linux uses only pinned identities; numeric groups are never a
         // signal target, even if another reaper already collected the child.
@@ -660,21 +661,26 @@ impl ChromeProcess {
                 _ => {}
             }
             if self.main_reaped && tagged.is_empty() {
-                break;
+                return true;
             }
             if Instant::now() >= deadline {
-                break;
+                return false;
             }
             std::thread::sleep(Duration::from_millis(20));
         }
-        self.child.wait().ok();
     }
 }
 
 impl Drop for ChromeProcess {
     fn drop(&mut self) {
-        self.reap();
-        fs::remove_dir_all(&self.profile_dir).ok();
+        if self.reap() {
+            fs::remove_dir_all(&self.profile_dir).ok();
+        } else {
+            eprintln!(
+                "browser cleanup timed out; retained private profile {}",
+                self.profile_dir.display()
+            );
+        }
     }
 }
 
@@ -1357,6 +1363,46 @@ mod tests {
                 && refused_other
                 && dead_handle_refused
                 && neighbors_alive
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn undetected_child_does_not_extend_drop_past_cleanup_deadline() {
+        let dir = tempfile::tempdir().unwrap();
+        let profile = dir.path().join("private-profile");
+        fs::create_dir(&profile).unwrap();
+        let child = Command::new("sleep")
+            .arg("8")
+            .env_remove(TAG_VAR)
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        // Keep an owner-controlled pinned handle even when the production
+        // detector intentionally cannot recognize this synthetic child.
+        let control = TaggedProcess::pin(pid).unwrap();
+        let chrome = ChromeProcess {
+            child,
+            profile_dir: profile.clone(),
+            port: 0,
+            tag: format!("undetected-{}-{}", std::process::id(), now_nanos()),
+            main_reaped: false,
+        };
+        let start = Instant::now();
+        drop(chrome);
+        let elapsed = start.elapsed();
+        let retained = profile.exists();
+        control.kill();
+        unsafe {
+            libc::waitpid(pid as libc::pid_t, std::ptr::null_mut(), 0);
+        }
+        assert!(
+            elapsed < REAP_TIMEOUT + Duration::from_secs(2),
+            "drop exceeded deadline: {elapsed:?}"
+        );
+        assert!(
+            retained,
+            "uncertain teardown must retain its private profile"
         );
     }
 
