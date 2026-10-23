@@ -1,0 +1,4 @@
+f32 rc=0 want=0
+bf16 rc=0 want=0
+swap rc=1 want=1
+done

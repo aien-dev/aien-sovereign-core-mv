@@ -1,0 +1,16 @@
+{
+  "at": "2026-10-21T14:16:56Z",
+  "label": "l313-swap",
+  "alone_port": "18098",
+  "batch_port": "18098",
+  "prompts": 32,
+  "identical": 30,
+  "differ": 2,
+  "differ_idx": " 2 26",
+  "turn2_identical": true,
+  "prompt0_alone_eq_golden": true,
+  "together_tokens": 798,
+  "together_wall_s": "106.507176790",
+  "stagger_ms": "250",
+  "verdict": "FAIL"
+}

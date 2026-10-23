@@ -1,0 +1,16 @@
+{
+  "at": "2026-10-21T13:14:12Z",
+  "label": "l313-f32",
+  "alone_port": "18098",
+  "batch_port": "18098",
+  "prompts": 32,
+  "identical": 32,
+  "differ": 0,
+  "differ_idx": "",
+  "turn2_identical": true,
+  "prompt0_alone_eq_golden": true,
+  "together_tokens": 798,
+  "together_wall_s": "37.234282541",
+  "stagger_ms": "250",
+  "verdict": "PASS"
+}

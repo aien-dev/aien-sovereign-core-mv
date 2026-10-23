@@ -1,0 +1,31 @@
+{
+  "ids": [
+    60187,
+    16563,
+    383,
+    279,
+    9506,
+    11,
+    198,
+    3320,
+    21682,
+    14663,
+    279,
+    19088,
+    6121,
+    11,
+    198,
+    91986,
+    337,
+    2785,
+    279,
+    8720,
+    13
+  ],
+  "text": "Snow falls on the stone,\nBeacon cuts the frozen dark,\nWarmth within the glass.",
+  "finish": "stop",
+  "prompt_tokens": 23,
+  "t0": "1792591597.897072032",
+  "t1": "1792591683.065313778",
+  "busy_retries": 0
+}

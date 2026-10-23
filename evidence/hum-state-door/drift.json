@@ -1,0 +1,237 @@
+{
+  "rows": [
+    {
+      "prompt": "0",
+      "f32_tokens": 24,
+      "bf16_tokens": 24,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "10",
+      "f32_tokens": 27,
+      "bf16_tokens": 27,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "11",
+      "f32_tokens": 44,
+      "bf16_tokens": 44,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "12",
+      "f32_tokens": 10,
+      "bf16_tokens": 10,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "13",
+      "f32_tokens": 17,
+      "bf16_tokens": 17,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "14",
+      "f32_tokens": 24,
+      "bf16_tokens": 24,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "15",
+      "f32_tokens": 31,
+      "bf16_tokens": 31,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "16",
+      "f32_tokens": 38,
+      "bf16_tokens": 38,
+      "identical": false,
+      "first_diff": 11
+    },
+    {
+      "prompt": "17",
+      "f32_tokens": 45,
+      "bf16_tokens": 45,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "18",
+      "f32_tokens": 11,
+      "bf16_tokens": 11,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "19",
+      "f32_tokens": 18,
+      "bf16_tokens": 18,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "1",
+      "f32_tokens": 7,
+      "bf16_tokens": 7,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "20",
+      "f32_tokens": 25,
+      "bf16_tokens": 25,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "21",
+      "f32_tokens": 32,
+      "bf16_tokens": 32,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "22",
+      "f32_tokens": 39,
+      "bf16_tokens": 39,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "23",
+      "f32_tokens": 46,
+      "bf16_tokens": 46,
+      "identical": false,
+      "first_diff": 3
+    },
+    {
+      "prompt": "24",
+      "f32_tokens": 12,
+      "bf16_tokens": 12,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "25",
+      "f32_tokens": 19,
+      "bf16_tokens": 19,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "26",
+      "f32_tokens": 26,
+      "bf16_tokens": 26,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "27",
+      "f32_tokens": 24,
+      "bf16_tokens": 24,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "28",
+      "f32_tokens": 40,
+      "bf16_tokens": 40,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "29",
+      "f32_tokens": 47,
+      "bf16_tokens": 47,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "2",
+      "f32_tokens": 22,
+      "bf16_tokens": 22,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "30",
+      "f32_tokens": 13,
+      "bf16_tokens": 13,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "31",
+      "f32_tokens": 20,
+      "bf16_tokens": 20,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "3",
+      "f32_tokens": 29,
+      "bf16_tokens": 29,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "4",
+      "f32_tokens": 9,
+      "bf16_tokens": 9,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "5",
+      "f32_tokens": 21,
+      "bf16_tokens": 21,
+      "identical": false,
+      "first_diff": 19
+    },
+    {
+      "prompt": "6",
+      "f32_tokens": 9,
+      "bf16_tokens": 9,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "7",
+      "f32_tokens": 16,
+      "bf16_tokens": 16,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "8",
+      "f32_tokens": 23,
+      "bf16_tokens": 23,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "9",
+      "f32_tokens": 30,
+      "bf16_tokens": 30,
+      "identical": true,
+      "first_diff": null
+    },
+    {
+      "prompt": "turn2",
+      "f32_tokens": 10,
+      "bf16_tokens": 10,
+      "identical": true,
+      "first_diff": null
+    }
+  ],
+  "identical": 30,
+  "prompts": 33
+}
