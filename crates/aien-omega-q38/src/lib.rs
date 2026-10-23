@@ -14,8 +14,6 @@
 //! concurrently with a [`Q38Graph::token`] call. Without the native library (`is_native()` false)
 //! every call returns `Unavailable`.
 use aien_omega_gpu::OmegaGpuError;
-
-pub mod q36;
 use std::ffi::c_void;
 use std::fmt;
 
@@ -39,11 +37,6 @@ pub const GDN_HEADS: usize = 48;
 pub const GDN_CONV_KERNEL: usize = 4;
 /// DeltaNet per-head value width (the gated norm's weight length).
 pub const GDN_HEAD_DIM: usize = 128;
-/// One DeltaNet layer's conv tail in the reference layout, `[3][10240]` oldest first
-/// (`OMEGA_GPU_GDN_TAIL_FLOATS`).
-pub const GDN_TAIL_FLOATS: usize = (GDN_CONV_KERNEL - 1) * GDN_QKV;
-/// One DeltaNet layer's recurrent state, `[48][128 k][128 v]` f32 (`OMEGA_GPU_GDN_STATE_FLOATS`).
-pub const GDN_STATE_FLOATS: usize = GDN_HEADS * GDN_HEAD_DIM * GDN_HEAD_DIM;
 /// Attention head width.
 pub const HEAD_DIM: usize = 256;
 /// Most layers (`OMEGA_GPU_Q38_MAX_LAYERS`).
@@ -249,11 +242,7 @@ mod ffi {
         _private: [u8; 0],
     }
     extern "C" {
-        pub fn omega_gpu_gdn_alloc_ratio(
-            layers: u32,
-            ratio: u32,
-            out: *mut *mut OmegaGpuGdn,
-        ) -> i32;
+        pub fn omega_gpu_gdn_alloc(layers: u32, out: *mut *mut OmegaGpuGdn) -> i32;
         pub fn omega_gpu_gdn_free(g: *mut OmegaGpuGdn);
         pub fn omega_gpu_gdn_set_layer(
             g: *mut OmegaGpuGdn,
@@ -264,27 +253,12 @@ mod ffi {
             norm_w: *const f32,
         ) -> i32;
         pub fn omega_gpu_gdn_reset(g: *mut OmegaGpuGdn) -> i32;
-        pub fn omega_gpu_gdn_set_state(
-            g: *mut OmegaGpuGdn,
-            layer: u32,
-            tail: *const f32,
-            state: *const f32,
-        ) -> i32;
-        pub fn omega_gpu_gdn_get_state(
-            g: *mut OmegaGpuGdn,
-            layer: u32,
-            tail: *mut f32,
-            state: *mut f32,
-        ) -> i32;
 
-        pub fn omega_gpu_decode_attn256_cache_alloc_shape(
+        pub fn omega_gpu_decode_attn256_cache_alloc(
             layers: u32,
             max_pos: u32,
             rope_theta: f64,
             rotary_dim: u32,
-            q_heads: u32,
-            kv_heads: u32,
-            q_per_cta: u32,
             out: *mut *mut OmegaGpuDecodeAttn256Cache,
         ) -> i32;
         pub fn omega_gpu_decode_attn256_cache_free(c: *mut OmegaGpuDecodeAttn256Cache);
@@ -485,8 +459,6 @@ pub struct Gdn {
     #[cfg(has_omega_q38)]
     ptr: *mut ffi::OmegaGpuGdn,
     layers: usize,
-    /// DeltaNet value heads per key head (16 key heads): 3 = Qwen3.8-27B, 2 = Qwen3.6-35B-A3B.
-    ratio: usize,
 }
 
 // SAFETY: an owning handle to device buffers; moved between threads, never shared unlocked.
@@ -494,27 +466,13 @@ unsafe impl Send for Gdn {}
 
 impl fmt::Debug for Gdn {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Gdn {{ layers: {}, ratio: {} }}",
-            self.layers, self.ratio
-        )
+        write!(f, "Gdn {{ layers: {} }}", self.layers)
     }
 }
 
 impl Gdn {
     /// Allocates `layers` DeltaNet entries (tails and states zeroed).
     pub fn alloc(layers: usize) -> Result<Self, OmegaGpuError> {
-        Self::alloc_ratio(layers, 3)
-    }
-
-    /// The same for another model: `ratio` value heads per key head (3 = Qwen3.8-27B, 2 =
-    /// Qwen3.6-35B-A3B; omega `omega_gpu_gdn_alloc_ratio`). Every length the other calls check
-    /// follows the ratio.
-    pub fn alloc_ratio(layers: usize, ratio: usize) -> Result<Self, OmegaGpuError> {
-        if ratio != 2 && ratio != 3 {
-            return Err(bad(format!("gdn: ratio {ratio}, 2 or 3 supported")));
-        }
         if layers == 0 || layers > MAX_LAYERS {
             return Err(bad(format!(
                 "gdn: {layers} layers, 1..={MAX_LAYERS} supported"
@@ -524,12 +482,11 @@ impl Gdn {
         {
             let mut ptr = std::ptr::null_mut();
             // SAFETY: out pointer is local.
-            let rc =
-                unsafe { ffi::omega_gpu_gdn_alloc_ratio(layers as u32, ratio as u32, &mut ptr) };
+            let rc = unsafe { ffi::omega_gpu_gdn_alloc(layers as u32, &mut ptr) };
             if rc != 0 || ptr.is_null() {
                 return Err(session_err("gdn alloc", rc));
             }
-            Ok(Self { ptr, layers, ratio })
+            Ok(Self { ptr, layers })
         }
         #[cfg(not(has_omega_q38))]
         Err(OmegaGpuError::Unavailable)
@@ -537,26 +494,6 @@ impl Gdn {
 
     pub fn layers(&self) -> usize {
         self.layers
-    }
-
-    /// Value heads (16 key heads x ratio).
-    pub fn heads(&self) -> usize {
-        16 * self.ratio
-    }
-
-    /// in_proj_qkv rows, the conv width: q and k 16 x 128 each, then heads x 128 of v.
-    pub fn qkv(&self) -> usize {
-        (32 + self.heads()) * GDN_HEAD_DIM
-    }
-
-    /// One layer's conv tail, `[3][qkv]` oldest first.
-    pub fn tail_floats(&self) -> usize {
-        (GDN_CONV_KERNEL - 1) * self.qkv()
-    }
-
-    /// One layer's recurrent state, `[heads][128 k][128 v]` f32.
-    pub fn state_floats(&self) -> usize {
-        self.heads() * GDN_HEAD_DIM * GDN_HEAD_DIM
     }
 
     /// The C handle (`OmegaGpuGdn *`) for [`GraphConfig::gdn`]; null in the stub. Stays owned by
@@ -582,9 +519,9 @@ impl Gdn {
         dt_bias: &[f32],
         norm_w: &[f32],
     ) -> Result<(), OmegaGpuError> {
-        check_len("gdn conv_w", self.qkv() * GDN_CONV_KERNEL, conv_w.len())?;
-        check_len("gdn a_log", self.heads(), a_log.len())?;
-        check_len("gdn dt_bias", self.heads(), dt_bias.len())?;
+        check_len("gdn conv_w", GDN_QKV * GDN_CONV_KERNEL, conv_w.len())?;
+        check_len("gdn a_log", GDN_HEADS, a_log.len())?;
+        check_len("gdn dt_bias", GDN_HEADS, dt_bias.len())?;
         check_len("gdn norm_w", GDN_HEAD_DIM, norm_w.len())?;
         if layer >= self.layers {
             return Err(bad(format!("gdn: layer {layer} of {}", self.layers)));
@@ -619,77 +556,6 @@ impl Gdn {
             let rc = unsafe { ffi::omega_gpu_gdn_reset(self.ptr) };
             if rc != 0 {
                 return Err(session_err("gdn reset", rc));
-            }
-            Ok(())
-        }
-        #[cfg(not(has_omega_q38))]
-        Err(OmegaGpuError::Unavailable)
-    }
-
-    /// Layer `layer`'s conv tail ([`GDN_TAIL_FLOATS`]) and recurrent state ([`GDN_STATE_FLOATS`])
-    /// in the reference layouts (`omega_gpu_gdn_get_state`): what a later [`Self::set_state`]
-    /// puts back so the sequence continues from here.
-    pub fn get_state(
-        &mut self,
-        layer: usize,
-        tail: &mut [f32],
-        state: &mut [f32],
-    ) -> Result<(), OmegaGpuError> {
-        check_len("gdn tail", self.tail_floats(), tail.len())?;
-        check_len("gdn state", self.state_floats(), state.len())?;
-        if layer >= self.layers {
-            return Err(bad(format!(
-                "gdn get_state: layer {layer} of {}",
-                self.layers
-            )));
-        }
-        #[cfg(has_omega_q38)]
-        {
-            // SAFETY: ptr is live; both buffers hold the lengths checked above.
-            let rc = unsafe {
-                ffi::omega_gpu_gdn_get_state(
-                    self.ptr,
-                    layer as u32,
-                    tail.as_mut_ptr(),
-                    state.as_mut_ptr(),
-                )
-            };
-            if rc != 0 {
-                // SAFETY: no arguments.
-                let detail = c_text(unsafe { ffi::omega_gpu_gdn_last_error() });
-                return Err(rc_err("gdn get_state", rc, detail));
-            }
-            Ok(())
-        }
-        #[cfg(not(has_omega_q38))]
-        Err(OmegaGpuError::Unavailable)
-    }
-
-    /// Writes layer `layer`'s conv tail and recurrent state ([`Self::get_state`]'s layouts).
-    pub fn set_state(
-        &mut self,
-        layer: usize,
-        tail: &[f32],
-        state: &[f32],
-    ) -> Result<(), OmegaGpuError> {
-        check_len("gdn tail", self.tail_floats(), tail.len())?;
-        check_len("gdn state", self.state_floats(), state.len())?;
-        if layer >= self.layers {
-            return Err(bad(format!(
-                "gdn set_state: layer {layer} of {}",
-                self.layers
-            )));
-        }
-        #[cfg(has_omega_q38)]
-        {
-            // SAFETY: ptr is live; both buffers hold the lengths checked above.
-            let rc = unsafe {
-                ffi::omega_gpu_gdn_set_state(self.ptr, layer as u32, tail.as_ptr(), state.as_ptr())
-            };
-            if rc != 0 {
-                // SAFETY: no arguments.
-                let detail = c_text(unsafe { ffi::omega_gpu_gdn_last_error() });
-                return Err(rc_err("gdn set_state", rc, detail));
             }
             Ok(())
         }
@@ -817,21 +683,6 @@ impl Attn256Cache {
         theta: f64,
         rotary: usize,
     ) -> Result<Self, OmegaGpuError> {
-        Self::alloc_shape(layers, max_pos, theta, rotary, 0, 0, 0)
-    }
-
-    /// The same for another head shape (omega `omega_gpu_decode_attn256_cache_alloc_shape`):
-    /// `q_heads` / `kv_heads` / `q_per_cta` (0, 0, 0 = the 27B's 24 / 4 / 6; Qwen3.6-35B-A3B: 16, 2, 4).
-    #[allow(clippy::too_many_arguments)]
-    pub fn alloc_shape(
-        layers: usize,
-        max_pos: usize,
-        theta: f64,
-        rotary: usize,
-        q_heads: usize,
-        kv_heads: usize,
-        q_per_cta: usize,
-    ) -> Result<Self, OmegaGpuError> {
         if layers == 0 || layers > MAX_LAYERS {
             return Err(bad(format!(
                 "attn256: {layers} layers, 1..={MAX_LAYERS} supported"
@@ -850,14 +701,11 @@ impl Attn256Cache {
             let mut ptr = std::ptr::null_mut();
             // SAFETY: out pointer is local; plain arguments.
             let rc = unsafe {
-                ffi::omega_gpu_decode_attn256_cache_alloc_shape(
+                ffi::omega_gpu_decode_attn256_cache_alloc(
                     layers as u32,
                     max_pos as u32,
                     theta,
                     rotary as u32,
-                    q_heads as u32,
-                    kv_heads as u32,
-                    q_per_cta as u32,
                     &mut ptr,
                 )
             };
@@ -875,7 +723,7 @@ impl Attn256Cache {
         }
         #[cfg(not(has_omega_q38))]
         {
-            let _ = (theta, q_heads, kv_heads, q_per_cta);
+            let _ = theta;
             Err(OmegaGpuError::Unavailable)
         }
     }
@@ -1496,5 +1344,384 @@ pub fn quantize_fp8_bf16(
     {
         let _ = (&mut w8, &mut s, threads);
         Err(OmegaGpuError::Unavailable)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MXFP4 (4-bit) projections (omega `omega_gpu_w4_api.h`, qwen38/w4-gemv)
+// ---------------------------------------------------------------------------
+
+#[cfg(has_omega_q38_w4)]
+mod ffi_w4 {
+    use super::ffi::OmegaGpuQ38Graph;
+    use std::ffi::{c_char, c_void};
+
+    #[repr(C)]
+    pub struct OmegaGpuW4Tensor {
+        _private: [u8; 0],
+    }
+    extern "C" {
+        pub fn omega_gpu_w4_tensor_upload(
+            n: u32,
+            k: u32,
+            w4: *const u8,
+            e8: *const u8,
+            out: *mut *mut OmegaGpuW4Tensor,
+        ) -> i32;
+        pub fn omega_gpu_w4_tensor_free(t: *mut OmegaGpuW4Tensor);
+        pub fn omega_gpu_w4_tensor_bytes(t: *const OmegaGpuW4Tensor) -> usize;
+        pub fn omega_gpu_w4_last_error() -> *const c_char;
+        pub fn omega_gpu_w4_from_fp8(
+            n: u32,
+            k: u32,
+            w8: *const u8,
+            scale_bf16: *const u16,
+            row0: u32,
+            rows: u32,
+            w4: *mut u8,
+            e8: *mut u8,
+            stats: *mut super::W4Stats,
+        ) -> i32;
+        #[cfg(has_omega_q38_w4_rule)]
+        pub fn omega_gpu_w4_from_fp8_rule(
+            n: u32,
+            k: u32,
+            w8: *const u8,
+            scale_bf16: *const u16,
+            row0: u32,
+            rows: u32,
+            w4: *mut u8,
+            e8: *mut u8,
+            stats: *mut super::W4Stats,
+            rule: i32,
+        ) -> i32;
+        pub fn omega_gpu_q38_graph_set_layer_w4(
+            g: *mut OmegaGpuQ38Graph,
+            layer: u32,
+            mix: *const c_void,
+            o: *const c_void,
+            gate_up: *const c_void,
+            down: *const c_void,
+        ) -> i32;
+        pub fn omega_gpu_q38_graph_set_lm_head_w4(
+            g: *mut OmegaGpuQ38Graph,
+            head: *const c_void,
+        ) -> i32;
+    }
+}
+
+/// The converter's error tally (omega `OmegaW4Stats`): relative RMS error = sqrt(sq_err / sq_ref).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct W4Stats {
+    pub weights: u64,
+    pub groups: u64,
+    pub zero_groups: u64,
+    pub saturated: u64,
+    pub sq_err: f64,
+    pub sq_ref: f64,
+}
+
+impl W4Stats {
+    pub fn add(&mut self, o: &W4Stats) {
+        self.weights += o.weights;
+        self.groups += o.groups;
+        self.zero_groups += o.zero_groups;
+        self.saturated += o.saturated;
+        self.sq_err += o.sq_err;
+        self.sq_ref += o.sq_ref;
+    }
+    pub fn rel_rms(&self) -> f64 {
+        if self.sq_ref > 0.0 {
+            (self.sq_err / self.sq_ref).sqrt()
+        } else {
+            0.0
+        }
+    }
+}
+
+/// The converter's group scale rule from `AIEN_Q38_W4_RULE`: `floor` (default; OCP / f7, omega
+/// `omega_gpu_w4_from_fp8`), `ceil` (never clips) or `mse` (of X and 2X the smaller squared error); omega
+/// `OMEGA_W4_RULE_*` 0, 1, 2. `ceil` and `mse` need an archive with `omega_gpu_w4_from_fp8_rule`.
+pub fn w4_rule() -> Result<i32, OmegaGpuError> {
+    let r = match std::env::var("AIEN_Q38_W4_RULE").as_deref() {
+        Err(_) | Ok("") | Ok("floor") => 0,
+        Ok("ceil") => 1,
+        Ok("mse") => 2,
+        Ok(o) => return Err(bad(format!("AIEN_Q38_W4_RULE={o}: floor, ceil or mse"))),
+    };
+    if r != 0 && !cfg!(has_omega_q38_w4_rule) {
+        return Err(bad(
+            "AIEN_Q38_W4_RULE: this omega archive has only the floor rule".to_string(),
+        ));
+    }
+    Ok(r)
+}
+
+/// True when this build links the MXFP4 GEMV and the graph's 4-bit entries.
+pub fn w4_native() -> bool {
+    cfg!(has_omega_q38_w4)
+}
+
+#[cfg(has_omega_q38_w4)]
+fn w4_err(what: &str, rc: i32) -> OmegaGpuError {
+    // SAFETY: no arguments; returns a static NUL-terminated string or NULL.
+    rc_err(
+        what,
+        rc,
+        c_text(unsafe { ffi_w4::omega_gpu_w4_last_error() }),
+    )
+}
+
+/// A device-resident MXFP4 tensor `[n][k]`: e2m1 nibbles `[n][k/2]` plus one E8M0 scale per 32 weights `[n][k/32]`.
+pub struct W4Tensor {
+    #[cfg(has_omega_q38_w4)]
+    ptr: *mut ffi_w4::OmegaGpuW4Tensor,
+    n: usize,
+    k: usize,
+}
+
+// SAFETY: an owning handle to device buffers; moved between threads, never shared unlocked.
+unsafe impl Send for W4Tensor {}
+
+impl fmt::Debug for W4Tensor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "W4Tensor {{ n: {}, k: {} }}", self.n, self.k)
+    }
+}
+
+impl W4Tensor {
+    /// Uploads packed nibbles (`n * k / 2` bytes) and scale bytes (`n * k / 32`).
+    pub fn upload(n: usize, k: usize, w4: &[u8], e8: &[u8]) -> Result<Self, OmegaGpuError> {
+        check_len("w4 nibbles", n * k / 2, w4.len())?;
+        check_len("w4 scales", n * k / 32, e8.len())?;
+        #[cfg(has_omega_q38_w4)]
+        {
+            let mut ptr = std::ptr::null_mut();
+            // SAFETY: the slices hold the lengths checked above; out is a valid pointer.
+            let rc = unsafe {
+                ffi_w4::omega_gpu_w4_tensor_upload(
+                    n as u32,
+                    k as u32,
+                    w4.as_ptr(),
+                    e8.as_ptr(),
+                    &mut ptr,
+                )
+            };
+            if rc != 0 || ptr.is_null() {
+                return Err(w4_err("w4 upload", rc));
+            }
+            Ok(Self { ptr, n, k })
+        }
+        #[cfg(not(has_omega_q38_w4))]
+        Err(OmegaGpuError::Unavailable)
+    }
+
+    /// FP8 `[n][k]` e4m3 with bf16 scale_inv `[n/128][k/128]` (the checkpoint layout) converted (omega
+    /// `omega_gpu_w4_from_fp8`, the f7 MXFP4 rule) on `threads` threads in 128-row stripes, then uploaded.
+    pub fn from_fp8(
+        n: usize,
+        k: usize,
+        w8: &[u8],
+        scales: &[u16],
+        threads: usize,
+    ) -> Result<(Self, W4Stats), OmegaGpuError> {
+        let (w4, e8, st) = w4_from_fp8(n, k, w8, scales, threads)?;
+        Ok((Self::upload(n, k, &w4, &e8)?, st))
+    }
+
+    pub fn shape(&self) -> (usize, usize) {
+        (self.n, self.k)
+    }
+
+    /// Device bytes (nibbles + scales).
+    pub fn resident_bytes(&self) -> usize {
+        #[cfg(has_omega_q38_w4)]
+        {
+            // SAFETY: ptr is live.
+            unsafe { ffi_w4::omega_gpu_w4_tensor_bytes(self.ptr) }
+        }
+        #[cfg(not(has_omega_q38_w4))]
+        0
+    }
+
+    pub fn as_raw(&self) -> *mut c_void {
+        #[cfg(has_omega_q38_w4)]
+        {
+            self.ptr.cast()
+        }
+        #[cfg(not(has_omega_q38_w4))]
+        std::ptr::null_mut()
+    }
+}
+
+impl Drop for W4Tensor {
+    fn drop(&mut self) {
+        #[cfg(has_omega_q38_w4)]
+        // SAFETY: ptr came from omega_gpu_w4_tensor_upload and is freed once.
+        unsafe {
+            ffi_w4::omega_gpu_w4_tensor_free(self.ptr)
+        }
+    }
+}
+
+/// The host side of [`W4Tensor::from_fp8`]: `(nibbles, scale bytes, stats)`.
+pub fn w4_from_fp8(
+    n: usize,
+    k: usize,
+    w8: &[u8],
+    scales: &[u16],
+    threads: usize,
+) -> Result<(Vec<u8>, Vec<u8>, W4Stats), OmegaGpuError> {
+    const B: usize = 128;
+    if n == 0 || k == 0 || !n.is_multiple_of(B) || !k.is_multiple_of(B) {
+        return Err(bad(format!(
+            "w4 from fp8: [{n}][{k}] is not whole 128 blocks"
+        )));
+    }
+    check_len("w4 from fp8 weights", n * k, w8.len())?;
+    check_len("w4 from fp8 scales", (n / B) * (k / B), scales.len())?;
+    let mut w4 = vec![0u8; n * k / 2];
+    let mut e8 = vec![0u8; n * k / 32];
+    #[cfg(has_omega_q38_w4)]
+    {
+        let rule = w4_rule()?;
+        let per = (n / B).div_ceil(threads.max(1)) * B;
+        // The converter addresses the whole output by row (rows [row0, row0 + rows) of w4 / e8), so every thread gets
+        // the base pointers and a disjoint row range.
+        let (pw, pe) = (w4.as_mut_ptr() as usize, e8.as_mut_ptr() as usize);
+        let outs: Vec<(i32, W4Stats)> = std::thread::scope(|sc| {
+            let hs: Vec<_> = (0..n)
+                .step_by(per)
+                .map(|row0| {
+                    sc.spawn(move || {
+                        let mut st = W4Stats::default();
+                        let rows = per.min(n - row0);
+                        // SAFETY: w8 / scales hold the whole tensor and w4 / e8 the whole output (checked / sized
+                        // above, alive for the scope); the threads write disjoint row ranges.
+                        let rc = match rule {
+                            // SAFETY: as above.
+                            0 => unsafe {
+                                ffi_w4::omega_gpu_w4_from_fp8(
+                                    n as u32,
+                                    k as u32,
+                                    w8.as_ptr(),
+                                    scales.as_ptr(),
+                                    row0 as u32,
+                                    rows as u32,
+                                    pw as *mut u8,
+                                    pe as *mut u8,
+                                    &mut st,
+                                )
+                            },
+                            #[cfg(has_omega_q38_w4_rule)]
+                            // SAFETY: as above.
+                            r => unsafe {
+                                ffi_w4::omega_gpu_w4_from_fp8_rule(
+                                    n as u32,
+                                    k as u32,
+                                    w8.as_ptr(),
+                                    scales.as_ptr(),
+                                    row0 as u32,
+                                    rows as u32,
+                                    pw as *mut u8,
+                                    pe as *mut u8,
+                                    &mut st,
+                                    r,
+                                )
+                            },
+                            #[cfg(not(has_omega_q38_w4_rule))]
+                            _ => -1,
+                        };
+                        (rc, st)
+                    })
+                })
+                .collect();
+            hs.into_iter()
+                .map(|h| h.join().unwrap_or((-1, W4Stats::default())))
+                .collect()
+        });
+        let mut total = W4Stats::default();
+        for (rc, st) in &outs {
+            if *rc != 0 {
+                return Err(w4_err("w4 from fp8", *rc));
+            }
+            total.add(st);
+        }
+        Ok((w4, e8, total))
+    }
+    #[cfg(not(has_omega_q38_w4))]
+    {
+        let _ = (&mut w4, &mut e8, threads);
+        Err(OmegaGpuError::Unavailable)
+    }
+}
+
+impl Q38Graph {
+    /// After [`Self::set_layer`]: the decode reads these MXFP4 tensors instead of the layer's FP8 mix, o, gate_up,
+    /// down (omega `omega_gpu_q38_graph_set_layer_w4`; same shapes). A later `set_layer` goes back to FP8.
+    ///
+    /// # Safety
+    /// The handles are live `OmegaGpuW4Tensor` pointers that outlive every later token of this graph.
+    pub unsafe fn set_layer_w4(
+        &mut self,
+        layer: usize,
+        mix: *const c_void,
+        o: *const c_void,
+        gate_up: *const c_void,
+        down: *const c_void,
+    ) -> Result<(), OmegaGpuError> {
+        if layer >= self.layers
+            || mix.is_null()
+            || o.is_null()
+            || gate_up.is_null()
+            || down.is_null()
+        {
+            return Err(bad(format!(
+                "q38 graph set_layer_w4: layer {layer} of {} or a null handle",
+                self.layers
+            )));
+        }
+        #[cfg(has_omega_q38_w4)]
+        {
+            // SAFETY: ptr is live; the handles per the caller's contract.
+            let rc = unsafe {
+                ffi_w4::omega_gpu_q38_graph_set_layer_w4(
+                    self.ptr,
+                    layer as u32,
+                    mix,
+                    o,
+                    gate_up,
+                    down,
+                )
+            };
+            if rc != 0 {
+                return Err(session_err("q38 graph set_layer_w4", rc));
+            }
+            Ok(())
+        }
+        #[cfg(not(has_omega_q38_w4))]
+        Err(OmegaGpuError::Unavailable)
+    }
+
+    /// An MXFP4 lm_head `[vocab][HIDDEN]` for every later token (ahead of an FP8 head); null drops it.
+    ///
+    /// # Safety
+    /// `head` is null or a live `OmegaGpuW4Tensor` that outlives every later token of this graph.
+    pub unsafe fn set_lm_head_w4(&mut self, head: *const c_void) -> Result<(), OmegaGpuError> {
+        #[cfg(has_omega_q38_w4)]
+        {
+            // SAFETY: ptr is live; head per the caller's contract.
+            let rc = unsafe { ffi_w4::omega_gpu_q38_graph_set_lm_head_w4(self.ptr, head) };
+            if rc != 0 {
+                return Err(session_err("q38 graph set_lm_head_w4", rc));
+            }
+            Ok(())
+        }
+        #[cfg(not(has_omega_q38_w4))]
+        {
+            let _ = head;
+            Err(OmegaGpuError::Unavailable)
+        }
     }
 }
