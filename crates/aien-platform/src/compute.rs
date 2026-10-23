@@ -35,7 +35,6 @@ pub struct ComputeWork<'a> {
     pub params: &'a [u8],
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BufferRegion {
     pub address: DeviceAddress,

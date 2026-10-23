@@ -367,9 +367,7 @@ fn test_layer3_to_layer6_blackwell_oracle_parity_matrix() {
         let mut gpu_out_bf16 = vec![0u16; num_q_heads * head_dim];
         let context_lens = [case.context_len as i32];
 
-        let kv_slice = unsafe {
-            std::slice::from_raw_parts(pool.base_ptr(), pool.total_bytes())
-        };
+        let kv_slice = unsafe { std::slice::from_raw_parts(pool.base_ptr(), pool.total_bytes()) };
 
         backend
             .paged_attention_bf16(
@@ -437,7 +435,10 @@ fn test_layer3_to_layer6_blackwell_oracle_parity_matrix() {
 
         // Verify metrics
         let m = mgr.metrics();
-        assert!(m.shared_pages >= 1, "Expected shared pages between branches");
+        assert!(
+            m.shared_pages >= 1,
+            "Expected shared pages between branches"
+        );
         assert!(m.cow_faults >= 1, "Expected COW divergence faults");
 
         total_cases += 1;

@@ -15,7 +15,10 @@ pub mod runtime;
 pub mod task;
 pub mod telemetry;
 
-pub use compute::{BufferLayout, BufferRegion, ComputeDevice, ComputeWork, DeviceAddress, Fence, MemoryDevice, UnifiedBuffer};
+pub use compute::{
+    BufferLayout, BufferRegion, ComputeDevice, ComputeWork, DeviceAddress, Fence, MemoryDevice,
+    UnifiedBuffer,
+};
 pub use memory::{MemoryEntity, MemoryService, RecallQuery, RecallResult};
 pub use objects::{ObjectId, ObjectRef, ObjectStore, ObjectWrite};
 pub use queue::{

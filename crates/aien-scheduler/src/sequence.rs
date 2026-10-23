@@ -258,7 +258,9 @@ impl SequenceRecord {
             kv: work.kv,
             priority: work.priority,
             deadline: work.deadline,
-            branch_parent: work.branch_parent.and_then(|p| SequenceId::from_u64(p).ok()),
+            branch_parent: work
+                .branch_parent
+                .and_then(|p| SequenceId::from_u64(p).ok()),
             next_token_budget: work.next_token_budget,
             phase: SequencePhase::Waiting,
             tokens_generated: 0,
@@ -711,13 +713,7 @@ mod tests {
         let sink_id = router.register(sink);
 
         let seq_id = SequenceId::new(1, 1).unwrap();
-        router.emit(
-            sink_id,
-            CompletionEvent::Token {
-                seq_id,
-                token: 42,
-            },
-        );
+        router.emit(sink_id, CompletionEvent::Token { seq_id, token: 42 });
 
         let event = rx.try_recv().unwrap();
         match event {

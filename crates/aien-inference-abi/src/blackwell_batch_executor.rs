@@ -11,9 +11,7 @@
 //! - Zero CPU fallback in accelerated mode.
 
 use crate::weights::TransformerWeights;
-use crate::{
-    AienInferenceBackend, DecodeOutput, ModelConfig, ScheduledBatch, StepMetrics,
-};
+use crate::{AienInferenceBackend, DecodeOutput, ModelConfig, ScheduledBatch, StepMetrics};
 use aien_kv_cache::{AienKvManager, KvLayoutDesc, SharedKvManager};
 use async_trait::async_trait;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -261,7 +259,10 @@ impl BlackwellBatchExecutor {
         {
             let init_res = unsafe { blackwell_gemm_init() };
             if init_res != 0 {
-                return Err(format!("blackwell_gemm_init failed with error {}", init_res));
+                return Err(format!(
+                    "blackwell_gemm_init failed with error {}",
+                    init_res
+                ));
             }
 
             let stream = unsafe { blackwell_get_stream() };
@@ -330,7 +331,8 @@ impl BlackwellBatchExecutor {
             for (l_idx, lw) in weights.layers.iter().enumerate() {
                 let mut fused_qkv = vec![0.0f32; qkv_dim * hidden_dim];
                 fused_qkv[0..q_dim * hidden_dim].copy_from_slice(&lw.q_proj);
-                fused_qkv[q_dim * hidden_dim..(q_dim + kv_dim) * hidden_dim].copy_from_slice(&lw.k_proj);
+                fused_qkv[q_dim * hidden_dim..(q_dim + kv_dim) * hidden_dim]
+                    .copy_from_slice(&lw.k_proj);
                 fused_qkv[(q_dim + kv_dim) * hidden_dim..(q_dim + 2 * kv_dim) * hidden_dim]
                     .copy_from_slice(&lw.v_proj);
 
@@ -426,7 +428,11 @@ impl BlackwellBatchExecutor {
     ) -> Result<BlackwellBatchPlan, String> {
         let decode_count = batch.decode_requests.len();
         let prefill_count = batch.prefill_requests.len();
-        let total_prefill_tokens: usize = batch.prefill_requests.iter().map(|r| r.prompt_tokens.len()).sum();
+        let total_prefill_tokens: usize = batch
+            .prefill_requests
+            .iter()
+            .map(|r| r.prompt_tokens.len())
+            .sum();
         let total_tokens = decode_count + total_prefill_tokens;
 
         if total_tokens > self.workspace.max_tokens {
@@ -482,7 +488,8 @@ impl BlackwellBatchExecutor {
         plan.prefill_offsets.push(cur_offset);
 
         for req in &batch.prefill_requests {
-            let assigned_blocks = kv_manager.allocate_sequence(req.request_id, &req.prompt_tokens)?;
+            let assigned_blocks =
+                kv_manager.allocate_sequence(req.request_id, &req.prompt_tokens)?;
             let p_len = req.prompt_tokens.len();
             let block_size = kv_manager.block_size();
 
@@ -541,7 +548,9 @@ impl BlackwellBatchExecutor {
                 h_prefill_offsets: plan.prefill_offsets.as_ptr(),
             };
 
-            let pool = kv_manager.pool().ok_or_else(|| "KV pool not attached".to_string())?;
+            let pool = kv_manager
+                .pool()
+                .ok_or_else(|| "KV pool not attached".to_string())?;
             let kv_pool_ptr = pool.base_ptr() as *mut u8;
             let layout = pool.layout_desc();
 
@@ -637,7 +646,9 @@ impl BlackwellBatchExecutor {
                 h_prefill_offsets: plan.prefill_offsets.as_ptr(),
             };
 
-            let pool = kv_manager.pool().ok_or_else(|| "KV pool not attached".to_string())?;
+            let pool = kv_manager
+                .pool()
+                .ok_or_else(|| "KV pool not attached".to_string())?;
             let kv_pool_ptr = pool.base_ptr() as *mut u8;
             let layout = pool.layout_desc();
 
@@ -656,7 +667,10 @@ impl BlackwellBatchExecutor {
 
             if status != 0 {
                 tx.rollback(kv_manager);
-                return Err(format!("blackwell_execute_step failed with error {}", status));
+                return Err(format!(
+                    "blackwell_execute_step failed with error {}",
+                    status
+                ));
             }
         }
 
@@ -684,7 +698,11 @@ impl BlackwellBatchExecutor {
             });
         }
 
-        let prefill_tokens_processed = batch.prefill_requests.iter().map(|r| r.prompt_tokens.len()).sum();
+        let prefill_tokens_processed = batch
+            .prefill_requests
+            .iter()
+            .map(|r| r.prompt_tokens.len())
+            .sum();
         let decode_tokens_emitted = plan.terminal_count;
 
         Ok((

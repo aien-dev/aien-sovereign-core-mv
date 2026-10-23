@@ -99,12 +99,7 @@ mod tests {
 
         unsafe {
             for i in 0..4096 {
-                assert_eq!(
-                    *buf_dst.as_ptr().add(i),
-                    0,
-                    "zero mismatch at index {}",
-                    i
-                );
+                assert_eq!(*buf_dst.as_ptr().add(i), 0, "zero mismatch at index {}", i);
             }
         }
     }

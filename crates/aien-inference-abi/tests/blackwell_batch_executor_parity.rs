@@ -8,12 +8,10 @@
 //! 6. Zero fallback assertion in accelerated Blackwell environment.
 
 use aien_inference_abi::{
-    AienInferenceBackend, BlackwellBatchExecutor, ModelConfig, SamplingParams,
-    ScheduledBatch, SequenceRequest, TransformerWeights,
+    AienInferenceBackend, BlackwellBatchExecutor, ModelConfig, SamplingParams, ScheduledBatch,
+    SequenceRequest, TransformerWeights,
 };
-use aien_kv_cache::{
-    AienKvManager, DefaultUnifiedBuffer, KvDType, KvPoolConfig,
-};
+use aien_kv_cache::{AienKvManager, DefaultUnifiedBuffer, KvDType, KvPoolConfig};
 use parking_lot::RwLock;
 use std::sync::Arc;
 
@@ -95,8 +93,8 @@ fn test_blackwell_executor_lifecycle_and_workspace() {
 fn test_blackwell_batched_step_ragged_prefill_and_decode() {
     let config = test_model_config();
     let weights = TransformerWeights::reference_test_weights(&config);
-    let mut executor = BlackwellBatchExecutor::new(&weights, 256)
-        .expect("BlackwellBatchExecutor must initialize");
+    let mut executor =
+        BlackwellBatchExecutor::new(&weights, 256).expect("BlackwellBatchExecutor must initialize");
 
     let block_size = 16;
     let mut kv_mgr = AienKvManager::<DefaultUnifiedBuffer>::new(64, block_size);
@@ -139,20 +137,34 @@ fn test_blackwell_batched_step_ragged_prefill_and_decode() {
         .expect("execute_step_transactional must succeed");
 
     // Verify outputs
-    assert_eq!(outputs.len(), 2, "Batch must produce exactly 2 outputs (1 decode + 1 prefill)");
+    assert_eq!(
+        outputs.len(),
+        2,
+        "Batch must produce exactly 2 outputs (1 decode + 1 prefill)"
+    );
     assert_eq!(metrics.prefill_tokens_processed, 6);
     assert_eq!(metrics.decode_tokens_emitted, 2);
 
     // Verify sequence lengths in KV manager
     let table_seq1 = kv_mgr.get_block_table(1).expect("Seq 1 table must exist");
-    assert_eq!(table_seq1.total_tokens, 21, "Seq 1 context length must be 21 after decode step");
+    assert_eq!(
+        table_seq1.total_tokens, 21,
+        "Seq 1 context length must be 21 after decode step"
+    );
 
     let table_seq2 = kv_mgr.get_block_table(2).expect("Seq 2 table must exist");
-    assert_eq!(table_seq2.total_tokens, 6, "Seq 2 context length must be 6 after prefill step");
+    assert_eq!(
+        table_seq2.total_tokens, 6,
+        "Seq 2 context length must be 6 after prefill step"
+    );
 
     #[cfg(has_blackwell_cuda)]
     {
-        assert_eq!(executor.fallback_count(), 0, "Zero fallback allowed on GB10 silicon");
+        assert_eq!(
+            executor.fallback_count(),
+            0,
+            "Zero fallback allowed on GB10 silicon"
+        );
         assert!(
             executor.kernel_exec_count() > initial_kernel_exec,
             "Kernel execution counter must advance on GPU execution"
@@ -191,7 +203,10 @@ fn test_strict_kv_transactional_rollback_on_failure() {
     // Try allocating sequence 2 that exceeds capacity (requires 3 blocks, only 2 left)
     let big_prompt: Vec<u32> = (1..=40).collect();
     let alloc_res = kv_mgr.allocate_sequence(2, &big_prompt);
-    assert!(alloc_res.is_err(), "Allocation exceeding pool capacity must fail");
+    assert!(
+        alloc_res.is_err(),
+        "Allocation exceeding pool capacity must fail"
+    );
 
     // Rollback transaction
     tx.rollback(&mut kv_mgr);
@@ -217,8 +232,8 @@ fn test_strict_kv_transactional_rollback_on_failure() {
 async fn test_blackwell_executor_backend_trait_async() {
     let config = test_model_config();
     let weights = TransformerWeights::reference_test_weights(&config);
-    let executor = BlackwellBatchExecutor::new(&weights, 256)
-        .expect("BlackwellBatchExecutor must initialize");
+    let executor =
+        BlackwellBatchExecutor::new(&weights, 256).expect("BlackwellBatchExecutor must initialize");
 
     let block_size = 16;
     let mut kv_mgr = AienKvManager::<DefaultUnifiedBuffer>::new(64, block_size);
@@ -234,7 +249,8 @@ async fn test_blackwell_executor_backend_trait_async() {
         .unwrap();
 
     let shared_kv = Arc::new(RwLock::new(kv_mgr));
-    let mut backend: Box<dyn AienInferenceBackend> = Box::new(executor.with_kv_manager(shared_kv.clone()));
+    let mut backend: Box<dyn AienInferenceBackend> =
+        Box::new(executor.with_kv_manager(shared_kv.clone()));
 
     let batch = ScheduledBatch {
         prefill_requests: vec![SequenceRequest {

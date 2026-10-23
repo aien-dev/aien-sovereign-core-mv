@@ -158,7 +158,10 @@ pub struct KvLayout {
 impl KvLayout {
     pub fn for_bf16(config: &KvPoolConfig) -> Result<Self, String> {
         if config.dtype != KvDType::Bf16 {
-            return Err(format!("Canonical layout requires BF16, got {:?}", config.dtype));
+            return Err(format!(
+                "Canonical layout requires BF16, got {:?}",
+                config.dtype
+            ));
         }
         Self::from_config(config)
     }
@@ -285,7 +288,11 @@ impl HeapUnifiedBuffer {
         if ptr.is_null() {
             return Err(format!("Failed to allocate {} bytes on heap", size));
         }
-        Ok(Self { ptr, layout, len: size })
+        Ok(Self {
+            ptr,
+            layout,
+            len: size,
+        })
     }
 }
 
@@ -379,7 +386,6 @@ impl<B: aien_platform::UnifiedBuffer> UnifiedKvTensorPool<B> {
         aien_platform::DeviceAddress(self.buffer.device_address().0 + offset as u64)
     }
 
-
     pub fn element_offset(
         &self,
         block_id: BlockId,
@@ -464,8 +470,12 @@ impl<B: aien_platform::UnifiedBuffer> UnifiedKvTensorPool<B> {
         assert_eq!(k.len(), kv_dim, "K vector length must equal kv_dim");
         assert_eq!(v.len(), kv_dim, "V vector length must equal kv_dim");
 
-        let k_offset = self.layout.token_plane_offset(block_id, layer_idx, false, token_in_block);
-        let v_offset = self.layout.token_plane_offset(block_id, layer_idx, true, token_in_block);
+        let k_offset = self
+            .layout
+            .token_plane_offset(block_id, layer_idx, false, token_in_block);
+        let v_offset = self
+            .layout
+            .token_plane_offset(block_id, layer_idx, true, token_in_block);
 
         match self.config.dtype {
             KvDType::Fp32 => unsafe {
@@ -498,8 +508,12 @@ impl<B: aien_platform::UnifiedBuffer> UnifiedKvTensorPool<B> {
         assert_eq!(k_out.len(), kv_dim, "K_out length must equal kv_dim");
         assert_eq!(v_out.len(), kv_dim, "V_out length must equal kv_dim");
 
-        let k_offset = self.layout.token_plane_offset(block_id, layer_idx, false, token_in_block);
-        let v_offset = self.layout.token_plane_offset(block_id, layer_idx, true, token_in_block);
+        let k_offset = self
+            .layout
+            .token_plane_offset(block_id, layer_idx, false, token_in_block);
+        let v_offset = self
+            .layout
+            .token_plane_offset(block_id, layer_idx, true, token_in_block);
 
         match self.config.dtype {
             KvDType::Fp32 => unsafe {
@@ -535,8 +549,7 @@ impl<B: aien_platform::UnifiedBuffer> UnifiedKvTensorPool<B> {
 
         let mut tokens_read = 0;
         for &blk in block_table {
-            let tokens_in_this_block =
-                (total_tokens - tokens_read).min(self.config.block_size);
+            let tokens_in_this_block = (total_tokens - tokens_read).min(self.config.block_size);
             for tok_idx in 0..tokens_in_this_block {
                 self.read_token_kv(blk, layer_idx, tok_idx, &mut token_k, &mut token_v);
                 k_gathered.extend_from_slice(&token_k);
@@ -837,11 +850,20 @@ impl<B: aien_platform::UnifiedBuffer> AienKvManager<B> {
 
     pub fn metrics(&self) -> KvMetrics {
         let physical_pages = self.blocks.iter().filter(|b| b.ref_count > 0).count();
-        let logical_pages: usize = self.sequence_tables.values().map(|t| t.block_ids.len()).sum();
+        let logical_pages: usize = self
+            .sequence_tables
+            .values()
+            .map(|t| t.block_ids.len())
+            .sum();
         let shared_pages = self.blocks.iter().filter(|b| b.ref_count > 1).count();
         let private_pages = self.blocks.iter().filter(|b| b.ref_count == 1).count();
-        let bytes_per_block = self.tensor_pool.as_ref().map(|p| p.block_bytes()).unwrap_or(0);
-        let bytes_saved_vs_full_copy = logical_pages.saturating_sub(physical_pages) * bytes_per_block;
+        let bytes_per_block = self
+            .tensor_pool
+            .as_ref()
+            .map(|p| p.block_bytes())
+            .unwrap_or(0);
+        let bytes_saved_vs_full_copy =
+            logical_pages.saturating_sub(physical_pages) * bytes_per_block;
 
         KvMetrics {
             physical_pages,
@@ -1248,7 +1270,11 @@ impl<B: aien_platform::UnifiedBuffer> AienKvManager<B> {
         Ok(())
     }
 
-    pub fn gather_layer_kv(&self, seq_id: u64, layer_idx: usize) -> Result<(Vec<f32>, Vec<f32>), String> {
+    pub fn gather_layer_kv(
+        &self,
+        seq_id: u64,
+        layer_idx: usize,
+    ) -> Result<(Vec<f32>, Vec<f32>), String> {
         let table = self
             .sequence_tables
             .get(&seq_id)
@@ -1264,7 +1290,10 @@ impl<B: aien_platform::UnifiedBuffer> AienKvManager<B> {
 
 pub type SharedKvManager<B = DefaultUnifiedBuffer> = Arc<RwLock<AienKvManager<B>>>;
 
-pub fn create_shared_kv_manager(total_blocks: usize, block_size: usize) -> SharedKvManager<DefaultUnifiedBuffer> {
+pub fn create_shared_kv_manager(
+    total_blocks: usize,
+    block_size: usize,
+) -> SharedKvManager<DefaultUnifiedBuffer> {
     Arc::new(RwLock::new(AienKvManager::new(total_blocks, block_size)))
 }
 
@@ -1393,12 +1422,16 @@ mod tests {
             assert!(
                 (k_in[i] - k_out[i]).abs() < 1e-2,
                 "K mismatch at {}: expected {}, got {}",
-                i, k_in[i], k_out[i]
+                i,
+                k_in[i],
+                k_out[i]
             );
             assert!(
                 (v_in[i] - v_out[i]).abs() < 1e-2,
                 "V mismatch at {}: expected {}, got {}",
-                i, v_in[i], v_out[i]
+                i,
+                v_in[i],
+                v_out[i]
             );
         }
     }
@@ -1472,8 +1505,14 @@ mod tests {
         let (new_blk, _) = mgr.append_token_with_slot(201).unwrap();
         let child1_now = mgr.get_block_table(201).unwrap();
 
-        assert_eq!(child1_now.block_ids[0], parent_blocks[0], "Prefix block 0 must remain shared");
-        assert_ne!(child1_now.block_ids[1], parent_blocks[1], "Tail block 1 must have diverged via COW");
+        assert_eq!(
+            child1_now.block_ids[0], parent_blocks[0],
+            "Prefix block 0 must remain shared"
+        );
+        assert_ne!(
+            child1_now.block_ids[1], parent_blocks[1],
+            "Tail block 1 must have diverged via COW"
+        );
         assert_eq!(child1_now.block_ids[1], new_blk);
 
         // Parent and child 2 still share original block 1
@@ -1579,4 +1618,3 @@ mod tests {
         assert_eq!(mgr.get_block_table(1).unwrap().total_tokens, 21);
     }
 }
-
