@@ -1,0 +1,223 @@
+{
+  "cases": [
+    "golden-chat-max-24",
+    "golden-chat-code",
+    "golden-chat-prose2",
+    "golden-chat-chat",
+    "golden-chat-review",
+    "concurrent-32",
+    "turn2",
+    "tool-call",
+    "mutant-4-red",
+    "mutant-row-isolated",
+    "row-swap-red",
+    "board-gate"
+  ],
+  "levers": [
+    {
+      "id": "L354",
+      "name": "batch door: many conversations per beat",
+      "present": "unknown",
+      "cells": [
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "-"
+      ],
+      "verdict": "ERROR?"
+    },
+    {
+      "id": "L312",
+      "name": "strokes v2: rows ride one graph",
+      "present": "unknown",
+      "cells": [
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "-"
+      ],
+      "verdict": "ERROR?"
+    },
+    {
+      "id": "L314",
+      "name": "exact two-pass head",
+      "present": "unknown",
+      "cells": [
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "-"
+      ],
+      "verdict": "ERROR?"
+    },
+    {
+      "id": "L374",
+      "name": "tool calling",
+      "present": "unknown",
+      "cells": [
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "-"
+      ],
+      "verdict": "ERROR?"
+    },
+    {
+      "id": "L369",
+      "name": "chunked prefill",
+      "present": "unknown",
+      "cells": [
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "-"
+      ],
+      "verdict": "ERROR?"
+    },
+    {
+      "id": "L375",
+      "name": "shared prompt prefix",
+      "present": "unknown",
+      "cells": [
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "-"
+      ],
+      "verdict": "ERROR?"
+    },
+    {
+      "id": "L371",
+      "name": "eight readers",
+      "present": "unknown",
+      "cells": [
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "-"
+      ],
+      "verdict": "ERROR?"
+    },
+    {
+      "id": "L355",
+      "name": "W4 experts store",
+      "present": "unknown",
+      "cells": [
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "-"
+      ],
+      "verdict": "ERROR?"
+    },
+    {
+      "id": "L313",
+      "name": "bf16 DeltaNet state",
+      "present": "unknown",
+      "cells": [
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "-"
+      ],
+      "verdict": "ERROR?"
+    },
+    {
+      "id": "L376",
+      "name": "team board",
+      "present": "unknown",
+      "cells": [
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR",
+        "ERROR"
+      ],
+      "verdict": "ERROR?"
+    }
+  ],
+  "red_controls": {
+    "ran": 0,
+    "ok": 0,
+    "total": 3
+  }
+}
