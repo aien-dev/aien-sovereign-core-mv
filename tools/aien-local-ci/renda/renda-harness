@@ -155,14 +155,23 @@ def spark_status(full, sha):
     return "none", ""
 
 
+def status_row_identity(row, full, sha):
+    # GitHub REST status rows have no sha field. Bind the canonical API URL
+    # before adding our internal identity field; never trust target_url.
+    return (isinstance(row, dict)
+            and row.get('url') == f'https://api.github.com/repos/{full}/statuses/{sha}'
+            and ('sha' not in row or row['sha'] == sha))
+
+
 def exact_status_rows(full, sha):
     rc, out, err = run(["gh", "api", f"repos/{full}/commits/{sha}/statuses?per_page=100"], timeout=60)
     if rc:
         raise ValueError("status read failed: " + (err or out)[-200:])
     rows = json.loads(out)
-    if not isinstance(rows, list) or len(rows) >= 100:
-        raise ValueError("status read malformed or possibly truncated")
-    return rows
+    if (not isinstance(rows, list) or len(rows) >= 100
+            or any(not status_row_identity(row, full, sha) for row in rows)):
+        raise ValueError("status read malformed, wrong identity or possibly truncated")
+    return [dict(row, sha=sha) for row in rows]
 
 
 def post_exact_status(full, sha, state, context, description):
@@ -174,7 +183,7 @@ def post_exact_status(full, sha, state, context, description):
         row = json.loads(out)
     except (ValueError, TypeError):
         return False, "status write response malformed"
-    if not isinstance(row, dict) or row.get("sha") != sha or row.get("context") != context or row.get("state") != state:
+    if not status_row_identity(row, full, sha) or row.get("context") != context or row.get("state") != state:
         return False, "status write response identity mismatch"
     return True, "status response exact"
 

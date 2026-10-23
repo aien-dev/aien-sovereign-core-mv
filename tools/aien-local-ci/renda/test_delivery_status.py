@@ -230,5 +230,77 @@ class ReceiptStatusDelivery(unittest.TestCase):
         self.assertIn('readback', note.lower())
 
 
+class GitHubStatusTransport(unittest.TestCase):
+    """REST schema captured from GitHub: status rows have url, not sha."""
+    full = 'aien-dev/interplane-mv'
+    sha = 'a' * 40
+
+    def row(self, **changes):
+        row = dict(id=123, context=h.SPARK, state='success', description='verified',
+            url=f'https://api.github.com/repos/{self.full}/statuses/{self.sha}')
+        row.update(changes)
+        return row
+
+    def test_actual_get_schema_binds_exact_url_before_normalizing_sha(self):
+        import json
+        row = self.row()
+        self.assertNotIn('sha', row)
+        with patch.object(h, 'run', return_value=(0, json.dumps([row]), '')):
+            rows = h.exact_status_rows(self.full, self.sha)
+        self.assertEqual(rows[0].get('sha'), self.sha)
+        self.assertNotIn('sha', row)
+
+    def test_actual_post_schema_accepts_exact_url_context_and_state(self):
+        import json
+        with patch.object(h, 'run', return_value=(0, json.dumps(self.row()), '')):
+            ok, note = h.post_exact_status(self.full, self.sha, 'success', h.SPARK, 'verified')
+        self.assertTrue(ok, note)
+
+    def test_foreign_missing_or_conflicting_identity_is_refused(self):
+        import json
+        changes = [dict(url=None), dict(url='https://evil.example/statuses/' + self.sha),
+            dict(url='https://api.github.com/repos/aien-dev/other/statuses/' + self.sha),
+            dict(url=f'https://api.github.com/repos/{self.full}/statuses/' + 'b' * 40),
+            dict(sha='b' * 40)]
+        for change in changes:
+            with self.subTest(change=change):
+                row = self.row(**change)
+                with patch.object(h, 'run', return_value=(0, json.dumps([row]), '')):
+                    with self.assertRaises(ValueError):
+                        h.exact_status_rows(self.full, self.sha)
+                with patch.object(h, 'run', return_value=(0, json.dumps(row), '')):
+                    self.assertFalse(h.post_exact_status(self.full, self.sha, 'success', h.SPARK, 'verified')[0])
+
+    def test_post_wrong_context_or_state_is_refused(self):
+        import json
+        for change in (dict(context='other'), dict(state='failure')):
+            with patch.object(h, 'run', return_value=(0, json.dumps(self.row(**change)), '')):
+                self.assertFalse(h.post_exact_status(self.full, self.sha, 'success', h.SPARK, 'verified')[0])
+
+    def test_actual_shaped_transport_completes_delivery_and_idempotent_readback(self):
+        import json
+        case = ReceiptStatusDelivery()
+        case.setUp()
+        rows, posts = [], []
+        def transport(args, **kwargs):
+            if '--method' in args:
+                self.assertEqual(args[args.index('--method') + 1], 'POST')
+                posts.append(args)
+                rows.append(self.row())
+                return 0, json.dumps(rows[-1]), ''
+            return 0, json.dumps(rows), ''
+        case.ctx['get_statuses'] = h.exact_status_rows
+        case.ctx['write_status'] = h.post_exact_status
+        with patch.object(h, 'run', side_effect=transport):
+            ok, note = case.deliver()
+            self.assertTrue(ok, note)
+            self.assertIn('read back', note)
+            ok, note = case.deliver()
+            self.assertTrue(ok, note)
+            self.assertIn('already present', note)
+        self.assertEqual(len(posts), 1)
+        self.assertNotIn('sha', rows[0])
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
