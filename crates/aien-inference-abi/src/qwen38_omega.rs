@@ -287,6 +287,8 @@ fn fuse_fp8(name: &str, parts: Vec<Matrix>) -> Result<Fp8Tensor, String> {
     let (mut w, mut scales) = (Vec::new(), Vec::new());
     for m in parts {
         match m {
+            #[cfg(feature = "rotation-qualification")]
+            Matrix::Native {..} => return Err("test-only native reconstruction cannot attach to a GPU graph".into()),
             Matrix::Fp8 {
                 n: pn,
                 k,
@@ -481,6 +483,8 @@ impl Qwen38Omega {
         let embed = read_bf16_words(source, &format!("{prefix}embed_tokens.weight"), &[v, h])?;
         let final_norm = fold(read_vec(source, &format!("{prefix}norm.weight"), h)?);
         let (lm_head, lm_head8) = match read_matrix(source, "lm_head.weight", v, h)? {
+            #[cfg(feature = "rotation-qualification")]
+            Matrix::Native {..} => return Err("test-only native reconstruction cannot attach to a GPU graph".into()),
             Matrix::Bf16 { n, k, w } => {
                 let head8 = if std::env::var("AIEN_Q38_FP8_HEAD").as_deref() == Ok("1") {
                     let (w8, s) = aien_omega_q38::quantize_fp8_bf16(n, k, &w, 16)

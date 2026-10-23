@@ -33,6 +33,8 @@ regex-syntax = "0.8"
 
 
 [features]
+# External model-quality oracle only; never enable in a server build.
+rotation-qualification = ["dev-fallback"]
 # Off by default: a production build fails closed (no reference weights, no
 # silent CPU fallback behind the GPU backend). Only dev/test builds turn it on.
 dev-fallback = []

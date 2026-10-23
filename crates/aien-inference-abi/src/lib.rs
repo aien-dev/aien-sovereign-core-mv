@@ -20,6 +20,8 @@ pub mod native_ops;
 pub mod omega_backend;
 pub mod exact_head;
 pub mod qwen38;
+#[cfg(feature = "rotation-qualification")]
+pub mod rotation_reference;
 pub mod qwen38_omega;
 pub mod qwen3_coder;
 pub mod qwen3_dense_omega;

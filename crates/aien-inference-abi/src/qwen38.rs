@@ -286,6 +286,8 @@ impl Qwen38Config {
 /// One projection as stored: e4m3 with its block scales, or bf16.
 #[derive(Debug)]
 pub enum Matrix {
+    #[cfg(feature = "rotation-qualification")]
+    Native { n: usize, k: usize, w: Vec<f32>, name: String, audit: Option<Box<Matrix>> },
     Fp8 {
         n: usize,
         k: usize,
@@ -320,12 +322,16 @@ impl Matrix {
     pub fn n(&self) -> usize {
         match self {
             Self::Fp8 { n, .. } | Self::Bf16 { n, .. } => *n,
+            #[cfg(feature = "rotation-qualification")]
+            Self::Native {n,..} => *n,
         }
     }
 
     pub fn k(&self) -> usize {
         match self {
             Self::Fp8 { k, .. } | Self::Bf16 { k, .. } => *k,
+            #[cfg(feature = "rotation-qualification")]
+            Self::Native {k,..} => *k,
         }
     }
 
@@ -351,6 +357,8 @@ impl Matrix {
                     }
                 }
             }
+            #[cfg(feature = "rotation-qualification")]
+            Self::Native {k,w,..} => dst[..rows*k].copy_from_slice(&w[r0*k..(r0+rows)*k]),
             Self::Bf16 { k, w, .. } => {
                 for (o, &b) in dst[..rows * k].iter_mut().zip(&w[r0 * k..(r0 + rows) * k]) {
                     *o = bf16_to_f32(b);
@@ -364,6 +372,8 @@ impl Matrix {
         match self {
             Self::Bf16 { k, w, .. } => Some(&w[r * k..(r + 1) * k]),
             Self::Fp8 { .. } => None,
+            #[cfg(feature = "rotation-qualification")]
+            Self::Native {..} => None,
         }
     }
 
@@ -395,6 +405,8 @@ impl Matrix {
                 }
             });
         if t == 1 {
+            #[cfg(feature = "rotation-qualification")]
+            self.audit_output(x,t,&by_row);
             return by_row;
         }
         let mut y = vec![0f32; t * n];
@@ -403,7 +415,15 @@ impl Matrix {
                 y[tt * n + r] = by_row[r * t + tt];
             }
         }
+        #[cfg(feature = "rotation-qualification")]
+        self.audit_output(x,t,&y);
         y
+    }
+    #[cfg(feature = "rotation-qualification")]
+    fn audit_output(&self,x:&[f32],t:usize,y:&[f32]) {
+        if let Self::Native {name,audit:Some(reference),..}=self {
+            crate::rotation_reference::audit_output(name,x,t,y,&reference.matmul(x,t));
+        }
     }
 }
 
@@ -457,6 +477,11 @@ pub(crate) fn read_matrix(
             let mut w = vec![0u8; n * k];
             source.read_into(name, "F8_E4M3", &[n, k], &mut w)?;
             let scales = read_bf16_words(source, &scale_name, &[n / FP8_BLOCK, k / FP8_BLOCK])?;
+            #[cfg(feature = "rotation-qualification")]
+            if let Some(values)=crate::rotation_reference::convert(name,n,k,&w,&scales)? {
+                let audit=if crate::rotation_reference::audit_tensor(name) {Some(Box::new(Matrix::Fp8 {n,k,w,scales}))} else {None};
+                return Ok(Matrix::Native {n,k,w:values,name:name.into(),audit});
+            }
             Ok(Matrix::Fp8 { n, k, w, scales })
         }
         Some("BF16") => Ok(Matrix::Bf16 {
@@ -1281,6 +1306,29 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "rotation-qualification")]
+    #[test]
+    fn native_quantizer_changes_the_actual_reference_matmul() {
+        let name="model.language_model.layers.0.mlp.experts.0.gate_proj.weight";
+        let mut source=Mem::default();
+        let mut raw=vec![0u8;128*128];raw[0]=56;raw[1]=48;
+        source.tensors.insert(name.into(),("F8_E4M3".into(),vec![128,128],raw));
+        source.tensors.insert(format!("{name}_scale_inv"),("BF16".into(),vec![1,1],0x3f80u16.to_le_bytes().to_vec()));
+        let cache=std::path::PathBuf::from(std::env::var_os("AIEN_ROTQUANT_CACHE_TESTROOT").expect("owned test cache root required")).join(format!("matmul-cache-{}",std::process::id()));
+        std::fs::create_dir(&cache).unwrap();std::env::set_var("AIEN_ROTQUANT_CACHE",&cache);
+        std::env::set_var("AIEN_ROTQUANT_MODE","2");
+        let matrix=read_matrix(&mut source,name,128,128).unwrap();
+        let mut input=vec![0f32;128];input[1]=1.0;
+        let output=matrix.matmul(&input,1);
+        let first=crate::rotation_reference::finish_report().unwrap();assert_eq!(first["final_child_frames"],2);
+        let cached=read_matrix(&mut source,name,128,128).unwrap().matmul(&input,1);
+        let second=crate::rotation_reference::finish_report().unwrap();assert_eq!(second["final_child_frames"],0);assert_eq!(cached,output);
+        std::env::remove_var("AIEN_ROTQUANT_MODE");std::env::remove_var("AIEN_ROTQUANT_CACHE");
+        std::fs::remove_dir_all(cache).unwrap();
+        assert_eq!(output[0],4.0f32/7.0);
+        assert!(output[1..].iter().all(|&x|x==0.0));
+    }
+
     fn tiny() -> Qwen38Config {
         Qwen38Config {
             hidden: 256,
@@ -1608,6 +1656,8 @@ mod tests {
         let lut = fp8_table();
         let wide = |src: &mut Mem, name: &str, n: usize, k: usize| -> Vec<f64> {
             match read_matrix(src, name, n, k).unwrap() {
+                #[cfg(feature = "rotation-qualification")]
+                Matrix::Native {..} => panic!("quantizer must be off in the independent f64 fixture"),
                 Matrix::Fp8 { w, scales, .. } => (0..n * k)
                     .map(|i| {
                         let (r, c) = (i / k, i % k);

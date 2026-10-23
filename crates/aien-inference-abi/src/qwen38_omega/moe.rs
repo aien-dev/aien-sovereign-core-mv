@@ -76,6 +76,8 @@ fn push_fp8(
     s: &mut Vec<u16>,
 ) -> Result<(), String> {
     match m {
+            #[cfg(feature = "rotation-qualification")]
+            Matrix::Native {..} => return Err("test-only native reconstruction cannot attach to a GPU graph".into()),
         Matrix::Fp8 {
             n: mn,
             k: mk,
@@ -138,6 +140,8 @@ fn upload_experts(
 /// Router gate rows as bf16 bits: `mlp.gate.weight` `[256][h]` then `shared_expert_gate` `[1][h]`.
 fn router_rows(source: &mut dyn TensorSource, m: &str, h: usize) -> Result<Vec<u16>, String> {
     let mut rows = match read_matrix(source, &format!("{m}.gate.weight"), 256, h)? {
+            #[cfg(feature = "rotation-qualification")]
+            Matrix::Native {..} => return Err("test-only native reconstruction cannot attach to a GPU graph".into()),
         Matrix::Bf16 { w, .. } => w,
         Matrix::Fp8 { .. } => return Err(format!("{m}.gate.weight: FP8 (the router takes bf16)")),
     };
@@ -176,6 +180,8 @@ impl Qwen38Omega {
         let final_norm = fold(read_vec(source, &format!("{prefix}norm.weight"), h)?);
         let head = read_matrix(source, "lm_head.weight", v, h)?;
         let lm_head = match &head {
+            #[cfg(feature = "rotation-qualification")]
+            Matrix::Native {..} => return Err("test-only native reconstruction cannot attach to a GPU graph".into()),
             Matrix::Bf16 { n, k, w } => Bf16Tensor::upload(*n, *k, w).map_err(gpu("lm_head"))?,
             Matrix::Fp8 { .. } => return Err("lm_head: FP8 (the graph takes a bf16 head)".into()),
         };
