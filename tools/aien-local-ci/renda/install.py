@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import time
 
-FILES = ('install.py', 'renda-harness', 'local_queue.py', 'review_chunks.py', 'site_policy.py', 'publication_transport.py', 'successor.py', 'test_successor.py', 'test_delivery_recovery.py', 'test_admission.py', 'test_install.py', 'delivery.py', 'test_publication_transport.py', 'test_delivery.py', 'test_reliability.py', 'test_local_queue.py', 'test_review_chunks.py', 'test_review_integration.py', 'test_site_policy.py', 'renda-checked')
+FILES = ('install.py', 'renda-harness', 'local_queue.py', 'review_chunks.py', 'site_policy.py', 'publication_transport.py', 'successor.py', 'test_successor.py', 'test_delivery_recovery.py', 'test_admission.py', 'test_install.py', 'delivery.py', 'test_publication_transport.py', 'test_delivery.py', 'test_delivery_status.py', 'test_reliability.py', 'test_local_queue.py', 'test_review_chunks.py', 'test_review_integration.py', 'test_site_policy.py', 'renda-checked')
 
 
 def sha(path):
@@ -47,7 +47,7 @@ def install(args):
         env = dict(os.environ, RENDA_CANDIDATE=str(release / 'renda-harness'), PYTHONDONTWRITEBYTECODE='1')
         output = Path(args.output)
         output.mkdir(parents=True, exist_ok=True)
-        for test in ('test_reliability.py', 'test_local_queue.py', 'test_review_chunks.py', 'test_review_integration.py', 'test_site_policy.py', 'test_publication_transport.py', 'test_delivery.py', 'test_successor.py', 'test_delivery_recovery.py', 'test_admission.py', 'test_install.py'):
+        for test in ('test_reliability.py', 'test_local_queue.py', 'test_review_chunks.py', 'test_review_integration.py', 'test_site_policy.py', 'test_publication_transport.py', 'test_delivery.py', 'test_delivery_status.py', 'test_successor.py', 'test_delivery_recovery.py', 'test_admission.py', 'test_install.py'):
             result = subprocess.run(['python3', str(release / test)], env=env, text=True, capture_output=True)
             (output / ('install-' + test + '.log')).write_text(result.stdout + result.stderr)
             if result.returncode:

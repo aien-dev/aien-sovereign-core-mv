@@ -6,7 +6,7 @@ import tempfile
 import time
 import sys
 
-from local_queue import digest, read, save
+from local_queue import digest, read, save, valid_pr
 from site_policy import exact_remote_refs, inspect_site_pr_snapshot, repository_identity
 
 
@@ -262,7 +262,7 @@ def report_transitions(state, name, results, emit, now=None):
     old = read(path) or {}
     rows = []
     for result in results:
-        for kind in ('local','sync_wait','merged','rebased','rerun','operator','published','blocked','waiting'):
+        for kind in ('local','sync_wait','merged','rebased','rerun','operator','status','published','blocked','waiting'):
             rows += [f"{result['repo']} {kind.upper()} {item}" for item in result.get(kind,[])]
     previous = set(old.get('rows',[]))
     for row in rows:
@@ -275,3 +275,104 @@ def report_transitions(state, name, results, emit, now=None):
         emit(f'HEARTBEAT {len(rows)} current queue observations; unchanged details suppressed')
         heartbeat = now
     save(path,dict(schema='renda-report/1',rows=rows,heartbeat=heartbeat))
+
+
+
+def deliver_receipt_status(repo, queue, pinned, model, policy, ctx):
+    """Post only a missing Spark status after fresh, exact-source qualification."""
+    from site_policy import repository_identity
+
+    full = queue.full
+    def refuse(note):
+        return False, f"{repo} Spark status held: {note}"
+
+    def owned(number):
+        try:
+            return (repository_identity(repo) == full and ctx['lane_owned'](repo)
+                    and not Path(ctx['PAUSE']).exists() and not ctx['held'](repo, number))
+        except Exception:
+            return False
+
+    def exact_pr(value, expected):
+        return (valid_pr(value) and value.get('number') == expected.get('number')
+            and value.get('state') == 'OPEN' and value.get('isDraft') is False
+            and value.get('baseRefName') == 'main'
+            and all(value.get(k) == expected.get(k) for k in
+                ('number', 'headRefName', 'headRefOid', 'baseRefName', 'baseRefOid'))
+            and not any(isinstance(row, dict) and row.get('name') == ctx['SPARK']
+                for row in value.get('statusCheckRollup', [])))
+
+    def read_statuses(sha):
+        rows = ctx['get_statuses'](full, sha)
+        if not isinstance(rows, list) or len(rows) >= 100 or any(not isinstance(row, dict)
+                or not isinstance(row.get('context'), str)
+                or not isinstance(row.get('state'), str)
+                or row.get('sha') != sha for row in rows):
+            raise ValueError('status response missing exact SHA or malformed')
+        return [row for row in rows if row.get('context') == ctx['SPARK']]
+
+    if not isinstance(pinned, dict) or not valid_pr(pinned):
+        return refuse('pinned PR malformed')
+    sha, base, number = pinned['headRefOid'], pinned['baseRefOid'], pinned['number']
+    if (not isinstance(model, str) or not model or not isinstance(policy, str) or not policy
+            or pinned.get('baseRefName') != 'main' or pinned.get('state') != 'OPEN'
+            or pinned.get('isDraft') is not False or not owned(number)):
+        return refuse('repository, lane, pause, hold, PR state or pinned main identity invalid')
+    try:
+        fresh = ctx['fresh_pr'](full, number)
+        if not exact_pr(fresh, pinned) or not owned(number):
+            return refuse('fresh PR identity moved, closed, draft or ownership changed')
+        retained = ctx['operator_verdict'](repo, sha)
+        if retained and retained[0] in ('FAIL', 'HOLD'):
+            return refuse('local FAIL/HOLD is retained')
+        if ctx['judging'](sha):
+            return refuse('judge is still active for this exact head')
+        existing = read_statuses(sha)
+        if existing:
+            if len(existing) == 1 and existing[0]['state'].lower() == 'success':
+                return True, f"{repo}#{number} exact Spark success already present on {sha}; no duplicate posted"
+            return refuse('existing Spark status is not one exact success; never overwrite it')
+        source, source_repo = queue.source(sha, base)
+        trusted_names = {'github.com/' + full, 'github.com/aien-dev/' + queue.repo}
+        if source is None or source_repo not in trusted_names:
+            return refuse('trusted exact repository source unavailable or changed')
+        review_ok, review_note = queue.review(pinned, model, policy)
+        if review_ok is not True:
+            return refuse('complete current review missing or refused: ' + str(review_note)[-180:])
+        receipt = queue.receipt(source, source_repo, sha, base)
+        if (not isinstance(receipt, dict) or receipt.get('verified') is not True
+                or receipt.get('eligible') is not True or receipt.get('verdict') != 'PASS'
+                or not re.fullmatch(r'[0-9a-f]{64}', str(receipt.get('digest', '')))
+                or 0 not in receipt.get('verifier_codes', [])):
+            return refuse('trusted signed exact-source PASS receipt unavailable')
+        plan = queue.host_plan(source, source_repo, sha, base)
+        if not admit_plan(plan) or plan.get('code') != 0:
+            return refuse('current planner is not RUNNABLE')
+        fresh = ctx['fresh_pr'](full, number)
+        if not exact_pr(fresh, pinned) or not owned(number):
+            return refuse('PR identity or ownership changed before status write')
+        retained = ctx['operator_verdict'](repo, sha)
+        if retained and retained[0] in ('FAIL', 'HOLD'):
+            return refuse('local FAIL/HOLD appeared before status write')
+        if ctx['judging'](sha):
+            return refuse('judge became active before status write')
+        current_receipt = queue.receipt(source, source_repo, sha, base)
+        if (not isinstance(current_receipt, dict) or current_receipt.get('verified') is not True
+                or current_receipt.get('eligible') is not True or current_receipt.get('verdict') != 'PASS'
+                or current_receipt.get('digest') != receipt.get('digest')):
+            return refuse('signed qualification changed before status write')
+        existing = read_statuses(sha)
+        if existing:
+            if len(existing) == 1 and existing[0]['state'].lower() == 'success':
+                return True, f"{repo}#{number} exact Spark success already present on {sha}; no duplicate posted"
+            return refuse('Spark status appeared before write; never overwrite it')
+        ok, note = ctx['write_status'](full, sha, 'success', ctx['SPARK'],
+            'Verified signed Spark receipt for exact source head')
+        if not ok:
+            return refuse('status write refused: ' + str(note)[-180:])
+        readback = read_statuses(sha)
+        if len(readback) != 1 or readback[0]['state'].lower() != 'success':
+            return refuse('status write readback missing, ambiguous or not success')
+        return True, f"{repo}#{number} Spark success read back on exact head {sha}"
+    except Exception as exc:
+        return refuse('fresh source/status verification unavailable: ' + str(exc)[-200:])

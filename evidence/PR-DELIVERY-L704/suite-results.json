@@ -1,0 +1,104 @@
+{
+  "tests": [
+    {
+      "test": "test_reliability.py",
+      "exit_code": 0,
+      "seconds": 0.075,
+      "ran": 7,
+      "failed": null
+    },
+    {
+      "test": "test_local_queue.py",
+      "exit_code": 0,
+      "seconds": 3.224,
+      "ran": 30,
+      "failed": null
+    },
+    {
+      "test": "test_review_chunks.py",
+      "exit_code": 0,
+      "seconds": 1.205,
+      "ran": 10,
+      "failed": null
+    },
+    {
+      "test": "test_review_integration.py",
+      "exit_code": 0,
+      "seconds": 0.291,
+      "ran": 7,
+      "failed": null
+    },
+    {
+      "test": "test_site_policy.py",
+      "exit_code": 0,
+      "seconds": 0.587,
+      "ran": 18,
+      "failed": null
+    },
+    {
+      "test": "test_publication_transport.py",
+      "exit_code": 0,
+      "seconds": 0.037,
+      "ran": 6,
+      "failed": null
+    },
+    {
+      "test": "test_delivery.py",
+      "exit_code": 0,
+      "seconds": 2.977,
+      "ran": 26,
+      "failed": null
+    },
+    {
+      "test": "test_delivery_status.py",
+      "exit_code": 0,
+      "seconds": 0.084,
+      "ran": 14,
+      "failed": null
+    },
+    {
+      "test": "test_successor.py",
+      "exit_code": 0,
+      "seconds": 1.038,
+      "ran": 8,
+      "failed": null
+    },
+    {
+      "test": "test_delivery_recovery.py",
+      "exit_code": 0,
+      "seconds": 0.066,
+      "ran": 4,
+      "failed": null
+    },
+    {
+      "test": "test_admission.py",
+      "exit_code": 0,
+      "seconds": 0.145,
+      "ran": 3,
+      "failed": null
+    },
+    {
+      "test": "test_install.py",
+      "exit_code": 0,
+      "seconds": 0.283,
+      "ran": 4,
+      "failed": null
+    },
+    {
+      "test": "pycompile.log",
+      "exit_code": 0,
+      "seconds": 0.0,
+      "ran": null,
+      "failed": null
+    },
+    {
+      "test": "wrapper-syntax.log",
+      "exit_code": 0,
+      "seconds": 0.0,
+      "ran": null,
+      "failed": null
+    }
+  ],
+  "all_passed": true,
+  "registered_test_count": 12
+}

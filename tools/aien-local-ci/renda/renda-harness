@@ -25,8 +25,8 @@ import tempfile
 from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.expanduser("~"), ".local/lib/renda"))
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from local_queue import Queue, status as queued_status, valid_pr, digest, read, save
-from delivery import admit_plan, cheap_metadata, assessment, publish_candidate, report_transitions, guarded_judge_command
+from local_queue import Queue, status as queued_status, valid_pr, digest, read, save, decode_one, graphql_args
+from delivery import admit_plan, cheap_metadata, assessment, publish_candidate, report_transitions, guarded_judge_command, deliver_receipt_status
 from publication_transport import list_by_head, view_by_number
 from site_policy import (repository_identity, repository_policy, SITE_REPOSITORY,
     SITE_POLICY_ID, inspect_site_pr_snapshot, exact_remote_refs, verify_site_qualification,
@@ -153,6 +153,30 @@ def spark_status(full, sha):
         if s.get("context") == SPARK:
             return s.get("state", "none"), s.get("description") or ""
     return "none", ""
+
+
+def exact_status_rows(full, sha):
+    rc, out, err = run(["gh", "api", f"repos/{full}/commits/{sha}/statuses?per_page=100"], timeout=60)
+    if rc:
+        raise ValueError("status read failed: " + (err or out)[-200:])
+    rows = json.loads(out)
+    if not isinstance(rows, list) or len(rows) >= 100:
+        raise ValueError("status read malformed or possibly truncated")
+    return rows
+
+
+def post_exact_status(full, sha, state, context, description):
+    rc, out, err = run(["gh", "api", "--method", "POST", f"repos/{full}/statuses/{sha}",
+        "-f", "state=" + state, "-f", "context=" + context, "-f", "description=" + description], timeout=60)
+    if rc:
+        return False, (err or out)[-200:]
+    try:
+        row = json.loads(out)
+    except (ValueError, TypeError):
+        return False, "status write response malformed"
+    if not isinstance(row, dict) or row.get("sha") != sha or row.get("context") != context or row.get("state") != state:
+        return False, "status write response identity mismatch"
+    return True, "status response exact"
 
 
 def judging(sha):
@@ -854,7 +878,7 @@ def site_lane_pass(repo, full, queue):
 
 def lane_pass(repo):
     full, repo_policy = repository_policy(repo)
-    res = {"repo": repo, "merged": [], "rebased": [], "rerun": [], "operator": [], "blocked": [], "waiting": []}
+    res = {"repo": repo, "merged": [], "rebased": [], "rerun": [], "operator": [], "status": [], "blocked": [], "waiting": []}
     if not lane_owned(repo):
         res["blocked"].append("lane no longer names renda; skipped")
         return res
@@ -900,6 +924,19 @@ def lane_pass(repo):
     rows = []
     for p in prs:
         st, desc = queued_status(p)
+        if st == "none":
+            with queue.lock('status') as status_owned:
+                if not status_owned:
+                    res["waiting"].append(f"#{p['number']} Spark status delivery lock held")
+                    continue
+                status_ctx = dict(SPARK=SPARK, lane_owned=lane_owned, held=held, PAUSE=PAUSE,
+                    fresh_pr=lambda owner, number: decode_one(gh_json(graphql_args(owner, number=number))),
+                    get_statuses=exact_status_rows, write_status=post_exact_status, operator_verdict=operator_verdict, judging=judging)
+                ok, status_note = deliver_receipt_status(repo, queue, p, mid, policy, status_ctx)
+                category = res.setdefault("status", []) if ok and 'already present' not in status_note else res["waiting"]
+                category.append(status_note)
+                if ok:
+                    st, desc = "success", status_note
         # A locally retained failure remains a failure when status publication is unavailable.
         try:
             retained = operator_verdict(repo, p['headRefOid'])
@@ -1012,10 +1049,10 @@ def publish_ready(repo, queue, entry, model, policy):
 
 
 def report(results):
-    acted = any(r["merged"] or r["rebased"] or r["rerun"] or r["operator"] or r.get('published') for r in results)
+    acted = any(r["merged"] or r["rebased"] or r["rerun"] or r["operator"] or r.get('published') or r.get('status') for r in results)
     lines = []
     for r in results:
-        for k in ("local", "sync_wait", "merged", "rebased", "rerun", "operator", "published", "blocked", "waiting"):
+        for k in ("local", "sync_wait", "merged", "rebased", "rerun", "operator", "status", "published", "blocked", "waiting"):
             for item in r.get(k, []):
                 lines.append(f"  {r['repo']} {k.upper()} {item}")
     report_transitions(STATE, NAME, results, log)

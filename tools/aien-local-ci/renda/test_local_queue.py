@@ -92,6 +92,90 @@ class Offline(unittest.TestCase):
         decision,note=qu.review(self.pr,'synthetic-model','policy')
         self.assertIs(decision,False,'positive cache overrode an explicit retained refusal')
 
+    def test_superseded_ready_is_deferred_before_any_model_or_planner_call(self):
+        qu=self.queue()
+        self.git('checkout','-qb','fix/shared')
+        (self.clone/'sample.txt').write_text('superseding\n')
+        self.git('commit','-qam','superseding candidate')
+        tip=self.git('rev-parse','HEAD').strip()
+        ready=self.root/'stale-ready.json'
+        ready.write_text(json.dumps([dict(repository=qu.full,ref='fix/shared',sha=self.sha,base=self.base)]))
+        qu.seed_ready(ready)
+        entry=next(e for e in qu.load()['entries'] if e.get('kind')=='ready')
+        calls=[]
+        with patch.object(qu,'host_plan',side_effect=lambda *a,**k:(calls.append('planner') or {'code':0,'output':'Plan verdict: RUNNABLE\n'})):
+            output=qu.progress(dict(entries=[entry]),'synthetic-model',
+                lambda prompt:(calls.append('model') or ('{"merge":true,"note":"synthetic"}','synthetic-model')),
+                'policy',budget=2)
+        self.assertEqual(calls,[],'known superseded head spent planner/model work')
+        self.assertTrue(any('stale READY deferred' in row and tip in row for row in output),output)
+        self.assertIn(entry['key'],[e['key'] for e in qu.load()['entries']],'history entry was deleted')
+        intent=q.read(qu.root/'pending'/qu.repo/(q.digest(entry['key'].encode())+'.json'))
+        self.assertEqual(intent['state'],'STALE_READY_SUPERSEDED')
+
+    def test_multiple_ready_heads_on_one_ref_defer_only_the_ancestor(self):
+        qu=self.queue()
+        tipready=self.root/'same-ref.json'
+        rows=[dict(repository=qu.full,ref='fix/shared',sha=self.base,base=self.base),
+              dict(repository=qu.full,ref='fix/shared',sha=self.sha,base=self.base)]
+        tipready.write_text(json.dumps(rows))
+        qu.seed_ready(tipready)
+        doc=qu.load();ready=[e for e in doc['entries'] if e.get('kind')=='ready']
+        self.git('branch','fix/shared',self.sha)
+        calls=[]
+        with patch.object(qu,'host_plan',return_value={'code':0,'output':'Plan verdict: RUNNABLE\n'}) as planner:
+            output=qu.progress(dict(entries=ready),'synthetic-model',
+                lambda prompt:(calls.append(prompt) or ('{"merge":true,"note":"synthetic"}','synthetic-model')),
+                'policy',budget=2)
+        self.assertEqual(planner.call_count,1)
+        self.assertEqual(len(calls),1)
+        self.assertEqual(sum('stale READY deferred' in row for row in output),1,output)
+        self.assertEqual(len([e for e in qu.load()['entries'] if e.get('kind')=='ready']),2)
+
+    def test_acknowledged_targeted_successor_at_current_ref_is_not_deferred(self):
+        qu=self.queue()
+        self.git('branch','fix/successor',self.sha)
+        target=dict(number=42,ref='fix/existing',expected_head='c'*40,expected_base=self.base)
+        ready=self.root/'successor-ready.json'
+        row=dict(repository=qu.full,ref='fix/successor',sha=self.sha,base=self.base,target=target)
+        ready.write_text(json.dumps([row]))
+        ack=qu.seed_ready(ready)
+        entry=next(e for e in qu.load()['entries'] if e.get('kind')=='ready')
+        calls=[]
+        with patch.object(qu,'host_plan',return_value={'code':0,'output':'Plan verdict: RUNNABLE\n'}):
+            output=qu.progress(dict(entries=[entry]),'synthetic-model',
+                lambda prompt:(calls.append(prompt) or ('{"merge":true,"note":"synthetic"}','synthetic-model')),
+                'policy',budget=2)
+        self.assertEqual(entry['target'],target)
+        self.assertTrue(Path(ack['ack_path']).is_file())
+        self.assertEqual(len(calls),1)
+        self.assertFalse(any('stale READY deferred' in row for row in output),output)
+
+    def test_missing_or_ambiguous_local_ready_ref_fails_closed_without_spend(self):
+        qu=self.queue()
+        ready=self.root/'unresolved-ref.json'
+        ready.write_text(json.dumps([dict(repository=qu.full,ref='fix/missing',sha=self.sha,base=self.base)]))
+        qu.seed_ready(ready)
+        missing=next(e for e in qu.load()['entries'] if e.get('kind')=='ready')
+        calls=[]
+        with patch.object(qu,'host_plan',side_effect=lambda *a,**k:(calls.append('planner') or {'code':0,'output':'Plan verdict: RUNNABLE\n'})):
+            output=qu.progress(dict(entries=[missing]),'synthetic-model',
+                lambda prompt:(calls.append('model') or ('{"merge":true,"note":"synthetic"}','synthetic-model')),
+                'policy',budget=2)
+        self.assertEqual(calls,[])
+        self.assertTrue(any('local source ref unavailable' in row for row in output),output)
+        self.git('branch','fix/ambiguous',self.sha)
+        self.git('update-ref','refs/remotes/origin/fix/ambiguous',self.base)
+        ready2=self.root/'ambiguous-ref.json'
+        ready2.write_text(json.dumps([dict(repository=qu.full,ref='fix/ambiguous',sha=self.base,base=self.base)]))
+        qu.seed_ready(ready2)
+        ambiguous=next(e for e in qu.load()['entries'] if e.get('kind')=='ready' and e.get('ref')=='fix/ambiguous')
+        output=qu.progress(dict(entries=[ambiguous]),'synthetic-model',
+            lambda prompt:(calls.append('model') or ('{"merge":true,"note":"synthetic"}','synthetic-model')),
+            'policy',budget=2)
+        self.assertEqual(calls,[])
+        self.assertTrue(any('local source ref ambiguous' in row for row in output),output)
+
     def test_unpublishable_tracking_ref_does_not_spend_local_model_budget(self):
         qu=self.queue();ready=self.root/'tracking-ready.json'
         ready.write_text(json.dumps([dict(repository=qu.full,ref='refs/remotes/origin/fix/old',sha=self.sha,base=self.base)]))

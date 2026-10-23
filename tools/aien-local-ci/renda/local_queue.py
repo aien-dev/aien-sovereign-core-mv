@@ -379,6 +379,36 @@ class Queue:
             verdict=b.get('verdict'), plan=plan, verifier_codes=codes, digest=digest(raw),
             diagnostic='existing verify-bundle; diagnostic only, fresh remote gates still required')
 
+    def ready_ref_state(self, source, ref, sha):
+        """Resolve only trusted local branch refs; never infer freshness from a fetch."""
+        local_ref = 'refs/heads/' + ref
+        remote_ref = 'refs/remotes/origin/' + ref
+        rc, out, err = self.run(['git', '-C', str(source), 'for-each-ref',
+            '--format=%(refname)%09%(objectname)', '--', local_ref, remote_ref], timeout=30)
+        if rc:
+            return 'unavailable', None, 'local source ref lookup failed: ' + (err or out)[-160:]
+        rows = []
+        for line in out.splitlines():
+            parts = line.split('\t')
+            if len(parts) != 2 or parts[0] not in (local_ref, remote_ref) or not SHA.fullmatch(parts[1]):
+                return 'ambiguous', None, 'local source ref lookup malformed'
+            rows.append((parts[0], parts[1]))
+        if not rows:
+            return 'unavailable', None, 'local source ref unavailable'
+        tips = {tip for _, tip in rows}
+        if len(tips) != 1:
+            return 'ambiguous', None, 'local source ref ambiguous: local and tracked tips disagree'
+        tip = tips.pop()
+        if self.run(['git', '-C', str(source), 'cat-file', '-e', tip + '^{commit}'])[0]:
+            return 'ambiguous', None, 'local source ref does not name a committed object'
+        if tip == sha:
+            return 'current', tip, 'READY head matches exact local source ref'
+        ancestor_rc, _, ancestor_err = self.run(['git', '-C', str(source), 'merge-base',
+            '--is-ancestor', sha, tip], timeout=30)
+        if ancestor_rc == 0:
+            return 'superseded', tip, 'READY head is an ancestor of the exact local source ref tip'
+        return 'moved', tip, 'local source ref moved without proving READY head superseded: ' + ancestor_err[-120:]
+
     def progress(self, doc, model, ask, policy, budget=2):
         """Read pinned local objects; run only the existing planner, never a gate/judge."""
         output = []
@@ -403,6 +433,18 @@ class Queue:
                 if source is None:
                     output.append(f"{e['key']} source unavailable (no fetch)")
                     continue
+                if e['kind'] == 'ready' and self.full != SITE_REPOSITORY:
+                    ref_state, ref_tip, ref_note = self.ready_ref_state(source, ref, sha)
+                    if ref_state == 'superseded':
+                        intent = self.root / 'pending' / self.repo / (digest(e['key'].encode()) + '.json')
+                        save(intent, dict(schema='renda-local-intent/1', key=e['key'], state='STALE_READY_SUPERSEDED',
+                            remote_eligible=False, ref=ref, head=sha, superseding_ref_head=ref_tip,
+                            provenance=e['provenance'], observed_at=time.time()))
+                        output.append(f"{e['key']} stale READY deferred by local ref {ref}@{ref_tip}: history and evidence retained")
+                        continue
+                    if ref_state != 'current':
+                        output.append(f"{e['key']} READY held: {ref_note}; no model budget spent")
+                        continue
                 rc, diff, err = self.run(['git', '-C', str(source), 'diff', '--no-ext-diff', '--no-textconv', base + '...' + sha, '--'], timeout=120)
                 if rc:
                     output.append(f"{e['key']} diff unavailable: {err[-200:]}")
