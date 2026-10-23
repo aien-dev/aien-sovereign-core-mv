@@ -1,0 +1,3 @@
+2026-10-21T15:10:43Z === L383 gate: build sc feat/shared-weights ad9d6370 omega feat/shared-weights 2bbba9ed physics feat/shared-mem 82467f19 omega archive sha256 2d228f569b0be5aeb7f8e3f583debc5ffab25bc2ba53ec73199b2a13749d4045 
+2026-10-21T15:10:43Z owner: queued in q36-extra (L383) on 18183, MemAvailable 30598 MiB
+2026-10-21T19:10:53Z owner: gone before answering: q36-extra: waited 14400s for an extra-35B slot, giving up 
