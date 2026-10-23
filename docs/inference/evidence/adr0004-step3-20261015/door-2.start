@@ -1,0 +1,13 @@
+queued 2026-10-16T10:00:01Z sc 64118f72e0509717b09ee26af76c507a4506bad8 omega 4799f9eba563e9c69579b47c477e7d9c2b0f15cb
+tracked changes outside this folder: 0
+libomega_gpu.a sha256 0629ad9cec0addd4ccc461f0523c2c3964964f0bafc0b98b678e5080b0373ae5
+driver 580.173.02 kernel 7.0.0-1019-nvidia
+ 05:00:01 up 9 days, 22:28, 18 users,  load average: 11.05, 13.69, 17.28
+MemAvailable:   72006544 kB
+pid, process_name, used_gpu_memory [MiB]
+2825631, /home/drakestapleton/handoffs/pin-bin-f881710a/aien-serve-http, 32284 MiB
+utilization.gpu [%], temperature.gpu, power.draw [W], pstate
+0 %, 53, 6.76 W, P0
+listeners: 127.0.0.1:18080 127.0.0.1:18091 127.0.0.1:18092 127.0.0.1:18095 
+:18091 log lines 15
+binary /home/drakestapleton/workspace/sc-adr0004/target/release/aien-serve-http sha256 45f10c0d3bbc55fb787516995e8a62fbf46ecc63521ba9e421f4788ae8e997fb

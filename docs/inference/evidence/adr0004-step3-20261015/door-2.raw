@@ -1,0 +1,20 @@
+2026-10-16T10:00:01Z door-window: binary /home/drakestapleton/workspace/sc-adr0004/target/release/aien-serve-http sha256 45f10c0d3bbc55fb787516995e8a62fbf46ecc63521ba9e421f4788ae8e997fb, port 18103
+2026-10-16T10:00:01Z start session-a: /home/drakestapleton/workspace/sc-adr0004/target/release/aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8 --port 18103 (env: no AIEN_* or OWN30B_* set)
+2026-10-16T10:01:02Z start session-a: ready, pid 3514242 (ready in 60.5 s)
+2026-10-16T10:01:05Z pass1 p1-one-token sha256 7183808e3236265d2eb507c321e124b5ee6be06c7b799833adbf8d01cf70a8ed {"finish":"stop","prompt":9,"reply":11,"seed":1,"mode":"sampled","reply_logprob":-2.075414983119233}
+2026-10-16T10:01:05Z pass1 p2-short sha256 a1b7eb2ee7a6aded8dda4e6cf30826f5afffb28a5597ee9389e91eb326d4e319 {"finish":"stop","prompt":20,"reply":7,"seed":1,"mode":"sampled","reply_logprob":-0.00006239156406184776}
+2026-10-16T10:01:07Z pass1 p3-medium sha256 58634d9dfa7d324e2b4f9ce3a202f3007cb3b7e635892cc7844d98c70c573fce {"finish":"length","prompt":204,"reply":64,"seed":1,"mode":"sampled","reply_logprob":-9.451717192233671}
+2026-10-16T10:01:09Z pass1 p4-long sha256 8e1d40eaf6d97fc40ba53e3be573094443484be2976788187c63b9ad88031d9e {"finish":"length","prompt":657,"reply":64,"seed":1,"mode":"sampled","reply_logprob":-10.717370043619697}
+2026-10-16T10:01:10Z pass2 p1-one-token sha256 7183808e3236265d2eb507c321e124b5ee6be06c7b799833adbf8d01cf70a8ed {"finish":"stop","prompt":9,"reply":11,"seed":1,"mode":"sampled","reply_logprob":-2.075414983119233}
+2026-10-16T10:01:10Z pass2 p2-short sha256 a1b7eb2ee7a6aded8dda4e6cf30826f5afffb28a5597ee9389e91eb326d4e319 {"finish":"stop","prompt":20,"reply":7,"seed":1,"mode":"sampled","reply_logprob":-0.00006239156406184776}
+2026-10-16T10:01:12Z pass2 p3-medium sha256 58634d9dfa7d324e2b4f9ce3a202f3007cb3b7e635892cc7844d98c70c573fce {"finish":"length","prompt":204,"reply":64,"seed":1,"mode":"sampled","reply_logprob":-9.451717192233671}
+2026-10-16T10:01:14Z pass2 p4-long sha256 8e1d40eaf6d97fc40ba53e3be573094443484be2976788187c63b9ad88031d9e {"finish":"length","prompt":657,"reply":64,"seed":1,"mode":"sampled","reply_logprob":-10.717370043619697}
+2026-10-16T10:01:16Z stop: pid 3514242 exit 0
+2026-10-16T10:01:16Z start session-b: /home/drakestapleton/workspace/sc-adr0004/target/release/aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8 --port 18103 (env: no AIEN_* or OWN30B_* set)
+2026-10-16T10:02:20Z start session-b: ready, pid 3578457 (ready in 63.1 s)
+2026-10-16T10:02:21Z pass3 p1-one-token sha256 7183808e3236265d2eb507c321e124b5ee6be06c7b799833adbf8d01cf70a8ed {"finish":"stop","prompt":9,"reply":11,"seed":1,"mode":"sampled","reply_logprob":-2.075414983119233}
+2026-10-16T10:02:22Z pass3 p2-short sha256 a1b7eb2ee7a6aded8dda4e6cf30826f5afffb28a5597ee9389e91eb326d4e319 {"finish":"stop","prompt":20,"reply":7,"seed":1,"mode":"sampled","reply_logprob":-0.00006239156406184776}
+2026-10-16T10:02:24Z pass3 p3-medium sha256 58634d9dfa7d324e2b4f9ce3a202f3007cb3b7e635892cc7844d98c70c573fce {"finish":"length","prompt":204,"reply":64,"seed":1,"mode":"sampled","reply_logprob":-9.451717192233671}
+2026-10-16T10:02:26Z pass3 p4-long sha256 8e1d40eaf6d97fc40ba53e3be573094443484be2976788187c63b9ad88031d9e {"finish":"length","prompt":657,"reply":64,"seed":1,"mode":"sampled","reply_logprob":-10.717370043619697}
+2026-10-16T10:02:27Z stop: pid 3578457 exit 0
+2026-10-16T10:02:27Z door-window: done
