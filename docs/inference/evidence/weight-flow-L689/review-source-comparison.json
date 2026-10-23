@@ -1,0 +1,14 @@
+{
+  "crates/aien-heartbeat/src/weight_flow.rs": true,
+  "crates/aien-heartbeat/src/weight_policy.rs": true,
+  "crates/aien-heartbeat/src/lib.rs": true,
+  "crates/aien-heartbeat/tests/ribbon_store.rs": true,
+  "crates/aien-heartbeat/tests/weight_policy.rs": true,
+  "crates/aien-inference-abi/src/qwen3_moe_omega/ribbon.rs": true,
+  "crates/aien-inference-abi/src/bin/own30b_check.rs": false,
+  "native/weight-flow/policy.om": true,
+  "native/weight-flow/build.py": true,
+  "native/weight-flow/mutants.py": true,
+  "native/weight-flow/test_policy.py": true,
+  "docs/superpowers/plans/2026-10-23-weight-flow.md": true
+}

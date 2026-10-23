@@ -1,0 +1,7 @@
+{
+  "requests": 1000001,
+  "responses": 1000001,
+  "returncode": 0,
+  "all_expected": true,
+  "stderr": ""
+}

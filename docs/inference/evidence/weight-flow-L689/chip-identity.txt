@@ -1,0 +1,21 @@
+Fri Oct 23 11:14:35 AM UTC 2026
+836a53446d3674e86cbfc435d814775a0b8503a8
+Linux spark-b87b 7.0.0-1019-nvidia #19~24.04.2-Ubuntu SMP PREEMPT_DYNAMIC Sun Sep  6 18:35:11 UTC 2 aarch64 aarch64 aarch64 GNU/Linux
+ 06:14:35 up 2 days, 11:55, 19 users,  load average: 3.82, 4.07, 4.56
+               total        used        free      shared  buff/cache   available
+Mem:          124607       58549       15862          32       56280       66058
+Swap:              0           0           0
+name, driver_version, power.draw [W], utilization.gpu [%]
+NVIDIA GB10, 580.173.02, 42.95 W, 96 %
+e023ec9746595e6f0b134862dfd5ba531e9ca86b7c484c6eaee7442613f69570  /home/drakestapleton/handoffs/weight-flow-L689/target-native/release/own30b_check
+6fb1e710932ec927a735cf0b5a91056b60a1f23dcbfdf80f56bd1d6f383457d2  /home/drakestapleton/handoffs/weight-flow-L689/policy
+2904c0e869b7ad801aab319c5d16455191160a83383eebc8d229fb538400e2aa  native/weight-flow/policy.om
+b27d608273751ba9ef21705b3a8fd12e721c018783521d653630ca644cb351b8  crates/aien-heartbeat/src/weight_flow.rs
+808593000f2b2351d9263f60dbdcc4da409f77a9622d730ab9fbd72ee94c6539  crates/aien-heartbeat/src/weight_policy.rs
+94133c9c9b525a0cf4a22652d6a02a2ce43229fde90836e6cdb511325fcd0b8a  crates/aien-inference-abi/src/qwen3_moe_omega/ribbon.rs
+b7a9a0c8ee72a8f05570aaf60bcc72e74ed1e25952d1d78ea0a00303bd427a28  crates/aien-inference-abi/src/bin/own30b_check.rs
+	linux-vdso.so.1 (0x0000f20da844c000)
+	libm.so.6 => /lib/aarch64-linux-gnu/libm.so.6 (0x0000f20da7e00000)
+	libgcc_s.so.1 => /lib/aarch64-linux-gnu/libgcc_s.so.1 (0x0000f20da7dc0000)
+	libc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000f20da7c00000)
+	/lib/ld-linux-aarch64.so.1 (0x0000f20da8410000)

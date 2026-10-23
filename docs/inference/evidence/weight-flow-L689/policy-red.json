@@ -1,0 +1,144 @@
+{
+  "total": 28,
+  "passed": 3,
+  "cases": [
+    {
+      "case": "sync",
+      "rc": 0,
+      "pass_": true
+    },
+    {
+      "case": "fixed",
+      "rc": 0,
+      "pass_": false
+    },
+    {
+      "case": "grow",
+      "rc": 0,
+      "pass_": false
+    },
+    {
+      "case": "no-stall",
+      "rc": 0,
+      "pass_": false
+    },
+    {
+      "case": "shrink-calm",
+      "rc": 0,
+      "pass_": false
+    },
+    {
+      "case": "pressure",
+      "rc": 0,
+      "pass_": false
+    },
+    {
+      "case": "contention",
+      "rc": 0,
+      "pass_": false
+    },
+    {
+      "case": "boundary-contention",
+      "rc": 0,
+      "pass_": false
+    },
+    {
+      "case": "capacity-one",
+      "rc": 0,
+      "pass_": true
+    },
+    {
+      "case": "at-cap",
+      "rc": 0,
+      "pass_": false
+    },
+    {
+      "case": "wait-boundary",
+      "rc": 0,
+      "pass_": false
+    },
+    {
+      "case": "zero-compute",
+      "rc": 0,
+      "pass_": false
+    },
+    {
+      "case": "fixed-cap-one",
+      "rc": 0,
+      "pass_": true
+    },
+    {
+      "case": "refuse-0",
+      "rc": 0,
+      "pass_": false
+    },
+    {
+      "case": "refuse-1",
+      "rc": 0,
+      "pass_": false
+    },
+    {
+      "case": "refuse-2",
+      "rc": 0,
+      "pass_": false
+    },
+    {
+      "case": "refuse-3",
+      "rc": 0,
+      "pass_": false
+    },
+    {
+      "case": "refuse-4",
+      "rc": 0,
+      "pass_": false
+    },
+    {
+      "case": "refuse-5",
+      "rc": 0,
+      "pass_": false
+    },
+    {
+      "case": "refuse-6",
+      "rc": 0,
+      "pass_": false
+    },
+    {
+      "case": "refuse-7",
+      "rc": 0,
+      "pass_": false
+    },
+    {
+      "case": "refuse-8",
+      "rc": 0,
+      "pass_": false
+    },
+    {
+      "case": "refuse-9",
+      "rc": 0,
+      "pass_": false
+    },
+    {
+      "case": "refuse-10",
+      "rc": 0,
+      "pass_": false
+    },
+    {
+      "case": "refuse-11",
+      "rc": 0,
+      "pass_": false
+    },
+    {
+      "case": "refuse-12",
+      "rc": 0,
+      "pass_": false
+    },
+    {
+      "case": "repeated-100",
+      "pass_": false
+    },
+    {
+      "case": "fragmented",
+      "pass_": false
+    }
+  ]
+}

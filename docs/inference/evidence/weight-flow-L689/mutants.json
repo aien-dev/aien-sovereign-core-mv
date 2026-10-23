@@ -1,0 +1,446 @@
+[
+  {
+    "mutant": "no-growth",
+    "killed": 6,
+    "result": {
+      "total": 28,
+      "passed": 22,
+      "cases": [
+        {
+          "case": "sync",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "fixed",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "grow",
+          "rc": 0,
+          "pass_": false
+        },
+        {
+          "case": "no-stall",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "shrink-calm",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "pressure",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "contention",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "boundary-contention",
+          "rc": 0,
+          "pass_": false
+        },
+        {
+          "case": "capacity-one",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "at-cap",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "wait-boundary",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "zero-compute",
+          "rc": 0,
+          "pass_": false
+        },
+        {
+          "case": "fixed-cap-one",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "refuse-0",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-1",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-2",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-3",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-4",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-5",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-6",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-7",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-8",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-9",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-10",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-11",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-12",
+          "rc": 65,
+          "pass_": false
+        },
+        {
+          "case": "repeated-100",
+          "pass_": false
+        },
+        {
+          "case": "fragmented",
+          "pass_": false
+        }
+      ]
+    }
+  },
+  {
+    "mutant": "no-pressure",
+    "killed": 1,
+    "result": {
+      "total": 28,
+      "passed": 27,
+      "cases": [
+        {
+          "case": "sync",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "fixed",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "grow",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "no-stall",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "shrink-calm",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "pressure",
+          "rc": 0,
+          "pass_": false
+        },
+        {
+          "case": "contention",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "boundary-contention",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "capacity-one",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "at-cap",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "wait-boundary",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "zero-compute",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "fixed-cap-one",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "refuse-0",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-1",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-2",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-3",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-4",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-5",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-6",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-7",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-8",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-9",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-10",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-11",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-12",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "repeated-100",
+          "pass_": true
+        },
+        {
+          "case": "fragmented",
+          "pass_": true
+        }
+      ]
+    }
+  },
+  {
+    "mutant": "serial-fixed",
+    "killed": 1,
+    "result": {
+      "total": 28,
+      "passed": 27,
+      "cases": [
+        {
+          "case": "sync",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "fixed",
+          "rc": 0,
+          "pass_": false
+        },
+        {
+          "case": "grow",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "no-stall",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "shrink-calm",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "pressure",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "contention",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "boundary-contention",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "capacity-one",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "at-cap",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "wait-boundary",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "zero-compute",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "fixed-cap-one",
+          "rc": 0,
+          "pass_": true
+        },
+        {
+          "case": "refuse-0",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-1",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-2",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-3",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-4",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-5",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-6",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-7",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-8",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-9",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-10",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-11",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "refuse-12",
+          "rc": 65,
+          "pass_": true
+        },
+        {
+          "case": "repeated-100",
+          "pass_": true
+        },
+        {
+          "case": "fragmented",
+          "pass_": true
+        }
+      ]
+    }
+  }
+]

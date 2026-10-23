@@ -1,0 +1,47 @@
+{
+  "source_commit": "006e7977e11e7da9ae5a9d9c517af58229faf0db",
+  "ribbon_base": "836a53446d3674e86cbfc435d814775a0b8503a8",
+  "host": {
+    "suite_count": 38,
+    "passed": 422,
+    "failed": 0,
+    "ignored": 19,
+    "exit": 0,
+    "backend": "CPU stub with real file/verification/native policy"
+  },
+  "native_policy": {
+    "passed": 28,
+    "total": 28,
+    "sha256": "6fb1e710932ec927a735cf0b5a91056b60a1f23dcbfdf80f56bd1d6f383457d2",
+    "frozen_rebuild_byte_identical": true
+  },
+  "compiled_mutants": [
+    {
+      "name": "no-growth",
+      "failing_checks": 6
+    },
+    {
+      "name": "no-pressure",
+      "failing_checks": 1
+    },
+    {
+      "name": "serial-fixed",
+      "failing_checks": 1
+    }
+  ],
+  "lifetime": {
+    "requests": 1000001,
+    "responses": 1000001,
+    "returncode": 0,
+    "all_expected": true,
+    "stderr": ""
+  },
+  "native_build": "exit0; inherited GPU archive unrecorded in release lock",
+  "hardware": "NOT_RUN: spark-window admission refused rc3",
+  "real_model_outputs": "UNMEASURED",
+  "tokens_per_second": "UNMEASURED",
+  "p95_latency": "UNMEASURED",
+  "gpu_idle_time": "UNMEASURED",
+  "live_service_change": false,
+  "publication_scope": "historical Ribbon experiment, not current-main merge candidate"
+}
