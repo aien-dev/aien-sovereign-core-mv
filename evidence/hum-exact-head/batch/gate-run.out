@@ -1,0 +1,11 @@
+q36-extra: MemAvailable 26 GB < 42 GB, waiting (holding the slot)
+2026-10-21T13:45:21Z l314-real8-4d377169: start bin-4d377169 8 slots () MemAvailable 62 GB
+2026-10-21T13:47:20Z stopped 69067
+2026-10-21T13:47:20Z l314-real8-4d377169: rc 0 (want 0)
+2026-10-21T13:47:20Z l314-mut5-8-4d377169: start bin-4d377169 8 slots (AIEN_Q36_TEST_MUTANT=5) MemAvailable 57 GB
+2026-10-21T13:47:25Z l314-mut5-8-4d377169: server did not come up: aien-serve-http: qwen36-batch load failed: lm_head: omega_gpu rc=-4 (CHIP_FAIL: m16_native_create_channel: RM_ALLOC class 0xcec0 status 0x51)
+2026-10-21T13:47:25Z stopped 89662
+2026-10-21T13:48:25Z l314-mut5-8-4d377169: start bin-4d377169 8 slots (AIEN_Q36_TEST_MUTANT=5) MemAvailable 54 GB
+2026-10-21T13:50:33Z stopped 116513
+2026-10-21T13:50:33Z l314-mut5-8-4d377169: rc 1 (want 1)
+2026-10-21T13:50:33Z VERDICT PASS

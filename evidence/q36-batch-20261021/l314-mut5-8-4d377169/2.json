@@ -1,0 +1,32 @@
+{
+  "ids": [
+    29108,
+    29252,
+    31341,
+    2438,
+    70434,
+    81471,
+    864,
+    1791,
+    777,
+    85099,
+    6105,
+    24142,
+    5285,
+    789,
+    26196,
+    1345,
+    28552,
+    369,
+    17024,
+    1179,
+    38383,
+    10902
+  ],
+  "text": "Sunshine combines red-yellow-orange which create more photons blue purple/violett while clouds is gray then sunny-day",
+  "finish": "length",
+  "prompt_tokens": 23,
+  "t0": "1792590591.078471240",
+  "t1": "1792590600.971001684",
+  "busy_retries": 0
+}

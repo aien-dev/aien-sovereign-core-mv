@@ -1,0 +1,22 @@
+{
+  "ids": [
+    623,
+    2972,
+    1005,
+    28868,
+    57880,
+    53454,
+    92217,
+    424,
+    5529,
+    24891,
+    310,
+    4203
+  ],
+  "text": "In **class thermodynamic equilibrium**: it provides insights to changes",
+  "finish": "stop",
+  "prompt_tokens": 22,
+  "t0": "1792590591.096173652",
+  "t1": "1792590624.777201674",
+  "busy_retries": 55
+}
