@@ -1,0 +1,4 @@
+compiled_mutant case required_exit observed_exit disposition
+wrong-boundary D 3 0 CAUGHT
+no-packed C 5 0 CAUGHT
+no-contamination B 4 0 CAUGHT

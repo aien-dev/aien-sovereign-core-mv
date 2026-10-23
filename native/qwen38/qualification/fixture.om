@@ -1,0 +1,159 @@
+note Synthetic receipt fixture producer. NEVER a hardware measurement or quality result.
+note Input one byte: A valid; B through V negative controls; W valid with no pending token.
+global out uchar 32
+global mode uchar 1
+global row ulong 24
+
+fn emit v ulong to void
+put out 31 uchar 10
+p = ulong 31
+x = v
+while gt x 9
+p = sub p 1
+put out p uchar add rem x 10 48
+x = div x 10
+end
+p = sub p 1
+put out p uchar add x 48
+while lt p 32
+n = write 1 out p sub ulong 32 p
+if le n 0
+exit 6
+end
+p = add p ulong n
+end
+end
+
+fn main to int
+n = read 0 mode 0 1
+if ne n 1
+ret 2
+end
+m = get mode 0
+if or lt m uchar 65 gt m uchar 87
+ret 2
+end
+for i ulong 24
+round = div i 4
+arm = rem i 4
+if eq rem round 2 1
+arm = sub ulong 3 arm
+end
+for j ulong 24
+put row j 0
+end
+put row 0 arm
+put row 1 round
+put row 2 10
+put row 3 100
+put row 4 200
+put row 5 300
+put row 6 700
+put row 7 1000
+if eq rem arm 2 1
+put row 7 700
+put row 8 100
+put row 9 200
+end
+put row 10 100
+put row 11 100
+put row 12 1800
+put row 13 40000000000
+put row 16 1
+put row 17 1
+if ge arm 2
+put row 18 1
+end
+put row 20 32
+put row 21 41
+put row 22 1
+put row 23 1
+if eq m uchar 87
+put row 21 42
+put row 22 0
+end
+note Warmup much slower and larger; must be excluded from every reported statistic.
+if eq round 0
+put row 3 8200
+put row 6 8800
+put row 12 9900
+put row 13 99000000000
+else
+note Five distinct whole-task times: 1801 through1805; median1803 p951805.
+put row 3 add ulong 100 round
+put row 6 add ulong 700 round
+put row 12 add ulong 1800 round
+end
+if and eq m uchar 84 eq i 5
+put row 7 999
+put row 8 1
+end
+if eq i 6
+if eq m uchar 66
+put row 15 1
+end
+if eq m uchar 67
+put row 18 1
+end
+if eq m uchar 68
+put row 21 40
+end
+if eq m uchar 69
+put row 12 1
+end
+if eq m uchar 70
+put row 14 18
+end
+if eq m uchar 71
+put row 17 0
+end
+if eq m uchar 72
+put row 16 0
+end
+if eq m uchar 73
+put row 1 0
+end
+if eq m uchar 74
+put row 22 2
+end
+if eq m uchar 75
+put row 2 0
+end
+if eq m uchar 76
+put row 19 1
+end
+if eq m uchar 77
+put row 6 1807
+end
+if eq m uchar 78
+put row 13 0
+end
+if eq m uchar 79
+put row 20 31
+end
+if eq m uchar 80
+put row 23 0
+end
+if eq m uchar 81
+put row 0 0
+end
+if eq m uchar 85
+put row 2 131042
+put row 21 131073
+end
+if eq m uchar 86
+put row 6 1
+end
+end
+if and eq m uchar 83 eq i 23
+ret 0
+end
+for j ulong 24
+emit get row j
+end
+end
+if eq m uchar 82
+emit 0
+end
+ret 0
+end

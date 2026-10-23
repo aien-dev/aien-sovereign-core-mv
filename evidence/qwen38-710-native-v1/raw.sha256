@@ -1,0 +1,5 @@
+4c663984bffb5e23a0aaf6a505f0b9a79ad72767b993588bcddc7f1008898148  evidence/qwen38-710-native-v1/cargo-audit.log.txt
+840c91a2452931081aeaeb000cdb576c8c7ae8b192527155aa25e11becb8b358  evidence/qwen38-710-native-v1/preflight-sandbox.log.txt
+8812b99e28e9b5fe7894ff7331a954d7d04b718fab7d948017785773b2805d08  evidence/qwen38-710-native-v1/preflight-unsandboxed.log.txt
+f94ebc2f28efdb2de3ef53c995c3a35e21ba353e6d7a7da173156e223f7ecff7  evidence/qwen38-710-native-v1/preflight-sandbox.log.txt.gz
+38b3cc8dc52a052032cba96b8c378bf2a5b113846d33ddf2e771d9803872bcf6  evidence/qwen38-710-native-v1/preflight-unsandboxed.log.txt.gz
