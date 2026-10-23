@@ -1,0 +1,191 @@
+===== test_reliability.py exit=0 =====
+test_empty_json_refused (__main__.Reliability.test_empty_json_refused) ... ok
+test_empty_list_valid (__main__.Reliability.test_empty_list_valid) ... ok
+test_lane_error_contained (__main__.Reliability.test_lane_error_contained) ... ok
+test_missing_block_response_preserves_state (__main__.Reliability.test_missing_block_response_preserves_state) ... ok
+test_null_json_refused (__main__.Reliability.test_null_json_refused) ... ok
+test_open_block_waits_not_merges (__main__.Reliability.test_open_block_waits_not_merges) ... ok
+test_successful_lane_unchanged (__main__.Reliability.test_successful_lane_unchanged) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.002s
+
+OK
+
+===== test_local_queue.py exit=0 =====
+test_acknowledged_targeted_successor_at_current_ref_is_not_deferred (__main__.Offline.test_acknowledged_targeted_successor_at_current_ref_is_not_deferred) ... ok
+test_capacity_refuses_new_work_without_losing_retained_pins (__main__.Offline.test_capacity_refuses_new_work_without_losing_retained_pins) ... ok
+test_completed_review_accepts_verified_legacy_source_repository_alias (__main__.Offline.test_completed_review_accepts_verified_legacy_source_repository_alias) ... ok
+test_contexts_must_belong_to_exact_head (__main__.Offline.test_contexts_must_belong_to_exact_head) ... ok
+test_corrupt_wrong_repo_wrong_sha_receipts_never_verify (__main__.Offline.test_corrupt_wrong_repo_wrong_sha_receipts_never_verify) ... ok
+test_current_receipt_rechecked_despite_cached_refusal (__main__.Offline.test_current_receipt_rechecked_despite_cached_refusal) ... ok
+test_empty_remote_snapshot_deactivates_closed_pr (__main__.Offline.test_empty_remote_snapshot_deactivates_closed_pr) ... ok
+test_guard_backoff_shared_across_instances (__main__.Offline.test_guard_backoff_shared_across_instances) ... ok
+test_head_move_retains_old_failure_and_invalidates_review (__main__.Offline.test_head_move_retains_old_failure_and_invalidates_review) ... ok
+test_interrupted_atomic_write_keeps_old_bytes (__main__.Offline.test_interrupted_atomic_write_keeps_old_bytes) ... ok
+test_large_diff_is_not_marked_true_until_every_chunk_passes (__main__.Offline.test_large_diff_is_not_marked_true_until_every_chunk_passes) ... ok
+test_large_diff_resumes_complete_chunks_with_repository_wide_call_budget (__main__.Offline.test_large_diff_resumes_complete_chunks_with_repository_wide_call_budget) ... ok
+test_local_ready_has_no_remote_pr_identity (__main__.Offline.test_local_ready_has_no_remote_pr_identity) ... ok
+test_malformed_snapshot_preserves_pins (__main__.Offline.test_malformed_snapshot_preserves_pins) ... ok
+test_missing_or_ambiguous_local_ready_ref_fails_closed_without_spend (__main__.Offline.test_missing_or_ambiguous_local_ready_ref_fails_closed_without_spend) ... ok
+test_model_and_policy_identity_invalidate_review (__main__.Offline.test_model_and_policy_identity_invalidate_review) ... ok
+test_multiple_ready_heads_on_one_ref_defer_only_the_ancestor (__main__.Offline.test_multiple_ready_heads_on_one_ref_defer_only_the_ancestor) ... ok
+test_network_denied_still_emits_actual_local_diff_and_plan (__main__.Offline.test_network_denied_still_emits_actual_local_diff_and_plan) ... ok
+test_parallel_sync_one_transport (__main__.Offline.test_parallel_sync_one_transport) ... ok
+test_partial_review_reuses_exact_source_planner_on_budget_zero_pass (__main__.Offline.test_partial_review_reuses_exact_source_planner_on_budget_zero_pass) ... ok
+test_remote_admission_fails_on_moved_closed_or_missing (__main__.Offline.test_remote_admission_fails_on_moved_closed_or_missing) ... ok
+test_required_gate_failure_cannot_publish (__main__.Offline.test_required_gate_failure_cannot_publish) ... ok
+test_retry_after_http_date (__main__.Offline.test_retry_after_http_date) ... ok
+test_scripted_rebase_final_push_guard_refuses_without_ownership (__main__.Offline.test_scripted_rebase_final_push_guard_refuses_without_ownership) ... ok
+test_superseded_ready_is_deferred_before_any_model_or_planner_call (__main__.Offline.test_superseded_ready_is_deferred_before_any_model_or_planner_call) ... ok
+test_sync_interruption_reserves_durable_backoff (__main__.Offline.test_sync_interruption_reserves_durable_backoff) ... ok
+test_unavailable_source_never_fetches (__main__.Offline.test_unavailable_source_never_fetches) ... ok
+test_unpublishable_tracking_ref_does_not_spend_local_model_budget (__main__.Offline.test_unpublishable_tracking_ref_does_not_spend_local_model_budget) ... ok
+test_verified_pass_with_not_run_plan_is_ineligible (__main__.Offline.test_verified_pass_with_not_run_plan_is_ineligible) ... ok
+test_wrong_repository_cache_is_ignored (__main__.Offline.test_wrong_repository_cache_is_ignored) ... ok
+
+----------------------------------------------------------------------
+Ran 30 tests in 2.474s
+
+OK
+
+===== test_review_chunks.py exit=0 =====
+test_corrupt_cache_fails_closed (__main__.ChunkReview.test_corrupt_cache_fails_closed) ... ok
+test_each_exact_identity_field_invalidates_chunk_reuse (__main__.ChunkReview.test_each_exact_identity_field_invalidates_chunk_reuse) ... ok
+test_exact_identity_invalidates_reuse_and_partial_chunks_resume (__main__.ChunkReview.test_exact_identity_invalidates_reuse_and_partial_chunks_resume) ... ok
+test_full_diff_is_chunked_with_exact_character_coverage_and_context (__main__.ChunkReview.test_full_diff_is_chunked_with_exact_character_coverage_and_context) ... ok
+test_late_refusal_is_never_retried_and_never_turns_green (__main__.ChunkReview.test_late_refusal_is_never_retried_and_never_turns_green) ... ok
+test_non_boolean_and_wrong_model_are_incomplete (__main__.ChunkReview.test_non_boolean_and_wrong_model_are_incomplete) ... ok
+test_one_oversized_line_uses_exact_offsets_and_is_never_truncated (__main__.ChunkReview.test_one_oversized_line_uses_exact_offsets_and_is_never_truncated) ... ok
+test_oversized_file_keeps_complete_lines_when_they_fit (__main__.ChunkReview.test_oversized_file_keeps_complete_lines_when_they_fit) ... ok
+test_small_complete_json_file_is_never_split_by_preceding_file (__main__.ChunkReview.test_small_complete_json_file_is_never_split_by_preceding_file) ... ok
+test_transport_and_unparsable_results_are_incomplete_with_bounded_retry (__main__.ChunkReview.test_transport_and_unparsable_results_are_incomplete_with_bounded_retry) ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 0.871s
+
+OK
+
+===== test_review_integration.py exit=0 =====
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 0.143s
+
+OK
+
+===== test_site_policy.py exit=0 =====
+test_branch_rule_malformed_status_contract_fails_closed (__main__.SitePolicy.test_branch_rule_malformed_status_contract_fails_closed) ... ok
+test_branch_rule_required_checks_are_enforced_but_empty_rules_do_not_replace_mac_receipt (__main__.SitePolicy.test_branch_rule_required_checks_are_enforced_but_empty_rules_do_not_replace_mac_receipt) ... ok
+test_canonical_signed_site_qualification_is_exact_and_verifiable (__main__.SitePolicy.test_canonical_signed_site_qualification_is_exact_and_verifiable) ... ok
+test_closed_malformed_moved_or_duplicate_pr_snapshot_is_refused (__main__.SitePolicy.test_closed_malformed_moved_or_duplicate_pr_snapshot_is_refused) ... ok
+test_exact_repository_registry_and_unknown_identity_fail_closed (__main__.SitePolicy.test_exact_repository_registry_and_unknown_identity_fail_closed) ... ok
+test_existing_pr_snapshot_reuses_one_exact_open_pr_and_never_duplicates (__main__.SitePolicy.test_existing_pr_snapshot_reuses_one_exact_open_pr_and_never_duplicates) ... ok
+test_moved_commit_tree_repository_and_tampered_signature_refuse (__main__.SitePolicy.test_moved_commit_tree_repository_and_tampered_signature_refuse) ... ok
+test_queue_rejects_unregistered_or_mismatched_repository_identity (__main__.SitePolicy.test_queue_rejects_unregistered_or_mismatched_repository_identity) ... ok
+test_receipt_cannot_self_authorize_key_or_wrong_recipe (__main__.SitePolicy.test_receipt_cannot_self_authorize_key_or_wrong_recipe) ... ok
+test_receipt_rejects_commands_outside_pinned_recipe (__main__.SitePolicy.test_receipt_rejects_commands_outside_pinned_recipe) ... ok
+test_receipt_requires_all_exact_commands_zero_exit_and_valid_log_hashes (__main__.SitePolicy.test_receipt_requires_all_exact_commands_zero_exit_and_valid_log_hashes) ... ok
+test_remote_branch_and_base_must_match_exact_ready_pins (__main__.SitePolicy.test_remote_branch_and_base_must_match_exact_ready_pins) ... ok
+test_seed_ready_refuses_unregistered_source_and_no_wrong_queue_write (__main__.SitePolicy.test_seed_ready_refuses_unregistered_source_and_no_wrong_queue_write) ... ok
+test_signed_exact_site_ready_publishes_once_and_reads_back_clean_pr (__main__.SitePolicy.test_signed_exact_site_ready_publishes_once_and_reads_back_clean_pr) ... ok
+test_site_ready_batch_ack_is_split_per_item_for_publication (__main__.SitePolicy.test_site_ready_batch_ack_is_split_per_item_for_publication) ... ok
+test_site_ready_import_returns_exact_structured_local_ack (__main__.SitePolicy.test_site_ready_import_returns_exact_structured_local_ack) ... ok
+test_site_ready_progress_is_cold_start_local_only_without_spark_gate (__main__.SitePolicy.test_site_ready_progress_is_cold_start_local_only_without_spark_gate) ... ok
+test_unsigned_or_missing_external_key_qualification_fails_closed (__main__.SitePolicy.test_unsigned_or_missing_external_key_qualification_fails_closed) ... ok
+
+----------------------------------------------------------------------
+Ran 18 tests in 0.417s
+
+OK
+
+===== test_publication_transport.py exit=0 =====
+......
+----------------------------------------------------------------------
+Ran 6 tests in 0.000s
+
+OK
+
+===== test_delivery.py exit=0 =====
+..............................
+----------------------------------------------------------------------
+Ran 30 tests in 2.424s
+
+OK
+
+===== test_delivery_status.py exit=0 =====
+test_actual_get_schema_binds_exact_url_before_normalizing_sha (__main__.GitHubStatusTransport.test_actual_get_schema_binds_exact_url_before_normalizing_sha) ... ok
+test_actual_post_schema_accepts_exact_url_context_and_state (__main__.GitHubStatusTransport.test_actual_post_schema_accepts_exact_url_context_and_state) ... ok
+test_actual_shaped_transport_completes_delivery_and_idempotent_readback (__main__.GitHubStatusTransport.test_actual_shaped_transport_completes_delivery_and_idempotent_readback) ... ok
+test_foreign_missing_or_conflicting_identity_is_refused (__main__.GitHubStatusTransport.test_foreign_missing_or_conflicting_identity_is_refused) ... ok
+test_post_wrong_context_or_state_is_refused (__main__.GitHubStatusTransport.test_post_wrong_context_or_state_is_refused) ... ok
+test_active_judge_for_exact_head_defers_status_delivery (__main__.ReceiptStatusDelivery.test_active_judge_for_exact_head_defers_status_delivery) ... ok
+test_cached_default_operator_hold_cannot_publish_status_without_signed_qualification (__main__.ReceiptStatusDelivery.test_cached_default_operator_hold_cannot_publish_status_without_signed_qualification) ... ok
+test_changed_signed_receipt_before_write_is_refused (__main__.ReceiptStatusDelivery.test_changed_signed_receipt_before_write_is_refused) ... ok
+test_existing_spark_state_is_never_overwritten (__main__.ReceiptStatusDelivery.test_existing_spark_state_is_never_overwritten) ... ok
+test_existing_success_does_not_hide_a_retained_local_failure (__main__.ReceiptStatusDelivery.test_existing_success_does_not_hide_a_retained_local_failure) ... ok
+test_existing_success_is_idempotent_without_duplicate_write (__main__.ReceiptStatusDelivery.test_existing_success_is_idempotent_without_duplicate_write) ... ok
+test_failed_write_or_missing_readback_never_reports_success (__main__.ReceiptStatusDelivery.test_failed_write_or_missing_readback_never_reports_success) ... ok
+test_idempotent_success_is_reported_as_status_not_waiting (__main__.ReceiptStatusDelivery.test_idempotent_success_is_reported_as_status_not_waiting) ... ok
+test_lane_pass_routes_missing_spark_status_to_receipt_delivery (__main__.ReceiptStatusDelivery.test_lane_pass_routes_missing_spark_status_to_receipt_delivery) ... ok
+test_malformed_or_noninteger_plan_refuses_without_status_write (__main__.ReceiptStatusDelivery.test_malformed_or_noninteger_plan_refuses_without_status_write) ... ok
+test_null_or_malformed_remote_reads_fail_closed (__main__.ReceiptStatusDelivery.test_null_or_malformed_remote_reads_fail_closed) ... ok
+test_qualified_exact_open_pr_posts_success_and_reads_it_back (__main__.ReceiptStatusDelivery.test_qualified_exact_open_pr_posts_success_and_reads_it_back) ... ok
+test_rc0_inconsistent_full_plan_refuses_without_status_write (__main__.ReceiptStatusDelivery.test_rc0_inconsistent_full_plan_refuses_without_status_write) ... ok
+test_refuses_bad_review_receipt_or_current_plan (__main__.ReceiptStatusDelivery.test_refuses_bad_review_receipt_or_current_plan) ... ok
+test_refuses_changed_pr_identity_and_repository (__main__.ReceiptStatusDelivery.test_refuses_changed_pr_identity_and_repository) ... ok
+test_refuses_hold_pause_and_local_fail_or_hold (__main__.ReceiptStatusDelivery.test_refuses_hold_pause_and_local_fail_or_hold) ... ok
+test_signed_qualified_status_uses_authorized_operator_plan_context (__main__.ReceiptStatusDelivery.test_signed_qualified_status_uses_authorized_operator_plan_context) ... ok
+test_trusted_legacy_repository_source_identity_is_preserved (__main__.ReceiptStatusDelivery.test_trusted_legacy_repository_source_identity_is_preserved) ... ok
+test_unexpected_check_run_named_spark_is_never_replaced (__main__.ReceiptStatusDelivery.test_unexpected_check_run_named_spark_is_never_replaced) ... ok
+
+----------------------------------------------------------------------
+Ran 24 tests in 0.003s
+
+OK
+
+===== test_successor.py exit=0 =====
+test_explicit_old_pr_base_can_advance_to_qualified_current_main (__main__.Successor.test_explicit_old_pr_base_can_advance_to_qualified_current_main) ... ok
+test_successor_failed_gate_blocks_promotion (__main__.Successor.test_successor_failed_gate_blocks_promotion) ... ok
+test_successor_intake_target_tampering_cannot_authorize_push (__main__.Successor.test_successor_intake_target_tampering_cannot_authorize_push) ... ok
+test_successor_moved_closed_forked_targets_never_write (__main__.Successor.test_successor_moved_closed_forked_targets_never_write) ... ok
+test_successor_readback_failure_is_not_published (__main__.Successor.test_successor_readback_failure_is_not_published) ... ok
+test_successor_target_is_retained_in_trusted_intake (__main__.Successor.test_successor_target_is_retained_in_trusted_intake) ... ok
+test_successor_updates_existing_with_exact_lease_and_reads_back (__main__.Successor.test_successor_updates_existing_with_exact_lease_and_reads_back) ... ok
+test_unexpected_pr_base_change_cannot_advance (__main__.Successor.test_unexpected_pr_base_change_cannot_advance) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.769s
+
+OK
+
+===== test_delivery_recovery.py exit=0 =====
+test_missing_closed_readback_retains_local_block (__main__.Recovery.test_missing_closed_readback_retains_local_block) ... ok
+test_refusal_boundaries_never_close_or_mutate (__main__.Recovery.test_refusal_boundaries_never_close_or_mutate) ... ok
+test_retained_failure_can_retire_failed_block_without_merging (__main__.Recovery.test_retained_failure_can_retire_failed_block_without_merging) ... ok
+test_retained_failure_still_forbids_nonclose_actions (__main__.Recovery.test_retained_failure_still_forbids_nonclose_actions) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.005s
+
+OK
+
+===== test_admission.py exit=0 =====
+test_failed_remote_close_preserves_block_and_carried_heads (__main__.Admission.test_failed_remote_close_preserves_block_and_carried_heads) ... ok
+test_fresh_head_all_gates_and_verified_receipt_admit (__main__.Admission.test_fresh_head_all_gates_and_verified_receipt_admit) ... ok
+test_new_remote_failure_holds_rebase_or_operator_action (__main__.Admission.test_new_remote_failure_holds_rebase_or_operator_action) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.098s
+
+OK
+
+===== test_install.py exit=0 =====
+test_candidate_hash_change_refused (__main__.Install.test_candidate_hash_change_refused) ... ok
+test_installed_release_and_backups_hash_exact (__main__.Install.test_installed_release_and_backups_hash_exact) ... ok
+test_live_input_change_refused (__main__.Install.test_live_input_change_refused) ... ok
+test_regression_failure_refuses_install (__main__.Install.test_regression_failure_refuses_install) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.238s
+
+OK

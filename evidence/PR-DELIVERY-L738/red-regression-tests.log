@@ -1,0 +1,11 @@
+RED baseline, captured before production changes:
+test_rc0_inconsistent_full_plan_refuses_without_status_write ... FAIL
+AssertionError: True is not false : interplane#48 Spark success read back on exact head aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+test_signed_qualified_status_uses_authorized_operator_plan_context ... FAIL
+AssertionError: Lists differ: [False] != [True]
+
+test_operator_run_requests_explicit_operator_plan_for_pipeline_config_hold ... FAIL
+AssertionError: 'operator' not found in host_plan signature parameters
+
+Ran 3 tests; FAILED (failures=3). Expected RED results from newly added regressions.

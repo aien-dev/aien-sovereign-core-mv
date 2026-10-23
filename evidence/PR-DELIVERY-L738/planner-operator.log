@@ -1,0 +1,120 @@
+command: aien-test plan --base 1a3594340c70969c245554b07062efd8ead8a026 --repo github.com/aien-dev/aien-architecture --operator
+exit=0
+AIEN PLAN
+Repository: github.com/aien-dev/aien-architecture
+Base: 1a3594340c70969c245554b07062efd8ead8a026
+Head: d1845f0223a3457c62cb357ce439f69379dfcddf
+Changed files: 90
+  README.md
+  docs/ops/BROKER.md
+  docs/ops/pr-delivery-L700/L700-controls.py
+  docs/ops/pr-delivery-L700/README.md
+  docs/ops/pr-delivery-L700/broker-baseline.log
+  docs/ops/pr-delivery-L700/committed-missing-gate-mutant.log
+  docs/ops/pr-delivery-L700/crumb-verify.log
+  docs/ops/pr-delivery-L700/default-operator-hold.log
+  docs/ops/pr-delivery-L700/failed-suite-control.log
+  docs/ops/pr-delivery-L700/gate-entry-green.log
+  docs/ops/pr-delivery-L700/gate-entry-red.log
+  docs/ops/pr-delivery-L700/missing-gate-mutant.log
+  docs/ops/pr-delivery-L700/mutant-head.txt
+  docs/ops/pr-delivery-L700/plan-corrected.log
+  docs/ops/pr-delivery-L700/plan.log
+  docs/ops/spark-broker-evidence/RESULTS.txt
+  docs/ops/spark-broker-evidence/explore-B-N20/broker-events.log
+  docs/ops/spark-broker-evidence/explore-B-N20/jobs.log
+  docs/ops/spark-broker-evidence/explore-B-N20/metrics.txt
+  docs/ops/spark-broker-evidence/explore-B-N20/run.txt
+  docs/ops/spark-broker-evidence/live-jam-2350Z.txt
+  docs/ops/spark-broker-evidence/ps-waiters-2350Z.txt
+  docs/ops/spark-broker-evidence/receipts-tonight.txt
+  docs/ops/spark-broker-evidence/replay-A-base.out
+  docs/ops/spark-broker-evidence/replay-A-base/jobs.log
+  docs/ops/spark-broker-evidence/replay-A-base/metrics.txt
+  docs/ops/spark-broker-evidence/replay-A-base/overrides.log
+  docs/ops/spark-broker-evidence/replay-A-base/run.txt
+  docs/ops/spark-broker-evidence/replay-A-rep2.out
+  docs/ops/spark-broker-evidence/replay-A-rep2/jobs.log
+  docs/ops/spark-broker-evidence/replay-A-rep2/metrics.txt
+  docs/ops/spark-broker-evidence/replay-A-rep2/overrides.log
+  docs/ops/spark-broker-evidence/replay-A-rep2/run.txt
+  docs/ops/spark-broker-evidence/replay-A-srv.out
+  docs/ops/spark-broker-evidence/replay-A-srv/jobs.log
+  docs/ops/spark-broker-evidence/replay-A-srv/metrics.txt
+  docs/ops/spark-broker-evidence/replay-A-srv/overrides.log
+  docs/ops/spark-broker-evidence/replay-A-srv/run.txt
+  docs/ops/spark-broker-evidence/replay-A-x4.out
+  docs/ops/spark-broker-evidence/replay-A-x4/jobs.log
+  docs/ops/spark-broker-evidence/replay-A-x4/metrics.txt
+  docs/ops/spark-broker-evidence/replay-A-x4/overrides.log
+  docs/ops/spark-broker-evidence/replay-A-x4/run.txt
+  docs/ops/spark-broker-evidence/replay-A0-base.out
+  docs/ops/spark-broker-evidence/replay-A0-base/jobs.log
+  docs/ops/spark-broker-evidence/replay-A0-base/metrics.txt
+  docs/ops/spark-broker-evidence/replay-A0-base/run.txt
+  docs/ops/spark-broker-evidence/replay-B-base.out
+  docs/ops/spark-broker-evidence/replay-B-base/broker-events.log
+  docs/ops/spark-broker-evidence/replay-B-base/jobs.log
+  docs/ops/spark-broker-evidence/replay-B-base/metrics.txt
+  docs/ops/spark-broker-evidence/replay-B-base/run.txt
+  docs/ops/spark-broker-evidence/replay-B-rep2.out
+  docs/ops/spark-broker-evidence/replay-B-rep2/broker-events.log
+  docs/ops/spark-broker-evidence/replay-B-rep2/jobs.log
+  docs/ops/spark-broker-evidence/replay-B-rep2/metrics.txt
+  docs/ops/spark-broker-evidence/replay-B-rep2/run.txt
+  docs/ops/spark-broker-evidence/replay-B-srv.out
+  docs/ops/spark-broker-evidence/replay-B-srv/broker-events.log
+  docs/ops/spark-broker-evidence/replay-B-srv/jobs.log
+  docs/ops/spark-broker-evidence/replay-B-srv/metrics.txt
+  docs/ops/spark-broker-evidence/replay-B-srv/run.txt
+  docs/ops/spark-broker-evidence/replay-B-x4.out
+  docs/ops/spark-broker-evidence/replay-B-x4/broker-events.log
+  docs/ops/spark-broker-evidence/replay-B-x4/jobs.log
+  docs/ops/spark-broker-evidence/replay-B-x4/metrics.txt
+  docs/ops/spark-broker-evidence/replay-B-x4/run.txt
+  docs/ops/spark-broker-evidence/trace-20261019.tsv
+  docs/ops/spark-broker-evidence/transcript-calls.tsv
+  tests/gates/arch-name-check.gate
+  tests/gates/arch-spark-broker.gate
+  tests/gates/run.sh
+  tools/name-check/README.md
+  tools/name-check/name-check.sh
+  tools/name-check/test.sh
+  tools/ops/spark-broker/.gitignore
+  tools/ops/spark-broker/Makefile
+  tools/ops/spark-broker/README.md
+  tools/ops/spark-broker/install.sh
+  tools/ops/spark-broker/quiet-build
+  tools/ops/spark-broker/quiet-build.locks
+  tools/ops/spark-broker/quiet-measure
+  tools/ops/spark-broker/quiet-measure.locks
+  tools/ops/spark-broker/replay/fakejob
+  tools/ops/spark-broker/replay/metrics.sh
+  tools/ops/spark-broker/replay/quiet-build.pre-bandage
+  tools/ops/spark-broker/replay/replay.sh
+  tools/ops/spark-broker/spark-broker.c
+  tools/ops/spark-broker/spark-job.c
+  tools/ops/spark-broker/test.sh
+Graph digest: f4c23322b5f1b924d65a14e0442dbe79dc35e5654fce374c76655f51677c8060
+Required:
+  ARCH-CRUMB-TOOL-TEST pool=host exactness=EXACT check=4da84606bddf because=tests/gates/arch-name-check.gate
+  ARCH-DOCTRINE pool=host exactness=EXACT check=8fb6830ed71d because=always
+  ARCH-NAME-CHECK pool=host exactness=EXACT check=68b21c49aeb8 because=tests/gates/arch-name-check.gate
+  ARCH-QUALIFICATION-STATUS pool=host exactness=EXACT check=6912e608b9f6 because=always
+  ARCH-SCRIPT-TESTS pool=host exactness=EXACT check=f8eb95b183d7 because=tests/gates/arch-name-check.gate
+  ARCH-SPARK-BROKER pool=host exactness=EXACT check=b4bf6c95f403 because=tests/gates/arch-spark-broker.gate
+  CRUMB-VERIFY pool=host exactness=EXACT check=e9f8718de39c because=always
+Cached:
+  (none)
+Needs Spark:
+  (none)
+Needs GB10:
+  (none)
+Advisory:
+  (none)
+Blocked:
+  (none)
+UNMAPPED:
+  (none)
+Note: pipeline configuration changed; allowed by --operator
+Plan verdict: RUNNABLE
