@@ -1,0 +1,14 @@
+{
+  "alignment": [
+    "start = and add weights 4095 18446744073709547520",
+    "start = weights"
+  ],
+  "validation": [
+    "if scale\n",
+    "if false\n"
+  ],
+  "cleanup": [
+    "fn wabort status int to int\nif ne mapdrop get wstage 0 0\nret 74\nend",
+    "fn wabort status int to int"
+  ]
+}

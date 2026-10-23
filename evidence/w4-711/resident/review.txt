@@ -1,0 +1,95 @@
+Independent L791 native packed resident-loader review, 2026-10-23
+PASS: no blocking findings in the owned-handle lifecycle. Product unchanged.
+
+Identities
+resident.om SHA256 c08d54c939675a4beca757943ba9872480cc0bbff64c3d90c288027f73c92bd5
+resident-test.om SHA256 205a9fd5cc637ffbef2c0df37b52dcf990eb1a391f5aa690a4bd7a19d7d14f49
+Live resident.om rehashed after tests, identical to frozen source.
+Compiler /tmp/core711-resident/omc
+SHA256 1d1aad082539399920bc6c90ff41f0a0c3a1ca3225e518fd0d259e0aeb71732d
+Parent identifies L788 source d80b428c / PR676 head7bc13ac2 as GitHub-verified.
+
+Independent native tests
+independent.om builds its own owned files and computes expected bytes
+without calling loader helpers for expected layout. Rows529, cols512:
+weights135424 bytes, padding3840, scales8464, scale offset139264,
+total147728. Both weight and scale copies cross the8192-byte chunk boundary.
+Weights follow (absolute_index*17+3)%256. Scales follow absolute_index%193,
+covering every accepted scale including192. Every mapped image byte is
+verified twice through wread: weights, zero padding, and scale bytes.
+Final execution:296271 checks,0 failures, exit0.
+Evidence: independent.om, all.om, test.elf, compile.log, test.stdout, results.txt.
+
+Coverage
+- Empty read/drop lifecycle, repeated drop, zero-length endpoint read.
+- Exact state dimensions, offset and byte count; busy-load refusal.
+- Oversized read, endpoint overrun and maximum-unsigned offset refusal.
+- Zero budget, budget above64GiB, one-byte-short budget, exact budget.
+- Negative, huge invalid, equal and closed file descriptors.
+- Incorrect weight lengths, empty weight/scale files and trailing scale byte.
+- Actual128-slot mapping table exhaustion through real anonymous allocations.
+  Loader returns75 without publishing state. Freeing one slot permits load;
+  dropping all retained maps restores normal allocation.
+-140 consecutive failures on scale193 in the final scale byte, beyond the
+  first8192-byte scale chunk. Each returns76 with empty published and staged
+  state. A second actual table-capacity test proves no mapping-slot leak.
+- Full successful reload and whole-image verification after failure series.
+- All test-owned descriptors close and source files are removed.
+
+Stale handle behavior
+Separate stale.om allocates, drops, then directly mapreads its retired
+handle. Runtime exits103 fail-closed. It does not return a normal negative
+mapread result. This is intentionally isolated from the main passing suite.
+An earlier draft expected a returned error and stopped103; that run is not
+counted as passing evidence. Public wread after wdrop returns73 without
+calling runtime on the retired handle, and passes in the main suite.
+Callers must preserve the loader's ownership of its mapping handle; direct
+out-of-band mapdrop of wstate is outside the tested owned-handle lifecycle.
+
+Compiled sensitivity controls
+All three mutations compile successfully and execute exit1:
+1. Unaligned scale start set directly to weights:24564 failures/296271 checks.
+2. Scale validation skipped:280 failures/296271 checks.
+3. wabort mapdrop removed:139164 failures/296141 checks. Lower check count
+   follows actual leaked capacity in the capacity-dependent cleanup loop.
+Exact edits:controls.json. Per-control .om,.elf,.log,.stdout and aggregate
+controls-results.txt retain evidence. Controls use the final native suite.
+
+Resource/error-path review
+Dimension checks precede multiplication; maximum rows*cols=2^33, weight
+bytes2^32 and scale bytes2^28, safely within unsigned64-bit calculations.
+4KiB round-up cannot overflow under these limits. Budget is explicitly
+required and checked before source-size checks or allocation. Source-size
+checks rewind accepted files. Copy loops bound chunks to8192 and handle
+short reads; trailing-byte probes refuse growing sources. Scale validation
+precedes writing its chunk to the private map. Stage handle is published
+only after both complete copies pass, and every copy refusal calls wabort.
+Map allocation failure leaves both stage and public state empty. wdrop
+retire/clear behavior and mapping-table recovery were exercised directly.
+The loader borrows input descriptors and leaves closing to its caller.
+It does not mutate the source files. wbuffer is scratch state on failures.
+
+Reproduction commands
+Working directory /tmp/core711-review/resident:
+  cat resident.om independent.om > all.om
+  /tmp/core711-resident/omc < all.om > test.elf 2> compile.log
+  chmod 700 test.elf
+  mkdir -p fresh-run
+  (cd fresh-run && ../test.elf) > test.stdout
+Use a fresh directory: test files are exclusive creations. Each mutation
+is its changed resident source concatenated with independent.om, compiled
+and executed by the same sequence in its own fresh directory.
+  /tmp/core711-resident/omc < stale.om > stale.elf 2> stale.log
+  chmod 700 stale.elf
+  ./stale.elf
+Expected stale exit103. SHA256SUMS identifies retained test artifacts.
+
+Limits
+Host anonymous-memory loading only. No GPU, device upload, matrix launch,
+full-model resident claim, inference-speed measurement, or model accuracy.
+Parent owns the full-projection comparison; not counted in this review.
+No runtime/compiler edits, product edits, live-service or GitHub changes.
+No injected mid-read OS failure, mapping-write failure, unmap OS failure,
+concurrent source-file mutation or partial read. Those paths source-reviewed.
+This validates bytes and loader lifetime; it does not establish accelerator
+pointer/layout compatibility or production model integration.

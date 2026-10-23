@@ -1,0 +1,76 @@
+{
+  "date": "2026-10-23",
+  "source_commit": "3a0ff5ce59ed1ba5df0d02ca48fffd27f120af53",
+  "source_sha256": "c08d54c939675a4beca757943ba9872480cc0bbff64c3d90c288027f73c92bd5",
+  "compiler": {
+    "repository": "aien-dev/omega-mv",
+    "functional": "d80b428c6ed9e3864fd7fc02cd7392bd4ad67f56",
+    "consumed_head": "7bc13ac26a99d47c7afec9d9f1e84a05cd904d45",
+    "pr": 676,
+    "state": "open draft, not merged",
+    "sha256": "1d1aad082539399920bc6c90ff41f0a0c3a1ca3225e518fd0d259e0aeb71732d"
+  },
+  "binaries": {
+    "author": "6056c2aba7e8428caa0fc4ae8e694b8d12ce3e408ca727581fc8565919087dd5",
+    "independent": "582f72c50922f6ea7a110075a3005e3edfeaffa5230b0161536bd7a685ba852b",
+    "projection": "b0f4be684a4a56ce93e636d309c2d7371f991994ead05f965f266059272d14e0"
+  },
+  "author_checks": 8715,
+  "independent_checks": 296271,
+  "failures": 0,
+  "independent_compiled_controls": 3,
+  "parent_rebuilt_independent": true,
+  "real_projection": {
+    "rows": 17408,
+    "columns": 5120,
+    "requested_mapping_bytes": 47349760,
+    "rules": [
+      {
+        "rule": 0,
+        "weights_sha256": "61041e6e5fd0dd7e88694cff6153404a2c66830dbfb941773d2081018bf96e07",
+        "scales_sha256": "f598dce7944a0894cec7b7ddcd06f6147ca19c3d5a67d446f120c7b4b1fd68e6",
+        "loader_exit": 0,
+        "comparison_exit": 0
+      },
+      {
+        "rule": 1,
+        "weights_sha256": "7f7a34e5f8f721c5e8e937f3325f8713e861262fae85096281f224e1c7429d60",
+        "scales_sha256": "7b6d506799d45092bb63e8dbd97cfcfba66925f6dacf20730994d59ef64bebca",
+        "loader_exit": 0,
+        "comparison_exit": 0
+      },
+      {
+        "rule": 2,
+        "weights_sha256": "bc66e317ac69585242ba972e096e33a6e50afa35b14c593904cd87ccce9fac94",
+        "scales_sha256": "671deee797da983426ed802724d39579f37135cfd2b8e6cad163191c3b5d6260",
+        "loader_exit": 0,
+        "comparison_exit": 0
+      }
+    ]
+  },
+  "source_files": [
+    {
+      "path": "native/w4/resident-test.om",
+      "sha256": "205a9fd5cc637ffbef2c0df37b52dcf990eb1a391f5aa690a4bd7a19d7d14f49"
+    },
+    {
+      "path": "native/w4/resident.om",
+      "sha256": "c08d54c939675a4beca757943ba9872480cc0bbff64c3d90c288027f73c92bd5"
+    },
+    {
+      "path": "native/w4/review/resident-independent.om",
+      "sha256": "3f1eb3639de28edc8c1a54536e836101b81dbca4fc72f34ad1098a7631dd3bf4"
+    },
+    {
+      "path": "native/w4/review/resident-projection.om",
+      "sha256": "a3f4d9119f3ed95fe6b3e30a102a2415535d95441206bd71477e56103fc5f01c"
+    },
+    {
+      "path": "native/w4/review/resident-stale.om",
+      "sha256": "4612067cc1b676e0d53a12fc19ac184a31ddeb6474f87728d04b861c179e9195"
+    }
+  ],
+  "gpu": false,
+  "full_model": false,
+  "repository_gate": "FAIL retained; no waiver"
+}

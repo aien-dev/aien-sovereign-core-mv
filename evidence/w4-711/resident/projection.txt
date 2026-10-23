@@ -1,0 +1,40 @@
+Executed real-projection load/readback, 2026-10-23
+
+Build ordered units:
+  native/w4/resident.om
+  native/w4/review/resident-projection.om
+Compile with the L788 mapping profile identified in receipt.json, into
+projection.elf. Compiler exit0. Executable is handwritten Omega, emitted
+by the seeded compiler without a foreign runtime.
+
+For each rule0,1,2, use existing full real projection outputs from the preceding
+native tensor converter qualification. Verify their hashes against
+../tensor/receipt.json before replay. Run with two raw-file paths:
+quiet-build timeout30 projection.elf gate-R.w4 gate-R.e8
+The native program validates and loads17408x5120 values, closes both input
+files, emits44564480 packed weight bytes followed by2785280 scale bytes,
+then releases the owned memory mapping. Its budget is exactly47349760 bytes.
+Compare its stdout with concatenated gate-R.w4 and gate-R.e8 using cmp.
+Executed as a pipe with both producer and comparison statuses captured:
+rule0: loader0 comparison0
+rule1: loader0 comparison0
+rule2: loader0 comparison0
+
+The independent native resident suite was separately rebuilt by the parent
+from the committed independent.om test unit and executed in a fresh private
+directory:296271checks,0failures,exit0. Author8715checks also pass. Three
+compiled sensitivity controls and isolated stale-handle exit103 are recorded
+by independent review, not counted as model or GPU experiments.
+
+Earlier author test draft reported two failures: its file-length case had an
+insufficient allocation budget (correctly refused earlier with75), and its
+recovery fixture restored scale192 but expected180. Corrected those fixture
+expectations/setup, added explicit maximum-scale192 acceptance, then froze
+source before independent qualification. Earlier compilation exposed register
+capacity; splitting budget/allocation helpers resolved it without compiler edits.
+
+These are actual host memory copies and lifecycle checks. There is no GPU
+registration, launch, matrix computation, full-model inference or timing claim.
+Input/output hashes retain the earlier model provenance. No model bytes or
+binaries are committed. Repository preflight remains failed on the same base,
+as recorded in ../preflight.txt; no gate waiver or automatic closure.
