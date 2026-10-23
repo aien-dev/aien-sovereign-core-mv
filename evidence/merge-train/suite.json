@@ -39,8 +39,9 @@
       "server_env": {
         "AIEN_BOARD_DIR": "$OUT/board"
       },
-      "enabled": false,
-      "about": "L376's team board: on only with a board dir at start; enabled when L354 merges serve/q36-board"
+      "enabled": true,
+      "about": "L376 team board: load-only (AIEN_BOARD_DIR at start), so a second server; on in serve/q36-board-ship (ship/motor-l387 + board). log_proof: the board must be ON in the server log, else NOT-ON-TRAIN",
+      "log_proof": "team board ON"
     }
   },
   "levers": [

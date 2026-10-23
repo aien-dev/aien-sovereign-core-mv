@@ -507,6 +507,25 @@ fn no_chat_template_error() -> TokenizerError {
 }
 
 impl ChatTemplate {
+    /// What the renderer adds after an assistant turn when the next message is a tool-response
+    /// user turn (`tool_turn`: its whole text, `<tool_response>` blocks) and the prompt opens
+    /// again: `<|im_end|>\n`, the user turn, the generation prompt (L376: a tool call the server
+    /// answers itself continues the same turn in place). Qwen3.6 only; `None` for layouts without it.
+    pub fn tool_round_tail(&self, tool_turn: &str, opts: &ChatOptions) -> Option<String> {
+        match self {
+            Self::Qwen36 => Some(format!(
+                "<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n{}",
+                tool_turn.trim(),
+                if opts.enable_thinking == Some(false) {
+                    "<think>\n\n</think>\n\n"
+                } else {
+                    "<think>\n"
+                }
+            )),
+            _ => None,
+        }
+    }
+
     pub fn name(&self) -> &'static str {
         match self {
             Self::Zephyr => "zephyr (TinyLlama chat)",
@@ -1089,5 +1108,38 @@ mod tests {
         assert!(tokenizer.is_bos(1));
         assert!(tokenizer.is_stop_token(2));
         assert!(tokenizer.is_stop_token(0));
+    }
+}
+
+#[cfg(test)]
+mod tool_round_tests {
+    use super::*;
+
+    /// The tail equals what the renderer itself adds for an assistant turn followed by one tool
+    /// response, both with thinking off (the live 35B) and on, so an in-place tool round reads the
+    /// same bytes as the re-rendered history would.
+    #[test]
+    fn qwen36_tool_round_tail_matches_the_renderer() {
+        let resp = "posted to the team board as entry 3";
+        let tool_turn = format!("<tool_response>\n{resp}\n</tool_response>");
+        for thinking in [Some(false), None] {
+            let opts = ChatOptions {
+                enable_thinking: thinking,
+                ..ChatOptions::default()
+            };
+            let base = render_qwen36(&[("system", "S"), ("user", "Q")], &opts).unwrap();
+            // The model's own reply after the prompt: with thinking on it closes its think block.
+            let reply = if thinking == Some(false) { "X" } else { "R\n</think>\n\nX" };
+            let full = render_qwen36(
+                &[("system", "S"), ("user", "Q"), ("assistant", reply), ("user", &tool_turn)],
+                &opts,
+            )
+            .unwrap();
+            let tail = ChatTemplate::Qwen36.tool_round_tail(&tool_turn, &opts).unwrap();
+            assert_eq!(full, format!("{base}{reply}{tail}"), "thinking {thinking:?}");
+        }
+        assert!(ChatTemplate::Qwen38
+            .tool_round_tail("r", &ChatOptions::default())
+            .is_none());
     }
 }

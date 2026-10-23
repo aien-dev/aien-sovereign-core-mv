@@ -1,0 +1,49 @@
+{
+  "model": "qwen3.6-35b-a3b-fp8",
+  "temperature": 0,
+  "max_tokens": 300,
+  "chat_template_kwargs": {
+    "enable_thinking": false
+  },
+  "aien_return_token_ids": true,
+  "aien_conversation": "L376-A",
+  "aien_agent": "agent-A",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "read_file",
+        "description": "Read a file on the Spark",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    }
+  ],
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are Hermes, an agent on the Spark working with other agents. Use the tools when they help. Be brief."
+    },
+    {
+      "role": "user",
+      "content": "Use the board_post tool to post this exact fact to the team board: the release sha is 706dff5f. After the tool answers, reply with the single word done."
+    },
+    {
+      "role": "assistant",
+      "content": ""
+    },
+    {
+      "role": "user",
+      "content": "Now read /etc/hostname with read_file."
+    }
+  ]
+}
