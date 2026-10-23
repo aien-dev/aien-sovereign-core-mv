@@ -1,0 +1,42 @@
+[
+  {
+    "name": "tie",
+    "from": "if eq and i 1 0",
+    "to": "if ne and i 1 0",
+    "compile": 0,
+    "exit": 1,
+    "stdout": "1219868\n97921\n"
+  },
+  {
+    "name": "nibble",
+    "from": "shl code mul and c 1 4",
+    "to": "shl code mul xor and c 1 1 4",
+    "compile": 0,
+    "exit": 1,
+    "stdout": "1219868\n48\n"
+  },
+  {
+    "name": "scale",
+    "from": "bexp = and shr scale 7 255",
+    "to": "bexp = ulong 127",
+    "compile": 0,
+    "exit": 1,
+    "stdout": "1219868\n332495\n"
+  },
+  {
+    "name": "best",
+    "from": "if lt get qerr 1 get qerr 0",
+    "to": "if gt get qerr 1 get qerr 0",
+    "compile": 0,
+    "exit": 1,
+    "stdout": "1219868\n1\n"
+  },
+  {
+    "name": "nan",
+    "from": "if eq mag 127",
+    "to": "if ne mag mag",
+    "compile": 0,
+    "exit": 1,
+    "stdout": "1219868\n6896\n"
+  }
+]

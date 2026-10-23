@@ -1,0 +1,85 @@
+Independent Core #711 native W4 review
+Date: 2026-10-23
+Reviewer: /root/w4_validation
+
+Scope and source identity
+Reviewed immutable copies of native/w4/pack.om and stream.om from
+/home/drakestapleton/workspace/sc-native-w4-711.
+Live product hashes rechecked after testing, unchanged:
+pack.om   724fc1476a29655a087b7385e7a7a47410028ea0ede9dcfd84e39a6dab5e16db
+tests.om  2b6f2aa739d73bd502ae6873624458d522a5415c5ff4bcae9fcb5b2bb21a7ab5
+stream.om 4383e5183c3c2ca9e64231a9615c1a61baba5239daaddb4fd8aebc19ac3deeff
+Compiler: /home/drakestapleton/workspace/cudapp-adaptive-27b/build/speculation/toolchain/build/bootstrap/omc
+Compiler SHA256: 191b776ef98821597c3e30655da6d680a9b66edbc9ceaca3c39c61ea6df098e9
+Original contract read from omega-speed3-w4gemv/src/omega_gpu_w4_api.c
+and omega_blackwell_codegen_w4.h, parent-confirmed remote revision
+8655007f0f09d454b47b75fb3d83bc80e8f6d4da.
+No product files edited. No GPU, GitHub, service, or shared compiler changes.
+
+Independent native oracle
+probes.om enumerates nearest absolute distance across all eight E2M1
+magnitudes with even-code tie breaking. Expected results do not use the
+product midpoint expression or its qround/qgrid/qtrial helpers.
+Native build and execution pass: 4,381,347 checks, zero failures, exit 0.
+Evidence: probes.om, all.om, compile.log, probes.elf, probes.stdout.
+Coverage includes all 65,536 BF16 encodings with mixed signed FP8 groups
+under OCP/FIT/BEST; negative and subnormal BF16 scales; positive and negative
+zero; scale underflow/overflow refusals; finite and nonfinite scales;
+NaN in each of 32 input positions; small integer lattice powers 0..11 and
+values 0..4095; large exact midpoint ties and adjacent integers at powers
+0..22; packed low-nibble-first order; status, output, and metadata.
+
+Compiled sensitivity controls
+Three product mutations compiled successfully and were detected by this
+same independent oracle, each returning exit 1:
+- Inverted tie parity: 5,899 failed checks.
+- Inverted BEST error comparison: 263,995 failed checks.
+- Swapped packed nibble order: 1,867,304 failed checks.
+Exact edits and results: controls.json. Per-control source, binary,
+compilation log, and stdout are retained.
+Earlier unsuccessful authoring builds of the independent test were not
+counted as execution evidence or as successful controls.
+
+Stream checks
+fixture.om and reply.om are separate native request generator and response
+verifier. Across 128 requests, independently verified exact 20-byte replies
+for positive scale, negative scale, zero group, and NaN rejection, cycling
+all three policies. Total input 4,480 bytes and output 2,560 bytes.
+A bytewise native producer passed, then explicit split delivery demonstrated
+an actual one-byte read followed by a 34-byte read (split.trace). Both
+stream and independent verifier returned 0.
+EOF on empty input: exit 0, no output.
+Truncated 34-byte request: exit 65, no output.
+Closed input descriptor: exit 74, no output.
+Closed output descriptor: exit 74.
+Evidence: stream-results.txt, fixture.om, reply.om, stream-all.om,
+requests.bin, replies.bin, split.trace, split.reply, individual build logs.
+Partial-output retries were reviewed in source but not fault-injected.
+A closed output descriptor verifies returned write errors, not SIGPIPE:
+a broken pipe may terminate by signal before the write error is handled.
+The implementation treats interrupted reads/writes as errors rather than
+retrying them. This is consistent with its fail-on-I/O-error diagnostic scope.
+
+Arithmetic bound review
+Finite E4M3FN magnitude decoded in units of 1/512 is at most 229376.
+Multiplication by a finite BF16 mantissa at most 255 yields raw <=58490880,
+strictly below 2^26. Thus base power <=25 and raised power <=26.
+Rounding midpoint and scaled raw comparisons fit well within unsigned 64 bits.
+For base power p, raw lies below 2^(p+1), so reconstruction target raw*8
+lies below 16*2^p. The final grid point is 12*2^p. Saturation error is
+less than 4*2^p; unsaturated nearest error is at most 2*2^p.
+At p<=25 this makes each error less than 2^27.
+For the raised trial, original maximum is below 8*2^p, so its nearest error
+is at most 2^p with p<=26, also below 2^27.
+Each squared error is below 2^54; 32 terms total below 2^59. No overflow in
+the 64-bit sum or products. Scale arithmetic is bounded before output.
+
+Findings and limits
+No blocking converter or stream defects found for the documented diagnostic
+group contract. There are no requested product fixes from this review.
+This review does not claim GPU execution, inference speed, full-checkpoint
+conversion, model loading, model accuracy, or production integration.
+The oracle validates the inspected mathematical contract independently;
+this review did not execute a legacy C converter differential comparison.
+Parent author's 1,219,868 checks are separate and are not included in the
+independent 4,381,347 count.
