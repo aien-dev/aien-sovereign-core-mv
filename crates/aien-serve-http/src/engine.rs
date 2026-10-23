@@ -112,6 +112,20 @@ pub trait Engine: Send + Sync {
     fn concurrency(&self) -> usize {
         1
     }
+    /// [`Self::generate`] for a prompt that continues the turn this engine just generated (L376
+    /// built-in tool rounds: the previous prompt, its reply's own tokens, a tool-response tail).
+    /// An engine with per-conversation reuse points keeps them where they were: the client's
+    /// next request renders the turn without the hidden exchange. The merge train's switches
+    /// (`test`) follow the request into every round. The default just generates.
+    fn generate_continuation(
+        &self,
+        prompt: &[u32],
+        params: &GenerateParams,
+        test: &TestSwitches,
+        on_token: &mut dyn FnMut(u32) -> bool,
+    ) -> Result<GenerateOutcome, EngineError> {
+        self.generate_with_test(prompt, params, test, on_token)
+    }
     /// The merge train's per-request switches this engine honors (`TestSwitches` field names).
     /// Empty for every engine without them; the server refuses a request whose `aien_test`
     /// names a switch outside this list, so a switch is never ignored in silence.

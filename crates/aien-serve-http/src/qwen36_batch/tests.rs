@@ -370,7 +370,7 @@ fn switched_door(rows: usize) -> Qwen36BatchDoor {
 
 fn run_test(d: &Qwen36BatchDoor, prompt: &[u32], n: usize, t: TestSwitches) -> Vec<u32> {
     let mut words = Vec::new();
-    d.generate_test(prompt, &greedy(n), t, &mut |tok| {
+    d.generate_test(prompt, &greedy(n), t, false, &mut |tok| {
         words.push(tok);
         true
     })
@@ -490,6 +490,7 @@ fn no_switches_is_the_served_path_on_a_stepper_without_them() {
             mutant: Some(4),
             ..TestSwitches::default()
         },
+        false,
         &mut |_| true,
     );
     assert!(matches!(r, Err(EngineError::Failed(_))), "{r:?}");
