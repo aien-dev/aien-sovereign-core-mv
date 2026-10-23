@@ -35,44 +35,44 @@
       "children": [
         {
           "digest": "7e3010879f3825cb16a0651afe37835aa9ba6ac4a1b1c2a7d03f4767dbd136a2",
-          "last_commit": "b2fef5cb",
+          "last_commit": "",
           "name": "gpu-telemetry",
           "purpose": ""
         },
         {
           "digest": "b6f288e41c637959bf1df32b28d9b8a2088f531681f6319f6587f8b62d19b8ba",
-          "last_commit": "b2fef5cb",
+          "last_commit": "",
           "name": "radicle-sync",
           "purpose": ""
         },
         {
           "digest": "9d5a5630ff03ffc43e893350b017638d6d39fbae9e537d565df217e037bfebf7",
-          "last_commit": "b2fef5cb",
+          "last_commit": "",
           "name": "scaffold-project",
           "purpose": ""
         },
         {
-          "digest": "658199e445b94e279fac37311108efa89860c875fb469597a1a696b95eb76195",
-          "last_commit": "f97dc905",
+          "digest": "208ef0d1eb164d45d1ab50c47025ceb64896265b3704b776c761a7ec52b0cb97",
+          "last_commit": "",
           "name": "self-improvement",
           "purpose": ""
         },
         {
           "digest": "db3e90e6d686daed3e36254b4b540f0592ae526710a3b0fab7ee585c2a34c305",
-          "last_commit": "b2fef5cb",
+          "last_commit": "",
           "name": "unslop",
           "purpose": ""
         }
       ],
-      "children_root": "sha256:fb9c1475432753af7a788bb3c8d7379c2feb4c1c626b3389efa24f033779dea2",
-      "compiled_at": "2026-10-15T11:09:25Z",
+      "children_root": "sha256:800b9806c83cca3a8008c9730752653c89cdcd17338aed976fa868fea7b3fbda",
+      "compiled_at": "2026-10-23T11:16:25Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:75e439cb2ae120e1807af894b70b6454971028f5527f56451f9d6558f503c88b",
+      "digest": "sha256:ce6de3325902c6fa8f748dc46f16b3b2f283b332d34dad26afa396f20c84dac9",
       "evidence_files": 0,
       "evidence_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "files": 9,
-      "generated_at_commit": "7b88b1c4a03de5900578a43e90ce5733f86bbd9d",
-      "source_tree": "sha256:16bf6f03e2f4c6247f5119f03624e964d02605a1bfa4df3683bccc8548b86036"
+      "generated_at_commit": "0000000000000000000000000000000000000000",
+      "source_tree": "sha256:87cd497db37c4f070e122d823699f733c542e5a320bb3ba9b1aeaf370a643f4b"
     }
   },
   "history": [
