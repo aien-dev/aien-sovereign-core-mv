@@ -1,0 +1,40 @@
+{
+  "schema": "renda-install/1",
+  "state": "INSTALLED_PENDING_CLEAN_START",
+  "installed_at": 1792752671.100104,
+  "release": "/home/drakestapleton/.local/lib/renda/releases/L603-fbfa8c78dc482892",
+  "backup": "/home/drakestapleton/handoffs/L679-deploy/backup-20261023T105111Z",
+  "manifest_sha": "fbfa8c78dc4828928af90ce098f4cd8f7bae66757ff64fb2aa99baebe5874efd",
+  "previous": {
+    "renda-harness": "8a686b674b046f66cad241f7be3b23683d7c773a2a4a165b7f05fe78ef100047",
+    "renda-checked": "4a8291a2ad33b8a2665934f9e4e969bc3192f70ad77205c192cbe909d8a2b698"
+  },
+  "installed": {
+    "renda-harness": "36bbf85d910be1e805cfb00475588a0fb25a19c451b43e6e89171a2298333522",
+    "renda-checked": "6f3becaf6ecfe559237e3f2b552a808d39a99f5466239e15d03c7e430625fba7"
+  },
+  "source_files": {
+    "delivery.py": "490c5bde6c4a82c82600e8364864ae6a2aa2cd3164475e7287a08ab91f846be2",
+    "install.py": "c15803fafb49ba639c8174c51393d4d4c49d614374c1a918dbd4650561dcf2b6",
+    "local_queue.py": "5fe14b3134408c466eceec49ae86639d37aad48f09b9973c769cd44e107cee76",
+    "publication_transport.py": "2ac0c18fe67ed1670e9ee11fcc93a037f7951118e12eb6b2a7e6e1de072e05c1",
+    "renda-checked": "6f3becaf6ecfe559237e3f2b552a808d39a99f5466239e15d03c7e430625fba7",
+    "renda-harness": "36bbf85d910be1e805cfb00475588a0fb25a19c451b43e6e89171a2298333522",
+    "review_chunks.py": "13e3691b17d31f6305856b021208ffd0a82de559e2c1d4ea7a513011f6f5cb50",
+    "site_policy.py": "9526113b6b4a323b1d47f538d60261e499228cda89a31c5ba2090997dcea2cc3",
+    "successor.py": "1cf8be6b0621c0e4037774793099e9100a6cf81c8a845324d978f749cd7f7efe",
+    "test_admission.py": "1efb14c0c3474613cd7a7cfd859940a182de97259ee7a890657caecacb91948b",
+    "test_delivery.py": "e1eee9cf1b5679351bc448c21e09d385dd99326bcdeb5c04d2bb0ad7f29c16b8",
+    "test_delivery_recovery.py": "493a7dc65f8872753008227a1883c3ca56df84f2e2789be820fc8b1001017218",
+    "test_install.py": "3105a38e6e9cd447323679508325d6e117479a7852b084458762ae460d8db75f",
+    "test_local_queue.py": "b36825395e08c2b8cdf89220cb3a38e49a8e4829f3509236e99a001b78c0ae4c",
+    "test_publication_transport.py": "9307ddf3b280885ff090049dc142dc71f8b4c90485e63b2136ce6fc6230828f2",
+    "test_reliability.py": "f924611a7988bd00df7f8bf81ddfa63731561e09035510854f86c40473bc2b55",
+    "test_review_chunks.py": "9bed4439e603a07218598fccf37ac540b71e0d5675c81e8a7feffd1607b80fe2",
+    "test_review_integration.py": "e390d4850f718f8df8ab25b7a694ee71a4e7bc452093d8254ecc0540ec5232f9",
+    "test_site_policy.py": "cf035d9f5bafafd788c044e26655c0e9938e4f5f82750dad5b460f03e1d1552f",
+    "test_successor.py": "db266d67bce033db580483c13535e50a934c349178f1003c0d21008a815f8eee"
+  },
+  "processes_signalled": false,
+  "active_worker_version": "NOT_CHANGED_BY_INSTALLER"
+}
