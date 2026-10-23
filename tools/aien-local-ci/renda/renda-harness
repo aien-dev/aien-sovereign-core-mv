@@ -933,7 +933,7 @@ def lane_pass(repo):
                     fresh_pr=lambda owner, number: decode_one(gh_json(graphql_args(owner, number=number))),
                     get_statuses=exact_status_rows, write_status=post_exact_status, operator_verdict=operator_verdict, judging=judging)
                 ok, status_note = deliver_receipt_status(repo, queue, p, mid, policy, status_ctx)
-                category = res.setdefault("status", []) if ok and 'already present' not in status_note else res["waiting"]
+                category = res.setdefault("status", []) if ok else res["waiting"]
                 category.append(status_note)
                 if ok:
                     st, desc = "success", status_note

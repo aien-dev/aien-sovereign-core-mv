@@ -134,6 +134,20 @@ class ReceiptStatusDelivery(unittest.TestCase):
         deliver.assert_called_once()
         self.assertEqual(result['status'],['exact status read back'])
 
+    def test_idempotent_success_is_reported_as_status_not_waiting(self):
+        doc=dict(entries=[dict(kind='pr',pr=dict(self.pr,mergeStateStatus='UNKNOWN'),active=True,
+            key=f'{self.q.full}#48@{self.q.head}',provenance='synthetic',remote_observed_at=1)])
+        self.q.doc=doc
+        note='exact Spark success already present on exact head'
+        with patch.object(h,'Queue',return_value=self.q), patch.object(h,'policy_hash',return_value='synthetic-policy'), \
+                patch.object(h,'model_id',return_value='synthetic-model'), patch.object(h,'lane_owned',return_value=True), \
+                patch.object(h,'held',return_value=None), patch.object(h,'queued_status',return_value=('none','')), \
+                patch.object(h,'load_block',return_value={'open':None,'solo':[48],'size':12}), \
+                patch.object(h,'deliver_receipt_status',return_value=(True,note)):
+            result=h.lane_pass('interplane')
+        self.assertEqual(result['status'],[note])
+        self.assertNotIn(note,result['waiting'])
+
     def test_refuses_changed_pr_identity_and_repository(self):
         for field, value in (('headRefOid', 'c' * 40), ('baseRefOid', 'd' * 40),
                              ('state', 'CLOSED'), ('isDraft', True), ('baseRefName', 'develop')):
