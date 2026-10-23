@@ -4,7 +4,17 @@
 //!                   [--whole-prompt on|off] [--prefill-device-host on|off]
 //!                   [--model-dir DIR] [--port 18091]
 //!                   [--bind 127.0.0.1] [--model-id ID] [--max-context N]
-//!                   [--max-tokens-cap N] [--stub-reply TEXT] [--thinking on|off|template]
+//!                   [--max-tokens-cap N] [--stub-reply TEXT]
+//!                   [--mem-budget-gib G] [--budget-policy shrink|refuse] [--plan-only]
+//!
+//! Dense Qwen3 (aien-rig): a checkpoint whose `config.json` says `model_type: qwen3` (Qwen3-8B,
+//! Qwen3-8B-FP8, Qwen3-4B-Instruct-2507) loads onto the dense Omega engine
+//! ([`aien_serve_http::dense_engine`]). `--weights w4` converts Qwen's FP8 checkpoint to 4-bit
+//! MXFP4 at load (omega's W4 GEMV). `--mem-budget-gib 12` plans weights + KV + scratch inside
+//! 12 GiB before the upload: a context that does not fit is shrunk to the largest that does
+//! (`--budget-policy shrink`, the default) or refused (`refuse`); a model that cannot hold 2048
+//! tokens is refused. The bytes omega allocated are checked against the budget after the load.
+//! `--plan-only` prints the plan and exits without touching the chip.
 //!
 //! `cpu` (default) loads the checkpoint into the CPU reference forward (slow, real).
 //! `omega` loads the checkpoint onto AIEN's own GPU engine (FP8 by default, spin 2000 us
@@ -18,9 +28,6 @@
 //! refuses with a startup line and the door runs plain. Unset: nothing changes.
 //! SIGTERM/SIGINT: stop accepting, finish the request in flight, drain the parks, exit 0.
 //! `AIEN_KV_TEST_FAULT` (chip acceptance checks only) stalls one store step; see `kv_persist`.
-//! `--thinking on|off|template` sets `enable_thinking` for requests that do not set it themselves
-//! (`chat_template_kwargs.enable_thinking`); `template` (the default) leaves the chat template's
-//! own default (Qwen3.8-27B and Qwen3.6-35B-A3B: on). Templates without a thinking switch ignore it.
 //! `stub` replays `--stub-reply` for every request, using the model directory's
 //! tokenizer when it exists (so Odysseus can be wired before the weights load).
 
@@ -29,16 +36,16 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
+use aien_inference_abi::qwen3_dense_budget::{BudgetPolicy, ProjFormat};
 use aien_inference_abi::qwen3_moe_omega::WeightFormat;
 use aien_serve_http::codec::{ByteCodec, Codec, HfCodec};
 use aien_serve_http::cpu_engine::CpuReferenceEngine;
+use aien_serve_http::dense_engine;
 use aien_serve_http::engine::{Engine, StubEngine};
 use aien_serve_http::kv_persist;
 use aien_serve_http::omega_engine::{
     parse_switch, OmegaDoor, PrefillMode, WHOLE_PROMPT_ENV, WP_DEVICE_HOST_ENV,
 };
-use aien_serve_http::qwen36_batch;
-use aien_serve_http::qwen38_engine;
 use aien_serve_http::server::{serve_until, ServerConfig};
 
 const DEFAULT_MODEL_DIR: &str = "models/qwen3-30b-a3b-instruct-2507-fp8";
@@ -53,15 +60,19 @@ struct Args {
     whole_prompt: Option<bool>,
     wp_device_host: Option<bool>,
     prefill: PrefillMode,
-    /// Qwen3.6-35B-A3B only: conversations stacked on one beat (0: the one-at-a-time door).
-    batch_slots: usize,
+    /// `--weights w4` (dense Qwen3 only): MXFP4 converted from Qwen's FP8 at load.
+    dense_w4: bool,
+    /// `--mem-budget-gib`: weights + KV + scratch must fit (dense Qwen3 only).
+    budget_bytes: Option<u64>,
+    budget_policy: BudgetPolicy,
+    plan_only: bool,
 }
 
 fn usage() -> String {
-    "usage: aien-serve-http [--engine cpu|stub|omega] [--weights bf16|fp8-experts|fp8] [--spin-us N] \
+    "usage: aien-serve-http [--engine cpu|stub|omega] [--weights bf16|fp8-experts|fp8|w4] [--spin-us N] \
      [--model-dir DIR] [--port N] [--bind ADDR] [--model-id ID] [--max-context N] \
      [--max-tokens-cap N] [--stub-reply TEXT] [--whole-prompt on|off] [--prefill-device-host on|off] \
-     [--thinking on|off|template] [--batch-slots N]"
+     [--mem-budget-gib G] [--budget-policy shrink|refuse] [--plan-only]"
         .to_string()
 }
 
@@ -80,7 +91,10 @@ fn parse_args() -> Result<Args, String> {
         whole_prompt: None,
         wp_device_host: None,
         prefill: PrefillMode::default(),
-        batch_slots: 0,
+        dense_w4: false,
+        budget_bytes: None,
+        budget_policy: BudgetPolicy::Shrink,
+        plan_only: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -108,34 +122,36 @@ fn parse_args() -> Result<Args, String> {
                     .map_err(|e| format!("--max-tokens-cap: {e}"))?
             }
             "--stub-reply" => a.stub_reply = val()?,
-            "--thinking" => {
-                a.cfg.default_enable_thinking = match val()?.as_str() {
-                    "on" => Some(true),
-                    "off" => Some(false),
-                    "template" => None,
-                    other => {
-                        return Err(format!(
-                            "--thinking must be on, off or template, got {other}"
-                        ))
-                    }
-                }
-            }
             "--weights" => {
                 a.weights = match val()?.as_str() {
                     "bf16" => WeightFormat::Bf16,
                     "fp8-experts" => WeightFormat::Fp8Experts,
                     "fp8" => WeightFormat::Fp8All,
+                    "w4" => {
+                        a.dense_w4 = true;
+                        WeightFormat::Fp8All
+                    }
                     other => {
                         return Err(format!(
-                            "--weights must be bf16, fp8-experts or fp8, got {other}"
+                            "--weights must be bf16, fp8-experts, fp8 or w4, got {other}"
                         ))
                     }
                 }
             }
-            "--spin-us" => a.spin_us = Some(val()?.parse().map_err(|e| format!("--spin-us: {e}"))?),
-            "--batch-slots" => {
-                a.batch_slots = val()?.parse().map_err(|e| format!("--batch-slots: {e}"))?
+            "--mem-budget-gib" => {
+                let g: f64 = val()?
+                    .parse()
+                    .map_err(|e| format!("--mem-budget-gib: {e}"))?;
+                if !(g.is_finite() && g > 0.0) {
+                    return Err(format!(
+                        "--mem-budget-gib must be a positive number, got {g}"
+                    ));
+                }
+                a.budget_bytes = Some((g * (1u64 << 30) as f64) as u64);
             }
+            "--budget-policy" => a.budget_policy = BudgetPolicy::parse(&val()?)?,
+            "--plan-only" => a.plan_only = true,
+            "--spin-us" => a.spin_us = Some(val()?.parse().map_err(|e| format!("--spin-us: {e}"))?),
             "--whole-prompt" => a.whole_prompt = Some(parse_switch("--whole-prompt", &val()?)?),
             "--prefill-device-host" => {
                 a.wp_device_host = Some(parse_switch("--prefill-device-host", &val()?)?)
@@ -166,6 +182,20 @@ fn parse_args() -> Result<Args, String> {
         a.prefill.device_host = v;
     }
     Ok(a)
+}
+
+/// The dense door's load options from the command line (aien-rig).
+fn dense_options(a: &Args) -> dense_engine::DenseOptions {
+    dense_engine::DenseOptions {
+        format: if a.dense_w4 {
+            ProjFormat::W4
+        } else {
+            ProjFormat::Checkpoint
+        },
+        max_context: a.cfg.max_context_tokens.unwrap_or(32768),
+        budget_bytes: a.budget_bytes,
+        policy: a.budget_policy,
+    }
 }
 
 /// Sampling defaults from the checkpoint's `generation_config.json`, when present.
@@ -201,6 +231,33 @@ fn main() -> ExitCode {
         }
     };
     apply_generation_defaults(&mut args.cfg, &args.model_dir);
+    if args.plan_only {
+        // aien-rig: print the memory plan for this checkpoint and exit; nothing touches the chip.
+        if !dense_engine::is_dense_qwen3_dir(&args.model_dir) {
+            eprintln!(
+                "aien-serve-http: --plan-only needs a dense Qwen3 checkpoint (model_type qwen3)"
+            );
+            return ExitCode::from(2);
+        }
+        let opts = dense_options(&args);
+        return match dense_engine::plan_for(&args.model_dir, &opts) {
+            Ok((_, Some(p))) => {
+                println!("{}", p.line());
+                ExitCode::SUCCESS
+            }
+            Ok((_, None)) => {
+                println!(
+                    "no --mem-budget-gib given: context {} as asked",
+                    opts.max_context
+                );
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                println!("refused: {e}");
+                ExitCode::from(1)
+            }
+        };
+    }
     // OWN-8B stage S negative controls: read once, refused outright without debug assertions.
     match aien_serve_http::sampling::install_mutant_from_env() {
         Ok(None) => {}
@@ -259,8 +316,7 @@ fn main() -> ExitCode {
         Arc::new(
             StubEngine::new(reply).with_max_context(args.cfg.max_context_tokens.unwrap_or(4096)),
         )
-    } else if args.engine == "omega" && qwen38_engine::is_qwen38_dir(&args.model_dir) {
-        // Qwen3.8-27B (config model_type qwen3_5): its own door; no persistent KV (DeltaNet state).
+    } else if args.engine == "omega" && dense_engine::is_dense_qwen3_dir(&args.model_dir) {
         if let Some(us) = args.spin_us {
             if let Err(e) = aien_omega_gpu::set_spin_us(us) {
                 eprintln!("aien-serve-http: spin: {e}");
@@ -268,44 +324,26 @@ fn main() -> ExitCode {
             }
         }
         if args.cfg.model_id == ServerConfig::default().model_id {
-            args.cfg.model_id = qwen38_engine::default_model_id(&args.model_dir).into();
+            args.cfg.model_id = dense_engine::DEFAULT_MODEL_ID.into();
         }
-        if std::env::var_os("AIEN_KV_STORE_DIR").is_some() {
-            eprintln!(
-                "aien-serve-http: AIEN_KV_STORE_DIR ignored: the qwen38 door has no persistent KV"
-            );
-        }
+        let opts = dense_options(&args);
         eprintln!(
-            "aien-serve-http: loading Qwen3.8 (qwen3_5) onto the Omega engine from {}",
+            "aien-serve-http: loading dense Qwen3 ({:?}) onto the Omega engine from {}",
+            opts.format,
             args.model_dir.display()
         );
-        let max_context = args.cfg.max_context_tokens.unwrap_or(32768);
-        if args.batch_slots > 0 && !qwen38_engine::is_moe_dir(&args.model_dir) {
-            eprintln!("aien-serve-http: --batch-slots: this build batches the Qwen3.6-35B-A3B (qwen3_5_moe) only");
-            return ExitCode::from(2);
-        }
-        if args.batch_slots > 0 {
-            match qwen36_batch::Qwen36BatchDoor::load(
-                &args.model_dir,
-                max_context,
-                args.batch_slots,
-            ) {
-                Ok(door) => Arc::new(door),
-                Err(e) => {
-                    eprintln!("aien-serve-http: qwen36-batch load failed: {e}");
-                    return ExitCode::from(1);
-                }
-            }
-        } else {
-            match qwen38_engine::Qwen38Door::load(&args.model_dir, max_context) {
-                Ok(door) => Arc::new(door),
-                Err(e) => {
-                    eprintln!("aien-serve-http: qwen38 load failed: {e}");
-                    return ExitCode::from(1);
-                }
+        match dense_engine::DenseDoor::load(&args.model_dir, opts) {
+            Ok(door) => Arc::new(door),
+            Err(e) => {
+                eprintln!("aien-serve-http: dense load refused: {e}");
+                return ExitCode::from(1);
             }
         }
     } else if args.engine == "omega" {
+        if args.dense_w4 || args.budget_bytes.is_some() {
+            eprintln!("aien-serve-http: --weights w4 and --mem-budget-gib apply to dense Qwen3 checkpoints (model_type qwen3) only");
+            return ExitCode::from(2);
+        }
         eprintln!(
             "aien-serve-http: loading {:?} weights onto the Omega engine from {} (spin {:?} us)",
             args.weights,

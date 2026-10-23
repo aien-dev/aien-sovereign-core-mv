@@ -2599,10 +2599,13 @@ mod tests {
         c.q_heads = 6;
         c.kv_heads = 3;
         refused(c.validate().map(|_| c.clone()), "kv_dim 192");
-        // k past the FP8 GEMV's 32768 (aien_omega_fp8::MAX_K).
+        // k past the FP8 GEMV's widest k (aien_omega_fp8::MAX_K: 16384 until omega#541, 32768 since).
         let mut c = tiny_fp8_config();
         c.intermediate = aien_omega_fp8::MAX_K + 128;
-        refused(c.validate().map(|_| c.clone()), "down [256][32896]");
+        refused(
+            c.validate().map(|_| c.clone()),
+            &format!("down [256][{}]", aien_omega_fp8::MAX_K + 128),
+        );
         // The bf16 rule (k a multiple of 256) does not apply to an FP8 projection: k 384 is fine
         // for down, but the bf16 lm_head (k = hidden) keeps its rule.
         let mut c = tiny_fp8_config();

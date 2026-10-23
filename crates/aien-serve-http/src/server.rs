@@ -1,7 +1,6 @@
 //! The HTTP surface: `GET /v1/models`, `POST /v1/chat/completions` (JSON or SSE),
-//! `GET /health`. Every error is OpenAI error JSON. As many generations at a time as the
-//! engine says it takes ([`Engine::concurrency`], 1 unless the engine batches): the next
-//! request while all those run gets 503 `server_busy` with `Retry-After: 1`.
+//! `GET /health`. Every error is OpenAI error JSON. One generation at a time: the
+//! second request while one runs gets 503 `server_busy` with `Retry-After: 1`.
 
 use std::convert::Infallible;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -18,17 +17,14 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde_json::Value;
-use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{mpsc, Mutex, OwnedMutexGuard};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 
-use aien_inference_abi::tokenizer::ChatOptions;
-
 use crate::codec::{Codec, CodecError};
-use crate::engine::{Engine, EngineError, FinishReason, GenerateParams, TestSwitches};
+use crate::engine::{Engine, EngineError, FinishReason, GenerateParams};
 use crate::openai::{
-    chunk_json, chunk_json_with, completion_json, ChatRequest, ErrorBody, ModelCard, ModelList,
-    Usage,
+    chunk_json, completion_json, ChatRequest, ErrorBody, ModelCard, ModelList, Usage,
 };
 use crate::sampling::SamplingRecord;
 use crate::text::{Push, TextAssembler};
@@ -51,9 +47,6 @@ pub struct ServerConfig {
     pub default_top_k: usize,
     /// Optional server-side context cap (min with the engine's own limit).
     pub max_context_tokens: Option<usize>,
-    /// `enable_thinking` for requests that do not set it (`None`: the chat template's own
-    /// default). Only templates with a thinking switch read it (Qwen3.8-27B).
-    pub default_enable_thinking: Option<bool>,
 }
 
 impl Default for ServerConfig {
@@ -71,7 +64,6 @@ impl Default for ServerConfig {
             default_top_p: 0.8,
             default_top_k: 20,
             max_context_tokens: None,
-            default_enable_thinking: None,
         }
     }
 }
@@ -80,8 +72,7 @@ pub struct AppState {
     engine: Arc<dyn Engine>,
     codec: Arc<dyn Codec>,
     cfg: ServerConfig,
-    /// One permit per generation the engine runs at once.
-    gate: Arc<Semaphore>,
+    gate: Arc<Mutex<()>>,
     started: Instant,
     counter: AtomicU64,
 }
@@ -133,7 +124,7 @@ impl ApiError {
             status: StatusCode::SERVICE_UNAVAILABLE,
             body: ErrorBody::new(
                 "server_busy",
-                "every generation slot is taken (the engine's concurrency): retry shortly",
+                "one generation at a time: the engine is busy with another request, retry shortly",
             ),
             retry_after: Some(1),
         }
@@ -166,29 +157,15 @@ struct Prepared {
     params: GenerateParams,
     stop_strings: Vec<String>,
     stream: bool,
-    /// The prompt opens a thinking block: reply tokens up to this id are reasoning.
-    reasoning_end: Option<u32>,
-    return_ids: bool,
-    /// The request carried tools: parse `<tool_call>` blocks out of the reply.
-    tools: bool,
-    /// The merge train's switches for this request (empty: none; `aien_test` absent).
-    test: TestSwitches,
 }
 
-/// What the generation thread sends to the HTTP side. `Done` is sent once per request, so its size
-/// (past clippy's line since `aien_test` joined it) costs nothing.
-#[allow(clippy::large_enum_variant)]
+/// What the generation thread sends to the HTTP side.
 enum Ev {
     Delta(String),
-    /// Text of the thinking block (`reasoning_content`).
-    Reasoning(String),
     Done {
         finish: &'static str,
         completion_tokens: usize,
         sampling: Option<SamplingRecord>,
-        token_ids: Option<Vec<u32>>,
-        /// The `aien_test` switches applied (`usage.aien_test.applied`), when the request set any.
-        test: Option<Vec<&'static str>>,
     },
     Error(String),
     /// The engine could not get the shared chip: 503 before any token.
@@ -241,12 +218,11 @@ pub async fn serve_until(
     }
     let listener = tokio::net::TcpListener::bind(SocketAddr::new(cfg.bind, cfg.port)).await?;
     let addr = listener.local_addr()?;
-    let gate = Arc::new(Semaphore::new(engine.concurrency().max(1)));
     let state = Arc::new(AppState {
         engine,
         codec,
         cfg,
-        gate,
+        gate: Arc::new(Mutex::new(())),
         started: Instant::now(),
         counter: AtomicU64::new(0),
     });
@@ -296,35 +272,15 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
         "status": "ok",
         "model": state.cfg.model_id,
         "engine": state.engine.kind(),
-        "busy": state.gate.available_permits() == 0,
+        "busy": state.gate.try_lock().is_err(),
         "uptime_s": state.started.elapsed().as_secs(),
     });
-    // A batching engine says how many it runs at once; one-at-a-time engines leave `/health`
-    // exactly as it was.
-    let n = state.engine.concurrency();
-    if let (true, Some(obj)) = (n > 1, v.as_object_mut()) {
-        obj.insert("concurrency".into(), n.into());
-        obj.insert(
-            "in_flight".into(),
-            (n - state.gate.available_permits().min(n)).into(),
-        );
-    }
     // Persistent KV (sc#505): present only when AIEN_KV_STORE_DIR asked for it.
     if let (Some(pk), Some(obj)) = (state.engine.persistence_status(), v.as_object_mut()) {
         obj.insert("persistent_kv".into(), pk);
     }
-    // The merge train (L384): which `aien_test` switches this build honors, so the train marks a
-    // lever NOT-ON-TRAIN instead of PASS when its switch is not in the candidate. Test builds only.
-    // Absent for an engine with no switches, so its /health stays exactly as it was.
-    #[cfg(feature = "aien-test-switches")]
-    if let (false, Some(obj)) = (
-        state.engine.test_switches_honored().is_empty(),
-        v.as_object_mut(),
-    ) {
-        obj.insert(
-            "aien_test".into(),
-            serde_json::json!({ "honored": state.engine.test_switches_honored() }),
-        );
+    if let (Some(m), Some(obj)) = (state.engine.memory_status(), v.as_object_mut()) {
+        obj.insert("memory".into(), m);
     }
     Json(v)
 }
@@ -360,7 +316,7 @@ async fn handle_chat(
         .map_err(|e| ApiError::bad_request(format!("invalid JSON request: {e}")))?;
     let prepared = prepare(&state, req)?;
     let guard = Arc::clone(&state.gate)
-        .try_acquire_owned()
+        .try_lock_owned()
         .map_err(|_| ApiError::busy())?;
 
     let (created, nanos) = unix_now();
@@ -368,7 +324,6 @@ async fn handle_chat(
     let id = format!("chatcmpl-{nanos:x}{n:04x}");
     let prompt_tokens = prepared.prompt_tokens.len();
     let stream = prepared.stream;
-    let tools = prepared.tools;
     let (tx, mut rx) = mpsc::channel::<Ev>(64);
     let engine = Arc::clone(&state.engine);
     let codec = Arc::clone(&state.codec);
@@ -406,16 +361,9 @@ async fn handle_chat(
     });
     let rx = frx;
     if stream {
-        Ok(stream_response(
-            id,
-            created,
-            model,
-            prompt_tokens,
-            rx,
-            tools,
-        ))
+        Ok(stream_response(id, created, model, prompt_tokens, rx))
     } else {
-        collect_response(id, created, &model, prompt_tokens, rx, tools).await
+        collect_response(id, created, &model, prompt_tokens, rx).await
     }
 }
 
@@ -461,17 +409,13 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
     if matches!(req.n, Some(n) if n != 1) {
         return Err(ApiError::bad_request("n must be 1"));
     }
-    // Tool calling (Qwen3.6 qwen3_coder XML, as the model's own template renders it): legacy
-    // `functions` are accepted as tools.
-    let tool_defs: Vec<Value> = match (&req.tools, &req.functions) {
-        (Some(t), _) if !t.is_empty() => t.clone(),
-        (_, Some(f)) if !f.is_empty() => f
-            .iter()
-            .map(|f| serde_json::json!({"type": "function", "function": f}))
-            .collect(),
-        _ => Vec::new(),
-    };
-    let has_tools = !tool_defs.is_empty();
+    if req.tools.as_ref().is_some_and(|t| !t.is_empty())
+        || req.functions.as_ref().is_some_and(|f| !f.is_empty())
+    {
+        return Err(ApiError::bad_request(
+            "tool calling is not supported by this server (v1 is plain text)",
+        ));
+    }
     if req.messages.is_empty() {
         return Err(ApiError::bad_request("messages must be a non-empty array"));
     }
@@ -482,69 +426,33 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
             cfg.max_messages
         )));
     }
-    let mut turns: Vec<(String, String)> = Vec::with_capacity(req.messages.len() + 1);
-    let mut pending_tool: Vec<String> = Vec::new();
+    let mut turns: Vec<(String, String)> = Vec::with_capacity(req.messages.len());
     for m in &req.messages {
         let role = match m.role.trim().to_ascii_lowercase().as_str() {
             "system" | "developer" => "system",
             "user" => "user",
             "assistant" => "assistant",
-            "tool" | "function" => "tool",
+            "tool" | "function" => {
+                return Err(ApiError::bad_request(
+                    "role tool is not supported by this server (v1 is plain text)",
+                ))
+            }
             other => {
                 return Err(ApiError::bad_request(format!(
                     "unknown message role '{other}'"
                 )))
             }
         };
-        let text = text_of_content(&m.content)?;
-        if role == "tool" {
-            pending_tool.push(text);
-            continue;
-        }
-        if !pending_tool.is_empty() {
-            turns.push(("user".into(), crate::tools::tool_responses(&pending_tool)));
-            pending_tool.clear();
-        }
-        let text = match (role, &m.tool_calls) {
-            ("assistant", Some(calls)) if !calls.is_empty() => {
-                crate::tools::assistant_with_calls(&text, calls)
-            }
-            _ => text,
-        };
-        turns.push((role.to_string(), text));
-    }
-    if !pending_tool.is_empty() {
-        turns.push(("user".into(), crate::tools::tool_responses(&pending_tool)));
-    }
-    if has_tools {
-        match turns.first_mut() {
-            Some((r, c)) if r == "system" => {
-                *c = crate::tools::system_with_tools(&tool_defs, Some(c.as_str()));
-            }
-            _ => turns.insert(
-                0,
-                (
-                    "system".into(),
-                    crate::tools::system_with_tools(&tool_defs, None),
-                ),
-            ),
-        }
+        turns.push((role.to_string(), text_of_content(&m.content)?));
     }
     let turn_refs: Vec<(&str, &str)> = turns
         .iter()
         .map(|(r, c)| (r.as_str(), c.as_str()))
         .collect();
-    let mut opts = chat_options(&req)?;
-    if opts.enable_thinking.is_none() {
-        opts.enable_thinking = cfg.default_enable_thinking;
-    }
-    let prompt_text = state
-        .codec
-        .render_chat_with(&turn_refs, &opts)
-        .map_err(|e| match e {
-            CodecError::Unrenderable(m) => ApiError::bad_request(m),
-            CodecError::Failed(m) => ApiError::internal(m),
-        })?;
+    let prompt_text = state.codec.render_chat(&turn_refs).map_err(|e| match e {
+        CodecError::Unrenderable(m) => ApiError::bad_request(m),
+        CodecError::Failed(m) => ApiError::internal(m),
+    })?;
     let prompt_tokens = state
         .codec
         .encode(&prompt_text)
@@ -631,86 +539,7 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
         },
         stop_strings,
         stream: req.stream,
-        reasoning_end: if prompt_text.ends_with("<think>\n") {
-            state.codec.reasoning_end_id()
-        } else {
-            None
-        },
-        return_ids: req.aien_return_token_ids,
-        tools: has_tools,
-        test: test_switches(state, req.aien_test.as_ref())?,
     })
-}
-
-/// The merge train's `aien_test` field. A build without the `aien-test-switches` feature (the
-/// live server) refuses the field outright; a test build parses it and refuses any switch the
-/// engine does not honor, so no switch is ever ignored in silence and no verdict rests on one.
-fn test_switches(state: &AppState, v: Option<&Value>) -> Result<TestSwitches, ApiError> {
-    let Some(v) = v.filter(|v| !v.is_null()) else {
-        return Ok(TestSwitches::default());
-    };
-    #[cfg(not(feature = "aien-test-switches"))]
-    {
-        let _ = (state, v);
-        Err(ApiError::bad_request(
-            "aien_test: this server was built without the merge train's test switches (cargo feature aien-test-switches); it never serves a test case",
-        ))
-    }
-    #[cfg(feature = "aien-test-switches")]
-    {
-        let t = TestSwitches::from_json(v).map_err(ApiError::bad_request)?;
-        let honored = state.engine.test_switches_honored();
-        let unhonored: Vec<&str> = t
-            .names()
-            .into_iter()
-            .filter(|n| !honored.contains(n))
-            .collect();
-        if !unhonored.is_empty() {
-            return Err(ApiError::bad_request(format!(
-                "aien_test: switches {unhonored:?} are not honored by this server's {} engine (it honors {honored:?}); a load-only switch needs its own server",
-                state.engine.kind()
-            )));
-        }
-        Ok(t)
-    }
-}
-
-/// The template switches of a request: `chat_template_kwargs.enable_thinking` /
-/// `.reasoning_effort` / `.preserve_thinking`, and the top-level `reasoning_effort`.
-fn chat_options(req: &ChatRequest) -> Result<ChatOptions, ApiError> {
-    let mut o = ChatOptions::default();
-    if let Some(kw) = req.chat_template_kwargs.as_ref().filter(|v| !v.is_null()) {
-        let Some(map) = kw.as_object() else {
-            return Err(ApiError::bad_request(
-                "chat_template_kwargs must be an object",
-            ));
-        };
-        if let Some(v) = map.get("enable_thinking").filter(|v| !v.is_null()) {
-            o.enable_thinking = Some(v.as_bool().ok_or_else(|| {
-                ApiError::bad_request("chat_template_kwargs.enable_thinking must be a boolean")
-            })?);
-        }
-        if let Some(v) = map.get("preserve_thinking").filter(|v| !v.is_null()) {
-            o.preserve_thinking = Some(v.as_bool().ok_or_else(|| {
-                ApiError::bad_request("chat_template_kwargs.preserve_thinking must be a boolean")
-            })?);
-        }
-        if let Some(v) = map.get("reasoning_effort").filter(|v| !v.is_null()) {
-            o.reasoning_effort = Some(
-                v.as_str()
-                    .ok_or_else(|| {
-                        ApiError::bad_request(
-                            "chat_template_kwargs.reasoning_effort must be a string",
-                        )
-                    })?
-                    .to_string(),
-            );
-        }
-    }
-    if let Some(e) = req.reasoning_effort.as_deref() {
-        o.reasoning_effort = Some(e.to_string());
-    }
-    Ok(o)
 }
 
 /// Runs on a blocking thread holding the generation lock (`guard`). The lock is released as soon
@@ -721,78 +550,31 @@ fn run_generation(
     codec: Arc<dyn Codec>,
     prepared: Prepared,
     tx: mpsc::Sender<Ev>,
-    guard: OwnedSemaphorePermit,
+    guard: OwnedMutexGuard<()>,
     id: &str,
 ) {
-    let mut asm = TextAssembler::new(Arc::clone(&codec), prepared.stop_strings);
-    // The thinking block (prompt ends in `<think>\n`): its text goes out as reasoning, the
-    // closing token is dropped, and the answer's leading newlines are trimmed (the template
-    // puts `\n</think>\n\n` between the two).
-    let mut thinking = prepared
-        .reasoning_end
-        .map(|end| (end, TextAssembler::new(codec, Vec::new())));
-    let mut answer_started = prepared.reasoning_end.is_none();
-    let mut ids = prepared.return_ids.then(Vec::new);
+    let mut asm = TextAssembler::new(codec, prepared.stop_strings);
     let mut stopped_by_string = false;
     let mut client_gone = false;
-    let test_report = (!prepared.test.is_empty()).then(|| prepared.test.names());
-    let result = engine.generate_with_test(
+    let result = engine.generate(
         &prepared.prompt_tokens,
         &prepared.params,
-        &prepared.test,
-        &mut |tok| {
-            if let Some(ids) = ids.as_mut() {
-                ids.push(tok);
-            }
-            if let Some((end, rasm)) = thinking.as_mut() {
-                let ev = if tok == *end {
-                    let rest = rasm.finish();
-                    thinking = None;
-                    rest
-                } else {
-                    match rasm.push(tok) {
-                        Push::Delta(d) | Push::StopAt(d) => Some(d),
-                        Push::Hold => None,
-                    }
-                };
-                if let Some(d) = ev.filter(|d| !d.is_empty()) {
-                    if tx.blocking_send(Ev::Reasoning(d)).is_err() {
-                        client_gone = true;
-                        return false;
-                    }
-                }
-                return true;
-            }
-            let trim = |d: String, started: &mut bool| {
-                if *started {
-                    return d;
-                }
-                let t = d.trim_start_matches('\n');
-                *started = !t.is_empty();
-                t.to_string()
-            };
-            match asm.push(tok) {
-                Push::Hold => true,
-                Push::Delta(d) => {
-                    let d = trim(d, &mut answer_started);
-                    if d.is_empty() {
-                        return true;
-                    }
-                    if tx.blocking_send(Ev::Delta(d)).is_err() {
-                        client_gone = true;
-                        false
-                    } else {
-                        true
-                    }
-                }
-                Push::StopAt(d) => {
-                    stopped_by_string = true;
-                    let d = trim(d, &mut answer_started);
-                    if !d.is_empty() {
-                        let _ = tx.blocking_send(Ev::Delta(d));
-                    }
+        &mut |tok| match asm.push(tok) {
+            Push::Hold => true,
+            Push::Delta(d) => {
+                if tx.blocking_send(Ev::Delta(d)).is_err() {
+                    client_gone = true;
                     false
+                } else {
+                    true
                 }
+            }
+            Push::StopAt(d) => {
+                stopped_by_string = true;
+                if !d.is_empty() {
+                    let _ = tx.blocking_send(Ev::Delta(d));
+                }
+                false
             }
         },
     );
@@ -814,20 +596,8 @@ fn run_generation(
                 );
                 return;
             }
-            if let Some((_, mut rasm)) = thinking.take() {
-                if let Some(rest) = rasm.finish().filter(|r| !r.is_empty()) {
-                    let _ = tx.blocking_send(Ev::Reasoning(rest));
-                }
-            }
             if let Some(rest) = asm.finish() {
-                let rest = if answer_started {
-                    rest
-                } else {
-                    rest.trim_start_matches('\n').to_string()
-                };
-                if !rest.is_empty() {
-                    let _ = tx.blocking_send(Ev::Delta(rest));
-                }
+                let _ = tx.blocking_send(Ev::Delta(rest));
             }
             let finish = if stopped_by_string {
                 "stop"
@@ -858,8 +628,6 @@ fn run_generation(
                 finish,
                 completion_tokens: out.emitted_tokens,
                 sampling: out.sampling,
-                token_ids: ids,
-                test: test_report,
             });
         }
     }
@@ -871,46 +639,26 @@ async fn collect_response(
     model: &str,
     prompt_tokens: usize,
     mut rx: mpsc::Receiver<Ev>,
-    tools: bool,
 ) -> Result<Response, ApiError> {
     let mut content = String::new();
-    let mut reasoning: Option<String> = None;
     while let Some(ev) = rx.recv().await {
         match ev {
             Ev::Delta(d) => content.push_str(&d),
-            Ev::Reasoning(d) => reasoning.get_or_insert_with(String::new).push_str(&d),
             Ev::Done {
                 finish,
                 completion_tokens,
                 sampling,
-                token_ids,
-                test,
             } => {
                 let usage = Usage {
                     prompt_tokens,
                     completion_tokens,
                     total_tokens: prompt_tokens + completion_tokens,
                     aien_sampling: sampling,
-                    aien_token_ids: token_ids,
-                    aien_test: test.map(|n| serde_json::json!({ "applied": n })),
                 };
-                let reasoning = reasoning.as_deref().map(str::trim);
-                let (text, calls) = if tools {
-                    crate::tools::parse_reply(&content, &id)
-                } else {
-                    (content.clone(), Vec::new())
-                };
-                let mut body =
-                    completion_json(&id, created, model, &text, reasoning, finish, &usage);
-                if !calls.is_empty() {
-                    let msg = &mut body["choices"][0]["message"];
-                    msg["tool_calls"] = Value::Array(calls);
-                    if text.trim().is_empty() {
-                        msg["content"] = Value::Null;
-                    }
-                    body["choices"][0]["finish_reason"] = Value::String("tool_calls".into());
-                }
-                return Ok(Json(body).into_response());
+                return Ok(Json(completion_json(
+                    &id, created, model, &content, finish, &usage,
+                ))
+                .into_response());
             }
             Ev::Error(m) => return Err(ApiError::internal(m)),
             Ev::Busy(m) => return Err(ApiError::internal(m)),
@@ -925,14 +673,9 @@ fn stream_response(
     model: String,
     prompt_tokens: usize,
     mut rx: mpsc::Receiver<Ev>,
-    tools: bool,
 ) -> Response {
     let (etx, erx) = mpsc::channel::<Result<Event, Infallible>>(64);
     tokio::spawn(async move {
-        // Tool requests: content streams until a `<tool_call>` opens (a possible split tag is held
-        // back); from there the reply is buffered and sent as one `tool_calls` delta at the end.
-        let mut held = String::new();
-        let mut in_call = false;
         let data = |v: Value| Ok(Event::default().data(v.to_string()));
         let first = chunk_json(
             &id,
@@ -948,98 +691,18 @@ fn stream_response(
         }
         while let Some(ev) = rx.recv().await {
             let item = match ev {
-                Ev::Delta(d) if tools => {
-                    held.push_str(&d);
-                    if in_call {
-                        continue;
-                    }
-                    let out = if let Some(p) = held.find(crate::tools::OPEN) {
-                        in_call = true;
-                        let out = held[..p].to_string();
-                        held = held[p..].to_string();
-                        out
-                    } else {
-                        let keep = crate::tools::partial_open_len(&held);
-                        let cut = held.len() - keep;
-                        let out = held[..cut].to_string();
-                        held = held[cut..].to_string();
-                        out
-                    };
-                    if out.is_empty() {
-                        continue;
-                    }
-                    data(chunk_json(
-                        &id,
-                        created,
-                        &model,
-                        None,
-                        Some(&out),
-                        None,
-                        None,
-                    ))
-                }
                 Ev::Delta(d) => data(chunk_json(&id, created, &model, None, Some(&d), None, None)),
-                Ev::Reasoning(d) => data(chunk_json_with(
-                    &id,
-                    created,
-                    &model,
-                    None,
-                    None,
-                    Some(&d),
-                    None,
-                    None,
-                )),
                 Ev::Done {
                     finish,
                     completion_tokens,
                     sampling,
-                    token_ids,
-                    test,
                 } => {
                     let usage = Usage {
                         prompt_tokens,
                         completion_tokens,
                         total_tokens: prompt_tokens + completion_tokens,
                         aien_sampling: sampling,
-                        aien_token_ids: token_ids,
-                        aien_test: test.map(|n| serde_json::json!({ "applied": n })),
                     };
-                    let mut finish = finish;
-                    if tools && !held.is_empty() {
-                        let (text, calls) = crate::tools::parse_reply(&held, &id);
-                        if !text.is_empty()
-                            && etx
-                                .send(data(chunk_json(
-                                    &id,
-                                    created,
-                                    &model,
-                                    None,
-                                    Some(&text),
-                                    None,
-                                    None,
-                                )))
-                                .await
-                                .is_err()
-                        {
-                            return;
-                        }
-                        if !calls.is_empty() {
-                            let deltas: Vec<Value> = calls
-                                .into_iter()
-                                .enumerate()
-                                .map(|(i, mut c)| {
-                                    c["index"] = Value::from(i);
-                                    c
-                                })
-                                .collect();
-                            let mut ch = chunk_json(&id, created, &model, None, None, None, None);
-                            ch["choices"][0]["delta"]["tool_calls"] = Value::Array(deltas);
-                            if etx.send(data(ch)).await.is_err() {
-                                return;
-                            }
-                            finish = "tool_calls";
-                        }
-                    }
                     let last =
                         chunk_json(&id, created, &model, None, None, Some(finish), Some(&usage));
                     if etx.send(data(last)).await.is_err() {
