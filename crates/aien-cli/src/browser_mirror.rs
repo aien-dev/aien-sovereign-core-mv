@@ -12,8 +12,9 @@
 //! * `screenshot` Open any URL, capture a PNG, record the document title.
 //! * `eval`       Open any URL and evaluate a JavaScript expression (value returned as JSON).
 //!
-//! Every mode spawns its own Chrome with a private profile directory and kills it
-//! and every helper process it started when done, whatever happened in between.
+//! Every mode spawns its own Chrome with a private profile directory. Linux
+//! cleanup requires pidfd support to stop tagged detached helpers without a
+//! recycled-PID race. Detached-helper cleanup on other Unix is not qualified.
 
 use serde_json::{json, Value};
 use std::fs;
@@ -394,10 +395,16 @@ struct ChromeProcess {
     port: u16,
     /// Value of `TAG_VAR` in every process this browser started (unique per spawn).
     tag: String,
+    /// Once reaped, its numeric PID/PGID is no longer an ownership handle.
+    main_reaped: bool,
 }
 
 impl ChromeProcess {
     fn spawn(binary: &str, url: &str) -> Result<Self, String> {
+        #[cfg(target_os = "linux")]
+        if !TaggedProcess::available() {
+            return Err("safe Chrome cleanup requires Linux pidfd signaling".to_string());
+        }
         let tag = format!("aien-browser-mirror-{}-{}", std::process::id(), now_nanos());
         let profile_dir = std::env::temp_dir().join(&tag);
         fs::create_dir_all(&profile_dir).map_err(|e| format!("profile dir: {}", e))?;
@@ -436,6 +443,7 @@ impl ChromeProcess {
             profile_dir,
             port: 0,
             tag,
+            main_reaped: false,
         };
         // Chrome writes "<port>\n<browser ws path>" once the debugger listens.
         let deadline = Instant::now() + CHROME_BOOT_TIMEOUT;
@@ -452,6 +460,7 @@ impl ChromeProcess {
                 }
             }
             if let Ok(Some(status)) = me.child.try_wait() {
+                me.main_reaped = true;
                 return Err(format!("chrome exited early: {}", status));
             }
             if Instant::now() >= deadline {
@@ -486,8 +495,8 @@ impl ChromeProcess {
     }
 }
 
-/// Pids of live processes whose environment holds `TAG_VAR=tag`. Only descendants of the
-/// browser that was spawned with this tag can carry it, so nothing else is ever matched.
+/// Candidate PIDs whose environment holds the exact tag. Numeric PIDs are
+/// only discovery hints: pin identity and revalidate before signaling.
 fn tagged_pids(tag: &str) -> Vec<u32> {
     let needle = format!("{}={}", TAG_VAR, tag);
     let Ok(entries) = fs::read_dir("/proc") else {
@@ -503,6 +512,69 @@ fn tagged_pids(tag: &str) -> Vec<u32> {
         .collect()
 }
 
+/// A Linux process identity, not a numeric PID that can be recycled.
+#[cfg(target_os = "linux")]
+struct TaggedProcess(std::os::fd::OwnedFd);
+
+#[cfg(target_os = "linux")]
+impl TaggedProcess {
+    fn pin(pid: u32) -> Option<Self> {
+        use std::os::fd::FromRawFd;
+        let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0u32) };
+        if raw < 0 {
+            return None;
+        }
+        Some(Self(unsafe {
+            std::os::fd::OwnedFd::from_raw_fd(raw as i32)
+        }))
+    }
+
+    fn available() -> bool {
+        Self::pin(std::process::id()).is_some_and(|p| p.signal(0))
+    }
+
+    fn open(pid: u32, tag: &str) -> Option<Self> {
+        // Pin before checking the environment. If the task exits and the
+        // number is recycled, this descriptor still names only the old task.
+        let process = Self::pin(pid)?;
+        let needle = format!("{}={}", TAG_VAR, tag);
+        let env = fs::read(format!("/proc/{}/environ", pid)).ok()?;
+        if !env.split(|b| *b == 0).any(|kv| kv == needle.as_bytes()) {
+            return None;
+        }
+        Some(process)
+    }
+
+    fn kill(&self) -> bool {
+        self.signal(libc::SIGKILL)
+    }
+
+    fn signal(&self, signal: i32) -> bool {
+        use std::os::fd::AsRawFd;
+        unsafe {
+            libc::syscall(
+                libc::SYS_pidfd_send_signal,
+                self.0.as_raw_fd(),
+                signal,
+                std::ptr::null::<libc::siginfo_t>(),
+                0u32,
+            ) == 0
+        }
+    }
+}
+
+fn kill_tagged_pid(pid: u32, tag: &str) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        TaggedProcess::open(pid, tag).is_some_and(|p| p.kill())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (pid, tag);
+        false
+    }
+}
+
 impl ChromeProcess {
     /// Kills the whole browser: its process group (renderers, GPU process, zygotes, the
     /// launcher's pipes) and every tagged process that left the group (crash reporters).
@@ -510,17 +582,22 @@ impl ChromeProcess {
     fn reap(&mut self) {
         let pgid = self.child.id() as libc::pid_t;
         let deadline = Instant::now() + REAP_TIMEOUT;
+        // Signal the group only once and only while the unreaped direct
+        // child reserves its PID. Never signal a numeric group after wait.
+        if !self.main_reaped {
+            unsafe { libc::kill(-pgid, libc::SIGKILL) };
+            // The direct child is still ours even if it changed its group.
+            self.child.kill().ok();
+        }
         loop {
-            // SAFETY: plain syscalls. The kernel keeps the pgid number reserved while any
-            // member (zombies included) is left, so the group signal only reaches this browser.
-            let group_alive = unsafe { libc::kill(-pgid, libc::SIGKILL) } == 0;
             let tagged = tagged_pids(&self.tag);
             for &pid in &tagged {
-                unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
+                kill_tagged_pid(pid, &self.tag);
             }
-            // Collect the main child as soon as it dies: its zombie would keep the group alive.
-            self.child.try_wait().ok();
-            if !group_alive && tagged.is_empty() {
+            if matches!(self.child.try_wait(), Ok(Some(_))) {
+                self.main_reaped = true;
+            }
+            if self.main_reaped && tagged.is_empty() {
                 break;
             }
             if Instant::now() >= deadline {
@@ -1166,5 +1243,58 @@ mod tests {
         }
         assert_eq!(found, vec![ids[0]], "sweep must match only {:?}", ids);
         assert!(tagged_pids(&tag).is_empty());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn stale_candidates_and_exited_pidfds_cannot_signal_a_stranger() {
+        let tag = format!("pidfd-test-{}-{}", std::process::id(), now_nanos());
+        let spawn = |value: &str| {
+            Command::new("sleep")
+                .arg("30")
+                .env(TAG_VAR, value)
+                .spawn()
+                .expect("spawn owned fixture")
+        };
+        let mut mine = spawn(&tag);
+        let mut prefix = spawn(&tag[..tag.len() - 1]);
+        let mut other = spawn("pidfd-test-other");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let pinned = loop {
+            if let Some(p) = TaggedProcess::open(mine.id(), &tag) {
+                break Some(p);
+            }
+            if Instant::now() >= deadline {
+                break None;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        // Simulate a stale discovery list that now names a foreign task:
+        // validation must happen after opening the identity handle.
+        let refused_prefix = !kill_tagged_pid(prefix.id(), &tag);
+        let refused_other = !kill_tagged_pid(other.id(), &tag);
+        let owned_signaled = pinned.as_ref().is_some_and(|p| p.kill());
+        if !owned_signaled {
+            mine.kill().ok();
+        }
+        mine.wait().ok();
+        let dead_handle_refused = pinned.as_ref().is_some_and(|p| !p.kill());
+        let neighbors_alive =
+            matches!(prefix.try_wait(), Ok(None)) && matches!(other.try_wait(), Ok(None));
+        for c in [&mut prefix, &mut other] {
+            c.kill().ok();
+            c.wait().ok();
+        }
+        assert!(
+            pinned.is_some(),
+            "kernel pidfd support and exact-tag pin required"
+        );
+        assert!(
+            owned_signaled
+                && refused_prefix
+                && refused_other
+                && dead_handle_refused
+                && neighbors_alive
+        );
     }
 }
