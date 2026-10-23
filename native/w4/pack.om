@@ -1,0 +1,181 @@
+note SPDX-License-Identifier: AGPL-3.0-only
+note Native migration of speed3/w4-gemv MXFP4 OCP/FIT/BEST group conversion.
+note Exact integer arithmetic over E4M3FN input and one BF16 scale per group.
+note qmeta: valid, E8M0 scale, all-zero group, clipped count, squared raw error.
+global qinput uchar 32
+global qoutput uchar 16
+global qmeta ulong 5
+global qvalues ulong 32
+global qsigns uchar 32
+global qcodes uchar 32
+global qother uchar 32
+global qerr ulong 2
+global qclip ulong 2
+
+fn qgrid code ulong to ulong
+if lt code 5
+ret code
+end
+if eq code 5
+ret 6
+end
+if eq code 6
+ret 8
+end
+ret 12
+end
+
+fn qround value ulong power ulong to ulong
+note Twice the e2m1 grid is integral. Compare exact midpoints without division.
+for i ulong 7
+mid = shl add qgrid i qgrid add i 1 power
+scaled = mul value 16
+if lt scaled mid
+ret i
+end
+if eq scaled mid
+if eq and i 1 0
+ret i
+end
+ret add i 1
+end
+end
+ret 7
+end
+
+fn qtrial power ulong slot ulong to void
+total = ulong 0
+clipped = ulong 0
+for c ulong 32
+value = get qvalues c
+code = qround value power
+if eq slot 0
+put qcodes c uchar code
+else
+put qother c uchar code
+end
+if gt mul value 4 shl 6 power
+clipped = add clipped 1
+end
+back = shl qgrid code power
+raw = mul value 8
+delta = ulong 0
+if ge back raw
+delta = sub back raw
+else
+delta = sub raw back
+end
+total = add total mul delta delta
+end
+put qerr slot total
+put qclip slot clipped
+end
+
+fn qwrite chosen ulong to void
+for c ulong 32
+code = ulong get qcodes c
+if eq chosen 1
+code = ulong get qother c
+end
+code = or code shl ulong get qsigns c 3
+index = shr c 1
+old = ulong get qoutput index
+put qoutput index uchar or old shl code mul and c 1 4
+end
+end
+
+fn qpack scale ulong rule ulong to int
+note Refusals clear public output so no caller can consume a partial group.
+for i ulong 16
+put qoutput i 0
+end
+for i ulong 5
+put qmeta i 0
+end
+if gt scale 65535
+ret 65
+end
+if gt rule 2
+ret 69
+end
+bexp = and shr scale 7 255
+if eq bexp 255
+ret 76
+end
+mant = and scale 127
+if ne bexp 0
+mant = add mant 128
+end
+largest = ulong 0
+for c ulong 32
+bits = ulong get qinput c
+mag = and bits 127
+if eq mag 127
+ret 76
+end
+expo = shr mag 3
+value = and mag 7
+if ne expo 0
+value = shl add value 8 sub expo 1
+end
+value = mul value mant
+put qvalues c value
+sign = xor shr bits 7 shr scale 15
+if eq value 0
+sign = 0
+end
+put qsigns c uchar sign
+if gt value largest
+largest = value
+end
+end
+if eq largest 0
+put qmeta 0 1
+put qmeta 1 127
+put qmeta 2 1
+ret 0
+end
+power = ulong 0
+value = largest
+while ge value 2
+value = shr value 1
+power = add power 1
+end
+qtrial power 0
+chosen = ulong 0
+if ne rule 0
+if ne get qclip 0 0
+qtrial add power 1 1
+if eq rule 1
+chosen = 1
+else
+if lt get qerr 1 get qerr 0
+chosen = 1
+end
+end
+end
+end
+note E = floor(log2 amax) - 2 + 127, including BF16 subnormal exponent.
+expo = add power chosen
+if eq bexp 0
+if lt expo 17
+ret 75
+end
+expo = sub expo 17
+else
+expo = add expo bexp
+if lt expo 18
+ret 75
+end
+expo = sub expo 18
+end
+if gt expo 192
+ret 75
+end
+qwrite chosen
+put qmeta 0 1
+put qmeta 1 expo
+put qmeta 3 get qclip chosen
+put qmeta 4 get qerr chosen
+ret 0
+end

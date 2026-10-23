@@ -1,0 +1,53 @@
+global buf uchar 20
+fn main to int
+for frame ulong 1536
+have = ulong 0
+while lt have 20
+count = read 0 buf have sub 20 have
+if le count 0
+ret 1
+end
+have = add have ulong count
+end
+kind = rem frame 4
+status = uchar 0
+expo = uchar 125
+value = uchar 102
+zero = uchar 0
+if eq kind 1
+value = 238
+end
+if eq kind 2
+expo = 127
+value = 0
+zero = 1
+end
+if eq kind 3
+status = 76
+expo = 0
+value = 0
+end
+if ne get buf 0 status
+ret 1
+end
+if ne get buf 1 expo
+ret 1
+end
+for i ulong 16
+if ne get buf add i 2 value
+ret 1
+end
+end
+if ne get buf 18 0
+ret 1
+end
+if ne get buf 19 zero
+ret 1
+end
+end
+count = read 0 buf 0 1
+if ne count 0
+ret 1
+end
+ret 0
+end

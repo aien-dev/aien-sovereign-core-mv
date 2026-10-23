@@ -1,0 +1,43 @@
+note SPDX-License-Identifier: AGPL-3.0-only
+note Test transport: rule+BF16 scale header, then FP8 groups, to stream requests.
+global packet uchar 35
+fn exact offset ulong size ulong to long
+have = ulong 0
+while lt have size
+n = read 0 packet add offset have sub size have
+if lt n 0
+ret -1
+end
+if eq n 0
+if eq have 0
+ret 0
+end
+ret -1
+end
+have = add have ulong n
+end
+ret long size
+end
+fn main to int
+if ne exact 0 3 3
+ret 65
+end
+while eq ulong 1 1
+n = exact 3 32
+if eq n 0
+ret 0
+end
+if lt n 0
+ret 65
+end
+have = ulong 0
+while lt have 35
+w = write 1 packet have sub 35 have
+if le w 0
+ret 74
+end
+have = add have ulong w
+end
+end
+ret 0
+end

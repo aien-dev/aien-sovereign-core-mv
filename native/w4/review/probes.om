@@ -1,0 +1,263 @@
+note Independent exact-distance oracle; does not call product qround/qgrid/qtrial.
+global icount ulong 1
+global ifails ulong 1
+global igrid ulong 8
+global iraw ulong 32
+global isign ulong 32
+global icodes ulong 64
+global ierr ulong 2
+global isat ulong 2
+fn verify a ulong b ulong to void
+put icount 0 add get icount 0 1
+if ne a b
+put ifails 0 add get ifails 0 1
+end
+end
+fn emitnum value ulong to void
+b = new uchar 32 0
+n = ulong 0
+v = value
+while ge v 10
+put b n uchar add rem v 10 48
+n = add n 1
+v = div v 10
+end
+put b n uchar add v 48
+n = add n 1
+while gt n 0
+n = sub n 1
+w = write 1 b n 1
+end
+put b 0 10
+w = write 1 b 0 1
+end
+fn nearest raw ulong power ulong to ulong
+best = ulong 0
+distance = mul raw 8
+for i ulong 8
+back = mul get igrid i shl 1 power
+delta = ulong 0
+if ge back mul raw 8
+delta = sub back mul raw 8
+else
+delta = sub mul raw 8 back
+end
+if lt delta distance
+best = i
+distance = delta
+else
+if eq delta distance
+if eq rem i 2 0
+best = i
+end
+end
+end
+end
+ret best
+end
+fn trial power ulong slot ulong to void
+put ierr slot 0
+put isat slot 0
+for i ulong 32
+raw = get iraw i
+code = nearest raw power
+put icodes add mul slot 32 i code
+back = mul get igrid code shl 1 power
+delta = ulong 0
+if ge back mul raw 8
+delta = sub back mul raw 8
+else
+delta = sub mul raw 8 back
+end
+put ierr slot add get ierr slot mul delta delta
+if gt mul raw 8 mul 12 shl 1 power
+put isat slot add get isat slot 1
+end
+end
+end
+fn empty to void
+for i ulong 5
+verify get qmeta i 0
+end
+for i ulong 16
+verify ulong get qoutput i 0
+end
+end
+fn decode scale ulong to ulong
+exp = rem div scale 128 256
+mant = rem scale 128
+if ne exp 0
+mant = add mant 128
+end
+largest = ulong 0
+for i ulong 32
+bits = ulong get qinput i
+mag = rem bits 128
+if eq mag 127
+ret 18446744073709551615
+end
+value = rem mag 8
+e = div mag 8
+if gt e 0
+value = add value 8
+for j ulong sub e 1
+value = mul value 2
+end
+end
+value = mul value mant
+put iraw i value
+bits = div bits 128
+bits = add bits div scale 32768
+put isign i rem bits 2
+if eq value 0
+put isign i 0
+end
+if gt value largest
+largest = value
+end
+end
+ret largest
+end
+fn packed chosen ulong to void
+for i ulong 16
+index = mul i 2
+base = mul chosen 32
+lo = get icodes add base index
+lo = add lo mul get isign index 8
+index = add index 1
+hi = get icodes add base index
+hi = add hi mul get isign index 8
+verify ulong get qoutput i add lo mul hi 16
+end
+end
+fn compare scale ulong rule ulong to void
+status = qpack scale rule
+exp = rem div scale 128 256
+if eq exp 255
+verify ulong status 76
+empty
+ret
+end
+largest = decode scale
+if eq largest 18446744073709551615
+verify ulong status 76
+empty
+ret
+end
+if eq largest 0
+verify ulong status 0
+verify get qmeta 0 1
+verify get qmeta 1 127
+verify get qmeta 2 1
+verify get qmeta 3 0
+verify get qmeta 4 0
+for i ulong 16
+verify ulong get qoutput i 0
+end
+ret
+end
+power = ulong 0
+ibound = ulong 1
+while le mul ibound 2 largest
+ibound = mul ibound 2
+power = add power 1
+end
+trial power 0
+chosen = ulong 0
+if gt rule 0
+if gt get isat 0 0
+trial add power 1 1
+if eq rule 1
+chosen = 1
+end
+if eq rule 2
+if lt get ierr 1 get ierr 0
+chosen = 1
+end
+end
+end
+end
+e = add power chosen
+if eq exp 0
+e = add e 1
+else
+e = add e exp
+end
+if lt e 18
+verify ulong status 75
+empty
+ret
+end
+e = sub e 18
+if gt e 192
+verify ulong status 75
+empty
+ret
+end
+verify ulong status 0
+verify get qmeta 0 1
+verify get qmeta 1 e
+verify get qmeta 2 0
+verify get qmeta 3 get isat chosen
+verify get qmeta 4 get ierr chosen
+packed chosen
+end
+fn main to int
+put igrid 0 0
+put igrid 1 1
+put igrid 2 2
+put igrid 3 3
+put igrid 4 4
+put igrid 5 6
+put igrid 6 8
+put igrid 7 12
+note Every BF16 encoding with mixed positive/negative, normal/subnormal/zero FP8.
+for scale ulong 65536
+for i ulong 32
+v = rem add mul scale 37 mul i 73 256
+if eq rem v 128 127
+v = sub v 1
+end
+put qinput i uchar v
+end
+put qinput 0 0
+put qinput 1 128
+for rule ulong 3
+compare scale rule
+end
+end
+note Exhaustive small integer lattice plus exact large midpoint ties.
+for power ulong 12
+for raw ulong 4096
+verify qround raw power nearest raw power
+end
+end
+for power ulong 23
+for i ulong 7
+raw = mul add get igrid i get igrid add i 1 shl 1 power
+verify qround raw add power 4 nearest raw add power 4
+if gt raw 0
+verify qround sub raw 1 add power 4 nearest sub raw 1 add power 4
+end
+verify qround add raw 1 add power 4 nearest add raw 1 add power 4
+end
+end
+note Invalid FP8 in every slot refuses, including under signed-zero scale.
+for i ulong 32
+for j ulong 32
+put qinput j 0
+end
+put qinput i 255
+for rule ulong 3
+compare 0 rule
+compare 32768 rule
+compare 16256 rule
+end
+end
+emitnum get icount 0
+emitnum get ifails 0
+if ne get ifails 0 0
+ret 1
+end
+ret 0
+end
