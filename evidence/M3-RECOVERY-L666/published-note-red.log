@@ -1,0 +1,2 @@
+STALE      .
+crumb verify: FAIL: 1 of 16 crumbs stale; run: crumb compile

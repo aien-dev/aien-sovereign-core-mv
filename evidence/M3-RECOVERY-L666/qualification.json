@@ -37,7 +37,7 @@
     }
   },
   "evidence": {
-    "README.md": "9b5b1d1c4a900181389923f223b6b7b8c067d9a9a07a516c80ceb57b2f9cf6c2",
+    "README.md": "7b355e122f4d3d1edd83069e389be894790cf404ce39db1fb531a7398071e686",
     "REVIEW-L668.md": "a1b170232a0c7d2d624fa3523d1774a01f2abdcf92c6f41082ef32d56844052c",
     "REVIEW-L670.md": "ce613d52208bb906b6e8c05b91451d305f1920ec37f381c7857d34c3623a30b0",
     "counts.json": "1ae78079318d85c11e0299378f040564875991e25e3debe1e696cecad57f999b",
@@ -66,6 +66,7 @@
     "private-parent-green/harness.log": "f18f9c7066e08f68f923934c5d8d30146ad13ea75a6c226c89f77a258fdb3087",
     "private-parent-green/runtime-full-feature.log": "c80720d164d17a269401223fb24b712762f9e563b93d00e18bc30b365d104394",
     "private-parent-green/state.json": "d7066ee5a15d1795c1fcfdee33fc7f7a19c314fe09945e99ea525491f18b0e63",
+    "published-note-red.log": "73d743fd73a6bdbc08164e0a85756c5a6f1c351cf43ce5b955ec5e00c2df8d31",
     "review-fix/harness-green.log": "28e8622aefae028d3f4620e4224074fb602578d78402539378946ef9a41388b0",
     "review-fix/red.json": "ca39eb5a4cb701ae20dd392972aebf6726d26144b0e1e59dd2219ecb4c2a0ced",
     "review-fix/red.log": "ff0f2f74a97d7a15cc27ad36670200dce24bc8e4aa69f314816a93f686230086",
