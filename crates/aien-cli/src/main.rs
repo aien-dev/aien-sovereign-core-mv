@@ -11,7 +11,6 @@ pub mod goals;
 mod hive;
 pub mod hooks;
 mod nesting;
-mod objective;
 pub mod platform;
 pub mod rules;
 mod safety;
@@ -61,10 +60,6 @@ async fn main() {
         }
         if args[1] == "allen" {
             allen::handle_allen_command(&args[2..]).await;
-            return;
-        }
-        if args[1] == "objective" {
-            objective::handle_objective_command(&args[2..]);
             return;
         }
         if args[1] == "compose" {

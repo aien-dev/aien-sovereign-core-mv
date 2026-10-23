@@ -288,29 +288,15 @@ async fn step(sub: &str, m: &HashMap<String, String>) -> Result<Value, String> {
                 "entries": entries}))
         }
         "propose" => {
-            let goal = need(m, "goal")?.to_string();
-            let objective = match m.get("objective-id") {
-                Some(id) => Some(
-                    crate::objective::check_binding(id, &goal)
-                        .map_err(crate::objective::refuse_propose)?,
-                ),
-                None => None,
-            };
             let (_, ws) = confine(need(m, "workspace")?)?;
             match send(ControlCommand::RunComposeTask {
-                goal,
+                goal: need(m, "goal")?.to_string(),
                 workspace: ws.display().to_string(),
                 context: m.get("context").cloned(),
             })
             .await?
             {
-                ControlResponse::ComposeTaskResult(r) => {
-                    let out = json!({"step": "S3", "report": r});
-                    Ok(match objective {
-                        Some(id) => crate::objective::attach(out, &id),
-                        None => out,
-                    })
-                }
+                ControlResponse::ComposeTaskResult(r) => Ok(json!({"step": "S3", "report": r})),
                 other => Err(format!("unexpected response {other:?}")),
             }
         }
