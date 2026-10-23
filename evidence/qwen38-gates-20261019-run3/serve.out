@@ -1,0 +1,24 @@
+AIEN-OBS pin_omega "0010f7d30bcaf0012e8051c5a05584a08d8320ec"
+AIEN-OBS pin_physics "6d7cf0d4d8eb2cda7b512100ff6058e25dbb3ddf"
+AIEN-OBS pin_aienos "b84c0a67590a934f3f3e001b12ec85ebc086a9eb"
+   Compiling aien-serve-http v0.1.0 (/home/drakestapleton/workspace/targets/gates-qwen38/run/aien-sovereign-core/crates/aien-serve-http)
+    Finished `release` profile [optimized] target(s) in 42.80s
+AIEN-OBS server_binary_sha256 "dfe85995faa36f213d8689514384ec366d0954c10d872519cf67b0eebe679c9a"
+QWEN38-SERVE: taking /tmp/aien-gb10.lock through quiet-measure (wait up to 1800 s)
+AIEN-OBS model_dir "/home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a"
+AIEN-OBS omega_commit "0010f7d30bcaf0012e8051c5a05584a08d8320ec"
+AIEN-OBS model_sha256_list_sha256 "19234f45ae98f7232c835f2c2e3c40f9f1fab29452122a922736e8405338d2f1"
+AIEN-OBS server_binary_sha256 "dfe85995faa36f213d8689514384ec366d0954c10d872519cf67b0eebe679c9a"
+AIEN-OBS server_build "sovereign-core commit: 81a1dab025f3e0fd912c1213cafecd4e6e9cb7a5 (dirty 0)"
+AIEN-OBS port 18391
+AIEN-OBS mem_available_kib_at_load 62773924
+AIEN-OBS mem_needed_kib 50684928
+AIEN-OBS loadavg_at_load "9.39 9.65 9.38"
+QWEN38-SERVE: server pid 1184318 on port 18391, log /home/drakestapleton/workspace/targets/gates-qwen38/qwen38-gates/serve/server.log
+AIEN-OBS refusal "load_failed"
+QWEN38-SERVE FAIL: server exited during load; last log lines:
+2026-10-19T23:09:47Z serve-27b: starting /home/drakestapleton/workspace/targets/gates-qwen38/release/aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a --port 18391 --max-context 131072 --max-tokens-cap 16384 --thinking off
+aien-serve-http: tokenizer from /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a (chat layout qwen3.8 (Qwen3.8-27B, thinking per request, template default on), stop ids [248046, 248044])
+aien-serve-http: loading Qwen3.8 (qwen3_5) onto the Omega engine from /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a
+AIEN-OBS server_exit "unknown"
+AIEN-OBS loadavg_at_end "15.64 11.57 10.29"
