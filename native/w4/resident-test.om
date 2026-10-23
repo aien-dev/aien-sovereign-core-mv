@@ -1,0 +1,119 @@
+note Native resident loader checks, using owned temporary files in private cwd.
+text weights "weights.bin"
+text scales "scales.bin"
+global counts ulong 2
+global wtest uchar 8192
+global wtfd int 2
+fn check yes bool to void
+put counts 0 add get counts 0 1
+if not yes
+put counts 1 add get counts 1 1
+end
+end
+fn number value ulong to void
+if ge value 10
+number div value 10
+end
+put wtest 0 uchar add rem value 10 48
+r = write 1 wtest 0 1
+end
+fn loadtest rows ulong cols ulong to int
+ret wload get wtfd 0 get wtfd 1 rows cols
+end
+fn filetest to void
+put wtfd 0 int fopen weights 0 len weights 194 384
+put wtfd 1 int fopen scales 0 len scales 194 384
+check ge get wtfd 0 0
+check ge get wtfd 1 0
+for i ulong 256
+put wtest i uchar rem i 256
+end
+check eq write get wtfd 0 wtest 0 256 256
+for i ulong 16
+put wtest i uchar mul i 12
+end
+check eq write get wtfd 1 wtest 0 16 16
+end
+fn valid to void
+put wlimit 0 4112
+check eq loadtest 1 512 0
+check gt get wstate 0 0
+check eq get wstate 1 1
+check eq get wstate 2 512
+check eq get wstate 3 4096
+check eq get wstate 4 4112
+check eq wread 0 256 0
+for i ulong 256
+check eq get wbuffer i uchar i
+end
+check eq wread 256 3840 0
+for i ulong 3840
+check eq get wbuffer i 0
+end
+check eq wread 4096 16 0
+for i ulong 16
+check eq get wbuffer i uchar mul i 12
+end
+check eq wread 4112 0 0
+check eq wread 4112 1 65
+check eq wread 18446744073709551615 1 65
+check eq wread 0 8193 65
+check eq loadtest 1 512 73
+check eq wdrop 0
+for i ulong 5
+check eq get wstate i 0
+end
+check eq wdrop 0
+check eq wread 0 0 73
+end
+fn main to int
+filetest
+put wlimit 0 4111
+check eq loadtest 1 512 75
+check eq get wstate 0 0
+put wlimit 0 4112
+check eq loadtest 0 512 65
+check eq loadtest 262145 512 65
+check eq loadtest 1 0 65
+check eq loadtest 1 513 65
+check eq loadtest 1 33280 65
+put wlimit 0 5000
+check eq loadtest 2 512 65
+put wlimit 0 4112
+check eq wload get wtfd 0 get wtfd 0 1 512 65
+valid
+note A failed scale validation must retire its private mapping, all128 slots recover.
+check eq fseek get wtfd 1 15 0 15
+put wtest 0 193
+check eq write get wtfd 1 wtest 0 1 1
+for i ulong 140
+check eq loadtest 1 512 76
+check eq get wstate 0 0
+check eq get wstage 0 0
+end
+check eq fseek get wtfd 1 15 0 15
+put wtest 0 180
+check eq write get wtfd 1 wtest 0 1 1
+valid
+check eq fseek get wtfd 1 15 0 15
+put wtest 0 192
+check eq write get wtfd 1 wtest 0 1 1
+check eq loadtest 1 512 0
+check eq wread 4111 1 0
+check eq get wbuffer 0 192
+check eq wdrop 0
+check eq fclose get wtfd 0 0
+check eq fclose get wtfd 1 0
+check eq unlink weights 0 len weights 0
+check eq unlink scales 0 len scales 0
+number get counts 0
+put wtest 0 10
+r = write 1 wtest 0 1
+number get counts 1
+put wtest 0 10
+r = write 1 wtest 0 1
+if ne get counts 1 0
+ret 1
+end
+ret 0
+end

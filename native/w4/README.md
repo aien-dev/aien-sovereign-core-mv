@@ -171,3 +171,64 @@ are about 53% of the input weight+scale bytes, not measured physical GPU
 allocation or traffic. See `evidence/w4-711/tensor/` for exact identities,
 commands and independent file-lifecycle/layout checks. Whole-model quality,
 GPU kernels, loading and serving integration remain unqualified.
+
+## Packed host memory image
+
+`resident.om` loads the two raw packed files into one managed anonymous host
+mapping. It consumes the existing L788 compiler extension from Omega functional
+source `d80b428c6ed9e3864fd7fc02cd7392bd4ad67f56`, source/test head
+`7bc13ac26a99d47c7afec9d9f1e84a05cd904d45` (draft Omega PR #676), compiler
+SHA256 `1d1aad082539399920bc6c90ff41f0a0c3a1ca3225e518fd0d259e0aeb71732d`.
+The extension is proposed branch work, not merged default-branch capability.
+No compiler, mapping implementation or GPU launcher is duplicated here.
+
+Set `wlimit[0]` to the remaining host allocation budget, after accounting for
+other live allocations and reservations, then call `wload(wfd,sfd,rows,cols)`.
+The descriptors are borrowed, must be distinct, readable and seekable, and
+remain the caller's responsibility to close. This operation changes their file
+positions. The caller must authenticate and freeze the raw MXFP4 file identities,
+layout and dimensions first. There is no checkpoint parser or format detection.
+
+Rows are 1..262144; columns are a positive multiple of 512, at most32768,
+matching the existing packed upload's alignment class. The loader verifies
+exact file lengths, copies packed bytes unchanged, checks each E8M0 scale is
+0..192, and rechecks EOF. Weights start at zero; scales start at the next
+4KiB boundary, matching the historical upload layout. Padding comes from the
+zero-filled anonymous allocation. No weights expand into FP8 or floating point.
+At the maximum supported shape each copy loop stays within the compiler's
+one-million-iteration limit.
+
+Only after both files copy and validate does `wstate` expose its five words:
+managed handle, rows, columns, scale offset, total requested mapping bytes.
+Failed loads publish no handle and release their private mapping. A cleanup
+failure retains internal ownership for a subsequent `wdrop` retry; another
+load is refused until it is cleared. Loading over an existing image refuses
+without changing it. The caller must serialize the module and must not modify
+its internal globals or unmap its handle externally.
+
+`wread(offset,count)` copies at most8192 bytes to `wbuffer` after validating
+both ends against the published allocation. It permits a zero-length read at
+the exact end. This is a host inspection/copy method, not device execution.
+`wdrop` releases the image and clears its descriptor, and is idempotent when
+empty. Status0 means success,65 invalid descriptor/shape/length/range,
+73 empty/busy lifecycle,74 I/O/unmap failure,75 budget/allocation refusal,
+and76 invalid E8M0 scale. Returned failure means the buffer is not a result.
+The underlying compiler traps on corrupted or externally retired handles;
+this module does not turn arbitrary process memory corruption into recoverable
+errors.
+
+The configured limit bounds requested mapping bytes. Linux may lazily commit
+pages, so successful mapping is not proof of guaranteed physical residency or
+recovery from an OS out-of-memory kill. The image is not pinned or registered
+with the GPU, and no device coherency, transfer, kernel or full-model speed
+claim follows from it. Input files must remain immutable during loading; after
+successful copying they can be closed without invalidating the owned image.
+
+Concatenate `resident.om` with `resident-test.om` and compile with the mapping
+profile to run the8715-check native author suite in a fresh private directory.
+`review/resident-projection.om` is a separate test entrypoint for the exact
+17408x5120 real projection: two input paths, then raw weights+scales on stdout.
+It closes both source files before reading the image. All three rule outputs
+round-tripped through the native mapping byte-for-byte (47349760bytes each).
+Independent coverage, failure controls and exact hashes are recorded under
+`evidence/w4-711/resident/`. Actual GPU upload and serving remain open gates.

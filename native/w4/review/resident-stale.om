@@ -1,0 +1,12 @@
+global buf uchar 1
+fn main to int
+h = mapnew neg int 1 0 4096 3 34
+if le h 0
+ret 1
+end
+if ne mapdrop h 0
+ret 2
+end
+r = mapread h 0 buf 0 1
+ret 3
+end
