@@ -30,6 +30,8 @@ use aien_omega_router::Router;
 
 mod moe;
 pub use moe::router_probe;
+mod shared;
+pub use shared::{SharedTensor, SharedWeights};
 mod prefill;
 mod rows;
 pub use rows::{RowFeed, RowOut, RowTest};
@@ -444,7 +446,7 @@ impl Qwen38Omega {
         heads: usize,
     ) -> Result<Self, String> {
         if config.moe.is_some() {
-            return Self::load_moe(config, first, source, max_pos, heads);
+            return Self::load_moe(config, first, source, max_pos, heads, None);
         }
         if heads != 1 {
             return Err(format!(

@@ -39,9 +39,8 @@
       "server_env": {
         "AIEN_BOARD_DIR": "$OUT/board"
       },
-      "enabled": true,
-      "about": "L376 team board: load-only (AIEN_BOARD_DIR at start), so a second server; on in serve/q36-board-ship (ship/motor-l387 + board). log_proof: the board must be ON in the server log, else NOT-ON-TRAIN",
-      "log_proof": "team board ON"
+      "enabled": false,
+      "about": "L376's team board: on only with a board dir at start; enabled when L354 merges serve/q36-board"
     }
   },
   "levers": [
@@ -147,6 +146,16 @@
       "arms": [
         "plain",
         "board"
+      ]
+    },
+    {
+      "id": "L383",
+      "name": "shared weights: test copies borrow the train server's upload",
+      "present": {
+        "build": "shared-weights"
+      },
+      "arms": [
+        "plain"
       ]
     }
   ],
@@ -324,20 +333,21 @@
       "about": "L369 chip prefill on the door: ~256/~2k/~8k-token prompts + one sampled request + the 32 short prompts at once, then turn 2; ids == the reference build alone (refs <CURRENT>/l369-long) and == the store (short). Needs MERGE_TRAIN_CTX >= 9216 (L387)"
     },
     {
-      "id": "readers-gate",
+      "id": "l383-borrow",
       "kind": "script",
-      "script": "evidence/q36-readers-train/gate.sh",
+      "script": "evidence/l383-shared-weights/borrow.sh",
       "arms": [
         "plain"
       ],
       "levers": [
-        "L371"
+        "L383"
       ],
       "args": [
         "$PORT",
-        "$OUT/readers-gate"
+        "$OUT/l383-borrow",
+        "$SERVER_LOG"
       ],
-      "about": "L371 eight readers: id listed; short input == plain ids; a ~5.6k-token excerpt is read by 8 readers (contiguous parts, notes each) and the final answer joins two far-apart facts; plain id has no aien_readers (red control). Needs 8 free rows (L371_READERS overrides). Not an exactness gate: readers are opt-in by id."
+      "about": "L383: copies start on the train server's weights (--weights-from); golden + identity vs the train server alone and at once, 3 copies, crash, write mutant (SIGSEGV); receipts: start time, own memory"
     }
   ]
 }
