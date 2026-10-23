@@ -1,0 +1,19 @@
+{
+  "source": "2f6b5ffeda7dd1aa68f26ab548e732de0de82ee8",
+  "render_exit": 0,
+  "sigchld_exit": 0,
+  "trace_test_exit": 0,
+  "successful_pidfd_sigkills": 48,
+  "numeric_test_fixture_sigkills": [
+    "3663939 kill(3664230, SIGKILL)          = 0",
+    "3664319 kill(3664321, SIGKILL)          = 0",
+    "3664322 kill(3664324, SIGKILL)          = 0",
+    "3664322 kill(3664325, SIGKILL)          = 0",
+    "3664374 kill(3664567, SIGKILL)          = 0",
+    "3664955 kill(3664957, SIGKILL)          = 0",
+    "3664955 kill(3664958, SIGKILL)          = 0",
+    "3664955 kill(3664959, SIGKILL)          = 0",
+    "3664955 kill(3664960, SIGKILL)          = 0"
+  ],
+  "scope": "numeric calls include controlled fixture cleanup; no forced PID reuse or foreign task signaling"
+}

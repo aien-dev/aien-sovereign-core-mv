@@ -1,0 +1,6 @@
+{
+  "negative_group_signals_after_main_reap": [
+    "2427999 kill(-2428006, SIGKILL)         = -1 ESRCH (No such process)"
+  ],
+  "checker_exit": 1
+}

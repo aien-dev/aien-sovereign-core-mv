@@ -1,0 +1,88 @@
+{
+  "profiles": [
+    "aien-browser-mirror-2745561-1792751787536924213",
+    "aien-browser-mirror-2745561-1792751787568135543"
+  ],
+  "pinned_owned_processes": [
+    [
+      2745588,
+      "/opt/google/chrome/chrome --headless=new --remote-debugging-port=0 --user-data-dir=/tmp/aien-browser-mirror-2745561-1792751787536924213 --remote-allow-origins=* --no-first-run --no-default-browser-check --disable-dev-shm-usage --disable-gpu --disable-software-rasterizer --no-sandbox --window-size=1280,900 --noerrdialogs --ozone-platform=headless --ozone-override-screen-size=800,600 --use-angle=swiftshader-webgl file:///tmp/.tmpu0qvPe/stub.html\u0000"
+    ],
+    [
+      2745601,
+      "/opt/google/chrome/chrome --headless=new --remote-debugging-port=0 --user-data-dir=/tmp/aien-browser-mirror-2745561-1792751787568135543 --remote-allow-origins=* --no-first-run --no-default-browser-check --disable-dev-shm-usage --disable-gpu --disable-software-rasterizer --no-sandbox --window-size=1280,900 --noerrdialogs --ozone-platform=headless --ozone-override-screen-size=800,600 --use-angle=swiftshader-webgl file:///tmp/.tmpWFuTlh/stub.html\u0000"
+    ],
+    [
+      2745610,
+      "/opt/google/chrome/chrome --type=zygote --no-zygote-sandbox --no-sandbox --headless=new --crashpad-handler-pid=2745600 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/aien-browser-mirror-2745561-1792751787536924213 --change-stack-guard-on-fork=enable --no-first-run --ozone-platform=headless --ozone-override-screen-size=800,600 --use-angle=swiftshader-webgl\u0000"
+    ],
+    [
+      2745611,
+      "/opt/google/chrome/chrome --type=zygote --no-sandbox --headless=new --crashpad-handler-pid=2745600 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/aien-browser-mirror-2745561-1792751787536924213 --change-stack-guard-on-fork=enable --no-first-run --ozone-platform=headless --ozone-override-screen-size=800,600 --use-angle=swiftshader-webgl\u0000"
+    ],
+    [
+      2745644,
+      "/opt/google/chrome/chrome --type=gpu-process --no-sandbox --disable-dev-shm-usage --headless=new --ozone-platform=headless --use-angle=swiftshader-webgl --crashpad-handler-pid=2745600 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/aien-browser-mirror-2745561-1792751787536924213 --change-stack-guard-on-fork=enable --gpu-preferences=YAAAAAAAAAAgAQAEAAAAAAAAAAAAAGAASAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAoAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAIAAAAAAAAAAgAAAAAAAAACAAAAAAAAAA= --use-gl=disabled --shared-files --field-trial-handle=3,i,15882219465194585642,13705052518359775399,262144 --disable-features=PaintHolding --variations-seed-version --pseudonymization-salt-handle=7,i,2682849313914400576,838236708213865455,4 --trace-process-track-uuid=3190708988185955192\u0000"
+    ],
+    [
+      2745646,
+      "/opt/google/chrome/chrome --type=zygote --no-zygote-sandbox --no-sandbox --headless=new --crashpad-handler-pid=2745635 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/aien-browser-mirror-2745561-1792751787568135543 --change-stack-guard-on-fork=enable --no-first-run --ozone-platform=headless --ozone-override-screen-size=800,600 --use-angle=swiftshader-webgl\u0000"
+    ],
+    [
+      2745647,
+      "/opt/google/chrome/chrome --type=zygote --no-sandbox --headless=new --crashpad-handler-pid=2745635 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/aien-browser-mirror-2745561-1792751787568135543 --change-stack-guard-on-fork=enable --no-first-run --ozone-platform=headless --ozone-override-screen-size=800,600 --use-angle=swiftshader-webgl\u0000"
+    ],
+    [
+      2745655,
+      "/opt/google/chrome/chrome --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=none --no-sandbox --disable-dev-shm-usage --use-angle=swiftshader-webgl --crashpad-handler-pid=2745600 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/aien-browser-mirror-2745561-1792751787536924213 --change-stack-guard-on-fork=enable --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,15882219465194585642,13705052518359775399,262144 --disable-features=PaintHolding --variations-seed-version --pseudonymization-salt-handle=7,i,2682849313914400576,838236708213865455,4 --trace-process-track-uuid=3190708989122997041\u0000"
+    ],
+    [
+      2745668,
+      "/opt/google/chrome/chrome --type=utility --utility-sub-type=storage.mojom.StorageService --lang=en-US --service-sandbox-type=utility --no-sandbox --disable-dev-shm-usage --use-angle=swiftshader-webgl --crashpad-handler-pid=2745600 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/aien-browser-mirror-2745561-1792751787536924213 --change-stack-guard-on-fork=enable --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,15882219465194585642,13705052518359775399,262144 --disable-features=PaintHolding --variations-seed-version --pseudonymization-salt-handle=7,i,2682849313914400576,838236708213865455,4 --trace-process-track-uuid=3190708990060038890\u0000"
+    ],
+    [
+      2745689,
+      "/opt/google/chrome/chrome --type=gpu-process --no-sandbox --disable-dev-shm-usage --headless=new --ozone-platform=headless --use-angle=swiftshader-webgl --crashpad-handler-pid=2745635 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/aien-browser-mirror-2745561-1792751787568135543 --change-stack-guard-on-fork=enable --gpu-preferences=YAAAAAAAAAAgAQAEAAAAAAAAAAAAAGAASAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAoAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAIAAAAAAAAAAgAAAAAAAAACAAAAAAAAAA= --use-gl=disabled --shared-files --field-trial-handle=3,i,4274498161646953953,1161924163476548447,262144 --disable-features=PaintHolding --variations-seed-version --pseudonymization-salt-handle=7,i,3659134563913442438,5099212636325633477,4 --trace-process-track-uuid=3190708988185955192\u0000"
+    ],
+    [
+      2745713,
+      "/opt/google/chrome/chrome --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=none --no-sandbox --disable-dev-shm-usage --use-angle=swiftshader-webgl --crashpad-handler-pid=2745635 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/aien-browser-mirror-2745561-1792751787568135543 --change-stack-guard-on-fork=enable --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,4274498161646953953,1161924163476548447,262144 --disable-features=PaintHolding --variations-seed-version --pseudonymization-salt-handle=7,i,3659134563913442438,5099212636325633477,4 --trace-process-track-uuid=3190708989122997041\u0000"
+    ],
+    [
+      2745715,
+      "/opt/google/chrome/chrome --type=renderer --top-chrome-webui --crashpad-handler-pid=2745600 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/aien-browser-mirror-2745561-1792751787536924213 --change-stack-guard-on-fork=enable --no-sandbox --disable-dev-shm-usage --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --num-raster-threads=4 --enable-main-frame-before-activation --renderer-client-id=5 --launch-time-ticks=213415477671 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,15882219465194585642,13705052518359775399,262144 --disable-features=PaintHolding --variations-seed-version --pseudonymization-salt-handle=7,i,2682849313914400576,838236708213865455,4 --trace-process-track-uuid=3190708990997080739\u0000"
+    ],
+    [
+      2745727,
+      "/opt/google/chrome/chrome --type=renderer --crashpad-handler-pid=2745600 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/aien-browser-mirror-2745561-1792751787536924213 --change-stack-guard-on-fork=enable --no-sandbox --disable-dev-shm-usage --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --num-raster-threads=4 --enable-main-frame-before-activation --renderer-client-id=6 --launch-time-ticks=213415493903 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,15882219465194585642,13705052518359775399,262144 --disable-features=PaintHolding --variations-seed-version --pseudonymization-salt-handle=7,i,2682849313914400576,838236708213865455,4 --trace-process-track-uuid=3190708991934122588\u0000"
+    ],
+    [
+      2745772,
+      "/opt/google/chrome/chrome --type=utility --utility-sub-type=storage.mojom.StorageService --lang=en-US --service-sandbox-type=utility --no-sandbox --disable-dev-shm-usage --use-angle=swiftshader-webgl --crashpad-handler-pid=2745635 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/aien-browser-mirror-2745561-1792751787568135543 --change-stack-guard-on-fork=enable --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,4274498161646953953,1161924163476548447,262144 --disable-features=PaintHolding --variations-seed-version --pseudonymization-salt-handle=7,i,3659134563913442438,5099212636325633477,4 --trace-process-track-uuid=3190708990060038890\u0000"
+    ],
+    [
+      2745809,
+      "/opt/google/chrome/chrome --type=renderer --top-chrome-webui --crashpad-handler-pid=2745635 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/aien-browser-mirror-2745561-1792751787568135543 --change-stack-guard-on-fork=enable --no-sandbox --disable-dev-shm-usage --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --num-raster-threads=4 --enable-main-frame-before-activation --renderer-client-id=5 --launch-time-ticks=213415537867 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,4274498161646953953,1161924163476548447,262144 --disable-features=PaintHolding --variations-seed-version --pseudonymization-salt-handle=7,i,3659134563913442438,5099212636325633477,4 --trace-process-track-uuid=3190708990997080739\u0000"
+    ],
+    [
+      2745835,
+      "/opt/google/chrome/chrome --type=renderer --crashpad-handler-pid=2745635 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/aien-browser-mirror-2745561-1792751787568135543 --change-stack-guard-on-fork=enable --no-sandbox --disable-dev-shm-usage --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --num-raster-threads=4 --enable-main-frame-before-activation --renderer-client-id=6 --launch-time-ticks=213415563298 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,4274498161646953953,1161924163476548447,262144 --disable-features=PaintHolding --variations-seed-version --pseudonymization-salt-handle=7,i,3659134563913442438,5099212636325633477,4 --trace-process-track-uuid=3190708991934122588\u0000"
+    ],
+    [
+      2746083,
+      "/opt/google/chrome/chrome --type=renderer --crashpad-handler-pid=2745600 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/aien-browser-mirror-2745561-1792751787536924213 --change-stack-guard-on-fork=enable --no-sandbox --disable-dev-shm-usage --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --num-raster-threads=4 --enable-main-frame-before-activation --renderer-client-id=20 --launch-time-ticks=213418735033 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,15882219465194585642,13705052518359775399,262144 --disable-features=PaintHolding --variations-seed-version --pseudonymization-salt-handle=7,i,2682849313914400576,838236708213865455,4 --trace-process-track-uuid=3190709005052708474\u0000"
+    ],
+    [
+      2746114,
+      "/opt/google/chrome/chrome --type=renderer --crashpad-handler-pid=2745635 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/aien-browser-mirror-2745561-1792751787568135543 --change-stack-guard-on-fork=enable --no-sandbox --disable-dev-shm-usage --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --num-raster-threads=4 --enable-main-frame-before-activation --renderer-client-id=20 --launch-time-ticks=213418762095 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,4274498161646953953,1161924163476548447,262144 --disable-features=PaintHolding --variations-seed-version --pseudonymization-salt-handle=7,i,3659134563913442438,5099212636325633477,4 --trace-process-track-uuid=3190709005052708474\u0000"
+    ],
+    [
+      2774819,
+      "/opt/google/chrome/chrome --type=utility --utility-sub-type=on_device_model.mojom.OnDeviceModelService --lang=en-US --service-sandbox-type=on_device_model_execution --no-sandbox --disable-dev-shm-usage --use-angle=swiftshader-webgl --crashpad-handler-pid=2745600 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/aien-browser-mirror-2745561-1792751787536924213 --change-stack-guard-on-fork=enable --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,15882219465194585642,13705052518359775399,262144 --disable-features=PaintHolding --variations-seed-version --pseudonymization-salt-handle=7,i,2682849313914400576,838236708213865455,4 --trace-process-track-uuid=3190709042534382434\u0000"
+    ],
+    [
+      2774825,
+      "/opt/google/chrome/chrome --type=utility --utility-sub-type=on_device_model.mojom.OnDeviceModelService --lang=en-US --service-sandbox-type=on_device_model_execution --no-sandbox --disable-dev-shm-usage --use-angle=swiftshader-webgl --crashpad-handler-pid=2745635 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/tmp/aien-browser-mirror-2745561-1792751787568135543 --change-stack-guard-on-fork=enable --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,4274498161646953953,1161924163476548447,262144 --disable-features=PaintHolding --variations-seed-version --pseudonymization-salt-handle=7,i,3659134563913442438,5099212636325633477,4 --trace-process-track-uuid=3190709042534382434\u0000"
+    ]
+  ]
+}

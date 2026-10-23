@@ -1,0 +1,7 @@
+{
+  "mode": "screenshot",
+  "screenshot": "/home/drakestapleton/handoffs/L676-final-qualification/pixels.png",
+  "status": "ok",
+  "target_url": "data:text/html,%3Chtml%3E%3Chead%3E%3Ctitle%3EL676%20final%20rendered%20pixel%20fixture%3C/title%3E%3C/head%3E%3Cbody%20style%3D%22margin%3A0%3Bbackground%3Awhite%22%3E%3Cdiv%20style%3D%22position%3Aabsolute%3Bleft%3A20px%3Btop%3A20px%3Bwidth%3A80px%3Bheight%3A80px%3Bbackground%3A%23ff0000%22%3E%3C/div%3E%3Cdiv%20style%3D%22position%3Aabsolute%3Bleft%3A120px%3Btop%3A20px%3Bwidth%3A80px%3Bheight%3A80px%3Bbackground%3A%2300ff00%22%3E%3C/div%3E%3Cdiv%20style%3D%22position%3Aabsolute%3Bleft%3A220px%3Btop%3A20px%3Bwidth%3A80px%3Bheight%3A80px%3Bbackground%3A%230000ff%22%3E%3C/div%3E%3Cdiv%20style%3D%22position%3Aabsolute%3Bleft%3A320px%3Btop%3A20px%3Bwidth%3A80px%3Bheight%3A80px%3Bbackground%3A%23ffff00%22%3E%3C/div%3E%3C/body%3E%3C/html%3E",
+  "title": "L676 final rendered pixel fixture"
+}

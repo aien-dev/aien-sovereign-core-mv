@@ -1,0 +1,65 @@
+{
+  "source": "2f6b5ffeda7dd1aa68f26ab548e732de0de82ee8",
+  "inputs": {
+    "crates/aien-cli/src/browser_mirror.rs": "39631076d3601b327d5c3f7fa47e6c8492ce194c5844c698e0c0025a21502a1c",
+    "skills/self-improvement/SKILL.md": "ebeaaed023f6f1066f2e3430935a8629c18464019464de3c3ebbfa035dc6001f"
+  },
+  "steps": [
+    {
+      "name": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit": 0
+    },
+    {
+      "name": "cli",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "aien-cli"
+      ],
+      "exit": 0
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "aien-cli",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0
+    },
+    {
+      "name": "build-browser",
+      "command": [
+        "cargo",
+        "build",
+        "--locked",
+        "-p",
+        "aien-cli",
+        "--bin",
+        "aien-browser-mirror"
+      ],
+      "exit": 0
+    }
+  ],
+  "complete": true,
+  "cli_counts": {
+    "passed": 142,
+    "failed": 0,
+    "ignored": 21
+  }
+}

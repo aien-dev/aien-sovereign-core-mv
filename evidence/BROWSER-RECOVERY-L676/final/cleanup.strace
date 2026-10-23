@@ -1,0 +1,839 @@
+3663794 +++ exited with 0 +++
+3663795 wait4(3663796,  <unfinished ...>
+3663797 +++ exited with 0 +++
+3663796 wait4(-1, [{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3663797
+3663796 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3663797, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3663796 wait4(-1, 0xffffc2860aa0, WNOHANG, NULL) = -1 ECHILD (No child processes)
+3663796 wait4(-1,  <unfinished ...>
+3663798 +++ exited with 0 +++
+3663796 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3663798
+3663796 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3663798, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3663796 wait4(-1, 0xffffc2860920, WNOHANG, NULL) = -1 ECHILD (No child processes)
+3663796 wait4(-1,  <unfinished ...>
+3663799 +++ exited with 0 +++
+3663796 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3663799
+3663796 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3663799, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3663796 wait4(-1, 0xffffc28610f0, WNOHANG, NULL) = -1 ECHILD (No child processes)
+3663796 +++ exited with 0 +++
+3663804 +++ exited with 0 +++
+3663795 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3663796
+3663795 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3663796, si_uid=1000, si_status=0, si_utime=0, si_stime=3 /* 0.03 s */} ---
+3663802 +++ exited with 0 +++
+3663795 pidfd_open(3663793, 0)          = 3
+3663795 pidfd_send_signal(3, 0, NULL, 0) = 0
+3663795 wait4(3663864, 0xfa8f6d9ed160, WNOHANG, NULL) = 0
+3663864 wait4(-1,  <unfinished ...>
+3663865 +++ exited with 0 +++
+3663864 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3663865
+3663864 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3663865, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3663864 wait4(-1, 0xffffdcd4d290, WNOHANG, NULL) = -1 ECHILD (No child processes)
+3663871 +++ exited with 0 +++
+3663864 wait4(-1, [{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3663871
+3663864 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3663871, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3663864 wait4(-1, 0xffffdcd4d110, WNOHANG, NULL) = -1 ECHILD (No child processes)
+3663864 wait4(-1,  <unfinished ...>
+3663872 +++ exited with 0 +++
+3663864 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3663872
+3663864 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3663872, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3663864 wait4(-1, 0xffffdcd4d8e0, WNOHANG, NULL) = -1 ECHILD (No child processes)
+3663864 wait4(3663918,  <unfinished ...>
+3663918 +++ exited with 0 +++
+3663864 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3663918
+3663864 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3663918, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3663921 wait4(3663922,  <unfinished ...>
+3663922 +++ exited with 0 +++
+3663921 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3663922
+3663921 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3663922, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3663795 wait4(3663864, 0xfa8f6d9ed160, WNOHANG, NULL) = 0
+3663795 wait4(3663864, 0xfa8f6d9ed160, WNOHANG, NULL) = 0
+3664030 +++ exited with 0 +++
+3663795 wait4(3663864, 0xfa8f6d9ed160, WNOHANG, NULL) = 0
+3663795 wait4(3663864, 0xfa8f6d9ed160, WNOHANG, NULL) = 0
+3664098 +++ exited with 0 +++
+3664096 +++ exited with 0 +++
+3664090 +++ exited with 0 +++
+3664087 +++ exited with 0 +++
+3664084 +++ exited with 0 +++
+3664082 +++ exited with 0 +++
+3664085 +++ exited with 0 +++
+3664086 +++ exited with 0 +++
+3664080 +++ exited with 0 +++
+3663939 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664080, si_uid=1000, si_status=0, si_utime=0, si_stime=1 /* 0.01 s */} ---
+3664027 kill(3664080, SIGTERM)          = 0
+3663939 wait4(3664080, NULL, WNOHANG, NULL) = 3664080
+3664240 +++ exited with 0 +++
+3664238 +++ exited with 0 +++
+3664236 +++ exited with 0 +++
+3664239 +++ exited with 0 +++
+3664237 +++ exited with 0 +++
+3664230 +++ exited with 0 +++
+3663939 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664230, si_uid=1000, si_status=0, si_utime=0, si_stime=1 /* 0.01 s */} ---
+3663939 kill(3664230, SIGKILL)          = 0
+3663939 wait4(3664230, [{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3664230
+3663795 pidfd_open(3663864, 0)          = 3
+3663795 pidfd_send_signal(3, SIGKILL, NULL, 0) = 0
+3664070 +++ killed by SIGKILL +++
+3664068 +++ killed by SIGKILL +++
+3664067 +++ killed by SIGKILL +++
+3664065 +++ killed by SIGKILL +++
+3664066 +++ killed by SIGKILL +++
+3664059 +++ killed by SIGKILL +++
+3664058 +++ killed by SIGKILL +++
+3664056 +++ killed by SIGKILL +++
+3664055 +++ killed by SIGKILL +++
+3664054 +++ killed by SIGKILL +++
+3664053 +++ killed by SIGKILL +++
+3664052 +++ killed by SIGKILL +++
+3664051 +++ killed by SIGKILL +++
+3664050 +++ killed by SIGKILL +++
+3664028 +++ killed by SIGKILL +++
+3664027 +++ killed by SIGKILL +++
+3664026 +++ killed by SIGKILL +++
+3664025 +++ killed by SIGKILL +++
+3664024 +++ killed by SIGKILL +++
+3664023 +++ killed by SIGKILL +++
+3664022 +++ killed by SIGKILL +++
+3664021 +++ killed by SIGKILL +++
+3664020 +++ killed by SIGKILL +++
+3664019 +++ killed by SIGKILL +++
+3664002 +++ killed by SIGKILL +++
+3663997 +++ killed by SIGKILL +++
+3663996 +++ killed by SIGKILL +++
+3663995 +++ killed by SIGKILL +++
+3663994 +++ killed by SIGKILL +++
+3663993 +++ killed by SIGKILL +++
+3663991 +++ killed by SIGKILL +++
+3663989 +++ killed by SIGKILL +++
+3663937 +++ killed by SIGKILL +++
+3663795 pidfd_open(3663878, 0)          = 3
+3663795 pidfd_send_signal(3, SIGKILL, NULL, 0) = 0
+3663795 pidfd_open(3663879, 0)          = 3
+3663878 +++ killed by SIGKILL +++
+3663795 pidfd_send_signal(3, SIGKILL, NULL, 0) = 0
+3663795 pidfd_open(3663921, 0)          = 3
+3663879 +++ killed by SIGKILL +++
+3663795 pidfd_send_signal(3, SIGKILL, NULL, 0) = 0
+3663932 +++ killed by SIGKILL +++
+3663795 pidfd_open(3663925, 0)          = 3
+3663931 +++ killed by SIGKILL +++
+3663921 +++ killed by SIGKILL +++
+3663795 pidfd_send_signal(3, SIGKILL, NULL, 0) = 0
+3663795 pidfd_open(3663938, 0)          = 3
+3663929 +++ killed by SIGKILL +++
+3663925 +++ killed by SIGKILL +++
+3663795 pidfd_send_signal(3, SIGKILL, NULL, 0) = 0
+3663795 pidfd_open(3663939, 0)          = 3
+3663795 pidfd_send_signal(3, SIGKILL, NULL, 0) = 0
+3663795 pidfd_open(3664029, 0)          = 3
+3663795 pidfd_send_signal(3, SIGKILL, NULL, 0) = 0
+3664038 +++ killed by SIGKILL +++
+3664037 +++ killed by SIGKILL +++
+3664036 +++ killed by SIGKILL +++
+3664035 +++ killed by SIGKILL +++
+3664034 +++ killed by SIGKILL +++
+3664031 +++ killed by SIGKILL +++
+3663795 pidfd_open(3664039, 0)          = 3
+3663795 pidfd_send_signal(3, SIGKILL, NULL, 0) = 0
+3664101 +++ killed by SIGKILL +++
+3664094 +++ killed by SIGKILL +++
+3664048 +++ killed by SIGKILL +++
+3664047 +++ killed by SIGKILL +++
+3664045 +++ killed by SIGKILL +++
+3664044 +++ killed by SIGKILL +++
+3664043 +++ killed by SIGKILL +++
+3664042 +++ killed by SIGKILL +++
+3664041 +++ killed by SIGKILL +++
+3663795 pidfd_open(3664049, 0)          = 3
+3664046 +++ killed by SIGKILL +++
+3663795 pidfd_send_signal(3, SIGKILL, NULL, 0) = 0
+3664069 +++ killed by SIGKILL +++
+3664064 +++ killed by SIGKILL +++
+3664063 +++ killed by SIGKILL +++
+3664062 +++ killed by SIGKILL +++
+3664061 +++ killed by SIGKILL +++
+3664060 +++ killed by SIGKILL +++
+3664057 +++ killed by SIGKILL +++
+3663795 pidfd_open(3664071, 0)          = 3
+3663795 pidfd_send_signal(3, SIGKILL, NULL, 0) = 0
+3664135 +++ killed by SIGKILL +++
+3664134 +++ killed by SIGKILL +++
+3664133 +++ killed by SIGKILL +++
+3664123 +++ killed by SIGKILL +++
+3664122 +++ killed by SIGKILL +++
+3664121 +++ killed by SIGKILL +++
+3664120 +++ killed by SIGKILL +++
+3664119 +++ killed by SIGKILL +++
+3664078 +++ killed by SIGKILL +++
+3664077 +++ killed by SIGKILL +++
+3664076 +++ killed by SIGKILL +++
+3664075 +++ killed by SIGKILL +++
+3664074 +++ killed by SIGKILL +++
+3664073 +++ killed by SIGKILL +++
+3664072 +++ killed by SIGKILL +++
+3663795 pidfd_open(3664081, 0)          = 3
+3664079 +++ killed by SIGKILL +++
+3663939 +++ killed by SIGKILL +++
+3664136 +++ killed by SIGKILL +++
+3663795 pidfd_send_signal(3, SIGKILL, NULL, 0) = 0
+3664124 +++ killed by SIGKILL +++
+3664099 +++ killed by SIGKILL +++
+3664097 +++ killed by SIGKILL +++
+3664093 +++ killed by SIGKILL +++
+3664092 +++ killed by SIGKILL +++
+3664091 +++ killed by SIGKILL +++
+3664089 +++ killed by SIGKILL +++
+3664088 +++ killed by SIGKILL +++
+3664083 +++ killed by SIGKILL +++
+3663795 pidfd_open(3664095, 0)          = 3
+3663938 +++ killed by SIGKILL +++
+3663795 pidfd_send_signal(3, SIGKILL, NULL, 0) = 0
+3664049 +++ killed by SIGKILL +++
+3664115 +++ killed by SIGKILL +++
+3664114 +++ killed by SIGKILL +++
+3664108 +++ killed by SIGKILL +++
+3664107 +++ killed by SIGKILL +++
+3664106 +++ killed by SIGKILL +++
+3664105 +++ killed by SIGKILL +++
+3664104 +++ killed by SIGKILL +++
+3663795 pidfd_open(3664100, 0)          = 3
+3663795 pidfd_send_signal(3, SIGKILL, NULL, 0) = 0
+3664117 +++ killed by SIGKILL +++
+3664116 +++ killed by SIGKILL +++
+3664113 +++ killed by SIGKILL +++
+3664112 +++ killed by SIGKILL +++
+3664111 +++ killed by SIGKILL +++
+3664110 +++ killed by SIGKILL +++
+3664109 +++ killed by SIGKILL +++
+3664103 +++ killed by SIGKILL +++
+3663795 pidfd_open(3664137, 0)          = 3
+3663795 pidfd_send_signal(3, SIGKILL, NULL, 0) = 0
+3664166 +++ killed by SIGKILL +++
+3664151 +++ killed by SIGKILL +++
+3664148 +++ killed by SIGKILL +++
+3664146 +++ killed by SIGKILL +++
+3664143 +++ killed by SIGKILL +++
+3664142 +++ killed by SIGKILL +++
+3664141 +++ killed by SIGKILL +++
+3664139 +++ killed by SIGKILL +++
+3664138 +++ killed by SIGKILL +++
+3663795 wait4(3663864, 0xfa8f6d9ed710, WNOHANG, NULL) = 0
+3664118 +++ killed by SIGKILL +++
+3664029 +++ killed by SIGKILL +++
+3664040 +++ killed by SIGKILL +++
+3664039 +++ killed by SIGKILL +++
+3664102 +++ killed by SIGKILL +++
+3664095 +++ killed by SIGKILL +++
+3664100 +++ killed by SIGKILL +++
+3664081 +++ killed by SIGKILL +++
+3664140 +++ killed by SIGKILL +++
+3664137 +++ killed by SIGKILL +++
+3663992 +++ killed by SIGKILL +++
+3663864 +++ killed by SIGKILL +++
+3663795 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_KILLED, si_pid=3663864, si_uid=1000, si_status=SIGKILL, si_utime=30 /* 0.30 s */, si_stime=37 /* 0.37 s */} ---
+3664132 +++ killed by SIGKILL +++
+3664071 +++ killed by SIGKILL +++
+3663795 wait4(3663864, [{WIFSIGNALED(s) && WTERMSIG(s) == SIGKILL}], WNOHANG, NULL) = 3663864
+3663795 +++ exited with 0 +++
+3664319 pidfd_open(3664320, 0)          = 3
+3664320 kill(3664320, SIGSTOP)          = 0
+3664320 --- SIGSTOP {si_signo=SIGSTOP, si_code=SI_USER, si_pid=3664320, si_uid=1000} ---
+3664320 --- stopped by SIGSTOP ---
+3664319 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_STOPPED, si_pid=3664320, si_uid=1000, si_status=SIGSTOP, si_utime=0, si_stime=0} ---
+3664319 pidfd_open(3664321, 0)          = 4
+3664321 kill(3664321, SIGSTOP)          = 0
+3664321 --- SIGSTOP {si_signo=SIGSTOP, si_code=SI_USER, si_pid=3664321, si_uid=1000} ---
+3664321 --- stopped by SIGSTOP ---
+3664319 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_STOPPED, si_pid=3664321, si_uid=1000, si_status=SIGSTOP, si_utime=0, si_stime=0} ---
+3664319 pidfd_send_signal(3, SIGKILL, NULL, 0) = 0
+3664319 wait4(3664320,  <unfinished ...>
+3664320 +++ killed by SIGKILL +++
+3664319 <... wait4 resumed>[{WIFSIGNALED(s) && WTERMSIG(s) == SIGKILL}], 0, NULL) = 3664320
+3664319 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_KILLED, si_pid=3664320, si_uid=1000, si_status=SIGKILL, si_utime=0, si_stime=0} ---
+3664319 wait4(3664321, 0xfa8f6d9edbb0, WNOHANG, NULL) = 0
+3664319 kill(3664321, SIGKILL)          = 0
+3664319 wait4(3664321,  <unfinished ...>
+3664321 +++ killed by SIGKILL +++
+3664319 <... wait4 resumed>[{WIFSIGNALED(s) && WTERMSIG(s) == SIGKILL}], 0, NULL) = 3664321
+3664319 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_KILLED, si_pid=3664321, si_uid=1000, si_status=SIGKILL, si_utime=0, si_stime=0} ---
+3664319 +++ exited with 0 +++
+3664322 pidfd_open(3664323, 0)          = 3
+3664322 pidfd_open(3664324, 0)          = 4
+3664322 pidfd_open(3664325, 0)          = 4
+3664322 pidfd_send_signal(3, SIGKILL, NULL, 0) = 0
+3664322 wait4(3664323,  <unfinished ...>
+3664323 +++ killed by SIGKILL +++
+3664322 <... wait4 resumed>[{WIFSIGNALED(s) && WTERMSIG(s) == SIGKILL}], 0, NULL) = 3664323
+3664322 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_KILLED, si_pid=3664323, si_uid=1000, si_status=SIGKILL, si_utime=0, si_stime=0} ---
+3664322 pidfd_send_signal(3, SIGKILL, NULL, 0) = -1 ESRCH (No such process)
+3664322 wait4(3664324, 0xfa8f6d9edbc0, WNOHANG, NULL) = 0
+3664322 wait4(3664325, 0xfa8f6d9edbc0, WNOHANG, NULL) = 0
+3664322 kill(3664324, SIGKILL)          = 0
+3664322 wait4(3664324,  <unfinished ...>
+3664324 +++ killed by SIGKILL +++
+3664322 <... wait4 resumed>[{WIFSIGNALED(s) && WTERMSIG(s) == SIGKILL}], 0, NULL) = 3664324
+3664322 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_KILLED, si_pid=3664324, si_uid=1000, si_status=SIGKILL, si_utime=0, si_stime=0} ---
+3664322 kill(3664325, SIGKILL)          = 0
+3664322 wait4(3664325,  <unfinished ...>
+3664325 +++ killed by SIGKILL +++
+3664322 <... wait4 resumed>[{WIFSIGNALED(s) && WTERMSIG(s) == SIGKILL}], 0, NULL) = 3664325
+3664322 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_KILLED, si_pid=3664325, si_uid=1000, si_status=SIGKILL, si_utime=0, si_stime=0} ---
+3664322 +++ exited with 0 +++
+3664326 wait4(3664327,  <unfinished ...>
+3664328 +++ exited with 0 +++
+3664327 wait4(-1, [{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3664328
+3664327 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664328, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3664327 wait4(-1, 0xffffd21f2670, WNOHANG, NULL) = -1 ECHILD (No child processes)
+3664327 wait4(-1,  <unfinished ...>
+3664329 +++ exited with 0 +++
+3664327 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3664329
+3664327 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664329, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3664327 wait4(-1, 0xffffd21f24f0, WNOHANG, NULL) = -1 ECHILD (No child processes)
+3664327 wait4(-1,  <unfinished ...>
+3664331 +++ exited with 0 +++
+3664327 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3664331
+3664327 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664331, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3664327 wait4(-1, 0xffffd21f2cc0, WNOHANG, NULL) = -1 ECHILD (No child processes)
+3664327 +++ exited with 0 +++
+3664326 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3664327
+3664326 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664327, si_uid=1000, si_status=0, si_utime=1 /* 0.01 s */, si_stime=2 /* 0.02 s */} ---
+3664336 +++ exited with 0 +++
+3664335 +++ exited with 0 +++
+3664326 wait4(3664343,  <unfinished ...>
+3664344 +++ exited with 0 +++
+3664343 wait4(-1, [{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3664344
+3664343 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664344, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3664343 wait4(-1, 0xffffcfba5310, WNOHANG, NULL) = -1 ECHILD (No child processes)
+3664345 +++ exited with 0 +++
+3664343 wait4(-1, [{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3664345
+3664343 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664345, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3664343 wait4(-1, 0xffffcfba5190, WNOHANG, NULL) = -1 ECHILD (No child processes)
+3664343 wait4(-1,  <unfinished ...>
+3664346 +++ exited with 0 +++
+3664343 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3664346
+3664343 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664346, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3664343 wait4(-1, 0xffffcfba5960, WNOHANG, NULL) = -1 ECHILD (No child processes)
+3664343 +++ exited with 0 +++
+3664326 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3664343
+3664326 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664343, si_uid=1000, si_status=0, si_utime=0, si_stime=2 /* 0.02 s */} ---
+3664326 pidfd_open(3663793, 0)          = 3
+3664326 pidfd_send_signal(3, 0, NULL, 0 <unfinished ...>
+3664347 +++ exited with 0 +++
+3664326 <... pidfd_send_signal resumed>) = 0
+3664348 +++ exited with 0 +++
+3664326 wait4(3664357, 0xfa8f6d9ebfe0, WNOHANG, NULL) = 0
+3664360 +++ exited with 0 +++
+3664357 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664360, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3664357 wait4(-1, [{WIFEXITED(s) && WEXITSTATUS(s) == 0}], WNOHANG, NULL) = 3664360
+3664357 wait4(-1, 0xffffc48352f0, WNOHANG, NULL) = -1 ECHILD (No child processes)
+3664357 wait4(-1,  <unfinished ...>
+3664361 +++ exited with 0 +++
+3664357 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3664361
+3664357 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664361, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3664357 wait4(-1, 0xffffc4835f60, WNOHANG, NULL) = -1 ECHILD (No child processes)
+3664357 wait4(-1,  <unfinished ...>
+3664362 +++ exited with 0 +++
+3664357 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3664362
+3664357 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664362, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3664357 wait4(-1, 0xffffc4836730, WNOHANG, NULL) = -1 ECHILD (No child processes)
+3664357 wait4(3664365,  <unfinished ...>
+3664365 +++ exited with 0 +++
+3664357 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3664365
+3664357 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664365, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3664366 wait4(3664367,  <unfinished ...>
+3664367 +++ exited with 0 +++
+3664366 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3664367
+3664366 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664367, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3664326 wait4(3664357, 0xfa8f6d9ebfe0, WNOHANG, NULL) = 0
+3664326 wait4(3664357, 0xfa8f6d9ebfe0, WNOHANG, NULL) = 0
+3664397 +++ exited with 0 +++
+3664326 wait4(3664357, 0xfa8f6d9ebfe0, WNOHANG, NULL) = 0
+3664326 wait4(3664357, 0xfa8f6d9ebfe0, WNOHANG, NULL) = 0
+3664499 +++ exited with 0 +++
+3664496 +++ exited with 0 +++
+3664465 +++ exited with 0 +++
+3664463 +++ exited with 0 +++
+3664462 +++ exited with 0 +++
+3664461 +++ exited with 0 +++
+3664460 +++ exited with 0 +++
+3664458 +++ exited with 0 +++
+3664456 +++ exited with 0 +++
+3664374 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664456, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3664394 kill(3664456, SIGTERM)          = 0
+3664374 wait4(3664456, NULL, WNOHANG, NULL) = 3664456
+3664572 +++ exited with 0 +++
+3664570 +++ exited with 0 +++
+3664569 +++ exited with 0 +++
+3664568 +++ exited with 0 +++
+3664571 +++ exited with 0 +++
+3664567 +++ exited with 0 +++
+3664374 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664567, si_uid=1000, si_status=0, si_utime=0, si_stime=1 /* 0.01 s */} ---
+3664374 kill(3664567, SIGKILL)          = 0
+3664374 wait4(3664567, [{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3664567
+3664326 pidfd_open(3664357, 0)          = 4
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664446 +++ killed by SIGKILL +++
+3664444 +++ killed by SIGKILL +++
+3664443 +++ killed by SIGKILL +++
+3664440 +++ killed by SIGKILL +++
+3664439 +++ killed by SIGKILL +++
+3664438 +++ killed by SIGKILL +++
+3664437 +++ killed by SIGKILL +++
+3664436 +++ killed by SIGKILL +++
+3664435 +++ killed by SIGKILL +++
+3664434 +++ killed by SIGKILL +++
+3664442 +++ killed by SIGKILL +++
+3664427 +++ killed by SIGKILL +++
+3664393 +++ killed by SIGKILL +++
+3664391 +++ killed by SIGKILL +++
+3664389 +++ killed by SIGKILL +++
+3664388 +++ killed by SIGKILL +++
+3664387 +++ killed by SIGKILL +++
+3664386 +++ killed by SIGKILL +++
+3664395 +++ killed by SIGKILL +++
+3664384 +++ killed by SIGKILL +++
+3664383 +++ killed by SIGKILL +++
+3664380 +++ killed by SIGKILL +++
+3664379 +++ killed by SIGKILL +++
+3664378 +++ killed by SIGKILL +++
+3664385 +++ killed by SIGKILL +++
+3664377 +++ killed by SIGKILL +++
+3664376 +++ killed by SIGKILL +++
+3664375 +++ killed by SIGKILL +++
+3664372 +++ killed by SIGKILL +++
+3664394 +++ killed by SIGKILL +++
+3664392 +++ killed by SIGKILL +++
+3664390 +++ killed by SIGKILL +++
+3664382 +++ killed by SIGKILL +++
+3664326 pidfd_open(3664363, 0)          = 4
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664326 pidfd_open(3664364, 0)          = 4
+3664363 +++ killed by SIGKILL +++
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664326 pidfd_open(3664366, 0)          = 4
+3664364 +++ killed by SIGKILL +++
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664371 +++ killed by SIGKILL +++
+3664370 +++ killed by SIGKILL +++
+3664326 pidfd_open(3664368, 0)          = 4
+3664366 +++ killed by SIGKILL +++
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664369 +++ killed by SIGKILL +++
+3664326 pidfd_open(3664373, 0)          = 4
+3664368 +++ killed by SIGKILL +++
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664326 pidfd_open(3664374, 0)          = 4
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664326 pidfd_open(3664396, 0)          = 4
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664404 +++ killed by SIGKILL +++
+3664544 +++ killed by SIGKILL +++
+3664403 +++ killed by SIGKILL +++
+3664402 +++ killed by SIGKILL +++
+3664401 +++ killed by SIGKILL +++
+3664400 +++ killed by SIGKILL +++
+3664398 +++ killed by SIGKILL +++
+3664326 pidfd_open(3664406, 0)          = 4
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664494 +++ killed by SIGKILL +++
+3664471 +++ killed by SIGKILL +++
+3664424 +++ killed by SIGKILL +++
+3664423 +++ killed by SIGKILL +++
+3664422 +++ killed by SIGKILL +++
+3664421 +++ killed by SIGKILL +++
+3664420 +++ killed by SIGKILL +++
+3664419 +++ killed by SIGKILL +++
+3664418 +++ killed by SIGKILL +++
+3664417 +++ killed by SIGKILL +++
+3664326 pidfd_open(3664426, 0)          = 4
+3664373 +++ killed by SIGKILL +++
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664445 +++ killed by SIGKILL +++
+3664433 +++ killed by SIGKILL +++
+3664432 +++ killed by SIGKILL +++
+3664431 +++ killed by SIGKILL +++
+3664430 +++ killed by SIGKILL +++
+3664429 +++ killed by SIGKILL +++
+3664428 +++ killed by SIGKILL +++
+3664326 pidfd_open(3664447, 0)          = 4
+3664374 +++ killed by SIGKILL +++
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664535 +++ killed by SIGKILL +++
+3664534 +++ killed by SIGKILL +++
+3664527 +++ killed by SIGKILL +++
+3664526 +++ killed by SIGKILL +++
+3664525 +++ killed by SIGKILL +++
+3664523 +++ killed by SIGKILL +++
+3664521 +++ killed by SIGKILL +++
+3664455 +++ killed by SIGKILL +++
+3664454 +++ killed by SIGKILL +++
+3664453 +++ killed by SIGKILL +++
+3664452 +++ killed by SIGKILL +++
+3664451 +++ killed by SIGKILL +++
+3664450 +++ killed by SIGKILL +++
+3664449 +++ killed by SIGKILL +++
+3664448 +++ killed by SIGKILL +++
+3664326 pidfd_open(3664457, 0)          = 4
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664531 +++ killed by SIGKILL +++
+3664500 +++ killed by SIGKILL +++
+3664498 +++ killed by SIGKILL +++
+3664469 +++ killed by SIGKILL +++
+3664468 +++ killed by SIGKILL +++
+3664467 +++ killed by SIGKILL +++
+3664466 +++ killed by SIGKILL +++
+3664464 +++ killed by SIGKILL +++
+3664459 +++ killed by SIGKILL +++
+3664326 pidfd_open(3664492, 0)          = 4
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664513 +++ killed by SIGKILL +++
+3664512 +++ killed by SIGKILL +++
+3664506 +++ killed by SIGKILL +++
+3664505 +++ killed by SIGKILL +++
+3664504 +++ killed by SIGKILL +++
+3664503 +++ killed by SIGKILL +++
+3664502 +++ killed by SIGKILL +++
+3664497 +++ killed by SIGKILL +++
+3664326 pidfd_open(3664495, 0)          = 4
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664509 +++ killed by SIGKILL +++
+3664514 +++ killed by SIGKILL +++
+3664511 +++ killed by SIGKILL +++
+3664508 +++ killed by SIGKILL +++
+3664507 +++ killed by SIGKILL +++
+3664501 +++ killed by SIGKILL +++
+3664426 +++ killed by SIGKILL +++
+3664515 +++ killed by SIGKILL +++
+3664326 pidfd_open(3664537, 0)          = 4
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664546 +++ killed by SIGKILL +++
+3664545 +++ killed by SIGKILL +++
+3664543 +++ killed by SIGKILL +++
+3664542 +++ killed by SIGKILL +++
+3664541 +++ killed by SIGKILL +++
+3664540 +++ killed by SIGKILL +++
+3664539 +++ killed by SIGKILL +++
+3664538 +++ killed by SIGKILL +++
+3664326 wait4(3664357, 0xfa8f6d9eccf0, WNOHANG, NULL) = 0
+3664547 +++ killed by SIGKILL +++
+3664520 +++ killed by SIGKILL +++
+3664396 +++ killed by SIGKILL +++
+3664425 +++ killed by SIGKILL +++
+3664406 +++ killed by SIGKILL +++
+3664492 +++ killed by SIGKILL +++
+3664457 +++ killed by SIGKILL +++
+3664510 +++ killed by SIGKILL +++
+3664495 +++ killed by SIGKILL +++
+3664536 +++ killed by SIGKILL +++
+3664447 +++ killed by SIGKILL +++
+3664548 +++ killed by SIGKILL +++
+3664537 +++ killed by SIGKILL +++
+3664381 +++ killed by SIGKILL +++
+3664357 +++ killed by SIGKILL +++
+3664326 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_KILLED, si_pid=3664357, si_uid=1000, si_status=SIGKILL, si_utime=27 /* 0.27 s */, si_stime=36 /* 0.36 s */} ---
+3664326 wait4(3664357, [{WIFSIGNALED(s) && WTERMSIG(s) == SIGKILL}], WNOHANG, NULL) = 3664357
+3664326 wait4(3664574,  <unfinished ...>
+3664575 +++ exited with 0 +++
+3664574 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664575, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3664574 wait4(-1, [{WIFEXITED(s) && WEXITSTATUS(s) == 0}], WNOHANG, NULL) = 3664575
+3664574 wait4(-1, 0xfffffd5dc080, WNOHANG, NULL) = -1 ECHILD (No child processes)
+3664574 wait4(-1,  <unfinished ...>
+3664576 +++ exited with 0 +++
+3664574 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3664576
+3664574 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664576, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3664574 wait4(-1, 0xfffffd5dccf0, WNOHANG, NULL) = -1 ECHILD (No child processes)
+3664574 wait4(-1,  <unfinished ...>
+3664577 +++ exited with 0 +++
+3664574 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3664577
+3664574 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664577, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3664574 wait4(-1, 0xfffffd5dd4c0, WNOHANG, NULL) = -1 ECHILD (No child processes)
+3664574 +++ exited with 0 +++
+3664326 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3664574
+3664326 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664574, si_uid=1000, si_status=0, si_utime=1 /* 0.01 s */, si_stime=2 /* 0.02 s */} ---
+3664326 pidfd_open(3663793, 0)          = 3
+3664326 pidfd_send_signal(3, 0, NULL, 0) = 0
+3664578 +++ exited with 0 +++
+3664579 +++ exited with 0 +++
+3664326 wait4(3664580, 0xfa8f6d9ec200, WNOHANG, NULL) = 0
+3664580 wait4(-1,  <unfinished ...>
+3664581 +++ exited with 0 +++
+3664580 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3664581
+3664580 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664581, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3664580 wait4(-1, 0xffffe6b79e90, WNOHANG, NULL) = -1 ECHILD (No child processes)
+3664580 wait4(-1,  <unfinished ...>
+3664582 +++ exited with 0 +++
+3664580 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3664582
+3664580 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664582, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3664580 wait4(-1, 0xffffe6b79d10, WNOHANG, NULL) = -1 ECHILD (No child processes)
+3664580 wait4(-1,  <unfinished ...>
+3664583 +++ exited with 0 +++
+3664580 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3664583
+3664580 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664583, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3664580 wait4(-1, 0xffffe6b7a4e0, WNOHANG, NULL) = -1 ECHILD (No child processes)
+3664580 wait4(3664586,  <unfinished ...>
+3664586 +++ exited with 0 +++
+3664580 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3664586
+3664580 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664586, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3664587 wait4(3664588,  <unfinished ...>
+3664588 +++ exited with 0 +++
+3664587 <... wait4 resumed>[{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3664588
+3664587 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664588, si_uid=1000, si_status=0, si_utime=0, si_stime=0} ---
+3664326 wait4(3664580, 0xfa8f6d9ec200, WNOHANG, NULL) = 0
+3664326 wait4(3664580, 0xfa8f6d9ec200, WNOHANG, NULL) = 0
+3664619 +++ exited with 0 +++
+3664326 wait4(3664580, 0xfa8f6d9ec200, WNOHANG, NULL) = 0
+3664326 wait4(3664580, 0xfa8f6d9ec200, WNOHANG, NULL) = 0
+3664685 +++ exited with 0 +++
+3664677 +++ exited with 0 +++
+3664676 +++ exited with 0 +++
+3664675 +++ exited with 0 +++
+3664674 +++ exited with 0 +++
+3664673 +++ exited with 0 +++
+3664684 +++ exited with 0 +++
+3664670 +++ exited with 0 +++
+3664669 +++ exited with 0 +++
+3664595 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=3664669, si_uid=1000, si_status=0, si_utime=0, si_stime=2 /* 0.02 s */} ---
+3664616 kill(3664669, SIGTERM)          = 0
+3664595 wait4(3664669, NULL, WNOHANG, NULL) = 3664669
+3664326 pidfd_open(3664580, 0)          = 4
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664655 +++ killed by SIGKILL +++
+3664654 +++ killed by SIGKILL +++
+3664653 +++ killed by SIGKILL +++
+3664652 +++ killed by SIGKILL +++
+3664659 +++ killed by SIGKILL +++
+3664651 +++ killed by SIGKILL +++
+3664650 +++ killed by SIGKILL +++
+3664649 +++ killed by SIGKILL +++
+3664648 +++ killed by SIGKILL +++
+3664647 +++ killed by SIGKILL +++
+3664617 +++ killed by SIGKILL +++
+3664615 +++ killed by SIGKILL +++
+3664614 +++ killed by SIGKILL +++
+3664613 +++ killed by SIGKILL +++
+3664612 +++ killed by SIGKILL +++
+3664611 +++ killed by SIGKILL +++
+3664610 +++ killed by SIGKILL +++
+3664609 +++ killed by SIGKILL +++
+3664608 +++ killed by SIGKILL +++
+3664607 +++ killed by SIGKILL +++
+3664606 +++ killed by SIGKILL +++
+3664616 +++ killed by SIGKILL +++
+3664605 +++ killed by SIGKILL +++
+3664604 +++ killed by SIGKILL +++
+3664603 +++ killed by SIGKILL +++
+3664602 +++ killed by SIGKILL +++
+3664601 +++ killed by SIGKILL +++
+3664600 +++ killed by SIGKILL +++
+3664599 +++ killed by SIGKILL +++
+3664598 +++ killed by SIGKILL +++
+3664597 +++ killed by SIGKILL +++
+3664596 +++ killed by SIGKILL +++
+3664593 +++ killed by SIGKILL +++
+3664326 pidfd_open(3664584, 0)          = 4
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664326 pidfd_open(3664585, 0)          = 4
+3664584 +++ killed by SIGKILL +++
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664326 pidfd_open(3664587, 0)          = 4
+3664585 +++ killed by SIGKILL +++
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664592 +++ killed by SIGKILL +++
+3664591 +++ killed by SIGKILL +++
+3664326 pidfd_open(3664589, 0)          = 4
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664587 +++ killed by SIGKILL +++
+3664590 +++ killed by SIGKILL +++
+3664326 pidfd_open(3664594, 0)          = 4
+3664589 +++ killed by SIGKILL +++
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664326 pidfd_open(3664595, 0)          = 4
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664326 pidfd_open(3664618, 0)          = 4
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664764 +++ killed by SIGKILL +++
+3664627 +++ killed by SIGKILL +++
+3664626 +++ killed by SIGKILL +++
+3664625 +++ killed by SIGKILL +++
+3664624 +++ killed by SIGKILL +++
+3664623 +++ killed by SIGKILL +++
+3664620 +++ killed by SIGKILL +++
+3664326 pidfd_open(3664628, 0)          = 4
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664683 +++ killed by SIGKILL +++
+3664638 +++ killed by SIGKILL +++
+3664637 +++ killed by SIGKILL +++
+3664636 +++ killed by SIGKILL +++
+3664635 +++ killed by SIGKILL +++
+3664634 +++ killed by SIGKILL +++
+3664633 +++ killed by SIGKILL +++
+3664632 +++ killed by SIGKILL +++
+3664631 +++ killed by SIGKILL +++
+3664630 +++ killed by SIGKILL +++
+3664326 pidfd_open(3664639, 0)          = 4
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664656 +++ killed by SIGKILL +++
+3664646 +++ killed by SIGKILL +++
+3664645 +++ killed by SIGKILL +++
+3664644 +++ killed by SIGKILL +++
+3664643 +++ killed by SIGKILL +++
+3664642 +++ killed by SIGKILL +++
+3664641 +++ killed by SIGKILL +++
+3664326 pidfd_open(3664660, 0)          = 4
+3664594 +++ killed by SIGKILL +++
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664832 +++ killed by SIGKILL +++
+3664831 +++ killed by SIGKILL +++
+3664791 +++ killed by SIGKILL +++
+3664783 +++ killed by SIGKILL +++
+3664779 +++ killed by SIGKILL +++
+3664771 +++ killed by SIGKILL +++
+3664768 +++ killed by SIGKILL +++
+3664668 +++ killed by SIGKILL +++
+3664667 +++ killed by SIGKILL +++
+3664666 +++ killed by SIGKILL +++
+3664665 +++ killed by SIGKILL +++
+3664664 +++ killed by SIGKILL +++
+3664663 +++ killed by SIGKILL +++
+3664662 +++ killed by SIGKILL +++
+3664661 +++ killed by SIGKILL +++
+3664595 +++ killed by SIGKILL +++
+3664326 pidfd_open(3664671, 0)          = 4
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664815 +++ killed by SIGKILL +++
+3664689 +++ killed by SIGKILL +++
+3664688 +++ killed by SIGKILL +++
+3664682 +++ killed by SIGKILL +++
+3664681 +++ killed by SIGKILL +++
+3664680 +++ killed by SIGKILL +++
+3664679 +++ killed by SIGKILL +++
+3664678 +++ killed by SIGKILL +++
+3664672 +++ killed by SIGKILL +++
+3664326 pidfd_open(3664687, 0)          = 4
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664751 +++ killed by SIGKILL +++
+3664750 +++ killed by SIGKILL +++
+3664708 +++ killed by SIGKILL +++
+3664706 +++ killed by SIGKILL +++
+3664704 +++ killed by SIGKILL +++
+3664703 +++ killed by SIGKILL +++
+3664700 +++ killed by SIGKILL +++
+3664691 +++ killed by SIGKILL +++
+3664326 pidfd_open(3664690, 0)          = 4
+3664639 +++ killed by SIGKILL +++
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664758 +++ killed by SIGKILL +++
+3664754 +++ killed by SIGKILL +++
+3664722 +++ killed by SIGKILL +++
+3664720 +++ killed by SIGKILL +++
+3664717 +++ killed by SIGKILL +++
+3664715 +++ killed by SIGKILL +++
+3664712 +++ killed by SIGKILL +++
+3664694 +++ killed by SIGKILL +++
+3664326 pidfd_open(3664885, 0)          = 4
+3664326 pidfd_send_signal(4, SIGKILL, NULL, 0) = 0
+3664895 +++ killed by SIGKILL +++
+3664894 +++ killed by SIGKILL +++
+3664893 +++ killed by SIGKILL +++
+3664892 +++ killed by SIGKILL +++
+3664891 +++ killed by SIGKILL +++
+3664890 +++ killed by SIGKILL +++
+3664889 +++ killed by SIGKILL +++
+3664888 +++ killed by SIGKILL +++
+3664886 +++ killed by SIGKILL +++
+3664326 wait4(3664580, 0xfa8f6d9ecf10, WNOHANG, NULL) = 0
+3664618 +++ killed by SIGKILL +++
+3664686 +++ killed by SIGKILL +++
+3664628 +++ killed by SIGKILL +++
+3664687 +++ killed by SIGKILL +++
+3664671 +++ killed by SIGKILL +++
+3664690 +++ killed by SIGKILL +++
+3664660 +++ killed by SIGKILL +++
+3664896 +++ killed by SIGKILL +++
+3664885 +++ killed by SIGKILL +++
+3664640 +++ killed by SIGKILL +++
+3664580 +++ killed by SIGKILL +++
+3664326 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_KILLED, si_pid=3664580, si_uid=1000, si_status=SIGKILL, si_utime=28 /* 0.28 s */, si_stime=34 /* 0.34 s */} ---
+3664326 wait4(3664580, [{WIFSIGNALED(s) && WTERMSIG(s) == SIGKILL}], WNOHANG, NULL) = 3664580
+3664326 +++ exited with 0 +++
+3664955 kill(3664957, SIGKILL)          = 0
+3664955 wait4(3664957,  <unfinished ...>
+3664957 +++ killed by SIGKILL +++
+3664955 <... wait4 resumed>[{WIFSIGNALED(s) && WTERMSIG(s) == SIGKILL}], 0, NULL) = 3664957
+3664955 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_KILLED, si_pid=3664957, si_uid=1000, si_status=SIGKILL, si_utime=0, si_stime=0} ---
+3664955 kill(3664958, SIGKILL)          = 0
+3664955 wait4(3664958,  <unfinished ...>
+3664958 +++ killed by SIGKILL +++
+3664955 <... wait4 resumed>[{WIFSIGNALED(s) && WTERMSIG(s) == SIGKILL}], 0, NULL) = 3664958
+3664955 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_KILLED, si_pid=3664958, si_uid=1000, si_status=SIGKILL, si_utime=0, si_stime=0} ---
+3664955 kill(3664959, SIGKILL)          = 0
+3664955 wait4(3664959,  <unfinished ...>
+3664959 +++ killed by SIGKILL +++
+3664955 <... wait4 resumed>[{WIFSIGNALED(s) && WTERMSIG(s) == SIGKILL}], 0, NULL) = 3664959
+3664955 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_KILLED, si_pid=3664959, si_uid=1000, si_status=SIGKILL, si_utime=0, si_stime=0} ---
+3664955 kill(3664960, SIGKILL)          = 0
+3664955 wait4(3664960,  <unfinished ...>
+3664960 +++ killed by SIGKILL +++
+3664955 <... wait4 resumed>[{WIFSIGNALED(s) && WTERMSIG(s) == SIGKILL}], 0, NULL) = 3664960
+3664955 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_KILLED, si_pid=3664960, si_uid=1000, si_status=SIGKILL, si_utime=0, si_stime=0} ---
+3664955 +++ exited with 0 +++
+3665016 pidfd_open(3665017, 0)          = 3
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 wait4(3665017, 0xfa8f6d9ed810, WNOHANG, NULL) = 0
+3665016 pidfd_send_signal(3, SIGKILL, NULL, 0) = 0
+3665016 wait4(3665017,  <unfinished ...>
+3665017 +++ killed by SIGKILL +++
+3665016 <... wait4 resumed>NULL, 0, NULL) = 3665017
+3665016 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_KILLED, si_pid=3665017, si_uid=1000, si_status=SIGKILL, si_utime=0, si_stime=0} ---
+3665016 +++ exited with 0 +++
+3665887 +++ exited with 0 +++
+3663793 +++ exited with 0 +++

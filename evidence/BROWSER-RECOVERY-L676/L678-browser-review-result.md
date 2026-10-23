@@ -1,0 +1,20 @@
+# L678 independent browser661 recovery review
+
+Reviewed frozen checkout `/Users/drakestapleton/.hermes/cache/scratch/loop24-browser661`, HEAD `83394576f7bff8f18dd235b2dd58c5e90f8fd493`, against `754c07b118f41ad899607b60329bd851b1ccb13e`. Read the browser-mirror diff, cleanup and screenshot paths, related tests, manifest/lock, and skill change. No source edits, builds, browser launches, process signals, live-service/model/GPU activity, or publication. Parent-reported qualification was not replayed.
+
+## Important finding — cleanup PID identity is not race-safe
+
+`crates/aien-cli/src/browser_mirror.rs:489-503, 510-531` discovers tagged processes by reading `/proc/<pid>/environ`, then signals the numeric PID (`kill(pid, SIGKILL)`) without verifying that it still denotes the process whose environment was read. Between the read and `kill`, a tagged process can exit and the PID can be reused; the signal can then hit an unrelated process. This is a concrete check/use identity gap in the safety boundary, even if the scheduling window is small. The test at `:1090+` establishes tag matching under a static process set, but does not exercise this race. Consequently the comment at `:489-490` (“nothing else is ever matched”) overstates the guarantee. Linux pidfds (where available) or identity validation tied to signaling are safer than a read-then-`kill(pid)` sweep; a `/proc` start-time check alone still leaves a race before `kill`.
+
+Process-group reuse is an additional lifecycle concern, but not the clearest demonstrated defect here: `reap` repeatedly sends `kill(-child_pid, SIGKILL)` at `:511-516`, while reaping the direct child. If the original group fully disappears after a successful group signal and before a subsequent loop iteration, the numeric PGID can eventually be reused and a later negative-PGID signal could address a different group. The source comment's assertion that the PGID stays reserved while any member remains is sound for a still-existing group; it does not itself establish identity after the group disappears. The PID-tag TOCTOU above is independently enough to reject the absolute ownership guarantee.
+
+## Limits / scope
+
+- The implementation uses Unix `CommandExt` and `libc::kill`; `/proc` scanning is Linux-specific. On macOS or another Unix without `/proc`, `tagged_pids` returns empty, so cleanup only signals the process group and cannot find detached crash reporters. That is a platform limitation, not evidence of a Spark/Linux runtime failure. Issue661's documented target is aarch64 DGX Spark/Linux; actual execution qualification belongs to the parent report.
+- `--disable-software-rasterizer` is added alongside `--disable-gpu` at `:417-419` to avoid the Chrome 153/aarch64 SwiftShader screenshot failure described in source. I found no source evidence that this makes the designated Spark screenshot path incompatible; it does deliberately disable software fallback, so platforms depending on that fallback need qualification.
+- Screenshot mode does not merely return an existing PNG path: `screenshot` sends `Page.captureScreenshot`, decodes returned data, creates the output directory, and writes bytes (`:600-611`). The browser test checks the resulting file is >100 bytes and has the PNG signature (`:993-998`). It does not fully decode/validate PNG contents, but parent-reported Chrome153 real-browser test provides runtime evidence for its fixture.
+- Existing cleanup tests validate a normal Chrome run and static exact-tag matching; they do not prove PID/PGID identity safety under reuse, non-Linux detached-process cleanup, or all helper-process exit timings.
+
+## Assessment
+
+One Important cleanup-identity defect: the tag sweep can theoretically signal a recycled PID, contradicting the “only owned descendants” guarantee. No Critical finding identified. Keep Chrome153 browser/full-CLI/clippy/fmt results as parent-provided qualification, not proof against process-identity races. No source files changed; this report is the only file created.

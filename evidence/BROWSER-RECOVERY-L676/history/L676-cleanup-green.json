@@ -1,0 +1,8 @@
+{
+  "negative_group_signals_after_main_reap": [],
+  "pidfd_sigkill_calls": [
+    "2545226 pidfd_send_signal(3, SIGKILL, NULL, 0) = 0",
+    "2545226 pidfd_send_signal(3, SIGKILL, NULL, 0) = -1 ESRCH (No such process)"
+  ],
+  "checker_exit": 0
+}
