@@ -1,0 +1,548 @@
+  [5s] model.layers.4.mlp.experts.down
+  [10s] model.layers.9.mlp.experts.down
+  [16s] model.layers.14.mlp.experts.down
+  [21s] model.layers.19.mlp.experts.down
+  [27s] model.layers.24.mlp.experts.down
+  [31s] model.layers.29.mlp.experts.down
+  [35s] model.layers.34.mlp.experts.down
+  [40s] model.layers.39.mlp.experts.down
+  [48s] model.layers.44.mlp.experts.down
+  [54s] lm_head
+  [56s] kv fused cache 768 MB resident=true
+DECODE_PROFILE semantics=host_session_and_submit_wait weight_bytes_exclude_scales pure_gpu_time=UNKNOWN tokens=67 dropped=0
+DECODE_TOKEN token=0 wall_ns=37820793 launches=289
+DECODE_STAGE token=0 stage=qkv calls=48 bytes=503316480 session_ns=4513147 submit_wait_ns=4353178 gap_before_ns=1848852
+DECODE_STAGE token=0 stage=attention calls=48 bytes=20152320 session_ns=3708933 submit_wait_ns=3656885 gap_before_ns=323378
+DECODE_STAGE token=0 stage=o calls=48 bytes=402653184 session_ns=3829064 submit_wait_ns=3780280 gap_before_ns=324369
+DECODE_STAGE token=0 stage=router calls=48 bytes=25165824 session_ns=1527515 submit_wait_ns=1491723 gap_before_ns=196018
+DECODE_STAGE token=0 stage=gate_up calls=48 bytes=1207959552 session_ns=9657851 submit_wait_ns=9622267 gap_before_ns=368196
+DECODE_STAGE token=0 stage=down calls=48 bytes=603979776 session_ns=5569189 submit_wait_ns=5516036 gap_before_ns=2153445
+DECODE_STAGE token=0 stage=lm_head calls=1 bytes=622329856 session_ns=3655139 submit_wait_ns=3652050 gap_before_ns=145697
+DECODE_TOKEN token=1 wall_ns=37848811 launches=289
+DECODE_STAGE token=1 stage=qkv calls=48 bytes=503316480 session_ns=4409417 submit_wait_ns=4346520 gap_before_ns=1742611
+DECODE_STAGE token=1 stage=attention calls=48 bytes=20250624 session_ns=3741525 submit_wait_ns=3689589 gap_before_ns=321331
+DECODE_STAGE token=1 stage=o calls=48 bytes=402653184 session_ns=3830306 submit_wait_ns=3776944 gap_before_ns=322818
+DECODE_STAGE token=1 stage=router calls=48 bytes=25165824 session_ns=1531104 submit_wait_ns=1494704 gap_before_ns=211764
+DECODE_STAGE token=1 stage=gate_up calls=48 bytes=1207959552 session_ns=9618414 submit_wait_ns=9578988 gap_before_ns=440627
+DECODE_STAGE token=1 stage=down calls=48 bytes=603979776 session_ns=5647750 submit_wait_ns=5589397 gap_before_ns=2227059
+DECODE_STAGE token=1 stage=lm_head calls=1 bytes=622329856 session_ns=3655811 submit_wait_ns=3653459 gap_before_ns=148274
+DECODE_TOKEN token=2 wall_ns=37992923 launches=289
+DECODE_STAGE token=2 stage=qkv calls=48 bytes=503316480 session_ns=4467385 submit_wait_ns=4399606 gap_before_ns=1843985
+DECODE_STAGE token=2 stage=attention calls=48 bytes=20348928 session_ns=3723679 submit_wait_ns=3669583 gap_before_ns=345703
+DECODE_STAGE token=2 stage=o calls=48 bytes=402653184 session_ns=3873337 submit_wait_ns=3820873 gap_before_ns=326979
+DECODE_STAGE token=2 stage=router calls=48 bytes=25165824 session_ns=1522094 submit_wait_ns=1486782 gap_before_ns=228610
+DECODE_STAGE token=2 stage=gate_up calls=48 bytes=1207959552 session_ns=9671721 submit_wait_ns=9631961 gap_before_ns=361254
+DECODE_STAGE token=2 stage=down calls=48 bytes=603979776 session_ns=5611301 submit_wait_ns=5555780 gap_before_ns=2215975
+DECODE_STAGE token=2 stage=lm_head calls=1 bytes=622329856 session_ns=3650451 submit_wait_ns=3648291 gap_before_ns=150449
+DECODE_TOKEN token=3 wall_ns=43110301 launches=289
+DECODE_STAGE token=3 stage=qkv calls=48 bytes=503316480 session_ns=4450043 submit_wait_ns=4373003 gap_before_ns=2310581
+DECODE_STAGE token=3 stage=attention calls=48 bytes=20447232 session_ns=4392444 submit_wait_ns=4337900 gap_before_ns=418484
+DECODE_STAGE token=3 stage=o calls=48 bytes=402653184 session_ns=3923686 submit_wait_ns=3854502 gap_before_ns=378787
+DECODE_STAGE token=3 stage=router calls=48 bytes=25165824 session_ns=1548970 submit_wait_ns=1512137 gap_before_ns=281603
+DECODE_STAGE token=3 stage=gate_up calls=48 bytes=1207959552 session_ns=12294196 submit_wait_ns=12247555 gap_before_ns=1154524
+DECODE_STAGE token=3 stage=down calls=48 bytes=603979776 session_ns=5659800 submit_wait_ns=5589318 gap_before_ns=2495386
+DECODE_STAGE token=3 stage=lm_head calls=1 bytes=622329856 session_ns=3614579 submit_wait_ns=3611043 gap_before_ns=187218
+DECODE_TOKEN token=4 wall_ns=40613780 launches=289
+DECODE_STAGE token=4 stage=qkv calls=48 bytes=503316480 session_ns=4468729 submit_wait_ns=4397543 gap_before_ns=2226520
+DECODE_STAGE token=4 stage=attention calls=48 bytes=20545536 session_ns=3836448 submit_wait_ns=3778815 gap_before_ns=408053
+DECODE_STAGE token=4 stage=o calls=48 bytes=402653184 session_ns=5649095 submit_wait_ns=5592004 gap_before_ns=359446
+DECODE_STAGE token=4 stage=router calls=48 bytes=25165824 session_ns=1610419 submit_wait_ns=1559570 gap_before_ns=272577
+DECODE_STAGE token=4 stage=gate_up calls=48 bytes=1207959552 session_ns=9603724 submit_wait_ns=9562028 gap_before_ns=402037
+DECODE_STAGE token=4 stage=down calls=48 bytes=603979776 session_ns=5588340 submit_wait_ns=5521651 gap_before_ns=2366932
+DECODE_STAGE token=4 stage=lm_head calls=1 bytes=622329856 session_ns=3658515 submit_wait_ns=3654099 gap_before_ns=162945
+DECODE_TOKEN token=5 wall_ns=39160759 launches=289
+DECODE_STAGE token=5 stage=qkv calls=48 bytes=503316480 session_ns=4451115 submit_wait_ns=4373403 gap_before_ns=2203715
+DECODE_STAGE token=5 stage=attention calls=48 bytes=20643840 session_ns=3809062 submit_wait_ns=3752198 gap_before_ns=415426
+DECODE_STAGE token=5 stage=o calls=48 bytes=402653184 session_ns=3950261 submit_wait_ns=3892373 gap_before_ns=359668
+DECODE_STAGE token=5 stage=router calls=48 bytes=25165824 session_ns=1585900 submit_wait_ns=1541900 gap_before_ns=286132
+DECODE_STAGE token=5 stage=gate_up calls=48 bytes=1207959552 session_ns=9683740 submit_wait_ns=9641642 gap_before_ns=399588
+DECODE_STAGE token=5 stage=down calls=48 bytes=603979776 session_ns=5588792 submit_wait_ns=5523399 gap_before_ns=2609196
+DECODE_STAGE token=5 stage=lm_head calls=1 bytes=622329856 session_ns=3660131 submit_wait_ns=3657539 gap_before_ns=158033
+DECODE_TOKEN token=6 wall_ns=40607029 launches=289
+DECODE_STAGE token=6 stage=qkv calls=48 bytes=503316480 session_ns=4643980 submit_wait_ns=4567772 gap_before_ns=2165831
+DECODE_STAGE token=6 stage=attention calls=48 bytes=20742144 session_ns=3992757 submit_wait_ns=3933749 gap_before_ns=404099
+DECODE_STAGE token=6 stage=o calls=48 bytes=402653184 session_ns=4120261 submit_wait_ns=4060708 gap_before_ns=351366
+DECODE_STAGE token=6 stage=router calls=48 bytes=25165824 session_ns=1652274 submit_wait_ns=1608689 gap_before_ns=300147
+DECODE_STAGE token=6 stage=gate_up calls=48 bytes=1207959552 session_ns=9602973 submit_wait_ns=9562029 gap_before_ns=382965
+DECODE_STAGE token=6 stage=down calls=48 bytes=603979776 session_ns=5789639 submit_wait_ns=5723031 gap_before_ns=3383212
+DECODE_STAGE token=6 stage=lm_head calls=1 bytes=622329856 session_ns=3655731 submit_wait_ns=3651635 gap_before_ns=161794
+DECODE_TOKEN token=7 wall_ns=71965792 launches=289
+DECODE_STAGE token=7 stage=qkv calls=48 bytes=503316480 session_ns=7430438 submit_wait_ns=7395030 gap_before_ns=1444221
+DECODE_STAGE token=7 stage=attention calls=48 bytes=20152320 session_ns=10417107 submit_wait_ns=10384515 gap_before_ns=318802
+DECODE_STAGE token=7 stage=o calls=48 bytes=402653184 session_ns=4221687 submit_wait_ns=4186487 gap_before_ns=291380
+DECODE_STAGE token=7 stage=router calls=48 bytes=25165824 session_ns=4820753 submit_wait_ns=4787006 gap_before_ns=177841
+DECODE_STAGE token=7 stage=gate_up calls=48 bytes=1207959552 session_ns=24367303 submit_wait_ns=24331527 gap_before_ns=296994
+DECODE_STAGE token=7 stage=down calls=48 bytes=603979776 session_ns=8630376 submit_wait_ns=8593192 gap_before_ns=4363641
+DECODE_STAGE token=7 stage=lm_head calls=1 bytes=622329856 session_ns=5011984 submit_wait_ns=5011232 gap_before_ns=173265
+DECODE_TOKEN token=8 wall_ns=65998920 launches=289
+DECODE_STAGE token=8 stage=qkv calls=48 bytes=503316480 session_ns=10152910 submit_wait_ns=10121789 gap_before_ns=4408765
+DECODE_STAGE token=8 stage=attention calls=48 bytes=20250624 session_ns=3721794 submit_wait_ns=3693794 gap_before_ns=315779
+DECODE_STAGE token=8 stage=o calls=48 bytes=402653184 session_ns=12661665 submit_wait_ns=12629505 gap_before_ns=288722
+DECODE_STAGE token=8 stage=router calls=48 bytes=25165824 session_ns=1590297 submit_wait_ns=1554105 gap_before_ns=170128
+DECODE_STAGE token=8 stage=gate_up calls=48 bytes=1207959552 session_ns=17904890 submit_wait_ns=17872265 gap_before_ns=299396
+DECODE_STAGE token=8 stage=down calls=48 bytes=603979776 session_ns=8349903 submit_wait_ns=8315966 gap_before_ns=1319745
+DECODE_STAGE token=8 stage=lm_head calls=1 bytes=622329856 session_ns=4672669 submit_wait_ns=4671885 gap_before_ns=142257
+DECODE_TOKEN token=9 wall_ns=66988544 launches=289
+DECODE_STAGE token=9 stage=qkv calls=48 bytes=503316480 session_ns=7584485 submit_wait_ns=7549045 gap_before_ns=1306334
+DECODE_STAGE token=9 stage=attention calls=48 bytes=20348928 session_ns=6733360 submit_wait_ns=6704047 gap_before_ns=345445
+DECODE_STAGE token=9 stage=o calls=48 bytes=402653184 session_ns=9595369 submit_wait_ns=9562233 gap_before_ns=285717
+DECODE_STAGE token=9 stage=router calls=48 bytes=25165824 session_ns=1540445 submit_wait_ns=1508028 gap_before_ns=190066
+DECODE_STAGE token=9 stage=gate_up calls=48 bytes=1207959552 session_ns=17946315 submit_wait_ns=17911083 gap_before_ns=295108
+DECODE_STAGE token=9 stage=down calls=48 bytes=603979776 session_ns=14402828 submit_wait_ns=14369644 gap_before_ns=1333181
+DECODE_STAGE token=9 stage=lm_head calls=1 bytes=622329856 session_ns=5313938 submit_wait_ns=5312930 gap_before_ns=115953
+DECODE_TOKEN token=10 wall_ns=67000161 launches=289
+DECODE_STAGE token=10 stage=qkv calls=48 bytes=503316480 session_ns=4313534 submit_wait_ns=4279998 gap_before_ns=1360570
+DECODE_STAGE token=10 stage=attention calls=48 bytes=20447232 session_ns=6760274 submit_wait_ns=6727938 gap_before_ns=340258
+DECODE_STAGE token=10 stage=o calls=48 bytes=402653184 session_ns=9604799 submit_wait_ns=9570031 gap_before_ns=292385
+DECODE_STAGE token=10 stage=router calls=48 bytes=25165824 session_ns=1574350 submit_wait_ns=1541293 gap_before_ns=203296
+DECODE_STAGE token=10 stage=gate_up calls=48 bytes=1207959552 session_ns=19679307 submit_wait_ns=19637562 gap_before_ns=4333786
+DECODE_STAGE token=10 stage=down calls=48 bytes=603979776 session_ns=11352430 submit_wait_ns=11316349 gap_before_ns=1331676
+DECODE_STAGE token=10 stage=lm_head calls=1 bytes=622329856 session_ns=5703094 submit_wait_ns=5701894 gap_before_ns=150402
+DECODE_TOKEN token=11 wall_ns=63307342 launches=289
+DECODE_STAGE token=11 stage=qkv calls=48 bytes=503316480 session_ns=4233638 submit_wait_ns=4197846 gap_before_ns=4368827
+DECODE_STAGE token=11 stage=attention calls=48 bytes=20545536 session_ns=3706512 submit_wait_ns=3677376 gap_before_ns=339765
+DECODE_STAGE token=11 stage=o calls=48 bytes=402653184 session_ns=9551383 submit_wait_ns=9516311 gap_before_ns=295444
+DECODE_STAGE token=11 stage=router calls=48 bytes=25165824 session_ns=4537438 submit_wait_ns=4499662 gap_before_ns=176114
+DECODE_STAGE token=11 stage=gate_up calls=48 bytes=1207959552 session_ns=16537820 submit_wait_ns=16499948 gap_before_ns=302596
+DECODE_STAGE token=11 stage=down calls=48 bytes=603979776 session_ns=11307119 submit_wait_ns=11272255 gap_before_ns=4363036
+DECODE_STAGE token=11 stage=lm_head calls=1 bytes=622329856 session_ns=3457681 submit_wait_ns=3456881 gap_before_ns=129969
+DECODE_TOKEN token=12 wall_ns=64692731 launches=289
+DECODE_STAGE token=12 stage=qkv calls=48 bytes=503316480 session_ns=10047023 submit_wait_ns=10013999 gap_before_ns=1374079
+DECODE_STAGE token=12 stage=attention calls=48 bytes=20643840 session_ns=6709036 submit_wait_ns=6676460 gap_before_ns=327156
+DECODE_STAGE token=12 stage=o calls=48 bytes=402653184 session_ns=6529831 submit_wait_ns=6490775 gap_before_ns=292435
+DECODE_STAGE token=12 stage=router calls=48 bytes=25165824 session_ns=4514819 submit_wait_ns=4482483 gap_before_ns=166577
+DECODE_STAGE token=12 stage=gate_up calls=48 bytes=1207959552 session_ns=14882660 submit_wait_ns=14843892 gap_before_ns=294785
+DECODE_STAGE token=12 stage=down calls=48 bytes=603979776 session_ns=11168367 submit_wait_ns=11136655 gap_before_ns=1325415
+DECODE_STAGE token=12 stage=lm_head calls=1 bytes=622329856 session_ns=3906966 submit_wait_ns=3905334 gap_before_ns=3153582
+DECODE_TOKEN token=13 wall_ns=70321632 launches=289
+DECODE_STAGE token=13 stage=qkv calls=48 bytes=503316480 session_ns=7191588 submit_wait_ns=7154147 gap_before_ns=2491657
+DECODE_STAGE token=13 stage=attention calls=48 bytes=20742144 session_ns=6856014 submit_wait_ns=6824254 gap_before_ns=351587
+DECODE_STAGE token=13 stage=o calls=48 bytes=402653184 session_ns=6603709 submit_wait_ns=6565501 gap_before_ns=297907
+DECODE_STAGE token=13 stage=router calls=48 bytes=25165824 session_ns=1557680 submit_wait_ns=1522095 gap_before_ns=178690
+DECODE_STAGE token=13 stage=gate_up calls=48 bytes=1207959552 session_ns=18913697 submit_wait_ns=18876432 gap_before_ns=298342
+DECODE_STAGE token=13 stage=down calls=48 bytes=603979776 session_ns=20571908 submit_wait_ns=20540052 gap_before_ns=1366162
+DECODE_STAGE token=13 stage=lm_head calls=1 bytes=622329856 session_ns=3484545 submit_wait_ns=3483521 gap_before_ns=158146
+DECODE_TOKEN token=14 wall_ns=66996144 launches=289
+DECODE_STAGE token=14 stage=qkv calls=48 bytes=503316480 session_ns=13230498 submit_wait_ns=13196658 gap_before_ns=1639179
+DECODE_STAGE token=14 stage=attention calls=48 bytes=98304 session_ns=2439471 submit_wait_ns=2399151 gap_before_ns=331699
+DECODE_STAGE token=14 stage=o calls=48 bytes=402653184 session_ns=7462921 submit_wait_ns=7430265 gap_before_ns=304501
+DECODE_STAGE token=14 stage=router calls=48 bytes=25165824 session_ns=4615659 submit_wait_ns=4579723 gap_before_ns=174673
+DECODE_STAGE token=14 stage=gate_up calls=48 bytes=1207959552 session_ns=15591216 submit_wait_ns=15554480 gap_before_ns=299332
+DECODE_STAGE token=14 stage=down calls=48 bytes=603979776 session_ns=8548022 submit_wait_ns=8511958 gap_before_ns=7380414
+DECODE_STAGE token=14 stage=lm_head calls=1 bytes=622329856 session_ns=4860526 submit_wait_ns=4858510 gap_before_ns=118033
+DECODE_TOKEN token=15 wall_ns=62052897 launches=289
+DECODE_STAGE token=15 stage=qkv calls=48 bytes=503316480 session_ns=8115370 submit_wait_ns=8071529 gap_before_ns=1396405
+DECODE_STAGE token=15 stage=attention calls=48 bytes=196608 session_ns=2503315 submit_wait_ns=2467059 gap_before_ns=374135
+DECODE_STAGE token=15 stage=o calls=48 bytes=402653184 session_ns=3797958 submit_wait_ns=3763558 gap_before_ns=315189
+DECODE_STAGE token=15 stage=router calls=48 bytes=25165824 session_ns=8571760 submit_wait_ns=5530083 gap_before_ns=199969
+DECODE_STAGE token=15 stage=gate_up calls=48 bytes=1207959552 session_ns=20300372 submit_wait_ns=20263650 gap_before_ns=319297
+DECODE_STAGE token=15 stage=down calls=48 bytes=603979776 session_ns=8574096 submit_wait_ns=8536112 gap_before_ns=1500989
+DECODE_STAGE token=15 stage=lm_head calls=1 bytes=622329856 session_ns=5846120 submit_wait_ns=5844424 gap_before_ns=237922
+DECODE_TOKEN token=16 wall_ns=64017924 launches=289
+DECODE_STAGE token=16 stage=qkv calls=48 bytes=503316480 session_ns=7609946 submit_wait_ns=7571562 gap_before_ns=1289772
+DECODE_STAGE token=16 stage=attention calls=48 bytes=294912 session_ns=2528317 submit_wait_ns=2495565 gap_before_ns=319058
+DECODE_STAGE token=16 stage=o calls=48 bytes=402653184 session_ns=12902869 submit_wait_ns=12866868 gap_before_ns=287428
+DECODE_STAGE token=16 stage=router calls=48 bytes=25165824 session_ns=1599590 submit_wait_ns=1562102 gap_before_ns=175714
+DECODE_STAGE token=16 stage=gate_up calls=48 bytes=1207959552 session_ns=15219283 submit_wait_ns=15185779 gap_before_ns=305553
+DECODE_STAGE token=16 stage=down calls=48 bytes=603979776 session_ns=11537661 submit_wait_ns=11500877 gap_before_ns=5511520
+DECODE_STAGE token=16 stage=lm_head calls=1 bytes=622329856 session_ns=4632444 submit_wait_ns=4631564 gap_before_ns=98769
+DECODE_TOKEN token=17 wall_ns=70927174 launches=289
+DECODE_STAGE token=17 stage=qkv calls=48 bytes=503316480 session_ns=7466043 submit_wait_ns=7432362 gap_before_ns=1352681
+DECODE_STAGE token=17 stage=attention calls=48 bytes=393216 session_ns=6529095 submit_wait_ns=6499367 gap_before_ns=354386
+DECODE_STAGE token=17 stage=o calls=48 bytes=402653184 session_ns=6947160 submit_wait_ns=6916200 gap_before_ns=317681
+DECODE_STAGE token=17 stage=router calls=48 bytes=25165824 session_ns=7555000 submit_wait_ns=7524312 gap_before_ns=188592
+DECODE_STAGE token=17 stage=gate_up calls=48 bytes=1207959552 session_ns=20203790 submit_wait_ns=20168893 gap_before_ns=299748
+DECODE_STAGE token=17 stage=down calls=48 bytes=603979776 session_ns=13203586 submit_wait_ns=13169250 gap_before_ns=1349587
+DECODE_STAGE token=17 stage=lm_head calls=1 bytes=622329856 session_ns=5036960 submit_wait_ns=5036080 gap_before_ns=122865
+DECODE_TOKEN token=18 wall_ns=72206834 launches=289
+DECODE_STAGE token=18 stage=qkv calls=48 bytes=503316480 session_ns=8466948 submit_wait_ns=8429300 gap_before_ns=1307050
+DECODE_STAGE token=18 stage=attention calls=48 bytes=491520 session_ns=4678770 submit_wait_ns=4644770 gap_before_ns=336241
+DECODE_STAGE token=18 stage=o calls=48 bytes=402653184 session_ns=10014935 submit_wait_ns=9978615 gap_before_ns=300228
+DECODE_STAGE token=18 stage=router calls=48 bytes=25165824 session_ns=7314356 submit_wait_ns=7278212 gap_before_ns=199632
+DECODE_STAGE token=18 stage=gate_up calls=48 bytes=1207959552 session_ns=12400599 submit_wait_ns=12360247 gap_before_ns=3474271
+DECODE_STAGE token=18 stage=down calls=48 bytes=603979776 session_ns=12588997 submit_wait_ns=12553925 gap_before_ns=7269426
+DECODE_STAGE token=18 stage=lm_head calls=1 bytes=622329856 session_ns=3711971 submit_wait_ns=3710563 gap_before_ns=143410
+DECODE_TOKEN token=19 wall_ns=40814246 launches=289
+DECODE_STAGE token=19 stage=qkv calls=48 bytes=503316480 session_ns=6255068 submit_wait_ns=6219964 gap_before_ns=1404781
+DECODE_STAGE token=19 stage=attention calls=48 bytes=589824 session_ns=2602232 submit_wait_ns=2564200 gap_before_ns=360659
+DECODE_STAGE token=19 stage=o calls=48 bytes=402653184 session_ns=4393067 submit_wait_ns=4358635 gap_before_ns=318579
+DECODE_STAGE token=19 stage=router calls=48 bytes=25165824 session_ns=1622386 submit_wait_ns=1588145 gap_before_ns=196416
+DECODE_STAGE token=19 stage=gate_up calls=48 bytes=1207959552 session_ns=10627126 submit_wait_ns=10592486 gap_before_ns=614164
+DECODE_STAGE token=19 stage=down calls=48 bytes=603979776 session_ns=5679686 submit_wait_ns=5648070 gap_before_ns=1381599
+DECODE_STAGE token=19 stage=lm_head calls=1 bytes=622329856 session_ns=5237890 submit_wait_ns=5236674 gap_before_ns=120593
+DECODE_TOKEN token=20 wall_ns=69997309 launches=289
+DECODE_STAGE token=20 stage=qkv calls=48 bytes=503316480 session_ns=7443835 submit_wait_ns=7372986 gap_before_ns=4841727
+DECODE_STAGE token=20 stage=attention calls=48 bytes=688128 session_ns=5546231 submit_wait_ns=5493638 gap_before_ns=390145
+DECODE_STAGE token=20 stage=o calls=48 bytes=402653184 session_ns=9892141 submit_wait_ns=9838925 gap_before_ns=360371
+DECODE_STAGE token=20 stage=router calls=48 bytes=25165824 session_ns=1757132 submit_wait_ns=1719772 gap_before_ns=284070
+DECODE_STAGE token=20 stage=gate_up calls=48 bytes=1207959552 session_ns=12608968 submit_wait_ns=12570680 gap_before_ns=395155
+DECODE_STAGE token=20 stage=down calls=48 bytes=603979776 session_ns=12117875 submit_wait_ns=12044690 gap_before_ns=9498877
+DECODE_STAGE token=20 stage=lm_head calls=1 bytes=622329856 session_ns=4733597 submit_wait_ns=4732125 gap_before_ns=127185
+DECODE_TOKEN token=21 wall_ns=65993815 launches=289
+DECODE_STAGE token=21 stage=qkv calls=48 bytes=503316480 session_ns=4533563 submit_wait_ns=4475834 gap_before_ns=1631107
+DECODE_STAGE token=21 stage=attention calls=48 bytes=786432 session_ns=11453884 submit_wait_ns=11402523 gap_before_ns=351747
+DECODE_STAGE token=21 stage=o calls=48 bytes=402653184 session_ns=3785270 submit_wait_ns=3729205 gap_before_ns=365045
+DECODE_STAGE token=21 stage=router calls=48 bytes=25165824 session_ns=4062225 submit_wait_ns=4027665 gap_before_ns=247410
+DECODE_STAGE token=21 stage=gate_up calls=48 bytes=1207959552 session_ns=22813354 submit_wait_ns=22772138 gap_before_ns=406438
+DECODE_STAGE token=21 stage=down calls=48 bytes=603979776 session_ns=9597691 submit_wait_ns=9533147 gap_before_ns=2228357
+DECODE_STAGE token=21 stage=lm_head calls=1 bytes=622329856 session_ns=4408459 submit_wait_ns=4406410 gap_before_ns=109265
+DECODE_TOKEN token=22 wall_ns=67000560 launches=289
+DECODE_STAGE token=22 stage=qkv calls=48 bytes=503316480 session_ns=7415219 submit_wait_ns=7360787 gap_before_ns=1384926
+DECODE_STAGE token=22 stage=attention calls=48 bytes=884736 session_ns=5530244 submit_wait_ns=5490435 gap_before_ns=275542
+DECODE_STAGE token=22 stage=o calls=48 bytes=402653184 session_ns=9690652 submit_wait_ns=9645180 gap_before_ns=309123
+DECODE_STAGE token=22 stage=router calls=48 bytes=25165824 session_ns=1588562 submit_wait_ns=1551618 gap_before_ns=198273
+DECODE_STAGE token=22 stage=gate_up calls=48 bytes=1207959552 session_ns=15363859 submit_wait_ns=15331811 gap_before_ns=373202
+DECODE_STAGE token=22 stage=down calls=48 bytes=603979776 session_ns=15109329 submit_wait_ns=15053088 gap_before_ns=5103856
+DECODE_STAGE token=22 stage=lm_head calls=1 bytes=622329856 session_ns=4549676 submit_wait_ns=4547644 gap_before_ns=108097
+DECODE_TOKEN token=23 wall_ns=45009054 launches=289
+DECODE_STAGE token=23 stage=qkv calls=48 bytes=503316480 session_ns=4709577 submit_wait_ns=4656280 gap_before_ns=4411837
+DECODE_STAGE token=23 stage=attention calls=48 bytes=983040 session_ns=2914139 submit_wait_ns=2872059 gap_before_ns=281140
+DECODE_STAGE token=23 stage=o calls=48 bytes=402653184 session_ns=3665735 submit_wait_ns=3620407 gap_before_ns=477316
+DECODE_STAGE token=23 stage=router calls=48 bytes=25165824 session_ns=2467525 submit_wait_ns=2437493 gap_before_ns=191602
+DECODE_STAGE token=23 stage=gate_up calls=48 bytes=1207959552 session_ns=12344393 submit_wait_ns=12306729 gap_before_ns=365632
+DECODE_STAGE token=23 stage=down calls=48 bytes=603979776 session_ns=5554773 submit_wait_ns=5505765 gap_before_ns=2168629
+DECODE_STAGE token=23 stage=lm_head calls=1 bytes=622329856 session_ns=5356467 submit_wait_ns=5355507 gap_before_ns=100289
+DECODE_TOKEN token=24 wall_ns=43115596 launches=289
+DECODE_STAGE token=24 stage=qkv calls=48 bytes=503316480 session_ns=4310237 submit_wait_ns=4256428 gap_before_ns=1592987
+DECODE_STAGE token=24 stage=attention calls=48 bytes=1081344 session_ns=2784791 submit_wait_ns=2739926 gap_before_ns=271489
+DECODE_STAGE token=24 stage=o calls=48 bytes=402653184 session_ns=3708676 submit_wait_ns=3663092 gap_before_ns=294211
+DECODE_STAGE token=24 stage=router calls=48 bytes=25165824 session_ns=2980267 submit_wait_ns=2950731 gap_before_ns=194912
+DECODE_STAGE token=24 stage=gate_up calls=48 bytes=1207959552 session_ns=11122533 submit_wait_ns=11089877 gap_before_ns=361129
+DECODE_STAGE token=24 stage=down calls=48 bytes=603979776 session_ns=7533401 submit_wait_ns=7477769 gap_before_ns=4167231
+DECODE_STAGE token=24 stage=lm_head calls=1 bytes=622329856 session_ns=3688803 submit_wait_ns=3686851 gap_before_ns=104929
+DECODE_TOKEN token=25 wall_ns=34792109 launches=289
+DECODE_STAGE token=25 stage=qkv calls=48 bytes=503316480 session_ns=4264201 submit_wait_ns=4219929 gap_before_ns=1308557
+DECODE_STAGE token=25 stage=attention calls=48 bytes=1179648 session_ns=2523744 submit_wait_ns=2487328 gap_before_ns=250033
+DECODE_STAGE token=25 stage=o calls=48 bytes=402653184 session_ns=3652703 submit_wait_ns=3614559 gap_before_ns=268708
+DECODE_STAGE token=25 stage=router calls=48 bytes=25165824 session_ns=1514593 submit_wait_ns=1491121 gap_before_ns=162257
+DECODE_STAGE token=25 stage=gate_up calls=48 bytes=1207959552 session_ns=9255608 submit_wait_ns=9230152 gap_before_ns=332131
+DECODE_STAGE token=25 stage=down calls=48 bytes=603979776 session_ns=5470851 submit_wait_ns=5430627 gap_before_ns=2027295
+DECODE_STAGE token=25 stage=lm_head calls=1 bytes=622329856 session_ns=3646963 submit_wait_ns=3644947 gap_before_ns=114465
+DECODE_TOKEN token=26 wall_ns=49447272 launches=289
+DECODE_STAGE token=26 stage=qkv calls=48 bytes=503316480 session_ns=4268600 submit_wait_ns=4237080 gap_before_ns=1591537
+DECODE_STAGE token=26 stage=attention calls=48 bytes=1277952 session_ns=2562463 submit_wait_ns=2535151 gap_before_ns=294452
+DECODE_STAGE token=26 stage=o calls=48 bytes=402653184 session_ns=3648997 submit_wait_ns=3616516 gap_before_ns=274132
+DECODE_STAGE token=26 stage=router calls=48 bytes=25165824 session_ns=1515632 submit_wait_ns=1484480 gap_before_ns=157025
+DECODE_STAGE token=26 stage=gate_up calls=48 bytes=1207959552 session_ns=24367145 submit_wait_ns=24334856 gap_before_ns=281089
+DECODE_STAGE token=26 stage=down calls=48 bytes=603979776 session_ns=5493525 submit_wait_ns=5458131 gap_before_ns=1301344
+DECODE_STAGE token=26 stage=lm_head calls=1 bytes=622329856 session_ns=3584626 submit_wait_ns=3583362 gap_before_ns=106705
+DECODE_TOKEN token=27 wall_ns=33480720 launches=289
+DECODE_STAGE token=27 stage=qkv calls=48 bytes=503316480 session_ns=4218250 submit_wait_ns=4189496 gap_before_ns=1200762
+DECODE_STAGE token=27 stage=attention calls=48 bytes=1376256 session_ns=2574064 submit_wait_ns=2544944 gap_before_ns=283522
+DECODE_STAGE token=27 stage=o calls=48 bytes=402653184 session_ns=3616454 submit_wait_ns=3588134 gap_before_ns=260290
+DECODE_STAGE token=27 stage=router calls=48 bytes=25165824 session_ns=1514892 submit_wait_ns=1485116 gap_before_ns=165712
+DECODE_STAGE token=27 stage=gate_up calls=48 bytes=1207959552 session_ns=9109193 submit_wait_ns=9079705 gap_before_ns=271584
+DECODE_STAGE token=27 stage=down calls=48 bytes=603979776 session_ns=5377204 submit_wait_ns=5349364 gap_before_ns=1280055
+DECODE_STAGE token=27 stage=lm_head calls=1 bytes=622329856 session_ns=3525954 submit_wait_ns=3525362 gap_before_ns=82784
+DECODE_TOKEN token=28 wall_ns=64369207 launches=289
+DECODE_STAGE token=28 stage=qkv calls=48 bytes=503316480 session_ns=10528677 submit_wait_ns=10492373 gap_before_ns=1265629
+DECODE_STAGE token=28 stage=attention calls=48 bytes=1474560 session_ns=2666426 submit_wait_ns=2631946 gap_before_ns=318098
+DECODE_STAGE token=28 stage=o calls=48 bytes=402653184 session_ns=3653654 submit_wait_ns=3619718 gap_before_ns=287873
+DECODE_STAGE token=28 stage=router calls=48 bytes=25165824 session_ns=4579112 submit_wait_ns=4544232 gap_before_ns=167169
+DECODE_STAGE token=28 stage=gate_up calls=48 bytes=1207959552 session_ns=18719861 submit_wait_ns=15677736 gap_before_ns=281668
+DECODE_STAGE token=28 stage=down calls=48 bytes=603979776 session_ns=14303781 submit_wait_ns=14270885 gap_before_ns=3389251
+DECODE_STAGE token=28 stage=lm_head calls=1 bytes=622329856 session_ns=4128295 submit_wait_ns=4127367 gap_before_ns=79713
+DECODE_TOKEN token=29 wall_ns=61873135 launches=289
+DECODE_STAGE token=29 stage=qkv calls=48 bytes=503316480 session_ns=9136838 submit_wait_ns=9104614 gap_before_ns=1298461
+DECODE_STAGE token=29 stage=attention calls=48 bytes=1572864 session_ns=7940992 submit_wait_ns=7906847 gap_before_ns=313589
+DECODE_STAGE token=29 stage=o calls=48 bytes=402653184 session_ns=5775721 submit_wait_ns=5742745 gap_before_ns=282082
+DECODE_STAGE token=29 stage=router calls=48 bytes=25165824 session_ns=2622116 submit_wait_ns=2586260 gap_before_ns=168625
+DECODE_STAGE token=29 stage=gate_up calls=48 bytes=1207959552 session_ns=19916657 submit_wait_ns=19883553 gap_before_ns=275955
+DECODE_STAGE token=29 stage=down calls=48 bytes=603979776 session_ns=7421495 submit_wait_ns=7387463 gap_before_ns=2394099
+DECODE_STAGE token=29 stage=lm_head calls=1 bytes=622329856 session_ns=4246232 submit_wait_ns=4245240 gap_before_ns=80273
+DECODE_TOKEN token=30 wall_ns=66998048 launches=289
+DECODE_STAGE token=30 stage=qkv calls=48 bytes=503316480 session_ns=7290326 submit_wait_ns=7234422 gap_before_ns=1476557
+DECODE_STAGE token=30 stage=attention calls=48 bytes=2064384 session_ns=2582430 submit_wait_ns=2535628 gap_before_ns=298738
+DECODE_STAGE token=30 stage=o calls=48 bytes=402653184 session_ns=9583712 submit_wait_ns=9539279 gap_before_ns=302294
+DECODE_STAGE token=30 stage=router calls=48 bytes=25165824 session_ns=4552537 submit_wait_ns=4514633 gap_before_ns=210080
+DECODE_STAGE token=30 stage=gate_up calls=48 bytes=1207959552 session_ns=17858778 submit_wait_ns=17826217 gap_before_ns=372150
+DECODE_STAGE token=30 stage=down calls=48 bytes=603979776 session_ns=11445002 submit_wait_ns=11389082 gap_before_ns=5168076
+DECODE_STAGE token=30 stage=lm_head calls=1 bytes=622329856 session_ns=5742759 submit_wait_ns=5740711 gap_before_ns=114609
+DECODE_TOKEN token=31 wall_ns=65004445 launches=289
+DECODE_STAGE token=31 stage=qkv calls=48 bytes=503316480 session_ns=4293879 submit_wait_ns=4238295 gap_before_ns=4489660
+DECODE_STAGE token=31 stage=attention calls=48 bytes=2162688 session_ns=2580370 submit_wait_ns=2540738 gap_before_ns=300498
+DECODE_STAGE token=31 stage=o calls=48 bytes=402653184 session_ns=12546719 submit_wait_ns=12499839 gap_before_ns=303938
+DECODE_STAGE token=31 stage=router calls=48 bytes=25165824 session_ns=1611801 submit_wait_ns=1571593 gap_before_ns=210192
+DECODE_STAGE token=31 stage=gate_up calls=48 bytes=1207959552 session_ns=19916527 submit_wait_ns=19884191 gap_before_ns=377058
+DECODE_STAGE token=31 stage=down calls=48 bytes=603979776 session_ns=11449709 submit_wait_ns=11395164 gap_before_ns=2151664
+DECODE_STAGE token=31 stage=lm_head calls=1 bytes=622329856 session_ns=4646988 submit_wait_ns=4645036 gap_before_ns=125442
+DECODE_TOKEN token=32 wall_ns=66986928 launches=289
+DECODE_STAGE token=32 stage=qkv calls=48 bytes=503316480 session_ns=10418374 submit_wait_ns=10378710 gap_before_ns=4408455
+DECODE_STAGE token=32 stage=attention calls=48 bytes=2260992 session_ns=5766304 submit_wait_ns=5734367 gap_before_ns=329794
+DECODE_STAGE token=32 stage=o calls=48 bytes=402653184 session_ns=6848274 submit_wait_ns=6815010 gap_before_ns=312486
+DECODE_STAGE token=32 stage=router calls=48 bytes=25165824 session_ns=4724824 submit_wait_ns=4690359 gap_before_ns=196259
+DECODE_STAGE token=32 stage=gate_up calls=48 bytes=1207959552 session_ns=15315681 submit_wait_ns=15282384 gap_before_ns=322661
+DECODE_STAGE token=32 stage=down calls=48 bytes=603979776 session_ns=8513013 submit_wait_ns=8478819 gap_before_ns=4392623
+DECODE_STAGE token=32 stage=lm_head calls=1 bytes=622329856 session_ns=5321795 submit_wait_ns=5320467 gap_before_ns=116385
+DECODE_TOKEN token=33 wall_ns=66997792 launches=289
+DECODE_STAGE token=33 stage=qkv calls=48 bytes=503316480 session_ns=4252693 submit_wait_ns=4214964 gap_before_ns=1408738
+DECODE_STAGE token=33 stage=attention calls=48 bytes=2359296 session_ns=2615993 submit_wait_ns=2584633 gap_before_ns=372245
+DECODE_STAGE token=33 stage=o calls=48 bytes=402653184 session_ns=3708024 submit_wait_ns=3672408 gap_before_ns=311889
+DECODE_STAGE token=33 stage=router calls=48 bytes=25165824 session_ns=5944098 submit_wait_ns=5909442 gap_before_ns=189908
+DECODE_STAGE token=33 stage=gate_up calls=48 bytes=1207959552 session_ns=31551870 submit_wait_ns=31511422 gap_before_ns=317763
+DECODE_STAGE token=33 stage=down calls=48 bytes=603979776 session_ns=9676319 submit_wait_ns=9632829 gap_before_ns=1446731
+DECODE_STAGE token=33 stage=lm_head calls=1 bytes=622329856 session_ns=5065488 submit_wait_ns=5064160 gap_before_ns=136033
+DECODE_TOKEN token=34 wall_ns=60480658 launches=289
+DECODE_STAGE token=34 stage=qkv calls=48 bytes=503316480 session_ns=10266125 submit_wait_ns=10230765 gap_before_ns=1463778
+DECODE_STAGE token=34 stage=attention calls=48 bytes=2457600 session_ns=2678707 submit_wait_ns=2646035 gap_before_ns=375830
+DECODE_STAGE token=34 stage=o calls=48 bytes=402653184 session_ns=3687201 submit_wait_ns=3656833 gap_before_ns=321697
+DECODE_STAGE token=34 stage=router calls=48 bytes=25165824 session_ns=3931268 submit_wait_ns=1488813 gap_before_ns=200179
+DECODE_STAGE token=34 stage=gate_up calls=48 bytes=1207959552 session_ns=23658232 submit_wait_ns=23621704 gap_before_ns=316689
+DECODE_STAGE token=34 stage=down calls=48 bytes=603979776 session_ns=8359888 submit_wait_ns=8323984 gap_before_ns=1424644
+DECODE_STAGE token=34 stage=lm_head calls=1 bytes=622329856 session_ns=3629762 submit_wait_ns=3628418 gap_before_ns=166658
+DECODE_TOKEN token=35 wall_ns=67759752 launches=289
+DECODE_STAGE token=35 stage=qkv calls=48 bytes=503316480 session_ns=12337963 submit_wait_ns=10179988 gap_before_ns=4640841
+DECODE_STAGE token=35 stage=attention calls=48 bytes=2555904 session_ns=2692008 submit_wait_ns=2649237 gap_before_ns=422273
+DECODE_STAGE token=35 stage=o calls=48 bytes=402653184 session_ns=9712171 submit_wait_ns=9673179 gap_before_ns=335459
+DECODE_STAGE token=35 stage=router calls=48 bytes=25165824 session_ns=1584819 submit_wait_ns=1541139 gap_before_ns=227713
+DECODE_STAGE token=35 stage=gate_up calls=48 bytes=1207959552 session_ns=16922673 submit_wait_ns=16881617 gap_before_ns=331507
+DECODE_STAGE token=35 stage=down calls=48 bytes=603979776 session_ns=13351805 submit_wait_ns=13303085 gap_before_ns=1443620
+DECODE_STAGE token=35 stage=lm_head calls=1 bytes=622329856 session_ns=3614755 submit_wait_ns=3613347 gap_before_ns=142145
+DECODE_TOKEN token=36 wall_ns=65758692 launches=289
+DECODE_STAGE token=36 stage=qkv calls=48 bytes=503316480 session_ns=7271161 submit_wait_ns=7233192 gap_before_ns=1505978
+DECODE_STAGE token=36 stage=attention calls=48 bytes=2654208 session_ns=2713596 submit_wait_ns=2678810 gap_before_ns=392002
+DECODE_STAGE token=36 stage=o calls=48 bytes=402653184 session_ns=9646540 submit_wait_ns=9612025 gap_before_ns=327650
+DECODE_STAGE token=36 stage=router calls=48 bytes=25165824 session_ns=4571499 submit_wait_ns=4532555 gap_before_ns=189684
+DECODE_STAGE token=36 stage=gate_up calls=48 bytes=1207959552 session_ns=17918507 submit_wait_ns=17881162 gap_before_ns=317713
+DECODE_STAGE token=36 stage=down calls=48 bytes=603979776 session_ns=11422464 submit_wait_ns=11386688 gap_before_ns=1435245
+DECODE_STAGE token=36 stage=lm_head calls=1 bytes=622329856 session_ns=4865278 submit_wait_ns=4863710 gap_before_ns=3181375
+DECODE_TOKEN token=37 wall_ns=37551271 launches=289
+DECODE_STAGE token=37 stage=qkv calls=48 bytes=503316480 session_ns=4766559 submit_wait_ns=4723775 gap_before_ns=1609072
+DECODE_STAGE token=37 stage=attention calls=48 bytes=20152320 session_ns=3845332 submit_wait_ns=3808243 gap_before_ns=395668
+DECODE_STAGE token=37 stage=o calls=48 bytes=402653184 session_ns=4129143 submit_wait_ns=4089686 gap_before_ns=328645
+DECODE_STAGE token=37 stage=router calls=48 bytes=25165824 session_ns=1615005 submit_wait_ns=1568925 gap_before_ns=215460
+DECODE_STAGE token=37 stage=gate_up calls=48 bytes=1207959552 session_ns=9488475 submit_wait_ns=9446667 gap_before_ns=310546
+DECODE_STAGE token=37 stage=down calls=48 bytes=603979776 session_ns=5669732 submit_wait_ns=5631300 gap_before_ns=1451758
+DECODE_STAGE token=37 stage=lm_head calls=1 bytes=622329856 session_ns=3526418 submit_wait_ns=3524578 gap_before_ns=199458
+DECODE_TOKEN token=38 wall_ns=37032722 launches=289
+DECODE_STAGE token=38 stage=qkv calls=48 bytes=503316480 session_ns=4447788 submit_wait_ns=4396604 gap_before_ns=1494653
+DECODE_STAGE token=38 stage=attention calls=48 bytes=20250624 session_ns=4001447 submit_wait_ns=3958375 gap_before_ns=287713
+DECODE_STAGE token=38 stage=o calls=48 bytes=402653184 session_ns=3665233 submit_wait_ns=3621808 gap_before_ns=291445
+DECODE_STAGE token=38 stage=router calls=48 bytes=25165824 session_ns=1598145 submit_wait_ns=1567185 gap_before_ns=190546
+DECODE_STAGE token=38 stage=gate_up calls=48 bytes=1207959552 session_ns=9346455 submit_wait_ns=9316231 gap_before_ns=373732
+DECODE_STAGE token=38 stage=down calls=48 bytes=603979776 session_ns=5509094 submit_wait_ns=5461268 gap_before_ns=2127475
+DECODE_STAGE token=38 stage=lm_head calls=1 bytes=622329856 session_ns=3591587 submit_wait_ns=3588835 gap_before_ns=107409
+DECODE_TOKEN token=39 wall_ns=37774361 launches=289
+DECODE_STAGE token=39 stage=qkv calls=48 bytes=503316480 session_ns=4442024 submit_wait_ns=4392104 gap_before_ns=1365136
+DECODE_STAGE token=39 stage=attention calls=48 bytes=20348928 session_ns=4025058 submit_wait_ns=3985602 gap_before_ns=257510
+DECODE_STAGE token=39 stage=o calls=48 bytes=402653184 session_ns=3690981 submit_wait_ns=3650309 gap_before_ns=279922
+DECODE_STAGE token=39 stage=router calls=48 bytes=25165824 session_ns=1615007 submit_wait_ns=1585039 gap_before_ns=179025
+DECODE_STAGE token=39 stage=gate_up calls=48 bytes=1207959552 session_ns=10136464 submit_wait_ns=10108768 gap_before_ns=333382
+DECODE_STAGE token=39 stage=down calls=48 bytes=603979776 session_ns=5718534 submit_wait_ns=5674246 gap_before_ns=2057826
+DECODE_STAGE token=39 stage=lm_head calls=1 bytes=622329856 session_ns=3565202 submit_wait_ns=3563202 gap_before_ns=108290
+DECODE_TOKEN token=40 wall_ns=37777656 launches=289
+DECODE_STAGE token=40 stage=qkv calls=48 bytes=503316480 session_ns=4560424 submit_wait_ns=4516200 gap_before_ns=1692613
+DECODE_STAGE token=40 stage=attention calls=48 bytes=20447232 session_ns=3748177 submit_wait_ns=3712417 gap_before_ns=387860
+DECODE_STAGE token=40 stage=o calls=48 bytes=402653184 session_ns=3689396 submit_wait_ns=3651828 gap_before_ns=329285
+DECODE_STAGE token=40 stage=router calls=48 bytes=25165824 session_ns=2002448 submit_wait_ns=1962112 gap_before_ns=193859
+DECODE_STAGE token=40 stage=gate_up calls=48 bytes=1207959552 session_ns=9464890 submit_wait_ns=9422537 gap_before_ns=319220
+DECODE_STAGE token=40 stage=down calls=48 bytes=603979776 session_ns=5381842 submit_wait_ns=5344546 gap_before_ns=1478015
+DECODE_STAGE token=40 stage=lm_head calls=1 bytes=622329856 session_ns=4363769 submit_wait_ns=4361817 gap_before_ns=165858
+DECODE_TOKEN token=41 wall_ns=37248148 launches=289
+DECODE_STAGE token=41 stage=qkv calls=48 bytes=503316480 session_ns=4303478 submit_wait_ns=4244150 gap_before_ns=1670100
+DECODE_STAGE token=41 stage=attention calls=48 bytes=20545536 session_ns=3786792 submit_wait_ns=3738824 gap_before_ns=327970
+DECODE_STAGE token=41 stage=o calls=48 bytes=402653184 session_ns=3737763 submit_wait_ns=3684355 gap_before_ns=329729
+DECODE_STAGE token=41 stage=router calls=48 bytes=25165824 session_ns=1615261 submit_wait_ns=1575533 gap_before_ns=214884
+DECODE_STAGE token=41 stage=gate_up calls=48 bytes=1207959552 session_ns=9624845 submit_wait_ns=9584684 gap_before_ns=374884
+DECODE_STAGE token=41 stage=down calls=48 bytes=603979776 session_ns=5410867 submit_wait_ns=5353491 gap_before_ns=2208756
+DECODE_STAGE token=41 stage=lm_head calls=1 bytes=622329856 session_ns=3506641 submit_wait_ns=3503841 gap_before_ns=136178
+DECODE_TOKEN token=42 wall_ns=39409785 launches=289
+DECODE_STAGE token=42 stage=qkv calls=48 bytes=503316480 session_ns=4903022 submit_wait_ns=4843932 gap_before_ns=1678719
+DECODE_STAGE token=42 stage=attention calls=48 bytes=20643840 session_ns=3792245 submit_wait_ns=3743460 gap_before_ns=368116
+DECODE_STAGE token=42 stage=o calls=48 bytes=402653184 session_ns=4050884 submit_wait_ns=4004226 gap_before_ns=342725
+DECODE_STAGE token=42 stage=router calls=48 bytes=25165824 session_ns=1531680 submit_wait_ns=1490592 gap_before_ns=231860
+DECODE_STAGE token=42 stage=gate_up calls=48 bytes=1207959552 session_ns=9271770 submit_wait_ns=9236842 gap_before_ns=369314
+DECODE_STAGE token=42 stage=down calls=48 bytes=603979776 session_ns=5406196 submit_wait_ns=5348484 gap_before_ns=3752722
+DECODE_STAGE token=42 stage=lm_head calls=1 bytes=622329856 session_ns=3474610 submit_wait_ns=3473281 gap_before_ns=235922
+DECODE_TOKEN token=43 wall_ns=36220826 launches=289
+DECODE_STAGE token=43 stage=qkv calls=48 bytes=503316480 session_ns=4268614 submit_wait_ns=4232230 gap_before_ns=1820481
+DECODE_STAGE token=43 stage=attention calls=48 bytes=20742144 session_ns=3790533 submit_wait_ns=3752899 gap_before_ns=383348
+DECODE_STAGE token=43 stage=o calls=48 bytes=402653184 session_ns=3725828 submit_wait_ns=3689252 gap_before_ns=315988
+DECODE_STAGE token=43 stage=router calls=48 bytes=25165824 session_ns=1536973 submit_wait_ns=1497565 gap_before_ns=189810
+DECODE_STAGE token=43 stage=gate_up calls=48 bytes=1207959552 session_ns=9024759 submit_wait_ns=8989015 gap_before_ns=392963
+DECODE_STAGE token=43 stage=down calls=48 bytes=603979776 session_ns=5355955 submit_wait_ns=5320627 gap_before_ns=1757459
+DECODE_STAGE token=43 stage=lm_head calls=1 bytes=622329856 session_ns=3536098 submit_wait_ns=3534930 gap_before_ns=122017
+DECODE_TOKEN token=44 wall_ns=41940112 launches=289
+DECODE_STAGE token=44 stage=qkv calls=48 bytes=503316480 session_ns=4358006 submit_wait_ns=4299350 gap_before_ns=1751365
+DECODE_STAGE token=44 stage=attention calls=48 bytes=20840448 session_ns=4075848 submit_wait_ns=4026311 gap_before_ns=348931
+DECODE_STAGE token=44 stage=o calls=48 bytes=402653184 session_ns=3836017 submit_wait_ns=3783425 gap_before_ns=322437
+DECODE_STAGE token=44 stage=router calls=48 bytes=25165824 session_ns=1588944 submit_wait_ns=1546543 gap_before_ns=241313
+DECODE_STAGE token=44 stage=gate_up calls=48 bytes=1207959552 session_ns=10700936 submit_wait_ns=10664264 gap_before_ns=373333
+DECODE_STAGE token=44 stage=down calls=48 bytes=603979776 session_ns=5559699 submit_wait_ns=5496850 gap_before_ns=3933685
+DECODE_STAGE token=44 stage=lm_head calls=1 bytes=622329856 session_ns=4719629 submit_wait_ns=4717293 gap_before_ns=129969
+DECODE_TOKEN token=45 wall_ns=47993803 launches=289
+DECODE_STAGE token=45 stage=qkv calls=48 bytes=503316480 session_ns=7336121 submit_wait_ns=7271624 gap_before_ns=1701903
+DECODE_STAGE token=45 stage=attention calls=48 bytes=20938752 session_ns=3862278 submit_wait_ns=3807173 gap_before_ns=380130
+DECODE_STAGE token=45 stage=o calls=48 bytes=402653184 session_ns=6738350 submit_wait_ns=6684542 gap_before_ns=359830
+DECODE_STAGE token=45 stage=router calls=48 bytes=25165824 session_ns=1573630 submit_wait_ns=1529533 gap_before_ns=271907
+DECODE_STAGE token=45 stage=gate_up calls=48 bytes=1207959552 session_ns=13787941 submit_wait_ns=13750692 gap_before_ns=390739
+DECODE_STAGE token=45 stage=down calls=48 bytes=603979776 session_ns=5460993 submit_wait_ns=5397153 gap_before_ns=2310440
+DECODE_STAGE token=45 stage=lm_head calls=1 bytes=622329856 session_ns=3669651 submit_wait_ns=3667459 gap_before_ns=149890
+DECODE_TOKEN token=46 wall_ns=40120175 launches=289
+DECODE_STAGE token=46 stage=qkv calls=48 bytes=503316480 session_ns=7121559 submit_wait_ns=7049431 gap_before_ns=1732765
+DECODE_STAGE token=46 stage=attention calls=48 bytes=21037056 session_ns=3806806 submit_wait_ns=3750981 gap_before_ns=567715
+DECODE_STAGE token=46 stage=o calls=48 bytes=402653184 session_ns=3630782 submit_wait_ns=3578910 gap_before_ns=352947
+DECODE_STAGE token=46 stage=router calls=48 bytes=25165824 session_ns=1540689 submit_wait_ns=1503504 gap_before_ns=231539
+DECODE_STAGE token=46 stage=gate_up calls=48 bytes=1207959552 session_ns=9383835 submit_wait_ns=9349291 gap_before_ns=382821
+DECODE_STAGE token=46 stage=down calls=48 bytes=603979776 session_ns=5476612 submit_wait_ns=5421588 gap_before_ns=2249366
+DECODE_STAGE token=46 stage=lm_head calls=1 bytes=622329856 session_ns=3508818 submit_wait_ns=3506290 gap_before_ns=133921
+DECODE_TOKEN token=47 wall_ns=42674392 launches=289
+DECODE_STAGE token=47 stage=qkv calls=48 bytes=503316480 session_ns=6428477 submit_wait_ns=6351580 gap_before_ns=1998097
+DECODE_STAGE token=47 stage=attention calls=48 bytes=21135360 session_ns=3919128 submit_wait_ns=3857671 gap_before_ns=428036
+DECODE_STAGE token=47 stage=o calls=48 bytes=402653184 session_ns=3726368 submit_wait_ns=3675904 gap_before_ns=382740
+DECODE_STAGE token=47 stage=router calls=48 bytes=25165824 session_ns=1693920 submit_wait_ns=1654016 gap_before_ns=271702
+DECODE_STAGE token=47 stage=gate_up calls=48 bytes=1207959552 session_ns=9604236 submit_wait_ns=9564300 gap_before_ns=1212348
+DECODE_STAGE token=47 stage=down calls=48 bytes=603979776 session_ns=6454686 submit_wait_ns=6390110 gap_before_ns=2457382
+DECODE_STAGE token=47 stage=lm_head calls=1 bytes=622329856 session_ns=3970534 submit_wait_ns=3968214 gap_before_ns=126738
+DECODE_TOKEN token=48 wall_ns=38812898 launches=289
+DECODE_STAGE token=48 stage=qkv calls=48 bytes=503316480 session_ns=4366973 submit_wait_ns=4282460 gap_before_ns=2279157
+DECODE_STAGE token=48 stage=attention calls=48 bytes=21233664 session_ns=3936660 submit_wait_ns=3878483 gap_before_ns=447570
+DECODE_STAGE token=48 stage=o calls=48 bytes=402653184 session_ns=3865124 submit_wait_ns=3807300 gap_before_ns=453301
+DECODE_STAGE token=48 stage=router calls=48 bytes=25165824 session_ns=1564529 submit_wait_ns=1524993 gap_before_ns=304707
+DECODE_STAGE token=48 stage=gate_up calls=48 bytes=1207959552 session_ns=9354828 submit_wait_ns=9313564 gap_before_ns=572898
+DECODE_STAGE token=48 stage=down calls=48 bytes=603979776 session_ns=5487956 submit_wait_ns=5419268 gap_before_ns=2424231
+DECODE_STAGE token=48 stage=lm_head calls=1 bytes=622329856 session_ns=3615202 submit_wait_ns=3612674 gap_before_ns=139762
+DECODE_TOKEN token=49 wall_ns=44202358 launches=289
+DECODE_STAGE token=49 stage=qkv calls=48 bytes=503316480 session_ns=4522363 submit_wait_ns=4444651 gap_before_ns=1889253
+DECODE_STAGE token=49 stage=attention calls=48 bytes=21331968 session_ns=5677570 submit_wait_ns=5622754 gap_before_ns=379204
+DECODE_STAGE token=49 stage=o calls=48 bytes=402653184 session_ns=3988534 submit_wait_ns=3935395 gap_before_ns=326165
+DECODE_STAGE token=49 stage=router calls=48 bytes=25165824 session_ns=1574982 submit_wait_ns=1530308 gap_before_ns=254177
+DECODE_STAGE token=49 stage=gate_up calls=48 bytes=1207959552 session_ns=9411516 submit_wait_ns=9376204 gap_before_ns=376337
+DECODE_STAGE token=49 stage=down calls=48 bytes=603979776 session_ns=8680835 submit_wait_ns=8607587 gap_before_ns=2592803
+DECODE_STAGE token=49 stage=lm_head calls=1 bytes=622329856 session_ns=4404074 submit_wait_ns=4401738 gap_before_ns=124545
+DECODE_TOKEN token=50 wall_ns=38230670 launches=289
+DECODE_STAGE token=50 stage=qkv calls=48 bytes=503316480 session_ns=4409608 submit_wait_ns=4340872 gap_before_ns=1675509
+DECODE_STAGE token=50 stage=attention calls=48 bytes=21430272 session_ns=3824419 submit_wait_ns=3779379 gap_before_ns=305155
+DECODE_STAGE token=50 stage=o calls=48 bytes=402653184 session_ns=3819673 submit_wait_ns=3764025 gap_before_ns=306306
+DECODE_STAGE token=50 stage=router calls=48 bytes=25165824 session_ns=1557980 submit_wait_ns=1520300 gap_before_ns=212768
+DECODE_STAGE token=50 stage=gate_up calls=48 bytes=1207959552 session_ns=9418459 submit_wait_ns=9385306 gap_before_ns=934283
+DECODE_STAGE token=50 stage=down calls=48 bytes=603979776 session_ns=5515571 submit_wait_ns=5430578 gap_before_ns=2257941
+DECODE_STAGE token=50 stage=lm_head calls=1 bytes=622329856 session_ns=3876341 submit_wait_ns=3872805 gap_before_ns=116657
+DECODE_TOKEN token=51 wall_ns=43117820 launches=289
+DECODE_STAGE token=51 stage=qkv calls=48 bytes=503316480 session_ns=4472506 submit_wait_ns=4433689 gap_before_ns=1813396
+DECODE_STAGE token=51 stage=attention calls=48 bytes=21528576 session_ns=5765077 submit_wait_ns=5732677 gap_before_ns=354213
+DECODE_STAGE token=51 stage=o calls=48 bytes=402653184 session_ns=3708672 submit_wait_ns=3675360 gap_before_ns=293876
+DECODE_STAGE token=51 stage=router calls=48 bytes=25165824 session_ns=2277433 submit_wait_ns=2242952 gap_before_ns=194673
+DECODE_STAGE token=51 stage=gate_up calls=48 bytes=1207959552 session_ns=9490651 submit_wait_ns=9452169 gap_before_ns=310675
+DECODE_STAGE token=51 stage=down calls=48 bytes=603979776 session_ns=9349048 submit_wait_ns=9314376 gap_before_ns=1382076
+DECODE_STAGE token=51 stage=lm_head calls=1 bytes=622329856 session_ns=3621971 submit_wait_ns=3621155 gap_before_ns=83553
+DECODE_TOKEN token=52 wall_ns=66440666 launches=289
+DECODE_STAGE token=52 stage=qkv calls=48 bytes=503316480 session_ns=10432709 submit_wait_ns=10350739 gap_before_ns=1980880
+DECODE_STAGE token=52 stage=attention calls=48 bytes=64684032 session_ns=7499946 submit_wait_ns=7429145 gap_before_ns=3474721
+DECODE_STAGE token=52 stage=o calls=48 bytes=402653184 session_ns=9674102 submit_wait_ns=9617222 gap_before_ns=394388
+DECODE_STAGE token=52 stage=router calls=48 bytes=25165824 session_ns=1616802 submit_wait_ns=1565954 gap_before_ns=323318
+DECODE_STAGE token=52 stage=gate_up calls=48 bytes=1207959552 session_ns=13205793 submit_wait_ns=13166656 gap_before_ns=430562
+DECODE_STAGE token=52 stage=down calls=48 bytes=603979776 session_ns=11436597 submit_wait_ns=11372709 gap_before_ns=2209692
+DECODE_STAGE token=52 stage=lm_head calls=1 bytes=622329856 session_ns=3597042 submit_wait_ns=3595330 gap_before_ns=164114
+DECODE_TOKEN token=53 wall_ns=45814869 launches=289
+DECODE_STAGE token=53 stage=qkv calls=48 bytes=503316480 session_ns=4356372 submit_wait_ns=4281923 gap_before_ns=1413986
+DECODE_STAGE token=53 stage=attention calls=48 bytes=64782336 session_ns=7472645 submit_wait_ns=7436837 gap_before_ns=385143
+DECODE_STAGE token=53 stage=o calls=48 bytes=402653184 session_ns=6674244 submit_wait_ns=6636787 gap_before_ns=1381309
+DECODE_STAGE token=53 stage=router calls=48 bytes=25165824 session_ns=1580623 submit_wait_ns=1542207 gap_before_ns=205104
+DECODE_STAGE token=53 stage=gate_up calls=48 bytes=1207959552 session_ns=9292088 submit_wait_ns=9250888 gap_before_ns=307525
+DECODE_STAGE token=53 stage=down calls=48 bytes=603979776 session_ns=7620552 submit_wait_ns=7584936 gap_before_ns=1394187
+DECODE_STAGE token=53 stage=lm_head calls=1 bytes=622329856 session_ns=3612210 submit_wait_ns=3611170 gap_before_ns=118881
+DECODE_TOKEN token=54 wall_ns=42571494 launches=289
+DECODE_STAGE token=54 stage=qkv calls=48 bytes=503316480 session_ns=4537737 submit_wait_ns=4498473 gap_before_ns=1422462
+DECODE_STAGE token=54 stage=attention calls=48 bytes=64880640 session_ns=8522928 submit_wait_ns=8491263 gap_before_ns=363014
+DECODE_STAGE token=54 stage=o calls=48 bytes=402653184 session_ns=4004230 submit_wait_ns=3969334 gap_before_ns=304787
+DECODE_STAGE token=54 stage=router calls=48 bytes=25165824 session_ns=1642547 submit_wait_ns=1606211 gap_before_ns=199808
+DECODE_STAGE token=54 stage=gate_up calls=48 bytes=1207959552 session_ns=10218959 submit_wait_ns=10182559 gap_before_ns=302275
+DECODE_STAGE token=54 stage=down calls=48 bytes=603979776 session_ns=5722598 submit_wait_ns=5688838 gap_before_ns=1465745
+DECODE_STAGE token=54 stage=lm_head calls=1 bytes=622329856 session_ns=3752067 submit_wait_ns=3751091 gap_before_ns=112337
+DECODE_TOKEN token=55 wall_ns=36832144 launches=289
+DECODE_STAGE token=55 stage=qkv calls=48 bytes=503316480 session_ns=4388122 submit_wait_ns=4355162 gap_before_ns=1383153
+DECODE_STAGE token=55 stage=attention calls=48 bytes=64978944 session_ns=4360024 submit_wait_ns=4327079 gap_before_ns=319155
+DECODE_STAGE token=55 stage=o calls=48 bytes=402653184 session_ns=3764387 submit_wait_ns=3731699 gap_before_ns=288629
+DECODE_STAGE token=55 stage=router calls=48 bytes=25165824 session_ns=1519216 submit_wait_ns=1481632 gap_before_ns=162960
+DECODE_STAGE token=55 stage=gate_up calls=48 bytes=1207959552 session_ns=9578874 submit_wait_ns=9542170 gap_before_ns=290069
+DECODE_STAGE token=55 stage=down calls=48 bytes=603979776 session_ns=5488705 submit_wait_ns=5454880 gap_before_ns=1346284
+DECODE_STAGE token=55 stage=lm_head calls=1 bytes=622329856 session_ns=3855237 submit_wait_ns=3854149 gap_before_ns=87329
+DECODE_TOKEN token=56 wall_ns=46350698 launches=289
+DECODE_STAGE token=56 stage=qkv calls=48 bytes=503316480 session_ns=4440781 submit_wait_ns=4379963 gap_before_ns=2773770
+DECODE_STAGE token=56 stage=attention calls=48 bytes=65077248 session_ns=4531419 submit_wait_ns=4481979 gap_before_ns=304674
+DECODE_STAGE token=56 stage=o calls=48 bytes=402653184 session_ns=3817120 submit_wait_ns=3771631 gap_before_ns=299381
+DECODE_STAGE token=56 stage=router calls=48 bytes=25165824 session_ns=1569615 submit_wait_ns=1532063 gap_before_ns=207636
+DECODE_STAGE token=56 stage=gate_up calls=48 bytes=1207959552 session_ns=12272054 submit_wait_ns=12239686 gap_before_ns=354513
+DECODE_STAGE token=56 stage=down calls=48 bytes=603979776 session_ns=7231941 submit_wait_ns=7178933 gap_before_ns=2145093
+DECODE_STAGE token=56 stage=lm_head calls=1 bytes=622329856 session_ns=6282140 submit_wait_ns=6280396 gap_before_ns=120561
+DECODE_TOKEN token=57 wall_ns=40987095 launches=289
+DECODE_STAGE token=57 stage=qkv calls=48 bytes=503316480 session_ns=4400120 submit_wait_ns=4337640 gap_before_ns=1603090
+DECODE_STAGE token=57 stage=attention calls=48 bytes=65175552 session_ns=4358635 submit_wait_ns=4312042 gap_before_ns=337826
+DECODE_STAGE token=57 stage=o calls=48 bytes=402653184 session_ns=3793524 submit_wait_ns=3738627 gap_before_ns=329667
+DECODE_STAGE token=57 stage=router calls=48 bytes=25165824 session_ns=1588125 submit_wait_ns=1552205 gap_before_ns=210546
+DECODE_STAGE token=57 stage=gate_up calls=48 bytes=1207959552 session_ns=10580339 submit_wait_ns=10548835 gap_before_ns=357385
+DECODE_STAGE token=57 stage=down calls=48 bytes=603979776 session_ns=5529745 submit_wait_ns=5466369 gap_before_ns=2278248
+DECODE_STAGE token=57 stage=lm_head calls=1 bytes=622329856 session_ns=5507044 submit_wait_ns=5503588 gap_before_ns=112801
+DECODE_TOKEN token=58 wall_ns=37355157 launches=289
+DECODE_STAGE token=58 stage=qkv calls=48 bytes=503316480 session_ns=4324811 submit_wait_ns=4262827 gap_before_ns=1689759
+DECODE_STAGE token=58 stage=attention calls=48 bytes=65273856 session_ns=4445549 submit_wait_ns=4395149 gap_before_ns=315121
+DECODE_STAGE token=58 stage=o calls=48 bytes=402653184 session_ns=3710738 submit_wait_ns=3659426 gap_before_ns=341763
+DECODE_STAGE token=58 stage=router calls=48 bytes=25165824 session_ns=1536112 submit_wait_ns=1496848 gap_before_ns=203651
+DECODE_STAGE token=58 stage=gate_up calls=48 bytes=1207959552 session_ns=9004455 submit_wait_ns=8968855 gap_before_ns=365585
+DECODE_STAGE token=58 stage=down calls=48 bytes=603979776 session_ns=5568903 submit_wait_ns=5514695 gap_before_ns=2163491
+DECODE_STAGE token=58 stage=lm_head calls=1 bytes=622329856 session_ns=3554946 submit_wait_ns=3552898 gap_before_ns=130273
+DECODE_TOKEN token=59 wall_ns=43648368 launches=289
+DECODE_STAGE token=59 stage=qkv calls=48 bytes=503316480 session_ns=4342551 submit_wait_ns=4274215 gap_before_ns=1763234
+DECODE_STAGE token=59 stage=attention calls=48 bytes=65372160 session_ns=4460442 submit_wait_ns=4409209 gap_before_ns=359254
+DECODE_STAGE token=59 stage=o calls=48 bytes=402653184 session_ns=3830625 submit_wait_ns=3774944 gap_before_ns=358228
+DECODE_STAGE token=59 stage=router calls=48 bytes=25165824 session_ns=2026486 submit_wait_ns=1981590 gap_before_ns=288018
+DECODE_STAGE token=59 stage=gate_up calls=48 bytes=1207959552 session_ns=9156936 submit_wait_ns=9117384 gap_before_ns=399605
+DECODE_STAGE token=59 stage=down calls=48 bytes=603979776 session_ns=7102006 submit_wait_ns=7039684 gap_before_ns=2492724
+DECODE_STAGE token=59 stage=lm_head calls=1 bytes=622329856 session_ns=5610613 submit_wait_ns=5605045 gap_before_ns=1457646
+DECODE_TOKEN token=60 wall_ns=44992910 launches=289
+DECODE_STAGE token=60 stage=qkv calls=48 bytes=503316480 session_ns=6406351 submit_wait_ns=4254651 gap_before_ns=1870595
+DECODE_STAGE token=60 stage=attention calls=48 bytes=65470464 session_ns=5834819 submit_wait_ns=5776786 gap_before_ns=536292
+DECODE_STAGE token=60 stage=o calls=48 bytes=402653184 session_ns=4306841 submit_wait_ns=4248280 gap_before_ns=379527
+DECODE_STAGE token=60 stage=router calls=48 bytes=25165824 session_ns=1697920 submit_wait_ns=1652112 gap_before_ns=306932
+DECODE_STAGE token=60 stage=gate_up calls=48 bytes=1207959552 session_ns=9511561 submit_wait_ns=9468104 gap_before_ns=405187
+DECODE_STAGE token=60 stage=down calls=48 bytes=603979776 session_ns=5598406 submit_wait_ns=5531029 gap_before_ns=2796732
+DECODE_STAGE token=60 stage=lm_head calls=1 bytes=622329856 session_ns=5192722 submit_wait_ns=5191362 gap_before_ns=149025
+DECODE_TOKEN token=61 wall_ns=43010378 launches=289
+DECODE_STAGE token=61 stage=qkv calls=48 bytes=503316480 session_ns=4347928 submit_wait_ns=4294664 gap_before_ns=1473966
+DECODE_STAGE token=61 stage=attention calls=48 bytes=65568768 session_ns=4974352 submit_wait_ns=4934336 gap_before_ns=370820
+DECODE_STAGE token=61 stage=o calls=48 bytes=402653184 session_ns=3723667 submit_wait_ns=3683587 gap_before_ns=359490
+DECODE_STAGE token=61 stage=router calls=48 bytes=25165824 session_ns=1627090 submit_wait_ns=1589410 gap_before_ns=214515
+DECODE_STAGE token=61 stage=gate_up calls=48 bytes=1207959552 session_ns=12921005 submit_wait_ns=12882012 gap_before_ns=663524
+DECODE_STAGE token=61 stage=down calls=48 bytes=603979776 session_ns=6469215 submit_wait_ns=5390917 gap_before_ns=1534989
+DECODE_STAGE token=61 stage=lm_head calls=1 bytes=622329856 session_ns=4177688 submit_wait_ns=4176680 gap_before_ns=152129
+DECODE_TOKEN token=62 wall_ns=37141667 launches=289
+DECODE_STAGE token=62 stage=qkv calls=48 bytes=503316480 session_ns=4278871 submit_wait_ns=4240742 gap_before_ns=1447086
+DECODE_STAGE token=62 stage=attention calls=48 bytes=65667072 session_ns=4435901 submit_wait_ns=4400268 gap_before_ns=325939
+DECODE_STAGE token=62 stage=o calls=48 bytes=402653184 session_ns=3733635 submit_wait_ns=3699491 gap_before_ns=297809
+DECODE_STAGE token=62 stage=router calls=48 bytes=25165824 session_ns=1524414 submit_wait_ns=1486846 gap_before_ns=177362
+DECODE_STAGE token=62 stage=gate_up calls=48 bytes=1207959552 session_ns=9276057 submit_wait_ns=9236937 gap_before_ns=293110
+DECODE_STAGE token=62 stage=down calls=48 bytes=603979776 session_ns=5494645 submit_wait_ns=5454549 gap_before_ns=1372603
+DECODE_STAGE token=62 stage=lm_head calls=1 bytes=622329856 session_ns=4377866 submit_wait_ns=4376298 gap_before_ns=106369
+DECODE_TOKEN token=63 wall_ns=39288231 launches=289
+DECODE_STAGE token=63 stage=qkv calls=48 bytes=503316480 session_ns=4317734 submit_wait_ns=4249526 gap_before_ns=2180105
+DECODE_STAGE token=63 stage=attention calls=48 bytes=65765376 session_ns=4354759 submit_wait_ns=4302870 gap_before_ns=361366
+DECODE_STAGE token=63 stage=o calls=48 bytes=402653184 session_ns=3796600 submit_wait_ns=3747064 gap_before_ns=347140
+DECODE_STAGE token=63 stage=router calls=48 bytes=25165824 session_ns=1545309 submit_wait_ns=1505021 gap_before_ns=245808
+DECODE_STAGE token=63 stage=gate_up calls=48 bytes=1207959552 session_ns=10333360 submit_wait_ns=10295520 gap_before_ns=380936
+DECODE_STAGE token=63 stage=down calls=48 bytes=603979776 session_ns=5413361 submit_wait_ns=5354897 gap_before_ns=2260741
+DECODE_STAGE token=63 stage=lm_head calls=1 bytes=622329856 session_ns=3613715 submit_wait_ns=3611635 gap_before_ns=137297
+DECODE_TOKEN token=64 wall_ns=39177109 launches=289
+DECODE_STAGE token=64 stage=qkv calls=48 bytes=503316480 session_ns=4281589 submit_wait_ns=4217060 gap_before_ns=1728771
+DECODE_STAGE token=64 stage=attention calls=48 bytes=65863680 session_ns=5935735 submit_wait_ns=5883047 gap_before_ns=320309
+DECODE_STAGE token=64 stage=o calls=48 bytes=402653184 session_ns=3695479 submit_wait_ns=3642679 gap_before_ns=333329
+DECODE_STAGE token=64 stage=router calls=48 bytes=25165824 session_ns=1527486 submit_wait_ns=1489885 gap_before_ns=208642
+DECODE_STAGE token=64 stage=gate_up calls=48 bytes=1207959552 session_ns=9250826 submit_wait_ns=9216602 gap_before_ns=363634
+DECODE_STAGE token=64 stage=down calls=48 bytes=603979776 session_ns=5417090 submit_wait_ns=5361425 gap_before_ns=2172902
+DECODE_STAGE token=64 stage=lm_head calls=1 bytes=622329856 session_ns=3813124 submit_wait_ns=3810948 gap_before_ns=128193
+DECODE_TOKEN token=65 wall_ns=38691010 launches=289
+DECODE_STAGE token=65 stage=qkv calls=48 bytes=503316480 session_ns=5842947 submit_wait_ns=5797715 gap_before_ns=1570771
+DECODE_STAGE token=65 stage=attention calls=48 bytes=65961984 session_ns=4705801 submit_wait_ns=4661609 gap_before_ns=417416
+DECODE_STAGE token=65 stage=o calls=48 bytes=402653184 session_ns=3806266 submit_wait_ns=3764951 gap_before_ns=324915
+DECODE_STAGE token=65 stage=router calls=48 bytes=25165824 session_ns=1636795 submit_wait_ns=1594843 gap_before_ns=196610
+DECODE_STAGE token=65 stage=gate_up calls=48 bytes=1207959552 session_ns=9041862 submit_wait_ns=9000790 gap_before_ns=315317
+DECODE_STAGE token=65 stage=down calls=48 bytes=603979776 session_ns=5419410 submit_wait_ns=5374320 gap_before_ns=1595775
+DECODE_STAGE token=65 stage=lm_head calls=1 bytes=622329856 session_ns=3661411 submit_wait_ns=3660051 gap_before_ns=155714
+DECODE_TOKEN token=66 wall_ns=38012394 launches=289
+DECODE_STAGE token=66 stage=qkv calls=48 bytes=503316480 session_ns=4397624 submit_wait_ns=4331736 gap_before_ns=1886645
+DECODE_STAGE token=66 stage=attention calls=48 bytes=66060288 session_ns=4378997 submit_wait_ns=4323237 gap_before_ns=358968
+DECODE_STAGE token=66 stage=o calls=48 bytes=402653184 session_ns=3790836 submit_wait_ns=3738580 gap_before_ns=343269
+DECODE_STAGE token=66 stage=router calls=48 bytes=25165824 session_ns=1539664 submit_wait_ns=1501264 gap_before_ns=229411
+DECODE_STAGE token=66 stage=gate_up calls=48 bytes=1207959552 session_ns=9280518 submit_wait_ns=9242085 gap_before_ns=371075
+DECODE_STAGE token=66 stage=down calls=48 bytes=603979776 session_ns=5448577 submit_wait_ns=5392849 gap_before_ns=2226535
+DECODE_STAGE token=66 stage=lm_head calls=1 bytes=622329856 session_ns=3613474 submit_wait_ns=3611474 gap_before_ns=146801

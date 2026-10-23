@@ -1,0 +1,23 @@
+mem available before load: 103.7 GB
+engine native=true window_api=true fp8_api=true weights=Bf16 spin_us=Some(0) cta_budget=Some(64)
+LOAD: 112.2s resident 60.42 GB host 0.67 GB peak_rss 61.99 GB (before 0.13 GB) kv_resident=true mem_available_after 44.4 GB
+LOAD peak over resident+host: 0.90 GB (budget 6 GB) -> PASS
+PARITY layer 0 over 20 positions (p2-short): attention cosine(min) 0.999986 moe cosine(min) 0.999998 moe p95_rel(max) 0.0026 routing_agrees=true -> PASS
+PARITY layer 23 over 20 positions (p2-short): attention cosine(min) 0.999780 moe cosine(min) 0.999993 moe p95_rel(max) 0.0099 routing_agrees=true -> PASS
+PARITY layer 47 over 20 positions (p2-short): attention cosine(min) 0.999997 moe cosine(min) 0.999994 moe p95_rel(max) 0.0355 routing_agrees=true -> PASS
+CONTROL routing-mutant: layer 0 moe cosine(min) 0.3686 -> CAUGHT
+CONTROL window-skew-1-tile: layer 0 moe cosine(min) -0.0212 -> CAUGHT
+TOKENS p1-one-token: 1 prompt tokens, prefill 0.28s (282.0 ms/token), decode 16 tokens in 3123 ms = 195.2 ms/token = 5.1 tok/s; per step: attention 58.3 ms experts 131.4 ms lm_head 8.0 ms host 17.2 ms chip-reported 186.3 ms launches 913; IDENTICAL
+  chip text: " and welcome to the 2024-25 season of the National"
+  cpu  text: " and welcome to the 2024-25 season of the National"
+TOKENS p2-short: 20 prompt tokens, prefill 3.27s (163.5 ms/token), decode 7 tokens in 1157 ms = 165.3 ms/token = 6.1 tok/s; per step: attention 52.4 ms experts 113.3 ms lm_head 8.1 ms host 16.1 ms chip-reported 163.6 ms launches 1043.4285714285713; IDENTICAL
+  chip text: "The capital of France is Paris."
+  cpu  text: "The capital of France is Paris.<|im_end|>"
+TOKENS p3-medium: 204 prompt tokens, prefill 38.95s (190.9 ms/token), decode 16 tokens in 2697 ms = 168.6 ms/token = 5.9 tok/s; per step: attention 49.6 ms experts 110.8 ms lm_head 7.2 ms host 14.0 ms chip-reported 158.3 ms launches 913; IDENTICAL
+  chip text: "- The DGX Spark uses the GB10 Grace Blackwell superchip,"
+  cpu  text: "- The DGX Spark uses the GB10 Grace Blackwell superchip,"
+TOKENS p4-long: 657 prompt tokens, prefill 124.84s (190.0 ms/token), decode 16 tokens in 2456 ms = 153.5 ms/token = 6.5 tok/s; per step: attention 47.5 ms experts 100.3 ms lm_head 6.9 ms host 11.6 ms chip-reported 147.1 ms launches 913; IDENTICAL
+  chip text: "What went wrong:  \nIn **run 10**, the model's output"
+  cpu  text: "What went wrong:  \nIn **run 10**, the model's output"
+SUMMARY parity=PASS tokens=PASS peak_rss=63.27 GB
+receipt: docs/inference/evidence/own30b-L2-20261013/baseline

@@ -1,0 +1,261 @@
+{
+  "checkpoint": "/home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8",
+  "controls": [
+    {
+      "caught": true,
+      "control": "routing-mutant",
+      "moe_cosine_min": 0.36857295591743716
+    },
+    {
+      "caught": true,
+      "control": "window-skew-1-tile",
+      "moe_cosine_min": -0.021223628469823067
+    }
+  ],
+  "engine": {
+    "cta_budget": 64,
+    "fp8_api": true,
+    "kv_resident": true,
+    "max_context": 8192,
+    "native": true,
+    "spin_us": 0,
+    "weights": "Bf16",
+    "window_api": true
+  },
+  "golden": "docs/inference/evidence/own30b-f-20261013T1745Z/golden.json",
+  "load": {
+    "host_bytes": 673505280,
+    "peak_rss_before_bytes": 133984256,
+    "peak_rss_bytes": 61989363712,
+    "resident_bytes": 60416327680,
+    "seconds": 112.153948793,
+    "transient_gb": 0.8995307519999969
+  },
+  "parity": [
+    {
+      "attn_cosine_min": 0.9999856602475867,
+      "layer": 0,
+      "moe_cosine_min": 0.999997751295638,
+      "moe_p95_rel_max": 0.002565830945968628,
+      "pass": true,
+      "positions": 20,
+      "routing_agrees": true
+    },
+    {
+      "attn_cosine_min": 0.9997801450263445,
+      "layer": 23,
+      "moe_cosine_min": 0.9999932596682826,
+      "moe_p95_rel_max": 0.009864769876003265,
+      "pass": true,
+      "positions": 20,
+      "routing_agrees": true
+    },
+    {
+      "attn_cosine_min": 0.9999970080168739,
+      "layer": 47,
+      "moe_cosine_min": 0.9999940554006611,
+      "moe_p95_rel_max": 0.03545636683702469,
+      "pass": true,
+      "positions": 20,
+      "routing_agrees": true
+    }
+  ],
+  "pass": true,
+  "prompts": [
+    {
+      "chip": [
+        323,
+        10565,
+        311,
+        279,
+        220,
+        17,
+        15,
+        17,
+        19,
+        12,
+        17,
+        20,
+        3200,
+        315,
+        279,
+        5055
+      ],
+      "decode_ms": 3123,
+      "emitted": 16,
+      "first_diff": null,
+      "golden": [
+        323,
+        10565,
+        311,
+        279,
+        220,
+        17,
+        15,
+        17,
+        19,
+        12,
+        17,
+        20,
+        3200,
+        315,
+        279,
+        5055
+      ],
+      "name": "p1-one-token",
+      "per_step_ms": {
+        "attention": 58.2786140625,
+        "chip_reported": 186.27267175,
+        "experts": 131.3859219375,
+        "host": 17.1807265,
+        "launches": 913.0,
+        "lm_head": 7.9873893125
+      },
+      "prefill_ms": 282,
+      "prompt_tokens": 1,
+      "tok_s": 5.123278898495037
+    },
+    {
+      "chip": [
+        785,
+        6722,
+        315,
+        9625,
+        374,
+        12095,
+        13
+      ],
+      "decode_ms": 1157,
+      "emitted": 7,
+      "first_diff": null,
+      "golden": [
+        785,
+        6722,
+        315,
+        9625,
+        374,
+        12095,
+        13,
+        151645
+      ],
+      "name": "p2-short",
+      "per_step_ms": {
+        "attention": 52.38829742857143,
+        "chip_reported": 163.570358,
+        "experts": 113.34232828571429,
+        "host": 16.104694714285714,
+        "launches": 1043.4285714285713,
+        "lm_head": 8.105221
+      },
+      "prefill_ms": 3270,
+      "prompt_tokens": 20,
+      "tok_s": 6.050129645635264
+    },
+    {
+      "chip": [
+        12,
+        576,
+        50275,
+        55,
+        26467,
+        5711,
+        279,
+        18865,
+        16,
+        15,
+        31071,
+        5235,
+        9157,
+        2256,
+        29662,
+        11
+      ],
+      "decode_ms": 2697,
+      "emitted": 16,
+      "first_diff": null,
+      "golden": [
+        12,
+        576,
+        50275,
+        55,
+        26467,
+        5711,
+        279,
+        18865,
+        16,
+        15,
+        31071,
+        5235,
+        9157,
+        2256,
+        29662,
+        11
+      ],
+      "name": "p3-medium",
+      "per_step_ms": {
+        "attention": 49.64848575,
+        "chip_reported": 158.2719249375,
+        "experts": 110.8281278125,
+        "host": 13.998124,
+        "launches": 913.0,
+        "lm_head": 7.1576006875
+      },
+      "prefill_ms": 38947,
+      "prompt_tokens": 204,
+      "tok_s": 5.932517612161661
+    },
+    {
+      "chip": [
+        3838,
+        3937,
+        4969,
+        25,
+        2303,
+        641,
+        3070,
+        6108,
+        220,
+        16,
+        15,
+        97219,
+        279,
+        1614,
+        594,
+        2550
+      ],
+      "decode_ms": 2456,
+      "emitted": 16,
+      "first_diff": null,
+      "golden": [
+        3838,
+        3937,
+        4969,
+        25,
+        2303,
+        641,
+        3070,
+        6108,
+        220,
+        16,
+        15,
+        97219,
+        279,
+        1614,
+        594,
+        2550
+      ],
+      "name": "p4-long",
+      "per_step_ms": {
+        "attention": 47.49117675,
+        "chip_reported": 147.1015165625,
+        "experts": 100.3305195,
+        "host": 11.58317975,
+        "launches": 913.0,
+        "lm_head": 6.8514709375
+      },
+      "prefill_ms": 124837,
+      "prompt_tokens": 657,
+      "tok_s": 6.514657980456026
+    }
+  ]
+}

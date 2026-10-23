@@ -1,0 +1,1 @@
+start 00:08:22 bin /tmp/own30b-decode/target/release/own30b_check sha 464d6f6c88a6aaee sc 74aeb46 env AIEN_OMEGA_SPIN_US=2000 AIEN_OMEGA_CTA_BUDGET=64 flags --weights fp8 --attn fused --router device --lm-head gemv --prefill auto
