@@ -1,0 +1,4 @@
+Preflight exit 1. 57 crates: 2 freshly run, 55 stamped, 1 failed.
+Failing test: aien-cli browser_mirror::tests::stub_page_screenshot_and_eval.
+Eight dependency advisories: ctutils; rustls (four); rustls-webpki; webpki-root-certs; webpki-roots.
+No merge qualification or issue closure. Full raw log retained locally with SHA-256 in receipt.json.

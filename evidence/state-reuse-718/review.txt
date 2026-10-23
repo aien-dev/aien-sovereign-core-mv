@@ -1,0 +1,45 @@
+Core718 independent bounded host-policy review
+
+Reviewed product policy SHA256:
+1fd8ca82867f8c1327129ec615aff09b47391552d52b80327c337ddd0f9d09d1
+Compiler SHA256:
+191b776ef98821597c3e30655da6d680a9b66edbc9ceaca3c39c61ea6df098e9
+
+Verdict: no blocking defect found within the documented standalone policy scope.
+The module does not validate snapshot contents, allocate memory, restore a model,
+implement concurrent ownership or establish any hardware speed benefit.
+
+Independent probes.om: 24588 checks, zero failures, exit 0.
+Checks include exhaustive costs/current-ID/absolute-margin grid; candidate row
+permutation; stable retained reference; maximum legal aggregate costs and
+margins; memory exact-fit/one-byte-over; clock extrema; zero context; stale
+baseline fallback with prediction invalid.
+
+Compiled behavioral controls:
+- Replace `if le saved margin` with `if eq saved 0`: compiled successfully;
+  unchanged independent tests produced 1704 failures, exit 1.
+- Replace `total = get rcontrol 6` with `total = ulong 0`: compiled successfully;
+  unchanged independent tests produced 2 failures, exit 1.
+Neither crash, timeout nor compile error counted as a control kill.
+
+Source reasoning: memory sums are <=6*2^50 after shared configuration validation;
+phase totals are <=7*10^12; relative-margin product <=7*10^18 and fits u64.
+Prefix addition is bounded by checking consumed prefix <=131072 before adding
+at most one pending token. Duplicate enabled IDs refuse. Selection performs no
+external effects. Every output is cleared before configuration admission.
+
+Integration limitation reviewed: rcalib cannot refresh an expired profile or
+bootstrap an under-sampled one because it requires an admitted profile. README
+now explicitly assigns new initial calibration to the existing measurement owner.
+This is disclosed, not a hidden recovery capability.
+
+Reproduction:
+cat policy.om probes.om > all.om
+quiet-build timeout 30 "$OMC" < all.om > probes.elf 2> compile.log
+# Require compiler success, then chmod 700 probes.elf.
+quiet-build timeout 20 ./probes.elf
+
+An initial snapshot taken during parent changes did not compile (error12) and
+was superseded before qualification. It is not a passing result. All above
+results bind the stated final policy SHA. No product files were edited by the
+reviewer, and no GPU, service or GitHub action occurred.
