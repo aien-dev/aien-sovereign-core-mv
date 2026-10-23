@@ -6,6 +6,7 @@
 
 pub mod codec;
 pub mod cpu_engine;
+pub mod dense_engine;
 pub mod engine;
 pub mod kv_persist;
 pub mod omega_engine;

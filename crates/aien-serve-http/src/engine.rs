@@ -106,6 +106,11 @@ pub trait Engine: Send + Sync {
     fn persistence_status(&self) -> Option<serde_json::Value> {
         None
     }
+    /// Memory plan and measured device bytes for `/health` (aien-rig dense door). `None` (the
+    /// default) leaves `/health` as it was.
+    fn memory_status(&self) -> Option<serde_json::Value> {
+        None
+    }
     /// How many generations the engine runs at once (the server hands out that many
     /// permits). 1 for every engine that takes one `generate` at a time; a batching engine
     /// says how many conversations it stacks on one weight read.

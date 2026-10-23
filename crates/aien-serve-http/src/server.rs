@@ -326,6 +326,9 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
             serde_json::json!({ "honored": state.engine.test_switches_honored() }),
         );
     }
+    if let (Some(m), Some(obj)) = (state.engine.memory_status(), v.as_object_mut()) {
+        obj.insert("memory".into(), m);
+    }
     Json(v)
 }
 
