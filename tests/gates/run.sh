@@ -25,6 +25,11 @@ if [ -n "${HOME:-}" ] && [ ! -w "$HOME" ]; then
   HOME="$(mktemp -d)"; export HOME
   trap 'rm -rf "$HOME"' EXIT
   if [ -f "$ro_home/.gitconfig" ]; then cp "$ro_home/.gitconfig" "$HOME/.gitconfig"; fi
+  # The miri sysroot that install.sh prebuilt under the read-only HOME (#600) stays the one miri uses;
+  # the fresh HOME would otherwise send `cargo miri setup` off to rebuild it offline, which cannot work.
+  if [ -z "${MIRI_SYSROOT:-}" ] && [ -d "$ro_home/.cache/miri/lib" ]; then
+    MIRI_SYSROOT="$ro_home/.cache/miri"; export MIRI_SYSROOT
+  fi
 fi
 obs() { printf 'AIEN-OBS %s %s\n' "$1" "$2"; }
 # Inside the user sandbox (AIEN_SANDBOX_NESTED=1, set by the worker) five aien-test self-tests that would
@@ -194,11 +199,32 @@ case "$step" in
     fi
     bash scripts/test-release-real-tree.sh
     ;;
-  # sovereign-inquisitor.yml (pull_request_target: needs the PR diff and GITHUB_TOKEN)
+  # sovereign-inquisitor.yml (pull_request_target). The hosted job fetched `gh pr diff` with GITHUB_TOKEN only to
+  # get the diff; the verdict (exit 1 unless the audit is clean) depends on nothing but the diff text, and the
+  # author, number and title only decorate the comment. The same diff is computed here from git: base...HEAD, where
+  # base is the merge base with the base line (what `gh pr diff` shows), or for a head already on the base line its
+  # first parent (the rule the worker's plan uses). The worker's base line is origin/main (AIEN_BASE_REF overrides).
+  # Posting the comment and labels stays a GitHub job; nothing here writes to GitHub.
   inquisitor)
     cargo build --release -p spark-inquisitor
-    echo "run.sh: the review step needs a GitHub pull request diff and token (pull_request_target); nothing to run locally" >&2
-    exit 3
+    base_ref="${AIEN_BASE_REF:-origin/main}"
+    if ! git rev-parse --verify -q "$base_ref^{commit}" >/dev/null; then
+      echo "run.sh: base $base_ref is not in this checkout; cannot compute the pull request diff" >&2
+      exit 3
+    fi
+    head="$(git rev-parse HEAD)"
+    base="$(git merge-base HEAD "$base_ref")"
+    if [ "$base" = "$head" ]; then base="$(git rev-parse HEAD^1)"; fi
+    diff_file="$(mktemp)"
+    git diff --no-color --no-ext-diff "$base" "$head" > "$diff_file"
+    obs inquisitor_base "\"$base\""
+    obs inquisitor_diff_files "$(git diff --name-only "$base" "$head" | grep -c . || true)"
+    rc=0
+    "$TARGET/release/spark-inquisitor" review --author local --pr 0 \
+      --title "$(git log -1 --format=%s "$head")" --diff "$diff_file" || rc=$?
+    rm -f "$diff_file"
+    obs inquisitor_clean "$([ "$rc" = 0 ] && echo true || echo false)"
+    exit "$rc"
     ;;
   *) echo "run.sh: unknown step '$step'" >&2; exit 2 ;;
 esac
