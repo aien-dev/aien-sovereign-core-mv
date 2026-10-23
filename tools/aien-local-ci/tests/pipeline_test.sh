@@ -1,8 +1,3 @@
-if [[ $incl == 1 ]]; then
-  et="\"$(sha256sum "$f" | cut -c1-16)\""
-  if [[ $inm == "$et" ]]; then printf "HTTP/2.0 304 Not Modified\r\nEtag: %s\r\n\r\n" "$et"; echo "gh: HTTP 304" >&2; exit 1; fi
-  printf "HTTP/2.0 200 OK\r\nEtag: %s\r\nContent-Type: application/json\r\n\r\n" "$et"; cat "$f"; exit 0
-fi
 #!/usr/bin/env bash
 # pipeline_test.sh: offline proofs for tools/aien-local-ci/pipeline.sh (no network, no real gh, no real key).
 # Fakes: gh (answers from JSON files, applies the real --jq filter with jq), aien-test (exit code chosen by the

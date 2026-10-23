@@ -1491,7 +1491,7 @@ pub fn triggers(state: &StateDir) -> Vec<(String, String, PathBuf)> {
 /// What the last answer to one GitHub list request said, kept with its ETag so the next poll can ask
 /// "has it changed?" (a 304 reply costs nothing against the hourly allowance; L337, G3-ci-judge-7).
 #[derive(Default)]
-pub struct HeadCache {
+pub struct GithubHeadCache {
     entries: std::collections::HashMap<String, (String, Vec<String>)>,
 }
 
@@ -1501,7 +1501,7 @@ fn conditional_heads(
     gh: &str,
     path: &str,
     pick: fn(&Value) -> Vec<String>,
-    cache: &mut HeadCache,
+    cache: &mut GithubHeadCache,
 ) -> Result<Vec<String>, String> {
     let mut cmd = Command::new(gh);
     cmd.args(["api", "-i"]);
@@ -1578,7 +1578,7 @@ fn main_head(v: &Value) -> Vec<String> {
 pub fn github_heads_cached(
     gh: &str,
     repository: &str,
-    cache: &mut HeadCache,
+    cache: &mut GithubHeadCache,
 ) -> Result<Vec<String>, String> {
     let or = owner_repo(repository).ok_or("bad repository name")?;
     let mut shas = conditional_heads(
@@ -1600,7 +1600,7 @@ pub fn github_heads_cached(
 
 /// `github_heads_cached` with no memory of earlier polls.
 pub fn github_heads(gh: &str, repository: &str) -> Result<Vec<String>, String> {
-    github_heads_cached(gh, repository, &mut HeadCache::default())
+    github_heads_cached(gh, repository, &mut GithubHeadCache::default())
 }
 
 /// The loop: flush the outbox, serve trigger files, poll GitHub when asked,
@@ -1720,7 +1720,7 @@ pub fn run_batch(
 pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
     let mut served = 0;
     let mut round = 0u64;
-    let mut head_cache = HeadCache::default();
+    let mut head_cache = GithubHeadCache::default();
     loop {
         round += 1;
         cfg.state.beat("-", "-", "poll");
@@ -1907,7 +1907,7 @@ printf 'HTTP/2.0 200 OK\r\nEtag: %s\r\nContent-Type: application/json\r\n\r\n' "
             &format!(r#"[{{"head":{{"sha":"{p2}"}}}},{{"head":{{"sha":"{p1}"}}}}]"#),
         );
         fake_answer(&dir, main, "\"m\"", &format!(r#"{{"sha":"{m1}"}}"#));
-        let mut cache = HeadCache::default();
+        let mut cache = GithubHeadCache::default();
         let first = github_heads_cached(gh, "github.com/aien-dev/demo", &mut cache).unwrap();
         assert_eq!(first, vec![p1.clone(), p2.clone(), m1.clone()]);
         let second = github_heads_cached(gh, "github.com/aien-dev/demo", &mut cache).unwrap();
