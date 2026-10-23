@@ -1,0 +1,5 @@
+pins: omega at 6c6180cf378075b61291f4565d226eba38b4decd (present)
+pins: physics at 6d7cf0d4d8eb2cda7b512100ff6058e25dbb3ddf (present)
+pins: aienos at b84c0a67590a934f3f3e001b12ec85ebc086a9eb (present)
+pins: wrote /home/drakestapleton/.claude/jobs/ade3c837/tmp/e2e/sc-main-smoke/smoke-8b-out/pins/env.sh (GPU engine + composition)
+next:  . '/home/drakestapleton/.claude/jobs/ade3c837/tmp/e2e/sc-main-smoke/smoke-8b-out/pins/env.sh' && cargo build --release
