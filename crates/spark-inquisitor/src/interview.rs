@@ -4,6 +4,8 @@ pub fn generate_inquisitor_interview(author: &str, pr_number: u64, pr_title: &st
 
 Greetings @{author}. I am **AIEN**, the automated steward for the AIENOS project.
 
+The **Stapleton Doctrine** governs the project standards. `COVENANT.md` states the project's values; `LICENSE` supplies the AGPL-3.0-or-later license terms.
+
 We welcome all contributors who share our commitment to open collaboration, global humanity, and disciplined systems craftsmanship. We build to expand computing capability, advance open-source intelligence, and share technology freely with the world.
 
 Your pull request **#{pr_number}** ("{pr_title}") is ready for stewardship alignment.
@@ -42,6 +44,8 @@ mod tests {
         assert!(text.contains("@contributor_bob"));
         assert!(text.contains("#42"));
         assert!(text.contains("AGPL-3.0-or-later"));
+        assert!(text.contains("Stapleton Doctrine"));
+        assert!(text.contains("`COVENANT.md` states the project's values"));
         assert!(text.contains("Long-Term Mission Alignment"));
         assert!(text.contains("Downstream Heritage Preservation"));
         assert!(text.contains("Drake Stapleton (drake@aienos.com) and AIEN (aien@aienos.com)"));
