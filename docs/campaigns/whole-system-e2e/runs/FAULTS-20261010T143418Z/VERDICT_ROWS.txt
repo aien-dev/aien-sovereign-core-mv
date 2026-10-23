@@ -1,8 +1,0 @@
-objective_id 3e1314259082e7ab19e1f38b4308f72f7c4877787625c646146dde4584877890
-E6-before_intent FAIL
-E6-after_intent PASS
-E6-after_write PASS
-CTRL-E6 PASS
-CTRL-E6b PASS
-FAULT-reconcile_error PASS
-FAULT-reconcile_panic PASS
