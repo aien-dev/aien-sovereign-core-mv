@@ -100,16 +100,20 @@ fn digest(bytes:&[u8])->String {format!("{:x}",Sha256::digest(bytes))}
 pub fn audit_tensor(name:&str)->bool {
     ["layers.0.mlp.experts.0.gate_proj.weight","layers.0.mlp.experts.0.up_proj.weight",
      "layers.0.mlp.experts.0.down_proj.weight","layers.20.mlp.experts.128.up_proj.weight",
-     "layers.39.mlp.experts.255.down_proj.weight"].iter().any(|suffix|name.ends_with(suffix))
+     "layers.39.mlp.experts.255.down_proj.weight",
+     "layers.0.mlp.shared_expert.gate_proj.weight","layers.0.mlp.shared_expert.up_proj.weight",
+     "layers.0.mlp.shared_expert.down_proj.weight"].iter().any(|suffix|name.ends_with(suffix))
 }
 pub fn audit_output(name:&str,x:&[f32],t:usize,y:&[f32],reference:&[f32]) {
     let (mut ss,mut err,mut max)=(0f64,0f64,0f64);
-    for (&a,&b) in y.iter().zip(reference) {let d=a as f64-b as f64;ss+=(b as f64).powi(2);err+=d*d;max=max.max(d.abs());}
+    let (mut zeros,mut spurious)=(0usize,0usize);
+    for (&a,&b) in y.iter().zip(reference) {let d=a as f64-b as f64;ss+=(b as f64).powi(2);err+=d*d;max=max.max(d.abs());if b==0.0 {zeros+=1;spurious+=usize::from(a!=0.0);}}
     let xb:Vec<u8>=x.iter().flat_map(|v|v.to_le_bytes()).collect();
     AUDITS.get_or_init(Default::default).lock().unwrap().push(json!({"tensor":name,"input_vectors":t,
         "activation_origin":"current candidate full-model forward, actual FFN matmul input",
         "activation_sha256":digest(&xb),"reference_squared_norm":ss,"error_squared_norm":err,
-        "relative_output_error":if ss>0.0 {Some((err/ss).sqrt())}else{None},"max_absolute_error":max}));
+        "relative_output_error":if ss>0.0 {Some((err/ss).sqrt())}else{None},"max_absolute_error":max,
+        "zero_reference_outputs":zeros,"spurious_nonzero_outputs":spurious}));
 }
 pub fn convert(name:&str,n:usize,k:usize,raw:&[u8],scales:&[u16])->Result<Option<Vec<f32>>,String> {
     if !(name.contains(".mlp.experts.") || name.contains(".mlp.shared_expert.")) {return Ok(None);}
@@ -229,6 +233,21 @@ mod tests {
     use super::*;
     fn binary() -> std::path::PathBuf { std::env::var_os("AIEN_ROTQUANT_BIN").expect("qualified native binary required").into() }
     fn hash() -> String { std::env::var("AIEN_ROTQUANT_SHA256").expect("qualified binary hash required") }
+    #[test]
+    fn shared_expert_diagnostic_is_reached_without_router_selection() {
+        for part in ["gate_proj","up_proj","down_proj"] {
+            assert!(audit_tensor(&format!("model.language_model.layers.0.mlp.shared_expert.{part}.weight")));
+        }
+        assert!(!audit_tensor("model.language_model.layers.1.mlp.shared_expert.gate_proj.weight"));
+    }
+    #[test]
+    fn real_activation_probe_records_zero_reference_outputs() {
+        let _=finish_report().unwrap();
+        audit_output("fixed-fixture",&[1.0,2.0],1,&[1.0,4.0],&[0.0,4.0]);
+        let r=finish_report().unwrap();let a=&r["real_activation_probes"][0];
+        assert_eq!(a["zero_reference_outputs"],1);assert_eq!(a["spurious_nonzero_outputs"],1);
+        assert_eq!(a["error_squared_norm"],1.0);assert_eq!(a["reference_squared_norm"],16.0);
+    }
     #[test]
     fn native_frames_match_independent_fraction_oracle() {
         let mut bridge=Bridge::new(&binary(), &hash()).unwrap();
