@@ -143,12 +143,7 @@ fn chip_elementwise_parity_on_tinyllama_shapes() {
     let (mut got, mut want) = (vec![0.0f32; rows * dim], vec![0.0f32; rows * dim]);
     omega.rmsnorm_rows(&mut got, &x, &w, rows, 1e-5);
     for r in 0..rows {
-        reference.rmsnorm(
-            &mut want[r * dim..(r + 1) * dim],
-            &x[r * dim..(r + 1) * dim],
-            &w,
-            1e-5,
-        );
+        reference.rmsnorm(&mut want[r * dim..(r + 1) * dim], &x[r * dim..(r + 1) * dim], &w, 1e-5);
     }
     let rows_worst = worst_tol_ratio(&got, &want);
     println!("PARITY rmsnorm_rows 20x2048 worst err/tolerance = {rows_worst:.3e} (must be <= 1)");

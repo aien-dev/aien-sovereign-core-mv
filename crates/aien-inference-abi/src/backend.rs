@@ -612,9 +612,7 @@ mod tests {
         let b = ReferenceCpuBackend::new();
         let dim = 8;
         let w: Vec<f32> = (0..dim).map(|i| 1.0 + i as f32 * 0.25).collect();
-        let x: Vec<f32> = (0..3 * dim)
-            .map(|i| (i as f32 * 0.37).sin() * 3.0)
-            .collect();
+        let x: Vec<f32> = (0..3 * dim).map(|i| (i as f32 * 0.37).sin() * 3.0).collect();
         let mut got = vec![0.0f32; 3 * dim];
         b.rmsnorm_rows(&mut got, &x, &w, 3, 1e-5);
         for r in 0..3 {
