@@ -1,7 +1,0 @@
-commit a639c4e9417d915e185dfeb6db3aaf698940479b dirty_files=0
-binary sha256 5c97561339bdd71272f767d4f9fe8d2ba58fce6752cb072ee8b8d7fc03fcef1e
-test sha256 0275d9efe99fc8df4bba4ec22337c884c04f2e30eee716a03301b014f5dd7ef0
-omega d0889a944b02066f84fec71af7b9bbb92f5c986f driver 580.173.02 kernel 7.0.0-1019-nvidia
-start 2026-10-14T23:02:08Z
-MemAvailable:   112102968 kB
-end 2026-10-14T23:25:04Z

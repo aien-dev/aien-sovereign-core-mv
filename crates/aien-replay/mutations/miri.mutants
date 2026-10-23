@@ -1,3 +1,0 @@
-# Mutations that only Miri can see (native tests still pass). Same format.
-# run_mutants.sh miri requires each to be KILLED under cargo miri test.
-heap_dealloc_wrong_layout	s#std::alloc::dealloc(self.ptr, self.layout);#std::alloc::dealloc(self.ptr, std::alloc::Layout::from_size_align_unchecked(self.len, 1));#	buffer freed with a different alignment than it was allocated with (undefined behaviour; glibc does not notice)

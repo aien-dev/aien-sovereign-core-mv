@@ -1,6 +1,0 @@
-fmt rc=0
-clippy rc=0
-test rc=0
-tests passed=216 failed=0
-test-rows-v8 (NP1_EDIT_MERGE = the frozen np1_edit_merge): test-rows-v8: 142 passed, 0 failed
-test-v3.sh: test-v3: 67 passed, 0 failed

@@ -1,7 +1,0 @@
-{
-  "gate": "STORE_V1_FORMAT",
-  "description": "Store v1 on-disk format qualification on host tests. Defines the format receipt requirement only; the gate stays INCOMPLETE until a real receipt arrives.",
-  "requires": [
-    {"name":"Store v1 format","kind":"store-v1-format","min_tier":"HOST_TEST","assertions":["store_format_valid","store_object_ids_valid","store_catalog_valid","store_commit_valid","store_full_graph_valid"],"require_clean":true,"missing_as":"INCOMPLETE"}
-  ]
-}

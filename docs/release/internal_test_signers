@@ -1,4 +1,0 @@
-# INTERNAL TEST KEY. Not a public-release key and never to be used for one (Drake ruling 1, sc#385).
-# It signed the internal test release v0.1.1. install.sh accepts it only to keep internal installs working and records
-# anything it verifies as signature_check internal-test-key, never release.
-aien-release ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAID6WDVy2x8aV80ag10iPonS4J8k4seWrgsi5cuq8AIZJ

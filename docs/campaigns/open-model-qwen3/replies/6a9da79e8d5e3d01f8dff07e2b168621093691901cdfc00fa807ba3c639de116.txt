@@ -1,9 +1,0 @@
-filename: TODO.md
-# Todo
-
-## Next
-- write tests
-- fix login bug
-
-## Later
-- tidy docs

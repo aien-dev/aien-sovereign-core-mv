@@ -1,2 +1,0 @@
-filename: docs/HELLO.txt
-Welcome to the project! We're thrilled to have you here and hope you enjoy exploring and contributing to our work.

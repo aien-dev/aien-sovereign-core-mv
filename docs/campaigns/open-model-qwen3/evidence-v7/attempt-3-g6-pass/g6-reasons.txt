@@ -1,5 +1,0 @@
-D1 committed=false required=10 pass=10 not_checked_model=24 not_checked_timeout=0
-D2 committed=true required=28 pass=28 not_checked_model=8 not_checked_timeout=0
-NOTE D3 attempt 2 ended by timeout (model too slow for the task budget): -DEC -MEAS not checked, campaign finding
-D3 committed=false required=8 pass=8 not_checked_model=26 not_checked_timeout=2
-G6 PASS

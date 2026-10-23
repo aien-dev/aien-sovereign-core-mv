@@ -1,7 +1,0 @@
-commit ca695de9878be8c5206f56e2abf49d6d7acb1047 dirty_files=0
-binary sha256 8f58298f36553522852fdbce1f26b29bbeab51da4b48b3691e7a67ab3a09d38b
-omega 4799f9eba563e9c69579b47c477e7d9c2b0f15cb driver 580.173.02 kernel 7.0.0-1019-nvidia
-start 2026-10-15T10:02:33Z
-MemAvailable:   112493976 kB
-pid, process_name, used_gpu_memory [MiB]
-end 2026-10-15T10:05:43Z

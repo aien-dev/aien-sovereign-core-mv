@@ -1,2 +1,0 @@
-      9 CHECKPOINT_SHARDS model_sha256=17bc36882b981cdaa253076c43273e3b5e54251db26cb6a5f51de396c456f5a6 model_digest_kind=index+shards index_sha256=f9fdbcb91c23971c13ec5d5f2573d2349e8f61f2f049371ec699281748fdb1bc shards=[model-00001-of-00005.safete
-     13 OP_REPORT native=[rmsnorm,apply_rope,matmul_vec,matmul_batch,swiglu,gqa_attention,paged_attention,paged_attention_batch,compute_logits,rmsnorm_heads] reference=[] native_fallbacks=[] reference_runs=[] backend=OmegaGb10Backend (native Omega 

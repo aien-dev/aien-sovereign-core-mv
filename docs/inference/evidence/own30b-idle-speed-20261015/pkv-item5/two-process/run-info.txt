@@ -1,3 +1,0 @@
-binary /home/drakestapleton/handoffs/pin-bin-afe59ae1/aien-serve-http sha256 8f58298f36553522852fdbce1f26b29bbeab51da4b48b3691e7a67ab3a09d38b
-model /home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8 port 18098 key-mode ephemeral
-started 2026-10-15T10:02:34Z host spark-b87b

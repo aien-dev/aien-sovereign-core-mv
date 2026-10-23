@@ -1,9 +1,0 @@
-start 2026-10-13T19:46:38Z
-sc commit 8ee7ff0089363cf72a3ec4bb82075a93f2085d0d branch own30b/serve
-binary /tmp/own30b-f/target-dattn/release/aien-serve-http sha256 c357a8a37986cb3bd71c5cd52e8022c14c43fa27c761e929e039f09634d64f42
-omega lib /tmp/own30b-f-omega-dattn/libomega_gpu.a 7aa67ee514e469e3f1cd8249ab47d547a75add405aea886a75955a080f4f214b (omega own30b/integration 831001cc)
-zero-cuda gate: ZERO_CUDA PASS /tmp/own30b-f/target-dattn/release/aien-serve-http needs=[libm.so.6 libgcc_s.so.1 libc.so.6 ld-linux-aarch64.so.1]
-cmd scripts/own30b-serve-restart.sh /tmp/own30b-f/target-dattn/release/aien-serve-http (kill of the old pid under flock /tmp/aien-gb10.lock; the new server takes the lock itself for the load)
-               total        used        free      shared  buff/cache   available
-Mem:             121          53           7           0          61          67
-7.0.0-1019-nvidia

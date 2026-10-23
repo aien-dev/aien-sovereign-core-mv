@@ -1,9 +1,0 @@
-# Pinned sibling commits the worker makes present in the trusted clones before a run (aien-test worker,
-# `ensure_pins`): `<repo> <source-repo> <sha40>`. A gate pins a sibling commit in its run script
-# (`pin` in tests/gates/run.sh); the sandbox has no network, so a pinned commit that is not on a fetched
-# branch must be fetched by its sha on the trusted side first. The worker fetches a missing one from the
-# trusted clone's own origin and holds it as refs/remotes/aien-pins/<sha> (wt.sh sync copies that ref
-# into the mirror). Read from the operator's trusted sc clone, beside `siblings`; never from the head.
-# Pins that come from lock files (omega.lock and the locks inside it) are not listed: they follow main.
-aien-sovereign-core  aien-protocols  353b7d4be3f00169545caec1615cffa61f7d311a   # SC-TRN1 corpus
-aien-sovereign-core  aien-protocols  b50c00d737fa5c57ea7280e2aa4b0354ff166cf5   # SC-CRB1 corpus

@@ -1,7 +1,0 @@
-{
-  "gate": "STORE_V1_QEMU",
-  "description": "Store v1 QEMU persistence suite with reboot recovery. Must chain to a verified format receipt. Defines the requirement only; stays INCOMPLETE until real receipts arrive.",
-  "requires": [
-    {"name":"Store v1 QEMU suite","kind":"store-v1-qemu","min_tier":"QEMU","assertions":["store_previous_or_new_only","store_full_graph_valid","store_qemu_reboot_recovered"],"dependency_kinds":["store-v1-format"],"require_clean":true,"missing_as":"INCOMPLETE"}
-  ]
-}

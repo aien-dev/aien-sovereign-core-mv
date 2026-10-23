@@ -1,0 +1,36 @@
+[
+  {
+    "path": "/home/drakestapleton/workspace/hive-worktrees/sc-ci-fix",
+    "group": "core",
+    "commit": "56390d6c27fb44e3bf3845c6c4daf12ae12559ab",
+    "ref": "refs/orphan-snapshots-20261023/staged39",
+    "head": "3445fd2953f21035dc04c549a97fd80d139894e0",
+    "disposition": "staged snapshot"
+  },
+  {
+    "path": "/home/drakestapleton/workspace/sc-motor-ship",
+    "group": "core",
+    "disposition": "staged capture failed",
+    "error": "Command failed: git --no-optional-locks -C /home/drakestapleton/workspace/sc-motor-ship write-tree"
+  },
+  {
+    "path": "/home/drakestapleton/workspace/sc-renda-8b-L720",
+    "group": "core",
+    "disposition": "staged capture failed",
+    "error": "Command failed: git --no-optional-locks -C /home/drakestapleton/workspace/sc-renda-8b-L720 write-tree"
+  },
+  {
+    "path": "/home/drakestapleton/workspace/sc-train3",
+    "group": "core",
+    "disposition": "staged capture failed",
+    "error": "Command failed: git --no-optional-locks -C /home/drakestapleton/workspace/sc-train3 write-tree"
+  },
+  {
+    "path": "/home/drakestapleton/workspace/sc-w4",
+    "group": "core",
+    "commit": "79d175c2d822514c266c9de734a5b0004c07846d",
+    "ref": "refs/orphan-snapshots-20261023/staged79",
+    "head": "b48bda8e03472de0d353521cd9d002cc4e2b9309",
+    "disposition": "staged snapshot"
+  }
+]

@@ -1,7 +1,0 @@
-test transformer_backend::tests::sc294_decode_without_params_is_observed_greedy ... ok
-test transformer_backend::tests::sc294_observing_does_not_change_the_choice ... ok
-test transformer_backend::tests::sc294_release_drops_the_observation ... ok
-test transformer_backend::tests::stage_s_trace_counts_the_kept_set ... ok
-test transformer_backend::tests::sc294_greedy_request_is_observed_greedy ... ok
-test transformer_backend::tests::sc294_sampled_request_is_observed_sampled ... ok
-test result: ok. 168 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.89s

@@ -1,8 +1,0 @@
-PASS proc1 turn 1 equals the uninterrupted turn 1
-PASS proc2 restored turn 2 equals the uninterrupted turn 2
-PASS proc2 restored (restores == 1)
-PASS proc1 park refused no chunk
-PASS proc2 restore covered at least the turn-1 prompt (750 tokens)
-PASS proc1 RAM turn 2 equals the uninterrupted turn 2
-PASS proc1 did not restore (restores == 0)
-VERDICT PASS

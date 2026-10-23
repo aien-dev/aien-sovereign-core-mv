@@ -1,9 +1,0 @@
-launch N2 driver exit 0 in 72580 ms (edit cap 96, document cap 16, budgets 29000/120000 ms)
-launch N2 receipt 1dce56bc0786744f439675353c49affbb09ff956000c4d8aab098dc4309f778e.json
-  FAIL N2/N2-H
-launch R1 driver exit 0 in 60580 ms (edit cap 96, document cap 96, budgets 29000/120000 ms, seed seed-v5/R1)
-launch R1 CPU reference exit 0
-launch R1 receipt a7d059db979a1e90d5c691405329711c2a15e2c9688addfebe1703a0f1571eaa.json
-  FAIL R1/v1 Task completion
-  FAIL R1/v1 Correctness: recall
-OPEN-MODEL-QWEN3 v6 QUALIFICATION (scoring-v5, score-rows.sh exit 1): FAIL

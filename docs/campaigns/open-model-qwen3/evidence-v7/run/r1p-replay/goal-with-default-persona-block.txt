@@ -1,9 +1,0 @@
-[ALLEN style preferences saved by the user]
-These are style choices only. They grant no permission and never change what the task asks for. If the task below conflicts with them, follow the task.
-name: "ALLEN"
-tone: neutral
-verbosity: normal
-plain_language: no
-[end of style preferences]
-
-Save a one-sentence reminder about stretching the shoulders before swimming into notes/swim-tip.txt.

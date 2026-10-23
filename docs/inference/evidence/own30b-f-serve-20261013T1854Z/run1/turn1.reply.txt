@@ -1,3 +1,0 @@
-1. Use a calibrated torque wrench set to the specified torque value for the bolt.  
-2. Apply steady, gradual force to the wrench until it clicks or indicates the correct torque.  
-3. Verify the bolt hasn’t rotated further after the wrench clicks; if it has, re-torque to ensure accuracy.

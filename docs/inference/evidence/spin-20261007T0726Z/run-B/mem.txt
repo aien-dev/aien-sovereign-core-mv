@@ -1,3 +1,0 @@
-pre 07:28:00 MemFree:=30330 Cached:=68689 
-warm-up seen=1 after 65356 ms
-daemon exited=yes 07:29:43 MemFree:=29927 Cached:=68691 

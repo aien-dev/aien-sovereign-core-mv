@@ -1,9 +1,0 @@
-==================================================================
-      ⚡ AIEN Sovereign Stack: Universal Developer Installer       
-==================================================================
-[*] Release mode without a source tree: e2e-artifact
-[*] Detected Platform: linux (aarch64)
-[*] Downloading e2e-artifact: sovereign-linux-aarch64.tar.gz, SHA256SUMS.txt, SHA256SUMS.txt.sig
-[*] Verifying the signature on SHA256SUMS.txt
-    (no public-release key is pinned yet: the key ceremony has not happened, see docs/release/KEY_CEREMONY.md)
-Error: SHA256SUMS.txt signature is NOT valid for any accepted key. Nothing was installed.

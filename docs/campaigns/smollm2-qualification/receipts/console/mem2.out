@@ -1,4 +1,0 @@
-grep: /home/drakestapleton/.claude/jobs/9bfe8553/tmp/smol2/run/base-mem2/mem/smollm2/daemon.log: No such file or directory
-memory observation smollm2: KV pool: 3221225472 bytes (3.00 GiB) = 512 blocks x 16 token; VmHWM 13909672 kB (mem/mem-dae1d9cb56008e6dbbf1ad65a2303235652de92836b2b6f9e1597146c156737e.json)
-grep: /home/drakestapleton/.claude/jobs/9bfe8553/tmp/smol2/run/base-mem2/mem/llama-control/daemon.log: No such file or directory
-memory observation llama-control: KV pool: 8589934592 bytes (8.00 GiB) = 8192 blocks x 16 toke; VmHWM 17386380 kB (mem/mem-3cf3eda859bbe68110690f5175c43fbdcc48dc83deb622a2acb6a44da20c5422.json)

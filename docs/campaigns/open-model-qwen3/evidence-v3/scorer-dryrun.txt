@@ -1,6 +1,0 @@
-CPU-only scorer dry run, made-up result lines (no run, no GPU), sovereign-core 8f3e8c8 + campaign files, after the outcome-based RQ change (head 7fbe0bc + working change)
-declared rows: 156; result lines: 156; score-rows.sh exit 0
-{"verdict":"PASS","rows":156,"malformed":0,"extras":0,"not_applicable":0}
-variant missing: exit 1 verdict NOT_RUN
-variant malformed: exit 1 verdict INCOMPLETE
-variant failing: exit 1 verdict FAIL

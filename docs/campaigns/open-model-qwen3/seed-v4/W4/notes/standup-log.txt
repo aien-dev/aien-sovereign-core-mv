@@ -1,9 +1,0 @@
-Mon: Priya finished the invoice export and starts on the tax report.
-Mon: Tomas is blocked on the staging database, waiting for access.
-Tue: Wen fixed the login timeout and asked for a review.
-Tue: Priya found two rounding errors in the tax report.
-Wed: Tomas got access and migrated the customer table.
-Wed: Wen is on leave until Friday.
-Thu: Priya shipped the tax report and Tomas started load tests.
-Fri: Tomas load tests passed. Open question about the backup schedule.
-Fri: Wen is back and wants a decision on the new logo before Monday.

@@ -1,8 +1,0 @@
-{"step":"S1","ok":true,"wall_ms":15}
-{"step":"S2","ok":true,"wall_ms":19}
-{"step":"S3","ok":true,"wall_ms":29094}
-{"step":"S4","ok":false,"wall_ms":6}
-{"step":"S5","ok":false,"wall_ms":9}
-{"step":"S6","ok":false,"wall_ms":9}
-{"step":"S7","ok":true,"wall_ms":30258}
-{"step":"S8","ok":true,"wall_ms":10}

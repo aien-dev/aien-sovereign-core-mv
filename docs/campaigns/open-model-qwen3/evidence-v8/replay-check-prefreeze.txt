@@ -1,7 +1,0 @@
-# SPEC-v8 Section 4 deterministic replay check, pre-freeze proof
-# branch qwen3-v8/spec at main 384d341 (= 1a4c810 + sc#459) with the v8_replay test module appended to crates/aien-runtime/examples/np1_reference.rs (this PR)
-# AIEN_QWEN3_MODEL_DIR=~/models/qwen3-8b; cargo test -p aien-runtime --example np1_reference v8_replay; 2026-10-12T02:18:23Z
-v8 replay: 14 v7 prompts checked, 8 corrective prompts fit
-test v8_replay::v7_prompts_replay_exactly_and_v8_corrective_prompts_fit ... ok
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.95s
-rc=0

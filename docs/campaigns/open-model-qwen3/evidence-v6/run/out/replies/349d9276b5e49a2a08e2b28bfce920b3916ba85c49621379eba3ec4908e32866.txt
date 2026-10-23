@@ -1,3 +1,0 @@
-filename: docs/marathon-story.md
-```markdown
-The legend of the marathon originates

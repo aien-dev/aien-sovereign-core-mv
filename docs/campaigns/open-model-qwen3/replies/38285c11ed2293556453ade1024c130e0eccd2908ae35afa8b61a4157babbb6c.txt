@@ -1,9 +1,0 @@
-filename: ROADMAP.md
-# Roadmap
-
-## Planned
-- ship search
-- add dark mode
-
-## Shipped
-- public beta

@@ -1,8 +1,0 @@
-# Mutations of crates/aien-kv-cache/src/lib.rs. Format: id<TAB>sed expression<TAB>what it models.
-# Each must be KILLED (a property test fails) for run_mutants.sh native to pass.
-fork_no_refcount	s#self.blocks\[blk_id\].ref_count += 1;#{}#	fork shares blocks without counting the new holder
-cow_no_copy	s#pool.copy_block(last_blk_id, new_blk);#{}#	copy-on-write allocates the private block but forgets to copy the prefix
-cow_write_in_place	s#if blk.is_shared {#if false {#	append writes into a block another branch still reads
-cow_no_unshare	s#old_blk.ref_count -= 1;#{}#	copy-on-write never drops the old holder
-free_leak	s#self.free_blocks.push(blk_id);#{}#	free_sequence forgets to return a block to the free list
-rollback_keeps_free_list	s#manager.free_blocks = snapshot.free_blocks;#{}#	rollback restores tables but not the free list

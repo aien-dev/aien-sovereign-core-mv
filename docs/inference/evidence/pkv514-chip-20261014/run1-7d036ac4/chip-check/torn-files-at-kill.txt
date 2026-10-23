@@ -1,2 +1,0 @@
-STORE_ID 16
-tmp/affcded40f2e11ed8312ff173304eee9135431d3eefc3a3ecce230af585071e2.1.1.1.part 25169920

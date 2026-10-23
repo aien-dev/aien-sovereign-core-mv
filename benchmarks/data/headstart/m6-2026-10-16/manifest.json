@@ -1,7 +1,0 @@
-{"schema":"headstart-m6-ab-manifest/v1","issue":"aien-spark/aien-sovereign-core#538",
- "git_head":"60805686fe6919cc0f4edd13db44c797c319029d","git_dirty":false,
- "rustc":"rustc 1.98.1 (48a229cea 2026-09-01)","build":"linked","pins":{"omega":"4799f9eba563e9c69579b47c477e7d9c2b0f15cb","physics":"6d7cf0d4d8eb2cda7b512100ff6058e25dbb3ddf","aienos":"b84c0a67590a934f3f3e001b12ec85ebc086a9eb"},"platform":"SPARK",
- "host":"spark-b87b","arch":"aarch64","kernel":"7.0.0-1019-nvidia","nproc":20,
- "samples":5,"shapes":"chain parallel failure","threads":4,"aa":1,
- "quiet_hold":{"owner":"hs-m6","max_minutes":5},
- "binary":"/home/drakestapleton/workspace/hive-worktrees/m6-headstart/target/hs-m6-linked/debug/deps/headstart_ab-ddf2d9dd05ec7aa2","started":"2026-10-16T07:40:24Z","finished":"2026-10-16T07:41:21Z","failed_samples":0}

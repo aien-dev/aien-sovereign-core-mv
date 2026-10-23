@@ -1,0 +1,83 @@
+[
+  {
+    "path": "/home/drakestapleton/workspace/sc-motor-ship",
+    "group": "core",
+    "commit": "40fe6fba47c54ec453618f07974c99ccdc1ca3f0",
+    "ref": "refs/orphan-snapshots-20261023/conflict-1-1",
+    "head": "ecf64eedb9ab83e9dc54127e83806b54c97ee0b2",
+    "stage": "1",
+    "disposition": "unresolved index alternative preserved"
+  },
+  {
+    "path": "/home/drakestapleton/workspace/sc-motor-ship",
+    "group": "core",
+    "commit": "a3a29b2780e4232dc9a3d0d3bdcbecd1ec5ba714",
+    "ref": "refs/orphan-snapshots-20261023/conflict-1-2",
+    "head": "ecf64eedb9ab83e9dc54127e83806b54c97ee0b2",
+    "stage": "2",
+    "disposition": "unresolved index alternative preserved"
+  },
+  {
+    "path": "/home/drakestapleton/workspace/sc-motor-ship",
+    "group": "core",
+    "commit": "9c8598210ff96365ae3340777a25c49aec6a51bc",
+    "ref": "refs/orphan-snapshots-20261023/conflict-1-3",
+    "head": "ecf64eedb9ab83e9dc54127e83806b54c97ee0b2",
+    "stage": "3",
+    "disposition": "unresolved index alternative preserved"
+  },
+  {
+    "path": "/home/drakestapleton/workspace/sc-renda-8b-L720",
+    "group": "core",
+    "commit": "70570b1ac62963855e38ea826e53aa52803881bf",
+    "ref": "refs/orphan-snapshots-20261023/conflict-2-1",
+    "head": "2242fc1d9b50a43221773df37caad9c6a89dd18f",
+    "stage": "1",
+    "disposition": "unresolved index alternative preserved"
+  },
+  {
+    "path": "/home/drakestapleton/workspace/sc-renda-8b-L720",
+    "group": "core",
+    "commit": "a896bb62f3afb9345c485e7aa7e7efec38866c9d",
+    "ref": "refs/orphan-snapshots-20261023/conflict-2-2",
+    "head": "2242fc1d9b50a43221773df37caad9c6a89dd18f",
+    "stage": "2",
+    "disposition": "unresolved index alternative preserved"
+  },
+  {
+    "path": "/home/drakestapleton/workspace/sc-renda-8b-L720",
+    "group": "core",
+    "commit": "ecee94aacdaff6b6a04a7b2c3719c51481ddd17f",
+    "ref": "refs/orphan-snapshots-20261023/conflict-2-3",
+    "head": "2242fc1d9b50a43221773df37caad9c6a89dd18f",
+    "stage": "3",
+    "disposition": "unresolved index alternative preserved"
+  },
+  {
+    "path": "/home/drakestapleton/workspace/sc-train3",
+    "group": "core",
+    "commit": "a1e6059e37955123b0c386a587c71efbfbecea58",
+    "ref": "refs/orphan-snapshots-20261023/conflict-3-1",
+    "head": "352e4208dee25515193458cb3c4f0f184a5954f8",
+    "stage": "1",
+    "disposition": "unresolved index alternative preserved"
+  },
+  {
+    "path": "/home/drakestapleton/workspace/sc-train3",
+    "group": "core",
+    "commit": "bfcd4ba48d7e5662ba8acdb15594f27b5d9c57ad",
+    "ref": "refs/orphan-snapshots-20261023/conflict-3-2",
+    "head": "352e4208dee25515193458cb3c4f0f184a5954f8",
+    "stage": "2",
+    "disposition": "unresolved index alternative preserved"
+  },
+  {
+    "path": "/home/drakestapleton/workspace/sc-train3",
+    "group": "core",
+    "commit": "3bc3a0d51701d77defb2d2b259b035ae5cd76bbb",
+    "ref": "refs/orphan-snapshots-20261023/conflict-3-3",
+    "head": "352e4208dee25515193458cb3c4f0f184a5954f8",
+    "stage": "3",
+    "disposition": "unresolved index alternative preserved"
+  }
+]

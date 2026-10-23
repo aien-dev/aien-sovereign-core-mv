@@ -1,7 +1,0 @@
-{
-  "gate": "STORE_V1_HOST",
-  "description": "Store v1 host behavior suite. The host suite must chain to a verified format receipt. Defines the requirement only; stays INCOMPLETE until real receipts arrive.",
-  "requires": [
-    {"name":"Store v1 host suite","kind":"store-v1-host","min_tier":"HOST_TEST","assertions":["store_previous_or_new_only","store_conflict_fail_closed","store_inconsistent_history_fail_closed","store_io_error_not_fallback","store_nospace_zero_writes","store_open_side_effect_free"],"dependency_kinds":["store-v1-format"],"require_clean":true,"missing_as":"INCOMPLETE"}
-  ]
-}

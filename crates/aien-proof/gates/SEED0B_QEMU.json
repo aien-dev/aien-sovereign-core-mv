@@ -1,7 +1,0 @@
-{
-  "gate": "SEED0B_QEMU",
-  "description": "QEMU-only SEED-0B gate. It proves only the structured assertions from the exact imported QEMU run.",
-  "requires": [
-    {"name":"SEED-0B QEMU evidence","kind":"seed0b-qemu","min_tier":"QEMU","assertions":["seed0b_signature_valid","granted_subset_requested","unauthorized_write_denied","forged_handle_denied","all_task_frames_reclaimed"],"mutation":"NONE","require_clean":true,"missing_as":"INCOMPLETE"}
-  ]
-}

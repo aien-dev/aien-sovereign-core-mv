@@ -1,1 +1,0 @@
-{"control":{"action":"revoke","recorded":{"digest":"2da4c2be2dab315799395d5868c8a214edf416a67014e46ef7ca100a88de868e","id":24,"kind":"authorization","links":[23],"machine_id":"e8a1ee1733a02d4ebc183dfa0757765ff558f0dd23e255e879ead010217f128c","text_sha256":"202cd06e878adaff1cb7e0d0cdae6352e623dba014ef108a44e2cf0ea133fb15"},"revoked":true},"ok":true}

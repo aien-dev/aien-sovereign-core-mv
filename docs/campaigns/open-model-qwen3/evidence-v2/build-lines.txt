@@ -1,8 +1,0 @@
-build-cli.log:       1 cargo:rustc-cfg=has_omega_compose
-build-cli.log:       1 cargo:rustc-cfg=has_omega_gpu
-build-cli.log:       1 cargo:rustc-link-lib=static=omega_gpu
-build-cli.log:       1 cargo:rustc-link-lib=static=rx_compose
-build-examples.log:       1 cargo:rustc-cfg=has_omega_compose
-build-examples.log:       1 cargo:rustc-cfg=has_omega_gpu
-build-examples.log:       1 cargo:rustc-link-lib=static=omega_gpu
-build-examples.log:       1 cargo:rustc-link-lib=static=rx_compose

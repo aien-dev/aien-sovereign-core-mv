@@ -1,1 +1,0 @@
-{"error":"EFFECT_REFUSED DeskMacRequired: this daemon requires the approval desk MAC on ComposeAuthorize (AIEN_COMPOSE_AUTHORIZE_REQUIRES_DESK=1); none was supplied","ok":false,"step":"authorize"}

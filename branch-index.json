@@ -1,0 +1,372 @@
+[
+  {
+    "commit": "857d43cf5fe48d75bddc0918415f64d811ed906f",
+    "branch": "adr0004-step3",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "ca17ce03407c4a65cc89346c1bbb9aac01b4a7f1",
+    "branch": "backup/249-pre-rebase-2058",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "5b1d246e56df8d7a85e241147f597d3154cb2d8b",
+    "branch": "c1/serving-reserve",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "96dbb47f22a4e2a68de3180c4dc44cee3ce5563b",
+    "branch": "calc/aien-calc",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "f7646e38c39f30d3d0029257279d577a2bbc2cde",
+    "branch": "crumb/advisory",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "4a4b95a7ba3f24e635807f46c8ebff6d8e29dee3",
+    "branch": "docs/front-sheet",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "e906c629a08f1c46505845dff52dad70d592b1fc",
+    "branch": "e2e/shakedown-local",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "48613a4df1cb98e5e10142b485b848061a8ece0f",
+    "branch": "fastload/parallel-load",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "4829c8d2bc3f438429cc8480f7f6f7d6ed1e0b82",
+    "branch": "feat/gandi-mail-connector",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "95a4bdc081d3cf04d22da1b6093439d01e55c8cb",
+    "branch": "feat/native-probe-endpoint",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "9c5e06954a5e78c0e0e35d709f0e390d4bfd2b84",
+    "branch": "feat/token-native-platform-linux-runtime/05-end-to-end",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "df6a0c2fc5dcfee177993e5f4d59d3c4476b3f9f",
+    "branch": "fix/adapters-submilli-flake",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "eb325cf4285836800c4a98f8f4d818eead58474c",
+    "branch": "fix/cortex-vault-auth",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "85e0cb953e107a30f04b332f9e8f1744ede90d76",
+    "branch": "fix/gb10-gate-prepare",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "20ef0ecfde8b327272c0c0a49df628f68f44c7fb",
+    "branch": "fix/gb10-qwen3-default-reservation",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "5b96443a7a0952df7b3210834db6535378da7605",
+    "branch": "fix/kv-concurrency-progress-under-load",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "dcc23651f1ffdcf84c38a097629d619398637bb6",
+    "branch": "fix/kv-flake-575",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "bd4349af910cb18a2944cda214a3a4a2c377af63",
+    "branch": "fix/license-and-readme-standardization",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "aa41e32068eb44d9f0ae2afaf57cfeab684e47db",
+    "branch": "fix/own30b-server-522",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "6d52e08ed27fe3bb42cf9cad1f943a52267264e2",
+    "branch": "fix/pkv-bench-backpressure",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "f4d98295b4b65cc97143df179380d2274bda5267",
+    "branch": "fix/siblings-synapse",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "2242fc1d9b50a43221773df37caad9c6a89dd18f",
+    "branch": "ops/renda-8b-L720",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "b1d6742ae316c8929383e2b50789de31d0fda336",
+    "branch": "own30b/a16",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "dc56b53719741c27600f3596ff4cd37773335df9",
+    "branch": "own30b/a16b",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "8b9be2b8cb1bf66c118658fc12f2b04be0dea9dc",
+    "branch": "own30b/decode-mega",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "d26b3c6ae1f1b7c7d132431e21af2317823e2b34",
+    "branch": "own30b/rc2",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "0826a255ae52c1bca738f7feafc3722f4984d6dd",
+    "branch": "own30b/rc3",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "70a567210cfe792841c8686645f8b487b63c249a",
+    "branch": "own30b/resident",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "d2e88e97a3aee079ee2aa17fab11c6da2a29b758",
+    "branch": "own30b/spec-batch",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "a453bc2bcb61420873423319c22da397e60b07f0",
+    "branch": "own30b/spec-decode",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "c2608aa2627f3b27faffcf0f37525d05c21236fa",
+    "branch": "own30b/spec-wp",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "15c3a33a75b1ff6bc83cd0507c833bb6dc67eafe",
+    "branch": "own30b/stream-prefill",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "3f58d0a398eade2966ce9dc1c8d0b05f4fb5eff4",
+    "branch": "perf/pipeline-power-warm",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "bb5c1c8d6049422f4adfa7f241dec5eb1d8f50a5",
+    "branch": "pipeline/slug-aien-spark-first",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "2caecc68374e2ae0dab156597378194b8df8a8e8",
+    "branch": "pr-68",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "9a10442364b181c5d3a04e2146642f8c08cea884",
+    "branch": "pr-84",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "ecf64eedb9ab83e9dc54127e83806b54c97ee0b2",
+    "branch": "ship/motor-l387",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "4451fec3aa53863d2cd7e5197157097afafea095",
+    "branch": "sub4bit/drift-study",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "106339ad2836f900d1acfe770720dc2b15599e85",
+    "branch": "test/crypto-reuse-708",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "352e4208dee25515193458cb3c4f0f184a5954f8",
+    "branch": "train/cycle3",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core"
+  },
+  {
+    "commit": "1415d94509882c85e66a4397a25e25637fbc2331",
+    "branch": "fix/452-prefill-mutants",
+    "source_repository": "/home/drakestapleton/workspace/aien-sovereign-core-mv-scope"
+  },
+  {
+    "commit": "382dfc0190d5660153e6b0747cebc356bf4f2f4c",
+    "branch": "fix/408-receipt-continuity",
+    "source_repository": "/home/drakestapleton/workspace/sc-408"
+  },
+  {
+    "commit": "068c0140e869c118fe1484c4231fb406d41ea450",
+    "branch": "c619",
+    "source_repository": "/home/drakestapleton/workspace/sc-578"
+  },
+  {
+    "commit": "e01e16d1c0caa9211f3809fe744787ec6f1e7253",
+    "branch": "c620",
+    "source_repository": "/home/drakestapleton/workspace/sc-578"
+  },
+  {
+    "commit": "2ebe70876ae4c7316d5aadd4fa47a3f5d2bb632f",
+    "branch": "c621",
+    "source_repository": "/home/drakestapleton/workspace/sc-578"
+  },
+  {
+    "commit": "81b9c34d34f65fdfcf773c8a5794bb1cc183651b",
+    "branch": "carry604",
+    "source_repository": "/home/drakestapleton/workspace/sc-578"
+  },
+  {
+    "commit": "33466599e4ef3453fe4b316dffe3948aa447069f",
+    "branch": "carry606",
+    "source_repository": "/home/drakestapleton/workspace/sc-578"
+  },
+  {
+    "commit": "b3db92ef223a66f8b842c8f858cfb2b633943680",
+    "branch": "fix/native-imap-reader",
+    "source_repository": "/home/drakestapleton/workspace/sc-578"
+  },
+  {
+    "commit": "aee99c56d5c7ce28e212af3bd6bab2e5971d55d8",
+    "branch": "md604",
+    "source_repository": "/home/drakestapleton/workspace/sc-578"
+  },
+  {
+    "commit": "3ff38b810f48aa7adf900d7cd878ea1634d01a90",
+    "branch": "pr578",
+    "source_repository": "/home/drakestapleton/workspace/sc-578"
+  },
+  {
+    "commit": "794cd8e7acec27e6146c98930d2ce4b19b59f102",
+    "branch": "pr591",
+    "source_repository": "/home/drakestapleton/workspace/sc-578"
+  },
+  {
+    "commit": "d2cba088ba1a0eef080370e7b8c921321c1a1443",
+    "branch": "pr604",
+    "source_repository": "/home/drakestapleton/workspace/sc-578"
+  },
+  {
+    "commit": "5e062333fd750e64ee91e271cf7b5307bf88a13a",
+    "branch": "pr606",
+    "source_repository": "/home/drakestapleton/workspace/sc-578"
+  },
+  {
+    "commit": "310c6ff27394abf61ab1a9e1093939fe6c139b35",
+    "branch": "sr604",
+    "source_repository": "/home/drakestapleton/workspace/sc-578"
+  },
+  {
+    "commit": "12d1c0743d7079cfed47ef991fc80c8da1df09e2",
+    "branch": "sr619",
+    "source_repository": "/home/drakestapleton/workspace/sc-578"
+  },
+  {
+    "commit": "efcbc782d2cd9e076716dc92d9e7aa2642ed7396",
+    "branch": "sr620",
+    "source_repository": "/home/drakestapleton/workspace/sc-578"
+  },
+  {
+    "commit": "aa4163c91000c7968194b21e41a7433f661678d2",
+    "branch": "sr621",
+    "source_repository": "/home/drakestapleton/workspace/sc-578"
+  },
+  {
+    "commit": "804b808160c66dd2eae89f682948b03c57c87957",
+    "branch": "feat/swarm-bridge-587",
+    "source_repository": "/home/drakestapleton/workspace/sc-589-miri"
+  },
+  {
+    "commit": "314331ddd0aef6e3d0145b8b39ec9289972ecf43",
+    "branch": "feat/592-switchboard-launcher",
+    "source_repository": "/home/drakestapleton/workspace/sc-592"
+  },
+  {
+    "commit": "c5d89ab93cad7ace3509263b4edc907cc28462c3",
+    "branch": "fix-654-rebased",
+    "source_repository": "/home/drakestapleton/workspace/sc-605"
+  },
+  {
+    "commit": "0c3a1d4a20e96d53ef04fcfc06eeb34cfb3780d1",
+    "branch": "fix/gb10-lock-held-signal",
+    "source_repository": "/home/drakestapleton/workspace/sc-605"
+  },
+  {
+    "commit": "1905a614360f21eab1f99d98d37257aab4ea59c6",
+    "branch": "fix/gpu-lock-bounded-wait",
+    "source_repository": "/home/drakestapleton/workspace/sc-605"
+  },
+  {
+    "commit": "c61bb3354d63889924b6e24af4451d1ac7096f86",
+    "branch": "fix/kv-corrupt-byte-flip",
+    "source_repository": "/home/drakestapleton/workspace/sc-605"
+  },
+  {
+    "commit": "c289ca3c98438d0682c3c3a7400cab3a674e1734",
+    "branch": "fix/readiness-crumbless-repo",
+    "source_repository": "/home/drakestapleton/workspace/sc-605"
+  },
+  {
+    "commit": "a65f6a29fbf526ff4474ad220082764af62c5f14",
+    "branch": "fix/wt-mirror-lock",
+    "source_repository": "/home/drakestapleton/workspace/sc-605"
+  },
+  {
+    "commit": "3c561a35a561d08e04023ca4cf3f080109f9ba89",
+    "branch": "pipeline/aien-verification-phase3",
+    "source_repository": "/home/drakestapleton/workspace/sc-605"
+  },
+  {
+    "commit": "5e05902c1143f6a2babb565c520bb1926d6222c0",
+    "branch": "pipeline/slug-aien-spark-first",
+    "source_repository": "/home/drakestapleton/workspace/sc-605"
+  },
+  {
+    "commit": "a10c00b821c35473f52c8a23efd9a49ac635ed35",
+    "branch": "pr-580",
+    "source_repository": "/home/drakestapleton/workspace/sc-605"
+  },
+  {
+    "commit": "812d23b3bdb702caa0900df631bec82110899dc4",
+    "branch": "pr-582",
+    "source_repository": "/home/drakestapleton/workspace/sc-605"
+  },
+  {
+    "commit": "91a31b570633f4a6e819172bb657de0063bfade0",
+    "branch": "pr-584",
+    "source_repository": "/home/drakestapleton/workspace/sc-605"
+  },
+  {
+    "commit": "0be74e595b051f841a9e874e0041b61a4ade48f4",
+    "branch": "pr654",
+    "source_repository": "/home/drakestapleton/workspace/sc-605"
+  },
+  {
+    "commit": "8d0fb7596ab0c224433a4cb0cd2be6f89dee89da",
+    "branch": "sc-667",
+    "source_repository": "/home/drakestapleton/workspace/sc-605"
+  },
+  {
+    "commit": "3d88fe85f2f24760eab74a3f853bfc9245c5929e",
+    "branch": "trial-693-on-695",
+    "source_repository": "/home/drakestapleton/workspace/sc-605"
+  },
+  {
+    "commit": "64118f72e0509717b09ee26af76c507a4506bad8",
+    "branch": "adr0004-step3",
+    "source_repository": "/home/drakestapleton/workspace/sc-adr0004"
+  }
+]

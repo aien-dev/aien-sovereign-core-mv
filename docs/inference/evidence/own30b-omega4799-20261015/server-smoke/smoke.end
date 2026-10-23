@@ -1,4 +1,0 @@
-server stopped (SIGTERM after the last response) exit 0 at 2026-10-15T06:50:56Z
-listeners on 18091 after stop: 0
-               total        used        free      shared  buff/cache   available
-Mem:             121          52          43           3          30          68

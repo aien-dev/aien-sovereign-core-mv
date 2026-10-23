@@ -1,7 +1,0 @@
-MemAvailable before proc2 load: 71.1 GB
-both resident: proc1 pid 1571762 alive=yes, proc2 pid 1585775
-MemAvailable with both loaded: 38.2 GB
-    PID   RSS COMMAND
-1571762 37294816 aien-serve-http
-1585775 33803920 aien-serve-http
-proc2 still alive during the ram phase

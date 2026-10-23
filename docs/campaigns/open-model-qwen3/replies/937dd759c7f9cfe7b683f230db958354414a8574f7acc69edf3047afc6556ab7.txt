@@ -1,6 +1,0 @@
-filename: CHANGELOG.md
-# Changelog
-
-## 0.1.0
-- initial release
-- add contact file

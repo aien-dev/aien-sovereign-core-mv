@@ -1,7 +1,0 @@
-start 2026-10-14T00:35:38Z
-sc commit e01258fef0aac87f33bdfd2dcc8d1f977351cc2c branch own30b/whole-prompt
-binary /tmp/wl1gw-own30b_ttft2 sha256 7e6476145233c59adeb57145d47ce63b671df7b3d88bbd95204e93cc334d58c7
-omega lib /tmp/wl1gw-omega/out/libomega_gpu.a (omega-own30b-int 5281feb7, PHYSICS_DIR=~/workspace/physics-own30b-k) sha256 e059453fa877fe118edbf01922ea5de647e313a82ef755f7f34163a0f3ba23bb
-cmd flock /tmp/aien-gb10.lock env AIEN_OMEGA_SPIN_US=2000 /tmp/wl1gw-own30b_ttft2 /home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8 docs/inference/evidence/own30b-wp-ttft-20261014T0031Z/run2 --lens 512,2048 --new-tokens 32 --reps 2 --cached
-               total        used        free      shared  buff/cache   available
-Mem:             121          16          23           2          86         105

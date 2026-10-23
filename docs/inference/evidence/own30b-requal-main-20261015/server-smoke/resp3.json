@@ -1,1 +1,0 @@
-{"choices":[{"finish_reason":"length","index":0,"message":{"content":"The slowest load occurred in Block 60, which took 26","role":"assistant"}}],"created":1792028072,"id":"chatcmpl-18de9009a117ea710001","model":"qwen3-30b-a3b-instruct-2507","object":"chat.completion","usage":{"completion_tokens":16,"prompt_tokens":1836,"total_tokens":1852}}

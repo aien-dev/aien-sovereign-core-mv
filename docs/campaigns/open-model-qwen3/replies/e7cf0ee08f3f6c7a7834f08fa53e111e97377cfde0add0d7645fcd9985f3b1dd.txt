@@ -1,2 +1,0 @@
-filename: NOTES.md
-project keeps every change inside its workspace

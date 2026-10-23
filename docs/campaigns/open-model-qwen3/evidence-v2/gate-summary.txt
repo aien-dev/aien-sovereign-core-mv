@@ -1,4 +1,0 @@
-fmt rc=0
-clippy rc=0
-test rc=0
-tests passed=178 failed=0

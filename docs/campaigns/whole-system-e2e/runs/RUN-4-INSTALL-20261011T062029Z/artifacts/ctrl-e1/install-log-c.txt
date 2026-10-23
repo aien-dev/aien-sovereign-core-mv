@@ -1,7 +1,0 @@
-==================================================================
-      ⚡ AIEN Sovereign Stack: Universal Developer Installer       
-==================================================================
-[*] Release mode without a source tree: e2e-artifact
-[*] Detected Platform: linux (aarch64)
-[*] Downloading e2e-artifact: sovereign-linux-aarch64.tar.gz, SHA256SUMS.txt, SHA256SUMS.txt.sig
-Error: SHA256SUMS.txt.sig is missing: refusing an unsigned release (no signature). Nothing was installed.

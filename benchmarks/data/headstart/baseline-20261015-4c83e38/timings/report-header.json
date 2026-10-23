@@ -1,5 +1,0 @@
-{
-  "max_concurrency": "22 (jobs=20 ncpu=20)",
-  "total_time": "31.5s",
-  "source": "cargo-timing.html summary table"
-}

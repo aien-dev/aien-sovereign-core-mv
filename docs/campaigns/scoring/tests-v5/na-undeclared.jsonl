@@ -1,6 +1,0 @@
-{"row":"ctl","rep":1,"verdict":"PASS","outcome":"ok"}
-{"row":"A","rep":1,"verdict":"PASS","outcome":"ok"}
-{"row":"A","rep":2,"verdict":"NOT_APPLICABLE","outcome":"claimed"}
-{"row":"A","rep":3,"verdict":"PASS","outcome":"ok"}
-{"row":"B","rep":1,"verdict":"PASS","outcome":"ok"}
-{"row":"B","rep":2,"verdict":"PASS","outcome":"ok"}

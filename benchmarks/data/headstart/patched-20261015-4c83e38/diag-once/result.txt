@@ -1,2 +1,0 @@
-prime rc=0
-incremental ON check rc=101

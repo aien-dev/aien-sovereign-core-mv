@@ -1,8 +1,0 @@
-/home/drakestapleton/handoffs/main-bin-9557e0c1/aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8 --port 18091 /home/drakestapleton/handoffs/main-bin-9557e0c1
-# Format as own30b-serve-cmdline.txt: the command, then the working directory as the last field.
-# Binary: built from aien-sovereign-core main 9557e0c1 (+ native-artifacts.lock lines for omega 62833658), sha256
-#   ae774258a4ff5c08fc9c4fbe0f20d8df44a02c8319af6710cbfd27ace39fc7a3 (see BUILD.txt, SHA256SUMS beside it).
-# Differs from the RC3 line: no "--spec on". Merged main has no --spec flag (RC3 0826a25 guess-ahead is not in main;
-#   crates/aien-serve-http/src/main.rs parse_args refuses unknown flags), so a server started from main runs without guess-ahead.
-# Needs >= 45 GB free memory at load and takes /tmp/aien-gb10.lock per generation.
-# smoke 2026-10-15T01:34Z: ready, /v1/models + 3 chat requests (Paris 0.92 s, stream Rome 0.33 s, long-context 1.28 s), stopped by SIGTERM exit 0; receipts aien-sovereign-core docs/inference/evidence/own30b-requal-main-20261015/server-smoke

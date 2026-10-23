@@ -1,7 +1,0 @@
-W-ctl-nokill rep 1: PASS  propose took 48 ms, records 32 after, records written by propose: 1
-W-ctl-wrong-expect rep 1: PASS  the evaluator rejected a wrong prefix digest (a control: PASS means it can see the difference)
-W-ctl-damaged-mark rep 1: PASS  a damaged mark shows E_MARK in: steps/pre2.json
-W2 rep 1: PASS  kill at 30% of 48 ms; client alive yes; records before 22, after restart 38; Reconcile: checked 0 unsettled effect(s): DONE 0, NOT_DONE 0, UNRESOLVED 0 recor
-W2 rep 2: PASS  kill at 50% of 48 ms; client alive yes; records before 22, after restart 38; Reconcile: checked 0 unsettled effect(s): DONE 0, NOT_DONE 0, UNRESOLVED 0 recor
-W2 rep 3: PASS  kill at 70% of 48 ms; client alive yes; records before 22, after restart 37; Reconcile: checked 0 unsettled effect(s): DONE 0, NOT_DONE 0, UNRESOLVED 0 recor
-W5 rep 1: PASS  40 trials, offsets (ms) 48 46 21 43 38 48 20 31 11 32 45 14 43 23 42 33 40 48 13 19 26 6 27 1 15 17 15 20 36 43 31 10 41 3 49 49 15 2 34 8; restarts that advanced the mark: 5; inconsistent: 0

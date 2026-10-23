@@ -1,5 +1,0 @@
-build rc=0 0 stub-lines
-hold rc=0
-smoke-cta256: rc=0 golden_p1p2=EQUAL cta_budget=256 spin_us=2000 fallback=0 p3 tokens=256 ms=30513 tok/s=8.39 finish=max_tokens sha=WzMyLDM0OTg2
-smoke-cta1024: rc=0 golden_p1p2=EQUAL cta_budget=1024 spin_us=2000 fallback=0 p3 tokens=256 ms=26117 tok/s=9.8 finish=max_tokens sha=WzMyLDM0OTg2
-chain-done

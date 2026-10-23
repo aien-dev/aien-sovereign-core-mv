@@ -1,8 +1,0 @@
-# Changed paths matching these globs need only the always-run set (.aien/always).
-# Everything else must be covered by a manifest's inputs or the commit is NOT_RUN.
-# Conservative: prose only. docs/ as a whole is NOT listed because docs/campaigns/scoring
-# holds a hosted test and the anti-slop audit (always-run) scans docs/. Read from the base ref.
-*.md
-LICENSE
-.gitignore
-docs/adr/**

@@ -1,3 +1,0 @@
-# test-v5.sh on de9c626 (2026-10-11, Lane B). Expected single failure: the v5 pinned run path exists since the v5 run.
-FAIL: pinned run path already exists, wrapper checks skipped
-test-v5: 191 passed, 1 failed

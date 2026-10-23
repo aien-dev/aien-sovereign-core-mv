@@ -1,4 +1,0 @@
-{"contract":"scoring-v5","campaign":"scoring-selftest","rows":[
- {"row":"ctl","role":"control","reps":1,"expected":"PASS","control":null,"not_applicable":false},
- {"row":"A","role":"case","reps":3,"expected":"PASS","control":"ctl","not_applicable":false},
- {"row":"B","role":"case","reps":2,"expected":"PASS","control":"ctl","not_applicable":true}]}

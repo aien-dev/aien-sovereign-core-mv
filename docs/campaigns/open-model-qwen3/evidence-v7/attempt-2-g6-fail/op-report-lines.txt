@@ -1,5 +1,0 @@
-      1 OP_REPORT native=[rmsnorm,apply_rope,matmul_vec,matmul_batch,swiglu,gqa_attention,paged_attention,paged_attention_batch,compute_logits,rmsnorm_heads] reference=[] native_fallbacks=[] reference
-      1 OP_REPORT native=[rmsnorm,apply_rope,matmul_vec,matmul_batch,swiglu,gqa_attention,paged_attention,paged_attention_batch,compute_logits,rmsnorm_heads] reference=[] native_fallbacks=[] reference
-      9 OP_REPORT native=[rmsnorm,apply_rope,matmul_vec,matmul_batch,swiglu,gqa_attention,paged_attention,paged_attention_batch,compute_logits,rmsnorm_heads] reference=[] native_fallbacks=[] reference
-      1 OP_REPORT native=[rmsnorm,apply_rope,matmul_vec,matmul_batch,swiglu,gqa_attention,paged_attention,paged_attention_batch,compute_logits,rmsnorm_heads] reference=[] native_fallbacks=[] reference
-      1 OP_REPORT native=[rmsnorm,apply_rope,matmul_vec,matmul_batch,swiglu,gqa_attention,paged_attention,paged_attention_batch,compute_logits,rmsnorm_heads] reference=[] native_fallbacks=[] reference

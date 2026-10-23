@@ -1,8 +1,0 @@
-689027ea9ac09f52ec130a2d0b0310995b7539113ccd3a63b06f1037ad2cf4de  /home/drakestapleton/workspace/oq3-v3-build/target/release/aien-cli
-df91eede1223f454b7c6afd47589aac6406c8e69e393018fdbe3377b2103f686  /home/drakestapleton/workspace/oq3-v3-build/target/release/examples/np1_reference
-abc345a47e872728e8b59d050ccf41794c78266e19da882ad6e3d1db681c6377  /home/drakestapleton/workspace/oq3-v3-build/target/release/examples/np1_edit_merge
-5754e74ecb2f898cfaca8ae303295b2aa050539e62e6b7fbbac635bc40111d8a  /home/drakestapleton/workspace/oq3-v3-wrap/docs/campaigns/open-model-qwen3/tasks-oq3-v3.json
-0a89adfed890862180ee189545870086494fb59ea9318e57a45653593154d3ad  /home/drakestapleton/workspace/oq3-v3-wrap/docs/campaigns/open-model-qwen3/../scoring/declarations/oq3-v3.decl.json
-b81788dfa87c4dc345d80ca90da0a20c0429154c346b87528969ad170c715cc7  /home/drakestapleton/workspace/oq3-v3-wrap/docs/campaigns/open-model-qwen3/rows-oq3-v3.jq
-362ee14ecb4ebc3e7b3ef7a0c9c952209be61fd9fadea859266e205547395f40  /home/drakestapleton/workspace/oq3-v3-wrap/docs/campaigns/open-model-qwen3/v3-rows.sh
-e47e2c2f148e7bd2ab3940c22b34b7881766f24d857ed5f71addb24b377bc981  /home/drakestapleton/workspace/oq3-v3-wrap/docs/campaigns/open-model-qwen3/run-qwen3-v3.sh

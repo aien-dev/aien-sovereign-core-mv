@@ -1,9 +1,0 @@
-{"step":"S1","ok":true,"wall_ms":51}
-{"step":"S2","ok":true,"wall_ms":17}
-{"step":"S3","ok":true,"wall_ms":590115}
-{"step":"S4","ok":false,"wall_ms":9}
-{"step":"S5","ok":false,"wall_ms":7}
-{"step":"S6","ok":false,"wall_ms":8}
-{"step":"S7","ok":true,"wall_ms":27125}
-{"step":"S8","ok":true,"wall_ms":11}
-driver exit 0

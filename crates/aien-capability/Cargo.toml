@@ -1,9 +1,0 @@
-[package]
-name = "aien-capability"
-version = "0.1.0"
-edition = "2021"
-license.workspace = true
-description = "Tool and skill descriptors, effect classes, and capability digests"
-
-[dependencies]
-sha2 = "0.10"

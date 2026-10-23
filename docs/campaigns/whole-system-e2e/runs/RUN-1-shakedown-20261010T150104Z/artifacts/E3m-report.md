@@ -1,7 +1,0 @@
-# Harbour, Orchard, and Windmill Report
-
-The harbour is a bustling hub of activity, with boats and ships coming and going at all hours. The harbour master is responsible for ensuring the safe and efficient operation of the harbour, and plays a crucial role in the local economy. The harbour is also a popular spot for fishing and other water sports, and is home to a variety of marine life.
-
-The orchard, located just outside the harbour, is a peaceful oasis in the midst of the bustling city. The orchard is home to a variety of fruit trees, including apples, pears, and plums, and is a popular spot for locals and tourists alike to enjoy a picnic or simply take in the fresh air. The orchard is also home to a number of wildlife, including birds and bees.
-
-The windmill, located on the outskirts of the city, is a historic landmark and a popular tourist attraction. The windmill is used for a variety of purposes, including grinding grain and pumping water, and is a testament to the ingenuity and hard work of the people who built it.

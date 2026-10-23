@@ -1,9 +1,0 @@
-==================================================================
-      ⚡ AIEN Sovereign Stack: Universal Developer Installer       
-==================================================================
-[*] Release mode without a source tree: e2e-artifact
-[*] Detected Platform: linux (aarch64)
-[*] Downloading e2e-artifact: sovereign-linux-aarch64.tar.gz, SHA256SUMS.txt, SHA256SUMS.txt.sig
-[*] Verifying the signature on SHA256SUMS.txt
-[+] signature_check: dry-run-key
-Error: checksum mismatch for sovereign-linux-aarch64.tar.gz (signed a6409e919d81e615dd491951f40b7ed295244c6d09dee2d13a7758513fe61ef2, downloaded e17549f84e543e5a693a596a66673bab948601ea84309339af623ee322adba29). Nothing was installed.

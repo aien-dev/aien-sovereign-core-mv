@@ -1,8 +1,0 @@
-queued 2026-10-15T04:14:45Z sc afe59ae19747fba638a6157b64031c7ca417c138 (main bbca84b1 + omega.lock 4799f9eb + lock lines) omega 4799f9eba563e9c69579b47c477e7d9c2b0f15cb archive-sha256 0629ad9cec0addd4ccc461f0523c2c3964964f0bafc0b98b678e5080b0373ae5
-binary /home/drakestapleton/handoffs/pin-bin-afe59ae1/own30b_ttft sha256 8f79eabee06325695dff120b699c3c2494216581707390e299d2fd41d9933a35
-env AIEN_OMEGA_SPIN_US=2000
-cmd quietlock hold --owner PINBUMP --minutes 20 -- flock /tmp/aien-gb10.lock env AIEN_OMEGA_SPIN_US=2000 /home/drakestapleton/handoffs/pin-bin-afe59ae1/own30b_ttft /home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8 /home/drakestapleton/workspace/sc-pinbump/docs/inference/evidence/own30b-omega4799-20261015/ttft --lens 512,2048 --new-tokens 32 --reps 2 --devhost
- 23:14:46 up 8 days, 16:43, 20 users,  load average: 3.32, 3.51, 3.66
-               total        used        free      shared  buff/cache   available
-Mem:             121          52          24           3          49          68
-lock acquired 2026-10-15T04:14:46Z

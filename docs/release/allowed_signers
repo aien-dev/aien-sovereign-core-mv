@@ -1,6 +1,0 @@
-# AIEN public-release signing key (ssh-keygen allowed_signers format, principal aien-release).
-# PLACEHOLDER: no public-release key exists yet. This file deliberately holds no key line, so `ssh-keygen -Y verify`
-# against it rejects every signature and nothing can pass as a public release by accident.
-# The key line is added only after Drake's witnessed key ceremony (docs/release/KEY_CEREMONY.md, sc#118), in the
-# same pull request that sets AIEN_RELEASE_SIGNER in install.sh. Only that one public key may ever be listed here.
-# The old internal test key is NOT reused (Drake ruling 1, sc#385); it lives in internal_test_signers.

@@ -1,9 +1,0 @@
-{
-  "arguments_digest": "sha256:e913972fe794aedf89356eb1cbb141848f60a2780d88d247921c0aa0fff475a7",
-  "policy": "default_sovereign_engine",
-  "result_digest": "sha256:dae87c640a0c1b07b7fd92fcc4266c5249a42cfa3cb69e5315e315837a89b260",
-  "success": true,
-  "timestamp": "2026-10-06T11:23:46.188943942+00:00",
-  "tool": "write_file",
-  "version": 1
-}

@@ -1,9 +1,0 @@
-[package]
-name = "aien-abi-conformance"
-version = "0.1.0"
-edition = "2021"
-authors = ["Drake Stapleton <aien@aienos.com>"]
-description = "Checks the hand-written Rust mirrors of omega's C ABI against the pinned C headers and the linked archive (layouts, constants, signatures, symbols, artifact identity). No dependencies."
-license.workspace = true
-
-[dependencies]

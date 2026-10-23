@@ -1,1 +1,0 @@
-{"error":"RunComposeTask: ambiguous destination: the goal names several files to write (report.md, harbour-notes.txt, orchard-ledger.txt, windmill-log.txt); name one","ok":false,"step":"propose"}

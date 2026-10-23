@@ -1,7 +1,0 @@
-start 2026-10-15T06:49:23Z cwd /home/drakestapleton/handoffs/pin-bin-afe59ae1
-cmd /home/drakestapleton/handoffs/pin-bin-afe59ae1/aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8 --port 18091
-binary sha256 8f58298f36553522852fdbce1f26b29bbeab51da4b48b3691e7a67ab3a09d38b
-               total        used        free      shared  buff/cache   available
-Mem:             121          52          43           3          30          68
-pid 2708769
-ready=1 after 71 s

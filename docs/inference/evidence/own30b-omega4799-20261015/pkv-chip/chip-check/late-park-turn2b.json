@@ -1,1 +1,0 @@
-{"choices":[{"finish_reason":"stop","index":0,"message":{"content":"Aerospace applications are least useful at home.","role":"assistant"}}],"created":1792046583,"id":"chatcmpl-18dea0df68b71d650002","model":"qwen3-30b-a3b-instruct-2507","object":"chat.completion","usage":{"completion_tokens":10,"prompt_tokens":819,"total_tokens":829}}

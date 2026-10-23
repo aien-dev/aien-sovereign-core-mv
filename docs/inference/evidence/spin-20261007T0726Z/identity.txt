@@ -1,8 +1,0 @@
-61e1de2f056e75b1e85e8dac265aca39d32d165b9190792b37d8064103dc831c  /home/drakestapleton/workspace/hive/WQWEN/spin/target/release/aien-cli
-9e97e105cd69d0c4792a55afc8798a5e3ba87cace0108ffba273eb547bd2bd73  /home/drakestapleton/workspace/hive/WQWEN/spin/run-ab.sh
-75311d91bb08cf0b882913da464a1e722a31fb44db35208663487efb7a3d8ed6  /home/drakestapleton/models/qwen3-4b-instruct-2507-cdbee75/model-00001-of-00003.safetensors
-0b48adbb1f60e901153d91907ba11ce63bd4b8b584482e730f48808d055dfba1  /home/drakestapleton/models/qwen3-4b-instruct-2507-cdbee75/model-00002-of-00003.safetensors
-7dd39ccca5e4de123c74c14af44c9bf2eb75df33b4614382af0134528e060d5d  /home/drakestapleton/models/qwen3-4b-instruct-2507-cdbee75/model-00003-of-00003.safetensors
-d6c42883a895dfef5b0080ed2116a1bcd764f558406b98923d675978a1abf29c  /home/drakestapleton/models/qwen3-4b-instruct-2507-cdbee75/model.safetensors.index.json
-aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4  /home/drakestapleton/models/qwen3-4b-instruct-2507-cdbee75/tokenizer.json
-5beea1a4a34c62782bfb2f911c606741a3bab8f92d80a118fa053c28af12e8ba  /home/drakestapleton/models/qwen3-4b-instruct-2507-cdbee75/config.json

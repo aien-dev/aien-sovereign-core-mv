@@ -1,8 +1,0 @@
-launch N1 driver exit 0 (max_tokens 96)
-launch N1 receipt ba7d9ec497ac87f03ba0f6a14e8581963ab3ecbe337b2eea6e7ab2a5a2fc6c2a.json
-launch N2 driver exit 0 (max_tokens 4)
-launch N2 receipt bbd2ec1a2b9622fe215921944ea594a7dfe30c4f28075b1abcb92798ec86d567.json
-launch R1 driver exit 0 (max_tokens 96)
-launch R1 CPU reference exit 0
-launch R1 receipt a58edf0511526c9f23cd17e70748c9a4953b38941226218479bbdd1508467417.json
-OPEN-MODEL-QWEN3 v2 (scoring-v5, score-rows.sh exit 1): FAIL

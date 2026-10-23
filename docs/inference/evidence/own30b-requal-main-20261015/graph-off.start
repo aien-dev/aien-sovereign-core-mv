@@ -1,8 +1,0 @@
-queued 2026-10-15T01:22:44Z sc 9557e0c1058798588a6f6be21798d47ab3173e15 (main 9557e0c1 + lock lines) omega 62833658f5c291f0d229b45d2c18500145cbab66 archive-sha256 6a6cb4df479ddbcc5cd4ef0fda1aea968832b2b70be2ff3312051c3e9921aad5
-binary /home/drakestapleton/handoffs/main-bin-9557e0c1/own30b_check sha256 d33f454f01b1a8cadb1b3d30ad47c4b820afa03e1e92bfc396dc4eb77c96c1ae
-env AIEN_OMEGA_SPIN_US=2000 AIEN_OMEGA_CTA_BUDGET=64
-cmd quietlock hold --owner OWN30B --minutes 20 -- flock /tmp/aien-gb10.lock env AIEN_OMEGA_SPIN_US=2000 AIEN_OMEGA_CTA_BUDGET=64 /home/drakestapleton/handoffs/main-bin-9557e0c1/own30b_check chip /home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8 /home/drakestapleton/workspace/sc-requal-main/docs/inference/evidence/own30b-f-20261013T1745Z/golden.json /home/drakestapleton/workspace/sc-requal-main/docs/inference/evidence/own30b-requal-main-20261015/graph-off --prompts 1,2,3,4 --new 16 --layers 0,23,47 --weights fp8 --attn fused --router device --lm-head gemv --prefill auto
- 20:22:44 up 8 days, 13:51, 20 users,  load average: 1.95, 1.73, 1.82
-               total        used        free      shared  buff/cache   available
-Mem:             121          14          43           2          67         107
-lock acquired 2026-10-15T01:22:44Z

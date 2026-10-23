@@ -1,2 +1,0 @@
-filename: NOTES.md
-> Keep changes inside the workspace.

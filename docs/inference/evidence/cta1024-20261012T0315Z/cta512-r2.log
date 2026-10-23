@@ -1,7 +1,0 @@
-PASS timing 1x4096x4096 upload_ms=241.1 ok_calls=100 median_ms=0.212 p90_ms=0.213 min_ms=0.171 max_ms=0.738 chip_ns_mean=202404 grid=512x1 e2e_first=4.30471e-07 e2e_last=4.30471e-07 repeat_mismatch=0
-PASS timing 1x4096x1024 upload_ms=26.8 ok_calls=100 median_ms=0.211 p90_ms=0.211 min_ms=0.164 max_ms=0.440 chip_ns_mean=204568 grid=128x1 e2e_first=3.22815e-07 e2e_last=3.22815e-07 repeat_mismatch=0
-PASS timing 1x4096x12288 upload_ms=308.0 ok_calls=100 median_ms=0.522 p90_ms=0.527 min_ms=0.430 max_ms=0.960 chip_ns_mean=509134 grid=512x1 e2e_first=5.10768e-07 e2e_last=5.10768e-07 repeat_mismatch=0
-PASS timing 1x12288x4096 upload_ms=312.1 ok_calls=100 median_ms=0.526 p90_ms=0.528 min_ms=0.502 max_ms=0.950 chip_ns_mean=511444 grid=512x1 e2e_first=6.19343e-07 e2e_last=6.19343e-07 repeat_mismatch=0
-FAIL: timing 1x4096x151936 ok_calls=100 median_ms=6.306 e2e_first=4.84116e-07 e2e_last=4.84116e-07 bad=0/0 repeat_mismatch=0
-FAIL timing 1x4096x151936 upload_ms=3778.6 ok_calls=100 median_ms=6.306 p90_ms=6.407 min_ms=6.100 max_ms=7.500 chip_ns_mean=6218370 grid=512x1 e2e_first=4.84116e-07 e2e_last=4.84116e-07 repeat_mismatch=0
-FAIL: 10 checks, 1 failed

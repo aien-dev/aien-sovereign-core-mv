@@ -1,9 +1,0 @@
-{
-  "gate": "STORE_V1_FORMAT_PR_MERGE",
-  "description": "Allows the narrow ADR 0015 and pure Store v1 format/golden-vector PR to merge after strict main verification. It does not authorize P3 QEMU qualification or physical storage mutation, and does not require full SEED-0B completion.",
-  "requires": [
-    {"name":"ADR0015 frozen","kind":"adr0015-format","min_tier":"HOST_TEST","assertions":["adr0015_accepted_frozen"],"mutation":"NONE","require_clean":true,"missing_as":"INCOMPLETE"},
-    {"name":"Store v1 format and golden vectors","kind":"store-v1-format-golden-vectors","min_tier":"HOST_TEST","assertions":["store_format_v1_valid","store_golden_vectors_match"],"mutation":"NONE","require_clean":true,"missing_as":"INCOMPLETE"},
-    {"name":"STRICT_MAIN","kind":"strict-main-verification","min_tier":"HOST_TEST","assertions":["strict_main_pass"],"mutation":"NONE","require_clean":true,"missing_as":"INCOMPLETE"}
-  ]
-}

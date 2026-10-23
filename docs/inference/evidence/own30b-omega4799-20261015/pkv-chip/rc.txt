@@ -1,3 +1,0 @@
-item1-3-4-roundtrip rc=0
-item2a-inprocess-restore rc=0
-item2b-chip-check rc=0

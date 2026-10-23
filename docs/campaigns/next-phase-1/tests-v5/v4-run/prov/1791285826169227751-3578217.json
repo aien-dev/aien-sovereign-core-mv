@@ -1,9 +1,0 @@
-{
-  "arguments_digest": "sha256:9a2165e7c3d6820903d95c18a23523b2e4a1ff91b62009f1cb4556c8d81cdd6c",
-  "policy": "default_sovereign_engine",
-  "result_digest": "sha256:512c9a30354d2446c6ab235bcb50a936b5facd4d3d5320b115a65559f9d694f3",
-  "success": true,
-  "timestamp": "2026-10-06T11:23:46.169222439+00:00",
-  "tool": "authorize",
-  "version": 1
-}

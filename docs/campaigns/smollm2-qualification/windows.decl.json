@@ -1,7 +1,0 @@
-{"contract":"scoring-v5","campaign":"smollm2-qualification Q2w (coverage cases 2 and 5, harness side)","frozen_by":"ACCEPTANCE-SMOLLM2-Q.md section 6.1","note":"controls are PASS only when the check under test behaved as declared; NOT_RUN means the injection did not happen and nothing is claimed",
- "rows":[
-  {"row":"W-ctl-nokill","role":"control","reps":1,"expected":"PASS","control":null,"not_applicable":false,"env":"CPU fault injection"},
-  {"row":"W-ctl-wrong-expect","role":"control","reps":1,"expected":"PASS","control":null,"not_applicable":false,"env":"CPU fault injection"},
-  {"row":"W-ctl-damaged-mark","role":"control","reps":1,"expected":"PASS","control":null,"not_applicable":false,"env":"CPU fault injection"},
-  {"row":"W2","role":"case","reps":3,"expected":"PASS","control":"W-ctl-nokill","not_applicable":false,"env":"CPU fault injection"},
-  {"row":"W5","role":"case","reps":1,"expected":"PASS","control":"W-ctl-damaged-mark","not_applicable":false,"env":"CPU fault injection"}]}

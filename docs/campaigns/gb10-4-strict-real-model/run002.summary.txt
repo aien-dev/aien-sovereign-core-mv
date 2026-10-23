@@ -1,6 +1,0 @@
-STRICT_GATE surface: NVIDIA GB10 (121 GB Unified Memory)
-STRICT_GATE backend: BlackwellGb10Backend (NVIDIA GB10 sm_121 cuBLAS)
-STRICT_GATE output: "amount of processing power. It is designed"
-STRICT_GATE verdict: PASS (receipt /home/drakestapleton/workspace/evidence-out/STRICT-REAL-MODEL-20261003/receipt-run002.json)
-test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.36s
-GATE_RC=0

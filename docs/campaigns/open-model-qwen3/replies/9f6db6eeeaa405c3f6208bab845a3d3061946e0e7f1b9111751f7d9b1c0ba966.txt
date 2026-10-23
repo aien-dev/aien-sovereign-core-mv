@@ -1,5 +1,0 @@
-filename: TODO.md
----
-- Write tests
-- Update the changelog
-- Tag the release

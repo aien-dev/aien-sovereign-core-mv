@@ -1,9 +1,0 @@
-created=2026-10-12T03:11:12Z
-host=spark-b87b kernel=7.0.0-1019-nvidia
-driver=580.173.02, NVIDIA GB10
-physics=e95e3ed dirty=0
-omega=ce42e62f dirty=127
-omega origin/main 781e98d8224b5bf229991f54722d2dc7c415d79f
-driver 580.173.02
-physics.lock pin 6d7cf0d4d8eb2cda7b512100ff6058e25dbb3ddf
-tool sha ef7ca6879ca262bd

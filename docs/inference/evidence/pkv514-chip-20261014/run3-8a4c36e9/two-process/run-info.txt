@@ -1,3 +1,0 @@
-binary /home/drakestapleton/workspace/sc-pkv514/target/release/aien-serve-http sha256 6bba9ad38e84f00ef9663aceac810fc8f034fe9ba9529867d851fbcc3ac6721e
-model /home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8 port 18098 key-mode ephemeral
-started 2026-10-14T23:47:11Z host spark-b87b

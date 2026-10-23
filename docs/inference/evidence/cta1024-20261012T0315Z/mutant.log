@@ -1,6 +1,0 @@
-KILLED 1x4096x4096 rc=PARITY_FAIL chip_ns=927908 call_ms=186.336 wall_ms=280.0 max_abs=11.2851 max_rel=0.0109825 mismatches=4083 e2e_rel=0.0109825 e2e_bad=4083 grid=64x1 calls=1 rows_per_call=16 cache_hit2=1 err=""
-KILLED 1x4096x1024 rc=PARITY_FAIL chip_ns=319121 call_ms=8.232 wall_ms=31.4 max_abs=8.02369 max_rel=0.00798177 mismatches=1021 e2e_rel=0.00798177 e2e_bad=1021 grid=64x1 calls=1 rows_per_call=16 cache_hit2=1 err=""
-KILLED 1x4096x12288 rc=PARITY_FAIL chip_ns=2267817 call_ms=149.700 wall_ms=430.6 max_abs=9.27694 max_rel=0.00882917 mismatches=12243 e2e_rel=0.00882917 e2e_bad=12243 grid=64x1 calls=1 rows_per_call=16 cache_hit2=1 err=""
-KILLED 1x12288x4096 rc=PARITY_FAIL chip_ns=2267209 call_ms=282.787 wall_ms=562.0 max_abs=9.80215 max_rel=0.00314933 mismatches=4054 e2e_rel=0.00314933 e2e_bad=4054 grid=64x1 calls=1 rows_per_call=16 cache_hit2=1 err=""
-KILLED 1x4096x151936 rc=PARITY_FAIL chip_ns=26268196 call_ms=1549.031 wall_ms=4953.0 max_abs=11.6189 max_rel=0.011385 mismatches=151495 e2e_rel=0.011385 e2e_bad=151495 grid=64x1 calls=1 rows_per_call=16 cache_hit2=1 err=""
-PASS: 5 checks, 0 failed (mutant killed)

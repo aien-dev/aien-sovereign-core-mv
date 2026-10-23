@@ -1,4 +1,0 @@
-started 2026-10-15T18:59:43Z sc e9a8194d04da7b39261f9fb104c95765e9464c17 omega 4799f9eba563e9c69579b47c477e7d9c2b0f15cb
-binary sha256 b624d62786e3bdff7bd9bc6243aac69a100205323e999e771e668636d10a6a7e
-libomega_gpu.a sha256 0629ad9cec0addd4ccc461f0523c2c3964964f0bafc0b98b678e5080b0373ae5
-cmd quietlock hold --owner L2STEP1 --minutes 10 -- flock /tmp/aien-gb10.lock env AIEN_REQUIRE_NATIVE_LIBS=1 target/release/deps/aien_inference_abi-2726d3fa5afa3b5a kv_persist_tests --test-threads=1

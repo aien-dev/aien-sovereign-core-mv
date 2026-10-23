@@ -1,4 +1,0 @@
-FAIL D1 no run.json
-FAIL D2 no run.json
-FAIL D3 no run.json
-G6 FAIL

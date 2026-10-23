@@ -1,2 +1,0 @@
-filename: docs/OVERVIEW.md
-# Project Overview: OQ3-V3 Runs

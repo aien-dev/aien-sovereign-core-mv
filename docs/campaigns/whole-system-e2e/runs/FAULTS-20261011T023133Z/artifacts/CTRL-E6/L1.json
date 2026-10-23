@@ -1,1 +1,0 @@
-{"error":"compose home /home/drakestapleton/.claude/jobs/ade3c837/tmp/e2e-faults/rows/CTRL-E6/compose refused: Cortex journal holds 0 records, its record mark says 24: 24 record(s) lost at a record boundary (E_MARK_TRUNCATED, mark seq 6). Run RecoverComposeHome (aien compose recover)","ok":false,"step":"effects"}
