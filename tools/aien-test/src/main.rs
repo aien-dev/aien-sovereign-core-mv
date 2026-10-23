@@ -148,10 +148,14 @@ fn cmd_run(cli: &Cli, gate: &str, cwd: &Path) -> i32 {
         Ok(r) => r,
         Err(code) => return code,
     };
-    let opts = match options(cli, &root) {
+    let mut opts = match options(cli, &root) {
         Ok(o) => o,
         Err(code) => return code,
     };
+    opts.shared_cache = cli
+        .shared_cache
+        .as_deref()
+        .map(aien_test::cache::Shared::new);
     match runner::run_gate(&root, &manifest_path, &opts) {
         Ok(o) => {
             if o.verdict == Verdict::NotRun && !o.reason.is_empty() {

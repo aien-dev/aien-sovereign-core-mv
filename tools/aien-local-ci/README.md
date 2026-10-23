@@ -254,3 +254,11 @@ another gate holds) fall inside `duration_ms`, and `aien-test verify` counts the
 Measured 2026-10-20 on 6 open sc PR heads: 6003 s one at a time, 2914 s as one batch. No result crossed heads in that
 set: the six trees differ and no manifest says `cache: inputs_complete` yet, so the saving there is the side by side
 running alone.
+
+L335 (2026-10-21) audited and flipped the gates: `aien-audit-inputs` (see LOCAL_VERIFICATION.md) found the
+PREFILL-E2E-2 mutants compile 25 crates but listed 9, SC-TRN1 missed three path dependencies, PREFILL-E2E-2 reads docs/campaigns/c1, two
+docs/campaigns/next-phase-1 files and omega.lock outside crates/, and cargo reads every member manifest and target
+listing. Now `cache: inputs_complete` with complete declarations: PREFILL-E2E-2 and its
+8 mutants (checkpoint in `outside_inputs`), SC-TRN1, SC-CRB1, SC-ANTI-SLOP, SC-PREFLIGHT-GUARD, SC-SCORING-V5,
+SC-PINS-SELFTEST. Still not reusable across heads, on purpose: CRUMB-VERIFY and SC-ZERO-DISK-SECRETS read the whole
+tree, SC-AGENT-PREFLIGHT diffs against origin/main. `target_lock: none` on the 8 gates that never start cargo.

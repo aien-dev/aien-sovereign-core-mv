@@ -344,6 +344,34 @@ pub fn locate_gate(cwd: &Path, name: &str) -> Result<PathBuf, String> {
 }
 
 fn collect_files(root: &Path, rel: &str, out: &mut BTreeSet<String>) {
+    // A component with `*` (`crates/*/Cargo.toml`) stands for every entry of
+    // its directory whose name matches; `*` matches any run of characters.
+    let parts: Vec<&str> = rel.trim_end_matches('/').split('/').collect();
+    if let Some(i) = parts.iter().position(|c| c.contains('*')) {
+        let base = parts[..i].join("/");
+        let rest = parts[i + 1..].join("/");
+        let mut names: Vec<String> = fs::read_dir(root.join(&base))
+            .map(|rd| {
+                rd.flatten()
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .filter(|n| n != ".git" && wildcard_match(parts[i], n))
+                    .collect()
+            })
+            .unwrap_or_default();
+        names.sort();
+        for n in names {
+            let mut child = if base.is_empty() {
+                n
+            } else {
+                format!("{base}/{n}")
+            };
+            if !rest.is_empty() {
+                child = format!("{child}/{rest}");
+            }
+            collect_files(root, &child, out);
+        }
+        return;
+    }
     let path = root.join(rel.trim_end_matches('/'));
     let md = match fs::symlink_metadata(&path) {
         Ok(m) => m,
@@ -366,6 +394,129 @@ fn collect_files(root: &Path, rel: &str, out: &mut BTreeSet<String>) {
     } else if md.is_file() {
         out.insert(rel.trim_end_matches('/').to_string());
     }
+}
+
+/// The existing directories a `listed` entry names (`*` per component).
+fn expand_dirs(root: &Path, pat: &str, out: &mut BTreeSet<String>) {
+    let mut cur: Vec<String> = vec![String::new()];
+    for c in pat.trim_end_matches('/').split('/') {
+        let mut next = Vec::new();
+        for base in &cur {
+            let join = |n: &str| {
+                if base.is_empty() {
+                    n.to_string()
+                } else {
+                    format!("{base}/{n}")
+                }
+            };
+            if c.contains('*') {
+                if let Ok(rd) = fs::read_dir(root.join(base)) {
+                    for e in rd.flatten() {
+                        let n = e.file_name().to_string_lossy().into_owned();
+                        if n != ".git" && wildcard_match(c, &n) && e.path().is_dir() {
+                            next.push(join(&n));
+                        }
+                    }
+                }
+            } else if root.join(join(c)).is_dir() {
+                next.push(join(c));
+            }
+        }
+        cur = next;
+    }
+    out.extend(cur.into_iter().filter(|d| !d.is_empty()));
+}
+
+/// `pat` against `name`, where `*` matches any run of characters (none too).
+pub(crate) fn wildcard_match(pat: &str, name: &str) -> bool {
+    let pieces: Vec<&str> = pat.split('*').collect();
+    if pieces.len() == 1 {
+        return pat == name;
+    }
+    let (first, last) = (pieces[0], pieces[pieces.len() - 1]);
+    if !name.starts_with(first) || name.len() < first.len() + last.len() || !name.ends_with(last) {
+        return false;
+    }
+    let mut rest = &name[first.len()..name.len() - last.len()];
+    for p in &pieces[1..pieces.len() - 1] {
+        match rest.find(p) {
+            Some(at) => rest = &rest[at + p.len()..],
+            None => return false,
+        }
+    }
+    true
+}
+
+/// `~/REST` against the judge's `HOME`; an absolute path as it is.
+pub(crate) fn outside_path(entry: &str) -> PathBuf {
+    match entry.strip_prefix("~/") {
+        Some(rest) => std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_default()
+            .join(rest),
+        None => PathBuf::from(entry),
+    }
+}
+
+/// `(name, sha256)` of every file under one `outside_inputs` entry, named by
+/// the entry as written (`~/models/X/model.safetensors`), so the key does not
+/// depend on whose home it is. A missing entry is one row with a null digest.
+/// Digests are remembered per (path, size, mtime, inode) for the life of the
+/// process: a checkpoint of gigabytes is read once per judge, not per gate.
+fn outside_rows(entry: &str) -> Vec<(String, Option<String>)> {
+    use std::os::unix::fs::MetadataExt;
+    type Memo = BTreeMap<(PathBuf, u64, i64, i64, u64), String>;
+    static MEMO: std::sync::OnceLock<Mutex<Memo>> = std::sync::OnceLock::new();
+    let shown = entry.trim_end_matches('/').to_string();
+    let base = outside_path(&shown);
+    let mut walk = vec![(base.clone(), shown.clone())];
+    let mut rows = Vec::new();
+    while let Some((p, name)) = walk.pop() {
+        match fs::metadata(&p) {
+            Ok(md) if md.is_dir() => {
+                if let Ok(rd) = fs::read_dir(&p) {
+                    for e in rd.flatten() {
+                        let n = e.file_name().to_string_lossy().into_owned();
+                        walk.push((e.path(), format!("{name}/{n}")));
+                    }
+                }
+            }
+            Ok(md) if md.is_file() => {
+                let k = (p.clone(), md.len(), md.mtime(), md.mtime_nsec(), md.ino());
+                let memo = MEMO.get_or_init(|| Mutex::new(BTreeMap::new()));
+                let hit = memo.lock().ok().and_then(|m| m.get(&k).cloned());
+                let digest = hit.or_else(|| {
+                    let d = sha256_file(&p)?;
+                    if let Ok(mut m) = memo.lock() {
+                        m.insert(k, d.clone());
+                    }
+                    Some(d)
+                });
+                rows.push((name, digest));
+            }
+            _ => rows.push((name, None)),
+        }
+    }
+    rows.sort();
+    rows
+}
+
+/// sha256 of a file, streamed (a checkpoint does not fit the 16 KiB budget
+/// of anything else here, and need not sit in memory).
+fn sha256_file(p: &Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut f = fs::File::open(p).ok()?;
+    let mut h = Sha256::new();
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = f.read(&mut buf).ok()?;
+        if n == 0 {
+            break;
+        }
+        h.update(&buf[..n]);
+    }
+    Some(format!("{:x}", h.finalize()))
 }
 
 /// Where `run.exec` is, for a run without the sandbox (the runner's PATH).
@@ -464,7 +615,41 @@ pub fn build_inputs_digest(root: &Path, manifest_rel: Option<&Path>, m: &Manifes
             json!({ "path": p, "sha256": digest })
         })
         .collect();
-    canonical_digest(&json!({ "inputs": entries })).unwrap_or_default()
+    // Outside inputs and listings join under their own members, so a
+    // manifest without them keeps the digest it always had.
+    let mut obj = json!({ "inputs": entries });
+    if !m.outside_inputs.is_empty() {
+        let outside: Vec<Value> = m
+            .outside_inputs
+            .iter()
+            .flat_map(|o| outside_rows(o))
+            .map(|(p, d)| json!({ "path": p, "sha256": d }))
+            .collect();
+        obj["outside_inputs"] = json!(outside);
+    }
+    if !m.listed.is_empty() {
+        let mut dirs: BTreeSet<String> = BTreeSet::new();
+        for l in &m.listed {
+            expand_dirs(root, l, &mut dirs);
+        }
+        let rows: Vec<Value> = dirs
+            .iter()
+            .map(|d| {
+                let mut names: Vec<String> = fs::read_dir(root.join(d))
+                    .map(|rd| {
+                        rd.flatten()
+                            .map(|e| e.file_name().to_string_lossy().into_owned())
+                            .filter(|n| n != ".git")
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                names.sort();
+                json!({ "dir": d, "names": names })
+            })
+            .collect();
+        obj["listed"] = json!(rows);
+    }
+    canonical_digest(&obj).unwrap_or_default()
 }
 
 /// sha256 of the running aien-test binary, read once. None when the binary
@@ -827,18 +1012,23 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
     // A gb10 gate is never killed on timeout (ADR 0028 Decision 6), so one
     // that hangs holds the target dir until it exits; the receipt's
     // `timeout_exceeded` is the only sign.
-    let target_lock: Option<resources::TargetLock> = if verdict::pre_run(m, &facts).is_none() {
-        let dir = opts
-            .cargo_target_dir
-            .clone()
-            .unwrap_or_else(|| resolve(root).join("target"));
-        let path = resources::target_lock_path(&opts.target_lock_dir, &dir);
-        Some(resources::lock_target_dir(&path).map_err(|e| {
-            RunError::Fatal(format!("cannot lock target dir {}: {e}", path.display()))
-        })?)
-    } else {
-        None
-    };
+    // `target_lock: none` (a grep, a find, `crumb verify`) skips it: such a gate
+    // queued behind the head's cargo gates for up to the head's whole wall
+    // (L335, finding G3-ci-judge-2); `aien-test audit-inputs` refuses the
+    // promise when the traced run starts cargo or rustc.
+    let target_lock: Option<resources::TargetLock> =
+        if m.target_lock && verdict::pre_run(m, &facts).is_none() {
+            let dir = opts
+                .cargo_target_dir
+                .clone()
+                .unwrap_or_else(|| resolve(root).join("target"));
+            let path = resources::target_lock_path(&opts.target_lock_dir, &dir);
+            Some(resources::lock_target_dir(&path).map_err(|e| {
+                RunError::Fatal(format!("cannot lock target dir {}: {e}", path.display()))
+            })?)
+        } else {
+            None
+        };
     let target_wait_ms = t_target.elapsed().as_millis() as u64;
 
     // A gb10 gate takes the GPU locks only when nothing else already stops it,
@@ -2307,6 +2497,36 @@ mod tests {
         assert!(late["duration_ms"].as_u64().unwrap() >= waited);
         assert!(early["target_wait_ms"].as_u64().unwrap() < 150);
         assert_eq!(late["batch_wait_ms"], json!(0));
+    }
+
+    /// `target_lock: none` (L335, G3-ci-judge-2): two such gates of one head
+    /// run side by side instead of queueing on the target dir.
+    #[test]
+    fn target_lock_none_gates_do_not_queue_on_the_target_dir() {
+        let fx = gfx_with(
+            &[
+                ("G-A", "", "host", slow("G-A")),
+                ("G-B", "", "host", slow("G-B")),
+            ],
+            "target_lock: none\n",
+            &[],
+        );
+        let mut opts = fx.opts();
+        opts.target_lock_dir = fx.scratch.path().join("locks");
+        let c = fx.campaign(&opts);
+        assert_eq!(c.exit_code(), 0);
+        let log = fx.log();
+        assert!(
+            log[0].starts_with("start-") && log[1].starts_with("start-"),
+            "both started before either ended: {log:?}"
+        );
+        for id in ["G-A", "G-B"] {
+            let v = read_json(outcome(&c, id).receipt_path.as_ref().unwrap())["volatile"].clone();
+            assert!(
+                v["target_wait_ms"].as_u64().unwrap() < 150,
+                "{id} waited: {v}"
+            );
+        }
     }
 
     /// A gate may call cargo without naming `Cargo.toml` among its inputs

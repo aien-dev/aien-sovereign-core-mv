@@ -549,7 +549,7 @@ pub fn cross_head(m: &crate::manifest::Manifest) -> Result<Reach, Local> {
     }
     let whole = |i: &str| {
         let t = i.trim().trim_start_matches("./").trim_end_matches('/');
-        t.is_empty() || t == "."
+        t.is_empty() || t == "." || t.split('/').next().is_some_and(|c| c.contains('*'))
     };
     // No promise, no inputs, or the whole tree as an input: the key cannot
     // tell two trees apart, so the tree id must.
