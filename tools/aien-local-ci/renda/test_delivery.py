@@ -199,6 +199,14 @@ class Delivery(unittest.TestCase):
             ok,_=self.publish();self.assertFalse(ok)
         self.assertEqual(self.writes(),[])
 
+    def test_cached_pipeline_config_hold_needs_signed_qualification_before_publication(self):
+        self.plan['plan'] = dict(code=4, output='Plan verdict: BLOCKED_OPERATOR PIPELINE_CONFIG_CHANGED\n')
+        save(self.planfile, self.plan)
+        self.receipt = dict(verified=True, eligible=False, verdict='HOLD', digest='e'*64)
+        ok, note = self.publish()
+        self.assertFalse(ok, note)
+        self.assertEqual(self.writes(), [])
+
     def test_operator_cheap_admission_rejects_unmapped_or_missing_plan(self):
         self.assertTrue(callable(getattr(h,'admit_plan',None)), 'cheap planner admission missing')
         for plan in [None,{},dict(code=4,output='Plan verdict: NOT_RUN UNMAPPED_PATH\n'),
@@ -207,6 +215,35 @@ class Delivery(unittest.TestCase):
         for plan in [dict(code=0,output='UNMAPPED:\n  (none)\nPlan verdict: RUNNABLE\n'),
                 dict(code=4,output='UNMAPPED:\n  (none)\nPlan verdict: BLOCKED_OPERATOR PIPELINE_CONFIG_CHANGED\n')]:
             ok,note=h.admit_plan(plan);self.assertTrue(ok,note)
+
+    def test_operator_run_requests_explicit_operator_plan_for_pipeline_config_hold(self):
+        import inspect
+        self.assertIn('operator', inspect.signature(self.q.host_plan).parameters)
+        with patch.object(h,'Queue',return_value=self.q), patch.object(h,'judging',return_value=False), \
+                patch.object(self.q,'load',return_value={'entries':[dict(kind='ready',sha=self.head,base=self.base)]}), \
+                patch.object(self.q,'source',return_value=(self.source,'github.com/'+self.q.full)), \
+                patch.object(self.q,'host_plan',return_value=dict(code=0,output='Plan summary: all mapped gates\nSelected gates: CORE-UNIT, ARCH-SPARK-BROKER, CRUMB-VERIFY\nUNMAPPED:\n  (none)\nREMOVED:\n  (none)\nPlan verdict: RUNNABLE\n')) as planner, \
+                patch.object(h,'cheap_metadata',return_value=(True,'ok')), patch.object(h,'run',return_value=(0,'','')), \
+                patch.object(h.subprocess,'Popen') as launch, patch.dict(os.environ,{'RENDA_OPERATOR_DRY':'1'}):
+            ok,note=h.operator_run(self.q.repo,self.head)
+        self.assertTrue(ok,note)
+        self.assertTrue(planner.call_args.kwargs.get('operator'))
+        launch.assert_not_called()
+
+    def test_host_plan_operator_flag_is_explicit_and_default_omits_it(self):
+        calls=[]
+        def fake_run(command, **kwargs):
+            calls.append(list(command))
+            if 'worktree' in command:
+                return 0, '', ''
+            return 0, 'Plan verdict: RUNNABLE\n', ''
+        with patch.dict(os.environ, {'AIEN_TEST_BIN':'/synthetic/aien-test'}), patch.object(self.q,'run',side_effect=fake_run):
+            self.q.host_plan(self.source,self.q.full,self.head,self.base)
+            self.q.host_plan(self.source,self.q.full,self.head,self.base,operator=True)
+        plans=[cmd for cmd in calls if cmd[:2]==['/synthetic/aien-test','plan']]
+        self.assertEqual(len(plans),2)
+        self.assertNotIn('--operator',plans[0])
+        self.assertIn('--operator',plans[1])
 
     def test_release_installer_and_startup_include_delivery_regressions(self):
         import install
@@ -260,7 +297,7 @@ class Delivery(unittest.TestCase):
     def test_concurrent_operator_admission_starts_only_one_judge(self):
         import threading
         entered=threading.Event();release=threading.Event();calls=[];results=[]
-        def plan(*args):
+        def plan(*args, **kwargs):
             calls.append('plan')
             if len(calls)==1:
                 entered.set();self.assertTrue(release.wait(3))
@@ -360,6 +397,17 @@ class Delivery(unittest.TestCase):
             ok,note=h.operator_run(self.q.repo,self.head)
             self.assertFalse(ok,note)
             launch.assert_not_called()
+
+    def test_operator_context_hold_is_not_admitted_for_judge_launch(self):
+        with patch.object(h,'Queue',return_value=self.q), patch.object(h,'judging',return_value=False), \
+                patch.object(self.q,'load',return_value={'entries':[dict(kind='ready',sha=self.head,base=self.base)]}), \
+                patch.object(self.q,'source',return_value=(self.source,'github.com/'+self.q.full)), \
+                patch.object(self.q,'host_plan',return_value=dict(code=4,output='Plan verdict: BLOCKED_OPERATOR PIPELINE_CONFIG_CHANGED\n')) as planner, \
+                patch.object(h,'run',return_value=(0,'','')), patch.object(h.subprocess,'Popen') as launch:
+            ok,note=h.operator_run(self.q.repo,self.head)
+        self.assertFalse(ok,note)
+        self.assertTrue(planner.call_args.kwargs.get('operator'))
+        launch.assert_not_called()
 
     def test_generic_lane_routes_eligible_ready_through_publisher(self):
         doc=self.q.load()

@@ -524,7 +524,7 @@ class Queue:
                     output.append(f"{e['key']} local diff={digest(diff.encode())[:12]} review={decision}; host plan exit={plan['code']}; receipt={receipt.get('verdict', 'unverified')}; waiting-for-sync")
         return output
 
-    def host_plan(self, source, repository, sha, base):
+    def host_plan(self, source, repository, sha, base, *, operator=False):
         binary = os.environ.get('AIEN_TEST_BIN', str(Path.home() / 'workspace/pipeline/target-sc/release/aien-test'))
         with tempfile.TemporaryDirectory(prefix='plan-' + self.repo + '-', dir=self.root) as tmp:
             wt = str(Path(tmp) / 'checkout')
@@ -533,8 +533,11 @@ class Queue:
             if rc:
                 return dict(code=rc, output='HOST_PLAN unavailable: ' + (err or out)[-1000:])
             try:
-                rc, out, err = self.run([binary, 'plan', '--base', base, '--repo', repository,
-                    '--evidence-dir', str(self.state / 'evidence')], cwd=wt, timeout=120)
+                command = [binary, 'plan', '--base', base, '--repo', repository]
+                if operator:
+                    command.append('--operator')
+                command.extend(['--evidence-dir', str(self.state / 'evidence')])
+                rc, out, err = self.run(command, cwd=wt, timeout=120)
                 return dict(code=rc, output=(out + err)[-20000:], gates_executed=False)
             finally:
                 self.run(['git', '-C', str(source), 'worktree', 'remove', '--force', wt], timeout=120)

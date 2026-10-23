@@ -410,9 +410,10 @@ def _operator_run(repo, sha, admission_fd):
     source, repository = queue.source(sha, base)
     if source is None:
         return False, 'cheap admission held: trusted local source unavailable'
-    admitted, reason = admit_plan(queue.host_plan(source, repository, sha, base))
-    if not admitted:
-        return False, 'cheap admission held: ' + reason
+    plan = queue.host_plan(source, repository, sha, base, operator=True)
+    admitted, reason = admit_plan(plan)
+    if not admitted or plan.get('code') != 0:
+        return False, 'cheap admission held: operator-context planner is not RUNNABLE'
     admitted, reason = cheap_metadata(queue, source, sha, base)
     if not admitted:
         return False, 'cheap admission held: ' + reason

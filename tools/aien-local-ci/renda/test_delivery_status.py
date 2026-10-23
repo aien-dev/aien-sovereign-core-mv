@@ -22,7 +22,7 @@ class QueueFixture:
         self.head = 'a' * 40
         self.base = 'b' * 40
         self.review_result = (True, 'complete current review')
-        self.plan = {'code': 0, 'output': 'Plan verdict: RUNNABLE\n'}
+        self.plan = {'code': 0, 'output': 'AIEN PLAN\nRepository: github.com/aien-dev/interplane-mv\nBase: ' + self.base + '\nHead: ' + self.head + '\nChanged files: 77\nRequired:\n  ARCH-CRUMB-TOOL-TEST pool=host exactness=EXACT check=4da84606bddf\n  ARCH-DOCTRINE pool=host exactness=EXACT check=fc7a28a7ec75\n  ARCH-NAME-CHECK pool=host exactness=EXACT check=68b21c49aeb8\n  ARCH-QUALIFICATION-STATUS pool=host exactness=EXACT check=6912e608b9f6\n  ARCH-SCRIPT-TESTS pool=host exactness=EXACT check=f8eb95b183d7\n  ARCH-SPARK-BROKER pool=host exactness=EXACT check=b4bf6c95f403\n  CRUMB-VERIFY pool=host exactness=EXACT check=e9f8718de39c\nCached:\n  (none)\nNeeds Spark:\n  (none)\nNeeds GB10:\n  (none)\nAdvisory:\n  (none)\nBlocked:\n  (none)\nUNMAPPED:\n  (none)\nPlan verdict: RUNNABLE\n'}
         self.source_name = 'github.com/' + self.full
         self.receipt_result = {'verified': True, 'eligible': True, 'verdict': 'PASS',
                         'digest': 'e' * 64, 'verifier_codes': [0]}
@@ -35,7 +35,8 @@ class QueueFixture:
     def review(self, pr, model, policy):
         return self.review_result
 
-    def host_plan(self, source, repository, sha, base):
+    def host_plan(self, source, repository, sha, base, *, operator=False):
+        self.plan_modes = getattr(self, 'plan_modes', []) + [operator]
         return self.plan
 
     def receipt(self, source, repository, sha, base):
@@ -80,6 +81,17 @@ class ReceiptStatusDelivery(unittest.TestCase):
         fn = getattr(h, 'deliver_receipt_status', None)
         self.assertTrue(callable(fn), 'receipt-to-status delivery function missing')
         return fn('interplane', self.q, self.pr, 'synthetic-model', 'synthetic-policy', self.ctx)
+
+    def test_rc0_inconsistent_full_plan_refuses_without_status_write(self):
+        self.q.plan = {'code': 0, 'output': 'AIEN PLAN\nRepository: github.com/aien-dev/interplane-mv\nBase: ' + self.q.base + '\nHead: ' + self.q.head + '\nChanged files: 77\nRequired:\n  ARCH-CRUMB-TOOL-TEST pool=host exactness=EXACT check=4da84606bddf\n  ARCH-DOCTRINE pool=host exactness=EXACT check=fc7a28a7ec75\n  ARCH-NAME-CHECK pool=host exactness=EXACT check=68b21c49aeb8\n  ARCH-QUALIFICATION-STATUS pool=host exactness=EXACT check=6912e608b9f6\n  ARCH-SCRIPT-TESTS pool=host exactness=EXACT check=f8eb95b183d7\n  ARCH-SPARK-BROKER pool=host exactness=EXACT check=b4bf6c95f403\n  CRUMB-VERIFY pool=host exactness=EXACT check=e9f8718de39c\nCached:\n  (none)\nNeeds Spark:\n  (none)\nNeeds GB10:\n  (none)\nAdvisory:\n  (none)\nBlocked:\n  (none)\nUNMAPPED:\n  hidden/source.c\nPlan verdict: RUNNABLE\n'}
+        ok, note = self.deliver()
+        self.assertFalse(ok, note)
+        self.assertEqual(self.writes, [])
+
+    def test_signed_qualified_status_uses_authorized_operator_plan_context(self):
+        ok, note = self.deliver()
+        self.assertTrue(ok, note)
+        self.assertEqual(self.q.plan_modes, [True])
 
     def test_qualified_exact_open_pr_posts_success_and_reads_it_back(self):
         ok, note = self.deliver()
@@ -205,6 +217,26 @@ class ReceiptStatusDelivery(unittest.TestCase):
         self.q.plan = {'code': 1, 'output': 'Plan verdict: BLOCKED\n'}
         self.assertFalse(self.deliver()[0])
         self.assertEqual(self.writes, [])
+
+    def test_malformed_or_noninteger_plan_refuses_without_status_write(self):
+        good = dict(self.q.plan)
+        for plan in (None, [], {'code': True, 'output': good['output']},
+                     {'code': 0, 'output': None}, {'code': '0', 'output': good['output']}):
+            with self.subTest(plan=plan):
+                self.q.plan = plan
+                self.writes.clear()
+                ok, note = self.deliver()
+                self.assertFalse(ok, note)
+                self.assertEqual(self.writes, [])
+        self.q.plan = good
+
+    def test_cached_default_operator_hold_cannot_publish_status_without_signed_qualification(self):
+        self.q.plan = {'code': 4, 'output': 'Plan verdict: BLOCKED_OPERATOR PIPELINE_CONFIG_CHANGED\n'}
+        self.q.receipt_result = {'verified': True, 'eligible': False, 'verdict': 'HOLD', 'digest': 'e' * 64}
+        ok, note = self.deliver()
+        self.assertFalse(ok, note)
+        self.assertEqual(self.writes, [])
+        self.assertEqual(getattr(self.q, 'plan_modes', []), [])
 
     def test_changed_signed_receipt_before_write_is_refused(self):
         calls=[]

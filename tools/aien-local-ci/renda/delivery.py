@@ -345,8 +345,10 @@ def deliver_receipt_status(repo, queue, pinned, model, policy, ctx):
                 or not re.fullmatch(r'[0-9a-f]{64}', str(receipt.get('digest', '')))
                 or 0 not in receipt.get('verifier_codes', [])):
             return refuse('trusted signed exact-source PASS receipt unavailable')
-        plan = queue.host_plan(source, source_repo, sha, base)
-        if not admit_plan(plan) or plan.get('code') != 0:
+        # An exact signed eligible receipt proves the operator-authorized full gate run.
+        plan = queue.host_plan(source, source_repo, sha, base, operator=True)
+        admitted, _ = admit_plan(plan)
+        if not admitted or plan.get('code') != 0:
             return refuse('current planner is not RUNNABLE')
         fresh = ctx['fresh_pr'](full, number)
         if not exact_pr(fresh, pinned) or not owned(number):

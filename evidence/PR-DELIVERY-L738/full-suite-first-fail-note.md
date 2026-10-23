@@ -1,0 +1,1 @@
+Initial packaged run exposed a stale test double after Queue.host_plan gained keyword-only operator context. test_concurrent_operator_admission_starts_only_one_judge side effect accepted only positional args, so the operator call raised TypeError before synchronization. Updated the test double to accept kwargs. No production behavior change from this correction.
