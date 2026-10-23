@@ -111,3 +111,63 @@ Remaining issue acceptance includes a native device path and model loading,
 whole-checkpoint layout and quality validation, safe serving attachment,
 and uncontended full-model latency/throughput/memory measurements. The
 issue must remain open until those requirements are met.
+
+## Whole raw-tensor conversion
+
+`pack.om` plus `tensor.om` forms a native file converter. This entry point uses
+the separately qualified native-host compiler at Omega
+`f0499f415571bdd7496b6de391096915e78f7556`, executable SHA256
+`e5d60db892c8f21cc8c9128af26d8bded0e96d7f92946f5a549397c43a872649`.
+The author and independent arithmetic suites were rebuilt and passed under
+this compiler too. It is a different profile from the earlier pure compiler;
+no unsupported combination of compiler features is assumed.
+
+```text
+w4-tensor raw-fp8 raw-bf16 packed-output e8-output rows columns rule
+```
+
+Arguments are unsigned decimal integers without signs, whitespace or prefixes.
+Rows must be a positive multiple of 128, at most 524,288. Columns must be a
+positive multiple of 128, at most 32,768. Rule is 0, 1 or 2. A width accepted
+by this converter is not necessarily accepted by a particular device kernel.
+
+Input weights are exactly rows*columns contiguous E4M3FN bytes, row major.
+The scale file contains exactly (rows/128)*(columns/128) little-endian BF16
+values, row major. The source scale for element (r,c) is
+scale[r/128][c/128]. Outputs are rows*columns/2 packed bytes and
+rows*columns/32 E8M0 scale bytes, each row major, identical to the historical
+converter's separate output arrays. This is MXFP4, with one E8M0 scale per
+32 values. It is not NVFP4 and does not accept another format's scale/layout
+under the same interface. The two raw outputs have no self-describing header.
+
+Inputs must be immutable, seekable regular model extracts supplied by a caller
+that has already authenticated their identities and dimensions. This command
+does not parse safetensors, select model tensors or authenticate checkpoints.
+It verifies exact input sizes before creating outputs, then checks for extra
+bytes at EOF. That does not detect arbitrary concurrent same-size input edits.
+
+The converter reads one weight row and one 128-row scale block at a time;
+its buffers have fixed capacities independent of tensor size. It converts
+every group through qpack and retains packed output, with no whole-tensor
+expansion. Output files are created exclusively with owner-only permissions.
+Existing outputs are refused without overwriting them. Handled conversion,
+read, write, synchronization or close failures remove only outputs created
+by this invocation. A private output directory under the caller's control is
+required; concurrent path replacement is outside this contract.
+
+A successful exit is required before any consumer opens either result. Both
+files are synchronized before success, but publication of the pair is not
+atomic, directory entries are not synchronized, and a crash or signal may
+leave incomplete files. There is no restart/resume or in-place update mode.
+Exit 64 means malformed command arguments, 65 invalid shape/length/truncation,
+69 unsupported rule, 74 an I/O failure, 75 unrepresentable scale and 76
+nonfinite data. Clean up failed-run files before retrying with fresh output
+names. This diagnostic converter is not a serving loader or model registry.
+
+A complete 17,408x5,120 gate projection from the pinned real model was
+converted under all three rules. Each result matched the existing converter
+exactly: 44,564,480 weight bytes and 2,785,280 scale bytes. Those file bytes
+are about 53% of the input weight+scale bytes, not measured physical GPU
+allocation or traffic. See `evidence/w4-711/tensor/` for exact identities,
+commands and independent file-lifecycle/layout checks. Whole-model quality,
+GPU kernels, loading and serving integration remain unqualified.
