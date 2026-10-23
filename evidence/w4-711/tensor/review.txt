@@ -1,0 +1,92 @@
+Independent L791 raw tensor qualification, 2026-10-23
+PASS, no blocking findings. No product files edited.
+
+Source identities
+pack.om SHA256 724fc1476a29655a087b7385e7a7a47410028ea0ede9dcfd84e39a6dab5e16db
+tensor.om SHA256 f6d0bfd5a3683c52db869a00604384f5356b20c7ffb96d474e2529dd4f6f0920
+Live tensor source rehashed after tests, identical to frozen copy.
+Compiler /home/drakestapleton/workspace/cudapp-adaptive-27b/build/speculation/toolchain-host/seed/out/omc
+Compiler verified SHA256 e5d60db892c8f21cc8c9128af26d8bded0e96d7f92946f5a549397c43a872649
+Parent identifies its pinned Omega revision as f0499f415571bdd7496b6de391096915e78f7556.
+
+Native independent fixture
+fixture.om generates a 256x256 FP8 tensor of alternating signed ones,
+with row parity flipping the signs. Scale grid is [[1,-2],[4,-8]], encoded
+as raw little-endian BF16. This crosses both row128 and column128 scale
+boundaries. It independently generates expected packed and E8 bytes using
+known E2M1 magnitude6, sign placement and exponent125+scale power.
+No qpack, qgrid, qround, or product implementation is called for expectations.
+Sizes: FP8 65536, BF16 8, W4 32768, E8 2048 bytes.
+All three policies return0 and byte-match both complete expected files.
+This fixture intentionally has identical numerical outcomes under the
+three policies; it verifies policy acceptance and full transport/layout.
+Distinct OCP/FIT/BEST rounding behavior is covered by the preceding
+independent 4381347-check packer review at the unchanged pack.om hash.
+
+46 assertions in results.txt all pass, covering:
+- Six full-file output comparisons across the three policies.
+- Missing arguments; zero, misaligned, and excessive dimensions.
+- Negative, signed-plus, nonnumeric, oversized and empty numeric arguments.
+- Unsupported policy and missing input.
+- Truncated and trailing bytes in each input file.
+- No created output on setup refusal.
+- NaN in final element of final row returns76 and removes both outputs.
+- Existing first output preserved and second not created.
+- Existing second output preserved and newly created first removed.
+- Identical output paths return74 and remove newly created file.
+- Input/output alias refused with original input byte-for-byte preserved.
+- Subsequent clean conversion succeeds and both outputs remain exact.
+Additional native scale-fixture.om emits infinity in the final BF16 scale
+cell: conversion returns76 and both outputs are removed. extra-results.txt.
+
+Compiled mutation sensitivity
+Changed only sindex = mul div group 4 2 to sindex = ulong 0 in a private
+copy, forcing every column block to use the first scale. Mutant compiles,
+executes with status0, and both whole-file expected output comparisons
+reject it (comparison status1). mutant-results.txt and diff files retain
+evidence. Product source was unchanged.
+
+Resource/error-path review
+Maximum row width32768 fits inrow32768. Scale row size512 fits scrow512.
+Packed row16384 fits outrow16384; E8 row1024 fits erow1024. Group scale
+index ranges0..510 plus its second byte. Maximum n*k=17179869184 fits
+64-bit size arithmetic. Numeric input is at most10 digits, below64-bit
+limits. Dimensions and exact input sizes are checked before output creation.
+Exclusive output creation prevents truncating existing files. fds start
+at -1, each successful open is recorded immediately, and finish closes
+all recorded descriptors. made tracks only successfully created outputs,
+so error cleanup targets owned files. Second-output failure also removes
+the first new output, including identical output path handling.
+Rows flush fully through write loops. fsync applies to both outputs before
+success; close, fsync, returned read/write and unlink errors propagate.
+Scale rows are read every128 tensor rows; input scratch is copied to scrow
+before the next FP8 row overwrites inrow. Source EOF is rechecked at end.
+
+Commands and reproducibility
+From /tmp/core711-review/tensor:
+  cat pack.om tensor.om > all.om
+  "$compiler_path" < all.om > tensor.elf 2> tensor.log
+  "$compiler_path" < fixture.om > fixture.elf 2> fixture.log
+  chmod 700 tensor.elf fixture.elf
+  ./fixture.elf 0 > input.fp8
+  ./fixture.elf 1 > scales.bf16
+  ./fixture.elf 2 > expected.w4
+  ./fixture.elf 3 > expected.e8
+  ./fixture.elf 4 > late-nan.fp8
+  ./tensor.elf input.fp8 scales.bf16 rule0.w4 rule0.e8 256 256 0
+Repeat the last command with unique output names and rule1/rule2.
+run.sh contains the exact remaining invocation/status/file assertions.
+Mutant compiler and invocation use mutant-all.om and mutant.elf with the
+same compiler. Existing output paths must be fresh for re-execution.
+All newly authored computational fixtures and expected-byte generation are
+.om; shell performs development orchestration and standard file comparisons.
+
+Limits
+No GPU, live services, desk, GitHub, or shared compiler changes.
+No real-model accuracy or performance claim. Parent owns the real-weight
+reference comparison; it is not counted as this review's evidence.
+No injected disk-full, fsync failure, close failure, unlink failure, or
+partial-write condition. Those branches received source review only.
+Concurrent replacement/mutation of input or output files was not tested.
+No claim of atomic pair publication or crash recovery: files are exclusive
+and cleanup is implemented for returned failures, not process termination.

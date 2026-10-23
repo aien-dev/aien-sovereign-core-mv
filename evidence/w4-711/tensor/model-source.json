@@ -1,0 +1,35 @@
+{
+  "source_file": "layers-0.safetensors",
+  "model_revision": "017b9c7af6b5689d5dd426a76e0bc077eb5ca20a",
+  "header_sha256": "f10e6204808d68452bb2b9584988d965ee3dea86aa04fa21c7e2a12df9641736",
+  "tensors": [
+    {
+      "name": "model.language_model.layers.0.mlp.gate_proj.weight",
+      "dtype": "F8_E4M3",
+      "shape": [
+        17408,
+        5120
+      ],
+      "data_offsets": [
+        205604928,
+        294733888
+      ],
+      "bytes": 89128960,
+      "sha256": "4329138e685449fc21213af99925fde5d655c9242023b06073098a3636056155"
+    },
+    {
+      "name": "model.language_model.layers.0.mlp.gate_proj.weight_scale_inv",
+      "dtype": "BF16",
+      "shape": [
+        136,
+        40
+      ],
+      "data_offsets": [
+        1100608,
+        1111488
+      ],
+      "bytes": 10880,
+      "sha256": "61495ba505545f7c426e4d42262e7f3d3c8bcf498b67210487372778110d71d5"
+    }
+  ]
+}

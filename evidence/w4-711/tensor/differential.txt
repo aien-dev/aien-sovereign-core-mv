@@ -1,0 +1,46 @@
+Full real-tensor differential, 2026-10-23
+
+Source: same pinned model/checkpoint as parent differential.txt.
+Tensor: model.language_model.layers.0.mlp.gate_proj.weight, [17408,5120].
+Contiguous weight bytes 89128960; BF16 scale bytes10880, shape[136,40].
+Full tensor identities in model-source.json. No model data is committed.
+Development Node extraction copied declared contiguous byte ranges directly,
+using a fixed1MiB buffer, without quantization or layout computation.
+
+Native build:
+cat native/w4/pack.om native/w4/tensor.om > tensor.om
+quiet-build timeout30 <native-host-omc> < tensor.om > tensor.elf
+Actual compiler exit0. Compiler SHA e5d60db8... recorded fully in receipt.json.
+Native invocation for each rule0,1,2, with fresh exclusive output paths:
+quiet-build timeout180 tensor.elf gate.weights gate.scales gate-R.w4 gate-R.e8 17408 5120 R
+All actual exits0; no timing claim is made from development timeout commands.
+Outputs per rule: W4 44564480bytes; E8 2785280bytes. Total47349760bytes.
+
+Existing reference binary/source/physics pins are unchanged from the original
+small-block differential. GDB stopped its own reference child at main before
+running tests. Allocations: weights89128960bytes, BF16scales10880bytes,
+W4output44564480bytes, E8output2785280bytes. Raw files restored to input buffers.
+Called explicitly typed omega_gpu_w4_from_fp8_rule:
+  (17408,5120,weights,scales,0,17408,rule,output,e8,0)
+for each rule0,1,2. All three return0. Dumped full output buffers.
+GDB process exit0. Existing reference is a C development oracle only;
+there is no C dependency in the delivered native tensor executable.
+
+Six independent full-file cmp operations returned0: each native W4 and E8
+file against its respective reference output for all three rules.
+SHA256 values and tool/source/binary hashes are in receipt.json.
+The author's1219868-check and independent4381347-check arithmetic suites were
+recompiled with this native-host compiler, executed, and passed with0failures.
+Parent also rebuilt the independent256x256 fixture, repeated all three native
+conversions, and compared all six files successfully. The independent reviewer
+separately tested refusal/cleanup/layout and a compiling wrong-scale mutant.
+
+Exploratory compilation refusals before final source freeze: reserved word
+own, omitted array lengths, passing a global as array argument, and compiler
+register capacity. Corrected within caller code; shared compiler unchanged.
+None is counted as a passing mutation or execution.
+
+NOT_RUN: GPU, whole-model inference/quality/latency, physical allocator,
+checkpoint parsing/identity admission, crash recovery, injected disk-full or
+close/sync failures. Native outputs require successful exit before consumption.
+Repository preflight remains failed as recorded in ../preflight.txt.
