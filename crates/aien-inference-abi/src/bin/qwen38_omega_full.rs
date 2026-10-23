@@ -132,12 +132,19 @@ fn run() -> Result<bool, String> {
         generated.len()
     );
 
+    let kv_bf16 = std::env::var("AIEN_Q36_REF_KV_BF16").is_ok_and(|v| v == "1");
+    if kv_bf16 {
+        eprintln!("reference: matched control, bf16 K/V cache");
+    }
     // The reference: logits at every position plus the residual at every window boundary.
     let t0 = Instant::now();
     let bounds: Vec<usize> = (1..=windows).map(|w| w * wl).collect();
     let mut taps = Vec::new();
     let reference = {
         let mut r = Qwen38Reference::new(config.clone(), ShardSource::open(dir)?)?;
+        // AIEN_Q36_REF_KV_BF16=1: the matched control (bf16 K/V like the chip's cache, L306);
+        // the golden must come from the same reference (qwen38_check with the same switch).
+        r.kv_bf16 = kv_bf16;
         let mut state = r.new_state();
         r.forward_tapped(&mut state, &seq, Logits::All, &bounds, &mut taps)?
     };
@@ -288,7 +295,7 @@ fn run() -> Result<bool, String> {
         if pass { "PASS" } else { "FAIL" }
     );
     let report = json!({
-        "checkpoint": dir.display().to_string(), "layers": layers, "window_layers": wl, "windows": win_report,
+        "checkpoint": dir.display().to_string(), "layers": layers, "window_layers": wl, "reference_kv_bf16": kv_bf16, "windows": win_report,
         "positions": t, "prompt_ids": prompt, "golden_ids": generated, "chip_ids": gen_tokens,
         "reference_s": ref_s, "reference_matches_golden": ref_matches_golden, "upload_s": upload_s,
         "weight_bytes": weight_bytes, "cosine_min": cos_min, "p95_rel_max": p95_max,

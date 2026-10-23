@@ -708,6 +708,12 @@ pub struct Qwen38Reference<S: TensorSource> {
     /// TEST ONLY (L306 router probe): when set, [`Self::moe_x`] keeps every MoE layer's input
     /// residual (before the post-attention norm, `[t][hidden]`) of the last call.
     pub moe_capture: bool,
+    /// Matched control for the Omega decode path (L306 gate 1): the chip keeps every full-attention
+    /// key and value in a bf16 cache (omega_gpu_decode_attn256: k_new / v_new written as bf16,
+    /// round to nearest even, then read back for every position, the new one included) while
+    /// this reference keeps f32. When set, K (after k_norm and RoPE) and V are rounded the same
+    /// way before they enter the cache. Off by default (the plain f32 reference).
+    pub kv_bf16: bool,
     pub moe_x: Vec<Vec<f32>>,
     /// The same rows after the post-attention norm (the router's and experts' input).
     pub moe_xn: Vec<Vec<f32>>,
@@ -749,6 +755,7 @@ impl<S: TensorSource> Qwen38Reference<S> {
             route_gaps: Vec::new(),
             jitter: (0, 0.0),
             moe_capture: false,
+            kv_bf16: false,
             moe_x: Vec::new(),
             moe_xn: Vec::new(),
             route_wts: Vec::new(),
@@ -970,7 +977,7 @@ impl<S: TensorSource> Qwen38Reference<S> {
                     delta_net(&c, d, &xn, t, conv, s)
                 }
                 (Mixer::Attention(a), LayerState::Attention { k, v }) => {
-                    attention(&c, a, &xn, t, state.pos, k, v)
+                    attention(&c, a, &xn, t, state.pos, k, v, self.kv_bf16)
                 }
                 _ => return Err(format!("layer {l}: state kind differs from the weights")),
             };
@@ -1119,6 +1126,7 @@ fn delta_net(
 
 /// One gated full-attention mixer over `t` new tokens starting at position `pos0`; appends their
 /// keys and values to the cache.
+#[allow(clippy::too_many_arguments)]
 fn attention(
     c: &Qwen38Config,
     w: &AttentionWeights,
@@ -1127,12 +1135,13 @@ fn attention(
     pos0: usize,
     k_cache: &mut Vec<f32>,
     v_cache: &mut Vec<f32>,
+    kv_bf16: bool,
 ) -> Vec<f32> {
     let (nh, hd, kvd) = (c.heads, c.head_dim, c.kv_dim());
     let group = nh / c.kv_heads;
     let qg = w.q.matmul(xn, t);
     let mut k = w.k.matmul(xn, t);
-    let v = w.v.matmul(xn, t);
+    let mut v = w.v.matmul(xn, t);
     // Split per head [q | gate]; norm and turn q and k.
     let mut q = vec![0f32; t * nh * hd];
     let mut gate = vec![0f32; t * nh * hd];
@@ -1149,6 +1158,12 @@ fn attention(
             let dk = &mut k[i * kvd + hh * hd..i * kvd + (hh + 1) * hd];
             rms_norm_zc(dk, &w.k_norm, c.eps);
             rope(dk, pos0 + i, c.rotary_dim, c.rope_theta);
+        }
+    }
+    if kv_bf16 {
+        use crate::qwen3_moe::{bf16_to_f32, f32_to_bf16};
+        for x in k.iter_mut().chain(v.iter_mut()) {
+            *x = bf16_to_f32(f32_to_bf16(*x));
         }
     }
     k_cache.extend_from_slice(&k);

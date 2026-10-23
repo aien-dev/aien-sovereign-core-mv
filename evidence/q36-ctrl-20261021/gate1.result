@@ -1,0 +1,6 @@
+gate1 p1 exit=0
+gate1 p2 exit=1
+gate1 p3 exit=0
+gate1 p4 exit=0
+gate1 p1-mutant4 exit=1 (must be nonzero)
+done

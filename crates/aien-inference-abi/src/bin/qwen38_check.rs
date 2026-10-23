@@ -55,6 +55,12 @@ fn run() -> Result<(), String> {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);
+    // Matched control for the Omega decode path (L306): AIEN_Q36_REF_KV_BF16=1 rounds the
+    // full-attention K and V to bf16 as the chip's cache does (Qwen38Reference::kv_bf16).
+    model.kv_bf16 = std::env::var("AIEN_Q36_REF_KV_BF16").is_ok_and(|v| v == "1");
+    if model.kv_bf16 {
+        eprintln!("reference: matched control, bf16 K/V cache");
+    }
     let open_s = t0.elapsed().as_secs_f64();
     eprintln!("opened in {open_s:.1} s (embedding, final norm, lm_head)");
     let vocab = model.config.vocab;
@@ -175,7 +181,7 @@ fn run() -> Result<(), String> {
                 "mode": "generate", "prompt_file": text_path, "prompt_ids": prompt,
                 "generated_ids": out, "generated_text": text_out, "top5": steps,
                 "prefill_seconds": prefill_s, "step_seconds": step_s, "open_seconds": open_s,
-                "routes": routes, "route_gaps": gaps,
+                "routes": routes, "route_gaps": gaps, "kv_bf16": model.kv_bf16,
             })
         }
         _ => return Err(usage.into()),
