@@ -12,7 +12,7 @@
 //! `128 <= k <= 32768`, `1 <= groups <= 64`, every id `< experts`; any e4m3 NaN code in the
 //! weights is refused at upload (`NAN_WEIGHT`). Without the native library (`is_native()`
 //! false) every call returns `Unavailable`.
-use aien_omega_gpu::OmegaGpuError;
+use aien_omega_gpu::{OmegaGpuError, ShareToken};
 use std::fmt;
 
 /// Scale block edge (`weight_scale_inv` covers 128 x 128 weights).
@@ -104,7 +104,7 @@ impl Default for Fp8Info {
 
 #[cfg(has_omega_fp8)]
 mod ffi {
-    use super::Fp8Info;
+    use super::{Fp8Info, Fp8Share};
     #[repr(C)]
     pub struct OmegaGpuFp8Tensor {
         _private: [u8; 0],
@@ -119,6 +119,11 @@ mod ffi {
             out: *mut *mut OmegaGpuFp8Tensor,
         ) -> i32;
         pub fn omega_gpu_fp8_tensor_free(t: *mut OmegaGpuFp8Tensor);
+        pub fn omega_gpu_fp8_tensor_export(t: *const OmegaGpuFp8Tensor, out: *mut Fp8Share) -> i32;
+        pub fn omega_gpu_fp8_tensor_import(
+            s: *const Fp8Share,
+            out: *mut *mut OmegaGpuFp8Tensor,
+        ) -> i32;
         pub fn omega_gpu_fp8_gemv_f32(
             t: *const OmegaGpuFp8Tensor,
             expert: u32,
@@ -234,6 +239,19 @@ pub fn check_shape(experts: usize, n: usize, k: usize) -> Result<(), OmegaGpuErr
     Ok(())
 }
 
+/// A resident FP8 tensor published for import by another process of the same user (L383 shared
+/// weights): the shape plus one share token per device buffer (codes, scales). Mirrors omega
+/// `OmegaGpuFp8Share` (`src/omega_gpu_fp8_api.h`) field for field; probe: 64 bytes, `w` at 16, `s` at 40.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Fp8Share {
+    pub experts: u32,
+    pub n: u32,
+    pub k: u32,
+    pub w: ShareToken,
+    pub s: ShareToken,
+}
+
 /// `experts` FP8 projections of `[n][k]`, resident on the device until dropped. Not `Sync`:
 /// callers serialise use behind a lock.
 pub struct Fp8Tensor {
@@ -270,6 +288,46 @@ impl Fp8Tensor {
         #[cfg(not(has_omega_fp8))]
         {
             std::ptr::null_mut()
+        }
+    }
+
+    /// Publishes this tensor for another process of the same user (L383 shared weights). The
+    /// pages stay mapped until every holder has dropped them, this owner included.
+    pub fn export(&self) -> Result<Fp8Share, OmegaGpuError> {
+        #[cfg(has_omega_fp8)]
+        {
+            let mut s = Fp8Share::default();
+            // SAFETY: ptr is a live owned tensor; s is a valid out-pointer.
+            let rc = unsafe { ffi::omega_gpu_fp8_tensor_export(self.ptr, &mut s) };
+            if rc != 0 {
+                return Err(rc_err(rc));
+            }
+            Ok(s)
+        }
+        #[cfg(not(has_omega_fp8))]
+        {
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
+
+    /// Maps a tensor another process published with [`Self::export`] into this process, read-only
+    /// and with no copy: a normal `Fp8Tensor` from here on (entry, gemv, graph wiring, drop).
+    pub fn import(s: &Fp8Share) -> Result<Self, OmegaGpuError> {
+        let (experts, n, k) = (s.experts as usize, s.n as usize, s.k as usize);
+        check_shape(experts, n, k)?;
+        #[cfg(has_omega_fp8)]
+        {
+            let mut ptr = std::ptr::null_mut();
+            // SAFETY: s is a valid share by value; ptr is a valid out-pointer.
+            let rc = unsafe { ffi::omega_gpu_fp8_tensor_import(s, &mut ptr) };
+            if rc != 0 || ptr.is_null() {
+                return Err(rc_err(rc));
+            }
+            Ok(Self { ptr, experts, n, k })
+        }
+        #[cfg(not(has_omega_fp8))]
+        {
+            Err(OmegaGpuError::Unavailable)
         }
     }
 

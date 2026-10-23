@@ -319,6 +319,52 @@ impl ResidentTensor {
         }
     }
 
+    /// Publishes this resident weight for another process of the same user (L383 shared weights):
+    /// the share names the device pages, which stay mapped until every holder has dropped them.
+    pub fn export(&self) -> Result<TensorShare, OmegaGpuError> {
+        #[cfg(has_omega_gpu)]
+        {
+            let mut s = TensorShare::default();
+            // SAFETY: ptr is a live owned tensor; s is a valid out-pointer.
+            let rc = unsafe { ffi::omega_gpu_tensor_export(self.ptr, &mut s) };
+            if rc != ffi::OMEGA_GPU_MATMUL_OK {
+                return Err(rc_error(rc));
+            }
+            Ok(s)
+        }
+        #[cfg(not(has_omega_gpu))]
+        {
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
+
+    /// Maps a weight another process published with [`Self::export`] into this process, read-only,
+    /// with no copy: a normal `ResidentTensor` from here on (its own mapping, dropped like any other).
+    pub fn import(s: &TensorShare) -> Result<Self, OmegaGpuError> {
+        #[cfg(has_omega_gpu)]
+        {
+            let mut ptr: *mut ffi::OmegaGpuTensor = std::ptr::null_mut();
+            // SAFETY: s is a valid share by value; ptr is a valid out-pointer.
+            let rc = unsafe { ffi::omega_gpu_tensor_import(s, &mut ptr) };
+            if rc != ffi::OMEGA_GPU_MATMUL_OK || ptr.is_null() {
+                return Err(rc_error(if rc == 0 {
+                    ffi::OMEGA_GPU_MATMUL_BAD_ARGS
+                } else {
+                    rc
+                }));
+            }
+            Ok(Self {
+                ptr,
+                k: s.k as usize,
+                n: s.n as usize,
+            })
+        }
+        #[cfg(not(has_omega_gpu))]
+        {
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
+
     pub fn k(&self) -> usize {
         self.k
     }
@@ -1148,6 +1194,10 @@ pub fn reserve_serving(b: &ServingBounds) -> Result<(), OmegaGpuError> {
 
 /// Driver allocation counters since the process started (omega `omega_gpu_session_alloc_stats`).
 pub use ffi::OmegaGpuAllocStats as AllocStats;
+/// One shareable device buffer (L383 shared weights, omega platform ABI 1.3).
+pub use ffi::OmegaGpuShareToken as ShareToken;
+/// A resident matmul weight published for import by another process (L383).
+pub use ffi::OmegaGpuTensorShare as TensorShare;
 
 /// Read omega's allocation counters; `None` in the stub (no engine, nothing allocates).
 pub fn alloc_stats() -> Option<AllocStats> {
