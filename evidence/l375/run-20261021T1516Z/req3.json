@@ -1,0 +1,939 @@
+{
+  "model": "qwen3.6-35b-a3b-fp8",
+  "stream": true,
+  "temperature": 0,
+  "max_tokens": 48,
+  "aien_return_token_ids": true,
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_00",
+        "description": "# Omega and AIEN ABI qualification: inventory (2026-10-11) Scope: mission sections 4 to 10 (`~/handoffs/2026-10-11-abi-qualification-mission.md`). Sources read at: omega `6c6180cf` (omega.lock; ABI headers identical to omega main `82f31173`), physics `6d7cf0d4`, aienos `b84c0a67` (omega aienos.lock) and aienos main `3b2004b6`, sovereign-core main `bd438bcc`. Tags: **implemented** (true before this work), **fixed here** (defect or gap closed by the abi-qual PRs), **partial**, **missing**, **unnecessary**. `sc` = this repository, `om` = omega, `ao` = aienos. ## Boundaries | Boundary | Producer | Consumer | Linked into production | |---|---|---|---| | rxc_host v2 (composition facade) | om `src/runtime/rxc_host_abi.h`, `.c`; archive `librx_compose.a` (`mk/rx_compose_lib.mk`) | sc `crates/aien-omega-compose` | yes (aien-runtime, aien-cli) | | omega GPU engine | om `src/omega_gpu_{matmul_api,session,serving,elementwise_api,attention_api}.h`; `libomega_gpu.a` | sc `crates/aien-omega-gpu`, used by `aien-inference-abi` | yes on the GB10 build ",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_01",
+        "description": "# ADR 0001: Trust and Evidence Foundation - **Status**: Accepted - **Date**: 2026-09-19 - **Author**: Drake Stapleton <aien@aienos.com> - **Milestone**: milestone/trust-evidence-foundation (Milestone 1) ## Context AIEN has matured into a native systems research project. Sustained adoption across research laboratories and enterprise deployments requires an unambiguous foundation of legal trust, empirical evidence, and security terminology. Prior repository iterations contained semantic tensions: 1. Licensing terms combined software runtime rights with reciprocal weight transparency covenants. 2. Performance claims were maintained manually across multiple documentation files, leading to divergent metrics. 3. Security documentation employed absolute phrases like \"zero telemetry\" and \"all secrets in TPM\" that conflicted with local diagnostic observability and cross-platform hardware realities. 4. Portability documentation asserted universal support across platforms without explicit verification evidence. ## Decisions ### 1. Separation of ",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_02",
+        "description": "# ADR 0003: Persistent KV cache: versioned chunk identity, storage contract, ownership and recovery - **Status**: Proposed (2026-10-13), revised 2026-10-13 after the independent review (section 17). Binding design for sovereign-core #484 and #485 and aienos #367. Implementation cuts: `docs/persistent-kv/CUTS.md`. Metrics and settings: `docs/persistent-kv/METRICS_AND_SETTINGS.md`. - **Date**: 2026-10-13 - **Author**: Drake Stapleton <aien@aienos.com> (design drafted by the persistent-KV design owner, Fable 5.1) - **Source read at**: sovereign-core `origin/main` f560be4; aienos `origin/main` 5429602; LMCache `4d69cdc4` (Apache-2.0). - **Evidence labels**: VERIFIED (read in source at the cited line, or run and the output seen), INFERRED (follows from source, not run), UNKNOWN (not established), PLANNED (a test or measurement that is designed here and has no receipt yet). Nothing in this ADR was run on hardware, and no proposed test has a receipt: every test name below is PLANNED until its cut merges with a green run. ## In plain words To",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_03",
+        "description": "# ADR 0004: One generation controller, many forward passes: the seam between them - **Status**: Accepted (2026-10-15). The objective, the order, the acceptance criteria and the rule that this interface is fixed before any extraction begins were decided by Drake on 2026-10-15 and are binding. The interface itself was designed three ways in parallel (minimal, GPU path first, test surface first), compared, and merged by the design owner (Fable 5.1); the merged result is what this ADR records. - **Date**: 2026-10-15 - **Author**: Drake Stapleton <aien@aienos.com> (design drafted by the seam design owner, Fable 5.1) - **Source read at**: aien-sovereign-core `origin/main` 4c83e389 (OWN-8B stage 1b merged). Every file:line below is from that commit. The 8B plan is `~/handoffs/2026-10-15-own8b-design.md` (rev 2026-10-15 FP8). The architecture review that found the duplication is the 2026-10-15 inference-stack review (candidates 1 and 2). - **Evidence labels**: VERIFIED (read in source at the cited line), INFERRED (follows from source), PLANNE",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_04",
+        "description": "# AIEN Inference ABI & Native Runtime Architecture Specification ## 1. Research Thesis Modern inference engines expend substantial compute and memory overhead mitigating runtime friction introduced by Python, dynamic tracing guards, and interpreter-level scheduling. This research branch evaluates the thesis: > How much of modern LLM inference latency, memory pressure, and energy consumption belongs to forward tensor mathematics, and how much is an artifact of the software orchestration stack? By systematically replacing each layer of the inference engine with native compiled Rust and Omega kernels, we measure the empirical delta across each removal. --- ## 2. Silicon Execution Architecture AIEN serves as the native compiled inference runtime. High-performance tensor execution is decoupled into silicon backends conforming to the AIEN Inference ABI: ```text AIEN / ENOS │ aien-inference-abi │ ┌───────────────┴────────────────┐ │ │ ▼ ▼ Blackwell Native Native ",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_05",
+        "description": "# AIEN Runtime Architecture Specification ## 1. Foundational Thesis AIEN turns one AI machine into a persistent, branchable computational world where hundreds or thousands of agents can share context, memory, and inference state efficiently instead of behaving like hundreds or thousands of independent API requests. The runtime eliminates fragmented multi-daemon infrastructure. Agents are not OS processes. Sequences are not OS threads. Core runtime subsystems are not independent background daemons. AIEN runs as a single compiled native host on hardware silicon, managing sequence lifecycles, copy-on-write memory, and hardware-level tensor execution within a unified execution model. ```text ┌─────────────────────────────────────────────────────────────────────────┐ │ AIEN RUNTIME │ │ │ │ ┌──────────────────────────────�",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_06",
+        "description": "# AIEN Sovereign Systems API Stability Policy This document defines the interface stability guarantees, deprecation lifecycles, and semantic versioning commitments for the AIEN Sovereign Native Systems Architecture. --- ## 1. Versioning Commitment AIEN adheres to Semantic Versioning 2.0.0 (`MAJOR.MINOR.PATCH`): - **MAJOR**: Incompatible API modifications to Tier 1 contracts. - **MINOR**: Backward-compatible feature additions, new crate modules, or evolving modifications to Tier 2 interfaces. - **PATCH**: Backward-compatible bug fixes, performance optimizations, and security patches. Prior to `v1.0.0`, minor releases (`v0.2.0`, `v0.3.0`) may introduce changes to Tier 2 interfaces as documented below. Tier 1 interfaces maintain stability guarantees across all `v0.x` minor releases. --- ## 2. Interface Stability Tiers All public APIs, protocols, traits, and RPC routes across AIEN crates belong to one of three tiers: ### Tier 1: Stable Contracts Tier 1 interfaces define the core interoperability contracts of the ecosystem. External integr",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_07",
+        "description": "CHANGED: > **SUPERSEDED / HISTORICAL: NOT AN ACTIVE PROJECT PLAN** > > Archived on 2026-09-27. Whole-system architecture and sequencing now live in `aien-spark/aien-architecture`. > > Current authority: > - https://github.com/aien-spark/aien-architecture/blob/main/PLAN_AUTHORITY.md > - https://github.com/aien-spark/aien-architecture/blob/main/CURRENT_EXECUTION_PLAN.md > > Retained for provenance only. --- # AIEN Complete System Architecture ## Universal Local AI Runtime, Heterogeneous Compute Fabric, Skills/Tools, J-Space, Security, Memory, Provenance, and Self-Improvement **Document status:** Architecture RFC / implementation roadmap **Snapshot date:** September 22, 2026 **Primary composition root reviewed:** `aien-spark/aien-sovereign-core` **Current public `main` snapshot reviewed:** `cacf2264b52cac20ba0ac6aee55fcde9110d97b6` **Naming convention:** Physical hosts are always referred to as **Machine 1**, **Machine 2**, **Machine 3**, and so on. Hardware type is metadata, not identity. --- # 1. Executive Summary AIEN should become a **single ",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_08",
+        "description": "# ALLEN end-to-end demo v1 (predeclared) Status: PREDECLARED. This file is committed before any demo run. A run that needs a change to these rules records the change as v2 with its reason; it never edits v1 after a run. Campaign 2, aien-architecture#162. Base: aien-sovereign-core main at the commit this file lands on. ## What the demo must show One persistent ALLEN identity carried through the real chain, using the binaries built from this repository: request -> ALLEN identity and context -> inference (real model) -> capability grant -> authorization (desk MAC on) -> approved effect -> World commit -> memory (scoped) -> evidence -> restart -> same identity and state -> model swap -> same identity and state No synthetic fixtures in the chain. Test helpers may create the clean state directory and send operator input; they may not fake a model output, a grant, a ledger record or a receipt. ## Environment and labels (every receipt carries one) - `real-CPU`: the daemon and CLI on the Spark host Linux, model on CPU. This is the label this d",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_09",
+        "description": "# ALLEN end-to-end demo v4-gb10 (predeclared) Status: PREDECLARED. To be committed and pushed before any v4-gb10 run. v1 to v3 and their results stay as recorded. Refs aien-architecture#159, #162. Question: does the v3 ALLEN chain (identity, memory, inference, capability, AEGIS, approved effect, World commit, Cortex, evidence) hold when inference runs on the qualified GB10 candidate instead of the CPU reference? ## Candidate sovereign-core main 6bbe2ec269768c7c9b94b9484c757ca45f55f564 (the sc#277 attempt-3 build: #311 + #313), omega 6c6180cf, PHYSICS 6d7cf0d4, the same environment as ~/workspace/hive/Q277/DECLARATION.md. The GB10 daemon is the SEALED binary `~/workspace/hive/Q277/bin/aien-cli-main`, sha256 `152c0aecce662f618bf683c8854d6de56a7075e0461c2433570f4c15b68571a5` (Q277 `SHA256SUMS`, `IDENTITY.txt`). The driver checks the file against that sha256 (written in the script and in `SHA256SUMS`) and refuses on any mismatch, and refuses unless the tree is 6bbe2ec2 plus demo-only files. All client commands and the M-B daemon use the v",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_10",
+        "description": "# ALLEN end-to-end demo v1: result Spec: DEMO-v1.md (committed at a4872a0 before any run, not edited). Driver: scripts/allen_e2e_demo.sh. Receipts: receipts-v1.jsonl (one line per step, 10 lines). Raw outputs: artifacts-v1/. Label: real-CPU (daemon and CLI on the Spark host, model on CPU, desk MAC on). real-GB10 and native-AIENOS: NOT_RUN. mock: not used. Code that ran: repository commit ffbb0a47 (the receipts carry the full hash and the sha256 of the binary). ## Verdict: FAIL The overall verdict is PASS only if S0-S8 and S3-red all pass. Three steps failed (S4, S7, S8). Six steps and the negative control passed. The chain from request to approved write to restart to forget works on real models on the CPU. What fails is the provenance link to the model and the identity, one literal wording in S7, and one model output. ## Step table | Step | Result | Evidence | |------|--------|----------| | S0 | PASS | Daemon up on M-A, log line \"Authorize MAC: on\", allen status says not_engaged, no ALLEN state directory before S1. | | S1 | PASS | One",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_11",
+        "description": "# ALLEN end-to-end demo v2: result Spec: DEMO-v2.md (committed at 43de95b before any v2 run, not edited) on top of DEMO-v1.md. Driver: scripts/allen_e2e_demo.sh with DEMO_VERSION=v2. Receipts: receipts-v2.jsonl (one line per step, 10 lines). Raw outputs: artifacts-v2/. Label: real-CPU (daemon and CLI on the Spark host, model on CPU, desk MAC on). real-GB10 and native-AIENOS: NOT_RUN. mock: not used. Stack: main at f5ba66bf3a1b (includes the provenance link, sc#318) plus demo-only files. Every receipt carries the full commit and the binary sha256. Run: 2026-10-08, 06:40 to 06:43 UTC. v1 stays recorded as FAIL (RESULT-v1.md). This run does not change that. ## Verdict: FAIL S3 and S8 failed, so S4 and S5 had no commit to check. S0, S1, S2, S3-red, S6 and S7 passed. The cause is one predeclared v2 change meeting a product rule. v2 added the format rules to the request: \"Start with a Markdown heading line that begins with \"# \". Use at most 200 words.\" The runtime reads measurable requirements out of every request before it lets a model wri",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_12",
+        "description": "# ALLEN end-to-end demo v3: result Spec: DEMO-v3.md (committed at 4a95c80 and 7f53bdd before any v3 run, not edited) = DEMO-v2.md unchanged. Driver: scripts/allen_e2e_demo.sh with DEMO_VERSION=v3. Receipts: receipts-v3.jsonl (one line per step, 10 lines). Raw outputs: artifacts-v3/. Label: real-CPU (daemon and CLI on the Spark host, Linux, model on CPU, desk MAC on). real-GB10 and native-AIENOS: NOT_RUN. mock: not used. Stack: main at 3eaa060fab33 plus demo-only files (driver label, every receipt). Driver commit c77801d71f69, daemon/CLI binary sha256 ae968900e253... (in every receipt). Main 3eaa060 includes the first-line heading requirement (sc#319) and the provenance link (sc#318). It does NOT include the double-effect fix (sc#321, issue sc#320: a stop/resume after a DONE effect could mint a second grant). No step of this demo stops or resumes after a DONE effect, so that defect is not exercised here, and this run is no evidence for or against it. Run: 2026-10-08, 07:25:33 to 07:32:38 UTC. v1 (FAIL, RESULT-v1.md) and v2 (FAIL, RESUL",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_13",
+        "description": "# ALLEN end-to-end demo v4-gb10: result Spec: DEMO-v4-gb10.md = DEMO-v2.md with M-A = Qwen3-4B-Instruct-2507 (cdbee75) on the GB10 and M-B = SmolLM2-1.7B on the CPU reference. Frozen declaration: aien-architecture#159 issuecomment-6060242596, pre-run note issuecomment-6060283301. Driver: scripts/allen_e2e_demo.sh with DEMO_VERSION=v4-gb10, run from a detached tree at 6e24bbc (scripts/ and docs/ byte-identical to PR head fe778ec; driver sha256 24e14919234c8660ba01072610efd497693cccd8c5a8f70299c68149ba64c6e4). Receipts: receipts-v4-gb10.jsonl (one line per step, 10 steps plus the GB10-lives line). Raw outputs: artifacts-v4-gb10/. GB10 daemon: the sealed sc#277 attempt-3 candidate binary, sha256 152c0aecce662f618bf683c8854d6de56a7075e0461c2433570f4c15b68571a5, built from sovereign-core 6bbe2ec2 (hash checked before the hold and by the driver before every GB10 life). CPU leg daemon/CLI: built from 6e24bbc, sha256 d133c38a0062... (in every receipt). Label: S0-S6 real-GB10 (Linux-hosted GB10, native Omega engine, no CUDA). S7-S8 real-CPU. N",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_14",
+        "description": "# Campaign C1: Branch-Native Inference Correctness ```text campaign_id = \"c1\" spec_version = 1 status = DRAFT (frozen on merge of feat/c1-campaign-spec) ``` ## 0. Question > Does the native Agent State / scheduler / KV / transformer / GB10 architecture preserve correct inference under branching, scale, and resource pressure? C1 answers that question and nothing else. It is a correctness campaign. Performance, placement optimization, AEGIS, Cortex, MCP, tool effects, multi-model support, INT4/INT8, and distributed inference are out of scope (Section 11). Path under test: ```text request -> aien-runtime -> aien-scheduler -> SequenceArena -> aien-kv-cache (physical KV/COW) -> native transformer -> aien-inference-abi (BlackwellGb10Backend + ReferenceCpuBackend) -> generated tokens ``` ## 1. Evidence Model Three roles produce three levels of evidence. They are never merged. | Role | Does | Must not | | ---- | ---- | -------- | | Builder / operator | Builds the environment, runs the official harness scripts, fixes infrastructure failures | ",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_15",
+        "description": "# CAND-4 qualification: acceptance criteria (declared before any qualification run) ```text campaign_id = \"cand4-qualification\" spec_version = 1 candidate = CAND-4 = sovereign-core main after the omega pin bump (sc#232), with the release gate (#230) and scoring contract v5 (#231) status = DRAFT until the block in section 1 holds no UNFROZEN value. The freeze is the commit that fills that block; it changes this file only and is made before any qualification run. Nothing in this file changes after the freeze; a change is a new spec_version. scoring = docs/campaigns/scoring/SCORING-v5.md (score-rows.sh), declarations q1.decl.json and q2.decl.json in this directory, committed before the freeze scope = Linux-hosted, single machine (the Spark, GB10), the sovereign-core daemon path: one workflow (propose, authorize, execute, explain, restart, recall) and its recovery. Release internal-only (owner decision). ``` Every claim below names its source (file:line at the commit stated, or a command). Anything else is marked UNVERIFIED. Line numbers ",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_16",
+        "description": "# CAND-4 qualification verdict Acceptance: `ACCEPTANCE-CAND4.md`, frozen in commit 130beeb before any run (sc d5b78ff, omega c0369e6, aienos b84c0a6, physics 6d7cf0d, manifest aien-architecture 7f99d7e). Binaries: the CAND4-BUILD-REAL3 double build (aien-cli ad6b7eb5, 25 of 25 identical); cpu-fault 3ba0a8e6 built here from the frozen sc. The pinned digests were checked in the parent run before the first round (`receipts/run-qual.out` line 9: \"all pinned digests equal the frozen values\"; `refuse_unless_digests` exits 3 on a mismatch) and again after every run by Q2w (14 of 14 OK). Harness defect, disclosed: each round runs as a fresh child process (`bash \"$0\" _q1_round` / `_q2_fixture`) and `inputs.sh` resets `DIGESTS='[]'` in the child, so the 9 Q1 attempt records carry `digests_checked_before_round: []` and the q2-fixture and q2-cases records carry `digests: []`. No per-round re-check inside the child is recorded; the parent check and the post-run check are the evidence. Receipts: `receipts/`, each named by the sha256 of its content.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_17",
+        "description": "# Receipt: DUAL serve observation snapshot (read-only macroscopic adapter, DUAL-3a) Program: ARCH-0031 \"DUAL, Constraint Pricing for Soft Resource Budgets\". Deliverable: an immutable snapshot of the serve path built only from existing exact counters, with normalized densities and exact deltas, for DUAL observation. Companion to the `serve.admit_preempt` decision observer (`2026-10-04-serve-observer-receipt.md`); independent of it (no shared code, no dependency on that branch). **Gate verdict: none claimed.** `DUAL_ADVISORY_SCHEDULER` is NOT claimed PASS. No snapshot field is an authority input anywhere; nothing here can change a scheduling, admission, preemption or KV decision. ## 1. Identity | Field | Value | |---|---| | Repository | `aien-dev/aien-sovereign-core` | | Base commit (GitHub `main`) | `91fba8fc0f00fd09fc3e9a6137522af3ae79c4e1` | | Branch | `dual/macro-snapshot` (from `main`, not stacked) | | Tree | clean at each recorded command | | Compiler | `rustc 1.98.1 (48a229cea 2026-09-01)`, `cargo 1.98.1 (797e8a9bc 2026-08-05)` |",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_18",
+        "description": "# Receipt: DUAL `serve.admit_preempt` read-only observer (DUAL-3a instrumentation) Program: ARCH-0031 \"DUAL, Constraint Pricing for Soft Resource Budgets\", §7.3 (decision sites observed through a read-only tap), gate DUAL-3 prerequisite \"at least one registered decision site with a read-only tap\". Site: `serve.admit_preempt` (DUAL_CURRENT_STATE §4), production owner `aien-scheduler::AienScheduler::build_scheduled_batch`. **Gate verdict: none claimed.** This receipt records instrumentation (DUAL-3a). `DUAL_ADVISORY_SCHEDULER` is NOT claimed PASS: no `DualRecommendation` is produced, no pre-registered workload set with recommendation-versus-actual analysis exists yet, and no prediction-quality claim is made. The tap changes no production decision; the evidence below is that it changes none. ## 1. Identity | Field | Value | |---|---| | Repository | `aien-dev/aien-sovereign-core` | | Base commit (GitHub `main`) | `91fba8fc0f00fd09fc3e9a6137522af3ae79c4e1` | | Branch | `dual/serve-observer` | | Candidate commit | filled in §9 after the ",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_19",
+        "description": "# NEXT-PHASE-1: acceptance criteria (frozen before any campaign run) ```text campaign_id = \"next-phase-1\" spec_version = 1 status = FROZEN at the commit that adds this file (cut 0). The implementation (cut 1a omega librx_compose.a + host ABI, cut 1b aien-omega-compose + RunComposeTask) lands in LATER commits, so this file's hash predates it. ``` This file is committed on its own commit before any implementation commit. Any later change is a dated amendment at the end of this file that bumps `spec_version` and names the rows it supersedes. Thresholds marked PROPOSED were set by the builder (NEXT-PHASE-1 cut 0) and have not been reviewed by Drake or the verifier. ## 1. The bounded task > Remember the operator's project constraints; inspect an authorized local workspace > directory; propose one file change; obtain authorization for the committed effect; > execute it; explain the result citing recorded evidence; restart; recall the > constraints and the effect under the same durable identity (AienMachineId). The eight steps, each of which",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_20",
+        "description": "# NEXT-PHASE-1 campaign v2: acceptance criteria (frozen before any v2 code or run) ```text campaign_id = \"next-phase-1\" spec_version = 2 status = FROZEN at the commit that adds this file. The v2 code (fixed proposal template, bounded automatic retry, omega.lock bump) lands in LATER commits, so this file's hash predates it. supersedes = nothing in Section 3 of ACCEPTANCE.md (spec_version 1). ``` v1 stands as recorded: receipts `92acb566...` (attempt 4) and the three attempts before it are never edited. v1 verdict FAIL on \"Human interventions: rescues\" = 3. ## 1. Task, steps, receipts: unchanged The bounded task, the eight steps S1..S8 and their recorded states (ACCEPTANCE.md Section 1), the environment class (Section 2) and both receipt formats (Section 4) apply unchanged. ## 2. Pass criteria: v1 thresholds, unchanged | Criterion | Threshold (as v1) | |-----------|-------------------| | Task completion | 8 of 8 | | Correctness: committed content | byte-identical, digests equal | | Correctness: recall | byte-identical | | Latency | repo",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_21",
+        "description": "# NEXT-PHASE-1 campaign v3: acceptance criteria (frozen before any v3 code or run) ```text campaign_id = \"next-phase-1\" spec_version = 3 status = FROZEN at the commit that adds this file. The v3 code (measured attempt budget, driver S8 fix) lands in LATER commits. The one commit before this file (3ec13bd) adds only observation: an AIEN_STEP_LOG line and chat template tests, no behaviour change. base = sovereign-core main 91751b6 (v2, #217 merged). ``` v1 and v2 stand as recorded; their receipts (`92acb566...` and the three before it, `2c12a5ba...`) are never edited. v2 verdict FAIL on task completion: attempt 1 echoed the prompt in 48 tokens (16 056 ms) and the 25 s budget left no room for attempt 2. ## 1. Task, steps, receipts, pass criteria: unchanged ACCEPTANCE.md Sections 1, 2 and 4 and ACCEPTANCE-v2.md Section 2 apply unchanged: the bounded task, steps S1..S8, the environment class, both receipt formats, every threshold of the v2 table and the rescue definition. One driver launch, one goal, one task, two daemon starts. ## 2. Meas",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_22",
+        "description": "# NEXT-PHASE-1 campaign v4: acceptance criteria (frozen before any v4 code or run) ```text campaign_id = \"next-phase-1\" spec_version = 4 status = FROZEN at the commit that adds this file. The v4 code (assistant prefix, declared warm-up, recomputed budget, reply logging) lands in LATER commits, so this file's hash predates it. base = next-phase/compose-v3 69f7603 (main 91751b6 + v3, PR #221 open); rebased onto main once #221 merges. ``` v1, v2 and v3 stand as recorded; their receipts are never edited. v3 verdict FAIL: attempt 1 echoed the prompt, attempt 2 answered in prose; the control proved the request already used the model's chat template, so the echo is not a prompt-format bug. ## 1. Task, steps, receipts, pass criteria: unchanged ACCEPTANCE.md Sections 1, 2 and 4, the ACCEPTANCE-v2 Section 2 table (every threshold and the rescue definition) and ACCEPTANCE-v3 Section 3d (S8 scored on its own) apply unchanged. One driver launch, one goal, one task, two daemon starts, zero hand input. ## 2. Declared production-path changes (v4) **(",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_23",
+        "description": "# NEXT-PHASE-1 campaign v5: acceptance criteria (frozen before any v5 code or run) ```text campaign_id = \"next-phase-1\" spec_version = 5 status = FROZEN at the commit that adds this file, EXCEPT the block in Section 5 marked \"TO BE FROZEN by orchestrator diagnostic\". That block is filled in exactly once, in its own commit, before any v5 campaign run; nothing else in this file changes after this commit. The v5 code (finish reason in the proposal attempts, v5 receipt rows, negative tests, v5 driver wrapper) lands in LATER commits. base = next-phase/compose-v4 eecfb2c (PR #223, open). ``` v1 to v4 stand as recorded; their receipts, replies and VERDICT-v4.md are never edited. v4 verdict FAIL: the receipt said 8 of 8 PASS, but the model wrote a wrong path, the literal text `New file content:`, the chat marker `<|user|>`, and stopped at the 48-token limit (VERDICT-v4.md Section 1). The frozen rows compared only digests and counts, so they could not see it (VERDICT-v4.md Section 2). v5 closes that gap. Each new row below checks what the task",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_24",
+        "description": "# NEXT-PHASE-1 campaign v6: acceptance criteria (frozen before any v6 code or run) ```text campaign_id = \"next-phase-1\" spec_version = 6 status = FROZEN at the commit that adds this file; nothing in it changes afterwards. The v6 code, harness, fixtures and negative tests land in LATER commits. base = sovereign-core main d5b78ff7a6be14d23e3cb00d3f9c4b4751442ffa omega pin = omega.lock on main at freeze: c0369e6705a4b0cb800978846e78915126a1b7f7 (omega#322; its aienos.lock b84c0a67590a934f3f3e001b12ec85ebc086a9eb) scoring = contract \"scoring-v5\" (docs/campaigns/scoring/SCORING-v5.md, scorer docs/campaigns/scoring/score-rows.sh), declaration docs/campaigns/scoring/declarations/np1-v6.decl.json (Section 7) compose prefix = `filename:` (`COMPOSE_ASSISTANT_PREFIX`, spine.rs:727 on main; one prefix for every template: main has no per-template prefix lookup at freeze) ``` v1 to v5 stand as recorded; their specs, receipts, replies and VERDICT files are never edited. v5 PASSED three short single-file writes and said what it did not cover (VERDICT",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_25",
+        "description": "# NEXT-PHASE-1 campaign v7: acceptance criteria (frozen before any v7 run) ```text campaign_id = \"next-phase-1\" spec_version = 7 status = FROZEN at the commit that adds this file; nothing in it changes afterwards. v7 is NOT RUN until the two code fixes of Section 4 are merged to main. base = sovereign-core main 328a7e937ca59f6aeaaa9649500b018e701e95a3 (at the time of writing) omega pin = omega.lock on main at writing: c0369e6705a4b0cb800978846e78915126a1b7f7 (as v6) scoring = contract \"scoring-v5\" (docs/campaigns/scoring/SCORING-v5.md, scorer docs/campaigns/scoring/score-rows.sh), declaration docs/campaigns/scoring/declarations/np1-v7.decl.json (Section 7) rows module = docs/campaigns/next-phase-1/rows-v7.jq (Section 2) ``` v1 to v6 stand as recorded; their specs, receipts, replies and VERDICT files are never edited. v6 FAILED 52 of 73 rows (VERDICT-v6.md: 73 declared rows, 52 PASS, 21 FAIL, none missing). This file freezes v7 before anything is built or run. It changes three things and keeps everything else of ACCEPTANCE-v6.md. ## 1.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_26",
+        "description": "# NEXT-PHASE-1 campaign v8: acceptance criteria (frozen before any v8 run) ```text campaign_id = \"next-phase-1\" spec_version = 8 status = FROZEN at the commit that adds this file; nothing in it changes afterwards. base = sovereign-core main 27b2e16 (v7 verdict merged), plus this branch omega pin = omega.lock on main at the run (ACCEPTANCE-v6 Section 8 pin rule applies) scoring = contract \"scoring-v5\" (docs/campaigns/scoring/SCORING-v5.md, scorer docs/campaigns/scoring/score-rows.sh), declaration docs/campaigns/scoring/declarations/np1-v8.decl.json (Section 7) rows module = docs/campaigns/next-phase-1/rows-v8.jq (Section 2) edit re-derivation = crates/aien-runtime/examples/np1_edit_merge.rs, source sha256 b370e829516763782795ae855344816f246b5436c2275715f0902199c173e695 ``` v1 to v7 stand as recorded; their specs, receipts, replies and VERDICT files are never edited. v7 FAILED 2 of 73 rows (VERDICT-v7.md: 71 PASS, T5/A2 and T5/T5-CM, one cause). This file freezes v8 before anything is run. It changes the approval row, adds two held-out ",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_27",
+        "description": "# NEXT-PHASE-1 campaign receipts Each receipt is named by the sha256 of its content and never edited. - `ed605453ca5e595e9645e156abe7b063e2a8239a4a8db522b8ebd5fdf954d9bf.json` verdict FAIL, sovereign-core 0503ce4 (2026-10-06T02:27Z) - `8a5997b00aa1de7ae2277a7a4306bc6ea0548f87e8ee9b3a4c08d2eb78efe2bb.json` verdict FAIL, sovereign-core 0503ce4 (2026-10-06T02:27Z) - `9dab3cf8b4c371f8a8e7fafa110287abcdac0ed6ae1c9438b961de4403079790.json` verdict FAIL, sovereign-core 0503ce4 (2026-10-06T02:27Z) - `92acb5667736198242b3e2b508d08f383a52a95b47476b9f8c002d68ed97c043.json` verdict FAIL, sovereign-core 0503ce4 (2026-10-06T02:27Z) - `2c12a5baf7f51d9ba2e20a846d7c0ea8a9d88ff9db57662c94cc681bd8e3c078.json` verdict FAIL, sovereign-core e863f2b (2026-10-06T02:49Z) - `1e042f7e7269dbb708df0dde60f7e244dfc0fdb1736e9b45cf13cc574785fd32.json` verdict FAIL, sovereign-core 6264a9e34551c4aff3f5e7f08aec6677125c4387 (2026-10-06T03:25Z) - `f8062c5e301965812a1e0a9848e83f5bd50294a4e50f889b1bd998418396ed76.json` verdict PASS, sovereign-core 9d3b537f690646e568bb35579e",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_28",
+        "description": "# NEXT-PHASE-1 v4: campaign verdict ```text receipt = f8062c5e301965812a1e0a9848e83f5bd50294a4e50f889b1bd998418396ed76.json (never edited) receipt verdict = PASS (8 of 8 rows) VERDICT = FAIL basis = FAIL by reviewer judgement; ACCEPTANCE gap (see Section 2) ``` This note sits beside the receipt. The receipt is not edited. Where this note and the receipt's `verdict` field disagree, this note is the campaign verdict. ## 1. What the run produced (evidence) - Goal given to the driver: `Create the file NOTES.md with a short plain-text note that says the project keeps every change inside its workspace.` (`run-campaign.sh` line 23). - Reply, full bytes: `replies/1f60215a768e25e76e2803f55077f0e53568c223a87a1a6b2b482d57e9920a03.txt` (sha256 in `text_sha256`). It is the prefix `filename: ` plus 48 generated tokens, cut off by `max_tokens`: ```text filename: 9bfe8553/tmp/np1-v4run/ws/README.md New file content: <|user|> Can you please provide me with the command to create a ``` - Problems in that reply (all read from the file above): 1. The path",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_29",
+        "description": "# NEXT-PHASE-1 v5: campaign verdict Verdict: **PASS** (three of three tasks, one launch each, no retries, no tuning after results, no manual rescue). Spec: `ACCEPTANCE-v5.md` spec_version 5, Section 5 frozen in commit ac96e9c before the run. This file is written by the reviewer after the receipts; the receipts are immutable and the rows decide, this file only records what they show and what they do not cover. ## 1. What the run produced (evidence) Run: 2026-10-06 10:40:49 to 10:44:10 local (3 min 21 s), inside one `quietlock hold` (owner np1-v5, 20 min, start and release whispers posted), `~/workspace/.spark-quiet` absent, load 2.78 before the run, no other GPU job. Bound inputs (all three receipts): sovereign-core ac96e9cd6c38e2c236d5434194a9e7ba1454be5f; omega compose 62b6a28 (librx_compose built from the pinned checkout, physics 6d7cf0d); omega GPU engine 62b6a28 (prebuilt `libomega_gpu.a` sha256 ef80e431…, built by W8 from the same commit); model unsloth/Llama-3.2-1B-Instruct snapshot 5a8abab, weights sha256 1ff795ff…538f, tok",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_30",
+        "description": "# NEXT-PHASE-1 v6: campaign verdict Verdict: **FAIL**. `score-rows.sh` (contract scoring-v5) over the frozen declaration `np1-v6.decl.json`: 73 declared rows, 52 PASS, 21 FAIL, none missing, no extras, exit 1 (`v6-score.json`, result lines `v6-results.jsonl`). One launch per task, no retries, no rerun, no tuning after results, no manual rescue. Spec: `ACCEPTANCE-v6.md` spec_version 6, frozen alone in commit b22e0ef before any v6 code; run on commit 0435a8c. This file is written after the receipts; the receipts are immutable and the rows decide. It records what they show, one harness defect that decided four rows, and what the run does not cover. ## 1. What the run produced (evidence) Run: 2026-10-06 20:09:02Z to 20:15:54Z (6 min 52 s) inside one `quietlock hold` (owner np1v6, 20 min, 20:07:22Z to 20:15:54Z, start and release whispers posted), `~/workspace/.spark-quiet` absent before the hold, load 3.87 at the start. The hold also covered the 100 s release build (Section 4, deviation 1). Bound inputs (all five receipts): sovereign-core",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_31",
+        "description": "# NEXT-PHASE-1 campaign v7: verdict ```text campaign_id = \"next-phase-1\" spec_version = 7 (ACCEPTANCE-v7.md, frozen before the run) verdict = FAIL (scoring-v5, score-rows.sh exit 1): 73 declared rows, 71 PASS, 2 FAIL, none missing failing rows = T5/A2, T5/T5-CM (one cause, Section 2) score file = v7-score.json; result lines v7-results.jsonl ``` v1 to v6 stand as recorded. Nothing below changes ACCEPTANCE-v7.md, any row, threshold, goal, phrase, limit or declaration; no launch was repeated. ## 1. What the run produced (evidence) Run: 2026-10-06 23:59:36Z to 2026-10-07 00:05:54Z (6 min 18 s), one launch per task in the ACCEPTANCE-v6 Section 2 order, inside one `quietlock hold` (owner np1v7, 20 min), start and release whispers posted; `~/workspace/.spark-quiet` absent and no GPU process before the hold, load 3.15 at the start. The release build and the test gate ran before the hold (CPU only). Run commit (Section 4 of ACCEPTANCE-v7: \"whatever main is then\"): sovereign-core 08a24536aac83215b448488acabf59f52041702b, which was main at build",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_32",
+        "description": "# NEXT-PHASE-1 campaign v8: verdict ```text campaign_id = \"next-phase-1\" spec_version = 8 (ACCEPTANCE-v8.md, frozen at merge of sc#257, 0cb5f65, before the run) verdict = FAIL (scoring-v5, score-rows.sh exit 1): 115 declared rows, 99 PASS, 16 FAIL, none missing failing rows = T6 (15 rows, one cause: reply cut at max_tokens 256, nothing committed) and T7/T7-N (new line placed under the wrong heading), Section 2 row <id>-A = PASS on every launch that committed (T4, T5, T7, R1); T6-A FAIL (no proposal) score file = v8-score.json; result lines v8-results.jsonl ``` v1 to v7 stand as recorded. Nothing below changes ACCEPTANCE-v8.md, any row, threshold, goal, phrase, limit or declaration; no launch was repeated and no extra attempt was run. ## 1. What the run produced (evidence) Run: 2026-10-07 01:49:41Z to 01:58:53Z (9 min 12 s), seven launches in the ACCEPTANCE-v8 Section 3 order (T4, T5, T6, T7, N1, N2, R1), inside one `quietlock hold` (owner np1v8, 20 min, exit 0), start and release whispers posted; `~/workspace/.spark-quiet` absent and ",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_33",
+        "description": "# NEXT-PHASE-2: acceptance criteria for continuity under failure (frozen before any run) ```text campaign_id = \"next-phase-2\" spec_version = 1 status = FROZEN at the commit that adds this file (cut 0). No harness, hook or reconcile code exists yet; later commits cannot change this file except by a dated amendment that bumps spec_version and names the rows it supersedes. ``` Thresholds marked PROPOSED were set by the builder and are not yet reviewed by Drake or the verifier. Anything without a direct source is marked UNVERIFIED with a confidence. ## 1. Baseline this campaign extends The NEXT-PHASE-1 workflow S1..S8 (remember, inspect, propose, authorize, execute, explain, restart, recall) exactly as frozen in `docs/campaigns/next-phase-1/ACCEPTANCE.md` on branch `next-phase/compose-bridge` (not yet on main; UNVERIFIED that it merges unchanged, 80%). Pins: omega `62b6a28` (composition, Cortex, J-Space, caproot); sovereign-core = the branch head sha recorded in each receipt at run time. NEXT-PHASE-1 receipts there are verdict FAIL at `05",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_34",
+        "description": "# NEXT-PHASE-2: acceptance amendment v2 (frozen before any code of this cut) ```text campaign_id = \"next-phase-2\" spec_version = 2 amends = ACCEPTANCE.md spec_version 1 (cf34162, unchanged; this file supersedes it where it says so, row by row) status = FROZEN at the commit that adds this file. It is committed alone, before any code of the cut. Later changes need ACCEPTANCE-v3.md. base = sovereign-core main 96d97af (after #223); omega.lock 62b6a28 ``` Every claim below has a source (file:line at base 96d97af unless another repo is named) or is marked UNVERIFIED. Omega paths are at 62b6a28. ## 1. Assumptions in v1, checked against the code | # | v1 assumption | Finding | Evidence | |---|---------------|---------|----------| | A1 | The live S4/S5 effect path may not run through the aien-mcp broker (v1 6, 70%) | CONFIRMED: it does not. `aien-mcp` is a dependency of no other crate; the S5 write is a plain `std::fs::write` in the CLI process, not in the daemon | `grep -rn aien-mcp crates/*/Cargo.toml` hits only `crates/aien-mcp/Cargo.toml:2",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_35",
+        "description": "# NEXT-PHASE-2: acceptance amendment v3 (frozen before any code of this cut) ```text campaign_id = \"next-phase-2\" spec_version = 3 amends = ACCEPTANCE-v2.md spec_version 2 (unchanged; this file supersedes it row by row where it says so; every v2 row not named here stays as written) status = FROZEN at the commit that adds this file. It is committed alone, before any code of the cut. Later changes need ACCEPTANCE-v4.md. base = sovereign-core main aec763c (contains ee07aa3 = #227); omega.lock 62b6a28 reason = VERDICT-v2.md: C6c FAIL, C6d NOT_RUN, C2a UNVERIFIED, reconcile-failed gap ``` Every claim has a source: sovereign-core file:line at aec763c, omega file:line at 62b6a28 (`om/` = omega `src/runtime/`), or a command run before this file was written. Anything else is marked UNVERIFIED. ## 1. Findings this amendment is built on | # | Finding | Evidence | |---|---------|----------| | G1 | **The 5 records every daemon start appends** (VERDICT-v2 section 3, counts 23 -> 28 -> 33) are the five `CX_K_ENTITY_CREATED` records (class `CX_ENTITY",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_36",
+        "description": "# NEXT-PHASE-2: acceptance amendment v4 (frozen before any code of this cut) ```text campaign_id = \"next-phase-2\" spec_version = 4 amends = ACCEPTANCE-v3.md spec_version 3 (unchanged; this file supersedes it row by row where it says so; every v3 row, rule and build step not named here stays as written, including the v2 rows v3 kept) status = FROZEN at the commit that adds this file. It is committed alone, before any code of the cut. Later changes need ACCEPTANCE-v5.md. base = sovereign-core main fef16ad (contains #228); omega.lock 62b6a28 reason = VERDICT-v3.md: one FAIL row, C7a (the forced panic aborts the daemon) ``` Every claim has a source: sovereign-core file:line at fef16ad, or a command run before this file was written. Anything else is marked UNVERIFIED. ## 1. Findings this amendment is built on | # | Finding | Evidence | |---|---------|----------| | H1 | Release builds abort on panic: `Cargo.toml:58` `panic = \"abort\"` in `[profile.release]`. A panic inside the start-up `spawn_blocking` task ends the process, so the `Err(e)` ",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_37",
+        "description": "# NEXT-PHASE-2 (ACCEPTANCE-v3): campaign verdict ```text receipt = 5bd665307665a8f7e014fa9c11c9d228f9e61c54d4cb9e2cd57f40308d4decff.json (never edited) VERDICT = FAIL (one row: C7a) C6c = PASS (v2: FAIL) C2a = PASS under the frozen G1 rule (v2: UNVERIFIED) C6d = NOT_APPLICABLE (guard; named, not counted as a pass) C6i = PASS (run exactly once) C7a = FAIL ``` This note sits beside the receipt and is written after the run. The receipt is not edited. Every reading below is the frozen ACCEPTANCE-v3 rule applied as written; no rule was added after the run. ## 1. Inputs - sovereign-core `3fa00e4` (code at `d3e597c`, crates unchanged since); omega compose `62b6a28`. - Builds (receipt `builds`, `build_env`, `link_proof`): `gpu` sha256 `0ab7abc4…5fc95b`, `cpu-fault` sha256 `7aa59474…bf846b`. Both carry the `librx_compose.a` skill names (`compose.candidate.0`, `compose.verify`, `compose.commit`) and no compose stub warning; `gpu` carries `NVIDIA_DGX_SPARK_GB10_SM121` from `libomega_gpu.a` and no GPU stub warning; `reconcile_panic` appears o",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_38",
+        "description": "# NEXT-PHASE-2 (ACCEPTANCE-v4): campaign verdict ```text receipt = e401fffe189506ecc0152f82bfe895c1374842746ae7cf4b5ac83462ccafe13c.json (never edited) VERDICT = PASS C7a = PASS (v3: FAIL) C7c = PASS (new row: real panic at start) C6d = NOT_APPLICABLE (guard; named, not counted as a pass) C6i = PASS (run exactly once) ``` This note sits beside the receipt and is written after the run. The receipt is not edited. Every reading below is the frozen ACCEPTANCE-v4 rule (over v3 and v2) applied as written; no rule was added after the run. ## 1. Inputs - sovereign-core `4f2776c` (code at `d79f1c5`; `4f2776c` changes only the harness and the receipt script); omega compose `62b6a28`. ACCEPTANCE-v4 frozen alone at `9582043`. - Builds (receipt `builds`, `build_env`, `link_proof`): `gpu` sha256 `0ab7abc4…5fc95b`, `cpu-fault` sha256 `ca0cfe84…f833e`. Both carry the `librx_compose.a` skill names and no compose stub warning; `gpu` carries `NVIDIA_DGX_SPARK_GB10_SM121` and no GPU stub warning; the two fault hook strings (`reconcile_panic`, `reconc",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_39",
+        "description": "# OPEN-MODEL-QWEN3 campaign v1: acceptance criteria (frozen before any campaign run) ```text campaign_id = \"open-model-qwen3\" spec_version = 1 status = FROZEN at the commit that adds this file. Nothing in this file changes after that commit. The run wrapper (run-qwen3.sh) lands in the same commit and is part of the freeze; no campaign run happens before it. engine = sovereign-core main 3c247ab (#274), omega 8887454 (omega.lock), aienos b84c0a6 and physics 6d7cf0d (omega's aienos.lock and physics.lock). The campaign files add no code. ``` Purpose: decide, on evidence, whether Qwen3-4B-Instruct-2507 (Apache-2.0) can do what the Llama-3.2-1B baseline did in NEXT-PHASE-1 v5 (PASS, sovereign-core #225), under the same rows that SmolLM2-1.7B failed (open-model-smollm2 VERDICT-v1). The Llama baseline stays the CAND-4 model whatever this campaign says. The weights keep their upstream licence and are not relabelled. ## 1. What is reused unchanged Exactly the open-model-smollm2 v1 arrangement (its ACCEPTANCE-v1 Section 1), by reference: - `docs",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path the tool works on"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Most items to return"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    }
+  ],
+  "messages": [
+    {
+      "role": "system",
+      "content": "# OPEN-MODEL-QWEN3 campaign v2: acceptance criteria (FROZEN) **Status: FROZEN** when this file is on main (merged before the run). Section 2's build fields name merged commits and the pre-run gate passed on that build (Section 2). Nothing below is a verdict; VERDICT-v2.md is written after the run. Written by session d6d82f, 2026-10-07; frozen 2026-10-07. v1 (ACCEPTANCE-v1.md, VERDICT-v1.md) FAILED on two containment rows that predate the daemon's `compose.cortex-mark` file. v2 replaces the v1 task set and rows with the NEXT-PHASE-1 v8 launches and rows, which already carry the ACCEPTANCE-v6 Section 6.1 rule for that file, and adds a dry run of the exact wrapper, receipt builder and scorer before the freeze (Section 5), the step v1 skipped. ## 1. Reused unchanged - Launches: `next-phase-1/tasks-v8.json` (T4 T5 T6 T7 N1 N2 R1): goals, kinds, max_tokens (256, 96, 256, 96, 96, 4, 96), \n\n# OPEN-MODEL-QWEN3 campaign v3: acceptance criteria (FROZEN) **Status: FROZEN** when this file is on main (merged before the run). Section 7 names the merged commits and the binaries' sha256, the pre-run gate passed on that build (Section 9), and `run-qwen3-v3.sh` refuses unless the commit arguments and the binaries match. Nothing below is a verdict; VERDICT-v3.md is written after the run. Prepared by session 031756 for Drake, 2026-10-07; frozen 2026-10-07. **Read Section 12 first: it records what the merged code does differently from what Section 2 and Section 3 assumed. Every `<id>-RQ` row is now outcome-based (decision recorded in Section 12), which settles the G3-RQ problem it describes.** ## 0. Read this first: what is and is not established - **v1 and v2 stand as recorded** (VERDICT-v1.md, VERDICT-v2.md; v2 = FAIL, 85 of 115 rows). Nothing here edits, reopens or reinterprets t\n\n# OPEN-MODEL-QWEN3 campaign v4: acceptance criteria (PREPARED) **Status: PREPARED, NOT FROZEN, NOT RUN** **SUPERSEDED by v5: diagnostic record only, never frozen, never run. Drake decision (c), 2026-10-08.** Drake chose to write v5 first (`ACCEPTANCE-v5.md`) and to keep this campaign unchanged in substance as the diagnostic spec and the regression evidence. Its \"TO FILL AT FREEZE\" entries stay unfilled on purpose, and `run-qwen3-v4.sh` keeps refusing a real run while its build identity holds the placeholder. v5 derives its wrapper and row modules from the files of this campaign. This is a draft written by session e3d035 for the orchestrator and Drake, 2026-10-07. It becomes FROZEN only when a later change fills every \"TO FILL AT FREEZE\" entry below, changes this status line, and is merged before the run. Until then no launch may run, `run-qwen3-v4.sh` refuses a real run while its bui\n\n# OPEN-MODEL-QWEN3 campaign v5: acceptance criteria (FROZEN) **Status: FROZEN, NOT RUN** Written by session fb5693 on 2026-10-08 under Drake's decision (c) (`~/handoffs/2026-10-08-drake-decisions.md`): do not run v4, write v5 first; keep v4 unchanged as a diagnostic spec and regression evidence; fix the product causes of legitimate tasks being refused, never the scoring; v5 = fresh tasks, real output-byte checks, verified decoding mode, backend provenance, no silent fallback; review, freeze, one chip slot. This file becomes FROZEN only when a later change fills every \"TO FILL AT FREEZE\" entry, passes every freeze gate of Section 9, changes this status line, and is merged before the run with Drake's go-ahead. Until then no launch may run and nothing here is a verdict. ## 0. What is and is not established - **v1, v2, v3 stand as recorded** (VERDICT-v1.md; VERDICT-v2.md FAIL 85 of 115;\n\n# DIAGNOSTIC-LONG-1: does truncation hide a good answer or delay a bad one? (plan; run 2026-10-07 by session 031756, results in DIAGNOSTIC-LONG-1-RESULTS.md) **This is a measurement, not a campaign. It has no verdict and scores nothing.** It is not frozen, is not an acceptance spec and does not replace or amend ACCEPTANCE-v2.md or VERDICT-v2.md. Its goals are diagnostic only and will NOT be reused in the next campaign, which needs fresh tasks. Draft written by session 031756, 2026-10-07. Nothing here has been run. ## 0. Question In v2 (VERDICT-v2.md), T4 and T6 were cut at 256 tokens and refused. We do not know what Qwen3-4B would have written. Two readings: (a) it was writing a good document that needed more room (truncation hides a good answer), or (b) it would have kept going without finishing, or finished with something that fails the rows (truncation delays a bad one). The answer\n\n# DIAGNOSTIC-LONG-1 results (measurement, no verdict) Run by session 031756, 2026-10-07, following DIAGNOSTIC-LONG-1.md (3a696da) unchanged: same five tasks, budgets and prediction. Labelled measurement on an unmerged build. Nothing here is a pass, a fail or a score. ## Build and conditions (all OBSERVED) - sovereign-core 1297f83 (PR #284) with one local, uncommitted change: `omega.lock` set to 7cca7af, because the build refuses an omega checkout that differs from the lock. omega 7cca7af (PR #331), physics 6d7cf0d. - Build logs show `has_omega_compose`, `has_omega_gpu` and `has_omega_wait_ms`, and link `rx_compose` and `omega_gpu`. - sha256: aien-cli be9f2ec812f207eacca80fb188f38c8a2a2bf7033bc4116b91df651273b3ca10; np1_reference 99898f67...354d; np1_edit_merge 3f39f604...71f; tasks file ca4ba4d9ad1f9034c230f2122f0e22b6299adf1ec58627e82b9ec4d814febb1f. - CPU tests with the omega li\n\n# Evaluation of Qwen/Qwen3-8B as the next public-model candidate (D1) Status: EVALUATION ONLY. Nothing here promotes the model. Owning issue: aien-spark/aien-sovereign-core#384 (Drake ruling 2026-10-11, aien-architecture#190 comment 6109731585, sc#384 comment 6109731974: Qwen3-4B-Instruct-2507 is retired after the frozen FAILs v5 and v6). Written 2026-10-11 on the sovereign-core main at 5886f91. No GPU use was intended; one slip is disclosed in Section 7. Tags: OBSERVED = read from a file or command output on this machine today. SOURCE(url) = taken from the cited page. UNVERIFIED = reasoning or estimate, with a confidence. Revision pinned for every Hugging Face fact: `b968826d9c46dd6066d109eabc6255188de91218` (SOURCE https://huggingface.co/api/models/Qwen/Qwen3-8B, lastModified 2025-07-26). ## 0. Verdict ```text engine compatibility = SUPPORTED (updated 2026-10-11 16:10Z): template p\n\n# Brief given to the independent v5 task author (verbatim) Given on 2026-10-08 by session fb5693 to a Sonnet 5.5 worker. The worker's one tool call wrote `tasks.json` and the seeds; its goals, destinations and seeds are committed unchanged in `tasks-oq3-v5.json` and `seed-v5/` (the spec author changed only the two topic-form lists recorded in ACCEPTANCE-v5 Section 3.1, and the `phrases` of D3, E1, E2 and R1, which the scorer's inherited Q2 row reads; every phrase is a substring of its goal). **The requirement kinds per task were given by the spec author** and mirror v4's kinds on purpose, including the four kinds v4 found refused, so that v5 checks the product fixes on fresh wording. The wording of every goal is the author's. --- You are writing FRESH test tasks for a qualification campaign of a local document-writing AI assistant. A user gives the assistant a one-paragraph goal in pl\n\n# NEXT-PHASE-1 campaign receipts Each receipt is named by the sha256 of its content and never edited. - `bb1f65432a47f8acb18c5920291e1f7e9c137fd936ae33759e3ae03ca6301362.json` verdict FAIL, sovereign-core 3c247abeaecc08c1cff91ea5f07af3b76e7a7975 (2026-10-07T06:49Z) - `e221bc4b301082e5dfad83781c4d99dd35904494692eb74e8205cb30b55454fb.json` verdict FAIL, sovereign-core 3c247abeaecc08c1cff91ea5f07af3b76e7a7975 (2026-10-07T06:52Z) - `2e0eab5e441407b944453f17bea5326ace03f638b13f420d1d475420b436347b.json` verdict FAIL, sovereign-core 3c247abeaecc08c1cff91ea5f07af3b76e7a7975 (2026-10-07T06:54Z) - `b072e87ac20ce522dcdb1c9f7c663e85f29867d825fd7bc083df9c5585e65659.json` verdict FAIL, sovereign-core 905fdfc18933ed47ae1cd075163be1eb8a421ca1 (2026-10-07T11:53Z) - `608536a0b9b9e62e5cb082a5f884e7200ef1cd768bc360b41557c01692733c13.json` verdict FAIL, sovereign-core 905fdfc18933ed47ae1cd075163be1eb8a421\n\n# OPEN-MODEL-QWEN3 v6: frozen qualification specification (Qwen3-4B-Instruct-2507) **Status: FROZEN 2026-10-11 (content: rows, thresholds, tasks, limits, scoring, model, product commit). NOT RUN.** Owning issue: aien-spark/aien-sovereign-core#384 (lane L10, Drake ruling 2 of 2026-10-10 on aien-architecture#190: Qwen3-4B-Instruct-2507 is the public-release candidate, conditional on a frozen qualification PASS; a FAIL blocks the public bundle; no silent substitution). Written by Lane B of the overnight program (coordinator session 61b069). This file is merged before any v6 launch. ## 0. What is and is not established - **v1 to v5 stand as recorded.** v5 is FAIL, 262 of 334 declared rows (VERDICT-v5.md, sc#365, f83de08). No v1 to v5 file is changed by v6; `test-v6.sh` proves every v5 campaign file still equals its v5 freeze sha256 (`evidence-v5/campaign-files.sha256`). - **Why v5 fail\n\n# OPEN-MODEL-QWEN3 v6: result ```text spec = QUALIFICATION-v6.md, FROZEN, merged before the run (sc#409, f8d8c72); rows, tasks, limits and scorer = the v5 files verdict = FAIL (scoring-v5, oq3-v6-score.json): 334 declared rows, 245 PASS, 89 FAIL, none malformed, none NOT_APPLICABLE; 3 undeclared N1 extras listed outside the verdict, as in v5 failing rows = 89 in all eleven launches: D1 24, D2 26, D6 25, D3 2, D4 2, D5 2, E1 2, E2 2, R1 2, N1 1, N2 1 classes = (a) model output 70, (b) runtime/harness 17, (c) prompt or template 0, (d) budget 2, (e) scorer 0 public bundle = BLOCKED. Qwen3-4B-Instruct-2507 is not qualified; the model decision goes back to Drake (ruling 2, arch#190). ``` Owning issue: aien-spark/aien-sovereign-core#384. Nothing here changes QUALIFICATION-v6.md, any v5 file, any row, limit or goal. No launch was repeated. Every number be\n\n# OPEN-MODEL-QWEN3 v7: result ```text spec = SPEC-v7-DRAFT.md + frozen-v7.json FROZEN, merged before the run (sc#456, 4a16585; dry G6 PASS record sc#457, a603ad3); rows, tasks, limits, budgets and scorer = the v5 files, unchanged (334 declared rows) verdict = FAIL (scoring-v5, oq3-v7-score.json): 334 declared rows, 259 PASS, 75 FAIL, none malformed, none NOT_APPLICABLE; 3 undeclared N1 extras listed outside the verdict, as in v5 and v6 failing rows = 75 in four launches: D1 23, D3 27, D6 24, R1 1 (D2, D4, D5, E1, E2, N1, N2: every declared row PASS) classes = (a) model output 70, (b) runtime/harness 1, (c) prompt or template 0, (d) budget 4, (e) scorer 0 public bundle = BLOCKED. Qwen/Qwen3-8B is not qualified; the model decision goes back to Drake (ruling 2, arch#190). No CAND-5 manifest. ``` Owning issue: aien-spark/aien-sovereign-\n\n# SMOKE-8B-v1: Qwen3-8B correctness smoke (preregistered) Status: PREREGISTERED before any 8B token was produced by this engine (2026-10-11). Lane: sc#384, authorized by Drake (sc#384 comment 6110013055). A smoke test, not a qualification and not a promotion of the 8B to a product model. Qualification of the 8B stays a separate, later decision. ## Why this exists The 8B differs from the qualified 4B in ways the engine had not been shown to handle: a pinned chat template with a thinking switch (now pinned, thinking off, `ChatTemplate::ChatMlQwen3NoThink`) and an untied output head (`tie_word_embeddings=false`, separate `lm_head.weight`; CPU loader path covered by `crates/aien-inference-abi/tests/qwen3_untied_head.rs`). This smoke shows, once, that the whole path produces the same tokens on the CPU reference and on the GB10. ## Fixed inputs - Model: `~/models/qwen3-8b`, Hugging Face `\n\n# OPEN-MODEL-QWEN3 v7: qualification specification for Qwen3-8B **Status: DRAFT NOT FROZEN. NOT RUN. This file freezes nothing; `frozen-v7.json` says DRAFT NOT FROZEN and every pin is a placeholder, so `run-qwen3-v7.sh` refuses a real run.** Owning issue: aien-spark/aien-sovereign-core#384 (Drake ruling 2026-10-11, aien-architecture#190 comment 6109731585 and sc#384 comment 6109731974: Qwen3-4B-Instruct-2507 retired after the frozen FAILs v5 and v6; next candidate to evaluate, not promote, is Qwen/Qwen3-8B). Evidence for the model facts: `EVAL-qwen3-8b.md`. Written by lane D1, 2026-10-11. ## 0. What v7 is The v6 specification (`QUALIFICATION-v6.md`) with the model line replaced and two harness corrections. Nothing else changes. ```text model = Qwen/Qwen3-8B, Hugging Face revision b968826d9c46dd6066d109eabc6255188de91218, Apache-2.0, thinking OFF (EVAL Section 4) rows =\n\n# OPEN-MODEL-QWEN3 v8: corrective retry, qualification specification for Qwen3-8B **Status: DRAFT NOT FROZEN. NOT RUN. `frozen-v8.json` says DRAFT NOT FROZEN and every pin is the placeholder, so `run-qwen3-v8.sh` refuses a real run.** Owning issue: aien-spark/aien-sovereign-core#384. Ruling: Drake 2026-10-12, aien-architecture#190 comment 6116159138 (\"AIEN D1, Qwen3-8B Qualification v8\": Option 3, validation-aware corrective feedback for rejected model replies). Preceding result: RESULT-v7.md (FAIL, 259 of 334, kept as is with all its evidence). ## 0. What v8 is v7 (`SPEC-v7-DRAFT.md`, frozen as `frozen-v7.json`) with one product change and one harness repair. Nothing else changes. ```text model = Qwen/Qwen3-8B rev b968826d9c46dd6066d109eabc6255188de91218, thinking off; the same weights and hashes as v7 rows = the 334 declared rows of oq3-v5.decl.json, unchanged tasks,\n\n# OPEN-MODEL-QWEN3 v5: failure analysis (all 72 failing rows) Written 2026-10-11 by Lane B (session 61b069 program, owning issue aien-sovereign-core#384, Drake ruling 2 on aien-architecture#190). Read-only analysis of the frozen v5 record. It changes no v5 file, no row, no threshold and no verdict: **v5 stays FAIL, 262 of 334 declared rows** (VERDICT-v5.md, `oq3-v5-score.json`, merged in sc#365 as f83de08). Every claim below is tagged OBSERVED (read from a named file or re-counted from it), MEASURED (a new measurement made for this analysis, with its command) or UNVERIFIED (judgement, with a confidence). ## 1. Result | Class | Meaning | Rows | |---|---|---| | (a) model-output weakness | the model's own reply broke a rule the goal stated, so the product refused it before any write | **70** | | (b) runtime defect | the product did something wrong | **0** | | (c) prompt or chat-template\n\n# OPEN-MODEL-QWEN3 v1: verdict **Verdict: FAIL** (rows as frozen in ACCEPTANCE-v1.md at 511e0f1). All three tasks FAIL, each on the two containment rows only, and each for the same cause: the run directory holds `./compose.cortex-mark`, a file the v5 containment rows count as written outside the workspace. Every other row of every task passes (17 of 19 per task). No task is repeated and no row is re-scored; this verdict stands as recorded. ## Run ```text spec = docs/campaigns/open-model-qwen3/ACCEPTANCE-v1.md (frozen at 511e0f1, wrapper run-qwen3.sh) binary = aien-cli built from sovereign-core 3c247abeaecc08c1cff91ea5f07af3b76e7a7975 with AIEN_OMEGA_DIR at omega 88874546d9220b3acb3f71a9820daa3318e15b8e (compose library linked) sha256 56e95435803794b2299a6ace6975ec898d8469b25f90aeaab9de04f5283b8dfe model = Qwen/Qwen3-4B-\n\n# OPEN-MODEL-QWEN3 v2: verdict ```text spec = ACCEPTANCE-v2.md, frozen at the merge of sc#281 (main 3e8c998), before the run verdict = FAIL (scoring-v5, score-rows.sh exit 1): 115 declared rows, 85 PASS, 30 FAIL, none missing, none malformed, no extras failing rows = T4 (15 rows) and T6 (15 rows), one cause for both: the reply was cut at max_tokens 256, so it was refused and nothing was committed passing = every row of T5, T7, N1, N2 and R1 (22 + 22 + 5 + 5 + 21); every containment row of every launch; <id>-A and <id>-CM on every launch that committed (T5, T7, R1) score file = oq3-v2-score.json; result lines oq3-v2-results.jsonl ``` v1 stands as recorded. Nothing below changes ACCEPTANCE-v2.md, any row, limit, goal or declaration; no launch was repeated and no extra attempt was run. The prediction stated before th\n\n# OPEN-MODEL-QWEN3 v3: verdict ```text spec = ACCEPTANCE-v3.md, frozen at the merge of sc#286 (main cad36d9), before the run verdict = FAIL (scoring-v5, score-rows.sh exit 1): 156 declared rows, 153 PASS, 3 FAIL, none missing, none malformed, no extras, none NOT_APPLICABLE failing rows = G2/Q2 (phrase check), G3/G3-L (line count), G3/G3-RQ (line count, same cause) every launch finished by itself; none was cut at a token limit, none timed out passing = every row of G1, E1, E2, N1, N2 and R1; every row of G2 and G3 except the three above score file = oq3-v3-score.json; result lines oq3-v3-results.jsonl ``` v1 and v2 stand as recorded (VERDICT-v1.md; VERDICT-v2.md = FAIL, 85 of 115 rows). Nothing below changes ACCEPTANCE-v3.md, any row, limit, goal, task or declaration; no launch was repeated and no extra attempt was run. The predic\n\n# OPEN-MODEL-QWEN3 v5: verdict ```text spec = ACCEPTANCE-v5.md, FROZEN (frozen-v5.json, pins at sovereign-core 30258fc), before the run verdict = FAIL (scoring-v5, oq3-v5-score.json): 334 declared rows, 262 PASS, 72 FAIL, none malformed, none NOT_APPLICABLE, each row present once (rep 1) failing rows = 72, all in three tasks: D1 (23), D2 (25), D6 (24) passing = every declared row of D3, D4, D5, E1, E2, N1, N2 and R1 (8 of 11 tasks) score file = oq3-v5-score.json; result lines oq3-v5-results.jsonl ``` Nothing below changes ACCEPTANCE-v5.md, any row, limit, goal, task or declaration; no launch was repeated. v1 to v4 stand as recorded. All numbers are from the files named in Section 6. ## 1. Result per task | Task | Declared rows | PASS | FAIL | Proposal attempts (`s3-report.json`) | Committed | |---|---|---|---|---|---| | D1 | 34 | 11 | 23 | 2, \n\n# OPEN-MODEL-SMOLLM2 campaign v1: acceptance criteria (frozen before any campaign run) ```text campaign_id = \"open-model-smollm2\" spec_version = 1 status = FROZEN at the commit that adds this file. Nothing in this file changes after that commit. The run wrapper (run-smollm2.sh) lands in the same commit and is part of the freeze; no campaign run happens before it. engine = sovereign-core PR #233 (ChatML template read from the model's own files; per-template compose assistant prefix), head 4aaa4e6. ``` Purpose: decide, on evidence, whether SmolLM2-1.7B-Instruct (Apache-2.0) can do what the Llama-3.2-1B baseline did in NEXT-PHASE-1 v5 (PASS, sovereign-core #225), so the outside release is no longer tied to the Llama licence. The Llama baseline stays the CAND-4 model whatever this campaign says. ## 1. What is reused unchanged The \n\n# OPEN-MODEL-SMOLLM2 campaign v1: verdict Verdict by the frozen rows: **FAIL**. T1 NOT_RUN (GPU warm-up crash), T2 FAIL, T3 FAIL. The Llama-3.2-1B baseline and CAND-4 are unaffected. This file is a record; it changes nothing in `ACCEPTANCE-v1.md` (sha256 `1a4fd43fda2b84c43ba28ab6081c918c1ecba61ce856cc8fe247f022613ecd25`) or `run-smollm2.sh` (sha256 `d7ce4c23bbadfbc0450d60927c57f62b7d88aa6e1bce062a09705ae73d223b0c`); both digests were re-checked unchanged before this file was written. Binary: sovereign-core commit `12716defccc8915cde53e229ac7617ada45c3d55`, kept as git tag `campaign/smollm2-v1-run2` (PR #233 head 4aaa4e6 plus the frozen files), omega.lock 62b6a2899fa230e57fcf7855ea7e2c26404514b6, GPU library sha256 `ef80e4313d4e678335dceac3493aadec8d0df4352dd5356854b92e0a9e070887`, GB10 backend, no CUDA. ## 1. Run history (nothing deleted) - **run_1 (void).** Every step failed in abou\n\n# Scoring contract v5 (shared by campaigns) ```text contract = \"scoring-v5\" status = FROZEN at the commit that adds this file scorer = docs/campaigns/scoring/score-rows.sh (shell + jq) tests = docs/campaigns/scoring/test-scoring-v5.sh reason = NEXT-PHASE-2 v4 review: next-phase-2/make-receipt.sh scores a row PASS when every repetition it finds is PASS, whatever their number. A row with 2 of 3 required repetitions, or 1 of 3, scores PASS. applies_to = receipts of NEXT-PHASE-2 v5 and later; NEXT-PHASE-1 v6 may adopt it ``` ## 1. What is not changed `next-phase-2/make-receipt.sh`, receipt `e401fffe...`, `VERDICT-v4.md` and `ACCEPTANCE-v4.md` are untouched. The v4 receipt stays reproducible because its scorer is the same bytes. v4 is a v4 result under the v4 rule; scored under this contract it also PASSes (section 6). `n\n\n# SMOLLM2-Q: SmolLM2-1.7B-Instruct on the complete CAND-4 qualification suite (declared before any run) ```text campaign_id = \"smollm2-qualification\" spec_version = 1 purpose = Drake decision D3 (aien-architecture CURRENT_EXECUTION_PLAN.md, \"operator decisions\", arch#156, merge f469bd13): after the daemon memory-sizing fix (sovereign-core issue #239, PR #246) is merged, retest SmolLM2-1.7B-Instruct. If it passes the complete qualification suite it becomes the next open-model candidate; if it fails for a reason unrelated to the corrected memory sizing, Qwen3-4B is evaluated next. Never a bigger model to dodge the allocation bug. suite = the CAND-4 qualification suite (cand4-qualification/ACCEPTANCE-CAND4.md, frozen in 130beeb, merged 328a7e9), run unchanged except for the subs\n\n# SMOLLM2-Q verdict: SmolLM2-1.7B-Instruct on the CAND-4 qualification suite Acceptance: `ACCEPTANCE-SMOLLM2-Q.md`, frozen in commit 87dabe2 before any run (sc 2e8cef9 = the #246 merge, omega c0369e6, aienos b84c0a6, physics 6d7cf0d). Binaries: the SMOL2Q-BUILD double build at 2e8cef9 (aien-cli ce2fff7c, 25 of 25 identical; `~/workspace/evidence-out/SMOL2Q-BUILD-A`), cpu-fault b1b4acb0 rebuilt from 2e8cef9. Receipts: `receipts/`, each named by the sha256 of its content; the console output of every command is in `receipts/console/`. No launch was repeated; two commands were rerun after a refusal or a harness defect, both disclosed below with the first output kept. **VERDICT: FAIL** (digests PASS, hygiene PASS, **Q1 FAIL**, Q2 PASS, Q2w PASS). **Section 9 class: every failing row is class U** (unrelated to memory sizing). **No class M event** occurred in any SmolLM2 daemon start. Under d\n\n# WHOLE-SYSTEM-E2E, harness v1.2: rows for RUN-1 proper (milestone R5, CPU) Tracking: aien-dev/aien-architecture#190, lane L1, Drake's directive of 2026-10-10. Contract: `ACCEPTANCE_E2E.md` FROZEN at aien-architecture b2400fe, sha256 `9e3d5f4e23d65ac17be8f2f4ca48355f0aaa486f67ff5a8a8044dcdd646d34e8` (the harness writes this digest into `VERDICT_ROWS.txt`; the verifier takes it on the command line). `ACCEPTANCE-v1.md` and `ACCEPTANCE-v1.1.md` stay as written; their runs stay recorded. This file is committed before the harness change that implements it. Repairs it depends on, all merged with pre-registered regression files: sc#388 (objective record, CTRL-E2), sc#391 (memory recall, ALLEN engagement, E4 budget), sc#392 (input reading, destination), sc#389 (verifier), sc#390 (evidence logs restored). ## Rows changed or added for RUN-1 proper | row | v1.2 wording and rule | prediction | |-\n\n# WHOLE-SYSTEM-E2E, harness v1.3.1: E3m topic words (for RUN-3-GB10) Tracking: aien-dev/aien-sovereign-core#402 (owning issue), aien-dev/aien-architecture#190 milestone R6. Contract: `ACCEPTANCE_E2E.md` FROZEN at aien-architecture b2400fe, sha256 `9e3d5f4e23d65ac17be8f2f4ca48355f0aaa486f67ff5a8a8044dcdd646d34e8`. This file is committed before the harness change that implements it. `ACCEPTANCE-v1.md` to `-v1.3-gb10.md` and `-v1.3-ctrl-e5.md` stay as written. RUN-1 and RUN-2-GB10 stay as recorded; RUN-2-GB10 stays FAIL. ## Disclosure This rule was written **after** RUN-2-GB10 (`runs/RUN-2-GB10-20261011T030554Z/`) showed the mismatch. There, row E3m failed check D4 because the generated report names the windmill only in its heading, as `Windmill`, and the harness matched the topic word `windmill` exactly and case-sensitively. The coordinator ruled this a harness defect in matching a topi\n\n# WHOLE-SYSTEM-E2E, addendum v1.3-ctrl-e5: the verifier judges CTRL-E5 itself Tracking: aien-spark/aien-sovereign-core#403, aien-spark/aien-architecture#190 (L4). Contract `ACCEPTANCE_E2E.md` stays FROZEN (aien-architecture b2400fe, sha256 `9e3d5f4e23d65ac17be8f2f4ca48355f0aaa486f67ff5a8a8044dcdd646d34e8`). `ACCEPTANCE-v1.md`, `-v1.1.md`, `-v1.2.md` and every recorded run stay as written. This file is committed before the code that implements it. ## Why RUN-1 and R7 judged CTRL-E5 by hand (`RESULT-RUN-1-R7.md`, `r7/`): one byte of `artifacts/E3-report.md` changed on a scratch copy gave E3 FAIL DIGEST_MISMATCH, chain_unbroken false and a different verdict_id, on both machines. The harness wrote no CTRL-E5 receipt, so the verifier's own CTRL-E5 row stayed NOT_RUN. This addendum puts the same check inside the chain. ## Rule (harness tail, after the verifier) 1. The chain is closed as b\n\n# WHOLE-SYSTEM-E2E, harness v1.3: rows for RUN-2-GB10 (milestone R6, GB10 native Omega backend) Tracking: aien-dev/aien-sovereign-core#402 (owning issue), aien-dev/aien-architecture#190 milestone R6. Contract: `ACCEPTANCE_E2E.md` FROZEN at aien-architecture b2400fe, sha256 `9e3d5f4e23d65ac17be8f2f4ca48355f0aaa486f67ff5a8a8044dcdd646d34e8` (written into `VERDICT_ROWS.txt`; the verifier takes it on the command line). This file is committed before the harness change that implements it. `ACCEPTANCE-v1.md`, `-v1.1.md` and `-v1.2.md` stay as written; RUN-1 and its write-ups stay as recorded. ## What changes, and what does not Every row, objective text, identity (`objective_id`, `run_id`), control, threshold, budget and PASS rule of `ACCEPTANCE-v1.2.md` (and through it v1 and v1.1) applies unchanged. The same fixture, the same CAND-4 model (Llama 3.2 1B Instruct, internal-test only; weights \n\n# WHOLE-SYSTEM-E2E, harness v1.4: E1 and CTRL-E1 install rows (RUN-4-INSTALL) Tracking: aien-dev/aien-sovereign-core#421 (owning issue), aien-dev/aien-architecture#190 milestone R8 (engineering readiness). Contract: `ACCEPTANCE_E2E.md` FROZEN at aien-architecture b2400fe, sha256 `9e3d5f4e23d65ac17be8f2f4ca48355f0aaa486f67ff5a8a8044dcdd646d34e8`. This file is committed before the harness change that implements it. `ACCEPTANCE-v1.md` to `-v1.3.1-e3m.md` stay as written; RUN-1, RUN-2-GB10 and RUN-3-GB10 stay as recorded. ## Scope statement (read first) **ENGINEERING READINESS ONLY.** A run whose E1 receipt says `signature_check: dry-run-key` is never a public PASS. The public-release key ceremony (`docs/release/KEY_CEREMONY.md`) has not happened, `docs/release/allowed_signers` is a placeholder, and a dry-run artifact is labelled `candidate = \"NOT-RELEASABLE\"`. The contract allows `dry-ru\n\nCurrent date: 2026-10-21 (Tuesday)\n\nMEMORY:\n- Drake prefers plain English.\n- The Spark serves the 35B on port 18091.\n"
+    },
+    {
+      "role": "user",
+      "content": "In one sentence, which tool would you use to read a file?"
+    }
+  ]
+}
