@@ -116,7 +116,8 @@ added by this lane.
 | `cargo/` | root 0755 | CARGO_HOME (cargo works with it read-only: `--locked --offline` builds need no writes there) |
 | `cargo/registry`, `cargo/git` | root, read-only | seeded once from `~/.cargo` (1.9 GB + 1.3 GB; the git cache is needed because `Cargo.lock` has 3 git sources) |
 | `cargo/bin` | root | the operator's `rustup` binary + proxy symlinks; no second rustup install |
-| `rustup/` | root, read-only | `settings.toml` (default 1.98.1) + `toolchains/1.98.1-aarch64-unknown-linux-gnu` copied (631 MB) |
+| `rustup/` | root, read-only | `settings.toml` (default 1.98.1) + `toolchains/1.98.1-aarch64-unknown-linux-gnu` copied (631 MB), plus `toolchains/nightly-aarch64-unknown-linux-gnu` with miri for SC-MIRI |
+| `.cache/miri` | root, read-only | miri sysroot built once by `install.sh` against the copied nightly (110 MB); `cargo +nightly miri setup` in the sandbox finds it and writes nothing (#600) |
 | `.gitconfig` | root 0644 | `safe.directory = *` (git 2.43 has no path globs; aien-run reaches nothing else) |
 | `/tmp/aien-gb10.lock` | root 0664, ACL `u:drakestapleton:rw-`, `u:aien-run:rw-` | the one GB10 chip lock for operator runs and sandboxed gb10 gates; root ownership gets past `fs.protected_regular=2` in sticky `/tmp`; `/etc/tmpfiles.d/aien-gb10.conf` recreates it at boot (#627); a gb10 gate waits for it in the kernel queue up to 30 min by default (`aien-test --gpu-wait`, between the live server's requests), then is NOT_RUN `gpu_lock`; the wait is in each receipt (`volatile.gpu_wait`) |
 | `mirror/<repo>.git` | drakestapleton 0755 | bare mirror of the trusted clone, refreshed by `wt.sh sync`; unwritable by aien-run |
