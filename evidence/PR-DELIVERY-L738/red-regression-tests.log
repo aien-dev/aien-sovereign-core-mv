@@ -1,11 +1,41 @@
-RED baseline, captured before production changes:
-test_rc0_inconsistent_full_plan_refuses_without_status_write ... FAIL
+command: python3 -m unittest -v test_delivery_status.ReceiptStatusDelivery.test_rc0_inconsistent_full_plan_refuses_without_status_write test_delivery_status.ReceiptStatusDelivery.test_signed_qualified_status_uses_authorized_operator_plan_context test_delivery.Delivery.test_operator_run_requests_explicit_operator_plan_for_pipeline_config_hold
+
+test_rc0_inconsistent_full_plan_refuses_without_status_write (test_delivery_status.ReceiptStatusDelivery.test_rc0_inconsistent_full_plan_refuses_without_status_write) ... FAIL
+test_signed_qualified_status_uses_authorized_operator_plan_context (test_delivery_status.ReceiptStatusDelivery.test_signed_qualified_status_uses_authorized_operator_plan_context) ... FAIL
+test_operator_run_requests_explicit_operator_plan_for_pipeline_config_hold (test_delivery.Delivery.test_operator_run_requests_explicit_operator_plan_for_pipeline_config_hold) ... FAIL
+
+======================================================================
+FAIL: test_rc0_inconsistent_full_plan_refuses_without_status_write (test_delivery_status.ReceiptStatusDelivery.test_rc0_inconsistent_full_plan_refuses_without_status_write)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/workspace/hermes-desk/renda-planner-L738/tools/aien-local-ci/renda/test_delivery_status.py", line 88, in test_rc0_inconsistent_full_plan_refuses_without_status_write
+    self.assertFalse(ok, note)
 AssertionError: True is not false : interplane#48 Spark success read back on exact head aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
-test_signed_qualified_status_uses_authorized_operator_plan_context ... FAIL
+======================================================================
+FAIL: test_signed_qualified_status_uses_authorized_operator_plan_context (test_delivery_status.ReceiptStatusDelivery.test_signed_qualified_status_uses_authorized_operator_plan_context)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/workspace/hermes-desk/renda-planner-L738/tools/aien-local-ci/renda/test_delivery_status.py", line 95, in test_signed_qualified_status_uses_authorized_operator_plan_context
+    self.assertEqual(self.q.plan_modes, [True])
 AssertionError: Lists differ: [False] != [True]
 
-test_operator_run_requests_explicit_operator_plan_for_pipeline_config_hold ... FAIL
-AssertionError: 'operator' not found in host_plan signature parameters
+First differing element 0:
+False
+True
 
-Ran 3 tests; FAILED (failures=3). Expected RED results from newly added regressions.
+- [False]
++ [True]
+
+======================================================================
+FAIL: test_operator_run_requests_explicit_operator_plan_for_pipeline_config_hold (test_delivery.Delivery.test_operator_run_requests_explicit_operator_plan_for_pipeline_config_hold)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/drakestapleton/workspace/hermes-desk/renda-planner-L738/tools/aien-local-ci/renda/test_delivery.py", line 213, in test_operator_run_requests_explicit_operator_plan_for_pipeline_config_hold
+    self.assertIn('operator', inspect.signature(self.q.host_plan).parameters)
+AssertionError: 'operator' not found in mappingproxy(OrderedDict({'source': <Parameter "source">, 'repository': <Parameter "repository">, 'sha': <Parameter "sha">, 'base': <Parameter "base">}))
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.061s
+
+FAILED (failures=3)
