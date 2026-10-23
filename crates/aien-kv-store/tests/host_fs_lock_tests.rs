@@ -11,24 +11,10 @@ mod rig;
 
 use aien_kv_store::host_fs::{HostFsConfig, HostFsStore};
 use aien_platform::PlatformError;
-use rig::Fx;
-use std::sync::{RwLock, RwLockReadGuard};
+use rig::{no_spawn, Fx, SPAWN};
 
 /// The child process of the cross-process test reads its store root here.
 const CHILD_ROOT_ENV: &str = "AIEN_KV_LOCK_TEST_CHILD_ROOT";
-
-/// Tests run on parallel threads of one process. While the cross-process test
-/// spawns its child, the child holds a copy of every descriptor open in this
-/// process until its exec closes them (they are close-on-exec), and `flock`
-/// belongs to the open file, not the descriptor: a store another test drops
-/// in that window stays locked, and that test's reopen is refused. The
-/// spawning test takes this for writing and every other test for reading, so
-/// no store opens or drops while a child is being spawned.
-static SPAWN: RwLock<()> = RwLock::new(());
-
-fn no_spawn() -> RwLockReadGuard<'static, ()> {
-    SPAWN.read().unwrap_or_else(|e| e.into_inner())
-}
 
 fn in_use(r: Result<HostFsStore, PlatformError>) -> bool {
     matches!(r, Err(PlatformError::TaskRejected(ref m)) if m.contains("in use"))
