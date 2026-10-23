@@ -83,7 +83,7 @@
         },
         {
           "digest": "1a65d8ae9be7c2e6ccc39d7ed20762dfde808132a3216c8b82d0ce0232233343",
-          "last_commit": "f8eea420",
+          "last_commit": "5ae9d6a3",
           "name": "crates/aien-cli",
           "purpose": ""
         },
@@ -101,7 +101,7 @@
         },
         {
           "digest": "6b6ef510d49930df5acdbcd6e25fd349c620b9d01039af8b379e37510f52adc6",
-          "last_commit": "fe3677c3",
+          "last_commit": "1eab4ec8",
           "name": "scripts",
           "purpose": ""
         },
@@ -112,21 +112,21 @@
           "purpose": ""
         },
         {
-          "digest": "adbb791c38628de15e1327b7f4aad8b6326cd26dcca02da0a454898150cf587a",
-          "last_commit": "807772df",
+          "digest": "d2858a5cad7c791555b64dae05a049d8a632c6e4837e4b1496ae2b0fddce9cc0",
+          "last_commit": "49132974",
           "name": "tools/aien-local-ci",
           "purpose": "Local CI sandbox exec contract (C8), aien-run user/caches install, Forgejo trigger hook, health "
         }
       ],
-      "children_root": "sha256:ffda7def17288baa194e7112f2229d4406519b268001cd9b84e229cb6c0e9093",
-      "compiled_at": "2026-10-23T21:34:49Z",
+      "children_root": "sha256:518fe1aa9bbe22dabf9b51b76025d9f639675fcfef9766e63256549c52af02e3",
+      "compiled_at": "2026-10-23T22:03:38Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:39005fd872f657cf184df6a19bc597987f7dca3982b32157e204fbb5fe98bece",
+      "digest": "sha256:772faaa208ac63aefd217d8c74694007235df257438a7389b7afcc56e3bad6fc",
       "evidence_files": 1578,
       "evidence_root": "sha256:135e27a1a0704c4a8371cd2c1eb555f2b5beec61c212949b029a5457418a7160",
-      "files": 5897,
-      "generated_at_commit": "9b8e09ebc0d96e3f51eb847459a23005fce80fc2",
-      "source_tree": "sha256:0ea15a1b8a02aed313a6fe6964801d33162c4e6a7b71c690d6ea8b5f9315b3ba"
+      "files": 5895,
+      "generated_at_commit": "49132974a4c078cb16d2aa5722684148ec2491e2",
+      "source_tree": "sha256:cf043f504ceec8244cd31651cc50e7f82699a4e3d9857a55eddd217faf0dfbf4"
     }
   },
   "history": [],
