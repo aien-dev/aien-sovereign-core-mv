@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/loop12-inquisitor477/evidence/INQUISITOR-477-L653/qualify.py", line 90, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/Users/drakestapleton/.hermes/cache/scratch/loop12-inquisitor477/evidence/INQUISITOR-477-L653/qualify.py", line 85, in main
+    raise RuntimeError("required current standard absent: " + required)
+RuntimeError: required current standard absent: Stapleton Doctrine

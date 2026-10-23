@@ -1,0 +1,22 @@
+   Compiling spark-inquisitor v0.2.0 (/Users/drakestapleton/.hermes/cache/scratch/loop12-inquisitor477/crates/spark-inquisitor)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.60s
+     Running unittests src/lib.rs (target/debug/deps/spark_inquisitor-a74ac7889c729c37)
+
+running 1 test
+test interview::tests::test_generate_interview ... FAILED
+
+failures:
+
+---- interview::tests::test_generate_interview stdout ----
+
+thread 'interview::tests::test_generate_interview' (1268572) panicked at crates/spark-inquisitor/src/interview.rs:45:9:
+assertion failed: text.contains("Stapleton Doctrine")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    interview::tests::test_generate_interview
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p spark-inquisitor --lib`

@@ -1,0 +1,192 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.26
+   Compiling quote v1.0.47
+   Compiling serde_core v1.0.229
+   Compiling crossbeam-utils v0.8.23
+   Compiling memchr v2.8.3
+   Compiling serde v1.0.229
+   Compiling crossbeam-epoch v0.9.21
+   Compiling libc v0.2.189
+   Compiling shlex v2.0.1
+   Compiling cfg-if v1.0.5
+   Compiling utf8parse v0.2.2
+   Compiling crossbeam-deque v0.8.8
+   Compiling zmij v1.0.23
+   Compiling find-msvc-tools v0.1.13
+   Compiling autocfg v1.5.1
+   Compiling getrandom v0.4.3
+   Compiling num-traits v0.2.19
+   Compiling cc v1.4.7
+   Compiling anstyle-parse v1.0.0
+   Compiling colorchoice v1.0.5
+   Compiling anstyle-query v1.1.5
+   Compiling anstyle v1.0.14
+   Compiling rayon-core v1.13.0
+   Compiling serde_json v1.0.151
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anstream v1.0.0
+   Compiling blake3 v1.8.7
+   Compiling heck v0.5.0
+   Compiling itoa v1.0.18
+   Compiling core-foundation-sys v0.8.7
+   Compiling strsim v0.11.1
+   Compiling clap_lex v1.1.1
+   Compiling thiserror v1.0.69
+   Compiling syn v3.0.6
+   Compiling syn v2.0.119
+   Compiling iana-time-zone v0.1.65
+   Compiling uuid v1.26.1
+   Compiling clap_builder v4.6.7
+   Compiling aho-corasick v1.1.5
+   Compiling constant_time_eq v0.4.2
+   Compiling lazy_static v1.5.0
+   Compiling arrayvec v0.7.8
+   Compiling same-file v1.0.6
+   Compiling regex-syntax v0.8.11
+   Compiling either v1.18.0
+   Compiling walkdir v2.5.0
+   Compiling rayon v1.12.0
+   Compiling colored v2.2.0
+   Compiling thiserror-impl v1.0.69
+   Compiling serde_derive v1.0.229
+   Compiling clap_derive v4.6.7
+   Compiling regex-automata v0.4.18
+   Compiling clap v4.6.7
+   Compiling bincode v1.3.3
+   Compiling chrono v0.4.45
+   Compiling crumb-spec v1.0.0 (https://github.com/aien-dev/crumb-spec?rev=24194d1b7917ef19244aae6bcaff510686b75fef#24194d1b)
+   Compiling regex v1.13.1
+   Compiling spark-crumbs v0.1.0 (https://github.com/aien-dev/spark-crumbs?rev=9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2#9355a92b)
+   Compiling spark-inquisitor v0.2.0 (/Users/drakestapleton/.hermes/cache/scratch/loop12-inquisitor477/crates/spark-inquisitor)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.69s
+     Running unittests src/lib.rs (target/debug/deps/spark_inquisitor-a74ac7889c729c37)
+
+running 17 tests
+test eval::tests::test_get_rich_quick_red_flag ... ok
+test eval::tests::test_commercial_red_flag ... ok
+test eval::tests::test_valid_testimony ... ok
+test interview::tests::test_generate_interview ... ok
+test triage::tests::test_bug_with_repro ... ok
+test triage::tests::test_bug_without_repro ... ok
+test triage::tests::test_complaint ... ok
+test triage::tests::test_empty_strings_and_whitespace ... ok
+test triage::tests::test_feature_proposal ... ok
+test triage::tests::test_label_deduplication ... ok
+test audit::tests::test_env_file_flagged ... ok
+test audit::tests::test_telemetry_flagged ... ok
+test audit::tests::test_clean_diff ... ok
+test audit::tests::test_secret_flagged ... ok
+test audit::tests::test_unslop_flagged ... ok
+test review::tests::test_violating_pr_review ... ok
+test review::tests::test_clean_pr_review ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/main.rs (target/debug/deps/spark_inquisitor-a49013b0a7eb4984)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cli_exit_code_contracts.rs (target/debug/deps/cli_exit_code_contracts-07a991b801d78fc5)
+
+running 11 tests
+test test_cli_doctor_exit_zero ... ok
+test test_cli_evaluate_valid_testimony_exit_zero ... ok
+test test_cli_evaluate_invalid_testimony_exit_nonzero ... ok
+test test_cli_fix_command_sanitizes_file ... ok
+test test_cli_audit_em_dash_diff_exit_nonzero ... ok
+test test_cli_audit_telemetry_diff_exit_nonzero ... ok
+test test_cli_audit_secret_diff_exit_nonzero ... ok
+test test_cli_audit_em_dash_with_advisory_style_exit_zero ... ok
+test test_cli_audit_clean_diff_exit_zero ... ok
+test test_cli_review_violating_diff_exit_nonzero ... ok
+test test_cli_review_clean_diff_exit_zero ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s
+
+     Running tests/constitutional_rules.rs (target/debug/deps/constitutional_rules-6aab2b13cdb35a2c)
+
+running 33 tests
+test test_allowed_word_seamlessly ... ok
+test test_banned_buzzword_game_changer ... ok
+test test_banned_buzzword_crucial ... ok
+test test_antithesis_trope_not_only_x_but_y ... ok
+test test_antithesis_trope_not_x_but_y ... ok
+test test_banned_buzzword_elevate ... ok
+test test_banned_buzzword_beacon_trope ... ok
+test test_banned_buzzword_delve ... ok
+test test_banned_buzzword_harness_verb ... ok
+test test_banned_buzzword_tapestry ... ok
+test test_banned_buzzword_pivotal ... ok
+test test_banned_buzzword_testament ... ok
+test test_banned_buzzword_unleash ... ok
+test test_beacon_hardware_term_allowed ... ok
+test test_em_dash_detected_in_markdown ... ok
+test test_em_dash_detected_in_string_literals ... ok
+test test_elevate_flag_allowed ... ok
+test test_en_dash_detected_in_code_comments ... ok
+test test_en_dash_detected_in_markdown ... ok
+test test_env_file_addition_nested ... ok
+test test_en_dash_detected_in_string_literals ... ok
+test test_env_file_addition_root ... ok
+test test_em_dash_detected_in_code_comments ... ok
+test test_false_positive_markdown_lists ... ok
+test test_false_positive_negative_numbers_and_subtraction ... ok
+test test_false_positive_standard_hyphenated_words ... ok
+test test_harness_noun_and_test_harness_allowed ... ok
+test test_plaintext_secret_aws_access_key ... ok
+test test_plaintext_secret_generic_private_key ... ok
+test test_unleash_flag_allowed ... ok
+test test_plaintext_secret_rsa_private_key ... ok
+test test_plaintext_secret_github_pat ... ok
+test test_plaintext_secret_github_fine_grained_pat ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/diff_auditor_edge_cases.rs (target/debug/deps/diff_auditor_edge_cases-ca946e7e8470c82e)
+
+running 17 tests
+test test_binary_file_deletion_clean ... ok
+test test_binary_file_addition_clean ... ok
+test test_binary_file_env_detected ... ok
+test test_binary_file_modification_clean ... ok
+test test_empty_diff_returns_clean ... ok
+test test_git_binary_patch_clean ... ok
+test test_hidden_directory_paths ... ok
+test test_diff_without_plus_minus_headers ... ok
+test test_filenames_with_unicode ... ok
+test test_filenames_with_unusual_paths ... ok
+test test_filenames_with_spaces ... ok
+test test_whitespace_only_diff_returns_clean ... ok
+test test_malformed_diff_headers_no_panic ... ok
+test test_malformed_chunk_headers ... ok
+test test_large_diff_over_5000_lines_clean ... ok
+test test_large_diff_with_unslop_violation ... ok
+test test_large_diff_with_telemetry_violation ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/issue_triage_evaluator.rs (target/debug/deps/issue_triage_evaluator-5f6cd3d77369a98e)
+
+running 11 tests
+test test_evaluator_empty_testimony ... ok
+test test_evaluator_commercial_monetization_red_flag ... ok
+test test_evaluator_prompt_injection_rejected ... ok
+test test_evaluator_whitespace_testimony ... ok
+test test_evaluator_valid_testimony_approved ... ok
+test test_triage_label_deduplication_and_ordering ... ok
+test test_triage_empty_string_body_and_title ... ok
+test test_triage_markdown_injection ... ok
+test test_triage_prompt_injection ... ok
+test test_triage_script_tag_injection ... ok
+test test_triage_whitespace_only_body ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests spark_inquisitor
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
