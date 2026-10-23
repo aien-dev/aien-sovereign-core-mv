@@ -1,0 +1,35 @@
+test_acknowledged_targeted_successor_at_current_ref_is_not_deferred (__main__.Offline.test_acknowledged_targeted_successor_at_current_ref_is_not_deferred) ... ok
+test_capacity_refuses_new_work_without_losing_retained_pins (__main__.Offline.test_capacity_refuses_new_work_without_losing_retained_pins) ... ok
+test_completed_review_accepts_verified_legacy_source_repository_alias (__main__.Offline.test_completed_review_accepts_verified_legacy_source_repository_alias) ... ok
+test_contexts_must_belong_to_exact_head (__main__.Offline.test_contexts_must_belong_to_exact_head) ... ok
+test_corrupt_wrong_repo_wrong_sha_receipts_never_verify (__main__.Offline.test_corrupt_wrong_repo_wrong_sha_receipts_never_verify) ... ok
+test_current_receipt_rechecked_despite_cached_refusal (__main__.Offline.test_current_receipt_rechecked_despite_cached_refusal) ... ok
+test_empty_remote_snapshot_deactivates_closed_pr (__main__.Offline.test_empty_remote_snapshot_deactivates_closed_pr) ... ok
+test_guard_backoff_shared_across_instances (__main__.Offline.test_guard_backoff_shared_across_instances) ... ok
+test_head_move_retains_old_failure_and_invalidates_review (__main__.Offline.test_head_move_retains_old_failure_and_invalidates_review) ... ok
+test_interrupted_atomic_write_keeps_old_bytes (__main__.Offline.test_interrupted_atomic_write_keeps_old_bytes) ... ok
+test_large_diff_is_not_marked_true_until_every_chunk_passes (__main__.Offline.test_large_diff_is_not_marked_true_until_every_chunk_passes) ... ok
+test_large_diff_resumes_complete_chunks_with_repository_wide_call_budget (__main__.Offline.test_large_diff_resumes_complete_chunks_with_repository_wide_call_budget) ... ok
+test_local_ready_has_no_remote_pr_identity (__main__.Offline.test_local_ready_has_no_remote_pr_identity) ... ok
+test_malformed_snapshot_preserves_pins (__main__.Offline.test_malformed_snapshot_preserves_pins) ... ok
+test_missing_or_ambiguous_local_ready_ref_fails_closed_without_spend (__main__.Offline.test_missing_or_ambiguous_local_ready_ref_fails_closed_without_spend) ... ok
+test_model_and_policy_identity_invalidate_review (__main__.Offline.test_model_and_policy_identity_invalidate_review) ... ok
+test_multiple_ready_heads_on_one_ref_defer_only_the_ancestor (__main__.Offline.test_multiple_ready_heads_on_one_ref_defer_only_the_ancestor) ... ok
+test_network_denied_still_emits_actual_local_diff_and_plan (__main__.Offline.test_network_denied_still_emits_actual_local_diff_and_plan) ... ok
+test_parallel_sync_one_transport (__main__.Offline.test_parallel_sync_one_transport) ... ok
+test_partial_review_reuses_exact_source_planner_on_budget_zero_pass (__main__.Offline.test_partial_review_reuses_exact_source_planner_on_budget_zero_pass) ... ok
+test_remote_admission_fails_on_moved_closed_or_missing (__main__.Offline.test_remote_admission_fails_on_moved_closed_or_missing) ... ok
+test_required_gate_failure_cannot_publish (__main__.Offline.test_required_gate_failure_cannot_publish) ... ok
+test_retry_after_http_date (__main__.Offline.test_retry_after_http_date) ... ok
+test_scripted_rebase_final_push_guard_refuses_without_ownership (__main__.Offline.test_scripted_rebase_final_push_guard_refuses_without_ownership) ... ok
+test_superseded_ready_is_deferred_before_any_model_or_planner_call (__main__.Offline.test_superseded_ready_is_deferred_before_any_model_or_planner_call) ... ok
+test_sync_interruption_reserves_durable_backoff (__main__.Offline.test_sync_interruption_reserves_durable_backoff) ... ok
+test_unavailable_source_never_fetches (__main__.Offline.test_unavailable_source_never_fetches) ... ok
+test_unpublishable_tracking_ref_does_not_spend_local_model_budget (__main__.Offline.test_unpublishable_tracking_ref_does_not_spend_local_model_budget) ... ok
+test_verified_pass_with_not_run_plan_is_ineligible (__main__.Offline.test_verified_pass_with_not_run_plan_is_ineligible) ... ok
+test_wrong_repository_cache_is_ignored (__main__.Offline.test_wrong_repository_cache_is_ignored) ... ok
+
+----------------------------------------------------------------------
+Ran 30 tests in 2.544s
+
+OK

@@ -1,0 +1,75 @@
+{
+  "source": "ce5cd74d68d7b766c5500a400c3e269866fda14b",
+  "manifest_hashes": 21,
+  "modules": [
+    {
+      "module": "test_admission.py",
+      "exit": 0,
+      "tests": 3
+    },
+    {
+      "module": "test_delivery.py",
+      "exit": 0,
+      "tests": 30
+    },
+    {
+      "module": "test_delivery_recovery.py",
+      "exit": 0,
+      "tests": 4
+    },
+    {
+      "module": "test_delivery_status.py",
+      "exit": 0,
+      "tests": 24
+    },
+    {
+      "module": "test_install.py",
+      "exit": 0,
+      "tests": 4
+    },
+    {
+      "module": "test_local_queue.py",
+      "exit": 0,
+      "tests": 30
+    },
+    {
+      "module": "test_publication_transport.py",
+      "exit": 0,
+      "tests": 6
+    },
+    {
+      "module": "test_reliability.py",
+      "exit": 0,
+      "tests": 7
+    },
+    {
+      "module": "test_review_chunks.py",
+      "exit": 0,
+      "tests": 10
+    },
+    {
+      "module": "test_review_integration.py",
+      "exit": 0,
+      "tests": 7
+    },
+    {
+      "module": "test_site_policy.py",
+      "exit": 0,
+      "tests": 18
+    },
+    {
+      "module": "test_successor.py",
+      "exit": 0,
+      "tests": 8
+    }
+  ],
+  "total_tests": 151,
+  "tuple_mutant_exit": 1,
+  "ready_control": {
+    "assessment_allows_operator_request": true,
+    "unsigned_publication_refused": true,
+    "signed_fixture_publication_passed": true,
+    "scope": "synthetic receipt and remote transport; no live writes"
+  },
+  "live_changes": false
+}
