@@ -1,0 +1,3 @@
+warning: aien-omega-gpu@0.1.0: aien-omega-gpu: libomega_gpu.a sha256 0230b041a9a6c6bdca31a12f93d9c46bb2b3b5a3b73773bcb8e7b9689ec8a6a0 (omega 1549caaedfd73d7d885eab4363ab4fd36eb16feb, aarch64-unknown-linux-gnu, `cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0`) is not recorded in native-artifacts.lock: builds, but does not qualify
+   Compiling aien-inference-abi v0.1.0 (/home/drakestapleton/workspace/hermes-desk/sc-weight-flow-L689/crates/aien-inference-abi)
+    Finished `release` profile [optimized] target(s) in 22.75s

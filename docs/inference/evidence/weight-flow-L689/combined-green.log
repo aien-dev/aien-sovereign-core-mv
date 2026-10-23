@@ -1,0 +1,665 @@
+   Compiling aien-heartbeat v0.1.0 (/home/drakestapleton/workspace/hermes-desk/sc-weight-flow-L689/crates/aien-heartbeat)
+   Compiling aien-inference-abi v0.1.0 (/home/drakestapleton/workspace/hermes-desk/sc-weight-flow-L689/crates/aien-inference-abi)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 22.37s
+     Running unittests src/lib.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/aien_heartbeat-59eca7a0a4861321)
+
+running 16 tests
+test manifest::tests::parses_expert_names ... ok
+test residency::tests::aba_reuse_gets_new_versions ... ok
+test residency::tests::budget_admits_and_refuses ... ok
+test residency::tests::fetching_is_pending_for_others_and_failure_recovers ... ok
+test residency::tests::lru_eviction_order_and_layer_crossing_identities ... ok
+test residency::tests::miss_then_hit_and_release ... ok
+test residency::tests::pinned_slots_are_never_evicted_and_exhaustion_is_explicit ... ok
+test residency::tests::simultaneous_readers_share_a_slot ... ok
+test ring::tests::digest_mismatch_fails_closed ... ok
+test ring::tests::dropped_guard_fails_closed ... ok
+test ring::tests::filling_slot_cannot_be_leased_or_double_filled ... ok
+test ring::tests::not_visible_until_published ... ok
+test ring::tests::oversized_payload_fails_closed ... ok
+test ring::tests::versions_increase_monotonically ... ok
+test ring::tests::leased_slot_is_never_overwritten ... ok
+test ring::tests::writer_waits_for_lease_release ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running unittests src/bin/heartbeat_bench.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/heartbeat_bench-e75d03ddf8fa67ef)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/ribbon_read_bench.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/ribbon_read_bench-1fcb9be4c10d1558)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/ribbon_store.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/ribbon_store-77ea08720ffedd73)
+
+running 19 tests
+test corrupt_checkpoint_bytes_never_reach_a_slot ... ok
+test bounded_queue_refuses_when_every_staging_buffer_is_in_use ... ok
+test flow_prepares_next_during_compute_preserves_order_and_bounds ... ok
+test flow_native_adaptive_and_hot_reuse_use_real_file_bytes ... ok
+test eio_short_read_eof_and_corruption_return_explicit_errors_and_free_the_buffer ... ok
+test a_failed_fetch_fails_closed_and_recovers ... ok
+test simultaneous_requests_share_slots_and_wait_for_in_flight_fetches ... ok
+test manifest_has_a_content_model_digest_and_two_segments_per_expert ... ok
+test flow_stalled_read_deadline_and_precancel_leave_no_pins ... ok
+test pager_pins_exactly_the_routed_experts_and_slots_hold_their_bytes ... ok
+test layout_refuses_wrong_shape_and_missing_tensor ... ok
+test shutdown_with_reads_in_flight_is_deterministic ... ok
+test every_expert_round_trips_byte_for_byte_through_a_verified_random_read ... ok
+test flow_corruption_and_copy_error_never_compute_bad_expert_and_release_future_pins ... ok
+test stalled_read_hits_the_deadline_and_cancel_skips_queued_work ... ok
+test flow_drains_on_compute_error_cancel_and_panic ... ok
+test flow_serial_control_and_capacity_one_do_not_overlap ... ok
+test flow_prevalidates_duplicates_unknowns_and_bounds_before_io ... ok
+test cache_pressure_evicts_lru_never_a_pinned_slot ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running tests/ring_stream.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/ring_stream-e2718e37c4b1802b)
+
+running 8 tests
+test corrupted_bytes_fail_closed ... ok
+test expert_split_across_shards_streams_as_two_segments ... ok
+test manifest_round_trip_and_contiguous_spans ... ok
+test hot_experts_are_skipped ... ok
+test small_ring_rotates_with_slot_reuse ... ok
+test truncated_file_fails_closed ... ok
+test rotation_publishes_exact_bytes_in_layer_order ... ok
+test reader_lease_holds_back_the_writer ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running unittests src/lib.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/aien_inference_abi-be50aac63915dba9)
+
+running 269 tests
+test backend::tests::test_reference_backend_name ... ok
+test backend::tests::test_reference_compute_logits ... ok
+test backend::tests::test_reference_rmsnorm_matches_tensor ... ok
+test backend::tests::test_reference_matmul_matches_tensor ... ok
+test backend::tests::test_reference_swiglu ... ok
+test bitnet_forward::tests::rms_norm_is_weighted_x_over_root_mean_square ... ok
+test bitnet_forward::tests::rope_is_half_split_and_starts_at_position_zero ... ok
+test backend::tests::test_reference_gqa_attention ... ok
+test bitnet_forward::tests::activation_quant_rounds_half_to_even_per_token ... ok
+test backend::tests::test_rmsnorm_rows_default_equals_per_row ... ok
+test backend::tests::test_gqa_attention_rows_default_is_causal_per_row ... ok
+test backend::tests::test_reference_rope_matches_tensor ... ok
+test bitnet_omega::tests::malformed_or_empty_eos_lists_are_refused_by_name ... ok
+test bitnet_omega::tests::host_gemv_is_the_exact_ternary_sum ... ok
+test bitnet_omega::tests::packs_omegas_trit_code_sixteen_per_word ... ok
+test bitnet_forward::tests::attention_equals_a_naive_masked_loop ... ok
+test bitnet_omega::tests::reads_the_bitnet_2b4t_config ... ok
+test bitnet_omega::tests::real_bitnet_streaming_load_host_only ... ignored, reads the 4.8 GB BitNet 2B-4T master
+test bitnet_omega::tests::real_gguf_trit_agreement ... ignored, reads the 4.8 GB master and the 1.2 GB gguf
+test bitnet_omega::tests::rss_probe_child ... ignored, child process of the measured peak RSS gate; started by it
+test bitnet_omega::tests::fp8_table_is_the_omega_study_rule ... ok
+test bitnet_omega::tests::refuses_other_families_by_name ... ok
+test bitnet_omega::tests::ternariser_is_pytorch_bf16_absmean ... ok
+test bitnet_omega::tests::refuses_what_the_engine_does_not_implement ... ok
+test bitnet_omega::tests::equals_oma_quant_absmean_where_the_rules_coincide ... ok
+test bitnet_omega::tests::trit_grid_is_validated_no_0b11 ... ok
+test bitnet_omega::tests::ternariser_rounds_the_product_to_bf16_first ... ok
+test bitnet_tokenizer::tests::byte_alphabet_is_gpt2s ... ok
+test bitnet_tokenizer::tests::bpe_merges_by_rank_and_specials_split_out ... ok
+test bitnet_forward::tests::batched_ternary_product_equals_the_packed_gemv ... ok
+test bitnet_tokenizer::tests::unimplemented_settings_are_refused_by_name ... ok
+test bitnet_tokenizer::tests::split_follows_the_llama3_pattern ... ok
+test capsule::tests::row_major_strides_match_c_order ... ok
+test capsule::tests::source_digest_of_abc_matches_well_known_sha256 ... ok
+test checkpoint::tests::checkpoint_files_names_the_index_and_every_shard ... ok
+test checkpoint::tests::test_bf16_fp32_codec_roundtrip ... ok
+test checkpoint::tests::test_capsule_owns_file_bytes_and_byte_range_points_at_payload ... ok
+test checkpoint::tests::test_dtype_mismatch_loud_error ... ok
+test capsule::tests::capsule_digest_is_stable_across_hashmap_insertion_order ... ok
+test checkpoint::tests::test_from_bf16_tensors_one_buffer ... ok
+test checkpoint::tests::test_invalid_header_truncated_buffer ... ok
+test checkpoint::tests::test_header_len_arithmetic_overflow ... ok
+test capsule::tests::decode_fp32_bf16_one_and_owned_len_and_missing_tensor ... ok
+test checkpoint::tests::test_missing_tensor_loud_error ... ok
+test checkpoint::tests::test_shape_mismatch_loud_error ... ok
+test checkpoint::tests::test_tinyllama_catalog_size_and_shapes ... ok
+test checkpoint::tests::test_offset_out_of_bounds_loud_error ... ok
+test checkpoint::tests::test_valid_custom_catalog_parsing ... ok
+test generation::tests::a_constraint_error_rolls_back_like_a_forward_error ... ok
+test generation::tests::a_cache_that_cannot_persist_refuses_export_and_restore ... ok
+test generation::tests::a_failed_restore_resets_the_ledger ... ok
+test generation::tests::a_forced_token_is_emitted_decoded_and_counted ... ok
+test generation::tests::a_pick_outside_the_allowed_set_is_an_error ... ok
+test generation::tests::a_full_context_ends_with_length_and_no_error ... ok
+test generation::tests::a_forward_error_leaves_every_layer_at_the_ledger ... ok
+test generation::tests::each_on_token_fires_before_the_next_decode ... ok
+test generation::tests::an_allowed_set_picks_the_best_token_inside_it ... ok
+test bitnet_omega::tests::unexpected_or_missing_tensors_are_refused_by_name ... ok
+test generation::tests::any_is_byte_identical_to_no_constraint ... ok
+test generation::tests::finish_ends_with_finish_reason_constraint ... ok
+test generation::tests::kv_identity_names_the_salt_and_a_mutant_refuses ... ok
+test generation::tests::greedy_with_chip_argmax_reads_no_logits ... ok
+test generation::tests::max_new_tokens_zero_reads_no_head ... ok
+test generation::tests::generate_stops_on_stop_ids_caps_length_and_cancels ... ok
+test generation::tests::locked_hands_out_the_controller_and_is_send_and_sync ... ok
+test bitnet_omega::tests::tiny_load_shapes_byte_counts_and_order ... ok
+test generation::tests::prefix_reuse_prefills_only_the_new_tokens_and_matches_a_cold_run ... ok
+test generation::tests::rewind_a_new_generation_and_a_forced_token_forget_the_pending_head ... ok
+test generation::tests::negative_control_restoring_a_under_b_continues_differently ... ok
+test generation::tests::stop_and_cancel_tokens_are_never_stepped ... ok
+test generation::tests::the_unreused_suffix_reaches_prefill_in_one_call ... ok
+test generation::tests::negative_control_a_corrupted_surviving_row_changes_the_warm_run ... ok
+test model_dir::tests::hf_cache_snapshot_dirs_get_the_repo_id ... ok
+test model_dir::tests::llama32_1b_config_has_tied_head_llama3_rope_and_three_stop_ids ... ok
+test model_dir::tests::llama3_rope_inv_freq_matches_independent_values ... ok
+test model_dir::tests::smollm2_config_is_full_mha_tied_plain_rope ... ok
+test model_dir::tests::tinyllama_config_json_reproduces_the_hard_wired_config_and_catalog ... ok
+test generation::tests::seeded_sampling_replays_under_a_constraint ... ok
+test generation::tests::timing_buckets_sum_the_calls_of_each_phase ... ok
+test model_dir::tests::unsupported_models_are_refused_by_name ... ok
+test moe_plan::tests::qwen_routing_groups_and_restores_all_assignments ... ok
+test moe_plan::tests::rejects_corrupt_router_values_and_shape ... ok
+test moe_plan::tests::weighted_inverse_permutation_preserves_token_values ... ok
+test native_ops::tests::default_mask_is_all_native ... ok
+test native_ops::tests::default_report_is_all_native ... ok
+test native_ops::tests::claimed_native_op_falling_back_is_counted_and_trips_strict ... ok
+test native_ops::tests::evidence_sums_the_counters_and_keeps_the_line ... ok
+test native_ops::tests::op_bits_are_stable ... ok
+test native_ops::tests::mask_with_without_and_lists ... ok
+test native_ops::tests::reference_op_outside_mask_does_not_count_as_fallback ... ok
+test native_ops::tests::op_names_unique_and_match_indices ... ok
+test omega_backend::tests::attempts_stay_bounded_when_the_deadline_never_passes ... ok
+test native_ops::tests::report_lists_native_and_reference_and_counters ... ok
+test omega_backend::tests::attention_chip_error_is_a_counted_fallback ... ok
+test omega_backend::tests::chip_error_is_a_counted_fallback ... ok
+test omega_backend::tests::chip_refusal_is_fatal_in_strict_and_counted_in_dev ... ok
+test omega_backend::tests::elementwise_chip_errors_are_counted_fallbacks ... ok
+test omega_backend::tests::fingerprint_changes_with_content ... ok
+test omega_backend::tests::deadline_passed_between_attempts_stops_with_a_timeout_error ... ok
+test omega_backend::tests::first_attempt_runs_even_if_the_deadline_is_already_zero ... ok
+test omega_backend::tests::gpu_executions_is_the_chip_call_total_or_absent ... ok
+test omega_backend::tests::mask_is_all_ten_ops ... ok
+test omega_backend::tests::non_utf8_switch_value_refuses ... ok
+test omega_backend::tests::retry_does_not_repeat_a_latched_failure_and_runs_at_least_once ... ok
+test omega_backend::tests::retry_returns_the_attempt_that_succeeded ... ok
+test omega_backend::tests::op_timing_table_tallies_sorts_and_resets ... ok
+test omega_backend::tests::retry_stops_at_the_bound_and_logs_every_attempt ... ok
+test omega_backend::tests::session_open_refuses_cleanly_in_a_stub_build ... ok
+test omega_backend::tests::rope_table_reproduces_reference_rope ... ok
+test omega_backend::tests::single_token_norms_and_rope_run_on_the_host_without_a_fallback ... ok
+test omega_backend::tests::unset_switch_needs_a_strict_run_but_one_always_enables ... ok
+test qwen3_coder::tests::bf16_words_reads_aligned_payload ... ok
+test omega_backend::tests::stub_backend_refuses_qwen3_with_switch_unset_or_one ... ok
+test qwen3_coder::tests::bf16_words_rejects_odd_length - should panic ... ok
+test qwen3_coder::tests::coder_constants_match_official_config ... ok
+test qwen3_coder::tests::bf16_words_rejects_misaligned_payload - should panic ... ok
+test qwen3_coder::tests::fp8_block128_roundtrip_spot_check ... ok
+test moe_plan::tests::five_hundred_branch_batch_exposes_expert_histogram ... ok
+test generation::tests::restored_prefix_continues_exactly_like_the_uninterrupted_engine ... ok
+test bitnet_omega::tests::negative_control_kv_scale_swap_fails_the_byte_test ... ok
+test bitnet_omega::tests::negative_control_kv_row_swap_fails_the_byte_test ... ok
+test qwen3_dense_omega::tests::fp8_shape_rules ... ok
+test qwen3_dense_omega::tests::bf16_only_uploader_refuses_an_fp8_load ... ok
+test qwen3_dense_omega::tests::kv_geometry_from_the_qwen3_8b_config ... ok
+test bitnet_omega::tests::negative_control_word_table_byte_flip_fails_the_byte_test ... ok
+test generation::tests::echo_chain_keeps_the_forward_pass_contract ... ok
+test bitnet_omega::tests::byte_test_passes_and_stacks_trits_and_scales_q_k_v_and_gate_up ... ok
+test bitnet_omega::tests::negative_control_plane_swap_fails_the_byte_test ... ok
+test qwen3_dense_omega::tests::fp8_byte_test_passes_and_stacks_bytes_and_scale_rows ... ok
+test bitnet_omega::tests::tiny_round_trip_from_disk_equals_memory ... ok
+test bitnet_forward::tests::bit_linear_scales_each_segment_by_its_own_scale ... ok
+test qwen3_dense_omega::tests::quantization_config_absent_null_or_exact_fp8 ... ok
+test qwen3_dense_omega::tests::reads_the_qwen3_8b_config ... ok
+test qwen3_dense_omega::tests::reads_the_qwen3_8b_fp8_config ... ok
+test qwen3_dense_omega::tests::real_qwen3_8b_fp8_streaming_load_host_only ... ignored, reads the 9.4 GB Qwen3-8B-FP8 checkpoint
+test qwen3_dense_omega::tests::real_qwen3_8b_streaming_load_host_only ... ignored, reads the 16 GB Qwen3-8B checkpoint
+test qwen3_dense_omega::tests::refuses_attention_shapes_omega_cannot_run ... ok
+test qwen3_dense_omega::tests::refuses_foreign_quantization_configs_by_name ... ok
+test qwen3_dense_omega::tests::refuses_k_not_a_multiple_of_256 ... ok
+test qwen3_dense_omega::tests::host_fp8_gemv_is_the_block_scaled_formula ... ok
+test qwen3_dense_omega::tests::refuses_k_past_the_gemv_and_matmul_limits ... ok
+test qwen3_dense_omega::tests::refuses_qwen3_moe ... ok
+test qwen3_dense_omega::tests::refuses_tied_embeddings ... ok
+test qwen3_dense_omega::tests::rss_probe_child ... ignored, child process of the measured peak RSS gates; started by them
+test qwen3_dense_omega::tests::refuses_what_the_engine_does_not_implement ... ok
+test bitnet_omega::tests::bad_checkpoints_are_refused_by_name ... ok
+test qwen3_dense_omega::tests::tiny_fp8_load_shapes_byte_counts_and_order ... ok
+test qwen3_moe::tests::bf16_rounds_to_nearest_even ... ok
+test bitnet_forward::tests::taps_are_the_residual_stream_after_each_listed_layer ... ok
+test qwen3_moe::tests::fp8_e4m3fn_decodes_known_values ... ok
+test qwen3_moe::tests::fp8_encode_rounds_to_nearest_even_and_saturates ... ok
+test bitnet_forward::tests::nll_is_log_softmax_of_the_tied_logits ... ok
+test qwen3_dense_omega::tests::transient_is_one_buffer_under_2gb_at_the_8b_shape ... ok
+test qwen3_moe::tests::shard_names_cannot_escape_the_checkpoint_directory ... ok
+test qwen3_moe_omega::dgraph::tests::mutant_names_parse_and_unknown_ones_are_refused ... ok
+test qwen3_dense_omega::tests::tiny_load_shapes_byte_counts_and_order ... ok
+test qwen3_dense_omega::tests::negative_control_gate_up_swap_fails_the_byte_test ... ok
+test qwen3_dense_omega::tests::negative_control_kv_swap_fails_the_byte_test ... ok
+test qwen3_dense_omega::tests::negative_controls_fail_the_fp8_byte_test ... ok
+test bitnet_forward::tests::a_failed_forward_leaves_the_cache_where_it_was ... ok
+test bitnet_omega::tests::negative_control_input_post_norm_swap_fails_the_byte_test ... ok
+test qwen3_dense_omega::tests::nan_and_missing_tensors_are_refused ... ok
+test qwen3_dense_omega::tests::fp8_per_tensor_dtype_rule_and_refusals ... ok
+test qwen3_dense_omega::tests::byte_test_passes_and_concat_order_is_q_k_v_and_gate_up ... ok
+test bitnet_forward::tests::kv_cache_decode_equals_the_whole_prefill_bit_for_bit ... ok
+test qwen3_moe_omega::forward_tests::device_router_trace_keeps_the_host_post_as_oracle_input_and_the_mutant_forces_host_routing ... ok
+test qwen3_dense_omega::tests::bf16_and_fp8_twins_load_to_equal_host_gemvs ... ok
+test bitnet_forward::tests::variants_change_the_output_except_the_vacuous_q_k_swap ... ok
+test qwen3_moe_omega::forward_tests::seeded_sampling_replays_and_greedy_is_argmax ... ok
+test qwen3_dense_omega::tests::loader_equals_transformer_weights_on_the_tiny_model ... ok
+test qwen3_moe_omega::kv_persist_tests::every_host_buildable_cache_reports_its_geometry_len_and_path_through_the_kv_store_view ... ok
+test qwen3_moe_omega::forward_tests::generate_stops_on_stop_ids_caps_length_and_cancels ... ok
+test qwen3_moe_omega::kv_persist_tests::kv_geometry_from_config_carries_the_numbers_for_config_read ... ok
+test qwen3_moe::tests::oracle_matches_hand_computed_identity_expert ... ok
+test qwen3_moe_omega::kv_persist_tests::paged_and_host_pool_caches_export_the_same_bytes_and_round_trip ... ok
+test qwen3_moe_omega::kv_persist_tests::pool_caches_refuse_a_block_size_their_layout_does_not_use ... ok
+test qwen3_moe_omega::kv_persist_tests::exported_kv_bytes_match_the_digests_recorded_on_main ... ok
+test qwen3_moe_omega::kv_persist_tests::the_fused_cache_fits_only_the_kernel_shape ... ok
+test qwen3_moe_omega::kvio::tests::damaged_payloads_are_refused_before_any_write ... ok
+test qwen3_moe_omega::kvio::tests::fused_rows_round_trip_through_the_payload_byte_for_byte ... ok
+test qwen3_moe_omega::kvio::tests::geometry_equals_the_kv_cache_pool_layout ... ok
+test qwen3_moe_omega::loader_tests::config_refuses_shapes_stage_a_cannot_run ... ok
+test qwen3_moe_omega::loader_tests::dequant_matches_the_exact_conversion_transposed_and_rounded ... ok
+test qwen3_moe_omega::loader_tests::dequant_refuses_nan_codes_and_bad_shapes ... ok
+test qwen3_moe_omega::loader_tests::expert_windows_start_on_a_column_tile_and_stay_inside_the_tensor ... ok
+test qwen3_moe_omega::loader_tests::loader_transient_budget_is_one_layer_plus_embedding ... ok
+test qwen3_moe_omega::forward_tests::decode_graph_switch_refuses_a_load_it_cannot_run_instead_of_falling_back ... ok
+test qwen3_moe_omega::loader_tests::real_config_parses_and_sizes_match_the_design ... ok
+test qwen3_moe_omega::forward_tests::gemm_prefill_routing_mutant_changes_the_result_and_forces_host_routing ... ok
+test qwen3_moe_omega::kv_persist_tests::kv_switches_report_every_run_setting ... ok
+test qwen3_moe_omega::forward_tests::routing_mutant_breaks_the_layer_and_the_trace_records_it ... ok
+test qwen3_moe_omega_prefill::fake_quant::tests::block_scale_rounds_amax_up_above_1_75 ... ok
+test qwen3_moe_omega_prefill::fake_quant::tests::e4m3_edges ... ok
+test qwen3_moe_omega::forward_tests::fp8_experts_path_agrees_with_the_bf16_path_and_catches_the_routing_mutant ... ok
+test qwen3_moe_omega_prefill::fake_quant::tests::matches_the_c_reference_golden ... ok
+test qwen3_moe_omega::forward_tests::engine_forward_matches_a_naive_reference_at_every_position ... ok
+test qwen3_moe_omega_prefill::tests::call_order_and_launch_counts_per_layer ... ok
+test qwen3_moe_omega::loader_tests::loader_uploads_the_right_shapes_bytes_and_values ... ok
+test qwen3_moe_omega_prefill::tests::cache_weights_refusal_leaves_the_in_place_path_working ... ok
+test qwen3_moe_omega_prefill::tests::devhost::device_path_call_order_per_layer ... ok
+test qwen3_moe_omega_prefill::tests::devhost::parallel_plan_errors_equal_from_logits ... ok
+test qwen3_moe_omega_prefill::tests::devhost::parallel_plan_equals_from_logits_exactly ... ok
+test qwen3_moe_omega_prefill::tests::devhost::without_device_kernels_the_switch_refuses_and_the_host_path_runs ... ok
+test qwen3_moe_omega_prefill::tests::devhost::combine_negative_control_is_caught ... ok
+test qwen3_moe_omega_prefill::tests::expert_sort_groups_rows_by_expert_stably ... ok
+test qwen3_moe_omega::forward_tests::fp8_paths_match_the_naive_reference_with_fewer_launches ... ok
+test qwen3_moe_omega_prefill::tests::devhost::routing_mutant_is_still_caught_on_the_device_path ... ok
+test qwen3_moe_omega_prefill::tests::negative_control_ignoring_the_row_index_is_caught ... ok
+test qwen3_moe_omega_prefill::tests::refuses_an_empty_prompt_and_non_fp8_weights ... ok
+test qwen3_moe_omega_prefill::tests::prefix_then_continuation_matches_reference ... ok
+test strict::tests::claimed_native_fallback_fails_the_receipt_gate ... ok
+test strict::tests::reference_ops_by_design_pass_the_receipt_gate ... ok
+test tensor::tests::test_matmul_exact ... ok
+test tensor::tests::test_rmsnorm_invariance ... ok
+test tensor::tests::test_rope_norm_preservation ... ok
+test tensor::tests::test_rope_rotate_half ... ok
+test tensor::tests::test_sample_argmax ... ok
+test tensor::tests::test_swiglu_activation ... ok
+test tensor_abi::tests::c_abi_layout_is_stable ... ok
+test tensor_abi::tests::capsule_views_preserve_typed_payload_and_quantization ... ok
+test tensor_abi::tests::f32_view_records_shape_stride_and_host_residency ... ok
+test tests::test_blackwell_inference_backend ... ok
+test tests::test_embedded_inference_backend_execution ... ok
+test tests::test_mock_inference_backend ... ok
+test qwen3_moe_omega_prefill::tests::device_attention_entry_gives_the_same_numbers ... ok
+test tokenizer::tests::chatml_without_default_system_and_refusals ... ok
+test tokenizer::tests::smollm2_template_is_chatml_with_its_default_system_message ... ok
+test tokenizer::tests::test_chat_template_with_empty_system ... ok
+test tokenizer::tests::test_chat_template_with_system ... ok
+test tokenizer::tests::test_chat_template_without_system ... ok
+test tokenizer::tests::test_pinned_special_tokens ... ok
+test tokenizer::tests::test_stop_and_eos_token_checks ... ok
+test tokenizer::tests::test_synthetic_tokenizer_roundtrip ... ok
+test qwen3_moe_omega_prefill::tests::whole_prompt_matches_token_by_token_reference ... ok
+test tests::test_native_cpu_inference_backend ... ok
+test qwen3_moe_omega_prefill::tests::tile_size_does_not_change_the_result ... ok
+test qwen3_moe_omega::forward_tests::batched_prefill_matches_token_at_a_time_bit_for_bit_with_fewer_launches ... ok
+test transformer_backend::tests::sc294_decode_without_params_is_observed_greedy ... ok
+test qwen3_moe_omega::kv_persist_tests::a_damaged_or_impossible_restore_leaves_a_clean_engine_that_prefills_from_zero ... ok
+test qwen3_moe_omega::kv_persist_tests::restored_prefix_continues_exactly_like_the_uninterrupted_engine ... ok
+test transformer_backend::tests::sc294_observing_does_not_change_the_choice ... ok
+test transformer_backend::tests::sc294_release_drops_the_observation ... ok
+test transformer_backend::tests::stage_s_trace_counts_the_kept_set ... ok
+test transformer_backend::tests::test_backend_constructors ... ok
+test transformer_backend::tests::test_forward_token_and_logits_execution ... ok
+test qwen3_moe::tests::capsule_views_round_trip_and_digest_covers_payload ... ok
+test qwen3_moe_omega::ribbon::tests::a_corrupted_slot_load_changes_the_logits_and_too_few_slots_fail_the_step ... ok
+test transformer_backend::tests::test_native_transformer_generate_tokens_streaming ... ok
+test qwen3_moe_omega::forward_tests::device_paths_are_refused_when_asked_for_and_missing_and_fall_back_on_auto ... ok
+test transformer_backend::tests::test_native_transformer_generate_tokens ... ok
+test weights::tests::test_reference_weights_initialization ... ok
+test qwen3_moe_omega::forward_tests::device_router_and_lm_head_match_the_host_paths_and_add_one_launch_per_layer ... ok
+test weights::tests::test_from_loaded_checkpoint_success_and_missing_key ... ok
+test transformer_backend::tests::test_paged_cow_context_and_branch_fork ... ok
+test qwen3_moe_omega::forward_tests::prefix_reuse_prefills_only_the_new_tokens_and_matches_a_cold_run ... ok
+test qwen3_moe::tests::loader_reads_one_layer_from_a_sharded_checkpoint_and_rejects_bad_contracts ... ok
+test transformer_backend::tests::sc294_greedy_request_is_observed_greedy ... ok
+test transformer_backend::tests::sc294_sampled_request_is_observed_sampled ... ok
+test transformer_backend::tests::c3_chunked_prefill_logits_match_one_shot_paged ... ok
+test transformer_backend::tests::c3_chunked_prefill_execute_step_paged ... ok
+test transformer_backend::tests::c3_chunked_prefill_execute_step_unpaged ... ok
+test transformer_backend::tests::c3_chunked_prefill_logits_match_one_shot_unpaged ... ok
+test qwen3_moe_omega_prefill::tests::devhost::device_router_and_combine_equal_the_host_path_bit_for_bit ... ok
+test qwen3_dense_omega::tests::measured_peak_rss_is_the_embedding_plus_one_buffer ... ok
+test qwen3_moe_omega::forward_tests::gemm_prefill_matches_the_gemv_and_per_token_paths_with_one_launch_per_projection ... ok
+test qwen3_moe_omega::ribbon::tests::paged_experts_give_the_resident_logits_bit_for_bit_at_any_capacity ... ok
+test qwen3_dense_omega::tests::measured_peak_rss_at_fp8_widths ... ok
+test qwen3_moe_omega::ribbon::tests::weight_flow_all_modes_match_resident_logits_and_record_real_execution ... ok
+test bitnet_omega::tests::measured_peak_rss_is_the_embedding_plus_the_buffers ... ok
+
+test result: ok. 263 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 13.40s
+
+     Running unittests src/bin/own30b_check.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/own30b_check-9687df9dbb548434)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/own30b_ttft.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/own30b_ttft-efaf5bf661a52ad7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/own30b_wp_gate.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/own30b_wp_gate-e15a3872cefb82a2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/own_tern_check.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/own_tern_check-3d99458791cb65df)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/attention_wiring.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/attention_wiring-e7dd3311c203260c)
+
+running 12 tests
+test b_query_head_rows_and_c_head_major_output ... ok
+test f_empty_context_and_no_blocks_write_zeros ... ok
+test e_rope_depends_on_relative_position_only ... ok
+test d_dense_wo_mixes_every_head_and_catches_a_permutation ... ok
+test f_one_token_is_exactly_v ... ok
+test a_gqa_mapping_mha_ratio2_ratio4_ratio8 ... ok
+test f_omega_backend_refuses_pool_mismatch_before_native_code ... ok
+test f_wrong_q_length_is_refused ... ok
+test f_incompatible_kv_geometry_is_refused_before_reading ... ok
+test f_wrong_out_length_is_refused ... ok
+test f_batch_shared_prefix_scattered_ids_matches_single_calls ... ok
+test f_partial_block_multiple_scattered_blocks_fp32_and_bf16 ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/bf16_paged_attention.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/bf16_paged_attention-cda9501b25a2c54a)
+
+running 1 test
+test cpu_paged_attention_matches_decoded_bf16 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/bitnet_tokenizer_real.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/bitnet_tokenizer_real-49703fdd0d063d50)
+
+running 1 test
+test real_tokenizer_matches_the_spec_ids_and_round_trips ... ignored, needs the BitNet 2B-4T checkpoint
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/branch_client_harness.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/branch_client_harness-ca073c56668c56a4)
+
+running 1 test
+test test_aegis_branch_client_2_8_32_fork_lifecycle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/chat_prompt_pin.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/chat_prompt_pin-b6a5674d2646301d)
+
+running 2 tests
+test pin_llama32_1b_prompt_ids ... ok
+test pin_tinyllama_zephyr_fixture_prompt_ids ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running tests/gb10_serving_reservation.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/gb10_serving_reservation-f129b2bdf0bc11eb)
+
+running 6 tests
+test the_alloc_probe_logs_the_baseline_and_shows_any_nonzero_delta ... ok
+test a_refusal_stops_serving_by_name_with_no_fallback ... ok
+test qwen3_on_gb10_reserves_once_with_the_declared_bounds ... ok
+test shapes_come_from_the_model_config ... ok
+test nothing_changes_off_the_enabled_qwen3_gb10_path ... ok
+test context_is_the_smaller_of_the_kv_plan_and_the_attention_limit ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/kv_seam_backend_test.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/kv_seam_backend_test-2977c3dfd7ce6d6e)
+
+running 6 tests
+test restore_sequence_refuses_wrong_token_counts_and_double_restore ... ok
+test restore_sequence_refuses_like_fork_sequence ... ok
+test computed_prefix_is_none_for_unknown_sequence_and_unpaged_backend ... ok
+test computed_prefix_excludes_uncomputed_last_token ... ok
+test restored_prefix_continues_like_uninterrupted_prefill ... ok
+test restored_partial_tail_continues_like_uninterrupted_prefill ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/llama32_pin.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/llama32_pin-41fbba8d5691007f)
+
+running 1 test
+test llama32_prompt_ids_and_forward_logits_are_pinned ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/omega_backend_parity.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/omega_backend_parity-e898cfeefdba4fa1)
+
+running 7 tests
+test chip_attention_parity_on_tinyllama_shapes ... ignored, chip test: needs a native build and the GB10; run through the heavy queue
+test chip_elementwise_parity_on_qwen3_shapes ... ignored, chip test: needs a native build and the GB10; run through the heavy queue
+test chip_elementwise_parity_on_tinyllama_shapes ... ignored, chip test: needs a native build and the GB10; run through the heavy queue
+test chip_mixed_matmul_then_elementwise ... ignored, chip diagnostic: heavy queue only
+test chip_parity_on_tinyllama_shapes ... ignored, chip test: needs a native build and the GB10; run through the heavy queue
+test chip_unsupported_attention_is_refused ... ignored, chip test: needs a native build and the GB10; run through the heavy queue
+test stub_backend_reports_unavailable ... ok
+
+test result: ok. 1 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/openwaldo_byte_tokenizer.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/openwaldo_byte_tokenizer-529c188c837188f3)
+
+running 4 tests
+test every_byte_maps_to_byte_plus_three ... ok
+test decode_diverges_on_invalid_utf8_run ... ok
+test decode_matches_openwaldo_reference_on_valid_utf8 ... ok
+test encode_matches_openwaldo_reference ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/openwaldo_forward_parity.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/openwaldo_forward_parity-022ca20de72dd120)
+
+running 1 test
+test openwaldo_cpu_logits_match_transformers_reference ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/paged_attention_parity.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/paged_attention_parity-7b70adb9728d5087)
+
+running 2 tests
+test test_layer1_layout_strides_independent ... ok
+test test_layer2_physical_coordinate_byte_pattern ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/paged_transformer_parity.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/paged_transformer_parity-68d0e1900d1c89c0)
+
+running 2 tests
+test test_32_branch_fork_and_cow_acceptance ... ok
+test test_paged_vs_contiguous_numerical_parity ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/plain_model_load.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/plain_model_load-84ae764633c22502)
+
+running 6 tests
+test render_refusal_is_its_own_variant_not_a_load_failure ... ok
+test chat_render_on_plain_model_is_refused ... ok
+test model_dir_without_template_loads_as_plain ... ok
+test plain_prompt_is_text_encoded_as_is ... ok
+test unrecognized_template_still_refused_at_load ... ok
+test non_string_template_key_is_refused_not_plain ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/prefill_pool_exhaustion.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/prefill_pool_exhaustion-02c1ecc239faf3b4)
+
+running 1 test
+test prefill_pool_exhaustion_is_loud_atomic_and_retryable ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/qwen3_8b_chat_template.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/qwen3_8b_chat_template-26f57bec8979ebef)
+
+running 7 tests
+test downloaded_tokenizer_config_matches_the_pin_byte_for_byte ... ignored, needs the Qwen3-8B model directory in AIEN_QWEN3_8B_DIR
+test pinned_template_is_selected_and_distinct_from_the_4b_layout ... ok
+test altered_templates_are_refused ... ok
+test the_4b_layout_is_unchanged ... ok
+test uncovered_combinations_are_refused_by_name ... ok
+test hand_oracle_from_the_template_branches ... ok
+test rendering_matches_the_jinja_reference_rendering ... ok
+
+test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/qwen3_chat_template.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/qwen3_chat_template-e47fb3d7fcd1e53b)
+
+running 5 tests
+test real_model_dir_loads_with_the_pinned_template ... ignored, needs the Qwen3-4B-Instruct-2507 model directory in AIEN_QWEN3_DIR
+test pinned_template_is_qwen3_chatml_without_default_system ... ok
+test plain_chatml_is_unchanged_and_shares_non_tool_roles_with_qwen3 ... ok
+test altered_qwen_templates_are_refused ... ok
+test rendering_matches_the_reference_jinja_rendering ... ok
+
+test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/qwen3_forward_parity.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/qwen3_forward_parity-d189dcdf69242d8d)
+
+running 13 tests
+test real_qwen3_4b_instruct_2507_matches_transformers ... ignored, needs the real Qwen3-4B-Instruct-2507 weights in AIEN_QWEN3_DIR
+test real_qwen3_4b_instruct_2507_on_gb10_matches_transformers ... ignored, chip test: needs a native build, the GB10 and AIEN_QWEN3_DIR; run under a GPU hold
+test llama_head_dim_rule_is_unchanged ... ok
+test real_qwen3_4b_instruct_2507_config_is_accepted ... ok
+test gb10_backend_refuses_qwen3_and_not_llama ... ok
+test qwen3_unsupported_config_fields_are_refused_by_name ... ok
+test qwen3_tiny_batch_decode_matches_transformers_and_single_sequence ... ok
+test qwen3_checkpoint_missing_q_norm_is_refused ... ok
+test qwen3_tiny_token_by_token_logits_match_transformers ... ok
+test qwen3_tiny_sequence_logits_match_transformers ... ok
+test qwen3_without_qk_norm_is_far_from_reference ... ok
+test qwen3_qk_norm_runs_through_the_tensor_backend ... ok
+test qwen3_tiny_backend_prefill_and_decode_match_transformers ... ok
+
+test result: ok. 11 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/qwen3_untied_head.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/qwen3_untied_head-33e76d6326740fc1)
+
+running 3 tests
+test real_qwen3_8b_config_is_untied_with_the_expected_shape ... ignored, needs the Qwen3-8B model directory in AIEN_QWEN3_8B_DIR
+test untied_config_without_lm_head_is_refused_not_tied ... ok
+test untied_head_logits_use_lm_head_not_the_embeddings ... ok
+
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/resident_weights.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/resident_weights-73e0d860d7c2d8e9)
+
+running 13 tests
+test omega_backend_refuses_a_resident_weight_of_the_wrong_shape - should panic ... ok
+test a_missing_tensor_is_refused_before_any_upload ... ok
+test an_upload_failure_is_a_named_error_never_a_host_copy ... ok
+test resident_load_is_chosen_only_on_the_native_strict_enabled_qwen3_path ... ok
+test bf16_widen_then_narrow_is_exact_except_signaling_nans_which_omega_quiets ... ok
+test the_cpu_reference_backend_refuses_a_resident_weight_by_name - should panic ... ok
+test transpose_puts_w_out_in_into_k_by_n ... ok
+test uploads_run_layer_by_layer_then_the_head ... ok
+test omega_backend_runs_a_resident_weight_through_the_resident_handle ... ok
+test host_slice_access_to_a_resident_weight_is_refused_by_name - should panic ... ok
+test streamed_checkpoint_reads_the_same_bytes_as_the_whole_file_loader ... ok
+test negative_control_a_wrong_resident_matrix_moves_the_logits ... ok
+test resident_load_holds_no_host_matmul_weight_and_matches_host_logits_exactly ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/smollm2_pin.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/smollm2_pin-7fc46bb5c2bc0524)
+
+running 1 test
+test smollm2_prompt_ids_and_forward_logits_are_pinned ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/tinyllama_noise_floor.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/tinyllama_noise_floor-a01a1b327b3e94ec)
+
+running 4 tests
+test tinyllama_noise_floor_cpu_reference ... ignored, needs AIEN_E2E_CHECKPOINT (real TinyLlama); run by the forge with --ignored
+test expected_minimum_rejects_small_floor ... ok
+test compare_sees_injected_perturbation ... ok
+test sanity_rejects_constant_and_nonfinite_logits ... ok
+
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/tinyllama_parity.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/tinyllama_parity-54ca591ddb51d5c4)
+
+running 6 tests
+test test_stage1_tokenizer_parity ... ok
+test test_stage2_shape_parity ... ok
+test test_all_5_stages_parity_suite has been running for over 60 seconds
+test test_stage3_numerical_activation_parity has been running for over 60 seconds
+test test_stage4_logit_and_greedy_parity has been running for over 60 seconds
+test test_stage5_multi_step_generation_parity has been running for over 60 seconds
+test test_stage5_multi_step_generation_parity ... ok
+test test_stage4_logit_and_greedy_parity ... ok
+test test_stage3_numerical_activation_parity ... ok
+test test_all_5_stages_parity_suite ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 413.44s
+
+     Running tests/tool_boundary.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/tool_boundary-87fa4c1dba0d5646)
+
+running 14 tests
+test the_list_covers_every_delimiter_the_renderer_emits ... ok
+test chat_tokenizer_refuses_tool_role_on_its_own_paths ... ok
+test the_two_strings_from_the_issue_are_refused_with_a_named_error ... ok
+test other_templates_do_not_silently_downgrade_tool_to_user ... ok
+test a_forged_turn_never_reaches_the_renderer ... ok
+test wrong_role_transitions_are_refused ... ok
+test split_across_two_results_is_two_harmless_fragments ... ok
+test replay_and_wrong_call_are_refused ... ok
+test benign_tool_text_renders_byte_identical_to_the_oracle ... ok
+test documented_limits_not_refused ... ok
+test tokenizer_added_tokens_are_the_source_of_truth_too ... ok
+test reviewer_misses_are_refused ... ok
+test every_template_control_string_is_refused ... ok
+test partial_split_case_spacing_and_lookalike_variants ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/transformer_parity.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/transformer_parity-97bc5f1d2cf53a95)
+
+running 5 tests
+test test_safetensors_bytes_parser ... ok
+test test_blackwell_vs_reference_cpu_autoregressive_parity ... ok
+test test_native_transformer_prefill_and_decode_step ... ok
+test test_multi_step_autoregressive_generation ... ok
+test test_multi_sequence_batched_decode_parity_with_sequential ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+   Doc-tests aien_heartbeat
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aien_inference_abi
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

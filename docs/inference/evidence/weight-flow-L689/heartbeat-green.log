@@ -1,0 +1,89 @@
+   Compiling aien-heartbeat v0.1.0 (/home/drakestapleton/workspace/hermes-desk/sc-weight-flow-L689/crates/aien-heartbeat)
+error[E0283]: type annotations needed
+  --> crates/aien-heartbeat/src/weight_flow.rs:68:61
+   |
+68 |                 if cancelled.load(Ordering::Acquire){return Err("weight flow cancelled".into());}
+   |                                                             ^^^                         ---- type must be known at this point
+   |                                                             |
+   |                                                             cannot infer type of the type parameter `E` declared on the enum `Result`
+   |
+   = note: the type must implement `From<&str>`
+   = note: required for `&str` to implement `Into<_>`
+help: consider specifying the generic arguments
+   |
+68 |                 if cancelled.load(Ordering::Acquire){return Err::<(), E>("weight flow cancelled".into());}
+   |                                                                +++++++++
+
+error[E0283]: type annotations needed
+  --> crates/aien-heartbeat/src/weight_flow.rs:68:61
+   |
+68 |                 if cancelled.load(Ordering::Acquire){return Err("weight flow cancelled".into());}
+   |                                                             ^^^ cannot infer type of the type parameter `E` declared on the enum `Result`
+...
+84 |                 let lease=queue.pop_front().ok_or("weight flow empty queue")?.join().map_err(|_|"weight prepare panicked")??;
+   |                                                                                                                            - type must be known at this point
+   |
+   = note: multiple `impl`s satisfying `_: From<std::string::String>` found in the following crates: `alloc`, `serde_json`, `std`:
+           - impl From<std::string::String> for Arc<str>;
+           - impl From<std::string::String> for Box<str>;
+           - impl From<std::string::String> for OsString;
+           - impl From<std::string::String> for PathBuf;
+           - impl From<std::string::String> for Rc<str>;
+           - impl From<std::string::String> for Value;
+           - impl From<std::string::String> for Vec<u8>;
+           - impl From<std::string::String> for std::thread::thread::thread_name_string::ThreadNameString;
+help: consider specifying the generic arguments
+   |
+68 |                 if cancelled.load(Ordering::Acquire){return Err::<(), E>("weight flow cancelled".into());}
+   |                                                                +++++++++
+
+error[E0283]: type annotations needed
+  --> crates/aien-heartbeat/src/weight_flow.rs:68:61
+   |
+68 |                 if cancelled.load(Ordering::Acquire){return Err("weight flow cancelled".into());}
+   |                                                             ^^^ cannot infer type of the type parameter `E` declared on the enum `Result`
+...
+89 |                 compute(current,&lease.pinned)?;
+   |                                               - type must be known at this point
+   |
+   = note: multiple `impl`s satisfying `_: From<std::string::String>` found in the following crates: `alloc`, `serde_json`, `std`:
+           - impl From<std::string::String> for Arc<str>;
+           - impl From<std::string::String> for Box<str>;
+           - impl From<std::string::String> for OsString;
+           - impl From<std::string::String> for PathBuf;
+           - impl From<std::string::String> for Rc<str>;
+           - impl From<std::string::String> for Value;
+           - impl From<std::string::String> for Vec<u8>;
+           - impl From<std::string::String> for std::thread::thread::thread_name_string::ThreadNameString;
+help: consider specifying the generic arguments
+   |
+68 |                 if cancelled.load(Ordering::Acquire){return Err::<(), E>("weight flow cancelled".into());}
+   |                                                                +++++++++
+
+error[E0283]: type annotations needed
+  --> crates/aien-heartbeat/src/weight_flow.rs:68:61
+   |
+68 |                 if cancelled.load(Ordering::Acquire){return Err("weight flow cancelled".into());}
+   |                                                             ^^^ cannot infer type of the type parameter `E` declared on the enum `Result`
+...
+95 |                 settings.observe(cap,wait,elapsed)?;
+   |                                                   - type must be known at this point
+   |
+   = note: multiple `impl`s satisfying `_: From<std::string::String>` found in the following crates: `alloc`, `serde_json`, `std`:
+           - impl From<std::string::String> for Arc<str>;
+           - impl From<std::string::String> for Box<str>;
+           - impl From<std::string::String> for OsString;
+           - impl From<std::string::String> for PathBuf;
+           - impl From<std::string::String> for Rc<str>;
+           - impl From<std::string::String> for Value;
+           - impl From<std::string::String> for Vec<u8>;
+           - impl From<std::string::String> for std::thread::thread::thread_name_string::ThreadNameString;
+help: consider specifying the generic arguments
+   |
+68 |                 if cancelled.load(Ordering::Acquire){return Err::<(), E>("weight flow cancelled".into());}
+   |                                                                +++++++++
+
+For more information about this error, try `rustc --explain E0283`.
+error: could not compile `aien-heartbeat` (lib) due to 4 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `aien-heartbeat` (lib test) due to 4 previous errors

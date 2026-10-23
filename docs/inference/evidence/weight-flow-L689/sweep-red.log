@@ -1,0 +1,4 @@
+
+thread 'main' (3519580) panicked at crates/aien-inference-abi/src/bin/own30b_check.rs:349:17:
+invalid weight-flow mode
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

@@ -1,0 +1,79 @@
+   Compiling aien-heartbeat v0.1.0 (/home/drakestapleton/workspace/hermes-desk/sc-weight-flow-L689/crates/aien-heartbeat)
+   Compiling aien-inference-abi v0.1.0 (/home/drakestapleton/workspace/hermes-desk/sc-weight-flow-L689/crates/aien-inference-abi)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.73s
+     Running unittests src/lib.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/aien_heartbeat-59eca7a0a4861321)
+
+running 16 tests
+test residency::tests::aba_reuse_gets_new_versions ... ok
+test manifest::tests::parses_expert_names ... ok
+test residency::tests::budget_admits_and_refuses ... ok
+test residency::tests::lru_eviction_order_and_layer_crossing_identities ... ok
+test residency::tests::miss_then_hit_and_release ... ok
+test residency::tests::fetching_is_pending_for_others_and_failure_recovers ... ok
+test residency::tests::pinned_slots_are_never_evicted_and_exhaustion_is_explicit ... ok
+test residency::tests::simultaneous_readers_share_a_slot ... ok
+test ring::tests::dropped_guard_fails_closed ... ok
+test ring::tests::digest_mismatch_fails_closed ... ok
+test ring::tests::filling_slot_cannot_be_leased_or_double_filled ... ok
+test ring::tests::not_visible_until_published ... ok
+test ring::tests::oversized_payload_fails_closed ... ok
+test ring::tests::versions_increase_monotonically ... ok
+test ring::tests::leased_slot_is_never_overwritten ... ok
+test ring::tests::writer_waits_for_lease_release ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/ribbon_store.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/ribbon_store-77ea08720ffedd73)
+
+running 19 tests
+test flow_prepares_next_during_compute_preserves_order_and_bounds ... ok
+test a_failed_fetch_fails_closed_and_recovers ... ok
+test corrupt_checkpoint_bytes_never_reach_a_slot ... ok
+test bounded_queue_refuses_when_every_staging_buffer_is_in_use ... ok
+test simultaneous_requests_share_slots_and_wait_for_in_flight_fetches ... ok
+test layout_refuses_wrong_shape_and_missing_tensor ... ok
+test eio_short_read_eof_and_corruption_return_explicit_errors_and_free_the_buffer ... ok
+test flow_native_adaptive_and_hot_reuse_use_real_file_bytes ... ok
+test pager_pins_exactly_the_routed_experts_and_slots_hold_their_bytes ... ok
+test shutdown_with_reads_in_flight_is_deterministic ... ok
+test flow_stalled_read_deadline_and_precancel_leave_no_pins ... ok
+test manifest_has_a_content_model_digest_and_two_segments_per_expert ... ok
+test flow_corruption_and_copy_error_never_compute_bad_expert_and_release_future_pins ... ok
+test every_expert_round_trips_byte_for_byte_through_a_verified_random_read ... ok
+test flow_serial_control_and_capacity_one_do_not_overlap ... ok
+test stalled_read_hits_the_deadline_and_cancel_skips_queued_work ... ok
+test flow_drains_on_compute_error_cancel_and_panic ... ok
+test flow_prevalidates_duplicates_unknowns_and_bounds_before_io ... ok
+test cache_pressure_evicts_lru_never_a_pinned_slot ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests/weight_policy.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/weight_policy-f8662159925fcae5)
+
+running 4 tests
+test bridge_child_death_latches_failure_without_fallback ... FAILED
+test bridge_reassembles_fragmented_replies_and_repeated_frames ... FAILED
+test bridge_refuses_missing_dead_short_and_out_of_bounds_peers ... ok
+test bridge_deadline_is_bounded_and_child_is_reaped ... ok
+
+failures:
+
+---- bridge_child_death_latches_failure_without_fallback stdout ----
+
+thread 'bridge_child_death_latches_failure_without_fallback' (3473254) panicked at crates/aien-heartbeat/tests/weight_policy.rs:34:45:
+called `Result::unwrap()` on an `Err` value: "weight policy response out of bounds"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- bridge_reassembles_fragmented_replies_and_repeated_frames stdout ----
+
+thread 'bridge_reassembles_fragmented_replies_and_repeated_frames' (3473256) panicked at crates/aien-heartbeat/tests/weight_policy.rs:40:45:
+called `Result::unwrap()` on an `Err` value: "weight policy response out of bounds"
+
+
+failures:
+    bridge_child_death_latches_failure_without_fallback
+    bridge_reassembles_fragmented_replies_and_repeated_frames
+
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.00s
+
+error: test failed, to rerun pass `-p aien-heartbeat --test weight_policy`

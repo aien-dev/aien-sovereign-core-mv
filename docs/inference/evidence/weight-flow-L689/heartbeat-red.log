@@ -1,0 +1,98 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.26
+   Compiling serde_core v1.0.229
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.13
+   Compiling cc v1.4.7
+   Compiling zmij v1.0.23
+   Compiling syn v3.0.6
+   Compiling blake3 v1.8.7
+   Compiling serde_json v1.0.151
+   Compiling libc v0.2.189
+   Compiling serde v1.0.229
+   Compiling serde_derive v1.0.229
+   Compiling memchr v2.8.3
+   Compiling itoa v1.0.18
+   Compiling cfg-if v1.0.5
+   Compiling constant_time_eq v0.4.2
+   Compiling arrayvec v0.7.8
+   Compiling aien-heartbeat v0.1.0 (/home/drakestapleton/workspace/hermes-desk/sc-weight-flow-L689/crates/aien-heartbeat)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.46s
+     Running unittests src/lib.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/aien_heartbeat-ddf0263897f7fb3d)
+
+running 16 tests
+test manifest::tests::parses_expert_names ... ok
+test residency::tests::budget_admits_and_refuses ... ok
+test residency::tests::aba_reuse_gets_new_versions ... ok
+test residency::tests::miss_then_hit_and_release ... ok
+test residency::tests::fetching_is_pending_for_others_and_failure_recovers ... ok
+test residency::tests::pinned_slots_are_never_evicted_and_exhaustion_is_explicit ... ok
+test residency::tests::lru_eviction_order_and_layer_crossing_identities ... ok
+test ring::tests::dropped_guard_fails_closed ... ok
+test ring::tests::digest_mismatch_fails_closed ... ok
+test residency::tests::simultaneous_readers_share_a_slot ... ok
+test ring::tests::filling_slot_cannot_be_leased_or_double_filled ... ok
+test ring::tests::oversized_payload_fails_closed ... ok
+test ring::tests::not_visible_until_published ... ok
+test ring::tests::versions_increase_monotonically ... ok
+test ring::tests::leased_slot_is_never_overwritten ... ok
+test ring::tests::writer_waits_for_lease_release ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running unittests src/bin/heartbeat_bench.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/heartbeat_bench-5fd110b10bb77722)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/ribbon_read_bench.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/ribbon_read_bench-c8a120ab8ffc07c0)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/ribbon_store.rs (/home/drakestapleton/handoffs/weight-flow-L689/target/debug/deps/ribbon_store-09f21912e89d7c93)
+
+running 16 tests
+test eio_short_read_eof_and_corruption_return_explicit_errors_and_free_the_buffer ... ok
+test flow_prevalidates_duplicates_unknowns_and_bounds_before_io ... FAILED
+test bounded_queue_refuses_when_every_staging_buffer_is_in_use ... ok
+test layout_refuses_wrong_shape_and_missing_tensor ... ok
+test a_failed_fetch_fails_closed_and_recovers ... ok
+test corrupt_checkpoint_bytes_never_reach_a_slot ... ok
+test pager_pins_exactly_the_routed_experts_and_slots_hold_their_bytes ... ok
+test manifest_has_a_content_model_digest_and_two_segments_per_expert ... ok
+test simultaneous_requests_share_slots_and_wait_for_in_flight_fetches ... ok
+test shutdown_with_reads_in_flight_is_deterministic ... ok
+test flow_serial_control_and_capacity_one_do_not_overlap ... ok
+test every_expert_round_trips_byte_for_byte_through_a_verified_random_read ... ok
+test stalled_read_hits_the_deadline_and_cancel_skips_queued_work ... ok
+test flow_drains_on_compute_error_cancel_and_panic ... ok
+test cache_pressure_evicts_lru_never_a_pinned_slot ... ok
+test flow_prepares_next_during_compute_preserves_order_and_bounds ... FAILED
+
+failures:
+
+---- flow_prevalidates_duplicates_unknowns_and_bounds_before_io stdout ----
+
+thread 'flow_prevalidates_duplicates_unknowns_and_bounds_before_io' (3153444) panicked at crates/aien-heartbeat/tests/ribbon_store.rs:594:9:
+assertion failed: r.is_err()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- flow_prepares_next_during_compute_preserves_order_and_bounds stdout ----
+
+thread 'flow_prepares_next_during_compute_preserves_order_and_bounds' (3153443) panicked at crates/aien-heartbeat/tests/ribbon_store.rs:563:13:
+assertion `left == right` failed: next expert must load before current compute finishes
+  left: 1
+ right: 2
+
+
+failures:
+    flow_prepares_next_during_compute_preserves_order_and_bounds
+    flow_prevalidates_duplicates_unknowns_and_bounds_before_io
+
+test result: FAILED. 14 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.05s
+
+error: test failed, to rerun pass `-p aien-heartbeat --test ribbon_store`
