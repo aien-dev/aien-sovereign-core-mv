@@ -37,6 +37,7 @@
 //! on).
 
 pub mod audit;
+pub mod block_first;
 pub mod bundle;
 pub mod cache;
 pub mod cli;

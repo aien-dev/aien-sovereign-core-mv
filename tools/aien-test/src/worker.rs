@@ -1670,16 +1670,24 @@ pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
                 }
             }
         }
-        // Heads of one repository are judged together (`run_batch`): shared
-        // gates once and first, then the per-head ones, side by side.
+        // L307/L309 integration: take the block-first queue once per round,
+        // then preserve that order within each repository's batches.
+        let mut queue: std::collections::VecDeque<(String, String, Option<PathBuf>)> = heads.into();
+        let mut tried = std::collections::HashSet::new();
+        let blocks = if cfg.github {
+            crate::block_first::open_blocks(&cfg.state.root, &cfg.repos, SystemTime::now())
+        } else {
+            Vec::new()
+        };
         let mut by_repo: BTreeMap<String, Vec<(String, Option<PathBuf>)>> = BTreeMap::new();
-        for (repo, sha, trigger) in heads {
-            let list = by_repo.entry(repo).or_default();
-            if !list.iter().any(|(s, _)| *s == sha) {
-                list.push((sha, trigger));
-            } else if let Some(f) = trigger {
-                let _ = fs::remove_file(f);
-            }
+        while let Some((repo, sha, trigger)) = crate::block_first::next_head(
+            &mut queue,
+            &blocks,
+            &cfg.state.trigger_dir(),
+            &|r, s| cfg.state.bundle_path(r, s).exists(),
+            &mut tried,
+        ) {
+            by_repo.entry(repo).or_default().push((sha, trigger));
         }
         for (repo, list) in by_repo {
             let shas: Vec<String> = list.iter().map(|(s, _)| s.clone()).collect();
