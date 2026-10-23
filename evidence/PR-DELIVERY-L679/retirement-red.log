@@ -1,0 +1,41 @@
+test_missing_closed_readback_retains_local_block (__main__.Recovery) ... FAIL
+test_refusal_boundaries_never_close_or_mutate (__main__.Recovery) ... test_retained_failure_can_retire_failed_block_without_merging (__main__.Recovery) ... FAIL
+test_retained_failure_still_forbids_nonclose_actions (__main__.Recovery) ... ok
+
+======================================================================
+FAIL: test_missing_closed_readback_retains_local_block (__main__.Recovery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-repair-L679/candidate/test_delivery_recovery.py", line 73, in test_missing_closed_readback_retains_local_block
+    self.assertEqual(len(writes),1)
+AssertionError: 0 != 1
+
+======================================================================
+FAIL: test_refusal_boundaries_never_close_or_mutate (__main__.Recovery) (options={'failed': False})
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-repair-L679/candidate/test_delivery_recovery.py", line 86, in test_refusal_boundaries_never_close_or_mutate
+    self.assertEqual(st,old)
+AssertionError: {'open': None, 'size': 2, 'solo': [484, 487], 'las[17 chars]487]} != {'open': {'pr': 620, 'branch': 'desk/block-omega',[207 chars]: []}
+- {'last_failed': [484, 487], 'open': None, 'size': 2, 'solo': [484, 487]}
++ {'open': {'branch': 'desk/block-omega',
++           'carried': [484, 487],
++           'heads': {'484': 'cccccccccccccccccccccccccccccccccccccccc',
++                     '487': 'dddddddddddddddddddddddddddddddddddddddd'},
++           'pr': 620,
++           'sha': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'},
++  'size': 12,
++  'solo': []}
+
+======================================================================
+FAIL: test_retained_failure_can_retire_failed_block_without_merging (__main__.Recovery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-repair-L679/candidate/test_delivery_recovery.py", line 64, in test_retained_failure_can_retire_failed_block_without_merging
+    self.assertIsNone(st['open'], result)
+AssertionError: {'pr': 620, 'branch': 'desk/block-omega', 'sha': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'carried': [484, 487], 'heads': {'484': 'cccccccccccccccccccccccccccccccccccccccc', '487': 'dddddddddddddddddddddddddddddddddddddddd'}} is not None : {'waiting': ['block close held: retained failure arrived after sync; action held'], 'blocked': [], 'merged': []}
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.009s
+
+FAILED (failures=3)

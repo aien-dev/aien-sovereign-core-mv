@@ -1,0 +1,67 @@
+..........................FFFF
+======================================================================
+FAIL: test_successor_intake_target_tampering_cannot_authorize_push (test_successor.Successor)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-repair-L679/candidate/test_successor.py", line 67, in test_successor_intake_target_tampering_cannot_authorize_push
+    self.assertFalse(ok,note)
+AssertionError: True is not false : feat/test@51a5671d27ee published as PR #42; exact head/base read back; merge checks remain mandatory
+
+======================================================================
+FAIL: test_successor_moved_closed_forked_targets_never_write (test_successor.Successor) (field='target_head')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-repair-L679/candidate/test_successor.py", line 75, in test_successor_moved_closed_forked_targets_never_write
+    ok,note=self.publish();self.assertFalse(ok,note)
+AssertionError: True is not false : feat/test@51a5671d27ee published as PR #42; exact head/base read back; merge checks remain mandatory
+
+======================================================================
+FAIL: test_successor_moved_closed_forked_targets_never_write (test_successor.Successor) (field='target_state')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-repair-L679/candidate/test_successor.py", line 75, in test_successor_moved_closed_forked_targets_never_write
+    ok,note=self.publish();self.assertFalse(ok,note)
+AssertionError: True is not false : feat/test@51a5671d27ee already published as PR #42; exact head/base reconfirmed; merge checks pending
+
+======================================================================
+FAIL: test_successor_moved_closed_forked_targets_never_write (test_successor.Successor) (field='fork')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-repair-L679/candidate/test_successor.py", line 75, in test_successor_moved_closed_forked_targets_never_write
+    ok,note=self.publish();self.assertFalse(ok,note)
+AssertionError: True is not false : feat/test@51a5671d27ee already published as PR #42; exact head/base reconfirmed; merge checks pending
+
+======================================================================
+FAIL: test_successor_readback_failure_is_not_published (test_successor.Successor)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-repair-L679/candidate/test_successor.py", line 82, in test_successor_readback_failure_is_not_published
+    ok,note=self.publish();self.assertFalse(ok,note)
+AssertionError: True is not false : feat/test@51a5671d27ee published as PR #42; exact head/base read back; merge checks remain mandatory
+
+======================================================================
+FAIL: test_successor_target_is_retained_in_trusted_intake (test_successor.Successor)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-repair-L679/candidate/test_successor.py", line 50, in test_successor_target_is_retained_in_trusted_intake
+    self.assertEqual(self.entry.get('target'),self.target)
+AssertionError: None != {'number': 42, 'ref': 'fix/original', 'ex[52 chars]7df'}
+
+======================================================================
+FAIL: test_successor_updates_existing_with_exact_lease_and_reads_back (test_successor.Successor)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-repair-L679/candidate/test_successor.py", line 55, in test_successor_updates_existing_with_exact_lease_and_reads_back
+    self.assertEqual(self.writes(),[], 'must never open competing PR')
+AssertionError: Lists differ: [['gh', 'pr', 'create', '-R', 'aien-dev/in[491 chars]d.']] != []
+
+First list contains 1 additional elements.
+First extra element 0:
+['gh', 'pr', 'create', '-R', 'aien-dev/interplane-mv', '--head', 'feat/test', '--base', 'main', '--title', 'Renda intake: feat/test', '--body', 'Renda qualified local READY intake\n\nRepository: aien-dev/interplane-mv\nBranch: feat/test\nHead: 0044c699cd52fbd1cbe63d2eb5679cb9c3c2f7d2\nBase: main@7f2b3ca7151c02f2371999949da4fd32cb97e7df\nFull local diff reviewed by: synthetic-model\nSigned exact-source Spark receipt verified. Hosted verification and fresh required checks remain mandatory before merge. No issue closure is claimed.']
+
+Diff is 657 characters long. Set self.maxDiff to None to see it. : must never open competing PR
+
+----------------------------------------------------------------------
+Ran 31 tests in 7.422s
+
+FAILED (failures=7)

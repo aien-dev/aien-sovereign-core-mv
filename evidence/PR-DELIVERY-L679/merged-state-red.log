@@ -1,0 +1,13 @@
+...F..
+======================================================================
+FAIL: test_lookup_uses_all_states_head_filter_and_returns_exact_pins (__main__.PublicationTransport)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/drakestapleton/.hermes/cache/scratch/pr-repair-L679/candidate/test_publication_transport.py", line 38, in test_lookup_uses_all_states_head_filter_and_returns_exact_pins
+    self.assertIn('states:[OPEN,CLOSED,MERGED]', query)
+AssertionError: 'states:[OPEN,CLOSED,MERGED]' not found in 'query($owner:String!,$name:String!,$headRefName:String!,$cursor:String){repository(owner:$owner,name:$name){pullRequests(first:100,states:[OPEN,CLOSED],headRefName:$headRefName,after:$cursor){pageInfo{hasNextPage endCursor} nodes{number title isDraft headRefName headRefOid baseRefName baseRefOid\nmergeStateStatus state createdAt commits(last:1){nodes{commit{oid statusCheckRollup{\ncontexts(first:100){pageInfo{hasNextPage} nodes{__typename\n... on StatusContext {context state description}\n... on CheckRun {name status conclusion}}}}}}}}}}}'
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.001s
+
+FAILED (failures=1)
