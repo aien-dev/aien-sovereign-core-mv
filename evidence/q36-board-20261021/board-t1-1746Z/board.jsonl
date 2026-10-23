@@ -1,0 +1,10 @@
+{"seq":1,"time":1792605362,"author":"agent-A","text":"the release sha is 706dff5f"}
+{"seq":2,"time":1792605912,"author":"reader-2","text":"part 2 of 8: read ok, 1 question answered"}
+{"seq":3,"time":1792605912,"author":"reader-5","text":"part 5 of 8: read ok, 1 question answered"}
+{"seq":4,"time":1792605912,"author":"reader-4","text":"part 4 of 8: read ok, 1 question answered"}
+{"seq":5,"time":1792605912,"author":"reader-1","text":"part 1 of 8: read ok, 1 question answered"}
+{"seq":6,"time":1792605913,"author":"reader-3","text":"part 3 of 8: read ok, 1 question answered"}
+{"seq":7,"time":1792605913,"author":"reader-8","text":"part 8 of 8: read ok, 1 question answered"}
+{"seq":8,"time":1792605913,"author":"reader-7","text":"part 7 of 8: read ok, 1 question answered"}
+{"seq":9,"time":1792605913,"author":"reader-6","text":"part 6 of 8: read ok, 1 question answered"}
+{"seq":10,"time":1792605943,"author":"agent-A","text":"the hostname is spark","conv":"id-32d19cb53989acfa"}

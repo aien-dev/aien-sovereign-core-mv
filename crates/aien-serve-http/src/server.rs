@@ -3,6 +3,7 @@
 //! engine says it takes ([`Engine::concurrency`], 1 unless the engine batches): the next
 //! request while all those run gets 503 `server_busy` with `Retry-After: 1`.
 
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -11,7 +12,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::body::Bytes;
 use axum::extract::rejection::BytesRejection;
-use axum::extract::{DefaultBodyLimit, Path, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
@@ -24,8 +25,11 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use aien_inference_abi::tokenizer::ChatOptions;
 
+use crate::board::{self, Board, Conversation, List, Patch};
 use crate::codec::{Codec, CodecError};
-use crate::engine::{Engine, EngineError, FinishReason, GenerateParams, TestSwitches};
+use crate::engine::{
+    Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams, TestSwitches,
+};
 use crate::openai::{
     chunk_json, chunk_json_with, completion_json, ChatRequest, ErrorBody, ModelCard, ModelList,
     Usage,
@@ -88,6 +92,8 @@ pub struct AppState {
     gate: Arc<Semaphore>,
     started: Instant,
     counter: AtomicU64,
+    /// The team board (L376): `None` when `AIEN_BOARD=0` or the caller passed none.
+    board: Option<Arc<Board>>,
 }
 
 /// An OpenAI-shaped error with its HTTP status.
@@ -175,9 +181,52 @@ struct Prepared {
     return_ids: bool,
     /// The request carried tools: parse `<tool_call>` blocks out of the reply.
     tools: bool,
+    /// The built-in board tools were offered: a round whose calls are all built-in is answered in
+    /// the server and the same turn continues in place.
+    builtin_tools: bool,
+    /// The context this request was checked against (the smaller of the door's and the engine's):
+    /// a built-in round's continuation stays under the same ceiling.
+    ctx: usize,
+    /// The template switches, for the in-place tool round's tail.
+    opts: ChatOptions,
+    /// The conversation's board state to commit when the request is admitted.
+    board: Option<BoardPending>,
     /// The merge train's switches for this request (empty: none; `aien_test` absent).
     test: TestSwitches,
 }
+
+/// A conversation's cursors and patches after this request's delivery, committed on admission.
+struct BoardPending {
+    key: String,
+    conv: Conversation,
+    /// The block appended at this request's newest user turn, if one was: what to undo when the
+    /// prompt would not fit (then the turn is rendered without it and the cursors stay).
+    delivered: Option<Delivered>,
+}
+
+struct Delivered {
+    turn: usize,
+    original: String,
+    board_seen: u64,
+    memory_seen: u64,
+}
+
+impl BoardPending {
+    /// Takes this request's block back off the turn and rolls the cursors back.
+    fn undo(&mut self, turns: &mut [(String, String)], shift: usize) {
+        if let Some(d) = self.delivered.take() {
+            if let Some(t) = turns.get_mut(d.turn + shift) {
+                t.1 = d.original;
+            }
+            self.conv.patches.pop();
+            self.conv.board_seen = d.board_seen;
+            self.conv.memory_seen = d.memory_seen;
+        }
+    }
+}
+
+/// Most built-in tool rounds one request runs (each continues the same turn in place).
+const MAX_TOOL_ROUNDS: usize = 4;
 
 /// What the generation thread sends to the HTTP side. `Done` is sent once per request, so its size
 /// (past clippy's line since `aien_test` joined it) costs nothing.
@@ -219,6 +268,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/models", get(list_models))
         .route("/v1/models/:id", get(get_model))
         .route("/v1/chat/completions", post(chat_completions))
+        .route("/v1/aien/:list", get(board_get).post(board_post))
         .route("/health", get(health))
         .fallback(not_found)
         .layer(DefaultBodyLimit::max(limit))
@@ -244,6 +294,19 @@ pub async fn serve_until(
     codec: Arc<dyn Codec>,
     shutdown: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> std::io::Result<(SocketAddr, JoinHandle<()>)> {
+    serve_with_board(cfg, engine, codec, None, shutdown).await
+}
+
+/// [`serve_until`] with the team board (L376): every conversation gets the board's new entries
+/// appended at its next turn, tool requests get `board_post` / `board_read` / `memory_note`, and
+/// `GET|POST /v1/aien/board` and `/v1/aien/memory` read and post from outside.
+pub async fn serve_with_board(
+    cfg: ServerConfig,
+    engine: Arc<dyn Engine>,
+    codec: Arc<dyn Codec>,
+    board: Option<Arc<Board>>,
+    shutdown: impl std::future::Future<Output = ()> + Send + 'static,
+) -> std::io::Result<(SocketAddr, JoinHandle<()>)> {
     if !cfg.bind.is_loopback() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -260,6 +323,7 @@ pub async fn serve_until(
         gate,
         started: Instant::now(),
         counter: AtomicU64::new(0),
+        board,
     });
     let app = router(state);
     let handle = tokio::spawn(async move {
@@ -339,6 +403,19 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
     if let (Some(pk), Some(obj)) = (state.engine.persistence_status(), v.as_object_mut()) {
         obj.insert("persistent_kv".into(), pk);
     }
+    // Team board (L376): present only when the board is on.
+    if let (Some(b), Some(obj)) = (state.board.as_ref(), v.as_object_mut()) {
+        let (entries, memory, conversations) = b.counts();
+        obj.insert(
+            "board".into(),
+            serde_json::json!({
+                "entries": entries,
+                "memory": memory,
+                "conversations": conversations,
+                "tools": b.offers_tools(),
+            }),
+        );
+    }
     // The merge train (L384): which `aien_test` switches this build honors, so the train marks a
     // lever NOT-ON-TRAIN instead of PASS when its switch is not in the candidate. Test builds only.
     // Absent for an engine with no switches, so its /health stays exactly as it was.
@@ -353,6 +430,74 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
         );
     }
     Json(v)
+}
+
+fn board_list(name: &str) -> Result<List, ApiError> {
+    match name {
+        "board" => Ok(List::Board),
+        "memory" => Ok(List::Memory),
+        other => Err(ApiError::not_found(format!(
+            "no such list '{other}': /v1/aien/board and /v1/aien/memory"
+        ))),
+    }
+}
+
+fn board_of(state: &AppState) -> Result<&Board, ApiError> {
+    state
+        .board
+        .as_deref()
+        .ok_or_else(|| ApiError::not_found("the team board is off on this server (AIEN_BOARD=0)"))
+}
+
+/// `GET /v1/aien/board?since=N&limit=M` (and `/memory`): entries after `since`, the newest `limit`.
+async fn board_get(
+    State(state): State<Arc<AppState>>,
+    Path(list): Path<String>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    let list = board_list(&list)?;
+    let b = board_of(&state)?;
+    let num = |k: &str, d: u64| -> Result<u64, ApiError> {
+        match q.get(k) {
+            None => Ok(d),
+            Some(v) => v
+                .trim()
+                .parse()
+                .map_err(|_| ApiError::bad_request(format!("{k} must be a whole number"))),
+        }
+    };
+    let since = num("since", 0)?;
+    let limit = num("limit", 100)?.clamp(1, 1000) as usize;
+    let (entries, newest) = b.read(list, since, limit);
+    Ok(Json(serde_json::json!({
+        "object": "list",
+        "list": list.name(),
+        "entries": entries,
+        "newest": newest,
+    })))
+}
+
+/// `POST /v1/aien/board {"author": "...", "text": "..."}` (and `/memory`): appends one entry.
+async fn board_post(
+    State(state): State<Arc<AppState>>,
+    Path(list): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let list = board_list(&list)?;
+    let b = board_of(&state)?;
+    let body = body.map_err(|r| ApiError::bad_request(r.body_text()))?;
+    let v: Value = serde_json::from_slice(&body)
+        .map_err(|e| ApiError::bad_request(format!("invalid JSON request: {e}")))?;
+    let text = v
+        .get("text")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ApiError::bad_request("'text' (a string) is required"))?;
+    let author = v.get("author").and_then(Value::as_str).unwrap_or("http");
+    let entry = b.post(list, author, text, None).map_err(|e| match e {
+        board::PostError::Invalid(m) => ApiError::bad_request(m),
+        board::PostError::Io(m) => ApiError::internal(m),
+    })?;
+    Ok(Json(serde_json::to_value(entry).expect("entry serializes")))
 }
 
 async fn not_found() -> ApiError {
@@ -402,6 +547,20 @@ async fn handle_chat(
     let guard = Arc::clone(&state.gate)
         .try_acquire_owned()
         .map_err(|_| ApiError::busy())?;
+    // Admitted: the conversation's board cursors and this turn's block are now the record (a
+    // 503 retry above renders the same block again).
+    if let (Some(b), Some(p)) = (state.board.as_ref(), prepared.board.as_ref()) {
+        match b.commit(&p.key, p.conv.clone()) {
+            Ok(took) if took.as_millis() >= 20 => eprintln!(
+                "aien-serve-http: board: {}: cursor write took {} ms",
+                p.key,
+                took.as_millis()
+            ),
+            Ok(_) => {}
+            Err(e) => eprintln!("aien-serve-http: board: {e}"),
+        }
+    }
+    let board = state.board.clone();
 
     let (created, id) = new_id(&state);
     let prompt_tokens = prepared.prompt_tokens.len();
@@ -412,7 +571,7 @@ async fn handle_chat(
     let codec = Arc::clone(&state.codec);
     let log_id = id.clone();
     tokio::task::spawn_blocking(move || {
-        run_generation(engine, codec, prepared, tx, guard, &log_id);
+        run_generation(engine, codec, prepared, tx, guard, &log_id, board);
     });
     respond(rx, stream, id, created, model, prompt_tokens, tools).await
 }
@@ -768,7 +927,7 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
     }
     // Tool calling (Qwen3.6 qwen3_coder XML, as the model's own template renders it): legacy
     // `functions` are accepted as tools.
-    let tool_defs: Vec<Value> = match (&req.tools, &req.functions) {
+    let mut tool_defs: Vec<Value> = match (&req.tools, &req.functions) {
         (Some(t), _) if !t.is_empty() => t.clone(),
         (_, Some(f)) if !f.is_empty() => f
             .iter()
@@ -777,6 +936,19 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
         _ => Vec::new(),
     };
     let has_tools = !tool_defs.is_empty();
+    // Team board tools (L376): offered to every tool request, rendered FIRST (stable-first order:
+    // the shared prefix of every chat holds them), when the layout has a tool-response turn.
+    let builtin_tools = has_tools
+        && state.board.as_ref().is_some_and(|b| b.offers_tools())
+        && state
+            .codec
+            .tool_round_tail("", &ChatOptions::default())
+            .is_some();
+    if builtin_tools {
+        let mut defs = board::tool_defs();
+        defs.append(&mut tool_defs);
+        tool_defs = defs;
+    }
     if req.messages.is_empty() {
         return Err(ApiError::bad_request("messages must be a non-empty array"));
     }
@@ -821,47 +993,74 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
     if !pending_tool.is_empty() {
         turns.push(("user".into(), crate::tools::tool_responses(&pending_tool)));
     }
+    // Team board (L376): re-apply the blocks earlier turns of this conversation already carry
+    // (the prompt stays append-only), then append what it has not seen yet to the newest user turn.
+    let mut board_pending = state
+        .board
+        .as_ref()
+        .filter(|_| req.aien_board != Some(false))
+        .map(|b| board_deliver(b, &req, &mut turns));
+    let mut system_inserted = 0usize;
     if has_tools {
         match turns.first_mut() {
             Some((r, c)) if r == "system" => {
                 *c = crate::tools::system_with_tools(&tool_defs, Some(c.as_str()));
             }
-            _ => turns.insert(
-                0,
-                (
-                    "system".into(),
-                    crate::tools::system_with_tools(&tool_defs, None),
-                ),
-            ),
+            _ => {
+                turns.insert(
+                    0,
+                    (
+                        "system".into(),
+                        crate::tools::system_with_tools(&tool_defs, None),
+                    ),
+                );
+                system_inserted = 1;
+            }
         }
     }
-    let turn_refs: Vec<(&str, &str)> = turns
-        .iter()
-        .map(|(r, c)| (r.as_str(), c.as_str()))
-        .collect();
     let mut opts = chat_options(&req)?;
     if opts.enable_thinking.is_none() {
         opts.enable_thinking = cfg.default_enable_thinking;
     }
-    let prompt_text = state
-        .codec
-        .render_chat_with(&turn_refs, &opts)
-        .map_err(|e| match e {
-            CodecError::Unrenderable(m) => ApiError::bad_request(m),
-            CodecError::Failed(m) => ApiError::internal(m),
-        })?;
-    let prompt_tokens = state
-        .codec
-        .encode(&prompt_text)
-        .map_err(|e| ApiError::context_exceeded(format!("could not tokenize prompt: {e}")))?;
-    if prompt_tokens.is_empty() {
-        return Err(ApiError::bad_request("the rendered prompt is empty"));
-    }
-
+    let render = |turns: &[(String, String)]| -> Result<(String, Vec<u32>), ApiError> {
+        let turn_refs: Vec<(&str, &str)> = turns
+            .iter()
+            .map(|(r, c)| (r.as_str(), c.as_str()))
+            .collect();
+        let text = state
+            .codec
+            .render_chat_with(&turn_refs, &opts)
+            .map_err(|e| match e {
+                CodecError::Unrenderable(m) => ApiError::bad_request(m),
+                CodecError::Failed(m) => ApiError::internal(m),
+            })?;
+        let ids = state
+            .codec
+            .encode(&text)
+            .map_err(|e| ApiError::context_exceeded(format!("could not tokenize prompt: {e}")))?;
+        Ok((text, ids))
+    };
     let ctx = cfg
         .max_context_tokens
         .unwrap_or(usize::MAX)
         .min(state.engine.max_context_tokens());
+    let (mut prompt_text, mut prompt_tokens) = render(&turns)?;
+    if prompt_tokens.len() >= ctx {
+        // The board block would not fit: this turn goes without it and the cursors stay, so the
+        // entries come at a later turn (or a shorter history).
+        if let Some(p) = board_pending.as_mut().filter(|p| p.delivered.is_some()) {
+            eprintln!(
+                "aien-serve-http: board: {}: prompt {} tokens with the block, context {ctx}: delivered without it",
+                p.key,
+                prompt_tokens.len()
+            );
+            p.undo(&mut turns, system_inserted);
+            (prompt_text, prompt_tokens) = render(&turns)?;
+        }
+    }
+    if prompt_tokens.is_empty() {
+        return Err(ApiError::bad_request("the rendered prompt is empty"));
+    }
     if prompt_tokens.len() >= ctx {
         return Err(ApiError::context_exceeded(format!(
             "prompt is {} tokens; the context window is {} tokens and at least one token must be left for the reply",
@@ -943,6 +1142,10 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
         },
         return_ids: req.aien_return_token_ids,
         tools: has_tools,
+        builtin_tools,
+        opts,
+        ctx,
+        board: board_pending,
         test: test_switches(state, req.aien_test.as_ref())?,
     })
 }
@@ -977,6 +1180,131 @@ fn test_switches(state: &AppState, v: Option<&Value>) -> Result<TestSwitches, Ap
             )));
         }
         Ok(t)
+    }
+}
+
+/// The conversation key and author name of a request. Key: `aien_conversation` (our agents send
+/// their ledger id), else llama.cpp `session_id`, else a fingerprint of the system text and the
+/// first user text (the same chat resends both unchanged), namespaced by OpenAI `user` when it is
+/// sent (one user runs many chats: `user` alone would merge them). Author: `aien_agent`, else
+/// `user`, else `conv-<key tail>`.
+fn conversation_key(req: &ChatRequest, turns: &[(String, String)]) -> (String, String) {
+    fn clean(s: Option<&str>) -> Option<&str> {
+        s.map(str::trim).filter(|s| !s.is_empty())
+    }
+    let named = clean(req.aien_conversation.as_deref())
+        .or(clean(req.session_id.as_ref().and_then(Value::as_str)));
+    let key = match named {
+        Some(n) => format!("id-{}", board::digest(n)),
+        None => {
+            let system = turns
+                .first()
+                .filter(|(r, _)| r == "system")
+                .map(|(_, c)| c.as_str())
+                .unwrap_or("");
+            let first_user = turns
+                .iter()
+                .find(|(r, _)| r == "user")
+                .map(|(_, c)| c.as_str())
+                .unwrap_or("");
+            let fp = board::fingerprint(system, first_user);
+            match clean(req.user.as_ref().and_then(Value::as_str)) {
+                Some(u) => format!("u-{}-{fp}", board::digest(u)),
+                None => fp,
+            }
+        }
+    };
+    let author = clean(req.aien_agent.as_deref())
+        .or(clean(req.user.as_ref().and_then(Value::as_str)))
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("conv-{}", &key[key.len().saturating_sub(8)..]));
+    (key, author)
+}
+
+/// How many of a record's patches still match the turns (each at its turn, same original text).
+fn matching_patches(conv: &Conversation, turns: &[(String, String)]) -> usize {
+    conv.patches
+        .iter()
+        .take_while(|p| {
+            turns
+                .get(p.turn)
+                .is_some_and(|(r, c)| r == "user" && board::digest(c) == p.hash)
+        })
+        .count()
+}
+
+/// Re-applies the conversation's earlier blocks at their turns (the prompt stays append-only),
+/// then appends the entries it has not seen to the newest user turn and advances its cursors.
+/// A turn whose text changed since its patch (the client rewrote the history) forks the
+/// conversation: a new key from the rewritten text, the cursors as of the last patch still
+/// matching, the old record untouched. Nothing is written here; the caller commits on admission.
+fn board_deliver(board: &Board, req: &ChatRequest, turns: &mut [(String, String)]) -> BoardPending {
+    let (mut key, author) = conversation_key(req, turns);
+    let mut conv = board.conversation(&key);
+    let mut kept = matching_patches(&conv, turns);
+    for _hop in 0..8 {
+        if kept == conv.patches.len() {
+            break;
+        }
+        let turn = conv.patches[kept].turn;
+        let rewritten = turns.get(turn).map(|(_, c)| c.as_str()).unwrap_or("");
+        let fork = board::fork_key(&key, rewritten);
+        eprintln!(
+            "aien-serve-http: board: {key} rewrote turn {turn}: patch dropped, fork {fork} ({kept} patches kept)"
+        );
+        let existing = board.conversation(&fork);
+        conv = if existing == Conversation::default() {
+            conv.fork(kept, &key)
+        } else {
+            existing
+        };
+        key = fork;
+        kept = matching_patches(&conv, turns);
+    }
+    conv.patches.truncate(kept);
+    conv.author = author;
+    for p in &conv.patches {
+        let (_, c) = &mut turns[p.turn];
+        *c = board::apply_block(c, &p.text);
+    }
+    let last = turns.len() - 1;
+    let fresh_turn = turns[last].0 == "user" && conv.patches.last().is_none_or(|p| p.turn < last);
+    let carried: usize = conv.patches.iter().map(|p| p.text.len()).sum();
+    let mut delivered = None;
+    if fresh_turn && carried >= board::PATCH_BUDGET {
+        eprintln!(
+            "aien-serve-http: board: {key}: paused: {carried} chars of blocks in this conversation (budget {}); a new conversation key gets the board again",
+            board::PATCH_BUDGET
+        );
+    } else if fresh_turn {
+        let unseen = board.unseen(&key, &conv);
+        if let Some(r) = unseen.render() {
+            let original = std::mem::take(&mut turns[last].1);
+            turns[last].1 = board::apply_block(&original, &r.text);
+            conv.patches.push(Patch {
+                turn: last,
+                hash: board::digest(&original),
+                text: r.text,
+                board_seen: r.board_seen,
+                memory_seen: r.memory_seen,
+            });
+            delivered = Some(Delivered {
+                turn: last,
+                original,
+                board_seen: conv.board_seen,
+                memory_seen: conv.memory_seen,
+            });
+            conv.board_seen = r.board_seen;
+            conv.memory_seen = r.memory_seen;
+        } else {
+            conv.board_seen = unseen.board_newest;
+            conv.memory_seen = unseen.memory_newest;
+        }
+    }
+    BoardPending {
+        key,
+        conv,
+        delivered,
     }
 }
 
@@ -1021,6 +1349,12 @@ fn chat_options(req: &ChatRequest) -> Result<ChatOptions, ApiError> {
 /// Runs on a blocking thread holding the generation lock (`guard`). The lock is released as soon
 /// as the engine returns, before the final event is sent, so a client that sends its next request
 /// the moment it has the reply never meets a stale 503 `server_busy`.
+///
+/// Built-in board tools (L376): when the request was offered them, text from `<tool_call>` on is
+/// held back; a round whose calls are all built-in is answered here and the same turn continues
+/// in place (the prompt, the reply's own tokens, the template's tool-response tail), up to
+/// [`MAX_TOOL_ROUNDS`] rounds. A round with any client call is forwarded as before, its built-in
+/// calls answered and stripped out of it.
 fn run_generation(
     engine: Arc<dyn Engine>,
     codec: Arc<dyn Codec>,
@@ -1028,27 +1362,47 @@ fn run_generation(
     tx: mpsc::Sender<Ev>,
     guard: OwnedSemaphorePermit,
     id: &str,
+    board: Option<Arc<Board>>,
 ) {
-    let mut asm = TextAssembler::new(Arc::clone(&codec), prepared.stop_strings);
-    // The thinking block (prompt ends in `<think>\n`): its text goes out as reasoning, the
-    // closing token is dropped, and the answer's leading newlines are trimmed (the template
-    // puts `\n</think>\n\n` between the two).
-    let mut thinking = prepared
-        .reasoning_end
-        .map(|end| (end, TextAssembler::new(codec, Vec::new())));
-    let mut answer_started = prepared.reasoning_end.is_none();
+    let conv = match (&board, &prepared.board) {
+        (Some(b), Some(p)) if prepared.builtin_tools => {
+            Some((Arc::clone(b), p.key.clone(), p.conv.author.clone()))
+        }
+        _ => None,
+    };
+    let builtin = conv.is_some();
+    let max_ctx = prepared.ctx;
+    let first_prompt_len = prepared.prompt_tokens.len();
+    let mut prompt = prepared.prompt_tokens;
+    let mut params = prepared.params;
     let mut ids = prepared.return_ids.then(Vec::new);
-    let mut stopped_by_string = false;
-    let mut client_gone = false;
+    let mut total_emitted = 0usize;
+    let mut prefill_ms = 0u64;
+    let mut decode_ms = 0u64;
+    let mut sent = SendState::default();
+    let mut rounds = 0usize;
+    let mut per_round: Vec<usize> = Vec::new();
     let test_report = (!prepared.test.is_empty()).then(|| prepared.test.names());
-    let result = engine.generate_with_test(
-        &prepared.prompt_tokens,
-        &prepared.params,
-        &prepared.test,
-        &mut |tok| {
-            if let Some(ids) = ids.as_mut() {
-                ids.push(tok);
-            }
+    let mut stopped_by_string;
+    let last: GenerateOutcome;
+    loop {
+        rounds += 1;
+        let mut asm = TextAssembler::new(Arc::clone(&codec), prepared.stop_strings.clone());
+        // The thinking block (prompt ends in `<think>\n`): its text goes out as reasoning, the
+        // closing token is dropped, and the answer's leading newlines are trimmed (the template
+        // puts `\n</think>\n\n` between the two).
+        let mut thinking = prepared
+            .reasoning_end
+            .map(|end| (end, TextAssembler::new(Arc::clone(&codec), Vec::new())));
+        let mut answer_started = prepared.reasoning_end.is_none();
+        let mut round_stop = false;
+        let mut client_gone = false;
+        let mut round_ids: Vec<u32> = Vec::new();
+        let mut held = String::new();
+        let mut in_call = false;
+        sent.sent_this_round = false;
+        let on_tok = &mut |tok: u32| {
+            round_ids.push(tok);
             if let Some((end, rasm)) = thinking.as_mut() {
                 let ev = if tok == *end {
                     let rest = rasm.finish();
@@ -1083,91 +1437,230 @@ fn run_generation(
                     if d.is_empty() {
                         return true;
                     }
-                    if tx.blocking_send(Ev::Delta(d)).is_err() {
-                        client_gone = true;
-                        false
+                    let out = if builtin {
+                        hold_back(&mut held, &mut in_call, d)
                     } else {
-                        true
+                        d
+                    };
+                    if out.is_empty() {
+                        return true;
                     }
+                    if !send_delta(&tx, out, &mut sent) {
+                        client_gone = true;
+                        return false;
+                    }
+                    true
                 }
                 Push::StopAt(d) => {
-                    stopped_by_string = true;
+                    round_stop = true;
                     let d = trim(d, &mut answer_started);
                     if !d.is_empty() {
-                        let _ = tx.blocking_send(Ev::Delta(d));
+                        let out = if builtin {
+                            hold_back(&mut held, &mut in_call, d)
+                        } else {
+                            d
+                        };
+                        if !out.is_empty() {
+                            let _ = send_delta(&tx, out, &mut sent);
+                        }
                     }
                     false
                 }
             }
-        },
-    );
-    drop(guard);
-    match result {
-        Err(EngineError::Busy(m)) => {
-            eprintln!("aien-serve-http: {id}: GPU busy: {m}");
-            let _ = tx.blocking_send(Ev::Busy(m));
-        }
-        Err(e) => {
-            eprintln!("aien-serve-http: {id}: {e}");
-            let _ = tx.blocking_send(Ev::Error(e.to_string()));
-        }
-        Ok(out) => {
-            if client_gone {
-                eprintln!(
-                    "aien-serve-http: {id}: client left after {} tokens",
-                    out.emitted_tokens
-                );
+        };
+        let result = if rounds == 1 {
+            engine.generate_with_test(&prompt, &params, &prepared.test, on_tok)
+        } else {
+            engine.generate_continuation(&prompt, &params, &prepared.test, on_tok)
+        };
+        let out = match result {
+            Err(EngineError::Busy(m)) => {
+                drop(guard);
+                eprintln!("aien-serve-http: {id}: GPU busy: {m}");
+                let _ = tx.blocking_send(Ev::Busy(m));
                 return;
             }
-            if let Some((_, mut rasm)) = thinking.take() {
-                if let Some(rest) = rasm.finish().filter(|r| !r.is_empty()) {
-                    let _ = tx.blocking_send(Ev::Reasoning(rest));
-                }
+            Err(e) => {
+                drop(guard);
+                eprintln!("aien-serve-http: {id}: {e}");
+                let _ = tx.blocking_send(Ev::Error(e.to_string()));
+                return;
             }
-            if let Some(rest) = asm.finish() {
-                let rest = if answer_started {
-                    rest
-                } else {
-                    rest.trim_start_matches('\n').to_string()
-                };
-                if !rest.is_empty() {
-                    let _ = tx.blocking_send(Ev::Delta(rest));
-                }
-            }
-            let finish = if stopped_by_string {
-                "stop"
-            } else {
-                match out.finish {
-                    FinishReason::Stop | FinishReason::Cancelled => "stop",
-                    FinishReason::Length => "length",
-                }
-            };
-            let tps = if out.decode_ms > 0 {
-                out.emitted_tokens as f64 * 1000.0 / out.decode_ms as f64
-            } else {
-                0.0
-            };
-            let sampling_fields = out
-                .sampling
-                .as_ref()
-                .map(|s| format!(", {}", s.log_fields()))
-                .unwrap_or_default();
-            eprintln!(
-                "aien-serve-http: {id}: prompt {} tok, reply {} tok, finish {finish}, prefill {} ms, decode {} ms ({tps:.2} tok/s){sampling_fields}",
-                prepared.prompt_tokens.len(),
-                out.emitted_tokens,
-                out.prefill_ms,
-                out.decode_ms
-            );
-            let _ = tx.blocking_send(Ev::Done {
-                finish,
-                completion_tokens: out.emitted_tokens,
-                sampling: out.sampling,
-                token_ids: ids,
-                test: test_report,
-            });
+            Ok(out) => out,
+        };
+        total_emitted += out.emitted_tokens;
+        per_round.push(out.emitted_tokens);
+        prefill_ms += out.prefill_ms;
+        decode_ms += out.decode_ms;
+        if let Some(ids) = ids.as_mut() {
+            ids.extend_from_slice(&round_ids);
         }
+        if client_gone {
+            drop(guard);
+            eprintln!("aien-serve-http: {id}: client left after {total_emitted} tokens");
+            return;
+        }
+        if let Some((_, mut rasm)) = thinking.take() {
+            if let Some(rest) = rasm.finish().filter(|r| !r.is_empty()) {
+                let _ = tx.blocking_send(Ev::Reasoning(rest));
+            }
+        }
+        if let Some(rest) = asm.finish() {
+            let rest = if answer_started {
+                rest
+            } else {
+                rest.trim_start_matches('\n').to_string()
+            };
+            if !rest.is_empty() {
+                if builtin {
+                    held.push_str(&rest);
+                } else {
+                    let _ = send_delta(&tx, rest, &mut sent);
+                }
+            }
+        }
+        stopped_by_string = round_stop;
+        // Built-in round end: what was held is a tool call, or a split tag that never became one.
+        let Some((b, key, author)) = conv.as_ref().filter(|_| !held.is_empty()) else {
+            last = out;
+            break;
+        };
+        let (before, calls) = crate::tools::parse_reply(&held, id);
+        // A reply cut by the length cap may hold a half-written call: not run, not forwarded as a call.
+        if calls.is_empty() || out.finish != FinishReason::Stop {
+            let _ = send_delta(&tx, std::mem::take(&mut held), &mut sent);
+            last = out;
+            break;
+        }
+        if !before.is_empty() {
+            let _ = send_delta(&tx, before, &mut sent);
+        }
+        let mut responses: Vec<String> = Vec::new();
+        let mut any_client = false;
+        for c in &calls {
+            let name = c["function"]["name"].as_str().unwrap_or("");
+            if !board::is_builtin(name) {
+                any_client = true;
+                continue;
+            }
+            let args: Value = c["function"]["arguments"]
+                .as_str()
+                .and_then(|a| serde_json::from_str(a).ok())
+                .unwrap_or(Value::Null);
+            let r = board::call(b, key, author, name, &args);
+            eprintln!(
+                "aien-serve-http: {id}: {name}: {}",
+                r.lines().next().unwrap_or("")
+            );
+            responses.push(r);
+        }
+        if any_client {
+            // The client runs its own calls; the built-in ones are already answered.
+            let kept = crate::tools::strip_calls(&held, |n| !board::is_builtin(n));
+            let _ = send_delta(&tx, kept, &mut sent);
+            last = out;
+            break;
+        }
+        // Every call was built-in: answer in place and continue the same turn.
+        let tail = codec
+            .tool_round_tail(&crate::tools::tool_responses(&responses), &prepared.opts)
+            .and_then(|t| codec.encode(&t).ok());
+        let remaining = params.max_new_tokens.saturating_sub(out.emitted_tokens);
+        let Some(tail) = tail else {
+            last = out;
+            break;
+        };
+        if rounds >= MAX_TOOL_ROUNDS
+            || remaining == 0
+            || out.finish != FinishReason::Stop
+            || prompt.len() + round_ids.len() + tail.len() + 1 >= max_ctx
+        {
+            eprintln!(
+                "aien-serve-http: {id}: built-in tool round {rounds} ends the reply ({remaining} tokens left, finish {:?})",
+                out.finish
+            );
+            last = out;
+            break;
+        }
+        prompt.extend_from_slice(&round_ids);
+        prompt.extend_from_slice(&tail);
+        params.max_new_tokens = remaining;
     }
+    drop(guard);
+    let out = last;
+    let finish = if stopped_by_string {
+        "stop"
+    } else {
+        match out.finish {
+            FinishReason::Stop | FinishReason::Cancelled => "stop",
+            FinishReason::Length => "length",
+        }
+    };
+    let tps = if decode_ms > 0 {
+        total_emitted as f64 * 1000.0 / decode_ms as f64
+    } else {
+        0.0
+    };
+    let sampling_fields = out
+        .sampling
+        .as_ref()
+        .map(|s| format!(", {}", s.log_fields()))
+        .unwrap_or_default();
+    let rounds_field = if rounds > 1 {
+        let per: Vec<String> = per_round.iter().map(|n| n.to_string()).collect();
+        format!(", {rounds} rounds (built-in tools: {} tok)", per.join("+"))
+    } else {
+        String::new()
+    };
+    eprintln!(
+        "aien-serve-http: {id}: prompt {first_prompt_len} tok, reply {total_emitted} tok, finish {finish}, prefill {prefill_ms} ms, decode {decode_ms} ms ({tps:.2} tok/s){sampling_fields}{rounds_field}"
+    );
+    let _ = tx.blocking_send(Ev::Done {
+        finish,
+        completion_tokens: total_emitted,
+        sampling: out.sampling,
+        token_ids: ids,
+        test: test_report,
+    });
+}
+
+#[derive(Default)]
+struct SendState {
+    sent_any: bool,
+    sent_this_round: bool,
+}
+
+/// Sends an answer delta; the first one of a later round gets a blank line before it when an
+/// earlier round already answered. `false`: the client is gone.
+fn send_delta(tx: &mpsc::Sender<Ev>, d: String, s: &mut SendState) -> bool {
+    let d = if s.sent_any && !s.sent_this_round {
+        format!("\n\n{}", d.trim_start_matches('\n'))
+    } else {
+        d
+    };
+    s.sent_any = true;
+    s.sent_this_round = true;
+    tx.blocking_send(Ev::Delta(d)).is_ok()
+}
+
+/// Built-in tools: `held` keeps the text from `<tool_call>` on (and a possible split tag); the
+/// part safe to stream is returned.
+fn hold_back(held: &mut String, in_call: &mut bool, d: String) -> String {
+    held.push_str(&d);
+    if *in_call {
+        return String::new();
+    }
+    if let Some(p) = held.find(crate::tools::OPEN) {
+        *in_call = true;
+        let out = held[..p].to_string();
+        *held = held[p..].to_string();
+        return out;
+    }
+    let keep = crate::tools::partial_open_len(held);
+    let cut = held.len() - keep;
+    let out = held[..cut].to_string();
+    *held = held[cut..].to_string();
+    out
 }
 
 async fn collect_response(
@@ -1209,7 +1702,7 @@ async fn collect_response(
                     aien_test: test.map(|n| serde_json::json!({ "applied": n })),
                 };
                 let reasoning = reasoning.as_deref().map(str::trim);
-                let (text, calls) = if tools {
+                let (text, calls) = if tools && finish == "stop" {
                     crate::tools::parse_reply(&content, &id)
                 } else {
                     (content.clone(), Vec::new())
@@ -1333,7 +1826,13 @@ fn stream_response(
                     };
                     let mut finish = finish;
                     if tools && !held.is_empty() {
-                        let (text, calls) = crate::tools::parse_reply(&held, &id);
+                        // A reply cut by the length cap may hold a half-written call: it goes
+                        // out as text, never as a call.
+                        let (text, calls) = if finish == "stop" {
+                            crate::tools::parse_reply(&held, &id)
+                        } else {
+                            (std::mem::take(&mut held), Vec::new())
+                        };
                         if !text.is_empty()
                             && etx
                                 .send(data(chunk_json(
