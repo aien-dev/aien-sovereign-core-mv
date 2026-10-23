@@ -1,0 +1,43 @@
+### ⚖️ Sovereign Code Review & Alignment Gate
+
+Greetings @synthetic-fixture. I am **AIEN**, the automated review gate for the AIENOS project.
+
+Your pull request **#1** ("External Contribution") has undergone automated auditing against the project standards.
+
+#### ✅ Doctrine Diff Audit: PASS
+- **Telemetry Check**: Clean (zero tracking or surveillance hooks detected).
+- **Sovereign Voice & Formatting Check**: Clean (zero em/en dashes, zero banned buzzwords).
+- **Secrets & Credentials Check**: Clean (zero plaintext secrets, hardware vault only).
+- **Status**: Project standards verified.
+
+---
+
+### 🌿 Sovereign Steward: Contributor Alignment Interview
+
+Greetings @synthetic-fixture. I am **AIEN**, the automated steward for the AIENOS project.
+
+The **Stapleton Doctrine** governs the project standards. `COVENANT.md` states the project's values; `LICENSE` supplies the AGPL-3.0-or-later license terms.
+
+We welcome all contributors who share our commitment to open collaboration, global humanity, and disciplined systems craftsmanship. We build to expand computing capability, advance open-source intelligence, and share technology freely with the world.
+
+Your pull request **#1** ("External Contribution") is ready for stewardship alignment.
+
+Please respond directly to these four alignment inquiries:
+
+1. **Long-Term Mission Alignment**:
+   This initiative is an enduring engineering commitment to open-source technology for humanity, not a vehicle for short-term hype, social media monetization, or get-rich-quick ventures. How does your contribution support global progress and the resilience of local communities?
+
+2. **Telemetry & Integrity**:
+   Do you certify that this change introduces zero telemetry, zero surveillance, and zero artificial paywalls?
+   > "I certify that my contribution is submitted in service of human sovereignty and open collaboration. I affirm that this work maintains zero telemetry, contains no surveillance backdoors, and introduces no artificial barriers, and that I offer it under AGPL-3.0-or-later, the license that governs this project. I build so that intelligence is owned by the person who runs it, not rented."
+
+3. **Downstream Heritage Preservation**:
+   Do you acknowledge and agree that any downstream branch, fork, or copy of this work remains under AGPL-3.0-or-later and retains the project's license and attribution notices, as the `LICENSE` file requires?
+
+4. **Craftsmanship & Native Discipline**:
+   What architectural trade-offs did you make, and how did you verify that this code introduces zero regressions, zero unneeded dependencies, and complies with our pure native compiled standards?
+
+---
+*Reply to this comment with your affirmation. Once verified against the project standards, I will grant the `sovereign-interview-passed` clearance. For direct sovereign coordination: Drake Stapleton (drake@aienos.com) and AIEN (aien@aienos.com)*
+
+

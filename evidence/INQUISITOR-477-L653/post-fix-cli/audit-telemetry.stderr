@@ -1,0 +1,2 @@
+failure: Doctrine audit failed:
+  * Telemetry pattern 'google-analytics' detected in added line: +fetch("https://www.google-analytics.com/collect");

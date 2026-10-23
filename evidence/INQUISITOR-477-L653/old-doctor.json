@@ -1,0 +1,9 @@
+{
+  "base": "754c07b118f41ad899607b60329bd851b1ccb13e",
+  "native_exit": 0,
+  "checker_expected_exit": 1,
+  "legacy_hits": [
+    "Oath"
+  ],
+  "binary_sha256": "cbb508d6223840c7bf96fe15f180fe3285e82b8246933ebe84c7ab44d333bbc4"
+}

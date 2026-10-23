@@ -1,0 +1,17 @@
+Autonomous Sovereign Inquisitor & Pull Request Alignment Gatekeeper
+
+Usage: spark-inquisitor <COMMAND>
+
+Commands:
+  review        Review a PR diff and generate unified code review markdown comment
+  triage-issue  Triage an issue (bug report, complaint, feature request, inquiry)
+  interview     Generate the Sovereign Alignment Interview comment for a Pull Request
+  audit         Audit a git diff for telemetry, surveillance, and unslop violations
+  fix           Automatically sanitize unslop formatting (em dashes, en dashes) in specified file
+  evaluate      Evaluate contributor testimony against the project standards
+  doctor        Run internal self-diagnostics
+  help          Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version

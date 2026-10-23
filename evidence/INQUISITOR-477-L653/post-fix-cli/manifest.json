@@ -1,0 +1,155 @@
+{
+  "source": "9c11d42971fb24b63867e5ff4a53d902d66ec1f5",
+  "binary_sha256": "578e59bc630f0e9efafef966112bec9387e437aaa428bcb3d4ce5ddd5bc5a118",
+  "synthetic_fixtures": true,
+  "real_native_cli": true,
+  "complete": true,
+  "cases": [
+    {
+      "name": "help",
+      "argv": [
+        "--help"
+      ],
+      "exit": 0,
+      "expected_exit": 0,
+      "legacy_hits": [],
+      "stdout_sha256": "379ecfcc4619134204089d5e1ee4ee6310dcdd620fa0fefd09f22c9f8055bf14",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "doctor",
+      "argv": [
+        "doctor"
+      ],
+      "exit": 0,
+      "expected_exit": 0,
+      "legacy_hits": [],
+      "stdout_sha256": "f937f76405f3fa86bf5f3332b566184c9cfebbb4d94e88e385af25d21c9c44ee",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "interview",
+      "argv": [
+        "interview",
+        "--author",
+        "synthetic-fixture",
+        "--pr",
+        "1",
+        "--title",
+        "Synthetic fixture"
+      ],
+      "exit": 0,
+      "expected_exit": 0,
+      "legacy_hits": [],
+      "stdout_sha256": "58741224c78e469df0b28f2d94134013874a81b1b7cb24fac13db2cb3f8e71fa",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "review-clean",
+      "argv": [
+        "review",
+        "--author",
+        "synthetic-fixture",
+        "--pr",
+        "1",
+        "--diff",
+        "/Users/drakestapleton/.hermes/cache/scratch/loop12-inquisitor477/evidence/INQUISITOR-477-L653/post-fix-cli/inquisitor477-hifojmcy/clean.diff"
+      ],
+      "exit": 0,
+      "expected_exit": 0,
+      "legacy_hits": [],
+      "stdout_sha256": "c1988a168e7b25d9b0440ae301626af8945a7a3e2be7ae161417a996eee7afea",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "review-telemetry",
+      "argv": [
+        "review",
+        "--author",
+        "synthetic-fixture",
+        "--pr",
+        "1",
+        "--diff",
+        "/Users/drakestapleton/.hermes/cache/scratch/loop12-inquisitor477/evidence/INQUISITOR-477-L653/post-fix-cli/inquisitor477-hifojmcy/telemetry.diff"
+      ],
+      "exit": 1,
+      "expected_exit": 1,
+      "legacy_hits": [],
+      "stdout_sha256": "64c884500380315fda9ac4ee5b757b4b89c466d4433bdac23b80589e7b23824c",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "audit-clean",
+      "argv": [
+        "audit",
+        "--diff",
+        "/Users/drakestapleton/.hermes/cache/scratch/loop12-inquisitor477/evidence/INQUISITOR-477-L653/post-fix-cli/inquisitor477-hifojmcy/clean.diff"
+      ],
+      "exit": 0,
+      "expected_exit": 0,
+      "legacy_hits": [],
+      "stdout_sha256": "7909b1ba3f2b6ff5d42b5de429e13d3337ad495c477ef44e417756da9ace4513",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "audit-telemetry",
+      "argv": [
+        "audit",
+        "--diff",
+        "/Users/drakestapleton/.hermes/cache/scratch/loop12-inquisitor477/evidence/INQUISITOR-477-L653/post-fix-cli/inquisitor477-hifojmcy/telemetry.diff"
+      ],
+      "exit": 1,
+      "expected_exit": 1,
+      "legacy_hits": [],
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "48784108059868ad34638cba58ce01f7fe43416a29324707626c0ed6eecc8f79"
+    },
+    {
+      "name": "triage",
+      "argv": [
+        "triage-issue",
+        "--author",
+        "synthetic-fixture",
+        "--issue",
+        "1",
+        "--body",
+        "/Users/drakestapleton/.hermes/cache/scratch/loop12-inquisitor477/evidence/INQUISITOR-477-L653/post-fix-cli/inquisitor477-hifojmcy/issue.txt"
+      ],
+      "exit": 0,
+      "expected_exit": 0,
+      "legacy_hits": [],
+      "stdout_sha256": "cdae7d733bf12ef89d03f55855fd1a3964f13e3da8af678453eca5760da00284",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "evaluate-legacy-compatible",
+      "argv": [
+        "evaluate",
+        "--author",
+        "synthetic-fixture",
+        "--testimony",
+        "/Users/drakestapleton/.hermes/cache/scratch/loop12-inquisitor477/evidence/INQUISITOR-477-L653/post-fix-cli/inquisitor477-hifojmcy/valid.txt"
+      ],
+      "exit": 0,
+      "expected_exit": 0,
+      "legacy_hits": [],
+      "stdout_sha256": "6d50ba20b53f7bb57fbbcc98b7e529fa9091ef376aadc7282ce732252ea83637",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "evaluate-empty-refused",
+      "argv": [
+        "evaluate",
+        "--author",
+        "synthetic-fixture",
+        "--testimony",
+        "/Users/drakestapleton/.hermes/cache/scratch/loop12-inquisitor477/evidence/INQUISITOR-477-L653/post-fix-cli/inquisitor477-hifojmcy/empty.txt"
+      ],
+      "exit": 1,
+      "expected_exit": 1,
+      "legacy_hits": [],
+      "stdout_sha256": "6478d8d8e6719b9b012e9112f9cb61e42a354bb1d86791a1a8331269b02e6e4c",
+      "stderr_sha256": "0443139ea8ea2a76ef4019d64dea7f63ff4367aeef10d78e58523ab8e66b723c"
+    }
+  ]
+}
