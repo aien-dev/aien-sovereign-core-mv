@@ -6,7 +6,7 @@
 # Usage: OMEGA_OMC=<seed omc> bash om/effects/run.sh
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-PIN=d0603ff8fc276774ac7b438c27d146123b9a4513547fe9671e36d8e02d183e83
+PIN=734f0a39319fbfa930bcc62cb30dbf06d47d78e126372b74f5baf478e6126b61
 OMC=${OMEGA_OMC:?set OMEGA_OMC to the seed compiler (omega-mv seed/out/omc)}
 O=$ROOT/target/om-effects
 got=$(sha256sum < "$OMC" | cut -d' ' -f1)
