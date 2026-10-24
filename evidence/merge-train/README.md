@@ -13,3 +13,11 @@ server with `AIEN_OMEGA_FP8_GROUPED_WAVE=1`, which makes omega size the grouped 
 (min(6, 48 / groups) = 5 CTAs per group on the 35B's 9 groups instead of the compiled 6 that was measured on 8 groups);
 identity must hold, the lever figure is chip ms/step in `server-grouped-wave.log` vs `server-plain.log` (measured alone:
 step x0.9614, `~/workspace/investigations/2026-10-24-l310-grouped-ctas`).
+
+Arm `single-wave` (L310 lever 2, off until its proof line `single-projection one-wave rule` is in a candidate): the same
+suite on a second server with `AIEN_OMEGA_FP8_SINGLE_WAVE=1`, which makes omega give the k 4096 single projection (o_proj,
+40 launches per token) 2 rows per warp: 128 CTAs at 72 registers, 3 per SM, one wave of the 48 SMs, instead of 256 CTAs at
+64 registers in two waves; identity must hold, the lever figure is chip ms/step in `server-single-wave.log` vs
+`server-plain.log` (measured alone: o_proj 54.66 -> 53.04 us per launch against the 30.73 us byte floor, -64.9 us per
+1-row step at 15/15 positions, output bit-identical; the whole step moved less than the harness drift, which is why this
+arm decides it; `~/workspace/investigations/2026-10-24-l310-single-proj-waves`, REPORT.md window 2).

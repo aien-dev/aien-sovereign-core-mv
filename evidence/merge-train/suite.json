@@ -57,6 +57,14 @@
       "log_proof": "CTAs per group (wave rule)",
       "enabled": false,
       "about": "L310 expert launch in one wave: omega_gpu_fp8_api.c grouped CTA budget = min(6, 48 SMs / groups) -> 5 CTAs per group for the 35B 9 groups (54 CTAs = two waves on 48 SMs at one 1024-thread CTA per SM, CUDA guide Table 30) instead of the compiled 6 measured on 8 groups; load-only (read once at the first grouped launch). Measured 2026-10-24 chip alone: gate_up+down 6.962 -> 5.874 ms per 1-row step, step x0.9614 (calc:bdad83e6; ~/workspace/investigations/2026-10-24-l310-grouped-ctas). Enable when the candidate lib defines omega_gpu_fp8_grouped_ctas_auto (omega l310/grouped-wave on ship/motor-l387)."
+    },
+    "single-wave": {
+      "server_env": {
+        "AIEN_OMEGA_FP8_SINGLE_WAVE": "1"
+      },
+      "log_proof": "single-projection one-wave rule",
+      "enabled": false,
+      "about": "L310 lever 2, single projection in one wave: omega_gpu_fp8_api.c gives the k 4096 single projection (o_proj, 40 launches per token) 2 rows per warp = 128 CTAs at 72 registers = 3 CTAs per SM = one wave of the 48 SMs, instead of 256 CTAs at 64 registers = two waves. Measured alone (investigations/2026-10-24-l310-single-proj-waves, window 2): o_proj 54.66 -> 53.04 us per launch against the 30.73 us byte floor, -64.9 us per 1-row step at 15/15 positions, output bit-identical; the whole-step effect (-12 us, sign test p 0.30) is below the harness drift, this arm decides it. Bit-exact by design (same per-row dot products, each warp takes two rows). The lever figure is chip ms/step in server-single-wave.log vs server-plain.log."
     }
   },
   "levers": [
@@ -184,6 +192,17 @@
       "arms": [
         "plain",
         "grouped-wave"
+      ]
+    },
+    {
+      "id": "L310-single-wave",
+      "name": "single projection one wave: rows 2 per warp for k 4096",
+      "present": {
+        "build": "single-wave"
+      },
+      "arms": [
+        "plain",
+        "single-wave"
       ]
     }
   ],

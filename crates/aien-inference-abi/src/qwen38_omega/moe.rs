@@ -380,6 +380,25 @@ impl Qwen38Omega {
                 "qwen36 omega: expert grouped launch: library predates the wave rule ({how} asked)"
             ),
         }
+        // L310 lever 2 merge-train proof line (single projection in one wave). With AIEN_OMEGA_FP8_SINGLE_WAVE=1 omega
+        // gives the k 4096 single projection (o_proj, MIXER_OUT x HIDDEN, 40 launches per token) 2 rows per warp: 128 CTAs
+        // at 72 registers = 3 per SM = one wave of the 48 SMs, instead of 256 CTAs at 64 registers in two waves. Asking
+        // omega here (same env, same process) logs what the chip gets; a library without the rule says so. Only the line
+        // for a rule that applied carries the train's proof phrase.
+        let single_asked = std::env::var("AIEN_OMEGA_FP8_SINGLE_WAVE").as_deref() == Ok("1");
+        match aien_omega_fp8::single_rows_auto(q::MIXER_OUT as u32, q::HIDDEN as u32) {
+            Some(r) if r > 1 => {
+                eprintln!("qwen36 omega: o_proj single launch {r} rows per warp (single-projection one-wave rule)")
+            }
+            Some(_) => eprintln!(
+                "qwen36 omega: o_proj single launch automatic rows per warp (AIEN_OMEGA_FP8_SINGLE_WAVE {})",
+                if single_asked { "asked but not applied" } else { "unset" }
+            ),
+            None => eprintln!(
+                "qwen36 omega: o_proj single launch: library predates the one-wave rule (AIEN_OMEGA_FP8_SINGLE_WAVE {})",
+                if single_asked { "asked" } else { "unset" }
+            ),
+        }
         for h in 1..heads {
             // SAFETY: the states live in `gdns` / `attns`, owned beside the graph (dropped after it).
             unsafe {
