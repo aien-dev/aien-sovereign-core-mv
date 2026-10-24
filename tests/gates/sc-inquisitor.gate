@@ -1,12 +1,14 @@
 # tests/gates/sc-inquisitor.gate
-# Mirrors hosted: sovereign-inquisitor.yml (pull_request_target): builds spark-inquisitor and reviews the PR diff fetched with GITHUB_TOKEN
-# requires: operator because the review needs a GitHub pull request diff and token (pull_request_target context) that do not exist locally.
+# Mirrors hosted: sovereign-inquisitor.yml (pull_request_target): builds spark-inquisitor and audits the pull request diff.
+# The hosted job needed GITHUB_TOKEN only to fetch the diff (gh pr diff); the verdict depends on the diff text alone.
+# run.sh computes the same diff from git (merge base with origin/main ... HEAD; first parent for a head on main), so the
+# gate runs with no operator and no token (sc #605). It is listed in .aien/always, so it runs on every change like the
+# hosted job did. Never cached: the diff depends on the base as well as the tree.
 gate: SC-INQUISITOR
 manifest_version: 2
 owner: aien-sovereign-core
 requires:
   - host
-  - operator
 inputs:
   - crates/spark-inquisitor/
   - tests/gates/
@@ -15,7 +17,9 @@ run:
   args: ["inquisitor"]
 expects:
   exit: 0
+  observe: ["inquisitor_clean == true"]
   verdict: PASS
 timeout: 30m
+cache: never
 exactness: EXACT
 cache_scope: machine

@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # Exercise install.sh release mode offline. A fixture release is signed with a
 # throwaway key and served over file://. Checks:
 #   1. the key pinned inside install.sh equals docs/release/allowed_signers
@@ -15,6 +30,19 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/aien-test-install-release.XXXXXX")"
 [[ -n "${KEEP:-}" ]] || trap 'rm -rf "$WORK"' EXIT
 fail() { echo "FAIL: $*" >&2; [[ -z "${KEEP:-}" ]] || echo "WORK=$WORK" >&2; exit 1; }
+# kill9_at_point <pid>: kill -9 a paused installer exactly where it stands. The installer first,
+# then the `sleep` of its pause loop. Killing the sleep first (the old order) made install.sh exit
+# on its own under `set -e` (a killed child returns 137) through its EXIT trap, which is a clean
+# exit, not a kill at the point; and when that exit won the race, `kill -9` found no process and
+# failed the test (sc #452, 1 of 4 runs under load).
+kill9_at_point() {
+    local pid="$1" kids
+    kids="$(pgrep -P "$pid" 2>/dev/null || true)"
+    kill -9 "$pid" 2>/dev/null || true
+    # shellcheck disable=SC2086
+    [[ -z "$kids" ]] || kill -9 $kids 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+}
 
 case "$(uname -s)" in Linux) OS=linux ;; Darwin) OS=macos ;; *) fail "unsupported OS" ;; esac
 case "$(uname -m)" in x86_64|amd64) ARCH=x86_64 ;; aarch64|arm64) ARCH=aarch64 ;; *) fail "unsupported arch" ;; esac
@@ -192,7 +220,7 @@ for point in mid-copy after-copy before-swap; do
     IPID=$!
     for _ in $(seq 1 100); do grep -q "paused at $point" "$WORK/log-int" 2>/dev/null && break; sleep 0.1; done
     grep -q "paused at $point" "$WORK/log-int" || fail "installer never reached $point"
-    pkill -9 -P "$IPID" 2>/dev/null || true; kill -9 "$IPID" 2>/dev/null || true; wait "$IPID" 2>/dev/null || true
+    kill9_at_point "$IPID"
     [[ "$(live "$WORK/cfg-good")" == "$OLD" ]] || fail "killed at $point changed the live release"
     out="$("$WORK/bin-good/aien")"; [[ "$out" == "aien-b" || "$out" == "aien-c" ]] || fail "live install does not run after kill at $point ($out)"
 done
@@ -208,7 +236,7 @@ env AIEN_TEST_PAUSE_AT=after-swap AIEN_RELEASE_TAG=v0.0.0-test AIEN_RELEASE_BASE
 IPID=$!
 for _ in $(seq 1 100); do grep -q "paused at after-swap" "$WORK/log-int" 2>/dev/null && break; sleep 0.1; done
 grep -q "paused at after-swap" "$WORK/log-int" || fail "installer never reached after-swap"
-pkill -9 -P "$IPID" 2>/dev/null || true; kill -9 "$IPID" 2>/dev/null || true; wait "$IPID" 2>/dev/null || true
+kill9_at_point "$IPID"
 [[ "$(live "$WORK/cfg-good")" == "$ID_NEW" ]] || fail "after-swap: the rename did not take effect"
 [[ "$("$WORK/bin-good/aien")" == "aien-e" ]] || fail "after-swap: the live release does not run"
 grep -q "^current = \"$OLD\"" "$WORK/cfg-good/installed.toml" || fail "after-swap: record unexpectedly updated before the kill"
@@ -244,7 +272,7 @@ kill_at() { # point release-dir [install.sh args...]: run install.sh held at poi
     ipid=$!
     for _ in $(seq 1 100); do grep -q "paused at $point" "$WORK/log-int" 2>/dev/null && break; sleep 0.1; done
     grep -q "paused at $point" "$WORK/log-int" || fail "installer never reached $point"
-    pkill -9 -P "$ipid" 2>/dev/null || true; kill -9 "$ipid" 2>/dev/null || true; wait "$ipid" 2>/dev/null || true
+    kill9_at_point "$ipid"
 }
 rec_cur() { sed -n 's/^current = "\(.*\)"$/\1/p' "$WORK/cfg-good/installed.toml"; }
 strays() { ls -A "$WORK/cfg-good/releases" | grep -c '^\.current\.new\.' || true; }

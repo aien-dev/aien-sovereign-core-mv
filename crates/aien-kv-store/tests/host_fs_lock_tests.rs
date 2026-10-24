@@ -1,4 +1,19 @@
 #![cfg(feature = "std")]
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! One open store per store directory (#521). ADR 0003 supports one runtime
 //! per store directory; the host adapter enforces it with an exclusive lock
 //! on `LOCK` in the store root, taken at open and held until the store drops.
@@ -11,24 +26,10 @@ mod rig;
 
 use aien_kv_store::host_fs::{HostFsConfig, HostFsStore};
 use aien_platform::PlatformError;
-use rig::Fx;
-use std::sync::{RwLock, RwLockReadGuard};
+use rig::{no_spawn, Fx, SPAWN};
 
 /// The child process of the cross-process test reads its store root here.
 const CHILD_ROOT_ENV: &str = "AIEN_KV_LOCK_TEST_CHILD_ROOT";
-
-/// Tests run on parallel threads of one process. While the cross-process test
-/// spawns its child, the child holds a copy of every descriptor open in this
-/// process until its exec closes them (they are close-on-exec), and `flock`
-/// belongs to the open file, not the descriptor: a store another test drops
-/// in that window stays locked, and that test's reopen is refused. The
-/// spawning test takes this for writing and every other test for reading, so
-/// no store opens or drops while a child is being spawned.
-static SPAWN: RwLock<()> = RwLock::new(());
-
-fn no_spawn() -> RwLockReadGuard<'static, ()> {
-    SPAWN.read().unwrap_or_else(|e| e.into_inner())
-}
 
 fn in_use(r: Result<HostFsStore, PlatformError>) -> bool {
     matches!(r, Err(PlatformError::TaskRejected(ref m)) if m.contains("in use"))
