@@ -17,6 +17,7 @@ pub mod api;
 pub mod cortex_sync;
 pub mod effect;
 pub mod gandi;
+pub mod imap;
 pub mod models;
 pub mod relay;
 pub mod smtp_server;
