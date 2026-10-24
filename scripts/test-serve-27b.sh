@@ -125,6 +125,11 @@ READY_TIMEOUT=soon run refuse
 [ "$rc" -eq 1 ] && grep -q 'READY_TIMEOUT must be a positive number' <<<"$out" || fail "a bad READY_TIMEOUT was accepted: $out"
 ok "READY_TIMEOUT is checked"
 
+help=$("$S" --help)
+head -n 1 <<<"$help" | grep -q '^# Start the Qwen3.8-27B model server' || fail "--help does not start at the usage text: $help"
+tail -n 1 <<<"$help" | grep -q 'server keeps running' || fail "--help does not end at the exit codes: $help"
+ok "--help prints the usage text"
+
 grep -q '^NEED_MIB=49497$' "$S" || fail "script memory figure is not 49497 MiB (41305 + 8192)"
 grep -q 'KEEP_FREE: u64 = 8 << 30' "$ROOT/crates/aien-serve-http/src/qwen38_engine.rs" || fail "loader keep-free changed; update the docs and this test"
 ok "memory figure"
