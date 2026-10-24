@@ -498,6 +498,10 @@ fn cmd_verify(cli: &Cli, commit: &str, cwd: &Path) -> i32 {
     }
 }
 
+/// `worker --once` found its head being judged by another process and did
+/// nothing (EX_TEMPFAIL; the verdict codes are 0 to 5).
+const EXIT_HELD: i32 = 75;
+
 fn cmd_worker(cli: &Cli) -> i32 {
     let state = match state_dir(cli) {
         Ok(s) => s,
@@ -567,6 +571,18 @@ fn cmd_worker(cli: &Cli) -> i32 {
     cfg.no_cache = cli.no_cache;
     cfg.hardware_identity = cli.hardware_identity.clone().unwrap_or_default();
     if let Some((repo, sha)) = &cli.once {
+        // The same exclusive right the loop takes: a poller may be judging it.
+        let _claim = match worker::claim_head(&cfg.state, repo, sha) {
+            Ok(Some(c)) => c,
+            Ok(None) => {
+                println!("AIEN_TEST: {}", worker::held_note(&cfg.state, repo, sha));
+                return EXIT_HELD;
+            }
+            Err(e) => {
+                println!("AIEN_TEST: FAIL {e}");
+                return 1;
+            }
+        };
         return match worker::run_once(&cfg, repo, sha) {
             Ok(s) => {
                 for n in &s.notes {
