@@ -41,6 +41,22 @@
       },
       "enabled": false,
       "about": "L376's team board: on only with a board dir at start; enabled when L354 merges serve/q36-board"
+    },
+    "interior-uncached": {
+      "server_env": {
+        "AIEN_OMEGA_Q36_BUF_CACHED": "0"
+      },
+      "log_proof": "interior buffers GPU-uncached",
+      "enabled": false,
+      "about": "L310 whole-step A/B of the cached interior (omega_gpu_q36_graph.c: chip-only intermediates GPU-L2-cached by default, GPU-uncached with this switch): load-only, so a second server. Bit-exact by design (same math, only the L2 policy of chip-only buffers changes; 2026-10-19 probe gpu_q38_graph_test 38/38 PASS both ways), so the shared identity cases apply unchanged. The figure is chip ms/step in server-interior-uncached.log against server-plain.log, same cases back to back (docs/speed/Q36_CEILING.md section 8). Enable once the candidate carries the proof line (sc l310/train-arm-interior-uncached, moe.rs: qwen36 omega: interior buffers ...)."
+    },
+    "grouped-wave": {
+      "server_env": {
+        "AIEN_OMEGA_FP8_GROUPED_WAVE": "1"
+      },
+      "log_proof": "CTAs per group (wave rule)",
+      "enabled": false,
+      "about": "L310 expert launch in one wave: omega_gpu_fp8_api.c grouped CTA budget = min(6, 48 SMs / groups) -> 5 CTAs per group for the 35B 9 groups (54 CTAs = two waves on 48 SMs at one 1024-thread CTA per SM, CUDA guide Table 30) instead of the compiled 6 measured on 8 groups; load-only (read once at the first grouped launch). Measured 2026-10-24 chip alone: gate_up+down 6.962 -> 5.874 ms per 1-row step, step x0.9614 (calc:bdad83e6; ~/workspace/investigations/2026-10-24-l310-grouped-ctas). Enable when the candidate lib defines omega_gpu_fp8_grouped_ctas_auto (omega l310/grouped-wave on ship/motor-l387)."
     }
   },
   "levers": [
@@ -146,6 +162,28 @@
       "arms": [
         "plain",
         "board"
+      ]
+    },
+    {
+      "id": "L310",
+      "name": "cached interior: whole-step A/B against the ceiling",
+      "present": {
+        "build": "L310|interior"
+      },
+      "arms": [
+        "plain",
+        "interior-uncached"
+      ]
+    },
+    {
+      "id": "L310-wave",
+      "name": "expert launch one wave: CTAs per group from the SM count",
+      "present": {
+        "build": "grouped-wave"
+      },
+      "arms": [
+        "plain",
+        "grouped-wave"
       ]
     }
   ],
