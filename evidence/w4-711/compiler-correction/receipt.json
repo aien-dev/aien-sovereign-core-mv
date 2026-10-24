@@ -1,0 +1,81 @@
+{
+  "compiler_pr": 676,
+  "compiler_head": "1dffceaeb0dd26fb69ea64d367a49a9950c25a62",
+  "compiler_source": "078455c9c1862b9145ef892dfba68676204a38da",
+  "compiler_sha256": "9f48f66a9ee9f6a166df615a7ab9c48bf5b06ac2ba544ac51e52e9a3d290a6c4",
+  "builds": [
+    {
+      "name": "w4-author",
+      "repository": "sc-native-w4-711",
+      "source_files": [
+        {
+          "path": "native/w4/resident.om",
+          "sha256": "c08d54c939675a4beca757943ba9872480cc0bbff64c3d90c288027f73c92bd5"
+        },
+        {
+          "path": "native/w4/resident-test.om",
+          "sha256": "205a9fd5cc637ffbef2c0df37b52dcf990eb1a391f5aa690a4bd7a19d7d14f49"
+        }
+      ],
+      "source_sha256": "42368ca832ac0c42fb2ea51ac01e08244673001dd5aa404078caa14e04d60291",
+      "compile_exit": 0,
+      "binary_sha256": "6056c2aba7e8428caa0fc4ae8e694b8d12ce3e408ca727581fc8565919087dd5",
+      "previous_binary_sha256": "6056c2aba7e8428caa0fc4ae8e694b8d12ce3e408ca727581fc8565919087dd5",
+      "identical": true
+    },
+    {
+      "name": "w4-independent",
+      "repository": "sc-native-w4-711",
+      "source_files": [
+        {
+          "path": "native/w4/resident.om",
+          "sha256": "c08d54c939675a4beca757943ba9872480cc0bbff64c3d90c288027f73c92bd5"
+        },
+        {
+          "path": "native/w4/review/resident-independent.om",
+          "sha256": "3f1eb3639de28edc8c1a54536e836101b81dbca4fc72f34ad1098a7631dd3bf4"
+        }
+      ],
+      "source_sha256": "19795711a5db7b9cd5416975ad38308af4193568601712a1cd81f7e4b87a0afc",
+      "compile_exit": 0,
+      "binary_sha256": "582f72c50922f6ea7a110075a3005e3edfeaffa5230b0161536bd7a685ba852b",
+      "previous_binary_sha256": "582f72c50922f6ea7a110075a3005e3edfeaffa5230b0161536bd7a685ba852b",
+      "identical": true
+    },
+    {
+      "name": "w4-projection",
+      "repository": "sc-native-w4-711",
+      "source_files": [
+        {
+          "path": "native/w4/resident.om",
+          "sha256": "c08d54c939675a4beca757943ba9872480cc0bbff64c3d90c288027f73c92bd5"
+        },
+        {
+          "path": "native/w4/review/resident-projection.om",
+          "sha256": "a3f4d9119f3ed95fe6b3e30a102a2415535d95441206bd71477e56103fc5f01c"
+        }
+      ],
+      "source_sha256": "573a084c0693bc8b51c0bd1775bbed70c36b53af2b5e1de0e0fe7005d6d52b95",
+      "compile_exit": 0,
+      "binary_sha256": "b0f4be684a4a56ce93e636d309c2d7371f991994ead05f965f266059272d14e0",
+      "previous_binary_sha256": "b0f4be684a4a56ce93e636d309c2d7371f991994ead05f965f266059272d14e0",
+      "identical": true
+    }
+  ],
+  "replays": [
+    {
+      "name": "w4-author",
+      "status": 0,
+      "signal": null,
+      "stdout": "8715\n0"
+    },
+    {
+      "name": "w4-independent",
+      "status": 0,
+      "signal": null,
+      "stdout": "296271\n0"
+    }
+  ],
+  "gpu": false,
+  "full_model": false
+}
