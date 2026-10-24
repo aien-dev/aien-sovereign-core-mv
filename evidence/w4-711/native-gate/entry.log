@@ -1,0 +1,89 @@
+AIEN-OBS pin_omega_w4_native "1dffceaeb0dd26fb69ea64d367a49a9950c25a62"
+seed/out/omc: OK
+seed/omc/omc.om: OK
+/home/drakestapleton/workspace/targets/L793-w4-gate/aien-pins/omega-w4-native/seed/out/omc < build/w4-native-gate/1001 > build/w4-native-gate/1002 2> build/w4-native-gate/501002
+exit=0 expected=0
+build/w4-native-gate/1002 < /dev/null > build/w4-native-gate/1003 2> build/w4-native-gate/501003
+exit=0 expected=0
+/home/drakestapleton/workspace/targets/L793-w4-gate/aien-pins/omega-w4-native/seed/out/omc < build/w4-native-gate/1004 > build/w4-native-gate/1005 2> build/w4-native-gate/501005
+exit=0 expected=0
+build/w4-native-gate/1005 < /dev/null > build/w4-native-gate/1006 2> build/w4-native-gate/501006
+exit=0 expected=0
+/home/drakestapleton/workspace/targets/L793-w4-gate/aien-pins/omega-w4-native/seed/out/omc < build/w4-native-gate/1007 > build/w4-native-gate/1008 2> build/w4-native-gate/501008
+exit=0 expected=0
+build/w4-native-gate/1008 < /dev/null > build/w4-native-gate/1009 2> build/w4-native-gate/501009
+exit=0 expected=0
+/home/drakestapleton/workspace/targets/L793-w4-gate/aien-pins/omega-w4-native/seed/out/omc < build/w4-native-gate/1010 > build/w4-native-gate/1011 2> build/w4-native-gate/501011
+exit=0 expected=0
+build/w4-native-gate/1011 < /dev/null > build/w4-native-gate/1012 2> build/w4-native-gate/501012
+exit=0 expected=0
+/home/drakestapleton/workspace/targets/L793-w4-gate/aien-pins/omega-w4-native/seed/out/omc < build/w4-native-gate/1013 > build/w4-native-gate/1014 2> build/w4-native-gate/501014
+exit=0 expected=0
+/home/drakestapleton/workspace/targets/L793-w4-gate/aien-pins/omega-w4-native/seed/out/omc < native/w4/review/fixture.om > build/w4-native-gate/1015 2> build/w4-native-gate/501015
+exit=0 expected=0
+/home/drakestapleton/workspace/targets/L793-w4-gate/aien-pins/omega-w4-native/seed/out/omc < native/w4/review/reply.om > build/w4-native-gate/1016 2> build/w4-native-gate/501016
+exit=0 expected=0
+build/w4-native-gate/1015 < build/w4-native-gate/1017 > build/w4-native-gate/1018 2> build/w4-native-gate/501018
+exit=0 expected=0
+build/w4-native-gate/1014 < build/w4-native-gate/1018 > build/w4-native-gate/1019 2> build/w4-native-gate/501019
+exit=0 expected=0
+build/w4-native-gate/1016 < build/w4-native-gate/1019 > build/w4-native-gate/1020 2> build/w4-native-gate/501020
+exit=0 expected=0
+build/w4-native-gate/1015 < build/w4-native-gate/1021 > build/w4-native-gate/1022 2> build/w4-native-gate/501022
+exit=0 expected=0
+build/w4-native-gate/1014 < build/w4-native-gate/1022 > build/w4-native-gate/1023 2> build/w4-native-gate/501023
+exit=65 expected=65
+/home/drakestapleton/workspace/targets/L793-w4-gate/aien-pins/omega-w4-native/seed/out/omc < build/w4-native-gate/1024 > build/w4-native-gate/1025 2> build/w4-native-gate/501025
+exit=0 expected=0
+/home/drakestapleton/workspace/targets/L793-w4-gate/aien-pins/omega-w4-native/seed/out/omc < native/w4/review/tensor-fixture.om > build/w4-native-gate/1026 2> build/w4-native-gate/501026
+exit=0 expected=0
+/home/drakestapleton/workspace/targets/L793-w4-gate/aien-pins/omega-w4-native/seed/out/omc < native/w4/review/tensor-scale-fixture.om > build/w4-native-gate/1027 2> build/w4-native-gate/501027
+exit=0 expected=0
+build/w4-native-gate/1026 0 < /dev/null > build/w4-native-gate/1028 2> build/w4-native-gate/501028
+exit=0 expected=0
+build/w4-native-gate/1026 1 < /dev/null > build/w4-native-gate/1029 2> build/w4-native-gate/501029
+exit=0 expected=0
+build/w4-native-gate/1026 2 < /dev/null > build/w4-native-gate/1030 2> build/w4-native-gate/501030
+exit=0 expected=0
+build/w4-native-gate/1026 3 < /dev/null > build/w4-native-gate/1031 2> build/w4-native-gate/501031
+exit=0 expected=0
+build/w4-native-gate/1025 build/w4-native-gate/1028 build/w4-native-gate/1029 build/w4-native-gate/1032 build/w4-native-gate/1033 256 256 0 < /dev/null > build/w4-native-gate/1034 2> build/w4-native-gate/501034
+exit=0 expected=0
+build/w4-native-gate/1025 build/w4-native-gate/1028 build/w4-native-gate/1029 build/w4-native-gate/1035 build/w4-native-gate/1036 256 256 1 < /dev/null > build/w4-native-gate/1037 2> build/w4-native-gate/501037
+exit=0 expected=0
+build/w4-native-gate/1025 build/w4-native-gate/1028 build/w4-native-gate/1029 build/w4-native-gate/1038 build/w4-native-gate/1039 256 256 2 < /dev/null > build/w4-native-gate/1040 2> build/w4-native-gate/501040
+exit=0 expected=0
+build/w4-native-gate/1026 4 < /dev/null > build/w4-native-gate/1041 2> build/w4-native-gate/501041
+exit=0 expected=0
+build/w4-native-gate/1025 build/w4-native-gate/1041 build/w4-native-gate/1029 build/w4-native-gate/1042 build/w4-native-gate/1043 256 256 0 < /dev/null > build/w4-native-gate/1044 2> build/w4-native-gate/501044
+exit=76 expected=76
+build/w4-native-gate/1027 5 < /dev/null > build/w4-native-gate/1045 2> build/w4-native-gate/501045
+exit=0 expected=0
+build/w4-native-gate/1025 build/w4-native-gate/1028 build/w4-native-gate/1045 build/w4-native-gate/1046 build/w4-native-gate/1047 256 256 0 < /dev/null > build/w4-native-gate/1048 2> build/w4-native-gate/501048
+exit=76 expected=76
+build/w4-native-gate/1025 build/w4-native-gate/1028 build/w4-native-gate/1029 build/w4-native-gate/1049 build/w4-native-gate/1031 256 256 0 < /dev/null > build/w4-native-gate/1050 2> build/w4-native-gate/501050
+exit=74 expected=74
+build/w4-native-gate/1026 3 < /dev/null > build/w4-native-gate/1051 2> build/w4-native-gate/501051
+exit=0 expected=0
+/home/drakestapleton/workspace/targets/L793-w4-gate/aien-pins/omega-w4-native/seed/out/omc < native/w4/review/resident-stale.om > build/w4-native-gate/1052 2> build/w4-native-gate/501052
+exit=0 expected=0
+build/w4-native-gate/1052 < /dev/null > build/w4-native-gate/1053 2> build/w4-native-gate/501053
+exit=103 expected=103
+/home/drakestapleton/workspace/targets/L793-w4-gate/aien-pins/omega-w4-native/seed/out/omc < build/w4-native-gate/1054 > build/w4-native-gate/1055 2> build/w4-native-gate/501055
+exit=0 expected=0
+build/w4-native-gate/1055 < /dev/null > build/w4-native-gate/1056 2> build/w4-native-gate/501056
+exit=64 expected=64
+/home/drakestapleton/workspace/targets/L793-w4-gate/aien-pins/omega-w4-native/seed/out/omc < native/w4/fixture.om > build/w4-native-gate/1057 2> build/w4-native-gate/501057
+exit=0 expected=0
+/home/drakestapleton/workspace/targets/L793-w4-gate/aien-pins/omega-w4-native/seed/out/omc < build/w4-native-gate/1058 > build/w4-native-gate/1059 2> build/w4-native-gate/501059
+exit=0 expected=0
+/home/drakestapleton/workspace/targets/L793-w4-gate/aien-pins/omega-w4-native/seed/out/omc < native/w4/reply.om > build/w4-native-gate/1060 2> build/w4-native-gate/501060
+exit=0 expected=0
+build/w4-native-gate/1057 < build/w4-native-gate/1061 > build/w4-native-gate/1062 2> build/w4-native-gate/501062
+exit=0 expected=0
+build/w4-native-gate/1059 < build/w4-native-gate/1062 > build/w4-native-gate/1063 2> build/w4-native-gate/501063
+exit=0 expected=0
+build/w4-native-gate/1060 < build/w4-native-gate/1063 > build/w4-native-gate/1064 2> build/w4-native-gate/501064
+exit=0 expected=0
+AIEN-OBS w4_groups 15
+W4_NATIVE_GATE: PASS

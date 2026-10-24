@@ -1,0 +1,49 @@
+#!/bin/bash
+checks=0
+failures=0
+check() {
+  local name=$1 expected=$2
+  shift 2
+  "$@" > /dev/null 2>&1
+  local actual=$?
+  checks=$((checks+1))
+  if [ "$actual" -ne "$expected" ]; then failures=$((failures+1)); fi
+  printf '%s expected=%s actual=%s\n' "$name" "$expected" "$actual"
+}
+for rule in 0 1 2; do
+check "w4-rule$rule" 0 cmp expected.w4 "rule$rule.w4"
+check "e8-rule$rule" 0 cmp expected.e8 "rule$rule.e8"
+done
+check argc 64 ./tensor.elf
+for n in 0 1 127 129 524416; do check "rows-$n" 65 ./tensor.elf input.fp8 scales.bf16 bad.w4 bad.e8 "$n" 256 0; done
+for k in 0 1 127 129 32896; do check "width-$k" 65 ./tensor.elf input.fp8 scales.bf16 bad.w4 bad.e8 256 "$k" 0; done
+for n in -128 +128 1a 99999999999 ''; do check "number-$n" 64 ./tensor.elf input.fp8 scales.bf16 bad.w4 bad.e8 "$n" 256 0; done
+check policy 69 ./tensor.elf input.fp8 scales.bf16 bad.w4 bad.e8 256 256 3
+check missing 74 ./tensor.elf missing.fp8 scales.bf16 bad.w4 bad.e8 256 256 0
+head -c 65535 input.fp8 > short.fp8
+{ cat input.fp8; head -c 1 input.fp8; } > long.fp8
+head -c 7 scales.bf16 > short.bf16
+{ cat scales.bf16; head -c 1 scales.bf16; } > long.bf16
+for input in short.fp8 long.fp8; do check "$input" 65 ./tensor.elf "$input" scales.bf16 bad.w4 bad.e8 256 256 0; done
+for scale in short.bf16 long.bf16; do check "$scale" 65 ./tensor.elf input.fp8 "$scale" bad.w4 bad.e8 256 256 0; done
+check no-bad-w4 0 test ! -e bad.w4
+check no-bad-e8 0 test ! -e bad.e8
+check late-nan 76 ./tensor.elf late-nan.fp8 scales.bf16 late.w4 late.e8 256 256 0
+check cleanup-late-w4 0 test ! -e late.w4
+check cleanup-late-e8 0 test ! -e late.e8
+check existing-first 74 ./tensor.elf input.fp8 scales.bf16 rule0.w4 new.e8 256 256 0
+check preserved-first 0 cmp expected.w4 rule0.w4
+check no-new-e8 0 test ! -e new.e8
+check existing-second 74 ./tensor.elf input.fp8 scales.bf16 new.w4 rule0.e8 256 256 0
+check cleanup-new-w4 0 test ! -e new.w4
+check preserved-second 0 cmp expected.e8 rule0.e8
+check same-path 74 ./tensor.elf input.fp8 scales.bf16 same.out same.out 256 256 0
+check cleanup-same 0 test ! -e same.out
+check input-output-alias 74 ./tensor.elf input.fp8 scales.bf16 input.fp8 alias.e8 256 256 0
+./fixture.elf 0 > input-check.fp8
+check preserved-input 0 cmp input.fp8 input-check.fp8
+check subsequent-success 0 ./tensor.elf input.fp8 scales.bf16 final.w4 final.e8 256 256 2
+check subsequent-w4 0 cmp expected.w4 final.w4
+check subsequent-e8 0 cmp expected.e8 final.e8
+printf 'checks=%s failures=%s\n' "$checks" "$failures"
+test "$failures" -eq 0

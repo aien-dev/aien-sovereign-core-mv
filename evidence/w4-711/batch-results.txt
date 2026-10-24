@@ -1,0 +1,50 @@
+regular_stream=0
+regular_verifier=0
+split_34_stream=0
+split_34_verifier=0
+split_35_stream=0
+split_35_verifier=0
+split_17919_stream=0
+split_17919_verifier=0
+split_17920_stream=0
+split_17920_verifier=0
+tail_stream=65
+tail_verifier=0
+closed_input=74
+closed_output=74
+empty=0
+bytewise_pipeline=0 0 0 0
+tail_1_stream=65 verifier=0
+tail_2_stream=65 verifier=0
+tail_3_stream=65 verifier=0
+tail_4_stream=65 verifier=0
+tail_5_stream=65 verifier=0
+tail_6_stream=65 verifier=0
+tail_7_stream=65 verifier=0
+tail_8_stream=65 verifier=0
+tail_9_stream=65 verifier=0
+tail_10_stream=65 verifier=0
+tail_11_stream=65 verifier=0
+tail_12_stream=65 verifier=0
+tail_13_stream=65 verifier=0
+tail_14_stream=65 verifier=0
+tail_15_stream=65 verifier=0
+tail_16_stream=65 verifier=0
+tail_17_stream=65 verifier=0
+tail_18_stream=65 verifier=0
+tail_19_stream=65 verifier=0
+tail_20_stream=65 verifier=0
+tail_21_stream=65 verifier=0
+tail_22_stream=65 verifier=0
+tail_23_stream=65 verifier=0
+tail_24_stream=65 verifier=0
+tail_25_stream=65 verifier=0
+tail_26_stream=65 verifier=0
+tail_27_stream=65 verifier=0
+tail_28_stream=65 verifier=0
+tail_29_stream=65 verifier=0
+tail_30_stream=65 verifier=0
+tail_31_stream=65 verifier=0
+tail_32_stream=65 verifier=0
+tail_33_stream=65 verifier=0
+tail_34_stream=65 verifier=0

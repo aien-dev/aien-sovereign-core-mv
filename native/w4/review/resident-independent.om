@@ -1,0 +1,178 @@
+text tiny "review-empty.bin"
+text wp "review-weights.bin"
+text sp "review-scales.bin"
+global rf int 2
+global cb uchar 8192
+global result ulong 2
+global held long 256
+fn ck yes bool to void
+put result 0 add get result 0 1
+if not yes
+put result 1 add get result 1 1
+end
+end
+fn emit n ulong to void
+if ge n 10
+emit div n 10
+end
+put cb 0 uchar add 48 rem n 10
+r = write 1 cb 0 1
+end
+fn pattern pos ulong scale bool to uchar
+if scale
+ret uchar rem pos 193
+end
+ret uchar rem add mul pos 17 3 256
+end
+fn create fd int size ulong scale bool to void
+pos = ulong 0
+while lt pos size
+amount = sub size pos
+if gt amount 8192
+amount = 8192
+end
+for i ulong amount
+put cb i pattern add pos i scale
+end
+ck eq write fd cb 0 amount long amount
+pos = add pos amount
+end
+end
+fn load to int
+ret wload get rf 0 get rf 1 529 512
+end
+fn inspect to void
+ck eq load 0
+ck eq get wstate 1 529
+ck eq get wstate 2 512
+ck eq get wstate 3 139264
+ck eq get wstate 4 147728
+pos = ulong 0
+while lt pos 147728
+amount = sub 147728 pos
+if gt amount 8192
+amount = 8192
+end
+ck eq wread pos amount 0
+for i ulong amount
+at = add pos i
+expected = uchar 0
+if lt at 135424
+expected = pattern at false
+end
+if ge at 139264
+expected = pattern sub at 139264 true
+end
+ck eq get wbuffer i expected
+end
+pos = add pos amount
+end
+ck eq load 73
+ck eq wread 147728 0 0
+ck eq wread 147728 1 65
+ck eq wread 18446744073709551615 1 65
+ck eq wread 0 8193 65
+old = long get wstate 0
+ck eq wdrop 0
+ck eq wdrop 0
+ck eq wread 0 1 73
+for i ulong 5
+ck eq get wstate i 0
+end
+end
+fn capacity to void
+count = ulong 0
+keep = true
+while keep
+h = walloc 4096
+if le h 0
+keep = false
+else
+put held count h
+count = add count 1
+if eq count 256
+keep = false
+end
+end
+end
+ck eq count 128
+ck eq load 75
+ck eq get wstate 0 0
+ck eq get wstage 0 0
+if gt count 0
+count = sub count 1
+ck eq mapdrop get held count 0
+ck eq load 0
+ck eq wdrop 0
+end
+for i ulong count
+ck eq mapdrop get held i 0
+end
+ck eq load 0
+ck eq wdrop 0
+end
+fn main to int
+put rf 0 int fopen wp 0 len wp 194 384
+put rf 1 int fopen sp 0 len sp 194 384
+ck ge get rf 0 0
+ck ge get rf 1 0
+create get rf 0 135424 false
+create get rf 1 8464 true
+ck eq wdrop 0
+ck eq wread 0 0 73
+put wlimit 0 0
+ck eq load 65
+put wlimit 0 68719476737
+ck eq load 65
+put wlimit 0 147727
+ck eq load 75
+put wlimit 0 147728
+ck eq wload neg int 1 get rf 1 529 512 65
+ck eq wload get rf 0 get rf 0 529 512 65
+ck eq wload 999999 get rf 1 529 512 65
+ck eq wload get rf 0 get rf 1 528 512 65
+ck eq wload get rf 0 get rf 1 530 512 75
+tfd = int fopen tiny 0 len tiny 194 384
+ck ge tfd 0
+ck eq wload tfd get rf 1 529 512 65
+ck eq wload get rf 0 tfd 529 512 65
+ck eq fclose tfd 0
+ck eq wload tfd get rf 1 529 512 65
+ck eq unlink tiny 0 len tiny 0
+inspect
+capacity
+note Late invalid scale is after the first full8192-byte scale copy.
+ck eq fseek get rf 1 8463 0 8463
+put cb 0 193
+ck eq write get rf 1 cb 0 1 1
+for i ulong 140
+ck eq load 76
+ck eq get wstate 0 0
+ck eq get wstage 0 0
+r = wdrop
+end
+ck eq fseek get rf 1 8463 0 8463
+put cb 0 pattern 8463 true
+ck eq write get rf 1 cb 0 1 1
+capacity
+inspect
+ck eq fseek get rf 1 0 2 8464
+put cb 0 0
+ck eq write get rf 1 cb 0 1 1
+ck eq load 65
+ck eq get wstate 0 0
+ck eq fclose get rf 0 0
+ck eq fclose get rf 1 0
+ck eq unlink wp 0 len wp 0
+ck eq unlink sp 0 len sp 0
+emit get result 0
+put cb 0 10
+r = write 1 cb 0 1
+emit get result 1
+put cb 0 10
+r = write 1 cb 0 1
+if ne get result 1 0
+ret 1
+end
+ret 0
+end

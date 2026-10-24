@@ -1,0 +1,37 @@
+note SPDX-License-Identifier: AGPL-3.0-only
+note Test transport:512 successful group replies -> packed8192 then scales512.
+global raw uchar 10240
+global packed uchar 8704
+fn main to int
+have = ulong 0
+while lt have 10240
+n = read 0 raw have sub 10240 have
+if le n 0
+ret 65
+end
+have = add have ulong n
+end
+extra = new uchar 1 0
+if ne read 0 extra 0 1 0
+ret 65
+end
+for g ulong 512
+base = mul g 20
+if ne get raw base 0
+ret 76
+end
+for i ulong 16
+put packed add mul g 16 i get raw add add base 2 i
+end
+put packed add 8192 g get raw add base 1
+end
+have = 0
+while lt have 8704
+n = write 1 packed have sub 8704 have
+if le n 0
+ret 74
+end
+have = add have ulong n
+end
+ret 0
+end

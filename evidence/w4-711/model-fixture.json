@@ -1,0 +1,10 @@
+{
+  "model_revision": "017b9c7af6b5689d5dd426a76e0bc077eb5ca20a",
+  "file": "layers-0.safetensors",
+  "tensor": "model.language_model.layers.0.mlp.gate_proj.weight",
+  "region": "rows0..127, columns0..127",
+  "header_sha256": "f10e6204808d68452bb2b9584988d965ee3dea86aa04fa21c7e2a12df9641736",
+  "weights_sha256": "6d474cf829c920055f6667e961838854d8aa6c37208e9ab8c91af16fc3f40a65",
+  "scale_sha256": "1f4b5a345914ecb197b43a5abadf1c07b109b0cbd8b4df16ef4356a2f242090b",
+  "scale_u16": 14595
+}

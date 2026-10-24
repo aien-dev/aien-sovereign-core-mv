@@ -1,0 +1,151 @@
+  codegen k 5120 lb 8 rows 1 sched 0 coal 0: 160 insns, 49 GPRs
+  codegen k 5120 lb 8 rows 1 sched 0 coal 1: 190 insns, 59 GPRs
+  codegen k 5120 lb 8 rows 1 sched 1 coal 0: 160 insns, 57 GPRs
+  codegen k 5120 lb 8 rows 1 sched 1 coal 1: 190 insns, 67 GPRs
+  codegen k 5120 lb 8 rows 2 sched 0 coal 0: 261 insns, 53 GPRs
+  codegen k 5120 lb 8 rows 2 sched 0 coal 1: 291 insns, 63 GPRs
+  codegen k 5120 lb 8 rows 2 sched 1 coal 0: 261 insns, 61 GPRs
+  codegen k 5120 lb 8 rows 2 sched 1 coal 1: 291 insns, 71 GPRs
+  codegen k 5120 lb 8 rows 4 sched 0 coal 0: 463 insns, 63 GPRs
+  codegen k 5120 lb 8 rows 4 sched 0 coal 0: 463 insns, 63 GPRs
+  codegen k 5120 lb 8 rows 4 sched 1 coal 0: 463 insns, 69 GPRs
+  codegen k 5120 lb 8 rows 4 sched 1 coal 0: 463 insns, 69 GPRs
+  codegen k 5120 lb 8 rows 8 sched 0 coal 0: 867 insns, 83 GPRs
+  codegen k 5120 lb 8 rows 8 sched 0 coal 0: 867 insns, 83 GPRs
+  codegen k 5120 lb 8 rows 8 sched 1 coal 0: 867 insns, 85 GPRs
+  codegen k 5120 lb 8 rows 8 sched 1 coal 0: 867 insns, 85 GPRs
+  codegen k 5120 lb 16 rows 1 sched 0 coal 0: 244 insns, 68 GPRs
+  codegen k 5120 lb 16 rows 1 sched 0 coal 1: 274 insns, 77 GPRs
+  codegen k 5120 lb 16 rows 1 sched 1 coal 0: 244 insns, 75 GPRs
+  codegen k 5120 lb 16 rows 1 sched 1 coal 1: 274 insns, 85 GPRs
+  codegen k 5120 lb 16 rows 2 sched 0 coal 0: 425 insns, 73 GPRs
+  codegen k 5120 lb 16 rows 2 sched 0 coal 1: 455 insns, 84 GPRs
+  codegen k 5120 lb 16 rows 2 sched 1 coal 0: 425 insns, 81 GPRs
+  codegen k 5120 lb 16 rows 2 sched 1 coal 1: 455 insns, 91 GPRs
+  codegen k 5120 lb 16 rows 4 sched 0 coal 0: 787 insns, 88 GPRs
+  codegen k 5120 lb 16 rows 4 sched 0 coal 0: 787 insns, 88 GPRs
+  codegen k 5120 lb 16 rows 4 sched 1 coal 0: 787 insns, 93 GPRs
+  codegen k 5120 lb 16 rows 4 sched 1 coal 0: 787 insns, 93 GPRs
+  codegen k 6144 lb 8 rows 1 sched 0 coal 0: 160 insns, 49 GPRs
+  codegen k 6144 lb 8 rows 1 sched 0 coal 1: 190 insns, 59 GPRs
+  codegen k 6144 lb 8 rows 1 sched 1 coal 0: 160 insns, 57 GPRs
+  codegen k 6144 lb 8 rows 1 sched 1 coal 1: 190 insns, 67 GPRs
+  codegen k 6144 lb 8 rows 2 sched 0 coal 0: 261 insns, 53 GPRs
+  codegen k 6144 lb 8 rows 2 sched 0 coal 1: 291 insns, 63 GPRs
+  codegen k 6144 lb 8 rows 2 sched 1 coal 0: 261 insns, 61 GPRs
+  codegen k 6144 lb 8 rows 2 sched 1 coal 1: 291 insns, 71 GPRs
+  codegen k 6144 lb 8 rows 4 sched 0 coal 0: 463 insns, 63 GPRs
+  codegen k 6144 lb 8 rows 4 sched 0 coal 0: 463 insns, 63 GPRs
+  codegen k 6144 lb 8 rows 4 sched 1 coal 0: 463 insns, 69 GPRs
+  codegen k 6144 lb 8 rows 4 sched 1 coal 0: 463 insns, 69 GPRs
+  codegen k 6144 lb 8 rows 8 sched 0 coal 0: 867 insns, 83 GPRs
+  codegen k 6144 lb 8 rows 8 sched 0 coal 0: 867 insns, 83 GPRs
+  codegen k 6144 lb 8 rows 8 sched 1 coal 0: 867 insns, 85 GPRs
+  codegen k 6144 lb 8 rows 8 sched 1 coal 0: 867 insns, 85 GPRs
+  codegen k 6144 lb 16 rows 1 sched 0 coal 0: 244 insns, 68 GPRs
+  codegen k 6144 lb 16 rows 1 sched 0 coal 1: 274 insns, 77 GPRs
+  codegen k 6144 lb 16 rows 1 sched 1 coal 0: 244 insns, 75 GPRs
+  codegen k 6144 lb 16 rows 1 sched 1 coal 1: 274 insns, 85 GPRs
+  codegen k 6144 lb 16 rows 2 sched 0 coal 0: 425 insns, 73 GPRs
+  codegen k 6144 lb 16 rows 2 sched 0 coal 1: 455 insns, 84 GPRs
+  codegen k 6144 lb 16 rows 2 sched 1 coal 0: 425 insns, 81 GPRs
+  codegen k 6144 lb 16 rows 2 sched 1 coal 1: 455 insns, 91 GPRs
+  codegen k 6144 lb 16 rows 4 sched 0 coal 0: 787 insns, 88 GPRs
+  codegen k 6144 lb 16 rows 4 sched 0 coal 0: 787 insns, 88 GPRs
+  codegen k 6144 lb 16 rows 4 sched 1 coal 0: 787 insns, 93 GPRs
+  codegen k 6144 lb 16 rows 4 sched 1 coal 0: 787 insns, 93 GPRs
+  codegen k 17408 lb 8 rows 1 sched 0 coal 0: 160 insns, 49 GPRs
+  codegen k 17408 lb 8 rows 1 sched 0 coal 1: 190 insns, 59 GPRs
+  codegen k 17408 lb 8 rows 1 sched 1 coal 0: 160 insns, 57 GPRs
+  codegen k 17408 lb 8 rows 1 sched 1 coal 1: 190 insns, 67 GPRs
+  codegen k 17408 lb 8 rows 2 sched 0 coal 0: 261 insns, 53 GPRs
+  codegen k 17408 lb 8 rows 2 sched 0 coal 1: 291 insns, 63 GPRs
+  codegen k 17408 lb 8 rows 2 sched 1 coal 0: 261 insns, 61 GPRs
+  codegen k 17408 lb 8 rows 2 sched 1 coal 1: 291 insns, 71 GPRs
+  codegen k 17408 lb 8 rows 4 sched 0 coal 0: 463 insns, 63 GPRs
+  codegen k 17408 lb 8 rows 4 sched 0 coal 0: 463 insns, 63 GPRs
+  codegen k 17408 lb 8 rows 4 sched 1 coal 0: 463 insns, 69 GPRs
+  codegen k 17408 lb 8 rows 4 sched 1 coal 0: 463 insns, 69 GPRs
+  codegen k 17408 lb 8 rows 8 sched 0 coal 0: 867 insns, 83 GPRs
+  codegen k 17408 lb 8 rows 8 sched 0 coal 0: 867 insns, 83 GPRs
+  codegen k 17408 lb 8 rows 8 sched 1 coal 0: 867 insns, 85 GPRs
+  codegen k 17408 lb 8 rows 8 sched 1 coal 0: 867 insns, 85 GPRs
+  codegen k 17408 lb 16 rows 1 sched 0 coal 0: 244 insns, 68 GPRs
+  codegen k 17408 lb 16 rows 1 sched 0 coal 1: 274 insns, 77 GPRs
+  codegen k 17408 lb 16 rows 1 sched 1 coal 0: 244 insns, 75 GPRs
+  codegen k 17408 lb 16 rows 1 sched 1 coal 1: 274 insns, 85 GPRs
+  codegen k 17408 lb 16 rows 2 sched 0 coal 0: 425 insns, 73 GPRs
+  codegen k 17408 lb 16 rows 2 sched 0 coal 1: 455 insns, 84 GPRs
+  codegen k 17408 lb 16 rows 2 sched 1 coal 0: 425 insns, 81 GPRs
+  codegen k 17408 lb 16 rows 2 sched 1 coal 1: 455 insns, 91 GPRs
+  codegen k 17408 lb 16 rows 4 sched 0 coal 0: 787 insns, 88 GPRs
+  codegen k 17408 lb 16 rows 4 sched 0 coal 0: 787 insns, 88 GPRs
+  codegen k 17408 lb 16 rows 4 sched 1 coal 0: 787 insns, 93 GPRs
+  codegen k 17408 lb 16 rows 4 sched 1 coal 0: 787 insns, 93 GPRs
+  pf codegen k 5120 lb 8 rows 1 coal 0: 186 insns, 68 GPRs, lint clean (186 insns)
+  pf codegen k 5120 lb 8 rows 1 coal 1: 210 insns, 74 GPRs, lint clean (210 insns)
+  pf codegen k 5120 lb 8 rows 1 coal 0: 208 insns, 84 GPRs, lint clean (208 insns)
+  pf codegen k 5120 lb 8 rows 1 coal 1: 232 insns, 90 GPRs, lint clean (232 insns)
+  pf codegen k 5120 lb 8 rows 2 coal 0: 293 insns, 79 GPRs, lint clean (293 insns)
+  pf codegen k 5120 lb 8 rows 2 coal 1: 317 insns, 85 GPRs, lint clean (317 insns)
+  pf codegen k 5120 lb 8 rows 2 coal 0: 315 insns, 95 GPRs, lint clean (315 insns)
+  pf codegen k 5120 lb 8 rows 2 coal 1: 339 insns, 101 GPRs, lint clean (339 insns)
+  pf codegen k 5120 lb 8 rows 4 coal 0: 507 insns, 97 GPRs, lint clean (507 insns)
+  pf codegen k 5120 lb 8 rows 4 coal 1: 531 insns, 103 GPRs, lint clean (531 insns)
+  pf codegen k 5120 lb 8 rows 4 coal 0: 529 insns, 113 GPRs, lint clean (529 insns)
+  pf codegen k 5120 lb 8 rows 4 coal 1: 553 insns, 119 GPRs, lint clean (553 insns)
+  pf codegen k 5120 lb 16 rows 1 coal 0: 272 insns, 88 GPRs, lint clean (272 insns)
+  pf codegen k 5120 lb 16 rows 1 coal 1: 296 insns, 94 GPRs, lint clean (296 insns)
+  pf codegen k 5120 lb 16 rows 1 coal 0: 314 insns, 120 GPRs, lint clean (314 insns)
+  pf codegen k 5120 lb 16 rows 1 coal 1: 338 insns, 126 GPRs, lint clean (338 insns)
+  pf codegen k 5120 lb 16 rows 2 coal 0: 461 insns, 103 GPRs, lint clean (461 insns)
+  pf codegen k 5120 lb 16 rows 2 coal 1: 485 insns, 109 GPRs, lint clean (485 insns)
+  pf codegen k 5120 lb 16 rows 2 coal 0: 503 insns, 135 GPRs, lint clean (503 insns)
+  pf codegen k 5120 lb 16 rows 2 coal 1: 527 insns, 141 GPRs, lint clean (527 insns)
+  pf codegen k 5120 lb 16 rows 4 coal 0: 881 insns, 161 GPRs, lint clean (881 insns)
+  pf codegen k 5120 lb 16 rows 4 coal 1: 905 insns, 167 GPRs, lint clean (905 insns)
+  pf codegen k 6144 lb 8 rows 1 coal 0: 186 insns, 68 GPRs, lint clean (186 insns)
+  pf codegen k 6144 lb 8 rows 1 coal 1: 210 insns, 74 GPRs, lint clean (210 insns)
+  pf codegen k 6144 lb 8 rows 1 coal 0: 208 insns, 84 GPRs, lint clean (208 insns)
+  pf codegen k 6144 lb 8 rows 1 coal 1: 232 insns, 90 GPRs, lint clean (232 insns)
+  pf codegen k 6144 lb 8 rows 2 coal 0: 293 insns, 79 GPRs, lint clean (293 insns)
+  pf codegen k 6144 lb 8 rows 2 coal 1: 317 insns, 85 GPRs, lint clean (317 insns)
+  pf codegen k 6144 lb 8 rows 2 coal 0: 315 insns, 95 GPRs, lint clean (315 insns)
+  pf codegen k 6144 lb 8 rows 2 coal 1: 339 insns, 101 GPRs, lint clean (339 insns)
+  pf codegen k 6144 lb 8 rows 4 coal 0: 507 insns, 97 GPRs, lint clean (507 insns)
+  pf codegen k 6144 lb 8 rows 4 coal 1: 531 insns, 103 GPRs, lint clean (531 insns)
+  pf codegen k 6144 lb 8 rows 4 coal 0: 529 insns, 113 GPRs, lint clean (529 insns)
+  pf codegen k 6144 lb 8 rows 4 coal 1: 553 insns, 119 GPRs, lint clean (553 insns)
+  pf codegen k 6144 lb 16 rows 1 coal 0: 272 insns, 88 GPRs, lint clean (272 insns)
+  pf codegen k 6144 lb 16 rows 1 coal 1: 296 insns, 94 GPRs, lint clean (296 insns)
+  pf codegen k 6144 lb 16 rows 1 coal 0: 314 insns, 120 GPRs, lint clean (314 insns)
+  pf codegen k 6144 lb 16 rows 1 coal 1: 338 insns, 126 GPRs, lint clean (338 insns)
+  pf codegen k 6144 lb 16 rows 2 coal 0: 461 insns, 103 GPRs, lint clean (461 insns)
+  pf codegen k 6144 lb 16 rows 2 coal 1: 485 insns, 109 GPRs, lint clean (485 insns)
+  pf codegen k 6144 lb 16 rows 2 coal 0: 503 insns, 135 GPRs, lint clean (503 insns)
+  pf codegen k 6144 lb 16 rows 2 coal 1: 527 insns, 141 GPRs, lint clean (527 insns)
+  pf codegen k 6144 lb 16 rows 4 coal 0: 881 insns, 161 GPRs, lint clean (881 insns)
+  pf codegen k 6144 lb 16 rows 4 coal 1: 905 insns, 167 GPRs, lint clean (905 insns)
+  pf codegen k 17408 lb 8 rows 1 coal 0: 186 insns, 68 GPRs, lint clean (186 insns)
+  pf codegen k 17408 lb 8 rows 1 coal 1: 210 insns, 74 GPRs, lint clean (210 insns)
+  pf codegen k 17408 lb 8 rows 1 coal 0: 208 insns, 84 GPRs, lint clean (208 insns)
+  pf codegen k 17408 lb 8 rows 1 coal 1: 232 insns, 90 GPRs, lint clean (232 insns)
+  pf codegen k 17408 lb 8 rows 2 coal 0: 293 insns, 79 GPRs, lint clean (293 insns)
+  pf codegen k 17408 lb 8 rows 2 coal 1: 317 insns, 85 GPRs, lint clean (317 insns)
+  pf codegen k 17408 lb 8 rows 2 coal 0: 315 insns, 95 GPRs, lint clean (315 insns)
+  pf codegen k 17408 lb 8 rows 2 coal 1: 339 insns, 101 GPRs, lint clean (339 insns)
+  pf codegen k 17408 lb 8 rows 4 coal 0: 507 insns, 97 GPRs, lint clean (507 insns)
+  pf codegen k 17408 lb 8 rows 4 coal 1: 531 insns, 103 GPRs, lint clean (531 insns)
+  pf codegen k 17408 lb 8 rows 4 coal 0: 529 insns, 113 GPRs, lint clean (529 insns)
+  pf codegen k 17408 lb 8 rows 4 coal 1: 553 insns, 119 GPRs, lint clean (553 insns)
+  pf codegen k 17408 lb 16 rows 1 coal 0: 272 insns, 88 GPRs, lint clean (272 insns)
+  pf codegen k 17408 lb 16 rows 1 coal 1: 296 insns, 94 GPRs, lint clean (296 insns)
+  pf codegen k 17408 lb 16 rows 1 coal 0: 314 insns, 120 GPRs, lint clean (314 insns)
+  pf codegen k 17408 lb 16 rows 1 coal 1: 338 insns, 126 GPRs, lint clean (338 insns)
+  pf codegen k 17408 lb 16 rows 2 coal 0: 461 insns, 103 GPRs, lint clean (461 insns)
+  pf codegen k 17408 lb 16 rows 2 coal 1: 485 insns, 109 GPRs, lint clean (485 insns)
+  pf codegen k 17408 lb 16 rows 2 coal 0: 503 insns, 135 GPRs, lint clean (503 insns)
+  pf codegen k 17408 lb 16 rows 2 coal 1: 527 insns, 141 GPRs, lint clean (527 insns)
+  pf codegen k 17408 lb 16 rows 4 coal 0: 881 insns, 161 GPRs, lint clean (881 insns)
+  pf codegen k 17408 lb 16 rows 4 coal 1: 905 insns, 167 GPRs, lint clean (905 insns)
+GPU_W4_API_TEST host : 399 checks, 0 failed -> PASS

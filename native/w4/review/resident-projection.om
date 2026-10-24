@@ -1,0 +1,63 @@
+note Test-only full17408x5120 projection load/readback. Two immutable raw-file paths.
+global rpaths uchar 8192
+global rlens ulong 2
+global rfds int 2
+fn emit offset ulong count ulong to int
+copied = ulong 0
+while lt copied count
+chunk = sub count copied
+if gt chunk len wbuffer
+chunk = len wbuffer
+end
+rc = wread add offset copied chunk
+if ne rc 0
+ret rc
+end
+sent = ulong 0
+while lt sent chunk
+n = write 1 wbuffer sent sub chunk sent
+if le n 0
+ret 74
+end
+sent = add sent ulong n
+end
+copied = add copied chunk
+end
+ret 0
+end
+fn main to int
+if ne argcnt 3
+ret 64
+end
+for i ulong 2
+count = argread add i 1 rpaths mul i 4096 4096
+if le count 0
+ret 64
+end
+put rlens i ulong count
+fd = fopen rpaths mul i 4096 ulong count 0 0
+if lt fd 0
+ret 74
+end
+put rfds i int fd
+end
+put wlimit 0 47349760
+rc = wload get rfds 0 get rfds 1 17408 5120
+for i ulong 2
+if ne fclose get rfds i 0
+ret 74
+end
+end
+if ne rc 0
+ret rc
+end
+rc = emit 0 44564480
+if ne rc 0
+ret rc
+end
+rc = emit get wstate 3 2785280
+if ne rc 0
+ret rc
+end
+ret wdrop
+end

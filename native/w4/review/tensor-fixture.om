@@ -1,0 +1,63 @@
+global mode uchar 1
+global buf uchar 256
+fn main to int
+if ne argread 1 mode 0 1 1
+ret 64
+end
+which = get mode 0
+if eq which 49
+put buf 0 128
+put buf 1 63
+put buf 2 0
+put buf 3 192
+put buf 4 128
+put buf 5 64
+put buf 6 0
+put buf 7 193
+if ne write 1 buf 0 8 8
+ret 74
+end
+ret 0
+end
+for row ulong 256
+if or eq which 48 eq which 52
+for col ulong 256
+v = ulong 56
+if ne rem add row col 2 0
+v = add v 128
+end
+if eq which 52
+if and eq row 255 eq col 255
+v = 127
+end
+end
+put buf col uchar v
+end
+if ne write 1 buf 0 256 256
+ret 74
+end
+end
+if eq which 50
+for col ulong 128
+v = ulong 230
+sign = xor rem row 2 div col 64
+if ne sign 0
+v = 110
+end
+put buf col uchar v
+end
+if ne write 1 buf 0 128 128
+ret 74
+end
+end
+if eq which 51
+for col ulong 8
+put buf col uchar add 125 add mul div row 128 2 div col 4
+end
+if ne write 1 buf 0 8 8
+ret 74
+end
+end
+end
+ret 0
+end

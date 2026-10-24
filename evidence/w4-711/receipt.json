@@ -1,0 +1,53 @@
+{
+  "date": "2026-10-23",
+  "issue": "aien-dev/aien-sovereign-core-mv#711",
+  "ledger": "L791",
+  "status": "partial_native_host_component",
+  "source_commit": "b906d3e32c805e3a21853bc9afffce9e9ec29129",
+  "compiler_sha256": "191b776ef98821597c3e30655da6d680a9b66edbc9ceaca3c39c61ea6df098e9",
+  "source_hashes": {
+    "native/w4/README.md": "696a0a9b33316745df1722d17b8fcb919d983c5b9b7b55ad65649426a5c68af7",
+    "native/w4/fixture.om": "8c8fed697975e02eba69d0645027eaa056609539c814cee5b4ed870f4ec54158",
+    "native/w4/pack.om": "724fc1476a29655a087b7385e7a7a47410028ea0ede9dcfd84e39a6dab5e16db",
+    "native/w4/reply.om": "e6209e057879863a741cf142834d1f315d262dec32ec67ea6eb09d5964c75dc1",
+    "native/w4/review/fixture.om": "da68085266054c754fbf8ef4117f4033b1e0fa736ff0c14c552bca212492ac43",
+    "native/w4/review/probes.om": "b8d5768eb1018e093a2b2a7cd20a5cf15a80e6156838448fea0c10f81b8b5401",
+    "native/w4/review/reply.om": "086ccf027abce799ad68f90533ff23874efcc0fe45bbc2abed4ee5cda0be3f5b",
+    "native/w4/stream.om": "428476e53c4adac077f0b7cd634bd1e04e171a0959ef965632b974c6d732e676",
+    "native/w4/tests.om": "2b6f2aa739d73bd502ae6873624458d522a5415c5ff4bcae9fcb5b2bb21a7ab5"
+  },
+  "author": {
+    "checks": 1219868,
+    "failures": 0,
+    "compiled_defects_detected": 5
+  },
+  "independent": {
+    "checks": 4381347,
+    "failures": 0,
+    "compiled_defects_detected": 3,
+    "parent_rebuilt": true
+  },
+  "transport": {
+    "records": 1536,
+    "fragment_boundaries": [
+      34,
+      35,
+      17919,
+      17920
+    ],
+    "truncated_tail_lengths": 34,
+    "partial_write_fault_injection": false
+  },
+  "reference": {
+    "host_checks": 399,
+    "failures": 0,
+    "real_block_groups": 512,
+    "rules": 3,
+    "bytes_per_rule": 8704,
+    "comparison": "exact"
+  },
+  "repository_gate": "FAIL inherited same-base preflight; not waived",
+  "gpu_executed": false,
+  "full_model_executed": false,
+  "issue_closed": false
+}

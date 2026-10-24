@@ -1,0 +1,57 @@
+Independent Core #711 stream batching delta review, 2026-10-23
+
+PASS: no blocking findings. Product files were not modified.
+Reviewed stream SHA256:
+428476e53c4adac077f0b7cd634bd1e04e171a0959ef965632b974c6d732e676
+Unchanged pack SHA256:
+724fc1476a29655a087b7385e7a7a47410028ea0ede9dcfd84e39a6dab5e16db
+Live product stream hash rechecked after testing, matching frozen copy.
+Same pinned compiler as preceding independent review. Native compilation
+of concatenated pack+stream, generator, and verifier succeeded.
+
+Independent native fixture and checker extended from 128 to 1536 records.
+Each run spans three full 512-record batches: 53,760 request bytes and
+30,720 expected response bytes. Expected bytes are computed in the separate
+checker without invoking packer helpers. Four kinds cycle throughout:
+positive scale, negative scale, signed-zero group, and invalid FP8 NaN.
+All three packing policies cycle, including valid records after invalid
+ones. Invalid records produce cleared output and status 76; subsequent
+records recover correctly, including across batch boundaries.
+
+Executed checks, all expected results observed:
+- Regular-file input, 1536 responses: stream 0, verifier 0.
+- Input split at 34, 35, 17919, and 17920 bytes: stream 0, verifier 0 each.
+  Traces show these exact initial read sizes, followed by successful
+  processing and output checks. The 17919 case exercises moving 34 trailing
+  bytes after processing 511 complete groups.
+- Byte-at-a-time native generator piped through stream and native verifier:
+  all four pipeline stages exit 0.
+- Every truncated tail length 1..34 appended after all 1536 complete records:
+  stream exits 65, verifier still accepts all prior 1536 responses and EOF.
+- Closed input descriptor: 74, zero output bytes.
+- Closed output descriptor: 74.
+- Empty input: 0, zero output bytes.
+Evidence: results.txt, split-*.trace, fixture.om, reply.om, all.om,
+compiler logs, request/response artifacts and SHA256SUMS.
+
+Bounds and behavior review
+have is always 0..34 between iterations. Read capacity is 17920-have,
+so total never exceeds 17920 and frames never exceeds 512. frame accesses
+at most request[17919] and reply[10239]. Tail-copy source starts at
+35*frames and remains strictly below total; destination is 0..33.
+If frames is zero, copying reads/writes identical indexes, preserving the
+partial group. Otherwise source starts above destination, so forward copy
+is safe. Every complete group is emitted before the next read, preserving
+completed responses on trailing EOF or later input errors.
+Writes loop until all available response bytes are sent; returned errors
+and zero writes cause 74. Partial write return values were source-reviewed,
+not fault-injected. Broken-pipe signals remain outside the returned-error
+check, as documented in the preceding review.
+No new packer behavior or arithmetic changed in this delta. The preceding
+4,381,347-check independent packer result remains applicable to the same hash.
+
+Limits
+This is native diagnostic group transport validation, not model serving,
+checkpoint-format integration, inference speed measurement, or GPU evidence.
+The parent separately reports an executed pinned legacy-C comparison; this
+review does not count or independently certify that parent's experiment.
