@@ -1,0 +1,4 @@
+AIEN-OBS pin_omega_w4_native "1dffceaeb0dd26fb69ea64d367a49a9950c25a62"
+seed/out/omc: FAILED
+seed/omc/omc.om: OK
+sha256sum: WARNING: 1 computed checksum did NOT match

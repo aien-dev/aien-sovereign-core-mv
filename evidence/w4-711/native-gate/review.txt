@@ -1,0 +1,86 @@
+Independent W4 automatic gate verification, 2026-10-23
+PASS:15 qualification groups reproduced. Six negative/control invocations
+refuse as required. No blocking finding in the bounded supervisor review.
+No owner-tree edits or PR changes.
+
+Identities
+Compiler /tmp/L793-corrected-compiler/omc SHA256:
+9f48f66a9ee9f6a166df615a7ab9c48bf5b06ac2ba544ac51e52e9a3d290a6c4
+Compiler pin1dffceaeb0dd26fb69ea64d367a49a9950c25a62.
+Gate source SHA256:
+8d4788f83d45cba0b5b3db15fac2f43b278e6764a9631b947cb9d98c84f47280
+Independently built gate binary SHA256:
+0d8f759666f339ce0d18c7f997c5950b83dad965fc6cd9ad500b0d00335b821f
+Gate child SHA256:
+459a60da8e660ee1f433a9679bb41467074fda45997e5168e23e92ebad0d570b
+Compiler lock SHA256:
+3b70520aa9d047e2d8b3074e1101ccf8fde5a93bb06232e6c0edba89c99c29ef
+Compiler checksum-file SHA256:
+db5f815ceba1a3c9514900c89491510a02934a73236b75cc07fd24ceedf76200
+Manifest SHA256:
+69e39d19029e4283a0c83b9b1121629be2fd7302ceb0a446f4faf8b6252ed61c
+Runner SHA256:
+2f9cd0b3f15b4f7d5672a679d97a81fa9e1953aee227d98101cc2046d1204bc4
+Live gate source hash checked after runs, matching reviewed copy.
+
+Execution evidence
+root:exit0, AIEN-OBS w4_groups15 and W4_NATIVE_GATE: PASS.
+root repeated without removing scratch:exit91, no PASS.
+wrongexit optional argument0:child exit7 versus required0; gate99.
+signal optional argument1:child wait signal9; gate99.
+timeout optional argument2:30-second deadline, SIGKILL, child reaped with
+wait signal9; gate99. External40-second timeout did not cause this result.
+badstdout:private tests.om changed printed check count to1219869 from
+1219868 while test exits0 and reports zero failures. Gate99 catches the
+exact stdout mismatch. Evidence:badstdout/build/w4-native-gate/1003.
+badcompile:invalid source appended to private pack.om; compiler16 versus
+expected0; gate99. Compiler diagnostic retained in child stderr file.
+None of the five fresh negative controls prints gate PASS. results.txt
+summarizes all seven invocation statuses; per-case stdout/stderr retained.
+
+Supervisor review
+Run opens exclusive scratch output/error files, uses packed native argv
+rather than a shell, redirects child descriptors, checks wait status and
+expected exit, and then checks exact result bytes or content as applicable.
+Signals and deadline failures terminate qualification before any PASS.
+Each child has30-second monotonic deadline, kill-and-reap path. Exclusive
+scratch creation prevents accidental reuse and mixing old evidence.
+Compilation requires successful exit and ELF header before execute-bit
+permission. Gate counts successful groups and requires exactly15 before
+emitting the observation/PASS. Packer/resident suites validate exact count
+and failure lines; stream/tensor outputs receive bytewise verification.
+Failure cases check absent newly created outputs and retained prior files.
+No weakening of prior numerical tests was found in the supervisor glue.
+
+Static runner/manifest review
+native-w4 pins the separate compiler revision, verifies binary and compiler
+source checksums, requires executable compiler, copies W4 sources to a fresh
+private stage, bounds gate compilation, then invokes the native gate there.
+Manifest requires host, exit0, w4_groups15, PASS, with5-minute overall limit.
+The wrapper's pin-cache and broader gate service were not executed by this
+review; tests directly invoke the qualified compiler in private scratch.
+
+Commands
+Workspace:/tmp/L793-w4-gate-review. For each case, copied native/w4 into
+CASE/native/w4 and created empty CASE/build. No product files modified.
+  /tmp/L793-corrected-compiler/omc < gate.om > gate.elf 2> compile.log
+  chmod 700 gate.elf
+From root:
+  timeout --kill-after=2 120 ../gate.elf /tmp/L793-corrected-compiler/omc
+Repeat same invocation in same root for scratch refusal91.
+From fresh wrongexit/signal/timeout, append0/1/2 respectively, using an
+external40-second safety bound. Actual native deadline is30seconds.
+Private badstdout replacement:
+  number get tests 0 -> number add get tests 0 1
+Private badcompile appended line:
+  this is deliberately invalid omega source
+Run each with no optional argument and capture stdout/stderr/status.
+SHA256SUMS covers native copies, logs, outputs and compiled artifacts.
+
+Limits
+Host-only native validation. No GPU, model-speed evidence, serving, network
+fetch, owner-tree edits, compiler changes, publication, Python or new C/Rust.
+No fault injection of waitpid/clock/kill failures; normal wrong-exit, signal,
+actual deadline, compile failure and output corruption paths were executed.
+This is a bounded gate integration review, not requalification of every
+compiler/runtime facility or execution of the entire repository gate system.
