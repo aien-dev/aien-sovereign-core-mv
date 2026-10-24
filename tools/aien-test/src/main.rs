@@ -612,18 +612,11 @@ fn cmd_worker(cli: &Cli) -> i32 {
         return code;
     }
     if let Some((repo, sha)) = &cli.once {
-        // The same exclusive right the loop takes: a poller may be judging it.
-        let _claim = match worker::claim_head(&cfg.state, repo, sha) {
-            Ok(Some(c)) => c,
-            Ok(None) => {
-                println!("AIEN_TEST: {}", worker::held_note(&cfg.state, repo, sha));
-                return EXIT_HELD;
-            }
-            Err(e) => {
-                println!("AIEN_TEST: FAIL {e}");
-                return 1;
-            }
-        };
+        // run_once owns the head lock; report a holder without taking it twice.
+        if let Some(pid) = worker::head_holder(&cfg.state, repo, sha) {
+            println!("AIEN_TEST: SKIP already being judged by pid {pid}");
+            return EXIT_HELD;
+        }
         return match worker::run_once(&cfg, repo, sha) {
             Ok(s) => {
                 for n in &s.notes {
@@ -640,6 +633,10 @@ fn cmd_worker(cli: &Cli) -> i32 {
                     println!("AIEN_TEST: {} {}", s.verdict.as_str(), s.reason);
                 }
                 s.verdict.exit_code()
+            }
+            Err(e) if e.contains("already being judged") => {
+                println!("AIEN_TEST: {e}");
+                EXIT_HELD
             }
             Err(e) => {
                 println!("AIEN_TEST: FAIL {e}");
