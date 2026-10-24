@@ -51,7 +51,7 @@ use crate::sandbox::Sandbox;
 use crate::verdict::Verdict;
 use crate::verify;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::MetadataExt;
@@ -143,6 +143,12 @@ impl StateDir {
         self.root.join("evidence").join(repo).join(sha)
     }
 
+    /// `<state>/gate-cache/<repo>`: the cross-head store (`cache::Shared`)
+    /// every head of one repository reads and publishes to.
+    pub fn gate_cache(&self, repo: &str) -> PathBuf {
+        self.root.join("gate-cache").join(repo)
+    }
+
     /// `<state>/locks/target`: the per-target-dir lock files
     /// (`resources::target_lock_path`). Every holder of a cargo target dir,
     /// a gate run by this worker or the worker's own priming of
@@ -208,7 +214,12 @@ impl StateDir {
             "phase": phase,
         });
         let _ = fs::create_dir_all(&self.root);
-        let tmp = self.root.join("worker.heartbeat.tmp");
+        // One temp name per thread: heads of a batch beat at the same time.
+        let tmp = self.root.join(format!(
+            "worker.heartbeat.tmp.{}.{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
         if fs::write(&tmp, serde_json::to_string(&v).unwrap_or_default()).is_ok() {
             let _ = fs::rename(&tmp, self.heartbeat());
         }
@@ -269,6 +280,12 @@ pub struct Config {
     /// How a gb10 gate waits for a held GPU lock (`--gpu-wait`, `--wait-gpu`;
     /// default the bounded `resources::DEFAULT_GPU_WAIT`).
     pub gpu_wait: GpuWait,
+    /// `--batch-host N`: host slots the heads of one batch share (None: half
+    /// the CPUs, `resources::BatchShare::default_host`).
+    pub batch_host: Option<usize>,
+    /// `--batch-heads N`: how many heads of one repository the loop checks
+    /// out and judges together (default 6; 1 judges one head at a time).
+    pub batch_heads: usize,
 }
 
 impl Config {
@@ -295,6 +312,8 @@ impl Config {
             jobs: JobsSpec::default(),
             no_cache: false,
             gpu_wait: GpuWait::Bounded(DEFAULT_GPU_WAIT),
+            batch_host: None,
+            batch_heads: 6,
         }
     }
 
@@ -839,6 +858,23 @@ fn crumb(cfg: &Config, wt: &Path, args: &[&str], notes: &mut Vec<String>) {
 
 /// Verify one head end to end. Never panics on GitHub trouble.
 pub fn run_once(cfg: &Config, repo: &str, sha: &str) -> Result<Summary, String> {
+    run_once_in(cfg, repo, sha, None)
+}
+
+/// What one head of a batch gets from `run_batch`: the shared budget and the
+/// gates other heads of the batch also select.
+pub type Share = (
+    std::sync::Arc<crate::resources::BatchShare>,
+    BTreeSet<String>,
+);
+
+/// `run_once` as one head of a batch (`share`), or alone (None).
+pub fn run_once_in(
+    cfg: &Config,
+    repo: &str,
+    sha: &str,
+    share: Option<&Share>,
+) -> Result<Summary, String> {
     // Refusals first: nothing is fetched, checked out or run before these.
     if !valid_repo_key(repo) {
         return Err(format!("refusing repository name {repo:?}"));
@@ -863,21 +899,64 @@ pub fn run_once(cfg: &Config, repo: &str, sha: &str) -> Result<Summary, String> 
     let sibs = siblings_for(cfg, repo)?;
     let pins = pins_for(cfg, repo)?;
     let mut notes: Vec<String> = Vec::new();
+    // One judge per head at a time, across processes (the batch, `--once`,
+    // the loop): a second one would rewrite the same bundle and evidence.
+    let head_lock = cfg.state.head_lock(repo, sha);
+    // Tried for up to two seconds: a child another thread forks holds a copy
+    // of the descriptor until it execs, so a lock just released can look held
+    // for a moment; a real second judge holds it for the whole run.
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    let _head = loop {
+        match crate::resources::try_lock(&head_lock) {
+            Ok(Some(l)) => break l,
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(50))
+            }
+            Ok(None) => {
+                return Err(format!(
+                    "{repo} {sha} is already being judged by another worker"
+                ))
+            }
+            Err(e) => {
+                return Err(format!(
+                    "cannot take the head lock {}: {e}",
+                    head_lock.display()
+                ))
+            }
+        }
+    };
     cfg.state.beat(repo, sha, "checkout");
+    // Heads of one batch share the clones and mirrors: checkouts, pins and
+    // sibling worktrees are made one head at a time (git's own locks refuse
+    // concurrent `worktree add` on one repository).
+    let prep = lock_prep();
     let co = checkout(cfg, repo, sha, &mut notes)?;
     ensure_pins(&cfg.clones, &pins, &sibs, &mut notes);
     let (made, pin_values) = provision_siblings(cfg, repo, sha, &co, &sibs, &pins, &mut notes);
+    drop(prep);
     let (clone, wt) = (co.clone.clone(), co.wt.clone());
     // A wt.sh worktree belongs to aien-run; the operator's git opens it only
     // after `check_worktree_link` (see `process::trust_worktree`).
     let trust = (cfg.sandbox == Sandbox::User).then(|| process::trust_worktree(&wt));
     // Every sibling's commit is in `opts.pins` (`core.pins` and `cache.key`),
-    // and the evidence directory is this head's own (`evidence/<repo>/<sha>`),
-    // so a result is reused only for this same commit with every sibling at
-    // the same commit. A declared sibling that could not be made turns the
-    // cache off for the whole head.
+    // and the evidence directory is this head's own (`evidence/<repo>/<sha>`):
+    // a result from another head arrives only through the shared store, for a
+    // gate `cache::cross_head` lets out, with every sibling at the same commit.
+    // A declared sibling that could not be made turns the cache off for the
+    // whole head.
     let fresh = made.len() < sibs.len();
-    let result = run_in_worktree(cfg, repo, sha, &co, fresh, pin_values, &mut notes);
+    let result = run_in_worktree(
+        cfg,
+        repo,
+        sha,
+        &co,
+        HeadCache {
+            fresh,
+            pins: pin_values,
+            share,
+        },
+        &mut notes,
+    );
     crumb(
         cfg,
         &wt,
@@ -892,6 +971,7 @@ pub fn run_once(cfg: &Config, repo: &str, sha: &str) -> Result<Summary, String> 
         &mut notes,
     );
     drop(trust);
+    let prep = lock_prep();
     if cfg.sandbox == Sandbox::User {
         if let Some(tool) = &cfg.wt_tool {
             let tool = tool.display().to_string();
@@ -902,10 +982,20 @@ pub fn run_once(cfg: &Config, repo: &str, sha: &str) -> Result<Summary, String> 
     } else {
         remove_checkout(&co, &made);
     }
+    drop(prep);
     cfg.state.beat(repo, sha, "idle");
     let mut summary = result?;
     summary.notes.append(&mut notes);
     Ok(summary)
+}
+
+/// What the cache of one head rests on: `fresh` (a declared sibling could not
+/// be made, so nothing is reused), the sibling and operator `pins`, and the
+/// batch it belongs to, if any.
+struct HeadCache<'a> {
+    fresh: bool,
+    pins: Value,
+    share: Option<&'a Share>,
 }
 
 fn run_in_worktree(
@@ -913,10 +1003,10 @@ fn run_in_worktree(
     repo: &str,
     sha: &str,
     co: &Checkout,
-    fresh: bool,
-    pins: Value,
+    hc: HeadCache<'_>,
     notes: &mut Vec<String>,
 ) -> Result<Summary, String> {
+    let HeadCache { fresh, pins, share } = hc;
     let (clone, wt) = (co.clone.as_path(), co.wt.as_path());
     let started = now_secs();
     crumb(
@@ -960,6 +1050,13 @@ fn run_in_worktree(
     opts.operator = cfg.operator;
     if fresh || cfg.no_cache {
         opts.no_cache = true;
+    }
+    // A result whose key another head of this repository already has is
+    // reused from there (`cache::Shared`); the bundle entry names that head.
+    opts.shared_cache = Some(crate::cache::Shared::new(&cfg.state.gate_cache(repo)));
+    if let Some((budget, first)) = share {
+        opts.batch = Some(budget.clone());
+        opts.first = first.clone();
     }
     let mut known: BTreeMap<String, Known> = BTreeMap::new();
     let mut notes_cache: BTreeMap<String, CacheNote> = BTreeMap::new();
@@ -1016,10 +1113,14 @@ fn run_in_worktree(
         let (status, verdict, extra): (&str, String, Value) =
             match (e.section, k, notes_cache.get(&e.gate)) {
                 (Section::Blocked, _, _) => ("blocked", bundle_verdict(eff), json!({})),
-                (_, Some(k), Some(CacheNote::Reused { from })) if k.receipt.is_some() => (
+                (_, Some(k), Some(CacheNote::Reused { from, commit })) if k.receipt.is_some() => (
                     "cached",
                     bundle_verdict(eff),
-                    json!({ "resolution": { "resolved_from": from, "receipt": k.receipt } }),
+                    json!({ "resolution": {
+                        "resolved_from": from,
+                        "resolved_from_commit": commit,
+                        "receipt": k.receipt,
+                    } }),
                 ),
                 (_, Some(k), _) if k.receipt.is_some() => {
                     ("run", bundle_verdict(eff), json!({ "receipt": k.receipt }))
@@ -1408,6 +1509,77 @@ pub fn triggers(state: &StateDir) -> Vec<(String, String, PathBuf)> {
     out
 }
 
+/// What the last answer to one GitHub list request said, kept with its ETag so the next poll can ask
+/// "has it changed?" (a 304 reply costs nothing against the hourly allowance; L337, G3-ci-judge-7).
+#[derive(Default)]
+pub struct GithubHeadCache {
+    entries: std::collections::HashMap<String, (String, Vec<String>)>,
+}
+
+/// One list request as a conditional GET. `pick` turns a 200 body into head shas. A 304 returns the shas of
+/// the answer the ETag belongs to; any other status is an error carrying gh's message.
+fn conditional_heads(
+    gh: &str,
+    path: &str,
+    pick: fn(&Value) -> Vec<String>,
+    cache: &mut GithubHeadCache,
+) -> Result<Vec<String>, String> {
+    let mut cmd = Command::new(gh);
+    cmd.args(["api", "-i"]);
+    if let Some((etag, _)) = cache.entries.get(path) {
+        cmd.args(["-H", &format!("If-None-Match: {etag}")]);
+    }
+    cmd.arg(path);
+    let out = process::output_gated(&mut cmd).map_err(|e| format!("cannot run {gh}: {e}"))?;
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let (head, body) = text
+        .split_once("\r\n\r\n")
+        .or_else(|| text.split_once("\n\n"))
+        .unwrap_or((text.as_str(), ""));
+    let status = head
+        .lines()
+        .next()
+        .and_then(|l| l.split_whitespace().nth(1))
+        .unwrap_or("");
+    if status == "304" {
+        if let Some((_, shas)) = cache.entries.get(path) {
+            return Ok(shas.clone());
+        }
+    }
+    if status != "200" || !out.status.success() {
+        cache.entries.remove(path);
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(if err.is_empty() {
+            head.lines().next().unwrap_or("no answer").to_string()
+        } else {
+            err
+        });
+    }
+    let value: Value =
+        serde_json::from_str(body).map_err(|e| format!("unreadable answer for {path}: {e}"))?;
+    let shas: Vec<String> = pick(&value)
+        .into_iter()
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| valid_sha(s))
+        .collect();
+    let etag = head
+        .lines()
+        .find_map(|l| {
+            l.split_once(':')
+                .filter(|(k, _)| k.eq_ignore_ascii_case("etag"))
+        })
+        .map(|(_, v)| v.trim().to_string());
+    match etag {
+        Some(etag) if !etag.is_empty() => {
+            cache.entries.insert(path.to_string(), (etag, shas.clone()));
+        }
+        _ => {
+            cache.entries.remove(path);
+        }
+    }
+    Ok(shas)
+}
+
 /// `triggers`, limited to the repositories in `repos` (a poller started with
 /// `--repos`). An empty list takes every trigger. Files of other repositories
 /// are left where they are: they belong to the poller that lists them.
@@ -1501,44 +1673,168 @@ pub fn held_note(state: &StateDir, repo: &str, sha: &str) -> String {
     }
 }
 
-/// Open PR heads and the main head of `repo` from GitHub (bounded: one call
-/// per list). Errors are returned, never fatal to the loop.
-pub fn github_heads(gh: &str, repository: &str) -> Result<Vec<String>, String> {
+fn pull_heads(v: &Value) -> Vec<String> {
+    v.as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|p| p["head"]["sha"].as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn main_head(v: &Value) -> Vec<String> {
+    v["sha"].as_str().map(str::to_string).into_iter().collect()
+}
+
+/// Open PR heads and the main head of `repo` from GitHub (bounded: one conditional call per list). Errors are
+/// returned, never fatal to the loop. Unchanged lists answer 304 and cost no allowance.
+pub fn github_heads_cached(
+    gh: &str,
+    repository: &str,
+    cache: &mut GithubHeadCache,
+) -> Result<Vec<String>, String> {
     let or = owner_repo(repository).ok_or("bad repository name")?;
-    let mut shas = Vec::new();
-    for args in [
-        vec![
-            "api",
-            &format!("repos/{or}/pulls?state=open&per_page=50"),
-            "--jq",
-            ".[].head.sha",
-        ],
-        vec!["api", &format!("repos/{or}/commits/main"), "--jq", ".sha"],
-    ] {
-        let mut cmd = Command::new(gh);
-        cmd.args(&args);
-        let out = process::output_gated(&mut cmd).map_err(|e| format!("cannot run {gh}: {e}"))?;
-        if !out.status.success() {
-            return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
-        }
-        for l in String::from_utf8_lossy(&out.stdout).lines() {
-            let l = l.trim().to_ascii_lowercase();
-            if valid_sha(&l) {
-                shas.push(l);
-            }
-        }
-    }
+    let mut shas = conditional_heads(
+        gh,
+        &format!("repos/{or}/pulls?state=open&per_page=50"),
+        pull_heads,
+        cache,
+    )?;
+    shas.extend(conditional_heads(
+        gh,
+        &format!("repos/{or}/commits/main"),
+        main_head,
+        cache,
+    )?);
     shas.sort();
     shas.dedup();
     Ok(shas)
 }
 
+/// `github_heads_cached` with no memory of earlier polls.
+pub fn github_heads(gh: &str, repository: &str) -> Result<Vec<String>, String> {
+    github_heads_cached(gh, repository, &mut GithubHeadCache::default())
+}
+
 /// The loop: flush the outbox, serve trigger files, poll GitHub when asked,
 /// sleep. `iterations` bounds the rounds (None: forever). Returns the number
 /// of heads served.
+/// Checkouts, pins, sibling worktrees and worktree removal touch the shared
+/// clones and mirrors; heads of one batch do them one at a time.
+fn lock_prep() -> std::sync::MutexGuard<'static, ()> {
+    static PREP: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    PREP.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// For each head, the gates whose experiment another head of the batch is
+/// likely to share, read from git objects before anything is checked out: a
+/// gate whose manifest blob, declared inputs and repository build files have
+/// the same blob ids at two heads (and, for a gate without `cache:
+/// inputs_complete`, the same tree). Only an ordering hint: whether a result
+/// is really reused is decided by the cache key, never by this.
+pub fn batch_first(clone: &Path, shas: &[String]) -> BTreeMap<String, BTreeSet<String>> {
+    let mut prints: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+    for sha in shas {
+        let tree = git(clone, &["rev-parse", &format!("{sha}^{{tree}}")]).unwrap_or_default();
+        let files = git(clone, &["ls-tree", "-r", "--name-only", sha]).unwrap_or_default();
+        let mut mine = Vec::new();
+        for path in files.lines().filter(|p| p.ends_with(".gate")) {
+            let Ok(bytes) = git(clone, &["show", &format!("{sha}:{path}")]) else {
+                continue;
+            };
+            let Ok(m) = crate::manifest::parse(bytes.as_bytes()) else {
+                continue;
+            };
+            let Ok(reach) = crate::cache::cross_head(&m) else {
+                continue;
+            };
+            let mut args: Vec<String> =
+                vec!["ls-tree".into(), "-r".into(), sha.clone(), "--".into()];
+            args.extend(m.inputs.iter().cloned());
+            args.extend(runner::IMPLIED_BUILD_FILES.iter().map(|s| s.to_string()));
+            let argv: Vec<&str> = args.iter().map(String::as_str).collect();
+            let listing = git(clone, &argv).unwrap_or_default();
+            let scope = match reach {
+                crate::cache::Reach::Inputs => String::new(),
+                crate::cache::Reach::Tree => tree.trim().to_string(),
+            };
+            let print = sha256_hex(format!("{}\n{scope}\n{listing}", m.digest).as_bytes());
+            mine.push((m.gate.clone(), print));
+        }
+        prints.insert(sha.clone(), mine);
+    }
+    let mut count: BTreeMap<&str, usize> = BTreeMap::new();
+    for p in prints.values().flatten() {
+        *count.entry(p.1.as_str()).or_default() += 1;
+    }
+    prints
+        .iter()
+        .map(|(sha, v)| {
+            let first = v
+                .iter()
+                .filter(|(_, p)| count.get(p.as_str()).copied().unwrap_or(0) > 1)
+                .map(|(g, _)| g.clone())
+                .collect();
+            (sha.clone(), first)
+        })
+        .collect()
+}
+
+/// Judge several heads of one repository together (Drake 2026-10-20: "do all
+/// the similar ones first and then you go to the ones that are unique"). The
+/// heads run side by side; their host gates share one budget of
+/// `cfg.batch_host` slots (default half the CPUs) in which gates another head
+/// also selects go first, and their gb10 gates take one batch slot, one at a
+/// time, before `/tmp/aien-gb10.lock`. A gate with a key another head is
+/// running waits on that key's lock and then reuses the result. Results come
+/// back in the order of `shas`.
+pub fn run_batch(
+    cfg: &Config,
+    repo: &str,
+    shas: &[String],
+) -> Vec<(String, Result<Summary, String>)> {
+    let mut seen = BTreeSet::new();
+    let shas: Vec<String> = shas
+        .iter()
+        .filter(|s| seen.insert((*s).clone()))
+        .cloned()
+        .collect();
+    let budget = std::sync::Arc::new(crate::resources::BatchShare::new(
+        cfg.batch_host
+            .unwrap_or_else(crate::resources::BatchShare::default_host),
+    ));
+    let first = if valid_repo_key(repo) {
+        batch_first(&cfg.clones.join(repo), &shas)
+    } else {
+        BTreeMap::new()
+    };
+    let shares: Vec<Share> = shas
+        .iter()
+        .map(|s| (budget.clone(), first.get(s).cloned().unwrap_or_default()))
+        .collect();
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = shas
+            .iter()
+            .zip(&shares)
+            .map(|(sha, share)| scope.spawn(move || run_once_in(cfg, repo, sha, Some(share))))
+            .collect();
+        shas.iter()
+            .zip(handles)
+            .map(|(sha, h)| {
+                let r = h
+                    .join()
+                    .unwrap_or_else(|_| Err(format!("internal error while judging {sha}")));
+                (sha.clone(), r)
+            })
+            .collect()
+    })
+}
+
 pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
     let mut served = 0;
     let mut round = 0u64;
+    let mut head_cache = GithubHeadCache::default();
     loop {
         round += 1;
         cfg.state.beat("-", "-", "poll");
@@ -1561,7 +1857,7 @@ pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
         if cfg.github {
             for repo in &cfg.repos {
                 let repository = plan::repository_name(&cfg.clones.join(repo), None);
-                match github_heads(&cfg.gh, &repository) {
+                match github_heads_cached(&cfg.gh, &repository, &mut head_cache) {
                     Ok(shas) => {
                         for s in shas {
                             if !cfg.state.bundle_path(repo, &s).exists() {
@@ -1573,53 +1869,73 @@ pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
                 }
             }
         }
-        for (repo, sha, trigger) in heads {
-            // One process judges a head at a time: the worktree is shared.
-            let _claim = match claim_head(&cfg.state, &repo, &sha) {
-                Ok(Some(c)) => c,
-                Ok(None) => {
-                    println!("HEAD {repo} {sha} {}", held_note(&cfg.state, &repo, &sha));
-                    continue;
+        // L307/L309 integration: take the block-first queue once per round,
+        // then preserve that order within each repository's batches.
+        let mut queue: std::collections::VecDeque<(String, String, Option<PathBuf>)> = heads.into();
+        let mut tried = std::collections::HashSet::new();
+        let blocks = if cfg.github {
+            crate::block_first::open_blocks(&cfg.state.root, &cfg.repos, SystemTime::now())
+        } else {
+            Vec::new()
+        };
+        let mut by_repo: BTreeMap<String, Vec<(String, Option<PathBuf>)>> = BTreeMap::new();
+        while let Some((repo, sha, trigger)) = crate::block_first::next_head(
+            &mut queue,
+            &blocks,
+            &cfg.state.trigger_dir(),
+            &|r, s| cfg.state.bundle_path(r, s).exists(),
+            &mut tried,
+        ) {
+            by_repo.entry(repo).or_default().push((sha, trigger));
+        }
+        for (repo, list) in by_repo {
+            let shas: Vec<String> = list.iter().map(|(s, _)| s.clone()).collect();
+            // At most `cfg.batch_heads` heads are checked out at once.
+            let results: Vec<(String, Result<Summary, String>)> = shas
+                .chunks(cfg.batch_heads.max(1))
+                .flat_map(|c| {
+                    if c.len() > 1 {
+                        run_batch(cfg, &repo, c)
+                    } else {
+                        c.iter()
+                            .map(|s| (s.clone(), run_once(cfg, &repo, s)))
+                            .collect()
+                    }
+                })
+                .collect();
+            for ((sha, result), (_, trigger)) in results.into_iter().zip(list) {
+                let mut keep_trigger = false;
+                match result {
+                    Ok(s) => {
+                        println!(
+                            "HEAD {repo} {sha} {} {} bundle {} publication {}",
+                            s.verdict.as_str(),
+                            s.reason,
+                            s.bundle_path.display(),
+                            s.publication
+                        );
+                        served += 1;
+                    }
+                    Err(e) => {
+                        println!("HEAD {repo} {sha} ERROR {e}");
+                        if e.contains("already being judged") {
+                            keep_trigger = true;
+                        }
+                        let _ = cfg.state.journal_append(&json!({
+                            "utc": utc_string(now_secs()),
+                            "repo": repo,
+                            "sha": sha,
+                            "verdict": "NOT_RUN",
+                            "reason": format!("WORKER_ERROR:{e}"),
+                            "publication": "none",
+                        }));
+                    }
                 }
-                Err(e) => {
-                    println!("HEAD {repo} {sha} ERROR {e}");
-                    continue;
+                if !keep_trigger {
+                    if let Some(f) = trigger {
+                        let _ = fs::remove_file(f);
+                    }
                 }
-            };
-            // The holder we waited behind may have served this head already.
-            let served_meanwhile = match &trigger {
-                Some(f) => !f.exists(),
-                None => cfg.state.bundle_path(&repo, &sha).exists(),
-            };
-            if served_meanwhile {
-                println!("HEAD {repo} {sha} SKIP already judged by another process");
-                continue;
-            }
-            match run_once(cfg, &repo, &sha) {
-                Ok(s) => {
-                    println!(
-                        "HEAD {repo} {sha} {} {} bundle {} publication {}",
-                        s.verdict.as_str(),
-                        s.reason,
-                        s.bundle_path.display(),
-                        s.publication
-                    );
-                    served += 1;
-                }
-                Err(e) => {
-                    println!("HEAD {repo} {sha} ERROR {e}");
-                    let _ = cfg.state.journal_append(&json!({
-                        "utc": utc_string(now_secs()),
-                        "repo": repo,
-                        "sha": sha,
-                        "verdict": "NOT_RUN",
-                        "reason": format!("WORKER_ERROR:{e}"),
-                        "publication": "none",
-                    }));
-                }
-            }
-            if let Some(f) = trigger {
-                let _ = fs::remove_file(f);
             }
         }
         if iterations.is_some_and(|n| round >= n) {
@@ -1663,6 +1979,90 @@ mod tests {
         // the other, sc #605), and a head's pr dir is never its main dir (A2).
         assert_ne!(pr_a, pr_b);
         assert_ne!(pr_a, main_a);
+    }
+    /// A fake `gh` that answers `gh api -i [-H If-None-Match: E] PATH` from files: `<key>.body` and `<key>.etag`
+    /// (key = the path with every non-alphanumeric byte as `_`), and logs every call to `log`.
+    fn fake_gh(dir: &Path) -> PathBuf {
+        let script = dir.join("gh");
+        fs::write(
+            &script,
+            r#"#!/bin/bash
+d=$(dirname "$0")
+echo "$*" >> "$d/log"
+path="${@: -1}"
+key=$(printf '%s' "$path" | tr -c 'A-Za-z0-9' '_')
+if [ ! -f "$d/$key.body" ]; then printf 'HTTP/2.0 404 Not Found\r\n\r\n{}'; echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi
+etag=$(cat "$d/$key.etag")
+if [[ " $* " == *"If-None-Match: $etag "* ]]; then printf 'HTTP/2.0 304 Not Modified\r\nEtag: %s\r\n\r\n' "$etag"; echo "gh: HTTP 304" >&2; exit 1; fi
+printf 'HTTP/2.0 200 OK\r\nEtag: %s\r\nContent-Type: application/json\r\n\r\n' "$etag"; cat "$d/$key.body"
+"#,
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        script
+    }
+
+    fn fake_answer(dir: &Path, path: &str, etag: &str, body: &str) {
+        let key: String = path
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect();
+        fs::write(dir.join(format!("{key}.etag")), etag).unwrap();
+        fs::write(dir.join(format!("{key}.body")), body).unwrap();
+    }
+
+    #[test]
+    fn an_unchanged_list_is_asked_with_its_etag_and_answered_from_memory() {
+        let dir = std::env::temp_dir().join(format!("l337-heads-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let gh = fake_gh(&dir);
+        let gh = gh.to_str().unwrap();
+        let (p1, p2, m1) = ("1".repeat(40), "2".repeat(40), "3".repeat(40));
+        let pulls = "repos/aien-dev/demo/pulls?state=open&per_page=50";
+        let main = "repos/aien-dev/demo/commits/main";
+        fake_answer(
+            &dir,
+            pulls,
+            "W/\"a\"",
+            &format!(r#"[{{"head":{{"sha":"{p2}"}}}},{{"head":{{"sha":"{p1}"}}}}]"#),
+        );
+        fake_answer(&dir, main, "\"m\"", &format!(r#"{{"sha":"{m1}"}}"#));
+        let mut cache = GithubHeadCache::default();
+        let first = github_heads_cached(gh, "github.com/aien-dev/demo", &mut cache).unwrap();
+        assert_eq!(first, vec![p1.clone(), p2.clone(), m1.clone()]);
+        let second = github_heads_cached(gh, "github.com/aien-dev/demo", &mut cache).unwrap();
+        assert_eq!(second, first, "a 304 gives back the earlier answer");
+        let log = fs::read_to_string(dir.join("log")).unwrap();
+        let lines: Vec<&str> = log.lines().collect();
+        assert_eq!(lines.len(), 4, "two calls per poll: {log}");
+        assert!(
+            !lines[0].contains("If-None-Match") && !lines[1].contains("If-None-Match"),
+            "first poll is unconditional: {log}"
+        );
+        assert!(
+            lines[2].contains("If-None-Match: W/\"a\"")
+                && lines[3].contains("If-None-Match: \"m\""),
+            "second poll sends the etags: {log}"
+        );
+        // The list changes: the new etag brings the new answer.
+        let p3 = "4".repeat(40);
+        fake_answer(
+            &dir,
+            pulls,
+            "W/\"b\"",
+            &format!(r#"[{{"head":{{"sha":"{p3}"}}}}]"#),
+        );
+        let third = github_heads_cached(gh, "github.com/aien-dev/demo", &mut cache).unwrap();
+        assert_eq!(third, vec![m1, p3], "sorted, new list replaces the old");
+        // A repository GitHub does not know is an error, and forgets nothing it should not.
+        let err = github_heads_cached(gh, "github.com/aien-dev/missing", &mut cache).unwrap_err();
+        assert!(err.contains("404"), "{err}");
+        // With no memory (the old behaviour) every poll is unconditional.
+        let _ = github_heads(gh, "github.com/aien-dev/demo").unwrap();
+        let log = fs::read_to_string(dir.join("log")).unwrap();
+        assert!(!log.lines().last().unwrap().contains("If-None-Match"));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -25,7 +25,7 @@
 //! aien-test plan [--base REF] [--repo NAME] [--operator] [--allow-dirty]
 //! aien-test status [--state-dir DIR]
 //! aien-test verify COMMIT [--repo NAME] [--base REF] [--state-dir DIR] [--release]
-//! aien-test worker [--once REPO SHA] [--poll SECS] [--repos LIST] [--github] [--iterations N]
+//! aien-test worker [--once REPO SHA | --batch REPO SHA...] [--batch-host N] [--batch-heads N] [--poll SECS] [--repos LIST] [--github] [--iterations N]
 //!                  [--state-dir DIR] [--key FILE] [--clones DIR] [--wt-root DIR] [--wt-tool FILE] [--siblings FILE] [--sandbox user|none --dev-unsandboxed]
 //! ```
 //!
@@ -44,10 +44,10 @@ pub const USAGE: &str = "usage:
   aien-test plan [--base REF] [--repo NAME] [--operator] [--allow-dirty]
   aien-test status [--state-dir DIR]
   aien-test verify COMMIT [--repo NAME] [--base REF] [--state-dir DIR] [--release]
-  aien-test worker [--once REPO SHA] [--poll SECS] [--repos A,B] [--github] [--iterations N]
+  aien-test worker [--once REPO SHA | --batch REPO SHA...] [--batch-host N] [--batch-heads N] [--poll SECS] [--repos A,B] [--github] [--iterations N]
                    [--state-dir DIR] [--key FILE] [--clones DIR] [--wt-root DIR] [--wt-tool FILE] [--siblings FILE] [--sandbox user|none --dev-unsandboxed]
 flags: --evidence-dir DIR  --allow-dirty  --no-cache  --release  --jobs host=N,qemu=M  --gpu-wait 0|DURATION  --wait-gpu
-       --sandbox none|user  --base REF  --operator";
+       --sandbox none|user  --base REF  --operator  --shared-cache DIR (run)";
 
 /// Which gates `test` runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,6 +96,9 @@ pub struct Cli {
     /// `identity` only: the compiler identity string (default empty: nothing
     /// here builds yet).
     pub compiler_identity: String,
+    /// `--shared-cache DIR` (run only): the cross-head store the worker keeps
+    /// in `<state>/gate-cache/<repo>`, for one gate judged by hand.
+    pub shared_cache: Option<PathBuf>,
     /// `identity` only: `--flag F`, repeatable, order kept.
     pub flags: Vec<String>,
     /// `identity` only: needed for `cache_scope: hardware`.
@@ -128,6 +131,12 @@ pub struct Cli {
     pub siblings: Option<PathBuf>,
     /// worker: `--once REPO SHA`.
     pub once: Option<(String, String)>,
+    /// worker: `--batch REPO SHA SHA...` (judge these heads together).
+    pub batch: Option<(String, Vec<String>)>,
+    /// worker: `--batch-host N` (host slots a batch shares).
+    pub batch_host: Option<usize>,
+    /// worker: `--batch-heads N` (heads per batch in the loop).
+    pub batch_heads: Option<usize>,
     /// worker: `--poll SECS` (default 30).
     pub poll: Option<u64>,
     /// worker: `--repos A,B`.
@@ -162,7 +171,10 @@ fn parse_selection(s: &str) -> Result<Selection, String> {
 const COMMANDS: [&str; 9] = [
     "run", "test", "why", "list", "identity", "plan", "status", "verify", "worker",
 ];
-const WORKER_FLAGS: [&str; 13] = [
+const WORKER_FLAGS: [&str; 16] = [
+    "--batch",
+    "--batch-host",
+    "--batch-heads",
     "--dev-unsandboxed",
     "--key",
     "--clones",
@@ -211,10 +223,14 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
     let mut wt_tool: Option<PathBuf> = None;
     let mut siblings: Option<PathBuf> = None;
     let mut once: Option<(String, String)> = None;
+    let mut batch: Option<(String, Vec<String>)> = None;
+    let mut batch_host: Option<usize> = None;
+    let mut batch_heads: Option<usize> = None;
     let mut poll: Option<u64> = None;
     let mut repos: Vec<String> = Vec::new();
     let mut github = false;
     let mut iterations: Option<u64> = None;
+    let mut shared_cache: Option<PathBuf> = None;
     let mut worker_flags: Vec<&str> = Vec::new();
     let mut i = 1;
     let value = |i: &mut usize, a: &str| -> Result<String, String> {
@@ -230,6 +246,8 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
             break;
         } else if a == "--evidence-dir" {
             evidence_dir = Some(PathBuf::from(value(&mut i, a)?));
+        } else if a == "--shared-cache" {
+            shared_cache = Some(PathBuf::from(value(&mut i, a)?));
         } else if a == "--jobs" {
             jobs = parse_jobs(&value(&mut i, a)?)?;
         } else if a == "--compiler-identity" || a == "--flag" || a == "--hardware-identity" {
@@ -292,6 +310,38 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
                 return Err("--once needs REPO and a 40-hex SHA".to_string());
             }
             once = Some((r, s.to_ascii_lowercase()));
+        } else if a == "--batch" {
+            worker_flags.push("--batch");
+            let r = value(&mut i, a)?;
+            let mut shas = Vec::new();
+            while argv.get(i + 1).is_some_and(|s| !s.starts_with("--")) {
+                let s = value(&mut i, a)?;
+                if s.len() != 40 || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    return Err(format!("--batch needs REPO and 40-hex SHAs, not {s:?}"));
+                }
+                shas.push(s.to_ascii_lowercase());
+            }
+            if shas.is_empty() {
+                return Err("--batch needs REPO and at least one 40-hex SHA".to_string());
+            }
+            batch = Some((r, shas));
+        } else if a == "--batch-host" || a == "--batch-heads" {
+            worker_flags.push(if a == "--batch-host" {
+                "--batch-host"
+            } else {
+                "--batch-heads"
+            });
+            let v = value(&mut i, a)?;
+            let n = v
+                .parse::<usize>()
+                .ok()
+                .filter(|n| *n > 0)
+                .ok_or_else(|| format!("{a} needs a positive number, not {v:?}"))?;
+            if a == "--batch-host" {
+                batch_host = Some(n);
+            } else {
+                batch_heads = Some(n);
+            }
         } else if a == "--poll" {
             worker_flags.push("--poll");
             let v = value(&mut i, a)?;
@@ -357,6 +407,9 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
     if repo.is_some() && !["plan", "verify", "worker"].contains(&name) {
         return Err("--repo only applies to plan, verify and worker".to_string());
     }
+    if shared_cache.is_some() && name != "run" {
+        return Err("--shared-cache only applies to run".to_string());
+    }
     if state_dir.is_some() && !["status", "verify", "worker"].contains(&name) {
         return Err("--state-dir only applies to status, verify and worker".to_string());
     }
@@ -415,10 +468,14 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
         wt_tool,
         siblings,
         once,
+        batch,
+        batch_host,
+        batch_heads,
         poll,
         repos,
         github,
         iterations,
+        shared_cache,
     })
 }
 

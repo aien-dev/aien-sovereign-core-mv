@@ -533,6 +533,97 @@ impl Drop for TargetLock {
     }
 }
 
+/// The same exclusive lock without waiting: None when someone else holds it.
+pub fn try_lock(path: &Path) -> io::Result<Option<TargetLock>> {
+    let file = open_lock(path)?;
+    Ok(flock_exclusive(&file, false)?.then(|| TargetLock {
+        file: Some(file),
+        path: path.to_path_buf(),
+    }))
+}
+
+/// A counting semaphore shared by every head of one batch (`worker
+/// --batch`), with one rule `Semaphore` lacks: while a priority waiter (a
+/// gate other heads of the batch share) is queued, no plain waiter gets a
+/// slot, so the shared gates of the whole batch run first and the per-head
+/// ones after. Taken after the in-process pool slot and before the target-dir
+/// lock (order (1b) in the module comment); a holder never waits for a pool
+/// slot or a cache entry lock.
+pub struct Budget {
+    size: usize,
+    state: Mutex<(usize, usize)>,
+    cv: Condvar,
+}
+
+/// One slot of a `Budget`, given back when dropped.
+pub struct BudgetPermit<'a> {
+    budget: &'a Budget,
+}
+
+impl Budget {
+    pub fn new(size: usize) -> Budget {
+        let size = size.max(1);
+        Budget {
+            size,
+            state: Mutex::new((size, 0)),
+            cv: Condvar::new(),
+        }
+    }
+
+    pub fn size(&self) -> usize {
+        self.size
+    }
+
+    /// Wait for a slot. `priority`: this gate is shared with other heads.
+    pub fn acquire(&self, priority: bool) -> BudgetPermit<'_> {
+        let mut st = lock(&self.state);
+        if priority {
+            st.1 += 1;
+        }
+        while st.0 == 0 || (!priority && st.1 > 0) {
+            st = self.cv.wait(st).unwrap_or_else(|e| e.into_inner());
+        }
+        st.0 -= 1;
+        if priority {
+            st.1 -= 1;
+        }
+        drop(st);
+        // A plain waiter blocked only by the priority count may go now.
+        self.cv.notify_all();
+        BudgetPermit { budget: self }
+    }
+}
+
+impl Drop for BudgetPermit<'_> {
+    fn drop(&mut self) {
+        lock(&self.budget.state).0 += 1;
+        self.budget.cv.notify_all();
+    }
+}
+
+/// What the heads of one batch share: the host budget (default half the
+/// CPUs) and one gb10 slot, so two heads' GPU gates queue here, one at a
+/// time, instead of spending their bounded wait for `/tmp/aien-gb10.lock` on
+/// each other.
+pub struct BatchShare {
+    pub host: Budget,
+    pub gb10: Budget,
+}
+
+impl BatchShare {
+    pub fn new(host: usize) -> BatchShare {
+        BatchShare {
+            host: Budget::new(host),
+            gb10: Budget::new(1),
+        }
+    }
+
+    /// The default host budget: half the CPUs, at least one.
+    pub fn default_host() -> usize {
+        std::thread::available_parallelism().map_or(1, |n| (n.get() / 2).max(1))
+    }
+}
+
 /// Take the target-dir lock at `path` (see `target_lock_path`), waiting for
 /// the holder to finish. The file is created if absent and never deleted.
 pub fn lock_target_dir(path: &Path) -> io::Result<TargetLock> {

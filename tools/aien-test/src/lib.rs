@@ -51,6 +51,8 @@
 //! `CHECK_ID` and the `OBJECT` it hashed (and the ids of the gates it rests
 //! on).
 
+pub mod audit;
+pub mod block_first;
 pub mod bundle;
 pub mod cache;
 pub mod cli;
@@ -71,3 +73,6 @@ pub mod worker;
 
 #[cfg(test)]
 pub mod testutil;
+
+#[cfg(test)]
+mod judge_once_tests;

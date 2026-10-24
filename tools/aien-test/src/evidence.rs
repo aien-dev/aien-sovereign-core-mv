@@ -252,6 +252,39 @@ impl Store {
         }
         Ok((digest, path))
     }
+
+    /// The bytes of blob `sha`, only if they still hash to `sha`.
+    pub fn read_blob(&self, sha: &str) -> Option<Vec<u8>> {
+        if !self.blob_exists(sha) {
+            return None;
+        }
+        let bytes = fs::read(self.dir.join("blobs").join(format!("{sha}.log"))).ok()?;
+        (sha256_hex(&bytes) == sha).then_some(bytes)
+    }
+
+    /// The one receipt `<digest>.json`, with the same checks `Index::load`
+    /// makes (bytes hash to the name, JSON, receipt schema). None otherwise.
+    pub fn get_receipt(&self, digest: &str) -> Option<Stored> {
+        if !is_sha256_hex(digest) {
+            return None;
+        }
+        let path = self.dir.join(format!("{digest}.json"));
+        let bytes = fs::read(&path).ok()?;
+        let body = bytes.strip_suffix(b"\n").unwrap_or(&bytes);
+        if sha256_hex(body) != digest {
+            return None;
+        }
+        let value: Value = serde_json::from_slice(body).ok()?;
+        if value["schema"] != SCHEMA {
+            return None;
+        }
+        let modified = fs::metadata(&path).and_then(|m| m.modified()).ok();
+        Some(Stored {
+            digest: digest.to_string(),
+            value,
+            modified,
+        })
+    }
 }
 
 /// A receipt read back from a store. `digest` comes from the file name and
