@@ -27,10 +27,10 @@ program = "claude"
 settings_dir = "/tmp/sb/anthropic-1"
 
 [[accounts]]
-id = "anthropic-2"
-provider = "anthropic"
-program = "claude"
-settings_dir = "/tmp/sb/anthropic-2"
+id = "google-1"
+provider = "google"
+program = "agy"
+settings_dir = "/tmp/sb/google-1"
 
 [[accounts]]
 id = "openrouter-1"
@@ -44,8 +44,8 @@ provider = "local"
 program = "aien"
 
 [routes]
-code = ["anthropic-1", "anthropic-2", "openrouter-1", "local"]
-review = ["anthropic-2", "anthropic-1"]
+code = ["anthropic-1", "google-1", "openrouter-1", "local"]
+review = ["google-1", "anthropic-1"]
 default = ["openrouter-1"]
 "#;
 
@@ -73,7 +73,7 @@ fn rule_order_is_respected() {
     assert_eq!(d.account, id("anthropic-1"));
     assert_eq!(
         d.alternates,
-        vec![id("anthropic-2"), id("openrouter-1"), id("local")]
+        vec![id("google-1"), id("openrouter-1"), id("local")]
     );
     let d = route(
         &Job::new(JobKind::Review, JobSize::Small),
@@ -81,7 +81,7 @@ fn rule_order_is_respected() {
         &Gauges::new(),
         1000,
     );
-    assert_eq!(d.account, id("anthropic-2"));
+    assert_eq!(d.account, id("google-1"));
 }
 
 #[test]
@@ -93,7 +93,7 @@ fn unlisted_kind_uses_default_and_local_is_appended() {
     );
     assert_eq!(
         r.route_for(JobKind::Review),
-        &[id("anthropic-2"), id("anthropic-1"), id("local")]
+        &[id("google-1"), id("anthropic-1"), id("local")]
     );
 }
 
@@ -103,7 +103,7 @@ fn cooled_down_account_is_skipped_with_a_plain_reason() {
     let mut g = Gauges::new();
     g.on_limit_hit(&id("anthropic-1"), Some(5000), 1000, 600);
     let d = route(&code(), &r, &g, 1000);
-    assert_eq!(d.account, id("anthropic-2"));
+    assert_eq!(d.account, id("google-1"));
     assert!(
         d.reason.contains("anthropic-1 is cooling down"),
         "{}",
@@ -117,7 +117,7 @@ fn account_over_the_ceiling_is_skipped_and_stale_window_is_not() {
     let mut g = Gauges::new();
     g.set_windows(&id("anthropic-1"), win(95.0, Some(5000)));
     let d = route(&code(), &r, &g, 1000);
-    assert_eq!(d.account, id("anthropic-2"));
+    assert_eq!(d.account, id("google-1"));
     assert!(d.reason.contains("95% used"), "{}", d.reason);
     // Once the window's reset time has passed, the account has room again.
     let d = route(&code(), &r, &g, 5000);
@@ -131,7 +131,7 @@ fn account_over_the_ceiling_is_skipped_and_stale_window_is_not() {
 fn everything_exhausted_goes_to_local() {
     let r = rules();
     let mut g = Gauges::new();
-    for a in ["anthropic-1", "anthropic-2", "openrouter-1"] {
+    for a in ["anthropic-1", "google-1", "openrouter-1"] {
         g.on_limit_hit(&id(a), None, 1000, 600);
     }
     let d = route(&code(), &r, &g, 1000);
@@ -150,7 +150,7 @@ fn cooldown_expires() {
     let mut g = Gauges::new();
     let until = g.on_limit_hit(&id("anthropic-1"), None, 1000, 600);
     assert_eq!(until, 1600);
-    assert_eq!(route(&code(), &r, &g, 1599).account, id("anthropic-2"));
+    assert_eq!(route(&code(), &r, &g, 1599).account, id("google-1"));
     assert_eq!(route(&code(), &r, &g, 1600).account, id("anthropic-1"));
 }
 
@@ -174,12 +174,12 @@ fn failover_on_limit_hit_then_cooldown_sticks() {
         },
     );
     let done = run_job(&code(), "hi", &r, &mut g, &mut run, 1000).unwrap();
-    assert_eq!(done.account, id("anthropic-2"));
-    assert_eq!(done.tried, vec![id("anthropic-1"), id("anthropic-2")]);
-    assert!(done.output.contains("anthropic-2"));
+    assert_eq!(done.account, id("google-1"));
+    assert_eq!(done.tried, vec![id("anthropic-1"), id("google-1")]);
+    assert!(done.output.contains("google-1"));
     // The next job skips the cooled account without trying it.
     let done = run_job(&code(), "again", &r, &mut g, &mut run, 1001).unwrap();
-    assert_eq!(done.tried, vec![id("anthropic-2")]);
+    assert_eq!(done.tried, vec![id("google-1")]);
 }
 
 #[test]
@@ -187,7 +187,7 @@ fn all_outside_accounts_hit_limits_then_local_answers() {
     let r = rules();
     let mut g = Gauges::new();
     let mut run = FakeRunner::new();
-    for a in ["anthropic-1", "anthropic-2", "openrouter-1"] {
+    for a in ["anthropic-1", "google-1", "openrouter-1"] {
         run.push(&id(a), RunResult::LimitHit { resets_at: None });
     }
     let done = run_job(&code(), "x", &r, &mut g, &mut run, 1000).unwrap();
@@ -214,7 +214,7 @@ fn local_limit_hit_is_a_clear_error_not_a_loop() {
 fn local_listed_early_is_moved_last() {
     let r = RuleTable::from_toml_str(
         "[[accounts]]\nid=\"local\"\nprovider=\"local\"\nprogram=\"aien\"\n\
-         [[accounts]]\nid=\"g1\"\nprovider=\"google\"\nprogram=\"agy\"\n\
+         [[accounts]]\nid=\"g1\"\nprovider=\"google\"\nprogram=\"agy\"\nsettings_dir=\"/tmp/sb/g1\"\n\
          [routes]\ndefault=[\"local\",\"g1\"]\n",
     )
     .unwrap();
@@ -245,7 +245,7 @@ fn parse_errors_are_clear() {
 #[test]
 fn rule_mistakes_name_the_problem() {
     let local = "[[accounts]]\nid=\"local\"\nprovider=\"local\"\nprogram=\"aien\"\n";
-    let g1 = "[[accounts]]\nid=\"g1\"\nprovider=\"google\"\nprogram=\"agy\"\n";
+    let g1 = "[[accounts]]\nid=\"g1\"\nprovider=\"google\"\nprogram=\"agy\"\nsettings_dir=\"/tmp/sb/g1\"\n";
     assert!(parse_err(&format!("{g1}[routes]\ndefault=[\"g1\"]\n"))
         .contains("no account with provider = \"local\""));
     assert!(parse_err(&format!("{local}[routes]\ndefault=[\"nope\"]\n"))
@@ -287,4 +287,125 @@ fn routing_is_deterministic() {
     let a = route(&code(), &r, &g, 1000);
     let b = route(&code(), &r, &g, 1000);
     assert_eq!(a, b);
+}
+
+const LOCAL: &str = "[[accounts]]\nid=\"local\"\nprovider=\"local\"\nprogram=\"aien\"\n";
+
+fn sub(id: &str, provider: &str, program: &str) -> String {
+    format!("[[accounts]]\nid=\"{id}\"\nprovider=\"{provider}\"\nprogram=\"{program}\"\nsettings_dir=\"/tmp/sb/{id}\"\n")
+}
+
+#[test]
+fn route_with_two_subscriptions_of_one_provider_is_rejected() {
+    // Operator decision 2026-10-16 (aien-architecture#236, issue #592): no automatic
+    // routing between two subscription accounts of the same provider.
+    let accts = format!(
+        "{LOCAL}{}{}",
+        sub("a1", "anthropic", "claude"),
+        sub("a2", "anthropic", "claude")
+    );
+    let e = RuleTable::from_toml_str(&format!(
+        "{accts}[routes]\ndefault=[\"local\"]\ncode=[\"a1\",\"a2\"]\n"
+    ))
+    .unwrap_err();
+    let m = e.to_string();
+    assert!(matches!(e, RulesError::Invalid(_)), "{m}");
+    assert!(
+        m.contains("route \"code\"") && m.contains("a1") && m.contains("a2"),
+        "{m}"
+    );
+    assert!(m.contains("anthropic"), "{m}");
+    // The default route is checked too.
+    assert!(
+        RuleTable::from_toml_str(&format!("{accts}[routes]\ndefault=[\"a2\",\"a1\"]\n")).is_err()
+    );
+    // Same accounts on separate routes are fine: manual launch may open any.
+    assert!(RuleTable::from_toml_str(&format!(
+        "{accts}[routes]\ndefault=[\"local\"]\ncode=[\"a1\"]\nreview=[\"a2\"]\n"
+    ))
+    .is_ok());
+}
+
+#[test]
+fn subscription_plus_api_key_or_other_provider_is_allowed() {
+    let key = "[[accounts]]\nid=\"a-key\"\nprovider=\"anthropic\"\nprogram=\"http\"\nkey_ref=\"anthropic-console\"\n";
+    let accts = format!(
+        "{LOCAL}{}{key}{}",
+        sub("a1", "anthropic", "claude"),
+        sub("g1", "google", "agy")
+    );
+    let r = RuleTable::from_toml_str(&format!(
+        "{accts}[routes]\ndefault=[\"a1\",\"a-key\",\"g1\"]\n"
+    ));
+    assert!(r.is_ok(), "{r:?}");
+}
+
+#[test]
+fn settings_folders_must_be_absolute_and_not_shared() {
+    let rel = "[[accounts]]\nid=\"a1\"\nprovider=\"anthropic\"\nprogram=\"claude\"\nsettings_dir=\"rel/a1\"\n";
+    let e = RuleTable::from_toml_str(&format!("{LOCAL}{rel}[routes]\ndefault=[\"local\"]\n"))
+        .unwrap_err();
+    assert!(e.to_string().contains("absolute"), "{e}");
+    let shared = "[[accounts]]\nid=\"a2\"\nprovider=\"anthropic\"\nprogram=\"claude\"\nsettings_dir=\"/tmp/sb/a1\"\n";
+    let e = RuleTable::from_toml_str(&format!(
+        "{LOCAL}{}{shared}[routes]\ndefault=[\"local\"]\n",
+        sub("a1", "anthropic", "claude")
+    ))
+    .unwrap_err();
+    assert!(e.to_string().contains("same settings_dir"), "{e}");
+}
+
+#[test]
+fn route_error_cites_the_operator_decision_only() {
+    let accts = format!(
+        "{LOCAL}{}{}",
+        sub("a1", "anthropic", "claude"),
+        sub("a2", "anthropic", "claude")
+    );
+    let m = RuleTable::from_toml_str(&format!("{accts}[routes]\ndefault=[\"a1\",\"a2\"]\n"))
+        .unwrap_err()
+        .to_string();
+    assert!(m.contains("aien-architecture#236"), "{m}");
+    assert!(!m.contains("amendment"), "{m}");
+}
+
+#[test]
+fn non_local_account_without_a_login_setting_is_refused() {
+    // A claude account with no settings_dir would use the default ~/.claude
+    // login, a subscription the route rule could not see. Review of #619.
+    let bare = "[[accounts]]\nid=\"a2\"\nprovider=\"anthropic\"\nprogram=\"claude\"\n";
+    let accts = format!("{LOCAL}{}{bare}", sub("a1", "anthropic", "claude"));
+    let e = RuleTable::from_toml_str(&format!(
+        "{accts}[routes]\ndefault=[\"local\"]\ncode=[\"a1\",\"a2\"]\n"
+    ))
+    .unwrap_err();
+    assert!(matches!(e, RulesError::Invalid(_)), "{e}");
+    assert!(e.to_string().contains("\"a2\""), "{e}");
+    // Not routed anywhere: still refused, for any non-local provider.
+    let g = "[[accounts]]\nid=\"g\"\nprovider=\"google\"\nprogram=\"agy\"\n";
+    let e = RuleTable::from_toml_str(&format!("{LOCAL}{g}[routes]\ndefault=[\"local\"]\n"))
+        .unwrap_err();
+    assert!(e.to_string().contains("settings_dir or key_ref"), "{e}");
+}
+
+#[test]
+fn program_must_be_a_bare_name_or_an_absolute_path() {
+    for bad in ["bin/claude", "./claude", "../x/claude"] {
+        let a = format!("[[accounts]]\nid=\"a1\"\nprovider=\"anthropic\"\nprogram=\"{bad}\"\nsettings_dir=\"/tmp/sb/a1\"\n");
+        let e = RuleTable::from_toml_str(&format!("{LOCAL}{a}[routes]\ndefault=[\"local\"]\n"))
+            .unwrap_err();
+        assert!(e.to_string().contains("absolute"), "{bad}: {e}");
+    }
+    let ok = "[[accounts]]\nid=\"a1\"\nprovider=\"anthropic\"\nprogram=\"/opt/claude/bin/claude\"\nsettings_dir=\"/tmp/sb/a1\"\n";
+    assert!(
+        RuleTable::from_toml_str(&format!("{LOCAL}{ok}[routes]\ndefault=[\"local\"]\n")).is_ok()
+    );
+}
+
+#[test]
+fn settings_dir_with_parent_steps_is_refused() {
+    let a = "[[accounts]]\nid=\"a2\"\nprovider=\"anthropic\"\nprogram=\"claude\"\nsettings_dir=\"/tmp/sb/x/../a1\"\n";
+    let e = RuleTable::from_toml_str(&format!("{LOCAL}{a}[routes]\ndefault=[\"local\"]\n"))
+        .unwrap_err();
+    assert!(e.to_string().contains(".."), "{e}");
 }
