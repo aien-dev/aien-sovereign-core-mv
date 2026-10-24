@@ -17,8 +17,10 @@ AIENOS.
 | `gc.sh` | worktree age + target-dir quota cleanup, dry run by default |
 | `tests/run.sh` | proofs of the contract on this host (33 checks with two wt.sh worktrees present) |
 | `pipeline.sh` | ADR 0033 phase 3: publish verified bundles to aien-receipts, rerun the GitHub thin gate, merge `ready-to-merge` PRs behind guards |
-| `tests/pipeline_test.sh` | offline proofs of `pipeline.sh` with fake `gh`, fake `aien-test` and throwaway git repositories (77 checks) |
-| `repeat-gates.sh` | how much gate time went into running the same gate on the same head again (reads the receipts under `$STATE/evidence`; optional UTC start) |
+| `tests/pipeline_test.sh` | offline proofs of `pipeline.sh` with fake `gh`, fake `aien-test` and throwaway git repositories (76 checks) |
+| `rebase-train.sh` | moves `ready-to-merge` PRs that conflict only in `.crumb` files (or are behind) onto main, recompiles crumbs with the pinned tool, force-with-lease pushes; labels `needs-rebase` and comments once otherwise |
+| `cron-tick.sh` | source of the cron entry (`*/5`): keeps the worker lanes main, small, big and core alive, runs `rebase-train.sh`, then `pipeline.sh round` |
+| `aien-local-ci` | source of the operator front door `~/.local/bin/aien-local-ci` (status, start/stop named worker lanes, trigger, verify, once, plan, health, log) |
 | `crumb-shim.sh` | the operator's `~/.local/bin/crumb`: runs the crumb tool the repository's own CRUMB-VERIFY gate uses (crumb.lock pin, own tree for aien-architecture, else the sandbox tool), so author, readiness check and gate never disagree |
 | `crumb-doctor` | drift check, cron (via cron-tick.sh): gate, readiness and hosted crumb tools agree on every main and tool-changing PR; worker sibling maps match origin/main; `--heal` keeps this clone's work tree on origin/main |
 | `tests/crumb_shim_test.sh`, `tests/crumb_doctor_test.sh` | offline proofs of both on throwaway fixtures (17 and 7 checks) |
@@ -200,7 +202,12 @@ GitHub to act. One instance at a time (`flock` on `$STATE/pipeline.lock`; a seco
 and refusal is one JSON line in `$STATE/pipeline.jsonl`. Exit 0 when the round ran (refusals included), 2 on a usage
 or configuration error. Overrides: `AIEN_STATE`, `AIEN_CLONES`, `AIEN_RECEIPTS`, `AIEN_RECEIPTS_BRANCH`,
 `AIEN_TEST_BIN`, `AIEN_GH_OWNER` (default `aien-dev`), `AIEN_REPOS`, `GH`, `GIT`. GitHub calls use the canonical slug
-(`gh api repos/aien-dev/<repo> --jq .full_name`, so `aienos` becomes `aien-spark/aienos`).
+(`gh api repos/aien-dev/<repo> --jq .full_name`; on 2026-10-18 the names carry a `-mv` suffix, e.g.
+`aien-dev/aegis-runtime-mv`). The slug is cached on disk in `$STATE/slugs/<repo>` and used while younger than 24 h
+(`AIEN_SLUG_TTL`, seconds); older or missing means one refresh call, and when that call fails (for example an
+exhausted API limit) the older cached name is still used, so a round no longer refuses every PR with "cannot
+resolve GitHub slug" (19 such refusals on 2026-10-18). Each lookup journals `action=slug` with `result=cached`,
+`refreshed` or `stale-cache`; every name, cached or fresh, must match `owner/name`. No merge guard changed.
 
 * **publish**: for each `$STATE/bundles/<repo>/<sha>/bundle.json` of a repository whose trusted clone has a key in
   `origin/main:.aien/verify.pub` (several keys allowed, one per line, `#` comments, same rule as aien-test): skip when
@@ -214,12 +221,6 @@ or configuration error. Overrides: `AIEN_STATE`, `AIEN_CLONES`, `AIEN_RECEIPTS`,
   `$STATE/pipeline-reruns`: the latest `AIEN Verification` run for that head is rerun when it is completed and its
   latest attempt started (`run_started_at`, else `created_at`) before the publication (push time in
   `$STATE/pipeline-published`, else the receipts commit time). A queued or running run waits for a later round.
-* **what a round does not ask twice (L337)**: repository slugs are kept 24 h in `$STATE/pipeline-slugs`; PR lists are conditional
-  GETs (`$STATE/pipeline-etag`, `If-None-Match`; GitHub's 304 reply costs no allowance and the rerun and merge steps of one round
-  share one list); the local behind-main check runs before the first GitHub call for a PR; bundles already judged unpublishable
-  (plan.blocked, NOT_RUN, REJECTED) are remembered in `$STATE/pipeline-seen` keyed by repo, sha, bundle digest, trusted keys and
-  the verify-bundle binary, so a new key, a rebuilt binary or a rewritten bundle is judged again and nothing else is. The worker's
-  own PR polling (`github_heads_cached` in `tools/aien-test/src/worker.rs`) sends the same `If-None-Match`.
 * **merge**: only open PRs labeled exactly `ready-to-merge`, not draft, mergeable state not `dirty`, head unchanged
   since listing. All guards required: the local bundle for the head exists; its sha256 equals the published copy at
   receipts `origin/main`; `verify-bundle` exits 0 with a key from `origin/<base>:.aien/verify.pub` and `--require`
@@ -227,6 +228,90 @@ or configuration error. Overrides: `AIEN_STATE`, `AIEN_CLONES`, `AIEN_RECEIPTS`,
   is present on the head with only `success` (check runs and commit statuses); no `AIEN Verification` run for the head
   is queued or in progress. Then `gh pr merge N -R <slug> --merge --match-head-commit <sha>`. Never `--admin`. A base
   branch without required status checks (or whose protection cannot be read) is refused, not merged.
+
+Merge pause: while `$STATE/MERGE-PAUSE` exists (Drake, 2026-10-18: "stop all agents from trying to merge"), the
+merge step journals `result=paused` and merges nothing; publish and rerun keep running. `rebase-train.sh` keeps
+rebasing (that is not merging) and never adds `ready-to-merge` or enables auto-merge, paused or not. No script creates
+or deletes the file: only Drake lifts the pause.
+
+## Rebase train (rebase-train.sh, before every round)
+
+```
+tools/aien-local-ci/rebase-train.sh [--dry-run] [--repos a,b] [--pr N]   # --dry-run: local work only, prints the plan
+```
+
+Why: every merge to main rewrites the root `.crumb` (generated by the pinned crumb compiler), so every other open PR
+turned CONFLICTING and `pipeline.sh merge` refused it as `dirty` forever (2026-10-18: 11 of 12 `ready-to-merge` PRs in
+sovereign-core; the four probed conflicted in the root `.crumb` only). The train does what a person would do.
+
+For each repo (same list as `pipeline.sh`), each open PR labeled exactly `ready-to-merge`, not draft, head branch in
+the same repository (no forks), that GitHub reports `CONFLICTING` or `BEHIND`:
+
+1. fetch `pull/N/head` into `refs/aien-train/N` of the trusted clone, scratch worktree under `$STATE/.train.*`
+   (hooks off: `core.hooksPath=/dev/null`); both removed on exit, also on error;
+2. skip (journal only) when the head commit's committer time is under 10 minutes old (`AIEN_TRAIN_MIN_AGE`, seconds;
+   a proxy for "pushed recently": GitHub's push time costs an extra API call), when the PR touches a trust-surface
+   file (`.aien/verify.pub`, `.github/workflows/*`; never rebased by the train), or when nothing but `.crumb` files
+   would be left after the rebase (the changes are already in main);
+3. `git rebase origin/<base>`; conflicts in `.crumb` files (root or nested) take the base's copy; any other
+   conflicting file aborts the rebase;
+4. `crumb compile .` with the tool built from aien-architecture at the base branch's pin (`crumb.lock`, else the
+   `aien-architecture @ <sha>` pin in `.github/workflows/aien-verification.yml`; `make -C tools/crumb crumb` as the
+   workflow does, cached in `$STATE/crumb-tools/<pin>/crumb`); a change is committed as
+   `crumb: recompile after rebase onto main`; then `crumb verify .` must pass;
+5. `git push --force-with-lease=refs/heads/<branch>:<old head>` to the PR branch; a `needs-rebase` label is removed.
+
+A conflict outside `.crumb`, or a recompile that changes anything but `.crumb` files, adds the label `needs-rebase`
+(created once per repo, recorded in `$STATE/train-labels`) and posts one comment that starts with
+`> *This was generated by AI during triage.*` and lists the files. One comment per head sha: recorded in
+`$STATE/train-commented` and marked `<!-- aien-rebase-train head=<sha> -->` in the comment, checked with one
+`gh pr view` before posting. Every decision is one JSON line in `$STATE/train.jsonl` (`utc, repo, pr, head, action,
+reason`); `--dry-run` writes none, pushes, labels and comments nothing. One instance at a time (`flock` on
+`$STATE/train.lock`). API budget per run: one `gh pr list` per repo (GraphQL; the label is filtered locally because
+`gh pr list --label` returned nothing on 2026-10-18), and only for a blocked PR one slug lookup (shared disk cache,
+see pipeline.sh), one label call, one
+`gh pr view` and one comment. Pushes go through git. Exit 0 when the run finished (skips included), 2 on a usage or
+configuration error. Overrides: `AIEN_STATE`, `AIEN_CLONES`, `AIEN_ARCH_CLONE`, `AIEN_GH_OWNER`, `AIEN_REPOS`,
+`AIEN_TRAIN_MIN_AGE`, `GH`, `GIT`.
+
+GitHub rate-limit guard: every `gh` call of `pipeline.sh` and `rebase-train.sh` goes through `ghc`. When the shared
+guard `~/.local/bin/gh` refuses with exit 98 (allowance reserved or rate-limit marker set), the run makes no further
+GitHub call and every journal line after it carries `deferred: "gh guard exit 98: try next round"` (in train.jsonl
+the same words close the reason). Never a retry loop, never a FAIL: the next tick tries again. Neither script uses
+`gh run watch` (the guard's exit 97). Pushes use git, whose credential helper is `/usr/bin/gh auth git-credential`.
+
+## Cron tick (cron-tick.sh)
+
+Installed as `~/.local/lib/aien-local-ci/cron-tick.sh` with one crontab line (no systemd):
+
+```
+*/5 * * * * $HOME/.local/lib/aien-local-ci/cron-tick.sh >> $HOME/.local/state/aien-local-ci/cron-tick.log 2>&1
+```
+
+Each tick: keep the four worker lanes alive (each `start` is a no-op while that lane runs), `rebase-train.sh`,
+`pipeline.sh round`. Every 5 minutes, not 2: the 2-minute round plus the worker's polling used up the shared 5000/h
+GitHub API limit on 2026-10-18. `touch ~/.local/state/aien-local-ci/PAUSE` stops the tick.
+
+Worker lanes: the same `aien-test worker` binary and arguments (`--poll 60 --github --sandbox user`, same state dir
+and clones), each lane its own process, repo list, pidfile and log:
+
+| lane | started by the tick with | pidfile, log |
+|---|---|---|
+| `main` | `aien-local-ci start --github` (aienos, synapse, interplane: the default `AIEN_REPOS` of the wrapper) | `$STATE/worker.pid`, `$STATE/worker.log` |
+| `small` | `aien-local-ci start --github --lane small --repos physics,aien-protocols,aegis-runtime,spark-rsi,aien-architecture,benchmarks` | `$STATE/worker-small.pid`, `$STATE/worker-small.log` |
+| `big` | `aien-local-ci start --github --lane big --repos omega,aien-sovereign-core` | `$STATE/worker-big.pid`, `$STATE/worker-big.log` |
+| `core` | `aien-local-ci start --github --lane core --repos aien-sovereign-core` | `$STATE/worker-core.pid`, `$STATE/worker-core.log` |
+
+Any other lane name works the same way (`--lane NAME --repos LIST`, files `worker-NAME.pid`, `worker-NAME.log`).
+Why: one worker is one serial queue. On 2026-10-18 a 45 to 60 minute aienos, sovereign-core or omega job starved the
+small repos ("no local bundle for head" on 11 ready PRs), and the main lane sat on one aienos head for over 30 minutes
+while nine freshly rebased omega and sovereign-core heads waited; `core` keeps sovereign-core heads from waiting behind
+omega GPU gates in `big`. The lists do not overlap except sovereign-core in `big` and `core` (overlapping lanes polled
+the same repos twice, about 59 GitHub requests a minute in all, measured 2026-10-18), so a sovereign-core head can
+occasionally run in two lanes; the per-target lock serialises that. A lane started by hand is adopted, not started twice: when the
+pidfile's pid is gone, `start` and `stop` look for a running `aien-test worker` of this user whose `--state-dir` and
+`--repos` are exactly the lane's (read from `/proc/<pid>/cmdline`) and rewrite the pidfile. `aien-local-ci stop
+[--lane NAME]` stops one lane.
 
 ## Operate
 
@@ -243,35 +328,3 @@ Measured 2026-10-11 (sovereign-core 5ef7720, 20 cores, caches seeded): cold `car
 --locked --offline` as aien-run 65.0 s (target dir 27 GB); warm rebuild after touching one crate 2.2 s. After the
 read-only home change: full workspace build of worktree 62542eb into the existing `pr` target 49.9 s (new worktree
 path, so workspace crates rebuilt; dependencies reused), exit 0.
-
-## Judge once, reuse everywhere (aien-test, 2026-10-20)
-
-The judge no longer reruns a gate whose experiment it has already judged for another head of the same repository.
-Every result that could be reused inside one head is also published to `~/.local/state/aien-local-ci/gate-cache/<repo>/`;
-another head whose key matches imports it, and its receipt and bundle entry say which receipt and which commit it came
-from (`reused_from`, `reused_from_commit`, `resolution.resolved_from_commit`). What may travel:
-
-| Gate | Reused by another head when |
-|---|---|
-| `cache: never`, gb10/nvrm, bare_metal, `requires: operator`, `cache_scope: hardware`, APPROXIMATE/ADVISORY | never (per-head cache only) |
-| any other gate (default) | the other head's whole tree is identical (main after a squash merge of an up-to-date PR, a re-push, a duplicate PR) |
-| a gate whose manifest says `cache: inputs_complete` | its declared inputs, the repository build files and everything else in the key are identical |
-
-The key also carries the judge binary's sha256 and the exec helper's, so a new judge or helper never reuses an old
-result. A FAIL is reused as FAIL. `aien-test worker --batch REPO SHA...` (and the loop, 6 heads at a time) judges
-several heads together: shared gates first, host gates of different heads side by side within `--batch-host N`
-slots (default half the CPUs), GPU gates one at a time. Shown on the Spark: unit and end-to-end tests in
-`tools/aien-test` (`judge_once_tests.rs`, `tests/local_ci.rs`); the wall-time receipt is in the handoff. A gate's
-receipt keeps its waits apart from its run: `batch_wait_ms` (a batch slot) and `target_wait_ms` (the target dir
-another gate holds) fall inside `duration_ms`, and `aien-test verify` counts them as queue time, not test time.
-Measured 2026-10-20 on 6 open sc PR heads: 6003 s one at a time, 2914 s as one batch. No result crossed heads in that
-set: the six trees differ and no manifest says `cache: inputs_complete` yet, so the saving there is the side by side
-running alone.
-
-L335 (2026-10-21) audited and flipped the gates: `aien-audit-inputs` (see LOCAL_VERIFICATION.md) found the
-PREFILL-E2E-2 mutants compile 25 crates but listed 9, SC-TRN1 missed three path dependencies, PREFILL-E2E-2 reads docs/campaigns/c1, two
-docs/campaigns/next-phase-1 files and omega.lock outside crates/, and cargo reads every member manifest and target
-listing. Now `cache: inputs_complete` with complete declarations: PREFILL-E2E-2 and its
-8 mutants (checkpoint in `outside_inputs`), SC-TRN1, SC-CRB1, SC-ANTI-SLOP, SC-PREFLIGHT-GUARD, SC-SCORING-V5,
-SC-PINS-SELFTEST. Still not reusable across heads, on purpose: CRUMB-VERIFY and SC-ZERO-DISK-SECRETS read the whole
-tree, SC-AGENT-PREFLIGHT diffs against origin/main. `target_lock: none` on the 8 gates that never start cargo.
