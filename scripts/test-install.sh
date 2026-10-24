@@ -96,7 +96,10 @@ if [[ "$args" == *" -p aien-serve-http "* ]]; then
     exit 0
 fi
 for pkg in aien-cli spark-cockpit-rs cortex-rs spark-supervisor spark-debugger spark-harness spark-crumbs spark-aegis; do
-    [[ "$args" == *" -p $pkg "* ]] || { echo "cargo build is missing package $pkg" >&2; exit 1; }
+    spec=$pkg
+    # L055: a bare spark-crumbs is ambiguous (in-repo crate and the git-pinned copy); it must be named by path.
+    [[ $pkg == spark-crumbs ]] && spec="path+file://$PWD/crates/spark-crumbs"
+    [[ "$args" == *" -p $spec "* ]] || { echo "cargo build is missing package $spec" >&2; exit 1; }
     printf '#!/bin/sh\nexit 0\n' > "target/release/$pkg"
     chmod 755 "target/release/$pkg"
 done

@@ -701,7 +701,9 @@ echo "    - spark-harness (5-Layer Verification Engine)"
 echo "    - spark-crumbs (Blake3 Scent & Action Vector Tracker)"
 echo "    - spark-aegis (Defensive Boundary & Containment Engine)"
 
-cargo build --locked --release -p aien-cli -p spark-cockpit-rs -p cortex-rs -p spark-supervisor -p spark-debugger -p spark-harness -p spark-crumbs -p spark-aegis
+# The workspace holds both crates/spark-crumbs and the git-pinned copy its dependents use (the release candidate
+# pins that revision in Cargo.lock), so a bare `-p spark-crumbs` is ambiguous (L055). Name the in-repo crate by path.
+cargo build --locked --release -p aien-cli -p spark-cockpit-rs -p cortex-rs -p spark-supervisor -p spark-debugger -p spark-harness -p "path+file://$PWD/crates/spark-crumbs" -p spark-aegis
 
 echo "[*] Installing Binaries to $BIN_DIR..."
 cp target/release/aien-cli "$BIN_DIR/aien"

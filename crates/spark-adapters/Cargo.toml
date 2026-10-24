@@ -10,7 +10,7 @@ license.workspace = true
 tokio = { version = "1.38", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-spark-crumbs = { path = "../spark-crumbs" }
+spark-crumbs = { git = "https://github.com/aien-dev/spark-crumbs", rev = "9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 futures-util = "0.3"
 async-stream = "0.3"
