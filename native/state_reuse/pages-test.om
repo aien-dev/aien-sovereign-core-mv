@@ -1,0 +1,177 @@
+note Native page accounting, lifetime, copy-on-write and rollback checks.
+global pchecks ulong 2
+global phand long 64
+fn expect yes bool to void
+put pchecks 0 add get pchecks 0 1
+if not yes
+put pchecks 1 add get pchecks 1 1
+end
+end
+fn number v ulong to void
+if ge v 10
+number div v 10
+end
+put pio 0 uchar add rem v 10 48
+n = write 1 pio 0 1
+end
+fn zeros id long bytes ulong to void
+expect eq pread id 0 bytes 0
+for i ulong bytes
+expect eq get pio i 0
+end
+end
+fn cowtest to void
+expect eq pinit 4096 2 26176 0
+first = pnew
+expect gt first 0
+zeros first 4096
+for i ulong 4096
+put pio i uchar rem i 251
+end
+expect eq pwrite first 0 4096 first
+expect eq phold first 0
+expect eq get pconfig 5 2
+expect eq pbytes 22080
+second = pnew
+expect gt second 0
+expect eq pbytes 26176
+expect eq pnew neg long 75
+put pio 0 222
+expect eq pwrite first 0 1 neg long 75
+expect eq pread first 0 1 0
+expect eq get pio 0 0
+expect eq get pconfig 5 3
+expect eq pfree second 0
+expect eq pbytes 22080
+put pio 0 222
+copy = pwrite first 0 1
+expect gt copy 0
+expect ne copy first
+expect eq pbytes 26176
+expect eq get pconfig 5 2
+expect eq pread first 0 4096 0
+for i ulong 4096
+expect eq get pio i uchar rem i 251
+end
+expect eq pread copy 0 4096 0
+expect eq get pio 0 222
+for i ulong 4095
+expect eq get pio add i 1 uchar rem add i 1 251
+end
+expect eq pinit 4096 2 26176 73
+expect eq pfree first 0
+expect eq pbytes 22080
+expect eq pread first 0 1 73
+expect eq pfree first 73
+expect eq pfree copy 0
+expect eq pbytes 17984
+expect eq get pconfig 5 0
+expect eq get pconfig 4 0
+end
+fn chunks to void
+expect eq pinit 12288 2 42560 0
+id = pnew
+expect gt id 0
+for i ulong 8192
+put pio i uchar rem mul i 3 256
+end
+expect eq pwrite id 0 8192 id
+for i ulong 4096
+put pio i uchar rem add i 29 256
+end
+expect eq pwrite id 8192 4096 id
+expect eq phold id 0
+put pio 0 17
+changed = pwrite id 12287 1
+expect gt changed 0
+expect ne changed id
+for part ulong 2
+current = id
+if eq part 1
+current = changed
+end
+expect eq pread current 0 8192 0
+for i ulong 8192
+expect eq get pio i uchar rem mul i 3 256
+end
+expect eq pread current 8192 4096 0
+for i ulong 4095
+expect eq get pio i uchar rem add i 29 256
+end
+if eq part 0
+expect eq get pio 4095 28
+else
+expect eq get pio 4095 17
+end
+end
+expect eq pfree id 0
+expect eq pfree changed 0
+end
+fn life to void
+expect eq pinit 4096 64 280128 0
+for i ulong 64
+id = pnew
+expect gt id 0
+put phand i id
+end
+expect eq pnew neg long 75
+expect eq get pconfig 4 64
+for i ulong 64
+expect eq pfree get phand i 0
+end
+expect eq pbytes 17984
+for i ulong 140
+old = pnew
+expect gt old 0
+expect eq pfree old 0
+next = pnew
+expect gt next old
+expect eq phold old 73
+expect eq pwrite old 0 0 neg long 73
+expect eq pfree next 0
+end
+expect eq pinit 4096 1 22080 0
+id = pnew
+expect gt id 0
+expect eq phold id 0
+expect eq pwrite id 4096 0 id
+expect eq pbytes 22080
+expect eq pwrite id 4096 1 neg long 65
+expect eq pwrite id 18446744073709551615 1 neg long 65
+expect eq pread id 0 8193 65
+expect eq pfree id 0
+expect eq pbytes 22080
+expect eq pfree id 0
+expect eq pbytes 17984
+note Simulate last representable generation in an empty slot to test retirement.
+put pgens 0 72057594037927935
+expect eq pnew neg long 75
+expect eq pinit 4096 2 26176 0
+last = pnew
+expect gt last 0
+expect eq and ulong last 127 2
+expect eq pfree last 0
+end
+fn main to int
+expect eq pnew neg long 73
+expect eq pbytes 17984
+expect eq pinit 0 2 26176 65
+expect eq pinit 4097 2 26176 65
+expect eq pinit 67112960 2 26176 65
+expect eq pinit 4096 0 26176 65
+expect eq pinit 4096 65 26176 65
+expect eq pinit 4096 2 17983 65
+cowtest
+chunks
+life
+number get pchecks 0
+put pio 0 10
+n = write 1 pio 0 1
+number get pchecks 1
+put pio 0 10
+n = write 1 pio 0 1
+if ne get pchecks 1 0
+ret 1
+end
+ret 0
+end

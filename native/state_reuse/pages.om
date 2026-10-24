@@ -1,0 +1,184 @@
+note SPDX-License-Identifier: AGPL-3.0-only
+note Core718 owned host pages. No model-state composition, cache identity, disk or GPU.
+note pconfig:size,slots,budget,allocated backing,livepages,total refs,initialized.
+note Fixed module globals cost17984 bytes; runtime/process/model memory is separate.
+global pconfig ulong 7
+global pmaps long 64
+global pgens ulong 64
+global prefs ulong 64
+global pio uchar 8192
+global pcopy uchar 8192
+
+fn pslot id long to long
+if le id 0
+ret neg long 1
+end
+if ne get pconfig 6 1
+ret neg long 1
+end
+slot = and ulong id 127
+if or eq slot 0 gt slot get pconfig 1
+ret neg long 1
+end
+slot = sub slot 1
+if eq get prefs slot 0
+ret neg long 1
+end
+if ne shr ulong id 7 get pgens slot
+ret neg long 1
+end
+ret long slot
+end
+
+fn pinit size ulong slots ulong budget ulong to int
+if ne get pconfig 4 0
+ret 73
+end
+if or lt size 4096 gt size 67108864
+ret 65
+end
+if ne rem size 4096 0
+ret 65
+end
+if or eq slots 0 gt slots 64
+ret 65
+end
+if or lt budget 17984 gt budget 1125899906842624
+ret 65
+end
+put pconfig 0 size
+put pconfig 1 slots
+put pconfig 2 budget
+put pconfig 3 0
+put pconfig 4 0
+put pconfig 5 0
+put pconfig 6 1
+ret 0
+end
+
+fn pbytes to ulong
+ret add get pconfig 3 17984
+end
+
+fn pnew to long
+if ne get pconfig 6 1
+ret neg long 73
+end
+if ge get pconfig 5 1048576
+ret neg long 75
+end
+if gt add pbytes get pconfig 0 get pconfig 2
+ret neg long 75
+end
+for i ulong get pconfig 1
+if eq get prefs i 0
+if lt get pgens i 72057594037927935
+h = mapnew neg int 1 0 get pconfig 0 3 34
+if le h 0
+ret neg long 75
+end
+put pmaps i h
+put pgens i add get pgens i 1
+put prefs i 1
+put pconfig 3 add get pconfig 3 get pconfig 0
+put pconfig 4 add get pconfig 4 1
+put pconfig 5 add get pconfig 5 1
+ret long or shl get pgens i 7 add i 1
+end
+end
+end
+ret neg long 75
+end
+
+fn phold id long to int
+slot = pslot id
+if lt slot 0
+ret 73
+end
+if ge get pconfig 5 1048576
+ret 75
+end
+put prefs ulong slot add get prefs ulong slot 1
+put pconfig 5 add get pconfig 5 1
+ret 0
+end
+
+fn pfree id long to int
+slot = pslot id
+if lt slot 0
+ret 73
+end
+if eq get prefs ulong slot 1
+if ne mapdrop get pmaps ulong slot 0
+ret 74
+end
+put pmaps ulong slot 0
+put pconfig 3 sub get pconfig 3 get pconfig 0
+put pconfig 4 sub get pconfig 4 1
+end
+put prefs ulong slot sub get prefs ulong slot 1
+put pconfig 5 sub get pconfig 5 1
+ret 0
+end
+
+fn prange offset ulong count ulong to bool
+if gt count len pio
+ret false
+end
+if gt offset get pconfig 0
+ret false
+end
+ret le count sub get pconfig 0 offset
+end
+
+fn pread id long offset ulong count ulong to int
+slot = pslot id
+if lt slot 0
+ret 73
+end
+if not prange offset count
+ret 65
+end
+n = mapread get pmaps ulong slot offset pio 0 count
+ret 0
+end
+
+fn pclone from ulong dest ulong to void
+offset = ulong 0
+while lt offset get pconfig 0
+count = sub get pconfig 0 offset
+if gt count len pcopy
+count = len pcopy
+end
+n = mapread get pmaps from offset pcopy 0 count
+n = mapwrite get pmaps dest offset pcopy 0 count
+offset = add offset count
+end
+end
+
+fn pwrite id long offset ulong count ulong to long
+slot = pslot id
+if lt slot 0
+ret neg long 73
+end
+if not prange offset count
+ret neg long 65
+end
+if eq count 0
+ret id
+end
+result = id
+if gt get prefs ulong slot 1
+result = pnew
+if lt result 0
+ret result
+end
+dest = pslot result
+pclone ulong slot ulong dest
+put prefs ulong slot sub get prefs ulong slot 1
+put pconfig 5 sub get pconfig 5 1
+slot = dest
+end
+n = mapwrite get pmaps ulong slot offset pio 0 count
+ret result
+end
