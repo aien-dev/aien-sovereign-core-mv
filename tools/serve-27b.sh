@@ -16,9 +16,11 @@
 #   MAX_CONTEXT, MAX_TOKENS_CAP         default 131072 and 16384
 #   READY_TIMEOUT  seconds to wait for "ready"   default 2400 (lock queue 1800 + load)
 # Memory: the loader needs 49,497 MiB (48.3 GiB) of MemAvailable, checked after it holds the GPU lock.
+# Ready: http://127.0.0.1:$PORT/v1/models answers and lists qwen3.8-27b-fp8 (needs curl).
 # Exit: 0 ready (or started, with --no-wait), 1 a check failed or the server exited without
-#       serving (for example the loader refused for lack of memory; the reason is printed),
-#       2 still loading when READY_TIMEOUT ran out (the server keeps running).
+#       serving, whatever its exit status (for example the loader refused for lack of memory;
+#       the status and the reason are printed), 2 not ready when READY_TIMEOUT ran out (the
+#       server keeps running).
 set -euo pipefail
 
 BIN=${BIN:-$HOME/.local/bin/aien-serve-http}
@@ -36,12 +38,16 @@ for a in "$@"; do
     case "$a" in
         --foreground) FOREGROUND=1 ;;
         --no-wait) WAIT=0 ;;
-        -h|--help) sed -n "2,21p" "$0"; exit 0 ;;
+        -h|--help) sed -n "2,23p" "$0"; exit 0 ;;
         *) echo "serve-27b: unknown argument $a (try --help)" >&2; exit 1 ;;
     esac
 done
 
 fail() { echo "serve-27b: $*" >&2; exit 1; }
+[[ "$READY_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || fail "READY_TIMEOUT must be a positive number of seconds"
+if [ "$FOREGROUND" -eq 0 ] && [ "$WAIT" -eq 1 ]; then
+    command -v curl >/dev/null || fail "curl is needed to see when the server is ready (apt install curl), or pass --no-wait"
+fi
 
 [ -x "$BIN" ] || fail "server binary not found or not executable: $BIN (install it with install.sh --with-server, or set BIN)"
 # The binary must have the real Omega engine linked. A CPU stub build would start and then fail
@@ -87,19 +93,26 @@ echo $pid > "$PIDFILE"
 # A dead process (a zombie counts: this script is its parent) means the load was refused or failed.
 gone() { local s; s=$(ps -o stat= -p "$pid" 2>/dev/null || true); [ -z "$s" ] || [ "${s#Z}" != "$s" ]; }
 new_log() { tail -c +$((log_start + 1)) "$LOG"; }
+# Ready means the API answers and advertises the 27B model, not merely that the process is alive.
+api_ready() {
+    local models
+    models=$(curl --fail --silent --max-time 2 "http://127.0.0.1:$PORT/v1/models" 2>/dev/null) \
+        && grep -Eq '"id"[[:space:]]*:[[:space:]]*"qwen3\.8-27b-fp8"' <<<"$models"
+}
 
 if [ "$WAIT" -eq 1 ]; then
     echo "serve-27b: waiting for pid $pid to load the model (it may queue for the GPU lock first; log $LOG)" >&2
     t0=$SECONDS
-    until new_log | grep -q 'aien-serve-http: serving '; do
+    until api_ready; do
         if gone; then
+            rc=0; wait "$pid" 2>/dev/null || rc=$?
             rm -f "$PIDFILE"
-            echo "serve-27b: the server exited without serving; it did not start. Last log lines ($LOG):" >&2
+            echo "serve-27b: the server exited (status $rc) before http://127.0.0.1:$PORT/v1/models listed qwen3.8-27b-fp8; it did not start. Last log lines ($LOG):" >&2
             new_log | tail -n 5 | sed 's/^/  /' >&2
             exit 1
         fi
         if [ $((SECONDS - t0)) -ge "$READY_TIMEOUT" ]; then
-            echo "serve-27b: not ready after $READY_TIMEOUT s; pid $pid is still running (likely queued for the GPU lock). Watch: tail -f $LOG" >&2
+            echo "serve-27b: not ready after $READY_TIMEOUT s: http://127.0.0.1:$PORT/v1/models does not list qwen3.8-27b-fp8 yet; pid $pid is still running (likely queued for the GPU lock). Watch: tail -f $LOG" >&2
             exit 2
         fi
         [ $(((SECONDS - t0) % 60)) -eq 0 ] && [ $((SECONDS - t0)) -gt 0 ] && echo "serve-27b: still loading after $((SECONDS - t0)) s" >&2

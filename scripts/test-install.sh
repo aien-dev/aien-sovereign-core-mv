@@ -265,3 +265,6 @@ LIST="docs/qwen38/qwen3.8-27b-fp8-017b9c7a.sha256"
 grep -q "^AIEN_MODEL_LIST=\"$LIST\"$" "$ROOT/install.sh" || fail "install.sh does not read $LIST"
 grep -q '^AIEN_MODEL_REV="017b9c7af6b5689d5dd426a76e0bc077eb5ca20a"$' "$ROOT/install.sh" || fail "install.sh model revision is not 017b9c7a..."
 echo "PASS: the shipped model list has 81 well-formed lines and install.sh reads it at revision 017b9c7a"
+
+# Exercise detached startup failure, bounded readiness, API identity, ownership, and foreground behavior with fixtures.
+"$ROOT/scripts/test-serve-27b.sh"

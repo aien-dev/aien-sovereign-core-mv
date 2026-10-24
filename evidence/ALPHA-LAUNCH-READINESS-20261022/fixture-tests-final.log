@@ -1,0 +1,8 @@
+RED reproduction fixture: base helper returned 0 and printed started after child refusal
+PASS fixture: early child refusal returns nonzero, status 23, and log
+PASS fixture: child exit 0 without API readiness returns nonzero
+PASS fixture: bounded API timeout reports identity and cleans up owned process
+PASS fixture: advertised API succeeds and TERM on the recorded PID stops its owned server
+PASS fixture: existing unrelated PID is not signaled
+PASS fixture: foreground mode remains attached and writes no detached PID file
+Fixture cases passed: 6. No real model start or GPU operation was performed.
