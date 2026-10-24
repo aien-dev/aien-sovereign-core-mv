@@ -391,7 +391,11 @@ mod tests {
         cmd.args(["hash-object", "--stdin"])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped());
-        let mut child = cmd.spawn().unwrap();
+        // Through the spawn gate like every other spawn in this binary (sc#603):
+        // a raw spawn here left a child between fork and exec holding a copy of
+        // another test's GPU lock descriptor, and that test saw LockHeld after
+        // its own guard was dropped.
+        let mut child = crate::process::spawn_gated(&mut cmd).unwrap();
         std::io::Write::write_all(child.stdin.as_mut().unwrap(), b"one\n").unwrap();
         let out = child.wait_with_output().unwrap();
         assert_eq!(
