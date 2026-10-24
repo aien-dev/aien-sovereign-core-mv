@@ -33,4 +33,22 @@ The tested compiler is `seed/out/omc` from immutable Omega commit `1dffceaeb0dd2
 
 On Linux AArch64, concatenate `admission.om` and `tests.om`, pass them to that compiler on standard input, save its standard output as an executable, and run only if compilation exits zero. The expected result is `GUEST_ADMISSION_PASS 939`, exit 0. Tests use public synthetic fixtures and never load models or open network ports. Executable hashes, native output and eight compiled negative controls are recorded in `evidence/guest-access-724/`. Each negative control compiles successfully and the same tests reject it with exit 1. No external runtime or foreign-language implementation is linked.
 
+From this repository root, with `OMEGA_CHECKOUT` pointing to an existing Omega Git checkout containing the pinned commit:
+
+```sh
+set -eu
+: "${OMEGA_CHECKOUT:?Set the existing Omega checkout path}"
+guest_run=$(mktemp -d)
+git -C "$OMEGA_CHECKOUT" show 1dffceaeb0dd26fb69ea64d367a49a9950c25a62:seed/out/omc > "$guest_run/omc"
+test "$(sha256sum "$guest_run/omc" | cut -d ' ' -f 1)" = 9f48f66a9ee9f6a166df615a7ab9c48bf5b06ac2ba544ac51e52e9a3d290a6c4
+chmod u+x "$guest_run/omc"
+cat native/guest-access/admission.om native/guest-access/tests.om > "$guest_run/tests.om"
+"$guest_run/omc" < "$guest_run/tests.om" > "$guest_run/tests.elf"
+chmod u+x "$guest_run/tests.elf"
+"$guest_run/tests.elf" > "$guest_run/result.txt"
+test "$(cat "$guest_run/result.txt")" = 'GUEST_ADMISSION_PASS 939'
+"$guest_run/omc" < "$guest_run/tests.om" > "$guest_run/rebuilt.elf"
+cmp "$guest_run/tests.elf" "$guest_run/rebuilt.elf"
+```
+
 Independent final-source review, repository gates, HTTP/native model integration, external access tests and deployment remain required. The tests are author qualification, not independent approval.
