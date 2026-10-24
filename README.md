@@ -1,6 +1,6 @@
 # aien-sovereign-core
 
-[![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-blue.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 
 The Rust workspace of the AIEN host runtime and its verification tooling, running on Linux on the NVIDIA DGX Spark (Grace Blackwell GB10). It is where AIEN serves models today, where every change to the project is judged, and where releases are built and installed.
 
@@ -60,4 +60,4 @@ Read [CONSTITUTION.md](CONSTITUTION.md) and [AGENTS.md](AGENTS.md) before openin
 
 ## License and values
 
-Licensed under the GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later). See [LICENSE](LICENSE) and [NOTICE](NOTICE). Values live in the nonbinding [COVENANT.md](COVENANT.md): keep foundational advances open. It grants and restricts no legal rights. Built for NVIDIA Blackwell hardware; full notices in [ATTRIBUTION.md](ATTRIBUTION.md).
+Licensed under the Apache License, Version 2.0 (Apache-2.0). See [LICENSE](LICENSE) and [NOTICE](NOTICE). Values live in the nonbinding [COVENANT.md](COVENANT.md): keep foundational advances open. It grants and restricts no legal rights. Built for NVIDIA Blackwell hardware; full notices in [ATTRIBUTION.md](ATTRIBUTION.md).

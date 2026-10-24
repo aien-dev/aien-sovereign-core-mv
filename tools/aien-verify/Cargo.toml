@@ -2,7 +2,7 @@
 name = "aien-verify"
 version = "0.1.0"
 edition = "2021"
-license = "AGPL-3.0-or-later"
+license = "Apache-2.0"
 description = "Independent verifier for WHOLE-SYSTEM-E2E runs (std only, builds with rustc directly)"
 
 # Not a member of the repository workspace: the verifier must build alone from a clean checkout.
