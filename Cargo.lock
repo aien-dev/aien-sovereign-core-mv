@@ -180,6 +180,7 @@ dependencies = [
  "aien-omega-gpu",
  "aien-omega-moe",
  "aien-omega-pf",
+ "aien-omega-q38",
  "aien-omega-router",
  "aien-platform",
  "async-trait",
@@ -348,6 +349,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "aien-omega-q38"
+version = "0.1.0"
+dependencies = [
+ "aien-omega-gpu",
+]
+
+[[package]]
 name = "aien-omega-router"
 version = "0.1.0"
 dependencies = [
@@ -502,6 +510,7 @@ dependencies = [
  "aien-inference-abi",
  "aien-kv-store",
  "aien-omega-gpu",
+ "aien-omega-q38",
  "aien-platform",
  "aien-runtime",
  "axum 0.7.9",

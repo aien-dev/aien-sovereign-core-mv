@@ -1,0 +1,30 @@
+{
+  "chunk": 64,
+  "control_mean_nll_two_ahead": 21.251865793553417,
+  "max_abs_nll_diff": 0.2290421649152421,
+  "mean_abs_nll_diff": 0.0017853377002791978,
+  "mean_nll": 0.0877201016798218,
+  "mode": "score",
+  "next_token_accuracy": 0.9882352941176471,
+  "pass": true,
+  "perplexity": 1.0916825191580475,
+  "reference_mean_nll": 0.08707134525032276,
+  "reference_next_token_accuracy": 0.9882352941176472,
+  "reference_perplexity": 1.0909745127914456,
+  "stats": {
+    "ab_call_ns": 122127240,
+    "attn_call_ns": 41551225,
+    "attn_chip_ns": 16536455,
+    "chunks": 4,
+    "gdn_call_ns": 182613987,
+    "gdn_chip_ns": 101301434,
+    "gemm_call_ns": 680669501,
+    "gemm_chip_ns": 675768692,
+    "gemm_launches": 2048,
+    "head_ns": 0,
+    "host_ns": 443316158,
+    "tokens": 256,
+    "wall_ns": 1473807313
+  },
+  "tokens": 256
+}

@@ -24,6 +24,7 @@ aien-omega-router = { path = "../aien-omega-router" }
 aien-omega-bf16 = { path = "../aien-omega-bf16" }
 aien-omega-pf = { path = "../aien-omega-pf" }
 aien-omega-dgraph = { path = "../aien-omega-dgraph" }
+aien-omega-q38 = { path = "../aien-omega-q38" }
 parking_lot = "0.12"
 sha2 = "0.10"
 regex-syntax = "0.8"

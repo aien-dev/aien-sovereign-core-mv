@@ -1,0 +1,2 @@
+command=scripts/test-serve-27b.sh
+exit_status=0
