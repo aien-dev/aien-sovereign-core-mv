@@ -1,5 +1,44 @@
 # Complete-state reuse selection
 
+## Existing host gate
+
+`SC-NATIVE-STATE-REUSE` is a narrow host gate in the existing verification
+runner. Its inputs cover this directory, `evidence/state-reuse-718/`, its
+manifest and the existing dispatcher. It runs seven native suites and requires
+`AIEN-OBS reuse_groups 7`, exact output bytes and exit zero. It makes no
+hardware, complete-model snapshot or inference speed claim.
+
+Run through the existing entry point:
+
+```sh
+CARGO_TARGET_DIR=/home/drakestapleton/workspace/targets/L793-reuse-gate quiet-build tests/gates/run.sh native-state-reuse
+```
+
+The dispatcher reads `compiler.lock` and materializes the existing sibling
+Omega repository offline as `aien-pins/omega-reuse-native`. The explicit pin is
+`1dffceaeb0dd26fb69ea64d367a49a9950c25a62`, an **unmerged Omega PR676 dependency**,
+not the repository's `omega.lock` production dependency. `compiler.sha256`
+checks both compiler source and executable, whose SHA-256 is
+`9f48f66a9ee9f6a166df615a7ab9c48bf5b06ac2ba544ac51e52e9a3d290a6c4`.
+No network fetch or compiler substitution is permitted. The older component
+receipts below retain their original compiler identities; the gate replays
+their expected results using this explicitly pinned process/mapping profile.
+
+The dispatcher only pins, checks, stages and compiles. `gate.om` concatenates
+the existing sources, compiles each program, checks its exit and exact output,
+and emits the observation. Its process helpers follow the existing Omega
+gate669/W4 gate. Every child has a 30-second deadline; a signal or timeout is
+invalid even if another exit was expected. The exclusive scratch directory
+prevents a stale output from satisfying a new run. Scratch files, child output
+and command traces remain available after refusal.
+
+For supervisor controls, run the compiled gate in a separate fresh stage with
+its compiler path as argument one and control selector `0`, `1` or `2` as
+argument two. These respectively inject exit seven, a self-signal, or a
+45-second child sleep. All must refuse with exit 99 and no PASS observation.
+An already existing scratch directory refuses with exit 91. These controls
+are native `.om`; they do not run GPU or model work.
+
 The native Omega components in this directory advance Core #718. `policy.om` chooses between
 fresh prefill, a compatible RAM snapshot and a compatible disk snapshot by
 estimated total completion time. It does not implement snapshots, allocate

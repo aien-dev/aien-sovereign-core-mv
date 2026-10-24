@@ -1,0 +1,55 @@
+Independent reuse gate verification, 2026-10-23
+PASS:7 groups reproduced; both private negative controls refuse99 without PASS.
+No owner-tree edits, commits or publication.
+
+Gate source SHA256:
+273380746bbcb14a142b0927b3327b6c7434a0c4a43d22c254764ef2db04f97c
+Independently built gate binary SHA256:
+3c86cd5476106c5b4970184f96a6ff15682c34fdf1d38f736d9e1861f2bacf9e
+Compiler /tmp/L793-corrected-compiler/omc SHA256:
+9f48f66a9ee9f6a166df615a7ab9c48bf5b06ac2ba544ac51e52e9a3d290a6c4
+Live gate source rechecked, unchanged and matching frozen copy.
+
+Mapped suites, inspected source output and observed bytes
+policy.om + tests.om:16210 newline0 newline, output1003.
+policy.om + independent.om:24588 newline0 newline, output1006.
+pages.om + pages-test.om:37905 newline0 newline, output1009.
+pages.om + pages-independent.om:2437621 newline0 newline, output1012.
+policy.om + pages.om + page-policy.om + page-policy-test.om:
+40 newline0 newline, output1015.
+pages.om + pages-budget-test.om:empty output1018, exit0.
+pages.om + pages-quota.om:empty output1021, exit0.
+All names/indices in gate match these source paths. All five counted suites
+report their actual assertion count and zero failure count. Both empty
+suites communicate failure by nonzero return and have no success print.
+The gate requires child exit0 and exact bytes for each; empty expectation
+performs a read and requires EOF. Final observation reuse_groups7 and PASS,
+gate exit0. Artifact paths are root/build/reuse-native-gate/NUMBER.
+
+Negative controls
+badstdout private tests.om changes only its printed count:
+number get checks 0 -> number add get checks 0 1.
+Compiled test executes exit0 and prints16211 newline0 newline. Gate rejects
+this exact-byte discrepancy with99 and no PASS.
+badcompile private policy.om appends deliberately invalid native source.
+Compiler exits16; gate rejects99 and no PASS. Scratch/logs remain available.
+No repeated timeout experiment: the primary owns those controls, and the
+same supervisor control behavior was separately qualified in previous gates.
+
+Commands
+Private workspace:/tmp/L793-reuse-gate-review.
+Each root,badstdout,badcompile directory started with its own fresh
+native/state_reuse copy and empty build directory.
+  /tmp/L793-corrected-compiler/omc < gate.om > gate.elf 2> compile.log
+  chmod 700 gate.elf
+From root:
+  timeout --kill-after=2 120 ../gate.elf /tmp/L793-corrected-compiler/omc
+From each private mutation directory invoke the same command with40-second
+external safety limit. stdout.txt/stderr.txt and results.txt record outcomes.
+SHA256SUMS covers copied sources, executables, outputs and logs.
+
+Limits
+Host native suite/gate qualification only; no GPU, model serving, new
+production behavior or inference performance claims. Primary owns manifest
+and actual runner testing. No Python, new C/Rust, compiler edits or owner
+source changes. No blocking finding in this bounded repetitive verification.

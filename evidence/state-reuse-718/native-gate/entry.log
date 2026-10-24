@@ -1,0 +1,33 @@
+AIEN-OBS pin_omega_reuse_native "1dffceaeb0dd26fb69ea64d367a49a9950c25a62"
+seed/out/omc: OK
+seed/omc/omc.om: OK
+/home/drakestapleton/workspace/targets/L793-reuse-gate/aien-pins/omega-reuse-native/seed/out/omc < build/reuse-native-gate/1001 > build/reuse-native-gate/1002 2> build/reuse-native-gate/501002
+exit=0 expected=0
+build/reuse-native-gate/1002 < /dev/null > build/reuse-native-gate/1003 2> build/reuse-native-gate/501003
+exit=0 expected=0
+/home/drakestapleton/workspace/targets/L793-reuse-gate/aien-pins/omega-reuse-native/seed/out/omc < build/reuse-native-gate/1004 > build/reuse-native-gate/1005 2> build/reuse-native-gate/501005
+exit=0 expected=0
+build/reuse-native-gate/1005 < /dev/null > build/reuse-native-gate/1006 2> build/reuse-native-gate/501006
+exit=0 expected=0
+/home/drakestapleton/workspace/targets/L793-reuse-gate/aien-pins/omega-reuse-native/seed/out/omc < build/reuse-native-gate/1007 > build/reuse-native-gate/1008 2> build/reuse-native-gate/501008
+exit=0 expected=0
+build/reuse-native-gate/1008 < /dev/null > build/reuse-native-gate/1009 2> build/reuse-native-gate/501009
+exit=0 expected=0
+/home/drakestapleton/workspace/targets/L793-reuse-gate/aien-pins/omega-reuse-native/seed/out/omc < build/reuse-native-gate/1010 > build/reuse-native-gate/1011 2> build/reuse-native-gate/501011
+exit=0 expected=0
+build/reuse-native-gate/1011 < /dev/null > build/reuse-native-gate/1012 2> build/reuse-native-gate/501012
+exit=0 expected=0
+/home/drakestapleton/workspace/targets/L793-reuse-gate/aien-pins/omega-reuse-native/seed/out/omc < build/reuse-native-gate/1013 > build/reuse-native-gate/1014 2> build/reuse-native-gate/501014
+exit=0 expected=0
+build/reuse-native-gate/1014 < /dev/null > build/reuse-native-gate/1015 2> build/reuse-native-gate/501015
+exit=0 expected=0
+/home/drakestapleton/workspace/targets/L793-reuse-gate/aien-pins/omega-reuse-native/seed/out/omc < build/reuse-native-gate/1016 > build/reuse-native-gate/1017 2> build/reuse-native-gate/501017
+exit=0 expected=0
+build/reuse-native-gate/1017 < /dev/null > build/reuse-native-gate/1018 2> build/reuse-native-gate/501018
+exit=0 expected=0
+/home/drakestapleton/workspace/targets/L793-reuse-gate/aien-pins/omega-reuse-native/seed/out/omc < build/reuse-native-gate/1019 > build/reuse-native-gate/1020 2> build/reuse-native-gate/501020
+exit=0 expected=0
+build/reuse-native-gate/1020 < /dev/null > build/reuse-native-gate/1021 2> build/reuse-native-gate/501021
+exit=0 expected=0
+AIEN-OBS reuse_groups 7
+STATE_REUSE_NATIVE_GATE: PASS

@@ -1,0 +1,77 @@
+{
+  "scope": "Native state reuse existing-runner gate, host only",
+  "gate": "SC-NATIVE-STATE-REUSE",
+  "compilerSource": "1dffceaeb0dd26fb69ea64d367a49a9950c25a62",
+  "compilerSha256": "9f48f66a9ee9f6a166df615a7ab9c48bf5b06ac2ba544ac51e52e9a3d290a6c4",
+  "compilerDependency": "Unmerged Omega PR676, separate from omega.lock",
+  "normal": {
+    "command": "CARGO_TARGET_DIR=/home/drakestapleton/workspace/targets/L793-reuse-gate quiet-build timeout --kill-after=10 300 tests/gates/run.sh native-state-reuse",
+    "exit": 0,
+    "groups": 7,
+    "log": "/home/drakestapleton/workspace/targets/L793-reuse-gate/gate.log"
+  },
+  "controls": [
+    {
+      "path": "/home/drakestapleton/workspace/targets/L793-reuse-gate/control-0.bt8Y4m",
+      "exit": 99,
+      "log": "/home/drakestapleton/workspace/targets/L793-reuse-gate/aien-pins/omega-reuse-native/seed/out/omc < native/state_reuse/gate-child.om > build/reuse-native-gate/1002 2> build/reuse-native-gate/501002\nexit=0 expected=0\nbuild/reuse-native-gate/1002 < build/reuse-native-gate/1001 > build/reuse-native-gate/1003 2> build/reuse-native-gate/501003\nexit=7 expected=0\nSTATE_REUSE_NATIVE_GATE: FAIL; retain all scratch files and command output\n"
+    },
+    {
+      "path": "/home/drakestapleton/workspace/targets/L793-reuse-gate/control-1.WsTvZD",
+      "exit": 99,
+      "log": "/home/drakestapleton/workspace/targets/L793-reuse-gate/aien-pins/omega-reuse-native/seed/out/omc < native/state_reuse/gate-child.om > build/reuse-native-gate/1002 2> build/reuse-native-gate/501002\nexit=0 expected=0\nbuild/reuse-native-gate/1002 < build/reuse-native-gate/1001 > build/reuse-native-gate/1003 2> build/reuse-native-gate/501003\nINVALID child wait low-byte=9\nSTATE_REUSE_NATIVE_GATE: FAIL; retain all scratch files and command output\n"
+    },
+    {
+      "path": "/home/drakestapleton/workspace/targets/L793-reuse-gate/control-2.p88QB6",
+      "exit": 99,
+      "log": "/home/drakestapleton/workspace/targets/L793-reuse-gate/aien-pins/omega-reuse-native/seed/out/omc < native/state_reuse/gate-child.om > build/reuse-native-gate/1002 2> build/reuse-native-gate/501002\nexit=0 expected=0\nbuild/reuse-native-gate/1002 < build/reuse-native-gate/1001 > build/reuse-native-gate/1003 2> build/reuse-native-gate/501003\nINVALID child deadline exceeded; sent SIGKILL; wait low-byte=9\nSTATE_REUSE_NATIVE_GATE: FAIL; retain all scratch files and command output\n"
+    },
+    {
+      "path": "/home/drakestapleton/workspace/targets/L793-reuse-gate/control-missing.rzIDQa",
+      "exit": 99,
+      "log": "STATE_REUSE_NATIVE_GATE: FAIL; retain all scratch files and command output\n"
+    },
+    {
+      "path": "/home/drakestapleton/workspace/targets/L793-reuse-gate/control-output.jZ7vfJ",
+      "exit": 99,
+      "log": "/home/drakestapleton/workspace/targets/L793-reuse-gate/aien-pins/omega-reuse-native/seed/out/omc < build/reuse-native-gate/1001 > build/reuse-native-gate/1002 2> build/reuse-native-gate/501002\nexit=0 expected=0\nbuild/reuse-native-gate/1002 < /dev/null > build/reuse-native-gate/1003 2> build/reuse-native-gate/501003\nexit=0 expected=0\nSTATE_REUSE_NATIVE_GATE: FAIL; retain all scratch files and command output\n"
+    }
+  ],
+  "staleScratchExit": 91,
+  "sources": [
+    {
+      "path": "native/state_reuse/gate.om",
+      "sha256": "273380746bbcb14a142b0927b3327b6c7434a0c4a43d22c254764ef2db04f97c"
+    },
+    {
+      "path": "native/state_reuse/gate-child.om",
+      "sha256": "459a60da8e660ee1f433a9679bb41467074fda45997e5168e23e92ebad0d570b"
+    },
+    {
+      "path": "native/state_reuse/compiler.lock",
+      "sha256": "3b70520aa9d047e2d8b3074e1101ccf8fde5a93bb06232e6c0edba89c99c29ef"
+    },
+    {
+      "path": "native/state_reuse/compiler.sha256",
+      "sha256": "db5f815ceba1a3c9514900c89491510a02934a73236b75cc07fd24ceedf76200"
+    },
+    {
+      "path": "native/state_reuse/README.md",
+      "sha256": "3c97536b5ce82b48a6121fa2c5e68ab580ca35a9bac9906e171cd125514497c0"
+    },
+    {
+      "path": "tests/gates/sc-native-state-reuse.gate",
+      "sha256": "38e66fec00490926f0d0de09d60586dff3ef3345865013d41ec9e749c7071f27"
+    },
+    {
+      "path": "tests/gates/run.sh",
+      "sha256": "8e739982bfba8df4ecd8a530d268c1353234841495b69dd477f42c37681222cb"
+    }
+  ],
+  "limitations": [
+    "No GPU/model execution",
+    "No issue completion or hardware speed claim",
+    "No commit, push or PR operation",
+    "Actual manifest parser/runner inspection remains parent-owned"
+  ]
+}

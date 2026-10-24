@@ -1,0 +1,20 @@
+note Supervisor negative controls: known wrong exit, self-signal, deadline overrun.
+global mode uchar 1
+fn main to int
+if ne read 0 mode 0 1 1
+ret 90
+end
+m = get mode 0
+if eq m 0
+ret 7
+end
+if eq m 1
+r = killpid int getpid 9
+ret 98
+end
+if eq m 2
+r = sleepns 45000000000
+ret 98
+end
+ret 90
+end

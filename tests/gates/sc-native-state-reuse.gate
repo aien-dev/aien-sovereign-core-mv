@@ -1,0 +1,21 @@
+# Native host qualification for issue718. No model-state or hardware claim.
+gate: SC-NATIVE-STATE-REUSE
+manifest_version: 2
+owner: aien-sovereign-core
+requires:
+  - host
+inputs:
+  - native/state_reuse/
+  - evidence/state-reuse-718/
+  - tests/gates/run.sh
+  - tests/gates/sc-native-state-reuse.gate
+run:
+  exec: tests/gates/run.sh
+  args: ["native-state-reuse"]
+expects:
+  exit: 0
+  observe: ["reuse_groups == 7"]
+  verdict: PASS
+timeout: 5m
+exactness: EXACT
+cache_scope: machine

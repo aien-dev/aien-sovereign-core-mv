@@ -55,6 +55,25 @@ pin() {  # pin <dir-name> <sibling repo> <sha40>
 }
 
 case "$step" in
+  native-state-reuse)
+    # Explicit unmerged PR676 compiler dependency, separate from omega.lock.
+    # Offline pinned sibling only; no fallback to another compiler/profile.
+    omega_native_sha="$(tr -d '[:space:]' < native/state_reuse/compiler.lock)"
+    [[ "$omega_native_sha" =~ ^[0-9a-f]{40}$ ]] || exit 3
+    pin omega-reuse-native omega "$omega_native_sha"
+    compiler_root="$(cd "$PINS/omega-reuse-native" && pwd)"
+    (cd "$compiler_root" && sha256sum -c "$ROOT/native/state_reuse/compiler.sha256") || exit 3
+    [ -x "$compiler_root/seed/out/omc" ] || exit 3
+    mkdir -p "$TARGET"
+    stage="$(mktemp -d "$TARGET/reuse-check.XXXXXX")"
+    stage="$(cd "$stage" && pwd)"
+    mkdir -p "$stage/native" "$stage/build"
+    cp -R native/state_reuse "$stage/native/state_reuse"
+    timeout --kill-after=2 30 "$compiler_root/seed/out/omc" < "$stage/native/state_reuse/gate.om" > "$stage/gate.elf"
+    chmod 700 "$stage/gate.elf"
+    cd "$stage"
+    exec "$stage/gate.elf" "$compiler_root/seed/out/omc"
+    ;;
   crumb-verify)        "${CRUMB:-crumb}" verify . ;;
   # ci.yml job verify ("Workspace Verification & Invariant Audit")
   fmt)                 cargo fmt --all -- --check ;;
