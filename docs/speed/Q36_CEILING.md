@@ -171,4 +171,22 @@ never open a chip window over a CHIP-RESERVED lane, read the manual before any c
 | a7b847e5 | calc:a7b847e5765dc0f45fec204e00eedcb14fff9222bdfc9600742f0ef093f32442 | ridge 351.6 FLOP/B |
 | 521952a7 | calc:521952a7339c2650c5484bd91867db2525a7c2eae0becdfd4f5cedfebb6873b7 | MTP ~6 % at 8 rows (survey) |
 
-Wolfram: `evidence/q36-ceiling-20261024/wolfram/INDEX.md` (24 rows, request + raw reply + sha256 each).
+Wolfram: `evidence/q36-ceiling-20261024/wolfram/INDEX.md` (24 rows, request + raw reply + sha256 each). (plus 31 rows for the measured timeline, section 10)
+
+## 10. Measured: where the 1-row step goes (2026-10-24, L310)
+
+Camera: the graph's own per-launch stamps, read by `q36_levers` built from the live pins, 15 stamped tokens, chip alone, clean repeat run. Full report, receipts and raw replies: `evidence/q36-ceiling-20261024/timeline/REPORT.md`.
+
+| group | ms per token | share | floor at 273 GB/s | gap | effective GB/s |
+|---|---|---|---|---|---|
+| experts (gate_up + down) | 7.092 | 0.344 | 4.148 | 2.944 | 159.7 |
+| GDN (mix + gdn + ab) | 5.559 | 0.270 | 3.947 | 1.612 | 193.8 |
+| attention (o_proj + attn) | 3.089 | 0.150 | 1.263 | 1.827 | 111.6 |
+| exact head (4 launches) | 2.352 | 0.114 | 1.863 | 0.489 | 216.2 |
+| router (40 launches) | 1.687 | 0.082 | 0.154 | 1.532 | 25.0 |
+| no-byte kinds (res, swiglu, argmax, gather, gate, norm) | 0.712 | 0.035 | 0 | 0.712 | - |
+| step (chip, mean of 15) | 20.594 (calc:18fd24e064fae9b9) | | 11.375 (harness bytes, head corrected) | 9.117 (calc:d3863e9dca4455c5) | |
+
+Receipts for every cell are in the report (aien-calc ids, Wolfram raw replies, 31 rows, all agree). The harness reproduces the live server: 0.995 of the 20.7 ms in serve.log:11597 (calc:71911245a16960d0). Negative control: `AIEN_Q36_EXACT_HEAD=0` moved only the head, +2.322 ms (calc:701f962c929e3d3a), so the L314 lever is worth 2.32 ms per token on this build. Byte-model note: the harness counts the head as BF16 and its GDN/attention groups 133 MB above section 2; UNKNOWN which is exact (follow-up). Identity: gen-p1..p3 identical; gen-p4 differs at token index 4 from its 2026-10-20 host-oracle golden in every run, head mode independent, and the train carries no p4 case: UNKNOWN which side is right.
+
+Next lever by size: the expert kernels at 159.7 GB/s (58.5 % of the bus) with a 2.94 ms gap; then the router's 1.53 ms of pure launch latency.

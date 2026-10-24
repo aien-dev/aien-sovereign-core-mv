@@ -1,0 +1,6 @@
+2026-10-24T19:38:07Z
+9.87 11.75 9.13 4/2752 4119399
+MemAvailable 52.2 GiB
+3489680  2-16:21:29 45497572 ./aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0 --port 18091 --max-context 49
+NVIDIA GB10, 0 %
+done 2026-10-24T19:40:00Z
