@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! The local pipeline end to end, and the negative cases the mission lists
 //! (22 to 27): an altered receipt, a bad signature, a bundle from another
 //! commit, a missing required check, a hardware-scoped cached result under
@@ -1558,6 +1573,96 @@ fn worker_operator_run_of_a_config_change_is_ready_and_posts_success() {
             .contains("\"verify\":\"BLOCKED\""),
         "{journal}"
     );
+}
+
+/// A new commit of `branch` with the very same tree (a re-push, a squash
+/// merge of an up-to-date PR).
+fn same_tree_commit_on(w: &World, branch: &str) -> String {
+    git(&w.origin, &["checkout", "-q", branch]);
+    git(
+        &w.origin,
+        &["commit", "-q", "--allow-empty", "-m", "same tree"],
+    );
+    let sha = git(&w.origin, &["rev-parse", "HEAD"]);
+    git(&w.origin, &["checkout", "-q", "main"]);
+    git(&w.clone, &["fetch", "-q", "--all"]);
+    sha
+}
+
+fn bundle_check(s: &worker::Summary, id: &str) -> serde_json::Value {
+    let b: serde_json::Value = serde_json::from_slice(&fs::read(&s.bundle_path).unwrap()).unwrap();
+    b["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["gate"] == id)
+        .cloned()
+        .unwrap_or_else(|| panic!("no check {id} in {b}"))
+}
+
+/// Judge once (Drake 2026-10-20): a second head with the same tree reuses
+/// the first head's result through the shared store, the signed bundle says
+/// which receipt and which head it came from, and verify still says READY.
+#[test]
+fn another_head_reuses_through_the_shared_store_and_the_bundle_says_so() {
+    let w = world();
+    let cfg = w.config();
+    let r1 = worker::run_once(&cfg, REPO, &w.head).expect("worker r1");
+    assert_eq!(gate_status(&r1, "A"), ("run".to_string(), Verdict::Pass));
+    let receipt = bundle_check(&r1, "A")["receipt"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let head2 = same_tree_commit_on(&w, "topic");
+    let r2 = worker::run_once(&cfg, REPO, &head2).expect("worker r2");
+    assert_eq!(gate_status(&r2, "A"), ("cached".to_string(), Verdict::Pass));
+    let c = bundle_check(&r2, "A");
+    assert_eq!(c["resolution"]["resolved_from"], receipt.as_str());
+    assert_eq!(c["resolution"]["resolved_from_commit"], w.head.as_str());
+    assert!(r2.ready, "{:?}", r2.notes);
+    assert_eq!(r2.verdict, Verdict::Pass, "{}", r2.reason);
+
+    // A head one declared byte away runs A again.
+    let head3 = commit_on(&w, "topic", &[("a/a.txt", "a3\n")], "change a");
+    let r3 = worker::run_once(&cfg, REPO, &head3).expect("worker r3");
+    assert_eq!(gate_status(&r3, "A"), ("run".to_string(), Verdict::Pass));
+}
+
+/// A batch of two heads with one tree runs each shared gate once: one head
+/// runs it, the other reuses it, and both bundles are READY.
+#[test]
+fn a_batch_runs_a_shared_gate_once_for_all_its_heads() {
+    let w = world();
+    let mut cfg = w.config();
+    cfg.batch_host = Some(2);
+    let head2 = same_tree_commit_on(&w, "topic");
+    let out = worker::run_batch(&cfg, REPO, &[w.head.clone(), head2.clone()]);
+    assert_eq!(out.len(), 2);
+    let mut statuses = Vec::new();
+    for (sha, r) in &out {
+        let s = r.as_ref().unwrap_or_else(|e| panic!("{sha}: {e}"));
+        assert!(s.ready, "{sha}: {:?}", s.notes);
+        assert_eq!(s.verdict, Verdict::Pass, "{sha}: {}", s.reason);
+        statuses.push(gate_status(s, "A").0);
+    }
+    statuses.sort();
+    assert_eq!(statuses, vec!["cached".to_string(), "run".to_string()]);
+}
+
+/// One judge per head: a second judge of a head that is being judged is
+/// refused at once, before any checkout.
+#[test]
+fn a_head_being_judged_is_refused_to_a_second_judge() {
+    let w = world();
+    let cfg = w.config();
+    let held = worker::claim_head(&w.state, REPO, &w.head)
+        .unwrap()
+        .expect("free");
+    let e = worker::run_once(&cfg, REPO, &w.head).expect_err("refused");
+    assert!(e.contains("already being judged"), "{e}");
+    drop(held);
+    assert!(worker::run_once(&cfg, REPO, &w.head).is_ok());
 }
 
 #[test]

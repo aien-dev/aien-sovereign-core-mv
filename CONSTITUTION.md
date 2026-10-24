@@ -1,6 +1,6 @@
 # The Sovereign AI Constitution
 
-> **Governance Notice:** This Constitution serves exclusively as the internal architectural charter, technical doctrine, and engineering standard for the upstream AIEN Sovereign AI Ecosystem. It does not modify, condition, restrict, or supplement the license granted to users of AIEN software, the GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later, see LICENSE). Adopting, enforcing, or retaining this internal charter is not a condition of that license.
+> **Governance Notice:** This Constitution serves exclusively as the internal architectural charter, technical doctrine, and engineering standard for the upstream AIEN Sovereign AI Ecosystem. It does not modify, condition, restrict, or supplement the license granted to users of AIEN software, the Apache License, Version 2.0 (Apache-2.0, see LICENSE). Adopting, enforcing, or retaining this internal charter is not a condition of that license.
 
 ## Preamble
 
@@ -32,7 +32,7 @@ This Constitution establishes our foundational principles, our engineering stand
 
 ### Section 3. Upstream Architectural Charter and Downstream Freedom
 1. This Constitution serves as the internal architectural charter, technical doctrine, and engineering standard for the upstream AIEN Sovereign AI Ecosystem and its core repositories.
-2. Downstream forks, independent applications, client libraries, and commercial distributions are governed by the terms of the AGPL-3.0-or-later (see [LICENSE](LICENSE)). This internal development charter adds no condition to that license.
+2. Downstream forks, independent applications, client libraries, and commercial distributions are governed by the terms of Apache-2.0 (see [LICENSE](LICENSE)). This internal development charter adds no condition to that license.
 3. Legal Decoupling: Legal rights, grants, and warranties reside exclusively within the formal LICENSE and NOTICE documents, and artifact licensing policies outlined in [ARTIFACT_LICENSING.md](ARTIFACT_LICENSING.md). This Constitution imposes zero behavioral covenants or philosophical constraints on downstream users, ensuring standard open-source compatibility across public package registries, corporate environments, and independent commercial deployments.
 
 ### Section 4. The Zero-Surveillance Invariant
@@ -42,11 +42,11 @@ Privacy and mutual trust form the basis of open cooperation.
 3. Leaking user data or secret keys is treated as a critical defect requiring immediate remediation.
 
 ### Section 5. The One Team Principle and Reciprocal Cooperation
-1. What we discover, we share openly. What we construct in software, we release under the AGPL-3.0-or-later, so that improvements stay open.
+1. What we discover, we share openly. What we construct in software, we release under Apache-2.0 and publish our improvements, so that they stay open in practice.
 2. Knowledge must remain accessible to the human family. We share tools freely with individuals, startups, and community builders while encouraging reciprocal weight transparency and distillation access from frontier laboratories.
 3. Upstream contributions are foundational: any public open-source project adapted to run on our stack is contributed back upstream. We never hoard fixes or improvements.
 4. Voluntary Bilateral Cooperation and Reciprocal Commons:
-Hardware manufacturers (including NVIDIA, AMD, Intel, Apple) and compute providers (such as RunPod, Lambda, and independent data centers) may adopt, embed, and deploy our runtime stack under the terms of the AGPL-3.0-or-later to improve hardware efficiency, eliminate memory overhead, and expand bandwidth for developers.
+Hardware manufacturers (including NVIDIA, AMD, Intel, Apple) and compute providers (such as RunPod, Lambda, and independent data centers) may adopt, embed, and deploy our runtime stack under the terms of Apache-2.0 to improve hardware efficiency, eliminate memory overhead, and expand bandwidth for developers.
 For organizations seeking deeper bilateral research cooperation, model weight transparency, distillation reciprocity, or joint compute pooling, the voluntary terms of [OPEN_COOPERATION_COVENANT.md](OPEN_COOPERATION_COVENANT.md) provide a collaborative framework.
 
 ### Section 6. The Contributor Oath
@@ -102,7 +102,7 @@ To maintain code quality, security, and mutual trust:
    - **Critical Invariants (Hard Blocking Gates)**: Pull requests must pass automated audits for hardware-backed secret protection at rest, no unsolicited outbound telemetry, and license integrity. Violations result in automatic PR rejection.
    - **Stylistic and Unslop Standards (Core Standards & Community Advisory)**: The unslop invariant is enforced across core repositories, internal agents, and official releases. For outside community pull requests, style audits provide automated formatting suggestions rather than immediate rejection.
 2. **Integrity of Purpose**: Submissions attempting to introduce surveillance hooks, covert tracking SDKs, or extractive lock-in mechanisms will be rejected.
-3. **Open Downstream Terms**: Downstream users, forks, and commercial builders operate under the terms of the AGPL-3.0-or-later (see LICENSE).
+3. **Open Downstream Terms**: Downstream users, forks, and commercial builders operate under the terms of Apache-2.0 (see LICENSE).
 4. **Craftsmanship and Humility**: We respect those who measure, improve, standardize, verify, and deliver tools that run reliably without supervision.
 
 ---

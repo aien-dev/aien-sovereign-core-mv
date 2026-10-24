@@ -251,13 +251,42 @@ The one rule:
    worker records each sibling made (`name` = its `dir`) and each operator
    pin (`name` = `pin:<source>`) with its commit in the receipt's `pins`,
    which is part of the cache key. The worker's evidence directory is per
-   head (`evidence/<repo>/<sha>/`), so a result is reused only when the same
-   commit runs again with every sibling at the same commit; a sibling that
-   moved runs every gate fresh. A declared sibling that cannot be made turns
-   the cache off for the head (`no_cache`). Results are never reused across
-   commits in the worker: gates read files they do not declare as `inputs`
-   (SC-TEST reads the root `README.md` and `COVENANT.md`), so a key built
-   from declared inputs alone could hand a commit another commit's PASS.
+   head (`evidence/<repo>/<sha>/`); results cross heads only through the
+   shared store `<state>/gate-cache/<repo>/` (judge once, Drake 2026-10-20),
+   and only as far as the gate allows (`cache::cross_head`):
+   - **Never across heads:** `cache: never`, gb10/nvrm (chip state),
+     bare_metal/analog, `requires: operator`, `cache_scope: hardware`,
+     APPROXIMATE/ADVISORY. These keep the per-head cache only.
+   - **Whole tree identical:** every other gate, by default. Gates read files
+     they do not declare (SC-TEST reads the root `README.md` and
+     `COVENANT.md`), so declared inputs alone could hand a commit another
+     commit's PASS. Two heads with the same tree id (a squash merge of an
+     up-to-date PR, a re-push, a duplicate PR) share every such result.
+   - **Declared inputs identical:** a gate whose manifest says
+     `cache: inputs_complete`, the author's promise that `inputs` name every
+     file the gate reads. Any head with the same key reuses it.
+     A promise is checked, not trusted: `aien-audit-inputs GATE_FILE` runs the
+     gate once under `strace -f -y -Y` (cold target dir, private TMPDIR) and
+     lists every file it opened that the manifest does not cover; RESULT FAIL
+     means the promise is false. Three manifest keys say what `inputs` alone
+     cannot (L335): `outside_inputs` (files outside the repository, `~/` or
+     absolute, hashed into the key: the PREFILL-E2E-2 checkpoint), `listed`
+     (directories whose entry names, not bytes, join the key: cargo lists
+     `tests/`, `src/bin/`, `examples/` of every workspace member to load the
+     workspace) and `*` patterns in `inputs` and `listed`
+     (`crates/*/Cargo.toml`). `target_lock: none` lets a gate that never
+     starts cargo (the audit refuses it if it does) skip the head's target-dir
+     lock instead of queueing behind every cargo gate.
+   The key adds the repository build files (`runner::IMPLIED_BUILD_FILES`:
+   Cargo.toml, Cargo.lock, rust-toolchain(.toml), .cargo/config(.toml),
+   native-artifacts.lock, mojoproject.toml) and the judge's own sha256
+   (`machine.judge_sha256`), so an entry dies with a new judge or exec
+   helper. A FAIL is reused as FAIL. The reuse receipt says
+   `volatile.cache.reused_from` and `reused_from_commit`; the bundle entry
+   is `cached` with `resolution.resolved_from` and `resolved_from_commit`.
+   One flock per entry (`locks/<entry>.lock`) makes a second judge of the
+   same key wait and reuse instead of running it again. A declared sibling
+   that cannot be made turns the cache off for the head (`no_cache`).
 
 `wt.sh remove` takes the whole run directory away (checkout and siblings)
 and prunes every mirror's worktree list. An older `wt.sh` that still makes
@@ -381,13 +410,34 @@ Forgejo). Merging a pull request on GitHub does not wake it.
 
 `--jobs host=N,qemu=M` and `--no-cache` apply to the runs the worker starts,
 as they do for `aien-test test`. `--no-cache` runs every selected gate again
-(a head reuses only its own earlier results, see "Sibling checkouts"). `--jobs host=1`
+(results come from this head or, through the shared store, from another head
+with the same key, see "Sibling checkouts"). `--jobs host=1`
 runs one host gate at a time: omega's gates share one checkout's `build/`
 and pin clones, and on main 771af52 ten of them failed from parallel races
 ("Text file busy" on `build/omegatool`, concurrent clones of
 `build/pins/aienos-src`); its operator runs use
 `aien-local-ci once omega <sha> --operator --jobs host=1` until the gates or
 a per-repository pool setting make them safe in parallel.
+
+### Batches: shared gates once and first (judge once, 2026-10-20)
+
+`aien-test worker --batch REPO SHA SHA...` judges several heads of one
+repository together, and the loop does the same for the heads it finds of
+one repository, `--batch-heads N` at a time (default 6). The heads run side
+by side; each gate that will really run takes a slot of one budget the batch
+shares, `--batch-host N` host slots (default half the CPUs), and every gb10
+gate takes the batch's single gb10 slot before `/tmp/aien-gb10.lock`, so GPU
+gates stay one at a time and heads never spend their bounded GPU wait on each
+other. A gate that other heads of the batch also select (same manifest, same
+blob ids for its inputs and the repository build files, read from git before
+checkout: `worker::batch_first`) is picked first in its head and served first
+from the budget, so the shared gates run before the per-head ones. Two heads
+that reach the same key meet at that key's lock: the second waits, then
+reuses. The ordering is only a hint; the cache key alone decides reuse. A
+head is judged by one worker at a time (`<state>/locks/head/<repo>.<sha>.lock`,
+non-blocking: a second judge of the same head is refused), and checkouts,
+pins, siblings and worktree removal are done one head at a time.
+`--jobs host=1` still limits each head's own pool (omega).
 
 ## verify-bundle and the vacuous PASS
 
@@ -435,10 +485,11 @@ manifest at COMMIT (`MANIFEST_MISMATCH`); then the plan judge. Every
 rejection is a `Problem` or `Evidence note` line and leaves READY out of
 reach; no path defaults to PASS. Crumb status comes from `crumb verify .` in a temporary
 detached worktree at COMMIT, removed afterwards. Queue time is the sum of
-`pool_wait_ms`, GPU lock wait the sum of `gpu_wait.waited_ms` (gb10 gates:
+`pool_wait_ms`, `batch_wait_ms` (waiting for a slot of the `worker --batch`
+budget) and `target_wait_ms` (waiting for the target dir another gate holds), GPU lock wait the sum of `gpu_wait.waited_ms` (gb10 gates:
 how long each waited in the kernel queue of `/tmp/aien-gb10.lock`, see
 below), test time the sum of `duration_ms` over the executed
-receipts, total time the bundle's `finished_utc - started_utc`; build time
+receipts less those two waits (both fall inside `duration_ms`), total time the bundle's `finished_utc - started_utc`; build time
 is not measured yet.
 
 `READY` requires: evidence VERIFIED, final verdict PASS, crumb CURRENT, no

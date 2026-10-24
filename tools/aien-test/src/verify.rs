@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! `aien-test verify COMMIT`: the independent check of a local verification
 //! (ADR 0033 Decision 10, contracts C4 to C6, amendments A1 and A7).
 //!
@@ -667,8 +682,12 @@ pub fn run(root: &Path, ask: &Ask) -> Report {
         _ => "NOT_RUN".to_string(),
     };
     lines.push(format!("Final verdict: {final_verdict}"));
-    let queue = sum_u64(&found.index, &run_digests, "/pool_wait_ms");
-    let test = sum_u64(&found.index, &run_digests, "/duration_ms");
+    // A gate's batch-slot and target-dir waits fall inside its `duration_ms`;
+    // they are queue time, not test time.
+    let held = sum_u64(&found.index, &run_digests, "/batch_wait_ms").unwrap_or(0)
+        + sum_u64(&found.index, &run_digests, "/target_wait_ms").unwrap_or(0);
+    let queue = sum_u64(&found.index, &run_digests, "/pool_wait_ms").map(|q| q + held);
+    let test = sum_u64(&found.index, &run_digests, "/duration_ms").map(|t| t.saturating_sub(held));
     let gpu_wait = sum_u64(&found.index, &run_digests, "/gpu_wait/waited_ms");
     let total = bundle.as_ref().and_then(|b| {
         let s = utc_secs(b["started_utc"].as_str()?)?;
