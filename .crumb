@@ -100,8 +100,8 @@
           "purpose": ""
         },
         {
-          "digest": "9b7fda48c21bdd569d309c2e0b15a23749adbe36533c47ab53335589ce90d048",
-          "last_commit": "9290dd4f",
+          "digest": "c3d8363c100c46263d860c84ba9b16a215b7f3cb686d968af645d851f9fe9ee9",
+          "last_commit": "f8d68be6",
           "name": "evidence",
           "purpose": "Verification receipts for repository repairs"
         },
@@ -124,15 +124,15 @@
           "purpose": "Local CI sandbox exec contract (C8), aien-run user/caches install, Forgejo trigger hook, health "
         }
       ],
-      "children_root": "sha256:c8ec699ee13598bff7cab3b57c37e4b118285aeae93c21ccae33a3e3c11eede6",
-      "compiled_at": "2026-10-24T01:02:32Z",
+      "children_root": "sha256:b45569a73460fe094abcf0d316511acbabf01f04524211816ed2716dde2a878e",
+      "compiled_at": "2026-10-24T01:02:44Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:ce8eeae143c6468af74d741d7eec26f31d44376dce2d21e44de9283cc624100e",
-      "evidence_files": 1583,
-      "evidence_root": "sha256:4ccfacff8f7402725613b9ce6cb01995a9b208563c1549f914bb03acbe185b05",
-      "files": 5900,
-      "generated_at_commit": "9290dd4f4b4e977dde55a4deb836836ae830226c",
-      "source_tree": "sha256:4bc4f8b53cee7e7d751b919a510406fab6764988ba6d685b7f4ca9273bd1668b"
+      "digest": "sha256:e89fe2e50ce881a24ce1e4436afe627fd8691eef16e342922ee474505d2bd336",
+      "evidence_files": 1590,
+      "evidence_root": "sha256:4e6b161886e69ff23298e0ceddfe77356a66ccce663344c9b161949816d68c18",
+      "files": 5907,
+      "generated_at_commit": "f8d68be646688e0b7578598f8c11d57aa146412c",
+      "source_tree": "sha256:16ff24b64ae8f685f3924ad169a35f6490935826e4ab0b59ab51e2ba4a075f4e"
     }
   },
   "history": [],
