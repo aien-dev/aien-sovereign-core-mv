@@ -30,6 +30,12 @@
 //! present, and that the declared verdict is what the verdict algebra gives.
 //! Any mismatch is a rejection with a code, never a PASS.
 //!
+//! `plan.scope` (signed with the rest) says what the worker planned: `full`
+//! (every gate at HEAD, an Alpha qualification) or `changed` (the gates the
+//! diff selects). A bundle without it is `changed`. `verify-bundle
+//! --require-full` rejects (NOT_FULL_SCOPE) any bundle whose scope is not
+//! `full`.
+//!
 //! Verdict algebra (Decision 7, applied to a bundle): PASS only if every
 //! `required` entry ran or was resolved from cache with verdict PASS; FAIL if
 //! any required entry is FAIL; otherwise NOT_RUN. Entries with
@@ -64,6 +70,12 @@ pub const VERDICTS: [&str; 6] = [
     "MISSING_IMPLEMENTATION",
 ];
 pub const EXACTNESS: [&str; 4] = ["EXACT", "BOUNDED", "APPROXIMATE", "ADVISORY"];
+/// `plan.scope`: every gate at HEAD (an Alpha qualification).
+pub const SCOPE_FULL: &str = "full";
+/// `plan.scope`: the gates the diff selects. A bundle without the member (or
+/// without a `plan`) is this scope.
+pub const SCOPE_CHANGED: &str = "changed";
+pub const SCOPES: [&str; 2] = [SCOPE_FULL, SCOPE_CHANGED];
 
 /// Why a bundle was refused. The code is what the GitHub log and the operator
 /// see; the text says which member.
@@ -85,6 +97,8 @@ pub enum Reject {
     MissingRequiredCheck(String),
     /// The declared `verdict` is not what the entries give.
     VerdictInconsistent { declared: String, computed: String },
+    /// `--require-full`: the signed plan scope is not `full`.
+    NotFullScope(String),
 }
 
 impl Reject {
@@ -98,6 +112,7 @@ impl Reject {
             Reject::UnknownExecutor => "UNKNOWN_EXECUTOR",
             Reject::MissingRequiredCheck(_) => "MISSING_REQUIRED_CHECK",
             Reject::VerdictInconsistent { .. } => "VERDICT_INCONSISTENT",
+            Reject::NotFullScope(_) => "NOT_FULL_SCOPE",
         }
     }
 }
@@ -136,6 +151,10 @@ impl fmt::Display for Reject {
                     "VERDICT_INCONSISTENT: bundle says {declared}, entries give {computed}"
                 )
             }
+            Reject::NotFullScope(scope) => write!(
+                f,
+                "NOT_FULL_SCOPE: plan scope is {scope}, not a full-scope (Alpha) qualification"
+            ),
         }
     }
 }
@@ -151,6 +170,8 @@ pub struct Verified {
     /// The worker's `plan.verdict` member when the bundle carries one (signed
     /// with the rest). None for a bundle without a plan member.
     pub plan_verdict: Option<String>,
+    /// The signed `plan.scope`: `full` or `changed` (the default).
+    pub scope: String,
 }
 
 impl Verified {
@@ -177,6 +198,9 @@ pub struct Expect {
     /// means "whatever the bundle marks required", which is weaker; the gate
     /// should pass its own list.
     pub required: Vec<String>,
+    /// `--require-full`: refuse (NOT_FULL_SCOPE) unless the signed plan scope
+    /// is `full`.
+    pub require_full: bool,
 }
 
 // ---------------------------------------------------------------- hex
@@ -405,7 +429,27 @@ fn validate(bundle: &Value) -> Result<(&Map<String, Value>, Entries), Reject> {
     if gates.windows(2).any(|w| w[0] == w[1]) {
         return Err(Reject::Schema("checks[] lists a gate twice".to_string()));
     }
+    // `plan.scope`, when present, is one of the two scopes; anything else is
+    // not a bundle this verifier understands.
+    if let Some(p) = o.get("plan") {
+        let p = p
+            .as_object()
+            .ok_or_else(|| Reject::Schema("plan must be an object".to_string()))?;
+        if p.contains_key("scope") {
+            one_of(p, "scope", &SCOPES)?;
+        }
+    }
     Ok((o, out))
+}
+
+/// The bundle's `plan.scope`: `full`, or `changed` when the member (or the
+/// whole `plan`) is absent, as in every bundle written before scopes existed.
+/// Unvalidated: `verify` refuses an unknown value.
+pub fn scope_of(bundle: &Value) -> &str {
+    match bundle["plan"]["scope"].as_str() {
+        Some(s) if SCOPES.contains(&s) => s,
+        _ => SCOPE_CHANGED,
+    }
 }
 
 // ---------------------------------------------------------------- sign
@@ -494,6 +538,11 @@ pub fn verify(bundle: &Value, expect: &Expect) -> Result<Verified, Reject> {
     if o["executor"]["id"].as_str() != Some(fingerprint(&vk).as_str()) {
         return Err(Reject::UnknownExecutor);
     }
+    // The scope is signed: checked only once the signature holds.
+    let scope = scope_of(bundle).to_string();
+    if expect.require_full && scope != SCOPE_FULL {
+        return Err(Reject::NotFullScope(scope));
+    }
     for g in &expect.required {
         match entries.iter().find(|e| &e.0 == g) {
             None => return Err(Reject::MissingRequiredCheck(g.clone())),
@@ -528,6 +577,7 @@ pub fn verify(bundle: &Value, expect: &Expect) -> Result<Verified, Reject> {
         plan_verdict: o
             .get("plan")
             .map(|p| p["verdict"].as_str().unwrap_or("NOT_RUN").to_string()),
+        scope,
     })
 }
 
@@ -536,8 +586,12 @@ pub fn verify(bundle: &Value, expect: &Expect) -> Result<Verified, Reject> {
 pub const USAGE: &str = "usage:
   aien-test keygen KEY_FILE
   aien-test bundle-sign BUNDLE.json --key KEY_FILE [--out SIGNED.json]
-  aien-test verify-bundle BUNDLE.json --repo github.com/OWNER/REPO --commit SHA40 --pubkey FILE_OR_HEX [--require GATE[,GATE...]]
+  aien-test verify-bundle BUNDLE.json --repo github.com/OWNER/REPO --commit SHA40 --pubkey FILE_OR_HEX [--require GATE[,GATE...]] [--require-full]
+  --require-full: REJECTED unless the signed plan scope is full (an Alpha qualification)
 exit: 0 PASS, 1 FAIL, 2 NOT_RUN or usage, 3 REJECTED";
+
+/// Flags of the bundle commands that take no value.
+const BOOL_FLAGS: [&str; 1] = ["--require-full"];
 
 pub fn is_bundle_command(name: &str) -> bool {
     matches!(name, "keygen" | "bundle-sign" | "verify-bundle")
@@ -579,7 +633,10 @@ fn cli_inner(argv: &[String]) -> Result<i32, String> {
     let positional: Vec<&String> = argv[1..]
         .iter()
         .enumerate()
-        .filter(|(i, a)| !a.starts_with("--") && (*i == 0 || !argv[*i].starts_with("--")))
+        .filter(|(i, a)| {
+            !a.starts_with("--")
+                && (*i == 0 || !argv[*i].starts_with("--") || BOOL_FLAGS.contains(&argv[*i].as_str()))
+        })
         .map(|(_, a)| a)
         .collect();
     match name {
@@ -626,6 +683,7 @@ fn cli_inner(argv: &[String]) -> Result<i32, String> {
                 commit,
                 pubkey_hex,
                 required,
+                require_full: argv[1..].iter().any(|a| a == "--require-full"),
             };
             match verify(&bundle, &expect) {
                 Ok(v) => {
@@ -714,6 +772,7 @@ mod tests {
             commit: COMMIT.to_string(),
             pubkey_hex: hex_encode(sk.verifying_key().as_bytes()),
             required: vec!["crumb.verify".to_string(), "crypto.native".to_string()],
+            require_full: false,
         };
         (sk, signed, expect)
     }
@@ -957,6 +1016,7 @@ mod tests {
             required,
             cached: 0,
             plan_verdict: plan.map(str::to_string),
+            scope: SCOPE_CHANGED.to_string(),
         };
         assert_eq!(v("PASS", 1, None).gate_verdict(), "PASS");
         assert_eq!(v("PASS", 1, Some("PASS")).gate_verdict(), "PASS");
@@ -971,5 +1031,96 @@ mod tests {
         );
         assert_eq!(v("FAIL", 2, Some("NOT_RUN")).gate_verdict(), "FAIL");
         assert_eq!(v("NOT_RUN", 2, Some("PASS")).gate_verdict(), "NOT_RUN");
+    }
+
+    /// `good()`'s required checks with a `plan` member of `scope` (None: a
+    /// plan written before scopes existed).
+    fn scoped(sk: &SigningKey, scope: Option<&str>) -> Value {
+        let mut b = unsigned(
+            sk,
+            vec![
+                entry("crumb.verify", "EXACT", true, "run", "PASS"),
+                entry("crypto.native", "EXACT", true, "cached", "PASS"),
+            ],
+            "PASS",
+        );
+        b["plan"] = json!({ "verdict": "PASS", "reason": "", "unmapped": [], "removed": [], "blocked": null });
+        if let Some(s) = scope {
+            b["plan"]["scope"] = json!(s);
+        }
+        sign(&b, sk).expect("sign")
+    }
+
+    #[test]
+    fn a_bundle_without_a_scope_is_changed_scope() {
+        let (sk, old, e) = good();
+        // No `plan` at all, and a `plan` written before scopes existed.
+        assert_eq!(scope_of(&old), SCOPE_CHANGED);
+        assert_eq!(verify(&old, &e).unwrap().scope, "changed");
+        let b = scoped(&sk, None);
+        assert_eq!(scope_of(&b), SCOPE_CHANGED);
+        let v = verify(&b, &e).unwrap();
+        assert_eq!((v.scope.as_str(), v.gate_verdict()), ("changed", "PASS"));
+        let v = verify(&scoped(&sk, Some("full")), &e).unwrap();
+        assert_eq!((v.scope.as_str(), v.gate_verdict()), ("full", "PASS"));
+        // Any other scope is not a bundle this verifier reads.
+        let mut bad = unsigned(&sk, vec![], "PASS");
+        bad["plan"] = json!({ "verdict": "PASS", "scope": "everything" });
+        assert!(matches!(sign(&bad, &sk).unwrap_err(), Reject::Schema(_)));
+    }
+
+    #[test]
+    fn the_scope_is_signed() {
+        let (sk, _, e) = good();
+        let mut b = scoped(&sk, Some("changed"));
+        b["plan"]["scope"] = json!("full");
+        assert_eq!(verify(&b, &e).unwrap_err(), Reject::BadSignature);
+        let mut b = scoped(&sk, None);
+        b["plan"]["scope"] = json!("full");
+        assert_eq!(verify(&b, &e).unwrap_err(), Reject::BadSignature);
+        let mut b = scoped(&sk, Some("full"));
+        b["plan"]["scope"] = json!("changed");
+        assert_eq!(verify(&b, &e).unwrap_err(), Reject::BadSignature);
+    }
+
+    #[test]
+    fn require_full_rejects_a_changed_scope_pass_with_exit_3() {
+        let (sk, old, e) = good();
+        let dir = crate::testutil::TempDir::new("verify-bundle-full");
+        let write = |name: &str, b: &Value| {
+            let p = dir.path().join(name);
+            fs::write(&p, canonical(b).unwrap()).unwrap();
+            p.display().to_string()
+        };
+        let changed = write("changed.json", &scoped(&sk, Some("changed")));
+        let unscoped = write("unscoped.json", &old);
+        let full = write("full.json", &scoped(&sk, Some("full")));
+        let run = |path: &str, require_full: bool| {
+            let mut argv = vec!["verify-bundle".to_string()];
+            // The bool flag before the file must not swallow it.
+            if require_full {
+                argv.push("--require-full".to_string());
+            }
+            argv.extend(
+                [path, "--repo", REPO, "--commit", COMMIT, "--pubkey", &e.pubkey_hex]
+                    .map(str::to_string),
+            );
+            cli_main(&argv)
+        };
+        assert_eq!(run(&changed, false), 0);
+        assert_eq!(run(&changed, true), 3);
+        assert_eq!(run(&unscoped, true), 3);
+        assert_eq!(run(&full, true), 0);
+        assert_eq!(run(&full, false), 0);
+        let mut strict = e.clone();
+        strict.require_full = true;
+        let r = verify(&scoped(&sk, Some("changed")), &strict).unwrap_err();
+        assert_eq!(r, Reject::NotFullScope("changed".to_string()));
+        assert_eq!(r.code(), "NOT_FULL_SCOPE");
+        assert_eq!(
+            format!("AIEN Verification: REJECTED {r}"),
+            "AIEN Verification: REJECTED NOT_FULL_SCOPE: plan scope is changed, not a full-scope (Alpha) qualification"
+        );
+        assert_eq!(verify(&scoped(&sk, Some("full")), &strict).unwrap().scope, "full");
     }
 }

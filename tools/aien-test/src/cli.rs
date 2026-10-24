@@ -22,12 +22,15 @@
 //! aien-test why GATE_FILE_OR_NAME [flags]
 //! aien-test list [flags]
 //! aien-test identity GATE_FILE_OR_NAME [--compiler-identity S] [--flag F]... [--hardware-identity S]
-//! aien-test plan [--base REF] [--repo NAME] [--operator] [--allow-dirty]
+//! aien-test plan [--base REF] [--repo NAME] [--operator] [--allow-dirty] [--full]
 //! aien-test status [--state-dir DIR]
 //! aien-test verify COMMIT [--repo NAME] [--base REF] [--state-dir DIR] [--release]
-//! aien-test worker [--once REPO SHA | --batch REPO SHA...] [--batch-host N] [--batch-heads N] [--poll SECS] [--repos LIST] [--github] [--iterations N]
+//! aien-test worker [--once REPO SHA | --batch REPO SHA...] [--full] [--batch-host N] [--batch-heads N] [--poll SECS] [--repos LIST] [--github] [--iterations N]
 //!                  [--state-dir DIR] [--key FILE] [--clones DIR] [--wt-root DIR] [--wt-tool FILE] [--siblings FILE] [--sandbox user|none --dev-unsandboxed]
 //! ```
+//!
+//! `--full` (plan, worker): full scope, an Alpha qualification. Every gate at
+//! HEAD is selected whatever changed and the bundle signs `plan.scope: full`.
 //!
 //! `--host/--qemu/--gb10` and `--mutants` are later slices and are refused.
 
@@ -41,13 +44,14 @@ pub const USAGE: &str = "usage:
   aien-test why GATE_FILE_OR_NAME [flags]
   aien-test list [flags]
   aien-test identity GATE_FILE_OR_NAME [--compiler-identity S] [--flag F]... [--hardware-identity S]
-  aien-test plan [--base REF] [--repo NAME] [--operator] [--allow-dirty]
+  aien-test plan [--base REF] [--repo NAME] [--operator] [--allow-dirty] [--full]
   aien-test status [--state-dir DIR]
   aien-test verify COMMIT [--repo NAME] [--base REF] [--state-dir DIR] [--release]
-  aien-test worker [--once REPO SHA | --batch REPO SHA...] [--batch-host N] [--batch-heads N] [--poll SECS] [--repos A,B] [--github] [--iterations N]
+  aien-test worker [--once REPO SHA | --batch REPO SHA...] [--full] [--batch-host N] [--batch-heads N] [--poll SECS] [--repos A,B] [--github] [--iterations N]
                    [--state-dir DIR] [--key FILE] [--clones DIR] [--wt-root DIR] [--wt-tool FILE] [--siblings FILE] [--sandbox user|none --dev-unsandboxed]
 flags: --evidence-dir DIR  --allow-dirty  --no-cache  --release  --jobs host=N,qemu=M  --gpu-wait 0|DURATION  --wait-gpu
-       --sandbox none|user  --base REF  --operator  --shared-cache DIR (run)";
+       --sandbox none|user  --base REF  --operator  --shared-cache DIR (run)
+       --full (plan, worker): full scope, every gate at HEAD (an Alpha qualification)";
 
 /// Which gates `test` runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,6 +119,9 @@ pub struct Cli {
     pub repo: Option<String>,
     /// `--operator`: allow a pipeline configuration change.
     pub operator: bool,
+    /// `--full` (plan, worker): full scope, every gate at HEAD whatever
+    /// changed (an Alpha qualification).
+    pub full: bool,
     /// `--state-dir DIR`: the local CI state (default `~/.local/state/aien-local-ci`).
     pub state_dir: Option<PathBuf>,
     /// worker: `--key FILE` (default `~/.aien/verify.key`).
@@ -216,6 +223,7 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
     let mut base: Option<String> = None;
     let mut repo: Option<String> = None;
     let mut operator = false;
+    let mut full = false;
     let mut state_dir: Option<PathBuf> = None;
     let mut key: Option<PathBuf> = None;
     let mut clones: Option<PathBuf> = None;
@@ -278,6 +286,8 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
             });
         } else if a == "--operator" {
             operator = true;
+        } else if a == "--full" {
+            full = true;
         } else if a == "--base" {
             base = Some(value(&mut i, a)?);
         } else if a == "--repo" {
@@ -404,6 +414,9 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
     if operator && !["plan", "test", "worker"].contains(&name) {
         return Err("--operator only applies to plan, test and worker".to_string());
     }
+    if full && !["plan", "worker"].contains(&name) {
+        return Err("--full only applies to plan and worker".to_string());
+    }
     if repo.is_some() && !["plan", "verify", "worker"].contains(&name) {
         return Err("--repo only applies to plan, verify and worker".to_string());
     }
@@ -461,6 +474,7 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
         base,
         repo,
         operator,
+        full,
         state_dir,
         key,
         clones,
@@ -754,6 +768,25 @@ mod tests {
         assert!(parse_args(&v(&["run", "G", "--poll", "5"])).is_err());
         assert!(parse_args(&v(&["plan", "--github"])).is_err());
         assert!(parse_args(&v(&["worker", "extra"])).is_err());
+    }
+
+    #[test]
+    fn full_scope_flag_is_for_plan_and_worker_only() {
+        let sha = "d".repeat(40);
+        let c = parse_args(&v(&["worker", "--once", "repo", &sha, "--full"])).unwrap();
+        assert!(c.full);
+        assert_eq!(c.once, Some(("repo".to_string(), sha.clone())));
+        let c = parse_args(&v(&["plan", "--full"])).unwrap();
+        assert_eq!(c.command, Command::Plan);
+        assert!(c.full);
+        assert!(!parse_args(&v(&["plan"])).unwrap().full);
+        for bad in [
+            v(&["test", "./...", "--full"]),
+            v(&["verify", &sha, "--full"]),
+            v(&["run", "G", "--full"]),
+        ] {
+            assert!(parse_args(&bad).is_err(), "{bad:?}");
+        }
     }
 
     #[test]
