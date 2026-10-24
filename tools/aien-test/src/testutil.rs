@@ -85,3 +85,20 @@ pub fn init_repo(tag: &str, files: &[(&str, &str, bool)]) -> TempDir {
     git(t.path(), &["commit", "-q", "-m", "init"]);
     t
 }
+
+/// Whether `/proc/locks` shows a blocked `flock` waiter on `path` (a line
+/// `N: -> FLOCK ... maj:min:inode ...`), so a test holder can let go only
+/// once the code under test is really queued behind it.
+pub fn queued_on(path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let ino = match fs::metadata(path) {
+        Ok(m) => m.ino(),
+        Err(_) => return false,
+    };
+    let suffix = format!(":{ino}");
+    fs::read_to_string("/proc/locks")
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| l.contains("-> FLOCK"))
+        .any(|l| l.split_whitespace().any(|w| w.ends_with(&suffix)))
+}

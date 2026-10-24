@@ -82,7 +82,7 @@
           "purpose": "ALLEN persona profile v1: versioned, user-editable profile bound to the engaged ALLEN identity; "
         },
         {
-          "digest": "f5571bcc0bb95b44dd8bf8f0b47ded3bcb1e1ee76c81b4ff5edb87ac237d66d8",
+          "digest": "1a65d8ae9be7c2e6ccc39d7ed20762dfde808132a3216c8b82d0ce0232233343",
           "last_commit": "f8eea420",
           "name": "crates/aien-cli",
           "purpose": ""
@@ -100,7 +100,7 @@
           "purpose": ""
         },
         {
-          "digest": "ac46e2ac3984914fea3312c2d01244947bdbe14690a98a3f6b8f685a8829aee1",
+          "digest": "33c59e438bd2f54515b0b4df7c6b28dd9c3b6f450b4e0a0b09bb8d748e18111f",
           "last_commit": "b5957723",
           "name": "scripts",
           "purpose": ""
@@ -112,21 +112,21 @@
           "purpose": ""
         },
         {
-          "digest": "b787845b373f1f2ef48522c2575a6de8ad32e3584bef4b578ba61d2ab053187c",
+          "digest": "b951ba47410e53fc92bda5b21209433eb70b090d15667de15924c56540b33684",
           "last_commit": "fe3677c3",
           "name": "tools/aien-local-ci",
           "purpose": "Local CI sandbox exec contract (C8), aien-run user/caches install, Forgejo trigger hook, health "
         }
       ],
-      "children_root": "sha256:c438f1801447640c185488b35c47766b52df70bec231aec0226b17c29194fa58",
-      "compiled_at": "2026-10-18T14:44:33Z",
+      "children_root": "sha256:d920a87712690a7730a0daa545e3245b6c6504f74a87262f1cd66f0d21e9db3f",
+      "compiled_at": "2026-10-24T00:28:20Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:151876339d9701bdee7ed8b7f3aaecffaa510a746101ab024fe45b8dae42567f",
+      "digest": "sha256:7d7efbd069a8fb9d2dace78496d565a9ecdcc2c1953209ea2ff4d3e397c2cd28",
       "evidence_files": 1578,
       "evidence_root": "sha256:135e27a1a0704c4a8371cd2c1eb555f2b5beec61c212949b029a5457418a7160",
-      "files": 5891,
-      "generated_at_commit": "2a1a70f8bac0d87d96b3e39259b3cbebac471cb1",
-      "source_tree": "sha256:2a1b7f1f2d35d8a3980307600e39af42d58bfe46f4157de5bf32ccddff9c390e"
+      "files": 5895,
+      "generated_at_commit": "4ca62826b4ec6dae1ee92fa7979ad2b8c676ad3c",
+      "source_tree": "sha256:da08a94cee4499bfd6c15d447fb2d1fb17d513fa5f6597b24689a883cb752dba"
     }
   },
   "history": [],

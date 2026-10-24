@@ -18,6 +18,10 @@ AIENOS.
 | `tests/run.sh` | proofs of the contract on this host (33 checks with two wt.sh worktrees present) |
 | `pipeline.sh` | ADR 0033 phase 3: publish verified bundles to aien-receipts, rerun the GitHub thin gate, merge `ready-to-merge` PRs behind guards |
 | `tests/pipeline_test.sh` | offline proofs of `pipeline.sh` with fake `gh`, fake `aien-test` and throwaway git repositories (56 checks) |
+| `crumb-shim.sh` | the operator's `~/.local/bin/crumb`: runs the crumb tool the repository's own CRUMB-VERIFY gate uses (crumb.lock pin, own tree for aien-architecture, else the sandbox tool), so author, readiness check and gate never disagree |
+| `crumb-doctor` | drift check, cron (via cron-tick.sh): gate, readiness and hosted crumb tools agree on every main and tool-changing PR; worker sibling maps match origin/main; `--heal` keeps this clone's work tree on origin/main |
+| `tests/crumb_shim_test.sh`, `tests/crumb_doctor_test.sh` | offline proofs of both on throwaway fixtures (17 and 7 checks) |
+| `tests/crumb_real_test.sh` | Spark-only red/green on real trees and on the real failing heads of 2026-10-16..18 (19 checks) |
 
 ## C8 exec contract
 
@@ -52,8 +56,8 @@ Argument rules (exit 2 when broken):
 * `--cwd` absolute, existing, canonical (no symlink, no `..`, no trailing slash). Inside `/var/lib/aien-run` only the
   home itself or `wt/<repo>/<40-hex sha>[/...]`.
 * `--env K=V`: plain names; `PATH`, `HOME`, `CARGO_HOME`, `RUSTUP_HOME`, `LD_*`, `BASH_ENV`, `ENV` refused; each name at
-  most once. `CARGO_TARGET_DIR` must be exactly `/var/lib/aien-run/target/<repo>/pr` or `.../main` (trust class, A2);
-  it is created on demand (parent root-owned, class dir aien-run).
+  most once. `CARGO_TARGET_DIR` must be exactly `/var/lib/aien-run/target/<repo>/pr/<sha40>` or `.../main/<sha40>` (trust class, A2),
+  the worktree's own repo and sha when `--cwd` is in one; it is created on demand (parents root-owned, head dir aien-run).
 * `PROGRAM` may not contain `=` or start with `-` (otherwise `env` would read it as one more variable assignment).
 * The wrapper refuses to run if the home, `cargo`, `cargo/bin`, `rustup`, `target`, `/usr/local/bin` or `/usr/bin`
   is not root-owned or is group/other-writable.
@@ -69,6 +73,30 @@ resolves only through it; a file of the same name inside the worktree is never u
 source read from the git object store of `AIEN_ARCH_CLONE`, default `~/workspace/aien-architecture`) with
 `cc -O2 -Wall -std=c11`. With gcc 13.3.0 the binary's sha256 is `22015e6b156e038e...`, identical to the operator's
 `~/.local/bin/crumb` on 2026-10-11. To move the pin, change `CRUMB_COMMIT` and `CRUMB_BLOB` in `install.sh` in a PR.
+
+The worker's readiness check does not trust any PATH `crumb`: it builds the tool each repository names in `crumb.lock`
+(aien-architecture: the tool at the commit under test) and caches it under `<state>/crumb-tool/<pin>/` (sc#602,
+details in `tools/aien-test/docs/LOCAL_VERIFICATION.md`).
+
+## Operator crumb (shim) and crumb-doctor (2026-10-19)
+
+Four places used to pick a crumb build four different ways: each repo's CRUMB-VERIFY gate (crumb.lock pin, own
+tree, or this sandbox tool), the worker's readiness check (`aien-test verify` runs the bare name `crumb`, so
+`~/.local/bin/crumb`), the required hosted "AIEN Verification" (its workflow pin), and whoever ran `crumb compile`.
+`~/.local/bin/crumb` was a fixed 94fffbcf build. Effects seen 2026-10-16..18: every PASS head in omega, aienos and
+physics (pinned d0f0b95d) published as `BLOCKED PASS` / error; every RFC-0003 Am1 migration head read "N of N crumbs
+stale"; authors compiled sc with d0f0b95d and omega with 94fffbcf and the gates called the result stale (12 of 34
+STALE gate failures). Separately, the poll workers read `siblings` from this clone's WORK TREE, which nothing had
+moved since 2026-10-11, so synapse ran CRUMB-VERIFY without `../aien-architecture` (30 failed judgements, exit 3).
+
+- Install the shim: `install -m 0755 tools/aien-local-ci/crumb-shim.sh ~/.local/bin/crumb` (keep the old binary as
+  `crumb.bak-<ts>-<sha8>`). It never falls back silently: a malformed or unbuildable pin exits 97.
+- Install the doctor: `install -m 0755 tools/aien-local-ci/crumb-doctor ~/.local/bin/crumb-doctor`. cron-tick.sh
+  runs `crumb-doctor --heal-only` every tick and `crumb-doctor --heal --alert` at most every 15 minutes in the
+  background; failures become a `CRUMB-DRIFT` line in the aien-watch ALERT (shown by the gh guard and the chat hook).
+- Before merging any PR that moves a crumb pin (crumb.lock, the hosted workflow pin, tools/crumb, install.sh), run
+  `crumb-doctor --repos <repo>`: every consumer must give the same verdict on the PR head.
+
 
 ## Egress decision
 
@@ -88,12 +116,14 @@ added by this lane.
 | `cargo/` | root 0755 | CARGO_HOME (cargo works with it read-only: `--locked --offline` builds need no writes there) |
 | `cargo/registry`, `cargo/git` | root, read-only | seeded once from `~/.cargo` (1.9 GB + 1.3 GB; the git cache is needed because `Cargo.lock` has 3 git sources) |
 | `cargo/bin` | root | the operator's `rustup` binary + proxy symlinks; no second rustup install |
-| `rustup/` | root, read-only | `settings.toml` (default 1.98.1) + `toolchains/1.98.1-aarch64-unknown-linux-gnu` copied (631 MB) |
+| `rustup/` | root, read-only | `settings.toml` (default 1.98.1) + `toolchains/1.98.1-aarch64-unknown-linux-gnu` copied (631 MB), plus `toolchains/nightly-aarch64-unknown-linux-gnu` with miri for SC-MIRI |
+| `.cache/miri` | root, read-only | miri sysroot built once by `install.sh` against the copied nightly (110 MB); `cargo +nightly miri setup` in the sandbox finds it and writes nothing (#600) |
 | `.gitconfig` | root 0644 | `safe.directory = *` (git 2.43 has no path globs; aien-run reaches nothing else) |
+| `/tmp/aien-gb10.lock` | root 0664, ACL `u:drakestapleton:rw-`, `u:aien-run:rw-` | the one GB10 chip lock for operator runs and sandboxed gb10 gates; root ownership gets past `fs.protected_regular=2` in sticky `/tmp`; `/etc/tmpfiles.d/aien-gb10.conf` recreates it at boot (#627); a gb10 gate waits for it in the kernel queue up to 30 min by default (`aien-test --gpu-wait`, between the live server's requests), then is NOT_RUN `gpu_lock`; the wait is in each receipt (`volatile.gpu_wait`) |
 | `mirror/<repo>.git` | drakestapleton 0755 | bare mirror of the trusted clone, refreshed by `wt.sh sync`; unwritable by aien-run |
 | `wt/<repo>/<sha>` | root dir drakestapleton:aien-run 1775, `.git` root 0644, files aien-run | checkouts; aien-run can add files, cannot replace `.git` or write the mirror |
 | `target/`, `target/<repo>/` | root 0755 | parents cannot be swapped by aien-run |
-| `target/<repo>/{pr,main}` | aien-run | per trust class (A2); a run can write only the one it names; `main` is wiped after FAIL/timeout by the engine |
+| `target/<repo>/{pr,main}/<sha40>` | aien-run | one per head inside its trust class (A2); a run can write only its own; `wt.sh remove` deletes it with the worktree (a shared dir let cargo link one head's build into another, sc #605) |
 
 ## Trigger file contract (A3)
 
