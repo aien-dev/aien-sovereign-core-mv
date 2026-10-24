@@ -101,6 +101,19 @@ pub trait Engine: Send + Sync {
         params: &GenerateParams,
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, EngineError>;
+    /// [`Self::generate_with_test`] with token positions of `prompt` worth a prompt cache
+    /// checkpoint (sc L375: the tool boundaries). Engines without a prompt cache ignore them.
+    fn generate_marked(
+        &self,
+        prompt: &[u32],
+        marks: &[usize],
+        params: &GenerateParams,
+        test: &TestSwitches,
+        on_token: &mut dyn FnMut(u32) -> bool,
+    ) -> Result<GenerateOutcome, EngineError> {
+        let _ = marks;
+        self.generate_with_test(prompt, params, test, on_token)
+    }
     /// Persistent KV status and counters for `/health` (sc#505). `None` (the default, and the
     /// omega door with `AIEN_KV_STORE_DIR` unset) leaves `/health` exactly as it was.
     fn persistence_status(&self) -> Option<serde_json::Value> {
@@ -157,8 +170,12 @@ pub struct TestSwitches {
     pub row_swap: Option<u64>,
     /// L369 chunked prompt reading: tokens per chunk for this prompt (`0` = token by token).
     pub prefill_chunk: Option<usize>,
-    /// L375 shared prompt cache: may this request read from or write to the pool.
+    /// L375 shared prompt cache: `false` reads this prompt cold (no pool, no row reuse, nothing
+    /// saved to the pool), the reference the cache must match.
     pub prefix_pool: Option<bool>,
+    /// L375 negative control: a restore from the pool lands one position early for this row (it
+    /// must go red); the row saves nothing and starts its next conversation cold.
+    pub prefix_mutant: Option<bool>,
     /// L313 bf16 DeltaNet state: load-only on the chip (the train starts a second server
     /// for it); listed so a case can name it and the server can say so.
     pub state_bf16: Option<bool>,
@@ -166,13 +183,14 @@ pub struct TestSwitches {
 
 impl TestSwitches {
     /// Every switch name, in the request's spelling.
-    pub const NAMES: [&'static str; 7] = [
+    pub const NAMES: [&'static str; 8] = [
         "stroke",
         "exact_head",
         "mutant",
         "row_swap",
         "prefill_chunk",
         "prefix_pool",
+        "prefix_mutant",
         "state_bf16",
     ];
 
@@ -208,6 +226,7 @@ impl TestSwitches {
                 "row_swap" => t.row_swap = Some(uint()?),
                 "prefill_chunk" => t.prefill_chunk = Some(uint()? as usize),
                 "prefix_pool" => t.prefix_pool = Some(bool_()?),
+                "prefix_mutant" => t.prefix_mutant = Some(bool_()?),
                 "state_bf16" => t.state_bf16 = Some(bool_()?),
                 other => return Err(format!("aien_test.{other}: no such switch")),
             }
@@ -235,6 +254,9 @@ impl TestSwitches {
         }
         if self.prefix_pool.is_some() {
             n.push("prefix_pool");
+        }
+        if self.prefix_mutant.is_some() {
+            n.push("prefix_mutant");
         }
         if self.state_bf16.is_some() {
             n.push("state_bf16");

@@ -84,6 +84,8 @@ pub struct AppState {
     gate: Arc<Semaphore>,
     started: Instant,
     counter: AtomicU64,
+    /// Stable-first tool order and tool boundary marks for the door's prompt cache (sc L375).
+    tool_cache: crate::tool_cache::ToolCache,
 }
 
 /// An OpenAI-shaped error with its HTTP status.
@@ -163,6 +165,8 @@ impl IntoResponse for ApiError {
 
 struct Prepared {
     prompt_tokens: Vec<u32>,
+    /// Prompt cache checkpoint hints (tool boundaries) for the engine.
+    marks: Vec<usize>,
     params: GenerateParams,
     stop_strings: Vec<String>,
     stream: bool,
@@ -242,7 +246,9 @@ pub async fn serve_until(
     let listener = tokio::net::TcpListener::bind(SocketAddr::new(cfg.bind, cfg.port)).await?;
     let addr = listener.local_addr()?;
     let gate = Arc::new(Semaphore::new(engine.concurrency().max(1)));
+    let tool_cache = crate::tool_cache::ToolCache::for_engine(engine.kind());
     let state = Arc::new(AppState {
+        tool_cache,
         engine,
         codec,
         cfg,
@@ -471,6 +477,7 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
             .collect(),
         _ => Vec::new(),
     };
+    let tool_defs = state.tool_cache.arrange(tool_defs);
     let has_tools = !tool_defs.is_empty();
     if req.messages.is_empty() {
         return Err(ApiError::bad_request("messages must be a non-empty array"));
@@ -552,6 +559,13 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
     if prompt_tokens.is_empty() {
         return Err(ApiError::bad_request("the rendered prompt is empty"));
     }
+    let marks = if has_tools {
+        state
+            .tool_cache
+            .marks(&*state.codec, &prompt_text, &tool_defs, &prompt_tokens)
+    } else {
+        Vec::new()
+    };
 
     let ctx = cfg
         .max_context_tokens
@@ -621,6 +635,7 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
 
     Ok(Prepared {
         prompt_tokens,
+        marks,
         params: GenerateParams {
             max_new_tokens,
             temperature,
@@ -736,8 +751,9 @@ fn run_generation(
     let mut stopped_by_string = false;
     let mut client_gone = false;
     let test_report = (!prepared.test.is_empty()).then(|| prepared.test.names());
-    let result = engine.generate_with_test(
+    let result = engine.generate_marked(
         &prepared.prompt_tokens,
+        &prepared.marks,
         &prepared.params,
         &prepared.test,
         &mut |tok| {
