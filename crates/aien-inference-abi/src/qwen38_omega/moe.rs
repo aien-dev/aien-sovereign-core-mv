@@ -380,6 +380,23 @@ impl Qwen38Omega {
                 "qwen36 omega: expert grouped launch: library predates the wave rule ({how} asked)"
             ),
         }
+        // L803 (2026-10-24): AIEN_OMEGA_DATTN256_PER_SPLIT = positions per CTA of the single-row decode attention launch
+        // (a multiple of 256; default 256 = one 256-position chunk per CTA, grid (ceil((pos+1)/per_split), 4) on the 35B).
+        // Diagnostic for the attention block-count experiment: 512 / 1024 give fewer CTAs that loop over chunks. The
+        // multi-row (batched) launch refuses any value but 256, so this is for the single-row harness; the server keeps
+        // the default. The proof line is what the receipts quote.
+        match std::env::var("AIEN_OMEGA_DATTN256_PER_SPLIT") {
+            Ok(v) if !v.is_empty() => match v.trim().parse::<u32>() {
+                Ok(n) if n > 0 && n % 256 == 0 => {
+                    aien_omega_q38::decode_attn256_set_per_split(n);
+                    eprintln!(
+                        "qwen36 omega: decode attn256 per_split {n} positions per CTA (AIEN_OMEGA_DATTN256_PER_SPLIT; single-row launches only)"
+                    );
+                }
+                _ => return Err(format!("AIEN_OMEGA_DATTN256_PER_SPLIT={v}: want a positive multiple of 256").into()),
+            },
+            _ => eprintln!("qwen36 omega: decode attn256 per_split 256 positions per CTA (compiled default)"),
+        }
         for h in 1..heads {
             // SAFETY: the states live in `gdns` / `attns`, owned beside the graph (dropped after it).
             unsafe {
