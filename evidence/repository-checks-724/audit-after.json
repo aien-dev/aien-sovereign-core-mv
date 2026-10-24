@@ -1,0 +1,333 @@
+{
+  "vulnerabilities": {
+    "found": false,
+    "count": 0,
+    "list": []
+  },
+  "warnings": {
+    "unmaintained": [
+      {
+        "kind": "unmaintained",
+        "package": {
+          "name": "bincode",
+          "version": "1.3.3",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad",
+          "dependencies": [
+            {
+              "name": "serde",
+              "version": "1.0.229",
+              "source": "registry+https://github.com/rust-lang/crates.io-index"
+            }
+          ],
+          "replace": null
+        },
+        "advisory": {
+          "id": "RUSTSEC-2025-0141",
+          "package": "bincode",
+          "title": "Bincode is unmaintained",
+          "description": "Due to a doxxing and harassment incident, the bincode team has taken the decision to cease development permanently.\n\nThe team considers version 1.3.3 a complete version of bincode that is not in need of any updates.\n\n## Alternatives to consider\n\n* [wincode](https://crates.io/crates/wincode)\n* [postcard](https://crates.io/crates/postcard)\n* [bitcode](https://crates.io/crates/bitcode)\n* [rkyv](https://crates.io/crates/rkyv)",
+          "date": "2025-12-16",
+          "aliases": [],
+          "related": [],
+          "collection": "crates",
+          "categories": [],
+          "keywords": [],
+          "cvss": null,
+          "informational": "unmaintained",
+          "references": [],
+          "source": null,
+          "url": "https://git.sr.ht/~stygianentity/bincode/tree/v3.0/item/README.md",
+          "withdrawn": null,
+          "license": "CC0-1.0",
+          "expect-deleted": false
+        },
+        "affected": null,
+        "versions": {
+          "patched": [],
+          "unaffected": []
+        }
+      },
+      {
+        "kind": "unmaintained",
+        "package": {
+          "name": "paste",
+          "version": "1.0.15",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a",
+          "replace": null
+        },
+        "advisory": {
+          "id": "RUSTSEC-2024-0436",
+          "package": "paste",
+          "title": "paste - no longer maintained",
+          "description": "The creator of the crate `paste` has stated in the [`README.md`](https://github.com/dtolnay/paste/blob/master/README.md) \nthat this project is not longer maintained as well as archived the repository\n\n## Possible Alternative(s)\n\n- [`pastey`]: a fork of paste and is aimed to be a drop-in replacement with additional features for paste crate\n- [`with_builtin_macros`]: crate providing a [superset of `paste`'s functionality including general `macro_rules!` eager expansions](https://docs.rs/with_builtin_macros/0.1.0/with_builtin_macros/macro.with_eager_expansions.html)  and `concat!`/`concat_idents!` macros\n\n[`pastey`]: https://crates.io/crates/pastey\n[`with_builtin_macros`]: https://crates.io/crates/with_builtin_macros",
+          "date": "2024-10-07",
+          "aliases": [],
+          "related": [],
+          "collection": "crates",
+          "categories": [],
+          "keywords": [],
+          "cvss": null,
+          "informational": "unmaintained",
+          "references": [],
+          "source": null,
+          "url": "https://github.com/dtolnay/paste",
+          "withdrawn": null,
+          "license": "CC0-1.0",
+          "expect-deleted": false
+        },
+        "affected": null,
+        "versions": {
+          "patched": [],
+          "unaffected": []
+        }
+      }
+    ],
+    "unsound": [
+      {
+        "kind": "unsound",
+        "package": {
+          "name": "lexical-core",
+          "version": "0.7.6",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "6607c62aa161d23d17a9072cc5da0be67cdfc89d3afb1e8d9c842bebc2525ffe",
+          "dependencies": [
+            {
+              "name": "arrayvec",
+              "version": "0.5.2",
+              "source": "registry+https://github.com/rust-lang/crates.io-index"
+            },
+            {
+              "name": "bitflags",
+              "version": "1.3.2",
+              "source": "registry+https://github.com/rust-lang/crates.io-index"
+            },
+            {
+              "name": "cfg-if",
+              "version": "1.0.5",
+              "source": "registry+https://github.com/rust-lang/crates.io-index"
+            },
+            {
+              "name": "ryu",
+              "version": "1.0.23",
+              "source": "registry+https://github.com/rust-lang/crates.io-index"
+            },
+            {
+              "name": "static_assertions",
+              "version": "1.1.0",
+              "source": "registry+https://github.com/rust-lang/crates.io-index"
+            }
+          ],
+          "replace": null
+        },
+        "advisory": {
+          "id": "RUSTSEC-2023-0086",
+          "package": "lexical-core",
+          "title": "Multiple soundness issues",
+          "description": "`RUSTSEC-2024-0377` contains multiple soundness issues:\n\n 1. [Bytes::read() allows creating instances of types with invalid bit patterns](https://github.com/Alexhuszagh/rust-lexical/issues/102)\n 1. [BytesIter::read() advances iterators out of bounds](https://github.com/Alexhuszagh/rust-lexical/issues/101)\n 1. [The `BytesIter` trait has safety invariants but is public and not marked `unsafe`](https://github.com/Alexhuszagh/rust-lexical/issues/104)\n 1. [`write_float()` calls `MaybeUninit::assume_init()` on uninitialized data, which is is not allowed by the Rust abstract machine](https://github.com/Alexhuszagh/rust-lexical/issues/95)\n 1. [`radix()` calls `MaybeUninit::assume_init()` on uninitialized data, which is is not allowed by the Rust abstract machine](https://github.com/Alexhuszagh/rust-lexical/issues/126)\n\nVersion 1.0 fixes these issues, removes the vast majority of `unsafe` code, and also fixes some correctness issues.",
+          "date": "2023-09-03",
+          "aliases": [
+            "GHSA-2326-pfpj-vx3h"
+          ],
+          "related": [
+            "RUSTSEC-2023-0055"
+          ],
+          "collection": "crates",
+          "categories": [],
+          "keywords": [],
+          "cvss": null,
+          "informational": "unsound",
+          "references": [
+            "https://github.com/Alexhuszagh/rust-lexical/issues/102",
+            "https://github.com/Alexhuszagh/rust-lexical/issues/101",
+            "https://github.com/Alexhuszagh/rust-lexical/issues/95",
+            "https://github.com/Alexhuszagh/rust-lexical/issues/104",
+            "https://github.com/Alexhuszagh/rust-lexical/issues/126"
+          ],
+          "source": null,
+          "url": null,
+          "withdrawn": null,
+          "license": "CC0-1.0",
+          "expect-deleted": false
+        },
+        "affected": null,
+        "versions": {
+          "patched": [
+            ">=1.0.0"
+          ],
+          "unaffected": []
+        }
+      },
+      {
+        "kind": "unsound",
+        "package": {
+          "name": "tokio",
+          "version": "1.53.1",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "202caea871b69668250d242070849eb495be178ed697a3e98aebce5bc81a0bed",
+          "dependencies": [
+            {
+              "name": "bytes",
+              "version": "1.12.1",
+              "source": "registry+https://github.com/rust-lang/crates.io-index"
+            },
+            {
+              "name": "libc",
+              "version": "0.2.189",
+              "source": "registry+https://github.com/rust-lang/crates.io-index"
+            },
+            {
+              "name": "mio",
+              "version": "1.2.3",
+              "source": "registry+https://github.com/rust-lang/crates.io-index"
+            },
+            {
+              "name": "parking_lot",
+              "version": "0.12.5",
+              "source": "registry+https://github.com/rust-lang/crates.io-index"
+            },
+            {
+              "name": "pin-project-lite",
+              "version": "0.2.17",
+              "source": "registry+https://github.com/rust-lang/crates.io-index"
+            },
+            {
+              "name": "signal-hook-registry",
+              "version": "1.4.8",
+              "source": "registry+https://github.com/rust-lang/crates.io-index"
+            },
+            {
+              "name": "socket2",
+              "version": "0.6.5",
+              "source": "registry+https://github.com/rust-lang/crates.io-index"
+            },
+            {
+              "name": "tokio-macros",
+              "version": "2.7.2",
+              "source": "registry+https://github.com/rust-lang/crates.io-index"
+            },
+            {
+              "name": "windows-sys",
+              "version": "0.61.2",
+              "source": "registry+https://github.com/rust-lang/crates.io-index"
+            }
+          ],
+          "replace": null
+        },
+        "advisory": {
+          "id": "RUSTSEC-2026-0386",
+          "package": "tokio",
+          "title": "`AsyncFd::new` and related constructors violate I/O safety",
+          "description": "`tokio::io::unix::AsyncFd` provides safe constructors (`new`, `with_interest`, `try_new`, and `try_with_interest`) that accept any `T: AsRawFd` rather than requiring proof of ownership or validity of the file descriptor. Because `RawFd` implements `AsRawFd`, safe code can construct an `AsyncFd` from an arbitrary or closed file descriptor, or close/replace the underlying file descriptor while the `AsyncFd` is still alive.\n\nThis violates I/O safety in two ways:\n\n1. `AsyncFd<T>` implements `AsFd` for all `T: AsRawFd` by calling `BorrowedFd::borrow_raw(self.as_raw_fd())`, allowing safe code to obtain an arbitrary `BorrowedFd<'_>` without owning the file descriptor.\n2. Tokio's I/O driver stores a pointer to an internal allocation in the `epoll`/`kqueue` user data for registered file descriptors. If the underlying file descriptor is duplicated and then closed while an `AsyncFd` is alive, and the OS reuses that file descriptor number for a another IO resource on the same runtime, dropping the first `AsyncFd` deregisters the reused file descriptor number and frees the first while the original file description remains registered in `epoll`, leading to a use-after-free when a readiness event fires.\n\nStarting in Tokio 1.51.6, 1.53.3, and 1.54.0, `AsyncFd::new`, `AsyncFd::with_interest`, `AsyncFd::try_new`, and `AsyncFd::try_with_interest` are deprecated in favor of the `unsafe` constructors `AsyncFd::register` and `AsyncFd::register_with_interest`. Callers must ensure that the file descriptor remains valid, open, and unchanged for the lifetime of the `AsyncFd`.",
+          "date": "2026-10-13",
+          "aliases": [],
+          "related": [],
+          "collection": "crates",
+          "categories": [
+            "memory-corruption"
+          ],
+          "keywords": [
+            "io-safety",
+            "use-after-free"
+          ],
+          "cvss": null,
+          "informational": "unsound",
+          "references": [
+            "https://github.com/tokio-rs/tokio/issues/8538",
+            "https://github.com/tokio-rs/tokio/issues/8539"
+          ],
+          "source": null,
+          "url": "https://github.com/tokio-rs/tokio/pull/8587",
+          "withdrawn": null,
+          "license": "CC0-1.0",
+          "expect-deleted": false
+        },
+        "affected": {
+          "arch": [],
+          "os": [],
+          "functions": {
+            "tokio::io::unix::AsyncFd::new": [
+              ">=0.3.2"
+            ],
+            "tokio::io::unix::AsyncFd::try_new": [
+              ">=1.37.0"
+            ],
+            "tokio::io::unix::AsyncFd::try_with_interest": [
+              ">=1.37.0"
+            ],
+            "tokio::io::unix::AsyncFd::with_interest": [
+              ">=0.3.2"
+            ]
+          }
+        },
+        "versions": {
+          "patched": [
+            ">=1.51.6, <1.52.0",
+            ">=1.53.3"
+          ],
+          "unaffected": [
+            "<0.3.2"
+          ]
+        }
+      }
+    ],
+    "yanked": [
+      {
+        "kind": "yanked",
+        "package": {
+          "name": "clipboard-win",
+          "version": "5.4.1",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "bde03770d3df201d4fb868f2c9c59e66a3e4e2bd06692a0fe701e7103c7e84d4",
+          "dependencies": [
+            {
+              "name": "error-code",
+              "version": "3.4.0",
+              "source": "registry+https://github.com/rust-lang/crates.io-index"
+            }
+          ],
+          "replace": null
+        },
+        "advisory": null,
+        "affected": null,
+        "versions": null
+      },
+      {
+        "kind": "yanked",
+        "package": {
+          "name": "yoke-derive",
+          "version": "0.8.3",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "33811428bee40dbceb6d545e95754741d17a6aef9a4849f0fd62e2ba4f412a78",
+          "dependencies": [
+            {
+              "name": "proc-macro2",
+              "version": "1.0.107",
+              "source": "registry+https://github.com/rust-lang/crates.io-index"
+            },
+            {
+              "name": "quote",
+              "version": "1.0.47",
+              "source": "registry+https://github.com/rust-lang/crates.io-index"
+            },
+            {
+              "name": "syn",
+              "version": "3.0.6",
+              "source": "registry+https://github.com/rust-lang/crates.io-index"
+            },
+            {
+              "name": "synstructure",
+              "version": "0.14.0",
+              "source": "registry+https://github.com/rust-lang/crates.io-index"
+            }
+          ],
+          "replace": null
+        },
+        "advisory": null,
+        "affected": null,
+        "versions": null
+      }
+    ]
+  }
+}
