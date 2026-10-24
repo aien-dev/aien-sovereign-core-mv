@@ -1,4 +1,5 @@
 # tests/gates/crumb.gate
+# target_lock: none because aien-audit-inputs traced no cargo or rustc in this gate (L335, 2026-10-21).
 # Mirrors hosted: no hosted crumb job in this repository; crumb verify . is the always-run structural check
 # cache: never because crumbs live in many directories and inputs are literal paths; the check is sub-second.
 gate: CRUMB-VERIFY
@@ -8,6 +9,7 @@ requires:
   - portable
 inputs:
   - .crumb
+  - crumb.lock
   - tests/gates/
 run:
   exec: tests/gates/run.sh
@@ -19,3 +21,4 @@ timeout: 5m
 exactness: EXACT
 cache_scope: portable
 cache: never
+target_lock: none

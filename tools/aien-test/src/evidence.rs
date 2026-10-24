@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! EvidenceReceiptV1 (ADR 0028 Decision 4): canonical JSON, sha256 digest,
 //! content-addressed stdout/stderr blobs, immutable write (never overwrite),
 //! and read-back of the receipts already in a store.
@@ -236,6 +251,39 @@ impl Store {
             )));
         }
         Ok((digest, path))
+    }
+
+    /// The bytes of blob `sha`, only if they still hash to `sha`.
+    pub fn read_blob(&self, sha: &str) -> Option<Vec<u8>> {
+        if !self.blob_exists(sha) {
+            return None;
+        }
+        let bytes = fs::read(self.dir.join("blobs").join(format!("{sha}.log"))).ok()?;
+        (sha256_hex(&bytes) == sha).then_some(bytes)
+    }
+
+    /// The one receipt `<digest>.json`, with the same checks `Index::load`
+    /// makes (bytes hash to the name, JSON, receipt schema). None otherwise.
+    pub fn get_receipt(&self, digest: &str) -> Option<Stored> {
+        if !is_sha256_hex(digest) {
+            return None;
+        }
+        let path = self.dir.join(format!("{digest}.json"));
+        let bytes = fs::read(&path).ok()?;
+        let body = bytes.strip_suffix(b"\n").unwrap_or(&bytes);
+        if sha256_hex(body) != digest {
+            return None;
+        }
+        let value: Value = serde_json::from_slice(body).ok()?;
+        if value["schema"] != SCHEMA {
+            return None;
+        }
+        let modified = fs::metadata(&path).and_then(|m| m.modified()).ok();
+        Some(Stored {
+            digest: digest.to_string(),
+            value,
+            modified,
+        })
     }
 }
 

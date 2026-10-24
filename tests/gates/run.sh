@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # tests/gates/run.sh: the one entry point for the local verification gates of aien-sovereign-core.
 # Every step runs the SAME command as the hosted job it mirrors (.github/workflows/ci.yml,
 # hardening.yml, crumb-visible-conformance.yml, verify-closure.yml, release-dry-run.yml,
@@ -25,6 +40,11 @@ if [ -n "${HOME:-}" ] && [ ! -w "$HOME" ]; then
   HOME="$(mktemp -d)"; export HOME
   trap 'rm -rf "$HOME"' EXIT
   if [ -f "$ro_home/.gitconfig" ]; then cp "$ro_home/.gitconfig" "$HOME/.gitconfig"; fi
+  # The miri sysroot that install.sh prebuilt under the read-only HOME (#600) stays the one miri uses;
+  # the fresh HOME would otherwise send `cargo miri setup` off to rebuild it offline, which cannot work.
+  if [ -z "${MIRI_SYSROOT:-}" ] && [ -d "$ro_home/.cache/miri/lib" ]; then
+    MIRI_SYSROOT="$ro_home/.cache/miri"; export MIRI_SYSROOT
+  fi
 fi
 obs() { printf 'AIEN-OBS %s %s\n' "$1" "$2"; }
 # Inside the user sandbox (AIEN_SANDBOX_NESTED=1, set by the worker) five aien-test self-tests that would
@@ -55,26 +75,32 @@ pin() {  # pin <dir-name> <sibling repo> <sha40>
 }
 
 case "$step" in
-  native-state-reuse)
-    # Explicit unmerged PR676 compiler dependency, separate from omega.lock.
-    # Offline pinned sibling only; no fallback to another compiler/profile.
-    omega_native_sha="$(tr -d '[:space:]' < native/state_reuse/compiler.lock)"
-    [[ "$omega_native_sha" =~ ^[0-9a-f]{40}$ ]] || exit 3
-    pin omega-reuse-native omega "$omega_native_sha"
-    compiler_root="$(cd "$PINS/omega-reuse-native" && pwd)"
-    (cd "$compiler_root" && sha256sum -c "$ROOT/native/state_reuse/compiler.sha256") || exit 3
-    [ -x "$compiler_root/seed/out/omc" ] || exit 3
-    mkdir -p "$TARGET"
-    stage="$(mktemp -d "$TARGET/reuse-check.XXXXXX")"
-    stage="$(cd "$stage" && pwd)"
-    mkdir -p "$stage/native" "$stage/build"
-    cp -R native/state_reuse "$stage/native/state_reuse"
-    timeout --kill-after=2 30 "$compiler_root/seed/out/omc" < "$stage/native/state_reuse/gate.om" > "$stage/gate.elf"
-    chmod 700 "$stage/gate.elf"
-    cd "$stage"
-    exec "$stage/gate.elf" "$compiler_root/seed/out/omc"
+  crumb-verify)
+    # sc#602: the crumb tool is pinned. crumb.lock names one aien-architecture commit; the tool is
+    # built from the sibling ../aien-architecture (offline, read-only) into $TARGET/crumb-tool/<pin>
+    # (outside the tree when CARGO_TARGET_DIR is set, ignored under target/ otherwise) and reused
+    # across steps. A crumb on PATH never decides the verdict. Without the sibling (a run directory
+    # made from a sibling map that predates this line) the step falls back to the PATH crumb and
+    # the receipt says so, so a reader can tell the two apart.
+    pin=$(tr -d '[:space:]' < crumb.lock)
+    case "$pin" in
+      *[!0-9a-f]*|"") echo "run.sh: crumb.lock must hold one 40-hex commit, got '$pin'" >&2; exit 1 ;;
+    esac
+    [ ${#pin} -eq 40 ] || { echo "run.sh: crumb.lock must hold one 40-hex commit, got '$pin'" >&2; exit 1; }
+    if [ -e ../aien-architecture/.git ]; then
+      tool="$TARGET/crumb-tool/$pin"
+      if [ ! -x "$tool/tools/crumb/crumb" ]; then
+        rm -rf "$tool"; mkdir -p "$tool"
+        git -C ../aien-architecture archive "$pin" tools/crumb | tar -x -C "$tool"
+        make -s -C "$tool/tools/crumb" crumb
+      fi
+      obs crumb_tool_commit "\"$pin\""
+      "$tool/tools/crumb/crumb" verify .
+    else
+      obs crumb_tool_commit "\"unpinned: ../aien-architecture missing, PATH crumb used (wanted $pin)\""
+      "${CRUMB:-crumb}" verify .
+    fi
     ;;
-  crumb-verify)        "${CRUMB:-crumb}" verify . ;;
   # ci.yml job verify ("Workspace Verification & Invariant Audit")
   fmt)                 cargo fmt --all -- --check ;;
   release-gate-negatives)
@@ -145,6 +171,25 @@ case "$step" in
     pin aienos aienos "$(awk 'NF && $1 !~ /^#/ {print $1; exit}' "$PINS/omega/aienos.lock")"
     bash scripts/test-linked-compose.sh "$PINS/omega" "$PINS/physics" "$PINS/aienos"
     ;;
+  native-state-reuse)
+    # Explicit unmerged PR676 compiler dependency, separate from omega.lock.
+    # Offline pinned sibling only; no fallback to another compiler/profile.
+    omega_native_sha="$(tr -d '[:space:]' < native/state_reuse/compiler.lock)"
+    [[ "$omega_native_sha" =~ ^[0-9a-f]{40}$ ]] || exit 3
+    pin omega-reuse-native omega "$omega_native_sha"
+    compiler_root="$(cd "$PINS/omega-reuse-native" && pwd)"
+    (cd "$compiler_root" && sha256sum -c "$ROOT/native/state_reuse/compiler.sha256") || exit 3
+    [ -x "$compiler_root/seed/out/omc" ] || exit 3
+    mkdir -p "$TARGET"
+    stage="$(mktemp -d "$TARGET/reuse-check.XXXXXX")"
+    stage="$(cd "$stage" && pwd)"
+    mkdir -p "$stage/native" "$stage/build"
+    cp -R native/state_reuse "$stage/native/state_reuse"
+    timeout --kill-after=2 30 "$compiler_root/seed/out/omc" < "$stage/native/state_reuse/gate.om" > "$stage/gate.elf"
+    chmod 700 "$stage/gate.elf"
+    cd "$stage"
+    exec "$stage/gate.elf" "$compiler_root/seed/out/omc"
+    ;;
   # hardening.yml
   kv-props)
     cargo fetch --manifest-path crates/aien-replay/Cargo.toml
@@ -188,11 +233,32 @@ case "$step" in
     fi
     bash scripts/test-release-real-tree.sh
     ;;
-  # sovereign-inquisitor.yml (pull_request_target: needs the PR diff and GITHUB_TOKEN)
+  # sovereign-inquisitor.yml (pull_request_target). The hosted job fetched `gh pr diff` with GITHUB_TOKEN only to
+  # get the diff; the verdict (exit 1 unless the audit is clean) depends on nothing but the diff text, and the
+  # author, number and title only decorate the comment. The same diff is computed here from git: base...HEAD, where
+  # base is the merge base with the base line (what `gh pr diff` shows), or for a head already on the base line its
+  # first parent (the rule the worker's plan uses). The worker's base line is origin/main (AIEN_BASE_REF overrides).
+  # Posting the comment and labels stays a GitHub job; nothing here writes to GitHub.
   inquisitor)
     cargo build --release -p spark-inquisitor
-    echo "run.sh: the review step needs a GitHub pull request diff and token (pull_request_target); nothing to run locally" >&2
-    exit 3
+    base_ref="${AIEN_BASE_REF:-origin/main}"
+    if ! git rev-parse --verify -q "$base_ref^{commit}" >/dev/null; then
+      echo "run.sh: base $base_ref is not in this checkout; cannot compute the pull request diff" >&2
+      exit 3
+    fi
+    head="$(git rev-parse HEAD)"
+    base="$(git merge-base HEAD "$base_ref")"
+    if [ "$base" = "$head" ]; then base="$(git rev-parse HEAD^1)"; fi
+    diff_file="$(mktemp)"
+    git diff --no-color --no-ext-diff "$base" "$head" > "$diff_file"
+    obs inquisitor_base "\"$base\""
+    obs inquisitor_diff_files "$(git diff --name-only "$base" "$head" | grep -c . || true)"
+    rc=0
+    "$TARGET/release/spark-inquisitor" review --author local --pr 0 \
+      --title "$(git log -1 --format=%s "$head")" --diff "$diff_file" || rc=$?
+    rm -f "$diff_file"
+    obs inquisitor_clean "$([ "$rc" = 0 ] && echo true || echo false)"
+    exit "$rc"
     ;;
   *) echo "run.sh: unknown step '$step'" >&2; exit 2 ;;
 esac

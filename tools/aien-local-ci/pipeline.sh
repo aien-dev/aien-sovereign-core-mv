@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # pipeline.sh: Spark side of the local verification pipeline, ADR 0033 phase 3 (lane PIPELINE).
 #
 #   pipeline.sh publish|rerun|merge|round [--repos a,b]      (round = publish, then rerun, then merge)
@@ -63,11 +78,23 @@ exec 9>>"$STATE/pipeline.lock"
 flock -n 9 || exit 0
 WORK=$(mktemp -d "$STATE/.pipeline.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
+GH_DEFER=$WORK/gh-deferred
+# ghc ARGS...: every GitHub call goes through here. ~/.local/bin/gh (the shared rate-limit guard) exits 98 when it
+# refuses (allowance reserved or rate-limit marker set): then this run makes no further GitHub call, and every
+# journal line from then on carries deferred="gh guard exit 98: try next round". Never a retry loop, never a FAIL.
+ghc() {
+  local rc=0
+  [[ -e $GH_DEFER ]] && return 98
+  "$GH" "$@" || rc=$?
+  [[ $rc != 98 ]] || : > "$GH_DEFER"
+  return "$rc"
+}
 
 # journal key=value ...: one JSON line in the journal (built by jq), a short line on stdout.
 journal() {
   local args=(--arg utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)") kv
   for kv in "$@"; do args+=(--arg "${kv%%=*}" "${kv#*=}"); done
+  [[ ! -e $GH_DEFER ]] || args+=(--arg deferred "gh guard exit 98: try next round")
   jq -nc "${args[@]}" '$ARGS.named' >> "$JOURNAL"
   echo "$*"
 }
@@ -115,12 +142,27 @@ publish_time() {
 }
 
 declare -A SLUGS=()
-# slug REPO: canonical owner/name on GitHub (aien-dev/<repo> may redirect), resolved once per run.
+SLUG_DIR=$STATE/slugs
+SLUG_TTL=${AIEN_SLUG_TTL:-86400}
+# slug REPO: canonical owner/name on GitHub (aien-dev/<repo> may redirect, e.g. to aien-dev/<repo>-mv), resolved once
+# per run. Cached on disk in $STATE/slugs/<repo>: used while younger than AIEN_SLUG_TTL seconds (24 h); refreshed
+# with one `gh api` call when missing or older; an older cached name is still used when the refresh fails (an
+# exhausted API limit must not refuse every pull request). Every name, cached or fresh, passes the same regex.
 slug() {
-  local s
+  local s="" f=$SLUG_DIR/$1 age="" fresh
   if [[ -z ${SLUGS[$1]:-} ]]; then
-    s=$("$GH" api "repos/$OWNER/$1" --jq .full_name 2>/dev/null) || return 1
-    [[ $s =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || return 1
+    [[ -f $f ]] && { s=$(head -n 1 "$f"); age=$(( $(date +%s) - $(stat -c %Y "$f") )); }
+    if [[ -n $s && $age -lt $SLUG_TTL && $s =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
+      journal action=slug repo="$1" result=cached slug="$s" >/dev/null
+    elif fresh=$(ghc api "repos/$OWNER/$1" --jq .full_name 2>/dev/null) && [[ $fresh =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
+      s=$fresh
+      mkdir -p "$SLUG_DIR" && printf '%s\n' "$s" > "$f.tmp" && mv "$f.tmp" "$f"
+      journal action=slug repo="$1" result=refreshed slug="$s" >/dev/null
+    elif [[ -n $s && $s =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
+      journal action=slug repo="$1" result=stale-cache slug="$s" reason="refresh failed, cache is ${age}s old" >/dev/null
+    else
+      return 1
+    fi
     SLUGS[$1]=$s
   fi
   echo "${SLUGS[$1]}"
@@ -219,7 +261,7 @@ do_rerun() {
   for repo in "${repo_list[@]}"; do
     [[ -d $CLONES/$repo ]] || continue
     if ! s=$(slug "$repo"); then journal action=rerun repo="$repo" result=refused reason="cannot resolve GitHub slug"; continue; fi
-    if ! prs=$("$GH" api "repos/$s/pulls?state=open&per_page=100" --jq '.[] | "\(.number) \(.head.sha)"'); then
+    if ! prs=$(ghc api "repos/$s/pulls?state=open&per_page=100" --jq '.[] | "\(.number) \(.head.sha)"'); then
       journal action=rerun repo="$repo" result=refused reason="cannot list pull requests"; continue
     fi
     while read -r num sha; do
@@ -236,7 +278,7 @@ do_rerun() {
         (( nfail >= 3 )) && continue
         [[ -n $lastfail ]] && (( $(date -u +%s) - lastfail < 3600 )) && continue
       fi
-      if ! run=$("$GH" api "repos/$s/actions/runs?head_sha=$sha&per_page=20" --jq \
+      if ! run=$(ghc api "repos/$s/actions/runs?head_sha=$sha&per_page=20" --jq \
         "[.workflow_runs[] | select(.name == \"$WORKFLOW_NAME\")] | sort_by(.created_at) | last
          | if . == null then \"\" else \"\(.id) \(.status) \(.run_started_at // .created_at)\" end"); then
         journal action=rerun repo="$repo" pr="$num" sha="$sha" result=refused reason="cannot list workflow runs"; continue
@@ -253,7 +295,7 @@ do_rerun() {
       fi
       ptime=$(publish_time "$repo" "$sha" "$pdig")
       [[ -n $ptime && $cepoch -lt $ptime ]] || continue
-      if "$GH" api -X POST "repos/$s/actions/runs/$id/rerun" >/dev/null; then
+      if ghc api -X POST "repos/$s/actions/runs/$id/rerun" >/dev/null; then
         echo "$repo $sha $pdig" >> "$RERUNS"
         journal action=rerun repo="$repo" pr="$num" sha="$sha" digest="$pdig" result=rerun reason="run $id predates publication"
       else
@@ -269,7 +311,7 @@ merge_one() {
   local repo=$1 s=$2 num=$3 sha=$4 base=$5 clone=$CLONES/$1 pr state head lfile tmp ldig pdig keylist require v best
   local ctxs checks statuses ctx found bad active
   merge_refuse() { journal action=merge repo="$repo" pr="$num" sha="$sha" result=refused reason="$1"; }
-  if ! pr=$("$GH" api "repos/$s/pulls/$num" --jq '"\(.mergeable_state // "unknown") \(.head.sha) \(.draft)"'); then
+  if ! pr=$(ghc api "repos/$s/pulls/$num" --jq '"\(.mergeable_state // "unknown") \(.head.sha) \(.draft)"'); then
     merge_refuse "cannot read pull request"; return 0
   fi
   read -r state head _ <<< "$pr"
@@ -298,14 +340,14 @@ merge_one() {
   require=$("$GIT" -C "$clone" show "origin/$base:.aien/always" 2>/dev/null | grep -v '^#' | grep -v '^$' | paste -sd, - || true)
   v=$(verify "$tmp" "$repo" "$sha" "$keylist" "$require"); best=${v%% *}
   [[ $best == 0 ]] || { merge_refuse "verify-bundle $(verdict_name "$best") (exit codes per key: ${v#* })"; return 0; }
-  if ! ctxs=$("$GH" api "repos/$s/branches/$base/protection/required_status_checks" --jq '.contexts[]'); then
+  if ! ctxs=$(ghc api "repos/$s/branches/$base/protection/required_status_checks" --jq '.contexts[]'); then
     merge_refuse "cannot read required status checks of $base"; return 0
   fi
   [[ -n $ctxs ]] || { merge_refuse "$base has no required status checks"; return 0; }
-  if ! checks=$("$GH" api "repos/$s/commits/$sha/check-runs?per_page=100" --jq '.check_runs[] | [.name, (.conclusion // .status)] | @tsv'); then
+  if ! checks=$(ghc api "repos/$s/commits/$sha/check-runs?per_page=100" --jq '.check_runs[] | [.name, (.conclusion // .status)] | @tsv'); then
     merge_refuse "cannot read check runs"; return 0
   fi
-  if ! statuses=$("$GH" api "repos/$s/commits/$sha/status?per_page=100" --jq '.statuses[] | [.context, .state] | @tsv'); then
+  if ! statuses=$(ghc api "repos/$s/commits/$sha/status?per_page=100" --jq '.statuses[] | [.context, .state] | @tsv'); then
     merge_refuse "cannot read commit statuses"; return 0
   fi
   while IFS= read -r ctx; do
@@ -315,12 +357,12 @@ merge_one() {
     bad=$(grep -vx success <<< "$found" | head -n 1 || true)
     [[ -z $bad ]] || { merge_refuse "required context '$ctx' is $bad"; return 0; }
   done <<< "$ctxs"
-  if ! active=$("$GH" api "repos/$s/actions/runs?head_sha=$sha&per_page=20" --jq \
+  if ! active=$(ghc api "repos/$s/actions/runs?head_sha=$sha&per_page=20" --jq \
     "[.workflow_runs[] | select(.name == \"$WORKFLOW_NAME\" and .status != \"completed\")] | length"); then
     merge_refuse "cannot list workflow runs"; return 0
   fi
   [[ $active == 0 ]] || { merge_refuse "$WORKFLOW_NAME run queued or in progress"; return 0; }
-  if "$GH" pr merge "$num" -R "$s" --merge --match-head-commit "$sha"; then
+  if ghc pr merge "$num" -R "$s" --merge --match-head-commit "$sha"; then
     journal action=merge repo="$repo" pr="$num" sha="$sha" digest="$ldig" result=merged reason="all guards green"
     MERGED_REPO=$repo
   else
@@ -340,7 +382,7 @@ do_merge() {
     if ! "$GIT" -C "$CLONES/$repo" fetch -q origin; then
       journal action=merge repo="$repo" result=refused reason="fetch of trusted clone failed"; continue
     fi
-    if ! prs=$("$GH" api "repos/$s/pulls?state=open&per_page=100" --jq \
+    if ! prs=$(ghc api "repos/$s/pulls?state=open&per_page=100" --jq \
       ".[] | [.number, .head.sha, .base.ref, .draft, ([.labels[].name] | index(\"$MERGE_LABEL\") != null)] | @tsv"); then
       journal action=merge repo="$repo" result=refused reason="cannot list pull requests"; continue
     fi
