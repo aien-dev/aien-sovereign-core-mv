@@ -1174,7 +1174,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "spark-crumbs 0.1.0 (git+https://github.com/aien-dev/spark-crumbs?rev=9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2)",
+ "spark-crumbs",
  "tokio",
  "tower-http 0.5.2",
  "tracing",
@@ -3238,7 +3238,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "spark-crumbs 0.1.0 (git+https://github.com/aien-dev/spark-crumbs?rev=9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2)",
+ "spark-crumbs",
 ]
 
 [[package]]
@@ -4057,7 +4057,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
- "spark-crumbs 0.1.0 (git+https://github.com/aien-dev/spark-crumbs?rev=9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2)",
+ "spark-crumbs",
  "tokio",
  "tracing",
  "url",
@@ -4119,21 +4119,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "spark-crumbs"
-version = "0.1.0"
-source = "git+https://github.com/aien-dev/spark-crumbs?rev=9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2#9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2"
-dependencies = [
- "chrono",
- "clap",
- "colored",
- "rayon",
- "serde",
- "serde_json",
- "uuid",
- "walkdir",
-]
-
-[[package]]
 name = "spark-debugger"
 version = "0.1.0"
 dependencies = [
@@ -4144,7 +4129,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
- "spark-crumbs 0.1.0 (git+https://github.com/aien-dev/spark-crumbs?rev=9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2)",
+ "spark-crumbs",
  "tempfile",
  "tokio",
  "tracing",
@@ -4180,7 +4165,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "spark-crumbs 0.1.0 (git+https://github.com/aien-dev/spark-crumbs?rev=9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2)",
+ "spark-crumbs",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -4200,7 +4185,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "spark-crumbs 0.1.0 (git+https://github.com/aien-dev/spark-crumbs?rev=9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2)",
+ "spark-crumbs",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -4240,7 +4225,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
- "spark-crumbs 0.1.0 (git+https://github.com/aien-dev/spark-crumbs?rev=9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2)",
+ "spark-crumbs",
  "tempfile",
  "thiserror 2.0.20",
  "uuid",
@@ -4257,7 +4242,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "spark-crumbs 0.1.0 (git+https://github.com/aien-dev/spark-crumbs?rev=9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2)",
+ "spark-crumbs",
 ]
 
 [[package]]
@@ -4294,7 +4279,7 @@ dependencies = [
  "crumb-spec",
  "serde",
  "serde_json",
- "spark-crumbs 0.1.0 (git+https://github.com/aien-dev/spark-crumbs?rev=9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2)",
+ "spark-crumbs",
  "tokio",
  "toml",
  "tracing",
