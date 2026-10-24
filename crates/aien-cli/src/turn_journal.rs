@@ -446,6 +446,10 @@ where
     Ok(steps)
 }
 
+#[cfg(all(test, unix))]
+#[path = "turn_journal/crash_tests.rs"]
+mod crash_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
