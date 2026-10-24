@@ -1,0 +1,24 @@
+01b1545b23e8ff40cb5691e20b5df910ea4acaefde3495f0d62d270465b98cd6  /home/drakestapleton/workspace/omega-osc-manual-migration/seed/out/omc
+A expected=0 actual=0
+B expected=4 actual=4
+C expected=5 actual=5
+D expected=3 actual=3
+E expected=3 actual=3
+F expected=4 actual=4
+G expected=5 actual=5
+H expected=5 actual=5
+I expected=3 actual=3
+J expected=3 actual=3
+K expected=3 actual=3
+L expected=3 actual=3
+M expected=3 actual=3
+N expected=3 actual=3
+O expected=3 actual=3
+P expected=3 actual=3
+Q expected=3 actual=3
+R expected=2 actual=2
+S expected=2 actual=2
+T expected=3 actual=3
+U expected=3 actual=3
+V expected=3 actual=3
+W expected=0 actual=0

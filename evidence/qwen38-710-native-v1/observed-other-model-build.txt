@@ -1,0 +1,12 @@
+aien-serve-http LIVE build, L387 motor ship (NO aien-test-switches: answers 400 to aien_test), pinned 2026-10-22T02:43:29Z; same commit and lib as the train candidate bin-bfc41659
+sc ship/motor-l387 f0230a59 (code 59b05a71: + a negative control leaves no state for a later request) = serve/q36-batch-v2 9c62690a (bin-16b0e6f8 source, L354 batch strokes v2 + tools L374)
+  + serve/merge-train 59b896b1 (L384 per-request switches) + serve/q36-prefill-v2 6127db50 (L369 chip prefill)
+  + hum/exact-head-batch 8dd86a36 (L314 exact head per stroke slot)
+  cargo build --release -p aien-serve-http, CARGO_TARGET_DIR=~/workspace/targets/l387/sc-live; host tests qwen36_batch 12/12 (with and without the feature)
+omega ship/motor-l387 6de999da = serve/q36-prefill-v2 60ba3051 (ab81d8f3 ship lib + L314 exact-head-stroke 41269bd8
+  + L356 CN rows 4b079116 + L369 prefill: multi-token GDN, attention, gate rows) + hum/state-precision 19c3b5d2 (L313 bf16 state)
+  lib sha256 110295ef23dc7561; q36 dec sim 27/27 PASS; q36 kernel hashes identical to L369 lib-v3
+levers ON: L354 batch, L312 strokes v2 (lever 2), L314 exact head, L356 CN rows, L369 prefill (chunks of 128), tools L374
+levers OFF: L313 bf16 state (AIEN_OMEGA_GDN_STATE_BF16 unset; not validated with the prefill's multi-token GDN)
+levers OUT (gate not green): L312 levers 3-7 (motor/serve 881f4397), L375 shared prompt cache, L376 team board
+switches: AIEN_Q36_PREFILL_CHUNK=0 prompts token by token; AIEN_OMEGA_Q36_CN_ROWS=0; AIEN_Q36_STROKE=0 rows in turn; AIEN_Q36_EXACT_HEAD=0

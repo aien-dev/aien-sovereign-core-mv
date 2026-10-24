@@ -1,0 +1,248 @@
+note Core710 receipt arithmetic validator v2. Native CPU only, never hardware qualification.
+note Input: 24 rows of 24 unsigned decimal fields. See CONTRACT.md for exact units and order.
+note Exit2 malformed,3 invalid experiment,4 contaminated,5 quality or backend unqualified,6 IO.
+note Producer attestations require external source-bound evidence; this checker cannot authenticate them.
+global inp uchar 65537
+global cur ulong 1
+global size ulong 1
+global val ulong 1
+global row ulong 24
+global samples ulong 300
+global peaks ulong 4
+global out uchar 32
+
+fn space c uchar to bool
+ret or eq c uchar 32 or eq c uchar 10 or eq c uchar 13 eq c uchar 9
+end
+
+fn number to bool
+p = get cur 0
+while and lt p get size 0 space get inp p
+p = add p 1
+end
+if ge p get size 0
+ret false
+end
+x = ulong 0
+n = ulong 0
+while lt p get size 0
+c = get inp p
+if space c
+put cur 0 add p 1
+put val 0 x
+ret gt n 0
+end
+if or lt c uchar 48 gt c uchar 57
+ret false
+end
+d = sub ulong c 48
+if gt x div sub ulong 1000000000000 d 10
+ret false
+end
+x = add mul x 10 d
+n = add n 1
+p = add p 1
+end
+put cur 0 p
+put val 0 x
+ret gt n 0
+end
+
+fn emit x ulong to bool
+put out 31 uchar 10
+p = ulong 31
+v = x
+while gt v 9
+p = sub p 1
+put out p uchar add rem v 10 48
+v = div v 10
+end
+p = sub p 1
+put out p uchar add v 48
+while lt p 32
+n = write 1 out p sub ulong 32 p
+if le n 0
+ret false
+end
+p = add p ulong n
+end
+ret true
+end
+
+fn sort a edit ulong 24 base ulong to void
+for j ulong 5
+v = get a add base j
+k = j
+moving = true
+while and moving gt k 0
+p = sub k 1
+if gt get a add base p v
+put a add base k get a add base p
+k = p
+else
+moving = false
+end
+end
+put a add base k v
+end
+end
+
+fn valid arm ulong prompt ulong to int
+if or eq prompt 0 or gt prompt 131072 ne get row 20 prompt
+ret 3
+end
+tokens = get row 2
+pending = get row 22
+if or eq tokens 0 or gt tokens 1048576 gt pending 1
+ret 3
+end
+boundary = sub add prompt tokens pending
+if or ne get row 21 boundary ne get row 23 1
+ret 3
+end
+if gt boundary 131072
+ret 3
+end
+if or gt get row 14 0 gt get row 15 0
+ret 4
+end
+if or ne get row 16 1 ne get row 17 1
+ret 5
+end
+packed = ulong 0
+if ge arm 2
+packed = 1
+end
+if ne get row 18 packed
+ret 5
+end
+if ne get row 19 0
+ret 3
+end
+if eq rem arm 2 0
+if or ne get row 8 0 ne get row 9 0
+ret 3
+end
+end
+ret 0
+end
+
+fn timing to int
+sum = add get row 3 add get row 4 get row 5
+earliest = sum
+for j ulong 5
+sum = add sum get row add j 7
+end
+total = get row 12
+if or eq total 0 ne total sum
+ret 3
+end
+if le total get row 3
+ret 3
+end
+if or lt get row 6 earliest gt get row 6 total
+ret 3
+end
+if eq get row 13 0
+ret 3
+end
+ret 0
+end
+
+fn save arm ulong round ulong to void
+idx = add mul arm 5 sub round 1
+for metric ulong 12
+put samples add mul metric 20 idx get row add metric 2
+end
+put samples add ulong 240 idx div mul get row 2 1000000 get row 12
+service = sub get row 12 get row 3
+put samples add ulong 260 idx service
+put samples add ulong 280 idx div mul get row 2 1000000 service
+if gt get row 13 get peaks arm
+put peaks arm get row 13
+end
+end
+
+fn report to int
+a = new ulong 24 0
+p = get cur 0
+while lt p get size 0
+if not space get inp p
+ret 2
+end
+p = add p 1
+end
+for arm ulong 4
+base = mul arm 5
+if not emit arm
+ret 6
+end
+for metric ulong 15
+for j ulong 5
+put a j get samples add mul metric 20 add base j
+end
+sort a 0
+if not emit get a 2
+ret 6
+end
+if not emit get a 4
+ret 6
+end
+end
+if not emit get peaks arm
+ret 6
+end
+end
+ret 0
+end
+
+fn check to int
+prompt = ulong 0
+for i ulong 24
+for j ulong 24
+if not number
+ret 2
+end
+put row j get val 0
+end
+round = div i 4
+arm = rem i 4
+if eq rem round 2 1
+arm = sub ulong 3 arm
+end
+if or ne get row 0 arm ne get row 1 round
+ret 3
+end
+if eq i 0
+prompt = get row 20
+end
+rc = valid arm prompt
+if ne rc 0
+ret rc
+end
+rc = timing
+if ne rc 0
+ret rc
+end
+if gt round 0
+save arm round
+end
+end
+ret report
+end
+
+fn main to int
+used = ulong 0
+while lt used 65537
+n = read 0 inp used sub ulong 65537 used
+if lt n 0
+ret 6
+end
+if eq n 0
+put size 0 used
+ret check
+end
+used = add used ulong n
+end
+ret 2
+end

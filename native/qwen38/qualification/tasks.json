@@ -1,0 +1,44 @@
+{
+  "schema": "qwen38-quality-smoke-v1",
+  "status": "TEXT_FROZEN_TOKENIZATION_AND_REFERENCE_NOT_RUN",
+  "purpose": "Deterministically scored smoke tasks. Not the required held-out perplexity corpus.",
+  "tasks": [
+    {
+      "id": "code-trace-branch",
+      "domain": "code",
+      "prompt": "Trace this Omega function: fn choose a int b int to int; if gt a b; ret sub a b; else; ret add a b; end; end. Semicolons denote line breaks. What integer does choose 7 3 return? Reply with only the integer.",
+      "expected_trimmed_text": "4"
+    },
+    {
+      "id": "code-trace-loop",
+      "domain": "code",
+      "prompt": "An integer program sets sum=0 and adds each integer i for i=0,1,2,3,4. What is the final sum? Reply with only the integer.",
+      "expected_trimmed_text": "10"
+    },
+    {
+      "id": "prose-order",
+      "domain": "prose",
+      "prompt": "The blue crate arrived before the green crate. The red crate arrived after the green crate. Which crate arrived first? Reply with only its color in lowercase.",
+      "expected_trimmed_text": "blue"
+    },
+    {
+      "id": "prose-fact",
+      "domain": "prose",
+      "prompt": "Mira checked three valves. Valve A was open, valve B was closed, and valve C was open. Which valve was closed? Reply with only its uppercase letter.",
+      "expected_trimmed_text": "B"
+    }
+  ],
+  "continuation_cases": [
+    "cold full prompt",
+    "identical prefix restored then suffix",
+    "second turn after ordinary completion",
+    "second turn after speculative completion",
+    "second turn after cancellation"
+  ],
+  "unmet": [
+    "Exact tokenizer and chat-template execution with frozen token arrays",
+    "Independent held-out coding and prose NLL corpora",
+    "Reference logits, task results and state captures at every context",
+    "Native executable scoring integration"
+  ]
+}
