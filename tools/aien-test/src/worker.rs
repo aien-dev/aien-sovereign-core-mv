@@ -249,6 +249,9 @@ pub struct Config {
     /// ref is planned against its first parent.
     pub base_ref: String,
     pub operator: bool,
+    /// `--full`: plan every head in full scope (an Alpha qualification:
+    /// every gate at HEAD, signed as `plan.scope: "full"`).
+    pub full: bool,
     /// The crumb command (`crumb`); None skips crumb claim/close.
     pub crumb: Option<String>,
     /// The GitHub CLI (`gh`), looked up on PATH.
@@ -301,6 +304,7 @@ impl Config {
             repos: Vec::new(),
             base_ref: "origin/main".to_string(),
             operator: false,
+            full: false,
             crumb: Some("crumb".to_string()),
             gh: "gh".to_string(),
             hardware_identity: String::new(),
@@ -1031,6 +1035,7 @@ fn run_in_worktree(
     let (base, on_main) = plan::base_for(wt, &cfg.base_ref, sha)?;
     let mut req = plan::Request::new(&base, sha);
     req.operator = cfg.operator;
+    req.full = cfg.full;
     req.hardware_identity = cfg.hardware_identity.clone();
     let plan = plan::compute(wt, &req)?;
 
@@ -1176,6 +1181,10 @@ fn run_in_worktree(
             "unmapped": plan.unmapped,
             "removed": plan.removed,
             "blocked": plan.blocked,
+            // `full` (every gate at HEAD: an Alpha qualification) or
+            // `changed` (what the diff selects); signed with the rest, and
+            // `verify` plans in the same scope. No member means `changed`.
+            "scope": plan.scope(),
         },
     });
     let signed = bundle::sign(&unsigned, &key).map_err(|r| format!("cannot sign bundle: {r}"))?;
@@ -1254,6 +1263,7 @@ fn run_in_worktree(
         "repository": repository,
         "sha": sha,
         "base": plan.base,
+        "scope": plan.scope(),
         "verdict": judged.verdict.as_str(),
         "reason": judged.reason,
         "bundle_verdict": bundle_verdict,
