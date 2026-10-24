@@ -14,8 +14,7 @@ run:
   args: ["native-w4"]
 expects:
   exit: 0
-  observe:
-    - "w4_groups == 15"
+  observe: ["w4_groups == 15"]
   verdict: PASS
 timeout: 5m
 exactness: EXACT
