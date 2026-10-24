@@ -82,6 +82,25 @@ This is what lets the shared gate template say `exec: crumb` with
 (root-owned, on the trusted PATH). Proven end to end on 2026-10-11: a gate
 running `crumb verify .` as `aien-run` in a worker checkout passed.
 
+**The crumb tool is pinned by the repository, not by the host (sc#602).**
+`crumb.lock` at the repository root holds one aien-architecture commit. The
+CRUMB-VERIFY gate (`tests/gates/run.sh crumb-verify`) builds `tools/crumb` at
+that commit from the sibling `../aien-architecture` into
+`$CARGO_TARGET_DIR/crumb-tool/<pin>` and runs that binary; the receipt records
+`crumb_tool_commit`. The readiness report does the same from the trusted clone
+`<clones>/aien-architecture` into `<state>/crumb-tool/<pin>` and prints
+`Crumb tool: pinned <sha> (crumb.lock)`, so the gate and the `Crumb status:`
+line can never disagree because of a different `crumb` on PATH.
+aien-architecture owns the tool and has no `crumb.lock`: its commits are
+checked with the tool at the commit under test (`Crumb tool: pinned <that
+commit>`), as its hosted workflow does, so a change to the crumb format is
+judged by the tool that writes it. Any other commit
+without `crumb.lock` still uses the PATH `crumb` and the report says
+`Crumb tool: crumb on PATH (no crumb.lock at COMMIT)`. If the pinned tool cannot
+be built (no sibling clone, bad lock) the status is STALE with the reason in
+`Crumb note:`. Moving the pin is an ordinary change to `crumb.lock` followed by
+`crumb compile .` with the new tool.
+
 ## The sandbox seam (C8)
 
 `--sandbox user` rewrites every gate launch into
@@ -370,6 +389,13 @@ that has no bundle yet, then sleeps `--poll` seconds. `--iterations N`
 bounds the rounds (tests). Trigger names that are not a plain repository
 name and a 40-hex commit are ignored.
 
+With `--repos`, the loop takes only trigger files of those repositories and
+leaves the others for the poller that lists them. Before judging a head (loop
+or `--once`) the worker takes an `flock` on `locks/judging/<repo>.<sha>`
+(holder pid inside); if another process holds it the head is skipped with
+`SKIP already being judged by pid N` (`--once` exits 75), because every judge
+of a head shares one worktree and the first to finish removes it.
+
 What starts a run, and what does not (checked 2026-10-11 on the Spark):
 
 | trigger | how | covers today |
@@ -480,6 +506,7 @@ unmapped path, no blocked gate, no problem line.
   evidence/<repo>/<sha>/<digest>.json    receipts of that run
   bundles/<repo>/<sha>/bundle.json       the signed bundle
   trigger/<repo>.<sha>                   a run request (removed when served)
+  locks/judging/<repo>.<sha>            held while one process judges that head
   outbox/<seq>.<repo>.<sha>.json         a commit status waiting for GitHub, in queue order
   journal.jsonl                          one line per finished head
   worker.heartbeat                       pid, phase, repo, sha, utc

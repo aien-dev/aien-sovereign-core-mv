@@ -7,6 +7,7 @@
 //! evidence/<repo>/<sha>/   receipts and blobs of that commit's run
 //! bundles/<repo>/<sha>/bundle.json   the signed VerificationBundleV1
 //! trigger/<repo>.<sha>     a file whose presence asks for a run
+//! locks/judging/<repo>.<sha>  held (flock) by the one process judging that head
 //! outbox/<repo>.<sha>.json a GitHub status that could not be posted yet
 //! journal.jsonl            one line per finished head
 //! worker.heartbeat         what the worker is doing right now
@@ -29,7 +30,7 @@ use crate::evidence::{canonical, canonical_digest, sha256_hex, utc_string};
 use crate::graph;
 use crate::plan::{self, Known, Section};
 use crate::process;
-use crate::resources::{GpuWait, Hardware, JobsSpec, DEFAULT_GPU_WAIT};
+use crate::resources::{self, GpuWait, Hardware, JobsSpec, DEFAULT_GPU_WAIT};
 use crate::runner::{self, CacheNote, Options};
 use crate::sandbox::Sandbox;
 use crate::verdict::Verdict;
@@ -38,6 +39,7 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -138,6 +140,15 @@ impl StateDir {
     /// `target/<repo>/pr`, takes its lock from here.
     pub fn target_lock_dir(&self) -> PathBuf {
         self.root.join("locks").join("target")
+    }
+
+    /// `<state>/locks/judging/<repo>.<sha>`: held by the process judging that
+    /// head (`claim_head`).
+    pub fn head_lock(&self, repo: &str, sha: &str) -> PathBuf {
+        self.root
+            .join("locks")
+            .join("judging")
+            .join(format!("{repo}.{sha}"))
     }
 
     pub fn bundle_path(&self, repo: &str, sha: &str) -> PathBuf {
@@ -875,12 +886,7 @@ pub fn run_once_in(
     let mut notes: Vec<String> = Vec::new();
     // One judge per head at a time, across processes (the batch, `--once`,
     // the loop): a second one would rewrite the same bundle and evidence.
-    let head_lock = cfg
-        .state
-        .root
-        .join("locks")
-        .join("head")
-        .join(format!("{repo}.{sha}.lock"));
+    let head_lock = cfg.state.head_lock(repo, sha);
     // Tried for up to two seconds: a child another thread forks holds a copy
     // of the descriptor until it execs, so a lock just released can look held
     // for a moment; a real second judge holds it for the whole run.
@@ -1559,6 +1565,99 @@ fn conditional_heads(
     Ok(shas)
 }
 
+/// `triggers`, limited to the repositories in `repos` (a poller started with
+/// `--repos`). An empty list takes every trigger. Files of other repositories
+/// are left where they are: they belong to the poller that lists them.
+pub fn triggers_for(state: &StateDir, repos: &[String]) -> Vec<(String, String, PathBuf)> {
+    let mut all = triggers(state);
+    if !repos.is_empty() {
+        all.retain(|(repo, _, _)| repos.iter().any(|r| r == repo));
+    }
+    all
+}
+
+/// Exclusive right to judge one (repo, sha) on this machine: an `flock(2)` on
+/// `<state>/locks/judging/<repo>.<sha>`. Every judge of a head shares the
+/// worktree `<wt-root>/<repo>/<sha>`, and the first to finish removes it, so
+/// two processes judging one head (two pollers that both see a trigger file,
+/// or a `worker --once` beside a poller) kill each other's run. The lock file
+/// holds the holder's pid. The kernel drops the lock when the holder dies, so
+/// a crashed worker never blocks the head.
+#[derive(Debug)]
+pub struct HeadClaim {
+    file: Option<fs::File>,
+    path: PathBuf,
+}
+
+impl Drop for HeadClaim {
+    fn drop(&mut self) {
+        // Unlink while still holding the lock: anyone who opened the old file
+        // meanwhile sees the path no longer names it and tries again.
+        let _ = fs::remove_file(&self.path);
+        let _gate = process::spawn_gate();
+        self.file.take();
+    }
+}
+
+/// Take the right to judge `repo` at `sha`. `Ok(None)`: another process holds
+/// it right now (see `head_holder`); the caller skips the head. Never waits.
+pub fn claim_head(state: &StateDir, repo: &str, sha: &str) -> Result<Option<HeadClaim>, String> {
+    if !valid_repo_key(repo) || !valid_sha(sha) {
+        return Err(format!("refusing to claim {repo:?} {sha:?}"));
+    }
+    let path = state.head_lock(repo, sha);
+    let err = |what: &str, e: std::io::Error| format!("{what} {}: {e}", path.display());
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| err("cannot create", e))?;
+    }
+    // A holder that finishes between our open and our flock unlinks the file;
+    // we would then hold a lock on a name nobody else can see. Check the path
+    // still names our file and open again when it does not.
+    for _ in 0..16 {
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(false)
+            .open(&path)
+            .map_err(|e| err("cannot open", e))?;
+        if !resources::flock_exclusive(&file, false).map_err(|e| err("cannot lock", e))? {
+            return Ok(None);
+        }
+        let named = fs::metadata(&path).ok();
+        let ours = file.metadata().map_err(|e| err("cannot stat", e))?;
+        if !named.is_some_and(|m| m.dev() == ours.dev() && m.ino() == ours.ino()) {
+            continue;
+        }
+        file.set_len(0).map_err(|e| err("cannot write", e))?;
+        (&file)
+            .write_all(format!("{}\n", std::process::id()).as_bytes())
+            .map_err(|e| err("cannot write", e))?;
+        return Ok(Some(HeadClaim {
+            file: Some(file),
+            path,
+        }));
+    }
+    Err(format!("cannot settle the claim on {}", path.display()))
+}
+
+/// The pid that holds the claim on (repo, sha), when it is readable.
+pub fn head_holder(state: &StateDir, repo: &str, sha: &str) -> Option<u32> {
+    fs::read_to_string(state.head_lock(repo, sha))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
+
+/// The log words for a head another process is judging.
+pub fn held_note(state: &StateDir, repo: &str, sha: &str) -> String {
+    match head_holder(state, repo, sha) {
+        Some(pid) => format!("SKIP already being judged by pid {pid}"),
+        None => "SKIP already being judged by another process".to_string(),
+    }
+}
+
 fn pull_heads(v: &Value) -> Vec<String> {
     v.as_array()
         .map(|a| {
@@ -1735,10 +1834,11 @@ pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
         if posted + pending > 0 {
             println!("OUTBOX posted={posted} pending={pending}");
         }
-        let mut heads: Vec<(String, String, Option<PathBuf>)> = triggers(&cfg.state)
-            .into_iter()
-            .map(|(r, s, f)| (r, s, Some(f)))
-            .collect();
+        let mut heads: Vec<(String, String, Option<PathBuf>)> =
+            triggers_for(&cfg.state, &cfg.repos)
+                .into_iter()
+                .map(|(r, s, f)| (r, s, Some(f)))
+                .collect();
         if cfg.github {
             for repo in &cfg.repos {
                 let repository = plan::repository_name(&cfg.clones.join(repo), None);
@@ -1789,6 +1889,7 @@ pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
                 })
                 .collect();
             for ((sha, result), (_, trigger)) in results.into_iter().zip(list) {
+                let mut keep_trigger = false;
                 match result {
                     Ok(s) => {
                         println!(
@@ -1802,6 +1903,9 @@ pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
                     }
                     Err(e) => {
                         println!("HEAD {repo} {sha} ERROR {e}");
+                        if e.contains("already being judged") {
+                            keep_trigger = true;
+                        }
                         let _ = cfg.state.journal_append(&json!({
                             "utc": utc_string(now_secs()),
                             "repo": repo,
@@ -1812,8 +1916,10 @@ pub fn run_loop(cfg: &Config, iterations: Option<u64>) -> usize {
                         }));
                     }
                 }
-                if let Some(f) = trigger {
-                    let _ = fs::remove_file(f);
+                if !keep_trigger {
+                    if let Some(f) = trigger {
+                        let _ = fs::remove_file(f);
+                    }
                 }
             }
         }
@@ -2241,5 +2347,51 @@ printf 'HTTP/2.0 200 OK\r\nEtag: %s\r\nContent-Type: application/json\r\n\r\n' "
         s.beat("r", "sha", "plan");
         let hb: Value = serde_json::from_str(&fs::read_to_string(s.heartbeat()).unwrap()).unwrap();
         assert_eq!(hb["phase"], "plan");
+    }
+
+    #[test]
+    fn triggers_for_takes_only_the_listed_repos() {
+        let t = crate::testutil::TempDir::new("worker-trig-repos");
+        let s = StateDir::new(t.path());
+        fs::create_dir_all(s.trigger_dir()).unwrap();
+        for repo in ["core", "small", "other"] {
+            fs::write(
+                s.trigger_dir().join(format!("{repo}.{}", "a".repeat(40))),
+                "",
+            )
+            .unwrap();
+        }
+        // No list: every trigger, as before.
+        assert_eq!(triggers_for(&s, &[]).len(), 3);
+        let mine = triggers_for(&s, &["core".to_string(), "small".to_string()]);
+        let mut names: Vec<&str> = mine.iter().map(|t| t.0.as_str()).collect();
+        names.sort();
+        assert_eq!(names, ["core", "small"]);
+        // Filtering reads the files, it never removes the ones it skips.
+        assert!(s
+            .trigger_dir()
+            .join(format!("other.{}", "a".repeat(40)))
+            .exists());
+    }
+
+    #[test]
+    fn one_head_is_judged_by_one_process_at_a_time() {
+        let t = crate::testutil::TempDir::new("worker-claim");
+        let s = StateDir::new(t.path());
+        let (a, b) = ("a".repeat(40), "b".repeat(40));
+        let first = claim_head(&s, "repo", &a).unwrap().expect("first claim");
+        let lock = s.head_lock("repo", &a);
+        assert!(lock.exists());
+        // The same (repo, sha) is taken: the second asker is told who holds it.
+        assert!(claim_head(&s, "repo", &a).unwrap().is_none());
+        assert_eq!(head_holder(&s, "repo", &a), Some(std::process::id()));
+        // Another sha, and another repo with the same sha, are free.
+        let other_sha = claim_head(&s, "repo", &b).unwrap().expect("other sha");
+        let other_repo = claim_head(&s, "repo2", &a).unwrap().expect("other repo");
+        drop((other_sha, other_repo));
+        // Releasing frees the head and leaves no lock file behind.
+        drop(first);
+        assert!(!lock.exists());
+        assert!(claim_head(&s, "repo", &a).unwrap().is_some());
     }
 }

@@ -631,7 +631,7 @@ fn open_lock(path: &Path) -> io::Result<File> {
 
 /// `flock(LOCK_EX)`: Ok(true) when taken, Ok(false) when held by someone else
 /// and `wait` is off.
-fn flock_exclusive(file: &File, wait: bool) -> io::Result<bool> {
+pub(crate) fn flock_exclusive(file: &File, wait: bool) -> io::Result<bool> {
     let op = if wait {
         libc::LOCK_EX
     } else {
