@@ -266,5 +266,15 @@ grep -q "^AIEN_MODEL_LIST=\"$LIST\"$" "$ROOT/install.sh" || fail "install.sh doe
 grep -q '^AIEN_MODEL_REV="017b9c7af6b5689d5dd426a76e0bc077eb5ca20a"$' "$ROOT/install.sh" || fail "install.sh model revision is not 017b9c7a..."
 echo "PASS: the shipped model list has 81 well-formed lines and install.sh reads it at revision 017b9c7a"
 
+# L035: the loader needs 41,305 MiB + 8,192 MiB kept free = 49,497 MiB (48.3 GiB) at load. The
+# installer preflight warns below that figure and every user-facing memory statement gives it.
+grep -q 'lt $((49497 \* 1024))' "$ROOT/install.sh" || fail "install.sh preflight does not warn below 49,497 MiB"
+grep -q 'lt $((40 \* 1024 \* 1024))' "$ROOT/install.sh" && fail "install.sh still warns at the old 40 GiB figure"
+for doc in README.md docs/qwen38/ALPHA_STATUS.md docs/qwen38/TRY_IT_ON_YOUR_SPARK.md; do
+    grep -q '49,497 MiB (48.3 GiB)' "$ROOT/$doc" || fail "$doc does not state the 49,497 MiB (48.3 GiB) load requirement"
+done
+grep -q 'KEEP_FREE: u64 = 8 << 30' "$ROOT/crates/aien-serve-http/src/qwen38_engine.rs" || fail "loader keep-free changed; update the docs and this test"
+echo "PASS: install preflight and the docs give the 49,497 MiB (48.3 GiB) load requirement"
+
 # Exercise detached startup failure, bounded readiness, API identity, ownership, and foreground behavior with fixtures.
 "$ROOT/scripts/test-serve-27b.sh"

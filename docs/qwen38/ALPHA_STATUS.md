@@ -57,11 +57,14 @@ sha256 `df936011...` (`evidence/qwen38-serve-fast-20261019/README.md`):
   219 GB/s); compute ceiling about 4,050 tokens per second in total at the 207.7 TFLOPS FP8
   figure measured by a third party, 4,880 at NVIDIA's specification, about twice that with FP4
   weights. Arithmetic, sources and which figure is measured: [CEILING.md](CEILING.md).
-- Memory: peak resident memory 36.7 GiB (38,499,160 kB, VmHWM) of the live server on this
-  binary: `evidence/qwen38-serve-memory-20261019/proc-status.txt`, calc:39181948. Plan on about
-  that much free for a second 27B server on the same Spark. Of the peak resident memory now, 35,469,640 kB is file-backed
-  (RssFile in the same file); whether a second server reading the same model folder shares part
-  of it has not been measured.
+- Memory: the loader needs 49,497 MiB (48.3 GiB) of MemAvailable when it loads (41,305 MiB for
+  the model and its working memory plus 8,192 MiB it keeps free), checked again after it takes
+  the GPU lock, and refuses with less; `install.sh` and `tools/serve-27b.sh` warn below that
+  figure. A second 27B server on the same Spark needs the full 49,497 MiB too. Once loaded, peak
+  resident memory is 36.7 GiB (38,499,160 kB, VmHWM) of the live server on this binary:
+  `evidence/qwen38-serve-memory-20261019/proc-status.txt`, calc:39181948. Of that peak,
+  35,469,640 kB is file-backed (RssFile in the same file); whether a second server reading the
+  same model folder shares part of it has not been measured.
 - Model download: `install.sh --with-model` run on our Spark (2 files fetched, 1 resumed, all 81
   pass `sha256sum -c`): `evidence/qwen38-install-with-model-20261019/realrun.log`.
 - Correctness gate `GATE PASS`, 24 of 24 greedy ids equal to the host reference:
