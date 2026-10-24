@@ -37,3 +37,8 @@ libomega_gpu.a 4799f9eba563e9c69579b47c477e7d9c2b0f15cb aarch64-unknown-linux-gn
 # omega main merge commit once branch alpha/decode-speed-to-main lands in omega-mv; record that commit then.
 librx_compose.a 0010f7d30bcaf0012e8051c5a05584a08d8320ec aarch64-unknown-linux-gnu e598074e58533dc5fb08281f1392d265943f6f8def2fc4950f04a5729c100758 cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
 libomega_gpu.a 0010f7d30bcaf0012e8051c5a05584a08d8320ec aarch64-unknown-linux-gnu bd6802a5d493ed6b4589dabb5787db70a37ba10c75d8406f3cce27c4dfa9f9bd cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+# omega 18f8fdd9 (omega-mv main, merge of #703 alpha/decode-speed-to-main). Both archives are byte-identical to
+# 0010f7d3's (main's other commits do not change them). Recorded 2026-10-24 from scripts/abi-qualify.sh --pins
+# target/pins (host scope, build.rs digests) and reproduced by an independent omega make from a fresh checkout.
+librx_compose.a 18f8fdd974edea2e778ff16a49f88c878ffac1c0 aarch64-unknown-linux-gnu e598074e58533dc5fb08281f1392d265943f6f8def2fc4950f04a5729c100758 cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+libomega_gpu.a 18f8fdd974edea2e778ff16a49f88c878ffac1c0 aarch64-unknown-linux-gnu bd6802a5d493ed6b4589dabb5787db70a37ba10c75d8406f3cce27c4dfa9f9bd cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
