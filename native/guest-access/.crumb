@@ -3,14 +3,14 @@
     "generated": {
       "children": [],
       "children_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "compiled_at": "2026-10-24T00:29:37Z",
+      "compiled_at": "2026-10-24T00:30:59Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:d5b27c98c2d81a6c45ca6a93ed4d96eb65a083bc1145fd8723632ee7b933acf7",
+      "digest": "sha256:bd5f49cc2ccd35c61d8365c7d47f6a60ef78b9051c60d1f3c21884c68de5f844",
       "evidence_files": 0,
       "evidence_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "files": 3,
-      "generated_at_commit": "781158aaabf3645e523b27bdf52e4114aa3b8e51",
-      "source_tree": "sha256:2acbf0d8f10f8f2cdc8004ce4e475a1788e597747028fa7a6ae9883c27f22996"
+      "generated_at_commit": "9ccf0c9a197c71b2f520bc4f274123b779e1278d",
+      "source_tree": "sha256:f10e42678b5dd0e6ccd9f5f3cdcdf80c6f1c44c68dcf20f5b574cfeafa2c9b3c"
     }
   },
   "name": "guest-access",

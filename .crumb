@@ -106,8 +106,8 @@
           "purpose": "Author native admission receipts and integration limits for core724"
         },
         {
-          "digest": "45c4ed0797546e566e318dbd4bc65045183a297e16b94a5d17a8196caeb4d024",
-          "last_commit": "781158aa",
+          "digest": "1500577b6f883c6c12e4d9d64f281bc23b9b7282d59e4749e07fa7e4775186f3",
+          "last_commit": "9ccf0c9a",
           "name": "native",
           "purpose": "Seeded Omega components for qualified native serving"
         },
@@ -130,15 +130,15 @@
           "purpose": "Local CI sandbox exec contract (C8), aien-run user/caches install, Forgejo trigger hook, health "
         }
       ],
-      "children_root": "sha256:1bebabb0fae03c7e9e4f71d5f0696a1a778a9eca64d69bc07f3d8d7bc4f32383",
-      "compiled_at": "2026-10-24T00:29:37Z",
+      "children_root": "sha256:7344e57628d101da28f73fb5fbb33dac33dcf2c90c1a897624d78361b5f7add5",
+      "compiled_at": "2026-10-24T00:30:59Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:34c0bac1fe9dad9d3835b534bff91360c33c5e5d6728898ed740a9e219d31fc0",
+      "digest": "sha256:b4534369f304b6a21dbdaebbcd5c5446b233b12f9bcdeabd0f00e942a8bd1c32",
       "evidence_files": 1586,
       "evidence_root": "sha256:ec55e3995e5303d770ad9ff49c6390d2047393fe9a4f9eff3d0a2e325de06450",
       "files": 5905,
-      "generated_at_commit": "781158aaabf3645e523b27bdf52e4114aa3b8e51",
-      "source_tree": "sha256:7c5d09e7ee44f01efe5a3e5392713e1a7a2d83177a8eb7d1f79b92ac76e2b75e"
+      "generated_at_commit": "9ccf0c9a197c71b2f520bc4f274123b779e1278d",
+      "source_tree": "sha256:843a017e5f817c999c5bf73f9fd25f4dcf6e6f518894baddb1d6cebbf9248bc8"
     }
   },
   "history": [],
