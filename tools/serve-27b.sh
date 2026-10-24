@@ -3,8 +3,10 @@
 # background, with the flags the project's own live server uses. Text chat only, one request at a
 # time, OpenAI-compatible API on http://127.0.0.1:$PORT/v1.
 #
-# Usage: serve-27b.sh [--foreground]
+# Usage: serve-27b.sh [--foreground] [--no-wait]
 #   --foreground  run in this terminal (for systemd or a supervisor) instead of detaching
+#   --no-wait     detach and return at once, without waiting for the model to load (the exit
+#                 code then says nothing about the load; check the log)
 # Settings (environment variables, all optional):
 #   BIN        server binary            default $HOME/.local/bin/aien-serve-http
 #   MODEL_DIR  Qwen3.8-27B FP8 folder   default $HOME/models/qwen3.8-27b-fp8-017b9c7a
@@ -12,7 +14,11 @@
 #   STATE_DIR  log and pid file folder  default ${XDG_STATE_HOME:-$HOME/.local/state}/aien
 #   LOG        server log               default $STATE_DIR/serve-27b.log
 #   MAX_CONTEXT, MAX_TOKENS_CAP         default 131072 and 16384
-# Exit: 0 started, 1 a check failed (nothing started).
+#   READY_TIMEOUT  seconds to wait for "ready"   default 2400 (lock queue 1800 + load)
+# Memory: the loader needs 49,497 MiB (48.3 GiB) of MemAvailable, checked after it holds the GPU lock.
+# Exit: 0 ready (or started, with --no-wait), 1 a check failed or the server exited without
+#       serving (for example the loader refused for lack of memory; the reason is printed),
+#       2 still loading when READY_TIMEOUT ran out (the server keeps running).
 set -euo pipefail
 
 BIN=${BIN:-$HOME/.local/bin/aien-serve-http}
@@ -24,10 +30,13 @@ PIDFILE=$STATE_DIR/serve-27b.pid
 MAX_CONTEXT=${MAX_CONTEXT:-131072}
 MAX_TOKENS_CAP=${MAX_TOKENS_CAP:-16384}
 FOREGROUND=0
+WAIT=1
+READY_TIMEOUT=${READY_TIMEOUT:-2400}
 for a in "$@"; do
     case "$a" in
         --foreground) FOREGROUND=1 ;;
-        -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+        --no-wait) WAIT=0 ;;
+        -h|--help) sed -n "2,21p" "$0"; exit 0 ;;
         *) echo "serve-27b: unknown argument $a (try --help)" >&2; exit 1 ;;
     esac
 done
@@ -52,11 +61,16 @@ fi
 if command -v ss >/dev/null && ss -ltn "sport = :$PORT" 2>/dev/null | grep -q LISTEN; then
     fail "port $PORT is already in use. Pick another one with PORT=..."
 fi
-# The server peaked at about 36.7 GiB of resident memory on the current build (VmHWM 38499160 kB,
-# evidence/qwen38-serve-memory-20261019/proc-status.txt); warn below 40 GiB free.
+# The loader needs 41,305 MiB for the model and its working memory (at the default MAX_CONTEXT)
+# plus 8,192 MiB kept free for other jobs: 49,497 MiB (48.3 GiB) of MemAvailable. A server that
+# starts has peaked at 38,499,160 kB (36.7 GiB) resident on the current build (VmHWM,
+# evidence/qwen38-serve-memory-20261019/proc-status.txt). The loader makes the binding check itself
+# once it holds the GPU lock; this early look only warns, because the lock wait can be many minutes
+# and free memory moves while you wait.
+NEED_MIB=49497
 avail_kib=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)
-if [ "${avail_kib:-0}" -lt $((40 * 1024 * 1024)) ]; then
-    echo "serve-27b: warning: only $((avail_kib / 1024 / 1024)) GiB of memory available; the 27B server peaked at about 36.7 GiB and may be killed by the kernel" >&2
+if [ "${avail_kib:-0}" -lt $((NEED_MIB * 1024)) ]; then
+    echo "serve-27b: warning: only $((avail_kib / 1024)) MiB of memory available; the loader needs $NEED_MIB MiB (48.3 GiB) free. It checks again when it gets the GPU lock and refuses if still short." >&2
 fi
 
 ARGS=(--engine omega --model-dir "$MODEL_DIR" --port "$PORT"
@@ -65,15 +79,40 @@ echo "$(date -u +%FT%TZ) serve-27b: starting $BIN ${ARGS[*]}" >> "$LOG"
 if [ "$FOREGROUND" -eq 1 ]; then
     exec "$BIN" "${ARGS[@]}"
 fi
+log_start=$(stat -c %s "$LOG")
 setsid nohup "$BIN" "${ARGS[@]}" >> "$LOG" 2>&1 < /dev/null &
-echo $! > "$PIDFILE"
-cat <<EOF
-serve-27b: started, pid $(cat "$PIDFILE")
+pid=$!
+echo $pid > "$PIDFILE"
+
+# A dead process (a zombie counts: this script is its parent) means the load was refused or failed.
+gone() { local s; s=$(ps -o stat= -p "$pid" 2>/dev/null || true); [ -z "$s" ] || [ "${s#Z}" != "$s" ]; }
+new_log() { tail -c +$((log_start + 1)) "$LOG"; }
+
+if [ "$WAIT" -eq 1 ]; then
+    echo "serve-27b: waiting for pid $pid to load the model (it may queue for the GPU lock first; log $LOG)" >&2
+    t0=$SECONDS
+    until new_log | grep -q 'aien-serve-http: serving '; do
+        if gone; then
+            rm -f "$PIDFILE"
+            echo "serve-27b: the server exited without serving; it did not start. Last log lines ($LOG):" >&2
+            new_log | tail -n 5 | sed 's/^/  /' >&2
+            exit 1
+        fi
+        if [ $((SECONDS - t0)) -ge "$READY_TIMEOUT" ]; then
+            echo "serve-27b: not ready after $READY_TIMEOUT s; pid $pid is still running (likely queued for the GPU lock). Watch: tail -f $LOG" >&2
+            exit 2
+        fi
+        [ $(((SECONDS - t0) % 60)) -eq 0 ] && [ $((SECONDS - t0)) -gt 0 ] && echo "serve-27b: still loading after $((SECONDS - t0)) s" >&2
+        sleep 1
+    done
+fi
+cat <<EOT
+serve-27b: $([ "$WAIT" -eq 1 ] && echo "ready" || echo "started, not waited for"), pid $pid
   log:     $LOG
-  loading takes about one to two minutes. It is ready when this lists qwen3.8-27b-fp8:
-           curl -s http://127.0.0.1:$PORT/v1/models
+  loading takes about one minute once the GPU is free; before that it queues for the GPU lock.
+  check:   curl -s http://127.0.0.1:$PORT/v1/models      (lists qwen3.8-27b-fp8 when ready)
   chat:    curl -s http://127.0.0.1:$PORT/v1/chat/completions -H 'Content-Type: application/json' \\
              -d '{"messages":[{"role":"user","content":"Hello"}],"max_tokens":64}'
   stop:    kill -TERM \$(cat $PIDFILE)
            (it finishes the reply in progress, then exits; that can take a few minutes)
-EOF
+EOT

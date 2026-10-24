@@ -27,15 +27,19 @@ Hardware and system (the only setup tested):
 - A normal user account that can read and write `/dev/nvidiactl`, `/dev/nvidia0` and
   `/dev/nvidia-uvm`. On our Spark these device files are readable and writable by every user
   (mode 666). No root is needed except for `apt`.
-- Free memory: the installer and the start script warn when less than 40 GiB is available
-  (`install.sh`, `tools/serve-27b.sh`). The live server on the current build (binary sha256
-  `df936011...`) peaked at 38,499,160 kB of resident memory, 38,499,160 / 1,048,576 = 36.7 GiB
-  (calc:39181948), read from `/proc/<pid>/status` (VmHWM, the same measure as the earlier figure)
-  after 2 hours 48 minutes of service
-  with up to 131,072 tokens of context allowed: `evidence/qwen38-serve-memory-20261019/proc-status.txt`.
-  An earlier build peaked at 40,358,896 kB, 38.5 GiB (calc:f6c02d78,
-  `evidence/qwen38-serve-fast-20261019/README.md`). Close other large programs before you start
-  the server.
+- Free memory: 49,497 MiB (48.3 GiB) must be available when the server loads. The loader needs
+  41,305 MiB for the model and its working memory (at the default context of 131,072 tokens)
+  plus 8,192 MiB it keeps free for other programs, and it refuses to load with less. The installer
+  and the start script warn below 49,497 MiB (`install.sh`, `tools/serve-27b.sh`). The loader
+  judges memory again after it gets the GPU lock, because the wait for the lock can last many
+  minutes and free memory changes meanwhile. A running server holds less than the loader asks for:
+  the live server on the current build (binary sha256 `df936011...`) peaked at 38,499,160 kB of
+  resident memory, 38,499,160 / 1,048,576 = 36.7 GiB (calc:39181948), read from
+  `/proc/<pid>/status` (VmHWM) after 2 hours 48 minutes of service with up to 131,072 tokens of
+  context allowed: `evidence/qwen38-serve-memory-20261019/proc-status.txt`. Earlier builds peaked
+  at 40,358,896 kB, 38.5 GiB (calc:f6c02d78, `evidence/qwen38-serve-fast-20261019/README.md`), and
+  40,368,140 kB on the fresh-account test of 2026-10-19. Close other large programs before you
+  start the server.
 - Disk: 30.9 GB for the model (30,890,049,597 bytes in 81 files, see
   [README.md](README.md)); `install.sh --with-model` asks for that plus 2 GB of room,
   (30,890,049,597 + 2,000,000,000) / 1,000,000,000 = 32.9 GB (calc:8af38ffd), less whatever an
@@ -193,10 +197,17 @@ aien-serve-27b
 The script checks that the binary has the real engine, that the model folder exists, that the
 driver's device files are there, that the port is free and that no earlier copy is running; then
 it starts the server in the background with the same flags our own live server uses
-(`--engine omega --port 18091 --max-context 131072 --max-tokens-cap 16384 --thinking off`) and
-prints the log path, the stop command and a first chat command. It listens on `127.0.0.1` only.
+(`--engine omega --port 18091 --max-context 131072 --max-tokens-cap 16384 --thinking off`), then
+it waits for the model to load. When the server is serving it prints `ready`, the log path,
+the stop command and a first chat command, and exits 0. If the server exits instead (for example
+the loader refuses because less than 49,497 MiB is free), the script prints the reason from the
+log and exits 1; no server is running then. If the model is still loading after 40 minutes
+(`READY_TIMEOUT`, in seconds) it exits 2 and leaves the server running. The loader first queues
+for the shared GPU lock, so on a busy Spark the wait can be minutes (6.5 minutes in our test).
+`aien-serve-27b --no-wait` returns at once and says nothing about the load. The server listens
+on `127.0.0.1` only.
 
-Wait for the model to load. It is ready when this returns the model:
+You can check by hand that it is ready; this returns the model:
 
 ```bash
 curl -s http://127.0.0.1:18091/v1/models
@@ -206,7 +217,7 @@ curl -s http://127.0.0.1:18091/v1/models
 {"object":"list","data":[{"id":"qwen3.8-27b-fp8","object":"model","created":...,"owned_by":"aien/omega"}]}
 ```
 
-The log is `~/.local/state/aien/serve-27b.log`; the line `aien-serve-http: weights loaded in
+The log is `~/.local/state/aien/serve-27b.log`; the line `aien-serve-http: qwen38 engine ready in
 N s` marks the moment it is ready. `curl -s http://127.0.0.1:18091/health` reports `status`,
 `model`, `engine`, `busy` and `uptime_s`.
 
@@ -362,7 +373,9 @@ Stated here so nobody is surprised; they are the same limits that sit next to th
   `evidence/qwen38-serve-20261019T0128Z/`). Longer prompts are untested and the first token on a
   long prompt takes a long time; first-token times for the current build have not been measured.
 - Each reply is capped at 16,384 tokens by the start script.
-- Memory: the server's peak was about 36.7 GiB on the current build (section 1). Running
+- Memory: the loader needs 49,497 MiB (48.3 GiB) free; a running server peaked at about 36.7 GiB
+  on the current build (section 1). A second 27B server shares nothing with the first and needs
+  the full amount. Running
   anything else large on the Spark at the same time can get the server killed by the kernel.
 - Nothing restarts the server after a reboot, and there is no authentication; it listens on
   `127.0.0.1` only. Do not expose the port.
