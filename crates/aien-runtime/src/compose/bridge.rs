@@ -315,7 +315,11 @@ pub fn check_file_proposal(text: &str) -> Result<FileProposal, String> {
         .ok_or("empty reply")?;
     let first = bare(lines[at]);
     const KEY: &str = "filename:";
-    if first.len() < KEY.len() || !first[..KEY.len()].eq_ignore_ascii_case(KEY) {
+    // `get`, not `[..]`: byte 9 can fall inside a multi-byte character (issue #546).
+    let key_matches = first
+        .get(..KEY.len())
+        .is_some_and(|k| k.eq_ignore_ascii_case(KEY));
+    if first.len() < KEY.len() || !key_matches {
         return Err("no filename line: the first line must be 'filename: <relative path>'".into());
     }
     // sc#402: `./report.md` is `report.md`; the strict check then runs as before.
@@ -3058,5 +3062,22 @@ mod wall_clock_reason_tests {
             !why.contains("token limit") && !why.contains("max_tokens"),
             "{why}"
         );
+    }
+}
+
+/// Issue #546: a first line whose byte 9 falls inside a multi-byte character
+/// must be refused with the normal reason, not panic.
+#[cfg(test)]
+mod multibyte_first_line_tests {
+    use super::*;
+
+    #[test]
+    fn multibyte_first_line_is_refused_without_panic() {
+        // "ééééé" is 10 bytes, so byte 9 is inside the fifth 'é'.
+        for first in ["ééééé", "🙂🙂🙂", "é🙂 notes", "éfilename: a.md"] {
+            let text = format!("{first}\nbody\n");
+            let err = check_file_proposal(&text).expect_err("must be refused");
+            assert!(err.contains("no filename line"), "{first:?}: {err}");
+        }
     }
 }

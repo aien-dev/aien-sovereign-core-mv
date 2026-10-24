@@ -20,6 +20,7 @@ RUN_HOME=/var/lib/aien-run
 OPERATOR=${AIEN_OPERATOR:-drakestapleton}
 OP_HOME=$(getent passwd "$OPERATOR" | cut -d: -f6)
 TOOLCHAIN=${AIEN_TOOLCHAIN:-1.98.1-aarch64-unknown-linux-gnu}
+MIRI_TOOLCHAIN=${AIEN_MIRI_TOOLCHAIN:-nightly-aarch64-unknown-linux-gnu}
 STATE="$OP_HOME/.local/state/aien-local-ci"
 # crumb source: aien-architecture main at this commit (2026-10-11, on GitHub main), file tools/crumb/crumb.c
 # (git blob 841f5317480b6643086061585c4309097975d8f9). Built with gcc 13.3.0 the binary's sha256 is
@@ -51,6 +52,17 @@ for g in video render kvm; do
   getent group "$g" >/dev/null || continue
   id -nG "$RUN_USER" | tr ' ' '\n' | grep -qx "$g" || S usermod -aG "$g" "$RUN_USER"
 done
+# 1b. the GB10 chip lock (#627). Gate scripts and operator chip runs all flock /tmp/aien-gb10.lock, and the
+#     gb10 profile shares the host /tmp. fs.protected_regular=2 refuses an O_CREAT open of another user's file in
+#     sticky /tmp unless the file belongs to the directory owner, so the lock is root-owned and the operator and
+#     aien-run get rw through ACL entries (effective at once, unlike a new group in running sessions).
+#     chown/setfacl keep the inode, so a chip run holding the lock is not disturbed; the tmpfiles.d rule recreates
+#     it the same way after /tmp is cleaned at boot.
+printf 'f /tmp/aien-gb10.lock 0664 root root -\na+ /tmp/aien-gb10.lock - - - - u:%s:rw-,u:%s:rw-\n' "$OPERATOR" "$RUN_USER" > "$tmp/aien-gb10.conf"
+S install -o root -g root -m 0644 "$tmp/aien-gb10.conf" /etc/tmpfiles.d/aien-gb10.conf
+S systemd-tmpfiles --create /etc/tmpfiles.d/aien-gb10.conf
+S chown root:root /tmp/aien-gb10.lock
+S setfacl -m "u:$OPERATOR:rw-,u:$RUN_USER:rw-" /tmp/aien-gb10.lock
 # home: root-owned, group aien-run (traverse), operator via ACL; skeleton dotfiles removed (nothing may be
 # sourced or read from an aien-run-writable file in the home).
 S chown root:"$RUN_USER" "$RUN_HOME"
@@ -91,13 +103,34 @@ seed_ro() { # seed_ro SRC DST
 seed_ro "$OP_HOME/.cargo/registry" "$RUN_HOME/cargo/registry"
 seed_ro "$OP_HOME/.cargo/git" "$RUN_HOME/cargo/git"
 seed_ro "$OP_HOME/.rustup/toolchains/$TOOLCHAIN" "$RUN_HOME/rustup/toolchains/$TOOLCHAIN"
+# SC-MIRI (#600): the operator's nightly (with the miri and rust-src components) is copied the same way, and
+# the miri sysroot is built once here, as root, into aien-run's default ~/.cache/miri. It has to be built against
+# the copied toolchain path (cargo-miri hashes the source path, so a sysroot built from ~/.rustup is rejected and
+# rebuilt, which fails on the read-only cache). The build fetches std's dependencies with a throwaway CARGO_HOME;
+# the sandbox then only reads the finished sysroot and `cargo +nightly miri setup` is a no-op.
+seed_ro "$OP_HOME/.rustup/toolchains/$MIRI_TOOLCHAIN" "$RUN_HOME/rustup/toolchains/$MIRI_TOOLCHAIN"
+if [[ -x $RUN_HOME/rustup/toolchains/$MIRI_TOOLCHAIN/bin/cargo-miri ]]; then
+  S install -d -o root -g root -m 0755 "$RUN_HOME/.cache"
+  if ! S test -d "$RUN_HOME/.cache/miri/lib"; then
+    S rm -rf "$RUN_HOME/.cache/miri" "$tmp/miri-cargo"
+    S env -i HOME=/root RUSTUP_HOME="$RUN_HOME/rustup" CARGO_HOME="$tmp/miri-cargo" \
+      MIRI_SYSROOT="$RUN_HOME/.cache/miri" PATH="$RUN_HOME/cargo/bin:/usr/bin:/bin" \
+      "$RUN_HOME/cargo/bin/cargo" "+$MIRI_TOOLCHAIN" miri setup
+    S rm -rf "$tmp/miri-cargo"
+    say "built miri sysroot $RUN_HOME/.cache/miri"
+  fi
+  S chown -R root:root "$RUN_HOME/.cache/miri"
+  S chmod -R a+rX,u-w,go-w "$RUN_HOME/.cache/miri"
+else
+  say "skip miri sysroot (no cargo-miri in $MIRI_TOOLCHAIN: rustup component add miri rust-src --toolchain nightly)"
+fi
 
 # 4. rustup: the operator's rustup binary acts as the proxy (cargo/rustc/... are symlinks to it), with
 #    RUSTUP_HOME=/var/lib/aien-run/rustup holding only settings.toml + the copied toolchain. No rustup-init,
 #    no downloads: rust-toolchain.toml pins resolve against the copied toolchain only.
 S install -d -o root -g root -m 0755 "$RUN_HOME/cargo/bin"
 S install -o root -g root -m 0755 "$OP_HOME/.cargo/bin/rustup" "$RUN_HOME/cargo/bin/rustup"
-for p in cargo rustc rustdoc rustfmt cargo-fmt cargo-clippy clippy-driver rust-gdb rust-lldb; do
+for p in cargo rustc rustdoc rustfmt cargo-fmt cargo-clippy clippy-driver rust-gdb rust-lldb cargo-miri miri; do
   S ln -sfn rustup "$RUN_HOME/cargo/bin/$p"
 done
 printf 'version = "12"\ndefault_toolchain = "%s"\nprofile = "minimal"\n\n[overrides]\n' "$TOOLCHAIN" > "$tmp/settings.toml"

@@ -84,7 +84,9 @@ fn options(cli: &Cli, root: &Path) -> Result<Options, i32> {
     opts.no_cache = cli.no_cache;
     opts.args_override = cli.args.clone();
     opts.pool_sizes = opts.pool_sizes.with(cli.jobs);
-    opts.gpu.wait = cli.wait_gpu;
+    if let Some(w) = cli.gpu_wait {
+        opts.gpu.wait = w;
+    }
     opts.sandbox = cli.sandbox;
     opts.release = cli.release;
     // `--operator` is only accepted on plan, test and worker (cli.rs), so a
@@ -496,6 +498,10 @@ fn cmd_verify(cli: &Cli, commit: &str, cwd: &Path) -> i32 {
     }
 }
 
+/// `worker --once` found its head being judged by another process and did
+/// nothing (EX_TEMPFAIL; the verdict codes are 0 to 5).
+const EXIT_HELD: i32 = 75;
+
 fn cmd_worker(cli: &Cli) -> i32 {
     let state = match state_dir(cli) {
         Ok(s) => s,
@@ -559,9 +565,24 @@ fn cmd_worker(cli: &Cli) -> i32 {
     cfg.repos = cli.repos.clone();
     cfg.operator = cli.operator;
     cfg.jobs = cli.jobs;
+    if let Some(w) = cli.gpu_wait {
+        cfg.gpu_wait = w;
+    }
     cfg.no_cache = cli.no_cache;
     cfg.hardware_identity = cli.hardware_identity.clone().unwrap_or_default();
     if let Some((repo, sha)) = &cli.once {
+        // The same exclusive right the loop takes: a poller may be judging it.
+        let _claim = match worker::claim_head(&cfg.state, repo, sha) {
+            Ok(Some(c)) => c,
+            Ok(None) => {
+                println!("AIEN_TEST: {}", worker::held_note(&cfg.state, repo, sha));
+                return EXIT_HELD;
+            }
+            Err(e) => {
+                println!("AIEN_TEST: FAIL {e}");
+                return 1;
+            }
+        };
         return match worker::run_once(&cfg, repo, sha) {
             Ok(s) => {
                 for n in &s.notes {

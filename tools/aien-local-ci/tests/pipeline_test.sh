@@ -87,7 +87,11 @@ remote_commits() { git --git-dir="$T/receipts.git" rev-list --count main; }
 jl() { jq -c "select($1)" "$AIEN_STATE/pipeline.jsonl" | wc -l; }
 
 A=$(sha 1) B=$(sha 2) C=$(sha 3) D=$(sha 4) E=$(sha 5) F=$(sha 6) W=$(sha 7) P=$(sha 8)
-M1=$(sha 21) M2=$(sha 22) M3=$(sha 23) M4=$(sha 24) M5=$(sha 25) M6=$(sha 26) M7=$(sha 27) M8=$(sha 28) M9=$(sha 29)
+# Merge candidates are real commits on top of the trusted clone's origin/main: the merge guard requires
+# a head that already contains its base.
+head_on_main() { git -C "$AIEN_CLONES/demo" commit-tree -p origin/main -m "pr head $1" "origin/main^{tree}"; }
+M1=$(head_on_main 1) M2=$(head_on_main 2) M3=$(head_on_main 3) M4=$(head_on_main 4) M5=$(head_on_main 5)
+M6=$(head_on_main 6) M7=$(head_on_main 7) M8=$(head_on_main 8) M9=$(head_on_main 9)
 bundle demo "$A" "$K2" 0            # PASS, current key
 bundle demo "$B" "$K2" 1            # FAIL, still published
 bundle demo "$C" "$K3" 0            # key not in verify.pub: REJECTED (3) with both keys
@@ -191,10 +195,11 @@ echo "== merge"
 CTX1="Workspace Verification & Invariant Audit" CTX2="AIEN Verification (Spark)"
 ghset "repos/$S/branches/main/protection/required_status_checks" "{\"contexts\":[\"$CTX1\",\"$CTX2\"]}"
 L=ready-to-merge
-pulls "41:$M1:false:$L" "42:$M2:false:" "43:$M3:true:$L" "44:$M4:false:$L" "45:$M5:false:$L" \
-      "46:$M6:false:$L" "47:$M7:false:$L" "48:$M8:false:$L" "49:$M9:false:ready-to-merge-later"
+# 41 (all green) is listed last: one merge per round, so the refusals ahead of it are all evaluated.
+pulls "42:$M2:false:" "43:$M3:true:$L" "44:$M4:false:$L" "45:$M5:false:$L" \
+      "46:$M6:false:$L" "47:$M7:false:$L" "48:$M8:false:$L" "49:$M9:false:ready-to-merge-later" "41:$M1:false:$L"
 for i in 1 2 3 4 5 6 7 8 9; do
-  m=$(sha $((20 + i)))
+  mv=M$i; m=${!mv}
   state=clean; [[ $i == 8 ]] && state=dirty
   draft=false; [[ $i == 3 ]] && draft=true
   ghset "repos/$S/pulls/4$i" "{\"number\":4$i,\"draft\":$draft,\"mergeable_state\":\"$state\",\"head\":{\"sha\":\"$m\"}}"
@@ -226,6 +231,26 @@ rm "$AIEN_STATE/bundles/demo/$M1/bundle.json"
 bash "$PIPE" merge > "$T/out8" 2>&1
 check "no local bundle: refused" refused 41 "no local bundle"
 check "still exactly one merge call" [ "$(grep -c '^gh pr merge' "$FAKE_LOG")" = 1 ]
+
+echo "== merge order"
+M11=$(head_on_main 11) M12=$(head_on_main 12)
+pulls "51:$M11:false:$L" "52:$M12:false:$L"
+for n in 51 52; do
+  mv=M$((n - 40)); m=${!mv}
+  bundle demo "$m" "$K2" 0
+  ghset "repos/$S/pulls/$n" "{\"number\":$n,\"draft\":false,\"mergeable_state\":\"clean\",\"head\":{\"sha\":\"$m\"}}"
+  ghset "repos/$S/commits/$m/check-runs?per_page=100" "{\"check_runs\":[{\"name\":\"$CTX1\",\"status\":\"completed\",\"conclusion\":\"success\"}]}"
+  ghset "repos/$S/commits/$m/status?per_page=100" "{\"statuses\":[{\"context\":\"$CTX2\",\"state\":\"success\"}]}"
+  runs "$m" "$(run $((200 + n)) 'AIEN Verification' completed 2099-01-01T00:00:00Z)"
+done
+bash "$PIPE" publish > "$T/out8a" 2>&1
+bash "$PIPE" merge > "$T/out8b" 2>&1
+check "two green PRs: only the first merges this round" [ "$(merges 51)$(merges 52)" = 10 ]
+check "second PR left for the next round, no journal line" [ "$(jl ".action==\"merge\" and .pr==\"52\"")" = 0 ]
+echo moved > "$AIEN_CLONES/demo/MOVED" && git -C "$AIEN_CLONES/demo" add MOVED && git -C "$AIEN_CLONES/demo" commit -q -m moved && git -C "$AIEN_CLONES/demo" push -q origin main
+bash "$PIPE" merge > "$T/out8c" 2>&1
+check "base moved: head behind origin/main refused" refused 52 "behind origin/main"
+check "base moved: nothing merged" [ "$(merges 51)$(merges 52)" = 10 ]
 
 echo "== single instance"
 bundle demo "$(sha 99)" "$K2" 0

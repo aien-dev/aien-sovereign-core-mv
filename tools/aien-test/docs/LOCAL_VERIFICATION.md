@@ -82,6 +82,25 @@ This is what lets the shared gate template say `exec: crumb` with
 (root-owned, on the trusted PATH). Proven end to end on 2026-10-11: a gate
 running `crumb verify .` as `aien-run` in a worker checkout passed.
 
+**The crumb tool is pinned by the repository, not by the host (sc#602).**
+`crumb.lock` at the repository root holds one aien-architecture commit. The
+CRUMB-VERIFY gate (`tests/gates/run.sh crumb-verify`) builds `tools/crumb` at
+that commit from the sibling `../aien-architecture` into
+`$CARGO_TARGET_DIR/crumb-tool/<pin>` and runs that binary; the receipt records
+`crumb_tool_commit`. The readiness report does the same from the trusted clone
+`<clones>/aien-architecture` into `<state>/crumb-tool/<pin>` and prints
+`Crumb tool: pinned <sha> (crumb.lock)`, so the gate and the `Crumb status:`
+line can never disagree because of a different `crumb` on PATH.
+aien-architecture owns the tool and has no `crumb.lock`: its commits are
+checked with the tool at the commit under test (`Crumb tool: pinned <that
+commit>`), as its hosted workflow does, so a change to the crumb format is
+judged by the tool that writes it. Any other commit
+without `crumb.lock` still uses the PATH `crumb` and the report says
+`Crumb tool: crumb on PATH (no crumb.lock at COMMIT)`. If the pinned tool cannot
+be built (no sibling clone, bad lock) the status is STALE with the reason in
+`Crumb note:`. Moving the pin is an ordinary change to `crumb.lock` followed by
+`crumb compile .` with the new tool.
+
 ## The sandbox seam (C8)
 
 `--sandbox user` rewrites every gate launch into
@@ -90,7 +109,13 @@ running `crumb verify .` as `aien-run` in a worker checkout passed.
 sudo -n /usr/local/sbin/aien-run-exec --cwd CWD --timeout SECS --profile host|qemu|gb10 [--env CARGO_TARGET_DIR=...] -- PROGRAM ARGS
 ```
 
-Only `CARGO_TARGET_DIR` is passed through. Under `--sandbox user` the
+Only `CARGO_TARGET_DIR` is passed through, plus `AIEN_GB10_LOCK_HELD=1` for a
+gb10 gate while the runner holds the GPU locks for it (also set without the
+sandbox). The runner, not the gate, serializes gb10 under `/tmp/aien-gb10.lock`
+(ADR 0033); a gate script that takes that lock by hand for operator use must
+skip the `flock` when it sees the marker, because `aien-run` cannot open the
+worker's lock file and the same user would block behind the runner's own lock.
+Under `--sandbox user` the
 receipt's `core.machine` also carries `sandbox_helper_sha256` (sha256 of
 the installed helper), so it is in `machine_digest` and the cache key: a
 result made under another helper (other network, mounts or limits) is
@@ -102,7 +127,7 @@ What the helper requires (INFRA, read from the installed script): `--cwd`
 canonical, and inside `/var/lib/aien-run` only a run directory
 `wt/<repo>/<40-hex>` or below it; host and qemu checks get a private `/tmp`, so a tree
 under `/tmp` is invisible to them; `CARGO_TARGET_DIR` only as
-`/var/lib/aien-run/target/<repo>/pr` or `.../main` (created on demand).
+`/var/lib/aien-run/target/<repo>/pr/<sha40>` or `.../main/<sha40>`, the head's own (created on demand).
 Inside a run everything is read-only except the run's own run directory (file
 ownership inside it still applies: siblings are not writable), its one
 target dir and a private `/tmp`. host and qemu checks have no network but
@@ -120,8 +145,10 @@ otherwise. `--sandbox none` runs gates as the worker's own user, who can read
 the signing key: the worker refuses it (exit 2) unless `--dev-unsandboxed` is
 given, and refuses it with `--github` in every case. The library has the same
 rule (`Config.allow_unsandboxed`, default false). Under `--sandbox user` the
-worker passes `CARGO_TARGET_DIR=/var/lib/aien-run/target/<repo>/main` for a
-head already on the base line and `.../pr` for any other head (A2).
+worker passes `CARGO_TARGET_DIR=/var/lib/aien-run/target/<repo>/main/<sha>` for a
+head already on the base line and `.../pr/<sha>` for any other head (A2). One dir
+per head: in a shared dir cargo linked one head's build into another (sc #605);
+`wt.sh remove` deletes the dir with the worktree.
 
 The gates of one head share that target dir, so the runner holds it for one
 gate at a time: every gate that runs takes an exclusive `flock` on
@@ -138,6 +165,23 @@ order of one gate is: pool slot, target-dir lock, `/tmp/aien-gb10.lock`,
 aien-proof `slots/gpu.lock`; the worker's target priming takes only the
 target-dir lock. Known limit: a gb10 gate is never killed on timeout, so a
 hung one holds the target dir until it exits on its own.
+
+A held GPU lock is waited for, up to a bound, then the gate is NOT_RUN
+`gpu_lock` (or `gpu_lock_proof`). The live model server takes
+`/tmp/aien-gb10.lock` around every request (one request held it 108 s median,
+222 s at most, over 323 requests on 2026-10-19), so the old single try lost
+nearly every time. The wait is a blocking `flock` in the kernel's queue, the
+same queue the server's requests (`GpuLock::acquire_queued_at`, 300 s per
+request) and `flock(1)` jobs wait in: the gate takes its turn between
+requests and never jumps the queue. A poller with `LOCK_NB` is starved by
+queued waiters (2026-10-19, two back-to-back 300 ms holders: polling got in
+after 13 to 17 s or gave up at 20 s in 2 of 5 tries; the queue got in after
+0.3 to 0.6 s in 5 of 5). Default bound 30 minutes (`DEFAULT_GPU_WAIT`, the
+server's own upload wait); `--gpu-wait 0` refuses at once, `--gpu-wait 90s`
+sets another bound, `--wait-gpu` waits without one. While it waits the gate
+keeps its pool slot and target-dir lock (never the GPU idle), so other gates
+of the same target dir wait too, at most the bound. Every gb10 receipt
+records `volatile.gpu_wait`: `mode`, `bound_ms`, `waited_ms`, `acquired`.
 
 Under `--sandbox user` every checkout is made with INFRA's worktree tool
 (`--wt-tool`, default `<clones>/aien-sovereign-core/tools/aien-local-ci/wt.sh`;
@@ -316,6 +360,13 @@ that has no bundle yet, then sleeps `--poll` seconds. `--iterations N`
 bounds the rounds (tests). Trigger names that are not a plain repository
 name and a 40-hex commit are ignored.
 
+With `--repos`, the loop takes only trigger files of those repositories and
+leaves the others for the poller that lists them. Before judging a head (loop
+or `--once`) the worker takes an `flock` on `locks/judging/<repo>.<sha>`
+(holder pid inside); if another process holds it the head is skipped with
+`SKIP already being judged by pid N` (`--once` exits 75), because every judge
+of a head shares one worktree and the first to finish removes it.
+
 What starts a run, and what does not (checked 2026-10-11 on the Spark):
 
 | trigger | how | covers today |
@@ -362,6 +413,7 @@ Evidence status: VERIFIED | INVALID
 Hardware status: QUALIFIED | NOT_REQUIRED | BLOCKED
 Final verdict: PASS | FAIL | NOT_RUN | BLOCKED
 Queue time: N ms | n/a
+GPU lock wait: N ms | n/a
 Build time: n/a
 Test time: N ms | n/a
 Total time: N ms | n/a
@@ -383,7 +435,9 @@ manifest at COMMIT (`MANIFEST_MISMATCH`); then the plan judge. Every
 rejection is a `Problem` or `Evidence note` line and leaves READY out of
 reach; no path defaults to PASS. Crumb status comes from `crumb verify .` in a temporary
 detached worktree at COMMIT, removed afterwards. Queue time is the sum of
-`pool_wait_ms`, test time the sum of `duration_ms` over the executed
+`pool_wait_ms`, GPU lock wait the sum of `gpu_wait.waited_ms` (gb10 gates:
+how long each waited in the kernel queue of `/tmp/aien-gb10.lock`, see
+below), test time the sum of `duration_ms` over the executed
 receipts, total time the bundle's `finished_utc - started_utc`; build time
 is not measured yet.
 
@@ -401,6 +455,7 @@ unmapped path, no blocked gate, no problem line.
   evidence/<repo>/<sha>/<digest>.json    receipts of that run
   bundles/<repo>/<sha>/bundle.json       the signed bundle
   trigger/<repo>.<sha>                   a run request (removed when served)
+  locks/judging/<repo>.<sha>            held while one process judges that head
   outbox/<seq>.<repo>.<sha>.json         a commit status waiting for GitHub, in queue order
   journal.jsonl                          one line per finished head
   worker.heartbeat                       pid, phase, repo, sha, utc
@@ -408,7 +463,7 @@ unmapped path, no blocked gate, no problem line.
   <repo>/                                the detached checkout under test
   <dir>/                                 a read-only sibling checkout (../<dir> from the checkout)
 <clones>/aien-sovereign-core/tools/aien-local-ci/siblings   the operator's sibling map
-/var/lib/aien-run/target/<repo>/pr|main  cargo target dir per trust class (sandbox user)
+/var/lib/aien-run/target/<repo>/pr|main/<sha>  cargo target dir per head and trust class (sandbox user)
 /usr/local/sbin/aien-run-exec            the exec helper (INFRA)
 ```
 

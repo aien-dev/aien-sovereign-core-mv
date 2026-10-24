@@ -25,5 +25,6 @@ aien-sovereign-core  omega                            omega                 main
 aien-sovereign-core  physics                          physics               main
 aien-sovereign-core  aienos                           aienos                main
 aien-sovereign-core  aien-protocols                   aien-protocols        main
+aien-sovereign-core  aien-architecture                aien-architecture     main
 interplane           aegis-runtime                    aegis-runtime         main
 interplane           aien-protocols                   aien-protocols        main

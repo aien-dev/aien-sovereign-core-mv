@@ -57,6 +57,7 @@ if [[ $cmd != publish ]]; then command -v "$GH" >/dev/null || die "gh ($GH) not 
 mkdir -p "$STATE"
 JOURNAL=$STATE/pipeline.jsonl
 RERUNS=$STATE/pipeline-reruns
+RERUN_FAILS=$STATE/pipeline-rerun-fails
 PUBLISHED=$STATE/pipeline-published
 exec 9>>"$STATE/pipeline.lock"
 flock -n 9 || exit 0
@@ -253,6 +254,15 @@ do_rerun() {
       pdig=$(published "$repo" "$sha")
       [[ -n $pdig ]] || continue
       grep -qxF "$repo $sha $pdig" "$RERUNS" 2>/dev/null && continue
+      # A refused rerun is not retried every tick: each refusal trips the gh guard and stalls every
+      # chat on this machine. Back off one hour after a failure, give up after three.
+      if [[ -f $RERUN_FAILS ]]; then
+        local nfail lastfail
+        nfail=$(grep -c "^$repo $sha $pdig " "$RERUN_FAILS" || true)
+        lastfail=$(grep "^$repo $sha $pdig " "$RERUN_FAILS" | tail -1 | cut -d" " -f4)
+        (( nfail >= 3 )) && continue
+        [[ -n $lastfail ]] && (( $(date -u +%s) - lastfail < 3600 )) && continue
+      fi
       if ! run=$(ghc api "repos/$s/actions/runs?head_sha=$sha&per_page=20" --jq \
         "[.workflow_runs[] | select(.name == \"$WORKFLOW_NAME\")] | sort_by(.created_at) | last
          | if . == null then \"\" else \"\(.id) \(.status) \(.run_started_at // .created_at)\" end"); then
@@ -274,7 +284,8 @@ do_rerun() {
         echo "$repo $sha $pdig" >> "$RERUNS"
         journal action=rerun repo="$repo" pr="$num" sha="$sha" digest="$pdig" result=rerun reason="run $id predates publication"
       else
-        journal action=rerun repo="$repo" pr="$num" sha="$sha" result=failed reason="rerun request for run $id failed"
+        echo "$repo $sha $pdig $(date -u +%s)" >> "$RERUN_FAILS"
+        journal action=rerun repo="$repo" pr="$num" sha="$sha" result=failed reason="rerun request for run $id failed (backing off 1h)"
       fi
     done <<< "$prs"
   done
@@ -291,6 +302,15 @@ merge_one() {
   read -r state head _ <<< "$pr"
   [[ $head == "$sha" ]] || { merge_refuse "head moved to $head"; return 0; }
   [[ ${pr##* } == false ]] || { merge_refuse "draft"; return 0; }
+  # Up to date with the base. GitHub does not require it here (strict=false), and two PRs merged
+  # back to back each pass alone but leave main with a stale root crumb (Drake 2026-10-18: "don't
+  # make them all collapse").
+  if ! "$GIT" -C "$clone" cat-file -e "$sha^{commit}" 2>/dev/null; then
+    "$GIT" -C "$clone" fetch -q origin "pull/$num/head" 2>/dev/null || true
+  fi
+  if ! "$GIT" -C "$clone" merge-base --is-ancestor "origin/$base" "$sha" 2>/dev/null; then
+    merge_refuse "behind origin/$base: merge the base in, recompile crumbs, let checks rerun"; return 0
+  fi
   [[ $state != dirty ]] || { merge_refuse "mergeable state dirty (conflicts)"; return 0; }
   lfile=$STATE/bundles/$repo/$sha/bundle.json
   [[ -f $lfile ]] || { merge_refuse "no local bundle for head"; return 0; }
@@ -329,6 +349,7 @@ merge_one() {
   [[ $active == 0 ]] || { merge_refuse "$WORKFLOW_NAME run queued or in progress"; return 0; }
   if ghc pr merge "$num" -R "$s" --merge --match-head-commit "$sha"; then
     journal action=merge repo="$repo" pr="$num" sha="$sha" digest="$ldig" result=merged reason="all guards green"
+    MERGED_REPO=$repo
   else
     journal action=merge repo="$repo" pr="$num" sha="$sha" result=failed reason="gh pr merge failed"
   fi
@@ -336,6 +357,7 @@ merge_one() {
 
 do_merge() {
   local repo s prs num sha base draft labeled
+  MERGED_REPO=""
   # Drake 2026-10-18: "stop all agents from trying to merge". Merge-only stop; publish and rerun keep going.
   if [[ -e $STATE/MERGE-PAUSE ]]; then journal action=merge result=paused reason="MERGE-PAUSE present"; return 0; fi
   if ! fetch_receipts; then journal action=merge result=refused reason="receipts fetch failed"; return 0; fi
@@ -351,6 +373,8 @@ do_merge() {
     fi
     while IFS=$'\t' read -r num sha base draft labeled; do
       [[ -n $num ]] || continue
+      # One merge per repository per round: the next one must first catch up with the new base.
+      [[ $MERGED_REPO != "$repo" ]] || break
       if [[ ! $sha =~ ^[0-9a-f]{40}$ ]]; then
         journal action=merge repo="$repo" pr="$num" result=refused reason="bad head sha"; continue
       fi

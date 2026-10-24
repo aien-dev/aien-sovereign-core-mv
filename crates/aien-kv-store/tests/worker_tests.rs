@@ -1750,13 +1750,23 @@ fn worker_every_job_yields_exactly_one_terminal_completion() {
         Arc::new(Mutex::new(BTreeSet::new()));
     let done = Arc::new(AtomicBool::new(false));
     let mut handles = Vec::new();
+    // Each submitter keeps going until it has ACCEPT_PER_THREAD accepted jobs,
+    // so the size of the workload does not depend on how fast the dispatcher
+    // drains on this host (sc#575). Bounded by attempts and wall time.
+    const ACCEPT_PER_THREAD: usize = 60;
+    const MAX_ATTEMPTS: u32 = 999;
+    let deadline = Instant::now() + Duration::from_secs(30);
     for t in 0..4u32 {
         let worker = worker.clone();
         let accepted = accepted.clone();
         let fields = w.fields;
         let ns = w.ns;
         handles.push(thread::spawn(move || {
-            for i in 0..150u32 {
+            let mut mine = 0usize;
+            for i in 0..MAX_ATTEMPTS {
+                if mine >= ACCEPT_PER_THREAD || Instant::now() >= deadline {
+                    break;
+                }
                 let n = t * 1000 + i;
                 let tokens: Vec<u32> = (0..8).map(|j| (5000 + n % 40) * 1000 + j).collect();
                 let key = aien_kv_store::chunk_chain(&ns, 8, &tokens).unwrap()[0];
@@ -1780,6 +1790,7 @@ fn worker_every_job_yields_exactly_one_terminal_completion() {
                 };
                 match r {
                     Ok(j) => {
+                        mine += 1;
                         accepted
                             .lock()
                             .unwrap()
@@ -1790,7 +1801,7 @@ fn worker_every_job_yields_exactly_one_terminal_completion() {
                     }
                     Err(PlatformError::QueueFull)
                     | Err(PlatformError::DeviceUnavailable)
-                    | Err(PlatformError::OutOfMemory) => thread::yield_now(),
+                    | Err(PlatformError::OutOfMemory) => thread::sleep(Duration::from_micros(200)),
                     Err(e) => panic!("{e:?}"),
                 }
             }
@@ -1836,9 +1847,10 @@ fn worker_every_job_yields_exactly_one_terminal_completion() {
     let per_job = collector.join().unwrap();
     let accepted = accepted.lock().unwrap();
     assert!(
-        accepted.len() > 200,
-        "a real workload ran ({})",
-        accepted.len()
+        accepted.len() >= 4 * ACCEPT_PER_THREAD,
+        "a real workload ran ({} accepted, want {})",
+        accepted.len(),
+        4 * ACCEPT_PER_THREAD
     );
     let got: BTreeSet<(JobId, Incarnation)> = per_job.keys().copied().collect();
     assert_eq!(

@@ -22,11 +22,17 @@
 //!
 //! GPU job protocol (CR-028, CR-029, CR-033, CR-052, CR-053): refuse at once
 //! (never wait, never steal) if the quiet flag file exists or an `est_load`
-//! process is running, then take `flock(2)` locks without blocking. A held lock
-//! is a refusal, not a wait, unless the operator asked for `--wait-gpu`. The
-//! lock files are created if absent and never deleted. Dropping a
-//! `GpuGuard` closes the descriptors, and the kernel releases the locks (a
-//! dead holder frees them too).
+//! process is running, then take the `flock(2)` locks. A held lock is waited
+//! for up to a bound (`GpuWait`, default `DEFAULT_GPU_WAIT`), then refused:
+//! the live model server takes `/tmp/aien-gb10.lock` around every request
+//! (sc `aien-serve-http`, `GpuLock::acquire_queued_at`), so a single try
+//! loses nearly every time. The wait is a blocking `flock` in the kernel's
+//! queue on a helper thread, the same queue the server's requests and
+//! `flock(1)` jobs wait in, so neither side can starve the other the way a
+//! poller with `LOCK_NB` is starved by queued waiters. `--gpu-wait 0` refuses
+//! at once; `--wait-gpu` waits without a bound. The lock files are created if
+//! absent and never deleted. Dropping a `GpuGuard` closes the descriptors,
+//! and the kernel releases the locks (a dead holder frees them too).
 //!
 //! Fork window: a `flock` lives as long as any copy of the open file
 //! description does, and a child that another thread forks while a lock
@@ -42,9 +48,57 @@ use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
-use std::sync::{Condvar, Mutex, MutexGuard};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc, Condvar, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 pub const DEFAULT_GPU_LOCK: &str = "/tmp/aien-gb10.lock";
+
+/// How long a gb10 gate waits for a held GPU lock before NOT_RUN `gpu_lock`.
+/// The server's own upload waits this long for the same lock (sc
+/// `qwen38_engine::LOAD_LOCK_WAIT`, "other jobs' chip runs take minutes");
+/// one server request held it 108 s median and 222 s at most over 323
+/// requests on 2026-10-19 (serve.log), so the bound covers many turns.
+pub const DEFAULT_GPU_WAIT: Duration = Duration::from_secs(30 * 60);
+
+/// What a gb10 gate does when another holder has a GPU lock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpuWait {
+    /// Refuse at once (`--gpu-wait 0`, and the scratch configs of tests).
+    Refuse,
+    /// Wait in the kernel's queue up to this long, then refuse.
+    Bounded(Duration),
+    /// `--wait-gpu`: wait as long as it takes.
+    Forever,
+}
+
+impl GpuWait {
+    /// The receipt's `volatile.gpu_wait.mode`.
+    pub fn mode(self) -> &'static str {
+        match self {
+            GpuWait::Refuse => "refuse",
+            GpuWait::Bounded(_) => "bounded",
+            GpuWait::Forever => "forever",
+        }
+    }
+
+    /// The bound in ms (`Refuse` is 0, `Forever` has none).
+    pub fn bound_ms(self) -> Option<u64> {
+        match self {
+            GpuWait::Refuse => Some(0),
+            GpuWait::Bounded(d) => Some(d.as_millis() as u64),
+            GpuWait::Forever => None,
+        }
+    }
+}
+
+/// Set to `1` in a gb10 gate's environment while the runner holds the GPU
+/// locks for it (ADR 0033: gb10 is serialized by the trusted side). A gate
+/// script that also takes `/tmp/aien-gb10.lock` by hand must skip that when
+/// it sees this: under `--sandbox user` it cannot open the worker's lock file
+/// (exit 66, `flock: Permission denied`), and as the same user it would
+/// block forever behind the runner's own exclusive lock.
+pub const GPU_LOCK_HELD_MARKER: &str = "AIEN_GB10_LOCK_HELD";
 
 pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -284,8 +338,8 @@ pub struct GpuConfig {
     pub quiet_flag: Option<PathBuf>,
     /// Where to look for an `est_load` process (`/proc`).
     pub proc_dir: PathBuf,
-    /// `--wait-gpu`: block on a held lock instead of refusing.
-    pub wait: bool,
+    /// How long to wait for a held lock (`--gpu-wait`, `--wait-gpu`).
+    pub wait: GpuWait,
 }
 
 impl GpuConfig {
@@ -304,19 +358,19 @@ impl GpuConfig {
                 .map(|b| b.join("slots/gpu.lock")),
             quiet_flag: home.map(|h| h.join("workspace/.spark-quiet")),
             proc_dir: PathBuf::from("/proc"),
-            wait: false,
+            wait: GpuWait::Bounded(DEFAULT_GPU_WAIT),
         }
     }
 
     /// Every path inside `dir` (a scratch directory): own lock, own quiet
-    /// flag, no aien-proof lock, no `est_load`.
+    /// flag, no aien-proof lock, no `est_load`; a held lock is refused at once.
     pub fn rooted_at(dir: &Path) -> GpuConfig {
         GpuConfig {
             lock_path: dir.join("gb10.lock"),
             proof_lock_path: None,
             quiet_flag: Some(dir.join("quiet-flag")),
             proc_dir: dir.join("proc"),
-            wait: false,
+            wait: GpuWait::Refuse,
         }
     }
 }
@@ -486,7 +540,7 @@ fn open_lock(path: &Path) -> io::Result<File> {
 
 /// `flock(LOCK_EX)`: Ok(true) when taken, Ok(false) when held by someone else
 /// and `wait` is off.
-fn flock_exclusive(file: &File, wait: bool) -> io::Result<bool> {
+pub(crate) fn flock_exclusive(file: &File, wait: bool) -> io::Result<bool> {
     let op = if wait {
         libc::LOCK_EX
     } else {
@@ -507,23 +561,99 @@ fn flock_exclusive(file: &File, wait: bool) -> io::Result<bool> {
     }
 }
 
-fn take_lock(path: &Path, wait: bool) -> Result<Option<File>, GpuRefusal> {
-    let file =
-        open_lock(path).map_err(|e| GpuRefusal::LockOpen(format!("{}: {e}", path.display())))?;
-    match flock_exclusive(&file, wait) {
-        Ok(true) => Ok(Some(file)),
-        Ok(false) => Ok(None),
-        Err(e) => Err(GpuRefusal::LockOpen(format!("{}: {e}", path.display()))),
+/// Wait for `file`'s lock in the kernel's queue until `deadline`. The
+/// blocking `flock` runs on a helper thread; after the deadline the helper is
+/// abandoned and drops the lock (under the spawn gate) the moment the kernel
+/// grants it, so a refused gate never keeps the GPU. An abandoned helper
+/// stays queued until the holder lets go: one per refused gate at most.
+fn flock_queued(file: File, deadline: Instant) -> io::Result<Option<File>> {
+    let (tx, rx) = mpsc::channel();
+    let gave_up = Arc::new(AtomicBool::new(false));
+    let gave_up_t = Arc::clone(&gave_up);
+    std::thread::spawn(move || {
+        let r = flock_exclusive(&file, true).map(|_| file);
+        let lost = |r: io::Result<File>| {
+            if let Ok(f) = r {
+                let _gate = crate::process::spawn_gate();
+                drop(f);
+            }
+        };
+        if gave_up_t.load(Ordering::SeqCst) {
+            return lost(r);
+        }
+        if let Err(mpsc::SendError(r)) = tx.send(r) {
+            lost(r);
+        }
+    });
+    match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+        Ok(r) => r.map(Some),
+        Err(_) => {
+            gave_up.store(true, Ordering::SeqCst);
+            // The helper may have sent just before the flag: take and drop it.
+            if let Ok(Ok(f)) = rx.try_recv() {
+                let _gate = crate::process::spawn_gate();
+                drop(f);
+            }
+            Ok(None)
+        }
     }
+}
+
+/// Take the lock at `path`: at once if it is free, else as `wait` says, with
+/// `deadline` the end of a bounded wait. Ok(None) = still held.
+fn take_lock(
+    path: &Path,
+    wait: GpuWait,
+    deadline: Option<Instant>,
+) -> Result<Option<File>, GpuRefusal> {
+    let open_err = |e: io::Error| GpuRefusal::LockOpen(format!("{}: {e}", path.display()));
+    let file = open_lock(path).map_err(open_err)?;
+    if flock_exclusive(&file, false).map_err(open_err)? {
+        return Ok(Some(file));
+    }
+    match (wait, deadline) {
+        (GpuWait::Refuse, _) => Ok(None),
+        (GpuWait::Forever, _) => flock_exclusive(&file, true)
+            .map(|_| Some(file))
+            .map_err(open_err),
+        (GpuWait::Bounded(_), Some(d)) => flock_queued(file, d).map_err(open_err),
+        (GpuWait::Bounded(_), None) => Ok(None),
+    }
+}
+
+/// One `acquire_gpu_timed` call: the result and how long it waited for the
+/// locks (0 when they were free or a preflight refusal came first).
+#[derive(Debug)]
+pub struct GpuAttempt {
+    pub result: Result<GpuGuard, GpuRefusal>,
+    pub waited: Duration,
 }
 
 /// The GPU job protocol up to the point of running: refusals first, then the
 /// locks in the fixed order. Call it after taking the in-process gb10 slot.
 pub fn acquire_gpu(cfg: &GpuConfig) -> Result<GpuGuard, GpuRefusal> {
+    acquire_gpu_timed(cfg).result
+}
+
+/// `acquire_gpu`, also reporting the wait. One bound covers both locks.
+pub fn acquire_gpu_timed(cfg: &GpuConfig) -> GpuAttempt {
+    let t0 = Instant::now();
+    let result = acquire_locks(cfg, t0);
+    GpuAttempt {
+        result,
+        waited: t0.elapsed(),
+    }
+}
+
+fn acquire_locks(cfg: &GpuConfig, t0: Instant) -> Result<GpuGuard, GpuRefusal> {
     if let Some(r) = preflight(cfg) {
         return Err(r);
     }
-    let primary = match take_lock(&cfg.lock_path, cfg.wait)? {
+    let deadline = match cfg.wait {
+        GpuWait::Bounded(d) => t0.checked_add(d),
+        _ => None,
+    };
+    let primary = match take_lock(&cfg.lock_path, cfg.wait, deadline)? {
         Some(f) => f,
         None => return Err(GpuRefusal::LockHeld(cfg.lock_path.clone())),
     };
@@ -531,7 +661,7 @@ pub fn acquire_gpu(cfg: &GpuConfig) -> Result<GpuGuard, GpuRefusal> {
         files: vec![primary],
     };
     if let Some(p) = &cfg.proof_lock_path {
-        match take_lock(p, cfg.wait)? {
+        match take_lock(p, cfg.wait, deadline)? {
             Some(f) => guard.files.push(f),
             // Returning drops `guard`, so the first lock is not left held,
             // and it is released through the spawn gate like any other.
@@ -544,7 +674,7 @@ pub fn acquire_gpu(cfg: &GpuConfig) -> Result<GpuGuard, GpuRefusal> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{write_file, TempDir};
+    use crate::testutil::{queued_on, write_file, TempDir};
     use std::sync::mpsc;
     use std::thread;
     use std::time::Duration;
@@ -803,6 +933,82 @@ mod tests {
     }
 
     #[test]
+    fn bounded_wait_takes_the_lock_when_the_holder_lets_go() {
+        let d = TempDir::new("gpu");
+        let mut cfg = GpuConfig::rooted_at(d.path());
+        let held = acquire_gpu(&cfg).unwrap();
+        cfg.wait = GpuWait::Bounded(Duration::from_secs(20));
+        // Let go 300 ms after the waiter shows up in the kernel queue.
+        let lock = cfg.lock_path.clone();
+        let holder = thread::spawn(move || {
+            let t0 = Instant::now();
+            while !queued_on(&lock) && t0.elapsed() < Duration::from_secs(15) {
+                thread::sleep(Duration::from_millis(5));
+            }
+            let seen = queued_on(&lock);
+            thread::sleep(Duration::from_millis(300));
+            drop(held);
+            seen
+        });
+        let a = acquire_gpu_timed(&cfg);
+        assert!(
+            holder.join().unwrap(),
+            "the waiter never queued in the kernel"
+        );
+        assert!(a.result.is_ok(), "{:?}", a.result);
+        assert!(
+            (Duration::from_millis(250)..Duration::from_secs(20)).contains(&a.waited),
+            "waited {:?}",
+            a.waited
+        );
+    }
+
+    #[test]
+    fn bounded_wait_gives_up_and_the_abandoned_waiter_hands_the_lock_back() {
+        let d = TempDir::new("gpu");
+        let mut cfg = GpuConfig::rooted_at(d.path());
+        let held = acquire_gpu(&cfg).unwrap();
+        cfg.wait = GpuWait::Bounded(Duration::from_millis(300));
+        let a = acquire_gpu_timed(&cfg);
+        assert_eq!(a.result.unwrap_err().reason(), "gpu_lock");
+        assert!(a.waited >= Duration::from_millis(300), "{:?}", a.waited);
+        assert!(a.waited < Duration::from_secs(10), "{:?}", a.waited);
+        drop(held);
+        // The helper still queued in the kernel gets the lock and drops it at
+        // once; a refusing caller then finds it free within moments.
+        cfg.wait = GpuWait::Refuse;
+        let t0 = Instant::now();
+        loop {
+            if acquire_gpu(&cfg).is_ok() {
+                break;
+            }
+            assert!(
+                t0.elapsed() < Duration::from_secs(10),
+                "lock never handed back"
+            );
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn bounded_wait_on_a_held_proof_lock_refuses_with_its_reason() {
+        let d = TempDir::new("gpu");
+        let mut cfg = GpuConfig::rooted_at(d.path());
+        cfg.proof_lock_path = Some(d.path().join("slots/gpu.lock"));
+        let proof_only = GpuConfig {
+            lock_path: d.path().join("other.lock"),
+            ..cfg.clone()
+        };
+        let held = acquire_gpu(&proof_only).unwrap();
+        cfg.wait = GpuWait::Bounded(Duration::from_millis(300));
+        let a = acquire_gpu_timed(&cfg);
+        assert_eq!(a.result.unwrap_err().reason(), "gpu_lock_proof");
+        assert!(a.waited >= Duration::from_millis(300), "{:?}", a.waited);
+        assert!(a.waited < Duration::from_secs(10), "{:?}", a.waited);
+        drop(held);
+    }
+
+    #[test]
     fn open_handle_without_flock_does_not_block() {
         // CR-052: only a flock holder blocks; a plain open handle does not.
         let d = TempDir::new("gpu");
@@ -880,7 +1086,7 @@ mod tests {
         let d = TempDir::new("gpu");
         let mut cfg = GpuConfig::rooted_at(d.path());
         let held = acquire_gpu(&cfg).unwrap();
-        cfg.wait = true;
+        cfg.wait = GpuWait::Forever;
         let (tx, rx) = mpsc::channel();
         thread::scope(|s| {
             s.spawn(|| {
@@ -898,7 +1104,7 @@ mod tests {
     fn detect_builds_a_config_without_touching_anything() {
         let c = GpuConfig::detect();
         assert_eq!(c.lock_path, PathBuf::from(DEFAULT_GPU_LOCK));
-        assert!(!c.wait);
+        assert_eq!(c.wait, GpuWait::Bounded(DEFAULT_GPU_WAIT));
         assert_eq!(c.proc_dir, PathBuf::from("/proc"));
         let _ = Hardware::detect();
     }
