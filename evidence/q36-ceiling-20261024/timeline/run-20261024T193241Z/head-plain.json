@@ -1,0 +1,2086 @@
+{
+  "all_identical": false,
+  "bands": [
+    {
+      "chip_ms": 22.405358351851852,
+      "graph_total_ms": 22.499970611111113,
+      "hi": 64,
+      "lo": 0,
+      "tok_s": 44.438233259548475,
+      "tokens": 54,
+      "wall_ms": 22.50314485185185
+    },
+    {
+      "chip_ms": 22.64291374553571,
+      "graph_total_ms": 22.740623080357143,
+      "hi": 288,
+      "lo": 64,
+      "tok_s": 43.96802982561253,
+      "tokens": 224,
+      "wall_ms": 22.743798254464288
+    },
+    {
+      "chip_ms": 22.889938059171598,
+      "graph_total_ms": 22.98770253254438,
+      "hi": 800,
+      "lo": 288,
+      "tok_s": 43.495488813131686,
+      "tokens": 507,
+      "wall_ms": 22.990890027613414
+    },
+    {
+      "chip_ms": 23.028924847457628,
+      "graph_total_ms": 23.123778111864407,
+      "hi": 1100,
+      "lo": 800,
+      "tok_s": 43.2397092798286,
+      "tokens": 295,
+      "wall_ms": 23.126889996610167
+    }
+  ],
+  "env": [
+    "AIEN_Q36_EXACT_HEAD=0",
+    "Q36_LEVERS_POS=1100",
+    "Q36_LEVERS_STAMPS=40,41,42,43,44,300,301,302,303,304,1000,1001,1002,1003,1004",
+    "AIEN_GB10_LOCK_HELD=1"
+  ],
+  "goldens": [
+    {
+      "first_diff": null,
+      "golden": "/home/drakestapleton/workspace/sc-l310-ceiling/evidence/q36-host-20261020/gen-p1.json",
+      "got": [
+        11751,
+        11,
+        264,
+        3177,
+        34756,
+        364,
+        1141,
+        25438,
+        57902,
+        1680,
+        430,
+        279,
+        242476,
+        300,
+        21262,
+        11,
+        279,
+        9440,
+        46890,
+        15849,
+        11,
+        321,
+        279,
+        42027,
+        9141,
+        368,
+        54832,
+        13,
+        11751,
+        369,
+        1048,
+        10919
+      ],
+      "identical": true,
+      "logits_fnv": [
+        "5f01d4f90a888ac7",
+        "acefa1cde82184e5",
+        "3aafc1fca1b9d423",
+        "7294802b77c30df4",
+        "fc3bf8687d866203",
+        "e923f35aea12f141",
+        "8bb416b23cf2cd32",
+        "a3d2a17c5369acfb",
+        "452e87be5adf2ea1",
+        "178cfc70652f1850",
+        "4c2cd0bfccdf6284",
+        "3dc3d51c26236d4d",
+        "a5bb84b8a4672c92",
+        "40de0ac032d27257",
+        "e77be35ea70b51cc",
+        "42e34c15264bf59f",
+        "6313118182e48974",
+        "a7599a39b1e1af29",
+        "ba5933eedf32459c",
+        "e70f6592654bb2e8",
+        "1ee3fc8587d38c15",
+        "f79fd5c48013759f",
+        "a2ae7ea3b0f68907",
+        "9d8af31e463b9f62",
+        "5b9427a27fdc2e7c",
+        "d891d6671054a4fa",
+        "a28c7fb2acbe5369",
+        "75b38ea490322ed0",
+        "0129f1596724fbec",
+        "0519223306d77eaf",
+        "11a3896b64c01462",
+        "16f7f2f807698532"
+      ]
+    },
+    {
+      "first_diff": null,
+      "golden": "/home/drakestapleton/workspace/sc-l310-ceiling/evidence/q36-host-20261020/gen-p2.json",
+      "got": [
+        262,
+        413,
+        307,
+        2564,
+        220,
+        15,
+        25,
+        198,
+        285,
+        460,
+        220,
+        15,
+        198,
+        262,
+        4265,
+        307,
+        606,
+        220,
+        16,
+        25,
+        198,
+        285,
+        460,
+        220,
+        16,
+        198,
+        262,
+        745,
+        25,
+        198,
+        285,
+        460
+      ],
+      "identical": true,
+      "logits_fnv": [
+        "301eb181097b9810",
+        "5a4f6832698ffce9",
+        "44dd1d14db0d8c7c",
+        "91f968914b7a1856",
+        "f3fb517c814dd58b",
+        "73f7639569248f2d",
+        "363af40194dde09f",
+        "7453f8f6ac07dcc9",
+        "c6571c6231b772f6",
+        "e507e0b137506993",
+        "11a6c0f385677d93",
+        "923a98219e529380",
+        "51f255b314d26ac4",
+        "8d49d6e52754e07b",
+        "6bbae9906de983c8",
+        "c58bde469c77b9c1",
+        "637fef9c82b1ffd9",
+        "bf45e9ffb531533e",
+        "624ea670901ab08d",
+        "ad6ed893f6235db5",
+        "471ffc338085ef46",
+        "9dda44ec8435f4cd",
+        "145f47f1edbad625",
+        "6ade97352aa2b60e",
+        "cac6b20150f213ad",
+        "82f52b812349b1d4",
+        "9577861ca6ebf929",
+        "51025673a2c67e56",
+        "40031fefdde02ed4",
+        "4c342eeb009e1083",
+        "709ed969caf79b87",
+        "875c697838ddb1d2"
+      ]
+    },
+    {
+      "first_diff": null,
+      "golden": "/home/drakestapleton/workspace/sc-l310-ceiling/evidence/q36-host-20261020/gen-p3.json",
+      "got": [
+        279,
+        42900,
+        7035,
+        369,
+        4570,
+        13,
+        271,
+        248068,
+        271,
+        248069,
+        271,
+        1919,
+        4952,
+        369,
+        2972,
+        19321,
+        159034,
+        271,
+        8160,
+        369,
+        279,
+        2923,
+        13909,
+        28253,
+        19214,
+        37557,
+        24228,
+        3069,
+        411,
+        13273,
+        25,
+        271
+      ],
+      "identical": true,
+      "logits_fnv": [
+        "dde211ec2dec92b5",
+        "46af3bb849d952d6",
+        "4e65d55bdd616255",
+        "0081252b1a95ea1b",
+        "f89c94431df532ec",
+        "150ddc3a7e43ed2b",
+        "7f3b51ccd8b4ca13",
+        "e61407a28ba28468",
+        "32b7a5c2c52a6e0a",
+        "86e3afe2b1606bb0",
+        "473da43a1176cbb9",
+        "15df22579a657b7e",
+        "d432f4cb134804a5",
+        "e574efa20a0d210d",
+        "854525eb259ba1dd",
+        "89334f630a43d95e",
+        "a9258daca1ec685e",
+        "13ca42f9f49d3827",
+        "86ce5aa4d80185af",
+        "fdde4e1fb2e40db4",
+        "f7c4d1f0ea91803a",
+        "d323a20724aaaece",
+        "54b75bccd08431e3",
+        "85f7e1b953a13810",
+        "142110b5be8f8bfd",
+        "9998e249c0b04375",
+        "5e7265d4dbba6f6a",
+        "129acb83bf6890af",
+        "f9fdbd87b086a2bc",
+        "7bac9bf1872ad5de",
+        "d7b12ec90a4be569",
+        "9dc52adb2a98e429"
+      ]
+    },
+    {
+      "first_diff": 4,
+      "golden": "/home/drakestapleton/workspace/sc-l310-ceiling/evidence/q36-host-20261020/gen-p4.json",
+      "got": [
+        3605,
+        198,
+        17,
+        13,
+        8432,
+        198,
+        18,
+        13,
+        24655,
+        271,
+        248068,
+        271,
+        248069,
+        271,
+        27775,
+        383,
+        279,
+        8343,
+        2972,
+        10916,
+        33,
+        318,
+        5844,
+        28184,
+        5131,
+        12,
+        10025,
+        31230,
+        1829,
+        1558,
+        11,
+        864
+      ],
+      "identical": false,
+      "logits_fnv": [
+        "ff4382a40cf196f3",
+        "6d63dbea751f544a",
+        "5570a071e8118dde",
+        "1634059be3a50d24",
+        "b6185021222f3c93",
+        "d00a15c5342c59b6",
+        "2217e50d9ae1c6dc",
+        "778a978cc5adc0f3",
+        "b8aee7d8e5850318",
+        "b832018fe8f6c804",
+        "67d7112071fcb0d9",
+        "796fbdea0de02ef8",
+        "72bc9ce4137d4eee",
+        "6f54e05f27e233a2",
+        "dfff505ad63951de",
+        "4731a91240d3a147",
+        "19a8b8c6256a3c05",
+        "c5de085d3cc55176",
+        "8a71b237cc254d2b",
+        "8fc4faf60bfd6cd8",
+        "8267978b22e9b7ef",
+        "a8a684107ecb1700",
+        "1fc1945fb00556db",
+        "77b92a895fc68f42",
+        "61a851a63d3f13a3",
+        "fe3f0c3a704fe23c",
+        "b65ee208043e75f1",
+        "0bcf5dbd2f68dafb",
+        "4287fa425e437de2",
+        "67393cc324f4cb46",
+        "b7f418b4faed96f4",
+        "3d9f966e82d87ff2"
+      ]
+    }
+  ],
+  "model": "/home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0",
+  "open_s": 75.522039152,
+  "timelines": [
+    {
+      "byte_ns": 15813524.210526314,
+      "bytes": 3605483520.0,
+      "chip_ns": 22426894,
+      "kinds": [
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "norm",
+          "launches": 1,
+          "ns": 8544
+        },
+        {
+          "byte_ns": 4139115.789473684,
+          "bytes": 943718400.0,
+          "kind": "mix",
+          "launches": 40,
+          "ns": 4307584
+        },
+        {
+          "byte_ns": 34492.63157894737,
+          "bytes": 7864320.0,
+          "kind": "ab",
+          "launches": 30,
+          "ns": 323072
+        },
+        {
+          "byte_ns": 551882.1052631579,
+          "bytes": 125829120.0,
+          "kind": "gdn",
+          "launches": 30,
+          "ns": 904672
+        },
+        {
+          "byte_ns": 1471685.6140350876,
+          "bytes": 335544320.0,
+          "kind": "o_proj",
+          "launches": 40,
+          "ns": 2144928
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "res",
+          "launches": 80,
+          "ns": 512704
+        },
+        {
+          "byte_ns": 184679.29824561405,
+          "bytes": 42106880.0,
+          "kind": "router",
+          "launches": 40,
+          "ns": 1684384
+        },
+        {
+          "byte_ns": 3311292.6315789474,
+          "bytes": 754974720.0,
+          "kind": "gate_up",
+          "launches": 40,
+          "ns": 4521536
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "swiglu",
+          "launches": 40,
+          "ns": 108928
+        },
+        {
+          "byte_ns": 1655646.3157894737,
+          "bytes": 377487360.0,
+          "kind": "down",
+          "launches": 40,
+          "ns": 2552224
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gather",
+          "launches": 10,
+          "ns": 35264
+        },
+        {
+          "byte_ns": 3682.8070175438597,
+          "bytes": 839680.0,
+          "kind": "attn",
+          "launches": 10,
+          "ns": 534784
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gate",
+          "launches": 10,
+          "ns": 27616
+        },
+        {
+          "byte_ns": 4461047.01754386,
+          "bytes": 1017118720.0,
+          "kind": "lm_head",
+          "launches": 1,
+          "ns": 4659104
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "argmax",
+          "launches": 2,
+          "ns": 17888
+        }
+      ],
+      "launches": 414,
+      "pos": 40,
+      "span_ns": 22343232,
+      "wall_ns": 22537999
+    },
+    {
+      "byte_ns": 15813614.035087718,
+      "bytes": 3605504000.0,
+      "chip_ns": 22366285,
+      "kinds": [
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "norm",
+          "launches": 1,
+          "ns": 7328
+        },
+        {
+          "byte_ns": 4139115.789473684,
+          "bytes": 943718400.0,
+          "kind": "mix",
+          "launches": 40,
+          "ns": 4311168
+        },
+        {
+          "byte_ns": 34492.63157894737,
+          "bytes": 7864320.0,
+          "kind": "ab",
+          "launches": 30,
+          "ns": 324224
+        },
+        {
+          "byte_ns": 551882.1052631579,
+          "bytes": 125829120.0,
+          "kind": "gdn",
+          "launches": 30,
+          "ns": 896512
+        },
+        {
+          "byte_ns": 1471685.6140350876,
+          "bytes": 335544320.0,
+          "kind": "o_proj",
+          "launches": 40,
+          "ns": 2133856
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "res",
+          "launches": 80,
+          "ns": 500768
+        },
+        {
+          "byte_ns": 184679.29824561405,
+          "bytes": 42106880.0,
+          "kind": "router",
+          "launches": 40,
+          "ns": 1684992
+        },
+        {
+          "byte_ns": 3311292.6315789474,
+          "bytes": 754974720.0,
+          "kind": "gate_up",
+          "launches": 40,
+          "ns": 4509472
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "swiglu",
+          "launches": 40,
+          "ns": 104352
+        },
+        {
+          "byte_ns": 1655646.3157894737,
+          "bytes": 377487360.0,
+          "kind": "down",
+          "launches": 40,
+          "ns": 2541664
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gather",
+          "launches": 10,
+          "ns": 35744
+        },
+        {
+          "byte_ns": 3772.6315789473683,
+          "bytes": 860160.0,
+          "kind": "attn",
+          "launches": 10,
+          "ns": 542080
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gate",
+          "launches": 10,
+          "ns": 26496
+        },
+        {
+          "byte_ns": 4461047.01754386,
+          "bytes": 1017118720.0,
+          "kind": "lm_head",
+          "launches": 1,
+          "ns": 4642176
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "argmax",
+          "launches": 2,
+          "ns": 18144
+        }
+      ],
+      "launches": 414,
+      "pos": 41,
+      "span_ns": 22278976,
+      "wall_ns": 22458878
+    },
+    {
+      "byte_ns": 15813703.859649122,
+      "bytes": 3605524480.0,
+      "chip_ns": 22472414,
+      "kinds": [
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "norm",
+          "launches": 1,
+          "ns": 7328
+        },
+        {
+          "byte_ns": 4139115.789473684,
+          "bytes": 943718400.0,
+          "kind": "mix",
+          "launches": 40,
+          "ns": 4295552
+        },
+        {
+          "byte_ns": 34492.63157894737,
+          "bytes": 7864320.0,
+          "kind": "ab",
+          "launches": 30,
+          "ns": 324704
+        },
+        {
+          "byte_ns": 551882.1052631579,
+          "bytes": 125829120.0,
+          "kind": "gdn",
+          "launches": 30,
+          "ns": 892320
+        },
+        {
+          "byte_ns": 1471685.6140350876,
+          "bytes": 335544320.0,
+          "kind": "o_proj",
+          "launches": 40,
+          "ns": 2134432
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "res",
+          "launches": 80,
+          "ns": 496256
+        },
+        {
+          "byte_ns": 184679.29824561405,
+          "bytes": 42106880.0,
+          "kind": "router",
+          "launches": 40,
+          "ns": 1693632
+        },
+        {
+          "byte_ns": 3311292.6315789474,
+          "bytes": 754974720.0,
+          "kind": "gate_up",
+          "launches": 40,
+          "ns": 4500544
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "swiglu",
+          "launches": 40,
+          "ns": 104576
+        },
+        {
+          "byte_ns": 1655646.3157894737,
+          "bytes": 377487360.0,
+          "kind": "down",
+          "launches": 40,
+          "ns": 2548608
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gather",
+          "launches": 10,
+          "ns": 34048
+        },
+        {
+          "byte_ns": 3862.456140350877,
+          "bytes": 880640.0,
+          "kind": "attn",
+          "launches": 10,
+          "ns": 534464
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gate",
+          "launches": 10,
+          "ns": 26496
+        },
+        {
+          "byte_ns": 4461047.01754386,
+          "bytes": 1017118720.0,
+          "kind": "lm_head",
+          "launches": 1,
+          "ns": 4742688
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "argmax",
+          "launches": 2,
+          "ns": 18496
+        }
+      ],
+      "launches": 414,
+      "pos": 42,
+      "span_ns": 22354144,
+      "wall_ns": 22560478
+    },
+    {
+      "byte_ns": 15813793.684210524,
+      "bytes": 3605544960.0,
+      "chip_ns": 22527455,
+      "kinds": [
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "norm",
+          "launches": 1,
+          "ns": 7392
+        },
+        {
+          "byte_ns": 4139115.789473684,
+          "bytes": 943718400.0,
+          "kind": "mix",
+          "launches": 40,
+          "ns": 4345920
+        },
+        {
+          "byte_ns": 34492.63157894737,
+          "bytes": 7864320.0,
+          "kind": "ab",
+          "launches": 30,
+          "ns": 323360
+        },
+        {
+          "byte_ns": 551882.1052631579,
+          "bytes": 125829120.0,
+          "kind": "gdn",
+          "launches": 30,
+          "ns": 894400
+        },
+        {
+          "byte_ns": 1471685.6140350876,
+          "bytes": 335544320.0,
+          "kind": "o_proj",
+          "launches": 40,
+          "ns": 2166528
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "res",
+          "launches": 80,
+          "ns": 508096
+        },
+        {
+          "byte_ns": 184679.29824561405,
+          "bytes": 42106880.0,
+          "kind": "router",
+          "launches": 40,
+          "ns": 1687040
+        },
+        {
+          "byte_ns": 3311292.6315789474,
+          "bytes": 754974720.0,
+          "kind": "gate_up",
+          "launches": 40,
+          "ns": 4553440
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "swiglu",
+          "launches": 40,
+          "ns": 105376
+        },
+        {
+          "byte_ns": 1655646.3157894737,
+          "bytes": 377487360.0,
+          "kind": "down",
+          "launches": 40,
+          "ns": 2566304
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gather",
+          "launches": 10,
+          "ns": 36608
+        },
+        {
+          "byte_ns": 3952.280701754386,
+          "bytes": 901120.0,
+          "kind": "attn",
+          "launches": 10,
+          "ns": 535264
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gate",
+          "launches": 10,
+          "ns": 26816
+        },
+        {
+          "byte_ns": 4461047.01754386,
+          "bytes": 1017118720.0,
+          "kind": "lm_head",
+          "launches": 1,
+          "ns": 4675232
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "argmax",
+          "launches": 2,
+          "ns": 18048
+        }
+      ],
+      "launches": 414,
+      "pos": 43,
+      "span_ns": 22449824,
+      "wall_ns": 22642704
+    },
+    {
+      "byte_ns": 15813883.508771928,
+      "bytes": 3605565440.0,
+      "chip_ns": 22425389,
+      "kinds": [
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "norm",
+          "launches": 1,
+          "ns": 7136
+        },
+        {
+          "byte_ns": 4139115.789473684,
+          "bytes": 943718400.0,
+          "kind": "mix",
+          "launches": 40,
+          "ns": 4307648
+        },
+        {
+          "byte_ns": 34492.63157894737,
+          "bytes": 7864320.0,
+          "kind": "ab",
+          "launches": 30,
+          "ns": 325888
+        },
+        {
+          "byte_ns": 551882.1052631579,
+          "bytes": 125829120.0,
+          "kind": "gdn",
+          "launches": 30,
+          "ns": 898176
+        },
+        {
+          "byte_ns": 1471685.6140350876,
+          "bytes": 335544320.0,
+          "kind": "o_proj",
+          "launches": 40,
+          "ns": 2131200
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "res",
+          "launches": 80,
+          "ns": 503488
+        },
+        {
+          "byte_ns": 184679.29824561405,
+          "bytes": 42106880.0,
+          "kind": "router",
+          "launches": 40,
+          "ns": 1685728
+        },
+        {
+          "byte_ns": 3311292.6315789474,
+          "bytes": 754974720.0,
+          "kind": "gate_up",
+          "launches": 40,
+          "ns": 4509600
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "swiglu",
+          "launches": 40,
+          "ns": 104992
+        },
+        {
+          "byte_ns": 1655646.3157894737,
+          "bytes": 377487360.0,
+          "kind": "down",
+          "launches": 40,
+          "ns": 2560480
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gather",
+          "launches": 10,
+          "ns": 35520
+        },
+        {
+          "byte_ns": 4042.1052631578946,
+          "bytes": 921600.0,
+          "kind": "attn",
+          "launches": 10,
+          "ns": 534816
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gate",
+          "launches": 10,
+          "ns": 27264
+        },
+        {
+          "byte_ns": 4461047.01754386,
+          "bytes": 1017118720.0,
+          "kind": "lm_head",
+          "launches": 1,
+          "ns": 4677888
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "argmax",
+          "launches": 2,
+          "ns": 21344
+        }
+      ],
+      "launches": 414,
+      "pos": 44,
+      "span_ns": 22331168,
+      "wall_ns": 22537375
+    },
+    {
+      "byte_ns": 15836878.596491227,
+      "bytes": 3610808320.0,
+      "chip_ns": 22815456,
+      "kinds": [
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "norm",
+          "launches": 1,
+          "ns": 7968
+        },
+        {
+          "byte_ns": 4139115.789473684,
+          "bytes": 943718400.0,
+          "kind": "mix",
+          "launches": 40,
+          "ns": 4287840
+        },
+        {
+          "byte_ns": 34492.63157894737,
+          "bytes": 7864320.0,
+          "kind": "ab",
+          "launches": 30,
+          "ns": 331968
+        },
+        {
+          "byte_ns": 551882.1052631579,
+          "bytes": 125829120.0,
+          "kind": "gdn",
+          "launches": 30,
+          "ns": 897792
+        },
+        {
+          "byte_ns": 1471685.6140350876,
+          "bytes": 335544320.0,
+          "kind": "o_proj",
+          "launches": 40,
+          "ns": 2133376
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "res",
+          "launches": 80,
+          "ns": 510400
+        },
+        {
+          "byte_ns": 184679.29824561405,
+          "bytes": 42106880.0,
+          "kind": "router",
+          "launches": 40,
+          "ns": 1680800
+        },
+        {
+          "byte_ns": 3311292.6315789474,
+          "bytes": 754974720.0,
+          "kind": "gate_up",
+          "launches": 40,
+          "ns": 4493408
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "swiglu",
+          "launches": 40,
+          "ns": 109440
+        },
+        {
+          "byte_ns": 1655646.3157894737,
+          "bytes": 377487360.0,
+          "kind": "down",
+          "launches": 40,
+          "ns": 2544288
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gather",
+          "launches": 10,
+          "ns": 36544
+        },
+        {
+          "byte_ns": 27037.19298245614,
+          "bytes": 6164480.0,
+          "kind": "attn",
+          "launches": 10,
+          "ns": 988640
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gate",
+          "launches": 10,
+          "ns": 27968
+        },
+        {
+          "byte_ns": 4461047.01754386,
+          "bytes": 1017118720.0,
+          "kind": "lm_head",
+          "launches": 1,
+          "ns": 4681728
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "argmax",
+          "launches": 2,
+          "ns": 18240
+        }
+      ],
+      "launches": 414,
+      "pos": 300,
+      "span_ns": 22750400,
+      "wall_ns": 22881777
+    },
+    {
+      "byte_ns": 15836968.421052631,
+      "bytes": 3610828800.0,
+      "chip_ns": 22779233,
+      "kinds": [
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "norm",
+          "launches": 1,
+          "ns": 7296
+        },
+        {
+          "byte_ns": 4139115.789473684,
+          "bytes": 943718400.0,
+          "kind": "mix",
+          "launches": 40,
+          "ns": 4274912
+        },
+        {
+          "byte_ns": 34492.63157894737,
+          "bytes": 7864320.0,
+          "kind": "ab",
+          "launches": 30,
+          "ns": 328992
+        },
+        {
+          "byte_ns": 551882.1052631579,
+          "bytes": 125829120.0,
+          "kind": "gdn",
+          "launches": 30,
+          "ns": 891840
+        },
+        {
+          "byte_ns": 1471685.6140350876,
+          "bytes": 335544320.0,
+          "kind": "o_proj",
+          "launches": 40,
+          "ns": 2118336
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "res",
+          "launches": 80,
+          "ns": 524896
+        },
+        {
+          "byte_ns": 184679.29824561405,
+          "bytes": 42106880.0,
+          "kind": "router",
+          "launches": 40,
+          "ns": 1695680
+        },
+        {
+          "byte_ns": 3311292.6315789474,
+          "bytes": 754974720.0,
+          "kind": "gate_up",
+          "launches": 40,
+          "ns": 4496608
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "swiglu",
+          "launches": 40,
+          "ns": 114592
+        },
+        {
+          "byte_ns": 1655646.3157894737,
+          "bytes": 377487360.0,
+          "kind": "down",
+          "launches": 40,
+          "ns": 2552256
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gather",
+          "launches": 10,
+          "ns": 35552
+        },
+        {
+          "byte_ns": 27127.01754385965,
+          "bytes": 6184960.0,
+          "kind": "attn",
+          "launches": 10,
+          "ns": 989632
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gate",
+          "launches": 10,
+          "ns": 28192
+        },
+        {
+          "byte_ns": 4461047.01754386,
+          "bytes": 1017118720.0,
+          "kind": "lm_head",
+          "launches": 1,
+          "ns": 4633248
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "argmax",
+          "launches": 2,
+          "ns": 18912
+        }
+      ],
+      "launches": 414,
+      "pos": 301,
+      "span_ns": 22710944,
+      "wall_ns": 22872001
+    },
+    {
+      "byte_ns": 15837058.245614033,
+      "bytes": 3610849280.0,
+      "chip_ns": 22887634,
+      "kinds": [
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "norm",
+          "launches": 1,
+          "ns": 7744
+        },
+        {
+          "byte_ns": 4139115.789473684,
+          "bytes": 943718400.0,
+          "kind": "mix",
+          "launches": 40,
+          "ns": 4283968
+        },
+        {
+          "byte_ns": 34492.63157894737,
+          "bytes": 7864320.0,
+          "kind": "ab",
+          "launches": 30,
+          "ns": 332224
+        },
+        {
+          "byte_ns": 551882.1052631579,
+          "bytes": 125829120.0,
+          "kind": "gdn",
+          "launches": 30,
+          "ns": 898880
+        },
+        {
+          "byte_ns": 1471685.6140350876,
+          "bytes": 335544320.0,
+          "kind": "o_proj",
+          "launches": 40,
+          "ns": 2130080
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "res",
+          "launches": 80,
+          "ns": 520736
+        },
+        {
+          "byte_ns": 184679.29824561405,
+          "bytes": 42106880.0,
+          "kind": "router",
+          "launches": 40,
+          "ns": 1681536
+        },
+        {
+          "byte_ns": 3311292.6315789474,
+          "bytes": 754974720.0,
+          "kind": "gate_up",
+          "launches": 40,
+          "ns": 4489728
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "swiglu",
+          "launches": 40,
+          "ns": 112608
+        },
+        {
+          "byte_ns": 1655646.3157894737,
+          "bytes": 377487360.0,
+          "kind": "down",
+          "launches": 40,
+          "ns": 2550688
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gather",
+          "launches": 10,
+          "ns": 35168
+        },
+        {
+          "byte_ns": 27216.842105263157,
+          "bytes": 6205440.0,
+          "kind": "attn",
+          "launches": 10,
+          "ns": 983968
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gate",
+          "launches": 10,
+          "ns": 28928
+        },
+        {
+          "byte_ns": 4461047.01754386,
+          "bytes": 1017118720.0,
+          "kind": "lm_head",
+          "launches": 1,
+          "ns": 4675232
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "argmax",
+          "launches": 2,
+          "ns": 18528
+        }
+      ],
+      "launches": 414,
+      "pos": 302,
+      "span_ns": 22750016,
+      "wall_ns": 22938386
+    },
+    {
+      "byte_ns": 15837148.070175437,
+      "bytes": 3610869760.0,
+      "chip_ns": 22859073,
+      "kinds": [
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "norm",
+          "launches": 1,
+          "ns": 7968
+        },
+        {
+          "byte_ns": 4139115.789473684,
+          "bytes": 943718400.0,
+          "kind": "mix",
+          "launches": 40,
+          "ns": 4313376
+        },
+        {
+          "byte_ns": 34492.63157894737,
+          "bytes": 7864320.0,
+          "kind": "ab",
+          "launches": 30,
+          "ns": 324576
+        },
+        {
+          "byte_ns": 551882.1052631579,
+          "bytes": 125829120.0,
+          "kind": "gdn",
+          "launches": 30,
+          "ns": 892480
+        },
+        {
+          "byte_ns": 1471685.6140350876,
+          "bytes": 335544320.0,
+          "kind": "o_proj",
+          "launches": 40,
+          "ns": 2136032
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "res",
+          "launches": 80,
+          "ns": 504192
+        },
+        {
+          "byte_ns": 184679.29824561405,
+          "bytes": 42106880.0,
+          "kind": "router",
+          "launches": 40,
+          "ns": 1676480
+        },
+        {
+          "byte_ns": 3311292.6315789474,
+          "bytes": 754974720.0,
+          "kind": "gate_up",
+          "launches": 40,
+          "ns": 4501056
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "swiglu",
+          "launches": 40,
+          "ns": 107168
+        },
+        {
+          "byte_ns": 1655646.3157894737,
+          "bytes": 377487360.0,
+          "kind": "down",
+          "launches": 40,
+          "ns": 2557216
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gather",
+          "launches": 10,
+          "ns": 31904
+        },
+        {
+          "byte_ns": 27306.666666666668,
+          "bytes": 6225920.0,
+          "kind": "attn",
+          "launches": 10,
+          "ns": 983104
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gate",
+          "launches": 10,
+          "ns": 26912
+        },
+        {
+          "byte_ns": 4461047.01754386,
+          "bytes": 1017118720.0,
+          "kind": "lm_head",
+          "launches": 1,
+          "ns": 4673792
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "argmax",
+          "launches": 2,
+          "ns": 18400
+        }
+      ],
+      "launches": 414,
+      "pos": 303,
+      "span_ns": 22754656,
+      "wall_ns": 22935537
+    },
+    {
+      "byte_ns": 15837237.894736841,
+      "bytes": 3610890240.0,
+      "chip_ns": 22870834,
+      "kinds": [
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "norm",
+          "launches": 1,
+          "ns": 7456
+        },
+        {
+          "byte_ns": 4139115.789473684,
+          "bytes": 943718400.0,
+          "kind": "mix",
+          "launches": 40,
+          "ns": 4308928
+        },
+        {
+          "byte_ns": 34492.63157894737,
+          "bytes": 7864320.0,
+          "kind": "ab",
+          "launches": 30,
+          "ns": 324160
+        },
+        {
+          "byte_ns": 551882.1052631579,
+          "bytes": 125829120.0,
+          "kind": "gdn",
+          "launches": 30,
+          "ns": 894560
+        },
+        {
+          "byte_ns": 1471685.6140350876,
+          "bytes": 335544320.0,
+          "kind": "o_proj",
+          "launches": 40,
+          "ns": 2131776
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "res",
+          "launches": 80,
+          "ns": 497952
+        },
+        {
+          "byte_ns": 184679.29824561405,
+          "bytes": 42106880.0,
+          "kind": "router",
+          "launches": 40,
+          "ns": 1671072
+        },
+        {
+          "byte_ns": 3311292.6315789474,
+          "bytes": 754974720.0,
+          "kind": "gate_up",
+          "launches": 40,
+          "ns": 4530432
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "swiglu",
+          "launches": 40,
+          "ns": 103552
+        },
+        {
+          "byte_ns": 1655646.3157894737,
+          "bytes": 377487360.0,
+          "kind": "down",
+          "launches": 40,
+          "ns": 2557088
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gather",
+          "launches": 10,
+          "ns": 33024
+        },
+        {
+          "byte_ns": 27396.491228070176,
+          "bytes": 6246400.0,
+          "kind": "attn",
+          "launches": 10,
+          "ns": 986144
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gate",
+          "launches": 10,
+          "ns": 25952
+        },
+        {
+          "byte_ns": 4461047.01754386,
+          "bytes": 1017118720.0,
+          "kind": "lm_head",
+          "launches": 1,
+          "ns": 4661312
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "argmax",
+          "launches": 2,
+          "ns": 19104
+        }
+      ],
+      "launches": 414,
+      "pos": 304,
+      "span_ns": 22752512,
+      "wall_ns": 22986306
+    },
+    {
+      "byte_ns": 15899755.789473686,
+      "bytes": 3625144320.0,
+      "chip_ns": 23083732,
+      "kinds": [
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "norm",
+          "launches": 1,
+          "ns": 7904
+        },
+        {
+          "byte_ns": 4139115.789473684,
+          "bytes": 943718400.0,
+          "kind": "mix",
+          "launches": 40,
+          "ns": 4309408
+        },
+        {
+          "byte_ns": 34492.63157894737,
+          "bytes": 7864320.0,
+          "kind": "ab",
+          "launches": 30,
+          "ns": 322912
+        },
+        {
+          "byte_ns": 551882.1052631579,
+          "bytes": 125829120.0,
+          "kind": "gdn",
+          "launches": 30,
+          "ns": 894784
+        },
+        {
+          "byte_ns": 1471685.6140350876,
+          "bytes": 335544320.0,
+          "kind": "o_proj",
+          "launches": 40,
+          "ns": 2156000
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "res",
+          "launches": 80,
+          "ns": 499328
+        },
+        {
+          "byte_ns": 184679.29824561405,
+          "bytes": 42106880.0,
+          "kind": "router",
+          "launches": 40,
+          "ns": 1660672
+        },
+        {
+          "byte_ns": 3311292.6315789474,
+          "bytes": 754974720.0,
+          "kind": "gate_up",
+          "launches": 40,
+          "ns": 4539392
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "swiglu",
+          "launches": 40,
+          "ns": 104032
+        },
+        {
+          "byte_ns": 1655646.3157894737,
+          "bytes": 377487360.0,
+          "kind": "down",
+          "launches": 40,
+          "ns": 2557792
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gather",
+          "launches": 10,
+          "ns": 33568
+        },
+        {
+          "byte_ns": 89914.38596491229,
+          "bytes": 20500480.0,
+          "kind": "attn",
+          "launches": 10,
+          "ns": 1171808
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gate",
+          "launches": 10,
+          "ns": 26464
+        },
+        {
+          "byte_ns": 4461047.01754386,
+          "bytes": 1017118720.0,
+          "kind": "lm_head",
+          "launches": 1,
+          "ns": 4688928
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "argmax",
+          "launches": 2,
+          "ns": 17248
+        }
+      ],
+      "launches": 414,
+      "pos": 1000,
+      "span_ns": 22990240,
+      "wall_ns": 23194100
+    },
+    {
+      "byte_ns": 15899845.614035089,
+      "bytes": 3625164800.0,
+      "chip_ns": 23026867,
+      "kinds": [
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "norm",
+          "launches": 1,
+          "ns": 8064
+        },
+        {
+          "byte_ns": 4139115.789473684,
+          "bytes": 943718400.0,
+          "kind": "mix",
+          "launches": 40,
+          "ns": 4298976
+        },
+        {
+          "byte_ns": 34492.63157894737,
+          "bytes": 7864320.0,
+          "kind": "ab",
+          "launches": 30,
+          "ns": 326272
+        },
+        {
+          "byte_ns": 551882.1052631579,
+          "bytes": 125829120.0,
+          "kind": "gdn",
+          "launches": 30,
+          "ns": 890304
+        },
+        {
+          "byte_ns": 1471685.6140350876,
+          "bytes": 335544320.0,
+          "kind": "o_proj",
+          "launches": 40,
+          "ns": 2141568
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "res",
+          "launches": 80,
+          "ns": 499744
+        },
+        {
+          "byte_ns": 184679.29824561405,
+          "bytes": 42106880.0,
+          "kind": "router",
+          "launches": 40,
+          "ns": 1693120
+        },
+        {
+          "byte_ns": 3311292.6315789474,
+          "bytes": 754974720.0,
+          "kind": "gate_up",
+          "launches": 40,
+          "ns": 4513760
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "swiglu",
+          "launches": 40,
+          "ns": 103008
+        },
+        {
+          "byte_ns": 1655646.3157894737,
+          "bytes": 377487360.0,
+          "kind": "down",
+          "launches": 40,
+          "ns": 2557536
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gather",
+          "launches": 10,
+          "ns": 32544
+        },
+        {
+          "byte_ns": 90004.2105263158,
+          "bytes": 20520960.0,
+          "kind": "attn",
+          "launches": 10,
+          "ns": 1168608
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gate",
+          "launches": 10,
+          "ns": 25952
+        },
+        {
+          "byte_ns": 4461047.01754386,
+          "bytes": 1017118720.0,
+          "kind": "lm_head",
+          "launches": 1,
+          "ns": 4647040
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "argmax",
+          "launches": 2,
+          "ns": 17952
+        }
+      ],
+      "launches": 414,
+      "pos": 1001,
+      "span_ns": 22924448,
+      "wall_ns": 23138579
+    },
+    {
+      "byte_ns": 15899935.438596493,
+      "bytes": 3625185280.0,
+      "chip_ns": 23111587,
+      "kinds": [
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "norm",
+          "launches": 1,
+          "ns": 8000
+        },
+        {
+          "byte_ns": 4139115.789473684,
+          "bytes": 943718400.0,
+          "kind": "mix",
+          "launches": 40,
+          "ns": 4283168
+        },
+        {
+          "byte_ns": 34492.63157894737,
+          "bytes": 7864320.0,
+          "kind": "ab",
+          "launches": 30,
+          "ns": 334976
+        },
+        {
+          "byte_ns": 551882.1052631579,
+          "bytes": 125829120.0,
+          "kind": "gdn",
+          "launches": 30,
+          "ns": 900704
+        },
+        {
+          "byte_ns": 1471685.6140350876,
+          "bytes": 335544320.0,
+          "kind": "o_proj",
+          "launches": 40,
+          "ns": 2150400
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "res",
+          "launches": 80,
+          "ns": 500352
+        },
+        {
+          "byte_ns": 184679.29824561405,
+          "bytes": 42106880.0,
+          "kind": "router",
+          "launches": 40,
+          "ns": 1678688
+        },
+        {
+          "byte_ns": 3311292.6315789474,
+          "bytes": 754974720.0,
+          "kind": "gate_up",
+          "launches": 40,
+          "ns": 4514944
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "swiglu",
+          "launches": 40,
+          "ns": 105440
+        },
+        {
+          "byte_ns": 1655646.3157894737,
+          "bytes": 377487360.0,
+          "kind": "down",
+          "launches": 40,
+          "ns": 2560288
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gather",
+          "launches": 10,
+          "ns": 34944
+        },
+        {
+          "byte_ns": 90094.0350877193,
+          "bytes": 20541440.0,
+          "kind": "attn",
+          "launches": 10,
+          "ns": 1173248
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gate",
+          "launches": 10,
+          "ns": 26720
+        },
+        {
+          "byte_ns": 4461047.01754386,
+          "bytes": 1017118720.0,
+          "kind": "lm_head",
+          "launches": 1,
+          "ns": 4711904
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "argmax",
+          "launches": 2,
+          "ns": 18816
+        }
+      ],
+      "launches": 414,
+      "pos": 1002,
+      "span_ns": 23002592,
+      "wall_ns": 23214116
+    },
+    {
+      "byte_ns": 15900025.263157897,
+      "bytes": 3625205760.0,
+      "chip_ns": 23065011,
+      "kinds": [
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "norm",
+          "launches": 1,
+          "ns": 7936
+        },
+        {
+          "byte_ns": 4139115.789473684,
+          "bytes": 943718400.0,
+          "kind": "mix",
+          "launches": 40,
+          "ns": 4293856
+        },
+        {
+          "byte_ns": 34492.63157894737,
+          "bytes": 7864320.0,
+          "kind": "ab",
+          "launches": 30,
+          "ns": 322784
+        },
+        {
+          "byte_ns": 551882.1052631579,
+          "bytes": 125829120.0,
+          "kind": "gdn",
+          "launches": 30,
+          "ns": 899936
+        },
+        {
+          "byte_ns": 1471685.6140350876,
+          "bytes": 335544320.0,
+          "kind": "o_proj",
+          "launches": 40,
+          "ns": 2133888
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "res",
+          "launches": 80,
+          "ns": 503744
+        },
+        {
+          "byte_ns": 184679.29824561405,
+          "bytes": 42106880.0,
+          "kind": "router",
+          "launches": 40,
+          "ns": 1690336
+        },
+        {
+          "byte_ns": 3311292.6315789474,
+          "bytes": 754974720.0,
+          "kind": "gate_up",
+          "launches": 40,
+          "ns": 4519136
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "swiglu",
+          "launches": 40,
+          "ns": 103776
+        },
+        {
+          "byte_ns": 1655646.3157894737,
+          "bytes": 377487360.0,
+          "kind": "down",
+          "launches": 40,
+          "ns": 2558400
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gather",
+          "launches": 10,
+          "ns": 32736
+        },
+        {
+          "byte_ns": 90183.8596491228,
+          "bytes": 20561920.0,
+          "kind": "attn",
+          "launches": 10,
+          "ns": 1176352
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gate",
+          "launches": 10,
+          "ns": 26496
+        },
+        {
+          "byte_ns": 4461047.01754386,
+          "bytes": 1017118720.0,
+          "kind": "lm_head",
+          "launches": 1,
+          "ns": 4638368
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "argmax",
+          "launches": 2,
+          "ns": 18016
+        }
+      ],
+      "launches": 414,
+      "pos": 1003,
+      "span_ns": 22925760,
+      "wall_ns": 23168084
+    },
+    {
+      "byte_ns": 15900115.0877193,
+      "bytes": 3625226240.0,
+      "chip_ns": 23145668,
+      "kinds": [
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "norm",
+          "launches": 1,
+          "ns": 7808
+        },
+        {
+          "byte_ns": 4139115.789473684,
+          "bytes": 943718400.0,
+          "kind": "mix",
+          "launches": 40,
+          "ns": 4297920
+        },
+        {
+          "byte_ns": 34492.63157894737,
+          "bytes": 7864320.0,
+          "kind": "ab",
+          "launches": 30,
+          "ns": 332032
+        },
+        {
+          "byte_ns": 551882.1052631579,
+          "bytes": 125829120.0,
+          "kind": "gdn",
+          "launches": 30,
+          "ns": 897568
+        },
+        {
+          "byte_ns": 1471685.6140350876,
+          "bytes": 335544320.0,
+          "kind": "o_proj",
+          "launches": 40,
+          "ns": 2135776
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "res",
+          "launches": 80,
+          "ns": 496928
+        },
+        {
+          "byte_ns": 184679.29824561405,
+          "bytes": 42106880.0,
+          "kind": "router",
+          "launches": 40,
+          "ns": 1689696
+        },
+        {
+          "byte_ns": 3311292.6315789474,
+          "bytes": 754974720.0,
+          "kind": "gate_up",
+          "launches": 40,
+          "ns": 4509984
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "swiglu",
+          "launches": 40,
+          "ns": 105216
+        },
+        {
+          "byte_ns": 1655646.3157894737,
+          "bytes": 377487360.0,
+          "kind": "down",
+          "launches": 40,
+          "ns": 2571168
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gather",
+          "launches": 10,
+          "ns": 34784
+        },
+        {
+          "byte_ns": 90273.6842105263,
+          "bytes": 20582400.0,
+          "kind": "attn",
+          "launches": 10,
+          "ns": 1178144
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "gate",
+          "launches": 10,
+          "ns": 26592
+        },
+        {
+          "byte_ns": 4461047.01754386,
+          "bytes": 1017118720.0,
+          "kind": "lm_head",
+          "launches": 1,
+          "ns": 4702816
+        },
+        {
+          "byte_ns": 0.0,
+          "bytes": 0.0,
+          "kind": "argmax",
+          "launches": 2,
+          "ns": 18240
+        }
+      ],
+      "launches": 414,
+      "pos": 1004,
+      "span_ns": 23004672,
+      "wall_ns": 23249013
+    }
+  ],
+  "tool": "q36_levers"
+}

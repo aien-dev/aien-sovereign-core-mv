@@ -1,0 +1,12 @@
+created=2026-10-24T19:04:10Z
+host=spark-b87b kernel=7.0.0-1019-nvidia
+driver=580.173.02, NVIDIA GB10
+physics=e95e3ed dirty=5
+omega=ce42e62f9 dirty=127
+sc ship/motor-l387 f0230a59 (live bin-19173f9e)
+omega ship/motor-l387 6de999da (lib sha256 110295ef23dc7561 per BUILD.txt)
+goldens evidence/q36-host-20261020/gen-p1..p4.json (sc q36/serve)
+q36_levers binary: NOT BUILT YET (build before the window; sha256 here)
+q36_levers binary: ~/workspace/targets/l310/livepins/release/q36_levers sha256 852e380012739ef665ce79322a775dc67575a0014bbb82d0cd602b3180c87ce5 (built 2026-10-24 from sc f0230a59 detached worktree ~/workspace/sc-l310-livepins, AIEN_OMEGA_GPU_LIB=~/.local/state/aien-q36/bin-19173f9e/libomega_gpu.a sha256 110295ef23dc7561eea371636347c005835f37b82c22f92401aa8a887a3ca990, CARGO_TARGET_DIR ~/workspace/targets/l310/livepins)
+model ~/models/qwen3.6-35b-a3b-fp8-95a723d0 (the live server's --model-dir)
+run script: run.sh (window-only)
