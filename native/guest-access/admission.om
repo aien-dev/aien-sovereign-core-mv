@@ -1,0 +1,260 @@
+note SPDX-License-Identifier: AGPL-3.0-or-later
+note Single-owner guest admission component. All credentials remain in process memory.
+note Provisioning is trusted operator input, never an HTTP or model-call operation.
+note Model bits: 1 is 35B, 2 is 27B. No tool, board or administrative authority.
+global gakeys uchar 512
+global gaenable ulong 16
+global gascope ulong 16
+global gaexpiry ulong 16
+global gacap ulong 16
+global gactx ulong 16
+global gaoutput ulong 16
+global gabudget ulong 16
+global gacount ulong 16
+global gaowners ulong 32
+global gamodel ulong 32
+global gaactive ulong 32
+global gaserial ulong 32
+global gatime ulong 1
+note Result fields: status, internal request handle, guest slot plus one.
+global garesult ulong 3
+
+fn gaclock now ulong to int
+if lt now get gatime 0
+ret 503
+end
+put gatime 0 now
+ret 0
+end
+
+fn gakeyvalid key view uchar 32 to int
+v = uchar 0
+for i ulong 32
+v = or v get key i
+end
+if eq v 0
+ret 400
+end
+ret 0
+end
+
+note Scan every credential byte. This is not a platform constant-time certification.
+fn gamatch key view uchar 32 to ulong
+found = ulong 16
+for s ulong 16
+diff = uchar 0
+for i ulong 32
+diff = or diff xor get key i get gakeys add mul s 32 i
+end
+if eq diff 0
+found = s
+end
+end
+ret found
+end
+
+note cfg: model bits, expiry seconds, inflight cap, context cap, output cap, work budget.
+note Work budget charges input plus requested output at admission; no refund on cancel.
+fn gaprovision slot ulong key view uchar 32 cfg view ulong 6 now ulong to int
+if ge slot 16
+ret 400
+end
+r = gakeyvalid key
+if ne r 0
+ret r
+end
+if or eq get cfg 0 0 gt get cfg 0 3
+ret 400
+end
+if le get cfg 1 now
+ret 400
+end
+if or eq get cfg 2 0 gt get cfg 2 32
+ret 400
+end
+if or eq get cfg 3 0 gt get cfg 3 131072
+ret 400
+end
+if or eq get cfg 4 0 gt get cfg 4 16384
+ret 400
+end
+if or eq get cfg 5 0 gt get cfg 5 1152921504606846976
+ret 400
+end
+if ne get gacount slot 0
+ret 409
+end
+if lt gamatch key 16
+ret 409
+end
+r = gaclock now
+if ne r 0
+ret r
+end
+for i ulong 32
+put gakeys add mul slot 32 i get key i
+end
+put gascope slot get cfg 0
+put gaexpiry slot get cfg 1
+put gacap slot get cfg 2
+put gactx slot get cfg 3
+put gaoutput slot get cfg 4
+put gabudget slot get cfg 5
+put gaenable slot 1
+ret 0
+end
+
+fn garevoke slot ulong to int
+if ge slot 16
+ret 400
+end
+put gaenable slot 0
+ret 0
+end
+
+note Internal allocation after authentication and bounds checks in gaadmit.
+fn gareserve slot ulong work ulong model ulong to int
+avail = ulong 32
+for i ulong 32
+if and eq get gaactive i 0 lt get gaserial i 576460752303423487
+if eq avail 32
+avail = i
+end
+end
+end
+if eq avail 32
+ret 429
+end
+serial = add get gaserial avail 1
+handle = add mul serial 32 avail
+put gaserial avail serial
+put gaowners avail slot
+put gamodel avail model
+put gaactive avail 1
+put gacount slot add get gacount slot 1
+put gabudget slot sub get gabudget slot work
+put garesult 0 0
+put garesult 1 handle
+put garesult 2 add slot 1
+ret 0
+end
+
+note Authenticate before preparation/tokenization. No request capacity is reserved here.
+note Caller decodes exactly one bearer credential; now is trusted clock input.
+fn gaauth key view uchar 32 count ulong model ulong now ulong to int
+put garesult 0 401
+put garesult 1 0
+put garesult 2 0
+if ne count 32
+ret 401
+end
+r = gakeyvalid key
+if ne r 0
+ret 401
+end
+slot = gamatch key
+if ge slot 16
+ret 401
+end
+if eq get gaenable slot 0
+ret 401
+end
+r = gaclock now
+if ne r 0
+put garesult 0 ulong r
+ret r
+end
+if ge now get gaexpiry slot
+ret 401
+end
+put garesult 0 403
+if and ne model 1 ne model 2
+ret 403
+end
+if eq and model get gascope slot 0
+ret 403
+end
+put garesult 0 0
+put garesult 2 add slot 1
+ret 0
+end
+
+note Reauthenticate after bounded preparation, before any model allocation or dispatch.
+note Output reservation includes a nonempty prompt and must fit the total context budget.
+fn gaadmit key view uchar 32 count ulong model ulong prompt ulong output ulong now ulong to int
+r = gaauth key count model now
+if ne r 0
+ret r
+end
+slot = sub get garesult 2 1
+put garesult 2 0
+put garesult 0 400
+if or eq prompt 0 gt prompt get gactx slot
+ret 400
+end
+if or eq output 0 gt output get gaoutput slot
+ret 400
+end
+if gt output sub get gactx slot prompt
+ret 400
+end
+put garesult 0 429
+work = add prompt output
+if gt work get gabudget slot
+ret 429
+end
+if ge get gacount slot get gacap slot
+ret 429
+end
+ret gareserve slot work model
+end
+
+fn gahandle handle ulong to ulong
+row = rem handle 32
+serial = div handle 32
+if or eq serial 0 ne serial get gaserial row
+ret 32
+end
+if eq get gaactive row 0
+ret 32
+end
+ret row
+end
+
+note Check before each bounded compute or stream step; expiry/revocation cancels permission.
+fn gacheck handle ulong model ulong now ulong to int
+row = gahandle handle
+if eq row 32
+ret 409
+end
+slot = get gaowners row
+if eq get gaenable slot 0
+ret 401
+end
+if ne model get gamodel row
+ret 403
+end
+r = gaclock now
+if ne r 0
+ret r
+end
+if ge now get gaexpiry slot
+ret 401
+end
+ret 0
+end
+
+note Finish exactly once, including cancel/disconnect/revocation. Never refund charged work.
+fn gafinish handle ulong to int
+row = gahandle handle
+if eq row 32
+ret 409
+end
+slot = get gaowners row
+if eq get gacount slot 0
+ret 503
+end
+put gacount slot sub get gacount slot 1
+put gaactive row 0
+ret 0
+end

@@ -1,0 +1,19 @@
+{
+  "extensions": {
+    "generated": {
+      "children": [],
+      "children_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "compiled_at": "2026-10-24T00:27:10Z",
+      "compiler": "crumb-compile/1",
+      "digest": "sha256:39cbc7bbba0ec253a1c1fcfca2dd236457240e6148a218708cc22c4028a12806",
+      "evidence_files": 0,
+      "evidence_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "files": 0,
+      "generated_at_commit": "a24076008dca189aee8d55c1193bcb8f6fe8aa71",
+      "source_tree": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "name": "guest-access-724",
+  "purpose": "Author native admission receipts and integration limits for core724",
+  "schema_version": "1.0.0"
+}

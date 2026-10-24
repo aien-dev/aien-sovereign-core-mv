@@ -1,0 +1,322 @@
+note SPDX-License-Identifier: AGPL-3.0-or-later
+note Synthetic public fixtures only. No operational credential is created or loaded.
+global results ulong 3
+global handles ulong 32
+global decimal uchar 21
+text passmsg "GUEST_ADMISSION_PASS "
+text failmsg "GUEST_ADMISSION_FAIL first check "
+text newline "\n"
+
+fn expect got int wanted int to void
+put results 0 add get results 0 1
+if ne got wanted
+put results 1 add get results 1 1
+if eq get results 2 0
+put results 2 get results 0
+end
+end
+end
+
+fn check yes bool to void
+if yes
+expect 0 0
+else
+expect 1 0
+end
+end
+
+fn number value ulong to void
+for i ulong 20
+put decimal sub 19 i uchar add rem value 10 48
+value = div value 10
+end
+start = ulong 0
+while and lt start 19 eq get decimal start 48 bound 20
+start = add start 1
+end
+r = write 1 decimal start sub 20 start
+if lt r 0
+exit int 2
+end
+end
+
+fn fresh testkey edit uchar 32 otherkey edit uchar 32 config edit ulong 6 to void
+for i ulong 512
+put gakeys i 0
+end
+for i ulong 16
+put gaenable i 0
+put gascope i 0
+put gaexpiry i 0
+put gacap i 0
+put gactx i 0
+put gaoutput i 0
+put gabudget i 0
+put gacount i 0
+end
+for i ulong 32
+put gaowners i 0
+put gamodel i 0
+put gaactive i 0
+put gaserial i 0
+put testkey i uchar add i 1
+put otherkey i uchar add i 65
+end
+put gatime 0 0
+put config 0 1
+put config 1 200
+put config 2 2
+put config 3 64
+put config 4 16
+put config 5 100
+end
+
+fn lifecycle to void
+testkey = new uchar 32 0
+otherkey = new uchar 32 0
+config = new ulong 6 0
+fresh testkey otherkey config
+expect gaprovision 16 testkey config 100 400
+for i ulong 32
+put testkey i 0
+end
+expect gaprovision 0 testkey config 100 400
+fresh testkey otherkey config
+expect gaprovision 0 testkey config 100 0
+expect gaprovision 1 testkey config 100 409
+expect gaauth testkey 32 1 100 0
+expect int get garesult 1 0
+expect int get garesult 2 1
+expect int get gacount 0 0
+expect int get gabudget 0 100
+expect gaauth otherkey 32 1 100 401
+expect gaauth testkey 32 2 100 403
+expect gaadmit testkey 31 1 8 8 100 401
+expect gaadmit testkey 33 1 8 8 100 401
+expect gaadmit otherkey 32 1 8 8 100 401
+for i ulong 32
+v = get testkey i
+put testkey i xor v 128
+expect gaadmit testkey 32 1 8 8 100 401
+put testkey i v
+end
+expect gaadmit testkey 32 2 8 8 100 403
+expect gaadmit testkey 32 3 8 8 100 403
+expect gaadmit testkey 32 0 8 8 100 403
+expect gaadmit testkey 32 1 0 8 100 400
+expect gaadmit testkey 32 1 8 0 100 400
+expect gaadmit testkey 32 1 8 17 100 400
+expect gaadmit testkey 32 1 65 8 100 400
+expect gaadmit testkey 32 1 60 8 100 400
+expect gaadmit testkey 32 1 18446744073709551615 8 100 400
+expect gaadmit testkey 32 1 8 18446744073709551615 100 400
+expect int get gacount 0 0
+expect int get gabudget 0 100
+expect gaadmit testkey 32 1 8 8 100 0
+first = get garesult 1
+expect int get garesult 2 1
+expect gaadmit testkey 32 1 8 8 100 0
+second = get garesult 1
+expect gaadmit testkey 32 1 8 8 100 429
+expect int get garesult 1 0
+expect int get garesult 2 0
+expect int get gabudget 0 68
+expect gaprovision 0 otherkey config 100 409
+expect gacheck first 1 101 0
+expect gacheck first 2 101 403
+expect gacheck first 3 101 403
+expect garevoke 16 400
+expect garevoke 0 0
+expect gacheck first 1 101 401
+expect gacheck second 1 101 401
+expect gaadmit testkey 32 1 8 8 101 401
+expect gaauth testkey 32 1 101 401
+expect gaprovision 0 otherkey config 101 409
+expect gafinish first 0
+expect gafinish first 409
+expect gafinish second 0
+expect int get gacount 0 0
+expect gaprovision 0 testkey config 101 409
+expect gaprovision 0 otherkey config 101 0
+expect gaadmit testkey 32 1 8 8 101 401
+expect gaadmit otherkey 32 1 8 8 101 0
+third = get garesult 1
+check ne first third
+expect gacheck first 1 101 409
+expect gafinish first 409
+expect gacheck third 1 150 0
+expect gacheck third 1 149 503
+expect gaadmit otherkey 32 1 8 8 149 503
+expect gacheck third 1 200 401
+expect gaadmit otherkey 32 1 8 8 200 401
+expect gacheck third 1 199 503
+expect gaadmit otherkey 32 1 8 8 199 503
+expect gafinish third 0
+expect int get gacount 0 0
+end
+
+fn capacity to void
+testkey = new uchar 32 0
+otherkey = new uchar 32 0
+config = new ulong 6 0
+fresh testkey otherkey config
+put config 0 3
+put config 2 32
+put config 5 1152921504606846976
+for s ulong 16
+put testkey 0 uchar add s 100
+expect gaprovision s testkey config 100 0
+end
+put testkey 0 100
+for i ulong 32
+model = add rem i 2 1
+expect gaadmit testkey 32 model 8 8 100 0
+put handles i get garesult 1
+end
+put testkey 0 101
+expect gaadmit testkey 32 1 8 8 100 429
+expect int get gacount 1 0
+expect gafinish get handles 7 0
+expect gaadmit testkey 32 2 8 8 100 0
+replace = get garesult 1
+expect int get garesult 2 2
+expect gacheck get handles 7 1 100 409
+expect gafinish get handles 7 409
+expect int get gacount 0 31
+expect int get gacount 1 1
+expect garevoke 0 0
+expect gacheck replace 2 100 0
+expect gacheck replace 1 100 403
+for i ulong 32
+if ne i 7
+expect gacheck get handles i 1 100 401
+expect gafinish get handles i 0
+end
+end
+expect int get gacount 0 0
+expect int get gacount 1 1
+expect gafinish replace 0
+expect int get gacount 1 0
+expect gacheck 0 1 100 409
+expect gafinish 18446744073709551615 409
+end
+
+fn boundaries to void
+testkey = new uchar 32 0
+otherkey = new uchar 32 0
+config = new ulong 6 0
+fresh testkey otherkey config
+put config 0 0
+expect gaprovision 0 testkey config 100 400
+put config 0 4
+expect gaprovision 0 testkey config 100 400
+put config 0 2
+put config 1 100
+expect gaprovision 0 testkey config 100 400
+put config 1 200
+put config 2 0
+expect gaprovision 0 testkey config 100 400
+put config 2 33
+expect gaprovision 0 testkey config 100 400
+put config 2 1
+put config 3 0
+expect gaprovision 0 testkey config 100 400
+put config 3 131073
+expect gaprovision 0 testkey config 100 400
+put config 3 64
+put config 4 0
+expect gaprovision 0 testkey config 100 400
+put config 4 16385
+expect gaprovision 0 testkey config 100 400
+put config 4 16
+put config 5 0
+expect gaprovision 0 testkey config 100 400
+put config 5 1152921504606846977
+expect gaprovision 0 testkey config 100 400
+put config 5 16
+expect gaprovision 0 testkey config 100 0
+expect gaadmit testkey 32 1 8 8 100 403
+expect gaadmit testkey 32 2 8 8 100 0
+h = get garesult 1
+expect gafinish h 0
+expect gaadmit testkey 32 2 8 8 100 429
+expect int get gabudget 0 0
+expect int get gacount 0 0
+fresh testkey otherkey config
+expect gaprovision 0 testkey config 100 0
+for i ulong 32
+put gaserial i 576460752303423487
+end
+expect gaadmit testkey 32 1 8 8 100 429
+expect int get gabudget 0 100
+expect int get gacount 0 0
+put gaserial 31 576460752303423486
+expect gaadmit testkey 32 1 8 8 100 0
+last = get garesult 1
+check eq last 18446744073709551615
+expect gacheck last 1 100 0
+expect gafinish last 0
+expect gaadmit testkey 32 1 8 8 100 429
+end
+
+fn crossguest to void
+testkey = new uchar 32 0
+otherkey = new uchar 32 0
+config = new ulong 6 0
+fresh testkey otherkey config
+for s ulong 16
+put testkey 0 uchar add s 100
+put config 0 add rem s 2 1
+expect gaprovision s testkey config 100 0
+end
+for s ulong 16
+put testkey 0 uchar add s 100
+model = add rem s 2 1
+expect gaauth testkey 32 model 100 0
+check eq get garesult 2 add s 1
+expect gaauth testkey 32 sub 3 model 100 403
+for i ulong 32
+v = get testkey i
+put testkey i xor v 128
+expect gaauth testkey 32 model 100 401
+put testkey i v
+end
+expect gaadmit testkey 32 model 8 8 100 0
+h = get garesult 1
+check eq get garesult 2 add s 1
+expect gacheck h model 100 0
+expect gafinish h 0
+expect gacheck h model 100 409
+expect int get gacount s 0
+expect int get gabudget s 84
+end
+end
+
+fn main to int
+lifecycle
+capacity
+boundaries
+crossguest
+if ne get results 1 0
+r = write 1 failmsg 0 len failmsg
+if lt r 0
+ret 2
+end
+number get results 2
+r = write 1 newline 0 len newline
+if lt r 0
+ret 2
+end
+ret 1
+end
+r = write 1 passmsg 0 len passmsg
+if lt r 0
+ret 2
+end
+number get results 0
+r = write 1 newline 0 len newline
+if lt r 0
+ret 2
+end
+ret 0
+end

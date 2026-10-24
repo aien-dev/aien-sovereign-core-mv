@@ -1,0 +1,98 @@
+test browser_mirror::tests::stub_page_screenshot_and_eval ... FAILED
+
+failures:
+
+---- browser_mirror::tests::stub_page_screenshot_and_eval stdout ----
+
+thread 'browser_mirror::tests::stub_page_screenshot_and_eval' (2239232) panicked at crates/aien-cli/src/browser_mirror.rs:930:9:
+assertion `left == right` failed: {"error":"websocket read: Resource temporarily unavailable (os error 11)","mode":"screenshot","status":"error","title":"AIEN Stub"}
+  left: String("error")
+ right: "ok"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    browser_mirror::tests::stub_page_screenshot_and_eval
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.47s
+
+error: test failed, to rerun pass `-p aien-cli --lib`
+[aien-proof] failed: aien-cli
+FAILED (Test suite failed)
+[5/5] Checking RustSec Vulnerability Advisories...     Fetching advisory database from `https://github.com/RustSec/advisory-db.git`
+      Loaded 1351 security advisories (from /home/drakestapleton/.cargo/advisory-db)
+    Updating crates.io index
+    Scanning Cargo.lock for vulnerabilities (534 crate dependencies)
+Crate:     ctutils
+Version:   0.4.2
+Title:     Non-constant-time mask generation and `u128` comparisons
+Date:      2026-10-23
+ID:        RUSTSEC-2026-0385
+URL:       https://github.com/RustCrypto/utils/pull/1569
+Solution:  Upgrade to >=0.4.4
+
+Crate:     rustls
+Version:   0.23.45
+Title:     Brotli certificate decompression can allocate up to 1 GiB before authentication
+Date:      2026-10-14
+ID:        RUSTSEC-2026-0348
+URL:       https://rustsec.org/advisories/RUSTSEC-2026-0348
+Severity:  3.7 (low)
+Solution:  Upgrade to >=0.23.46
+
+Crate:     rustls
+Version:   0.23.45
+Title:     Buffered application data sent to outer server after ECH rejection
+Date:      2026-10-14
+ID:        RUSTSEC-2026-0347
+URL:       https://rustsec.org/advisories/RUSTSEC-2026-0347
+Severity:  2.3 (low)
+Solution:  Upgrade to >=0.23.46
+
+Crate:     rustls
+Version:   0.23.45
+Title:     `Debug` impls for client session values expose TLS secrets
+Date:      2026-10-14
+ID:        RUSTSEC-2026-0346
+URL:       https://rustsec.org/advisories/RUSTSEC-2026-0346
+Severity:  4 (medium)
+Solution:  Upgrade to >=0.23.46
+
+Crate:     rustls
+Version:   0.23.45
+Title:     Unauthenticated ServerHello can downgrade later connections to classical key exchange
+Date:      2026-10-14
+ID:        RUSTSEC-2026-0349
+URL:       https://rustsec.org/advisories/RUSTSEC-2026-0349
+Severity:  3.7 (low)
+Solution:  Upgrade to >=0.23.46
+
+Crate:     rustls-webpki
+Version:   0.103.15
+Title:     Certificate verification may accept distrusted intermediates
+Date:      2026-10-20
+ID:        RUSTSEC-2026-0382
+URL:       https://rustsec.org/advisories/RUSTSEC-2026-0382
+Solution:  Upgrade to >=0.103.16, <0.104.0-alpha.1 OR >=0.104.0-alpha.8
+
+Crate:     webpki-root-certs
+Version:   1.0.9
+Title:     Bundled root certificates allow trust in distrusted emSign intermediates
+Date:      2026-10-19
+ID:        RUSTSEC-2026-0383
+URL:       https://rustsec.org/advisories/RUSTSEC-2026-0383
+Solution:  Upgrade to >=1.0.10
+
+Crate:     webpki-roots
+Version:   1.0.9
+Title:     Bundled root certificates allow trust in distrusted emSign intermediates
+Date:      2026-10-19
+ID:        RUSTSEC-2026-0381
+URL:       https://rustsec.org/advisories/RUSTSEC-2026-0381
+Solution:  Upgrade to >=1.0.10
+
+error: 8 vulnerabilities found!
+warning: 6 allowed warnings found
+FAILED (Vulnerabilities reported above)
+============================================================
+ ✗ PREFLIGHT FAILED: Resolve defects before opening PR

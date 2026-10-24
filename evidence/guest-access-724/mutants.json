@@ -1,0 +1,74 @@
+[
+  {
+    "status": "fulfilled",
+    "value": {
+      "name": "scope",
+      "mutation": "s/if eq and model get gascope slot 0/if eq model 0/",
+      "exit": 1,
+      "output": "GUEST_ADMISSION_FAIL first check 11\n"
+    }
+  },
+  {
+    "status": "fulfilled",
+    "value": {
+      "name": "expiry",
+      "mutation": "s/if ge now get gaexpiry slot/if eq now 0/g",
+      "exit": 1,
+      "output": "GUEST_ADMISSION_FAIL first check 91\n"
+    }
+  },
+  {
+    "status": "fulfilled",
+    "value": {
+      "name": "revocation",
+      "mutation": "s/if eq get gaenable slot 0/if eq slot 16/g",
+      "exit": 1,
+      "output": "GUEST_ADMISSION_FAIL first check 72\n"
+    }
+  },
+  {
+    "status": "fulfilled",
+    "value": {
+      "name": "stale",
+      "mutation": "s/if or eq serial 0 ne serial get gaserial row/if eq serial 0/",
+      "exit": 1,
+      "output": "GUEST_ADMISSION_FAIL first check 86\n"
+    }
+  },
+  {
+    "status": "fulfilled",
+    "value": {
+      "name": "budget",
+      "mutation": "s/put gabudget slot sub get gabudget slot work/put gabudget slot sub get gabudget slot sub work work/",
+      "exit": 1,
+      "output": "GUEST_ADMISSION_FAIL first check 65\n"
+    }
+  },
+  {
+    "status": "fulfilled",
+    "value": {
+      "name": "capacity",
+      "mutation": "s/if ge get gacount slot get gacap slot/if ge get gacount slot 33/",
+      "exit": 1,
+      "output": "GUEST_ADMISSION_FAIL first check 62\n"
+    }
+  },
+  {
+    "status": "fulfilled",
+    "value": {
+      "name": "binding",
+      "mutation": "s/if ne model get gamodel row/if eq model 0/",
+      "exit": 1,
+      "output": "GUEST_ADMISSION_FAIL first check 68\n"
+    }
+  },
+  {
+    "status": "fulfilled",
+    "value": {
+      "name": "clock",
+      "mutation": "s/if lt now get gatime 0/if eq now 0/",
+      "exit": 1,
+      "output": "GUEST_ADMISSION_FAIL first check 89\n"
+    }
+  }
+]
