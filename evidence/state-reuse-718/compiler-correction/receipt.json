@@ -1,0 +1,120 @@
+{
+  "compiler_pr": 676,
+  "compiler_head": "1dffceaeb0dd26fb69ea64d367a49a9950c25a62",
+  "compiler_source": "078455c9c1862b9145ef892dfba68676204a38da",
+  "compiler_sha256": "9f48f66a9ee9f6a166df615a7ab9c48bf5b06ac2ba544ac51e52e9a3d290a6c4",
+  "builds": [
+    {
+      "name": "pages-author",
+      "repository": "sc-native-reuse-718",
+      "source_files": [
+        {
+          "path": "native/state_reuse/pages.om",
+          "sha256": "8b3ca7bffda63099afb930d1f1a59f6604c96652f93d1760c25bbe4483186a43"
+        },
+        {
+          "path": "native/state_reuse/pages-test.om",
+          "sha256": "de92e9b8c59b17d240a084502ebcc1c66c07680436c1a0bbc3256af82d56ee24"
+        }
+      ],
+      "source_sha256": "68aec071225e8a661eb90e49f6219f5e75da258c89e16f10ae49bfeb40269dd4",
+      "compile_exit": 0,
+      "binary_sha256": "481c8dc16b99cd94da6e20fe721c4eda72860a933fa47d1242bbeeaeb4394eca",
+      "previous_binary_sha256": "481c8dc16b99cd94da6e20fe721c4eda72860a933fa47d1242bbeeaeb4394eca",
+      "identical": true
+    },
+    {
+      "name": "pages-independent",
+      "repository": "sc-native-reuse-718",
+      "source_files": [
+        {
+          "path": "native/state_reuse/pages.om",
+          "sha256": "8b3ca7bffda63099afb930d1f1a59f6604c96652f93d1760c25bbe4483186a43"
+        },
+        {
+          "path": "native/state_reuse/pages-independent.om",
+          "sha256": "7e7b9780a951f8a289f575c4a7fffb7043a8eb1260bc365ee3835e648cbeab89"
+        }
+      ],
+      "source_sha256": "dabbf665a260a70940a1c1ca5c5ea6ab8226e1383d42f084c897ce590bd12dfa",
+      "compile_exit": 0,
+      "binary_sha256": "4f1c34da171a9bffcf93fdf168df9fedebc742eee6d1c1ba592dc6df9e956f7d",
+      "previous_binary_sha256": "4f1c34da171a9bffcf93fdf168df9fedebc742eee6d1c1ba592dc6df9e956f7d",
+      "identical": true
+    },
+    {
+      "name": "pages-policy",
+      "repository": "sc-native-reuse-718",
+      "source_files": [
+        {
+          "path": "native/state_reuse/policy.om",
+          "sha256": "1fd8ca82867f8c1327129ec615aff09b47391552d52b80327c337ddd0f9d09d1"
+        },
+        {
+          "path": "native/state_reuse/pages.om",
+          "sha256": "8b3ca7bffda63099afb930d1f1a59f6604c96652f93d1760c25bbe4483186a43"
+        },
+        {
+          "path": "native/state_reuse/page-policy.om",
+          "sha256": "943b23727c4805ee956d1a9b32d0e0005c57afe85aa80d2b7dfacd3816030b9b"
+        },
+        {
+          "path": "native/state_reuse/page-policy-test.om",
+          "sha256": "18f5558ca7c8c75c02f548971ee98d8522600de203a5632e791ae623e5c3beed"
+        }
+      ],
+      "source_sha256": "88d5e676035c538bf31c01e08372b5a389a66a852f1445a9e5729bb66f6d505d",
+      "compile_exit": 0,
+      "binary_sha256": "6905a0134ae46694eb0d3e48cf3f9d269483bc9e7516ff45d58a73fcf01526f9",
+      "previous_binary_sha256": "6905a0134ae46694eb0d3e48cf3f9d269483bc9e7516ff45d58a73fcf01526f9",
+      "identical": true
+    },
+    {
+      "name": "pages-budget",
+      "repository": "sc-native-reuse-718",
+      "source_files": [
+        {
+          "path": "native/state_reuse/pages.om",
+          "sha256": "8b3ca7bffda63099afb930d1f1a59f6604c96652f93d1760c25bbe4483186a43"
+        },
+        {
+          "path": "native/state_reuse/pages-budget-test.om",
+          "sha256": "569d3d826e2d77968dafc7c56d076d090ceb54509cfdd6dc425e447df39c91e7"
+        }
+      ],
+      "source_sha256": "c14387c642dc822b35a18ffafff1870fc3720600fc231331e2a5b223cbf7c670",
+      "compile_exit": 0,
+      "binary_sha256": "e5478365805c2e7dbc843c279d5988cac4d2a3753b9fce52f683368d9d0a422b",
+      "previous_binary_sha256": "e5478365805c2e7dbc843c279d5988cac4d2a3753b9fce52f683368d9d0a422b",
+      "identical": true
+    }
+  ],
+  "replays": [
+    {
+      "name": "pages-author",
+      "status": 0,
+      "signal": null,
+      "stdout": "37905\n0"
+    },
+    {
+      "name": "pages-independent",
+      "status": 0,
+      "signal": null,
+      "stdout": "2437621\n0"
+    },
+    {
+      "name": "pages-policy",
+      "status": 0,
+      "signal": null,
+      "stdout": "40\n0"
+    },
+    {
+      "name": "pages-budget",
+      "status": 0,
+      "signal": null,
+      "stdout": ""
+    }
+  ],
+  "gpu": false,
+  "full_model": false
+}
