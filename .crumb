@@ -100,14 +100,14 @@
           "purpose": ""
         },
         {
-          "digest": "39cbc7bbba0ec253a1c1fcfca2dd236457240e6148a218708cc22c4028a12806",
-          "last_commit": "",
+          "digest": "17a9756b6fd581ff2560770a536e21bdb5877eeede20d99bfb0129fb79a212fe",
+          "last_commit": "781158aa",
           "name": "evidence/guest-access-724",
           "purpose": "Author native admission receipts and integration limits for core724"
         },
         {
-          "digest": "b59c8152c89fd95e7adfe346fafff883d8ef271102c4a01e9983b39b179dc77f",
-          "last_commit": "",
+          "digest": "45c4ed0797546e566e318dbd4bc65045183a297e16b94a5d17a8196caeb4d024",
+          "last_commit": "781158aa",
           "name": "native",
           "purpose": "Seeded Omega components for qualified native serving"
         },
@@ -130,15 +130,15 @@
           "purpose": "Local CI sandbox exec contract (C8), aien-run user/caches install, Forgejo trigger hook, health "
         }
       ],
-      "children_root": "sha256:6ba12c6135417e9b084b2095e201c86a71ba632b150399a9ed70733e66d491e5",
-      "compiled_at": "2026-10-24T00:27:10Z",
+      "children_root": "sha256:1bebabb0fae03c7e9e4f71d5f0696a1a778a9eca64d69bc07f3d8d7bc4f32383",
+      "compiled_at": "2026-10-24T00:29:37Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:6b2ad5f292ef79af5ddd0b44598531b80614faa01d0eff7750d094930e82b898",
-      "evidence_files": 1578,
-      "evidence_root": "sha256:135e27a1a0704c4a8371cd2c1eb555f2b5beec61c212949b029a5457418a7160",
-      "files": 5894,
-      "generated_at_commit": "a24076008dca189aee8d55c1193bcb8f6fe8aa71",
-      "source_tree": "sha256:60281c7f26903711299406a05d71ab77064967b7ed4d2c06458cb189b9c650ac"
+      "digest": "sha256:34c0bac1fe9dad9d3835b534bff91360c33c5e5d6728898ed740a9e219d31fc0",
+      "evidence_files": 1586,
+      "evidence_root": "sha256:ec55e3995e5303d770ad9ff49c6390d2047393fe9a4f9eff3d0a2e325de06450",
+      "files": 5905,
+      "generated_at_commit": "781158aaabf3645e523b27bdf52e4114aa3b8e51",
+      "source_tree": "sha256:7c5d09e7ee44f01efe5a3e5392713e1a7a2d83177a8eb7d1f79b92ac76e2b75e"
     }
   },
   "history": [],

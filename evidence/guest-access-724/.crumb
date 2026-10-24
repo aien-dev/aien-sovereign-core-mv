@@ -3,14 +3,14 @@
     "generated": {
       "children": [],
       "children_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "compiled_at": "2026-10-24T00:27:10Z",
+      "compiled_at": "2026-10-24T00:29:37Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:39cbc7bbba0ec253a1c1fcfca2dd236457240e6148a218708cc22c4028a12806",
-      "evidence_files": 0,
-      "evidence_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "files": 0,
-      "generated_at_commit": "a24076008dca189aee8d55c1193bcb8f6fe8aa71",
-      "source_tree": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "digest": "sha256:17a9756b6fd581ff2560770a536e21bdb5877eeede20d99bfb0129fb79a212fe",
+      "evidence_files": 8,
+      "evidence_root": "sha256:47293a3a4f6c115636d244b0f0d4df6b5b90f37b960239ba0f1e98f45c857b7c",
+      "files": 8,
+      "generated_at_commit": "781158aaabf3645e523b27bdf52e4114aa3b8e51",
+      "source_tree": "sha256:3e1d38257693f6da7b2c07b48d98e77115764ce93abfda4ad85e5be14842b9bd"
     }
   },
   "name": "guest-access-724",
