@@ -363,6 +363,23 @@ impl Qwen38Omega {
             _ => "GPU-cached (default)",
         };
         eprintln!("qwen36 omega: interior buffers {interior}");
+        // L310 merge-train proof line (one-wave lever). omega picks the CTAs per group of the grouped expert launch
+        // (9 groups: 8 routed + the shared expert) at the first launch: the compiled 6 (measured on 8 groups), an exact
+        // AIEN_OMEGA_FP8_GROUPED_CTAS, or AIEN_OMEGA_FP8_GROUPED_WAVE=1 = min(6, 48 SMs / groups), one wave. Asking omega
+        // here (same env, same process) logs the number the chip gets; a library without the rule says so.
+        let how = if std::env::var("AIEN_OMEGA_FP8_GROUPED_CTAS").is_ok_and(|v| !v.is_empty()) {
+            "AIEN_OMEGA_FP8_GROUPED_CTAS"
+        } else if std::env::var("AIEN_OMEGA_FP8_GROUPED_WAVE").as_deref() == Ok("1") {
+            "wave rule"
+        } else {
+            "compiled default"
+        };
+        match aien_omega_fp8::grouped_ctas_auto(q::GROUPS as u32) {
+            Some(n) => eprintln!("qwen36 omega: expert grouped launch {n} CTAs per group ({how})"),
+            None => eprintln!(
+                "qwen36 omega: expert grouped launch: library predates the wave rule ({how} asked)"
+            ),
+        }
         for h in 1..heads {
             // SAFETY: the states live in `gdns` / `attns`, owned beside the graph (dropped after it).
             unsafe {
