@@ -60,7 +60,32 @@ pin() {  # pin <dir-name> <sibling repo> <sha40>
 }
 
 case "$step" in
-  crumb-verify)        "${CRUMB:-crumb}" verify . ;;
+  crumb-verify)
+    # sc#602: the crumb tool is pinned. crumb.lock names one aien-architecture commit; the tool is
+    # built from the sibling ../aien-architecture (offline, read-only) into $TARGET/crumb-tool/<pin>
+    # (outside the tree when CARGO_TARGET_DIR is set, ignored under target/ otherwise) and reused
+    # across steps. A crumb on PATH never decides the verdict. Without the sibling (a run directory
+    # made from a sibling map that predates this line) the step falls back to the PATH crumb and
+    # the receipt says so, so a reader can tell the two apart.
+    pin=$(tr -d '[:space:]' < crumb.lock)
+    case "$pin" in
+      *[!0-9a-f]*|"") echo "run.sh: crumb.lock must hold one 40-hex commit, got '$pin'" >&2; exit 1 ;;
+    esac
+    [ ${#pin} -eq 40 ] || { echo "run.sh: crumb.lock must hold one 40-hex commit, got '$pin'" >&2; exit 1; }
+    if [ -e ../aien-architecture/.git ]; then
+      tool="$TARGET/crumb-tool/$pin"
+      if [ ! -x "$tool/tools/crumb/crumb" ]; then
+        rm -rf "$tool"; mkdir -p "$tool"
+        git -C ../aien-architecture archive "$pin" tools/crumb | tar -x -C "$tool"
+        make -s -C "$tool/tools/crumb" crumb
+      fi
+      obs crumb_tool_commit "\"$pin\""
+      "$tool/tools/crumb/crumb" verify .
+    else
+      obs crumb_tool_commit "\"unpinned: ../aien-architecture missing, PATH crumb used (wanted $pin)\""
+      "${CRUMB:-crumb}" verify .
+    fi
+    ;;
   # ci.yml job verify ("Workspace Verification & Invariant Audit")
   fmt)                 cargo fmt --all -- --check ;;
   release-gate-negatives)

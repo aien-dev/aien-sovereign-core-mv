@@ -74,6 +74,10 @@ source read from the git object store of `AIEN_ARCH_CLONE`, default `~/workspace
 `cc -O2 -Wall -std=c11`. With gcc 13.3.0 the binary's sha256 is `22015e6b156e038e...`, identical to the operator's
 `~/.local/bin/crumb` on 2026-10-11. To move the pin, change `CRUMB_COMMIT` and `CRUMB_BLOB` in `install.sh` in a PR.
 
+The worker's readiness check does not trust any PATH `crumb`: it builds the tool each repository names in `crumb.lock`
+(aien-architecture: the tool at the commit under test) and caches it under `<state>/crumb-tool/<pin>/` (sc#602,
+details in `tools/aien-test/docs/LOCAL_VERIFICATION.md`).
+
 ## Operator crumb (shim) and crumb-doctor (2026-10-19)
 
 Four places used to pick a crumb build four different ways: each repo's CRUMB-VERIFY gate (crumb.lock pin, own
@@ -92,6 +96,7 @@ moved since 2026-10-11, so synapse ran CRUMB-VERIFY without `../aien-architectur
   background; failures become a `CRUMB-DRIFT` line in the aien-watch ALERT (shown by the gh guard and the chat hook).
 - Before merging any PR that moves a crumb pin (crumb.lock, the hosted workflow pin, tools/crumb, install.sh), run
   `crumb-doctor --repos <repo>`: every consumer must give the same verdict on the PR head.
+
 
 ## Egress decision
 
