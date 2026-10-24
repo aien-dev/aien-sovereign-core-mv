@@ -1,6 +1,20 @@
 {
-  "schema_version": "1.0.0",
-  "name": "repository-checks-724",
+  "extensions": {
+    "generated": {
+      "children": [],
+      "children_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "compiled_at": "2026-10-24T01:02:32Z",
+      "compiler": "crumb-compile/1",
+      "digest": "sha256:6112f4af3a9ca7f34453e816ac20de9216a591898f525ae63435e45fb1c68c13",
+      "evidence_files": 5,
+      "evidence_root": "sha256:32e689fc67a16a59531954da5cc3a2386a9eaf82fe46597d6da0c3130800a5b2",
+      "files": 5,
+      "generated_at_commit": "9290dd4f4b4e977dde55a4deb836836ae830226c",
+      "source_tree": "sha256:5ef8662a73cfc0454cd55b3a8c229d97d568b700f34184c6194876b1b9386233"
+    }
+  },
   "layer": "evidence",
-  "purpose": "Browser and dependency preflight repair qualification for issues661 and724"
+  "name": "repository-checks-724",
+  "purpose": "Browser and dependency preflight repair qualification for issues661 and724",
+  "schema_version": "1.0.0"
 }

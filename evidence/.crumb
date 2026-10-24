@@ -1,6 +1,27 @@
 {
-  "schema_version": "1.0.0",
-  "name": "evidence",
+  "extensions": {
+    "generated": {
+      "children": [
+        {
+          "digest": "6112f4af3a9ca7f34453e816ac20de9216a591898f525ae63435e45fb1c68c13",
+          "last_commit": "9290dd4f",
+          "name": "repository-checks-724",
+          "purpose": "Browser and dependency preflight repair qualification for issues661 and724"
+        }
+      ],
+      "children_root": "sha256:285b307663d77f1e11505784d146b7baa653ee0ac5f8f3a3a8ee1f3571369fad",
+      "compiled_at": "2026-10-24T01:02:32Z",
+      "compiler": "crumb-compile/1",
+      "digest": "sha256:9b7fda48c21bdd569d309c2e0b15a23749adbe36533c47ab53335589ce90d048",
+      "evidence_files": 5,
+      "evidence_root": "sha256:32e689fc67a16a59531954da5cc3a2386a9eaf82fe46597d6da0c3130800a5b2",
+      "files": 5,
+      "generated_at_commit": "9290dd4f4b4e977dde55a4deb836836ae830226c",
+      "source_tree": "sha256:5ef8662a73cfc0454cd55b3a8c229d97d568b700f34184c6194876b1b9386233"
+    }
+  },
   "layer": "evidence",
-  "purpose": "Verification receipts for repository repairs"
+  "name": "evidence",
+  "purpose": "Verification receipts for repository repairs",
+  "schema_version": "1.0.0"
 }
