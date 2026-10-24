@@ -95,7 +95,7 @@
         },
         {
           "digest": "c3199a2d3d3032d4818306e0e742c6b79b163daffe19e6367acaac42049f2cea",
-          "last_commit": "e8cc3aa0",
+          "last_commit": "176f30a4",
           "name": "crates/spark-cockpit-rs",
           "purpose": ""
         },
@@ -119,14 +119,14 @@
         }
       ],
       "children_root": "sha256:d7bb9bfc6173b084c03f3b4ca76b0d6957bb18a53248eb85620835070bc43294",
-      "compiled_at": "2026-10-24T19:08:31Z",
+      "compiled_at": "2026-10-24T19:25:27Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:c1a1972233ab7594874d823b45feda79ae39151fa018416fd0bfe1d33d696a48",
+      "digest": "sha256:02b6c26bd5e0f68788034172c5623b1d02f3580e416534e9660ae3bcb1442283",
       "evidence_files": 1805,
       "evidence_root": "sha256:0b3554feb49a4f2fe1042f26769aade0bb50afe6b428aaa2834f6e762e2e57dc",
       "files": 6201,
-      "generated_at_commit": "683950bfe5a86af3fde6008f1affb0f3f14b8292",
-      "source_tree": "sha256:81b9188fa67fc40092b9eca3af53679504927dcbe06b7c49739e8b9778047ad8"
+      "generated_at_commit": "d53d6262fd8615ab472dbce34d48dd499dfa1e87",
+      "source_tree": "sha256:793c88a32dde9b17c50c9d7eb13802a34b478df0e7b6babeee7852fd2aafd967"
     }
   },
   "history": [],
