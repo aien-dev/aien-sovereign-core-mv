@@ -232,3 +232,8 @@ It closes both source files before reading the image. All three rule outputs
 round-tripped through the native mapping byte-for-byte (47349760bytes each).
 Independent coverage, failure controls and exact hashes are recorded under
 `evidence/w4-711/resident/`. Actual GPU upload and serving remain open gates.
+
+## Corrected compiler compatibility
+
+The compiler safety correction in Omega PR676 also reproduces this component
+without changing its executable bytes. See [evidence/w4-711/compiler-correction](../../evidence/w4-711/compiler-correction/README.md) for the exact compiler/source pins, binary comparisons and fresh host replays. The original qualification remains preserved.
