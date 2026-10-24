@@ -237,3 +237,34 @@ Independent coverage, failure controls and exact hashes are recorded under
 
 The compiler safety correction in Omega PR676 also reproduces this component
 without changing its executable bytes. See [evidence/w4-711/compiler-correction](../../evidence/w4-711/compiler-correction/README.md) for the exact compiler/source pins, binary comparisons and fresh host replays. The original qualification remains preserved.
+
+## Automatic native host gate
+
+`tests/gates/run.sh native-w4` runs `SC-NATIVE-W4`. The retained shell dispatch
+uses its existing offline sibling pin mechanism to materialize the exact Omega
+commit in `native/w4/compiler.lock`, checks both compiler source and executable
+against `compiler.sha256`, and builds the native supervisor in fresh scratch.
+This dedicated compiler pin is separate from `omega.lock`, which still governs
+legacy linked composition. The compiler is proposed Omega PR676 work, not a
+merged prerequisite. Missing commit objects, digest mismatches or unavailable
+compiler executables fail the gate; there is no network fetch or fallback.
+
+All test assembly, child execution and result decisions are in `gate.om`.
+The 15 groups run author and independent arithmetic and resident suites with
+exact expected output; verify all 1,536 transport responses and reject a short
+request; compare both synthetic tensor outputs for all three packing rules;
+check late nonfinite weight/scale cleanup and preservation of existing scale
+output; verify the diagnostic 512-group extract; check the released-mapping
+trap and reject a projection invocation missing its paths. Every native source
+entrypoint is compiled. Projection data itself is not supplied by this gate.
+
+Each child has a 30-second deadline. Compiler failure, signal, timeout,
+unexpected exit, incorrect output or reused scratch cannot produce PASS.
+Optional supervisor control argument 0, 1 or 2 deliberately runs the wrong-exit,
+signal or deadline fixture. These are negative tests, not normal gate modes.
+Fresh scratch and child output remain under the private build target for review.
+The manifest requires the exact `w4_groups == 15` observation and exit zero.
+
+This reproducible host gate does not replace the recorded real-model differential,
+full tensor refusal matrix, GPU integration, model quality/performance checks,
+or the repository's other required checks. No inference timing is measured here.

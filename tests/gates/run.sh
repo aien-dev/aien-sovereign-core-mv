@@ -55,6 +55,25 @@ pin() {  # pin <dir-name> <sibling repo> <sha40>
 }
 
 case "$step" in
+  native-w4)
+    # Qualified seeded compiler is separate from the legacy linked-compose pin.
+    # No network fetch or fallback to another compiler/profile.
+    omega_native_sha="$(tr -d '[:space:]' < native/w4/compiler.lock)"
+    [[ "$omega_native_sha" =~ ^[0-9a-f]{40}$ ]] || exit 3
+    pin omega-w4-native omega "$omega_native_sha"
+    compiler_root="$(cd "$PINS/omega-w4-native" && pwd)"
+    (cd "$compiler_root" && sha256sum -c "$ROOT/native/w4/compiler.sha256") || exit 3
+    [ -x "$compiler_root/seed/out/omc" ] || exit 3
+    mkdir -p "$TARGET"
+    stage="$(mktemp -d "$TARGET/w4-check.XXXXXX")"
+    stage="$(cd "$stage" && pwd)"
+    mkdir -p "$stage/native" "$stage/build"
+    cp -R native/w4 "$stage/native/w4"
+    timeout --kill-after=2 30 "$compiler_root/seed/out/omc" < "$stage/native/w4/gate.om" > "$stage/gate.elf"
+    chmod 700 "$stage/gate.elf"
+    cd "$stage"
+    exec "$stage/gate.elf" "$compiler_root/seed/out/omc"
+    ;;
   crumb-verify)        "${CRUMB:-crumb}" verify . ;;
   # ci.yml job verify ("Workspace Verification & Invariant Audit")
   fmt)                 cargo fmt --all -- --check ;;
