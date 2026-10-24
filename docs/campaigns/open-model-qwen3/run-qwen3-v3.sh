@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # OPEN-MODEL-QWEN3 v3 campaign (ACCEPTANCE-v3.md; FROZEN when this file is on main: it refuses to run unless the
 # commits and the binaries sha256 below match). Eight launches in three parts, Qwen3-4B, adapted from
 # run-qwen3-v2.sh: same driver (next-phase-1/run-campaign.sh), same receipt builder and v8 rows, same

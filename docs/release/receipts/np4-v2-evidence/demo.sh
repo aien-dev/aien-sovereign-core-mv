@@ -1,3 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 V=$1; P=$2
 BIN=$V/bin; CFG=$V/config; SA=$V/standalone/install.sh
 inst(){ rel=$1; shift; env -i PATH=/usr/bin:/bin HOME=$V/home AIEN_RELEASE_TAG=v0.0.0-np4 AIEN_RELEASE_BASE_URL=file://$V/$rel AIEN_BIN_DIR=$BIN AIEN_CONFIG_DIR=$CFG AIEN_INSTALL_NO_PROFILE=1 AIEN_ALLOWED_SIGNERS=$P/keys/allowed_signers "$@" ; }
