@@ -1,0 +1,28 @@
+note The pinned ELF's17984-byte static module footprint includes16-byte global padding.
+fn main to int
+if ne pinit 4096 1 22079 0
+ret 2
+end
+id = pnew
+if gt id 0
+r = pfree id
+ret 1
+end
+if ne id neg long 75
+ret 3
+end
+if ne pbytes 17984
+ret 4
+end
+if ne pinit 4096 1 22080 0
+ret 5
+end
+id = pnew
+if le id 0
+ret 6
+end
+if ne pbytes 22080
+ret 7
+end
+ret pfree id
+end

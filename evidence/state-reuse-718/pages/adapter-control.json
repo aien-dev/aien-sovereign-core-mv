@@ -1,0 +1,7 @@
+{
+  "from": "add other pbytes",
+  "to": "other",
+  "compile_exit": 0,
+  "test_exit": 1,
+  "stdout": "40\n13\n"
+}

@@ -1,0 +1,95 @@
+global ncheck ulong 2
+fn check yes bool to void
+put ncheck 0 add get ncheck 0 1
+if not yes
+put ncheck 1 add get ncheck 1 1
+end
+end
+fn setfield row ulong key ulong val ulong to void
+put rrows add mul row 22 key val
+end
+fn setup to void
+put rcontrol 0 2
+put rcontrol 2 1000
+put rcontrol 3 100
+put rcontrol 4 5
+put rcontrol 5 26176
+put rcontrol 9 100
+for i ulong 32
+put rexpect i add i 1
+put rident i add i 1
+put rident add i 32 add i 1
+end
+for r ulong 2
+setfield r 0 1
+setfield r 1 r
+setfield r 2 r
+setfield r 3 mul r 10
+setfield r 5 31
+setfield r 6 5
+setfield r 7 950
+setfield r 8 sub 1000 mul r 900
+setfield r 20 1
+setfield r 21 1
+end
+setfield 1 15 4096
+end
+fn chosen row ulong other ulong to void
+check eq rpool other 0
+check eq get rresult 0 row
+check eq get rcontrol 6 add other pbytes
+end
+fn number value ulong to void
+if ge value 10
+number div value 10
+end
+put pio 0 uchar add rem value 10 48
+n = write 1 pio 0 1
+end
+fn main to int
+setup
+check eq pinit 4096 2 26176 0
+snapshot = pnew
+check gt snapshot 0
+check eq phold snapshot 0
+other = pnew
+check gt other 0
+chosen 0 0
+check eq get rreason 1 75
+check eq pfree snapshot 0
+note Releasing one of two references does not release backing.
+chosen 0 0
+check eq get rreason 1 75
+check eq pfree other 0
+chosen 1 0
+note Other retained allocations also count; one extra byte prevents the COW reservation.
+chosen 0 1
+check eq get rreason 1 75
+chosen 1 0
+check eq phold snapshot 0
+put pio 0 99
+copy = pwrite snapshot 0 1
+check gt copy 0
+check ne copy snapshot
+chosen 0 0
+check eq pread snapshot 0 1 0
+check eq get pio 0 0
+check eq pread copy 0 1 0
+check eq get pio 0 99
+check eq pfree snapshot 0
+check eq pfree copy 0
+check eq pbytes 17984
+check eq rpool 18446744073709551615 75
+check eq get rresult 3 0
+check eq rpool 0 0
+number get ncheck 0
+put pio 0 10
+n = write 1 pio 0 1
+number get ncheck 1
+put pio 0 10
+n = write 1 pio 0 1
+if ne get ncheck 1 0
+ret 1
+end
+ret 0
+end

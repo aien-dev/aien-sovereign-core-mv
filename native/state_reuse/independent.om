@@ -1,0 +1,172 @@
+global nfails ulong 1
+global nchecks ulong 1
+fn chk a ulong b ulong to void
+put nchecks 0 add get nchecks 0 1
+if ne a b
+put nfails 0 add get nfails 0 1
+end
+end
+fn printnum value ulong to void
+buf = new uchar 32 0
+n = ulong 0
+v = value
+while ge v 10
+put buf n uchar add rem v 10 48
+n = add n 1
+v = div v 10
+end
+put buf n uchar add v 48
+n = add n 1
+while gt n 0
+n = sub n 1
+w = write 1 buf n 1
+end
+put buf 0 10
+w = write 1 buf 0 1
+end
+fn rowset r ulong f ulong v ulong to void
+put rrows add mul r 22 f v
+end
+fn fresh to void
+for i ulong 352
+put rrows i 0
+end
+for i ulong 10
+put rcontrol i 0
+end
+put rcontrol 0 3
+put rcontrol 2 100
+put rcontrol 3 50
+put rcontrol 4 5
+put rcontrol 5 10000
+put rcontrol 6 1000
+put rcontrol 9 100
+for i ulong 32
+put rexpect i add i 1
+end
+for r ulong 16
+for i ulong 32
+put rident add mul r 32 i add i 1
+end
+end
+for r ulong 3
+rowset r 0 1
+rowset r 1 r
+rowset r 2 r
+rowset r 3 mul r 20
+rowset r 5 31
+rowset r 6 5
+rowset r 7 75
+rowset r 8 100
+rowset r 15 500
+rowset r 20 1
+rowset r 21 1
+end
+end
+fn permute to void
+for f ulong 22
+a = rfield 1 f
+rowset 1 f rfield 2 f
+rowset 2 f a
+end
+end
+fn main to int
+note Exhaustively vary costs, retained ID, switching margin, and row order.
+for a ulong 8
+for b ulong 8
+for c ulong 8
+for old ulong 3
+for marg ulong 4
+fresh
+rowset 0 8 add a 1
+rowset 1 8 add b 1
+rowset 2 8 add c 1
+put rcontrol 1 old
+put rcontrol 7 marg
+anchor = ulong 0
+ac = a
+if eq old 1
+if lt b a
+anchor = 1
+ac = b
+end
+end
+if eq old 2
+if lt c a
+anchor = 2
+ac = c
+end
+end
+want = anchor
+wc = ac
+if lt a wc
+want = 0
+wc = a
+end
+if lt b wc
+want = 1
+wc = b
+end
+if eq b wc
+if ne want anchor
+if gt want 1
+want = 1
+end
+end
+end
+if lt c wc
+want = 2
+wc = c
+end
+if le sub ac wc marg
+want = anchor
+end
+chk ulong rselect 0
+chk rfield get rresult 0 2 want
+permute
+chk ulong rselect 0
+chk rfield get rresult 0 2 want
+end
+end
+end
+end
+end
+note Overflow and maximum legal aggregate costs must stay bounded.
+fresh
+for r ulong 3
+for f ulong 7
+rowset r add f 8 1000000000000
+end
+end
+put rcontrol 8 1000000
+put rcontrol 7 1000000000000
+chk ulong rselect 0
+chk get rresult 1 7000000000000
+chk get rresult 2 0
+fresh
+rowset 0 15 9000
+chk ulong rselect 0
+rowset 0 19 1
+chk ulong rselect 75
+chk get rresult 3 0
+note All clock extrema, zero context and stale baseline.
+fresh
+put rcontrol 2 18446744073709551615
+put rcontrol 3 18446744073709551615
+chk ulong rselect 0
+fresh
+put rcontrol 9 0
+chk ulong rselect 0
+chk get rresult 0 0
+fresh
+rowset 0 7 101
+chk ulong rselect 0
+chk get rresult 3 0
+chk get rresult 4 1
+printnum get nchecks 0
+printnum get nfails 0
+if ne get nfails 0 0
+ret 1
+end
+ret 0
+end

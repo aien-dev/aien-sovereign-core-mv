@@ -1,0 +1,52 @@
+Native backing pages: qualified host slice, not full issue acceptance.
+
+Use mapped compiler1d1aad082539399920bc6c90ff41f0a0c3a1ca3225e518fd0d259e0aeb71732d,
+Omega functional source d80b428c6ed9e3864fd7fc02cd7392bd4ad67f56. This is the
+existing L788 proposed compiler profile, not merged default-branch capability.
+Compilation consumes concatenated source through stdin and produces native ELF
+on stdout. Require compiler exit0 before chmod700 and execution. All calls
+were bounded with quiet-build timeout30. No model or device was loaded.
+
+Ordered units below each end in a separate test entrypoint:
+- pages.om + pages-test.om:37905checks,0failures,exit0.
+- pages.om + pages-independent.om:2437621checks,0failures,exit0;
+  independently authored and separately rebuilt/replayed by parent.
+- policy.om + pages.om + page-policy.om + page-policy-test.om:40checks,0failures.
+- policy.om + tests.om:original16210checks,0failures under mapping compiler.
+- pages.om + pages-budget-test.om:exit0. Reconstruct initial pages module by
+  replacing17984 with17976; same unchanged test compiles and exits1 because
+  it admits a page with a budget one byte below the actual requirement.
+- pages.om + pages-quota.om:exit0. Change the strict budget comparison to
+  greater-or-equal as recorded in quota-control.json:compile0,execution1.
+
+Initial17976 assumption ignored per-global16-byte compiler alignment.
+pconfig7ulong consumes64 bytes, not56. Final17984 charge includes that padding.
+An additional final-source binary containing pages.om plus only a main that
+calls pinit has RW MemSiz8410688. Subtract8388608 stack and4096 shared compiler
+mapping table:17984. layout-readelf.txt records the external readelf observation.
+That runtime table, stack, executable and OS page rounding must be counted by
+callers separately. The verified host OS page size is4096 (getconf PAGESIZE).
+
+Other successful compiled controls:
+- Remove pclone invocation during shared-page write:independent2437621checks
+  detect224370 failures,exit1. Exact edit removes the standalone line
+  `pclone ulong slot ulong dest` from finalpages.om.
+- Replace `add other pbytes` with `other` in page-policy.om:integration40checks
+  detect13failures,exit1. Actual compile/result in adapter-control.json.
+Earlier broad quota control trapped103 and broad corrected-budget/old-source
+run trapped105; those are explicitly excluded as qualifying controls.
+A test helper namedfield initially collided with the existing policy argument;
+renamedsetfield before passing integration compilation. No compiler edit.
+
+All test computation is handwritten seeded Omega. Shell and Node coordinate
+compilation, byte hashes and development control variants; they are not runtime
+or product dependencies. No Python was used.
+
+Host actual page copying, COW preservation, quotas and owned lifecycle only.
+No complete model snapshot, restore-vs-fresh result, namespace/session authority,
+disk sealing/offload, device synchronization, GPU or full-model performance.
+Historical Core tree-verify-wire3b2dcd9168d73925d8dc0836adaf9a9e4dca022c was
+inspected: Qwen38Snapshot retainspos/tails/states while KV remains live.
+Core713 retains complete-state composition/restore ownership;484/485 storage
+and nonblocking overlap remain unchanged. Repository preflight remains failed
+on samebased691a4dc, as previously recorded; no unchanged broad retry or waiver.

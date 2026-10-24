@@ -1,0 +1,34 @@
+[
+  {
+    "name": "identity",
+    "from": "if ne v get rident add mul row 32 i",
+    "to": "if ne v v",
+    "compile": 0,
+    "exit": 1,
+    "stdout": "16210\n64\n"
+  },
+  {
+    "name": "memory",
+    "from": "total = add total v",
+    "to": "total = total",
+    "compile": 0,
+    "exit": 1,
+    "stdout": "16210\n11\n"
+  },
+  {
+    "name": "disk-read",
+    "from": "v = add v rfield row add p 8",
+    "to": "if ne p 1\nv = add v rfield row add p 8\nend",
+    "compile": 0,
+    "exit": 1,
+    "stdout": "16210\n3\n"
+  },
+  {
+    "name": "state",
+    "from": "if ne rfield row 5 31",
+    "to": "if ne row row",
+    "compile": 0,
+    "exit": 1,
+    "stdout": "16210\n2\n"
+  }
+]

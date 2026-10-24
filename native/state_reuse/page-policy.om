@@ -1,0 +1,11 @@
+note SPDX-License-Identifier: AGPL-3.0-only
+note Combine measured owned page backing with other caller-accounted allocations.
+note Caller serializes policy and pool; this does not authenticate snapshot contents.
+fn rpool other ulong to int
+if gt other 1125899906842624
+put rcontrol 6 1125899906842625
+else
+put rcontrol 6 add other pbytes
+end
+ret rselect
+end

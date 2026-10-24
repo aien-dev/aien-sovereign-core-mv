@@ -1,0 +1,56 @@
+Core718 independent native page allocator qualification
+
+Final product pages.om SHA256:
+8b3ca7bffda63099afb930d1f1a59f6604c96652f93d1760c25bbe4483186a43
+Optional page-policy.om adapter SHA256:
+943b23727c4805ee956d1a9b32d0e0005c57afe85aa80d2b7dfacd3816030b9b
+Existing mapped compiler SHA256:
+1d1aad082539399920bc6c90ff41f0a0c3a1ca3225e518fd0d259e0aeb71732d
+
+Verdict: PASS for bounded hosted allocator, byte copying, reference accounting,
+and reviewed policy-accounting adapter. No remaining blocking source finding.
+No full-model state semantics, namespace authentication, GPU, disk persistence,
+concurrent synchronization or inference performance is qualified.
+
+Finding corrected before final qualification:
+Initial source82d468a1 charged17976 bytes for module globals. Compiler d80b428c
+s_global aligns every global to16 bytes. pconfig[7] occupies64, not56, making
+the correct fixed total17984 bytes. Existing emitted pages+main smoke executable
+independently confirms this: RW MemSiz8410688 minus stack8388608 and runtime
+mapping table4096 equals17984. Parent corrected source, budgets and documentation.
+The focused exact-fit accounting regression compiled and exited1 on oldsource,
+then compiled and exited0 after correction. Runtime/process/model memory remains
+separately charged by the caller, as documented.
+
+Final independent execution:
+probes.om:2437621 checks,0 failures, exit0. Tests include real multi-chunk byte
+patterns and COW at4K,8K,12K,24K,64K;128 externally allocated runtime mappings
+exhausting the mapping table, graceful allocation/COW refusal, then recovery;
+1048576 actual balanced references and cap refusal; exact/undersized quota and
+rollback; stale handles across reinit; maximum positive page generation followed
+by permanent slot retirement. Each actual allocation was reclaimed.
+quota-test.om: named exact-fit allocation/accounting assertions, exit0.
+
+Final-source compiled negative controls:
+- Omit pclone on shared-page write: successful compile, unchanged probes produce
+  224370 assertion failures and exit1.
+- Change quota comparison from greater-than to greater-or-equal: successful
+  compile, unchanged focused quota-test produces named assertion failure exit1.
+Full broad suite with the quota mutant previously trapped103; it is not counted
+as a successful behavioral control. A broad corrected-budget test on oldsource
+trapped105 downstream; focused accounting RED is the accepted defect reproducer.
+Test-development compile errors are also excluded from successful evidence.
+
+Adapter source review: rpool combines actual pbytes with caller-accounted other
+allocations. Both operands are bounded sufficiently to avoid u64 overflow; an
+oversized external value forces normal rselect refusal/output clearing. It does
+not own allocator synchronization or authenticate snapshots. No product edit was
+made by the reviewer. Parent owns and separately ran adapter integration tests.
+
+Development reproduction uses existing shell commands only:
+cat pages.om probes.om > all.om
+quiet-build timeout 30 "$OMC" < all.om > probes.elf 2> compile.log
+# Require compiler exit0 before chmod 700 and execution.
+quiet-build timeout 30 ./probes.elf
+All computational test logic is handwritten .om. No Python, GPU, service,
+GitHub publication or compiler change was performed by this reviewer.

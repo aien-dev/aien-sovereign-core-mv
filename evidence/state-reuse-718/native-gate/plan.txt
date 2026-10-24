@@ -1,0 +1,91 @@
+AIEN PLAN
+Repository: aien-sovereign-core
+Base: 27b0d670dc996fc7bd4b4570da37bd231816eb28
+Head: 5e03586a8c4953e702c0b18be4a6c98f16d0b848
+Changed files: 44
+  evidence/state-reuse-718/compiler-correction/README.md
+  evidence/state-reuse-718/compiler-correction/receipt.json
+  evidence/state-reuse-718/independent-margin.stdout
+  evidence/state-reuse-718/independent-memory.stdout
+  evidence/state-reuse-718/independent.stdout
+  evidence/state-reuse-718/mutations.json
+  evidence/state-reuse-718/native-gate/README.md
+  evidence/state-reuse-718/native-gate/author.json
+  evidence/state-reuse-718/native-gate/entry.log
+  evidence/state-reuse-718/native-gate/review.txt
+  evidence/state-reuse-718/pages/SHA256SUMS
+  evidence/state-reuse-718/pages/adapter-control.json
+  evidence/state-reuse-718/pages/author.stdout
+  evidence/state-reuse-718/pages/copy-control.stdout
+  evidence/state-reuse-718/pages/independent.stdout
+  evidence/state-reuse-718/pages/initial-finding.txt
+  evidence/state-reuse-718/pages/integration.stdout
+  evidence/state-reuse-718/pages/layout-readelf.txt
+  evidence/state-reuse-718/pages/original-policy.stdout
+  evidence/state-reuse-718/pages/quota-control.json
+  evidence/state-reuse-718/pages/receipt.json
+  evidence/state-reuse-718/pages/reproduce.txt
+  evidence/state-reuse-718/pages/review.txt
+  evidence/state-reuse-718/preflight-summary.txt
+  evidence/state-reuse-718/receipt.json
+  evidence/state-reuse-718/review.txt
+  evidence/state-reuse-718/tests.stdout
+  native/state_reuse/README.md
+  native/state_reuse/compiler.lock
+  native/state_reuse/compiler.sha256
+  native/state_reuse/gate-child.om
+  native/state_reuse/gate.om
+  native/state_reuse/independent.om
+  native/state_reuse/page-policy-test.om
+  native/state_reuse/page-policy.om
+  native/state_reuse/pages-budget-test.om
+  native/state_reuse/pages-independent.om
+  native/state_reuse/pages-quota.om
+  native/state_reuse/pages-test.om
+  native/state_reuse/pages.om
+  native/state_reuse/policy.om
+  native/state_reuse/tests.om
+  tests/gates/run.sh
+  tests/gates/sc-native-state-reuse.gate
+Pins: native/state_reuse/compiler.lock
+Graph digest: ec17c15f40cca9c7e5faa2f10a5d780530a317a93b3e4a99ed1052eeda427fb1
+Required:
+  (none)
+Cached:
+  (none)
+Needs Spark:
+  (none)
+Needs GB10:
+  (none)
+Advisory:
+  (none)
+Blocked:
+  CRUMB-VERIFY pool=host exactness=EXACT check=b9a7640de96b because=always PIPELINE_CONFIG_CHANGED
+  SC-AGENT-PREFLIGHT pool=host exactness=EXACT check=7776becdc52b because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-AIEN-VERIFY-TESTS pool=host exactness=EXACT check=a4de078f971b because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-ANTI-SLOP pool=host exactness=EXACT check=a38c222da0d0 because=always PIPELINE_CONFIG_CHANGED
+  SC-CHECK pool=host exactness=EXACT check=851258a82f84 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-CLIPPY pool=host exactness=EXACT check=786a468afd6c because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-CRB1 pool=host exactness=EXACT check=475f77218cc0 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-FMT pool=host exactness=EXACT check=5fd57cf7d030 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-INQUISITOR pool=host exactness=EXACT check=dcfc9b2e9d9b because=always PIPELINE_CONFIG_CHANGED
+  SC-INSTALL pool=host exactness=EXACT check=ba53d006805c because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-KV-PROPS pool=host exactness=EXACT check=54037e350bbe because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-LINKED-COMPOSE pool=host exactness=EXACT check=7b2f163a8650 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-MIRI pool=host exactness=EXACT check=39ff19635858 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-NATIVE-IDENTITY pool=host exactness=EXACT check=75432a3f508c because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-NATIVE-STATE-REUSE pool=host exactness=EXACT check=00843192dafa because=evidence/state-reuse-718/compiler-correction/README.md PIPELINE_CONFIG_CHANGED
+  SC-PINS-SELFTEST pool=host exactness=EXACT check=6778c222c2dc because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-PREFLIGHT-GUARD pool=host exactness=EXACT check=4de3ca9d1ca5 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-RELEASE-DRY-RUN pool=host exactness=EXACT check=2fa40ccc7944 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-RELEASE-GATE-NEGATIVES pool=host exactness=EXACT check=fa125b63c8a2 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-SCORING-V5 pool=host exactness=EXACT check=a67b3a89a950 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-STRICT-MODE pool=host exactness=EXACT check=ce43bd0526cc because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-TEST pool=host exactness=EXACT check=0629412801c6 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-TRN1 pool=host exactness=EXACT check=14d6aa5c61e2 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-VERIFY-CLOSURE pool=host exactness=EXACT check=898364e794f2 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-ZERO-CUDA pool=host exactness=EXACT check=c2318b07829d because=always PIPELINE_CONFIG_CHANGED
+  SC-ZERO-DISK-SECRETS pool=host exactness=EXACT check=545077eddead because=always PIPELINE_CONFIG_CHANGED
+UNMAPPED:
+  (none)
+Plan verdict: BLOCKED_OPERATOR PIPELINE_CONFIG_CHANGED

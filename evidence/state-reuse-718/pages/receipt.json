@@ -1,0 +1,32 @@
+{
+  "date": "2026-10-23",
+  "source_commit": "256ec5376b86a35eac1e22ce10f2f7584d7c2226",
+  "compiler_sha256": "1d1aad082539399920bc6c90ff41f0a0c3a1ca3225e518fd0d259e0aeb71732d",
+  "source_sha256": "8b3ca7bffda63099afb930d1f1a59f6604c96652f93d1760c25bbe4483186a43",
+  "adapter_sha256": "943b23727c4805ee956d1a9b32d0e0005c57afe85aa80d2b7dfacd3816030b9b",
+  "fixed_module_bytes": 17984,
+  "os_page_bytes": 4096,
+  "author_checks": 37905,
+  "independent_checks": 2437621,
+  "integration_checks": 40,
+  "existing_policy_checks": 16210,
+  "failures": 0,
+  "compiled_controls_detected": 3,
+  "accounting_regression": {
+    "old_exit": 1,
+    "corrected_exit": 0,
+    "old_source_sha256": "82d468a14507209cf763570be9f857da4ab45f05de692148036c4f8f5bea99c5"
+  },
+  "binaries": {
+    "tests": "481c8dc16b99cd94da6e20fe721c4eda72860a933fa47d1242bbeeaeb4394eca",
+    "independent": "4f1c34da171a9bffcf93fdf168df9fedebc742eee6d1c1ba592dc6df9e956f7d",
+    "policy": "6905a0134ae46694eb0d3e48cf3f9d269483bc9e7516ff45d58a73fcf01526f9",
+    "padding-red": "d1dfa58736db786e75850b957e09adbeb9c44d8503ed2719686f940de120bfbf",
+    "padding-green": "e5478365805c2e7dbc843c279d5988cac4d2a3753b9fce52f683368d9d0a422b",
+    "layout": "6f9383aa1138cadef77ca7a1d2604098945b10659c60f888a94f320ba680d1f5"
+  },
+  "gpu": false,
+  "full_model": false,
+  "repository_gate": "FAIL retained; no waiver",
+  "remaining": "Complete-state composition/restore, native serving integration, storage/namespace/overlap and hardware measurements"
+}
