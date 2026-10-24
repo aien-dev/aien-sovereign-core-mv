@@ -247,3 +247,8 @@ success, then executing the emitted ELF. No source here calls a foreign helper.
 Development shell/Node orchestration is disclosed separately from native code.
 Model restore-versus-fresh equivalence, namespace/store/cancellation integration,
 NVMe timing and full-model improvement remain open issue gates.
+
+## Corrected compiler compatibility
+
+The compiler safety correction in Omega PR676 also reproduces this component
+without changing its executable bytes. See [evidence/state-reuse-718/compiler-correction](../../evidence/state-reuse-718/compiler-correction/README.md) for the exact compiler/source pins, binary comparisons and fresh host replays. The original qualification remains preserved.
