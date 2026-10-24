@@ -1559,3 +1559,74 @@ fn worker_operator_run_of_a_config_change_is_ready_and_posts_success() {
         "{journal}"
     );
 }
+
+#[test]
+fn loop_leaves_triggers_of_other_repos_alone() {
+    // One trigger file is visible to every poller; a poller started with
+    // --repos takes only its own repositories and leaves the file in place.
+    let w = world();
+    let mut cfg = w.config();
+    cfg.repos = vec!["some-other-repo".to_string()];
+    let trigger = w.state.trigger_dir().join(format!("{REPO}.{}", w.head));
+    fs::create_dir_all(w.state.trigger_dir()).unwrap();
+    fs::write(&trigger, "").unwrap();
+    assert_eq!(worker::run_loop(&cfg, Some(1)), 0);
+    assert!(trigger.exists());
+    assert!(!w.bundle_path(&w.head).exists());
+    cfg.repos = vec![REPO.to_string()];
+    assert_eq!(worker::run_loop(&cfg, Some(1)), 1);
+    assert!(!trigger.exists());
+    assert!(w.bundle_path(&w.head).exists());
+}
+
+#[test]
+fn loop_skips_a_head_another_process_is_judging() {
+    // A head already being judged is not judged again, and its trigger file
+    // stays for the holder (or the next round) to deal with.
+    let w = world();
+    let cfg = w.config();
+    let trigger = w.state.trigger_dir().join(format!("{REPO}.{}", w.head));
+    fs::create_dir_all(w.state.trigger_dir()).unwrap();
+    fs::write(&trigger, "").unwrap();
+    let held = worker::claim_head(&w.state, REPO, &w.head)
+        .unwrap()
+        .expect("claim");
+    assert_eq!(worker::run_loop(&cfg, Some(1)), 0);
+    assert!(trigger.exists());
+    assert!(!w.bundle_path(&w.head).exists());
+    drop(held);
+    assert_eq!(worker::run_loop(&cfg, Some(1)), 1);
+    assert!(!trigger.exists());
+}
+
+#[test]
+fn worker_once_skips_a_head_another_process_is_judging() {
+    // `worker --once` for a head a poller holds does nothing and says so.
+    let bin = env!("CARGO_BIN_EXE_aien-test");
+    let t = Tmp::new("once-held");
+    let state = StateDir::new(&t.path().join("state"));
+    let sha = "a".repeat(40);
+    let held = worker::claim_head(&state, "repo", &sha)
+        .unwrap()
+        .expect("claim");
+    let o = Command::new(bin)
+        .args(["worker", "--once", "repo", sha.as_str(), "--state-dir"])
+        .arg(&state.root)
+        .arg("--clones")
+        .arg(t.path())
+        .args(["--sandbox", "none", "--dev-unsandboxed"])
+        .output()
+        .unwrap();
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert_eq!(o.status.code(), Some(75), "{out}");
+    assert!(
+        out.contains(&format!(
+            "already being judged by pid {}",
+            std::process::id()
+        )),
+        "{out}"
+    );
+    // Nothing was fetched, journaled or run.
+    assert!(!state.journal().exists());
+    drop(held);
+}
