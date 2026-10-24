@@ -52,6 +52,16 @@ pub struct ChatRequest {
     pub functions: Option<Vec<Value>>,
     #[serde(default)]
     pub stream_options: Option<StreamOptions>,
+    /// Template switches (`{"enable_thinking": bool, "reasoning_effort": "low|medium|xhigh"}`),
+    /// read only by templates that define them (Qwen3.8-27B).
+    #[serde(default)]
+    pub chat_template_kwargs: Option<Value>,
+    /// Same as `chat_template_kwargs.reasoning_effort` (the OpenAI field name).
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
+    /// AIEN extra: return the generated token ids in `usage.aien_token_ids` (correctness gates).
+    #[serde(default)]
+    pub aien_return_token_ids: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -104,6 +114,9 @@ pub struct Usage {
     /// Its `seed` replays the request. Absent for an engine that does not sample.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aien_sampling: Option<SamplingRecord>,
+    /// The generated token ids, when the request set `aien_return_token_ids`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aien_token_ids: Option<Vec<u32>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -126,9 +139,14 @@ pub fn completion_json(
     created: u64,
     model: &str,
     content: &str,
+    reasoning: Option<&str>,
     finish_reason: &str,
     usage: &Usage,
 ) -> Value {
+    let mut message = serde_json::json!({"role": "assistant", "content": content});
+    if let Some(r) = reasoning {
+        message["reasoning_content"] = Value::String(r.into());
+    }
     serde_json::json!({
         "id": id,
         "object": "chat.completion",
@@ -136,7 +154,7 @@ pub fn completion_json(
         "model": model,
         "choices": [{
             "index": 0,
-            "message": {"role": "assistant", "content": content},
+            "message": message,
             "finish_reason": finish_reason,
         }],
         "usage": usage,
@@ -154,12 +172,39 @@ pub fn chunk_json(
     finish_reason: Option<&str>,
     usage: Option<&Usage>,
 ) -> Value {
+    chunk_json_with(
+        id,
+        created,
+        model,
+        role,
+        content,
+        None,
+        finish_reason,
+        usage,
+    )
+}
+
+/// [`chunk_json`] with a `reasoning_content` delta (the thinking block of a thinking model).
+#[allow(clippy::too_many_arguments)]
+pub fn chunk_json_with(
+    id: &str,
+    created: u64,
+    model: &str,
+    role: Option<&str>,
+    content: Option<&str>,
+    reasoning: Option<&str>,
+    finish_reason: Option<&str>,
+    usage: Option<&Usage>,
+) -> Value {
     let mut delta = serde_json::Map::new();
     if let Some(r) = role {
         delta.insert("role".into(), Value::String(r.into()));
     }
     if let Some(c) = content {
         delta.insert("content".into(), Value::String(c.into()));
+    }
+    if let Some(r) = reasoning {
+        delta.insert("reasoning_content".into(), Value::String(r.into()));
     }
     let mut v = serde_json::json!({
         "id": id,

@@ -657,7 +657,8 @@ pub fn compose_assistant_prefix(template: &aien_inference_abi::ChatTemplate) -> 
         ChatTemplate::None => COMPOSE_ASSISTANT_PREFIX,
         ChatTemplate::ChatMl { .. }
         | ChatTemplate::ChatMlQwen3
-        | ChatTemplate::ChatMlQwen3NoThink => "filename:",
+        | ChatTemplate::ChatMlQwen3NoThink
+        | ChatTemplate::Qwen38 => "filename:",
     }
 }
 
