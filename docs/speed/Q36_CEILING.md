@@ -190,3 +190,26 @@ Camera: the graph's own per-launch stamps, read by `q36_levers` built from the l
 Receipts for every cell are in the report (aien-calc ids, Wolfram raw replies, 31 rows, all agree). The harness reproduces the live server: 0.995 of the 20.7 ms in serve.log:11597 (calc:71911245a16960d0). Negative control: `AIEN_Q36_EXACT_HEAD=0` moved only the head, +2.322 ms (calc:701f962c929e3d3a), so the L314 lever is worth 2.32 ms per token on this build. Byte-model note: the harness counts the head as BF16 and its GDN/attention groups 133 MB above section 2; UNKNOWN which is exact (follow-up). Identity: gen-p1..p3 identical; gen-p4 differs at token index 4 from its 2026-10-20 host-oracle golden in every run, head mode independent, and the train carries no p4 case: UNKNOWN which side is right.
 
 Next lever by size: the expert kernels at 159.7 GB/s (58.5 % of the bus) with a 2.94 ms gap; then the router's 1.53 ms of pure launch latency.
+
+## 11. Measured lever: the expert launch in one wave (2026-10-24, L310 step 4)
+
+Hardware fact (DOCUMENTED): a grouped expert CTA is 32 warps = 1024 threads; compute capability 12.x holds 1536 resident threads per SM (CUDA Programming Guide, Compute Capabilities, Table 30), so one such CTA fits per SM, and the GB10's 48 SMs (GB10 Superchip Whitepaper WP-12718-001_v02, Table 4) hold one wave of 48 CTAs. Our code (OBSERVED): `OMEGA_GPU_FP8_GROUPED_CTAS 6u` was measured on 8 groups (48 CTAs = one wave, omega a98a2764). The 35B launches 9 groups per expert launch (8 routed experts + the shared expert, `q::GROUPS = 9`): 54 CTAs = one full wave plus a second wave only 6 CTAs wide, in each of the 80 expert launches per token. During that tail 6 of the 48 SMs draw on the bus.
+
+Lever: 5 CTAs per group (45 CTAs = one wave). Same camera as section 10 (`q36_levers`, 15 stamped tokens, chip alone, SM clock 2405 MHz flat), baseline first, one variable per run, N=3 per value over two windows. Investigation folder (predictions written before each window, raw runs, report, Wolfram raw replies): `~/workspace/investigations/2026-10-24-l310-grouped-ctas`.
+
+| | 6 per group (54 CTAs, two waves) | 5 per group (45 CTAs, one wave) | change |
+|---|---|---|---|
+| experts (gate_up + down), ms per token, mean of 3 | 7.054 (calc:5a151047) | 5.858 (calc:6575b9b5) | -1.196 (calc:479a478d) |
+| expert stream, effective GB/s | 160.5 (calc:b81a84bc) | 193.3 (calc:dbdcd000) | share of the 273 GB/s bus 0.588 -> 0.708 (calc:4a4b4287, calc:e02e8828) |
+| step (chip mean), ms per token, mean of 3 | 20.498 (calc:f88e90e6) | 19.347 (calc:6f031b6d) | -1.151 (calc:1b183d47), x0.9438 (calc:1dd82726) |
+| 1-row tokens/s | 48.78 (calc:2efff0d9) | 51.69 (calc:d1186085) | |
+| bus floor (11.375 ms) as a fraction of the step | 0.555 (calc:8bb97126) | 0.588 (calc:3dcbf4ef) | |
+| the three runs, step ms | 20.221, 20.534, 20.739 | 19.441, 19.316, 19.284 | every 5 below every 6 |
+
+Other values (one run each): 16 per group (144 CTAs = three full waves) experts 6.024 ms, better than 6 and 0.165 ms behind 5 (calc:1d12cb3e); 12 (window 1) experts -0.515 ms with the step unchanged; 10 UNKNOWN (contaminated by a concurrent CPU build, no claim). Tokens identical in every run (p1..p3 golden-identical, p4 differs at the harness's known index 4 in every run, baselines included). The expert kernels' remaining gap to their byte floor: 5.858 - 4.149 = 1.709 ms (calc:06d83410).
+
+Shipped form: omega branch `l310/grouped-wave` (33a14fff on ship/motor-l387 6de999da). `AIEN_OMEGA_FP8_GROUPED_WAVE=1` applies min(6, 48 / groups), at least 1 (9 groups -> 5, 8 -> 6); `AIEN_OMEGA_FP8_GROUPED_CTAS=n` forces an exact value; neither set: 6, unchanged. The budget is read once at the first grouped launch, so it is a load-time switch: merge-train arm `grouped-wave` (lever `L310-wave` in `evidence/merge-train/suite.json`), a second server with the env, log proof "CTAs per group (wave rule)". Host test `gpu_fp8_api_test --sim`: 214 checks, 0 failed, rule table 10/10.
+
+Window 3 (the shipped switch, one binary, default then switch): default (both switches unset) step 20.397 ms, experts 7.027 (calc:204ba433); AIEN_OMEGA_FP8_GROUPED_WAVE=1 step 19.266 ms, experts 5.827 (calc:2bcadd7a); delta -1.131 ms (calc:6863e893), x0.9446 (calc:03bb20b4); tokens/s 49.03 -> 51.90 (calc:49c38dcf, calc:c5a80eab); the load log named the value both times ("6 CTAs per group (compiled default)", "5 CTAs per group (wave rule)"). Red holds, green reproduces the 5 band (19.266 vs 19.284-19.441 earlier).
+
+Wolfram raw replies for this section: `evidence/q36-ceiling-20261024/wolfram-grouped/` (copied from the investigation folder, one file per query, raw reply inside).

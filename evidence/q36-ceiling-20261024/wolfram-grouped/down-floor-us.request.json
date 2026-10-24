@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"WolframLanguageEvaluator","arguments":{"code":"N[(9*2048*512)/(273*10^9)*10^6]"}}}
