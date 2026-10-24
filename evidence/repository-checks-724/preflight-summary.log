@@ -1,0 +1,122 @@
+[1/5] Verifying Branch Isolation... PASSED (Branch: fix/repository-checks-724)
+[2/5] Auditing Zero Disk Secrets... PASSED (Zero disk secrets detected)
+[3/5] Verifying Unslop & Anti-Slop Discipline... PASSED (Zero em/en dashes in diff)
+[4/5] Running Workspace Test Suite...
+[aien-proof] cargo-test:aien-abi-conformance: stamped pass (ran by drakestapleton in 1093 ms, ledger #1101), replaying output
+[aien-proof] aien-abi-conformance             stamped  pass     1093 ms
+[aien-proof] cargo-test:aien-abi-core: stamped pass (ran by drakestapleton in 3490 ms, ledger #1102), replaying output
+[aien-proof] aien-abi-core                    stamped  pass     3490 ms
+[aien-proof] cargo-test:aien-allen: stamped pass (ran by drakestapleton in 11532 ms, ledger #1103), replaying output
+[aien-proof] aien-allen                       stamped  pass    11532 ms
+[aien-proof] cargo-test:aien-allen-memory: stamped pass (ran by drakestapleton in 5596 ms, ledger #1104), replaying output
+[aien-proof] aien-allen-memory                stamped  pass     5596 ms
+[aien-proof] cargo-test:aien-allen-profile: stamped pass (ran by drakestapleton in 1508 ms, ledger #1105), replaying output
+[aien-proof] aien-allen-profile               stamped  pass     1508 ms
+[aien-proof] cargo-test:aien-campaign-verifier: stamped pass (ran by drakestapleton in 3786 ms, ledger #1106), replaying output
+[aien-proof] aien-campaign-verifier           stamped  pass     3786 ms
+[aien-proof] cargo-test:aien-capability: stamped pass (ran by drakestapleton in 515 ms, ledger #1107), replaying output
+[aien-proof] aien-capability                  stamped  pass      515 ms
+[aien-proof] cargo-test:aien-cli: stamped pass (ran by drakestapleton in 26049 ms, ledger #1108), replaying output
+[aien-proof] aien-cli                         stamped  pass    26049 ms
+[aien-proof] cargo-test:aien-closure: stamped pass (ran by drakestapleton in 3874 ms, ledger #1109), replaying output
+[aien-proof] aien-closure                     stamped  pass     3874 ms
+[aien-proof] cargo-test:aien-drive: stamped pass (ran by drakestapleton in 3601 ms, ledger #1110), replaying output
+[aien-proof] aien-drive                       stamped  pass     3601 ms
+[aien-proof] cargo-test:aien-dual-observation: stamped pass (ran by drakestapleton in 12012 ms, ledger #1111), replaying output
+[aien-proof] aien-dual-observation            stamped  pass    12012 ms
+[aien-proof] cargo-test:aien-inference-abi: stamped pass (ran by drakestapleton in 429224 ms, ledger #1112), replaying output
+[aien-proof] aien-inference-abi               stamped  pass   429224 ms
+[aien-proof] cargo-test:aien-inference-runtime: stamped pass (ran by drakestapleton in 48860 ms, ledger #1113), replaying output
+[aien-proof] aien-inference-runtime           stamped  pass    48860 ms
+[aien-proof] cargo-test:aien-inference-service: stamped pass (ran by drakestapleton in 807 ms, ledger #1114), replaying output
+[aien-proof] aien-inference-service           stamped  pass      807 ms
+[aien-proof] cargo-test:aien-kv-bench: stamped pass (ran by drakestapleton in 13113 ms, ledger #1115), replaying output
+[aien-proof] aien-kv-bench                    stamped  pass    13113 ms
+[aien-proof] cargo-test:aien-kv-cache: stamped pass (ran by drakestapleton in 1951 ms, ledger #1116), replaying output
+[aien-proof] aien-kv-cache                    stamped  pass     1951 ms
+[aien-proof] cargo-test:aien-kv-store: stamped pass (ran by drakestapleton in 14636 ms, ledger #1117), replaying output
+[aien-proof] aien-kv-store                    stamped  pass    14636 ms
+[aien-proof] cargo-test:aien-localhttp: stamped pass (ran by drakestapleton in 3485 ms, ledger #1118), replaying output
+[aien-proof] aien-localhttp                   stamped  pass     3485 ms
+[aien-proof] cargo-test:aien-mcp: stamped pass (ran by drakestapleton in 10555 ms, ledger #1119), replaying output
+[aien-proof] aien-mcp                         stamped  pass    10555 ms
+[aien-proof] cargo-test:aien-omega-bf16: stamped pass (ran by drakestapleton in 323 ms, ledger #1120), replaying output
+[aien-proof] aien-omega-bf16                  stamped  pass      323 ms
+[aien-proof] cargo-test:aien-omega-compose: stamped pass (ran by drakestapleton in 585 ms, ledger #1121), replaying output
+[aien-proof] aien-omega-compose               stamped  pass      585 ms
+[aien-proof] cargo-test:aien-omega-dattn: stamped pass (ran by drakestapleton in 306 ms, ledger #1122), replaying output
+[aien-proof] aien-omega-dattn                 stamped  pass      306 ms
+[aien-proof] cargo-test:aien-omega-dgraph: stamped pass (ran by drakestapleton in 331 ms, ledger #1123), replaying output
+[aien-proof] aien-omega-dgraph                stamped  pass      331 ms
+[aien-proof] cargo-test:aien-omega-fp8: stamped pass (ran by drakestapleton in 319 ms, ledger #1124), replaying output
+[aien-proof] aien-omega-fp8                   stamped  pass      319 ms
+[aien-proof] cargo-test:aien-omega-gpu: stamped pass (ran by drakestapleton in 383 ms, ledger #1125), replaying output
+[aien-proof] aien-omega-gpu                   stamped  pass      383 ms
+[aien-proof] cargo-test:aien-omega-moe: stamped pass (ran by drakestapleton in 323 ms, ledger #1126), replaying output
+[aien-proof] aien-omega-moe                   stamped  pass      323 ms
+[aien-proof] cargo-test:aien-omega-pf: stamped pass (ran by drakestapleton in 376 ms, ledger #1127), replaying output
+[aien-proof] aien-omega-pf                    stamped  pass      376 ms
+[aien-proof] cargo-test:aien-omega-router: stamped pass (ran by drakestapleton in 308 ms, ledger #1128), replaying output
+[aien-proof] aien-omega-router                stamped  pass      308 ms
+[aien-proof] cargo-test:aien-omegese-constraint: stamped pass (ran by drakestapleton in 5801 ms, ledger #1129), replaying output
+[aien-proof] aien-omegese-constraint          stamped  pass     5801 ms
+[aien-proof] cargo-test:aien-platform: stamped pass (ran by drakestapleton in 423 ms, ledger #1130), replaying output
+[aien-proof] aien-platform                    stamped  pass      423 ms
+[aien-proof] cargo-test:aien-platform-linux: stamped pass (ran by drakestapleton in 359 ms, ledger #1131), replaying output
+[aien-proof] aien-platform-linux              stamped  pass      359 ms
+[aien-proof] cargo-test:aien-proof: stamped pass (ran by drakestapleton in 3787 ms, ledger #1132), replaying output
+[aien-proof] aien-proof                       stamped  pass     3787 ms
+[aien-proof] cargo-test:aien-runtime: stamped pass (ran by drakestapleton in 107404 ms, ledger #1133), replaying output
+[aien-proof] aien-runtime                     stamped  pass   107404 ms
+[aien-proof] cargo-test:aien-scheduler: stamped pass (ran by drakestapleton in 1924 ms, ledger #1134), replaying output
+[aien-proof] aien-scheduler                   stamped  pass     1924 ms
+[aien-proof] cargo-test:aien-security: stamped pass (ran by drakestapleton in 2158 ms, ledger #1135), replaying output
+[aien-proof] aien-security                    stamped  pass     2158 ms
+[aien-proof] cargo-test:aien-serve-http: stamped pass (ran by drakestapleton in 53925 ms, ledger #1136), replaying output
+[aien-proof] aien-serve-http                  stamped  pass    53925 ms
+[aien-proof] cargo-test:aien-switchboard: stamped pass (ran by drakestapleton in 839 ms, ledger #1137), replaying output
+[aien-proof] aien-switchboard                 stamped  pass      839 ms
+[aien-proof] cargo-test:aien-test: stamped pass (ran by drakestapleton in 7566 ms, ledger #1138), replaying output
+[aien-proof] aien-test                        stamped  pass     7566 ms
+[aien-proof] cargo-test:aien-trace: stamped pass (ran by drakestapleton in 828 ms, ledger #1139), replaying output
+[aien-proof] aien-trace                       stamped  pass      828 ms
+[aien-proof] cargo-test:cortex-encoder-rs: stamped pass (ran by drakestapleton in 6092 ms, ledger #1140), replaying output
+[aien-proof] cortex-encoder-rs                stamped  pass     6092 ms
+[aien-proof] cargo-test:cortex-path-m1: stamped pass (ran by drakestapleton in 5121 ms, ledger #1141), replaying output
+[aien-proof] cortex-path-m1                   stamped  pass     5121 ms
+[aien-proof] cargo-test:cortex-rs: stamped pass (ran by drakestapleton in 4978 ms, ledger #1142), replaying output
+[aien-proof] cortex-rs                        stamped  pass     4978 ms
+[aien-proof] cargo-test:crumbs: stamped pass (ran by drakestapleton in 4795 ms, ledger #1143), replaying output
+[aien-proof] crumbs                           stamped  pass     4795 ms
+[aien-proof] cargo-test:rad-id-sync: stamped pass (ran by drakestapleton in 1914 ms, ledger #1144), replaying output
+[aien-proof] rad-id-sync                      stamped  pass     1914 ms
+[aien-proof] spark-adapters                   ran      pass   192496 ms
+[aien-proof] cargo-test:spark-aegis: stamped pass (ran by drakestapleton in 5651 ms, ledger #1146), replaying output
+[aien-proof] spark-aegis                      stamped  pass     5651 ms
+[aien-proof] cargo-test:spark-cockpit-rs: stamped pass (ran by drakestapleton in 17674 ms, ledger #1147), replaying output
+[aien-proof] spark-cockpit-rs                 stamped  pass    17674 ms
+[aien-proof] cargo-test:spark-crumbs: stamped pass (ran by drakestapleton in 1106 ms, ledger #1148), replaying output
+[aien-proof] spark-crumbs                     stamped  pass     1106 ms
+[aien-proof] cargo-test:spark-debugger: stamped pass (ran by drakestapleton in 6972 ms, ledger #1149), replaying output
+[aien-proof] spark-debugger                   stamped  pass     6972 ms
+[aien-proof] cargo-test:spark-discord-hub: stamped pass (ran by drakestapleton in 7200 ms, ledger #1150), replaying output
+[aien-proof] spark-discord-hub                stamped  pass     7200 ms
+[aien-proof] cargo-test:spark-dream: stamped pass (ran by drakestapleton in 4494 ms, ledger #1151), replaying output
+[aien-proof] spark-dream                      stamped  pass     4494 ms
+[aien-proof] cargo-test:spark-harness: stamped pass (ran by drakestapleton in 7881 ms, ledger #1152), replaying output
+[aien-proof] spark-harness                    stamped  pass     7881 ms
+[aien-proof] cargo-test:spark-harvester: stamped pass (ran by drakestapleton in 6824 ms, ledger #1153), replaying output
+[aien-proof] spark-harvester                  stamped  pass     6824 ms
+[aien-proof] cargo-test:spark-hive: stamped pass (ran by drakestapleton in 4796 ms, ledger #1154), replaying output
+[aien-proof] spark-hive                       stamped  pass     4796 ms
+[aien-proof] cargo-test:spark-inquisitor: stamped pass (ran by drakestapleton in 1699 ms, ledger #1155), replaying output
+[aien-proof] spark-inquisitor                 stamped  pass     1699 ms
+[aien-proof] cargo-test:spark-mail-rs: stamped pass (ran by drakestapleton in 13191 ms, ledger #1156), replaying output
+[aien-proof] spark-mail-rs                    stamped  pass    13191 ms
+[aien-proof] cargo-test:spark-supervisor: stamped pass (ran by drakestapleton in 4450 ms, ledger #1157), replaying output
+[aien-proof] spark-supervisor                 stamped  pass     4450 ms
+[aien-proof] 57 crates in 195.0s: 1 ran, 56 stamped, 0 joined, 0 failed
+PASSED (100% test pass)
+[5/5] Checking RustSec Vulnerability Advisories...     Fetching advisory database from `https://github.com/RustSec/advisory-db.git`
+PASSED (No vulnerabilities; review any warnings above)
+ ✓ PREFLIGHT VERIFICATION COMPLETE: Ready for PR Creation

@@ -1,0 +1,19 @@
+warning: aien-omega-gpu@0.1.0: aien-omega-gpu: no AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB, building the CPU stub
+warning: aien-omega-compose@0.1.0: aien-omega-compose: no AIEN_OMEGA_COMPOSE_DIR, AIEN_OMEGA_DIR or AIEN_OMEGA_COMPOSE_LIB, building the stub
+   Compiling aien-cli v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.64s
+     Running unittests src/lib.rs (/home/drakestapleton/workspace/hive-worktrees/native-guest-access-724/target/debug/deps/aien_cli-1f935d6b820ea560)
+
+running 9 tests
+test browser_mirror::tests::base64_roundtrip ... ok
+test browser_mirror::tests::cleanup_with_inherited_ignored_sigchld ... ignored, explicit isolated inherited-SIGCHLD qualification
+test browser_mirror::tests::dropping_chrome_reaps_every_helper ... ok
+test browser_mirror::tests::exact_private_profile_identifies_a_task_without_its_tag ... ok
+test browser_mirror::tests::stale_candidates_and_exited_pidfds_cannot_signal_a_stranger ... ok
+test browser_mirror::tests::stub_page_screenshot_and_eval ... ok
+test browser_mirror::tests::tag_sweep_matches_only_its_own_tag ... ok
+test browser_mirror::tests::undetected_child_does_not_extend_drop_past_cleanup_deadline ... ok
+test browser_mirror::tests::unknown_action_is_an_error ... ok
+
+test result: ok. 8 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 6.00s
+

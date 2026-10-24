@@ -1,0 +1,11 @@
+   Compiling hyper-rustls v0.27.9
+   Compiling reqwest v0.12.28
+   Compiling spark-adapters v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/spark-adapters)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.94s
+     Running tests/tier1_features.rs (/home/drakestapleton/workspace/hive-worktrees/native-guest-access-724/target/debug/deps/tier1_features-ff1f4fa507a0e5f9)
+
+running 1 test
+test test_t1_f63_git_forgejo_remote_configured ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 68 filtered out; finished in 0.01s
+

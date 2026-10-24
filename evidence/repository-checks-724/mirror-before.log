@@ -1,0 +1,15 @@
+failures:
+
+---- test_t1_f63_git_forgejo_remote_configured stdout ----
+
+thread 'test_t1_f63_git_forgejo_remote_configured' (2895793) panicked at crates/spark-adapters/tests/tier1_features.rs:1025:5:
+forgejo remote must be configured for dual-push
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    test_t1_f63_git_forgejo_remote_configured
+
+test result: FAILED. 68 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.00s
+
+error: test failed, to rerun pass `-p spark-adapters --test tier1_features`

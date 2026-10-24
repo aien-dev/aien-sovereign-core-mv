@@ -1,0 +1,52 @@
+   Compiling aien-abi-conformance v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-abi-conformance)
+   Compiling aien-omega-dattn v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-omega-dattn)
+   Compiling aien-platform v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-platform)
+   Compiling aien-omega-moe v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-omega-moe)
+   Compiling aien-omega-dgraph v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-omega-dgraph)
+   Compiling aien-omega-router v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-omega-router)
+   Compiling aien-omega-pf v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-omega-pf)
+   Compiling aien-omega-fp8 v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-omega-fp8)
+   Compiling aien-omega-bf16 v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-omega-bf16)
+   Compiling aien-localhttp v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-localhttp)
+   Compiling aien-abi-core v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-abi-core)
+   Compiling aien-allen v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-allen)
+   Compiling aien-runtime v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-runtime)
+   Compiling aien-platform-linux v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-platform-linux)
+   Compiling aien-kv-store v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-kv-store)
+   Compiling aien-security v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-security)
+   Compiling aien-trace v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-trace)
+   Compiling aien-cli v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-cli)
+   Compiling spark-hive v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/spark-hive)
+   Compiling aien-kv-cache v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-kv-cache)
+   Compiling aien-allen-memory v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-allen-memory)
+   Compiling cortex-rs v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/cortex-rs)
+   Compiling aien-allen-profile v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-allen-profile)
+   Compiling aien-omega-gpu v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-omega-gpu)
+   Compiling aien-omega-compose v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-omega-compose)
+warning: aien-omega-gpu@0.1.0: aien-omega-gpu: no AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB, building the CPU stub
+warning: aien-omega-compose@0.1.0: aien-omega-compose: no AIEN_OMEGA_COMPOSE_DIR, AIEN_OMEGA_DIR or AIEN_OMEGA_COMPOSE_LIB, building the stub
+   Compiling aien-inference-abi v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-inference-abi)
+   Compiling aien-scheduler v0.1.0 (/home/drakestapleton/workspace/hive-worktrees/repository-checks-724/crates/aien-scheduler)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.22s
+     Running unittests src/lib.rs (/home/drakestapleton/workspace/hive-worktrees/native-guest-access-724/target/debug/deps/aien_cli-ce7770eb52f05214)
+
+running 1 test
+test browser_mirror::tests::stub_page_screenshot_and_eval ... FAILED
+
+failures:
+
+---- browser_mirror::tests::stub_page_screenshot_and_eval stdout ----
+
+thread 'browser_mirror::tests::stub_page_screenshot_and_eval' (2533447) panicked at crates/aien-cli/src/browser_mirror.rs:930:9:
+assertion `left == right` failed: {"error":"websocket read: Resource temporarily unavailable (os error 11)","mode":"screenshot","status":"error","title":"AIEN Stub"}
+  left: String("error")
+ right: "ok"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    browser_mirror::tests::stub_page_screenshot_and_eval
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 30.55s
+
+error: test failed, to rerun pass `-p aien-cli --lib`
