@@ -16,10 +16,12 @@ AIENOS.
 | `health.sh` | one-screen health (Forgejo, user, exec, crumb, home layout, caches, worktrees, scopes, disk, GPU lock, quiet flag) |
 | `gc.sh` | worktree age + target-dir quota cleanup, dry run by default |
 | `tests/run.sh` | proofs of the contract on this host (33 checks with two wt.sh worktrees present) |
-| `pipeline.sh` | ADR 0033 phase 3: publish verified bundles to aien-receipts, rerun the GitHub thin gate, merge `ready-to-merge` PRs behind guards |
-| `tests/pipeline_test.sh` | offline proofs of `pipeline.sh` with fake `gh`, fake `aien-test` and throwaway git repositories (76 checks) |
+| `pipeline.sh` | publish verified bundles to aien-receipts, merge `ready-to-merge` PRs that merge cleanly (no Spark gate), tag full-scope Spark PASS commits on main as `alpha/YYYYMMDD.N` |
+| `aien-alpha` | source of `~/.local/bin/aien-alpha`: cut an Alpha (full-scope Spark judge on a main commit, publish, tag); `aien-alpha list` |
+| `tests/pipeline_test.sh` | offline proofs of `pipeline.sh` with fake `gh`, fake `aien-test` and throwaway git repositories (75 checks) |
 | `rebase-train.sh` | moves `ready-to-merge` PRs that conflict only in `.crumb` files (or are behind) onto main, recompiles crumbs with the pinned tool, force-with-lease pushes; labels `needs-rebase` and comments once otherwise |
-| `cron-tick.sh` | source of the cron entry (`*/5`): keeps the worker lanes main, small, big and core alive, runs `rebase-train.sh`, then `pipeline.sh round` |
+| `cron-tick.sh` | source of the cron entry (`*/5`): crumb drift guard, keeps the trigger-only worker alive, runs `rebase-train.sh`, then `pipeline.sh round` |
+| `desk-loop.sh` | the same train + round in a 90 s loop while `$STATE/KEEP-RUNNING` exists |
 | `aien-local-ci` | source of the operator front door `~/.local/bin/aien-local-ci` (status, start/stop named worker lanes, trigger, verify, once, plan, health, log) |
 | `crumb-shim.sh` | the operator's `~/.local/bin/crumb`: runs the crumb tool the repository's own CRUMB-VERIFY gate uses (crumb.lock pin, own tree for aien-architecture, else the sandbox tool), so author, readiness check and gate never disagree |
 | `crumb-doctor` | drift check, cron (via cron-tick.sh): gate, readiness and hosted crumb tools agree on every main and tool-changing PR; worker sibling maps match origin/main; `--heal` keeps this clone's work tree on origin/main |
@@ -190,24 +192,44 @@ Accepted risks (recorded, not changed by this lane):
 * A run's HOME is read-only: a gate that writes to `$HOME` fails; write to `/tmp` (private for host|qemu) instead.
 * Worktree root dirs inherit setgid from the mirror layout (`drwxrwsr-t`); harmless.
 
-## Publish, rerun, merge (pipeline.sh, ADR 0033 phase 3)
+## Stages: merge, then Alpha (ADR 0033 amended 2026-10-24)
+
+Drake, 2026-10-24: "Lift the requirement to test on the Spark in order to be merged ... There should instead be tags
+that clearly label when a certain build gets to the Alpha stage. That is the stage that must be tested on the Spark.
+We must not limit our development process by these tests."
+
+| stage | what it takes | who does it |
+|---|---|---|
+| merge to `main` | label `ready-to-merge`, not a draft, merges without conflicts | `pipeline.sh merge` (cron) |
+| Alpha (`alpha/YYYYMMDD.N` tag on a main commit) | full-scope Spark qualification: every gate of the repository, GPU gates included, signed bundle PASS, `verify-bundle --require-full` exit 0 | `aien-alpha REPO` runs the judge; `pipeline.sh alpha` tags |
+
+No pull request is judged on the Spark, no status check is required on GitHub (the `main-protect` rulesets keep only
+no-deletion, no-force-push and PR-only), and nothing ever moves `main` except a PR merge. The hosted `AIEN` workflow
+is advisory on PRs (crumb verify, portable smoke set) and verifies every pushed `alpha/*` tag against its published
+bundle.
 
 ```
-tools/aien-local-ci/pipeline.sh publish|rerun|merge|round [--repos a,b]     # round = publish, rerun, merge
+aien-alpha aien-sovereign-core            # qualify origin/main's head; exit 0 only once it carries an alpha tag
+aien-alpha omega <sha-on-main>            # any commit already on main
+aien-alpha list                           # every repository's alpha tags, newest first
+```
+
+## Publish, merge, alpha (pipeline.sh)
+
+```
+tools/aien-local-ci/pipeline.sh publish|merge|alpha|round [--repos a,b]     # round = publish, merge, alpha
 bash tools/aien-local-ci/tests/pipeline_test.sh                           # offline proofs, a few seconds
 ```
 
-It never reads `~/.aien/verify.key` and never signs: it only moves bundles the worker already signed and asks
-GitHub to act. One instance at a time (`flock` on `$STATE/pipeline.lock`; a second one exits 0 at once). Every action
-and refusal is one JSON line in `$STATE/pipeline.jsonl`. Exit 0 when the round ran (refusals included), 2 on a usage
-or configuration error. Overrides: `AIEN_STATE`, `AIEN_CLONES`, `AIEN_RECEIPTS`, `AIEN_RECEIPTS_BRANCH`,
-`AIEN_TEST_BIN`, `AIEN_GH_OWNER` (default `aien-dev`), `AIEN_REPOS`, `GH`, `GIT`. GitHub calls use the canonical slug
-(`gh api repos/aien-dev/<repo> --jq .full_name`; on 2026-10-18 the names carry a `-mv` suffix, e.g.
-`aien-dev/aegis-runtime-mv`). The slug is cached on disk in `$STATE/slugs/<repo>` and used while younger than 24 h
-(`AIEN_SLUG_TTL`, seconds); older or missing means one refresh call, and when that call fails (for example an
-exhausted API limit) the older cached name is still used, so a round no longer refuses every PR with "cannot
-resolve GitHub slug" (19 such refusals on 2026-10-18). Each lookup journals `action=slug` with `result=cached`,
-`refreshed` or `stale-cache`; every name, cached or fresh, must match `owner/name`. No merge guard changed.
+It never reads `~/.aien/verify.key` and never signs: it only moves bundles the worker already signed, merges, and
+tags. One instance at a time (`flock` on `$STATE/pipeline.lock`; a second one exits 0 at once, or waits up to
+`AIEN_LOCK_WAIT` seconds when set, as `aien-alpha` does). Every action and refusal is one JSON line in
+`$STATE/pipeline.jsonl`. Exit 0 when the round ran (refusals included), 2 on a usage or configuration error.
+Overrides: `AIEN_STATE`, `AIEN_CLONES`, `AIEN_RECEIPTS`, `AIEN_RECEIPTS_BRANCH`, `AIEN_RECEIPTS_URL`, `AIEN_TEST_BIN`,
+`AIEN_GH_OWNER` (default `aien-dev`), `AIEN_REPOS`, `AIEN_TAGGER_NAME`, `AIEN_TAGGER_EMAIL`, `GH`, `GIT`. GitHub calls
+use the canonical slug (`gh api repos/aien-dev/<repo> --jq .full_name`; e.g. `aien-dev/aegis-runtime-mv`), cached in
+`$STATE/slugs/<repo>` for 24 h (`AIEN_SLUG_TTL`); a failed refresh falls back to the older cached name. Each lookup
+journals `action=slug` with `result=cached`, `refreshed` or `stale-cache`.
 
 * **publish**: for each `$STATE/bundles/<repo>/<sha>/bundle.json` of a repository whose trusted clone has a key in
   `origin/main:.aien/verify.pub` (several keys allowed, one per line, `#` comments, same rule as aien-test): skip when
@@ -215,22 +237,20 @@ resolve GitHub slug" (19 such refusals on 2026-10-18). Each lookup journals `act
   the path, once per key; publish when any key gives 0 PASS or 1 FAIL, never 2 NOT_RUN or 3 REJECTED. Publishing
   copies the bytes to `<receipts>/<repo>/<sha>/bundle.json` when absent or when its sha256 differs (replacement by
   digest), one commit per round listing every sha, then `pull --rebase` and push, 3 attempts, never forced. A failed
-  push drops only that round's own commit (`reset --hard origin/main` in the pipeline's receipts clone, which must be
-  clean and on its branch before the round starts, otherwise the round refuses); the next round recomputes it.
-* **rerun**: for each open PR whose head has a published bundle, once per (repo, sha, digest) recorded in
-  `$STATE/pipeline-reruns`: the latest `AIEN Verification` run for that head is rerun when it is completed and its
-  latest attempt started (`run_started_at`, else `created_at`) before the publication (push time in
-  `$STATE/pipeline-published`, else the receipts commit time). A queued or running run waits for a later round.
-* **merge**: only open PRs labeled exactly `ready-to-merge`, not draft, mergeable state not `dirty`, head unchanged
-  since listing. All guards required: the local bundle for the head exists; its sha256 equals the published copy at
-  receipts `origin/main`; `verify-bundle` exits 0 with a key from `origin/<base>:.aien/verify.pub` and `--require`
-  from `origin/<base>:.aien/always` (as the thin gate does); the base branch has required status checks and every one
-  is present on the head with only `success` (check runs and commit statuses); no `AIEN Verification` run for the head
-  is queued or in progress. Then `gh pr merge N -R <slug> --merge --match-head-commit <sha>`. Never `--admin`. A base
-  branch without required status checks (or whose protection cannot be read) is refused, not merged.
+  push drops only that round's own commit; the next round recomputes it.
+* **merge**: open PRs labeled exactly `ready-to-merge`, not draft, head unchanged since listing, GitHub mergeable
+  state `clean`, `unstable` (some non-required check failed), `behind` or `has_hooks`. `dirty` (conflicts) and
+  `blocked` are refused, `unknown` waits for a later round. Then `gh pr merge N -R <slug> --merge
+  --match-head-commit <sha>`. Never `--admin`. No bundle, no status check, no up-to-date rule, no limit per round.
+* **alpha**: per repository, the bundles in receipts `origin/main` whose signed plan says `"scope": "full"` (one
+  `git grep`), restricted to commits on the trusted clone's `origin/main`; the newest by committer time that
+  `verify-bundle --require-full --require <origin/main:.aien/always>` passes (exit 0) is the candidate. It is tagged
+  unless it already has an `alpha/*` tag or the newest existing `alpha/*` tag already contains it. The tag is
+  annotated, named `alpha/<UTC date>.<n>` (n from 1 per day), and its message names the commit, the bundle sha256
+  and the receipt URL; it is pushed with git. A failed push deletes the local tag. Never moves a branch.
 
 Merge pause: while `$STATE/MERGE-PAUSE` exists (Drake, 2026-10-18: "stop all agents from trying to merge"), the
-merge step journals `result=paused` and merges nothing; publish and rerun keep running. `rebase-train.sh` keeps
+merge step journals `result=paused` and merges nothing; publish and alpha keep running. `rebase-train.sh` keeps
 rebasing (that is not merging) and never adds `ready-to-merge` or enables auto-merge, paused or not. No script creates
 or deletes the file: only Drake lifts the pause.
 
@@ -288,30 +308,14 @@ Installed as `~/.local/lib/aien-local-ci/cron-tick.sh` with one crontab line (no
 */5 * * * * $HOME/.local/lib/aien-local-ci/cron-tick.sh >> $HOME/.local/state/aien-local-ci/cron-tick.log 2>&1
 ```
 
-Each tick: keep the four worker lanes alive (each `start` is a no-op while that lane runs), `rebase-train.sh`,
-`pipeline.sh round`. Every 5 minutes, not 2: the 2-minute round plus the worker's polling used up the shared 5000/h
-GitHub API limit on 2026-10-18. `touch ~/.local/state/aien-local-ci/PAUSE` stops the tick.
+Each tick: the crumb drift guard, `aien-local-ci start` (a trigger-only worker: no `--github`, so no pull request is
+polled, judged or given a status; a no-op while it runs), `rebase-train.sh`, `pipeline.sh round`. With
+`$STATE/KEEP-RUNNING` present, `desk-loop.sh` runs the train and the round every 90 s instead.
+`touch ~/.local/state/aien-local-ci/PAUSE` stops the tick.
 
-Worker lanes: the same `aien-test worker` binary and arguments (`--poll 60 --github --sandbox user`, same state dir
-and clones), each lane its own process, repo list, pidfile and log:
-
-| lane | started by the tick with | pidfile, log |
-|---|---|---|
-| `main` | `aien-local-ci start --github` (aienos, synapse, interplane: the default `AIEN_REPOS` of the wrapper) | `$STATE/worker.pid`, `$STATE/worker.log` |
-| `small` | `aien-local-ci start --github --lane small --repos physics,aien-protocols,aegis-runtime,spark-rsi,aien-architecture,benchmarks` | `$STATE/worker-small.pid`, `$STATE/worker-small.log` |
-| `big` | `aien-local-ci start --github --lane big --repos omega,aien-sovereign-core` | `$STATE/worker-big.pid`, `$STATE/worker-big.log` |
-| `core` | `aien-local-ci start --github --lane core --repos aien-sovereign-core` | `$STATE/worker-core.pid`, `$STATE/worker-core.log` |
-
-Any other lane name works the same way (`--lane NAME --repos LIST`, files `worker-NAME.pid`, `worker-NAME.log`).
-Why: one worker is one serial queue. On 2026-10-18 a 45 to 60 minute aienos, sovereign-core or omega job starved the
-small repos ("no local bundle for head" on 11 ready PRs), and the main lane sat on one aienos head for over 30 minutes
-while nine freshly rebased omega and sovereign-core heads waited; `core` keeps sovereign-core heads from waiting behind
-omega GPU gates in `big`. The lists do not overlap except sovereign-core in `big` and `core` (overlapping lanes polled
-the same repos twice, about 59 GitHub requests a minute in all, measured 2026-10-18), so a sovereign-core head can
-occasionally run in two lanes; the per-target lock serialises that. A lane started by hand is adopted, not started twice: when the
-pidfile's pid is gone, `start` and `stop` look for a running `aien-test worker` of this user whose `--state-dir` and
-`--repos` are exactly the lane's (read from `/proc/<pid>/cmdline`) and rewrite the pidfile. `aien-local-ci stop
-[--lane NAME]` stops one lane.
+The Spark judges two kinds of work only: Alpha candidates (`aien-alpha`, foreground `worker --once --full
+--operator`) and trigger files written by hand (`aien-local-ci trigger REPO SHA`). The per-PR worker lanes of
+2026-10-18 (`--github`, lanes main/small/big/core) are retired with the merge gate they fed.
 
 ## Operate
 
