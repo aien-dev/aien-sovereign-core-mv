@@ -18,7 +18,8 @@
 //!
 //! It reads the signed bundle the worker wrote, checks it against the public
 //! keys the repository committed at BASE (`.aien/verify.pub`, one hex key per
-//! line), recomputes the plan for BASE..COMMIT and compares the graph digest,
+//! line), recomputes the plan for BASE..COMMIT in the scope the bundle signs
+//! (`plan.scope`: full or changed) and compares the graph digest,
 //! checks that every `run` entry has its receipt on disk, judges the verdict
 //! with the planner's algebra, asks `crumb verify` about the tree at COMMIT,
 //! and prints the fixed report block. Exit 0 only on MERGE ELIGIBILITY READY.
@@ -359,23 +360,6 @@ pub fn run(root: &Path, ask: &Ask) -> Report {
         }
     };
 
-    // The plan, fresh.
-    let plan: Option<Plan> = match (&base, commit_ok) {
-        (Some(b), true) => {
-            let mut req = Request::new(b, &commit);
-            req.operator = ask.operator;
-            req.hardware_identity = ask.hardware_identity.clone();
-            match plan::compute(root, &req) {
-                Ok(p) => Some(p),
-                Err(e) => {
-                    problems.push(format!("cannot plan: {e}"));
-                    None
-                }
-            }
-        }
-        _ => None,
-    };
-
     // The bundle.
     let bundle_path = ask.state.bundle_path(&repo, &commit);
     let bundle: Option<Value> = match fs::read(&bundle_path) {
@@ -390,6 +374,28 @@ pub fn run(root: &Path, ask: &Ask) -> Report {
             problems.push(format!("no bundle at {}", bundle_path.display()));
             None
         }
+    };
+
+    // The plan, fresh, in the scope the bundle says the worker planned
+    // (`plan.scope`, signed: a forged scope fails the signature below).
+    let full = bundle
+        .as_ref()
+        .is_some_and(|b| bundle::scope_of(b) == bundle::SCOPE_FULL);
+    let plan: Option<Plan> = match (&base, commit_ok) {
+        (Some(b), true) => {
+            let mut req = Request::new(b, &commit);
+            req.operator = ask.operator;
+            req.full = full;
+            req.hardware_identity = ask.hardware_identity.clone();
+            match plan::compute(root, &req) {
+                Ok(p) => Some(p),
+                Err(e) => {
+                    problems.push(format!("cannot plan: {e}"));
+                    None
+                }
+            }
+        }
+        _ => None,
     };
 
     // Keys at BASE (A1, A7): pick the one the bundle names; otherwise UNKNOWN_KEY.
@@ -429,6 +435,7 @@ pub fn run(root: &Path, ask: &Ask) -> Report {
                 commit: commit.clone(),
                 pubkey_hex: key,
                 required: required.clone(),
+                require_full: false,
             };
             match bundle::verify(b, &expect) {
                 Ok(v) => {

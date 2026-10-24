@@ -9,12 +9,12 @@ status when it can be reached; it is never asked for permission.
 
 | Command | What it does | Exit |
 |---|---|---|
-| `aien-test plan [--base REF] [--repo NAME] [--operator] [--allow-dirty]` | Which gates BASE..HEAD needs, by section, with the graph digest. BASE defaults to `origin/main`, then `main`. | 0 runnable, 2 NOT_RUN (unmapped path or removed gate), 4 BLOCKED_OPERATOR |
+| `aien-test plan [--base REF] [--repo NAME] [--operator] [--allow-dirty] [--full]` | Which gates BASE..HEAD needs, by section, with the graph digest. BASE defaults to `origin/main`, then `main`. `--full`: every gate at HEAD (see "Full scope" below). | 0 runnable, 2 NOT_RUN (unmapped path or removed gate), 4 BLOCKED_OPERATOR |
 | `aien-test test changed [--base REF]` | Prints the plan, then runs the non-blocked selection through the normal runner. | the campaign verdict (PASS 0, FAIL 1, NOT_RUN 2, BLOCKED 3/4, MISSING 5) |
 | `aien-test test crate:NAME` | The gates covering a workspace crate (from `cargo metadata`) and every crate that depends on it. | campaign verdict |
 | `aien-test status [--state-dir DIR]` | Pools, GPU lock holder, aien-proof slots, quiet flag, worker heartbeat, pending triggers and outbox, newest bundle per repository. Read-only. | 0 |
 | `aien-test verify COMMIT [--repo NAME] [--base REF] [--state-dir DIR] [--release]` | The independent check of a bundle, printed as the fixed report block below. | 0 only on `MERGE ELIGIBILITY: READY`, else 1 |
-| `aien-test worker [--once REPO SHA] [--poll SECS] [--repos A,B] [--github] [--iterations N] [--state-dir DIR] [--key FILE] [--clones DIR] [--wt-root DIR] [--wt-tool FILE] [--base REF] [--sandbox user\|none --dev-unsandboxed]` | The trusted worker: one head with `--once`, or the loop. Runs gates in the user sandbox unless told otherwise. | `--once`: the plan verdict; loop: 0; 2 on a refused sandbox mode |
+| `aien-test worker [--once REPO SHA] [--full] [--poll SECS] [--repos A,B] [--github] [--iterations N] [--state-dir DIR] [--key FILE] [--clones DIR] [--wt-root DIR] [--wt-tool FILE] [--base REF] [--sandbox user\|none --dev-unsandboxed]` | The trusted worker: one head with `--once`, or the loop. Runs gates in the user sandbox unless told otherwise. `--full`: an Alpha qualification (see "Full scope" below). | `--once`: the plan verdict; loop: 0; 2 on a refused sandbox mode |
 | `aien-test run GATE --sandbox user`, `aien-test test ... --sandbox user` | Any run, with every gate program started through the exec helper. | as before |
 
 `--release` (run, test, verify): qualification mode. No cache reuse, the tree
@@ -445,6 +445,32 @@ pins, siblings and worktree removal are done one head at a time.
 with the gate verdict, not the raw algebra: a bundle with no required check,
 or whose signed `plan.verdict` is not PASS, is `NOT_RUN` (exit 2) with the
 reason in brackets, even though its `verdict` member says PASS.
+
+## Full scope: Alpha qualification
+
+A commit already on main becomes an Alpha when the Spark judge runs every
+gate on it, not only the gates its diff selects. `aien-test worker --once
+REPO SHA --full` plans in full scope: every gate at HEAD is selected (the
+same set as `test ./...`), so every non-advisory gate is required, gb10 and
+Spark gates included, and the worker runs them all (the sections still say
+which need the chip). What changed only labels the entries (`because`);
+UNMAPPED_PATH and GATE_REMOVED do not apply. PIPELINE_CONFIG_CHANGED and
+operator gates keep their rules (`--operator`). `aien-test plan --full`
+prints the same selection with a `Scope: full` line.
+
+The bundle's signed `plan` object carries `"scope": "full"` or
+`"scope": "changed"`; a bundle without the member is `changed`, so older
+bundles stay valid. `aien-test verify` plans in the scope the bundle signs.
+`verify-bundle ... --require-full` exits 3 (REJECTED) unless that scope is
+`full`:
+
+```
+AIEN Verification: REJECTED NOT_FULL_SCOPE: plan scope is changed, not a full-scope (Alpha) qualification
+```
+
+The full-scope bundle is written to the head's usual bundle path. The loop
+skips any head that already has a bundle, whatever its scope, so an Alpha
+of a head the loop already judged is run with `--once --full`.
 
 ## The verify report
 
