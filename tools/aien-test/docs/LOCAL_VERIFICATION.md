@@ -255,9 +255,11 @@ The one rule:
    commit runs again with every sibling at the same commit; a sibling that
    moved runs every gate fresh. A declared sibling that cannot be made turns
    the cache off for the head (`no_cache`). Results are never reused across
-   commits in the worker: gates read files they do not declare as `inputs`
-   (SC-TEST reads the root `README.md` and `COVENANT.md`), so a key built
-   from declared inputs alone could hand a commit another commit's PASS.
+   commits, in the worker or in a direct `aien-test run`: gates read files
+   they do not declare as `inputs` (SC-TEST reads the root `README.md` and
+   `COVENANT.md`), so a key built from declared inputs alone could hand a
+   commit another commit's PASS. A receipt stands only for the commit it was
+   made at; `why` reports such a receipt as "made at another commit".
 
 `wt.sh remove` takes the whole run directory away (checkout and siblings)
 and prunes every mirror's worktree list. An older `wt.sh` that still makes
