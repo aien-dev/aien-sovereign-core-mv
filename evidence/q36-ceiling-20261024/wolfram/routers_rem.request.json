@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"WolframLanguageEvaluator","arguments":{"code":"2463621120 - 30*33886592 - 10*27267328 - 40*8*3146112 - 40*3150208"}}}
