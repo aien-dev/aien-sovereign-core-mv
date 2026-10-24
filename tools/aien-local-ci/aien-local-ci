@@ -37,7 +37,9 @@ while [[ $cmd == start || $cmd == stop ]] && [[ $# -gt 0 ]]; do
     *) args+=("$1"); shift ;;
   esac
 done
-set -- ${args[@]+"${args[@]}"}
+if [[ $cmd == start || $cmd == stop ]]; then
+  set -- ${args[@]+"${args[@]}"}
+fi
 [[ $lane =~ ^[a-z][a-z0-9-]{0,30}$ ]] || { echo "bad lane name '$lane'" >&2; exit 2; }
 [[ -z $lane_repos || $lane_repos =~ ^[A-Za-z0-9._-]+(,[A-Za-z0-9._-]+)*$ ]] || { echo "bad --repos '$lane_repos'" >&2; exit 2; }
 if [[ $lane == main ]]; then PIDFILE=$STATE/worker.pid LOG=$STATE/worker.log LANE_REPOS=${lane_repos:-$REPOS}
