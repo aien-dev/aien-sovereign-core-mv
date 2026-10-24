@@ -355,6 +355,14 @@ impl Qwen38Omega {
         // SAFETY: every handle is live and owned by the returned struct, which drops the graph first.
         let mut graph =
             unsafe { Q36Graph::create_heads(&cfg, heads) }.map_err(gpu("q36 graph create"))?;
+        // L310 merge-train proof line. The omega graph (omega_gpu_q36_graph.c) keeps its chip-only intermediates
+        // GPU-L2-cached unless AIEN_OMEGA_Q36_BUF_CACHED is exactly "0"; it reads the switch itself at alloc.
+        // Mirror the switch here so the server log states which interior policy this process asked for.
+        let interior = match std::env::var("AIEN_OMEGA_Q36_BUF_CACHED") {
+            Ok(v) if v == "0" => "GPU-uncached (AIEN_OMEGA_Q36_BUF_CACHED=0)",
+            _ => "GPU-cached (default)",
+        };
+        eprintln!("qwen36 omega: interior buffers {interior}");
         for h in 1..heads {
             // SAFETY: the states live in `gdns` / `attns`, owned beside the graph (dropped after it).
             unsafe {
