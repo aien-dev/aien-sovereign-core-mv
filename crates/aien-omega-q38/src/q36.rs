@@ -6,9 +6,9 @@
 //! handles of a [`crate::Gdn`] (ratio 2), an [`crate::Attn256Cache`] (shape 16 / 2 / 4), an
 //! `aien_omega_router::Router` (shape 256 + 1 shared, every layer and directory set) and the FP8 /
 //! bf16 tensors, which must outlive the graph and not be used concurrently with a token.
-use crate::{bad, check_len, GraphStats};
 #[cfg(has_omega_q36)]
 use crate::session_err;
+use crate::{bad, check_len, GraphStats};
 use aien_omega_gpu::OmegaGpuError;
 use std::ffi::c_void;
 use std::fmt;
@@ -147,11 +147,22 @@ mod ffi {
         ) -> i32;
         pub fn omega_gpu_q36_graph_kind_name(kind: u8) -> *const std::ffi::c_char;
         pub fn omega_gpu_q36_graph_test_set_mutant(g: *mut OmegaGpuQ36Graph, mutant: i32);
-        pub fn omega_gpu_q36_graph_set_exact_head(g: *mut OmegaGpuQ36Graph, screen: *const c_void, coef: *const f32) -> i32;
+        pub fn omega_gpu_q36_graph_set_exact_head(
+            g: *mut OmegaGpuQ36Graph,
+            screen: *const c_void,
+            coef: *const f32,
+        ) -> i32;
         pub fn omega_gpu_q36_graph_set_exact_head_on(g: *mut OmegaGpuQ36Graph, on: i32);
         pub fn omega_gpu_q36_graph_exact_head_active(g: *const OmegaGpuQ36Graph) -> i32;
-        pub fn omega_gpu_q36_graph_set_head_exact_head_on(g: *mut OmegaGpuQ36Graph, head: u32, on: i32);
-        pub fn omega_gpu_q36_graph_exact_head_active_head(g: *const OmegaGpuQ36Graph, head: u32) -> i32;
+        pub fn omega_gpu_q36_graph_set_head_exact_head_on(
+            g: *mut OmegaGpuQ36Graph,
+            head: u32,
+            on: i32,
+        );
+        pub fn omega_gpu_q36_graph_exact_head_active_head(
+            g: *const OmegaGpuQ36Graph,
+            head: u32,
+        ) -> i32;
     }
 }
 
@@ -353,7 +364,9 @@ impl Q36Graph {
     /// L369 prefill: sizes the chunk buffers for up to `cap` tokens (1..=[`PREFILL_MAX_ROWS`]).
     pub fn prefill_alloc(&mut self, cap: usize) -> Result<(), OmegaGpuError> {
         if cap == 0 || cap > PREFILL_MAX_ROWS {
-            return Err(bad(format!("q36 graph: prefill cap {cap} (1..={PREFILL_MAX_ROWS})")));
+            return Err(bad(format!(
+                "q36 graph: prefill cap {cap} (1..={PREFILL_MAX_ROWS})"
+            )));
         }
         #[cfg(has_omega_q36)]
         {
@@ -381,10 +394,14 @@ impl Q36Graph {
     ) -> Result<(Option<u32>, GraphStats), OmegaGpuError> {
         let n = x_embed.len() / HIDDEN;
         if head >= self.heads || n == 0 {
-            return Err(bad(format!("q36 graph: prefill head {head} of {}, {n} tokens", self.heads)));
+            return Err(bad(format!(
+                "q36 graph: prefill head {head} of {}, {n} tokens",
+                self.heads
+            )));
         }
         check_len("q36 graph prefill x_embed", HIDDEN * n, x_embed.len())?;
-        let pos0 = u32::try_from(pos0).map_err(|_| bad(format!("q36 graph: pos {pos0} too large")))?;
+        let pos0 =
+            u32::try_from(pos0).map_err(|_| bad(format!("q36 graph: pos {pos0} too large")))?;
         #[cfg(has_omega_q36)]
         {
             let mut token = 0u32;
@@ -620,14 +637,19 @@ impl Q36Graph {
     ///
     /// # Safety
     /// `screen` is null or a live `OmegaGpuFp8Tensor` that outlives every later token of this graph.
-    pub unsafe fn set_exact_head(&mut self, screen: *mut c_void, coef: &[f32]) -> Result<(), OmegaGpuError> {
+    pub unsafe fn set_exact_head(
+        &mut self,
+        screen: *mut c_void,
+        coef: &[f32],
+    ) -> Result<(), OmegaGpuError> {
         if !screen.is_null() {
             check_len("q36 graph exact head coef", self.vocab, coef.len())?;
         }
         #[cfg(has_omega_q36)]
         {
             // SAFETY: ptr is live; screen per the caller's contract; coef holds vocab f32 (checked).
-            let rc = unsafe { ffi::omega_gpu_q36_graph_set_exact_head(self.ptr, screen, coef.as_ptr()) };
+            let rc =
+                unsafe { ffi::omega_gpu_q36_graph_set_exact_head(self.ptr, screen, coef.as_ptr()) };
             if rc != 0 {
                 return Err(session_err("q36 graph set_exact_head", rc));
             }
@@ -783,7 +805,12 @@ impl Q36Graph {
             let mut kinds = vec![0u8; cap as usize + 1];
             // SAFETY: ptr is live; both buffers hold cap + 1 entries.
             let n = unsafe {
-                ffi::omega_gpu_q36_graph_stamps(self.ptr, stamps.as_mut_ptr(), kinds.as_mut_ptr(), cap + 1)
+                ffi::omega_gpu_q36_graph_stamps(
+                    self.ptr,
+                    stamps.as_mut_ptr(),
+                    kinds.as_mut_ptr(),
+                    cap + 1,
+                )
             };
             if n < 0 {
                 return Err(session_err("q36 graph stamps", n));
@@ -840,7 +867,9 @@ pub fn kind_name(kind: u8) -> String {
         let p = unsafe { ffi::omega_gpu_q36_graph_kind_name(kind) };
         if !p.is_null() {
             // SAFETY: non-null static string.
-            return unsafe { std::ffi::CStr::from_ptr(p) }.to_string_lossy().into_owned();
+            return unsafe { std::ffi::CStr::from_ptr(p) }
+                .to_string_lossy()
+                .into_owned();
         }
     }
     format!("kind{kind}")

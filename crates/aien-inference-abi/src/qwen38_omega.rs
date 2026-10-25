@@ -212,7 +212,10 @@ impl Qwen38Snapshot {
         if let Some(i) = a.zip(b).position(|(x, y)| x.to_bits() != y.to_bits()) {
             return Some(i);
         }
-        let (na, nb) = (self.tails.len() + self.states.len(), o.tails.len() + o.states.len());
+        let (na, nb) = (
+            self.tails.len() + self.states.len(),
+            o.tails.len() + o.states.len(),
+        );
         (na != nb || self.pos != o.pos).then_some(na.min(nb))
     }
 }

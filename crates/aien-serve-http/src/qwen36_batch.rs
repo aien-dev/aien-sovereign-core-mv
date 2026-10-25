@@ -1044,7 +1044,10 @@ impl<S: RowStep> Scheduler<S> {
         row.last_used = self.beat;
         // The state is unknown after a failed step, and deliberately wrong after a negative
         // control (a mutant, or a traded row): no later request may reuse it, live or copied.
-        if err.is_some() || a.job.test.mutant.is_some_and(|m| m != 0) || a.job.test.row_swap.is_some() {
+        if err.is_some()
+            || a.job.test.mutant.is_some_and(|m| m != 0)
+            || a.job.test.row_swap.is_some()
+        {
             row.history.clear();
             row.snap_tokens.clear();
         }

@@ -56,7 +56,9 @@ fn first_bit_diff(a: &[f32], b: &[f32]) -> Option<usize> {
     if a.len() != b.len() {
         return Some(a.len().min(b.len()));
     }
-    a.iter().zip(b).position(|(x, y)| x.to_bits() != y.to_bits())
+    a.iter()
+        .zip(b)
+        .position(|(x, y)| x.to_bits() != y.to_bits())
 }
 
 /// Head 1's state as a snapshot: the snapshot reads slot 0, so the slots trade places around it.
@@ -107,7 +109,8 @@ fn one(m: &mut Qwen38Omega, prompt: &[u32], chunk: usize, decode: usize) -> Resu
         }
         (a, b) = (out[0], out[1]);
     }
-    let pass = next_a == next_b && logits_diff.is_none() && state_diff.is_none() && decode_diff.is_none();
+    let pass =
+        next_a == next_b && logits_diff.is_none() && state_diff.is_none() && decode_diff.is_none();
     let rec = json!({
         "len": n, "chunk": chunk, "chunks": chunks, "pass": pass,
         "token_by_token_ms": ms_a, "chunked_ms": ms_b,
@@ -156,9 +159,18 @@ fn profile(m: &mut Qwen38Omega, prompt: &[u32], chunk: usize) -> Result<(), Stri
     }
     per.sort_by(|a, b| b.1.cmp(&a.1));
     let span: u64 = tl.iter().map(|e| e.1).sum();
-    eprintln!("profile: {} tokens, wall {wall:.1} ms, {} launches, stamp span {:.1} ms", prompt.len(), tl.len(), span as f64 / 1e6);
+    eprintln!(
+        "profile: {} tokens, wall {wall:.1} ms, {} launches, stamp span {:.1} ms",
+        prompt.len(),
+        tl.len(),
+        span as f64 / 1e6
+    );
     for (name, ns, c) in per {
-        eprintln!("  {name:<12} {:>8.2} ms {:>5.1}%  {c} launches", ns as f64 / 1e6, 100.0 * ns as f64 / span as f64);
+        eprintln!(
+            "  {name:<12} {:>8.2} ms {:>5.1}%  {c} launches",
+            ns as f64 / 1e6,
+            100.0 * ns as f64 / span as f64
+        );
     }
     Ok(())
 }
@@ -170,7 +182,11 @@ fn run(args: &[String]) -> Result<bool, String> {
     let dir = Path::new(&args[1]);
     let lens: Vec<usize> = args[3]
         .split(',')
-        .map(|s| s.trim().parse::<usize>().map_err(|e| format!("len {s}: {e}")))
+        .map(|s| {
+            s.trim()
+                .parse::<usize>()
+                .map_err(|e| format!("len {s}: {e}"))
+        })
         .collect::<Result<_, _>>()?;
     let chunk: usize = args[4].parse().map_err(|e| format!("chunk: {e}"))?;
     let decode: usize = args[5].parse().map_err(|e| format!("decode: {e}"))?;
@@ -186,7 +202,10 @@ fn run(args: &[String]) -> Result<bool, String> {
     // the attention cache holds whole score passes of 256 positions
     let max_pos = (max_len + decode + 1).next_multiple_of(256);
     let mut m = Qwen38Omega::open_window_heads(dir, 0, count, max_pos, 2)?;
-    eprintln!("loaded {count} layers in {:.1} s", t.elapsed().as_secs_f64());
+    eprintln!(
+        "loaded {count} layers in {:.1} s",
+        t.elapsed().as_secs_f64()
+    );
     let mut runs = Vec::new();
     let mut all = true;
     for &len in &lens {
@@ -199,8 +218,11 @@ fn run(args: &[String]) -> Result<bool, String> {
     }
     let mutant = std::env::var("AIEN_OMEGA_Q36_PF_MUTANT").unwrap_or_default();
     let rec = json!({ "gate": "qwen36_prefill_gate", "pass": all, "layers": count, "mutant": mutant, "runs": runs });
-    std::fs::write(out, serde_json::to_string_pretty(&rec).map_err(|e| e.to_string())? + "\n")
-        .map_err(|e| format!("{out}: {e}"))?;
+    std::fs::write(
+        out,
+        serde_json::to_string_pretty(&rec).map_err(|e| e.to_string())? + "\n",
+    )
+    .map_err(|e| format!("{out}: {e}"))?;
     eprintln!("{}", if all { "GATE PASS" } else { "GATE FAIL" });
     Ok(all)
 }
