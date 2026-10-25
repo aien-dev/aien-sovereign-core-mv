@@ -82,7 +82,7 @@ jobs:
         if: matrix.native_engine
         uses: actions/checkout@v4
         with:
-          repository: aien-spark/aienos
+          repository: aien-dev/aienux
           ref: ${{ steps.physpin.outputs.aienos }}
           path: aienos
 
