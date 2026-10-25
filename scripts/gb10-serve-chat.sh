@@ -37,15 +37,16 @@
 # Every other problem is a FAIL. Observations: build_rc, engine_native, mem_available_mib,
 # chip_lock, serve_rc, reply_ok, reply_chars, completion_tokens, shutdown_clean.
 #
-# Settings: MODEL_DIR (default $HOME/models/qwen3.8-27b-fp8-017b9c7a; in the user sandbox the
-# operator's ~/models is mounted read-only at $HOME/models), READY_TIMEOUT (default 2400 s, as
+# Settings: MODEL_DIR (default $AIEN_MODELS_DIR/qwen3.8-27b-fp8-017b9c7a, else $HOME/models/...;
+# tests/gates/run.sh sets AIEN_MODELS_DIR to the sandbox home's read-only models/ mount because it
+# gives each step a fresh writable HOME), READY_TIMEOUT (default 2400 s, as
 # tools/serve-27b.sh), STOP_TIMEOUT (default 900 s).
 set -uo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT" || exit 3
 ENV_SH=${1:?usage: scripts/gb10-serve-chat.sh <pins env.sh>}
 TARGET=${CARGO_TARGET_DIR:-$ROOT/target}
-MODEL_DIR=${MODEL_DIR:-$HOME/models/qwen3.8-27b-fp8-017b9c7a}
+MODEL_DIR=${MODEL_DIR:-${AIEN_MODELS_DIR:-$HOME/models}/qwen3.8-27b-fp8-017b9c7a}
 MODEL_ID=qwen3.8-27b-fp8
 READY_TIMEOUT=${READY_TIMEOUT:-2400}
 STOP_TIMEOUT=${STOP_TIMEOUT:-900}
