@@ -578,33 +578,6 @@ impl Qwen38Omega {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn chunk_lengths_cover_and_respect_the_minimum() {
-        for n in 3..200 {
-            for chunk in [6, 7, 16, 64] {
-                let c = chunk_lengths(n, chunk);
-                assert_eq!(c.iter().sum::<usize>(), n, "n {n} chunk {chunk}");
-                assert!(
-                    c.iter().all(|&m| (q::GDN_PF_MIN_T..=chunk).contains(&m)),
-                    "n {n} chunk {chunk}: {c:?}"
-                );
-            }
-        }
-        assert_eq!(chunk_lengths(130, 64), vec![64, 63, 3]);
-        assert_eq!(chunk_lengths(129, 64), vec![64, 62, 3]);
-        assert_eq!(chunk_lengths(131_072, 4096).len(), 32);
-    }
-
-    #[test]
-    fn argmax_takes_the_first_maximum() {
-        assert_eq!(argmax(&[0.0, 2.0, 1.0, 2.0]), 1);
-    }
-}
-
 /// Prompt tokens per 35B prefill chunk (`AIEN_Q36_PREFILL_CHUNK`, default the graph's most,
 /// [`q::q36::PREFILL_MAX_ROWS`]); 0 = token by token through the decode graph.
 pub fn q36_prefill_chunk() -> Result<usize, String> {
@@ -694,5 +667,32 @@ impl Qwen38Omega {
         }
         *self.head_pos_mut(head)? = pos;
         Ok((next, n_chunks))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chunk_lengths_cover_and_respect_the_minimum() {
+        for n in 3..200 {
+            for chunk in [6, 7, 16, 64] {
+                let c = chunk_lengths(n, chunk);
+                assert_eq!(c.iter().sum::<usize>(), n, "n {n} chunk {chunk}");
+                assert!(
+                    c.iter().all(|&m| (q::GDN_PF_MIN_T..=chunk).contains(&m)),
+                    "n {n} chunk {chunk}: {c:?}"
+                );
+            }
+        }
+        assert_eq!(chunk_lengths(130, 64), vec![64, 63, 3]);
+        assert_eq!(chunk_lengths(129, 64), vec![64, 62, 3]);
+        assert_eq!(chunk_lengths(131_072, 4096).len(), 32);
+    }
+
+    #[test]
+    fn argmax_takes_the_first_maximum() {
+        assert_eq!(argmax(&[0.0, 2.0, 1.0, 2.0]), 1);
     }
 }

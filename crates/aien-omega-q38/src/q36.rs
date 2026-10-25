@@ -335,7 +335,10 @@ impl Q36Graph {
             Ok((tokens, st))
         }
         #[cfg(not(has_omega_q36))]
-        Err(OmegaGpuError::Unavailable)
+        {
+            let _ = pos;
+            Err(OmegaGpuError::Unavailable)
+        }
     }
 
     /// L369 prefill: the chunk size the buffers hold (0 before [`Self::prefill_alloc`]).
@@ -425,7 +428,10 @@ impl Q36Graph {
             Ok((want_token.then_some(token), st))
         }
         #[cfg(not(has_omega_q36))]
-        Err(OmegaGpuError::Unavailable)
+        {
+            let _ = (pos0, want_token);
+            Err(OmegaGpuError::Unavailable)
+        }
     }
 
     /// As [`Self::read`], for head `head` of the last stroke.

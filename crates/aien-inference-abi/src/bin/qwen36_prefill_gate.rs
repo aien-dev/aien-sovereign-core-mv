@@ -157,7 +157,7 @@ fn profile(m: &mut Qwen38Omega, prompt: &[u32], chunk: usize) -> Result<(), Stri
             None => per.push((name, d, 1)),
         }
     }
-    per.sort_by(|a, b| b.1.cmp(&a.1));
+    per.sort_by_key(|e| std::cmp::Reverse(e.1));
     let span: u64 = tl.iter().map(|e| e.1).sum();
     eprintln!(
         "profile: {} tokens, wall {wall:.1} ms, {} launches, stamp span {:.1} ms",

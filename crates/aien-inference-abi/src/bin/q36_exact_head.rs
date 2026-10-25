@@ -200,8 +200,10 @@ fn read_records(path: &str, k: usize) -> Result<Vec<Record>, String> {
             next: u(&r[8..12]),
             full: u(&r[12..16]),
             h: r[16..]
-                .chunks_exact(4)
-                .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|b| f32::from_le_bytes(*b))
                 .collect(),
         })
         .collect())

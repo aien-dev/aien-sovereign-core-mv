@@ -1383,7 +1383,7 @@ mod tests {
                 m.fp8(&format!("{a}.out_proj.weight"), h, c.lin_value_dim());
             }
             let mp = format!("{lp}.mlp");
-            let mut ffn = |m: &mut Mem, p: &str, inter: usize| {
+            let ffn = |m: &mut Mem, p: &str, inter: usize| {
                 m.fp8(&format!("{p}.gate_proj.weight"), inter, h);
                 m.fp8(&format!("{p}.up_proj.weight"), inter, h);
                 m.fp8(&format!("{p}.down_proj.weight"), h, inter);

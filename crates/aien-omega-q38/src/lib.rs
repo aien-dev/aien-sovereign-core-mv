@@ -408,16 +408,22 @@ mod ffi {
     }
 }
 
-/// omega's own gather table (`omega_q38_gather_table`), for checking [`gather_table`].
 /// L803 (2026-10-24): positions per CTA of the single-row decode attention launch, process-wide (0 = the compiled
 /// default, 256 = one chunk per CTA). Call before the first token. Any value that is not a positive multiple of 256
 /// makes every attention launch fail with BAD_ARGS, and the multi-row (batched) launch refuses anything but 256:
-/// a diagnostic for the attention block-count experiment, never a server setting.
+/// a diagnostic for the attention block-count experiment, never a server setting. Without the q38 library there is
+/// no attention launch to configure, and the call does nothing.
 pub fn decode_attn256_set_per_split(per_split: u32) {
+    #[cfg(has_omega_q38)]
     // SAFETY: a plain setter that takes omega's session lock; no pointers cross.
-    unsafe { ffi::omega_gpu_decode_attn256_set_per_split(per_split) }
+    unsafe {
+        ffi::omega_gpu_decode_attn256_set_per_split(per_split)
+    }
+    #[cfg(not(has_omega_q38))]
+    let _ = per_split;
 }
 
+/// omega's own gather table (`omega_q38_gather_table`), for checking [`gather_table`].
 pub fn gather_table_c() -> Result<Vec<u32>, OmegaGpuError> {
     #[cfg(has_omega_q38)]
     {
