@@ -393,7 +393,7 @@ mod tests {
 
     fn run() -> FormalRun {
         FormalRun {
-            repo: "https://github.com/aien-dev/aienos".into(),
+            repo: "https://github.com/aien-dev/aienux".into(),
             commit: "a".repeat(40),
             dirty: false,
             machine: "spark".into(),
