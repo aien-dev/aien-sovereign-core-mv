@@ -35,6 +35,8 @@ use crate::sampling::SamplingObserver;
 
 /// Model id the door answers to unless `--model-id` says otherwise.
 pub const DEFAULT_MODEL_ID: &str = "qwen3.8-27b-fp8";
+/// The same for the sparse sibling, Qwen3.6-35B-A3B (config model_type qwen3_5_moe, sc L306).
+pub const DEFAULT_MODEL_ID_MOE: &str = "qwen3.6-35b-a3b-fp8";
 /// Prefill chunk length (the 2026-10-18 TTFT receipts ran 4096).
 pub const PREFILL_CHUNK: usize = 4096;
 /// How long a request waits in the chip lock's queue before answering busy (the hive's chip
@@ -45,13 +47,36 @@ pub const REQUEST_LOCK_WAIT: Duration = Duration::from_secs(300);
 pub const LOAD_LOCK_WAIT: Duration = Duration::from_secs(1800);
 /// Memory kept free beyond [`need_bytes`] at load (other jobs share the box).
 pub const KEEP_FREE: u64 = 8 << 30;
+/// omega's switch for the 35B graph's a|b beside mix overlap (L356: ON unless set).
+pub const Q36_OVERLAP_AB_ENV: &str = "AIEN_OMEGA_Q36_OVERLAP_AB";
+/// 0: greedy replies read the logits and take the host argmax every token (L356: the chip's token otherwise).
+pub const CHIP_GREEDY_ENV: &str = "AIEN_SERVE_CHIP_GREEDY";
 
-/// `config.json` says `model_type: qwen3_5` (the Qwen3.8 family this door serves).
-pub fn is_qwen38_dir(dir: &Path) -> bool {
+fn model_type(dir: &Path) -> Option<String> {
     std::fs::read_to_string(dir.join("config.json"))
         .ok()
         .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        .is_some_and(|v| v["model_type"].as_str() == Some("qwen3_5"))
+        .and_then(|v| v["model_type"].as_str().map(str::to_owned))
+}
+
+/// `config.json` says `model_type: qwen3_5` (Qwen3.8-27B) or `qwen3_5_moe` (Qwen3.6-35B-A3B):
+/// the family this door serves.
+pub fn is_qwen38_dir(dir: &Path) -> bool {
+    matches!(model_type(dir).as_deref(), Some("qwen3_5" | "qwen3_5_moe"))
+}
+
+/// The sparse member (`qwen3_5_moe`).
+pub fn is_moe_dir(dir: &Path) -> bool {
+    model_type(dir).as_deref() == Some("qwen3_5_moe")
+}
+
+/// The model id a checkpoint answers to by default.
+pub fn default_model_id(dir: &Path) -> &'static str {
+    if is_moe_dir(dir) {
+        DEFAULT_MODEL_ID_MOE
+    } else {
+        DEFAULT_MODEL_ID
+    }
 }
 
 fn mem_available() -> u64 {
@@ -71,22 +96,23 @@ pub fn rss_bytes() -> u64 {
 }
 
 /// Takes the lock with `acquire`, and only then reads free memory with `mem_available` and checks
-/// it against `need` plus [`KEEP_FREE`]. On a refusal the lock is released (dropped) before the
-/// error returns. The order is the point: a check made before a long lock wait is stale by the time
-/// the upload starts.
-fn admit_load<L>(
+/// it against `need` plus `keep` ([`KEEP_FREE`] here; the batch door's may be set). On a refusal
+/// the lock is released (dropped) before the error returns. The order is the point: a check made
+/// before a long lock wait is stale by the time the upload starts.
+pub(crate) fn admit_load<L>(
     acquire: impl FnOnce() -> Result<L, String>,
     mem_available: impl FnOnce() -> u64,
     need: u64,
+    keep: u64,
 ) -> Result<(L, u64), String> {
     let lock = acquire()?;
     let avail = mem_available();
-    if avail < need + KEEP_FREE {
+    if avail < need + keep {
         return Err(format!(
             "needs {} MiB plus {} MiB kept free ({} MiB in all), MemAvailable {} MiB after taking the GPU lock (another model may be loaded); refusing",
             need >> 20,
-            KEEP_FREE >> 20,
-            (need + KEEP_FREE) >> 20,
+            keep >> 20,
+            (need + keep) >> 20,
             avail >> 20
         ));
     }
@@ -107,7 +133,8 @@ impl Qwen38Door {
         if !aien_omega_gpu::is_native() {
             return Err("this binary carries the CPU stub of the Omega engine".into());
         }
-        if !aien_omega_q38::has_prefill() {
+        // The 35B runs prompts through its decode graph (no prefill entries needed).
+        if !is_moe_dir(dir) && !aien_omega_q38::has_prefill() {
             return Err("this binary has no qwen38 prefill entries linked (build against omega qwen38/prefill-graph)".into());
         }
         let c = Qwen38Config::from_checkpoint(dir)?;
@@ -120,6 +147,7 @@ impl Qwen38Door {
             || GpuLock::acquire_queued_at(Path::new(GPU_LOCK_PATH), LOAD_LOCK_WAIT),
             mem_available,
             need,
+            KEEP_FREE,
         )?;
         eprintln!(
             "aien-serve-http: qwen38: lock taken after {:.1} s, memory re-checked after the lock: MemAvailable {} MiB, needs {} MiB plus {} MiB kept free",
@@ -135,7 +163,24 @@ impl Qwen38Door {
             need >> 20,
             avail >> 20
         );
+        if is_moe_dir(dir) && !aien_omega_q38::q36::is_native() {
+            return Err(
+                "this binary has no q36 decode graph linked (build against omega q36/serve)".into(),
+            );
+        }
+        // L356 (Drake 2026-10-21 02:25Z: the quick levers ON): the 35B graph runs each DeltaNet
+        // layer's a|b GEMV beside its mix GEMV (both only read xq and write their own buffers;
+        // the GDN step waits for both), values identical. An explicit AIEN_OMEGA_Q36_OVERLAP_AB
+        // (0 = the old serial order) wins; omega reads it once, at the first token.
+        if std::env::var_os(Q36_OVERLAP_AB_ENV).is_none() {
+            // Set during startup, before the engine or any worker thread reads the environment.
+            std::env::set_var(Q36_OVERLAP_AB_ENV, "1");
+        }
         let model = Qwen38Omega::open(dir, None, max_pos)?;
+        eprintln!(
+            "aien-serve-http: qwen38: {Q36_OVERLAP_AB_ENV}={}",
+            std::env::var(Q36_OVERLAP_AB_ENV).unwrap_or_default()
+        );
         eprintln!(
             "aien-serve-http: qwen38 engine ready in {:.1} s: context {max_context} tokens, weights {:.2} GB resident, KV {:.2} GB, rss {:.2} GB, prefill chunk {PREFILL_CHUNK}, spin_us {:?}",
             t0.elapsed().as_secs_f64(),
@@ -185,17 +230,32 @@ impl Engine for Qwen38Door {
             .session
             .lock()
             .map_err(|_| EngineError::Failed("qwen38 session poisoned".into()))?;
+        // Greedy requests take the exact two-pass head (the same tokens, the logits read back are
+        // -inf off its candidates); sampled ones need every logit.
+        s.model_mut().set_exact_head_on(p.temperature <= 0.001);
         let t0 = Instant::now();
         let (mut logits, fs) = s.start(prompt).map_err(EngineError::Failed)?;
         let prefill_ms = t0.elapsed().as_millis() as u64;
         let t1 = Instant::now();
         let mut observer = SamplingObserver::new(p);
+        // L356: a greedy reply takes the decode graph's own token (argmax on the chip, the
+        // host rule) and skips the logits copy and host argmax per token. The first token comes
+        // from the prefill logits as before. AIEN_SERVE_CHIP_GREEDY=0: the host path throughout.
+        let chip_greedy =
+            observer.is_greedy() && std::env::var(CHIP_GREEDY_ENV).as_deref() != Ok("0");
+        let mut chip_next: Option<u32> = None;
         let (mut emitted, mut chip_ns) = (0usize, 0u64);
         let finish = loop {
             if emitted >= p.max_new_tokens || prompt.len() + emitted >= self.max_context {
                 break FinishReason::Length;
             }
-            let tok = observer.sample(&logits, emitted);
+            let tok = match chip_next.take() {
+                Some(t) => {
+                    observer.note_greedy();
+                    t
+                }
+                None => observer.sample(&logits, emitted),
+            };
             if p.stop_token_ids.contains(&tok) {
                 break FinishReason::Stop;
             }
@@ -207,9 +267,15 @@ impl Engine for Qwen38Door {
             if emitted >= p.max_new_tokens || prompt.len() + emitted >= self.max_context {
                 break FinishReason::Length;
             }
-            let (next, ns) = s.advance(tok).map_err(EngineError::Failed)?;
-            logits = next;
-            chip_ns += ns;
+            if chip_greedy {
+                let (next, ns) = s.advance_greedy(tok).map_err(EngineError::Failed)?;
+                chip_next = Some(next);
+                chip_ns += ns;
+            } else {
+                let (next, ns) = s.advance(tok).map_err(EngineError::Failed)?;
+                logits = next;
+                chip_ns += ns;
+            }
         };
         let decode_ms = t1.elapsed().as_millis() as u64;
         let steps = emitted.saturating_sub(1).max(1) as f64;
@@ -218,7 +284,7 @@ impl Engine for Qwen38Door {
         drop(lock);
         let pf = &fs.prefill;
         eprintln!(
-            "aien-serve-http: qwen38: lock wait {lock_wait_ms} ms, prompt {} tok, reuse {:?} ({reused} tok), fed {} ({} stepped), prefill {prefill_ms} ms (gemm chip {} ms, gdn chip {} ms, attn chip {} ms, host {} ms, restore {} ms, snapshot {} ms), decode {emitted} tok in {decode_ms} ms, graph chip {:.1} ms/token, wall {:.1} ms/token",
+            "aien-serve-http: qwen38: lock wait {lock_wait_ms} ms, prompt {} tok, reuse {:?} ({reused} tok), fed {} ({} stepped), prefill {prefill_ms} ms (gemm chip {} ms, gdn chip {} ms, attn chip {} ms, host {} ms, restore {} ms, snapshot {} ms), decode {emitted} tok in {decode_ms} ms, graph chip {:.1} ms/token, wall {:.1} ms/token, chip greedy {chip_greedy}",
             prompt.len(),
             fs.reuse.unwrap_or(Reuse::Cold),
             fs.fed,
@@ -269,6 +335,7 @@ mod tests {
                 NEED + KEEP_FREE
             },
             NEED,
+            KEEP_FREE,
         );
         let (g, avail) = r.expect("exactly need plus keep-free is enough");
         assert_eq!(avail, NEED + KEEP_FREE);
@@ -287,6 +354,7 @@ mod tests {
                 6 << 30
             },
             NEED,
+            KEEP_FREE,
         )
         .err()
         .expect("6 GiB must be refused");
@@ -303,7 +371,7 @@ mod tests {
 
     #[test]
     fn one_byte_short_is_refused() {
-        let r = admit_load(|| Ok(()), || NEED + KEEP_FREE - 1, NEED);
+        let r = admit_load(|| Ok(()), || NEED + KEEP_FREE - 1, NEED, KEEP_FREE);
         assert!(r.is_err());
     }
 
@@ -313,6 +381,7 @@ mod tests {
             || Err("lock wait timed out".into()),
             || panic!("memory must not be read without the lock"),
             NEED,
+            KEEP_FREE,
         );
         assert_eq!(r.unwrap_err(), "lock wait timed out");
     }

@@ -1,0 +1,8 @@
+2026-10-21T11:36:21Z
+46eb6428e26a2f91c2851e3d79038e8e43f2016558fb2f6152693dddb3b6c3b0  /home/drakestapleton/workspace/targets/hum-exact-head/omega-stroke/gpu_exact_head_test
+6badd5b9c9a6265ed56f43607ee8c9cfe2b6ffdccabe446143bc42b803604741  /home/drakestapleton/workspace/targets/hum-exact-head/hidden.bin
+a5a53e151b965f2bd9dab9403807114c512e0388583458dd7687f268e60fa3a6  /home/drakestapleton/workspace/targets/hum-exact-head/chip/coef.f32
+5286408ff38fed40b1c3cc0c25ad7604e884c211871ea2d249da617a6d090809  /home/drakestapleton/workspace/targets/hum-exact-head/chip/fp8b.codes
+b046ee7c48277f51d2f506184766a5f2209fc63583a5b561cdf9e06267d8bb1c  /home/drakestapleton/workspace/targets/hum-exact-head/chip/fp8b.scales
+394297e7d76ec7239250841017960a62ea6b4fa3af44a9f08ea6e6b743a94661  /home/drakestapleton/workspace/targets/hum-exact-head/chip/head.bf16
+98d6d1b8ec92d90b03f3043bf13104c7f2b286e1d2b1977d1755e76545fc7d98  /home/drakestapleton/workspace/targets/hum-exact-head/chip/manifest.json

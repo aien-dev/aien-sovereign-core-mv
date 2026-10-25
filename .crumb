@@ -82,7 +82,7 @@
           "purpose": "ALLEN persona profile v1: versioned, user-editable profile bound to the engaged ALLEN identity; "
         },
         {
-          "digest": "4200b2286d6c2c05f6d0447b8a4fc5184ae4307b69a57e7f58f962973b883125",
+          "digest": "b41ba0d076f6ba68b9cf0155c74166c546a1c51445ca6de8b618a381c6bedbe4",
           "last_commit": "92df274c",
           "name": "crates/aien-cli",
           "purpose": ""
@@ -100,8 +100,8 @@
           "purpose": ""
         },
         {
-          "digest": "fbc11a71fb01eabdb2ebc92118cafed3377fe34883e118934643257b89fd1be4",
-          "last_commit": "a7e78af2",
+          "digest": "8c8d574c222a3d3c50d6cfda5d5e6a14cfb80bad5d9f52b5a78d57afd27e253a",
+          "last_commit": "5d16d955",
           "name": "scripts",
           "purpose": ""
         },
@@ -118,15 +118,15 @@
           "purpose": "Local CI sandbox exec contract (C8), aien-run user/caches install, Forgejo trigger hook, health "
         }
       ],
-      "children_root": "sha256:324781b89e749272af4a1c19aeacc921371dc38e851d49652de4734421b61f2c",
-      "compiled_at": "2026-10-25T11:45:03Z",
+      "children_root": "sha256:29d42833729ac3a78c9689e981f0c2c93f476006a91cfc00bd46bb38d3e2876c",
+      "compiled_at": "2026-10-25T19:08:15Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:1007423f04dc8f9338803b933b1dddf7c84d4df36b025c3060cfd3c58c62acc9",
-      "evidence_files": 1805,
-      "evidence_root": "sha256:0b3554feb49a4f2fe1042f26769aade0bb50afe6b428aaa2834f6e762e2e57dc",
-      "files": 6204,
-      "generated_at_commit": "78276e1401b62b28b734ba8c74b1f74d527a42d4",
-      "source_tree": "sha256:a860ebc5da1c9614d67162880d1fba98d69e363761465358097f5be3abc18ee8"
+      "digest": "sha256:e3c2cda0d825f97d709a55bb18de47a45913bdd00c2455df755a635db05bac3f",
+      "evidence_files": 3558,
+      "evidence_root": "sha256:92c7523ff6767aef13f7c5bf67039b979c3333c70885ac81ce393f1ae2c444e6",
+      "files": 7981,
+      "generated_at_commit": "f053e05985deed3b606a0661e13eef08477fb2be",
+      "source_tree": "sha256:b8199861aaefe2f8a9ac0a664390f98403c231c106eabc0b880833a1622ae489"
     }
   },
   "history": [],

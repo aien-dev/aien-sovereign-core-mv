@@ -1,0 +1,27 @@
+sim ROWS k 2048 n 96 T 3 ystride 100: ok 0 of 96 rows x 3 tokens differ from the emulation (bit-identical)
+sim ROWS k 4096 n 96 T 4 ystride 96: ok 0 of 96 rows x 4 tokens differ from the emulation (bit-identical)
+sim XBATCH k 1024 n 96 xb 2 ystride 100: ok 0 of 96 rows x 2 tokens differ from the emulation (bit-identical)
+sim XBATCH k 1024 n 96 xb 4 ystride 96: ok 0 of 96 rows x 4 tokens differ from the emulation (bit-identical)
+sim XBATCH k 2048 n 64 xb 2 ystride 70: ok 0 of 64 rows x 2 tokens differ from the emulation (bit-identical)
+sim XBATCH k 1024 n 40 xb 3 ystride 50: ok 0 of 40 rows x 3 tokens differ from the emulation (bit-identical)
+sim XBATCH k 1024 n 96 xb 8 ystride 100: ok 0 of 96 rows x 8 tokens differ from the emulation (bit-identical)
+sim XBATCH k 1024 n 40 xb 6 ystride 44: ok 0 of 40 rows x 6 tokens differ from the emulation (bit-identical)
+sim XBATCH k 1024 n 64 xb 5 ystride 64: ok 0 of 64 rows x 5 tokens differ from the emulation (bit-identical)
+sim XBATCH mutant 4: caught 64 of 64 rows x 2 tokens differ from the emulation
+sim XBATCH 8 mutant 1: caught 512 of 64 rows x 8 tokens differ from the emulation
+sim XBATCH 8 mutant 2: caught 512 of 64 rows x 8 tokens differ from the emulation
+sim XBATCH 8 mutant 3: caught 512 of 64 rows x 8 tokens differ from the emulation
+sim XBATCH 8 mutant 4: caught 448 of 64 rows x 8 tokens differ from the emulation
+sim k 2048 n 100 rows 1 warps 8 depth 8 grid 2: ok 0 of 100 rows differ from the emulation (bit-identical)
+sim k 2048 n 100 rows 1 warps 8 depth 4 grid 3: ok 0 of 100 rows differ from the emulation (bit-identical)
+sim k 2048 n 64 rows 1 warps 8 depth 1 grid 2: ok 0 of 64 rows differ from the emulation (bit-identical)
+sim k 2048 n 96 rows 2 warps 8 depth 4 grid 2: ok 0 of 96 rows differ from the emulation (bit-identical)
+sim k 2048 n 96 rows 4 warps 8 depth 4 grid 1: ok 0 of 96 rows differ from the emulation (bit-identical)
+sim k 512 n 70 rows 1 warps 8 depth 2 grid 2: ok 0 of 70 rows differ from the emulation (bit-identical)
+sim k 512 n 70 rows 2 warps 4 depth 1 grid 3: ok 0 of 70 rows differ from the emulation (bit-identical)
+sim k 4096 n 40 rows 1 warps 8 depth 16 grid 2: ok 0 of 40 rows differ from the emulation (bit-identical)
+sim mutant 1: caught 64 of 64 rows differ from the emulation
+sim mutant 2: caught 64 of 64 rows differ from the emulation
+sim mutant 3: caught 64 of 64 rows differ from the emulation
+sim: 297068 warp issues in total
+gpu_bf16_gemv_test: 25 checks, 0 failed: PASS

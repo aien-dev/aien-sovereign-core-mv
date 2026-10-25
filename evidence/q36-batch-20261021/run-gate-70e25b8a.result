@@ -1,0 +1,3 @@
+real8 rc=0 want=0
+swap40-8 rc=0 want=1
+done

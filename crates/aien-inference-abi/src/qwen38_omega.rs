@@ -39,9 +39,15 @@ use std::path::Path;
 use aien_omega_bf16::Bf16Tensor;
 use aien_omega_fp8::Fp8Tensor;
 use aien_omega_gpu::ResidentTensor;
+use aien_omega_q38::q36::Q36Graph;
 use aien_omega_q38::{Attn256Cache, Gdn, GraphConfig, GraphStats, Q38Graph};
+use aien_omega_router::Router;
 
+mod moe;
+pub use moe::router_probe;
 mod prefill;
+mod rows;
+pub use rows::{RowFeed, RowOut, RowTest};
 mod session;
 pub use prefill::PrefillStats;
 pub use session::{plan_reuse, FeedStats, Qwen38Session, Reuse, IM_START};
@@ -62,18 +68,102 @@ struct LayerTensors {
     down: Fp8Tensor,
 }
 
+/// The decode graph: the 27B's dense one or the 35B's sparse one (sc L306).
+enum Graph {
+    Dense(Q38Graph),
+    Moe(Q36Graph),
+}
+
+impl Graph {
+    fn token(
+        &mut self,
+        x: &[f32],
+        pos: usize,
+    ) -> Result<(u32, GraphStats), aien_omega_gpu::OmegaGpuError> {
+        match self {
+            Graph::Dense(g) => g.token(x, pos),
+            Graph::Moe(g) => g.token(x, pos),
+        }
+    }
+
+    fn read(
+        &mut self,
+        x: Option<&mut [f32]>,
+        hidden: Option<&mut [f32]>,
+        logits: Option<&mut [f32]>,
+    ) -> Result<(), aien_omega_gpu::OmegaGpuError> {
+        match self {
+            Graph::Dense(g) => g.read(x, hidden, logits),
+            Graph::Moe(g) => g.read(x, hidden, logits),
+        }
+    }
+
+    /// One stroke of `pos.len()` heads (the 35B graph; the 27B dense graph strokes one).
+    fn stroke(&mut self, x: &[f32], pos: &[usize]) -> Result<(Vec<u32>, GraphStats), String> {
+        match self {
+            Graph::Dense(g) if pos.len() == 1 => g
+                .token(x, pos[0])
+                .map(|(t, s)| (vec![t], s))
+                .map_err(gpu("q38 token")),
+            Graph::Dense(_) => Err("the 27B dense graph strokes one conversation".into()),
+            Graph::Moe(g) => g.stroke(x, pos).map_err(gpu("q36 stroke")),
+        }
+    }
+
+    fn read_head(
+        &mut self,
+        head: usize,
+        x: Option<&mut [f32]>,
+        hidden: Option<&mut [f32]>,
+        logits: Option<&mut [f32]>,
+    ) -> Result<(), String> {
+        match self {
+            Graph::Dense(g) if head == 0 => g.read(x, hidden, logits).map_err(gpu("q38 read")),
+            Graph::Dense(_) => Err("the 27B dense graph has one head".into()),
+            Graph::Moe(g) => g
+                .read_head(head, x, hidden, logits)
+                .map_err(gpu("q36 read head")),
+        }
+    }
+}
+
+/// One conversation's state on the chip: what a head slot of the graph points at.
+#[derive(Default)]
+pub(crate) struct HeadState {
+    pub(crate) gdn: Option<Gdn>,
+    pub(crate) attn: Option<Attn256Cache>,
+    pub(crate) pos: usize,
+}
+
 /// The whole model resident on the device plus the host embedding.
 ///
 /// Field order is drop order: the graph goes first, then the tensors and state it points at.
 pub struct Qwen38Omega {
-    graph: Q38Graph,
+    graph: Graph,
+    /// The rows' multi-conversation graph (L312's strokes): its head slots are pointed at the rows
+    /// of each [`Self::step_rows`] chunk; it points at their state, so it drops before them.
+    row_stroke: Option<Q36Graph>,
+    /// Extra conversations over the same weights (the 35B only, [`Self::add_rows`]); they point at
+    /// the router, lm_head and layers below, so they drop right after the main graph.
+    rows: Vec<rows::Q36Row>,
+    /// The 35B's router (sparse MLP only); the graph points at it, so it drops after the graph.
+    #[allow(dead_code)] // owned only
+    router: Option<Router>,
     layers: Vec<LayerTensors>,
     lm_head: Bf16Tensor,
     /// FP8 copy of lm_head (env `AIEN_Q38_FP8_HEAD=1`, qwen38/decode-speed): the decode graph reads it instead.
     #[allow(dead_code)] // owned only: the graph points at it until it is dropped first
     lm_head8: Option<Fp8Tensor>,
+    /// The 35B's exact two-pass head screen (HUM L314, on unless `AIEN_Q36_EXACT_HEAD=0`): the fp8b copy
+    /// of lm_head the graph screens with, for greedy tokens only ([`Self::set_exact_head_on`]).
+    #[allow(dead_code)] // owned only: the graph points at it until it is dropped first
+    head_screen: Option<Fp8Tensor>,
     gdn: Option<Gdn>,
     attn: Option<Attn256Cache>,
+    /// Heads 1.. of a multi-conversation graph ([`Self::open_window_heads`]): each one's own
+    /// DeltaNet state and attention cache (the graph points at them: they drop after it) and
+    /// position. Head 0 is `gdn`, `attn`, `pos` above.
+    extra_heads: Vec<HeadState>,
     pub config: Qwen38Config,
     /// bf16 `[vocab][hidden]`.
     embed: Vec<u16>,
@@ -89,6 +179,10 @@ pub struct Qwen38Omega {
     ab_mm: Vec<ResidentTensor>,
     /// The prefill's buffers, made by the first [`Self::prefill`].
     pf: Option<prefill::PfState>,
+    /// What a new row needs (the 35B only).
+    row_src: Option<rows::RowSource>,
+    /// Multi-row steps so far (the row-swap negative control counts them).
+    row_steps: u64,
 }
 
 impl std::fmt::Debug for Qwen38Omega {
@@ -109,6 +203,23 @@ pub struct Qwen38Snapshot {
     states: Vec<f32>,
 }
 
+impl Qwen38Snapshot {
+    /// The first f32 (tails, then states) whose bits differ from `o`'s, or the length when one
+    /// holds more; `None`: the same position and the same bits throughout.
+    pub fn first_diff(&self, o: &Self) -> Option<usize> {
+        let a = self.tails.iter().chain(&self.states);
+        let b = o.tails.iter().chain(&o.states);
+        if let Some(i) = a.zip(b).position(|(x, y)| x.to_bits() != y.to_bits()) {
+            return Some(i);
+        }
+        let (na, nb) = (
+            self.tails.len() + self.states.len(),
+            o.tails.len() + o.states.len(),
+        );
+        (na != nb || self.pos != o.pos).then_some(na.min(nb))
+    }
+}
+
 /// Memory the whole model needs with a KV cache of `max_pos` positions and prefill buffers for
 /// `chunk` tokens (device and host: the box's memory is one pool). Counted from the config:
 /// weights, KV cache, prefill buffers, the host embedding table and one state snapshot, plus
@@ -118,6 +229,38 @@ pub struct Qwen38Snapshot {
 pub fn need_bytes(c: &Qwen38Config, max_pos: usize, chunk: usize) -> u64 {
     const RUNTIME_SLACK: u64 = 3 << 30;
     let h = c.hidden as u64;
+    if let Some(m) = &c.moe {
+        // Qwen3.6-35B-A3B (sc L306): FP8 mixers and experts (routed + shared, one byte per weight
+        // plus a bf16 scale per 128 x 128 block), bf16 a|b, router, lm_head and host embedding; no
+        // prefill buffers (the prompt runs through the decode graph).
+        let experts = (m.experts + 1) as u64 * 3 * m.expert_inter as u64 * h;
+        let o = h * (c.heads * c.head_dim) as u64;
+        let fp8: u64 = c
+            .full_attention
+            .iter()
+            .map(|&attn| {
+                let mix = if attn {
+                    (2 * c.heads * c.head_dim + 2 * c.kv_dim()) as u64 * h
+                } else {
+                    (c.conv_dim() + c.lin_value_dim()) as u64 * h
+                };
+                mix + o + experts
+            })
+            .sum();
+        let n_attn = c.full_attention.iter().filter(|&&a| a).count() as u64;
+        let n_gdn = c.layers as u64 - n_attn;
+        let ab = n_gdn * 2 * 2 * c.lin_v_heads as u64 * h;
+        let router = c.layers as u64 * 2 * (m.experts + 1) as u64 * h;
+        let weights = fp8 + fp8 / 8192 + ab + router + 2 * c.vocab as u64 * h;
+        let kv = n_attn * 2 * c.kv_heads as u64 * max_pos as u64 * 2 * c.head_dim as u64
+            + max_pos as u64 * 1024;
+        let embed = 2 * c.vocab as u64 * h;
+        let tail = (c.conv_kernel as u64 - 1) * c.conv_dim() as u64;
+        let st = (c.lin_v_heads * c.lin_v_dim * c.lin_v_dim) as u64;
+        let state = n_gdn * 4 * (tail + st);
+        let _ = chunk;
+        return weights + kv + embed + 2 * state + RUNTIME_SLACK;
+    }
     let mlp = 3 * c.intermediate as u64 * h;
     let o = h * (c.heads * c.head_dim) as u64;
     let layers: u64 = c
@@ -274,6 +417,23 @@ impl Qwen38Omega {
         Self::load_at(config, first, &mut ShardSource::open(dir)?, max_pos)
     }
 
+    /// As [`Self::open_window`] with `heads` conversations resident at once (the 35B graph only,
+    /// at most [`aien_omega_q38::q36::MAX_HEADS`]): one [`Self::stroke`] advances every head in
+    /// one command list. Each head has its own DeltaNet state, attention cache and position.
+    pub fn open_window_heads(
+        dir: &Path,
+        first: usize,
+        count: usize,
+        max_pos: usize,
+        heads: usize,
+    ) -> Result<Self, String> {
+        let full = Qwen38Config::from_checkpoint(dir)?;
+        let config = full
+            .window(first, count)
+            .ok_or_else(|| format!("window {first}+{count}: outside the {} layers", full.layers))?;
+        Self::load_at_heads(config, first, &mut ShardSource::open(dir)?, max_pos, heads)
+    }
+
     /// Uploads `config.layers` layers from `source`.
     pub fn load(
         config: Qwen38Config,
@@ -290,6 +450,25 @@ impl Qwen38Omega {
         source: &mut dyn TensorSource,
         max_pos: usize,
     ) -> Result<Self, String> {
+        Self::load_at_heads(config, first, source, max_pos, 1)
+    }
+
+    /// [`Self::load_at`] with `heads` resident conversations (1 for the 27B dense graph).
+    fn load_at_heads(
+        config: Qwen38Config,
+        first: usize,
+        source: &mut dyn TensorSource,
+        max_pos: usize,
+        heads: usize,
+    ) -> Result<Self, String> {
+        if config.moe.is_some() {
+            return Self::load_moe(config, first, source, max_pos, heads);
+        }
+        if heads != 1 {
+            return Err(format!(
+                "qwen38 omega: {heads} heads (the 27B dense graph strokes one conversation)"
+            ));
+        }
         use aien_omega_q38 as q;
         let c = &config;
         let shape_ok = c.hidden == q::HIDDEN
@@ -509,12 +688,15 @@ impl Qwen38Omega {
                 .map_err(gpu("q38 graph set_lm_head_fp8"))?;
         }
         Ok(Self {
-            graph,
+            graph: Graph::Dense(graph),
+            router: None,
             layers,
             lm_head,
             lm_head8,
+            head_screen: None,
             gdn,
             attn,
+            extra_heads: Vec::new(),
             config,
             embed,
             pos: 0,
@@ -523,6 +705,10 @@ impl Qwen38Omega {
             final_norm,
             ab_mm,
             pf: None,
+            row_stroke: None,
+            rows: Vec::new(),
+            row_src: None,
+            row_steps: 0,
         })
     }
 
@@ -552,10 +738,9 @@ impl Qwen38Omega {
     /// A new sequence: DeltaNet state to zero, position 0 (attention rows are overwritten as the
     /// new sequence reaches them).
     pub fn reset(&mut self) -> Result<(), String> {
-        if let Some(g) = self.gdn.as_mut() {
-            g.reset().map_err(gpu("gdn reset"))?;
+        for h in 0..self.heads() {
+            self.reset_head(h)?;
         }
-        self.pos = 0;
         Ok(())
     }
 
@@ -628,6 +813,210 @@ impl Qwen38Omega {
         self.max_pos
     }
 
+    /// Conversations resident at once (head slots of the graph).
+    pub fn heads(&self) -> usize {
+        self.extra_heads.len() + 1
+    }
+
+    /// Tokens head `head` holds (its next position).
+    pub fn head_pos(&self, head: usize) -> Result<usize, String> {
+        match head {
+            0 => Ok(self.pos),
+            h => self
+                .extra_heads
+                .get(h - 1)
+                .map(|s| s.pos)
+                .ok_or_else(|| format!("head {h} of {}", self.heads())),
+        }
+    }
+
+    pub(super) fn head_pos_mut(&mut self, head: usize) -> Result<&mut usize, String> {
+        let heads = self.heads();
+        match head {
+            0 => Ok(&mut self.pos),
+            h => self
+                .extra_heads
+                .get_mut(h - 1)
+                .map(|s| &mut s.pos)
+                .ok_or_else(|| format!("head {h} of {heads}")),
+        }
+    }
+
+    /// One stroke: feeds `tokens[h]` to head `h` (the first `tokens.len()` heads, at most
+    /// [`Self::heads`]) at each head's next position in ONE command list, one submit. The greedy
+    /// next token of every head and what the stroke cost (the chip time is the whole stroke).
+    pub fn stroke(&mut self, tokens: &[u32]) -> Result<(Vec<u32>, GraphStats), String> {
+        let (heads, h) = (tokens.len(), self.config.hidden);
+        if heads == 0 || heads > self.heads() {
+            return Err(format!("stroke: {heads} tokens on {} heads", self.heads()));
+        }
+        let mut x = Vec::with_capacity(heads * h);
+        let mut pos = Vec::with_capacity(heads);
+        for (head, &t) in tokens.iter().enumerate() {
+            let t = t as usize;
+            if t >= self.config.vocab {
+                return Err(format!(
+                    "stroke: head {head} token {t} outside the vocab {}",
+                    self.config.vocab
+                ));
+            }
+            let p = self.head_pos(head)?;
+            if p >= self.max_pos {
+                return Err(format!(
+                    "stroke: head {head} at {p}, the KV cache holds {} positions",
+                    self.max_pos
+                ));
+            }
+            x.extend(
+                self.embed[t * h..(t + 1) * h]
+                    .iter()
+                    .map(|&b| bf16_to_f32(b)),
+            );
+            pos.push(p);
+        }
+        let out = self.graph.stroke(&x, &pos)?;
+        for head in 0..heads {
+            *self.head_pos_mut(head)? += 1;
+        }
+        Ok(out)
+    }
+
+    /// The last stroke's residual stream of head `head` (as [`Self::residual`]).
+    pub fn residual_head(&mut self, head: usize) -> Result<Vec<f32>, String> {
+        let mut x = vec![0f32; self.config.hidden];
+        self.graph.read_head(head, Some(&mut x), None, None)?;
+        Ok(x)
+    }
+
+    /// The last stroke's logits of head `head` (as [`Self::logits`]).
+    pub fn logits_head(&mut self, head: usize) -> Result<Vec<f32>, String> {
+        let mut l = vec![0f32; self.config.vocab];
+        self.graph.read_head(head, None, None, Some(&mut l))?;
+        Ok(l)
+    }
+
+    /// Clears head `head`'s conversation (DeltaNet state and position; the attention cache is
+    /// overwritten from position 0).
+    pub fn reset_head(&mut self, head: usize) -> Result<(), String> {
+        let gdn = match head {
+            0 => self.gdn.as_mut(),
+            h => self
+                .extra_heads
+                .get_mut(h - 1)
+                .ok_or_else(|| format!("head {h}"))?
+                .gdn
+                .as_mut(),
+        };
+        if let Some(g) = gdn {
+            g.reset().map_err(gpu("gdn reset"))?;
+        }
+        *self.head_pos_mut(head)? = 0;
+        Ok(())
+    }
+
+    fn take_head(&mut self, head: usize) -> HeadState {
+        match head {
+            0 => HeadState {
+                gdn: self.gdn.take(),
+                attn: self.attn.take(),
+                pos: std::mem::take(&mut self.pos),
+            },
+            h => std::mem::take(&mut self.extra_heads[h - 1]),
+        }
+    }
+
+    fn put_head(&mut self, head: usize, s: HeadState) {
+        match head {
+            0 => {
+                self.gdn = s.gdn;
+                self.attn = s.attn;
+                self.pos = s.pos;
+            }
+            h => self.extra_heads[h - 1] = s,
+        }
+    }
+
+    /// The batch (L312 v2): each layer recorded for every conversation at once, one weight read per
+    /// layer for all of them. 35B graph only; pins the GEMM kernels on the session.
+    pub fn set_batch(&mut self, on: bool) -> Result<(), String> {
+        match &mut self.graph {
+            Graph::Moe(g) => g
+                .set_batch(on)
+                .map_err(|rc| format!("q36 set_batch: rc {rc}")),
+            Graph::Dense(_) => Err("set_batch: the 27B dense graph has no batch".into()),
+        }
+    }
+    /// Whether the 35B graph records in the batch (also `AIEN_OMEGA_Q36_BATCH=1` at open).
+    pub fn batch(&self) -> bool {
+        match &self.graph {
+            Graph::Moe(g) => g.batch(),
+            Graph::Dense(_) => false,
+        }
+    }
+    /// Chip timestamps around every launch of the next strokes (35B graph only): a timeline per token.
+    pub fn set_stamps(&mut self, on: bool) -> Result<(), String> {
+        match &mut self.graph {
+            Graph::Moe(g) => {
+                g.set_stamps(on);
+                Ok(())
+            }
+            Graph::Dense(_) => Err("set_stamps: the 27B dense graph has no stroke timeline".into()),
+        }
+    }
+    /// The last stroke's timeline: (launch kind name, chip ns) per launch in launch order; needs
+    /// [`Self::set_stamps`] before that stroke.
+    pub fn timeline(&self) -> Result<Vec<(String, u64)>, String> {
+        match &self.graph {
+            Graph::Moe(g) => g
+                .timeline()
+                .map(|v| {
+                    v.into_iter()
+                        .map(|(k, ns)| (Q36Graph::kind_name(k), ns))
+                        .collect()
+                })
+                .map_err(|rc| format!("q36 timeline: rc {rc}")),
+            Graph::Dense(_) => Err("timeline: the 27B dense graph has no stroke timeline".into()),
+        }
+    }
+
+    /// Head swap: slots `a` and `b` exchange conversations (state objects and positions); the
+    /// graph is re-pointed, nothing is copied. After it, the stroke feeding slot `a` continues
+    /// the conversation that was in `b`.
+    pub fn swap_heads(&mut self, a: usize, b: usize) -> Result<(), String> {
+        let heads = self.heads();
+        if a >= heads || b >= heads {
+            return Err(format!("swap_heads: {a} and {b} of {heads} heads"));
+        }
+        if a == b {
+            return Ok(());
+        }
+        if matches!(self.graph, Graph::Dense(_)) {
+            return Err("swap_heads: the 27B dense graph has one head".into());
+        }
+        let (sa, sb) = (self.take_head(a), self.take_head(b));
+        let raw = |s: &HeadState| {
+            (
+                s.gdn.as_ref().map_or(std::ptr::null_mut(), Gdn::as_raw),
+                s.attn
+                    .as_ref()
+                    .map_or(std::ptr::null_mut(), Attn256Cache::as_raw),
+            )
+        };
+        let ((ga, aa), (gb, ab)) = (raw(&sa), raw(&sb));
+        self.put_head(a, sb);
+        self.put_head(b, sa);
+        if let Graph::Moe(g) = &mut self.graph {
+            // SAFETY: both states are owned by self (just put back) and outlive the graph (field order).
+            unsafe {
+                g.set_head_state(a, gb, ab)
+                    .map_err(gpu("q36 set_head_state"))?;
+                g.set_head_state(b, ga, aa)
+                    .map_err(gpu("q36 set_head_state"))?;
+            }
+        }
+        Ok(())
+    }
+
     /// Copies every DeltaNet layer's conv tail and state and the position into `snap` (host
     /// memory, reused between calls): [`Self::restore`] continues the sequence from here. The
     /// attention KV needs no copy: rows past the restored position are rewritten before they
@@ -638,10 +1027,7 @@ impl Qwen38Omega {
             return Ok(());
         };
         let n = g.layers();
-        let (tf, sf) = (
-            aien_omega_q38::GDN_TAIL_FLOATS,
-            aien_omega_q38::GDN_STATE_FLOATS,
-        );
+        let (tf, sf) = (g.tail_floats(), g.state_floats());
         snap.tails.resize(n * tf, 0.0);
         snap.states.resize(n * sf, 0.0);
         for (l, (t, st)) in snap
@@ -662,10 +1048,7 @@ impl Qwen38Omega {
             return Err(format!("restore: position {} past the cache", snap.pos));
         }
         if let Some(g) = self.gdn.as_mut() {
-            let (tf, sf) = (
-                aien_omega_q38::GDN_TAIL_FLOATS,
-                aien_omega_q38::GDN_STATE_FLOATS,
-            );
+            let (tf, sf) = (g.tail_floats(), g.state_floats());
             if snap.tails.len() != g.layers() * tf || snap.states.len() != g.layers() * sf {
                 return Err("restore: the snapshot is not of this model".into());
             }
@@ -683,7 +1066,79 @@ impl Qwen38Omega {
     }
 
     /// The graph, for traces and timelines.
-    pub fn graph_mut(&mut self) -> &mut Q38Graph {
-        &mut self.graph
+    pub fn graph_mut(&mut self) -> Option<&mut Q38Graph> {
+        match &mut self.graph {
+            Graph::Dense(g) => Some(g),
+            Graph::Moe(_) => None,
+        }
     }
+
+    /// Greedy tokens may use the exact two-pass head (35B, when loaded with it): the token is the
+    /// full head's, but the logits read back are -inf off the candidates. Sampled requests turn
+    /// it off and read every logit.
+    pub fn set_exact_head_on(&mut self, on: bool) {
+        if let Graph::Moe(g) = &mut self.graph {
+            g.set_exact_head_on(on);
+        }
+    }
+
+    /// True when the next token runs the exact two-pass head.
+    pub fn exact_head_active(&self) -> bool {
+        matches!(&self.graph, Graph::Moe(g) if g.exact_head_active())
+    }
+
+    /// The 35B graph, for timelines.
+    pub fn q36_graph_mut(&mut self) -> Option<&mut Q36Graph> {
+        match &mut self.graph {
+            Graph::Moe(g) => Some(g),
+            Graph::Dense(_) => None,
+        }
+    }
+
+    /// True for the sparse (Qwen3.6-35B-A3B) model.
+    pub fn is_moe(&self) -> bool {
+        matches!(self.graph, Graph::Moe(_))
+    }
+}
+
+/// Free memory kept for everything else on the box (the resident server shares this pool:
+/// 2026-10-18 16:43:58Z a 32-layer window pushed the kernel into the OOM killer, which took the
+/// server). The gate tools upload a window only when MemAvailable covers it plus this margin.
+pub const KEEP_FREE: u64 = 12 << 30;
+
+/// Device bytes a window takes: its FP8 weights (1 byte each; the 128x128 block scales add 1/4096),
+/// the bf16 a|b rows of its DeltaNet layers, and the bf16 lm_head; from the config, not measured.
+pub fn window_bytes(c: &Qwen38Config, first: usize, count: usize) -> u64 {
+    let h = c.hidden as u64;
+    // Qwen3.6-35B-A3B (sc L306): every layer holds 257 FP8 experts (256 routed + the shared one)
+    // and a bf16 router of 257 rows.
+    let mlp = match &c.moe {
+        Some(m) => (m.experts as u64 + 1) * (3 * m.expert_inter as u64 * h + 2 * h),
+        None => 3 * c.intermediate as u64 * h,
+    };
+    let o = h * (c.heads * c.head_dim) as u64;
+    let layers: u64 = c.full_attention[first..first + count]
+        .iter()
+        .map(|&attn| {
+            if attn {
+                (2 * c.heads * c.head_dim + 2 * c.kv_dim()) as u64 * h + o + mlp
+            } else {
+                (c.conv_dim() + c.lin_value_dim()) as u64 * h
+                    + o
+                    + mlp
+                    + 2 * 2 * c.lin_v_heads as u64 * h
+            }
+        })
+        .sum();
+    layers + layers / 4096 + 2 * c.vocab as u64 * h
+}
+
+/// MemAvailable from /proc/meminfo, in bytes.
+pub fn mem_available() -> Result<u64, String> {
+    let m = std::fs::read_to_string("/proc/meminfo").map_err(|e| format!("/proc/meminfo: {e}"))?;
+    m.lines()
+        .find_map(|l| l.strip_prefix("MemAvailable:"))
+        .and_then(|v| v.trim().trim_end_matches("kB").trim().parse::<u64>().ok())
+        .map(|kb| kb << 10)
+        .ok_or_else(|| "/proc/meminfo: no MemAvailable".into())
 }

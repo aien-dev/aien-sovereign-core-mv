@@ -1,0 +1,9 @@
+{"kind":"read","prompt":"long-2048.txt","rep":1,"prompt_tokens":2532,"wall_s":11.98719310760498,"tok_s":211.22542844443166,"in_flight_before":2,"window":"shared machine"}
+{"kind":"read","prompt":"long-8192.txt","rep":1,"prompt_tokens":8256,"wall_s":52.89416718482971,"tok_s":156.08526307165033,"in_flight_before":1,"window":"shared machine"}
+{"kind":"read","prompt":"long-20k.txt","rep":1,"prompt_tokens":21421,"wall_s":196.78741312026978,"tok_s":108.85350673779229,"in_flight_before":1,"window":"shared machine"}
+{"kind":"decode","n":1,"rep":1,"replies_ok":1,"completion_tokens":29,"wall_s":1.9787302017211914,"tok_s":14.6558636315221,"in_flight_before":1,"window":"shared machine"}
+{"kind":"decode","n":8,"rep":1,"replies_ok":7,"completion_tokens":507,"wall_s":13.634828090667725,"tok_s":37.18418718803012,"in_flight_before":1,"window":"shared machine"}
+{"kind":"decode","n":1,"rep":2,"replies_ok":1,"completion_tokens":29,"wall_s":1.0366895198822021,"tok_s":27.97365985072873,"in_flight_before":0,"window":"shared machine"}
+{"kind":"decode","n":8,"rep":2,"replies_ok":8,"completion_tokens":517,"wall_s":8.892988920211792,"tok_s":58.135684710567176,"in_flight_before":0,"window":"shared machine"}
+{"kind":"decode","n":1,"rep":3,"replies_ok":1,"completion_tokens":29,"wall_s":4.673414707183838,"tok_s":6.205312778132452,"in_flight_before":0,"window":"shared machine"}
+{"kind":"decode","n":8,"rep":3,"replies_ok":7,"completion_tokens":388,"wall_s":8.381891012191772,"tok_s":46.29027023086313,"in_flight_before":1,"window":"shared machine"}

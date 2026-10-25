@@ -36,6 +36,7 @@ use std::process::Command;
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(has_omega_q38)");
     println!("cargo:rustc-check-cfg=cfg(has_omega_q38_prefill)");
+    println!("cargo:rustc-check-cfg=cfg(has_omega_q36)");
     for v in [
         "AIEN_FORCE_CPU_STUB",
         "AIEN_OMEGA_GPU_LIB",
@@ -50,6 +51,9 @@ fn main() {
         println!("cargo:rerun-if-changed={lib}");
         if archive_defines(Path::new(&lib), "omega_gpu_q38_graph_create") {
             println!("cargo:rustc-cfg=has_omega_q38");
+            if archive_defines(Path::new(&lib), "omega_gpu_q36_graph_create") {
+                println!("cargo:rustc-cfg=has_omega_q36");
+            }
             if archive_defines(Path::new(&lib), "omega_gpu_gdn_prefill")
                 && archive_defines(Path::new(&lib), "omega_gpu_prefill_attn256")
             {
@@ -65,6 +69,9 @@ fn main() {
         println!("cargo:rerun-if-changed={}", header.display());
         if header.is_file() {
             println!("cargo:rustc-cfg=has_omega_q38");
+            if Path::new(&dir).join("src/omega_gpu_q36_graph.h").is_file() {
+                println!("cargo:rustc-cfg=has_omega_q36");
+            }
             if Path::new(&dir)
                 .join("src/omega_gpu_prefill_attn256_api.h")
                 .is_file()

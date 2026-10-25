@@ -26,9 +26,21 @@
 
 use aien_omega_compose::*;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 const ROOT: &[u8] = b"abi-qual-callback-test-machine";
+
+/// librx_compose.a has RXC_HOST_MAX_HANDLES (4) handle slots per process, and the test harness
+/// runs these tests on parallel threads in one process: together the five open up to seven
+/// handles at once (3, 1, 1, 1, 1) and ran out of slots (E_FULL at `Compose::open`) under a plain `cargo test`,
+/// though each passes alone. Every test holds this guard for as long as it holds handles, so
+/// the process never needs more slots than one test does (the most is 3, the concurrent test).
+static HANDLE_SLOTS: Mutex<()> = Mutex::new(());
+
+fn handle_slots() -> MutexGuard<'static, ()> {
+    // A test that panicked while holding the guard poisons it; its handles are closed by then.
+    HANDLE_SLOTS.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 fn propose(t: u64) -> u64 {
     t.wrapping_mul(7).wrapping_add(3)
@@ -40,6 +52,7 @@ fn propose(t: u64) -> u64 {
     ignore = "needs librx_compose.a (AIEN_OMEGA_COMPOSE_DIR)"
 )]
 fn panicking_skill_is_contained_and_reported_as_failure() {
+    let _slots = handle_slots();
     let tmp = tempfile::tempdir().unwrap();
     let (mut c, _) = Compose::open(&tmp.path().join("h"), RootKind::Provisioned, ROOT, 1).unwrap();
     c.register_skill("abi.panics", None, 1, |_| panic!("skill panic"))
@@ -59,6 +72,7 @@ fn panicking_skill_is_contained_and_reported_as_failure() {
     ignore = "needs librx_compose.a (AIEN_OMEGA_COMPOSE_DIR)"
 )]
 fn failing_and_zero_results_do_not_commit() {
+    let _slots = handle_slots();
     let tmp = tempfile::tempdir().unwrap();
     let (mut c, _) = Compose::open(&tmp.path().join("h"), RootKind::Provisioned, ROOT, 2).unwrap();
     c.register_skill("abi.none", None, 1, |_| None).unwrap();
@@ -74,6 +88,7 @@ fn failing_and_zero_results_do_not_commit() {
     ignore = "needs librx_compose.a (AIEN_OMEGA_COMPOSE_DIR)"
 )]
 fn panicking_verifier_fails_the_contract() {
+    let _slots = handle_slots();
     let tmp = tempfile::tempdir().unwrap();
     let (mut c, _) = Compose::open(&tmp.path().join("h"), RootKind::Provisioned, ROOT, 3).unwrap();
     c.register_skill("abi.ok", None, 1, |t| Some(propose(t)))
@@ -90,6 +105,7 @@ fn panicking_verifier_fails_the_contract() {
     ignore = "needs librx_compose.a (AIEN_OMEGA_COMPOSE_DIR)"
 )]
 fn repeated_open_close_releases_slots_and_callback_state() {
+    let _slots = handle_slots();
     let tmp = tempfile::tempdir().unwrap();
     let home = tmp.path().join("h");
     let state = Arc::new(AtomicU64::new(0));
@@ -123,6 +139,7 @@ fn repeated_open_close_releases_slots_and_callback_state() {
     ignore = "needs librx_compose.a (AIEN_OMEGA_COMPOSE_DIR)"
 )]
 fn concurrent_homes_keep_their_callbacks_apart() {
+    let _slots = handle_slots();
     let tmp = Arc::new(tempfile::tempdir().unwrap());
     let calls = Arc::new(AtomicUsize::new(0));
     let threads: Vec<_> = (0..3u64)

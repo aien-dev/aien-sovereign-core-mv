@@ -1,0 +1,35 @@
+2026-10-21T03:02:48Z on: start bin-e1f02b29 on 18093 (), MemAvailable 56 GB
+2026-10-21T03:05:05Z on: start try 1 failed: aien-serve-http: qwen38 load failed: experts gate|up: omega_gpu rc=-4 (CHIP_FAIL: nvrm_alloc_gpu_uncached: RM_ALLOC class 0x3e status 0x51)
+qwen36 omega: exact two-pass head ON (fp8b screen + Row bound, built in 7.2 s)
+aien-serve-http: qwen38 engine ready in 53.7 s: context 131072 tokens, weights 34.65 GB resident, KV 5.37 GB, rss 39.30 GB, prefill chunk 4096, spin_us Some(2000)
+gate2 l314-exact-on port 18093 model qwen3.6-35b-a3b-fp8 prompt_tokens 24 wall 1792552157.366096052: ids identical -> PASS
+2026-10-21T03:10:49Z on prompt 0 t=0: 128 ids
+2026-10-21T03:12:16Z on prompt 1 t=0: 128 ids
+2026-10-21T03:13:11Z on prompt 2 t=0: 128 ids
+2026-10-21T03:13:55Z on prompt 3 t=0: 128 ids
+2026-10-21T03:14:42Z on prompt 0 t=1.0: 128 ids
+2026-10-21T03:15:44Z stopped pid 1851513
+2026-10-21T03:29:12Z mutant5: start bin-e1f02b29 on 18093 (AIEN_Q36_TEST_MUTANT=5), MemAvailable 58 GB
+2026-10-21T03:30:43Z mutant5: start try 1 failed: aien-serve-http: qwen38 load failed: lm_head: omega_gpu rc=-4 (CHIP_FAIL: m16_native_create_channel: RM_ALLOC class 0xcec0 status 0x51)
+2026-10-21T03:32:48Z mutant5: start try 2 failed: aien-serve-http: qwen38 load failed: needs 39937 MiB plus 8192 MiB kept free, MemAvailable 19406 MiB (another model may be loaded); refusing
+2026-10-21T03:34:53Z mutant5: start try 3 failed: aien-serve-http: qwen38 load failed: needs 39937 MiB plus 8192 MiB kept free, MemAvailable 36655 MiB (another model may be loaded); refusing
+2026-10-21T03:36:58Z mutant5: start try 4 failed: aien-serve-http: qwen38 load failed: needs 39937 MiB plus 8192 MiB kept free, MemAvailable 24457 MiB (another model may be loaded); refusing
+2026-10-21T03:38:58Z mutant5: server never came up, giving up
+2026-10-21T03:39:09Z mutant5: start bin-e1f02b29 on 18093 (AIEN_Q36_TEST_MUTANT=5), MemAvailable 51 GB
+2026-10-21T03:44:38Z mutant5: start try 1 failed: aien-serve-http: qwen38 load failed: experts gate|up: omega_gpu rc=-4 (CHIP_FAIL: nvrm_alloc_gpu_uncached: RM_ALLOC class 0x3e status 0x51)
+qwen36 omega: exact two-pass head ON (fp8b screen + Row bound, built in 8.4 s)
+qwen36 omega: TEST MUTANT 5 set (negative control; never serve this)
+aien-serve-http: qwen38 engine ready in 66.1 s: context 131072 tokens, weights 34.65 GB resident, KV 5.37 GB, rss 39.30 GB, prefill chunk 4096, spin_us Some(2000)
+gate2 l314-exact-mutant5 port 18093 model qwen3.6-35b-a3b-fp8 prompt_tokens 24 wall 1792554433.282024643: ids DIFFER -> FAIL
+2026-10-21T03:47:15Z stopped pid 2615615
+2026-10-21T03:47:15Z off: start bin-e1f02b29 on 18093 (AIEN_Q36_EXACT_HEAD=0), MemAvailable 60 GB
+qwen36 omega: exact two-pass head OFF (AIEN_Q36_EXACT_HEAD=0)
+aien-serve-http: qwen38 engine ready in 55.3 s: context 131072 tokens, weights 34.65 GB resident, KV 5.37 GB, rss 38.80 GB, prefill chunk 4096, spin_us Some(2000)
+gate2 l314-exact-off port 18093 model qwen3.6-35b-a3b-fp8 prompt_tokens 24 wall 1792554602.614052814: ids identical -> PASS
+2026-10-21T03:51:00Z off prompt 0 t=0: 128 ids
+2026-10-21T03:51:04Z off prompt 1 t=0: 128 ids
+2026-10-21T03:51:08Z off prompt 2 t=0: 128 ids
+2026-10-21T03:51:12Z off prompt 3 t=0: 128 ids
+2026-10-21T03:51:18Z off prompt 0 t=1.0: 128 ids
+2026-10-21T03:51:20Z stopped pid 2628749
+2026-10-21T03:51:20Z VERDICT PASS: gate2 on rc 0 (want 0), mutant5 rc 1 (want 1), off rc 0, ON == OFF ids on 5 / 5 requests

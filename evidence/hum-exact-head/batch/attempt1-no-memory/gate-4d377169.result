@@ -1,0 +1,3 @@
+l314-real8-4d377169 rc=2 want=0
+l314-mut5-8-4d377169 rc=2 want=1
+VERDICT FAIL
