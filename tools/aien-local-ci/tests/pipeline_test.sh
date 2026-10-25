@@ -188,18 +188,24 @@ pulls() { # NUM:SHA:DRAFT:LABEL ...
 }
 pr() { ghset "repos/$S/pulls/$1" "{\"number\":$1,\"draft\":${4:-false},\"mergeable_state\":\"$3\",\"head\":{\"sha\":\"$2\"}}"; }
 L=ready-to-merge
-for i in 41 42 43 44 45 46 47 48 49 50 51 52; do printf -v "N$i" '%s' "$(sha "$i")"; done
-# None of these heads has a bundle, a status or a check run.
+for i in 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56; do printf -v "N$i" '%s' "$(sha "$i")"; done
+# None of these heads has a bundle or status; unstable check runs are supplied below.
 pulls "41:$N41:false:$L" "42:$N42:false:" "43:$N43:true:$L" "44:$N44:false:$L" "45:$N45:false:$L" \
       "46:$N46:false:$L" "47:$N47:false:$L" "48:$N48:false:$L" "49:$N49:false:ready-to-merge-later" "50:$N50:false:$L" \
-      "51:$N51:false:$L" "52:$N52:false:$L"
+      "51:$N51:false:$L" "52:$N52:false:$L" \
+      "53:$N53:false:$L" "54:$N54:false:$L" "55:$N55:false:$L" "56:$N56:false:$L"
 pr 41 "$N41" clean; pr 44 "$N44" dirty; pr 45 "$N45" behind; pr 46 "$N46" unstable
 pr 47 "$(sha 470)" clean; pr 48 "$N48" unknown; pr 50 "$N50" blocked; pr 51 "$N51" unstable; pr 52 "$N52" unstable
+pr 53 "$N53" unstable; pr 54 "$N54" unstable; pr 55 "$N55" unstable; pr 56 "$N56" unstable
 # "unstable" = a check failed or is running and no branch rule requires it: the head's check runs decide.
 runs() { ghset "repos/$S/commits/$1/check-runs?per_page=100" "{\"check_runs\":[$2]}"; }
 runs "$N46" '{"name":"AIEN Checks","status":"completed","conclusion":"failure"},{"name":"CodeQL","status":"completed","conclusion":"success"}'
 runs "$N51" '{"name":"AIEN Checks","status":"in_progress","conclusion":null},{"name":"CodeQL","status":"completed","conclusion":"success"}'
 runs "$N52" '{"name":"AIEN Checks","status":"completed","conclusion":"success"},{"name":"AIEN Alpha","status":"completed","conclusion":"skipped"},{"name":"CodeQL","status":"completed","conclusion":"neutral"}'
+runs "$N53" '{"name":"AIEN Checks","status":"completed","conclusion":"stale"}'
+runs "$N54" '{"name":"AIEN Checks","status":"completed","conclusion":"future_result"}'
+runs "$N55" '{"name":"AIEN Checks","status":"completed","conclusion":null}'
+runs "$N56" '{"name":"AIEN Checks","status":"completed"}'
 c0=$(wc -l < "$FAKE_LOG")
 bash "$PIPE" merge > "$T/out7" 2>&1
 merges() { grep -c "^gh pr merge $1 " "$FAKE_LOG" || true; }
@@ -209,10 +215,14 @@ check "behind the base: merged (no up-to-date rule)" [ "$(merges 45)" = 1 ]
 check "unstable with a failed hosted check: refused, naming the check" refused 46 "hosted checks failed on this head: AIEN Checks"
 check "unstable with a check still running: wait, not merged" [ "$(jl ".action==\"merge\" and .pr==\"51\" and .result==\"wait\"")$(merges 51)" = 10 ]
 check "unstable with every check completed and none failed (skipped/neutral ok): merged" [ "$(merges 52)" = 1 ]
+for n in 53 54 55 56; do
+  check "unstable with unaccepted completed conclusion ($n): refused" refused "$n" "hosted checks failed on this head: AIEN Checks"
+  check "unstable with unaccepted completed conclusion ($n): never merged" [ "$(merges "$n")" = 0 ]
+done
 check "every mergeable PR merges in the same round" [ "$(grep -c '^gh pr merge' "$FAKE_LOG")" = 3 ]
 check "merge never calls aien-test" bash -c "! tail -n +$((c0 + 1)) '$FAKE_LOG' | grep -q '^aien-test'"
 check "merge reads check runs only for unstable heads, never statuses, protection or workflow runs" \
-  bash -c "! tail -n +$((c0 + 1)) '$FAKE_LOG' | grep -qE '/status|protection|actions/runs' && [ \"\$(tail -n +$((c0 + 1)) '$FAKE_LOG' | grep -c check-runs)\" = 3 ]"
+  bash -c "! tail -n +$((c0 + 1)) '$FAKE_LOG' | grep -qE '/status|protection|actions/runs' && [ \"\$(tail -n +$((c0 + 1)) '$FAKE_LOG' | grep -c check-runs)\" = 7 ]"
 check "never --admin" bash -c "! grep -q -- '--admin' '$FAKE_LOG'"
 check "label missing: skipped, no journal line" [ "$(jl ".action==\"merge\" and .pr==\"42\"")" = 0 ]
 check "label not exact (ready-to-merge-later): skipped, no journal line" [ "$(jl ".action==\"merge\" and .pr==\"49\"")" = 0 ]

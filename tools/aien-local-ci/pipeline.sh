@@ -266,7 +266,9 @@ merge_one() {
         merge_refuse "cannot read the head's check runs"; return 0
       fi
       local failed pending
-      failed=$(jq -r '[.[] | select(.conclusion != null and (.conclusion | IN("failure","cancelled","timed_out","action_required","startup_failure"))) | .name] | join(", ")' <<< "$runs")
+      # A completed run must explicitly name an accepted result. Stale, null, missing
+      # and future conclusions are not success; unfinished runs still wait below.
+      failed=$(jq -r '[.[] | select(.status == "completed" and (.conclusion | IN("success","skipped","neutral") | not)) | .name] | join(", ")' <<< "$runs")
       [[ -z $failed ]] || { merge_refuse "hosted checks failed on this head: $failed"; return 0; }
       pending=$(jq -r '[.[] | select(.status != "completed") | .name] | join(", ")' <<< "$runs")
       if [[ -n $pending ]]; then
