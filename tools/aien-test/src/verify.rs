@@ -1,9 +1,25 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! `aien-test verify COMMIT`: the independent check of a local verification
 //! (ADR 0033 Decision 10, contracts C4 to C6, amendments A1 and A7).
 //!
 //! It reads the signed bundle the worker wrote, checks it against the public
 //! keys the repository committed at BASE (`.aien/verify.pub`, one hex key per
-//! line), recomputes the plan for BASE..COMMIT and compares the graph digest,
+//! line), recomputes the plan for BASE..COMMIT in the scope the bundle signs
+//! (`plan.scope`: full or changed) and compares the graph digest,
 //! checks that every `run` entry has its receipt on disk, judges the verdict
 //! with the planner's algebra, asks `crumb verify` about the tree at COMMIT,
 //! and prints the fixed report block. Exit 0 only on MERGE ELIGIBILITY READY.
@@ -83,7 +99,9 @@ impl Found {
     }
 }
 
-fn sum_u64(index: &Index, digests: &[String], key: &str) -> Option<u64> {
+/// The sum of `volatile<pointer>` (a JSON pointer such as `/pool_wait_ms`)
+/// over the receipts; None when no receipt has it.
+fn sum_u64(index: &Index, digests: &[String], pointer: &str) -> Option<u64> {
     let mut total = 0u64;
     let mut any = false;
     for d in digests {
@@ -91,7 +109,7 @@ fn sum_u64(index: &Index, digests: &[String], key: &str) -> Option<u64> {
             if let Some(v) = s
                 .value
                 .get("volatile")
-                .and_then(|o| o.get(key))
+                .and_then(|o| o.pointer(pointer))
                 .and_then(Value::as_u64)
             {
                 total += v;
@@ -100,6 +118,124 @@ fn sum_u64(index: &Index, digests: &[String], key: &str) -> Option<u64> {
         }
     }
     any.then_some(total)
+}
+
+/// The file at the repository root that pins the crumb tool: one
+/// aien-architecture commit (sc#602).
+pub const CRUMB_LOCK: &str = "crumb.lock";
+
+/// The pinned commit in a `crumb.lock` text: exactly one 40-hex sha, surrounding
+/// whitespace ignored. None for anything else (a malformed lock pins nothing and
+/// the report says so).
+pub fn parse_crumb_lock(text: &str) -> Option<String> {
+    let pin = text.trim();
+    (pin.len() == 40 && pin.bytes().all(|b| b.is_ascii_hexdigit()))
+        .then(|| pin.to_ascii_lowercase())
+}
+
+/// Which crumb tool the readiness check ran, for the report's `Crumb tool:` line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CrumbTool {
+    /// Built from the aien-architecture commit `crumb.lock` names at COMMIT.
+    Pinned { pin: String, path: PathBuf },
+    /// The command the caller named (PATH `crumb`): COMMIT has no `crumb.lock`.
+    Unpinned(String),
+    /// COMMIT pins a tool but it could not be built; the reason is the string.
+    Unavailable(String),
+}
+
+/// The crumb tool for COMMIT (sc#602). With a `crumb.lock` at COMMIT the tool is
+/// built from the trusted sibling clone `<clones>/aien-architecture` (the parent
+/// of `root`, where the worker keeps every trusted clone) into
+/// `<cache>/<pin>/tools/crumb/crumb` and reused. The build is `git archive` of
+/// `tools/crumb` at the pin plus `make crumb`, the same as the CRUMB-VERIFY gate
+/// in tests/gates/run.sh, so the readiness line and the gate use one binary.
+///
+/// aien-architecture owns the tool and has no `crumb.lock`: its commits are
+/// checked with the tool at COMMIT itself, as its hosted workflow does, so a
+/// change to the crumb format is judged by the tool that writes it.
+pub fn crumb_tool_for(root: &Path, commit: &str, fallback: &str, cache: &Path) -> CrumbTool {
+    let pin = match plan::show(root, commit, CRUMB_LOCK) {
+        Some(bytes) => match parse_crumb_lock(&String::from_utf8_lossy(&bytes)) {
+            Some(pin) => pin,
+            None => {
+                return CrumbTool::Unavailable(format!(
+                    "{CRUMB_LOCK} at {commit} is not one 40-hex commit"
+                ));
+            }
+        },
+        None if owns_crumb_tool(root, commit) => commit.to_ascii_lowercase(),
+        None => return CrumbTool::Unpinned(fallback.to_string()),
+    };
+    let built = cache.join(&pin).join("tools").join("crumb").join("crumb");
+    if built.is_file() {
+        return CrumbTool::Pinned { pin, path: built };
+    }
+    let Some(clone) = root.parent().map(|p| p.join("aien-architecture")) else {
+        return CrumbTool::Unavailable("repository root has no parent directory".into());
+    };
+    if !clone.join(".git").exists() {
+        return CrumbTool::Unavailable(format!(
+            "no trusted clone at {} to build crumb {pin} from",
+            clone.display()
+        ));
+    }
+    let dir = cache.join(&pin);
+    let _ = fs::remove_dir_all(&dir);
+    if let Err(e) = fs::create_dir_all(&dir) {
+        return CrumbTool::Unavailable(format!("cannot create {}: {e}", dir.display()));
+    }
+    let tar = dir.join("crumb-tool.tar");
+    let mut archive = Command::new("git");
+    archive
+        .args(["archive", "--format=tar", "-o"])
+        .arg(&tar)
+        .arg(&pin)
+        .arg("tools/crumb")
+        .current_dir(&clone)
+        .env("GIT_OPTIONAL_LOCKS", "0");
+    if let Err(e) = run_ok(&mut archive) {
+        return CrumbTool::Unavailable(format!("git archive {pin} tools/crumb: {e}"));
+    }
+    let mut untar = Command::new("tar");
+    untar.args(["-x", "-f"]).arg(&tar).arg("-C").arg(&dir);
+    if let Err(e) = run_ok(&mut untar) {
+        return CrumbTool::Unavailable(format!("tar: {e}"));
+    }
+    let _ = fs::remove_file(&tar);
+    let mut make = Command::new("make");
+    make.args(["-s", "-C"])
+        .arg(dir.join("tools").join("crumb"))
+        .arg("crumb");
+    if let Err(e) = run_ok(&mut make) {
+        return CrumbTool::Unavailable(format!("make crumb at {pin}: {e}"));
+    }
+    if built.is_file() {
+        CrumbTool::Pinned { pin, path: built }
+    } else {
+        CrumbTool::Unavailable(format!("make produced no {}", built.display()))
+    }
+}
+
+/// Run a build step; Err carries the last stderr line (or the spawn error).
+/// True for the trusted aien-architecture clone (the worker's
+/// `<clones>/aien-architecture`) at a commit that carries the tool source.
+fn owns_crumb_tool(root: &Path, commit: &str) -> bool {
+    root.file_name().is_some_and(|n| n == "aien-architecture")
+        && plan::show(root, commit, "tools/crumb/crumb.c").is_some()
+}
+
+fn run_ok(cmd: &mut Command) -> Result<(), String> {
+    match process::output_gated(cmd) {
+        Ok(o) if o.status.success() => Ok(()),
+        Ok(o) => Err(String::from_utf8_lossy(&o.stderr)
+            .lines()
+            .last()
+            .unwrap_or("failed")
+            .trim()
+            .to_string()),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 /// `crumb verify` over the tree at COMMIT, in a temporary detached worktree.
@@ -135,12 +271,10 @@ pub fn crumb_status(root: &Path, commit: &str, crumb: Option<&str>) -> (String, 
         Err(e) => return ("STALE".into(), format!("cannot run git: {e}")),
     };
     drop(out);
-    let result = if !tmp.join(".crumb").exists() {
-        (
-            "STALE".to_string(),
-            "no .crumb at the repository root".to_string(),
-        )
-    } else {
+    // The crumb tool decides, exactly as the CRUMB-VERIFY gate does. A repository with no crumbs at all
+    // (benchmarks, interplane) is "OK: 0 crumbs current" to the tool; calling it STALE here published every
+    // PASS head of those repos as BLOCKED/error (2026-10-16..19).
+    let result = {
         let mut cmd = Command::new(crumb);
         cmd.args(["verify", "."]).current_dir(&tmp);
         match process::output_gated(&mut cmd) {
@@ -226,23 +360,6 @@ pub fn run(root: &Path, ask: &Ask) -> Report {
         }
     };
 
-    // The plan, fresh.
-    let plan: Option<Plan> = match (&base, commit_ok) {
-        (Some(b), true) => {
-            let mut req = Request::new(b, &commit);
-            req.operator = ask.operator;
-            req.hardware_identity = ask.hardware_identity.clone();
-            match plan::compute(root, &req) {
-                Ok(p) => Some(p),
-                Err(e) => {
-                    problems.push(format!("cannot plan: {e}"));
-                    None
-                }
-            }
-        }
-        _ => None,
-    };
-
     // The bundle.
     let bundle_path = ask.state.bundle_path(&repo, &commit);
     let bundle: Option<Value> = match fs::read(&bundle_path) {
@@ -257,6 +374,28 @@ pub fn run(root: &Path, ask: &Ask) -> Report {
             problems.push(format!("no bundle at {}", bundle_path.display()));
             None
         }
+    };
+
+    // The plan, fresh, in the scope the bundle says the worker planned
+    // (`plan.scope`, signed: a forged scope fails the signature below).
+    let full = bundle
+        .as_ref()
+        .is_some_and(|b| bundle::scope_of(b) == bundle::SCOPE_FULL);
+    let plan: Option<Plan> = match (&base, commit_ok) {
+        (Some(b), true) => {
+            let mut req = Request::new(b, &commit);
+            req.operator = ask.operator;
+            req.full = full;
+            req.hardware_identity = ask.hardware_identity.clone();
+            match plan::compute(root, &req) {
+                Ok(p) => Some(p),
+                Err(e) => {
+                    problems.push(format!("cannot plan: {e}"));
+                    None
+                }
+            }
+        }
+        _ => None,
     };
 
     // Keys at BASE (A1, A7): pick the one the bundle names; otherwise UNKNOWN_KEY.
@@ -296,6 +435,7 @@ pub fn run(root: &Path, ask: &Ask) -> Report {
                 commit: commit.clone(),
                 pubkey_hex: key,
                 required: required.clone(),
+                require_full: false,
             };
             match bundle::verify(b, &expect) {
                 Ok(v) => {
@@ -471,12 +611,43 @@ pub fn run(root: &Path, ask: &Ask) -> Report {
     lines.push(format!("Cached gates: {}", list(&cached)));
     lines.push(format!("Failed gates: {}", list(&failed)));
     lines.push(format!("Blocked gates: {}", list(&blocked)));
-    let (crumb, crumb_note) = if commit_ok {
-        crumb_status(root, &commit, ask.crumb.as_deref())
+    // sc#602: a crumb.lock at COMMIT pins the tool; the report names which one ran.
+    let (crumb, crumb_note, crumb_tool) = if !commit_ok {
+        ("STALE".to_string(), "commit missing".to_string(), None)
     } else {
-        ("STALE".into(), "commit missing".into())
+        match ask.crumb.as_deref() {
+            None => {
+                let (s, n) = crumb_status(root, &commit, None);
+                (s, n, None)
+            }
+            Some(fallback) => {
+                let cache = ask.state.root.join("crumb-tool");
+                match crumb_tool_for(root, &commit, fallback, &cache) {
+                    CrumbTool::Pinned { pin, path } => {
+                        let (s, n) = crumb_status(root, &commit, path.to_str());
+                        (s, n, Some(format!("pinned {pin} (crumb.lock)")))
+                    }
+                    CrumbTool::Unpinned(cmd) => {
+                        let (s, n) = crumb_status(root, &commit, Some(&cmd));
+                        (
+                            s,
+                            n,
+                            Some(format!("{cmd} on PATH (no crumb.lock at COMMIT)")),
+                        )
+                    }
+                    CrumbTool::Unavailable(why) => (
+                        "STALE".to_string(),
+                        format!("pinned crumb tool unavailable: {why}"),
+                        Some("pinned, not built".to_string()),
+                    ),
+                }
+            }
+        }
     };
     lines.push(format!("Crumb status: {crumb}"));
+    if let Some(tool) = crumb_tool {
+        lines.push(format!("Crumb tool: {tool}"));
+    }
     lines.push(format!("Evidence status: {evidence_status}"));
     let hardware = match &plan {
         Some(p)
@@ -518,14 +689,20 @@ pub fn run(root: &Path, ask: &Ask) -> Report {
         _ => "NOT_RUN".to_string(),
     };
     lines.push(format!("Final verdict: {final_verdict}"));
-    let queue = sum_u64(&found.index, &run_digests, "pool_wait_ms");
-    let test = sum_u64(&found.index, &run_digests, "duration_ms");
+    // A gate's batch-slot and target-dir waits fall inside its `duration_ms`;
+    // they are queue time, not test time.
+    let held = sum_u64(&found.index, &run_digests, "/batch_wait_ms").unwrap_or(0)
+        + sum_u64(&found.index, &run_digests, "/target_wait_ms").unwrap_or(0);
+    let queue = sum_u64(&found.index, &run_digests, "/pool_wait_ms").map(|q| q + held);
+    let test = sum_u64(&found.index, &run_digests, "/duration_ms").map(|t| t.saturating_sub(held));
+    let gpu_wait = sum_u64(&found.index, &run_digests, "/gpu_wait/waited_ms");
     let total = bundle.as_ref().and_then(|b| {
         let s = utc_secs(b["started_utc"].as_str()?)?;
         let f = utc_secs(b["finished_utc"].as_str()?)?;
         Some(f.saturating_sub(s) * 1000)
     });
     lines.push(format!("Queue time: {}", ms(queue)));
+    lines.push(format!("GPU lock wait: {}", ms(gpu_wait)));
     lines.push("Build time: n/a".to_string());
     lines.push(format!("Test time: {}", ms(test)));
     lines.push(format!("Total time: {}", ms(total)));
@@ -592,6 +769,124 @@ mod tests {
     use super::*;
 
     #[test]
+    fn crumb_lock_parses_one_sha_only() {
+        let sha = "107a2796c7b9ad6dff6f94a01d6567eb1ec9c995";
+        assert_eq!(
+            parse_crumb_lock(&format!("  {}\n", sha.to_uppercase())),
+            Some(sha.into())
+        );
+        assert_eq!(parse_crumb_lock("107a279\n"), None);
+        assert_eq!(parse_crumb_lock(&format!("{sha}\n{sha}\n")), None);
+        assert_eq!(
+            parse_crumb_lock("not a sha at all, forty characters long!"),
+            None
+        );
+        assert_eq!(parse_crumb_lock(""), None);
+    }
+
+    #[test]
+    fn commit_without_crumb_lock_uses_the_named_command() {
+        let repo = crate::testutil::init_repo("crumb-unpinned", &[("README", "x\n", false)]);
+        let head = plan::resolve(repo.path(), "HEAD").unwrap();
+        let cache = crate::testutil::TempDir::new("crumb-cache");
+        assert_eq!(
+            crumb_tool_for(repo.path(), &head, "crumb", cache.path()),
+            CrumbTool::Unpinned("crumb".into())
+        );
+    }
+
+    #[test]
+    fn malformed_crumb_lock_pins_nothing_and_says_so() {
+        let repo = crate::testutil::init_repo("crumb-badlock", &[(CRUMB_LOCK, "107a279\n", false)]);
+        let head = plan::resolve(repo.path(), "HEAD").unwrap();
+        let cache = crate::testutil::TempDir::new("crumb-cache");
+        match crumb_tool_for(repo.path(), &head, "crumb", cache.path()) {
+            CrumbTool::Unavailable(why) => assert!(why.contains("not one 40-hex commit"), "{why}"),
+            other => panic!("expected Unavailable, got {other:?}"),
+        }
+    }
+
+    /// A pinned tool is built from `<parent of root>/aien-architecture` at the
+    /// pin and reused from the cache: a fake sibling whose Makefile writes a
+    /// one-line `crumb` script stands in for the real tool.
+    #[test]
+    fn pinned_tool_is_built_from_the_sibling_clone_and_cached() {
+        let base = crate::testutil::TempDir::new("crumb-pinned");
+        let sib = base.path().join("aien-architecture");
+        let tool_dir = sib.join("tools").join("crumb");
+        fs::create_dir_all(&tool_dir).unwrap();
+        fs::write(
+            tool_dir.join("Makefile"),
+            "crumb:\n\tprintf '#!/bin/sh\\necho fake crumb\\n' > crumb && chmod +x crumb\n",
+        )
+        .unwrap();
+        crate::testutil::git(&sib, &["init", "-q"]);
+        crate::testutil::git(&sib, &["add", "."]);
+        crate::testutil::git(&sib, &["commit", "-q", "-m", "tool"]);
+        let pin = plan::resolve(&sib, "HEAD").unwrap();
+        let repo = base.path().join("repo");
+        fs::create_dir_all(&repo).unwrap();
+        fs::write(repo.join(CRUMB_LOCK), format!("{pin}\n")).unwrap();
+        crate::testutil::git(&repo, &["init", "-q"]);
+        crate::testutil::git(&repo, &["add", "."]);
+        crate::testutil::git(&repo, &["commit", "-q", "-m", "pin"]);
+        let head = plan::resolve(&repo, "HEAD").unwrap();
+        let cache = base.path().join("cache");
+        let built = cache.join(&pin).join("tools").join("crumb").join("crumb");
+        assert_eq!(
+            crumb_tool_for(&repo, &head, "crumb", &cache),
+            CrumbTool::Pinned {
+                pin: pin.clone(),
+                path: built.clone()
+            }
+        );
+        assert!(built.is_file());
+        // Second call: the sibling is gone, the cached build still answers.
+        fs::remove_dir_all(&sib).unwrap();
+        assert_eq!(
+            crumb_tool_for(&repo, &head, "crumb", &cache),
+            CrumbTool::Pinned { pin, path: built }
+        );
+    }
+
+    /// aien-architecture (no `crumb.lock`, owns `tools/crumb`) is checked with
+    /// the tool at COMMIT; any other repo carrying a `tools/crumb` is not.
+    #[test]
+    fn architecture_checks_itself_with_the_tool_at_commit() {
+        let base = crate::testutil::TempDir::new("crumb-self");
+        let makefile =
+            "crumb:\n\tprintf '#!/bin/sh\\necho fake crumb\\n' > crumb && chmod +x crumb\n";
+        for name in ["aien-architecture", "other"] {
+            let tool_dir = base.path().join(name).join("tools").join("crumb");
+            fs::create_dir_all(&tool_dir).unwrap();
+            fs::write(tool_dir.join("Makefile"), makefile).unwrap();
+            fs::write(tool_dir.join("crumb.c"), "int main(void){return 0;}\n").unwrap();
+            let repo = base.path().join(name);
+            crate::testutil::git(&repo, &["init", "-q"]);
+            crate::testutil::git(&repo, &["add", "."]);
+            crate::testutil::git(&repo, &["commit", "-q", "-m", "tool"]);
+        }
+        let arch = base.path().join("aien-architecture");
+        let head = plan::resolve(&arch, "HEAD").unwrap();
+        let cache = base.path().join("cache");
+        let built = cache.join(&head).join("tools").join("crumb").join("crumb");
+        assert_eq!(
+            crumb_tool_for(&arch, &head, "crumb", &cache),
+            CrumbTool::Pinned {
+                pin: head.clone(),
+                path: built.clone()
+            }
+        );
+        assert!(built.is_file());
+        let other = base.path().join("other");
+        let head = plan::resolve(&other, "HEAD").unwrap();
+        assert_eq!(
+            crumb_tool_for(&other, &head, "crumb", &cache),
+            CrumbTool::Unpinned("crumb".into())
+        );
+    }
+
+    #[test]
     fn keys_parse() {
         let a = "a".repeat(64);
         let text = format!(
@@ -638,5 +933,39 @@ mod tests {
             .lines
             .iter()
             .any(|l| l.starts_with("Problem: no bundle at ")));
+    }
+
+    /// A fake crumb on disk that prints `out` and exits `rc`.
+    fn fake_crumb(dir: &Path, out: &str, rc: i32) -> String {
+        use std::os::unix::fs::PermissionsExt;
+        let p = dir.join("crumb");
+        fs::write(&p, format!("#!/bin/sh\necho '{out}'\nexit {rc}\n")).unwrap();
+        fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
+        p.display().to_string()
+    }
+
+    #[test]
+    fn repo_without_crumbs_asks_the_tool() {
+        // benchmarks and interplane have no .crumb at all; the gate's tool says OK, so readiness must too.
+        let repo = crate::testutil::init_repo("verify-nocrumb", &[("README", "x\n", false)]);
+        let head = plan::resolve(repo.path(), "HEAD").unwrap();
+        let bin = crate::testutil::TempDir::new("verify-fake-crumb");
+        let ok = fake_crumb(bin.path(), "crumb verify: OK: 0 crumbs current", 0);
+        assert_eq!(
+            crumb_status(repo.path(), &head, Some(&ok)),
+            (
+                "CURRENT".to_string(),
+                "crumb verify: OK: 0 crumbs current".to_string()
+            )
+        );
+        // The tool still has the last word: if it fails, readiness is STALE.
+        let bad = fake_crumb(
+            bin.path(),
+            "crumb verify: FAIL: 1 of 1 crumbs stale; run: crumb compile",
+            1,
+        );
+        assert_eq!(crumb_status(repo.path(), &head, Some(&bad)).0, "STALE");
+        // No tool configured: still STALE (not proven current).
+        assert_eq!(crumb_status(repo.path(), &head, None).0, "STALE");
     }
 }

@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Qwen3.8-27B behind the door (sc #642 serving): the whole model resident on AIEN's own Omega
 //! kernels (64 layers, fused FP8 projections, bf16 lm_head), prompts through omega's prefill,
 //! replies through the chip-proven decode graph, next turn resumed from the live state or the
@@ -80,6 +95,29 @@ pub fn rss_bytes() -> u64 {
         .map_or(0, |kb| kb * 1024)
 }
 
+/// Takes the lock with `acquire`, and only then reads free memory with `mem_available` and checks
+/// it against `need` plus [`KEEP_FREE`]. On a refusal the lock is released (dropped) before the
+/// error returns. The order is the point: a check made before a long lock wait is stale by the time
+/// the upload starts.
+fn admit_load<L>(
+    acquire: impl FnOnce() -> Result<L, String>,
+    mem_available: impl FnOnce() -> u64,
+    need: u64,
+) -> Result<(L, u64), String> {
+    let lock = acquire()?;
+    let avail = mem_available();
+    if avail < need + KEEP_FREE {
+        return Err(format!(
+            "needs {} MiB plus {} MiB kept free ({} MiB in all), MemAvailable {} MiB after taking the GPU lock (another model may be loaded); refusing",
+            need >> 20,
+            KEEP_FREE >> 20,
+            (need + KEEP_FREE) >> 20,
+            avail >> 20
+        ));
+    }
+    Ok((lock, avail))
+}
+
 pub struct Qwen38Door {
     session: Mutex<Qwen38Session>,
     max_context: usize,
@@ -101,16 +139,21 @@ impl Qwen38Door {
         let c = Qwen38Config::from_checkpoint(dir)?;
         let max_pos = max_context.next_multiple_of(256);
         let need = need_bytes(&c, max_pos, PREFILL_CHUNK);
-        let avail = mem_available();
-        if avail < need + KEEP_FREE {
-            return Err(format!(
-                "needs {} MiB plus {} MiB kept free, MemAvailable {} MiB (another model may be loaded); refusing",
-                need >> 20,
-                KEEP_FREE >> 20,
-                avail >> 20
-            ));
-        }
-        let _lock = GpuLock::acquire_queued_at(Path::new(GPU_LOCK_PATH), LOAD_LOCK_WAIT)?;
+        // Memory is judged only once the lock is ours: the wait can last many minutes and free
+        // memory on a shared box swings by tens of GiB meanwhile (alpha test: 6 to 59 GiB).
+        let t_lock = Instant::now();
+        let (_lock, avail) = admit_load(
+            || GpuLock::acquire_queued_at(Path::new(GPU_LOCK_PATH), LOAD_LOCK_WAIT),
+            mem_available,
+            need,
+        )?;
+        eprintln!(
+            "aien-serve-http: qwen38: lock taken after {:.1} s, memory re-checked after the lock: MemAvailable {} MiB, needs {} MiB plus {} MiB kept free",
+            t_lock.elapsed().as_secs_f64(),
+            avail >> 20,
+            need >> 20,
+            KEEP_FREE >> 20
+        );
         let t0 = Instant::now();
         eprintln!(
             "aien-serve-http: qwen38: uploading {} layers, KV {max_pos} positions (need {} MiB, MemAvailable {} MiB)",
@@ -260,5 +303,81 @@ impl Engine for Qwen38Door {
             decode_ms,
             sampling: Some(observer.record()),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+
+    struct Guard<'a>(&'a RefCell<Vec<&'static str>>);
+    impl Drop for Guard<'_> {
+        fn drop(&mut self) {
+            self.0.borrow_mut().push("release");
+        }
+    }
+
+    const NEED: u64 = 41_305 << 20;
+
+    #[test]
+    fn memory_is_read_after_the_lock_is_taken() {
+        let log = RefCell::new(Vec::new());
+        let r = admit_load(
+            || {
+                log.borrow_mut().push("lock");
+                Ok(Guard(&log))
+            },
+            || {
+                log.borrow_mut().push("memory");
+                NEED + KEEP_FREE
+            },
+            NEED,
+        );
+        let (g, avail) = r.expect("exactly need plus keep-free is enough");
+        assert_eq!(avail, NEED + KEEP_FREE);
+        assert_eq!(*log.borrow(), ["lock", "memory"]);
+        drop(g);
+    }
+
+    #[test]
+    fn low_memory_after_the_wait_refuses_and_releases_the_lock() {
+        // 59 GiB was free before the wait, 6 GiB after it: only the reading after the lock counts.
+        let log = RefCell::new(Vec::new());
+        let e = admit_load(
+            || Ok(Guard(&log)),
+            || {
+                log.borrow_mut().push("memory");
+                6 << 30
+            },
+            NEED,
+        )
+        .err()
+        .expect("6 GiB must be refused");
+        assert!(
+            e.contains("41305 MiB plus 8192 MiB kept free (49497 MiB in all)"),
+            "{e}"
+        );
+        assert!(
+            e.contains("MemAvailable 6144 MiB after taking the GPU lock"),
+            "{e}"
+        );
+        assert_eq!(*log.borrow(), ["memory", "release"]);
+    }
+
+    #[test]
+    fn one_byte_short_is_refused() {
+        let r = admit_load(|| Ok(()), || NEED + KEEP_FREE - 1, NEED);
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn no_lock_means_memory_is_never_read() {
+        let r: Result<((), u64), String> = admit_load(
+            || Err("lock wait timed out".into()),
+            || panic!("memory must not be read without the lock"),
+            NEED,
+        );
+        assert_eq!(r.unwrap_err(), "lock wait timed out");
     }
 }

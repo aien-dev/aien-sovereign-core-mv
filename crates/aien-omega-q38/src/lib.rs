@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Safe-ish Rust wrapper over omega's Qwen3.8-27B decode pieces (sc #642; no CUDA):
 //!
 //! * [`Gdn`]: the device-resident Gated DeltaNet parameters, conv tails and recurrent states of
@@ -1380,6 +1395,59 @@ impl Drop for Q38Graph {
     }
 }
 
+/// bf16 `[n][k]` -> e4m3 `[n][k]` + bf16 scale_inv `[n/128][k/128]` (omega `omega_gpu_fp8_quantize_bf16`: per 128 x 128
+/// block, scale = max|w| / 448 rounded up to bf16, round to nearest even). Stripes of 128 rows run on `threads` threads.
+pub fn quantize_fp8_bf16(
+    n: usize,
+    k: usize,
+    w: &[u16],
+    threads: usize,
+) -> Result<(Vec<u8>, Vec<u16>), OmegaGpuError> {
+    const B: usize = 128;
+    if n == 0 || k == 0 || !n.is_multiple_of(B) || !k.is_multiple_of(B) {
+        return Err(OmegaGpuError::Unavailable);
+    }
+    check_len("fp8 quantise bf16 words", n * k, w.len())?;
+    let mut w8 = vec![0u8; n * k];
+    let mut s = vec![0u16; (n / B) * (k / B)];
+    #[cfg(has_omega_q38)]
+    {
+        let stripes = n / B;
+        let per = stripes.div_ceil(threads.max(1));
+        let rcs: Vec<i32> = std::thread::scope(|sc| {
+            let hs: Vec<_> = w
+                .chunks(per * B * k)
+                .zip(w8.chunks_mut(per * B * k))
+                .zip(s.chunks_mut(per * (k / B)))
+                .map(|((wi, oi), si)| {
+                    sc.spawn(move || {
+                        // SAFETY: wi holds rows * k words, oi rows * k bytes, si (rows / 128) * (k / 128) words.
+                        unsafe {
+                            ffi::omega_gpu_fp8_quantize_bf16(
+                                (wi.len() / k) as u32,
+                                k as u32,
+                                wi.as_ptr(),
+                                oi.as_mut_ptr(),
+                                si.as_mut_ptr(),
+                            )
+                        }
+                    })
+                })
+                .collect();
+            hs.into_iter().map(|h| h.join().unwrap_or(-1)).collect()
+        });
+        if let Some(&rc) = rcs.iter().find(|&&rc| rc != 0) {
+            return Err(session_err("fp8 quantise", rc));
+        }
+        Ok((w8, s))
+    }
+    #[cfg(not(has_omega_q38))]
+    {
+        let _ = (&mut w8, &mut s, threads);
+        Err(OmegaGpuError::Unavailable)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1455,58 +1523,5 @@ mod tests {
         };
         assert!(check_config(&gdn_only).is_ok());
         assert!(check_config(&GraphConfig { layers: 65, ..ok }).is_err());
-    }
-}
-
-/// bf16 `[n][k]` -> e4m3 `[n][k]` + bf16 scale_inv `[n/128][k/128]` (omega `omega_gpu_fp8_quantize_bf16`: per 128 x 128
-/// block, scale = max|w| / 448 rounded up to bf16, round to nearest even). Stripes of 128 rows run on `threads` threads.
-pub fn quantize_fp8_bf16(
-    n: usize,
-    k: usize,
-    w: &[u16],
-    threads: usize,
-) -> Result<(Vec<u8>, Vec<u16>), OmegaGpuError> {
-    const B: usize = 128;
-    if n == 0 || k == 0 || !n.is_multiple_of(B) || !k.is_multiple_of(B) {
-        return Err(OmegaGpuError::Unavailable);
-    }
-    check_len("fp8 quantise bf16 words", n * k, w.len())?;
-    let mut w8 = vec![0u8; n * k];
-    let mut s = vec![0u16; (n / B) * (k / B)];
-    #[cfg(has_omega_q38)]
-    {
-        let stripes = n / B;
-        let per = stripes.div_ceil(threads.max(1));
-        let rcs: Vec<i32> = std::thread::scope(|sc| {
-            let hs: Vec<_> = w
-                .chunks(per * B * k)
-                .zip(w8.chunks_mut(per * B * k))
-                .zip(s.chunks_mut(per * (k / B)))
-                .map(|((wi, oi), si)| {
-                    sc.spawn(move || {
-                        // SAFETY: wi holds rows * k words, oi rows * k bytes, si (rows / 128) * (k / 128) words.
-                        unsafe {
-                            ffi::omega_gpu_fp8_quantize_bf16(
-                                (wi.len() / k) as u32,
-                                k as u32,
-                                wi.as_ptr(),
-                                oi.as_mut_ptr(),
-                                si.as_mut_ptr(),
-                            )
-                        }
-                    })
-                })
-                .collect();
-            hs.into_iter().map(|h| h.join().unwrap_or(-1)).collect()
-        });
-        if let Some(&rc) = rcs.iter().find(|&&rc| rc != 0) {
-            return Err(session_err("fp8 quantise", rc));
-        }
-        Ok((w8, s))
-    }
-    #[cfg(not(has_omega_q38))]
-    {
-        let _ = (&mut w8, &mut s, threads);
-        Err(OmegaGpuError::Unavailable)
     }
 }

@@ -35,7 +35,9 @@
 #             writable one.
 #   --env     K=V with a plain name; PATH, HOME, CARGO_HOME, RUSTUP_HOME, LD_*, BASH_ENV, ENV refused;
 #             each name at most once. CARGO_TARGET_DIR, if given, must be exactly
-#             /var/lib/aien-run/target/<repo>/pr or .../main (the trust class, A2); it is created if missing.
+#             /var/lib/aien-run/target/<repo>/pr/<sha40> or .../main/<sha40>: the head's own dir inside its
+#             trust class (A2), created if missing. With --cwd in a worktree, <repo> and <sha40> must be that
+#             worktree's. One dir per head: a shared dir let cargo link one head's build into another (sc #605).
 #   PROGRAM   may not contain '=' or start with '-' (so it can never be read as an extra environment
 #             assignment by `env`). A bare name resolves only through the sandbox PATH
 #             /var/lib/aien-run/cargo/bin:/usr/local/bin:/usr/bin:/bin (all root-owned, checked at start);
@@ -96,7 +98,7 @@ case "$profile" in host|qemu|gb10) ;; *) die "--profile must be host|qemu|gb10: 
 # --cwd: canonical, and inside the sandbox home only the home itself or a worktree.
 [[ $cwd == /* && -d $cwd ]] || die "--cwd must be an existing absolute directory: $cwd"
 [[ $(realpath -e -- "$cwd") == "$cwd" ]] || die "--cwd must be canonical (no symlinks, no trailing slash): $cwd"
-wtroot=""
+wtroot=""; repo=""; sha=""
 case "$cwd" in
   "$RUN_HOME") ;;
   "$RUN_HOME"/wt/*/*)
@@ -106,7 +108,8 @@ case "$cwd" in
   "$RUN_HOME"/*) die "--cwd inside $RUN_HOME must be the home itself or inside wt/<repo>/<sha>: $cwd" ;;
 esac
 
-# --env: plain names, refused names, no duplicates, CARGO_TARGET_DIR only as target/<repo>/pr|main.
+# --env: plain names, refused names, no duplicates, CARGO_TARGET_DIR only as target/<repo>/pr|main/<sha40>
+# (the worktree's own repo and sha when --cwd is in one).
 tdir=""; seen=" "
 for kv in "${envs[@]}"; do
   [[ $kv =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || die "--env needs K=V with a valid name: $kv"
@@ -118,9 +121,12 @@ for kv in "${envs[@]}"; do
   seen+="$k "
   if [[ $k == CARGO_TARGET_DIR ]]; then
     tdir=${kv#*=}
-    trepo=${tdir#"$RUN_HOME"/target/}; trepo=${trepo%/*}
-    [[ $tdir == "$RUN_HOME/target/$trepo/pr" || $tdir == "$RUN_HOME/target/$trepo/main" ]] && plain_name "$trepo" \
-      || die "CARGO_TARGET_DIR must be $RUN_HOME/target/<repo>/pr or .../main: $tdir"
+    trel=${tdir#"$RUN_HOME"/target/}; IFS=/ read -r trepo tclass tsha textra <<<"$trel"
+    [[ $tdir == "$RUN_HOME/target/$trepo/$tclass/$tsha" && -z $textra && ( $tclass == pr || $tclass == main ) \
+       && $tsha =~ ^[0-9a-f]{40}$ ]] && plain_name "$trepo" \
+      || die "CARGO_TARGET_DIR must be $RUN_HOME/target/<repo>/pr/<sha40> or .../main/<sha40>: $tdir"
+    [[ -z $sha || ( $trepo == "$repo" && $tsha == "$sha" ) ]] \
+      || die "CARGO_TARGET_DIR must be this worktree's own ($repo $sha): $tdir"
   fi
 done
 getent passwd "$RUN_USER" >/dev/null || die "user $RUN_USER does not exist (run tools/aien-local-ci/install.sh)"
@@ -133,10 +139,11 @@ for p in "$RUN_HOME" "$RUN_HOME/cargo" "$RUN_HOME/cargo/bin" "$RUN_HOME/rustup" 
   (( (8#$m & 8#022) == 0 )) || die "unsafe host layout: $p is group/other-writable ($m)"
 done
 
-# Target dir of the requested trust class: created on demand (parent root-owned, the class dir aien-run).
+# The head's target dir: created on demand (missing parents root-owned, the head's dir aien-run). Only that one
+# dir is mounted writable below, so a run can never touch another head's build or the other trust class.
 if [[ -n $tdir ]]; then
   if [[ ! -d $tdir ]]; then
-    install -d -o root -g root -m 0755 "${tdir%/*}"
+    [[ -d ${tdir%/*} ]] || install -d -o root -g root -m 0755 "${tdir%/*}"
     install -d -o "$RUN_USER" -g "$RUN_USER" -m 0755 "$tdir"
   fi
   [[ $(realpath -e -- "$tdir") == "$tdir" ]] || die "CARGO_TARGET_DIR must be canonical: $tdir"

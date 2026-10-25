@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 pub fn parse_quoted_args(input: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
@@ -42,6 +57,77 @@ pub async fn handle_slash_command(cmd: &str) -> bool {
             println!("{}", "Exiting AIEN. The Spark desk remains ours.".cyan());
             std::process::exit(0);
         }
+        "/rollback" => {
+            // sc#667: undo the agent's own file writes from a turn on; the
+            // operator's edits are never touched.
+            let home = crate::platform::PlatformContext::detect().home_dir;
+            let turn = parts.get(1).and_then(|t| t.parse::<u64>().ok());
+            let session = parts.get(if turn.is_some() { 2 } else { 1 }).copied();
+            match crate::checkpoint::rollback(&home, turn, session) {
+                Ok(r) => {
+                    println!(
+                        "{}",
+                        format!("Rolled back from turn {}", r.from_turn)
+                            .cyan()
+                            .bold()
+                    );
+                    for (label, paths) in [
+                        ("restored", &r.restored),
+                        ("removed (the agent created it)", &r.removed),
+                        ("already as it was", &r.unchanged),
+                        ("KEPT: changed after the agent wrote it", &r.conflicts),
+                        ("spared: your own edits, not touched", &r.spared),
+                    ] {
+                        for p in paths {
+                            println!("  {}: {}", label, p);
+                        }
+                    }
+                }
+                Err(e) => println!("{}", format!("Rollback refused: {}", e).red()),
+            }
+            true
+        }
+        "/checkpoints" => {
+            let home = crate::platform::PlatformContext::detect().home_dir;
+            match crate::checkpoint::list_turns(&home, parts.get(1).copied()) {
+                Ok(turns) if turns.is_empty() => {
+                    println!("No agent file writes recorded in that session.")
+                }
+                Ok(turns) => {
+                    println!("{}", "Agent writes by turn".cyan());
+                    for (t, n) in turns {
+                        println!("  turn {}: {} file(s)", t, n);
+                    }
+                }
+                Err(e) => println!("{}", e.red()),
+            }
+            true
+        }
+        "/approval" => {
+            let ctx = crate::approval::GateContext::from_env();
+            println!("{}", "Approval gate (sc#667)".cyan().bold());
+            println!(
+                "  mode: {:?}   person present: {}",
+                ctx.mode,
+                ctx.presence == crate::approval::Presence::Person
+            );
+            println!(
+                "  policy file: {}",
+                crate::approval::policy_path(&crate::platform::PlatformContext::detect().home_dir)
+                    .display()
+            );
+            if let Some(why) = ctx.policy.broken() {
+                println!(
+                    "  {}",
+                    format!("EVERY REQUEST IS DENIED: {}", why).red().bold()
+                );
+            }
+            for w in &ctx.policy.warnings {
+                println!("  {}", w.yellow());
+            }
+            println!("  floors (every mode): hardline commands, runtime files, sudo password on stdin, your deny patterns");
+            true
+        }
         "/clear" => {
             print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
             let _ = std::io::stdout().flush();
@@ -57,6 +143,11 @@ pub async fn handle_slash_command(cmd: &str) -> bool {
   /browser [test|mentor|screenshot|eval] Headless Chrome CDP mirror (Rust, aien-browser-mirror)
   /subagents [list|view|run] Recursive contextual subagents hierarchy
   /goal [list|new|done]     Manage project goals & milestone lattices"
+            );
+            println!("  /rollback [turn] [session] Undo the agent's own file writes from a turn on (your edits are kept)");
+            println!("  /checkpoints [session]    List turns with agent file writes");
+            println!(
+                "  /approval                 Show approval mode, presence and the policy file"
             );
             println!("  /rules                    Inspect active repository & directory rules (AGENTS.md, GEMINI.md)");
             println!("  /walkthrough [save]       Display live architecture map & roadmap (or save to WALKTHROUGH.md)");

@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use std::path::PathBuf;
 
 fn workspace_root() -> PathBuf {
@@ -1047,11 +1062,11 @@ fn test_t1_f64_git_commit_messages_unslop_compliant() {
 }
 
 #[test]
-fn test_t1_f65_git_license_file_declares_agpl() {
+fn test_t1_f65_git_license_file_declares_apache() {
     let license_path = workspace_root().join("LICENSE");
     let content = fs::read_to_string(license_path).expect("read LICENSE");
-    assert!(content.contains("GNU AFFERO GENERAL PUBLIC LICENSE"));
-    assert!(content.contains("Version 3, 19 November 2007"));
-    assert!(!content.contains("Apache License, Version 2.0"));
+    assert!(content.contains("Apache License"));
+    assert!(content.contains("Version 2.0, January 2004"));
+    assert!(!content.contains("GNU AFFERO GENERAL PUBLIC LICENSE"));
     assert!(!content.contains("SRCL-1.0"));
 }

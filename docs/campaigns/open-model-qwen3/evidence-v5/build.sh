@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # OPEN-MODEL-QWEN3 v5 freeze-candidate build (DRAFT, NOT FROZEN): sovereign-core 30258fc (main, holds sc#353, sc#354, sc#357, sc#358, sc#359 and sc#360),
 # omega 6c6180c (= omega.lock at 30258fc), physics 6d7cf0d (physics.lock), aienos b84c0a6 (aienos.lock). Clean clones,
 # release, real compose + GPU libraries, never the stub, without the dev-fallback feature. Derived from evidence-v4/build.sh.
