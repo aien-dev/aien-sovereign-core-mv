@@ -1010,7 +1010,7 @@ pub(crate) mod fixtures {
             tier: Tier::Qemu,
             result: Verdict::Pass,
             timestamp: 1_786_000_000,
-            repo: "https://github.com/aien-dev/aienux".to_string(),
+            repo: "https://github.com/aien-dev/aienos".to_string(),
             commit: "a".repeat(40),
             dirty: false,
             toolchain: "rustc 1.90.0".to_string(),
