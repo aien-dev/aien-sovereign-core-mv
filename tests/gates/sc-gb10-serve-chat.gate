@@ -5,6 +5,8 @@
 # Qwen3.8-27B through tools/serve-27b.sh, one greedy chat request, clean SIGTERM shutdown
 # (scripts/gb10-serve-chat.sh). NOT_RUN model_missing or memory_short (MemAvailable below the
 # loader's 49,497 MiB: the server is not started), never PASS.
+# The receipt names the checkpoint as model_dir and model_dir_source (override | models-mount | home;
+# resolution in tests/gates/step-home.sh, host-tested without a GPU by SC-GB10-MODEL-DIR).
 # The runner holds /tmp/aien-gb10.lock for the whole run (AIEN_GB10_LOCK_HELD=1); the server then
 # takes no lock, after verifying in /proc/locks that the holder is an ancestor (no override).
 # Selection: full scope (an Alpha) selects every gate, so this one always runs there. The inputs

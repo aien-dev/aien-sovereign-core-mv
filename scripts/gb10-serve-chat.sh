@@ -34,19 +34,24 @@
 # NOT_RUN (exit 77 with a not_run_reason observation, aien-test verdict.rs SELF_NOT_RUN_EXIT),
 # never PASS: model_missing (no checkpoint at $MODEL_DIR), memory_short (MemAvailable below the
 # 49,497 MiB the loader needs, checked before the server is started; the server is not started).
-# Every other problem is a FAIL. Observations: build_rc, engine_native, mem_available_mib,
-# chip_lock, serve_rc, reply_ok, reply_chars, completion_tokens, shutdown_clean.
+# Every other problem is a FAIL. Observations: model_dir, model_dir_source (both emitted before any
+# check, so a NOT_RUN names them too), build_rc, engine_native, mem_available_mib, chip_lock,
+# serve_rc, reply_ok, reply_chars, completion_tokens, shutdown_clean.
 #
-# Settings: MODEL_DIR (default $AIEN_MODELS_DIR/qwen3.8-27b-fp8-017b9c7a, else $HOME/models/...;
+# Settings: MODEL_DIR (an override, receipted as model_dir_source "override"; default
+# $AIEN_MODELS_DIR/qwen3.8-27b-fp8-017b9c7a, "models-mount", else $HOME/models/..., "home";
 # tests/gates/run.sh sets AIEN_MODELS_DIR to the sandbox home's read-only models/ mount because it
-# gives each step a fresh writable HOME), READY_TIMEOUT (default 2400 s, as
-# tools/serve-27b.sh), STOP_TIMEOUT (default 900 s).
+# gives each step a fresh writable HOME; tests/gates/step-home.sh gb10_model_dir, host-tested by
+# scripts/test-gb10-model-dir.sh), READY_TIMEOUT (default 2400 s, as tools/serve-27b.sh),
+# STOP_TIMEOUT (default 900 s).
 set -uo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT" || exit 3
 ENV_SH=${1:?usage: scripts/gb10-serve-chat.sh <pins env.sh>}
 TARGET=${CARGO_TARGET_DIR:-$ROOT/target}
-MODEL_DIR=${MODEL_DIR:-${AIEN_MODELS_DIR:-$HOME/models}/qwen3.8-27b-fp8-017b9c7a}
+# shellcheck source=tests/gates/step-home.sh
+. "$ROOT/tests/gates/step-home.sh" || exit 3
+gb10_model_dir
 MODEL_ID=qwen3.8-27b-fp8
 READY_TIMEOUT=${READY_TIMEOUT:-2400}
 STOP_TIMEOUT=${STOP_TIMEOUT:-900}
@@ -58,6 +63,10 @@ NEED_MIB=49497
 obs() { printf '\nAIEN-OBS %s %s\n' "$1" "$2"; }
 not_run() { echo "gb10-serve-chat: NOT_RUN $1: $2" >&2; obs not_run_reason "\"$1\""; exit 77; }
 fail() { echo "gb10-serve-chat: FAIL: $*" >&2; exit 1; }
+json_str() { local s=${1//\\/\\\\}; printf '"%s"' "${s//\"/\\\"}"; }
+# Model provenance goes into the receipt before any check: an override is never mistaken for the default.
+obs model_dir "$(json_str "$MODEL_DIR")"
+obs model_dir_source "\"$MODEL_DIR_SOURCE\""
 for t in curl jq ss; do command -v "$t" >/dev/null || fail "needs $t"; done
 
 [ -f "$MODEL_DIR/config.json" ] && [ -f "$MODEL_DIR/tokenizer.json" ] \

@@ -489,6 +489,16 @@ the server on the real Omega GPU engine, start Qwen3.8-27B, one greedy chat
 request, clean SIGTERM shutdown. Full scope selects every gate, so the Alpha
 run always includes it; a pull request's changed scope does not, and its result
 is never cached (`cache: never`).
+`tests/gates/run.sh` swaps the sandbox's read-only `$HOME` for a fresh writable
+one per step and exports `AIEN_MODELS_DIR` as the read-only home's `models/`
+mount, so the gate finds the checkpoint there, not under the fresh HOME
+(`tests/gates/step-home.sh`). Before any check it records the checkpoint it
+resolved as `model_dir` and where that came from as `model_dir_source`
+(`override` when `MODEL_DIR` was set, `models-mount`, or `home`), so a receipt
+never leaves the model's provenance to the default. `SC-GB10-MODEL-DIR`
+(`scripts/test-gb10-model-dir.sh`, portable, no GPU) runs that resolution and
+the gate's NOT_RUN `model_missing` path, which ends before the memory check,
+the build and any GPU start, with a read-only HOME.
 
 The full-scope bundle is written to the head's usual bundle path. The loop
 skips any head that already has a bundle, whatever its scope, so an Alpha
