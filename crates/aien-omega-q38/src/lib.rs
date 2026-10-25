@@ -294,6 +294,9 @@ mod ffi {
             q_norm: *const f32,
             k_norm: *const f32,
         ) -> i32;
+        /// L803 (2026-10-24): positions per CTA of the single-row decode attention launch (a multiple of 256; 0 =
+        /// compiled default 256). Experiments only: the multi-row launch refuses any value but 256.
+        pub fn omega_gpu_decode_attn256_set_per_split(per_split: u32);
         pub fn omega_gpu_decode_attn_last_error() -> *const c_char;
 
         pub fn omega_gpu_q38_graph_create(
@@ -391,6 +394,15 @@ mod ffi {
 }
 
 /// omega's own gather table (`omega_q38_gather_table`), for checking [`gather_table`].
+/// L803 (2026-10-24): positions per CTA of the single-row decode attention launch, process-wide (0 = the compiled
+/// default, 256 = one chunk per CTA). Call before the first token. Any value that is not a positive multiple of 256
+/// makes every attention launch fail with BAD_ARGS, and the multi-row (batched) launch refuses anything but 256:
+/// a diagnostic for the attention block-count experiment, never a server setting.
+pub fn decode_attn256_set_per_split(per_split: u32) {
+    // SAFETY: a plain setter that takes omega's session lock; no pointers cross.
+    unsafe { ffi::omega_gpu_decode_attn256_set_per_split(per_split) }
+}
+
 pub fn gather_table_c() -> Result<Vec<u32>, OmegaGpuError> {
     #[cfg(has_omega_q38)]
     {
