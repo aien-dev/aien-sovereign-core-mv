@@ -133,22 +133,34 @@ chk '[ "$fresh" = "$wh" ] && [ "$(ov "$T/wh" model_dir)" = "\"$wh/models/$M\"" ]
 [ "$bad" -eq 0 ] || fail=1
 
 echo "test-gb10-model-dir: negative controls (each must make (1) fail)"
-broken() {  # broken NAME APPEND: a copy of the gate whose step-home.sh ends with APPEND, prints its root
-    local d="$T/$1"; mkdir -p "$d/scripts" "$d/tests/gates"
-    cp "$ROOT/scripts/gb10-serve-chat.sh" "$d/scripts/"; cp "$ROOT/tests/gates/step-home.sh" "$d/tests/gates/"
-    printf '%s\n' "$2" >> "$d/tests/gates/step-home.sh"; echo "$d"
+broken() {  # broken NAME APPEND: a copy of the gate at $T/NAME whose step-home.sh ends with APPEND
+    local d="$T/$1"
+    mkdir -p "$d/scripts" "$d/tests/gates" \
+        && cp "$ROOT/scripts/gb10-serve-chat.sh" "$d/scripts/" \
+        && cp "$ROOT/tests/gates/step-home.sh" "$d/tests/gates/" \
+        && printf '%s\n' "$2" >> "$d/tests/gates/step-home.sh"
 }
-control() {  # control ROOTDIR LABEL
+# A control passes only when the copy was made, the copied gate ran and reported model_missing, and
+# the reason (1) fails is the one under test: the checkpoint resolved outside the mount. Any other
+# failure (a broken copy, a gate that never ran) fails the control.
+control() {  # control NAME APPEND LABEL
     checks=$((checks + 1))
-    if (case_mount "$1") > "$T/control.log" 2>&1; then
-        echo "  FAIL control $2: the mount checks passed"; fail=1
+    if ! broken "$1" "$2"; then
+        echo "  FAIL control $3: could not make the broken copy under $T/$1"; fail=1; return
+    fi
+    if (case_mount "$T/$1") > "$T/control.log" 2>&1; then
+        echo "  FAIL control $3: the mount checks passed"; fail=1
+    elif grep -qE "FAIL model_dir is the read-only home's models/$M \(got \"/.+/models/$M\"\)" "$T/control.log" \
+        && grep -q "FAIL no model_missing" "$T/control.log"; then
+        echo "  ok   control $3: the mount checks fail:"; grep FAIL "$T/control.log" | sed 's/^ */         /'
     else
-        echo "  ok   control $2: the mount checks fail:"; grep FAIL "$T/control.log" | sed 's/^ */         /'
+        echo "  FAIL control $3: (1) failed, but not because the checkpoint resolved outside the mount:"
+        sed 's/^ */         /' "$T/control.log"; fail=1
     fi
 }
 # shellcheck disable=SC2016
-control "$(broken pre760 'gb10_model_dir() { MODEL_DIR=${MODEL_DIR:-$HOME/models/$GB10_MODEL}; MODEL_DIR_SOURCE=home; }')" \
+control pre760 'gb10_model_dir() { MODEL_DIR=${MODEL_DIR:-$HOME/models/$GB10_MODEL}; MODEL_DIR_SOURCE=home; }' \
     "gate resolves \$HOME/models (pre-#760, the fresh HOME)"
-control "$(broken nomount 'step_home_models() { :; }')" "step_home drops the models/ mount (pre-#760 run.sh)"
+control nomount 'step_home_models() { :; }' "step_home drops the models/ mount (pre-#760 run.sh)"
 
 if [ "$fail" -eq 0 ]; then echo "test-gb10-model-dir: PASS ($checks checks)"; else echo "test-gb10-model-dir: FAIL"; exit 1; fi
