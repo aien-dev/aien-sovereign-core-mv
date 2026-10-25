@@ -19,6 +19,7 @@ benchmarks           canonical-branch-native-runtime  aien-sovereign-core   feat
 omega                aien-architecture                aien-architecture     main
 omega                physics                          physics               main
 omega                aienos                           aienos                main
+omega                omega-bridge                     omega-bridge          main
 aienos               aien-architecture                aien-architecture     main
 synapse              aien-architecture                aien-architecture     main
 aien-sovereign-core  omega                            omega                 main
