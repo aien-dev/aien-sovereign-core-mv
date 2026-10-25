@@ -45,6 +45,12 @@ if [ -n "${HOME:-}" ] && [ ! -w "$HOME" ]; then
   if [ -z "${MIRI_SYSROOT:-}" ] && [ -d "$ro_home/.cache/miri/lib" ]; then
     MIRI_SYSROOT="$ro_home/.cache/miri"; export MIRI_SYSROOT
   fi
+  # The operator's checkpoints are mounted read-only at the sandbox home's models/ (aien-run-exec); a
+  # model gate looks there, not in the fresh HOME (2026-10-25: SC-GB10-SERVE-CHAT reported
+  # model_missing under /tmp/tmp.*/models on the first Alpha judge of #751).
+  if [ -z "${AIEN_MODELS_DIR:-}" ] && [ -d "$ro_home/models" ]; then
+    AIEN_MODELS_DIR="$ro_home/models"; export AIEN_MODELS_DIR
+  fi
 fi
 obs() { printf 'AIEN-OBS %s %s\n' "$1" "$2"; }
 # Inside the user sandbox (AIEN_SANDBOX_NESTED=1, set by the worker) five aien-test self-tests that would
@@ -170,6 +176,17 @@ case "$step" in
     pin physics physics "$(tr -d '[:space:]' < "$PINS/omega/physics.lock")"
     pin aienos aienos "$(awk 'NF && $1 !~ /^#/ {print $1; exit}' "$PINS/omega/aienos.lock")"
     bash scripts/test-linked-compose.sh "$PINS/omega" "$PINS/physics" "$PINS/aienos"
+    ;;
+  # No hosted mirror: GitHub has no GB10. SC-GB10-SERVE-CHAT, the GPU receipt an Alpha needs
+  # (verify-bundle --require-full, NO_GPU_RECEIPT). Same pinned sources as linked-compose, from the
+  # siblings, offline; scripts/pins.sh --gpu reuses them and writes the env.sh install.sh sources.
+  gb10-serve-chat)
+    omega_sha="$(tr -d '[:space:]' < omega.lock)"
+    pin omega omega "$omega_sha"
+    pin physics physics "$(tr -d '[:space:]' < "$PINS/omega/physics.lock")"
+    pin aienos aienos "$(awk 'NF && $1 !~ /^#/ {print $1; exit}' "$PINS/omega/aienos.lock")"
+    AIEN_PINS_REMOTE_BASE="$(cd .. && pwd)" AIEN_PINS_REMOTE_SUFFIX="" bash scripts/pins.sh --gpu "$PINS"
+    bash scripts/gb10-serve-chat.sh "$PINS/env.sh"
     ;;
   # hardening.yml
   kv-props)

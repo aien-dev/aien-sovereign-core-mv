@@ -979,7 +979,9 @@ fn full_scope_worker_qualifies_every_gate_and_signs_the_scope() {
         r.lines
     );
     assert_eq!(line(&r, "Affected gates:"), "Affected gates: 2 (A H)");
-    // verify-bundle --require-full accepts it.
+    // verify-bundle --require-full refuses it: this world's gates are all
+    // backend host, so its full-scope PASS is not an Alpha (NO_GPU_RECEIPT).
+    // The gb10 receipt itself is covered by bundle.rs's tests.
     let vk = bundle::load_signing_key(&w.key).unwrap().verifying_key();
     let expect = bundle::Expect {
         repository: b["repository"].as_str().unwrap().to_string(),
@@ -988,8 +990,8 @@ fn full_scope_worker_qualifies_every_gate_and_signs_the_scope() {
         required: vec!["A".to_string(), "H".to_string()],
         require_full: true,
     };
-    let v = bundle::verify(&b, &expect).expect("full-scope bundle");
-    assert_eq!((v.scope.as_str(), v.gate_verdict()), ("full", "PASS"));
+    let err = bundle::verify(&b, &expect).expect_err("no gb10 gate, no Alpha");
+    assert_eq!(err.code(), "NO_GPU_RECEIPT", "{err}");
 }
 
 #[test]
