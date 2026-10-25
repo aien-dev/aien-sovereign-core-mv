@@ -29,6 +29,8 @@
 //! concurrently with a [`Q38Graph::token`] call. Without the native library (`is_native()` false)
 //! every call returns `Unavailable`.
 use aien_omega_gpu::OmegaGpuError;
+
+pub mod q36;
 use std::ffi::c_void;
 use std::fmt;
 
@@ -262,7 +264,11 @@ mod ffi {
         _private: [u8; 0],
     }
     extern "C" {
-        pub fn omega_gpu_gdn_alloc(layers: u32, out: *mut *mut OmegaGpuGdn) -> i32;
+        pub fn omega_gpu_gdn_alloc_ratio(
+            layers: u32,
+            ratio: u32,
+            out: *mut *mut OmegaGpuGdn,
+        ) -> i32;
         pub fn omega_gpu_gdn_free(g: *mut OmegaGpuGdn);
         pub fn omega_gpu_gdn_set_layer(
             g: *mut OmegaGpuGdn,
@@ -286,11 +292,14 @@ mod ffi {
             state: *mut f32,
         ) -> i32;
 
-        pub fn omega_gpu_decode_attn256_cache_alloc(
+        pub fn omega_gpu_decode_attn256_cache_alloc_shape(
             layers: u32,
             max_pos: u32,
             rope_theta: f64,
             rotary_dim: u32,
+            q_heads: u32,
+            kv_heads: u32,
+            q_per_cta: u32,
             out: *mut *mut OmegaGpuDecodeAttn256Cache,
         ) -> i32;
         pub fn omega_gpu_decode_attn256_cache_free(c: *mut OmegaGpuDecodeAttn256Cache);
@@ -300,6 +309,9 @@ mod ffi {
             q_norm: *const f32,
             k_norm: *const f32,
         ) -> i32;
+        /// L803 (2026-10-24): positions per CTA of the single-row decode attention launch (a multiple of 256; 0 =
+        /// compiled default 256). Experiments only: the multi-row launch refuses any value but 256.
+        pub fn omega_gpu_decode_attn256_set_per_split(per_split: u32);
         pub fn omega_gpu_decode_attn_last_error() -> *const c_char;
 
         pub fn omega_gpu_q38_graph_create(
@@ -394,6 +406,21 @@ mod ffi {
             info: *mut super::Attn256PfInfo,
         ) -> i32;
     }
+}
+
+/// L803 (2026-10-24): positions per CTA of the single-row decode attention launch, process-wide (0 = the compiled
+/// default, 256 = one chunk per CTA). Call before the first token. Any value that is not a positive multiple of 256
+/// makes every attention launch fail with BAD_ARGS, and the multi-row (batched) launch refuses anything but 256:
+/// a diagnostic for the attention block-count experiment, never a server setting. Without the q38 library there is
+/// no attention launch to configure, and the call does nothing.
+pub fn decode_attn256_set_per_split(per_split: u32) {
+    #[cfg(has_omega_q38)]
+    // SAFETY: a plain setter that takes omega's session lock; no pointers cross.
+    unsafe {
+        ffi::omega_gpu_decode_attn256_set_per_split(per_split)
+    }
+    #[cfg(not(has_omega_q38))]
+    let _ = per_split;
 }
 
 /// omega's own gather table (`omega_q38_gather_table`), for checking [`gather_table`].
@@ -491,6 +518,8 @@ pub struct Gdn {
     #[cfg(has_omega_q38)]
     ptr: *mut ffi::OmegaGpuGdn,
     layers: usize,
+    /// DeltaNet value heads per key head (16 key heads): 3 = Qwen3.8-27B, 2 = Qwen3.6-35B-A3B.
+    ratio: usize,
 }
 
 // SAFETY: an owning handle to device buffers; moved between threads, never shared unlocked.
@@ -498,13 +527,27 @@ unsafe impl Send for Gdn {}
 
 impl fmt::Debug for Gdn {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Gdn {{ layers: {} }}", self.layers)
+        write!(
+            f,
+            "Gdn {{ layers: {}, ratio: {} }}",
+            self.layers, self.ratio
+        )
     }
 }
 
 impl Gdn {
     /// Allocates `layers` DeltaNet entries (tails and states zeroed).
     pub fn alloc(layers: usize) -> Result<Self, OmegaGpuError> {
+        Self::alloc_ratio(layers, 3)
+    }
+
+    /// The same for another model: `ratio` value heads per key head (3 = Qwen3.8-27B, 2 =
+    /// Qwen3.6-35B-A3B; omega `omega_gpu_gdn_alloc_ratio`). Every length the other calls check
+    /// follows the ratio.
+    pub fn alloc_ratio(layers: usize, ratio: usize) -> Result<Self, OmegaGpuError> {
+        if ratio != 2 && ratio != 3 {
+            return Err(bad(format!("gdn: ratio {ratio}, 2 or 3 supported")));
+        }
         if layers == 0 || layers > MAX_LAYERS {
             return Err(bad(format!(
                 "gdn: {layers} layers, 1..={MAX_LAYERS} supported"
@@ -514,11 +557,12 @@ impl Gdn {
         {
             let mut ptr = std::ptr::null_mut();
             // SAFETY: out pointer is local.
-            let rc = unsafe { ffi::omega_gpu_gdn_alloc(layers as u32, &mut ptr) };
+            let rc =
+                unsafe { ffi::omega_gpu_gdn_alloc_ratio(layers as u32, ratio as u32, &mut ptr) };
             if rc != 0 || ptr.is_null() {
                 return Err(session_err("gdn alloc", rc));
             }
-            Ok(Self { ptr, layers })
+            Ok(Self { ptr, layers, ratio })
         }
         #[cfg(not(has_omega_q38))]
         Err(OmegaGpuError::Unavailable)
@@ -526,6 +570,26 @@ impl Gdn {
 
     pub fn layers(&self) -> usize {
         self.layers
+    }
+
+    /// Value heads (16 key heads x ratio).
+    pub fn heads(&self) -> usize {
+        16 * self.ratio
+    }
+
+    /// in_proj_qkv rows, the conv width: q and k 16 x 128 each, then heads x 128 of v.
+    pub fn qkv(&self) -> usize {
+        (32 + self.heads()) * GDN_HEAD_DIM
+    }
+
+    /// One layer's conv tail, `[3][qkv]` oldest first.
+    pub fn tail_floats(&self) -> usize {
+        (GDN_CONV_KERNEL - 1) * self.qkv()
+    }
+
+    /// One layer's recurrent state, `[heads][128 k][128 v]` f32.
+    pub fn state_floats(&self) -> usize {
+        self.heads() * GDN_HEAD_DIM * GDN_HEAD_DIM
     }
 
     /// The C handle (`OmegaGpuGdn *`) for [`GraphConfig::gdn`]; null in the stub. Stays owned by
@@ -551,9 +615,9 @@ impl Gdn {
         dt_bias: &[f32],
         norm_w: &[f32],
     ) -> Result<(), OmegaGpuError> {
-        check_len("gdn conv_w", GDN_QKV * GDN_CONV_KERNEL, conv_w.len())?;
-        check_len("gdn a_log", GDN_HEADS, a_log.len())?;
-        check_len("gdn dt_bias", GDN_HEADS, dt_bias.len())?;
+        check_len("gdn conv_w", self.qkv() * GDN_CONV_KERNEL, conv_w.len())?;
+        check_len("gdn a_log", self.heads(), a_log.len())?;
+        check_len("gdn dt_bias", self.heads(), dt_bias.len())?;
         check_len("gdn norm_w", GDN_HEAD_DIM, norm_w.len())?;
         if layer >= self.layers {
             return Err(bad(format!("gdn: layer {layer} of {}", self.layers)));
@@ -604,8 +668,8 @@ impl Gdn {
         tail: &mut [f32],
         state: &mut [f32],
     ) -> Result<(), OmegaGpuError> {
-        check_len("gdn tail", GDN_TAIL_FLOATS, tail.len())?;
-        check_len("gdn state", GDN_STATE_FLOATS, state.len())?;
+        check_len("gdn tail", self.tail_floats(), tail.len())?;
+        check_len("gdn state", self.state_floats(), state.len())?;
         if layer >= self.layers {
             return Err(bad(format!(
                 "gdn get_state: layer {layer} of {}",
@@ -641,8 +705,8 @@ impl Gdn {
         tail: &[f32],
         state: &[f32],
     ) -> Result<(), OmegaGpuError> {
-        check_len("gdn tail", GDN_TAIL_FLOATS, tail.len())?;
-        check_len("gdn state", GDN_STATE_FLOATS, state.len())?;
+        check_len("gdn tail", self.tail_floats(), tail.len())?;
+        check_len("gdn state", self.state_floats(), state.len())?;
         if layer >= self.layers {
             return Err(bad(format!(
                 "gdn set_state: layer {layer} of {}",
@@ -786,6 +850,21 @@ impl Attn256Cache {
         theta: f64,
         rotary: usize,
     ) -> Result<Self, OmegaGpuError> {
+        Self::alloc_shape(layers, max_pos, theta, rotary, 0, 0, 0)
+    }
+
+    /// The same for another head shape (omega `omega_gpu_decode_attn256_cache_alloc_shape`):
+    /// `q_heads` / `kv_heads` / `q_per_cta` (0, 0, 0 = the 27B's 24 / 4 / 6; Qwen3.6-35B-A3B: 16, 2, 4).
+    #[allow(clippy::too_many_arguments)]
+    pub fn alloc_shape(
+        layers: usize,
+        max_pos: usize,
+        theta: f64,
+        rotary: usize,
+        q_heads: usize,
+        kv_heads: usize,
+        q_per_cta: usize,
+    ) -> Result<Self, OmegaGpuError> {
         if layers == 0 || layers > MAX_LAYERS {
             return Err(bad(format!(
                 "attn256: {layers} layers, 1..={MAX_LAYERS} supported"
@@ -804,11 +883,14 @@ impl Attn256Cache {
             let mut ptr = std::ptr::null_mut();
             // SAFETY: out pointer is local; plain arguments.
             let rc = unsafe {
-                ffi::omega_gpu_decode_attn256_cache_alloc(
+                ffi::omega_gpu_decode_attn256_cache_alloc_shape(
                     layers as u32,
                     max_pos as u32,
                     theta,
                     rotary as u32,
+                    q_heads as u32,
+                    kv_heads as u32,
+                    q_per_cta as u32,
                     &mut ptr,
                 )
             };
@@ -826,7 +908,7 @@ impl Attn256Cache {
         }
         #[cfg(not(has_omega_q38))]
         {
-            let _ = theta;
+            let _ = (theta, q_heads, kv_heads, q_per_cta);
             Err(OmegaGpuError::Unavailable)
         }
     }
@@ -1375,6 +1457,15 @@ pub fn quantize_fp8_bf16(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The stub build (no omega library) compiles the L803 setter and it does nothing: before
+    /// d2500b67 it called the library's symbol unconditionally and the stub did not compile.
+    #[test]
+    #[cfg(not(has_omega_q38))]
+    fn stub_per_split_setter_is_a_no_op() {
+        decode_attn256_set_per_split(512);
+        assert!(!is_native());
+    }
 
     #[test]
     fn gather_table_is_a_permutation_and_matches_omega() {

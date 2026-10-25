@@ -1,0 +1,4 @@
+chip: 1010 records, identical 1010, host-full agrees 152, |C| mean 31.2 p99 496 max 769
+chip: full head list p50 4774.1 us p99 4987.4 us; two-pass list p50 2340.5 us p99 2648.8 us
+gpu_exact_head_test: 7 checks, 0 failed: PASS
+chip rc 0

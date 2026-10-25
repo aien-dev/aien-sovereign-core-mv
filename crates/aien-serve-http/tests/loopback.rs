@@ -249,22 +249,10 @@ fn bad_requests_get_openai_error_json() {
         ("not json", "{nope".into(), 400, "invalid JSON"),
         ("no messages", r#"{"messages":[]}"#.into(), 400, "non-empty"),
         (
-            "tool role",
-            r#"{"messages":[{"role":"tool","content":"x"}]}"#.into(),
-            400,
-            "role tool",
-        ),
-        (
             "temperature",
             r#"{"messages":[{"role":"user","content":"x"}],"temperature":5}"#.into(),
             400,
             "temperature",
-        ),
-        (
-            "tools",
-            r#"{"messages":[{"role":"user","content":"x"}],"tools":[{"type":"function"}]}"#.into(),
-            400,
-            "tool calling",
         ),
         (
             "image part",
@@ -291,6 +279,15 @@ fn bad_requests_get_openai_error_json() {
         let v = json(&r);
         let msg = v["error"]["message"].as_str().unwrap_or_default();
         assert!(msg.contains(needle), "{name}: {msg}");
+    }
+    // Tool calling is supported (Qwen3.6 tool format, coordinator 2026-10-21): tools, tool turns and
+    // assistant tool_calls render instead of being refused.
+    for body in [
+        r#"{"messages":[{"role":"user","content":"x"}],"tools":[{"type":"function","function":{"name":"f","parameters":{}}}]}"#,
+        r#"{"messages":[{"role":"user","content":"x"},{"role":"assistant","content":null,"tool_calls":[{"id":"c","type":"function","function":{"name":"f","arguments":"{\"a\":1}"}}]},{"role":"tool","tool_call_id":"c","content":"ok"}],"tools":[{"type":"function","function":{"name":"f","parameters":{}}}]}"#,
+    ] {
+        let r = chat(srv.addr, body);
+        assert_eq!(r.status, 200, "tools request: {}", r.body);
     }
     let r = request(srv.addr, "GET", "/nope", None);
     assert_eq!(r.status, 404);

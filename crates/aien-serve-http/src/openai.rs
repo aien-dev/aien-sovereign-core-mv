@@ -52,8 +52,9 @@ pub struct ChatRequest {
     pub functions: Option<Vec<Value>>,
     #[serde(default)]
     pub stream_options: Option<StreamOptions>,
-    /// Template switches (`{"enable_thinking": bool, "reasoning_effort": "low|medium|xhigh"}`),
-    /// read only by templates that define them (Qwen3.8-27B).
+    /// Template switches (`{"enable_thinking": bool, "reasoning_effort": "low|medium|xhigh",
+    /// "preserve_thinking": bool}`), read only by templates that define them (Qwen3.8-27B:
+    /// thinking and effort; Qwen3.6-35B-A3B: thinking and preserve).
     #[serde(default)]
     pub chat_template_kwargs: Option<Value>,
     /// Same as `chat_template_kwargs.reasoning_effort` (the OpenAI field name).
@@ -62,6 +63,12 @@ pub struct ChatRequest {
     /// AIEN extra: return the generated token ids in `usage.aien_token_ids` (correctness gates).
     #[serde(default)]
     pub aien_return_token_ids: bool,
+    /// AIEN extra, the merge train (L384): per-request test switches
+    /// (`{"stroke": bool, "exact_head": bool, "mutant": k, "row_swap": k, ...}`, see
+    /// [`crate::engine::TestSwitches`]). Honored only by a build with the cargo feature
+    /// `aien-test-switches`; every other build answers 400 when the field is present.
+    #[serde(default)]
+    pub aien_test: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -76,6 +83,12 @@ pub struct Message {
     /// A string, or an array of `{type: "text", text}` parts, or null.
     #[serde(default)]
     pub content: Value,
+    /// Assistant turn: the calls it made (OpenAI shape).
+    #[serde(default)]
+    pub tool_calls: Option<Vec<Value>>,
+    /// Tool turn: which call it answers (not rendered by the Qwen template).
+    #[serde(default)]
+    pub tool_call_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -117,6 +130,9 @@ pub struct Usage {
     /// The generated token ids, when the request set `aien_return_token_ids`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aien_token_ids: Option<Vec<u32>>,
+    /// The merge train's switches this request set (`{"applied": [names]}`), when it set any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aien_test: Option<Value>,
 }
 
 #[derive(Debug, Serialize)]
