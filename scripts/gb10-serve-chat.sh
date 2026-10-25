@@ -24,11 +24,12 @@
 # Run by tests/gates/run.sh gb10-serve-chat, which first materialises the pinned omega, physics
 # and aienos sources and writes $PINS/env.sh (scripts/pins.sh --gpu). Arguments: <env.sh>.
 #
-# Chip lock: under aien-test (a gb10 gate) or `spark-window run` the caller already holds
-# /tmp/aien-gb10.lock for this whole script and says so with AIEN_GB10_LOCK_HELD=1. The server
-# would queue behind that lock until its load gives up, so it is pointed at a private lock file
-# (AIEN_SERVE_GPU_LOCK) instead. Without the marker the server takes /tmp/aien-gb10.lock itself,
-# as the live server does.
+# Chip lock: under aien-test (a gb10 gate) the runner already holds /tmp/aien-gb10.lock for
+# this whole script and says so with AIEN_GB10_LOCK_HELD=1. The server would queue behind that
+# lock until its load gave up, so with the marker it takes no lock, but only after verifying in
+# /proc/locks that the holder is one of its ancestors; a marker nobody backs is refused (exit 1,
+# so this gate FAILS rather than passes). Without the marker the server takes
+# /tmp/aien-gb10.lock itself, as the live server does.
 #
 # NOT_RUN (exit 77 with a not_run_reason observation, aien-test verdict.rs SELF_NOT_RUN_EXIT),
 # never PASS: model_missing (no checkpoint at $MODEL_DIR), memory_short (MemAvailable below the
@@ -97,12 +98,12 @@ stop_server() {
 }
 trap stop_server EXIT
 
-# 3. Chip lock (see the header).
+# 3. Chip lock (see the header). The marker is passed through untouched; the server itself
+#    verifies in /proc/locks that an ancestor holds /tmp/aien-gb10.lock and refuses to start
+#    otherwise (aien-serve-http chip_reservation.rs). There is no private lock and no override.
 if [ "${AIEN_GB10_LOCK_HELD:-}" = 1 ]; then
-    export AIEN_SERVE_GPU_LOCK=$STATE/serve-gpu.lock
-    obs chip_lock '"held by the caller (AIEN_GB10_LOCK_HELD=1); server lock private"'
+    obs chip_lock '"held by the caller (AIEN_GB10_LOCK_HELD=1); the server verifies the holder is an ancestor"'
 else
-    unset AIEN_SERVE_GPU_LOCK
     obs chip_lock '"server takes /tmp/aien-gb10.lock"'
 fi
 

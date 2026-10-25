@@ -19,6 +19,7 @@
 //! ships a stub engine for tests and the CPU reference forward as a real-but-slow
 //! engine. The Omega GPU engine plugs into the same trait.
 
+pub mod chip_reservation;
 pub mod codec;
 pub mod cpu_engine;
 pub mod engine;

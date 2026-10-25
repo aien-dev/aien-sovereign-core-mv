@@ -311,6 +311,23 @@ fn main() -> ExitCode {
         return ExitCode::from(1);
     };
 
+    // Who holds the chip: this server, or (verified, not merely claimed) an ancestor such as
+    // an aien-test gb10 gate. A claim that does not verify never reaches the chip.
+    if args.engine == "omega" {
+        match aien_serve_http::chip_reservation::install() {
+            Ok(aien_serve_http::chip_reservation::ChipReservation::Own) => {}
+            Ok(aien_serve_http::chip_reservation::ChipReservation::Inherited { holder_pid }) => {
+                eprintln!(
+                    "aien-serve-http: chip reservation inherited from ancestor pid {holder_pid} (verified in /proc/locks); taking no lock"
+                );
+            }
+            Err(e) => {
+                eprintln!("aien-serve-http: chip reservation: {e}");
+                return ExitCode::from(1);
+            }
+        }
+    }
+
     let engine: Arc<dyn Engine> = if args.engine == "stub" {
         let reply = match codec.encode(&args.stub_reply) {
             Ok(r) => r,

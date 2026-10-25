@@ -35,24 +35,6 @@ use crate::kv_persist::PersistState;
 use crate::sampling::SamplingObserver;
 
 pub const GPU_LOCK_PATH: &str = "/tmp/aien-gb10.lock";
-/// Names the environment variable that points the server's chip lock at another file.
-pub const SERVE_GPU_LOCK_ENV: &str = "AIEN_SERVE_GPU_LOCK";
-
-/// The chip lock the server takes for the upload and around each generation: [`GPU_LOCK_PATH`],
-/// or the file `AIEN_SERVE_GPU_LOCK` names. Only a caller that itself holds `/tmp/aien-gb10.lock`
-/// for the server's whole life may point it elsewhere (an aien-test gb10 gate, which runs with
-/// `AIEN_GB10_LOCK_HELD=1`; a test server under `q36-extra`): with the default the server would
-/// queue behind its own caller's lock until the load gives up.
-pub fn serve_lock_path() -> PathBuf {
-    lock_path_from(std::env::var_os(SERVE_GPU_LOCK_ENV))
-}
-
-/// [`serve_lock_path`] for a given value of `AIEN_SERVE_GPU_LOCK` (unset or empty: the default).
-fn lock_path_from(v: Option<std::ffi::OsString>) -> PathBuf {
-    v.filter(|p| !p.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(GPU_LOCK_PATH))
-}
 
 /// How long `generate` waits for the chip lock before answering busy.
 pub const LOCK_WAIT: Duration = Duration::from_secs(30);
@@ -119,18 +101,27 @@ impl PrefillMode {
     }
 }
 
-/// An exclusive hold of the hive's GPU lock (released on drop).
-pub struct GpuLock(#[allow(dead_code)] File);
+/// An exclusive hold of the hive's GPU lock (released on drop), or nothing at all when an
+/// ancestor verifiably holds it for this process's life ([`crate::chip_reservation`]).
+pub struct GpuLock(#[allow(dead_code)] Option<File>);
 
 impl GpuLock {
-    /// Takes the server's chip lock ([`serve_lock_path`]), polling until `wait` has passed.
+    /// Takes the hive's lock ([`GPU_LOCK_PATH`]), polling until `wait` has passed.
     /// `Err` = still held by someone else.
     pub fn acquire(wait: Duration) -> Result<Self, String> {
-        Self::acquire_at(&serve_lock_path(), wait)
+        Self::acquire_at(Path::new(GPU_LOCK_PATH), wait)
+    }
+
+    /// Under a verified inherited reservation there is nothing to take: `Some(lock)`.
+    fn inherited() -> Option<Self> {
+        crate::chip_reservation::inherited().then_some(Self(None))
     }
 
     /// [`Self::acquire`] on the lock file at `path` (tests pass a private file).
     pub fn acquire_at(path: &Path, wait: Duration) -> Result<Self, String> {
+        if let Some(l) = Self::inherited() {
+            return Ok(l);
+        }
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -143,7 +134,7 @@ impl GpuLock {
             // SAFETY: flock on a valid open descriptor; non-blocking so the wait is bounded.
             let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
             if rc == 0 {
-                return Ok(Self(file));
+                return Ok(Self(Some(file)));
             }
             let err = std::io::Error::last_os_error();
             if err.raw_os_error() != Some(libc::EWOULDBLOCK) {
@@ -167,6 +158,9 @@ impl GpuLock {
     pub fn acquire_queued_at(path: &Path, wait: Duration) -> Result<Self, String> {
         use std::sync::atomic::AtomicBool;
         use std::sync::{mpsc, Arc};
+        if let Some(l) = Self::inherited() {
+            return Ok(l);
+        }
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -176,7 +170,7 @@ impl GpuLock {
             .map_err(|e| format!("{}: {e}", path.display()))?;
         // SAFETY: flock on a valid open descriptor; non-blocking fast path.
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-            return Ok(Self(file));
+            return Ok(Self(Some(file)));
         }
         let (tx, rx) = mpsc::channel();
         let gave_up = Arc::new(AtomicBool::new(false));
@@ -198,7 +192,7 @@ impl GpuLock {
             }
         });
         match rx.recv_timeout(wait) {
-            Ok(r) => r.map(Self),
+            Ok(r) => r.map(|f| Self(Some(f))),
             Err(_) => {
                 gave_up.store(true, Ordering::SeqCst);
                 // The helper may have sent just before the flag: take and drop it.
@@ -395,7 +389,11 @@ impl OmegaDoor {
             omega::OmegaModelUploader::uses_dattn_api(),
             aien_omega_gpu::spin_us(),
         );
-        Ok(Self::from_parts(engine, serve_lock_path(), LOCK_WAIT))
+        Ok(Self::from_parts(
+            engine,
+            PathBuf::from(GPU_LOCK_PATH),
+            LOCK_WAIT,
+        ))
     }
 
     pub fn load_report(&self) -> &LoadReport {
@@ -627,18 +625,5 @@ mod tests {
         assert!(PrefillMode::from_env(Some("of"), None).is_err());
         assert!(parse_switch("--whole-prompt", "maybe").is_err());
         assert!(parse_switch("--whole-prompt", " TRUE ").unwrap());
-    }
-
-    #[test]
-    fn serve_lock_path_defaults_to_the_hive_lock() {
-        assert_eq!(lock_path_from(None), PathBuf::from(GPU_LOCK_PATH));
-        assert_eq!(
-            lock_path_from(Some("".into())),
-            PathBuf::from(GPU_LOCK_PATH)
-        );
-        assert_eq!(
-            lock_path_from(Some("/tmp/aien-serve-gate.lock".into())),
-            PathBuf::from("/tmp/aien-serve-gate.lock")
-        );
     }
 }

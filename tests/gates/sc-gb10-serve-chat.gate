@@ -6,7 +6,7 @@
 # (scripts/gb10-serve-chat.sh). NOT_RUN model_missing or memory_short (MemAvailable below the
 # loader's 49,497 MiB: the server is not started), never PASS.
 # The runner holds /tmp/aien-gb10.lock for the whole run (AIEN_GB10_LOCK_HELD=1); the server then
-# takes a private lock (AIEN_SERVE_GPU_LOCK) so it does not queue behind its own gate.
+# takes no lock, after verifying in /proc/locks that the holder is an ancestor (no override).
 # Selection: full scope (an Alpha) selects every gate, so this one always runs there. The inputs
 # name only the gate's own scripts, so an ordinary pull request (changed scope) stays host-only;
 # the result is never reused across heads anyway (gb10, cache: never).

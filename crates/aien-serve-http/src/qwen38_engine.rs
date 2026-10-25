@@ -19,9 +19,8 @@
 //! snapshot taken before the prompt's last turn header (`aien_inference_abi::qwen38_omega::
 //! Qwen38Session`).
 //!
-//! Chip etiquette as the 30B door ([`crate::omega_engine`]): `/tmp/aien-gb10.lock` (or the file
-//! `AIEN_SERVE_GPU_LOCK` names, [`serve_lock_path`]) is taken for the upload and around each
-//! generation, never while idle. Persistent KV parks
+//! Chip etiquette as the 30B door ([`crate::omega_engine`]): `/tmp/aien-gb10.lock` is taken for
+//! the upload and around each generation, never while idle. Persistent KV parks
 //! (`AIEN_KV_STORE_DIR`) are not offered: they hold attention KV only, not the DeltaNet state.
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -31,7 +30,7 @@ use aien_inference_abi::qwen38::Qwen38Config;
 use aien_inference_abi::qwen38_omega::{need_bytes, Qwen38Omega, Qwen38Session, Reuse};
 
 use crate::engine::{Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams};
-use crate::omega_engine::{serve_lock_path, GpuLock};
+use crate::omega_engine::{GpuLock, GPU_LOCK_PATH};
 use crate::sampling::SamplingObserver;
 
 /// Model id the door answers to unless `--model-id` says otherwise.
@@ -117,9 +116,8 @@ impl Qwen38Door {
         // Memory is judged only once the lock is ours: the wait can last many minutes and free
         // memory on a shared box swings by tens of GiB meanwhile (alpha test: 6 to 59 GiB).
         let t_lock = Instant::now();
-        let lock_path = serve_lock_path();
         let (_lock, avail) = admit_load(
-            || GpuLock::acquire_queued_at(&lock_path, LOAD_LOCK_WAIT),
+            || GpuLock::acquire_queued_at(Path::new(GPU_LOCK_PATH), LOAD_LOCK_WAIT),
             mem_available,
             need,
         )?;
@@ -149,7 +147,7 @@ impl Qwen38Door {
         Ok(Self {
             session: Mutex::new(Qwen38Session::new(model, PREFILL_CHUNK)),
             max_context,
-            lock_path,
+            lock_path: PathBuf::from(GPU_LOCK_PATH),
             lock_wait: REQUEST_LOCK_WAIT,
         })
     }
