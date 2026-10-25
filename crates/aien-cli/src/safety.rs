@@ -314,36 +314,42 @@ pub fn validate_workspace_path<P: AsRef<Path>>(
         raw.to_path_buf()
     };
 
-    // 1. Lexical normalization to resolve any '.' or '..' components cleanly
-    let mut normalized = PathBuf::new();
-    for component in absolute.components() {
-        match component {
-            std::path::Component::Prefix(prefix) => {
-                normalized.push(std::path::Component::Prefix(prefix))
-            }
-            std::path::Component::RootDir => normalized.push(std::path::Component::RootDir),
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                normalized.pop();
-            }
-            std::path::Component::Normal(c) => normalized.push(c),
-        }
-    }
-
-    // 2. Resolve symlinks via canonicalization on the longest existing prefix
-    let mut existing_ancestor = normalized.as_path();
+    // Keep the original component order. Collapsing `..` before resolving
+    // symlinks can validate a different target from the path the OS opens.
+    // This is static path validation, not a descriptor-bound race guarantee.
+    let mut existing_ancestor = absolute.as_path();
     let mut subparts = Vec::new();
-    while !existing_ancestor.exists() {
-        if let Some(name) = existing_ancestor.file_name() {
-            subparts.push(name);
-        }
-        if let Some(parent) = existing_ancestor.parent() {
-            existing_ancestor = parent;
-        } else {
-            break;
+    loop {
+        match std::fs::symlink_metadata(existing_ancestor) {
+            Ok(_) => break,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // Only plain missing names can safely be reconstructed. A
+                // parent traversal through a missing component has no resolved
+                // filesystem meaning; ask the caller to name the target directly.
+                match existing_ancestor.components().next_back() {
+                    Some(std::path::Component::Normal(name)) => subparts.push(name),
+                    _ => {
+                        return Err(format!(
+                            "Cannot resolve path '{}': use a direct path below an existing workspace directory",
+                            raw.display()
+                        ));
+                    }
+                }
+                existing_ancestor = existing_ancestor.parent().ok_or_else(|| {
+                    format!("Cannot resolve parent of '{}'", raw.display())
+                })?;
+            }
+            Err(e) => {
+                return Err(format!(
+                    "Failed to inspect path '{}': {}",
+                    existing_ancestor.display(), e
+                ));
+            }
         }
     }
 
+    // symlink_metadata notices a dangling link rather than treating it as
+    // an absent name. canonicalize then refuses its unresolved target.
     let canon_ancestor = existing_ancestor.canonicalize().map_err(|e| {
         format!(
             "Failed to canonicalize ancestor '{}': {}",
@@ -357,7 +363,7 @@ pub fn validate_workspace_path<P: AsRef<Path>>(
         canonical.push(part);
     }
 
-    // 3. Verify that the canonical path is enclosed within at least one permitted workspace root
+    // Verify that the canonical path is enclosed within at least one permitted workspace root
     let permitted = workspaces.iter().any(|ws| {
         let ws_canon = ws.canonicalize().unwrap_or_else(|_| ws.clone());
         canonical.starts_with(&ws_canon)
@@ -477,6 +483,73 @@ mod tests {
         // Escape attempt via parent traversal on non-existent path
         let nonexistent_escape = tmp.join("does_not_exist/../../etc/passwd");
         assert!(validate_workspace_path(&nonexistent_escape, &allowed).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn path_confinement_respects_parent_after_symlink() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir().unwrap();
+        let workspace = root.path().join("workspace");
+        let outside = root.path().join("outside");
+        std::fs::create_dir(&workspace).unwrap();
+        std::fs::create_dir_all(outside.join("child")).unwrap();
+        std::fs::write(outside.join("sentinel"), "synthetic").unwrap();
+        symlink(outside.join("child"), workspace.join("link")).unwrap();
+        let allowed = vec![workspace.clone()];
+        assert!(validate_workspace_path(workspace.join("link/../sentinel"), &allowed).is_err());
+        assert!(validate_workspace_path(workspace.join("link/../newdir"), &allowed).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn path_confinement_refuses_dangling_symlink_creation() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir().unwrap();
+        let workspace = root.path().join("workspace");
+        let outside = root.path().join("outside");
+        std::fs::create_dir(&workspace).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        symlink(outside.join("newfile"), workspace.join("newfile")).unwrap();
+        assert!(validate_workspace_path(workspace.join("newfile"), &[workspace]).is_err());
+        assert!(!outside.join("newfile").exists());
+    }
+
+    #[test]
+    fn path_confinement_allows_normal_missing_suffix() {
+        let workspace = tempfile::tempdir().unwrap();
+        let path = workspace.path().join("newdir/newfile");
+        let expected = workspace.path().canonicalize().unwrap().join("newdir/newfile");
+        assert_eq!(
+            validate_workspace_path(&path, &[workspace.path().to_path_buf()]).unwrap(),
+            expected
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn path_confinement_preserves_safe_symlinks_and_existing_parent_traversal() {
+        use std::os::unix::fs::symlink;
+        let workspace = tempfile::tempdir().unwrap();
+        let root = workspace.path();
+        std::fs::create_dir(root.join("child")).unwrap();
+        std::fs::write(root.join("sentinel"), "synthetic").unwrap();
+        symlink(root.join("child"), root.join("link")).unwrap();
+        let expected = root.canonicalize().unwrap().join("sentinel");
+        assert_eq!(
+            validate_workspace_path(root.join("link/../sentinel"), &[root.to_path_buf()]).unwrap(),
+            expected
+        );
+        assert!(validate_workspace_path(root.join("link/newfile"), &[root.to_path_buf()]).is_ok());
+    }
+
+    #[test]
+    fn path_confinement_refuses_unresolved_parent_components() {
+        let workspace = tempfile::tempdir().unwrap();
+        assert!(validate_workspace_path(
+            workspace.path().join("absent/../newfile"),
+            &[workspace.path().to_path_buf()]
+        ).is_err());
     }
 
     #[test]
