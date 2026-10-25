@@ -96,7 +96,8 @@ pub fn detect(
     }
 }
 
-/// Pids holding a `FLOCK` on the file `(dev, ino)` according to a `/proc/locks` listing.
+/// Pids holding an exclusive `FLOCK` (`WRITE`) on the file `(dev, ino)` according to a
+/// `/proc/locks` listing; shared holders do not count.
 /// `/proc/locks` lines look like `1: FLOCK  ADVISORY  WRITE 12345 00:2e:1234 0 EOF`; its
 /// `maj:min` are the device's major and minor in hex, the inode in decimal. Waiters are listed
 /// with `->` after the number and are skipped.
@@ -106,15 +107,14 @@ pub fn flock_holders(proc_locks: &str, dev: u64, ino: u64) -> Vec<u32> {
         .lines()
         .filter_map(|line| {
             let mut f = line.split_whitespace();
-            let num = f.next()?;
-            if num == "->" {
-                return None;
-            }
+            f.next()?; // "N:"; a waiter's line has "->" here instead of FLOCK and is skipped below
             if f.next()? != "FLOCK" {
                 return None;
             }
             f.next()?; // ADVISORY / MANDATORY
-            f.next()?; // READ / WRITE
+            if f.next()? != "WRITE" {
+                return None; // a shared (LOCK_SH) holder is not an exclusive reservation
+            }
             let pid: u32 = f.next()?.parse().ok()?;
             let mut loc = f.next()?.split(':');
             let maj = u64::from_str_radix(loc.next()?, 16).ok()?;
@@ -173,6 +173,7 @@ mod tests {
 1: -> FLOCK  ADVISORY  WRITE 9999 00:2e:777 0 EOF
 2: POSIX  ADVISORY  WRITE 5555 00:2e:777 0 EOF
 3: FLOCK  ADVISORY  WRITE 1234 00:2e:778 0 EOF
+4: FLOCK  ADVISORY  READ  3333 00:2e:779 0 EOF
 ";
 
     fn dev(maj: u64, min: u64) -> u64 {
@@ -189,6 +190,8 @@ mod tests {
         assert_eq!(flock_holders(LOCKS, dev(0, 0x2e), 778), vec![1234]);
         assert!(flock_holders(LOCKS, dev(0, 0x2f), 777).is_empty());
         assert!(flock_holders(LOCKS, dev(0, 0x2e), 1).is_empty());
+        // A shared holder is not a reservation.
+        assert!(flock_holders(LOCKS, dev(0, 0x2e), 779).is_empty());
     }
 
     #[test]
