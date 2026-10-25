@@ -426,7 +426,7 @@ mod tests {
 
     fn req() -> ImportRequest {
         ImportRequest {
-            repo: "https://github.com/aien-dev/aienos".to_string(),
+            repo: "https://github.com/aien-dev/aienux".to_string(),
             commit: "a".repeat(40),
             dirty: false,
             kind: "seed-0b-qemu".to_string(),
