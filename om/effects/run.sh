@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
-# Parity of the seeded .om effect world check (om/effects/world.om) with the production Rust
-# (aien-runtime effects::world_state + effects::reconcile_text): same stdout bytes and exit code
+# Parity of the seeded .om effect world check (om/effects/world.om) with the Rust reference world
+# check (aien-runtime effects::world_state + effects::reconcile_text; not the confined production
+# path confined_world_state): same stdout bytes and exit code
 # on every fixture, refusals on inputs Rust's u64 parse refuses, and two mutants caught.
 # Usage: OMEGA_OMC=<seed omc> bash om/effects/run.sh
 set -u
@@ -89,14 +90,16 @@ refuse abc "$A" - "" 2 x
 "$OMW" abc "$A" - 3 2 > "$O/ref.out" 2> /dev/null; wr=$?
 if [ $wr = 2 ] && [ ! -s "$O/ref.out" ]; then pass "world refuses five arguments"; else fail "five arguments (exit $wr)"; fi
 
-# Mutants: one byte of the record and one decision; each must make a fixture differ.
+# Mutants: one byte of the record and one decision; each must run to completion (exit 0 on both
+# fixtures) and make a fixture's output differ. A mutant that refuses or crashes is not a catch.
 mutant() {
     sed "$2" "$ROOT/om/effects/world.om" > "$O/m.om"
     cmp -s "$O/m.om" "$ROOT/om/effects/world.om" && { fail "mutant $1 did not change the source"; return; }
     build "$O/m.om" "$O/m" || { fail "mutant $1 did not build"; return; }
-    "$REF" abc "$A" - 3 2 x > "$O/mr.out"; "$O/m" abc "$A" - 3 2 x > "$O/mw.out"
-    "$REF" absent "$A" - 3 2 x >> "$O/mr.out"; "$O/m" absent "$A" - 3 2 x >> "$O/mw.out"
-    if cmp -s "$O/mr.out" "$O/mw.out"; then fail "mutant $1 not caught"; else pass "mutant $1 caught"; fi
+    "$REF" abc "$A" - 3 2 x > "$O/mr.out"; "$O/m" abc "$A" - 3 2 x > "$O/mw.out"; m1=$?
+    "$REF" absent "$A" - 3 2 x >> "$O/mr.out"; "$O/m" absent "$A" - 3 2 x >> "$O/mw.out"; m2=$?
+    if [ $m1 != 0 ] || [ $m2 != 0 ]; then fail "mutant $1 did not complete (exit $m1, $m2)"
+    elif cmp -s "$O/mr.out" "$O/mw.out"; then fail "mutant $1 not caught"; else pass "mutant $1 caught"; fi
 }
 mutant "key by -> bx" 's/,\\"by\\":/,\\"bx\\":/'
 mutant "absent with no prior -> UNRESOLVED" '/^if eq pnone 1$/{n;s/^ret 1$/ret 2/}'

@@ -2,7 +2,8 @@
 //!
 //! Usage: om_world_reference TARGET CONTENT_SHA256 PRIOR_SHA256|- INTENT AUTHORIZATION BY
 //!
-//! Runs the production world check (`effects::world_state`) on TARGET and prints
+//! Runs the reference world check (`effects::world_state`, not the confined production
+//! path `confined_world_state`) on TARGET and prints
 //! the reconcile record text (`effects::reconcile_text`) on one line, then the
 //! sha256 of those text bytes (the `text_sha256` that `append` reports).
 use aien_runtime::effects::{reconcile_text, world_state, EffectState, IntentRow};

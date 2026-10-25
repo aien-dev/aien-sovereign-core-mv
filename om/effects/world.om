@@ -1,6 +1,7 @@
 note SPDX-License-Identifier: Apache-2.0
 note Effect world check (ACCEPTANCE-v2 2.2) and reconcile record text in seeded Omega.
-note Same bytes as aien-runtime effects::world_state (file_sha256, state_from) followed by
+note Same bytes as aien-runtime effects::world_state (file_sha256, state_from), the reference world
+note check, not the confined production path (confined_world_state), followed by
 note effects::reconcile_text with no declaration and no objective; om/effects/run.sh compares them.
 note Build: cat om/vendor/sha256.om om/effects/world.om | omc > world
 note Usage: world TARGET CONTENT_SHA256 PRIOR_SHA256|- INTENT AUTHORIZATION BY
