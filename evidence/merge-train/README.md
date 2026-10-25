@@ -13,3 +13,9 @@ server with `AIEN_OMEGA_FP8_GROUPED_WAVE=1`, which makes omega size the grouped 
 (min(6, 48 / groups) = 5 CTAs per group on the 35B's 9 groups instead of the compiled 6 that was measured on 8 groups);
 identity must hold, the lever figure is chip ms/step in `server-grouped-wave.log` vs `server-plain.log` (measured alone:
 step x0.9614, `~/workspace/investigations/2026-10-24-l310-grouped-ctas`).
+
+Diagnostic switch `AIEN_OMEGA_DATTN256_PER_SPLIT=<n>` (L803, 2026-10-24; load-time, not an arm and never a server setting):
+positions per block of the single-row decode attention launch, a positive multiple of 256 (0 or unset = the compiled 256).
+It exists for the attention block-count experiment (`~/workspace/investigations/2026-10-24-l803-alpha-lever/attn-RESULT.md`:
+one block costs 44.0 us + 0.2187 us per position, so fewer, larger blocks are slower); the multi-row launch refuses any
+value but 256.
