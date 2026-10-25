@@ -1192,7 +1192,9 @@ mod tests {
     #[test]
     fn denied_recorded_write_does_not_snapshot_or_invoke_write() {
         use std::os::unix::fs::symlink;
-        let _serial = CHECKPOINT_SESSION_TEST.lock().unwrap_or_else(|e| e.into_inner());
+        let _serial = CHECKPOINT_SESSION_TEST
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let _stop = StopCheckpointSession;
         let home = tempfile::tempdir().unwrap();
         let work = tempfile::tempdir_in("/tmp").unwrap();
@@ -1208,12 +1210,24 @@ mod tests {
             (json!({"error": "synthetic later denial"}), false)
         });
         assert!(!ok);
-        assert!(result["error"].as_str().unwrap().contains("CONFINEMENT DENIAL"));
+        assert!(result["error"]
+            .as_str()
+            .unwrap()
+            .contains("CONFINEMENT DENIAL"));
         assert!(!called.get(), "write closure ran before confinement denial");
         let store = crate::checkpoint::store_root(home.path());
-        assert!(!store.join("objects").exists(), "denied write copied checkpoint content");
-        assert!(!store.join("snapshots").exists(), "denied write created a snapshot");
-        assert!(!store.join("ledger").exists(), "denied write created a ledger");
+        assert!(
+            !store.join("objects").exists(),
+            "denied write copied checkpoint content"
+        );
+        assert!(
+            !store.join("snapshots").exists(),
+            "denied write created a snapshot"
+        );
+        assert!(
+            !store.join("ledger").exists(),
+            "denied write created a ledger"
+        );
         assert!(!work.join("absent-target").exists());
     }
 
@@ -1221,7 +1235,9 @@ mod tests {
     #[test]
     fn recorded_write_checkpoint_uses_validated_target_identity() {
         use std::os::unix::fs::symlink;
-        let _serial = CHECKPOINT_SESSION_TEST.lock().unwrap_or_else(|e| e.into_inner());
+        let _serial = CHECKPOINT_SESSION_TEST
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let _stop = StopCheckpointSession;
         let home = tempfile::tempdir().unwrap();
         let work = tempfile::tempdir_in("/tmp").unwrap();
@@ -1237,12 +1253,12 @@ mod tests {
             (json!({"status": "ok"}), true)
         });
         assert!(ok);
-        let store = crate::checkpoint::CheckpointStore::new(crate::checkpoint::store_root(home.path()));
+        let store =
+            crate::checkpoint::CheckpointStore::new(crate::checkpoint::store_root(home.path()));
         let (entries, _) = store.load_ledger("canonical-target").unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].path, target.to_str().unwrap());
     }
-
 
     #[test]
     fn effect_receipt_is_hashed_and_secret_free() {
@@ -1428,7 +1444,9 @@ mod tests {
     /// the agent's files.
     #[test]
     fn rollback_through_the_dispatcher_spares_operator_edits() {
-        let _serial = CHECKPOINT_SESSION_TEST.lock().unwrap_or_else(|e| e.into_inner());
+        let _serial = CHECKPOINT_SESSION_TEST
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let _stop = StopCheckpointSession;
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
