@@ -830,3 +830,60 @@ fn a_reader_that_stops_reading_is_dropped_and_the_others_finish() {
         r => panic!("the stalled reader's request: {r:?}"),
     }
 }
+
+/// The interleaving the stall test cannot force: the reader falls behind (an event is dropped and
+/// the scheduler cancels the job), then resumes and drains before the scheduler sends the job's
+/// last event, so `Done` fits. The request must still fail as fallen behind, not report a normal
+/// completion of a truncated reply, and only the delivered tokens reach the caller.
+#[test]
+fn a_reader_that_fell_behind_fails_even_when_its_done_fits() {
+    let (otx, orx) = mpsc::sync_channel::<(usize, Ev)>(2);
+    let cancel = Arc::new(AtomicBool::new(false));
+    let fell = Arc::new(AtomicBool::new(false));
+    let job = Job {
+        prompt: vec![1, 2, 3],
+        params: greedy(10),
+        out: otx,
+        tag: 0,
+        cancel: Arc::clone(&cancel),
+        fell_behind: Arc::clone(&fell),
+        t_queued: Instant::now(),
+        test: TestSwitches::default(),
+    };
+    assert!(job.send(Ev::Token(11)).is_ok());
+    assert!(job.send(Ev::Token(12)).is_ok());
+    assert!(job.send(Ev::Token(13)).is_err(), "the channel is full");
+    assert!(
+        cancel.load(Ordering::SeqCst),
+        "the scheduler cancels the job"
+    );
+    let (drained_tx, drained_rx) = mpsc::channel();
+    let consumer = std::thread::spawn(move || {
+        let mut got = Vec::new();
+        let r = relay(&orx, &[cancel], &[fell], &mut |_, t| {
+            got.push(t);
+            if got.len() == 2 {
+                let _ = drained_tx.send(());
+            }
+            true
+        });
+        (r, got)
+    });
+    // The reader has taken both queued tokens: the job's last event fits now.
+    drained_rx.recv().unwrap();
+    job.send(Ev::Done(GenerateOutcome {
+        emitted_tokens: 3,
+        finish: FinishReason::Cancelled,
+        prefill_ms: 0,
+        decode_ms: 0,
+        sampling: None,
+    }))
+    .expect("Done fits after the drain");
+    drop(job);
+    let (mut r, got) = consumer.join().unwrap();
+    assert_eq!(got, [11, 12]);
+    match r.pop().expect("one outcome") {
+        Err(EngineError::Failed(m)) => assert!(m.contains("fell behind"), "{m}"),
+        other => panic!("a truncated reply reported as {other:?}"),
+    }
+}
