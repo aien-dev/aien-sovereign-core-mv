@@ -65,11 +65,14 @@ for t in curl jq ss; do command -v "$t" >/dev/null || fail "needs $t"; done
 
 # 1. Memory pre-check, before the release build: a chip that cannot hold the
 # model is a NOT_RUN, and it should not cost a 5-minute GPU build to learn.
-avail_kib=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null)
+# MemAvailable counts mapped model pages as reclaimable, so beside a resident model server it
+# overstates what a second load can get (2026-10-25T02:47Z: a load admitted at MemAvailable
+# 53.5 GiB drove a global OOM that killed the live 35B). Count MemAvailable - Mapped instead.
+avail_kib=$(awk '/^MemAvailable:/ {a=$2} /^Mapped:/ {m=$2} END {print a-m}' /proc/meminfo 2>/dev/null)
 avail_mib=$(( ${avail_kib:-0} / 1024 ))
 obs mem_available_mib "$avail_mib"
 [ "$avail_mib" -ge "$NEED_MIB" ] \
-    || not_run memory_short "MemAvailable $avail_mib MiB, the 27B loader needs $NEED_MIB MiB; the server was not started"
+    || not_run memory_short "MemAvailable-Mapped $avail_mib MiB, the 27B loader needs $NEED_MIB MiB (another model is resident: the GB10 needs an exclusive window); the server was not started"
 
 # 2. Build, as install.sh --with-server does (pinned sources, release, real GPU engine).
 [ -f "$ENV_SH" ] || fail "pins env file $ENV_SH is missing"
