@@ -335,14 +335,15 @@ pub fn validate_workspace_path<P: AsRef<Path>>(
                         ));
                     }
                 }
-                existing_ancestor = existing_ancestor.parent().ok_or_else(|| {
-                    format!("Cannot resolve parent of '{}'", raw.display())
-                })?;
+                existing_ancestor = existing_ancestor
+                    .parent()
+                    .ok_or_else(|| format!("Cannot resolve parent of '{}'", raw.display()))?;
             }
             Err(e) => {
                 return Err(format!(
                     "Failed to inspect path '{}': {}",
-                    existing_ancestor.display(), e
+                    existing_ancestor.display(),
+                    e
                 ));
             }
         }
@@ -519,7 +520,11 @@ mod tests {
     fn path_confinement_allows_normal_missing_suffix() {
         let workspace = tempfile::tempdir().unwrap();
         let path = workspace.path().join("newdir/newfile");
-        let expected = workspace.path().canonicalize().unwrap().join("newdir/newfile");
+        let expected = workspace
+            .path()
+            .canonicalize()
+            .unwrap()
+            .join("newdir/newfile");
         assert_eq!(
             validate_workspace_path(&path, &[workspace.path().to_path_buf()]).unwrap(),
             expected
@@ -549,7 +554,8 @@ mod tests {
         assert!(validate_workspace_path(
             workspace.path().join("absent/../newfile"),
             &[workspace.path().to_path_buf()]
-        ).is_err());
+        )
+        .is_err());
     }
 
     #[test]
