@@ -13,13 +13,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! `aien-serve-http`: OpenAI-compatible door on 127.0.0.1 for the OWN-30B model.
+//! `aien-serve-http`: OpenAI-compatible door on 127.0.0.1 for AIEN's own model engines
+//! (Qwen3.8-27B FP8 and the OWN-30B Qwen3-30B-A3B).
 //!
 //!   aien-serve-http [--engine cpu|stub|omega] [--weights bf16|fp8-experts|fp8] [--spin-us N]
 //!                   [--whole-prompt on|off] [--prefill-device-host on|off]
 //!                   [--model-dir DIR] [--port 18091]
 //!                   [--bind 127.0.0.1] [--model-id ID] [--max-context N]
-//!                   [--max-tokens-cap N] [--stub-reply TEXT]
+//!                   [--max-tokens-cap N] [--stub-reply TEXT] [--thinking on|off|template]
+//!   aien-serve-http --version
+//!
+//! `--model-dir` defaults to `$HOME/models/qwen3.8-27b-fp8-017b9c7a`. `--version` prints the
+//! build identity (commit, omega pin, native or stub engines) and exits without loading anything.
+//! `tools/serve-27b.sh` starts the 27B server with the flags the live server uses.
 //!
 //! `cpu` (default) loads the checkpoint into the CPU reference forward (slow, real).
 //! `omega` loads the checkpoint onto AIEN's own GPU engine (FP8 by default, spin 2000 us
@@ -33,6 +39,9 @@
 //! refuses with a startup line and the door runs plain. Unset: nothing changes.
 //! SIGTERM/SIGINT: stop accepting, finish the request in flight, drain the parks, exit 0.
 //! `AIEN_KV_TEST_FAULT` (chip acceptance checks only) stalls one store step; see `kv_persist`.
+//! `--thinking on|off|template` sets `enable_thinking` for requests that do not set it themselves
+//! (`chat_template_kwargs.enable_thinking`); `template` (the default) leaves the chat template's
+//! own default (Qwen3.8-27B and Qwen3.6-35B-A3B: on). Templates without a thinking switch ignore it.
 //! `stub` replays `--stub-reply` for every request, using the model directory's
 //! tokenizer when it exists (so Odysseus can be wired before the weights load).
 
@@ -49,9 +58,53 @@ use aien_serve_http::kv_persist;
 use aien_serve_http::omega_engine::{
     parse_switch, OmegaDoor, PrefillMode, WHOLE_PROMPT_ENV, WP_DEVICE_HOST_ENV,
 };
+use aien_serve_http::qwen36_batch;
+use aien_serve_http::qwen38_engine;
 use aien_serve_http::server::{serve_until, ServerConfig};
 
-const DEFAULT_MODEL_DIR: &str = "models/qwen3-30b-a3b-instruct-2507-fp8";
+/// Default `--model-dir`, under `$HOME`: the Qwen3.8-27B FP8 checkpoint (Hugging Face
+/// `Qwen/Qwen3.8-27B-FP8`, revision 017b9c7a), the model the fast server serves.
+const DEFAULT_MODEL_DIR: &str = "models/qwen3.8-27b-fp8-017b9c7a";
+
+/// What this binary was built with: the commit, the omega pin and whether the real Omega GPU
+/// library and the Qwen3.8 engine are linked or only the CPU stubs. Printed by `--version`,
+/// which loads nothing and never touches the GPU, so installers can refuse a stub build.
+fn build_info() -> String {
+    let gpu = aien_omega_gpu::native_identity();
+    let native = |b: bool| {
+        if b {
+            "native"
+        } else {
+            "STUB (not usable with --engine omega)"
+        }
+    };
+    format!(
+        "aien-serve-http {}\n\
+         sovereign-core commit: {} (dirty {})\n\
+         omega.lock: {}\n\
+         omega gpu engine: {} (link {}, abi {}, digest {}, archive sha256 {})\n\
+         qwen38 engine: {} (prefill {})\n\
+         release-grade native identity: {}\n\
+         default model dir: $HOME/{}\n",
+        env!("CARGO_PKG_VERSION"),
+        env!("AIEN_SERVE_HTTP_GIT_COMMIT"),
+        env!("AIEN_SERVE_HTTP_GIT_DIRTY"),
+        env!("AIEN_SERVE_HTTP_OMEGA_LOCK"),
+        native(aien_omega_gpu::is_native()),
+        gpu.link,
+        gpu.abi,
+        gpu.digest,
+        gpu.archive_sha256,
+        native(aien_omega_q38::is_native()),
+        if aien_omega_q38::has_prefill() {
+            "linked"
+        } else {
+            "missing"
+        },
+        if gpu.qualifies() { "yes" } else { "no" },
+        DEFAULT_MODEL_DIR,
+    )
+}
 
 struct Args {
     engine: String,
@@ -63,12 +116,15 @@ struct Args {
     whole_prompt: Option<bool>,
     wp_device_host: Option<bool>,
     prefill: PrefillMode,
+    /// Qwen3.6-35B-A3B only: conversations stacked on one beat (0: the one-at-a-time door).
+    batch_slots: usize,
 }
 
 fn usage() -> String {
     "usage: aien-serve-http [--engine cpu|stub|omega] [--weights bf16|fp8-experts|fp8] [--spin-us N] \
      [--model-dir DIR] [--port N] [--bind ADDR] [--model-id ID] [--max-context N] \
-     [--max-tokens-cap N] [--stub-reply TEXT] [--whole-prompt on|off] [--prefill-device-host on|off]"
+     [--max-tokens-cap N] [--stub-reply TEXT] [--whole-prompt on|off] [--prefill-device-host on|off] \
+     [--thinking on|off|template] [--batch-slots N] [--version]"
         .to_string()
 }
 
@@ -87,6 +143,7 @@ fn parse_args() -> Result<Args, String> {
         whole_prompt: None,
         wp_device_host: None,
         prefill: PrefillMode::default(),
+        batch_slots: 0,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -114,6 +171,18 @@ fn parse_args() -> Result<Args, String> {
                     .map_err(|e| format!("--max-tokens-cap: {e}"))?
             }
             "--stub-reply" => a.stub_reply = val()?,
+            "--thinking" => {
+                a.cfg.default_enable_thinking = match val()?.as_str() {
+                    "on" => Some(true),
+                    "off" => Some(false),
+                    "template" => None,
+                    other => {
+                        return Err(format!(
+                            "--thinking must be on, off or template, got {other}"
+                        ))
+                    }
+                }
+            }
             "--weights" => {
                 a.weights = match val()?.as_str() {
                     "bf16" => WeightFormat::Bf16,
@@ -127,6 +196,9 @@ fn parse_args() -> Result<Args, String> {
                 }
             }
             "--spin-us" => a.spin_us = Some(val()?.parse().map_err(|e| format!("--spin-us: {e}"))?),
+            "--batch-slots" => {
+                a.batch_slots = val()?.parse().map_err(|e| format!("--batch-slots: {e}"))?
+            }
             "--whole-prompt" => a.whole_prompt = Some(parse_switch("--whole-prompt", &val()?)?),
             "--prefill-device-host" => {
                 a.wp_device_host = Some(parse_switch("--prefill-device-host", &val()?)?)
@@ -184,6 +256,13 @@ fn apply_generation_defaults(cfg: &mut ServerConfig, model_dir: &std::path::Path
 }
 
 fn main() -> ExitCode {
+    if std::env::args()
+        .skip(1)
+        .any(|a| a == "--version" || a == "-V")
+    {
+        print!("{}", build_info());
+        return ExitCode::SUCCESS;
+    }
     let mut args = match parse_args() {
         Ok(a) => a,
         Err(e) => {
@@ -239,6 +318,23 @@ fn main() -> ExitCode {
         return ExitCode::from(1);
     };
 
+    // Who holds the chip: this server, or (verified, not merely claimed) an ancestor such as
+    // an aien-test gb10 gate. A claim that does not verify never reaches the chip.
+    if args.engine == "omega" {
+        match aien_serve_http::chip_reservation::install() {
+            Ok(aien_serve_http::chip_reservation::ChipReservation::Own) => {}
+            Ok(aien_serve_http::chip_reservation::ChipReservation::Inherited { holder_pid }) => {
+                eprintln!(
+                    "aien-serve-http: chip reservation inherited from ancestor pid {holder_pid} (verified in /proc/locks); taking no lock"
+                );
+            }
+            Err(e) => {
+                eprintln!("aien-serve-http: chip reservation: {e}");
+                return ExitCode::from(1);
+            }
+        }
+    }
+
     let engine: Arc<dyn Engine> = if args.engine == "stub" {
         let reply = match codec.encode(&args.stub_reply) {
             Ok(r) => r,
@@ -250,6 +346,52 @@ fn main() -> ExitCode {
         Arc::new(
             StubEngine::new(reply).with_max_context(args.cfg.max_context_tokens.unwrap_or(4096)),
         )
+    } else if args.engine == "omega" && qwen38_engine::is_qwen38_dir(&args.model_dir) {
+        // Qwen3.8-27B (config model_type qwen3_5): its own door; no persistent KV (DeltaNet state).
+        if let Some(us) = args.spin_us {
+            if let Err(e) = aien_omega_gpu::set_spin_us(us) {
+                eprintln!("aien-serve-http: spin: {e}");
+                return ExitCode::from(1);
+            }
+        }
+        if args.cfg.model_id == ServerConfig::default().model_id {
+            args.cfg.model_id = qwen38_engine::default_model_id(&args.model_dir).into();
+        }
+        if std::env::var_os("AIEN_KV_STORE_DIR").is_some() {
+            eprintln!(
+                "aien-serve-http: AIEN_KV_STORE_DIR ignored: the qwen38 door has no persistent KV"
+            );
+        }
+        eprintln!(
+            "aien-serve-http: loading Qwen3.8 (qwen3_5) onto the Omega engine from {}",
+            args.model_dir.display()
+        );
+        let max_context = args.cfg.max_context_tokens.unwrap_or(32768);
+        if args.batch_slots > 0 && !qwen38_engine::is_moe_dir(&args.model_dir) {
+            eprintln!("aien-serve-http: --batch-slots: this build batches the Qwen3.6-35B-A3B (qwen3_5_moe) only");
+            return ExitCode::from(2);
+        }
+        if args.batch_slots > 0 {
+            match qwen36_batch::Qwen36BatchDoor::load(
+                &args.model_dir,
+                max_context,
+                args.batch_slots,
+            ) {
+                Ok(door) => Arc::new(door),
+                Err(e) => {
+                    eprintln!("aien-serve-http: qwen36-batch load failed: {e}");
+                    return ExitCode::from(1);
+                }
+            }
+        } else {
+            match qwen38_engine::Qwen38Door::load(&args.model_dir, max_context) {
+                Ok(door) => Arc::new(door),
+                Err(e) => {
+                    eprintln!("aien-serve-http: qwen38 load failed: {e}");
+                    return ExitCode::from(1);
+                }
+            }
+        }
     } else if args.engine == "omega" {
         eprintln!(
             "aien-serve-http: loading {:?} weights onto the Omega engine from {} (spin {:?} us)",
@@ -311,6 +453,25 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    // The eight readers (sc L371): on by default for a batching engine.
+    match aien_serve_http::readers::ReadersConfig::from_env(
+        &args.cfg.model_id,
+        engine.concurrency() > 1,
+    ) {
+        Ok(r) => {
+            if let Some(r) = &r {
+                eprintln!(
+                    "aien-serve-http: readers: model id {} reads inputs over {} tokens in {} parts at once (notes up to {} tokens)",
+                    r.model_id, r.threshold_tokens, r.readers, r.note_tokens
+                );
+            }
+            args.cfg.readers = r;
+        }
+        Err(e) => {
+            eprintln!("aien-serve-http: {e}");
+            return ExitCode::from(2);
+        }
+    }
     rt.block_on(async move {
         let model_id = args.cfg.model_id.clone();
         // SIGTERM or SIGINT: stop accepting, let the request in flight finish, then drop the

@@ -1,0 +1,1 @@
+flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/q38-pf/release/qwen38_prefill score ~/models/qwen3.8-27b-fp8-017b9c7a ~/handoffs/qwen38-ref/score-license-256.json 64 score-chunk64.json

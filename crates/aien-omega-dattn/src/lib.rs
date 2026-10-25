@@ -45,7 +45,7 @@ pub const OUT_WORDS: usize = Q_HEADS * HEAD_DIM;
 /// Positions per split CTA (`OMEGA_DATTN_CHUNK`); `max_pos` is rounded to this.
 pub const POS_ROUND: usize = 256;
 /// Most positions one cache can hold (`OMEGA_GPU_DATTN_MAX_POS`).
-pub const MAX_POS: usize = 65536;
+pub const MAX_POS: usize = 131072;
 /// Most layers one cache can hold (`OMEGA_GPU_DATTN_MAX_LAYERS`).
 pub const MAX_LAYERS: usize = 64;
 

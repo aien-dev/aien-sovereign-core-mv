@@ -82,7 +82,7 @@
           "purpose": "ALLEN persona profile v1: versioned, user-editable profile bound to the engaged ALLEN identity; "
         },
         {
-          "digest": "73b7b51a60981ac052f28b05a50071fb6846e6c3f7331d28786d220733f204c7",
+          "digest": "b41ba0d076f6ba68b9cf0155c74166c546a1c51445ca6de8b618a381c6bedbe4",
           "last_commit": "e8cc3aa0",
           "name": "crates/aien-cli",
           "purpose": ""
@@ -94,13 +94,13 @@
           "purpose": ""
         },
         {
-          "digest": "34d1c3a8c38c4f75d9eca8e73f6d15418f2ffc3d129f99813d7adf9e80902659",
+          "digest": "c3199a2d3d3032d4818306e0e742c6b79b163daffe19e6367acaac42049f2cea",
           "last_commit": "e8cc3aa0",
           "name": "crates/spark-cockpit-rs",
           "purpose": ""
         },
         {
-          "digest": "20f3120e6d2067007c8e67dfd13a821a83f5a382e7e11a0eec22f2d9b6380971",
+          "digest": "8c8d574c222a3d3c50d6cfda5d5e6a14cfb80bad5d9f52b5a78d57afd27e253a",
           "last_commit": "e8cc3aa0",
           "name": "scripts",
           "purpose": ""
@@ -112,21 +112,21 @@
           "purpose": ""
         },
         {
-          "digest": "e5e7271b10298838894bed570db8e039af89dc3063640b6da5d84d420534c7f6",
+          "digest": "bb96429636e6d8da189ed16ba834272fef84154d890b93590b6182fd4f48621f",
           "last_commit": "2f28ee89",
           "name": "tools/aien-local-ci",
           "purpose": "Local CI sandbox exec contract (C8), aien-run user/caches install, Forgejo trigger hook, health "
         }
       ],
-      "children_root": "sha256:42dea8f42ecd7470f90f838092ee89e7e916ddc3005223c7b4589e17361dcfa9",
-      "compiled_at": "2026-10-24T04:47:07Z",
+      "children_root": "sha256:29d42833729ac3a78c9689e981f0c2c93f476006a91cfc00bd46bb38d3e2876c",
+      "compiled_at": "2026-10-25T19:25:39Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:52658af46547085d5c5888349341d46ea1a4375e94c0f09f1894149c4754c765",
-      "evidence_files": 1579,
-      "evidence_root": "sha256:d4a2620df9ff37a1470c6cb1cec12d1e00a6768eda5fa324e27c93e12d3b1cf0",
-      "files": 5904,
-      "generated_at_commit": "855761eb6c4ea5813eef83808fb1b6508fc08c0f",
-      "source_tree": "sha256:f459911859748e6ae948654a3a27043a2368b44674d57952e120b09a0c5d3531"
+      "digest": "sha256:7a7fb5a40deb8c7c9c03a3470b2ae750cea3308faee7fc6cf17e02826078a150",
+      "evidence_files": 3558,
+      "evidence_root": "sha256:92c7523ff6767aef13f7c5bf67039b979c3333c70885ac81ce393f1ae2c444e6",
+      "files": 7981,
+      "generated_at_commit": "b26a7188b915bb1fa819d023c59e98c95a073752",
+      "source_tree": "sha256:840a26d5a0bbb3415f06b4533b6581da1f5949124cf7d8c74f58e47e426a049a"
     }
   },
   "history": [],

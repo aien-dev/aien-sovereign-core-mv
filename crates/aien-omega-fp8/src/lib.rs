@@ -24,7 +24,7 @@
 //! row per group (`x_rows == groups`).
 //!
 //! Rules omega refuses otherwise (`BAD_ARGS` / `TOO_LARGE`): `n % 128 == 0`, `k % 128 == 0`,
-//! `128 <= k <= 16384`, `1 <= groups <= 64`, every id `< experts`; any e4m3 NaN code in the
+//! `128 <= k <= 32768`, `1 <= groups <= 64`, every id `< experts`; any e4m3 NaN code in the
 //! weights is refused at upload (`NAN_WEIGHT`). Without the native library (`is_native()`
 //! false) every call returns `Unavailable`.
 use aien_omega_gpu::OmegaGpuError;
@@ -34,8 +34,9 @@ use std::fmt;
 pub const BLOCK: usize = 128;
 /// Most experts one grouped call takes (`OMEGA_GPU_FP8_MAX_GROUPS`).
 pub const MAX_GROUPS: usize = 64;
-/// Widest `k` the kernel accepts.
-pub const MAX_K: usize = 16384;
+/// Widest `k` the kernel accepts (`OMEGA_FP8_MAX_K`, 32768 since omega#541: the Qwen3.8-27B
+/// down_proj has k 17408; an omega archive older than that refuses past 16384 itself).
+pub const MAX_K: usize = 32768;
 
 /// True when the FP8 API is linked (not the stub).
 pub const fn is_native() -> bool {
@@ -51,6 +52,11 @@ pub const fn has_device_tables() -> bool {
 /// True when the prefill grouped GEMM (`omega_gpu_fp8gemm_f32`, `src/omega_gpu_fp8gemm_api.h`) is linked.
 pub const fn has_gemm() -> bool {
     cfg!(has_omega_fp8gemm)
+}
+
+/// True when the grouped-launch CTA rule (`omega_gpu_fp8_grouped_ctas_auto`, L310 one-wave lever) is linked.
+pub const fn has_grouped_rule() -> bool {
+    cfg!(has_omega_fp8_grouped_rule)
 }
 
 /// Most rows one GEMM launch takes (`OMEGA_GPU_FP8GEMM_MAX_ROWS`).
@@ -183,6 +189,10 @@ mod ffi {
         pub fn omega_gpu_fp8gemm_rc_name(rc: i32) -> *const std::os::raw::c_char;
         pub fn omega_gpu_fp8gemm_last_error() -> *const std::os::raw::c_char;
         pub fn omega_gpu_fp8gemm_test_set_mutant(mutant: i32);
+    }
+    #[cfg(has_omega_fp8_grouped_rule)]
+    extern "C" {
+        pub fn omega_gpu_fp8_grouped_ctas_auto(groups: u32) -> u32;
     }
     extern "C" {
         pub fn omega_gpu_fp8_prepare(k: u32) -> i32;
@@ -702,6 +712,20 @@ pub fn set_cta_budget(ctas: u32) {
     let _ = ctas;
 }
 
+/// CTAs per group omega's automatic choice gives a grouped launch of `groups` groups (L310 wave rule: reads
+/// AIEN_OMEGA_FP8_GROUPED_CTAS and AIEN_OMEGA_FP8_GROUPED_WAVE once, at the first call). `None` when the linked
+/// library predates the rule, so a server log states that instead of guessing a number.
+#[cfg(has_omega_fp8_grouped_rule)]
+pub fn grouped_ctas_auto(groups: u32) -> Option<u32> {
+    // SAFETY: plain integer argument; a pure function of it and the process environment.
+    Some(unsafe { ffi::omega_gpu_fp8_grouped_ctas_auto(groups) })
+}
+#[cfg(not(has_omega_fp8_grouped_rule))]
+pub fn grouped_ctas_auto(groups: u32) -> Option<u32> {
+    let _ = groups;
+    None
+}
+
 /// TEST ONLY: deliberately wrong kernel (0 off; 1 scale dropped; 2 scale block never advances;
 /// 3 group table entry skewed). A parity test must catch each.
 pub fn test_set_mutant(mutant: i32) {
@@ -736,6 +760,7 @@ mod tests {
         assert!(check_shape(0, 128, 128).is_err());
         assert!(check_shape(1, 100, 128).is_err());
         assert!(check_shape(1, 128, 64).is_err());
+        assert!(check_shape(1, 5120, 17408).is_ok());
         assert!(check_shape(1, 128, MAX_K + 128).is_err());
     }
 

@@ -420,6 +420,10 @@ impl ChromeProcess {
             .arg("--no-default-browser-check")
             .arg("--disable-dev-shm-usage")
             .arg("--disable-gpu")
+            // Chrome 153 headless on the Spark (GB10, no display) never answers Page.captureScreenshot
+            // with the default software GL path; with GL off and no software rasterizer it does.
+            .arg("--use-gl=disabled")
+            .arg("--disable-software-rasterizer")
             .arg("--no-sandbox")
             .arg("--window-size=1280,900")
             .arg(url)

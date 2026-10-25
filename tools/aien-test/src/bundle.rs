@@ -30,6 +30,16 @@
 //! present, and that the declared verdict is what the verdict algebra gives.
 //! Any mismatch is a rejection with a code, never a PASS.
 //!
+//! `plan.scope` (signed with the rest) says what the worker planned: `full`
+//! (every gate at HEAD, an Alpha qualification) or `changed` (the gates the
+//! diff selects). A bundle without it is `changed`. `verify-bundle
+//! --require-full` rejects (NOT_FULL_SCOPE) any bundle whose scope is not
+//! `full`, and (NO_GPU_RECEIPT) any full bundle without a required check on
+//! backend `gb10` that ran (or was resolved from cache): an Alpha is the
+//! stage tested on the Spark's GPU, and a full-scope PASS of host gates alone
+//! is not one (alpha/20261024.1: 34 checks, all host). A gb10 check that ran
+//! and FAILed is a receipt: the bundle is then FAIL, not "no receipt".
+//!
 //! Verdict algebra (Decision 7, applied to a bundle): PASS only if every
 //! `required` entry ran or was resolved from cache with verdict PASS; FAIL if
 //! any required entry is FAIL; otherwise NOT_RUN. Entries with
@@ -64,6 +74,12 @@ pub const VERDICTS: [&str; 6] = [
     "MISSING_IMPLEMENTATION",
 ];
 pub const EXACTNESS: [&str; 4] = ["EXACT", "BOUNDED", "APPROXIMATE", "ADVISORY"];
+/// `plan.scope`: every gate at HEAD (an Alpha qualification).
+pub const SCOPE_FULL: &str = "full";
+/// `plan.scope`: the gates the diff selects. A bundle without the member (or
+/// without a `plan`) is this scope.
+pub const SCOPE_CHANGED: &str = "changed";
+pub const SCOPES: [&str; 2] = [SCOPE_FULL, SCOPE_CHANGED];
 
 /// Why a bundle was refused. The code is what the GitHub log and the operator
 /// see; the text says which member.
@@ -85,6 +101,12 @@ pub enum Reject {
     MissingRequiredCheck(String),
     /// The declared `verdict` is not what the entries give.
     VerdictInconsistent { declared: String, computed: String },
+    /// `--require-full`: the signed plan scope is not `full`.
+    NotFullScope(String),
+    /// `--require-full`: no required `gb10` check ran. Carries the
+    /// backends the bundle has (`host=34`) and its gb10 checks with their
+    /// status and verdict (`none` when there is no gb10 check at all).
+    NoGpuReceipt { backends: String, gb10: String },
 }
 
 impl Reject {
@@ -98,6 +120,8 @@ impl Reject {
             Reject::UnknownExecutor => "UNKNOWN_EXECUTOR",
             Reject::MissingRequiredCheck(_) => "MISSING_REQUIRED_CHECK",
             Reject::VerdictInconsistent { .. } => "VERDICT_INCONSISTENT",
+            Reject::NotFullScope(_) => "NOT_FULL_SCOPE",
+            Reject::NoGpuReceipt { .. } => "NO_GPU_RECEIPT",
         }
     }
 }
@@ -136,6 +160,16 @@ impl fmt::Display for Reject {
                     "VERDICT_INCONSISTENT: bundle says {declared}, entries give {computed}"
                 )
             }
+            Reject::NotFullScope(scope) => write!(
+                f,
+                "NOT_FULL_SCOPE: plan scope is {scope}, not a full-scope (Alpha) qualification"
+            ),
+            Reject::NoGpuReceipt { backends, gb10 } => write!(
+                f,
+                "NO_GPU_RECEIPT: an Alpha needs a required check on backend gb10 that ran on the \
+                 Spark's GPU, and this full-scope bundle has none (checks by backend: {backends}; \
+                 gb10 checks: {gb10})"
+            ),
         }
     }
 }
@@ -151,6 +185,8 @@ pub struct Verified {
     /// The worker's `plan.verdict` member when the bundle carries one (signed
     /// with the rest). None for a bundle without a plan member.
     pub plan_verdict: Option<String>,
+    /// The signed `plan.scope`: `full` or `changed` (the default).
+    pub scope: String,
 }
 
 impl Verified {
@@ -177,6 +213,9 @@ pub struct Expect {
     /// means "whatever the bundle marks required", which is weaker; the gate
     /// should pass its own list.
     pub required: Vec<String>,
+    /// `--require-full`: refuse (NOT_FULL_SCOPE) unless the signed plan scope
+    /// is `full`.
+    pub require_full: bool,
 }
 
 // ---------------------------------------------------------------- hex
@@ -301,8 +340,8 @@ fn one_of<'a>(o: &'a Map<String, Value>, k: &str, allowed: &[&str]) -> Result<&'
     Ok(s)
 }
 
-/// Validate one `checks[]` entry and return (required, status, verdict).
-fn check_entry(v: &Value, i: usize) -> Result<(String, bool, String, String), Reject> {
+/// Validate one `checks[]` entry and return (gate, required, status, verdict, backend).
+fn check_entry(v: &Value, i: usize) -> Result<(String, bool, String, String, String), Reject> {
     let o = v
         .as_object()
         .ok_or_else(|| Reject::Schema(format!("checks[{i}] must be an object")))?;
@@ -319,7 +358,7 @@ fn check_entry(v: &Value, i: usize) -> Result<(String, bool, String, String), Re
     }
     let status = one_of(o, "status", &STATUSES)?.to_string();
     let verdict = one_of(o, "verdict", &VERDICTS)?.to_string();
-    text(o, "backend")?;
+    let backend = text(o, "backend")?.to_string();
     match status.as_str() {
         "run" => {
             hex_member(o, "receipt", 64)?;
@@ -338,7 +377,7 @@ fn check_entry(v: &Value, i: usize) -> Result<(String, bool, String, String), Re
             }
         }
     }
-    Ok((gate, required, status, verdict))
+    Ok((gate, required, status, verdict, backend))
 }
 
 /// The bundle verdict from its entries (Decision 7). Entries are
@@ -367,8 +406,8 @@ pub fn compute_verdict(entries: &[(bool, String, String)]) -> &'static str {
     }
 }
 
-/// (gate, required, status, verdict) per `checks[]` entry.
-type Entries = Vec<(String, bool, String, String)>;
+/// (gate, required, status, verdict, backend) per `checks[]` entry.
+type Entries = Vec<(String, bool, String, String, String)>;
 
 /// Structural validation of an unsigned or signed bundle. Returns the object
 /// and the entry summary. Does not look at the signature.
@@ -405,7 +444,27 @@ fn validate(bundle: &Value) -> Result<(&Map<String, Value>, Entries), Reject> {
     if gates.windows(2).any(|w| w[0] == w[1]) {
         return Err(Reject::Schema("checks[] lists a gate twice".to_string()));
     }
+    // `plan.scope`, when present, is one of the two scopes; anything else is
+    // not a bundle this verifier understands.
+    if let Some(p) = o.get("plan") {
+        let p = p
+            .as_object()
+            .ok_or_else(|| Reject::Schema("plan must be an object".to_string()))?;
+        if p.contains_key("scope") {
+            one_of(p, "scope", &SCOPES)?;
+        }
+    }
     Ok((o, out))
+}
+
+/// The bundle's `plan.scope`: `full`, or `changed` when the member (or the
+/// whole `plan`) is absent, as in every bundle written before scopes existed.
+/// Unvalidated: `verify` refuses an unknown value.
+pub fn scope_of(bundle: &Value) -> &str {
+    match bundle["plan"]["scope"].as_str() {
+        Some(s) if SCOPES.contains(&s) => s,
+        _ => SCOPE_CHANGED,
+    }
 }
 
 // ---------------------------------------------------------------- sign
@@ -494,6 +553,14 @@ pub fn verify(bundle: &Value, expect: &Expect) -> Result<Verified, Reject> {
     if o["executor"]["id"].as_str() != Some(fingerprint(&vk).as_str()) {
         return Err(Reject::UnknownExecutor);
     }
+    // The scope is signed: checked only once the signature holds.
+    let scope = scope_of(bundle).to_string();
+    if expect.require_full && scope != SCOPE_FULL {
+        return Err(Reject::NotFullScope(scope));
+    }
+    if expect.require_full {
+        gpu_receipt(&entries)?;
+    }
     for g in &expect.required {
         match entries.iter().find(|e| &e.0 == g) {
             None => return Err(Reject::MissingRequiredCheck(g.clone())),
@@ -528,6 +595,58 @@ pub fn verify(bundle: &Value, expect: &Expect) -> Result<Verified, Reject> {
         plan_verdict: o
             .get("plan")
             .map(|p| p["verdict"].as_str().unwrap_or("NOT_RUN").to_string()),
+        scope,
+    })
+}
+
+/// `--require-full`: at least one required check on backend `gb10` that ran
+/// (or was resolved from cache: a gb10 result is never reused across heads,
+/// so the cache entry is this commit's own GPU run).
+///
+/// The verdict of that check is the verdict algebra's job, not this rule's: a
+/// gb10 check that ran and FAILed makes the bundle FAIL (exit 1), which is a
+/// truer answer than "no receipt"; a gb10 check that self-not-ran (exit 77,
+/// e.g. the checkpoint is missing) is not a receipt either.
+fn gpu_receipt(entries: &Entries) -> Result<(), Reject> {
+    if entries
+        .iter()
+        .any(|e| e.4 == "gb10" && e.1 && (e.2 == "run" || e.2 == "cached"))
+    {
+        return Ok(());
+    }
+    let mut counts: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for e in entries {
+        *counts.entry(e.4.as_str()).or_default() += 1;
+    }
+    let backends = if counts.is_empty() {
+        "none".to_string()
+    } else {
+        counts
+            .iter()
+            .map(|(b, n)| format!("{b}={n}"))
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let gb10: Vec<String> = entries
+        .iter()
+        .filter(|e| e.4 == "gb10")
+        .map(|e| {
+            format!(
+                "{} {} {}{}",
+                e.0,
+                e.2,
+                e.3,
+                if e.1 { "" } else { " (not required)" }
+            )
+        })
+        .collect();
+    Err(Reject::NoGpuReceipt {
+        backends,
+        gb10: if gb10.is_empty() {
+            "none".to_string()
+        } else {
+            gb10.join(", ")
+        },
     })
 }
 
@@ -536,8 +655,13 @@ pub fn verify(bundle: &Value, expect: &Expect) -> Result<Verified, Reject> {
 pub const USAGE: &str = "usage:
   aien-test keygen KEY_FILE
   aien-test bundle-sign BUNDLE.json --key KEY_FILE [--out SIGNED.json]
-  aien-test verify-bundle BUNDLE.json --repo github.com/OWNER/REPO --commit SHA40 --pubkey FILE_OR_HEX [--require GATE[,GATE...]]
+  aien-test verify-bundle BUNDLE.json --repo github.com/OWNER/REPO --commit SHA40 --pubkey FILE_OR_HEX [--require GATE[,GATE...]] [--require-full]
+  --require-full: REJECTED unless the signed plan scope is full (an Alpha qualification)
+                  and a required gb10 check passed on the GPU (NO_GPU_RECEIPT otherwise)
 exit: 0 PASS, 1 FAIL, 2 NOT_RUN or usage, 3 REJECTED";
+
+/// Flags of the bundle commands that take no value.
+const BOOL_FLAGS: [&str; 1] = ["--require-full"];
 
 pub fn is_bundle_command(name: &str) -> bool {
     matches!(name, "keygen" | "bundle-sign" | "verify-bundle")
@@ -579,7 +703,12 @@ fn cli_inner(argv: &[String]) -> Result<i32, String> {
     let positional: Vec<&String> = argv[1..]
         .iter()
         .enumerate()
-        .filter(|(i, a)| !a.starts_with("--") && (*i == 0 || !argv[*i].starts_with("--")))
+        .filter(|(i, a)| {
+            !a.starts_with("--")
+                && (*i == 0
+                    || !argv[*i].starts_with("--")
+                    || BOOL_FLAGS.contains(&argv[*i].as_str()))
+        })
         .map(|(_, a)| a)
         .collect();
     match name {
@@ -626,6 +755,7 @@ fn cli_inner(argv: &[String]) -> Result<i32, String> {
                 commit,
                 pubkey_hex,
                 required,
+                require_full: argv[1..].iter().any(|a| a == "--require-full"),
             };
             match verify(&bundle, &expect) {
                 Ok(v) => {
@@ -714,6 +844,7 @@ mod tests {
             commit: COMMIT.to_string(),
             pubkey_hex: hex_encode(sk.verifying_key().as_bytes()),
             required: vec!["crumb.verify".to_string(), "crypto.native".to_string()],
+            require_full: false,
         };
         (sk, signed, expect)
     }
@@ -957,6 +1088,7 @@ mod tests {
             required,
             cached: 0,
             plan_verdict: plan.map(str::to_string),
+            scope: SCOPE_CHANGED.to_string(),
         };
         assert_eq!(v("PASS", 1, None).gate_verdict(), "PASS");
         assert_eq!(v("PASS", 1, Some("PASS")).gate_verdict(), "PASS");
@@ -971,5 +1103,256 @@ mod tests {
         );
         assert_eq!(v("FAIL", 2, Some("NOT_RUN")).gate_verdict(), "FAIL");
         assert_eq!(v("NOT_RUN", 2, Some("PASS")).gate_verdict(), "NOT_RUN");
+    }
+
+    /// `good()`'s required checks with a `plan` member of `scope` (None: a
+    /// plan written before scopes existed).
+    fn scoped(sk: &SigningKey, scope: Option<&str>) -> Value {
+        let mut b = unsigned(
+            sk,
+            vec![
+                entry("crumb.verify", "EXACT", true, "run", "PASS"),
+                entry("crypto.native", "EXACT", true, "cached", "PASS"),
+            ],
+            "PASS",
+        );
+        b["plan"] = json!({ "verdict": "PASS", "reason": "", "unmapped": [], "removed": [], "blocked": null });
+        if let Some(s) = scope {
+            b["plan"]["scope"] = json!(s);
+        }
+        sign(&b, sk).expect("sign")
+    }
+
+    /// One `checks[]` entry on backend `gb10`, the only backend that proves a
+    /// GPU ran for this commit.
+    fn gpu_check(gate: &str, required: bool, status: &str, verdict: &str) -> Value {
+        let mut e = entry(gate, "EXACT", required, status, verdict);
+        e["backend"] = json!("gb10");
+        e
+    }
+
+    /// A full-scope bundle: `good()`'s two required host checks plus `extra`,
+    /// declaring `verdict`.
+    fn full_scope(sk: &SigningKey, extra: Vec<Value>, verdict: &str) -> Value {
+        let mut checks = vec![
+            entry("crumb.verify", "EXACT", true, "run", "PASS"),
+            entry("crypto.native", "EXACT", true, "cached", "PASS"),
+        ];
+        checks.extend(extra);
+        let mut b = unsigned(sk, checks, verdict);
+        b["plan"] = json!({ "verdict": "PASS", "scope": "full" });
+        sign(&b, sk).expect("sign")
+    }
+
+    #[test]
+    fn a_full_scope_bundle_without_a_gpu_check_is_not_an_alpha() {
+        let (sk, _, e) = good();
+        let mut strict = e.clone();
+        strict.require_full = true;
+        out_of_scope_either_way(&sk, &strict);
+        let r = verify(&full_scope(&sk, vec![], "PASS"), &strict).unwrap_err();
+        assert_eq!(
+            r,
+            Reject::NoGpuReceipt {
+                backends: "spark=2".to_string(),
+                gb10: "none".to_string()
+            }
+        );
+        assert_eq!(r.code(), "NO_GPU_RECEIPT");
+        assert_eq!(
+            format!("AIEN Verification: REJECTED {r}"),
+            "AIEN Verification: REJECTED NO_GPU_RECEIPT: an Alpha needs a required check on \
+             backend gb10 that ran on the Spark's GPU, and this full-scope bundle has none \
+             (checks by backend: spark=2; gb10 checks: none)"
+        );
+    }
+
+    /// The scope is reported first: a `changed` bundle is refused as such,
+    /// though it could not be an Alpha for the second reason either. The
+    /// `--require-full` flag never turns either into a PASS.
+    fn out_of_scope_either_way(sk: &SigningKey, strict: &Expect) {
+        assert_eq!(
+            verify(&scoped(sk, Some("changed")), strict).unwrap_err(),
+            Reject::NotFullScope("changed".to_string())
+        );
+        assert_eq!(
+            verify(&full_scope(sk, vec![], "PASS"), strict)
+                .unwrap_err()
+                .code(),
+            "NO_GPU_RECEIPT"
+        );
+    }
+
+    #[test]
+    fn a_required_gb10_check_that_ran_is_the_receipt() {
+        let (sk, _, e) = good();
+        let mut strict = e.clone();
+        strict.require_full = true;
+        // Ran here, or resolved from cache: a gb10 result is never reused
+        // across heads, so both name this commit's own GPU run.
+        for status in ["run", "cached"] {
+            let b = full_scope(
+                &sk,
+                vec![gpu_check("gpu.serve-chat", true, status, "PASS")],
+                "PASS",
+            );
+            let v = verify(&b, &strict).expect("a GPU receipt");
+            assert_eq!((v.scope.as_str(), v.gate_verdict()), ("full", "PASS"));
+        }
+        // A gb10 check that ran and FAILed is still a receipt: the bundle is
+        // FAIL (exit 1), which says more than "no GPU run".
+        let b = full_scope(
+            &sk,
+            vec![gpu_check("gpu.serve-chat", true, "run", "FAIL")],
+            "FAIL",
+        );
+        let v = verify(&b, &strict).expect("a GPU receipt, failed");
+        assert_eq!(v.gate_verdict(), "FAIL");
+    }
+
+    #[test]
+    fn an_optional_or_self_not_run_gb10_check_is_not_a_receipt() {
+        let (sk, _, e) = good();
+        let mut strict = e.clone();
+        strict.require_full = true;
+        // Optional: the algebra ignores it, so it proves nothing.
+        let r = verify(
+            &full_scope(
+                &sk,
+                vec![gpu_check("gpu.serve-chat", false, "run", "PASS")],
+                "PASS",
+            ),
+            &strict,
+        )
+        .unwrap_err();
+        assert_eq!(
+            r,
+            Reject::NoGpuReceipt {
+                backends: "gb10=1,spark=2".to_string(),
+                gb10: "gpu.serve-chat run PASS (not required)".to_string()
+            }
+        );
+        // Self-not-run (exit 77: the checkpoint is missing or the chip is too
+        // short on memory): the gate did not test the GPU.
+        let r = verify(
+            &full_scope(
+                &sk,
+                vec![gpu_check("gpu.serve-chat", true, "not_run", "NOT_RUN")],
+                "NOT_RUN",
+            ),
+            &strict,
+        )
+        .unwrap_err();
+        assert_eq!(
+            r,
+            Reject::NoGpuReceipt {
+                backends: "gb10=1,spark=2".to_string(),
+                gb10: "gpu.serve-chat not_run NOT_RUN".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn a_bundle_without_a_scope_is_changed_scope() {
+        let (sk, old, e) = good();
+        // No `plan` at all, and a `plan` written before scopes existed.
+        assert_eq!(scope_of(&old), SCOPE_CHANGED);
+        assert_eq!(verify(&old, &e).unwrap().scope, "changed");
+        let b = scoped(&sk, None);
+        assert_eq!(scope_of(&b), SCOPE_CHANGED);
+        let v = verify(&b, &e).unwrap();
+        assert_eq!((v.scope.as_str(), v.gate_verdict()), ("changed", "PASS"));
+        let v = verify(&scoped(&sk, Some("full")), &e).unwrap();
+        assert_eq!((v.scope.as_str(), v.gate_verdict()), ("full", "PASS"));
+        // Any other scope is not a bundle this verifier reads.
+        let mut bad = unsigned(&sk, vec![], "PASS");
+        bad["plan"] = json!({ "verdict": "PASS", "scope": "everything" });
+        assert!(matches!(sign(&bad, &sk).unwrap_err(), Reject::Schema(_)));
+    }
+
+    #[test]
+    fn the_scope_is_signed() {
+        let (sk, _, e) = good();
+        let mut b = scoped(&sk, Some("changed"));
+        b["plan"]["scope"] = json!("full");
+        assert_eq!(verify(&b, &e).unwrap_err(), Reject::BadSignature);
+        let mut b = scoped(&sk, None);
+        b["plan"]["scope"] = json!("full");
+        assert_eq!(verify(&b, &e).unwrap_err(), Reject::BadSignature);
+        let mut b = scoped(&sk, Some("full"));
+        b["plan"]["scope"] = json!("changed");
+        assert_eq!(verify(&b, &e).unwrap_err(), Reject::BadSignature);
+    }
+
+    #[test]
+    fn require_full_rejects_a_changed_scope_pass_with_exit_3() {
+        let (sk, old, e) = good();
+        let dir = crate::testutil::TempDir::new("verify-bundle-full");
+        let write = |name: &str, b: &Value| {
+            let p = dir.path().join(name);
+            fs::write(&p, canonical(b).unwrap()).unwrap();
+            p.display().to_string()
+        };
+        let changed = write("changed.json", &scoped(&sk, Some("changed")));
+        let unscoped = write("unscoped.json", &old);
+        // Full scope and every check PASS, but no gb10 check: not an Alpha.
+        let host_only = write("host-only.json", &scoped(&sk, Some("full")));
+        let full = write(
+            "full.json",
+            &full_scope(
+                &sk,
+                vec![gpu_check("gpu.serve-chat", true, "run", "PASS")],
+                "PASS",
+            ),
+        );
+        let run = |path: &str, require_full: bool| {
+            let mut argv = vec!["verify-bundle".to_string()];
+            // The bool flag before the file must not swallow it.
+            if require_full {
+                argv.push("--require-full".to_string());
+            }
+            argv.extend(
+                [
+                    path,
+                    "--repo",
+                    REPO,
+                    "--commit",
+                    COMMIT,
+                    "--pubkey",
+                    &e.pubkey_hex,
+                ]
+                .map(str::to_string),
+            );
+            cli_main(&argv)
+        };
+        assert_eq!(run(&changed, false), 0);
+        assert_eq!(run(&changed, true), 3);
+        assert_eq!(run(&unscoped, true), 3);
+        assert_eq!(run(&host_only, false), 0);
+        assert_eq!(run(&host_only, true), 3);
+        assert_eq!(run(&full, true), 0);
+        assert_eq!(run(&full, false), 0);
+        let mut strict = e.clone();
+        strict.require_full = true;
+        let r = verify(&scoped(&sk, Some("changed")), &strict).unwrap_err();
+        assert_eq!(r, Reject::NotFullScope("changed".to_string()));
+        assert_eq!(r.code(), "NOT_FULL_SCOPE");
+        assert_eq!(
+            format!("AIEN Verification: REJECTED {r}"),
+            "AIEN Verification: REJECTED NOT_FULL_SCOPE: plan scope is changed, not a full-scope (Alpha) qualification"
+        );
+        assert_eq!(
+            verify(
+                &full_scope(
+                    &sk,
+                    vec![gpu_check("gpu.serve-chat", true, "run", "PASS")],
+                    "PASS"
+                ),
+                &strict
+            )
+            .unwrap()
+            .scope,
+            "full"
+        );
     }
 }
