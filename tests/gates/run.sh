@@ -45,6 +45,12 @@ if [ -n "${HOME:-}" ] && [ ! -w "$HOME" ]; then
   if [ -z "${MIRI_SYSROOT:-}" ] && [ -d "$ro_home/.cache/miri/lib" ]; then
     MIRI_SYSROOT="$ro_home/.cache/miri"; export MIRI_SYSROOT
   fi
+  # The operator's checkpoints are mounted read-only at the sandbox home's models/ (aien-run-exec); a
+  # model gate looks there, not in the fresh HOME (2026-10-25: SC-GB10-SERVE-CHAT reported
+  # model_missing under /tmp/tmp.*/models on the first Alpha judge of #751).
+  if [ -z "${AIEN_MODELS_DIR:-}" ] && [ -d "$ro_home/models" ]; then
+    AIEN_MODELS_DIR="$ro_home/models"; export AIEN_MODELS_DIR
+  fi
 fi
 obs() { printf 'AIEN-OBS %s %s\n' "$1" "$2"; }
 # Inside the user sandbox (AIEN_SANDBOX_NESTED=1, set by the worker) five aien-test self-tests that would

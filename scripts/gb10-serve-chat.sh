@@ -37,15 +37,16 @@
 # Every other problem is a FAIL. Observations: build_rc, engine_native, mem_available_mib,
 # chip_lock, serve_rc, reply_ok, reply_chars, completion_tokens, shutdown_clean.
 #
-# Settings: MODEL_DIR (default $HOME/models/qwen3.8-27b-fp8-017b9c7a; in the user sandbox the
-# operator's ~/models is mounted read-only at $HOME/models), READY_TIMEOUT (default 2400 s, as
+# Settings: MODEL_DIR (default $AIEN_MODELS_DIR/qwen3.8-27b-fp8-017b9c7a, else $HOME/models/...;
+# tests/gates/run.sh sets AIEN_MODELS_DIR to the sandbox home's read-only models/ mount because it
+# gives each step a fresh writable HOME), READY_TIMEOUT (default 2400 s, as
 # tools/serve-27b.sh), STOP_TIMEOUT (default 900 s).
 set -uo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT" || exit 3
 ENV_SH=${1:?usage: scripts/gb10-serve-chat.sh <pins env.sh>}
 TARGET=${CARGO_TARGET_DIR:-$ROOT/target}
-MODEL_DIR=${MODEL_DIR:-$HOME/models/qwen3.8-27b-fp8-017b9c7a}
+MODEL_DIR=${MODEL_DIR:-${AIEN_MODELS_DIR:-$HOME/models}/qwen3.8-27b-fp8-017b9c7a}
 MODEL_ID=qwen3.8-27b-fp8
 READY_TIMEOUT=${READY_TIMEOUT:-2400}
 STOP_TIMEOUT=${STOP_TIMEOUT:-900}
@@ -64,11 +65,14 @@ for t in curl jq ss; do command -v "$t" >/dev/null || fail "needs $t"; done
 
 # 1. Memory pre-check, before the release build: a chip that cannot hold the
 # model is a NOT_RUN, and it should not cost a 5-minute GPU build to learn.
-avail_kib=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null)
+# MemAvailable counts mapped model pages as reclaimable, so beside a resident model server it
+# overstates what a second load can get (2026-10-25T02:47Z: a load admitted at MemAvailable
+# 53.5 GiB drove a global OOM that killed the live 35B). Count MemAvailable - Mapped instead.
+avail_kib=$(awk '/^MemAvailable:/ {a=$2} /^Mapped:/ {m=$2} END {print a-m}' /proc/meminfo 2>/dev/null)
 avail_mib=$(( ${avail_kib:-0} / 1024 ))
 obs mem_available_mib "$avail_mib"
 [ "$avail_mib" -ge "$NEED_MIB" ] \
-    || not_run memory_short "MemAvailable $avail_mib MiB, the 27B loader needs $NEED_MIB MiB; the server was not started"
+    || not_run memory_short "MemAvailable-Mapped $avail_mib MiB, the 27B loader needs $NEED_MIB MiB (another model is resident: the GB10 needs an exclusive window); the server was not started"
 
 # 2. Build, as install.sh --with-server does (pinned sources, release, real GPU engine).
 [ -f "$ENV_SH" ] || fail "pins env file $ENV_SH is missing"
