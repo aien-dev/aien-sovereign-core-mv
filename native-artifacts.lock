@@ -42,3 +42,9 @@ libomega_gpu.a 0010f7d30bcaf0012e8051c5a05584a08d8320ec aarch64-unknown-linux-gn
 # target/pins (host scope, build.rs digests) and reproduced by an independent omega make from a fresh checkout.
 librx_compose.a 18f8fdd974edea2e778ff16a49f88c878ffac1c0 aarch64-unknown-linux-gnu e598074e58533dc5fb08281f1392d265943f6f8def2fc4950f04a5729c100758 cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
 libomega_gpu.a 18f8fdd974edea2e778ff16a49f88c878ffac1c0 aarch64-unknown-linux-gnu bd6802a5d493ed6b4589dabb5787db70a37ba10c75d8406f3cce27c4dfa9f9bd cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+# omega a647b6a9 (omega-mv alpha/20261025.1: main with the q36 batch library 6de999da and the #712 wave rule
+# 1719bc69; physics 048e5f5e, aienos b84c0a67 from its own locks). Recorded 2026-10-25 from the build.rs digests of
+# scripts/pins.sh --gpu then cargo build --locked --release -p aien-serve-http, and reproduced byte for byte by an
+# independent omega make from a fresh checkout of the three pins.
+librx_compose.a a647b6a9821fffcf52ba9ce813f75afa4b84be62 aarch64-unknown-linux-gnu 0a711939f498d90fcc23f55230d578f2b836aeeb9bc57ffa14a9813cf8a3cebd cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+libomega_gpu.a a647b6a9821fffcf52ba9ce813f75afa4b84be62 aarch64-unknown-linux-gnu 036b7491d85a2d0781360c194402f345ad2f63720dab1b8f6d0cbc5c09f87d3e cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0

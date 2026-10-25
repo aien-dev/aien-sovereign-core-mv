@@ -29,29 +29,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 step="${1:?usage: tests/gates/run.sh <step>}"
-# GitHub runners give every job a writable HOME; the sandbox's HOME (/var/lib/aien-run) is read-only on
-# purpose. Tools that write under HOME (Chrome's crash database in aien-cli's browser_mirror test, which
-# otherwise dies with SIGTRAP) get a fresh one for this step. The sandbox's git settings come along:
-# its .gitconfig trusts the operator-owned checkout (safe.directory), and without it git refuses the
-# tree ("not inside a git repository"). CARGO_HOME and RUSTUP_HOME are set by the sandbox and do not
-# follow HOME.
-if [ -n "${HOME:-}" ] && [ ! -w "$HOME" ]; then
-  ro_home="$HOME"
-  HOME="$(mktemp -d)"; export HOME
-  trap 'rm -rf "$HOME"' EXIT
-  if [ -f "$ro_home/.gitconfig" ]; then cp "$ro_home/.gitconfig" "$HOME/.gitconfig"; fi
-  # The miri sysroot that install.sh prebuilt under the read-only HOME (#600) stays the one miri uses;
-  # the fresh HOME would otherwise send `cargo miri setup` off to rebuild it offline, which cannot work.
-  if [ -z "${MIRI_SYSROOT:-}" ] && [ -d "$ro_home/.cache/miri/lib" ]; then
-    MIRI_SYSROOT="$ro_home/.cache/miri"; export MIRI_SYSROOT
-  fi
-  # The operator's checkpoints are mounted read-only at the sandbox home's models/ (aien-run-exec); a
-  # model gate looks there, not in the fresh HOME (2026-10-25: SC-GB10-SERVE-CHAT reported
-  # model_missing under /tmp/tmp.*/models on the first Alpha judge of #751).
-  if [ -z "${AIEN_MODELS_DIR:-}" ] && [ -d "$ro_home/models" ]; then
-    AIEN_MODELS_DIR="$ro_home/models"; export AIEN_MODELS_DIR
-  fi
-fi
+# A read-only HOME (the sandbox's) is swapped for a fresh writable one for this step; the read-only
+# home's models/ mount stays reachable as AIEN_MODELS_DIR (tests/gates/step-home.sh, which
+# scripts/test-gb10-model-dir.sh exercises with a read-only HOME).
+# shellcheck source=tests/gates/step-home.sh
+. "$ROOT/tests/gates/step-home.sh"
+step_home
 obs() { printf 'AIEN-OBS %s %s\n' "$1" "$2"; }
 # Inside the user sandbox (AIEN_SANDBOX_NESTED=1, set by the worker) five aien-test self-tests that would
 # start a sandbox themselves skip (they cannot nest); the receipt says so for the two steps that run them.
@@ -188,6 +171,9 @@ case "$step" in
     AIEN_PINS_REMOTE_BASE="$(cd .. && pwd)" AIEN_PINS_REMOTE_SUFFIX="" bash scripts/pins.sh --gpu "$PINS"
     bash scripts/gb10-serve-chat.sh "$PINS/env.sh"
     ;;
+  # SC-GB10-MODEL-DIR (portable, shell only): where SC-GB10-SERVE-CHAT finds its checkpoint under a
+  # read-only HOME, and its NOT_RUN model_missing before any build or GPU start (no cargo, no GPU).
+  gb10-model-dir)      bash scripts/test-gb10-model-dir.sh ;;
   # hardening.yml
   kv-props)
     cargo fetch --manifest-path crates/aien-replay/Cargo.toml

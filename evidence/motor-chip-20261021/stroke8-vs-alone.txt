@@ -1,0 +1,9 @@
+head 0 gen-p1 vs gate1b-p1.json: {"n":32,"m":32,"equal":true,"first_diff":null}
+head 1 gen-p2 vs gate1b-p2.json: {"n":32,"m":32,"equal":true,"first_diff":null}
+head 2 gen-p3 vs gate1b-p3.json: {"n":32,"m":32,"equal":true,"first_diff":null}
+head 3 gen-p4 vs gate1b-p4.json: {"n":32,"m":32,"equal":true,"first_diff":null}
+head 4 gen-chat-code vs stroke1-code.json: {"n":32,"m":32,"equal":true,"first_diff":null}
+head 5 gen-chat-prose vs stroke1-prose.json: {"n":32,"m":32,"equal":true,"first_diff":null}
+head 6 gen-chat-chat vs stroke1-chat.json: {"n":32,"m":32,"equal":true,"first_diff":null}
+head 7 gen-chat-review vs stroke1-review.json: {"n":32,"m":32,"equal":true,"first_diff":null}
+ALL HEADS EQUAL THEIR RUN ALONE

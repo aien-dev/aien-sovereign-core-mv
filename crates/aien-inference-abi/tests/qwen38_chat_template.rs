@@ -79,6 +79,7 @@ fn opts(v: &serde_json::Value) -> ChatOptions {
             .get("reasoning_effort")
             .and_then(|x| x.as_str())
             .map(String::from),
+        preserve_thinking: v.get("preserve_thinking").and_then(|x| x.as_bool()),
     }
 }
 
@@ -136,6 +137,7 @@ fn options_change_the_rendering_and_bad_ones_are_refused() {
             &ChatOptions {
                 enable_thinking: Some(false),
                 reasoning_effort: None,
+                preserve_thinking: None,
             },
         )
         .unwrap();
@@ -145,6 +147,7 @@ fn options_change_the_rendering_and_bad_ones_are_refused() {
     let bad = ChatOptions {
         enable_thinking: None,
         reasoning_effort: Some("max".into()),
+        preserve_thinking: None,
     };
     assert!(tpl.try_render_with(&turns, &bad).is_err());
     assert!(tpl
@@ -174,6 +177,7 @@ fn golden_prompt_tokenizes_to_the_reference_ids() {
     let off = ChatOptions {
         enable_thinking: Some(false),
         reasoning_effort: None,
+        preserve_thinking: None,
     };
     let text = tk
         .try_format_chat_with(

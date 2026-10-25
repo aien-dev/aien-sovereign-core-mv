@@ -117,7 +117,10 @@ impl Codec for HfCodec {
     }
 
     fn reasoning_end_id(&self) -> Option<u32> {
-        if self.tokenizer.template() != ChatTemplate::Qwen38 {
+        if !matches!(
+            self.tokenizer.template(),
+            ChatTemplate::Qwen38 | ChatTemplate::Qwen36
+        ) {
             return None;
         }
         match self

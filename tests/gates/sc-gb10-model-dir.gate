@@ -1,0 +1,27 @@
+# tests/gates/sc-gb10-model-dir.gate
+# Portable: shell only (scripts/test-gb10-model-dir.sh), so it needs no GB10, no cargo and no
+# sibling clones. Proves, with a read-only original HOME and run.sh's own step_home: the checkpoint
+# SC-GB10-SERVE-CHAT resolves is the one under the read-only home's models/ mount, not under the fresh
+# per-step HOME; a missing mount, config.json or tokenizer.json is NOT_RUN model_missing (exit 77)
+# before the memory check, the build and any GPU start; an explicit MODEL_DIR is receipted as
+# model_dir_source "override". Negative controls: the same checks fail against the pre-#760
+# resolution and against a step_home that drops the models/ mount. The gate script is run with a
+# missing pins env.sh and a cargo stub that fails the test if it is ever reached.
+gate: SC-GB10-MODEL-DIR
+manifest_version: 2
+owner: aien-sovereign-core
+requires:
+  - portable
+inputs:
+  - scripts/gb10-serve-chat.sh
+  - scripts/test-gb10-model-dir.sh
+  - tests/gates/
+run:
+  exec: tests/gates/run.sh
+  args: ["gb10-model-dir"]
+expects:
+  exit: 0
+  verdict: PASS
+timeout: 5m
+exactness: EXACT
+cache_scope: machine
