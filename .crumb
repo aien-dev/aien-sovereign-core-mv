@@ -83,7 +83,7 @@
         },
         {
           "digest": "b41ba0d076f6ba68b9cf0155c74166c546a1c51445ca6de8b618a381c6bedbe4",
-          "last_commit": "92df274c",
+          "last_commit": "39b624dd",
           "name": "crates/aien-cli",
           "purpose": ""
         },
@@ -101,7 +101,7 @@
         },
         {
           "digest": "8c8d574c222a3d3c50d6cfda5d5e6a14cfb80bad5d9f52b5a78d57afd27e253a",
-          "last_commit": "5d16d955",
+          "last_commit": "909b6e80",
           "name": "scripts",
           "purpose": ""
         },
@@ -119,14 +119,14 @@
         }
       ],
       "children_root": "sha256:29d42833729ac3a78c9689e981f0c2c93f476006a91cfc00bd46bb38d3e2876c",
-      "compiled_at": "2026-10-25T19:08:15Z",
+      "compiled_at": "2026-10-25T19:28:56Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:e3c2cda0d825f97d709a55bb18de47a45913bdd00c2455df755a635db05bac3f",
+      "digest": "sha256:dd3ccb9100a804c864ecaa91b5b6ab0f9c538e7d791d33daadcd35764757e9c0",
       "evidence_files": 3558,
       "evidence_root": "sha256:92c7523ff6767aef13f7c5bf67039b979c3333c70885ac81ce393f1ae2c444e6",
       "files": 7981,
-      "generated_at_commit": "f053e05985deed3b606a0661e13eef08477fb2be",
-      "source_tree": "sha256:b8199861aaefe2f8a9ac0a664390f98403c231c106eabc0b880833a1622ae489"
+      "generated_at_commit": "89da3b0f8742a690f0d98491c6de8403a75be237",
+      "source_tree": "sha256:d164175cbf8b214f611fa514bb57b00b54781c6e63120f2b21874c88f251f2e1"
     }
   },
   "history": [],
