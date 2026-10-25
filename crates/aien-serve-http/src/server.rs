@@ -688,6 +688,18 @@ fn run_readers(
     );
 }
 
+/// A busy chip: 503 with a plain body and `Retry-After: 5`.
+fn chip_busy() -> Response {
+    let mut resp = (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({"error": "GPU busy with another job"})),
+    )
+        .into_response();
+    resp.headers_mut()
+        .insert(header::RETRY_AFTER, HeaderValue::from_static("5"));
+    resp
+}
+
 /// The response for a generation's events: the first decides the status (a busy chip is 503).
 async fn respond(
     mut rx: mpsc::Receiver<Ev>,
@@ -702,14 +714,7 @@ async fn respond(
     // headers go out (streaming included). Everything else is forwarded unchanged.
     let first = rx.recv().await;
     if let Some(Ev::Busy(_)) = first {
-        let mut resp = (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({"error": "GPU busy with another job"})),
-        )
-            .into_response();
-        resp.headers_mut()
-            .insert(header::RETRY_AFTER, HeaderValue::from_static("5"));
-        return Ok(resp);
+        return Ok(chip_busy());
     }
     let (ftx, frx) = mpsc::channel::<Ev>(64);
     tokio::spawn(async move {
@@ -1245,7 +1250,9 @@ async fn collect_response(
                 return Ok(Json(body).into_response());
             }
             Ev::Error(m) => return Err(ApiError::internal(m)),
-            Ev::Busy(m) => return Err(ApiError::internal(m)),
+            // Not the first event on the readers' path (`Ev::Readers` goes before the connect
+            // generation); nothing has been sent yet, so it is the same 503 as a busy first event.
+            Ev::Busy(_) => return Ok(chip_busy()),
         }
     }
     Err(ApiError::internal("generation ended without a result"))
@@ -1412,4 +1419,51 @@ fn stream_response(
                 .text("keep-alive"),
         )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn answer(events: Vec<Ev>, stream: bool) -> Response {
+        let (tx, rx) = mpsc::channel(events.len().max(1));
+        for ev in events {
+            tx.send(ev).await.expect("room for every event");
+        }
+        drop(tx);
+        respond(rx, stream, "id".into(), 0, "m".into(), 3, false)
+            .await
+            .unwrap_or_else(IntoResponse::into_response)
+    }
+
+    fn assert_chip_busy(resp: &Response) {
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            resp.headers()
+                .get(header::RETRY_AFTER)
+                .map(|v| v.as_bytes()),
+            Some(&b"5"[..])
+        );
+    }
+
+    /// A busy chip before anything else is a 503 with Retry-After 5.
+    #[tokio::test]
+    async fn busy_first_is_a_503_with_retry_after() {
+        assert_chip_busy(&answer(vec![Ev::Busy("held".into())], false).await);
+    }
+
+    /// The readers' non-streaming path sends `Ev::Readers` before the connect generation, so a busy
+    /// chip for that generation is not the first event: it must still be the same 503 with
+    /// Retry-After 5, not a 500.
+    #[tokio::test]
+    async fn busy_after_the_readers_event_is_the_same_503() {
+        let events = vec![
+            Ev::Readers {
+                info: serde_json::json!({ "readers": 2 }),
+                prompt_tokens: 7,
+            },
+            Ev::Busy("GPU lock held by other jobs for 300 s".into()),
+        ];
+        assert_chip_busy(&answer(events, false).await);
+    }
 }

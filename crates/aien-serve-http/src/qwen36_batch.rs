@@ -36,7 +36,7 @@ use crate::engine::{
 };
 use crate::omega_engine::{GpuLock, GPU_LOCK_PATH};
 use crate::qwen38_engine::{
-    is_moe_dir, rss_bytes, CHIP_GREEDY_ENV, KEEP_FREE, LOAD_LOCK_WAIT, PREFILL_CHUNK,
+    admit_load, is_moe_dir, rss_bytes, CHIP_GREEDY_ENV, KEEP_FREE, LOAD_LOCK_WAIT, PREFILL_CHUNK,
     REQUEST_LOCK_WAIT,
 };
 use crate::sampling::SamplingObserver;
@@ -87,6 +87,22 @@ fn keep_free() -> Result<u64, String> {
 
 fn mem_available() -> u64 {
     (crate::omega_engine::mem_available_gb() * (1u64 << 30) as f64) as u64
+}
+
+/// The batch door's load admission: the GPU lock (`acquire`), then the free-memory rule (`need`
+/// plus `keep`) read under it ([`admit_load`], the single door's rule), then the upload (`open`,
+/// given the MemAvailable it was admitted on). The wait for the lock can last up to
+/// [`LOAD_LOCK_WAIT`]; a reading taken before it would admit the upload on stale memory.
+fn admit_then_open<L, M>(
+    acquire: impl FnOnce() -> Result<L, String>,
+    mem_available: impl FnOnce() -> u64,
+    need: u64,
+    keep: u64,
+    open: impl FnOnce(u64) -> Result<M, String>,
+) -> Result<(L, M), String> {
+    let (lock, avail) = admit_load(acquire, mem_available, need, keep)?;
+    let model = open(avail)?;
+    Ok((lock, model))
 }
 
 /// What the scheduler needs from the model: rows of conversation state and one step over a set
@@ -189,9 +205,29 @@ fn row_test(t: &TestSwitches) -> RowTest {
     }
 }
 
+/// Events a request may leave unread before the scheduler drops it (per job of a group).
+const EVENTS_PER_JOB: usize = 256;
+
 impl Job {
+    /// Never blocks: the scheduler is the only thread stepping every row and it holds the chip
+    /// lock for the whole spell. A request thread that stops taking events (a streaming client
+    /// that does not read blocks its `blocking_send`) fills the channel; the job is then cancelled,
+    /// so its row leaves at the next sample and the others go on. `Err` = not delivered.
     fn send(&self, ev: Ev) -> Result<(), ()> {
-        self.out.send((self.tag, ev)).map_err(|_| ())
+        match self.out.try_send((self.tag, ev)) {
+            Ok(()) => Ok(()),
+            Err(mpsc::TrySendError::Full(_)) => {
+                if !self.cancel.swap(true, Ordering::SeqCst) {
+                    eprintln!(
+                        "aien-serve-http: qwen36-batch: a reply's reader fell behind ({EVENTS_PER_JOB} events unread, job {} of its group, prompt {} tok): dropping it and freeing its row",
+                        self.tag,
+                        self.prompt.len()
+                    );
+                }
+                Err(())
+            }
+            Err(mpsc::TrySendError::Disconnected(_)) => Err(()),
+        }
     }
 }
 
@@ -283,24 +319,23 @@ impl Qwen36BatchDoor {
         // The main graph is never stepped here: its own state is one 256-position pass.
         let need = need_bytes(&c, 256, PREFILL_CHUNK);
         let keep = keep_free()?;
-        let avail = mem_available();
-        if avail < need + keep {
-            return Err(format!(
-                "needs {} MiB plus {} MiB kept free, MemAvailable {} MiB (another model may be loaded); refusing",
-                need >> 20,
-                keep >> 20,
-                avail >> 20
-            ));
-        }
-        let lock = GpuLock::acquire_queued_at(Path::new(GPU_LOCK_PATH), LOAD_LOCK_WAIT)?;
-        let t0 = Instant::now();
-        eprintln!(
-            "aien-serve-http: qwen36-batch: uploading {} layers, {slots} rows of {max_pos} positions (model needs {} MiB, MemAvailable {} MiB)",
-            c.layers,
-            need >> 20,
-            avail >> 20
-        );
-        let mut model = Qwen38Omega::open(dir, None, 256)?;
+        let mut t0 = Instant::now();
+        let (lock, mut model) = admit_then_open(
+            || GpuLock::acquire_queued_at(Path::new(GPU_LOCK_PATH), LOAD_LOCK_WAIT),
+            mem_available,
+            need,
+            keep,
+            |avail| {
+                t0 = Instant::now();
+                eprintln!(
+                    "aien-serve-http: qwen36-batch: uploading {} layers, {slots} rows of {max_pos} positions (model needs {} MiB, MemAvailable {} MiB)",
+                    c.layers,
+                    need >> 20,
+                    avail >> 20
+                );
+                Qwen38Omega::open(dir, None, 256)
+            },
+        )?;
         let on_paper = model.row_bytes(max_pos);
         let rows_need = on_paper as u64 * slots as u64;
         let before = mem_available();
@@ -510,7 +545,7 @@ impl Qwen36BatchDoor {
                 })
                 .collect();
         }
-        let (otx, orx) = mpsc::sync_channel::<(usize, Ev)>(256 * n.max(1));
+        let (otx, orx) = mpsc::sync_channel::<(usize, Ev)>(EVENTS_PER_JOB * n.max(1));
         let cancel: Vec<Arc<AtomicBool>> = jobs
             .iter()
             .map(|j| {
@@ -584,8 +619,19 @@ impl Qwen36BatchDoor {
             res[i] = Some(r);
         }
         res.into_iter()
-            .map(|r| {
-                r.unwrap_or_else(|| Err(EngineError::Failed("qwen36-batch scheduler gone".into())))
+            .enumerate()
+            .map(|(i, r)| {
+                r.unwrap_or_else(|| {
+                    // The scheduler cancels a job whose reader fell behind and its last event may
+                    // not fit: no outcome, with the flag set by the scheduler and not by us.
+                    Err(EngineError::Failed(
+                        if cancel[i].load(Ordering::SeqCst) && !cancelled[i] {
+                            format!("qwen36-batch: the reply's reader fell behind ({EVENTS_PER_JOB} events unread); its row was dropped")
+                        } else {
+                            "qwen36-batch scheduler gone".into()
+                        },
+                    ))
+                })
             })
             .collect()
     }

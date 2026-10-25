@@ -96,22 +96,23 @@ pub fn rss_bytes() -> u64 {
 }
 
 /// Takes the lock with `acquire`, and only then reads free memory with `mem_available` and checks
-/// it against `need` plus [`KEEP_FREE`]. On a refusal the lock is released (dropped) before the
-/// error returns. The order is the point: a check made before a long lock wait is stale by the time
-/// the upload starts.
-fn admit_load<L>(
+/// it against `need` plus `keep` ([`KEEP_FREE`] here; the batch door's may be set). On a refusal
+/// the lock is released (dropped) before the error returns. The order is the point: a check made
+/// before a long lock wait is stale by the time the upload starts.
+pub(crate) fn admit_load<L>(
     acquire: impl FnOnce() -> Result<L, String>,
     mem_available: impl FnOnce() -> u64,
     need: u64,
+    keep: u64,
 ) -> Result<(L, u64), String> {
     let lock = acquire()?;
     let avail = mem_available();
-    if avail < need + KEEP_FREE {
+    if avail < need + keep {
         return Err(format!(
             "needs {} MiB plus {} MiB kept free ({} MiB in all), MemAvailable {} MiB after taking the GPU lock (another model may be loaded); refusing",
             need >> 20,
-            KEEP_FREE >> 20,
-            (need + KEEP_FREE) >> 20,
+            keep >> 20,
+            (need + keep) >> 20,
             avail >> 20
         ));
     }
@@ -146,6 +147,7 @@ impl Qwen38Door {
             || GpuLock::acquire_queued_at(Path::new(GPU_LOCK_PATH), LOAD_LOCK_WAIT),
             mem_available,
             need,
+            KEEP_FREE,
         )?;
         eprintln!(
             "aien-serve-http: qwen38: lock taken after {:.1} s, memory re-checked after the lock: MemAvailable {} MiB, needs {} MiB plus {} MiB kept free",
@@ -333,6 +335,7 @@ mod tests {
                 NEED + KEEP_FREE
             },
             NEED,
+            KEEP_FREE,
         );
         let (g, avail) = r.expect("exactly need plus keep-free is enough");
         assert_eq!(avail, NEED + KEEP_FREE);
@@ -351,6 +354,7 @@ mod tests {
                 6 << 30
             },
             NEED,
+            KEEP_FREE,
         )
         .err()
         .expect("6 GiB must be refused");
@@ -367,7 +371,7 @@ mod tests {
 
     #[test]
     fn one_byte_short_is_refused() {
-        let r = admit_load(|| Ok(()), || NEED + KEEP_FREE - 1, NEED);
+        let r = admit_load(|| Ok(()), || NEED + KEEP_FREE - 1, NEED, KEEP_FREE);
         assert!(r.is_err());
     }
 
@@ -377,6 +381,7 @@ mod tests {
             || Err("lock wait timed out".into()),
             || panic!("memory must not be read without the lock"),
             NEED,
+            KEEP_FREE,
         );
         assert_eq!(r.unwrap_err(), "lock wait timed out");
     }
