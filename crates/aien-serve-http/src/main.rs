@@ -41,7 +41,7 @@
 //! `AIEN_KV_TEST_FAULT` (chip acceptance checks only) stalls one store step; see `kv_persist`.
 //! `--thinking on|off|template` sets `enable_thinking` for requests that do not set it themselves
 //! (`chat_template_kwargs.enable_thinking`); `template` (the default) leaves the chat template's
-//! own default (Qwen3.8-27B: on). Templates without a thinking switch ignore it.
+//! own default (Qwen3.8-27B and Qwen3.6-35B-A3B: on). Templates without a thinking switch ignore it.
 //! `stub` replays `--stub-reply` for every request, using the model directory's
 //! tokenizer when it exists (so Odysseus can be wired before the weights load).
 
@@ -58,6 +58,7 @@ use aien_serve_http::kv_persist;
 use aien_serve_http::omega_engine::{
     parse_switch, OmegaDoor, PrefillMode, WHOLE_PROMPT_ENV, WP_DEVICE_HOST_ENV,
 };
+use aien_serve_http::qwen36_batch;
 use aien_serve_http::qwen38_engine;
 use aien_serve_http::server::{serve_until, ServerConfig};
 
@@ -115,13 +116,15 @@ struct Args {
     whole_prompt: Option<bool>,
     wp_device_host: Option<bool>,
     prefill: PrefillMode,
+    /// Qwen3.6-35B-A3B only: conversations stacked on one beat (0: the one-at-a-time door).
+    batch_slots: usize,
 }
 
 fn usage() -> String {
     "usage: aien-serve-http [--engine cpu|stub|omega] [--weights bf16|fp8-experts|fp8] [--spin-us N] \
      [--model-dir DIR] [--port N] [--bind ADDR] [--model-id ID] [--max-context N] \
      [--max-tokens-cap N] [--stub-reply TEXT] [--whole-prompt on|off] [--prefill-device-host on|off] \
-     [--thinking on|off|template] [--version]"
+     [--thinking on|off|template] [--batch-slots N] [--version]"
         .to_string()
 }
 
@@ -140,6 +143,7 @@ fn parse_args() -> Result<Args, String> {
         whole_prompt: None,
         wp_device_host: None,
         prefill: PrefillMode::default(),
+        batch_slots: 0,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -192,6 +196,9 @@ fn parse_args() -> Result<Args, String> {
                 }
             }
             "--spin-us" => a.spin_us = Some(val()?.parse().map_err(|e| format!("--spin-us: {e}"))?),
+            "--batch-slots" => {
+                a.batch_slots = val()?.parse().map_err(|e| format!("--batch-slots: {e}"))?
+            }
             "--whole-prompt" => a.whole_prompt = Some(parse_switch("--whole-prompt", &val()?)?),
             "--prefill-device-host" => {
                 a.wp_device_host = Some(parse_switch("--prefill-device-host", &val()?)?)
@@ -311,6 +318,23 @@ fn main() -> ExitCode {
         return ExitCode::from(1);
     };
 
+    // Who holds the chip: this server, or (verified, not merely claimed) an ancestor such as
+    // an aien-test gb10 gate. A claim that does not verify never reaches the chip.
+    if args.engine == "omega" {
+        match aien_serve_http::chip_reservation::install() {
+            Ok(aien_serve_http::chip_reservation::ChipReservation::Own) => {}
+            Ok(aien_serve_http::chip_reservation::ChipReservation::Inherited { holder_pid }) => {
+                eprintln!(
+                    "aien-serve-http: chip reservation inherited from ancestor pid {holder_pid} (verified in /proc/locks); taking no lock"
+                );
+            }
+            Err(e) => {
+                eprintln!("aien-serve-http: chip reservation: {e}");
+                return ExitCode::from(1);
+            }
+        }
+    }
+
     let engine: Arc<dyn Engine> = if args.engine == "stub" {
         let reply = match codec.encode(&args.stub_reply) {
             Ok(r) => r,
@@ -331,7 +355,7 @@ fn main() -> ExitCode {
             }
         }
         if args.cfg.model_id == ServerConfig::default().model_id {
-            args.cfg.model_id = qwen38_engine::DEFAULT_MODEL_ID.into();
+            args.cfg.model_id = qwen38_engine::default_model_id(&args.model_dir).into();
         }
         if std::env::var_os("AIEN_KV_STORE_DIR").is_some() {
             eprintln!(
@@ -342,14 +366,30 @@ fn main() -> ExitCode {
             "aien-serve-http: loading Qwen3.8 (qwen3_5) onto the Omega engine from {}",
             args.model_dir.display()
         );
-        match qwen38_engine::Qwen38Door::load(
-            &args.model_dir,
-            args.cfg.max_context_tokens.unwrap_or(32768),
-        ) {
-            Ok(door) => Arc::new(door),
-            Err(e) => {
-                eprintln!("aien-serve-http: qwen38 load failed: {e}");
-                return ExitCode::from(1);
+        let max_context = args.cfg.max_context_tokens.unwrap_or(32768);
+        if args.batch_slots > 0 && !qwen38_engine::is_moe_dir(&args.model_dir) {
+            eprintln!("aien-serve-http: --batch-slots: this build batches the Qwen3.6-35B-A3B (qwen3_5_moe) only");
+            return ExitCode::from(2);
+        }
+        if args.batch_slots > 0 {
+            match qwen36_batch::Qwen36BatchDoor::load(
+                &args.model_dir,
+                max_context,
+                args.batch_slots,
+            ) {
+                Ok(door) => Arc::new(door),
+                Err(e) => {
+                    eprintln!("aien-serve-http: qwen36-batch load failed: {e}");
+                    return ExitCode::from(1);
+                }
+            }
+        } else {
+            match qwen38_engine::Qwen38Door::load(&args.model_dir, max_context) {
+                Ok(door) => Arc::new(door),
+                Err(e) => {
+                    eprintln!("aien-serve-http: qwen38 load failed: {e}");
+                    return ExitCode::from(1);
+                }
             }
         }
     } else if args.engine == "omega" {
@@ -413,6 +453,25 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    // The eight readers (sc L371): on by default for a batching engine.
+    match aien_serve_http::readers::ReadersConfig::from_env(
+        &args.cfg.model_id,
+        engine.concurrency() > 1,
+    ) {
+        Ok(r) => {
+            if let Some(r) = &r {
+                eprintln!(
+                    "aien-serve-http: readers: model id {} reads inputs over {} tokens in {} parts at once (notes up to {} tokens)",
+                    r.model_id, r.threshold_tokens, r.readers, r.note_tokens
+                );
+            }
+            args.cfg.readers = r;
+        }
+        Err(e) => {
+            eprintln!("aien-serve-http: {e}");
+            return ExitCode::from(2);
+        }
+    }
     rt.block_on(async move {
         let model_id = args.cfg.model_id.clone();
         // SIGTERM or SIGINT: stop accepting, let the request in flight finish, then drop the

@@ -254,7 +254,27 @@ merge_one() {
   [[ $head == "$sha" ]] || { merge_refuse "head moved to $head"; return 0; }
   [[ $draft == false ]] || { merge_refuse "draft"; return 0; }
   case $state in
-    clean|unstable|behind|has_hooks) ;;
+    clean|behind|has_hooks) ;;
+    unstable)
+      # GitHub says "unstable" when a check failed or is still running and no branch rule
+      # requires it. A failed hosted check (crumb verify, fmt, tests) is a refusal, not a
+      # formality: on 2026-10-25 sc#751 merged on CRUMB-VERIFY FAIL and left main with stale
+      # crumbs. Pending checks: wait for the next round.
+      local runs
+      if ! runs=$(ghc api "repos/$s/commits/$head/check-runs?per_page=100" \
+          --jq '[.check_runs[] | {name, status, conclusion}]'); then
+        merge_refuse "cannot read the head's check runs"; return 0
+      fi
+      local failed pending
+      # A completed run must explicitly name an accepted result. Stale, null, missing
+      # and future conclusions are not success; unfinished runs still wait below.
+      failed=$(jq -r '[.[] | select(.status == "completed" and (.conclusion | IN("success","skipped","neutral") | not)) | .name] | join(", ")' <<< "$runs")
+      [[ -z $failed ]] || { merge_refuse "hosted checks failed on this head: $failed"; return 0; }
+      pending=$(jq -r '[.[] | select(.status != "completed") | .name] | join(", ")' <<< "$runs")
+      if [[ -n $pending ]]; then
+        journal action=merge repo="$repo" pr="$num" sha="$sha" result=wait reason="hosted checks still running: $pending"
+        return 0
+      fi ;;
     dirty) merge_refuse "conflicts with the base: merge the base in and push"; return 0 ;;
     unknown)
       journal action=merge repo="$repo" pr="$num" sha="$sha" result=wait reason="GitHub has not computed mergeability yet"

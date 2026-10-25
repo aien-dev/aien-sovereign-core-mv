@@ -270,3 +270,27 @@ fn server_default_thinking_off_applies_unless_the_request_asks() {
             .unwrap();
     assert_eq!(v["choices"][0]["message"]["reasoning_content"], "Plan it.");
 }
+
+/// The merge train's `aien_test` field (L384): an engine without the switches refuses it
+/// (400), in a test build as in the live build; the same request without the field is served.
+#[test]
+fn aien_test_switches_are_refused_by_an_engine_without_them() {
+    let (addr, _rt) = start();
+    let r = request(
+        addr,
+        "POST",
+        "/v1/chat/completions",
+        Some(r#"{"messages":[{"role":"user","content":"q"}],"aien_test":{"mutant":4}}"#),
+    );
+    assert_eq!(r.status, 400, "{}", r.body);
+    assert!(r.body.contains("aien_test"), "{}", r.body);
+    let r = request(
+        addr,
+        "POST",
+        "/v1/chat/completions",
+        Some(r#"{"messages":[{"role":"user","content":"q"}]}"#),
+    );
+    assert_eq!(r.status, 200, "{}", r.body);
+    let v: Value = serde_json::from_str(&r.body).unwrap();
+    assert!(v["usage"].get("aien_test").is_none(), "{}", r.body);
+}

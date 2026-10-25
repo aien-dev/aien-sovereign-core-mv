@@ -107,6 +107,15 @@ pub enum ChatTemplate {
     /// assistant turns render with the template's empty think block (no `reasoning_content`).
     /// Tool turns are refused. Selected only by the pinned text.
     Qwen38,
+    /// Qwen3.6-35B-A3B (the pinned template `QWEN36`): text-only system, user and assistant turns.
+    /// Thinking follows the template: ON unless [`ChatOptions::enable_thinking`] is `false`. No
+    /// reasoning-effort text (the template has no such switch; `reasoning_effort` is ignored as the
+    /// template ignores it). A first system turn renders even when empty. Earlier assistant turns
+    /// render plain; those after the last user query, or all of them when
+    /// [`ChatOptions::preserve_thinking`] is `true`, carry the think block with the reasoning the
+    /// template splits out of a `</think>`-bearing content. Tool turns are refused. Selected only by
+    /// the pinned text.
+    Qwen36,
     /// The model directory has no chat template at all (a base model). Plain text encode
     /// and decode work; every chat render is refused (`try_render` errors with
     /// "no chat template"). Chosen only when neither `tokenizer_config.json` `chat_template`
@@ -141,12 +150,21 @@ const QWEN3_8B: &str = include_str!("../fixtures/chat-templates/qwen3-8b/chat_te
 /// 017b9c7a, Apache-2.0; see `fixtures/chat-templates/qwen3.8-27b/PROVENANCE.md`).
 const QWEN38: &str = include_str!("../fixtures/chat-templates/qwen3.8-27b/chat_template.jinja");
 
+/// The Qwen3.6-35B-A3B chat template, byte for byte (Hugging Face `Qwen/Qwen3.6-35B-A3B-FP8`
+/// revision 95a723d0, Apache-2.0; see `fixtures/chat-templates/qwen3.6-35b-a3b/PROVENANCE.md`).
+/// The 27B template without the reasoning-effort text, with `preserve_thinking` (default off:
+/// earlier assistant turns render plain) and a `</think>` split of assistant content.
+const QWEN36: &str = include_str!("../fixtures/chat-templates/qwen3.6-35b-a3b/chat_template.jinja");
+
 /// Template switches a request may set (`chat_template_kwargs`). `None` = the template's default.
-/// Only [`ChatTemplate::Qwen38`] reads them; the other layouts ignore them.
+/// Only [`ChatTemplate::Qwen38`] and [`ChatTemplate::Qwen36`] read them; the other layouts ignore
+/// them. `reasoning_effort` is the 27B template's switch (the 35B template ignores it);
+/// `preserve_thinking` is the 35B template's switch (the 27B renderer here keeps every think block).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChatOptions {
     pub enable_thinking: Option<bool>,
     pub reasoning_effort: Option<String>,
+    pub preserve_thinking: Option<bool>,
 }
 
 /// The Qwen3.8-27B template's reasoning-effort system text (`QWEN38` lines 46-58).
@@ -231,6 +249,91 @@ fn render_qwen38(turns: &[(&str, &str)], opts: &ChatOptions) -> Result<String, T
     Ok(out)
 }
 
+/// The pinned Qwen3.6-35B-A3B template without tools, text content only (oracle-checked against
+/// jinja2, `fixtures/chat-templates/qwen3.6-35b-a3b/render_oracle.json`): every content trimmed; a
+/// first system turn always rendered, even empty; user turns ChatML; assistant turns plain, or
+/// `<think>\n{reasoning}\n</think>\n\n` + content when `preserve_thinking` is true or the turn
+/// follows the last user query (the last user turn not shaped like a tool response), `reasoning`
+/// being what the template splits out of a `</think>`-bearing content; generation prompt
+/// `<|im_start|>assistant\n<think>\n`, or the closed empty think block when thinking is off.
+/// `reasoning_effort` is ignored: the template has no such switch.
+fn render_qwen36(turns: &[(&str, &str)], opts: &ChatOptions) -> Result<String, TokenizerError> {
+    let refuse = |why: String| Err(TokenizerError::UnsupportedChatLayout(why));
+    if turns.is_empty() {
+        return refuse("No messages provided.".into());
+    }
+    let mut out = String::new();
+    if let ("system", c) = turns[0] {
+        out.push_str("<|im_start|>system\n");
+        out.push_str(c.trim());
+        out.push_str("<|im_end|>\n");
+    }
+    // The template's `last_query_index`: the last user turn whose trimmed content is not shaped
+    // like a tool response.
+    let last_query = turns.iter().rposition(|(role, content)| {
+        let c = content.trim();
+        *role == "user" && !(c.starts_with("<tool_response>") && c.ends_with("</tool_response>"))
+    });
+    let Some(last_query) = last_query else {
+        return refuse("No user query found in messages.".into());
+    };
+    for (i, (role, content)) in turns.iter().enumerate() {
+        let content = content.trim();
+        match *role {
+            "system" if i == 0 => {}
+            "system" => return refuse("System message must be at the beginning.".into()),
+            "user" => {
+                out.push_str("<|im_start|>user\n");
+                out.push_str(content);
+                out.push_str("<|im_end|>\n");
+            }
+            "assistant" => {
+                let (reasoning, content) = qwen36_split_think(content);
+                out.push_str("<|im_start|>assistant\n");
+                if opts.preserve_thinking == Some(true) || i > last_query {
+                    out.push_str("<think>\n");
+                    out.push_str(reasoning);
+                    out.push_str("\n</think>\n\n");
+                }
+                out.push_str(content);
+                out.push_str("<|im_end|>\n");
+            }
+            other => {
+                return refuse(format!(
+                    "Unexpected message role. (role {other}: the Qwen3.6 layout here is text-only system/user/assistant)"
+                ))
+            }
+        }
+    }
+    out.push_str("<|im_start|>assistant\n");
+    out.push_str(if opts.enable_thinking == Some(false) {
+        "<think>\n\n</think>\n\n"
+    } else {
+        "<think>\n"
+    });
+    Ok(out)
+}
+
+/// The template's assistant-content split (`QWEN36`: `content.split('</think>')[0].rstrip('\n')
+/// .split('<think>')[-1].lstrip('\n')` then `|trim` for the reasoning, `content.split('</think>')
+/// [-1].lstrip('\n')` for the content). Without a `</think>` there is no reasoning.
+fn qwen36_split_think(content: &str) -> (&str, &str) {
+    let Some(first) = content.find("</think>") else {
+        return ("", content);
+    };
+    let before = content[..first].trim_end_matches('\n');
+    let reasoning = match before.rfind("<think>") {
+        Some(p) => &before[p + "<think>".len()..],
+        None => before,
+    };
+    let reasoning = reasoning.trim_start_matches('\n').trim();
+    let last = content
+        .rfind("</think>")
+        .expect("a </think> was found above");
+    let rest = content[last + "</think>".len()..].trim_start_matches('\n');
+    (reasoning, rest)
+}
+
 /// Matches a chat template text against the ChatML layouts above. Returns the layout
 /// with its default system message (None for the plain layout), or a refusal.
 fn parse_chatml(template_text: &str) -> Result<ChatTemplate, TokenizerError> {
@@ -243,6 +346,9 @@ fn parse_chatml(template_text: &str) -> Result<ChatTemplate, TokenizerError> {
     }
     if text == QWEN38.trim() {
         return Ok(ChatTemplate::Qwen38);
+    }
+    if text == QWEN36.trim() {
+        return Ok(ChatTemplate::Qwen36);
     }
     if text == CHATML_PLAIN {
         return Ok(ChatTemplate::ChatMl {
@@ -380,7 +486,8 @@ fn render_qwen3_nothink(turns: &[(&str, &str)]) -> Result<String, TokenizerError
 }
 
 impl ChatTemplate {
-    /// [`Self::try_render`] with template switches: only [`ChatTemplate::Qwen38`] reads `opts`.
+    /// [`Self::try_render`] with template switches: only [`ChatTemplate::Qwen38`] and
+    /// [`ChatTemplate::Qwen36`] read `opts`.
     pub fn try_render_with(
         &self,
         turns: &[(&str, &str)],
@@ -388,6 +495,7 @@ impl ChatTemplate {
     ) -> Result<String, TokenizerError> {
         match self {
             Self::Qwen38 => render_qwen38(turns, opts),
+            Self::Qwen36 => render_qwen36(turns, opts),
             _ => self.try_render(turns),
         }
     }
@@ -422,6 +530,7 @@ impl ChatTemplate {
             Self::ChatMlQwen3 => "chatml-qwen3 (<|im_start|> / <|im_end|>, tool responses)",
             Self::ChatMlQwen3NoThink => "chatml-qwen3-nothink (Qwen3-8B, thinking off)",
             Self::Qwen38 => "qwen3.8 (Qwen3.8-27B, thinking per request, template default on)",
+            Self::Qwen36 => "qwen3.6 (Qwen3.6-35B-A3B, thinking per request, template default on)",
             Self::None => "none (plain text model)",
         }
     }
@@ -479,6 +588,9 @@ impl ChatTemplate {
         if let Self::Qwen38 = self {
             return render_qwen38(turns, &ChatOptions::default());
         }
+        if let Self::Qwen36 = self {
+            return render_qwen36(turns, &ChatOptions::default());
+        }
         let mut out = String::new();
         for (role, content) in turns {
             let body = content.trim();
@@ -498,7 +610,8 @@ impl ChatTemplate {
                 Self::ChatMl { .. }
                 | Self::ChatMlQwen3
                 | Self::ChatMlQwen3NoThink
-                | Self::Qwen38 => {
+                | Self::Qwen38
+                | Self::Qwen36 => {
                     unreachable!("ChatML returned above")
                 }
                 Self::None => unreachable!("plain model refused above"),
@@ -511,7 +624,8 @@ impl ChatTemplate {
                 Self::ChatMl { .. }
                 | Self::ChatMlQwen3
                 | Self::ChatMlQwen3NoThink
-                | Self::Qwen38 => {
+                | Self::Qwen38
+                | Self::Qwen36 => {
                     unreachable!("ChatML returned above")
                 }
                 Self::None => unreachable!("plain model refused above"),

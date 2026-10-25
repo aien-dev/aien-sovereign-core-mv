@@ -29,58 +29,36 @@
 //! reference's), so the last window's logits are a full 64-layer chip forward pass. Each window's
 //! output residual is also held to the reference's residual at that layer boundary.
 //!
-//! PASS when every generated position's chip token equals the golden token, the logits' cosine
-//! is at least 0.9999 at every step, the greedy token agrees wherever the reference's top-two
-//! margin is at least 0.1, and both controls are caught: (1) each step against the reference's NEXT
-//! position, (2) the final residual against the reference's residual one window earlier (the
-//! last window must matter). A check that cannot fail proves nothing.
+//! PASS (the identity gate Drake set for the motor, 2026-10-21, L312) when every generated
+//! position's chip token equals the golden token, except where the reference's own top-two margin
+//! is below a band WRITTEN IN ADVANCE (`MARGIN_MIN`, 0.1 logit): two float orders cannot be asked
+//! to agree on a decision the reference itself made by less than that, so such a flip is reported
+//! as allowed, while a flip at a wider margin is a wrong kernel and fails. The band is never taken
+//! from the run under test (2026-10-21 01:58Z: a band equal to the run's own max logit error let
+//! the shared-expert mutant through with 22 flips at max error 23.8: a broken run excused itself).
+//! The same band gates the chip's greedy choice at every position, prompt included. The logits'
+//! cosine and max error are recorded at every step (the earlier 0.9999 cosine floor is an open
+//! precision item, not a gate), and both controls must be caught: (1) each step against the
+//! reference's NEXT position, (2) the final residual against the reference's residual one window
+//! earlier (the last window must matter; n/a with one window). A check that cannot fail proves
+//! nothing: the negative control (`AIEN_Q36_TEST_MUTANT`) must fail this rule.
 
 use std::path::Path;
 use std::time::Instant;
 
 use aien_inference_abi::qwen38::{argmax, Logits, Qwen38Config, Qwen38Reference};
-use aien_inference_abi::qwen38_omega::Qwen38Omega;
+use aien_inference_abi::qwen38_omega::{mem_available, window_bytes, Qwen38Omega, KEEP_FREE};
 use aien_inference_abi::qwen3_moe::parity_stats;
 use aien_inference_abi::qwen3_moe_omega::ShardSource;
 use serde_json::{json, Value};
 
 const COSINE_MIN: f64 = 0.9999;
-/// Free memory kept for everything else on the box (the resident 30B server shares this pool:
-/// 2026-10-18 16:43:58Z a 32-layer window pushed the kernel into the OOM killer, which took the
-/// server). A window is uploaded only when MemAvailable covers it plus this margin.
-const KEEP_FREE: u64 = 12 << 30;
 
-/// Device bytes a window takes: its FP8 weights (1 byte each; the 128x128 block scales add 1/4096),
-/// the bf16 a|b rows of its DeltaNet layers, and the bf16 lm_head; from the config, not measured.
-fn window_bytes(c: &Qwen38Config, first: usize, count: usize) -> u64 {
-    let h = c.hidden as u64;
-    let mlp = 3 * c.intermediate as u64 * h;
-    let o = h * (c.heads * c.head_dim) as u64;
-    let layers: u64 = c.full_attention[first..first + count]
-        .iter()
-        .map(|&attn| {
-            if attn {
-                (2 * c.heads * c.head_dim + 2 * c.kv_dim()) as u64 * h + o + mlp
-            } else {
-                (c.conv_dim() + c.lin_value_dim()) as u64 * h
-                    + o
-                    + mlp
-                    + 2 * 2 * c.lin_v_heads as u64 * h
-            }
-        })
-        .sum();
-    layers + layers / 4096 + 2 * c.vocab as u64 * h
-}
-
-/// MemAvailable from /proc/meminfo, in bytes.
-fn mem_available() -> Result<u64, String> {
-    let m = std::fs::read_to_string("/proc/meminfo").map_err(|e| format!("/proc/meminfo: {e}"))?;
-    m.lines()
-        .find_map(|l| l.strip_prefix("MemAvailable:"))
-        .and_then(|v| v.trim().trim_end_matches("kB").trim().parse::<u64>().ok())
-        .map(|kb| kb << 10)
-        .ok_or_else(|| "/proc/meminfo: no MemAvailable".into())
-}
+/// The written band: the reference's top-two logit margin below which two float orders may
+/// legitimately disagree. Fixed in advance, never taken from the run under test. Every correct run
+/// held it (2026-10-21 p1..p4: 127/128 words identical, the one flip at margin 0.0096) and the
+/// shared-expert mutant broke it (22 flips, smallest margin 0.214, 10 of them wider than even the
+/// correct runs' largest vocabulary-wide logit error 2.425).
 const MARGIN_MIN: f32 = 0.1;
 
 fn margin(logits: &[f32]) -> f32 {
@@ -233,6 +211,8 @@ fn run() -> Result<bool, String> {
     let (mut cos_min, mut p95_max, mut greedy_ok, mut golden_ok) =
         (f64::INFINITY, 0f32, true, true);
     let mut gen_tokens = Vec::new();
+    // Golden flips inside the written margin band (allowed, reported) and beyond it (wrong kernel).
+    let (mut flips_allowed, mut flips_beyond) = (Vec::new(), Vec::new());
     for p in 0..t {
         let logits = &gpu_logits[p];
         let expected = &reference[p * vocab..(p + 1) * vocab];
@@ -248,6 +228,12 @@ fn run() -> Result<bool, String> {
             gen_tokens.push(tok);
             if tok != g {
                 golden_ok = false;
+                let flip = json!({"pos": p, "token": tok, "golden": g, "ref_margin": m, "max_abs": s.max_abs});
+                if m < MARGIN_MIN {
+                    flips_allowed.push(flip);
+                } else {
+                    flips_beyond.push(flip);
+                }
             }
         }
         cos_min = cos_min.min(if s.non_finite > 0 {
@@ -287,12 +273,16 @@ fn run() -> Result<bool, String> {
         if caught { "caught" } else { "NOT CAUGHT" }
     );
     let text_ok = gen_tokens.len() == generated.len();
-    let pass =
-        cos_min >= COSINE_MIN && greedy_ok && golden_ok && text_ok && caught && ref_matches_golden;
+    let words_ok = flips_beyond.is_empty();
+    let cosine_floor_held = cos_min >= COSINE_MIN;
+    let pass = words_ok && greedy_ok && text_ok && caught && ref_matches_golden;
     println!(
-        "QWEN38_OMEGA_FULL layers {layers} windows {windows} positions {t}: generated {}/{} identical to golden, cosine(min) {cos_min:.6} p95_rel(max) {p95_max:.4} greedy {} control {} -> {}",
+        "QWEN38_OMEGA_FULL layers {layers} windows {windows} positions {t}: generated {}/{} identical to golden ({} flips inside the written margin band {MARGIN_MIN}, {} beyond it), cosine(min) {cos_min:.6} (floor {COSINE_MIN} {}, recorded not gated) p95_rel(max) {p95_max:.4} greedy {} control {} -> {}",
         gen_tokens.iter().zip(&generated).filter(|(a, b)| **a == **b as usize).count(),
         generated.len(),
+        flips_allowed.len(),
+        flips_beyond.len(),
+        if cosine_floor_held { "held" } else { "NOT held: open precision item" },
         if greedy_ok { "agrees" } else { "DIFFERS" },
         if caught { "caught" } else { "NOT CAUGHT" },
         if pass { "PASS" } else { "FAIL" }
@@ -303,8 +293,12 @@ fn run() -> Result<bool, String> {
         "reference_s": ref_s, "reference_matches_golden": ref_matches_golden, "upload_s": upload_s,
         "weight_bytes": weight_bytes, "cosine_min": cos_min, "p95_rel_max": p95_max,
         "greedy_agrees": greedy_ok, "golden_identical": golden_ok,
+        "words_identical_outside_margin_band": words_ok,
+        "flips_allowed": flips_allowed, "flips_beyond_error": flips_beyond,
+        "cosine_floor_held": cosine_floor_held, "cosine_floor_gated": false,
         "control_shift_best_cosine": shift_cos, "control_window_short_best_cosine": short_cos,
-        "control_caught": caught, "thresholds": {"cosine_min": COSINE_MIN, "margin_min": MARGIN_MIN},
+        "control_caught": caught, "thresholds": {"cosine_min_recorded": COSINE_MIN, "margin_band_logits": MARGIN_MIN},
+        "gate": "words identical to the golden except where the reference's top-two margin is below the written band (0.1 logit, fixed in advance, never from the run under test); chip greedy agrees at every position outside the band; controls caught; reference equals golden (Drake 2026-10-21, L312; band fixed 02:10Z after a self-measured band let mutant 4 through)",
         "steps": steps, "pass": pass,
     });
     std::fs::write(out_path, serde_json::to_string_pretty(&report).unwrap())

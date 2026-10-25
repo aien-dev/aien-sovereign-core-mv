@@ -468,6 +468,38 @@ bundles stay valid. `aien-test verify` plans in the scope the bundle signs.
 AIEN Verification: REJECTED NOT_FULL_SCOPE: plan scope is changed, not a full-scope (Alpha) qualification
 ```
 
+It also exits 3 when the full-scope bundle carries no GPU check at all:
+
+```
+AIEN Verification: REJECTED NO_GPU_RECEIPT: an Alpha needs a required check on backend gb10 that ran on the Spark's GPU, and this full-scope bundle has none (checks by backend: host=34; gb10 checks: none)
+```
+
+An Alpha is the stage tested on the Spark's GPU, so a full-scope PASS of host
+gates alone is not one (the first Alpha, `alpha/20261024.1`, was 34 checks, all
+`backend: host`). The receipt is a required check on backend `gb10` that ran,
+or was resolved from cache: a gb10 result is never reused across heads, so a
+`cached` entry is still this commit's own GPU run. A gb10 check that ran and
+FAILed is a receipt too, and the bundle is then `FAIL` (exit 1), which says
+more than "no receipt"; a gb10 check that self-not-ran (exit 77, for example
+no checkpoint or not enough free memory) is not one. The message names the
+backends the bundle does have, so a host-only plan is visible at a glance.
+sovereign-core's receipt is `SC-GB10-SERVE-CHAT`
+(`tests/gates/sc-gb10-serve-chat.gate`, `scripts/gb10-serve-chat.sh`): build
+the server on the real Omega GPU engine, start Qwen3.8-27B, one greedy chat
+request, clean SIGTERM shutdown. Full scope selects every gate, so the Alpha
+run always includes it; a pull request's changed scope does not, and its result
+is never cached (`cache: never`).
+`tests/gates/run.sh` swaps the sandbox's read-only `$HOME` for a fresh writable
+one per step and exports `AIEN_MODELS_DIR` as the read-only home's `models/`
+mount, so the gate finds the checkpoint there, not under the fresh HOME
+(`tests/gates/step-home.sh`). Before any check it records the checkpoint it
+resolved as `model_dir` and where that came from as `model_dir_source`
+(`override` when `MODEL_DIR` was set, `models-mount`, or `home`), so a receipt
+never leaves the model's provenance to the default. `SC-GB10-MODEL-DIR`
+(`scripts/test-gb10-model-dir.sh`, portable, no GPU) runs that resolution and
+the gate's NOT_RUN `model_missing` path, which ends before the memory check,
+the build and any GPU start, with a read-only HOME.
+
 The full-scope bundle is written to the head's usual bundle path. The loop
 skips any head that already has a bundle, whatever its scope, so an Alpha
 of a head the loop already judged is run with `--once --full`.

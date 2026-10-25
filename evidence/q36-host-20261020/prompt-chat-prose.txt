@@ -1,0 +1,7 @@
+<|im_start|>user
+Write one short paragraph, in plain prose, about a lighthouse keeper on the last night before the light is automated.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
