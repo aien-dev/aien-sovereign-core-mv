@@ -171,6 +171,17 @@ case "$step" in
     pin aienos aienos "$(awk 'NF && $1 !~ /^#/ {print $1; exit}' "$PINS/omega/aienos.lock")"
     bash scripts/test-linked-compose.sh "$PINS/omega" "$PINS/physics" "$PINS/aienos"
     ;;
+  # No hosted mirror: GitHub has no GB10. SC-GB10-SERVE-CHAT, the GPU receipt an Alpha needs
+  # (verify-bundle --require-full, NO_GPU_RECEIPT). Same pinned sources as linked-compose, from the
+  # siblings, offline; scripts/pins.sh --gpu reuses them and writes the env.sh install.sh sources.
+  gb10-serve-chat)
+    omega_sha="$(tr -d '[:space:]' < omega.lock)"
+    pin omega omega "$omega_sha"
+    pin physics physics "$(tr -d '[:space:]' < "$PINS/omega/physics.lock")"
+    pin aienos aienos "$(awk 'NF && $1 !~ /^#/ {print $1; exit}' "$PINS/omega/aienos.lock")"
+    AIEN_PINS_REMOTE_BASE="$(cd .. && pwd)" AIEN_PINS_REMOTE_SUFFIX="" bash scripts/pins.sh --gpu "$PINS"
+    bash scripts/gb10-serve-chat.sh "$PINS/env.sh"
+    ;;
   # hardening.yml
   kv-props)
     cargo fetch --manifest-path crates/aien-replay/Cargo.toml

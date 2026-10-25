@@ -35,6 +35,25 @@ use crate::kv_persist::PersistState;
 use crate::sampling::SamplingObserver;
 
 pub const GPU_LOCK_PATH: &str = "/tmp/aien-gb10.lock";
+/// Names the environment variable that points the server's chip lock at another file.
+pub const SERVE_GPU_LOCK_ENV: &str = "AIEN_SERVE_GPU_LOCK";
+
+/// The chip lock the server takes for the upload and around each generation: [`GPU_LOCK_PATH`],
+/// or the file `AIEN_SERVE_GPU_LOCK` names. Only a caller that itself holds `/tmp/aien-gb10.lock`
+/// for the server's whole life may point it elsewhere (an aien-test gb10 gate, which runs with
+/// `AIEN_GB10_LOCK_HELD=1`; a test server under `q36-extra`): with the default the server would
+/// queue behind its own caller's lock until the load gives up.
+pub fn serve_lock_path() -> PathBuf {
+    lock_path_from(std::env::var_os(SERVE_GPU_LOCK_ENV))
+}
+
+/// [`serve_lock_path`] for a given value of `AIEN_SERVE_GPU_LOCK` (unset or empty: the default).
+fn lock_path_from(v: Option<std::ffi::OsString>) -> PathBuf {
+    v.filter(|p| !p.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(GPU_LOCK_PATH))
+}
+
 /// How long `generate` waits for the chip lock before answering busy.
 pub const LOCK_WAIT: Duration = Duration::from_secs(30);
 /// Host memory the load needs free (the model is 30.5 GB resident plus the KV pool and
@@ -104,9 +123,10 @@ impl PrefillMode {
 pub struct GpuLock(#[allow(dead_code)] File);
 
 impl GpuLock {
-    /// Takes the lock, polling until `wait` has passed. `Err` = still held by someone else.
+    /// Takes the server's chip lock ([`serve_lock_path`]), polling until `wait` has passed.
+    /// `Err` = still held by someone else.
     pub fn acquire(wait: Duration) -> Result<Self, String> {
-        Self::acquire_at(Path::new(GPU_LOCK_PATH), wait)
+        Self::acquire_at(&serve_lock_path(), wait)
     }
 
     /// [`Self::acquire`] on the lock file at `path` (tests pass a private file).
@@ -375,11 +395,7 @@ impl OmegaDoor {
             omega::OmegaModelUploader::uses_dattn_api(),
             aien_omega_gpu::spin_us(),
         );
-        Ok(Self::from_parts(
-            engine,
-            PathBuf::from(GPU_LOCK_PATH),
-            LOCK_WAIT,
-        ))
+        Ok(Self::from_parts(engine, serve_lock_path(), LOCK_WAIT))
     }
 
     pub fn load_report(&self) -> &LoadReport {
@@ -611,5 +627,18 @@ mod tests {
         assert!(PrefillMode::from_env(Some("of"), None).is_err());
         assert!(parse_switch("--whole-prompt", "maybe").is_err());
         assert!(parse_switch("--whole-prompt", " TRUE ").unwrap());
+    }
+
+    #[test]
+    fn serve_lock_path_defaults_to_the_hive_lock() {
+        assert_eq!(lock_path_from(None), PathBuf::from(GPU_LOCK_PATH));
+        assert_eq!(
+            lock_path_from(Some("".into())),
+            PathBuf::from(GPU_LOCK_PATH)
+        );
+        assert_eq!(
+            lock_path_from(Some("/tmp/aien-serve-gate.lock".into())),
+            PathBuf::from("/tmp/aien-serve-gate.lock")
+        );
     }
 }

@@ -1,0 +1,35 @@
+# tests/gates/sc-gb10-serve-chat.gate
+# No hosted mirror (GitHub has no GB10). The GPU receipt an Alpha needs: aien-test verify-bundle
+# --require-full rejects (NO_GPU_RECEIPT) a full-scope bundle without a required gb10 check that
+# passed. Builds aien-serve-http on the real Omega GPU engine (as install.sh --with-server), starts
+# Qwen3.8-27B through tools/serve-27b.sh, one greedy chat request, clean SIGTERM shutdown
+# (scripts/gb10-serve-chat.sh). NOT_RUN model_missing or memory_short (MemAvailable below the
+# loader's 49,497 MiB: the server is not started), never PASS.
+# The runner holds /tmp/aien-gb10.lock for the whole run (AIEN_GB10_LOCK_HELD=1); the server then
+# takes a private lock (AIEN_SERVE_GPU_LOCK) so it does not queue behind its own gate.
+# Selection: full scope (an Alpha) selects every gate, so this one always runs there. The inputs
+# name only the gate's own scripts, so an ordinary pull request (changed scope) stays host-only;
+# the result is never reused across heads anyway (gb10, cache: never).
+gate: SC-GB10-SERVE-CHAT
+manifest_version: 2
+owner: aien-sovereign-core
+requires:
+  - gb10
+inputs:
+  - scripts/gb10-serve-chat.sh
+  - scripts/pins.sh
+  - tools/serve-27b.sh
+  - tests/gates/
+run:
+  exec: tests/gates/run.sh
+  args: ["gb10-serve-chat"]
+expects:
+  exit: 0
+  observe: ["engine_native == true", "reply_ok == true", "shutdown_clean == true"]
+  verdict: PASS
+timeout: 90m
+exactness: EXACT
+cache_scope: machine
+cache: never
+outside_inputs:
+  - ~/models/qwen3.8-27b-fp8-017b9c7a/
