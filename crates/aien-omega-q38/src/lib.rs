@@ -1458,6 +1458,15 @@ pub fn quantize_fp8_bf16(
 mod tests {
     use super::*;
 
+    /// The stub build (no omega library) compiles the L803 setter and it does nothing: before
+    /// d2500b67 it called the library's symbol unconditionally and the stub did not compile.
+    #[test]
+    #[cfg(not(has_omega_q38))]
+    fn stub_per_split_setter_is_a_no_op() {
+        decode_attn256_set_per_split(512);
+        assert!(!is_native());
+    }
+
     #[test]
     fn gather_table_is_a_permutation_and_matches_omega() {
         let t = gather_table(64);
