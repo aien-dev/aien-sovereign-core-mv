@@ -9,6 +9,7 @@ aien-architecture-mv#300).
 |---|---|---|
 | `effects/world.om` | The restart world check of the effect ledger: reads the target file, hashes it, decides DONE / NOT_DONE / UNRESOLVED like `effects::state_from`, and writes the reconcile record text and its sha256 like `effects::reconcile_text`. | Byte-identical to the Rust on 24 fixtures (`effects/run.sh`). Not wired into the daemon. |
 | `vendor/sha256.om` | Incremental SHA-256 in Omega, vendored from benchmarks-mv. | Exercised through `world.om`. |
+| `residency/residency.om` | MoE expert residency simulator (sc#630 question): replays a recorded router trace against a per-layer expert cache and counts hits and misses for LRU and Belady OPT at 25-90 % resident. | Host only. Matches an independent Wolfram LRU/OPT on a real 35B trace slice and a synthetic trace; 9 refusals and 2 policy mutants checked (`OMEGA_OMC=<seed omc> bash om/residency/run.sh`). Not wired into the pager. |
 
 Run: `OMEGA_OMC=<path to seed omc> bash om/effects/run.sh` (needs the offline cargo cache for the Rust
 reference, `crates/aien-runtime/examples/om_world_reference.rs`).
