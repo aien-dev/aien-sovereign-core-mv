@@ -155,8 +155,8 @@ name = "aien-evaluation-protocol"
 version = "0.1.0"
 source = "git+https://github.com/aien-dev/aien-protocols?rev=7ac6facb630ca7e9a6ab4125b292203fe2bb6687#7ac6facb630ca7e9a6ab4125b292203fe2bb6687"
 dependencies = [
- "aien-protocol-types",
- "aien-provenance",
+ "aien-protocol-types 0.1.0 (git+https://github.com/aien-dev/aien-protocols?rev=7ac6facb630ca7e9a6ab4125b292203fe2bb6687)",
+ "aien-provenance 0.1.0 (git+https://github.com/aien-dev/aien-protocols?rev=7ac6facb630ca7e9a6ab4125b292203fe2bb6687)",
  "async-trait",
  "hex",
  "p256",
@@ -394,7 +394,7 @@ version = "0.1.0"
 source = "git+https://github.com/aien-dev/aien-protocols?rev=7ac6facb630ca7e9a6ab4125b292203fe2bb6687#7ac6facb630ca7e9a6ab4125b292203fe2bb6687"
 dependencies = [
  "aien-evaluation-protocol",
- "aien-protocol-types",
+ "aien-protocol-types 0.1.0 (git+https://github.com/aien-dev/aien-protocols?rev=7ac6facb630ca7e9a6ab4125b292203fe2bb6687)",
  "async-trait",
  "hex",
  "reqwest 0.12.28",
@@ -418,6 +418,18 @@ dependencies = [
 [[package]]
 name = "aien-protocol-types"
 version = "0.1.0"
+source = "git+https://github.com/aien-dev/aien-protocols-mv?rev=28bc49ec57a89398fcb463cf71c0add7fcd2ef6c#28bc49ec57a89398fcb463cf71c0add7fcd2ef6c"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "uuid",
+]
+
+[[package]]
+name = "aien-protocol-types"
+version = "0.1.0"
 source = "git+https://github.com/aien-dev/aien-protocols?rev=7ac6facb630ca7e9a6ab4125b292203fe2bb6687#7ac6facb630ca7e9a6ab4125b292203fe2bb6687"
 dependencies = [
  "hex",
@@ -430,9 +442,25 @@ dependencies = [
 [[package]]
 name = "aien-provenance"
 version = "0.1.0"
+source = "git+https://github.com/aien-dev/aien-protocols-mv?rev=28bc49ec57a89398fcb463cf71c0add7fcd2ef6c#28bc49ec57a89398fcb463cf71c0add7fcd2ef6c"
+dependencies = [
+ "aien-protocol-types 0.1.0 (git+https://github.com/aien-dev/aien-protocols-mv?rev=28bc49ec57a89398fcb463cf71c0add7fcd2ef6c)",
+ "bitflags 2.13.2",
+ "hex",
+ "p256",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 1.0.69",
+ "uuid",
+]
+
+[[package]]
+name = "aien-provenance"
+version = "0.1.0"
 source = "git+https://github.com/aien-dev/aien-protocols?rev=7ac6facb630ca7e9a6ab4125b292203fe2bb6687#7ac6facb630ca7e9a6ab4125b292203fe2bb6687"
 dependencies = [
- "aien-protocol-types",
+ "aien-protocol-types 0.1.0 (git+https://github.com/aien-dev/aien-protocols?rev=7ac6facb630ca7e9a6ab4125b292203fe2bb6687)",
  "bitflags 2.13.2",
  "hex",
  "p256",
@@ -4153,8 +4181,8 @@ dependencies = [
 name = "spark-harvester"
 version = "0.1.0"
 dependencies = [
- "aien-protocol-types",
- "aien-provenance",
+ "aien-protocol-types 0.1.0 (git+https://github.com/aien-dev/aien-protocols-mv?rev=28bc49ec57a89398fcb463cf71c0add7fcd2ef6c)",
+ "aien-provenance 0.1.0 (git+https://github.com/aien-dev/aien-protocols-mv?rev=28bc49ec57a89398fcb463cf71c0add7fcd2ef6c)",
  "bitflags 2.13.2",
  "chrono",
  "clap",
