@@ -74,3 +74,19 @@ evidence/l355-w4/p4check/. The overlap lever was off in the original run (omega 
 The flip is the chip FP8 arithmetic at a 0.010 margin; this branch's FP8 path changes no number.
 
 Receipts are the JSON files under evidence/l355-w4/ (the per-run .log.txt captures came out empty and were removed).
+
+## Low-rank down correction on m-dn (2026-10-26, lane W4Correct; rule: w4-gate.md "Low-rank arm", frozen f0c53629 + 33a6c59c)
+- Plain screen (b-P), MEASURED, weights only (`q36_w4_store lowrank <M> q36-nv16-v1.store 16 <sidecar> - - all 6`,
+  all 10,280 down matrices, bf16 U and V): sum |E|^2 = 10095.38, after rank 16 = 9407.98, ratio 0.93191 > 0.5 -> **NO-GO**
+  (per layer 0.905 .. 0.933). nv16's down error is near full rank: rank 16 removes 6.8 % of it (WolframLanguageEvaluator:
+  `1 - 9407.980470180006/10095.378622277292 -> 0.06809`); its relative squared error is 0.008513 (`10095.378622277292 /
+  1.1859018473596044*^6 -> 0.0085128`). Receipt ~/handoffs/W4Correct/screen-plain.json (store binary sha256 in
+  store-bin.sha256). The plain sidecar was deleted (that fit cannot run).
+- Calibrated screen (b-C) and the arm: NOT_RUN. Calibration (hdump) and every forced run load the full 35B on the host,
+  so they wait for an exclusive window Drake authorises; evidence/l355-w4/run-lowrank-window.sh runs them in order
+  (resumable, also as a q27-window.sh hook) and stops at NO-GO on (b-C).
+- Bytes (integer bookkeeping): 81,920 per down matrix, sidecar 842,137,664 B. MODELED (Wolfram, linear byte model fitted
+  to the MEASURED FP8 39.90 and w4e 47.94 tok/s): m-dn 42.10 tok/s (1.055x FP8), m-dn + rank 16 41.69 tok/s (1.045x); an
+  ACCEPT would buy about 4.5 % at N=1 decode before any chip kernel exists.
+- Gate hygiene: the verdict is on fresh held-out h6..h10, not h1..h5 (every arm has seen those); h1 and the chat golden
+  are diagnostics only. m-dn without h1 (0.99836) is not a pass.
