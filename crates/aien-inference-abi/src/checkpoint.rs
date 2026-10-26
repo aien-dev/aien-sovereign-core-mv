@@ -592,14 +592,20 @@ fn read_header(
     tensors: &mut HashMap<String, crate::capsule::CapsuleTensor>,
 ) -> Result<(), CheckpointError> {
     if file_len < 8 {
-        return Err(invalid_file(path, "Buffer smaller than 8-byte header prefix"));
+        return Err(invalid_file(
+            path,
+            "Buffer smaller than 8-byte header prefix",
+        ));
     }
     let mut prefix = [0u8; 8];
     file.read_exact_at(&mut prefix, 0)
         .map_err(|e| invalid_file(path, e))?;
     let header_len = u64::from_le_bytes(prefix);
     if header_len > MAX_HEADER_BYTES || header_len > (file_len - 8) as u64 {
-        return Err(invalid_file(path, format!("invalid header length {header_len}")));
+        return Err(invalid_file(
+            path,
+            format!("invalid header length {header_len}"),
+        ));
     }
     let header_len = usize::try_from(header_len)
         .map_err(|_| invalid_file(path, "header length exceeds address space"))?;
@@ -615,7 +621,8 @@ fn read_header(
     index_header(
         object,
         file_len - header_end,
-        data_base.checked_add(header_end)
+        data_base
+            .checked_add(header_end)
             .ok_or_else(|| invalid_file(path, "checkpoint byte offset overflow"))?,
         catalog,
         tensors,
@@ -647,7 +654,10 @@ fn shard_path(dir: &Path, name: &str) -> Result<PathBuf, CheckpointError> {
     // including when a caller only asks for checkpoint_files/digest inputs.
     let meta = std::fs::symlink_metadata(&path).map_err(|e| invalid_file(&path, e))?;
     if !meta.file_type().is_file() {
-        return Err(invalid_file(&path, "shard is a symlink or not a regular file"));
+        return Err(invalid_file(
+            &path,
+            "shard is a symlink or not a regular file",
+        ));
     }
     Ok(path)
 }
@@ -677,7 +687,6 @@ pub fn checkpoint_sha256(path: &Path) -> Result<[u8; 32], CheckpointError> {
     }
     Ok(hasher.finalize().into())
 }
-
 
 /// The files a checkpoint path names.
 enum ResolvedFiles {
@@ -768,7 +777,10 @@ fn resolve_checkpoint_files(p: &Path) -> Result<ResolvedFiles, CheckpointError> 
         .ok_or_else(|| invalid_file(&index, "missing weight_map"))?;
     let mut files: Vec<&str> = weight_map
         .values()
-        .map(|v| v.as_str().ok_or_else(|| invalid_file(&index, "non-string shard name")))
+        .map(|v| {
+            v.as_str()
+                .ok_or_else(|| invalid_file(&index, "non-string shard name"))
+        })
         .collect::<Result<_, _>>()?;
     files.sort_unstable();
     files.dedup();
@@ -796,7 +808,10 @@ pub fn load_checkpoint_with_catalog<P: AsRef<Path>>(
     path: P,
     catalog: &[(String, Vec<usize>)],
 ) -> Result<LoadedCheckpoint, CheckpointError> {
-    load_paths(resolve_checkpoint_files(path.as_ref())?.into_paths(), catalog)
+    load_paths(
+        resolve_checkpoint_files(path.as_ref())?.into_paths(),
+        catalog,
+    )
 }
 
 fn load_paths(
@@ -890,7 +905,10 @@ impl StreamedCheckpoint {
             let mut shard_tensors = HashMap::new();
             read_header(&file, &path, len, 0, catalog, &mut shard_tensors)?;
             for (name, tensor) in shard_tensors {
-                if tensors.insert(name.clone(), (files.len(), tensor)).is_some() {
+                if tensors
+                    .insert(name.clone(), (files.len(), tensor))
+                    .is_some()
+                {
                     return Err(CheckpointError::InvalidHeader(format!(
                         "tensor {} appears in more than one shard",
                         name
@@ -997,7 +1015,8 @@ mod tests {
         let name = std::ffi::CString::new({
             use std::os::unix::ffi::OsStrExt;
             fifo.as_os_str().as_bytes()
-        }).unwrap();
+        })
+        .unwrap();
         assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
         security_files_reject(&fifo);
         std::fs::remove_file(&fifo).unwrap();
@@ -1011,15 +1030,14 @@ mod tests {
         let outside = dir.0.join("outside.safetensors");
         let model = dir.0.join("model");
         std::fs::create_dir(&model).unwrap();
-        std::fs::write(&outside, build_test_safetensors(&[("w", "BF16", &[1], &[0, 0])]))
-            .unwrap();
-        let index = model.join(SAFETENSORS_INDEX);
-
         std::fs::write(
-            &index,
-            r#"{"weight_map":{"w":"../outside.safetensors"}}"#,
+            &outside,
+            build_test_safetensors(&[("w", "BF16", &[1], &[0, 0])]),
         )
         .unwrap();
+        let index = model.join(SAFETENSORS_INDEX);
+
+        std::fs::write(&index, r#"{"weight_map":{"w":"../outside.safetensors"}}"#).unwrap();
         security_files_reject(&index);
         std::fs::write(
             &index,
@@ -1049,12 +1067,16 @@ mod tests {
         let name = std::ffi::CString::new({
             use std::os::unix::ffi::OsStrExt;
             fifo.as_os_str().as_bytes()
-        }).unwrap();
+        })
+        .unwrap();
         assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
         dir.index("fifo.safetensors");
         security_files_reject(&index);
 
-        let oversized_index = std::fs::OpenOptions::new().write(true).open(&index).unwrap();
+        let oversized_index = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&index)
+            .unwrap();
         oversized_index.set_len(MAX_INDEX_BYTES + 1).unwrap();
         security_files_reject(&index);
 
@@ -1064,7 +1086,9 @@ mod tests {
         large.set_len(MAX_SHARD_BYTES + 1).unwrap();
         security_files_reject(&index);
         let mut header = std::fs::File::create(&shard).unwrap();
-        header.write_all(&(MAX_HEADER_BYTES + 1).to_le_bytes()).unwrap();
+        header
+            .write_all(&(MAX_HEADER_BYTES + 1).to_le_bytes())
+            .unwrap();
         security_loaders_reject(&index);
     }
 
@@ -1097,7 +1121,9 @@ mod tests {
         // be rejected from its header, before the whole-file loader allocates it.
         let invalid = br#"{"w":{"dtype":"BF16","shape":[1],"data_offsets":[0,999999]}}"#;
         let mut sparse = std::fs::File::create(&file).unwrap();
-        sparse.write_all(&(invalid.len() as u64).to_le_bytes()).unwrap();
+        sparse
+            .write_all(&(invalid.len() as u64).to_le_bytes())
+            .unwrap();
         sparse.write_all(invalid).unwrap();
         sparse.set_len(MAX_SHARD_BYTES).unwrap();
         assert!(matches!(
@@ -1132,7 +1158,8 @@ mod tests {
             } else {
                 b"{}".as_slice()
             };
-            file.write_all(&(header.len() as u64).to_le_bytes()).unwrap();
+            file.write_all(&(header.len() as u64).to_le_bytes())
+                .unwrap();
             file.write_all(header).unwrap();
             file.set_len(MAX_SHARD_BYTES).unwrap();
             map.insert(format!("tensor{n}"), serde_json::Value::String(name));
@@ -1140,7 +1167,8 @@ mod tests {
         std::fs::write(
             dir.0.join(SAFETENSORS_INDEX),
             serde_json::json!({"weight_map": map}).to_string(),
-        ).unwrap();
+        )
+        .unwrap();
         let index = dir.0.join(SAFETENSORS_INDEX);
         security_files_reject(&index);
     }

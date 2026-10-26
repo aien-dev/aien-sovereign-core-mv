@@ -120,7 +120,10 @@ impl ApiError {
     fn unauthorized() -> Self {
         Self {
             status: StatusCode::UNAUTHORIZED,
-            body: ErrorBody::new("authentication_error", "valid bearer authorization required"),
+            body: ErrorBody::new(
+                "authentication_error",
+                "valid bearer authorization required",
+            ),
             retry_after: None,
         }
     }
@@ -136,7 +139,10 @@ impl ApiError {
     fn unsupported_media_type() -> Self {
         Self {
             status: StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            body: ErrorBody::new("invalid_request_error", "Content-Type must be application/json"),
+            body: ErrorBody::new(
+                "invalid_request_error",
+                "Content-Type must be application/json",
+            ),
             retry_after: None,
         }
     }
@@ -289,9 +295,7 @@ pub async fn serve_until(
             format!("refusing to bind {}: loopback addresses only", cfg.bind),
         ));
     }
-    if cfg.bearer_token.is_empty()
-        || !cfg.bearer_token.bytes().all(|b| b.is_ascii_graphic())
-    {
+    if cfg.bearer_token.is_empty() || !cfg.bearer_token.bytes().all(|b| b.is_ascii_graphic()) {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "a nonempty printable bearer token is required before binding",
@@ -305,7 +309,11 @@ pub async fn serve_until(
         codec,
         cfg,
         gate,
-        allowed_hosts: ["localhost".into(), format!("localhost:{}", addr.port()), addr.to_string()],
+        allowed_hosts: [
+            "localhost".into(),
+            format!("localhost:{}", addr.port()),
+            addr.to_string(),
+        ],
         started: Instant::now(),
         counter: AtomicU64::new(0),
     });
@@ -410,10 +418,7 @@ async fn not_found() -> ApiError {
 }
 
 /// Keep all authorization and slot decisions before the first body poll.
-async fn chat_completions(
-    State(state): State<Arc<AppState>>,
-    request: Request<Body>,
-) -> Response {
+async fn chat_completions(State(state): State<Arc<AppState>>, request: Request<Body>) -> Response {
     match handle_chat(state, request).await {
         Ok(r) => r,
         Err(e) => e.into_response(),
@@ -424,7 +429,10 @@ fn authorized(headers: &HeaderMap, token: &str) -> bool {
     if headers.get_all(header::AUTHORIZATION).iter().count() != 1 {
         return false;
     }
-    let Some(value) = headers.get(header::AUTHORIZATION).and_then(|h| h.to_str().ok()) else {
+    let Some(value) = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+    else {
         return false;
     };
     let Some(provided) = value.strip_prefix("Bearer ") else {
@@ -452,7 +460,11 @@ fn check_headers(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> 
         .get(header::HOST)
         .and_then(|h| h.to_str().ok())
         .ok_or_else(|| ApiError::forbidden("unrecognized Host"))?;
-    if !state.allowed_hosts.iter().any(|h| host.eq_ignore_ascii_case(h)) {
+    if !state
+        .allowed_hosts
+        .iter()
+        .any(|h| host.eq_ignore_ascii_case(h))
+    {
         return Err(ApiError::forbidden("unrecognized Host"));
     }
     if headers.get_all(header::ORIGIN).iter().count() > 1 {
@@ -506,10 +518,13 @@ async fn handle_chat(state: Arc<AppState>, request: Request<Body>) -> Result<Res
         return Err(ApiError::too_large(state.cfg.max_body_bytes));
     }
     let limit = state.cfg.max_body_bytes;
-    let body = tokio::time::timeout(Duration::from_secs(15), to_bytes(request.into_body(), limit))
-        .await
-        .map_err(|_| ApiError::bad_request("request body read timed out"))?
-        .map_err(|_| ApiError::too_large(limit))?;
+    let body = tokio::time::timeout(
+        Duration::from_secs(15),
+        to_bytes(request.into_body(), limit),
+    )
+    .await
+    .map_err(|_| ApiError::bad_request("request body read timed out"))?
+    .map_err(|_| ApiError::too_large(limit))?;
     let pending = tokio::task::spawn_blocking(move || prepare_chat(state, body, guard))
         .await
         .map_err(|_| ApiError::internal("request preparation failed"))??;
@@ -565,10 +580,23 @@ fn prepare_chat(
     let codec = Arc::clone(&state.codec);
     let log_id = id.clone();
     tokio::task::spawn_blocking(move || {
-        run_generation(engine, codec, prepared, tx, guard.expect("admitted slot"), &log_id);
+        run_generation(
+            engine,
+            codec,
+            prepared,
+            tx,
+            guard.expect("admitted slot"),
+            &log_id,
+        );
     });
     Ok(PendingResponse {
-        rx, stream, id, created, model, prompt_tokens, tools,
+        rx,
+        stream,
+        id,
+        created,
+        model,
+        prompt_tokens,
+        tools,
     })
 }
 
@@ -656,7 +684,13 @@ fn handle_readers(
         run_readers(st, raw, plan, maps, permit, tx, stream, show_notes, &log_id);
     });
     Ok(Some(PendingResponse {
-        rx, stream, id, created, model: rc.model_id.clone(), prompt_tokens: 0, tools,
+        rx,
+        stream,
+        id,
+        created,
+        model: rc.model_id.clone(),
+        prompt_tokens: 0,
+        tools,
     }))
 }
 

@@ -3090,11 +3090,7 @@ mod tests {
         std::fs::create_dir(&model).unwrap();
         std::fs::write(dir.path().join("outside.safetensors"), b"fixture").unwrap();
         let index = model.join("model.safetensors.index.json");
-        std::fs::write(
-            &index,
-            r#"{"weight_map":{"w":"../outside.safetensors"}}"#,
-        )
-        .unwrap();
+        std::fs::write(&index, r#"{"weight_map":{"w":"../outside.safetensors"}}"#).unwrap();
         assert!(checkpoint_digest(&index).is_err());
     }
 

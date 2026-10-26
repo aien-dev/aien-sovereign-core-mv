@@ -865,7 +865,10 @@ fn crumb(cfg: &Config, clone: &Path, sha: &str, wt: &Path, args: &[&str], notes:
         verify::CrumbTool::Pinned { path, .. } => path,
         verify::CrumbTool::Unpinned(path) => PathBuf::from(path),
         verify::CrumbTool::Unavailable(why) => {
-            notes.push(format!("crumb {}: trusted tool unavailable: {why}", args[0]));
+            notes.push(format!(
+                "crumb {}: trusted tool unavailable: {why}",
+                args[0]
+            ));
             return;
         }
     };
@@ -1042,10 +1045,24 @@ fn run_in_worktree(
     req.full = cfg.full;
     req.hardware_identity = cfg.hardware_identity.clone();
     let plan = plan::compute(wt, &req)?;
-    if !plan.entries.iter().any(|entry| entry.section == plan::Section::Blocked) {
+    if !plan
+        .entries
+        .iter()
+        .any(|entry| entry.section == plan::Section::Blocked)
+    {
         crumb(
-            cfg, clone, sha, wt,
-            &["claim", "aien-worker", ".", "worker", "local verification", "7200"],
+            cfg,
+            clone,
+            sha,
+            wt,
+            &[
+                "claim",
+                "aien-worker",
+                ".",
+                "worker",
+                "local verification",
+                "7200",
+            ],
             notes,
         );
     }

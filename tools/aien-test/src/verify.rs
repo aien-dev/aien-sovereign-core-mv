@@ -622,7 +622,11 @@ pub fn run(root: &Path, ask: &Ask) -> Report {
         || !blocked.is_empty()
         || !judged.as_ref().is_some_and(|j| j.verdict == Verdict::Pass)
     {
-        ("STALE".to_string(), "verification prerequisites not satisfied; checker not run".to_string(), None)
+        (
+            "STALE".to_string(),
+            "verification prerequisites not satisfied; checker not run".to_string(),
+            None,
+        )
     } else {
         match ask.crumb.as_deref() {
             None => {
@@ -631,7 +635,12 @@ pub fn run(root: &Path, ask: &Ask) -> Report {
             }
             Some(fallback) => {
                 let cache = ask.state.root.join("crumb-tool");
-                match crumb_tool_for(root, base.as_deref().expect("verified plan has a base"), fallback, &cache) {
+                match crumb_tool_for(
+                    root,
+                    base.as_deref().expect("verified plan has a base"),
+                    fallback,
+                    &cache,
+                ) {
                     CrumbTool::Pinned { pin, path } => {
                         let (s, n) = crumb_status(root, &commit, path.to_str());
                         (s, n, Some(format!("trusted-base {pin}")))
@@ -841,7 +850,12 @@ mod tests {
         crate::testutil::git(&repo, &["commit", "-q", "-m", "pin"]);
         let head = plan::resolve(&repo, "HEAD").unwrap();
         let cache = base.path().join("cache");
-        let built = cache.join("trusted-base-v1").join(&pin).join("tools").join("crumb").join("crumb");
+        let built = cache
+            .join("trusted-base-v1")
+            .join(&pin)
+            .join("tools")
+            .join("crumb")
+            .join("crumb");
         assert_eq!(
             crumb_tool_for(&repo, &head, "crumb", &cache),
             CrumbTool::Pinned {
@@ -877,7 +891,12 @@ mod tests {
         let arch = base.path().join("aien-architecture");
         let head = plan::resolve(&arch, "HEAD").unwrap();
         let cache = base.path().join("cache");
-        let built = cache.join("trusted-base-v1").join(&head).join("tools").join("crumb").join("crumb");
+        let built = cache
+            .join("trusted-base-v1")
+            .join(&head)
+            .join("tools")
+            .join("crumb")
+            .join("crumb");
         assert_eq!(
             crumb_tool_for(&arch, &head, "crumb", &cache),
             CrumbTool::Pinned {
@@ -901,29 +920,51 @@ mod tests {
         fs::create_dir_all(root.join("tools/crumb")).unwrap();
         let built_marker = dir.path().join("built");
         let ran_marker = dir.path().join("ran");
-        fs::write(root.join("tools/crumb/crumb.c"), "int main(void){return 0;}\n").unwrap();
-        fs::write(root.join("tools/crumb/Makefile"), format!(
+        fs::write(
+            root.join("tools/crumb/crumb.c"),
+            "int main(void){return 0;}\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("tools/crumb/Makefile"),
+            format!(
             "crumb:\n\ttouch {}\n\tprintf '#!/bin/sh\\ntouch {}\\n' > crumb\n\tchmod +x crumb\n",
             built_marker.display(), ran_marker.display()
-        )).unwrap();
+        ),
+        )
+        .unwrap();
         crate::testutil::git(&root, &["init", "-q"]);
         crate::testutil::git(&root, &["add", "."]);
         crate::testutil::git(&root, &["commit", "-q", "-m", "candidate checker"]);
         let head = plan::resolve(&root, "HEAD").unwrap();
-        let report = run(&root, &Ask {
-            state: StateDir::new(&dir.path().join("state")),
-            commit: head.clone(),
-            base: head.clone(),
-            repository: Some("github.com/t/aien-architecture".into()),
-            release: false, operator: false, hardware_identity: String::new(),
-            crumb: Some("crumb".into()), keys_override: None,
-        });
+        let report = run(
+            &root,
+            &Ask {
+                state: StateDir::new(&dir.path().join("state")),
+                commit: head.clone(),
+                base: head.clone(),
+                repository: Some("github.com/t/aien-architecture".into()),
+                release: false,
+                operator: false,
+                hardware_identity: String::new(),
+                crumb: Some("crumb".into()),
+                keys_override: None,
+            },
+        );
         assert!(!report.ready);
-        assert!(!built_marker.exists(), "candidate Makefile ran as trusted worker");
-        assert!(!ran_marker.exists(), "candidate checker ran as trusted worker");
+        assert!(
+            !built_marker.exists(),
+            "candidate Makefile ran as trusted worker"
+        );
+        assert!(
+            !ran_marker.exists(),
+            "candidate checker ran as trusted worker"
+        );
         // Negative control proves both marker payloads are live, not inert fixtures.
         let tool = crumb_tool_for(&root, &head, "crumb", &dir.path().join("control"));
-        let CrumbTool::Pinned { path, .. } = tool else { panic!("control tool unavailable") };
+        let CrumbTool::Pinned { path, .. } = tool else {
+            panic!("control tool unavailable")
+        };
         assert!(built_marker.exists());
         assert_eq!(crumb_status(&root, &head, path.to_str()).0, "CURRENT");
         assert!(ran_marker.exists());
@@ -941,10 +982,14 @@ mod tests {
         let legacy = cache.path().join(&pin).join("tools/crumb");
         fs::create_dir_all(&legacy).unwrap();
         fs::write(legacy.join("crumb"), "candidate controlled").unwrap();
-        assert_eq!(crumb_tool_for(repo.path(), &base, "crumb", cache.path()),
-            CrumbTool::Unpinned("/usr/local/bin/crumb".into()));
-        assert!(matches!(crumb_tool_for(repo.path(), &base, "./crumb", cache.path()),
-            CrumbTool::Unavailable(_)));
+        assert_eq!(
+            crumb_tool_for(repo.path(), &base, "crumb", cache.path()),
+            CrumbTool::Unpinned("/usr/local/bin/crumb".into())
+        );
+        assert!(matches!(
+            crumb_tool_for(repo.path(), &base, "./crumb", cache.path()),
+            CrumbTool::Unavailable(_)
+        ));
     }
 
     #[test]

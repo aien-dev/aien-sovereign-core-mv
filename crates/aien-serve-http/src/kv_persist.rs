@@ -1368,10 +1368,8 @@ mod tests {
 
     #[test]
     fn checkpoint_digest_accepts_regular_file_and_rejects_shard_symlink() {
-        let dir = std::env::temp_dir().join(format!(
-            "aien-kv-checkpoint-digest-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("aien-kv-checkpoint-digest-{}", std::process::id()));
         std::fs::create_dir(&dir).unwrap();
         let file = dir.join("model.safetensors");
         std::fs::write(&file, b"fixture").unwrap();
