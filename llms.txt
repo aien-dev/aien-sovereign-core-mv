@@ -39,7 +39,7 @@ cargo audit
 bash scripts/agent-preflight.sh
 
 # Query open tasks from the Honeycomb Forge
-curl -s http://192.168.1.108:18095/api/hive/forge/tasks?project=harvester
+curl -s "$AIEN_HUB_URL/api/hive/forge/tasks?project=harvester"
 ```
 
 ## Licensing and Governance

@@ -314,7 +314,7 @@ selftest() {
   ART=$sv_art; LOGS=$sv_logs; PROP_DN=(); GPU_SEEN_DN=""; GPU_SEEN_TOTAL=0; FALLBACK_SEEN=false
   # v1.5 (ACCEPTANCE-v1.5-fixed-root.md): run-root rule and the recorded prompt ids, with negative controls.
   mkdir -p "$t/root/real"; ln -s "$t/root/real" "$t/root/link"; local rt; rt=$(readlink -f -- "$t/root")
-  run_root_ok /home/drakestapleton/.aien-e2e/run && run_root_ok "$rt/real" && run_root_ok "$rt/new" || { echo "selftest: a valid run root was refused"; rc=1; }
+  run_root_ok /home/alice/.aien-e2e/run && run_root_ok "$rt/real" && run_root_ok "$rt/new" || { echo "selftest: a valid run root was refused"; rc=1; }
   for bad in relative/run /a/b/ /a//b /a/./b /a/../b /a/.. "$rt/link" "/$(printf 'x%.0s' $(seq 1 100))"; do
     ! run_root_ok "$bad" || { echo "selftest: run root '$bad' was accepted"; rc=1; }
   done
