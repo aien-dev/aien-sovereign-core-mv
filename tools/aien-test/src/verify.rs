@@ -136,24 +136,18 @@ pub fn parse_crumb_lock(text: &str) -> Option<String> {
 /// Which crumb tool the readiness check ran, for the report's `Crumb tool:` line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CrumbTool {
-    /// Built from the aien-architecture commit `crumb.lock` names at COMMIT.
+    /// Built only from the independently trusted base revision's pin/source.
     Pinned { pin: String, path: PathBuf },
-    /// The command the caller named (PATH `crumb`): COMMIT has no `crumb.lock`.
+    /// An absolute operator-selected command, never resolved in candidate CWD.
     Unpinned(String),
-    /// COMMIT pins a tool but it could not be built; the reason is the string.
+    /// The trusted tool could not be resolved or built.
     Unavailable(String),
 }
 
-/// The crumb tool for COMMIT (sc#602). With a `crumb.lock` at COMMIT the tool is
-/// built from the trusted sibling clone `<clones>/aien-architecture` (the parent
-/// of `root`, where the worker keeps every trusted clone) into
-/// `<cache>/<pin>/tools/crumb/crumb` and reused. The build is `git archive` of
-/// `tools/crumb` at the pin plus `make crumb`, the same as the CRUMB-VERIFY gate
-/// in tests/gates/run.sh, so the readiness line and the gate use one binary.
-///
-/// aien-architecture owns the tool and has no `crumb.lock`: its commits are
-/// checked with the tool at COMMIT itself, as its hosted workflow does, so a
-/// change to the crumb format is judged by the tool that writes it.
+/// Resolve a checker from the trusted BASE, never the candidate being checked.
+/// BASE already supplies verification keys and pipeline policy. A proposed
+/// checker runs only in the untrusted gate; promoting it requires updating BASE.
+/// The separate cache namespace does not reuse legacy candidate-selected builds.
 pub fn crumb_tool_for(root: &Path, commit: &str, fallback: &str, cache: &Path) -> CrumbTool {
     let pin = match plan::show(root, commit, CRUMB_LOCK) {
         Some(bytes) => match parse_crumb_lock(&String::from_utf8_lossy(&bytes)) {
@@ -165,8 +159,19 @@ pub fn crumb_tool_for(root: &Path, commit: &str, fallback: &str, cache: &Path) -
             }
         },
         None if owns_crumb_tool(root, commit) => commit.to_ascii_lowercase(),
-        None => return CrumbTool::Unpinned(fallback.to_string()),
+        None => {
+            let command = if fallback == "crumb" {
+                "/usr/local/bin/crumb"
+            } else {
+                fallback
+            };
+            if !Path::new(command).is_absolute() {
+                return CrumbTool::Unavailable("crumb command must be absolute".into());
+            }
+            return CrumbTool::Unpinned(command.to_string());
+        }
     };
+    let cache = cache.join("trusted-base-v1");
     let built = cache.join(&pin).join("tools").join("crumb").join("crumb");
     if built.is_file() {
         return CrumbTool::Pinned { pin, path: built };
@@ -217,9 +222,7 @@ pub fn crumb_tool_for(root: &Path, commit: &str, fallback: &str, cache: &Path) -
     }
 }
 
-/// Run a build step; Err carries the last stderr line (or the spawn error).
-/// True for the trusted aien-architecture clone (the worker's
-/// `<clones>/aien-architecture`) at a commit that carries the tool source.
+/// True only for the trusted architecture base revision carrying the tool.
 fn owns_crumb_tool(root: &Path, commit: &str) -> bool {
     root.file_name().is_some_and(|n| n == "aien-architecture")
         && plan::show(root, commit, "tools/crumb/crumb.c").is_some()
@@ -612,9 +615,18 @@ pub fn run(root: &Path, ask: &Ask) -> Report {
     lines.push(format!("Cached gates: {}", list(&cached)));
     lines.push(format!("Failed gates: {}", list(&failed)));
     lines.push(format!("Blocked gates: {}", list(&blocked)));
-    // sc#602: a crumb.lock at COMMIT pins the tool; the report names which one ran.
-    let (crumb, crumb_note, crumb_tool) = if !commit_ok {
-        ("STALE".to_string(), "commit missing".to_string(), None)
+    // No checker execution for missing/invalid evidence or blocked plans.
+    let (crumb, crumb_note, crumb_tool) = if !commit_ok
+        || evidence_status != "VERIFIED"
+        || !problems.is_empty()
+        || !blocked.is_empty()
+        || !judged.as_ref().is_some_and(|j| j.verdict == Verdict::Pass)
+    {
+        (
+            "STALE".to_string(),
+            "verification prerequisites not satisfied; checker not run".to_string(),
+            None,
+        )
     } else {
         match ask.crumb.as_deref() {
             None => {
@@ -623,17 +635,22 @@ pub fn run(root: &Path, ask: &Ask) -> Report {
             }
             Some(fallback) => {
                 let cache = ask.state.root.join("crumb-tool");
-                match crumb_tool_for(root, &commit, fallback, &cache) {
+                match crumb_tool_for(
+                    root,
+                    base.as_deref().expect("verified plan has a base"),
+                    fallback,
+                    &cache,
+                ) {
                     CrumbTool::Pinned { pin, path } => {
                         let (s, n) = crumb_status(root, &commit, path.to_str());
-                        (s, n, Some(format!("pinned {pin} (crumb.lock)")))
+                        (s, n, Some(format!("trusted-base {pin}")))
                     }
                     CrumbTool::Unpinned(cmd) => {
                         let (s, n) = crumb_status(root, &commit, Some(&cmd));
                         (
                             s,
                             n,
-                            Some(format!("{cmd} on PATH (no crumb.lock at COMMIT)")),
+                            Some(format!("{cmd} (operator command; no lock at BASE)")),
                         )
                     }
                     CrumbTool::Unavailable(why) => (
@@ -786,13 +803,13 @@ mod tests {
     }
 
     #[test]
-    fn commit_without_crumb_lock_uses_the_named_command() {
+    fn commit_without_crumb_lock_uses_absolute_operator_command() {
         let repo = crate::testutil::init_repo("crumb-unpinned", &[("README", "x\n", false)]);
         let head = plan::resolve(repo.path(), "HEAD").unwrap();
         let cache = crate::testutil::TempDir::new("crumb-cache");
         assert_eq!(
             crumb_tool_for(repo.path(), &head, "crumb", cache.path()),
-            CrumbTool::Unpinned("crumb".into())
+            CrumbTool::Unpinned("/usr/local/bin/crumb".into())
         );
     }
 
@@ -833,7 +850,12 @@ mod tests {
         crate::testutil::git(&repo, &["commit", "-q", "-m", "pin"]);
         let head = plan::resolve(&repo, "HEAD").unwrap();
         let cache = base.path().join("cache");
-        let built = cache.join(&pin).join("tools").join("crumb").join("crumb");
+        let built = cache
+            .join("trusted-base-v1")
+            .join(&pin)
+            .join("tools")
+            .join("crumb")
+            .join("crumb");
         assert_eq!(
             crumb_tool_for(&repo, &head, "crumb", &cache),
             CrumbTool::Pinned {
@@ -850,10 +872,9 @@ mod tests {
         );
     }
 
-    /// aien-architecture (no `crumb.lock`, owns `tools/crumb`) is checked with
-    /// the tool at COMMIT; any other repo carrying a `tools/crumb` is not.
+    /// The trusted architecture base may supply its own checker source.
     #[test]
-    fn architecture_checks_itself_with_the_tool_at_commit() {
+    fn architecture_uses_tool_from_trusted_base() {
         let base = crate::testutil::TempDir::new("crumb-self");
         let makefile =
             "crumb:\n\tprintf '#!/bin/sh\\necho fake crumb\\n' > crumb && chmod +x crumb\n";
@@ -870,7 +891,12 @@ mod tests {
         let arch = base.path().join("aien-architecture");
         let head = plan::resolve(&arch, "HEAD").unwrap();
         let cache = base.path().join("cache");
-        let built = cache.join(&head).join("tools").join("crumb").join("crumb");
+        let built = cache
+            .join("trusted-base-v1")
+            .join(&head)
+            .join("tools")
+            .join("crumb")
+            .join("crumb");
         assert_eq!(
             crumb_tool_for(&arch, &head, "crumb", &cache),
             CrumbTool::Pinned {
@@ -883,8 +909,87 @@ mod tests {
         let head = plan::resolve(&other, "HEAD").unwrap();
         assert_eq!(
             crumb_tool_for(&other, &head, "crumb", &cache),
-            CrumbTool::Unpinned("crumb".into())
+            CrumbTool::Unpinned("/usr/local/bin/crumb".into())
         );
+    }
+
+    #[test]
+    fn invalid_evidence_never_builds_or_executes_candidate_checker() {
+        let dir = crate::testutil::TempDir::new("untrusted-crumb");
+        let root = dir.path().join("aien-architecture");
+        fs::create_dir_all(root.join("tools/crumb")).unwrap();
+        let built_marker = dir.path().join("built");
+        let ran_marker = dir.path().join("ran");
+        fs::write(
+            root.join("tools/crumb/crumb.c"),
+            "int main(void){return 0;}\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("tools/crumb/Makefile"),
+            format!(
+            "crumb:\n\ttouch {}\n\tprintf '#!/bin/sh\\ntouch {}\\n' > crumb\n\tchmod +x crumb\n",
+            built_marker.display(), ran_marker.display()
+        ),
+        )
+        .unwrap();
+        crate::testutil::git(&root, &["init", "-q"]);
+        crate::testutil::git(&root, &["add", "."]);
+        crate::testutil::git(&root, &["commit", "-q", "-m", "candidate checker"]);
+        let head = plan::resolve(&root, "HEAD").unwrap();
+        let report = run(
+            &root,
+            &Ask {
+                state: StateDir::new(&dir.path().join("state")),
+                commit: head.clone(),
+                base: head.clone(),
+                repository: Some("github.com/t/aien-architecture".into()),
+                release: false,
+                operator: false,
+                hardware_identity: String::new(),
+                crumb: Some("crumb".into()),
+                keys_override: None,
+            },
+        );
+        assert!(!report.ready);
+        assert!(
+            !built_marker.exists(),
+            "candidate Makefile ran as trusted worker"
+        );
+        assert!(
+            !ran_marker.exists(),
+            "candidate checker ran as trusted worker"
+        );
+        // Negative control proves both marker payloads are live, not inert fixtures.
+        let tool = crumb_tool_for(&root, &head, "crumb", &dir.path().join("control"));
+        let CrumbTool::Pinned { path, .. } = tool else {
+            panic!("control tool unavailable")
+        };
+        assert!(built_marker.exists());
+        assert_eq!(crumb_status(&root, &head, path.to_str()).0, "CURRENT");
+        assert!(ran_marker.exists());
+    }
+
+    #[test]
+    fn trusted_base_ignores_candidate_lock_and_legacy_cached_checker() {
+        let repo = crate::testutil::init_repo("crumb-base", &[("README", "base\n", false)]);
+        let base = plan::resolve(repo.path(), "HEAD").unwrap();
+        let pin = "a".repeat(40);
+        fs::write(repo.path().join(CRUMB_LOCK), &pin).unwrap();
+        crate::testutil::git(repo.path(), &["add", "."]);
+        crate::testutil::git(repo.path(), &["commit", "-q", "-m", "candidate lock"]);
+        let cache = crate::testutil::TempDir::new("legacy-crumb-cache");
+        let legacy = cache.path().join(&pin).join("tools/crumb");
+        fs::create_dir_all(&legacy).unwrap();
+        fs::write(legacy.join("crumb"), "candidate controlled").unwrap();
+        assert_eq!(
+            crumb_tool_for(repo.path(), &base, "crumb", cache.path()),
+            CrumbTool::Unpinned("/usr/local/bin/crumb".into())
+        );
+        assert!(matches!(
+            crumb_tool_for(repo.path(), &base, "./crumb", cache.path()),
+            CrumbTool::Unavailable(_)
+        ));
     }
 
     #[test]

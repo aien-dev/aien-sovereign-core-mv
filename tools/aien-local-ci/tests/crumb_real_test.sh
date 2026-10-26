@@ -14,8 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# test-crumb-real.sh <shim> <old-tool>: red/green on real Spark trees and on the real failing heads.
-# GREEN needs the shim to agree with each repo's own gate where the old fixed tool did not.
+# test-crumb-real.sh <shim> <old-tool>: Spark-only historical replay. A PR
+# checkout may be inspected, but its lock or own source cannot select a tool.
 set -u
 SHIM=$(readlink -f "$1"); OLD=$(readlink -f "$2")
 C=~/workspace/pipeline/clones; T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
@@ -36,11 +36,17 @@ for r in omega aienos physics; do
   o=$(v "$T/$r" "$OLD"); s=$(v "$T/$r" "$SHIM"); gt=$(v "$T/$r" "$D0")
   [[ $o == *FAIL* ]] && [[ $s == *OK* ]] && [[ $gt == *OK* ]] && ok "$r main: old=FAIL shim=OK gate=OK" || bad "$r main" "old='$o' shim='$s' gate='$gt'"
 done
-# 2. migrated trees (RFC-0003 Am1 PR heads): old tool calls every crumb stale, shim agrees with the gate
+# 2. Historical PR heads: a detached candidate's own source is not the
+# trusted architecture clone. Resolve the authority from its origin/main.
 for x in aegis-runtime:aeefa8dad09954129a06ee429128ae640cb5d0bd aien-protocols:083601ab spark-rsi:d272ecb7 aien-architecture:00034398; do
   r=${x%%:*}; tree $r "${x#*:}"
-  o=$(v "$T/$r" "$OLD"); s=$(v "$T/$r" "$SHIM")
-  [[ $o == *FAIL* ]] && [[ $s == *"OK"*"on demand"* ]] && ok "$r ${x#*:} (migrated): old=FAIL shim=OK" || bad "$r migrated" "old='$o' shim='$s'"
+  w=$(cd "$T/$r" && CRUMB_SHIM_WHICH=1 "$SHIM" verify .)
+  pin=$(git -C "$C/$r" show origin/main:crumb.lock 2>/dev/null | tr -d '[:space:]')
+  if [ -n "$pin" ]; then
+    [[ $w == *"crumb.lock:$pin "* ]] && ok "$r candidate uses main pin" || bad "$r candidate pin" "$w"
+  else
+    [[ $w == *" sandbox "* ]] && ok "$r candidate uses sandbox not its source" || bad "$r candidate tool" "$w"
+  fi
 done
 # 3. legacy repos without a lock: shim (sandbox tool) and old tool give the same verdict on main
 for r in aien-sovereign-core aegis-runtime aien-protocols spark-rsi aien-architecture synapse; do

@@ -59,6 +59,16 @@ aien-serve-http --version      # shows whether the Omega engine is linked (nativ
 
 `tools/qwen38_serve_gate.sh http://127.0.0.1:18091 "" <out-dir>` checks a running server against the shipped host reference (`crates/aien-inference-abi/fixtures/qwen38/`), and `tools/qwen38_serve_speed.sh http://127.0.0.1:18091 "" <out-dir>` measures it; both write a `receipt.json` (binary sha256, build, model folder, machine state, figures, MATCH or MISMATCH). Model checksums, the memory speed ceiling and how to check: [docs/qwen38/](docs/qwen38/README.md). The loader needs 49,497 MiB (48.3 GiB) of free memory when it loads (41,305 MiB plus 8,192 MiB kept free) and refuses with less; once loaded, the server peaked at about 36.7 GiB on the current build (evidence/qwen38-serve-memory-20261019).
 
+The Core-main HTTP server now requires `AIEN_SERVE_HTTP_BEARER_TOKEN` at startup and
+`Authorization: Bearer <token>` on inference requests. Merging this source change
+does **not** update the existing Spark service on port 18091, which runs a binary
+from the separate `ship/motor-l387` line. A future, separately authorized
+cutover must provision the server credential and update all known clients in
+the same window: omp's spark provider, `allen-courier` (installed under
+`~/.local/state/aienos/allen/bin/allen-courier-*`), aien-translate, and
+drake-voice. Check those clients before replacing the live binary; otherwise
+they will receive 401 responses. No client credentials are stored in this repo.
+
 Step by step for a Spark with nothing of AIEN on it (requirements, install, model download and checksum, start, first request, the checks, known limits, how to report): [docs/qwen38/TRY_IT_ON_YOUR_SPARK.md](docs/qwen38/TRY_IT_ON_YOUR_SPARK.md). What "alpha" covers and what stays pre-alpha: [docs/qwen38/ALPHA_STATUS.md](docs/qwen38/ALPHA_STATUS.md).
 
 Installing a release (state on 2026-10-11, from `install.sh` and the dry-run artifact of Actions run 38105672607, nothing else):

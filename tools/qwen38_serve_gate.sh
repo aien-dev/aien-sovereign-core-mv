@@ -34,6 +34,7 @@ GOLDEN=${2:-$REPO/crates/aien-inference-abi/fixtures/qwen38/gen-chat-max-24.json
 OUT=${3:?usage: qwen38_serve_gate.sh [base-url] [golden.json] <out-dir> [server-log]}
 LOG=${4:-${AIEN_SERVE_LOG:-${XDG_STATE_HOME:-$HOME/.local/state}/aien/serve-27b.log}}
 for t in curl jq; do command -v "$t" >/dev/null || { echo "qwen38_serve_gate.sh: needs $t" >&2; exit 2; }; done
+[ -n "${AIEN_SERVE_HTTP_BEARER_TOKEN:-}" ] || { echo "qwen38_serve_gate.sh: AIEN_SERVE_HTTP_BEARER_TOKEN required" >&2; exit 2; }
 [ -f "$GOLDEN" ] || { echo "qwen38_serve_gate.sh: golden file not found: $GOLDEN" >&2; exit 2; }
 [ -f "$LOG" ] || { echo "qwen38_serve_gate.sh: server log not found: $LOG (pass it as the 4th argument or set AIEN_SERVE_LOG)" >&2; exit 2; }
 mkdir -p "$OUT"
@@ -58,7 +59,7 @@ ask() {
   # Other clients share the server: retry while it answers busy (one generation at a time).
   local w=""
   for _ in $(seq 1 240); do
-    w=$(curl -s -m 900 -o "$OUT/$1.json" -w "%{time_total}" "$URL/v1/chat/completions" -H 'Content-Type: application/json' -d @"$OUT/$1.req.json")
+    w=$(curl -s -m 900 -o "$OUT/$1.json" -w "%{time_total}" "$URL/v1/chat/completions" -H "Authorization: Bearer $AIEN_SERVE_HTTP_BEARER_TOKEN" -H 'Content-Type: application/json' -d @"$OUT/$1.req.json")
     # Retry only "busy" answers (server_busy, chip lock); any other error is the result.
     jq -e '.error | tostring | test("busy"; "i")' "$OUT/$1.json" >/dev/null 2>&1 || break
     sleep 5

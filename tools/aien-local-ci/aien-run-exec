@@ -11,11 +11,13 @@
 #     pick up: no ~/.cargo/config.toml, no swapped registry or cargo binary, no edits to another worktree,
 #     no writes into the other trust class's target dir;
 #   * private, empty /var/tmp, /var/crash, /var/lib/BrlAPI for every profile, and private /tmp, /dev/shm, /run/lock,
-#     /run/screen plus a fresh IPC namespace (SysV shm, semaphores, POSIX queues) for host|qemu (gb10 keeps the
-#     host /tmp, /dev/shm and IPC so chip tooling behaves as before);
+#     /run/screen plus fresh IPC and PID namespaces and a private /proc for host|qemu (gb10 keeps host PID/proc,
+#     /tmp, /dev/shm and IPC for the chip reservation's ancestor-flock proof);
 #   * a fresh network namespace for host|qemu: only its own loopback `lo`, brought up so tests can talk to a
 #     server they start on 127.0.0.1 (the namespace has no other interface, so nothing outside it is reachable,
 #     not even the host's own 127.0.0.1 services; no DNS);
+#   * a root-held shared execution lock for host|qemu, exclusive for gb10; gb10 cannot overlap a check
+#     whose host PID/proc view it would expose. The lock remains held until the scope cleanup finishes;
 #   * a transient systemd scope under aien-run.slice with cgroup caps (memory, pids, cpu) and a
 #     device policy (host|qemu: standard pseudo devices only, qemu adds /dev/kvm; gb10: all devices);
 #   * the operator's model directory (~/models of the sudo caller) mounted READ-ONLY at /var/lib/aien-run/models
@@ -60,6 +62,8 @@ RUN_HOME=/var/lib/aien-run
 RUN_PATH=/var/lib/aien-run/cargo/bin:/usr/local/bin:/usr/bin:/bin
 SLICE=aien-run.slice
 KILL_AFTER=10
+LOCK_DIR=/run/aien-local-ci
+LOCK_FILE=$LOCK_DIR/execution.lock
 NAME_RE='^[A-Za-z0-9._-]+$'
 
 die() { printf 'aien-run-exec: %s\n' "$*" >&2; exit 2; }
@@ -139,6 +143,22 @@ for p in "$RUN_HOME" "$RUN_HOME/cargo" "$RUN_HOME/cargo/bin" "$RUN_HOME/rustup" 
   (( (8#$m & 8#022) == 0 )) || die "unsafe host layout: $p is group/other-writable ($m)"
 done
 
+# /run is root controlled; only root can create or traverse the lock directory. Never follow a
+# pre-planted symlink or repair unsafe ownership/modes while opening a security boundary.
+[[ ! -L /run && -d /run ]] || die "unsafe execution lock parent: /run"
+read -r u m < <(stat -c '%u %a' /run)
+[[ $u == 0 ]] && (( (8#$m & 8#022) == 0 )) || die "unsafe execution lock parent: /run"
+if [[ ! -e $LOCK_DIR && ! -L $LOCK_DIR ]]; then
+  mkdir -m 0700 -- "$LOCK_DIR" || [[ -d $LOCK_DIR ]] || die "cannot create execution lock directory"
+fi
+[[ ! -L $LOCK_DIR && -d $LOCK_DIR && $(stat -c '%u %a %F' "$LOCK_DIR") == '0 700 directory' ]] \
+  || die "unsafe execution lock directory: $LOCK_DIR"
+if [[ ! -e $LOCK_FILE && ! -L $LOCK_FILE ]]; then
+  ( umask 077; set -C; : > "$LOCK_FILE" ) || [[ -f $LOCK_FILE ]] || die "cannot create execution lock"
+fi
+[[ ! -L $LOCK_FILE && -f $LOCK_FILE && $(stat -c '%u %a' "$LOCK_FILE") == '0 600' ]] \
+  || die "unsafe execution lock file: $LOCK_FILE"
+
 # The head's target dir: created on demand (missing parents root-owned, the head's dir aien-run). Only that one
 # dir is mounted writable below, so a run can never touch another head's build or the other trust class.
 if [[ -n $tdir ]]; then
@@ -196,7 +216,7 @@ fi
 
 inner=()
 case "$profile" in
-  host|qemu) inner+=(unshare -m -n -i --propagation private --) ;;
+  host|qemu) inner+=(unshare -m -n -i -p --fork --mount-proc --kill-child --propagation private --) ;;
   gb10)      inner+=(unshare -m --propagation private --) ;;
 esac
 inner+=(bash -c "$NS_SETUP" aien-run-ns "$RUN_HOME" "$profile" "$wtroot" "$tdir" "$models_src")
@@ -208,11 +228,24 @@ inner+=(setpriv --reuid "$RUN_USER" --regid "$RUN_USER" --init-groups --reset-en
 inner+=(env -i -C "$cwd" "PATH=$RUN_PATH" "HOME=$RUN_HOME" "CARGO_HOME=$RUN_HOME/cargo" "RUSTUP_HOME=$RUN_HOME/rustup")
 for kv in "${envs[@]}"; do inner+=("$kv"); done
 
+# flock keeps its own root-owned descriptor and --close prevents the scope's jobs from
+# inheriting it. Its child waits for scope cleanup, not just PROGRAM's exit.
+case "$profile" in host|qemu) lock_mode=-s ;; gb10) lock_mode=-x ;; esac
+# shellcheck disable=SC2016
+SCOPE_RUN='
+set -euo pipefail
+unit=$1 slice=$2; shift 2
+count=$1; shift
+props=("${@:1:count}"); shift "$count"
+count=$1; shift
+inner=("${@:1:count}"); shift "$count"
 cleanup() { systemctl kill --signal=KILL "$unit.scope" >/dev/null 2>&1 || true; systemctl stop "$unit.scope" >/dev/null 2>&1 || true; }
-trap 'cleanup; exit 143' TERM INT HUP
-
+trap '\''cleanup; exit 143'\'' TERM INT HUP
 rc=0
 cd /
-systemd-run --scope --quiet --collect --unit "$unit" --slice "$SLICE" "${props[@]}" -- "${inner[@]}" "$@" || rc=$?
+systemd-run --scope --quiet --collect --unit "$unit" --slice "$slice" "${props[@]}" -- "${inner[@]}" "$@" || rc=$?
 cleanup
 exit "$rc"
+'
+flock "$lock_mode" --close -- "$LOCK_FILE" bash -c "$SCOPE_RUN" aien-run-scope \
+  "$unit" "$SLICE" "${#props[@]}" "${props[@]}" "${#inner[@]}" "${inner[@]}" "$@"
