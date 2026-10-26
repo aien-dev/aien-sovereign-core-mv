@@ -159,6 +159,16 @@ function setText(id, text) {
   if (el) el.textContent = text;
 }
 
+// Every API or model string placed into innerHTML goes through esc().
+function esc(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function greetingForHour(hour) {
   if (hour < 5) return "Good night";
   if (hour < 12) return "Good morning";
@@ -511,14 +521,14 @@ async function loadFeed() {
       card.innerHTML = `
         <div>
           <div class="feed-card-header">
-            <span class="feed-card-badge ${item.badge.toLowerCase()}">${item.badge}</span>
-            <span style="font-size:11px; color:var(--text-muted);">${item.category.toUpperCase()}</span>
+            <span class="feed-card-badge ${esc(item.badge.toLowerCase())}">${esc(item.badge)}</span>
+            <span style="font-size:11px; color:var(--text-muted);">${esc(item.category.toUpperCase())}</span>
           </div>
-          <h3 class="feed-card-title" style="margin-top:8px;">${item.title}</h3>
-          <p class="feed-card-summary" style="margin-top:6px;">${item.summary}</p>
+          <h3 class="feed-card-title" style="margin-top:8px;">${esc(item.title)}</h3>
+          <p class="feed-card-summary" style="margin-top:6px;">${esc(item.summary)}</p>
         </div>
         <div style="display:flex; justify-content:flex-end;">
-          <button class="stage-btn" data-target="${item.action_target}">${item.action_label}</button>
+          <button class="stage-btn" data-target="${esc(item.action_target)}">${esc(item.action_label)}</button>
         </div>
       `;
       const btn = card.querySelector("button");
@@ -528,7 +538,7 @@ async function loadFeed() {
       grid.appendChild(card);
     });
   } catch (err) {
-    grid.innerHTML = `<div style="color:var(--status-crimson);">Failed to load feed: ${err.message}</div>`;
+    grid.innerHTML = `<div style="color:var(--status-crimson);">Failed to load feed: ${esc(err.message)}</div>`;
   }
 }
 
@@ -611,7 +621,7 @@ async function loadGoals() {
 
       card.innerHTML = `
         <div class="goal-card-top">
-          <span class="goal-title">${goal.title}</span>
+          <span class="goal-title">${esc(goal.title)}</span>
           <span class="feed-card-badge ${pct === 100 ? "online" : "pending"}">${pct}%</span>
         </div>
         <div class="goal-progress-wrap">
@@ -626,7 +636,7 @@ async function loadGoals() {
           ${milestones.map(m => `
             <label class="milestone-row">
               <input type="checkbox" class="milestone-check" ${m.completed ? "checked" : ""}>
-              <span style="${m.completed ? "text-decoration:line-through; opacity:0.6;" : ""}">${m.name || m.title || m}</span>
+              <span style="${m.completed ? "text-decoration:line-through; opacity:0.6;" : ""}">${esc(m.name || m.title || m)}</span>
             </label>
           `).join("")}
         </div>
@@ -634,7 +644,7 @@ async function loadGoals() {
       container.appendChild(card);
     });
   } catch (err) {
-    container.innerHTML = `<div style="color:var(--status-crimson);">Goals error: ${err.message}</div>`;
+    container.innerHTML = `<div style="color:var(--status-crimson);">Goals error: ${esc(err.message)}</div>`;
   }
 }
 
@@ -668,9 +678,9 @@ async function loadArtifacts() {
         <div class="artifact-card-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
         </div>
-        <div class="artifact-card-title">${item.filename}</div>
+        <div class="artifact-card-title">${esc(item.filename)}</div>
         <div style="font-size:11px; color:var(--text-muted); display:flex; justify-content:space-between;">
-          <span>${item.ext.toUpperCase()}</span>
+          <span>${esc(item.ext.toUpperCase())}</span>
           <span>${(item.size / 1024).toFixed(1)} KB</span>
         </div>
       `;
@@ -680,7 +690,7 @@ async function loadArtifacts() {
       grid.appendChild(card);
     });
   } catch (err) {
-    grid.innerHTML = `<div style="color:var(--status-crimson);">Failed to load artifacts: ${err.message}</div>`;
+    grid.innerHTML = `<div style="color:var(--status-crimson);">Failed to load artifacts: ${esc(err.message)}</div>`;
   }
 }
 
@@ -695,7 +705,7 @@ async function openArtifactInDrawer(filename) {
   switchDrawerTab("artifact");
 
   try {
-    const res = await fetch(`/api/artifacts/${filename}`);
+    const res = await fetch(`/api/artifacts/${encodeURIComponent(filename)}`);
     if (!res.ok) throw new Error("Could not retrieve artifact file");
     const text = await res.text();
 
@@ -755,16 +765,16 @@ async function loadApprovals() {
         <div class="approval-header">
           <span class="approval-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;color:var(--status-amber);"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-            ${appr.title}
+            ${esc(appr.title)}
           </span>
-          <span class="approval-badge">${appr.status.toUpperCase()}</span>
+          <span class="approval-badge">${esc(appr.status.toUpperCase())}</span>
         </div>
-        <p class="approval-desc">${appr.description}</p>
-        ${appr.command_or_diff ? `<pre class="approval-cmd">${appr.command_or_diff}</pre>` : ""}
+        <p class="approval-desc">${esc(appr.description)}</p>
+        ${appr.command_or_diff ? `<pre class="approval-cmd">${esc(appr.command_or_diff)}</pre>` : ""}
         ${appr.status === "pending" ? `
           <div class="approval-actions">
-            <button class="btn-approve" data-id="${appr.id}">Approve</button>
-            <button class="btn-reject" data-id="${appr.id}">Reject</button>
+            <button class="btn-approve" data-id="${esc(appr.id)}">Approve</button>
+            <button class="btn-reject" data-id="${esc(appr.id)}">Reject</button>
           </div>
         ` : ""}
       `;
@@ -786,7 +796,7 @@ async function loadApprovals() {
 
 async function resolveApproval(id, action) {
   try {
-    const res = await fetch(`/api/approvals/${id}/resolve`, {
+    const res = await fetch(`/api/approvals/${encodeURIComponent(id)}/resolve`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action })
@@ -839,15 +849,15 @@ async function loadMemory(query = "") {
       card.className = "memory-card";
       card.innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:center;">
-          <span class="memory-name">${item.canonical_name || item.name || "Entity"}</span>
+          <span class="memory-name">${esc(item.canonical_name || item.name || "Entity")}</span>
           <span class="feed-card-badge online">${item.confidence ? Math.round(item.confidence * 100) + "%" : "STORED"}</span>
         </div>
-        <p class="memory-content">${item.content || item.summary || ""}</p>
+        <p class="memory-content">${esc(item.content || item.summary || "")}</p>
       `;
       grid.appendChild(card);
     });
   } catch (err) {
-    grid.innerHTML = `<div style="color:var(--status-crimson);">Cortex memory error: ${err.message}</div>`;
+    grid.innerHTML = `<div style="color:var(--status-crimson);">Cortex memory error: ${esc(err.message)}</div>`;
   }
 }
 
