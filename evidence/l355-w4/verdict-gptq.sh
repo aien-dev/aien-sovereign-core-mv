@@ -1,12 +1,15 @@
 #!/bin/bash
 # L355 GPTQ-arm verdict (docs/inference/q36/w4-gate.md, "GPTQ arm"): A = the frozen rule on the five goldens (verdict.sh),
-# B = R1 / R2 on held-out h1..h5 against the FP8 arm's own greedy ids, C = paired block bootstrap NLL(arm) - NLL(base).
-#   verdict-gptq.sh <arm name, e.g. w4g> <base name, e.g. w4e>
+# B = R1 / R2 on held-out h<first>..h<first+4> (default h1..h5) against the FP8 arm's own greedy ids, C = paired block
+# bootstrap NLL(arm) - NLL(base) over the goldens and those held-out prompts.
+#   verdict-gptq.sh <arm name, e.g. w4g> <base name, e.g. w4e> [first held-out index: 1, or 6 for the low-rank arm's h6..h10]
 set -u
-ARM=${1:?arm}; BASE=${2:?base}; R=$HOME/workspace/sc-hum-state-precision/evidence/hum-state-precision; O=runs
-cd $HOME/workspace/sc-l355/evidence/l355-w4
-A=$(./verdict.sh $ARM)
-args=(); for i in 1 2 3 4 5; do args+=(--slurpfile a$i $O/forced-$ARM-h$i.json --slurpfile f$i $O/forced-fp8-h$i.json); done
+# L313_REF overrides the f32 reference directory (drift-*.json), W4_DIR the directory holding runs/.
+ARM=${1:?arm}; BASE=${2:?base}; H0=${3:-1}; R=${L313_REF:-$HOME/workspace/sc-hum-state-precision/evidence/hum-state-precision}; O=runs
+HS=$(seq $H0 $((H0 + 4))); HERE=$(cd "$(dirname "$0")" && pwd)
+cd ${W4_DIR:-$HOME/workspace/sc-l355/evidence/l355-w4}
+A=$($HERE/verdict.sh $ARM)
+args=(); j=0; for i in $HS; do j=$((j + 1)); args+=(--slurpfile a$j $O/forced-$ARM-h$i.json --slurpfile f$j $O/forced-fp8-h$i.json); done
 B=$(jq -n "${args[@]}" '
   def one(a; f): [range(0; (a.argmax|length))] as $ix |
     { n: ($ix|length), nll_arm: ([$ix[] | a.nll[.]]|add), nll_ref: ([$ix[] | f.nll[.]]|add),
@@ -24,7 +27,7 @@ rows() {
   for p in p1 p2 p3 p4 chat-max-24; do
     jq -r --slurpfile r $R/drift-$p.json --slurpfile b $O/forced-$BASE-$p.json '. as $a | range(0; ($a.nll|length)) | "A \($a.nll[.]) \($r[0].states[0].per_row.nll_ref[.]) \($b[0].nll[.])"' $O/forced-$ARM-$p.json
   done
-  for i in 1 2 3 4 5; do
+  for i in $HS; do
     jq -r --slurpfile f $O/forced-fp8-h$i.json --slurpfile b $O/forced-$BASE-h$i.json '. as $a | range(0; ($a.nll|length)) | "B \($a.nll[.]) \($f[0].nll[.]) \($b[0].nll[.])"' $O/forced-$ARM-h$i.json
   done
 }
@@ -45,6 +48,6 @@ C=$(rows | gawk '
     alo = pct(ra, R, 0.025); ahi = pct(ra, R, 0.975); blo = pct(rb, R, 0.025); bhi = pct(rb, R, 0.975)
     printf "{\"steps\":%d,\"blocks\":%d,\"mean_diff\":%.6f,\"diff_ci95\":[%.6f,%.6f],\"pass\":%s,\"R1_ci95_A\":[%.4f,%.4f],\"R1_ci95_B\":[%.4f,%.4f]}\n", tn, nb, td / tn, lo, hi, (hi < 0 ? "true" : "false"), alo, ahi, blo, bhi
   }')
-jq -n --argjson a "$A" --argjson b "$B" --argjson c "$C" --arg arm $ARM --arg base $BASE '
-  { arm: $arm, base: $base, A: $a, B: $b, C: $c,
+jq -n --argjson a "$A" --argjson b "$B" --argjson c "$C" --arg arm $ARM --arg base $BASE --arg ho "h$H0..h$((H0 + 4))" '
+  { arm: $arm, base: $base, heldout: $ho, A: $a, B: $b, C: $c,
     verdict: (if ($a.verdict | startswith("VOID")) then "VOID" elif ($a.verdict == "ACCEPT" and $b.pass and $c.pass) then "ACCEPT" else "REJECT" end) }'

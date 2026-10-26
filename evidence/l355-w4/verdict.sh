@@ -3,8 +3,9 @@
 # Reference per golden = L313 drift-<p>.json (f32 arm: f32_ids, f32_margin, states[0].per_row.nll_ref); equals my fp8 arm on p1
 # to the last bit (forced-fp8-p1). AGPL: score-fp8 vs score-<arm>.
 set -u
-ARM=${1:?arm}; R=$HOME/workspace/sc-hum-state-precision/evidence/hum-state-precision; O=runs
-cd $HOME/workspace/sc-l355/evidence/l355-w4
+# L313_REF overrides the f32 reference directory (drift-*.json), W4_DIR the directory holding runs/.
+ARM=${1:?arm}; R=${L313_REF:-$HOME/workspace/sc-hum-state-precision/evidence/hum-state-precision}; O=runs
+cd ${W4_DIR:-$HOME/workspace/sc-l355/evidence/l355-w4}
 args=(); for p in p1 p2 p3 p4 chat-max-24; do args+=(--slurpfile a_$(echo $p | tr - _) $O/forced-$ARM-$p.json --slurpfile r_$(echo $p | tr - _) $R/drift-$p.json); done
 jq -n "${args[@]}" --slurpfile f $O/forced-fp8-p1.json --slurpfile sf $( [ -s $O/score-fp8.json ] && echo $O/score-fp8.json || echo /dev/null) --slurpfile sa $( [ -s $O/score-$ARM.json ] && echo $O/score-$ARM.json || echo /dev/null) --arg arm $ARM '
   def one(a; r): [range(0; (a.argmax|length))] as $ix |

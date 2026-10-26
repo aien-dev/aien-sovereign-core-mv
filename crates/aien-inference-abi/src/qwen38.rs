@@ -491,6 +491,7 @@ fn read_ffn(source: &mut dyn TensorSource, p: &str, inter: usize, h: usize) -> R
         gate: read_matrix(source, &format!("{p}.gate_proj.weight"), inter, h)?,
         up: read_matrix(source, &format!("{p}.up_proj.weight"), inter, h)?,
         down: read_matrix(source, &format!("{p}.down_proj.weight"), h, inter)?,
+        corr: None,
     })
 }
 
@@ -501,26 +502,42 @@ fn w4_ffn(w: &W4Host, m: &str, e: usize, inter: usize, h: usize) -> Result<Ffn, 
         gate: w.rows(&gu, e * 2 * inter, inter)?,
         up: w.rows(&gu, e * 2 * inter + inter, inter)?,
         down: w.rows(&format!("{m}.experts down"), e * h, h)?,
+        corr: None,
     })
 }
 
 /// [`w4_ffn`] with [`W4Host::fp8_part`] applied: the kept matrices come from the FP8 checkpoint at `p` (`{p}.gate_proj`, ..).
-fn w4_mixed_ffn(w: &W4Host, src: &mut dyn TensorSource, m: &str, p: &str, e: usize, inter: usize, h: usize) -> Result<Ffn, String> {
+/// With [`W4Host::lowrank`] (arm m-dn only) the down projection of layer `l`, slot `e` gets its rank-r correction.
+fn w4_mixed_ffn(w: &W4Host, src: &mut dyn TensorSource, m: &str, p: &str, l: usize, e: usize, inter: usize, h: usize) -> Result<Ffn, String> {
     let gu = format!("{m}.experts gate|up");
     let down = format!("{m}.experts down");
-    Ok(match w.fp8_part {
+    let mut f = match w.fp8_part {
         1 => Ffn {
             gate: read_matrix(src, &format!("{p}.gate_proj.weight"), inter, h)?,
             up: read_matrix(src, &format!("{p}.up_proj.weight"), inter, h)?,
             down: w.rows(&down, e * h, h)?,
+            corr: None,
         },
         2 => Ffn {
             gate: w.rows(&gu, e * 2 * inter, inter)?,
             up: w.rows(&gu, e * 2 * inter + inter, inter)?,
             down: read_matrix(src, &format!("{p}.down_proj.weight"), h, inter)?,
+            corr: None,
         },
         _ => w4_ffn(w, m, e, inter, h)?,
-    })
+    };
+    if let Some(lr) = &w.lowrank {
+        if w.fp8_part != 1 {
+            return Err("lowrank correction is defined for arm m-dn only (fp8_part 1)".into());
+        }
+        let s = lr.shape;
+        if s.h != h || s.k != inter {
+            return Err(format!("lowrank sidecar {s:?} does not match down [{h}][{inter}]"));
+        }
+        let (u, v) = lr.get(l, e)?;
+        f.corr = Some(LowRankTerm { r: s.r, u, v });
+    }
+    Ok(f)
 }
 
 /// The router's choice for one row of logits: softmax over every expert, the `k` largest
@@ -587,16 +604,40 @@ struct LayerWeights {
     mlp: Mlp,
 }
 
-/// One SiLU MLP: `down(silu(gate x) * up x)`.
+/// One SiLU MLP: `down(silu(gate x) * up x)`, plus `U (V a)` on the down input when a low-rank correction is attached.
 struct Ffn {
     gate: Matrix,
     up: Matrix,
     down: Matrix,
+    corr: Option<LowRankTerm>,
+}
+
+/// U `[h][r]`, V `[r][inter]` (q36_w4_lowrank sidecar record, bf16 values).
+struct LowRankTerm {
+    r: usize,
+    u: Vec<f32>,
+    v: Vec<f32>,
 }
 
 impl Ffn {
     fn run(&self, xn: &[f32], t: usize) -> Vec<f32> {
-        self.down.matmul(&self.act(xn, t), t)
+        self.down_out(&self.act(xn, t), t)
+    }
+
+    /// The down projection of `act` (`[t][inter]`), with the correction if any.
+    fn down_out(&self, act: &[f32], t: usize) -> Vec<f32> {
+        let mut y = self.down.matmul(act, t);
+        if let Some(c) = &self.corr {
+            let k = act.len() / t;
+            let h = y.len() / t;
+            for (a, yr) in act.chunks_exact(k).zip(y.chunks_exact_mut(h)) {
+                let z: Vec<f32> = c.v.chunks_exact(k).map(|vr| dot(vr, a)).collect();
+                for (o, ur) in yr.iter_mut().zip(c.u.chunks_exact(c.r)) {
+                    *o += dot(ur, &z);
+                }
+            }
+        }
+        y
     }
 
     /// `silu(gate x) * up x`, the down projection's input (`[t][inter]`).
@@ -820,6 +861,8 @@ pub struct W4Host {
     /// Mixed inside the expert (w4-gate.md "NV16 arm" item 4): 1 keeps gate and up at FP8 (arm m-dn), 2 keeps down at FP8
     /// (arm m-gu); 0 takes every expert matrix from the store.
     pub fp8_part: u8,
+    /// Rank-r correction of every down projection (w4-gate.md "Low-rank arm", AIEN_Q36_W4_LOWRANK): arm m-dn only.
+    pub lowrank: Option<std::sync::Arc<crate::q36_w4_lowrank::LowRank>>,
 }
 
 impl W4Host {
@@ -1006,7 +1049,7 @@ impl<S: TensorSource> Qwen38Reference<S> {
                 .map(bf16_to_f32)
                 .collect(),
                 shared: match self.w4.as_ref().filter(|w| w.experts && !mtp && w.on(l) && !w.shared_fp8) {
-                    Some(w) => w4_mixed_ffn(w, src, &m, &format!("{m}.shared_expert"), s.experts, s.shared_inter, h)?,
+                    Some(w) => w4_mixed_ffn(w, src, &m, &format!("{m}.shared_expert"), l, s.experts, s.shared_inter, h)?,
                     None => read_ffn(src, &format!("{m}.shared_expert"), s.shared_inter, h)?,
                 },
             }),
@@ -1091,7 +1134,7 @@ impl<S: TensorSource> Qwen38Reference<S> {
                     r.iter_mut().for_each(|v| *v *= g);
                 }
                 c.add_dn(l, s.experts, &wa, t);
-                w.shared.down.matmul(&act, t)
+                w.shared.down_out(&act, t)
             }
             None => w.shared.run(xn, t),
         };
@@ -1109,7 +1152,7 @@ impl<S: TensorSource> Qwen38Reference<S> {
                 continue;
             }
             let f = match self.w4.as_ref().filter(|w| w.experts && !mtp && w.on(l)) {
-                Some(w) => w4_mixed_ffn(w, &mut self.source, &format!("{}layers.{l}.mlp", self.prefix), &format!("{p}.{e}"), e, s.expert_inter, h)?,
+                Some(w) => w4_mixed_ffn(w, &mut self.source, &format!("{}layers.{l}.mlp", self.prefix), &format!("{p}.{e}"), l, e, s.expert_inter, h)?,
                 None => read_ffn(&mut self.source, &format!("{p}.{e}"), s.expert_inter, h)?,
             };
             let mut xs = Vec::with_capacity(rows.len() * h);
@@ -1124,7 +1167,7 @@ impl<S: TensorSource> Qwen38Reference<S> {
                         r.iter_mut().for_each(|v| *v *= wt);
                     }
                     c.add_dn(l, e, &wa, rows.len());
-                    f.down.matmul(&act, rows.len())
+                    f.down_out(&act, rows.len())
                 }
                 None => f.run(&xs, rows.len()),
             };

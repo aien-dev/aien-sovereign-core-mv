@@ -21,6 +21,7 @@ pub mod omega_backend;
 pub mod qwen38;
 pub mod qwen38_omega;
 pub mod q36_w4_gptq;
+pub mod q36_w4_lowrank;
 pub mod q36_w4_nv;
 pub mod q36_w4_store;
 pub mod qwen3_coder;

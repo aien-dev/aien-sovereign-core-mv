@@ -51,8 +51,8 @@ fn arm_host(arm: &str, dir: &Path) -> Result<Option<W4Host>, String> {
         "fp8" => return Ok(None),
         "w4e" => (true, false, false),
         "w4et" => (true, true, false),
-        "w4e-mut" | "w4e-smut" | "w4e-mgu" | "w4e-mdn" => (true, false, arm == "w4e-mut"),
-        a => return Err(format!("arm {a} (fp8, w4e, w4et, w4e-mut, w4e-smut, w4e-mgu, w4e-mdn)")),
+        "w4e-mut" | "w4e-smut" | "w4e-mgu" | "w4e-mdn" | "w4e-mdn-lr" => (true, false, arm == "w4e-mut"),
+        a => return Err(format!("arm {a} (fp8, w4e, w4et, w4e-mut, w4e-smut, w4e-mgu, w4e-mdn, w4e-mdn-lr)")),
     };
     let p = aien_inference_abi::q36_w4_store::resolve(dir)?
         .ok_or("AIEN_Q36_W4_STORE (store path or default) is not set")?;
@@ -65,11 +65,18 @@ fn arm_host(arm: &str, dir: &Path) -> Result<Option<W4Host>, String> {
     }
     // w4-gate.md "NV16 arm" item 4: m-gu keeps down at FP8, m-dn keeps gate and up at FP8
     let fp8_part = match arm {
-        "w4e-mdn" => 1,
+        "w4e-mdn" | "w4e-mdn-lr" => 1,
         "w4e-mgu" => 2,
         _ => 0,
     };
-    Ok(Some(W4Host { store: Arc::new(store), experts, trunk, mutant, fp8_layers, shared_fp8, scale_mutant, fp8_part }))
+    // w4-gate.md "Low-rank arm": m-dn plus the rank-r down correction from AIEN_Q36_W4_LOWRANK (required, and only here)
+    let lowrank = match (arm, std::env::var("AIEN_Q36_W4_LOWRANK").ok().filter(|s| !s.is_empty())) {
+        ("w4e-mdn-lr", Some(p)) => Some(Arc::new(aien_inference_abi::q36_w4_lowrank::LowRank::open(Path::new(&p))?)),
+        ("w4e-mdn-lr", None) => return Err("arm w4e-mdn-lr needs AIEN_Q36_W4_LOWRANK=<sidecar>".into()),
+        (_, Some(_)) => return Err(format!("AIEN_Q36_W4_LOWRANK is set but arm {arm} is not w4e-mdn-lr")),
+        _ => None,
+    };
+    Ok(Some(W4Host { store: Arc::new(store), experts, trunk, mutant, fp8_layers, shared_fp8, scale_mutant, fp8_part, lowrank }))
 }
 
 fn run() -> Result<(), String> {
@@ -137,6 +144,7 @@ fn run() -> Result<(), String> {
                     "argmax": am, "margin": mg, "nll": nll, "agree": agree,
                     "store": std::env::var("AIEN_Q36_W4_STORE").ok().filter(|_| arm != "fp8"),
                     "fp8_layers": std::env::var("AIEN_Q36_W4_FP8_LAYERS").ok(), "shared_fp8": std::env::var("AIEN_Q36_W4_SHARED_FP8").ok(),
+                    "lowrank": std::env::var("AIEN_Q36_W4_LOWRANK").ok().filter(|_| arm == "w4e-mdn-lr"),
                     "routes": if want_routes { json!(routes) } else { Value::Null },
                     "step_seconds": secs, "seconds": t0.elapsed().as_secs_f64(),
                 });
@@ -231,6 +239,7 @@ fn run() -> Result<(), String> {
                 "mean_nll": mean, "top1_hits": hits,
                 "store": std::env::var("AIEN_Q36_W4_STORE").ok().filter(|_| arm != "fp8"),
                 "fp8_layers": std::env::var("AIEN_Q36_W4_FP8_LAYERS").ok(), "shared_fp8": std::env::var("AIEN_Q36_W4_SHARED_FP8").ok(),
+                "lowrank": std::env::var("AIEN_Q36_W4_LOWRANK").ok().filter(|_| arm == "w4e-mdn-lr"),
                 "seconds": t0.elapsed().as_secs_f64(),
             }))
         }
