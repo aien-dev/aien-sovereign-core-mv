@@ -28,10 +28,10 @@ use std::process::Command;
 
 #[test]
 fn test_t3_01_sanitizer_router_dispatch_interaction() {
-    let raw_prompt = "Load /home/drakestapleton/workspace/main.rs from 10.0.0.5 for drakestapleton with sk-proj-12345678901234567890";
+    let raw_prompt = "Load /home/alice/workspace/main.rs from 10.0.0.5 for drakestapleton with sk-proj-12345678901234567890";
     let clean_prompt = sanitize_outbound_prompt(raw_prompt);
 
-    assert!(!clean_prompt.contains("/home/drakestapleton"));
+    assert!(!clean_prompt.contains("/home/alice"));
     assert!(!clean_prompt.contains("10.0.0.5"));
     assert!(!clean_prompt.contains("drakestapleton"));
     assert!(!clean_prompt.contains("sk-proj-"));

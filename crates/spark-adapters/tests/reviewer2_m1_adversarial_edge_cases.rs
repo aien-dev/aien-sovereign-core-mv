@@ -43,13 +43,15 @@ fn test_edge_case_only_secrets() {
 #[test]
 fn test_edge_case_mixed_unicodes() {
     let secret = "sk-ant-api03-123456789012345678901234567890123456";
-    let input = format!("你好世界: {secret} 🔒 操作员: Drake Stapleton 路径: /home/drakestapleton/模型.bin 主机: spark-b87b");
+    let input = format!(
+        "你好世界: {secret} 🔒 操作员: Drake Stapleton 路径: /home/alice/模型.bin 主机: spark-1a2b"
+    );
     let output = sanitize_outbound_prompt(&input);
 
     assert!(!output.contains(secret));
     assert!(!output.contains("Drake Stapleton"));
-    assert!(!output.contains("/home/drakestapleton"));
-    assert!(!output.contains("spark-b87b"));
+    assert!(!output.contains("/home/alice"));
+    assert!(!output.contains("spark-1a2b"));
 
     assert!(output.contains("[REDACTED_BY_ATLAS_VAULT]"));
     assert!(output.contains("<OPERATOR>"));
@@ -62,11 +64,11 @@ fn test_edge_case_mixed_unicodes() {
 #[test]
 fn test_edge_case_escaped_characters() {
     // JSON-escaped string with quotes and newlines
-    let input = r#"{\"key\": \"sk-proj-123456789012345678901234567890\", \"path\": \"/home/drakestapleton/config.json\", \"host\": \"spark\"}"#;
+    let input = r#"{\"key\": \"sk-proj-123456789012345678901234567890\", \"path\": \"/home/alice/config.json\", \"host\": \"spark\"}"#;
     let output = sanitize_outbound_prompt(input);
 
     assert!(!output.contains("sk-proj-"));
-    assert!(!output.contains("/home/drakestapleton"));
+    assert!(!output.contains("/home/alice"));
     assert!(output.contains(r#"{\"key\": \"[REDACTED_BY_ATLAS_VAULT]\""#));
     assert!(output.contains(r#"\"path\": \"<WORKSPACE_PATH>\""#));
     assert!(output.contains(r#"\"host\": \"<LOCAL_HOST>\""#));
@@ -96,10 +98,10 @@ fn test_edge_case_multiline_pem_blocks() {
 
 #[test]
 fn test_edge_case_nested_whitespace() {
-    let input = "\t\t\n\n   \t  Drake   Stapleton   \t\n  /home/drakestapleton/repo  \t\n  sk-ant-api03-123456789012345678901234567890123456  \n\n\t";
+    let input = "\t\t\n\n   \t  Drake   Stapleton   \t\n  /home/alice/repo  \t\n  sk-ant-api03-123456789012345678901234567890123456  \n\n\t";
     let output = sanitize_outbound_prompt(input);
 
-    assert!(!output.contains("drakestapleton"));
+    assert!(!output.contains("alice"));
     assert!(!output.contains("sk-ant-"));
     assert!(output.contains("<WORKSPACE_PATH>"));
     assert!(output.contains("[REDACTED_BY_ATLAS_VAULT]"));

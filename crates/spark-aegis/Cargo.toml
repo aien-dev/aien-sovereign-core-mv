@@ -2,7 +2,7 @@
 name = "spark-aegis"
 version = "0.1.0"
 edition = "2021"
-authors = ["Drake Stapleton <drake.aien@proton.me>"]
+authors = ["Drake Stapleton <drake@aienos.com>"]
 license.workspace = true
 description = "Sovereign defensive boundary and containment engine"
 
