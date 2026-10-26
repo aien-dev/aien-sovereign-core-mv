@@ -9,6 +9,7 @@ aien-architecture-mv#300).
 |---|---|---|
 | `effects/world.om` | The restart world check of the effect ledger: reads the target file, hashes it, decides DONE / NOT_DONE / UNRESOLVED like `effects::state_from`, and writes the reconcile record text and its sha256 like `effects::reconcile_text`. | Byte-identical to the Rust on 24 fixtures (`effects/run.sh`). Not wired into the daemon. |
 | `vendor/sha256.om` | Incremental SHA-256 in Omega, vendored from benchmarks-mv. | Exercised through `world.om`. |
+| `dsv4/fp4dq.om` | DeepSeek-V4-Flash routed-expert decoder: packed 4-bit e2m1 codes (low nibble first) times the E8M0 scale of each 32 weights, emitted as exact float32 bit patterns with integers only. | Host only. Bit-identical to DeepSeek's own decoder (`inference/convert.py` FP4_TABLE x torch E8M0) on all 16 x 256 code/scale pairs and on six real layer-5 expert matrices; 7 refusals, 3 mutants caught (`OMEGA_OMC=<seed omc> [DSV4_SHARD7=<shard>] bash om/dsv4/run.sh`). Not wired into the engine. |
 
 Run: `OMEGA_OMC=<path to seed omc> bash om/effects/run.sh` (needs the offline cargo cache for the Rust
 reference, `crates/aien-runtime/examples/om_world_reference.rs`).

@@ -1,0 +1,163 @@
+note SPDX-License-Identifier: Apache-2.0
+note DeepSeek-V4-Flash routed-expert weight decoder in seeded Omega (host only).
+note The checkpoint stores each routed expert matrix as packed 4-bit e2m1 codes (dtype I8,
+note shape [rows, cols/2], element 2j in the low nibble, 2j+1 in the high nibble) and one
+note E8M0 scale byte per 32 elements along a row (dtype F8_E8M0, shape [rows, cols/32]).
+note DeepSeek's decoder (inference/convert.py FP4_TABLE, then times scale.float()) gives
+note   value = table[code] * 2^(s-127), table = 0 .5 1 1.5 2 3 4 6, 0 -.5 -1 -1.5 -2 -3 -4 -6.
+note Code 8 is +0 in that table, not -0. Scale byte 255 is NaN; torch's float8_e8m0fnu.float()
+note gives the bits 0x7fc00001 for it, and the NaN propagates through the product, whatever the code.
+note This unit emits that float32 product as its exact IEEE-754 bit pattern, computed with
+note integers only, rounding to nearest even where the product is subnormal.
+note Input on stdin: rows (8 bytes little-endian), cols (8 bytes little-endian), then
+note rows*cols/2 packed weight bytes, then rows*cols/32 scale bytes; at most 16 MiB in total.
+note Output on stdout: rows*cols float32 values, little-endian, row-major.
+note Exit: 0 ok, 2 read error, 3 input over 16 MiB, 4 bad shape, 5 length mismatch, 9 write error.
+global inb uchar 16777216
+note hd: 0 rows, 1 cols, 2 input length, 3 scale offset.
+global hd ulong 4
+global ob uchar 16384
+global ow ulong 1
+
+note slurp: read all of stdin into inb; 64 outer passes cover the 16777216-byte buffer.
+fn slurp to int
+n = ulong 0
+for r ulong 64
+while lt n len inb bound 999999
+k = read 0 inb n sub len inb n
+if lt k 0
+ret 2
+end
+if eq k 0
+put hd 2 n
+ret 0
+end
+n = add n ulong k
+end
+end
+ret 3
+end
+
+note le8: little-endian 64-bit number at byte offset p.
+fn le8 p ulong to ulong
+v = ulong 0
+for i ulong 8
+v = or v shl ulong get inb add p i mul i 8
+end
+ret v
+end
+
+note flush: write ob to stdout, looping over partial writes, then empty it.
+fn flush to int
+o = ulong 0
+w = get ow 0
+while lt o w bound 16385
+k = write 1 ob o sub w o
+if le k 0
+ret 9
+end
+o = add o ulong k
+end
+put ow 0 0
+ret 0
+end
+
+note emit: append the 4 little-endian bytes of b, flushing when ob is full.
+fn emit b ulong to void
+w = get ow 0
+if ge w len ob
+if ne flush 0
+exit 9
+end
+w = ulong 0
+end
+for i ulong 4
+put ob add w i uchar and shr b mul i 8 255
+end
+put ow 0 add w 4
+end
+
+note rne: sig shifted right by sh (1..63), rounded to nearest, ties to even.
+fn rne sig ulong sh ulong to ulong
+if gt sh 40
+ret 0
+end
+q = shr sig sh
+r = and sig sub shl ulong 1 sh 1
+h = shl ulong 1 sub sh 1
+if or gt r h and eq r h eq and q 1 1
+q = add q 1
+end
+ret q
+end
+
+note bits: float32 bit pattern of table[c] * 2^(s-127).
+note Magnitude code m = 1..7 is (1 + f/2) * 2^e with (e, f) = (-1,0) (0,0) (0,1) (1,0) (1,1) (2,0) (2,1),
+note so the biased exponent of the product is e + s.
+fn bits c ulong s ulong to ulong
+if eq s 255
+ret 2143289345
+end
+m = and c 7
+if eq m 0
+ret 0
+end
+sg = shl and shr c 3 1 31
+note bp is the biased exponent plus one, so it never goes below zero: e + 1 = m/2 for m >= 2, 0 for m = 1.
+f = ulong 0
+bp = s
+if ge m 2
+f = and m 1
+bp = add s div m 2
+end
+if ge bp 256
+ret or sg 2139095040
+end
+if ge bp 2
+ret or or sg shl sub bp 1 23 shl f 22
+end
+sig = or shl ulong 1 23 shl f 22
+ret or sg rne sig sub 2 bp
+end
+
+note row: decode row r.
+fn row r ulong to void
+cols = get hd 1
+wb = add 16 mul r div cols 2
+sb = add get hd 3 mul r div cols 32
+for j ulong cols
+x = ulong get inb add wb div j 2
+c = and shr x mul and j 1 4 15
+s = ulong get inb add sb div j 32
+emit bits c s
+end
+end
+
+fn main to int
+e = slurp
+if ne e 0
+ret e
+end
+if lt get hd 2 16
+ret 5
+end
+rows = le8 0
+cols = le8 8
+if or or lt rows 1 lt cols 32 ne rem cols 32 0
+ret 4
+end
+if or gt rows 16777216 gt cols 16777216
+ret 4
+end
+so = add 16 div mul rows cols 2
+put hd 0 rows
+put hd 1 cols
+put hd 3 so
+if ne get hd 2 add so div mul rows cols 32
+ret 5
+end
+for r ulong rows
+row r
+end
+ret flush
+end
