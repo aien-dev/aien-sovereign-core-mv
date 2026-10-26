@@ -110,12 +110,23 @@ E = W_fp8 - Q_nv16 (sc q36_w4_lowrank.rs); the host computes `Q a + U (V a)`. Fr
    The arm runs C if (b-C) is GO, else P if (b-P) is GO, else no arm (NO-GO closes this lever). It uses exactly the screened
    sidecar.
 3. Verdict arm w4mdnlr (drift arm w4e-mdn-lr, AIEN_Q36_W4_LOWRANK=<sidecar>): ACCEPT = A (frozen rule, five goldens, control
-   rerun with this build: forced fp8 p1 equals forced-fp8-p1.json) AND B (h1..h5) AND C (paired block bootstrap vs w4mdn,
-   upper bound < 0), via `verdict-gptq.sh w4mdnlr w4mdn`. The mantissa mutant's REJECT receipt stands for the harness; it
-   is not rerun.
+   rerun with this build: forced fp8 p1 equals forced-fp8-p1.json) AND B' AND C', via `verdict-gptq.sh w4mdnlr w4mdn 6`.
+   Amended 2026-10-26 ~20:45Z, still before any low-rank number (Main, gate hygiene): every earlier arm has run h1..h5, so
+   they are no longer held out for a correction designed after seeing them. B' = R1 and R2 (same thresholds, 2560 steps) on
+   the fresh held-out set h6..h10 below, which no arm has run and which is absent from calib-v1.txt (grep, 0 hits each),
+   reference = the FP8 arm's own greedy ids on them. C' = paired block bootstrap NLL(w4mdnlr) - NLL(w4mdn) over the 5120
+   steps of A and B' (w4mdn also run on h6..h10), upper bound < 0. h1..h5 are not part of this verdict. The mantissa
+   mutant's REJECT receipt stands for the harness; it is not rerun.
+   h6 `The printing press changed European society because`
+   h7 `<|im_start|>user\nWhy does bread go stale, and how can I slow it down?<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n`
+   h8 `def merge_sorted(a, b):\n    result = []\n`
+   h9 `Plate tectonics explains how`
+   h10 `<|im_start|>user\nWrite a short note thanking a neighbour for watering my plants while I was away.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n`
 4. No retry: rank, damp, data and halves are fixed here. A REJECT closes the low-rank lever for m-dn; no rank sweep after
-   seeing numbers.
-5. Diagnostic (reported, not gated): forced fp8 and w4e-mdn on h1 with AIEN_L355_ROUTES=1, to attribute h1's flips to
-   layers; per-layer screen ratios.
+   seeing numbers. Calibration uses only calib-v1.txt's first 32,768 tokens (no gate prompt in it); no fit or selection
+   touches any golden or held-out prompt.
+5. Diagnostic only (reported, never gated, never fitted to, never excluded): h1 (4 of m-dn's 7 confident misses) and the
+   chat golden (most of A's drift, NLL 18.29 against FP8's 8.10) run forced fp8 and w4e-mdn with AIEN_L355_ROUTES=1, to
+   attribute flips to layers; per-layer screen ratios. m-dn's R2 confident without h1 (0.99836) is a diagnostic, not a pass.
 6. Every full-35B host load (hdump, forced and score runs) runs only inside an exclusive window Drake authorises (a second
    full load OOM-killed the live 35B on 2026-10-21); the plain screen reads weights only.
