@@ -436,6 +436,7 @@ pub fn run(root: &Path, ask: &Ask) -> Report {
                 pubkey_hex: key,
                 required: required.clone(),
                 require_full: false,
+                allow_host_only: false,
             };
             match bundle::verify(b, &expect) {
                 Ok(v) => {

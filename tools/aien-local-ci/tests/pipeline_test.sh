@@ -64,6 +64,7 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     --repo) repo=$2; shift 2 ;; --commit) commit=$2; shift 2 ;; --pubkey) key=$2; shift 2 ;; --require) shift 2 ;;
     --require-full) full=1; shift ;;
+    --allow-host-only) hostonly=1; shift ;;
     *) exit 2 ;;
   esac
 done
@@ -258,7 +259,7 @@ check "the tag is annotated" [ "$(git --git-dir="$T/origin-demo.git" cat-file -t
 check "tag message names the bundle digest" bash -c "git --git-dir='$T/origin-demo.git' cat-file -p 'refs/tags/alpha/$DAY.1' \
   | grep -qx 'bundle: sha256:$(sha256sum "$AIEN_STATE/bundles/demo/$X2/bundle.json" | cut -d' ' -f1)'"
 check "alpha verifies with --require-full and the base .aien/always" \
-  bash -c "tail -n +$((c0 + 1)) '$FAKE_LOG' | grep -q -- '--commit $X2 --pubkey $K2 --require g1,g2 --require-full'"
+  bash -c "tail -n +$((c0 + 1)) '$FAKE_LOG' | grep -q -- '--commit $X2 --pubkey $K2 --require g1,g2 --require-full --allow-host-only'"
 check "full FAIL is skipped with its verdict" [ "$(jl ".action==\"alpha\" and .sha==\"$X3\" and (.reason|test(\"FAIL\"))")" = 1 ]
 check "changed-scope bundle is never a candidate" bash -c "! tail -n +$((c0 + 1)) '$FAKE_LOG' | grep -q -- '--commit $X4 '"
 check "a head not on main is never tagged" [ -z "$(git --git-dir="$T/origin-demo.git" tag -l 'alpha/*' --points-at "$XB")" ]

@@ -109,14 +109,18 @@ keys() {
     | grep -E '^[0-9a-f]{64}$' || true
 }
 
-# verify FILE REPO SHA KEYS [REQUIRE] [full]: verify-bundle with every key; prints the best exit code (0, 1, 2, 3,
-# other) and the list of codes. --repo and --commit come from the caller (the path), never from the bundle. A sixth
-# argument "full" adds --require-full: only a full-scope (Alpha) qualification can pass.
+# verify FILE REPO SHA KEYS [REQUIRE] [full] [hostonly]: verify-bundle with every key; prints the best exit code
+# (0, 1, 2, 3, other) and the list of codes. --repo and --commit come from the caller (the path), never from the
+# bundle. A sixth argument "full" adds --require-full: only a full-scope (Alpha) qualification can pass. A seventh
+# argument "hostonly" adds --allow-host-only, which the alpha pass sets only when the repository's own gate
+# manifests at origin/main declare no gb10 gate (see declares_gb10): a repository that declares one still needs
+# its GPU run, so the Alpha rule keeps its teeth where it was written for.
 verify() {
-  local file=$1 repo=$2 sha=$3 keylist=$4 require=${5:-} scope=${6:-} key rc codes="" best=""
+  local file=$1 repo=$2 sha=$3 keylist=$4 require=${5:-} scope=${6:-} hostonly=${7:-} key rc codes="" best=""
   local extra=()
   [[ -n $require ]] && extra+=(--require "$require")
   [[ $scope == full ]] && extra+=(--require-full)
+  [[ $hostonly == hostonly ]] && extra+=(--allow-host-only)
   while IFS= read -r key; do
     [[ -n $key ]] || continue
     rc=0
@@ -126,6 +130,13 @@ verify() {
   done <<< "$keylist"
   for rc in 0 1 2 3; do [[ ,$codes, == *",$rc,"* ]] && { best=$rc; break; }; done
   echo "${best:-${codes%%,*}} ${codes:-none}"
+}
+
+# declares_gb10 CLONE REF: false only when the repository at REF has gate manifests and none of them requires
+# gb10. Reads the committed tree, so a stale or dirty working copy cannot answer for the repository. A repository
+# with no *.gate manifest at all is treated as host-only: it declares no GPU work to prove.
+declares_gb10() {
+  "$GIT" -C "$1" grep -q -l -e gb10 "$2" -- '*.gate' 2>/dev/null
 }
 
 verdict_name() { case "$1" in 0) echo PASS ;; 1) echo FAIL ;; 2) echo NOT_RUN ;; 3) echo REJECTED ;; *) echo "EXIT_$1" ;; esac; }
@@ -341,6 +352,10 @@ do_alpha() {
       journal action=alpha repo="$repo" result=skipped reason="not enrolled (no key in origin/main:.aien/verify.pub)"; continue
     fi
     require=$("$GIT" -C "$clone" show "origin/main:.aien/always" 2>/dev/null | grep -v '^#' | grep -v '^$' | paste -sd, - || true)
+    # An Alpha needs a gb10 receipt only where the repository has a GPU gate to prove. The manifests are in
+    # the trusted clone at origin/main, not in the bundle, so this is the caller's decision to make.
+    hostonly=""
+    declares_gb10 "$clone" origin/main || hostonly=hostonly
     best_sha="" best_time=0
     while IFS= read -r sha; do
       "$GIT" -C "$clone" merge-base --is-ancestor "$sha" origin/main 2>/dev/null || continue
@@ -348,7 +363,7 @@ do_alpha() {
       (( t > best_time )) || continue
       tmp=$WORK/alpha.json
       "$GIT" -C "$RECEIPTS" show "origin/$RECEIPTS_BRANCH:$repo/$sha/bundle.json" > "$tmp" 2>/dev/null || continue
-      v=$(verify "$tmp" "$repo" "$sha" "$keylist" "$require" full); best=${v%% *}
+      v=$(verify "$tmp" "$repo" "$sha" "$keylist" "$require" full "$hostonly"); best=${v%% *}
       if [[ $best != 0 ]]; then
         journal action=alpha repo="$repo" sha="$sha" result=skipped reason="verify-bundle --require-full $(verdict_name "$best")"
         continue

@@ -216,6 +216,12 @@ pub struct Expect {
     /// `--require-full`: refuse (NOT_FULL_SCOPE) unless the signed plan scope
     /// is `full`.
     pub require_full: bool,
+    /// `--allow-host-only`: with `--require-full`, accept a full-scope PASS
+    /// that carries no gb10 receipt. For a repository whose own gate manifests
+    /// declare no GPU gate: the caller reads those manifests and passes this
+    /// flag only when none of them requires `gb10`, so a repository that does
+    /// declare one still needs its GPU run.
+    pub allow_host_only: bool,
 }
 
 // ---------------------------------------------------------------- hex
@@ -558,7 +564,7 @@ pub fn verify(bundle: &Value, expect: &Expect) -> Result<Verified, Reject> {
     if expect.require_full && scope != SCOPE_FULL {
         return Err(Reject::NotFullScope(scope));
     }
-    if expect.require_full {
+    if expect.require_full && !expect.allow_host_only {
         gpu_receipt(&entries)?;
     }
     for g in &expect.required {
@@ -658,10 +664,13 @@ pub const USAGE: &str = "usage:
   aien-test verify-bundle BUNDLE.json --repo github.com/OWNER/REPO --commit SHA40 --pubkey FILE_OR_HEX [--require GATE[,GATE...]] [--require-full]
   --require-full: REJECTED unless the signed plan scope is full (an Alpha qualification)
                   and a required gb10 check passed on the GPU (NO_GPU_RECEIPT otherwise)
+  --allow-host-only: with --require-full, accept a full-scope PASS with no gb10 receipt.
+                  Only for a repository whose own gate manifests declare no GPU gate; the
+                  caller reads them, so a repository that declares one still needs its GPU run
 exit: 0 PASS, 1 FAIL, 2 NOT_RUN or usage, 3 REJECTED";
 
 /// Flags of the bundle commands that take no value.
-const BOOL_FLAGS: [&str; 1] = ["--require-full"];
+const BOOL_FLAGS: [&str; 2] = ["--require-full", "--allow-host-only"];
 
 pub fn is_bundle_command(name: &str) -> bool {
     matches!(name, "keygen" | "bundle-sign" | "verify-bundle")
@@ -756,6 +765,7 @@ fn cli_inner(argv: &[String]) -> Result<i32, String> {
                 pubkey_hex,
                 required,
                 require_full: argv[1..].iter().any(|a| a == "--require-full"),
+                allow_host_only: argv[1..].iter().any(|a| a == "--allow-host-only"),
             };
             match verify(&bundle, &expect) {
                 Ok(v) => {
@@ -845,6 +855,7 @@ mod tests {
             pubkey_hex: hex_encode(sk.verifying_key().as_bytes()),
             required: vec!["crumb.verify".to_string(), "crypto.native".to_string()],
             require_full: false,
+            allow_host_only: false,
         };
         (sk, signed, expect)
     }
@@ -1164,6 +1175,36 @@ mod tests {
             "AIEN Verification: REJECTED NO_GPU_RECEIPT: an Alpha needs a required check on \
              backend gb10 that ran on the Spark's GPU, and this full-scope bundle has none \
              (checks by backend: spark=2; gb10 checks: none)"
+        );
+    }
+
+    /// A repository whose own gate manifests declare no GPU gate can still be
+    /// an Alpha: the caller reads those manifests and passes --allow-host-only.
+    /// The same bundle without the flag stays rejected, so the flag is a
+    /// caller decision about the repository, never a property of the bundle.
+    #[test]
+    fn allow_host_only_accepts_a_host_scope_pass_only_when_the_caller_says_so() {
+        let (sk, _, e) = good();
+        let mut strict = e.clone();
+        strict.require_full = true;
+        let b = full_scope(&sk, vec![], "PASS");
+        assert_eq!(verify(&b, &strict).unwrap_err().code(), "NO_GPU_RECEIPT");
+        let mut host_only = strict.clone();
+        host_only.allow_host_only = true;
+        let v = verify(&b, &host_only).expect("host-only Alpha for a repository with no GPU gate");
+        assert_eq!((v.scope.as_str(), v.gate_verdict()), ("full", "PASS"));
+        // A gb10 check that ran is a receipt whatever its verdict: the bundle is
+        // then simply FAIL, and the flag never turns a failure into an Alpha.
+        let failing = full_scope(
+            &sk,
+            vec![gpu_check("gpu.serve-chat", true, "run", "FAIL")],
+            "FAIL",
+        );
+        assert_eq!(
+            verify(&failing, &host_only)
+                .expect("a gb10 check ran, so there is a receipt to judge")
+                .gate_verdict(),
+            "FAIL"
         );
     }
 
