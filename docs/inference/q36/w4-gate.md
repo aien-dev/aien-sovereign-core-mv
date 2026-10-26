@@ -90,3 +90,32 @@ Order and go / no-go, decided now:
    Order (written after the split, before any mixed run): m-gu first (more bytes off: 0.708 of FP8 expert bytes, calc:449379b7), m-dn only
    if m-gu REJECTs. Host arms w4e-mgu / w4e-mdn on the nv16 store, every 35B load under q36-extra (L366), one at a time.
    Sanity (reported, not gated): the mixed arm's per-prompt mean NLL beside the FP8 arm's and w4e's.
+
+## Low-rank arm (written 2026-10-26 before any low-rank number; lane W4Correct, Drake approved; stricter than the rule above, never looser)
+Arm m-dn (FP8 gate|up, nv16 down from q36-nv16-v1.store, shared expert as in m-dn) missed only B's confident line
+(0.99691 < 0.998, 7 confident misses of 2267, h1 4 of them). This arm adds to every down matrix (40 layers x 256 routed + the
+shared expert = 10,280) a rank-16 term C = U V, U `[2048][16]`, V `[16][512]`, bf16, fitted to nv16's rounding error
+E = W_fp8 - Q_nv16 (sc q36_w4_lowrank.rs); the host computes `Q a + U (V a)`. Frozen now:
+1. Rank r = 16 for every matrix. Bytes: 81,920 per down matrix, sidecar 842,137,664 B (40 x 257 records + 64 B header).
+   MODELED (Wolfram): 0.1785 of m-dn's per-expert saving (budget: at most a quarter, r <= 22); expert bytes 0.8802 of FP8
+   (m-dn 0.8541).
+2. Two fits, one verdict arm:
+   P (plain): best rank-16 approximation of E in Frobenius norm. Screen (b-P): sum |E - UV|^2 <= 0.5 x sum |E|^2 over
+      all 10,280 matrices (after bf16 rounding of U and V). Needs no forward pass.
+   C (calibrated): H = sum g^2 a a^T of each down input (q36_w4_gptq Calib::add_dn, g the router weight or shared gate),
+      FP8 host reference on the first 32,768 tokens of ~/handoffs/l355/calib/calib-v1.txt (GPTQ's calibration file, windows
+      of 2048, chunks of 512). Fit on half A (tokens 0..16383): with H_A + 0.01 mean(diag) I = L L^T (GPTQ's damp),
+      C = E L R R^T L^-1, R the top 16 eigenvectors of L^T E^T E L; slots half A never reached fit as P. Screen (b-C) on the
+      held-out half B: sum tr(D H_B D^T) <= 0.5 x sum tr(E H_B E^T), D = E - UV, over slots half B reached.
+   The arm runs C if (b-C) is GO, else P if (b-P) is GO, else no arm (NO-GO closes this lever). It uses exactly the screened
+   sidecar.
+3. Verdict arm w4mdnlr (drift arm w4e-mdn-lr, AIEN_Q36_W4_LOWRANK=<sidecar>): ACCEPT = A (frozen rule, five goldens, control
+   rerun with this build: forced fp8 p1 equals forced-fp8-p1.json) AND B (h1..h5) AND C (paired block bootstrap vs w4mdn,
+   upper bound < 0), via `verdict-gptq.sh w4mdnlr w4mdn`. The mantissa mutant's REJECT receipt stands for the harness; it
+   is not rerun.
+4. No retry: rank, damp, data and halves are fixed here. A REJECT closes the low-rank lever for m-dn; no rank sweep after
+   seeing numbers.
+5. Diagnostic (reported, not gated): forced fp8 and w4e-mdn on h1 with AIEN_L355_ROUTES=1, to attribute h1's flips to
+   layers; per-layer screen ratios.
+6. Every full-35B host load (hdump, forced and score runs) runs only inside an exclusive window Drake authorises (a second
+   full load OOM-killed the live 35B on 2026-10-21); the plain screen reads weights only.
