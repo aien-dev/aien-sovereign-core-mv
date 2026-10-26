@@ -79,12 +79,14 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Paths whose change blocks a commit unless the operator says otherwise.
-pub const PIPELINE_CONFIG: [&str; 5] = [
+pub const PIPELINE_CONFIG: [&str; 7] = [
     ".aien/",
     "tests/gates/",
     ".github/workflows/",
     ".forgejo/",
     "tools/aien-test/",
+    "crumb.lock",
+    "tools/crumb/",
 ];
 pub const ALWAYS_FILE: &str = ".aien/always";
 pub const UNMAPPED_OK_FILE: &str = ".aien/unmapped-ok";

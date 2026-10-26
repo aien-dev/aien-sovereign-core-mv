@@ -228,6 +228,13 @@ fn parse_args() -> Result<Args, String> {
     if let Some(v) = a.wp_device_host {
         a.prefill.device_host = v;
     }
+    a.cfg.bearer_token = std::env::var("AIEN_SERVE_HTTP_BEARER_TOKEN")
+        .map_err(|_| "AIEN_SERVE_HTTP_BEARER_TOKEN must be set to a nonempty private credential".to_string())?;
+    if a.cfg.bearer_token.is_empty()
+        || !a.cfg.bearer_token.bytes().all(|b| b.is_ascii_graphic())
+    {
+        return Err("AIEN_SERVE_HTTP_BEARER_TOKEN must be nonempty printable ASCII".into());
+    }
     Ok(a)
 }
 

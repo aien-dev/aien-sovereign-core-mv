@@ -434,6 +434,7 @@ fn switch_off_reads_only_the_store_dir_and_changes_nothing() {
     let cfg = ServerConfig {
         port: 0,
         model_id: "m".into(),
+        bearer_token: "integration-test-private-credential".into(),
         ..ServerConfig::default()
     };
     let (addr, _h) = rt
@@ -455,6 +456,7 @@ fn health_reports_the_persistence_counters_when_on() {
     let cfg = ServerConfig {
         port: 0,
         model_id: "m".into(),
+        bearer_token: "integration-test-private-credential".into(),
         ..ServerConfig::default()
     };
     let (addr, _h) = rt
@@ -802,6 +804,7 @@ fn a_graceful_shutdown_releases_the_engine_and_flushes_the_parks() {
     let cfg = ServerConfig {
         port: 0,
         model_id: "m".into(),
+        bearer_token: "integration-test-private-credential".into(),
         ..ServerConfig::default()
     };
     let (tx, rx) = tokio::sync::oneshot::channel::<()>();

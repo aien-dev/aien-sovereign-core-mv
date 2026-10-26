@@ -843,7 +843,7 @@ fn remove_checkout(co: &Checkout, made: &[(PathBuf, PathBuf)]) {
     }
 }
 
-fn crumb(cfg: &Config, wt: &Path, args: &[&str], notes: &mut Vec<String>) {
+fn crumb(cfg: &Config, clone: &Path, sha: &str, wt: &Path, args: &[&str], notes: &mut Vec<String>) {
     let Some(c) = &cfg.crumb else {
         return;
     };
@@ -854,7 +854,22 @@ fn crumb(cfg: &Config, wt: &Path, args: &[&str], notes: &mut Vec<String>) {
         ));
         return;
     }
-    match run_cmd(wt, c, args) {
+    let base = match plan::base_for(clone, &cfg.base_ref, sha) {
+        Ok((base, _)) => base,
+        Err(e) => {
+            notes.push(format!("crumb {}: no trusted base: {e}", args[0]));
+            return;
+        }
+    };
+    let tool = match verify::crumb_tool_for(clone, &base, c, &cfg.state.root.join("crumb-tool")) {
+        verify::CrumbTool::Pinned { path, .. } => path,
+        verify::CrumbTool::Unpinned(path) => PathBuf::from(path),
+        verify::CrumbTool::Unavailable(why) => {
+            notes.push(format!("crumb {}: trusted tool unavailable: {why}", args[0]));
+            return;
+        }
+    };
+    match run_cmd(wt, &tool.to_string_lossy(), args) {
         Ok(_) => {}
         Err(e) => notes.push(format!("crumb {}: {e}", args[0])),
     }
@@ -963,6 +978,8 @@ pub fn run_once_in(
     );
     crumb(
         cfg,
+        &clone,
+        sha,
         &wt,
         &[
             "close",
@@ -1013,19 +1030,6 @@ fn run_in_worktree(
     let HeadCache { fresh, pins, share } = hc;
     let (clone, wt) = (co.clone.as_path(), co.wt.as_path());
     let started = now_secs();
-    crumb(
-        cfg,
-        wt,
-        &[
-            "claim",
-            "aien-worker",
-            ".",
-            "worker",
-            "local verification",
-            "7200",
-        ],
-        notes,
-    );
     let repository = plan::repository_name(clone, None);
 
     // Plan against the base ref; a head already on the base line is planned
@@ -1038,6 +1042,13 @@ fn run_in_worktree(
     req.full = cfg.full;
     req.hardware_identity = cfg.hardware_identity.clone();
     let plan = plan::compute(wt, &req)?;
+    if !plan.entries.iter().any(|entry| entry.section == plan::Section::Blocked) {
+        crumb(
+            cfg, clone, sha, wt,
+            &["claim", "aien-worker", ".", "worker", "local verification", "7200"],
+            notes,
+        );
+    }
 
     // Run what the plan selects, through the sandbox and the pools.
     cfg.state.beat(repo, sha, "run");

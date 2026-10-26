@@ -1307,13 +1307,15 @@ fn checkpoint_digest(path: &std::path::Path) -> Result<CheckpointDigest, String>
     }
     let files = aien_inference_abi::checkpoint_files(path).map_err(|e| e.to_string())?;
     let sha = |p: &std::path::Path| {
-        sha256_file_hex(p).map_err(|e| {
-            if p == path {
-                e.to_string()
-            } else {
-                format!("{}: {}", p.display(), e)
-            }
-        })
+        aien_inference_abi::checkpoint_sha256(p)
+            .map(hex::encode)
+            .map_err(|e| {
+                if p == path {
+                    e.to_string()
+                } else {
+                    format!("{}: {}", p.display(), e)
+                }
+            })
     };
     let Some(index) = files.index else {
         let Some((_, file)) = files.weights.first() else {
@@ -3079,6 +3081,21 @@ mod tests {
         std::fs::write(shard(2), bytes).unwrap();
         let changed = load().manifest.model_sha256.unwrap();
         assert_ne!(changed, digest, "a changed shard must change the digest");
+    }
+
+    #[test]
+    fn checkpoint_digest_refuses_index_escape_before_hashing() {
+        let dir = tempfile::tempdir().unwrap();
+        let model = dir.path().join("model");
+        std::fs::create_dir(&model).unwrap();
+        std::fs::write(dir.path().join("outside.safetensors"), b"fixture").unwrap();
+        let index = model.join("model.safetensors.index.json");
+        std::fs::write(
+            &index,
+            r#"{"weight_map":{"w":"../outside.safetensors"}}"#,
+        )
+        .unwrap();
+        assert!(checkpoint_digest(&index).is_err());
     }
 
     /// sc#338 review: the digest changes no refusal. A model directory as the

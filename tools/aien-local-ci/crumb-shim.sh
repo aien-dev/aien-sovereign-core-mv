@@ -16,26 +16,16 @@
 
 # crumb (operator shim, installed as ~/.local/bin/crumb on the Spark).
 #
-# Runs the crumb tool that the repository's own CRUMB-VERIFY gate uses, so the person or agent that
-# compiles crumbs, the worker's readiness check (aien-test verify runs the bare name "crumb") and the
-# gate can never disagree about which tool is right. Root cause it closes (2026-10-18 crumb failures):
-# four places picked a crumb tool four different ways, and ~/.local/bin/crumb was a fixed 94fffbcf
-# build, so omega/aienos/physics mains (pinned d0f0b95d) and every RFC-0003 Am1 migrated tree read
-# "stale" outside their own gate.
+# Select authority from the target repository's origin/main, never from its
+# working tree or HEAD. A candidate may alter crumb.lock or tools/crumb but
+# cannot cause the operator shim to build or execute those sources.
 #
-# Rule, the same order the gates use (tests/gates/run.sh in each repo):
-#   1. the tree has crumb.lock      -> the aien-architecture commit it names, built from the trusted
-#                                      clone (git archive + make, like the gate), cached by commit
-#   2. the tree is aien-architecture -> the tool in that tree (tools/crumb/crumb.c + Makefile), cached
-#      (has tools/crumb/crumb.c)        by content hash, like its gate
-#   3. anything else                 -> the sandbox tool /usr/local/bin/crumb, which is what
-#                                      "${CRUMB:-crumb}" resolves to inside the gate sandbox
-# A pin that cannot be built is an error (exit 97). Never a silent fallback: a fallback to some other
-# tool is exactly the bug this file exists to stop.
-#
-# The tree is the git top level of the first argument that names an existing path, else of the
-# current directory. Env: CRUMB_SHIM_WHICH=1 prints "<tool> <rule> <root>" and exits 0 (doctor, tests).
-# CRUMB_SANDBOX_TOOL, CRUMB_TOOL_CACHE, CRUMB_ARCH_CLONE override locations (tests only).
+# The trusted main's crumb.lock pins an ancestor of aien-architecture
+# origin/main. Only the architecture clone itself may use its own main's tool.
+# Other trees use the installed sandbox tool. No failed pin falls back.
+# CRUMB_SHIM_WHICH=1 prints "<tool> <rule> <root>" without running the tool.
+# Location overrides are for offline fixtures; operator installs use trusted
+# clone/cache/sandbox paths.
 set -u
 SANDBOX=${CRUMB_SANDBOX_TOOL:-/usr/local/bin/crumb}
 CACHE=${CRUMB_TOOL_CACHE:-$HOME/.local/state/aien-local-ci/crumb-tools}
@@ -50,8 +40,9 @@ for a in "$@"; do
 done
 [ -d "$target" ] || target=$(dirname -- "$target")
 root=$(git -C "$target" rev-parse --show-toplevel 2>/dev/null || true)
+arch_root=$(git -C "$ARCH" rev-parse --show-toplevel 2>/dev/null || true)
 
-build_into() {  # build_into <final-path> <src-dir containing Makefile+crumb.c>; atomic rename
+build_into() {  # build_into <final-path> <archived trusted tools/crumb>
   local final=$1 src=$2 tmpb
   mkdir -p "$(dirname -- "$final")" || die "cannot create $(dirname -- "$final")"
   make -s -C "$src" crumb >&2 || die "make crumb failed in $src"
@@ -59,29 +50,38 @@ build_into() {  # build_into <final-path> <src-dir containing Makefile+crumb.c>;
   cp "$src/crumb" "$tmpb" && chmod 0755 "$tmpb" && mv -f "$tmpb" "$final" || { rm -f "$tmpb"; die "install $final"; }
 }
 
+archive_tool() { # archive_tool <commit> <cache path>
+  local w
+  [ -x "$2" ] && return
+  w=$(mktemp -d) || die mktemp
+  trap 'rm -rf "$w"' EXIT
+  git -C "$ARCH" archive "$1" tools/crumb | tar -x -C "$w" || die "git archive $1 tools/crumb"
+  [ -f "$w/tools/crumb/Makefile" ] && [ -f "$w/tools/crumb/crumb.c" ] || die "missing tools/crumb at $1"
+  build_into "$2" "$w/tools/crumb"
+  rm -rf "$w"; trap - EXIT
+}
+
 tool=""; rule=""
-if [ -n "$root" ] && [ -f "$root/crumb.lock" ]; then
-  pin=$(tr -d '[:space:]' < "$root/crumb.lock" | tr 'A-F' 'a-f')
-  [[ $pin =~ ^[0-9a-f]{40}$ ]] || die "$root/crumb.lock is not one 40-hex commit"
-  tool=$CACHE/$pin/crumb; rule="crumb.lock:$pin"
-  if [ ! -x "$tool" ]; then
-    git -C "$ARCH" cat-file -e "$pin^{commit}" 2>/dev/null || git -C "$ARCH" fetch -q origin 2>/dev/null
-    git -C "$ARCH" cat-file -e "$pin^{commit}" 2>/dev/null || die "crumb.lock pin $pin is not in $ARCH"
-    w=$(mktemp -d) || die mktemp; trap 'rm -rf "$w"' EXIT
-    git -C "$ARCH" archive "$pin" tools/crumb | tar -x -C "$w" || die "git archive $pin tools/crumb"
-    build_into "$tool" "$w/tools/crumb"
-    rm -rf "$w"; trap - EXIT   # exec below skips EXIT traps
+if [ -n "$root" ]; then
+  main=$(git -C "$root" rev-parse --verify -q 'refs/remotes/origin/main^{commit}') \
+    || die "no trusted origin/main in $root"
+  if lock=$(git -C "$root" show "$main:crumb.lock" 2>/dev/null); then
+    pin=$(printf '%s' "$lock" | tr -d '[:space:]' | tr 'A-F' 'a-f')
+    [[ $pin =~ ^[0-9a-f]{40}$ ]] || die "origin/main crumb.lock is not one 40-hex commit"
+    [ -n "$arch_root" ] || die "no architecture clone at $ARCH"
+    git -C "$ARCH" merge-base --is-ancestor "$pin" refs/remotes/origin/main 2>/dev/null \
+      || die "origin/main crumb.lock pin $pin is not in architecture origin/main ancestry"
+    tool=$CACHE/$pin/crumb; rule="crumb.lock:$pin"
+    archive_tool "$pin" "$tool"
+  elif [ -n "$arch_root" ] && [ "$root" = "$arch_root" ]; then
+    git -C "$ARCH" cat-file -e "$main:tools/crumb/crumb.c" 2>/dev/null \
+      && git -C "$ARCH" cat-file -e "$main:tools/crumb/Makefile" 2>/dev/null \
+      || die "architecture origin/main has no tools/crumb source"
+    tool=$CACHE/main-$main/crumb; rule="architecture-main:$main"
+    archive_tool "$main" "$tool"
   fi
-elif [ -n "$root" ] && [ -f "$root/tools/crumb/crumb.c" ] && [ -f "$root/tools/crumb/Makefile" ]; then
-  key=$(cat "$root/tools/crumb/Makefile" "$root/tools/crumb/crumb.c" | sha256sum | cut -c1-16)
-  tool=$CACHE/tree-$key/crumb; rule="tree:$key"
-  if [ ! -x "$tool" ]; then
-    w=$(mktemp -d) || die mktemp; trap 'rm -rf "$w"' EXIT
-    cp "$root/tools/crumb/Makefile" "$root/tools/crumb/crumb.c" "$w/" || die "copy tree tool"
-    build_into "$tool" "$w"
-    rm -rf "$w"; trap - EXIT
-  fi
-else
+fi
+if [ -z "$tool" ]; then
   tool=$SANDBOX; rule=sandbox
   [ -x "$tool" ] || die "sandbox tool $tool is missing"
 fi

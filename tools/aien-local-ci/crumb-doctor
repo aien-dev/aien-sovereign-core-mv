@@ -1,26 +1,16 @@
 #!/usr/bin/env bash
 # crumb-doctor: the Spark check that crumb failures cannot come back unnoticed (2026-10-19).
 #
-# Root causes it guards (evidence: ~/workspace/crumb-rootcause on the Spark, handoff 2026-10-19-crumb-failures.md):
-#  A. Tool skew. A crumb verdict depends on which crumb build runs it, and four consumers picked a build four ways:
-#     the repo's CRUMB-VERIFY gate (crumb.lock / own tree / sandbox tool), the worker's readiness check (bare "crumb"
-#     on the worker's PATH), the required hosted "AIEN Verification" (a pin in its workflow) and the author's own
-#     "crumb compile". When they disagree, green heads publish as BLOCKED/error and authors commit crumbs the gate
-#     calls stale. ~/.local/bin/crumb (the author + readiness tool) is now the shim in crumb-shim.sh.
-#  B. Stale operator config. Workers read the sibling map from the WORK TREE of the trusted aien-sovereign-core
-#     clone, which nothing moved after 2026-10-11, so repos enrolled later ran CRUMB-VERIFY without their sibling
-#     (synapse: "../aien-architecture is missing", exit 3, 30 failed judgements 2026-10-16..18).
+# The operator may inspect candidate crumbs, but must never build or run a
+# candidate-selected gate, hosted tool, Makefile or pin. Main's gate, hosted
+# pin and architecture source are the only authority for tool comparisons.
+# Candidate changes to that authority need operator promotion, not a verdict
+# obtained by executing the PR's own tool. Exit 1 keeps promotion visible in
+# the CRUMB-DRIFT alarm until the change lands on trusted main.
 #
-# Checks
-#   AGREE   <repo> <rev>  gate, hosted and readiness tools give the same `crumb verify` verdict on origin/main and
-#                         on every open PR that changes a crumb tool pin (crumb.lock, the hosted workflow,
-#                         tools/crumb, install.sh) or is an RFC-0003 migration.
-#   SIBMAP  <file>        every sibling map a worker reads equals origin/main's and covers every need_sibling / pin
-#                         the repos' tests/gates/run.sh ask for.
-# Options: --heal (move the trusted clone's work tree to origin/main when clean), --heal-only (just that; cheap, for
-# every cron tick), --alert (CRUMB-DRIFT line in the aien-watch ALERT, which the gh guard and the chat hook show;
-# removed when green), --no-prs (mains only), --repos a,b. Exit 0 all PASS, 1 any FAIL.
-# No Python (lane rule). Needs git, make, cc, sha256sum, gh (only without --no-prs).
+# --heal moves only a clean trusted clone to origin/main; --heal-only just
+# heals it. --alert maintains the CRUMB-DRIFT alert. --no-prs skips PR metadata.
+# --repos selects repos. No candidate command is run.
 set -u
 CLONES=${AIEN_CLONES:-$HOME/workspace/pipeline/clones}
 STATE=${AIEN_STATE:-$HOME/.local/state/aien-local-ci}
@@ -30,7 +20,7 @@ WATCH=${AIEN_WATCH_STATE:-$HOME/.local/state/aienos/watch}
 ARCH=$CLONES/aien-architecture
 TRUSTED=$CLONES/aien-sovereign-core
 REPOS="aien-sovereign-core omega aienos physics aien-protocols aegis-runtime spark-rsi aien-architecture benchmarks synapse interplane"
-TOOL_RE='(^|/)crumb\\.lock$|^\\.github/workflows/aien-verification\\.yml$|^tools/crumb/|^tools/aien-local-ci/install\\.sh$'
+TOOL_RE='(^|/)crumb\\.lock$|^\\.github/workflows/aien-verification\\.yml$|^tools/crumb/|^tools/aien-local-ci/install\\.sh$|^tests/gates/run\\.sh$'
 HEAL=0 HEAL_ONLY=0 ALERT=0 NOPRS=0
 while [ $# -gt 0 ]; do
   case $1 in
@@ -47,56 +37,73 @@ record() {  # record STATUS CHECK SUBJECT DETAIL
 g() { git -c advice.detachedHead=false "$@"; }
 sha8() { [ -e "$1" ] && sha256sum "$1" | cut -c1-8 || echo -; }
 
-install_tool() {  # install_tool <final> <dir with Makefile+crumb.c>: build, atomic rename
+install_tool() {  # install_tool <final> <archived trusted tools/crumb>
   local final=$1 src=$2 tmp
   make -s -C "$src" crumb >&2 || return 1
   mkdir -p "$(dirname "$final")"; tmp=$(mktemp "$(dirname "$final")/.crumb.XXXXXX") || return 1
   cp "$src/crumb" "$tmp" && chmod 0755 "$tmp" && mv -f "$tmp" "$final"
 }
-build_pin() {  # build_pin <40-hex>: prints the crumb build of that aien-architecture commit (what crumb.lock gates run)
+build_pin() {  # only an architecture origin/main ancestor may become an operator tool
   local pin=$1 tool=$CACHE/$1/crumb w
+  [[ $pin =~ ^[0-9a-f]{40}$ ]] || return 1
+  git -C "$ARCH" merge-base --is-ancestor "$pin" refs/remotes/origin/main 2>/dev/null || return 1
   if [ ! -x "$tool" ]; then
-    git -C "$ARCH" cat-file -e "$pin^{commit}" 2>/dev/null || git -C "$ARCH" fetch -q origin 2>/dev/null
-    w=$(mktemp -d)
-    git -C "$ARCH" archive "$pin" tools/crumb 2>/dev/null | tar -x -C "$w" && install_tool "$tool" "$w/tools/crumb"
-    rm -rf "$w"
+    w=$(mktemp -d) || return 1
+    if ! git -C "$ARCH" archive "$pin" tools/crumb 2>/dev/null | tar -x -C "$w" \
+      || [ ! -f "$w/tools/crumb/Makefile" ] || [ ! -f "$w/tools/crumb/crumb.c" ]; then
+      rm -rf "$w"; return 1
+    fi
+    install_tool "$tool" "$w/tools/crumb"; local rc=$?
+    rm -rf "$w"; [ "$rc" = 0 ] || return 1
   fi
   [ -x "$tool" ] && echo "$tool"
 }
-build_tree() {  # build_tree <tree>: the tool in an aien-architecture tree (its gate builds tools/crumb/crumb.c)
-  local key tool w
-  key=$(cat "$1/tools/crumb/Makefile" "$1/tools/crumb/crumb.c" | sha256sum | cut -c1-16); tool=$CACHE/tree-$key/crumb
+build_arch_main() { # only architecture's origin/main, never a checked-out candidate
+  local main tool w
+  main=$(git -C "$ARCH" rev-parse --verify -q 'refs/remotes/origin/main^{commit}') || return 1
+  tool=$CACHE/main-$main/crumb
   if [ ! -x "$tool" ]; then
-    w=$(mktemp -d); cp "$1/tools/crumb/Makefile" "$1/tools/crumb/crumb.c" "$w/" && install_tool "$tool" "$w"; rm -rf "$w"
+    w=$(mktemp -d) || return 1
+    if ! git -C "$ARCH" archive "$main" tools/crumb 2>/dev/null | tar -x -C "$w" \
+      || [ ! -f "$w/tools/crumb/Makefile" ] || [ ! -f "$w/tools/crumb/crumb.c" ]; then
+      rm -rf "$w"; return 1
+    fi
+    install_tool "$tool" "$w/tools/crumb"; local rc=$?
+    rm -rf "$w"; [ "$rc" = 0 ] || return 1
   fi
   [ -x "$tool" ] && echo "$tool"
 }
-gate_tool() {  # gate_tool <tree>: "<tool>|<desc>" for what the repo's OWN tests/gates/run.sh crumb-verify step runs
+gate_tool() {  # gate_tool <main tree> <repo>: never pass a PR tree
   local step pin
   step=$(awk '/^[[:space:]]*crumb-verify\)/{on=1} on{print} on&&/;;/{exit}' "$1/tests/gates/run.sh" 2>/dev/null)
-  if [[ $step == *crumb.lock* ]]; then pin=$(tr -d '[:space:]' < "$1/crumb.lock" | tr 'A-F' 'a-f'); echo "$(build_pin "$pin")|crumb.lock ${pin:0:8}"
-  elif [[ $step == *tools/crumb/crumb.c* ]]; then echo "$(build_tree "$1")|tree tools/crumb"
-  elif [[ $step == *'CRUMB:-crumb'* || $step == *'crumb verify'* ]]; then echo "$SANDBOX|sandbox $(sha8 "$SANDBOX")"
+  if [[ $step == *crumb.lock* ]]; then
+    pin=$(tr -d '[:space:]' < "$1/crumb.lock" | tr 'A-F' 'a-f')
+    echo "$(build_pin "$pin")|crumb.lock ${pin:0:8}"
+  elif [ "$2" = aien-architecture ] && [[ $step == *tools/crumb/crumb.c* ]]; then
+    echo "$(build_arch_main)|architecture origin/main tool"
+  elif [[ $step == *'CRUMB:-crumb'* || $step == *'crumb verify'* ]]; then
+    echo "$SANDBOX|sandbox $(sha8 "$SANDBOX")"
   else echo "|no crumb-verify step"; fi
 }
-hosted_tool() {  # hosted_tool <tree>: "<tool>|<desc>" for the required hosted check's crumb build
+hosted_tool() { # hosted_tool <main tree> <repo>: never pass a PR tree
   local wf=$1/.github/workflows/aien-verification.yml pin
   [ -f "$wf" ] || { echo "|no hosted workflow"; return; }
   pin=$(grep -A8 'pinned crumb tool source' "$wf" | grep -m1 -oE 'ref:[[:space:]]*[0-9a-f]{40}' | grep -oE '[0-9a-f]{40}')
   if [ -n "$pin" ]; then echo "$(build_pin "$pin")|workflow pin ${pin:0:8}"
-  elif grep -q 'Build the crumb tool from this repository' "$wf"; then echo "$(build_tree "$1")|workflow tree tool"
+  elif grep -q 'pinned crumb tool source' "$wf"; then echo "|workflow pin invalid"
+  elif [ "$2" = aien-architecture ] && grep -q 'Build the crumb tool from this repository' "$wf"; then
+    echo "$(build_arch_main)|architecture origin/main workflow tool"
   else echo "|workflow has no crumb step"; fi
 }
-verdict() {  # verdict <tool> <tree> [PATH]: "OK|<last line>" or "FAIL|<last line>"
+verdict() {  # verdict <trusted tool> <tree>: "OK|<last line>" or "FAIL|<last line>"
   local out rc
   [ -n "$1" ] || { echo "n/a|"; return; }
-  if [ -n "${3:-}" ]; then out=$(cd "$2" && env PATH="$3" "$1" verify . 2>&1); rc=$?
-  else out=$(cd "$2" && "$1" verify . 2>&1); rc=$?; fi
+  out=$(cd "$2" && "$1" verify . 2>&1); rc=$?
   out=$(printf '%s\n' "$out" | tail -1 | sed 's/^crumb verify: //' | cut -c1-70)
   if [ $rc = 0 ] && [[ $out == *OK* ]]; then echo "OK|$out"; else echo "FAIL|$out"; fi
 }
-
-# Readiness tools: what the bare name "crumb" resolves to on each running worker's PATH (aien-test verify runs it).
+# Only main readiness is queried; candidate readiness may still run an older
+# installed verifier until the operator installs the repaired worker.
 heal_trusted() {
   local head main
   head=$(git -C "$TRUSTED" rev-parse HEAD 2>/dev/null); main=$(git -C "$TRUSTED" rev-parse origin/main 2>/dev/null)
@@ -109,20 +116,16 @@ heal_trusted() {
 }
 if [ "$HEAL_ONLY" = 1 ]; then heal_trusted; [ ${#FAILS[@]} = 0 ]; exit $?; fi
 
-declare -A RTOOL=() RPATH=(); SIBFILES=()
+SIBFILES=()
 if [ "${AIEN_DOCTOR_NO_PROC:-}" != 1 ]; then
   for p in /proc/[0-9]*; do
     cmd=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null) || continue
     [[ $cmd == *aien-test\ worker* ]] || continue
-    path=$(tr '\0' '\n' < "$p/environ" 2>/dev/null | sed -n 's/^PATH=//p')
-    t=$(env PATH="$path" sh -c 'command -v crumb' 2>/dev/null)
-    [ -n "$t" ] && { RTOOL["$t"]=$t; RPATH["$t"]=$path; }
     [[ $cmd =~ --siblings\ ([^ ]+) ]] && SIBFILES+=("${BASH_REMATCH[1]}|--siblings of pid ${p#/proc/}")
   done
 fi
-if [ ${#RTOOL[@]} = 0 ]; then t=$(command -v crumb); [ -n "$t" ] && { RTOOL["$t"]=$t; RPATH["$t"]=$PATH; }; fi
 
-echo "crumb-doctor $(date -u +%FT%TZ): sandbox $SANDBOX $(sha8 "$SANDBOX"); readiness tools: ${!RTOOL[*]}"
+echo "crumb-doctor $(date -u +%FT%TZ): sandbox $SANDBOX $(sha8 "$SANDBOX"); tools from origin/main only"
 
 # SIBMAP
 map_rows() { sed 's/#.*//' "$@" 2>/dev/null | awk 'NF==4 {print $1" "$2}' | sort -u; }
@@ -144,48 +147,71 @@ for repo in $REPOS; do
   done
 done
 
-# AGREE
-ready_check() {  # ready_check <repo> <sha> <label> <tree>: the worker's own readiness code (aien-test verify) must
-  # call the crumbs CURRENT exactly when the gate's tool says OK. Catches readiness bugs no tool swap can fix
-  # (2026-10-19: verify.rs called every repo without a root .crumb STALE, so benchmarks/interplane PASS -> error).
+# AGREE compares the trusted-main gate, hosted and readiness verdicts. For a
+# PR only the trusted-main tool may inspect its crumbs; candidate metadata
+# changes are reported as pending promotion, not treated as executable tools.
+ready_check() { # ready_check <repo> <sha> <label> <main tree> <tool> <description>
   [ "${AIEN_DOCTOR_NO_READY:-}" = 1 ] && return
   command -v aien-local-ci >/dev/null || return
-  local gt want got
-  if [ -e "$4/.crumb" ]; then gt=$(gate_tool "$4"); gt=${gt%%|*}; else gt=$SANDBOX; fi
-  want=$(verdict "$gt" "$4"); [ "${want%%|*}" = OK ] && want=CURRENT || want=STALE
-  got=$(aien-local-ci verify "$1" "$2" 2>/dev/null | sed -n 's/^Crumb status: //p' | head -1)
-  if [ "$got" = "$want" ]; then record PASS READY "$1 $3" "aien-test verify Crumb status $got (gate tool agrees)"
-  else record FAIL READY "$1 $3" "aien-test verify says Crumb status ${got:-none}, gate tool says $want"; fi
+  local want report got actual expected pin
+  want=$(verdict "$5" "$4"); [ "${want%%|*}" = OK ] && want=CURRENT || want=STALE
+  case $6 in
+    crumb.lock\ *) pin=$(tr -d '[:space:]' < "$4/crumb.lock" | tr 'A-F' 'a-f'); expected="trusted-base $pin" ;;
+    architecture\ origin/main\ tool) expected="trusted-base $(git -C "$ARCH" rev-parse origin/main)" ;;
+    sandbox\ *) expected="$SANDBOX (operator command; no lock at BASE)" ;;
+    *) record FAIL READY "$1 $3" "unknown trusted main tool $6"; return ;;
+  esac
+  report=$(aien-local-ci verify "$1" "$2" 2>/dev/null)
+  got=$(printf '%s\n' "$report" | sed -n 's/^Crumb status: //p' | head -1)
+  actual=$(printf '%s\n' "$report" | sed -n 's/^Crumb tool: //p' | head -1)
+  if [ "$got" = "$want" ] && [ "$actual" = "$expected" ]; then
+    record PASS READY "$1 $3" "aien-test verify Crumb status $got (trusted $actual)"
+  else
+    record FAIL READY "$1 $3" "verify status ${got:-none} tool ${actual:-none}; trusted status $want tool $expected"
+  fi
 }
-check_agree() {  # check_agree <repo> <rev> <label>
-  local repo=$1 clone=$CLONES/$1 w sha tree gt ht gv hv kinds detail k rv
-  w=$(mktemp -d); sha=$(git -C "$clone" rev-parse --verify -q "$2^{commit}")
+check_main() { # check_main <repo>
+  local repo=$1 clone=$CLONES/$1 w sha tree gt ht gv hv label
+  w=$(mktemp -d); sha=$(git -C "$clone" rev-parse --verify -q 'refs/remotes/origin/main^{commit}')
+  label="main ${sha:0:8}"
   if [ -z "$sha" ] || ! git clone -q --shared --no-checkout "$clone" "$w/t" || ! g -C "$w/t" checkout -q --detach "$sha"; then
-    record FAIL AGREE "$repo $3" "cannot check out $2"; rm -rf "$w"; return
+    record FAIL AGREE "$repo $label" "cannot check out origin/main"; rm -rf "$w"; return
   fi
   tree=$w/t
-  ready_check "$repo" "$sha" "$3" "$tree"
-  if [ ! -e "$tree/.crumb" ]; then record PASS AGREE "$repo $3" "no crumbs"; rm -rf "$w"; return; fi
-  gt=$(gate_tool "$tree"); ht=$(hosted_tool "$tree")
+  if [ ! -e "$tree/.crumb" ]; then record PASS AGREE "$repo $label" "no crumbs"; rm -rf "$w"; return; fi
+  gt=$(gate_tool "$tree" "$repo"); ht=$(hosted_tool "$tree" "$repo")
+  if [ -z "${gt%%|*}" ]; then
+    record FAIL AGREE "$repo $label" "trusted gate tool unavailable (${gt#*|})"; rm -rf "$w"; return
+  fi
+  ready_check "$repo" "$sha" "$label" "$tree" "${gt%%|*}" "${gt#*|}"
   gv=$(verdict "${gt%%|*}" "$tree"); hv=$(verdict "${ht%%|*}" "$tree")
-  kinds="${gv%%|*}"; [ "${hv%%|*}" != n/a ] && kinds="$kinds ${hv%%|*}"
-  detail="gate[${gt#*|}]=${gv%%|*} ${gv#*|} ; hosted[${ht#*|}]=${hv%%|*}"
-  local extra=""
-  for k in "${!RTOOL[@]}"; do
-    rv=$(verdict "$k" "$tree" "${RPATH[$k]}"); kinds="$kinds ${rv%%|*}"; detail="$detail ; readiness[$k]=${rv%%|*}"
-    extra="$extra"$'\n'"        readiness[$k]: ${rv#*|}"
-  done
-  if [ "$(tr ' ' '\n' <<<"$kinds" | grep . | sort -u | wc -l)" = 1 ]; then
-    [ "${gv%%|*}" = OK ] && record PASS AGREE "$repo $3" "$detail" || record PASS AGREE "$repo $3" "all say FAIL (the PR's own crumbs): $detail"
+  if [ -z "${ht%%|*}" ] && [[ ${ht#*|} == workflow\ pin* || ${ht#*|} == architecture\ origin/main\ workflow* ]]; then
+    record FAIL AGREE "$repo $label" "trusted hosted tool unavailable (${ht#*|})"
+  elif [ "${hv%%|*}" = n/a ] || [ "${gv%%|*}" = "${hv%%|*}" ]; then
+    record PASS AGREE "$repo $label" "trusted gate[${gt#*|}]=${gv%%|*}; hosted[${ht#*|}]=${hv%%|*}"
   else
-    record FAIL AGREE "$repo $3" "DISAGREE $detail"$'\n'"        gate: ${gv#*|}"$'\n'"        hosted: ${hv#*|}$extra"
+    record FAIL AGREE "$repo $label" "trusted gate[${gt#*|}]=${gv%%|*}; hosted[${ht#*|}]=${hv%%|*}"
   fi
   rm -rf "$w"
+}
+check_candidate() { # check_candidate <repo> <sha> <pr number>: inspect metadata only
+  local repo=$1 sha=$2 n=$3 clone=$CLONES/$1 changes
+  git -C "$clone" cat-file -e "$sha^{commit}" 2>/dev/null || git -C "$clone" fetch -q origin "pull/$n/head" 2>/dev/null
+  if ! git -C "$clone" cat-file -e "$sha^{commit}" 2>/dev/null; then
+    record FAIL PROMOTE "$repo #$n" "cannot inspect candidate $sha"; return
+  fi
+  changes=$(git -C "$clone" diff --name-only origin/main "$sha" -- crumb.lock tools/crumb \
+    .github/workflows/aien-verification.yml tools/aien-local-ci/install.sh tests/gates/run.sh)
+  if [ -n "$changes" ]; then
+    record FAIL PROMOTE "$repo #$n" "operator promotion required for candidate tool/pin changes: $(printf '%s\n' "$changes" | paste -sd, -); no candidate tools executed"
+  else
+    record INFO PROMOTE "$repo #$n" "candidate metadata unchanged; no candidate tool verdict or execution"
+  fi
 }
 for repo in $REPOS; do
   clone=$CLONES/$repo; [ -d "$clone/.git" ] || { record FAIL AGREE "$repo" "no trusted clone at $clone"; continue; }
   git -C "$clone" fetch -q origin 2>/dev/null
-  check_agree "$repo" origin/main "main $(git -C "$clone" rev-parse --short=8 origin/main)"
+  check_main "$repo"
   [ "$NOPRS" = 1 ] && continue
   slug=$(git -C "$clone" remote get-url origin | sed -E 's#.*github\.com[:/]##; s#\.git$##')
   prs=$(gh pr list -R "$slug" --state open --limit 100 --json number,headRefOid,title,files \
@@ -193,8 +219,7 @@ for repo in $REPOS; do
     || { record FAIL AGREE "$repo PR list" "gh pr list failed"; continue; }
   while read -r n sha; do
     [ -n "$n" ] || continue
-    git -C "$clone" cat-file -e "$sha^{commit}" 2>/dev/null || git -C "$clone" fetch -q origin "pull/$n/head" 2>/dev/null
-    check_agree "$repo" "$sha" "#$n ${sha:0:8}"
+    check_candidate "$repo" "$sha" "$n"
   done <<<"$prs"
 done
 

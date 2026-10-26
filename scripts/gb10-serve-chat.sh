@@ -67,7 +67,15 @@ json_str() { local s=${1//\\/\\\\}; printf '"%s"' "${s//\"/\\\"}"; }
 # Model provenance goes into the receipt before any check: an override is never mistaken for the default.
 obs model_dir "$(json_str "$MODEL_DIR")"
 obs model_dir_source "\"$MODEL_DIR_SOURCE\""
-for t in curl jq ss; do command -v "$t" >/dev/null || fail "needs $t"; done
+for t in curl jq ss od tr; do command -v "$t" >/dev/null || fail "needs $t"; done
+# This gate starts its own ephemeral server. Keep its credential in memory and
+# inherit it only into that child; do not require operator secrets in gate env.
+if [ -z "${AIEN_SERVE_HTTP_BEARER_TOKEN:-}" ]; then
+    AIEN_SERVE_HTTP_BEARER_TOKEN=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n') \
+        || fail "cannot generate test-server credential"
+    [ -n "$AIEN_SERVE_HTTP_BEARER_TOKEN" ] || fail "empty test-server credential"
+fi
+export AIEN_SERVE_HTTP_BEARER_TOKEN
 
 [ -f "$MODEL_DIR/config.json" ] && [ -f "$MODEL_DIR/tokenizer.json" ] \
     || not_run model_missing "no config.json or tokenizer.json under $MODEL_DIR"
@@ -145,7 +153,7 @@ fi
 req=$(jq -nc --arg m "$MODEL_ID" '{model:$m, messages:[{role:"user",content:"Reply with the single word: ready"}],
     temperature:0, max_tokens:16, stream:false, chat_template_kwargs:{enable_thinking:false}}')
 code=$(curl -s -m 900 -o "$STATE/reply.json" -w '%{http_code}' "http://127.0.0.1:$port/v1/chat/completions" \
-    -H 'Content-Type: application/json' -d "$req") || code=000
+    -H "Authorization: Bearer $AIEN_SERVE_HTTP_BEARER_TOKEN" -H 'Content-Type: application/json' -d "$req") || code=000
 echo "reply (HTTP $code):"; cat "$STATE/reply.json"; echo
 if [ "$code" = 200 ] && jq -e --arg m "$MODEL_ID" '
         .object == "chat.completion" and .model == $m

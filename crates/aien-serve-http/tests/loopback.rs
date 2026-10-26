@@ -21,10 +21,11 @@ use std::net::{SocketAddr, TcpStream};
 use std::sync::Arc;
 use std::time::Duration;
 
-use aien_serve_http::codec::ByteCodec;
+use aien_serve_http::codec::{ByteCodec, Codec, CodecError};
 use aien_serve_http::engine::StubEngine;
 use aien_serve_http::server::{serve, ServerConfig};
 use serde_json::Value;
+const TOKEN: &str = "integration-test-private-credential";
 
 struct Server {
     addr: SocketAddr,
@@ -36,6 +37,7 @@ fn start(engine: StubEngine, cfg: ServerConfig) -> Server {
     let cfg = ServerConfig {
         port: 0,
         model_id: "test-model".into(),
+        bearer_token: TOKEN.into(),
         ..cfg
     };
     let (addr, _handle) = rt
@@ -79,7 +81,7 @@ fn request(addr: SocketAddr, method: &str, path: &str, body: Option<&str>) -> Re
     s.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
     let body = body.unwrap_or("");
     let req = format!(
-        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {TOKEN}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
         body.len()
     );
     s.write_all(req.as_bytes()).unwrap();
@@ -234,6 +236,105 @@ fn second_request_while_busy_is_rejected_then_accepted() {
     let after = chat(addr, PROMPT);
     assert_eq!(after.status, 200, "{}", after.body);
     assert_eq!(json(&after)["choices"][0]["message"]["content"], reply);
+}
+
+fn raw_request(addr: SocketAddr, raw: &str) -> Reply {
+    let mut s = TcpStream::connect(addr).expect("connect");
+    s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    s.write_all(raw.as_bytes()).unwrap();
+    let mut bytes = Vec::new();
+    s.read_to_end(&mut bytes).unwrap();
+    let split = bytes.windows(4).position(|v| v == b"\r\n\r\n").unwrap();
+    let headers = String::from_utf8_lossy(&bytes[..split]).into_owned();
+    let status = headers.split_whitespace().nth(1).unwrap().parse().unwrap();
+    let body = if headers.to_ascii_lowercase().contains("transfer-encoding: chunked") {
+        String::from_utf8(dechunk(&bytes[split + 4..])).unwrap()
+    } else {
+        String::from_utf8_lossy(&bytes[split + 4..]).into_owned()
+    };
+    Reply { status, headers, body }
+}
+
+fn raw_post(addr: SocketAddr, headers: &str, body: &str) -> Reply {
+    raw_request(addr, &format!(
+        "POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n{headers}Content-Length: {}\r\n\r\n{body}",
+        body.len()
+    ))
+}
+
+#[test]
+fn inference_requires_authorization_and_local_json_origin() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let no_credential = ServerConfig { port: 0, ..ServerConfig::default() };
+    assert!(rt.block_on(serve(no_credential, Arc::new(stub("x")), Arc::new(ByteCodec))).is_err());
+    let srv = start(stub("accepted"), ServerConfig::default());
+    let missing = raw_post(srv.addr, "Content-Type: application/json\r\n", PROMPT);
+    assert_eq!(missing.status, 401);
+    assert_eq!(raw_post(srv.addr, "Authorization: Bearer wrong\r\nContent-Type: application/json\r\n", PROMPT).status, 401);
+    let auth = format!("Authorization: Bearer {TOKEN}\r\n");
+    assert_eq!(raw_post(srv.addr, &format!("{auth}Origin: https://hostile.example\r\nContent-Type: application/json\r\n"), PROMPT).status, 403);
+    assert_eq!(raw_post(srv.addr, &format!("{auth}Content-Type: text/plain\r\n"), PROMPT).status, 415);
+    let hostile_host = format!("POST /v1/chat/completions HTTP/1.1\r\nHost: attacker.example\r\n{auth}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{PROMPT}", PROMPT.len());
+    assert_eq!(raw_request(srv.addr, &hostile_host).status, 403);
+    // None of these requests sends its declared body; refusal must precede extraction.
+    for (headers, expected) in [
+        ("Content-Type: application/json\r\n".to_string(), 401),
+        (format!("{auth}Origin: https://hostile.example\r\nContent-Type: application/json\r\n"), 403),
+        (format!("{auth}Content-Type: text/plain\r\n"), 415),
+    ] {
+        let incomplete = format!("POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n{headers}Content-Length: 100\r\n\r\n");
+        assert_eq!(raw_request(srv.addr, &incomplete).status, expected);
+    }
+    let good = raw_post(srv.addr, &format!("{auth}Origin: http://localhost:{}\r\nContent-Type: application/json; charset=utf-8\r\n", srv.addr.port()), PROMPT);
+    assert_eq!(good.status, 200, "{}", good.body);
+    assert_eq!(json(&good)["choices"][0]["message"]["content"], "accepted");
+}
+
+struct CountingCodec(std::sync::atomic::AtomicUsize);
+
+impl Codec for CountingCodec {
+    fn render_chat(&self, turns: &[(&str, &str)]) -> Result<String, CodecError> {
+        ByteCodec.render_chat(turns)
+    }
+    fn encode(&self, text: &str) -> Result<Vec<u32>, CodecError> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        ByteCodec.encode(text)
+    }
+    fn decode(&self, ids: &[u32]) -> Result<String, CodecError> {
+        ByteCodec.decode(ids)
+    }
+    fn stop_token_ids(&self) -> Vec<u32> {
+        ByteCodec.stop_token_ids()
+    }
+}
+
+#[test]
+fn saturated_request_does_not_read_body_or_invoke_codec() {
+    use std::sync::atomic::Ordering;
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let codec = Arc::new(CountingCodec(std::sync::atomic::AtomicUsize::new(0)));
+    let cfg = ServerConfig {
+        port: 0,
+        model_id: "test-model".into(),
+        bearer_token: TOKEN.into(),
+        ..ServerConfig::default()
+    };
+    let (addr, _h) = rt.block_on(serve(cfg, Arc::new(stub(&"x".repeat(60)).with_delay(Duration::from_millis(25))), codec.clone())).unwrap();
+    let first = std::thread::spawn(move || chat(addr, PROMPT));
+    for _ in 0..100 {
+        if json(&request(addr, "GET", "/health", None))["busy"] == true { break; }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(json(&request(addr, "GET", "/health", None))["busy"], true);
+    let before = codec.0.load(Ordering::SeqCst);
+    let full = raw_post(addr, &format!("Authorization: Bearer {TOKEN}\r\nContent-Type: application/json\r\n"), PROMPT);
+    assert_eq!(full.status, 503);
+    assert_eq!(codec.0.load(Ordering::SeqCst), before, "busy request invoked tokenizer");
+    let incomplete = format!("POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {TOKEN}\r\nContent-Type: application/json\r\nContent-Length: 100\r\nConnection: close\r\n\r\n");
+    let rejected = raw_request(addr, &incomplete);
+    assert_eq!(rejected.status, 503, "{}", rejected.body);
+    assert_eq!(codec.0.load(Ordering::SeqCst), before);
+    assert_eq!(first.join().unwrap().status, 200);
 }
 
 #[test]
@@ -427,6 +528,7 @@ mod sampling_gate {
         let cfg = ServerConfig {
             port: 0,
             model_id: "tiny".into(),
+            bearer_token: TOKEN.into(),
             ..ServerConfig::default()
         };
         let (addr, _h) = rt

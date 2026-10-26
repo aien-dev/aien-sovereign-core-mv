@@ -143,7 +143,7 @@ send() {
 	t0=$EPOCHREALTIME
 	while :; do
 		rm -f "$h"
-		curl -sN -m 900 -D "$h" "$base/v1/chat/completions" -H 'content-type: application/json' -d @"$body" |
+		curl -sN -m 900 -D "$h" "$base/v1/chat/completions" -H "Authorization: Bearer $AIEN_SERVE_HTTP_BEARER_TOKEN" -H 'content-type: application/json' -d @"$body" |
 			while IFS= read -r line; do [ -n "$line" ] && printf '%s %s\n' "$EPOCHREALTIME" "$line"; done >"$raw" || true
 		code=$(awk 'NR == 1 {print $2}' "$h" 2>/dev/null)
 		if [ "$code" = 503 ] && [ "$retries" -lt 6000 ]; then

@@ -24,10 +24,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use axum::body::Bytes;
-use axum::extract::rejection::BytesRejection;
-use axum::extract::{DefaultBodyLimit, Path, State};
-use axum::http::{header, HeaderValue, StatusCode};
+use axum::body::{to_bytes, Body, Bytes};
+use axum::extract::{Path, State};
+use axum::http::{header, HeaderMap, HeaderValue, Request, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -48,7 +47,7 @@ use crate::openai::{
 use crate::sampling::SamplingRecord;
 use crate::text::{Push, TextAssembler};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ServerConfig {
     /// Must be a loopback address; `serve` refuses anything else.
     pub bind: IpAddr,
@@ -72,6 +71,8 @@ pub struct ServerConfig {
     /// The eight readers (sc L371): a second model id that reads a long input in parts at once.
     /// `None`: one id, as before.
     pub readers: Option<crate::readers::ReadersConfig>,
+    /// Secret supplied out of band; an absent or empty credential refuses startup.
+    pub bearer_token: String,
 }
 
 impl Default for ServerConfig {
@@ -91,6 +92,7 @@ impl Default for ServerConfig {
             max_context_tokens: None,
             default_enable_thinking: None,
             readers: None,
+            bearer_token: String::new(),
         }
     }
 }
@@ -101,6 +103,7 @@ pub struct AppState {
     cfg: ServerConfig,
     /// One permit per generation the engine runs at once.
     gate: Arc<Semaphore>,
+    allowed_hosts: [String; 3],
     started: Instant,
     counter: AtomicU64,
 }
@@ -114,6 +117,29 @@ pub struct ApiError {
 }
 
 impl ApiError {
+    fn unauthorized() -> Self {
+        Self {
+            status: StatusCode::UNAUTHORIZED,
+            body: ErrorBody::new("authentication_error", "valid bearer authorization required"),
+            retry_after: None,
+        }
+    }
+
+    fn forbidden(msg: &'static str) -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            body: ErrorBody::new("invalid_request_error", msg),
+            retry_after: None,
+        }
+    }
+
+    fn unsupported_media_type() -> Self {
+        Self {
+            status: StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            body: ErrorBody::new("invalid_request_error", "Content-Type must be application/json"),
+            retry_after: None,
+        }
+    }
     fn bad_request(msg: impl Into<String>) -> Self {
         Self {
             status: StatusCode::BAD_REQUEST,
@@ -229,14 +255,12 @@ fn unix_now() -> (u64, u128) {
 }
 
 pub fn router(state: Arc<AppState>) -> Router {
-    let limit = state.cfg.max_body_bytes;
     Router::new()
         .route("/v1/models", get(list_models))
         .route("/v1/models/:id", get(get_model))
         .route("/v1/chat/completions", post(chat_completions))
         .route("/health", get(health))
         .fallback(not_found)
-        .layer(DefaultBodyLimit::max(limit))
         .with_state(state)
 }
 
@@ -265,6 +289,14 @@ pub async fn serve_until(
             format!("refusing to bind {}: loopback addresses only", cfg.bind),
         ));
     }
+    if cfg.bearer_token.is_empty()
+        || !cfg.bearer_token.bytes().all(|b| b.is_ascii_graphic())
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "a nonempty printable bearer token is required before binding",
+        ));
+    }
     let listener = tokio::net::TcpListener::bind(SocketAddr::new(cfg.bind, cfg.port)).await?;
     let addr = listener.local_addr()?;
     let gate = Arc::new(Semaphore::new(engine.concurrency().max(1)));
@@ -273,6 +305,7 @@ pub async fn serve_until(
         codec,
         cfg,
         gate,
+        allowed_hosts: ["localhost".into(), format!("localhost:{}", addr.port()), addr.to_string()],
         started: Instant::now(),
         counter: AtomicU64::new(0),
     });
@@ -376,48 +409,153 @@ async fn not_found() -> ApiError {
     )
 }
 
+/// Keep all authorization and slot decisions before the first body poll.
 async fn chat_completions(
     State(state): State<Arc<AppState>>,
-    body: Result<Bytes, BytesRejection>,
+    request: Request<Body>,
 ) -> Response {
-    match handle_chat(state, body).await {
+    match handle_chat(state, request).await {
         Ok(r) => r,
         Err(e) => e.into_response(),
     }
 }
 
-async fn handle_chat(
-    state: Arc<AppState>,
-    body: Result<Bytes, BytesRejection>,
-) -> Result<Response, ApiError> {
-    let body = body.map_err(|r| {
-        if r.status() == StatusCode::PAYLOAD_TOO_LARGE {
-            ApiError::too_large(state.cfg.max_body_bytes)
-        } else {
-            ApiError::bad_request(format!("could not read request body: {}", r.body_text()))
+fn authorized(headers: &HeaderMap, token: &str) -> bool {
+    if headers.get_all(header::AUTHORIZATION).iter().count() != 1 {
+        return false;
+    }
+    let Some(value) = headers.get(header::AUTHORIZATION).and_then(|h| h.to_str().ok()) else {
+        return false;
+    };
+    let Some(provided) = value.strip_prefix("Bearer ") else {
+        return false;
+    };
+    let (a, b) = (provided.as_bytes(), token.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (&x, &y) in a.iter().zip(b) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+fn check_headers(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
+    if !authorized(headers, &state.cfg.bearer_token) {
+        return Err(ApiError::unauthorized());
+    }
+    if headers.get_all(header::HOST).iter().count() != 1 {
+        return Err(ApiError::forbidden("unrecognized Host"));
+    }
+    let host = headers
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .ok_or_else(|| ApiError::forbidden("unrecognized Host"))?;
+    if !state.allowed_hosts.iter().any(|h| host.eq_ignore_ascii_case(h)) {
+        return Err(ApiError::forbidden("unrecognized Host"));
+    }
+    if headers.get_all(header::ORIGIN).iter().count() > 1 {
+        return Err(ApiError::forbidden("unrecognized Origin"));
+    }
+    if let Some(origin) = headers.get(header::ORIGIN) {
+        let origin = origin
+            .to_str()
+            .map_err(|_| ApiError::forbidden("unrecognized Origin"))?;
+        let origin_host = origin
+            .strip_prefix("http://")
+            .ok_or_else(|| ApiError::forbidden("unrecognized Origin"))?;
+        if !state.allowed_hosts[1..]
+            .iter()
+            .any(|h| origin_host.eq_ignore_ascii_case(h))
+        {
+            return Err(ApiError::forbidden("unrecognized Origin"));
         }
-    })?;
+    }
+    if headers.get_all(header::CONTENT_TYPE).iter().count() != 1 {
+        return Err(ApiError::unsupported_media_type());
+    }
+    let media = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("");
+    if !media
+        .split(';')
+        .next()
+        .is_some_and(|kind| kind.eq_ignore_ascii_case("application/json"))
+    {
+        return Err(ApiError::unsupported_media_type());
+    }
+    Ok(())
+}
+
+async fn handle_chat(state: Arc<AppState>, request: Request<Body>) -> Result<Response, ApiError> {
+    check_headers(&state, request.headers())?;
+    // A request owns its engine slot while the bounded body is read and while parsing or
+    // tokenizing. Readers may reserve additional slots only after their initial admission.
+    let guard = Arc::clone(&state.gate)
+        .try_acquire_owned()
+        .map_err(|_| ApiError::busy())?;
+    if request
+        .headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| s.parse::<usize>().ok())
+        .is_some_and(|n| n > state.cfg.max_body_bytes)
+    {
+        return Err(ApiError::too_large(state.cfg.max_body_bytes));
+    }
+    let limit = state.cfg.max_body_bytes;
+    let body = tokio::time::timeout(Duration::from_secs(15), to_bytes(request.into_body(), limit))
+        .await
+        .map_err(|_| ApiError::bad_request("request body read timed out"))?
+        .map_err(|_| ApiError::too_large(limit))?;
+    let pending = tokio::task::spawn_blocking(move || prepare_chat(state, body, guard))
+        .await
+        .map_err(|_| ApiError::internal("request preparation failed"))??;
+    respond(
+        pending.rx,
+        pending.stream,
+        pending.id,
+        pending.created,
+        pending.model,
+        pending.prompt_tokens,
+        pending.tools,
+    )
+    .await
+}
+
+struct PendingResponse {
+    rx: mpsc::Receiver<Ev>,
+    stream: bool,
+    id: String,
+    created: u64,
+    model: String,
+    prompt_tokens: usize,
+    tools: bool,
+}
+
+fn prepare_chat(
+    state: Arc<AppState>,
+    body: Bytes,
+    guard: OwnedSemaphorePermit,
+) -> Result<PendingResponse, ApiError> {
+    let mut guard = Some(guard);
     let mut raw: Value = serde_json::from_slice(&body)
         .map_err(|e| ApiError::bad_request(format!("invalid JSON request: {e}")))?;
-    // The readers id: a long input goes to the readers, a short one takes the plain path; the
-    // reply names the id the client asked for.
     let mut model = state.cfg.model_id.clone();
-    if let Some(rc) = state.cfg.readers.clone() {
+    if let Some(rc) = state.cfg.readers.as_ref() {
         if raw.get("model").and_then(Value::as_str) == Some(rc.model_id.as_str()) {
             raw["model"] = Value::String(state.cfg.model_id.clone());
-            if let Some(r) = handle_readers(&state, &rc, &raw).await? {
+            if let Some(r) = handle_readers(&state, rc, &raw, &mut guard)? {
                 return Ok(r);
             }
-            model = rc.model_id;
+            model = rc.model_id.clone();
         }
     }
     let req: ChatRequest = serde_json::from_value(raw)
         .map_err(|e| ApiError::bad_request(format!("invalid JSON request: {e}")))?;
     let prepared = prepare(&state, req)?;
-    let guard = Arc::clone(&state.gate)
-        .try_acquire_owned()
-        .map_err(|_| ApiError::busy())?;
-
     let (created, id) = new_id(&state);
     let prompt_tokens = prepared.prompt_tokens.len();
     let stream = prepared.stream;
@@ -427,9 +565,11 @@ async fn handle_chat(
     let codec = Arc::clone(&state.codec);
     let log_id = id.clone();
     tokio::task::spawn_blocking(move || {
-        run_generation(engine, codec, prepared, tx, guard, &log_id);
+        run_generation(engine, codec, prepared, tx, guard.expect("admitted slot"), &log_id);
     });
-    respond(rx, stream, id, created, model, prompt_tokens, tools).await
+    Ok(PendingResponse {
+        rx, stream, id, created, model, prompt_tokens, tools,
+    })
 }
 
 fn new_id(state: &AppState) -> (u64, String) {
@@ -442,11 +582,12 @@ fn new_id(state: &AppState) -> (u64, String) {
 /// serves it on the plain path). Otherwise the rows that are free now (up to `rc.readers`; one
 /// free row of a batching engine is 503 `server_busy`) each read one part, and one of them writes
 /// the answer from the notes.
-async fn handle_readers(
+fn handle_readers(
     state: &Arc<AppState>,
     rc: &crate::readers::ReadersConfig,
     raw: &Value,
-) -> Result<Option<Response>, ApiError> {
+    first: &mut Option<OwnedSemaphorePermit>,
+) -> Result<Option<PendingResponse>, ApiError> {
     use crate::readers;
     let msgs: &[Value] = raw
         .get("messages")
@@ -458,15 +599,15 @@ async fn handle_readers(
     };
     let slots = state.engine.concurrency().max(1);
     let want = plan.parts.len().min(slots);
-    let (permit, got) = (1..=want)
+    let (extra, got) = (1..want)
         .rev()
         .find_map(|k| {
             Arc::clone(&state.gate)
                 .try_acquire_many_owned(k as u32)
                 .ok()
-                .map(|p| (p, k))
+                .map(|p| (Some(p), k + 1))
         })
-        .ok_or_else(ApiError::busy)?;
+        .unwrap_or((None, 1));
     if slots > 1 && got < 2 {
         return Err(ApiError::busy());
     }
@@ -507,13 +648,16 @@ async fn handle_readers(
     let st = Arc::clone(state);
     let raw = raw.clone();
     let log_id = id.clone();
+    let mut permit = first.take().expect("admitted slot");
+    if let Some(extra) = extra {
+        permit.merge(extra);
+    }
     tokio::task::spawn_blocking(move || {
         run_readers(st, raw, plan, maps, permit, tx, stream, show_notes, &log_id);
     });
-    let model = rc.model_id.clone();
-    respond(rx, stream, id, created, model, 0, tools)
-        .await
-        .map(Some)
+    Ok(Some(PendingResponse {
+        rx, stream, id, created, model: rc.model_id.clone(), prompt_tokens: 0, tools,
+    }))
 }
 
 /// Phase 1 (map: every part read at once through [`Engine::generate_group`]) and phase 2

@@ -59,6 +59,7 @@ for a in "$@"; do
 done
 
 fail() { echo "serve-27b: $*" >&2; exit 1; }
+[ -n "${AIEN_SERVE_HTTP_BEARER_TOKEN:-}" ] || fail "AIEN_SERVE_HTTP_BEARER_TOKEN is required before starting the server"
 [[ "$READY_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || fail "READY_TIMEOUT must be a positive number of seconds"
 if [ "$FOREGROUND" -eq 0 ] && [ "$WAIT" -eq 1 ]; then
     command -v curl >/dev/null || fail "curl is needed to see when the server is ready (apt install curl), or pass --no-wait"
@@ -139,7 +140,7 @@ serve-27b: $([ "$WAIT" -eq 1 ] && echo "ready" || echo "started, not waited for"
   log:     $LOG
   loading takes about one minute once the GPU is free; before that it queues for the GPU lock.
   check:   curl -s http://127.0.0.1:$PORT/v1/models      (lists qwen3.8-27b-fp8 when ready)
-  chat:    curl -s http://127.0.0.1:$PORT/v1/chat/completions -H 'Content-Type: application/json' \\
+  chat:    curl -s http://127.0.0.1:$PORT/v1/chat/completions -H "Authorization: Bearer \$AIEN_SERVE_HTTP_BEARER_TOKEN" -H 'Content-Type: application/json' \\
              -d '{"messages":[{"role":"user","content":"Hello"}],"max_tokens":64}'
   stop:    kill -TERM \$(cat $PIDFILE)
            (it finishes the reply in progress, then exits; that can take a few minutes)
