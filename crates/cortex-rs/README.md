@@ -152,4 +152,4 @@ curl -G http://127.0.0.1:18080/api/cortex/search \
 
 This repository is licensed under the **Apache License, Version 2.0 (with LLVM Exception)**.
 
-See [LICENSE](LICENSE) for the full legal text.
+See [LICENSE](../../LICENSE) for the full legal text.
