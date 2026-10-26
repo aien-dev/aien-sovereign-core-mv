@@ -39,7 +39,7 @@ fn test_challenge1_operator_case_and_whitespace_variants() {
         "Ballentine",
         "drakestapleton",
         "drake.stapleton",
-        "drake.stapleton@3m.com",
+        "drake.stapleton@example.com",
         "aien@aienos.com",
     ];
 
@@ -65,7 +65,7 @@ fn test_challenge1_operator_case_and_whitespace_variants() {
 fn test_challenge1_operator_punctuation_and_delimiter_wrapping() {
     let inputs = [
         ("Assignee: (Drake Stapleton)", "Assignee: (<OPERATOR>)"),
-        ("Contact: [drake.stapleton@3m.com]", "Contact: [<OPERATOR>]"),
+        ("Contact: [drake.stapleton@example.com]", "Contact: [<OPERATOR>]"),
         ("Author: 'Drake Stapleton';", "Author: '<OPERATOR>';"),
         (
             "Sign-off by \"Michael Drake Ballentine\".",

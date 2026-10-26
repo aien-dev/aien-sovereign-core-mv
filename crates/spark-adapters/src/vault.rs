@@ -386,11 +386,11 @@ mod tests {
             "Email: <OPERATOR>"
         );
         assert_eq!(
-            sanitize_outbound_prompt("Email: drake.stapleton@3m.com"),
+            sanitize_outbound_prompt("Email: drake.stapleton@example.com"),
             "Email: <OPERATOR>"
         );
         assert_eq!(
-            sanitize_outbound_prompt("Bracket: <drake.stapleton@3m.com>"),
+            sanitize_outbound_prompt("Bracket: <drake.stapleton@example.com>"),
             "Bracket: <<OPERATOR>>"
         );
     }
