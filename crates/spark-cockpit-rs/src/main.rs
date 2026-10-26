@@ -1261,7 +1261,9 @@ async fn handle_terminal_socket(mut socket: WebSocket) {
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("HOME", get_home_dir().to_string_lossy().as_ref());
-    cmd.env("USER", "drakestapleton");
+    if let Ok(user) = std::env::var("USER") {
+        cmd.env("USER", user);
+    }
 
     let child = match pair.slave.spawn_command(cmd) {
         Ok(c) => c,
@@ -1689,8 +1691,8 @@ async fn handle_services_action(
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
             if action == "start" || action == "restart" {
-                let bin = "/home/drakestapleton/.local/bin/spark-rsi";
-                if Path::new(bin).exists() {
+                let bin = get_home_dir().join(".local/bin/spark-rsi");
+                if bin.exists() {
                     let _ = Command::new("nohup").arg(bin).arg("daemon").spawn();
                 }
             }
@@ -1790,7 +1792,9 @@ struct RsiLedgerQuery {
 async fn handle_rsi_ledger(Query(query): Query<RsiLedgerQuery>) -> Json<Value> {
     let limit = query.limit.unwrap_or(20);
     let res = tokio::task::spawn_blocking(move || {
-        let db_path = "/home/drakestapleton/workspace/spark-rsi/.rsi/ledger.db";
+        let db_buf = get_home_dir().join("workspace/spark-rsi/.rsi/ledger.db");
+        let db_path = db_buf.to_string_lossy().into_owned();
+        let db_path = db_path.as_str();
         if !Path::new(db_path).exists() {
             return json!({
                 "status": "ok",
@@ -3346,7 +3350,7 @@ mod tests {
             &peer
         ));
         assert!(!terminal_request_allowed(
-            &origin_headers(Some("http://192.168.1.108:18095")),
+            &origin_headers(Some("http://192.0.2.10:18095")),
             &peer
         ));
         assert!(!terminal_request_allowed(
@@ -3357,7 +3361,7 @@ mod tests {
 
     #[test]
     fn terminal_rejects_non_loopback_peer() {
-        let peer: SocketAddr = "192.168.1.50:50000".parse().unwrap();
+        let peer: SocketAddr = "192.0.2.50:50000".parse().unwrap();
         assert!(!terminal_request_allowed(
             &origin_headers(Some("http://127.0.0.1:18095")),
             &peer

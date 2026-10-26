@@ -254,7 +254,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 to: vec![operator_email.clone()],
                 subject: "Sovereign Mail Node Online".to_string(),
                 body: "Your sovereign mail server is running directly on Spark hardware. Messages are stored on local NVMe disk with zero cloud telemetry and synced to Atlas Cortex memory.".to_string(),
-                from: Some("atlas@sovereign.spark".to_string()),
+                from: Some("aien@aienos.com".to_string()),
             };
             let sent = relay.send_email(req).await.map_err(std::io::Error::other)?;
             println!("Test message saved and indexed into Cortex: {}", sent.id);

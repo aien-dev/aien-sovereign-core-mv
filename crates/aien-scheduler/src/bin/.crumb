@@ -1,6 +1,6 @@
 {
   "above": {
-    "canonical": "/home/drakestapleton/workspace/aien-sovereign-core/crates/aien-scheduler/src",
+    "canonical": "crates/aien-scheduler/src",
     "name": "src",
     "path": "..",
     "role": "Parent directory context"
@@ -14,7 +14,7 @@
   ],
   "description": "Workspace directory",
   "dir_name": "bin",
-  "dir_path": "/home/drakestapleton/workspace/aien-sovereign-core/crates/aien-scheduler/src/bin",
+  "dir_path": "crates/aien-scheduler/src/bin",
   "extensions": {
     "generated": {
       "children": [],

@@ -31,7 +31,7 @@ not committed (their names would overwrite CAND-3's files); they are the model's
 
 ## Inputs
 
-- Model: /home/drakestapleton/.cache/huggingface/hub/models--unsloth--Llama-3.2-1B-Instruct/snapshots/5a8abab4a5d6f164389b1079fb721cfab8d7126c,
+- Model: ~/.cache/huggingface/hub/models--unsloth--Llama-3.2-1B-Instruct/snapshots/5a8abab4a5d6f164389b1079fb721cfab8d7126c,
   model.safetensors 1ff795ff6a07e6a68085d206fb84417da2f083f68391c2843cd2b8ac6df8538f (the manifest records it as `model_sha256`).
 - Prompt: the CAND-3 system and user text ("You are a sovereign AI assistant." / "Explain the role of an operating
   system in one sentence.") in the Llama 3 layout that AIEN renders (`ChatTemplate::Llama3::render`,
@@ -56,7 +56,7 @@ not committed (their names would overwrite CAND-3's files); they are the model's
 @@ -22,32 +22,31 @@
  
  PINNED_SNAPSHOT = (
-     "/home/drakestapleton/.cache/huggingface/hub/"
+     "~/.cache/huggingface/hub/"
 -    "models--TinyLlama--TinyLlama-1.1B-Chat-v1.0/snapshots/"
 -    "fe8a4ea1ffedaf415f4da2f062534de366a451e6"
 +    "models--unsloth--Llama-3.2-1B-Instruct/snapshots/"

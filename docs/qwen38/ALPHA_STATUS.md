@@ -3,6 +3,13 @@
 Last updated 2026-10-19. Plain statement of where the line is, so nobody reads more into the
 word "alpha" than it means here.
 
+Update 2026-10-26: AienOS as a product is now in alpha testing. The alpha bundle, distributed
+from `aien-dev/aienos-releases`, carries the Core inference engine built from this repository's
+main, the Omega install wizard and the CUDApp user-space replacement. Its GPU path is qualified
+only on the DGX Spark (GB10), and the three-run physical qualification is NOT_RUN. This page
+still describes the Qwen3.8-27B source-build server below; the components listed under "What
+stays pre-alpha" are not in the alpha bundle and keep that label.
+
 ## What alpha covers
 
 One thing: the Qwen3.8-27B model server built from this repository, running on AIEN's own
