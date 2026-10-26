@@ -14,13 +14,15 @@ on:
         required: true
         type: string
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
   verify-and-publish:
     name: Verify the offline signature and publish
     runs-on: ubuntu-latest
+    # Only this job publishes the draft; the workflow default token has no permissions.
+    permissions:
+      contents: write
     env:
       TAG: ${{ inputs.tag }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
