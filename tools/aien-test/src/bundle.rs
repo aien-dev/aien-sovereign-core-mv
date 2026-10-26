@@ -1195,7 +1195,11 @@ mod tests {
         assert_eq!((v.scope.as_str(), v.gate_verdict()), ("full", "PASS"));
         // A gb10 check that ran is a receipt whatever its verdict: the bundle is
         // then simply FAIL, and the flag never turns a failure into an Alpha.
-        let failing = full_scope(&sk, vec![gpu_check("gpu.serve-chat", true, "run", "FAIL")], "FAIL");
+        let failing = full_scope(
+            &sk,
+            vec![gpu_check("gpu.serve-chat", true, "run", "FAIL")],
+            "FAIL",
+        );
         assert_eq!(
             verify(&failing, &host_only)
                 .expect("a gb10 check ran, so there is a receipt to judge")
