@@ -989,9 +989,17 @@ fn full_scope_worker_qualifies_every_gate_and_signs_the_scope() {
         pubkey_hex: bundle::hex_encode(vk.as_bytes()),
         required: vec!["A".to_string(), "H".to_string()],
         require_full: true,
+        allow_host_only: false,
     };
     let err = bundle::verify(&b, &expect).expect_err("no gb10 gate, no Alpha");
     assert_eq!(err.code(), "NO_GPU_RECEIPT", "{err}");
+    // The caller reads the repository's gate manifests; this world declares no
+    // gb10 gate, so it passes --allow-host-only and the same full-scope PASS is
+    // an Alpha. Without the flag (above) it is not.
+    let mut host_only = expect.clone();
+    host_only.allow_host_only = true;
+    let v = bundle::verify(&b, &host_only).expect("host-only Alpha when no gate declares gb10");
+    assert_eq!(v.gate_verdict(), "PASS");
 }
 
 #[test]
