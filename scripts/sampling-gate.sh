@@ -43,6 +43,7 @@
 set -euo pipefail
 [ $# -ge 3 ] || { sed -n '2,29p' "$0"; exit 2; }
 base=${1%/} model=$2 dir=$3
+: "${AIEN_SERVE_HTTP_BEARER_TOKEN:?AIEN_SERVE_HTTP_BEARER_TOKEN required for chat}"
 shift 3
 repro=("$@")
 redact=${REDACT_REPRO:-1}
@@ -63,7 +64,7 @@ post() {
 	local name=$1 body=$2 code i
 	for i in $(seq 1 60); do
 		code=$(curl -s -o "$dir/$name.json" -w '%{http_code}' "$base/v1/chat/completions" \
-			-H 'content-type: application/json' -d "$body") || { echo "sampling-gate: curl failed for $name" >&2; exit 2; }
+			-H "Authorization: Bearer $AIEN_SERVE_HTTP_BEARER_TOKEN" -H 'content-type: application/json' -d "$body") || { echo "sampling-gate: curl failed for $name" >&2; exit 2; }
 		[ "$code" = 503 ] || break
 		sleep 1
 	done

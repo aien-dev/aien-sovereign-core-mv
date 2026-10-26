@@ -27,6 +27,7 @@ use aien_inference_abi::tokenizer::ChatOptions;
 use aien_serve_http::codec::{ByteCodec, Codec, CodecError};
 use aien_serve_http::engine::StubEngine;
 use aien_serve_http::server::{serve, ServerConfig};
+const TOKEN: &str = "integration-test-private-credential";
 use serde_json::Value;
 
 /// Byte codec whose generation prompt opens a thinking block unless `enable_thinking` is false;
@@ -83,6 +84,7 @@ fn start_with(thinking: Option<bool>) -> (SocketAddr, tokio::runtime::Runtime) {
         port: 0,
         model_id: "test-model".into(),
         default_enable_thinking: thinking,
+        bearer_token: TOKEN.into(),
         ..ServerConfig::default()
     };
     let (addr, _h) = rt
@@ -126,7 +128,7 @@ fn request(addr: SocketAddr, method: &str, path: &str, body: Option<&str>) -> Re
     s.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
     let body = body.unwrap_or("");
     let req = format!(
-        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {TOKEN}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
         body.len()
     );
     s.write_all(req.as_bytes()).unwrap();

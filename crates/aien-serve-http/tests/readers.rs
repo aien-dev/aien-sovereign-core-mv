@@ -9,6 +9,7 @@ use std::time::Duration;
 use aien_serve_http::codec::ByteCodec;
 use aien_serve_http::engine::StubEngine;
 use aien_serve_http::server::{serve, ServerConfig};
+const TOKEN: &str = "integration-test-private-credential";
 use serde_json::Value;
 
 struct Server {
@@ -48,7 +49,7 @@ fn request(addr: SocketAddr, method: &str, path: &str, body: Option<&str>) -> Re
     s.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
     let body = body.unwrap_or("");
     let req = format!(
-        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {TOKEN}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
         body.len()
     );
     s.write_all(req.as_bytes()).unwrap();
@@ -166,6 +167,7 @@ fn start_spy(slots: usize, reply: &str) -> (Server, Arc<Mutex<Vec<Vec<String>>>>
         port: 0,
         model_id: "test-model".into(),
         readers: Some(readers_cfg()),
+        bearer_token: TOKEN.into(),
         ..ServerConfig::default()
     };
     let (addr, _handle) = rt

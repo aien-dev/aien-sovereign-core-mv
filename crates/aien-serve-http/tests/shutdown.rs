@@ -32,6 +32,10 @@ fn sigterm_shuts_down_cleanly_and_exits_zero() {
             "/nonexistent-pkv509",
         ])
         .env_remove("AIEN_KV_STORE_DIR")
+        .env(
+            "AIEN_SERVE_HTTP_BEARER_TOKEN",
+            "shutdown-test-private-credential",
+        )
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())

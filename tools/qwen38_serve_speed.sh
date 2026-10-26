@@ -39,6 +39,7 @@ OUT=${3:?$USAGE}
 LOG=${4:-${AIEN_SERVE_LOG:-${XDG_STATE_HOME:-$HOME/.local/state}/aien/serve-27b.log}}
 REF="$FIX/decode-lighthouses-256.json"
 for t in curl jq iconv sha256sum awk; do command -v "$t" >/dev/null || { echo "qwen38_serve_speed.sh: needs $t" >&2; exit 2; }; done
+[ -n "${AIEN_SERVE_HTTP_BEARER_TOKEN:-}" ] || { echo "qwen38_serve_speed.sh: AIEN_SERVE_HTTP_BEARER_TOKEN required" >&2; exit 2; }
 [ -f "$CORPUS" ] || { echo "qwen38_serve_speed.sh: corpus not found: $CORPUS" >&2; exit 2; }
 [ -f "$REF" ] || { echo "qwen38_serve_speed.sh: reference ids not found: $REF" >&2; exit 2; }
 [ -f "$LOG" ] || { echo "qwen38_serve_speed.sh: server log not found: $LOG (pass it as the 4th argument or set AIEN_SERVE_LOG)" >&2; exit 2; }
@@ -56,7 +57,7 @@ run() {
     '{messages:$m, temperature:0, max_tokens:$n, chat_template_kwargs:{enable_thinking:false}, aien_return_token_ids:true}' > "$OUT/$1.req.json"
   for _ in $(seq 1 240); do
     w=$(curl -s -m 1800 -o "$OUT/$1.json" -w '%{time_total}' "$URL/v1/chat/completions" \
-      -H 'Content-Type: application/json' -d @"$OUT/$1.req.json")
+      -H "Authorization: Bearer $AIEN_SERVE_HTTP_BEARER_TOKEN" -H 'Content-Type: application/json' -d @"$OUT/$1.req.json")
     # Retry only "busy" answers (server_busy, chip lock); any other error is the result.
     jq -e '.error | tostring | test("busy"; "i")' "$OUT/$1.json" >/dev/null 2>&1 || break
     sleep 5

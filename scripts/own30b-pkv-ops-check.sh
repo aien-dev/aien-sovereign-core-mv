@@ -84,7 +84,7 @@ on_perm_bad=$(perm_bad "$D")
 echo "== sigterm: SIGTERM while a streamed chat is generating"
 jq -n --arg model "$SERVED_MODEL" --argjson m "$(turn2_msgs "$a1" "List ten uses of a torque wrench, one line each, with a reason for each.")" \
 	'{model:$model, messages:$m, max_tokens:256, temperature:0, seed:1, stream:true}' >"$work/long.body"
-curl -sN -m 600 "$base/v1/chat/completions" -H 'content-type: application/json' -d @"$work/long.body" >"$dir/sigterm-stream.sse" 2>&1 &
+curl -sN -m 600 "$base/v1/chat/completions" -H "Authorization: Bearer $AIEN_SERVE_HTTP_BEARER_TOKEN" -H 'content-type: application/json' -d @"$work/long.body" >"$dir/sigterm-stream.sse" 2>&1 &
 cpid=$!
 for _ in $(seq 1 600); do
 	grep -q '"content":"[^"]' "$dir/sigterm-stream.sse" 2>/dev/null && break
