@@ -64,6 +64,104 @@ pub const GDN_PF_MAX_T: usize = 65536;
 /// Most tokens one attention prefill call takes (`OMEGA_GPU_PATTN256_MAX_M`).
 pub const PATTN_MAX_M: usize = 32768;
 
+/// A dense model's shape (omega `OmegaGpuQ38GraphConfig` hidden .. gdn_heads): the constants above
+/// are the Qwen3.8-27B's ([`Shape::Q38_27B`], the widest); Qwen3.5-9B is hidden 4096, inter 12288,
+/// 16 / 4 attention heads, 32 DeltaNet value heads. Head widths (256 attention, 128 DeltaNet), the
+/// 16 DeltaNet key heads and the conv kernel are fixed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Shape {
+    pub hidden: usize,
+    pub inter: usize,
+    pub q_heads: usize,
+    pub kv_heads: usize,
+    pub gdn_heads: usize,
+}
+
+impl Shape {
+    pub const Q38_27B: Self = Self {
+        hidden: HIDDEN,
+        inter: INTER,
+        q_heads: 24,
+        kv_heads: 4,
+        gdn_heads: GDN_HEADS,
+    };
+
+    /// What omega's graph takes (the checks of `omega_gpu_q38_graph_create`): hidden a multiple of
+    /// 1024 up to 5120, inter a multiple of 256 up to 17408, q heads up to 24 in groups of at most
+    /// 8 per kv head, 32 or 48 DeltaNet value heads, and one mixer width (q heads x 256 = value
+    /// heads x 128).
+    pub fn check(self) -> Result<(), OmegaGpuError> {
+        let ok = self.hidden > 0
+            && self.hidden.is_multiple_of(1024)
+            && self.hidden <= HIDDEN
+            && self.inter > 0
+            && self.inter.is_multiple_of(256)
+            && self.inter <= INTER
+            && self.q_heads > 0
+            && self.q_heads <= 24
+            && self.kv_heads > 0
+            && self.q_heads.is_multiple_of(self.kv_heads)
+            && self.q_heads / self.kv_heads <= 8
+            && (self.gdn_heads == 32 || self.gdn_heads == 48)
+            && self.q_heads * HEAD_DIM == self.gdn_heads * GDN_HEAD_DIM;
+        if ok {
+            Ok(())
+        } else {
+            Err(bad(format!("q38 shape {self:?}: outside what the graph takes")))
+        }
+    }
+
+    /// DeltaNet in_proj_qkv rows (the conv width): q and k 16 x 128 each, v heads x 128.
+    pub const fn gdn_qkv(self) -> usize {
+        (32 + self.gdn_heads) * GDN_HEAD_DIM
+    }
+
+    /// DeltaNet fused projection rows: in_proj_qkv | in_proj_z.
+    pub const fn gdn_mix(self) -> usize {
+        self.gdn_qkv() + self.gdn_heads * GDN_HEAD_DIM
+    }
+
+    /// DeltaNet a|b rows, interleaved per head.
+    pub const fn ab(self) -> usize {
+        2 * self.gdn_heads
+    }
+
+    /// Attention fused projection rows: q_proj (q heads x [q 256 | gate 256]) | k_proj | v_proj.
+    pub const fn att_mix(self) -> usize {
+        (self.q_heads + self.kv_heads) * 2 * HEAD_DIM
+    }
+
+    /// The attention kernel's q|k|v row.
+    pub const fn att_qkv(self) -> usize {
+        (self.q_heads + 2 * self.kv_heads) * HEAD_DIM
+    }
+
+    /// Mixer output width, the o_proj input.
+    pub const fn mixer_out(self) -> usize {
+        self.q_heads * HEAD_DIM
+    }
+
+    /// omega's config fields: zeros for the 27B (its defaults, so the 27B config is unchanged).
+    const fn config_fields(self) -> [u32; 5] {
+        if self.hidden == HIDDEN
+            && self.inter == INTER
+            && self.q_heads == 24
+            && self.kv_heads == 4
+            && self.gdn_heads == GDN_HEADS
+        {
+            [0; 5]
+        } else {
+            [
+                self.hidden as u32,
+                self.inter as u32,
+                self.q_heads as u32,
+                self.kv_heads as u32,
+                self.gdn_heads as u32,
+            ]
+        }
+    }
+}
+
 /// True when the Qwen3.8 decode API is linked (not the stub).
 pub const fn is_native() -> bool {
     cfg!(has_omega_q38)
@@ -74,23 +172,25 @@ pub const fn has_prefill() -> bool {
     cfg!(has_omega_q38_prefill)
 }
 
-/// Source index in the attention projection row (`[ATT_MIX]`: q_proj 24 x [q 256 | gate 256],
+/// Source index in the attention projection row (`[att_mix]`: q_proj q_heads x [q 256 | gate 256],
 /// k_proj, v_proj) of every slot of the gathered row: q permuted | k permuted | v (the first
-/// [`ATT_QKV`], the attention kernel's row) | gate (`[MIXER_OUT]`). Mirror of
+/// `att_qkv`, the attention kernel's row) | gate (`[mixer_out]`). Mirror of
 /// `omega_q38_gather_table` (the decode graph's GATHER).
-pub fn gather_table(rotary: usize) -> Vec<u32> {
-    let qp = 24 * 512;
-    let kp = qp + 4 * 256;
-    (0..ATT_MIX)
+pub fn gather_table(rotary: usize, shape: Shape) -> Vec<u32> {
+    let (qn, kn) = (shape.q_heads * HEAD_DIM, shape.kv_heads * HEAD_DIM);
+    let qkv = shape.att_qkv();
+    let qp = shape.q_heads * 2 * HEAD_DIM;
+    let kp = qp + kn;
+    (0..shape.att_mix())
         .map(|n| {
-            let s = if n < 6144 {
+            let s = if n < qn {
                 (n / 256) * 512 + perm_slot(n % 256, rotary)
-            } else if n < 7168 {
-                qp + ((n - 6144) / 256) * 256 + perm_slot(n % 256, rotary)
-            } else if n < ATT_QKV {
-                kp + (n - 7168)
+            } else if n < qn + kn {
+                qp + ((n - qn) / 256) * 256 + perm_slot(n % 256, rotary)
+            } else if n < qkv {
+                kp + (n - qn - kn)
             } else {
-                ((n - ATT_QKV) / 256) * 512 + 256 + (n - ATT_QKV) % 256
+                ((n - qkv) / 256) * 512 + 256 + (n - qkv) % 256
             };
             s as u32
         })
@@ -155,16 +255,16 @@ pub enum Buf {
 }
 
 impl Buf {
-    /// The buffer's capacity in f32.
-    pub const fn capacity(self) -> usize {
+    /// The buffer's capacity in f32 for a graph of `shape`.
+    pub const fn capacity(self, shape: Shape) -> usize {
         match self {
-            Self::X | Self::Xq | Self::O | Self::Hidden => HIDDEN,
-            Self::Mix => GDN_MIX,
-            Self::Ab => AB,
-            Self::Agg => ATT_MIX,
-            Self::Att => MIXER_OUT,
-            Self::Gu => 2 * INTER,
-            Self::Act => INTER,
+            Self::X | Self::Xq | Self::O | Self::Hidden => shape.hidden,
+            Self::Mix => shape.gdn_mix(),
+            Self::Ab => shape.ab(),
+            Self::Agg => shape.att_mix(),
+            Self::Att => shape.mixer_out(),
+            Self::Gu => 2 * shape.inter,
+            Self::Act => shape.inter,
         }
     }
 }
@@ -227,8 +327,41 @@ pub struct GraphConfig {
     pub gdn: *mut c_void,
     /// [`Attn256Cache::as_raw`]: one entry per attention layer, in model order; rotary 64.
     pub attn: *mut c_void,
-    /// `Bf16Tensor::as_raw`, `[vocab][HIDDEN]`.
+    /// `Bf16Tensor::as_raw`, `[vocab][hidden]`.
     pub lm_head: *const c_void,
+    /// The shape ([`GraphConfig::set_shape`]); all zero = the 27B. The attention cache must have
+    /// the same q / kv heads and the DeltaNet state the same value heads.
+    pub hidden: u32,
+    pub inter: u32,
+    pub q_heads: u32,
+    pub kv_heads: u32,
+    pub gdn_heads: u32,
+}
+
+impl GraphConfig {
+    /// Sets the shape fields (zeros for the 27B, omega's defaults).
+    pub fn set_shape(&mut self, shape: Shape) {
+        [
+            self.hidden,
+            self.inter,
+            self.q_heads,
+            self.kv_heads,
+            self.gdn_heads,
+        ] = shape.config_fields();
+    }
+
+    /// The shape the fields name (zeros resolved to the 27B).
+    pub fn shape(&self) -> Shape {
+        let or = |v: u32, d: usize| if v == 0 { d } else { v as usize };
+        let d = Shape::Q38_27B;
+        Shape {
+            hidden: or(self.hidden, d.hidden),
+            inter: or(self.inter, d.inter),
+            q_heads: or(self.q_heads, d.q_heads),
+            kv_heads: or(self.kv_heads, d.kv_heads),
+            gdn_heads: or(self.gdn_heads, d.gdn_heads),
+        }
+    }
 }
 
 #[cfg(has_omega_q38)]
@@ -356,7 +489,7 @@ mod ffi {
         pub fn omega_gpu_q38_graph_kind_name(kind: u8) -> *const c_char;
         pub fn omega_gpu_q38_graph_set_flush_each(g: *mut OmegaGpuQ38Graph, on: i32);
         pub fn omega_gpu_session_last_error() -> *const c_char;
-        pub fn omega_q38_gather_table(tab: *mut u32);
+        pub fn omega_q38_gather_table(q_heads: u32, kv_heads: u32, tab: *mut u32) -> i32;
     }
 
     #[cfg(has_omega_q38_prefill)]
@@ -390,17 +523,27 @@ mod ffi {
     }
 }
 
-/// omega's own gather table (`omega_q38_gather_table`), for checking [`gather_table`].
-pub fn gather_table_c() -> Result<Vec<u32>, OmegaGpuError> {
+/// omega's own gather table (`omega_q38_gather_table`) for `shape`'s heads, for checking
+/// [`gather_table`].
+pub fn gather_table_c(shape: Shape) -> Result<Vec<u32>, OmegaGpuError> {
     #[cfg(has_omega_q38)]
     {
         let mut t = vec![0u32; ATT_MIX];
-        // SAFETY: omega writes exactly OMEGA_GPU_Q38_ATT_MIX entries.
-        unsafe { ffi::omega_q38_gather_table(t.as_mut_ptr()) };
+        // SAFETY: omega writes (q_heads + kv_heads) * 512 <= OMEGA_GPU_Q38_ATT_MIX entries.
+        let rc = unsafe {
+            ffi::omega_q38_gather_table(shape.q_heads as u32, shape.kv_heads as u32, t.as_mut_ptr())
+        };
+        if rc != 0 {
+            return Err(bad(format!("gather table: omega refuses {shape:?}")));
+        }
+        t.truncate(shape.att_mix());
         Ok(t)
     }
     #[cfg(not(has_omega_q38))]
-    Err(OmegaGpuError::Unavailable)
+    {
+        let _ = shape;
+        Err(OmegaGpuError::Unavailable)
+    }
 }
 
 /// omega's own name for a launch kind (`omega_gpu_q38_graph_kind_name`); the table above in
@@ -700,8 +843,8 @@ impl Gdn {
     /// `tokens` new tokens of DeltaNet layer `layer` (its index among the DeltaNet layers) in one
     /// call (`omega_gpu_gdn_prefill`), continuing from the layer's tail and state exactly as
     /// `tokens` decode steps would and leaving them for the next call or decode step. Plain
-    /// values in and out (scales 1): `qkv` `[tokens][10240]`, `z` `[tokens][6144]`, `ab`
-    /// `[tokens][96]` ({a, b} per head), `out` `[tokens][6144]` (the out_proj input).
+    /// values in and out (scales 1): `qkv` `[tokens][qkv()]` (10240 at ratio 3), `z` and `out`
+    /// `[tokens][heads() x 128]` (6144), `ab` `[tokens][2 heads()]` ({a, b} per head; 96).
     #[allow(clippy::too_many_arguments)]
     pub fn prefill(
         &mut self,
@@ -719,10 +862,11 @@ impl Gdn {
                 "gdn prefill: {tokens} tokens, {GDN_PF_MIN_T}..={GDN_PF_MAX_T} supported"
             )));
         }
-        check_len("gdn prefill qkv", tokens * GDN_QKV, qkv.len())?;
-        check_len("gdn prefill z", tokens * MIXER_OUT, z.len())?;
-        check_len("gdn prefill ab", tokens * AB, ab.len())?;
-        check_len("gdn prefill out", tokens * MIXER_OUT, out.len())?;
+        let (vw, abw) = (self.heads() * GDN_HEAD_DIM, 2 * self.heads());
+        check_len("gdn prefill qkv", tokens * self.qkv(), qkv.len())?;
+        check_len("gdn prefill z", tokens * vw, z.len())?;
+        check_len("gdn prefill ab", tokens * abw, ab.len())?;
+        check_len("gdn prefill out", tokens * vw, out.len())?;
         if layer >= self.layers {
             return Err(bad(format!(
                 "gdn prefill: layer {layer} of {}",
@@ -788,6 +932,9 @@ pub struct Attn256Cache {
     layers: usize,
     max_pos: usize,
     rotary: usize,
+    /// Attention q / kv heads (the 27B's 24 / 4 for `alloc_shape` zeros).
+    q_heads: usize,
+    kv_heads: usize,
 }
 
 // SAFETY: an owning handle to device buffers; moved between threads, never shared unlocked.
@@ -871,6 +1018,8 @@ impl Attn256Cache {
                 layers,
                 max_pos,
                 rotary,
+                q_heads: if q_heads == 0 { 24 } else { q_heads },
+                kv_heads: if kv_heads == 0 { 4 } else { kv_heads },
             })
         }
         #[cfg(not(has_omega_q38))]
@@ -944,10 +1093,10 @@ impl Attn256Cache {
 
     /// Causal prefill attention for attention layer `layer` (its index among the attention
     /// layers), `omega_gpu_prefill_attn256`: `m` tokens at positions `pos0 .. pos0 + m` (positions
-    /// before `pos0` already in the cache). `qkv` `[m][8192]` in the decode call's row layout
-    /// ([`gather_table`]'s first [`ATT_QKV`] slots, raw: the q/k norms and RoPE are applied
-    /// here); appends their K and V and writes `out` `[m][6144]` (head h at h * 256, before the
-    /// output gate).
+    /// before `pos0` already in the cache). `qkv` `[m][(q_heads + 2 kv_heads) x 256]` (8192 for the
+    /// 27B) in the decode call's row layout ([`gather_table`]'s first `att_qkv` slots, raw: the q/k
+    /// norms and RoPE are applied here); appends their K and V and writes `out`
+    /// `[m][q_heads x 256]` (head h at h * 256, before the output gate).
     pub fn prefill(
         &mut self,
         layer: usize,
@@ -968,8 +1117,9 @@ impl Attn256Cache {
                 self.max_pos
             )));
         }
-        check_len("attn256 prefill qkv", m * ATT_QKV, qkv.len())?;
-        check_len("attn256 prefill out", m * MIXER_OUT, out.len())?;
+        let qkv_w = (self.q_heads + 2 * self.kv_heads) * HEAD_DIM;
+        check_len("attn256 prefill qkv", m * qkv_w, qkv.len())?;
+        check_len("attn256 prefill out", m * self.q_heads * HEAD_DIM, out.len())?;
         if layer >= self.layers {
             return Err(bad(format!(
                 "attn256 prefill: layer {layer} of {}",
@@ -1053,7 +1203,7 @@ pub fn check_config(cfg: &GraphConfig) -> Result<(), OmegaGpuError> {
     if cfg.lm_head.is_null() {
         return Err(bad("q38 graph: the lm_head must be a device tensor".into()));
     }
-    Ok(())
+    cfg.shape().check()
 }
 
 /// One recorded-per-token Qwen3.8 decode graph. Not `Sync`: callers serialise use behind a lock.
@@ -1063,6 +1213,7 @@ pub struct Q38Graph {
     layers: usize,
     attn_mask: u64,
     vocab: usize,
+    shape: Shape,
 }
 
 // SAFETY: an owning handle to device buffers; moved between threads, never shared unlocked.
@@ -1098,6 +1249,7 @@ impl Q38Graph {
                 layers: cfg.layers as usize,
                 attn_mask: cfg.attn_mask,
                 vocab: cfg.vocab as usize,
+                shape: cfg.shape(),
             })
         }
         #[cfg(not(has_omega_q38))]
@@ -1112,15 +1264,21 @@ impl Q38Graph {
         self.vocab
     }
 
+    /// The model shape the graph was built for.
+    pub fn shape(&self) -> Shape {
+        self.shape
+    }
+
     /// True when model layer `l` is full attention.
     pub fn is_attention(&self, l: usize) -> bool {
         l < 64 && self.attn_mask >> l & 1 == 1
     }
 
     /// Binds one layer's projections (omega checks the shapes) and copies its norms (f32
-    /// `[HIDDEN]` each, already folded to `1 + w`). DeltaNet: `mix` `[16384][5120]`, `ab` bf16
-    /// `[96][5120]` (a/b interleaved, each value times 2^-64). Attention: `mix` `[14336][5120]`,
-    /// `ab` null. Both: `o` `[5120][6144]`, `gate_up` `[34816][5120]`, `down` `[5120][17408]`.
+    /// `[hidden]` each, already folded to `1 + w`). 27B widths shown (the graph's [`Shape`] in
+    /// general): DeltaNet: `mix` `[16384][5120]`, `ab` bf16 `[96][5120]` (a/b interleaved, each
+    /// value times 2^-64). Attention: `mix` `[14336][5120]`, `ab` null. Both: `o` `[5120][6144]`,
+    /// `gate_up` `[34816][5120]`, `down` `[5120][17408]`.
     ///
     /// # Safety
     /// The handles are live `OmegaGpuFp8Tensor` / `OmegaGpuBf16Tensor` pointers that outlive the
@@ -1137,8 +1295,8 @@ impl Q38Graph {
         in_norm: &[f32],
         post_norm: &[f32],
     ) -> Result<(), OmegaGpuError> {
-        check_len("q38 graph in_norm", HIDDEN, in_norm.len())?;
-        check_len("q38 graph post_norm", HIDDEN, post_norm.len())?;
+        check_len("q38 graph in_norm", self.shape.hidden, in_norm.len())?;
+        check_len("q38 graph post_norm", self.shape.hidden, post_norm.len())?;
         if layer >= self.layers {
             return Err(bad(format!("q38 graph: layer {layer} of {}", self.layers)));
         }
@@ -1174,7 +1332,7 @@ impl Q38Graph {
         Err(OmegaGpuError::Unavailable)
     }
 
-    /// Uses an FP8 lm_head (`[vocab][HIDDEN]`, one expert) for every later token instead of the bf16 one
+    /// Uses an FP8 lm_head (`[vocab][hidden]`, one expert) for every later token instead of the bf16 one
     /// (omega `omega_gpu_q38_graph_set_lm_head_fp8`, qwen38/decode-speed); null goes back to bf16.
     ///
     /// # Safety
@@ -1196,12 +1354,12 @@ impl Q38Graph {
         }
     }
 
-    /// Copies the final RMSNorm weight (f32 `[HIDDEN]`, folded to `1 + w`).
+    /// Copies the final RMSNorm weight (f32 `[hidden]`, folded to `1 + w`).
     pub fn set_final_norm(&mut self, final_norm: &[f32]) -> Result<(), OmegaGpuError> {
-        check_len("q38 graph final_norm", HIDDEN, final_norm.len())?;
+        check_len("q38 graph final_norm", self.shape.hidden, final_norm.len())?;
         #[cfg(has_omega_q38)]
         {
-            // SAFETY: ptr is live; the slice holds HIDDEN f32 (checked).
+            // SAFETY: ptr is live; the slice holds hidden f32 (checked).
             let rc =
                 unsafe { ffi::omega_gpu_q38_graph_set_final_norm(self.ptr, final_norm.as_ptr()) };
             if rc != 0 {
@@ -1214,20 +1372,20 @@ impl Q38Graph {
     }
 
     /// One whole token as one command list: `x_embed` (the token's embedding row, f32
-    /// `[HIDDEN]`) at position `pos` -> the greedy token (lowest index of the max logit) and what
+    /// `[hidden]`) at position `pos` -> the greedy token (lowest index of the max logit) and what
     /// it cost. Attention layers append K/V at `pos`; DeltaNet layers advance their state.
     pub fn token(
         &mut self,
         x_embed: &[f32],
         pos: usize,
     ) -> Result<(u32, GraphStats), OmegaGpuError> {
-        check_len("q38 graph x_embed", HIDDEN, x_embed.len())?;
+        check_len("q38 graph x_embed", self.shape.hidden, x_embed.len())?;
         let pos = u32::try_from(pos).map_err(|_| bad(format!("q38 graph: pos {pos} too large")))?;
         #[cfg(has_omega_q38)]
         {
             let mut token = 0u32;
             let mut st = GraphStats::default();
-            // SAFETY: ptr is live; x_embed holds HIDDEN f32 (checked); token and st are local.
+            // SAFETY: ptr is live; x_embed holds hidden f32 (checked); token and st are local.
             let rc = unsafe {
                 ffi::omega_gpu_q38_graph_token(self.ptr, x_embed.as_ptr(), pos, &mut token, &mut st)
             };
@@ -1243,7 +1401,7 @@ impl Q38Graph {
         }
     }
 
-    /// Copies the last token's device residual `x`, final-normed `hidden` (both `[HIDDEN]`) and
+    /// Copies the last token's device residual `x`, final-normed `hidden` (both `[hidden]`) and
     /// `logits` (`[vocab]`); any may be `None`. Costs a device read.
     pub fn read(
         &mut self,
@@ -1252,10 +1410,10 @@ impl Q38Graph {
         logits: Option<&mut [f32]>,
     ) -> Result<(), OmegaGpuError> {
         if let Some(x) = &x {
-            check_len("q38 graph read x", HIDDEN, x.len())?;
+            check_len("q38 graph read x", self.shape.hidden, x.len())?;
         }
         if let Some(h) = &hidden {
-            check_len("q38 graph read hidden", HIDDEN, h.len())?;
+            check_len("q38 graph read hidden", self.shape.hidden, h.len())?;
         }
         if let Some(l) = &logits {
             check_len("q38 graph read logits", self.vocab, l.len())?;
@@ -1276,11 +1434,11 @@ impl Q38Graph {
 
     /// Copies the first `out.len()` f32 of one intermediate of the last token (test and trace).
     pub fn read_buf(&mut self, which: Buf, out: &mut [f32]) -> Result<(), OmegaGpuError> {
-        if out.len() > which.capacity() {
+        if out.len() > which.capacity(self.shape) {
             return Err(bad(format!(
                 "q38 graph read_buf {which:?}: {} values, the buffer holds {}",
                 out.len(),
-                which.capacity()
+                which.capacity(self.shape)
             )));
         }
         #[cfg(has_omega_q38)]
@@ -1374,7 +1532,7 @@ mod tests {
 
     #[test]
     fn gather_table_is_a_permutation_and_matches_omega() {
-        let t = gather_table(64);
+        let t = gather_table(64, Shape::Q38_27B);
         let mut seen = vec![false; ATT_MIX];
         for &s in &t {
             assert!(!std::mem::replace(&mut seen[s as usize], true), "{s} twice");
@@ -1383,7 +1541,53 @@ mod tests {
         // q head 0 dim 0 comes from row 0; the gate of head 0 from row 256; v from after k.
         assert_eq!((t[0], t[ATT_QKV], t[7168]), (0, 256, 24 * 512 + 4 * 256));
         if is_native() {
-            assert_eq!(gather_table_c().unwrap(), t);
+            assert_eq!(gather_table_c(Shape::Q38_27B).unwrap(), t);
+        }
+    }
+
+    const Q35_9B: Shape = Shape {
+        hidden: 4096,
+        inter: 12288,
+        q_heads: 16,
+        kv_heads: 4,
+        gdn_heads: 32,
+    };
+
+    #[test]
+    fn the_9b_shape_widths_and_gather_table() {
+        Q35_9B.check().unwrap();
+        Shape::Q38_27B.check().unwrap();
+        assert_eq!(
+            (Q35_9B.gdn_qkv(), Q35_9B.gdn_mix(), Q35_9B.ab()),
+            (8192, 12288, 64)
+        );
+        assert_eq!(
+            (Q35_9B.att_mix(), Q35_9B.att_qkv(), Q35_9B.mixer_out()),
+            (10240, 6144, 4096)
+        );
+        let d = Shape::Q38_27B;
+        assert_eq!(
+            (d.gdn_qkv(), d.gdn_mix(), d.ab(), d.att_mix(), d.att_qkv(), d.mixer_out()),
+            (GDN_QKV, GDN_MIX, AB, ATT_MIX, ATT_QKV, MIXER_OUT)
+        );
+        let t = gather_table(64, Q35_9B);
+        assert_eq!(t.len(), 10240);
+        let mut seen = vec![false; 10240];
+        for &s in &t {
+            assert!(!std::mem::replace(&mut seen[s as usize], true), "{s} twice");
+        }
+        // q head 0 from row 0, k head 0 dim 0 from after q_proj, v after k_proj, gate 0 from row 256.
+        assert_eq!((t[0], t[4096], t[5120], t[6144]), (0, 8192, 9216, 256));
+        if is_native() {
+            assert_eq!(gather_table_c(Q35_9B).unwrap(), t);
+        }
+        for bad in [
+            Shape { hidden: 4000, ..Q35_9B },
+            Shape { inter: 17664, ..Q35_9B },
+            Shape { kv_heads: 3, ..Q35_9B },
+            Shape { gdn_heads: 48, ..Q35_9B },
+        ] {
+            assert!(bad.check().is_err(), "{bad:?}");
         }
     }
 
@@ -1427,6 +1631,11 @@ mod tests {
             gdn: std::ptr::null_mut(),
             attn: std::ptr::null_mut(),
             lm_head: (&mut lm as *mut u8).cast(),
+            hidden: 0,
+            inter: 0,
+            q_heads: 0,
+            kv_heads: 0,
+            gdn_heads: 0,
         };
         assert!(check_config(&cfg).is_err());
         let ok = GraphConfig {
@@ -1443,6 +1652,14 @@ mod tests {
         };
         assert!(check_config(&gdn_only).is_ok());
         assert!(check_config(&GraphConfig { layers: 65, ..ok }).is_err());
+        let mut nine = ok;
+        nine.set_shape(Q35_9B);
+        assert_eq!((nine.hidden, nine.gdn_heads, nine.shape()), (4096, 32, Q35_9B));
+        assert!(check_config(&nine).is_ok());
+        let mut back = nine;
+        back.set_shape(Shape::Q38_27B);
+        assert_eq!((back.hidden, back.inter, back.q_heads), (0, 0, 0));
+        assert!(check_config(&GraphConfig { hidden: 6144, ..nine }).is_err());
     }
 }
 

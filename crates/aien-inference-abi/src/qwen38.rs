@@ -1420,6 +1420,38 @@ mod tests {
     }
 
     #[test]
+    fn the_dense_door_takes_the_27b_and_the_9b_shape() {
+        let j27 = r#"{"model_type":"qwen3_5","tie_word_embeddings":false,
+          "quantization_config":{"quant_method":"fp8","fmt":"e4m3","weight_block_size":[128,128]},
+          "text_config":{"attn_output_gate":true,"hidden_act":"silu","hidden_size":5120,
+          "num_hidden_layers":4,"vocab_size":248320,"intermediate_size":17408,
+          "layer_types":["linear_attention","linear_attention","linear_attention","full_attention"],
+          "num_attention_heads":24,"num_key_value_heads":4,"head_dim":256,
+          "rope_parameters":{"rope_theta":10000000,"partial_rotary_factor":0.25},
+          "linear_num_key_heads":16,"linear_num_value_heads":48,"linear_key_head_dim":128,
+          "linear_value_head_dim":128,"linear_conv_kernel_dim":4,"rms_norm_eps":1e-6,
+          "eos_token_id":248044}}"#;
+        let c27 = Qwen38Config::from_json(j27, None).unwrap();
+        let s27 = crate::qwen38_omega::dense_shape(&c27).unwrap();
+        assert_eq!(s27, aien_omega_q38::Shape::Q38_27B);
+        // Qwen3.5-9B (HF Qwen/Qwen3.5-9B config.json text_config)
+        let j9 = j27
+            .replace("\"hidden_size\":5120", "\"hidden_size\":4096")
+            .replace("\"intermediate_size\":17408", "\"intermediate_size\":12288")
+            .replace("\"num_attention_heads\":24", "\"num_attention_heads\":16")
+            .replace("\"linear_num_value_heads\":48", "\"linear_num_value_heads\":32");
+        let c9 = Qwen38Config::from_json(&j9, None).unwrap();
+        let s9 = crate::qwen38_omega::dense_shape(&c9).unwrap();
+        assert_eq!((s9.hidden, s9.inter, s9.q_heads, s9.kv_heads, s9.gdn_heads), (4096, 12288, 16, 4, 32));
+        assert_eq!((s9.gdn_qkv(), s9.gdn_mix(), s9.att_mix(), s9.mixer_out()), (8192, 12288, 10240, 4096));
+        // refused: a head_dim the kernels do not have, and a GDN head count outside {32, 48}
+        let hd = j9.replace("\"head_dim\":256", "\"head_dim\":128");
+        assert!(crate::qwen38_omega::dense_shape(&Qwen38Config::from_json(&hd, None).unwrap()).is_err());
+        let gh = j9.replace("\"linear_num_value_heads\":32", "\"linear_num_value_heads\":16");
+        assert!(crate::qwen38_omega::dense_shape(&Qwen38Config::from_json(&gh, None).unwrap()).is_err());
+    }
+
+    #[test]
     fn fp8_matmul_matches_the_scalar_formula() {
         let mut m = Mem::default();
         m.fp8("w", 256, 384);

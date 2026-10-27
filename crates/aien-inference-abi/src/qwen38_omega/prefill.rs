@@ -75,22 +75,25 @@ pub(super) struct PfState {
     m: usize,
     bm: usize,
     max_tiles: usize,
-    /// HOST f32 `[m][6144]`: quantiser input (normed x, mixer output, post-normed x).
+    /// HOST f32 `[m][max(mixer_out, hidden)]` (6144 for the 27B): quantiser input (normed x,
+    /// mixer output, post-normed x).
     xin: PfMem,
-    /// DEV e4m3 `[m + bm][17408]` and f32 scales `[m + bm][17408 / 128]` (a GEMM tile reads
+    /// DEV e4m3 `[m + bm][inter]` and f32 scales `[m + bm][inter / 128]` (a GEMM tile reads
     /// activation rows up to `row0 + bm - 1`).
     xq: PfMem,
     xs: PfMem,
-    /// HOST f32 `[m][16384]`: the mixer projection (row stride = that GEMM's `n`).
+    /// HOST f32 `[m][max(gdn_mix, att_mix)]`: the mixer projection (row stride = that GEMM's `n`).
     mix: PfMem,
-    /// DEV bf16 `[m][17408]`: SwiGLU act rows.
+    /// DEV bf16 `[m][inter]`: SwiGLU act rows.
     act: PfMem,
-    /// HOST f32 `[m][5120]`: o_proj and down outputs.
+    /// HOST f32 `[m][hidden]`: o_proj and down outputs.
     out: PfMem,
     /// HOST `max_tiles` x 32 bytes: one GEMM's tile table (every call is synchronous).
     tiles: PfMem,
-    /// [`q::gather_table`] for the model's rotary width.
+    /// [`q::gather_table`] for the model's rotary width and heads.
     gather: Vec<u32>,
+    /// The model's widths.
+    shape: q::Shape,
 }
 
 fn ns(t: Instant) -> u64 {
@@ -180,20 +183,21 @@ pub(super) fn chunk_lengths(n: usize, chunk: usize) -> Vec<usize> {
 }
 
 impl PfState {
-    fn new(m: usize, rotary: usize) -> Result<Self, String> {
+    fn new(m: usize, rotary: usize, shape: q::Shape) -> Result<Self, String> {
         let mut dev = OmegaPfDevice;
         let bm = dev.qgemm_bm();
-        let kq = q::INTER; // widest quantiser input
+        let kq = shape.inter.max(shape.hidden).max(shape.mixer_out()); // widest quantiser input
         let max_tiles = m.div_ceil(bm) + 1;
         Ok(Self {
-            xin: dev.alloc_host(m * q::MIXER_OUT * 4)?,
+            xin: dev.alloc_host(m * shape.mixer_out().max(shape.hidden) * 4)?,
             xq: dev.alloc_dev((m + bm) * kq)?,
             xs: dev.alloc_dev((m + bm) * (kq / BLOCK) * 4)?,
-            mix: dev.alloc_host(m * q::GDN_MIX * 4)?,
-            act: dev.alloc_dev(m * q::INTER * 2)?,
-            out: dev.alloc_host(m * q::HIDDEN * 4)?,
+            mix: dev.alloc_host(m * shape.gdn_mix().max(shape.att_mix()) * 4)?,
+            act: dev.alloc_dev(m * shape.inter * 2)?,
+            out: dev.alloc_host(m * shape.hidden * 4)?,
             tiles: dev.alloc_host(max_tiles * TILE_BYTES)?,
-            gather: q::gather_table(rotary),
+            gather: q::gather_table(rotary, shape),
+            shape,
             dev,
             m,
             bm,
@@ -391,7 +395,8 @@ impl Qwen38Omega {
         let want = chunk.min(n);
         if self.pf.as_ref().is_none_or(|p| p.m < want) {
             self.pf = None; // free the old sizing first
-            self.pf = Some(PfState::new(want, self.config.rotary_dim)?);
+            let shape = super::dense_shape(&self.config)?;
+            self.pf = Some(PfState::new(want, self.config.rotary_dim, shape)?);
         }
         let mut st = PrefillStats {
             tokens: n,
@@ -419,8 +424,10 @@ impl Qwen38Omega {
         let m = toks.len();
         let pos0 = self.pos;
         let (h, eps, layers) = (self.config.hidden, self.config.eps, self.config.layers);
-        let (mo, inter) = (q::MIXER_OUT, q::INTER);
         let pf = self.pf.as_mut().expect("prefill buffers sized");
+        let sh = pf.shape;
+        let (mo, inter) = (sh.mixer_out(), sh.inter);
+        let (att_qkv, gdn_qkv) = (sh.att_qkv(), sh.gdn_qkv());
 
         let t = Instant::now();
         let mut x: Vec<f32> = toks
@@ -449,7 +456,7 @@ impl Qwen38Omega {
             let xin_va = pf.xin.va();
             pf.quant(h, QuantIn::F32, xin_va, m, st)
                 .map_err(|e| format!("layer {l} quant x: {e}"))?;
-            let mix_n = if attention { q::ATT_MIX } else { q::GDN_MIX };
+            let mix_n = if attention { sh.att_mix() } else { sh.gdn_mix() };
             let mix_va = pf.mix.va();
             pf.gemm(&lt.mix, mix_n, h, Layout::Plain, mix_va, m, st)
                 .map_err(|e| format!("layer {l} mixer gemm x{m}: {e}"))?;
@@ -459,10 +466,10 @@ impl Qwen38Omega {
             st.host_ns += ns(t);
             if attention {
                 let t = Instant::now();
-                let mut qkv = vec![0f32; m * q::ATT_QKV];
+                let mut qkv = vec![0f32; m * att_qkv];
                 let mut gate = vec![0f32; m * mo];
-                let (gq, gg) = pf.gather.split_at(q::ATT_QKV);
-                qkv.par_chunks_mut(q::ATT_QKV)
+                let (gq, gg) = pf.gather.split_at(att_qkv);
+                qkv.par_chunks_mut(att_qkv)
                     .zip(gate.par_chunks_mut(mo))
                     .zip(mix.par_chunks(mix_n))
                     .for_each(|((a, g), r)| {
@@ -494,18 +501,18 @@ impl Qwen38Omega {
                 st.host_ns += ns(t);
             } else {
                 let t = Instant::now();
-                let mut qkv = vec![0f32; m * q::GDN_QKV];
+                let mut qkv = vec![0f32; m * gdn_qkv];
                 let mut z = vec![0f32; m * mo];
-                qkv.par_chunks_mut(q::GDN_QKV)
+                qkv.par_chunks_mut(gdn_qkv)
                     .zip(z.par_chunks_mut(mo))
                     .zip(mix.par_chunks(mix_n))
                     .for_each(|((a, b), r)| {
-                        a.copy_from_slice(&r[..q::GDN_QKV]);
-                        b.copy_from_slice(&r[q::GDN_QKV..]);
+                        a.copy_from_slice(&r[..gdn_qkv]);
+                        b.copy_from_slice(&r[gdn_qkv..]);
                     });
                 st.host_ns += ns(t);
                 let t = Instant::now();
-                let mut ab = vec![0f32; m * q::AB];
+                let mut ab = vec![0f32; m * sh.ab()];
                 self.ab_mm[gi]
                     .matmul_f32(m, &xn, &mut ab)
                     .map_err(|e| format!("layer {l} a|b matmul x{m}: {e}"))?;

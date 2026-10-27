@@ -252,7 +252,10 @@ pub fn need_bytes(c: &Qwen38Config, max_pos: usize, chunk: usize) -> u64 {
             if attn {
                 (2 * c.heads * c.head_dim + 2 * c.kv_dim()) as u64 * h + o + mlp
             } else {
-                (c.conv_dim() + c.lin_value_dim()) as u64 * h + o + mlp + 4 * 2 * 2 * 48 * h
+                (c.conv_dim() + c.lin_value_dim()) as u64 * h
+                    + o
+                    + mlp
+                    + 4 * 2 * 2 * c.lin_v_heads as u64 * h
             }
         })
         .sum();
@@ -260,7 +263,8 @@ pub fn need_bytes(c: &Qwen38Config, max_pos: usize, chunk: usize) -> u64 {
     let n_attn = c.full_attention.iter().filter(|&&a| a).count() as u64;
     let n_gdn = c.layers as u64 - n_attn;
     let kv = n_attn * 2 * 4 * max_pos as u64 * 512 + max_pos as u64 * 1024;
-    // xin, xq, xs, mix, act, out, plus the DeltaNet prefill scratch (omega_gpu_gdn_api.h).
+    // xin, xq, xs, mix, act, out, plus the DeltaNet prefill scratch (omega_gpu_gdn_api.h), at
+    // the 27B widths (the widest the dense graph takes: an upper bound for smaller shapes).
     let m = chunk as u64;
     let bufs = m * (6144 * 4 + 17408 + 136 * 4 + 16384 * 4 + 17408 * 2 + 5120 * 4)
         + m * (40960 + 3 * 24576 + 384)
@@ -274,6 +278,33 @@ pub fn need_bytes(c: &Qwen38Config, max_pos: usize, chunk: usize) -> u64 {
 
 fn gpu(stage: &str) -> impl Fn(aien_omega_gpu::OmegaGpuError) -> String + '_ {
     move |e| format!("{stage}: {e}")
+}
+
+/// The dense graph's shape for a checkpoint, or why it does not fit: 256-wide attention heads,
+/// 16 DeltaNet key heads of 128, value heads of 128, conv kernel 4 (Qwen3.8-27B and Qwen3.5-9B),
+/// and widths within [`aien_omega_q38::Shape::check`].
+pub fn dense_shape(c: &Qwen38Config) -> Result<aien_omega_q38::Shape, String> {
+    use aien_omega_q38 as q;
+    let fixed = c.head_dim == q::HEAD_DIM
+        && c.lin_k_heads == 16
+        && c.lin_k_dim == q::GDN_HEAD_DIM
+        && c.lin_v_dim == q::GDN_HEAD_DIM
+        && c.conv_kernel == q::GDN_CONV_KERNEL
+        && c.kv_heads > 0;
+    let shape = q::Shape {
+        hidden: c.hidden,
+        inter: c.intermediate,
+        q_heads: c.heads,
+        kv_heads: c.kv_heads,
+        gdn_heads: c.lin_v_heads,
+    };
+    if !fixed || shape.check().is_err() {
+        return Err(format!(
+            "qwen38 omega: the checkpoint's shape ({shape:?}, head_dim {}, DeltaNet {} key heads of {} / value dim {}, conv {}) is not one the dense graph takes",
+            c.head_dim, c.lin_k_heads, c.lin_k_dim, c.lin_v_dim, c.conv_kernel
+        ));
+    }
+    Ok(shape)
 }
 
 /// `1 + w`, the zero-centred RMSNorm weight the graph's norms multiply by.
@@ -448,27 +479,12 @@ impl Qwen38Omega {
         }
         if heads != 1 {
             return Err(format!(
-                "qwen38 omega: {heads} heads (the 27B dense graph strokes one conversation)"
+                "qwen38 omega: {heads} heads (the dense graph strokes one conversation)"
             ));
         }
         use aien_omega_q38 as q;
         let c = &config;
-        let shape_ok = c.hidden == q::HIDDEN
-            && c.intermediate == q::INTER
-            && c.heads * c.head_dim == q::MIXER_OUT
-            && c.head_dim == q::HEAD_DIM
-            && c.kv_heads * c.head_dim * 2 + 2 * c.heads * c.head_dim == q::ATT_MIX
-            && c.conv_dim() == q::GDN_QKV
-            && c.conv_dim() + c.lin_value_dim() == q::GDN_MIX
-            && c.lin_v_heads == q::GDN_HEADS
-            && c.lin_v_dim == q::GDN_HEAD_DIM
-            && c.conv_kernel == q::GDN_CONV_KERNEL;
-        if !shape_ok {
-            return Err(
-                "qwen38 omega: the checkpoint is not the Qwen3.8-27B shape the graph is built for"
-                    .into(),
-            );
-        }
+        let shape = dense_shape(c)?;
         if c.layers > q::MAX_LAYERS {
             return Err(format!(
                 "qwen38 omega: {} layers (at most {})",
@@ -497,14 +513,31 @@ impl Qwen38Omega {
         let n_attn = c.full_attention.iter().filter(|&&a| a).count();
         let n_gdn = c.layers - n_attn;
         let mut gdn = if n_gdn > 0 {
-            Some(Gdn::alloc(n_gdn).map_err(gpu("gdn alloc"))?)
+            Some(
+                Gdn::alloc_ratio(n_gdn, c.lin_v_heads / c.lin_k_heads)
+                    .map_err(gpu("gdn alloc"))?,
+            )
         } else {
             None
         };
+        // The 27B keeps omega's default attention shape (zeros); others name their heads.
+        let (aq, akv, agroup) = if shape == q::Shape::Q38_27B {
+            (0, 0, 0)
+        } else {
+            (c.heads, c.kv_heads, c.heads / c.kv_heads)
+        };
         let mut attn = if n_attn > 0 {
             Some(
-                Attn256Cache::alloc(n_attn, max_pos, c.rope_theta, c.rotary_dim)
-                    .map_err(gpu("attn256 alloc"))?,
+                Attn256Cache::alloc_shape(
+                    n_attn,
+                    max_pos,
+                    c.rope_theta,
+                    c.rotary_dim,
+                    aq,
+                    akv,
+                    agroup,
+                )
+                .map_err(gpu("attn256 alloc"))?,
             )
         } else {
             None
@@ -626,7 +659,7 @@ impl Qwen38Omega {
             norms.push((in_norm, post_norm));
         }
 
-        let cfg = GraphConfig {
+        let mut cfg = GraphConfig {
             layers: c.layers as u32,
             attn_mask,
             vocab: v as u32,
@@ -637,7 +670,13 @@ impl Qwen38Omega {
                 .as_ref()
                 .map_or(std::ptr::null_mut(), Attn256Cache::as_raw),
             lm_head: lm_head.as_raw(),
+            hidden: 0,
+            inter: 0,
+            q_heads: 0,
+            kv_heads: 0,
+            gdn_heads: 0,
         };
+        cfg.set_shape(shape);
         // SAFETY: gdn, attn and lm_head are live omega objects owned by the returned value, which
         // drops the graph before them (field order).
         let mut graph = unsafe { Q38Graph::create(&cfg) }.map_err(gpu("q38 graph create"))?;
