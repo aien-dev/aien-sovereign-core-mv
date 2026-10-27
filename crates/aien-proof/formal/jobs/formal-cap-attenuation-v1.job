@@ -8,6 +8,6 @@ RUNNER=run-cap-formal.sh
 RESULT_PREFIX=CAP_FORMAL_BOOTSTRAP
 MODEL="bootstrap/formal-oracles/lean/AienCap/Model.lean"
 THEOREM_FILE=bootstrap/formal-oracles/lean/AienCap/Theorems.lean
-COVERED_REPO=aien-dev/aienos
+COVERED_REPO=aien-dev/aienux
 COVERED_COMMIT=2ee61b4b158a385c5fcf2c925a625ac043babb21
 COVERED_PATH=crates/aienos-aegis/src/capability.rs

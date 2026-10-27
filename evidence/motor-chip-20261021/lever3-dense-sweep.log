@@ -1,0 +1,17 @@
+2026-10-21T11:32:59Z sweep start test sha 1d9b5b832fef832e
+2026-10-21T11:33:01Z mix ctas 48 exit 0: mt 8 warps 16 ctas 48 x 1 segments, 8 rows, up to 1 passes: chip 375.4 us, call 455.8 us; streams 25 MB (distinct experts 25 MB) = 67.0 GB/s on streamed, 67.0 GB/s on distinct
+2026-10-21T11:33:04Z mix ctas 96 exit 0: mt 8 warps 16 ctas 96 x 1 segments, 8 rows, up to 1 passes: chip 357.8 us, call 437.3 us; streams 25 MB (distinct experts 25 MB) = 70.3 GB/s on streamed, 70.3 GB/s on distinct
+2026-10-21T11:33:08Z mix ctas 192 exit 0: mt 8 warps 16 ctas 192 x 1 segments, 8 rows, up to 1 passes: chip 460.7 us, call 548.2 us; streams 25 MB (distinct experts 25 MB) = 54.6 GB/s on streamed, 54.6 GB/s on distinct
+2026-10-21T11:33:11Z mix ctas 384 exit 0: mt 8 warps 16 ctas 384 x 1 segments, 8 rows, up to 1 passes: chip 348.2 us, call 425.8 us; streams 25 MB (distinct experts 25 MB) = 72.3 GB/s on streamed, 72.3 GB/s on distinct
+2026-10-21T11:33:13Z mix ctas 768 exit 0: mt 8 warps 16 ctas 768 x 1 segments, 8 rows, up to 1 passes: chip 360.4 us, call 439.7 us; streams 25 MB (distinct experts 25 MB) = 69.8 GB/s on streamed, 69.8 GB/s on distinct
+2026-10-21T11:33:18Z qkv ctas 48 exit 0: mt 8 warps 16 ctas 48 x 1 segments, 8 rows, up to 1 passes: chip 237.2 us, call 282.3 us; streams 10 MB (distinct experts 10 MB) = 44.2 GB/s on streamed, 44.2 GB/s on distinct
+2026-10-21T11:33:21Z qkv ctas 96 exit 0: mt 8 warps 16 ctas 96 x 1 segments, 8 rows, up to 1 passes: chip 251.4 us, call 294.9 us; streams 10 MB (distinct experts 10 MB) = 41.7 GB/s on streamed, 41.7 GB/s on distinct
+2026-10-21T11:33:24Z qkv ctas 192 exit 0: mt 8 warps 16 ctas 192 x 1 segments, 8 rows, up to 1 passes: chip 207.5 us, call 251.6 us; streams 10 MB (distinct experts 10 MB) = 50.5 GB/s on streamed, 50.5 GB/s on distinct
+2026-10-21T11:33:27Z qkv ctas 384 exit 0: mt 8 warps 16 ctas 320 x 1 segments, 8 rows, up to 1 passes: chip 172.1 us, call 211.2 us; streams 10 MB (distinct experts 10 MB) = 60.9 GB/s on streamed, 60.9 GB/s on distinct
+2026-10-21T11:33:30Z qkv ctas 768 exit 0: mt 8 warps 16 ctas 320 x 1 segments, 8 rows, up to 1 passes: chip 210.5 us, call 253.7 us; streams 10 MB (distinct experts 10 MB) = 49.8 GB/s on streamed, 49.8 GB/s on distinct
+2026-10-21T11:33:33Z o ctas 48 exit 0: mt 8 warps 16 ctas 48 x 1 segments, 8 rows, up to 1 passes: chip 309.6 us, call 347.7 us; streams 8 MB (distinct experts 8 MB) = 27.1 GB/s on streamed, 27.1 GB/s on distinct
+2026-10-21T11:33:36Z o ctas 96 exit 0: mt 8 warps 16 ctas 96 x 1 segments, 8 rows, up to 1 passes: chip 268.2 us, call 305.3 us; streams 8 MB (distinct experts 8 MB) = 31.3 GB/s on streamed, 31.3 GB/s on distinct
+2026-10-21T11:33:40Z o ctas 192 exit 0: mt 8 warps 16 ctas 128 x 1 segments, 8 rows, up to 1 passes: chip 263.8 us, call 303.4 us; streams 8 MB (distinct experts 8 MB) = 31.8 GB/s on streamed, 31.8 GB/s on distinct
+2026-10-21T11:33:43Z o ctas 384 exit 0: mt 8 warps 16 ctas 128 x 1 segments, 8 rows, up to 1 passes: chip 264.6 us, call 305.5 us; streams 8 MB (distinct experts 8 MB) = 31.7 GB/s on streamed, 31.7 GB/s on distinct
+2026-10-21T11:33:46Z o ctas 768 exit 0: mt 8 warps 16 ctas 128 x 1 segments, 8 rows, up to 1 passes: chip 264.6 us, call 305.4 us; streams 8 MB (distinct experts 8 MB) = 31.7 GB/s on streamed, 31.7 GB/s on distinct
+2026-10-21T11:33:46Z sweep done

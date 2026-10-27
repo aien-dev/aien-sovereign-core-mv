@@ -1,0 +1,1 @@
+flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/q38-pf/release/qwen38_prefill ttft /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a /home/drakestapleton/.claude/jobs/92a9de41/tmp/corpus-arch.txt 32768,65536,131072 4096 ttft-chunk4096.json

@@ -1,0 +1,4 @@
+chip: 200 records, identical 196, host-full agrees 142, |C| mean 1.0 p99 1 max 1
+chip: full head list p50 4723.6 us p99 5021.4 us; two-pass list p50 2342.0 us p99 2710.1 us
+gpu_exact_head_test: 6 checks, 0 failed: PASS
+mutant rc 0

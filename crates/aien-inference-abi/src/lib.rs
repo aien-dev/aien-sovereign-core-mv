@@ -1,4 +1,19 @@
 #![allow(
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
     clippy::too_many_arguments,
     clippy::needless_range_loop,
     clippy::chunks_exact_to_as_chunks
@@ -12,6 +27,7 @@ pub mod bitnet_omega;
 pub mod bitnet_tokenizer;
 pub mod capsule;
 pub mod checkpoint;
+pub mod exact_head;
 pub mod gb10_serving;
 pub mod generation;
 pub mod model_dir;
@@ -19,6 +35,7 @@ pub mod moe_plan;
 pub mod native_ops;
 pub mod omega_backend;
 pub mod qwen38;
+pub mod qwen38_omega;
 pub mod qwen3_coder;
 pub mod qwen3_dense_omega;
 pub mod qwen3_moe;

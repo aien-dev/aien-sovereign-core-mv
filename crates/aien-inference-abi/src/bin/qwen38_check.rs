@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Qwen3.8-27B host reference check (plan `~/handoffs/2026-10-18-qwen38-27b-on-omega.md`, step 2).
 //!
 //!   qwen38_check score    <checkpoint-dir> <passage.txt> <max-tokens> <out.json>
@@ -39,12 +54,22 @@ fn run() -> Result<(), String> {
             text.truncate(cut);
         }
     }
+    if mode == "jittercmp" {
+        // The text argument is a generate record (JSON), not a passage to encode.
+        text.clear();
+    }
     let tokenizer =
         ChatTokenizer::from_file(dir.join("tokenizer.json")).map_err(|e| e.to_string())?;
     let mut ids = tokenizer.encode(&text).map_err(|e| e.to_string())?;
 
     let t0 = Instant::now();
     let mut model = Qwen38Reference::open(dir)?;
+    // Negative control (Q36): AIEN_Q36_ROUTING_MUTANT=1 swaps each token's 8th expert for its 9th,
+    // =2 sends every routed pick to the next expert id.
+    model.routing_mutant = std::env::var("AIEN_Q36_ROUTING_MUTANT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
     let open_s = t0.elapsed().as_secs_f64();
     eprintln!("opened in {open_s:.1} s (embedding, final norm, lm_head)");
     let vocab = model.config.vocab;
@@ -79,12 +104,69 @@ fn run() -> Result<(), String> {
                 "nll": nll, "pass_seconds": pass_s, "open_seconds": open_s,
             })
         }
+        "jittercmp" => {
+            // L306 noise-floor probe: the golden sequence (prompt + generated but the last) run
+            // clean, then once per AIEN_Q36_JITTER item `where:rel` (see Qwen38Reference::jitter);
+            // per position the logits cosine against the clean run.
+            let g: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(text_path).map_err(|e| format!("{text_path}: {e}"))?,
+            )
+            .map_err(|e| format!("{text_path}: {e}"))?;
+            let ids_of = |k: &str| -> Vec<u32> {
+                g[k].as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_u64())
+                            .map(|v| v as u32)
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            };
+            let mut toks = ids_of("prompt_ids");
+            let gen = ids_of("generated_ids");
+            toks.extend_from_slice(&gen[..gen.len().saturating_sub(1)]);
+            let clean = model.forward(&mut state, &toks, Logits::All)?;
+            let spec = std::env::var("AIEN_Q36_JITTER").unwrap_or_else(|_| "0:0".into());
+            let mut runs = Vec::new();
+            for item in spec.split(',') {
+                let (w, r) = item.split_once(':').ok_or("AIEN_Q36_JITTER: where:rel")?;
+                let w: u8 = w.parse().map_err(|_| "jitter where")?;
+                let r: f32 = r.parse().map_err(|_| "jitter rel")?;
+                model.jitter = (w, r);
+                let mut st = model.new_state();
+                let lg = model.forward(&mut st, &toks, Logits::All)?;
+                let cos: Vec<f64> = clean
+                    .chunks_exact(vocab)
+                    .zip(lg.chunks_exact(vocab))
+                    .map(|(a, b)| {
+                        let (mut ab, mut aa, mut bb) = (0f64, 0f64, 0f64);
+                        for (&x, &y) in a.iter().zip(b) {
+                            ab += x as f64 * y as f64;
+                            aa += x as f64 * x as f64;
+                            bb += y as f64 * y as f64;
+                        }
+                        ab / (aa.sqrt() * bb.sqrt())
+                    })
+                    .collect();
+                let min = cos.iter().cloned().fold(1.0, f64::min);
+                let below = cos.iter().filter(|&&c| c < 0.9999).count();
+                eprintln!(
+                    "jitter {w}:{r}: cosine(min) {min:.6}, {below}/{} positions under 0.9999",
+                    cos.len()
+                );
+                runs.push(json!({"where": w, "rel": r, "cosine": cos, "cosine_min": min, "under_0_9999": below}));
+            }
+            model.jitter = (0, 0.0);
+            json!({"mode": "jittercmp", "golden": text_path, "positions": toks.len(), "runs": runs})
+        }
         "generate" => {
             let prompt = ids.clone();
             let mut steps = Vec::new();
             let t1 = Instant::now();
             let mut logits = model.forward(&mut state, &prompt, Logits::Last)?;
             let prefill_s = t1.elapsed().as_secs_f64();
+            let mut routes = vec![model.routes.clone()];
+            let mut gaps = vec![model.route_gaps.clone()];
             let mut out = Vec::new();
             let mut step_s = Vec::new();
             for step in 0..count {
@@ -98,6 +180,8 @@ fn run() -> Result<(), String> {
                 }
                 let t2 = Instant::now();
                 logits = model.forward(&mut state, &[next], Logits::Last)?;
+                routes.push(model.routes.clone());
+                gaps.push(model.route_gaps.clone());
                 step_s.push(t2.elapsed().as_secs_f64());
             }
             let text_out = tokenizer.decode(&out).map_err(|e| e.to_string())?;
@@ -106,6 +190,7 @@ fn run() -> Result<(), String> {
                 "mode": "generate", "prompt_file": text_path, "prompt_ids": prompt,
                 "generated_ids": out, "generated_text": text_out, "top5": steps,
                 "prefill_seconds": prefill_s, "step_seconds": step_s, "open_seconds": open_s,
+                "routes": routes, "route_gaps": gaps,
             })
         }
         _ => return Err(usage.into()),

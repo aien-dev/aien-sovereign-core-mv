@@ -22,8 +22,10 @@ thiserror = "1.0"
 bitflags = { version = "2.5", features = ["serde"] }
 p256 = { version = "0.14.0", features = ["ecdsa", "pem"] }
 hex = "0.4"
-aien-protocol-types = { git = "https://github.com/aien-dev/aien-protocols", rev = "7ac6facb630ca7e9a6ab4125b292203fe2bb6687" }
-aien-provenance = { git = "https://github.com/aien-dev/aien-protocols", rev = "7ac6facb630ca7e9a6ab4125b292203fe2bb6687" }
+# SourceGrant v2 framed digest (aien-protocols-mv#59). Grants signed over the
+# retired v1 transcript are refused; see crates/spark-harvester/README.md.
+aien-protocol-types = { git = "https://github.com/aien-dev/aien-protocols-mv", rev = "28bc49ec57a89398fcb463cf71c0add7fcd2ef6c" }
+aien-provenance = { git = "https://github.com/aien-dev/aien-protocols-mv", rev = "28bc49ec57a89398fcb463cf71c0add7fcd2ef6c" }
 
 [dev-dependencies]
 tempfile = "3.17"
