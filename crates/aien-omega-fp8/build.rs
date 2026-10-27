@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Decides whether omega's FP8 GEMV API (`src/omega_gpu_fp8_api.h`, OWN-30B cuts 5-6) is linked.
 //!
 //! The archive itself is linked by `aien-omega-gpu`'s build script (this crate only declares
@@ -9,6 +24,8 @@
 //!
 //! `cfg(has_omega_fp8gemm)` (the prefill grouped GEMM) is set when the archive defines
 //! `omega_gpu_fp8gemm_f32` or the checkout has `src/omega_gpu_fp8gemm_api.h`.
+//! `cfg(has_omega_fp8_grouped_rule)` (L310 one-wave lever, `omega_gpu_fp8_grouped_ctas_auto`) is set when the
+//! archive defines that symbol or the checkout header declares it.
 //!   * otherwise: stub (every call returns `Unavailable`).
 //!
 //! `cfg(has_omega_fp8)` is set only when native. A stub never fails the build: the bf16
@@ -20,6 +37,7 @@ fn main() {
     println!("cargo:rustc-check-cfg=cfg(has_omega_fp8)");
     println!("cargo:rustc-check-cfg=cfg(has_omega_fp8_dev)");
     println!("cargo:rustc-check-cfg=cfg(has_omega_fp8gemm)");
+    println!("cargo:rustc-check-cfg=cfg(has_omega_fp8_grouped_rule)");
     for v in [
         "AIEN_FORCE_CPU_STUB",
         "AIEN_OMEGA_GPU_LIB",
@@ -42,6 +60,9 @@ fn main() {
             if archive_defines(Path::new(&lib), "omega_gpu_fp8gemm_f32") {
                 println!("cargo:rustc-cfg=has_omega_fp8gemm");
             }
+            if archive_defines(Path::new(&lib), "omega_gpu_fp8_grouped_ctas_auto") {
+                println!("cargo:rustc-cfg=has_omega_fp8_grouped_rule");
+            }
         } else {
             println!("cargo:warning=aien-omega-fp8: {lib} does not define the FP8 GEMV API; FP8 calls are stubbed");
         }
@@ -63,6 +84,11 @@ fn main() {
                 .is_file()
             {
                 println!("cargo:rustc-cfg=has_omega_fp8gemm");
+            }
+            if std::fs::read_to_string(&header)
+                .is_ok_and(|t| t.contains("omega_gpu_fp8_grouped_ctas_auto"))
+            {
+                println!("cargo:rustc-cfg=has_omega_fp8_grouped_rule");
             }
         } else {
             println!("cargo:warning=aien-omega-fp8: {dir} has no src/omega_gpu_fp8_api.h (omega before OWN-30B cut 5); FP8 calls are stubbed");

@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Qwen3 dense (Qwen3-8B family, bf16) on AIEN's own GPU engine (Omega), OWN-8B Stage 1.
 //!
 //! Design: `~/handoffs/2026-10-15-own8b-design.md` (section 2.2, stage table row 1). This stage
@@ -2513,10 +2528,10 @@ mod tests {
         c.q_heads = 6;
         c.kv_heads = 3;
         refused(c.validate().map(|_| c.clone()), "kv_dim 192");
-        // k past the FP8 GEMV's 16384.
+        // k past the FP8 GEMV's 32768 (aien_omega_fp8::MAX_K).
         let mut c = tiny_fp8_config();
-        c.intermediate = 16384 + 128;
-        refused(c.validate().map(|_| c.clone()), "down [256][16512]");
+        c.intermediate = aien_omega_fp8::MAX_K + 128;
+        refused(c.validate().map(|_| c.clone()), "down [256][32896]");
         // The bf16 rule (k a multiple of 256) does not apply to an FP8 projection: k 384 is fine
         // for down, but the bf16 lm_head (k = hidden) keeps its rule.
         let mut c = tiny_fp8_config();

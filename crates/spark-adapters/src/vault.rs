@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use regex::Regex;
 use std::collections::HashMap;
 use std::process::Command;
@@ -284,7 +299,7 @@ pub fn sanitize_outbound_prompt(prompt: &str) -> String {
     });
     let host_re = HOST_RE.get_or_init(|| {
         Regex::new(
-            r"(?i)\b(?:spark-b87b(?:\.local)?|spark\.local|localhost)\b|(?i)\bspark([^\w-]|\z)",
+            r"(?i)\b(?:spark-[0-9a-f]{4}(?:\.local)?|spark\.local|localhost)\b|(?i)\bspark([^\w-]|\z)",
         )
         .unwrap()
     });
@@ -327,11 +342,10 @@ mod tests {
 
     #[test]
     fn test_sanitize_paths_and_ips() {
-        let raw =
-            "Read /home/drakestapleton/workspace/secret.rs from 100.64.0.1 and send to 127.0.0.1";
+        let raw = "Read /home/alice/workspace/secret.rs from 100.100.1.2 and send to 127.0.0.1";
         let clean = sanitize_outbound_prompt(raw);
-        assert!(!clean.contains("/home/drakestapleton"));
-        assert!(!clean.contains("100.64.0.1"));
+        assert!(!clean.contains("/home/alice"));
+        assert!(!clean.contains("100.100.1.2"));
         assert!(!clean.contains("127.0.0.1"));
         assert!(clean.contains("<WORKSPACE_PATH>"));
         assert!(clean.contains("<LOCAL_HOST>"));
@@ -398,11 +412,11 @@ mod tests {
     #[test]
     fn test_sanitize_hostnames() {
         assert_eq!(
-            sanitize_outbound_prompt("Connecting to spark-b87b on port 18080"),
+            sanitize_outbound_prompt("Connecting to spark-1a2b on port 18080"),
             "Connecting to <LOCAL_HOST> on port 18080"
         );
         assert_eq!(
-            sanitize_outbound_prompt("Connecting to spark-b87b.local"),
+            sanitize_outbound_prompt("Connecting to spark-1a2b.local"),
             "Connecting to <LOCAL_HOST>"
         );
         assert_eq!(
@@ -503,7 +517,7 @@ mod tests {
 
     #[test]
     fn test_complex_multimodal_sanitization() {
-        let raw = "Operator Drake Stapleton running on spark-b87b with key sk-ant-api03-abcdefghijklmnopqrstuvwxyz12345 accessing /home/drakestapleton/secret.txt at 192.168.1.50 and spark:18080";
+        let raw = "Operator Drake Stapleton running on spark-1a2b with key sk-ant-api03-abcdefghijklmnopqrstuvwxyz12345 accessing /home/alice/secret.txt at 192.168.0.50 and spark:18080";
         let clean = sanitize_outbound_prompt(raw);
         assert_eq!(
             clean,

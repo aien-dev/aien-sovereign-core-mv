@@ -1,4 +1,5 @@
 # tests/gates/sc-release-gate-negatives.gate
+# target_lock: none because aien-audit-inputs traced no cargo or rustc in this gate (L335, 2026-10-21).
 # Mirrors hosted: ci.yml verify: test-install-release, test-offline-signing, test-public-key-integration, check-release-trust-config, test-release-checks
 gate: SC-RELEASE-GATE-NEGATIVES
 manifest_version: 2
@@ -19,3 +20,4 @@ expects:
 timeout: 15m
 exactness: EXACT
 cache_scope: machine
+target_lock: none

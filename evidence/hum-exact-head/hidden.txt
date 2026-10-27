@@ -1,0 +1,7 @@
+/home/drakestapleton/workspace/sc-hum-exact-head/evidence/q36-host-20261020/gen-p1.json: 5 prompt + 31 generated positions in 89.9 s, full argmax != golden at 0 steps
+/home/drakestapleton/workspace/sc-hum-exact-head/evidence/q36-host-20261020/gen-p2.json: 15 prompt + 31 generated positions in 107.7 s, full argmax != golden at 0 steps
+/home/drakestapleton/workspace/sc-hum-exact-head/evidence/q36-host-20261020/gen-p3.json: 11 prompt + 31 generated positions in 98.2 s, full argmax != golden at 0 steps
+/home/drakestapleton/workspace/sc-hum-exact-head/evidence/q36-host-20261020/gen-p4.json: 8 prompt + 31 generated positions in 87.4 s, full argmax != golden at 0 steps
+/home/drakestapleton/workspace/sc-hum-exact-head/evidence/q36-host-20261020/gen-chat-max-24.json: 24 prompt + 23 generated positions in 79.0 s, full argmax != golden at 0 steps
+/home/drakestapleton/workspace/sc-hum-exact-head/evidence/q36-host-20261020/passage-agpl.txt: 400 positions in 122.4 s
+/home/drakestapleton/workspace/sc-hum-exact-head/evidence/q36-host-20261020/passage-readme.txt: 400 positions in 95.2 s
