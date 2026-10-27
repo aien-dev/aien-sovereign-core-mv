@@ -1,0 +1,19 @@
+# Scratch: PRTrain-2 runner receipt for sc#612 (quiet window on the Spark). Not for merge; branch deleted after.
+name: prtrain-kv612
+on: push
+jobs:
+  kv:
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        rev: [33bb50a958540e17a3098d0963f8bd7f15b8fabb, f2cb9fc3]
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - run: git checkout --detach ${{ matrix.rev }} && git log -1 --format='%H %s'
+      - run: cargo --version && nproc
+      - run: cargo test -p aien-serve-http --no-fail-fast 2>&1 | tee test.log; exit ${PIPESTATUS[0]}
+      - name: repeat kv_persist x5
+        if: always()
+        run: for i in 1 2 3 4 5; do cargo test -p aien-serve-http --test kv_persist 2>&1 | grep -E 'test result|held the request'; done
