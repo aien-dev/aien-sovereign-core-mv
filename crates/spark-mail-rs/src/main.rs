@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use clap::{Parser, Subcommand};
 use serde::Deserialize;
 use spark_mail::api::{ApiState, create_router};
@@ -239,7 +254,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 to: vec![operator_email.clone()],
                 subject: "Sovereign Mail Node Online".to_string(),
                 body: "Your sovereign mail server is running directly on Spark hardware. Messages are stored on local NVMe disk with zero cloud telemetry and synced to Atlas Cortex memory.".to_string(),
-                from: Some("atlas@sovereign.spark".to_string()),
+                from: Some("aien@aienos.com".to_string()),
             };
             let sent = relay.send_email(req).await.map_err(std::io::Error::other)?;
             println!("Test message saved and indexed into Cortex: {}", sent.id);

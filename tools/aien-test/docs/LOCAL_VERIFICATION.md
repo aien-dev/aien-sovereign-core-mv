@@ -9,12 +9,12 @@ status when it can be reached; it is never asked for permission.
 
 | Command | What it does | Exit |
 |---|---|---|
-| `aien-test plan [--base REF] [--repo NAME] [--operator] [--allow-dirty]` | Which gates BASE..HEAD needs, by section, with the graph digest. BASE defaults to `origin/main`, then `main`. | 0 runnable, 2 NOT_RUN (unmapped path or removed gate), 4 BLOCKED_OPERATOR |
+| `aien-test plan [--base REF] [--repo NAME] [--operator] [--allow-dirty] [--full]` | Which gates BASE..HEAD needs, by section, with the graph digest. BASE defaults to `origin/main`, then `main`. `--full`: every gate at HEAD (see "Full scope" below). | 0 runnable, 2 NOT_RUN (unmapped path or removed gate), 4 BLOCKED_OPERATOR |
 | `aien-test test changed [--base REF]` | Prints the plan, then runs the non-blocked selection through the normal runner. | the campaign verdict (PASS 0, FAIL 1, NOT_RUN 2, BLOCKED 3/4, MISSING 5) |
 | `aien-test test crate:NAME` | The gates covering a workspace crate (from `cargo metadata`) and every crate that depends on it. | campaign verdict |
 | `aien-test status [--state-dir DIR]` | Pools, GPU lock holder, aien-proof slots, quiet flag, worker heartbeat, pending triggers and outbox, newest bundle per repository. Read-only. | 0 |
 | `aien-test verify COMMIT [--repo NAME] [--base REF] [--state-dir DIR] [--release]` | The independent check of a bundle, printed as the fixed report block below. | 0 only on `MERGE ELIGIBILITY: READY`, else 1 |
-| `aien-test worker [--once REPO SHA] [--poll SECS] [--repos A,B] [--github] [--iterations N] [--state-dir DIR] [--key FILE] [--clones DIR] [--wt-root DIR] [--wt-tool FILE] [--base REF] [--sandbox user\|none --dev-unsandboxed]` | The trusted worker: one head with `--once`, or the loop. Runs gates in the user sandbox unless told otherwise. | `--once`: the plan verdict; loop: 0; 2 on a refused sandbox mode |
+| `aien-test worker [--once REPO SHA] [--full] [--poll SECS] [--repos A,B] [--github] [--iterations N] [--state-dir DIR] [--key FILE] [--clones DIR] [--wt-root DIR] [--wt-tool FILE] [--base REF] [--sandbox user\|none --dev-unsandboxed]` | The trusted worker: one head with `--once`, or the loop. Runs gates in the user sandbox unless told otherwise. `--full`: an Alpha qualification (see "Full scope" below). | `--once`: the plan verdict; loop: 0; 2 on a refused sandbox mode |
 | `aien-test run GATE --sandbox user`, `aien-test test ... --sandbox user` | Any run, with every gate program started through the exec helper. | as before |
 
 `--release` (run, test, verify): qualification mode. No cache reuse, the tree
@@ -267,13 +267,42 @@ The one rule:
    worker records each sibling made (`name` = its `dir`) and each operator
    pin (`name` = `pin:<source>`) with its commit in the receipt's `pins`,
    which is part of the cache key. The worker's evidence directory is per
-   head (`evidence/<repo>/<sha>/`), so a result is reused only when the same
-   commit runs again with every sibling at the same commit; a sibling that
-   moved runs every gate fresh. A declared sibling that cannot be made turns
-   the cache off for the head (`no_cache`). Results are never reused across
-   commits in the worker: gates read files they do not declare as `inputs`
-   (SC-TEST reads the root `README.md` and `COVENANT.md`), so a key built
-   from declared inputs alone could hand a commit another commit's PASS.
+   head (`evidence/<repo>/<sha>/`); results cross heads only through the
+   shared store `<state>/gate-cache/<repo>/` (judge once, Drake 2026-10-20),
+   and only as far as the gate allows (`cache::cross_head`):
+   - **Never across heads:** `cache: never`, gb10/nvrm (chip state),
+     bare_metal/analog, `requires: operator`, `cache_scope: hardware`,
+     APPROXIMATE/ADVISORY. These keep the per-head cache only.
+   - **Whole tree identical:** every other gate, by default. Gates read files
+     they do not declare (SC-TEST reads the root `README.md` and
+     `COVENANT.md`), so declared inputs alone could hand a commit another
+     commit's PASS. Two heads with the same tree id (a squash merge of an
+     up-to-date PR, a re-push, a duplicate PR) share every such result.
+   - **Declared inputs identical:** a gate whose manifest says
+     `cache: inputs_complete`, the author's promise that `inputs` name every
+     file the gate reads. Any head with the same key reuses it.
+     A promise is checked, not trusted: `aien-audit-inputs GATE_FILE` runs the
+     gate once under `strace -f -y -Y` (cold target dir, private TMPDIR) and
+     lists every file it opened that the manifest does not cover; RESULT FAIL
+     means the promise is false. Three manifest keys say what `inputs` alone
+     cannot (L335): `outside_inputs` (files outside the repository, `~/` or
+     absolute, hashed into the key: the PREFILL-E2E-2 checkpoint), `listed`
+     (directories whose entry names, not bytes, join the key: cargo lists
+     `tests/`, `src/bin/`, `examples/` of every workspace member to load the
+     workspace) and `*` patterns in `inputs` and `listed`
+     (`crates/*/Cargo.toml`). `target_lock: none` lets a gate that never
+     starts cargo (the audit refuses it if it does) skip the head's target-dir
+     lock instead of queueing behind every cargo gate.
+   The key adds the repository build files (`runner::IMPLIED_BUILD_FILES`:
+   Cargo.toml, Cargo.lock, rust-toolchain(.toml), .cargo/config(.toml),
+   native-artifacts.lock, mojoproject.toml) and the judge's own sha256
+   (`machine.judge_sha256`), so an entry dies with a new judge or exec
+   helper. A FAIL is reused as FAIL. The reuse receipt says
+   `volatile.cache.reused_from` and `reused_from_commit`; the bundle entry
+   is `cached` with `resolution.resolved_from` and `resolved_from_commit`.
+   One flock per entry (`locks/<entry>.lock`) makes a second judge of the
+   same key wait and reuse instead of running it again. A declared sibling
+   that cannot be made turns the cache off for the head (`no_cache`).
 
 `wt.sh remove` takes the whole run directory away (checkout and siblings)
 and prunes every mirror's worktree list. An older `wt.sh` that still makes
@@ -397,7 +426,8 @@ Forgejo). Merging a pull request on GitHub does not wake it.
 
 `--jobs host=N,qemu=M` and `--no-cache` apply to the runs the worker starts,
 as they do for `aien-test test`. `--no-cache` runs every selected gate again
-(a head reuses only its own earlier results, see "Sibling checkouts"). `--jobs host=1`
+(results come from this head or, through the shared store, from another head
+with the same key, see "Sibling checkouts"). `--jobs host=1`
 runs one host gate at a time: omega's gates share one checkout's `build/`
 and pin clones, and on main 771af52 ten of them failed from parallel races
 ("Text file busy" on `build/omegatool`, concurrent clones of
@@ -405,12 +435,90 @@ and pin clones, and on main 771af52 ten of them failed from parallel races
 `aien-local-ci once omega <sha> --operator --jobs host=1` until the gates or
 a per-repository pool setting make them safe in parallel.
 
+### Batches: shared gates once and first (judge once, 2026-10-20)
+
+`aien-test worker --batch REPO SHA SHA...` judges several heads of one
+repository together, and the loop does the same for the heads it finds of
+one repository, `--batch-heads N` at a time (default 6). The heads run side
+by side; each gate that will really run takes a slot of one budget the batch
+shares, `--batch-host N` host slots (default half the CPUs), and every gb10
+gate takes the batch's single gb10 slot before `/tmp/aien-gb10.lock`, so GPU
+gates stay one at a time and heads never spend their bounded GPU wait on each
+other. A gate that other heads of the batch also select (same manifest, same
+blob ids for its inputs and the repository build files, read from git before
+checkout: `worker::batch_first`) is picked first in its head and served first
+from the budget, so the shared gates run before the per-head ones. Two heads
+that reach the same key meet at that key's lock: the second waits, then
+reuses. The ordering is only a hint; the cache key alone decides reuse. A
+head is judged by one worker at a time (`<state>/locks/head/<repo>.<sha>.lock`,
+non-blocking: a second judge of the same head is refused), and checkouts,
+pins, siblings and worktree removal are done one head at a time.
+`--jobs host=1` still limits each head's own pool (omega).
+
 ## verify-bundle and the vacuous PASS
 
 `aien-test verify-bundle` (the GitHub thin gate's command) prints and exits
 with the gate verdict, not the raw algebra: a bundle with no required check,
 or whose signed `plan.verdict` is not PASS, is `NOT_RUN` (exit 2) with the
 reason in brackets, even though its `verdict` member says PASS.
+
+## Full scope: Alpha qualification
+
+A commit already on main becomes an Alpha when the Spark judge runs every
+gate on it, not only the gates its diff selects. `aien-test worker --once
+REPO SHA --full` plans in full scope: every gate at HEAD is selected (the
+same set as `test ./...`), so every non-advisory gate is required, gb10 and
+Spark gates included, and the worker runs them all (the sections still say
+which need the chip). What changed only labels the entries (`because`);
+UNMAPPED_PATH and GATE_REMOVED do not apply. PIPELINE_CONFIG_CHANGED and
+operator gates keep their rules (`--operator`). `aien-test plan --full`
+prints the same selection with a `Scope: full` line.
+
+The bundle's signed `plan` object carries `"scope": "full"` or
+`"scope": "changed"`; a bundle without the member is `changed`, so older
+bundles stay valid. `aien-test verify` plans in the scope the bundle signs.
+`verify-bundle ... --require-full` exits 3 (REJECTED) unless that scope is
+`full`:
+
+```
+AIEN Verification: REJECTED NOT_FULL_SCOPE: plan scope is changed, not a full-scope (Alpha) qualification
+```
+
+It also exits 3 when the full-scope bundle carries no GPU check at all:
+
+```
+AIEN Verification: REJECTED NO_GPU_RECEIPT: an Alpha needs a required check on backend gb10 that ran on the Spark's GPU, and this full-scope bundle has none (checks by backend: host=34; gb10 checks: none)
+```
+
+An Alpha is the stage tested on the Spark's GPU, so a full-scope PASS of host
+gates alone is not one (the first Alpha, `alpha/20261024.1`, was 34 checks, all
+`backend: host`). The receipt is a required check on backend `gb10` that ran,
+or was resolved from cache: a gb10 result is never reused across heads, so a
+`cached` entry is still this commit's own GPU run. A gb10 check that ran and
+FAILed is a receipt too, and the bundle is then `FAIL` (exit 1), which says
+more than "no receipt"; a gb10 check that self-not-ran (exit 77, for example
+no checkpoint or not enough free memory) is not one. The message names the
+backends the bundle does have, so a host-only plan is visible at a glance.
+sovereign-core's receipt is `SC-GB10-SERVE-CHAT`
+(`tests/gates/sc-gb10-serve-chat.gate`, `scripts/gb10-serve-chat.sh`): build
+the server on the real Omega GPU engine, start Qwen3.8-27B, one greedy chat
+request, clean SIGTERM shutdown. Full scope selects every gate, so the Alpha
+run always includes it; a pull request's changed scope does not, and its result
+is never cached (`cache: never`).
+`tests/gates/run.sh` swaps the sandbox's read-only `$HOME` for a fresh writable
+one per step and exports `AIEN_MODELS_DIR` as the read-only home's `models/`
+mount, so the gate finds the checkpoint there, not under the fresh HOME
+(`tests/gates/step-home.sh`). Before any check it records the checkpoint it
+resolved as `model_dir` and where that came from as `model_dir_source`
+(`override` when `MODEL_DIR` was set, `models-mount`, or `home`), so a receipt
+never leaves the model's provenance to the default. `SC-GB10-MODEL-DIR`
+(`scripts/test-gb10-model-dir.sh`, portable, no GPU) runs that resolution and
+the gate's NOT_RUN `model_missing` path, which ends before the memory check,
+the build and any GPU start, with a read-only HOME.
+
+The full-scope bundle is written to the head's usual bundle path. The loop
+skips any head that already has a bundle, whatever its scope, so an Alpha
+of a head the loop already judged is run with `--once --full`.
 
 ## The verify report
 
@@ -451,10 +559,11 @@ manifest at COMMIT (`MANIFEST_MISMATCH`); then the plan judge. Every
 rejection is a `Problem` or `Evidence note` line and leaves READY out of
 reach; no path defaults to PASS. Crumb status comes from `crumb verify .` in a temporary
 detached worktree at COMMIT, removed afterwards. Queue time is the sum of
-`pool_wait_ms`, GPU lock wait the sum of `gpu_wait.waited_ms` (gb10 gates:
+`pool_wait_ms`, `batch_wait_ms` (waiting for a slot of the `worker --batch`
+budget) and `target_wait_ms` (waiting for the target dir another gate holds), GPU lock wait the sum of `gpu_wait.waited_ms` (gb10 gates:
 how long each waited in the kernel queue of `/tmp/aien-gb10.lock`, see
 below), test time the sum of `duration_ms` over the executed
-receipts, total time the bundle's `finished_utc - started_utc`; build time
+receipts less those two waits (both fall inside `duration_ms`), total time the bundle's `finished_utc - started_utc`; build time
 is not measured yet.
 
 `READY` requires: evidence VERIFIED, final verdict PASS, crumb CURRENT, no

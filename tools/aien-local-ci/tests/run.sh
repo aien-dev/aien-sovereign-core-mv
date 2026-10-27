@@ -1,9 +1,24 @@
 #!/usr/bin/env bash
-# tests/run.sh: proves the C8 exec contract on this host. Run as drakestapleton (uses sudo -n). Exit 1 on any FAIL.
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# tests/run.sh: proves the C8 exec contract on this host. Run as the operator (uses sudo -n). Exit 1 on any FAIL.
 set -uo pipefail
 X=${AIEN_EXEC:-/usr/local/sbin/aien-run-exec}   # AIEN_EXEC: test a candidate helper before install.sh installs it
 RUN_HOME=/var/lib/aien-run
-OP_HOME=/home/drakestapleton
+OP_HOME=${AIEN_OPERATOR_HOME:-$HOME}
 pass=0; fail=0
 ok()  { pass=$((pass+1)); printf 'PASS %s\n' "$1"; }
 bad() { fail=$((fail+1)); printf 'FAIL %s: %s\n' "$1" "$2"; }

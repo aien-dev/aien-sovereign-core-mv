@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! NEXT-PHASE-2: durable effect intents on the compose home's Cortex journal
 //! (ACCEPTANCE-v2 section 2).
 //!
@@ -666,6 +681,31 @@ fn state_from(
         _ => EffectState::Unresolved,
     };
     (st, now)
+}
+
+/// The text of one reconcile record, exactly as it is journalled (`append` writes
+/// `to_string()` of it). `st` is the decided state, `world` what the world check saw,
+/// `disk` the digest it read or its error, `who` who decided. The seeded .om world
+/// check (om/effects/world.om) is compared byte for byte against this function.
+pub fn reconcile_text(
+    row: &IntentRow,
+    st: EffectState,
+    world: EffectState,
+    disk: &Result<Option<String>, String>,
+    who: &str,
+    objective: Option<&ObjectiveBinding>,
+) -> Value {
+    let mut text = json!({
+        "phase": PHASE_RECONCILE, "intent": row.id, "authorization": row.authorization,
+        "state": st.name(), "world": world.name(),
+        "disk_sha256": disk.as_ref().ok().cloned().flatten(),
+        "disk_error": disk.as_ref().err(), "by": who,
+    });
+    if let Some(o) = objective {
+        text["objective_id"] = json!(o.objective_id);
+        text["objective_record"] = json!(o.record);
+    }
+    text
 }
 
 /// The world check, confined (476ca4 c28): the target is read only while it
@@ -2033,15 +2073,7 @@ pub fn reconcile(
                 });
                 continue;
             }
-            let mut text = json!({
-                "phase": PHASE_RECONCILE, "intent": row.id, "authorization": row.authorization,
-                "state": st.name(), "world": world.name(), "disk_sha256": disk_hex,
-                "disk_error": disk.as_ref().err(), "by": who,
-            });
-            if let Some(o) = &objective {
-                text["objective_id"] = json!(o.objective_id);
-                text["objective_record"] = json!(o.record);
-            }
+            let text = reconcile_text(&row, st, world, &disk, &who, objective.as_ref());
             let n = append(home, NoteKind::Effect, &[row.id, row.authorization], &text)?;
             out.push(ReconcileOutcome {
                 intent: row.id,

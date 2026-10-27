@@ -12,7 +12,7 @@ on:
         default: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-release:
@@ -32,7 +32,9 @@ jobs:
 
     steps:
       - name: Checkout Source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: GNU tar (reproducible packages need it)
         if: runner.os == 'macOS'
@@ -56,11 +58,12 @@ jobs:
       # Other targets build the CPU stub, are labelled as such in the release notes, and are not the candidate.
       - name: Checkout omega at omega.lock
         if: matrix.native_engine
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: aien-spark/omega
           ref: ${{ steps.pins.outputs.omega }}
           path: omega
+          persist-credentials: false
 
       - name: Read physics pin and checkout physics
         if: matrix.native_engine
@@ -71,20 +74,22 @@ jobs:
 
       - name: Checkout physics at omega's physics.lock
         if: matrix.native_engine
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: aien-spark/physics
           ref: ${{ steps.physpin.outputs.physics }}
           path: physics
+          persist-credentials: false
 
       # omega builds its aienos authority capability from the aienos commit pinned in omega/aienos.lock (as ci.yml does).
       - name: Checkout aienos at omega's aienos.lock
         if: matrix.native_engine
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          repository: aien-spark/aienos
+          repository: aien-dev/aienux
           ref: ${{ steps.physpin.outputs.aienos }}
           path: aienos
+          persist-credentials: false
 
       - name: Build the candidate way (scripts/repro-build.sh, fresh CARGO_HOME, no mojo)
         env:
@@ -125,7 +130,7 @@ jobs:
           cat "DRY-RUN-STATUS-${{ matrix.target }}.txt"
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.target }}
           path: |
@@ -147,10 +152,12 @@ jobs:
       contents: read
     steps:
       - name: Checkout Source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Download Build Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: release-artifacts
           merge-multiple: true
@@ -183,7 +190,7 @@ jobs:
           echo "publish gate refused the dry run, as it must"
 
       - name: Upload dry-run artifacts (workflow artifacts only, no release)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: dry-run-signed-assets
           path: release-artifacts
@@ -194,9 +201,14 @@ jobs:
     needs: build-release
     if: github.event_name == 'push' || inputs.dry_run == false
     runs-on: ubuntu-latest
+    # Only draft creation needs repository write authority.
+    permissions:
+      contents: write
     steps:
       - name: Checkout Source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Refuse anything but a v* tag
         run: |
@@ -206,7 +218,7 @@ jobs:
           fi
 
       - name: Download Build Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: release-artifacts
           merge-multiple: true

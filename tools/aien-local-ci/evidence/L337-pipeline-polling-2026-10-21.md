@@ -1,0 +1,18 @@
+# L337: pipeline polling and GitHub calls (2026-10-21)
+
+Findings G3-ci-judge-3..7 from the efficiency review (L325). Before numbers: gh guard ledger, window 22:26Z-01:09Z
+(9,735 s, 11,605 calls), pipeline journal 2026-10-20, receipts under the state dir. calc ids are aien-calc receipts.
+
+| finding | before | after | receipt |
+|---|---|---|---|
+| G3-4 settled bundles re-checked every round | publish round on 710 real bundles (sandbox copy, trusted clones read-only, local bare receipts): 15.2, 18.1, 18.4 s | 0.53 s steady (3 more rounds 0.52-0.54 s); first round after a key/binary/bundle change still does the full pass (3.6 s) | 32.5x faster (calc:c1f89414e591c94865598eef37c616819862cdf9c7bb898f4c431a0108617a0b); live: no publish lines in the 02:15Z round |
+| G3-5 GitHub asked before the free behind-main check | pulls/N reads 650 in 9,735 s = 5,769/day (calc:3e21153baa4b70be7377af196238a0080cae143eaaa40ebf6833e3c7d4fc6c0d); 86.8 % of merge attempts ended "behind" (calc:2630bb78ddd10972fcbe48e608f62144f45ff63e40e498208c77e0acabe9efca) | live round 02:11Z-02:16Z: 5 pulls/N reads (was about 20 per round); behind PRs cost 0 requests | gh guard ledger |
+| G3-6 repo slug asked every tick | 355 reads in the window, 11 per round = 3,168/day (calc:c0d04c3a552bcaa80b92b3673c0368b8c8743dad581e1d6a9c37526d0d885422) | 0 in the 02:11Z round; 11 per 24 h | ledger |
+| G3-7 PR lists polled again and again | pipeline: 2 full list reads per repo per round; worker: 2 calls per repo per poll, 1,343 in the window = 11,919/day (calc:99a652d11df0c1acad0939a869e3b2549450760996657377c72231d919220da7) | pipeline lists are now If-None-Match (live: conditional calls in the ledger, 22 cached answers); worker code written and unit-tested, takes effect when the judge binary is rebuilt and the poll worker restarts between heads (NOT restarted: a head is being judged) | see note below |
+| G3-3 same gate re-run on same head | all receipts: 13.8 % of gate seconds are repeats (record said 14.1 %); 2026-10-20 alone 9.1 %, of which 49 % had byte-identical stderr | NOT MEASURABLE yet: no completed receipt since 2026-10-20 20:32Z, so nothing exists after L319's harness fix (23:52Z); retry files `*.try-*` stopped on 2026-10-19 10:15Z | `repeat-gates.sh 2026-10-21T00:00` re-measures after the next completed runs |
+
+## Notes and limits
+- 304 cost: GitHub's documentation says a 304 does not count against the primary limit (docs.github.com, best practices: "Making a conditional request does not count against your primary rate limit if a 304 response is returned"). My live probes agree but are noisy because other callers spend in bursts: 30 conditional requests (30 x 304) moved the counter by 30 in a window where idle drift was 12 per 10 s; 30 plain requests moved it by 189. Treat as consistent with free, not as a proof.
+- The sandbox publish timings use the real 710 bundles and real keys and the real aien-test binary, with git fetch on the trusted clones turned off and a local bare repository as the receipts remote. Nothing was pushed.
+- Tests: pipeline_test.sh 77 checks pass; 14 checks added, 11 of the first batch fail on the old script (run against `git show origin/main:tools/aien-local-ci/pipeline.sh`), the ETag checks fail on it too. Rust: worker unit test `an_unchanged_list_is_asked_with_its_etag_and_answered_from_memory` (fake gh, 304, changed list, 404) passes; it has no old-code red run because it calls the new function; the old behaviour (unconditional) is asserted by the last step. Clippy clean.
+- Found on the way (not mine): renda-harness reads `commits/SHA/statuses` about 2,700 times an hour and drained the shared allowance to 482 at 01:40Z (all reads refused until 02:05Z). Ledger L348 carries the proposed fix.

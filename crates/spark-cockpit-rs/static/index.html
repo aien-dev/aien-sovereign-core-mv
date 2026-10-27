@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="color-scheme" content="dark light">
-  <meta name="theme-color" content="#18191a">
-  <title>Muse | Personal AI Agent</title>
+  <meta name="theme-color" content="#141311">
+  <title>ALLEN | Spark harness</title>
   <link rel="manifest" href="/manifest.json">
   <link rel="apple-touch-icon" href="/icon-192.png">
   <link rel="stylesheet" href="/style.css">
@@ -19,17 +19,18 @@
 </head>
 <body class="dark-theme">
   <div class="muse-app">
-    <!-- Left Navigation Rail (Meta Muse Sidebar) -->
+    <!-- Left navigation rail. Off canvas under 820 px; the menu button in the header opens it. -->
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
     <aside class="muse-sidebar" id="muse-sidebar">
       <div class="sidebar-header">
         <div class="agent-identity" id="sidebar-brand">
           <div class="avatar-ring">
-            <img src="/avatar.jpg" alt="Muse" class="agent-avatar" onerror="this.src='/icon-192.png'">
+            <img src="/avatar.jpg" alt="ALLEN" class="agent-avatar" onerror="this.src='/icon-192.png'">
             <span class="online-indicator"></span>
           </div>
           <div class="agent-labels">
-            <span class="agent-name">Muse</span>
-            <span class="agent-subtitle">Personal AI Agent</span>
+            <span class="agent-name">ALLEN</span>
+            <span class="agent-subtitle">Spark harness</span>
           </div>
         </div>
         <button class="icon-btn new-chat-btn" id="btn-new-chat" title="New Thread">
@@ -79,18 +80,15 @@
         </div>
       </div>
 
-      <!-- Sidebar Footer with Hardware & Theme controls -->
+      <!-- Sidebar footer: machine readings (shown only once read) and the theme switch -->
       <div class="sidebar-footer">
-        <div class="system-pills">
-          <div class="sys-pill" id="pill-gpu" title="GB10 GPU Thermal Reading">
+        <div class="system-pills" id="system-pills" hidden>
+          <div class="sys-pill" id="pill-gpu" title="GB10 temperature, read from the driver every 3 seconds">
             <span class="pill-dot"></span>
-            <span class="pill-text" id="gpu-temp">--°C</span>
+            <span class="pill-text" id="gpu-temp"></span>
           </div>
-          <div class="sys-pill" id="pill-ram" title="128GB Unified LPDDR5x RAM">
-            <span class="pill-text" id="ram-used">-- GB</span>
-          </div>
-          <div class="sys-pill tpm-pill" title="Hardware TPM Key Vault">
-            <span class="pill-badge">TPM 2.0</span>
+          <div class="sys-pill" id="pill-ram" title="Memory in use, read from the kernel every 3 seconds">
+            <span class="pill-text" id="ram-used"></span>
           </div>
         </div>
         <div class="footer-actions">
@@ -112,13 +110,13 @@
           </button>
           <div class="agent-status-card">
             <div class="status-avatar-wrap">
-              <img src="/avatar.jpg" alt="Muse" class="status-avatar" onerror="this.src='/icon-192.png'">
+              <img src="/avatar.jpg" alt="ALLEN" class="status-avatar" onerror="this.src='/icon-192.png'">
               <span class="status-pulse-dot" id="status-dot"></span>
             </div>
             <div class="status-text-wrap">
               <div class="status-title-row">
-                <span class="status-agent-name">Muse</span>
-                <span class="status-model-badge">atlas-lightning-omni</span>
+                <span class="status-agent-name">ALLEN</span>
+                <span class="status-model-badge" id="seat-model-badge" title="The model the local seat reports it is serving">seat: reading</span>
               </div>
               <div class="transparency-status-pill" id="agent-status-pill">
                 <span class="pulse-indicator"></span>
@@ -152,27 +150,47 @@
             <!-- Hero welcome banner shown when chat is fresh -->
             <div class="chat-hero" id="chat-hero">
               <div class="hero-logo-wrap">
-                <img src="/avatar.jpg" alt="Muse" class="hero-logo" onerror="this.src='/icon-192.png'">
+                <img src="/avatar.jpg" alt="ALLEN" class="hero-logo" onerror="this.src='/icon-192.png'">
               </div>
-              <h1 class="hero-greeting">Good afternoon, Drake</h1>
-              <p class="hero-sub">Muse personal agent connected to DGX Spark (GB10 Grace Blackwell). Autonomous ReAct tools and memory active.</p>
+              <h1 class="hero-greeting" id="hero-greeting">ALLEN is ready</h1>
+              <p class="hero-sub">Give an instruction below. ALLEN runs it on this Spark, keeps goals, and asks here before anything that needs your approval. What it is working with right now:</p>
+
+              <!-- Live state. Every figure is read from the machine when the page loads; nothing here is typed in. -->
+              <div class="hero-live" id="hero-live">
+                <div class="live-card" id="live-card-seat">
+                  <span class="live-label">Model seat</span>
+                  <span class="live-value" id="live-seat">reading</span>
+                  <span class="live-note">what the local seat says it is serving</span>
+                </div>
+                <div class="live-card" id="live-card-approvals">
+                  <span class="live-label">Waiting on you</span>
+                  <span class="live-value tabular-nums" id="live-approvals">reading</span>
+                  <span class="live-note">approvals ALLEN cannot pass without you</span>
+                </div>
+                <div class="live-card" id="live-card-goals">
+                  <span class="live-label">Goals</span>
+                  <span class="live-value tabular-nums" id="live-goals">reading</span>
+                  <span class="live-note">objectives on the goals deck</span>
+                </div>
+                <div class="live-card live-card-judge" id="live-card-judge">
+                  <span class="live-label">Spark judge, sovereign core</span>
+                  <span class="live-value" id="live-judge">reading</span>
+                  <span class="live-note" id="live-judge-note">newest bundle on this machine</span>
+                </div>
+              </div>
 
               <div class="hero-suggestions">
-                <button class="suggestion-chip" data-prompt="Check Grace Blackwell GB10 telemetry, thermal metrics, and unified memory pressure.">
-                  <span class="chip-icon">⚡</span>
-                  <span class="chip-text">Check GB10 GPU & Unified Memory</span>
+                <button class="suggestion-chip" data-prompt="How warm is the GB10 right now, and how much of the unified memory is in use?">
+                  <span class="chip-text">How is the machine doing?</span>
                 </button>
-                <button class="suggestion-chip" data-prompt="Review active project goals and show milestone delivery progress.">
-                  <span class="chip-icon">🎯</span>
-                  <span class="chip-text">Review Active Project Goals</span>
+                <button class="suggestion-chip" data-prompt="List the active goals and say which milestone each one is on.">
+                  <span class="chip-text">Where are the goals?</span>
                 </button>
-                <button class="suggestion-chip" data-prompt="Inspect recent improvement ledger entries from .rsi/ledger.db.">
-                  <span class="chip-icon">📜</span>
-                  <span class="chip-text">Inspect RSI Improvement Ledger</span>
+                <button class="suggestion-chip" data-prompt="Show the newest entries in the improvement ledger and what each one changed.">
+                  <span class="chip-text">What changed lately?</span>
                 </button>
-                <button class="suggestion-chip" data-prompt="Search Cortex memory space atlas-memory for verified operational lessons.">
-                  <span class="chip-icon">🧠</span>
-                  <span class="chip-text">Search Cortex Learned Lessons</span>
+                <button class="suggestion-chip" data-prompt="Search the aien-lessons memory for lessons that apply to the current goals.">
+                  <span class="chip-text">What have we learned?</span>
                 </button>
               </div>
             </div>
@@ -187,7 +205,7 @@
               <button class="capsule-tool-btn" id="btn-attach" title="Attach context or file">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
               </button>
-              <textarea class="capsule-textarea" id="chat-input" placeholder="Ask Muse anything or give an instruction..." rows="1"></textarea>
+              <textarea class="capsule-textarea" id="chat-input" placeholder="Ask ALLEN, or give an instruction" rows="1"></textarea>
               <div class="capsule-right-actions">
                 <button class="capsule-tool-btn" id="btn-voice-dictate" title="Dictation">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
@@ -197,7 +215,7 @@
                 </button>
               </div>
             </div>
-            <div class="prompt-meta-note">Muse runs natively on DGX Spark (GB10) | Hardware TPM Vault: Zero Disk Secrets</div>
+            <div class="prompt-meta-note">Runs on this Spark. The figures above are read from the machine, not typed in.</div>
           </div>
         </section>
 
@@ -206,8 +224,8 @@
           <div class="view-content-wrapper">
             <div class="view-header-row">
               <div>
-                <h2 class="view-heading">Proactive Feed</h2>
-                <p class="view-subheading">Autonomous observations, pending tasks, and background updates surfaced by Muse.</p>
+                <h2 class="view-heading">Feed</h2>
+                <p class="view-subheading">What ALLEN noticed, what is pending, and what finished in the background.</p>
               </div>
               <button class="stage-btn" id="btn-refresh-feed">Refresh Feed</button>
             </div>
@@ -220,8 +238,8 @@
           <div class="view-content-wrapper">
             <div class="view-header-row">
               <div>
-                <h2 class="view-heading">Objectives & Goals</h2>
-                <p class="view-subheading">Track and manage sovereign multi-step objectives across engineering domains.</p>
+                <h2 class="view-heading">Goals</h2>
+                <p class="view-subheading">Multi-step objectives ALLEN is carrying, with their milestones.</p>
               </div>
               <button class="stage-btn primary" id="btn-open-new-goal-modal">+ New Goal</button>
             </div>
@@ -234,8 +252,8 @@
           <div class="view-content-wrapper">
             <div class="view-header-row">
               <div>
-                <h2 class="view-heading">Generated Artifacts</h2>
-                <p class="view-subheading">Code modules, reports, diffs, and documents generated during agent execution.</p>
+                <h2 class="view-heading">Artifacts</h2>
+                <p class="view-subheading">Code, reports, diffs and documents ALLEN produced while working.</p>
               </div>
               <button class="stage-btn" id="btn-refresh-artifacts">Refresh</button>
             </div>
@@ -248,11 +266,11 @@
           <div class="view-content-wrapper">
             <div class="view-header-row">
               <div>
-                <h2 class="view-heading">Agent Memory & Context</h2>
-                <p class="view-subheading">Inspect and manage long-term operator preferences and learned heuristics in Spark Cortex.</p>
+                <h2 class="view-heading">Memory</h2>
+                <p class="view-subheading">What ALLEN remembers: your standing preferences and the lessons it has kept.</p>
               </div>
               <div class="search-wrap">
-                <input type="text" class="search-input" id="memory-search-input" placeholder="Search Cortex memory space atlas-memory...">
+                <input type="text" class="search-input" id="memory-search-input" placeholder="Search memory">
                 <button class="stage-btn" id="btn-search-memory">Search</button>
               </div>
             </div>
@@ -264,7 +282,7 @@
         <section class="muse-view" id="view-terminal">
           <div class="terminal-container">
             <div class="terminal-bar">
-              <span class="term-title">DGX SPARK PTY TERMINAL (BASH)</span>
+              <span class="term-title">SPARK TERMINAL</span>
               <span class="term-status" id="term-status-indicator">Connected</span>
               <button class="stage-btn" id="btn-term-clear">Clear</button>
             </div>
@@ -296,7 +314,7 @@
         <div class="drawer-pane active" id="drawer-pane-artifact">
           <div class="artifact-empty-state" id="artifact-empty-state">
             <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-            <p>No active artifact selected. Ask Muse to generate code, diffs, or documents to preview them here.</p>
+            <p>Nothing selected. Ask ALLEN for code, a diff or a document and it appears here.</p>
           </div>
           <div class="artifact-content-viewer" id="artifact-content-viewer" style="display: none;">
             <div class="artifact-title-bar">

@@ -1,0 +1,14 @@
+#!/bin/bash
+# Start the Qwen3.8-27B server (our aien-serve-http on Omega) detached on 127.0.0.1:18091.
+# Binary pinned in ~/.local/state/aien-q38/bin-fast-46134247 (sha256 in SHA256SUMS), built from sc
+# qwen38/serve-fast 46134247 (serve + decode-speed) linked to omega qwen38/decode-speed 0010f7d3
+# (libomega_gpu.a sha256 bd6802a5...). Previous script: start-27b.sh.bak-* (binary in bin/).
+set -euo pipefail
+S=$HOME/.local/state/aien-q38
+cd "$S/bin-fast-46134247"
+sha256sum -c SHA256SUMS >/dev/null
+echo "$(date -u +%FT%TZ) start 27B (serve-fast 46134247)" >> "$S/serve.log"
+setsid nohup ./aien-serve-http --engine omega --model-dir "$HOME/models/qwen3.8-27b-fp8-017b9c7a" \
+  --port 18091 --max-context 131072 --max-tokens-cap 16384 --thinking off >> "$S/serve.log" 2>&1 < /dev/null &
+echo $! > "$S/serve.pid"
+echo "pid $(cat "$S/serve.pid"), log $S/serve.log"

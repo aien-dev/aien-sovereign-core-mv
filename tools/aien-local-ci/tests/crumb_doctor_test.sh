@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # test-crumb-doctor.sh <doctor>: the doctor goes RED on a stale trusted clone (the 2026-10-11..18 synapse
 # CRUMB-VERIFY "../aien-architecture is missing" cause), heals it, and raises/clears its aien-watch alert.
 set -u
@@ -48,4 +63,65 @@ cd "$T/up/synapse"; sed -i 's/need_sibling aien-architecture/need_sibling aien-a
 o=$("$DOC" --no-prs --repos synapse 2>&1); rc=$?
 (( rc == 1 )) && [[ $o == *"synapse needs ../omega"* ]] && ok "gate needs a sibling the map lacks: RED" || bad "coverage" "rc=$rc $o"
 
+
+# Main pin/tool is approved; a fork-like PR changes the lock, hosted workflow
+# and Makefile to a key-reading recipe. The doctor may diff those bytes but
+# must never build the PR's source or execute its selected pin.
+mkdir -p "$T/up/arch/tools/crumb"
+g -C "$T/up/arch" init -q -b main
+printf 'crumb: crumb.c\n\t$(CC) -o $@ crumb.c\n' > "$T/up/arch/tools/crumb/Makefile"
+printf '#include <stdio.h>\nint main(void){puts("crumb verify: OK");return 0;}\n' > "$T/up/arch/tools/crumb/crumb.c"
+g -C "$T/up/arch" add -A; g -C "$T/up/arch" commit -qm approved
+archpin=$(git -C "$T/up/arch" rev-parse HEAD)
+g -C "$T/up/arch" checkout -qb unmerged
+printf 'crumb:\n\t@cat "%s" > "%s"\n\t@false\n' "$T/trusted-key" "$T/exfiltrated" > "$T/up/arch/tools/crumb/Makefile"
+g -C "$T/up/arch" commit -qam unapproved
+badpin=$(git -C "$T/up/arch" rev-parse HEAD)
+g -C "$T/up/arch" checkout -q main
+git clone -q "$T/up/arch" "$T/clones/aien-architecture"
+printf 'PRIVATE-TEST-KEY\n' > "$T/trusted-key"
+mkdir -p "$T/up/gate/tests/gates" "$T/up/gate/.github/workflows"
+g -C "$T/up/gate" init -q -b main
+echo '{}' > "$T/up/gate/.crumb"
+printf '%s\n' "$archpin" > "$T/up/gate/crumb.lock"
+printf 'case $1 in\n  crumb-verify)\n    pin=$(cat crumb.lock)\n    ;;\nesac\n' > "$T/up/gate/tests/gates/run.sh"
+printf '# pinned crumb tool source\n# ref: %s\n' "$archpin" > "$T/up/gate/.github/workflows/aien-verification.yml"
+g -C "$T/up/gate" add -A; g -C "$T/up/gate" commit -qm approved
+git clone -q "$T/up/gate" "$T/clones/gate"
+mkdir -p "$T/bin"
+printf '#!/bin/sh\nprintf "7 %%s\\n" "$CANDIDATE_SHA"\n' > "$T/bin/gh"; chmod +x "$T/bin/gh"
+export PATH=$T/bin:$PATH CRUMB_SANDBOX_TOOL=$T/sandbox
+printf '#!/bin/sh\necho "crumb verify: OK"\n' > "$T/sandbox"; chmod +x "$T/sandbox"
+export CANDIDATE_SHA=$(git -C "$T/up/gate" rev-parse HEAD)
+o=$("$DOC" --repos gate 2>&1); rc=$?
+(( rc == 0 )) && [[ $o == *"PASS AGREE"*"trusted gate[crumb.lock"* ]] \
+  && [[ $o == *"INFO PROMOTE"*"metadata unchanged"* ]] \
+  && ok "approved main pin and unchanged candidate" || bad "approved main" "rc=$rc $o"
+
+g -C "$T/up/gate" checkout -qb hostile
+printf '%s\n' "$badpin" > "$T/up/gate/crumb.lock"
+printf '# pinned crumb tool source\n# ref: %s\n' "$badpin" > "$T/up/gate/.github/workflows/aien-verification.yml"
+mkdir -p "$T/up/gate/tools/crumb"
+cp "$T/up/arch/tools/crumb/Makefile" "$T/up/gate/tools/crumb/Makefile"
+cp "$T/up/arch/tools/crumb/crumb.c" "$T/up/gate/tools/crumb/crumb.c"
+g -C "$T/up/gate" add -A; g -C "$T/up/gate" commit -qm hostile
+export CANDIDATE_SHA=$(git -C "$T/up/gate" rev-parse HEAD)
+git -C "$T/clones/gate" fetch -q origin hostile
+o=$("$DOC" --repos gate --alert 2>&1); rc=$?
+(( rc == 1 )) && [[ $o == *"PASS AGREE"*"trusted gate[crumb.lock"* ]] \
+  && [[ $o == *"FAIL PROMOTE"*"operator promotion required"* ]] \
+  && [[ $o == *"crumb.lock"* ]] && [ ! -e "$T/exfiltrated" ] \
+  && grep -q '^CRUMB-DRIFT: ' "$T/watch/ALERT" \
+  && ok "candidate pin/Makefile demand promotion, key not read" \
+  || bad "hostile candidate" "rc=$rc sentinel=$(test -e "$T/exfiltrated" && echo PRESENT || echo absent) $o"
+
+# Negative control: even trusted main is refused if its pin is not in
+# architecture origin/main ancestry; the candidate source still never runs.
+g -C "$T/up/gate" checkout -q main
+printf '%s\n' "$badpin" > "$T/up/gate/crumb.lock"
+g -C "$T/up/gate" commit -qam unapproved-main-pin
+git -C "$T/clones/gate" fetch -q origin
+o=$("$DOC" --repos gate --no-prs 2>&1); rc=$?
+(( rc == 1 )) && [[ $o == *"trusted gate tool unavailable"* ]] && [ ! -e "$T/exfiltrated" ] \
+  && ok "unapproved main pin cannot build" || bad "unapproved main pin" "rc=$rc $o"
 echo "doctor tests: $pass passed, $fail failed"; (( fail == 0 ))

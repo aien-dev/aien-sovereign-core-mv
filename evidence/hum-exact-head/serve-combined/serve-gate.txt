@@ -1,0 +1,27 @@
+2026-10-21T03:54:08Z on: start bin-409c8ffa on 18093 (), MemAvailable 94 GB
+qwen36 omega: exact two-pass head ON (fp8b screen + Row bound, built in 9.4 s)
+aien-serve-http: qwen38 engine ready in 40.3 s: context 131072 tokens, weights 34.65 GB resident, KV 5.37 GB, rss 39.30 GB, prefill chunk 4096, spin_us Some(2000)
+gate2 l314-combined-on port 18093 model qwen3.6-35b-a3b-fp8 prompt_tokens 24 wall 1792554894.759675293: ids identical -> PASS
+2026-10-21T03:54:58Z on prompt 0 t=0: 128 ids
+2026-10-21T03:55:01Z on prompt 1 t=0: 128 ids
+2026-10-21T03:55:05Z on prompt 2 t=0: 128 ids
+2026-10-21T03:55:09Z on prompt 3 t=0: 128 ids
+2026-10-21T03:55:15Z on prompt 0 t=1.0: 128 ids
+2026-10-21T03:55:17Z stopped pid 2739987
+2026-10-21T03:55:17Z mutant5: start bin-409c8ffa on 18093 (AIEN_Q36_TEST_MUTANT=5), MemAvailable 97 GB
+qwen36 omega: exact two-pass head ON (fp8b screen + Row bound, built in 8.5 s)
+qwen36 omega: TEST MUTANT 5 set (negative control; never serve this)
+aien-serve-http: qwen38 engine ready in 36.4 s: context 131072 tokens, weights 34.65 GB resident, KV 5.37 GB, rss 39.30 GB, prefill chunk 4096, spin_us Some(2000)
+gate2 l314-combined-mutant5 port 18093 model qwen3.6-35b-a3b-fp8 prompt_tokens 24 wall 1792554959.082216708: ids DIFFER -> FAIL
+2026-10-21T03:56:01Z stopped pid 2753544
+2026-10-21T03:56:01Z off: start bin-409c8ffa on 18093 (AIEN_Q36_EXACT_HEAD=0), MemAvailable 97 GB
+qwen36 omega: exact two-pass head OFF (AIEN_Q36_EXACT_HEAD=0)
+aien-serve-http: qwen38 engine ready in 28.2 s: context 131072 tokens, weights 34.65 GB resident, KV 5.37 GB, rss 38.80 GB, prefill chunk 4096, spin_us Some(2000)
+gate2 l314-combined-off port 18093 model qwen3.6-35b-a3b-fp8 prompt_tokens 24 wall 1792554992.612829131: ids identical -> PASS
+2026-10-21T03:56:36Z off prompt 0 t=0: 128 ids
+2026-10-21T03:56:40Z off prompt 1 t=0: 128 ids
+2026-10-21T03:56:44Z off prompt 2 t=0: 128 ids
+2026-10-21T03:56:48Z off prompt 3 t=0: 128 ids
+2026-10-21T03:56:54Z off prompt 0 t=1.0: 128 ids
+2026-10-21T03:56:56Z stopped pid 2761437
+2026-10-21T03:56:56Z VERDICT PASS: gate2 on rc 0 (want 0), mutant5 rc 1 (want 1), off rc 0, ON == OFF ids on 5 / 5 requests
