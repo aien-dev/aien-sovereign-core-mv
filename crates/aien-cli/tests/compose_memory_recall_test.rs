@@ -26,7 +26,7 @@
 //! No model is needed. Host CPU only. Needs a compose-linked `aien-cli`:
 //!
 //! ```text
-//! env -u AIEN_OMEGA_DIR AIEN_OMEGA_COMPOSE_LIB=<librx_compose.a> CARGO_TARGET_DIR=<dir> \
+//! env -u AIEN_CUDAPP_DIR -u AIEN_OMEGA_DIR AIEN_OMEGA_COMPOSE_LIB=<librx_compose.a> CARGO_TARGET_DIR=<dir> \
 //!   cargo test -p aien-cli --test compose_memory_recall_test -- --ignored --nocapture
 //! ```
 #[path = "../../aien-allen/tests/support/mod.rs"]
@@ -95,6 +95,7 @@ impl Rig {
             .env("AIEN_REQUIRE_CHECKPOINT", "0");
         for k in [
             "AIEN_OMEGA_DIR",
+            "AIEN_CUDAPP_DIR",
             "AIEN_OMEGA_GPU_LIB",
             "AIEN_REQUIRE_BLACKWELL",
             "AIEN_GPU_BACKEND",

@@ -72,8 +72,8 @@ EOF
 cat > "$WORK/mocks/pins.sh" <<'EOF'
 #!/usr/bin/env bash
 [[ "$1" == --gpu ]] || { echo "pins.sh called without --gpu" >&2; exit 2; }
-mkdir -p "$2/omega"
-printf "export AIEN_OMEGA_DIR='%s/omega'\nexport AIEN_REQUIRE_NATIVE_LIBS=1\n" "$2" > "$2/env.sh"
+mkdir -p "$2/cudapp"
+printf "export AIEN_CUDAPP_DIR='%s/cudapp'\nexport AIEN_REQUIRE_NATIVE_LIBS=1\n" "$2" > "$2/env.sh"
 echo "pins.sh --gpu $2" >> "$MOCK_STATE/pins.calls"
 EOF
 
@@ -87,8 +87,8 @@ args=" $* "
 [[ "$args" == *" --locked "* ]] || { echo "cargo build is not --locked" >&2; exit 1; }
 mkdir -p target/release
 if [[ "$args" == *" -p aien-serve-http "* ]]; then
-    [[ "${AIEN_REQUIRE_NATIVE_LIBS:-}" == 1 && -n "${AIEN_OMEGA_DIR:-}" ]] \
-        || { echo "server build without the pins env (AIEN_REQUIRE_NATIVE_LIBS, AIEN_OMEGA_DIR)" >&2; exit 1; }
+    [[ "${AIEN_REQUIRE_NATIVE_LIBS:-}" == 1 && -n "${AIEN_CUDAPP_DIR:-}" ]] \
+        || { echo "server build without the pins env (AIEN_REQUIRE_NATIVE_LIBS, AIEN_CUDAPP_DIR)" >&2; exit 1; }
     echo "server build" >> "$MOCK_STATE/cargo.calls"
     if [[ "${MOCK_SERVER_KIND:-native}" == native ]]; then e="native"; else e="STUB (not usable with --engine omega)"; fi
     printf '#!/bin/sh\nprintf "aien-serve-http 0.1.0\\nomega gpu engine: %s\\nqwen38 engine: %s\\n"\n' "$e" "$e" > target/release/aien-serve-http

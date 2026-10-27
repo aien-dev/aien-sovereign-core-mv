@@ -11,6 +11,7 @@ inputs:
   - scripts/pins.sh
   - scripts/test-pins.sh
   - omega.lock
+  - cudapp.lock
   - tests/gates/
 run:
   exec: tests/gates/run.sh

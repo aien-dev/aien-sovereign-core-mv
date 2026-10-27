@@ -72,6 +72,7 @@ impl Rig {
             .env("AIEN_REQUIRE_CHECKPOINT", "1");
         for k in [
             "AIEN_OMEGA_DIR",
+            "AIEN_CUDAPP_DIR",
             "AIEN_OMEGA_GPU_LIB",
             "AIEN_REQUIRE_BLACKWELL",
             "AIEN_GPU_BACKEND",

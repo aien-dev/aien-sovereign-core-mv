@@ -27,9 +27,9 @@ use std::path::{Path, PathBuf};
 pub enum Link {
     /// no native library (every native call returns Unavailable)
     Stub,
-    /// built from an omega checkout at the commit `omega.lock` pins
+    /// built from a source checkout (omega or CUDApp) at the commit its lock file pins
     PinnedSource,
-    /// built from an omega checkout at a developer-override commit (not qualifiable)
+    /// built from a source checkout at a developer-override commit (not qualifiable)
     DevOverride,
     /// a prebuilt archive given by path and expected digest (not qualifiable)
     Prebuilt,

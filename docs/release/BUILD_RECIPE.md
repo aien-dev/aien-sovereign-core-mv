@@ -8,18 +8,20 @@ checks all use the same commands.
 One command materializes every pin a native build needs (sovereign-core #92, "clean checkout plus one command"):
 
 ```
-scripts/pins.sh --gpu      # omega at omega.lock, physics and aienos at omega's locks, under target/pins
-. target/pins/env.sh       # AIEN_OMEGA_DIR, AIEN_OMEGA_COMPOSE_DIR, AIEN_PHYSICS_DIR, AIEN_AIENOS_LOCK_REPO, AIEN_REQUIRE_NATIVE_LIBS=1
+scripts/pins.sh --gpu      # CUDApp at cudapp.lock, omega at omega.lock, physics and aienos at omega's locks, under target/pins
+. target/pins/env.sh       # AIEN_CUDAPP_DIR, AIEN_OMEGA_COMPOSE_DIR, AIEN_PHYSICS_DIR, AIEN_AIENOS_LOCK_REPO, AIEN_REQUIRE_NATIVE_LIBS=1
 ```
 
-Without `--gpu` only the composition library is linked (the CI gate shape). `scripts/pins.sh --check` verifies the
-three checkouts are at their pins without touching the network. `AIEN_REQUIRE_NATIVE_LIBS=1` makes a build that
+Without `--gpu` only the composition library is linked (the CI gate shape). The GPU engine (`libomega_gpu.a`) is built
+from aien-dev/CUDApp at `cudapp.lock`; CUDApp carries its driver client in-tree, so it needs no physics checkout.
+`scripts/pins.sh --check` verifies the checkouts are at their pins without touching the network. `AIEN_REQUIRE_NATIVE_LIBS=1` makes a build that
 would silently fall back to a CPU stub fail instead; `scripts/golden_path.sh` sources `target/pins/env.sh` when
 present. `scripts/test-pins.sh` is the offline self-test (throwaway repositories, no network).
 
 `scripts/release-build.sh` (needs the pinned toolchain from `rust-toolchain.toml`, `cargo fetch --locked` into the
-CARGO_HOME in use, and for the native engine `AIEN_OMEGA_DIR` at `omega.lock` and `AIEN_PHYSICS_DIR` at omega's
-`physics.lock`; `AIEN_DEV_FALLBACK` and `AIEN_FORCE_CPU_STUB` unset, no mojo on PATH):
+CARGO_HOME in use, for the native GPU engine `AIEN_CUDAPP_DIR` at `cudapp.lock`, and for the composition library
+`AIEN_OMEGA_COMPOSE_DIR` at `omega.lock` and `AIEN_PHYSICS_DIR` at omega's `physics.lock`; `AIEN_DEV_FALLBACK` and
+`AIEN_FORCE_CPU_STUB` unset, no mojo on PATH):
 
 1. `scripts/repro-build.sh -p spark-cockpit-rs -p spark-inquisitor -p cortex-encoder-rs -p cortex-rs -p spark-supervisor -p spark-debugger`
 2. `scripts/repro-build.sh -p aien-cli`
@@ -37,16 +39,17 @@ package aien-proof or aien-test.
 - `scripts/package-release.sh <out.tar.gz>` runs the release gate itself and writes the candidate id and `[model]`
   table from `release/candidate.toml` into `release.toml`. A failing gate means no package (`AIEN_DRY_RUN=1` only
   labels it `NOT-RELEASABLE`, which the checks reject).
-- `scripts/check-release-candidate.sh` (tree): candidate named, `omega.lock` equals `omega-commit`, `Cargo.lock`
+- `scripts/check-release-candidate.sh` (tree): candidate named, `omega.lock` equals `omega-commit`, `cudapp.lock`
+  holds a full sha and equals `cudapp-commit` when the candidate names one, `Cargo.lock`
   holds exactly the `[pins]` revisions (aien-protocols, crumb-spec, spark-crumbs), `[model]` complete.
 - `scripts/check-release-candidate.sh --package A.tar.gz --native`: candidate id, `[model]` table (model id,
   safetensors, tokenizer, config, oracle fixture digests), `aien-cli-sha256` equals the digest of `bin/aien`, every
-  listed file, no unlisted file; `--native` is required (linux aarch64, omega linked): the digest must equal
+  listed file, no unlisted file; `--native` is required (linux aarch64, the GPU engine linked): the digest must equal
   `[executables] aien-cli-native-release`, and each helper binary must equal its `sc-<name>` entry. A package without `--native` is refused (no candidate digest for that kind); the release matrix builds only the native target.
 - `scripts/verify-release-assets.sh <dir> <allowed_signers>`: signature on `SHA256SUMS.txt` valid for the pinned
   signer, every listed file matches, every `sovereign-*` archive is covered.
 - `scripts/release-publish-gate.sh <dir> <allowed_signers>`: the stage-3 publish decision (see `RELEASE_SIGNING.md`).
-- `scripts/test-release-checks.sh` (also in CI) proves each of these rejects: wrong omega.lock or Cargo.lock pins,
+- `scripts/test-release-checks.sh` (also in CI) proves each of these rejects: wrong omega.lock, cudapp.lock or Cargo.lock pins,
   executable digest mismatch, model input mismatch, missing, corrupt or foreign signature, tampered files.
 
 ## Release workflow modes

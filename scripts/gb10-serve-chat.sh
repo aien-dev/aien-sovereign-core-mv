@@ -95,8 +95,8 @@ obs mem_available_mib "$avail_mib"
 [ -f "$ENV_SH" ] || fail "pins env file $ENV_SH is missing"
 # shellcheck disable=SC1090
 . "$ENV_SH"
-[ "${AIEN_REQUIRE_NATIVE_LIBS:-}" = 1 ] && [ -n "${AIEN_OMEGA_DIR:-}" ] \
-    || fail "$ENV_SH does not select the GPU engine (AIEN_OMEGA_DIR unset)"
+[ "${AIEN_REQUIRE_NATIVE_LIBS:-}" = 1 ] && [ -n "${AIEN_CUDAPP_DIR:-}" ] \
+    || fail "$ENV_SH does not select the GPU engine (AIEN_CUDAPP_DIR unset)"
 cargo build --locked --release -p aien-serve-http
 rc=$?
 obs build_rc "$rc"

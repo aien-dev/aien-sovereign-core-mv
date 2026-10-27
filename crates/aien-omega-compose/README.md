@@ -7,11 +7,12 @@ in omega `mk/rx_compose_lib.mk`). NEXT-PHASE-1 cut 1b.
 ## Building against omega
 
 The library is built from an omega checkout whose HEAD must equal `omega.lock`
-(the same pin aien-omega-gpu uses; since NEXT-PHASE-1 it is omega 62b6a28, which
-contains `librx_compose.a`). Default build, no override:
+(since NEXT-PHASE-1 the pin contains `librx_compose.a`). The GPU engine
+(aien-omega-gpu) no longer builds from omega: it uses CUDApp at `cudapp.lock`
+via `AIEN_CUDAPP_DIR`. Default build, no override:
 
 ```text
-AIEN_OMEGA_DIR=<omega checkout at omega.lock>
+AIEN_OMEGA_COMPOSE_DIR=<omega checkout at omega.lock>
 AIEN_PHYSICS_DIR=<physics checkout at omega physics.lock>
 AIEN_AIENOS_LOCK_REPO=<aienos clone>
 cargo test -p aien-omega-compose
@@ -19,7 +20,7 @@ cargo test -p aien-omega-compose
 
 | Variable | Meaning |
 |----------|---------|
-| `AIEN_OMEGA_DIR` | omega checkout at `omega.lock`; shared with aien-omega-gpu |
+| `AIEN_OMEGA_DIR` | omega checkout at `omega.lock`; fallback when `AIEN_OMEGA_COMPOSE_DIR` is unset |
 | `AIEN_OMEGA_COMPOSE_DIR` | a different omega checkout for this crate only (takes precedence over `AIEN_OMEGA_DIR`) |
 | `AIEN_OMEGA_COMPOSE_SHA` | **developer override**: full 40-hex sha the checkout must be at instead of `omega.lock`, for building against an unmerged omega branch. Prints a build warning; never used for a release build or a campaign receipt. |
 | `AIEN_PHYSICS_DIR` | physics checkout at omega's `physics.lock` (default `<omega>/../physics`) |
@@ -28,8 +29,7 @@ cargo test -p aien-omega-compose
 | `AIEN_FORCE_CPU_STUB=1` | stub: every call returns `ComposeError::Unavailable` (build time only; for a CPU-only run use `AIEN_BACKEND=cpu`, which makes the daemon refuse a GPU build) |
 
 With no checkout and no library set the crate builds the stub and prints a warning.
-Use `AIEN_OMEGA_COMPOSE_DIR` together with `AIEN_OMEGA_COMPOSE_SHA`, so an override
-never changes the checkout aien-omega-gpu checks against `omega.lock`.
+Use `AIEN_OMEGA_COMPOSE_DIR` together with `AIEN_OMEGA_COMPOSE_SHA` for an override.
 
 The integration test (`tests/compose.rs`) is ignored in a stub build.
 

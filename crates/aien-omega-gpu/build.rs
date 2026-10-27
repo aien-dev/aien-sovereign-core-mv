@@ -13,7 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Links `libomega_gpu.a` from the omega commit pinned in `omega.lock`.
+//! Links `libomega_gpu.a` from the CUDA++ commit (aien-dev/CUDApp) pinned in `cudapp.lock`.
+//! CUDA++ is the source of truth for the GPU stack; omega-mv's GPU sources are superseded.
 //!
 //! Offline by design: nothing is downloaded and no CUDA/nvcc is used. Order:
 //!   1. `AIEN_FORCE_CPU_STUB=1`      -> stub (CI without the chip). BUILD-TIME ONLY: a binary already
@@ -23,9 +24,9 @@
 //!   2. `AIEN_OMEGA_GPU_LIB=<file>`  -> link that prebuilt archive; `AIEN_OMEGA_GPU_LIB_SHA256` must
 //!      name its sha256 (checked) and it must define every function in the ABI manifest. A
 //!      development override: its identity says `prebuilt` and it never qualifies.
-//!   3. `AIEN_OMEGA_DIR=<checkout>`  -> its HEAD must equal omega.lock; built with
-//!      `make libomega_gpu` into OUT_DIR. `AIEN_PHYSICS_DIR` (default `<omega>/../physics`)
-//!      is passed as PHYSICS_DIR; omega's own physics.lock check still runs.
+//!   3. `AIEN_CUDAPP_DIR=<checkout>` -> its HEAD must equal cudapp.lock; built with
+//!      `make libomega_gpu.a` into OUT_DIR. CUDA++ carries the driver client (m16/, nvrm/)
+//!      in-tree, so the checkout itself is PHYSICS_DIR.
 //!   4. otherwise                    -> stub, with a build warning.
 //!
 //! `cfg(has_omega_gpu)` is set only when the real library is linked.
@@ -45,13 +46,12 @@ fn main() {
     for v in [
         "AIEN_FORCE_CPU_STUB",
         "AIEN_OMEGA_GPU_LIB",
-        "AIEN_OMEGA_DIR",
-        "AIEN_PHYSICS_DIR",
+        "AIEN_CUDAPP_DIR",
         "AIEN_REQUIRE_NATIVE_LIBS",
     ] {
         println!("cargo:rerun-if-env-changed={v}");
     }
-    let lock_path = Path::new(&env("CARGO_MANIFEST_DIR")).join("../../omega.lock");
+    let lock_path = Path::new(&env("CARGO_MANIFEST_DIR")).join("../../cudapp.lock");
     println!("cargo:rerun-if-changed={}", lock_path.display());
     let pinned = std::fs::read_to_string(&lock_path)
         .unwrap_or_else(|e| panic!("cannot read {}: {e}", lock_path.display()))
@@ -59,9 +59,9 @@ fn main() {
         .to_string();
     assert!(
         pinned.len() == 40 && pinned.bytes().all(|b| b.is_ascii_hexdigit()),
-        "omega.lock must hold one full 40-hex sha"
+        "cudapp.lock must hold one full 40-hex sha"
     );
-    println!("cargo:rustc-env=AIEN_OMEGA_PINNED_SHA={pinned}");
+    println!("cargo:rustc-env=AIEN_CUDAPP_PINNED_SHA={pinned}");
 
     let root = PathBuf::from(env("CARGO_MANIFEST_DIR"));
     let manifest = root.join("abi/omega_gpu.manifest");
@@ -90,15 +90,15 @@ fn main() {
         link(&lib);
         return;
     }
-    let Ok(dir) = std::env::var("AIEN_OMEGA_DIR") else {
+    let Ok(dir) = std::env::var("AIEN_CUDAPP_DIR") else {
         // AIEN_REQUIRE_NATIVE_LIBS=1 (set by scripts/pins.sh env.sh) turns the silent
         // stub fallback into a build error: a release or receipt build must never
         // discover at run time that it carries the CPU stub (sovereign-core #92).
         assert!(
             std::env::var("AIEN_REQUIRE_NATIVE_LIBS").as_deref() != Ok("1"),
-            "aien-omega-gpu: AIEN_REQUIRE_NATIVE_LIBS=1 but neither AIEN_OMEGA_DIR nor AIEN_OMEGA_GPU_LIB is set (run scripts/pins.sh --gpu and source target/pins/env.sh)"
+            "aien-omega-gpu: AIEN_REQUIRE_NATIVE_LIBS=1 but neither AIEN_CUDAPP_DIR nor AIEN_OMEGA_GPU_LIB is set (run scripts/pins.sh --gpu and source target/pins/env.sh)"
         );
-        println!("cargo:warning=aien-omega-gpu: no AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB, building the CPU stub");
+        println!("cargo:warning=aien-omega-gpu: no AIEN_CUDAPP_DIR or AIEN_OMEGA_GPU_LIB, building the CPU stub");
         build::Identity::stub(&pinned).emit(PREFIX);
         return;
     };
@@ -114,15 +114,13 @@ fn main() {
         .unwrap_or_default();
     assert!(
         head == pinned,
-        "omega checkout {} is at '{head}', omega.lock pins {pinned}",
+        "CUDA++ checkout {} is at '{head}', cudapp.lock pins {pinned}",
         dir.display()
     );
-    let physics = std::env::var("AIEN_PHYSICS_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| dir.join("../physics"));
-    let out = PathBuf::from(env("OUT_DIR")).join("omega-build");
+    let physics = dir.clone();
+    let out = PathBuf::from(env("OUT_DIR")).join("cudapp-build");
     if build::fresh_out_dir(&out, &pinned) {
-        println!("cargo:warning=aien-omega-gpu: build dir was for another omega commit, rebuilt from clean");
+        println!("cargo:warning=aien-omega-gpu: build dir was for another CUDA++ commit, rebuilt from clean");
     }
     let status = Command::new("make")
         .current_dir(&dir)

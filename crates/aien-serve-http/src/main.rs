@@ -81,7 +81,7 @@ fn build_info() -> String {
     format!(
         "aien-serve-http {}\n\
          sovereign-core commit: {} (dirty {})\n\
-         omega.lock: {}\n\
+         cudapp.lock: {}\n\
          omega gpu engine: {} (link {}, abi {}, digest {}, archive sha256 {})\n\
          qwen38 engine: {} (prefill {})\n\
          release-grade native identity: {}\n\
@@ -89,7 +89,7 @@ fn build_info() -> String {
         env!("CARGO_PKG_VERSION"),
         env!("AIEN_SERVE_HTTP_GIT_COMMIT"),
         env!("AIEN_SERVE_HTTP_GIT_DIRTY"),
-        env!("AIEN_SERVE_HTTP_OMEGA_LOCK"),
+        env!("AIEN_SERVE_HTTP_CUDAPP_LOCK"),
         native(aien_omega_gpu::is_native()),
         gpu.link,
         gpu.abi,

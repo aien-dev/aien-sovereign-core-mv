@@ -22,9 +22,10 @@
 # crates/aien-runtime/tests are separate and untouched.
 #
 # Pinned sibling sources: the hosted jobs check out omega at omega.lock, physics and aienos at
-# omega's own locks, and aien-protocols at two fixed commits (TRN1 and CRB1 vector corpora).
-# Here the same commits are materialised under $CARGO_TARGET_DIR/aien-pins (default target/aien-pins) from
-# the sibling local clones ../omega ../physics ../aienos ../aien-protocols, offline.
+# omega's own locks, and aien-protocols at two fixed commits (TRN1 and CRB1 vector corpora); the
+# GB10 steps also use CUDApp at cudapp.lock. Here the same commits are materialised under
+# $CARGO_TARGET_DIR/aien-pins (default target/aien-pins) from the sibling local clones ../omega
+# ../physics ../aienos ../aien-protocols ../CUDApp, offline.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
@@ -161,13 +162,15 @@ case "$step" in
     bash scripts/test-linked-compose.sh "$PINS/omega" "$PINS/physics" "$PINS/aienos"
     ;;
   # No hosted mirror: GitHub has no GB10. SC-GB10-SERVE-CHAT, the GPU receipt an Alpha needs
-  # (verify-bundle --require-full, NO_GPU_RECEIPT). Same pinned sources as linked-compose, from the
-  # siblings, offline; scripts/pins.sh --gpu reuses them and writes the env.sh install.sh sources.
+  # (verify-bundle --require-full, NO_GPU_RECEIPT). Same pinned sources as linked-compose plus CUDApp
+  # at cudapp.lock, from the siblings, offline; scripts/pins.sh --gpu reuses them and writes the env.sh
+  # install.sh sources.
   gb10-serve-chat)
     omega_sha="$(tr -d '[:space:]' < omega.lock)"
     pin omega omega "$omega_sha"
     pin physics physics "$(tr -d '[:space:]' < "$PINS/omega/physics.lock")"
     pin aienos aienos "$(awk 'NF && $1 !~ /^#/ {print $1; exit}' "$PINS/omega/aienos.lock")"
+    pin cudapp CUDApp "$(tr -d '[:space:]' < cudapp.lock)"
     AIEN_PINS_REMOTE_BASE="$(cd .. && pwd)" AIEN_PINS_REMOTE_SUFFIX="" bash scripts/pins.sh --gpu "$PINS"
     bash scripts/gb10-serve-chat.sh "$PINS/env.sh"
     ;;

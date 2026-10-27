@@ -18,7 +18,8 @@
 # and the thing to run by hand to reproduce a candidate digest. See docs/release/BUILD_RECIPE.md.
 #   scripts/release-build.sh [extra cargo args, e.g. --offline]
 # Needs a pinned toolchain (rust-toolchain.toml), `cargo fetch --locked` done into the CARGO_HOME in use,
-# and for the native engine AIEN_OMEGA_DIR and AIEN_PHYSICS_DIR at omega.lock / omega's physics.lock.
+# for the native GPU engine AIEN_CUDAPP_DIR at cudapp.lock, and for the composition library
+# AIEN_OMEGA_COMPOSE_DIR and AIEN_PHYSICS_DIR at omega.lock / omega's physics.lock.
 # Cargo unifies features across every -p in one command, so a digest depends on the group it was built in
 # (docs/release/F1-binary-digest-difference.md). The groups are therefore fixed: the packaged helpers as one
 # group first, then aien-cli alone and last, each through scripts/repro-build.sh (--locked, path remap).

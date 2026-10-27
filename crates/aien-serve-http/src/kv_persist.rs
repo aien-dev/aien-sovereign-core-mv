@@ -38,7 +38,7 @@
 //!
 //! The namespace binds the checkpoint digest, the model shape, the bf16 pool layout, the chunk
 //! size, the sharing namespace and the engine identity of ADR 1.2.2 built by
-//! [`OmegaKvIdentity::new`]: weight format as loaded, the build (omega commit, linked
+//! [`OmegaKvIdentity::new`]: weight format as loaded, the build (CUDApp commit, linked
 //! `libomega_gpu.a` sha256, this crate's commit), a rounding class, and an engine config digest
 //! over the MoE shape and every run switch that can move a K/V byte.
 //!
@@ -94,10 +94,11 @@ pub const NUMERIC_ENV: &[&str] = &[
 pub const NEUTRAL_ENV: &[&str] = &[
     "AIEN_OMEGA_SPIN_US",
     "AIEN_OMEGA_DIR",
+    "AIEN_CUDAPP_DIR",
     "AIEN_OMEGA_GPU",
     "AIEN_OMEGA_GPU_LIB",
     "AIEN_OMEGA_GPU_LIB_SHA256",
-    "AIEN_OMEGA_PINNED_SHA",
+    "AIEN_CUDAPP_PINNED_SHA",
     "AIEN_OMEGA_COMPOSE",
     "AIEN_OMEGA_COMPOSE_DIR",
     "AIEN_OMEGA_COMPOSE_LIB",
@@ -113,8 +114,8 @@ pub const MUTANT_ENV: &[&str] = &["OWN30B_DECODE_GRAPH_MUTANT"];
 /// The build of the engine that writes the K/V.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OmegaBuild {
-    /// The omega commit `omega.lock` pins.
-    pub omega_commit: String,
+    /// The CUDApp commit `cudapp.lock` pins (the source `libomega_gpu.a` is built from).
+    pub cudapp_commit: String,
     /// How `libomega_gpu.a` was linked (`pinned-source`, `dev-override`, `prebuilt`, `stub`).
     pub gpu_link: String,
     /// sha256 of the linked `libomega_gpu.a`.
@@ -143,9 +144,9 @@ impl OmegaBuild {
         } else {
             "mismatch"
         };
-        let pin = env!("AIEN_SERVE_HTTP_OMEGA_LOCK");
+        let pin = env!("AIEN_SERVE_HTTP_CUDAPP_LOCK");
         Self {
-            omega_commit: pin.to_string(),
+            cudapp_commit: pin.to_string(),
             // A pinned-source archive built from another commit than the pin is not the pin.
             gpu_link: if id.link == "pinned-source" && id.source_sha != pin {
                 "pinned-source-other-commit".into()
@@ -160,13 +161,13 @@ impl OmegaBuild {
         }
     }
 
-    /// `omega:<commit>+libomega_gpu:<sha256>+sc:<commit>`. Refused when any part is unknown or
+    /// `cudapp:<commit>+libomega_gpu:<sha256>+sc:<commit>`. Refused when any part is unknown or
     /// cannot be trusted to name the bytes that run (fail closed).
     pub fn build_id(&self) -> Result<String, String> {
         let hex = |s: &str, n: usize| s.len() == n && s.bytes().all(|b| b.is_ascii_hexdigit());
         if self.gpu_link != "pinned-source" {
             return Err(format!(
-                "libomega_gpu.a is linked as {:?}, not built from the omega.lock pin",
+                "libomega_gpu.a is linked as {:?}, not built from the cudapp.lock pin",
                 self.gpu_link
             ));
         }
@@ -179,10 +180,10 @@ impl OmegaBuild {
                 self.gpu_digest
             ));
         }
-        if !hex(&self.omega_commit, 40) {
+        if !hex(&self.cudapp_commit, 40) {
             return Err(format!(
-                "omega.lock commit {:?} is not a 40-hex commit",
-                self.omega_commit
+                "cudapp.lock commit {:?} is not a 40-hex commit",
+                self.cudapp_commit
             ));
         }
         if !(self.sc_commit.len() >= 7
@@ -201,8 +202,8 @@ impl OmegaBuild {
             return Err("the linked libomega_gpu.a has no target".into());
         }
         Ok(format!(
-            "omega:{}+libomega_gpu:{}+sc:{}",
-            self.omega_commit, self.gpu_archive_sha256, self.sc_commit
+            "cudapp:{}+libomega_gpu:{}+sc:{}",
+            self.cudapp_commit, self.gpu_archive_sha256, self.sc_commit
         ))
     }
 }
@@ -1390,7 +1391,7 @@ mod tests {
 
     fn build() -> OmegaBuild {
         OmegaBuild {
-            omega_commit: "d0889a944b02066f84fec71af7b9bbb92f5c986f".into(),
+            cudapp_commit: "d0889a944b02066f84fec71af7b9bbb92f5c986f".into(),
             gpu_link: "pinned-source".into(),
             gpu_archive_sha256: "ab".repeat(32),
             gpu_digest: "unrecorded".into(),
@@ -1518,7 +1519,7 @@ mod tests {
             ("decode graph", |i| i.switches.decode_graph ^= true),
             ("lm head gemv", |i| i.switches.lm_head_gemv ^= true),
             ("trace layers", |i| i.switches.trace_layers ^= true),
-            ("omega commit", |i| i.build.omega_commit = "e".repeat(40)),
+            ("cudapp commit", |i| i.build.cudapp_commit = "e".repeat(40)),
             ("archive digest", |i| {
                 i.build.gpu_archive_sha256 = "ef".repeat(32)
             }),
@@ -1564,6 +1565,7 @@ mod tests {
         let mut i = base();
         i.env.push(("AIEN_OMEGA_SPIN_US".into(), "50".into()));
         i.env.push(("AIEN_OMEGA_DIR".into(), "/x".into()));
+        i.env.push(("AIEN_CUDAPP_DIR".into(), "/x".into()));
         assert_eq!(ns(&i).unwrap(), b);
     }
 
@@ -1580,8 +1582,8 @@ mod tests {
             ("digest mismatch", |i| {
                 i.build.gpu_digest = "mismatch".into()
             }),
-            ("unknown omega commit", |i| {
-                i.build.omega_commit = "unknown".into()
+            ("unknown cudapp commit", |i| {
+                i.build.cudapp_commit = "unknown".into()
             }),
             ("unknown engine commit", |i| {
                 i.build.sc_commit = "unknown".into()

@@ -13,9 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Raw declarations, written by hand from omega `src/omega_gpu_matmul_api.h`,
+//! Raw declarations, written by hand from CUDApp `src/omega_gpu_matmul_api.h`,
 //! `omega_gpu_session.h`, `omega_gpu_serving.h`, `omega_gpu_elementwise_api.h` and
-//! `omega_gpu_attention_api.h` at the commit pinned in `omega.lock`. Nothing generated.
+//! `omega_gpu_attention_api.h` at the commit pinned in `cudapp.lock`. Nothing generated.
 //!
 //! Hand-written, but not unchecked: every mirrored constant, struct and function is declared
 //! through the `aien-abi-conformance` macros, and `abi/omega_gpu.manifest` is the contract.

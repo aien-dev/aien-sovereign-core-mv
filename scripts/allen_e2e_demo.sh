@@ -345,7 +345,7 @@ fi
 
 # Build with the real compose library (no omega dir, no GPU lib).
 (
-  cd "$REPO" && env -u AIEN_OMEGA_DIR -u AIEN_OMEGA_COMPOSE_DIR -u AIEN_OMEGA_GPU_LIB -u AIEN_FORCE_CPU_STUB \
+  cd "$REPO" && env -u AIEN_CUDAPP_DIR -u AIEN_OMEGA_DIR -u AIEN_OMEGA_COMPOSE_DIR -u AIEN_OMEGA_GPU_LIB -u AIEN_FORCE_CPU_STUB \
     AIEN_OMEGA_COMPOSE_LIB="$LIB" CARGO_TARGET_DIR="$D/target" cargo build --release -p aien-cli
 ) >"$D/build-run.log" 2>&1 || { echo "build failed, see $D/build-run.log" >&2; exit 2; }
 grep -q "building the stub" "$D/build-run.log" && { echo "stub compose build; refusing" >&2; exit 2; }
@@ -358,7 +358,7 @@ mkdir -p "$RUN"/{state,compose,prov,ws,home,logs} "$ART"
 LOGS=$RUN/logs
 WS=$RUN/ws
 
-E=(env -u AIEN_OMEGA_DIR -u AIEN_OMEGA_COMPOSE_DIR -u AIEN_OMEGA_GPU_LIB -u AIEN_REQUIRE_BLACKWELL
+E=(env -u AIEN_CUDAPP_DIR -u AIEN_OMEGA_DIR -u AIEN_OMEGA_COMPOSE_DIR -u AIEN_OMEGA_GPU_LIB -u AIEN_REQUIRE_BLACKWELL
    -u AIEN_GPU_BACKEND -u AIEN_MODEL_DIR -u AIEN_MODEL_PATH -u AIEN_TOKENIZER_PATH -u AIEN_FORCE_CPU_STUB
    -u AIEN_FAULT_HOLD -u AIEN_FAULT_HOLD_FILE -u AIEN_ALLEN_SUBJECT -u AIEN_ALLEN_ADOPT
    -u AIEN_COMPOSE_MAX_TOKENS -u AIEN_COMPOSE_DOC_MAX_TOKENS
@@ -598,7 +598,7 @@ if ! skip S1; then
   LINEAGE=$(cli compose recall --ids 1 | jq -r '.recall.cited[0].digest')
   kill9 || true
   SUBJ=$RUN/subject.bin
-  FX=$(cd "$REPO" && env -u AIEN_OMEGA_DIR -u AIEN_OMEGA_COMPOSE_DIR AIEN_OMEGA_COMPOSE_LIB="$LIB" CARGO_TARGET_DIR="$D/target" \
+  FX=$(cd "$REPO" && env -u AIEN_CUDAPP_DIR -u AIEN_OMEGA_DIR -u AIEN_OMEGA_COMPOSE_DIR AIEN_OMEGA_COMPOSE_LIB="$LIB" CARGO_TARGET_DIR="$D/target" \
         DEMO_SUBJECT_OUT="$SUBJ" DEMO_LINEAGE_HEX="$LINEAGE" DEMO_SUBJECT_NAME="allen-e2e-demo-$V" \
         cargo test --release -p aien-allen --test e2e_demo_subject -- --ignored --nocapture 2>&1)
   AGENT=$(printf '%s\n' "$FX" | sed -n 's/^AGENT=//p'); AROOT=$(printf '%s\n' "$FX" | sed -n 's/^ROOT=//p')

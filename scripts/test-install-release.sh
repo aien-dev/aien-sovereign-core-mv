@@ -319,7 +319,7 @@ inst_args "$WORK/bin-good" "$WORK/cfg-good" --rollback || fail "rollback after r
 
 # 13. release gate: the candidate must be named and omega.lock must be the candidate's omega commit
 GT="$WORK/gate"; mkdir -p "$GT/scripts" "$GT/release"
-cp "$ROOT/scripts/check-release-candidate.sh" "$GT/scripts/"; cp "$ROOT/release/candidate.toml" "$GT/release/"; cp "$ROOT/Cargo.lock" "$GT/"
+cp "$ROOT/scripts/check-release-candidate.sh" "$GT/scripts/"; cp "$ROOT/release/candidate.toml" "$GT/release/"; cp "$ROOT/Cargo.lock" "$ROOT/cudapp.lock" "$GT/"
 gate() { (cd "$GT" && bash scripts/check-release-candidate.sh "$@" > "$WORK/log-gate" 2>&1); }
 OM="$(sed -n 's/^omega-commit *= *"\(.*\)"$/\1/p' "$GT/release/candidate.toml")"
 echo "$OM" > "$GT/omega.lock"

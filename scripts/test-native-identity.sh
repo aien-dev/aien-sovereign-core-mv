@@ -15,12 +15,12 @@
 # limitations under the License.
 
 # Native identity checks in the build scripts of aien-omega-compose and aien-omega-gpu.
-# Runs without omega: every case below must be decided by build.rs before any make.
+# Runs without omega or CUDApp: every case below must be decided by build.rs before any make.
 #   - a stub together with AIEN_REQUIRE_NATIVE_LIBS=1 is refused
 #   - AIEN_REQUIRE_NATIVE_LIBS=1 with no library source is refused
 #   - a prebuilt archive with no expected sha256, a wrong one, or a truncated archive is refused
 #   - a prebuilt archive that misses one ABI function is refused
-#   - an omega checkout at a commit other than omega.lock is refused
+#   - a checkout at a commit other than its lock (omega.lock for compose, cudapp.lock for gpu) is refused
 #   - a correct prebuilt archive builds, and its identity says "prebuilt" (never qualifies)
 # Exit 0 when every case behaves, 1 otherwise.
 set -euo pipefail
@@ -59,8 +59,8 @@ fake_archive() {
     ar rcs "$2" "$src.o"
 }
 
-# A git checkout at a commit that is not omega.lock.
-WRONG="$WORK/wrong-omega"
+# A git checkout at a commit that is neither omega.lock nor cudapp.lock.
+WRONG="$WORK/wrong-checkout"
 git init -q "$WRONG"
 git -C "$WRONG" -c user.name=t -c user.email=t@t commit -q --allow-empty -m wrong
 
@@ -86,7 +86,7 @@ check_crate() {
         "$libvar=$short" "${libvar}_SHA256=$sha"
     expect_refused "$crate" "prebuilt missing $drop" "does not define" \
         "$libvar=$miss" "${libvar}_SHA256=$miss_sha"
-    expect_refused "$crate" "omega checkout at the wrong commit" "is at '" \
+    expect_refused "$crate" "checkout at the wrong commit" "is at '" \
         "$dirvar=$WRONG"
 
     if env "$libvar=$good" "${libvar}_SHA256=$sha" cargo check -q -p "$crate" >"$WORK/log" 2>&1 &&
@@ -102,7 +102,7 @@ cd "$ROOT"
 check_crate aien-omega-compose crates/aien-omega-compose/abi/rxc_host_abi.manifest \
     AIEN_OMEGA_COMPOSE_LIB AIEN_OMEGA_COMPOSE_DIR rxc_host_recover AIEN_OMEGA_COMPOSE
 check_crate aien-omega-gpu crates/aien-omega-gpu/abi/omega_gpu.manifest \
-    AIEN_OMEGA_GPU_LIB AIEN_OMEGA_DIR omega_gpu_matmul_f32 AIEN_OMEGA_GPU
+    AIEN_OMEGA_GPU_LIB AIEN_CUDAPP_DIR omega_gpu_matmul_f32 AIEN_OMEGA_GPU
 
 if [ "$fails" -ne 0 ]; then
     echo "native identity: $fails case(s) failed"

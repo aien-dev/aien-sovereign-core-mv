@@ -55,7 +55,7 @@ pub mod kvio;
 
 /// Column tile of the engine's tile-major B layout: every expert window must start on one.
 pub const WINDOW_TILE: usize = aien_omega_moe::TILE_N;
-/// Engine limits for one resident tensor (`omega_blackwell_matmul.h` at omega.lock).
+/// Engine limits for one resident tensor (`omega_blackwell_matmul.h` in CUDApp at cudapp.lock).
 pub const MAX_RESIDENT_K: usize = 16384;
 pub const MAX_RESIDENT_N: usize = 262144;
 
@@ -3857,7 +3857,7 @@ impl Qwen3MoeOmegaEngine {
         progress: &mut dyn FnMut(&str),
     ) -> Result<(Self, LoadReport), String> {
         if !aien_omega_gpu::is_native() {
-            return Err("this binary carries the CPU stub of the Omega engine (build with AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB)".into());
+            return Err("this binary carries the CPU stub of the Omega engine (build with AIEN_CUDAPP_DIR or AIEN_OMEGA_GPU_LIB)".into());
         }
         let (weights, report) =
             load_qwen3_moe_omega_paths(dir, &OmegaModelUploader, format, paths, progress)?;

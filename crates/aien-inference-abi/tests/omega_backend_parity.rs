@@ -18,7 +18,7 @@
 //! Host test (runs everywhere, stub-aware): in a stub build the backend must
 //! report itself unavailable. Chip test (`#[ignore]`, run through the heavy
 //! queue with a native build):
-//!   AIEN_OMEGA_DIR=... AIEN_PHYSICS_DIR=... cargo test -p aien-inference-abi --release \
+//!   AIEN_CUDAPP_DIR=... cargo test -p aien-inference-abi --release \
 //!     --test omega_backend_parity -- --ignored --nocapture
 //!
 //! Error metric: |chip - ref| divided by sum_i |x_i * w_i| (the accumulation

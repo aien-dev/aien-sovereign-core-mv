@@ -24,7 +24,7 @@
 # --dry-run prints the plan and checks the prerequisites; it starts no server.
 # The binary must be a native release build of this branch from a clean checkout (dirty or
 # unknown builds refuse persistence by design), e.g.
-#   AIEN_OMEGA_DIR=<omega checkout at the omega.lock pin> cargo build --release -p aien-serve-http
+#   AIEN_CUDAPP_DIR=<CUDApp checkout at the cudapp.lock pin> cargo build --release -p aien-serve-http
 #
 # Key: atlas-vault entry AIEN_KV_STORE_KEY by default; PKV_CHECK_EPHEMERAL_KEY=1 makes a
 # throwaway key (never printed or saved). Stores are private temp dirs. Refuses while :18091

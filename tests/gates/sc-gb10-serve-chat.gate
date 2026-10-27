@@ -20,6 +20,7 @@ requires:
 inputs:
   - scripts/gb10-serve-chat.sh
   - scripts/pins.sh
+  - cudapp.lock
   - tools/serve-27b.sh
   - tests/gates/
 run:

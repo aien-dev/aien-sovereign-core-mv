@@ -21,7 +21,8 @@
 //!   * `AIEN_FORCE_CPU_STUB=1`: stub.
 //!   * `AIEN_OMEGA_GPU_LIB=<archive>`: native when `nm` finds `omega_gpu_router` defined
 //!     in that archive.
-//!   * `AIEN_OMEGA_DIR=<checkout>`: native when the checkout has `src/omega_gpu_router_api.h`.
+//!   * `AIEN_CUDAPP_DIR=<checkout>` (CUDApp at `cudapp.lock`): native when the checkout has
+//!     `src/omega_gpu_router_api.h`.
 //!   * otherwise: stub (every call returns `Unavailable`).
 //!
 //! `cfg(has_omega_router)` is set only when native. A stub never fails the build: the engine
@@ -35,7 +36,7 @@ fn main() {
     for v in [
         "AIEN_FORCE_CPU_STUB",
         "AIEN_OMEGA_GPU_LIB",
-        "AIEN_OMEGA_DIR",
+        "AIEN_CUDAPP_DIR",
     ] {
         println!("cargo:rerun-if-env-changed={v}");
     }
@@ -51,13 +52,13 @@ fn main() {
         }
         return;
     }
-    if let Ok(dir) = std::env::var("AIEN_OMEGA_DIR") {
+    if let Ok(dir) = std::env::var("AIEN_CUDAPP_DIR") {
         let header = Path::new(&dir).join("src/omega_gpu_router_api.h");
         println!("cargo:rerun-if-changed={}", header.display());
         if header.is_file() {
             println!("cargo:rustc-cfg=has_omega_router");
         } else {
-            println!("cargo:warning=aien-omega-router: {dir} has no src/omega_gpu_router_api.h (omega before OWN-30B cut 8); the device router is stubbed");
+            println!("cargo:warning=aien-omega-router: {dir} has no src/omega_gpu_router_api.h; the device router is stubbed");
         }
     }
 }

@@ -417,8 +417,8 @@ if [ -n "$ARTIFACT" ]; then
     GPUX=(env -u AIEN_DEV_FALLBACK -u AIEN_OMEGA_CTA_BUDGET -u AIEN_OMEGA_SPIN_US AIEN_GPU_BACKEND=omega AIEN_REQUIRE_BLACKWELL=1)
   fi
 elif [ "$MODE" = gb10 ]; then
-  # G1: the pinned GPU engine, as the sc#94 release golden path (sc#92, sc#375); env.sh sets AIEN_OMEGA_DIR and
-  # AIEN_REQUIRE_NATIVE_LIBS=1 (a stub engine is a build error) and unsets AIEN_DEV_FALLBACK and the archive overrides.
+  # G1: the pinned GPU engine, as the sc#94 release golden path (sc#92, sc#375); env.sh sets AIEN_CUDAPP_DIR (CUDApp at
+  # cudapp.lock) and AIEN_REQUIRE_NATIVE_LIBS=1 (a stub engine is a build error) and unsets AIEN_DEV_FALLBACK and the archive overrides.
   PINS=$D/pins
   bash "$REPO/scripts/pins.sh" --gpu "$PINS" >"$D/pins.txt" 2>&1 || { echo "pins.sh --gpu failed, see $D/pins.txt" >&2; exit 2; }
   ( cd "$REPO" && . "$PINS/env.sh" && CARGO_TARGET_DIR="$TGT" cargo build --release -p aien-cli ) >"$D/build.log" 2>&1 \
@@ -428,16 +428,17 @@ elif [ "$MODE" = gb10 ]; then
   [ "$ZC" = 0 ] || { echo "zero-CUDA gate exit $ZC, see $D/zero-cuda-gate.txt; refusing" >&2; exit 2; }
   pin_of() { git -C "$PINS/$1" rev-parse HEAD 2>/dev/null; }
   lock_of() { tr -d '[:space:]' <"$1" 2>/dev/null; }
-  P_OM=$(pin_of omega); P_PH=$(pin_of physics); P_AO=$(pin_of aienos)
+  P_OM=$(pin_of omega); P_PH=$(pin_of physics); P_AO=$(pin_of aienos); P_CU=$(pin_of cudapp)
   { [ -n "$P_OM" ] && [ "$P_OM" = "$(lock_of "$REPO/omega.lock")" ] && [ "$P_PH" = "$(lock_of "$PINS/omega/physics.lock")" ] \
-    && [ "$P_AO" = "$(lock_of "$PINS/omega/aienos.lock")" ]; } || { echo "pinned checkouts differ from their lock files" >&2; exit 2; }
-  PINS_JSON=$(jq -nc --arg o "$P_OM" --arg p "$P_PH" --arg a "$P_AO" '{omega:$o, physics:$p, aienos:$a, source:"scripts/pins.sh --gpu: omega.lock, then physics.lock and aienos.lock of that omega"}')
+    && [ "$P_AO" = "$(lock_of "$PINS/omega/aienos.lock")" ] \
+    && [ -n "$P_CU" ] && [ "$P_CU" = "$(lock_of "$REPO/cudapp.lock")" ]; } || { echo "pinned checkouts differ from their lock files" >&2; exit 2; }
+  PINS_JSON=$(jq -nc --arg c "$P_CU" --arg o "$P_OM" --arg p "$P_PH" --arg a "$P_AO" '{cudapp:$c, omega:$o, physics:$p, aienos:$a, source:"scripts/pins.sh --gpu: cudapp.lock (GPU engine); omega.lock, then physics.lock and aienos.lock of that omega (composition)"}')
   NVDRV=$(head -1 /proc/driver/nvidia/version 2>/dev/null | tr -s ' ' | cut -c1-200)
   [ -n "$NVDRV" ] || { echo "no /proc/driver/nvidia/version: no NVIDIA driver loaded" >&2; exit 2; }
   # G2: every daemon start: a missing engine is fatal (never a CPU fallback); launch tuning left at the daemon defaults.
   GPUX=(env -u AIEN_DEV_FALLBACK -u AIEN_OMEGA_CTA_BUDGET -u AIEN_OMEGA_SPIN_US AIEN_GPU_BACKEND=omega AIEN_REQUIRE_BLACKWELL=1)
 else
-( cd "$REPO" && env -u AIEN_OMEGA_DIR -u AIEN_OMEGA_COMPOSE_DIR -u AIEN_OMEGA_GPU_LIB -u AIEN_FORCE_CPU_STUB \
+( cd "$REPO" && env -u AIEN_CUDAPP_DIR -u AIEN_OMEGA_DIR -u AIEN_OMEGA_COMPOSE_DIR -u AIEN_OMEGA_GPU_LIB -u AIEN_FORCE_CPU_STUB \
     AIEN_OMEGA_COMPOSE_LIB="$LIB" CARGO_TARGET_DIR="$D/target" cargo build --release -p aien-cli ) >"$D/build.log" 2>&1 \
   || { echo "build failed, see $D/build.log" >&2; exit 2; }
 grep -q "building the stub" "$D/build.log" && { echo "stub compose build; refusing" >&2; exit 2; }
@@ -460,7 +461,7 @@ RUN=$D/run; [ -e "$RUN" ] && mv "$RUN" "$RUN.old-$(date +%s)"
 fi
 mkdir -p "$RUN"/{state,compose,prov,home,logs,ws-contract/inbox,ws-contract/outbox,ws/inbox,ws/outbox} "$OUT/chain" "$OUT/artifacts"
 SOCK=$RUN/s; LOGS=$RUN/logs; ART=$OUT/artifacts; WS=$RUN/ws; WSC=$RUN/ws-contract
-E=(env -u AIEN_OMEGA_DIR -u AIEN_OMEGA_COMPOSE_DIR -u AIEN_OMEGA_GPU_LIB -u AIEN_REQUIRE_BLACKWELL
+E=(env -u AIEN_CUDAPP_DIR -u AIEN_OMEGA_DIR -u AIEN_OMEGA_COMPOSE_DIR -u AIEN_OMEGA_GPU_LIB -u AIEN_REQUIRE_BLACKWELL
    -u AIEN_GPU_BACKEND -u AIEN_MODEL_DIR -u AIEN_MODEL_PATH -u AIEN_TOKENIZER_PATH -u AIEN_FORCE_CPU_STUB
    -u AIEN_FAULT_HOLD -u AIEN_FAULT_HOLD_FILE -u AIEN_ALLEN_SUBJECT -u AIEN_ALLEN_ADOPT
    -u AIEN_COMPOSE_MAX_TOKENS -u AIEN_COMPOSE_DOC_MAX_TOKENS
@@ -574,7 +575,7 @@ build_subject() { # lineage_hex: host-built fixture subject bound to record 1 of
       DEMO_SUBJECT_OUT="$SUBJ" DEMO_LINEAGE_HEX="$1" DEMO_SUBJECT_NAME="whole-system-e2e-$SUBJ_N" \
       cargo test --release -p aien-allen --test e2e_demo_subject -- --ignored --nocapture 2>&1)
   else
-  fx=$(cd "$REPO" && env -u AIEN_OMEGA_DIR -u AIEN_OMEGA_COMPOSE_DIR AIEN_OMEGA_COMPOSE_LIB="$LIB" CARGO_TARGET_DIR="$D/target" \
+  fx=$(cd "$REPO" && env -u AIEN_CUDAPP_DIR -u AIEN_OMEGA_DIR -u AIEN_OMEGA_COMPOSE_DIR AIEN_OMEGA_COMPOSE_LIB="$LIB" CARGO_TARGET_DIR="$D/target" \
     DEMO_SUBJECT_OUT="$SUBJ" DEMO_LINEAGE_HEX="$1" DEMO_SUBJECT_NAME="whole-system-e2e-$SUBJ_N" \
     cargo test --release -p aien-allen --test e2e_demo_subject -- --ignored --nocapture 2>&1)
   fi

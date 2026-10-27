@@ -3,7 +3,7 @@
 # (pinned C headers, compiled layout probe, archive symbols).
 # Format: aien-abi-conformance src/manifest.rs. Regenerate the fact lines from Rust with
 #   AIEN_ABI_BLESS=1 cargo test -p aien-omega-gpu --test abi_manifest
-# only together with the omega.lock change that makes the C side agree.
+# only together with the cudapp.lock change that makes the C side agree.
 abi omega_gpu 1
 header src/omega_gpu_matmul_api.h
 header src/omega_gpu_session.h

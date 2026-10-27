@@ -1,0 +1,113 @@
+name: GPU engine from CUDA++
+
+# Builds aien-serve-http with the GB10 engine (libomega_gpu.a) from aien-dev/CUDApp at cudapp.lock, on an arm64
+# runner. CUDA++ is the source of truth for the GPU stack (P0.4). The binary and its identity are uploaded so the
+# chip gate on the GB10 (identical tokens on the golden prompts) runs on exactly what CI built.
+# The cutover-reference job builds the same tree against the omega-mv commit the live server was built from
+# (6de999da); it exists only for the cutover gate and is removed with omega-mv's GPU sources.
+on:
+  pull_request:
+    paths:
+      - cudapp.lock
+      - native-artifacts.lock
+      - crates/aien-omega-*/**
+      - crates/aien-abi-conformance/**
+      - .github/workflows/gpu-engine.yml
+  push:
+    branches: [main]
+    paths:
+      - cudapp.lock
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  CUTOVER_OMEGA: 6de999da86efc6edd9c2554a87ee31f7fa9215ac
+
+jobs:
+  cudapp:
+    name: aien-serve-http (CUDA++ at cudapp.lock)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Read cudapp.lock
+        id: pin
+        run: echo "sha=$(tr -d '[:space:]' < cudapp.lock)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: aien-dev/CUDApp
+          ref: ${{ steps.pin.outputs.sha }}
+          path: cudapp
+          persist-credentials: false
+      - name: Build
+        run: |
+          export AIEN_CUDAPP_DIR="$GITHUB_WORKSPACE/cudapp" CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target"
+          cargo build --release --locked -p aien-serve-http
+      - name: Identity
+        run: |
+          mkdir -p out
+          cp target/release/aien-serve-http out/
+          lib=$(find target/release/build -path '*cudapp-build/libomega_gpu.a' | head -1)
+          cp "$lib" out/
+          {
+            echo "sc $GITHUB_SHA"
+            echo "cudapp ${{ steps.pin.outputs.sha }}"
+            echo "cc $(cc --version | head -1)"
+            echo "rustc $(rustc --version)"
+          } > out/BUILD.txt
+          (cd out && sha256sum aien-serve-http libomega_gpu.a | tee SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: serve-cudapp-${{ github.sha }}
+          path: out/
+
+  cutover-reference:
+    name: aien-serve-http (cutover reference, omega-mv 6de999da)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: aien-dev/omega-mv
+          ref: ${{ env.CUTOVER_OMEGA }}
+          path: omega
+          persist-credentials: false
+      - name: Read omega's physics.lock
+        id: phys
+        run: echo "sha=$(tr -d '[:space:]' < omega/physics.lock)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: aien-dev/physics-mv
+          ref: ${{ steps.phys.outputs.sha }}
+          path: physics
+          persist-credentials: false
+      - name: Build omega-mv libomega_gpu.a
+        run: make -C omega -j"$(nproc)" OUT_DIR="$GITHUB_WORKSPACE/omega-build" PHYSICS_DIR="$GITHUB_WORKSPACE/physics" "$GITHUB_WORKSPACE/omega-build/libomega_gpu.a"
+      - name: Build
+        run: |
+          export AIEN_OMEGA_GPU_LIB="$GITHUB_WORKSPACE/omega-build/libomega_gpu.a" CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target"
+          export AIEN_OMEGA_GPU_LIB_SHA256=$(sha256sum "$AIEN_OMEGA_GPU_LIB" | cut -d' ' -f1)
+          cargo build --release --locked -p aien-serve-http
+      - name: Identity
+        run: |
+          mkdir -p out
+          cp target/release/aien-serve-http omega-build/libomega_gpu.a out/
+          {
+            echo "sc $GITHUB_SHA"
+            echo "omega-mv $CUTOVER_OMEGA physics ${{ steps.phys.outputs.sha }}"
+            echo "cc $(cc --version | head -1)"
+            echo "rustc $(rustc --version)"
+          } > out/BUILD.txt
+          (cd out && sha256sum aien-serve-http libomega_gpu.a | tee SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: serve-omega-${{ github.sha }}
+          path: out/

@@ -45,17 +45,29 @@ jobs:
           rustup toolchain install "$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal
           rustc --version
 
-      - name: Release gate (candidate named, omega.lock and Cargo.lock pins equal the candidate's)
+      - name: Release gate (candidate named, omega.lock, cudapp.lock and Cargo.lock pins equal the candidate's)
         id: gate
         continue-on-error: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
         run: scripts/check-release-candidate.sh
 
-      - name: Read pins (omega.lock, then omega physics.lock)
+      - name: Read pins (omega.lock and cudapp.lock, then omega physics.lock)
         id: pins
-        run: echo "omega=$(tr -d '[:space:]' < omega.lock)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "omega=$(tr -d '[:space:]' < omega.lock)" >> "$GITHUB_OUTPUT"
+          echo "cudapp=$(tr -d '[:space:]' < cudapp.lock)" >> "$GITHUB_OUTPUT"
 
       # The native engine is linked only on the candidate target (linux aarch64, the GB10 host class).
       # Other targets build the CPU stub, are labelled as such in the release notes, and are not the candidate.
+      # The GPU engine (libomega_gpu.a) is built from CUDApp at cudapp.lock; omega supplies the composition library.
+      - name: Checkout CUDApp at cudapp.lock
+        if: matrix.native_engine
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: aien-dev/CUDApp
+          ref: ${{ steps.pins.outputs.cudapp }}
+          path: cudapp
+          persist-credentials: false
+
       - name: Checkout omega at omega.lock
         if: matrix.native_engine
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -97,7 +109,7 @@ jobs:
         run: |
           if command -v mojo >/dev/null 2>&1; then echo "mojo is on PATH; the candidate build runs without it" >&2; exit 1; fi
           if [ "${{ matrix.native_engine }}" = "true" ]; then
-            export AIEN_OMEGA_DIR="$GITHUB_WORKSPACE/omega" AIEN_PHYSICS_DIR="$GITHUB_WORKSPACE/physics" AIEN_AIENOS_LOCK_REPO="$GITHUB_WORKSPACE/aienos"
+            export AIEN_CUDAPP_DIR="$GITHUB_WORKSPACE/cudapp" AIEN_OMEGA_COMPOSE_DIR="$GITHUB_WORKSPACE/omega" AIEN_PHYSICS_DIR="$GITHUB_WORKSPACE/physics" AIEN_AIENOS_LOCK_REPO="$GITHUB_WORKSPACE/aienos"
           fi
           rm -rf "$CARGO_HOME"
           cargo fetch --locked
@@ -246,7 +258,7 @@ jobs:
             echo
             echo "## aien-cli digests (compare with the candidate manifest [executables] aien-cli-native-release)"
             echo
-            echo "Columns: sha256 of target/release/aien-cli, archive, whether the native engine (omega at omega.lock) is linked. Only the native_engine=true linux-aarch64 row is the candidate binary."
+            echo "Columns: sha256 of target/release/aien-cli, archive, whether the native engine (CUDApp at cudapp.lock, composition from omega at omega.lock) is linked. Only the native_engine=true linux-aarch64 row is the candidate binary."
             echo
             echo '```'
             cat release-artifacts/aien-cli-digests.txt

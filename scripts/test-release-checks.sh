@@ -28,7 +28,7 @@ pass() { echo "ok: $*"; }
 T="$W/tree"; mkdir -p "$T/scripts" "$T/release" "$W/bins"
 cp "$ROOT/scripts/check-release-candidate.sh" "$ROOT/scripts/package-release.sh" "$ROOT/scripts/verify-release-assets.sh" "$T/scripts/"
 echo licence > "$T/LICENSE"; echo notice > "$T/NOTICE"; echo third > "$T/THIRD_PARTY.md"; echo constitution > "$T/CONSTITUTION.md"; echo readme > "$T/README.md"; echo '#!/bin/sh' > "$T/install.sh"
-OM=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+OM=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; CU=eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 PR=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb; CS=cccccccccccccccccccccccccccccccccccccccc; SC=dddddddddddddddddddddddddddddddddddddddd
 H64() { printf '%064d' "$1"; }
 for b in aien-cli spark-cockpit-rs spark-inquisitor cortex-encoder-rs cortex-rs spark-supervisor spark-debugger; do
@@ -39,6 +39,7 @@ write_candidate() { # aien-digest
     cat > "$T/release/candidate.toml" <<EOT
 candidate = "CAND-T"
 omega-commit = "$OM"
+cudapp-commit = "$CU"
 source-manifest = "fixture"
 
 [model]
@@ -62,6 +63,7 @@ EOT
 }
 write_locks() {
     echo "$OM" > "$T/omega.lock"
+    echo "$CU" > "$T/cudapp.lock"
     {
         echo "[[package]]"; echo "source = \"git+https://github.com/aien-dev/aien-protocols?rev=$PR#$PR\""
         echo "[[package]]"; echo "source = \"git+https://github.com/aien-dev/crumb-spec?rev=$CS#$CS\""
@@ -80,6 +82,9 @@ must_pass; pass "matching tree accepted"
 
 # source pins
 echo "$(H64 9 | cut -c1-40)" > "$T/omega.lock"; must_fail "omega.lock is"; write_locks; pass "omega.lock mismatch rejected"
+echo "$(H64 8 | cut -c1-40)" > "$T/cudapp.lock"; must_fail "cudapp.lock is"; write_locks; pass "cudapp.lock mismatch rejected"
+rm "$T/cudapp.lock"; must_fail "cudapp.lock is missing"; write_locks; pass "missing cudapp.lock rejected"
+echo short > "$T/cudapp.lock"; must_fail "does not hold one full commit hash"; write_locks; pass "malformed cudapp.lock rejected"
 sed -i "s/crumb-spec?rev=$CS#$CS/crumb-spec?rev=$SC#$SC/" "$T/Cargo.lock"; must_fail "consumes crumb-spec"; write_locks; pass "Cargo.lock crumb-spec mismatch rejected"
 sed -i "s/aien-protocols?rev=$PR#$PR/aien-protocols?rev=$CS#$CS/" "$T/Cargo.lock"; must_fail "consumes aien-protocols"; write_locks; pass "Cargo.lock aien-protocols mismatch rejected"
 echo "source = \"git+https://github.com/aien-dev/spark-crumbs?rev=$PR#$PR\"" >> "$T/Cargo.lock"; must_fail "several revisions of spark-crumbs"; write_locks; pass "two revisions of one pin rejected"
