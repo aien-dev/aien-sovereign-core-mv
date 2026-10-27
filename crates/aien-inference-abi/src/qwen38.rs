@@ -424,11 +424,21 @@ pub(crate) fn read_bf16_words(
     Ok(words)
 }
 
+/// Reads the `[len]` vector `name` as f32: bf16 widened, or f32 as stored (Qwen3.5-9B keeps
+/// `linear_attn.A_log` and `linear_attn.norm.weight` in F32).
 pub(crate) fn read_vec(
     source: &mut dyn TensorSource,
     name: &str,
     len: usize,
 ) -> Result<Vec<f32>, String> {
+    if source.dtype_of(name)?.as_deref() == Some("F32") {
+        let mut bytes = vec![0u8; len * 4];
+        source.read_into(name, "F32", &[len], &mut bytes)?;
+        return Ok(bytes
+            .chunks_exact(4)
+            .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            .collect());
+    }
     Ok(read_bf16_words(source, name, &[len])?
         .into_iter()
         .map(bf16_to_f32)
@@ -1281,6 +1291,23 @@ mod tests {
         }
     }
 
+    #[test]
+    fn read_vec_takes_bf16_and_f32_exactly_and_refuses_other_dtypes() {
+        let mut m = Mem::default();
+        let vals = [1.0f32 / 3.0, -2.5e-7, 7.75];
+        let bytes = vals.iter().flat_map(|v| v.to_le_bytes()).collect();
+        m.tensors.insert("f".into(), ("F32".into(), vec![3], bytes));
+        assert_eq!(read_vec(&mut m, "f", 3).unwrap(), vals);
+        m.bf16("b", &[3], 0.5, 0.0);
+        let words = read_bf16_words(&mut m, "b", &[3]).unwrap();
+        let want: Vec<f32> = words.into_iter().map(bf16_to_f32).collect();
+        assert_eq!(read_vec(&mut m, "b", 3).unwrap(), want);
+        assert!(read_vec(&mut m, "f", 4).is_err());
+        m.tensors
+            .insert("h".into(), ("F16".into(), vec![3], vec![0; 6]));
+        assert!(read_vec(&mut m, "h", 3).is_err());
+    }
+
     fn tiny() -> Qwen38Config {
         Qwen38Config {
             hidden: 256,
@@ -1439,16 +1466,32 @@ mod tests {
             .replace("\"hidden_size\":5120", "\"hidden_size\":4096")
             .replace("\"intermediate_size\":17408", "\"intermediate_size\":12288")
             .replace("\"num_attention_heads\":24", "\"num_attention_heads\":16")
-            .replace("\"linear_num_value_heads\":48", "\"linear_num_value_heads\":32");
+            .replace(
+                "\"linear_num_value_heads\":48",
+                "\"linear_num_value_heads\":32",
+            );
         let c9 = Qwen38Config::from_json(&j9, None).unwrap();
         let s9 = crate::qwen38_omega::dense_shape(&c9).unwrap();
-        assert_eq!((s9.hidden, s9.inter, s9.q_heads, s9.kv_heads, s9.gdn_heads), (4096, 12288, 16, 4, 32));
-        assert_eq!((s9.gdn_qkv(), s9.gdn_mix(), s9.att_mix(), s9.mixer_out()), (8192, 12288, 10240, 4096));
+        assert_eq!(
+            (s9.hidden, s9.inter, s9.q_heads, s9.kv_heads, s9.gdn_heads),
+            (4096, 12288, 16, 4, 32)
+        );
+        assert_eq!(
+            (s9.gdn_qkv(), s9.gdn_mix(), s9.att_mix(), s9.mixer_out()),
+            (8192, 12288, 10240, 4096)
+        );
         // refused: a head_dim the kernels do not have, and a GDN head count outside {32, 48}
         let hd = j9.replace("\"head_dim\":256", "\"head_dim\":128");
-        assert!(crate::qwen38_omega::dense_shape(&Qwen38Config::from_json(&hd, None).unwrap()).is_err());
-        let gh = j9.replace("\"linear_num_value_heads\":32", "\"linear_num_value_heads\":16");
-        assert!(crate::qwen38_omega::dense_shape(&Qwen38Config::from_json(&gh, None).unwrap()).is_err());
+        assert!(
+            crate::qwen38_omega::dense_shape(&Qwen38Config::from_json(&hd, None).unwrap()).is_err()
+        );
+        let gh = j9.replace(
+            "\"linear_num_value_heads\":32",
+            "\"linear_num_value_heads\":16",
+        );
+        assert!(
+            crate::qwen38_omega::dense_shape(&Qwen38Config::from_json(&gh, None).unwrap()).is_err()
+        );
     }
 
     #[test]
