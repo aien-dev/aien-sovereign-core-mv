@@ -55,12 +55,11 @@ pub async fn perform_nesting_ritual(session_id: &str, print_tui: bool) -> Nestin
     let gpu = get_gpu_telemetry();
     let gpu_info = if gpu.available {
         format!(
-            "{} ({}°C, {} MB / {} MB, {}% util)",
-            gpu.name.as_deref().unwrap_or("NVIDIA Accelerator"),
-            gpu.temp_c.unwrap_or(0),
-            gpu.used_mb.unwrap_or(0),
-            gpu.total_mb.unwrap_or(0),
-            gpu.util_pct.unwrap_or(0)
+            "{} ({}, {}, {} util)",
+            gpu.display_name(),
+            gpu.display_temp(),
+            gpu.display_vram(),
+            gpu.display_util()
         )
     } else {
         "Unavailable / Sensor Offline (CPU Execution Mode)".to_string()
@@ -291,11 +290,10 @@ pub async fn perform_nesting_ritual(session_id: &str, print_tui: bool) -> Nestin
         println!("│  ├─ Storage Free:     {} available", disk_free.green());
         if gpu.available {
             println!(
-                "│  ├─ GPU Telemetry:   {} | {}°C | {} MB / {} MB",
-                gpu.name.as_deref().unwrap_or("NVIDIA Accelerator"),
-                gpu.temp_c.unwrap_or(0),
-                gpu.used_mb.unwrap_or(0),
-                gpu.total_mb.unwrap_or(0)
+                "│  ├─ GPU Telemetry:   {} | {} | {}",
+                gpu.display_name(),
+                gpu.display_temp(),
+                gpu.display_vram()
             );
         } else {
             println!(

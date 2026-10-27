@@ -1,0 +1,31 @@
+2026-10-27T08:19:42Z
+## health 18091 (before)
+{"busy":false,"concurrency":8,"engine":"omega-qwen36-batch","in_flight":0,"model":"qwen3.6-35b-a3b-fp8","status":"ok","uptime_s":15754}
+## kernel
+7.0.0-1019-nvidia
+## /proc/driver/nvidia/version
+NVRM version: NVIDIA UNIX Open Kernel Module for aarch64  580.173.02  Release Build  (dvs-builder@U22-A24-5-4)  Tue Jun 23 08:34:19 UTC 2026
+## display device 000f:01:00.0
+vendor=0x10de device=0x2e12 class=0x030000
+driver=nvidia
+power_state=D0 power/control=auto
+hwmon=
+## thermal zones (type, ACPI path, m°C)
+thermal_zone0 acpitz \_TZ_.TSOC 46900
+thermal_zone1 acpitz \_TZ_.TS0E 40700
+thermal_zone2 acpitz \_TZ_.TS0P 40100
+thermal_zone3 acpitz \_TZ_.TS1E 46900
+thermal_zone4 acpitz \_TZ_.TS1P 41800
+thermal_zone5 acpitz \_TZ_.TGPU 41100
+thermal_zone6 acpitz \_TZ_.TUNC 41800
+## hwmon names
+hwmon0 acpitz
+hwmon1 nvme
+hwmon2 mt7925_phy0
+## power_supply / powercap entries
+/sys/class/powercap:
+
+/sys/class/power_supply:
+## health 18091 (after)
+{"busy":false,"concurrency":8,"engine":"omega-qwen36-batch","in_flight":0,"model":"qwen3.6-35b-a3b-fp8","status":"ok","uptime_s":15916}
+2026-10-27T08:22:25Z

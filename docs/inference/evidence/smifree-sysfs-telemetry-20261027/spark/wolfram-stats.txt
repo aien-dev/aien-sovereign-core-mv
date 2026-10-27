@@ -1,0 +1,22 @@
+# Temperature delta, new source (ACPI \_TZ_.TGPU, m°C/1000) minus old (nvidia-smi temperature.gpu, °C)
+# Input: spark/samples.csv columns smi_temp_c, tgpu_mc, smi_util_pct (30 rows, 2 s interval, 2026-10-27T08:19-08:21Z)
+# Tool: WolframLanguageEvaluator (Wolfram MCP), evaluated 2026-10-27
+# Code:
+#   smi=d[[All,1]]; tg=d[[All,2]]/1000; rnd=Floor[(d[[All,2]]+500)/1000];
+#   delta=tg-smi; drnd=rnd-smi;
+#   <|n->Length[d], delta_raw_mean_C->N[Mean[delta]], delta_raw_sd_C->N[StandardDeviation[delta]],
+#     delta_raw_min->N[Min[delta]], delta_raw_max->N[Max[delta]], delta_shown_counts->Counts[drnd],
+#     delta_shown_mean->N[Mean[drnd]], smi_range->MinMax[smi], tgpu_range->N[MinMax[tg]],
+#     pearson_r->N[Correlation[N[smi],N[tg]]], util_max->Max[d[[All,3]]]|>
+# Result:
+n                 30
+delta_raw_mean_C  1.85
+delta_raw_sd_C    0.655349340902003
+delta_raw_min     -1.1
+delta_raw_max     2.6
+delta_shown_counts  {+2: 24, +3: 5, -1: 1}   (aien-cli displayed °C minus nvidia-smi °C)
+delta_shown_mean  2.066666666666667
+smi_range         {40, 43}
+tgpu_range        {41.6, 43.6}
+pearson_r         0.5645419034959052
+util_max          71   (one sample; GPU work in that window came from another lane's chip run, not a controlled load)

@@ -1,0 +1,10 @@
+=== AIEN Comprehensive Diagnostics ===
+✓ GPU Hardware:        NVIDIA GB10 (42°C, VRAM: N/A)
+⚠ Model Seat (Port 18006): OFFLINE or unreachable
+⚠ JSpace Truth Judge (Port 18082): Offline
+✓ Spark Cortex Memory (Port 18080): Online (Postgres socket 15433)
+⚠ Cortex ONNX Encoder (Port 18081): Offline
+⚠ JSpace Dream Engine (Port 18085): Offline
+✓ Radicle Identity:    did:rad:aien:spark-master (Active)
+⚠ TPM Key Vault:       Online (30 keys), but 14 stray .env files found!
+

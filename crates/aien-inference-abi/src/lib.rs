@@ -34,6 +34,7 @@ pub mod model_dir;
 pub mod moe_plan;
 pub mod native_ops;
 pub mod omega_backend;
+pub mod pci_gpu;
 pub mod qwen38;
 pub mod qwen38_omega;
 pub mod qwen3_coder;
@@ -150,7 +151,9 @@ pub enum ExecutionSurface {
     },
     NvidiaCuda {
         gpu_name: String,
-        vram_gb: usize,
+        /// No first-party (non-NVIDIA-userspace) source for dedicated VRAM
+        /// size exists, so it is unknown rather than guessed.
+        vram_gb: Option<usize>,
     },
     AppleSilicon {
         chip_name: String,
@@ -168,36 +171,9 @@ pub enum ExecutionSurface {
 
 impl ExecutionSurface {
     pub fn detect() -> Self {
-        // 1. Check for NVIDIA GPU via nvidia-smi
-        if let Ok(output) = std::process::Command::new("nvidia-smi")
-            .arg("--query-gpu=name,memory.total")
-            .arg("--format=csv,noheader")
-            .output()
-        {
-            if output.status.success() {
-                let text = String::from_utf8_lossy(&output.stdout);
-                if let Some(line) = text.lines().next() {
-                    let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
-                    let name = parts.first().unwrap_or(&"NVIDIA GPU").to_string();
-                    if name.contains("GB10") || name.contains("Grace Blackwell") {
-                        return ExecutionSurface::NvidiaGraceBlackwell {
-                            model: name,
-                            unified_memory_gb: 121,
-                        };
-                    } else {
-                        let vram = parts
-                            .get(1)
-                            .and_then(|s| s.split_whitespace().next())
-                            .and_then(|s| s.parse::<usize>().ok())
-                            .map(|mb| mb / 1024)
-                            .unwrap_or(24);
-                        return ExecutionSurface::NvidiaCuda {
-                            gpu_name: name,
-                            vram_gb: vram,
-                        };
-                    }
-                }
-            }
+        // 1. NVIDIA GPU from sysfs (no nvidia-smi / NVML).
+        if let Some(surface) = Self::nvidia_surface(std::path::Path::new("/sys/bus/pci/devices")) {
+            return surface;
         }
 
         // 2. Check for macOS Apple Silicon
@@ -271,6 +247,29 @@ impl ExecutionSurface {
         }
     }
 
+    /// An NVIDIA display device bound to the `nvidia` kernel driver, read
+    /// from `pci_devices`. A device bound to another driver (vfio-pci,
+    /// nouveau) is not an accelerated surface for the Omega GB10 backend,
+    /// which talks to the `nvidia` driver's device nodes. This keeps the old
+    /// rule (nvidia-smi only succeeds with that driver loaded).
+    fn nvidia_surface(pci_devices: &std::path::Path) -> Option<Self> {
+        let gpu = pci_gpu::find_display_gpu(pci_devices)?;
+        if gpu.vendor != pci_gpu::NVIDIA_VENDOR || gpu.driver.as_deref() != Some("nvidia") {
+            return None;
+        }
+        Some(if gpu.is_gb10() {
+            ExecutionSurface::NvidiaGraceBlackwell {
+                model: gpu.name(),
+                unified_memory_gb: 121,
+            }
+        } else {
+            ExecutionSurface::NvidiaCuda {
+                gpu_name: gpu.name(),
+                vram_gb: None,
+            }
+        })
+    }
+
     pub fn display_name(&self) -> String {
         match self {
             Self::NvidiaGraceBlackwell {
@@ -279,9 +278,10 @@ impl ExecutionSurface {
             } => {
                 format!("{} ({} GB Unified Memory)", model, unified_memory_gb)
             }
-            Self::NvidiaCuda { gpu_name, vram_gb } => {
-                format!("{} ({} GB VRAM)", gpu_name, vram_gb)
-            }
+            Self::NvidiaCuda { gpu_name, vram_gb } => match vram_gb {
+                Some(gb) => format!("{} ({} GB VRAM)", gpu_name, gb),
+                None => format!("{} (VRAM size unknown)", gpu_name),
+            },
             Self::AppleSilicon {
                 chip_name,
                 unified_memory_gb,
