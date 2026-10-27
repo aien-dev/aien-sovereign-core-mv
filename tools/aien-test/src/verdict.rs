@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Verdict set and derivation (ADR 0028 Decision 5). A test program only
 //! reports observations; the verdict is derived here from the manifest's
 //! expectations and facts the runner measured. Only the last row can yield
@@ -178,6 +193,9 @@ pub struct Facts {
     /// `git status --porcelain` differed after the run.
     pub tree_changed_after: bool,
     pub head_moved: bool,
+    /// The operator started this run by hand (`--operator`). It is the only
+    /// thing that lets a `requires: operator` gate run (ADR 0033 Decision 2).
+    pub operator: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -190,8 +208,10 @@ pub struct Derived {
 
 /// Rows 2 to 7: decided before anything runs. Some(..) means do not run.
 pub fn pre_run(m: &Manifest, f: &Facts) -> Option<(Verdict, String)> {
-    if m.requires.iter().any(|r| r == "operator") {
-        // There are no operator attestation files yet, so this is always pending.
+    if !f.operator && m.requires.iter().any(|r| r == "operator") {
+        // Row 2: an operator gate is never scheduled automatically (ADR 0033
+        // Decision 2). The operator starting the run by hand (`--operator`)
+        // is the attestation; nothing else lifts this (sc #614).
         return Some((
             Verdict::BlockedOperator,
             "OPERATOR_STEP_PENDING".to_string(),
@@ -336,6 +356,7 @@ mod tests {
             timed_out: false,
             tree_changed_after: false,
             head_moved: false,
+            operator: false,
         }
     }
 
@@ -499,6 +520,28 @@ mod tests {
         let d = derive(&mo, &good_facts());
         assert_eq!(d.verdict, Verdict::BlockedOperator);
         assert_eq!(d.reason, "OPERATOR_STEP_PENDING");
+    }
+
+    #[test]
+    fn operator_gate_runs_when_the_operator_started_it() {
+        // sc #614: `--operator` is the operator starting the gate by hand
+        // (ADR 0033 Decision 2); the facts then decide like any other gate.
+        let mo = m(Some(("  - host\n", "  - host\n  - operator\n")));
+        let f = Facts {
+            operator: true,
+            ..good_facts()
+        };
+        assert_eq!(pre_run(&mo, &f), None);
+        let d = derive(&mo, &f);
+        assert_eq!((d.verdict, d.reason.as_str()), (Verdict::Pass, ""));
+        // The other rows still apply to an operator-started gate.
+        let gb = gate_with("  - gb10\n  - operator\n", "  - OTHER\n");
+        let f = Facts {
+            operator: true,
+            gb10_present: false,
+            ..good_facts()
+        };
+        assert_eq!(derive(&gb, &f).reason, "NO_GB10");
     }
 
     #[test]

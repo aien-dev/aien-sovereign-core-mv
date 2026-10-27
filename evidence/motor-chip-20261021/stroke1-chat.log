@@ -1,0 +1,78 @@
+binary sha256 0d1f796bf785df39f8314ba577dfb0290fdbca63b57d7e385ed493851fd4d24c
+model: 40 layers, 1 heads; positions gen-chat-chat 71; swap none
+reference: 1 conversations in 9.7 s; greedy tokens equal the golden records
+memory: MemAvailable 102819 MiB for 33085 MiB; taking the chip lock
+graph: 1 heads uploaded in 27.3 s, weights 33045 MB, KV 10 MB per head
+gen-chat-chat step   0: token    846 ref    846 margin   1.727 cosine 0.999998 p95_rel 0.0224 max_abs 0.0258
+gen-chat-chat step   1: token    198 ref    198 margin   7.897 cosine 1.000000 p95_rel 0.0089 max_abs 0.0073
+gen-chat-chat step   2: token   3710 ref   3710 margin   0.028 cosine 1.000000 p95_rel 0.0016 max_abs 0.0025
+gen-chat-chat step   3: token    599 ref    599 margin   0.508 cosine 0.999999 p95_rel 0.0138 max_abs 0.0095
+gen-chat-chat step   4: token    264 ref    264 margin   1.827 cosine 1.000000 p95_rel 0.0090 max_abs 0.0119
+gen-chat-chat step   5: token 248046 ref 248046 margin   1.026 cosine 0.999798 p95_rel 0.1612 max_abs 0.3793
+gen-chat-chat step   6: token 248046 ref 248046 margin   5.710 cosine 0.999998 p95_rel 0.0188 max_abs 0.0479
+gen-chat-chat step   7: token 248046 ref 248046 margin   8.970 cosine 0.999999 p95_rel 0.0143 max_abs 0.0214
+gen-chat-chat step   8: token 248046 ref 248046 margin   3.517 cosine 0.999999 p95_rel 0.0142 max_abs 0.0190
+gen-chat-chat step   9: token 248046 ref 248046 margin   3.374 cosine 0.999999 p95_rel 0.0113 max_abs 0.0157
+gen-chat-chat step  10: token  12804 ref  12804 margin   0.410 cosine 0.999999 p95_rel 0.0145 max_abs 0.0192
+gen-chat-chat step  11: token 248046 ref 248046 margin   3.492 cosine 1.000000 p95_rel 0.0064 max_abs 0.0109
+gen-chat-chat step  12: token 248046 ref 248046 margin   0.760 cosine 1.000000 p95_rel 0.0097 max_abs 0.0131
+gen-chat-chat step  13: token 248046 ref 248046 margin   1.118 cosine 1.000000 p95_rel 0.0059 max_abs 0.0097
+gen-chat-chat step  14: token   8151 ref   8151 margin   0.078 cosine 0.999945 p95_rel 0.1051 max_abs 0.1400
+gen-chat-chat step  15: token 248046 ref 248046 margin   6.924 cosine 0.999999 p95_rel 0.0171 max_abs 0.0234
+gen-chat-chat step  16: token    821 ref    821 margin   0.054 cosine 0.999999 p95_rel 0.0091 max_abs 0.0121
+gen-chat-chat step  17: token  22469 ref  22469 margin   1.646 cosine 1.000000 p95_rel 0.0085 max_abs 0.0144
+gen-chat-chat step  18: token 248046 ref 248046 margin   6.903 cosine 1.000000 p95_rel 0.0082 max_abs 0.0134
+gen-chat-chat step  19: token 248046 ref 248046 margin   1.865 cosine 0.999999 p95_rel 0.0125 max_abs 0.0107
+gen-chat-chat step  20: token    264 ref    264 margin   0.364 cosine 1.000000 p95_rel 0.0078 max_abs 0.0104
+gen-chat-chat step  21: token    304 ref    304 margin   2.589 cosine 1.000000 p95_rel 0.0089 max_abs 0.0119
+gen-chat-chat step  22: token  41193 ref  41193 margin   6.540 cosine 1.000000 p95_rel 0.0049 max_abs 0.0101
+gen-chat-chat step  23: token 248046 ref 248046 margin   2.232 cosine 1.000000 p95_rel 0.0086 max_abs 0.0195
+gen-chat-chat step  24: token 248046 ref 248046 margin  10.155 cosine 1.000000 p95_rel 0.0101 max_abs 0.0178
+gen-chat-chat step  25: token 248046 ref 248046 margin   5.739 cosine 1.000000 p95_rel 0.0088 max_abs 0.0146
+gen-chat-chat step  26: token 248046 ref 248046 margin   2.640 cosine 1.000000 p95_rel 0.0053 max_abs 0.0101
+gen-chat-chat step  27: token 248046 ref 248046 margin   2.955 cosine 1.000000 p95_rel 0.0064 max_abs 0.0091
+gen-chat-chat step  28: token 248046 ref 248046 margin   7.100 cosine 1.000000 p95_rel 0.0094 max_abs 0.0115
+gen-chat-chat step  29: token 248046 ref 248046 margin   9.125 cosine 1.000000 p95_rel 0.0084 max_abs 0.0099
+gen-chat-chat step  30: token 248046 ref 248046 margin  15.424 cosine 0.999953 p95_rel 0.0756 max_abs 0.2334
+gen-chat-chat step  31: token    198 ref    198 margin  14.202 cosine 0.999964 p95_rel 0.0762 max_abs 0.1561
+gen-chat-chat step  32: token 248045 ref 248045 margin  18.246 cosine 0.999790 p95_rel 0.2149 max_abs 0.3562
+gen-chat-chat step  33: token  74455 ref  74455 margin   3.918 cosine 0.999955 p95_rel 0.1232 max_abs 0.1966
+gen-chat-chat step  34: token    198 ref    198 margin   0.844 cosine 0.998728 p95_rel 0.4302 max_abs 1.1550
+gen-chat-chat step  35: token 248068 ref 248068 margin  17.377 cosine 0.997553 p95_rel 0.8320 max_abs 0.9281
+gen-chat-chat step  36: token    271 ref    271 margin   0.027 cosine 0.999996 p95_rel 0.0207 max_abs 0.0539
+gen-chat-chat step  37: token 248069 ref 248069 margin  13.935 cosine 0.999493 p95_rel 0.3502 max_abs 0.4820
+gen-chat-chat step  38: token    271 ref    271 margin  15.078 cosine 0.999435 p95_rel 0.3431 max_abs 0.7070
+gen-chat-chat step  39: token   4639 ref   4639 golden   4639 margin   0.905 cosine 0.999865 p95_rel 0.1933 max_abs 0.4073
+gen-chat-chat step  40: token    369 ref    369 golden    369 margin   0.218 cosine 0.999950 p95_rel 0.1101 max_abs 0.1557
+gen-chat-chat step  41: token    264 ref    264 golden    264 margin   4.478 cosine 0.999977 p95_rel 0.0784 max_abs 0.1895
+gen-chat-chat step  42: token  10794 ref  10794 golden  10794 margin   0.427 cosine 0.999035 p95_rel 0.5151 max_abs 0.9790
+gen-chat-chat step  43: token   4374 ref   4374 golden   4374 margin   2.290 cosine 0.999966 p95_rel 0.0836 max_abs 0.1676
+gen-chat-chat step  44: token      0 ref      0 golden      0 margin   5.638 cosine 0.999786 p95_rel 0.2094 max_abs 0.3915
+gen-chat-chat step  45: token    462 ref    462 golden    462 margin   1.580 cosine 0.999837 p95_rel 0.1894 max_abs 0.3006
+gen-chat-chat step  46: token  18653 ref  18653 golden  18653 margin   8.269 cosine 0.998803 p95_rel 0.6067 max_abs 0.6292
+gen-chat-chat step  47: token    369 ref    369 golden    369 margin   0.887 cosine 0.998303 p95_rel 0.6543 max_abs 0.7067
+gen-chat-chat step  48: token    264 ref    264 golden    264 margin   5.682 cosine 0.999929 p95_rel 0.1400 max_abs 0.2611
+gen-chat-chat step  49: token   2172 ref   2172 golden   2172 margin   1.360 cosine 0.999959 p95_rel 0.1048 max_abs 0.2411
+gen-chat-chat step  50: token   1560 ref   1560 golden   1560 margin   3.465 cosine 0.999981 p95_rel 0.0647 max_abs 0.1977
+gen-chat-chat step  51: token    310 ref    310 golden    310 margin   5.745 cosine 0.999650 p95_rel 0.2722 max_abs 0.5918
+gen-chat-chat step  52: token  10498 ref  10498 golden  10498 margin   0.816 cosine 0.999971 p95_rel 0.0798 max_abs 0.1914
+gen-chat-chat step  53: token     11 ref     11 golden     11 margin   2.979 cosine 0.999087 p95_rel 0.4570 max_abs 0.6982
+gen-chat-chat step  54: token    694 ref    694 golden    694 margin   0.205 cosine 0.999768 p95_rel 0.2575 max_abs 0.3096
+gen-chat-chat step  55: token    364 ref    364 golden    364 margin   0.188 cosine 0.999578 p95_rel 0.3531 max_abs 0.4525
+gen-chat-chat step  56: token    264 ref    264 golden    264 margin   3.317 cosine 0.999912 p95_rel 0.1574 max_abs 0.2011
+gen-chat-chat step  57: token   1118 ref   1118 golden   1118 margin   1.929 cosine 0.999969 p95_rel 0.0810 max_abs 0.1933
+gen-chat-chat step  58: token   2308 ref   2308 golden   2308 margin   2.224 cosine 0.999980 p95_rel 0.0703 max_abs 0.1305
+gen-chat-chat step  59: token   3034 ref   3034 golden   3034 margin   5.894 cosine 0.998708 p95_rel 0.6085 max_abs 0.5714
+gen-chat-chat step  60: token     11 ref     11 golden     11 margin   6.024 cosine 0.999392 p95_rel 0.3944 max_abs 0.5745
+gen-chat-chat step  61: token    279 ref    279 golden    279 margin   3.307 cosine 0.999934 p95_rel 0.1322 max_abs 0.1841
+gen-chat-chat step  62: token   3039 ref   3039 golden   3039 margin   0.659 cosine 0.999778 p95_rel 0.2460 max_abs 0.3856
+gen-chat-chat step  63: token   3749 ref   3749 golden   3749 margin   1.008 cosine 0.999962 p95_rel 0.1000 max_abs 0.2273
+gen-chat-chat step  64: token    310 ref    310 golden    310 margin  10.617 cosine 0.997415 p95_rel 0.7992 max_abs 0.9910
+gen-chat-chat step  65: token    381 ref    381 golden    381 margin   6.467 cosine 0.999724 p95_rel 0.2746 max_abs 0.3734
+gen-chat-chat step  66: token   6572 ref   6572 golden   6572 margin   0.688 cosine 0.999493 p95_rel 0.3770 max_abs 0.4740
+gen-chat-chat step  67: token     11 ref     11 golden     11 margin   1.048 cosine 0.999819 p95_rel 0.2059 max_abs 0.3086
+gen-chat-chat step  68: token   5902 ref   5902 golden   5902 margin   1.667 cosine 0.999934 p95_rel 0.1330 max_abs 0.2078
+gen-chat-chat step  69: token     11 ref     11 golden     11 margin  11.715 cosine 0.999474 p95_rel 0.3188 max_abs 0.3818
+gen-chat-chat step  70: token    321 ref    321 golden    321 margin   9.448 cosine 0.999858 p95_rel 0.1839 max_abs 0.2324
+gen-chat-chat (slot 0 -> 0): 32/32 identical to golden (0 flips inside the written band 0.1, 0 beyond it); greedy agrees with the reference outside the band; cosine min 0.997415 (NOT held: open precision item); shifted-by-one caught -> PASS
+QWEN36_STROKE_GATE heads 1 strokes 71: chip per stroke median 23.242 ms (1 tokens per stroke; shared chip, a receipt only under spark-window); swap none; PASS

@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 mod access;
 
 use axum::{
@@ -271,19 +286,6 @@ impl SwarmRegistry {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PendingApproval {
-    pub id: String,
-    pub action_type: String,
-    pub title: String,
-    pub description: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub command_or_diff: Option<String>,
-    pub risk_level: String,
-    pub status: String,
-    pub created_at: String,
-}
-
 #[derive(Clone)]
 struct AppState {
     client: reqwest::Client,
@@ -292,7 +294,6 @@ struct AppState {
     hive_store: Arc<spark_hive::CombStore>,
     swarm_registry: Arc<SwarmRegistry>,
     distill_engine: Arc<spark_adapters::DistillationEngine>,
-    approvals: Arc<std::sync::Mutex<Vec<PendingApproval>>>,
 }
 
 fn build_patterns() -> Vec<(Regex, &'static str)> {
@@ -408,10 +409,10 @@ async fn handle_get_feed(State(state): State<AppState>) -> Json<Value> {
     let mut items = Vec::new();
 
     items.push(json!({
-        "id": "feed-muse-init",
+        "id": "feed-allen-init",
         "category": "agent",
-        "title": "Muse Agent Active on DGX Spark",
-        "summary": "Grace Blackwell GB10 unified memory bus nominal. TPM 2.0 vault online with zero disk plaintext secrets.",
+        "title": "ALLEN harness running on the Spark",
+        "summary": "The harness is reachable. The model seat state and the Spark judge's verdict are on the chat welcome, each read live.",
         "timestamp": Utc::now().to_rfc3339(),
         "action_label": "Inspect Telemetry",
         "action_target": "terminal",
@@ -452,23 +453,6 @@ async fn handle_get_feed(State(state): State<AppState>) -> Json<Value> {
         "badge": if running_count > 0 { "ACTIVE" } else { "IDLE" }
     }));
 
-    let approvals = state.approvals.lock().unwrap();
-    let pending_approvals = approvals.iter().filter(|a| a.status == "pending").count();
-    drop(approvals);
-
-    if pending_approvals > 0 {
-        items.push(json!({
-            "id": "feed-approvals-alert",
-            "category": "approvals",
-            "title": format!("{} Action{} Awaiting Review", pending_approvals, if pending_approvals > 1 { "s" } else { "" }),
-            "summary": "High-stakes tool executions queued for operator authorization.",
-            "timestamp": Utc::now().to_rfc3339(),
-            "action_label": "Review Queue",
-            "action_target": "approvals",
-            "badge": "PENDING"
-        }));
-    }
-
     items.push(json!({
         "id": "feed-cortex-sync",
         "category": "memory",
@@ -487,41 +471,33 @@ async fn handle_get_feed(State(state): State<AppState>) -> Json<Value> {
     }))
 }
 
-async fn handle_get_approvals(State(state): State<AppState>) -> Json<Value> {
-    let approvals = state.approvals.lock().unwrap();
+/// sovereign-core #380 (done-when 4): the approval desk (`aien compose
+/// authorize`, desk-key MAC) is the only issuer of approvals. The cockpit
+/// holds none, so it never shows an approval the desk did not issue.
+const APPROVALS_ISSUER: &str = "the approval desk (aien compose authorize)";
+
+async fn handle_get_approvals() -> Json<Value> {
     Json(json!({
         "status": "ok",
-        "approvals": *approvals
+        "approvals": [],
+        "issuer": APPROVALS_ISSUER,
+        "note": "The cockpit holds no approvals. The approval desk issues them."
     }))
 }
 
-#[derive(Deserialize)]
-struct ApprovalActionPayload {
-    action: String,
-}
-
+/// Every resolve is refused by name: approving here would grant nothing.
 async fn handle_resolve_approval(
-    State(state): State<AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
-    Json(payload): Json<ApprovalActionPayload>,
-) -> Json<Value> {
-    let mut approvals = state.approvals.lock().unwrap();
-    if let Some(appr) = approvals.iter_mut().find(|a| a.id == id) {
-        appr.status = if payload.action == "approve" {
-            "approved".to_string()
-        } else {
-            "rejected".to_string()
-        };
-        Json(json!({
-            "status": "ok",
-            "approval": appr
-        }))
-    } else {
+) -> (StatusCode, Json<Value>) {
+    (
+        StatusCode::CONFLICT,
         Json(json!({
             "status": "error",
-            "message": "Approval ID not found"
-        }))
-    }
+            "refusal": "NotTheDesk",
+            "id": id,
+            "message": format!("The cockpit does not approve or reject. Use {APPROVALS_ISSUER}."),
+        })),
+    )
 }
 
 async fn handle_list_artifacts() -> Json<Value> {
@@ -610,12 +586,13 @@ async fn handle_get_models(State(state): State<AppState>) -> Json<Value> {
         }
     }
 
+    // The seat did not answer: say so instead of inventing a model name.
     if active_models.is_empty() {
         active_models.push(json!({
-            "id": "atlas-lightning-omni",
-            "active": true,
+            "id": "",
+            "active": false,
             "backend": "Local model seat (port 18006)",
-            "status": "ONLINE"
+            "status": "OFFLINE"
         }));
     }
 
@@ -627,8 +604,14 @@ async fn handle_get_models(State(state): State<AppState>) -> Json<Value> {
         json!({ "id": "meta-llama/Llama-3.2-3B-Instruct", "name": "Llama 3.2 3B", "backend": "Candle", "active": false }),
     ];
 
+    let current_model = active_models
+        .first()
+        .and_then(|m| m.get("id"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     Json(json!({
-        "current_model": "atlas-lightning-omni",
+        "current_model": current_model,
         "active_models": active_models,
         "available_candidates": candidates
     }))
@@ -921,29 +904,6 @@ async fn main() {
     let swarm_registry = Arc::new(SwarmRegistry::new_persistent(journal_path));
     let distill_engine = Arc::new(spark_adapters::DistillationEngine::new());
 
-    let approvals = Arc::new(std::sync::Mutex::new(vec![
-        PendingApproval {
-            id: "appr-gb10-parity".to_string(),
-            action_type: "kernel_verification".to_string(),
-            title: "Verify Grace Blackwell GB10 Kernel Parity".to_string(),
-            description: "Execute sm_121 forward pass check and validate against HF oracle.".to_string(),
-            command_or_diff: Some("cargo test -p aien-kernel --release -- --test-threads=1".to_string()),
-            risk_level: "low".to_string(),
-            status: "pending".to_string(),
-            created_at: Utc::now().to_rfc3339(),
-        },
-        PendingApproval {
-            id: "appr-cortex-sync".to_string(),
-            action_type: "memory_ingestion".to_string(),
-            title: "Commit Verified Lesson to Spark Cortex".to_string(),
-            description: "Persist hardware page cache drop invariant and submillisecond latency heuristics to space atlas-memory.".to_string(),
-            command_or_diff: Some("POST /api/cortex { entity: 'gb10-page-cache-invariant' }".to_string()),
-            risk_level: "low".to_string(),
-            status: "pending".to_string(),
-            created_at: Utc::now().to_rfc3339(),
-        },
-    ]));
-
     let state = AppState {
         client,
         start_time: Instant::now(),
@@ -951,7 +911,6 @@ async fn main() {
         hive_store: hive_store.clone(),
         swarm_registry,
         distill_engine,
-        approvals: approvals.clone(),
     };
 
     let reaper_hive_store = hive_store.clone();
@@ -1021,6 +980,7 @@ async fn main() {
         )
         .route("/api/engine/status", get(handle_engine_status))
         .route("/api/status", get(handle_engine_status))
+        .route("/api/judge", get(handle_judge))
         .route("/api/imprints/install", post(handle_install_en2_imprint))
         .route("/api/mail/status", get(handle_mail_status))
         .route("/api/mail/inbox", get(handle_mail_inbox))
@@ -1301,7 +1261,9 @@ async fn handle_terminal_socket(mut socket: WebSocket) {
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("HOME", get_home_dir().to_string_lossy().as_ref());
-    cmd.env("USER", "drakestapleton");
+    if let Ok(user) = std::env::var("USER") {
+        cmd.env("USER", user);
+    }
 
     let child = match pair.slave.spawn_command(cmd) {
         Ok(c) => c,
@@ -1729,8 +1691,8 @@ async fn handle_services_action(
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
             if action == "start" || action == "restart" {
-                let bin = "/home/drakestapleton/.local/bin/spark-rsi";
-                if Path::new(bin).exists() {
+                let bin = get_home_dir().join(".local/bin/spark-rsi");
+                if bin.exists() {
                     let _ = Command::new("nohup").arg(bin).arg("daemon").spawn();
                 }
             }
@@ -1830,7 +1792,9 @@ struct RsiLedgerQuery {
 async fn handle_rsi_ledger(Query(query): Query<RsiLedgerQuery>) -> Json<Value> {
     let limit = query.limit.unwrap_or(20);
     let res = tokio::task::spawn_blocking(move || {
-        let db_path = "/home/drakestapleton/workspace/spark-rsi/.rsi/ledger.db";
+        let db_buf = get_home_dir().join("workspace/spark-rsi/.rsi/ledger.db");
+        let db_path = db_buf.to_string_lossy().into_owned();
+        let db_path = db_path.as_str();
         if !Path::new(db_path).exists() {
             return json!({
                 "status": "ok",
@@ -3093,6 +3057,83 @@ async fn handle_engine_status(State(state): State<AppState>) -> Json<Value> {
     }))
 }
 
+/// Where the Spark judge publishes its bundles for this repository. One directory per judged
+/// commit, each holding `bundle.json` with the verdict and one row per check.
+fn judge_bundles_dir() -> PathBuf {
+    match std::env::var("AIEN_JUDGE_BUNDLES") {
+        Ok(p) if !p.is_empty() => PathBuf::from(p),
+        _ => get_home_dir().join(".local/state/aien-local-ci/bundles/aien-sovereign-core"),
+    }
+}
+
+/// The Spark judge's newest verdict for the sovereign core, read from the local bundle store so
+/// the harness shows a receipt instead of copy. When no bundle can be read the answer says so.
+fn read_latest_judge_bundle(dir: &Path) -> Option<Value> {
+    let mut newest: Option<(String, Value)> = None;
+    for entry in fs::read_dir(dir).ok()?.flatten() {
+        let path = entry.path().join("bundle.json");
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(bundle) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
+        let finished = bundle
+            .get("finished_utc")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        if newest.as_ref().is_none_or(|(t, _)| finished > *t) {
+            newest = Some((finished, bundle));
+        }
+    }
+    let (finished_utc, bundle) = newest?;
+    let checks = bundle
+        .get("checks")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let count = |want: &str| {
+        checks
+            .iter()
+            .filter(|c| c.get("verdict").and_then(Value::as_str) == Some(want))
+            .count()
+    };
+    let commit = bundle
+        .get("commit")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    Some(json!({
+        "verdict": bundle.get("verdict").and_then(Value::as_str).unwrap_or("NO VERDICT"),
+        "commit": commit,
+        "repository": bundle.get("repository").and_then(Value::as_str).unwrap_or(""),
+        "finished_utc": finished_utc,
+        "checks_total": checks.len(),
+        "checks_pass": count("PASS"),
+        "checks_fail": count("FAIL"),
+        "checks_blocked": checks.len() - count("PASS") - count("FAIL"),
+    }))
+}
+
+async fn handle_judge() -> Json<Value> {
+    let dir = judge_bundles_dir();
+    match tokio::task::spawn_blocking(move || read_latest_judge_bundle(&dir)).await {
+        Ok(Some(v)) => Json(v),
+        _ => Json(json!({
+            "verdict": "NO VERDICT",
+            "commit": "",
+            "repository": "",
+            "finished_utc": "",
+            "checks_total": 0,
+            "checks_pass": 0,
+            "checks_fail": 0,
+            "checks_blocked": 0,
+            "note": "No Spark judge bundle could be read on this machine."
+        })),
+    }
+}
+
 async fn handle_install_en2_imprint(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
@@ -3309,7 +3350,7 @@ mod tests {
             &peer
         ));
         assert!(!terminal_request_allowed(
-            &origin_headers(Some("http://192.168.1.108:18095")),
+            &origin_headers(Some("http://192.0.2.10:18095")),
             &peer
         ));
         assert!(!terminal_request_allowed(
@@ -3320,7 +3361,7 @@ mod tests {
 
     #[test]
     fn terminal_rejects_non_loopback_peer() {
-        let peer: SocketAddr = "192.168.1.50:50000".parse().unwrap();
+        let peer: SocketAddr = "192.0.2.50:50000".parse().unwrap();
         assert!(!terminal_request_allowed(
             &origin_headers(Some("http://127.0.0.1:18095")),
             &peer
@@ -3367,16 +3408,6 @@ mod tests {
         let hive_store = Arc::new(spark_hive::CombStore::open_in_memory().unwrap());
         let swarm_registry = Arc::new(SwarmRegistry::new_in_memory());
         let distill_engine = Arc::new(spark_adapters::DistillationEngine::new());
-        let approvals = Arc::new(std::sync::Mutex::new(vec![PendingApproval {
-            id: "test-appr-1".to_string(),
-            action_type: "test".to_string(),
-            title: "Test Approval".to_string(),
-            description: "Test description".to_string(),
-            command_or_diff: None,
-            risk_level: "low".to_string(),
-            status: "pending".to_string(),
-            created_at: Utc::now().to_rfc3339(),
-        }]));
         AppState {
             client,
             start_time: Instant::now(),
@@ -3384,7 +3415,6 @@ mod tests {
             hive_store,
             swarm_registry,
             distill_engine,
-            approvals,
         }
     }
 
@@ -3594,7 +3624,6 @@ mod tests {
         let hive_store = Arc::new(spark_hive::CombStore::open_in_memory().unwrap());
         let swarm_registry = Arc::new(SwarmRegistry::new_in_memory());
         let distill_engine = Arc::new(spark_adapters::DistillationEngine::new());
-        let approvals = Arc::new(std::sync::Mutex::new(vec![]));
         AppState {
             client,
             start_time: Instant::now(),
@@ -3602,7 +3631,6 @@ mod tests {
             hive_store,
             swarm_registry,
             distill_engine,
-            approvals,
         }
     }
 
@@ -3949,25 +3977,37 @@ mod tests {
         assert!(feed["feed"].as_array().is_some());
     }
 
+    // sovereign-core #380 R4c: the cockpit lists no approval and names the desk.
     #[tokio::test]
-    async fn test_cockpit_approvals_lifecycle() {
-        let state = create_test_state();
-        let Json(apprs) = handle_get_approvals(State(state.clone())).await;
+    async fn test_cockpit_approvals_only_from_the_desk() {
+        let Json(apprs) = handle_get_approvals().await;
         assert_eq!(apprs["status"], "ok");
-        let list = apprs["approvals"].as_array().unwrap();
-        assert!(!list.is_empty());
+        assert_eq!(apprs["approvals"], json!([]));
+        assert_eq!(apprs["issuer"], APPROVALS_ISSUER);
+    }
 
-        let res = handle_resolve_approval(
-            State(state.clone()),
-            axum::extract::Path("test-appr-1".to_string()),
-            Json(ApprovalActionPayload {
-                action: "approve".to_string(),
-            }),
-        )
-        .await;
+    // sovereign-core #380 R4d: resolve refuses every id by name, including
+    // the ids of the removed placeholders.
+    #[tokio::test]
+    async fn test_cockpit_resolve_is_refused_not_the_desk() {
+        for id in ["appr-gb10-parity", "appr-cortex-sync", "anything"] {
+            let (code, Json(res)) =
+                handle_resolve_approval(axum::extract::Path(id.to_string())).await;
+            assert_eq!(code, StatusCode::CONFLICT);
+            assert_eq!(res["status"], "error");
+            assert_eq!(res["refusal"], "NotTheDesk");
+            assert_eq!(res["id"], id);
+            assert!(res.get("approval").is_none());
+        }
+        let Json(apprs) = handle_get_approvals().await;
+        assert_eq!(apprs["approvals"], json!([]));
+    }
 
-        let Json(resolved) = res;
-        assert_eq!(resolved["status"], "ok");
-        assert_eq!(resolved["approval"]["status"], "approved");
+    // sovereign-core #380 R4e: the feed announces no approval.
+    #[tokio::test]
+    async fn test_cockpit_feed_has_no_approvals_item() {
+        let Json(feed) = handle_get_feed(State(create_test_state())).await;
+        let items = feed["feed"].as_array().unwrap();
+        assert!(items.iter().all(|i| i["category"] != "approvals"));
     }
 }

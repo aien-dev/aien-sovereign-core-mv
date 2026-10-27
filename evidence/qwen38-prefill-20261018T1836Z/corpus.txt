@@ -1,0 +1,1 @@
+corpus: every *.md of aien-architecture at dbc07036878ec519142dbfa70d118a8806d34138 (193 files, C-locale sorted paths, blobs concatenated)

@@ -1,39 +1,44 @@
 /* ========================================================================= */
-/* META MUSE DESIGN SYSTEM (AIEN SOVEREIGN COCKPIT)                          */
+/* ALLEN HARNESS (SPARK COCKPIT) DESIGN TOKENS                                */
+/* Same family as the public AIEN sites: warm neutrals, amber accent, green  */
+/* PASS, red FAIL, system fonts, 14 px card radius, hairline borders. Dark   */
+/* first because this is an operator tool; the light theme is the sites'     */
+/* warm off-white. The variable names kept their old "blue" spelling so the  */
+/* rest of this sheet did not have to change; the accent is amber.           */
 /* ========================================================================= */
 
 :root {
-  /* Meta Dark Mode Palette (Default) */
-  --bg-app: #18191a;
-  --bg-sidebar: #242526;
-  --bg-surface: #242526;
-  --bg-surface-elevated: #303031;
-  --bg-surface-hover: rgba(255, 255, 255, 0.08);
-  --bg-input: #3a3b3c;
-  --bg-card: #242526;
-  --bg-bubble-incoming: #303030;
-  --bg-bubble-outgoing: #0866ff;
+  /* Dark theme (default) */
+  --bg-app: #141311;
+  --bg-sidebar: #1b1916;
+  --bg-surface: #1b1916;
+  --bg-surface-elevated: #25221e;
+  --bg-surface-hover: rgba(255, 255, 255, 0.07);
+  --bg-input: #2a2622;
+  --bg-card: #1f1c19;
+  --bg-bubble-incoming: #25221e;
+  --bg-bubble-outgoing: #8a5207;
 
-  --border-subtle: #3e4042;
-  --border-strong: #4e4f50;
-  --border-focus: #1d85fc;
+  --border-subtle: #332f29;
+  --border-strong: #4a443b;
+  --border-focus: #f2a93b;
 
-  --text-primary: #e4e6eb;
-  --text-secondary: #b0b3b8;
-  --text-muted: #8a8d91;
-  --text-inverse: #ffffff;
-  --text-link: #5aa7ff;
+  --text-primary: #ece7dd;
+  --text-secondary: #b9b1a3;
+  --text-muted: #857d70;
+  --text-inverse: #141311;
+  --text-link: #f2a93b;
 
-  --accent-blue: #0866ff;
-  --accent-blue-hover: #1d85fc;
-  --accent-blue-dim: rgba(8, 102, 255, 0.15);
+  --accent-blue: #f2a93b;
+  --accent-blue-hover: #f7bb5e;
+  --accent-blue-dim: rgba(242, 169, 59, 0.16);
 
-  --status-emerald: #31a24c;
-  --status-emerald-dim: rgba(49, 162, 76, 0.15);
-  --status-amber: #f7b928;
-  --status-amber-dim: rgba(247, 185, 40, 0.15);
-  --status-crimson: #e41e3f;
-  --status-crimson-dim: rgba(228, 30, 63, 0.15);
+  --status-emerald: #3ea85a;
+  --status-emerald-dim: rgba(62, 168, 90, 0.16);
+  --status-amber: #f2a93b;
+  --status-amber-dim: rgba(242, 169, 59, 0.16);
+  --status-crimson: #e0474f;
+  --status-crimson-dim: rgba(224, 71, 79, 0.16);
 
   --radius-bubble: 18px;
   --radius-capsule: 26px;
@@ -55,25 +60,33 @@
 }
 
 body.light-theme {
-  --bg-app: #f0f2f5;
-  --bg-sidebar: #ffffff;
+  /* Light theme: the public sites' warm off-white page and near-black ink */
+  --bg-app: #f6f1e8;
+  --bg-sidebar: #fbf8f2;
   --bg-surface: #ffffff;
-  --bg-surface-elevated: #f7f8fa;
+  --bg-surface-elevated: #f3eee4;
   --bg-surface-hover: rgba(0, 0, 0, 0.05);
-  --bg-input: #f0f2f5;
+  --bg-input: #f1ebe0;
   --bg-card: #ffffff;
-  --bg-bubble-incoming: #f0f2f5;
-  --bg-bubble-outgoing: #0866ff;
+  --bg-bubble-incoming: #f3eee4;
+  --bg-bubble-outgoing: #b86e0a;
 
-  --border-subtle: #ced0d4;
-  --border-strong: #bec3c9;
-  --border-focus: #0866ff;
+  --border-subtle: #ddd5c6;
+  --border-strong: #c9bfae;
+  --border-focus: #b86e0a;
 
-  --text-primary: #050505;
-  --text-secondary: #65676b;
-  --text-muted: #8d949e;
+  --text-primary: #171512;
+  --text-secondary: #5e574c;
+  --text-muted: #8a8274;
   --text-inverse: #ffffff;
-  --text-link: #0064d1;
+  --text-link: #b86e0a;
+
+  --accent-blue: #b86e0a;
+  --accent-blue-hover: #9a5a06;
+  --accent-blue-dim: rgba(184, 110, 10, 0.12);
+
+  --status-emerald: #2f8f4a;
+  --status-crimson: #c9303a;
 
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
   --shadow-elevated: 0 6px 16px rgba(0, 0, 0, 0.12);
@@ -650,9 +663,9 @@ body.light-theme .icon-moon {
   height: 58px;
   border-radius: 50%;
   padding: 3px;
-  background: linear-gradient(135deg, #0866ff, #00c6ff);
+  background: var(--accent-blue);
   margin-bottom: 16px;
-  box-shadow: 0 4px 16px rgba(8, 102, 255, 0.3);
+  box-shadow: 0 4px 16px var(--accent-blue-dim);
 }
 
 .hero-logo {
@@ -945,7 +958,7 @@ pre.code-canvas {
 
 .prompt-capsule:focus-within {
   border-color: var(--border-focus);
-  box-shadow: 0 4px 20px rgba(8, 102, 255, 0.2);
+  box-shadow: 0 4px 20px var(--accent-blue-dim);
 }
 
 .capsule-tool-btn {
@@ -1541,4 +1554,183 @@ pre.code-canvas {
   padding: 14px 20px;
   border-top: 1px solid var(--border-subtle);
   background-color: var(--bg-sidebar);
+}
+
+/* ========================================================================= */
+/* LIVE STATE ON THE WELCOME                                                 */
+/* ========================================================================= */
+.hero-live {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+  max-width: 680px;
+  margin-bottom: 22px;
+  text-align: left;
+}
+
+.live-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 12px 14px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.live-card-judge {
+  grid-column: 1 / -1;
+}
+
+.live-card.is-bad {
+  border-color: var(--status-crimson);
+}
+
+.live-card.is-attention {
+  border-color: var(--accent-blue);
+}
+
+.live-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.live-value {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.live-note {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.verdict-pass { color: var(--status-emerald); }
+.verdict-fail { color: var(--status-crimson); }
+.verdict-blocked { color: var(--status-amber); }
+.verdict-no-verdict { color: var(--text-muted); }
+
+.status-model-badge.is-offline {
+  color: var(--status-crimson);
+  border-color: var(--status-crimson);
+}
+
+/* ========================================================================= */
+/* PHONES AND NARROW WINDOWS (under 820 px)                                   */
+/* The rail leaves the flow and slides in over a backdrop; the drawer takes  */
+/* the full width; cards stack; nothing scrolls sideways at 390 px.          */
+/* ========================================================================= */
+.sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 820px) {
+  .muse-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(300px, 86vw);
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    box-shadow: var(--shadow-elevated);
+  }
+
+  .muse-sidebar.collapsed {
+    width: min(300px, 86vw);
+  }
+
+  .muse-sidebar.open {
+    transform: translateX(0);
+  }
+
+  .sidebar-backdrop.show {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 25;
+  }
+
+  .muse-main {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .stage-header {
+    padding: 0 10px;
+    gap: 6px;
+  }
+
+  .stage-btn span:not(.action-count-badge) {
+    display: none;
+  }
+
+  .status-model-badge {
+    max-width: 38vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .chat-hero {
+    padding: 24px 0 12px 0;
+  }
+
+  .hero-greeting {
+    font-size: 22px;
+  }
+
+  .hero-live {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hero-suggestions {
+    grid-template-columns: 1fr;
+  }
+
+  .prompt-capsule-wrapper {
+    padding: 8px 10px 12px 10px;
+  }
+
+  .view-content-wrapper {
+    padding: 16px;
+  }
+
+  .view-header-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .muse-drawer {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    z-index: 40;
+  }
+}
+
+@media (max-width: 420px) {
+  .hero-live {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Header buttons keep their icon at every width; on phones the icon is all that shows. */
+.stage-btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }

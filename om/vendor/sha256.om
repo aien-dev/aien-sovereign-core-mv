@@ -1,0 +1,162 @@
+note SPDX-License-Identifier: Apache-2.0
+note Vendored from aien-dev/benchmarks-mv om/data/sha256.om at 567c5da595ebc9abebcd4dd195b1b8d7fb7507f4 (branch
+note refactor/om-rewrite), written before that repository adopted Apache-2.0 tree-wide (d3f3b40).
+note Only this header differs; checked against sha256sum by om/effects/run.sh through world.om.
+note Incremental SHA-256 in native Omega. No runtime library calls.
+note Algorithm and constants checked against Omega seed/atlas/atlas.s2 and src/sha256.c
+note at seed ancestor 29b12760. Those files are references, never build inputs.
+note hmeta: buffered bytes, message bytes, state (0 active, 1 finalized, 2 error).
+note hfinal exposes 64 lowercase hexadecimal bytes in hd; reset before another message.
+global hk uint 64
+global hs uint 8
+global hm uint 64
+global hb uchar 64
+global hd uchar 64
+global hmeta ulong 3
+text hconst "428a2f9871374491b5c0fbcfe9b5dba53956c25b59f111f1923f82a4ab1c5ed5d807aa9812835b01243185be550c7dc372be5d7480deb1fe9bdc06a7c19bf174e49b69c1efbe47860fc19dc6240ca1cc2de92c6f4a7484aa5cb0a9dc76f988da983e5152a831c66db00327c8bf597fc7c6e00bf3d5a7914706ca63511429296727b70a852e1b21384d2c6dfc53380d13650a7354766a0abb81c2c92e92722c85a2bfe8a1a81a664bc24b8b70c76c51a3d192e819d6990624f40e3585106aa07019a4c1161e376c082748774c34b0bcb5391c0cb34ed8aa4a5b9cca4f682e6ff3748f82ee78a5636f84c878148cc7020890befffaa4506cebbef9a3f7c67178f2"
+text hseed "6a09e667bb67ae853c6ef372a54ff53a510e527f9b05688c1f83d9ab5be0cd19"
+text hhex "0123456789abcdef"
+
+fn hnibble c uchar to uint
+if le c 57
+ret uint sub c 48
+end
+ret uint sub c 87
+end
+
+fn hreset to void
+for i ulong 64
+v = uint 0
+for j ulong 8
+v = or shl v 4 hnibble get hconst add mul i 8 j
+end
+put hk i v
+end
+for i ulong 8
+v = uint 0
+for j ulong 8
+v = or shl v 4 hnibble get hseed add mul i 8 j
+end
+put hs i v
+end
+for i ulong 3
+put hmeta i 0
+end
+end
+
+fn hrot x uint n uint to uint
+ret or shr x n shl x sub 32 n
+end
+
+fn hsmall0 x uint to uint
+ret xor xor hrot x 7 hrot x 18 shr x 3
+end
+
+fn hsmall1 x uint to uint
+ret xor xor hrot x 17 hrot x 19 shr x 10
+end
+
+fn hbig0 x uint to uint
+ret xor xor hrot x 2 hrot x 13 hrot x 22
+end
+
+fn hbig1 x uint to uint
+ret xor xor hrot x 6 hrot x 11 hrot x 25
+end
+
+fn hblock to void
+for i ulong 16
+v = uint 0
+for j ulong 4
+v = or shl v 8 uint get hb add mul i 4 j
+end
+put hm i v
+end
+for j ulong 48
+i = add j 16
+v = add hsmall1 get hm sub i 2 get hm sub i 7
+v = add v hsmall0 get hm sub i 15
+put hm i add v get hm sub i 16
+end
+a = get hs 0
+b = get hs 1
+c = get hs 2
+d = get hs 3
+e = get hs 4
+f = get hs 5
+g = get hs 6
+h = get hs 7
+for i ulong 64
+t1 = add h hbig1 e
+t1 = add t1 xor and e f and not e g
+t1 = add t1 get hk i
+t1 = add t1 get hm i
+t2 = hbig0 a
+t2 = add t2 xor xor and a b and a c and b c
+h = g
+g = f
+f = e
+e = add d t1
+d = c
+c = b
+b = a
+a = add t1 t2
+end
+put hs 0 add get hs 0 a
+put hs 1 add get hs 1 b
+put hs 2 add get hs 2 c
+put hs 3 add get hs 3 d
+put hs 4 add get hs 4 e
+put hs 5 add get hs 5 f
+put hs 6 add get hs 6 g
+put hs 7 add get hs 7 h
+end
+
+fn hraw c uchar to void
+n = get hmeta 0
+put hb n c
+n = add n 1
+if eq n 64
+hblock
+n = ulong 0
+end
+put hmeta 0 n
+end
+
+fn hpush c uchar to bool
+if ne get hmeta 2 0
+ret false
+end
+if eq get hmeta 1 2305843009213693951
+put hmeta 2 2
+ret false
+end
+hraw c
+put hmeta 1 add get hmeta 1 1
+ret true
+end
+
+fn hfinal to bool
+if ne get hmeta 2 0
+ret false
+end
+bits = mul get hmeta 1 8
+hraw 128
+while ne get hmeta 0 56
+hraw 0
+end
+for i ulong 8
+shift = mul sub 7 i 8
+hraw uchar and shr bits shift 255
+end
+for i ulong 8
+v = get hs i
+for j ulong 8
+shift = uint mul sub 7 j 4
+digit = ulong and shr v shift 15
+put hd add mul i 8 j get hhex digit
+end
+end
+put hmeta 2 1
+ret true
+end

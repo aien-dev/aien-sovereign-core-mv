@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # OPEN-MODEL-QWEN3 v8 gate G6: dry run of part 1 on GB10 in its own hold, then g6-gate.sh over D1 D2 D3 (SPEC-v8.md
 # Section 5 item 7). Runs AFTER the freeze, as v6 did (frozen-v8.json FROZEN at the wrap commit): the -PIN and -GR rows
 # compare the build and the generation record against the frozen pins and model hash, so a draft can only fail them (attempt 2,

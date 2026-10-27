@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! | `<min bound> N <noun> and|or|but <bound> M` (second noun left out, e.g. `at least 20 lines and no more than 40`) | the second bound is read with the earlier noun (`MaxLines(40)`); with no clear earlier noun (or no earlier count at all), or a direction the noun does not support (`at least 3 paragraphs and no more than 5`), it is UNCERTAIN, never dropped (#344) |
 //! Reading the requirements out of a goal (see `requirements` for the model).
 //!
@@ -14,6 +29,7 @@
 //! | `at least / no fewer than / no less than / not fewer than / a minimum of / minimum of / min N <noun>`, `N or more <noun>`, `N+ <noun>` | `MinX(N)` |
 //! | `at most / no more than / not more than / a maximum of / maximum of / max / up to N <noun>`, `N or fewer|less <noun>` | `MaxX(N)` |
 //! | `more than N <noun>`, `fewer|less than N <noun>` | `MinX(N+1)`, `MaxX(N-1)` |
+//! | `under|below N words|lines`, `within N words|lines` (only these two nouns; `under three sections`, `under 80 characters` stay UNCERTAIN) | `MaxX(N-1)`, `MaxX(N)` (sc#383) |
 //! | `N <noun> or more|fewer|less`, `N <noun> minimum|maximum`, `no longer|shorter than N <noun>` | `MinX(N)` or `MaxX(N)` |
 //! | `<noun>` = `lines` (also `non-empty|nonempty|non-blank lines`: lines are counted non-empty anyway), `words`; `items`, `steps`, `sections`, `headings`, `questions`, `paragraphs` (Min only; singular too) | lines, words, list items, numbered steps, headings, questions, paragraphs (`MinParagraphs`: runs of prose lines, see `requirements::count_paragraphs`) |
 //! | `N sentences in|per|for|within every|each section` (or `in every section, ... N sentences`) | `MinSentencesPerSection(N)` |
@@ -1515,6 +1531,33 @@ pub fn analyze(goal: &str) -> Extraction {
                 }
             }
             continue;
+        }
+        // "under|below N words|lines" = fewer than N; "within N words|lines" = at
+        // most N (sc#383). Only words and lines: "under three sections" names a
+        // structure, "under 80 characters" a measure nothing checks; both stay with
+        // the recognizers above or UNCERTAIN.
+        let near_max = match toks[s].word.as_str() {
+            "under" | "below" => Some(-1i64),
+            "within" => Some(0),
+            _ => None,
+        };
+        if let (Some(adj), Some(Num::Val(v)), Some(noun)) = (
+            near_max,
+            toks.get(s + 1).map(|t| parse_num(&t.word)),
+            toks.get(s + 2).map(|t| t.word.as_str()),
+        ) {
+            let v = v as i64 + adj;
+            if matches!(noun, "words" | "word" | "lines" | "line")
+                && v >= 1
+                && !negated_before(&toks, s)
+                && qualifier_ok(&toks, s + 2)
+            {
+                if let Some(r) = count_req(Dir::Max, noun, v as usize) {
+                    add(&mut counts, r);
+                    handled.extend(s..=s + 2);
+                    continue;
+                }
+            }
         }
         // "N <noun> or more|fewer|less" and "N <noun> minimum|maximum".
         if let (Num::Val(v), Some(noun)) = (

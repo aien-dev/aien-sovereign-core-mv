@@ -1,4 +1,6 @@
 # tests/gates/sc-scoring-v5.gate
+# target_lock: none because aien-audit-inputs traced no cargo or rustc in this gate (L335, 2026-10-21).
+# cache: inputs_complete because aien-audit-inputs found every file this gate reads declared (L335).
 # Mirrors hosted: ci.yml verify 'bash docs/campaigns/scoring/test-scoring-v5.sh'
 gate: SC-SCORING-V5
 manifest_version: 2
@@ -7,6 +9,7 @@ requires:
   - portable
 inputs:
   - docs/campaigns/scoring/
+  - docs/campaigns/next-phase-2/
   - tests/gates/
 run:
   exec: tests/gates/run.sh
@@ -17,3 +20,5 @@ expects:
 timeout: 5m
 exactness: EXACT
 cache_scope: portable
+target_lock: none
+cache: inputs_complete

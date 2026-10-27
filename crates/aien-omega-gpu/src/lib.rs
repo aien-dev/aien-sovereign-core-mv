@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Safe Rust wrapper over omega's native GPU matmul (no CUDA).
 //!
 //! Built against the omega commit in `omega.lock`. With `cfg(has_omega_gpu)` the
@@ -407,11 +422,12 @@ pub fn is_blocked() -> bool {
 
 /// Daemon setting that picks the matmul CTA budget per launch. Unset or empty
 /// means the AIEN daemon default ([`DAEMON_DEFAULT_CTA_BUDGET`], 1024); omega's
-/// own library default ([`ffi::OMEGA_GPU_MATMUL_MAX_CTAS`], 64) is not changed.
+/// own library default ([`ffi::OMEGA_GPU_MATMUL_MAX_CTAS`], 1024 since omega 98cecadc, #473)
+/// is not changed by it.
 pub const CTA_BUDGET_ENV: &str = "AIEN_OMEGA_CTA_BUDGET";
 
 /// Largest budget [`parse_cta_budget`] accepts. Budgets chip-tested on the GB10:
-/// 64 (omega default) and 256 (T4 2026-10-06, t4fix), and 512 and 1024 on
+/// 64 (the old omega default) and 256 (T4 2026-10-06, t4fix), and 512 and 1024 on
 /// 2026-10-12 (fragment kernel, Qwen3-8B decode shapes, parity ok, mutant
 /// killed; see [`DAEMON_DEFAULT_CTA_BUDGET_EVIDENCE`]). Larger values were
 /// never chip-tested, so they are refused.
@@ -1304,7 +1320,7 @@ mod cta_budget_tests {
 
     #[test]
     fn default_budget_is_omega_max_ctas() {
-        assert_eq!(ffi::OMEGA_GPU_MATMUL_MAX_CTAS, 64);
+        assert_eq!(ffi::OMEGA_GPU_MATMUL_MAX_CTAS, 1024);
         // Reading the budget never opens the device (omega_gpu_matmul_api.c:121).
         if is_native() {
             assert_eq!(cta_budget(), Some(ffi::OMEGA_GPU_MATMUL_MAX_CTAS));
@@ -1325,7 +1341,7 @@ mod cta_budget_tests {
             Ok(Some(DAEMON_DEFAULT_CTA_BUDGET))
         );
         // Omega's own library default is untouched by the AIEN default.
-        assert_eq!(ffi::OMEGA_GPU_MATMUL_MAX_CTAS, 64);
+        assert_eq!(ffi::OMEGA_GPU_MATMUL_MAX_CTAS, 1024);
         assert!(DAEMON_DEFAULT_CTA_BUDGET_EVIDENCE.starts_with("docs/inference/evidence/"));
         let doc = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../..")

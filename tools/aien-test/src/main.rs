@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! aien-test: run gates and report verdicts (ADR 0028).
 //!
 //! - `run GATE`: run one gate. Exit 0 PASS, 1 FAIL or BAD_MANIFEST, 2 NOT_RUN
@@ -84,9 +99,14 @@ fn options(cli: &Cli, root: &Path) -> Result<Options, i32> {
     opts.no_cache = cli.no_cache;
     opts.args_override = cli.args.clone();
     opts.pool_sizes = opts.pool_sizes.with(cli.jobs);
-    opts.gpu.wait = cli.wait_gpu;
+    if let Some(w) = cli.gpu_wait {
+        opts.gpu.wait = w;
+    }
     opts.sandbox = cli.sandbox;
     opts.release = cli.release;
+    // `--operator` is only accepted on plan, test and worker (cli.rs), so a
+    // plain `run` never lifts an operator gate.
+    opts.operator = cli.operator;
     opts.cargo_target_dir = std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from);
     Ok(opts)
 }
@@ -119,8 +139,8 @@ fn repo_root_or_report(cwd: &Path) -> Result<PathBuf, i32> {
 /// fresh run.
 fn print_cache(note: &CacheNote) {
     match note {
-        CacheNote::Reused { from } => {
-            println!("REUSED {from}");
+        CacheNote::Reused { from, commit } => {
+            println!("REUSED {from} (made at commit {commit})");
             println!(
                 "CACHE reused: an earlier run of exactly this experiment already has this result, so it was not run again (use --no-cache to force a fresh run)"
             );
@@ -143,10 +163,14 @@ fn cmd_run(cli: &Cli, gate: &str, cwd: &Path) -> i32 {
         Ok(r) => r,
         Err(code) => return code,
     };
-    let opts = match options(cli, &root) {
+    let mut opts = match options(cli, &root) {
         Ok(o) => o,
         Err(code) => return code,
     };
+    opts.shared_cache = cli
+        .shared_cache
+        .as_deref()
+        .map(aien_test::cache::Shared::new);
     match runner::run_gate(&root, &manifest_path, &opts) {
         Ok(o) => {
             if o.verdict == Verdict::NotRun && !o.reason.is_empty() {
@@ -177,7 +201,7 @@ fn cmd_test(cli: &Cli, selection: &Selection, cwd: &Path) -> i32 {
         Err(e) => return graph_error(&e),
     };
     let chosen: BTreeSet<usize> = match selection {
-        Selection::All => (0..graph.len()).collect(),
+        Selection::All => graph.all(),
         Selection::Gate(name) => match graph.index_of(name) {
             Some(i) => graph.with_dependencies(&[i]),
             None => {
@@ -387,6 +411,7 @@ fn plan_for(cli: &Cli, root: &Path) -> Result<plan::Plan, i32> {
     })?;
     let mut req = Request::new(&base, &head);
     req.operator = cli.operator;
+    req.full = cli.full;
     req.compiler_identity = cli.compiler_identity.clone();
     req.flags = cli.flags.clone();
     req.hardware_identity = cli.hardware_identity.clone().unwrap_or_default();
@@ -493,6 +518,10 @@ fn cmd_verify(cli: &Cli, commit: &str, cwd: &Path) -> i32 {
     }
 }
 
+/// `worker --once` found its head being judged by another process and did
+/// nothing (EX_TEMPFAIL; the verdict codes are 0 to 5).
+const EXIT_HELD: i32 = 75;
+
 fn cmd_worker(cli: &Cli) -> i32 {
     let state = match state_dir(cli) {
         Ok(s) => s,
@@ -555,10 +584,56 @@ fn cmd_worker(cli: &Cli) -> i32 {
     cfg.poll = Duration::from_secs(cli.poll.unwrap_or(30));
     cfg.repos = cli.repos.clone();
     cfg.operator = cli.operator;
+    cfg.full = cli.full;
     cfg.jobs = cli.jobs;
+    if let Some(w) = cli.gpu_wait {
+        cfg.gpu_wait = w;
+    }
     cfg.no_cache = cli.no_cache;
     cfg.hardware_identity = cli.hardware_identity.clone().unwrap_or_default();
+    cfg.batch_host = cli.batch_host;
+    if let Some(n) = cli.batch_heads {
+        cfg.batch_heads = n;
+    }
+    if let Some((repo, shas)) = &cli.batch {
+        // One line per head, then the worst exit code: 0 only if every head
+        // passed.
+        let t0 = std::time::Instant::now();
+        let mut code = 0;
+        for (sha, r) in worker::run_batch(&cfg, repo, shas) {
+            match r {
+                Ok(s) => {
+                    for (g, st, v) in &s.gates {
+                        println!("GATE {sha} {g} {st} {}", v.as_str());
+                    }
+                    println!(
+                        "HEAD {repo} {sha} {} {} bundle {} publication {}",
+                        s.verdict.as_str(),
+                        s.reason,
+                        s.bundle_path.display(),
+                        s.publication
+                    );
+                    code = code.max(s.verdict.exit_code());
+                }
+                Err(e) => {
+                    println!("HEAD {repo} {sha} ERROR {e}");
+                    code = code.max(1);
+                }
+            }
+        }
+        println!(
+            "BATCH {repo} heads={} wall_ms={}",
+            shas.len(),
+            t0.elapsed().as_millis()
+        );
+        return code;
+    }
     if let Some((repo, sha)) = &cli.once {
+        // run_once owns the head lock; report a holder without taking it twice.
+        if let Some(pid) = worker::head_holder(&cfg.state, repo, sha) {
+            println!("AIEN_TEST: SKIP already being judged by pid {pid}");
+            return EXIT_HELD;
+        }
         return match worker::run_once(&cfg, repo, sha) {
             Ok(s) => {
                 for n in &s.notes {
@@ -575,6 +650,10 @@ fn cmd_worker(cli: &Cli) -> i32 {
                     println!("AIEN_TEST: {} {}", s.verdict.as_str(), s.reason);
                 }
                 s.verdict.exit_code()
+            }
+            Err(e) if e.contains("already being judged") => {
+                println!("AIEN_TEST: {e}");
+                EXIT_HELD
             }
             Err(e) => {
                 println!("AIEN_TEST: FAIL {e}");

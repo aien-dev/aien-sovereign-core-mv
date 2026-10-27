@@ -1,4 +1,19 @@
 #![cfg(feature = "std")]
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! At-rest security of the host filesystem adapter (ADR 0003 section 19).
 //! The objects hold K/V derived from user prompts, so the store directory is
 //! private to the runtime identity: directories 0700, files 0600, an existing
@@ -50,6 +65,7 @@ fn refused(r: Result<HostFsStore, PlatformError>) -> bool {
 
 #[test]
 fn a_store_created_from_nothing_is_private_whatever_the_umask() {
+    let _g = no_spawn();
     let fx = Fx::new();
     // After the fixture: the umask applies to what the store creates.
     if let Ok(m) = std::env::var("AIEN_KV_UMASK") {
@@ -82,6 +98,7 @@ fn a_store_created_from_nothing_is_private_whatever_the_umask() {
 
 #[test]
 fn an_existing_root_that_others_can_read_is_refused_and_left_alone() {
+    let _g = no_spawn();
     let fx = Fx::new();
     chmod(fx.root(), 0o755);
     assert!(refused(HostFsStore::open(fx.config())));
@@ -94,6 +111,7 @@ fn an_existing_root_that_others_can_read_is_refused_and_left_alone() {
 
 #[test]
 fn a_group_writable_root_is_refused() {
+    let _g = no_spawn();
     let fx = Fx::new();
     chmod(fx.root(), 0o720);
     assert!(refused(HostFsStore::open(fx.config())));
@@ -101,6 +119,7 @@ fn a_group_writable_root_is_refused() {
 
 #[test]
 fn a_shared_subdirectory_of_a_private_root_is_refused() {
+    let _g = no_spawn();
     for sub in ["objects", "tmp", "objects/7f"] {
         let fx = Fx::new();
         fx.prime();
@@ -111,6 +130,7 @@ fn a_shared_subdirectory_of_a_private_root_is_refused() {
 
 #[test]
 fn a_root_that_is_a_symlink_is_refused() {
+    let _g = no_spawn();
     let fx = Fx::new();
     let real = fx.root().join("real");
     std::fs::create_dir(&real).unwrap();
@@ -125,6 +145,7 @@ fn a_root_that_is_a_symlink_is_refused() {
 
 #[test]
 fn a_subdirectory_replaced_by_a_symlink_is_refused() {
+    let _g = no_spawn();
     let fx = Fx::new();
     fx.prime();
     let elsewhere = fx.root().join("elsewhere");
@@ -138,6 +159,7 @@ fn a_subdirectory_replaced_by_a_symlink_is_refused() {
 
 #[test]
 fn a_symlink_planted_as_an_object_is_never_read_or_served() {
+    let _g = no_spawn();
     let fx = Fx::new();
     fx.prime();
     // A valid object of ours, moved outside the store and linked back in.
@@ -166,6 +188,7 @@ fn a_symlink_planted_as_an_object_is_never_read_or_served() {
 
 #[test]
 fn a_symlink_planted_at_a_temp_path_is_not_written_through() {
+    let _g = no_spawn();
     let fx = Fx::new();
     let s = fx.open();
     let (key, header) = fx.chunk(1, 8);
@@ -190,6 +213,7 @@ fn a_symlink_planted_at_a_temp_path_is_not_written_through() {
 
 #[test]
 fn a_refused_open_creates_nothing_even_when_the_bad_directory_comes_late() {
+    let _g = no_spawn();
     // Every existing directory is checked before anything is created, so a
     // shared last shard still leaves the store exactly as it was.
     let fx = Fx::new();
@@ -208,6 +232,7 @@ fn a_refused_open_creates_nothing_even_when_the_bad_directory_comes_late() {
 
 #[test]
 fn a_root_whose_parent_others_can_write_is_refused_unless_sticky() {
+    let _g = no_spawn();
     let fx = Fx::new();
     let mut cfg = fx.config();
     cfg.root = fx.root().join("store");
@@ -230,6 +255,7 @@ fn a_root_whose_parent_others_can_write_is_refused_unless_sticky() {
 
 #[test]
 fn a_legacy_object_others_can_read_is_tightened_on_recovery() {
+    let _g = no_spawn();
     let fx = Fx::new();
     fx.prime();
     let (key, header) = fx.chunk(1, 8);
@@ -249,6 +275,7 @@ fn a_legacy_object_others_can_read_is_tightened_on_recovery() {
 
 #[test]
 fn an_object_owned_by_someone_else_is_never_served() {
+    let _g = no_spawn();
     // Only root can give a file away; as a normal user this case cannot be
     // staged (and the private directories already keep others out).
     let fx = Fx::new();
@@ -268,6 +295,7 @@ fn an_object_owned_by_someone_else_is_never_served() {
 /// The umask is process-wide, so each umask case runs in a child process: the
 /// test binary re-invokes itself for one test with `AIEN_KV_UMASK` set.
 fn run_under_umask(umask: u32) {
+    let _g = SPAWN.write().unwrap_or_else(|e| e.into_inner());
     let exe = std::env::current_exe().unwrap();
     let out = std::process::Command::new(exe)
         .args([

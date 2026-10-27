@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Argument parsing for the `aien-test` commands (ADR 0028 Decision 1 and 8,
 //! ADR 0033 Decisions 10 and 12). Hand-written; the surface is small.
 //!
@@ -7,16 +22,19 @@
 //! aien-test why GATE_FILE_OR_NAME [flags]
 //! aien-test list [flags]
 //! aien-test identity GATE_FILE_OR_NAME [--compiler-identity S] [--flag F]... [--hardware-identity S]
-//! aien-test plan [--base REF] [--repo NAME] [--operator] [--allow-dirty]
+//! aien-test plan [--base REF] [--repo NAME] [--operator] [--allow-dirty] [--full]
 //! aien-test status [--state-dir DIR]
 //! aien-test verify COMMIT [--repo NAME] [--base REF] [--state-dir DIR] [--release]
-//! aien-test worker [--once REPO SHA] [--poll SECS] [--repos LIST] [--github] [--iterations N]
+//! aien-test worker [--once REPO SHA | --batch REPO SHA...] [--full] [--batch-host N] [--batch-heads N] [--poll SECS] [--repos LIST] [--github] [--iterations N]
 //!                  [--state-dir DIR] [--key FILE] [--clones DIR] [--wt-root DIR] [--wt-tool FILE] [--siblings FILE] [--sandbox user|none --dev-unsandboxed]
 //! ```
 //!
+//! `--full` (plan, worker): full scope, an Alpha qualification. Every gate at
+//! HEAD is selected whatever changed and the bundle signs `plan.scope: full`.
+//!
 //! `--host/--qemu/--gb10` and `--mutants` are later slices and are refused.
 
-use crate::resources::{parse_jobs, JobsSpec};
+use crate::resources::{parse_jobs, GpuWait, JobsSpec};
 use crate::sandbox::Sandbox;
 use std::path::PathBuf;
 
@@ -26,13 +44,14 @@ pub const USAGE: &str = "usage:
   aien-test why GATE_FILE_OR_NAME [flags]
   aien-test list [flags]
   aien-test identity GATE_FILE_OR_NAME [--compiler-identity S] [--flag F]... [--hardware-identity S]
-  aien-test plan [--base REF] [--repo NAME] [--operator] [--allow-dirty]
+  aien-test plan [--base REF] [--repo NAME] [--operator] [--allow-dirty] [--full]
   aien-test status [--state-dir DIR]
   aien-test verify COMMIT [--repo NAME] [--base REF] [--state-dir DIR] [--release]
-  aien-test worker [--once REPO SHA] [--poll SECS] [--repos A,B] [--github] [--iterations N]
+  aien-test worker [--once REPO SHA | --batch REPO SHA...] [--full] [--batch-host N] [--batch-heads N] [--poll SECS] [--repos A,B] [--github] [--iterations N]
                    [--state-dir DIR] [--key FILE] [--clones DIR] [--wt-root DIR] [--wt-tool FILE] [--siblings FILE] [--sandbox user|none --dev-unsandboxed]
-flags: --evidence-dir DIR  --allow-dirty  --no-cache  --release  --jobs host=N,qemu=M  --wait-gpu
-       --sandbox none|user  --base REF  --operator";
+flags: --evidence-dir DIR  --allow-dirty  --no-cache  --release  --jobs host=N,qemu=M  --gpu-wait 0|DURATION  --wait-gpu
+       --sandbox none|user  --base REF  --operator  --shared-cache DIR (run)
+       --full (plan, worker): full scope, every gate at HEAD (an Alpha qualification)";
 
 /// Which gates `test` runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,11 +93,16 @@ pub struct Cli {
     pub args: Option<Vec<String>>,
     /// `--jobs host=N,qemu=M`: the pool sizes that were named.
     pub jobs: JobsSpec,
-    /// `--wait-gpu`: wait for a held GPU lock instead of refusing.
-    pub wait_gpu: bool,
+    /// `--gpu-wait 0|DURATION` (refuse at once, or wait up to DURATION) or
+    /// `--wait-gpu` (no bound) for a held GPU lock; None: the default bound
+    /// (`resources::DEFAULT_GPU_WAIT`).
+    pub gpu_wait: Option<GpuWait>,
     /// `identity` only: the compiler identity string (default empty: nothing
     /// here builds yet).
     pub compiler_identity: String,
+    /// `--shared-cache DIR` (run only): the cross-head store the worker keeps
+    /// in `<state>/gate-cache/<repo>`, for one gate judged by hand.
+    pub shared_cache: Option<PathBuf>,
     /// `identity` only: `--flag F`, repeatable, order kept.
     pub flags: Vec<String>,
     /// `identity` only: needed for `cache_scope: hardware`.
@@ -95,6 +119,9 @@ pub struct Cli {
     pub repo: Option<String>,
     /// `--operator`: allow a pipeline configuration change.
     pub operator: bool,
+    /// `--full` (plan, worker): full scope, every gate at HEAD whatever
+    /// changed (an Alpha qualification).
+    pub full: bool,
     /// `--state-dir DIR`: the local CI state (default `~/.local/state/aien-local-ci`).
     pub state_dir: Option<PathBuf>,
     /// worker: `--key FILE` (default `~/.aien/verify.key`).
@@ -111,6 +138,12 @@ pub struct Cli {
     pub siblings: Option<PathBuf>,
     /// worker: `--once REPO SHA`.
     pub once: Option<(String, String)>,
+    /// worker: `--batch REPO SHA SHA...` (judge these heads together).
+    pub batch: Option<(String, Vec<String>)>,
+    /// worker: `--batch-host N` (host slots a batch shares).
+    pub batch_host: Option<usize>,
+    /// worker: `--batch-heads N` (heads per batch in the loop).
+    pub batch_heads: Option<usize>,
     /// worker: `--poll SECS` (default 30).
     pub poll: Option<u64>,
     /// worker: `--repos A,B`.
@@ -145,7 +178,10 @@ fn parse_selection(s: &str) -> Result<Selection, String> {
 const COMMANDS: [&str; 9] = [
     "run", "test", "why", "list", "identity", "plan", "status", "verify", "worker",
 ];
-const WORKER_FLAGS: [&str; 13] = [
+const WORKER_FLAGS: [&str; 16] = [
+    "--batch",
+    "--batch-host",
+    "--batch-heads",
     "--dev-unsandboxed",
     "--key",
     "--clones",
@@ -176,7 +212,7 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
     let mut release = false;
     let mut args: Option<Vec<String>> = None;
     let mut jobs = JobsSpec::default();
-    let mut wait_gpu = false;
+    let mut gpu_wait: Option<GpuWait> = None;
     let mut compiler_identity = String::new();
     let mut flags: Vec<String> = Vec::new();
     let mut hardware_identity: Option<String> = None;
@@ -187,6 +223,7 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
     let mut base: Option<String> = None;
     let mut repo: Option<String> = None;
     let mut operator = false;
+    let mut full = false;
     let mut state_dir: Option<PathBuf> = None;
     let mut key: Option<PathBuf> = None;
     let mut clones: Option<PathBuf> = None;
@@ -194,10 +231,14 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
     let mut wt_tool: Option<PathBuf> = None;
     let mut siblings: Option<PathBuf> = None;
     let mut once: Option<(String, String)> = None;
+    let mut batch: Option<(String, Vec<String>)> = None;
+    let mut batch_host: Option<usize> = None;
+    let mut batch_heads: Option<usize> = None;
     let mut poll: Option<u64> = None;
     let mut repos: Vec<String> = Vec::new();
     let mut github = false;
     let mut iterations: Option<u64> = None;
+    let mut shared_cache: Option<PathBuf> = None;
     let mut worker_flags: Vec<&str> = Vec::new();
     let mut i = 1;
     let value = |i: &mut usize, a: &str| -> Result<String, String> {
@@ -213,6 +254,8 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
             break;
         } else if a == "--evidence-dir" {
             evidence_dir = Some(PathBuf::from(value(&mut i, a)?));
+        } else if a == "--shared-cache" {
+            shared_cache = Some(PathBuf::from(value(&mut i, a)?));
         } else if a == "--jobs" {
             jobs = parse_jobs(&value(&mut i, a)?)?;
         } else if a == "--compiler-identity" || a == "--flag" || a == "--hardware-identity" {
@@ -230,9 +273,21 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
         } else if a == "--release" {
             release = true;
         } else if a == "--wait-gpu" {
-            wait_gpu = true;
+            gpu_wait = Some(GpuWait::Forever);
+        } else if a == "--gpu-wait" {
+            let d = value(&mut i, a)?;
+            gpu_wait = Some(if d == "0" {
+                GpuWait::Refuse
+            } else {
+                let ms = crate::manifest::parse_duration_ms(&d).ok_or_else(|| {
+                    format!("--gpu-wait needs 0 or a duration like 90s or 30m, not {d:?}")
+                })?;
+                GpuWait::Bounded(std::time::Duration::from_millis(ms))
+            });
         } else if a == "--operator" {
             operator = true;
+        } else if a == "--full" {
+            full = true;
         } else if a == "--base" {
             base = Some(value(&mut i, a)?);
         } else if a == "--repo" {
@@ -265,6 +320,38 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
                 return Err("--once needs REPO and a 40-hex SHA".to_string());
             }
             once = Some((r, s.to_ascii_lowercase()));
+        } else if a == "--batch" {
+            worker_flags.push("--batch");
+            let r = value(&mut i, a)?;
+            let mut shas = Vec::new();
+            while argv.get(i + 1).is_some_and(|s| !s.starts_with("--")) {
+                let s = value(&mut i, a)?;
+                if s.len() != 40 || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    return Err(format!("--batch needs REPO and 40-hex SHAs, not {s:?}"));
+                }
+                shas.push(s.to_ascii_lowercase());
+            }
+            if shas.is_empty() {
+                return Err("--batch needs REPO and at least one 40-hex SHA".to_string());
+            }
+            batch = Some((r, shas));
+        } else if a == "--batch-host" || a == "--batch-heads" {
+            worker_flags.push(if a == "--batch-host" {
+                "--batch-host"
+            } else {
+                "--batch-heads"
+            });
+            let v = value(&mut i, a)?;
+            let n = v
+                .parse::<usize>()
+                .ok()
+                .filter(|n| *n > 0)
+                .ok_or_else(|| format!("{a} needs a positive number, not {v:?}"))?;
+            if a == "--batch-host" {
+                batch_host = Some(n);
+            } else {
+                batch_heads = Some(n);
+            }
         } else if a == "--poll" {
             worker_flags.push("--poll");
             let v = value(&mut i, a)?;
@@ -327,8 +414,14 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
     if operator && !["plan", "test", "worker"].contains(&name) {
         return Err("--operator only applies to plan, test and worker".to_string());
     }
+    if full && !["plan", "worker"].contains(&name) {
+        return Err("--full only applies to plan and worker".to_string());
+    }
     if repo.is_some() && !["plan", "verify", "worker"].contains(&name) {
         return Err("--repo only applies to plan, verify and worker".to_string());
+    }
+    if shared_cache.is_some() && name != "run" {
+        return Err("--shared-cache only applies to run".to_string());
     }
     if state_dir.is_some() && !["status", "verify", "worker"].contains(&name) {
         return Err("--state-dir only applies to status, verify and worker".to_string());
@@ -371,7 +464,7 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
         release,
         args,
         jobs,
-        wait_gpu,
+        gpu_wait,
         compiler_identity,
         flags,
         hardware_identity,
@@ -381,6 +474,7 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
         base,
         repo,
         operator,
+        full,
         state_dir,
         key,
         clones,
@@ -388,10 +482,14 @@ pub fn parse_args(argv: &[String]) -> Result<Cli, String> {
         wt_tool,
         siblings,
         once,
+        batch,
+        batch_host,
+        batch_heads,
         poll,
         repos,
         github,
         iterations,
+        shared_cache,
     })
 }
 
@@ -417,7 +515,7 @@ mod tests {
         assert!(!c.allow_dirty);
         assert!(!c.no_cache);
         assert!(!c.release);
-        assert!(!c.wait_gpu);
+        assert_eq!(c.gpu_wait, None);
         assert_eq!(c.args, None);
         assert_eq!(c.evidence_dir, None);
         assert_eq!(c.jobs, JobsSpec::default());
@@ -489,6 +587,19 @@ mod tests {
     }
 
     #[test]
+    fn gpu_wait_takes_zero_or_a_duration() {
+        let c = parse_args(&v(&["worker", "--gpu-wait", "0"])).unwrap();
+        assert_eq!(c.gpu_wait, Some(GpuWait::Refuse));
+        let c = parse_args(&v(&["run", "g", "--gpu-wait", "90s"])).unwrap();
+        assert_eq!(
+            c.gpu_wait,
+            Some(GpuWait::Bounded(std::time::Duration::from_secs(90)))
+        );
+        assert!(parse_args(&v(&["run", "g", "--gpu-wait", "soon"])).is_err());
+        assert!(parse_args(&v(&["run", "g", "--gpu-wait"])).is_err());
+    }
+
+    #[test]
     fn jobs_and_wait_gpu() {
         let c = parse_args(&v(&[
             "test",
@@ -500,7 +611,7 @@ mod tests {
         .unwrap();
         assert_eq!(c.jobs.host, Some(3));
         assert_eq!(c.jobs.qemu, Some(2));
-        assert!(c.wait_gpu);
+        assert_eq!(c.gpu_wait, Some(GpuWait::Forever));
         let c = parse_args(&v(&["test", "./...", "--jobs", "qemu=1"])).unwrap();
         assert_eq!(c.jobs.host, None);
         assert_eq!(c.jobs.qemu, Some(1));
@@ -657,6 +768,25 @@ mod tests {
         assert!(parse_args(&v(&["run", "G", "--poll", "5"])).is_err());
         assert!(parse_args(&v(&["plan", "--github"])).is_err());
         assert!(parse_args(&v(&["worker", "extra"])).is_err());
+    }
+
+    #[test]
+    fn full_scope_flag_is_for_plan_and_worker_only() {
+        let sha = "d".repeat(40);
+        let c = parse_args(&v(&["worker", "--once", "repo", &sha, "--full"])).unwrap();
+        assert!(c.full);
+        assert_eq!(c.once, Some(("repo".to_string(), sha.clone())));
+        let c = parse_args(&v(&["plan", "--full"])).unwrap();
+        assert_eq!(c.command, Command::Plan);
+        assert!(c.full);
+        assert!(!parse_args(&v(&["plan"])).unwrap().full);
+        for bad in [
+            v(&["test", "./...", "--full"]),
+            v(&["verify", &sha, "--full"]),
+            v(&["run", "G", "--full"]),
+        ] {
+            assert!(parse_args(&bad).is_err(), "{bad:?}");
+        }
     }
 
     #[test]

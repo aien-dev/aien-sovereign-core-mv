@@ -4,7 +4,6 @@ name: Release Dry Run (no publish, no secrets)
 # no signing, no upload. Guarded by scripts/test-dry-run-workflow.sh. Decision D1 (aien-architecture#156): no signing
 # key is generated or stored now and nothing is published.
 on:
-  pull_request:
   workflow_dispatch:
 
 permissions:
