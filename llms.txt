@@ -1,6 +1,6 @@
-# AIEN Atlas Sovereign Core
+# aien-sovereign-core
 
-> High-performance native agent runtime, ultra-low-latency Axum web gateway, and the AIEN native inference runtime for NVIDIA DGX Spark GB10.
+> The Rust workspace of the AIEN host runtime and its verification tooling on the NVIDIA DGX Spark GB10: the aien command line and runtime daemon, inference ABI, paged KV cache and scheduler, GPU through our own Omega kernels, the AIEN verification pipeline (the judge), and release install. Rust is scaffolding, Omega is the destination (ADR 0024).
 
 Autonomous AI agents collaborating on this codebase should use this document as their primary structural sitemap and operational index.
 
@@ -39,7 +39,7 @@ cargo audit
 bash scripts/agent-preflight.sh
 
 # Query open tasks from the Honeycomb Forge
-curl -s http://192.168.1.108:18095/api/hive/forge/tasks?project=harvester
+curl -s "$AIEN_HUB_URL/api/hive/forge/tasks?project=harvester"
 ```
 
 ## Licensing and Governance

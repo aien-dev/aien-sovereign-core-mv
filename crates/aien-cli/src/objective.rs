@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! sovereign-core #380 (lane L6, acceptance step E2 and CTRL-E2): the
 //! operator's objective is recorded, with its identity, before any work.
 //!
@@ -42,6 +57,12 @@ fn sha256_hex(b: &[u8]) -> String {
 pub fn objective_id(text: &str) -> String {
     aien_runtime::objective::objective_id(text)
 }
+
+/// Tests that set or read `AIEN_PROVENANCE_DIR` hold this, so one test's
+/// `set_var` cannot land between another test's reads (the test harness runs
+/// them on parallel threads of one process).
+#[cfg(test)]
+pub(crate) static PROVENANCE_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// The same directory the daemon re-reads (sovereign-core #408).
 fn dir() -> PathBuf {
@@ -199,6 +220,9 @@ mod tests {
 
     #[test]
     fn matching_objective_id_is_accepted_and_carried() {
+        let _env = super::PROVENANCE_ENV
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let t = tempfile::tempdir().unwrap();
         std::env::set_var("AIEN_PROVENANCE_DIR", t.path());
         let r = record("do the thing", None).unwrap();
@@ -220,6 +244,9 @@ mod default_dir_tests {
     /// or approval refuses ObjectiveMissing. Both call the one runtime function.
     #[test]
     fn cli_and_daemon_agree_and_default_is_not_tmp() {
+        let _env = super::PROVENANCE_ENV
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let with = |k: &str| {
             if k == "HOME" {
                 Some("/home/op".to_string())

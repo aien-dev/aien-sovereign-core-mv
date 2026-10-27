@@ -1,0 +1,14 @@
+chip start 13:15:41Z
+upload 151936 x 2048 bf16 (622 MB): rc=OK 340 ms ()
+parity: 0 of 151936 rows differ from the f32 emulation (bit compare); worst error vs double oracle 2.36e-08 of the term scale (y -1.416); argmax chip 74730 oracle 74730
+second call: bit-identical
+bf16-x entry: bit-identical to the emulation
+timing (medians of 20, evict 1): rows 1 warps 16 depth 8 ctas 96: chip 3167.4 us = 196.5 GB/s on 622 MB; call 3271.0 us = 190.3 GB/s
+chip mutant 1: caught (4096 of 4096 rows differ)
+chip mutant 2: caught (4096 of 4096 rows differ)
+chip mutant 3: caught (4096 of 4096 rows differ)
+chip XBATCH 4 (32768 bytes of shared memory): ran, 0 of 4096 x 4 rows differ from the emulation (bit-identical)
+chip XBATCH 8 (65536 bytes of shared memory): ran, 0 of 4096 x 8 rows differ from the emulation (bit-identical)
+chip XBATCH 8 mutant 4: caught (28672 rows differ)
+gpu_bf16_gemv_test: 19 checks, 0 failed: PASS
+chip exit 0 13:15:43Z

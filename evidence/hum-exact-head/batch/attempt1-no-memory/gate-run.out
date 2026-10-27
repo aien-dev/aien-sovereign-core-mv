@@ -1,0 +1,21 @@
+2026-10-21T12:46:41Z l314-real8-4d377169: start bin-4d377169 8 slots () MemAvailable 44 GB
+2026-10-21T12:46:46Z l314-real8-4d377169: server did not come up: aien-serve-http: qwen36-batch load failed: needs 37254 MiB plus 8192 MiB kept free, MemAvailable 45074 MiB (another model may be loaded); refusing
+2026-10-21T12:46:46Z stopped 2954673
+2026-10-21T12:47:46Z l314-real8-4d377169: start bin-4d377169 8 slots () MemAvailable 44 GB
+2026-10-21T12:47:51Z l314-real8-4d377169: server did not come up: aien-serve-http: qwen36-batch load failed: needs 37254 MiB plus 8192 MiB kept free, MemAvailable 45110 MiB (another model may be loaded); refusing
+2026-10-21T12:47:51Z stopped 2970071
+2026-10-21T12:48:51Z l314-real8-4d377169: start bin-4d377169 8 slots () MemAvailable 41 GB
+2026-10-21T12:48:57Z l314-real8-4d377169: server did not come up: aien-serve-http: qwen36-batch load failed: needs 37254 MiB plus 8192 MiB kept free, MemAvailable 42402 MiB (another model may be loaded); refusing
+2026-10-21T12:48:57Z stopped 2985523
+2026-10-21T12:49:57Z l314-real8-4d377169: rc 2 (want 0)
+2026-10-21T12:49:57Z l314-mut5-8-4d377169: start bin-4d377169 8 slots (AIEN_Q36_TEST_MUTANT=5) MemAvailable 43 GB
+2026-10-21T12:50:02Z l314-mut5-8-4d377169: server did not come up: aien-serve-http: qwen36-batch load failed: needs 37254 MiB plus 8192 MiB kept free, MemAvailable 44223 MiB (another model may be loaded); refusing
+2026-10-21T12:50:02Z stopped 3005705
+2026-10-21T12:51:02Z l314-mut5-8-4d377169: start bin-4d377169 8 slots (AIEN_Q36_TEST_MUTANT=5) MemAvailable 44 GB
+2026-10-21T12:51:07Z l314-mut5-8-4d377169: server did not come up: aien-serve-http: qwen36-batch load failed: needs 37254 MiB plus 8192 MiB kept free, MemAvailable 45420 MiB (another model may be loaded); refusing
+2026-10-21T12:51:07Z stopped 3047350
+2026-10-21T12:52:07Z l314-mut5-8-4d377169: start bin-4d377169 8 slots (AIEN_Q36_TEST_MUTANT=5) MemAvailable 39 GB
+2026-10-21T12:52:12Z l314-mut5-8-4d377169: server did not come up: aien-serve-http: qwen36-batch load failed: needs 37254 MiB plus 8192 MiB kept free, MemAvailable 40286 MiB (another model may be loaded); refusing
+2026-10-21T12:52:12Z stopped 3059962
+2026-10-21T12:53:12Z l314-mut5-8-4d377169: rc 2 (want 1)
+2026-10-21T12:53:12Z VERDICT FAIL

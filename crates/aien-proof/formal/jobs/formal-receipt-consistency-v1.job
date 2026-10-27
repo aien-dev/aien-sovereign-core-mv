@@ -7,6 +7,6 @@ RUNNER=run-receipt-formal.sh
 RESULT_PREFIX=RECEIPT_FORMAL_BOOTSTRAP
 MODEL="bootstrap/formal-oracles/lean/AienReceipt/Model.lean bootstrap/formal-oracles/lean/AienReceipt/Layout.lean"
 THEOREM_FILE=bootstrap/formal-oracles/lean/AienReceipt/Theorems.lean
-COVERED_REPO=aien-dev/aienos
+COVERED_REPO=aien-dev/aienux
 COVERED_COMMIT=2ee61b4b158a385c5fcf2c925a625ac043babb21
 COVERED_PATH=crates/aienos-artifact/src/receipt.rs

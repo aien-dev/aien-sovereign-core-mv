@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
+<!-- Replace SPARK_USER and SPARK_HOST with the SSH login and address of your DGX Spark before installing. -->
 <dict>
 	<key>KeepAlive</key>
 	<true/>
@@ -28,7 +29,7 @@
 		<string>18003:127.0.0.1:18003</string>
 		<string>-L</string>
 		<string>18091:127.0.0.1:18081</string>
-		<string>drakestapleton@100.116.106.93</string>
+		<string>SPARK_USER@SPARK_HOST</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>

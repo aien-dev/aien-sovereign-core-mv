@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Raw declarations, written by hand from omega `src/omega_gpu_matmul_api.h`,
 //! `omega_gpu_session.h`, `omega_gpu_serving.h`, `omega_gpu_elementwise_api.h` and
 //! `omega_gpu_attention_api.h` at the commit pinned in `omega.lock`. Nothing generated.
@@ -24,7 +39,7 @@ pub const OMEGA_GPU_MATMUL_PARITY_FAIL: c_int = -5;
 pub const OMEGA_GPU_MATMUL_TILE_M: u32 = 16;
 pub const OMEGA_GPU_MATMUL_TILE_N: u32 = 8;
 pub const OMEGA_GPU_MATMUL_TILE_K: u32 = 16;
-pub const OMEGA_GPU_MATMUL_MAX_CTAS: u32 = 64;
+pub const OMEGA_GPU_MATMUL_MAX_CTAS: u32 = 1024;
 }
 
 abi_struct! {
