@@ -79,21 +79,35 @@ pub trait Codec: Send + Sync {
     /// character must decode with a trailing U+FFFD, never fail.
     fn decode(&self, tokens: &[u32]) -> Result<String, CodecError>;
     fn stop_token_ids(&self) -> Vec<u32>;
+    /// The bytes one token stands for (`/v1/tokenize-text`). The default decodes the token
+    /// alone, which is exact unless the token is part of a multi-byte character.
+    fn token_bytes(&self, id: u32) -> Result<Vec<u8>, CodecError> {
+        Ok(self.decode(&[id])?.into_bytes())
+    }
 }
 
 /// The model's own tokenizer and chat template.
 pub struct HfCodec {
     tokenizer: ChatTokenizer,
     template_name: &'static str,
+    /// The vocabulary is GPT-2 byte-level (a space is the piece `Ġ`): pieces map to bytes.
+    byte_level: bool,
 }
 
 impl HfCodec {
     pub fn from_model_dir(dir: &Path) -> Result<Self, CodecError> {
         let tokenizer = ChatTokenizer::from_model_dir(dir, None)?;
         let template_name = tokenizer.template().name();
+        let byte_level = match tokenizer.encode(" a").ok().as_deref() {
+            Some([first, ..]) => tokenizer
+                .id_to_token(*first)
+                .is_some_and(|p| p.starts_with('\u{120}')),
+            _ => false,
+        };
         Ok(Self {
             tokenizer,
             template_name,
+            byte_level,
         })
     }
 
@@ -145,6 +159,39 @@ impl Codec for HfCodec {
     fn stop_token_ids(&self) -> Vec<u32> {
         self.tokenizer.stop_token_ids().to_vec()
     }
+
+    /// A byte-level BPE piece (`Ġ` for a space, ...) maps back to its exact bytes, even half a
+    /// character; a piece outside the byte-level alphabet falls back to decoding the token.
+    fn token_bytes(&self, id: u32) -> Result<Vec<u8>, CodecError> {
+        if let Some(b) = self
+            .byte_level
+            .then(|| self.tokenizer.id_to_token(id))
+            .flatten()
+            .and_then(|p| byte_level_bytes(&p))
+        {
+            return Ok(b);
+        }
+        Ok(self.decode(&[id])?.into_bytes())
+    }
+}
+
+/// Inverts GPT-2's `bytes_to_unicode`: bytes `!`..=`~`, `¡`..=`¬` and `®`..=`ÿ` stand for
+/// themselves; the other 68 bytes, in order, are U+0100 onward.
+pub fn byte_level_bytes(piece: &str) -> Option<Vec<u8>> {
+    let direct = |b: u32| (33..=126).contains(&b) || (161..=172).contains(&b) || (174..=255).contains(&b);
+    let shifted: Vec<u8> = (0u32..=255).filter(|&b| !direct(b)).map(|b| b as u8).collect();
+    piece
+        .chars()
+        .map(|c| {
+            let c = c as u32;
+            if direct(c) {
+                Some(c as u8)
+            } else {
+                c.checked_sub(256)
+                    .and_then(|i| shifted.get(i as usize).copied())
+            }
+        })
+        .collect()
 }
 
 /// Test codec: token id = byte value, stop id 256. The chat layout is
@@ -185,6 +232,12 @@ impl Codec for ByteCodec {
     fn stop_token_ids(&self) -> Vec<u32> {
         vec![Self::STOP]
     }
+
+    fn token_bytes(&self, id: u32) -> Result<Vec<u8>, CodecError> {
+        u8::try_from(id)
+            .map(|b| vec![b])
+            .map_err(|_| CodecError::Failed(format!("token {id} has no bytes")))
+    }
 }
 
 #[cfg(test)]
@@ -210,5 +263,17 @@ mod tests {
             c.render_chat(&[("tool", "x")]),
             Err(CodecError::Unrenderable(_))
         ));
+    }
+
+    #[test]
+    fn byte_level_pieces_map_back_to_bytes() {
+        assert_eq!(byte_level_bytes("\u{120}a"), Some(b" a".to_vec()));
+        assert_eq!(byte_level_bytes("\u{10A}"), Some(vec![b'\n']));
+        assert_eq!(byte_level_bytes("<|im_end|>"), Some(b"<|im_end|>".to_vec()));
+        // `é` split across two pieces: the high byte alone is exact, no U+FFFD.
+        assert_eq!(byte_level_bytes("\u{C3}"), Some(vec![0xC3]));
+        assert_eq!(byte_level_bytes("\u{2581}x"), None);
+        assert_eq!(ByteCodec.token_bytes(0xC3).unwrap(), vec![0xC3]);
+        assert!(ByteCodec.token_bytes(ByteCodec::STOP).is_err());
     }
 }

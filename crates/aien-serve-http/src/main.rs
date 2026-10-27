@@ -21,6 +21,7 @@
 //!                   [--model-dir DIR] [--port 18091]
 //!                   [--bind 127.0.0.1] [--model-id ID] [--max-context N]
 //!                   [--max-tokens-cap N] [--stub-reply TEXT] [--thinking on|off|template]
+//!                   [--cors-origin https://host[:port]]... [--model-alias NAME]...
 //!   aien-serve-http --version
 //!
 //! `--model-dir` defaults to `$HOME/models/qwen3.8-27b-fp8-017b9c7a`. `--version` prints the
@@ -44,6 +45,10 @@
 //! own default (Qwen3.8-27B and Qwen3.6-35B-A3B: on). Templates without a thinking switch ignore it.
 //! `stub` replays `--stub-reply` for every request, using the model directory's
 //! tokenizer when it exists (so Odysseus can be wired before the weights load).
+//! `--cors-origin` (repeatable) lets one browser origin call the API: CORS headers for it and
+//! its Origin accepted; the bearer token is still required. None by default. `--model-alias`
+//! (repeatable) is another name a request may give the model (e.g. `grok-4.7` for a client
+//! written for xAI); replies carry `--model-id`.
 
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -124,7 +129,7 @@ fn usage() -> String {
     "usage: aien-serve-http [--engine cpu|stub|omega] [--weights bf16|fp8-experts|fp8] [--spin-us N] \
      [--model-dir DIR] [--port N] [--bind ADDR] [--model-id ID] [--max-context N] \
      [--max-tokens-cap N] [--stub-reply TEXT] [--whole-prompt on|off] [--prefill-device-host on|off] \
-     [--thinking on|off|template] [--batch-slots N] [--version]"
+     [--thinking on|off|template] [--batch-slots N] [--cors-origin URL]... [--model-alias NAME]... [--version]"
         .to_string()
 }
 
@@ -202,6 +207,26 @@ fn parse_args() -> Result<Args, String> {
             "--whole-prompt" => a.whole_prompt = Some(parse_switch("--whole-prompt", &val()?)?),
             "--prefill-device-host" => {
                 a.wp_device_host = Some(parse_switch("--prefill-device-host", &val()?)?)
+            }
+            "--cors-origin" => {
+                let o = val()?;
+                let host = o
+                    .strip_prefix("https://")
+                    .or_else(|| o.strip_prefix("http://"))
+                    .unwrap_or("");
+                if host.is_empty() || host.contains(['/', '*', ' ', ',']) {
+                    return Err(format!(
+                        "--cors-origin must be one exact origin like https://example.com[:port], got {o}"
+                    ));
+                }
+                a.cfg.cors_origins.push(o);
+            }
+            "--model-alias" => {
+                let m = val()?;
+                if m.is_empty() {
+                    return Err("--model-alias needs a nonempty name".into());
+                }
+                a.cfg.model_aliases.push(m);
             }
             "-h" | "--help" => return Err(usage()),
             other => return Err(format!("unknown flag {other}\n{}", usage())),

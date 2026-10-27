@@ -52,6 +52,18 @@ pub struct ChatRequest {
     pub functions: Option<Vec<Value>>,
     #[serde(default)]
     pub stream_options: Option<StreamOptions>,
+    /// `"auto"` (default), `"none"` (the tools are not shown to the model), or a forced call
+    /// (`"required"`, `{"type":"function","function":{"name":..}}`), which is refused with 400:
+    /// this server has no constrained decoding to force a call.
+    #[serde(default)]
+    pub tool_choice: Option<Value>,
+    /// `false`: only the first tool call of a reply is returned.
+    #[serde(default)]
+    pub parallel_tool_calls: Option<bool>,
+    /// `{"type":"text"}` only; `json_object` / `json_schema` are refused with 400 (no
+    /// constrained decoding).
+    #[serde(default)]
+    pub response_format: Option<Value>,
     /// Template switches (`{"enable_thinking": bool, "reasoning_effort": "low|medium|xhigh",
     /// "preserve_thinking": bool}`), read only by templates that define them (Qwen3.8-27B:
     /// thinking and effort; Qwen3.6-35B-A3B: thinking and preserve).
@@ -123,6 +135,8 @@ pub struct Usage {
     pub prompt_tokens: usize,
     pub completion_tokens: usize,
     pub total_tokens: usize,
+    /// `reasoning_tokens`: the tokens of the thinking block (part of `completion_tokens`).
+    pub completion_tokens_details: CompletionTokensDetails,
     /// How the reply was sampled (OWN-8B stage S): an extra field, ignored by OpenAI clients.
     /// Its `seed` replays the request. Absent for an engine that does not sample.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -133,6 +147,11 @@ pub struct Usage {
     /// The merge train's switches this request set (`{"applied": [names]}`), when it set any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aien_test: Option<Value>,
+}
+
+#[derive(Debug, Serialize, Clone, Copy, Default)]
+pub struct CompletionTokensDetails {
+    pub reasoning_tokens: usize,
 }
 
 #[derive(Debug, Serialize)]

@@ -21,6 +21,7 @@
 
 pub mod chip_reservation;
 pub mod codec;
+pub mod compat;
 pub mod cpu_engine;
 pub mod engine;
 pub mod kv_persist;

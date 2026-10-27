@@ -21,6 +21,7 @@
 #     model     model id to request; default: the first id from GET <base>/models
 #   env XAI_COMPAT_BEARER   token to send as "Authorization: Bearer"; default "aien-compat-probe"
 #   env XAI_COMPAT_OUT      keep raw responses in this directory; default: a temp dir, deleted
+#   env XAI_COMPAT_ORIGIN   Origin sent by the CORS preflight; default "https://example.invalid"
 #
 # Sends request shapes taken from the xAI REST reference (docs.x.ai/developers/rest-api-reference,
 # fetched 2026-10-26) and prints one line per check:
@@ -40,6 +41,7 @@ case $base in
 esac
 for t in curl jq; do command -v "$t" >/dev/null || { echo "missing $t" >&2; exit 2; }; done
 tok=${XAI_COMPAT_BEARER:-aien-compat-probe}
+origin=${XAI_COMPAT_ORIGIN:-https://example.invalid}
 if [ -n "${XAI_COMPAT_OUT:-}" ]; then out=$XAI_COMPAT_OUT; mkdir -p "$out"; else
 	out=$(mktemp -d); trap 'rm -rf "$out"' EXIT
 fi
@@ -156,7 +158,7 @@ c=$(PROBE_AUTH="Bearer wrong-$tok" req auth.wrong POST /chat/completions "{\"mod
 check EXT auth.wrong "$c" "$c == 401" "wrong bearer -> 401"
 
 # CORS preflight, needed by browser clients
-c=$(req cors.preflight OPTIONS /chat/completions '' -H 'Origin: https://example.invalid' \
+c=$(req cors.preflight OPTIONS /chat/completions '' -H "Origin: $origin" \
 	-H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: authorization,content-type')
 if [ "${c:0:1}" = 2 ] && grep -qi '^access-control-allow-origin:' "$out/cors.preflight.hdr"; then
 	verdict PASS EXT cors.preflight "$c" "OPTIONS preflight answered"

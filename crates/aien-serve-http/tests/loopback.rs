@@ -813,3 +813,185 @@ mod sampling_gate {
         assert!(picks.len() >= 2, "{picks:?}");
     }
 }
+
+fn post(addr: SocketAddr, path: &str, body: &str) -> Reply {
+    request(addr, "POST", path, Some(body))
+}
+
+/// `--cors-origin`: a listed origin gets a preflight and `Access-Control-Allow-Origin`, and still
+/// needs the bearer; any other origin gets neither. Off by default.
+#[test]
+fn cors_only_for_listed_origins() {
+    let preflight = |addr, origin: &str| {
+        raw_request(addr, &format!(
+            "OPTIONS /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nOrigin: {origin}\r\nAccess-Control-Request-Method: POST\r\nAccess-Control-Request-Headers: authorization,content-type\r\n\r\n"
+        ))
+    };
+    let acao = |r: &Reply| {
+        r.headers
+            .to_ascii_lowercase()
+            .contains("access-control-allow-origin:")
+    };
+    let off = start(stub("x"), ServerConfig::default());
+    let r = preflight(off.addr, "https://app.example");
+    assert_eq!(r.status, 403);
+    assert!(!acao(&r));
+
+    let srv = start(
+        stub("x"),
+        ServerConfig {
+            cors_origins: vec!["https://app.example".into()],
+            ..ServerConfig::default()
+        },
+    );
+    let r = preflight(srv.addr, "https://app.example");
+    assert_eq!(r.status, 204, "{}", r.headers);
+    assert!(r
+        .headers
+        .to_ascii_lowercase()
+        .contains("access-control-allow-origin: https://app.example"));
+    let r = preflight(srv.addr, "https://evil.example");
+    assert_eq!(r.status, 403);
+    assert!(!acao(&r));
+
+    let body = r#"{"messages":[{"role":"user","content":"hi"}]}"#;
+    let r = raw_post(
+        srv.addr,
+        &format!("Origin: https://app.example\r\nAuthorization: Bearer {TOKEN}\r\nContent-Type: application/json\r\n"),
+        body,
+    );
+    assert_eq!(r.status, 200, "{}", r.body);
+    assert!(acao(&r));
+    let r = raw_post(
+        srv.addr,
+        "Origin: https://app.example\r\nContent-Type: application/json\r\n",
+        body,
+    );
+    assert_eq!(r.status, 401, "a listed origin still needs the bearer");
+    let r = raw_post(
+        srv.addr,
+        &format!("Origin: https://evil.example\r\nAuthorization: Bearer {TOKEN}\r\nContent-Type: application/json\r\n"),
+        body,
+    );
+    assert_eq!(r.status, 403);
+    assert!(!acao(&r));
+}
+
+/// `tool_choice` forcing a call and `response_format` JSON modes are 400s, never ignored.
+#[test]
+fn unsupported_controls_are_400() {
+    let srv = start(stub("x"), ServerConfig::default());
+    let tools = r#"[{"type":"function","function":{"name":"f","parameters":{"type":"object"}}}]"#;
+    for extra in [
+        format!(r#""tools":{tools},"tool_choice":"required""#),
+        format!(r#""tools":{tools},"tool_choice":{{"type":"function","function":{{"name":"f"}}}}"#),
+        r#""response_format":{"type":"json_object"}"#.to_string(),
+        r#""response_format":{"type":"json_schema","json_schema":{"name":"s","schema":{}}}"#.to_string(),
+        r#""n":9"#.to_string(),
+        r#""n":2,"stream":true"#.to_string(),
+    ] {
+        let body = format!(r#"{{"messages":[{{"role":"user","content":"hi"}}],{extra}}}"#);
+        let r = chat(srv.addr, &body);
+        assert_eq!(r.status, 400, "{extra}: {}", r.body);
+        assert!(json(&r)["error"]["message"].is_string());
+    }
+    let r = chat(
+        srv.addr,
+        &format!(r#"{{"messages":[{{"role":"user","content":"hi"}}],"tools":{tools},"tool_choice":"none","response_format":{{"type":"text"}}}}"#),
+    );
+    assert_eq!(r.status, 200, "{}", r.body);
+}
+
+/// `n = 2` gives two choices; the stream's `include_usage` chunk has no choices.
+#[test]
+fn n_and_include_usage() {
+    let srv = start(stub("ab"), ServerConfig::default());
+    let r = chat(srv.addr, r#"{"messages":[{"role":"user","content":"hi"}],"n":2}"#);
+    assert_eq!(r.status, 200, "{}", r.body);
+    let v = json(&r);
+    assert_eq!(v["choices"].as_array().unwrap().len(), 2);
+    assert_eq!(v["choices"][1]["index"], 1);
+    assert_eq!(v["usage"]["completion_tokens"], 4);
+    assert!(v["usage"]["completion_tokens_details"]["reasoning_tokens"].is_number());
+    let r = chat(
+        srv.addr,
+        r#"{"messages":[{"role":"user","content":"hi"}],"stream":true,"stream_options":{"include_usage":true}}"#,
+    );
+    let data = sse_data(&r.body);
+    assert_eq!(data.last().map(String::as_str), Some("[DONE]"));
+    let u: Value = serde_json::from_str(&data[data.len() - 2]).unwrap();
+    assert_eq!(u["choices"], serde_json::json!([]));
+    assert!(u["usage"]["total_tokens"].is_number());
+}
+
+/// The xAI and legacy surfaces on the stub: Responses, language models, tokenize, completions,
+/// messages, and a model alias.
+#[test]
+fn xai_and_legacy_surfaces() {
+    let srv = start(
+        stub("hello"),
+        ServerConfig {
+            model_aliases: vec!["grok-4.7".into()],
+            ..ServerConfig::default()
+        },
+    );
+    let r = post(srv.addr, "/v1/responses", r#"{"model":"grok-4.7","input":"hi"}"#);
+    assert_eq!(r.status, 200, "{}", r.body);
+    let v = json(&r);
+    assert_eq!(v["object"], "response");
+    assert_eq!(v["status"], "completed");
+    assert_eq!(v["output"][0]["content"][0]["type"], "output_text");
+    assert_eq!(v["output"][0]["content"][0]["text"], "hello");
+    assert!(v["usage"]["output_tokens"].is_number());
+
+    let r = post(srv.addr, "/v1/responses", r#"{"input":"hi","stream":true}"#);
+    assert_eq!(r.status, 200, "{}", r.body);
+    assert!(r.body.contains("event: response.completed"), "{}", r.body);
+    assert!(r.body.contains("event: response.output_text.delta"));
+
+    let r = post(
+        srv.addr,
+        "/v1/responses",
+        r#"{"input":"hi","previous_response_id":"resp_1"}"#,
+    );
+    assert_eq!(r.status, 400, "stateless server refuses chaining");
+
+    let r = request(srv.addr, "GET", "/v1/language-models", None);
+    assert_eq!(r.status, 200, "{}", r.body);
+    let v = json(&r);
+    assert_eq!(v["models"][0]["id"], "test-model");
+    assert_eq!(v["models"][0]["aliases"][0], "grok-4.7");
+    let r = request(srv.addr, "GET", "/v1/models/grok-4.7", None);
+    assert_eq!(r.status, 200, "{}", r.body);
+    let r = request(srv.addr, "GET", "/v1/models/grok-9", None);
+    assert_eq!(r.status, 404);
+
+    let r = post(srv.addr, "/v1/tokenize-text", r#"{"text":"ab","model":"grok-4.7"}"#);
+    assert_eq!(r.status, 200, "{}", r.body);
+    let v = json(&r);
+    assert_eq!(v["token_ids"][0]["token_id"], 97);
+    assert_eq!(v["token_ids"][1]["string_token"], "b");
+
+    let r = post(srv.addr, "/v1/completions", r#"{"prompt":"hi","max_tokens":8}"#);
+    assert_eq!(r.status, 200, "{}", r.body);
+    let v = json(&r);
+    assert_eq!(v["object"], "text_completion");
+    assert_eq!(v["choices"][0]["text"], "hello");
+
+    let r = post(
+        srv.addr,
+        "/v1/messages",
+        r#"{"max_tokens":8,"messages":[{"role":"user","content":"hi"}]}"#,
+    );
+    assert_eq!(r.status, 200, "{}", r.body);
+    let v = json(&r);
+    assert_eq!(v["type"], "message");
+    assert_eq!(v["content"][0]["text"], "hello");
+    let r = post(srv.addr, "/v1/messages", r#"{"messages":[]}"#);
+    assert_eq!(r.status, 400);
+    assert_eq!(json(&r)["type"], "error", "Anthropic error shape");
+
+    let r = chat(srv.addr, r#"{"model":"grok-4.7","messages":[{"role":"user","content":"hi"}]}"#);
+    assert_eq!(r.status, 200, "{}", r.body);
+    assert_eq!(json(&r)["model"], "test-model");
+}
