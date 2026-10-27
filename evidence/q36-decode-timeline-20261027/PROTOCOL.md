@@ -31,3 +31,11 @@ Each A/B runs once. A re-run happens only for a documented machine-load fault, a
 ## The timeline run is not a speed receipt
 
 With the switch on, the chip writes one stamp per launch, which costs chip time. The 200-token timeline run says where the time goes, not how fast the step is.
+
+## Amendment 1 (before any chip number exists): chip arm A is bf51e6d6
+
+A server built from `f30eb963` has no `AIEN_SERVE_GPU_LOCK`, so inside a window where Main holds `/tmp/aien-gb10.lock` its load would wait on that lock and fail. Chip arm A is therefore `bf51e6d6`: `f30eb963` plus only the lock restore, which is the parent of the timeline commit. Arm B stays the timeline commit. The host A/B keeps `f30eb963`, because its driver passes a private lock file in both arms. The verdict rules are unchanged.
+
+## Amendment 2 (host A/B, before any host number exists): driver fix
+
+The first host run produced no sample: in `bench.patch.rs` the fake returned no logits when the prompt's last feed asked for them, so the door never picked a first reply token and the request waited until the 1800 s job limit. The driver now returns a one-hot logits row whose argmax equals its own token. No timing from that run exists, so nothing is selected away. Every other rule is unchanged.

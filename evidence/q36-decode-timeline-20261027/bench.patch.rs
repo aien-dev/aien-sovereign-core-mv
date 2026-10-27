@@ -30,9 +30,17 @@ impl RowStep for BenchFake {
                 let (st, pos) = &mut self.0[f.row];
                 *st = mix(*st ^ (u64::from(f.token) << 20) ^ *pos as u64);
                 *pos += 1;
+                let token = (*st % 89) as u32 + 5;
+                // The prompt's last feed asks for logits: the door samples the first reply
+                // token from them. A one-hot row keeps that pick equal to `token`.
+                let logits = f.logits.then(|| {
+                    let mut l = vec![0.0f32; VOCAB];
+                    l[token as usize] = 1.0;
+                    l
+                });
                 RowOut {
-                    token: (*st % 89) as u32 + 5,
-                    logits: None,
+                    token,
+                    logits,
                     stats: GraphStats::default(),
                 }
             })
