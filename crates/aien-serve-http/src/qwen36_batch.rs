@@ -63,6 +63,16 @@ fn env_usize(name: &str, default: usize) -> usize {
     }
 }
 
+/// The chip lock the live server takes at load and per busy spell. `AIEN_SERVE_GPU_LOCK` points
+/// it at a private file so a live server never waits behind test jobs on `/tmp/aien-gb10.lock`
+/// (coordinator 2026-10-21: serving has priority over chip tests). Added by 61cad330 on
+/// ship/motor-l387 and lost when the batch door moved its load under the lock on main.
+fn serve_lock_path() -> PathBuf {
+    std::env::var_os("AIEN_SERVE_GPU_LOCK")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(GPU_LOCK_PATH))
+}
+
 fn prompt_per_beat() -> Result<usize, String> {
     match std::env::var("AIEN_Q36_PROMPT_PER_BEAT") {
         Ok(v) => match v.parse::<usize>() {
@@ -399,7 +409,7 @@ impl Qwen36BatchDoor {
         let keep = keep_free()?;
         let mut t0 = Instant::now();
         let (lock, mut model) = admit_then_open(
-            || GpuLock::acquire_queued_at(Path::new(GPU_LOCK_PATH), LOAD_LOCK_WAIT),
+            || GpuLock::acquire_queued_at(&serve_lock_path(), LOAD_LOCK_WAIT),
             mem_available,
             need,
             keep,
@@ -442,7 +452,7 @@ impl Qwen36BatchDoor {
         let mut door = Self::with_stepper(
             model,
             max_context,
-            PathBuf::from(GPU_LOCK_PATH),
+            serve_lock_path(),
             REQUEST_LOCK_WAIT,
             per_beat,
             std::env::var(CHIP_GREEDY_ENV).as_deref() != Ok("0"),
