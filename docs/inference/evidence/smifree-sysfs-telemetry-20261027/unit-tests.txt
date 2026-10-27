@@ -2,7 +2,7 @@
 $ cargo test -p aien-inference-abi --lib
 warning: aien-omega-gpu@0.1.0: aien-omega-gpu: no AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB, building the CPU stub
     Finished `test` profile [unoptimized + debuginfo] target(s) in 15.66s
-     Running unittests src/lib.rs (/home/drakestapleton/work/SmiFree/target/debug/deps/aien_inference_abi-fcb2e1ee2edca204)
+     Running unittests src/lib.rs ($CARGO_TARGET_DIR/debug/deps/aien_inference_abi-fcb2e1ee2edca204)
 
 running 297 tests
 test backend::tests::test_reference_backend_name ... ok
@@ -310,7 +310,7 @@ $ cargo test -p aien-cli --bin aien-cli
 warning: aien-omega-gpu@0.1.0: aien-omega-gpu: no AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB, building the CPU stub
 warning: aien-omega-compose@0.1.0: aien-omega-compose: no AIEN_OMEGA_COMPOSE_DIR, AIEN_OMEGA_DIR or AIEN_OMEGA_COMPOSE_LIB, building the stub
     Finished `test` profile [unoptimized + debuginfo] target(s) in 16.13s
-     Running unittests src/main.rs (/home/drakestapleton/work/SmiFree/target/debug/deps/aien_cli-55d07264a069329e)
+     Running unittests src/main.rs ($CARGO_TARGET_DIR/debug/deps/aien_cli-55d07264a069329e)
 
 running 136 tests
 test allen::tests::memory_calls_parse ... ok
