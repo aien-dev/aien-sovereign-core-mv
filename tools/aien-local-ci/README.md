@@ -21,7 +21,9 @@ AIENOS.
 | `tests/pipeline_test.sh` | offline proofs of `pipeline.sh` with fake `gh`, fake `aien-test` and throwaway git repositories (75 checks) |
 | `rebase-train.sh` | moves `ready-to-merge` PRs that conflict only in `.crumb` files (or are behind) onto main, recompiles crumbs with the pinned tool, force-with-lease pushes; labels `needs-rebase` and comments once otherwise |
 | `cron-tick.sh` | source of the cron entry (`*/5`): crumb drift guard, keeps the trigger-only worker alive, runs `rebase-train.sh`, then `pipeline.sh round` |
-| `desk-loop.sh` | the same train + round in a 90 s loop while `$STATE/KEEP-RUNNING` exists |
+| `desk-loop.sh` | the same train + round in a 90 s loop while `$STATE/KEEP-RUNNING` exists; after each pass it posts one `desk: STALLED` line to `~/handoffs/BOARD.md` (`AIEN_BOARD`) per labelled PR head refused for `AIEN_STALL_HOURS` (2) |
+| `stall-check.sh` | reads `train.jsonl` and `pipeline.jsonl` on stdin, prints one JSON line per labelled PR the desk has refused on the same head for `--hours` (default 2) and still sees (`--fresh` 30 min), with no merge since; exit 0 none, 1 stalls, 2 bad input. Why: the desk fixes only `.crumb` conflicts, so a real conflict was refused every pass for hours with nobody told (2026-10-24, 2026-10-26/27) |
+| `tests/stall_check_test.sh` | offline proofs of `stall-check.sh` and the desk-loop board alert: stall, too short, refreshed head, merged, label gone, torn line, once per head, again on a new head, failing check (16 checks) |
 | `aien-local-ci` | source of the operator front door `~/.local/bin/aien-local-ci` (status, start/stop named worker lanes, trigger, verify, once, plan, health, log) |
 | `crumb-shim.sh` | the operator's `~/.local/bin/crumb`: runs the crumb tool the repository's own CRUMB-VERIFY gate uses (crumb.lock pin, own tree for aien-architecture, else the sandbox tool), so author, readiness check and gate never disagree |
 | `crumb-doctor` | drift check, cron (via cron-tick.sh): gate, readiness and hosted crumb tools agree on every main and tool-changing PR; worker sibling maps match origin/main; `--heal` keeps this clone's work tree on origin/main |
