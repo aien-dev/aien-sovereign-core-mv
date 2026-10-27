@@ -1,4 +1,6 @@
 # tests/gates/sc-preflight-guard.gate
+# target_lock: none because aien-audit-inputs traced no cargo or rustc in this gate (L335, 2026-10-21).
+# cache: inputs_complete because aien-audit-inputs found every file this gate reads declared (L335).
 # Mirrors hosted: ci.yml verify 'bash scripts/test-preflight-branch-guard.sh'
 gate: SC-PREFLIGHT-GUARD
 manifest_version: 2
@@ -17,3 +19,5 @@ expects:
 timeout: 10m
 exactness: EXACT
 cache_scope: machine
+target_lock: none
+cache: inputs_complete

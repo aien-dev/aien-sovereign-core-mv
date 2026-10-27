@@ -1,4 +1,19 @@
 #![cfg(feature = "std")]
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Integration: the C5 storage worker running over the real C4 host
 //! filesystem adapter in a temporary directory (no fake, no mocked I/O).
 //! Covers store, restore, cancel and shutdown through the worker's own
@@ -225,7 +240,13 @@ fn worker_over_host_fs_shutdown_drains_and_the_directory_reopens() {
             .count();
         assert_eq!(n, 1, "{j:?}");
     }
-    assert!(keep.iter().all(|(h, _)| !h.is_held()), "sources released");
+    // The store drops a finished job's source guard just after it unlocks, so the
+    // terminal can be seen a moment before the hold clears.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while keep.iter().any(|(h, _)| h.is_held()) {
+        assert!(Instant::now() < deadline, "sources released");
+        std::thread::sleep(Duration::from_millis(1));
+    }
     // After shutdown, intake is closed.
     let (_, h) = r.fx.chunk(30, 8);
     let mem = Mem::new(2, 0);
@@ -239,6 +260,14 @@ fn worker_over_host_fs_shutdown_drains_and_the_directory_reopens() {
         .collect();
     let Rigged { fx, store, worker } = r;
     drop(worker);
+    // Dropping the handle does not join the worker thread, which still holds two
+    // clones of the store until its loop returns. The store keeps the directory's
+    // LOCK (#521) while any clone lives, so reopen only once the thread let go.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Arc::strong_count(&store) > 1 {
+        assert!(Instant::now() < deadline, "worker thread kept the store");
+        std::thread::sleep(Duration::from_millis(1));
+    }
     drop(store);
     let reopened = fx.open();
     assert_eq!(reopened.capacity().state, StoreState::Open);
@@ -296,6 +325,14 @@ fn worker_over_host_fs_shutdown_with_a_stalled_job_then_restart_recovers() {
     // Restart: leave debris a crash would leave, reopen, recover, restore.
     let Rigged { fx, store, worker } = r;
     drop(worker);
+    // As in the test above: the worker thread still holds two clones of the
+    // store until its loop returns, and the LOCK (#521) lives as long as any
+    // clone, so reopen only once the thread let go.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Arc::strong_count(&store) > 1 {
+        assert!(Instant::now() < deadline, "worker thread kept the store");
+        std::thread::sleep(Duration::from_millis(1));
+    }
     drop(store);
     std::fs::write(fx.root().join("tmp").join("leftover.1.2.3.part"), b"x").unwrap();
     let (junk, _) = fx.chunk(42, 8);

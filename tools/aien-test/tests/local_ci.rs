@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! The local pipeline end to end, and the negative cases the mission lists
 //! (22 to 27): an altered receipt, a bad signature, a bundle from another
 //! commit, a missing required check, a hardware-scoped cached result under
@@ -297,6 +312,7 @@ fn worker_then_verify_is_ready() {
     assert_eq!(line(&r, "Final verdict:"), "Final verdict: PASS");
     assert_eq!(line(&r, "Executed gates:"), "Executed gates: 1 (A)");
     assert_eq!(line(&r, "Build time:"), "Build time: n/a");
+    assert_eq!(line(&r, "GPU lock wait:"), "GPU lock wait: n/a");
     assert!(line(&r, "Test time:").ends_with(" ms"));
     assert_eq!(
         line(&r, "MERGE ELIGIBILITY:"),
@@ -935,6 +951,58 @@ fn main_head_is_verified_against_its_first_parent() {
 }
 
 #[test]
+fn full_scope_worker_qualifies_every_gate_and_signs_the_scope() {
+    // An Alpha: a commit already on main, judged on every gate. H watches
+    // h/, which the commit does not touch.
+    let w = world();
+    git(&w.origin, &["merge", "-q", "--ff-only", "topic"]);
+    git(&w.clone, &["fetch", "-q", "--all"]);
+    let s = worker::run_once(&w.config(), REPO, &w.head).expect("worker");
+    assert!(s.ready, "{:?}", s.notes);
+    assert!(!s.gates.iter().any(|g| g.0 == "H"), "{:?}", s.gates);
+    assert_eq!(w.read_bundle(&w.head)["plan"]["scope"], "changed");
+
+    let mut cfg = w.config();
+    cfg.full = true;
+    let s = worker::run_once(&cfg, REPO, &w.head).expect("worker --full");
+    assert_eq!(s.verdict, Verdict::Pass, "{} {:?}", s.reason, s.notes);
+    assert!(s.ready, "{:?}", s.notes);
+    assert_eq!(gate_status(&s, "H"), ("run".to_string(), Verdict::Pass));
+    let b = w.read_bundle(&w.head);
+    assert_eq!(b["plan"]["scope"], "full", "{}", b["plan"]);
+    // `verify` plans in the signed scope and reaches the same graph.
+    let r = w.verify(&w.ask(&w.head));
+    assert_eq!(
+        line(&r, "MERGE ELIGIBILITY:"),
+        "MERGE ELIGIBILITY: READY",
+        "{:#?}",
+        r.lines
+    );
+    assert_eq!(line(&r, "Affected gates:"), "Affected gates: 2 (A H)");
+    // verify-bundle --require-full refuses it: this world's gates are all
+    // backend host, so its full-scope PASS is not an Alpha (NO_GPU_RECEIPT).
+    // The gb10 receipt itself is covered by bundle.rs's tests.
+    let vk = bundle::load_signing_key(&w.key).unwrap().verifying_key();
+    let expect = bundle::Expect {
+        repository: b["repository"].as_str().unwrap().to_string(),
+        commit: w.head.clone(),
+        pubkey_hex: bundle::hex_encode(vk.as_bytes()),
+        required: vec!["A".to_string(), "H".to_string()],
+        require_full: true,
+        allow_host_only: false,
+    };
+    let err = bundle::verify(&b, &expect).expect_err("no gb10 gate, no Alpha");
+    assert_eq!(err.code(), "NO_GPU_RECEIPT", "{err}");
+    // The caller reads the repository's gate manifests; this world declares no
+    // gb10 gate, so it passes --allow-host-only and the same full-scope PASS is
+    // an Alpha. Without the flag (above) it is not.
+    let mut host_only = expect.clone();
+    host_only.allow_host_only = true;
+    let v = bundle::verify(&b, &host_only).expect("host-only Alpha when no gate declares gb10");
+    assert_eq!(v.gate_verdict(), "PASS");
+}
+
+#[test]
 fn symlinked_exec_out_of_the_tree_never_runs() {
     let t = Tmp::new("symlink");
     let r = t.path();
@@ -1557,4 +1625,165 @@ fn worker_operator_run_of_a_config_change_is_ready_and_posts_success() {
             .contains("\"verify\":\"BLOCKED\""),
         "{journal}"
     );
+}
+
+/// A new commit of `branch` with the very same tree (a re-push, a squash
+/// merge of an up-to-date PR).
+fn same_tree_commit_on(w: &World, branch: &str) -> String {
+    git(&w.origin, &["checkout", "-q", branch]);
+    git(
+        &w.origin,
+        &["commit", "-q", "--allow-empty", "-m", "same tree"],
+    );
+    let sha = git(&w.origin, &["rev-parse", "HEAD"]);
+    git(&w.origin, &["checkout", "-q", "main"]);
+    git(&w.clone, &["fetch", "-q", "--all"]);
+    sha
+}
+
+fn bundle_check(s: &worker::Summary, id: &str) -> serde_json::Value {
+    let b: serde_json::Value = serde_json::from_slice(&fs::read(&s.bundle_path).unwrap()).unwrap();
+    b["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["gate"] == id)
+        .cloned()
+        .unwrap_or_else(|| panic!("no check {id} in {b}"))
+}
+
+/// Judge once (Drake 2026-10-20): a second head with the same tree reuses
+/// the first head's result through the shared store, the signed bundle says
+/// which receipt and which head it came from, and verify still says READY.
+#[test]
+fn another_head_reuses_through_the_shared_store_and_the_bundle_says_so() {
+    let w = world();
+    let cfg = w.config();
+    let r1 = worker::run_once(&cfg, REPO, &w.head).expect("worker r1");
+    assert_eq!(gate_status(&r1, "A"), ("run".to_string(), Verdict::Pass));
+    let receipt = bundle_check(&r1, "A")["receipt"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let head2 = same_tree_commit_on(&w, "topic");
+    let r2 = worker::run_once(&cfg, REPO, &head2).expect("worker r2");
+    assert_eq!(gate_status(&r2, "A"), ("cached".to_string(), Verdict::Pass));
+    let c = bundle_check(&r2, "A");
+    assert_eq!(c["resolution"]["resolved_from"], receipt.as_str());
+    assert_eq!(c["resolution"]["resolved_from_commit"], w.head.as_str());
+    assert!(r2.ready, "{:?}", r2.notes);
+    assert_eq!(r2.verdict, Verdict::Pass, "{}", r2.reason);
+
+    // A head one declared byte away runs A again.
+    let head3 = commit_on(&w, "topic", &[("a/a.txt", "a3\n")], "change a");
+    let r3 = worker::run_once(&cfg, REPO, &head3).expect("worker r3");
+    assert_eq!(gate_status(&r3, "A"), ("run".to_string(), Verdict::Pass));
+}
+
+/// A batch of two heads with one tree runs each shared gate once: one head
+/// runs it, the other reuses it, and both bundles are READY.
+#[test]
+fn a_batch_runs_a_shared_gate_once_for_all_its_heads() {
+    let w = world();
+    let mut cfg = w.config();
+    cfg.batch_host = Some(2);
+    let head2 = same_tree_commit_on(&w, "topic");
+    let out = worker::run_batch(&cfg, REPO, &[w.head.clone(), head2.clone()]);
+    assert_eq!(out.len(), 2);
+    let mut statuses = Vec::new();
+    for (sha, r) in &out {
+        let s = r.as_ref().unwrap_or_else(|e| panic!("{sha}: {e}"));
+        assert!(s.ready, "{sha}: {:?}", s.notes);
+        assert_eq!(s.verdict, Verdict::Pass, "{sha}: {}", s.reason);
+        statuses.push(gate_status(s, "A").0);
+    }
+    statuses.sort();
+    assert_eq!(statuses, vec!["cached".to_string(), "run".to_string()]);
+}
+
+/// One judge per head: a second judge of a head that is being judged is
+/// refused at once, before any checkout.
+#[test]
+fn a_head_being_judged_is_refused_to_a_second_judge() {
+    let w = world();
+    let cfg = w.config();
+    let held = worker::claim_head(&w.state, REPO, &w.head)
+        .unwrap()
+        .expect("free");
+    let e = worker::run_once(&cfg, REPO, &w.head).expect_err("refused");
+    assert!(e.contains("already being judged"), "{e}");
+    drop(held);
+    assert!(worker::run_once(&cfg, REPO, &w.head).is_ok());
+}
+
+#[test]
+fn loop_leaves_triggers_of_other_repos_alone() {
+    // One trigger file is visible to every poller; a poller started with
+    // --repos takes only its own repositories and leaves the file in place.
+    let w = world();
+    let mut cfg = w.config();
+    cfg.repos = vec!["some-other-repo".to_string()];
+    let trigger = w.state.trigger_dir().join(format!("{REPO}.{}", w.head));
+    fs::create_dir_all(w.state.trigger_dir()).unwrap();
+    fs::write(&trigger, "").unwrap();
+    assert_eq!(worker::run_loop(&cfg, Some(1)), 0);
+    assert!(trigger.exists());
+    assert!(!w.bundle_path(&w.head).exists());
+    cfg.repos = vec![REPO.to_string()];
+    assert_eq!(worker::run_loop(&cfg, Some(1)), 1);
+    assert!(!trigger.exists());
+    assert!(w.bundle_path(&w.head).exists());
+}
+
+#[test]
+fn loop_skips_a_head_another_process_is_judging() {
+    // A head already being judged is not judged again, and its trigger file
+    // stays for the holder (or the next round) to deal with.
+    let w = world();
+    let cfg = w.config();
+    let trigger = w.state.trigger_dir().join(format!("{REPO}.{}", w.head));
+    fs::create_dir_all(w.state.trigger_dir()).unwrap();
+    fs::write(&trigger, "").unwrap();
+    let held = worker::claim_head(&w.state, REPO, &w.head)
+        .unwrap()
+        .expect("claim");
+    assert_eq!(worker::run_loop(&cfg, Some(1)), 0);
+    assert!(trigger.exists());
+    assert!(!w.bundle_path(&w.head).exists());
+    drop(held);
+    assert_eq!(worker::run_loop(&cfg, Some(1)), 1);
+    assert!(!trigger.exists());
+}
+
+#[test]
+fn worker_once_skips_a_head_another_process_is_judging() {
+    // `worker --once` for a head a poller holds does nothing and says so.
+    let bin = env!("CARGO_BIN_EXE_aien-test");
+    let t = Tmp::new("once-held");
+    let state = StateDir::new(&t.path().join("state"));
+    let sha = "a".repeat(40);
+    let held = worker::claim_head(&state, "repo", &sha)
+        .unwrap()
+        .expect("claim");
+    let o = Command::new(bin)
+        .args(["worker", "--once", "repo", sha.as_str(), "--state-dir"])
+        .arg(&state.root)
+        .arg("--clones")
+        .arg(t.path())
+        .args(["--sandbox", "none", "--dev-unsandboxed"])
+        .output()
+        .unwrap();
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert_eq!(o.status.code(), Some(75), "{out}");
+    assert!(
+        out.contains(&format!(
+            "already being judged by pid {}",
+            std::process::id()
+        )),
+        "{out}"
+    );
+    // Nothing was fetched, journaled or run.
+    assert!(!state.journal().exists());
+    drop(held);
 }

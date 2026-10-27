@@ -1,18 +1,29 @@
 [package]
 name = "aien-switchboard"
-description = "Switchboard core: accounts, jobs, usage gauges, operator rule table and one deterministic routing decision over our own AI accounts"
+description = "Switchboard core: accounts, jobs, usage gauges, operator rule table and one deterministic routing decision over our own AI accounts, plus the `switchboard` profile launcher"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
 
-# Pure by rule (ADR 0030): no network, no process spawning, no secrets in this
-# crate. Real program adapters arrive in a later cut behind the Runner trait.
+# Library rule (ADR 0030): no network, no process spawning, no secrets. The
+# launcher and doctor in the library only plan and inspect; the one place a
+# process starts is the `switchboard` binary, behind the `Spawner` and
+# `VersionProbe` traits so tests use fakes. No module ever opens a Claude
+# Code credentials file.
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 toml = "0.8"
+
+[dev-dependencies]
+tempfile = "3.17"
 
 [lib]
 name = "aien_switchboard"
 path = "src/lib.rs"
+
+[[bin]]
+name = "switchboard"
+path = "src/bin/switchboard.rs"

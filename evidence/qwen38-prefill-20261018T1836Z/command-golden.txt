@@ -1,0 +1,1 @@
+flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/q38-pf/release/qwen38_prefill golden ~/models/qwen3.8-27b-fp8-017b9c7a ~/handoffs/qwen38-ref/gen-chat-max-24.json 8 golden-chunk8.json

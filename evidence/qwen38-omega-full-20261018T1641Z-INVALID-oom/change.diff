@@ -1,0 +1,158 @@
+diff --git a/crates/aien-inference-abi/src/qwen38.rs b/crates/aien-inference-abi/src/qwen38.rs
+index 023b9695..02f0ff61 100644
+--- a/crates/aien-inference-abi/src/qwen38.rs
++++ b/crates/aien-inference-abi/src/qwen38.rs
+@@ -213,6 +213,18 @@ impl Qwen38Config {
+         Some(c)
+     }
+ 
++    /// Layers `first .. first + count` of the model as a stack of their own (a window for parity
++    /// checks that fit the device one window at a time). `None` when empty or past the end.
++    pub fn window(&self, first: usize, count: usize) -> Option<Self> {
++        if count == 0 || first + count > self.layers {
++            return None;
++        }
++        let mut c = self.clone();
++        c.layers = count;
++        c.full_attention = self.full_attention[first..first + count].to_vec();
++        Some(c)
++    }
++
+     /// Width of the DeltaNet conv input: q | k | v.
+     pub fn conv_dim(&self) -> usize {
+         2 * self.lin_k_heads * self.lin_k_dim + self.lin_v_heads * self.lin_v_dim
+@@ -652,6 +664,20 @@ impl<S: TensorSource> Qwen38Reference<S> {
+         state: &mut Qwen38State,
+         tokens: &[u32],
+         logits: Logits,
++    ) -> Result<Vec<f32>, String> {
++        self.forward_tapped(state, tokens, logits, &[], &mut Vec::new())
++    }
++
++    /// [`Self::forward`] that also copies the residual stream entering layer `b` (`[t][hidden]`,
++    /// before its input norm) into `taps` for every `b` in `at` (ascending; `b == layers` is the
++    /// residual before the final norm). The chip checks a model window by window against these.
++    pub fn forward_tapped(
++        &mut self,
++        state: &mut Qwen38State,
++        tokens: &[u32],
++        logits: Logits,
++        at: &[usize],
++        taps: &mut Vec<Vec<f32>>,
+     ) -> Result<Vec<f32>, String> {
+         let c = self.config.clone();
+         let (t, h) = (tokens.len(), c.hidden);
+@@ -668,7 +694,13 @@ impl<S: TensorSource> Qwen38Reference<S> {
+                 *o = bf16_to_f32(b);
+             }
+         }
++        if at.windows(2).any(|p| p[0] >= p[1]) || at.iter().any(|&b| b > c.layers) {
++            return Err(format!("forward: taps {at:?} not ascending within 0..={}", c.layers));
++        }
+         for l in 0..c.layers {
++            if at.contains(&l) {
++                taps.push(x.clone());
++            }
+             let w = self.read_layer(l)?;
+             let mut xn = x.clone();
+             rms_norm_zc(&mut xn, &w.input_norm, c.eps);
+@@ -690,6 +722,9 @@ impl<S: TensorSource> Qwen38Reference<S> {
+             let down = w.down.matmul(&act, t);
+             x.iter_mut().zip(&down).for_each(|(a, b)| *a += b);
+         }
++        if at.contains(&c.layers) {
++            taps.push(x.clone());
++        }
+         state.pos += t;
+         let rows = match logits {
+             Logits::Last => &x[(t - 1) * h..],
+diff --git a/crates/aien-inference-abi/src/qwen38_omega.rs b/crates/aien-inference-abi/src/qwen38_omega.rs
+index 4988e99c..e048790e 100644
+--- a/crates/aien-inference-abi/src/qwen38_omega.rs
++++ b/crates/aien-inference-abi/src/qwen38_omega.rs
+@@ -165,11 +165,38 @@ impl Qwen38Omega {
+         Self::load(config, &mut ShardSource::open(dir)?, max_pos)
+     }
+ 
++    /// Opens a checkpoint directory and uploads model layers `first .. first + count` as a stack
++    /// of their own (final norm and lm_head on top): a window, fed and read through
++    /// [`Self::step_residual`] / [`Self::residual`] so a model larger than free device memory is
++    /// checked one window at a time.
++    pub fn open_window(
++        dir: &Path,
++        first: usize,
++        count: usize,
++        max_pos: usize,
++    ) -> Result<Self, String> {
++        let full = Qwen38Config::from_checkpoint(dir)?;
++        let config = full.window(first, count).ok_or_else(|| {
++            format!("window {first}+{count}: outside the {} layers", full.layers)
++        })?;
++        Self::load_at(config, first, &mut ShardSource::open(dir)?, max_pos)
++    }
++
+     /// Uploads `config.layers` layers from `source`.
+     pub fn load(
+         config: Qwen38Config,
+         source: &mut dyn TensorSource,
+         max_pos: usize,
++    ) -> Result<Self, String> {
++        Self::load_at(config, 0, source, max_pos)
++    }
++
++    /// Uploads `config.layers` layers from `source`, reading model layer `first + l` for layer `l`.
++    fn load_at(
++        config: Qwen38Config,
++        first: usize,
++        source: &mut dyn TensorSource,
++        max_pos: usize,
+     ) -> Result<Self, String> {
+         use aien_omega_q38 as q;
+         let c = &config;
+@@ -230,7 +257,7 @@ impl Qwen38Omega {
+         let mut norms = Vec::with_capacity(c.layers);
+         let (mut gi, mut ai) = (0usize, 0usize);
+         for l in 0..c.layers {
+-            let p = format!("{prefix}layers.{l}");
++            let p = format!("{prefix}layers.{}", first + l);
+             let rm = |s: &mut dyn TensorSource, name: String, n, k| read_matrix(s, &name, n, k);
+             let (mix, ab, o) = if c.full_attention[l] {
+                 let a = format!("{p}.self_attn");
+@@ -440,6 +467,37 @@ impl Qwen38Omega {
+         Ok(out)
+     }
+ 
++    /// Feeds the residual stream `x` (`[hidden]`, what enters this stack's first layer: the
++    /// previous window's [`Self::residual`]) at the next position instead of a token's embedding.
++    pub fn step_residual(&mut self, x: &[f32]) -> Result<(u32, GraphStats), String> {
++        if x.len() != self.config.hidden {
++            return Err(format!(
++                "step_residual: {} values (hidden {})",
++                x.len(),
++                self.config.hidden
++            ));
++        }
++        if self.pos >= self.max_pos {
++            return Err(format!(
++                "step: the KV cache holds {} positions",
++                self.max_pos
++            ));
++        }
++        let out = self.graph.token(x, self.pos).map_err(gpu("q38 token"))?;
++        self.pos += 1;
++        Ok(out)
++    }
++
++    /// The last step's residual stream after this stack's last layer (`[hidden]`, before the
++    /// final norm).
++    pub fn residual(&mut self) -> Result<Vec<f32>, String> {
++        let mut x = vec![0f32; self.config.hidden];
++        self.graph
++            .read(Some(&mut x), None, None)
++            .map_err(gpu("q38 read residual"))?;
++        Ok(x)
++    }
++
+     /// The last step's logits (`[vocab]`).
+     pub fn logits(&mut self) -> Result<Vec<f32>, String> {
+         let mut l = vec![0f32; self.config.vocab];

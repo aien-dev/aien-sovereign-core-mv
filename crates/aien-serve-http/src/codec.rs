@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Text <-> token ids and chat rendering, behind a trait so the server's tests run
 //! without a model directory.
 //!
@@ -10,7 +25,7 @@
 use std::fmt;
 use std::path::Path;
 
-use aien_inference_abi::tokenizer::{ChatTokenizer, TokenizerError};
+use aien_inference_abi::tokenizer::{ChatOptions, ChatTemplate, ChatTokenizer, TokenizerError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CodecError {
@@ -45,6 +60,20 @@ impl From<TokenizerError> for CodecError {
 pub trait Codec: Send + Sync {
     /// Renders `(role, content)` turns ending in a generation prompt.
     fn render_chat(&self, turns: &[(&str, &str)]) -> Result<String, CodecError>;
+    /// [`Self::render_chat`] with the request's template switches. Only templates that define
+    /// them read them; the default ignores them.
+    fn render_chat_with(
+        &self,
+        turns: &[(&str, &str)],
+        _opts: &ChatOptions,
+    ) -> Result<String, CodecError> {
+        self.render_chat(turns)
+    }
+    /// The token that closes a thinking block, for a template whose generation prompt opens one
+    /// (`<think>\n`). `None`: the model has no thinking block.
+    fn reasoning_end_id(&self) -> Option<u32> {
+        None
+    }
     fn encode(&self, text: &str) -> Result<Vec<u32>, CodecError>;
     /// Decodes without special tokens. A sequence cut inside a multi-byte
     /// character must decode with a trailing U+FFFD, never fail.
@@ -77,6 +106,32 @@ impl HfCodec {
 impl Codec for HfCodec {
     fn render_chat(&self, turns: &[(&str, &str)]) -> Result<String, CodecError> {
         Ok(self.tokenizer.try_format_chat(turns)?)
+    }
+
+    fn render_chat_with(
+        &self,
+        turns: &[(&str, &str)],
+        opts: &ChatOptions,
+    ) -> Result<String, CodecError> {
+        Ok(self.tokenizer.try_format_chat_with(turns, opts)?)
+    }
+
+    fn reasoning_end_id(&self) -> Option<u32> {
+        if !matches!(
+            self.tokenizer.template(),
+            ChatTemplate::Qwen38 | ChatTemplate::Qwen36
+        ) {
+            return None;
+        }
+        match self
+            .tokenizer
+            .encode_with_special("</think>", true)
+            .ok()?
+            .as_slice()
+        {
+            [id] => Some(*id),
+            _ => None,
+        }
     }
 
     fn encode(&self, text: &str) -> Result<Vec<u32>, CodecError> {

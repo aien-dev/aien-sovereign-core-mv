@@ -1,0 +1,2 @@
+command=scripts/test-install.sh
+exit_status=0
