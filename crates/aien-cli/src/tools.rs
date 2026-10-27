@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use colored::*;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -624,10 +639,21 @@ fn ask_guardian(name: &str, summary: &str, reason: &str) -> crate::approval::Gua
 /// kept, one ledger line after. Without an active chat session this is a
 /// plain call.
 fn recorded_write(tool: &str, path: &str, write: impl FnOnce() -> (Value, bool)) -> (Value, bool) {
-    let home = crate::platform::PlatformContext::detect().home_dir;
-    let cwd = std::env::current_dir().unwrap_or_else(|_| home.clone());
-    let abs = crate::approval::lexical_abs(path, &home, &cwd);
-    match crate::checkpoint::record_agent_write(&abs, tool, write) {
+    // Check confinement before checkpointing: before_write reads the target
+    // and its directory, so even a later refused write must not reach it.
+    let target = match validate_tool_path(path) {
+        Ok(target) => target,
+        Err(err) => {
+            return (
+                json!({"error": format!("CONFINEMENT DENIAL: {}", err)}),
+                false,
+            );
+        }
+    };
+    // Keep the checkpoint identity consistent with the validated filesystem
+    // target, rather than applying separate lexical normalization.
+    // This remains pathname-based; descriptor-bound race handling is #754.
+    match crate::checkpoint::record_agent_write(&target, tool, write) {
         Ok(((mut res, ok), warning)) => {
             if let (Some(w), Some(obj)) = (warning, res.as_object_mut()) {
                 obj.insert("checkpoint_warning".into(), json!(w));
@@ -1153,6 +1179,87 @@ fn exec_ask_question(question: &str, options: Option<&Vec<Value>>) -> (Value, bo
 mod tests {
     use super::*;
 
+    // Tests that install the process-wide checkpoint session must serialize.
+    static CHECKPOINT_SESSION_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    struct StopCheckpointSession;
+    impl Drop for StopCheckpointSession {
+        fn drop(&mut self) {
+            crate::checkpoint::stop_session();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn denied_recorded_write_does_not_snapshot_or_invoke_write() {
+        use std::os::unix::fs::symlink;
+        let _serial = CHECKPOINT_SESSION_TEST
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _stop = StopCheckpointSession;
+        let home = tempfile::tempdir().unwrap();
+        let work = tempfile::tempdir_in("/tmp").unwrap();
+        let work = work.path().canonicalize().unwrap();
+        std::fs::write(work.join("sentinel"), "SYNTHETIC_CHECKPOINT_SENTINEL").unwrap();
+        let denied = work.join("dangling");
+        symlink(work.join("absent-target"), &denied).unwrap();
+        crate::checkpoint::start_scoped_session(home.path(), "denied-path", work.clone()).unwrap();
+        crate::checkpoint::begin_turn();
+        let called = std::cell::Cell::new(false);
+        let (result, ok) = recorded_write("write_to_file", denied.to_str().unwrap(), || {
+            called.set(true);
+            (json!({"error": "synthetic later denial"}), false)
+        });
+        assert!(!ok);
+        assert!(result["error"]
+            .as_str()
+            .unwrap()
+            .contains("CONFINEMENT DENIAL"));
+        assert!(!called.get(), "write closure ran before confinement denial");
+        let store = crate::checkpoint::store_root(home.path());
+        assert!(
+            !store.join("objects").exists(),
+            "denied write copied checkpoint content"
+        );
+        assert!(
+            !store.join("snapshots").exists(),
+            "denied write created a snapshot"
+        );
+        assert!(
+            !store.join("ledger").exists(),
+            "denied write created a ledger"
+        );
+        assert!(!work.join("absent-target").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recorded_write_checkpoint_uses_validated_target_identity() {
+        use std::os::unix::fs::symlink;
+        let _serial = CHECKPOINT_SESSION_TEST
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _stop = StopCheckpointSession;
+        let home = tempfile::tempdir().unwrap();
+        let work = tempfile::tempdir_in("/tmp").unwrap();
+        let work = work.path().canonicalize().unwrap();
+        let target = work.join("target");
+        std::fs::write(&target, "before").unwrap();
+        let alias = work.join("alias");
+        symlink(&target, &alias).unwrap();
+        crate::checkpoint::start_scoped_session(home.path(), "canonical-target", work).unwrap();
+        crate::checkpoint::begin_turn();
+        let (_, ok) = recorded_write("write_to_file", alias.to_str().unwrap(), || {
+            std::fs::write(&alias, "after").unwrap();
+            (json!({"status": "ok"}), true)
+        });
+        assert!(ok);
+        let store =
+            crate::checkpoint::CheckpointStore::new(crate::checkpoint::store_root(home.path()));
+        let (entries, _) = store.load_ledger("canonical-target").unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, target.to_str().unwrap());
+    }
+
     #[test]
     fn effect_receipt_is_hashed_and_secret_free() {
         let _env = crate::objective::PROVENANCE_ENV
@@ -1337,6 +1444,10 @@ mod tests {
     /// the agent's files.
     #[test]
     fn rollback_through_the_dispatcher_spares_operator_edits() {
+        let _serial = CHECKPOINT_SESSION_TEST
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _stop = StopCheckpointSession;
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()

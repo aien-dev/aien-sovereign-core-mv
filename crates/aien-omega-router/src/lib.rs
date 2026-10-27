@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Safe Rust wrapper over omega's one-launch MoE router for Qwen3-30B-A3B
 //! (`src/omega_gpu_router_api.h`, OWN-30B router cut on the omega side; no CUDA).
 //!
@@ -68,7 +83,12 @@ mod ffi {
         _private: [u8; 0],
     }
     extern "C" {
-        pub fn omega_gpu_router_alloc(layers: u32, out: *mut *mut OmegaGpuRouter) -> i32;
+        pub fn omega_gpu_router_alloc_shape(
+            layers: u32,
+            experts: u32,
+            shared: u32,
+            out: *mut *mut OmegaGpuRouter,
+        ) -> i32;
         pub fn omega_gpu_router_free(r: *mut OmegaGpuRouter);
         pub fn omega_gpu_router_set_layer(
             r: *mut OmegaGpuRouter,
@@ -163,6 +183,11 @@ pub struct Router {
     #[cfg(has_omega_router)]
     ptr: *mut ffi::OmegaGpuRouter,
     layers: usize,
+    /// Gate rows and directory entries: the routed experts plus the shared expert slot (128 for
+    /// the 30B, 257 for Qwen3.6-35B-A3B).
+    rows: usize,
+    /// Output slots of one route: [`TOP_K`], plus 1 with the shared expert slot.
+    slots: usize,
 }
 
 // SAFETY: an owning handle to device buffers; moved between threads, never shared unlocked.
@@ -193,25 +218,61 @@ impl Router {
 
     /// Allocates the per-layer tables and launch buffers on the chip.
     pub fn alloc(layers: usize) -> Result<Self, OmegaGpuError> {
+        Self::alloc_shape(layers, EXPERTS, 0)
+    }
+
+    /// Another model's shape (omega `omega_gpu_router_alloc_shape`): `experts` 128 or 256 and
+    /// `shared` 0 or 1. With the shared slot the gate has `experts + 1` rows (the last =
+    /// shared_expert_gate), the directories `experts + 1` entries, and every output 9 slots (slot
+    /// 8 = the shared expert, weight sigmoid(shared gate . xn)).
+    pub fn alloc_shape(
+        layers: usize,
+        experts: usize,
+        shared: usize,
+    ) -> Result<Self, OmegaGpuError> {
         check_layers(layers)?;
+        if !(experts == 128 || experts == 256) || shared > 1 {
+            return Err(bad(format!(
+                "router shape experts {experts} shared {shared}: 128 or 256, 0 or 1"
+            )));
+        }
+        let rows = experts + shared;
         #[cfg(has_omega_router)]
         {
             let mut ptr = std::ptr::null_mut();
             // SAFETY: layers checked; omega writes the handle on success.
-            let rc = unsafe { ffi::omega_gpu_router_alloc(layers as u32, &mut ptr) };
+            let rc = unsafe {
+                ffi::omega_gpu_router_alloc_shape(
+                    layers as u32,
+                    experts as u32,
+                    shared as u32,
+                    &mut ptr,
+                )
+            };
             if rc != 0 || ptr.is_null() {
                 return Err(rc_err(rc));
             }
-            Ok(Self { ptr, layers })
+            Ok(Self {
+                ptr,
+                layers,
+                rows,
+                slots: TOP_K + shared,
+            })
         }
         #[cfg(not(has_omega_router))]
         {
+            let _ = rows;
             Err(OmegaGpuError::Unavailable)
         }
     }
 
     pub fn layers(&self) -> usize {
         self.layers
+    }
+
+    /// Output slots of [`Self::route`]: 8, or 9 with the shared expert slot (slot 8).
+    pub fn slots(&self) -> usize {
+        self.slots
     }
 
     fn check_layer(&self, layer: usize) -> Result<(), OmegaGpuError> {
@@ -232,7 +293,7 @@ impl Router {
         gate_bf16: &[u16],
         norm_w: &[f32],
     ) -> Result<(), OmegaGpuError> {
-        check_len("router gate words", EXPERTS * HIDDEN, gate_bf16.len())?;
+        check_len("router gate words", self.rows * HIDDEN, gate_bf16.len())?;
         check_len("router norm weight", HIDDEN, norm_w.len())?;
         self.check_layer(layer)?;
         #[cfg(has_omega_router)]
@@ -265,8 +326,8 @@ impl Router {
         gu: &[u64],
         dn: &[u64],
     ) -> Result<(), OmegaGpuError> {
-        check_len("router gate|up directory", EXPERTS * 2, gu.len())?;
-        check_len("router down directory", EXPERTS * 2, dn.len())?;
+        check_len("router gate|up directory", self.rows * 2, gu.len())?;
+        check_len("router down directory", self.rows * 2, dn.len())?;
         self.check_layer(layer)?;
         #[cfg(has_omega_router)]
         {
@@ -291,7 +352,8 @@ impl Router {
     }
 
     /// One launch for `layer`: routes the residual row `x` (`[2048]` f32). Writes the 8 chosen
-    /// expert ids (descending by logit) and their weights to the host and `x' = RMSNorm(x) *
+    /// expert ids (descending by logit; slot 8 = the shared expert when allocated with it, see
+    /// [`Self::slots`]) and their weights to the host and `x' = RMSNorm(x) *
     /// out_scale` plus both group tables to the device ([`Self::device_outputs`]).
     #[allow(clippy::too_many_arguments)]
     pub fn route(
@@ -305,8 +367,9 @@ impl Router {
         weights: &mut [f32],
     ) -> Result<RouterInfo, OmegaGpuError> {
         check_len("router x", HIDDEN, x.len())?;
-        check_len("router ids", TOP_K, ids.len())?;
-        check_len("router weights", TOP_K, weights.len())?;
+        // The chip writes every slot (9 with the shared expert), so both buffers must hold them.
+        check_len("router ids", self.slots, ids.len())?;
+        check_len("router weights", self.slots, weights.len())?;
         self.check_layer(layer)?;
         #[cfg(has_omega_router)]
         {

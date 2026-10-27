@@ -1,0 +1,12 @@
+aien-serve-http for the Qwen3.6-35B-A3B FP8 MoE with the exact two-pass lm_head ON for greedy requests (ledger L314,
+Drake 02:25Z "turn on the quick levers anyway"), pinned 2026-10-21T03:02:23Z (re-pinned: the first build linked a stale physics nvrm.o and could not load)
+sc (aien-sovereign-core) hum/exact-head-serve e1f02b29 (on motor/serve 06d1ce85), cargo build --release -p aien-serve-http
+  CARGO_TARGET_DIR=/home/drakestapleton/workspace/targets/hum-exact-head/sc
+  AIEN_OMEGA_GPU_LIB=/home/drakestapleton/workspace/targets/hum-exact-serve/omega/libomega_gpu.a (prebuilt, sha256 verified by build.rs)
+omega hum/exact-head 844509b5 (on q36/serve 739c80e8, the lib of bin-5b726818), libomega_gpu.a sha256 59ffde2fca0f2dbfe4c525f49f61b7a14dbddc61030066359de6c5fdcc343444
+  built with PHYSICS_DIR at physics.lock 6d7cf0d4 (lock check on); only the 4 changed objects differ from bin-5b726818's lib
+change vs bin-5b726818: greedy requests (temperature <= 0.001) run the exact two-pass head on the chip: fp8b screen of
+  lm_head + proven Row bound, exact bf16 recheck of the candidate rows only; the token is the full head's by
+  construction. Sampled requests use the full head (unchanged). AIEN_Q36_EXACT_HEAD=0 turns it off at start.
+  Red control: AIEN_Q36_TEST_MUTANT=5 (MASK inverted).
+model /home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0, served id qwen3.6-35b-a3b-fp8

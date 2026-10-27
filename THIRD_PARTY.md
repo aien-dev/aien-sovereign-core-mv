@@ -1,6 +1,6 @@
 # Third-Party Model Notices
 
-AIEN code is AGPL-3.0-or-later (`LICENSE`, `NOTICE`). The models below are separate
+AIEN code is Apache-2.0 (`LICENSE`, `NOTICE`). The models below are separate
 third-party works. Each keeps its publisher's licence; running one on AIEN does not
 relicense it. The SmolLM2 attribution detail lives in `ATTRIBUTION.md` and `NOTICE`.
 

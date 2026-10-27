@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 pub fn parse_quoted_args(input: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
@@ -1292,13 +1307,15 @@ fn checkpoint_digest(path: &std::path::Path) -> Result<CheckpointDigest, String>
     }
     let files = aien_inference_abi::checkpoint_files(path).map_err(|e| e.to_string())?;
     let sha = |p: &std::path::Path| {
-        sha256_file_hex(p).map_err(|e| {
-            if p == path {
-                e.to_string()
-            } else {
-                format!("{}: {}", p.display(), e)
-            }
-        })
+        aien_inference_abi::checkpoint_sha256(p)
+            .map(hex::encode)
+            .map_err(|e| {
+                if p == path {
+                    e.to_string()
+                } else {
+                    format!("{}: {}", p.display(), e)
+                }
+            })
     };
     let Some(index) = files.index else {
         let Some((_, file)) = files.weights.first() else {
@@ -3064,6 +3081,17 @@ mod tests {
         std::fs::write(shard(2), bytes).unwrap();
         let changed = load().manifest.model_sha256.unwrap();
         assert_ne!(changed, digest, "a changed shard must change the digest");
+    }
+
+    #[test]
+    fn checkpoint_digest_refuses_index_escape_before_hashing() {
+        let dir = tempfile::tempdir().unwrap();
+        let model = dir.path().join("model");
+        std::fs::create_dir(&model).unwrap();
+        std::fs::write(dir.path().join("outside.safetensors"), b"fixture").unwrap();
+        let index = model.join("model.safetensors.index.json");
+        std::fs::write(&index, r#"{"weight_map":{"w":"../outside.safetensors"}}"#).unwrap();
+        assert!(checkpoint_digest(&index).is_err());
     }
 
     /// sc#338 review: the digest changes no refusal. A model directory as the
