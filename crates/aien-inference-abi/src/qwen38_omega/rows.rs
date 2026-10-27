@@ -651,7 +651,8 @@ impl Qwen38Omega {
     }
 
     /// Row `r`'s last one-row token: its host marks, chip stamps and launch kinds. Refused when
-    /// row stamps are off, or the row's last token went through a stroke or the prefill.
+    /// row stamps are off. A stroke or a prefill does not refresh it, so read it right after a
+    /// step that fed this row alone (the door's timeline does; its checker goes red on stale marks).
     pub fn row_timeline(&self, r: usize) -> Result<RowTimeline, String> {
         if !self.row_stamps {
             return Err("row_timeline: row stamps are off".into());
