@@ -805,8 +805,10 @@ impl Q36Graph {
     pub fn stamps(&self) -> Result<(Vec<u64>, Vec<u8>), OmegaGpuError> {
         #[cfg(has_omega_q36)]
         {
-            // 11 per layer + 4, with room to spare.
-            let cap = (self.layers * 16 + 16) as u32;
+            // The most launches one command list carries (OMEGA_GPU_CMDLIST_MAX_LAUNCHES): a token's
+            // count grows with the head and expert forms (the exact head alone adds 8), so no
+            // per-layer guess.
+            let cap = 4096u32;
             let mut stamps = vec![0u64; cap as usize + 1];
             let mut kinds = vec![0u8; cap as usize + 1];
             // SAFETY: ptr is live; both buffers hold cap + 1 entries.

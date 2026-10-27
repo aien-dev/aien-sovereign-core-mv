@@ -887,3 +887,174 @@ fn a_reader_that_fell_behind_fails_even_when_its_done_fits() {
         other => panic!("a truncated reply reported as {other:?}"),
     }
 }
+
+/// The decode timeline over the fake: [`Fake`] plus the row timeline a chip graph gives, a fixed
+/// launch sequence (one layer and the exact head) with 100 ns chip stamps.
+struct StampFake {
+    inner: Fake,
+    on: bool,
+    asked: Arc<AtomicUsize>,
+    last: Vec<RowTimeline>,
+}
+
+const STAMP_KINDS: [&str; 21] = [
+    "norm", "mix", "ab", "gdn", "o_proj", "res", "router", "gate_up", "swiglu", "down", "gather",
+    "res", "norm", "lm_head", "lm_head", "lm_head", "argmax", "argmax", "lm_head", "argmax",
+    "argmax",
+];
+
+impl RowStep for StampFake {
+    type Snap = (u64, usize);
+    fn row_snapshot(&mut self, r: usize, snap: &mut (u64, usize)) -> Result<(), String> {
+        self.inner.row_snapshot(r, snap)
+    }
+    fn row_restore(&mut self, r: usize, snap: &(u64, usize)) -> Result<(), String> {
+        self.inner.row_restore(r, snap)
+    }
+    fn row_count(&self) -> usize {
+        self.inner.row_count()
+    }
+    fn row_reset(&mut self, r: usize) -> Result<(), String> {
+        self.inner.row_reset(r)
+    }
+    fn step_rows(&mut self, feed: &[RowFeed]) -> Result<Vec<RowOut>, String> {
+        if !self.on || feed.len() != 1 {
+            return self.inner.step_rows(feed);
+        }
+        let h0 = timeline_now_ns();
+        let h1 = timeline_now_ns();
+        std::thread::sleep(Duration::from_micros(50)); // the list build
+        let rec = timeline_now_ns() - h1;
+        let mut outs = self.inner.step_rows(feed)?; // submit and wait
+        let total = timeline_now_ns() - h1;
+        let h2 = timeline_now_ns();
+        let h3 = timeline_now_ns();
+        let n = STAMP_KINDS.len();
+        let base = 7_000_000_000 + h1;
+        self.last[feed[0].row] = RowTimeline {
+            host: [h0, h1, h2, h3],
+            stamps: (0..=n as u64).map(|i| base + i * 100).collect(),
+            kinds: STAMP_KINDS.iter().map(|k| k.to_string()).collect(),
+        };
+        outs[0].stats = GraphStats {
+            launches: n as u32,
+            chip_ns: n as u64 * 100,
+            record_ns: rec,
+            total_ns: total,
+            ..Default::default()
+        };
+        Ok(outs)
+    }
+    fn set_row_stamps(&mut self, on: bool) -> Result<(), String> {
+        self.asked.fetch_add(1, Ordering::SeqCst);
+        self.on = on;
+        Ok(())
+    }
+    fn row_timeline(&self, r: usize) -> Result<RowTimeline, String> {
+        self.asked.fetch_add(1, Ordering::SeqCst);
+        Ok(self.last[r].clone())
+    }
+}
+
+fn stamp_fake(rows: usize) -> (StampFake, Arc<AtomicUsize>) {
+    let (inner, _) = Fake::new(rows, None);
+    let asked = Arc::new(AtomicUsize::new(0));
+    (
+        StampFake {
+            inner,
+            on: false,
+            asked: Arc::clone(&asked),
+            last: vec![RowTimeline::default(); rows],
+        },
+        asked,
+    )
+}
+
+/// Waits for the scheduler's idle flush: `n` lines in `path`.
+fn timeline_lines(path: &Path, n: usize) -> String {
+    for _ in 0..200 {
+        let t = std::fs::read_to_string(path).unwrap_or_default();
+        if t.lines().count() >= n {
+            return t;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    std::fs::read_to_string(path).unwrap_or_default()
+}
+
+/// Every decode beat of one conversation is one complete, gap-free record; the words are the
+/// request alone's; dropping one record, one host phase or one launch turns the checker red.
+#[test]
+fn decode_timeline_records_every_single_row_beat() {
+    let path = lock_file().with_extension("timeline.jsonl");
+    let (f, asked) = stamp_fake(1);
+    let d = Qwen36BatchDoor::with_stepper_timeline(
+        f,
+        4096,
+        lock_file(),
+        Duration::from_secs(5),
+        1,
+        true,
+        Some(path.clone()),
+    )
+    .unwrap();
+    let prompt: Vec<u32> = (0..5).map(|k| (k * 13 + 1) % VOCAB as u32).collect();
+    let (words, _) = run(&d, &prompt, &greedy(20));
+    assert_eq!(words, alone(&prompt, 20), "the timeline changed the words");
+    // 20 tokens: the first from the prompt's last step, then 19 decode steps.
+    let text = timeline_lines(&path, 19);
+    let recs = crate::decode_timeline::read_jsonl(&text).unwrap();
+    assert_eq!(recs.len(), 19, "{text}");
+    assert_eq!(crate::decode_timeline::check(&recs), Vec::<String>::new());
+    for w in recs.windows(2) {
+        assert_eq!(w[1].beat, w[0].beat + 1);
+        assert_eq!(w[1].step, w[0].step + 1);
+    }
+    assert!(asked.load(Ordering::SeqCst) >= 20);
+    let mut no_rec = recs.clone();
+    no_rec.remove(7);
+    assert!(!crate::decode_timeline::check(&no_rec).is_empty());
+    let mut no_host = recs.clone();
+    no_host[3].host.remove(4);
+    assert!(!crate::decode_timeline::check(&no_host).is_empty());
+    let mut no_dev = recs.clone();
+    no_dev[11].dev.remove(9);
+    assert!(!crate::decode_timeline::check(&no_dev).is_empty());
+    let s = crate::decode_timeline::summary(&recs);
+    assert!(s.contains("\"dev:head_recheck\" -> {100, "), "{s}");
+    // `AIEN_Q36_DECODE_TIMELINE_KEEP=<file>`: keep this host run for the checker CLI.
+    if let Some(keep) = std::env::var_os("AIEN_Q36_DECODE_TIMELINE_KEEP") {
+        std::fs::copy(&path, keep).unwrap();
+    }
+    let _ = std::fs::remove_file(&path);
+}
+
+/// Switched off (the default), the door never asks the stepper for stamps or a timeline.
+#[test]
+fn decode_timeline_off_never_asks() {
+    let (f, asked) = stamp_fake(2);
+    let d = Qwen36BatchDoor::with_stepper(f, 4096, lock_file(), Duration::from_secs(5), 1, true)
+        .unwrap();
+    let prompt = [3u32, 1, 4, 1, 5];
+    let (words, _) = run(&d, &prompt, &greedy(10));
+    assert_eq!(words, alone(&prompt, 10));
+    assert_eq!(asked.load(Ordering::SeqCst), 0);
+}
+
+/// A stepper without a timeline refuses a switched-on door instead of recording nothing.
+#[test]
+fn decode_timeline_refused_without_stamps() {
+    let (f, _) = Fake::new(1, None);
+    let path = lock_file().with_extension("refused.jsonl");
+    let r = Qwen36BatchDoor::with_stepper_timeline(
+        f,
+        4096,
+        lock_file(),
+        Duration::from_secs(5),
+        1,
+        true,
+        Some(path.clone()),
+    );
+    assert!(r.is_err());
+    assert!(!path.exists());
+}

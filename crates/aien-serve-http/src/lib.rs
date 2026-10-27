@@ -22,6 +22,7 @@
 pub mod chip_reservation;
 pub mod codec;
 pub mod cpu_engine;
+pub mod decode_timeline;
 pub mod engine;
 pub mod kv_persist;
 pub mod omega_engine;
