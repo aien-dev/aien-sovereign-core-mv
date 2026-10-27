@@ -1,0 +1,67 @@
+{
+  "chunk": 4096,
+  "corpus": "/home/drakestapleton/.claude/jobs/92a9de41/tmp/corpus-arch.txt",
+  "mode": "ttft",
+  "runs": [
+    {
+      "first_token": 8,
+      "stats": {
+        "ab_call_ns": 7197036237,
+        "attn_call_ns": 25243498684,
+        "attn_chip_ns": 21239025590,
+        "chunks": 8,
+        "gdn_call_ns": 20671839635,
+        "gdn_chip_ns": 6348133244,
+        "gemm_call_ns": 77924754936,
+        "gemm_chip_ns": 77899825226,
+        "gemm_launches": 4096,
+        "head_ns": 14110624,
+        "host_ns": 40510849045,
+        "tokens": 32768,
+        "wall_ns": 197702192042
+      },
+      "tokens": 32768,
+      "ttft_s": 197.702192042
+    },
+    {
+      "first_token": 271,
+      "stats": {
+        "ab_call_ns": 13715800916,
+        "attn_call_ns": 86885278264,
+        "attn_chip_ns": 79759899496,
+        "chunks": 16,
+        "gdn_call_ns": 37933986061,
+        "gdn_chip_ns": 12709571909,
+        "gemm_call_ns": 154950300140,
+        "gemm_chip_ns": 154904344728,
+        "gemm_launches": 8192,
+        "head_ns": 15130249,
+        "host_ns": 65737180685,
+        "tokens": 65536,
+        "wall_ns": 415255032525
+      },
+      "tokens": 65536,
+      "ttft_s": 415.255032525
+    },
+    {
+      "first_token": 11,
+      "stats": {
+        "ab_call_ns": 25257808697,
+        "attn_call_ns": 318493504132,
+        "attn_chip_ns": 304840206313,
+        "chunks": 32,
+        "gdn_call_ns": 73132276747,
+        "gdn_chip_ns": 25137741660,
+        "gemm_call_ns": 304808814686,
+        "gemm_chip_ns": 304721989939,
+        "gemm_launches": 16384,
+        "head_ns": 14331601,
+        "host_ns": 109376840820,
+        "tokens": 131072,
+        "wall_ns": 936727686222
+      },
+      "tokens": 131072,
+      "ttft_s": 936.727686222
+    }
+  ]
+}

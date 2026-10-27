@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # OPEN-MODEL-QWEN3 v7 REAL qualification run (SPEC-v7-DRAFT.md Sections 3 and 5 item 8). Start detached ONLY on the
 # coordinator's go, after run-dry.sh recorded "G6 PASS" and the freeze PR (frozen-v7.json FROZEN, all pins filled) is merged:
 #   setsid nohup bash run.sh <sc main commit that merged the freeze PR> <oq3-v7-build-<commit> folder> > <log> 2>&1 < /dev/null &

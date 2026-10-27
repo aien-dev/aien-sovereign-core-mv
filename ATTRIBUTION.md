@@ -35,6 +35,6 @@ the AIEN source code, and it keeps its own licence.
   Zhao, Cyril Zakka, Mathieu Morlon, Colin Raffel, Leandro von Werra, Thomas Wolf,
   "SmolLM2: When Smol Goes Big -- Data-Centric Training of a Small Language Model",
   arXiv:2502.02737 (2025).
-- **Boundary**: AIEN code stays under AGPL-3.0-or-later. The model files stay under
+- **Boundary**: AIEN code stays under Apache-2.0. The model files stay under
   Apache-2.0 with their notices preserved. Running the model through AIEN, or storing it
   under another directory or file name, does not change either licence.

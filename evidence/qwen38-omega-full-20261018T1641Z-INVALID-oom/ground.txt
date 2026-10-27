@@ -1,0 +1,11 @@
+1e641f8e71405311bad6c490d4b87841db186cbd
+ M crates/aien-inference-abi/src/qwen38.rs
+ M crates/aien-inference-abi/src/qwen38_omega.rs
+?? crates/aien-inference-abi/src/bin/qwen38_omega_full.rs
+?? evidence/
+omega 65925086e6bf17784dad274a2fcfd44704c20b8d clean
+185d961f2d51ad0bc1d4d4dbf92bfcf24997151174fe93963b2c6d63a197d7f1  /home/drakestapleton/workspace/targets/q38-sc/release/qwen38_omega_full
+ac151d28e7f72aa3710c4e1df90d178e835c725e5dfe8611d10e3b110a61a5ac  /home/drakestapleton/workspace/q38-graphclean/build/libomega_gpu.a
+               total        used        free      shared  buff/cache   available
+Mem:             121          97           7           0          22          23
+7.0.0-1019-nvidia

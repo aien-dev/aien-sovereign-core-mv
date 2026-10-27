@@ -1,0 +1,438 @@
+note SPDX-License-Identifier: Apache-2.0
+note Effect world check (ACCEPTANCE-v2 2.2) and reconcile record text in seeded Omega.
+note Same bytes as aien-runtime effects::world_state (file_sha256, state_from), the reference world
+note check, not the confined production path (confined_world_state), followed by
+note effects::reconcile_text with no declaration and no objective; om/effects/run.sh compares them.
+note Build: cat om/vendor/sha256.om om/effects/world.om | omc > world
+note Usage: world TARGET CONTENT_SHA256 PRIOR_SHA256|- INTENT AUTHORIZATION BY
+note Output: the record text, newline, sha256 of the text (append's text_sha256), newline; exit 0.
+note Refused (exit 2, no output): argument count, arguments over 16 KiB, a target over 4095 bytes,
+note a number Rust's u64 parse refuses, an errno with no message in em, a full buffer.
+global ga uchar 16384
+global gs ulong 8
+global gl ulong 8
+global ob uchar 65536
+global eb uchar 8192
+global sb uchar 128
+global fb uchar 65536
+global dg uchar 64
+note wk: 0 output length, 1 error length, 2 digest present, 3 error present, 4 refused,
+note 5 intent, 6 authorization, 7 state (0 DONE, 1 NOT_DONE, 2 UNRESOLVED).
+global wk ulong 8
+text lit "{\"authorization\":~,\"by\":~,\"disk_error\":~,\"disk_sha256\":~,\"intent\":~,\"phase\":\"reconcile\",\"state\":\"~\",\"world\":\"~\"}~null~DONE~NOT_DONE~UNRESOLVED~stat ~: ~ (os error ~)~ is not a regular file~read "
+note em: glibc strerror text for the errnos a stat, open or read of a path can give; Rust's
+note io::Error prints "<text> (os error N)". Every entry ends in ~.
+text em "1 Operation not permitted~2 No such file or directory~5 Input/output error~6 No such device or address~12 Cannot allocate memory~13 Permission denied~14 Bad address~20 Not a directory~21 Is a directory~23 Too many open files in system~24 Too many open files~36 File name too long~40 Too many levels of symbolic links~75 Value too large for defined data type~"
+text hx "0123456789abcdef"
+text nl "\n"
+
+note badd: append byte c to the output (d 0) or to the error message (d 1); a full buffer refuses.
+fn badd d ulong c uchar to void
+if eq d 0
+n0 = get wk 0
+if ge n0 len ob
+put wk 4 1
+ret
+end
+put ob n0 c
+put wk 0 add n0 1
+ret
+end
+n1 = get wk 1
+if ge n1 len eb
+put wk 4 1
+ret
+end
+put eb n1 c
+put wk 1 add n1 1
+end
+
+note frag: append fragment k of lit (fragments are separated by ~, byte 126) to d.
+fn frag d ulong k ulong to void
+c = ulong 0
+for i ulong len lit
+b = get lit i
+if eq b 126
+c = add c 1
+else
+if eq c k
+badd d b
+end
+end
+end
+end
+
+note dec: append v in decimal to d.
+fn dec d ulong v ulong to void
+p = ulong 1
+while le p div v 10
+p = mul p 10
+end
+while ne p 0
+badd d uchar add div v p 48
+v = rem v p
+p = div p 10
+end
+end
+
+note esc: append byte c to the output as serde_json writes it inside a string.
+fn esc c uchar to void
+if or eq c 34 eq c 92
+badd 0 92
+badd 0 c
+ret
+end
+if ge c 32
+badd 0 c
+ret
+end
+badd 0 92
+if eq c 8
+badd 0 98
+ret
+end
+if eq c 12
+badd 0 102
+ret
+end
+if eq c 10
+badd 0 110
+ret
+end
+if eq c 13
+badd 0 114
+ret
+end
+if eq c 9
+badd 0 116
+ret
+end
+badd 0 117
+badd 0 48
+badd 0 48
+badd 0 get hx ulong shr c 4
+badd 0 get hx ulong and c 15
+end
+
+note sarg: append argument i to the output as a JSON string.
+fn sarg i ulong to void
+badd 0 34
+s = get gs i
+for j ulong get gl i
+esc get ga add s j
+end
+badd 0 34
+end
+
+note serr: append the error message to the output as a JSON string.
+fn serr to void
+badd 0 34
+for j ulong get wk 1
+esc get eb j
+end
+badd 0 34
+end
+
+note apath: append the target (argument 1) to the error message, as Path::display shows it.
+fn apath to void
+s = get gs 1
+for j ulong get gl 1
+badd 1 get ga add s j
+end
+end
+
+note emsg: append "<text> (os error e)" to the error message; an errno outside em refuses.
+fn emsg e ulong to void
+i = ulong 0
+m = len em
+while lt i m
+v = ulong 0
+while ne get em i 32
+v = add mul v 10 ulong sub get em i 48
+i = add i 1
+end
+i = add i 1
+if eq v e
+while ne get em i 126
+badd 1 get em i
+i = add i 1
+end
+frag 1 14
+dec 1 e
+frag 1 15
+ret
+end
+while ne get em i 126
+i = add i 1
+end
+i = add i 1
+end
+put wk 4 1
+end
+
+note eerr: the error message "<stat |read ><target>: <text> (os error e)" (k 12 stat, 17 read).
+fn eerr k ulong e ulong to void
+frag 1 k
+apath
+frag 1 13
+emsg e
+put wk 3 1
+end
+
+note hfile: sha256 of the target's bytes into dg (wk 2 = 1), or a read error.
+fn hfile to void
+z = long 0
+fd = fopen ga get gs 1 get gl 1 524288 0
+if lt fd 0
+eerr 17 ulong sub z fd
+ret
+end
+hreset
+more = true
+while more
+r = read int fd fb 0 len fb
+if ne r -4
+if lt r 0
+x = fclose int fd
+eerr 17 ulong sub z r
+ret
+end
+if eq r 0
+more = false
+else
+for i ulong ulong r
+if not hpush get fb i
+put wk 4 1
+end
+end
+end
+end
+end
+y = fclose int fd
+if not hfinal
+put wk 4 1
+ret
+end
+for j ulong 64
+put dg j get hd j
+end
+put wk 2 1
+end
+
+note world: effects::file_sha256. Absent (ENOENT from lstat) leaves wk 2 and wk 3 at 0; a
+note lstat error or a target that is not a regular file is an error; else the digest.
+note An empty target is absent: Linux answers ENOENT for it, and Omega refuses an empty path
+note before the call (trap 3), so the kernel's answer is given here.
+fn world to void
+if eq get gl 1 0
+ret
+end
+z = long 0
+r = lstat ga get gs 1 get gl 1 sb 0 128
+if eq r -2
+ret
+end
+if lt r 0
+eerr 12 ulong sub z r
+ret
+end
+m = or ulong get sb 16 shl ulong get sb 17 8
+if ne and m 61440 32768
+apath
+frag 1 16
+put wk 3 1
+ret
+end
+hfile
+end
+
+note pnum: argument i as a u64, as Rust's str::parse: an optional +, then at least one digit.
+fn pnum i ulong to ulong
+s = get gs i
+n = get gl i
+j = ulong 0
+if gt n 0
+if eq get ga s 43
+j = 1
+end
+end
+if ge j n
+put wk 4 1
+ret 0
+end
+mx = ulong 0
+mx = sub mx 1
+v = ulong 0
+while lt j n
+c = get ga add s j
+if or lt c 48 gt c 57
+put wk 4 1
+ret 0
+end
+d = ulong sub c 48
+if gt v div sub mx d 10
+put wk 4 1
+ret 0
+end
+v = add mul v 10 d
+j = add j 1
+end
+ret v
+end
+
+note pnone: 1 when argument 3 is exactly "-" (no prior digest: the file was absent).
+fn pnone to ulong
+if ne get gl 3 1
+ret 0
+end
+if ne get ga get gs 3 45
+ret 0
+end
+ret 1
+end
+
+note dgeq: 1 when argument i equals the digest read from the target.
+fn dgeq i ulong to ulong
+if ne get gl i 64
+ret 0
+end
+s = get gs i
+for j ulong 64
+if ne get ga add s j get dg j
+ret 0
+end
+end
+ret 1
+end
+
+note decide: effects::state_from. DONE when the digest is the content; NOT_DONE when the
+note digest (or absence) is the prior; else UNRESOLVED, and always UNRESOLVED on an error.
+fn decide to ulong
+if eq get wk 3 1
+ret 2
+end
+if eq get wk 2 0
+if eq pnone 1
+ret 1
+end
+ret 2
+end
+if eq dgeq 2 1
+ret 0
+end
+if eq pnone 0
+if eq dgeq 3 1
+ret 1
+end
+end
+ret 2
+end
+
+note record: effects::reconcile_text, keys in serde_json's sorted order, compact.
+fn record to void
+frag 0 0
+dec 0 get wk 6
+frag 0 1
+sarg 6
+frag 0 2
+if eq get wk 3 1
+serr
+else
+frag 0 8
+end
+frag 0 3
+if eq get wk 2 1
+badd 0 34
+for j ulong 64
+badd 0 get dg j
+end
+badd 0 34
+else
+frag 0 8
+end
+frag 0 4
+dec 0 get wk 5
+frag 0 5
+frag 0 add 9 get wk 7
+frag 0 6
+frag 0 add 9 get wk 7
+frag 0 7
+end
+
+note args: arguments 1..6 into ga; false when they do not fit.
+fn args to bool
+o = ulong 0
+for i ulong 7
+if gt i 0
+r = argread i ga o sub len ga o
+if lt r 0
+ret false
+end
+put gs i o
+put gl i ulong r
+o = add o ulong r
+end
+end
+ret true
+end
+
+note wout: write the record, a newline, its sha256 and a newline.
+fn wout to bool
+o = ulong 0
+m = get wk 0
+while lt o m
+w = write 1 ob o sub m o
+if ne w -4
+if le w 0
+ret false
+end
+o = add o ulong w
+end
+end
+if ne write 1 nl 0 1 1
+ret false
+end
+if ne write 1 hd 0 64 64
+ret false
+end
+if ne write 1 nl 0 1 1
+ret false
+end
+ret true
+end
+
+fn main to int
+if ne argcnt 7
+ret 2
+end
+if not args
+ret 2
+end
+put wk 5 pnum 4
+put wk 6 pnum 5
+if gt get gl 1 4095
+ret 2
+end
+world
+if ne get wk 4 0
+ret 2
+end
+put wk 7 decide
+record
+if ne get wk 4 0
+ret 2
+end
+hreset
+for i ulong get wk 0
+if not hpush get ob i
+ret 2
+end
+end
+if not hfinal
+ret 2
+end
+if not wout
+ret 74
+end
+ret 0
+end

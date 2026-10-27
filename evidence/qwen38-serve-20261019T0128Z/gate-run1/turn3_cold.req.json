@@ -1,0 +1,30 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "Write a C function that returns the larger of two ints."
+    },
+    {
+      "role": "assistant",
+      "content": "null"
+    },
+    {
+      "role": "user",
+      "content": "Now make it work for three ints."
+    },
+    {
+      "role": "assistant",
+      "content": "null"
+    },
+    {
+      "role": "user",
+      "content": "Thanks."
+    }
+  ],
+  "temperature": 0,
+  "max_tokens": 24,
+  "chat_template_kwargs": {
+    "enable_thinking": false
+  },
+  "aien_return_token_ids": true
+}

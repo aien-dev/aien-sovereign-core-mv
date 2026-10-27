@@ -1,0 +1,21 @@
+VOID control2.json: {"error":{"message":"one generation at a time: the engine is busy with another request, retry shortly","type":"server_busy","param":null,"code":null}}
+VOID control.json: {"error":{"message":"one generation at a time: the engine is busy with another request, retry shortly","type":"server_busy","param":null,"code":null}}
+VOID golden.json: {"error":{"message":"one generation at a time: the engine is busy with another request, retry shortly","type":"server_busy","param":null,"code":null}}
+VOID turn2_cold.json: {"error":{"message":"one generation at a time: the engine is busy with another request, retry shortly","type":"server_busy","param":null,"code":null}}
+VOID turn2_resumed.json: {"error":{"message":"one generation at a time: the engine is busy with another request, retry shortly","type":"server_busy","param":null,"code":null}}
+VOID turn3_cold.json: {"error":{"message":"one generation at a time: the engine is busy with another request, retry shortly","type":"server_busy","param":null,"code":null}}
+VOID turn3_resumed.json: {"error":{"message":"one generation at a time: the engine is busy with another request, retry shortly","type":"server_busy","param":null,"code":null}}
+golden ids want [71093,66,198,390,1866,1494,264,11,514,292,8,313,198,262,460,318,64,835,292,8,907,264,535,292]
+golden ids got  null
+FAIL golden: 24 greedy ids equal the host reference
+FAIL golden: prompt is the reference's 24 tokens
+FAIL control (smaller): ids differ from the golden (must)
+turn2 resumed null
+turn2 cold    null
+FAIL turn 2 resumed == cold
+turn3 resumed null
+turn3 cold    null
+FAIL turn 3 resumed == cold
+FAIL turn 2 differs from turn 1 (no stale reply)
+golden text: null
+GATE FAIL

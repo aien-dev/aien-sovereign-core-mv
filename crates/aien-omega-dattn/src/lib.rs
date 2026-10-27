@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Safe Rust wrapper over omega's one-launch decode attention for Qwen3-30B-A3B
 //! (`src/omega_gpu_decode_attn_api.h`, OWN-30B cut 8 on the omega side; no CUDA).
 //!
@@ -30,7 +45,7 @@ pub const OUT_WORDS: usize = Q_HEADS * HEAD_DIM;
 /// Positions per split CTA (`OMEGA_DATTN_CHUNK`); `max_pos` is rounded to this.
 pub const POS_ROUND: usize = 256;
 /// Most positions one cache can hold (`OMEGA_GPU_DATTN_MAX_POS`).
-pub const MAX_POS: usize = 65536;
+pub const MAX_POS: usize = 131072;
 /// Most layers one cache can hold (`OMEGA_GPU_DATTN_MAX_LAYERS`).
 pub const MAX_LAYERS: usize = 64;
 

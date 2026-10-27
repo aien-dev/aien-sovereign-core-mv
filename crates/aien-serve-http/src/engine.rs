@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! The engine seam: one blocking `generate` call per request, tokens in, tokens out.
 //!
 //! The HTTP layer never sees weights, sessions or logits. It renders the chat prompt
@@ -106,6 +121,190 @@ pub trait Engine: Send + Sync {
     fn persistence_status(&self) -> Option<serde_json::Value> {
         None
     }
+    /// How many generations the engine runs at once (the server hands out that many
+    /// permits). 1 for every engine that takes one `generate` at a time; a batching engine
+    /// says how many conversations it stacks on one weight read.
+    fn concurrency(&self) -> usize {
+        1
+    }
+    /// The merge train's per-request switches this engine honors (`TestSwitches` field names).
+    /// Empty for every engine without them; the server refuses a request whose `aien_test`
+    /// names a switch outside this list, so a switch is never ignored in silence.
+    fn test_switches_honored(&self) -> &'static [&'static str] {
+        &[]
+    }
+    /// `generate` with the merge train's switches applied to this one request. The default
+    /// refuses any switch (no engine honors one unless it says so) and is plain `generate`
+    /// for an empty set.
+    fn generate_with_test(
+        &self,
+        prompt: &[u32],
+        params: &GenerateParams,
+        test: &TestSwitches,
+        on_token: &mut dyn FnMut(u32) -> bool,
+    ) -> Result<GenerateOutcome, EngineError> {
+        if !test.is_empty() {
+            return Err(EngineError::Failed(format!(
+                "aien_test switches {:?} are not honored by the {} engine",
+                test.names(),
+                self.kind()
+            )));
+        }
+        self.generate(prompt, params, on_token)
+    }
+    /// Runs several generations that belong together (the eight readers of one long input, sc
+    /// L371) and returns one outcome per job, in order. `on_token(i, tok)` gets job `i`'s tokens;
+    /// `false` cancels that job only. The default runs them in turn; a batching engine seats them
+    /// all in the same beat so they share every weight read. The caller holds `jobs.len()`
+    /// permits (or all of them, when fewer).
+    fn generate_group(
+        &self,
+        jobs: &[GroupJob],
+        on_token: &mut dyn FnMut(usize, u32) -> bool,
+    ) -> Vec<Result<GenerateOutcome, EngineError>> {
+        let stopped = |j: &GroupJob| {
+            j.cancel
+                .as_ref()
+                .is_some_and(|c| c.load(std::sync::atomic::Ordering::SeqCst))
+        };
+        jobs.iter()
+            .enumerate()
+            .map(|(i, j)| {
+                if stopped(j) {
+                    return Ok(GenerateOutcome {
+                        emitted_tokens: 0,
+                        finish: FinishReason::Cancelled,
+                        prefill_ms: 0,
+                        decode_ms: 0,
+                        sampling: None,
+                    });
+                }
+                self.generate_with_test(&j.prompt, &j.params, &j.test, &mut |t| {
+                    on_token(i, t) && !stopped(j)
+                })
+            })
+            .collect()
+    }
+}
+
+/// The merge train's per-request switches (L384, Drake 2026-10-21: "batch these tests
+/// together"): one loaded test server runs every lever's on/off and mutant cases, each request
+/// saying which path it takes. `None` = the server's default. Only a build with the cargo
+/// feature `aien-test-switches` applies them; every other build refuses a request that carries
+/// `aien_test` (a live server never serves a mutant by accident, and never ignores a switch).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TestSwitches {
+    /// Rows ride L312's strokes (`false`: this row's own one-row graph, in turn).
+    pub stroke: Option<bool>,
+    /// L314's exact two-pass head for this row's greedy steps (`false`: the plain head).
+    pub exact_head: Option<bool>,
+    /// Negative control: the graph mutant (`AIEN_Q36_TEST_MUTANT` numbers) for this row only.
+    pub mutant: Option<i32>,
+    /// Negative control: at this request's `k`th decode step (from 1) it trades rows with
+    /// another live conversation; both must go red.
+    pub row_swap: Option<u64>,
+    /// L369 chunked prompt reading: tokens per chunk for this prompt (`0` = token by token).
+    pub prefill_chunk: Option<usize>,
+    /// L375 shared prompt cache: may this request read from or write to the pool.
+    pub prefix_pool: Option<bool>,
+    /// L313 bf16 DeltaNet state: load-only on the chip (the train starts a second server
+    /// for it); listed so a case can name it and the server can say so.
+    pub state_bf16: Option<bool>,
+}
+
+impl TestSwitches {
+    /// Every switch name, in the request's spelling.
+    pub const NAMES: [&'static str; 7] = [
+        "stroke",
+        "exact_head",
+        "mutant",
+        "row_swap",
+        "prefill_chunk",
+        "prefix_pool",
+        "state_bf16",
+    ];
+
+    /// Parses the request's `aien_test` object; an unknown key or a wrong type is an error (a
+    /// misspelt switch must never pass as "default").
+    pub fn from_json(v: &serde_json::Value) -> Result<Self, String> {
+        let Some(map) = v.as_object() else {
+            return Err("aien_test must be an object".into());
+        };
+        let mut t = Self::default();
+        for (k, v) in map {
+            if v.is_null() {
+                continue;
+            }
+            let bool_ = || {
+                v.as_bool()
+                    .ok_or_else(|| format!("aien_test.{k} must be a boolean"))
+            };
+            let uint = || {
+                v.as_u64()
+                    .ok_or_else(|| format!("aien_test.{k} must be a whole number >= 0"))
+            };
+            match k.as_str() {
+                "stroke" => t.stroke = Some(bool_()?),
+                "exact_head" => t.exact_head = Some(bool_()?),
+                "mutant" => {
+                    let m = v
+                        .as_i64()
+                        .filter(|m| (0..=64).contains(m))
+                        .ok_or_else(|| format!("aien_test.{k} must be a whole number 0..=64"))?;
+                    t.mutant = Some(m as i32);
+                }
+                "row_swap" => t.row_swap = Some(uint()?),
+                "prefill_chunk" => t.prefill_chunk = Some(uint()? as usize),
+                "prefix_pool" => t.prefix_pool = Some(bool_()?),
+                "state_bf16" => t.state_bf16 = Some(bool_()?),
+                other => return Err(format!("aien_test.{other}: no such switch")),
+            }
+        }
+        Ok(t)
+    }
+
+    /// The switches this request sets, by name.
+    pub fn names(&self) -> Vec<&'static str> {
+        let mut n = Vec::new();
+        if self.stroke.is_some() {
+            n.push("stroke");
+        }
+        if self.exact_head.is_some() {
+            n.push("exact_head");
+        }
+        if self.mutant.is_some() {
+            n.push("mutant");
+        }
+        if self.row_swap.is_some() {
+            n.push("row_swap");
+        }
+        if self.prefill_chunk.is_some() {
+            n.push("prefill_chunk");
+        }
+        if self.prefix_pool.is_some() {
+            n.push("prefix_pool");
+        }
+        if self.state_bf16.is_some() {
+            n.push("state_bf16");
+        }
+        n
+    }
+
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// One generation of a [`Engine::generate_group`].
+#[derive(Debug, Clone)]
+pub struct GroupJob {
+    pub prompt: Vec<u32>,
+    pub params: GenerateParams,
+    /// Set by the caller to stop this job even before it emits a token (a reader still taking in
+    /// its part when the client leaves). `None`: only `on_token` returning `false` stops it.
+    pub cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// The merge train's switches for this job (empty on the served path).
+    pub test: TestSwitches,
 }
 
 /// Test engine: ignores the prompt and replays a fixed token list, optionally

@@ -62,7 +62,7 @@ EXAMPLE (SEED-0B QEMU run):
 
 ```sh
 aien-proof receipt import \
-  --repo https://github.com/aien-spark/aienos \
+  --repo https://github.com/aien-dev/aienux \
   --commit 3fa4c8e2b1d04f7a9c6e5b8d2a1f4c7e9b0d3f21 \
   --gate seed-0b-qemu \
   --tier QEMU \
