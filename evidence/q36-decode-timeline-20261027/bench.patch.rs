@@ -1,8 +1,8 @@
 // THROWAWAY A/B driver (evidence only, not product code): appended to
 // crates/aien-serve-http/src/qwen36_batch/tests.rs in BOTH arms, unchanged.
 // One request of BENCH_TOKENS greedy tokens through the batch door over a
-// fake model that does no work, so the measured time is the door's own beat
-// loop: the code the switched-off decode timeline touches.
+// fake model that spins a fixed 100 us per step, so the time above
+// 20,000 x 100 us is the door's own beat loop: the code the switched-off decode timeline touches.
 
 struct BenchFake(Vec<(u64, usize)>);
 
@@ -24,6 +24,13 @@ impl RowStep for BenchFake {
         Ok(())
     }
     fn step_rows(&mut self, feed: &[RowFeed]) -> Result<Vec<RowOut>, String> {
+        // A fixed 100 us of busy work per step stands in for the chip, so the reply's reader
+        // (256 events of slack) keeps up the way it does at 20 ms/token. Without it the reader
+        // falls behind and the door drops the row.
+        let t = Instant::now();
+        while t.elapsed() < Duration::from_micros(100) {
+            std::hint::spin_loop();
+        }
         Ok(feed
             .iter()
             .map(|f| {

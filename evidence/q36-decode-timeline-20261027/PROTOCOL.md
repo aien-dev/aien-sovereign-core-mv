@@ -39,3 +39,7 @@ A server built from `f30eb963` has no `AIEN_SERVE_GPU_LOCK`, so inside a window 
 ## Amendment 2 (host A/B, before any host number exists): driver fix
 
 The first host run produced no sample: in `bench.patch.rs` the fake returned no logits when the prompt's last feed asked for them, so the door never picked a first reply token and the request waited until the 1800 s job limit. The driver now returns a one-hot logits row whose argmax equals its own token. No timing from that run exists, so nothing is selected away. Every other rule is unchanged.
+
+## Amendment 3 (host A/B, before any host number exists): fixed step work
+
+With Amendment 2 the smoke run (outside the counted rounds) failed: the fake stepped so fast that the reply's reader fell 256 events behind and the door dropped the row, as designed. The fake now spins a fixed 100 us per step in both arms. Per token the time is then 100 us plus the door's own loop, so the 1.02 gate catches any added host cost above about 2 us per token (Wolfram check in the report). No timing from the smoke runs is used.
