@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use std::path::PathBuf;
 
 fn workspace_root() -> PathBuf {
@@ -84,30 +99,30 @@ fn test_t1_f05_vault_keys_caching_invariant() {
 
 #[test]
 fn test_t1_f06_sanitizer_scrubs_workspace_paths() {
-    let input = "Inspect file at /home/drakestapleton/workspace/secret.rs and /Users/drakestapleton/audit.md";
+    let input = "Inspect file at /home/alice/workspace/secret.rs and /Users/alice/audit.md";
     let output = sanitize_outbound_prompt(input);
-    assert!(!output.contains("/home/drakestapleton"));
-    assert!(!output.contains("/Users/drakestapleton"));
+    assert!(!output.contains("/home/alice"));
+    assert!(!output.contains("/Users/alice"));
     assert!(output.contains("<WORKSPACE_PATH>"));
 }
 
 #[test]
 fn test_t1_f07_sanitizer_scrubs_private_ips() {
-    let input = "Connect to 127.0.0.1 and 100.64.0.1 and 192.168.1.10 and 10.0.0.5";
+    let input = "Connect to 127.0.0.1 and 100.100.1.2 and 192.168.0.10 and 10.0.0.5";
     let output = sanitize_outbound_prompt(input);
     assert!(!output.contains("127.0.0.1"));
-    assert!(!output.contains("100.64.0.1"));
-    assert!(!output.contains("192.168.1.10"));
+    assert!(!output.contains("100.100.1.2"));
+    assert!(!output.contains("192.168.0.10"));
     assert!(!output.contains("10.0.0.5"));
     assert!(output.contains("<LOCAL_HOST>"));
 }
 
 #[test]
 fn test_t1_f08_sanitizer_scrubs_local_hostnames() {
-    let input = "Run job on spark and spark-b87b and localhost directly";
+    let input = "Run job on spark and spark-1a2b and localhost directly";
     let output = sanitize_outbound_prompt(input);
     // Hardening requirement: hostnames scrubbed per PROJECT.md interface contract
-    assert!(!output.contains("spark-b87b"));
+    assert!(!output.contains("spark-1a2b"));
     assert!(output.contains("<LOCAL_HOST>"));
 }
 
@@ -140,7 +155,7 @@ fn test_t1_f10b_sanitizer_persisted_dataset_contains_no_raw_paths_or_ips() {
         std::env::temp_dir().join(format!("spark_distill_t1_f10b_{}", uuid::Uuid::new_v4()));
     let engine = DistillationEngine::new().with_dataset_dir(&temp_dir);
 
-    let raw_prompt = "Write code for /home/drakestapleton/audit_secret.rs at 10.0.0.15";
+    let raw_prompt = "Write code for /home/alice/audit_secret.rs at 10.0.0.15";
     let sanitized_prompt = sanitize_outbound_prompt(raw_prompt);
 
     let task = DistillTask {
@@ -164,7 +179,7 @@ fn test_t1_f10b_sanitizer_persisted_dataset_contains_no_raw_paths_or_ips() {
 
     let content = fs::read_to_string(&sft_path).expect("read sft.jsonl");
     assert!(
-        !content.contains("/home/drakestapleton"),
+        !content.contains("/home/alice"),
         "sft.jsonl must not contain raw home path"
     );
     assert!(
@@ -1047,11 +1062,11 @@ fn test_t1_f64_git_commit_messages_unslop_compliant() {
 }
 
 #[test]
-fn test_t1_f65_git_license_file_declares_agpl() {
+fn test_t1_f65_git_license_file_declares_apache() {
     let license_path = workspace_root().join("LICENSE");
     let content = fs::read_to_string(license_path).expect("read LICENSE");
-    assert!(content.contains("GNU AFFERO GENERAL PUBLIC LICENSE"));
-    assert!(content.contains("Version 3, 19 November 2007"));
-    assert!(!content.contains("Apache License, Version 2.0"));
+    assert!(content.contains("Apache License"));
+    assert!(content.contains("Version 2.0, January 2004"));
+    assert!(!content.contains("GNU AFFERO GENERAL PUBLIC LICENSE"));
     assert!(!content.contains("SRCL-1.0"));
 }

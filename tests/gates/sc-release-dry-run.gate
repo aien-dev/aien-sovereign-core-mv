@@ -1,4 +1,5 @@
 # tests/gates/sc-release-dry-run.gate
+# target_lock: none because aien-audit-inputs traced no cargo or rustc in this gate (L335, 2026-10-21).
 # Mirrors hosted: release-dry-run.yml (pull_request): test-dry-run-workflow, test-release-gate-wiring, test-release-signing-workflow, tree gate report (observation only, as hosted continue-on-error), test-release-real-tree (hosted 8 s)
 gate: SC-RELEASE-DRY-RUN
 manifest_version: 2
@@ -19,3 +20,4 @@ expects:
 timeout: 15m
 exactness: EXACT
 cache_scope: machine
+target_lock: none

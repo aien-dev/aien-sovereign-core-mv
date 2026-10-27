@@ -1,0 +1,1 @@
+flock /tmp/aien-gb10.lock /home/drakestapleton/workspace/targets/q38-sc/release/qwen38_omega_full ~/models/qwen3.8-27b-fp8-017b9c7a 64 golden.json report.json
