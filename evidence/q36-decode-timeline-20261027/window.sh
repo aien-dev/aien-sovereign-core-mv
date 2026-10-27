@@ -18,7 +18,7 @@ umask 022
 W=/home/drakestapleton/work/DecodeTimeline
 BIN_HEAD=$W/bin-head/aien-serve-http
 BIN_BASE=$W/bin-a/aien-serve-http
-SHA_HEAD=29bf4e581b4a23ae03d1df217590f9fb7c4e6d18cf5c26d7842681e2637af74c # sc 6691c931 + omega a647b6a9
+SHA_HEAD=6eca898f1628ac93b16ac5f0ab7772d310b8b51bdbd5e4b236e7306369ad9c10 # sc f551b1e2 + omega a647b6a9
 SHA_BASE=e7c2e61a814421a8b22046a408affbe4fc19c3f5e552726e56359152a50bcab7 # sc bf51e6d6 + omega a647b6a9
 MODEL=/home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0
 PORT=18190

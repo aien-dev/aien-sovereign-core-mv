@@ -32,3 +32,9 @@ WolframLanguageEvaluator on `host-ab/ab.wl`:
 
 - Chip timeline (200 tokens on the 35B) and the chip A/B: they need a stopped 18091 and an exclusive window. `window.sh` runs both; the procedure is in `/home/drakestapleton/handoffs/DecodeTimeline/RESUME.md`.
 - The ABI host marks and `row_timeline` on the real `Qwen38Omega`: compiled and covered by the door tests only through the fake; the chip run exercises them.
+
+## Addendum: missing-logits fix (`f551b1e2`)
+
+- `missing_logits_fail_the_request` (host, fake stepper that never returns logits, both chip-greedy settings): RED before the fix, "the door hung on a step without the logits it asked for: Timeout" after 20 s (`host-timeline/nologits-before.log`); GREEN after (`host-timeline/nologits-after.log`).
+- Package tests at `f551b1e2`: same result as above, all green except `tinyllama_parity` 4 of 6 (`/home/drakestapleton/handoffs/DecodeTimeline/test-head2.log`).
+- The host A/B above measured `6691c931`, before this fix. `window.sh` now pins the head binary at `f551b1e2` (sha256 `6eca898f...9c10`), so the chip A/B measures the final code.
