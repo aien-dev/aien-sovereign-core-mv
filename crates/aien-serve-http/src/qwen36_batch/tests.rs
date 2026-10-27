@@ -1058,3 +1058,65 @@ fn decode_timeline_refused_without_stamps() {
     assert!(r.is_err());
     assert!(!path.exists());
 }
+
+/// A stepper that never returns logits, even when a feed asks for them.
+struct NoLogits(Vec<u64>);
+
+impl RowStep for NoLogits {
+    type Snap = u64;
+    fn row_snapshot(&mut self, r: usize, snap: &mut u64) -> Result<(), String> {
+        *snap = self.0[r];
+        Ok(())
+    }
+    fn row_restore(&mut self, r: usize, snap: &u64) -> Result<(), String> {
+        self.0[r] = *snap;
+        Ok(())
+    }
+    fn row_count(&self) -> usize {
+        self.0.len()
+    }
+    fn row_reset(&mut self, r: usize) -> Result<(), String> {
+        self.0[r] = 0;
+        Ok(())
+    }
+    fn step_rows(&mut self, feed: &[RowFeed]) -> Result<Vec<RowOut>, String> {
+        Ok(feed
+            .iter()
+            .map(|f| {
+                self.0[f.row] = mix(self.0[f.row] ^ u64::from(f.token));
+                RowOut {
+                    token: (self.0[f.row] % 89) as u32 + 5,
+                    logits: None,
+                    stats: GraphStats::default(),
+                }
+            })
+            .collect())
+    }
+}
+
+/// The prompt's last feed asks for logits; a stepper that returns none fails the request with a
+/// clear error instead of leaving it waiting forever (the door used to hang here).
+#[test]
+fn missing_logits_fail_the_request() {
+    for chip_greedy in [true, false] {
+        let d = Qwen36BatchDoor::with_stepper(
+            NoLogits(vec![0; 2]),
+            4096,
+            lock_file(),
+            Duration::from_secs(5),
+            4,
+            chip_greedy,
+        )
+        .unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let r = d.generate(&[3, 1, 4, 1, 5], &greedy(8), &mut |_| true);
+            let _ = tx.send(r.map(|_| ()).map_err(|e| format!("{e:?}")));
+        });
+        let r = rx
+            .recv_timeout(Duration::from_secs(20))
+            .expect("the door hung on a step without the logits it asked for");
+        let e = r.expect_err("a step without asked-for logits must fail the request");
+        assert!(e.contains("no logits"), "error names the cause: {e}");
+    }
+}

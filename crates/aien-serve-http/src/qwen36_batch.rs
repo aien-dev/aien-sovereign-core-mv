@@ -991,7 +991,12 @@ impl<S: RowStep> Scheduler<S> {
                 spell.row_tokens += feed.len() as u64;
                 let m = feed.len() as u64;
                 match r {
-                    Ok(outs) if outs.len() == feed.len() => {
+                    // A row that asked for logits and got none could never pick its next token: fail
+                    // the step instead of leaving that request waiting forever.
+                    Ok(outs)
+                        if outs.len() == feed.len()
+                            && feed.iter().zip(&outs).all(|(f, o)| !f.logits || o.logits.is_some()) =>
+                    {
                         if stamp {
                             let rt = self.model.row_timeline(feed[0].row);
                             if let Some(tl) = self.timeline.as_mut() {
@@ -1032,7 +1037,18 @@ impl<S: RowStep> Scheduler<S> {
                     r => {
                         let e = match r {
                             Err(e) => e,
-                            Ok(o) => format!("step_rows gave {} rows for {}", o.len(), feed.len()),
+                            Ok(o) if o.len() != feed.len() => {
+                                format!("step_rows gave {} rows for {}", o.len(), feed.len())
+                            }
+                            Ok(o) => {
+                                let rows: Vec<usize> = feed
+                                    .iter()
+                                    .zip(&o)
+                                    .filter(|(f, o)| f.logits && o.logits.is_none())
+                                    .map(|(f, _)| f.row)
+                                    .collect();
+                                format!("step_rows gave no logits for row(s) {rows:?} that asked for them")
+                            }
                         };
                         eprintln!("aien-serve-http: qwen36-batch: step over {m} rows failed: {e}");
                         for a in active.drain(..) {
