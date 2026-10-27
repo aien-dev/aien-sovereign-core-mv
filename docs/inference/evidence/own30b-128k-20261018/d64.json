@@ -1,0 +1,1 @@
+{"model":"qwen3-30b-a3b-instruct-2507","max_tokens":64,"temperature":0,"messages":[{"role":"user","content":"Write a long, detailed C program that implements a hash table with insert, lookup, delete and resize, with comments on every function."}]}

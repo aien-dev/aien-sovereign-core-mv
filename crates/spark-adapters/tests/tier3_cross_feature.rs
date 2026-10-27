@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 // Tier 3: Cross-Feature Combinations and Subsystem Interaction Tests
 // Strictly adheres to sovereign unslop invariants: zero em dashes, zero en dashes.
 
@@ -13,10 +28,10 @@ use std::process::Command;
 
 #[test]
 fn test_t3_01_sanitizer_router_dispatch_interaction() {
-    let raw_prompt = "Load /home/drakestapleton/workspace/main.rs from 10.0.0.5 for drakestapleton with sk-proj-12345678901234567890";
+    let raw_prompt = "Load /home/alice/workspace/main.rs from 10.0.0.5 for drakestapleton with sk-proj-12345678901234567890";
     let clean_prompt = sanitize_outbound_prompt(raw_prompt);
 
-    assert!(!clean_prompt.contains("/home/drakestapleton"));
+    assert!(!clean_prompt.contains("/home/alice"));
     assert!(!clean_prompt.contains("10.0.0.5"));
     assert!(!clean_prompt.contains("drakestapleton"));
     assert!(!clean_prompt.contains("sk-proj-"));

@@ -1,0 +1,12 @@
+{"n":1,"rep":1,"replies_ok":1,"completion_tokens":29,"wall_s":1.279494285583496,"tok_s":22.66520478188376}
+{"n":1,"rep":2,"replies_ok":1,"completion_tokens":29,"wall_s":1.281764268875122,"tok_s":22.62506507959567}
+{"n":2,"rep":1,"replies_ok":2,"completion_tokens":36,"wall_s":2.0873942375183105,"tok_s":17.24638276418745}
+{"n":2,"rep":2,"replies_ok":2,"completion_tokens":36,"wall_s":2.0826644897460938,"tok_s":17.28554943786885}
+{"n":4,"rep":1,"replies_ok":4,"completion_tokens":216,"wall_s":6.82837176322937,"tok_s":31.632724094366857}
+{"n":4,"rep":2,"replies_ok":4,"completion_tokens":216,"wall_s":6.858503103256226,"tok_s":31.49375260870688}
+{"n":8,"rep":1,"replies_ok":8,"completion_tokens":501,"wall_s":14.88767147064209,"tok_s":33.65200535140452}
+{"n":8,"rep":2,"replies_ok":8,"completion_tokens":503,"wall_s":14.881654024124146,"tok_s":33.800006315467606}
+{"n":16,"rep":1,"replies_ok":16,"completion_tokens":1047,"wall_s":31.131181955337524,"tok_s":33.631874353568804}
+{"n":16,"rep":2,"replies_ok":16,"completion_tokens":1044,"wall_s":31.271828413009644,"tok_s":33.384680492992125}
+{"n":32,"rep":1,"replies_ok":32,"completion_tokens":2716,"wall_s":79.18835139274597,"tok_s":34.29797378315921}
+{"n":32,"rep":2,"replies_ok":32,"completion_tokens":2716,"wall_s":76.0953586101532,"tok_s":35.69205861706277}

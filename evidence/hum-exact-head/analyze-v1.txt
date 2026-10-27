@@ -1,0 +1,12 @@
+1010 records, head [248320][2048]
+full head on every record in 55.9 s
+W4 screen built in 0.3 s
+W4 Row: |C| mean 114263.8 max 248320, exact-tau mean 29953.2 max 248244, wrong 0/0, first mutant fail at xSome(0.02)
+W4 Group: |C| mean 107013.1 max 248320, exact-tau mean 20227.4 max 217884, wrong 0/0, first mutant fail at xSome(0.02)
+W4 GroupLinf: |C| mean 189701.8 max 248320, exact-tau mean 68886.4 max 248320, wrong 0/0, first mutant fail at xSome(0.02)
+W4 Min: |C| mean 107013.1 max 248320, exact-tau mean 20227.4 max 217884, wrong 0/0, first mutant fail at xSome(0.02)
+Fp8 screen built in 5.2 s
+Fp8 Row: |C| mean 27.1 max 725, exact-tau mean 4.2 max 128, wrong 0/0, first mutant fail at xSome(0.02)
+Fp8 Group: |C| mean 24.6 max 652, exact-tau mean 4.0 max 119, wrong 0/0, first mutant fail at xSome(0.02)
+Fp8 GroupLinf: |C| mean 3053.8 max 104034, exact-tau mean 135.0 max 6637, wrong 0/0, first mutant fail at xSome(0.01)
+Fp8 Min: |C| mean 24.6 max 652, exact-tau mean 4.0 max 119, wrong 0/0, first mutant fail at xSome(0.02)

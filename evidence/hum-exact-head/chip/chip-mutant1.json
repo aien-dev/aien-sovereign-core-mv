@@ -1,0 +1,6 @@
+{
+  "test": "gpu_exact_head_test", "mutant": 1, "records": 200, "identical": 196, "host_full_agrees": 142,
+  "candidate_bits_differ": 0, "full_argmax_missing": 4, "C_mean": 1.000, "C_p99": 1, "C_max": 1,
+  "full_list_us": { "p50": 4723.55, "p99": 5021.40 }, "two_pass_list_us": { "p50": 2342.03, "p99": 2710.15 },
+  "bytes": { "full_head": 1017118720, "fp8b_screen": 508621440, "coef": 993280, "row": 4096 }
+}

@@ -1,6 +1,7 @@
 # tests/gates/sc-trn1.gate
 # Mirrors hosted: hardening.yml trn1: aien-replay trn1_conformance with the aien-protocols corpus at 353b7d4 + run_mutants.sh trn1 (hosted 50 s)
-# cache: never because the vector corpus is a pinned sibling checkout outside this repository.
+# cache: inputs_complete: the corpus is a sibling pinned by sha in tests/gates/run.sh (an input); crates/aien-replay is its own
+# cargo workspace, and aien-audit-inputs (L335) found it reads only the crates listed below.
 gate: SC-TRN1
 manifest_version: 2
 owner: aien-sovereign-core
@@ -8,6 +9,9 @@ requires:
   - host
 inputs:
   - crates/aien-replay/
+  - crates/aien-platform/
+  - crates/aien-platform-linux/
+  - crates/aien-kv-cache/
   - Cargo.lock
   - tests/gates/
 run:
@@ -19,4 +23,4 @@ expects:
 timeout: 15m
 exactness: EXACT
 cache_scope: machine
-cache: never
+cache: inputs_complete

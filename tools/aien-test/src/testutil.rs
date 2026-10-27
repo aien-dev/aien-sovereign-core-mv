@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Test helpers: unique temp dirs and throwaway git repositories.
 
 use std::fs;
@@ -84,4 +99,21 @@ pub fn init_repo(tag: &str, files: &[(&str, &str, bool)]) -> TempDir {
     git(t.path(), &["add", "-A"]);
     git(t.path(), &["commit", "-q", "-m", "init"]);
     t
+}
+
+/// Whether `/proc/locks` shows a blocked `flock` waiter on `path` (a line
+/// `N: -> FLOCK ... maj:min:inode ...`), so a test holder can let go only
+/// once the code under test is really queued behind it.
+pub fn queued_on(path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let ino = match fs::metadata(path) {
+        Ok(m) => m.ino(),
+        Err(_) => return false,
+    };
+    let suffix = format!(":{ino}");
+    fs::read_to_string("/proc/locks")
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| l.contains("-> FLOCK"))
+        .any(|l| l.split_whitespace().any(|w| w.ends_with(&suffix)))
 }

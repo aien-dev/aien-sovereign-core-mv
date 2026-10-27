@@ -1,0 +1,10 @@
+1e641f8e71405311bad6c490d4b87841db186cbd
+ M crates/aien-inference-abi/src/qwen38.rs
+ M crates/aien-inference-abi/src/qwen38_omega.rs
+?? crates/aien-inference-abi/src/bin/qwen38_omega_full.rs
+?? evidence/
+omega b11bd1f6 fresh build OUT_DIR=/home/drakestapleton/workspace/targets/q38-exp/fresh-b11 PHYSICS_DIR=physics-6d7cf0d4 (pinned)
+e0f00af4b2f92c5a47c6e3d5671ea0fd2a34bc5d961f5ef533c245e8d378b8ba  /home/drakestapleton/workspace/targets/q38-sc/release/qwen38_omega_full
+ef3f9d24f424316f7d577632ae86a643eeda8ac71ce9047397664d1840dd98ed  /home/drakestapleton/workspace/targets/q38-exp/fresh-b11/libomega_gpu.a
+               total        used        free      shared  buff/cache   available
+Mem:             121          73          20           0          32          48

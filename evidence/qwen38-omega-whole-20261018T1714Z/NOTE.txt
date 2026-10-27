@@ -1,0 +1,6 @@
+Whole model resident (one 64-layer window), committed build of qwen38/omega-full-parity (archive sha in ground.txt).
+Teacher-forced decode, one command list per token. Median chip time 156806899 ns per token.
+1e9/156806899 = 6.3773 tok/s (calc:e3e66420); vs 10.15 tok/s plain ceiling = 0.6283 (calc:ab340f66);
+weights 25675 MiB per token / median = 171.69 MB/ms ~ GB/s effective (calc:a961ac8f) of 273 GB/s.
+The "one window short" control is n/a with a single window; shifted-by-one control caught (best 0.958114).
+30B server (pid 2407880) stayed up; MemAvailable before 52185752 kB, after 52870960 kB.

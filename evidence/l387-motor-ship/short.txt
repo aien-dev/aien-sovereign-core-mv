@@ -1,0 +1,32 @@
+Write a C function that returns the larger of two ints.
+What is the capital of Australia? Answer in one sentence.
+Explain in two sentences why the sky is blue.
+List five prime numbers greater than 100.
+Translate to French: The train leaves at seven in the morning.
+Write a haiku about a lighthouse in winter.
+What is 17 times 23? Show the steps.
+Give three tips for writing clear commit messages.
+Write a Rust function that reverses a string.
+Summarize the plot of Romeo and Juliet in three sentences.
+What does a transformer's attention layer compute? Be brief.
+Name the planets of the solar system in order from the Sun.
+Write a SQL query that counts orders per customer.
+Why does ice float on water?
+Write a bash one-liner that counts lines in all .txt files in a folder.
+Describe a bicycle gear system to a ten-year-old.
+What is the difference between TCP and UDP? Two sentences.
+Write a limerick about a cat who learned to code.
+Convert 100 degrees Fahrenheit to Celsius and explain the formula.
+Give a short definition of entropy in thermodynamics.
+Write a Python-free pseudocode for binary search.
+What are the three primary colors of light?
+Suggest a name for a coffee shop run by robots, and say why.
+Explain what a hash map is in one paragraph.
+Write the first four lines of a sea shanty.
+How many seconds are in a day? Show the multiplication.
+What is the boiling point of water at the top of Mount Everest, roughly?
+Write a JavaScript function that checks whether a number is even.
+Explain photosynthesis in plain words.
+Give two reasons a bridge might use a suspension design.
+Write a polite email declining a meeting invitation.
+What is a mutex and when would you use one?

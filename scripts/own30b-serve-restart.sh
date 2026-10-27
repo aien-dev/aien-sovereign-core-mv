@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # (Re)start the OWN-30B Omega server in the background (OWN-30B cut 8; default binary: the cut 10 build with the device router and bf16 lm_head GEMV,
 # on top of the fused one-launch attention and batched prefill).
 #   scripts/own30b-serve-restart.sh [binary]
@@ -10,6 +25,7 @@ set -euo pipefail
 BIN=${1:-/tmp/own30b-f/target-router/release/aien-serve-http}
 MODEL=${OWN30B_MODEL_DIR:-$HOME/models/qwen3-30b-a3b-instruct-2507-fp8}
 PIDF=/tmp/own30b-serve.pid LOG=/tmp/own30b-serve.log
+: "${AIEN_SERVE_HTTP_BEARER_TOKEN:?AIEN_SERVE_HTTP_BEARER_TOKEN required before restart}"
 if [ -f "$PIDF" ]; then
 	old=$(cat "$PIDF")
 	if [ -n "$old" ] && [ "$(ps -o comm= -p "$old" 2>/dev/null || true)" = aien-serve-http ]; then
