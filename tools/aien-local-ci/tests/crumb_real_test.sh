@@ -31,7 +31,7 @@ v() { (cd "$1" && "$2" verify . 2>&1 | tail -1); }
 g() { git -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
 
 # 1. readiness on mains that pin d0f0b95d: old tool says stale, shim says what the gate says
-for r in omega aienos physics; do
+for r in omega aienux physics; do
   tree $r origin/main
   o=$(v "$T/$r" "$OLD"); s=$(v "$T/$r" "$SHIM"); gt=$(v "$T/$r" "$D0")
   [[ $o == *FAIL* ]] && [[ $s == *OK* ]] && [[ $gt == *OK* ]] && ok "$r main: old=FAIL shim=OK gate=OK" || bad "$r main" "old='$o' shim='$s' gate='$gt'"

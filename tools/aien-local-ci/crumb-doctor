@@ -19,7 +19,7 @@ SANDBOX=${CRUMB_SANDBOX_TOOL:-/usr/local/bin/crumb}
 WATCH=${AIEN_WATCH_STATE:-$HOME/.local/state/aienos/watch}
 ARCH=$CLONES/aien-architecture
 TRUSTED=$CLONES/aien-sovereign-core
-REPOS="aien-sovereign-core omega aienos physics aien-protocols aegis-runtime spark-rsi aien-architecture benchmarks synapse interplane"
+REPOS="aien-sovereign-core omega aienux physics aien-protocols aegis-runtime spark-rsi aien-architecture benchmarks synapse interplane"
 TOOL_RE='(^|/)crumb\\.lock$|^\\.github/workflows/aien-verification\\.yml$|^tools/crumb/|^tools/aien-local-ci/install\\.sh$|^tests/gates/run\\.sh$'
 HEAL=0 HEAL_ONLY=0 ALERT=0 NOPRS=0
 while [ $# -gt 0 ]; do

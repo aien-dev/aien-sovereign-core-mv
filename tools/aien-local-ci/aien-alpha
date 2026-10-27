@@ -28,7 +28,7 @@ set -euo pipefail
 CLONES=${AIEN_CLONES:-$HOME/workspace/pipeline/clones}
 STATE=${AIEN_STATE:-$HOME/.local/state/aien-local-ci}
 LIB=${AIEN_LIB:-$HOME/.local/lib/aien-local-ci}
-REPOS=${AIEN_REPOS:-aien-sovereign-core,omega,aienos,physics,aien-protocols,aegis-runtime,spark-rsi,aien-architecture,benchmarks,synapse,interplane}
+REPOS=${AIEN_REPOS:-aien-sovereign-core,omega,aienux,physics,aien-protocols,aegis-runtime,spark-rsi,aien-architecture,benchmarks,synapse,interplane}
 LOCAL_CI=${AIEN_LOCAL_CI:-aien-local-ci}
 die() { echo "aien-alpha: $*" >&2; exit 2; }
 usage() { sed -n '17,24p' "$0" >&2; exit 2; }
