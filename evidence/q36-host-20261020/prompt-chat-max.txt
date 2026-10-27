@@ -1,0 +1,7 @@
+<|im_start|>user
+Write a C function that returns the larger of two ints.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+

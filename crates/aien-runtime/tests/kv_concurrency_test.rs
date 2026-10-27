@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! C8 (sc#485 B1 to B5; ADR 0003 sections 5.2, 5.5, 7 and 8): concurrency
 //! proof of persistent KV through the real runtime spine, the real scheduler
 //! and the host CPU backend (`NativeTransformerBackend` over
@@ -11,7 +26,9 @@
 //! Stalls are gates, never wall-clock bounds: [`Gate`] sits between the
 //! storage worker and the fake and can hold every load or store it is handed
 //! (the fake's `Hold` fault) until the test releases or cancels it, and can
-//! make stores fail as if the disk were full. Progress is counted in steps.
+//! make stores fail as if the disk were full. Progress is counted in steps,
+//! and a step counts only once the storage worker has run every job it can
+//! ([`settle`]), so a busy machine cannot spend a step bound.
 //! The only wall clock in this file is a hang guard on loops that wait for the
 //! worker thread; it never decides a pass.
 //!
@@ -44,7 +61,7 @@ use aien_scheduler::{
 };
 use parking_lot::Mutex;
 use std::collections::{BTreeMap, HashMap};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -81,6 +98,16 @@ struct Gate {
     held: Mutex<Vec<(Kind, ChunkKey, JobId)>>,
     /// Every load and store that reached the store, in order.
     seen: Mutex<Vec<(Kind, ChunkKey)>>,
+    /// Passes of the storage worker loop. The worker calls `poll` on the store
+    /// exactly once per pass, after it has dispatched and driven, so every
+    /// `poll` closes one pass.
+    passes: AtomicU64,
+    /// The latest pass that handed the store nothing (no submit, cancel or
+    /// waiter) and reaped nothing from it: the worker had no work it could
+    /// move without the spine or the test. 0 before the first such pass.
+    quiet: AtomicU64,
+    /// The store was touched since the last `poll`.
+    touched: AtomicBool,
 }
 
 impl Gate {
@@ -92,6 +119,9 @@ impl Gate {
             disk_full: AtomicBool::new(false),
             held: Mutex::new(Vec::new()),
             seen: Mutex::new(Vec::new()),
+            passes: AtomicU64::new(0),
+            quiet: AtomicU64::new(0),
+            touched: AtomicBool::new(false),
         }
     }
 
@@ -114,6 +144,7 @@ impl Gate {
     }
 
     fn after(&self, kind: Kind, key: ChunkKey, hold: bool, r: &Result<JobId, PlatformError>) {
+        self.touched.store(true, Ordering::SeqCst);
         self.seen.lock().push((kind, key));
         if let (true, Ok(job)) = (hold, r) {
             self.held.lock().push((kind, key, *job));
@@ -197,15 +228,23 @@ impl KvStore for Gate {
         r
     }
     fn submit_flush(&self, inc: Incarnation) -> Result<JobId, PlatformError> {
+        self.touched.store(true, Ordering::SeqCst);
         self.inner.submit_flush(inc)
     }
     fn attach_waiter(&self, job: JobId, inc: Incarnation) -> Result<(), PlatformError> {
+        self.touched.store(true, Ordering::SeqCst);
         self.inner.attach_waiter(job, inc)
     }
     fn poll(&self, max: usize) -> Vec<Completion> {
-        self.inner.poll(max)
+        let c = self.inner.poll(max);
+        let pass = self.passes.fetch_add(1, Ordering::SeqCst) + 1;
+        if !self.touched.swap(false, Ordering::SeqCst) && c.is_empty() {
+            self.quiet.store(pass, Ordering::SeqCst);
+        }
+        c
     }
     fn cancel(&self, job: JobId) -> CancelOutcome {
+        self.touched.store(true, Ordering::SeqCst);
         self.inner.cancel(job)
     }
     fn pin(&self, keys: &[ChunkKey]) -> Result<PinToken, PlatformError> {
@@ -537,14 +576,41 @@ fn collect(r: &mut Rig) {
     }
 }
 
+/// One spine step, then [`settle`]: a step is counted only once the storage
+/// worker has had its turn, so step bounds measure the spine's progress and
+/// not how much CPU the OS gave the worker thread.
 async fn step(r: &mut Rig) {
     r.spine.step(&mut r.backend).await.expect("step");
     r.steps += 1;
+    settle(r);
     collect(r);
 }
 
-/// Steps until `cond` holds, at most `max_steps` steps (the progress bound),
-/// yielding a little between steps so the storage worker thread runs.
+/// Waits until a whole pass of the storage worker loop that began after this
+/// call handed the store nothing and reaped nothing. The pass sees every job
+/// the spine has submitted so far; the fake is driven 1 ms per pass and runs
+/// a job in 200 us, so a quiet pass means every job the worker was handed is
+/// finished and its completion is waiting for the spine, or is held by the
+/// gate, or waits behind a dispatch depth full of held jobs. No-op with
+/// persistence off.
+fn settle(r: &Rig) {
+    let Some(s) = r.store.as_ref() else {
+        return;
+    };
+    // Pass `seen + 1` may have begun before this call; pass `seen + 2` began
+    // after its poll, so it is the first that surely saw every submission.
+    let want = s.gate.passes.load(Ordering::SeqCst) + 2;
+    let t0 = Instant::now();
+    while s.gate.quiet.load(Ordering::SeqCst) < want {
+        assert!(
+            t0.elapsed() < HANG_GUARD,
+            "hang guard: storage worker never settled"
+        );
+        std::thread::sleep(Duration::from_micros(50));
+    }
+}
+
+/// Steps until `cond` holds, at most `max_steps` steps (the progress bound).
 async fn step_until(r: &mut Rig, what: &str, max_steps: u64, cond: impl Fn(&Rig) -> bool) {
     let t0 = Instant::now();
     let start = r.steps;
@@ -558,7 +624,6 @@ async fn step_until(r: &mut Rig, what: &str, max_steps: u64, cond: impl Fn(&Rig)
         );
         assert!(t0.elapsed() < HANG_GUARD, "hang guard: {what}");
         step(r).await;
-        std::thread::sleep(Duration::from_micros(300));
     }
 }
 
@@ -1182,7 +1247,6 @@ async fn memory_pressure_restore_and_admission_make_progress_without_deadlock() 
         step(&mut r).await;
         peak_restore_blocks = peak_restore_blocks.max(status(&r).restore_inflight_blocks);
         min_free = min_free.min(free_blocks(&r));
-        std::thread::sleep(Duration::from_micros(300));
     }
 
     assert_eq!(

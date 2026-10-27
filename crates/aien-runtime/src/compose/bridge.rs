@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! The compose bridge implementation: proposal parsing, destination and input
 //! classification, prompts, bounded retries, the composition home and
 //! `ComposeBridge`. Callers use the interface in `crate::compose`.
@@ -212,6 +227,25 @@ fn mark_refusal(dir: &Path, r: &MarkRefusal) -> String {
     format!("compose home {} refused: {r}", dir.display())
 }
 
+/// The record chain (`cortex_mark::chain_step`) from `start` over the digests
+/// of records #`lo`..=#`hi`, as the open home reads them.
+fn record_chain(
+    compose: &mut Compose,
+    start: [u8; 32],
+    lo: u64,
+    hi: u64,
+) -> Result<[u8; 32], String> {
+    let mut c = start;
+    for id in lo..=hi {
+        let d = compose
+            .record(id)
+            .map_err(|e| format!("record {id}: {e}"))?
+            .digest;
+        cortex_mark::chain_step(&mut c, &d);
+    }
+    Ok(c)
+}
+
 /// One proposed file change: a path relative to the workspace and the
 /// complete new content.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -315,7 +349,11 @@ pub fn check_file_proposal(text: &str) -> Result<FileProposal, String> {
         .ok_or("empty reply")?;
     let first = bare(lines[at]);
     const KEY: &str = "filename:";
-    if first.len() < KEY.len() || !first[..KEY.len()].eq_ignore_ascii_case(KEY) {
+    // `get`, not `[..]`: byte 9 can fall inside a multi-byte character (issue #546).
+    let key_matches = first
+        .get(..KEY.len())
+        .is_some_and(|k| k.eq_ignore_ascii_case(KEY));
+    if first.len() < KEY.len() || !key_matches {
         return Err("no filename line: the first line must be 'filename: <relative path>'".into());
     }
     // sc#402: `./report.md` is `report.md`; the strict check then runs as before.
@@ -638,7 +676,9 @@ pub fn compose_assistant_prefix(template: &aien_inference_abi::ChatTemplate) -> 
         ChatTemplate::None => COMPOSE_ASSISTANT_PREFIX,
         ChatTemplate::ChatMl { .. }
         | ChatTemplate::ChatMlQwen3
-        | ChatTemplate::ChatMlQwen3NoThink => "filename:",
+        | ChatTemplate::ChatMlQwen3NoThink
+        | ChatTemplate::Qwen38
+        | ChatTemplate::Qwen36 => "filename:",
     }
 }
 
@@ -1567,9 +1607,26 @@ impl ComposeHome {
             .info()
             .map_err(|e| format!("record mark: info: {e}"))?
             .records;
-        if self.mark.as_ref().is_some_and(|m| m.records >= n) {
+        // A version 1 mark (no chain) is rewritten even at the same count.
+        if self
+            .mark
+            .as_ref()
+            .is_some_and(|m| m.records > n || (m.records == n && m.chain.is_some()))
+        {
             return Ok(None);
         }
+        // Extend the verified chain of the last mark; without one, hash the
+        // whole journal as this home opened it.
+        let (from, start) = match &self.mark {
+            Some(Mark {
+                records,
+                chain: Some(c),
+                ..
+            }) => (*records, *c),
+            _ => (0, [0u8; 32]),
+        };
+        let chain = record_chain(&mut self.compose, start, from + 1, n)
+            .map_err(|e| format!("record mark: {e}"))?;
         let digest = if n == 0 {
             [0u8; 32]
         } else {
@@ -1583,6 +1640,7 @@ impl ComposeHome {
             seq: self.mark_seq + 1,
             records: n,
             digest,
+            chain: Some(chain),
         };
         cortex_mark::write(&self.mark_path, &m)?;
         self.mark_seq = m.seq;
@@ -1915,6 +1973,12 @@ impl ComposeBridge {
             if m.records > 0 {
                 let at = compose.record(m.records).ok().map(|r| r.digest);
                 cortex_mark::check_digest(m, at).map_err(|r| mark_refusal(&self.dir, &r))?;
+                // Receipt continuity (#408 row 8): every record before the
+                // newest, through the chain the mark carries.
+                if m.chain.is_some() {
+                    let at = record_chain(&mut compose, [0u8; 32], 1, m.records).ok();
+                    cortex_mark::check_chain(m, at).map_err(|r| mark_refusal(&self.dir, &r))?;
+                }
             }
         }
         // ALLEN identity gate: after the open (record 1 exists, skills are
@@ -2524,6 +2588,9 @@ impl ComposeBridge {
                 Err(e) if e.contains("E_MARK_DIGEST") => {
                     Some((Some(m), 0, "names a different record"))
                 }
+                Err(e) if e.contains("E_MARK_CHAIN") => {
+                    Some((Some(m), 0, "records before the newest differ"))
+                }
                 // Refused for another reason: reported as before, mark kept.
                 Err(_) => None,
             },
@@ -2556,6 +2623,7 @@ impl ComposeBridge {
             "lost": lost,
             "old_seq": old_seq,
             "old_digest": old.as_ref().map(|m| hex(&m.digest)),
+            "old_chain": old.as_ref().and_then(|m| m.chain.map(|c| hex(&c))),
             "kept_as": kept_as.display().to_string(),
         })
         .to_string();
@@ -3058,5 +3126,22 @@ mod wall_clock_reason_tests {
             !why.contains("token limit") && !why.contains("max_tokens"),
             "{why}"
         );
+    }
+}
+
+/// Issue #546: a first line whose byte 9 falls inside a multi-byte character
+/// must be refused with the normal reason, not panic.
+#[cfg(test)]
+mod multibyte_first_line_tests {
+    use super::*;
+
+    #[test]
+    fn multibyte_first_line_is_refused_without_panic() {
+        // "ééééé" is 10 bytes, so byte 9 is inside the fifth 'é'.
+        for first in ["ééééé", "🙂🙂🙂", "é🙂 notes", "éfilename: a.md"] {
+            let text = format!("{first}\nbody\n");
+            let err = check_file_proposal(&text).expect_err("must be refused");
+            assert!(err.contains("no filename line"), "{first:?}: {err}");
+        }
     }
 }
