@@ -1,0 +1,15 @@
+# Scratch: PRTrain-2 runner receipt for the desk stall alert (Spark quiet window). Not for merge; branch deleted after.
+name: prtrain-stall
+on: push
+jobs:
+  t:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - run: git log -2 --format='%H %s'; jq --version; bash --version | head -1
+      - run: bash tools/aien-local-ci/tests/stall_check_test.sh
+      - name: negative control (main's desk-loop.sh, no alert) must fail
+        run: |
+          git show origin/main:tools/aien-local-ci/desk-loop.sh > tools/aien-local-ci/desk-loop.sh
+          if bash tools/aien-local-ci/tests/stall_check_test.sh; then echo "control unexpectedly passed"; exit 1; else echo "control failed as expected"; fi
