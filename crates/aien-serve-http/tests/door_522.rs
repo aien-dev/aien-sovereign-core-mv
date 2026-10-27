@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Host checks for the sc#522 review follow-ups of the HTTP door: request preparation
 //! (chat rendering and tokenizing) must not run on the async runtime, and a busy chip must
 //! answer in the same OpenAI error envelope as every other error.
@@ -11,6 +26,9 @@ use aien_serve_http::codec::{ByteCodec, Codec, CodecError};
 use aien_serve_http::engine::{Engine, EngineError, GenerateOutcome, GenerateParams, StubEngine};
 use aien_serve_http::server::{serve, ServerConfig};
 use serde_json::Value;
+
+/// The server refuses unauthenticated requests (main's bearer cutover); every request here sends it.
+const TOKEN: &str = "door-522-test-credential";
 
 const PROMPT: &str =
     r#"{"model":"test-model","messages":[{"role":"user","content":"hi"}],"max_tokens":4}"#;
@@ -28,6 +46,7 @@ fn start_single_thread(engine: Arc<dyn Engine>, codec: Arc<dyn Codec>) -> Socket
             let cfg = ServerConfig {
                 port: 0,
                 model_id: "test-model".into(),
+                bearer_token: TOKEN.into(),
                 ..ServerConfig::default()
             };
             let (addr, handle) = serve(cfg, engine, codec).await.expect("bind loopback");
@@ -55,7 +74,7 @@ fn request(
     let mut s = TcpStream::connect(addr)?;
     s.set_read_timeout(Some(wait))?;
     let req = format!(
-        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {TOKEN}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
         body.len()
     );
     s.write_all(req.as_bytes())?;
