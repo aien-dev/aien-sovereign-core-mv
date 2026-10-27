@@ -48,7 +48,7 @@ Bus 273 GB/s. "Measured" is the live server's own `chip N ms/step` line (section
 | rows per step | bytes per step | ceiling | ceiling tok/s | measured chip | measured tok/s | fraction of bus | receipts (calc / Wolfram) |
 |---:|---:|---:|---:|---:|---:|---:|---|
 | 1 | 2,972,307,456 | 10.888 ms | 91.85 | 20.7 ms | 48.31 | **52.6 %** | `882844dd` `5d519513` `51752d62` `f6e3c4ed` / `ceil1_ms` `ceil1_tps` `meas1_tps` `frac1` |
-| 8 (expected expert overlap) | 9,192,535,039 | 33.672 ms | 237.6 | 59.2 ms | 135.1 | **56.9 %** | `e3398026` `99d9b471` `726e7afa` `c1524bc6` `fbfcba7f` / `bytes8` `ceil8_ms` `ceil8_tps` `meas8_chip_tps` `frac8_chip` |
+| 8 (independent uniform routing, a model) | 9,192,535,039 | 33.672 ms | 237.6 | 59.2 ms | 135.1 | **56.9 %** | `e3398026` `99d9b471` `726e7afa` `c1524bc6` `fbfcba7f` / `bytes8` `ceil8_ms` `ceil8_tps` `meas8_chip_tps` `frac8_chip` |
 | 8 (no overlap, worst case) | 10,020,487,168 | 36.705 ms | 218.0 | 59.2 ms | 135.1 | 62.0 % | `119cf0b1` `3af4c46a` / `bytes8_worst` `ceil8_worst_ms` |
 
 Reading the 1-row line: the bus could deliver 91.8 words a second; the chip delivers 48.3; the live step moves data at
@@ -56,11 +56,15 @@ Reading the 1-row line: the bus could deliver 91.8 words a second; the chip deli
 
 8-row model. Weights that every row shares (GDN, attention, shared experts, routers, the head screen) are read once per
 step: 1,456,865,280 + 508,559,360 B (calc `b886b3e7`, Wolfram `base8`). Routed experts are read once per distinct
-expert the eight rows pick. With independent uniform picks the expected distinct count is
-256 x (1 - (31/32)^8) = 57.42 of 64 slots per layer (calc `ffe2bed5`, Wolfram `uniq8`). Real routing is correlated
-(prompts in one spell share topics), so the true byte count sits between the "expected" and "worst" lines; where in
-between is UNKNOWN until counted from the router output. The 8-row fraction with the earlier round 60 ms figure is
-56.1 % (calc `3d15ca8e`, Wolfram `frac8`).
+expert the eight rows pick. Under a model of independent uniform picks the expected distinct count is
+256 x (1 - (31/32)^8) = 57.42 of 64 slots per layer (calc `ffe2bed5`, Wolfram `uniq8`). That number is a model, not a
+bound. Real routing is correlated (prompts in one spell share topics), and correlation means rows pick the same experts
+more often: fewer distinct experts and fewer bytes than the model line, down to 8 distinct per layer when every row
+picks the same eight. The only bounds are 8 and 64 distinct per layer (all rows agree; no two rows share an expert,
+the "worst" line), and the true byte count can sit anywhere between them, including below the model line. The input
+to use is the measured router choices: count the distinct experts per layer from the router output of a served
+spell and price those bytes. Until that count exists the 8-row ceiling is UNKNOWN within those bounds. The 8-row
+fraction with the earlier round 60 ms figure is 56.1 % (calc `3d15ca8e`, Wolfram `frac8`).
 
 ## 4. Measured (live server log, quoted)
 
