@@ -66,6 +66,9 @@ pub struct Qwen38Config {
     /// `Some` for the MoE variant (`qwen3_5_moe`, Qwen3.6-35B-A3B): every layer's MLP is a routed
     /// sparse block plus a gated shared expert, and `intermediate` is unused (0).
     pub moe: Option<MoeShape>,
+    /// `config.json` names an FP8 `quantization_config` (projections FP8 e4m3, 128 x 128 block
+    /// scales); false: the projections are stored bf16 (e.g. the official Qwen3.5-9B).
+    pub fp8: bool,
 }
 
 /// The sparse MLP of a `qwen3_5_moe` layer (transformers `Qwen3_5MoeSparseMoeBlock`): router
@@ -212,6 +215,7 @@ impl Qwen38Config {
             eps: f64_field(text, "rms_norm_eps")? as f32,
             eos_token_ids,
             moe,
+            fp8: raw.get("quantization_config").is_some(),
         };
         c.validate()?;
         Ok(c)
@@ -637,7 +641,7 @@ fn rms_norm_zc(x: &mut [f32], w: &[f32], eps: f32) {
     }
 }
 
-fn silu(x: f32) -> f32 {
+pub(crate) fn silu(x: f32) -> f32 {
     x / (1.0 + (-x).exp())
 }
 
@@ -1328,6 +1332,7 @@ mod tests {
             eps: 1e-6,
             eos_token_ids: vec![1],
             moe: None,
+            fp8: true,
         }
     }
 
@@ -1437,6 +1442,7 @@ mod tests {
         assert_eq!(c.conv_dim(), 10240);
         assert_eq!(c.full_attention, vec![false, false, false, true]);
         assert_eq!(c.eos_token_ids, vec![248046, 248044]);
+        assert!(c.fp8);
         let tied = json.replace(
             "\"tie_word_embeddings\":false",
             "\"tie_word_embeddings\":true",

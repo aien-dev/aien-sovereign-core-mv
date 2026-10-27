@@ -38,8 +38,10 @@ use aien_omega_pf::{
 use aien_omega_q38 as q;
 use rayon::prelude::*;
 
-use super::{gpu, Graph, Qwen38Omega, EPS_L2};
+use super::{gpu, Graph, Proj, Qwen38Omega, EPS_L2};
 use crate::qwen3_moe::bf16_to_f32;
+use crate::qwen38::silu;
+use aien_omega_gpu::ResidentTensor;
 use crate::tensor::rmsnorm;
 
 /// What one [`Qwen38Omega::prefill`] call cost. Chip times are the omega info records' launch
@@ -454,16 +456,22 @@ impl Qwen38Omega {
             copy_in(&mut pf.xin, "xin", &xn)?;
             st.host_ns += ns(t);
             let xin_va = pf.xin.va();
-            pf.quant(h, QuantIn::F32, xin_va, m, st)
-                .map_err(|e| format!("layer {l} quant x: {e}"))?;
             let mix_n = if attention { sh.att_mix() } else { sh.gdn_mix() };
-            let mix_va = pf.mix.va();
-            pf.gemm(&lt.mix, mix_n, h, Layout::Plain, mix_va, m, st)
-                .map_err(|e| format!("layer {l} mixer gemm x{m}: {e}"))?;
-
-            let t = Instant::now();
-            let mix = copy_out(&pf.mix, "mix", m * mix_n)?;
-            st.host_ns += ns(t);
+            let mix = match &lt.mix {
+                Proj::Fp8(w) => {
+                    pf.quant(h, QuantIn::F32, xin_va, m, st)
+                        .map_err(|e| format!("layer {l} quant x: {e}"))?;
+                    let mix_va = pf.mix.va();
+                    pf.gemm(w, mix_n, h, Layout::Plain, mix_va, m, st)
+                        .map_err(|e| format!("layer {l} mixer gemm x{m}: {e}"))?;
+                    let t = Instant::now();
+                    let mix = copy_out(&pf.mix, "mix", m * mix_n)?;
+                    st.host_ns += ns(t);
+                    mix
+                }
+                Proj::Bf16 { mm, .. } => mm_rows(mm, mix_n, &xn, m, st)
+                    .map_err(|e| format!("layer {l} mixer matmul x{m}: {e}"))?,
+            };
             if attention {
                 let t = Instant::now();
                 let mut qkv = vec![0f32; m * att_qkv];
@@ -529,37 +537,65 @@ impl Qwen38Omega {
             }
 
             // o_proj, residual, post norm
-            let t = Instant::now();
-            copy_in(&mut pf.xin, "xin", &att)?;
-            st.host_ns += ns(t);
-            pf.quant(mo, QuantIn::F32, xin_va, m, st)
-                .map_err(|e| format!("layer {l} quant mixer out: {e}"))?;
             let out_va = pf.out.va();
-            pf.gemm(&lt.o, h, mo, Layout::Plain, out_va, m, st)
-                .map_err(|e| format!("layer {l} o gemm x{m}: {e}"))?;
+            let o = match &lt.o {
+                Proj::Fp8(w) => {
+                    let t = Instant::now();
+                    copy_in(&mut pf.xin, "xin", &att)?;
+                    st.host_ns += ns(t);
+                    pf.quant(mo, QuantIn::F32, xin_va, m, st)
+                        .map_err(|e| format!("layer {l} quant mixer out: {e}"))?;
+                    pf.gemm(w, h, mo, Layout::Plain, out_va, m, st)
+                        .map_err(|e| format!("layer {l} o gemm x{m}: {e}"))?;
+                    let t = Instant::now();
+                    let o = copy_out(&pf.out, "out", m * h)?;
+                    st.host_ns += ns(t);
+                    o
+                }
+                Proj::Bf16 { mm, .. } => mm_rows(mm, h, &att, m, st)
+                    .map_err(|e| format!("layer {l} o matmul x{m}: {e}"))?,
+            };
             let t = Instant::now();
-            let o = copy_out(&pf.out, "out", m * h)?;
             x.par_chunks_mut(1 << 14)
                 .zip(o.par_chunks(1 << 14))
                 .for_each(|(a, b)| a.iter_mut().zip(b).for_each(|(a, b)| *a += b));
             xn.par_chunks_mut(h)
                 .zip(x.par_chunks(h))
                 .for_each(|(o, r)| rmsnorm(r, post_norm, eps, o));
-            copy_in(&mut pf.xin, "xin", &xn)?;
             st.host_ns += ns(t);
 
             // MLP
-            pf.quant(h, QuantIn::F32, xin_va, m, st)
-                .map_err(|e| format!("layer {l} quant post: {e}"))?;
-            let act_va = pf.act.va();
-            pf.gemm(&lt.gate_up, 2 * inter, h, Layout::SwigluNat, act_va, m, st)
-                .map_err(|e| format!("layer {l} gate|up gemm x{m}: {e}"))?;
-            pf.quant(inter, QuantIn::Bf16, act_va, m, st)
-                .map_err(|e| format!("layer {l} quant act: {e}"))?;
-            pf.gemm(&lt.down, h, inter, Layout::Plain, out_va, m, st)
-                .map_err(|e| format!("layer {l} down gemm x{m}: {e}"))?;
+            let d = match (&lt.gate_up, &lt.down) {
+                (Proj::Fp8(gu), Proj::Fp8(dn)) => {
+                    let t = Instant::now();
+                    copy_in(&mut pf.xin, "xin", &xn)?;
+                    st.host_ns += ns(t);
+                    pf.quant(h, QuantIn::F32, xin_va, m, st)
+                        .map_err(|e| format!("layer {l} quant post: {e}"))?;
+                    let act_va = pf.act.va();
+                    pf.gemm(gu, 2 * inter, h, Layout::SwigluNat, act_va, m, st)
+                        .map_err(|e| format!("layer {l} gate|up gemm x{m}: {e}"))?;
+                    pf.quant(inter, QuantIn::Bf16, act_va, m, st)
+                        .map_err(|e| format!("layer {l} quant act: {e}"))?;
+                    pf.gemm(dn, h, inter, Layout::Plain, out_va, m, st)
+                        .map_err(|e| format!("layer {l} down gemm x{m}: {e}"))?;
+                    let t = Instant::now();
+                    let d = copy_out(&pf.out, "out", m * h)?;
+                    st.host_ns += ns(t);
+                    d
+                }
+                (Proj::Bf16 { mm: gu, .. }, Proj::Bf16 { mm: dn, .. }) => {
+                    let gu = mm_rows(gu, 2 * inter, &xn, m, st)
+                        .map_err(|e| format!("layer {l} gate|up matmul x{m}: {e}"))?;
+                    let t = Instant::now();
+                    let act = swiglu_rows(&gu, inter);
+                    st.host_ns += ns(t);
+                    mm_rows(dn, h, &act, m, st)
+                        .map_err(|e| format!("layer {l} down matmul x{m}: {e}"))?
+                }
+                _ => return Err(format!("layer {l}: FP8 and bf16 MLP projections mixed")),
+            };
             let t = Instant::now();
-            let d = copy_out(&pf.out, "out", m * h)?;
             x.par_chunks_mut(1 << 14)
                 .zip(d.par_chunks(1 << 14))
                 .for_each(|(a, b)| a.iter_mut().zip(b).for_each(|(a, b)| *a += b));
@@ -570,9 +606,51 @@ impl Qwen38Omega {
     }
 }
 
+/// `y[m][n] = x[m][k] . W` for a bf16 projection's resident `[k][n]` copy (x rounded to bf16 by
+/// omega's matmul).
+fn mm_rows(
+    w: &ResidentTensor,
+    n: usize,
+    x: &[f32],
+    m: usize,
+    st: &mut PrefillStats,
+) -> Result<Vec<f32>, String> {
+    let t = Instant::now();
+    let mut y = vec![0f32; m * n];
+    let info = w.matmul_f32(m, x, &mut y).map_err(|e| e.to_string())?;
+    st.gemm_chip_ns += info.raw.elapsed_ns;
+    st.gemm_call_ns += ns(t);
+    st.gemm_launches += 1;
+    Ok(y)
+}
+
+/// `silu(gate) * up` per row of `[m][gate (inter) | up (inter)]`, f32.
+fn swiglu_rows(gu: &[f32], inter: usize) -> Vec<f32> {
+    let mut act = vec![0f32; gu.len() / 2];
+    act.par_chunks_mut(inter)
+        .zip(gu.par_chunks(2 * inter))
+        .for_each(|(a, r)| {
+            let (g, u) = r.split_at(inter);
+            for ((a, &g), &u) in a.iter_mut().zip(g).zip(u) {
+                *a = silu(g) * u;
+            }
+        });
+    act
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn swiglu_rows_pairs_gate_and_up_per_row() {
+        let gu = [1.0f32, -2.0, 3.0, 4.0, 0.0, 0.5, 2.0, -1.0];
+        let act = swiglu_rows(&gu, 2);
+        assert_eq!(
+            act,
+            vec![silu(1.0) * 3.0, silu(-2.0) * 4.0, silu(0.0) * 2.0, silu(0.5) * -1.0]
+        );
+    }
 
     #[test]
     fn chunk_lengths_cover_and_respect_the_minimum() {

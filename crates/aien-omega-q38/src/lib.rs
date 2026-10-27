@@ -445,6 +445,18 @@ mod ffi {
             in_norm: *const f32,
             post_norm: *const f32,
         ) -> i32;
+        pub fn omega_gpu_q38_graph_set_layer_bf16(
+            g: *mut OmegaGpuQ38Graph,
+            layer: u32,
+            mix: *const c_void,
+            ab: *const c_void,
+            o: *const c_void,
+            gate_up: *const c_void,
+            down: *const c_void,
+            down2: *const c_void,
+            in_norm: *const f32,
+            post_norm: *const f32,
+        ) -> i32;
         pub fn omega_gpu_q38_graph_set_final_norm(
             g: *mut OmegaGpuQ38Graph,
             final_norm: *const f32,
@@ -1295,21 +1307,7 @@ impl Q38Graph {
         in_norm: &[f32],
         post_norm: &[f32],
     ) -> Result<(), OmegaGpuError> {
-        check_len("q38 graph in_norm", self.shape.hidden, in_norm.len())?;
-        check_len("q38 graph post_norm", self.shape.hidden, post_norm.len())?;
-        if layer >= self.layers {
-            return Err(bad(format!("q38 graph: layer {layer} of {}", self.layers)));
-        }
-        if mix.is_null() || o.is_null() || gate_up.is_null() || down.is_null() {
-            return Err(bad(format!(
-                "q38 graph layer {layer}: a projection has no device handle"
-            )));
-        }
-        if ab.is_null() != self.is_attention(layer) {
-            return Err(bad(format!(
-                "q38 graph layer {layer}: the a|b tensor is for DeltaNet layers only"
-            )));
-        }
+        self.check_layer(layer, mix, ab, o, gate_up, down, in_norm, post_norm)?;
         #[cfg(has_omega_q38)]
         {
             let rc = ffi::omega_gpu_q38_graph_set_layer(
@@ -1330,6 +1328,83 @@ impl Q38Graph {
         }
         #[cfg(not(has_omega_q38))]
         Err(OmegaGpuError::Unavailable)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn check_layer(
+        &self,
+        layer: usize,
+        mix: *const c_void,
+        ab: *const c_void,
+        o: *const c_void,
+        gate_up: *const c_void,
+        down: *const c_void,
+        in_norm: &[f32],
+        post_norm: &[f32],
+    ) -> Result<(), OmegaGpuError> {
+        check_len("q38 graph in_norm", self.shape.hidden, in_norm.len())?;
+        check_len("q38 graph post_norm", self.shape.hidden, post_norm.len())?;
+        if layer >= self.layers {
+            return Err(bad(format!("q38 graph: layer {layer} of {}", self.layers)));
+        }
+        if mix.is_null() || o.is_null() || gate_up.is_null() || down.is_null() {
+            return Err(bad(format!(
+                "q38 graph layer {layer}: a projection has no device handle"
+            )));
+        }
+        if ab.is_null() != self.is_attention(layer) {
+            return Err(bad(format!(
+                "q38 graph layer {layer}: the a|b tensor is for DeltaNet layers only"
+            )));
+        }
+        Ok(())
+    }
+
+    /// [`Q38Graph::set_layer`] with bf16 projections (`Bf16Tensor::as_raw`, every value times
+    /// 2^-64, mix rows in the FP8 stacking order). The bf16 GEMV stages x in shared memory
+    /// (k <= 8192), so with `inter` > 8192 `down` holds columns `0..inter/2` and `down2` columns
+    /// `inter/2..inter` (`[hidden][inter/2]` each); else `down2` is null.
+    ///
+    /// # Safety
+    /// As [`Q38Graph::set_layer`].
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn set_layer_bf16(
+        &mut self,
+        layer: usize,
+        mix: *const c_void,
+        ab: *const c_void,
+        o: *const c_void,
+        gate_up: *const c_void,
+        down: *const c_void,
+        down2: *const c_void,
+        in_norm: &[f32],
+        post_norm: &[f32],
+    ) -> Result<(), OmegaGpuError> {
+        self.check_layer(layer, mix, ab, o, gate_up, down, in_norm, post_norm)?;
+        #[cfg(has_omega_q38)]
+        {
+            let rc = ffi::omega_gpu_q38_graph_set_layer_bf16(
+                self.ptr,
+                layer as u32,
+                mix,
+                ab,
+                o,
+                gate_up,
+                down,
+                down2,
+                in_norm.as_ptr(),
+                post_norm.as_ptr(),
+            );
+            if rc != 0 {
+                return Err(session_err("q38 graph set_layer_bf16", rc));
+            }
+            Ok(())
+        }
+        #[cfg(not(has_omega_q38))]
+        {
+            let _ = down2;
+            Err(OmegaGpuError::Unavailable)
+        }
     }
 
     /// Uses an FP8 lm_head (`[vocab][hidden]`, one expert) for every later token instead of the bf16 one

@@ -21,7 +21,8 @@ use aien_omega_router::Router;
 
 use super::rows::{GdnParams, RowSource};
 use super::{
-    ab_rows, fold, fuse_fp8, gpu, upload_fp8, Graph, HeadState, LayerTensors, Qwen38Omega, EPS_L2,
+    ab_rows, fold, fuse_fp8, gpu, upload_fp8, Graph, HeadState, LayerTensors, Proj, Qwen38Omega,
+    EPS_L2,
 };
 use crate::qwen38::{read_bf16_words, read_matrix, read_vec, text_prefix, Matrix, Qwen38Config};
 use crate::qwen3_moe::bf16_to_f32;
@@ -330,11 +331,11 @@ impl Qwen38Omega {
                 .set_directory(l, &gu_dir, &dn_dir)
                 .map_err(gpu("router set_directory"))?;
             layers.push(LayerTensors {
-                mix,
+                mix: Proj::Fp8(mix),
                 ab,
-                o,
-                gate_up,
-                down,
+                o: Proj::Fp8(o),
+                gate_up: Proj::Fp8(gate_up),
+                down: Proj::Fp8(down),
             });
             norms.push((in_norm, post_norm));
         }
@@ -376,11 +377,11 @@ impl Qwen38Omega {
             unsafe {
                 graph.set_layer(
                     l,
-                    t.mix.as_raw(),
+                    t.mix.fp8_raw(),
                     ab,
-                    t.o.as_raw(),
-                    t.gate_up.as_raw(),
-                    t.down.as_raw(),
+                    t.o.fp8_raw(),
+                    t.gate_up.fp8_raw(),
+                    t.down.fp8_raw(),
                     in_norm,
                 )
             }
