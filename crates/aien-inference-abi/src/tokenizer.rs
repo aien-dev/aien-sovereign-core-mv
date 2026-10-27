@@ -740,7 +740,10 @@ impl ChatTokenizer {
     /// end-of-sequence set of the model directory `dir`:
     /// - template: detected from `chat_template` in `tokenizer_config.json`, else from
     ///   `chat_template.jinja`;
-    /// - stop set: `eos_token_id` of `generation_config.json`, else of `config.json`;
+    /// - stop set: `eos_token_id` of `generation_config.json`; without one, `eos_token_id` of
+    ///   `config.json` (or of its `text_config`), preceded by the id of `tokenizer_config.json`
+    ///   `eos_token` when that is not already in it (Qwen3.5-9B ships no generation config: its
+    ///   text config names `<|endoftext|>` and its tokenizer `<|im_end|>`, the chat turn end);
     /// - context limit: `max_position_embeddings` of `config.json`, or of its `text_config`
     ///   (default 2048).
     pub fn from_model_dir(
@@ -751,7 +754,8 @@ impl ChatTokenizer {
         let mut tokenizer = Self::from_file(tokenizer_json.unwrap_or(&default_json))?;
         // A present `chat_template` key must be a string; any other form (the HF list
         // form, null, an object) is an unrecognized template and never falls back to plain.
-        let config_template = match read_json(&dir.join("tokenizer_config.json"))?
+        let tokenizer_config = read_json(&dir.join("tokenizer_config.json"))?;
+        let config_template = match tokenizer_config
             .as_ref()
             .and_then(|c| c.get("chat_template"))
         {
@@ -791,16 +795,34 @@ impl ChatTokenizer {
             None => ChatTemplate::None,
         };
         let config = read_json(&dir.join("config.json"))?;
-        let stop = read_json(&dir.join("generation_config.json"))?
+        let stop = match read_json(&dir.join("generation_config.json"))?
             .as_ref()
             .and_then(eos_token_ids_from_json)
-            .or_else(|| config.as_ref().and_then(eos_token_ids_from_json))
-            .ok_or_else(|| {
-                TokenizerError::LoadError(format!(
-                    "no eos_token_id in {}/generation_config.json or config.json",
-                    dir.display()
-                ))
-            })?;
+        {
+            Some(stop) => Some(stop),
+            None => config
+                .as_ref()
+                .and_then(|c| {
+                    eos_token_ids_from_json(c)
+                        .or_else(|| c.get("text_config").and_then(eos_token_ids_from_json))
+                })
+                .map(|mut stop| {
+                    let declared = tokenizer_config
+                        .as_ref()
+                        .and_then(|t| t.get("eos_token")?.as_str())
+                        .and_then(|tok| tokenizer.token_to_id(tok));
+                    if let Some(id) = declared.filter(|id| !stop.contains(id)) {
+                        stop.insert(0, id);
+                    }
+                    stop
+                }),
+        }
+        .ok_or_else(|| {
+            TokenizerError::LoadError(format!(
+                "no eos_token_id in {}/generation_config.json or config.json",
+                dir.display()
+            ))
+        })?;
         if stop.is_empty() {
             return Err(TokenizerError::LoadError(format!(
                 "empty eos_token_id in {}",
