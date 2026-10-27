@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # wt.sh: trusted-side worktree management for aien-run checks (A2: worktrees under /var/lib/aien-run/wt,
 # the clone unwritable by aien-run, the worktree's .git link unwritable by aien-run).
 #
@@ -7,7 +22,8 @@
 #   wt.sh sibling <repo> <sha40> <dir> <source-repo> <source-sha>
 #                                              read-only checkout of <source-repo> at <source-sha> beside it, at
 #                                              /var/lib/aien-run/wt/<repo>/<sha40>/<dir> (what ../<dir> means there)
-#   wt.sh remove  <repo> <sha>                 remove /var/lib/aien-run/wt/<repo>/<sha> with every sibling in it
+#   wt.sh remove  <repo> <sha>                 remove /var/lib/aien-run/wt/<repo>/<sha> with every sibling in it,
+#                                              and the head's target dirs /var/lib/aien-run/target/<repo>/pr|main/<sha>
 #   wt.sh list                                 list run directories with age
 #
 # Why a mirror: the operator's clones live under ~/workspace (0700), which aien-run must not read. The mirror is a
@@ -80,6 +96,14 @@ case "$cmd" in
     name_ok "$repo" && [[ $sha =~ ^[0-9a-f]{7,40}$ ]] || die "bad repo or sha"
     d=$(ls -d "$WT/$repo/$sha"* 2>/dev/null | head -1); [[ -n $d ]] || die "no worktree for $sha"
     sudo -n rm -rf "$d"
+    # The head's own cargo target dirs (one per head and trust class, see aien-run-exec) go with it: nothing
+    # reuses them, and a dev build of sovereign-core is ~30 GB.
+    full=${d##*/}
+    if [[ $full =~ ^[0-9a-f]{40}$ ]]; then
+      for t in "$BASE/target/$repo/pr/$full" "$BASE/target/$repo/main/$full"; do
+        if [[ -d $t ]]; then sudo -n rm -rf "$t"; printf 'removed %s\n' "$t"; fi
+      done
+    fi
     # The checkout and its siblings were worktrees of (possibly) several mirrors.
     for m in "$MIRROR"/*.git; do [[ -d $m ]] && git -C "$m" worktree prune; done
     printf 'removed %s\n' "$d"
@@ -90,5 +114,5 @@ case "$cmd" in
       printf '%s  %s days\n' "$d" "$(( ( $(date +%s) - $(stat -c %Y "$d") ) / 86400 ))"
     done
     ;;
-  *) sed -n '2,11p' "$0" >&2; exit 2 ;;
+  *) sed -n '2,12p' "$0" >&2; exit 2 ;;
 esac

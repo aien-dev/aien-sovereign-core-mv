@@ -1,0 +1,814 @@
+{
+ "template": "Qwen/Qwen3.8-27B-FP8 017b9c7a chat_template.jinja sha256 c3cf9e34",
+ "jinja2": "3.1.2",
+ "cases": [
+  {
+   "turns": [
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {},
+   "text": "<|im_start|>system\nReasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {
+    "enable_thinking": true
+   },
+   "text": "<|im_start|>system\nReasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>system\nReasoning effort is set to low. Keep your thinking brief and focused, moving directly to the conclusion without unnecessary elaboration.<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "medium"
+   },
+   "text": "<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {
+    "enable_thinking": false,
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Write a C function that returns the larger of two ints."
+    ]
+   ],
+   "options": {},
+   "text": "<|im_start|>system\nReasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.<|im_end|>\n<|im_start|>user\nWrite a C function that returns the larger of two ints.<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Write a C function that returns the larger of two ints."
+    ]
+   ],
+   "options": {
+    "enable_thinking": true
+   },
+   "text": "<|im_start|>system\nReasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.<|im_end|>\n<|im_start|>user\nWrite a C function that returns the larger of two ints.<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Write a C function that returns the larger of two ints."
+    ]
+   ],
+   "options": {
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>user\nWrite a C function that returns the larger of two ints.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Write a C function that returns the larger of two ints."
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>system\nReasoning effort is set to low. Keep your thinking brief and focused, moving directly to the conclusion without unnecessary elaboration.<|im_end|>\n<|im_start|>user\nWrite a C function that returns the larger of two ints.<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Write a C function that returns the larger of two ints."
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "medium"
+   },
+   "text": "<|im_start|>user\nWrite a C function that returns the larger of two ints.<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Write a C function that returns the larger of two ints."
+    ]
+   ],
+   "options": {
+    "enable_thinking": false,
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>user\nWrite a C function that returns the larger of two ints.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "You are AIEN."
+    ],
+    [
+     "user",
+     "List two primes."
+    ]
+   ],
+   "options": {},
+   "text": "<|im_start|>system\nReasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.\n\nYou are AIEN.<|im_end|>\n<|im_start|>user\nList two primes.<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "You are AIEN."
+    ],
+    [
+     "user",
+     "List two primes."
+    ]
+   ],
+   "options": {
+    "enable_thinking": true
+   },
+   "text": "<|im_start|>system\nReasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.\n\nYou are AIEN.<|im_end|>\n<|im_start|>user\nList two primes.<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "You are AIEN."
+    ],
+    [
+     "user",
+     "List two primes."
+    ]
+   ],
+   "options": {
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>system\nYou are AIEN.<|im_end|>\n<|im_start|>user\nList two primes.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "You are AIEN."
+    ],
+    [
+     "user",
+     "List two primes."
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>system\nReasoning effort is set to low. Keep your thinking brief and focused, moving directly to the conclusion without unnecessary elaboration.\n\nYou are AIEN.<|im_end|>\n<|im_start|>user\nList two primes.<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "You are AIEN."
+    ],
+    [
+     "user",
+     "List two primes."
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "medium"
+   },
+   "text": "<|im_start|>system\nYou are AIEN.<|im_end|>\n<|im_start|>user\nList two primes.<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "You are AIEN."
+    ],
+    [
+     "user",
+     "List two primes."
+    ]
+   ],
+   "options": {
+    "enable_thinking": false,
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>system\nYou are AIEN.<|im_end|>\n<|im_start|>user\nList two primes.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "   "
+    ],
+    [
+     "user",
+     "  padded  \n"
+    ]
+   ],
+   "options": {},
+   "text": "<|im_start|>system\nReasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.<|im_end|>\n<|im_start|>user\npadded<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "   "
+    ],
+    [
+     "user",
+     "  padded  \n"
+    ]
+   ],
+   "options": {
+    "enable_thinking": true
+   },
+   "text": "<|im_start|>system\nReasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.<|im_end|>\n<|im_start|>user\npadded<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "   "
+    ],
+    [
+     "user",
+     "  padded  \n"
+    ]
+   ],
+   "options": {
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>user\npadded<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "   "
+    ],
+    [
+     "user",
+     "  padded  \n"
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>system\nReasoning effort is set to low. Keep your thinking brief and focused, moving directly to the conclusion without unnecessary elaboration.<|im_end|>\n<|im_start|>user\npadded<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "   "
+    ],
+    [
+     "user",
+     "  padded  \n"
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "medium"
+   },
+   "text": "<|im_start|>user\npadded<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "   "
+    ],
+    [
+     "user",
+     "  padded  \n"
+    ]
+   ],
+   "options": {
+    "enable_thinking": false,
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>user\npadded<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "What is 2+2?"
+    ],
+    [
+     "assistant",
+     "4"
+    ],
+    [
+     "user",
+     "And 3+3?"
+    ]
+   ],
+   "options": {},
+   "text": "<|im_start|>system\nReasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.<|im_end|>\n<|im_start|>user\nWhat is 2+2?<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n4<|im_end|>\n<|im_start|>user\nAnd 3+3?<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "What is 2+2?"
+    ],
+    [
+     "assistant",
+     "4"
+    ],
+    [
+     "user",
+     "And 3+3?"
+    ]
+   ],
+   "options": {
+    "enable_thinking": true
+   },
+   "text": "<|im_start|>system\nReasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.<|im_end|>\n<|im_start|>user\nWhat is 2+2?<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n4<|im_end|>\n<|im_start|>user\nAnd 3+3?<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "What is 2+2?"
+    ],
+    [
+     "assistant",
+     "4"
+    ],
+    [
+     "user",
+     "And 3+3?"
+    ]
+   ],
+   "options": {
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>user\nWhat is 2+2?<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n4<|im_end|>\n<|im_start|>user\nAnd 3+3?<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "What is 2+2?"
+    ],
+    [
+     "assistant",
+     "4"
+    ],
+    [
+     "user",
+     "And 3+3?"
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>system\nReasoning effort is set to low. Keep your thinking brief and focused, moving directly to the conclusion without unnecessary elaboration.<|im_end|>\n<|im_start|>user\nWhat is 2+2?<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n4<|im_end|>\n<|im_start|>user\nAnd 3+3?<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "What is 2+2?"
+    ],
+    [
+     "assistant",
+     "4"
+    ],
+    [
+     "user",
+     "And 3+3?"
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "medium"
+   },
+   "text": "<|im_start|>user\nWhat is 2+2?<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n4<|im_end|>\n<|im_start|>user\nAnd 3+3?<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "What is 2+2?"
+    ],
+    [
+     "assistant",
+     "4"
+    ],
+    [
+     "user",
+     "And 3+3?"
+    ]
+   ],
+   "options": {
+    "enable_thinking": false,
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>user\nWhat is 2+2?<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n4<|im_end|>\n<|im_start|>user\nAnd 3+3?<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "Be brief."
+    ],
+    [
+     "user",
+     "a"
+    ],
+    [
+     "assistant",
+     "  b  "
+    ],
+    [
+     "user",
+     "c"
+    ],
+    [
+     "assistant",
+     "d"
+    ],
+    [
+     "user",
+     "e"
+    ]
+   ],
+   "options": {},
+   "text": "<|im_start|>system\nReasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.\n\nBe brief.<|im_end|>\n<|im_start|>user\na<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nb<|im_end|>\n<|im_start|>user\nc<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nd<|im_end|>\n<|im_start|>user\ne<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "Be brief."
+    ],
+    [
+     "user",
+     "a"
+    ],
+    [
+     "assistant",
+     "  b  "
+    ],
+    [
+     "user",
+     "c"
+    ],
+    [
+     "assistant",
+     "d"
+    ],
+    [
+     "user",
+     "e"
+    ]
+   ],
+   "options": {
+    "enable_thinking": true
+   },
+   "text": "<|im_start|>system\nReasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.\n\nBe brief.<|im_end|>\n<|im_start|>user\na<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nb<|im_end|>\n<|im_start|>user\nc<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nd<|im_end|>\n<|im_start|>user\ne<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "Be brief."
+    ],
+    [
+     "user",
+     "a"
+    ],
+    [
+     "assistant",
+     "  b  "
+    ],
+    [
+     "user",
+     "c"
+    ],
+    [
+     "assistant",
+     "d"
+    ],
+    [
+     "user",
+     "e"
+    ]
+   ],
+   "options": {
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>system\nBe brief.<|im_end|>\n<|im_start|>user\na<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nb<|im_end|>\n<|im_start|>user\nc<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nd<|im_end|>\n<|im_start|>user\ne<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "Be brief."
+    ],
+    [
+     "user",
+     "a"
+    ],
+    [
+     "assistant",
+     "  b  "
+    ],
+    [
+     "user",
+     "c"
+    ],
+    [
+     "assistant",
+     "d"
+    ],
+    [
+     "user",
+     "e"
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>system\nReasoning effort is set to low. Keep your thinking brief and focused, moving directly to the conclusion without unnecessary elaboration.\n\nBe brief.<|im_end|>\n<|im_start|>user\na<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nb<|im_end|>\n<|im_start|>user\nc<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nd<|im_end|>\n<|im_start|>user\ne<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "Be brief."
+    ],
+    [
+     "user",
+     "a"
+    ],
+    [
+     "assistant",
+     "  b  "
+    ],
+    [
+     "user",
+     "c"
+    ],
+    [
+     "assistant",
+     "d"
+    ],
+    [
+     "user",
+     "e"
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "medium"
+   },
+   "text": "<|im_start|>system\nBe brief.<|im_end|>\n<|im_start|>user\na<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nb<|im_end|>\n<|im_start|>user\nc<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nd<|im_end|>\n<|im_start|>user\ne<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "Be brief."
+    ],
+    [
+     "user",
+     "a"
+    ],
+    [
+     "assistant",
+     "  b  "
+    ],
+    [
+     "user",
+     "c"
+    ],
+    [
+     "assistant",
+     "d"
+    ],
+    [
+     "user",
+     "e"
+    ]
+   ],
+   "options": {
+    "enable_thinking": false,
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>system\nBe brief.<|im_end|>\n<|im_start|>user\na<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nb<|im_end|>\n<|im_start|>user\nc<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nd<|im_end|>\n<|im_start|>user\ne<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Hi"
+    ],
+    [
+     "assistant",
+     "Hello."
+    ]
+   ],
+   "options": {},
+   "text": "<|im_start|>system\nReasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nHello.<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Hi"
+    ],
+    [
+     "assistant",
+     "Hello."
+    ]
+   ],
+   "options": {
+    "enable_thinking": true
+   },
+   "text": "<|im_start|>system\nReasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nHello.<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Hi"
+    ],
+    [
+     "assistant",
+     "Hello."
+    ]
+   ],
+   "options": {
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nHello.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Hi"
+    ],
+    [
+     "assistant",
+     "Hello."
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>system\nReasoning effort is set to low. Keep your thinking brief and focused, moving directly to the conclusion without unnecessary elaboration.<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nHello.<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Hi"
+    ],
+    [
+     "assistant",
+     "Hello."
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "medium"
+   },
+   "text": "<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nHello.<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Hi"
+    ],
+    [
+     "assistant",
+     "Hello."
+    ]
+   ],
+   "options": {
+    "enable_thinking": false,
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nHello.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "line1\n\nline2"
+    ]
+   ],
+   "options": {},
+   "text": "<|im_start|>system\nReasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.<|im_end|>\n<|im_start|>user\nline1\n\nline2<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "line1\n\nline2"
+    ]
+   ],
+   "options": {
+    "enable_thinking": true
+   },
+   "text": "<|im_start|>system\nReasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.<|im_end|>\n<|im_start|>user\nline1\n\nline2<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "line1\n\nline2"
+    ]
+   ],
+   "options": {
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>user\nline1\n\nline2<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "line1\n\nline2"
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>system\nReasoning effort is set to low. Keep your thinking brief and focused, moving directly to the conclusion without unnecessary elaboration.<|im_end|>\n<|im_start|>user\nline1\n\nline2<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "line1\n\nline2"
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "medium"
+   },
+   "text": "<|im_start|>user\nline1\n\nline2<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "line1\n\nline2"
+    ]
+   ],
+   "options": {
+    "enable_thinking": false,
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>user\nline1\n\nline2<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  }
+ ]
+}

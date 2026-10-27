@@ -1,4 +1,6 @@
 # crates/aien-runtime/tests/prefill_e2e2_m1.gate
+# inputs: the crates cargo compiles for aien-runtime and its tests (cargo metadata, L335), every member manifest and the
+# target listings cargo reads to load the workspace; outside_inputs: the checkpoint. Audited with aien-audit-inputs.
 # PREFILL-E2E-2 mutant m1 (the append replays the whole earlier context). Same as the forge mutant leg for m1:
 # apply prefill_e2e2_mutants/mutant_m1.patch, run the ignored test, restore the
 # tree. PASS means the mutant was killed: the test failed and printed
@@ -11,15 +13,50 @@ requires:
 inputs:
   - Cargo.toml
   - Cargo.lock
-  - crates/aien-runtime/
+  # Read outside crates/ (aien-audit-inputs, L335): the C1 acceptance file at
+  # run time and omega.lock through a build script.
+  - docs/campaigns/c1/
+  - omega.lock
+  - crates/aien-abi-conformance/
+  - crates/aien-abi-core/
+  - crates/aien-allen/
+  - crates/aien-allen-memory/
+  - crates/aien-allen-profile/
+  - crates/aien-inference-abi/
+  - crates/aien-kv-cache/
+  - crates/aien-kv-store/
+  - crates/aien-localhttp/
+  - crates/aien-omega-bf16/
+  - crates/aien-omega-compose/
+  - crates/aien-omega-dattn/
+  - crates/aien-omega-dgraph/
+  - crates/aien-omega-fp8/
+  - crates/aien-omega-gpu/
+  - crates/aien-omega-moe/
+  - crates/aien-omega-pf/
+  - crates/aien-omega-router/
   - crates/aien-platform/
   - crates/aien-platform-linux/
-  - crates/aien-kv-cache/
+  - crates/aien-runtime/
   - crates/aien-scheduler/
-  - crates/aien-abi-core/
-  - crates/aien-inference-abi/
   - crates/aien-security/
+  - crates/aien-trace/
   - crates/cortex-rs/
+  - crates/*/Cargo.toml
+  - tools/*/Cargo.toml
+listed:
+  - crates/*
+  - crates/*/src
+  - crates/*/src/bin
+  - crates/*/tests
+  - crates/*/examples
+  - crates/*/benches
+  - tools/*
+  - tools/*/src
+  - tools/*/src/bin
+  - tools/*/tests
+  - tools/*/examples
+  - tools/*/benches
 run:
   exec: crates/aien-runtime/tests/prefill_e2e2_run.sh
   args: ["mutant", "m1", "RECOMPUTE_ALL_VIOLATION"]
@@ -30,4 +67,6 @@ expects:
 timeout: 60m
 checks:
   - clean_tree_after
-cache: never
+outside_inputs:
+  - ~/models/TinyLlama-1.1B-Chat-v1.0/
+cache: inputs_complete
