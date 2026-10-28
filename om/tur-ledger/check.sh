@@ -3,7 +3,7 @@
 # suite against it (must PASS), then builds each mutant and runs the same suite (each must FAIL).
 # Usage: OMC=/path/to/seed/out/omc bash om/tur-ledger/check.sh   (OMEGA_OMC is accepted too)
 # Env: TUR_LEDGER_OUT=path copies the built binary; CRASH_N (200), MUTANT_CRASH_N, CRASH_SEED (7).
-# Needs: sha256sum, strace, flock(1), timeout(1). Host only; no network, no GPU.
+# Needs: sha256sum, OpenSSL 3, strace (syscall injection), flock(1), timeout(1). Host only; no network, no GPU.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
@@ -11,11 +11,19 @@ src="$here/tur-ledger.om"
 sha="$root/om/vendor/sha256.om"
 OMC=${OMC:-${OMEGA_OMC:-}}
 : "${OMC:?set OMC to the seed compiler (omega-mv seed/out/omc)}"
-PIN=2c82480596bbdc50cda9626866209ef662d5834f278f839ff4ce0250c495029f
+PIN=d6290c7663c2b4bafb59eb3fdf812476e977f4c144def71095c6248ef9b96b84
 got=$(sha256sum < "$OMC" | cut -d' ' -f1)
 [ "$got" = "$PIN" ] || { echo "FAIL omc sha256 $got, pinned $PIN"; exit 1; }
 CRASH_N=${CRASH_N:-200}
-b=$(mktemp -d); trap 'rm -rf "$b"' EXIT
+b=$(mktemp -d); keys=$(mktemp -d /dev/shm/tur-ledger-test-keys.XXXXXX)
+trap 'rm -rf "$b" "$keys"' EXIT
+umask 077
+# Disposable test-only oracle keys, never production credentials or implementation dependencies.
+for role in issuer verifier stranger; do
+  openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$keys/$role" || exit 1
+done
+pubhex() { openssl pkey -in "$keys/$1" -pubout -outform DER 2>/dev/null | od -An -v -tx1 | tr -d ' \n' | cut -c53-; }
+issuer=$(pubhex issuer); verifier=$(pubhex verifier)
 
 zero=$(printf '0%.0s' $(seq 64))
 hexn() { printf '%064x' "$1"; }
@@ -23,9 +31,47 @@ J7=$(printf '7%.0s' $(seq 64)); J8=$(printf '8%.0s' $(seq 64))
 RA=$(printf 'a%.0s' $(seq 64)); RB=$(printf 'b%.0s' $(seq 64))
 
 build() { # out source
-  cat "$sha" "$2" | "$OMC" > "$1" 2> "$1.err" || { echo "compile: $(cat "$1.err")"; return 1; }
+  { printf 'om2\n'; cat "$sha" "$root/om/vendor/ec.om" "$2"; } | "$OMC" > "$1" 2> "$1.err" || { echo "compile: $(cat "$1.err")"; return 1; }
   chmod 700 "$1"
 }
+
+# Trusted provisioning and signing are TEST ORACLES. The ledger never signs and never creates pins.
+provision() {
+  local d=$1 req=req
+  [ "$d" = "$b/pf" ] && req=acct
+  mkdir -p "$d"
+  [ -f "$d/authority" ] || printf 'genesis tur-ledger-2 %s %s %s %s %s prov ver %s %s %s' "$zero" "$issuer" "$verifier" "$RA" "$req" "$RA" "$RB" "$J7" > "$d/authority"
+}
+canonical() { # config, unsigned body, optional reservation authorization digest
+  cat "$1/authority"; printf '\n%s\n' "$2"
+  [ -z "${3:-}" ] || printf '%s\n' "$3"
+}
+reservehash() {
+  local d=$1 job=$2 line rec
+  [ -f "$d/journal" ] || return 0
+  line=$(grep " reserve $job " "$d/journal" | head -n 1)
+  [ -n "$line" ] || return 0
+  rec=${line#* }; rec=${rec#* }; rec=${rec% *}; rec=${rec% *}
+  canonical "$d" "$rec" | sha256sum | cut -c1-64
+}
+sign() { # key, dir, unsigned body, reserve digest
+  canonical "$2" "$3" "${4:-}" | openssl dgst -sha256 -sign "$keys/$1" | od -An -v -tx1 | tr -d ' \n'
+}
+prepare() { # d original-command... -> signed argv
+  local d=$1; shift; provision "$d"
+  argv=("$@")
+  local rh= body isig vsig
+  case "$1" in
+    prefund) ;;
+    reserve) argv+=("$RA") ;;
+    settle) [ "$#" = 6 ] || return 0; argv+=("$J7" "$RB"); rh=$(reservehash "$d" "$2") ;;
+    refund) rh=$(reservehash "$d" "$2") ;;
+    *) return 0 ;;
+  esac
+  body="${argv[*]}"; isig=$(sign issuer "$d" "$body" "$rh"); argv+=("$isig")
+  if [ "$1" = settle ]; then vsig=$(sign verifier "$d" "$body" "$rh"); argv+=("$vsig"); fi
+}
+invoke() { local d=$1; shift; prepare "$d" "$@"; "$T" --journal "$d" "${argv[@]}"; }
 
 # ---- suite: every test prints PASS/FAIL; T is the binary, f counts failures ----
 f=0
@@ -33,7 +79,7 @@ ok() { echo "PASS $1"; }
 no() { echo "FAIL $1: $2"; f=$((f + 1)); }
 x() { # dir args... -> sets o (stdout) e (stderr) r (rc)
   local d=$1; shift
-  o=$("$T" --journal "$d" "$@" 2> "$b/err"); r=$?; e=$(cat "$b/err")
+  o=$(invoke "$d" "$@" 2> "$b/err"); r=$?; e=$(cat "$b/err")
 }
 want() { # name rc stdout dir args...
   local n=$1 wr=$2 wo=$3; shift 3
@@ -90,7 +136,7 @@ t_prefund() {
   want prefund.first 0 "prefunded p1 acct 5" "$d" prefund p1 acct 5
   want prefund.dup 0 "dup p1 acct 5" "$d" prefund p1 acct 5
   want prefund.conflict-amount 13 "" "$d" prefund p1 acct 6
-  want prefund.conflict-account 13 "" "$d" prefund p1 other 5
+  want prefund.conflict-account 16 "" "$d" prefund p1 other 5
   want prefund.balance 0 "balance acct 5" "$d" balance acct
   want usage.bad-job 2 "" "$d" reserve "$(printf 'A%.0s' $(seq 64))" acct p v 1
   want usage.leading-zero 2 "" "$d" prefund p2 acct 05
@@ -118,7 +164,8 @@ t_concurrent() { # 20 concurrent settle processes: exactly one settlement
     rm -rf "$d"; x "$d" prefund p1 req 50; x "$d" reserve "$J7" req prov ver 20
     for i in $(seq 1 20); do
       if [ $mode = distinct ]; then rc=$(hexn "$i"); else rc=$RA; fi
-      ( "$T" --journal "$d" settle "$J7" "$rc" 15 4 1 > "$b/c.$i.out" 2>/dev/null; echo $? > "$b/c.$i.rc" ) &
+      prepare "$d" settle "$J7" "$rc" 15 4 1
+      ( "$T" --journal "$d" "${argv[@]}" > "$b/c.$i.out" 2>/dev/null; echo $? > "$b/c.$i.rc" ) &
     done
     wait
     n0=$(cat "$b"/c.*.rc | grep -cx 0); n11=$(cat "$b"/c.*.rc | grep -cx 11)
@@ -132,11 +179,14 @@ t_concurrent() { # 20 concurrent settle processes: exactly one settlement
     if [ $c = 0 ] && [ "$(nsettle "$J7" "$d")" = 1 ] && [ "$ar" = 0 ]; then ok "concurrent.settle-$mode (settled $nst, already $nalr, refused $n11)"; else no "concurrent.settle-$mode" "exit0 $n0 refused11 $n11 settled $nst already $nalr journal-settles $(nsettle "$J7" "$d") audit $ar"; fi
     rm -f "$b"/c.*
   done
-  rm -rf "$d"; x "$d" prefund p1 req 50
-  for i in $(seq 1 20); do ( "$T" --journal "$d" reserve "$(hexn "$i")" req prov ver 1 > /dev/null 2>&1; echo $? > "$b/c.$i.rc" ) & done
+  rm -rf "$d"; x "$d" prefund p1 req 1
+  for i in $(seq 1 20); do
+    prepare "$d" reserve "$(hexn "$i")" req prov ver 1
+    ( "$T" --journal "$d" "${argv[@]}" > /dev/null 2>&1; echo $? > "$b/c.$i.rc" ) &
+  done
   wait
-  n0=$(cat "$b"/c.*.rc | grep -cx 0); x "$d" audit
-  case "$r $o" in "0 audit ok records 22 "*" jobs 20 open 20 "*) ok "concurrent.reserve-20 ($n0 reserved, no lost update)" ;; *) no concurrent.reserve-20 "exit0 $n0 audit $r '$o'" ;; esac
+  n0=$(cat "$b"/c.*.rc | grep -cx 0); n7=$(cat "$b"/c.*.rc | grep -cx 7); x "$d" audit
+  case "$r $o $n0 $n7" in "0 audit ok records 3 "*" jobs 1 open 1 "*" 1 19") ok "concurrent.double-debit (one reserve, nineteen insufficient-funds)" ;; *) no concurrent.double-debit "exit0 $n0 exit7 $n7 audit $r '$o'" ;; esac
   rm -f "$b"/c.*
 }
 
@@ -152,7 +202,8 @@ t_lock() { # the whole command waits for flock(LOCK_EX) on the journal
 
 t_fsync() { # the record is pwritten and fsynced before the reply reaches stdout
   local d=$b/fs; rm -rf "$d"; x "$d" prefund p1 req 5
-  strace -f -qq -e trace=pwrite64,fsync,write -o "$b/st" "$T" --journal "$d" reserve "$J7" req prov ver 1 > /dev/null 2>&1 || true
+  prepare "$d" reserve "$J7" req prov ver 1
+  strace -f -qq -e trace=pwrite64,fsync,write -o "$b/st" "$T" --journal "$d" "${argv[@]}" > /dev/null 2>&1 || true
   # order of the journal pwrite, the fsync of the same fd, and the reply on fd 1
   local wl fl ol fd
   wl=$(grep -n 'pwrite64(' "$b/st" | tail -n 1); fd=$(printf '%s' "$wl" | sed -n 's/.*pwrite64(\([0-9]*\),.*/\1/p'); wl=${wl%%:*}
@@ -169,8 +220,9 @@ t_crash() { # kill -9 at random points over CRASH_N reserve/settle commands, ret
   for i in $(seq 1 "$CRASH_N"); do
     j=$(( (i + 1) / 2 ))
     if [ $((i % 2)) = 1 ]; then op="reserve $(hexn "$j") req prov ver 10"; else op="settle $(hexn "$j") $(hexn $((j + 4096))) 6 3 1"; fi
-    "$T" --journal "$k" $op > /dev/null 2>&1 || badretry=$((badretry + 1))
-    "$T" --journal "$c" $op > /dev/null 2>&1 & p=$!
+    invoke "$k" $op > /dev/null 2>&1 || badretry=$((badretry + 1))
+    prepare "$c" $op
+    "$T" --journal "$c" "${argv[@]}" > /dev/null 2>&1 & p=$!
     sleep "0.00$((RANDOM % 8))$((RANDOM % 10))"
     kill -9 $p 2> /dev/null; { wait $p; } 2> /dev/null; rc0=$?
     if [ "$rc0" = 137 ]; then killed=$((killed + 1)); else done0=$((done0 + 1)); fi
@@ -227,30 +279,113 @@ t_corrupt() { # a bad line before the last refuses the ledger and changes nothin
   want corrupt.line-deleted 5 "" "$d" audit
   { sed -n 1p "$b/cor.good"; sed -n 3p "$b/cor.good"; sed -n 2p "$b/cor.good"; } > "$d/journal"
   want corrupt.lines-swapped 5 "" "$d" audit
-  cp "$b/cor.good" "$d/journal"; sed -i '1s/genesis tur-ledger-1/genesis tur-ledger-2/' "$d/journal"
+  cp "$b/cor.good" "$d/journal"; sed -i '1s/genesis tur-ledger-2/genesis tur-ledger-1/' "$d/journal"
   want corrupt.genesis-edited 5 "" "$d" audit
 }
 
-t_conserve() { # a journal with a valid chain whose settle pays out more than its escrow is refused
-  local d=$b/cons; rm -rf "$d"; mkdir -p "$d"
-  printf '%s\n' "genesis tur-ledger-1" "prefund p1 req 100" "reserve $J7 req prov ver 40" "settle $J7 $RA 27 3 10" | forge "$d/journal"
-  want conserve.forged-valid-control 0 "balance prov 27" "$d" balance prov
-  printf '%s\n' "genesis tur-ledger-1" "prefund p1 req 100" "reserve $J7 req prov ver 40" "settle $J7 $RA 30 30 10" | forge "$d/journal"
-  if chaincheck "$d/journal"; then ok conserve.forged-chain-valid; else no conserve.forged-chain-valid "forge broke the chain"; fi
+t_conserve() { # valid signatures do not bypass escrow/conservation rules, including replay
+  local d=$b/cons; rm -rf "$d"; provision "$d"
+  x "$d" prefund p1 req 100; x "$d" reserve "$J7" req prov ver 40
+  cp "$d/journal" "$b/cons.before"
+  prepare "$d" settle "$J7" "$RA" 30 30 10
+  local rec="${argv[*]}" prev n body h
+  prev=$(tail -n 1 "$d/journal"); prev=${prev##* }; n=4
+  body="$n $prev $rec"; h=$(printf '%s' "$body" | sha256sum | cut -c1-64)
+  printf '%s %s\n' "$body" "$h" >> "$d/journal"
+  if chaincheck "$d/journal"; then ok conserve.forged-chain-valid; else no conserve.forged-chain-valid "forge broke chain"; fi
   want conserve.payout-over-escrow 6 "" "$d" audit
   want conserve.refused-for-every-command 6 "" "$d" balance prov
 }
 
+raw_want() { # name rc d exact args (no oracle signing)
+  local name=$1 expected=$2 d=$3; shift 3
+  local before after rr
+  before=$(sha256sum "$d/journal" 2>/dev/null || true)
+  "$T" --journal "$d" "$@" > "$b/raw.out" 2> "$b/raw.err"; rr=$?
+  after=$(sha256sum "$d/journal" 2>/dev/null || true)
+  if [ "$rr" = "$expected" ] && [ "$before" = "$after" ]; then ok "$name (exit $rr, unchanged journal)"; else no "$name" "exit $rr expected $expected, before '$before' after '$after'"; fi
+}
+t_unsigned() {
+  local d=$b/unsigned; rm -rf "$d"; provision "$d"
+  "$T" --journal "$d" audit > /dev/null 2>&1
+  raw_want auth.unsigned-prefund 2 "$d" prefund forged req 100
+}
+t_auth() {
+  local d=$b/auth body rh sig
+  t_unsigned
+  rm -rf "$d"; x "$d" prefund p1 req 100; x "$d" reserve "$J7" req prov ver 40
+  raw_want auth.unsigned-reserve 2 "$d" reserve "$J8" req prov ver 5 "$RA"
+  raw_want auth.unsigned-settle 2 "$d" settle "$J7" "$RA" 27 3 10 "$J7" "$RB"
+  raw_want auth.unsigned-refund 2 "$d" refund "$J7"
+  prepare "$d" prefund p2 req 5
+  body="prefund p2 req 5"; argv[4]=$(sign stranger "$d" "$body")
+  raw_want auth.wrong-issuer-key 16 "$d" "${argv[@]}"
+  prepare "$d" prefund p2 req 5; argv[3]=6
+  raw_want auth.changed-amount 16 "$d" "${argv[@]}"
+  prepare "$d" reserve "$J8" req prov ver 5; argv[6]=$RB
+  raw_want auth.changed-quote 16 "$d" "${argv[@]}"
+  prepare "$d" reserve "$J8" req thief ver 5
+  raw_want auth.account-spoof 16 "$d" "${argv[@]}"
+  prepare "$d" settle "$J7" "$RA" 27 3 10
+  body="${argv[*]:0:8}"; rh=$(reservehash "$d" "$J7")
+  argv[9]=$(sign stranger "$d" "$body" "$rh")
+  raw_want auth.wrong-verifier-key 16 "$d" "${argv[@]}"
+  prepare "$d" settle "$J7" "$RA" 27 3 10
+  argv[8]=$(sign stranger "$d" "$body" "$rh")
+  raw_want auth.unauthorized-settle 16 "$d" "${argv[@]}"
+  prepare "$d" settle "$J7" "$RA" 27 3 10; argv[1]=$J8
+  raw_want auth.changed-job 16 "$d" "${argv[@]}"
+  prepare "$d" settle "$J7" "$RA" 27 3 10; argv[2]=$RB
+  raw_want auth.forged-receipt-hash 16 "$d" "${argv[@]}"
+  prepare "$d" settle "$J7" "$RA" 27 3 10; argv[7]=$RA
+  raw_want auth.mutated-attestation-digest 16 "$d" "${argv[@]}"
+  prepare "$d" settle "$J7" "$RA" 27 3 10; argv[6]=$RB
+  raw_want auth.mutated-signed-job-digest 16 "$d" "${argv[@]}"
+  prepare "$d" settle "$J7" "$RA" 27 3 10; argv[9]="${argv[8]}"
+  raw_want auth.issuer-is-not-verifier 16 "$d" "${argv[@]}"
+  # SIGKILL at stdout write entry is after journal pwrite + fsync and before acknowledgement.
+  prepare "$d" settle "$J7" "$RA" 27 3 10
+  strace -qq -e trace=pwrite64,fsync,write -e inject=write:signal=SIGKILL -o "$b/kill-after-fsync" "$T" --journal "$d" "${argv[@]}" > /dev/null 2>&1
+  local killed=$?
+  if [ "$killed" = 137 ] && grep -q 'fsync(.*) *= 0' "$b/kill-after-fsync"; then ok auth.kill-after-fsync-before-ack; else no auth.kill-after-fsync-before-ack "exit $killed, missing fsync"; fi
+  want auth.lost-response-retry 0 "already-settled $J7 $RA 27 3 10" "$d" settle "$J7" "$RA" 27 3 10
+  want auth.honest-provider 0 "balance prov 27" "$d" balance prov
+  prepare "$d" settle "$J7" "$RA" 27 3 10
+  body="settle $J7 $RA 27 3 10 $J7 $RA"
+  argv[7]=$RA; argv[8]=$(sign issuer "$d" "$body" "$rh"); argv[9]=$(sign verifier "$d" "$body" "$rh")
+  raw_want auth.changed-evidence-conflicts-even-when-signed 11 "$d" "${argv[@]}"
+  cp "$d/journal" "$b/auth.good"
+  { cat "$d/authority"; printf '\nprefund forged req 100\n'; } | forge "$d/journal"
+  raw_want auth.unsigned-replay-last 5 "$d" audit
+  prepare "$d" prefund p2 req 5; argv[4]=$(sign stranger "$d" "prefund p2 req 5")
+  { cat "$d/authority"; printf '\n%s\n' "${argv[*]}"; } | forge "$d/journal"
+  raw_want auth.wrong-key-replay-last 5 "$d" audit
+  printf 'genesis tur-ledger-1\nprefund p1 req 100\n' | forge "$d/journal"
+  raw_want auth.old-journal-refused 5 "$d" audit
+  cp "$b/auth.good" "$d/journal"
+  local authority; authority=$(cat "$d/authority")
+  printf '%s' "${authority/$RA/$J8}" > "$d/authority"
+  raw_want auth.changed-policy-pins 5 "$d" audit
+}
+
 suite() {
   f=0
-  t_oracle; t_prefund; t_once; t_concurrent; t_lock; t_fsync; t_torn; t_corrupt; t_conserve; t_crash
+  t_oracle; t_prefund; t_once; t_concurrent; t_lock; t_fsync; t_torn; t_corrupt; t_conserve; t_auth; t_crash
   [ "$f" = 0 ]
 }
 
 echo "omc $(sha256sum "$OMC" | cut -c1-64)"
 echo "src $(sha256sum "$src" | cut -c1-64) om/tur-ledger/tur-ledger.om"
 echo "sha $(sha256sum "$sha" | cut -c1-64) om/vendor/sha256.om"
+echo "ec $(sha256sum "$root/om/vendor/ec.om" | cut -c1-64) omega-mv@6999fa9e6dae4847c155ef4eacaece74f491d3ca"
+echo "gate $(sha256sum "$0" | cut -c1-64)"
+openssl version
 gate=0
+if [ -n "${TUR_LEDGER_AUTH_ONLY:-}" ]; then
+  T=$TUR_LEDGER_AUTH_ONLY
+  t_unsigned
+  [ "$f" = 0 ]; exit $?
+fi
 T=$b/tur-ledger
 if build "$T" "$src"; then
   echo "bin $(sha256sum "$T" | cut -c1-64)"
@@ -277,6 +412,9 @@ mutant no-hash-chain '/^if not hsame h$/,/^end$/d;/^if not psame$/,/^end$/d'
 mutant no-conservation '/^if not conserve$/,/^end$/d'
 mutant no-escrow-rule '/^ret vrule get d3 k pp pv bk$/s/.*/ret 0/'
 mutant no-torn-recovery '/^if and eq c 1 eq e get st SFSZ$/s/.*/if eq e 0/'
+mutant no-issuer-signature '/^if not authsig add b fields 3$/,/^end$/d'
+mutant no-verifier-signature '/^if not authsig add add b fields 1 4$/,/^end$/d'
+mutant no-owner-pins '/^if not and cfeq 6 add b 2 and cfeq 7 add b 3 cfeq 8 add b 4$/,/^end$/d'
 
 [ "$gate" = 0 ] && echo "TUR_LEDGER gate: PASS" || echo "TUR_LEDGER gate: FAIL"
 [ "$gate" = 0 ]

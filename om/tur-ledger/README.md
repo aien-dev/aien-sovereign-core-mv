@@ -1,58 +1,158 @@
-# tur-ledger: the Aienet-0 TUR escrow ledger in seeded Omega
+# tur-ledger: authenticated Aienet-0 TUR test-credit escrow
 
-One persistent, crash-safe escrow ledger for prefunded TUR test credits. It applies, per JOB, the
-escrow rules of `tests/turing-network/tur_r0_oracle.om` (#791): reserve needs funds and one
-reservation per JOB; settle needs a reserved JOB and `PAYP + PAYV + BACK = AMOUNT`, and happens
-exactly once. Source: `tur-ledger.om` (built after `om/vendor/sha256.om`). No Rust, C or Python.
+The native Omega CLI keeps an append-only, single-writer journal with integer conservation,
+exactly-once settlement, torn-tail recovery and fsync before acknowledgement. Version 2 adds
+issuer authorization for every external mutation and independent verifier authorization for
+settlement. It is a local test-credit ledger, not a wallet, currency or public economic service.
 
-Build: `cat om/vendor/sha256.om om/tur-ledger/tur-ledger.om | $OMC > tur-ledger && chmod +x tur-ledger`
-with the seeded omc (omega-mv `seed/out/omc`, sha256 `2c82480596bbdc50cda9626866209ef662d5834f278f839ff4ce0250c495029f`).
+Build with omega-mv `6999fa9e6dae4847c155ef4eacaece74f491d3ca`, seeded omc sha256
+`d6290c7663c2b4bafb59eb3fdf812476e977f4c144def71095c6248ef9b96b84`:
 
-Gate: `OMC=<seed omc> bash om/tur-ledger/check.sh` (needs `strace`, util-linux `flock`, `timeout`).
+```sh
+{ printf 'om2\n'; cat om/vendor/sha256.om om/vendor/ec.om om/tur-ledger/tur-ledger.om; } | "$OMC" > tur-ledger && chmod +x tur-ledger
+OMC="$OMC" bash om/tur-ledger/check.sh
+```
+
+`om/vendor/ec.om` is byte-identical to omega-mv's `om/tls/ec.om` at that revision, sha256
+`909f37c797e187bd0663bde9f57c75d6ce41eb2c9726a6b50d6fc714e424c060` (Apache-2.0).
+It verifies strict DER ECDSA P-256 signatures entirely in Omega; no host crypto runtime is used.
+The SHA-256 unit's private state global is renamed `hstate` to avoid an EC parameter collision.
+The gate uses OpenSSL only as an independent signing oracle, plus strace, flock and timeout.
+Disposable test keys live in a private tmpfs directory and are removed on exit. No production
+private key belongs in this repository or in a ledger directory.
+
+## Provisioning and authority
+
+Before any CLI invocation, the trusted Core service operator provisions `DIR/authority` as
+exactly these ASCII bytes, with single spaces and **no trailing LF**:
+
+```text
+genesis tur-ledger-2 LEDGER_ID ISSUER_SEC1 VERIFIER_SEC1 POLICY_SHA256 REQUESTER PROVIDER VERIFIER_ACCOUNT REQUESTER_OWNER PROVIDER_NODE VERIFIER_NODE
+```
+
+`LEDGER_ID`, the policy digest and three owner/node identity pins are 64 lowercase hex characters.
+Each public key is 130 lowercase hex characters: SEC1 uncompressed P-256 (`04 || X || Y`). The
+issuer and verifier keys must differ. The three account names must differ and are 1..64 bytes
+of `[A-Za-z0-9._:-]`. This bounded policy maps exactly one requester owner, provider node and
+verifier node to their account names. Only the pinned requester account can be funded; reserve
+must name those exact three accounts. Arbitrary account registration is deliberately absent.
+
+The issuer is the sole Core service authority, not an arbitrary local CLI caller. Its signature
+means funding-source approval for the unique funding event `PID`, or approval of the reserved
+job, published quote, account-owner/node mapping and policy. `PID` identifies one funding event;
+reusing it with different content is refused. The issuer must not assign another PID to that
+same funding event. The verifier signature means it independently checked the signed job,
+MJR1 result, AN0V attestation, published quote, pinned owner/node identities and policy and
+approved this exact payout. Distinct keys do not by themselves establish operational independence.
+
+Both signers are external authorities. The ledger verifies their typed authorizations, not
+MJR1/AN0V artifact parsers or signer policy implementation. Signing unverified caller-provided
+hashes violates this contract. No arbitrary receipt hash or issuer-only authorization can settle.
+The ledger needs neither private keys nor a new wallet/cryptocurrency primitive.
+
+Protect the directory, config, provisioning process and authority keys with the service's OS
+permissions. This design does not protect against an actor who can replace both config and
+journal, roll back a valid signed history or clone an existing ledger identity. The SHA chain is
+integrity/recovery evidence, not a signature or malicious-file-write defense.
+
+## Canonical signed bytes
+
+Algorithm is fixed for v2: ECDSA P-256 over SHA-256, signature encoded as strict DER then lowercase
+hex (no whitespace). Sign the SHA-256 digest of these bytes, not an externally supplied digest:
+
+```text
+EXACT_AUTHORITY_CONFIG LF
+CANONICAL_UNSIGNED_COMMAND LF
+```
+
+For `settle` and `refund`, append the 64 lowercase hex SHA-256 digest of the reserved job's
+canonical signed bytes (excluding its signature), followed by LF. This commits settlement to
+the exact reserve: JOB, requester/provider/verifier accounts, amount, published quote and
+config's owner/node/policy pins. Journal SEQ/PREV/HASH and signatures are excluded from signing.
+All arguments are joined with exactly one ASCII space; amounts are canonical decimal u64 with
+no leading zeros. Every field is covered. The ledger recomputes this digest during admission
+and replay. Signatures are checked **before** idempotent success, and re-signing identical
+semantic content cannot create another economic action.
 
 ## Commands
 
-`tur-ledger --journal DIR <cmd>`. One record per line on stdout, exit 0 on success.
+`tur-ledger --journal DIR COMMAND`. `ISIG` is the issuer signature; `VSIG` is the independent
+verifier signature over the **same canonical bytes**.
 
 | Command | Success output |
 |---|---|
-| `prefund PID ACCT AMOUNT` | `prefunded PID ACCT AMOUNT`; an identical repeat prints `dup PID ACCT AMOUNT` |
-| `reserve JOB REQ PROV VER AMOUNT` | `reserved JOB REQ PROV VER AMOUNT`; an identical repeat prints `already-reserved ...` |
-| `settle JOB RECEIPT_SHA256 PAYP PAYV BACK` | `settled JOB RECEIPT PAYP PAYV BACK`; the identical repeat prints `already-settled ...` and writes nothing |
-| `refund JOB` | `refunded JOB`; a repeat prints `already-refunded JOB` |
+| `prefund PID REQUESTER AMOUNT ISIG` | `prefunded PID REQUESTER AMOUNT`; repeat: `dup ...` |
+| `reserve JOB REQUESTER PROVIDER VERIFIER_ACCOUNT AMOUNT QUOTE_SHA256 ISIG` | `reserved JOB REQUESTER PROVIDER VERIFIER_ACCOUNT AMOUNT`; repeat: `already-reserved ...` |
+| `settle JOB RECEIPT_SHA256 PAYP PAYV BACK SIGNED_JOB_SHA256 AN0V_SHA256 ISIG VSIG` | `settled JOB RECEIPT_SHA256 PAYP PAYV BACK`; repeat: `already-settled ...` |
+| `refund JOB ISIG` | `refunded JOB`; repeat: `already-refunded JOB` |
 | `balance ACCT` | `balance ACCT N` |
-| `show JOB` | `job JOB reserved\|settled\|refunded REQ PROV VER AMOUNT [RECEIPT PAYP PAYV BACK]` |
+| `show JOB` | `job JOB reserved\|settled\|refunded REQUESTER PROVIDER VERIFIER_ACCOUNT AMOUNT [RECEIPT PAYP PAYV BACK]` |
 | `audit` | `audit ok records R head H accounts A jobs J open O settled S refunded F prefunded P balances B escrow E` |
 
-JOB and RECEIPT are 64 lowercase hex (JOB is the MJB1 dag_id). Amounts are decimal u64 without
-leading zeros, nonzero except PAYP/PAYV/BACK. Names are 1..64 bytes of `[A-Za-z0-9._:-]`.
+JOB is the 64-lowercase-hex MJB1 dag_id. QUOTE_SHA256 hashes the exact published quote bytes;
+SIGNED_JOB_SHA256 hashes the exact signed MJB1 envelope bytes; RECEIPT_SHA256 hashes the exact
+signed MJR1 result bytes; AN0V_SHA256 hashes the exact signed AN0V attestation bytes, including
+signatures. All digests are lowercase hex. Amounts are nonzero except PAYP/PAYV/BACK. A duplicate
+reserve conflicts if its quote changes; a duplicate settle conflicts if any evidence digest or
+payout changes, even when both replacement signatures are valid.
 
 ## Refusals
 
-A refusal prints `refused C reason` on stderr, writes nothing and exits C.
+Refusals print `refused C reason` on stderr and exit C. On an intact journal, an unsuccessful
+admission writes nothing. Recovery is a separate internal operation and can run before dispatch.
 
 | C | reason | when |
 |---|---|---|
-| 2 | usage | bad arguments, field syntax or command |
-| 3 | journal-io | the journal cannot be opened, read, written or fsynced |
-| 4 | lock | flock on the journal failed |
-| 5 | journal-corrupt | a bad line before the last, an intact last line that does not link (SEQ/PREV), or a record the rules reject on replay |
-| 6 | conservation-violated | after replay: balances + open escrow != prefunds, open escrow != open JOB amounts, or a settled JOB paid out != its amount |
-| 7 | insufficient-funds | reserve beyond the requester's balance |
-| 8 | unknown-job | settle/refund/show of a JOB never reserved |
-| 9 | job-conflict | a second, different reservation for a JOB |
-| 10 | wrong-phase | refund of a settled JOB, settle of a refunded JOB |
-| 11 | settle-receipt-conflict | settle of a settled JOB with a different receipt or split |
-| 12 | escrow-rule | `PAYP + PAYV + BACK != AMOUNT` |
-| 13 | prefund-id-conflict | a PID reused with a different account or amount |
-| 14 | capacity | the in-memory index (65536 keys) is full |
-| 15 | overflow | a sum would exceed u64 |
+| 2 | usage | missing signatures, bad arity, noncanonical fields or unknown command |
+| 3 | journal-io | journal open/read/write/fsync failure |
+| 4 | lock | flock failed |
+| 5 | journal-corrupt | old genesis, config mismatch, invalid complete record/signature, bad interior line or linked-chain failure |
+| 6 | conservation-violated | replayed balances/open escrow/payout totals disagree |
+| 7 | insufficient-funds | reserve exceeds requester balance |
+| 8 | unknown-job | authenticated settle/refund/show for unknown JOB |
+| 9 | job-conflict | different reservation authorization for JOB |
+| 10 | wrong-phase | refund of settled JOB or settle of refunded JOB |
+| 11 | settle-receipt-conflict | different settlement authorization for settled JOB |
+| 12 | escrow-rule | payout split differs from escrow |
+| 13 | prefund-id-conflict | PID reused with different authorization |
+| 14 | capacity | in-memory key index full |
+| 15 | overflow | u64 total would overflow |
+| 16 | authorization | missing/invalid authority config, account policy mismatch or invalid issuer/verifier signature |
 
-## Journal
+## Journal version and recovery
 
-`DIR/journal`, one line per record: `SEQ PREV KIND FIELDS... HASH`, where HASH is the sha256
-(lowercase hex) of the line's bytes before ` HASH` and PREV is the previous line's HASH (64 zeros on
-line 1, `genesis tur-ledger-1`). Every command takes `flock(LOCK_EX)` on the journal for its whole
-run, replays and checks the chain and conservation, then appends with `pwrite` and `fsync`s before
-it prints. A last line that is unterminated or fails its own HASH is a torn write: it is truncated
-and a `recover N SHA` record (N bytes, their sha256) is appended, with a note on stderr.
+`DIR/journal` has `SEQ PREV KIND FIELDS... HASH` records. HASH is SHA-256 of the line before
+` HASH`; PREV is the previous HASH (64 zeros for genesis). Genesis is the exact authority config.
+Every mutation's record retains its signature(s). Every invocation locks the journal for the
+entire command and verifies every admission signature on replay. Complete, chain-consistent
+records with missing/invalid signatures are corruption, including the final record: they are
+never truncated as recoverable tails. Existing framing/torn-write recovery remains internal,
+unsigned and cannot mint, debit or pay credits: it truncates a damaged tail, fsyncs and appends
+`recover N SHA`.
+
+Version-1 journals are refused without modification, not automatically upgraded. There is no
+implicit migration: archive the old journal, explicitly reconcile its test credits outside this
+CLI, provision a **new unique ledger identity** and authorize fresh funding under the new policy.
+This does not confer signatures or economic qualification on historical unsigned receipts.
+Changing pins requires a new ledger identity and explicit reconciliation, not editing a running
+journal's config.
+
+## Tests and evidence limits
+
+The gate retains the arithmetic oracle, exactly-once, lock/fsync, recovery, corruption and
+conservation controls. It adds unsigned/wrong-key/mutated-record admission, exact policy/account
+pins, independent verifier, evidence digest/quote/job binding, complete unauthorized tail refusal,
+old-format refusal and a competing double-debit race. A deterministic strace injection kills the
+process at stdout-write entry, after journal fsync and before acknowledgement; retry must pay
+nothing twice. Separate mutants remove issuer/verifier/owner guards. `CRASH_N=200` also kills
+actual ledger processes and retries signed commands, auditing after every interruption.
+`MUTANT_CRASH_N=0` can omit redundant crash trials on mutants, not on the honest binary.
+
+`TUR_LEDGER_AUTH_ONLY=/path/to/binary` runs the unsigned-prefund regression against another binary,
+so the same assertion can be shown failing against the pre-fix source and passing after the fix.
+
+HOST_TESTED means local CLI behavior only. No Core ledger RPC exists in this checkout, so lost
+CLI output is not an interrupted-RPC qualification. Mutating a signed AN0V digest tests admission
+binding; it does not exercise an external signer's AN0V parser. No hardware, deployment, public
+participant or economic-authority qualification is claimed. Historical evidence remains under
+`evidence/aienet0-tur-ledger-20261027/`; the authentication addendum records the new runs separately.
