@@ -1,0 +1,119 @@
+note TUR-R0: pure, deterministic test-credit settlement fixture for a four-role network.
+note TEST ORACLE ONLY. No real wallet, no network, no signature checking or funded currency.
+note Requires seeded Omega omc on an AArch64 Linux host. Test status NOT_RUN until executed.
+note The final authority belongs to Sovereign Core #738, not this in-memory example.
+global bal ulong 4
+global esc ulong 1
+global phase uint 1
+global jid ulong 1
+text ok "TUR_R0_ORACLE_PASS\n"
+
+fn reserve id ulong qty ulong to bool
+if eq id 0
+ret false
+end
+if eq qty 0
+ret false
+end
+if ne get phase 0 0
+ret false
+end
+if gt qty get bal 0
+ret false
+end
+put bal 0 sub get bal 0 qty
+put esc 0 qty
+put jid 0 id
+put phase 0 1
+ret true
+end
+
+fn settle id ulong payp ulong payv ulong back ulong to bool
+if ne get phase 0 1
+ret false
+end
+if ne id get jid 0
+ret false
+end
+if gt payp get esc 0
+ret false
+end
+left = sub get esc 0 payp
+if gt payv left
+ret false
+end
+left = sub left payv
+if ne back left
+ret false
+end
+put bal 0 add get bal 0 back
+put bal 1 add get bal 1 payp
+put bal 2 add get bal 2 payv
+put esc 0 0
+put phase 0 2
+ret true
+end
+
+fn main to int
+put bal 0 100
+if reserve 7 101
+ret 1
+end
+if ne get bal 0 100
+ret 2
+end
+if not reserve 7 40
+ret 3
+end
+if ne get bal 0 60
+ret 4
+end
+if ne get esc 0 40
+ret 5
+end
+if reserve 8 10
+ret 6
+end
+if settle 8 27 3 10
+ret 7
+end
+if settle 7 27 4 10
+ret 8
+end
+if ne get bal 0 60
+ret 9
+end
+if not settle 7 27 3 10
+ret 10
+end
+if settle 7 27 3 10
+ret 11
+end
+if ne get phase 0 2
+ret 12
+end
+if ne get bal 0 70
+ret 13
+end
+if ne get bal 1 27
+ret 14
+end
+if ne get bal 2 3
+ret 15
+end
+if ne get bal 3 0
+ret 16
+end
+if ne get esc 0 0
+ret 17
+end
+total = add add get bal 0 get bal 1 add get bal 2 get bal 3
+if ne total 100
+ret 18
+end
+r = write 1 ok 0 len ok
+if ne r long len ok
+ret 19
+end
+ret 0
+end
