@@ -52,6 +52,7 @@ After sourcing the pinned environment, the host-only acceptance commands are:
 bash scripts/abi-qualify.sh --out /absolute/path/to/new-host-evidence-directory
 cargo test --locked --offline -p aien-inference-abi --test omega_backend_parity
 cargo test --locked --offline -p aien-serve-http --lib --test loopback --test kv_persist -- --test-threads=1
+cargo test --locked --offline -p aien-serve-http --test build_identity
 ```
 
 Do not add `--chip`, `--ignored`, or a real model directory to this host rehearsal.
@@ -60,6 +61,11 @@ ephemeral listener; it does not launch the resident 35B workload. Persistence bi
 sources, both archive digests, both targets and the clean engine commit in a length-framed,
 domain-separated `v2:` SHA-256 identity. The bounded identifier preserves the existing KV
 format limit; old single-archive identities cannot hit the new namespace.
+The build script watches every tracked checkout file and reads Git without optional
+index writes. The `build_identity` test uses real Cargo rebuilds: a no-op must be Fresh,
+source and outside-crate edits must invalidate the clean stamp, and a watcher-removed
+private mutant must reproduce the stale-clean identity. An always-rerunning script is
+not sufficient evidence for this contract.
 
 This rehearsal still uses the reviewed CUDApp #169 source. The separately verified #173
 repair is not a merged combined candidate, and user-owned #174 is pending. Keep the guide
