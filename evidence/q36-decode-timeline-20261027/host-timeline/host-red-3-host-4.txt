@@ -1,0 +1,5 @@
+negative control: dropped 3:host:4
+RED: record 3 (beat 9): host phases ["sched_join", "sample", "sched_feed", "step_enter", "graph_record", "graph_submit_wait", "graph_exit", "logits_read", "step_return", "sched_post"]
+RED: record 3 (beat 9): host 3 step_enter ends at 3820694, graph_record starts at 3820726
+decode timeline RED: 2 findings over 19 records, host-timeline.jsonl
+drop 3:host:4 exit 1

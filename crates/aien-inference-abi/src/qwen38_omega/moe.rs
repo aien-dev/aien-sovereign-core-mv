@@ -507,6 +507,7 @@ impl Qwen38Omega {
             rows: Vec::new(),
             row_src: Some(row_src),
             row_steps: 0,
+            row_stamps: false,
         })
     }
 }

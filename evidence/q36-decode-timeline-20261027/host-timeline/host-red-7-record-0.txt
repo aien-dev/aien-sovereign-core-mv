@@ -1,0 +1,14 @@
+negative control: dropped 7:record:0
+RED: record 7 (beat 14): seq 8 where 7 belongs (a record is missing or repeated)
+RED: record 8 (beat 15): seq 9 where 8 belongs (a record is missing or repeated)
+RED: record 9 (beat 16): seq 10 where 9 belongs (a record is missing or repeated)
+RED: record 10 (beat 17): seq 11 where 10 belongs (a record is missing or repeated)
+RED: record 11 (beat 18): seq 12 where 11 belongs (a record is missing or repeated)
+RED: record 12 (beat 19): seq 13 where 12 belongs (a record is missing or repeated)
+RED: record 13 (beat 20): seq 14 where 13 belongs (a record is missing or repeated)
+RED: record 14 (beat 21): seq 15 where 14 belongs (a record is missing or repeated)
+RED: record 15 (beat 22): seq 16 where 15 belongs (a record is missing or repeated)
+RED: record 16 (beat 23): seq 17 where 16 belongs (a record is missing or repeated)
+RED: record 17 (beat 24): seq 18 where 17 belongs (a record is missing or repeated)
+decode timeline RED: 11 findings over 18 records, host-timeline.jsonl
+drop 7:record:0 exit 1

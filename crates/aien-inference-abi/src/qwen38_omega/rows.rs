@@ -52,6 +52,30 @@ pub(super) struct Q36Row {
     attn: Option<Attn256Cache>,
     pos: usize,
     max_pos: usize,
+    /// [`timeline_now_ns`] marks of the last one-row token while row stamps are on: entry, before
+    /// the graph call, after it, return.
+    host: [u64; 4],
+}
+
+/// Row `r`'s last one-row token as the decode timeline reads it ([`Qwen38Omega::row_timeline`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RowTimeline {
+    /// Host marks ([`timeline_now_ns`]): `row_token` entry, before the graph call (after the
+    /// embedding row is widened), after the graph call, return (after any logits read).
+    pub host: [u64; 4],
+    /// `launches + 1` chip timestamps (ns, the GPU's PTIMER, its own clock): launch `i` ran from
+    /// `stamps[i]` to `stamps[i + 1]` (each stamp taken after the launch's WAIT_FOR_IDLE).
+    pub stamps: Vec<u64>,
+    /// One kind name per launch (`omega_gpu_q36_graph_kind_name`), in launch order.
+    pub kinds: Vec<String>,
+}
+
+/// The decode timeline's host clock: nanoseconds since the first call in this process (a
+/// monotonic `Instant`; the scheduler and `row_token` read the same one).
+pub fn timeline_now_ns() -> u64 {
+    static EPOCH: std::sync::LazyLock<std::time::Instant> =
+        std::sync::LazyLock::new(std::time::Instant::now);
+    EPOCH.elapsed().as_nanos() as u64
 }
 
 /// One row's share of a [`Qwen38Omega::step_rows`] call.
@@ -174,12 +198,16 @@ impl Qwen38Omega {
             let mut graph =
                 unsafe { Q36Graph::create(&cfg) }.map_err(gpu("row q36 graph create"))?;
             self.wire(&mut graph)?;
+            if self.row_stamps {
+                graph.set_stamps(true);
+            }
             self.rows.push(Q36Row {
                 graph,
                 gdn,
                 attn,
                 pos: 0,
                 max_pos,
+                host: [0; 4],
             });
         }
         // The strokes' graph (L312): MAX_HEADS head slots, pointed at each chunk's rows per step.
@@ -570,6 +598,8 @@ impl Qwen38Omega {
     /// [`Self::row_token`]; `exact_head` false keeps the plain head for this token (the merge
     /// train's `exact_head: false` arm; the words must not change).
     fn row_token_with_head(&mut self, f: &RowFeed, exact_head: bool) -> Result<RowOut, String> {
+        let marks = self.row_stamps;
+        let h0 = if marks { timeline_now_ns() } else { 0 };
         let (v, h) = (self.config.vocab, self.config.hidden);
         let t = f.token as usize;
         let x: Vec<f32> = self.embed[t * h..(t + 1) * h]
@@ -584,7 +614,9 @@ impl Qwen38Omega {
             ));
         }
         row.graph.set_exact_head_on(exact_head && !f.logits);
+        let h1 = if marks { timeline_now_ns() } else { 0 };
         let (token, stats) = row.graph.token(&x, row.pos).map_err(gpu("row q36 token"))?;
+        let h2 = if marks { timeline_now_ns() } else { 0 };
         row.pos += 1;
         let logits = if f.logits {
             let mut l = vec![0f32; v];
@@ -595,10 +627,45 @@ impl Qwen38Omega {
         } else {
             None
         };
+        if marks {
+            row.host = [h0, h1, h2, timeline_now_ns()];
+        }
         Ok(RowOut {
             token,
             logits,
             stats,
+        })
+    }
+}
+
+impl Qwen38Omega {
+    /// The decode timeline (`AIEN_Q36_DECODE_TIMELINE`): chip stamps around every launch of each
+    /// row's one-row graph (rows made later too) and four host marks per one-row token, read by
+    /// [`Self::row_timeline`]. Off by default. The stamps add a timestamp report per launch, so a
+    /// speed receipt never runs with them on.
+    pub fn set_row_stamps(&mut self, on: bool) {
+        self.row_stamps = on;
+        for row in &mut self.rows {
+            row.graph.set_stamps(on);
+        }
+    }
+
+    /// Row `r`'s last one-row token: its host marks, chip stamps and launch kinds. Refused when
+    /// row stamps are off. A stroke or a prefill does not refresh it, so read it right after a
+    /// step that fed this row alone (the door's timeline does; its checker goes red on stale marks).
+    pub fn row_timeline(&self, r: usize) -> Result<RowTimeline, String> {
+        if !self.row_stamps {
+            return Err("row_timeline: row stamps are off".into());
+        }
+        let row = self
+            .rows
+            .get(r)
+            .ok_or_else(|| format!("row_timeline: row {r} of {}", self.rows.len()))?;
+        let (stamps, kinds) = row.graph.stamps().map_err(gpu("row_timeline stamps"))?;
+        Ok(RowTimeline {
+            host: row.host,
+            stamps,
+            kinds: kinds.into_iter().map(q::kind_name).collect(),
         })
     }
 }
