@@ -48,3 +48,164 @@ Each mutant is the source with one guard removed by `sed`; the same suite must t
   power loss. Power-loss durability rests on `fsync` before the reply (strace order), not on a test.
 - Arithmetic values come from the #791 oracle (requester 70, provider 27, verifier 3, observer 0,
   escrow 0 of 100) and from differential runs (crash journal byte-identical to the control journal).
+
+## Authentication v2 addendum (2026-10-28, Core #793)
+
+The sections above and their three receipts describe unsigned v1. They are preserved byte for
+byte and do not qualify admission or authorization. This addendum fixes the findings in
+[the full #792 review](https://github.com/aien-dev/aien-sovereign-core-mv/pull/792#issuecomment-6466130214)
+forward from main `1604a72b248aba8b0e41e5379814372d8fd59304`.
+
+**HOST_TESTED**, same Linux ARM64 host, no GPU, production key, live model, network service,
+wallet or cryptocurrency. Source: `om/tur-ledger/tur-ledger.om`; native signature verification:
+`om/vendor/ec.om`, copied unchanged from omega-mv
+`6999fa9e6dae4847c155ef4eacaece74f491d3ca:om/tls/ec.om`, sha256
+`909f37c797e187bd0663bde9f57c75d6ce41eb2c9726a6b50d6fc714e424c060`.
+Seeded compiler sha256:
+`d6290c7663c2b4bafb59eb3fdf812476e977f4c144def71095c6248ef9b96b84`.
+OpenSSL **3.0.13 (30 Jan 2024)** only creates test signatures; it is not linked into, invoked by
+or needed to run the ledger. Disposable test private keys were generated in private tmpfs and
+removed by the gate. No signer or key-management implementation is shipped here.
+
+The journal genesis and trusted `authority` config pin the issuer, a distinct verifier, ledger
+identity, policy and exact requester/provider/verifier owner-account map. Every external
+mutation has a canonical-record issuer signature. Settle additionally requires the verifier to
+sign the **same complete authorization**, including reservation commitment, published quote,
+exact payout split and signed-job/result/AN0V digests. This follows the design review's decisive
+point: "The verifier must sign the complete settlement authorization, including reservation
+commitment and payout split, not just result digests." Distinct keys alone are not operational
+independence. Complete unauthorized records refuse replay rather than becoming recoverable tails.
+Version-1 journals refuse unchanged; reconciliation requires an explicitly provisioned new
+ledger identity, never silent migration.
+
+### New receipts
+
+`auth-v2-SHA256SUMS` covers only the new receipts and current source inputs. The original
+`SHA256SUMS`, `check.out`, `tur_r0_check.out` and `fsync-and-journal.out` are unchanged.
+
+| Receipt / command | Observed |
+|---|---|
+| `auth-v2-before.out`: `OMC=/tmp/ledger-auth-omega/seed/out/omc TUR_LEDGER_AUTH_ONLY=/tmp/ledger-auth-before bash om/tur-ledger/check.sh` | Exit 1: **FAIL auth.unsigned-prefund**, actual ledger exit 0, expected 2; journal changed. Before binary `6ea978c7f0ae080c6bb0d0254f9fa56b78da2e74d577c092a98cd50bd945be4a`, built from main's v1 source and original SHA unit using the same compiler. |
+| `auth-v2-after.out`: same command with `TUR_LEDGER_AUTH_ONLY=/tmp/ledger-auth-bin-final` | Exit 0: **PASS auth.unsigned-prefund**, ledger exit 2, unchanged journal. Exactly the same assertion. |
+| `auth-v2-check.out`: `OMC=/tmp/ledger-auth-omega/seed/out/omc CRASH_N=200 MUTANT_CRASH_N=0 TUR_LEDGER_OUT=/tmp/ledger-auth-bin bash om/tur-ledger/check.sh` | Exit 0: **SUITE PASS**, **10/10 mutants killed**, **TUR_LEDGER gate: PASS**. Mutant crash trials omitted explicitly; honest-binary crash trials executed. |
+
+The suite exercised unsigned prefund/reserve/settle/refund refusal; wrong issuer and verifier
+keys; altered amount, job, quote, result, signed-job and AN0V digest refusal; account spoofing;
+issuer-key substitution for verifier; validly re-signed changed evidence conflicting with an
+already-settled job; complete unsigned/wrong-key journal tails; v1 refusal and changed policy.
+Each rejection asserts the journal hash is unchanged. The concurrent double-debit control
+accepted exactly one reserve with only one unit funded. Honest settle paid provider 27 once;
+the same signed semantics replayed as `already-settled`.
+
+A deterministic strace SIGKILL at stdout-write entry occurred **after fsync, before acknowledgement**;
+the gate observed exit 137, successful fsync, an already-settled retry and provider balance 27.
+The additional random-delay kill run killed all 200 attempted processes before a new durable
+write (durable-before-kill 0). Each was audited and retried, final balances matched the control.
+Journal bytes did not match the independently signed control because ECDSA signatures differ.
+Do not read this run as 200 post-fsync kills: that boundary is the separate deterministic control.
+Injected torn tails test framing recovery, not hardware power loss.
+
+The full gate compiled source hash
+`960f4bb581e3c63cb193ef164736cf5394441ff580515be563b60cc42a53f4af`.
+Only its build-instruction and exit-code comments were corrected afterwards: final source
+`b188d4c8324eb1d99f9d5e0d08549c54358afca369171974433b456f59ae4ca6`.
+Recompilation and `cmp /tmp/ledger-auth-bin /tmp/ledger-auth-bin-final` exited 0; both binaries
+hash `d12d05cda56604410b8716602a7e3988a0e90901d28294f04f6ea7d8081f435c`.
+The unsigned-after receipt uses that final binary.
+
+The shared SHA unit changed only its private `hs` state name to `hstate` and its explanatory
+header, avoiding a name collision with the vendored EC parameter. Compiling `om/effects/world.om`
+with original versus renamed SHA produced byte-identical binaries:
+`08e1a63d722250d93dbec0574f902458262eb5e64b0b5e63b2f0eb70f9e3af0d`.
+Both executions on `abc`, authorization 2, intent 3, returned 0, state DONE and record digest
+`6281e53eed299bdb5467ccbfa7f87ae78c547a08660b9971df362c1680f048d1`.
+This is a consumer smoke/parity check, not a claim that its separately pinned full Rust suite ran.
+
+### Scope boundary
+
+There is no `scripts/aienet0/settle-run.sh` or Core ledger RPC in this Core revision.
+The external signer must verify the actual signed-job/MJR1/AN0V artifacts and quote/policy before
+issuing these typed authorizations. The ledger verifies canonical bytes and signatures, not
+those artifact parsers. Mutated-AN0V-digest refusal is **not** an external AN0V parser test;
+lost CLI acknowledgement is **not** interrupted-RPC qualification. The application contract is
+documented in `om/tur-ledger/README.md`; no compiler or shared guide language feature changed.
+No deployment, malicious-filesystem-write/rollback resistance or public economic authority is claimed.
+
+## Capacity-discharge addendum (2026-10-28, Core #794)
+
+An additional review finding was reproduced: the old shared append guard required
+four unused key slots even for settlement/refund, which allocate no keys. With a
+full production-size signed journal, both commands returned exit 14 and left
+existing escrow open. This affects the authenticated source at Core `6a0bfc0` too,
+not only the original unsigned implementation.
+
+Capacity admission now belongs to the two allocating operations. Prefund counts
+its new PID and a missing requester; reserve counts its new job and missing
+provider/verifier accounts. Both refuse before append if those slots cannot fit.
+Existing settlement/refund and authorized identical retries need no new slot.
+
+The native source exercised for this correction is
+`f47d8c6374f5e8a49068cc5372e97582e3eb81e87c5e53a661ea62ebb4279713`;
+the production binary is
+`afd2fbe7b68a9f5fe44ff67b28830ab2499a482b1a922b237bc1877716a3ef93`.
+`capacity-v2-before.out` shows the small-table regression failing before the fix.
+`capacity-v2-check.out` records the complete fixed gate: SUITE PASS, twelve
+mutants killed, clean capacity refusals, settlement and refund at capacity,
+last-slot admission, unchanged duplicate retries, and the existing 200 kill/retry
+trials. As in the earlier run, all random-delay kills preceded a new durable
+write; the deterministic post-fsync/pre-ack kill remains a separate control.
+
+`capacity-v2-full.*` preserves a replayable production-size fixture: 65,536
+occupied key slots, valid issuer signatures on all prefunds/reservations and two
+open reservations. The old binary returned 14 for both discharge commands;
+the fixed binary refused new prefund/reserve with unchanged journal and then
+successfully settled one job and refunded the other. These are synthetic
+capacity-test authorizations, not receipts for real work or economic credits.
+The compressed public journal and signed command vectors contain no private keys.
+`capacity-v2-notes.txt` records provisioning, exact replay commands, hashes,
+outputs and evidence limits; `capacity-v2-SHA256SUMS` seals these new receipts.
+Original receipts and earlier authentication receipts remain unchanged.
+
+The companion actual-artifact caller migration is
+[protocols #67](https://github.com/aien-dev/aien-protocols-mv/pull/67), stacked
+on #65. It exercises genuine MJR1 forgery and AN0V countersignature refusal before
+the test signers authorize a payout. It does not add a Core RPC or independent
+operator qualification.
+
+## Independent audit corrections (2026-10-28, Core #794)
+
+The later audit found additional ledger defects in the authenticated implementation.
+`audit-v2-before-final.out` exercises the frozen pre-audit source and exits 1;
+`audit-v2-after.out` exercises the corrected source and exits 0. The frozen source
+is retained as `audit-v2-before.om.at-run` for reproducible negative controls.
+
+| Finding | Before | After |
+|---|---|---|
+| A1, failed fsync then unsynced duplicate | Failed append left a record; retry and all four duplicate kinds could acknowledge without journal fsync | Repeated injected failures return 3 without acknowledgement and restore the original file; every duplicate must sync the actual journal fd and directory before success |
+| A2, full key table | Existing settlement and refund returned 14 | New allocations refuse 14 unchanged; existing discharge succeeds even with all 65,536 production slots occupied |
+| A3, missing authorities | Original unsigned prefund accepted; settlement lacked issuer/verifier authorization | Native canonical-record issuer/verifier signatures, pinned config/genesis and explicit v1 refusal; the authorization controls still pass |
+| A10, complete corrupt final record | Audit could discard an acknowledged settlement as torn and permit refund | Newline-terminated corrupt records refuse 5 unchanged, including a validly signed body with only a bad final hash; only unterminated tails recover |
+| A11, fused argv fields | Whitespace inside an argument was silently re-split into accepted fields | Each actual argument is checked before joining; all three fused-field controls refuse 2 unchanged |
+| A12, terminal reserve retry | Returned `already-reserved` after settlement or refund | Open retry still succeeds; terminal retries refuse 10 unchanged |
+
+Final native source:
+`8e16f25dd7be21d9dea94252b4ad0ab3b30ac107e4445ed81224d29982e1aadd`.
+Final native binary:
+`0338edb18a1fba9ecd7fa8ae294045184bfeb2e72530340017ce719acc682768`.
+`audit-v2-check.out` records the complete final gate: SUITE PASS, seventeen
+guard mutants killed and TUR_LEDGER gate: PASS. It retains 200 random-delay
+kill/audit/retry trials (all before a new durable write) and the separate
+deterministic post-fsync/pre-stdout kill; these are not RPC or power-loss tests.
+
+`audit-v2-full-capacity.results.tsv` replays the preserved public production-size
+fixture using that final binary: prefund/reserve refuse 14 unchanged, settle and
+refund return 0, and `audit-v2-full-capacity.out` reports open 0, settled 1,
+refunded 1, balances equal prefunded and escrow 0. No fixture signatures were
+reissued and no private keys are included.
+
+`audit-v2-notes.txt` records commands, individual controls, mutants, pins and
+limitations; `audit-v2-SHA256SUMS` seals these later receipts separately.
+`audit-v2-omega-tools.txt` records mounted Omega lookups and a sandboxed guard
+negative control, explicitly distinguishing that older server pin from the
+newer compiler used for the actual ledger gate. The existing application README
+was updated; no shared language/compiler/harness contract changed.

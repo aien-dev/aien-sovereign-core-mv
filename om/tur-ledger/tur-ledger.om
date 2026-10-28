@@ -4,25 +4,26 @@ note at a time, settle exactly once per JOB. Arithmetic is tests/turing-network/
 note applied per JOB: reserve moves AMOUNT from REQ into that JOB's escrow; settle pays PAYP to
 note PROV, PAYV to VER and BACK to REQ, refused unless PAYP <= escrow, PAYV <= escrow - PAYP and
 note BACK = escrow - PAYP - PAYV; a JOB is reserved once and settled or refunded once.
-note Build: cat om/vendor/sha256.om om/tur-ledger/tur-ledger.om | omc > tur-ledger
-note Usage: tur-ledger --journal DIR prefund PID ACCT AMOUNT | reserve JOB REQ PROV VER AMOUNT |
-note   settle JOB RECEIPT_SHA256 PAYP PAYV BACK | refund JOB | balance ACCT | show JOB | audit
-note Journal DIR/journal, one record per line: SEQ PREV KIND FIELDS... HASH. SEQ counts from 1.
-note PREV is the HASH of the line before (64 zeros for line 1). HASH is the sha256, lowercase hex,
-note of the line's bytes before " HASH". Line 1 is "genesis tur-ledger-1".
+note Build: check.sh composes om2, vendor/sha256.om, vendor/ec.om and this program for pinned omc.
+note All external mutations require an issuer DER P-256/SHA-256 signature (hex final argument).
+note Settle additionally requires the independent verifier signature; reserve adds QUOTE_SHA256;
+note settle adds SIGNED_JOB_SHA256 AN0V_SHA256 before its two signatures. See README for canonical bytes.
+note Journal DIR/journal: SEQ PREV KIND FIELDS... HASH. Genesis is the exact DIR/authority config.
+note Version 2 refuses unsigned/version-1 journals. The hash chain is not an authorization mechanism.
 note Every command opens DIR/journal, takes flock LOCK_EX on it for the whole command and replays
-note it: SEQ, PREV and HASH are checked on every line, then the record is applied. A LAST line that
-note is unterminated, unparseable or whose HASH does not match its own bytes is a torn tail: it is
-note truncated, fsynced, and a "recover N SHA" record (N torn bytes, SHA their sha256) is appended.
-note A complete self-consistent line whose SEQ or PREV does not link (a deleted or reordered
-note record), or any bad line before the last, is corruption and the ledger refuses (exit 5).
+note it: SEQ, PREV and HASH are checked on every line, then the record is applied. Only an
+note unterminated final line is a torn tail: it is truncated, fsynced, and a "recover N SHA"
+note record (N torn bytes, SHA their sha256) is appended. Any malformed newline-terminated
+note record is corruption (exit 5), including a damaged final acknowledged settlement.
+note Failed append syncs are rolled back best-effort; every duplicate ack forces a fresh sync.
 note After replay the ledger checks conservation (exit 6): the sum
 note of balances plus open escrow equals the sum of prefunds, open escrow equals the open JOBs'
 note amounts, and every settled JOB paid out exactly its amount. A new record is written with
 note pwrite and fsynced before the command prints its result.
 note Exit: 0 ok (also dup / already-*), 2 usage, 3 journal io, 4 lock, 5 journal corrupt,
 note 6 conservation violated, 7 insufficient funds, 8 unknown job, 9 job conflict, 10 wrong phase,
-note 11 settle receipt conflict, 12 escrow rule, 13 prefund id conflict, 14 capacity, 15 overflow.
+note 11 settle receipt conflict, 12 escrow rule, 13 prefund id conflict, 14 capacity, 15 overflow,
+note 16 missing config or unauthorized signer/policy. Missing signature arguments are usage (2).
 note Accounts, PIDs and JOBs: KCAP keys in all. A name is 1..64 bytes of [A-Za-z0-9._:-]; JOB and
 note RECEIPT_SHA256 are 64 lowercase hex bytes; amounts are decimal u64 without leading zeros.
 const KCAP ulong 65536
@@ -45,7 +46,6 @@ const SFD ulong 13
 const SSLOT ulong 14
 const SRF ulong 15
 const SLONG ulong 16
-const STORN ulong 17
 const SWB ulong 18
 global st ulong 32
 global ga uchar 8192
@@ -73,8 +73,221 @@ global d5 ulong 65536
 global d6 ulong 65536
 global d7 ulong 65536
 global rc uchar 4194304
+note Authority config is provisioned externally; no private keys or automatic trust establishment.
+global cfg uchar 1024
+global cfgn ulong 1
+global cfo ulong 12
+global cfl ulong 12
+global ah uchar 64
+global pa uchar 4194304
+global ja uchar 4194304
+global sa uchar 4194304
+text apath "/authority"
+text auerr "refused 16 authorization\n"
+
+fn authdie to void
+e = write 2 auerr 0 len auerr
+exit 16
+end
+
+fn hexf i ulong n ulong to bool
+if ne get fl i n
+ret false
+end
+for j ulong n
+c = get lb add get fo i j
+if not or and ge c 48 le c 57 and ge c 97 le c 102
+ret false
+end
+end
+ret true
+end
+
+fn cfeq f ulong b ulong to bool
+if ne get cfl f get fl b
+ret false
+end
+for i ulong get cfl f
+if ne get cfg add get cfo f i get lb add get fo b i
+ret false
+end
+end
+ret true
+end
+
+note acfg reads one canonical genesis body, no LF. Fixed policy names bind account and node owners.
+fn acfg to void
+n = get gl 2
+if or eq n 0 gt n 4000
+die 2
+end
+for i ulong n
+put pb i get ga add get gs 2 i
+end
+for i ulong len apath
+put pb add n i get apath i
+end
+fd = fopen pb 0 add n len apath 524288 0
+if lt fd 0
+authdie
+end
+k = read int fd lb 0 len lb
+if or le k 0 ge k long len lb
+authdie
+end
+z = read int fd pb 0 1
+cl = fclose int fd
+if or ne z 0 ne cl 0
+authdie
+end
+if not split ulong k
+authdie
+end
+if ne get st SNF 12
+authdie
+end
+if not and fis 0 22 fis 1 24
+authdie
+end
+if not and fhex 2 and hexf 3 130 and hexf 4 130 fhex 5
+authdie
+end
+if not and fname 6 and fname 7 fname 8
+authdie
+end
+if not and fhex 9 and fhex 10 fhex 11
+authdie
+end
+put cfgn 0 ulong k
+for i ulong ulong k
+put cfg i get lb i
+end
+for i ulong 12
+put cfo i get fo i
+put cfl i get fl i
+end
+if cfeq 3 4
+authdie
+end
+if or cfeq 6 7 or cfeq 6 8 cfeq 7 8
+authdie
+end
+put st SLN 0
+end
+
+note ahash: SHA256(config || LF || canonical unsigned body || LF [|| reserve-auth-hash || LF]).
+note Signatures and journal framing are excluded; operation identity is the semantic hash.
+fn ahash b ulong sig ulong job bool to void
+hreset
+for i ulong get cfgn 0
+x = hpush get cfg i
+end
+x = hpush 10
+o = get fo b
+for i ulong sub sub get fo sig 1 o
+x = hpush get lb add o i
+end
+x = hpush 10
+if job
+j = kfind 1 add b 1
+if ne j 0
+for i ulong 64
+x = hpush get ja add mul sub j 1 KW i
+end
+x = hpush 10
+end
+end
+y = hfinal
+for i ulong 64
+put ah i get hd i
+end
+end
+
+fn authsig f ulong key ulong to bool
+pub = new uchar 65 0
+sg = new uchar 104 0
+n = get fl f
+if or lt n 16 gt n 144
+ret false
+end
+if ne rem n 2 0
+ret false
+end
+if not hexf f n
+ret false
+end
+for i ulong 65
+o = add get cfo key mul i 2
+v = or shl hnibble get cfg o 4 hnibble get cfg add o 1
+put pub i uchar v
+end
+for i ulong 32
+o = mul i 2
+put sg i uchar or shl hnibble get ah o 4 hnibble get ah add o 1
+end
+for i ulong div n 2
+o = add get fo f mul i 2
+v = shl hnibble get lb o 4
+v = or v hnibble get lb add o 1
+put sg add 32 i uchar v
+end
+sz = add 32 div n 2
+ret eq ecdsa_verify 256 pub part sg 0 sz 32 0
+end
+
+fn authrec b ulong fields ulong job bool dual bool to bool
+need = add fields 1
+if dual
+need = add need 1
+end
+if ne get st SRF need
+ret false
+end
+ahash b add b fields job
+if not authsig add b fields 3
+ret false
+end
+if dual
+if not authsig add add b fields 1 4
+ret false
+end
+end
+ret true
+end
+
+fn aeqhash mode ulong k ulong to bool
+for i ulong 64
+o = add mul k KW i
+v = get pa o
+if eq mode 1
+v = get ja o
+end
+if eq mode 2
+v = get sa o
+end
+if ne v get ah i
+ret false
+end
+end
+ret true
+end
+
+fn asave mode ulong k ulong to void
+for i ulong 64
+o = add mul k KW i
+if eq mode 0
+put pa o get ah i
+end
+if eq mode 1
+put ja o get ah i
+end
+if eq mode 2
+put sa o get ah i
+end
+end
+end
 note tw: words, separated by ~ (byte 126). Word c - 1 is the reason for exit code c (2..15).
-text tw "refused ~usage~journal-io~lock~journal-corrupt~conservation-violated~insufficient-funds~unknown-job~job-conflict~wrong-phase~settle-receipt-conflict~escrow-rule~prefund-id-conflict~capacity~overflow~prefund~reserve~settle~refund~balance~show~audit~genesis~recover~tur-ledger-1~prefunded~dup~reserved~already-reserved~settled~already-settled~refunded~already-refunded~job ~audit ok records ~ head ~ accounts ~ jobs ~ open ~ settled ~ refunded ~ prefunded ~ balances ~ escrow ~recovered torn-tail ~ bytes sha256 ~--journal~/journal~usage: tur-ledger --journal DIR prefund PID ACCT AMOUNT | reserve JOB REQ PROV VER AMOUNT | settle JOB RECEIPT_SHA256 PAYP PAYV BACK | refund JOB | balance ACCT | show JOB | audit~balance ~"
+text tw "refused ~usage~journal-io~lock~journal-corrupt~conservation-violated~insufficient-funds~unknown-job~job-conflict~wrong-phase~settle-receipt-conflict~escrow-rule~prefund-id-conflict~capacity~overflow~prefund~reserve~settle~refund~balance~show~audit~genesis~recover~tur-ledger-2~prefunded~dup~reserved~already-reserved~settled~already-settled~refunded~already-refunded~job ~audit ok records ~ head ~ accounts ~ jobs ~ open ~ settled ~ refunded ~ prefunded ~ balances ~ escrow ~recovered torn-tail ~ bytes sha256 ~--journal~/journal~usage: tur-ledger --journal DIR COMMAND (see om/tur-ledger/README.md for signed v2 commands)~balance ~"
 text hx "0123456789abcdef"
 
 note fst: start of word k in tw; its length goes to st SFLEN.
@@ -217,7 +430,11 @@ end
 fn lbarg i ulong to void
 s = get gs i
 for j ulong get gl i
-lbput get ga add s j
+c = get ga add s j
+if le c 32
+die 2
+end
+lbput c
 end
 end
 
@@ -424,7 +641,7 @@ end
 note Record checks at field base b (the KIND). live is a command, not replay. Result: 0 apply,
 note 1 identical repeat (live only), else a refusal code. Replay refuses any nonzero result.
 fn vpre b ulong live bool to int
-if ne get st SRF 4
+if ne get st SRF 5
 ret 2
 end
 if not and fname add b 1 fname add b 2
@@ -435,10 +652,13 @@ a = fnum add b 3
 if or ne get st SBAD 0 eq a 0
 ret 2
 end
+if not and cfeq 6 add b 2 authrec b 4 false false
+ret 16
+end
 p = kfind 2 add b 1
 if ne p 0
 k = sub p 1
-if and eq get d1 k a keq get d0 k 0 add b 2
+if and aeqhash 0 k and eq get d1 k a keq get d0 k 0 add b 2
 ret 1
 end
 ret 13
@@ -453,6 +673,14 @@ x = cadd bal a
 y = cadd get st SPRE a
 if or ne get st SOVF 0 lt y x
 ret 15
+end
+note New prefund id plus requester only if the account is not present.
+needed = ulong 1
+if eq ac 0
+needed = ulong 2
+end
+if gt add get st SKEYS needed KCAP
+ret 14
 end
 ret 0
 end
@@ -469,6 +697,7 @@ k = sub p 1
 c = sub ac 1
 put d0 k c
 put d1 k a
+asave 0 k
 cred c a
 put st SPRE cadd get st SPRE a
 ret 0
@@ -491,7 +720,7 @@ ret true
 end
 
 fn vres b ulong live bool to int
-if ne get st SRF 6
+if ne get st SRF 8
 ret 2
 end
 if not fhex add b 1
@@ -505,9 +734,18 @@ a = fnum add b 5
 if or ne get st SBAD 0 eq a 0
 ret 2
 end
+if not and cfeq 6 add b 2 and cfeq 7 add b 3 cfeq 8 add b 4
+ret 16
+end
+if not and fhex add b 6 authrec b 7 false false
+ret 16
+end
 j = kfind 1 add b 1
 if ne j 0
-if and live jsame sub j 1 b a
+if ne get d4 sub j 1 1
+ret 10
+end
+if and and live aeqhash 1 sub j 1 jsame sub j 1 b a
 ret 1
 end
 ret 9
@@ -518,6 +756,19 @@ ret 7
 end
 if lt get d0 sub r 1 a
 ret 7
+end
+note Reserve allocates its job and any missing distinct pinned role accounts.
+needed = ulong 1
+p = kfind 0 add b 3
+v = kfind 0 add b 4
+if eq p 0
+needed = add needed 1
+end
+if eq v 0
+needed = add needed 1
+end
+if gt add get st SKEYS needed KCAP
+ret 14
 end
 ret 0
 end
@@ -535,6 +786,7 @@ a = fnum add b 5
 k = sub j 1
 q = sub r 1
 put d0 k q
+asave 1 k
 put d1 k sub p 1
 put d2 k sub v 1
 put d3 k a
@@ -568,7 +820,7 @@ end
 
 note sdup: a settle of an already settled JOB: an identical repeat is 1, anything else 11.
 fn sdup k ulong b ulong live bool to int
-if and live ssame k b
+if and and live aeqhash 2 k ssame k b
 ret 1
 end
 ret 11
@@ -591,7 +843,7 @@ ret 0
 end
 
 fn vset b ulong live bool to int
-if ne get st SRF 6
+if ne get st SRF 10
 ret 2
 end
 if not and fhex add b 1 fhex add b 2
@@ -603,6 +855,12 @@ pv = fnum add b 4
 bk = fnum add b 5
 if ne get st SBAD 0
 ret 2
+end
+if not and fhex add b 6 fhex add b 7
+ret 2
+end
+if not authrec b 8 true true
+ret 16
 end
 j = kfind 1 add b 1
 if eq j 0
@@ -630,6 +888,7 @@ pp = fnum add b 3
 pv = fnum add b 4
 bk = fnum add b 5
 put d4 k 2
+asave 2 k
 put d5 k pp
 put d6 k pv
 put d7 k bk
@@ -646,11 +905,14 @@ ret 0
 end
 
 fn vref b ulong live bool to int
-if ne get st SRF 2
+if ne get st SRF 3
 ret 2
 end
 if not fhex add b 1
 ret 2
+end
+if not authrec b 2 true false
+ret 16
 end
 j = kfind 1 add b 1
 if eq j 0
@@ -679,10 +941,17 @@ note rapply: check and apply the record at field 2 of a replayed line; 0 or a re
 fn rapply to int
 b = ulong 2
 if eq get st SSEQ 0
-if and fis b 22 and eq get st SRF 2 fis 3 24
-ret 0
-end
+o = get fo b
+n = sub sub get fo sub get st SNF 1 1 o
+if ne n get cfgn 0
 ret 5
+end
+for i ulong n
+if ne get cfg i get lb add o i
+ret 5
+end
+end
+ret 0
 end
 if fis b 15
 if ne vpre b false 0
@@ -794,10 +1063,6 @@ if eq get st SLONG 0
 c = rline get st SLN
 end
 if ne c 0
-if and eq c 1 eq e get st SFSZ
-put st STORN 1
-ret 0
-end
 ret 5
 end
 put st SOVF 0
@@ -894,6 +1159,14 @@ put wb n c
 put st SWB add n 1
 end
 
+note rollback: best-effort restore the last good length after a failed append sync; never ack it.
+fn rollback fd int off ulong to void
+if ne ftrunc fd long off 0
+ret
+end
+x = fsync fd
+end
+
 note wrec: append the record whose body is lb[0 .. st SLN) and fsync it. 0, or 3.
 fn wrec to int
 put st SWB 0
@@ -940,6 +1213,7 @@ end
 end
 sy = fsync fd
 if ne sy 0
+rollback fd off
 ret 3
 end
 for i ulong 64
@@ -1005,7 +1279,20 @@ note reply: word k, then the command's fields after the KIND, on stdout.
 fn reply k ulong to void
 put st SOB 0
 ofr k
-for i ulong get st SNF
+n = get st SNF
+if fis 0 15
+n = sub n 1
+end
+if fis 0 16
+n = sub n 2
+end
+if fis 0 17
+n = sub n 4
+end
+if fis 0 18
+n = sub n 1
+end
+for i ulong n
 if gt i 0
 oput 32
 ofld i
@@ -1019,18 +1306,23 @@ note wcmd: finish a write command whose check gave r: print the repeat word d, r
 note write the record, fsync it, and print the word w.
 fn wcmd r int w ulong d ulong to void
 if eq r 1
+if ne fsync int get st SFD 0
+die 3
+end
+dsync
 reply d
 ret
 end
 if ne r 0
-die r
+if eq r 16
+authdie
 end
-if gt add get st SKEYS 4 KCAP
-die 14
+die r
 end
 if ne wrec 0
 die 3
 end
+dsync
 reply w
 end
 
@@ -1226,9 +1518,9 @@ end
 end
 if eq get st SSEQ 0
 put st SLN 0
-lbfr 22
-lbput 32
-lbfr 24
+for i ulong get cfgn 0
+lbput get cfg i
+end
 if ne wrec 0
 die 3
 end
@@ -1260,7 +1552,7 @@ end
 
 fn main to int
 c = argcnt
-if or lt c 4 gt c 9
+if or lt c 4 gt c 13
 put st SOB 0
 ofr 48
 oput 10
@@ -1280,6 +1572,7 @@ end
 if not aeq 1 46
 die 2
 end
+acfg
 for i ulong 64
 put ph i 48
 end

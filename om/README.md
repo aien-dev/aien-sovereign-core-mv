@@ -8,8 +8,9 @@ aien-architecture-mv#300).
 | Path | What it is | Status |
 |---|---|---|
 | `effects/world.om` | The restart world check of the effect ledger: reads the target file, hashes it, decides DONE / NOT_DONE / UNRESOLVED like `effects::state_from`, and writes the reconcile record text and its sha256 like `effects::reconcile_text`. | Byte-identical to the Rust on 24 fixtures (`effects/run.sh`). Not wired into the daemon. |
-| `tur-ledger/tur-ledger.om` | Aienet-0 TUR escrow ledger CLI (`tur-ledger --journal DIR prefund\|reserve\|settle\|refund\|balance\|show\|audit`): hash-chained append-only journal, flock for the whole command, fsync before the reply, torn-tail recovery, exactly-once settle, the escrow rules of `tests/turing-network/tur_r0_oracle.om` per JOB. See `tur-ledger/README.md`. | HOST_TESTED by `tur-ledger/check.sh` (oracle scenario, concurrency, kill -9, torn tail, corruption, 7 mutants). New component, no Rust counterpart. |
+| `tur-ledger/tur-ledger.om` | Aienet-0 test-credit ledger CLI: v2 genesis pins issuer, independent verifier and account/node policy. Canonical mutations require issuer signatures; settlement also requires verifier authorization over signed-job, result and attestation digests and the reserved quote. Single-writer hash chain, fsync, recovery, integer conservation and exactly-once settle remain. See `tur-ledger/README.md`. | Host admission/durability tests and guard mutants in `tur-ledger/check.sh`; no wallet, Core RPC or public economic qualification. Historical unsigned v1 receipts remain historical. |
 | `vendor/sha256.om` | Incremental SHA-256 in Omega, vendored from benchmarks-mv. | Exercised through `world.om` and `tur-ledger.om`. |
+| `vendor/ec.om` | Native Omega ECDSA P-256/P-384 verification, byte-identical to omega-mv `6999fa9e6dae4847c155ef4eacaece74f491d3ca` `om/tls/ec.om`. | P-256/SHA-256 strict DER verification used by `tur-ledger.om`; OpenSSL is a test-only signing oracle, not a runtime dependency. |
 
 Run: `OMEGA_OMC=<path to seed omc> bash om/effects/run.sh` (needs the offline cargo cache for the Rust
 reference, `crates/aien-runtime/examples/om_world_reference.rs`).
