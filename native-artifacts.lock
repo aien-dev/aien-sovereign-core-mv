@@ -1,9 +1,10 @@
-# Recorded digests of the omega archives sovereign-core links (aien-abi-conformance).
-# One line per archive: <archive> <omega-sha> <target> <sha256> <cc --version first line>
-# A build from the pinned omega checkout for a listed target and compiler must produce exactly
-# this digest, or build.rs fails. A combination not listed builds with a warning and its
-# native_identity() reports digest "unrecorded", which does not qualify.
-# Update only from a qualification run (scripts/abi-qualify.sh prints the lines to add).
+# Recorded digests of native archives sovereign-core links (aien-abi-conformance).
+# One line per archive: <archive> <source-sha> <target> <sha256> <cc --version first line>
+# Source is the pinned Omega commit for its companion/composition archives, or the
+# frozen CUDApp commit for libcudapp.a. A listed combination must match exactly.
+# GPU builds require locked records for BOTH archives. Composition retains the
+# existing unrecorded-build warning; such an identity does not qualify.
+# Add records only from actual fresh pinned artifact builds, never estimated digests.
 librx_compose.a 41f8813a25357256da9b078fe6533a0be1487b6d aarch64-unknown-linux-gnu a701a0db5e396acc1a0898d19acefcaf199556cf7f81b0c57a6b7c8402a02cc4 cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
 libomega_gpu.a 41f8813a25357256da9b078fe6533a0be1487b6d aarch64-unknown-linux-gnu a687ffa0fe94916ac127b1a704f5df5c078cfba19f6f0132d83999cf2f7af059 cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
 librx_compose.a aa1c4af2afa9f36d2304b4917499bd7500b4778c aarch64-unknown-linux-gnu a701a0db5e396acc1a0898d19acefcaf199556cf7f81b0c57a6b7c8402a02cc4 cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
