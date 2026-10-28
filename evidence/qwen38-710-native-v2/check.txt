@@ -1,0 +1,31 @@
+A expected=0 actual=0
+B expected=4 actual=4
+C expected=5 actual=5
+D expected=3 actual=3
+E expected=3 actual=3
+F expected=4 actual=4
+G expected=5 actual=5
+H expected=5 actual=5
+I expected=3 actual=3
+J expected=3 actual=3
+K expected=3 actual=3
+L expected=3 actual=3
+M expected=3 actual=3
+N expected=3 actual=3
+O expected=3 actual=3
+P expected=3 actual=3
+Q expected=3 actual=3
+R expected=2 actual=2
+S expected=2 actual=2
+T expected=3 actual=3
+U expected=3 actual=3
+V expected=3 actual=3
+W expected=0 actual=0
+X expected=3 actual=3
+Y expected=0 actual=0
+Exact A/W/Y summaries PASS
+Five malformed inputs PASS
+no-sort mutant caught
+wrong-p95 mutant caught
+Old checker accepts zero-service X; new checker refuses X PASS
+Deterministic rebuild PASS

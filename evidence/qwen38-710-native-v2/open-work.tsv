@@ -1,0 +1,346 @@
+repository	number	kind	updated_at	url	title
+aien-sovereign-core-mv	714	PR	2026-10-23T14:02:47Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/714	Qwen3.8 baseline: seeded .om receipt checks and frozen quality thresholds
+aien-sovereign-core-mv	713	issue	2026-10-23T14:04:05Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/713	Qwen3.8-27B: qualify compact speculative state and complete-prefix reuse in .om
+aien-sovereign-core-mv	712	issue	2026-10-23T14:04:03Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/712	Qwen3.8-27B: integrate adaptive MTP into native serving and qualify sampling/state correctness
+aien-sovereign-core-mv	711	issue	2026-10-23T14:04:02Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/711	Qwen3.8-27B: implement packed W4 native execution with quality and traffic gates
+aien-sovereign-core-mv	710	issue	2026-10-23T14:04:01Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/710	Qwen3.8-27B: establish an uncontended full-model Spark baseline and acceptance suite
+aien-sovereign-core-mv	709	issue	2026-10-23T11:34:07Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/709	[OMEGA-UNIVERSAL P1] Preserve dynamic runtime behavior through explicit compatibility adapters
+aien-sovereign-core-mv	708	issue	2026-10-23T10:53:41Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/708	[CRYPTO-REUSE] Add deterministic nonce-source and recovery tests for sealed KV files
+aien-sovereign-core-mv	707	issue	2026-10-23T10:10:30Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/707	Security: qualify and integrate existing native IMAP fix for lexical-core alert1
+aien-sovereign-core-mv	706	issue	2026-10-22T21:44:54Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/706	[OMEGA-UNIVERSAL P1] Typed multi-language component boundary over Omega receipts (WIT/FFI pilot)
+aien-sovereign-core-mv	705	issue	2026-10-22T20:10:04Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/705	L522: durable local-first Renda queue with bounded sync
+aien-sovereign-core-mv	704	issue	2026-10-22T18:46:44Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/704	docs: Teach the hosted inference engine and reproduce one bounded generation
+aien-sovereign-core-mv	700	issue	2026-10-20T20:18:22Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/700	[OMEGA-TRACE P1] Add read-only local correlation bridge from existing aien-trace to Omega trace archive
+aien-sovereign-core-mv	699	PR	2026-10-20T20:34:00Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/699	Speed-limit read test stops failing on a busy machine: it checks the median of short batches
+aien-sovereign-core-mv	698	PR	2026-10-20T06:39:48Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/698	Crumbs become advisory notes: generated crumb data no longer blocks merges (RFC-0003 Am2)
+aien-sovereign-core-mv	695	PR	2026-10-20T14:54:50Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/695	Chip gates build their program before taking the GPU lock (manifest prepare: step)
+aien-sovereign-core-mv	694	PR	2026-10-20T14:25:21Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/694	test(kv-store): corrupt-payload test flips its byte (1-in-256 flake on random-nonce ciphertext)
+aien-sovereign-core-mv	693	PR	2026-10-20T03:08:03Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/693	aien-test: a gb10 gate checks free memory before it starts (short = NOT_RUN gpu_mem)
+aien-sovereign-core-mv	691	PR	2026-10-20T08:28:12Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/691	local-ci: one lock for every wt.sh mirror change (parallel syncs dropped ../aienos, sc#688 SC-LINKED-COMPOSE)
+aien-sovereign-core-mv	690	PR	2026-10-19T22:35:22Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/690	fix(aien-test): one judge per head; pollers take only their own repos triggers (L083)
+aien-sovereign-core-mv	688	PR	2026-10-19T22:35:17Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/688	fix(aien-cli): browser mirror answers screenshots on aarch64 and reaps every Chrome helper (#661)
+aien-sovereign-core-mv	682	PR	2026-10-19T23:06:35Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/682	SC-MIRI and SC-INQUISITOR run on the Spark with no operator step (#600, #605)
+aien-sovereign-core-mv	679	issue	2026-10-23T14:03:59Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/679	Qwen3.8-27B on Spark: .om packed W4, adaptive MTP and verified full-model speed
+aien-sovereign-core-mv	678	issue	2026-10-19T01:31:55Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/678	FORTRAN idea 6, the printed storage map: every run accounts for every resident byte; fix need_bytes
+aien-sovereign-core-mv	677	issue	2026-10-19T01:31:53Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/677	FORTRAN idea 5, READ DRUM: dense-model NVMe staging and phase subdivision past 128 GiB
+aien-sovereign-core-mv	676	issue	2026-10-19T01:31:52Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/676	FORTRAN idea 4, families of programs: pinned resident layout shared across every tool reading a checkpoint
+aien-sovereign-core-mv	674	PR	2026-10-19T00:10:44Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/674	crumb: migrate to generated data on demand (RFC-0003 amendment 1, example migration)
+aien-sovereign-core-mv	672	PR	2026-10-18T21:37:28Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/672	A crate bump no longer fails on the read-only judge: the registry refresh also unpacks the crate source (#622)
+aien-sovereign-core-mv	670	PR	2026-10-20T20:54:51Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/670	Safe tool calls run side by side; oversized tool output is saved to a file
+aien-sovereign-core-mv	668	PR	2026-10-20T20:54:49Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/668	Allen's chat loop records each step before acting on it, and resumes safely after a crash
+aien-sovereign-core-mv	667	issue	2026-10-18T19:12:04Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/667	Hermes prior art 6: approval floors ordered above every mode, and an agent-write ledger so rollback spares the operator's edits
+aien-sovereign-core-mv	666	issue	2026-10-18T20:25:34Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/666	Hermes prior art 3: tool batch planning with reader/writer path reservations and result spill budgets
+aien-sovereign-core-mv	665	issue	2026-10-18T19:54:44Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/665	Hermes prior art 2: persist-before-act turn discipline and loop-proof recovery in the aien chat loop
+aien-sovereign-core-mv	664	issue	2026-10-18T20:12:09Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/664	Hermes prior art 1: bounded micro-compaction and evidence-anchored token accounting (extends #397)
+aien-sovereign-core-mv	663	PR	2026-10-18T18:26:10Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/663	Remote worker runs a real job: tokenizing text with our own tokenizer (cut 2)
+aien-sovereign-core-mv	662	PR	2026-10-18T18:18:05Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/662	Run verified CPU jobs from the Spark on another machine (first cut)
+aien-sovereign-core-mv	661	issue	2026-10-18T17:44:12Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/661	Browser mirror test hangs on screenshot and leaves Chrome helpers running
+aien-sovereign-core-mv	660	PR	2026-10-18T17:27:44Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/660	Expert Ribbon P1: page OWN-30B experts from the SSD with identical output
+aien-sovereign-core-mv	659	PR	2026-10-18T15:25:13Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/659	Omega lane PRs stop pulling in every GPU gate (inputs_top manifest key)
+aien-sovereign-core-mv	658	PR	2026-10-18T15:22:57Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/658	Experts get a bounded cache that never evicts a pinned expert and refuses when memory is full
+aien-sovereign-core-mv	656	PR	2026-10-18T14:51:27Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/656	OWN-30B speed numbers say whether the GPU was shared
+aien-sovereign-core-mv	655	PR	2026-10-18T18:08:35Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/655	fix(aien-test): hold the target-dir lock for the whole run, from before the checkout
+aien-sovereign-core-mv	652	PR	2026-10-18T16:58:02Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/652	The Spark judge runs the persistent-KV script self-test
+aien-sovereign-core-mv	649	PR	2026-10-18T14:31:54Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/649	SC-MIRI runs on the Spark without an operator step
+aien-sovereign-core-mv	648	PR	2026-10-18T14:31:59Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/648	A PR that bumps a crate no longer fails on the judge for lack of the crate: an operator refresh step for the read-only registry
+aien-sovereign-core-mv	647	PR	2026-10-18T14:32:05Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/647	Expert weights can be read one expert at a time from NVMe, verified before use
+aien-sovereign-core-mv	643	PR	2026-10-18T17:30:33Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/643	qwen38: Qwen3.8-27B host reference (golden for the Omega engine, #641)
+aien-sovereign-core-mv	642	issue	2026-10-18T11:49:53Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/642	qwen38 engine in aien-serve-http: 128k, next-turn resume, decode graph
+aien-sovereign-core-mv	641	issue	2026-10-18T11:49:58Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/641	Qwen3.8-27B on our Omega engine (tracking)
+aien-sovereign-core-mv	640	PR	2026-10-18T11:40:11Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/640	pipeline: allow llms.txt as prose in .aien/unmapped-ok
+aien-sovereign-core-mv	639	PR	2026-10-18T12:01:54Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/639	local-ci: rebase train for crumb-only conflicts, small-repo worker lane, cached repo names
+aien-sovereign-core-mv	638	PR	2026-10-18T11:02:54Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/638	own30b server: 128k context; refuse a shorter KV cache than asked
+aien-sovereign-core-mv	637	issue	2026-10-18T17:56:03Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/637	[HET-COMPUTE P1] Reuse hosted AIEN execution to run verified CPU jobs on iMac and M2
+aien-sovereign-core-mv	636	PR	2026-10-18T07:52:07Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/636	OWN-8B stage 2: dense Qwen3 engine on Omega (8B FP8, 4B bf16 tied), oracle A harness
+aien-sovereign-core-mv	635	PR	2026-10-18T08:30:55Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/635	own30b: self-draft expert mask (default off) + H0 acceptance (aienix#4)
+aien-sovereign-core-mv	634	PR	2026-10-18T09:42:16Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/634	feat(heartbeat): H1 fixed-slot expert ring streamer (aienix#4)
+aien-sovereign-core-mv	633	issue	2026-10-18T05:41:18Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/633	[RIBBON P3] Optional expert-demand prefetch hints with zero routing influence
+aien-sovereign-core-mv	632	issue	2026-10-18T17:25:37Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/632	[RIBBON P2] Wire on-demand expert paging into Qwen3-MoE Omega decode and prefill
+aien-sovereign-core-mv	631	issue	2026-10-18T05:39:47Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/631	[RIBBON P2] Overlap NVMe reads with GPU work using a two-buffer expert pipeline
+aien-sovereign-core-mv	630	issue	2026-10-18T05:39:31Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/630	[RIBBON P2] Bounded expert residency manager: admission, pins, eviction and KV budget
+aien-sovereign-core-mv	629	issue	2026-10-18T17:25:35Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/629	[RIBBON P1] Content-addressed FP8 expert store and bounded NVMe read adapter
+aien-sovereign-core-mv	628	PR	2026-10-18T04:49:39Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/628	docs: front sheet says what this repository is today (2026-10-18)
+aien-sovereign-core-mv	627	issue	2026-10-18T14:03:00Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/627	local-ci: sandboxed gb10 gates cannot open /tmp/aien-gb10.lock (owned by operator, fs.protected_regular=2)
+aien-sovereign-core-mv	626	PR	2026-10-18T11:38:08Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/626	spark-mail: native bounded IMAP reader replaces imap 2.4 (drops lexical-core GHSA-2326-pfpj-vx3h)
+aien-sovereign-core-mv	625	issue	2026-10-17T11:38:31Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/625	ops(gb10): isolate OWN-30B performance runs from competing GPU workloads
+aien-sovereign-core-mv	624	issue	2026-10-17T11:38:12Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/624	perf(own30b): make HTTP greedy generation use the existing GPU graph argmax fast path
+aien-sovereign-core-mv	622	issue	2026-10-17T11:28:11Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/622	local-ci: judge cargo registry has no refresh path, so every crate bump fails offline (seen on rustls security bump #621)
+aien-sovereign-core-mv	621	PR	2026-10-18T11:38:12Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/621	deps: rustls 0.23.46 (RUSTSEC-2026-0346/0347/0348/0349)
+aien-sovereign-core-mv	620	PR	2026-10-18T11:38:16Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/620	fix(runtime): receipt continuity hash check across a restart (#408 row 8)
+aien-sovereign-core-mv	619	PR	2026-10-18T11:05:49Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/619	feat(switchboard): isolated Claude Code profile launcher: accounts, launch, doctor (#592)
+aien-sovereign-core-mv	613	issue	2026-10-16T23:43:24Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/613	pkv scripts: run scripts/test-pkv-lib.sh in a Spark judge gate
+aien-sovereign-core-mv	612	PR	2026-10-18T11:32:30Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/612	kv persist: host-side follow-ups from the #514 review (#523 items 2-5, 7, 8, 10)
+aien-sovereign-core-mv	611	PR	2026-10-18T14:44:16Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/611	aien: allow llms.txt and evidence/ as unmapped (unblocks #593, #590)
+aien-sovereign-core-mv	609	PR	2026-10-18T14:44:21Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/609	runtime: drop stale deferred events, keep bindings through uncertain commits, reclaim superseded bindings (#559)
+aien-sovereign-core-mv	608	PR	2026-10-18T14:44:56Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/608	test-install-release: kill the paused installer first, then its sleep (#452 kill race)
+aien-sovereign-core-mv	607	PR	2026-10-18T12:34:07Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/607	aien-test: hold the target dir for the whole head so two heads never interleave in one cargo cache
+aien-sovereign-core-mv	606	PR	2026-10-18T11:32:34Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/606	aien-test: route the last bare spawn in the unit-test binary through the spawn gate (sc#603)
+aien-sovereign-core-mv	605	PR	2026-10-18T16:59:20Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/605	pipeline: pin the crumb tool in crumb.lock; gate and readiness build it (sc#602)
+aien-sovereign-core-mv	604	PR	2026-10-18T11:32:38Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/604	spark-cockpit: ALLEN harness front end reads live state, works on a phone (#599)
+aien-sovereign-core-mv	603	issue	2026-10-16T18:40:15Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/603	aien-test self-test gpu_lock_is_exclusive_and_released_on_drop is flaky under the judge (2 of 4 runs today)
+aien-sovereign-core-mv	602	issue	2026-10-16T18:37:36Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/602	pipeline: readiness runs the PATH crumb (unpinned) so green heads publish as BLOCKED PASS
+aien-sovereign-core-mv	601	issue	2026-10-16T18:58:02Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/601	PREFILL-E2E-2 fails only when run beside other prefill gates (witness K zeros, KV_PARITY_VIOLATION)
+aien-sovereign-core-mv	600	issue	2026-10-16T17:26:36Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/600	pipeline: SC-MIRI cannot run in the sandbox (read-only rustup, no miri component)
+aien-sovereign-core-mv	599	issue	2026-10-16T18:25:49Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/599	spark-cockpit: redesign the ALLEN harness front end (naming, evidence rule, phone layout)
+aien-sovereign-core-mv	597	issue	2026-10-16T18:58:01Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/597	aien-test: shared per-repo target dir lets one head link another head's stale rlib
+aien-sovereign-core-mv	595	PR	2026-10-18T11:32:44Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/595	OWN-30B door: host follow-ups from #510 review (sc#522)
+aien-sovereign-core-mv	593	PR	2026-10-18T11:32:52Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/593	docs: front sheet says what this repository is today
+aien-sovereign-core-mv	592	issue	2026-10-17T04:28:39Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/592	Switchboard phase 1: isolated Claude Code profile launcher (accounts, launch, doctor)
+aien-sovereign-core-mv	590	PR	2026-10-16T20:31:42Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/590	feat(swarm-bridge): deliver synapse board events into Claude Code sessions (#587)
+aien-sovereign-core-mv	587	issue	2026-10-16T13:12:16Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/587	[Swarm Board] Deliver subscribed coordination into real agent sessions without orchestrator relay
+aien-sovereign-core-mv	586	issue	2026-10-16T10:14:56Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/586	[ALLEN Pi/Spark E] Omegese-constrained generation through real OWN-30B ForwardPass
+aien-sovereign-core-mv	585	issue	2026-10-16T19:28:46Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/585	[ALLEN Pi/Spark D] Existing Spark inference service: authenticated Pi job, streaming, cancellation and evidence
+aien-sovereign-core-mv	583	PR	2026-10-16T18:44:32Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/583	perf(pipeline): idle power saving + warm standby pr target (trust surface)
+aien-sovereign-core-mv	581	PR	2026-10-16T19:17:26Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/581	feat(aien-local-ci): merge train (train.sh): stacked prefixes every measured T, culprit isolation, fast-forward to the tested sha
+aien-sovereign-core-mv	579	PR	2026-10-16T20:32:15Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/579	ci(aien-verification): ADR 0033 phase 3, the Spark bundle is the test verdict
+aien-sovereign-core-mv	577	PR	2026-10-22T12:41:05Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/577	docs(inquisitor): retire the last oath and constitution wording (sc#477)
+aien-sovereign-core-mv	576	PR	2026-10-16T18:41:23Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/576	fix(kv-store): one process per store folder, exclusive flock on root/LOCK (sc#521)
+aien-sovereign-core-mv	574	PR	2026-10-22T12:41:02Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/574	fix(aien-test): a receipt is reused only for the commit it was made at (sc#517)
+aien-sovereign-core-mv	567	PR	2026-10-16T20:32:18Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/567	cortex-rs: GEN record sets as evidence-bound memory + read-only genret-cli-v3 adapter (GEN-5)
+aien-sovereign-core-mv	559	issue	2026-10-23T09:18:58Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/559	[Headstart M3 follow-up] Deferred-queue terminal errors, panic-before-write binding drop, per-task binding exhaustion
+aien-sovereign-core-mv	557	PR	2026-10-16T20:32:24Z	https://github.com/aien-dev/aien-sovereign-core-mv/pull/557	inference: ADR 0004 step 3, the 30B ForwardPass adapter beside the old loop
+aien-sovereign-core-mv	556	issue	2026-10-16T01:44:05Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/556	GEN-5: Cortex evidence-bound procedure records and optional read-only retrieval
+aien-sovereign-core-mv	523	issue	2026-10-16T23:13:08Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/523	Persistent KV: park waits on the request path and timeout/counter follow-ups from the #514 review
+aien-sovereign-core-mv	522	issue	2026-10-14T23:22:00Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/522	OWN-30B server: review follow-ups from #510
+aien-sovereign-core-mv	519	issue	2026-10-14T18:36:05Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/519	[Profile first] GB10 scheduler branch/control-flow qualification with exact decision parity
+aien-sovereign-core-mv	517	issue	2026-10-14T16:02:58Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/517	aien-test: direct runs reuse PASS receipts across commits (stale-PASS risk)
+aien-sovereign-core-mv	509	issue	2026-10-14T04:10:24Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/509	Acceptance: persistent KV safe to switch on, watch and roll back
+aien-sovereign-core-mv	508	issue	2026-10-14T04:10:23Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/508	Acceptance: persistent-KV benchmark on the real Spark
+aien-sovereign-core-mv	507	issue	2026-10-14T20:59:15Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/507	Acceptance: restored conversations match uninterrupted runs exactly
+aien-sovereign-core-mv	494	issue	2026-10-16T10:58:40Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/494	Wayfinder: persistent KV cache ready for production on the Spark
+aien-sovereign-core-mv	485	issue	2026-10-16T10:58:39Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/485	KV offload concurrency: keep resident inference progressing during bounded park/restore I/O
+aien-sovereign-core-mv	484	issue	2026-10-17T04:35:46Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/484	Persistent KV cache: bounded NVMe storage, session park/restore, and restart recovery
+aien-sovereign-core-mv	477	issue	2026-10-23T05:14:10Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/477	Inquisitor review bot speaks in retired SparkOS and constitution-era terms
+aien-sovereign-core-mv	452	issue	2026-10-16T19:04:04Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/452	Local verification: six gates fail from the tests themselves (stale PREFILL mutant patches, flaky real-model test, release-negatives kill race)
+aien-sovereign-core-mv	414	issue	2026-10-16T08:23:41Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/414	Release blockers found by the Lane G audit: pin drift, README install claim, install path gaps (arch#190 Lane G)
+aien-sovereign-core-mv	408	issue	2026-10-17T04:37:05Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/408	Recovery audit gaps: revoke, stop and desk behaviour across a restart; objective identity after restart (arch#190 Priority D)
+aien-sovereign-core-mv	402	issue	2026-10-11T15:03:20Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/402	R6: WHOLE-SYSTEM-E2E declared run on the GB10 native Omega backend (arch#190)
+aien-sovereign-core-mv	385	issue	2026-10-11T02:44:06Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/385	L5: offline-signing handoff in the release workflow; dry-run artifact labelled, negative install rows (Drake ruling 1, arch#190 E1)
+aien-sovereign-core-mv	384	issue	2026-10-12T16:11:49Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/384	L10: frozen public-model qualification: Qwen3-8B v7 FAIL 259/334, v8 cut until speed fits budgets; Qwen3-4B retired (arch#190)
+aien-sovereign-core-mv	379	issue	2026-10-16T19:36:24Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/379	L2: interrupt and finish: durable objective record, resume after SIGKILL, no effect twice (arch#190 E6)
+aien-sovereign-core-mv	118	issue	2026-10-10T13:19:56Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/118	Signed releases and verified install path
+aien-sovereign-core-mv	94	issue	2026-10-10T03:01:23Z	https://github.com/aien-dev/aien-sovereign-core-mv/issues/94	Golden path e2e harness
+omega-mv	651	issue	2026-10-23T13:00:32Z	https://github.com/aien-dev/omega-mv/issues/651	[OM-REUSE-LIFECYCLE] Durable capability-aware semantic reuse on the existing .om runtime
+omega-mv	650	issue	2026-10-23T13:00:27Z	https://github.com/aien-dev/omega-mv/issues/650	[OM-TRUST] Qualify seeded .om compiler source–binary correspondence with diverse double compilation
+omega-mv	649	issue	2026-10-23T12:23:03Z	https://github.com/aien-dev/omega-mv/issues/649	[OM-CONTROL] Agent-driven .om lifecycle across application and compute resources
+omega-mv	648	issue	2026-10-23T12:16:22Z	https://github.com/aien-dev/omega-mv/issues/648	[OM-COMPOSE] Connect frontends and backends through one typed .om interface
+omega-mv	647	issue	2026-10-23T12:33:36Z	https://github.com/aien-dev/omega-mv/issues/647	[OM-ANALYSIS] Benchmark bounded worklist fixed-point analysis in the seeded .om verifier
+omega-mv	646	issue	2026-10-23T12:58:58Z	https://github.com/aien-dev/omega-mv/issues/646	[OM-REUSE] Qualify exact subproblem reuse for bounded .om recursive workloads
+omega-mv	645	issue	2026-10-23T12:33:33Z	https://github.com/aien-dev/omega-mv/issues/645	[OM-RECURSION] Qualify bounded recursive interchange and execution on seeded .om
+omega-mv	644	issue	2026-10-23T11:34:15Z	https://github.com/aien-dev/omega-mv/issues/644	[OMEGA-UNIVERSAL P1] Carry buffer residency and transfer dependencies across adapters
+omega-mv	643	issue	2026-10-23T11:34:05Z	https://github.com/aien-dev/omega-mv/issues/643	[OMEGA-UNIVERSAL P1] Make adapter registration, upgrade and removal transactional
+omega-mv	642	issue	2026-10-23T12:23:00Z	https://github.com/aien-dev/omega-mv/issues/642	[OMEGA-UNIVERSAL P0] Resolve and explain a complete execution plan before running an application
+omega-mv	641	PR	2026-10-23T11:05:25Z	https://github.com/aien-dev/omega-mv/pull/641	desk block: 3 PRs (#484, #487, #494)
+omega-mv	640	issue	2026-10-23T10:53:42Z	https://github.com/aien-dev/omega-mv/issues/640	[STREAM-OVERLAP] Compare lightweight weight prefetch against scratch GEMV using full-token cost
+omega-mv	639	issue	2026-10-23T10:54:10Z	https://github.com/aien-dev/omega-mv/issues/639	[CRYPTO-REUSE] Add cross-repository adversarial gates and independently checked receipts
+omega-mv	638	issue	2026-10-22T23:50:30Z	https://github.com/aien-dev/omega-mv/issues/638	[OMEGA-DEVELOPER P0] Complete and qualify the seeded CPU-to-GPU development path
+omega-mv	637	issue	2026-10-23T11:35:27Z	https://github.com/aien-dev/omega-mv/issues/637	[OMEGA-DEVELOPER P1] Finish safe native attachment to existing projects and runtimes
+omega-mv	636	issue	2026-10-22T23:50:26Z	https://github.com/aien-dev/omega-mv/issues/636	[OMEGA-DEVELOPER P0] Qualify seeded host facilities needed by real applications
+omega-mv	635	issue	2026-10-22T23:50:24Z	https://github.com/aien-dev/omega-mv/issues/635	[OMEGA-DEVELOPER P1] Replace remaining shell host glue with seeded Omega commands
+omega-mv	634	issue	2026-10-23T00:20:41Z	https://github.com/aien-dev/omega-mv/issues/634	[OMEGA-DEVELOPER P1] Qualify developer packages beyond Linux ARM64
+omega-mv	633	issue	2026-10-23T11:35:37Z	https://github.com/aien-dev/omega-mv/issues/633	[OMEGA-DEVELOPER P0] Publish the verified omega curl installer and first-project path
+omega-mv	632	issue	2026-10-22T22:04:27Z	https://github.com/aien-dev/omega-mv/issues/632	[OMEGA-UNIX-GPU P0] Composable GPU toolchain: bounded pipelines and versioned backend ABI
+omega-mv	631	issue	2026-10-23T12:22:55Z	https://github.com/aien-dev/omega-mv/issues/631	[OMEGA-UNIVERSAL P2] Versioned language adapter interface and coverage registry
+omega-mv	630	issue	2026-10-22T22:19:23Z	https://github.com/aien-dev/omega-mv/issues/630	[OMEGA-UNIVERSAL P1] Qualify RV64GC RISC-V execution and differential verification in QEMU
+omega-mv	629	issue	2026-10-22T21:44:51Z	https://github.com/aien-dev/omega-mv/issues/629	[OMEGA-UNIVERSAL P1] Qualify an x86-64 Omega CPU execution target using LLVM or bounded native lowering
+omega-mv	628	issue	2026-10-22T21:44:49Z	https://github.com/aien-dev/omega-mv/issues/628	[OMEGA-UNIVERSAL P1] Introduce versioned ISA/ABI hardware capability profiles and lowering contract
+omega-mv	627	issue	2026-10-22T21:44:47Z	https://github.com/aien-dev/omega-mv/issues/627	[OMEGA-UNIVERSAL P1] Import/export a restricted Python subset without erasing dynamic semantics
+omega-mv	626	issue	2026-10-22T21:44:45Z	https://github.com/aien-dev/omega-mv/issues/626	[OMEGA-UNIVERSAL P1] Import/export a restricted Rust subset with ownership-aware semantics
+omega-mv	625	issue	2026-10-23T12:33:32Z	https://github.com/aien-dev/omega-mv/issues/625	[OMEGA-UNIVERSAL P0] Specify observable semantics, supported subsets, and conversion fidelity
+omega-mv	624	issue	2026-10-23T12:33:31Z	https://github.com/aien-dev/omega-mv/issues/624	[OMEGA-UNIVERSAL P0] Conformance matrix, differential fuzzing, negative controls and replicable tutorial
+omega-mv	623	issue	2026-10-23T12:33:30Z	https://github.com/aien-dev/omega-mv/issues/623	[OMEGA-UNIVERSAL P0] Per-lowering translation validation and checker2-bound proof receipts
+omega-mv	622	issue	2026-10-22T23:18:43Z	https://github.com/aien-dev/omega-mv/issues/622	[OMEGA-UNIVERSAL P0] C subset importer/exporter with measured Omega round trip
+omega-mv	621	issue	2026-10-23T12:33:29Z	https://github.com/aien-dev/omega-mv/issues/621	[OMEGA-UNIVERSAL P0] Source-aware .om dialect IR and lossless provenance; legacy OSC migration
+omega-mv	619	issue	2026-10-22T18:46:43Z	https://github.com/aien-dev/omega-mv/issues/619	docs: Teach Omega: one program from source to semantic identity, realization and result
+omega-mv	618	PR	2026-10-22T04:52:28Z	https://github.com/aien-dev/omega-mv/pull/618	Omega consumes CUDA++
+omega-mv	617	PR	2026-10-22T08:42:46Z	https://github.com/aien-dev/omega-mv/pull/617	C4 streams and C5 recovery
+omega-mv	616	PR	2026-10-22T04:52:19Z	https://github.com/aien-dev/omega-mv/pull/616	C3 reductions and scans
+omega-mv	615	PR	2026-10-22T04:52:13Z	https://github.com/aien-dev/omega-mv/pull/615	C3 any-shape GEMM
+omega-mv	614	PR	2026-10-22T04:58:30Z	https://github.com/aien-dev/omega-mv/pull/614	C6 own sm_121 disassembler
+omega-mv	612	issue	2026-10-20T20:19:48Z	https://github.com/aien-dev/omega-mv/issues/612	[OMEGA-TRACE P2] Optional loopback-only trace timeline and training viewer
+omega-mv	611	issue	2026-10-20T20:19:46Z	https://github.com/aien-dev/omega-mv/issues/611	[OMEGA-TRACE P1] Prepare deterministic owner-selectable local sharing bundles with zero network I/O
+omega-mv	610	issue	2026-10-20T20:19:45Z	https://github.com/aien-dev/omega-mv/issues/610	[OMEGA-TRACE P1] Offline CLI to inspect, query, compare and export trace diagnostics
+omega-mv	609	issue	2026-10-20T20:18:19Z	https://github.com/aien-dev/omega-mv/issues/609	[OMEGA-TRACE P0] Attach read-only ARGUS, SearchTrace, DUAL and realization observers
+omega-mv	608	issue	2026-10-20T20:18:17Z	https://github.com/aien-dev/omega-mv/issues/608	[OMEGA-TRACE P0] Versioned local trace segments, bounded writer, recovery and retention
+omega-mv	607	issue	2026-10-20T20:22:02Z	https://github.com/aien-dev/omega-mv/issues/607	[OMEGA-TRACE] Coordinate local training observability and opt-in Open Humanity publication
+omega-mv	606	issue	2026-10-20T18:10:35Z	https://github.com/aien-dev/omega-mv/issues/606	Fine-tuning: TURING selects verified training schedules to reduce memory traffic and time to quality
+omega-mv	605	issue	2026-10-20T18:08:56Z	https://github.com/aien-dev/omega-mv/issues/605	Research: test whether a compact recurrent block can trade weight traffic for additional reasoning steps
+omega-mv	604	issue	2026-10-20T18:08:54Z	https://github.com/aien-dev/omega-mv/issues/604	GB10 persistent tile experiment: retain useful data across bounded compute steps
+omega-mv	603	issue	2026-10-20T18:08:52Z	https://github.com/aien-dev/omega-mv/issues/603	GB10 arithmetic fusion: keep one measured producer-consumer chain in registers or shared memory
+omega-mv	602	issue	2026-10-23T12:59:11Z	https://github.com/aien-dev/omega-mv/issues/602	GB10 locality baseline: account for memory traffic across a complete inference step
+omega-mv	601	issue	2026-10-20T14:37:46Z	https://github.com/aien-dev/omega-mv/issues/601	Omegese for the kernel: bytes, text, machine memory, system words, placement, units
+omega-mv	600	issue	2026-10-20T01:16:15Z	https://github.com/aien-dev/omega-mv/issues/600	Bounded exploration across temporary regressions: preserve incumbent and test delayed payoff
+omega-mv	599	issue	2026-10-23T13:00:17Z	https://github.com/aien-dev/omega-mv/issues/599	The Omega Program: one line from the seed to the LLM (tracking)
+omega-mv	598	PR	2026-10-20T20:31:45Z	https://github.com/aien-dev/omega-mv/pull/598	omega: fix the host gate flakes together (R11 hold, R13 CPU time + promotion window, R15 parity costs, RX speed checks, runtime energy self-test)
+omega-mv	597	PR	2026-10-19T22:12:13Z	https://github.com/aien-dev/omega-mv/pull/597	tests/gates: restore the 5 hosted jobs phase 3 dropped without a gate (checker2, exp445-tools, omegese-oracle, gpu-engine, reservoir)
+omega-mv	596	issue	2026-10-23T00:51:12Z	https://github.com/aien-dev/omega-mv/issues/596	Runtime R3: hardware abstraction note and portability table
+omega-mv	595	issue	2026-10-19T21:49:03Z	https://github.com/aien-dev/omega-mv/issues/595	Runtime R2: hello GPU from a fresh checkout
+omega-mv	594	issue	2026-10-19T21:49:01Z	https://github.com/aien-dev/omega-mv/issues/594	Runtime R1: Omega Runtime API v0, written down, listed, versioned, checked
+omega-mv	593	issue	2026-10-19T21:48:53Z	https://github.com/aien-dev/omega-mv/issues/593	Omega runtime: an open-source CUDA alternative (tracking)
+omega-mv	592	PR	2026-10-19T20:36:55Z	https://github.com/aien-dev/omega-mv/pull/592	E03 extension: lifecycle payback and retention accounting on the existing rx_plan cache
+omega-mv	591	PR	2026-10-19T20:37:15Z	https://github.com/aien-dev/omega-mv/pull/591	Bounded learning-mechanism search (#584): frozen suite, arms A/B/C0/C1, sealed verdict
+omega-mv	590	PR	2026-10-19T20:34:45Z	https://github.com/aien-dev/omega-mv/pull/590	Offline resource-DAG cost simulator (dagsim) with held-out memcpy validation
+omega-mv	589	PR	2026-10-19T20:10:16Z	https://github.com/aien-dev/omega-mv/pull/589	feat(omega): static scoreboard hazard checker for generated kernels (#554)
+omega-mv	588	PR	2026-10-19T20:03:46Z	https://github.com/aien-dev/omega-mv/pull/588	fix(omega): decode graph lock and token recovery (#518)
+omega-mv	587	PR	2026-10-19T20:02:51Z	https://github.com/aien-dev/omega-mv/pull/587	tests: R11-OWN-HOLD judges the hold decision, not the machine load
+omega-mv	586	PR	2026-10-19T19:56:41Z	https://github.com/aien-dev/omega-mv/pull/586	fix(omega): time matvec cost with the serving thread CPU time (R13/R16 host flake)
+omega-mv	585	PR	2026-10-19T18:44:31Z	https://github.com/aien-dev/omega-mv/pull/585	tests: speed checks time only repetitions the machine did not disturb (RX-HOST-REFERENCE)
+omega-mv	584	issue	2026-10-19T18:42:34Z	https://github.com/aien-dev/omega-mv/issues/584	Bounded learning-mechanism search: simulation screening, native pilot, retention and lifecycle payoff
+omega-mv	583	issue	2026-10-23T12:59:07Z	https://github.com/aien-dev/omega-mv/issues/583	Offline resource-DAG cost simulation using existing cost model and measured Spark traces
+omega-mv	582	PR	2026-10-19T20:08:28Z	https://github.com/aien-dev/omega-mv/pull/582	memfrag: measured cause of host memory fragmentation, read-only sampler and scanner, physics fix proposal (#528)
+omega-mv	581	PR	2026-10-19T15:23:32Z	https://github.com/aien-dev/omega-mv/pull/581	r15: give both sides of a SEQ parity pair the same costs (fixes the R15-PARITY-HOST flake under load)
+omega-mv	580	issue	2026-10-19T15:01:23Z	https://github.com/aien-dev/omega-mv/issues/580	Engine plays every kernel, in rolls and chords: any codegen program, pipelined, concurrent, dependency-ordered
+omega-mv	579	PR	2026-10-19T14:46:08Z	https://github.com/aien-dev/omega-mv/pull/579	gates: chip steps build against physics.lock; pin physics aecb9d35 (M19, #523)
+omega-mv	578	issue	2026-10-19T14:21:02Z	https://github.com/aien-dev/omega-mv/issues/578	M1: Spark hardware passport, first measured coefficients for the hardware-first search
+omega-mv	577	issue	2026-10-19T14:21:01Z	https://github.com/aien-dev/omega-mv/issues/577	M1 block 4: measured unified-memory bandwidth vs the 273 GB/s spec
+omega-mv	576	issue	2026-10-19T14:21:00Z	https://github.com/aien-dev/omega-mv/issues/576	M1 block 3: re-time plan reuse (spec/plan-reuse.md) in seconds and joules, not operation counts
+omega-mv	575	issue	2026-10-21T23:09:28Z	https://github.com/aien-dev/omega-mv/issues/575	M1 block 2: GPU submit/complete round-trip latency and polling CPU cost
+omega-mv	574	issue	2026-10-19T15:07:31Z	https://github.com/aien-dev/omega-mv/issues/574	M1 block 1: measure both realization schedules (PRELOAD vs SEQUENTIAL) on the Spark
+omega-mv	573	PR	2026-10-19T13:06:52Z	https://github.com/aien-dev/omega-mv/pull/573	docs: README refresh for new visitors (2026-10-19, supersedes #532)
+omega-mv	572	PR	2026-10-19T21:47:59Z	https://github.com/aien-dev/omega-mv/pull/572	osh: cross-adapter pipeline differential tests, Omega host now, AIENOS column reserved (#568)
+omega-mv	571	issue	2026-10-19T01:31:51Z	https://github.com/aien-dev/omega-mv/issues/571	FORTRAN idea 3, two fronts in one arena: KV from one end, GDN state from the other
+omega-mv	570	issue	2026-10-19T01:31:50Z	https://github.com/aien-dev/omega-mv/issues/570	FORTRAN idea 2, FREQUENCY: measured branch odds in the Omega timing model, Turing-scored
+omega-mv	569	issue	2026-10-19T01:31:49Z	https://github.com/aien-dev/omega-mv/issues/569	FORTRAN idea 1, EQUIVALENCE: lifetime-based buffer sharing in the Omega decode/prefill arenas
+omega-mv	568	issue	2026-10-18T21:56:23Z	https://github.com/aien-dev/omega-mv/issues/568	[OSH],[P1] Cross-adapter pipeline differential tests: Omega Linux vs AIENOS native
+omega-mv	567	PR	2026-10-18T21:53:33Z	https://github.com/aien-dev/omega-mv/pull/567	R13: print why a mode failed on stdout; root cause of #527 (two pre-goal dead ends, not GPU)
+omega-mv	566	PR	2026-10-18T21:53:08Z	https://github.com/aien-dev/omega-mv/pull/566	gates: physics pins follow physics.lock; chip gates list physics.lock (#523)
+omega-mv	565	PR	2026-10-18T23:54:45Z	https://github.com/aien-dev/omega-mv/pull/565	gates: clean-clone nested build ignores the per-step OUT_DIR; M19 receipt hashes the running binary (#526, builds on #529)
+omega-mv	563	issue	2026-10-18T19:11:54Z	https://github.com/aien-dev/omega-mv/issues/563	Hermes prior art 4: agent-written skills under an editorial policy, with a content-addressed skill ledger and rollback
+omega-mv	562	issue	2026-10-18T17:29:40Z	https://github.com/aien-dev/omega-mv/issues/562	Qwen3.8 stack follow-ups from desk review: recorded-list scratch safety, NaN checks, tighter tolerances
+omega-mv	561	PR	2026-10-18T17:27:42Z	https://github.com/aien-dev/omega-mv/pull/561	Expert Ribbon P1: fixed GPU slots that experts are paged into from the SSD
+omega-mv	560	issue	2026-10-18T15:51:52Z	https://github.com/aien-dev/omega-mv/issues/560	QMD: shared memory above 32 KiB needs per-size MIN/TARGET carve-out fields
+omega-mv	559	PR	2026-10-18T17:10:07Z	https://github.com/aien-dev/omega-mv/pull/559	feat(q38): Qwen3.8-27B decode token as one command list (glue widths, GATHER, GATE, QMD 32 KiB)
+omega-mv	558	issue	2026-10-18T15:48:58Z	https://github.com/aien-dev/omega-mv/issues/558	Qwen3.8-27B decode speed: FP8 GEMV and lm_head toward the bandwidth ceiling (one-list decode measured)
+omega-mv	557	issue	2026-10-18T15:43:50Z	https://github.com/aien-dev/omega-mv/issues/557	GDN decode and prefill speed against the bandwidth ceiling (Qwen3.8-27B)
+omega-mv	556	issue	2026-10-18T15:22:58Z	https://github.com/aien-dev/omega-mv/issues/556	gpu_tern_test speed gates fail under host load
+omega-mv	555	issue	2026-10-18T15:22:56Z	https://github.com/aien-dev/omega-mv/issues/555	Prefill attention hd256 speed: 591 ms per layer at 128k, bigger tiles
+omega-mv	554	issue	2026-10-18T15:22:54Z	https://github.com/aien-dev/omega-mv/issues/554	Static hazard checker over encoded kernel bytes (scoreboard RAW/WAR)
+omega-mv	553	PR	2026-10-18T17:10:07Z	https://github.com/aien-dev/omega-mv/pull/553	Prefill attention hd256 chip PASS + encoder keeps scheduled control words (omega-mv#545)
+omega-mv	552	PR	2026-10-18T13:34:47Z	https://github.com/aien-dev/omega-mv/pull/552	gates: make the M18/M19 clean-clone failures diagnosable on the judge
+omega-mv	551	PR	2026-10-18T13:23:52Z	https://github.com/aien-dev/omega-mv/pull/551	tests: stop judging host load on the shared Spark judge (R11 hold test, action-graph 2x)
+omega-mv	550	PR	2026-10-18T17:10:07Z	https://github.com/aien-dev/omega-mv/pull/550	gpu: decode attention head_dim 256 for Qwen3.8-27B (#544)
+omega-mv	549	PR	2026-10-18T17:10:07Z	https://github.com/aien-dev/omega-mv/pull/549	GDN prefill for Qwen3.8-27B on the GB10 (#543)
+omega-mv	548	PR	2026-10-18T17:10:06Z	https://github.com/aien-dev/omega-mv/pull/548	GDN decode step for Qwen3.8-27B on the GB10 (#542)
+omega-mv	547	PR	2026-10-18T13:00:54Z	https://github.com/aien-dev/omega-mv/pull/547	FP8 GEMV and tensor-core GEMM: k up to 32768 for the Qwen3.8-27B down_proj (#541)
+omega-mv	546	PR	2026-10-18T12:51:46Z	https://github.com/aien-dev/omega-mv/pull/546	Pointing PHYSICS_DIR at another checkout now rebuilds the driver objects
+omega-mv	545	issue	2026-10-18T15:22:52Z	https://github.com/aien-dev/omega-mv/issues/545	Prefill attention head_dim 256 (Qwen3.8-27B)
+omega-mv	544	issue	2026-10-18T13:06:56Z	https://github.com/aien-dev/omega-mv/issues/544	Decode attention head_dim 256 + output gate + partial RoPE (Qwen3.8-27B)
+omega-mv	543	issue	2026-10-18T15:43:56Z	https://github.com/aien-dev/omega-mv/issues/543	Gated DeltaNet prefill kernel up to 128k tokens (Qwen3.8-27B)
+omega-mv	542	issue	2026-10-18T15:43:54Z	https://github.com/aien-dev/omega-mv/issues/542	Gated DeltaNet decode step kernel (Qwen3.8-27B)
+omega-mv	541	issue	2026-10-18T15:43:52Z	https://github.com/aien-dev/omega-mv/issues/541	FP8 GEMV/GEMM at k = 17408 (Qwen3.8-27B down_proj)
+omega-mv	540	PR	2026-10-18T11:40:20Z	https://github.com/aien-dev/omega-mv/pull/540	pipeline: allow */README.md as prose in .aien/unmapped-ok
+omega-mv	539	PR	2026-10-18T14:41:37Z	https://github.com/aien-dev/omega-mv/pull/539	decode attn: 128k context (OMEGA_GPU_DATTN_MAX_POS 65536 -> 131072), chip PASS at 65536/100000/131072
+omega-mv	538	PR	2026-10-19T22:32:14Z	https://github.com/aien-dev/omega-mv/pull/538	fabric: cross-machine work hand-off (PST1 + HTK1/HTR1), Ed25519 identity, shared route check (#536)
+omega-mv	537	issue	2026-10-18T07:46:16Z	https://github.com/aien-dev/omega-mv/issues/537	[LCD-EM P0 RESEARCH] Measure whether an unmodified iMac LCD exposes useful electrical state for physical computation
+omega-mv	536	issue	2026-10-18T09:09:10Z	https://github.com/aien-dev/omega-mv/issues/536	[FABRIC-PHYS P1] Connect real peer transport and verified remote task completion
+omega-mv	535	issue	2026-10-18T05:42:23Z	https://github.com/aien-dev/omega-mv/issues/535	[CTX-128K] Extend native Omega decode/prefill attention beyond 65,536 positions and qualify 128K
+omega-mv	534	issue	2026-10-23T12:59:17Z	https://github.com/aien-dev/omega-mv/issues/534	[RIBBON P3] Compare full-expert slots against FP8 tiled expert streaming
+omega-mv	533	issue	2026-10-18T17:25:31Z	https://github.com/aien-dev/omega-mv/issues/533	[RIBBON P1] Versioned replaceable FP8 expert slots with GPU completion fences
+omega-mv	531	PR	2026-10-18T11:44:35Z	https://github.com/aien-dev/omega-mv/pull/531	synapse J1: Omega port of the synapse binary codec v2 (host only)
+omega-mv	530	PR	2026-10-17T03:13:43Z	https://github.com/aien-dev/omega-mv/pull/530	r11 own-hold test: a load refusal is not the flag refusal; wait for quiet, never pass a skip
+omega-mv	529	PR	2026-10-17T03:15:13Z	https://github.com/aien-dev/omega-mv/pull/529	gates: clean-clone copies and logs in a private mkdtemp folder, not fixed /tmp paths (#526); carries the physics.lock bump for #523 once physics#64 merges
+omega-mv	528	issue	2026-10-17T03:01:36Z	https://github.com/aien-dev/omega-mv/issues/528	find what fragments host memory (38 GB unmovable pageblocks, 0 free 2 MiB blocks at times); read-only measurement, follow-up to #523
+omega-mv	527	issue	2026-10-17T02:59:39Z	https://github.com/aien-dev/omega-mv/issues/527	R13-TESTBUILD-SILICON fails intermittently ("AIEN never confirmed the incumbent cost", GPU 0) and hides the GPU-side reason; mostly independent of #523
+omega-mv	526	issue	2026-10-17T03:03:03Z	https://github.com/aien-dev/omega-mv/issues/526	M19 clean-clone step writes /tmp/clean_clone_m18.log and is refused under the Spark judge sandbox (Permission denied), so M19 fails before the chip
+omega-mv	525	PR	2026-10-18T11:44:33Z	https://github.com/aien-dev/omega-mv/pull/525	osc_ir: format version 6 (numeric ids, structured contracts, domain tag) (#451)
+omega-mv	524	issue	2026-10-17T00:58:11Z	https://github.com/aien-dev/omega-mv/issues/524	gates: the dependency graph maps nearly any src/ change onto ~56 of the 60 gates (because=src/visor/visor_evidence.c), so every code PR pulls in the chip gates and the 12-hour exhaustive run
+omega-mv	523	issue	2026-10-17T03:01:37Z	https://github.com/aien-dev/omega-mv/issues/523	chip gates M19 and COMPOSITION-GATE-GPU red on every omega head since 2026-10-15; with the physics pin fixed, M19 dies at GPU channel create (RM_ALLOC class 0xcec0 status 0x51)
+omega-mv	522	issue	2026-10-23T12:59:02Z	https://github.com/aien-dev/omega-mv/issues/522	[P2],[Omega TURING] Compare native GPU realization choices using verified GB10 receipts
+omega-mv	521	issue	2026-10-16T20:37:02Z	https://github.com/aien-dev/omega-mv/issues/521	[P2],[Omega PERF] Measure decode intermediate lifetimes and safe scratch reuse
+omega-mv	520	issue	2026-10-16T20:37:00Z	https://github.com/aien-dev/omega-mv/issues/520	[P2],[Omega PERF] Qualify register-lifetime and occupancy-aware allocation against linear scan
+omega-mv	519	issue	2026-10-16T20:36:58Z	https://github.com/aien-dev/omega-mv/issues/519	[P1],[Omega PERF] Measure and qualify ranged CPU↔GPU visibility for decode scratch
+omega-mv	518	issue	2026-10-16T20:37:32Z	https://github.com/aien-dev/omega-mv/issues/518	[P1],[Omega] Define safe abort/recovery for failed decode-graph begin_token
+omega-mv	517	PR	2026-10-18T14:41:45Z	https://github.com/aien-dev/omega-mv/pull/517	verified_program: objective-bound Omegese to executable result with an independent receipt (omega#505)
+omega-mv	516	PR	2026-10-16T20:31:58Z	https://github.com/aien-dev/omega-mv/pull/516	decode graph: dependency flags between launches (DEPFLAGS, opt-in, barrier NONE)
+omega-mv	515	PR	2026-10-22T14:49:20Z	https://github.com/aien-dev/omega-mv/pull/515	fp8 gemv: coalesced output stores (variant A) on by default: OWN-30B decode 24.49 -> 21.34 ms/token
+omega-mv	514	PR	2026-10-18T11:31:26Z	https://github.com/aien-dev/omega-mv/pull/514	Warp simulators refuse IMAD.HI.U32 with a register Rc, which the chip reads as a 64-bit pair
+omega-mv	513	PR	2026-10-18T14:41:54Z	https://github.com/aien-dev/omega-mv/pull/513	Energy self-test: keep the fake counter moving until the preflight has sampled (fixes the OMEGA-RUNTIME flake)
+omega-mv	510	issue	2026-10-16T15:27:32Z	https://github.com/aien-dev/omega-mv/issues/510	QMMA kernel t-cap: remove it now that references model MUFU ftz (chip-gated, follow-up to #462)
+omega-mv	509	PR	2026-10-19T21:43:11Z	https://github.com/aien-dev/omega-mv/pull/509	fix(sim): every MUFU host model flushes subnormals like the GB10 (#462)
+omega-mv	507	PR	2026-10-19T21:54:37Z	https://github.com/aien-dev/omega-mv/pull/507	Decode-graph performance receipt: tool, checker, fixtures (host only, #233 P1)
+omega-mv	506	issue	2026-10-16T10:15:54Z	https://github.com/aien-dev/omega-mv/issues/506	[ALLEN research] Measure Turing yield, verified task throughput and energy across Pi/Spark decision and Omegese paths
+omega-mv	505	issue	2026-10-16T19:52:18Z	https://github.com/aien-dev/omega-mv/issues/505	[ALLEN Pi/Spark F] Objective-bound Omegese → OSC → executable result with independent receipt
+omega-mv	502	PR	2026-10-18T14:42:03Z	https://github.com/aien-dev/omega-mv/pull/502	OWN-30B review follow-ups, host side (#456)
+omega-mv	501	PR	2026-10-18T14:42:10Z	https://github.com/aien-dev/omega-mv/pull/501	osh: pin the bash reference environment in bash_verify.sh (#344 follow-up)
+omega-mv	500	PR	2026-10-18T14:42:19Z	https://github.com/aien-dev/omega-mv/pull/500	spec: document checker2's definite-only ownership limits (#465, option a as interim)
+omega-mv	499	PR	2026-10-18T14:42:27Z	https://github.com/aien-dev/omega-mv/pull/499	osc_ir_decode: mutants for rcount maxima and unknown opcodes; comment fixes (#450)
+omega-mv	498	PR	2026-10-19T21:58:38Z	https://github.com/aien-dev/omega-mv/pull/498	gates: visor evidence walk keeps every file; RX-HOST-REFERENCE accepts the measured energy verdict (#404)
+omega-mv	496	PR	2026-10-19T21:57:00Z	https://github.com/aien-dev/omega-mv/pull/496	gpu attention: fix the hd 128 host-only tier, run the attention host tiers in CI (#470)
+omega-mv	495	PR	2026-10-18T14:42:43Z	https://github.com/aien-dev/omega-mv/pull/495	build: rebuild physics-built objects when the physics tree changes (#488)
+omega-mv	494	PR	2026-10-19T21:35:48Z	https://github.com/aien-dev/omega-mv/pull/494	gpu: libomega_gpu.a no longer references libm (FP8 packer ldexpf) (#471)
+omega-mv	492	issue	2026-10-16T05:40:41Z	https://github.com/aien-dev/omega-mv/issues/492	IMAD.HI.U32 with a register Rc: chip reads Rc as a 64-bit pair, the simulators model 32 bits
+omega-mv	491	PR	2026-10-18T14:43:00Z	https://github.com/aien-dev/omega-mv/pull/491	GEN-3: public corpus, deterministic abstraction extractor, verifier, transfer probes
+omega-mv	490	PR	2026-10-22T14:49:30Z	https://github.com/aien-dev/omega-mv/pull/490	kt1: coalesced output and prefetched first weight loads (3 of 4 cold gates now pass)
+omega-mv	489	PR	2026-10-18T14:43:16Z	https://github.com/aien-dev/omega-mv/pull/489	osc: Slice A, f32/f64 scalars and fixed arrays (OSC-4)
+omega-mv	488	issue	2026-10-16T03:02:45Z	https://github.com/aien-dev/omega-mv/issues/488	build: driver objects (m16_native.o, nvrm.o) are not rebuilt when PHYSICS_DIR changes
+omega-mv	487	PR	2026-10-19T21:57:11Z	https://github.com/aien-dev/omega-mv/pull/487	tgemm cut 1: device-resident bf16 training GEMM (NN, f32 out) on the tensor cores
+omega-mv	486	PR	2026-10-18T14:43:34Z	https://github.com/aien-dev/omega-mv/pull/486	GEN-1: pre-registered generalization protocol v1 (doc, protocol.json + gencheck, famsig, stats vectors, dev fixtures)
+omega-mv	485	PR	2026-10-18T14:43:42Z	https://github.com/aien-dev/omega-mv/pull/485	GEN-4: genret file-backed retrieval provider (contract genret-cli-v3)
+omega-mv	484	PR	2026-10-19T21:58:01Z	https://github.com/aien-dev/omega-mv/pull/484	encoder R5: native SHFL.BFLY and F2FP.BF16 (patch step removed), f32 global atomic add
+omega-mv	480	issue	2026-10-16T01:44:06Z	https://github.com/aien-dev/omega-mv/issues/480	GEN-6: Run sealed compositional-generalization trial and publish a decision receipt
+omega-mv	479	issue	2026-10-16T01:43:00Z	https://github.com/aien-dev/omega-mv/issues/479	GEN-4: Implement matched raw-example vs verified-abstraction retrieval arms
+omega-mv	478	issue	2026-10-16T01:42:58Z	https://github.com/aien-dev/omega-mv/issues/478	GEN-3: Extract reusable Omegese procedures with checker-bound provenance
+omega-mv	477	issue	2026-10-16T01:42:57Z	https://github.com/aien-dev/omega-mv/issues/477	GEN-2: Build a paired, replayable Omegese learning-condition runner
+omega-mv	476	issue	2026-10-16T01:42:54Z	https://github.com/aien-dev/omega-mv/issues/476	GEN-1: Freeze a sealed task-family generalization protocol
+omega-mv	475	issue	2026-10-16T02:16:06Z	https://github.com/aien-dev/omega-mv/issues/475	GEN-0: Compositional generalization experiment (Omegese × Cortex × RSI)
+omega-mv	473	issue	2026-10-16T01:29:09Z	https://github.com/aien-dev/omega-mv/issues/473	Training matmul: sealed CTA-budget receipt (R4), in-place weight update (R3), 5% of tensor peak
+omega-mv	471	issue	2026-10-16T01:11:32Z	https://github.com/aien-dev/omega-mv/issues/471	libomega_gpu.a references ldexpf (omega_gpu_fp8_pack.o) despite the libm-free note at Makefile:35
+omega-mv	470	issue	2026-10-16T01:11:30Z	https://github.com/aien-dev/omega-mv/issues/470	gpu attention: hd-128 host-only test fails (GPR bound 64 vs 72/84; listing cut at 256) and the test is not in CI
+omega-mv	465	issue	2026-10-15T10:05:37Z	https://github.com/aien-dev/omega-mv/issues/465	checker2: one-path leaks and copied mutable borrows are accepted (definite-only ownership rules)
+omega-mv	462	issue	2026-10-15T03:09:29Z	https://github.com/aien-dev/omega-mv/issues/462	Simulators and attention reference model MUFU as IEEE; the chip flushes subnormal results
+omega-mv	456	issue	2026-10-14T23:21:58Z	https://github.com/aien-dev/omega-mv/issues/456	OWN-30B engine: review follow-ups from #439
+omega-mv	453	issue	2026-10-14T19:47:38Z	https://github.com/aien-dev/omega-mv/issues/453	[GB10 PMU] Extend existing A725/X925 probe with verified branch and misprediction counters
+omega-mv	451	issue	2026-10-17T00:59:47Z	https://github.com/aien-dev/omega-mv/issues/451	OSC binary IR format v6: numeric identifiers, structured requires/ensures, domain tag
+omega-mv	450	issue	2026-10-14T17:42:44Z	https://github.com/aien-dev/omega-mv/issues/450	osc_ir_decode hardening follow-ups from the #449 review
+omega-mv	445	issue	2026-10-14T16:23:41Z	https://github.com/aien-dev/omega-mv/issues/445	Machine-first representation experiment: text vs raw bytes vs constrained structured emission
+omega-mv	404	issue	2026-10-11T19:51:28Z	https://github.com/aien-dev/omega-mv/issues/404	gates: OMEGA-VISOR 1024-file scan cap and OMEGA-RX-HOST-REFERENCE energy-meter verdict (local verification findings)
+omega-mv	344	issue	2026-10-10T08:35:25Z	https://github.com/aien-dev/omega-mv/issues/344	osh: follow-ups from the #340 bash-differential review (cd -P/CDPATH, printf widths, non-identifier env, ...)
+omega-mv	328	issue	2026-10-12T16:11:47Z	https://github.com/aien-dev/omega-mv/issues/328	GB10 BF16 decode speed (Qwen3-8B): m=1 matmul now ~207-218 GB/s of 273; next cuts from whole-task profiles (was: latency-bound ~28-45 GB/s)
+omega-mv	327	issue	2026-10-16T19:43:53Z	https://github.com/aien-dev/omega-mv/issues/327	GB10 RM system-memory allocations fail with NV_ERR_NO_MEMORY on low MemFree despite reclaimable page cache
+CUDApp	51	issue	2026-10-23T10:54:11Z	https://github.com/aien-dev/CUDApp/issues/51	[STREAM-DELTA] Measure lossless XOR-delta tiles against dense and zero-aware packing
+CUDApp	50	issue	2026-10-22T22:50:20Z	https://github.com/aien-dev/CUDApp/issues/50	Evaluate structured expert factorization with residuals after structural-zero accounting
+CUDApp	49	issue	2026-10-23T05:01:46Z	https://github.com/aien-dev/CUDApp/issues/49	Evaluate rotation-aware low-bit weights at equal total storage and measured quality
+CUDApp	48	issue	2026-10-22T23:16:27Z	https://github.com/aien-dev/CUDApp/issues/48	Inventory FP8 zero channels and implement lossless native weight packing
+CUDApp	47	issue	2026-10-22T22:10:04Z	https://github.com/aien-dev/CUDApp/issues/47	[OMEGA-GPU P2] Graphics/shader execution path distinct from general-purpose GPU compute
+CUDApp	46	issue	2026-10-22T22:07:10Z	https://github.com/aien-dev/CUDApp/issues/46	[OMEGA-GPU P2] Regional, legacy and virtual GPU families: coverage without false capability claims
+CUDApp	45	issue	2026-10-22T22:07:08Z	https://github.com/aien-dev/CUDApp/issues/45	[OMEGA-GPU P2] Embedded GPU families: PowerVR/IMG, Vivante, automotive and industrial SoCs
+CUDApp	44	issue	2026-10-22T22:07:07Z	https://github.com/aien-dev/CUDApp/issues/44	[OMEGA-GPU P1] Raspberry Pi 5 V3D and Broadcom VideoCore compute qualification
+CUDApp	43	issue	2026-10-22T22:07:05Z	https://github.com/aien-dev/CUDApp/issues/43	[OMEGA-GPU P2] Mobile GPU matrix: Adreno, Mali/Immortalis and Samsung Xclipse
+CUDApp	42	issue	2026-10-22T22:07:03Z	https://github.com/aien-dev/CUDApp/issues/42	[OMEGA-GPU P1] Apple GPU families and Metal backend; Intel Mac GPU compatibility
+CUDApp	41	issue	2026-10-22T22:07:01Z	https://github.com/aien-dev/CUDApp/issues/41	[OMEGA-GPU P1] Intel GPU families: Gen integrated, Xe, Arc, Data Center and Level Zero
+CUDApp	40	issue	2026-10-22T22:07:00Z	https://github.com/aien-dev/CUDApp/issues/40	[OMEGA-GPU P1] AMD GPU families: Radeon GCN/RDNA and Instinct CDNA execution feasibility
+CUDApp	39	issue	2026-10-22T22:06:58Z	https://github.com/aien-dev/CUDApp/issues/39	[OMEGA-GPU P1] NVIDIA GPU family matrix: SASS Blackwell, legacy generations and NVK/driver paths
+CUDApp	38	issue	2026-10-22T22:06:56Z	https://github.com/aien-dev/CUDApp/issues/38	[OMEGA-GPU P1] Vulkan compute / SPIR-V backend as portable low-level execution route
+CUDApp	37	issue	2026-10-22T22:06:55Z	https://github.com/aien-dev/CUDApp/issues/37	[OMEGA-GPU P0] Enumerate GPU vendors, families, PCI/device IDs, API caps and evidence tiers
+CUDApp	36	issue	2026-10-22T22:10:15Z	https://github.com/aien-dev/CUDApp/issues/36	[OMEGA-UNIVERSAL P2] Non-NVIDIA accelerator feasibility matrix and backend separation study
+CUDApp	35	issue	2026-10-22T21:46:12Z	https://github.com/aien-dev/CUDApp/issues/35	[OMEGA-UNIVERSAL P1] Verified Omega tensor operations to native GB10 GPU realizations
+CUDApp	34	issue	2026-10-22T18:01:14Z	https://github.com/aien-dev/CUDApp/issues/34	Epic: AIENOS public test repo first, then a matching TandemLLM repo
+CUDApp	33	issue	2026-10-22T18:21:32Z	https://github.com/aien-dev/CUDApp/issues/33	Phase 1: qualify AIENOS Qwen3.8 and its effective speed revisions for the standalone test
+CUDApp	32	issue	2026-10-22T18:21:31Z	https://github.com/aien-dev/CUDApp/issues/32	Phase 1: publish the AIENOS test repo first, then the matching TandemLLM test
+CUDApp	31	issue	2026-10-22T18:01:18Z	https://github.com/aien-dev/CUDApp/issues/31	TandemLLM contribution: isolate incompatible optional lookup corpora at startup
+CUDApp	30	issue	2026-10-22T18:01:17Z	https://github.com/aien-dev/CUDApp/issues/30	TandemLLM contribution: make configured parallelism match engine capabilities
+CUDApp	29	issue	2026-10-22T18:01:15Z	https://github.com/aien-dev/CUDApp/issues/29	TandemLLM contribution: add a verifiable per-request cold-cache control
+CUDApp	28	PR	2026-10-22T17:21:34Z	https://github.com/aien-dev/CUDApp/pull/28	Add a text-only LocalRouter candidate setup and HTTP smoke checks
+CUDApp	27	issue	2026-10-22T17:21:56Z	https://github.com/aien-dev/CUDApp/issues/27	Set up a text-only LocalRouter integration with the Omega HTTP server
+CUDApp	26	issue	2026-10-22T17:08:37Z	https://github.com/aien-dev/CUDApp/issues/26	Research roadmap: qualify and optimize CUDApp native model execution
+CUDApp	25	issue	2026-10-22T17:08:09Z	https://github.com/aien-dev/CUDApp/issues/25	Experiment: qualify file-backed shared weights through native GPU mappings
+CUDApp	24	issue	2026-10-22T17:08:08Z	https://github.com/aien-dev/CUDApp/issues/24	Extend memory admission with coordinated reservations and explicit buffer ownership
+CUDApp	23	issue	2026-10-22T17:08:07Z	https://github.com/aien-dev/CUDApp/issues/23	Experiment: alternate KV traversal in GB10 prefill attention to improve cache reuse
+CUDApp	22	issue	2026-10-22T17:08:06Z	https://github.com/aien-dev/CUDApp/issues/22	Build bounded SASS schedule search with independent encoded-code validation
+CUDApp	21	issue	2026-10-22T17:08:05Z	https://github.com/aien-dev/CUDApp/issues/21	Separate ragged-attention planning from execution with bounded reusable workspaces
+CUDApp	20	issue	2026-10-22T17:08:05Z	https://github.com/aien-dev/CUDApp/issues/20	Add shared-prefix attention execution with stable prefix/suffix state merging
+CUDApp	19	issue	2026-10-22T17:08:04Z	https://github.com/aien-dev/CUDApp/issues/19	Add explicit buffer dependencies and validate narrower command-list synchronization
+CUDApp	18	issue	2026-10-22T17:08:03Z	https://github.com/aien-dev/CUDApp/issues/18	Experiment: fuse FP8 gate/up and SwiGLU in the routed MoE decode path
+CUDApp	17	issue	2026-10-22T17:08:02Z	https://github.com/aien-dev/CUDApp/issues/17	Add a native benchmark report for token latency, launch costs and memory traffic
+CUDApp	16	issue	2026-10-22T17:08:01Z	https://github.com/aien-dev/CUDApp/issues/16	Define numerical contracts for native kernels and whole-token decode
+CUDApp	15	issue	2026-10-22T17:08:00Z	https://github.com/aien-dev/CUDApp/issues/15	Make host tests and Omega slice qualification reproducible from a fresh checkout
+CUDApp	14	issue	2026-10-22T15:05:54Z	https://github.com/aien-dev/CUDApp/issues/14	D8: measure what a CUDA++ process costs beyond its own buffers
+CUDApp	13	issue	2026-10-22T15:05:51Z	https://github.com/aien-dev/CUDApp/issues/13	D7, chip half: same inputs, same bits, on the GPU
+CUDApp	12	issue	2026-10-22T15:05:50Z	https://github.com/aien-dev/CUDApp/issues/12	D3, chip half: read the GPU's own fault record after a fault
+CUDApp	11	issue	2026-10-22T15:05:47Z	https://github.com/aien-dev/CUDApp/issues/11	D14: recover from a fault without restarting the process
+CUDApp	10	issue	2026-10-22T15:05:46Z	https://github.com/aien-dev/CUDApp/issues/10	D13: finish the independent disassembler and remove nvdisasm execution dependencies
+CUDApp	9	issue	2026-10-22T15:05:43Z	https://github.com/aien-dev/CUDApp/issues/9	D11: open libraries with an easy default path
+CUDApp	8	issue	2026-10-22T15:05:42Z	https://github.com/aien-dev/CUDApp/issues/8	D1: refuse an allocation before it hangs the machine
+CUDApp	7	issue	2026-10-22T15:05:39Z	https://github.com/aien-dev/CUDApp/issues/7	Priority 5: hardware-qualify the independent driver without changing the working GPU path
+CUDApp	6	issue	2026-10-22T15:05:38Z	https://github.com/aien-dev/CUDApp/issues/6	Priority 2: qualify streams, event ordering and process isolation on the GB10
+CUDApp	5	issue	2026-10-22T15:10:12Z	https://github.com/aien-dev/CUDApp/issues/5	Priority 1: qualify the motor against the canonical pinned CUDApp backend
