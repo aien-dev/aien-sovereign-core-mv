@@ -14,9 +14,13 @@
 // limitations under the License.
 
 //! The HTTP surface: `GET /v1/models`, `POST /v1/chat/completions` (JSON or SSE),
-//! `GET /health`. Every error is OpenAI error JSON. As many generations at a time as the
+//! `GET /health`, and the shapes xAI's API also takes (see [`crate::compat`]):
+//! `POST /v1/responses` (JSON or SSE), `POST /v1/completions`, `POST /v1/messages`,
+//! `GET /v1/language-models` and `POST /v1/tokenize-text`. Every error is OpenAI error JSON
+//! (Anthropic error JSON on `/v1/messages`). As many generations at a time as the
 //! engine says it takes ([`Engine::concurrency`], 1 unless the engine batches): the next
-//! request while all those run gets 503 `server_busy` with `Retry-After: 1`.
+//! request while all those run gets 503 `server_busy` with `Retry-After: 1`. CORS headers go
+//! only to the origins `--cors-origin` lists (none by default).
 
 use std::convert::Infallible;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -26,12 +30,13 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::body::{to_bytes, Body, Bytes};
 use axum::extract::{Path, State};
-use axum::http::{header, HeaderMap, HeaderValue, Request, StatusCode};
+use axum::http::{header, HeaderMap, HeaderValue, Method, Request, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
+use axum::middleware::{self, Next};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde_json::Value;
+use serde_json::{json, Value};
 use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
@@ -39,10 +44,11 @@ use tokio_stream::wrappers::ReceiverStream;
 use aien_inference_abi::tokenizer::ChatOptions;
 
 use crate::codec::{Codec, CodecError};
+use crate::compat;
 use crate::engine::{Engine, EngineError, FinishReason, GenerateParams, TestSwitches};
 use crate::openai::{
-    chunk_json, chunk_json_with, completion_json, ChatRequest, ErrorBody, ModelCard, ModelList,
-    Usage,
+    chunk_json, chunk_json_with, completion_json, ChatRequest, CompletionTokensDetails,
+    ErrorBody, ModelCard, ModelList, Usage,
 };
 use crate::sampling::SamplingRecord;
 use crate::text::{Push, TextAssembler};
@@ -73,6 +79,12 @@ pub struct ServerConfig {
     pub readers: Option<crate::readers::ReadersConfig>,
     /// Secret supplied out of band; an absent or empty credential refuses startup.
     pub bearer_token: String,
+    /// Browser origins (`https://host[:port]`) given CORS headers and let past the Origin check.
+    /// Empty: no CORS header is ever sent and a preflight is 403.
+    pub cors_origins: Vec<String>,
+    /// Other names a request may give the model (e.g. `grok-4.7` for a client that names one);
+    /// replies carry the served id.
+    pub model_aliases: Vec<String>,
 }
 
 impl Default for ServerConfig {
@@ -93,6 +105,8 @@ impl Default for ServerConfig {
             default_enable_thinking: None,
             readers: None,
             bearer_token: String::new(),
+            cors_origins: Vec::new(),
+            model_aliases: Vec::new(),
         }
     }
 }
@@ -212,6 +226,31 @@ impl IntoResponse for ApiError {
     }
 }
 
+impl ApiError {
+    /// The same error in Anthropic's shape (`/v1/messages`).
+    fn into_anthropic(self) -> Response {
+        let kind = match self.status.as_u16() {
+            400 | 415 => "invalid_request_error",
+            401 => "authentication_error",
+            403 => "permission_error",
+            404 => "not_found_error",
+            413 => "request_too_large",
+            503 => "overloaded_error",
+            _ => "api_error",
+        };
+        let body = json!({"type": "error", "error": {"type": kind, "message": self.body.error.message}});
+        let mut resp = (self.status, Json(body)).into_response();
+        if let Some(s) = self.retry_after {
+            resp.headers_mut().insert(
+                header::RETRY_AFTER,
+                HeaderValue::from_str(&s.to_string()).expect("digits"),
+            );
+        }
+        resp
+    }
+}
+
+#[derive(Clone)]
 struct Prepared {
     prompt_tokens: Vec<u32>,
     params: GenerateParams,
@@ -222,8 +261,43 @@ struct Prepared {
     return_ids: bool,
     /// The request carried tools: parse `<tool_call>` blocks out of the reply.
     tools: bool,
+    /// `parallel_tool_calls` (default true); `false` keeps the first call only.
+    parallel_tools: bool,
+    /// `stream_options.include_usage`: a usage-only chunk (`choices: []`) before `[DONE]`.
+    include_usage: bool,
+    /// Choices (`n`), generated one after another.
+    n: usize,
     /// The merge train's switches for this request (empty: none; `aien_test` absent).
     test: TestSwitches,
+}
+
+/// The end of one generation.
+struct Done {
+    finish: &'static str,
+    completion_tokens: usize,
+    /// Of `completion_tokens`, the thinking block's (its closing token included).
+    reasoning_tokens: usize,
+    sampling: Option<SamplingRecord>,
+    token_ids: Option<Vec<u32>>,
+    /// The `aien_test` switches applied (`usage.aien_test.applied`), when the request set any.
+    test: Option<Vec<&'static str>>,
+}
+
+impl Done {
+    fn usage(self, prompt_tokens: usize) -> (&'static str, Usage) {
+        let usage = Usage {
+            prompt_tokens,
+            completion_tokens: self.completion_tokens,
+            total_tokens: prompt_tokens + self.completion_tokens,
+            completion_tokens_details: CompletionTokensDetails {
+                reasoning_tokens: self.reasoning_tokens,
+            },
+            aien_sampling: self.sampling,
+            aien_token_ids: self.token_ids,
+            aien_test: self.test.map(|n| json!({ "applied": n })),
+        };
+        (self.finish, usage)
+    }
 }
 
 /// What the generation thread sends to the HTTP side. `Done` is sent once per request, so its size
@@ -233,14 +307,7 @@ enum Ev {
     Delta(String),
     /// Text of the thinking block (`reasoning_content`).
     Reasoning(String),
-    Done {
-        finish: &'static str,
-        completion_tokens: usize,
-        sampling: Option<SamplingRecord>,
-        token_ids: Option<Vec<u32>>,
-        /// The `aien_test` switches applied (`usage.aien_test.applied`), when the request set any.
-        test: Option<Vec<&'static str>>,
-    },
+    Done(Done),
     Error(String),
     /// The engine could not get the shared chip: 503 before any token.
     Busy(String),
@@ -264,10 +331,69 @@ pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/v1/models", get(list_models))
         .route("/v1/models/:id", get(get_model))
+        .route("/v1/language-models", get(list_language_models))
+        .route("/v1/language-models/:id", get(get_language_model))
         .route("/v1/chat/completions", post(chat_completions))
+        .route("/v1/responses", post(responses))
+        .route("/v1/completions", post(completions))
+        .route("/v1/messages", post(messages))
+        .route("/v1/tokenize-text", post(tokenize_text))
         .route("/health", get(health))
         .fallback(not_found)
+        .layer(middleware::from_fn_with_state(Arc::clone(&state), cors))
         .with_state(state)
+}
+
+fn cors_allowed(state: &AppState, origin: &str) -> bool {
+    state
+        .cfg
+        .cors_origins
+        .iter()
+        .any(|o| o.eq_ignore_ascii_case(origin))
+}
+
+/// CORS for the `--cors-origin` list only. A preflight from a listed origin is 204 with the
+/// allowed methods and headers; from any other origin 403. Other responses gain
+/// `Access-Control-Allow-Origin` for a listed origin. Every request still passes
+/// [`check_headers`] (bearer, Host, Content-Type); CORS only lets a browser read the answer.
+async fn cors(State(state): State<Arc<AppState>>, request: Request<Body>, next: Next) -> Response {
+    let origin = request.headers().get(header::ORIGIN).cloned();
+    let allowed = origin
+        .as_ref()
+        .and_then(|o| o.to_str().ok())
+        .is_some_and(|o| cors_allowed(&state, o));
+    if request.method() == Method::OPTIONS && origin.is_some() {
+        if !allowed {
+            return ApiError::forbidden("CORS: origin not allowed").into_response();
+        }
+        let mut resp = StatusCode::NO_CONTENT.into_response();
+        let h = resp.headers_mut();
+        h.insert(
+            header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            origin.expect("allowed origin"),
+        );
+        h.insert(
+            header::ACCESS_CONTROL_ALLOW_METHODS,
+            HeaderValue::from_static("GET, POST, OPTIONS"),
+        );
+        h.insert(
+            header::ACCESS_CONTROL_ALLOW_HEADERS,
+            HeaderValue::from_static("authorization, content-type"),
+        );
+        h.insert(header::ACCESS_CONTROL_MAX_AGE, HeaderValue::from_static("600"));
+        h.insert(header::VARY, HeaderValue::from_static("Origin"));
+        return resp;
+    }
+    let mut resp = next.run(request).await;
+    if !state.cfg.cors_origins.is_empty() {
+        resp.headers_mut()
+            .append(header::VARY, HeaderValue::from_static("Origin"));
+    }
+    if let (true, Some(o)) = (allowed, origin) {
+        resp.headers_mut()
+            .insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, o);
+    }
+    resp
 }
 
 /// Binds `cfg.bind:cfg.port` (loopback only) and serves in a background task.
@@ -364,13 +490,68 @@ async fn get_model(
     if let Some(r) = state.cfg.readers.as_ref().filter(|r| r.model_id == id) {
         return Ok(Json(model_card_for(&state, &r.model_id)));
     }
-    if id != state.cfg.model_id {
-        return Err(ApiError::not_found(format!(
-            "model '{id}' not found; this server serves '{}'",
-            state.cfg.model_id
-        )));
+    check_model(&state, &id)?;
+    Ok(Json(model_card_for(&state, &id)))
+}
+
+/// The served id or one of its `--model-alias` names.
+fn serves(state: &AppState, model: &str) -> bool {
+    model == state.cfg.model_id || state.cfg.model_aliases.iter().any(|a| a == model)
+}
+
+fn check_model(state: &AppState, model: &str) -> Result<(), ApiError> {
+    if serves(state, model) {
+        return Ok(());
     }
-    Ok(Json(model_card(&state)))
+    Err(ApiError::not_found(format!(
+        "model '{model}' not found; this server serves '{}'",
+        state.cfg.model_id
+    )))
+}
+
+/// xAI's `/v1/language-models` card: prices are 0 (the model runs here), text in and out.
+fn language_model(state: &AppState, id: &str) -> Value {
+    let card = model_card_for(state, id);
+    let aliases = if id == state.cfg.model_id {
+        state.cfg.model_aliases.clone()
+    } else {
+        Vec::new()
+    };
+    json!({
+        "id": id,
+        "fingerprint": format!("fp_aien_{}", state.engine.kind()),
+        "created": card.created,
+        "object": "model",
+        "owned_by": card.owned_by,
+        "version": env!("CARGO_PKG_VERSION"),
+        "input_modalities": ["text"],
+        "output_modalities": ["text"],
+        "prompt_text_token_price": 0,
+        "cached_prompt_text_token_price": 0,
+        "prompt_image_token_price": 0,
+        "completion_text_token_price": 0,
+        "search_price": 0,
+        "long_context_threshold": 0,
+        "aliases": aliases,
+    })
+}
+
+async fn list_language_models(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let mut models = vec![language_model(&state, &state.cfg.model_id)];
+    if let Some(r) = state.cfg.readers.as_ref() {
+        models.push(language_model(&state, &r.model_id));
+    }
+    Json(json!({ "models": models }))
+}
+
+async fn get_language_model(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    if !state.cfg.readers.as_ref().is_some_and(|r| r.model_id == id) {
+        check_model(&state, &id)?;
+    }
+    Ok(Json(language_model(&state, &id)))
 }
 
 async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
@@ -413,16 +594,98 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
 
 async fn not_found() -> ApiError {
     ApiError::not_found(
-        "no such route; this server exposes /v1/models, /v1/chat/completions and /health",
+        "no such route; this server exposes /v1/models, /v1/language-models, /v1/chat/completions, /v1/responses, /v1/completions, /v1/messages, /v1/tokenize-text and /health",
     )
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Surface {
+    Chat,
+    Responses,
+    Messages,
+    Completions,
+}
+
+/// How a finished chat reply goes out.
+enum Wire {
+    Chat,
+    /// The request's fields the `response` object echoes.
+    Responses(Value),
+    Messages,
+    Completions,
 }
 
 /// Keep all authorization and slot decisions before the first body poll.
 async fn chat_completions(State(state): State<Arc<AppState>>, request: Request<Body>) -> Response {
-    match handle_chat(state, request).await {
+    serve_surface(state, request, Surface::Chat).await
+}
+
+async fn responses(State(state): State<Arc<AppState>>, request: Request<Body>) -> Response {
+    serve_surface(state, request, Surface::Responses).await
+}
+
+async fn completions(State(state): State<Arc<AppState>>, request: Request<Body>) -> Response {
+    serve_surface(state, request, Surface::Completions).await
+}
+
+async fn messages(State(state): State<Arc<AppState>>, request: Request<Body>) -> Response {
+    serve_surface(state, request, Surface::Messages).await
+}
+
+async fn serve_surface(state: Arc<AppState>, request: Request<Body>, surface: Surface) -> Response {
+    match handle(state, request, surface).await {
         Ok(r) => r,
+        Err(e) if surface == Surface::Messages => e.into_anthropic(),
         Err(e) => e.into_response(),
     }
+}
+
+/// `POST /v1/tokenize-text` (xAI): `{text, model?}` to `{token_ids: [{token_id, string_token,
+/// token_bytes}]}`. Same header checks as a generation; takes no engine slot.
+async fn tokenize_text(State(state): State<Arc<AppState>>, request: Request<Body>) -> Response {
+    match tokenize(state, request).await {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+async fn tokenize(state: Arc<AppState>, request: Request<Body>) -> Result<Value, ApiError> {
+    let (body, _) = admit(&state, request, false).await?;
+    tokio::task::spawn_blocking(move || {
+        let raw: Value = serde_json::from_slice(&body)
+            .map_err(|e| ApiError::bad_request(format!("invalid JSON request: {e}")))?;
+        if let Some(m) = raw.get("model").filter(|v| !v.is_null()) {
+            let m = m
+                .as_str()
+                .ok_or_else(|| ApiError::bad_request("model must be a string"))?;
+            check_model(&state, m)?;
+        }
+        let text = raw
+            .get("text")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ApiError::bad_request("text must be a string"))?;
+        let ids = state
+            .codec
+            .encode(text)
+            .map_err(|e| ApiError::bad_request(format!("could not tokenize: {e}")))?;
+        let token_ids = ids
+            .iter()
+            .map(|&id| {
+                let bytes = state
+                    .codec
+                    .token_bytes(id)
+                    .map_err(|e| ApiError::internal(e.to_string()))?;
+                Ok(json!({
+                    "token_id": id,
+                    "string_token": String::from_utf8_lossy(&bytes),
+                    "token_bytes": bytes,
+                }))
+            })
+            .collect::<Result<Vec<_>, ApiError>>()?;
+        Ok(json!({ "token_ids": token_ids }))
+    })
+    .await
+    .map_err(|_| ApiError::internal("tokenizing failed"))?
 }
 
 fn authorized(headers: &HeaderMap, token: &str) -> bool {
@@ -474,14 +737,16 @@ fn check_headers(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> 
         let origin = origin
             .to_str()
             .map_err(|_| ApiError::forbidden("unrecognized Origin"))?;
-        let origin_host = origin
-            .strip_prefix("http://")
-            .ok_or_else(|| ApiError::forbidden("unrecognized Origin"))?;
-        if !state.allowed_hosts[1..]
-            .iter()
-            .any(|h| origin_host.eq_ignore_ascii_case(h))
-        {
-            return Err(ApiError::forbidden("unrecognized Origin"));
+        if !cors_allowed(state, origin) {
+            let origin_host = origin
+                .strip_prefix("http://")
+                .ok_or_else(|| ApiError::forbidden("unrecognized Origin"))?;
+            if !state.allowed_hosts[1..]
+                .iter()
+                .any(|h| origin_host.eq_ignore_ascii_case(h))
+            {
+                return Err(ApiError::forbidden("unrecognized Origin"));
+            }
         }
     }
     if headers.get_all(header::CONTENT_TYPE).iter().count() != 1 {
@@ -501,13 +766,24 @@ fn check_headers(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> 
     Ok(())
 }
 
-async fn handle_chat(state: Arc<AppState>, request: Request<Body>) -> Result<Response, ApiError> {
-    check_headers(&state, request.headers())?;
+/// Headers, then (with `slot`) an engine slot, then the bounded body: all before parsing.
+async fn admit(
+    state: &Arc<AppState>,
+    request: Request<Body>,
+    slot: bool,
+) -> Result<(Bytes, Option<OwnedSemaphorePermit>), ApiError> {
+    check_headers(state, request.headers())?;
     // A request owns its engine slot while the bounded body is read and while parsing or
     // tokenizing. Readers may reserve additional slots only after their initial admission.
-    let guard = Arc::clone(&state.gate)
-        .try_acquire_owned()
-        .map_err(|_| ApiError::busy())?;
+    let guard = if slot {
+        Some(
+            Arc::clone(&state.gate)
+                .try_acquire_owned()
+                .map_err(|_| ApiError::busy())?,
+        )
+    } else {
+        None
+    };
     if request
         .headers()
         .get(header::CONTENT_LENGTH)
@@ -525,39 +801,78 @@ async fn handle_chat(state: Arc<AppState>, request: Request<Body>) -> Result<Res
     .await
     .map_err(|_| ApiError::bad_request("request body read timed out"))?
     .map_err(|_| ApiError::too_large(limit))?;
-    let pending = tokio::task::spawn_blocking(move || prepare_chat(state, body, guard))
-        .await
-        .map_err(|_| ApiError::internal("request preparation failed"))??;
-    respond(
-        pending.rx,
-        pending.stream,
-        pending.id,
-        pending.created,
-        pending.model,
-        pending.prompt_tokens,
-        pending.tools,
-    )
-    .await
+    Ok((body, guard))
 }
 
-struct PendingResponse {
-    rx: mpsc::Receiver<Ev>,
-    stream: bool,
+async fn handle(
+    state: Arc<AppState>,
+    request: Request<Body>,
+    surface: Surface,
+) -> Result<Response, ApiError> {
+    let (body, guard) = admit(&state, request, true).await?;
+    let guard = guard.expect("admit took a slot");
+    let (pending, wire) =
+        tokio::task::spawn_blocking(move || prepare_surface(state, surface, body, guard))
+            .await
+            .map_err(|_| ApiError::internal("request preparation failed"))??;
+    respond(pending, wire).await
+}
+
+/// A request of any surface as a chat request on its way to the engine.
+fn prepare_surface(
+    state: Arc<AppState>,
+    surface: Surface,
+    body: Bytes,
+    guard: OwnedSemaphorePermit,
+) -> Result<(PendingResponse, Wire), ApiError> {
+    let raw: Value = serde_json::from_slice(&body)
+        .map_err(|e| ApiError::bad_request(format!("invalid JSON request: {e}")))?;
+    match surface {
+        Surface::Chat => Ok((prepare_chat(state, raw, guard)?, Wire::Chat)),
+        Surface::Responses => {
+            let (chat, echo) = compat::responses_to_chat(&raw).map_err(ApiError::bad_request)?;
+            Ok((prepare_chat(state, chat, guard)?, Wire::Responses(echo)))
+        }
+        Surface::Messages => {
+            let chat = compat::messages_to_chat(&raw).map_err(ApiError::bad_request)?;
+            Ok((prepare_chat(state, chat, guard)?, Wire::Messages))
+        }
+        Surface::Completions => {
+            let (chat, prompt) =
+                compat::completions_to_chat(&raw).map_err(ApiError::bad_request)?;
+            let req: ChatRequest = serde_json::from_value(chat)
+                .map_err(|e| ApiError::bad_request(format!("invalid JSON request: {e}")))?;
+            let prepared = prepare_raw(&state, req, prompt)?;
+            let model = state.cfg.model_id.clone();
+            Ok((start(&state, prepared, guard, model), Wire::Completions))
+        }
+    }
+}
+
+/// What every reply of a request shares.
+struct Meta {
     id: String,
     created: u64,
     model: String,
     prompt_tokens: usize,
     tools: bool,
+    parallel_tools: bool,
+    include_usage: bool,
+}
+
+struct PendingResponse {
+    /// One per choice (`n`), generated in order.
+    rxs: Vec<mpsc::Receiver<Ev>>,
+    stream: bool,
+    meta: Meta,
 }
 
 fn prepare_chat(
     state: Arc<AppState>,
-    body: Bytes,
+    mut raw: Value,
     guard: OwnedSemaphorePermit,
 ) -> Result<PendingResponse, ApiError> {
     let mut guard = Some(guard);
-    let mut raw: Value = serde_json::from_slice(&body)
-        .map_err(|e| ApiError::bad_request(format!("invalid JSON request: {e}")))?;
     let mut model = state.cfg.model_id.clone();
     if let Some(rc) = state.cfg.readers.as_ref() {
         if raw.get("model").and_then(Value::as_str) == Some(rc.model_id.as_str()) {
@@ -571,33 +886,72 @@ fn prepare_chat(
     let req: ChatRequest = serde_json::from_value(raw)
         .map_err(|e| ApiError::bad_request(format!("invalid JSON request: {e}")))?;
     let prepared = prepare(&state, req)?;
-    let (created, id) = new_id(&state);
-    let prompt_tokens = prepared.prompt_tokens.len();
-    let stream = prepared.stream;
-    let tools = prepared.tools;
-    let (tx, rx) = mpsc::channel::<Ev>(64);
-    let engine = Arc::clone(&state.engine);
-    let codec = Arc::clone(&state.codec);
-    let log_id = id.clone();
-    tokio::task::spawn_blocking(move || {
-        run_generation(
-            engine,
-            codec,
-            prepared,
-            tx,
-            guard.expect("admitted slot"),
-            &log_id,
-        );
-    });
-    Ok(PendingResponse {
-        rx,
-        stream,
+    Ok(start(
+        &state,
+        prepared,
+        guard.expect("admitted slot"),
+        model,
+    ))
+}
+
+fn start(
+    state: &Arc<AppState>,
+    prepared: Prepared,
+    guard: OwnedSemaphorePermit,
+    model: String,
+) -> PendingResponse {
+    let (created, id) = new_id(state);
+    let meta = Meta {
         id,
         created,
         model,
-        prompt_tokens,
-        tools,
-    })
+        prompt_tokens: prepared.prompt_tokens.len(),
+        tools: prepared.tools,
+        parallel_tools: prepared.parallel_tools,
+        include_usage: prepared.include_usage,
+    };
+    let stream = prepared.stream;
+    let rxs = launch(state, prepared, guard, &meta.id);
+    PendingResponse { rxs, stream, meta }
+}
+
+/// The `n` choices one after another on one blocking thread holding the slot; choice `i` samples
+/// with seed + i. A client that leaves stops the choices not yet started.
+fn launch(
+    state: &AppState,
+    prepared: Prepared,
+    guard: OwnedSemaphorePermit,
+    id: &str,
+) -> Vec<mpsc::Receiver<Ev>> {
+    let n = prepared.n.max(1);
+    let (txs, rxs): (Vec<_>, Vec<_>) = (0..n).map(|_| mpsc::channel::<Ev>(64)).unzip();
+    let engine = Arc::clone(&state.engine);
+    let codec = Arc::clone(&state.codec);
+    let id = id.to_string();
+    tokio::task::spawn_blocking(move || {
+        let mut guard = Some(guard);
+        let mut prepared = Some(prepared);
+        for (i, tx) in txs.into_iter().enumerate() {
+            if i > 0 && tx.is_closed() {
+                return;
+            }
+            let last = i + 1 == n;
+            let mut p = if last {
+                prepared.take().expect("the last choice")
+            } else {
+                prepared.as_ref().expect("choices left").clone()
+            };
+            p.params.seed = p.params.seed.wrapping_add(i as u64);
+            let g = if last { guard.take() } else { None };
+            let log_id = if n > 1 {
+                format!("{id}/{i}")
+            } else {
+                id.clone()
+            };
+            run_generation(Arc::clone(&engine), Arc::clone(&codec), p, tx, g, &log_id);
+        }
+    });
+    rxs
 }
 
 fn new_id(state: &AppState) -> (u64, String) {
@@ -625,6 +979,11 @@ fn handle_readers(
     let Some(mut plan) = readers::plan(msgs, rc, &count) else {
         return Ok(None);
     };
+    if raw.get("n").is_some_and(|n| !n.is_null() && n != &json!(1)) {
+        return Err(ApiError::bad_request(
+            "n > 1 is not supported on the readers model",
+        ));
+    }
     let slots = state.engine.concurrency().max(1);
     let want = plan.parts.len().min(slots);
     let (extra, got) = (1..want)
@@ -666,7 +1025,12 @@ fn handle_readers(
     // The connect request must be valid before any row reads (same checks, notes not yet known).
     let blank = vec![String::new(); plan.parts.len()];
     let check = from(readers::connect_body(raw, &plan, &blank, base))?;
-    let (stream, tools) = (check.stream, check.tools);
+    let (stream, tools, parallel_tools, include_usage) = (
+        check.stream,
+        check.tools,
+        check.parallel_tools,
+        check.include_usage,
+    );
     let show_notes = raw
         .get("aien_show_notes")
         .and_then(Value::as_bool)
@@ -684,13 +1048,17 @@ fn handle_readers(
         run_readers(st, raw, plan, maps, permit, tx, stream, show_notes, &log_id);
     });
     Ok(Some(PendingResponse {
-        rx,
+        rxs: vec![rx],
         stream,
-        id,
-        created,
-        model: rc.model_id.clone(),
-        prompt_tokens: 0,
-        tools,
+        meta: Meta {
+            id,
+            created,
+            model: rc.model_id.clone(),
+            prompt_tokens: 0,
+            tools,
+            parallel_tools,
+            include_usage,
+        },
     }))
 }
 
@@ -861,7 +1229,7 @@ fn run_readers(
         Arc::clone(&state.codec),
         connect,
         tx,
-        one,
+        Some(one),
         id,
     );
 }
@@ -878,48 +1246,56 @@ fn chip_busy() -> Response {
     resp
 }
 
+/// A generation's events, the first one already read.
+struct Events {
+    first: Option<Ev>,
+    rx: mpsc::Receiver<Ev>,
+}
+
+impl Events {
+    async fn recv(&mut self) -> Option<Ev> {
+        match self.first.take() {
+            Some(ev) => Some(ev),
+            None => self.rx.recv().await,
+        }
+    }
+}
+
 /// The response for a generation's events: the first decides the status (a busy chip is 503).
-async fn respond(
-    mut rx: mpsc::Receiver<Ev>,
-    stream: bool,
-    id: String,
-    created: u64,
-    model: String,
-    prompt_tokens: usize,
-    tools: bool,
-) -> Result<Response, ApiError> {
+async fn respond(pending: PendingResponse, wire: Wire) -> Result<Response, ApiError> {
     // The first event decides the status: a busy chip is a 503 with a plain body, before any
     // headers go out (streaming included). Everything else is forwarded unchanged.
+    let mut rxs = pending.rxs.into_iter();
+    let mut rx = rxs
+        .next()
+        .ok_or_else(|| ApiError::internal("no generation started"))?;
     let first = rx.recv().await;
     if let Some(Ev::Busy(_)) = first {
         return Ok(chip_busy());
     }
-    let (ftx, frx) = mpsc::channel::<Ev>(64);
-    tokio::spawn(async move {
-        if let Some(ev) = first {
-            if ftx.send(ev).await.is_err() {
-                return;
-            }
-        }
-        while let Some(ev) = rx.recv().await {
-            if ftx.send(ev).await.is_err() {
-                return;
-            }
-        }
-    });
-    let rx = frx;
-    if stream {
-        Ok(stream_response(
-            id,
-            created,
-            model,
-            prompt_tokens,
-            rx,
-            tools,
-        ))
-    } else {
-        collect_response(id, created, &model, prompt_tokens, rx, tools).await
+    let mut events: Vec<Events> = std::iter::once(Events { first, rx })
+        .chain(rxs.map(|rx| Events { first: None, rx }))
+        .collect();
+    let meta = pending.meta;
+    if pending.stream {
+        // `n > 1` is refused for streams, so there is one generation.
+        let ev = events.swap_remove(0);
+        return Ok(match wire {
+            Wire::Responses(echo) => stream_responses(meta, ev, echo),
+            _ => stream_response(meta, ev),
+        });
     }
+    let chat = match collect_chat(&meta, events).await? {
+        Ok(chat) => chat,
+        Err(busy) => return Ok(busy),
+    };
+    let body = match wire {
+        Wire::Chat => chat,
+        Wire::Responses(echo) => compat::chat_to_response(&chat, &echo),
+        Wire::Messages => compat::chat_to_message(&chat),
+        Wire::Completions => compat::chat_to_text_completion(&chat),
+    };
+    Ok(Json(body).into_response())
 }
 
 fn text_of_content(content: &Value) -> Result<String, ApiError> {
@@ -954,15 +1330,7 @@ fn text_of_content(content: &Value) -> Result<String, ApiError> {
 fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
     let cfg = &state.cfg;
     if let Some(m) = req.model.as_deref() {
-        if m != cfg.model_id {
-            return Err(ApiError::not_found(format!(
-                "model '{m}' not found; this server serves '{}'",
-                cfg.model_id
-            )));
-        }
-    }
-    if matches!(req.n, Some(n) if n != 1) {
-        return Err(ApiError::bad_request("n must be 1"));
+        check_model(state, m)?;
     }
     // Tool calling (Qwen3.6 qwen3_coder XML, as the model's own template renders it): legacy
     // `functions` are accepted as tools.
@@ -974,7 +1342,7 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
             .collect(),
         _ => Vec::new(),
     };
-    let has_tools = !tool_defs.is_empty();
+    let has_tools = tool_mode(&req, &tool_defs)?;
     if req.messages.is_empty() {
         return Err(ApiError::bad_request("messages must be a non-empty array"));
     }
@@ -1048,9 +1416,96 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
             CodecError::Unrenderable(m) => ApiError::bad_request(m),
             CodecError::Failed(m) => ApiError::internal(m),
         })?;
+    prepare_params(state, req, &prompt_text, has_tools)
+}
+
+/// `tool_choice`: whether the tools are shown to the model. A forced call (`"required"`, a named
+/// function) is a 400: nothing here can make the model call a tool, and pretending would let a
+/// client trust a reply that may carry no call.
+fn tool_mode(req: &ChatRequest, tools: &[Value]) -> Result<bool, ApiError> {
+    const NO_FORCE: &str =
+        "this server cannot force a tool call (no constrained decoding); use \"auto\" or \"none\"";
+    match req.tool_choice.as_ref() {
+        None | Some(Value::Null) => Ok(!tools.is_empty()),
+        Some(Value::String(s)) if s == "auto" => Ok(!tools.is_empty()),
+        Some(Value::String(s)) if s == "none" => Ok(false),
+        Some(Value::String(s)) if s == "required" => Err(ApiError::bad_request(format!(
+            "tool_choice \"required\" is not supported: {NO_FORCE}"
+        ))),
+        Some(v) if v["type"] == "function" && v["function"]["name"].is_string() => {
+            let name = v["function"]["name"].as_str().expect("string");
+            if tools.iter().any(|t| t["function"]["name"] == name) {
+                Err(ApiError::bad_request(format!(
+                    "tool_choice forcing function '{name}' is not supported: {NO_FORCE}"
+                )))
+            } else {
+                Err(ApiError::bad_request(format!(
+                    "tool_choice names function '{name}', which is not in tools"
+                )))
+            }
+        }
+        Some(v) => Err(ApiError::bad_request(format!(
+            "tool_choice must be \"auto\", \"none\", \"required\" or {{\"type\":\"function\",\"function\":{{\"name\":...}}}}; got {v}"
+        ))),
+    }
+}
+
+/// A legacy completion: the prompt as given, no chat template.
+fn prepare_raw(state: &AppState, req: ChatRequest, prompt: String) -> Result<Prepared, ApiError> {
+    if let Some(m) = req.model.as_deref() {
+        check_model(state, m)?;
+    }
+    if prompt.is_empty() {
+        return Err(ApiError::bad_request("prompt must be non-empty"));
+    }
+    prepare_params(state, req, &prompt, false)
+}
+
+fn prepare_params(
+    state: &AppState,
+    req: ChatRequest,
+    prompt_text: &str,
+    has_tools: bool,
+) -> Result<Prepared, ApiError> {
+    let cfg = &state.cfg;
+    if let Some(f) = req.response_format.as_ref().filter(|v| !v.is_null()) {
+        match f.get("type").and_then(Value::as_str) {
+            Some("text") => {}
+            Some(k @ ("json_object" | "json_schema")) => {
+                return Err(ApiError::bad_request(format!(
+                    "response_format {k} is not supported: this server has no constrained decoding, so it cannot guarantee JSON"
+                )))
+            }
+            _ => {
+                return Err(ApiError::bad_request(
+                    "response_format must be {\"type\":\"text\"}",
+                ))
+            }
+        }
+    }
+    let n = match req.n {
+        None => 1,
+        Some(n) if (1..=8).contains(&n) => n as usize,
+        Some(_) => return Err(ApiError::bad_request("n must be between 1 and 8")),
+    };
+    if n > 1 && req.stream {
+        return Err(ApiError::bad_request(
+            "n > 1 is not supported with stream: true",
+        ));
+    }
+    if n > 1 && req.aien_return_token_ids {
+        return Err(ApiError::bad_request(
+            "aien_return_token_ids needs n = 1",
+        ));
+    }
+    let include_usage = req
+        .stream_options
+        .as_ref()
+        .is_some_and(|o| o.include_usage);
+    let parallel_tools = req.parallel_tool_calls != Some(false);
     let prompt_tokens = state
         .codec
-        .encode(&prompt_text)
+        .encode(prompt_text)
         .map_err(|e| ApiError::context_exceeded(format!("could not tokenize prompt: {e}")))?;
     if prompt_tokens.is_empty() {
         return Err(ApiError::bad_request("the rendered prompt is empty"));
@@ -1141,6 +1596,9 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
         },
         return_ids: req.aien_return_token_ids,
         tools: has_tools,
+        parallel_tools,
+        include_usage,
+        n,
         test: test_switches(state, req.aien_test.as_ref())?,
     })
 }
@@ -1216,15 +1674,16 @@ fn chat_options(req: &ChatRequest) -> Result<ChatOptions, ApiError> {
     Ok(o)
 }
 
-/// Runs on a blocking thread holding the generation lock (`guard`). The lock is released as soon
-/// as the engine returns, before the final event is sent, so a client that sends its next request
-/// the moment it has the reply never meets a stale 503 `server_busy`.
+/// Runs on a blocking thread holding the generation lock (`guard`, absent for all but the last of
+/// several choices, which run under it). The lock is released as soon as the engine returns,
+/// before the final event is sent, so a client that sends its next request the moment it has the
+/// reply never meets a stale 503 `server_busy`.
 fn run_generation(
     engine: Arc<dyn Engine>,
     codec: Arc<dyn Codec>,
     prepared: Prepared,
     tx: mpsc::Sender<Ev>,
-    guard: OwnedSemaphorePermit,
+    guard: Option<OwnedSemaphorePermit>,
     id: &str,
 ) {
     let mut asm = TextAssembler::new(Arc::clone(&codec), prepared.stop_strings);
@@ -1238,6 +1697,7 @@ fn run_generation(
     let mut ids = prepared.return_ids.then(Vec::new);
     let mut stopped_by_string = false;
     let mut client_gone = false;
+    let mut reasoning_tokens = 0usize;
     let test_report = (!prepared.test.is_empty()).then(|| prepared.test.names());
     let result = engine.generate_with_test(
         &prepared.prompt_tokens,
@@ -1248,6 +1708,7 @@ fn run_generation(
                 ids.push(tok);
             }
             if let Some((end, rasm)) = thinking.as_mut() {
+                reasoning_tokens += 1;
                 let ev = if tok == *end {
                     let rest = rasm.finish();
                     thinking = None;
@@ -1357,30 +1818,111 @@ fn run_generation(
                 out.prefill_ms,
                 out.decode_ms
             );
-            let _ = tx.blocking_send(Ev::Done {
+            let _ = tx.blocking_send(Ev::Done(Done {
                 finish,
                 completion_tokens: out.emitted_tokens,
+                reasoning_tokens: reasoning_tokens.min(out.emitted_tokens),
                 sampling: out.sampling,
                 token_ids: ids,
                 test: test_report,
-            });
+            }));
         }
     }
 }
 
-async fn collect_response(
-    id: String,
-    created: u64,
-    model: &str,
-    mut prompt_tokens: usize,
-    mut rx: mpsc::Receiver<Ev>,
-    tools: bool,
-) -> Result<Response, ApiError> {
+/// The reply's text and its tool calls (`parallel: false` keeps the first call).
+fn split_calls(text: &str, id: &str, parallel: bool) -> (String, Vec<Value>) {
+    let (text, mut calls) = crate::tools::parse_reply(text, id);
+    if !parallel {
+        calls.truncate(1);
+    }
+    (text, calls)
+}
+
+/// Streamed tool requests: text goes out until a `<tool_call>` opens (a possible split tag is
+/// held back); from there the reply is held and parsed at the end.
+#[derive(Default)]
+struct ToolSplit {
+    held: String,
+    in_call: bool,
+}
+
+impl ToolSplit {
+    /// The text of `d` that can go out now.
+    fn push(&mut self, d: &str) -> String {
+        self.held.push_str(d);
+        if self.in_call {
+            return String::new();
+        }
+        let cut = match self.held.find(crate::tools::OPEN) {
+            Some(p) => {
+                self.in_call = true;
+                p
+            }
+            None => self.held.len() - crate::tools::partial_open_len(&self.held),
+        };
+        self.held.drain(..cut).collect()
+    }
+
+    /// The held text and calls at the end of the reply.
+    fn finish(&mut self, id: &str, parallel: bool) -> (String, Vec<Value>) {
+        if self.held.is_empty() {
+            return (String::new(), Vec::new());
+        }
+        split_calls(&std::mem::take(&mut self.held), id, parallel)
+    }
+}
+
+/// All choices as one `chat.completion`: the prompt counted once, the replies' tokens summed.
+/// `Ok(Err(_))` is the busy-chip 503.
+async fn collect_chat(
+    meta: &Meta,
+    events: Vec<Events>,
+) -> Result<Result<Value, Response>, ApiError> {
+    let mut body: Option<Value> = None;
+    for (i, mut ev) in events.into_iter().enumerate() {
+        let one = match collect_choice(meta, &mut ev).await? {
+            Ok(v) => v,
+            Err(busy) => return Ok(Err(busy)),
+        };
+        let Some(b) = body.as_mut() else {
+            body = Some(one);
+            continue;
+        };
+        let mut choice = one["choices"][0].clone();
+        choice["index"] = json!(i);
+        b["choices"]
+            .as_array_mut()
+            .expect("choices")
+            .push(choice);
+        for k in ["completion_tokens", "total_tokens"] {
+            let sum = b["usage"][k].as_u64().unwrap_or(0)
+                + one["usage"]["completion_tokens"].as_u64().unwrap_or(0);
+            b["usage"][k] = json!(sum);
+        }
+        let r = &mut b["usage"]["completion_tokens_details"]["reasoning_tokens"];
+        *r = json!(
+            r.as_u64().unwrap_or(0)
+                + one["usage"]["completion_tokens_details"]["reasoning_tokens"]
+                    .as_u64()
+                    .unwrap_or(0)
+        );
+    }
+    body.map(Ok)
+        .ok_or_else(|| ApiError::internal("generation ended without a result"))
+}
+
+async fn collect_choice(
+    meta: &Meta,
+    ev: &mut Events,
+) -> Result<Result<Value, Response>, ApiError> {
+    let (id, created, model) = (meta.id.as_str(), meta.created, meta.model.as_str());
+    let mut prompt_tokens = meta.prompt_tokens;
     let mut content = String::new();
     let mut reasoning: Option<String> = None;
     let mut readers: Option<Value> = None;
-    while let Some(ev) = rx.recv().await {
-        match ev {
+    while let Some(e) = ev.recv().await {
+        match e {
             Ev::Delta(d) => content.push_str(&d),
             Ev::Reading => {}
             Ev::Readers {
@@ -1391,29 +1933,16 @@ async fn collect_response(
                 prompt_tokens = p;
             }
             Ev::Reasoning(d) => reasoning.get_or_insert_with(String::new).push_str(&d),
-            Ev::Done {
-                finish,
-                completion_tokens,
-                sampling,
-                token_ids,
-                test,
-            } => {
-                let usage = Usage {
-                    prompt_tokens,
-                    completion_tokens,
-                    total_tokens: prompt_tokens + completion_tokens,
-                    aien_sampling: sampling,
-                    aien_token_ids: token_ids,
-                    aien_test: test.map(|n| serde_json::json!({ "applied": n })),
-                };
+            Ev::Done(done) => {
+                let (finish, usage) = done.usage(prompt_tokens);
                 let reasoning = reasoning.as_deref().map(str::trim);
-                let (text, calls) = if tools {
-                    crate::tools::parse_reply(&content, &id)
+                let (text, calls) = if meta.tools {
+                    split_calls(&content, id, meta.parallel_tools)
                 } else {
                     (content.clone(), Vec::new())
                 };
                 let mut body =
-                    completion_json(&id, created, model, &text, reasoning, finish, &usage);
+                    completion_json(id, created, model, &text, reasoning, finish, &usage);
                 if !calls.is_empty() {
                     let msg = &mut body["choices"][0]["message"];
                     msg["tool_calls"] = Value::Array(calls);
@@ -1425,152 +1954,109 @@ async fn collect_response(
                 if let Some(info) = readers {
                     body["aien_readers"] = info;
                 }
-                return Ok(Json(body).into_response());
+                return Ok(Ok(body));
             }
             Ev::Error(m) => return Err(ApiError::internal(m)),
             // Not the first event on the readers' path (`Ev::Readers` goes before the connect
             // generation); nothing has been sent yet, so it is the same 503 as a busy first event.
-            Ev::Busy(_) => return Ok(chip_busy()),
+            Ev::Busy(_) => return Ok(Err(chip_busy())),
         }
     }
     Err(ApiError::internal("generation ended without a result"))
 }
 
-fn stream_response(
-    id: String,
-    created: u64,
-    model: String,
-    mut prompt_tokens: usize,
-    mut rx: mpsc::Receiver<Ev>,
-    tools: bool,
-) -> Response {
+fn sse(erx: mpsc::Receiver<Result<Event, Infallible>>) -> Response {
+    Sse::new(ReceiverStream::new(erx))
+        .keep_alive(
+            KeepAlive::new()
+                .interval(Duration::from_secs(15))
+                .text("keep-alive"),
+        )
+        .into_response()
+}
+
+fn stream_response(meta: Meta, mut ev: Events) -> Response {
     let (etx, erx) = mpsc::channel::<Result<Event, Infallible>>(64);
     tokio::spawn(async move {
-        // Tool requests: content streams until a `<tool_call>` opens (a possible split tag is held
-        // back); from there the reply is buffered and sent as one `tool_calls` delta at the end.
-        let mut held = String::new();
-        let mut in_call = false;
+        let (id, created, model) = (meta.id.as_str(), meta.created, meta.model.as_str());
+        let mut prompt_tokens = meta.prompt_tokens;
+        let mut split = ToolSplit::default();
         let data = |v: Value| Ok(Event::default().data(v.to_string()));
-        let first = chunk_json(
-            &id,
-            created,
-            &model,
-            Some("assistant"),
-            Some(""),
-            None,
-            None,
-        );
+        let text_chunk = |t: &str| chunk_json(id, created, model, None, Some(t), None, None);
+        let first = chunk_json(id, created, model, Some("assistant"), Some(""), None, None);
         if etx.send(data(first)).await.is_err() {
             return;
         }
-        while let Some(ev) = rx.recv().await {
-            let item = match ev {
+        while let Some(e) = ev.recv().await {
+            let item = match e {
                 Ev::Reading => continue,
                 Ev::Readers {
                     info,
                     prompt_tokens: p,
                 } => {
                     prompt_tokens = p;
-                    let mut v = chunk_json(&id, created, &model, None, None, None, None);
+                    let mut v = chunk_json(id, created, model, None, None, None, None);
                     v["aien_readers"] = info;
                     data(v)
                 }
-                Ev::Delta(d) if tools => {
-                    held.push_str(&d);
-                    if in_call {
-                        continue;
-                    }
-                    let out = if let Some(p) = held.find(crate::tools::OPEN) {
-                        in_call = true;
-                        let out = held[..p].to_string();
-                        held = held[p..].to_string();
-                        out
-                    } else {
-                        let keep = crate::tools::partial_open_len(&held);
-                        let cut = held.len() - keep;
-                        let out = held[..cut].to_string();
-                        held = held[cut..].to_string();
-                        out
-                    };
+                Ev::Delta(d) if meta.tools => {
+                    let out = split.push(&d);
                     if out.is_empty() {
                         continue;
                     }
-                    data(chunk_json(
-                        &id,
-                        created,
-                        &model,
-                        None,
-                        Some(&out),
-                        None,
-                        None,
-                    ))
+                    data(text_chunk(&out))
                 }
-                Ev::Delta(d) => data(chunk_json(&id, created, &model, None, Some(&d), None, None)),
+                Ev::Delta(d) => data(text_chunk(&d)),
                 Ev::Reasoning(d) => data(chunk_json_with(
-                    &id,
+                    id,
                     created,
-                    &model,
+                    model,
                     None,
                     None,
                     Some(&d),
                     None,
                     None,
                 )),
-                Ev::Done {
-                    finish,
-                    completion_tokens,
-                    sampling,
-                    token_ids,
-                    test,
-                } => {
-                    let usage = Usage {
-                        prompt_tokens,
-                        completion_tokens,
-                        total_tokens: prompt_tokens + completion_tokens,
-                        aien_sampling: sampling,
-                        aien_token_ids: token_ids,
-                        aien_test: test.map(|n| serde_json::json!({ "applied": n })),
-                    };
-                    let mut finish = finish;
-                    if tools && !held.is_empty() {
-                        let (text, calls) = crate::tools::parse_reply(&held, &id);
-                        if !text.is_empty()
-                            && etx
-                                .send(data(chunk_json(
-                                    &id,
-                                    created,
-                                    &model,
-                                    None,
-                                    Some(&text),
-                                    None,
-                                    None,
-                                )))
-                                .await
-                                .is_err()
-                        {
+                Ev::Done(done) => {
+                    let (mut finish, usage) = done.usage(prompt_tokens);
+                    let (text, calls) = split.finish(id, meta.parallel_tools);
+                    if !text.is_empty() && etx.send(data(text_chunk(&text))).await.is_err() {
+                        return;
+                    }
+                    if !calls.is_empty() {
+                        let deltas: Vec<Value> = calls
+                            .into_iter()
+                            .enumerate()
+                            .map(|(i, mut c)| {
+                                c["index"] = Value::from(i);
+                                c
+                            })
+                            .collect();
+                        let mut ch = chunk_json(id, created, model, None, None, None, None);
+                        ch["choices"][0]["delta"]["tool_calls"] = Value::Array(deltas);
+                        if etx.send(data(ch)).await.is_err() {
                             return;
                         }
-                        if !calls.is_empty() {
-                            let deltas: Vec<Value> = calls
-                                .into_iter()
-                                .enumerate()
-                                .map(|(i, mut c)| {
-                                    c["index"] = Value::from(i);
-                                    c
-                                })
-                                .collect();
-                            let mut ch = chunk_json(&id, created, &model, None, None, None, None);
-                            ch["choices"][0]["delta"]["tool_calls"] = Value::Array(deltas);
-                            if etx.send(data(ch)).await.is_err() {
-                                return;
-                            }
-                            finish = "tool_calls";
-                        }
+                        finish = "tool_calls";
                     }
-                    let last =
-                        chunk_json(&id, created, &model, None, None, Some(finish), Some(&usage));
+                    let last = chunk_json(id, created, model, None, None, Some(finish), Some(&usage));
                     if etx.send(data(last)).await.is_err() {
                         return;
+                    }
+                    // `stream_options.include_usage`: the usage again in a chunk of its own with
+                    // no choices, as OpenAI and xAI send it.
+                    if meta.include_usage {
+                        let u = json!({
+                            "id": id,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": model,
+                            "choices": [],
+                            "usage": usage,
+                        });
+                        if etx.send(data(u)).await.is_err() {
+                            return;
+                        }
                     }
                     let _ = etx.send(Ok(Event::default().data("[DONE]"))).await;
                     return;
@@ -1590,13 +2076,178 @@ fn stream_response(
             }
         }
     });
-    Sse::new(ReceiverStream::new(erx))
-        .keep_alive(
-            KeepAlive::new()
-                .interval(Duration::from_secs(15))
-                .text("keep-alive"),
-        )
-        .into_response()
+    sse(erx)
+}
+
+/// A Responses stream: named events with a running `sequence_number`, from `response.created` to
+/// `response.completed` (or `.incomplete`), then `data: [DONE]`. The reasoning item goes out
+/// whole when the answer starts; text streams as `response.output_text.delta`; tool calls go out
+/// at the end, each as its item plus one arguments delta.
+fn stream_responses(meta: Meta, mut ev: Events, echo: Value) -> Response {
+    let (etx, erx) = mpsc::channel::<Result<Event, Infallible>>(64);
+    tokio::spawn(async move {
+        let id = meta.id.as_str();
+        let base = |status: &str, output: Vec<Value>, usage: Option<Value>| {
+            compat::response_object(&echo, id, meta.created, &meta.model, status, output, usage)
+        };
+        let msg_id = format!("msg_{}", compat::id_suffix(id));
+        let mut seq = 0u64..;
+        let mut prompt_tokens = meta.prompt_tokens;
+        let mut reasoning = String::new();
+        let mut reasoning_done = false;
+        let mut text = String::new();
+        let mut msg_index: Option<usize> = None;
+        let mut split = ToolSplit::default();
+        let mut output: Vec<Value> = Vec::new();
+        macro_rules! emit {
+            ($kind:expr, $v:expr) => {{
+                let mut v: Value = $v;
+                v["type"] = json!($kind);
+                v["sequence_number"] = json!(seq.next());
+                let event = Event::default().event($kind).data(v.to_string());
+                if etx.send(Ok(event)).await.is_err() {
+                    return;
+                }
+            }};
+        }
+        macro_rules! close_reasoning {
+            () => {
+                if !std::mem::replace(&mut reasoning_done, true) && !reasoning.trim().is_empty() {
+                    let idx = output.len();
+                    let item = compat::reasoning_item(id, reasoning.trim());
+                    let mut added = item.clone();
+                    added["status"] = json!("in_progress");
+                    emit!(
+                        "response.output_item.added",
+                        json!({"output_index": idx, "item": added})
+                    );
+                    emit!(
+                        "response.output_item.done",
+                        json!({"output_index": idx, "item": item.clone()})
+                    );
+                    output.push(item);
+                }
+            };
+        }
+        macro_rules! open_message {
+            () => {
+                if msg_index.is_none() {
+                    let idx = output.len();
+                    msg_index = Some(idx);
+                    emit!(
+                        "response.output_item.added",
+                        json!({"output_index": idx, "item": compat::message_item(id, "", "in_progress")})
+                    );
+                    emit!(
+                        "response.content_part.added",
+                        json!({"item_id": msg_id, "output_index": idx, "content_index": 0, "part": compat::output_text("")})
+                    );
+                }
+            };
+        }
+        macro_rules! text_delta {
+            ($d:expr) => {{
+                let d: String = $d;
+                close_reasoning!();
+                open_message!();
+                text.push_str(&d);
+                emit!(
+                    "response.output_text.delta",
+                    json!({"item_id": msg_id, "output_index": msg_index, "content_index": 0, "delta": d, "logprobs": []})
+                );
+            }};
+        }
+        emit!(
+            "response.created",
+            json!({"response": base("in_progress", Vec::new(), None)})
+        );
+        emit!(
+            "response.in_progress",
+            json!({"response": base("in_progress", Vec::new(), None)})
+        );
+        while let Some(e) = ev.recv().await {
+            match e {
+                Ev::Reading => {}
+                Ev::Readers {
+                    prompt_tokens: p, ..
+                } => prompt_tokens = p,
+                Ev::Reasoning(d) => reasoning.push_str(&d),
+                Ev::Delta(d) => {
+                    let out = if meta.tools { split.push(&d) } else { d };
+                    if !out.is_empty() {
+                        text_delta!(out);
+                    }
+                }
+                Ev::Done(done) => {
+                    let (finish, usage) = done.usage(prompt_tokens);
+                    let (rest, calls) = split.finish(id, meta.parallel_tools);
+                    if !rest.is_empty() {
+                        text_delta!(rest);
+                    }
+                    close_reasoning!();
+                    if calls.is_empty() {
+                        open_message!();
+                    }
+                    if let Some(idx) = msg_index {
+                        emit!(
+                            "response.output_text.done",
+                            json!({"item_id": msg_id, "output_index": idx, "content_index": 0, "text": text, "logprobs": []})
+                        );
+                        emit!(
+                            "response.content_part.done",
+                            json!({"item_id": msg_id, "output_index": idx, "content_index": 0, "part": compat::output_text(&text)})
+                        );
+                        let item = compat::message_item(id, &text, "completed");
+                        emit!(
+                            "response.output_item.done",
+                            json!({"output_index": idx, "item": item.clone()})
+                        );
+                        output.push(item);
+                    }
+                    for c in &calls {
+                        let idx = output.len();
+                        let item = compat::function_call_item(c, "completed");
+                        emit!(
+                            "response.output_item.added",
+                            json!({"output_index": idx, "item": compat::function_call_item(c, "in_progress")})
+                        );
+                        emit!(
+                            "response.function_call_arguments.delta",
+                            json!({"item_id": item["id"], "output_index": idx, "delta": item["arguments"]})
+                        );
+                        emit!(
+                            "response.function_call_arguments.done",
+                            json!({"item_id": item["id"], "output_index": idx, "name": item["name"], "arguments": item["arguments"]})
+                        );
+                        emit!(
+                            "response.output_item.done",
+                            json!({"output_index": idx, "item": item.clone()})
+                        );
+                        output.push(item);
+                    }
+                    let status = compat::status_of(finish);
+                    let usage = compat::response_usage(&json!(usage));
+                    let kind = if status == "incomplete" {
+                        "response.incomplete"
+                    } else {
+                        "response.completed"
+                    };
+                    emit!(kind, json!({"response": base(status, output, Some(usage))}));
+                    let _ = etx.send(Ok(Event::default().data("[DONE]"))).await;
+                    return;
+                }
+                Ev::Error(m) | Ev::Busy(m) => {
+                    emit!(
+                        "error",
+                        json!({"code": "server_error", "message": m, "param": null})
+                    );
+                    let _ = etx.send(Ok(Event::default().data("[DONE]"))).await;
+                    return;
+                }
+            }
+        }
+    });
+    sse(erx)
 }
 
 #[cfg(test)]
@@ -1609,7 +2260,21 @@ mod tests {
             tx.send(ev).await.expect("room for every event");
         }
         drop(tx);
-        respond(rx, stream, "id".into(), 0, "m".into(), 3, false)
+        let meta = Meta {
+            id: "id".into(),
+            created: 0,
+            model: "m".into(),
+            prompt_tokens: 3,
+            tools: false,
+            parallel_tools: true,
+            include_usage: false,
+        };
+        let pending = PendingResponse {
+            rxs: vec![rx],
+            stream,
+            meta,
+        };
+        respond(pending, Wire::Chat)
             .await
             .unwrap_or_else(IntoResponse::into_response)
     }
@@ -1643,5 +2308,184 @@ mod tests {
             Ev::Busy("GPU lock held by other jobs for 300 s".into()),
         ];
         assert_chip_busy(&answer(events, false).await);
+    }
+
+    fn done(completion_tokens: usize, reasoning_tokens: usize) -> Ev {
+        Ev::Done(Done {
+            finish: "stop",
+            completion_tokens,
+            reasoning_tokens,
+            sampling: Default::default(),
+            token_ids: None,
+            test: None,
+        })
+    }
+
+    async fn body_json(resp: Response) -> Value {
+        let b = to_bytes(resp.into_body(), 1 << 20).await.expect("body");
+        serde_json::from_slice(&b).expect("json")
+    }
+
+    async fn body_text(resp: Response) -> String {
+        let b = to_bytes(resp.into_body(), 1 << 20).await.expect("body");
+        String::from_utf8(b.to_vec()).expect("utf8")
+    }
+
+    fn meta(include_usage: bool) -> Meta {
+        Meta {
+            id: "chatcmpl-1".into(),
+            created: 0,
+            model: "m".into(),
+            prompt_tokens: 3,
+            tools: false,
+            parallel_tools: true,
+            include_usage,
+        }
+    }
+
+    async fn channel(events: Vec<Ev>) -> mpsc::Receiver<Ev> {
+        let (tx, rx) = mpsc::channel(events.len().max(1));
+        for ev in events {
+            tx.send(ev).await.expect("room");
+        }
+        rx
+    }
+
+    /// Reasoning tokens are reported under `completion_tokens_details`.
+    #[tokio::test]
+    async fn usage_carries_reasoning_tokens() {
+        let events = vec![
+            Ev::Reasoning("think".into()),
+            Ev::Delta("hi".into()),
+            done(5, 2),
+        ];
+        let v = body_json(answer(events, false).await).await;
+        assert_eq!(v["usage"]["completion_tokens"], 5);
+        assert_eq!(v["usage"]["completion_tokens_details"]["reasoning_tokens"], 2);
+        assert_eq!(v["usage"]["total_tokens"], 8);
+    }
+
+    /// `n = 2`: two choices with indexes 0 and 1, the prompt counted once.
+    #[tokio::test]
+    async fn two_choices_merge_into_one_reply() {
+        let pending = PendingResponse {
+            rxs: vec![
+                channel(vec![Ev::Delta("a".into()), done(2, 1)]).await,
+                channel(vec![Ev::Delta("b".into()), done(4, 0)]).await,
+            ],
+            stream: false,
+            meta: meta(false),
+        };
+        let v = body_json(respond(pending, Wire::Chat).await.expect("reply")).await;
+        assert_eq!(v["choices"][0]["message"]["content"], "a");
+        assert_eq!(v["choices"][1]["index"], 1);
+        assert_eq!(v["choices"][1]["message"]["content"], "b");
+        assert_eq!(v["usage"]["prompt_tokens"], 3);
+        assert_eq!(v["usage"]["completion_tokens"], 6);
+        assert_eq!(v["usage"]["total_tokens"], 9);
+        assert_eq!(v["usage"]["completion_tokens_details"]["reasoning_tokens"], 1);
+    }
+
+    /// `stream_options.include_usage`: a last chunk with no choices and the usage, before `[DONE]`.
+    #[tokio::test]
+    async fn include_usage_adds_a_usage_chunk() {
+        let rx = channel(vec![Ev::Delta("hi".into()), done(1, 0)]).await;
+        let pending = PendingResponse {
+            rxs: vec![rx],
+            stream: true,
+            meta: meta(true),
+        };
+        let text = body_text(respond(pending, Wire::Chat).await.expect("reply")).await;
+        let data: Vec<&str> = text
+            .lines()
+            .filter_map(|l| l.strip_prefix("data: "))
+            .collect();
+        assert_eq!(data.last(), Some(&"[DONE]"));
+        let u: Value = serde_json::from_str(data[data.len() - 2]).expect("usage chunk");
+        assert_eq!(u["choices"], json!([]));
+        assert_eq!(u["usage"]["total_tokens"], 4);
+        let rx = channel(vec![Ev::Delta("hi".into()), done(1, 0)]).await;
+        let pending = PendingResponse {
+            rxs: vec![rx],
+            stream: true,
+            meta: meta(false),
+        };
+        let text = body_text(respond(pending, Wire::Chat).await.expect("reply")).await;
+        assert!(!text.contains("\"choices\":[]"), "{text}");
+    }
+
+    /// A Responses stream runs created .. completed with rising sequence numbers, then `[DONE]`.
+    #[tokio::test]
+    async fn responses_stream_events_in_order() {
+        let rx = channel(vec![Ev::Delta("he".into()), Ev::Delta("llo".into()), done(2, 0)]).await;
+        let pending = PendingResponse {
+            rxs: vec![rx],
+            stream: true,
+            meta: meta(false),
+        };
+        let (_, echo) = compat::responses_to_chat(&json!({"input": "x"})).expect("maps");
+        let text = body_text(
+            respond(pending, Wire::Responses(echo))
+                .await
+                .expect("reply"),
+        )
+        .await;
+        let kinds: Vec<&str> = text
+            .lines()
+            .filter_map(|l| l.strip_prefix("event: "))
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                "response.created",
+                "response.in_progress",
+                "response.output_item.added",
+                "response.content_part.added",
+                "response.output_text.delta",
+                "response.output_text.delta",
+                "response.output_text.done",
+                "response.content_part.done",
+                "response.output_item.done",
+                "response.completed",
+            ]
+        );
+        let seqs: Vec<u64> = text
+            .lines()
+            .filter_map(|l| l.strip_prefix("data: "))
+            .filter_map(|d| serde_json::from_str::<Value>(d).ok())
+            .filter_map(|v| v["sequence_number"].as_u64())
+            .collect();
+        assert_eq!(seqs, (0..10).collect::<Vec<u64>>());
+        assert!(text.contains("\"text\":\"hello\""), "{text}");
+        assert!(text.trim_end().ends_with("data: [DONE]"), "{text}");
+    }
+
+    fn req(v: Value) -> ChatRequest {
+        serde_json::from_value(v).expect("request")
+    }
+
+    /// `tool_choice`: auto and none are honoured; a forced call is a 400, never ignored.
+    #[test]
+    fn tool_choice_is_honoured_or_refused() {
+        let tools = vec![json!({"type":"function","function":{"name":"f"}})];
+        let base = json!({"messages":[{"role":"user","content":"x"}]});
+        let with = |tc: Value| {
+            let mut v = base.clone();
+            v["tool_choice"] = tc;
+            tool_mode(&req(v), &tools)
+        };
+        assert!(tool_mode(&req(base.clone()), &tools).unwrap());
+        assert!(!tool_mode(&req(base.clone()), &[]).unwrap());
+        assert!(with(json!("auto")).unwrap());
+        assert!(!with(json!("none")).unwrap());
+        for tc in [
+            json!("required"),
+            json!({"type":"function","function":{"name":"f"}}),
+            json!({"type":"function","function":{"name":"g"}}),
+            json!("sometimes"),
+        ] {
+            let e = with(tc.clone()).expect_err("refused");
+            assert_eq!(e.status, StatusCode::BAD_REQUEST, "{tc}");
+        }
     }
 }
