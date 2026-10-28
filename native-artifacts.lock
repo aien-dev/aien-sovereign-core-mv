@@ -42,3 +42,6 @@ librx_compose.a 1ad2dc1af70f01680fd93cb41a7a94fd0951723f aarch64-unknown-linux-g
 libcudapp.a 6ed24d1618e06b6e8f92e307f731a38c0d515a4b aarch64-unknown-linux-gnu a9b913c459cd638b65ba88708e5b78504a70a338aabb9d5ead6adece9d52f7d7 cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
 libomega_gpu.a 174f647a6694c61212ab90aa9e204ea2d3a69952 aarch64-unknown-linux-gnu 931d7b07620db1db7f2e91b62d04ac61e363d3ded6e94dca5b46dfbf52ee9fd5 cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
 librx_compose.a 174f647a6694c61212ab90aa9e204ea2d3a69952 aarch64-unknown-linux-gnu 0ac258c8fe2bee0fdaf6784f00213c386b46016b45704dc88eb72e1ba1c2a9a2 cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+libcudapp.a 685f6c38924383667469fa32d1f6495490b94bc9 aarch64-unknown-linux-gnu 5d600342814f92a835f32257a20160e553097a24ae98e78721831beac71aeb1c cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+libomega_gpu.a 9ab1e7bb15037a2d1fd69eb9f2d4004882bcf3ae aarch64-unknown-linux-gnu 931d7b07620db1db7f2e91b62d04ac61e363d3ded6e94dca5b46dfbf52ee9fd5 cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+librx_compose.a 9ab1e7bb15037a2d1fd69eb9f2d4004882bcf3ae aarch64-unknown-linux-gnu 0ac258c8fe2bee0fdaf6784f00213c386b46016b45704dc88eb72e1ba1c2a9a2 cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
