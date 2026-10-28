@@ -29,7 +29,7 @@ All communication, documentation, commits, and agent prompts must strictly adher
 ---
 
 ## 2. Mandatory Branching & Worktree Discipline
-To protect codebase integrity in an agent-only development environment:
+To protect codebase integrity under Human-Directed Agentic Engineering (HDAE), humans set the goals, constraints, acceptance criteria, and stopping points while agents implement and check changes. Human review retains responsibility for claims, acceptance, and releases. See the [method and Kurtzer citation in the README](README.md#human-directed-agentic-engineering).
 - **Zero Edits to Main**: Every single modification, feature, bugfix, or self-improvement edit must be performed in a dedicated descriptive branch (`feat/<name>`, `fix/<name>`, `perf/<name>`) or isolated git worktree (`~/workspace/hive-worktrees/<task_id>`).
 - **Autonomous Public PR Creation**: Never commit directly to `main`. Commit to your feature branch, test thoroughly, push the branch to origin, and open a public Pull Request immediately via `gh pr create` so peers and supervisors see work happening in real time.
 - **Verify Before Merge**: No branch is merged into `main` without running the automated preflight verification harness (`bash scripts/agent-preflight.sh`).
