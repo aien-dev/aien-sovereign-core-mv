@@ -11,11 +11,11 @@ note settle adds SIGNED_JOB_SHA256 AN0V_SHA256 before its two signatures. See RE
 note Journal DIR/journal: SEQ PREV KIND FIELDS... HASH. Genesis is the exact DIR/authority config.
 note Version 2 refuses unsigned/version-1 journals. The hash chain is not an authorization mechanism.
 note Every command opens DIR/journal, takes flock LOCK_EX on it for the whole command and replays
-note it: SEQ, PREV and HASH are checked on every line, then the record is applied. A LAST line that
-note is unterminated, unparseable or whose HASH does not match its own bytes is a torn tail: it is
-note truncated, fsynced, and a "recover N SHA" record (N torn bytes, SHA their sha256) is appended.
-note A complete self-consistent line whose SEQ or PREV does not link (a deleted or reordered
-note record), or any bad line before the last, is corruption and the ledger refuses (exit 5).
+note it: SEQ, PREV and HASH are checked on every line, then the record is applied. Only an
+note unterminated final line is a torn tail: it is truncated, fsynced, and a "recover N SHA"
+note record (N torn bytes, SHA their sha256) is appended. Any malformed newline-terminated
+note record is corruption (exit 5), including a damaged final acknowledged settlement.
+note Failed append syncs are rolled back best-effort; every duplicate ack forces a fresh sync.
 note After replay the ledger checks conservation (exit 6): the sum
 note of balances plus open escrow equals the sum of prefunds, open escrow equals the open JOBs'
 note amounts, and every settled JOB paid out exactly its amount. A new record is written with
@@ -46,7 +46,6 @@ const SFD ulong 13
 const SSLOT ulong 14
 const SRF ulong 15
 const SLONG ulong 16
-const STORN ulong 17
 const SWB ulong 18
 global st ulong 32
 global ga uchar 8192
@@ -431,7 +430,11 @@ end
 fn lbarg i ulong to void
 s = get gs i
 for j ulong get gl i
-lbput get ga add s j
+c = get ga add s j
+if le c 32
+die 2
+end
+lbput c
 end
 end
 
@@ -671,6 +674,14 @@ y = cadd get st SPRE a
 if or ne get st SOVF 0 lt y x
 ret 15
 end
+note New prefund id plus requester only if the account is not present.
+needed = ulong 1
+if eq ac 0
+needed = ulong 2
+end
+if gt add get st SKEYS needed KCAP
+ret 14
+end
 ret 0
 end
 
@@ -731,6 +742,9 @@ ret 16
 end
 j = kfind 1 add b 1
 if ne j 0
+if ne get d4 sub j 1 1
+ret 10
+end
 if and and live aeqhash 1 sub j 1 jsame sub j 1 b a
 ret 1
 end
@@ -742,6 +756,19 @@ ret 7
 end
 if lt get d0 sub r 1 a
 ret 7
+end
+note Reserve allocates its job and any missing distinct pinned role accounts.
+needed = ulong 1
+p = kfind 0 add b 3
+v = kfind 0 add b 4
+if eq p 0
+needed = add needed 1
+end
+if eq v 0
+needed = add needed 1
+end
+if gt add get st SKEYS needed KCAP
+ret 14
 end
 ret 0
 end
@@ -1036,10 +1063,6 @@ if eq get st SLONG 0
 c = rline get st SLN
 end
 if ne c 0
-if and eq c 1 eq e get st SFSZ
-put st STORN 1
-ret 0
-end
 ret 5
 end
 put st SOVF 0
@@ -1136,6 +1159,14 @@ put wb n c
 put st SWB add n 1
 end
 
+note rollback: best-effort restore the last good length after a failed append sync; never ack it.
+fn rollback fd int off ulong to void
+if ne ftrunc fd long off 0
+ret
+end
+x = fsync fd
+end
+
 note wrec: append the record whose body is lb[0 .. st SLN) and fsync it. 0, or 3.
 fn wrec to int
 put st SWB 0
@@ -1182,6 +1213,7 @@ end
 end
 sy = fsync fd
 if ne sy 0
+rollback fd off
 ret 3
 end
 for i ulong 64
@@ -1274,6 +1306,10 @@ note wcmd: finish a write command whose check gave r: print the repeat word d, r
 note write the record, fsync it, and print the word w.
 fn wcmd r int w ulong d ulong to void
 if eq r 1
+if ne fsync int get st SFD 0
+die 3
+end
+dsync
 reply d
 ret
 end
@@ -1283,12 +1319,10 @@ authdie
 end
 die r
 end
-if gt add get st SKEYS 4 KCAP
-die 14
-end
 if ne wrec 0
 die 3
 end
+dsync
 reply w
 end
 

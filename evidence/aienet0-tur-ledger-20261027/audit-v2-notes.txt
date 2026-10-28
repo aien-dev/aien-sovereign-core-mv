@@ -1,0 +1,108 @@
+HOST_TESTED: Core #794 independent-audit fixes (2026-10-28).
+No Core RPC, GPU access, physical power loss, deployment or economic qualification is claimed.
+Original v1 receipts, authentication receipts and the earlier capacity receipts are unchanged.
+
+Pins
+----
+Compiler source: omega-mv 6999fa9e6dae4847c155ef4eacaece74f491d3ca.
+omc SHA256: d6290c7663c2b4bafb59eb3fdf812476e977f4c144def71095c6248ef9b96b84.
+Final native source: 8e16f25dd7be21d9dea94252b4ad0ab3b30ac107e4445ed81224d29982e1aadd.
+Final native binary: 0338edb18a1fba9ecd7fa8ae294045184bfeb2e72530340017ce719acc682768.
+Final gate: 8f96325dc3db714edf6837d4c78fb3e8ccc27dcc8e7a56798a5079fa152b2c21.
+SHA and EC unit pins are printed in audit-v2-check.out.
+Before-audit source: f47d8c6374f5e8a49068cc5372e97582e3eb81e87c5e53a661ea62ebb4279713.
+The byte-identical frozen source is audit-v2-before.om.at-run. This before specimen already
+has the authorization and capacity corrections, isolating the added audit regressions.
+The source/gate called final in capacity-v2-notes.txt are final for that earlier capacity run,
+not the later audit run. Its evidence remains historical; the pins above are the later ones.
+
+Regression commands and observations
+-----------------------------------
+Working directory: the Core checkout. OMC below is /tmp/ledger-auth-omega/seed/out/omc.
+
+OMC="$OMC" TUR_LEDGER_AUDIT_SOURCE=/tmp/ledger-auth-audit-before.om bash om/tur-ledger/check.sh
+  exit 1; audit-v2-before-final.out. The frozen temp source is the archived before specimen above.
+OMC="$OMC" TUR_LEDGER_AUDIT_SOURCE=om/tur-ledger/tur-ledger.om bash om/tur-ledger/check.sh
+  exit 0; audit-v2-after.out, all audit regression assertions PASS.
+OMC="$OMC" CRASH_N=200 MUTANT_CRASH_N=0 TUR_LEDGER_OUT=/tmp/ledger-auth-audit-bin bash om/tur-ledger/check.sh
+  exit 0; audit-v2-check.out: SUITE PASS, all 17 mutants killed, TUR_LEDGER gate: PASS.
+
+These are the regression entry points; the archived sources and printed hashes make the
+before/after reproducible without retaining any ephemeral private signing key. OpenSSL
+3.0.13 is the independent signing oracle; verification and ledger transitions are native Omega.
+The targeted runs use fresh randomized test signatures, so byte sizes can differ across runs.
+
+A1: failed fsync followed by an unsynchronized duplicate acknowledgement
+---------------------------------------------------------------------
+Before: first injected fsync EIO returned 3 but left the prefund record in the journal;
+the second injected invocation returned 0/dup. All four mutation duplicates returned 0
+without any journal fsync. The same audit assertions fail against the archived before source.
+After: each of two injected fsync failures returns 3, emits no acknowledgement, and restores
+exact original bytes and size; audit finds no torn tail. The clean retry actually writes,
+fsyncs and acknowledges prefunded. For prefund/reserve/settle/refund duplicates, injected
+fsync EIO returns 3 without output or journal mutation; clean retry synchronizes the actual
+journal fd before stdout. The test resolves that fd from strace openat output, so a directory
+fsync cannot accidentally satisfy this assertion. Directory durability is also required.
+The append's rollback is best-effort: if rollback itself fails, no success is acknowledged;
+a later valid retry must still cross a fresh journal and directory durability barrier.
+Mutants no-sync-rollback and no-duplicate-sync are both killed. Existing no-fsync is killed too.
+
+A2: capacity can trap existing escrow
+------------------------------------
+Before and the first fixed run are preserved in capacity-v2-* and their SHA256 manifest.
+The production fixture has 65,536 occupied slots and valid signatures. Before, both settle
+and refund returned 14. Fixed, new allocating operations refuse cleanly while existing
+settle/refund succeed. The final audit source also passes the ten-slot CLI boundary tests;
+capacity-lockup and no-slot-preflight mutants die. audit-v2-full-capacity.results.tsv and
+.out separately record a replay of the same production fixture with the final binary above.
+See capacity-v2-notes.txt for the public gzip fixture and exact four signed CLI vectors.
+
+A3: issuer/verifier authorization
+--------------------------------
+The original unsigned prefund reproducer and authentication-v2 controls are preserved in
+auth-v2-*. The final gate still refuses unsigned calls (2), wrong keys or changed canonical
+fields (16), invalid/unsigned complete replay records (5), old journals (5), and config/policy
+changes (5). Honest issuer+verifier settlement pays exactly once. Issuer-only settlement,
+issuer substitution for the verifier, altered job/amount/receipt/quote/attestation/job-envelope
+hashes are refused. Native no-issuer-signature, no-verifier-signature and no-owner-pins mutants
+die. This does not claim the ledger parses artifacts: protocols #67 is the bounded signer
+adapter that checks actual bytes/signatures before authorizing them.
+
+A10: newline-terminated corrupt last record must not be rolled back
+----------------------------------------------------------------
+Before: after an acknowledged settlement, changing its amount in the complete final line
+made audit, refund and show succeed instead of refusing; the old tail-recovery rule discarded
+that acknowledged line. After: all three return 5 and preserve identical corrupted bytes.
+A separate control changes only its final chain hash, keeping the signed body valid: it too
+returns 5 unchanged. Restoring the trusted good fixture shows the original settled 27/3/10.
+Only unterminated tails recover; the existing cut/unclosed-tail tests still pass. Mutant
+terminated-tail-recovery dies; the independent signed-tail hash assertion kills no-hash-chain.
+
+A11: whitespace argv must not be silently re-split
+------------------------------------------------
+Before: separately signed canonical records passed as a fused PID/account argument, a fused
+command/PID argument, or fused account arguments were accepted (0). After: each returns 2
+before dispatch and leaves the journal unchanged. lbarg rejects ASCII whitespace/control
+bytes within every actual argv element before joining fields. The argv-whitespace mutant dies.
+
+A12: already-reserved is not a terminal-phase acknowledgement
+----------------------------------------------------------
+Before: replaying the identical signed reservation after either settlement or refund returned
+0/already-reserved. After: the same open-job retry still returns 0/already-reserved; the two
+terminal-phase retries return 10 and leave the journal unchanged. This regression has an
+independent fresh fixture, so the whitespace tests cannot contaminate its outcome.
+The reserve-closed-phase mutant dies.
+
+Crash controls and limits
+-------------------------
+The final run killed 200 actual processes; all 200 kills happened before a new durable record
+(durable-before-kill 0). Each kill was followed by audit and signed retry, and final balances
+matched the control: 100 settled jobs, open 0, prefunded/balances 1000000, escrow 0. Different
+randomized signatures mean independent journal byte hashes need not match. Do not call these
+200 post-fsync kills. The separate deterministic strace SIGKILL occurs after successful fsync
+and before stdout, then requires an already-settled retry with no second payment.
+No interrupted-RPC or physical power-failure qualification is inferred from local CLI tests.
+
+Mounted Omega tool use is separately recorded in audit-v2-omega-tools.txt. That server's older
+pin is not silently substituted for the actual newer compiler/gate pins above. Application
+README/evidence were updated; no language/compiler/shared-harness example or ownership changed.

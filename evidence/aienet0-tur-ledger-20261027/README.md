@@ -130,3 +130,82 @@ those artifact parsers. Mutated-AN0V-digest refusal is **not** an external AN0V 
 lost CLI acknowledgement is **not** interrupted-RPC qualification. The application contract is
 documented in `om/tur-ledger/README.md`; no compiler or shared guide language feature changed.
 No deployment, malicious-filesystem-write/rollback resistance or public economic authority is claimed.
+
+## Capacity-discharge addendum (2026-10-28, Core #794)
+
+An additional review finding was reproduced: the old shared append guard required
+four unused key slots even for settlement/refund, which allocate no keys. With a
+full production-size signed journal, both commands returned exit 14 and left
+existing escrow open. This affects the authenticated source at Core `6a0bfc0` too,
+not only the original unsigned implementation.
+
+Capacity admission now belongs to the two allocating operations. Prefund counts
+its new PID and a missing requester; reserve counts its new job and missing
+provider/verifier accounts. Both refuse before append if those slots cannot fit.
+Existing settlement/refund and authorized identical retries need no new slot.
+
+The native source exercised for this correction is
+`f47d8c6374f5e8a49068cc5372e97582e3eb81e87c5e53a661ea62ebb4279713`;
+the production binary is
+`afd2fbe7b68a9f5fe44ff67b28830ab2499a482b1a922b237bc1877716a3ef93`.
+`capacity-v2-before.out` shows the small-table regression failing before the fix.
+`capacity-v2-check.out` records the complete fixed gate: SUITE PASS, twelve
+mutants killed, clean capacity refusals, settlement and refund at capacity,
+last-slot admission, unchanged duplicate retries, and the existing 200 kill/retry
+trials. As in the earlier run, all random-delay kills preceded a new durable
+write; the deterministic post-fsync/pre-ack kill remains a separate control.
+
+`capacity-v2-full.*` preserves a replayable production-size fixture: 65,536
+occupied key slots, valid issuer signatures on all prefunds/reservations and two
+open reservations. The old binary returned 14 for both discharge commands;
+the fixed binary refused new prefund/reserve with unchanged journal and then
+successfully settled one job and refunded the other. These are synthetic
+capacity-test authorizations, not receipts for real work or economic credits.
+The compressed public journal and signed command vectors contain no private keys.
+`capacity-v2-notes.txt` records provisioning, exact replay commands, hashes,
+outputs and evidence limits; `capacity-v2-SHA256SUMS` seals these new receipts.
+Original receipts and earlier authentication receipts remain unchanged.
+
+The companion actual-artifact caller migration is
+[protocols #67](https://github.com/aien-dev/aien-protocols-mv/pull/67), stacked
+on #65. It exercises genuine MJR1 forgery and AN0V countersignature refusal before
+the test signers authorize a payout. It does not add a Core RPC or independent
+operator qualification.
+
+## Independent audit corrections (2026-10-28, Core #794)
+
+The later audit found additional ledger defects in the authenticated implementation.
+`audit-v2-before-final.out` exercises the frozen pre-audit source and exits 1;
+`audit-v2-after.out` exercises the corrected source and exits 0. The frozen source
+is retained as `audit-v2-before.om.at-run` for reproducible negative controls.
+
+| Finding | Before | After |
+|---|---|---|
+| A1, failed fsync then unsynced duplicate | Failed append left a record; retry and all four duplicate kinds could acknowledge without journal fsync | Repeated injected failures return 3 without acknowledgement and restore the original file; every duplicate must sync the actual journal fd and directory before success |
+| A2, full key table | Existing settlement and refund returned 14 | New allocations refuse 14 unchanged; existing discharge succeeds even with all 65,536 production slots occupied |
+| A3, missing authorities | Original unsigned prefund accepted; settlement lacked issuer/verifier authorization | Native canonical-record issuer/verifier signatures, pinned config/genesis and explicit v1 refusal; the authorization controls still pass |
+| A10, complete corrupt final record | Audit could discard an acknowledged settlement as torn and permit refund | Newline-terminated corrupt records refuse 5 unchanged, including a validly signed body with only a bad final hash; only unterminated tails recover |
+| A11, fused argv fields | Whitespace inside an argument was silently re-split into accepted fields | Each actual argument is checked before joining; all three fused-field controls refuse 2 unchanged |
+| A12, terminal reserve retry | Returned `already-reserved` after settlement or refund | Open retry still succeeds; terminal retries refuse 10 unchanged |
+
+Final native source:
+`8e16f25dd7be21d9dea94252b4ad0ab3b30ac107e4445ed81224d29982e1aadd`.
+Final native binary:
+`0338edb18a1fba9ecd7fa8ae294045184bfeb2e72530340017ce719acc682768`.
+`audit-v2-check.out` records the complete final gate: SUITE PASS, seventeen
+guard mutants killed and TUR_LEDGER gate: PASS. It retains 200 random-delay
+kill/audit/retry trials (all before a new durable write) and the separate
+deterministic post-fsync/pre-stdout kill; these are not RPC or power-loss tests.
+
+`audit-v2-full-capacity.results.tsv` replays the preserved public production-size
+fixture using that final binary: prefund/reserve refuse 14 unchanged, settle and
+refund return 0, and `audit-v2-full-capacity.out` reports open 0, settled 1,
+refunded 1, balances equal prefunded and escrow 0. No fixture signatures were
+reissued and no private keys are included.
+
+`audit-v2-notes.txt` records commands, individual controls, mutants, pins and
+limitations; `audit-v2-SHA256SUMS` seals these later receipts separately.
+`audit-v2-omega-tools.txt` records mounted Omega lookups and a sandboxed guard
+negative control, explicitly distinguishing that older server pin from the
+newer compiler used for the actual ledger gate. The existing application README
+was updated; no shared language/compiler/harness contract changed.

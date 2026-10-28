@@ -69,10 +69,11 @@ For `settle` and `refund`, append the 64 lowercase hex SHA-256 digest of the res
 canonical signed bytes (excluding its signature), followed by LF. This commits settlement to
 the exact reserve: JOB, requester/provider/verifier accounts, amount, published quote and
 config's owner/node/policy pins. Journal SEQ/PREV/HASH and signatures are excluded from signing.
-All arguments are joined with exactly one ASCII space; amounts are canonical decimal u64 with
-no leading zeros. Every field is covered. The ledger recomputes this digest during admission
-and replay. Signatures are checked **before** idempotent success, and re-signing identical
-semantic content cannot create another economic action.
+Each CLI argument must be a separate field and must not contain ASCII whitespace/control bytes;
+only then are arguments joined with one ASCII space. Amounts are canonical decimal u64 with no
+leading zeros. Every field is covered. The ledger recomputes this digest during admission and
+replay. Signatures are checked **before** idempotent success, and re-signing identical semantic
+content cannot create another economic action.
 
 ## Commands
 
@@ -95,6 +96,9 @@ signed MJR1 result bytes; AN0V_SHA256 hashes the exact signed AN0V attestation b
 signatures. All digests are lowercase hex. Amounts are nonzero except PAYP/PAYV/BACK. A duplicate
 reserve conflicts if its quote changes; a duplicate settle conflicts if any evidence digest or
 payout changes, even when both replacement signatures are valid.
+An identical reserve retry returns `already-reserved` only while that job is still open.
+After settlement or refund it refuses 10; callers must inspect the actual terminal phase
+rather than interpreting an old reservation authorization as current escrow.
 
 ## Refusals
 
@@ -103,19 +107,19 @@ admission writes nothing. Recovery is a separate internal operation and can run 
 
 | C | reason | when |
 |---|---|---|
-| 2 | usage | missing signatures, bad arity, noncanonical fields or unknown command |
-| 3 | journal-io | journal open/read/write/fsync failure |
+| 2 | usage | missing signatures, bad arity, whitespace inside an argument, noncanonical fields or unknown command |
+| 3 | journal-io | journal open/read/write/fsync or directory-fsync failure; reconcile before treating it as aborted |
 | 4 | lock | flock failed |
 | 5 | journal-corrupt | old genesis, config mismatch, invalid complete record/signature, bad interior line or linked-chain failure |
 | 6 | conservation-violated | replayed balances/open escrow/payout totals disagree |
 | 7 | insufficient-funds | reserve exceeds requester balance |
 | 8 | unknown-job | authenticated settle/refund/show for unknown JOB |
 | 9 | job-conflict | different reservation authorization for JOB |
-| 10 | wrong-phase | refund of settled JOB or settle of refunded JOB |
+| 10 | wrong-phase | reserve of a terminal JOB, refund of settled JOB or settle of refunded JOB |
 | 11 | settle-receipt-conflict | different settlement authorization for settled JOB |
 | 12 | escrow-rule | payout split differs from escrow |
 | 13 | prefund-id-conflict | PID reused with different authorization |
-| 14 | capacity | in-memory key index full |
+| 14 | capacity | an operation would allocate more than 65,536 keys |
 | 15 | overflow | u64 total would overflow |
 | 16 | authorization | missing/invalid authority config, account policy mismatch or invalid issuer/verifier signature |
 
@@ -124,11 +128,13 @@ admission writes nothing. Recovery is a separate internal operation and can run 
 `DIR/journal` has `SEQ PREV KIND FIELDS... HASH` records. HASH is SHA-256 of the line before
 ` HASH`; PREV is the previous HASH (64 zeros for genesis). Genesis is the exact authority config.
 Every mutation's record retains its signature(s). Every invocation locks the journal for the
-entire command and verifies every admission signature on replay. Complete, chain-consistent
-records with missing/invalid signatures are corruption, including the final record: they are
-never truncated as recoverable tails. Existing framing/torn-write recovery remains internal,
-unsigned and cannot mint, debit or pay credits: it truncates a damaged tail, fsyncs and appends
-`recover N SHA`.
+entire command and verifies every admission signature on replay. Every malformed
+**newline-terminated** record is corruption, including a bad hash on the final record.
+It refuses 5 without modifying the file; it never rolls back a complete acknowledged
+settlement as a torn tail. Missing/invalid admission signatures also refuse, even when
+the hash chain is otherwise valid. Only an unterminated final line is recoverable:
+truncate those incomplete bytes, fsync, then append unsigned internal `recover N SHA`.
+This internal recovery cannot mint, debit or pay credits.
 
 Version-1 journals are refused without modification, not automatically upgraded. There is no
 implicit migration: archive the old journal, explicitly reconcile its test credits outside this
@@ -136,6 +142,27 @@ CLI, provision a **new unique ledger identity** and authorize fresh funding unde
 This does not confer signatures or economic qualification on historical unsigned receipts.
 Changing pins requires a new ledger identity and explicit reconciliation, not editing a running
 journal's config.
+
+Every successful mutation acknowledgement, including `dup` and `already-*`, follows a
+journal fsync and directory fsync. A failed append fsync attempts to restore the last
+good length and sync that rollback, then returns 3 without acknowledgement. Rollback
+itself can fail, so an I/O refusal is not proof that an operation is absent. A retry
+must verify replayed authority/state and cross a fresh durability barrier before it
+can acknowledge an existing record. Callers reconcile the job's actual phase; they
+must not blindly refund an already-settled job.
+
+## Key-table capacity cannot trap existing escrow
+
+Accounts, prefund IDs and jobs share a bounded table. Before appending, a new
+prefund checks its new PID plus the requester account only if missing. A new
+reservation checks its job plus any missing provider/verifier accounts; the
+requester must already exist. The pinned role names are distinct. An operation
+that would exceed the table refuses with exit 14 and leaves the journal unchanged.
+An identical authorized retry needs no new key and still succeeds at capacity.
+
+Settlement and refund use only the job and account slots created by its
+reservation. They never allocate a key, so both remain available with a completely
+full table. There is deliberately no shared “four spare slots” append guard.
 
 ## Tests and evidence limits
 
@@ -150,6 +177,21 @@ actual ledger processes and retries signed commands, auditing after every interr
 
 `TUR_LEDGER_AUTH_ONLY=/path/to/binary` runs the unsigned-prefund regression against another binary,
 so the same assertion can be shown failing against the pre-fix source and passing after the fix.
+
+The suite also fills a ten-slot build of the same native ledger, checks clean
+prefund/reserve refusal, settles one existing job and refunds another, and checks
+once-only retries and conservation. Only `KCAP` changes for this fast boundary
+fixture; record parsing, signature verification, replay and append are unchanged.
+`TUR_LEDGER_CAPACITY_SOURCE=/path/to/source.om` runs just this regression, allowing
+the same test to fail before the fix and pass after it. The `capacity-lockup`
+mutant restores the blanket append guard and must be killed. Separate evidence
+records exercise the production 65,536-slot binary with a full signed journal.
+
+`TUR_LEDGER_AUDIT_SOURCE=/path/to/source.om` runs the independent-audit regressions:
+repeated injected fsync failure and rollback size, synchronized duplicate replies
+for all four operations, acknowledged final-record corruption, fused argv fields,
+and reserve retries after either terminal phase. The corresponding five guard
+mutants (rollback, duplicate sync, complete-tail recovery, argv and phase) must die.
 
 HOST_TESTED means local CLI behavior only. No Core ledger RPC exists in this checkout, so lost
 CLI output is not an interrupted-RPC qualification. Mutating a signed AN0V digest tests admission

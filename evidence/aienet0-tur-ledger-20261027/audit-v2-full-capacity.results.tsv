@@ -1,0 +1,5 @@
+operation	exit	stdout	stderr	journal_unchanged
+prefund	14		refused 14 capacity	True
+reserve	14		refused 14 capacity	True
+settle	0	settled 7777777777777777777777777777777777777777777777777777777777777777 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 27 3 10		False
+refund	0	refunded 8888888888888888888888888888888888888888888888888888888888888888		False
