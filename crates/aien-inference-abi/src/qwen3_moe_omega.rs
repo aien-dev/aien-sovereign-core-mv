@@ -3857,7 +3857,7 @@ impl Qwen3MoeOmegaEngine {
         progress: &mut dyn FnMut(&str),
     ) -> Result<(Self, LoadReport), String> {
         if !aien_omega_gpu::is_native() {
-            return Err("this binary carries the CPU stub of the Omega engine (build with AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB)".into());
+            return Err("this binary carries the CPU stub of the Omega engine (build with pinned AIEN_OMEGA_DIR and AIEN_CUDAPP_DIR sources)".into());
         }
         let (weights, report) =
             load_qwen3_moe_omega_paths(dir, &OmegaModelUploader, format, paths, progress)?;

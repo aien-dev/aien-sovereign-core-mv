@@ -94,6 +94,7 @@ pub const NUMERIC_ENV: &[&str] = &[
 pub const NEUTRAL_ENV: &[&str] = &[
     "AIEN_OMEGA_SPIN_US",
     "AIEN_OMEGA_DIR",
+    "AIEN_CUDAPP_DIR",
     "AIEN_OMEGA_GPU",
     "AIEN_OMEGA_GPU_LIB",
     "AIEN_OMEGA_GPU_LIB_SHA256",
@@ -115,9 +116,11 @@ pub const MUTANT_ENV: &[&str] = &["OWN30B_DECODE_GRAPH_MUTANT"];
 pub struct OmegaBuild {
     /// The omega commit `omega.lock` pins.
     pub omega_commit: String,
-    /// How `libomega_gpu.a` was linked (`pinned-source`, `dev-override`, `prebuilt`, `stub`).
+    /// How the retained Omega companion was linked. Its pinned Omega commit also
+    /// binds canonical CUDApp through the committed cudapp.lock; both archive
+    /// records must pass before a native identity is emitted.
     pub gpu_link: String,
-    /// sha256 of the linked `libomega_gpu.a`.
+    /// sha256 of the retained Omega companion, not the canonical GPU implementation.
     pub gpu_archive_sha256: String,
     /// `locked` (the sha `native-artifacts.lock` records), `unrecorded` (no record for this
     /// commit and target), `mismatch` or `none`.

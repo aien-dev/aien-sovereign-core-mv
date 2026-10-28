@@ -38,9 +38,8 @@ pub const fn is_native() -> bool {
     cfg!(has_omega_gpu)
 }
 
-/// What this binary linked for the omega GPU engine (stub, pinned source, developer override or
-/// prebuilt), the C ABI check result and the archive digest, as `build.rs` established them.
-/// Only `qualifies()` identities count as release-grade native qualification.
+/// Omega runtime companion identity. Native builds qualify the complete archive pair
+/// before emitting either identity. See [`canonical_identity`] for the GPU implementation.
 pub fn native_identity() -> aien_abi_conformance::NativeIdentity {
     aien_abi_conformance::NativeIdentity {
         component: "libomega_gpu.a",
@@ -53,6 +52,22 @@ pub fn native_identity() -> aien_abi_conformance::NativeIdentity {
         physics_lock: env!("AIEN_OMEGA_GPU_PHYSICS_LOCK"),
         target: env!("AIEN_OMEGA_GPU_TARGET"),
         cc: env!("AIEN_OMEGA_GPU_CC"),
+    }
+}
+
+/// Exact canonical CUDApp implementation linked after the Omega runtime companion.
+pub fn canonical_identity() -> aien_abi_conformance::NativeIdentity {
+    aien_abi_conformance::NativeIdentity {
+        component: "libcudapp.a",
+        link: env!("AIEN_CUDAPP_LINK"),
+        abi: env!("AIEN_CUDAPP_ABI"),
+        digest: env!("AIEN_CUDAPP_DIGEST"),
+        archive_sha256: env!("AIEN_CUDAPP_ARCHIVE_SHA256"),
+        source_sha: env!("AIEN_CUDAPP_SOURCE_SHA"),
+        aienos_lock: env!("AIEN_CUDAPP_AIENOS_LOCK"),
+        physics_lock: env!("AIEN_CUDAPP_PHYSICS_LOCK"),
+        target: env!("AIEN_CUDAPP_TARGET"),
+        cc: env!("AIEN_CUDAPP_CC"),
     }
 }
 

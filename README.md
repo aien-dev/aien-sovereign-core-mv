@@ -44,6 +44,25 @@ cargo test --workspace -- --test-threads=1   # one test thread, as CI runs it
 scripts/repro-build.sh -p aien-cli   # release build with machine-local paths removed; build aien-cli on its own, because its digest changes with the other packages in the same cargo command (docs/release/F1-binary-digest-difference.md)
 ```
 
+Native GPU source builds require both `AIEN_OMEGA_DIR` at `omega.lock` and
+`AIEN_CUDAPP_DIR` at that Omega revision's committed `cudapp.lock`.
+`scripts/pins.sh --gpu` materializes these checkouts and writes their environment.
+Set `OMEGA_OMC` and `OMEGA_BRIDGE` to the compiler and bridge matching the pins
+in canonical CUDApp's `om/units.sh` before building. Omega stages one frozen
+CUDApp revision, checks regenerated units and builds fresh artifacts.
+The linker consumes the retained Omega `libomega_gpu.a` companion first and
+canonical `libcudapp.a` last. Both digests must match `native-artifacts.lock`;
+an unrecorded or stale artifact is a build refusal, not a native fallback.
+`AIEN_OMEGA_GPU_LIB` is no longer a supported GPU source selection.
+
+Without a GPU source selection the existing CPU-only mode remains available.
+`AIEN_FORCE_CPU_STUB=1` explicitly selects it; `AIEN_REQUIRE_NATIVE_LIBS=1`
+refuses that combination and refuses missing native inputs. Satellite crates
+receive capabilities only from the verified archives through their direct
+`aien-omega-gpu` dependency, never from header presence. Host ABI and status-name
+smokes do not execute a GPU kernel or qualify a device.
+
+
 ### Model server on a DGX Spark (Qwen3.8-27B, source build)
 
 Only on an NVIDIA DGX Spark (aarch64 Linux, GB10, NVIDIA open driver 580.173.02 tested). No CUDA toolkit is needed: Omega talks to the driver directly. The installer checks the machine first and stops with a plain message when something is missing; it never installs a server that has only the CPU stub.

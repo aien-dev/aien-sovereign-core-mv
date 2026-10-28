@@ -359,15 +359,17 @@ server_preflight() {
 server_build() {
     local pins="${AIEN_PINS_DIR:-$SOURCE_ROOT/target/pins}"
     local out="${CARGO_TARGET_DIR:-$SOURCE_ROOT/target}/release/aien-serve-http"
-    echo "[*] Model server: fetching the pinned omega, physics and aienos sources into $pins"
+    echo "[*] Model server: fetching pinned Omega, canonical CUDApp, physics and aienos sources into $pins"
     bash "$SOURCE_ROOT/scripts/pins.sh" --gpu "$pins" \
         || server_die "scripts/pins.sh --gpu failed (see the lines above). Check the network and that git can reach github.com."
     [[ -f "$pins/env.sh" ]] || server_die "scripts/pins.sh did not write $pins/env.sh."
     # shellcheck disable=SC1091
     . "$pins/env.sh"
-    [[ "${AIEN_REQUIRE_NATIVE_LIBS:-}" == 1 && -n "${AIEN_OMEGA_DIR:-}" ]] \
-        || server_die "$pins/env.sh does not select the GPU engine (AIEN_OMEGA_DIR unset)."
-    echo "[*] Model server: building aien-serve-http (release, links AIEN's Omega GPU library; this takes a while)"
+    [[ "${AIEN_REQUIRE_NATIVE_LIBS:-}" == 1 && -n "${AIEN_OMEGA_DIR:-}" && -n "${AIEN_CUDAPP_DIR:-}" ]] \
+        || server_die "$pins/env.sh does not select both pinned GPU sources."
+    [[ -n "${OMEGA_OMC:-}" && -n "${OMEGA_BRIDGE:-}" ]] \
+        || server_die "Set OMEGA_OMC and OMEGA_BRIDGE matching canonical CUDApp om/units.sh pins. No alternate GPU implementation is installed."
+    echo "[*] Model server: building aien-serve-http (release, links Omega companion then canonical CUDApp)"
     cargo build --locked --release -p aien-serve-http \
         || server_die "cargo build of aien-serve-http failed (see the lines above)."
     [[ -x "$out" ]] || server_die "the build finished but $out is missing."

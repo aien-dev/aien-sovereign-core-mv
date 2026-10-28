@@ -72,8 +72,8 @@ EOF
 cat > "$WORK/mocks/pins.sh" <<'EOF'
 #!/usr/bin/env bash
 [[ "$1" == --gpu ]] || { echo "pins.sh called without --gpu" >&2; exit 2; }
-mkdir -p "$2/omega"
-printf "export AIEN_OMEGA_DIR='%s/omega'\nexport AIEN_REQUIRE_NATIVE_LIBS=1\n" "$2" > "$2/env.sh"
+mkdir -p "$2/omega" "$2/cudapp"
+printf "export AIEN_OMEGA_DIR='%s/omega'\nexport AIEN_CUDAPP_DIR='%s/cudapp'\nexport AIEN_REQUIRE_NATIVE_LIBS=1\n" "$2" "$2" > "$2/env.sh"
 echo "pins.sh --gpu $2" >> "$MOCK_STATE/pins.calls"
 EOF
 
@@ -87,8 +87,8 @@ args=" $* "
 [[ "$args" == *" --locked "* ]] || { echo "cargo build is not --locked" >&2; exit 1; }
 mkdir -p target/release
 if [[ "$args" == *" -p aien-serve-http "* ]]; then
-    [[ "${AIEN_REQUIRE_NATIVE_LIBS:-}" == 1 && -n "${AIEN_OMEGA_DIR:-}" ]] \
-        || { echo "server build without the pins env (AIEN_REQUIRE_NATIVE_LIBS, AIEN_OMEGA_DIR)" >&2; exit 1; }
+    [[ "${AIEN_REQUIRE_NATIVE_LIBS:-}" == 1 && -n "${AIEN_OMEGA_DIR:-}" && -n "${AIEN_CUDAPP_DIR:-}" ]] \
+        || { echo "server build without both pinned source selections" >&2; exit 1; }
     echo "server build" >> "$MOCK_STATE/cargo.calls"
     if [[ "${MOCK_SERVER_KIND:-native}" == native ]]; then e="native"; else e="STUB (not usable with --engine omega)"; fi
     printf '#!/bin/sh\nprintf "aien-serve-http 0.1.0\\nomega gpu engine: %s\\nqwen38 engine: %s\\n"\n' "$e" "$e" > target/release/aien-serve-http
@@ -156,6 +156,8 @@ run_case() {
         TMPDIR="$C/tmp" \
         AIEN_BIN_DIR="$C/bin" \
         AIEN_CONFIG_DIR="$C/config" \
+        OMEGA_OMC="${CASE_OMEGA_OMC-fixture-omc}" \
+        OMEGA_BRIDGE="${CASE_OMEGA_BRIDGE-fixture-bridge}" \
         AIEN_INSTALL_NO_PROFILE=1 \
             bash -s -- "$@" < "$ROOT/install.sh"
     ) > "$WORK/install.log" 2>&1
@@ -194,6 +196,12 @@ AIEN_RELEASE_TAG=v0.0.0 run_case release-tag --with-server
 [[ $status -ne 0 ]] || fail "--with-server with AIEN_RELEASE_TAG must fail"
 grep -q "cannot be combined with AIEN_RELEASE_TAG" "$WORK/install.log" || fail "--with-server with a release tag must say why"
 echo "PASS: --with-server refuses a release install"
+
+AIEN_TEST_SERVER_SKIP_HW_CHECKS=1 CASE_OMEGA_OMC="" run_case no-compiler --with-server
+[[ $status -ne 0 ]] || fail "native server install must refuse a missing compiler selection"
+grep -q "Set OMEGA_OMC and OMEGA_BRIDGE" "$WORK/install.log" || fail "missing compiler refusal must explain the pinned toolchain requirement"
+! grep -q "server build" "$C/state/cargo.calls" || fail "missing compiler must stop before the server build"
+echo "PASS: --with-server refuses missing pinned toolchain selection"
 
 # 4. A build that linked only the CPU stub: refused loudly, nothing installed for the server.
 AIEN_TEST_SERVER_SKIP_HW_CHECKS=1 MOCK_SERVER_KIND=stub run_case stub --with-server
@@ -280,4 +288,4 @@ grep -q 'KEEP_FREE: u64 = 8 << 30' "$ROOT/crates/aien-serve-http/src/qwen38_engi
 echo "PASS: install preflight and the docs give the 49,497 MiB (48.3 GiB) load requirement"
 
 # Exercise detached startup failure, bounded readiness, API identity, ownership, and foreground behavior with fixtures.
-"$ROOT/scripts/test-serve-27b.sh"
+AIEN_SERVE_HTTP_BEARER_TOKEN=installer-test-fixture "$ROOT/scripts/test-serve-27b.sh"

@@ -75,6 +75,11 @@ cd aien-sovereign-core-mv
 `--with-model` also downloads and checks the model (section 3). Leave it out if you want to
 fetch the model yourself.
 
+For the canonical CUDApp source-cutover candidate, export `OMEGA_OMC` and
+`OMEGA_BRIDGE` pointing to the compiler and bridge matching canonical CUDApp's
+`om/units.sh` pins before invoking the installer. Missing selections are refused.
+This candidate's host source/link checks do not constitute GPU qualification.
+
 Keep `~/aien-install.log`: it is one of the things to paste when you report a problem.
 
 What the installer does with `--with-server --with-model`, in order:
@@ -84,12 +89,13 @@ What the installer does with `--with-server --with-model`, in order:
    free memory. Then free disk for the model (the block that starts with
    `[*] Model download: checking`). A failed check stops the installer before anything is
    cloned, built or downloaded and says what is wrong in plain words.
-2. Fetches the pinned Omega, physics and aienos sources from GitHub into `target/pins/`
-   (`scripts/pins.sh --gpu`). The exact commits are in `omega.lock` and the lock files next to
-   it.
-3. Builds the Omega GPU library from those sources and the server
-   `aien-serve-http` against it (`cargo build --locked --release -p aien-serve-http`). This is
-   the long step.
+2. Fetches pinned Omega, canonical CUDApp, physics and aienos sources into `target/pins/`
+   (`scripts/pins.sh --gpu`). Core `omega.lock` pins Omega; that committed revision's
+   `cudapp.lock` pins CUDApp, alongside its existing physics and aienos locks.
+3. Regenerates/checks canonical units with the pinned toolchain, builds the canonical
+   `libcudapp.a` and retained Omega `libomega_gpu.a` companion, and links the server
+   (`cargo build --locked --release -p aien-serve-http`). Both archive digests must match
+   `native-artifacts.lock`; headers or caller-selected archives cannot enable native mode.
 4. Runs `aien-serve-http --version` and refuses to install a binary that has only the CPU stub
    instead of the real engine.
 5. Installs `aien-serve-http` and the start script `aien-serve-27b` into `~/.local/bin`, along
