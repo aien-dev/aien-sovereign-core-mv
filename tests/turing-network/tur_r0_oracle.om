@@ -89,6 +89,10 @@ end
 if settle 7 27 3 10
 ret 11
 end
+note a zero-amount replay passes every amount check, so only the phase guard can refuse it
+if settle 7 0 0 0
+ret 20
+end
 if ne get phase 0 2
 ret 12
 end

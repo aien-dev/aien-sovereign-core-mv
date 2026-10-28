@@ -49,3 +49,14 @@ To test a deliberately broken expected balance, alter only the assertion for the
 5. Keep profile-bound scientific Turing information separate from pre-funded, spendable TUR test credits. This example issues no credit and has no monetary value.
 
 Do not send jobs to the live 35B server or acquire the GB10 for this CPU-only fixture.
+
+## Spark run (2026-10-28, HOST_TESTED)
+
+`OMC=<seed-born omc> sh tests/turing-network/check.sh` on the DGX Spark (Linux AArch64), omc sha256
+`2c82480596bbdc50cda9626866209ef662d5834f278f839ff4ce0250c495029f` (omega-mv e5b32567): oracle exit 0 with
+`TUR_R0_ORACLE_PASS`; six mutants each fail with their intended code (provider assertion 14, overdraft guard 1,
+single-reservation guard 6, job-id guard 7, replay guard 20, refund guard 8).
+
+The first run found that deleting the replay guard went unnoticed: after settlement the escrow is 0, so the replayed
+27-unit payout already failed the amount check. A zero-amount replay (`settle 7 0 0 0`) passes every amount check, so
+the fixture now asserts it is refused (exit 20), and only the phase guard can catch it.
