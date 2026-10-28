@@ -255,6 +255,57 @@ pub fn qualify_built(
     }
 }
 
+/// Qualify the canonical GPU ABI and its retained Omega runtime companion.
+/// Both archive digests must already be recorded by the existing artifact authority.
+/// A source pin match alone never grants native capability.
+#[allow(clippy::too_many_arguments)]
+pub fn qualify_gpu_pair(
+    manifest: &Path,
+    lock: &Path,
+    omega: &Path,
+    physics: &Path,
+    companion: &Path,
+    omega_sha: &str,
+    canonical: &Path,
+    canonical_archive: &Path,
+    canonical_sha: &str,
+) -> (Identity, Identity) {
+    let cudapp = qualify_built(
+        "aien-omega-gpu canonical CUDApp",
+        manifest,
+        lock,
+        canonical,
+        physics,
+        canonical_archive,
+        canonical_sha,
+        true,
+    );
+    assert_eq!(cudapp.abi, "pass", "canonical GPU ABI must be exercised");
+    assert_eq!(cudapp.digest, "locked", "canonical GPU archive has no recorded artifact identity");
+    let sha = identity::sha256_file(companion).unwrap_or_else(|e| panic!("{e}"));
+    let digest = identity::check_built(
+        &load_lock(lock),
+        "libomega_gpu.a",
+        omega_sha,
+        &cudapp.target,
+        &cudapp.cc,
+        &sha,
+    ).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(digest, Digest::Locked, "Omega GPU companion has no recorded artifact identity");
+    let companion = Identity {
+        link: Link::PinnedSource,
+        abi: "pass",
+        digest: "locked",
+        archive_sha256: sha,
+        omega_sha: omega_sha.into(),
+        aienos_lock: read_trim(&omega.join("aienos.lock")),
+        physics_lock: read_trim(&omega.join("physics.lock")),
+        target: cudapp.target.clone(),
+        cc: cudapp.cc.clone(),
+    };
+    (companion, cudapp)
+}
+
 /// Checks for a prebuilt archive: its digest must equal `$sha_var`, and it must define every
 /// function the manifest names (no headers are available, so layouts are not re-probed; the
 /// identity says so and qualification does not accept it).

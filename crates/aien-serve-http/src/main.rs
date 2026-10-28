@@ -71,6 +71,7 @@ const DEFAULT_MODEL_DIR: &str = "models/qwen3.8-27b-fp8-017b9c7a";
 /// which loads nothing and never touches the GPU, so installers can refuse a stub build.
 fn build_info() -> String {
     let gpu = aien_omega_gpu::native_identity();
+    let canonical = aien_omega_gpu::canonical_identity();
     let native = |b: bool| {
         if b {
             "native"
@@ -83,6 +84,7 @@ fn build_info() -> String {
          sovereign-core commit: {} (dirty {})\n\
          omega.lock: {}\n\
          omega gpu engine: {} (link {}, abi {}, digest {}, archive sha256 {})\n\
+         canonical CUDApp: {} (link {}, abi {}, digest {}, archive sha256 {})\n\
          qwen38 engine: {} (prefill {})\n\
          release-grade native identity: {}\n\
          default model dir: $HOME/{}\n",
@@ -95,13 +97,18 @@ fn build_info() -> String {
         gpu.abi,
         gpu.digest,
         gpu.archive_sha256,
+        canonical.source_sha,
+        canonical.link,
+        canonical.abi,
+        canonical.digest,
+        canonical.archive_sha256,
         native(aien_omega_q38::is_native()),
         if aien_omega_q38::has_prefill() {
             "linked"
         } else {
             "missing"
         },
-        if gpu.qualifies() { "yes" } else { "no" },
+        if gpu.qualifies() && canonical.qualifies() { "yes" } else { "no" },
         DEFAULT_MODEL_DIR,
     )
 }

@@ -6,6 +6,7 @@ authors = ["Drake Stapleton <aien@aienos.com>"]
 description = "FFI to the native (no CUDA) Omega GPU matmul engine, pinned by omega.lock"
 license.workspace = true
 build = "build.rs"
+links = "omega_gpu"
 
 [dependencies]
 aien-abi-conformance = { path = "../aien-abi-conformance" }

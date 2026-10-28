@@ -18,10 +18,10 @@
 # Runs without omega: every case below must be decided by build.rs before any make.
 #   - a stub together with AIEN_REQUIRE_NATIVE_LIBS=1 is refused
 #   - AIEN_REQUIRE_NATIVE_LIBS=1 with no library source is refused
-#   - a prebuilt archive with no expected sha256, a wrong one, or a truncated archive is refused
-#   - a prebuilt archive that misses one ABI function is refused
+#   - composition prebuilt missing/wrong digests or symbols are refused
+#   - GPU prebuilt archives are refused, including matching caller-selected digests
 #   - an omega checkout at a commit other than omega.lock is refused
-#   - a correct prebuilt archive builds, and its identity says "prebuilt" (never qualifies)
+#   - a correct composition prebuilt says "prebuilt" (never qualifies)
 # Exit 0 when every case behaves, 1 otherwise.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -63,21 +63,37 @@ fake_archive() {
 WRONG="$WORK/wrong-omega"
 git init -q "$WRONG"
 git -C "$WRONG" -c user.name=t -c user.email=t@t commit -q --allow-empty -m wrong
+mkdir -p "$WRONG/src"
+: >"$WRONG/src/omega_gpu_fp8.h"
 
 check_crate() {
     local crate=$1 manifest=$2 libvar=$3 dirvar=$4 drop=$5
     local good="$WORK/$crate-good.a" short="$WORK/$crate-short.a" miss="$WORK/$crate-miss.a"
-    fake_archive "$manifest" "$good"
-    fake_archive "$manifest" "$miss" "$drop"
     local sha miss_sha
+    if [ "$crate" = aien-omega-gpu ]; then
+        ar rcs "$good"
+        head -c 4 "$good" >"$short"
+    else
+        fake_archive "$manifest" "$good"
+        fake_archive "$manifest" "$miss" "$drop"
+        miss_sha=$(sha256sum "$miss" | cut -d' ' -f1)
+        head -c 100 "$good" >"$short"
+    fi
     sha=$(sha256sum "$good" | cut -d' ' -f1)
-    miss_sha=$(sha256sum "$miss" | cut -d' ' -f1)
-    head -c 100 "$good" >"$short"
 
     expect_refused "$crate" "stub with required native" "contradict each other" \
         AIEN_FORCE_CPU_STUB=1 AIEN_REQUIRE_NATIVE_LIBS=1
     expect_refused "$crate" "required native with no library" "AIEN_REQUIRE_NATIVE_LIBS=1 but" \
         AIEN_REQUIRE_NATIVE_LIBS=1
+    if [ "$crate" = aien-omega-gpu ]; then
+        expect_refused "$crate" "unverified prebuilt" "is no longer supported" "$libvar=$good"
+        expect_refused "$crate" "matching prebuilt still refused" "is no longer supported" \
+            "$libvar=$good" "${libvar}_SHA256=$sha"
+        expect_refused "$crate" "truncated prebuilt still refused" "is no longer supported" \
+            "$libvar=$short" "${libvar}_SHA256=$sha"
+        expect_refused "$crate" "omega checkout at the wrong commit" "is at '" "$dirvar=$WRONG"
+        return
+    fi
     expect_refused "$crate" "prebuilt with no sha256" "no expected digest" \
         "$libvar=$good"
     expect_refused "$crate" "prebuilt with a wrong sha256" "expects" \
@@ -103,6 +119,8 @@ check_crate aien-omega-compose crates/aien-omega-compose/abi/rxc_host_abi.manife
     AIEN_OMEGA_COMPOSE_LIB AIEN_OMEGA_COMPOSE_DIR rxc_host_recover AIEN_OMEGA_COMPOSE
 check_crate aien-omega-gpu crates/aien-omega-gpu/abi/omega_gpu.manifest \
     AIEN_OMEGA_GPU_LIB AIEN_OMEGA_DIR omega_gpu_matmul_f32 AIEN_OMEGA_GPU
+expect_refused aien-omega-fp8 "header-only checkout cannot enable native capability" "is at '" \
+    "AIEN_OMEGA_DIR=$WRONG"
 
 if [ "$fails" -ne 0 ]; then
     echo "native identity: $fails case(s) failed"

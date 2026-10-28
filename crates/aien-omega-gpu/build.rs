@@ -13,27 +13,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Links `libomega_gpu.a` from the omega commit pinned in `omega.lock`.
+//! Links the pinned Omega runtime companion first, then canonical CUDApp last.
 //!
-//! Offline by design: nothing is downloaded and no CUDA/nvcc is used. Order:
-//!   1. `AIEN_FORCE_CPU_STUB=1`      -> stub (CI without the chip). BUILD-TIME ONLY: a binary already
-//!      built with the GPU library ignores it at run time. For a CPU-only RUN set `AIEN_BACKEND=cpu`:
-//!      the daemon refuses to start (`CPU_ONLY_BUT_GPU_BUILD`) if the binary would select the GB10 backend.
-//!      Refused when `AIEN_REQUIRE_NATIVE_LIBS=1` (a required-native build is never a stub).
-//!   2. `AIEN_OMEGA_GPU_LIB=<file>`  -> link that prebuilt archive; `AIEN_OMEGA_GPU_LIB_SHA256` must
-//!      name its sha256 (checked) and it must define every function in the ABI manifest. A
-//!      development override: its identity says `prebuilt` and it never qualifies.
-//!   3. `AIEN_OMEGA_DIR=<checkout>`  -> its HEAD must equal omega.lock; built with
-//!      `make libomega_gpu` into OUT_DIR. `AIEN_PHYSICS_DIR` (default `<omega>/../physics`)
-//!      is passed as PHYSICS_DIR; omega's own physics.lock check still runs.
-//!   4. otherwise                    -> stub, with a build warning.
-//!
-//! `cfg(has_omega_gpu)` is set only when the real library is linked.
-//!
-//! Before linking a checkout build, `aien_abi_conformance::build::qualify_built` checks the
-//! pinned headers, a compiled layout probe and the archive symbols against
-//! `abi/omega_gpu.manifest`, and the archive sha256 against `native-artifacts.lock`; any mismatch
-//! fails the build. The result is recorded for `native_identity()`.
+//! Offline source builds use AIEN_OMEGA_DIR at omega.lock and AIEN_CUDAPP_DIR
+//! at that Omega revision's cudapp.lock. Omega's canonical staging entry freezes
+//! and builds that CUDApp revision with the pinned compiler and bridge.
+//! Both archives must match native-artifacts.lock; headers alone grant nothing.
+//! AIEN_FORCE_CPU_STUB=1 preserves the explicit CPU-only build, unless native
+//! libraries are required. No source selection builds the existing CPU stub.
+//! Arbitrary prebuilt GPU archives are refused, even with a caller-selected hash.
+//! Native capabilities are published to dependent build scripts only after ABI,
+//! source and both archive identity checks succeed.
 use aien_abi_conformance::build;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -46,6 +36,9 @@ fn main() {
         "AIEN_FORCE_CPU_STUB",
         "AIEN_OMEGA_GPU_LIB",
         "AIEN_OMEGA_DIR",
+        "AIEN_CUDAPP_DIR",
+        "OMEGA_OMC",
+        "OMEGA_BRIDGE",
         "AIEN_PHYSICS_DIR",
         "AIEN_REQUIRE_NATIVE_LIBS",
     ] {
@@ -62,6 +55,8 @@ fn main() {
         "omega.lock must hold one full 40-hex sha"
     );
     println!("cargo:rustc-env=AIEN_OMEGA_PINNED_SHA={pinned}");
+    println!("cargo:capabilities=");
+    build::Identity::stub("").emit("AIEN_CUDAPP");
 
     let root = PathBuf::from(env("CARGO_MANIFEST_DIR"));
     let manifest = root.join("abi/omega_gpu.manifest");
@@ -72,33 +67,19 @@ fn main() {
         build::Identity::stub(&pinned).emit(PREFIX);
         return;
     }
-    if let Ok(lib) = std::env::var("AIEN_OMEGA_GPU_LIB") {
-        let lib = PathBuf::from(lib);
-        assert!(
-            lib.is_file(),
-            "AIEN_OMEGA_GPU_LIB {} is not a file",
-            lib.display()
-        );
-        build::qualify_prebuilt(
-            "aien-omega-gpu",
-            &manifest,
-            &lib,
-            "AIEN_OMEGA_GPU_LIB_SHA256",
-            "unverified",
-        )
-        .emit(PREFIX);
-        link(&lib);
-        return;
-    }
+    assert!(
+        std::env::var_os("AIEN_OMEGA_GPU_LIB").is_none(),
+        "AIEN_OMEGA_GPU_LIB is no longer supported: use pinned AIEN_OMEGA_DIR and AIEN_CUDAPP_DIR source builds"
+    );
     let Ok(dir) = std::env::var("AIEN_OMEGA_DIR") else {
         // AIEN_REQUIRE_NATIVE_LIBS=1 (set by scripts/pins.sh env.sh) turns the silent
         // stub fallback into a build error: a release or receipt build must never
         // discover at run time that it carries the CPU stub (sovereign-core #92).
         assert!(
             std::env::var("AIEN_REQUIRE_NATIVE_LIBS").as_deref() != Ok("1"),
-            "aien-omega-gpu: AIEN_REQUIRE_NATIVE_LIBS=1 but neither AIEN_OMEGA_DIR nor AIEN_OMEGA_GPU_LIB is set (run scripts/pins.sh --gpu and source target/pins/env.sh)"
+            "aien-omega-gpu: AIEN_REQUIRE_NATIVE_LIBS=1 but AIEN_OMEGA_DIR is not set (run scripts/pins.sh --gpu and source target/pins/env.sh)"
         );
-        println!("cargo:warning=aien-omega-gpu: no AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB, building the CPU stub");
+        println!("cargo:warning=aien-omega-gpu: no AIEN_OMEGA_DIR, building the CPU stub");
         build::Identity::stub(&pinned).emit(PREFIX);
         return;
     };
@@ -117,6 +98,25 @@ fn main() {
         "omega checkout {} is at '{head}', omega.lock pins {pinned}",
         dir.display()
     );
+    let cudapp = std::env::var("AIEN_CUDAPP_DIR")
+        .expect("native GPU source build requires AIEN_CUDAPP_DIR at Omega's cudapp.lock");
+    println!("cargo:rerun-if-changed={}", dir.join("cudapp.lock").display());
+    let committed_pin = Command::new("git").arg("-C").arg(&dir)
+        .args(["show", &format!("{pinned}:cudapp.lock")]).output()
+        .expect("read committed canonical CUDApp pin");
+    assert!(committed_pin.status.success(), "pinned Omega revision has no cudapp.lock");
+    let locked_pin = std::fs::read(dir.join("cudapp.lock")).expect("read cudapp.lock");
+    assert_eq!(locked_pin, committed_pin.stdout, "Omega cudapp.lock differs from its pinned revision");
+    watch_checkout(&dir);
+    watch_checkout(Path::new(&cudapp));
+    for path in ["src", "Makefile", "tools/cudapp-stage.sh", "om/consumer.om"] {
+        println!("cargo:rerun-if-changed={}", dir.join(path).display());
+    }
+    for key in ["OMEGA_OMC", "OMEGA_BRIDGE"] {
+        if let Ok(path) = std::env::var(key) {
+            println!("cargo:rerun-if-changed={path}");
+        }
+    }
     let physics = std::env::var("AIEN_PHYSICS_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| dir.join("../physics"));
@@ -128,6 +128,7 @@ fn main() {
         .current_dir(&dir)
         .arg(format!("OUT_DIR={}", out.display()))
         .arg(format!("PHYSICS_DIR={}", physics.display()))
+        .arg(format!("CUDAPP_DIR={cudapp}"))
         .arg(out.join("libomega_gpu.a"))
         .status()
         .expect("run make");
@@ -137,28 +138,99 @@ fn main() {
         dir.display()
     );
     let archive = out.join("libomega_gpu.a");
-    build::qualify_built(
-        "aien-omega-gpu",
+    // Resolve once: pin, headers and archive must belong to the same immutable
+    // stage even if another make atomically publishes a newer stage.
+    let stage = std::fs::canonicalize(out.join("cudapp"))
+        .expect("Omega did not publish its canonical CUDApp stage");
+    println!("cargo:rerun-if-changed={}", stage.display());
+    let verified = Command::new("sh").arg(dir.join("tools/cudapp-stage.sh"))
+        .arg("--verify").arg(dir.join("cudapp.lock")).arg(&stage)
+        .stdout(std::process::Stdio::null())
+        .status().expect("verify immutable canonical CUDApp stage");
+    assert!(verified.success(), "canonical CUDApp stage provenance verification failed");
+    let canonical = stage.join("source");
+    let canonical_pin = std::fs::read_to_string(stage.join("pin"))
+        .expect("canonical stage is missing its frozen CUDApp pin");
+    assert_eq!(canonical_pin.as_bytes(), locked_pin, "canonical stage pin differs from pinned Omega cudapp.lock");
+    let canonical_archive = stage.join("build/libcudapp.a");
+    let (companion_identity, canonical_identity) = build::qualify_gpu_pair(
         &manifest,
         &artifacts_lock,
         &dir,
         &physics,
         &archive,
         &pinned,
-        true,
-    )
-    .emit(PREFIX);
-    link(&archive);
+        &canonical,
+        &canonical_archive,
+        canonical_pin.trim(),
+    );
+    companion_identity.emit(PREFIX);
+    canonical_identity.emit("AIEN_CUDAPP");
+    link(&archive, &canonical_archive);
 }
 
-fn link(lib: &Path) {
-    let dir = lib.parent().expect("lib has a parent dir");
-    println!("cargo:rustc-link-search=native={}", dir.display());
-    println!("cargo:rustc-link-lib=static=omega_gpu");
+fn link(companion: &Path, canonical: &Path) {
+    for (lib, name) in [(companion, "omega_gpu"), (canonical, "cudapp")] {
+        let dir = lib.parent().expect("lib has a parent dir");
+        println!("cargo:rustc-link-search=native={}", dir.display());
+        println!("cargo:rustc-link-lib=static={name}");
+        println!("cargo:rerun-if-changed={}", lib.display());
+    }
     println!("cargo:rustc-link-lib=dylib=pthread");
     println!("cargo:rustc-link-lib=dylib=m");
-    println!("cargo:rerun-if-changed={}", lib.display());
+    emit_capabilities(companion, canonical);
     println!("cargo:rustc-cfg=has_omega_gpu");
+}
+
+fn emit_capabilities(companion: &Path, canonical: &Path) {
+    use aien_abi_conformance::probe::defined_symbols;
+    let mut symbols = defined_symbols(companion).expect("cannot inspect Omega GPU companion");
+    symbols.extend(defined_symbols(canonical).expect("cannot inspect canonical CUDApp archive"));
+    let has = |name: &str| symbols.iter().any(|s| s == name);
+    let fp8 = has("omega_gpu_fp8_gemv_grouped_f32");
+    let q38 = has("omega_gpu_q38_graph_create");
+    let prefill = has("omega_gpu_pf_qgemm")
+        && has("omega_gpu_pf_quant") && has("omega_gpu_pf_alloc_dev");
+    let pattn = has("omega_gpu_prefill_attn");
+    let checks = [
+        ("has_omega_bf16", has("omega_gpu_bf16_gemv_f32")),
+        ("has_omega_dattn", has("omega_gpu_decode_attn")),
+        ("has_omega_dgraph", has("omega_gpu_decode_graph_create")),
+        ("has_omega_moe", has("omega_gpu_matmul_resident_windows_f32")),
+        ("has_omega_router", has("omega_gpu_router")),
+        ("has_omega_fp8", fp8),
+        ("has_omega_fp8_dev", fp8 && has("omega_gpu_fp8_gemv_grouped_dev") && has("omega_gpu_fp8_tensor_entry")),
+        ("has_omega_fp8gemm", fp8 && has("omega_gpu_fp8gemm_f32")),
+        ("has_omega_fp8_grouped_rule", fp8 && has("omega_gpu_fp8_grouped_ctas_auto")),
+        ("has_omega_pf", prefill),
+        ("has_omega_pattn", pattn),
+        ("has_omega_pattn_dev", pattn && has("omega_gpu_prefill_attn_dev")),
+        ("has_omega_pfhost", has("omega_gpu_pf_qgemm") && has("omega_gpu_pf_router_logits")
+            && has("omega_gpu_pf_moe_combine") && has("omega_gpu_pf_router_pack") && has("omega_gpu_pf_router_rows")),
+        ("has_omega_q38", q38),
+        ("has_omega_q36", q38 && has("omega_gpu_q36_graph_create")),
+        ("has_omega_q38_prefill", q38 && has("omega_gpu_gdn_prefill") && has("omega_gpu_prefill_attn256")),
+    ];
+    let capabilities = checks.iter().filter_map(|(cfg, present)| present.then_some(*cfg))
+        .collect::<Vec<_>>().join(" ");
+    println!("cargo:capabilities={capabilities}");
+}
+
+fn watch_checkout(dir: &Path) {
+    let branch = Command::new("git").arg("-C").arg(dir)
+        .args(["symbolic-ref", "-q", "HEAD"]).output()
+        .expect("read checkout branch");
+    let mut refs = vec!["HEAD".to_string()];
+    if branch.status.success() {
+        refs.push(String::from_utf8(branch.stdout).expect("git ref UTF-8").trim().into());
+    }
+    for reference in refs {
+        let path = Command::new("git").arg("-C").arg(dir)
+            .args(["rev-parse", "--path-format=absolute", "--git-path", &reference])
+            .output().expect("read checkout ref path");
+        assert!(path.status.success(), "cannot watch native checkout refs");
+        println!("cargo:rerun-if-changed={}", String::from_utf8_lossy(&path.stdout).trim());
+    }
 }
 
 fn env(k: &str) -> String {

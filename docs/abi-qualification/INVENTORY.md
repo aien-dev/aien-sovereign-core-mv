@@ -12,7 +12,7 @@ sovereign-core main `bd438bcc`. Tags: **implemented** (true before this work), *
 | Boundary | Producer | Consumer | Linked into production |
 |---|---|---|---|
 | rxc_host v2 (composition facade) | om `src/runtime/rxc_host_abi.h`, `.c`; archive `librx_compose.a` (`mk/rx_compose_lib.mk`) | sc `crates/aien-omega-compose` | yes (aien-runtime, aien-cli) |
-| omega GPU engine | om `src/omega_gpu_{matmul_api,session,serving,elementwise_api,attention_api}.h`; `libomega_gpu.a` | sc `crates/aien-omega-gpu`, used by `aien-inference-abi` | yes on the GB10 build |
+| omega GPU engine | canonical CUDApp `src/omega_gpu_{matmul_api,session,serving,elementwise_api,attention_api}.h`; canonical `libcudapp.a` after retained Omega `libomega_gpu.a` companion | sc `crates/aien-omega-gpu`, all satellite capability selectors, `aien-inference-abi` | candidate source cutover, pending final dependency pins and host evidence |
 | AIENOS capability authority (C, 64-bit generation) | ao `native/capability/aienos_capability.h` | om `src/runtime/aienos_cap.h` (hand copy), merged into `librx_compose.a` | yes, through librx_compose.a |
 | AIENOS capability (Rust, 32-bit generation) | ao `crates/aienos-capability-ffi` | nothing in sc, om or ao links it (grep, 2026-10-11) | no |
 
@@ -63,10 +63,10 @@ C side implemented before (`ao native/capability/capability_test.c`); Rust side 
 | Item | Before | Now |
 |---|---|---|
 | omega.lock checkout check | implemented (compose build.rs, GPU build.rs) | kept |
-| prebuilt `*_LIB` | accepted with no digest | fixed: `*_LIB_SHA256` required and matched, every manifest function must be defined; identity `prebuilt`, never qualifies |
+| prebuilt `*_LIB` | accepted with no digest | composition requires a matching caller-selected digest and symbols, reports `prebuilt`, never qualifies. GPU `AIEN_OMEGA_GPU_LIB` is refused: only pinned canonical source plus retained Omega companion is supported. |
 | stub under `AIEN_REQUIRE_NATIVE_LIBS=1` | `AIEN_FORCE_CPU_STUB=1` silently won | fixed: refused |
-| expected vs actual digest | missing | fixed: `native-artifacts.lock` (archive, omega sha, target, cc version, sha256); mismatch fails the build, unlisted combination warns and does not qualify |
-| provenance in the binary | missing | fixed: `native_identity()` in both crates (link kind, ABI result, digest state, archive sha256, omega, aienos.lock, physics.lock, target, cc) |
+| expected vs actual digest | missing | `native-artifacts.lock` records archive, source SHA, target, cc version and sha256. Composition retains its existing unrecorded-build warning. GPU builds require recorded matching entries for both Omega companion and canonical CUDApp archive; missing or stale entries refuse. |
+| provenance in the binary | missing | `native_identity()` records Omega companion; GPU `canonical_identity()` records CUDApp separately using the same identity format. Both are printed by host ABI tests and must qualify in `scripts/abi-qualify.sh`. |
 | sovereign-core commit, flags, tools | missing | `scripts/abi-qualify.sh` evidence.json |
 
 ## Section 8: safe cross-language execution

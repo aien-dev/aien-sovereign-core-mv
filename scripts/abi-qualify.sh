@@ -101,7 +101,7 @@ fi
 
 # 2. What was linked: one identity line per native library, each must qualify.
 IDS=$(cat "$OUT"/compose.log "$OUT"/gpu-host.log 2>/dev/null | sed -n 's/.*AIEN_NATIVE_IDENTITY \({.*}\).*/\1/p' | sort -u)
-for c in librx_compose.a libomega_gpu.a; do
+for c in librx_compose.a libomega_gpu.a libcudapp.a; do
     if printf '%s\n' "$IDS" | grep -F "\"component\":\"$c\"" | grep -qF '"qualifies":true'; then
         record "identity-$c" pass ""
     elif [ "${AIEN_REQUIRE_NATIVE_LIBS:-}" = "1" ]; then
