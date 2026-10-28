@@ -13,8 +13,9 @@
 #                 omega_backend_parity and the crate's linked tests), under the GPU lease
 # The build scripts check the C headers, a compiled layout probe and the archive symbols against
 # the checked-in ABI manifests and the archive digests against native-artifacts.lock, and the
-# identity tests run with AIEN_ABI_QUALIFY=1, so each linked library must report
-# pinned-source + abi pass + digest locked.
+# identity tests run with AIEN_ABI_QUALIFY=1: canonical CUDApp and compose must report
+# pinned-source + abi pass + digest locked, companion libomega_gpu.a reports pinned-source +
+# abi none + digest locked, and native_pair_qualifies must be true.
 #
 # Usage: scripts/abi-qualify.sh [--chip] [--pins DIR] [--out DIR]
 #   --pins DIR  pinned checkouts (default target/pins), materialized by scripts/pins.sh --gpu
@@ -84,17 +85,37 @@ if [ "${AIEN_REQUIRE_NATIVE_LIBS:-}" = "1" ]; then
     step gpu-host cargo test -p aien-omega-gpu -- --test-threads=1 --nocapture
 fi
 
-# 2. What was linked: one identity line per native library, each must qualify.
+# 2. What was linked: canonical CUDApp qualifies, companion is admitted (abi none, digest locked), pair qualifies.
 IDS=$(cat "$OUT"/compose.log "$OUT"/gpu-host.log 2>/dev/null | sed -n 's/.*AIEN_NATIVE_IDENTITY \({.*}\).*/\1/p' | sort -u)
-for c in librx_compose.a libomega_gpu.a; do
-    if printf '%s\n' "$IDS" | grep -F "\"component\":\"$c\"" | grep -qF '"qualifies":true'; then
-        record "identity-$c" pass ""
-    elif [ "${AIEN_REQUIRE_NATIVE_LIBS:-}" = "1" ]; then
-        record "identity-$c" fail "no qualifying identity reported"
-    else
-        record "identity-$c" incomplete "not built"
-    fi
-done
+PAIR_OK=$(cat "$OUT"/gpu-host.log 2>/dev/null | sed -n 's/.*AIEN_NATIVE_PAIR_QUALIFIES \(true\|false\).*/\1/p' | tail -1)
+if printf '%s\n' "$IDS" | grep -F '"component":"librx_compose.a"' | grep -qF '"qualifies":true'; then
+    record "identity-librx_compose.a" pass ""
+elif [ "${AIEN_REQUIRE_NATIVE_LIBS:-}" = "1" ]; then
+    record "identity-librx_compose.a" fail "no qualifying compose identity reported"
+else
+    record "identity-librx_compose.a" incomplete "not built"
+fi
+if printf '%s\n' "$IDS" | grep -F '"component":"libcudapp.a"' | grep -qF '"qualifies":true'; then
+    record "identity-libcudapp.a" pass ""
+elif [ "${AIEN_REQUIRE_NATIVE_LIBS:-}" = "1" ]; then
+    record "identity-libcudapp.a" fail "no qualifying canonical CUDApp identity reported"
+else
+    record "identity-libcudapp.a" incomplete "not built"
+fi
+if printf '%s\n' "$IDS" | grep -F '"component":"libomega_gpu.a"' | grep -F '"link":"pinned-source"' | grep -F '"abi":"none"' | grep -qF '"digest":"locked"'; then
+    record "identity-libomega_gpu.a" pass ""
+elif [ "${AIEN_REQUIRE_NATIVE_LIBS:-}" = "1" ]; then
+    record "identity-libomega_gpu.a" fail "companion not admitted: requires pinned-source, abi none, and locked digest"
+else
+    record "identity-libomega_gpu.a" incomplete "not built"
+fi
+if [ "$PAIR_OK" = "true" ]; then
+    record "identity-pair" pass ""
+elif [ "${AIEN_REQUIRE_NATIVE_LIBS:-}" = "1" ]; then
+    record "identity-pair" fail "native_pair_qualifies returned false or missing"
+else
+    record "identity-pair" incomplete "not built"
+fi
 
 # 3. GB10 chip tests, only on request, only when the machine is free.
 if [ "$CHIP" = 1 ] && [ "$fails" -eq 0 ] && [ "$incomplete" -eq 0 ]; then
@@ -140,8 +161,10 @@ dirty=false
     printf '"rustc":"%s",\n"cc":"%s",\n"nm":"%s",\n' "$(j "$(rustc -V)")" "$(j "$(${CC:-cc} --version | head -1)")" "$(j "$(nm --version | head -1)")"
     printf '"flags":{"RUSTFLAGS":"%s","CFLAGS":"%s","CC":"%s","AIEN_REQUIRE_NATIVE_LIBS":"%s"},\n' \
         "$(j "${RUSTFLAGS:-}")" "$(j "${CFLAGS:-}")" "$(j "${CC:-cc}")" "${AIEN_REQUIRE_NATIVE_LIBS:-}"
-    printf '"commits":{"sovereign_core":"%s","sovereign_core_dirty":%s,"omega_lock":"%s","omega":"%s","physics":"%s","aienos":"%s"},\n' \
-        "$(rev "$ROOT")" "$dirty" "$(tr -d '[:space:]' <omega.lock)" "$(rev "$PINS/omega")" "$(rev "$PINS/physics")" "$(rev "$PINS/aienos")"
+    printf '"commits":{"sovereign_core":"%s","sovereign_core_dirty":%s,"omega_lock":"%s","omega":"%s","cudapp_lock":"%s","cudapp":"%s","physics":"%s","aienos":"%s"},\n' \
+        "$(rev "$ROOT")" "$dirty" "$(tr -d '[:space:]' <omega.lock)" "$(rev "$PINS/omega")" \
+        "$([ -f "$PINS/omega/cudapp.lock" ] && tr -d '[:space:]' <"$PINS/omega/cudapp.lock" || echo none)" \
+        "$(rev "$PINS/cudapp")" "$(rev "$PINS/physics")" "$(rev "$PINS/aienos")"
     printf '"native_artifacts_lock_sha256":"%s",\n' "$(sha256sum native-artifacts.lock | cut -d' ' -f1)"
     printf '"identities":[%s],\n' "$(printf '%s\n' "$IDS" | grep . | paste -sd, -)"
     printf '"chip":{"state":"%s","reason":"%s"},\n' "$CHIP_STATE" "$(j "$CHIP_REASON")"

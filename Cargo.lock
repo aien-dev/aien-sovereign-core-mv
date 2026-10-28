@@ -294,6 +294,7 @@ dependencies = [
 name = "aien-omega-bf16"
 version = "0.1.0"
 dependencies = [
+ "aien-abi-conformance",
  "aien-omega-gpu",
 ]
 
@@ -310,6 +311,7 @@ dependencies = [
 name = "aien-omega-dattn"
 version = "0.1.0"
 dependencies = [
+ "aien-abi-conformance",
  "aien-omega-gpu",
 ]
 
@@ -317,6 +319,7 @@ dependencies = [
 name = "aien-omega-dgraph"
 version = "0.1.0"
 dependencies = [
+ "aien-abi-conformance",
  "aien-omega-gpu",
 ]
 
@@ -324,6 +327,7 @@ dependencies = [
 name = "aien-omega-fp8"
 version = "0.1.0"
 dependencies = [
+ "aien-abi-conformance",
  "aien-omega-gpu",
 ]
 
@@ -338,6 +342,7 @@ dependencies = [
 name = "aien-omega-moe"
 version = "0.1.0"
 dependencies = [
+ "aien-abi-conformance",
  "aien-omega-gpu",
 ]
 
@@ -345,6 +350,7 @@ dependencies = [
 name = "aien-omega-pf"
 version = "0.1.0"
 dependencies = [
+ "aien-abi-conformance",
  "aien-omega-dattn",
  "aien-omega-gpu",
 ]
@@ -353,6 +359,7 @@ dependencies = [
 name = "aien-omega-q38"
 version = "0.1.0"
 dependencies = [
+ "aien-abi-conformance",
  "aien-omega-gpu",
 ]
 
@@ -360,6 +367,7 @@ dependencies = [
 name = "aien-omega-router"
 version = "0.1.0"
 dependencies = [
+ "aien-abi-conformance",
  "aien-omega-gpu",
 ]
 

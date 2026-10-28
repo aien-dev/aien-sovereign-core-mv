@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# pins.sh: materialize the three pinned checkouts a native (no CUDA) build needs,
+# pins.sh: materialize the pinned checkouts a native (no CUDA) build needs,
 # exactly as CI does (ci.yml "Linked composition tests"), so a clean clone plus one
 # command yields the real omega libraries instead of the CPU stubs (sovereign-core #92).
 #
 #   omega    at omega.lock (this repository)
 #   physics  at omega's physics.lock
 #   aienos   at omega's aienos.lock (authority source for the composition library)
+#   cudapp   at omega's cudapp.lock (canonical GPU source, materialized with --gpu)
 #
 # Usage: scripts/pins.sh [--gpu] [--check] [DIR]
 #   DIR      where the checkouts live (default target/pins). Existing clones are reused;
 #            the network is touched only when a clone is missing or not at its pin.
-#   --gpu    env.sh also sets AIEN_OMEGA_DIR, which links the GB10 engine (aien-omega-gpu).
+#   --gpu    env.sh also sets AIEN_OMEGA_DIR, AIEN_CUDAPP_DIR, and stage prerequisites
+#            (OMEGA_OMC, OMEGA_BRIDGE), linking the canonical GB10 engine (aien-omega-gpu).
 #            Without it only the composition library (CPU) is linked, as the CI gate does.
 #   --check  verify only: every clone present and at its pin, no network, no writes.
 # Writes DIR/env.sh. Then:  . target/pins/env.sh && cargo build --release
@@ -33,12 +35,21 @@ done
 DIR="${DIR:-$ROOT/target/pins}"
 mkdir -p "$DIR" 2>/dev/null || true; DIR="$(cd "$DIR" 2>/dev/null && pwd || echo "$DIR")"
 die() { echo "pins.sh: $*" >&2; exit 3; }
-sha_of() { tr -d '[:space:]' < "$1"; }
+sha_of() {
+    local line value=""
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="$(printf '%s' "$line" | tr -d '[:space:]')"
+        case "$line" in ''|'#'*) continue ;; esac
+        [ -z "$value" ] || die "multiple source revisions in $1"
+        value="$line"
+    done < "$1"
+    printf '%s' "$value"
+}
 is_sha() { [[ "$1" =~ ^[0-9a-f]{40}$ ]]; }
 head_of() { git -C "$1" rev-parse HEAD 2>/dev/null || true; }
 # place NAME SHA: make DIR/NAME a clone at SHA (detached), fetching only when needed.
 place() {
-    local name="$1" sha="$2"
+    local name="$1" sha="$2" repo="${3:-$1}"
     local d="$DIR/$name"
     is_sha "$sha" || die "$name pin is not a full 40-hex sha: '$sha'"
     if [ "$(head_of "$d")" = "$sha" ]; then echo "pins: $name at $sha (present)"; return 0; fi
@@ -46,10 +57,10 @@ place() {
     mkdir -p "$DIR"
     if [ ! -d "$d/.git" ]; then
         echo "pins: cloning $name from $BASE"
-        git clone -q "$BASE/$name" "$d" || { echo "pins.sh: clone of $name failed" >&2; exit 4; }
+        git clone -q "$BASE/$name" "$d" 2>/dev/null || git clone -q "$BASE/$repo" "$d" || { echo "pins.sh: clone of $name failed" >&2; exit 4; }
     fi
     if ! git -C "$d" cat-file -e "$sha^{commit}" 2>/dev/null; then
-        git -C "$d" fetch -q origin "$sha" || git -C "$d" fetch -q origin || { echo "pins.sh: fetch of $name failed" >&2; exit 4; }
+        git -C "$d" fetch -q origin "$sha" 2>/dev/null || git -C "$d" fetch -q origin || { echo "pins.sh: fetch of $name failed" >&2; exit 4; }
     fi
     git -C "$d" checkout -q --detach "$sha" || { echo "pins.sh: checkout of $name@$sha failed" >&2; exit 4; }
     [ "$(head_of "$d")" = "$sha" ] || die "$name HEAD is not $sha after checkout"
@@ -61,13 +72,42 @@ place omega "$(sha_of "$ROOT/omega.lock")"
 [ -f "$DIR/omega/aienos.lock" ] || die "omega checkout has no aienos.lock"
 place physics "$(sha_of "$DIR/omega/physics.lock")"
 place aienos "$(sha_of "$DIR/omega/aienos.lock")"
+OMC_BIN=""
+BRIDGE_DIR=""
+if [ "$GPU" -eq 1 ]; then
+    [ -f "$DIR/omega/cudapp.lock" ] || die "omega checkout has no cudapp.lock"
+    place cudapp "$(sha_of "$DIR/omega/cudapp.lock")" CUDApp
+    OMC_PIN="2c82480596bbdc50cda9626866209ef662d5834f278f839ff4ce0250c495029f"
+    if [ -n "${OMEGA_OMC:-}" ]; then
+        [ -f "$OMEGA_OMC" ] || die "OMEGA_OMC not found: $OMEGA_OMC"
+        [ "$(sha256sum < "$OMEGA_OMC" | cut -c1-64)" = "$OMC_PIN" ] || die "OMEGA_OMC is not the pinned compiler ($OMC_PIN)"
+        OMC_BIN="$OMEGA_OMC"
+    elif [ -f "$DIR/omega/seed/out/omc" ] && [ "$(sha256sum < "$DIR/omega/seed/out/omc" | cut -c1-64)" = "$OMC_PIN" ]; then
+        OMC_BIN="$DIR/omega/seed/out/omc"
+    else
+        echo "pins: source pins ready; set OMEGA_OMC to the seeded compiler with SHA-256 $OMC_PIN before building" >&2
+    fi
+    if [ -f "$DIR/cudapp/om/omega-bridge.lock" ]; then
+        place omega-bridge "$(sha_of "$DIR/cudapp/om/omega-bridge.lock")"
+        BRIDGE_DIR="$DIR/omega-bridge"
+    elif [ -n "${OMEGA_BRIDGE:-}" ]; then
+        die "OMEGA_BRIDGE has no authenticated om/omega-bridge.lock in the pinned CUDApp source"
+    fi
+fi
 if [ "$CHECK" -eq 0 ]; then
     {
         echo "# written by scripts/pins.sh; source it before cargo build/test"
         echo "export AIEN_OMEGA_COMPOSE_DIR='$DIR/omega'"
         echo "export AIEN_PHYSICS_DIR='$DIR/physics'"
         echo "export AIEN_AIENOS_LOCK_REPO='$DIR/aienos'"
-        if [ "$GPU" -eq 1 ]; then echo "export AIEN_OMEGA_DIR='$DIR/omega'"; else echo "unset AIEN_OMEGA_DIR"; fi
+        if [ "$GPU" -eq 1 ]; then
+            echo "export AIEN_OMEGA_DIR='$DIR/omega'"
+            echo "export AIEN_CUDAPP_DIR='$DIR/cudapp'"
+            [ -n "$OMC_BIN" ] && echo "export OMEGA_OMC='$OMC_BIN'"
+            [ -n "$BRIDGE_DIR" ] && echo "export OMEGA_BRIDGE='$BRIDGE_DIR'"
+        else
+            echo "unset AIEN_OMEGA_DIR AIEN_CUDAPP_DIR"
+        fi
         echo "unset AIEN_OMEGA_GPU_LIB AIEN_OMEGA_COMPOSE_LIB AIEN_OMEGA_COMPOSE_SHA AIEN_FORCE_CPU_STUB AIEN_DEV_FALLBACK"
         echo "export AIEN_REQUIRE_NATIVE_LIBS=1"
     } > "$DIR/env.sh"

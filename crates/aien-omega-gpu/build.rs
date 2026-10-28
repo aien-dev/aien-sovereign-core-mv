@@ -1,151 +1,168 @@
-//! Links `libomega_gpu.a` from the omega commit pinned in `omega.lock`.
-//!
-//! Offline by design: nothing is downloaded and no CUDA/nvcc is used. Order:
-//!   1. `AIEN_FORCE_CPU_STUB=1`      -> stub (CI without the chip). BUILD-TIME ONLY: a binary already
-//!      built with the GPU library ignores it at run time. For a CPU-only RUN set `AIEN_BACKEND=cpu`:
-//!      the daemon refuses to start (`CPU_ONLY_BUT_GPU_BUILD`) if the binary would select the GB10 backend.
-//!      Refused when `AIEN_REQUIRE_NATIVE_LIBS=1` (a required-native build is never a stub).
-//!   2. `AIEN_OMEGA_GPU_LIB=<file>`  -> link that prebuilt archive; `AIEN_OMEGA_GPU_LIB_SHA256` must
-//!      name its sha256 (checked) and it must define every function in the ABI manifest. A
-//!      development override: its identity says `prebuilt` and it never qualifies.
-//!   3. `AIEN_OMEGA_DIR=<checkout>`  -> its HEAD must equal omega.lock; built with
-//!      `make libomega_gpu` into OUT_DIR. `AIEN_PHYSICS_DIR` (default `<omega>/../physics`)
-//!      is passed as PHYSICS_DIR; omega's own physics.lock check still runs.
-//!   4. otherwise                    -> stub, with a build warning.
-//!
-//! `cfg(has_omega_gpu)` is set only when the real library is linked.
-//!
-//! Before linking a checkout build, `aien_abi_conformance::build::qualify_built` checks the
-//! pinned headers, a compiled layout probe and the archive symbols against
-//! `abi/omega_gpu.manifest`, and the archive sha256 against `native-artifacts.lock`; any mismatch
-//! fails the build. The result is recorded for `native_identity()`.
+//! Links the authenticated Omega CPU/evidence companion first and canonical CUDApp last.
+//! The Rust GPU ABI is checked only against the pinned CUDApp source and archive.
+//! Both digests remain independently subject to native-artifacts.lock; unrecorded
+//! development builds do not qualify. No GPU or model is opened by this build script.
 use aien_abi_conformance::build;
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const PREFIX: &str = "AIEN_OMEGA_GPU";
+const COMPANION: &str = "AIEN_OMEGA_COMPANION";
 
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(has_omega_gpu)");
-    for v in [
-        "AIEN_FORCE_CPU_STUB",
-        "AIEN_OMEGA_GPU_LIB",
-        "AIEN_OMEGA_DIR",
-        "AIEN_PHYSICS_DIR",
-        "AIEN_REQUIRE_NATIVE_LIBS",
-    ] {
+    for v in ["AIEN_FORCE_CPU_STUB", "AIEN_OMEGA_GPU_LIB", "AIEN_OMEGA_GPU_LIB_SHA256",
+        "AIEN_OMEGA_DIR", "AIEN_CUDAPP_DIR", "AIEN_PHYSICS_DIR", "AIEN_REQUIRE_NATIVE_LIBS",
+        "OMEGA_OMC", "OMEGA_BRIDGE"] {
         println!("cargo:rerun-if-env-changed={v}");
     }
-    let lock_path = Path::new(&env("CARGO_MANIFEST_DIR")).join("../../omega.lock");
-    println!("cargo:rerun-if-changed={}", lock_path.display());
-    let pinned = std::fs::read_to_string(&lock_path)
-        .unwrap_or_else(|e| panic!("cannot read {}: {e}", lock_path.display()))
-        .trim()
-        .to_string();
-    assert!(
-        pinned.len() == 40 && pinned.bytes().all(|b| b.is_ascii_hexdigit()),
-        "omega.lock must hold one full 40-hex sha"
-    );
-    println!("cargo:rustc-env=AIEN_OMEGA_PINNED_SHA={pinned}");
-
+    assert!(std::env::var_os("AIEN_OMEGA_GPU_LIB").is_none(),
+        "AIEN_OMEGA_GPU_LIB is obsolete: the canonical GPU boundary requires authenticated source and both archives");
     let root = PathBuf::from(env("CARGO_MANIFEST_DIR"));
-    let manifest = root.join("abi/omega_gpu.manifest");
-    let artifacts_lock = root.join("../../native-artifacts.lock");
-    println!("cargo:rerun-if-env-changed=AIEN_OMEGA_GPU_LIB_SHA256");
+    let lock_path = root.join("../../omega.lock");
+    println!("cargo:rerun-if-changed={}", lock_path.display());
+    let pinned = read_pin(&lock_path);
+    println!("cargo:rustc-env=AIEN_OMEGA_PINNED_SHA={pinned}");
     if std::env::var("AIEN_FORCE_CPU_STUB").as_deref() == Ok("1") {
         build::refuse_stub_if_required("aien-omega-gpu");
-        build::Identity::stub(&pinned).emit(PREFIX);
-        return;
-    }
-    if let Ok(lib) = std::env::var("AIEN_OMEGA_GPU_LIB") {
-        let lib = PathBuf::from(lib);
-        assert!(
-            lib.is_file(),
-            "AIEN_OMEGA_GPU_LIB {} is not a file",
-            lib.display()
-        );
-        build::qualify_prebuilt(
-            "aien-omega-gpu",
-            &manifest,
-            &lib,
-            "AIEN_OMEGA_GPU_LIB_SHA256",
-            "unverified",
-        )
-        .emit(PREFIX);
-        link(&lib);
+        emit_stub(&pinned);
         return;
     }
     let Ok(dir) = std::env::var("AIEN_OMEGA_DIR") else {
-        // AIEN_REQUIRE_NATIVE_LIBS=1 (set by scripts/pins.sh env.sh) turns the silent
-        // stub fallback into a build error: a release or receipt build must never
-        // discover at run time that it carries the CPU stub (sovereign-core #92).
-        assert!(
-            std::env::var("AIEN_REQUIRE_NATIVE_LIBS").as_deref() != Ok("1"),
-            "aien-omega-gpu: AIEN_REQUIRE_NATIVE_LIBS=1 but neither AIEN_OMEGA_DIR nor AIEN_OMEGA_GPU_LIB is set (run scripts/pins.sh --gpu and source target/pins/env.sh)"
-        );
-        println!("cargo:warning=aien-omega-gpu: no AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB, building the CPU stub");
-        build::Identity::stub(&pinned).emit(PREFIX);
+        assert!(!build::require_native(),
+            "aien-omega-gpu: AIEN_REQUIRE_NATIVE_LIBS=1 but AIEN_OMEGA_DIR is not set (run scripts/pins.sh --gpu)");
+        println!("cargo:warning=aien-omega-gpu: no AIEN_OMEGA_DIR, building the CPU stub");
+        emit_stub(&pinned);
         return;
     };
-    let dir = PathBuf::from(dir);
-    let head = Command::new("git")
-        .arg("-C")
-        .arg(&dir)
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_default();
-    assert!(
-        head == pinned,
-        "omega checkout {} is at '{head}', omega.lock pins {pinned}",
-        dir.display()
-    );
-    let physics = std::env::var("AIEN_PHYSICS_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| dir.join("../physics"));
+    let dir = PathBuf::from(dir).canonicalize().expect("resolve Omega checkout");
+    let head = git(&dir, &["rev-parse", "HEAD"]);
+    assert_eq!(head.trim(), pinned, "Omega checkout does not match omega.lock");
+    let physics = std::env::var("AIEN_PHYSICS_DIR").map(PathBuf::from)
+        .unwrap_or_else(|_| dir.join("../physics")).canonicalize().expect("resolve physics checkout");
+    let cudapp = PathBuf::from(env("AIEN_CUDAPP_DIR")).canonicalize().expect("resolve CUDApp checkout");
     let out = PathBuf::from(env("OUT_DIR")).join("omega-build");
-    if build::fresh_out_dir(&out, &pinned) {
-        println!("cargo:warning=aien-omega-gpu: build dir was for another omega commit, rebuilt from clean");
-    }
-    let status = Command::new("make")
-        .current_dir(&dir)
+    build::fresh_out_dir(&out, &pinned);
+    // Build only authenticated commit bytes, not dirty or ignored worktree overlays.
+    let source = materialize_source(&dir, &pinned, &lock_path, &out);
+    let cudapp_lock = source.join("cudapp.lock");
+    let canonical_pin = read_pin(&cudapp_lock);
+    println!("cargo:rustc-env=AIEN_OMEGA_CUDAPP_PINNED_SHA={canonical_pin}");
+    let status = Command::new("make").current_dir(&source)
+        .env_remove("BASH_ENV")
         .arg(format!("OUT_DIR={}", out.display()))
         .arg(format!("PHYSICS_DIR={}", physics.display()))
-        .arg(out.join("libomega_gpu.a"))
-        .status()
-        .expect("run make");
-    assert!(
-        status.success(),
-        "make libomega_gpu failed in {}",
-        dir.display()
-    );
-    let archive = out.join("libomega_gpu.a");
-    build::qualify_built(
-        "aien-omega-gpu",
-        &manifest,
-        &artifacts_lock,
-        &dir,
-        &physics,
-        &archive,
-        &pinned,
-        true,
-    )
-    .emit(PREFIX);
-    link(&archive);
-}
-
-fn link(lib: &Path) {
-    let dir = lib.parent().expect("lib has a parent dir");
-    println!("cargo:rustc-link-search=native={}", dir.display());
+        .arg(format!("CUDAPP_DIR={}", cudapp.display()))
+        .arg("libomega_gpu").status().expect("run canonical native build");
+    assert!(status.success(), "canonical native archive build failed");
+    // Resolve the publication symlink once, then authenticate and link that same stage.
+    let stage = out.join("cudapp").canonicalize().expect("resolve generated CUDApp stage");
+    let status = Command::new("sh").arg(source.join("tools/cudapp-stage.sh"))
+        .env_remove("BASH_ENV")
+        .arg("--verify").arg(&cudapp_lock).arg(&stage).status().expect("authenticate CUDApp stage");
+    assert!(status.success(), "canonical CUDApp stage authentication failed");
+    for input in [cudapp_lock.clone(), stage.join("pin"), stage.join("observed"),
+        stage.join("archive.sha256"), stage.join("source.sha256"), stage.join("guard.sha256")] {
+        println!("cargo:rerun-if-changed={}", input.display());
+    }
+    // Cargo recursively watches this pristine source; a modified header or an extra file
+    // invalidates the cached build and is refused by the next authentication.
+    println!("cargo:rerun-if-changed={}", stage.join("source").display());
+    let canonical_source = stage.join("source");
+    let canonical_archive = stage.join("build/libcudapp.a");
+    let companion_archive = out.join("libomega_gpu.a");
+    let manifest = root.join("abi/omega_gpu.manifest");
+    let artifacts = root.join("../../native-artifacts.lock");
+    let includes = ["src", "m16", "nvrm",
+        "third_party/nvidia-open-580.173.02/src/common/sdk/nvidia/inc",
+        "third_party/nvidia-open-580.173.02/kernel-open/common/inc",
+        "third_party/nvidia-open-580.173.02/kernel-open/nvidia-uvm",
+        "third_party/nvidia-open-580.173.02/src/nvidia/arch/nvalloc/unix/include"]
+        .iter().map(|p| canonical_source.join(p)).collect();
+    let canonical = build::qualify_built_with_includes("aien-omega-gpu", &manifest, &artifacts,
+        &canonical_source, &canonical_archive, &canonical_pin, true, includes);
+    canonical.emit(PREFIX);
+    let companion = build::qualify_companion("aien-omega-gpu", &manifest, &artifacts,
+        &source, &companion_archive, &pinned);
+    companion.emit(COMPANION);
+    // CUDApp also has an archive named libomega_gpu.a. Only this private directory
+    // is searched for the companion, so the checked archive cannot be substituted.
+    let link_dir = out.join("admitted-link");
+    std::fs::create_dir_all(&link_dir).expect("create admitted archive directory");
+    copy_archive(&companion_archive, &link_dir.join("libomega_gpu.a"), &companion.archive_sha256);
+    copy_archive(&canonical_archive, &link_dir.join("libcudapp.a"), &canonical.archive_sha256);
+    println!("cargo:canonical_archive={}", link_dir.join("libcudapp.a").display());
+    println!("cargo:canonical_sha256={}", canonical.archive_sha256);
+    println!("cargo:canonical_source={}", canonical_source.display());
+    println!("cargo:rustc-link-search=native={}", link_dir.display());
     println!("cargo:rustc-link-lib=static=omega_gpu");
+    println!("cargo:rustc-link-lib=static=cudapp");
     println!("cargo:rustc-link-lib=dylib=pthread");
     println!("cargo:rustc-link-lib=dylib=m");
-    println!("cargo:rerun-if-changed={}", lib.display());
     println!("cargo:rustc-cfg=has_omega_gpu");
 }
 
-fn env(k: &str) -> String {
-    std::env::var(k).unwrap_or_else(|_| panic!("{k} not set"))
+fn copy_archive(source: &Path, destination: &Path, admitted_sha: &str) {
+    if aien_abi_conformance::identity::sha256_file(destination).ok().as_deref() != Some(admitted_sha) {
+        std::fs::copy(source, destination).expect("snapshot admitted archive");
+    }
+    assert_eq!(admitted_sha,
+        aien_abi_conformance::identity::sha256_file(destination).expect("hash admitted link input"),
+        "admitted archive changed before linking");
+    println!("cargo:rerun-if-changed={}", destination.display());
+}
+
+fn emit_stub(pinned: &str) {
+    println!("cargo:rustc-env=AIEN_OMEGA_CUDAPP_PINNED_SHA=");
+    build::Identity::stub("").emit(PREFIX);
+    build::Identity::stub(pinned).emit(COMPANION);
+}
+
+fn materialize_source(repo: &Path, pinned: &str, lock: &Path, out: &Path) -> PathBuf {
+    // The checker cannot establish its own trust after execution. Authenticate the
+    // bounded commit/tree/blob chain first, then execute only these private bytes.
+    let helper = out.join("authenticated-source-checker.sh");
+    let checker = aien_abi_conformance::source::authenticated_source_checker(repo, pinned);
+    if std::fs::read(&helper).ok().as_deref() != Some(checker.as_slice()) {
+        std::fs::write(&helper, checker).expect("snapshot authenticated source checker");
+    }
+    let roots = git(repo, &["ls-tree", "-z", "--name-only", pinned]);
+    let expected_roots: BTreeSet<String> = roots.split('\0').filter(|s| !s.is_empty()).map(str::to_owned).collect();
+    let source = out.join("source");
+    let run = |mode: &str, names: &BTreeSet<String>| {
+        let status = Command::new("bash").arg(&helper).arg(mode).arg(&source).args(names)
+            .env_remove("BASH_ENV")
+            .env("AIENOS_LOCK", "").env("AIENOS_LOCK_FILE", lock).env("AIENOS_LOCK_REPO", repo)
+            .status().expect("run raw-object source authentication");
+        assert!(status.success(), "Omega source snapshot authentication failed");
+    };
+    run("materialize", &expected_roots);
+    let mut roots = expected_roots;
+    for entry in std::fs::read_dir(&source).expect("read source snapshot entries") {
+        roots.insert(entry.expect("read source entry").file_name().into_string().expect("UTF-8 source entry"));
+    }
+    run("verify-dir", &roots);
+    println!("cargo:rerun-if-changed={}", helper.display());
+    source
+}
+
+fn git(repo: &Path, args: &[&str]) -> String {
+    let result = Command::new("git").arg("-C").arg(repo)
+        .env("GIT_NO_REPLACE_OBJECTS", "1").env("GIT_GRAFT_FILE", "/nonexistent/core-native-grafts")
+        .args(args).output().expect("read native source identity");
+    assert!(result.status.success(), "git source identity failed: {args:?}");
+    String::from_utf8(result.stdout).expect("UTF-8 git identity")
+}
+
+fn read_pin(path: &Path) -> String {
+    let pin = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let pin = pin.trim();
+    assert!(pin.len() == 40 && pin.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+        "{} must hold one lowercase full 40-hex source revision", path.display());
+    pin.into()
+}
+
+fn env(key: &str) -> String {
+    std::env::var(key).unwrap_or_else(|_| panic!("{key} not set"))
 }

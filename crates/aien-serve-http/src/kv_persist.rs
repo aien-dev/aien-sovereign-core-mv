@@ -57,6 +57,8 @@ use sha2::{Digest, Sha256};
 pub const ARITH_ID: &str = "omega-qwen3-moe";
 /// Domain of the omega engine config digest.
 const OMEGA_ENG_DOMAIN: &[u8] = b"AIEN-PKV-OMEGA-ENG-V1\0";
+/// Domain of the omega two-archive engine build id (sc#505, ADR 0003 section 1.2.2).
+const OMEGA_BUILD_DOMAIN_V2: &[u8] = b"AIEN-PKV-OMEGA-BUILD-V2\0";
 /// How long a restore waits for its chunks before giving up (plain prefill).
 pub const LOAD_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a park waits for the storage worker's park budget to free (its earlier chunks
@@ -84,6 +86,7 @@ pub const NEUTRAL_ENV: &[&str] = &[
     "AIEN_OMEGA_GPU_LIB",
     "AIEN_OMEGA_GPU_LIB_SHA256",
     "AIEN_OMEGA_PINNED_SHA",
+    "AIEN_OMEGA_CUDAPP_PINNED_SHA",
     "AIEN_OMEGA_COMPOSE",
     "AIEN_OMEGA_COMPOSE_DIR",
     "AIEN_OMEGA_COMPOSE_LIB",
@@ -99,16 +102,26 @@ pub const MUTANT_ENV: &[&str] = &["OWN30B_DECODE_GRAPH_MUTANT"];
 /// The build of the engine that writes the K/V.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OmegaBuild {
-    /// The omega commit `omega.lock` pins.
-    pub omega_commit: String,
-    /// How `libomega_gpu.a` was linked (`pinned-source`, `dev-override`, `prebuilt`, `stub`).
+    /// The canonical CUDApp commit pinned for this build.
+    pub cudapp_commit: String,
+    /// How canonical `libcudapp.a` was linked (`pinned-source`, `dev-override`, `prebuilt`, `stub`).
     pub gpu_link: String,
-    /// sha256 of the linked `libomega_gpu.a`.
+    /// sha256 of the linked canonical `libcudapp.a`.
     pub gpu_archive_sha256: String,
-    /// `locked` (the sha `native-artifacts.lock` records), `unrecorded` (no record for this
-    /// commit and target), `mismatch` or `none`.
+    /// `locked`, `unrecorded`, `mismatch` or `none` from canonical native identity.
     pub gpu_digest: String,
     pub gpu_target: String,
+
+    /// The omega commit `omega.lock` pins.
+    pub omega_commit: String,
+    /// How companion `libomega_gpu.a` was linked (`pinned-source`, `dev-override`, `prebuilt`, `stub`).
+    pub companion_link: String,
+    /// sha256 of the linked companion `libomega_gpu.a`.
+    pub companion_archive_sha256: String,
+    /// `locked`, `unrecorded`, `mismatch` or `none` from companion native identity.
+    pub companion_digest: String,
+    pub companion_target: String,
+
     /// This crate's commit (`build.rs`).
     pub sc_commit: String,
     /// Built from a checkout with modified tracked files (or unknown).
@@ -118,51 +131,86 @@ pub struct OmegaBuild {
 impl OmegaBuild {
     /// What this binary was built from and linked.
     pub fn linked() -> Self {
-        let id = aien_omega_gpu::native_identity();
-        let recorded = env!("AIEN_SERVE_HTTP_GPU_RECORDED_SHA256");
-        let gpu_digest = if id.archive_sha256.is_empty() {
-            "none"
-        } else if recorded == "unrecorded" {
-            "unrecorded"
-        } else if recorded == id.archive_sha256 {
-            "locked"
+        let canonical = aien_omega_gpu::native_identity();
+        let companion = aien_omega_gpu::native_companion_identity();
+        let cudapp_pin = aien_omega_gpu::cudapp_pinned_sha();
+        let omega_pin = aien_omega_gpu::PINNED_OMEGA_SHA;
+
+        let gpu_link = if canonical.link == "pinned-source" && canonical.source_sha != cudapp_pin {
+            "pinned-source-other-commit".into()
         } else {
-            "mismatch"
+            canonical.link.to_string()
         };
-        let pin = env!("AIEN_SERVE_HTTP_OMEGA_LOCK");
+
+        let companion_link = if companion.link == "pinned-source" && companion.source_sha != omega_pin {
+            "pinned-source-other-commit".into()
+        } else {
+            companion.link.to_string()
+        };
+
         Self {
-            omega_commit: pin.to_string(),
-            // A pinned-source archive built from another commit than the pin is not the pin.
-            gpu_link: if id.link == "pinned-source" && id.source_sha != pin {
-                "pinned-source-other-commit".into()
-            } else {
-                id.link.to_string()
-            },
-            gpu_archive_sha256: id.archive_sha256.to_string(),
-            gpu_digest: gpu_digest.to_string(),
-            gpu_target: id.target.to_string(),
+            cudapp_commit: cudapp_pin.to_string(),
+            gpu_link,
+            gpu_archive_sha256: canonical.archive_sha256.to_string(),
+            gpu_digest: canonical.digest.to_string(),
+            gpu_target: canonical.target.to_string(),
+
+            omega_commit: omega_pin.to_string(),
+            companion_link,
+            companion_archive_sha256: companion.archive_sha256.to_string(),
+            companion_digest: companion.digest.to_string(),
+            companion_target: companion.target.to_string(),
+
             sc_commit: env!("AIEN_SERVE_HTTP_GIT_COMMIT").to_string(),
             sc_dirty: env!("AIEN_SERVE_HTTP_GIT_DIRTY") != "0",
         }
     }
 
-    /// `omega:<commit>+libomega_gpu:<sha256>+sc:<commit>`. Refused when any part is unknown or
+    /// `v2:<sha256_hex>` computed via domain-separated SHA-256 (`AIEN-PKV-OMEGA-BUILD-V2`)
+    /// over length-framed field values: canonical CUDApp source commit, canonical `libcudapp.a`
+    /// archive sha256, canonical target, companion Omega source commit, companion `libomega_gpu.a`
+    /// archive sha256, companion target, and sovereign-core engine commit.
+    ///
+    /// Short and bounded (67 bytes) to satisfy the KV engine identity cap (`<= 255` bytes,
+    /// preventing `FieldTooLong("engine_build_id")`). Old single-archive cache entries
+    /// (`omega:<commit>+...`) miss. Refused when any part is unknown, dirty, unpinned, or
     /// cannot be trusted to name the bytes that run (fail closed).
     pub fn build_id(&self) -> Result<String, String> {
         let hex = |s: &str, n: usize| s.len() == n && s.bytes().all(|b| b.is_ascii_hexdigit());
         if self.gpu_link != "pinned-source" {
             return Err(format!(
-                "libomega_gpu.a is linked as {:?}, not built from the omega.lock pin",
+                "libcudapp.a is linked as {:?}, not built from the cudapp pin",
                 self.gpu_link
             ));
         }
         if !hex(&self.gpu_archive_sha256, 64) {
-            return Err("the linked libomega_gpu.a has no sha256".into());
+            return Err("the linked libcudapp.a has no sha256".into());
         }
         if !matches!(self.gpu_digest.as_str(), "locked" | "unrecorded") {
             return Err(format!(
-                "libomega_gpu.a digest is {:?} against native-artifacts.lock",
+                "libcudapp.a digest is {:?} against native-artifacts.lock",
                 self.gpu_digest
+            ));
+        }
+        if !hex(&self.cudapp_commit, 40) {
+            return Err(format!(
+                "cudapp pin commit {:?} is not a 40-hex commit",
+                self.cudapp_commit
+            ));
+        }
+        if self.companion_link != "pinned-source" {
+            return Err(format!(
+                "libomega_gpu.a is linked as {:?}, not built from the omega pin",
+                self.companion_link
+            ));
+        }
+        if !hex(&self.companion_archive_sha256, 64) {
+            return Err("the linked libomega_gpu.a has no sha256".into());
+        }
+        if !matches!(self.companion_digest.as_str(), "locked" | "unrecorded") {
+            return Err(format!(
+                "libomega_gpu.a digest is {:?} against native-artifacts.lock",
+                self.companion_digest
             ));
         }
         if !hex(&self.omega_commit, 40) {
@@ -184,13 +232,42 @@ impl OmegaBuild {
             return Err("the binary was built from a checkout with uncommitted changes".into());
         }
         if self.gpu_target.is_empty() {
+            return Err("the linked libcudapp.a has no target".into());
+        }
+        if self.companion_target.is_empty() {
             return Err("the linked libomega_gpu.a has no target".into());
         }
-        Ok(format!(
-            "omega:{}+libomega_gpu:{}+sc:{}",
-            self.omega_commit, self.gpu_archive_sha256, self.sc_commit
-        ))
+        let mut h = Sha256::new();
+        h.update(OMEGA_BUILD_DOMAIN_V2);
+        for field in [
+            &self.cudapp_commit,
+            &self.gpu_archive_sha256,
+            &self.gpu_target,
+            &self.omega_commit,
+            &self.companion_archive_sha256,
+            &self.companion_target,
+            &self.sc_commit,
+        ] {
+            let len = u32::try_from(field.len()).map_err(|_| "field length overflow")?;
+            h.update(len.to_le_bytes());
+            h.update(field.as_bytes());
+        }
+        let digest = h.finalize();
+        let mut hex_str = String::with_capacity(digest.len() * 2);
+        for b in digest {
+            use std::fmt::Write;
+            let _ = write!(&mut hex_str, "{b:02x}");
+        }
+        let id = format!("v2:{hex_str}");
+        if id.len() > 255 {
+            return Err(format!(
+                "engine_build_id length {} exceeds 255-byte limit",
+                id.len()
+            ));
+        }
+        Ok(id)
     }
+
 }
 
 /// Everything the omega engine identity is built from.
@@ -1366,11 +1443,16 @@ mod tests {
 
     fn build() -> OmegaBuild {
         OmegaBuild {
-            omega_commit: "d0889a944b02066f84fec71af7b9bbb92f5c986f".into(),
+            cudapp_commit: "1a".repeat(20),
             gpu_link: "pinned-source".into(),
             gpu_archive_sha256: "ab".repeat(32),
             gpu_digest: "unrecorded".into(),
             gpu_target: "aarch64-unknown-linux-gnu".into(),
+            omega_commit: "d0889a944b02066f84fec71af7b9bbb92f5c986f".into(),
+            companion_link: "pinned-source".into(),
+            companion_archive_sha256: "cd".repeat(32),
+            companion_digest: "unrecorded".into(),
+            companion_target: "aarch64-unknown-linux-gnu".into(),
             sc_commit: "cd".repeat(20),
             sc_dirty: false,
         }
@@ -1494,12 +1576,19 @@ mod tests {
             ("decode graph", |i| i.switches.decode_graph ^= true),
             ("lm head gemv", |i| i.switches.lm_head_gemv ^= true),
             ("trace layers", |i| i.switches.trace_layers ^= true),
-            ("omega commit", |i| i.build.omega_commit = "e".repeat(40)),
-            ("archive digest", |i| {
+            ("cudapp commit", |i| i.build.cudapp_commit = "e".repeat(40)),
+            ("cudapp archive digest", |i| {
                 i.build.gpu_archive_sha256 = "ef".repeat(32)
             }),
-            ("gpu target", |i| {
+            ("cudapp target", |i| {
                 i.build.gpu_target = "x86_64-unknown-linux-gnu".into()
+            }),
+            ("omega commit", |i| i.build.omega_commit = "e".repeat(40)),
+            ("companion archive digest", |i| {
+                i.build.companion_archive_sha256 = "fe".repeat(32)
+            }),
+            ("companion target", |i| {
+                i.build.companion_target = "x86_64-unknown-linux-gnu".into()
             }),
             ("engine commit", |i| i.build.sc_commit = "ab".repeat(20)),
             ("env cta budget", |i| {
@@ -1547,14 +1636,32 @@ mod tests {
     fn untrusted_builds_and_negative_controls_refuse() {
         type Change = (&'static str, fn(&mut In));
         let refusals: &[Change] = &[
-            ("stub link", |i| i.build.gpu_link = "stub".into()),
-            ("dev override", |i| i.build.gpu_link = "dev-override".into()),
-            ("other commit", |i| {
+            ("cudapp stub link", |i| i.build.gpu_link = "stub".into()),
+            ("cudapp dev override", |i| i.build.gpu_link = "dev-override".into()),
+            ("cudapp other commit", |i| {
                 i.build.gpu_link = "pinned-source-other-commit".into()
             }),
-            ("no archive sha", |i| i.build.gpu_archive_sha256.clear()),
-            ("digest mismatch", |i| {
+            ("cudapp no archive sha", |i| i.build.gpu_archive_sha256.clear()),
+            ("cudapp digest mismatch", |i| {
                 i.build.gpu_digest = "mismatch".into()
+            }),
+            ("cudapp digest none", |i| {
+                i.build.gpu_digest = "none".into()
+            }),
+            ("unknown cudapp commit", |i| {
+                i.build.cudapp_commit = "unknown".into()
+            }),
+            ("companion stub link", |i| i.build.companion_link = "stub".into()),
+            ("companion dev override", |i| i.build.companion_link = "dev-override".into()),
+            ("companion other commit", |i| {
+                i.build.companion_link = "pinned-source-other-commit".into()
+            }),
+            ("companion no archive sha", |i| i.build.companion_archive_sha256.clear()),
+            ("companion digest mismatch", |i| {
+                i.build.companion_digest = "mismatch".into()
+            }),
+            ("companion digest none", |i| {
+                i.build.companion_digest = "none".into()
             }),
             ("unknown omega commit", |i| {
                 i.build.omega_commit = "unknown".into()
@@ -1605,5 +1712,80 @@ mod tests {
             2 * f.layout.block_stride
         );
         assert!(HostFsConfig::from_fields(PathBuf::from("/nonexistent"), &f).is_ok());
+    }
+
+    #[test]
+    fn old_cache_identity_and_independent_archive_or_source_changes() {
+        let b = build();
+        let valid_id = b.build_id().unwrap();
+
+        // 1. Explicit bounded length regression: engine_build_id must fit within u8 len prefix (<= 255 bytes).
+        assert_eq!(valid_id.len(), 67);
+        assert!(valid_id.len() <= 255);
+        assert!(u8::try_from(valid_id.len()).is_ok());
+
+        // 2. Old single-archive cache identity must never silently match new two-archive pair.
+        let old_format = format!(
+            "omega:{}+libomega_gpu:{}+sc:{}",
+            b.omega_commit, b.companion_archive_sha256, b.sc_commit
+        );
+        assert_ne!(valid_id, old_format);
+        assert!(!valid_id.starts_with("omega:"));
+        assert!(!valid_id.starts_with("cudapp:"));
+        assert!(valid_id.starts_with("v2:"));
+
+        // 3. Changing canonical CUDApp source changes build_id.
+        let mut b_cudapp_src = b.clone();
+        b_cudapp_src.cudapp_commit = "4f".repeat(20);
+        assert_ne!(valid_id, b_cudapp_src.build_id().unwrap());
+
+        // 4. Changing canonical CUDApp archive changes build_id.
+        let mut b_cudapp_arch = b.clone();
+        b_cudapp_arch.gpu_archive_sha256 = "55".repeat(32);
+        assert_ne!(valid_id, b_cudapp_arch.build_id().unwrap());
+
+        // 5. Changing canonical CUDApp target changes build_id.
+        let mut b_cudapp_tgt = b.clone();
+        b_cudapp_tgt.gpu_target = "x86_64-unknown-linux-gnu".into();
+        assert_ne!(valid_id, b_cudapp_tgt.build_id().unwrap());
+
+        // 6. Changing Omega source changes build_id.
+        let mut b_omega_src = b.clone();
+        b_omega_src.omega_commit = "6a".repeat(20);
+        assert_ne!(valid_id, b_omega_src.build_id().unwrap());
+
+        // 7. Changing companion Omega archive changes build_id.
+        let mut b_omega_arch = b.clone();
+        b_omega_arch.companion_archive_sha256 = "77".repeat(32);
+        assert_ne!(valid_id, b_omega_arch.build_id().unwrap());
+
+        // 8. Changing companion Omega target changes build_id.
+        let mut b_omega_tgt = b.clone();
+        b_omega_tgt.companion_target = "x86_64-unknown-linux-gnu".into();
+        assert_ne!(valid_id, b_omega_tgt.build_id().unwrap());
+
+        // 9. Changing engine commit changes build_id.
+        let mut b_sc_commit = b.clone();
+        b_sc_commit.sc_commit = "88".repeat(20);
+        assert_ne!(valid_id, b_sc_commit.build_id().unwrap());
+
+        // 10. Development unrecorded digests succeed, but mismatch or none refuse.
+        let mut b_dev = b.clone();
+        b_dev.gpu_digest = "unrecorded".into();
+        b_dev.companion_digest = "unrecorded".into();
+        assert!(b_dev.build_id().is_ok());
+
+        let mut b_locked = b.clone();
+        b_locked.gpu_digest = "locked".into();
+        b_locked.companion_digest = "locked".into();
+        assert!(b_locked.build_id().is_ok());
+
+        let mut b_bad_can = b.clone();
+        b_bad_can.gpu_digest = "mismatch".into();
+        assert!(b_bad_can.build_id().is_err());
+
+        let mut b_bad_comp = b.clone();
+        b_bad_comp.companion_digest = "mismatch".into();
+        assert!(b_bad_comp.build_id().is_err());
     }
 }

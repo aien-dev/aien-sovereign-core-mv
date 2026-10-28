@@ -48,6 +48,31 @@ fn stub_backend_reports_unavailable() {
     assert_eq!(b.native_ops().native_ops().len(), 10);
 }
 
+/// This only inspects admitted-archive capabilities. It never opens a device.
+#[test]
+fn canonical_35b_callers_are_not_silently_stubbed() {
+    let native = aien_omega_gpu::is_native();
+    for (name, available) in [
+        ("bf16", aien_omega_bf16::is_native()),
+        ("decode-attention", aien_omega_dattn::is_native()),
+        ("decode-graph", aien_omega_dgraph::is_native()),
+        ("fp8", aien_omega_fp8::is_native()),
+        ("fp8-device-tables", aien_omega_fp8::has_device_tables()),
+        ("fp8-grouped-gemm", aien_omega_fp8::has_gemm()),
+        ("moe", aien_omega_moe::is_native()),
+        ("prefill", aien_omega_pf::is_native()),
+        ("prefill-attention", aien_omega_pf::has_attention()),
+        ("prefill-device-attention", aien_omega_pf::has_attention_dev()),
+        ("prefill-host", aien_omega_pf::has_pfhost()),
+        ("q38", aien_omega_q38::is_native()),
+        ("q38-prefill", aien_omega_q38::has_prefill()),
+        ("q36-35b-graph", aien_omega_q38::q36::is_native()),
+        ("router", aien_omega_router::is_native()),
+    ] {
+        assert_eq!(available, native, "{name} differs from the canonical link");
+    }
+}
+
 #[test]
 #[ignore = "chip test: needs a native build and the GB10; run through the heavy queue"]
 fn chip_parity_on_tinyllama_shapes() {

@@ -19,7 +19,7 @@ pub struct NativeIdentity {
 }
 
 impl NativeIdentity {
-    /// Release-grade: built from the pinned omega source, C ABI checked, digest recorded
+    /// Release-grade: built from its pinned source, C ABI checked, digest recorded
     /// and matched. A stub, a developer override or a prebuilt archive never qualifies.
     pub fn qualifies(&self) -> bool {
         self.link == "pinned-source" && self.abi == "pass" && self.digest == "locked"
@@ -29,7 +29,7 @@ impl NativeIdentity {
     pub fn gaps(&self) -> Vec<&'static str> {
         let mut v = Vec::new();
         if self.link != "pinned-source" {
-            v.push("not built from the pinned omega source");
+            v.push("not built from the pinned component source");
         }
         if self.abi != "pass" {
             v.push("C ABI not checked against the manifest");

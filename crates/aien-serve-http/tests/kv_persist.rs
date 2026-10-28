@@ -65,11 +65,16 @@ fn gen_key() -> String {
 
 fn test_build() -> OmegaBuild {
     OmegaBuild {
-        omega_commit: "d0889a944b02066f84fec71af7b9bbb92f5c986f".into(),
+        cudapp_commit: "3a".repeat(20),
         gpu_link: "pinned-source".into(),
         gpu_archive_sha256: "11".repeat(32),
         gpu_digest: "unrecorded".into(),
         gpu_target: "aarch64-unknown-linux-gnu".into(),
+        omega_commit: "d0889a944b02066f84fec71af7b9bbb92f5c986f".into(),
+        companion_link: "pinned-source".into(),
+        companion_archive_sha256: "55".repeat(32),
+        companion_digest: "unrecorded".into(),
+        companion_target: "aarch64-unknown-linux-gnu".into(),
         sc_commit: "22".repeat(20),
         sc_dirty: false,
     }
@@ -306,11 +311,17 @@ fn each_identity_input_changed_alone_is_never_served() {
     v.weights = WeightFormat::Bf16;
     variants.push(("weights bf16", v));
     let mut v = base.clone();
+    v.build.cudapp_commit = "c".repeat(40);
+    variants.push(("cudapp commit", v));
+    let mut v = base.clone();
+    v.build.gpu_archive_sha256 = "33".repeat(32);
+    variants.push(("cudapp archive digest", v));
+    let mut v = base.clone();
     v.build.omega_commit = "e".repeat(40);
     variants.push(("omega commit", v));
     let mut v = base.clone();
-    v.build.gpu_archive_sha256 = "33".repeat(32);
-    variants.push(("gpu archive digest", v));
+    v.build.companion_archive_sha256 = "77".repeat(32);
+    variants.push(("companion archive digest", v));
     let mut v = base.clone();
     v.build.sc_commit = "44".repeat(20);
     variants.push(("engine commit", v));
@@ -344,6 +355,66 @@ fn each_identity_input_changed_alone_is_never_served() {
     let (b, _) = door(&scratch, &base);
     let _ = turn(&b, &prompt2(&h1));
     assert_eq!(counters(&b).restores, 1);
+}
+
+#[test]
+fn either_source_or_archive_change_invalidates_cache_and_old_cache_is_not_served() {
+    let scratch = Scratch::new("source-archive-invalidation");
+    let key = gen_key();
+    let base = Setup::new(&scratch.store(), &key);
+    let (_, h1) = park_turn1(&scratch, &base);
+
+    let mut controls: Vec<(&str, Setup)> = Vec::new();
+
+    // 1. CUDApp source change
+    let mut v = base.clone();
+    v.build.cudapp_commit = "f0".repeat(20);
+    controls.push(("cudapp source change", v));
+
+    // 2. Canonical libcudapp.a archive digest change
+    let mut v = base.clone();
+    v.build.gpu_archive_sha256 = "88".repeat(32);
+    controls.push(("libcudapp archive digest change", v));
+
+    // 3. Omega source change
+    let mut v = base.clone();
+    v.build.omega_commit = "e1".repeat(20);
+    controls.push(("omega source change", v));
+
+    // 4. Companion libomega_gpu.a archive digest change
+    let mut v = base.clone();
+    v.build.companion_archive_sha256 = "99".repeat(32);
+    controls.push(("libomega_gpu companion archive digest change", v));
+
+    for (what, v) in controls {
+        let (b, line) = door(&scratch, &v);
+        assert!(line.contains("persistent KV: on"), "{what}: {line}");
+        let _ = turn(&b, &prompt2(&h1));
+        let c = counters(&b);
+        assert_eq!(
+            c.restores, 0,
+            "{what}: parked prefix was served despite invalidation: {c:?}"
+        );
+        assert!(
+            c.restore_misses.get("not-found").copied().unwrap_or(0) >= 1,
+            "{what}: expected restore miss: {c:?}"
+        );
+    }
+
+    // Baseline still restores successfully
+    let (b, _) = door(&scratch, &base);
+    let _ = turn(&b, &prompt2(&h1));
+    assert_eq!(counters(&b).restores, 1);
+}
+
+#[test]
+fn engine_build_id_is_bounded_and_short() {
+    let b = test_build();
+    let id = b.build_id().unwrap();
+    assert_eq!(id.len(), 67);
+    assert!(id.len() <= 255);
+    assert!(u8::try_from(id.len()).is_ok());
+    assert!(id.starts_with("v2:"));
 }
 
 #[test]

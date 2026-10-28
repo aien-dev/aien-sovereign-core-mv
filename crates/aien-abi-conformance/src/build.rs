@@ -40,7 +40,7 @@ pub struct Identity {
     /// "locked" | "unrecorded" | "prebuilt-match" | "none"
     pub digest: &'static str,
     pub archive_sha256: String,
-    pub omega_sha: String,
+    pub source_sha: String,
     pub aienos_lock: String,
     pub physics_lock: String,
     pub target: String,
@@ -54,7 +54,7 @@ impl Identity {
             abi: "none",
             digest: "none",
             archive_sha256: String::new(),
-            omega_sha: omega_sha.into(),
+            source_sha: omega_sha.into(),
             aienos_lock: String::new(),
             physics_lock: String::new(),
             target: env_or("TARGET", ""),
@@ -69,7 +69,7 @@ impl Identity {
             ("ABI", self.abi.to_string()),
             ("DIGEST", self.digest.to_string()),
             ("ARCHIVE_SHA256", self.archive_sha256.clone()),
-            ("SOURCE_SHA", self.omega_sha.clone()),
+            ("SOURCE_SHA", self.source_sha.clone()),
             ("AIENOS_LOCK", self.aienos_lock.clone()),
             ("PHYSICS_LOCK", self.physics_lock.clone()),
             ("TARGET", self.target.clone()),
@@ -160,24 +160,37 @@ pub fn qualify_built(
     omega_sha: &str,
     pinned: bool,
 ) -> Identity {
+    qualify_built_with_includes(
+        krate, manifest, lock, omega, archive, omega_sha, pinned,
+        vec![omega.join("src"), omega.join("src/runtime"), physics.join("m16"), physics.join("nvrm")],
+    )
+}
+
+/// Checks one authenticated source root and the one archive that supplies its ABI.
+/// Include paths must belong to that source, never an independently selected header tree.
+#[allow(clippy::too_many_arguments)]
+pub fn qualify_built_with_includes(
+    krate: &str,
+    manifest: &Path,
+    lock: &Path,
+    source: &Path,
+    archive: &Path,
+    source_sha: &str,
+    pinned: bool,
+    includes: Vec<PathBuf>,
+) -> Identity {
     let m = load_manifest(manifest);
     for h in &m.headers {
-        println!("cargo:rerun-if-changed={}", omega.join(h).display());
+        println!("cargo:rerun-if-changed={}", source.join(h).display());
     }
     let cc = env_or("CC", "cc");
     let target = env_or("TARGET", "");
     let host = env_or("HOST", "");
     let abi = if target == host {
         let work = PathBuf::from(env_or("OUT_DIR", ".")).join("abi-probe");
-        let includes = vec![
-            omega.join("src"),
-            omega.join("src/runtime"),
-            physics.join("m16"),
-            physics.join("nvrm"),
-        ];
         match check_c(&CCheck {
             manifest: &m,
-            root: omega,
+            root: source,
             includes,
             archive: Some(archive),
             work: &work,
@@ -188,7 +201,7 @@ pub fn qualify_built(
                 "pass"
             }
             Err(errs) => panic!(
-                "{krate}: omega {omega_sha} does not match {} ({} problem(s)); nothing was linked:\n  - {}",
+                "{krate}: source {source_sha} does not match {} ({} problem(s)); nothing was linked:\n  - {}",
                 manifest.display(),
                 errs.len(),
                 errs.join("\n  - ")
@@ -200,6 +213,37 @@ pub fn qualify_built(
         println!("cargo:warning={krate}: cross build ({host} -> {target}): C ABI layout probe skipped (not qualifiable)");
         "unchecked"
     };
+    archive_identity(krate, lock, source, archive, source_sha, pinned, abi)
+}
+
+/// The companion has no Rust-facing GPU ABI. It must not shadow a canonical function.
+pub fn qualify_companion(
+    krate: &str,
+    manifest: &Path,
+    lock: &Path,
+    source: &Path,
+    archive: &Path,
+    source_sha: &str,
+) -> Identity {
+    let m = load_manifest(manifest);
+    let symbols = defined_symbols(archive).unwrap_or_else(|e| panic!("{krate}: {e}"));
+    let shadows: Vec<_> = m.fns.iter().filter_map(|(name, _)| symbols.contains(name).then_some(name)).collect();
+    assert!(shadows.is_empty(), "{krate}: companion shadows canonical GPU ABI functions: {shadows:?}");
+    archive_identity(krate, lock, source, archive, source_sha, true, "none")
+}
+
+fn archive_identity(
+    krate: &str,
+    lock: &Path,
+    source: &Path,
+    archive: &Path,
+    source_sha: &str,
+    pinned: bool,
+    abi: &'static str,
+) -> Identity {
+    println!("cargo:rerun-if-changed={}", archive.display());
+    let cc = env_or("CC", "cc");
+    let target = env_or("TARGET", "");
     let sha = identity::sha256_file(archive).unwrap_or_else(|e| panic!("{krate}: {e}"));
     let ccv = identity::cc_version(&cc);
     let name = archive
@@ -209,7 +253,7 @@ pub fn qualify_built(
     let digest = match identity::check_built(
         &load_lock(lock),
         &name,
-        omega_sha,
+        source_sha,
         &target,
         &ccv,
         &sha,
@@ -217,7 +261,7 @@ pub fn qualify_built(
         Ok(Digest::Locked) => "locked",
         Ok(Digest::Unrecorded) => {
             println!(
-                "cargo:warning={krate}: {name} sha256 {sha} (omega {omega_sha}, {target}, `{ccv}`) is not recorded in native-artifacts.lock: builds, but does not qualify"
+                "cargo:warning={krate}: {name} sha256 {sha} (source {source_sha}, {target}, `{ccv}`) is not recorded in native-artifacts.lock: builds, but does not qualify"
             );
             "unrecorded"
         }
@@ -232,9 +276,9 @@ pub fn qualify_built(
         abi,
         digest,
         archive_sha256: sha,
-        omega_sha: omega_sha.into(),
-        aienos_lock: read_trim(&omega.join("aienos.lock")),
-        physics_lock: read_trim(&omega.join("physics.lock")),
+        source_sha: source_sha.into(),
+        aienos_lock: read_trim(&source.join("aienos.lock")),
+        physics_lock: read_trim(&source.join("physics.lock")),
         target,
         cc: ccv,
     }
@@ -276,7 +320,7 @@ pub fn qualify_prebuilt(
         abi: "symbols-only",
         digest: "prebuilt-match",
         archive_sha256: sha,
-        omega_sha: omega_sha.into(),
+        source_sha: omega_sha.into(),
         aienos_lock: String::new(),
         physics_lock: String::new(),
         target: env_or("TARGET", ""),

@@ -9,3 +9,6 @@ build = "build.rs"
 
 [dependencies]
 aien-omega-gpu = { path = "../aien-omega-gpu" }
+
+[build-dependencies]
+aien-abi-conformance = { path = "../aien-abi-conformance" }

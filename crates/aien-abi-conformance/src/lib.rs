@@ -21,14 +21,17 @@
 //! No dependencies; the C side needs `cc` and `nm` (both already required by the native build).
 
 pub mod build;
+pub mod features;
 pub mod header;
 pub mod identity;
 pub mod manifest;
 mod native;
 pub mod probe;
 mod rust;
+pub mod source;
 
 pub use manifest::{canon_sig, canon_type, Manifest};
+pub use features::CanonicalFeatures;
 pub use native::NativeIdentity;
-pub use probe::{check_c, CCheck};
+pub use probe::{check_c, defined_symbols, CCheck};
 pub use rust::{assert_manifest, rust_manifest, AbiStruct, CKind, Field, FnSig, RustAbi};

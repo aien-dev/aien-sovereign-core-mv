@@ -1,9 +1,9 @@
-//! Safe Rust wrapper over omega's native GPU matmul (no CUDA).
+//! Safe Rust wrapper over canonical CUDApp's native GPU ABI.
 //!
-//! Built against the omega commit in `omega.lock`. With `cfg(has_omega_gpu)` the
-//! real library is linked; otherwise (`AIEN_FORCE_CPU_STUB=1`, or no omega checkout
-//! given) every chip call returns [`OmegaGpuError::Unavailable`], so CI passes
-//! without the chip. Only the API on omega main at the pinned commit is wrapped.
+//! Omega's authenticated dependency lock selects CUDApp. The CPU/evidence companion
+//! and canonical archive are admitted separately; a host build does not qualify a
+//! device path or remove the NVIDIA kernel-driver or firmware dependencies.
+//! Without native sources every chip call returns [`OmegaGpuError::Unavailable`].
 //!
 //! Conventions: row-major, `C[m x n] = A[m x k] * B[k x n]`, f32 output.
 //! Inputs are bf16 (`matmul_bf16`) or f32 rounded to bf16 on the host (`matmul_f32`).
@@ -18,17 +18,23 @@ pub use ffi::OmegaGpuMatmulInfo;
 /// Omega commit this crate was built against (from `omega.lock`).
 pub const PINNED_OMEGA_SHA: &str = env!("AIEN_OMEGA_PINNED_SHA");
 
+/// Canonical CUDApp source selected by the authenticated Omega dependency lock.
+pub const PINNED_CUDAPP_SHA: &str = env!("AIEN_OMEGA_CUDAPP_PINNED_SHA");
+
+pub const fn cudapp_pinned_sha() -> &'static str {
+    PINNED_CUDAPP_SHA
+}
+
 /// True when the real native library is linked (not the stub).
 pub const fn is_native() -> bool {
     cfg!(has_omega_gpu)
 }
 
-/// What this binary linked for the omega GPU engine (stub, pinned source, developer override or
-/// prebuilt), the C ABI check result and the archive digest, as `build.rs` established them.
-/// Only `qualifies()` identities count as release-grade native qualification.
+/// Actual canonical GPU ABI archive, its checked C ABI and independently locked digest.
+/// Pair qualification also requires the separately admitted Omega companion.
 pub fn native_identity() -> aien_abi_conformance::NativeIdentity {
     aien_abi_conformance::NativeIdentity {
-        component: "libomega_gpu.a",
+        component: "libcudapp.a",
         link: env!("AIEN_OMEGA_GPU_LINK"),
         abi: env!("AIEN_OMEGA_GPU_ABI"),
         digest: env!("AIEN_OMEGA_GPU_DIGEST"),
@@ -38,6 +44,85 @@ pub fn native_identity() -> aien_abi_conformance::NativeIdentity {
         physics_lock: env!("AIEN_OMEGA_GPU_PHYSICS_LOCK"),
         target: env!("AIEN_OMEGA_GPU_TARGET"),
         cc: env!("AIEN_OMEGA_GPU_CC"),
+    }
+}
+
+/// Omega CPU/evidence companion. It has no Rust-facing GPU ABI and never claims one.
+pub fn native_companion_identity() -> aien_abi_conformance::NativeIdentity {
+    aien_abi_conformance::NativeIdentity {
+        component: "libomega_gpu.a",
+        link: env!("AIEN_OMEGA_COMPANION_LINK"),
+        abi: env!("AIEN_OMEGA_COMPANION_ABI"),
+        digest: env!("AIEN_OMEGA_COMPANION_DIGEST"),
+        archive_sha256: env!("AIEN_OMEGA_COMPANION_ARCHIVE_SHA256"),
+        source_sha: env!("AIEN_OMEGA_COMPANION_SOURCE_SHA"),
+        aienos_lock: env!("AIEN_OMEGA_COMPANION_AIENOS_LOCK"),
+        physics_lock: env!("AIEN_OMEGA_COMPANION_PHYSICS_LOCK"),
+        target: env!("AIEN_OMEGA_COMPANION_TARGET"),
+        cc: env!("AIEN_OMEGA_COMPANION_CC"),
+    }
+}
+
+/// Both real link inputs must be admitted. A standalone canonical identity is insufficient.
+pub fn native_pair_qualifies() -> bool {
+    pair_qualifies(&native_identity(), &native_companion_identity(), PINNED_CUDAPP_SHA, PINNED_OMEGA_SHA)
+}
+
+fn pair_qualifies(
+    canonical: &aien_abi_conformance::NativeIdentity,
+    companion: &aien_abi_conformance::NativeIdentity,
+    canonical_pin: &str,
+    omega_pin: &str,
+) -> bool {
+    canonical.qualifies()
+        && canonical.component == "libcudapp.a"
+        && companion.component == "libomega_gpu.a"
+        && canonical.source_sha == canonical_pin
+        && companion.link == "pinned-source"
+        && companion.abi == "none"
+        && companion.digest == "locked"
+        && companion.source_sha == omega_pin
+}
+
+#[cfg(test)]
+mod native_pair_tests {
+    use super::*;
+    use aien_abi_conformance::NativeIdentity;
+
+    #[test]
+    fn neither_archive_can_qualify_the_pair_alone() {
+        let canonical_pin = "1111111111111111111111111111111111111111";
+        let omega_pin = "2222222222222222222222222222222222222222";
+        let canonical = NativeIdentity {
+            component: "libcudapp.a", link: "pinned-source", abi: "pass", digest: "locked",
+            archive_sha256: "canonical-fixture", source_sha: canonical_pin,
+            aienos_lock: "", physics_lock: "", target: "host-fixture", cc: "fixture",
+        };
+        let companion = NativeIdentity {
+            component: "libomega_gpu.a", abi: "none", archive_sha256: "companion-fixture",
+            source_sha: omega_pin, ..canonical
+        };
+        assert!(canonical.qualifies());
+        assert!(!companion.qualifies(), "no fictitious companion ABI pass");
+        assert!(pair_qualifies(&canonical, &companion, canonical_pin, omega_pin));
+        for bad in [
+            NativeIdentity { digest: "unrecorded", ..canonical },
+            NativeIdentity { component: "libomega_gpu.a", ..canonical },
+            NativeIdentity { link: "prebuilt", ..canonical },
+            NativeIdentity { abi: "unchecked", ..canonical },
+            NativeIdentity { source_sha: omega_pin, ..canonical },
+        ] {
+            assert!(!pair_qualifies(&bad, &companion, canonical_pin, omega_pin), "{bad:?}");
+        }
+        for bad in [
+            NativeIdentity { digest: "unrecorded", ..companion },
+            NativeIdentity { component: "libcudapp.a", ..companion },
+            NativeIdentity { link: "dev-override", ..companion },
+            NativeIdentity { abi: "pass", ..companion },
+            NativeIdentity { source_sha: canonical_pin, ..companion },
+        ] {
+            assert!(!pair_qualifies(&canonical, &bad, canonical_pin, omega_pin), "{bad:?}");
+        }
     }
 }
 

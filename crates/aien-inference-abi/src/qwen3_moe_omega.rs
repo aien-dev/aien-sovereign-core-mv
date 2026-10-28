@@ -844,7 +844,7 @@ impl ModelUploader for OmegaModelUploader {
         scales: &[u16],
     ) -> Result<Arc<dyn Fp8Gemv>, String> {
         if !Self::uses_fp8_api() {
-            return Err("this binary carries no FP8 GEMV (omega before OWN-30B cut 5, or AIEN_OMEGA_GPU_LIB without it)".into());
+            return Err("this binary carries no FP8 GEMV (omega before OWN-30B cut 5, or admitted archive without it)".into());
         }
         let t = aien_omega_fp8::Fp8Tensor::upload(experts, n, k, w, scales)
             .map_err(|e| e.to_string())?;
@@ -3842,7 +3842,7 @@ impl Qwen3MoeOmegaEngine {
         progress: &mut dyn FnMut(&str),
     ) -> Result<(Self, LoadReport), String> {
         if !aien_omega_gpu::is_native() {
-            return Err("this binary carries the CPU stub of the Omega engine (build with AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB)".into());
+            return Err("this binary carries the CPU stub of the Omega engine (build with AIEN_OMEGA_DIR and AIEN_CUDAPP_DIR)".into());
         }
         let (weights, report) =
             load_qwen3_moe_omega_paths(dir, &OmegaModelUploader, format, paths, progress)?;

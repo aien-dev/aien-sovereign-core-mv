@@ -3,9 +3,10 @@ name = "aien-omega-gpu"
 version = "0.1.0"
 edition = "2021"
 authors = ["Drake Stapleton <aien@aienos.com>"]
-description = "FFI to the native (no CUDA) Omega GPU matmul engine, pinned by omega.lock"
+description = "Rust ABI to canonical CUDApp, authenticated through the pinned Omega consumer"
 license.workspace = true
 build = "build.rs"
+links = "aien_omega_gpu"
 
 [dependencies]
 aien-abi-conformance = { path = "../aien-abi-conformance" }

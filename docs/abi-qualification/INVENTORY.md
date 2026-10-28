@@ -12,7 +12,7 @@ sovereign-core main `bd438bcc`. Tags: **implemented** (true before this work), *
 | Boundary | Producer | Consumer | Linked into production |
 |---|---|---|---|
 | rxc_host v2 (composition facade) | om `src/runtime/rxc_host_abi.h`, `.c`; archive `librx_compose.a` (`mk/rx_compose_lib.mk`) | sc `crates/aien-omega-compose` | yes (aien-runtime, aien-cli) |
-| omega GPU engine | om `src/omega_gpu_{matmul_api,session,serving,elementwise_api,attention_api}.h`; `libomega_gpu.a` | sc `crates/aien-omega-gpu`, used by `aien-inference-abi` | yes on the GB10 build |
+| canonical GPU engine (CUDApp) + CPU companion | CUDApp `libcudapp.a` (canonical GPU ABI) + om `libomega_gpu.a` (CPU companion) | sc `crates/aien-omega-gpu`, used by `aien-inference-abi` | yes on native build |
 | AIENOS capability authority (C, 64-bit generation) | ao `native/capability/aienos_capability.h` | om `src/runtime/aienos_cap.h` (hand copy), merged into `librx_compose.a` | yes, through librx_compose.a |
 | AIENOS capability (Rust, 32-bit generation) | ao `crates/aienos-capability-ffi` | nothing in sc, om or ao links it (grep, 2026-10-11) | no |
 
@@ -87,8 +87,44 @@ Covered by tests: compatible pinned build, version mismatch, equal-size reorder,
 change, wrong prebuilt hash, wrong omega commit, missing symbol, truncated archive, callback
 failure and panic, invalid lengths and overflow, repeated init/destroy, concurrent
 callbacks, explicit stub, required-native with no library (`scripts/test-native-identity.sh`,
-16 cases, in the required CI job), CPU vs GPU path identity (`native_identity()`), GPU
-parity (existing chip suites, run by `scripts/abi-qualify.sh --chip`).
+16 cases, in the required CI job), two-archive canonical identity and companion admission
+(`native_identity()` for libcudapp.a, `native_companion_identity()` for libomega_gpu.a, and
+`native_pair_qualifies()`).
+
+Host-only canonical amendment (2026-10-28; the dated inventory above is historical):
+
+- The exercised canonical source is CUDApp #169
+  `7a354dbda9eddd405610fdcabf4fc4e24c1a0f47`; the Omega consumer source is
+  `cafb7be08e4a92d6dd7347b011a833f524140dee` (draft #924).
+  CUDApp #173 `ca441c5a92f5a951a67de00aeddae0e077f10216` has separate host repair
+  evidence, not a merged combined candidate. User-owned #174 remains pending;
+  the final combined 35B candidate is `NOT_FROZEN`.
+- Canonical `libcudapp.a` owns the GPU ABI result. The independently locked Omega
+  CPU/evidence companion has ABI `none`; both pinned source identities and both recorded
+  archive digests are required for the pair. A companion defining a manifested GPU
+  symbol is refused. GPU prebuilt overrides are no longer accepted; the historical
+  prebuilt tests above describe composition-only development support.
+- The source checker is authenticated before execution through the pinned commit,
+  root tree, tools tree and blob. Corrupt-object controls must refuse before a poisoned
+  checker marker can be written. Canonical-only C layout and symbol checks precede
+  private archive snapshotting; optional caller capabilities inspect the same admitted
+  archive instead of obsolete Omega-local headers.
+- `native-artifacts.lock` now keys each archive by its own component source revision,
+  target and exact compiler version. The new host records came from the observed
+  unrecorded negative run, then the recorded pair passed host qualification. A stage's
+  mutable checksum files are consistency evidence, not an independent expected digest.
+- Persistent KV identity is a versioned SHA-256 over length-framed canonical source,
+  canonical archive, canonical target, companion source, companion archive, companion
+  target and clean Core commit. This keeps the existing bounded format and makes old
+  single-archive caches miss.
+- Host commands and tool prerequisites are in
+  [`BUILD_RECIPE.md`](../release/BUILD_RECIPE.md#canonical-native-admission-and-host-rehearsal).
+  The caller checks inspect native capabilities and exercise tiny real host inference,
+  loopback and persistent-cache refusal/recovery. They do not execute the physical 35B
+  workload. No GPU qualification was executed; production resolver NULL/count 0 and
+  the resident service remain unchanged. NVIDIA RM/UVM kernel-driver/device-interface
+  dependence persists; firmware is a separate dependency, not a driver-removal claim.
+
 Entry point: `scripts/abi-qualify.sh [--chip]`, exit 0 PASS, 1 FAIL, 2 INCOMPLETE.
 Registered in the local verification gates (ADR 0033): `tests/gates/sc-native-identity.gate`
 (step `native-identity` in `tests/gates/run.sh`), and `native-artifacts.lock` is an input of

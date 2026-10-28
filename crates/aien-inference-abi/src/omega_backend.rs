@@ -1,5 +1,5 @@
 //! `OmegaGb10Backend` (FB-1 cuts 3b, 3c, 3d): all ten `TensorBackend` ops run on our own
-//! native GPU engine (`libomega_gpu.a`, no CUDA) through the `aien-omega-gpu` crate.
+//! native GPU engine (canonical CUDApp, no CUDA) through the `aien-omega-gpu` crate.
 //!
 //! Native mask: `matmul_vec`, `matmul_batch`, `compute_logits`, `rmsnorm`, `rmsnorm_heads`,
 //! `apply_rope`, `swiglu`, `gqa_attention`, `paged_attention`, `paged_attention_batch`.

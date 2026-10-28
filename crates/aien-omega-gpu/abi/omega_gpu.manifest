@@ -1,9 +1,9 @@
-# The omega GPU engine C ABI (libomega_gpu.a) that aien-omega-gpu mirrors in src/ffi.rs.
-# Checked from both sides: tests/abi_manifest.rs (Rust declarations, every build) and build.rs
-# (pinned C headers, compiled layout probe, archive symbols).
+# Canonical CUDApp GPU C ABI (libcudapp.a) mirrored by aien-omega-gpu src/ffi.rs.
+# Checked from both sides: Rust declarations and authenticated canonical CUDApp headers,
+# compiled layout/prototype/constant probes and this archive's symbols alone.
 # Format: aien-abi-conformance src/manifest.rs. Regenerate the fact lines from Rust with
 #   AIEN_ABI_BLESS=1 cargo test -p aien-omega-gpu --test abi_manifest
-# only together with the omega.lock change that makes the C side agree.
+# only with the authenticated Omega cudapp.lock source change that makes the C side agree.
 abi omega_gpu 1
 header src/omega_gpu_matmul_api.h
 header src/omega_gpu_session.h

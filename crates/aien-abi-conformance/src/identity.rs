@@ -1,10 +1,10 @@
 //! Native archive identity (used from `build.rs`).
 //!
 //! `native-artifacts.lock` (repository root) records the expected sha256 of each archive built
-//! from the pinned omega source, per target triple and C compiler, one line each:
+//! from its pinned component source, per target triple and C compiler, one line each:
 //!
 //! ```text
-//! <archive> <omega-sha> <target> <sha256> <cc --version, first line>
+//! <archive> <source-sha> <target> <sha256> <cc --version, first line>
 //! ```
 //!
 //! omega's archives are byte-reproducible for a given source, compiler and target (the build
@@ -59,7 +59,7 @@ pub fn cc_version(cc: &str) -> String {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LockEntry {
     pub archive: String,
-    pub omega: String,
+    pub source_sha: String,
     pub target: String,
     pub sha256: String,
     pub cc: String,
@@ -75,13 +75,13 @@ pub fn parse_lock(text: &str) -> Result<Vec<LockEntry>, String> {
         let w: Vec<&str> = line.splitn(5, ' ').collect();
         if w.len() != 5 || !is_sha256(w[3]) || w[1].len() != 40 {
             return Err(format!(
-                "native-artifacts.lock line {}: want `<archive> <omega-sha> <target> <sha256> <cc version>`: {raw}",
+                "native-artifacts.lock line {}: want `<archive> <source-sha> <target> <sha256> <cc version>`: {raw}",
                 i + 1
             ));
         }
         v.push(LockEntry {
             archive: w[0].into(),
-            omega: w[1].into(),
+            source_sha: w[1].into(),
             target: w[2].into(),
             sha256: w[3].into(),
             cc: w[4].trim().into(),
@@ -90,16 +90,16 @@ pub fn parse_lock(text: &str) -> Result<Vec<LockEntry>, String> {
     Ok(v)
 }
 
-/// The recorded digest for this archive, omega commit, target and compiler, if any.
+/// The recorded digest for this archive, source commit, target and compiler, if any.
 pub fn expected<'a>(
     lock: &'a [LockEntry],
     archive: &str,
-    omega: &str,
+    source_sha: &str,
     target: &str,
     cc: &str,
 ) -> Option<&'a LockEntry> {
     lock.iter()
-        .find(|e| e.archive == archive && e.omega == omega && e.target == target && e.cc == cc)
+        .find(|e| e.archive == archive && e.source_sha == source_sha && e.target == target && e.cc == cc)
 }
 
 /// Outcome of the digest check for an archive built from source.
@@ -107,7 +107,7 @@ pub fn expected<'a>(
 pub enum Digest {
     /// matches its `native-artifacts.lock` entry
     Locked,
-    /// no entry for this (archive, omega, target, compiler)
+    /// no entry for this (archive, source commit, target, compiler)
     Unrecorded,
 }
 
@@ -115,15 +115,15 @@ pub enum Digest {
 pub fn check_built(
     lock: &[LockEntry],
     archive: &str,
-    omega: &str,
+    source_sha: &str,
     target: &str,
     cc: &str,
     actual: &str,
 ) -> Result<Digest, String> {
-    match expected(lock, archive, omega, target, cc) {
+    match expected(lock, archive, source_sha, target, cc) {
         Some(e) if e.sha256 == actual => Ok(Digest::Locked),
         Some(e) => Err(format!(
-            "{archive} built from omega {omega} for {target} with `{cc}` has sha256 {actual}, native-artifacts.lock expects {}",
+            "{archive} built from source {source_sha} for {target} with `{cc}` has sha256 {actual}, native-artifacts.lock expects {}",
             e.sha256
         )),
         None => Ok(Digest::Unrecorded),
@@ -176,6 +176,26 @@ mod tests {
         let bad = A.replace('a', "b");
         assert!(check_built(&l, "libx.a", o, t, "cc (X) 1.2", &bad).is_err());
         assert!(parse_lock("libx.a short aarch64 abc cc\n").is_err());
+    }
+
+    #[test]
+    fn canonical_and_companion_records_are_independent_source_keys() {
+        let cudapp = "1111111111111111111111111111111111111111";
+        let omega = "2222222222222222222222222222222222222222";
+        let companion_digest = A.replace('a', "b");
+        let target = "aarch64-unknown-linux-gnu";
+        let cc = "cc fixture";
+        let lock = parse_lock(&format!(
+            "libcudapp.a {cudapp} {target} {A} {cc}\nlibomega_gpu.a {omega} {target} {companion_digest} {cc}\n"
+        )).unwrap();
+        assert_eq!(check_built(&lock, "libcudapp.a", cudapp, target, cc, A), Ok(Digest::Locked));
+        assert_eq!(check_built(&lock, "libomega_gpu.a", omega, target, cc, &companion_digest), Ok(Digest::Locked));
+        assert_eq!(check_built(&lock, "libcudapp.a", omega, target, cc, A), Ok(Digest::Unrecorded));
+        assert_eq!(check_built(&lock, "libomega_gpu.a", cudapp, target, cc, &companion_digest), Ok(Digest::Unrecorded));
+        assert_eq!(check_built(&lock, "libcudapp.a", cudapp, "other-target", cc, A), Ok(Digest::Unrecorded));
+        assert_eq!(check_built(&lock, "libcudapp.a", cudapp, target, "other compiler", A), Ok(Digest::Unrecorded));
+        assert!(check_built(&lock, "libcudapp.a", cudapp, target, cc, &companion_digest).is_err());
+        assert!(check_built(&lock, "libomega_gpu.a", omega, target, cc, A).is_err());
     }
 
     #[test]
