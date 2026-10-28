@@ -267,16 +267,16 @@ pub fn qualify_gpu_pair(
     companion: &Path,
     omega_sha: &str,
     canonical: &Path,
+    canonical_archive: &Path,
     canonical_sha: &str,
 ) -> (Identity, Identity) {
-    let archive = canonical.join("build/libcudapp.a");
     let cudapp = qualify_built(
         "aien-omega-gpu canonical CUDApp",
         manifest,
         lock,
         canonical,
         physics,
-        &archive,
+        canonical_archive,
         canonical_sha,
         true,
     );

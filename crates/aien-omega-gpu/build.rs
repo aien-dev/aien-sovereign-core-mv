@@ -142,11 +142,17 @@ fn main() {
     // stage even if another make atomically publishes a newer stage.
     let stage = std::fs::canonicalize(out.join("cudapp"))
         .expect("Omega did not publish its canonical CUDApp stage");
+    println!("cargo:rerun-if-changed={}", stage.display());
+    let verified = Command::new("sh").arg(dir.join("tools/cudapp-stage.sh"))
+        .arg("--verify").arg(dir.join("cudapp.lock")).arg(&stage)
+        .stdout(std::process::Stdio::null())
+        .status().expect("verify immutable canonical CUDApp stage");
+    assert!(verified.success(), "canonical CUDApp stage provenance verification failed");
     let canonical = stage.join("source");
     let canonical_pin = std::fs::read_to_string(stage.join("pin"))
         .expect("canonical stage is missing its frozen CUDApp pin");
     assert_eq!(canonical_pin.as_bytes(), locked_pin, "canonical stage pin differs from pinned Omega cudapp.lock");
-    let canonical_archive = canonical.join("build/libcudapp.a");
+    let canonical_archive = stage.join("build/libcudapp.a");
     let (companion_identity, canonical_identity) = build::qualify_gpu_pair(
         &manifest,
         &artifacts_lock,
@@ -155,6 +161,7 @@ fn main() {
         &archive,
         &pinned,
         &canonical,
+        &canonical_archive,
         canonical_pin.trim(),
     );
     companion_identity.emit(PREFIX);

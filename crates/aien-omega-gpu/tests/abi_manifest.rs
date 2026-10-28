@@ -84,6 +84,7 @@ fn canonical_pair_artifact_controls() {
     let omega = PathBuf::from(std::env::var("AIEN_OMEGA_DIR").expect("AIEN_OMEGA_DIR"));
     let physics = PathBuf::from(std::env::var("AIEN_PHYSICS_DIR").expect("AIEN_PHYSICS_DIR"));
     let canonical = stage.join("source");
+    let canonical_archive = stage.join("build/libcudapp.a");
     let pin = fs::read_to_string(stage.join("pin")).unwrap();
     let lock = root.join("../../native-artifacts.lock");
     let manifest = root.join("abi/omega_gpu.manifest");
@@ -92,40 +93,37 @@ fn canonical_pair_artifact_controls() {
     std::env::set_var("OUT_DIR", &scratch);
     std::env::set_var("TARGET", aien_omega_gpu::native_identity().target);
     std::env::set_var("HOST", aien_omega_gpu::native_identity().target);
-    let qualify = |source: &std::path::Path, runtime: &std::path::Path, records: &std::path::Path| {
+    let qualify = |archive: &std::path::Path, runtime: &std::path::Path, records: &std::path::Path| {
         qualify_gpu_pair(
             &manifest, records, &omega, &physics, runtime,
-            aien_omega_gpu::PINNED_OMEGA_SHA, source, pin.trim(),
+            aien_omega_gpu::PINNED_OMEGA_SHA, &canonical, archive, pin.trim(),
         )
     };
-    let original = qualify(&canonical, &companion, &lock);
+    let original = qualify(&canonical_archive, &companion, &lock);
     assert_eq!(original.0.archive_sha256, aien_omega_gpu::native_identity().archive_sha256);
     assert_eq!(original.1.archive_sha256, aien_omega_gpu::canonical_identity().archive_sha256);
-    let copied = scratch.join("canonical");
-    fs::create_dir_all(copied.join("build")).unwrap();
-    std::os::unix::fs::symlink(canonical.join("src"), copied.join("src")).unwrap();
-    let archive = copied.join("build/libcudapp.a");
-    let refuses = |source: &std::path::Path, runtime: &std::path::Path, records: &std::path::Path| {
-        assert!(std::panic::catch_unwind(|| qualify(source, runtime, records)).is_err());
+    let archive = scratch.join("libcudapp.a");
+    let refuses = |archive: &std::path::Path, runtime: &std::path::Path, records: &std::path::Path| {
+        assert!(std::panic::catch_unwind(|| qualify(archive, runtime, records)).is_err());
     };
-    refuses(&copied, &companion, &lock); // missing canonical artifact
-    fs::copy(canonical.join("build/libcudapp.a"), &archive).unwrap();
+    refuses(&archive, &companion, &lock); // missing canonical artifact
+    fs::copy(&canonical_archive, &archive).unwrap();
     let mut stale = fs::read(&archive).unwrap();
     stale.push(0);
     fs::write(&archive, stale).unwrap();
-    refuses(&copied, &companion, &lock); // stale/corrupt canonical artifact
+    refuses(&archive, &companion, &lock); // stale/corrupt canonical artifact
     let stale_companion = scratch.join("libomega_gpu.a");
     let mut stale = fs::read(&companion).unwrap();
     stale.push(0);
     fs::write(&stale_companion, stale).unwrap();
-    refuses(&canonical, &stale_companion, &lock);
+    refuses(&canonical_archive, &stale_companion, &lock);
     let records = fs::read_to_string(&lock).unwrap();
     for missing in ["libomega_gpu.a", "libcudapp.a"] {
         let without = records.lines().filter(|line| !line.starts_with(&format!("{missing} ")))
             .collect::<Vec<_>>().join("\n");
         let incomplete = scratch.join("missing.lock");
         fs::write(&incomplete, without).unwrap();
-        refuses(&canonical, &companion, &incomplete);
+        refuses(&canonical_archive, &companion, &incomplete);
     }
     fs::remove_dir_all(scratch).unwrap();
 }
