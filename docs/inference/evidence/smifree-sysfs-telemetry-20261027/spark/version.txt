@@ -1,0 +1,2 @@
+old: AIEN CLI v0.1.0 (Host: NVIDIA GB10 (121 GB Unified Memory))
+new: AIEN CLI v0.1.0 (Host: NVIDIA GB10 (121 GB Unified Memory))

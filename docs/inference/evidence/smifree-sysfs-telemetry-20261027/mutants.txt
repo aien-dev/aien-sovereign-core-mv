@@ -1,0 +1,19 @@
+# Mutant negative controls, 2026-10-27T08:20:52Z. Each mutant is applied, tested, then reverted.
+## M1: crates/aien-cli/src/telemetry.rs ACPI zone \_TZ_.TGPU -> \_TZ_.TSOC
+44:const ACPI_GPU_THERMAL_ZONE: &str = "\\_TZ_.TSOC";
+telemetry::tests::no_gpu_zone_means_no_temperature --- FAILED
+telemetry::tests::spark_layout_reads_gb10_and_acpi_gpu_zone --- FAILED
+test result: FAILED. 7 passed; 2 failed; 0 ignored; 0 measured; 127 filtered out; finished in 0.02s
+## M2: crates/aien-inference-abi/src/lib.rs accepted driver "nvidia" -> "nouveau"
+257:        if gpu.vendor != pci_gpu::NVIDIA_VENDOR || gpu.driver.as_deref() != Some("nouveau") {
+pci_gpu::tests::spark_surface_is_grace_blackwell --- FAILED
+pci_gpu::tests::unknown_nvidia_gpu_has_unknown_vram_not_a_guess --- FAILED
+test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 290 filtered out; finished in 0.02s
+## M3: crates/aien-inference-abi/src/lib.rs restore the old nvidia-smi probe text (scan must fire)
+pci_gpu::tests::detection_never_spawns_nvidia_smi --- FAILED
+test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 290 filtered out; finished in 0.01s
+## reverted:
+ crates/aien-cli/src/nesting.rs       |  20 ++-
+ crates/aien-cli/src/telemetry.rs     | 270 +++++++++++++++++++++++++++++++----
+ crates/aien-inference-abi/src/lib.rs |  68 ++++-----
+ 3 files changed, 285 insertions(+), 73 deletions(-)
