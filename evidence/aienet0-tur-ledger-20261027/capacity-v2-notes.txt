@@ -1,0 +1,135 @@
+CAPACITY-DISCHARGE CORRECTION: HOST_TESTED ON THE DGX SPARK
+
+Finding and cause
+The shared wcmd append precheck required SKEYS + 4 <= KCAP for every new
+mutation, including settle/refund. Those operations touch only the reserved job
+and its existing account IDs; they allocate no keys. Near capacity, legitimate
+escrow could therefore become impossible to discharge. The defect is present in
+the authenticated source at Core #794's initial commit
+6a0bfc0bb0b08d6fa08bc8109536218f50dd8b2c, not just merged #792.
+
+Fix
+Remove the blanket append guard. vpre counts its new PID plus a missing requester;
+vres counts its new job plus missing distinct provider/verifier accounts, with
+an existing requester required. Refuse 14 before append if the exact slots do
+not fit. Settlement/refund remain allocation-free, including at a full table.
+No signature, ownership, conservation, single-writer or fsync gate is weakened.
+No journal-format or authorization-message change from the earlier v2 commit.
+
+Pins
+- Pre-fix source SHA-256:
+  b188d4c8324eb1d99f9d5e0d08549c54358afca369171974433b456f59ae4ca6
+- Pre-fix native binary /tmp/ledger-auth-bin-final:
+  d12d05cda56604410b8716602a7e3988a0e90901d28294f04f6ea7d8081f435c
+- Fixed source SHA-256:
+  f47d8c6374f5e8a49068cc5372e97582e3eb81e87c5e53a661ea62ebb4279713
+- Fixed production binary /tmp/ledger-auth-capacity-bin and the independently
+  gate-built /tmp/ledger-auth-capacity-gate-bin:
+  afd2fbe7b68a9f5fe44ff67b28830ab2499a482b1a922b237bc1877716a3ef93
+- Compiler omega-mv 6999fa9e6dae4847c155ef4eacaece74f491d3ca seed/out/omc:
+  d6290c7663c2b4bafb59eb3fdf812476e977f4c144def71095c6248ef9b96b84
+- Final check.sh SHA-256:
+  2bb20abca2e6757ee30763644f87d8ec13df8bb9cdcf255168ec6f18970d0647
+
+Fast reproducible before/after regression
+Actual pre-fix command:
+  OMC=/tmp/ledger-auth-omega/seed/out/omc \
+  TUR_LEDGER_CAPACITY_SOURCE=/tmp/ledger-auth-capacity-before.om \
+  bash om/tur-ledger/check.sh
+Exit 1; capacity-v2-before.out. The overridden input source is the frozen
+pre-fix b188d4c8 above. The top-level `src` line describes the repository's
+current source, not this override. The current harness also prints the explicit
+capacity-source pin to avoid that ambiguity. The assertions are unchanged.
+Both capacity.settle and capacity.refund returned 14; escrow remained open.
+
+The fixed ten-slot fixture fills all slots through actual signed CLI commands,
+refuses new prefund/reserve without journal changes, settles one reservation,
+refunds the other and accepts unchanged once-only retries. A second case has
+one slot left but needs a new job and two account slots: reserve refuses before
+append and a one-slot prefund can still use the last slot. The full gate below
+runs this exact regression and records every PASS.
+
+Production-size fill-to-capacity fixture
+- Raw snapshot: 65,534 correctly chained records; 3 accounts, 2 jobs and 65,531
+  distinct prefund IDs, occupying all 65,536 keys. Two jobs remain reserved.
+- Raw snapshot SHA-256:
+  f37746ce5790659d49ae32f423dd109921c59b46c779561e41dce907f46aafd7
+- capacity-v2-full.journal.gz is 8,306,185 bytes; SHA-256:
+  3cdc3f31b62d1395d5266701252747f1342bfde375deacd289038d336f0c1ae8
+- Public authority config: capacity-v2-full.authority, no trailing LF.
+- Exact pre-signed argument vectors: capacity-v2-full.commands.
+- Actual outcomes: capacity-v2-full.results.tsv. journal_unchanged is a measured
+  SHA-256 equality before/after each command, not an inferred phase label.
+
+A one-off fixture oracle generated native P-256 keys in memory, signed every
+canonical prefund/reserve record and the two final authorizations, and built the
+SHA-256 chain. Oracle: installed Python cryptography 41.0.7, OpenSSL 3.0.13;
+private key objects were dropped after signing and never written to the repository.
+The oracle is verification-only, not ledger implementation or a production
+runtime dependency; no Python source is added. Native Omega verified every
+signature and replayed the actual production-size table. This is a bulk-built
+signed test history, not a claim that the old live writer accepted every fill:
+the old blanket guard stops admitting earlier, which the CLI regression also
+catches. Synthetic job/evidence IDs intentionally test capacity, not real work.
+
+Actual invocations were [BINARY, --journal, DIR, *ARGS] for each argument vector:
+- Before, same full snapshot: settle -> exit 14, refused 14 capacity, unchanged;
+  refund -> exit 14, refused 14 capacity, unchanged.
+- After, same full snapshot: prefund -> 14, unchanged; reserve -> 14, unchanged;
+  settle -> 0, settled JOB7 RECEIPT_A 27 3 10; refund -> 0, refunded JOB8.
+- Final native audit -> exit 0:
+  audit ok records 65536 head 26ebc6a04f4f8ace9a78669e4fdb013508dde61deddb99b5df31a7731aee68be accounts 3 jobs 2 open 0 settled 1 refunded 1 prefunded 65630 balances 65630 escrow 0
+  Raw output is capacity-v2-full-audit.out.
+
+To replay against a built ledger, from this evidence directory, in Bash without
+set -e (the first two exit-14 results are expected):
+  D=$(mktemp -d)
+  gzip -dc capacity-v2-full.journal.gz > "$D/journal"
+  cp capacity-v2-full.authority "$D/authority"
+  while read -r -a args; do
+    before=$(sha256sum "$D/journal")
+    "$LEDGER" --journal "$D" "${args[@]}"; rc=$?
+    case "${args[0]}" in prefund|reserve) expected=14;; *) expected=0;; esac
+    test "$rc" = "$expected" || exit 1
+    if test "$expected" = 14; then
+      test "$(sha256sum "$D/journal")" = "$before" || exit 1
+    fi
+  done < capacity-v2-full.commands
+  "$LEDGER" --journal "$D" audit
+The old binary fails the settlement assertion; the fixed binary gives the audit
+above. The journal fixture and public signatures are replayable without any
+private key. Reconstructing this test context is not provisioning a real ledger.
+
+Full final gate and mutants
+Actual command:
+  OMC=/tmp/ledger-auth-omega/seed/out/omc CRASH_N=200 MUTANT_CRASH_N=0 \
+  TUR_LEDGER_OUT=/tmp/ledger-auth-capacity-gate-bin \
+  bash om/tur-ledger/check.sh
+Exit 0; SUITE PASS; TUR_LEDGER gate: PASS. Raw stdout: capacity-v2-check.out.
+All twelve mutants were killed. capacity-lockup restores the exact blanket
+append guard and fails thirteen capacity assertions. no-slot-preflight deletes
+the allocating-operation checks and fails ten assertions, including unchanged
+journal and partial-reserve refusal. The other ten existing authentication,
+exactly-once, integrity, conservation, durability and recovery mutants still die.
+All 200 random-delay SIGKILL attempts preceded a new durable write; each was
+audited/retried and final balances matched control. The separate strace injection
+proved the post-fsync/pre-ack SIGKILL and once-only retry. Do not describe the
+random-delay trials as 200 post-fsync kills or as interrupted RPC qualification.
+
+Required Core preflight
+  TINYLLAMA_MODEL_PATH=/home/drakestapleton/.cache/huggingface/hub/models--TinyLlama--TinyLlama-1.1B-Chat-v1.0/blobs/6e6001da2106d4757498752a021df6c2bdc332c650aae4bae6b0c004dcf14933 \
+  bash scripts/agent-preflight.sh
+Exit 0, PREFLIGHT VERIFICATION COMPLETE; branch/secrets/style/workspace/advisory
+checks pass. aien-proof reported 58 stamped passes and 0 newly run crates; these
+are reused valid Rust results, not a fresh execution claim. Six pre-existing
+allowed advisory warnings remain. The changed native ledger path above was
+actually compiled/exercised independently of those stamps. The physical model
+blob path is the supported test override; no symlink/advisory gate was relaxed.
+
+Scope
+Local native host evidence only; no GPU, live 18091, deployment, real economic
+authority, malicious filesystem rollback resistance or Core RPC is qualified.
+The actual signed-artifact caller is separately migrated/tested in protocols #67.
+No compiler/language/host primitive/shared harness example changes here; the
+application README and evidence are updated, and no Omega harness guide is stale
+because of this application-specific capacity correction.

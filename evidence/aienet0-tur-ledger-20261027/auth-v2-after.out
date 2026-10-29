@@ -1,0 +1,7 @@
+omc d6290c7663c2b4bafb59eb3fdf812476e977f4c144def71095c6248ef9b96b84
+src b188d4c8324eb1d99f9d5e0d08549c54358afca369171974433b456f59ae4ca6 om/tur-ledger/tur-ledger.om
+sha 4f88dad60464eacd1655ba980f66b74000c6966ec0becbb80346ac1898e87a76 om/vendor/sha256.om
+ec 909f37c797e187bd0663bde9f57c75d6ce41eb2c9726a6b50d6fc714e424c060 omega-mv@6999fa9e6dae4847c155ef4eacaece74f491d3ca
+gate 437cd267a17d0aaa20cf24673fba537375c01103c6e6d3b38129a80560a14813
+OpenSSL 3.0.13 30 Jan 2024 (Library: OpenSSL 3.0.13 30 Jan 2024)
+PASS auth.unsigned-prefund (exit 2, unchanged journal)
