@@ -1,0 +1,65 @@
+omc 2c82480596bbdc50cda9626866209ef662d5834f278f839ff4ce0250c495029f
+src ad3b61ac7859250e51a9709a7c6d1751f512db7e3606a0ef962b5677634f09e4 om/tur-ledger/tur-ledger.om
+sha 323a71e762c0809f07f53c0e6438023e9111ce2acdeda5cb31eef92f2946f000 om/vendor/sha256.om
+bin 6ea978c7f0ae080c6bb0d0254f9fa56b78da2e74d577c092a98cd50bd945be4a
+PASS oracle.prefund
+PASS oracle.overdraft-101
+PASS oracle.reserve-7-40
+PASS oracle.req-after-reserve
+PASS oracle.second-reservation
+PASS oracle.settle-unknown-job
+PASS oracle.change-mismatch
+PASS oracle.settle
+PASS oracle.zero-replay
+PASS oracle.requester
+PASS oracle.provider
+PASS oracle.verifier
+PASS oracle.observer
+PASS oracle.audit
+PASS oracle.chain-sha256sum
+PASS prefund.first
+PASS prefund.dup
+PASS prefund.conflict-amount
+PASS prefund.conflict-account
+PASS prefund.balance
+PASS usage.bad-job
+PASS usage.leading-zero
+PASS usage.zero-amount
+PASS usage.arity
+PASS usage.command
+PASS usage.u64-overflow
+PASS once.settle
+PASS once.same-receipt
+PASS once.other-receipt
+PASS once.same-receipt-other-split
+PASS once.refund-after-settle
+PASS once.journal-unchanged
+PASS concurrent.settle-distinct (settled 1, already 0, refused 19)
+PASS concurrent.settle-same (settled 1, already 19, refused 0)
+PASS concurrent.reserve-20 (20 reserved, no lost update)
+PASS lock.blocks-while-held (timeout exit 124, then exit 0)
+PASS fsync.before-ack (pwrite64 line 1 < fsync(3) line 2 < write(1) line 3)
+PASS torn.unterminated (recovered torn-tail 138 bytes sha256 3e44b72d48977086fbd8675d072b748fe547ca43e7e124f9769f7c54d76db3ff)
+PASS torn.bad-hash-last-line (recovered torn-tail 204 bytes sha256 ec7bd7be3f6e0024f07cabeaa2e8b70838b65185b22a8b9c6dc55eb8c98d9cf4)
+PASS torn.cut-last-record (recovered torn-tail 199 bytes sha256 24b9b5d983933d6cb5647649654ac2514dd33a91d3916eea014473036e6d8307)
+PASS corrupt.amount-edited
+PASS corrupt.journal-untouched
+PASS corrupt.line-deleted
+PASS corrupt.lines-swapped
+PASS corrupt.genesis-edited
+PASS conserve.forged-valid-control
+PASS conserve.forged-chain-valid
+PASS conserve.payout-over-escrow
+PASS conserve.refused-for-every-command
+crash: n 200 killed 95 (durable-before-kill 80, not-yet-durable 15) completed-before-kill 105 journal-identical-to-control yes
+crash: audit ok records 202 head ef4bfa2475cb53fe0c08d318978c80a1e4e686e9e0d6a9d53208fab552b22d36 accounts 3 jobs 100 open 0 settled 100 refunded 0 prefunded 1000000 balances 1000000 escrow 0
+PASS crash.kill9-200 (audit after every kill, no double settle, balances equal control)
+SUITE PASS
+PASS mutant no-fsync killed (1 failing: fsync.before-ack )
+PASS mutant no-lock killed (2 failing: concurrent.reserve-20 lock.blocks-while-held )
+PASS mutant no-exactly-once killed (9 failing: oracle.zero-replay once.same-receipt once.other-receipt once.same-receipt-other-split once.refund-after-settle once.journal-unchanged concurrent.settle-distinct concurrent.settle-same crash.kill9 )
+PASS mutant no-hash-chain killed (2 failing: torn.bad-hash-last-line corrupt.amount-edited )
+PASS mutant no-conservation killed (2 failing: conserve.payout-over-escrow conserve.refused-for-every-command )
+PASS mutant no-escrow-rule killed (8 failing: oracle.change-mismatch oracle.settle oracle.zero-replay oracle.requester oracle.provider oracle.verifier oracle.observer oracle.audit )
+PASS mutant no-torn-recovery killed (1 failing: torn.bad-hash-last-line )
+TUR_LEDGER gate: PASS

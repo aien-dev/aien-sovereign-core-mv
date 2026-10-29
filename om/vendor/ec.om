@@ -1,0 +1,685 @@
+note SPDX-License-Identifier: Apache-2.0
+note om/tls/ec.om: ECDSA signature verification on NIST P-256 and P-384 (FIPS 186-4 section 6.4.2).
+note Library unit (no om2 line, no main). Module code EC: functions ec_* and ecdsa_*, consts EC*.
+note
+note API (all inputs are public; this module is variable time by design, see "Timing" below):
+note   ecdsa_verify crv pub hs hlen      crv 256 or 384; pub = 0x04 || X || Y (SEC1 uncompressed);
+note                                     hs = digest (hlen bytes) || DER Ecdsa-Sig-Value
+note   ecdsa_verify_raw crv pub hs hlen  same, signature r || s, each 32 (P-256) or 48 (P-384) bytes
+note Return codes: 0 valid, 1 signature mismatch (computed point at infinity included),
+note   2 bad DER or encoding (also hlen > len hs), 3 bad public key (format, coordinate >= p,
+note   not on the curve), 4 r or s not in [1, n-1], 5 unsupported crv.
+note The digest may have any length: e = its leftmost min(hlen, 32|48) bytes (bits2int; the bit
+note length of n is 256 or 384, byte aligned), reduced mod n.
+note
+note Arithmetic: 32-bit limbs held in ulong cells, little-endian, L = 8 (P-256) or 12 (P-384).
+note Generic Montgomery multiplication (CIOS) for p and for n; n0' = -m^-1 mod 2^32 (Newton
+note iteration), R mod m and R^2 mod m (R = 2^(32L), by repeated doubling) are computed at run
+note time. Points in Jacobian coordinates (a = -3), Z = 0 is the point at infinity. Shamir's
+note joint double-scalar multiplication u1*G + u2*Q with the table G, Q, G+Q.
+note
+note Timing: signature verification handles only public values (key, digest, signature), so this
+note module is NOT constant time and does not try to be: DER parsing, range checks, the Shamir
+note loop (branches on the bits of u1 and u2), point addition (branches on Z = 0, H = 0, r = 0),
+note ec_csub (branch on the borrow), ec_cmp (early exit) and the Fermat inversions (branch on the
+note exponent bits of the public moduli) all take data-dependent time. Do not reuse these helpers
+note on secret data (e.g. ECDH or signing) without a constant-time rewrite. Compiler caveat: omc
+note emits plain AArch64 and no DIT bit is set. No secret is held, so nothing is wiped.
+note Untrusted input never traps: every length and offset is checked before indexing (fuzzed by
+note test/ec/gen_fuzz.py).
+note
+note Workspace w (ECWN ulong cells) layout, slot stride 12 cells:
+note   0 L; 2..15 Montgomery accumulator T (L+2 cells)
+note   ECCP 16 / ECCN 56: modulus context: +0 m, +12 n0', +16 R mod m, +28 R^2 mod m
+note   ECZ zero, ECON plain 1, ECB curve b (Montgomery), points ECG ECQ ECGQ ECR (X,Y,Z),
+note   scalars ECSR r, ECSS s, ECE e, ECU1, ECU2, ECSI s^-1, temporaries ECA0..ECA9, ECAC.
+
+const ECWN ulong 480
+const ECCP ulong 16
+const ECCN ulong 56
+const ECZ ulong 96
+const ECON ulong 108
+const ECB ulong 120
+const ECG ulong 132
+const ECQ ulong 168
+const ECGQ ulong 204
+const ECR ulong 240
+const ECSR ulong 276
+const ECSS ulong 288
+const ECE ulong 300
+const ECU1 ulong 312
+const ECU2 ulong 324
+const ECSI ulong 336
+const ECA0 ulong 348
+const ECA1 ulong 360
+const ECA2 ulong 372
+const ECA3 ulong 384
+const ECA4 ulong 396
+const ECA5 ulong 408
+const ECA6 ulong 420
+const ECA7 ulong 432
+const ECA8 ulong 444
+const ECA9 ulong 456
+const ECAC ulong 468
+
+note Curve constants, verbatim from FIPS 186-4 Appendix D.1.2.3 (P-256) and D.1.2.4 (P-384)
+note (same values as SEC 2 v2 sections 2.4.2 secp256r1 and 2.5.1 secp384r1). a = -3 for both.
+note Checked with Wolfram (WolframLanguageEvaluator, 2026-10-26; exact query and output in
+note test/ec/wolfram.txt): PrimeQ[p], PrimeQ[n], Mod[Gy^2-(Gx^3-3Gx+b),p]==0, n*G == O (affine
+note double-and-add mod p), BitLength[p]==BitLength[n] (256, 384), n<p<2n: all True for both curves.
+fn ec_p256 w edit ulong ECWN to void
+put w 0 8
+note p = 0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff (limbs little-endian)
+put w 16 0xffffffff
+put w 17 0xffffffff
+put w 18 0xffffffff
+put w 19 0x0
+put w 20 0x0
+put w 21 0x0
+put w 22 0x1
+put w 23 0xffffffff
+note n = 0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551 (limbs little-endian)
+put w 56 0xfc632551
+put w 57 0xf3b9cac2
+put w 58 0xa7179e84
+put w 59 0xbce6faad
+put w 60 0xffffffff
+put w 61 0xffffffff
+put w 62 0x0
+put w 63 0xffffffff
+note b = 0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b (limbs little-endian)
+put w 120 0x27d2604b
+put w 121 0x3bce3c3e
+put w 122 0xcc53b0f6
+put w 123 0x651d06b0
+put w 124 0x769886bc
+put w 125 0xb3ebbd55
+put w 126 0xaa3a93e7
+put w 127 0x5ac635d8
+note gx = 0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296 (limbs little-endian)
+put w 132 0xd898c296
+put w 133 0xf4a13945
+put w 134 0x2deb33a0
+put w 135 0x77037d81
+put w 136 0x63a440f2
+put w 137 0xf8bce6e5
+put w 138 0xe12c4247
+put w 139 0x6b17d1f2
+note gy = 0x4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5 (limbs little-endian)
+put w 144 0x37bf51f5
+put w 145 0xcbb64068
+put w 146 0x6b315ece
+put w 147 0x2bce3357
+put w 148 0x7c0f9e16
+put w 149 0x8ee7eb4a
+put w 150 0xfe1a7f9b
+put w 151 0x4fe342e2
+end
+
+fn ec_p384 w edit ulong ECWN to void
+put w 0 12
+note p = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffff0000000000000000ffffffff (limbs little-endian)
+put w 16 0xffffffff
+put w 17 0x0
+put w 18 0x0
+put w 19 0xffffffff
+put w 20 0xfffffffe
+put w 21 0xffffffff
+put w 22 0xffffffff
+put w 23 0xffffffff
+put w 24 0xffffffff
+put w 25 0xffffffff
+put w 26 0xffffffff
+put w 27 0xffffffff
+note n = 0xffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973 (limbs little-endian)
+put w 56 0xccc52973
+put w 57 0xecec196a
+put w 58 0x48b0a77a
+put w 59 0x581a0db2
+put w 60 0xf4372ddf
+put w 61 0xc7634d81
+put w 62 0xffffffff
+put w 63 0xffffffff
+put w 64 0xffffffff
+put w 65 0xffffffff
+put w 66 0xffffffff
+put w 67 0xffffffff
+note b = 0xb3312fa7e23ee7e4988e056be3f82d19181d9c6efe8141120314088f5013875ac656398d8a2ed19d2a85c8edd3ec2aef (limbs little-endian)
+put w 120 0xd3ec2aef
+put w 121 0x2a85c8ed
+put w 122 0x8a2ed19d
+put w 123 0xc656398d
+put w 124 0x5013875a
+put w 125 0x314088f
+put w 126 0xfe814112
+put w 127 0x181d9c6e
+put w 128 0xe3f82d19
+put w 129 0x988e056b
+put w 130 0xe23ee7e4
+put w 131 0xb3312fa7
+note gx = 0xaa87ca22be8b05378eb1c71ef320ad746e1d3b628ba79b9859f741e082542a385502f25dbf55296c3a545e3872760ab7 (limbs little-endian)
+put w 132 0x72760ab7
+put w 133 0x3a545e38
+put w 134 0xbf55296c
+put w 135 0x5502f25d
+put w 136 0x82542a38
+put w 137 0x59f741e0
+put w 138 0x8ba79b98
+put w 139 0x6e1d3b62
+put w 140 0xf320ad74
+put w 141 0x8eb1c71e
+put w 142 0xbe8b0537
+put w 143 0xaa87ca22
+note gy = 0x3617de4a96262c6f5d9e98bf9292dc29f8f41dbd289a147ce9da3113b5f0b8c00a60b1ce1d7e819d7a431d7c90ea0e5f (limbs little-endian)
+put w 144 0x90ea0e5f
+put w 145 0x7a431d7c
+put w 146 0x1d7e819d
+put w 147 0xa60b1ce
+put w 148 0xb5f0b8c0
+put w 149 0xe9da3113
+put w 150 0x289a147c
+put w 151 0xf8f41dbd
+put w 152 0x9292dc29
+put w 153 0x5d9e98bf
+put w 154 0x96262c6f
+put w 155 0x3617de4a
+end
+
+note T[0..L+1] += a[0..L-1] * y (a at w offset a, y < 2^32); each step fits: (2^32-1) +
+note (2^32-1)^2 + (2^32-1) = 2^64 - 1
+fn ec_row w edit ulong ECWN a ulong y ulong to void
+n = get w 0
+c = ulong 0
+x = ulong 0
+for j ulong n
+x = add add get w add 2 j mul get w add a j y c
+put w add 2 j and x 0xffffffff
+c = shr x 32
+end
+x = add get w add 2 n c
+put w add 2 n and x 0xffffffff
+put w add 3 n add get w add 3 n shr x 32
+end
+
+note o = T - m if T >= m else T (T has L+1 limbs, T < 2m); modulus m at offset c
+fn ec_csub w edit ulong ECWN c ulong o ulong to void
+n = get w 0
+br = ulong 0
+x = ulong 0
+for j ulong n
+x = sub sub get w add 2 j get w add c j br
+br = shr x 63
+end
+x = sub get w add 2 n br
+if eq shr x 63 0
+br = 0
+for j ulong n
+x = sub sub get w add 2 j get w add c j br
+put w add o j and x 0xffffffff
+br = shr x 63
+end
+ret
+end
+for j ulong n
+put w add o j get w add 2 j
+end
+end
+
+note T = a + b as L+1 limbs
+fn ec_sum w edit ulong ECWN a ulong b ulong to void
+n = get w 0
+cy = ulong 0
+x = ulong 0
+for j ulong n
+x = add add get w add a j get w add b j cy
+put w add 2 j and x 0xffffffff
+cy = shr x 32
+end
+put w add 2 n cy
+end
+
+note o = a + b mod m (a, b < m; also a < 2m with b = 0 reduces a)
+fn ec_add w edit ulong ECWN c ulong o ulong a ulong b ulong to void
+ec_sum w a b
+ec_csub w c o
+end
+
+note o = a - b mod m (a, b < m): T = a + m - b, in (0, 2m), then one conditional subtraction
+fn ec_sub w edit ulong ECWN c ulong o ulong a ulong b ulong to void
+ec_sum w a c
+n = get w 0
+br = ulong 0
+x = ulong 0
+for j ulong n
+x = sub sub get w add 2 j get w add b j br
+put w add 2 j and x 0xffffffff
+br = shr x 63
+end
+put w add 2 n sub get w add 2 n br
+ec_csub w c o
+end
+
+note one CIOS step: T = (T + a*y + q*m) / 2^32 with q = (T + a*y)[0] * n0' mod 2^32
+fn ec_step w edit ulong ECWN c ulong a ulong y ulong to void
+ec_row w a y
+q = and mul get w 2 get w add c 12 0xffffffff
+ec_row w c q
+n = get w 0
+for j ulong add n 1
+put w add 2 j get w add 3 j
+end
+put w add 3 n 0
+end
+
+note o = a * b * R^-1 mod m (Montgomery, CIOS; a, b < m). o may alias a or b.
+fn ec_mul w edit ulong ECWN c ulong o ulong a ulong b ulong to void
+n = get w 0
+for j ulong add n 2
+put w add 2 j 0
+end
+for i ulong n
+ec_step w c a get w add b i
+end
+ec_csub w c o
+end
+
+note compare L-limb numbers: 0 equal, 1 a < b, 2 a > b
+fn ec_cmp w edit ulong ECWN a ulong b ulong to ulong
+n = get w 0
+for k ulong n
+j = sub sub n 1 k
+x = get w add a j
+y = get w add b j
+if lt x y
+ret 1
+end
+if gt x y
+ret 2
+end
+end
+ret 0
+end
+
+fn ec_copy w edit ulong ECWN o ulong a ulong to void
+for j ulong get w 0
+put w add o j get w add a j
+end
+end
+
+note copy a point (three slots)
+fn ec_pcopy w edit ulong ECWN o ulong a ulong to void
+for j ulong 36
+put w add o j get w add a j
+end
+end
+
+note bit i of the L-limb number at a
+fn ec_bit w edit ulong ECWN a ulong i ulong to ulong
+ret and shr get w add a shr i 5 and i 31 1
+end
+
+note modulus context at c (m already stored): n0' = -m^-1 mod 2^32 by Newton iteration
+note (x = m0 is right to 3 bits; each step doubles the bits: 3, 6, 12, 24, 48 >= 32),
+note R mod m = 2^(32L) mod m and R^2 mod m by repeated modular doubling from 1.
+fn ec_ctx w edit ulong ECWN c ulong to void
+n = get w 0
+m0 = get w c
+x = m0
+for k ulong 5
+x = and mul x sub 2 mul m0 x 0xffffffff
+end
+put w add c 12 and sub 0 x 0xffffffff
+for j ulong n
+put w add add c 16 j 0
+end
+put w add c 16 1
+for k ulong mul n 32
+ec_add w c add c 16 add c 16 add c 16
+end
+ec_copy w add c 28 add c 16
+for k ulong mul n 32
+ec_add w c add c 28 add c 28 add c 28
+end
+end
+
+note o = a^(m-2) (Montgomery domain; m prime, so a^-1 for a != 0). m - 2: m0 >= 2 for all four
+note moduli, so only limb 0 changes.
+fn ec_inv w edit ulong ECWN c ulong o ulong a ulong to void
+ec_copy w ECAC add c 16
+nb = mul get w 0 32
+for k ulong nb
+i = sub sub nb 1 k
+ec_mul w c ECAC ECAC ECAC
+v = get w add c shr i 5
+if eq shr i 5 0
+v = sub v 2
+end
+if eq and shr v and i 31 1 1
+ec_mul w c ECAC ECAC a
+end
+end
+ec_copy w o ECAC
+end
+
+note load the big-endian bytes of b (len b <= 4L) as an L-limb number at o
+fn ec_load w edit ulong ECWN o ulong b view uchar * to void
+for j ulong get w 0
+put w add o j 0
+end
+k = len b
+for i ulong k
+bv = shl ulong get b sub sub k i 1 mul and i 3 8
+li = add o shr i 2
+put w li or get w li bv
+end
+end
+
+note P = 2P in place, a = -3 (dbl-2001-b). Infinity (Z = 0) stays infinity.
+fn ec_dbl w edit ulong ECWN p ulong to void
+y = add p 12
+z = add p 24
+ec_mul w ECCP ECA0 z z
+ec_mul w ECCP ECA1 y y
+ec_mul w ECCP ECA2 p ECA1
+ec_sub w ECCP ECA4 p ECA0
+ec_add w ECCP ECA5 p ECA0
+ec_mul w ECCP ECA3 ECA4 ECA5
+ec_add w ECCP ECA4 ECA3 ECA3
+ec_add w ECCP ECA3 ECA4 ECA3
+ec_add w ECCP ECA4 y z
+ec_mul w ECCP ECA4 ECA4 ECA4
+ec_sub w ECCP ECA4 ECA4 ECA1
+ec_sub w ECCP z ECA4 ECA0
+ec_add w ECCP ECA2 ECA2 ECA2
+ec_add w ECCP ECA2 ECA2 ECA2
+ec_add w ECCP ECA5 ECA2 ECA2
+ec_mul w ECCP p ECA3 ECA3
+ec_sub w ECCP p p ECA5
+ec_sub w ECCP ECA2 ECA2 p
+ec_mul w ECCP ECA2 ECA3 ECA2
+ec_mul w ECCP ECA1 ECA1 ECA1
+ec_add w ECCP ECA1 ECA1 ECA1
+ec_add w ECCP ECA1 ECA1 ECA1
+ec_add w ECCP ECA1 ECA1 ECA1
+ec_sub w ECCP y ECA2 ECA1
+end
+
+note P = P + Q (add-1998-cmo-2). Q infinity: P unchanged; P infinity: P = Q; H = 0 and R = 0
+note (P == Q): doubling; H = 0, R != 0 (P == -Q): infinity.
+fn ec_padd w edit ulong ECWN p ulong q ulong to void
+if eq ec_cmp w add q 24 ECZ 0
+ret
+end
+if eq ec_cmp w add p 24 ECZ 0
+ec_pcopy w p q
+ret
+end
+ec_mul w ECCP ECA0 add p 24 add p 24
+ec_mul w ECCP ECA1 add q 24 add q 24
+ec_mul w ECCP ECA2 p ECA1
+ec_mul w ECCP ECA3 q ECA0
+ec_mul w ECCP ECA4 add p 12 add q 24
+ec_mul w ECCP ECA4 ECA4 ECA1
+ec_mul w ECCP ECA5 add q 12 add p 24
+ec_mul w ECCP ECA5 ECA5 ECA0
+ec_sub w ECCP ECA3 ECA3 ECA2
+ec_sub w ECCP ECA5 ECA5 ECA4
+if eq ec_cmp w ECA3 ECZ 0
+if eq ec_cmp w ECA5 ECZ 0
+ec_dbl w p
+ret
+end
+ec_copy w add p 24 ECZ
+ret
+end
+ec_mul w ECCP ECA6 ECA3 ECA3
+ec_mul w ECCP ECA7 ECA3 ECA6
+ec_mul w ECCP ECA2 ECA2 ECA6
+ec_mul w ECCP p ECA5 ECA5
+ec_sub w ECCP p p ECA7
+ec_sub w ECCP p p ECA2
+ec_sub w ECCP p p ECA2
+ec_sub w ECCP ECA2 ECA2 p
+ec_mul w ECCP ECA2 ECA5 ECA2
+ec_mul w ECCP ECA4 ECA4 ECA7
+ec_sub w ECCP add p 12 ECA2 ECA4
+ec_mul w ECCP add p 24 add p 24 add q 24
+ec_mul w ECCP add p 24 add p 24 ECA3
+end
+
+note ECR = u1*G + u2*Q (Shamir, table G, Q, G+Q; variable time)
+fn ec_smul w edit ulong ECWN to void
+ec_pcopy w ECGQ ECG
+ec_padd w ECGQ ECQ
+ec_pcopy w ECR ECG
+ec_copy w add ECR 24 ECZ
+nb = mul get w 0 32
+for k ulong nb
+i = sub sub nb 1 k
+ec_dbl w ECR
+t = or ec_bit w ECU1 i shl ec_bit w ECU2 i 1
+if eq t 1
+ec_padd w ECR ECG
+end
+if eq t 2
+ec_padd w ECR ECQ
+end
+if eq t 3
+ec_padd w ECR ECGQ
+end
+end
+end
+
+note curve setup: constants, both Montgomery contexts, b and G into the Montgomery domain
+fn ec_setup w edit ulong ECWN crv ulong to ulong
+if eq crv 256
+ec_p256 w
+else
+if eq crv 384
+ec_p384 w
+else
+ret 5
+end
+end
+ec_ctx w ECCP
+ec_ctx w ECCN
+put w ECON 1
+ec_mul w ECCP ECB ECB add ECCP 28
+ec_mul w ECCP ECG ECG add ECCP 28
+ec_mul w ECCP add ECG 12 add ECG 12 add ECCP 28
+ec_copy w add ECG 24 add ECCP 16
+ret 0
+end
+
+note public key: exactly 0x04 || X || Y, X < p, Y < p, Y^2 = X^3 - 3X + b; Q in Montgomery form
+fn ec_pub w edit ulong ECWN pub view uchar * to ulong
+nb = mul get w 0 4
+if ne len pub add 1 mul nb 2
+ret 3
+end
+if ne get pub 0 4
+ret 3
+end
+ec_load w ECQ part pub 1 nb
+ec_load w add ECQ 12 part pub add 1 nb nb
+if ne ec_cmp w ECQ ECCP 1
+ret 3
+end
+if ne ec_cmp w add ECQ 12 ECCP 1
+ret 3
+end
+ec_mul w ECCP ECQ ECQ add ECCP 28
+ec_mul w ECCP add ECQ 12 add ECQ 12 add ECCP 28
+ec_copy w add ECQ 24 add ECCP 16
+ec_mul w ECCP ECA0 add ECQ 12 add ECQ 12
+ec_mul w ECCP ECA1 ECQ ECQ
+ec_add w ECCP ECA2 add ECCP 16 add ECCP 16
+ec_add w ECCP ECA2 ECA2 add ECCP 16
+ec_sub w ECCP ECA1 ECA1 ECA2
+ec_mul w ECCP ECA1 ECA1 ECQ
+ec_add w ECCP ECA1 ECA1 ECB
+if ne ec_cmp w ECA0 ECA1 0
+ret 3
+end
+ret 0
+end
+
+note one DER INTEGER at hs[p..e): tag 2, short-form length 1..127 inside e, non-negative,
+note minimal (a leading 0x00 only before a byte >= 0x80). Writes the value to o; a value longer
+note than 4L bytes is replaced by n so the range check rejects it. Returns the bytes used, 0 bad.
+fn ec_int w edit ulong ECWN o ulong hs view uchar * p ulong e ulong to ulong
+if lt sub e p 3
+ret 0
+end
+if ne get hs p 2
+ret 0
+end
+il = ulong get hs add p 1
+if or ge il 128 eq il 0
+ret 0
+end
+if gt il sub e add p 2
+ret 0
+end
+v = add p 2
+if ge get hs v 128
+ret 0
+end
+k = il
+if and eq get hs v 0 gt il 1
+if lt get hs add v 1 128
+ret 0
+end
+v = add v 1
+k = sub k 1
+end
+if gt k mul get w 0 4
+ec_copy w o ECCN
+else
+ec_load w o part hs v k
+end
+ret add il 2
+end
+
+note strict DER Ecdsa-Sig-Value at hs[h..]: SEQUENCE (short-form length; every valid signature
+note on these curves is < 128 bytes, so a long form is never minimal) of two INTEGERs, and no
+note byte after it.
+fn ec_der w edit ulong ECWN hs view uchar * h ulong to ulong
+k = len hs
+if lt sub k h 2
+ret 2
+end
+if ne get hs h 0x30
+ret 2
+end
+sl = ulong get hs add h 1
+if ge sl 128
+ret 2
+end
+if ne add add h 2 sl k
+ret 2
+end
+c = ec_int w ECSR hs add h 2 k
+if eq c 0
+ret 2
+end
+d = ec_int w ECSS hs add add h 2 c k
+if eq d 0
+ret 2
+end
+if ne add add add h 2 c d k
+ret 2
+end
+ret 0
+end
+
+note raw r || s at hs[h..], each 4L bytes, nothing after
+fn ec_raw w edit ulong ECWN hs view uchar * h ulong to ulong
+nb = mul get w 0 4
+if ne sub len hs h mul nb 2
+ret 2
+end
+ec_load w ECSR part hs h nb
+ec_load w ECSS part hs add h nb nb
+ret 0
+end
+
+note r, s in [1, n-1], then u1 = e s^-1, u2 = r s^-1 mod n, R = u1 G + u2 Q, accept iff R is
+note finite and x(R) mod n == r. digest = hs[0..hlen).
+fn ec_core w edit ulong ECWN hs view uchar * hlen ulong to ulong
+if eq ec_cmp w ECSR ECZ 0
+ret 4
+end
+if ne ec_cmp w ECSR ECCN 1
+ret 4
+end
+if eq ec_cmp w ECSS ECZ 0
+ret 4
+end
+if ne ec_cmp w ECSS ECCN 1
+ret 4
+end
+k = mul get w 0 4
+if lt hlen k
+k = hlen
+end
+ec_load w ECE part hs 0 k
+ec_add w ECCN ECE ECE ECZ
+ec_mul w ECCN ECSI ECSS add ECCN 28
+ec_inv w ECCN ECSI ECSI
+ec_mul w ECCN ECU1 ECE ECSI
+ec_mul w ECCN ECU2 ECSR ECSI
+ec_smul w
+if eq ec_cmp w add ECR 24 ECZ 0
+ret 1
+end
+ec_inv w ECCP ECA8 add ECR 24
+ec_mul w ECCP ECA9 ECA8 ECA8
+ec_mul w ECCP ECA9 ECA9 ECR
+ec_mul w ECCP ECA9 ECA9 ECON
+ec_add w ECCN ECA9 ECA9 ECZ
+if eq ec_cmp w ECA9 ECSR 0
+ret 0
+end
+ret 1
+end
+
+fn ecdsa_verify crv ulong pub view uchar * hs view uchar * hlen ulong to ulong
+w = new ulong ECWN 0
+rc = ec_setup w crv
+if ne rc 0
+ret rc
+end
+rc = ec_pub w pub
+if ne rc 0
+ret rc
+end
+if gt hlen len hs
+ret 2
+end
+rc = ec_der w hs hlen
+if ne rc 0
+ret rc
+end
+ret ec_core w hs hlen
+end
+
+fn ecdsa_verify_raw crv ulong pub view uchar * hs view uchar * hlen ulong to ulong
+w = new ulong ECWN 0
+rc = ec_setup w crv
+if ne rc 0
+ret rc
+end
+rc = ec_pub w pub
+if ne rc 0
+ret rc
+end
+if gt hlen len hs
+ret 2
+end
+rc = ec_raw w hs hlen
+if ne rc 0
+ret rc
+end
+ret ec_core w hs hlen
+end
