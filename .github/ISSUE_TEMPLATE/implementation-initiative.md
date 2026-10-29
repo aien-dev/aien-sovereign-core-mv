@@ -46,4 +46,4 @@ Write PASS / FAIL / INCONCLUSIVE / NOT_RUN / BLOCKED, with source commit and evi
 **Final verdict:** NOT_RUN
 **Follow-ups:**
 
-See the [issue-first delivery protocol](https://github.com/aien-spark/aien-architecture/blob/main/docs/process/ISSUE_FIRST_DELIVERY.md). An issue, green CI result or design document is not automatically proof of scientific or hardware qualification.
+See the [issue-first delivery protocol](https://github.com/aien-dev/aien-architecture-mv/blob/main/docs/process/ISSUE_FIRST_DELIVERY.md). An issue, green CI result or design document is not automatically proof of scientific or hardware qualification.
