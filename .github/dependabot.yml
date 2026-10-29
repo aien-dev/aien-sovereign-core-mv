@@ -1,0 +1,14 @@
+# Dependabot: monthly version updates for the pinned GitHub Actions and the Cargo lockfile.
+# Pull requests only; nothing merges itself. Security advisories are handled by GitHub
+# Dependabot security updates on the repository settings.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: monthly
+    versioning-strategy: lockfile-only

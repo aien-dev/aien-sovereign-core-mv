@@ -22,6 +22,10 @@ COPY --from=builder /build/target/release/cortex-rs /usr/local/bin/cortex-rs
 COPY scripts/reproduce.sh /usr/local/bin/reproduce.sh
 RUN chmod +x /usr/local/bin/reproduce.sh
 
+# Run unprivileged; the default store is $HOME/.config/cortex/cortex.db.
+RUN useradd --system --create-home --uid 10001 cortex
+USER cortex
+
 EXPOSE 18080
 
 ENTRYPOINT ["cortex-rs"]
