@@ -73,7 +73,14 @@ fn find_fixtures_dir() -> PathBuf {
     manifest_dir.join("fixtures")
 }
 
+/// The checkpoint to load, resolved to its regular file. A Hugging Face cache snapshot entry is a
+/// symlink into `blobs/`, and the loader refuses symlinked checkpoint files on purpose, so the
+/// harness resolves the path itself (`loader_still_refuses_a_symlinked_checkpoint` pins the refusal).
 fn find_model_checkpoint_path() -> Option<PathBuf> {
+    find_model_checkpoint_entry().map(|p| std::fs::canonicalize(&p).unwrap_or(p))
+}
+
+fn find_model_checkpoint_entry() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("TINYLLAMA_MODEL_PATH") {
         let path = PathBuf::from(p);
         if path.exists() {
@@ -833,4 +840,35 @@ fn test_all_5_stages_parity_suite() {
     test_stage3_numerical_activation_parity();
     test_stage4_logit_and_greedy_parity();
     test_stage5_multi_step_generation_parity();
+}
+
+/// Negative control for the path resolution above: the loader itself still refuses a checkpoint
+/// reached through a symlink, both a fresh one and the Hugging Face snapshot entry when present.
+#[cfg(unix)]
+#[test]
+fn loader_still_refuses_a_symlinked_checkpoint() {
+    let target = find_model_checkpoint_path()
+        .unwrap_or_else(|| find_fixtures_dir().join("tinyllama_oracle.safetensors"));
+    let target = std::fs::canonicalize(&target).expect("symlink target must exist");
+    let dir = std::env::temp_dir().join(format!("tinyllama-symlink-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let link = dir.join("model.safetensors");
+    let _ = std::fs::remove_file(&link);
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    let mut links = vec![link];
+    if let Some(entry) = find_model_checkpoint_entry() {
+        if std::fs::symlink_metadata(&entry).is_ok_and(|m| m.file_type().is_symlink()) {
+            links.push(entry);
+        }
+    }
+    for link in &links {
+        match load_safetensors_checkpoint(link) {
+            Ok(_) => panic!("loader accepted symlinked checkpoint {}", link.display()),
+            Err(e) => {
+                let e = format!("{e:?}");
+                assert!(e.contains("symlink"), "refusal names the symlink: {e}");
+            }
+        }
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
 }
