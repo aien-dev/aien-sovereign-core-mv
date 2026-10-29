@@ -1,0 +1,41 @@
+HOST_TESTED mounted Omega MCP assistance; not a substitute for the newer local native gate.
+
+Mounted server pin: omega-mv e5b32567a7aff3ce594e3254a622a846a6cd190b.
+Mounted omc sha256: 2c82480596bbdc50cda9626866209ef662d5834f278f839ff4ce0250c495029f.
+Actual ledger/gate pin: omega-mv 6999fa9e6dae4847c155ef4eacaece74f491d3ca.
+Actual local omc sha256: d6290c7663c2b4bafb59eb3fdf812476e977f4c144def71095c6248ef9b96b84.
+
+mcp__omega_lookup({"query":"ftrunc"})
+Observed form: ftrunc fd length; fd int, length long, result long, -errno on failure.
+Citations: pinned seed keyword table 799-800; OMEGESE line 811.
+
+mcp__omega_lookup({"query":"fsync"})
+Observed form: fsync fd; fd int, result long, -errno on failure; sync data and metadata.
+Citations: pinned seed keyword table 1177-1178; OMEGESE line 792.
+
+mcp__omega_run input (older-pin-compatible pure argv guard only):
+fn valid c uchar to bool
+if le c 32
+ret false
+end
+ret true
+end
+fn main to int
+if valid uchar 32
+ret 1
+end
+if not valid uchar 65
+ret 2
+end
+ret 0
+end
+
+Observed: compile ok, 348 bytes, sha256 8f069ea8f43e682cb356e6b3fa8e56cfaba8e1577eef14d9257743aa8d2fd9b6.
+Run: normal exit 0, stdout/stderr empty, isolated bwrap + prlimit, no host files/network.
+Negative control: change only `if le c 32` to `if le c 31`.
+Observed: compile ok, 348 bytes, sha256 5bb09f97b7481daaa061095325042239fb1fd7ce6dc8081fd41f29cb7dfe2197.
+Run: normal exit 1, stdout/stderr empty, same isolated sandbox.
+
+These calls checked the documented host-word types and a compatible guard expression.
+They did not exercise filesystem durability, the newer compiler, an RPC, GPU, power loss,
+or hardware qualification. audit-v2-check.out records the actual newer-pin ledger behavior.
