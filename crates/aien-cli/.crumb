@@ -34,21 +34,21 @@
     "generated": {
       "children": [
         {
-          "digest": "f3a78713fbdc2ddc043559e2480f8efea66d4b52cac3c73d54587144ea0f0dfc",
-          "last_commit": "fe9ac133",
+          "digest": "95b86b43f657ac5166da5d2431c72256ddd2bcc414df86ed40964ca3c3ccf456",
+          "last_commit": "9bb8d6e1",
           "name": "src",
           "purpose": ""
         }
       ],
-      "children_root": "sha256:f146e25d0c1e3ec64bb2a9eed34de8e7b329d66748d069c7ee976911abbaae9c",
-      "compiled_at": "2026-10-26T15:46:25Z",
+      "children_root": "sha256:67fd70b7af93c6e1469e059a793b313bade44d9c2fdf6740a87e816ba8d6f327",
+      "compiled_at": "2026-10-29T17:40:58Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:36e3535aec78167f5eb088201510562ec415c3ee8293278d65623f299a9f954b",
+      "digest": "sha256:fdca7726d62bca698f017505ea25a3ba8324fc646706f39611f0005c49037740",
       "evidence_files": 0,
       "evidence_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "files": 43,
-      "generated_at_commit": "bf15e82a44fbfa04cbffdafce433d4cd5ed66df4",
-      "source_tree": "sha256:d4bb2ba9749122ec5a22757d3368ecb43dfc580cace7d699e28cc12a0f4421ee"
+      "generated_at_commit": "ae3aaca224c6c7636fa30fc158330078fdf63bb0",
+      "source_tree": "sha256:7c49103d542f2469d898e717610c9cb66af9cd870b344314de694802fcbb4324"
     }
   },
   "history": [
