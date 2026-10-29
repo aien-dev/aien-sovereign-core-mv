@@ -1,0 +1,10 @@
+omc 2c82480596bbdc50cda9626866209ef662d5834f278f839ff4ce0250c495029f
+src 92b790d4f63ac01c55ca8e8dd0aab5fbebbef5babbe06e30d24c225cf8c23b6f
+PASS oracle (exit 0)
+PASS assert-provider (exit 14)
+PASS no-overdraft-guard (exit 1)
+PASS no-phase-guard (exit 6)
+PASS no-jobid-guard (exit 7)
+PASS no-replay-guard (exit 20)
+PASS no-refund-guard (exit 8)
+TUR_R0 gate: PASS

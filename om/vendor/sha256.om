@@ -1,14 +1,14 @@
 note SPDX-License-Identifier: Apache-2.0
 note Vendored from aien-dev/benchmarks-mv om/data/sha256.om at 567c5da595ebc9abebcd4dd195b1b8d7fb7507f4 (branch
 note refactor/om-rewrite), written before that repository adopted Apache-2.0 tree-wide (d3f3b40).
-note Only this header differs; checked against sha256sum by om/effects/run.sh through world.om.
+note Header and hash-state global name differ (hstate avoids the ECDSA hs parameter); algorithm unchanged.
 note Incremental SHA-256 in native Omega. No runtime library calls.
 note Algorithm and constants checked against Omega seed/atlas/atlas.s2 and src/sha256.c
 note at seed ancestor 29b12760. Those files are references, never build inputs.
 note hmeta: buffered bytes, message bytes, state (0 active, 1 finalized, 2 error).
 note hfinal exposes 64 lowercase hexadecimal bytes in hd; reset before another message.
 global hk uint 64
-global hs uint 8
+global hstate uint 8
 global hm uint 64
 global hb uchar 64
 global hd uchar 64
@@ -37,7 +37,7 @@ v = uint 0
 for j ulong 8
 v = or shl v 4 hnibble get hseed add mul i 8 j
 end
-put hs i v
+put hstate i v
 end
 for i ulong 3
 put hmeta i 0
@@ -78,14 +78,14 @@ v = add hsmall1 get hm sub i 2 get hm sub i 7
 v = add v hsmall0 get hm sub i 15
 put hm i add v get hm sub i 16
 end
-a = get hs 0
-b = get hs 1
-c = get hs 2
-d = get hs 3
-e = get hs 4
-f = get hs 5
-g = get hs 6
-h = get hs 7
+a = get hstate 0
+b = get hstate 1
+c = get hstate 2
+d = get hstate 3
+e = get hstate 4
+f = get hstate 5
+g = get hstate 6
+h = get hstate 7
 for i ulong 64
 t1 = add h hbig1 e
 t1 = add t1 xor and e f and not e g
@@ -102,14 +102,14 @@ c = b
 b = a
 a = add t1 t2
 end
-put hs 0 add get hs 0 a
-put hs 1 add get hs 1 b
-put hs 2 add get hs 2 c
-put hs 3 add get hs 3 d
-put hs 4 add get hs 4 e
-put hs 5 add get hs 5 f
-put hs 6 add get hs 6 g
-put hs 7 add get hs 7 h
+put hstate 0 add get hstate 0 a
+put hstate 1 add get hstate 1 b
+put hstate 2 add get hstate 2 c
+put hstate 3 add get hstate 3 d
+put hstate 4 add get hstate 4 e
+put hstate 5 add get hstate 5 f
+put hstate 6 add get hstate 6 g
+put hstate 7 add get hstate 7 h
 end
 
 fn hraw c uchar to void
@@ -150,7 +150,7 @@ shift = mul sub 7 i 8
 hraw uchar and shr bits shift 255
 end
 for i ulong 8
-v = get hs i
+v = get hstate i
 for j ulong 8
 shift = uint mul sub 7 j 4
 digit = ulong and shr v shift 15
