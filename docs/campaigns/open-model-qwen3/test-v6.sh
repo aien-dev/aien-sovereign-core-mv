@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # OPEN-MODEL-QWEN3 v6 self-test (QUALIFICATION-v6.md Section 7, CPU only, no model, no GPU). Shell + jq.
 # v6 reuses every v5 campaign file byte for byte; this test proves that, proves the v6 wrapper differs from the v5
 # wrapper only in names, and checks the v6 wrapper's refusals. The v5 self-test (test-v5.sh) still runs the row

@@ -1,3 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # CAND-4 qualification: shared input handling, sourced by run-cand4.sh and hygiene.sh.
 # Reads the ">>> CAND-4 frozen inputs >>>" block of ACCEPTANCE-CAND4.md (or of a TRIAL
 # inputs file with the same block) and checks every pinned digest. Shell only.

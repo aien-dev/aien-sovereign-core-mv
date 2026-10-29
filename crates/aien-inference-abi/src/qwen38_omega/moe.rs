@@ -355,6 +355,54 @@ impl Qwen38Omega {
         // SAFETY: every handle is live and owned by the returned struct, which drops the graph first.
         let mut graph =
             unsafe { Q36Graph::create_heads(&cfg, heads) }.map_err(gpu("q36 graph create"))?;
+        // L310 merge-train proof line. The omega graph (omega_gpu_q36_graph.c) keeps its chip-only intermediates
+        // GPU-L2-cached unless AIEN_OMEGA_Q36_BUF_CACHED is exactly "0"; it reads the switch itself at alloc.
+        // Mirror the switch here so the server log states which interior policy this process asked for.
+        let interior = match std::env::var("AIEN_OMEGA_Q36_BUF_CACHED") {
+            Ok(v) if v == "0" => "GPU-uncached (AIEN_OMEGA_Q36_BUF_CACHED=0)",
+            _ => "GPU-cached (default)",
+        };
+        eprintln!("qwen36 omega: interior buffers {interior}");
+        // L310 merge-train proof line (one-wave lever). omega picks the CTAs per group of the grouped expert launch
+        // (9 groups: 8 routed + the shared expert) at the first launch: the compiled 6 (measured on 8 groups), an exact
+        // AIEN_OMEGA_FP8_GROUPED_CTAS, or AIEN_OMEGA_FP8_GROUPED_WAVE=1 = min(6, 48 SMs / groups), one wave. Asking omega
+        // here (same env, same process) logs the number the chip gets; a library without the rule says so.
+        let how = if std::env::var("AIEN_OMEGA_FP8_GROUPED_CTAS").is_ok_and(|v| !v.is_empty()) {
+            "AIEN_OMEGA_FP8_GROUPED_CTAS"
+        } else if std::env::var("AIEN_OMEGA_FP8_GROUPED_WAVE").as_deref() == Ok("1") {
+            "wave rule"
+        } else {
+            "compiled default"
+        };
+        match aien_omega_fp8::grouped_ctas_auto(q::GROUPS as u32) {
+            Some(n) => eprintln!("qwen36 omega: expert grouped launch {n} CTAs per group ({how})"),
+            None => eprintln!(
+                "qwen36 omega: expert grouped launch: library predates the wave rule ({how} asked)"
+            ),
+        }
+        // L803 (2026-10-24): AIEN_OMEGA_DATTN256_PER_SPLIT = positions per CTA of the single-row decode attention launch
+        // (a multiple of 256; default 256 = one 256-position chunk per CTA, grid (ceil((pos+1)/per_split), 4) on the 35B).
+        // Diagnostic for the attention block-count experiment: 512 / 1024 give fewer CTAs that loop over chunks. The
+        // multi-row (batched) launch refuses any value but 256, so this is for the single-row harness; the server keeps
+        // the default. The proof line is what the receipts quote.
+        match std::env::var("AIEN_OMEGA_DATTN256_PER_SPLIT") {
+            Ok(v) if !v.is_empty() => match v.trim().parse::<u32>() {
+                Ok(n) if n > 0 && n % 256 == 0 => {
+                    aien_omega_q38::decode_attn256_set_per_split(n);
+                    eprintln!(
+                        "qwen36 omega: decode attn256 per_split {n} positions per CTA (AIEN_OMEGA_DATTN256_PER_SPLIT; single-row launches only)"
+                    );
+                }
+                _ => {
+                    return Err(format!(
+                        "AIEN_OMEGA_DATTN256_PER_SPLIT={v}: want a positive multiple of 256"
+                    ))
+                }
+            },
+            _ => eprintln!(
+                "qwen36 omega: decode attn256 per_split 256 positions per CTA (compiled default)"
+            ),
+        }
         for h in 1..heads {
             // SAFETY: the states live in `gdns` / `attns`, owned beside the graph (dropped after it).
             unsafe {
@@ -392,16 +440,22 @@ impl Qwen38Omega {
         // HUM L314 exact two-pass head, on by default (AIEN_Q36_EXACT_HEAD=0 keeps the plain head):
         // greedy tokens identical to the full bf16 head by construction (exact_head.rs), half the
         // head's bytes. The engine turns it off for sampled requests.
-        let (head_screen, head_coef) = if std::env::var("AIEN_Q36_EXACT_HEAD").as_deref() == Ok("0") {
+        let (head_screen, head_coef) = if std::env::var("AIEN_Q36_EXACT_HEAD").as_deref() == Ok("0")
+        {
             eprintln!("qwen36 omega: exact two-pass head OFF (AIEN_Q36_EXACT_HEAD=0)");
             (None, None)
         } else {
             let t = std::time::Instant::now();
             let (codes, scales, coef) = crate::exact_head::chip_screen(&head)?;
-            let screen = Fp8Tensor::upload(1, v, h, &codes, &scales).map_err(gpu("exact head screen"))?;
+            let screen =
+                Fp8Tensor::upload(1, v, h, &codes, &scales).map_err(gpu("exact head screen"))?;
             // SAFETY: the screen is owned by the returned value and dropped after the graph (field order).
-            unsafe { graph.set_exact_head(screen.as_raw(), &coef) }.map_err(gpu("q36 graph set_exact_head"))?;
-            eprintln!("qwen36 omega: exact two-pass head ON (fp8b screen + Row bound, built in {:.1} s)", t.elapsed().as_secs_f64());
+            unsafe { graph.set_exact_head(screen.as_raw(), &coef) }
+                .map_err(gpu("q36 graph set_exact_head"))?;
+            eprintln!(
+                "qwen36 omega: exact two-pass head ON (fp8b screen + Row bound, built in {:.1} s)",
+                t.elapsed().as_secs_f64()
+            );
             (Some(screen), Some(coef))
         };
         drop(head);

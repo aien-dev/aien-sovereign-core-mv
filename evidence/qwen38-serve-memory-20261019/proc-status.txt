@@ -1,0 +1,16 @@
+taken_utc 2026-10-19T16:48:11Z
+pid 2473716
+started Mon Oct 19 08:59:43 2026
+elapsed 02:48:27
+exe /home/drakestapleton/.local/state/aien-q38/bin-fast-46134247/aien-serve-http
+exe_sha256 df9360112fdc815539f3e289fccfd8070845129ef4ccb466bb90c729ec71d0e5
+cmdline ./aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3.8-27b-fp8-017b9c7a --port 18091 --max-context 131072 --max-tokens-cap 16384 --thinking off 
+VmPeak:	41391620 kB
+VmHWM:	38499160 kB
+VmRSS:	38313736 kB
+RssAnon:	 2844096 kB
+RssFile:	35469640 kB
+RssShmem:	       0 kB
+MemTotal:       127598528 kB
+MemAvailable:   19541280 kB
+loadavg 63.26 47.45 31.81 75/2276 3769443
