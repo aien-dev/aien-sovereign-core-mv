@@ -92,7 +92,8 @@ scale-invariant. Review evidence on 6a95f6f8: a softmax scale of 0.0884 in place
 passes `attn-5` at worst_ppm 942555, and an RMSNorm epsilon of 1e-5 in place of 1e-6 passes
 `qkv-2` (worst_ppm 268470; q/k norm inputs have a large mean square) while `rmsnorm` (raw
 embedding rows) catches it. The six forward mutants in `check.sh` are structural and land 1.8x
-to 1500x above the tolerance. This check therefore proves the operators' structure and their
+to 1500x above the tolerance (`WolframLanguageEvaluator: N[{1788241, 11564696, 20605613, 69071141, 482448897, 1497684841}/10^6, 6] -> {1.78824, 11.5647, 20.6056, 69.0711, 482.449, 1497.68}`).
+This check therefore proves the operators' structure and their
 agreement to about the f32 worst-case bound (relative 2.4e-4 at n = 2048,
 `WolframLanguageEvaluator: N[2 2048 2^-24/(1 - 2048 2^-24), 6] -> 0.000244170`); it does not
 detect systematic errors smaller than that.
