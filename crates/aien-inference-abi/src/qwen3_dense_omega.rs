@@ -1850,9 +1850,11 @@ mod tests {
     fn tied_embeddings_config_parses() {
         let c = variant("tie_word_embeddings", true.into()).unwrap();
         assert!(c.tie_word_embeddings);
-        assert!(!variant("tie_word_embeddings", false.into())
-            .unwrap()
-            .tie_word_embeddings);
+        assert!(
+            !variant("tie_word_embeddings", false.into())
+                .unwrap()
+                .tie_word_embeddings
+        );
         // The lm_head is not read through the loader buffer when tied: the largest projection
         // (gate|up, 2 * 12288 x 4096 words) sets it, not the 151936 x 4096 lm_head.
         assert_eq!(c.loader_buffer_words(), 2 * 12288 * 4096);
@@ -1889,9 +1891,13 @@ mod tests {
         let tensors = tensors(&c);
         assert!(tensors.iter().all(|t| t.0 != "lm_head.weight"));
         let up = RecordingDenseUploader::keeping();
-        let (w, report) =
-            load_qwen3_dense_omega_from(&c, &mut memory_source_of(tensors.clone()), &up, &mut |_| {})
-                .unwrap();
+        let (w, report) = load_qwen3_dense_omega_from(
+            &c,
+            &mut memory_source_of(tensors.clone()),
+            &up,
+            &mut |_| {},
+        )
+        .unwrap();
         let records = up.records.lock().unwrap();
         let lm = records
             .iter()

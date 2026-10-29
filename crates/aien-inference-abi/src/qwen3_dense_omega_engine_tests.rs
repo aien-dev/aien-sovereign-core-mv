@@ -87,11 +87,8 @@ fn engine_matches_the_independent_f32_reference() {
             crate::qwen3_dense_omega::load_qwen3_dense_omega(&dir, &HostDenseUploader, &mut |_| {})
                 .unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
-        let mut e = Qwen3DenseOmegaEngine::new(
-            w,
-            Box::new(HostKv::new(&KvGeometry::from(&c), 64)),
-        )
-        .unwrap();
+        let mut e = Qwen3DenseOmegaEngine::new(w, Box::new(HostKv::new(&KvGeometry::from(&c), 64)))
+            .unwrap();
         let ours = logits_per_position(&mut e, &PROMPT);
         let mut st = SequenceState {
             tokens: Vec::new(),
@@ -154,7 +151,12 @@ fn step_batch_equals_step_bit_for_bit() {
 /// engine bit for bit, so the FP8 path's layout is the bf16 path's layout end to end.
 #[test]
 fn fp8_twin_equals_bf16_engine_bit_for_bit() {
-    let mut f = engine_of(&tiny_fp8_config(), TinyWeights::Twin, &HostDenseUploader, false);
+    let mut f = engine_of(
+        &tiny_fp8_config(),
+        TinyWeights::Twin,
+        &HostDenseUploader,
+        false,
+    );
     let mut b = engine_of(&tiny_config(), TinyWeights::Twin, &HostDenseUploader, false);
     let lf = logits_per_position(&mut f, &PROMPT);
     let lb = logits_per_position(&mut b, &PROMPT);
@@ -264,10 +266,14 @@ fn generate_contract() {
     // Stop on the third token: two emitted, finish Stop.
     let mut got = Vec::new();
     let o = e
-        .generate(&PROMPT, &GenerateParams::greedy(6, vec![chain[2]]), &mut |t| {
-            got.push(t);
-            true
-        })
+        .generate(
+            &PROMPT,
+            &GenerateParams::greedy(6, vec![chain[2]]),
+            &mut |t| {
+                got.push(t);
+                true
+            },
+        )
         .unwrap();
     assert_eq!(o.finish, FinishReason::Stop);
     assert_eq!(got, chain[..2]);

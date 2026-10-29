@@ -74,7 +74,10 @@ impl DenseGemv for OmegaBf16Gemv {
             let c0 = i * BF16_MAX_SLICE_K;
             let c1 = (c0 + BF16_MAX_SLICE_K).min(self.2);
             let out = if i == 0 { &mut *y } else { &mut part[..] };
-            ns += t.gemv_f32(&x[c0..c1], out).map_err(|e| e.to_string())?.elapsed_ns;
+            ns += t
+                .gemv_f32(&x[c0..c1], out)
+                .map_err(|e| e.to_string())?
+                .elapsed_ns;
             if i > 0 {
                 y.iter_mut().zip(&part).for_each(|(a, b)| *a += b);
             }
@@ -229,7 +232,12 @@ impl DenseUploader for HostDenseUploader {
         w: &[u8],
         scales: &[u16],
     ) -> Result<Arc<dyn DenseGemv>, String> {
-        Ok(Arc::new(HostFp8Gemv::new(n, k, w.to_vec(), scales.to_vec())?))
+        Ok(Arc::new(HostFp8Gemv::new(
+            n,
+            k,
+            w.to_vec(),
+            scales.to_vec(),
+        )?))
     }
 }
 
@@ -255,7 +263,9 @@ impl DenseUploader for OmegaDenseUploader {
         bits: &[u16],
     ) -> Result<Arc<dyn DenseGemv>, String> {
         if !aien_omega_bf16::is_native() {
-            return Err("this binary carries no omega bf16 GEMV (built without AIEN_OMEGA_DIR)".into());
+            return Err(
+                "this binary carries no omega bf16 GEMV (built without AIEN_OMEGA_DIR)".into(),
+            );
         }
         let mut slices = Vec::new();
         for c0 in (0..k).step_by(BF16_MAX_SLICE_K) {
@@ -263,7 +273,11 @@ impl DenseUploader for OmegaDenseUploader {
             let t = if w == k {
                 aien_omega_bf16::Bf16Tensor::upload(n, k, bits)
             } else {
-                let cols: Vec<u16> = bits.chunks_exact(k).flat_map(|row| &row[c0..c0 + w]).copied().collect();
+                let cols: Vec<u16> = bits
+                    .chunks_exact(k)
+                    .flat_map(|row| &row[c0..c0 + w])
+                    .copied()
+                    .collect();
                 aien_omega_bf16::Bf16Tensor::upload(n, w, &cols)
             };
             slices.push(t.map_err(|e| e.to_string())?);
@@ -280,7 +294,9 @@ impl DenseUploader for OmegaDenseUploader {
         scales: &[u16],
     ) -> Result<Arc<dyn DenseGemv>, String> {
         if !aien_omega_fp8::is_native() {
-            return Err("this binary carries no omega FP8 GEMV (built without AIEN_OMEGA_DIR)".into());
+            return Err(
+                "this binary carries no omega FP8 GEMV (built without AIEN_OMEGA_DIR)".into(),
+            );
         }
         let t = aien_omega_fp8::Fp8Tensor::upload(1, n, k, w, scales).map_err(|e| e.to_string())?;
         Ok(Arc::new(OmegaFp8DenseGemv(Mutex::new(t), n, k)))
@@ -319,7 +335,11 @@ pub struct MutantUploader<'a> {
 }
 
 impl<'a> MutantUploader<'a> {
-    pub fn new(inner: &'a dyn DenseUploader, mutant: DenseUploadMutant, c: &Qwen3DenseConfig) -> Self {
+    pub fn new(
+        inner: &'a dyn DenseUploader,
+        mutant: DenseUploadMutant,
+        c: &Qwen3DenseConfig,
+    ) -> Self {
         Self {
             inner,
             mutant,
@@ -347,7 +367,13 @@ impl DenseUploader for MutantUploader<'_> {
     ) -> Result<Arc<dyn DenseGemv>, String> {
         if self.mutant == DenseUploadMutant::SwapKv && what == DenseTensor::Qkv {
             let mut b = bits.to_vec();
-            swap_rows(&mut b, k, self.q_rows, self.q_rows + self.kv_rows, self.kv_rows);
+            swap_rows(
+                &mut b,
+                k,
+                self.q_rows,
+                self.q_rows + self.kv_rows,
+                self.kv_rows,
+            );
             return self.inner.upload_bf16(layer, what, n, k, &b);
         }
         if self.mutant == DenseUploadMutant::TransposeScales && !self.fp8 {
@@ -370,7 +396,13 @@ impl DenseUploader for MutantUploader<'_> {
             DenseUploadMutant::SwapKv if what == DenseTensor::Qkv => {
                 let (q, kv) = (self.q_rows, self.kv_rows);
                 swap_rows(&mut w2, k, q, q + kv, kv);
-                swap_rows(&mut s2, b, q / FP8_BLOCK, (q + kv) / FP8_BLOCK, kv / FP8_BLOCK);
+                swap_rows(
+                    &mut s2,
+                    b,
+                    q / FP8_BLOCK,
+                    (q + kv) / FP8_BLOCK,
+                    kv / FP8_BLOCK,
+                );
             }
             DenseUploadMutant::SwapKv => {}
             DenseUploadMutant::TransposeScales => {
@@ -742,7 +774,12 @@ impl Qwen3DenseOmegaEngine {
         }
         let t4 = Instant::now();
         let mut hidden = vec![0.0f32; h];
-        rmsnorm(&x[(m - 1) * h..], &self.weights.final_norm, eps, &mut hidden);
+        rmsnorm(
+            &x[(m - 1) * h..],
+            &self.weights.final_norm,
+            eps,
+            &mut hidden,
+        );
         timing.host_ns += t4.elapsed().as_nanos() as u64;
         self.pos = p0 + m;
         self.history.extend_from_slice(tokens);

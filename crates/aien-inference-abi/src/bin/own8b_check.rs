@@ -61,7 +61,8 @@ fn prompts(tok: &Tokenizer) -> Vec<(String, Vec<u32>)> {
             let ids = if *name == "p1-one-token" {
                 tok.encode_with_special(text, false).expect("encode")
             } else {
-                tok.encode_with_special(&chatml(text), false).expect("encode")
+                tok.encode_with_special(&chatml(text), false)
+                    .expect("encode")
             };
             (name.to_string(), ids)
         })
@@ -70,7 +71,11 @@ fn prompts(tok: &Tokenizer) -> Vec<(String, Vec<u32>)> {
         .map(|i| format!("Section {i}. {}\n", PROMPT_TEXTS[2].1))
         .collect();
     let mut ids = tok.encode_with_special(&long, false).expect("encode");
-    assert!(ids.len() >= LONG_PROMPT_TOKENS, "long prompt has {} ids", ids.len());
+    assert!(
+        ids.len() >= LONG_PROMPT_TOKENS,
+        "long prompt has {} ids",
+        ids.len()
+    );
     ids.truncate(LONG_PROMPT_TOKENS);
     out.push(("p5-512".into(), ids));
     out
@@ -314,7 +319,9 @@ fn compare_traces(chip: &[DenseLayerTrace], host: &[DenseLayerTrace], layer: usi
         };
         let x = parity_stats(&c.x_out, &h.x_out);
         w.positions += 1;
-        w.x_cos = w.x_cos.min(if x.non_finite > 0 { f64::NAN } else { x.cosine });
+        w.x_cos = w
+            .x_cos
+            .min(if x.non_finite > 0 { f64::NAN } else { x.cosine });
         w.x_p95 = w.x_p95.max(x.p95_rel);
         w.attn_cos = w.attn_cos.min(parity_stats(&c.attn, &h.attn).cosine);
         w.mlp_cos = w.mlp_cos.min(parity_stats(&c.mlp_out, &h.mlp_out).cosine);
@@ -331,7 +338,8 @@ fn chip(a: &Args) {
         log.push(s);
     };
     let config = Qwen3DenseConfig::from_checkpoint(&a.checkpoint).expect("config");
-    let need_gb = config.model_resident_bytes() as f64 / 1e9 * if a.no_host { 1.2 } else { 2.4 } + 4.0;
+    let need_gb =
+        config.model_resident_bytes() as f64 / 1e9 * if a.no_host { 1.2 } else { 2.4 } + 4.0;
     let avail = mem_available_gb();
     say(format!(
         "mem available before load: {avail:.1} GB, this run needs about {need_gb:.1} GB"
@@ -341,15 +349,23 @@ fn chip(a: &Args) {
         std::process::exit(3);
     }
     let golden: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&a.golden).expect("golden file")).expect("golden json");
-    let gprompts = golden["prompts"].as_array().expect("golden prompts").clone();
+        serde_json::from_slice(&std::fs::read(&a.golden).expect("golden file"))
+            .expect("golden json");
+    let gprompts = golden["prompts"]
+        .as_array()
+        .expect("golden prompts")
+        .clone();
     let tok = Tokenizer::from_file(a.checkpoint.join("tokenizer.json")).expect("tokenizer");
     let ours = prompts(&tok);
     for (i, gp) in gprompts.iter().enumerate() {
         let ids: Vec<u32> = serde_json::from_value(gp["prompt_tokens"].clone()).unwrap();
         let name = gp["name"].as_str().unwrap_or("");
         let mine = ours.iter().find(|p| p.0 == name).map(|p| &p.1);
-        assert_eq!(mine, Some(&ids), "golden prompt {i} ({name}) is not this binary's prompt");
+        assert_eq!(
+            mine,
+            Some(&ids),
+            "golden prompt {i} ({name}) is not this binary's prompt"
+        );
     }
     let (bf16_native, fp8_native) = OmegaDenseUploader::native();
     say(format!(
@@ -416,7 +432,10 @@ fn chip(a: &Args) {
             &mut |_| {},
         )
         .expect("host load");
-        say(format!("host reference loaded in {:.1}s", t1.elapsed().as_secs_f64()));
+        say(format!(
+            "host reference loaded in {:.1}s",
+            t1.elapsed().as_secs_f64()
+        ));
         e.trace_layers = layers.clone();
         host.trace_layers = layers.clone();
         let mut worst: Vec<LayerWorst> = Vec::new();
@@ -543,10 +562,14 @@ fn chip(a: &Args) {
     e.reset();
     let mut n = 0usize;
     let o = e
-        .generate(&ids, &GenerateParams::greedy(a.speed_tokens, Vec::new()), &mut |_| {
-            n += 1;
-            true
-        })
+        .generate(
+            &ids,
+            &GenerateParams::greedy(a.speed_tokens, Vec::new()),
+            &mut |_| {
+                n += 1;
+                true
+            },
+        )
         .expect("speed run");
     let dt = o.decode_timing;
     let steps = o.emitted_tokens.max(1) as f64;
@@ -583,8 +606,11 @@ fn chip(a: &Args) {
         "speed": {"tokens": o.emitted_tokens, "decode_ms": o.decode_ms, "tok_s": tok_s, "chip_ns": dt.chip_ns, "host_ns": dt.host_ns, "attention_ns": dt.attention_ns, "mlp_ns": dt.experts_ns, "lm_head_ns": dt.lm_head_ns, "launches": dt.launches, "prefill_ms": o.prefill_ms, "prompt_tokens": o.prompt_tokens},
         "verdict": verdict,
     });
-    std::fs::write(receipt.join("run.json"), serde_json::to_string_pretty(&doc).unwrap())
-        .expect("run.json");
+    std::fs::write(
+        receipt.join("run.json"),
+        serde_json::to_string_pretty(&doc).unwrap(),
+    )
+    .expect("run.json");
     std::fs::write(receipt.join("log.txt"), log.join("\n") + "\n").expect("log");
     std::process::exit(if pass { 0 } else { 1 });
 }
