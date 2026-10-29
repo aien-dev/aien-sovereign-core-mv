@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """Flint forward-operator fixtures. TEST REFEREE ONLY, never an implementation dependency.
 
-Runs the pinned reference's own modules (transformers models/flint/modeling_flint.py, the file whose
-sha256 is REF_SHA below) in float32 on small deterministic inputs drawn from the real BF16 weights of
-named layers, and writes one binary fixture per operator for om/flint/ops.om to recompute.
+Runs the pinned reference's own modules (transformers models/flint/modeling_flint.py and
+configuration_flint.py, the files whose sha256 are REF_SHA and CFG_SHA below) in float32 on small
+deterministic inputs drawn from the real BF16 weights of named layers, and writes one binary fixture
+per operator for om/flint/ops.om to recompute.
 
 Usage: opref.py SRC SHARDS OUT
   SRC     the pinned source tree (config.json, model.safetensors.index.json)
   SHARDS  the 15 downloaded shards
   OUT     directory for the fixtures (created)
 
-Fixture layout, all little-endian: 8 u32 header words, magic 0x504F4C46, op, layer, T, S, aux, 0, 0,
-then the op's arrays (u32 index arrays, f32 everything else) in the order ops.om reads them:
+Fixture layout, all little-endian: 8 u32 header words, magic 0x504F4C46, op, layer, T, S, aux,
+torch version (major * 10000 + minor * 100 + patch, so a torch change moves the fixtures sha256 that
+check.sh pins), 0, then the op's arrays (u32 index arrays, f32 everything else) in the order ops.om
+reads them:
   1 rmsnorm  T rows, aux 0 input_layernorm / 1 post_attention_layernorm: x[T,2048] y[T,2048]
   2 qkv      S rows: pos[S] x[S,2048] q[S,32,128] k[S,4,128] v[S,4,128] (after q/k norm and RoPE)
   3 attn     S query rows of T keys: pos[S] q[S,4096] k[T,512] v[T,512] o[S,4096] y[S,2048]
@@ -32,20 +35,24 @@ from safetensors import safe_open
 
 from transformers.masking_utils import create_causal_mask, create_sliding_window_causal_mask
 from transformers.models.flint import modeling_flint as mf
+from transformers.models.flint import configuration_flint as cf
 from transformers.models.flint.configuration_flint import FlintConfig
 
 REF_SHA = "f0540832049f0d67eee9eadd2d8ed42e320388b6b3330e74c8821a5c4eac0c09"  # transformers a672eb5f
+CFG_SHA = "849eee3068846081077a7568663355802c8c4eec3741d92cd578d222bd144d00"  # transformers a672eb5f
 MAGIC = 0x504F4C46
+TORCH = [int(v) for v in torch.__version__.split("+")[0].split(".")[:3]]
+TORCH_WORD = TORCH[0] * 10000 + TORCH[1] * 100 + TORCH[2]
 torch.set_num_threads(1)
 torch.use_deterministic_algorithms(True)
 torch.set_grad_enabled(False)
 
 src, shards, out = sys.argv[1:4]
 os.makedirs(out, exist_ok=True)
-ref_file = mf.__file__
-ref_sha = hashlib.sha256(open(ref_file, "rb").read()).hexdigest()
-if ref_sha != REF_SHA:
-    sys.exit("opref: %s sha256 %s, pinned %s" % (ref_file, ref_sha, REF_SHA))
+for ref_file, pin in ((mf.__file__, REF_SHA), (cf.__file__, CFG_SHA)):
+    got = hashlib.sha256(open(ref_file, "rb").read()).hexdigest()
+    if got != pin:
+        sys.exit("opref: %s sha256 %s, pinned %s" % (ref_file, got, pin))
 
 cfg = FlintConfig(**json.load(open(os.path.join(src, "config.json"))))
 cfg._attn_implementation = "eager"
@@ -103,7 +110,7 @@ def u32(a):
 
 def write(fname, op, layer, t, s, aux, *parts):
     with open(os.path.join(out, fname), "wb") as f:
-        f.write(struct.pack("<8I", MAGIC, op, layer, t, s, aux, 0, 0))
+        f.write(struct.pack("<8I", MAGIC, op, layer, t, s, aux, TORCH_WORD, 0))
         for p in parts:
             f.write(p)
 
@@ -221,4 +228,4 @@ blk = mf.FlintSparseMoeBlock.__new__(mf.FlintSparseMoeBlock)
 torch.nn.Module.__init__(blk)
 blk.gate, blk.experts, blk.shared_expert = router, experts(), sh
 write("moe.bin", 7, L, 4, 0, 0, f32(x4), f32(blk(x4.unsqueeze(0))[0]))
-print("opref ok ref %s expert %d tie %d/%d" % (ref_sha[:16], e, int(a), int(b)))
+print("opref ok ref %s cfg %s torch %s expert %d tie %d/%d" % (REF_SHA[:16], CFG_SHA[:16], torch.__version__, e, int(a), int(b)))

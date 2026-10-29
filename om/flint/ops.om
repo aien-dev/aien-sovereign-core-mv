@@ -8,8 +8,8 @@ note test/opref.py from the pinned reference modules; INVENTORY is the TSV flint
 note printed for SHARD_DIR. Each operator recomputes the reference output in f64 from the
 note real BF16 shard weights and carries a first-order bound E on the error of the
 note reference's own f32 computation (gamma_n = n u / (1 - n u), u = 2^-24). An element
-note passes when |om - ref| <= 2 E. The router reports a top-6 boundary whose sigmoid
-note margin is under twice the boundary bound as a tie, not a mismatch.
+note passes when |om - ref| <= 2 E. The router reports a token as a tie, not a mismatch, when
+note the reference could hold the om rank-7 expert in its top-6 within those per-element bounds.
 note
 note Prints one line: flint-op OP layer L elems N worst_ppm P ties K PASS|FAIL, where P is
 note max |om - ref| / (2 E) in millionths. Exit 0 PASS, 1 FAIL, 2 and up refused.
@@ -1036,10 +1036,25 @@ r = report toatt
 ret r
 end
 
+note rt_tie: true when some om top-6 score s_k (gtk ranks 1..6) is within 2 (E_k + E_7) of
+note the rank-7 score, the only case in which a reference whose scores sit within 2 E of the
+note om scores can rank the rank-7 expert above one of the om top-6.
+fn rt_tie to bool
+s7 = get gsg get gtk 6
+e7 = get gsge get gtk 6
+tie = false
+for k ulong 6
+c = get gtk k
+if lt sub get gsg c s7 mul 2.0f64 add get gsge c e7
+tie = true
+end
+end
+ret tie
+end
+
 note route: router logits of gv against gw (256 x 2048) into gsc/gse, sigmoid scores into
 note gsg/gsge, top-7 by score into gtk (rank 7 is the boundary competitor), renormalized
-note top-6 weights into gtw/gtwe. Returns true when the rank-6/rank-7 margin is under twice
-note the boundary bound 2 (E_6 + E_7).
+note top-6 weights into gtw/gtwe. Returns rt_tie.
 fn route to bool
 g4 = gam 4
 for e ulong 256
@@ -1079,9 +1094,8 @@ w = div get gsg e s
 put gtw k w
 put gtwe k add div add get gsge e mul w es s mul g7 w
 end
-mg = sub get gsg get gtk 5 get gsg get gtk 6
-bd = mul 2.0f64 add get gsge get gtk 5 get gsge get gtk 6
-ret lt mg mul 2.0f64 bd
+t = rt_tie
+ret t
 end
 
 note rt_cmp: the reference top-6 of token t as an index -> weight map; an index missing from

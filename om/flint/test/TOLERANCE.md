@@ -30,10 +30,72 @@ of length K with inputs that carry their own bounds E_x gets
 | down projection, routed expert | dot over intermediate 512 | 512 |
 | MoE sum (`moe`, layer 24, T 4) | `sum (|w| E_y + |y| E_w) + E_shared + gamma_8 (sum |w y| + |shared|)` | 8 |
 
-Router near-tie rule: with sigmoid scores ranked by the .om side, a token whose rank-6/rank-7
-margin is under `2 x (2 (E_6 + E_7))` is reported as a tie. On a tie token, a reference index
+Router near-tie rule: with sigmoid scores s ranked by the .om side (ranks 1..7), a token is a tie
+when some .om top-6 expert k has `s_k - s_7 < 2 (E_k + E_7)`. On a tie token, a reference index
 missing from the .om top-6 is accepted only if it equals the .om rank-7 index; any other missing
 index fails. The MoE operator skips tie tokens and counts them in `ties`.
+
+Why `2 (E_k + E_7)` and no more. The logits are compared element by element, so a token that
+passes has `|l_om - l_ref| <= 2 E_l` for all 256 experts. The score bound
+`E_s = sigma (1 - sigma) E_l + gamma_4 sigma` then gives, to first order, `|s_om - s_ref| <= 2 E_s`
+(the doubled logit term through sigma' plus the reference's own sigmoid rounding). The reference
+can put the .om rank-7 expert in its top-6 only by ranking it above some .om top-6 expert k:
+`s_om,k - 2 E_k <= s_ref,k < s_ref,7 <= s_om,7 + 2 E_7`, that is `s_k - s_7 < 2 (E_k + E_7)`.
+Outside that band such a reference top-6 is a real mismatch, so the band needs no further factor.
+The earlier rule (until 6a95f6f8) tested only k = rank 6 against `2 x 2 (E_6 + E_7)`; that extra
+factor 2 had no derivation, and it hid tokens from the MoE comparison. A reference rank-8 or lower
+expert in its top-6 is still a FAIL, never accepted: it can cause a false FAIL, not a false PASS.
+
+Measured on the router fixture (64 tokens): the old band flagged 16, the derived band flags 10,
+and the boundary pair alone (k = rank 6 with `2 (E_6 + E_7)`) also flags 10, so no token's tie
+comes from a non-boundary k here. The MoE fixture now compares all 4 tokens (elems 8192, ties 0;
+before: 3 tokens, elems 6144, ties 1). router-tie keeps PASS with ties 1, router-swap keeps FAIL
+at the baseline worst_ppm 1443 (index check, not a numeric change), and with the accept rule
+forced to reject (`if true` in `rt_cmp`) router-tie FAILs while router still PASSes, so the accept
+path is exercised by router-tie and by none of the 10 tie tokens of the router fixture.
+
+## Detection floor
+
+The bound is a worst case, so it also limits what the check can see. Take an output y whose last
+accumulation has length n. That term alone gives `E >= gamma_n |y|` (for a dot product,
+`gamma_n sum |w x| >= gamma_n |y|`; earlier stages only add to E). If the clean run's worst element
+uses a fraction `w = worst_ppm / 10^6` of the tolerance `2 E`, then an .om error that scales y by
+`1 + delta` stays inside the tolerance on every element whenever `delta <= (1 - w) 2 gamma_n`.
+Systematic relative errors below that floor always pass. Above it, an error is caught only where
+there is little cancellation (`sum |w x|` close to `|y|`). Errors in an internal parameter reach the
+outputs scaled by the operator's sensitivity, which can be well below 1.
+
+`WolframLanguageEvaluator: u = 2^-24; g[n_] := n u/(1 - n u); rows = {{"rmsnorm y", 2054, 690}, {"qkv-2 v", 2048, 5212}, {"qkv-2 q,k", 134, 5212}, {"qkv-5 v", 2048, 886}, {"qkv-5 q,k", 134, 886}, {"attn-2 o", 520, 1876}, {"attn-2 y", 4096, 1876}, {"attn-5 o", 520, 5017}, {"attn-5 y", 4096, 5017}, {"router logits", 2048, 1443}, {"router w", 7, 1443}, {"shared y", 1024, 16}, {"expert y", 512, 17}, {"moe y", 512, 6}}; Map[{#[[1]], #[[2]], #[[3]], N[(1 - #[[3]]/10^6) 2 g[#[[2]]], 6]} &, rows]`
+
+| Fixture output | n of last accumulation | clean worst_ppm | floor `(1 - w) 2 gamma_n` |
+|---|---|---|---|
+| `rmsnorm` y | 2054 | 690 | 2.44717e-4 |
+| `qkv-2` v | 2048 | 5212 | 2.42898e-4 |
+| `qkv-2` q, k (after q/k norm) | 134 | 5212 | 1.58909e-5 |
+| `qkv-5` v | 2048 | 886 | 2.43954e-4 |
+| `qkv-5` q, k (after q/k norm) | 134 | 886 | 1.59600e-5 |
+| `attn-2` o (P·V) | 520 | 1876 | 6.18745e-5 |
+| `attn-2` y (o_proj) | 4096 | 1876 | 4.87484e-4 |
+| `attn-5` o (P·V) | 520 | 5017 | 6.16797e-5 |
+| `attn-5` y (o_proj) | 4096 | 5017 | 4.85950e-4 |
+| `router` logits | 2048 | 1443 | 2.43818e-4 |
+| `router` top-6 weights | 7 | 1443 | 8.33261e-7 |
+| `shared` y (down, 1024) | 1024 | 16 | 1.22076e-4 |
+| `expert` y (down, 512) | 512 | 17 | 6.10360e-5 |
+| `moe` y (`E >= gamma_512 |y|` through the expert and shared terms) | 512 | 6 | 6.10367e-5 |
+
+These are lower bounds: the propagated terms of earlier stages raise each E, so the real floor of
+a chained output (q/k after the norm, o, y, shared, expert, moe) is higher. A uniform scale error
+in the q/k projections is invisible after q/k norm at any size, because RMSNorm is
+scale-invariant. Review evidence on 6a95f6f8: a softmax scale of 0.0884 in place of `1/sqrt(128)`
+(relative `WolframLanguageEvaluator: N[(0.0884 - 1/Sqrt[128])/(1/Sqrt[128]), 6] -> 0.000131831`)
+passes `attn-5` at worst_ppm 942555, and an RMSNorm epsilon of 1e-5 in place of 1e-6 passes
+`qkv-2` (worst_ppm 268470; q/k norm inputs have a large mean square) while `rmsnorm` (raw
+embedding rows) catches it. The six forward mutants in `check.sh` are structural and land 1.8x
+to 1500x above the tolerance. This check therefore proves the operators' structure and their
+agreement to about the f32 worst-case bound (relative 2.4e-4 at n = 2048,
+`WolframLanguageEvaluator: N[2 2048 2^-24/(1 - 2048 2^-24), 6] -> 0.000244170`); it does not
+detect systematic errors smaller than that.
 
 ## Wolfram queries
 
@@ -85,13 +147,13 @@ flint-op qkv layer 2 elems 40960 worst_ppm 5212 ties 0 PASS
 flint-op qkv layer 5 elems 40960 worst_ppm 886 ties 0 PASS
 flint-op attn layer 2 elems 49152 worst_ppm 1876 ties 0 PASS
 flint-op attn layer 5 elems 49152 worst_ppm 5017 ties 0 PASS
-flint-op router layer 24 elems 16768 worst_ppm 1443 ties 16 PASS
+flint-op router layer 24 elems 16768 worst_ppm 1443 ties 10 PASS
 flint-op shared layer 24 elems 8192 worst_ppm 16 ties 0 PASS
 flint-op expert layer 24 elems 8192 worst_ppm 17 ties 0 PASS
-flint-op moe layer 24 elems 6144 worst_ppm 6 ties 1 PASS
+flint-op moe layer 24 elems 8192 worst_ppm 6 ties 0 PASS
 ```
 
-16 of the 64 router tokens fall inside the tie band: `gamma_2048` is a worst-case bound, and
+10 of the 64 router tokens fall inside the tie band: `gamma_2048` is a worst-case bound, and
 the band is wider than the observed error. The tie tokens still have their weights compared
 whenever both top-6 sets agree. The reference runs in f32; bf16-activation parity is not
 measured here.

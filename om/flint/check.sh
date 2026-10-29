@@ -200,7 +200,11 @@ fi
 #    outputs that test/opref.py takes from the pinned reference modules, and must land within twice
 #    the reference's own f32 error bound; each mutant must turn its operator's verdict to FAIL
 #    (exit 1, the comparison, not a trap or refusal). FLINT_PY runs the referee (torch and the
-#    transformers a672eb5f checkout); default python3.
+#    transformers a672eb5f checkout); default python3. The fixtures, concatenated in FXS order,
+#    must hash to FX_PIN: recorded with torch 2.14.0 (written into every fixture header) on the
+#    Spark host CPU, so another torch, transformers file or CPU result shows up as a FAIL here.
+FX_PIN=2d838552a1ee0b726ee1b5cfb2a13a101f2520d522cbc4cf55dfcfe110287b7a
+FXS='rmsnorm qkv-2 qkv-5 attn-2 attn-5 router router-swap router-tie shared expert moe'
 OPS='rmsnorm rmsnorm
 qkv qkv-2
 qkv qkv-5
@@ -225,7 +229,9 @@ if [ -n "${FLINT_SHARDS:-}" ] && [ -n "${FLINT_SRC:-}" ] && [ -s "$b/real.tsv" ]
   elif ! ${FLINT_PY:-python3} "$here/test/opref.py" "$FLINT_SRC" "$FLINT_SHARDS" "$b/opfx" > "$b/opref.out" 2>&1 < /dev/null; then
     bad "ops: opref.py failed: $(head -c 300 "$b/opref.out")"
   else
-    echo "$(cat "$b/opref.out"), fixtures sha256 $(cat "$b"/opfx/*.bin | sha256sum | cut -d' ' -f1)"
+    fxsha=$(for f in $FXS; do cat "$b/opfx/$f.bin" || echo missing; done | sha256sum | cut -d' ' -f1)
+    cat "$b/opref.out"
+    if [ "$fxsha" = "$FX_PIN" ]; then ok "fixtures sha256 $fxsha (pinned)"; else bad "fixtures sha256 $fxsha, pinned $FX_PIN"; fi
     line=$(timeout 60 "$b/ops" selftest 2>&1 < /dev/null)
     rc=$?
     if [ "$rc" = 0 ] && [[ $line == *" PASS" ]]; then ok "PASS $line"; else bad "selftest rc $rc: $line"; fi

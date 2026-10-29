@@ -162,7 +162,7 @@ Measured 2026-10-29 on the Spark host CPU (`taskset -c 10-14`), reader sha256
 `d9caa2ab4ecf2580114cfdc8cedb30eb93e80f9f1fc0c0da1be1f31a8d381ae8`: `OM-FLINT-MANIFEST PASS (70)`
 with both optional arms. On the downloaded checkpoint the reader took 0.27 s wall and
 9440 kB max RSS, with 0 major faults. Without the optional arms the result is
-`PASS (68)` plus two `NOT_RUN` lines. With the operator arm the full gate is `PASS (88)`.
+`PASS (68)` plus two `NOT_RUN` lines. With the operator arm the full gate is `PASS (89)`.
 
 ## Forward operators: `ops.om`
 
@@ -173,13 +173,18 @@ with both optional arms. On the downloaded checkpoint the reader took 0.27 s wal
 ```
 
 `test/opref.py` is the referee: it runs the pinned reference's own modules
-(`modeling_flint.py` sha256 `f0540832…0c09`, transformers `a672eb5f`) in f32 on deterministic
-inputs built from the real BF16 weights and writes one fixture per operator. `ops.om` reads the
+(`modeling_flint.py` sha256 `f0540832…0c09` and `configuration_flint.py` sha256
+`849eee30…4d00`, transformers `a672eb5f`) in f32 on deterministic inputs built from the real
+BF16 weights and writes one fixture per operator, with the torch version in header word 6.
+`check.sh` requires the fixtures, concatenated in a fixed order, to hash to `FX_PIN`
+(`2d838552…7b7a`, torch 2.14.0 on the Spark host CPU); any other torch, reference file or
+CPU result fails that check. `ops.om` reads the
 fixture, loads the named BF16 tensors from the shards through the inventory TSV, recomputes the
 output in f64 and prints `flint-op OP layer L elems N worst_ppm P ties K PASS|FAIL` (exit 0, 1,
 or 2 and up for a refusal). An element passes within twice a first-order bound on the
-reference's own f32 error; `test/TOLERANCE.md` has the bound per operator, the gamma_n table
-and the Wolfram queries.
+reference's own f32 error; `test/TOLERANCE.md` has the bound per operator, the gamma_n table,
+the Wolfram queries and the detection floor (systematic errors below about 2 gamma_n of the
+output's last accumulation always pass).
 
 Fixtures: RMSNorm (layer 2); q/k/v with q/k norm and RoPE on sliding layer 2, and on full
 layer 5 without RoPE; attention with sinks over 520 keys, the 513-key window and its edge on
