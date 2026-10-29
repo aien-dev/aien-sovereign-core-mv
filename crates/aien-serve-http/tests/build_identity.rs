@@ -54,6 +54,10 @@ fn tracked_source_and_noncrate_changes_invalidate_the_clean_build_stamp() {
     std::fs::write(&main, &baseline).unwrap();
     let outside = root.join("tracked-input.txt");
     std::fs::write(&outside, "baseline\n").unwrap();
+    // A real checkout carries both pin files the build script watches; a missing
+    // watched file would make Cargo rerun the script on every build.
+    std::fs::write(root.join("omega.lock"), "0000000000000000000000000000000000000000\n").unwrap();
+    std::fs::write(root.join("native-artifacts.lock"), "# fixture\n").unwrap();
     run(Command::new(env!("CARGO")).current_dir(root)
         .args(["generate-lockfile", "--offline", "--manifest-path"]).arg(&manifest)
         .env("CARGO_TARGET_DIR", root.join("target")));
@@ -61,7 +65,7 @@ fn tracked_source_and_noncrate_changes_invalidate_the_clean_build_stamp() {
     for (key, value) in [("user.name", "Build identity fixture"), ("user.email", "fixture@example.invalid"), ("core.hooksPath", "/dev/null"), ("commit.gpgsign", "false")] {
         run(Command::new("git").current_dir(root).args(["config", key, value]));
     }
-    run(Command::new("git").current_dir(root).args(["add", "crates", "tracked-input.txt"]));
+    run(Command::new("git").current_dir(root).args(["add", "crates", "tracked-input.txt", "omega.lock", "native-artifacts.lock"]));
     run(Command::new("git").current_dir(root).args(["commit", "-q", "-m", "fixture"]));
     let commit = run(Command::new("git").current_dir(root).args(["rev-parse", "HEAD"]));
     assert_eq!(cargo_run(root, &manifest), format!("{commit}:0:baseline"));
