@@ -1,0 +1,28 @@
+$ tur-ledger --journal J prefund p-req req 100
+prefunded p-req req 100
+exit 0
+$ tur-ledger --journal J reserve J7 req prov ver 40
+reserved 7777777777777777777777777777777777777777777777777777777777777777 req prov ver 40
+exit 0
+$ strace -f -e trace=pwrite64,fsync,write tur-ledger --journal J settle J7 RA 27 3 10
+pwrite64(3, "4 f5fc7526d153d740f45613f737d68c"..., 277, 528) = 277
+fsync(3)                                = 0
+write(1, "settled 777777777777777777777777"..., 146settled 7777777777777777777777777777777777777777777777777777777777777777 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 27 3 10
+) = 146
+exit 0
+$ tur-ledger --journal J settle J7 RA 27 3 10   (replay)
+already-settled 7777777777777777777777777777777777777777777777777777777777777777 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 27 3 10
+exit 0
+$ tur-ledger --journal J audit
+audit ok records 4 head fe5027f001f066f4a69e01a9dda103cc79441f94321f35a81989178bfd67c57f accounts 3 jobs 1 open 0 settled 1 refunded 0 prefunded 100 balances 100 escrow 0
+exit 0
+$ cat J/journal
+1 0000000000000000000000000000000000000000000000000000000000000000 genesis tur-ledger-1 be2eb7bb0f10b29fe1913140f2e56fb8d01c8ef9d793feec759a67629be69baf
+2 be2eb7bb0f10b29fe1913140f2e56fb8d01c8ef9d793feec759a67629be69baf prefund p-req req 100 6ad97f2ef0bb26daac288287d9640102d4a3ee9d411a457a1aec761cb0950e45
+3 6ad97f2ef0bb26daac288287d9640102d4a3ee9d411a457a1aec761cb0950e45 reserve 7777777777777777777777777777777777777777777777777777777777777777 req prov ver 40 f5fc7526d153d740f45613f737d68c7a07c11442f7106a2daddc404f9c337171
+4 f5fc7526d153d740f45613f737d68c7a07c11442f7106a2daddc404f9c337171 settle 7777777777777777777777777777777777777777777777777777777777777777 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 27 3 10 fe5027f001f066f4a69e01a9dda103cc79441f94321f35a81989178bfd67c57f
+$ independent check: sha256 of each line before ' HASH' with sha256sum
+line 1 ok be2eb7bb0f10b29fe1913140f2e56fb8d01c8ef9d793feec759a67629be69baf
+line 2 ok 6ad97f2ef0bb26daac288287d9640102d4a3ee9d411a457a1aec761cb0950e45
+line 3 ok f5fc7526d153d740f45613f737d68c7a07c11442f7106a2daddc404f9c337171
+line 4 ok fe5027f001f066f4a69e01a9dda103cc79441f94321f35a81989178bfd67c57f
