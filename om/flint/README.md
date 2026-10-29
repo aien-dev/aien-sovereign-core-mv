@@ -154,23 +154,50 @@ Optional arms, which print `NOT_RUN` when unset:
   and sizes, and the TSV sha256 must equal `60ff4dbd…f5`.
 - `FLINT_SHARDS=dir` is the 15 downloaded shards, with config and index from `FLINT_SRC`. The
   same TSV sha256 is required.
+- The forward-operator arm runs when both are set and the `FLINT_SHARDS` arm wrote its TSV.
+  `FLINT_PY` is the referee's interpreter (torch plus the transformers `a672eb5f` checkout,
+  e.g. `env PYTHONPATH=/tmp/tf-a672 ~/.venv/bin/python`); default `python3`.
 
 Measured 2026-10-29 on the Spark host CPU (`taskset -c 10-14`), reader sha256
 `d9caa2ab4ecf2580114cfdc8cedb30eb93e80f9f1fc0c0da1be1f31a8d381ae8`: `OM-FLINT-MANIFEST PASS (70)`
 with both optional arms. On the downloaded checkpoint the reader took 0.27 s wall and
 9440 kB max RSS, with 0 major faults. Without the optional arms the result is
-`PASS (68)` plus two `NOT_RUN` lines.
+`PASS (68)` plus two `NOT_RUN` lines. With the operator arm the full gate is `PASS (88)`.
+
+## Forward operators: `ops.om`
+
+```sh
+{ printf 'om2\n'; cat om/vendor/json.om om/flint/ops.om; } | "$OMC" > flint-ops && chmod +x flint-ops
+./flint-ops selftest
+./flint-ops OP FIXTURE INVENTORY SHARD_DIR      # OP: rmsnorm qkv attn router shared expert moe
+```
+
+`test/opref.py` is the referee: it runs the pinned reference's own modules
+(`modeling_flint.py` sha256 `f0540832…0c09`, transformers `a672eb5f`) in f32 on deterministic
+inputs built from the real BF16 weights and writes one fixture per operator. `ops.om` reads the
+fixture, loads the named BF16 tensors from the shards through the inventory TSV, recomputes the
+output in f64 and prints `flint-op OP layer L elems N worst_ppm P ties K PASS|FAIL` (exit 0, 1,
+or 2 and up for a refusal). An element passes within twice a first-order bound on the
+reference's own f32 error; `test/TOLERANCE.md` has the bound per operator, the gamma_n table
+and the Wolfram queries.
+
+Fixtures: RMSNorm (layer 2); q/k/v with q/k norm and RoPE on sliding layer 2, and on full
+layer 5 without RoPE; attention with sinks over 520 keys, the 513-key window and its edge on
+layer 2, full attention on layer 5, through o_proj; the sigmoid top-6 renormalized router on
+layer 24, plus a control with the reference top-6 swapped (must FAIL) and a near-tie control
+(must PASS with ties above 0); the shared expert, routed expert 99 and the whole MoE block on
+layer 24.
+
+Mutants, each required to turn its operator's line to FAIL with exit 1: softmax router
+(`om_exp` in place of `om_sig`), shared expert gated by sigmoid(0), sink omitted, RoPE on every
+layer, expert index permuted (255 - e), and window 514.
 
 ## Not covered (NOT_RUN for this unit)
 
-Everything after the manifest belongs to the forward-path PRs of Core #802:
-
+- bf16-activation parity: the referee runs in f32;
+- parity on full layers, other layers and experts, logits and generation;
 - weight streaming and repacking, with peak allocation and residency measured during load;
 - per-expert layout checks before fusing;
-- operator fixtures, then parity on layers, logits and generation against the pinned
-  reference at matched precision, with tolerances frozen first;
-- forward mutants: softmax router, gated shared expert, omitted sink, global RoPE, expert
-  permutation;
 - tokenizer and control-token identity, and a load report.
 
 This unit has no GPU arm. A GGUF importer, if added, will be a separate optional unit.

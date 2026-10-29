@@ -12,7 +12,9 @@
 #                     headers/<shard>.header.json, shards.lfs-sha256): sparse shards rebuilt from
 #                     the exact published header bytes and sizes.
 #   FLINT_SHARDS=dir  the 15 downloaded shards (config and index come from FLINT_SRC).
-# Needs: python3 (fixture referee only), sha256sum, cmp, timeout. Host only; no network, no GPU.
+#   With both set, the forward-operator arm runs ops.om against test/opref.py fixtures;
+#   FLINT_PY is the referee's interpreter (torch + transformers a672eb5f), default python3.
+# Needs: python3 (fixture referees only), sha256sum, cmp, timeout. Host only; no network, no GPU.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
@@ -192,6 +194,61 @@ if [ -n "${FLINT_SHARDS:-}" ] && [ -n "${FLINT_SRC:-}" ]; then
   fi
 else
   echo "NOT_RUN FLINT_SHARDS (the 15 downloaded shards; needs FLINT_SRC too)"
+fi
+
+# 5. forward operators (Core #802): ops.om recomputes, from the real BF16 shard weights, the
+#    outputs that test/opref.py takes from the pinned reference modules, and must land within twice
+#    the reference's own f32 error bound; each mutant must turn its operator's verdict to FAIL
+#    (exit 1, the comparison, not a trap or refusal). FLINT_PY runs the referee (torch and the
+#    transformers a672eb5f checkout); default python3.
+OPS='rmsnorm rmsnorm
+qkv qkv-2
+qkv qkv-5
+attn attn-2
+attn attn-5
+router router
+shared shared
+expert expert
+moe moe'
+MUT='softmax-router|sc = om_sig l|sc = om_exp l|router router
+shared-gate-sigmoid0|v = add get gacm o get gx3 o|v = add get gacm o mul 0.5f64 get gx3 o|moe moe
+no-sink|att_sm n get gsk h get gst 4|att_sm n -1.0e30f64 get gst 4|attn attn-2
+rope-global|rp = fl_swa L|rp = true|qkv qkv-5
+expert-permuted|nm_u ex|nm_u sub 255 ex|expert expert
+window-514|const FWIN ulong 513|const FWIN ulong 514|attn attn-2'
+opr() { # binary op fixture; sets rc and line
+  line=$(timeout 300 "$1" "$2" "$b/opfx/$3.bin" "$b/real.tsv" "$FLINT_SHARDS" 2>&1 < /dev/null)
+  rc=$?
+}
+if [ -n "${FLINT_SHARDS:-}" ] && [ -n "${FLINT_SRC:-}" ] && [ -s "$b/real.tsv" ]; then
+  if ! build "$b/ops" "$here/ops.om"; then bad "ops: ops.om does not compile"
+  elif ! ${FLINT_PY:-python3} "$here/test/opref.py" "$FLINT_SRC" "$FLINT_SHARDS" "$b/opfx" > "$b/opref.out" 2>&1 < /dev/null; then
+    bad "ops: opref.py failed: $(head -c 300 "$b/opref.out")"
+  else
+    echo "$(cat "$b/opref.out"), fixtures sha256 $(cat "$b"/opfx/*.bin | sha256sum | cut -d' ' -f1)"
+    line=$(timeout 60 "$b/ops" selftest 2>&1 < /dev/null)
+    rc=$?
+    if [ "$rc" = 0 ] && [[ $line == *" PASS" ]]; then ok "PASS $line"; else bad "selftest rc $rc: $line"; fi
+    while read -r op fx; do
+      opr "$b/ops" "$op" "$fx"
+      if [ "$rc" = 0 ] && [[ $line == *" PASS" ]]; then ok "PASS $fx: $line"; else bad "$fx rc $rc: $line"; fi
+    done <<< "$OPS"
+    opr "$b/ops" router router-swap
+    if [ "$rc" = 1 ] && [[ $line == *" FAIL" ]]; then ok "CAUGHT control router-swap (reference top-6 swapped): $line"; else bad "control router-swap rc $rc: $line"; fi
+    opr "$b/ops" router router-tie
+    if [ "$rc" = 0 ] && [[ $line == *" PASS" ]] && [[ $line != *" ties 0 "* ]]; then ok "PASS router-tie (rank-6/7 near tie reported, not failed): $line"; else bad "control router-tie rc $rc: $line"; fi
+    s=$(cat "$here/ops.om")
+    while IFS='|' read -r name from to target; do
+      n=$(grep -cF -- "$from" "$here/ops.om")
+      [ "$n" = 1 ] || { bad "mutant $name: site found $n times"; continue; }
+      printf '%s\n' "${s/"$from"/"$to"}" > "$b/opmut.om"
+      build "$b/opmut" "$b/opmut.om" || { bad "mutant $name: does not compile"; continue; }
+      opr "$b/opmut" $target
+      if [ "$rc" = 1 ] && [[ $line == *" FAIL" ]]; then ok "CAUGHT mutant $name on ${target#* }: $line"; else bad "mutant $name not caught on ${target#* }: rc $rc $line"; fi
+    done <<< "$MUT"
+  fi
+else
+  echo "NOT_RUN ops (forward operators; needs FLINT_SRC, FLINT_SHARDS and the FLINT_SHARDS arm's TSV)"
 fi
 
 n=$((pass + fail))
