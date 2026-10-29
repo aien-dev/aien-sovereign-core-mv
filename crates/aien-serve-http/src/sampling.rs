@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Shared next-token sampling for engines that produce logits on the host.
 //!
 //! The rule (OWN-8B stage S, unchanged from before it, written down here):
@@ -316,16 +331,47 @@ pub fn sample_next(logits: &[f32], params: &GenerateParams, step: usize) -> u32 
     SamplingObserver::new(params).sample(logits, step)
 }
 
+/// Rank order: higher value first, lower token id first on exact ties.
+fn rank_cmp(logits: &[f32], a: usize, b: usize) -> std::cmp::Ordering {
+    logits[b]
+        .partial_cmp(&logits[a])
+        .unwrap_or(std::cmp::Ordering::Equal)
+        .then(a.cmp(&b))
+}
+
 /// Copies `logits` with everything outside the `k` largest values set to -inf.
 /// Ties at the boundary keep the lower token id, matching the nucleus tie rule.
+///
+/// Uses an O(V) partial selection. The comparator is a strict total order only
+/// when no logit is NaN (NaN compares Equal to everything, which is not
+/// transitive), so any NaN input takes the original full-sort path to keep its
+/// exact historical output.
 fn top_k_mask(logits: &[f32], k: usize) -> Vec<f32> {
+    if logits.iter().any(|v| v.is_nan()) {
+        return top_k_mask_full_sort(logits, k);
+    }
+    let mut out = vec![f32::NEG_INFINITY; logits.len()];
+    if k == 0 {
+        return out;
+    }
     let mut order: Vec<usize> = (0..logits.len()).collect();
-    order.sort_by(|&a, &b| {
-        logits[b]
-            .partial_cmp(&logits[a])
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then(a.cmp(&b))
-    });
+    let winners = if k < order.len() {
+        order.select_nth_unstable_by(k - 1, |&a, &b| rank_cmp(logits, a, b));
+        &order[..k]
+    } else {
+        &order[..]
+    };
+    for &i in winners {
+        out[i] = logits[i];
+    }
+    out
+}
+
+/// The original O(V log V) implementation: reference for tests and the path for
+/// vectors containing NaN.
+fn top_k_mask_full_sort(logits: &[f32], k: usize) -> Vec<f32> {
+    let mut order: Vec<usize> = (0..logits.len()).collect();
+    order.sort_by(|&a, &b| rank_cmp(logits, a, b));
     let mut out = vec![f32::NEG_INFINITY; logits.len()];
     for &i in &order[..k] {
         out[i] = logits[i];
@@ -474,6 +520,144 @@ mod tests {
         let r = m.record();
         assert_eq!((r.seed, r.mutant), (0, Some("ignore-seed")));
         assert!(r.log_fields().ends_with("MUTANT=ignore-seed"));
+    }
+
+    /// Deterministic xorshift for reproducible vectors.
+    fn rng(state: &mut u64) -> u64 {
+        *state ^= *state << 13;
+        *state ^= *state >> 7;
+        *state ^= *state << 17;
+        *state
+    }
+
+    fn same_bits(a: &[f32], b: &[f32]) -> bool {
+        a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits())
+    }
+
+    fn check_all_k(logits: &[f32], ks: &[usize]) {
+        for &k in ks.iter().filter(|&&k| k <= logits.len()) {
+            assert!(
+                same_bits(&top_k_mask(logits, k), &top_k_mask_full_sort(logits, k)),
+                "k={k} len={}",
+                logits.len()
+            );
+        }
+    }
+
+    #[test]
+    fn top_k_selection_matches_full_sort_random_and_tied() {
+        let mut st = 0x9E37_79B9_7F4A_7C15u64;
+        for len in [1usize, 2, 5, 64, 1000, 4097] {
+            let ks = [0, 1, 20, 100, len.saturating_sub(1), len];
+            // Random finite, with negatives.
+            let v: Vec<f32> = (0..len)
+                .map(|_| (rng(&mut st) % 20001) as f32 / 1000.0 - 10.0)
+                .collect();
+            check_all_k(&v, &ks);
+            // Tie-heavy: only 4 distinct values, includes -0.0 and 0.0.
+            let t: Vec<f32> = (0..len)
+                .map(|_| [-1.0f32, 0.0, -0.0, 2.5][(rng(&mut st) % 4) as usize])
+                .collect();
+            check_all_k(&t, &ks);
+            // All equal.
+            check_all_k(&vec![1.5; len], &ks);
+            // Infinities mixed in.
+            let i: Vec<f32> = (0..len)
+                .map(|_| match rng(&mut st) % 6 {
+                    0 => f32::INFINITY,
+                    1 => f32::NEG_INFINITY,
+                    _ => (rng(&mut st) % 7) as f32,
+                })
+                .collect();
+            check_all_k(&i, &ks);
+            // NaN mixed in: falls back to the original path, bit-identical.
+            let n: Vec<f32> = (0..len)
+                .map(|_| match rng(&mut st) % 5 {
+                    0 => f32::NAN,
+                    1 => f32::INFINITY,
+                    _ => (rng(&mut st) % 5) as f32,
+                })
+                .collect();
+            // The original comparator is not a total order with NaN, so the
+            // full sort may itself panic; the new path must match either way.
+            for k in [0, 1, 20.min(len), len] {
+                let a = std::panic::catch_unwind(|| top_k_mask(&n, k));
+                let b = std::panic::catch_unwind(|| top_k_mask_full_sort(&n, k));
+                match (a, b) {
+                    (Ok(a), Ok(b)) => assert!(same_bits(&a, &b)),
+                    (Err(_), Err(_)) => {}
+                    _ => panic!("NaN behavior diverged at k={k}"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn top_k_ties_at_cutoff_keep_lower_token_id() {
+        let m = top_k_mask(&[1.0, 3.0, 1.0, 1.0, 3.0], 3);
+        assert_eq!(m, vec![1.0, 3.0, f32::NEG_INFINITY, f32::NEG_INFINITY, 3.0]);
+    }
+
+    #[test]
+    fn sampled_tokens_and_record_match_with_reference_mask() {
+        let mut st = 7u64;
+        let logits: Vec<f32> = (0..5000)
+            .map(|_| (rng(&mut st) % 400) as f32 / 40.0 - 5.0)
+            .collect();
+        for k in [1usize, 20, 100] {
+            let masked = top_k_mask(&logits, k);
+            let reference = top_k_mask_full_sort(&logits, k);
+            assert!(same_bits(&masked, &reference));
+            let params = GenerateParams {
+                top_p: 0.9,
+                ..p(0.8, k)
+            };
+            let mut o = SamplingObserver::with_mutant(&params, None);
+            let mut r = SamplingObserver::with_mutant(
+                &GenerateParams {
+                    top_k: 0,
+                    ..params.clone()
+                },
+                None,
+            );
+            for step in 0..50 {
+                assert_eq!(o.sample(&logits, step), r.sample(&reference, step));
+            }
+            assert_eq!(o.record().kept, r.record().kept);
+        }
+    }
+
+    /// Microbenchmark: `cargo test --release -p aien-serve-http --lib
+    /// sampling::tests::bench_top_k -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn bench_top_k() {
+        let mut st = 1u64;
+        let logits: Vec<f32> = (0..152_064)
+            .map(|_| (rng(&mut st) % 100_000) as f32 / 5000.0 - 10.0)
+            .collect();
+        for k in [1usize, 20, 100] {
+            for (name, f) in [
+                (
+                    "full_sort",
+                    top_k_mask_full_sort as fn(&[f32], usize) -> Vec<f32>,
+                ),
+                ("select", top_k_mask),
+            ] {
+                let mut t: Vec<f64> = (0..21)
+                    .map(|_| {
+                        let s = std::time::Instant::now();
+                        std::hint::black_box(f(std::hint::black_box(&logits), k));
+                        s.elapsed().as_secs_f64() * 1e3
+                    })
+                    .collect();
+                t.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                println!(
+                    "k={k:<3} {name:<9} median {:.3} ms min {:.3} max {:.3}",
+                    t[10], t[0], t[20]
+                );
+            }
+        }
     }
 
     #[test]

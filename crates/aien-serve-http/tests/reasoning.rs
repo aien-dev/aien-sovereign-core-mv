@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Thinking-block split (sc #642 Qwen3.8 serving): a prompt that ends in `<think>\n` sends the
 //! reply's text up to the closing token as `reasoning_content`, drops that token, trims the
 //! answer's leading newlines, and `aien_return_token_ids` returns every generated id.
@@ -12,6 +27,7 @@ use aien_inference_abi::tokenizer::ChatOptions;
 use aien_serve_http::codec::{ByteCodec, Codec, CodecError};
 use aien_serve_http::engine::StubEngine;
 use aien_serve_http::server::{serve, ServerConfig};
+const TOKEN: &str = "integration-test-private-credential";
 use serde_json::Value;
 
 /// Byte codec whose generation prompt opens a thinking block unless `enable_thinking` is false;
@@ -68,6 +84,7 @@ fn start_with(thinking: Option<bool>) -> (SocketAddr, tokio::runtime::Runtime) {
         port: 0,
         model_id: "test-model".into(),
         default_enable_thinking: thinking,
+        bearer_token: TOKEN.into(),
         ..ServerConfig::default()
     };
     let (addr, _h) = rt
@@ -111,7 +128,7 @@ fn request(addr: SocketAddr, method: &str, path: &str, body: Option<&str>) -> Re
     s.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
     let body = body.unwrap_or("");
     let req = format!(
-        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {TOKEN}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
         body.len()
     );
     s.write_all(req.as_bytes()).unwrap();

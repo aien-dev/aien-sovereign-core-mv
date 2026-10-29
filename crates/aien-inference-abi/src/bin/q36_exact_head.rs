@@ -18,8 +18,8 @@
 use aien_inference_abi::exact_head::{self, BoundKind, Screen, ScreenKind, CHIP_GAMMA_LEN, GROUP};
 use aien_inference_abi::qwen38::{argmax, Logits, Qwen38Reference};
 use aien_inference_abi::qwen3_moe_omega::{sample_next, GenerateParams};
-use rayon::prelude::*;
 use aien_inference_abi::tokenizer::ChatTokenizer;
+use rayon::prelude::*;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::time::Instant;
@@ -34,7 +34,11 @@ fn ids(v: &serde_json::Value, key: &str) -> Result<Vec<u32>, String> {
         .as_array()
         .ok_or(format!("golden json has no {key}"))?
         .iter()
-        .map(|x| x.as_u64().map(|x| x as u32).ok_or(format!("{key}: not an id")))
+        .map(|x| {
+            x.as_u64()
+                .map(|x| x as u32)
+                .ok_or(format!("{key}: not an id"))
+        })
         .collect()
 }
 
@@ -44,7 +48,14 @@ fn golden(path: &str) -> Result<(Vec<u32>, Vec<u32>), String> {
     Ok((ids(&v, "prompt_ids")?, ids(&v, "generated_ids")?))
 }
 
-fn append(out: &mut std::fs::File, src: u32, pos: u32, next: u32, full: u32, h: &[f32]) -> Result<(), String> {
+fn append(
+    out: &mut std::fs::File,
+    src: u32,
+    pos: u32,
+    next: u32,
+    full: u32,
+    h: &[f32],
+) -> Result<(), String> {
     let mut buf = Vec::with_capacity(16 + h.len() * 4);
     for v in [src, pos, next, full] {
         buf.extend_from_slice(&v.to_le_bytes());
@@ -68,7 +79,11 @@ fn step(
 }
 
 fn open_out(path: &str) -> Result<std::fs::File, String> {
-    std::fs::OpenOptions::new().create(true).append(true).open(path).map_err(|e| format!("{path}: {e}"))
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|e| format!("{path}: {e}"))
 }
 
 fn hidden(dir: &Path, out_path: &str, goldens: &[String]) -> Result<(), String> {
@@ -85,13 +100,27 @@ fn hidden(dir: &Path, out_path: &str, goldens: &[String]) -> Result<(), String> 
         for p in 0..t {
             let next = if p + 1 < t { prompt[p + 1] } else { gen[0] };
             let f = if p + 1 == t { full as u32 } else { NONE };
-            append(&mut out, src as u32, p as u32, next, f, &rows[p * h..(p + 1) * h])?;
+            append(
+                &mut out,
+                src as u32,
+                p as u32,
+                next,
+                f,
+                &rows[p * h..(p + 1) * h],
+            )?;
         }
         let mut mism = usize::from(full as u32 != gen[0]);
         for (i, &tok) in gen.iter().enumerate().take(gen.len() - 1) {
             let (row, full) = step(&mut model, &mut state, &[tok])?;
             mism += usize::from(full as u32 != gen[i + 1]);
-            append(&mut out, src as u32, (t + i) as u32, gen[i + 1], full as u32, &row)?;
+            append(
+                &mut out,
+                src as u32,
+                (t + i) as u32,
+                gen[i + 1],
+                full as u32,
+                &row,
+            )?;
         }
         eprintln!(
             "{path}: {} prompt + {} generated positions in {:.1} s, full argmax != golden at {mism} steps",
@@ -103,7 +132,13 @@ fn hidden(dir: &Path, out_path: &str, goldens: &[String]) -> Result<(), String> 
     Ok(())
 }
 
-fn passage(dir: &Path, out_path: &str, text_path: &str, count: usize, src: u32) -> Result<(), String> {
+fn passage(
+    dir: &Path,
+    out_path: &str,
+    text_path: &str,
+    count: usize,
+    src: u32,
+) -> Result<(), String> {
     let mut text = std::fs::read_to_string(text_path).map_err(|e| format!("{text_path}: {e}"))?;
     if let Some((cut, _)) = text.char_indices().nth(count * 8) {
         text.truncate(cut);
@@ -119,9 +154,20 @@ fn passage(dir: &Path, out_path: &str, text_path: &str, count: usize, src: u32) 
     let mut out = open_out(out_path)?;
     for p in 0..ids.len() {
         let next = ids.get(p + 1).copied().unwrap_or(NONE);
-        append(&mut out, src, p as u32, next, NONE, &rows[p * h..(p + 1) * h])?;
+        append(
+            &mut out,
+            src,
+            p as u32,
+            next,
+            NONE,
+            &rows[p * h..(p + 1) * h],
+        )?;
     }
-    eprintln!("{text_path}: {} positions in {:.1} s", ids.len(), t0.elapsed().as_secs_f64());
+    eprintln!(
+        "{text_path}: {} positions in {:.1} s",
+        ids.len(),
+        t0.elapsed().as_secs_f64()
+    );
     Ok(())
 }
 
@@ -135,10 +181,15 @@ struct Record {
 
 fn read_records(path: &str, k: usize) -> Result<Vec<Record>, String> {
     let mut bytes = Vec::new();
-    std::fs::File::open(path).and_then(|mut f| f.read_to_end(&mut bytes)).map_err(|e| format!("{path}: {e}"))?;
+    std::fs::File::open(path)
+        .and_then(|mut f| f.read_to_end(&mut bytes))
+        .map_err(|e| format!("{path}: {e}"))?;
     let size = 16 + 4 * k;
     if bytes.len() % size != 0 {
-        return Err(format!("{path}: {} bytes is not a whole number of records", bytes.len()));
+        return Err(format!(
+            "{path}: {} bytes is not a whole number of records",
+            bytes.len()
+        ));
     }
     let u = |b: &[u8]| u32::from_le_bytes(b.try_into().unwrap());
     Ok(bytes
@@ -148,7 +199,12 @@ fn read_records(path: &str, k: usize) -> Result<Vec<Record>, String> {
             pos: u(&r[4..8]),
             next: u(&r[8..12]),
             full: u(&r[12..16]),
-            h: r[16..].chunks_exact(4).map(|b| f32::from_le_bytes(b.try_into().unwrap())).collect(),
+            h: r[16..]
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|b| f32::from_le_bytes(*b))
+                .collect(),
         })
         .collect())
 }
@@ -172,7 +228,9 @@ fn pick(c: &[u32], l: &[f32]) -> usize {
 }
 
 /// Mutant scales swept per bound: the largest one that loses an argmax is the bound's slack.
-const SCALES: [f64; 12] = [1.0, 0.5, 0.25, 0.1, 0.05, 0.02, 0.01, 0.005, 0.002, 0.001, 0.0005, 0.0];
+const SCALES: [f64; 12] = [
+    1.0, 0.5, 0.25, 0.1, 0.05, 0.02, 0.01, 0.005, 0.002, 0.001, 0.0005, 0.0,
+];
 
 fn analyze(dir: &Path, hidden_path: &str, out_path: &str) -> Result<(), String> {
     let model = Qwen38Reference::open(dir)?;
@@ -191,16 +249,35 @@ fn analyze(dir: &Path, hidden_path: &str, out_path: &str) -> Result<(), String> 
             (argmax(&l), l)
         })
         .collect();
-    eprintln!("full head on every record in {:.1} s", t0.elapsed().as_secs_f64());
-    let stored = recs.iter().zip(&full).filter(|(r, f)| r.full != NONE && r.full as usize != f.0).count();
+    eprintln!(
+        "full head on every record in {:.1} s",
+        t0.elapsed().as_secs_f64()
+    );
+    let stored = recs
+        .iter()
+        .zip(&full)
+        .filter(|(r, f)| r.full != NONE && r.full as usize != f.0)
+        .count();
     let mut variants = Vec::new();
     for kind in [ScreenKind::W4, ScreenKind::Fp8, ScreenKind::Fp8Block] {
         let t0 = Instant::now();
         let screen = Screen::build(head, kind)?;
-        eprintln!("{kind:?} screen built in {:.1} s", t0.elapsed().as_secs_f64());
+        eprintln!(
+            "{kind:?} screen built in {:.1} s",
+            t0.elapsed().as_secs_f64()
+        );
         let s: Vec<Vec<f32>> = recs.iter().map(|r| screen.logits(&r.h)).collect();
-        let screen_top1 = s.iter().zip(&full).filter(|(s, f)| argmax(s) == f.0).count();
-        for bk in [BoundKind::Row, BoundKind::Group, BoundKind::GroupLinf, BoundKind::Min] {
+        let screen_top1 = s
+            .iter()
+            .zip(&full)
+            .filter(|(s, f)| argmax(s) == f.0)
+            .count();
+        for bk in [
+            BoundKind::Row,
+            BoundKind::Group,
+            BoundKind::GroupLinf,
+            BoundKind::Min,
+        ] {
             let mut sizes = Vec::new();
             let mut sizes_tau = Vec::new();
             let mut wrong = 0;
@@ -214,13 +291,19 @@ fn analyze(dir: &Path, hidden_path: &str, out_path: &str) -> Result<(), String> 
                 // full logits stand in for it here; gate mode and the unit tests run the recheck.
                 let got = pick(&c, &full[i].1);
                 if i == 0 {
-                    assert_eq!(exact_head::recheck(head, &r.h, &c).0, got, "recheck != full head bits");
+                    assert_eq!(
+                        exact_head::recheck(head, &r.h, &c).0,
+                        got,
+                        "recheck != full head bits"
+                    );
                 }
                 wrong += usize::from(got != full[i].0);
                 sizes.push(c.len());
                 // Exact threshold: recheck the best upper bound first; its exact logit is a lower
                 // bound on the winner's, so tau = max(that, max_j (s_j - B_j)).
-                let ub = (0..n).max_by(|&a, &z| (s[i][a] as f64 + b[a]).total_cmp(&(s[i][z] as f64 + b[z]))).unwrap();
+                let ub = (0..n)
+                    .max_by(|&a, &z| (s[i][a] as f64 + b[a]).total_cmp(&(s[i][z] as f64 + b[z])))
+                    .unwrap();
                 let ct = exact_head::candidates_from(&s[i], &b, full[i].1[ub] as f64);
                 wrong_tau += usize::from(pick(&ct, &full[i].1) != full[i].0);
                 sizes_tau.push(ct.len() + usize::from(ct.binary_search(&(ub as u32)).is_err()));
@@ -256,7 +339,14 @@ fn analyze(dir: &Path, hidden_path: &str, out_path: &str) -> Result<(), String> 
                     let differ = if bk == BoundKind::Min {
                         (0..SEEDS)
                             .filter(|&seed| {
-                                let p = GenerateParams { max_new_tokens: 1, temperature: 1.0, top_p: 0.95, top_k: TOP_K, seed, stop_token_ids: Vec::new() };
+                                let p = GenerateParams {
+                                    max_new_tokens: 1,
+                                    temperature: 1.0,
+                                    top_p: 0.95,
+                                    top_k: TOP_K,
+                                    seed,
+                                    stop_token_ids: Vec::new(),
+                                };
                                 sample_next(&full[i].1, &p, i) != sample_next(&masked, &p, i)
                             })
                             .count()
@@ -313,10 +403,18 @@ fn analyze(dir: &Path, hidden_path: &str, out_path: &str) -> Result<(), String> 
         "stored_full_argmax_disagrees_with_recomputed": stored,
         "variants": variants, "per_record": per,
     });
-    std::fs::write(out_path, serde_json::to_string_pretty(&report).unwrap()).map_err(|e| e.to_string())
+    std::fs::write(out_path, serde_json::to_string_pretty(&report).unwrap())
+        .map_err(|e| e.to_string())
 }
 
-fn gate(dir: &Path, kind: ScreenKind, bk: BoundKind, scale: f64, out_path: &str, goldens: &[String]) -> Result<bool, String> {
+fn gate(
+    dir: &Path,
+    kind: ScreenKind,
+    bk: BoundKind,
+    scale: f64,
+    out_path: &str,
+    goldens: &[String],
+) -> Result<bool, String> {
     let mut model = Qwen38Reference::open(dir)?;
     let screen = Screen::build(model.lm_head(), kind)?;
     let mut results = Vec::new();
@@ -339,7 +437,11 @@ fn gate(dir: &Path, kind: ScreenKind, bk: BoundKind, scale: f64, out_path: &str,
                 let mut c = exact_head::candidates(&s, &b);
                 c.retain(|&r| r as usize != full);
                 // An empty set (the winner was the only candidate) picks no row: a divergence.
-                if c.is_empty() { (usize::MAX, 0) } else { (exact_head::recheck(model.lm_head(), &row, &c).0, c.len()) }
+                if c.is_empty() {
+                    (usize::MAX, 0)
+                } else {
+                    (exact_head::recheck(model.lm_head(), &row, &c).0, c.len())
+                }
             } else {
                 exact_head::argmax(model.lm_head(), &screen, &row, bk, scale)
             };
@@ -354,13 +456,23 @@ fn gate(dir: &Path, kind: ScreenKind, bk: BoundKind, scale: f64, out_path: &str,
             }
         }
         pass &= diverged.is_none();
-        eprintln!("{path}: {} ({} tokens, max |C| {})", if diverged.is_none() { "IDENTICAL" } else { "DIVERGED" }, out.len(), cs.iter().max().unwrap());
+        eprintln!(
+            "{path}: {} ({} tokens, max |C| {})",
+            if diverged.is_none() {
+                "IDENTICAL"
+            } else {
+                "DIVERGED"
+            },
+            out.len(),
+            cs.iter().max().unwrap()
+        );
         results.push(serde_json::json!({ "golden": path, "identical": diverged.is_none(), "first_divergence": diverged,
                                          "ids": out, "golden_ids": gen, "C": cs }));
     }
     let report = serde_json::json!({ "screen": format!("{kind:?}"), "bound": format!("{bk:?}"), "scale": scale,
                                      "verdict": if pass { "PASS" } else { "FAIL" }, "runs": results });
-    std::fs::write(out_path, serde_json::to_string_pretty(&report).unwrap()).map_err(|e| e.to_string())?;
+    std::fs::write(out_path, serde_json::to_string_pretty(&report).unwrap())
+        .map_err(|e| e.to_string())?;
     Ok(pass)
 }
 
@@ -371,10 +483,17 @@ fn export(dir: &Path, out: &str) -> Result<(), String> {
     let head = model.lm_head();
     let (n, k) = (head.n(), head.k());
     std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
-    let put = |name: &str, bytes: &[u8]| std::fs::write(format!("{out}/{name}"), bytes).map_err(|e| format!("{name}: {e}"));
+    let put = |name: &str, bytes: &[u8]| {
+        std::fs::write(format!("{out}/{name}"), bytes).map_err(|e| format!("{name}: {e}"))
+    };
     let mut raw = Vec::with_capacity(n * k * 2);
     for r in 0..n {
-        raw.extend(head.bf16_row(r).unwrap().iter().flat_map(|v| v.to_le_bytes()));
+        raw.extend(
+            head.bf16_row(r)
+                .unwrap()
+                .iter()
+                .flat_map(|v| v.to_le_bytes()),
+        );
     }
     put("head.bf16", &raw)?;
     drop(raw);
@@ -383,16 +502,30 @@ fn export(dir: &Path, out: &str) -> Result<(), String> {
     let screen = Screen::build(head, ScreenKind::Fp8Block)?;
     let bad = screen.codes_mismatch(&codes, &scales);
     if bad != 0 {
-        return Err(format!("export: {bad} rows of codes do not reproduce the screen"));
+        return Err(format!(
+            "export: {bad} rows of codes do not reproduce the screen"
+        ));
     }
     put("fp8b.codes", &codes)?;
-    let sb: Vec<u8> = scales.iter().flat_map(|&s| aien_inference_abi::qwen3_moe::f32_to_bf16(s).to_le_bytes()).collect();
+    let sb: Vec<u8> = scales
+        .iter()
+        .flat_map(|&s| aien_inference_abi::qwen3_moe::f32_to_bf16(s).to_le_bytes())
+        .collect();
     put("fp8b.scales", &sb)?;
     let coef = screen.row_coef(CHIP_GAMMA_LEN);
-    put("coef.f32", &coef.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>())?;
+    put(
+        "coef.f32",
+        &coef
+            .iter()
+            .flat_map(|v| v.to_le_bytes())
+            .collect::<Vec<u8>>(),
+    )?;
     let manifest = serde_json::json!({ "n": n, "k": k, "group": GROUP, "gamma_len": CHIP_GAMMA_LEN,
         "files": ["head.bf16", "fp8b.codes", "fp8b.scales", "coef.f32"], "codes_reproduce_screen_rows": n });
-    put("manifest.json", serde_json::to_string_pretty(&manifest).unwrap().as_bytes())?;
+    put(
+        "manifest.json",
+        serde_json::to_string_pretty(&manifest).unwrap().as_bytes(),
+    )?;
     eprintln!("export: {n} x {k} to {out}, codes reproduce the fp8b screen on every row");
     Ok(())
 }

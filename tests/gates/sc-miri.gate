@@ -1,12 +1,11 @@
 # tests/gates/sc-miri.gate
 # Mirrors hosted: hardening.yml miri: cargo +nightly miri test for aien-capability and aien-kv-cache + run_mutants.sh miri (hosted 1622 s)
-# requires: operator in addition to host because the nightly miri component is not installed on this machine (rustup component add miri --toolchain nightly); the operator decides whether to install it. Hosted installs it on every run.
+# requires: host only. The nightly toolchain with miri and a prebuilt miri sysroot are seeded read-only into the sandbox by tools/aien-local-ci/install.sh (#600), so the run needs no network and no operator step.
 gate: SC-MIRI
 manifest_version: 2
 owner: aien-sovereign-core
 requires:
   - host
-  - operator
 inputs:
   - crates/aien-capability/
   - crates/aien-kv-cache/

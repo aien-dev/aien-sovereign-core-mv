@@ -16,10 +16,14 @@ fn mix(mut z: u64) -> u64 {
 /// A row model whose next token depends on every token fed so far and its position.
 struct Fake {
     rows: Vec<(u64, usize)>,
-    /// Swap the first two fed rows' states once, at the first step from this one on that feeds two.
+    /// Swap two fed rows' states once, at the first step from this one on that feeds two rows
+    /// whose states differ (two rows seated this beat both hold the empty state, and swapping
+    /// equal states changes nothing).
     swap_at: Option<u64>,
     steps: u64,
     fed: Arc<AtomicUsize>,
+    /// The rows each step fed, in order.
+    log: StepLog,
 }
 
 impl Fake {
@@ -31,6 +35,7 @@ impl Fake {
                 swap_at,
                 steps: 0,
                 fed: Arc::clone(&fed),
+                log: Arc::new(Mutex::new(Vec::new())),
             },
             fed,
         )
@@ -56,12 +61,22 @@ impl RowStep for Fake {
     }
     fn step_rows(&mut self, feed: &[RowFeed]) -> Result<Vec<RowOut>, String> {
         self.steps += 1;
+        self.log
+            .lock()
+            .unwrap()
+            .push(feed.iter().map(|f| f.row).collect());
         // A step takes a moment, as on the chip, so requests started together overlap.
         std::thread::sleep(Duration::from_micros(300));
-        // As the chip's control: once, at the first step from k on that feeds two rows.
-        if feed.len() >= 2 && self.swap_at.is_some_and(|k| self.steps >= k) {
-            self.swap_at = None;
-            self.rows.swap(feed[0].row, feed[1].row);
+        // As the chip's control: once, at the first step from k on that feeds two rows holding
+        // different states.
+        if self.swap_at.is_some_and(|k| self.steps >= k) {
+            let pair = (0..feed.len())
+                .flat_map(|a| (a + 1..feed.len()).map(move |b| (a, b)))
+                .find(|&(a, b)| self.rows[feed[a].row] != self.rows[feed[b].row]);
+            if let Some((a, b)) = pair {
+                self.swap_at = None;
+                self.rows.swap(feed[a].row, feed[b].row);
+            }
         }
         let mut outs = Vec::new();
         for f in feed {
@@ -532,4 +547,343 @@ fn long_prompts_go_in_as_chunks_and_keep_the_turn_header_copy() {
     let (r2, _) = run(&d, &p2, &greedy(5));
     assert_eq!(r2, alone(&p2, 5), "restored row == cold row");
     assert_eq!(fed.load(Ordering::SeqCst) - before, (p2.len() - 300) + 4);
+}
+
+type StepLog = Arc<Mutex<Vec<Vec<usize>>>>;
+
+/// A door whose fake logs the rows of every step.
+fn logged_door(rows: usize) -> (Arc<Qwen36BatchDoor>, StepLog) {
+    let (f, _) = Fake::new(rows, None);
+    let log = Arc::clone(&f.log);
+    let d = Qwen36BatchDoor::with_stepper(f, 4096, lock_file(), Duration::from_secs(5), 1, true)
+        .unwrap();
+    (Arc::new(d), log)
+}
+
+/// Eight short prompts (under `Q36_PREFILL_MIN`, so every token goes in through `step_rows` and a
+/// beat is one logged step).
+fn group_jobs() -> Vec<GroupJob> {
+    prompts()
+        .into_iter()
+        .take(8)
+        .map(|(mut p, n)| GroupJob {
+            prompt: {
+                p.truncate(Q36_PREFILL_MIN - 1);
+                p
+            },
+            params: greedy(n),
+            cancel: None,
+            test: TestSwitches::default(),
+        })
+        .collect()
+}
+
+fn run_group(d: &Qwen36BatchDoor, jobs: &[GroupJob]) -> Vec<Vec<u32>> {
+    let mut words = vec![Vec::new(); jobs.len()];
+    // Through the trait object, as the server calls it (an inherent method of the same name would
+    // shadow a missing trait override).
+    let outs = (d as &dyn Engine).generate_group(jobs, &mut |i, t| {
+        words[i].push(t);
+        true
+    });
+    for o in &outs {
+        assert!(o.is_ok(), "{o:?}");
+    }
+    words
+}
+
+/// The readers' group (sc L371): eight jobs seated in one beat, beside a conversation already
+/// running, each job's words those of the same request alone, in job order.
+#[test]
+fn a_group_of_eight_joins_in_one_beat_and_keeps_its_order() {
+    let (d, log) = logged_door(10);
+    let solo: Vec<u32> = (0..6).collect();
+    let h = {
+        let d = Arc::clone(&d);
+        let solo = solo.clone();
+        std::thread::spawn(move || run(&d, &solo, &greedy(300)).0)
+    };
+    while log.lock().unwrap().len() < 5 {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let jobs = group_jobs();
+    let got = run_group(&d, &jobs);
+    let want: Vec<Vec<u32>> = jobs
+        .iter()
+        .map(|j| alone(&j.prompt, j.params.max_new_tokens))
+        .collect();
+    assert_eq!(got, want);
+    assert_eq!(h.join().unwrap(), alone(&solo, 300));
+    // Before the group one row steps; the first step with more has all nine.
+    let log = log.lock().unwrap();
+    let first = log
+        .iter()
+        .position(|s| s.len() > 1)
+        .expect("the group stepped");
+    assert!(first >= 5);
+    assert_eq!(log[first].len(), 9, "step {first}: {:?}", log[first]);
+}
+
+/// A group waits for enough free rows and nothing seats a part of it early.
+#[test]
+fn a_group_waits_for_its_rows_then_joins_whole() {
+    let (d, log) = logged_door(8);
+    let solo: Vec<u32> = (0..4).collect();
+    let h = {
+        let d = Arc::clone(&d);
+        std::thread::spawn(move || run(&d, &solo, &greedy(40)).0)
+    };
+    while log.lock().unwrap().is_empty() {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let got = run_group(&d, &group_jobs());
+    h.join().unwrap();
+    assert_eq!(got.len(), 8);
+    let log = log.lock().unwrap();
+    // One row (the single conversation) until it leaves, then all eight at once.
+    let first = log
+        .iter()
+        .position(|s| s.len() > 1)
+        .expect("the group stepped");
+    assert!(log[..first].iter().all(|s| s.len() == 1));
+    assert_eq!(log[first].len(), 8);
+    assert!(
+        first >= 40,
+        "the group started before the single left (step {first})"
+    );
+}
+
+#[test]
+fn a_group_larger_than_the_door_is_refused_whole() {
+    let (d, _) = door(4, None, 1);
+    let outs = d.generate_group(&group_jobs(), &mut |_, _| true);
+    assert_eq!(outs.len(), 8);
+    assert!(outs
+        .iter()
+        .all(|o| matches!(o, Err(EngineError::Failed(m)) if m.contains("needs 8 rows"))));
+}
+
+/// The caller's flag stops a job still taking in its prompt (the readers' client left).
+#[test]
+fn a_group_job_stops_on_the_callers_flag_while_prefilling() {
+    let (d, _) = door(8, None, 1);
+    let flag = Arc::new(AtomicBool::new(true));
+    let jobs: Vec<GroupJob> = group_jobs()
+        .into_iter()
+        .map(|mut j| {
+            j.cancel = Some(Arc::clone(&flag));
+            j
+        })
+        .collect();
+    let outs = d.generate_group(&jobs, &mut |_, _| true);
+    for o in outs {
+        let o = o.unwrap();
+        assert_eq!(o.finish, FinishReason::Cancelled);
+        assert_eq!(o.emitted_tokens, 0);
+    }
+}
+
+/// Records the lock's release, for the load admission order.
+struct Release<'a>(&'a std::cell::RefCell<Vec<&'static str>>);
+
+impl Drop for Release<'_> {
+    fn drop(&mut self) {
+        self.0.borrow_mut().push("release");
+    }
+}
+
+const LOAD_NEED: u64 = 30 << 30;
+const LOAD_KEEP: u64 = 8 << 30;
+
+/// The load reads free memory only once the chip lock is ours (the wait can last up to
+/// `LOAD_LOCK_WAIT`, and free memory on a shared box swings by tens of GiB meanwhile), and
+/// uploads only after that reading admitted it.
+#[test]
+fn load_reads_memory_after_the_lock_and_before_the_upload() {
+    let log = std::cell::RefCell::new(Vec::new());
+    let (lock, avail) = admit_then_open(
+        || {
+            log.borrow_mut().push("lock");
+            Ok(Release(&log))
+        },
+        || {
+            log.borrow_mut().push("memory");
+            LOAD_NEED + LOAD_KEEP
+        },
+        LOAD_NEED,
+        LOAD_KEEP,
+        |avail| {
+            log.borrow_mut().push("open");
+            Ok(avail)
+        },
+    )
+    .expect("exactly need plus keep-free is enough");
+    assert_eq!(avail, LOAD_NEED + LOAD_KEEP);
+    drop(lock);
+    assert_eq!(*log.borrow(), ["lock", "memory", "open", "release"]);
+}
+
+/// 59 GiB free before the wait, 6 GiB after it: the reading after the lock refuses, the lock is
+/// let go and nothing is uploaded.
+#[test]
+fn load_refused_after_the_wait_releases_the_lock_and_uploads_nothing() {
+    let log = std::cell::RefCell::new(Vec::new());
+    let e = admit_then_open(
+        || {
+            log.borrow_mut().push("lock");
+            Ok(Release(&log))
+        },
+        || {
+            log.borrow_mut().push("memory");
+            6 << 30
+        },
+        LOAD_NEED,
+        LOAD_KEEP,
+        |_| -> Result<(), String> {
+            log.borrow_mut().push("open");
+            Ok(())
+        },
+    )
+    .err()
+    .expect("6 GiB is refused");
+    assert!(
+        e.contains("MemAvailable 6144 MiB after taking the GPU lock"),
+        "{e}"
+    );
+    assert_eq!(*log.borrow(), ["lock", "memory", "release"]);
+}
+
+#[test]
+fn load_without_the_lock_reads_no_memory_and_uploads_nothing() {
+    let r: Result<((), ()), String> = admit_then_open(
+        || Err("lock wait timed out".into()),
+        || panic!("memory must not be read without the lock"),
+        LOAD_NEED,
+        LOAD_KEEP,
+        |_| panic!("nothing is uploaded without the lock"),
+    );
+    assert_eq!(r.unwrap_err(), "lock wait timed out");
+}
+
+/// A reader that stops taking its events (its request thread blocked, as a streaming reply's
+/// `blocking_send` blocks when the client stops reading) must not stall the scheduler, which
+/// holds the chip lock: once the reader's event channel is full its row is dropped, the other
+/// conversation finishes exactly as alone, the lock is let go when the spell ends, and the
+/// stalled request ends with an error that says why.
+#[test]
+fn a_reader_that_stops_reading_is_dropped_and_the_others_finish() {
+    use std::os::fd::AsRawFd;
+    let (f, _) = Fake::new(2, None);
+    let lock = lock_file();
+    let d = Arc::new(
+        Qwen36BatchDoor::with_stepper(f, 4096, lock.clone(), Duration::from_secs(5), 1, true)
+            .unwrap(),
+    );
+    let (release, hold) = mpsc::channel::<()>();
+    let stalled = {
+        let d = Arc::clone(&d);
+        std::thread::spawn(move || {
+            let mut first = true;
+            d.generate(&[1, 2, 3], &greedy(2000), &mut |_| {
+                if std::mem::take(&mut first) {
+                    // Stops reading after its first token, until the test lets go.
+                    let _ = hold.recv();
+                }
+                true
+            })
+        })
+    };
+    // The other conversation joins before the stalled reader's channel fills (256 events, some
+    // 80 ms of fake steps) and is long enough to be mid-reply when it does.
+    std::thread::sleep(Duration::from_millis(10));
+    let other: Vec<u32> = (0..6).collect();
+    let (done_tx, done_rx) = mpsc::channel();
+    {
+        let d = Arc::clone(&d);
+        let other = other.clone();
+        std::thread::spawn(move || {
+            let _ = done_tx.send(run(&d, &other, &greedy(1000)).0);
+        });
+    }
+    let got = done_rx
+        .recv_timeout(Duration::from_secs(30))
+        .expect("the other conversation must finish while a reader is stalled");
+    assert_eq!(got, alone(&other, 1000));
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&lock)
+        .unwrap();
+    let t = Instant::now();
+    // SAFETY: flock on a valid descriptor of the test's private lock file.
+    while unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        assert!(
+            t.elapsed() < Duration::from_secs(30),
+            "the scheduler still holds the chip lock"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    drop(file);
+    release.send(()).unwrap();
+    match stalled.join().unwrap() {
+        Err(EngineError::Failed(m)) => assert!(m.contains("fell behind"), "{m}"),
+        r => panic!("the stalled reader's request: {r:?}"),
+    }
+}
+
+/// The interleaving the stall test cannot force: the reader falls behind (an event is dropped and
+/// the scheduler cancels the job), then resumes and drains before the scheduler sends the job's
+/// last event, so `Done` fits. The request must still fail as fallen behind, not report a normal
+/// completion of a truncated reply, and only the delivered tokens reach the caller.
+#[test]
+fn a_reader_that_fell_behind_fails_even_when_its_done_fits() {
+    let (otx, orx) = mpsc::sync_channel::<(usize, Ev)>(2);
+    let cancel = Arc::new(AtomicBool::new(false));
+    let fell = Arc::new(AtomicBool::new(false));
+    let job = Job {
+        prompt: vec![1, 2, 3],
+        params: greedy(10),
+        out: otx,
+        tag: 0,
+        cancel: Arc::clone(&cancel),
+        fell_behind: Arc::clone(&fell),
+        t_queued: Instant::now(),
+        test: TestSwitches::default(),
+    };
+    assert!(job.send(Ev::Token(11)).is_ok());
+    assert!(job.send(Ev::Token(12)).is_ok());
+    assert!(job.send(Ev::Token(13)).is_err(), "the channel is full");
+    assert!(
+        cancel.load(Ordering::SeqCst),
+        "the scheduler cancels the job"
+    );
+    let (drained_tx, drained_rx) = mpsc::channel();
+    let consumer = std::thread::spawn(move || {
+        let mut got = Vec::new();
+        let r = relay(&orx, &[cancel], &[fell], &mut |_, t| {
+            got.push(t);
+            if got.len() == 2 {
+                let _ = drained_tx.send(());
+            }
+            true
+        });
+        (r, got)
+    });
+    // The reader has taken both queued tokens: the job's last event fits now.
+    drained_rx.recv().unwrap();
+    job.send(Ev::Done(GenerateOutcome {
+        emitted_tokens: 3,
+        finish: FinishReason::Cancelled,
+        prefill_ms: 0,
+        decode_ms: 0,
+        sampling: None,
+    }))
+    .expect("Done fits after the drain");
+    drop(job);
+    let (mut r, got) = consumer.join().unwrap();
+    assert_eq!(got, [11, 12]);
+    match r.pop().expect("one outcome") {
+        Err(EngineError::Failed(m)) => assert!(m.contains("fell behind"), "{m}"),
+        other => panic!("a truncated reply reported as {other:?}"),
+    }
 }

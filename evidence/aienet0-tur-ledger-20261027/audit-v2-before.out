@@ -1,0 +1,32 @@
+omc d6290c7663c2b4bafb59eb3fdf812476e977f4c144def71095c6248ef9b96b84
+src f47d8c6374f5e8a49068cc5372e97582e3eb81e87c5e53a661ea62ebb4279713 om/tur-ledger/tur-ledger.om
+sha 4f88dad60464eacd1655ba980f66b74000c6966ec0becbb80346ac1898e87a76 om/vendor/sha256.om
+ec 909f37c797e187bd0663bde9f57c75d6ce41eb2c9726a6b50d6fc714e424c060 omega-mv@6999fa9e6dae4847c155ef4eacaece74f491d3ca
+gate 48f0cbd7b067cb5bfd5cf1a8292a36294169b1aeb6c5f554f3936dcd0046670d
+OpenSSL 3.0.13 30 Jan 2024 (Library: OpenSSL 3.0.13 30 Jan 2024)
+audit-source f47d8c6374f5e8a49068cc5372e97582e3eb81e87c5e53a661ea62ebb4279713
+FAIL io.failed-sync-rollback-1: exit 3 out '', journal restored no
+FAIL io.failed-sync-rollback-2: exit 0 out 'dup unsynced req 5', journal restored no
+PASS io.no-torn-tail-after-rollback
+FAIL io.retry-writes-and-syncs: exit 0 out 'dup unsynced req 5'
+FAIL io.duplicate-prefund-needs-sync: exit 0 out 'dup base req 100'
+FAIL io.duplicate-prefund-retry-synced: exit 0, missing fsync or changed journal
+FAIL io.duplicate-reserve-needs-sync: exit 0 out 'already-reserved 7777777777777777777777777777777777777777777777777777777777777777 req prov ver 40'
+FAIL io.duplicate-reserve-retry-synced: exit 0, missing fsync or changed journal
+FAIL io.duplicate-settle-needs-sync: exit 0 out 'already-settled 7777777777777777777777777777777777777777777777777777777777777777 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 27 3 10'
+FAIL io.duplicate-settle-retry-synced: exit 0, missing fsync or changed journal
+FAIL io.duplicate-refund-needs-sync: exit 0 out 'already-refunded 8888888888888888888888888888888888888888888888888888888888888888'
+FAIL io.duplicate-refund-retry-synced: exit 0, missing fsync or changed journal
+PASS corrupt.acknowledged-settle
+FAIL corrupt.acknowledged-tail-audit: exit 0 expected 5, before 'd507b1cd5da31bc8006bf530e86d06e2ab9e4e82acfe9a4fb9725bb812bfc7cd  /tmp/tmp.0WtTMZw3J2/audit-tail/journal' after '592bc72be329a159b5ac7e8190d3355220ce1f945c7ed480c6d8d910061c2a67  /tmp/tmp.0WtTMZw3J2/audit-tail/journal'
+FAIL corrupt.acknowledged-tail-refund: exit 0 expected 5, before 'd507b1cd5da31bc8006bf530e86d06e2ab9e4e82acfe9a4fb9725bb812bfc7cd  /tmp/tmp.0WtTMZw3J2/audit-tail/journal' after '7c5274389713289775269723cd9f105ae8057f1076004b75b67fb2749eda5709  /tmp/tmp.0WtTMZw3J2/audit-tail/journal'
+FAIL corrupt.acknowledged-tail-show: exit 0 expected 5, before 'd507b1cd5da31bc8006bf530e86d06e2ab9e4e82acfe9a4fb9725bb812bfc7cd  /tmp/tmp.0WtTMZw3J2/audit-tail/journal' after '592bc72be329a159b5ac7e8190d3355220ce1f945c7ed480c6d8d910061c2a67  /tmp/tmp.0WtTMZw3J2/audit-tail/journal'
+FAIL corrupt.signed-tail-bad-hash: exit 0 expected 5, before '9ad3c5ff6494e2b83d61a32f76f52fd7a823a6afd7788e1e399b226e23d91d30  /tmp/tmp.0WtTMZw3J2/audit-tail/journal' after 'cb310fd19936451bc336b8d7d0c142995622bdb7b43b50984106160565e65252  /tmp/tmp.0WtTMZw3J2/audit-tail/journal'
+PASS corrupt.original-settlement-preserved
+FAIL usage.fused-name-arguments: exit 0 expected 2, before '92f189182ce77d34885fedc09949e23cd659121e87b76583ba722170c3a8ea76  /tmp/tmp.0WtTMZw3J2/audit-argv/journal' after 'ddee479a9684f3d1a5067b6467b311cb04840f82d838e073544fe6109c386e9c  /tmp/tmp.0WtTMZw3J2/audit-argv/journal'
+FAIL usage.fused-command-argument: exit 0 expected 2, before 'ddee479a9684f3d1a5067b6467b311cb04840f82d838e073544fe6109c386e9c  /tmp/tmp.0WtTMZw3J2/audit-argv/journal' after 'a55f9fe57c75dccf78bc665368068fa80d7f133ac8a9bb7f5294e9a77b2a38ff  /tmp/tmp.0WtTMZw3J2/audit-argv/journal'
+FAIL usage.fused-role-arguments: exit 0 expected 2, before 'a55f9fe57c75dccf78bc665368068fa80d7f133ac8a9bb7f5294e9a77b2a38ff  /tmp/tmp.0WtTMZw3J2/audit-argv/journal' after 'e569546181fd0c7e62ac595707c76f2c353d3b18be0389a1dac6b139f029e400  /tmp/tmp.0WtTMZw3J2/audit-argv/journal'
+FAIL phase.reserve: exit 0 out 'already-reserved 7777777777777777777777777777777777777777777777777777777777777777 req prov ver 40' err '', wanted exit 0 out 'reserved 7777777777777777777777777777777777777777777777777777777777777777 req prov ver 40'
+PASS phase.reserve-open-retry
+FAIL phase.reserve-after-settle: exit 0 expected 10, before '6b9d0bc2e20ddf5ce6ba0c7de104ec2f9da888492d3b134c5fed9868beac895d  /tmp/tmp.0WtTMZw3J2/audit-argv/journal' after '6b9d0bc2e20ddf5ce6ba0c7de104ec2f9da888492d3b134c5fed9868beac895d  /tmp/tmp.0WtTMZw3J2/audit-argv/journal'
+FAIL phase.reserve-after-refund: exit 0 expected 10, before '1f4eaf7edfaeb1c2c731c7c24da04a849c0248f7578db0f86eced3fd2f54e89f  /tmp/tmp.0WtTMZw3J2/audit-argv/journal' after '1f4eaf7edfaeb1c2c731c7c24da04a849c0248f7578db0f86eced3fd2f54e89f  /tmp/tmp.0WtTMZw3J2/audit-argv/journal'

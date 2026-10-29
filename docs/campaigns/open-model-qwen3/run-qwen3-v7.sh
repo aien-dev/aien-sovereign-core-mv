@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # OPEN-MODEL-QWEN3 v7 qualification (QUALIFICATION-v7.md). Derived from run-qwen3-v5.sh with names only changed: the frozen
 # values file (frozen-v7.json), the pinned run base (oq3-v7-runs), the output tag (oq3-v7) and labels. Tasks (tasks-oq3-v5.json),
 # seeds (seed-v5), declaration (oq3-v5.decl.json), row modules, v5-rows.sh, driver, receipt builder and scorer are the v5 files,

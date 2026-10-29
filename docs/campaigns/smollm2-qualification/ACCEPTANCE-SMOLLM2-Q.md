@@ -19,7 +19,7 @@ status        = DRAFT until the block in section 1 holds no UNFROZEN value. The 
                 fills that block; it changes this file only and is made before any run. Nothing in this
                 file changes after the freeze; a change is a new spec_version.
 scope         = Linux-hosted, single machine (the Spark, GB10), the sovereign-core daemon path, as CAND-4.
-                Licence: SmolLM2 weights keep Apache-2.0 and their upstream notices; AIEN code AGPL-3.0.
+                Licence: SmolLM2 weights keep Apache-2.0 and their upstream notices; AIEN code Apache-2.0.
 ```
 
 ## 0. What differs from the CAND-4 suite (every difference, nothing else)

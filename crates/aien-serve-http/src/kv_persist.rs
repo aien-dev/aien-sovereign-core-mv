@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Persistent KV park and restore on the omega door (sc#505, ADR 0003), opt in with
 //! `AIEN_KV_STORE_DIR`.
 //!
@@ -33,7 +48,6 @@
 //! in an uninterrupted run (correct, only slower).
 
 use std::collections::{BTreeMap, HashMap};
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -589,21 +603,9 @@ pub fn settings_from_lookup(
     }))
 }
 
-/// sha256 of a file, streamed.
+/// Hash exactly the bounded regular file accepted by the checkpoint loader.
 fn sha256_file(p: &Path) -> Result<[u8; 32], String> {
-    let mut f = std::fs::File::open(p).map_err(|e| format!("{}: {e}", p.display()))?;
-    let mut h = Sha256::new();
-    let mut buf = vec![0u8; 8 << 20];
-    loop {
-        let n = f
-            .read(&mut buf)
-            .map_err(|e| format!("{}: {e}", p.display()))?;
-        if n == 0 {
-            break;
-        }
-        h.update(&buf[..n]);
-    }
-    Ok(h.finalize().into())
+    aien_inference_abi::checkpoint_sha256(p).map_err(|e| e.to_string())
 }
 
 fn hex(b: &[u8]) -> String {
@@ -1440,6 +1442,28 @@ fn open_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checkpoint_digest_accepts_regular_file_and_rejects_shard_symlink() {
+        let dir =
+            std::env::temp_dir().join(format!("aien-kv-checkpoint-digest-{}", std::process::id()));
+        std::fs::create_dir(&dir).unwrap();
+        let file = dir.join("model.safetensors");
+        std::fs::write(&file, b"fixture").unwrap();
+        assert_eq!(
+            checkpoint_digest(&dir).unwrap(),
+            (Sha256::digest(b"fixture").into(), "file")
+        );
+        std::fs::remove_file(&file).unwrap();
+        std::fs::write(
+            dir.join("model.safetensors.index.json"),
+            r#"{"weight_map":{"w":"shard.safetensors"}}"#,
+        )
+        .unwrap();
+        std::os::unix::fs::symlink("/dev/zero", dir.join("shard.safetensors")).unwrap();
+        assert!(checkpoint_digest(&dir).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     fn build() -> OmegaBuild {
         OmegaBuild {

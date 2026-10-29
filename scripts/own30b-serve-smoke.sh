@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # OWN-30B cut 8 serve smoke: talks to a running aien-serve-http on the loopback and records
 # each exchange with wall-clock timestamps (time-to-first-token and tok/s come from these).
 #
@@ -10,6 +25,7 @@
 set -euo pipefail
 dir=$1 phase=$2 port=${3:-18091}
 base="http://127.0.0.1:$port/v1"
+: "${AIEN_SERVE_HTTP_BEARER_TOKEN:?AIEN_SERVE_HTTP_BEARER_TOKEN required for chat}"
 mkdir -p "$dir"
 now() { date +%s.%N; }
 
@@ -28,7 +44,7 @@ SYSJ=$(json_str "$SYS")
 post() { # name, body -> writes name.json and name.time
 	local name=$1 body=$2 t0 t1
 	t0=$(now)
-	curl -s "$base/chat/completions" -H 'content-type: application/json' -d "$body" -o "$dir/$name.json"
+	curl -s "$base/chat/completions" -H "Authorization: Bearer $AIEN_SERVE_HTTP_BEARER_TOKEN" -H 'content-type: application/json' -d "$body" -o "$dir/$name.json"
 	t1=$(now)
 	printf 'start %s\nend %s\nwall_s %s\n' "$t0" "$t1" "$(echo "$t1 - $t0" | bc -l)" > "$dir/$name.time"
 	jq -c '{finish: .choices[0].finish_reason, usage, text: .choices[0].message.content}' "$dir/$name.json"
@@ -37,7 +53,7 @@ post() { # name, body -> writes name.json and name.time
 post_stream() { # name, body -> name.sse (timestamp per line), name.time
 	local name=$1 body=$2 t0 t1
 	t0=$(now)
-	curl -sN "$base/chat/completions" -H 'content-type: application/json' -d "$body" \
+	curl -sN "$base/chat/completions" -H "Authorization: Bearer $AIEN_SERVE_HTTP_BEARER_TOKEN" -H 'content-type: application/json' -d "$body" \
 		| while IFS= read -r line; do printf '%s %s\n' "$(now)" "$line"; done > "$dir/$name.sse"
 	t1=$(now)
 	local first last n

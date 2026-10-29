@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Qwen3.8-27B on the Omega GPU engine (sc #642): the checkpoint uploaded once, then one command
 //! list per decoded token (`aien_omega_q38::Q38Graph`, omega `src/omega_gpu_q38_graph.h`).
 //!
@@ -197,7 +212,10 @@ impl Qwen38Snapshot {
         if let Some(i) = a.zip(b).position(|(x, y)| x.to_bits() != y.to_bits()) {
             return Some(i);
         }
-        let (na, nb) = (self.tails.len() + self.states.len(), o.tails.len() + o.states.len());
+        let (na, nb) = (
+            self.tails.len() + self.states.len(),
+            o.tails.len() + o.states.len(),
+        );
         (na != nb || self.pos != o.pos).then_some(na.min(nb))
     }
 }
