@@ -1549,23 +1549,72 @@ pub fn triggers(state: &StateDir) -> Vec<(String, String, PathBuf)> {
 
 /// What the last answer to one GitHub list request said, kept with its ETag so the next poll can ask
 /// "has it changed?" (a 304 reply costs nothing against the hourly allowance; L337, G3-ci-judge-7).
+/// `next` is the following page path when the 200 that produced this ETag carried `Link: rel="next"`.
+/// A 304 omits that header, so the cached path is what the next poll follows.
 #[derive(Default)]
 pub struct GithubHeadCache {
-    entries: std::collections::HashMap<String, (String, Vec<String>)>,
+    entries: std::collections::HashMap<String, CachedHeads>,
 }
 
-/// One list request as a conditional GET. `pick` turns a 200 body into head shas. A 304 returns the shas of
-/// the answer the ETag belongs to; any other status is an error carrying gh's message.
+struct CachedHeads {
+    etag: String,
+    heads: Vec<String>,
+    next: Option<String>,
+}
+
+/// The `rel="next"` target of a GitHub `Link` header, as a path `gh api` accepts.
+/// None when this page is the last. Absolute `api.github.com` URLs are stripped to the path.
+fn link_next(headers: &str) -> Option<String> {
+    for line in headers.lines() {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        if !name.eq_ignore_ascii_case("link") {
+            continue;
+        }
+        for part in value.split(',') {
+            let Some((url, rest)) = part.split_once('>') else {
+                continue;
+            };
+            let rel = rest.to_ascii_lowercase();
+            if !rel.contains("rel=\"next\"")
+                && !rel.contains("rel='next'")
+                && !rel.contains("rel=next")
+            {
+                continue;
+            }
+            let url = url.trim().trim_start_matches('<').trim();
+            if url.is_empty() {
+                continue;
+            }
+            return Some(github_api_path(url));
+        }
+    }
+    None
+}
+
+fn github_api_path(url: &str) -> String {
+    for prefix in ["https://api.github.com/", "http://api.github.com/"] {
+        if let Some(rest) = url.strip_prefix(prefix) {
+            return rest.to_string();
+        }
+    }
+    url.trim_start_matches('/').to_string()
+}
+
+/// One list request as a conditional GET. `pick` turns a 200 body into head shas. A 304 returns the shas
+/// and the next-page path of the answer the ETag belongs to; any other status is an error carrying gh's
+/// message. The next-page path is `None` when the 200 had no `Link: rel="next"`.
 fn conditional_heads(
     gh: &str,
     path: &str,
     pick: fn(&Value) -> Vec<String>,
     cache: &mut GithubHeadCache,
-) -> Result<Vec<String>, String> {
+) -> Result<(Vec<String>, Option<String>), String> {
     let mut cmd = Command::new(gh);
     cmd.args(["api", "-i"]);
-    if let Some((etag, _)) = cache.entries.get(path) {
-        cmd.args(["-H", &format!("If-None-Match: {etag}")]);
+    if let Some(cached) = cache.entries.get(path) {
+        cmd.args(["-H", &format!("If-None-Match: {}", cached.etag)]);
     }
     cmd.arg(path);
     let out = process::output_gated(&mut cmd).map_err(|e| format!("cannot run {gh}: {e}"))?;
@@ -1580,8 +1629,8 @@ fn conditional_heads(
         .and_then(|l| l.split_whitespace().nth(1))
         .unwrap_or("");
     if status == "304" {
-        if let Some((_, shas)) = cache.entries.get(path) {
-            return Ok(shas.clone());
+        if let Some(cached) = cache.entries.get(path) {
+            return Ok((cached.heads.clone(), cached.next.clone()));
         }
     }
     if status != "200" || !out.status.success() {
@@ -1600,6 +1649,7 @@ fn conditional_heads(
         .map(|s| s.trim().to_ascii_lowercase())
         .filter(|s| valid_sha(s))
         .collect();
+    let next = link_next(head);
     let etag = head
         .lines()
         .find_map(|l| {
@@ -1609,13 +1659,20 @@ fn conditional_heads(
         .map(|(_, v)| v.trim().to_string());
     match etag {
         Some(etag) if !etag.is_empty() => {
-            cache.entries.insert(path.to_string(), (etag, shas.clone()));
+            cache.entries.insert(
+                path.to_string(),
+                CachedHeads {
+                    etag,
+                    heads: shas.clone(),
+                    next: next.clone(),
+                },
+            );
         }
         _ => {
             cache.entries.remove(path);
         }
     }
-    Ok(shas)
+    Ok((shas, next))
 }
 
 /// `triggers`, limited to the repositories in `repos` (a poller started with
@@ -1725,26 +1782,45 @@ fn main_head(v: &Value) -> Vec<String> {
     v["sha"].as_str().map(str::to_string).into_iter().collect()
 }
 
-/// Open PR heads and the main head of `repo` from GitHub (bounded: one conditional call per list). Errors are
-/// returned, never fatal to the loop. Unchanged lists answer 304 and cost no allowance.
+/// GitHub returns at most 100 pull requests per page. Issue #732: a poll that
+/// stops at the first page never sees an open PR past that page, so the local
+/// judge never runs it.
+const OPEN_PULLS_PER_PAGE: usize = 100;
+/// Twenty pages is 2000 open PRs. Past that the list is incomplete; say so
+/// instead of silently dropping the rest.
+const OPEN_PULLS_PAGE_CAP: usize = 20;
+
+/// Every open PR head, following `Link: rel="next"` until the last page.
+fn open_pull_heads(gh: &str, or: &str, cache: &mut GithubHeadCache) -> Result<Vec<String>, String> {
+    let mut path = format!("repos/{or}/pulls?state=open&per_page={OPEN_PULLS_PER_PAGE}");
+    let mut out = Vec::new();
+    for _page in 1..=OPEN_PULLS_PAGE_CAP {
+        let (shas, next) = conditional_heads(gh, &path, pull_heads, cache)?;
+        out.extend(shas);
+        let Some(next) = next.filter(|n| n != &path) else {
+            return Ok(out);
+        };
+        path = next;
+    }
+    Err(format!(
+        "open pull list for {or} still had a next page after {OPEN_PULLS_PAGE_CAP} pages of {OPEN_PULLS_PER_PAGE}"
+    ))
+}
+
+/// Open PR heads and the main head of `repo` from GitHub. Open pulls are read
+/// page by page (`Link: rel="next"`, at most [`OPEN_PULLS_PAGE_CAP`] pages).
+/// Errors are returned, never fatal to the loop. Unchanged pages answer 304
+/// and cost no allowance; a 304 still follows the next page remembered with
+/// its ETag.
 pub fn github_heads_cached(
     gh: &str,
     repository: &str,
     cache: &mut GithubHeadCache,
 ) -> Result<Vec<String>, String> {
     let or = owner_repo(repository).ok_or("bad repository name")?;
-    let mut shas = conditional_heads(
-        gh,
-        &format!("repos/{or}/pulls?state=open&per_page=50"),
-        pull_heads,
-        cache,
-    )?;
-    shas.extend(conditional_heads(
-        gh,
-        &format!("repos/{or}/commits/main"),
-        main_head,
-        cache,
-    )?);
+    let mut shas = open_pull_heads(gh, &or, cache)?;
+    let (main, _) = conditional_heads(gh, &format!("repos/{or}/commits/main"), main_head, cache)?;
+    shas.extend(main);
     shas.sort();
     shas.dedup();
     Ok(shas)
@@ -2032,7 +2108,9 @@ key=$(printf '%s' "$path" | tr -c 'A-Za-z0-9' '_')
 if [ ! -f "$d/$key.body" ]; then printf 'HTTP/2.0 404 Not Found\r\n\r\n{}'; echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi
 etag=$(cat "$d/$key.etag")
 if [[ " $* " == *"If-None-Match: $etag "* ]]; then printf 'HTTP/2.0 304 Not Modified\r\nEtag: %s\r\n\r\n' "$etag"; echo "gh: HTTP 304" >&2; exit 1; fi
-printf 'HTTP/2.0 200 OK\r\nEtag: %s\r\nContent-Type: application/json\r\n\r\n' "$etag"; cat "$d/$key.body"
+linkhdr=""
+if [ -f "$d/$key.link" ]; then linkhdr=$(printf 'Link: %s\r\n' "$(cat "$d/$key.link")"); fi
+printf 'HTTP/2.0 200 OK\r\nEtag: %s\r\n%sContent-Type: application/json\r\n\r\n' "$etag" "$linkhdr"; cat "$d/$key.body"
 "#,
         )
         .unwrap();
@@ -2048,6 +2126,15 @@ printf 'HTTP/2.0 200 OK\r\nEtag: %s\r\nContent-Type: application/json\r\n\r\n' "
             .collect();
         fs::write(dir.join(format!("{key}.etag")), etag).unwrap();
         fs::write(dir.join(format!("{key}.body")), body).unwrap();
+        let _ = fs::remove_file(dir.join(format!("{key}.link")));
+    }
+
+    fn fake_link(dir: &Path, path: &str, link: &str) {
+        let key: String = path
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect();
+        fs::write(dir.join(format!("{key}.link")), link).unwrap();
     }
 
     #[test]
@@ -2057,11 +2144,11 @@ printf 'HTTP/2.0 200 OK\r\nEtag: %s\r\nContent-Type: application/json\r\n\r\n' "
         let gh = fake_gh(&dir);
         let gh = gh.to_str().unwrap();
         let (p1, p2, m1) = ("1".repeat(40), "2".repeat(40), "3".repeat(40));
-        let pulls = "repos/aien-dev/demo/pulls?state=open&per_page=50";
+        let pulls = format!("repos/aien-dev/demo/pulls?state=open&per_page={OPEN_PULLS_PER_PAGE}");
         let main = "repos/aien-dev/demo/commits/main";
         fake_answer(
             &dir,
-            pulls,
+            &pulls,
             "W/\"a\"",
             &format!(r#"[{{"head":{{"sha":"{p2}"}}}},{{"head":{{"sha":"{p1}"}}}}]"#),
         );
@@ -2087,7 +2174,7 @@ printf 'HTTP/2.0 200 OK\r\nEtag: %s\r\nContent-Type: application/json\r\n\r\n' "
         let p3 = "4".repeat(40);
         fake_answer(
             &dir,
-            pulls,
+            &pulls,
             "W/\"b\"",
             &format!(r#"[{{"head":{{"sha":"{p3}"}}}}]"#),
         );
@@ -2100,6 +2187,162 @@ printf 'HTTP/2.0 200 OK\r\nEtag: %s\r\nContent-Type: application/json\r\n\r\n' "
         let _ = github_heads(gh, "github.com/aien-dev/demo").unwrap();
         let log = fs::read_to_string(dir.join("log")).unwrap();
         assert!(!log.lines().last().unwrap().contains("If-None-Match"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn link_next_reads_the_next_rel_and_strips_the_api_host() {
+        let headers = "HTTP/2.0 200 OK\r\nLink: <https://api.github.com/repos/o/r/pulls?state=open&per_page=100&page=2>; rel=\"next\", <https://api.github.com/repos/o/r/pulls?state=open&per_page=100&page=9>; rel=\"last\"\r\n";
+        assert_eq!(
+            link_next(headers).as_deref(),
+            Some("repos/o/r/pulls?state=open&per_page=100&page=2")
+        );
+        assert_eq!(link_next("HTTP/2.0 200 OK\r\nEtag: \"x\"\r\n"), None);
+    }
+
+    /// Issue #732: a first page of 100 is not the whole list. The head on page 2
+    /// must be judged too. A 304 omits Link, so the remembered next page is what
+    /// the second poll follows. Dropping the link stops the walk (negative control).
+    #[test]
+    fn open_pulls_past_the_first_page_are_polled_and_a_304_still_follows_next() {
+        let dir = std::env::temp_dir().join(format!("sc732-heads-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let gh = fake_gh(&dir);
+        let gh = gh.to_str().unwrap();
+        let (p1, p2, m1) = ("a".repeat(40), "b".repeat(40), "c".repeat(40));
+        let page1 = format!("repos/aien-dev/demo/pulls?state=open&per_page={OPEN_PULLS_PER_PAGE}");
+        let page2 = format!("{page1}&page=2");
+        let main = "repos/aien-dev/demo/commits/main";
+        fake_answer(
+            &dir,
+            &page1,
+            "W/\"p1\"",
+            &format!(r#"[{{"head":{{"sha":"{p1}"}}}}]"#),
+        );
+        fake_link(
+            &dir,
+            &page1,
+            &format!("<https://api.github.com/{page2}>; rel=\"next\""),
+        );
+        fake_answer(
+            &dir,
+            &page2,
+            "W/\"p2\"",
+            &format!(r#"[{{"head":{{"sha":"{p2}"}}}}]"#),
+        );
+        fake_answer(&dir, main, "\"m\"", &format!(r#"{{"sha":"{m1}"}}"#));
+        let mut cache = GithubHeadCache::default();
+        let first = github_heads_cached(gh, "github.com/aien-dev/demo", &mut cache).unwrap();
+        assert_eq!(first, vec![p1.clone(), p2.clone(), m1.clone()]);
+        let second = github_heads_cached(gh, "github.com/aien-dev/demo", &mut cache).unwrap();
+        assert_eq!(
+            second, first,
+            "304 on page 1 still walks the remembered page 2"
+        );
+        let log = fs::read_to_string(dir.join("log")).unwrap();
+        let page2_calls = log.lines().filter(|l| l.contains("page=2")).count();
+        assert_eq!(page2_calls, 2, "both polls ask for page 2: {log}");
+        assert!(
+            log.lines().any(|l| l.contains("If-None-Match: W/\"p2\"")),
+            "page 2 is conditional on the second poll: {log}"
+        );
+        // Negative control: no next link, so the head that lived only on page 2 disappears
+        // and that page is not requested again.
+        fake_answer(
+            &dir,
+            &page1,
+            "W/\"p1b\"",
+            &format!(r#"[{{"head":{{"sha":"{p1}"}}}}]"#),
+        );
+        let third = github_heads_cached(gh, "github.com/aien-dev/demo", &mut cache).unwrap();
+        assert_eq!(third, vec![p1, m1], "no next link stops at page 1");
+        let log = fs::read_to_string(dir.join("log")).unwrap();
+        assert_eq!(
+            log.lines().filter(|l| l.contains("page=2")).count(),
+            2,
+            "page 2 is not fetched once page 1 no longer links it: {log}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Issue #732 acceptance: more than 100 open PRs, the last page's head, a
+    /// duplicate across pages, an unchanged 304, a changed later page, and a
+    /// failed later page that is an error rather than a short success.
+    #[test]
+    fn a_list_longer_than_one_page_keeps_the_last_head_and_a_later_error_is_not_success() {
+        let dir = std::env::temp_dir().join(format!("sc732-long-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let gh = fake_gh(&dir);
+        let gh = gh.to_str().unwrap();
+        let sha = |n: u32| format!("{n:040x}");
+        let page1 = format!("repos/aien-dev/wide/pulls?state=open&per_page={OPEN_PULLS_PER_PAGE}");
+        let page2 = format!("{page1}&page=2");
+        let main = "repos/aien-dev/wide/commits/main";
+        let m1 = sha(0xffff);
+        let mut body = String::from("[");
+        for n in 0..100 {
+            if n > 0 {
+                body.push(',');
+            }
+            body.push_str(&format!(r#"{{"head":{{"sha":"{}"}}}}"#, sha(n)));
+        }
+        body.push(']');
+        fake_answer(&dir, &page1, "W/\"wide1\"", &body);
+        fake_link(
+            &dir,
+            &page1,
+            &format!("<https://api.github.com/{page2}>; rel=\"next\""),
+        );
+        fake_answer(
+            &dir,
+            &page2,
+            "W/\"wide2\"",
+            &format!(
+                r#"[{{"head":{{"sha":"{}"}}}},{{"head":{{"sha":"{}"}}}}]"#,
+                sha(0),
+                sha(100)
+            ),
+        );
+        fake_answer(&dir, main, "\"mw\"", &format!(r#"{{"sha":"{m1}"}}"#));
+        let mut cache = GithubHeadCache::default();
+        let first = github_heads_cached(gh, "github.com/aien-dev/wide", &mut cache).unwrap();
+        let mut expect: Vec<String> = (0..101).map(sha).collect();
+        expect.push(m1);
+        expect.sort();
+        expect.dedup();
+        assert_eq!(
+            first, expect,
+            "100 page-1 heads + last-page head + main, duplicate dropped"
+        );
+        assert!(first.contains(&sha(100)), "last page head is present");
+        assert_eq!(first.len(), 102);
+
+        let second = github_heads_cached(gh, "github.com/aien-dev/wide", &mut cache).unwrap();
+        assert_eq!(second, first, "304 keeps the long list, including page 2");
+
+        fake_answer(
+            &dir,
+            &page2,
+            "W/\"wide2b\"",
+            &format!(r#"[{{"head":{{"sha":"{}"}}}}]"#, sha(101)),
+        );
+        let third = github_heads_cached(gh, "github.com/aien-dev/wide", &mut cache).unwrap();
+        assert!(third.contains(&sha(101)), "a changed later page is read");
+        assert!(
+            !third.contains(&sha(100)),
+            "the replaced later-page head is gone"
+        );
+
+        let key: String = page2
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect();
+        fs::remove_file(dir.join(format!("{key}.body"))).unwrap();
+        let err = github_heads_cached(gh, "github.com/aien-dev/wide", &mut cache).unwrap_err();
+        assert!(
+            err.contains("404"),
+            "a failed later page is an error, not a short list: {err}"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
