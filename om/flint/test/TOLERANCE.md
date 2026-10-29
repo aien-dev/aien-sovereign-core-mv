@@ -191,3 +191,31 @@ flint-op moe layer 24 elems 8192 worst_ppm 6 ties 0 PASS
 the band is wider than the observed error. The tie tokens still have their weights compared
 whenever both top-6 sets agree. The reference runs in f32; bf16-activation parity is not
 measured here.
+
+## Full chained forward (candidate numerical profile, 2026-10-29)
+
+`ops.om forward` consumes only token IDs as inputs. It loads real embedding rows, executes
+all 49 decoder layers using its own prior outputs, applies final RMSNorm and streams every
+vocabulary row of the untied LM head. No teacher forcing or reference router-index adoption.
+Each layer compares input norm, attention output, post-attention norm, MLP output and residual
+output against the independent pinned reference. Embeddings and final norm are also compared.
+The admitted fixture has two tokens, IDs 1001 and 8920. This is a bounded host verifier,
+not a serving engine, KV-cache implementation, long-context benchmark or device qualification.
+The existing attention operator fixture separately exercises the 513-token window boundary.
+
+Before the first execution, the integration criterion was fixed as
+`|native-reference| <= 8 gamma_2048 (1+|reference|)`. This is an explicit integration
+budget, **not** a derived worst-case error theorem for 49 layers. The local operator
+tests above retain their tighter propagated bounds. `fw_cmp` passes half this budget
+to `cmp`, which already compares against twice the supplied bound.
+BF16 checkpoint storage is unchanged; native computation is f64, reference computation
+is f32, so this result does not establish BF16-activation, quantized or GPU parity.
+There is no numerical tuning or relaxed threshold after observing the fixture.
+
+WolframLanguageEvaluator:
+`{49-2,49-Length[{0,1,5,9,13,17,21,25,29,33,37,41,45,48}], N[2^(-24)*2048/(1-2^(-24)*2048),18], 2*2048*150144, 3*512*2048*2, 6*3*512*2048*2, 49*2*2048*4*5+2*150144*4}`
+returned
+`{47,35,0.000122085215480405323,615038976,6291456,37748736,5218304}`.
+The byte counts are modeled layout sizes, not measured memory usage.
+The chained fixture is pinned by SHA256 in `check.sh`; wrong-token and skipped-final-normalization
+source mutants must compile and return comparison exit 1, not a trap or setup refusal.
