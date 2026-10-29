@@ -20,6 +20,11 @@ note RoPE and the sliding window of FWIN keys including the query itself.
 
 const FWIN ulong 513
 const FHID ulong 2048
+note FULP: libm budget in ulps for each of the reference's powf, cosf and sinf calls in RoPE.
+note glibc 2.39 lists 1 ulp for AArch64 powf/cosf/sinf, SLEEF documents 1.0 (u10) and 3.5 (u35);
+note 4 covers all of them (test/TOLERANCE.md, RoPE libm budget). test/opref.py reads this line,
+note measures the reference's calls against float64 and refuses fixtures above FULP ulps.
+const FULP ulong 4
 global ga uchar 16384
 global gas ulong 8
 global gal ulong 8
@@ -702,13 +707,15 @@ end
 end
 
 note rope_cs: cos and sin of pos inv_freq_i, inv_freq_i = exp(-(2 i / 128) ln 10000), into
-note gacc 3 and 4; gacc 5 gets the reference's angle and cos/sin error th gamma_4 + gamma_2
+note gacc 3 and 4; gacc 5 gets the reference's angle and cos/sin error under FULP ulps per
+note libm call (1 ulp <= 2u relative): the angle 1 / pow(10000, 2i/128) * pos carries
+note gamma_(2 FULP + 2) relative, and cos/sin add gamma_(2 FULP) absolute
 fn rope_cs pos ulong i ulong to void
 f = om_exp neg mul f64 i div 9.210340371976182736f64 64.0f64
 th = mul f64 pos f
 put gacc 3 om_sc th true
 put gacc 4 om_sc th false
-put gacc 5 add mul th gam 4 gam 2
+put gacc 5 add mul th gam add mul 2 FULP 2 gam mul 2 FULP
 end
 
 note rope_one: rotate_half RoPE of the pair (i, i + 64) of gy at pos, in place;
@@ -1382,6 +1389,7 @@ st_one om_sig 1.5f64 0.8175744761936436596f64 2.0e-15f64
 rope_cs 519 1
 st_one get gacc 3 -0.982429600544478341f64 1.0e-12f64
 st_one get gacc 4 -0.1866335446108676431f64 1.0e-12f64
+st_one get gacc 5 2.683614206850094353e-4f64 1.0e-12f64
 r = report tostt
 ret r
 end

@@ -4,7 +4,9 @@
 Runs the pinned reference's own modules (transformers models/flint/modeling_flint.py and
 configuration_flint.py, the files whose sha256 are REF_SHA and CFG_SHA below) in float32 on small
 deterministic inputs drawn from the real BF16 weights of named layers, and writes one binary fixture
-per operator for om/flint/ops.om to recompute.
+per operator for om/flint/ops.om to recompute. Before the q/k/v and attention fixtures it measures
+the reference's RoPE powf, cosf and sinf against float64 and exits if any call is off by more than
+ops.om's FULP ulps, the libm budget the RoPE bound assumes.
 
 Usage: opref.py SRC SHARDS OUT
   SRC     the pinned source tree (config.json, model.safetensors.index.json)
@@ -27,6 +29,7 @@ Inputs are embedding rows of deterministic token ids passed through the named la
 import hashlib
 import json
 import os
+import re
 import struct
 import sys
 
@@ -135,6 +138,31 @@ def capture(module, query, key, value, attention_mask, scaling, **kw):
 
 mf.eager_attention_forward = capture
 rope = mf.FlintRotaryEmbedding(cfg)
+
+# ops.om bounds RoPE for FULP ulps per powf, cosf and sinf call; measure the reference's own calls
+# against float64 and refuse to write fixtures if any exceeds that budget.
+FULP = int(re.search(r"^const FULP ulong (\d+)$",
+                     open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ops.om")).read(),
+                     re.M).group(1))
+
+
+def ulps(got, exact):
+    a = got.abs()
+    ulp = (torch.nextafter(a, torch.full_like(a, float("inf"))) - a).double()
+    return ((got.double() - exact).abs() / ulp).max().item()
+
+
+theta = cfg.rope_parameters["rope_theta"]
+expo = torch.arange(0, cfg.head_dim, 2, dtype=torch.float) / cfg.head_dim
+pw = theta ** expo
+assert torch.equal(1.0 / pw, rope.inv_freq), "inv_freq is 1 / theta ** (2i / d)"
+cos, sin = rope(torch.zeros(1, T, 8), pos_ids)
+ang = (pos_ids[..., None].float() * rope.inv_freq)[0]
+libm = (ulps(pw, float(theta) ** expo.double()), ulps(cos[0, :, :64], ang.double().cos()),
+        ulps(sin[0, :, :64], ang.double().sin()))
+if max(libm) > FULP:
+    sys.exit("opref: RoPE libm ulps pow %.3f cos %.3f sin %.3f exceed FULP %d" % (libm + (FULP,)))
+
 for layer in (2, 5):
     kind = cfg.layer_types[layer]
     assert kind == ("sliding_attention" if layer == 2 else "full_attention"), (layer, kind)
@@ -228,4 +256,5 @@ blk = mf.FlintSparseMoeBlock.__new__(mf.FlintSparseMoeBlock)
 torch.nn.Module.__init__(blk)
 blk.gate, blk.experts, blk.shared_expert = router, experts(), sh
 write("moe.bin", 7, L, 4, 0, 0, f32(x4), f32(blk(x4.unsqueeze(0))[0]))
-print("opref ok ref %s cfg %s torch %s expert %d tie %d/%d" % (REF_SHA[:16], CFG_SHA[:16], torch.__version__, e, int(a), int(b)))
+print("opref ok ref %s cfg %s torch %s expert %d tie %d/%d rope ulps pow %.3f cos %.3f sin %.3f of %d"
+      % ((REF_SHA[:16], CFG_SHA[:16], torch.__version__, e, int(a), int(b)) + libm + (FULP,)))

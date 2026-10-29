@@ -184,7 +184,9 @@ output in f64 and prints `flint-op OP layer L elems N worst_ppm P ties K PASS|FA
 or 2 and up for a refusal). An element passes within twice a first-order bound on the
 reference's own f32 error; `test/TOLERANCE.md` has the bound per operator, the gamma_n table,
 the Wolfram queries and the detection floor (systematic errors below about 2 gamma_n of the
-output's last accumulation always pass).
+output's last accumulation always pass). The RoPE bound allows FULP = 4 ulps (`ops.om`) per
+powf, cosf and sinf call of the reference; `opref.py` measures those calls against float64 and
+refuses to write fixtures if any exceeds FULP (2026-10-29: worst 0.848 ulp, cosf).
 
 Fixtures: RMSNorm (layer 2); q/k/v with q/k norm and RoPE on sliding layer 2, and on full
 layer 5 without RoPE; attention with sinks over 520 keys, the 513-key window and its edge on

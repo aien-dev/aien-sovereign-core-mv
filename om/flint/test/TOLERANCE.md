@@ -16,7 +16,7 @@ of length K with inputs that carry their own bounds E_x gets
 | RMSNorm (`rmsnorm`, layer 2 `input_layernorm`, T 16) | `gamma_(n+6) |y|` plus propagated input error | 2054 (n = 2048) |
 | q/k/v projection (`qkv-2`, `qkv-5`, S 8) | dot over hidden size | 2048 |
 | q_norm, k_norm (inside `qkv`) | RMSNorm over head_dim | 134 (n = 128) |
-| RoPE (`qkv-2` sliding layer; `qkv-5` full layer has none) | cos/sin of `theta = pos inv_freq`: `theta gamma_4 + gamma_2`; rotation `gamma_2` | 4, 2 |
+| RoPE (`qkv-2` sliding layer; `qkv-5` full layer has none) | cos/sin of `theta = pos inv_freq` under a libm budget of FULP = 4 ulps per call: `theta gamma_(2 FULP + 2) + gamma_(2 FULP)` = `theta gamma_10 + gamma_8`; rotation `gamma_2` | 10, 8, 2 |
 | attention scores (`attn-2`, `attn-5`, T 520 keys, S 8 queries) | `gamma_130 scale sum |q k|` (128-term dot, scale) | 130 |
 | softmax with sink | per score `E_s + E_max + u |s - max| + gamma_2`; normalizer weighted by `e_k`; `gamma_(T+4)` | 524 (T = 520) |
 | P·V | `sum p_j |v| (rho_j + gamma_T)` | 520 |
@@ -54,6 +54,37 @@ at the baseline worst_ppm 1443 (index check, not a numeric change), and with the
 forced to reject (`if true` in `rt_cmp`) router-tie FAILs while router still PASSes, so the accept
 path is exercised by router-tie and by none of the 10 tie tokens of the router fixture.
 
+## RoPE libm budget
+
+The reference computes `inv_freq = 1.0 / (theta ** (arange(0, 128, 2) / 128))` and then
+`cos(pos inv_freq)`, `sin(pos inv_freq)` in f32 (`modeling_flint.py` `FlintRotaryEmbedding`).
+The exponent is exact, the division and the product each round once, and powf, cosf and sinf
+each err by at most FULP ulps of their result, where 1 ulp is at most `2u` relative. To first
+order the angle then carries relative error `gamma_(2 FULP + 2)`, an absolute `theta gamma_(2 FULP + 2)`
+that moves cos and sin by at most as much, and the cos/sin calls add `gamma_(2 FULP)` absolute. `ops.om` sets
+`const FULP ulong 4`.
+
+Why 4: the glibc 2.39 manual ("Known Maximum Errors in Math Functions",
+https://sourceware.org/glibc/manual/2.39/html_node/Errors-in-Math-Functions.html) lists 1 ulp for
+AArch64 `powf`, `cosf` and `sinf`; SLEEF, which torch's vectorized CPU kernels can use, documents
+1.0 ulp for its `_u10` functions and 3.5 ulps for `_u35` (https://sleef.org/). FULP 4 holds for
+any of these. The earlier bound `theta gamma_4 + gamma_2` (until e6c022b6) assumed 1 ulp per call
+and left no room for a `_u35` path.
+
+The budget is also measured, not only assumed. `test/opref.py` reads FULP from `ops.om`, compares
+the reference module's own `theta ** expo`, `cos` and `sin` over positions 0..519 with float64, and
+exits before writing the q/k/v and attention fixtures when any call exceeds FULP ulps. On the Spark
+host CPU with torch 2.14.0 it prints `rope ulps pow 0.492 cos 0.848 sin 0.708 of 4`, so the worst
+call uses 0.212 of the budget (`WolframLanguageEvaluator: N[{0.492/4, 0.848/4, 0.708/4}, 6] -> {0.123, 0.212, 0.177}`).
+The selftest pins the bound at pos 519, pair 1:
+`WolframLanguageEvaluator: u = 2^-24; g[n_] := n u/(1 - n u); th = 519 10000^(-1/64); NumberForm[N[{th, th g[10] + g[8], th g[4] + g[2]}, 25], 19] -> {449.4354838238739179, 0.0002683614206850094353, 0.0001072730043023284837}`,
+2.50 times the 1-ulp value (`WolframLanguageEvaluator: N[2.683614206850094353*^-4/1.072730043023284837*^-4, 6] -> 2.50167`).
+With FULP 4, `qkv-2` worst_ppm went from 5212 to 4826 (`WolframLanguageEvaluator: N[4826/5212, 6] -> 0.925940`), and the
+rope-global mutant on `qkv-5` still FAILs at worst_ppm 481023464. Controls on edited copies:
+FULP 1 restores `qkv-2` worst_ppm 5212 and turns the selftest to FAIL (`FAIL (1 of 89)`); FULP 0
+makes `opref.py` exit with `RoPE libm ulps pow 0.492 cos 0.848 sin 0.708 exceed FULP 0`
+(`FAIL (1 of 71)`).
+
 ## Detection floor
 
 The bound is a worst case, so it also limits what the check can see. Take an output y whose last
@@ -65,13 +96,13 @@ Systematic relative errors below that floor always pass. Above it, an error is c
 there is little cancellation (`sum |w x|` close to `|y|`). Errors in an internal parameter reach the
 outputs scaled by the operator's sensitivity, which can be well below 1.
 
-`WolframLanguageEvaluator: u = 2^-24; g[n_] := n u/(1 - n u); rows = {{"rmsnorm y", 2054, 690}, {"qkv-2 v", 2048, 5212}, {"qkv-2 q,k", 134, 5212}, {"qkv-5 v", 2048, 886}, {"qkv-5 q,k", 134, 886}, {"attn-2 o", 520, 1876}, {"attn-2 y", 4096, 1876}, {"attn-5 o", 520, 5017}, {"attn-5 y", 4096, 5017}, {"router logits", 2048, 1443}, {"router w", 7, 1443}, {"shared y", 1024, 16}, {"expert y", 512, 17}, {"moe y", 512, 6}}; Map[{#[[1]], #[[2]], #[[3]], N[(1 - #[[3]]/10^6) 2 g[#[[2]]], 6]} &, rows]`
+`WolframLanguageEvaluator: u = 2^-24; g[n_] := n u/(1 - n u); rows = {{"rmsnorm y", 2054, 690}, {"qkv-2 v", 2048, 4826}, {"qkv-2 q,k", 134, 4826}, {"qkv-5 v", 2048, 886}, {"qkv-5 q,k", 134, 886}, {"attn-2 o", 520, 1876}, {"attn-2 y", 4096, 1876}, {"attn-5 o", 520, 5017}, {"attn-5 y", 4096, 5017}, {"router logits", 2048, 1443}, {"router w", 7, 1443}, {"shared y", 1024, 16}, {"expert y", 512, 17}, {"moe y", 512, 6}}; Map[{#[[1]], #[[2]], #[[3]], N[(1 - #[[3]]/10^6) 2 g[#[[2]]], 6]} &, rows]`
 
 | Fixture output | n of last accumulation | clean worst_ppm | floor `(1 - w) 2 gamma_n` |
 |---|---|---|---|
 | `rmsnorm` y | 2054 | 690 | 2.44717e-4 |
-| `qkv-2` v | 2048 | 5212 | 2.42898e-4 |
-| `qkv-2` q, k (after q/k norm) | 134 | 5212 | 1.58909e-5 |
+| `qkv-2` v | 2048 | 4826 | 2.42992e-4 |
+| `qkv-2` q, k (after q/k norm) | 134 | 4826 | 1.58971e-5 |
 | `qkv-5` v | 2048 | 886 | 2.43954e-4 |
 | `qkv-5` q, k (after q/k norm) | 134 | 886 | 1.59600e-5 |
 | `attn-2` o (P·V) | 520 | 1876 | 6.18745e-5 |
@@ -92,7 +123,7 @@ scale-invariant. Review evidence on 6a95f6f8: a softmax scale of 0.0884 in place
 passes `attn-5` at worst_ppm 942555, and an RMSNorm epsilon of 1e-5 in place of 1e-6 passes
 `qkv-2` (worst_ppm 268470; q/k norm inputs have a large mean square) while `rmsnorm` (raw
 embedding rows) catches it. The six forward mutants in `check.sh` are structural and land 1.8x
-to 1500x above the tolerance (`WolframLanguageEvaluator: N[{1788241, 11564696, 20605613, 69071141, 482448897, 1497684841}/10^6, 6] -> {1.78824, 11.5647, 20.6056, 69.0711, 482.449, 1497.68}`).
+to 1500x above the tolerance (`WolframLanguageEvaluator: N[{1788241, 11564696, 20605613, 69071141, 481023464, 1497684841}/10^6, 6] -> {1.78824, 11.5647, 20.6056, 69.0711, 481.023, 1497.68}`).
 This check therefore proves the operators' structure and their
 agreement to about the f32 worst-case bound (relative 2.4e-4 at n = 2048,
 `WolframLanguageEvaluator: N[2 2048 2^-24/(1 - 2048 2^-24), 6] -> 0.000244170`); it does not
@@ -109,6 +140,7 @@ detect systematic errors smaller than that.
 | 4 | 2.38418635945e-7 |
 | 7 | 4.17232687511e-7 |
 | 8 | 4.76837385577e-7 |
+| 10 | 5.96046803025e-7 (`WolframLanguageEvaluator: u = 2^-24; g[n_] := n u/(1 - n u); N[g[10], 12]`) |
 | 130 | 7.74866386213e-6 |
 | 134 | 7.98708619294e-6 |
 | 512 | 3.05185094760e-5 |
@@ -133,7 +165,8 @@ ends of the domain; the returned maximum is finite.
 ```
 
 The selftest (`flint-ops selftest`) checks `om_exp`, `om_sc` and `om_sig` against these values
-at relative 2e-15, and the RoPE angle `519 x 10000^(-2/128)` (pos 519, pair 1) at 1e-12. omc
+at relative 2e-15, and the RoPE angle `519 x 10000^(-2/128)` (pos 519, pair 1) and its error
+bound (RoPE libm budget above) at 1e-12. omc
 float literals hold at most 2^63 - 1 in the digit string (error 8 above that), so five of the
 values are written with 18 significant digits in `ops.om`. The softmax scale is
 `1/sqrt(128)` and `inv_freq_i = exp(-i ln(10000) / 64)`; omc has no exp, sin or cos, so
@@ -142,9 +175,9 @@ values are written with 18 significant digits in `ops.om`. The softmax scale is
 ## Measured (Spark host CPU, `taskset -c 10-14`, 2026-10-29)
 
 ```
-flint-op selftest layer 0 elems 13 worst_ppm 51902 ties 0 PASS
+flint-op selftest layer 0 elems 14 worst_ppm 51902 ties 0 PASS
 flint-op rmsnorm layer 2 elems 32768 worst_ppm 690 ties 0 PASS
-flint-op qkv layer 2 elems 40960 worst_ppm 5212 ties 0 PASS
+flint-op qkv layer 2 elems 40960 worst_ppm 4826 ties 0 PASS
 flint-op qkv layer 5 elems 40960 worst_ppm 886 ties 0 PASS
 flint-op attn layer 2 elems 49152 worst_ppm 1876 ties 0 PASS
 flint-op attn layer 5 elems 49152 worst_ppm 5017 ties 0 PASS
