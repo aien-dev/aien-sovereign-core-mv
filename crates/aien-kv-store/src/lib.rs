@@ -38,6 +38,8 @@ pub mod record;
 #[cfg(feature = "std")]
 pub mod seal;
 #[cfg(all(test, feature = "std", unix))]
+mod seal_budget_tests;
+#[cfg(all(test, feature = "std", unix))]
 mod seal_nonce_tests;
 pub mod store;
 pub mod validate;
