@@ -95,17 +95,17 @@ fn test_t2_f06_sanitizer_empty_prompt() {
 
 #[test]
 fn test_t2_f07_sanitizer_prompt_only_paths() {
-    let input = "/home/drakestapleton/dir/file.rs";
+    let input = "/home/alice/dir/file.rs";
     let output = sanitize_outbound_prompt(input);
     assert_eq!(output, "<WORKSPACE_PATH>");
 }
 
 #[test]
 fn test_t2_f08_sanitizer_prompt_only_ips() {
-    let input = "127.0.0.1 192.168.1.1 10.0.0.1";
+    let input = "127.0.0.1 192.168.0.1 10.0.0.1";
     let output = sanitize_outbound_prompt(input);
     assert!(!output.contains("127.0.0.1"));
-    assert!(!output.contains("192.168.1.1"));
+    assert!(!output.contains("192.168.0.1"));
     assert!(!output.contains("10.0.0.1"));
     assert!(output.contains("<LOCAL_HOST>"));
 }
@@ -121,9 +121,9 @@ fn test_t2_f09_sanitizer_multiple_mixed_secrets() {
 
 #[test]
 fn test_t2_f10_sanitizer_system_prompt_scrubbing() {
-    let sys = "You are running on /home/drakestapleton for aien@aienos.com";
+    let sys = "You are running on /home/alice for aien@aienos.com";
     let cleaned = sanitize_outbound_prompt(sys);
-    assert!(!cleaned.contains("/home/drakestapleton"));
+    assert!(!cleaned.contains("/home/alice"));
     assert!(!cleaned.contains("aien@aienos.com"));
 }
 

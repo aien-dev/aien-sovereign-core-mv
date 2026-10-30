@@ -26,7 +26,7 @@ Baseline executed against live workspace state on 2026-09-20:
 - Failed: 0
 - Ignored: 0
 - Execution duration: 132 seconds
-- Results artifact: `/home/drakestapleton/workspace/aien-sovereign-core/tests_results.json`
+- Results artifact: `tests_results.json`
 
 ### Tier Execution Summary
 
@@ -58,25 +58,25 @@ Baseline executed against live workspace state on 2026-09-20:
 
 ## 5. Test Execution Instructions
 
-Execute tests directly on NVIDIA DGX Spark (`spark`) as user `drakestapleton`:
+Execute tests on the NVIDIA DGX Spark from the repository root:
 
 ```bash
 # Execute entire 140-test suite via runner script
-/home/drakestapleton/workspace/aien-sovereign-core/scripts/e2e_distill_test.sh --all
+./scripts/e2e_distill_test.sh --all
 
 # Execute by tier
-/home/drakestapleton/workspace/aien-sovereign-core/scripts/e2e_distill_test.sh --tier 1
-/home/drakestapleton/workspace/aien-sovereign-core/scripts/e2e_distill_test.sh --tier 2
-/home/drakestapleton/workspace/aien-sovereign-core/scripts/e2e_distill_test.sh --tier 3
-/home/drakestapleton/workspace/aien-sovereign-core/scripts/e2e_distill_test.sh --tier 4
+./scripts/e2e_distill_test.sh --tier 1
+./scripts/e2e_distill_test.sh --tier 2
+./scripts/e2e_distill_test.sh --tier 3
+./scripts/e2e_distill_test.sh --tier 4
 
 # Execute by feature pattern
-/home/drakestapleton/workspace/aien-sovereign-core/scripts/e2e_distill_test.sh --feature sanitizer
-/home/drakestapleton/workspace/aien-sovereign-core/scripts/e2e_distill_test.sh --feature vault
-/home/drakestapleton/workspace/aien-sovereign-core/scripts/e2e_distill_test.sh --feature crawler
+./scripts/e2e_distill_test.sh --feature sanitizer
+./scripts/e2e_distill_test.sh --feature vault
+./scripts/e2e_distill_test.sh --feature crawler
 
 # Output structured JSON results
-/home/drakestapleton/workspace/aien-sovereign-core/scripts/e2e_distill_test.sh --all --json
+./scripts/e2e_distill_test.sh --all --json
 
 # Direct cargo test invocations
 cargo test -p spark-adapters --test tier1_features
@@ -87,11 +87,10 @@ cargo test -p spark-adapters --test tier4_real_world
 
 ## 6. Artifact Index
 
-- Tier 1 Feature Test Suite: `/home/drakestapleton/workspace/aien-sovereign-core/crates/spark-adapters/tests/tier1_features.rs`
-- Tier 2 Boundary Test Suite: `/home/drakestapleton/workspace/aien-sovereign-core/crates/spark-adapters/tests/tier2_boundary.rs`
-- Tier 3 Cross-Feature Suite: `/home/drakestapleton/workspace/aien-sovereign-core/crates/spark-adapters/tests/tier3_cross_feature.rs`
-- Tier 4 Real-World Suite: `/home/drakestapleton/workspace/aien-sovereign-core/crates/spark-adapters/tests/tier4_real_world.rs`
-- Unified Shell Test Runner: `/home/drakestapleton/workspace/aien-sovereign-core/scripts/e2e_distill_test.sh`
-- Machine-Readable Results: `/home/drakestapleton/workspace/aien-sovereign-core/tests_results.json`
-- Orchestrator Readiness Report: `/Users/drakestapleton/.agents/orchestrator_6/TEST_READY.md`
-- Local Repository Copy: `/home/drakestapleton/workspace/aien-sovereign-core/TEST_READY.md`
+- Tier 1 Feature Test Suite: `crates/spark-adapters/tests/tier1_features.rs`
+- Tier 2 Boundary Test Suite: `crates/spark-adapters/tests/tier2_boundary.rs`
+- Tier 3 Cross-Feature Suite: `crates/spark-adapters/tests/tier3_cross_feature.rs`
+- Tier 4 Real-World Suite: `crates/spark-adapters/tests/tier4_real_world.rs`
+- Unified Shell Test Runner: `./scripts/e2e_distill_test.sh`
+- Machine-Readable Results: `tests_results.json`
+- Readiness Report: `TEST_READY.md`
