@@ -377,7 +377,7 @@ pub fn dispatch_tool_with(name: &str, args: &Value, ctx: &crate::approval::GateC
                 tokio::runtime::Handle::current()
                     .block_on(crate::subagents::invoke_subagent_from_root(role, prompt))
             });
-            (res, true)
+            subagent_tool_result(res)
         }
         "subagent" | "subagents" => {
             let action = args.get("action").and_then(Value::as_str).unwrap_or("list");
@@ -425,6 +425,11 @@ pub fn dispatch_tool_with(name: &str, args: &Value, ctx: &crate::approval::GateC
     let elapsed = start.elapsed().as_millis();
     print_tool_done(name, elapsed, success);
     final_res
+}
+
+pub(crate) fn subagent_tool_result(res: Value) -> (Value, bool) {
+    let success = res.get("status").and_then(Value::as_str) == Some("completed");
+    (res, success)
 }
 
 /// Persist a content-addressed, secret-free receipt for every tool effect.

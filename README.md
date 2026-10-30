@@ -85,6 +85,12 @@ Every file the agent writes in a chat session is recorded: one snapshot of the d
 
 Mechanism after Hermes Agent (Nous Research, MIT licence, commit 5480918), re-implemented from reading; no code copied.
 
+Recursive subagent results and transcripts distinguish `completed` (a nonempty final model reply without tool calls), `failed` (inference error or empty reply), and `exhausted` (ten tool-bearing turns without a final reply). Only `completed` sets the tool success flag and emits a completion comb. Error text remains in the summary. A transcript persistence failure is reported separately as `transcript_error`, with `transcript_path: null`; it does not rewrite the execution outcome. These labels describe the agent loop, not independent verification of the assigned work. The host regression tests use a fake chat client and isolated transcript storage, without model or GPU access:
+
+```sh
+cargo test -p aien-cli --bin aien-cli subagents::tests::
+```
+
 ## Contributing
 
 Read [CONSTITUTION.md](CONSTITUTION.md) and [AGENTS.md](AGENTS.md) before opening a pull request. Changes ship on a branch with verification proof: the commands you ran and their output. Prefer work that moves capability into the C repositories over new Rust here. Contact: aien@aienos.com.
