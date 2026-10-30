@@ -544,7 +544,13 @@ mod ffi {
 /// a diagnostic for the attention block-count experiment, never a server setting.
 pub fn decode_attn256_set_per_split(per_split: u32) {
     // SAFETY: a plain setter that takes omega's session lock; no pointers cross.
-    unsafe { ffi::omega_gpu_decode_attn256_set_per_split(per_split) }
+    #[cfg(has_omega_q38)]
+    unsafe {
+        ffi::omega_gpu_decode_attn256_set_per_split(per_split)
+    }
+    // The stub has no attention launch to configure; every launch already returns Unavailable.
+    #[cfg(not(has_omega_q38))]
+    let _ = per_split;
 }
 
 /// omega's own gather table (`omega_q38_gather_table`) for `shape`'s heads, for checking
