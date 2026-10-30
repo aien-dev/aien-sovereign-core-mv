@@ -83,7 +83,7 @@
         },
         {
           "digest": "b91112a4df1c5026fc4081dc9b8f2054c7ddd4dcb24ceda95fe89ed3a9e710f4",
-          "last_commit": "6c642160",
+          "last_commit": "d9fd045f",
           "name": "crates/aien-cli",
           "purpose": ""
         },
@@ -125,14 +125,14 @@
         }
       ],
       "children_root": "sha256:bc6db43b837ea5139c013dfd88da2a2f9f4bc7a69a21c96e177291cd30f082e8",
-      "compiled_at": "2026-10-30T13:17:36Z",
+      "compiled_at": "2026-10-30T13:52:53Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:564923b60a0189fc7794b98c2df0c50d9b1139b9f97db11c55ba0273d7d4c58d",
+      "digest": "sha256:ec00aac367bb60d1266e6b8bbd23d9115e794eecf798d3b91476f6281e206179",
       "evidence_files": 3602,
       "evidence_root": "sha256:1b8069934a4cc67803874ebd2ad5de32671fae5ccce1a3ea70aeb532fe8ea86b",
-      "files": 8106,
-      "generated_at_commit": "2bdfe9205b5a8caccacf6c34f81a7fb9e6cb99fe",
-      "source_tree": "sha256:a96992fc646df6b2af39104013491f711717150196d52b84442b386512ab0901"
+      "files": 8107,
+      "generated_at_commit": "17c931762d932412b9bd439b66e7bc32409b970c",
+      "source_tree": "sha256:48f8b6dc476dfde63455a0ddbd501edb73dcfd009271d6621d6bd65ad48a3274"
     }
   },
   "history": [],
