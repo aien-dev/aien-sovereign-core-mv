@@ -119,14 +119,14 @@
         }
       ],
       "children_root": "sha256:31b31d0c22430a2b7dbaf536741c122daa8e98b3e30440b78e6f0b153415c048",
-      "compiled_at": "2026-10-29T17:49:08Z",
+      "compiled_at": "2026-10-30T03:31:57Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:636216c508c53144e9b9ec454020d879d3d87e3fc836814d454ec8804d62a795",
-      "evidence_files": 3558,
-      "evidence_root": "sha256:92c7523ff6767aef13f7c5bf67039b979c3333c70885ac81ce393f1ae2c444e6",
-      "files": 7993,
-      "generated_at_commit": "db8c8c322efc054bf89ab1d702862fe382d5fd49",
-      "source_tree": "sha256:bfb504959fc2c490f0498ace6756d09dd55ee576914398fccdc2649f01556707"
+      "digest": "sha256:3dbb8df3c194deecd331a91931bacfb8b7a80c10f560d8e735f12717fcf603dd",
+      "evidence_files": 3586,
+      "evidence_root": "sha256:ee29710af304de14c30917f3cc8eb87c5b5e9a42b75dd9d009e842279d8075d0",
+      "files": 8055,
+      "generated_at_commit": "673deb9c3adccc22443a49ca593b385c50d86200",
+      "source_tree": "sha256:50b854f55774faa48f65b7ce6ba17ec72a041ef0d114c2fd660d6e97faefdf9d"
     }
   },
   "history": [],
