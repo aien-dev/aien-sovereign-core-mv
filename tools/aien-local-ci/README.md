@@ -121,6 +121,7 @@ added by this lane.
 | `/var/lib/aien-run` | root:aien-run 0750, ACL `u:drakestapleton:r-x` | HOME of aien-run; no skeleton dotfiles |
 | `cargo/` | root 0755 | CARGO_HOME (cargo works with it read-only: `--locked --offline` builds need no writes there) |
 | `cargo/registry`, `cargo/git` | root, read-only | seeded once from `~/.cargo` (1.9 GB + 1.3 GB; the git cache is needed because `Cargo.lock` has 3 git sources) |
+| `registry-refresh.sh <Cargo.lock>` | operator, sudo | adds to `cargo/registry` the crates.io packages a trusted lockfile names that the judge lacks: copied from `~/.cargo`, sha256 checked against the lockfile, unpacked into `registry/src` with cargo's `.cargo-ok` marker (the read-only judge cargo cannot unpack a `.crate` itself), index-cache entry copied, one journal line; a `.crate` the judge has without its source is unpacked after the same check; never deletes or replaces a crate or source directory (#622). `--dry-run` only lists |
 | `cargo/bin` | root | the operator's `rustup` binary + proxy symlinks; no second rustup install |
 | `rustup/` | root, read-only | `settings.toml` (default 1.98.1) + `toolchains/1.98.1-aarch64-unknown-linux-gnu` copied (631 MB), plus `toolchains/nightly-aarch64-unknown-linux-gnu` with miri for SC-MIRI |
 | `.cache/miri` | root, read-only | miri sysroot built once by `install.sh` against the copied nightly (110 MB); `cargo +nightly miri setup` in the sandbox finds it and writes nothing (#600) |
