@@ -1,0 +1,106 @@
+AIEN PLAN
+Repository: aien-sovereign-core
+Base: 27b0d670dc996fc7bd4b4570da37bd231816eb28
+Head: 1d24d97e7cac46f0d7dbd1b588261b5b173cc745
+Changed files: 59
+  evidence/w4-711/SHA256SUMS
+  evidence/w4-711/author-controls.json
+  evidence/w4-711/author.stdout
+  evidence/w4-711/batch-results.txt
+  evidence/w4-711/batch-review.txt
+  evidence/w4-711/compiler-correction/README.md
+  evidence/w4-711/compiler-correction/receipt.json
+  evidence/w4-711/differential.txt
+  evidence/w4-711/independent-controls.json
+  evidence/w4-711/independent.stdout
+  evidence/w4-711/model-fixture.json
+  evidence/w4-711/native-gate/README.md
+  evidence/w4-711/native-gate/entry.log
+  evidence/w4-711/preflight.txt
+  evidence/w4-711/receipt.json
+  evidence/w4-711/reference-host.stdout
+  evidence/w4-711/resident/SHA256SUMS
+  evidence/w4-711/resident/author.stdout
+  evidence/w4-711/resident/controls-results.txt
+  evidence/w4-711/resident/controls.json
+  evidence/w4-711/resident/independent.stdout
+  evidence/w4-711/resident/projection.txt
+  evidence/w4-711/resident/receipt.json
+  evidence/w4-711/resident/review.txt
+  evidence/w4-711/review.txt
+  evidence/w4-711/tensor/SHA256SUMS
+  evidence/w4-711/tensor/author.stdout
+  evidence/w4-711/tensor/checks.txt
+  evidence/w4-711/tensor/development-commands.txt
+  evidence/w4-711/tensor/differential.txt
+  evidence/w4-711/tensor/extra-checks.txt
+  evidence/w4-711/tensor/independent.stdout
+  evidence/w4-711/tensor/model-source.json
+  evidence/w4-711/tensor/mutant.txt
+  evidence/w4-711/tensor/receipt.json
+  evidence/w4-711/tensor/review.txt
+  native/w4/README.md
+  native/w4/compiler.lock
+  native/w4/compiler.sha256
+  native/w4/fixture.om
+  native/w4/gate-child.om
+  native/w4/gate.om
+  native/w4/pack.om
+  native/w4/reply.om
+  native/w4/resident-test.om
+  native/w4/resident.om
+  native/w4/review/fixture.om
+  native/w4/review/probes.om
+  native/w4/review/reply.om
+  native/w4/review/resident-independent.om
+  native/w4/review/resident-projection.om
+  native/w4/review/resident-stale.om
+  native/w4/review/tensor-fixture.om
+  native/w4/review/tensor-scale-fixture.om
+  native/w4/stream.om
+  native/w4/tensor.om
+  native/w4/tests.om
+  tests/gates/run.sh
+  tests/gates/sc-native-w4.gate
+Pins: native/w4/compiler.lock
+Graph digest: f9100d8b9c9cb2d64322047c97d229bc2c560bf0de974f1487df4402feba1774
+Required:
+  (none)
+Cached:
+  (none)
+Needs Spark:
+  (none)
+Needs GB10:
+  (none)
+Advisory:
+  (none)
+Blocked:
+  CRUMB-VERIFY pool=host exactness=EXACT check=7d1e69f651e1 because=always PIPELINE_CONFIG_CHANGED
+  SC-AGENT-PREFLIGHT pool=host exactness=EXACT check=0a6bdb5a7e27 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-AIEN-VERIFY-TESTS pool=host exactness=EXACT check=e9dd2b9276aa because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-ANTI-SLOP pool=host exactness=EXACT check=65d33b2efa63 because=always PIPELINE_CONFIG_CHANGED
+  SC-CHECK pool=host exactness=EXACT check=d555882d4233 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-CLIPPY pool=host exactness=EXACT check=3ad06b0b07d5 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-CRB1 pool=host exactness=EXACT check=98907de0cb93 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-FMT pool=host exactness=EXACT check=1575c8601239 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-INQUISITOR pool=host exactness=EXACT check=2f294cc3f4a8 because=always PIPELINE_CONFIG_CHANGED
+  SC-INSTALL pool=host exactness=EXACT check=c573727532c8 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-KV-PROPS pool=host exactness=EXACT check=fcf22c92a1d3 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-LINKED-COMPOSE pool=host exactness=EXACT check=9fc8e2b6c6c3 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-MIRI pool=host exactness=EXACT check=3a2d812c3e4d because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-NATIVE-IDENTITY pool=host exactness=EXACT check=7f37ddb0e4c2 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-NATIVE-W4 pool=host exactness=EXACT check=562886a639fe because=evidence/w4-711/SHA256SUMS PIPELINE_CONFIG_CHANGED
+  SC-PINS-SELFTEST pool=host exactness=EXACT check=95207cd376b4 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-PREFLIGHT-GUARD pool=host exactness=EXACT check=4e26b5f379fc because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-RELEASE-DRY-RUN pool=host exactness=EXACT check=7390547cddeb because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-RELEASE-GATE-NEGATIVES pool=host exactness=EXACT check=dfbe9a7f25d7 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-SCORING-V5 pool=host exactness=EXACT check=6332503d7200 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-STRICT-MODE pool=host exactness=EXACT check=f78c06592ec7 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-TEST pool=host exactness=EXACT check=b73301d9bd28 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-TRN1 pool=host exactness=EXACT check=ac696e0cd959 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-VERIFY-CLOSURE pool=host exactness=EXACT check=eee075bea757 because=tests/gates/run.sh PIPELINE_CONFIG_CHANGED
+  SC-ZERO-CUDA pool=host exactness=EXACT check=29a58c169b5b because=always PIPELINE_CONFIG_CHANGED
+  SC-ZERO-DISK-SECRETS pool=host exactness=EXACT check=2852f7681556 because=always PIPELINE_CONFIG_CHANGED
+UNMAPPED:
+  (none)
+Plan verdict: BLOCKED_OPERATOR PIPELINE_CONFIG_CHANGED

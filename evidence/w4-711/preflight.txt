@@ -1,0 +1,10 @@
+Repository gate remains FAIL, not waived.
+This branch and L790 were based on core main d691a4dc. L790 ran:
+quiet-build timeout 180 bash scripts/agent-preflight.sh
+Exit 1: browser_mirror::tests::stub_page_screenshot_and_eval failed with
+WebSocket read Resource temporarily unavailable (os error 11).
+Eight dependency advisories were also reported. The new native files do
+not modify those Rust tests or dependency locks. No unchanged broad retry
+was used to turn that result green. See L790 branch evidence/state-reuse-718
+for the receipt. This branch passes native checks and git diff --check only;
+a passing full repository gate remains required before merge.

@@ -1,0 +1,26 @@
+[
+  {
+    "name": "tie",
+    "from": "if eq and i 1 0",
+    "to": "if ne and i 1 0",
+    "compile": 0,
+    "exit": 1,
+    "output": "4381347\n5899\n"
+  },
+  {
+    "name": "best",
+    "from": "if lt get qerr 1 get qerr 0",
+    "to": "if gt get qerr 1 get qerr 0",
+    "compile": 0,
+    "exit": 1,
+    "output": "4381347\n263995\n"
+  },
+  {
+    "name": "order",
+    "from": "shl code mul and c 1 4",
+    "to": "shl code mul xor and c 1 1 4",
+    "compile": 0,
+    "exit": 1,
+    "output": "4381347\n1867304\n"
+  }
+]

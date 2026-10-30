@@ -1,0 +1,174 @@
+note SPDX-License-Identifier: AGPL-3.0-only
+note Packed MXFP4 host resident image. L788 managed mappings; no device launch.
+note wstate:handle,n,k,scale offset,total bytes. wlimit must be set by caller.
+global wstate ulong 5
+global wlimit ulong 1
+global wbuffer uchar 8192
+global wstage long 1
+
+fn wdrop to int
+if ne get wstage 0 0
+if ne mapdrop get wstage 0 0
+ret 74
+end
+put wstage 0 0
+end
+if eq get wstate 0 0
+ret 0
+end
+if ne mapdrop long get wstate 0 0
+ret 74
+end
+for i ulong 5
+put wstate i 0
+end
+ret 0
+end
+
+fn wread offset ulong count ulong to int
+if eq get wstate 0 0
+ret 73
+end
+if gt count len wbuffer
+ret 65
+end
+if gt offset get wstate 4
+ret 65
+end
+if gt count sub get wstate 4 offset
+ret 65
+end
+if ne mapread long get wstate 0 offset wbuffer 0 count long count
+ret 74
+end
+ret 0
+end
+
+fn wsize fd int want ulong to int
+if ne fseek fd 0 2 long want
+ret 65
+end
+if ne fseek fd 0 0 0
+ret 74
+end
+ret 0
+end
+
+fn wcopy fd int dest ulong bytes ulong scale bool to int
+copied = ulong 0
+while lt copied bytes
+count = sub bytes copied
+if gt count len wbuffer
+count = len wbuffer
+end
+have = ulong 0
+while lt have count
+got = read fd wbuffer have sub count have
+if lt got 0
+ret 74
+end
+if eq got 0
+ret 65
+end
+have = add have ulong got
+end
+if scale
+for i ulong count
+if gt get wbuffer i 192
+ret 76
+end
+end
+end
+if ne mapwrite get wstage 0 add dest copied wbuffer 0 count long count
+ret 74
+end
+copied = add copied count
+end
+last = read fd wbuffer 0 1
+if lt last 0
+ret 74
+end
+if ne last 0
+ret 65
+end
+ret 0
+end
+
+fn wabort status int to int
+if ne mapdrop get wstage 0 0
+ret 74
+end
+put wstage 0 0
+ret status
+end
+
+fn walloc bytes ulong to long
+ret mapnew neg int 1 0 bytes 3 34
+end
+
+fn wbudget total ulong to int
+if or eq get wlimit 0 0 gt get wlimit 0 68719476736
+ret 65
+end
+if gt total get wlimit 0
+ret 75
+end
+ret 0
+end
+
+fn wload wfd int sfd int rows ulong cols ulong to int
+if or ne get wstate 0 0 ne get wstage 0 0
+ret 73
+end
+if or lt wfd 0 lt sfd 0
+ret 65
+end
+if eq wfd sfd
+ret 65
+end
+if or eq rows 0 gt rows 262144
+ret 65
+end
+if or eq cols 0 gt cols 32768
+ret 65
+end
+if ne rem cols 512 0
+ret 65
+end
+weights = div mul rows cols 2
+scales = div mul rows cols 32
+start = and add weights 4095 18446744073709547520
+total = add start scales
+rc = wbudget total
+if ne rc 0
+ret rc
+end
+rc = wsize wfd weights
+if ne rc 0
+ret rc
+end
+rc = wsize sfd scales
+if ne rc 0
+ret rc
+end
+h = walloc total
+if le h 0
+ret 75
+end
+put wstage 0 h
+rc = wcopy wfd 0 weights false
+if ne rc 0
+ret wabort rc
+end
+rc = wcopy sfd start scales true
+if ne rc 0
+ret wabort rc
+end
+put wstate 0 ulong h
+put wstate 1 rows
+put wstate 2 cols
+put wstate 3 start
+put wstate 4 total
+put wstage 0 0
+ret 0
+end

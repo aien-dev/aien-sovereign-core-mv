@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-23",
+  "source_commit": "9af15b12fc1d1451b001065bd83f64e391c86cf2",
+  "compiler_source": "aien-dev/omega-mv@f0499f415571bdd7496b6de391096915e78f7556",
+  "compiler_sha256": "e5d60db892c8f21cc8c9128af26d8bded0e96d7f92946f5a549397c43a872649",
+  "tensor_source_sha256": "f6d0bfd5a3683c52db869a00604384f5356b20c7ffb96d474e2529dd4f6f0920",
+  "pack_source_sha256": "724fc1476a29655a087b7385e7a7a47410028ea0ede9dcfd84e39a6dab5e16db",
+  "native_binary_sha256": "2a27af3f35946c538b7760255be892a05b28175175849b167e66dafaa022d1b3",
+  "reference_binary_sha256": "ca45e2a8d7ad6fefeae2f8ea175ffcf5e9e67865e458a1511942bf83d8750155",
+  "reference_source": "aien-dev/omega-mv@8655007f0f09d454b47b75fb3d83bc80e8f6d4da",
+  "physics_source": "6d7cf0d4d8eb2cda7b512100ff6058e25dbb3ddf",
+  "rows": 17408,
+  "columns": 5120,
+  "rules": [
+    {
+      "rule": 0,
+      "native_exit": 0,
+      "reference_return": 0,
+      "weights_cmp_exit": 0,
+      "scales_cmp_exit": 0,
+      "packed_bytes": 44564480,
+      "scale_bytes": 2785280,
+      "packed_sha256": "61041e6e5fd0dd7e88694cff6153404a2c66830dbfb941773d2081018bf96e07",
+      "scale_sha256": "f598dce7944a0894cec7b7ddcd06f6147ca19c3d5a67d446f120c7b4b1fd68e6"
+    },
+    {
+      "rule": 1,
+      "native_exit": 0,
+      "reference_return": 0,
+      "weights_cmp_exit": 0,
+      "scales_cmp_exit": 0,
+      "packed_bytes": 44564480,
+      "scale_bytes": 2785280,
+      "packed_sha256": "7f7a34e5f8f721c5e8e937f3325f8713e861262fae85096281f224e1c7429d60",
+      "scale_sha256": "7b6d506799d45092bb63e8dbd97cfcfba66925f6dacf20730994d59ef64bebca"
+    },
+    {
+      "rule": 2,
+      "native_exit": 0,
+      "reference_return": 0,
+      "weights_cmp_exit": 0,
+      "scales_cmp_exit": 0,
+      "packed_bytes": 44564480,
+      "scale_bytes": 2785280,
+      "packed_sha256": "bc66e317ac69585242ba972e096e33a6e50afa35b14c593904cd87ccce9fac94",
+      "scale_sha256": "671deee797da983426ed802724d39579f37135cfd2b8e6cad163191c3b5d6260"
+    }
+  ],
+  "independent_file_assertions": 46,
+  "independent_late_scale_cleanup": true,
+  "compiled_wrong_scale_mutant_detected": true,
+  "parent_replayed_fixture": true,
+  "host_profile_arithmetic_checks": [
+    1219868,
+    4381347
+  ],
+  "gpu": false,
+  "full_model": false,
+  "repository_gate": "FAIL retained; no waiver",
+  "publication": "review only"
+}

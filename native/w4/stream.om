@@ -1,0 +1,55 @@
+note SPDX-License-Identifier: AGPL-3.0-only
+note Diagnostic group stream:35-byte requests,20-byte replies. Not checkpoint IO.
+note Request rule:u8,scale:u16le,32E4M3FN bytes. Reply status,E,16packed,clip,zero.
+note Batch transport is bounded to512 groups, emitting every complete input frame.
+global request uchar 17920
+global reply uchar 10240
+fn frame index ulong to void
+src = mul index 35
+dst = mul index 20
+for i ulong 32
+put qinput i get request add add src i 3
+end
+scale = or ulong get request add src 1 shl ulong get request add src 2 8
+status = qpack scale ulong get request src
+put reply dst uchar status
+put reply add dst 1 uchar get qmeta 1
+for i ulong 16
+put reply add add dst i 2 get qoutput i
+end
+put reply add dst 18 uchar get qmeta 3
+put reply add dst 19 uchar get qmeta 2
+end
+fn main to int
+have = ulong 0
+while eq ulong 1 1
+count = read 0 request have sub 17920 have
+if lt count 0
+ret 74
+end
+if eq count 0
+if eq have 0
+ret 0
+end
+ret 65
+end
+total = add have ulong count
+frames = div total 35
+for i ulong frames
+frame i
+end
+sent = ulong 0
+while lt sent mul frames 20
+count = write 1 reply sent sub mul frames 20 sent
+if le count 0
+ret 74
+end
+sent = add sent ulong count
+end
+have = sub total mul frames 35
+for i ulong have
+put request i get request add mul frames 35 i
+end
+end
+ret 0
+end

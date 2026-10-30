@@ -1,0 +1,41 @@
+global mode uchar 1
+global buf uchar 35
+fn main to int
+got = read 0 mode 0 1
+if ne got 1
+ret 65
+end
+for frame ulong 1536
+kind = rem frame 4
+put buf 0 uchar rem frame 3
+put buf 1 128
+put buf 2 63
+for i ulong 32
+put buf add i 3 56
+end
+if eq kind 1
+put buf 2 191
+end
+if eq kind 2
+put buf 1 1
+put buf 2 0
+for i ulong 32
+put buf add i 3 128
+end
+end
+if eq kind 3
+put buf 3 127
+end
+if eq get mode 0 1
+w = write 1 buf 0 34
+ret 0
+end
+for i ulong 35
+w = write 1 buf i 1
+if ne w 1
+ret 74
+end
+end
+end
+ret 0
+end

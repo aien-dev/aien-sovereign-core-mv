@@ -1,0 +1,224 @@
+note SPDX-License-Identifier: AGPL-3.0-only
+note Raw tensor converter. argv: FP8,BF16,packed,E8,n,k,rule. Outputs exclusive.
+note Exact historical row-major source and scale[r/128][c/128] layout.
+global paths uchar 16384
+global sizes ulong 4
+global fds long 4
+global made uchar 2
+global dims ulong 3
+global inrow uchar 32768
+global scrow uchar 512
+global outrow uchar 16384
+global erow uchar 1024
+global digits uchar 24
+
+fn number index ulong to long
+count = argread index digits 0 len digits
+if or le count 0 gt count 10
+ret neg long 1
+end
+value = ulong 0
+for i ulong ulong count
+digit = ulong get digits i
+if or lt digit 48 gt digit 57
+ret neg long 1
+end
+value = add mul value 10 sub digit 48
+end
+ret long value
+end
+
+fn exact fd int count ulong to int
+have = ulong 0
+while lt have count
+nread = read fd inrow have sub count have
+if lt nread 0
+ret 74
+end
+if eq nread 0
+ret 65
+end
+have = add have ulong nread
+end
+ret 0
+end
+
+fn flush fd int count ulong to int
+sent = ulong 0
+while lt sent count
+nwrote = write fd outrow sent sub count sent
+if le nwrote 0
+ret 74
+end
+sent = add sent ulong nwrote
+end
+ret 0
+end
+
+fn finish status int to int
+for i ulong 4
+if ge get fds i 0
+rc = fclose int get fds i
+if ne rc 0
+status = 74
+end
+put fds i neg long 1
+end
+end
+if ne status 0
+for i ulong 2
+if ne get made i 0
+rc = unlink paths mul add i 2 4096 get sizes add i 2
+if ne rc 0
+status = 74
+end
+end
+end
+end
+ret status
+end
+
+fn setup to int
+if ne argcnt 8
+ret 64
+end
+for i ulong 4
+n = argread add i 1 paths mul i 4096 4096
+if le n 0
+ret 64
+end
+put sizes i ulong n
+end
+for i ulong 3
+value = number add i 5
+if lt value 0
+ret 64
+end
+put dims i ulong value
+end
+nrow = get dims 0
+width = get dims 1
+if or eq nrow 0 gt nrow 524288
+ret 65
+end
+if or ne rem nrow 128 0 ne rem width 128 0
+ret 65
+end
+if or eq width 0 gt width 32768
+ret 65
+end
+if gt get dims 2 2
+ret 69
+end
+for i ulong 2
+fd = fopen paths mul i 4096 get sizes i 0 0
+if lt fd 0
+ret 74
+end
+put fds i fd
+want = mul nrow width
+if eq i 1
+want = mul div nrow 128 mul div width 128 2
+end
+size = fseek int fd 0 2
+if ne size long want
+ret 65
+end
+if ne fseek int fd 0 0 0
+ret 74
+end
+end
+for i ulong 2
+index = add i 2
+fd = fopen paths mul index 4096 get sizes index 193 384
+if lt fd 0
+ret 74
+end
+put fds index fd
+put made i 1
+end
+ret 0
+end
+
+fn packrow to int
+width = get dims 1
+rc = exact int get fds 0 width
+if ne rc 0
+ret rc
+end
+for group ulong div width 32
+for c ulong 32
+put qinput c get inrow add mul group 32 c
+end
+sindex = mul div group 4 2
+scale = or ulong get scrow sindex shl ulong get scrow add sindex 1 8
+rc = qpack scale get dims 2
+if ne rc 0
+ret rc
+end
+for c ulong 16
+put outrow add mul group 16 c get qoutput c
+end
+put erow group uchar get qmeta 1
+end
+rc = flush int get fds 2 div width 2
+if ne rc 0
+ret rc
+end
+for i ulong div width 32
+put outrow i get erow i
+end
+ret flush int get fds 3 div width 32
+end
+
+fn scales to int
+rc = exact int get fds 1 mul div get dims 1 128 2
+if ne rc 0
+ret rc
+end
+for i ulong mul div get dims 1 128 2
+put scrow i get inrow i
+end
+ret 0
+end
+
+fn convert to int
+for row ulong get dims 0
+if eq rem row 128 0
+rc = scales
+if ne rc 0
+ret rc
+end
+end
+rc = packrow
+if ne rc 0
+ret rc
+end
+end
+for i ulong 2
+count = read int get fds i digits 0 1
+if lt count 0
+ret 74
+end
+if ne count 0
+ret 65
+end
+end
+for i ulong 2
+if ne fsync int get fds add i 2 0
+ret 74
+end
+end
+ret 0
+end
+
+fn main to int
+for i ulong 4
+put fds i neg long 1
+end
+status = setup
+if ne status 0
+ret finish status
+end
+ret finish convert
+end

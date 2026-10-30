@@ -1,0 +1,189 @@
+note SPDX-License-Identifier: AGPL-3.0-only
+global tests ulong 1
+global fails ulong 1
+fn assert got ulong want ulong to void
+put tests 0 add get tests 0 1
+if ne got want
+put fails 0 add get fails 0 1
+end
+end
+fn number value ulong to void
+b = new uchar 32 0
+n = ulong 0
+v = value
+while ge v 10
+put b n uchar add rem v 10 48
+n = add n 1
+v = div v 10
+end
+put b n uchar add v 48
+n = add n 1
+while gt n 0
+n = sub n 1
+w = write 1 b n 1
+end
+put b 0 10
+w = write 1 b 0 1
+end
+fn fill value ulong to void
+for i ulong 32
+put qinput i uchar value
+end
+end
+fn cleared to void
+assert get qmeta 0 0
+for i ulong 16
+assert ulong get qoutput i 0
+end
+end
+fn uniform bits ulong exponent ulong to void
+fill bits
+status = qpack shl exponent 7 0
+mag = and bits 127
+if eq mag 127
+assert ulong status 76
+cleared
+ret
+end
+if eq mag 0
+assert ulong status 0
+assert get qmeta 1 127
+assert get qmeta 2 1
+for i ulong 16
+assert ulong get qoutput i 0
+end
+ret
+end
+e = add shr mag 3 118
+code = ulong 6
+if ge mag 8
+if gt and mag 7 2
+code = 7
+end
+else
+if eq mag 1
+e = 116
+else
+if le mag 3
+e = 117
+else
+e = 118
+end
+end
+if eq mag 3
+code = 7
+end
+if ge mag 6
+code = 7
+end
+end
+e = add e exponent
+if lt e 127
+assert ulong status 75
+cleared
+ret
+end
+e = sub e 127
+if gt e 192
+assert ulong status 75
+cleared
+ret
+end
+assert ulong status 0
+assert get qmeta 0 1
+assert get qmeta 1 e
+code = or code shl shr bits 7 3
+for i ulong 16
+assert ulong get qoutput i mul code 17
+end
+end
+fn main to int
+note Exact homogeneous OCP answers from the FP8 encoding, independently tabulated.
+for exponent ulong 254
+for bits ulong 256
+uniform bits add exponent 1
+end
+end
+note Exact representable 0,0.5,1,1.5,2,3,4,6 packed low nibble first.
+codes = new uchar 8 0
+put codes 1 48
+put codes 2 56
+put codes 3 60
+put codes 4 64
+put codes 5 68
+put codes 6 72
+put codes 7 76
+for i ulong 32
+v = get codes rem i 8
+if ge i 16
+v = uchar or ulong v 128
+end
+put qinput i v
+end
+for rule ulong 3
+assert ulong qpack 16256 rule 0
+assert get qmeta 1 127
+assert get qmeta 3 0
+assert get qmeta 4 0
+for i ulong 16
+lo = rem mul i 2 8
+hi = add lo 1
+if ge i 8
+if ne lo 0
+lo = or lo 8
+end
+hi = or hi 8
+end
+assert ulong get qoutput i or lo shl hi 4
+end
+end
+note Signed BF16 scale reverses nonzero signs.
+fill 56
+assert ulong qpack 49024 0 0
+assert ulong get qoutput 0 238
+note FIT expands a clipping group while BEST chooses the lower squared error.
+fill 62
+assert ulong qpack 16256 0 0
+assert get qmeta 1 125
+assert get qmeta 3 32
+assert ulong get qoutput 0 119
+assert ulong qpack 16256 1 0
+assert get qmeta 1 126
+assert get qmeta 3 0
+assert ulong get qoutput 0 102
+assert ulong qpack 16256 2 0
+note Uniform 1.75 is equally distant from1.5 and2. BEST retains OCP on ties.
+assert get qmeta 1 125
+fill 63
+assert ulong qpack 16256 2 0
+assert get qmeta 1 126
+note Every position rejects NaN, even under a zero BF16 scale.
+for i ulong 32
+fill 56
+put qinput i 127
+assert ulong qpack 0 0 76
+cleared
+end
+fill 56
+assert ulong qpack 32640 0 76
+cleared
+assert ulong qpack 65408 0 76
+cleared
+assert ulong qpack 65536 0 65
+cleared
+assert ulong qpack 16256 3 69
+cleared
+note All-zero subnormal and negative-zero scale are canonical zero groups.
+fill 128
+assert ulong qpack 1 0 0
+assert get qmeta 2 1
+fill 56
+assert ulong qpack 32768 0 0
+assert get qmeta 2 1
+number get tests 0
+number get fails 0
+if ne get fails 0 0
+ret 1
+end
+ret 0
+end

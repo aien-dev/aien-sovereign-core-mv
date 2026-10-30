@@ -1,0 +1,7 @@
+normal=0
+repeat=91
+wrongexit=99
+signal=99
+badstdout=99
+badcompile=99
+timeout=99

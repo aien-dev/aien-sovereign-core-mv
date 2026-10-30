@@ -1,0 +1,21 @@
+# Native host qualification for issue711. No device or model-speed claim.
+gate: SC-NATIVE-W4
+manifest_version: 2
+owner: aien-sovereign-core
+requires:
+  - host
+inputs:
+  - native/w4/
+  - evidence/w4-711/
+  - tests/gates/run.sh
+  - tests/gates/sc-native-w4.gate
+run:
+  exec: tests/gates/run.sh
+  args: ["native-w4"]
+expects:
+  exit: 0
+  observe: ["w4_groups == 15"]
+  verdict: PASS
+timeout: 5m
+exactness: EXACT
+cache_scope: machine

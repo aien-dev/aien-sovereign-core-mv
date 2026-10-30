@@ -1,0 +1,51 @@
+Executed development reference experiment, 2026-10-23
+
+Original reference: omega-mv 8655007f0f09d454b47b75fb3d83bc80e8f6d4da
+Physics lock: 6d7cf0d4d8eb2cda7b512100ff6058e25dbb3ddf
+Build: make -j2 PHYSICS_DIR=<clean-pinned-worktree> OUT_DIR=<temporary-output>
+       <temporary-output>/gpu_w4_api_test
+Build exit 0. --host-only: exit 0, 399 checks, 0 failed.
+No GPU option or live service was exercised.
+
+Model: qwen3.8-27b-fp8 revision 017b9c7af6b5689d5dd426a76e0bc077eb5ca20a
+File: layers-0.safetensors
+Tensor: model.language_model.layers.0.mlp.gate_proj.weight
+Shape: [17408,5120], data offsets [205604928,294733888], dtype F8_E4M3
+Scale tensor: corresponding weight_scale_inv, BF16, shape [136,40],
+             data offsets [1100608,1111488]
+Region: first 128 rows, first 128 columns (16384 FP8 bytes), first BF16 scale.
+Offsets are relative to the safetensors data section. Read its u64LE header
+length, then JSON header, then seek each row at dataStart+205604928+row*5120.
+Read 128 bytes per row. Read two scale bytes at dataStart+1100608.
+Sample/header identities and scale value are recorded in model-fixture.json.
+Developer Node byte extraction performed no conversion arithmetic.
+Native fixture.om framed the sample into 512 groups for each of rules 0,1,2.
+Native stream.om converted it and reply.om collected packed bytes and scales.
+
+Existing reference conversion was invoked in GDB on its own child process,
+stopped at main before host tests, using allocated buffers restored from
+the same extracted sample. No new C source was written. Exact function type:
+int (*)(unsigned int,unsigned int,const unsigned char*,const unsigned short*,
+        unsigned int,unsigned int,int,unsigned char*,unsigned char*,void*)
+omega_gpu_w4_from_fp8_rule(128,128,weights,scale,0,128,rule,packed,E,0)
+OCP_RC=0, FIT_RC=0, BEST_RC=0. Reference 8192 packed bytes followed by
+512 scale bytes compared exactly to native output for each rule.
+Current buffered stream output also matched the earlier per-record stream.
+All comparisons were repeated after final source freeze and returned 0.
+
+SHA256 of 8704-byte native AND reference outputs:
+OCP  0208a53c2b10b493cc4bbe10a0f925a36891a5e457c48869591f1742305ee139
+FIT  ca90eb09fe09ef5ce333e1028f957c201ed08b7f94fa509b31d1ccb8afe49a0e
+BEST 80a2c951da729f3234c3a16ac67bed085c7fa7c70bc2a0e0684fd21356470bd9
+
+Failed exploratory attempts, not counted as passing evidence:
+- First reference build refused a different physics checkout at its lock gate.
+  Retried using a clean worktree at the exact required commit, without override.
+- First debugger call lacked the full function type and faulted its own child.
+  Retried with the explicit ten-argument function pointer above.
+- Initial native authoring builds exposed reserved-name, register-pressure and
+  untyped-literal errors, corrected before all reported successful executions.
+
+Limits: one real block, not whole-checkpoint parity or model quality. The
+reference remains historical C, not a native runtime dependency. Model bytes,
+generated binaries and machine-specific debugger paths are not published.
