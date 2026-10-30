@@ -210,26 +210,24 @@ end
 ret get nu e
 end
 
-note cand: resident expert e may be evicted in step t: it was not used, hinted or protected in
-note step t (stamp or prt t+1).
-fn cand e ulong t ulong to bool
-s = get stp e
-ret and and ne s 0 ne s add t 1 ne get prt e add t 1
-end
-
-note evict: drop the cand expert with the largest score, lowest id on ties. Dropping an unused
-note prefetch counts as waste.
+note evict: drop the resident expert with the largest score, lowest id on ties. An expert used,
+note hinted or protected in step t (stamp or prt t+1) is not evictable. The two tests are nested
+note ifs: one combined condition exceeds the 16 live values (error 12), and a helper call per
+note candidate made the hinted replay 2.4x slower. Dropping an unused prefetch counts as waste.
 fn evict t ulong pol ulong to void
 best = ulong 0
 bv = ulong 0
 fnd = false
 for e ulong get hd 0
-if cand e t
+s = get stp e
+if and ne s 0 ne s add t 1
+if ne get prt e add t 1
 v = score e t pol
 if or not fnd gt v bv
 best = e
 bv = v
 fnd = true
+end
 end
 end
 end
