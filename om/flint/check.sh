@@ -278,7 +278,14 @@ if [ "${FLINT_FORWARD:-0}" = 1 ]; then
     rc=$?
     dlast=${dline##*$'\n'}; de=${dlast##*elems }; fe=${line##*elems }
     echo "$dlast"
-    if [ "$rc" = 0 ] && [[ $dlast == "flint-op decode layer 49 "* ]] && [[ $dlast == *" PASS" ]] && [ "${de%% *}" = "${fe%% *}" ]; then ok "KV-cache decode matches the batch forward reference, same element count"; else bad "decode rc $rc"; fi
+    if [ "$rc" = 0 ] && [[ $dlast == "flint-op decode layer 49 "* ]] && [[ $dlast == *" PASS" ]] && [ "${de%% *}" = "${fe%% *}" ]; then ok "KV-cache decode passes the same forward reference within budget, same element count"; else bad "decode rc $rc"; fi
+    # cache bound: with FKVP 1 the two-row decode must be refused (7), never overrun the next layer
+    [ "$(grep -c '^const FKVP ulong 8$' "$here/ops.om")" = 1 ] || bad "kv guard: FKVP site"
+    { s=$(cat "$here/ops.om"); printf '%s\n' "${s/const FKVP ulong 8/const FKVP ulong 1}"; } > "$b/kvg.om"
+    if build "$b/kvg" "$b/kvg.om"; then
+      gline=$(timeout 900 "$b/kvg" decode "$b/forward.fx" "$b/real.tsv" "$FLINT_SHARDS" 2>&1 < /dev/null); rc=$?
+      if [ "$rc" = 7 ] && [[ $gline == *"refused 7 kv-cache-bound"* ]]; then ok "KV cache bound refuses P+n > FKVP (rc 7)"; else bad "kv guard rc $rc: ${gline##*$'\n'}"; fi
+    else bad "kv guard compile"; fi
     s=$(cat "$here/ops.om")
     while IFS='|' read -r name op from to; do
       [ "$(grep -cF -- "$from" "$here/ops.om")" = 1 ] || { bad "forward mutant $name site"; continue; }
@@ -290,7 +297,7 @@ if [ "${FLINT_FORWARD:-0}" = 1 ]; then
     done <<'FORWARD_MUTANTS'
 wrong-token|forward|id = fx_w add 8 add get gfs 2 t|id = add fx_w add 8 add get gfs 2 t 1
 skip-final-norm|forward|put gfh o get gy i|put gfh o get gv i
-kv-slot-overwrite|decode|c = mul add add mul L 8 P j 512|c = mul add mul L 8 j 512
+kv-slot-overwrite|decode|c = mul add add mul L FKVP P j 512|c = mul add mul L FKVP j 512
 FORWARD_MUTANTS
   fi
 else

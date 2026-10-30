@@ -216,13 +216,16 @@ This unit has no GPU arm. A GGUF importer, if added, will be a separate optional
 It starts from two token IDs, loads real BF16 embedding rows and all selected expert weights,
 and compares five intermediate tensors per layer, final normalization and every vocabulary logit.
 The reference tensors are comparison targets, never teacher-forced inputs.
-The full gate prints `OM-FLINT-MANIFEST PASS (94)` with real checkpoint inputs; wrong-token
+The full gate prints `OM-FLINT-MANIFEST PASS (95)` with real checkpoint inputs; wrong-token
 and skipped-final-normalization source mutants must fail the comparison.
 
 `flint-ops decode` runs the same fixture as a KV-cache decode: one row per chunk, each layer
 appends that row's K/V to a per-layer cache (49 layers x 8 positions x 512) and attention reads
-every earlier position only from that cache. It must PASS with the same element count as the
-batch forward; the `kv-slot-overwrite` mutant (cache row written at slot 0) must fail.
+every earlier position only from that cache. It must PASS the same reference within the same
+budget and element count as the batch forward (a tolerance check, not a bitwise decode-vs-batch
+comparison); the `kv-slot-overwrite` mutant (cache row written at slot 0) must fail. The cache
+holds `FKVP` = 8 positions per layer and `fw_kv` refuses `P+n > FKVP` (`refused 7 kv-cache-bound`);
+the gate rebuilds with `FKVP` 1 and requires that refusal.
 
 See [PROFILE.md](PROFILE.md) for the frozen weight/runtime/tokenizer/template identities
 and the architecture audit. In particular, this checkpoint has **no expert bias**, unlike

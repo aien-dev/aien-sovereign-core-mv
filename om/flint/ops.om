@@ -74,7 +74,9 @@ global gfa f64 4096
 global gfq f64 8192
 global gfo f64 8192
 global gfs ulong 4
-note gkc/gvc: per-layer K and V cache, 49 layers x 8 positions x 512 (4 kv heads x 128)
+note gkc/gvc: per-layer K and V cache, 49 layers x FKVP positions x 512 (4 kv heads x 128);
+note the global size 200704 = 49 x FKVP x 512 must change with FKVP. fw_kv refuses P+n > FKVP.
+const FKVP ulong 8
 global gkc f64 200704
 global gvc f64 200704
 text tofwd "forward"
@@ -88,6 +90,7 @@ text tu "usage: flint-ops OP FIXTURE INVENTORY SHARD_DIR | flint-ops selftest"
 text tio "io"
 text tnreg "not-regular-file"
 text tfx "fixture"
+text tkv "kv-cache-bound"
 text tnf "tensor-not-in-inventory"
 text tdt "tensor-dtype-or-shape"
 text tref "refused "
@@ -1598,9 +1601,12 @@ note fw_kv: append this chunk's K (gx2) and V (gx3) rows to layer L's cache at p
 note P .. P+n, then rebuild gx2/gx3 positions 0 .. P+n from the cache for attention
 fn fw_kv L ulong to void
 P = get gfs 2
+if gt add P get gfs 0 FKVP
+op_die 7 tkv
+end
 n = get gfs 0
 for j ulong n
-c = mul add add mul L 8 P j 512
+c = mul add add mul L FKVP P j 512
 for i ulong 512
 put gkc add c i get gx2 add mul j 512 i
 put gvc add c i get gx3 add mul j 512 i
@@ -1611,7 +1617,7 @@ end
 
 fn fw_kvr L ulong m ulong to void
 for p ulong m
-c = mul add mul L 8 p 512
+c = mul add mul L FKVP p 512
 for i ulong 512
 put gx2 add mul p 512 i get gkc add c i
 put gx3 add mul p 512 i get gvc add c i
