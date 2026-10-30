@@ -39,6 +39,11 @@ pub const fn has_gemm() -> bool {
     cfg!(has_omega_fp8gemm)
 }
 
+/// True when the grouped-launch CTA rule (`omega_gpu_fp8_grouped_ctas_auto`, L310 one-wave lever) is linked.
+pub const fn has_grouped_rule() -> bool {
+    cfg!(has_omega_fp8_grouped_rule)
+}
+
 /// Most rows one GEMM launch takes (`OMEGA_GPU_FP8GEMM_MAX_ROWS`).
 pub const GEMM_MAX_ROWS: usize = 1024;
 /// Most distinct experts (segments) one GEMM launch takes (`OMEGA_GPU_FP8GEMM_MAX_SEGMENTS`).
@@ -169,6 +174,10 @@ mod ffi {
         pub fn omega_gpu_fp8gemm_rc_name(rc: i32) -> *const std::os::raw::c_char;
         pub fn omega_gpu_fp8gemm_last_error() -> *const std::os::raw::c_char;
         pub fn omega_gpu_fp8gemm_test_set_mutant(mutant: i32);
+    }
+    #[cfg(has_omega_fp8_grouped_rule)]
+    extern "C" {
+        pub fn omega_gpu_fp8_grouped_ctas_auto(groups: u32) -> u32;
     }
     extern "C" {
         pub fn omega_gpu_fp8_prepare(k: u32) -> i32;
@@ -686,6 +695,20 @@ pub fn set_cta_budget(ctas: u32) {
     }
     #[cfg(not(has_omega_fp8))]
     let _ = ctas;
+}
+
+/// CTAs per group omega's automatic choice gives a grouped launch of `groups` groups (L310 wave rule: reads
+/// AIEN_OMEGA_FP8_GROUPED_CTAS and AIEN_OMEGA_FP8_GROUPED_WAVE once, at the first call). `None` when the linked
+/// library predates the rule, so a server log states that instead of guessing a number.
+#[cfg(has_omega_fp8_grouped_rule)]
+pub fn grouped_ctas_auto(groups: u32) -> Option<u32> {
+    // SAFETY: plain integer argument; a pure function of it and the process environment.
+    Some(unsafe { ffi::omega_gpu_fp8_grouped_ctas_auto(groups) })
+}
+#[cfg(not(has_omega_fp8_grouped_rule))]
+pub fn grouped_ctas_auto(groups: u32) -> Option<u32> {
+    let _ = groups;
+    None
 }
 
 /// TEST ONLY: deliberately wrong kernel (0 off; 1 scale dropped; 2 scale block never advances;

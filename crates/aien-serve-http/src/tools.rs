@@ -109,7 +109,10 @@ pub fn parse_reply(text: &str, id_base: &str) -> (String, Vec<Value>) {
     while let Some(p) = rest.find(OPEN) {
         let body_start = p + OPEN.len();
         let (body, next) = match rest[body_start..].find(CLOSE) {
-            Some(e) => (&rest[body_start..body_start + e], &rest[body_start + e + CLOSE.len()..]),
+            Some(e) => (
+                &rest[body_start..body_start + e],
+                &rest[body_start + e + CLOSE.len()..],
+            ),
             None => (&rest[body_start..], ""),
         };
         if let Some((name, args)) = parse_call(body) {
@@ -210,7 +213,8 @@ mod tests {
         assert_eq!(c, "Let me check.");
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0]["function"]["name"], "read_file");
-        let a: Value = serde_json::from_str(calls[0]["function"]["arguments"].as_str().unwrap()).unwrap();
+        let a: Value =
+            serde_json::from_str(calls[0]["function"]["arguments"].as_str().unwrap()).unwrap();
         assert_eq!(a["path"], "/tmp/a.txt");
         assert_eq!(a["limit"], 20);
     }
@@ -221,14 +225,18 @@ mod tests {
         let (c, calls) = parse_reply(r, "x");
         assert_eq!(c, "");
         assert_eq!(calls.len(), 2);
-        let a: Value = serde_json::from_str(calls[0]["function"]["arguments"].as_str().unwrap()).unwrap();
+        let a: Value =
+            serde_json::from_str(calls[0]["function"]["arguments"].as_str().unwrap()).unwrap();
         assert_eq!(a["s"], "line1\nline2");
         assert_eq!(calls[1]["function"]["name"], "b");
     }
 
     #[test]
     fn parses_json_form() {
-        let (_, calls) = parse_reply("<tool_call>\n{\"name\": \"f\", \"arguments\": {\"x\": 1}}\n</tool_call>", "x");
+        let (_, calls) = parse_reply(
+            "<tool_call>\n{\"name\": \"f\", \"arguments\": {\"x\": 1}}\n</tool_call>",
+            "x",
+        );
         assert_eq!(calls[0]["function"]["name"], "f");
     }
 
@@ -246,7 +254,8 @@ mod tests {
         // serde_json maps are key-sorted here (no preserve_order): n before p.
         assert_eq!(s, "<tool_call>\n<function=f>\n<parameter=n>\n2\n</parameter>\n<parameter=p>\nv\n</parameter>\n</function>\n</tool_call>");
         let (_, calls) = parse_reply(&s, "y");
-        let a: Value = serde_json::from_str(calls[0]["function"]["arguments"].as_str().unwrap()).unwrap();
+        let a: Value =
+            serde_json::from_str(calls[0]["function"]["arguments"].as_str().unwrap()).unwrap();
         assert_eq!(a["p"], "v");
         assert_eq!(a["n"], 2);
     }
@@ -261,8 +270,14 @@ mod tests {
 
     #[test]
     fn tojson_matches_python_separators() {
-        let v: Value = serde_json::from_str("{\"type\":\"function\",\"function\":{\"name\":\"f\",\"p\":[1,2]}}").unwrap();
-        assert_eq!(tojson(&v), "{\"function\": {\"name\": \"f\", \"p\": [1, 2]}, \"type\": \"function\"}");
+        let v: Value = serde_json::from_str(
+            "{\"type\":\"function\",\"function\":{\"name\":\"f\",\"p\":[1,2]}}",
+        )
+        .unwrap();
+        assert_eq!(
+            tojson(&v),
+            "{\"function\": {\"name\": \"f\", \"p\": [1, 2]}, \"type\": \"function\"}"
+        );
     }
 
     #[test]
