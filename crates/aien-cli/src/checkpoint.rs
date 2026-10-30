@@ -421,10 +421,24 @@ pub struct RollbackReport {
     pub spared: Vec<String>,
 }
 
+/// Hash of the bytes at `path`, or `None` when the path cannot be read.
+///
+/// Pathname read, including the rollback pass that lists `snap.dir` with
+/// `fs::read_dir` and then hashes each file here. Out of scope (issue 819):
+/// the binder's byte read is `hold_for_write` (`O_RDWR`), and a read-only
+/// open from the held workspace directory is not added while that path
+/// handling is under review. Treating a read-only file as absent would also
+/// change conflict detection.
 fn current_hash(path: &Path) -> Option<Hash> {
     fs::read(path).ok().map(|b| hash_bytes(&b))
 }
 
+/// Open `dir` by pathname.
+///
+/// The final component is `O_NOFOLLOW`, and each child is read with
+/// `openat(O_NOFOLLOW)`. This is not an open from a held workspace
+/// directory. That belongs on `fs_bind`, which this change does not
+/// extend while its path handling is under review (issue 819).
 fn open_snapshot_dir(dir: &Path) -> std::io::Result<OwnedFd> {
     let c = std::ffi::CString::new(dir.as_os_str().as_bytes())
         .map_err(|_| std::io::Error::from_raw_os_error(libc::EINVAL))?;
@@ -442,6 +456,60 @@ fn open_snapshot_dir(dir: &Path) -> std::io::Result<OwnedFd> {
     Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 
+/// Address of this thread's `errno`.
+///
+/// `readdir` returns null both at the end of the directory and on error.
+/// The caller stores 0 here before the call, then reads the result with
+/// `std::io::Error::last_os_error`. `__errno_location` is not the symbol
+/// on every Unix target, so a non-Linux build can still reach the
+/// filesystem-binding stub.
+fn errno_location() -> *mut libc::c_int {
+    #[cfg(any(target_os = "linux", target_os = "redox", target_os = "dragonfly"))]
+    {
+        // SAFETY: libc returns the address of the thread-local errno cell.
+        unsafe { libc::__errno_location() }
+    }
+    #[cfg(any(target_os = "android", target_os = "netbsd", target_os = "openbsd"))]
+    {
+        // SAFETY: libc returns the address of the thread-local errno cell.
+        unsafe { libc::__errno() }
+    }
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "watchos",
+        target_os = "visionos",
+        target_os = "freebsd",
+    ))]
+    {
+        // SAFETY: libc returns the address of the thread-local errno cell.
+        unsafe { libc::__error() }
+    }
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "redox",
+        target_os = "dragonfly",
+        target_os = "android",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "watchos",
+        target_os = "visionos",
+        target_os = "freebsd",
+    )))]
+    {
+        compile_error!("checkpoint snapshot has no errno accessor for this target");
+    }
+}
+
+fn clear_errno() {
+    // SAFETY: `errno_location` is the thread-local errno cell for this target.
+    unsafe { *errno_location() = 0 };
+}
+
 /// Regular files directly inside `dirfd`, as `(name, size)`. Symlinks are omitted.
 fn snapshot_entries(dirfd: libc::c_int) -> std::io::Result<Vec<(String, u64)>> {
     let raw = dup_snapshot_fd(dirfd)?.into_raw_fd();
@@ -454,14 +522,17 @@ fn snapshot_entries(dirfd: libc::c_int) -> std::io::Result<Vec<(String, u64)>> {
     }
     let mut out = Vec::new();
     let walked = loop {
-        unsafe { *libc::__errno_location() = 0 };
+        // A null `readdir` is the end when errno is 0, and an error otherwise.
+        // A successful syscall does not clear errno, so zero it first.
+        clear_errno();
+        // SAFETY: `dir` is a live `DIR` from `fdopendir`.
         let ent = unsafe { libc::readdir(dir) };
         if ent.is_null() {
-            let errno = unsafe { *libc::__errno_location() };
-            break if errno == 0 {
+            let err = std::io::Error::last_os_error();
+            break if err.raw_os_error() == Some(0) {
                 Ok(())
             } else {
-                Err(std::io::Error::from_raw_os_error(errno))
+                Err(err)
             };
         }
         let name_c = unsafe { std::ffi::CStr::from_ptr((*ent).d_name.as_ptr()) };
@@ -607,6 +678,12 @@ impl Session {
     ///
     /// Reads `path` by name. Session tests use that. Tool dispatch passes
     /// bytes from the held descriptor (`before_write_with_bytes`).
+    ///
+    /// The pathname read stays. Out of scope (issue 819): production already
+    /// passes held-descriptor bytes, and a read-only open from the held
+    /// workspace directory is part of the `fs_bind` path review. This helper
+    /// does not grow a second opener, and `hold_for_write` would require
+    /// write access for a read.
     #[allow(dead_code)]
     pub fn before_write(&mut self, path: &Path) -> Result<Pending, String> {
         let bytes = match fs::read(path) {
@@ -650,6 +727,9 @@ impl Session {
     ///
     /// Reads the path by name. Tool dispatch passes bytes from the held
     /// descriptor (`after_write_with_bytes`).
+    ///
+    /// The pathname read stays for the same reason as [`Self::before_write`]
+    /// (issue 819).
     #[allow(dead_code)]
     pub fn after_write(&mut self, pending: Pending, tool: &str) -> Result<(), String> {
         let after_bytes = match fs::read(&pending.path) {
@@ -783,7 +863,8 @@ pub fn record_agent_write_with_reader<T>(
 ///
 /// This reads the target by pathname. Tool dispatch uses
 /// [`record_agent_write_with_reader`] so the bytes are the descriptor that
-/// was authorized.
+/// was authorized. The pathname reads stay out of scope (issue 819): see
+/// [`Session::before_write`].
 #[allow(dead_code)]
 pub fn record_agent_write<T>(
     path: &Path,
@@ -1064,6 +1145,40 @@ mod tests {
         let reopened = Session::open(store.clone(), "s3").unwrap();
         assert_eq!(reopened.turn, 2);
         assert_eq!(reopened.turns().unwrap(), vec![(1, 3), (2, 1)]);
+    }
+
+    /// `readdir` returns null at end of directory without clearing errno.
+    /// A stale errno must not turn that end into a failed snapshot.
+    #[test]
+    fn snapshot_entries_does_not_treat_a_stale_errno_as_a_read_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let empty = tmp.path().join("empty");
+        let work = tmp.path().join("work");
+        fs::create_dir_all(&empty).unwrap();
+        fs::create_dir_all(&work).unwrap();
+        fs::write(work.join("kept.txt"), b"kept").unwrap();
+        std::os::unix::fs::symlink("kept.txt", work.join("link.txt")).unwrap();
+
+        let empty_fd = open_snapshot_dir(&empty).unwrap();
+        let work_fd = open_snapshot_dir(&work).unwrap();
+
+        let probe = |fd: libc::c_int| {
+            let _ = fs::File::open(tmp.path().join("missing"));
+            assert_ne!(
+                std::io::Error::last_os_error().raw_os_error(),
+                Some(0),
+                "the probe must leave a non-zero errno"
+            );
+            snapshot_entries(fd).unwrap()
+        };
+
+        assert!(probe(empty_fd.as_raw_fd()).is_empty());
+        let mut names: Vec<_> = probe(work_fd.as_raw_fd())
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["kept.txt".to_string()]);
     }
 
     #[test]
