@@ -183,6 +183,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "aien-heartbeat"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "aien-inference-abi"
 version = "0.1.0"
 dependencies = [
