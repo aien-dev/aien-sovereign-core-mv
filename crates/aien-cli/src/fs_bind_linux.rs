@@ -51,8 +51,10 @@ impl BindError {
 struct Authorized {
     /// Workspace that contains the path the caller named.
     workspace: PathBuf,
-    /// That path, relative to `workspace`, with `.` and `..` collapsed.
-    /// Symlink components are still present. This is what the open uses.
+    /// That path, relative to `workspace`, exactly as named. `..` is kept:
+    /// the kernel resolves it under `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`,
+    /// so a `..` reaches the same parent the allow-list resolved, and a
+    /// symlink before it is refused instead of being dropped as text.
     rel: PathBuf,
     /// Workspace that contains the allow-listed canonical object.
     canon_workspace: PathBuf,
@@ -66,6 +68,10 @@ struct Authorized {
 /// Workspace roots the CLI file tools may authorize. Same set the tool
 /// allow-list already used: platform defaults plus `/tmp`.
 pub fn permitted_workspaces() -> Vec<PathBuf> {
+    #[cfg(test)]
+    if let Some(roots) = test_hooks::workspaces() {
+        return roots;
+    }
     let mut allowed = crate::platform::PlatformContext::detect().default_workspaces;
     allowed.push(PathBuf::from("/tmp"));
     allowed
@@ -79,10 +85,10 @@ fn authorize(user_path: &str) -> Result<Authorized, BindError> {
             safe_label(Path::new(user_path))
         ))
     })?;
-    let lexical = lexical_absolute(user_path)?;
+    let named = absolute_named(user_path)?;
     // Open the path the caller named. Opening `canonical` instead would
     // follow a directory symlink into another allowed directory.
-    let Some((workspace, rel)) = longest_workspace(&lexical, &workspaces) else {
+    let Some((workspace, rel)) = longest_workspace(&named, &workspaces) else {
         return Err(BindError::Denied(format!(
             "refusing {}: it resolves outside permitted workspace roots",
             safe_label(Path::new(user_path))
@@ -94,7 +100,6 @@ fn authorize(user_path: &str) -> Result<Authorized, BindError> {
             safe_label(Path::new(user_path))
         )));
     };
-    plain_rel(&rel, user_path)?;
     plain_rel(&canon_rel, user_path)?;
     Ok(Authorized {
         workspace,
@@ -116,31 +121,53 @@ fn plain_rel(rel: &Path, user_path: &str) -> Result<(), BindError> {
     Ok(())
 }
 
+/// True when `rel` holds only names and `..`, and no `..` climbs above the
+/// directory it starts from. `RESOLVE_BENEATH` enforces the same bound.
+fn stays_beneath(rel: &Path) -> bool {
+    let mut depth = 0usize;
+    for c in rel.components() {
+        match c {
+            Component::Normal(_) => depth += 1,
+            Component::ParentDir if depth > 0 => depth -= 1,
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// Deepest workspace that `path` names lexically and never climbs out of,
+/// returned as (canonical root, path relative to it). A root configured
+/// through a symlink also matches by its configured name; it is opened at
+/// its canonical place, since `open_workspace` trusts the root and its
+/// ancestors.
 fn longest_workspace(path: &Path, workspaces: &[PathBuf]) -> Option<(PathBuf, PathBuf)> {
-    let mut best: Option<(PathBuf, PathBuf)> = None;
+    let mut best: Option<(usize, PathBuf, PathBuf)> = None;
     for ws in workspaces {
         let Ok(ws_canon) = ws.canonicalize() else {
             continue;
         };
-        if !path.starts_with(&ws_canon) {
+        let Some((prefix, rel)) = [ws_canon.as_path(), ws.as_path()]
+            .into_iter()
+            .find_map(|prefix| path.strip_prefix(prefix).ok().map(|rel| (prefix, rel)))
+        else {
+            continue;
+        };
+        if !stays_beneath(rel) {
             continue;
         }
-        let rel = path
-            .strip_prefix(&ws_canon)
-            .map(Path::to_path_buf)
-            .unwrap_or_default();
-        let take = match &best {
-            None => true,
-            Some((cur, _)) => ws_canon.components().count() > cur.components().count(),
-        };
-        if take {
-            best = Some((ws_canon, rel));
+        let depth = prefix.components().count();
+        if best.as_ref().is_none_or(|(cur, _, _)| depth > *cur) {
+            best = Some((depth, ws_canon.clone(), rel.to_path_buf()));
         }
     }
-    best
+    best.map(|(_, ws, rel)| (ws, rel))
 }
 
-fn lexical_absolute(user_path: &str) -> Result<PathBuf, BindError> {
+/// `user_path` made absolute against the current directory. `.` and repeated
+/// separators go; `..` stays. Collapsing `link/..` as text names a different
+/// object from the one the OS (and `validate_workspace_path`) resolves when
+/// `link` is a symlink.
+fn absolute_named(user_path: &str) -> Result<PathBuf, BindError> {
     let raw = Path::new(user_path);
     let abs = if raw.is_absolute() {
         raw.to_path_buf()
@@ -149,29 +176,7 @@ fn lexical_absolute(user_path: &str) -> Result<PathBuf, BindError> {
             .map_err(|e| BindError::Failed(e.to_string()))?
             .join(raw)
     };
-    Ok(normalize_lexical(&abs))
-}
-
-fn normalize_lexical(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for c in path.components() {
-        match c {
-            Component::Prefix(p) => out.push(p.as_os_str()),
-            Component::RootDir => out.push("/"),
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if out.components().count() > 1 {
-                    out.pop();
-                }
-            }
-            Component::Normal(s) => out.push(s),
-        }
-    }
-    if out.as_os_str().is_empty() {
-        PathBuf::from("/")
-    } else {
-        out
-    }
+    Ok(abs.components().collect())
 }
 
 fn symlink_component(err: &std::io::Error) -> bool {
@@ -522,17 +527,20 @@ impl HeldFile {
     /// Create every missing directory in `dir_rel` beneath the workspace fd.
     /// Each new directory is re-opened from the workspace root, so a rename
     /// out of the workspace fails closed instead of continuing the walk.
+    /// Names up to the last `..` were resolved by the allow-list; they are
+    /// opened as they stand and never created.
     fn ensure_dirs(&self, dir_rel: &Path) -> Result<bool, BindError> {
         if dir_rel.as_os_str().is_empty() {
             return Ok(false);
         }
         let mut created = false;
-        let mut acc = PathBuf::new();
         let names: Vec<OsString> = dir_rel
             .components()
             .map(|c| c.as_os_str().to_os_string())
             .collect();
-        for name in names {
+        let fixed = names.iter().rposition(|n| n == "..").map_or(0, |i| i + 1);
+        let mut acc: PathBuf = names[..fixed].iter().collect();
+        for name in &names[fixed..] {
             let parent_fd = if acc.as_os_str().is_empty() {
                 dup_fd(self.workspace.as_raw_fd()).map_err(|e| map_io(&self.authorized, e))?
             } else {
@@ -544,7 +552,7 @@ impl HeldFile {
                 )
                 .map_err(|e| map_io(&self.authorized, e))?
             };
-            acc.push(&name);
+            acc.push(name);
             match open_beneath(
                 self.workspace.as_raw_fd(),
                 &acc,
@@ -553,7 +561,7 @@ impl HeldFile {
             ) {
                 Ok(_) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    mkdir_at(parent_fd.as_raw_fd(), &name)
+                    mkdir_at(parent_fd.as_raw_fd(), name)
                         .map_err(|err| map_io(&self.authorized, err))?;
                     created = true;
                     open_beneath(
@@ -624,7 +632,10 @@ fn open_pinned(
 
 fn hold(path: &str, write: bool) -> Result<HeldFile, BindError> {
     let auth = authorize(path)?;
-    if auth.rel.as_os_str().is_empty() {
+    // `Path` drops a trailing `/` or `/.`; POSIX does not. Such a name is a
+    // directory, so a write must not create a regular file under it.
+    if auth.rel.as_os_str().is_empty() || (write && (path.ends_with('/') || path.ends_with("/.")))
+    {
         return Err(BindError::Failed("Is a directory (os error 21)".into()));
     }
     let flags = if write {
@@ -784,27 +795,37 @@ pub fn list_dir(path: &str) -> Result<(PathBuf, Vec<ListedEntry>), BindError> {
 
 pub fn make_dir(path: &str) -> Result<PathBuf, BindError> {
     let auth = authorize(path)?;
-    let workspace = open_workspace(&auth.workspace)?;
-    run_before();
-    if !auth.rel.as_os_str().is_empty() {
-        let held = HeldFile {
-            workspace,
-            rel: auth.rel.clone(),
-            authorized: auth.canonical.clone(),
-            display: auth.display.clone(),
-            cached: Mutex::new(None),
-            writable: true,
-        };
-        held.ensure_dirs(&auth.rel)?;
-        // Confirm the final directory is still the one beneath the workspace.
-        open_beneath(
-            held.workspace.as_raw_fd(),
-            &auth.rel,
-            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-            0,
-        )
-        .map_err(|e| map_io(&auth.canonical, e))?;
+    // An existing directory, or a final-component symlink to one, is opened
+    // the way `list_dir` opens it. Only a missing name goes on to be created.
+    match open_pinned(
+        &auth,
+        libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        false,
+    ) {
+        Ok(_) => {
+            run_after();
+            return Ok(auth.canonical);
+        }
+        Err(BindError::NotFound(_)) => {}
+        Err(e) => return Err(e),
     }
+    let held = HeldFile {
+        workspace: open_workspace(&auth.workspace)?,
+        rel: auth.rel.clone(),
+        authorized: auth.canonical.clone(),
+        display: auth.display.clone(),
+        cached: Mutex::new(None),
+        writable: true,
+    };
+    held.ensure_dirs(&auth.rel)?;
+    // Confirm the final directory is still the one beneath the workspace.
+    open_beneath(
+        held.workspace.as_raw_fd(),
+        &auth.rel,
+        libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        0,
+    )
+    .map_err(|e| map_io(&auth.canonical, e))?;
     run_after();
     Ok(auth.canonical)
 }
@@ -1077,9 +1098,11 @@ pub fn find_names(path: &str, pattern: &str, limit: usize) -> Result<Vec<String>
         .metadata()
         .map_err(|e| BindError::Failed(e.to_string()))?;
     let mut matches = Vec::new();
-    let root_name = auth
-        .canonical
+    // Match the root by the name the caller gave, as find(1) does: a
+    // symlinked root keeps its own name. `..` or `.` has no name to match.
+    let root_name = Path::new(&auth.display)
         .file_name()
+        .or_else(|| auth.canonical.file_name())
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
     if meta.is_file() {
@@ -1121,6 +1144,17 @@ pub mod test_hooks {
         static BEFORE: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
         static AFTER: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
         static OPENAT2_ERR: std::cell::Cell<Option<i32>> = const { std::cell::Cell::new(None) };
+        static WORKSPACES: RefCell<Option<Vec<std::path::PathBuf>>> = const { RefCell::new(None) };
+    }
+
+    /// `permitted_workspaces` returns exactly `roots` on this thread, so a
+    /// test can hold two permitted roots without touching real user dirs.
+    pub fn set_workspaces(roots: Vec<std::path::PathBuf>) {
+        WORKSPACES.with(|c| *c.borrow_mut() = Some(roots));
+    }
+
+    pub(super) fn workspaces() -> Option<Vec<std::path::PathBuf>> {
+        WORKSPACES.with(|c| c.borrow().clone())
     }
 
     /// Next `openat2` returns this errno instead of calling the kernel.
@@ -1145,6 +1179,7 @@ pub mod test_hooks {
         BEFORE.with(|c| *c.borrow_mut() = None);
         AFTER.with(|c| *c.borrow_mut() = None);
         OPENAT2_ERR.with(|c| c.set(None));
+        WORKSPACES.with(|c| *c.borrow_mut() = None);
     }
 
     pub(super) fn run_before() {
@@ -1316,6 +1351,266 @@ mod tests {
         let err = read_text(probe.to_str().unwrap()).unwrap_err();
         assert!(matches!(err, BindError::Denied(_)), "{err:?}");
         assert!(!err.message().contains(OUTSIDE));
+    }
+
+    const DECOY: &str = "DECOY_MARKER";
+    const REAL: &str = "REAL_MARKER";
+
+    /// `ws/link -> ws/a/b`. `ws/a/x` holds REAL when `real` is set and `ws/x`
+    /// holds DECOY when `decoy` is set. The OS and the allow-list resolve
+    /// `ws/link/../x` to `ws/a/x`; dropping `link/..` as text names `ws/x`.
+    fn dotdot_layout(real: bool, decoy: bool) -> Scratch {
+        let s = scratch();
+        std::fs::create_dir_all(s.ws.join("a/b")).unwrap();
+        symlink(s.ws.join("a/b"), s.ws.join("link")).unwrap();
+        if real {
+            std::fs::write(s.ws.join("a/x"), REAL).unwrap();
+        }
+        if decoy {
+            std::fs::write(s.ws.join("x"), DECOY).unwrap();
+        }
+        s
+    }
+
+    /// The call either acted on the authorized object (`ok`) or was denied.
+    fn authorized_or_denied<T: std::fmt::Debug>(r: Result<T, BindError>, ok: impl FnOnce(T)) {
+        match r {
+            Ok(v) => ok(v),
+            Err(BindError::Denied(m)) => {
+                assert!(!m.contains(DECOY) && !m.contains(REAL), "{m}")
+            }
+            Err(e) => panic!("expected the authorized object or a denial, got {e:?}"),
+        }
+    }
+
+    fn write_through(path: &Path, content: &[u8]) -> Result<bool, BindError> {
+        hold_for_write(path.to_str().unwrap())?.write_bytes(content, true)
+    }
+
+    #[test]
+    fn dotdot_after_a_symlink_never_reads_the_lexical_decoy() {
+        let s = dotdot_layout(true, true);
+        let probe = s.ws.join("link/../x");
+        assert_eq!(
+            validate_workspace_path(&probe, &permitted_workspaces()).unwrap(),
+            s.ws.join("a/x")
+        );
+        assert_eq!(std::fs::read_to_string(&probe).unwrap(), REAL);
+        authorized_or_denied(read_text(probe.to_str().unwrap()), |(path, text)| {
+            assert_eq!(text, REAL, "opened a different file from the authorized one");
+            assert_eq!(path, s.ws.join("a/x"));
+        });
+        authorized_or_denied(
+            grep_search(probe.to_str().unwrap(), "MARKER", 50),
+            |hits| assert!(hits.iter().all(|h| !h.contains(DECOY)), "{hits:?}"),
+        );
+    }
+
+    #[test]
+    fn dotdot_after_a_symlink_never_overwrites_the_lexical_decoy() {
+        let s = dotdot_layout(true, true);
+        let probe = s.ws.join("link/../x");
+        authorized_or_denied(write_through(&probe, b"NEW"), |_| {
+            assert_eq!(std::fs::read_to_string(s.ws.join("a/x")).unwrap(), "NEW")
+        });
+        assert_eq!(std::fs::read_to_string(s.ws.join("x")).unwrap(), DECOY);
+    }
+
+    #[test]
+    fn dotdot_after_a_symlink_never_creates_the_lexical_decoy() {
+        for real in [true, false] {
+            let s = dotdot_layout(real, false);
+            let probe = s.ws.join("link/../x");
+            authorized_or_denied(write_through(&probe, b"NEW"), |_| {
+                assert!(real, "created a file the allow-list never authorized");
+                assert_eq!(std::fs::read_to_string(s.ws.join("a/x")).unwrap(), "NEW")
+            });
+            assert!(
+                s.ws.join("x").symlink_metadata().is_err(),
+                "write through link/.. created ws/x (real={real})"
+            );
+        }
+    }
+
+    #[test]
+    fn dotdot_after_a_symlink_never_lists_or_makes_the_lexical_parent() {
+        let s = dotdot_layout(true, true);
+        authorized_or_denied(
+            list_dir(s.ws.join("link/..").to_str().unwrap()),
+            |(path, rows)| {
+                assert_eq!(path, s.ws.join("a"));
+                let names: Vec<_> = rows.iter().map(|r| r.name.as_str()).collect();
+                assert_eq!(names, ["b", "x"], "listed a different directory");
+            },
+        );
+        authorized_or_denied(
+            make_dir(s.ws.join("link/../made").to_str().unwrap()),
+            |path| {
+                assert_eq!(path, s.ws.join("a/made"));
+                assert!(path.is_dir());
+            },
+        );
+        assert!(s.ws.join("made").symlink_metadata().is_err());
+    }
+
+    #[test]
+    fn dotdot_after_a_symlink_never_crosses_into_the_lexical_workspace() {
+        let _clear = ClearHooks;
+        let root = tempfile::tempdir_in("/tmp").unwrap();
+        let base = root.path().canonicalize().unwrap();
+        let (ws_a, ws_b) = (base.join("A"), base.join("B"));
+        std::fs::create_dir_all(ws_b.join("sub")).unwrap();
+        std::fs::create_dir_all(&ws_a).unwrap();
+        std::fs::write(ws_a.join("x"), DECOY).unwrap();
+        std::fs::write(ws_b.join("x"), REAL).unwrap();
+        symlink(ws_b.join("sub"), ws_a.join("link")).unwrap();
+        test_hooks::set_workspaces(vec![ws_a.clone(), ws_b.clone()]);
+        let probe = ws_a.join("link/../x");
+        // Both files are permitted; the allow-list picked the one in B.
+        assert_eq!(
+            validate_workspace_path(&probe, &permitted_workspaces()).unwrap(),
+            ws_b.join("x")
+        );
+        assert!(validate_workspace_path(ws_a.join("x"), &permitted_workspaces()).is_ok());
+        authorized_or_denied(read_text(probe.to_str().unwrap()), |(_, text)| {
+            assert_eq!(text, REAL, "read workspace A for a path authorized in B")
+        });
+        authorized_or_denied(write_through(&probe, b"NEW"), |_| {
+            assert_eq!(std::fs::read_to_string(ws_b.join("x")).unwrap(), "NEW")
+        });
+        assert_eq!(std::fs::read_to_string(ws_a.join("x")).unwrap(), DECOY);
+    }
+
+    #[test]
+    fn dotdot_through_real_directories_still_opens_the_resolved_path() {
+        let s = scratch();
+        let (_, text) = read_text(s.ws.join("d/../d/f").to_str().unwrap()).unwrap();
+        assert_eq!(text, INSIDE);
+        symlink(s.ws.join("d/f"), s.ws.join("alias")).unwrap();
+        let (_, text) = read_text(s.ws.join("d/../alias").to_str().unwrap()).unwrap();
+        assert_eq!(text, INSIDE);
+        write_through(&s.ws.join("d/../d/g"), b"G").unwrap();
+        assert_eq!(std::fs::read_to_string(s.ws.join("d/g")).unwrap(), "G");
+        let made = make_dir(s.ws.join("d/../d/sub/leaf").to_str().unwrap()).unwrap();
+        assert_eq!(made, s.ws.join("d/sub/leaf"));
+        assert!(made.is_dir());
+    }
+
+    #[test]
+    fn dotdot_above_the_deepest_workspace_uses_the_enclosing_one() {
+        let _clear = ClearHooks;
+        let s = scratch();
+        test_hooks::set_workspaces(vec![s.ws.parent().unwrap().to_path_buf(), s.ws.clone()]);
+        let (_, text) = read_text(s.ws.join("../other/f").to_str().unwrap()).unwrap();
+        assert_eq!(text, OTHER);
+    }
+
+    #[test]
+    fn write_to_a_trailing_slash_name_never_creates_a_file() {
+        let s = scratch();
+        let named = |rest: &str| format!("{}/{rest}", s.ws.display());
+        for name in ["d/new/", "d/new/."] {
+            let err = hold_for_write(&named(name))
+                .and_then(|h| h.write_bytes(b"x", false))
+                .unwrap_err();
+            assert!(err.message().contains("Is a directory"), "{name}: {err:?}");
+            assert!(
+                s.ws.join("d/new").symlink_metadata().is_err(),
+                "{name} created d/new"
+            );
+        }
+        // Directory-shaped names keep working where a directory is meant.
+        assert!(matches!(
+            read_text(&named("d/new/")),
+            Err(BindError::NotFound(_))
+        ));
+        make_dir(&named("d/new/")).unwrap();
+        assert!(s.ws.join("d/new").is_dir());
+        let (_, rows) = list_dir(&named("d/")).unwrap();
+        assert!(rows.iter().any(|r| r.name == "new" && r.is_dir));
+    }
+
+    /// `real` is configured as `alias -> real`, alone or under an enclosing
+    /// root that also matches the named path.
+    fn symlinked_root_is_usable(nested: bool) {
+        let _clear = ClearHooks;
+        let s = scratch();
+        let base = s.ws.parent().unwrap().to_path_buf();
+        let real = s.ws.clone();
+        let alias = base.join("alias");
+        symlink(&real, &alias).unwrap();
+        let at = |rest: &str| alias.join(rest).to_str().unwrap().to_string();
+        let roots = if nested {
+            vec![base.clone(), alias.clone()]
+        } else {
+            vec![alias.clone()]
+        };
+        test_hooks::set_workspaces(roots);
+        assert_eq!(
+            validate_workspace_path(alias.join("d/f"), &permitted_workspaces()).unwrap(),
+            real.join("d/f")
+        );
+        let (path, text) = read_text(&at("d/f")).unwrap();
+        assert_eq!((path, text.as_str()), (real.join("d/f"), INSIDE));
+        hold_for_write(&at("g"))
+            .and_then(|h| h.write_bytes(b"G", false))
+            .unwrap();
+        assert_eq!(std::fs::read_to_string(real.join("g")).unwrap(), "G");
+        assert_eq!(make_dir(&at("n")).unwrap(), real.join("n"));
+        assert!(real.join("n").is_dir());
+        let (listed, _) = list_dir(&at("d")).unwrap();
+        assert_eq!(listed, real.join("d"));
+    }
+
+    #[test]
+    fn a_workspace_root_configured_through_a_symlink_is_usable() {
+        symlinked_root_is_usable(false);
+    }
+
+    #[test]
+    fn a_symlinked_root_nested_under_another_root_is_usable() {
+        symlinked_root_is_usable(true);
+    }
+
+    #[test]
+    fn make_dir_accepts_an_existing_directory_symlink_like_list_dir() {
+        let s = scratch();
+        let dl = s.ws.join("dl");
+        symlink(s.ws.join("d"), &dl).unwrap();
+        assert_eq!(list_dir(dl.to_str().unwrap()).unwrap().0, s.ws.join("d"));
+        assert_eq!(make_dir(dl.to_str().unwrap()).unwrap(), s.ws.join("d"));
+        assert!(dl.symlink_metadata().unwrap().file_type().is_symlink());
+        // A symlink to a file is not a directory.
+        let fl = s.ws.join("fl");
+        symlink(s.ws.join("d/f"), &fl).unwrap();
+        assert!(make_dir(fl.to_str().unwrap()).is_err());
+        assert_eq!(std::fs::read_to_string(s.ws.join("d/f")).unwrap(), INSIDE);
+        // A symlink before the last component stays refused.
+        assert!(matches!(
+            make_dir(dl.join("new").to_str().unwrap()),
+            Err(BindError::Denied(_))
+        ));
+        assert!(!s.ws.join("d/new").exists());
+    }
+
+    #[test]
+    fn find_names_matches_a_symlinked_root_by_the_name_given() {
+        let s = scratch();
+        std::fs::write(s.ws.join("d/hit.txt"), "HIT\n").unwrap();
+        let dl = s.ws.join("dl");
+        let fl = s.ws.join("fl");
+        symlink(s.ws.join("d"), &dl).unwrap();
+        symlink(s.ws.join("d/hit.txt"), &fl).unwrap();
+        let find = |p: &Path, pat: &str| find_names(p.to_str().unwrap(), pat, 50).unwrap();
+        let (dl_s, fl_s) = (dl.display().to_string(), fl.display().to_string());
+        // find(1) semantics: the root is named by the caller's last component.
+        assert_eq!(find(&dl, "dl"), vec![dl_s.clone()]);
+        assert!(!find(&dl, "d").contains(&dl_s));
+        assert_eq!(find(&fl, "fl"), vec![fl_s.clone()]);
+        assert!(find(&fl, "hit.txt").is_empty());
+        // No name to match (`..`): the resolved directory's name is used.
+        let up = s.ws.join("d/..");
+        assert_eq!(find(&up, "ws"), vec![up.display().to_string()]);
     }
 
     fn assert_no_host_path(msg: &str, hidden: &[&Path]) {
