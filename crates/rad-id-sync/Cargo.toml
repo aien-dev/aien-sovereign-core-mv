@@ -17,9 +17,9 @@ path = "src/main.rs"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-spark-crumbs = { git = "https://github.com/aien-dev/spark-crumbs", rev = "9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2" }
+spark-crumbs = { git = "https://github.com/aien-dev/spark-crumbs-mv", rev = "9355a92bc9adfe95a6ec5f8ac926f38a0b6e7db2" }
 chrono = { version = "0.4", features = ["serde"] }
-crumb-spec = { git = "https://github.com/aien-dev/crumb-spec", rev = "24194d1b7917ef19244aae6bcaff510686b75fef" }
+crumb-spec = { git = "https://github.com/aien-dev/crumb-spec-mv", rev = "24194d1b7917ef19244aae6bcaff510686b75fef" }
 hex = "0.4"
 sha2 = "0.10"
 ed25519-dalek = { version = "2.1", default-features = false, features = ["fast", "zeroize"] }
