@@ -207,9 +207,8 @@ layer, expert index permuted (255 - e), and window 514.
 - weight streaming and repacking, with peak allocation and residency measured during load;
 - per-expert layout checks before fusing;
 - a load report;
-- tokenizer encode of non-ASCII text: `tok.om` encodes ASCII only (below) and refuses any
-  other byte with 60; the Unicode General Category tables (\p{L}, \p{N}, \p{P}, \p{S}, \p{M}
-  and subclasses) and the CJK Split they need are not built; the chat template is not rendered.
+- tokenizer: the chat template is not rendered, and `(?i)` case folds are checked only for the
+  contraction letters (s t r e v m l d).
 
 This unit has no GPU arm. A GGUF importer, if added, will be a separate optional unit.
 
@@ -224,14 +223,29 @@ ids from generation_config; 19 control tokens (text, roles, think, tools, tool-c
 and response tags) by id, special flag and exact bytes, each the unique added token with that
 content and matching `added_tokens_decoder`; the ByteLevel decode of 5 reference-encoded
 texts (ASCII, multibyte UTF-8, whitespace, a chat turn, a tool-call turn) to their exact bytes;
-and the encode of 261 ASCII texts to the reference's exact ids (18 hand cases, the 3 ASCII
-decode texts, 240 strings composed by `random.Random(834)` covering digit runs longer than 3,
-the contractions in mixed case and near misses, punctuation runs, whitespace and newline runs
-inside and at the end, control bytes and added tokens inside text). Encode follows tokenizers
-0.23.2 with `add_special_tokens=False`: added tokens cut out leftmost-longest as raw substrings,
-the `\p{N}{1,3}` Split, the main Split pattern (all six alternatives, Oniguruma backtracking and
-`\s+(?!\S)` evaluated per piece), ByteLevel, and BPE by lowest merge rank through 149744 merges
-held in a pair hash table (vocab strings in a second hash table). The pre_tokenizer JSON is
+the encode of 440 UTF-8 texts to the reference's exact ids (35 hand cases including CJK and
+katakana runs, accented and decomposed Latin, combining marks, Devanagari, Arabic, Hebrew,
+Thai, Hangul, emoji with ZWJ and variation selectors, Arabic-Indic and other Unicode digits,
+Unicode spaces and line separators, `ſ` in contractions, titlecase and modifier letters,
+U+10000 and up; the 5 decode texts; 240 ASCII strings composed by `random.Random(834)`
+covering digit runs longer than 3, the contractions in mixed case and near misses, punctuation
+runs, whitespace and newline runs inside and at the end, control bytes and added tokens inside
+text; 160 strings by `random.Random(835)` mixing those fragments with non-ASCII ones); the byte
+end of every pre_tokenizer piece of the 258 of those texts without added tokens (`pre`
+records: BPE seldom merges across a piece boundary, so a wrong boundary often leaves the ids
+unchanged); and the reference regex engine's class of every code point (`ucd` record).
+Encode follows tokenizers 0.23.2 with `add_special_tokens=False`: added tokens cut out
+leftmost-longest as raw substrings at character starts, the `\p{N}{1,3}` Split, the CJK Split
+`[一-龥぀-ゟ゠-ヿ]+`, the main Split pattern (all six alternatives, Oniguruma backtracking and
+`\s+(?!\S)` evaluated per piece, `(?i)` contractions including `ſ` for `s`), ByteLevel, and BPE
+by lowest merge rank through 149744 merges held in a pair hash table (vocab strings in a second
+hash table). The text is decoded as UTF-8 to code points; each code point's class (other, Lu,
+Ll, Lt, Lm, Lo, M, N, P, S, White_Space) comes from a run-length table that `test/ucdgen.py`
+generates from UCD 16.0.0, the Unicode version of the reference's regex engine (onig 6.5.3;
+the `ucd` record compares it with the engine itself). The table sits between generated
+markers in `tok.om`; `check.sh` pins the block's sha256 (`UCD_PIN`) and, with
+`FLINT_UCD=<dir with UnicodeData.txt and PropList.txt of 16.0.0>`, regenerates it with
+`ucdgen.py` and compares (NOT_RUN without it). The pre_tokenizer JSON is
 pinned by FNV-1a 64 of its text; a null-valued normalizer, truncation, padding, dropout,
 unk_token or affixes and false fuse_unk, byte_fallback, ignore_merges and added-token
 lstrip/rstrip/single_word/normalized are required, anything else is refused (52 or 55), so the
@@ -240,12 +254,16 @@ Usage: `flint-tok TOKENIZER_JSON TOKENIZER_CONFIG GENERATION_CONFIG FIXTURE`; on
 `flint-tok KIND NAME PASS|FAIL` line per record, a summary, exit 0 only when all pass.
 Refusals: 2 usage, 3 io, 4 not a regular file, 50 tokenizer.json size, 51 syntax, 52 schema,
 53 vocab id, 54 vocab key outside the ByteLevel alphabet, 55 added token, 56
-tokenizer_config, 57 generation_config, 58 fixture syntax, 59 capacity, 60 non-ASCII byte in
-an `enc` text (50-59 were all taken). `check.sh` runs fixture, input and source mutants (each
-must turn its named record to FAIL: among them a wrong expected id, digit pieces of 4, the
-`\s+(?!\S)` branch dropped, BPE by highest rank and the 3-letter contractions dropped) and
-removes each refusal guard in turn (its fixture must stop producing the code). Capacity (59)
-has no fixture.
+tokenizer_config, 57 generation_config, 58 fixture syntax, 59 capacity, 81 an `enc` text that
+is not valid UTF-8 (bad lead or continuation byte, overlong form, surrogate, above U+10FFFF,
+truncated). Codes 60-80 belong to the GGUF unit; the tokenizer has 81-89. `check.sh` runs
+fixture, input and source mutants (each must turn its named record to FAIL: among them a wrong
+expected id or piece end, a wrong class in the `ucd` record or in the table, digit pieces of 4,
+the `\s+(?!\S)` branch dropped, BPE by highest rank, the 3-letter contractions dropped, a
+wrong UTF-8 continuation decode, White_Space misread, `\p{M}` dropped from either letter
+class, katakana left out of the CJK Split, no backtracking in the first letter alternative and
+no `ſ` fold) and removes each refusal guard in turn (its fixture must stop producing the code):
+five invalid UTF-8 texts for 81 and a 16385-byte text of 8193 tokens for 59.
 No pinned token has characters outside the ByteLevel alphabet, so `check.sh` derives a
 tokenizer.json whose added token 150143 holds `<|reserved 150143\t|>` (space and tab) and checks
 the referee's `test/tok-fixture-raw.txt` decode against it; the `raw-bytes` source mutant must
@@ -257,7 +275,7 @@ turn that case to FAIL.
 It starts from two token IDs, loads real BF16 embedding rows and all selected expert weights,
 and compares five intermediate tensors per layer, final normalization and every vocabulary logit.
 The reference tensors are comparison targets, never teacher-forced inputs.
-The full gate prints `OM-FLINT-MANIFEST PASS (158)` with real checkpoint inputs (92 before the 66 `tok.om` checks); wrong-token
+The full gate printed `OM-FLINT-MANIFEST PASS (158)` with real checkpoint inputs before the tokenizer encode work; on the encode head the gate without `FLINT_FORWARD` prints `PASS (886)` (89 before the 797 `tok.om` checks, with `FLINT_UCD`), and the forward arm was not rerun there; wrong-token
 and skipped-final-normalization source mutants must fail the comparison.
 
 See [PROFILE.md](PROFILE.md) for the frozen weight/runtime/tokenizer/template identities

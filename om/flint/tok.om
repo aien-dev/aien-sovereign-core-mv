@@ -9,12 +9,13 @@ note   role NAME ID...        bos/eos from tokenizer_config.json, genbos/geneos/
 note   ctl NAME ID SPECIAL HEX  the control token's content and special flag in tokenizer.json, the same in
 note                          tokenizer_config.json added_tokens_decoder, and that no other added token has it
 note   case NAME N IDS NB HEX the ids decode, through the vocabulary and the ByteLevel decoder, to exactly HEX
-note   enc NAME N IDS NB HEX  the ASCII text HEX encodes to exactly the ids: added tokens (leftmost longest),
+note   enc NAME N IDS NB HEX  the UTF-8 text HEX encodes to exactly the ids: added tokens (leftmost longest),
 note                          then the pre_tokenizer Splits, ByteLevel and BPE (see ======== encode ========)
+note   ucd NAME NB HEX        HEX, the referee's code point classes as runs, equals this file's ucd table
 note Stdout: one "flint-tok KIND NAME ... PASS|FAIL" line per record, then a summary line. Exit 0 when every
 note record passes, 1 when any fails. Refusal: nothing on stdout, stderr "refused N reason", exit N.
 note Compose: { printf 'om2\n'; cat om/vendor/json.om om/flint/tok.om; } | omc
-note Encode covers ASCII text only: a non-ASCII byte in an enc text is refused with 60 (see om/flint/README.md).
+note Encode takes any valid UTF-8 text; a text that is not valid UTF-8 is refused with 81 (see om/flint/README.md).
 
 const TMAX ulong 263168
 const NOINT ulong 18446744073709551615
@@ -24,6 +25,7 @@ const FNVP ulong 1099511628211
 const FIB ulong 11400714819323198485
 const NDIG ulong 3
 const PRETOK ulong 15801867561988946408
+const NOCP ulong 1114112
 global ga uchar 16384
 global gas ulong 8
 global gal ulong 8
@@ -49,6 +51,11 @@ global gmv ulong 524288
 global gbid ulong 256
 global gw ulong 65536
 global geo ulong 8192
+global gcp ulong 65536
+global gco ulong 65537
+global gcl uchar 65536
+global gur ulong 4096
+global guk uchar 4096
 
 note gs: 0 tokenizer.json cursor, 1 its length, 2 depth, 3 string end, 4 string start, 5 pool fill,
 note 6 vocab entries, 7 vocab max id + 1, 8 added tokens, 9 last fstat size, 10 root keys seen,
@@ -56,8 +63,11 @@ note 11 model keys seen, 12 decoder keys seen, 13 added id, 14 added content off
 note length, 16 added special + 1, 17 added keys seen, 18 stdout fill, 19 stderr fill, 20 fixture length,
 note 21 fixture cursor, 22 records passed, 23 records failed, 24 decoded string length, 26 first added id,
 note 28 decode fill, 29 expected bytes, 30 fixture word length, 31 fixture ids, 32 name
-note offset, 33 name length, 34 encoded ids, 35 merges, 36 added-token match length, 37 merged id.
+note offset, 33 name length, 34 encoded ids, 35 merges, 36 added-token match length, 37 merged id,
+note 38 ucd runs, 39 UTF-8 length of the last decoded character, 40 pre record (piece ends, no BPE).
 note gvh: vocab string hash -> id + 1. gmk/gmv: merge pair key (A * TMAX + B) + 1 -> rank * TMAX + merged id.
+note gcp/gco/gcl: the enc text's code points, their byte offsets (gco[n] = its length) and classes.
+note gur/guk: start and class (0 other .. 10 White_Space, ucd letter - 97) of each ucd run.
 
 text tr2 "usage: flint-tok TOKENIZER_JSON TOKENIZER_CONFIG GENERATION_CONFIG FIXTURE"
 text tr3 "io"
@@ -72,7 +82,7 @@ text tr56 "tokenizer-config"
 text tr57 "generation-config"
 text tr58 "fixture-syntax"
 text tr59 "capacity"
-text tr60 "encode-not-ascii"
+text tr81 "encode-not-utf8"
 text tref "refused "
 text tpre "flint-tok "
 text tpass " PASS"
@@ -127,6 +137,8 @@ text frole "role"
 text fctl "ctl"
 text fcase "case"
 text fenc "enc"
+text fucd "ucd"
+text fpre "pre"
 text rbos "bos"
 text reos "eos"
 text rgbos "genbos"
@@ -1365,73 +1377,224 @@ end
 end
 
 note ======== encode ========
-note tokenizers 0.23.2 encode with add_special_tokens false, for ASCII text gxb[0 .. nb):
+note tokenizers 0.23.2 encode with add_special_tokens false, for UTF-8 text gxb[0 .. nb):
+note 0. te_dec decodes the text into code points gcp with byte offsets gco and classes gcl; a text that
+note    is not valid UTF-8 (overlong, surrogate, past U+10FFFF, cut short) is refused with 81. Positions
+note    below are character indices, as Oniguruma steps by character;
 note 1. added tokens: all 144 are normalized=false without lstrip/rstrip/single_word, so they are cut
 note    out as raw substrings, leftmost first and longest at that position (aho-corasick
 note    LeftmostLongest); every other span goes on;
-note 2. Split \p{N}{1,3} Isolated: digit runs in pieces of at most NDIG;
-note 3. Split [CJK ranges]+ Isolated: no ASCII character is in it, so it leaves ASCII pieces whole;
-note 4. Split of the third pattern, Isolated, on each non-digit piece separately (so (?!\S) sees the
-note    piece end), alternatives tried in order at each position with Oniguruma backtracking:
+note 2. Split \p{N}{1,3} Isolated: N runs in pieces of at most NDIG characters;
+note 3. Split [一-龥぀-ゟ゠-ヿ]+ Isolated (U+4E00..U+9FA5, U+3040..U+309F, U+30A0..U+30FF, te_cjk) on
+note    each non-N piece;
+note 4. Split of the third pattern, Isolated, on each piece separately (so (?!\S) sees the piece
+note    end), alternatives tried in order at each position with Oniguruma backtracking:
 note    a1 [^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+C?
 note    a2 [^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*C?
 note    a3 ' ?[\p{P}\p{S}]+[\r\n]*'  a4 \s*[\r\n]+  a5 \s+(?!\S)  a6 \s+, C = (?i:'s|'t|'re|'ve|'m|'ll|'d);
-note    a digit piece matches none of them and stays whole;
+note    an N piece matches none of them and stays whole;
 note 5. ByteLevel (use_regex false): each byte becomes its character, gbid gives its id;
 note 6. BPE, ignore_merges false: merge the adjacent pair of lowest rank, leftmost on ties, until none
 note    merges (the order tokenizers' heap of (rank, position) produces).
-note In ASCII: \p{Lu} is A-Z, \p{Ll} a-z, \p{N} 0-9, Lt/Lm/Lo/M are empty, \p{P} or \p{S} is every
-note graphic character that is not a letter or digit, \s is 9..13 and 32.
+note Classes come from the generated ucd table below (Unicode 16.0.0, the referee's own Oniguruma
+note tables, checked code point by code point by the fixture's ucd record). \s is White_Space; under
+note (?i) the only non-ASCII character folding to a contraction letter is U+017F (to s).
 
-note te_at: byte p of the piece ending at e, 256 past its end (in no class)
+note ======== unicode classes (generated by test/ucdgen.py from UCD 16.0.0; do not edit) ========
+note ucd: the class of every code point 0 .. 1114111 as runs, each a class letter then its
+note length in decimal: a other, b Lu, c Ll, d Lt, e Lm, f Lo, g M, h N, i P, j S, k White_Space
+text ucd "a9k5a18k1i3j1i6j1i4h10i2j3i2b26i3j1i1j1c26i1j1i1j1a6k1a26k1i1j5i1j2f1i1j1a1j4h2j1c1i2j1h1f1i1h3i1b23j1b7c24j1c8b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c2b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c2b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b2c1b1c1b1c3b2c1b1c1b2c1b3c2b4c1b2c1b3c3b2c1b2c1b1c1b1c1b2c1b1c2b1c1b2c1b3c1b1c1b2c2f1b1c3f4b1d1c1b1d1c1b1d1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c2b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c2b1d1c1b1c1b3c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c7b2c1b2c2b1c1b4c1b1c1b1c1b1c1b1c69f1c27e18j4e12j14e5j7e1j1e1j17g112b1c1b1c1e1j1b1c1a2e1c3i1b1a4j2b1i1b3a1b1a1b2c1b17a1b9c35b1c2b3c3b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c5b1c1j1b1c1b2c2b51c48b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1j1g7b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b2c1b1c1b1c1b1c1b1c1b1c1b1c2b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1a1b38a2e1i6c41i2a2j3a1g45i1g1i1g2i1g2i1g1a8f27a4f4i2a17j3i2j1i2j2g11i1a1i3f32e1f10g21h10i4f2g1f99i1f1g7a1j1g6e2g2j1g4f2h10f3j2f1i14a2f1g1f30g27a2f89g11f1a14h10f33g9e2j1i3e1a2g1j2f22g4e1g9e1g3e1g5a2i15a1f25g3a2i1a1f11a5f24j1f6a8g9f41e1g24a1g33f54g3f1g18f1g7f10g2i2h10i1e1f15g3a1f8a2f2a2f22a1f7a1f1a3f4a2g1f1g7a2g2a2g3f1a8g1a4f2a1f3g2a2h10f2j2h6j2f1i1g1a2g3a1f6a4f2a2f22a1f7a1f2a1f2a1f2a2g1a1g5a4g2a2g3a3g1a7f4a1f1a7h10g2f3g1i1a10g3a1f9a1f3a1f22a1f7a1f2a1f5a2g1f1g8a1g3a1g3a2f1a15f2g2a2h10i1j1a7f1g6a1g3a1f8a2f2a2f22a1f7a1f2a1f5a2g1f1g7a2g2a2g3a7g3a4f2a1f3g2a2h10j1f1h6a10g1f1a1f6a3f3a1f4a3f2a1f1a1f2a3f2a3f3a3f12a4g5a3g3a1g4a2f1a6g1a14h13j8a5g5f8a1f3a1f23a1f16a2g1f1g7a1g3a1g4a7g2a1f3a2f1a2f2g2a2h10a7i1h7j1f1g3i1f8a1f3a1f23a1f10a1f5a2g1f1g7a1g3a1g4a7g2a6f2a1f2g2a2h10a1f2g1a12g4f9a1f3a1f41g2f1g7a1g3a1g4f1j1a4f3g1h7f3g2a2h19j1f6a1g3a1f18a3f24a1f9a1f1a2f7a3g1a4g6a1g1a1g8a6h10a2g2i1a12f48g1f2g7a4j1f6e1g8i1h10i2a37f2a1f1a1f5a1f24a1f1a1f10g1f2g9f1a2f5a1e1a1g7a1h10a2f4a32f1j3i15j1i1j3g2j6h20j1g1j1g1j1g1i4g2f8a1f36a4g20i1g2f5g11a1g36a1j8g1j6a1j2i5j4i2a37f43g20f1h10i6f6g4f4g3f1g3f2g7f3g4f13g12f1g1h10g4j2b38a1b1a5b1a2c43i1e1c3f329a1f4a2f7a1f1a1f4a2f41a1f4a2f33a1f4a2f7a1f1a1f4a2f15a1f57a1f4a2f67a2g3i9h20a3f16j10a6b86a2c6a2i1f620j1i1f17k1f26i2a3f75i3h3f8a7f18g4a9f19g3i2a9f18g2a12f13a1f3a1g2a12f52g32i3e1i3j1f1g1a2h10a6h10a6i11g3a1g1h10a6f35e1f53a7f5g2f34g1f1a5f70a10f31a1g12a4g12a4j1a3i2h10f30a2f5a11f44a4f26a6h11a3j34f23g5a2i2f53g10a1g29a2g1h10a6h10a6i7e1i6a2g31a49g5f47g17f8a1i2h10i7j10g9j9i3g3f30g13f2h10f44g14a8i4f36g20a3i5h10a3f3h10f30e6i2c9b1c1a5b43a2b3i8a8g3i1g21f4g1f6g1f2g3f1a5c44e63c13e1c34e37g64b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c9b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c9b8c6a2b6a2c8b8c8b8c6a2b6a2c8a1b1a1b1a1b1a1b1c8b8c14a2c8d8c8d8c8d8c5a1c2b4d1j1c1j3c3a1c2b4d1j3c4a2c2b4a1j3c8b5j3a2c3a1c2b4d1j2a1k11a5i24k2a5k1i20j1i13j1i12k1a16h1e1a2h6j3i2e1h10j3i2a1e13a3j33a15g33a15j2b1j4b1j2c1b3c2b3c1j1b1j3b5j6b1j1b1j1b1j1b4j1c1b4c1f4c1j2c2b2j5b1c4j4c1j1h51b1c1h5j2a4j376i4j29i2j255a22j11a21h60j78h22j616i14h30j49i2j31i10j403i22j63i4j32i2j374a2j32a1j105b48c48b1c1b3c2b1c1b1c1b1c1b4c1b1c2b1c6e2b3c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c2j6b1c1b1c1g3b1c1a5i4h1i2c38a1c1a5c1a2f56a7e1i1a14g1f23a9f7a1f7a1f7a1f7a1f7a1f7a1f7a1f7a1g32i47e1i32j2i12a34j26a1j89a12j214a26j16k1i3j1e1f1h1i10j2i12j1h9g6i1e5j2h3e1f1i1j2a1f86a2g2j2e2f1i1f90i1e3f1a5f43a1f94a1j2h4j10f32j38a9j1f16j31a1h10j30h8j1h15j32h10j39h15j320f6592j64f21013e1f1143a3j55a9f40e6i2f268e1i3f16h10f2a20b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1f1g4i1g10i1e1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1e2g2f70h10g2i6a8j23e9j2b1c1b1c1b1c1b1c1b1c1b1c1b1c3b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1e1c8b1c1b1c1b2c1b1c1b1c1b1c1b1c1e1j2b1c1b1c1f1b1c1b1c3b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b5c1b5c1b1c1b1c1b1c1b1c1b1c1b1c1b1c1b4c1b1c1b2c1a2b1c1a1c1a1c1b1c1b1c1b1c1b1a21e3b1c1f1e2c1f7g1f3g1f4g1f23g5j4g1a3h6j4a6f52i4a8g2f50g18a8i2h10a6g18f6i3f1i1f2g1h10f28g8i2f23g13a11i1f29a3g4f47g14i13a1e1h10a4i2f5g1e1f9h10f5a1f41g14a9f3g1f8g2a2h10a2i4f16e1f6j3f1g3f50g1f1g3f2g2f5g2f1g1f1a24f2e1i2f11g5i2f1e2g2a10f6a2f6a2f6a9f7a1f7a1c43j1e4c9e1j2a4c80f35g8i1g2a2h10a6f11172a12f23a4f49a8452f366a2f106a38c7a12c5a5f1g1f10j1f13a1f5a1f1a1f2a1f2a1f108j17a16f363i2j16f64a2f54a7j1a32f12j4g16i10a6g16i35a1i14j1i1j3a1i1j1i2a4f5a1f135a4i3j1i6j1i4h10i2j3i2b26i3j1i1j1c26i1j1i1j1i7f10e1f45e2f31a3f6a2f6a2f6a2f3a3j7a1j7a13j2a2f12a1f26a1f19a1f2a1f15a2f14a34f123a5i3a4h45a3j9h57j17h2j3a1j13a3j1a47j45g1a130f29a3f49a15g1h27a4f32h4a9f20h1f8h1a5f38g5a5f30a1i1f36a4f8i1h5a42b40c40f78a2h10a6b36a4c36a4f40a8f52a11i1b11a1b15a1b7a1b2a1c11a1c15a1c7a1c2a3f52a12f311a9f22a10f8a24e6a1e42a1e9a69f6a2f1a1f44a1f2a3f1a2f23a1i1h8f23j2h7f31a8h9a48f19a1f2a5h5f22h6a3i1f26a5i1a64f56a4h2f2h16a2h46f1g3a1g2a5g4f4a1f3a1f29a2g3a4g1h9a7i9a7f29h2i1f29h3a32f8j1f28g2a4h5i7a9f54a3i7f22a2h8f19a5h8f18a7i4a12h7a80f73a55b51a13c51a7h6f36g4a8h10a6h10f4e1f1b22a3g5i1e1c22a8j2a208h31a1f42a1g2i1a2f2a16f3a55g4f29h10f1a8f22g11h4i5a22f18g4i4a38f21h7a20f23a9g3f53g15i7a4h30g1f2g2f1a9g4f45g11i2a1i4g1a13f25a7h10a6g3f36g14a1h10i4f1g2f1a8f35g1i2f1a9g3f48g14f4i4g4i1g2h10f1i1f1i3a1h20a11f18a1f25g12i6g1f2g1a62f7a1f1a1f4a1f15a1f10i1a6f47g12a5h10a6g4a1f8a2f2a2f22a1f7a1f2a1f5a1g2f1g7a2g2a2g3a2f1a6g1a5f5g2a2g7a3g5a11f10a1f1a2f1a1f38a1f1g9a1g1a2g1a1g4a1g5f1g1f1i2a1i2a8g2a29f53g18f4i5h10i2a1i1g1f3a30f48g20f2i1f1a8h10a166f47g7a2g9i23f4g2a34f48g17i3f1a11h10a6i13a19f43g13f1i1a6h10a6h20a28f27a2g15a4h12i3j1f7a185f44g15i1a100b32c32h19a12f8a2f1a2f8a1f2a1f24g6a1g2a2g4f1g1f1g2i3a9h10a70f8a2f39g7a2g7f1i1f1g1a27f1g10f40g7f1g4i8g1a8f1g11f46g16i3f1i5a13f73a7i10a182f33i1a14h10a6f9a1f37g8a1g8f1i5a10h29a3i2f30a2g22a1g14a73f7a1f2a1f38g6a3g1a1g2a1g7f1g1a8h10a6f6a1f2a1f32g5a1g2a1g5f1a7h10a310f19g4i2a7g2f1g1f13a1f34g7a3g5i13h10g1a85f1a15h21j29a13i1f922a102h111a1i5a11f196a2636f97i2a13f1072a16g1f6g15a10f3995a5f583a6841f30g18h10a1734f569a7f31a1h10a4i2f79a1h10a6f30a2g5i1a10f48g7i5j4e4i1j1a10h10a1h7a1f21a5f19a432e3f40e2i3h10a198b32c32h23i4a101f75a4g1f1g55a7g4e13a64e2i1e1g1a11g2a14f6136a8f1238a41f10a8935e4a1e7a1e2a1f291a15f1a29f3a2f1a14f4a8f396a2308f107a5f13a3f9a7f10a2j1g2i1a3936j240h10a6j436a76g46a2g23a9j116a60j246a10j39a2j60g5j3g6a8g8j2g7j30g4j61a21j66g3j1a122h20a12h20a12j87a9h25a135b26c26b26c7a1c18b26c26b1a1b2a2b1a2b2a2b4a1b8c4a1c1a1c7a1c11b26c26b2a1b4a2b8a1b7a1c26b2a1b4a1b5a1b1a3b7a1c26b26c26b26c26b26c26b26c26b26c26b26c28a2b25j1c25j1c6b25j1c25j1c6b25j1c25j1c6b25j1c25j1c6b25j1c25j1c6b1c1a2h50j512g55j4g50j8g1j14g1j2i5a15g5a1g15a1104c10f1c20a6c6a213g7a1g17a2g7a1g2a1g5a5e62a33g1a112f45a3g7e7a2h10a4f1j1a320f30g1a17f44g4h10a5j1a464f27e1g4h10a214f30g2f1h10a4i1a480f7a1f4a1f2a1f15a1f197a2h9g7a41b34c34g7e1a4h10a4i2a785h59j1h3j1h4a76h45j1h15a194f4a1f27a1f2a1f1a2f1a1f10a1f4a1f1a1f1a6f1a4f1a1f1a1f1a1f3a1f2a1f1a2f1a1f1a1f1a1f1a1f1a1f2a1f1a2f4a1f7a1f4a1f4a1f1a1f10a1f17a5f3a1f5a1f17a52j2a270j44a4j100a12j15a2j15a1j15a1j37a10h13j161a56j29a13j44a4j9a7j2a14j6a154j984a4j17a3j13a3j119a4j95a6j12a4j1a15j12a4j56a8j10a6j40a8j30a2j12a4j2a62j340a12j14a2j13a3j10a5j56a7j15a2j11a6j9a7j147a1j92h10a1030f42720a32f4154a6f222a2f5762a14f7473a15f622a2466f542a1506f4939a5f4192a712016g240a196112"
+note ======== end of generated unicode classes ========
+
+note tk_ucd: the ucd runs into gur (start) and guk (class)
+fn tk_ucd to void
+n = ulong 0
+s = ulong 0
+i = ulong 0
+while lt i len ucd bound 99999
+if ge n len gur
+tk_die 59 tr59
+end
+put gur n s
+put guk n uchar sub ulong get ucd i 97
+i = add i 1
+l = ulong 0
+while lt i len ucd bound 99
+d = ulong get ucd i
+if gt d 57
+break
+end
+l = add mul l 10 sub d 48
+i = add i 1
+end
+s = add s l
+n = add n 1
+end
+put gs 38 n
+end
+
+note te_cls: the class of code point c, by binary search over the runs
+fn te_cls c ulong to ulong
+lo = ulong 0
+hi = get gs 38
+while gt sub hi lo 1 bound 64
+m = div add lo hi 2
+if le get gur m c
+lo = m
+else
+hi = m
+end
+end
+ret ulong get guk lo
+end
+
+note te_ulen: the UTF-8 length a lead byte b announces, 0 for a byte that cannot lead
+fn te_ulen b ulong to ulong
+if and ge b 194 le b 223
+ret 2
+end
+if and ge b 224 le b 239
+ret 3
+end
+if and ge b 240 le b 244
+ret 4
+end
+ret 0
+end
+
+note te_cp: the code point at byte p of gxb[0 .. nb), its length in gs 39; refused (81) unless it is
+note well-formed UTF-8 (Unicode Table 3-7: no overlong form, surrogate or value past U+10FFFF)
+fn te_cp p ulong nb ulong to ulong
+b = ulong get gxb p
+put gs 39 1
+if lt b 128
+ret b
+end
+l = te_ulen b
+if or eq l 0 gt add p l nb
+tk_die 81 tr81
+end
+lo = ulong 128
+hi = ulong 191
+if eq b 224
+lo = 160
+end
+if eq b 237
+hi = 159
+end
+if eq b 240
+lo = 144
+end
+if eq b 244
+hi = 143
+end
+c = and b 31
+if eq l 3
+c = and b 15
+end
+if eq l 4
+c = and b 7
+end
+for i ulong sub l 1
+x = ulong get gxb add add p 1 i
+if or lt x lo gt x hi
+tk_die 81 tr81
+end
+lo = 128
+hi = 191
+c = add mul c 64 sub x 128
+end
+put gs 39 l
+ret c
+end
+
+note te_dec: decode gxb[0 .. nb) into gcp, gco and gcl; the character count
+fn te_dec nb ulong to ulong
+n = ulong 0
+p = ulong 0
+while lt p nb bound 99999
+c = te_cp p nb
+put gco n p
+put gcp n c
+put gcl n uchar te_cls c
+n = add n 1
+p = add p get gs 39
+end
+put gco n nb
+ret n
+end
+
+note te_at: code point p of the piece ending at e, NOCP past its end; te_k: its class, 11 past the end
 fn te_at p ulong e ulong to ulong
 if ge p e
-ret 256
+ret NOCP
 end
-ret ulong get gxb p
-end
-
-fn te_up c ulong to bool
-ret and ge c 65 le c 90
+ret get gcp p
 end
 
-fn te_lo c ulong to bool
-ret and ge c 97 le c 122
+fn te_k p ulong e ulong to ulong
+if ge p e
+ret 11
+end
+ret ulong get gcl p
 end
 
-fn te_dg c ulong to bool
-ret and ge c 48 le c 57
+note te_up: [\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]; te_lo: [\p{Ll}\p{Lm}\p{Lo}\p{M}]; te_lt: \p{L}; te_dg: \p{N};
+note te_ws: \s; te_ps: [\p{P}\p{S}] (classes of te_cls)
+fn te_up k ulong to bool
+ret or eq k 1 and ge k 3 le k 6
 end
 
-fn te_ws c ulong to bool
-ret or and ge c 9 le c 13 eq c 32
+fn te_lo k ulong to bool
+ret or eq k 2 and ge k 4 le k 6
+end
+
+fn te_lt k ulong to bool
+ret and ge k 1 le k 5
+end
+
+fn te_dg k ulong to bool
+ret eq k 7
+end
+
+fn te_ws k ulong to bool
+ret eq k 10
 end
 
 fn te_nl c ulong to bool
 ret or eq c 10 eq c 13
 end
 
-fn te_ps c ulong to bool
-a = or and ge c 33 le c 47 and ge c 58 le c 64
-b = or and ge c 91 le c 96 and ge c 123 le c 126
-ret or a b
+fn te_ps k ulong to bool
+ret or eq k 8 eq k 9
 end
 
-note te_x: [^\r\n\p{L}\p{N}] for a byte (false past the end)
-fn te_x c ulong to bool
-if ge c 128
+note te_x: [^\r\n\p{L}\p{N}] at p (false past the end)
+fn te_x p ulong e ulong to bool
+k = te_k p e
+if eq k 11
 ret false
 end
-ret not or or te_nl c te_dg c or te_up c te_lo c
+ret not or or te_lt k te_dg k te_nl te_at p e
 end
 
+note te_cjk: code point c is in [一-龥぀-ゟ゠-ヿ]
+fn te_cjk c ulong to bool
+a = and ge c 19968 le c 40869
+b = and ge c 12352 le c 12447
+ret or a or b and ge c 12448 le c 12543
+end
+
+note te_low: the case fold of c for the contraction letters (A-Z, and U+017F long s to s)
 fn te_low c ulong to ulong
-if te_up c
+if and ge c 65 le c 90
 ret add c 32
+end
+if eq c 383
+ret 115
 end
 ret c
 end
-
 note te_ctr: the end of the optional contraction C at l
 fn te_ctr l ulong e ulong to ulong
 if ne te_at l e 39
@@ -1448,29 +1611,66 @@ end
 ret l
 end
 
-note te_a12: the end of a1, else of a2, at p; p when neither matches. In ASCII the upper and lower
-note classes are disjoint, so backtracking cannot help: a1 matches when a lower-case run follows the
-note upper-case run, a2 when that upper-case run is not empty.
-fn te_a12 p ulong e ulong to ulong
-q = p
-if te_x te_at p e
-q = add p 1
-end
-u = q
-while te_up te_at u e bound 99999
+note te_a1: the end of a1 at p with the optional class taken (x 1) or not (x 0), NOINT when it fails.
+note The upper run [s, u) is greedy; W+ needs a W character at q, so q backtracks from u towards s
+note (Lm, Lo and M are in both classes); W+ then runs to its end and C? is optional.
+fn te_a1 p ulong e ulong x ulong to ulong
+s = add p x
+u = s
+while te_up te_k u e bound 99999
 u = add u 1
 end
-l = u
-while te_lo te_at l e bound 99999
+for j ulong add sub u s 1
+q = sub u j
+if te_lo te_k q e
+l = q
+while te_lo te_k l e bound 99999
 l = add l 1
 end
-if gt l u
 ret te_ctr l e
 end
-if gt u q
-ret te_ctr u e
 end
+ret NOINT
+end
+
+note te_a2: the end of a2 at p with the optional class taken (x 1) or not (x 0), NOINT when it fails
+fn te_a2 p ulong e ulong x ulong to ulong
+s = add p x
+u = s
+while te_up te_k u e bound 99999
+u = add u 1
+end
+if eq u s
+ret NOINT
+end
+l = u
+while te_lo te_k l e bound 99999
+l = add l 1
+end
+ret te_ctr l e
+end
+
+note te_a12: the end of a1, else of a2, at p (each with its optional first class taken first); p when
+note neither matches. Not taking it matters only for a mark, which is in that class and in both runs.
+fn te_a12 p ulong e ulong to ulong
+x = te_x p e
+r = NOINT
+if x
+r = te_a1 p e 1
+end
+if eq r NOINT
+r = te_a1 p e 0
+end
+if and eq r NOINT x
+r = te_a2 p e 1
+end
+if eq r NOINT
+r = te_a2 p e 0
+end
+if eq r NOINT
 ret p
+end
+ret r
 end
 
 note te_a3: the end of a3 at p, p when it does not match
@@ -1480,7 +1680,7 @@ if eq te_at p e 32
 q = add p 1
 end
 r = q
-while te_ps te_at r e bound 99999
+while te_ps te_k r e bound 99999
 r = add r 1
 end
 if eq r q
@@ -1508,7 +1708,7 @@ note te_aws: a4, a5 or a6 at p. \s* backtracks to the last \r or \n of the run, 
 fn te_aws p ulong e ulong to ulong
 w = p
 n = p
-while te_ws te_at w e bound 99999
+while te_ws te_k w e bound 99999
 if te_nl te_at w e
 n = add w 1
 end
@@ -1580,11 +1780,17 @@ end
 ret sub m 1
 end
 
-note te_bpe: the ids of piece gxb[a .. b) appended to geo
+note te_bpe: the ids of the piece of characters [a, b), bytes gxb[gco a .. gco b), appended to geo;
+note for a pre record (gs 40 = 1) only the piece's byte end is appended
 fn te_bpe a ulong b ulong to void
-n = sub b a
+o = get gco a
+n = sub get gco b o
+if eq get gs 40 1
+te_emit get gco b
+n = 0
+end
 for i ulong n
-put gw i get gbid ulong get gxb add a i
+put gw i get gbid ulong get gxb add o i
 end
 m = n
 while gt m 1 bound 99999
@@ -1621,17 +1827,42 @@ te_bpe g e
 end
 end
 
-note te_seg: the digit Split over span [s, e) between added tokens; digit pieces skip te_pre
-fn te_seg s ulong e ulong to void
+note te_sc: the CJK Split over the non-N piece [s, e); every piece goes on to te_pre
+fn te_sc s ulong e ulong to void
 p = s
 g = s
 while lt p e bound 99999
-if te_dg te_at p e
+if te_cjk te_at p e
 if gt p g
 te_pre g p
 end
 k = p
-while and te_dg te_at k e lt sub k p NDIG bound 99999
+while te_cjk te_at k e bound 99999
+k = add k 1
+end
+te_pre p k
+p = k
+g = k
+else
+p = add p 1
+end
+end
+if gt e g
+te_pre g e
+end
+end
+
+note te_seg: the N Split over span [s, e) between added tokens; N pieces skip te_sc and te_pre
+fn te_seg s ulong e ulong to void
+p = s
+g = s
+while lt p e bound 99999
+if te_dg te_k p e
+if gt p g
+te_sc g p
+end
+k = p
+while and te_dg te_k k e lt sub k p NDIG bound 99999
 k = add k 1
 end
 te_bpe p k
@@ -1642,7 +1873,7 @@ p = add p 1
 end
 end
 if gt e g
-te_pre g e
+te_sc g e
 end
 end
 
@@ -1675,18 +1906,25 @@ end
 ret r
 end
 
-note te_run: encode gxb[0 .. nb) into geo[0 .. gs 34); a non-ASCII byte is refused (60)
+note te_adv: the character index after an added token of l bytes at character p
+fn te_adv p ulong l ulong to ulong
+b = add get gco p l
+q = add p 1
+while lt get gco q b bound 99999
+q = add q 1
+end
+ret q
+end
+
+note te_run: encode gxb[0 .. nb) into geo[0 .. gs 34); text that is not UTF-8 is refused (81).
+note Added tokens are matched on bytes at character starts (UTF-8 never matches inside a character).
 fn te_run nb ulong to void
 put gs 34 0
-for i ulong nb
-if ge get gxb i 128
-tk_die 60 tr60
-end
-end
+n = te_dec nb
 p = ulong 0
 g = ulong 0
-while lt p nb bound 99999
-id = te_add p nb
+while lt p n bound 99999
+id = te_add get gco p nb
 if eq id NOINT
 p = add p 1
 else
@@ -1694,12 +1932,12 @@ if gt p g
 te_seg g p
 end
 te_emit id
-p = add p get gs 36
+p = te_adv p get gs 36
 g = p
 end
 end
-if gt nb g
-te_seg g nb
+if gt n g
+te_seg g n
 end
 end
 
@@ -2138,8 +2376,9 @@ end
 ret and known tk_xeq nb
 end
 
-note fx_enc: enc NAME N IDS NB HEX, the text HEX encodes to exactly the N ids
-fn fx_enc to bool
+note fx_enc: enc NAME N IDS NB HEX (pc 0), the text HEX encodes to exactly the N ids; pre NAME N ENDS
+note NB HEX (pc 1), the three Splits cut the text HEX into pieces ending at exactly the N byte offsets
+fn fx_enc pc ulong to bool
 fx_name
 n = fx_uint
 if gt n len gid
@@ -2154,12 +2393,39 @@ fx_eol
 if ne w nb
 tk_die 58 tr58
 end
+put gs 40 pc
+if eq pc 0
 te_run nb
+else
+put gs 34 0
+te_seg 0 te_dec nb
+end
+put gs 40 0
 if ne get gs 34 n
 ret false
 end
 for j ulong n
 if ne get geo j get gid j
+ret false
+end
+end
+ret true
+end
+
+note fx_ucd: ucd NAME NB HEX, the referee's class runs HEX equal the ucd table byte for byte
+fn fx_ucd to bool
+fx_name
+w = fx_uint
+nb = fx_hex
+fx_eol
+if ne w nb
+tk_die 58 tr58
+end
+if ne nb len ucd
+ret false
+end
+for i ulong nb
+if ne get gxb i get ucd i
 ret false
 end
 end
@@ -2189,9 +2455,17 @@ if fx_wis k kl fcase
 ok = fx_case
 else
 if fx_wis k kl fenc
-ok = fx_enc
+ok = fx_enc 0
+else
+if fx_wis k kl fpre
+ok = fx_enc 1
+else
+if fx_wis k kl fucd
+ok = fx_ucd
 else
 tk_die 58 tr58
+end
+end
 end
 end
 end
@@ -2264,6 +2538,7 @@ gtape = new uint 65536 0
 tk_rtj
 tk_doc
 tk_bytes
+tk_ucd
 cn = tk_rloc 2 csrc
 if not tc_parse csrc ctape cn
 tk_die 56 tr56

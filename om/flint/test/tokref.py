@@ -19,9 +19,14 @@ Fixture: ASCII lines, fields separated by one space; lines starting with '#' are
   ctl NAME ID SPECIAL HEX     a control token: id, its added_tokens_decoder special flag, content bytes
   case NAME N ID*N NB HEX     ids the reference encodes for the NB bytes HEX (no special tokens added);
                               the reference must decode them back to the same bytes
-  enc NAME N ID*N NB HEX      ids the reference encodes for the ASCII text HEX (no special tokens
-                              added); the hand cases of ENC_HAND, the ASCII CASES, then ENC_N strings
-                              composed by random.Random(ENC_SEED) from the ENC_* fragment lists
+  enc NAME N ID*N NB HEX      ids the reference encodes for the UTF-8 text HEX (no special tokens
+                              added); the hand cases of ENC_HAND, the CASES, then ENC_N strings
+                              composed by random.Random(ENC_SEED) from the ENC_* fragment lists and
+                              ENC_UN strings by random.Random(ENC_SEED + 1) that add non-ASCII fragments
+  pre NAME N END*N NB HEX     for an enc text without added tokens: the byte end of each piece the
+                              reference pre_tokenizer cuts HEX into
+  ucd NAME NB HEX             the class of every code point, as test/ucdgen.py runs, read from the
+                              reference's own regex engine (one Split per class over all code points)
 """
 import hashlib
 import inspect
@@ -31,6 +36,9 @@ import sys
 
 import tokenizers
 import transformers
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ucdgen  # noqa: E402
 from transformers import AutoTokenizer, GenerationConfig
 
 PINS = {
@@ -151,9 +159,13 @@ for name, text in CASES:
     raw = text.encode()
     lines.append("case %s %d %s %d %s" % (name, len(v), " ".join(map(str, v)), len(raw), raw.hex()))
 
-# Encode corpus (ASCII only; tok.om refuses other bytes with 60). It covers digit runs longer
-# than 3, the contractions in mixed case (and near misses), punctuation runs, whitespace and
-# newline runs, inside and at the end of the text, control bytes, and added tokens inside text.
+# Encode corpus. It covers N runs longer than 3, the contractions in mixed case (and near misses),
+# punctuation runs, whitespace and newline runs, inside and at the end of the text, control bytes,
+# added tokens inside text, and outside ASCII: the CJK Split ranges and their edges, accented and
+# decomposed Latin, combining marks (also first, after a space and after a capital, where a1/a2
+# backtrack), emoji with variation selectors and ZWJ, flags, non-ASCII N (Arabic-Indic, fullwidth,
+# Nl, No), every non-ASCII White_Space kind, Lt, Lm, other scripts, the fold of U+017F in a
+# contraction, a Unicode 16 letter and a code point unassigned in Unicode 16.
 ENC_SEED = 834
 ENC_N = 240
 ENC_HAND = [
@@ -175,6 +187,25 @@ ENC_HAND = [
     ("ctl-bytes", "a\x00b\x01 c\x1c\x1fd\x7f e\x0bf\x0cg\x1b[0m"),
     ("caps", "HTTPServer iPhone ABCdef aBC XMLHttpRequest A B CD"),
     ("long", "supercalifragilisticexpialidocious " * 3 + "a" * 70 + " " * 40 + "9" * 25),
+    ("cjk", "\u65e5\u672c\u8a9e\u306e\u30c6\u30ad\u30b9\u30c8\u3067\u3059\u3002\u4e2d\u6587\u6587\u672c\uff0c\u6d4b\u8bd5\u3002"),
+    ("cjk-mix", "Tokyo\u6771\u4eacabc \u6771\u4eac 2024\u5e74 x\u3042y \u3042\u3044\u3046 a\u4e00b"),
+    ("cjk-kata", " \u30ab\u30bf\u30ab\u30ca \u30fc\u30c9 a\u30a0b \u30fb"),
+    ("cjk-edge", "\u4e00\u9fa5\u9fa6\u9fff\u3400\u3040\u309f\u30a0\u30ff\u3100 \uff76\uff80"),
+    ("latin", "Caf\u00e9 d\u00e9j\u00e0 vu, na\u00efve r\u00e9sum\u00e9 \u00c9COLE \u00c9t\u00e9 \u00dfo \u0130stanbul \u0141\u00f3d\u017a"),
+    ("decomp", "e\u0301te\u0301 Cafe\u0301 E\u0301COLE A\u0308BC a\u0308b"),
+    ("marks", "\u0301abc \u0301x x \u0301 \u0301\u0302\u0303 A\u0301 \u20dd! '\u0301s .\u0301\u0301"),
+    ("emoji", "I \u2764\ufe0f \U0001f355 and \U0001f468\u200d\U0001f469\u200d\U0001f467! \U0001f642\U0001f642\U0001f642 \U0001f1ef\U0001f1f5\U0001f1fa\U0001f1f8 \U0001f44d\U0001f3fd"),
+    ("digits-u", "\u0663\u0664\u0665\u0666\u0667 \uff11\uff12\uff13\uff14 \u216b \u00bd \u00b2\u00b3 \u0967\u0968\u0969\u096a x\u0663y"),
+    ("ws-u", "a\u00a0b\u3000c\u2028d\u0085e\u2029f\u1680g\u2009\u200ah \u3000\u3000"),
+    ("ws-u-nl", "x \u00a0\n y\u3000\r\n\u2028z \u00a0"),
+    ("not-ws", "a\u200bb\u200ec\ufeffd\u180ee"),
+    ("long-s", "it'\u017f IT'S it'\u017ft '\u017f \u017fun"),
+    ("lt-lm", "\u01c5emal \u01c8ubljana \u02b0\u02b2a x\u02b0 \u1fbc\u1f88"),
+    ("scripts", "\u0395\u03bb\u03bb\u03b7\u03bd\u03b9\u03ba\u03ac \u041f\u0440\u0438\u0432\u0435\u0442, \u043c\u0438\u0440! "
+                "\u0645\u0631\u062d\u0628\u0627 \u0628\u0627\u0644\u0639\u0627\u0644\u0645 \u0928\u092e\u0938\u094d\u0924\u0947 "
+                "\u0e2a\u0e27\u0e31\u0e2a\u0e14\u0e35 \uc548\ub155\ud558\uc138\uc694 \u05e9\u05dc\u05d5\u05dd"),
+    ("u16", "\U00010d50\U00010d70 \U00010940x \U0001e5d0"),
+    ("punct-u", "\u00ab\u00bb \u201cq\u201d \u2014\u2013 \u2026 \u20ac5 \u00a9\u00ae \u2211\u221e \u00bf\u00a1"),
 ]
 ENC_WORDS = ["the", "Hello", "WORLD", "x", "I", "a", "don", "CamelCase", "iOS", "HTTPServer",
              "snake_case", "ab", "Zz", "qux", "OK", "tokenizer", "Flint", "naive", "ZZTop"]
@@ -207,16 +238,36 @@ def enc_frag():
     return rng.choice(ENC_WORDS).upper()
 
 
-enc = list(ENC_HAND) + [(n, t) for n, t in CASES if t.isascii()]
+enc = list(ENC_HAND) + list(CASES)
 for k in range(ENC_N):
     parts = [enc_frag() for _ in range(rng.randrange(1, 13))]
     text = "".join(p + rng.choice(["", "", " "]) for p in parts)
     if rng.randrange(4) == 0:
         text += rng.choice(ENC_WS)
     enc.append(("r%03d" % k, text))
+# Non-ASCII fragments for a second random corpus (its own generator, so r000.. stay as they were).
+ENC_UN = 160
+ENC_UFRAG = ["\u00e9", "\u00c9", "e\u0301", "\u0301", "\u0308", "\u00df", "\u0130", "\u017f", "\u01c5",
+             "\u02b0", "\u65e5\u672c", "\u306e", "\u30ab\u30bf", "\u30fc", "\u3000", "\u00a0", "\u2028",
+             "\u0085", "\u0663\u0664", "\uff11", "\u00bd", "\u216b", "\u2764\ufe0f", "\U0001f642",
+             "\U0001f468\u200d\U0001f469", "\U0001f1ef\U0001f1f5", "\u041f\u0440\u0438", "\u0628\u0627",
+             "\u0928\u092e\u0938\u094d", "\uc548\ub155", "\u2014", "\u201c", "\u20ac", "\u200b", "\U00010940"]
+urng = random.Random(ENC_SEED + 1)
+for k in range(ENC_UN):
+    rng = urng
+    parts = []
+    for _ in range(urng.randrange(1, 13)):
+        parts.append(urng.choice(ENC_UFRAG) if urng.randrange(2) == 0 else enc_frag())
+    text = "".join(p + urng.choice(["", "", " "]) for p in parts)
+    enc.append(("u%03d" % k, text))
+# A text without added tokens also gets a pre record: the byte end of every piece the reference
+# pre_tokenizer (the three Splits) cuts it into. BPE seldom merges across a piece boundary, so a
+# wrong boundary (a mark class, a CJK range, a fold, backtracking) often leaves the ids unchanged;
+# the pre record shows it.
+npre = 0
 for name, text in enc:
-    if not text.isascii() or not text:
-        sys.exit("tokref: enc %s is not non-empty ASCII" % name)
+    if not 0 < len(text.encode()) <= 16384:
+        sys.exit("tokref: enc %s is empty or longer than 16384 bytes" % name)
     v = tok.encode(text, add_special_tokens=False)
     if v != tok.backend_tokenizer.encode(text, add_special_tokens=False).ids:
         sys.exit("tokref: enc %s: transformers and tokenizers disagree" % name)
@@ -224,10 +275,51 @@ for name, text in enc:
         sys.exit("tokref: enc %s does not decode back to its text" % name)
     raw = text.encode()
     lines.append("enc %s %d %s %d %s" % (name, len(v), " ".join(map(str, v)), len(raw), raw.hex()))
+    if any(a in text for a in ENC_ADDED):
+        continue
+    ends = []
+    for _, (a, b) in tok.backend_tokenizer.pre_tokenizer.pre_tokenize_str(text):
+        if a != (ends[-1] if ends else 0):
+            sys.exit("tokref: pre %s: pieces do not cover the text" % name)
+        ends.append(b)
+    if ends[-1] != len(text):
+        sys.exit("tokref: pre %s: pieces do not cover the text" % name)
+    e = [len(text[:b].encode()) for b in ends]
+    lines.append("pre %s %d %s %d %s" % (name, len(e), " ".join(map(str, e)), len(raw), raw.hex()))
+    npre += 1
+
+# Code point classes of the reference regex engine, as ucdgen.py runs: each class is one Split
+# (behavior removed) over every code point but the surrogates (left in class a, as in the UCD
+# build), whose removed spans are its members. The classes must not overlap. The (?i) contraction
+# letters must fold as tok.om's te_low assumes: s also to U+017F, the others within ASCII.
+CPS = [c for c in range(ucdgen.NCP) if not 0xD800 <= c <= 0xDFFF]
+ALL = "".join(map(chr, CPS))
+
+
+def members(rx):
+    kept = bytearray(len(CPS))
+    for _, (a, b) in tokenizers.pre_tokenizers.Split(tokenizers.Regex(rx), "removed").pre_tokenize_str(ALL):
+        kept[a:b] = b"\x01" * (b - a)
+    return [CPS[i] for i in range(len(CPS)) if not kept[i]]
+
+
+cls = bytearray(b"a" * ucdgen.NCP)
+for letter, rx, _ in ucdgen.CLASSES:
+    for c in members(rx):
+        if cls[c] != ord("a"):
+            sys.exit("tokref: U+%04X is in %s and class %c" % (c, rx, cls[c]))
+        cls[c] = ord(letter)
+for x in "strvmld":
+    want = {ord(x), ord(x.upper())} | ({0x17F} if x == "s" else set())
+    if set(members("(?i:%s)" % x)) != want:
+        sys.exit("tokref: (?i:%s) folds to %r" % (x, sorted(members("(?i:%s)" % x))))
+u = ucdgen.runs(cls).encode()
+lines.append("ucd unicode-%s %d %s" % (ucdgen.UCD_VERSION, len(u), u.hex()))
 with open(out, "w") as f:
     f.write("\n".join(lines) + "\n")
-print("tokref: %d control tokens, %d cases, %d enc (seed %d), tokenizers %s" % (
-    len(CONTROL), len(CASES), len(enc), ENC_SEED, tokenizers.__version__))
+print("tokref: %d control tokens, %d cases, %d enc (seed %d), %d pre, ucd %d runs, tokenizers %s" % (
+    len(CONTROL), len(CASES), len(enc), ENC_SEED, npre,
+    len(u) - len(u.translate(None, b"abcdefghijk")), tokenizers.__version__))
 
 # Optional: RAWJSON RAWOUT. RAWJSON is the pinned tokenizer.json with one added token's content
 # changed by check.sh to hold characters outside the ByteLevel alphabet (space, tab), which no
