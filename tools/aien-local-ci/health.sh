@@ -17,12 +17,13 @@
 # health.sh: one-screen health of the sovereign local pipeline host pieces (lane INFRA). Read-only.
 set -uo pipefail
 RUN_HOME=/var/lib/aien-run
-FORGEJO_DATA=/home/drakestapleton/atlas-forgejo/data
+OP_HOME=${AIEN_OPERATOR_HOME:-$HOME}
+FORGEJO_DATA=$OP_HOME/atlas-forgejo/data
 FORGEJO_PORT=$(grep -E '^HTTP_PORT' "$FORGEJO_DATA/custom/conf/app.ini" 2>/dev/null | awk -F= '{gsub(/ /,"",$2); print $2}')
 FORGEJO_PORT=${FORGEJO_PORT:-3443}
-STATE=/home/drakestapleton/.local/state/aien-local-ci
+STATE=$OP_HOME/.local/state/aien-local-ci
 GPU_LOCK=/tmp/aien-gb10.lock
-SLOTS=/home/drakestapleton/.local/state/aien-proof/slots
+SLOTS=$OP_HOME/.local/state/aien-proof/slots
 
 row() { printf '%-22s %s\n' "$1" "$2"; }
 

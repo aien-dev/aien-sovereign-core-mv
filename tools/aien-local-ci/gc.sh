@@ -82,5 +82,5 @@ for r in "$RUN_HOME"/target/*/; do
 done
 
 echo "== stale triggers (>7 days, report only)"
-find /home/drakestapleton/.local/state/aien-local-ci/trigger -type f -mtime +7 2>/dev/null || true
+find "${AIEN_OPERATOR_HOME:-$HOME}/.local/state/aien-local-ci/trigger" -type f -mtime +7 2>/dev/null || true
 (( apply )) || echo "(dry run; add --apply to act)"

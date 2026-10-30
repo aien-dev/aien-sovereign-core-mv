@@ -14,16 +14,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# pipeline.sh: Spark side of the local verification pipeline, ADR 0033 phase 3 (lane PIPELINE).
+# pipeline.sh: Spark side of the local pipeline (ADR 0033, amended 2026-10-24: Spark qualification is the Alpha
+# stage, not a merge gate).
 #
-#   pipeline.sh publish|rerun|merge|round [--repos a,b]      (round = publish, then rerun, then merge)
+#   pipeline.sh publish|merge|alpha|round [--repos a,b]      (round = publish, then merge, then alpha)
 #
 # publish  copy every signed bundle the worker wrote ($STATE/bundles/<repo>/<sha>/bundle.json) that verifies
 #          (verify-bundle exit 0 PASS or 1 FAIL with a key from origin/main:.aien/verify.pub) byte-exact to the
 #          receipts clone, one commit per round, pull --rebase and push (3 attempts, never forced).
-# rerun    for each open pull request whose head has a published bundle, rerun the latest completed
-#          "AIEN Verification" workflow run once per bundle digest when its latest attempt started before publication.
-# merge    merge open pull requests labeled exactly ready-to-merge, only when every guard holds (see README).
+# merge    merge open pull requests labeled exactly ready-to-merge that are not drafts and merge cleanly. No Spark
+#          bundle, no status check and no up-to-date requirement: the Spark never blocks a merge (Drake 2026-10-24).
+# alpha    tag the newest commit on main whose published bundle is a full-scope PASS (every gate, GPU included,
+#          `aien-test verify-bundle --require-full`) as alpha/YYYYMMDD.N, an annotated tag naming the bundle digest,
+#          and push the tag. Never moves a branch. Run `aien-alpha REPO` to qualify main's head on the Spark.
 #
 # It never reads the signing key and never signs anything. One instance at a time (flock; a second one exits 0).
 # Every action and every refusal is one JSON line in $STATE/pipeline.jsonl.
@@ -36,18 +39,19 @@ RECEIPTS=${AIEN_RECEIPTS:-$HOME/workspace/pipeline/aien-receipts}
 RECEIPTS_BRANCH=${AIEN_RECEIPTS_BRANCH:-main}
 BIN=${AIEN_TEST_BIN:-$HOME/workspace/pipeline/target-sc/release/aien-test}
 OWNER=${AIEN_GH_OWNER:-aien-dev}
-REPOS=${AIEN_REPOS:-aien-sovereign-core,omega,aienos,physics,aien-protocols,aegis-runtime,spark-rsi,aien-architecture,benchmarks,synapse,interplane}
+REPOS=${AIEN_REPOS:-aien-sovereign-core,omega,aienux,physics,aien-protocols,aegis-runtime,spark-rsi,aien-architecture,benchmarks,synapse,interplane}
 GH=${GH:-gh}
 GIT=${GIT:-git}
-WORKFLOW_NAME="AIEN Verification"
 MERGE_LABEL="ready-to-merge"
+ALPHA_PREFIX="alpha/"
+RECEIPTS_URL=${AIEN_RECEIPTS_URL:-https://github.com/$OWNER/aien-receipts/blob/$RECEIPTS_BRANCH}
 
-usage() { echo "usage: pipeline.sh publish|rerun|merge|round [--repos a,b]" >&2; exit 2; }
+usage() { echo "usage: pipeline.sh publish|merge|alpha|round [--repos a,b]" >&2; exit 2; }
 die() { echo "pipeline.sh: $*" >&2; exit 2; }
 
 [[ $# -ge 1 ]] || usage
 cmd=$1; shift
-case "$cmd" in publish|rerun|merge|round) ;; *) usage ;; esac
+case "$cmd" in publish|merge|alpha|round) ;; *) usage ;; esac
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repos) [[ $# -ge 2 ]] || usage; REPOS=$2; shift 2 ;;
@@ -66,16 +70,14 @@ command -v sha256sum >/dev/null || die "sha256sum not found"
 command -v "$GIT" >/dev/null || die "git ($GIT) not found"
 [[ -d $CLONES ]] || die "clones directory $CLONES missing"
 [[ -d $RECEIPTS/.git ]] || die "receipts clone $RECEIPTS is not a git clone"
-if [[ $cmd != rerun ]]; then [[ -x $BIN ]] || die "aien-test binary $BIN missing or not executable"; fi
-if [[ $cmd != publish ]]; then command -v "$GH" >/dev/null || die "gh ($GH) not found"; fi
+[[ -x $BIN ]] || die "aien-test binary $BIN missing or not executable"
+if [[ $cmd == merge || $cmd == round ]]; then command -v "$GH" >/dev/null || die "gh ($GH) not found"; fi
 
 mkdir -p "$STATE"
 JOURNAL=$STATE/pipeline.jsonl
-RERUNS=$STATE/pipeline-reruns
-RERUN_FAILS=$STATE/pipeline-rerun-fails
-PUBLISHED=$STATE/pipeline-published
 exec 9>>"$STATE/pipeline.lock"
-flock -n 9 || exit 0
+# A second instance exits 0 at once; AIEN_LOCK_WAIT=SECS (aien-alpha) waits that long for the running one instead.
+if [[ ${AIEN_LOCK_WAIT:-0} =~ ^[1-9][0-9]*$ ]]; then flock -w "$AIEN_LOCK_WAIT" 9 || exit 0; else flock -n 9 || exit 0; fi
 WORK=$(mktemp -d "$STATE/.pipeline.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 GH_DEFER=$WORK/gh-deferred
@@ -107,12 +109,18 @@ keys() {
     | grep -E '^[0-9a-f]{64}$' || true
 }
 
-# verify FILE REPO SHA KEYS [REQUIRE]: verify-bundle with every key; prints the best exit code (0, 1, 2, 3, other)
-# and the list of codes. --repo and --commit come from the caller (the path), never from the bundle.
+# verify FILE REPO SHA KEYS [REQUIRE] [full] [hostonly]: verify-bundle with every key; prints the best exit code
+# (0, 1, 2, 3, other) and the list of codes. --repo and --commit come from the caller (the path), never from the
+# bundle. A sixth argument "full" adds --require-full: only a full-scope (Alpha) qualification can pass. A seventh
+# argument "hostonly" adds --allow-host-only, which the alpha pass sets only when the repository's own gate
+# manifests at origin/main declare no gb10 gate (see declares_gb10): a repository that declares one still needs
+# its GPU run, so the Alpha rule keeps its teeth where it was written for.
 verify() {
-  local file=$1 repo=$2 sha=$3 keylist=$4 require=${5:-} key rc codes="" best=""
+  local file=$1 repo=$2 sha=$3 keylist=$4 require=${5:-} scope=${6:-} hostonly=${7:-} key rc codes="" best=""
   local extra=()
-  [[ -n $require ]] && extra=(--require "$require")
+  [[ -n $require ]] && extra+=(--require "$require")
+  [[ $scope == full ]] && extra+=(--require-full)
+  [[ $hostonly == hostonly ]] && extra+=(--allow-host-only)
   while IFS= read -r key; do
     [[ -n $key ]] || continue
     rc=0
@@ -124,22 +132,14 @@ verify() {
   echo "${best:-${codes%%,*}} ${codes:-none}"
 }
 
+# declares_gb10 CLONE REF: false only when the repository at REF has gate manifests and none of them requires
+# gb10. Reads the committed tree, so a stale or dirty working copy cannot answer for the repository. A repository
+# with no *.gate manifest at all is treated as host-only: it declares no GPU work to prove.
+declares_gb10() {
+  "$GIT" -C "$1" grep -q -l -e gb10 "$2" -- '*.gate' 2>/dev/null
+}
+
 verdict_name() { case "$1" in 0) echo PASS ;; 1) echo FAIL ;; 2) echo NOT_RUN ;; 3) echo REJECTED ;; *) echo "EXIT_$1" ;; esac; }
-
-# published REPO SHA: digest of the receipts copy at origin/<branch> (empty when absent). Caller fetches first.
-published() {
-  local tmp=$WORK/published
-  if "$GIT" -C "$RECEIPTS" show "origin/$RECEIPTS_BRANCH:$1/$2/bundle.json" > "$tmp" 2>/dev/null; then digest "$tmp"
-  else echo ""; fi
-}
-
-# publish_time REPO SHA DIGEST: epoch seconds this digest was published (our push record, else the receipts commit).
-publish_time() {
-  local t
-  t=$(awk -v r="$1" -v s="$2" -v d="$3" '$1==r && $2==s && $3==d {t=$4} END {print t}' "$PUBLISHED" 2>/dev/null || true)
-  [[ -n $t ]] || t=$("$GIT" -C "$RECEIPTS" log -1 --format=%ct "origin/$RECEIPTS_BRANCH" -- "$1/$2/bundle.json")
-  echo "$t"
-}
 
 declare -A SLUGS=()
 SLUG_DIR=$STATE/slugs
@@ -236,12 +236,10 @@ do_publish() {
       break
     fi
   done
-  local rec now
+  local rec
   if [[ $pushed == 1 ]]; then
-    now=$(date +%s)
     for rec in "${records[@]}"; do
       read -r repo sha ldig v <<< "$rec"
-      echo "$repo $sha $ldig $now" >> "$PUBLISHED"
       journal action=publish repo="$repo" sha="$sha" result=published verdict="$v" digest="$ldig" reason="pushed"
     done
   else
@@ -255,161 +253,149 @@ do_publish() {
   fi
 }
 
-do_rerun() {
-  local repo s prs num sha pdig run id status created cepoch ptime
-  if ! fetch_receipts; then journal action=rerun result=refused reason="receipts fetch failed"; return 0; fi
-  for repo in "${repo_list[@]}"; do
-    [[ -d $CLONES/$repo ]] || continue
-    if ! s=$(slug "$repo"); then journal action=rerun repo="$repo" result=refused reason="cannot resolve GitHub slug"; continue; fi
-    if ! prs=$(ghc api "repos/$s/pulls?state=open&per_page=100" --jq '.[] | "\(.number) \(.head.sha)"'); then
-      journal action=rerun repo="$repo" result=refused reason="cannot list pull requests"; continue
-    fi
-    while read -r num sha; do
-      [[ $sha =~ ^[0-9a-f]{40}$ ]] || continue
-      pdig=$(published "$repo" "$sha")
-      [[ -n $pdig ]] || continue
-      grep -qxF "$repo $sha $pdig" "$RERUNS" 2>/dev/null && continue
-      # A refused rerun is not retried every tick: each refusal trips the gh guard and stalls every
-      # chat on this machine. Back off one hour after a failure, give up after three.
-      if [[ -f $RERUN_FAILS ]]; then
-        local nfail lastfail
-        nfail=$(grep -c "^$repo $sha $pdig " "$RERUN_FAILS" || true)
-        lastfail=$(grep "^$repo $sha $pdig " "$RERUN_FAILS" | tail -1 | cut -d" " -f4)
-        (( nfail >= 3 )) && continue
-        [[ -n $lastfail ]] && (( $(date -u +%s) - lastfail < 3600 )) && continue
-      fi
-      if ! run=$(ghc api "repos/$s/actions/runs?head_sha=$sha&per_page=20" --jq \
-        "[.workflow_runs[] | select(.name == \"$WORKFLOW_NAME\")] | sort_by(.created_at) | last
-         | if . == null then \"\" else \"\(.id) \(.status) \(.run_started_at // .created_at)\" end"); then
-        journal action=rerun repo="$repo" pr="$num" sha="$sha" result=refused reason="cannot list workflow runs"; continue
-      fi
-      if [[ -z $run ]]; then
-        journal action=rerun repo="$repo" pr="$num" sha="$sha" result=wait reason="no $WORKFLOW_NAME run for this head yet"; continue
-      fi
-      read -r id status created <<< "$run"
-      if [[ $status != completed ]]; then
-        journal action=rerun repo="$repo" pr="$num" sha="$sha" result=wait reason="run $id is $status"; continue
-      fi
-      if ! cepoch=$(date -u -d "$created" +%s 2>/dev/null); then
-        journal action=rerun repo="$repo" pr="$num" sha="$sha" result=refused reason="unreadable run time '$created'"; continue
-      fi
-      ptime=$(publish_time "$repo" "$sha" "$pdig")
-      [[ -n $ptime && $cepoch -lt $ptime ]] || continue
-      if ghc api -X POST "repos/$s/actions/runs/$id/rerun" >/dev/null; then
-        echo "$repo $sha $pdig" >> "$RERUNS"
-        journal action=rerun repo="$repo" pr="$num" sha="$sha" digest="$pdig" result=rerun reason="run $id predates publication"
-      else
-        echo "$repo $sha $pdig $(date -u +%s)" >> "$RERUN_FAILS"
-        journal action=rerun repo="$repo" pr="$num" sha="$sha" result=failed reason="rerun request for run $id failed (backing off 1h)"
-      fi
-    done <<< "$prs"
-  done
-}
-
-# merge_one REPO SLUG NUM SHA BASE: all guards, then the merge. Prints nothing; journals the outcome.
+# merge_one REPO SLUG NUM SHA: the PR is still at SHA, not a draft, and merges without conflicts. Nothing else:
+# no bundle, no status check, no up-to-date rule. Journals the outcome.
 merge_one() {
-  local repo=$1 s=$2 num=$3 sha=$4 base=$5 clone=$CLONES/$1 pr state head lfile tmp ldig pdig keylist require v best
-  local ctxs checks statuses ctx found bad active
+  local repo=$1 s=$2 num=$3 sha=$4 pr state head draft
   merge_refuse() { journal action=merge repo="$repo" pr="$num" sha="$sha" result=refused reason="$1"; }
   if ! pr=$(ghc api "repos/$s/pulls/$num" --jq '"\(.mergeable_state // "unknown") \(.head.sha) \(.draft)"'); then
     merge_refuse "cannot read pull request"; return 0
   fi
-  read -r state head _ <<< "$pr"
+  read -r state head draft <<< "$pr"
   [[ $head == "$sha" ]] || { merge_refuse "head moved to $head"; return 0; }
-  [[ ${pr##* } == false ]] || { merge_refuse "draft"; return 0; }
-  # Up to date with the base. GitHub does not require it here (strict=false), and two PRs merged
-  # back to back each pass alone but leave main with a stale root crumb (Drake 2026-10-18: "don't
-  # make them all collapse").
-  if ! "$GIT" -C "$clone" cat-file -e "$sha^{commit}" 2>/dev/null; then
-    "$GIT" -C "$clone" fetch -q origin "pull/$num/head" 2>/dev/null || true
-  fi
-  if ! "$GIT" -C "$clone" merge-base --is-ancestor "origin/$base" "$sha" 2>/dev/null; then
-    merge_refuse "behind origin/$base: merge the base in, recompile crumbs, let checks rerun"; return 0
-  fi
-  [[ $state != dirty ]] || { merge_refuse "mergeable state dirty (conflicts)"; return 0; }
-  lfile=$STATE/bundles/$repo/$sha/bundle.json
-  [[ -f $lfile ]] || { merge_refuse "no local bundle for head"; return 0; }
-  tmp=$WORK/merge.json
-  cp -- "$lfile" "$tmp"
-  ldig=$(digest "$tmp")
-  pdig=$(published "$repo" "$sha")
-  [[ -n $pdig ]] || { merge_refuse "bundle not published"; return 0; }
-  [[ $pdig == "$ldig" ]] || { merge_refuse "digest mismatch: local sha256:$ldig, published sha256:$pdig"; return 0; }
-  keylist=$(keys "$clone" "origin/$base")
-  [[ -n $keylist ]] || { merge_refuse "no key in origin/$base:.aien/verify.pub"; return 0; }
-  require=$("$GIT" -C "$clone" show "origin/$base:.aien/always" 2>/dev/null | grep -v '^#' | grep -v '^$' | paste -sd, - || true)
-  v=$(verify "$tmp" "$repo" "$sha" "$keylist" "$require"); best=${v%% *}
-  [[ $best == 0 ]] || { merge_refuse "verify-bundle $(verdict_name "$best") (exit codes per key: ${v#* })"; return 0; }
-  if ! ctxs=$(ghc api "repos/$s/branches/$base/protection/required_status_checks" --jq '.contexts[]'); then
-    merge_refuse "cannot read required status checks of $base"; return 0
-  fi
-  [[ -n $ctxs ]] || { merge_refuse "$base has no required status checks"; return 0; }
-  if ! checks=$(ghc api "repos/$s/commits/$sha/check-runs?per_page=100" --jq '.check_runs[] | [.name, (.conclusion // .status)] | @tsv'); then
-    merge_refuse "cannot read check runs"; return 0
-  fi
-  if ! statuses=$(ghc api "repos/$s/commits/$sha/status?per_page=100" --jq '.statuses[] | [.context, .state] | @tsv'); then
-    merge_refuse "cannot read commit statuses"; return 0
-  fi
-  while IFS= read -r ctx; do
-    [[ -n $ctx ]] || continue
-    found=$(printf '%s\n%s\n' "$checks" "$statuses" | C="$ctx" awk -F'\t' '$1 == ENVIRON["C"] {print $2}')
-    [[ -n $found ]] || { merge_refuse "required context '$ctx' missing"; return 0; }
-    bad=$(grep -vx success <<< "$found" | head -n 1 || true)
-    [[ -z $bad ]] || { merge_refuse "required context '$ctx' is $bad"; return 0; }
-  done <<< "$ctxs"
-  if ! active=$(ghc api "repos/$s/actions/runs?head_sha=$sha&per_page=20" --jq \
-    "[.workflow_runs[] | select(.name == \"$WORKFLOW_NAME\" and .status != \"completed\")] | length"); then
-    merge_refuse "cannot list workflow runs"; return 0
-  fi
-  [[ $active == 0 ]] || { merge_refuse "$WORKFLOW_NAME run queued or in progress"; return 0; }
+  [[ $draft == false ]] || { merge_refuse "draft"; return 0; }
+  case $state in
+    clean|behind|has_hooks) ;;
+    unstable)
+      # GitHub says "unstable" when a check failed or is still running and no branch rule
+      # requires it. A failed hosted check (crumb verify, fmt, tests) is a refusal, not a
+      # formality: on 2026-10-25 sc#751 merged on CRUMB-VERIFY FAIL and left main with stale
+      # crumbs. Pending checks: wait for the next round.
+      local runs
+      if ! runs=$(ghc api "repos/$s/commits/$head/check-runs?per_page=100" \
+          --jq '[.check_runs[] | {name, status, conclusion}]'); then
+        merge_refuse "cannot read the head's check runs"; return 0
+      fi
+      local failed pending
+      # A completed run must explicitly name an accepted result. Stale, null, missing
+      # and future conclusions are not success; unfinished runs still wait below.
+      failed=$(jq -r '[.[] | select(.status == "completed" and (.conclusion | IN("success","skipped","neutral") | not)) | .name] | join(", ")' <<< "$runs")
+      [[ -z $failed ]] || { merge_refuse "hosted checks failed on this head: $failed"; return 0; }
+      pending=$(jq -r '[.[] | select(.status != "completed") | .name] | join(", ")' <<< "$runs")
+      if [[ -n $pending ]]; then
+        journal action=merge repo="$repo" pr="$num" sha="$sha" result=wait reason="hosted checks still running: $pending"
+        return 0
+      fi ;;
+    dirty) merge_refuse "conflicts with the base: merge the base in and push"; return 0 ;;
+    unknown)
+      journal action=merge repo="$repo" pr="$num" sha="$sha" result=wait reason="GitHub has not computed mergeability yet"
+      return 0 ;;
+    *) merge_refuse "mergeable state $state"; return 0 ;;
+  esac
   if ghc pr merge "$num" -R "$s" --merge --match-head-commit "$sha"; then
-    journal action=merge repo="$repo" pr="$num" sha="$sha" digest="$ldig" result=merged reason="all guards green"
-    MERGED_REPO=$repo
+    journal action=merge repo="$repo" pr="$num" sha="$sha" result=merged reason="labeled, not a draft, merges cleanly ($state)"
   else
     journal action=merge repo="$repo" pr="$num" sha="$sha" result=failed reason="gh pr merge failed"
   fi
 }
 
 do_merge() {
-  local repo s prs num sha base draft labeled
-  MERGED_REPO=""
-  # Drake 2026-10-18: "stop all agents from trying to merge". Merge-only stop; publish and rerun keep going.
+  local repo s prs num sha draft labeled
+  # Drake 2026-10-18: "stop all agents from trying to merge". Merge-only stop; publish and alpha keep going.
   if [[ -e $STATE/MERGE-PAUSE ]]; then journal action=merge result=paused reason="MERGE-PAUSE present"; return 0; fi
-  if ! fetch_receipts; then journal action=merge result=refused reason="receipts fetch failed"; return 0; fi
   for repo in "${repo_list[@]}"; do
-    [[ -d $CLONES/$repo ]] || continue
     if ! s=$(slug "$repo"); then journal action=merge repo="$repo" result=refused reason="cannot resolve GitHub slug"; continue; fi
-    if ! "$GIT" -C "$CLONES/$repo" fetch -q origin; then
-      journal action=merge repo="$repo" result=refused reason="fetch of trusted clone failed"; continue
-    fi
     if ! prs=$(ghc api "repos/$s/pulls?state=open&per_page=100" --jq \
-      ".[] | [.number, .head.sha, .base.ref, .draft, ([.labels[].name] | index(\"$MERGE_LABEL\") != null)] | @tsv"); then
+      ".[] | [.number, .head.sha, .draft, ([.labels[].name] | index(\"$MERGE_LABEL\") != null)] | @tsv"); then
       journal action=merge repo="$repo" result=refused reason="cannot list pull requests"; continue
     fi
-    while IFS=$'\t' read -r num sha base draft labeled; do
+    while IFS=$'\t' read -r num sha draft labeled; do
       [[ -n $num ]] || continue
-      # One merge per repository per round: the next one must first catch up with the new base.
-      [[ $MERGED_REPO != "$repo" ]] || break
+      # Unlabeled pull requests are not the pipeline's to merge: skipped without a journal line (every round).
+      [[ $labeled == true ]] || continue
       if [[ ! $sha =~ ^[0-9a-f]{40}$ ]]; then
         journal action=merge repo="$repo" pr="$num" result=refused reason="bad head sha"; continue
       fi
-      if [[ ! $base =~ ^[A-Za-z0-9._/-]+$ || $base == *..* ]]; then
-        journal action=merge repo="$repo" pr="$num" sha="$sha" result=refused reason="bad base ref"; continue
-      fi
-      # Unlabeled pull requests are not the pipeline's to merge: skipped without a journal line (every round).
-      [[ $labeled == true ]] || continue
       if [[ $draft != false ]]; then
         journal action=merge repo="$repo" pr="$num" sha="$sha" result=refused reason="draft"; continue
       fi
-      merge_one "$repo" "$s" "$num" "$sha" "$base"
+      merge_one "$repo" "$s" "$num" "$sha"
     done <<< "$prs"
+  done
+}
+
+# alpha_name CLONE: the next free alpha/YYYYMMDD.N name (UTC date, N from 1).
+alpha_name() {
+  local day n=1
+  day=$(date -u +%Y%m%d)
+  while "$GIT" -C "$1" rev-parse -q --verify "refs/tags/$ALPHA_PREFIX$day.$n" >/dev/null; do n=$((n + 1)); done
+  echo "$ALPHA_PREFIX$day.$n"
+}
+
+# do_alpha: per repository, the newest commit on origin/main with a published full-scope PASS bundle becomes the next
+# Alpha, unless it already carries an alpha tag or the current Alpha already contains it.
+do_alpha() {
+  local repo clone keylist require cands sha tmp v best best_sha best_time t latest name dig msg
+  if ! fetch_receipts; then journal action=alpha result=refused reason="receipts fetch failed"; return 0; fi
+  for repo in "${repo_list[@]}"; do
+    clone=$CLONES/$repo
+    [[ -d $clone ]] || continue
+    # One cheap scan per repository: only bundles whose signed plan says scope full are looked at.
+    cands=$("$GIT" -C "$RECEIPTS" grep -lE '"scope"[[:space:]]*:[[:space:]]*"full"' "origin/$RECEIPTS_BRANCH" -- "$repo/" 2>/dev/null \
+      | sed -n "s|^origin/$RECEIPTS_BRANCH:$repo/\([0-9a-f]\{40\}\)/bundle.json\$|\1|p" || true)
+    [[ -n $cands ]] || continue
+    if ! "$GIT" -C "$clone" fetch -q origin main '+refs/tags/alpha/*:refs/tags/alpha/*'; then
+      journal action=alpha repo="$repo" result=refused reason="fetch of trusted clone failed"; continue
+    fi
+    keylist=$(keys "$clone" origin/main)
+    if [[ -z $keylist ]]; then
+      journal action=alpha repo="$repo" result=skipped reason="not enrolled (no key in origin/main:.aien/verify.pub)"; continue
+    fi
+    require=$("$GIT" -C "$clone" show "origin/main:.aien/always" 2>/dev/null | grep -v '^#' | grep -v '^$' | paste -sd, - || true)
+    # An Alpha needs a gb10 receipt only where the repository has a GPU gate to prove. The manifests are in
+    # the trusted clone at origin/main, not in the bundle, so this is the caller's decision to make.
+    hostonly=""
+    declares_gb10 "$clone" origin/main || hostonly=hostonly
+    best_sha="" best_time=0
+    while IFS= read -r sha; do
+      "$GIT" -C "$clone" merge-base --is-ancestor "$sha" origin/main 2>/dev/null || continue
+      t=$("$GIT" -C "$clone" log -1 --format=%ct "$sha")
+      (( t > best_time )) || continue
+      tmp=$WORK/alpha.json
+      "$GIT" -C "$RECEIPTS" show "origin/$RECEIPTS_BRANCH:$repo/$sha/bundle.json" > "$tmp" 2>/dev/null || continue
+      v=$(verify "$tmp" "$repo" "$sha" "$keylist" "$require" full "$hostonly"); best=${v%% *}
+      if [[ $best != 0 ]]; then
+        journal action=alpha repo="$repo" sha="$sha" result=skipped reason="verify-bundle --require-full $(verdict_name "$best")"
+        continue
+      fi
+      best_sha=$sha best_time=$t
+    done <<< "$cands"
+    [[ -n $best_sha ]] || continue
+    [[ -z $("$GIT" -C "$clone" tag -l "${ALPHA_PREFIX}*" --points-at "$best_sha") ]] || continue
+    latest=$("$GIT" -C "$clone" for-each-ref --sort=-creatordate --count=1 --format='%(*objectname)' "refs/tags/${ALPHA_PREFIX%/}/")
+    if [[ -n $latest ]] && "$GIT" -C "$clone" merge-base --is-ancestor "$best_sha" "$latest" 2>/dev/null; then continue; fi
+    name=$(alpha_name "$clone")
+    "$GIT" -C "$RECEIPTS" show "origin/$RECEIPTS_BRANCH:$repo/$best_sha/bundle.json" > "$WORK/alpha.json"
+    dig=$(digest "$WORK/alpha.json")
+    msg=$(printf 'Alpha: %s %s\n\nEvery gate passed on the Spark: full-scope qualification, GPU gates included.\nbundle: sha256:%s\nreceipt: %s/%s/%s/bundle.json\nchecked: aien-test verify-bundle --require-full, exit 0 (PASS)\n' \
+      "$repo" "$best_sha" "$dig" "$RECEIPTS_URL" "$repo" "$best_sha")
+    if ! GIT_COMMITTER_NAME=${AIEN_TAGGER_NAME:-AIEN Spark pipeline} GIT_COMMITTER_EMAIL=${AIEN_TAGGER_EMAIL:-aien-spark@users.noreply.github.com} \
+      "$GIT" -C "$clone" tag -a "$name" "$best_sha" -m "$msg"; then
+      journal action=alpha repo="$repo" sha="$best_sha" result=failed reason="git tag $name failed"; continue
+    fi
+    if "$GIT" -C "$clone" push -q origin "refs/tags/$name"; then
+      journal action=alpha repo="$repo" sha="$best_sha" tag="$name" digest="$dig" result=tagged reason="full-scope PASS on main"
+    else
+      "$GIT" -C "$clone" tag -d "$name" >/dev/null
+      journal action=alpha repo="$repo" sha="$best_sha" tag="$name" result=failed reason="tag push failed"
+    fi
   done
 }
 
 case "$cmd" in
   publish) do_publish ;;
-  rerun) do_rerun ;;
   merge) do_merge ;;
-  round) do_publish; do_rerun; do_merge ;;
+  alpha) do_alpha ;;
+  round) do_publish; do_merge; do_alpha ;;
 esac
 exit 0

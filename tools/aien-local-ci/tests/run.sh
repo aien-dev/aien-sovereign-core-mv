@@ -14,11 +14,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# tests/run.sh: proves the C8 exec contract on this host. Run as drakestapleton (uses sudo -n). Exit 1 on any FAIL.
+# tests/run.sh: proves the C8 exec contract on this host. Run as the operator (uses sudo -n). Exit 1 on any FAIL.
 set -uo pipefail
 X=${AIEN_EXEC:-/usr/local/sbin/aien-run-exec}   # AIEN_EXEC: test a candidate helper before install.sh installs it
 RUN_HOME=/var/lib/aien-run
-OP_HOME=/home/drakestapleton
+OP_HOME=${AIEN_OPERATOR_HOME:-$HOME}
 pass=0; fail=0
 ok()  { pass=$((pass+1)); printf 'PASS %s\n' "$1"; }
 bad() { fail=$((fail+1)); printf 'FAIL %s: %s\n' "$1" "$2"; }

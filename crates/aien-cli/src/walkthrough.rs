@@ -81,7 +81,7 @@ pub fn render_walkthrough_tui() -> String {
     ));
     out.push_str(&format!(
         "║               {}              ║\n",
-        "NVIDIA DGX Spark Grace Blackwell GB10 | spark-b87b"
+        "NVIDIA DGX Spark Grace Blackwell GB10 | sm_121 GPU"
             .white()
             .dimmed()
     ));
@@ -279,7 +279,7 @@ pub fn generate_and_save_walkthrough_md(dest_path: &Path) -> Result<String, Stri
 
     let md = format!(
         r#"# AIEN Sovereign System: Live Walkthrough & Component Map
-*Generated autonomously on DGX Spark (`spark-b87b`) at {} UTC*
+*Generated autonomously on the DGX Spark at {} UTC*
 
 ---
 

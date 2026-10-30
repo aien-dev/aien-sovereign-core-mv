@@ -30,9 +30,10 @@ jobs:
           printf '%s\n' "$TAG" | grep -qxE 'v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?' || { echo "not a release tag: $TAG" >&2; exit 1; }
 
       - name: Checkout the tagged commit (its docs/release/allowed_signers is the key this release is checked against)
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: refs/tags/${{ inputs.tag }}
+          persist-credentials: false
 
       - name: Download the draft release assets
         run: |

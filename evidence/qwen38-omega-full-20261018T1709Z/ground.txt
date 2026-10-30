@@ -1,0 +1,7 @@
+sc 3364e6e0e912aeb09f042c90ac8bd5a6be52fc57
+omega b11bd1f6 fresh build (OUT_DIR fresh, PHYSICS_DIR=physics-6d7cf0d4 = physics.lock 6d7cf0d4)
+build: CARGO_TARGET_DIR=/home/drakestapleton/workspace/targets/q38-sc AIEN_OMEGA_GPU_LIB=/home/drakestapleton/workspace/targets/q38-exp/fresh-b11/libomega_gpu.a AIEN_OMEGA_GPU_LIB_SHA256=<below> AIEN_OMEGA_DIR=q38-bisect cargo build --release -p aien-inference-abi --bin qwen38_omega_full
+893396aec311248cdb341cbea965ebb388f4b5a4ab7924006f2539f97eae32fb  /home/drakestapleton/workspace/targets/q38-sc/release/qwen38_omega_full
+ef3f9d24f424316f7d577632ae86a643eeda8ac71ce9047397664d1840dd98ed  /home/drakestapleton/workspace/targets/q38-exp/fresh-b11/libomega_gpu.a
+               total        used        free      shared  buff/cache   available
+Mem:             121          68           9           0          50          53

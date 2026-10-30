@@ -60,6 +60,7 @@ pkv_prereqs() {
 	for t in curl jq awk ss sha256sum setsid od; do
 		if command -v "$t" >/dev/null; then echo "  ok   tool $t"; else echo "  MISS tool $t"; bad=1; fi
 	done
+	if [ -n "${AIEN_SERVE_HTTP_BEARER_TOKEN:-}" ]; then echo "  ok   HTTP bearer credential configured"; else echo "  MISS AIEN_SERVE_HTTP_BEARER_TOKEN"; bad=1; fi
 	if [ -x "$BIN" ]; then
 		echo "  ok   binary $BIN (sha256 $(sha256sum "$BIN" | cut -c1-16)...)"
 	else
@@ -224,7 +225,7 @@ turn2_msgs() { jq -n --argjson m "$m1" --arg a "$1" --arg q "${2:-$Q2}" '$m + [{
 
 chat() { # <out-name> <messages-json>: prints the content
 	jq -n --arg model "$SERVED_MODEL" --argjson m "$2" '{model:$model, messages:$m, max_tokens:64, temperature:0, seed:1, stream:false}' |
-		curl -s -m 600 "$base/v1/chat/completions" -H 'content-type: application/json' -d @- >"$dir/$1.json"
+		curl -s -m 600 "$base/v1/chat/completions" -H "Authorization: Bearer $AIEN_SERVE_HTTP_BEARER_TOKEN" -H 'content-type: application/json' -d @- >"$dir/$1.json"
 	local c
 	c=$(jq -r '.choices[0].message.content // empty' "$dir/$1.json" 2>/dev/null)
 	if [ -z "$c" ]; then

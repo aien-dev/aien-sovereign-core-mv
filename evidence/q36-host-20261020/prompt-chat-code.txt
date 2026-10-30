@@ -1,0 +1,7 @@
+<|im_start|>user
+Write a Rust function that reverses the words in a sentence, keeping the words themselves intact.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
