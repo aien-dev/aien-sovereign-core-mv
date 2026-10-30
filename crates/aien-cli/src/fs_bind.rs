@@ -59,9 +59,16 @@ impl BindError {
 }
 
 struct Authorized {
+    /// Workspace that contains the path the caller named.
     workspace: PathBuf,
-    /// Plain relative path under `workspace`. Empty means the workspace root.
+    /// That path, relative to `workspace`, with `.` and `..` collapsed.
+    /// Symlink components are still present. This is what the open uses.
     rel: PathBuf,
+    /// Workspace that contains the allow-listed canonical object.
+    canon_workspace: PathBuf,
+    /// Canonical object relative to `canon_workspace`. Plain components.
+    /// Used only when the caller's final component is a symlink to it.
+    canon_rel: PathBuf,
     canonical: PathBuf,
     display: String,
 }
@@ -77,15 +84,55 @@ pub fn permitted_workspaces() -> Vec<PathBuf> {
 fn authorize(user_path: &str) -> Result<Authorized, BindError> {
     let workspaces = permitted_workspaces();
     let canonical = validate_workspace_path(user_path, &workspaces).map_err(BindError::Denied)?;
+    let lexical = lexical_absolute(user_path)?;
+    // Open the path the caller named. Opening `canonical` instead would
+    // follow a directory symlink into another allowed directory.
+    let Some((workspace, rel)) = longest_workspace(&lexical, &workspaces) else {
+        return Err(BindError::Denied(format!(
+            "Path '{}' resolves to '{}' which is outside permitted workspace roots",
+            user_path,
+            canonical.display()
+        )));
+    };
+    let Some((canon_workspace, canon_rel)) = longest_workspace(&canonical, &workspaces) else {
+        return Err(BindError::Denied(format!(
+            "Path '{}' resolves to '{}' which is outside permitted workspace roots",
+            user_path,
+            canonical.display()
+        )));
+    };
+    plain_rel(&rel, user_path)?;
+    plain_rel(&canon_rel, user_path)?;
+    Ok(Authorized {
+        workspace,
+        rel,
+        canon_workspace,
+        canon_rel,
+        canonical,
+        display: user_path.to_string(),
+    })
+}
+
+fn plain_rel(rel: &Path, user_path: &str) -> Result<(), BindError> {
+    if rel.components().any(|c| !matches!(c, Component::Normal(_))) {
+        return Err(BindError::Denied(format!(
+            "refusing '{}': the authorized path is not a plain path under the workspace",
+            user_path
+        )));
+    }
+    Ok(())
+}
+
+fn longest_workspace(path: &Path, workspaces: &[PathBuf]) -> Option<(PathBuf, PathBuf)> {
     let mut best: Option<(PathBuf, PathBuf)> = None;
-    for ws in &workspaces {
+    for ws in workspaces {
         let Ok(ws_canon) = ws.canonicalize() else {
             continue;
         };
-        if !canonical.starts_with(&ws_canon) {
+        if !path.starts_with(&ws_canon) {
             continue;
         }
-        let rel = canonical
+        let rel = path
             .strip_prefix(&ws_canon)
             .map(Path::to_path_buf)
             .unwrap_or_default();
@@ -97,25 +144,91 @@ fn authorize(user_path: &str) -> Result<Authorized, BindError> {
             best = Some((ws_canon, rel));
         }
     }
-    let Some((workspace, rel)) = best else {
-        return Err(BindError::Denied(format!(
-            "Path '{}' resolves to '{}' which is outside permitted workspace roots",
-            user_path,
-            canonical.display()
-        )));
+    best
+}
+
+fn lexical_absolute(user_path: &str) -> Result<PathBuf, BindError> {
+    let raw = Path::new(user_path);
+    let abs = if raw.is_absolute() {
+        raw.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|e| BindError::Failed(e.to_string()))?
+            .join(raw)
     };
-    if rel.components().any(|c| !matches!(c, Component::Normal(_))) {
-        return Err(BindError::Denied(format!(
-            "refusing '{}': the authorized path is not a plain path under the workspace",
-            user_path
-        )));
+    Ok(normalize_lexical(&abs))
+}
+
+fn normalize_lexical(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for c in path.components() {
+        match c {
+            Component::Prefix(p) => out.push(p.as_os_str()),
+            Component::RootDir => out.push("/"),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if out.components().count() > 1 {
+                    out.pop();
+                }
+            }
+            Component::Normal(s) => out.push(s),
+        }
     }
-    Ok(Authorized {
-        workspace,
-        rel,
-        canonical,
-        display: user_path.to_string(),
-    })
+    if out.as_os_str().is_empty() {
+        PathBuf::from("/")
+    } else {
+        out
+    }
+}
+
+fn symlink_component(err: &std::io::Error) -> bool {
+    matches!(err.raw_os_error(), Some(libc::ELOOP) | Some(libc::ENOTDIR))
+}
+
+fn name_is_symlink(dirfd: libc::c_int, name: &OsStr) -> bool {
+    let Ok(c) = c_string(name.as_bytes()) else {
+        return false;
+    };
+    let mut st = std::mem::MaybeUninit::<libc::stat>::uninit();
+    // SAFETY: `dirfd` is a directory we hold and `c` is one component.
+    let rc = unsafe {
+        libc::fstatat(
+            dirfd,
+            c.as_ptr(),
+            st.as_mut_ptr(),
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    };
+    if rc != 0 {
+        return false;
+    }
+    let st = unsafe { st.assume_init() };
+    st.st_mode as u32 & libc::S_IFMT == libc::S_IFLNK
+}
+
+/// True only when every component except the last opened, and the last is a
+/// symlink. An intermediate symlink makes the parent open fail, so a swapped
+/// directory is not treated as a final-component link.
+fn final_component_is_symlink(ws: &OwnedFd, rel: &Path) -> bool {
+    let Some(name) = rel.file_name() else {
+        return false;
+    };
+    let parent = rel.parent().unwrap_or(Path::new(""));
+    let parent_fd = if parent.as_os_str().is_empty() {
+        dup_fd(ws.as_raw_fd()).ok()
+    } else {
+        open_beneath(
+            ws.as_raw_fd(),
+            parent,
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            0,
+        )
+        .ok()
+    };
+    let Some(parent_fd) = parent_fd else {
+        return false;
+    };
+    name_is_symlink(parent_fd.as_raw_fd(), name)
 }
 
 fn map_io(path: &Path, err: std::io::Error) -> BindError {
@@ -457,23 +570,53 @@ impl HeldFile {
     }
 }
 
-fn open_existing(
-    ws: &OwnedFd,
+struct PinnedOpen {
+    workspace: OwnedFd,
+    rel: PathBuf,
+    cached: Option<File>,
+}
+
+fn open_pinned(
     auth: &Authorized,
-    write: bool,
-) -> Result<(Option<File>, bool), BindError> {
-    let flags = if write {
-        libc::O_RDWR | libc::O_NONBLOCK | libc::O_NOFOLLOW | libc::O_CLOEXEC
-    } else {
-        libc::O_RDONLY | libc::O_NONBLOCK | libc::O_NOFOLLOW | libc::O_CLOEXEC
-    };
-    match open_beneath(ws.as_raw_fd(), &auth.rel, flags, 0) {
+    flags: libc::c_int,
+    regular_only: bool,
+) -> Result<PinnedOpen, BindError> {
+    let workspace = open_workspace(&auth.workspace)?;
+    run_before();
+    match open_beneath(workspace.as_raw_fd(), &auth.rel, flags, 0) {
         Ok(fd) => {
             let file = File::from(fd);
-            reject_special(&auth.canonical, &file)?;
-            Ok((Some(file), write))
+            if regular_only {
+                reject_special(&auth.canonical, &file)?;
+            }
+            Ok(PinnedOpen {
+                workspace,
+                rel: auth.rel.clone(),
+                cached: Some(file),
+            })
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok((None, write)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound && !regular_only => {
+            Err(map_io(&auth.canonical, e))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(PinnedOpen {
+            workspace,
+            rel: auth.rel.clone(),
+            cached: None,
+        }),
+        Err(e) if symlink_component(&e) && final_component_is_symlink(&workspace, &auth.rel) => {
+            let canon_ws = open_workspace(&auth.canon_workspace)?;
+            let fd = open_beneath(canon_ws.as_raw_fd(), &auth.canon_rel, flags, 0)
+                .map_err(|err| map_io(&auth.canonical, err))?;
+            let file = File::from(fd);
+            if regular_only {
+                reject_special(&auth.canonical, &file)?;
+            }
+            Ok(PinnedOpen {
+                workspace: canon_ws,
+                rel: auth.canon_rel.clone(),
+                cached: Some(file),
+            })
+        }
         Err(e) => Err(map_io(&auth.canonical, e)),
     }
 }
@@ -483,17 +626,20 @@ fn hold(path: &str, write: bool) -> Result<HeldFile, BindError> {
     if auth.rel.as_os_str().is_empty() {
         return Err(BindError::Failed("Is a directory (os error 21)".into()));
     }
-    let workspace = open_workspace(&auth.workspace)?;
-    run_before();
-    let (cached, writable) = open_existing(&workspace, &auth, write)?;
+    let flags = if write {
+        libc::O_RDWR | libc::O_NONBLOCK | libc::O_NOFOLLOW | libc::O_CLOEXEC
+    } else {
+        libc::O_RDONLY | libc::O_NONBLOCK | libc::O_NOFOLLOW | libc::O_CLOEXEC
+    };
+    let pinned = open_pinned(&auth, flags, true)?;
     run_after();
     Ok(HeldFile {
-        workspace,
-        rel: auth.rel,
+        workspace: pinned.workspace,
+        rel: pinned.rel,
         authorized: auth.canonical,
         display: auth.display,
-        cached: Mutex::new(cached),
-        writable,
+        cached: Mutex::new(pinned.cached),
+        writable: write,
     })
 }
 
@@ -599,20 +745,19 @@ fn list_dirfd(dirfd: libc::c_int) -> std::io::Result<Vec<DirEnt>> {
 
 fn open_node(path: &str, directory: bool) -> Result<(Authorized, OwnedFd), BindError> {
     let auth = authorize(path)?;
-    let workspace = open_workspace(&auth.workspace)?;
-    run_before();
     let flags = if directory {
         libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC
     } else {
         libc::O_RDONLY | libc::O_NONBLOCK | libc::O_NOFOLLOW | libc::O_CLOEXEC
     };
-    let fd = open_beneath(workspace.as_raw_fd(), &auth.rel, flags, 0)
-        .map_err(|e| map_io(&auth.canonical, e))?;
-    // Keep the workspace fd alive until the node fd is fully open. Drop is
-    // enough: the node fd does not need the workspace fd afterwards.
-    drop(workspace);
+    let pinned = open_pinned(&auth, flags, false)?;
     run_after();
-    Ok((auth, fd))
+    let Some(file) = pinned.cached else {
+        return Err(BindError::NotFound(
+            "No such file or directory (os error 2)".into(),
+        ));
+    };
+    Ok((auth, OwnedFd::from(file)))
 }
 
 #[derive(Debug, Clone)]
@@ -1086,6 +1231,20 @@ mod tests {
         dir
     }
 
+    /// A fresh open during a directory swap may see the original file or a
+    /// denial. The other workspace file and the unpermitted file are rejected.
+    /// Accepting either of those is the broken implementation.
+    fn fresh_swap_read_is_inside(text: &str) -> bool {
+        text == INSIDE
+    }
+
+    #[test]
+    fn fresh_swap_read_rejects_the_other_and_outside_markers() {
+        assert!(fresh_swap_read_is_inside(INSIDE));
+        assert!(!fresh_swap_read_is_inside(OTHER));
+        assert!(!fresh_swap_read_is_inside(OUTSIDE));
+    }
+
     fn swap_dir(dir: &Path, elsewhere: &Path) {
         let parked = dir.with_file_name("d.held");
         std::fs::rename(dir, &parked).unwrap();
@@ -1156,6 +1315,24 @@ mod tests {
         let err = read_text(probe.to_str().unwrap()).unwrap_err();
         assert!(matches!(err, BindError::Denied(_)), "{err:?}");
         assert!(!err.message().contains(OUTSIDE));
+    }
+
+    #[test]
+    fn directory_symlink_does_not_read_the_other_file() {
+        let s = scratch();
+        let target = s.ws.join("d/f");
+        swap_dir(&s.ws.join("d"), &s.other);
+        let err = read_text(target.to_str().unwrap()).unwrap_err();
+        assert!(
+            matches!(err, BindError::Denied(_)),
+            "a directory symlink must not open the other file, got {err:?}"
+        );
+        assert!(!err.message().contains(OTHER));
+        assert_eq!(std::fs::read_to_string(s.other.join("f")).unwrap(), OTHER);
+        assert_eq!(
+            std::fs::read_to_string(s.ws.join("d.held/f")).unwrap(),
+            INSIDE
+        );
     }
 
     #[test]
@@ -1349,8 +1526,8 @@ mod tests {
             match read_text(target.to_str().unwrap()) {
                 Ok((_, text)) => {
                     assert!(
-                        text == INSIDE || text == OTHER,
-                        "fresh open returned an unexpected target: {text}"
+                        fresh_swap_read_is_inside(&text),
+                        "fresh open followed a swapped directory: {text}"
                     );
                 }
                 Err(BindError::Denied(_)) | Err(BindError::NotFound(_)) => {}
