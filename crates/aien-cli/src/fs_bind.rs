@@ -742,6 +742,40 @@ fn open_child(dirfd: libc::c_int, name: &OsStr, flags: libc::c_int) -> std::io::
     Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 
+/// Directory descriptors held by one walk: the root plus the ancestors of
+/// the directory currently being listed. Sibling directories stay as names
+/// until their turn, so a wide tree does not open one fd per child.
+const MAX_WALK_DEPTH: usize = 64;
+
+#[cfg(test)]
+thread_local! {
+    static WALK_FD_MAX: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn note_walk_fds(n: usize) {
+    WALK_FD_MAX.with(|c| {
+        if n > c.get() {
+            c.set(n);
+        }
+    });
+}
+
+#[cfg(test)]
+fn take_walk_fd_max() -> usize {
+    WALK_FD_MAX.with(|c| c.replace(0))
+}
+
+#[cfg(not(test))]
+fn note_walk_fds(_n: usize) {}
+
+struct WalkFrame {
+    dir: OwnedFd,
+    path: PathBuf,
+    listed: bool,
+    subdirs: Vec<OsString>,
+}
+
 /// Walk `root`, never following symlinks. `visit` returns false to stop.
 fn walk_nofollow(
     root: &Path,
@@ -749,62 +783,95 @@ fn walk_nofollow(
     limit_hit: &mut bool,
     mut visit: impl FnMut(&Path, &DirEnt, Option<File>) -> Result<bool, BindError>,
 ) -> Result<(), BindError> {
-    let mut stack = vec![(
-        dup_fd(dirfd).map_err(|e| map_io(root, e))?,
-        root.to_path_buf(),
-    )];
-    while let Some((dir, dir_path)) = stack.pop() {
+    let mut stack = vec![WalkFrame {
+        dir: dup_fd(dirfd).map_err(|e| map_io(root, e))?,
+        path: root.to_path_buf(),
+        listed: false,
+        subdirs: Vec::new(),
+    }];
+    note_walk_fds(stack.len());
+    while !stack.is_empty() {
         if *limit_hit {
             break;
         }
-        let ents = list_dirfd(dir.as_raw_fd()).map_err(|e| map_io(&dir_path, e))?;
-        for ent in ents {
-            let child_path = dir_path.join(&ent.name);
-            match ent.kind {
-                NodeKind::Dir => {
-                    let cont = visit(&child_path, &ent, None)?;
-                    if !cont {
-                        *limit_hit = true;
-                        break;
-                    }
-                    match open_child(
-                        dir.as_raw_fd(),
-                        &ent.name,
-                        libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-                    ) {
-                        Ok(child) => stack.push((child, child_path)),
-                        Err(e) if e.raw_os_error() == Some(libc::ELOOP) => {}
-                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                        Err(e) => return Err(map_io(&child_path, e)),
-                    }
-                }
-                NodeKind::File => {
-                    match open_child(
-                        dir.as_raw_fd(),
-                        &ent.name,
-                        libc::O_RDONLY | libc::O_NONBLOCK | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-                    ) {
-                        Ok(fd) => {
-                            let file = File::from(fd);
-                            let cont = visit(&child_path, &ent, Some(file))?;
-                            if !cont {
-                                *limit_hit = true;
-                                break;
-                            }
+        if !stack.last().is_some_and(|f| f.listed) {
+            let fd = stack.last().unwrap().dir.as_raw_fd();
+            let dir_path = stack.last().unwrap().path.clone();
+            let ents = list_dirfd(fd).map_err(|e| map_io(&dir_path, e))?;
+            let mut subdirs = Vec::new();
+            for ent in ents {
+                let child_path = dir_path.join(&ent.name);
+                match ent.kind {
+                    NodeKind::Dir => {
+                        let cont = visit(&child_path, &ent, None)?;
+                        if !cont {
+                            *limit_hit = true;
+                            break;
                         }
-                        Err(e) if e.raw_os_error() == Some(libc::ELOOP) => {}
-                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                        Err(_) => {}
+                        subdirs.push(ent.name);
                     }
-                }
-                NodeKind::Link | NodeKind::Other => {
-                    let cont = visit(&child_path, &ent, None)?;
-                    if !cont {
-                        *limit_hit = true;
-                        break;
+                    NodeKind::File => {
+                        match open_child(
+                            fd,
+                            &ent.name,
+                            libc::O_RDONLY | libc::O_NONBLOCK | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                        ) {
+                            Ok(raw) => {
+                                let file = File::from(raw);
+                                let cont = visit(&child_path, &ent, Some(file))?;
+                                if !cont {
+                                    *limit_hit = true;
+                                    break;
+                                }
+                            }
+                            Err(e) if e.raw_os_error() == Some(libc::ELOOP) => {}
+                            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                            Err(_) => {}
+                        }
+                    }
+                    NodeKind::Link | NodeKind::Other => {
+                        let cont = visit(&child_path, &ent, None)?;
+                        if !cont {
+                            *limit_hit = true;
+                            break;
+                        }
                     }
                 }
             }
+            let frame = stack.last_mut().unwrap();
+            frame.subdirs = subdirs;
+            frame.listed = true;
+            continue;
+        }
+        let name = stack.last_mut().unwrap().subdirs.pop();
+        let Some(name) = name else {
+            stack.pop();
+            continue;
+        };
+        if stack.len() >= MAX_WALK_DEPTH {
+            return Err(BindError::Denied(
+                "refusing the directory walk: the tree is too deep".into(),
+            ));
+        }
+        let parent = stack.last().unwrap().dir.as_raw_fd();
+        let child_path = stack.last().unwrap().path.join(&name);
+        match open_child(
+            parent,
+            &name,
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        ) {
+            Ok(child) => {
+                stack.push(WalkFrame {
+                    dir: child,
+                    path: child_path,
+                    listed: false,
+                    subdirs: Vec::new(),
+                });
+                note_walk_fds(stack.len());
+            }
+            Err(e) if e.raw_os_error() == Some(libc::ELOOP) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(map_io(&child_path, e)),
         }
     }
     Ok(())
@@ -1316,6 +1383,26 @@ mod tests {
             "errno {code} must be a confinement denial, got {err:?}"
         );
         assert_eq!(std::fs::read(&file).unwrap(), b"kept");
+    }
+
+    #[test]
+    fn wide_tree_walk_holds_one_fd_per_depth_not_per_sibling() {
+        let root = tempfile::tempdir_in("/tmp").unwrap();
+        let root = root.path().canonicalize().unwrap();
+        let n = 80;
+        for i in 0..n {
+            let dir = root.join(format!("dir{i:03}"));
+            std::fs::create_dir(&dir).unwrap();
+            std::fs::write(dir.join("f.txt"), b"x").unwrap();
+        }
+        let _ = take_walk_fd_max();
+        let found = find_names(root.to_str().unwrap(), "f.txt", 200).unwrap();
+        assert_eq!(found.len(), n);
+        let max_fds = take_walk_fd_max();
+        assert!(
+            max_fds <= 3,
+            "wide tree held {max_fds} directory fds; one per sibling would be about {n}"
+        );
     }
 
     #[test]
