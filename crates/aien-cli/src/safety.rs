@@ -316,7 +316,10 @@ pub fn validate_workspace_path<P: AsRef<Path>>(
 
     // Keep the original component order. Collapsing `..` before resolving
     // symlinks can validate a different target from the path the OS opens.
-    // This is static path validation, not a descriptor-bound race guarantee.
+    // This is the workspace allow-list check only. It does not pin a
+    // descriptor: callers that then open by name can still observe a
+    // different object. CLI tool bodies bind the authorized path with
+    // `fs_bind` (openat2 beneath a held workspace directory).
     let mut existing_ancestor = absolute.as_path();
     let mut subparts = Vec::new();
     loop {

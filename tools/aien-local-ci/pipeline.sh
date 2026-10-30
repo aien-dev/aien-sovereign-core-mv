@@ -132,11 +132,15 @@ verify() {
   echo "${best:-${codes%%,*}} ${codes:-none}"
 }
 
-# declares_gb10 CLONE REF: false only when the repository at REF has gate manifests and none of them requires
-# gb10. Reads the committed tree, so a stale or dirty working copy cannot answer for the repository. A repository
-# with no *.gate manifest at all is treated as host-only: it declares no GPU work to prove.
+# declares_gb10 CLONE REF: conservatively require GPU proof unless a successful
+# search establishes absence. nvrm is a GPU alias in the manifest parser. JSON
+# Unicode escapes are ambiguous to this text scan, so retain GPU proof for them
+# too (possibly over-conservative for unrelated metadata). No manifests retains
+# the existing host-only policy. A read error never grants a waiver.
 declares_gb10() {
-  "$GIT" -C "$1" grep -q -l -e gb10 "$2" -- '*.gate' 2>/dev/null
+  local rc=0
+  "$GIT" -C "$1" grep -F -q -l -e gb10 -e nvrm -e '\u' "$2" -- '*.gate' 2>/dev/null || rc=$?
+  [[ $rc != 1 ]]
 }
 
 verdict_name() { case "$1" in 0) echo PASS ;; 1) echo FAIL ;; 2) echo NOT_RUN ;; 3) echo REJECTED ;; *) echo "EXIT_$1" ;; esac; }
@@ -335,7 +339,7 @@ alpha_name() {
 # do_alpha: per repository, the newest commit on origin/main with a published full-scope PASS bundle becomes the next
 # Alpha, unless it already carries an alpha tag or the current Alpha already contains it.
 do_alpha() {
-  local repo clone keylist require cands sha tmp v best best_sha best_time t latest name dig msg
+  local repo clone keylist require cands sha tmp v best best_sha best_time t latest name dig msg hostonly
   if ! fetch_receipts; then journal action=alpha result=refused reason="receipts fetch failed"; return 0; fi
   for repo in "${repo_list[@]}"; do
     clone=$CLONES/$repo
@@ -352,10 +356,6 @@ do_alpha() {
       journal action=alpha repo="$repo" result=skipped reason="not enrolled (no key in origin/main:.aien/verify.pub)"; continue
     fi
     require=$("$GIT" -C "$clone" show "origin/main:.aien/always" 2>/dev/null | grep -v '^#' | grep -v '^$' | paste -sd, - || true)
-    # An Alpha needs a gb10 receipt only where the repository has a GPU gate to prove. The manifests are in
-    # the trusted clone at origin/main, not in the bundle, so this is the caller's decision to make.
-    hostonly=""
-    declares_gb10 "$clone" origin/main || hostonly=hostonly
     best_sha="" best_time=0
     while IFS= read -r sha; do
       "$GIT" -C "$clone" merge-base --is-ancestor "$sha" origin/main 2>/dev/null || continue
@@ -363,6 +363,12 @@ do_alpha() {
       (( t > best_time )) || continue
       tmp=$WORK/alpha.json
       "$GIT" -C "$RECEIPTS" show "origin/$RECEIPTS_BRANCH:$repo/$sha/bundle.json" > "$tmp" 2>/dev/null || continue
+      # Check both the trusted current policy and the candidate's committed
+      # manifests. Removing a GPU gate later cannot waive an older candidate.
+      hostonly=""
+      if ! declares_gb10 "$clone" origin/main && ! declares_gb10 "$clone" "$sha"; then
+        hostonly=hostonly
+      fi
       v=$(verify "$tmp" "$repo" "$sha" "$keylist" "$require" full "$hostonly"); best=${v%% *}
       if [[ $best != 0 ]]; then
         journal action=alpha repo="$repo" sha="$sha" result=skipped reason="verify-bundle --require-full $(verdict_name "$best")"

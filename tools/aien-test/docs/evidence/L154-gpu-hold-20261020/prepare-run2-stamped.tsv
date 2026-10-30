@@ -1,0 +1,12 @@
+omega-composition-gate-gpu.gate	chip:test-composition-gate-gpu	prep_rc=0	prep_s=2.6	compile_cmds_left=0
+omega-m17.gate	m17	prep_rc=0	prep_s=3.2	compile_cmds_left=0
+omega-m19.gate	chip:test-m19	prep_rc=0	prep_s=4.7	compile_cmds_left=0
+omega-m5.gate	chip:test-m5	prep_rc=0	prep_s=2.6	compile_cmds_left=0
+omega-prod-hygiene-silicon.gate	chip:test-prod-hygiene-silicon	prep_rc=0	prep_s=3.1	compile_cmds_left=0
+omega-r12-silicon.gate	chip:test-r12-silicon	prep_rc=0	prep_s=2.7	compile_cmds_left=0
+omega-r13-silicon.gate	chip:test-r13-silicon	prep_rc=0	prep_s=5.6	compile_cmds_left=0
+omega-r13-testbuild-silicon.gate	chip:test-r13-testbuild-silicon	prep_rc=0	prep_s=2.5	compile_cmds_left=0
+omega-r14-silicon.gate	chip:test-r14-silicon	prep_rc=0	prep_s=3.7	compile_cmds_left=0
+omega-r15-parity-silicon.gate	chip:test-r15-parity-silicon	prep_rc=0	prep_s=2.9	compile_cmds_left=0
+omega-r16-authpath-silicon.gate	chip:test-r16-authpath-silicon	prep_rc=0	prep_s=3.3	compile_cmds_left=0
+DONE

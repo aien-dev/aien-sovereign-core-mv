@@ -1,0 +1,13 @@
+============================================================
+    AIEN Sovereign Agent Preflight Verification Harness     
+============================================================
+[1/5] Verifying Branch Isolation... PASSED (Branch: fix/alpha-waiver-fail-closed)
+[2/5] Auditing Zero Disk Secrets... PASSED (Zero disk secrets detected)
+[3/5] Verifying Unslop & Anti-Slop Discipline... PASSED (Zero em/en dashes in diff)
+[4/5] Running Workspace Test Suite...
+scripts/agent-preflight.sh: line 69: cargo: command not found
+FAILED (Test suite failed)
+[5/5] Checking RustSec Vulnerability Advisories... SKIPPED (cargo-audit not installed)
+============================================================
+ ✗ PREFLIGHT FAILED: Resolve defects before opening PR
+============================================================
