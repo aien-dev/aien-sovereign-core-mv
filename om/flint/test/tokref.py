@@ -150,3 +150,23 @@ with open(out, "w") as f:
     f.write("\n".join(lines) + "\n")
 print("tokref: %d control tokens, %d cases, tokenizers %s" % (len(CONTROL), len(CASES),
                                                            tokenizers.__version__))
+
+# Optional: RAWJSON RAWOUT. RAWJSON is the pinned tokenizer.json with one added token's content
+# changed by check.sh to hold characters outside the ByteLevel alphabet (space, tab), which no
+# pinned token has; the decoder must then emit that content's own UTF-8 bytes.
+if len(sys.argv) == 5:
+    raw_json, raw_out = sys.argv[3:5]
+    rt = tokenizers.Tokenizer.from_file(raw_json)
+    content = "<|reserved 150143\t|>"
+    if rt.token_to_id(content) != 150143:
+        sys.exit("tokref: %s does not hold the derived added token" % raw_json)
+    text = "Hello" + content + "world"
+    v = rt.encode(text, add_special_tokens=False).ids
+    if 150143 not in v or rt.decode(v, skip_special_tokens=False) != text:
+        sys.exit("tokref: raw-added case does not round-trip: %r" % (v,))
+    raw = text.encode()
+    with open(raw_out, "w") as f:
+        f.write("# derived tokenizer.json: id 150143 content %s\n" % content.encode().hex())
+        f.write("case raw-added %d %s %d %s\n" % (len(v), " ".join(map(str, v)), len(raw), raw.hex()))
+elif len(sys.argv) != 3:
+    sys.exit("usage: tokref.py SRC OUT [RAWJSON RAWOUT]")

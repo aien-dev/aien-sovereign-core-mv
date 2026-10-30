@@ -244,11 +244,16 @@ if [ -n "${FLINT_SRC:-}" ]; then
     bad "tok: tokenizer files in FLINT_SRC are not the pinned revision 2a247be0"
   elif ! build "$b/tok" "$here/tok.om"; then bad "tok: tok.om does not compile"
   else
-    if ${FLINT_PY:-python3} "$here/test/tokref.py" "$FLINT_SRC" "$b/tokfx.txt" > "$b/tokref.out" 2>&1 < /dev/null && cmp -s "$b/tokfx.txt" "$tfx"; then
-      ok "tok: test/tokref.py reproduces test/tok-fixture.txt"
+    trj="$b/tokraw.json"
+    sed 's/"content": "<|reserved_150143|>"/"content": "<|reserved 150143\\t|>"/' "$tj" > "$trj"
+    if ${FLINT_PY:-python3} "$here/test/tokref.py" "$FLINT_SRC" "$b/tokfx.txt" "$trj" "$b/tokfxr.txt" > "$b/tokref.out" 2>&1 < /dev/null && cmp -s "$b/tokfx.txt" "$tfx" && cmp -s "$b/tokfxr.txt" "$here/test/tok-fixture-raw.txt"; then
+      ok "tok: test/tokref.py reproduces test/tok-fixture.txt and test/tok-fixture-raw.txt"
     else
-      bad "tok: test/tokref.py does not reproduce the fixture: $(head -c 300 "$b/tokref.out")"
+      bad "tok: test/tokref.py does not reproduce the fixtures: $(head -c 300 "$b/tokref.out")"
     fi
+    tok "$b/tok" "$trj" "$tc" "$tg" "$here/test/tok-fixture-raw.txt"
+    if [ "$rc" = 0 ] && grep -qx "flint-tok case raw-added PASS" "$b/tok.out"; then ok "tok: raw-added decode (token outside the ByteLevel alphabet) PASS"
+    else bad "tok: raw-added decode rc $rc, $(tail -n 1 "$b/tok.out")"; fi
     tok "$b/tok" "$tj" "$tc" "$tg" "$tfx"
     if [ "$rc" = 0 ] && [ "$(tail -n 1 "$b/tok.out")" = "$TOK_SUM" ] && [ ! -s "$b/tok.err" ]; then
       while read -r line; do ok "$line"; done < <(grep -v '^flint-tok summary ' "$b/tok.out")
@@ -281,13 +286,15 @@ if [ -n "${FLINT_SRC:-}" ]; then
       tok "$b/tmut" "$b/tm.j" "$b/tm.c" "$b/tm.g" "$b/tm.x"
       if [ "$rc" = "$want" ]; then bad "tok mutant die-$want: still exits $want on $m"; else ok "tok mutant die-$want: $m now exits $rc, not $want"; fi
     done <<< "$TOK_FIX"
-    TOK_SRC='byte-map|ret add k 94|ret add k 93|case utf8
-special-flag|b = eq ulong get gsp id add sp 1|b = eq ulong get gsp id 1|ctl begin-text'
-    while IFS='|' read -r m from to want; do
+    TOK_SRC='byte-map|ret add k 94|ret add k 93|case utf8|pin
+special-flag|b = eq ulong get gsp id add sp 1|b = eq ulong get gsp id 1|ctl begin-text|pin
+raw-bytes|tk_dput ulong get gpool add o i|tk_dput ulong get gpool add o 0|case raw-added|raw'
+    while IFS='|' read -r m from to want fx; do
       [ "$(grep -cF "$from" "$here/tok.om")" = 1 ] || { bad "tok mutant $m: site not found exactly once"; continue; }
       printf '%s\n' "${st/"$from"/"$to"}" > "$b/tmut.om"
       if ! build "$b/tmut" "$b/tmut.om"; then bad "tok mutant $m: does not compile"; continue; fi
-      tok "$b/tmut" "$tj" "$tc" "$tg" "$tfx"
+      if [ "$fx" = raw ]; then tok "$b/tmut" "$trj" "$tc" "$tg" "$here/test/tok-fixture-raw.txt"
+      else tok "$b/tmut" "$tj" "$tc" "$tg" "$tfx"; fi
       if [ "$rc" = 1 ] && grep -qx "flint-tok $want FAIL" "$b/tok.out"; then ok "tok mutant $m: $want FAIL"
       else bad "tok mutant $m: want $want FAIL, rc $rc, $(head -c 120 "$b/tok.err")"; fi
     done <<< "$TOK_SRC"

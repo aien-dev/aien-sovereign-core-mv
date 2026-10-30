@@ -232,6 +232,10 @@ Refusals: 2 usage, 3 io, 4 not a regular file, 50 tokenizer.json size, 51 syntax
 tokenizer_config, 57 generation_config, 58 fixture syntax, 59 capacity. `check.sh` runs
 fixture, input and source mutants (each must turn its named record to FAIL) and removes each
 refusal guard in turn (its fixture must stop producing the code). Encode is NOT_RUN (above).
+No pinned token has characters outside the ByteLevel alphabet, so `check.sh` derives a
+tokenizer.json whose added token 150143 holds `<|reserved 150143\t|>` (space and tab) and checks
+the referee's `test/tok-fixture-raw.txt` decode against it; the `raw-bytes` source mutant must
+turn that case to FAIL.
 
 ## Complete bounded host forward
 
@@ -239,7 +243,7 @@ refusal guard in turn (its fixture must stop producing the code). Encode is NOT_
 It starts from two token IDs, loads real BF16 embedding rows and all selected expert weights,
 and compares five intermediate tensors per layer, final normalization and every vocabulary logit.
 The reference tensors are comparison targets, never teacher-forced inputs.
-The full gate prints `OM-FLINT-MANIFEST PASS (156)` with real checkpoint inputs (92 before the 64 `tok.om` checks); wrong-token
+The full gate prints `OM-FLINT-MANIFEST PASS (158)` with real checkpoint inputs (92 before the 66 `tok.om` checks); wrong-token
 and skipped-final-normalization source mutants must fail the comparison.
 
 See [PROFILE.md](PROFILE.md) for the frozen weight/runtime/tokenizer/template identities
