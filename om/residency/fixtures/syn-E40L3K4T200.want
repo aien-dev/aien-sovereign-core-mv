@@ -1,0 +1,17 @@
+trace E=40 L=3 K=4 T=200
+lru cap=10 pct=25 hits=536 miss=1864 warm_miss=924 warm_acc=1200
+lru cap=16 pct=40 hits=881 miss=1519 warm_miss=752 warm_acc=1200
+lru cap=20 pct=50 hits=1114 miss=1286 warm_miss=634 warm_acc=1200
+lru cap=24 pct=60 hits=1354 miss=1046 warm_miss=514 warm_acc=1200
+lru cap=25 pct=64 hits=1407 miss=993 warm_miss=487 warm_acc=1200
+lru cap=28 pct=70 hits=1581 miss=819 warm_miss=400 warm_acc=1200
+lru cap=32 pct=80 hits=1818 miss=582 warm_miss=273 warm_acc=1200
+lru cap=36 pct=90 hits=2063 miss=337 warm_miss=141 warm_acc=1200
+opt cap=10 pct=25 hits=1185 miss=1215 warm_miss=594 warm_acc=1200
+opt cap=16 pct=40 hits=1582 miss=818 warm_miss=391 warm_acc=1200
+opt cap=20 pct=50 hits=1768 miss=632 warm_miss=297 warm_acc=1200
+opt cap=24 pct=60 hits=1920 miss=480 warm_miss=217 warm_acc=1200
+opt cap=25 pct=64 hits=1955 miss=445 warm_miss=197 warm_acc=1200
+opt cap=28 pct=70 hits=2043 miss=357 warm_miss=146 warm_acc=1200
+opt cap=32 pct=80 hits=2139 miss=261 warm_miss=89 warm_acc=1200
+opt cap=36 pct=90 hits=2227 miss=173 warm_miss=36 warm_acc=1200
