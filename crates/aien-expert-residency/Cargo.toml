@@ -1,0 +1,10 @@
+[package]
+name = "aien-expert-residency"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Bounded host-side MoE expert residency manager: memory ledger, admission, pins, LRU eviction and typed refusals (RIBBON P2, sc#630)"
+
+[dependencies]
