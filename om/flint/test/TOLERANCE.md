@@ -219,3 +219,70 @@ returned
 The byte counts are modeled layout sizes, not measured memory usage.
 The chained fixture is pinned by SHA256 in `check.sh`; wrong-token and skipped-final-normalization
 source mutants must compile and return comparison exit 1, not a trap or setup refusal.
+
+## bf16-activation forward arm (Core #834 item 6, declared 2026-10-30 before the first comparison)
+
+The f32 arm above upcasts every module to f32. The checkpoint ships as bfloat16
+(`config.json` `torch_dtype: bfloat16`), so a second referee arm, `fwdref.py ... bf16`
+(fixture op 9), runs the same two-token, 49-layer forward with every parameter in bfloat16
+except the model's `_keep_in_fp32_modules_strict` (`gate.weight`, `sinks`), and bfloat16
+activations. The pinned modules then round an f32 intermediate to bfloat16 (round to nearest,
+ties to even) at these points, and nowhere else:
+
+| Site (pinned `modeling_flint.py`) | Rounded to bf16 |
+|---|---|
+| `FlintRMSNorm` (input, post-attention, q_norm, k_norm, final) | output `(weight * x rsqrt(..)).to(bf16)`; mean square and rsqrt stay f32 |
+| every `nn.Linear` (q/k/v/o_proj, dense MLP, shared and routed experts, lm_head) | output, f32 accumulation |
+| RoPE (`FlintRotaryEmbedding`, `apply_rotary_pos_emb`) | cos, sin; `q cos`; `rotate_half(q) sin`; their sum (k likewise) |
+| eager attention | softmax probabilities (`.to(value.dtype)`) and the `P V` output; scores, sink and softmax stay f32 |
+| MLP / experts | `silu(gate)`, `silu(gate) up` |
+| `FlintExperts` | `y_e w_e` (bf16 times f32 weight is f32, then `.to(bf16)`); each `index_add_` into the bf16 accumulator, experts in ascending index order |
+| `FlintSparseMoeBlock` | routed sum plus shared expert |
+| `FlintDecoderLayer` | both residual adds |
+
+Router logits, sigmoid, top-6 and renormalized weights stay f32 (`hs.float()`, f32 weight).
+Embedding rows are bf16 on disk and exact. Every value the bf16 arm writes is a bfloat16.
+These semantics were probed on the pinned torch 2.14.0+cu130 CPU build before writing the arm:
+bf16 `F.linear`, `matmul` and `silu` equal `bf16(f32 or f64 result)` element for element on
+random inputs, `bf16 * f32` promotes to f32, and `torch.cat` of f32 and bf16 is f32.
+
+**What ops.om compares (option a).** `ops.om fwbf16` runs the same f64 forward with a bf16
+mode: `bfr` rounds to f32 and then to bfloat16 (nearest, ties to even, on the f32 bit
+pattern, as torch does) at exactly the sites in the table, and sums routed experts in ascending
+index order. Option b, the plain f64 forward against the bf16 reference, cannot see the rounding
+mode at all: a native forward that rounded wrongly, or not at all, would be judged by the same
+budget as one that rounds correctly. Under option a both sides round at the same sites, so most
+compared elements should be bit-identical and the remaining differences are flips of one bf16
+ulp where the f32 (reference) and f64 (native) pre-rounding values straddle a rounding
+boundary. The budget below then bounds how those flips propagate.
+
+**Budget (declared before measurement).** Per compared element
+`|native - reference| <= 8 (gamma_2048 + 2 u_bf16) (1 + |reference|)`, `u_bf16 = 2^-8`.
+Derivation: the f32 arm budget is 8 per-operator units of `gamma_2048` (the largest f32
+accumulation in the forward) and the measured f32 chained forward used 694277 ppm of it, so a
+factor of 8 units held 49 chained layers with 31 percent headroom. In the bf16 arm each
+operator output can additionally differ by one bf16 ulp, at most `2 u_bf16` relative, after the
+same pre-rounding difference; the per-operator unit becomes `gamma_2048 + 2 u_bf16` and the
+factor 8 is kept. Like the f32 arm, this is an explicit integration budget, **not** a derived
+worst-case theorem; it is not tuned after observing the fixture. `fw_cmp` passes half of it to
+`cmp`, which compares against twice the supplied bound.
+
+WolframLanguageEvaluator:
+`u32 = 2^-24; u16 = 2^-8; g = 2048 u32/(1 - 2048 u32); b32 = 8 g; d32 = 694277/10^6 b32; b16 = 8 (g + 2 u16); {N[g, 18], N[b32, 18], N[d32, 12], N[2 u16, 18], N[b16, 18], N[b16/b32, 12], N[(g + 2 u16)/g, 12], N[b16/2, 18], N[d32/b16, 12]}`
+returned
+`{0.000122085215480405323, 0.000976681723843242583, 0.000678087657185, 0.0078125, 0.0634766817238432426, 64.9921875, 64.9921875, 0.0317383408619216213, 0.0106824685659}`.
+So the bf16 budget is 0.0635 (1 + |ref|), 65.0 times the f32 arm budget; the f32 arm's measured
+worst difference would use 1.07 percent of it.
+
+**Declared checks and predictions.**
+- `fwbf16` on the bf16 fixture: predicted PASS. A router top-6 change caused by a flipped
+  bf16 input would exceed the budget and is reported as FAIL, not as a tie.
+- Fixture admission: `fwbf16` refuses any fixture word that is not a bfloat16 (low 16 bits
+  nonzero) and an op-8 (f32) fixture; `forward` refuses an op-9 fixture.
+- Mutant `bf16-truncate` (`bfr` truncates toward zero instead of rounding to nearest even):
+  predicted FAIL, because truncation biases every rounding toward zero and the residual stream
+  is rounded 98 times without renormalization.
+- Mutant `bf16-skip-final-norm`: predicted FAIL.
+- Control `bf16-off` (`bfr` is the identity, the plain f64 forward against the bf16 fixture,
+  i.e. option b) is measured and recorded whichever way it lands; it is not a gate entry,
+  because this budget was not derived to separate it.

@@ -1,12 +1,30 @@
 #!/usr/bin/env python3
 """Read-only pinned Flint referee for ops.om forward, not a runtime dependency.
 
-Usage: fwdref.py SRC SHARDS OUTPUT
-Header matches opref.py, op 8, T=2, then two token IDs, embeddings,
-for each of 49 layers: input norm, attention output, post-attention norm,
-MLP output, residual output. Finally final norm and all vocabulary logits.
-All tensors are contiguous little-endian f32. Weights stay BF16 on disk;
-reference computation is float32 on CPU. No sampling or generation is claimed.
+Usage: fwdref.py SRC SHARDS OUTPUT [bf16]
+Header matches opref.py, op 8 (f32 arm) or 9 (bf16 arm), T=2, then two token
+IDs, embeddings, for each of 49 layers: input norm, attention output,
+post-attention norm, MLP output, residual output. Finally final norm and all
+vocabulary logits. All tensors are written as contiguous little-endian f32.
+Weights stay BF16 on disk. No sampling or generation is claimed.
+
+f32 arm: every module is upcast to float32, so the forward runs in f32 on CPU.
+
+bf16 arm: the precision the checkpoint ships with (config.json torch_dtype
+bfloat16). Every parameter is bfloat16 except the model's
+_keep_in_fp32_modules_strict ("gate.weight", "sinks"), which stay float32;
+activations are bfloat16. The pinned modules then round to bfloat16
+(round to nearest even, from an f32 intermediate) at exactly these points
+(test/TOLERANCE.md, bf16 forward arm): every nn.Linear output (q/k/v/o_proj,
+gate/up/down_proj of the dense MLP, shared and routed experts, lm_head
+logits); every FlintRMSNorm output (input, post-attention, q_norm, k_norm,
+final); RoPE cos and sin, q*cos, rotate_half(q)*sin and their sum (same for
+k); the softmax probabilities before P V and the P V output; silu(gate) and
+silu(gate)*up; each routed expert output times its f32 routing weight; each
+index_add_ into the bf16 accumulator (experts in ascending index order); the
+routed sum plus the shared expert; both residual adds. Router logits,
+sigmoid, top-k and weights, attention scores and softmax stay float32.
+Every written bf16-arm value is therefore a bfloat16 (low 16 bits zero).
 """
 import hashlib
 import json
@@ -24,12 +42,18 @@ CFG_SHA = "849eee3068846081077a7568663355802c8c4eec3741d92cd578d222bd144d00"
 for path, pin in ((mf.__file__, REF_SHA), (cf.__file__, CFG_SHA)):
     if hashlib.sha256(open(path, "rb").read()).hexdigest() != pin:
         sys.exit("fwdref: reference source pin mismatch: " + path)
+if mf.FlintPreTrainedModel._keep_in_fp32_modules_strict != ["gate.weight", "sinks"]:
+    sys.exit("fwdref: fp32 module list changed")
 if torch.__version__ != "2.14.0+cu130":
     sys.exit("fwdref: torch pin mismatch: " + torch.__version__)
 torch.set_num_threads(1)
 torch.set_grad_enabled(False)
 torch.use_deterministic_algorithms(True)
 src, shards, output = sys.argv[1:4]
+BF16 = sys.argv[4:] == ["bf16"]
+if not BF16 and sys.argv[4:]:
+    sys.exit("fwdref: usage: fwdref.py SRC SHARDS OUTPUT [bf16]")
+DT = torch.bfloat16 if BF16 else torch.float32
 cfg = cf.FlintConfig(**json.load(open(os.path.join(src, "config.json"))))
 cfg._attn_implementation = "eager"
 cfg._experts_implementation = "eager"
@@ -47,13 +71,18 @@ def shard(name):
 def tensor(name):
     t = shard(name).get_tensor(name)
     assert t.dtype == torch.bfloat16, (name, t.dtype)
-    return t.float()
+    return t.to(DT)
 
 
 def load(module, prefix, rename=None):
     state = {k: tensor(prefix + (rename or {}).get(k, k)) for k in module.state_dict()}
     module.load_state_dict(state, strict=True)
-    return module.float().eval()
+    module.to(DT)
+    # The shipped bf16 model keeps mf.FlintPreTrainedModel._keep_in_fp32_modules_strict in f32.
+    for k, v in module.named_parameters():
+        if isinstance(module, mf.FlintTopKRouter) and k == "weight" or k == "sinks":
+            v.data = v.data.float()
+    return module.eval()
 
 
 def norm(prefix):
@@ -75,7 +104,7 @@ def sparse(prefix):
     c = cf.FlintConfig(**cfg.to_dict())
     c._experts_implementation = "eager"
     c.num_experts = 1
-    ex = mf.FlintExperts(c).float()
+    ex = mf.FlintExperts(c).to(DT)
     del ex.gate_up_proj, ex.down_proj
     ex.gate_up_proj, ex.down_proj = Lazy(prefix, "gate_up"), Lazy(prefix, "down")
     ex.num_experts = cfg.num_experts
@@ -93,12 +122,12 @@ def write(f, x):
 
 ids = [1001, 8920]
 sl = shard("model.embed_tokens.weight").get_slice("model.embed_tokens.weight")
-x = torch.cat([sl[i:i + 1] for i in ids]).float().unsqueeze(0)
+x = torch.cat([sl[i:i + 1] for i in ids]).to(DT).unsqueeze(0)
 pos = torch.arange(len(ids)).unsqueeze(0)
 rope = mf.FlintRotaryEmbedding(cfg)(x, pos)
-mask = torch.triu(torch.full((len(ids), len(ids)), torch.finfo(torch.float32).min), diagonal=1)[None, None]
+mask = torch.triu(torch.full((len(ids), len(ids)), torch.finfo(DT).min), diagonal=1)[None, None]
 with open(output, "wb") as f:
-    f.write(struct.pack("<8I", 0x504F4C46, 8, 0, len(ids), 0, 0, 21400, 0))
+    f.write(struct.pack("<8I", 0x504F4C46, 9 if BF16 else 8, 0, len(ids), 0, 0, 21400, 0))
     f.write(struct.pack("<2I", *ids))
     write(f, x)
     for L in range(cfg.num_hidden_layers):
@@ -129,9 +158,9 @@ with open(output, "wb") as f:
     write(f, x)
     name = "lm_head.weight"
     sl = shard(name).get_slice(name)
-    # Stream the vocabulary in the same row chunks as Omega, never allocate all weights in f32.
+    # Stream the vocabulary in the same row chunks as Omega, never allocate all weights at once.
     for t in range(len(ids)):
         for first in range(0, cfg.vocab_size, 2048):
-            w = sl[first:first + 2048].float()
+            w = sl[first:first + 2048].to(DT)
             write(f, torch.nn.functional.linear(x[0, t:t + 1], w))
 print("fwdref complete", hashlib.sha256(open(output, "rb").read()).hexdigest(), flush=True)
