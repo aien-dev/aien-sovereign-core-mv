@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! The sandbox seam (contract C8 of the local verification pipeline).
 //!
 //! `--sandbox none` (the default) runs a gate's program directly, exactly as
@@ -105,6 +120,10 @@ pub fn wrap(sandbox: Sandbox, spec: RunSpec, profile: &str, env: &[(String, Stri
         return spec;
     }
     let secs = spec.timeout.as_secs().max(1);
+    // The runner's own pairs on the spec go through the helper too: sudo
+    // would drop them from the environment.
+    let mut pairs: Vec<(String, String)> = env.to_vec();
+    pairs.extend(spec.env.iter().cloned());
     let (program, args) = command(
         sandbox,
         &spec.program,
@@ -112,11 +131,12 @@ pub fn wrap(sandbox: Sandbox, spec: RunSpec, profile: &str, env: &[(String, Stri
         &spec.cwd,
         secs,
         profile,
-        env,
+        &pairs,
     );
     RunSpec {
         program,
         args,
+        env: Vec::new(),
         ..spec
     }
 }
@@ -144,6 +164,8 @@ mod tests {
             timeout: Duration::from_millis(90_500),
             kill_grace: Duration::from_secs(10),
             enforce_timeout: false,
+            env: Vec::new(),
+            env_remove: Vec::new(),
         }
     }
 
@@ -164,6 +186,25 @@ mod tests {
         let (p, a) = command(Sandbox::None, &s.program, &s.args, &s.cwd, 5, "host", &[]);
         assert_eq!(p, s.program);
         assert_eq!(a, s.args);
+    }
+
+    #[test]
+    fn user_forwards_the_spec_env_to_the_helper() {
+        // The runner's own pairs (the GPU lock marker) ride on the spec and reach
+        // the sandboxed program through `--env`, after the nested marker.
+        let mut s = spec();
+        s.env = vec![("AIEN_GB10_LOCK_HELD".to_string(), "1".to_string())];
+        let w = wrap(Sandbox::User, s, "gb10", &[]);
+        let i = w
+            .args
+            .iter()
+            .position(|a| a == "AIEN_GB10_LOCK_HELD=1")
+            .expect("marker is passed as --env");
+        assert_eq!(w.args[i - 1], "--env");
+        assert!(
+            w.env.is_empty(),
+            "sudo would drop it; the helper carries it"
+        );
     }
 
     #[test]

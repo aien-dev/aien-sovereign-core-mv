@@ -1,4 +1,19 @@
 #![cfg(feature = "std")]
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 // The publication protocol, fault hooks and cache behaviour are written from
 // ADR 0003 sections 2.4, 3.4 and 7.4. LMCache fs_l2_adapter.py (4d69cdc4,
 // Apache-2.0, Copyright LMCache contributors) informed two ideas only: a
@@ -618,9 +633,19 @@ fn corrupt_payload_byte_fails_segment_hash_and_deletes() {
     let s = fx.open();
     let a = fx.put_full(&s, 1);
     let path = fx.object_file(&a.key);
-    let f = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
-    // One byte in the second segment (second pool block).
-    f.write_all_at(&[0x00], 4096 + BS as u64 + 17).unwrap();
+    let f = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&path)
+        .unwrap();
+    // One byte in the second segment (second pool block). The payload on disk
+    // is AES-GCM ciphertext under a fresh random nonce, so a fixed value would
+    // already be there one run in 256 and the object would load intact; flip
+    // the byte instead so it always changes.
+    let off = 4096 + BS as u64 + 17;
+    let mut b = [0u8; 1];
+    f.read_exact_at(&mut b, off).unwrap();
+    f.write_all_at(&[b[0] ^ 0xFF], off).unwrap();
     drop(f);
     let (t, mem) = fx.load(&s, a.key, &a.header);
     assert_eq!(*failed(&t.unwrap()), PlatformError::InvalidLayout);

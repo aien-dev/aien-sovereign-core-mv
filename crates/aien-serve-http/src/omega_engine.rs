@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! The Omega engine behind the door (OWN-30B cut 8): Qwen3-30B-A3B on AIEN's own GPU
 //! kernels, FP8 weights resident between requests, prefix KV reuse across turns, and the
 //! shared-chip lock taken only around each generation.
@@ -20,6 +35,7 @@ use crate::kv_persist::PersistState;
 use crate::sampling::SamplingObserver;
 
 pub const GPU_LOCK_PATH: &str = "/tmp/aien-gb10.lock";
+
 /// How long `generate` waits for the chip lock before answering busy.
 pub const LOCK_WAIT: Duration = Duration::from_secs(30);
 /// Host memory the load needs free (the model is 30.5 GB resident plus the KV pool and
@@ -34,6 +50,19 @@ pub const LOAD_MIN_FREE_GB: f64 = 45.0;
 /// activation rounding. Off: `--whole-prompt off` / `AIEN_SERVE_WHOLE_PROMPT=0` (the chunked
 /// prefill of cut 10), `--prefill-device-host off` / `AIEN_SERVE_WP_DEVICE_HOST=0` (host routing
 /// and combine). The cached 30 GB weight copy and speculative decoding stay off.
+///
+/// Defaults differ by path (sc#522); this is documented, not aligned, because changing a chip
+/// tool's default would change what its past evidence means:
+/// - this door: both ON ([`Default`]; `--whole-prompt off` / `--prefill-device-host off`);
+/// - the engine itself (`Qwen3MoeOmegaEngine`): both OFF until `set_whole_prompt(true)` and
+///   `set_whole_prompt_device_host(true)`; its other callers (`own30b_ttft`, `own30b_wp_gate`)
+///   set the switch explicitly per leg;
+/// - `own30b_check`: both OFF unless the bare flags `--whole-prompt` and
+///   `--prefill-device-host` are passed.
+///
+/// A door run and a check run therefore use different prefill paths unless the check is given
+/// both flags (or the door both `off` switches); their tokens can differ by FP8 activation
+/// rounding. Compare like with like.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PrefillMode {
     pub whole_prompt: bool,
@@ -85,27 +114,26 @@ impl PrefillMode {
     }
 }
 
-/// An exclusive hold of the hive's GPU lock (released on drop).
-/// `None` = the chip lock is already held for this process by the open spark-window (see [`window_holds`]).
+/// An exclusive hold of the hive's GPU lock (released on drop), or nothing at all when an
+/// ancestor verifiably holds it for this process's life ([`crate::chip_reservation`]).
 pub struct GpuLock(#[allow(dead_code)] Option<File>);
 
-/// True when `path` is the chip lock and the spark-window this process runs in holds it
-/// (`AIEN_GB10_LOCK_HELD=1`, set by `spark-window run` for a window opened with `--gb10 exclusive|shared`):
-/// taking it again would queue behind our own window until the window closes.
-fn window_holds(path: &Path) -> bool {
-    path == Path::new(GPU_LOCK_PATH) && std::env::var("AIEN_GB10_LOCK_HELD").as_deref() == Ok("1")
-}
-
 impl GpuLock {
-    /// Takes the lock, polling until `wait` has passed. `Err` = still held by someone else.
+    /// Takes the hive's lock ([`GPU_LOCK_PATH`]), polling until `wait` has passed.
+    /// `Err` = still held by someone else.
     pub fn acquire(wait: Duration) -> Result<Self, String> {
         Self::acquire_at(Path::new(GPU_LOCK_PATH), wait)
     }
 
+    /// Under a verified inherited reservation there is nothing to take: `Some(lock)`.
+    fn inherited() -> Option<Self> {
+        crate::chip_reservation::inherited().then_some(Self(None))
+    }
+
     /// [`Self::acquire`] on the lock file at `path` (tests pass a private file).
     pub fn acquire_at(path: &Path, wait: Duration) -> Result<Self, String> {
-        if window_holds(path) {
-            return Ok(Self(None));
+        if let Some(l) = Self::inherited() {
+            return Ok(l);
         }
         let file = OpenOptions::new()
             .read(true)
@@ -141,11 +169,11 @@ impl GpuLock {
     /// thread), so jobs that wait with `flock(1)` cannot starve it the way polling can. After
     /// `wait` without the lock: `Err`, and the helper drops the lock the moment it gets it.
     pub fn acquire_queued_at(path: &Path, wait: Duration) -> Result<Self, String> {
-        if window_holds(path) {
-            return Ok(Self(None));
-        }
         use std::sync::atomic::AtomicBool;
         use std::sync::{mpsc, Arc};
+        if let Some(l) = Self::inherited() {
+            return Ok(l);
+        }
         let file = OpenOptions::new()
             .read(true)
             .write(true)

@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Whole-prompt prefill for Qwen3.8-27B on omega's own prefill kernels (sc #642 step 9).
 //!
 //! The prompt goes through the model in chunks of at most `chunk` tokens; every layer of a chunk
@@ -638,43 +653,6 @@ fn swiglu_rows(gu: &[f32], inter: usize) -> Vec<f32> {
     act
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn swiglu_rows_pairs_gate_and_up_per_row() {
-        let gu = [1.0f32, -2.0, 3.0, 4.0, 0.0, 0.5, 2.0, -1.0];
-        let act = swiglu_rows(&gu, 2);
-        assert_eq!(
-            act,
-            vec![silu(1.0) * 3.0, silu(-2.0) * 4.0, silu(0.0) * 2.0, silu(0.5) * -1.0]
-        );
-    }
-
-    #[test]
-    fn chunk_lengths_cover_and_respect_the_minimum() {
-        for n in 3..200 {
-            for chunk in [6, 7, 16, 64] {
-                let c = chunk_lengths(n, chunk);
-                assert_eq!(c.iter().sum::<usize>(), n, "n {n} chunk {chunk}");
-                assert!(
-                    c.iter().all(|&m| (q::GDN_PF_MIN_T..=chunk).contains(&m)),
-                    "n {n} chunk {chunk}: {c:?}"
-                );
-            }
-        }
-        assert_eq!(chunk_lengths(130, 64), vec![64, 63, 3]);
-        assert_eq!(chunk_lengths(129, 64), vec![64, 62, 3]);
-        assert_eq!(chunk_lengths(131_072, 4096).len(), 32);
-    }
-
-    #[test]
-    fn argmax_takes_the_first_maximum() {
-        assert_eq!(argmax(&[0.0, 2.0, 1.0, 2.0]), 1);
-    }
-}
-
 /// Prompt tokens per 35B prefill chunk (`AIEN_Q36_PREFILL_CHUNK`, default the graph's most,
 /// [`q::q36::PREFILL_MAX_ROWS`]); 0 = token by token through the decode graph.
 pub fn q36_prefill_chunk() -> Result<usize, String> {
@@ -764,5 +742,42 @@ impl Qwen38Omega {
         }
         *self.head_pos_mut(head)? = pos;
         Ok((next, n_chunks))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn swiglu_rows_pairs_gate_and_up_per_row() {
+        let gu = [1.0f32, -2.0, 3.0, 4.0, 0.0, 0.5, 2.0, -1.0];
+        let act = swiglu_rows(&gu, 2);
+        assert_eq!(
+            act,
+            vec![silu(1.0) * 3.0, silu(-2.0) * 4.0, silu(0.0) * 2.0, silu(0.5) * -1.0]
+        );
+    }
+
+    #[test]
+    fn chunk_lengths_cover_and_respect_the_minimum() {
+        for n in 3..200 {
+            for chunk in [6, 7, 16, 64] {
+                let c = chunk_lengths(n, chunk);
+                assert_eq!(c.iter().sum::<usize>(), n, "n {n} chunk {chunk}");
+                assert!(
+                    c.iter().all(|&m| (q::GDN_PF_MIN_T..=chunk).contains(&m)),
+                    "n {n} chunk {chunk}: {c:?}"
+                );
+            }
+        }
+        assert_eq!(chunk_lengths(130, 64), vec![64, 63, 3]);
+        assert_eq!(chunk_lengths(129, 64), vec![64, 62, 3]);
+        assert_eq!(chunk_lengths(131_072, 4096).len(), 32);
+    }
+
+    #[test]
+    fn argmax_takes_the_first_maximum() {
+        assert_eq!(argmax(&[0.0, 2.0, 1.0, 2.0]), 1);
     }
 }

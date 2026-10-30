@@ -1,0 +1,17 @@
+PASS: piped installer bootstraps a checkout and installs the CLI from an arbitrary cwd
+PASS: --with-server refuses a machine that is not aarch64 Linux, before any build
+PASS: --with-server refuses a release install
+PASS: --with-server refuses to install a CPU stub build
+PASS: --with-server (AIEN_INSTALL_SERVER=1) builds with the pinned GPU env and installs the server and its start script
+PASS: --with-model (--model-dir=DIR) resumes a partial file, fetches the rest, passes sha256sum -c, and a rerun downloads nothing
+PASS: --with-model (AIEN_INSTALL_MODEL=1) refuses a folder that fails sha256sum -c and sets the bad file aside
+PASS: --with-model checks free disk before cloning, building or downloading
+PASS: the shipped model list has 81 well-formed lines and install.sh reads it at revision 017b9c7a
+RED reproduction fixture: base helper returned 0 and printed started after child refusal
+PASS fixture: early child refusal returns nonzero, status 23, and log
+PASS fixture: child exit 0 without API readiness returns nonzero
+PASS fixture: bounded API timeout reports identity and cleans up owned process
+PASS fixture: advertised API succeeds and TERM on the recorded PID stops its owned server
+PASS fixture: existing unrelated PID is not signaled
+PASS fixture: foreground mode remains attached and writes no detached PID file
+Fixture cases passed: 6. No real model start or GPU operation was performed.

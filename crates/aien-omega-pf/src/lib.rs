@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Safe Rust wrapper over omega's device-resident prefill API (`src/omega_gpu_prefill.h`, W-L1G
 //! cut 1e76e728) and the causal prefill attention (`src/omega_gpu_prefill_attn_api.h`, W-L1A).
 //! No CUDA: every launch is omega's own Blackwell code generator.
@@ -162,7 +177,11 @@ pub fn check_qgemm(n: usize, k: usize, layout: Layout, ntiles: usize) -> Result<
         )));
     }
     // Row stride (n f32, or n / 2 bf16 act rows = n bytes) x the tile's rows: the store offset.
-    let row_bytes = if layout == Layout::SwigluNat { n } else { 4 * n };
+    let row_bytes = if layout == Layout::SwigluNat {
+        n
+    } else {
+        4 * n
+    };
     if n == 0 || !n.is_multiple_of(DEFAULT_SPAN) || row_bytes * DEFAULT_BM >= 1 << 23 {
         return Err(bad(format!(
             "pf qgemm n={n} refused: positive multiple of {DEFAULT_SPAN}, row bytes x {DEFAULT_BM} < 2^23"
@@ -1064,7 +1083,11 @@ impl PrefillAttention for OmegaPrefillAttention<'_> {
             if let Err(e) = self.check(layer, pos0, m) {
                 return Some(Err(e));
             }
-            if qkv_va == 0 || out_va == 0 || !qkv_va.is_multiple_of(16) || !out_va.is_multiple_of(16) {
+            if qkv_va == 0
+                || out_va == 0
+                || !qkv_va.is_multiple_of(16)
+                || !out_va.is_multiple_of(16)
+            {
                 return Some(Err(
                     "prefill attn dev: addresses must be non-zero and 16-byte aligned".into(),
                 ));
@@ -1137,7 +1160,9 @@ mod tests {
     fn host_checks_mirror_the_spec_rules() {
         assert!(check_quant(2048).is_ok() && check_quant(4096).is_ok() && check_quant(768).is_ok());
         // Qwen3.8-27B widths (split rows) and the 32768 bound.
-        assert!(check_quant(5120).is_ok() && check_quant(6144).is_ok() && check_quant(17408).is_ok());
+        assert!(
+            check_quant(5120).is_ok() && check_quant(6144).is_ok() && check_quant(17408).is_ok()
+        );
         assert!(check_quant(32768).is_ok() && check_quant(32896).is_err());
         assert!(check_quant(100).is_err());
         assert!(check_qgemm(16384, 5120, Layout::Plain, 1).is_ok());

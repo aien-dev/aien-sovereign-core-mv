@@ -1,4 +1,19 @@
-use std::path::PathBuf;
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use std::path::{Path, PathBuf};
 
 fn workspace_root() -> PathBuf {
     if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
@@ -80,17 +95,17 @@ fn test_t2_f06_sanitizer_empty_prompt() {
 
 #[test]
 fn test_t2_f07_sanitizer_prompt_only_paths() {
-    let input = "/home/drakestapleton/dir/file.rs";
+    let input = "/home/alice/dir/file.rs";
     let output = sanitize_outbound_prompt(input);
     assert_eq!(output, "<WORKSPACE_PATH>");
 }
 
 #[test]
 fn test_t2_f08_sanitizer_prompt_only_ips() {
-    let input = "127.0.0.1 192.168.1.1 10.0.0.1";
+    let input = "127.0.0.1 192.168.0.1 10.0.0.1";
     let output = sanitize_outbound_prompt(input);
     assert!(!output.contains("127.0.0.1"));
-    assert!(!output.contains("192.168.1.1"));
+    assert!(!output.contains("192.168.0.1"));
     assert!(!output.contains("10.0.0.1"));
     assert!(output.contains("<LOCAL_HOST>"));
 }
@@ -106,9 +121,9 @@ fn test_t2_f09_sanitizer_multiple_mixed_secrets() {
 
 #[test]
 fn test_t2_f10_sanitizer_system_prompt_scrubbing() {
-    let sys = "You are running on /home/drakestapleton for aien@aienos.com";
+    let sys = "You are running on /home/alice for aien@aienos.com";
     let cleaned = sanitize_outbound_prompt(sys);
-    assert!(!cleaned.contains("/home/drakestapleton"));
+    assert!(!cleaned.contains("/home/alice"));
     assert!(!cleaned.contains("aien@aienos.com"));
 }
 
@@ -863,22 +878,319 @@ fn test_t2_f61_git_no_uncommitted_env_secrets() {
     );
 }
 
+/// Scan of commit messages a branch introduces over a base revision.
+#[derive(Debug)]
+enum CommitMessageScan {
+    /// `AIEN_COMMIT_LINT_BASE` is unset or empty. This is the only skip.
+    NoBase,
+    Clean,
+    Forbidden {
+        em: bool,
+        en: bool,
+    },
+    /// The base was set, but it cannot be resolved or `git log` failed.
+    Failed(String),
+}
+
+/// What the workspace test does with a scan. `Fail` panics.
+#[derive(Debug)]
+enum CommitLintAction {
+    Skip(String),
+    Pass,
+    Fail(String),
+}
+
+fn git_in(repo: &Path, args: &[&str]) -> std::process::Output {
+    Command::new("git")
+        .arg("-c")
+        .arg("safe.directory=*")
+        .args(args)
+        .current_dir(repo)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_AUTHOR_NAME", "t2f62")
+        .env("GIT_AUTHOR_EMAIL", "t2f62@example.com")
+        .env("GIT_COMMITTER_NAME", "t2f62")
+        .env("GIT_COMMITTER_EMAIL", "t2f62@example.com")
+        .output()
+        .unwrap_or_else(|err| panic!("spawn git {args:?}: {err}"))
+}
+
+fn git_ok(repo: &Path, args: &[&str]) -> std::process::Output {
+    let output = git_in(repo, args);
+    assert!(
+        output.status.success(),
+        "git {args:?} exited {}: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output
+}
+
+/// `git log <base>..HEAD` in `repo`.
+///
+/// `base` is `AIEN_COMMIT_LINT_BASE` (the PR base, or the previous push SHA).
+/// Unset or empty is the only skip. A set base that cannot be resolved, or a
+/// failed `git log`, is `Failed`. This does not fall back to `git log -n` or
+/// any other scan of history already on the base.
+fn scan_commits_introduced_over_base(repo: &Path, base: Option<&str>) -> CommitMessageScan {
+    let Some(base) = base.map(str::trim).filter(|b| !b.is_empty()) else {
+        return CommitMessageScan::NoBase;
+    };
+    if base.starts_with('-') || base.chars().any(|c| c.is_whitespace()) {
+        return CommitMessageScan::Failed(format!("base {base:?} is not a usable revision"));
+    }
+    let peeled = format!("{base}^{{commit}}");
+    let resolved = git_in(repo, &["rev-parse", "--verify", "--quiet", &peeled]);
+    if !resolved.status.success() {
+        return CommitMessageScan::Failed(format!(
+            "base {base} cannot be resolved (shallow checkout or missing ref)"
+        ));
+    }
+    let range = format!("{base}..HEAD");
+    let output = git_in(repo, &["log", &range, "--format=%B"]);
+    if !output.status.success() {
+        return CommitMessageScan::Failed(format!(
+            "git log {range} failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let log = String::from_utf8_lossy(&output.stdout);
+    let em = log.contains('\u{2014}');
+    let en = log.contains('\u{2013}');
+    if em || en {
+        CommitMessageScan::Forbidden { em, en }
+    } else {
+        CommitMessageScan::Clean
+    }
+}
+
+fn commit_lint_action(scan: CommitMessageScan, ci: bool) -> CommitLintAction {
+    match scan {
+        CommitMessageScan::NoBase => CommitLintAction::Skip(
+            "AIEN_SKIP test_t2_f62: AIEN_COMMIT_LINT_BASE is unset or empty".to_string(),
+        ),
+        CommitMessageScan::Clean => CommitLintAction::Pass,
+        CommitMessageScan::Forbidden { em, en } => CommitLintAction::Fail(format!(
+            "commits introduced over AIEN_COMMIT_LINT_BASE contain em dash ({em}) or en dash ({en})"
+        )),
+        CommitMessageScan::Failed(reason) => CommitLintAction::Fail(format!(
+            "commit lint failed{}: {reason}",
+            if ci { " in CI" } else { "" }
+        )),
+    }
+}
+
+fn apply_commit_lint(action: CommitLintAction) {
+    match action {
+        CommitLintAction::Skip(line) => eprintln!("{line}"),
+        CommitLintAction::Pass => {}
+        CommitLintAction::Fail(msg) => panic!("{msg}"),
+    }
+}
+
+fn assert_ci_hard_failure(scan: CommitMessageScan) {
+    let reason = match &scan {
+        CommitMessageScan::Failed(reason) => reason.clone(),
+        other => panic!("a set base that cannot be used must not skip, got {other:?}"),
+    };
+    let action = commit_lint_action(scan, true);
+    let msg = match action {
+        CommitLintAction::Fail(msg) => msg,
+        other => panic!("CI must fail the commit lint, got {other:?}"),
+    };
+    assert!(
+        msg.contains("in CI"),
+        "CI failure must be marked as CI: {msg}"
+    );
+    assert!(
+        msg.contains(&reason),
+        "CI failure must keep the scan reason: {msg}"
+    );
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        apply_commit_lint(CommitLintAction::Fail(msg));
+    }));
+    assert!(panicked.is_err(), "the test must panic when the lint fails");
+}
+
+fn commit_in(repo: &Path, file: &str, message: &str) {
+    fs::write(repo.join(file), file).expect("write commit file");
+    git_ok(repo, &["add", "--", file]);
+    git_ok(
+        repo,
+        &["-c", "commit.gpgsign=false", "commit", "-m", message],
+    );
+}
+
+fn head_commit(repo: &Path) -> String {
+    let output = git_ok(repo, &["rev-parse", "HEAD"]);
+    String::from_utf8(output.stdout)
+        .expect("utf8 sha")
+        .trim()
+        .to_string()
+}
+
+struct RemoveOnDrop(PathBuf);
+
+impl Drop for RemoveOnDrop {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn temp_repo(label: &str) -> (PathBuf, RemoveOnDrop) {
+    let dir = std::env::temp_dir().join(format!("t2_f62_{label}_{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&dir).expect("temp repo dir");
+    let guard = RemoveOnDrop(dir.clone());
+    git_ok(&dir, &["init", "-b", "main"]);
+    (dir, guard)
+}
+
 #[test]
 fn test_t2_f62_git_log_zero_em_or_en_dashes() {
-    let output = Command::new("git")
-        .args(["log", "-n", "20", "--format=%B"])
-        .current_dir(workspace_root())
-        .output()
-        .expect("git log");
-    let log = String::from_utf8_lossy(&output.stdout);
+    let base = std::env::var("AIEN_COMMIT_LINT_BASE").ok();
+    let ci = std::env::var("CI").is_ok();
+    let scan = scan_commits_introduced_over_base(&workspace_root(), base.as_deref());
+    apply_commit_lint(commit_lint_action(scan, ci));
+}
+
+#[test]
+fn test_t2_f62_new_commit_with_em_or_en_dash_fails() {
+    let (repo, _guard) = temp_repo("dash");
+    commit_in(&repo, "old.txt", "history \u{2014} before the base");
+    commit_in(&repo, "base.txt", "base commit");
+    let base = head_commit(&repo);
+    commit_in(&repo, "clean.txt", "plain ascii addition");
     assert!(
-        !log.contains('\u{2014}'),
-        "Git commits must not contain em dashes"
+        matches!(
+            scan_commits_introduced_over_base(&repo, Some(&base)),
+            CommitMessageScan::Clean
+        ),
+        "a clean commit over the base must pass, and a dash before the base must not be scanned"
     );
-    assert!(
-        !log.contains('\u{2013}'),
-        "Git commits must not contain en dashes"
+    commit_in(&repo, "en.txt", "range \u{2013} in a new commit");
+    match scan_commits_introduced_over_base(&repo, Some(&base)) {
+        CommitMessageScan::Forbidden { em, en } => {
+            assert!(
+                !em,
+                "an em dash that sits before the base must not fail the new range"
+            );
+            assert!(en, "a new commit containing U+2013 must fail");
+        }
+        other => panic!("expected the new en dash to fail the lint, got {other:?}"),
+    }
+    commit_in(&repo, "em.txt", "clause \u{2014} in a new commit");
+    match scan_commits_introduced_over_base(&repo, Some(&base)) {
+        CommitMessageScan::Forbidden { em, en } => {
+            assert!(em, "a new commit containing U+2014 must fail");
+            assert!(en, "a new commit containing U+2013 must fail");
+        }
+        other => panic!("expected the new em dash to fail the lint, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_t2_f62_missing_base_skips_instead_of_scanning_history() {
+    let (repo, _guard) = temp_repo("skip");
+    commit_in(&repo, "bad.txt", "whole history \u{2014} and \u{2013}");
+    for base in [None, Some("   "), Some("")] {
+        let scan = scan_commits_introduced_over_base(&repo, base);
+        match &scan {
+            CommitMessageScan::NoBase => {}
+            other => panic!(
+                "unset or empty base must skip even when history contains dashes, got {other:?}"
+            ),
+        }
+        // CI being set does not turn an empty base into a failure.
+        match commit_lint_action(scan, true) {
+            CommitLintAction::Skip(line) => {
+                assert_eq!(
+                    line,
+                    "AIEN_SKIP test_t2_f62: AIEN_COMMIT_LINT_BASE is unset or empty"
+                );
+                eprintln!("{line}");
+            }
+            other => panic!("unset or empty base must skip under CI, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn test_t2_f62_unresolved_base_fails_when_ci_set() {
+    let (repo, _guard) = temp_repo("missing");
+    commit_in(&repo, "bad.txt", "whole history \u{2014} and \u{2013}");
+    let scan =
+        scan_commits_introduced_over_base(&repo, Some("0123456789abcdef0123456789abcdef01234567"));
+    match &scan {
+        CommitMessageScan::Failed(reason) => {
+            assert!(
+                reason.contains("cannot be resolved"),
+                "failure must name the unresolved base, not the history: {reason}"
+            );
+        }
+        other => panic!("unresolved base must fail, got {other:?}"),
+    }
+    assert_ci_hard_failure(scan);
+}
+
+#[test]
+fn test_t2_f62_shallow_checkout_unresolved_base_fails_when_ci_set() {
+    let (full, _full_guard) = temp_repo("full");
+    commit_in(&full, "a.txt", "base");
+    let base = head_commit(&full);
+    commit_in(&full, "b.txt", "tip \u{2014} only on the branch");
+    let parent =
+        std::env::temp_dir().join(format!("t2_f62_shallow_parent_{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&parent).expect("shallow parent");
+    let _parent_guard = RemoveOnDrop(parent.clone());
+    let url = format!("file://{}", full.display());
+    git_ok(
+        &parent,
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "clone",
+            "--depth",
+            "1",
+            &url,
+            "shallow",
+        ],
     );
+    let shallow = parent.join("shallow");
+    let scan = scan_commits_introduced_over_base(&shallow, Some(&base));
+    match &scan {
+        CommitMessageScan::Failed(reason) => assert!(
+            reason.contains("cannot be resolved"),
+            "shallow checkout must fail because the base is missing, not because of a dash: {reason}"
+        ),
+        other => panic!("shallow unresolved base must fail, got {other:?}"),
+    }
+    assert_ci_hard_failure(scan);
+}
+
+#[test]
+fn test_t2_f62_git_log_failure_fails_when_ci_set() {
+    let (repo, _guard) = temp_repo("walk");
+    commit_in(&repo, "a.txt", "base");
+    let base = head_commit(&repo);
+    commit_in(&repo, "b.txt", "middle");
+    let middle = head_commit(&repo);
+    commit_in(&repo, "c.txt", "tip");
+    let object = repo
+        .join(".git")
+        .join("objects")
+        .join(&middle[..2])
+        .join(&middle[2..]);
+    fs::remove_file(&object).unwrap_or_else(|err| panic!("remove {object:?}: {err}"));
+    let scan = scan_commits_introduced_over_base(&repo, Some(&base));
+    match &scan {
+        CommitMessageScan::Failed(reason) => assert!(
+            reason.contains("git log"),
+            "a failed git log must fail the lint: {reason}"
+        ),
+        other => panic!("git log failure must fail the lint, got {other:?}"),
+    }
+    assert_ci_hard_failure(scan);
 }
 
 #[test]
@@ -890,11 +1202,11 @@ fn test_t2_f63_git_covenant_is_nonbinding_values_statement() {
 }
 
 #[test]
-fn test_t2_f64_git_readme_contains_agpl_badge() {
+fn test_t2_f64_git_readme_contains_apache_badge() {
     let readme_path = workspace_root().join("README.md");
     let content = fs::read_to_string(readme_path).expect("read README");
-    assert!(content.contains("AGPL--3.0") || content.contains("AGPL-3.0"));
-    assert!(!content.contains("Apache--2.0"));
+    assert!(content.contains("License-Apache--2.0"));
+    assert!(!content.contains("AGPL--3.0") && !content.contains("AGPL-3.0"));
 }
 
 #[test]

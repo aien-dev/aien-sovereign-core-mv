@@ -394,9 +394,15 @@ impl Qwen38Omega {
                         "qwen36 omega: decode attn256 per_split {n} positions per CTA (AIEN_OMEGA_DATTN256_PER_SPLIT; single-row launches only)"
                     );
                 }
-                _ => return Err(format!("AIEN_OMEGA_DATTN256_PER_SPLIT={v}: want a positive multiple of 256").into()),
+                _ => {
+                    return Err(format!(
+                        "AIEN_OMEGA_DATTN256_PER_SPLIT={v}: want a positive multiple of 256"
+                    ))
+                }
             },
-            _ => eprintln!("qwen36 omega: decode attn256 per_split 256 positions per CTA (compiled default)"),
+            _ => eprintln!(
+                "qwen36 omega: decode attn256 per_split 256 positions per CTA (compiled default)"
+            ),
         }
         for h in 1..heads {
             // SAFETY: the states live in `gdns` / `attns`, owned beside the graph (dropped after it).
@@ -435,16 +441,22 @@ impl Qwen38Omega {
         // HUM L314 exact two-pass head, on by default (AIEN_Q36_EXACT_HEAD=0 keeps the plain head):
         // greedy tokens identical to the full bf16 head by construction (exact_head.rs), half the
         // head's bytes. The engine turns it off for sampled requests.
-        let (head_screen, head_coef) = if std::env::var("AIEN_Q36_EXACT_HEAD").as_deref() == Ok("0") {
+        let (head_screen, head_coef) = if std::env::var("AIEN_Q36_EXACT_HEAD").as_deref() == Ok("0")
+        {
             eprintln!("qwen36 omega: exact two-pass head OFF (AIEN_Q36_EXACT_HEAD=0)");
             (None, None)
         } else {
             let t = std::time::Instant::now();
             let (codes, scales, coef) = crate::exact_head::chip_screen(&head)?;
-            let screen = Fp8Tensor::upload(1, v, h, &codes, &scales).map_err(gpu("exact head screen"))?;
+            let screen =
+                Fp8Tensor::upload(1, v, h, &codes, &scales).map_err(gpu("exact head screen"))?;
             // SAFETY: the screen is owned by the returned value and dropped after the graph (field order).
-            unsafe { graph.set_exact_head(screen.as_raw(), &coef) }.map_err(gpu("q36 graph set_exact_head"))?;
-            eprintln!("qwen36 omega: exact two-pass head ON (fp8b screen + Row bound, built in {:.1} s)", t.elapsed().as_secs_f64());
+            unsafe { graph.set_exact_head(screen.as_raw(), &coef) }
+                .map_err(gpu("q36 graph set_exact_head"))?;
+            eprintln!(
+                "qwen36 omega: exact two-pass head ON (fp8b screen + Row bound, built in {:.1} s)",
+                t.elapsed().as_secs_f64()
+            );
             (Some(screen), Some(coef))
         };
         drop(head);

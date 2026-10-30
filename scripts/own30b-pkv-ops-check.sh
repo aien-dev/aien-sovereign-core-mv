@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # Persistent KV operations check on the chip (sc#509, contract locked in #500). CHIP-ONLY: never
 # run by CI or cargo test. Same safety rules as own30b-pkv-chip-check.sh (see own30b-pkv-lib.sh):
 # own server on 127.0.0.1:18098 (PKV_CHECK_PORT), refuses while :18091 answers or the port is
@@ -69,7 +84,7 @@ on_perm_bad=$(perm_bad "$D")
 echo "== sigterm: SIGTERM while a streamed chat is generating"
 jq -n --arg model "$SERVED_MODEL" --argjson m "$(turn2_msgs "$a1" "List ten uses of a torque wrench, one line each, with a reason for each.")" \
 	'{model:$model, messages:$m, max_tokens:256, temperature:0, seed:1, stream:true}' >"$work/long.body"
-curl -sN -m 600 "$base/v1/chat/completions" -H 'content-type: application/json' -d @"$work/long.body" >"$dir/sigterm-stream.sse" 2>&1 &
+curl -sN -m 600 "$base/v1/chat/completions" -H "Authorization: Bearer $AIEN_SERVE_HTTP_BEARER_TOKEN" -H 'content-type: application/json' -d @"$work/long.body" >"$dir/sigterm-stream.sse" 2>&1 &
 cpid=$!
 for _ in $(seq 1 600); do
 	grep -q '"content":"[^"]' "$dir/sigterm-stream.sse" 2>/dev/null && break

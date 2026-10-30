@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Gate manifest v1 parser (ADR 0028 Decision 3). Strict: unknown keys,
 //! duplicate keys, tabs, CRLF, BOM, deep indentation and trailing garbage are
 //! all errors.
@@ -58,6 +73,16 @@ pub struct Rule {
 pub struct Build {
     pub target: String,
     pub tool: String,
+}
+
+/// `prepare` (v2): a step the runner runs after the pool slot and the target
+/// dir lock and before the GPU locks, under the host profile, so a gb10 gate
+/// builds its program without holding the chip. Its exit must be 0; anything
+/// else fails the gate with reason `prepare_failed` and `run` never starts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Prepare {
+    pub exec: String,
+    pub args: Vec<String>,
 }
 
 /// Epistemic requirement of a check (ADR 0033 Decision 2). v1 manifests are
@@ -146,6 +171,7 @@ pub struct Manifest {
     pub depends_on: Vec<String>,
     pub inputs: Vec<String>,
     pub build: Option<Build>,
+    pub prepare: Option<Prepare>,
     pub exec: String,
     pub args: Vec<String>,
     pub expect_exit: i64,
@@ -154,6 +180,25 @@ pub struct Manifest {
     pub mutants: Vec<String>,
     pub checks: Vec<String>,
     pub cache_allowed: bool,
+    /// `cache: inputs_complete`: the author promises `inputs` name every file
+    /// the gate reads, so a result may be reused by another head whose
+    /// declared inputs are byte-identical (`cache::cross_head`). Without it a
+    /// result crosses heads only when the whole tree is identical.
+    pub inputs_complete: bool,
+    /// `outside_inputs`: files or directories outside the repository the gate
+    /// reads (a model checkpoint under `~/models`, say). Each entry is `~/`
+    /// (the judge's home) or an absolute path; the bytes of every file under
+    /// it join the declared-inputs digest, so a changed checkpoint is a miss.
+    pub outside_inputs: Vec<String>,
+    /// `listed`: directories (repo-relative, `*` patterns allowed) whose entry
+    /// NAMES join the key, not their contents. cargo lists `tests/`, `src/bin/`,
+    /// `examples/` of every workspace member to find targets, so a file added
+    /// there changes what it loads even when no byte it compiles changed.
+    pub listed: Vec<String>,
+    /// `target_lock: none`: the gate never builds or runs anything from a cargo
+    /// target dir (a grep, a find, `crumb verify`), so it runs without waiting
+    /// for the head's target-dir lock. Default true (the lock is taken).
+    pub target_lock: bool,
     /// `manifest_version` (1 or 2). The fields below are v2 and hold their
     /// documented defaults for a v1 manifest.
     pub version: u8,
@@ -222,6 +267,16 @@ pub fn valid_obs_name(s: &str) -> bool {
 
 fn valid_rel_path(s: &str) -> bool {
     !s.is_empty() && !s.starts_with('/') && !s.contains('\0') && !s.split('/').any(|c| c == "..")
+}
+
+/// An `outside_inputs` entry: `~/REST` (the judge's home) or `/REST`, with
+/// something after the prefix and no `..` component.
+fn valid_outside_path(s: &str) -> bool {
+    let rest = match (s.strip_prefix("~/"), s.strip_prefix('/')) {
+        (Some(r), _) | (None, Some(r)) => r,
+        _ => return false,
+    };
+    !rest.trim_matches('/').is_empty() && !s.contains('\0') && !rest.split('/').any(|c| c == "..")
 }
 
 fn parse_val(s: &str, line: usize) -> Result<Val, ManifestError> {
@@ -465,13 +520,14 @@ pub const REQUIRES_V2: [&str; 9] = [
     "operator",
 ];
 
-const V2_KEYS: [&str; 6] = [
+const V2_KEYS: [&str; 7] = [
     "exactness",
     "tolerance",
     "backends",
     "fallback",
     "cache_scope",
     "oracle",
+    "prepare",
 ];
 
 fn bad<T>(msg: String) -> Result<T, ManifestError> {
@@ -680,6 +736,27 @@ fn parse_v2(entries: &[Entry], requires: &[String]) -> Result<V2, ManifestError>
     ))
 }
 
+/// `run:` or `prepare:`: a program and its one-line argument list.
+fn parse_exec(e: &Entry) -> Result<(String, Vec<String>), ManifestError> {
+    let c = map(e, &["exec", "args"])?;
+    let exec =
+        child_str(c, "exec")?.ok_or_else(|| ManifestError(format!("{}.exec missing", e.key)))?;
+    if !valid_rel_path(&exec) {
+        return Err(ManifestError(format!(
+            "{}.exec must be a bare program name or a repo-relative path",
+            e.key
+        )));
+    }
+    let args = match child(c, "args") {
+        None => Vec::new(),
+        Some((_, Val::List(l), _)) => l.clone(),
+        Some((_, Val::Str(_), n)) => {
+            return err(*n, &format!("{}.args must be a one-line list", e.key))
+        }
+    };
+    Ok((exec, args))
+}
+
 pub fn parse(bytes: &[u8]) -> Result<Manifest, ManifestError> {
     if bytes.len() > MAX_BYTES {
         return Err(ManifestError("manifest larger than 16 KiB".into()));
@@ -702,7 +779,10 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, ManifestError> {
     }
     let entries = parse_entries(text)?;
 
-    const KNOWN: [&str; 19] = [
+    const KNOWN: [&str; 23] = [
+        "listed",
+        "outside_inputs",
+        "target_lock",
         "gate",
         "manifest_version",
         "owner",
@@ -711,6 +791,7 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, ManifestError> {
         "inputs",
         "build",
         "run",
+        "prepare",
         "expects",
         "timeout",
         "mutants",
@@ -805,6 +886,41 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, ManifestError> {
         }
     }
 
+    let outside_inputs = match get("outside_inputs") {
+        Some(e) => list(e)?,
+        None => Vec::new(),
+    };
+    for o in &outside_inputs {
+        if !valid_outside_path(o) {
+            return Err(ManifestError(format!(
+                "outside_inputs path must start with ~/ or / and have no ..: {o:?}"
+            )));
+        }
+    }
+    let listed = match get("listed") {
+        Some(e) => list(e)?,
+        None => Vec::new(),
+    };
+    for l in &listed {
+        if !valid_rel_path(l) {
+            return Err(ManifestError(format!(
+                "listed path must be repo-relative: {l:?}"
+            )));
+        }
+    }
+    let target_lock = match get("target_lock") {
+        None => true,
+        Some(e) => match scalar(e)?.as_str() {
+            "dir" => true,
+            "none" => false,
+            other => {
+                return Err(ManifestError(format!(
+                    "target_lock must be dir or none, got {other:?}"
+                )))
+            }
+        },
+    };
+
     let build = match get("build") {
         None => None,
         Some(e) => {
@@ -820,20 +936,13 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, ManifestError> {
         }
     };
 
-    let (exec, args) = {
-        let c = map(need("run")?, &["exec", "args"])?;
-        let exec = child_str(c, "exec")?.ok_or_else(|| ManifestError("run.exec missing".into()))?;
-        if !valid_rel_path(&exec) {
-            return Err(ManifestError(
-                "run.exec must be a bare program name or a repo-relative path".into(),
-            ));
+    let (exec, args) = parse_exec(need("run")?)?;
+    let prepare = match get("prepare") {
+        None => None,
+        Some(e) => {
+            let (exec, args) = parse_exec(e)?;
+            Some(Prepare { exec, args })
         }
-        let args = match child(c, "args") {
-            None => Vec::new(),
-            Some((_, Val::List(l), _)) => l.clone(),
-            Some((_, Val::Str(_), n)) => return err(*n, "run.args must be a one-line list"),
-        };
-        (exec, args)
     };
 
     let (expect_exit, rules) = {
@@ -886,14 +995,15 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, ManifestError> {
             return Err(ManifestError(format!("unknown check {c:?}")));
         }
     }
-    let cache_allowed = match get("cache") {
-        None => true,
+    let (cache_allowed, inputs_complete) = match get("cache") {
+        None => (true, false),
         Some(e) => match scalar(e)?.as_str() {
-            "allow" => true,
-            "never" => false,
+            "allow" => (true, false),
+            "inputs_complete" => (true, true),
+            "never" => (false, false),
             other => {
                 return Err(ManifestError(format!(
-                    "cache must be allow or never, got {other:?}"
+                    "cache must be allow, inputs_complete or never, got {other:?}"
                 )))
             }
         },
@@ -910,6 +1020,7 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, ManifestError> {
         depends_on,
         inputs,
         build,
+        prepare,
         exec,
         args,
         expect_exit,
@@ -918,6 +1029,10 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, ManifestError> {
         mutants,
         checks,
         cache_allowed,
+        inputs_complete,
+        outside_inputs,
+        listed,
+        target_lock,
         version,
         exactness,
         tolerance,
@@ -1137,6 +1252,7 @@ mod tests {
             depends_on: vec![],
             inputs: vec![],
             build: None,
+            prepare: None,
             exec: "tools/run.sh".into(),
             args: vec!["--a".into(), "b c".into()],
             expect_exit: 0,
@@ -1145,6 +1261,10 @@ mod tests {
             mutants: vec![],
             checks: vec![],
             cache_allowed: true,
+            inputs_complete: false,
+            outside_inputs: Vec::new(),
+            listed: Vec::new(),
+            target_lock: true,
             version: 1,
             exactness: Exactness::Exact,
             tolerance: None,
@@ -1162,6 +1282,24 @@ mod tests {
     }
 
     #[test]
+    fn v2_prepare_parses_like_run() {
+        let m =
+            parse(v2("prepare:\n  exec: tools/build.sh\n  args: [\"chip-prepare\"]\n").as_bytes())
+                .unwrap();
+        let p = m.prepare.unwrap();
+        assert_eq!(
+            (p.exec.as_str(), p.args),
+            ("tools/build.sh", vec!["chip-prepare".to_string()])
+        );
+        assert!(parse(v2("").as_bytes()).unwrap().prepare.is_none());
+        let e = parse(v2("prepare:\n  exec: /bin/sh\n").as_bytes())
+            .unwrap_err()
+            .0;
+        assert!(e.contains("prepare.exec"), "{e}");
+        assert!(parse(v2("prepare:\n  exec: x.sh\n  shell: sh\n").as_bytes()).is_err());
+    }
+
+    #[test]
     fn v1_rejects_every_v2_key() {
         for extra in [
             "exactness: EXACT\n",
@@ -1170,6 +1308,7 @@ mod tests {
             "backends:\n  canonical: spark\n",
             "oracle:\n  golden: g.txt\n",
             "tolerance:\n  metric: m\n  abs: 1\n  rel_ppm: 1\n",
+            "prepare:\n  exec: tools/build.sh\n",
         ] {
             let e = parse(with(extra).as_bytes()).unwrap_err().0;
             assert!(e.contains("requires manifest_version 2"), "{extra}: {e}");

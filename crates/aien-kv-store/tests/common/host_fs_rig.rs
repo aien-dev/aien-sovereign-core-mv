@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Shared fixtures for the host filesystem adapter tests (cut C4): a geometry
 //! whose objects are whole multiples of 4096 bytes (so physical bytes equal
 //! file size on every filesystem), real temporary directories, pool memory
@@ -20,7 +35,7 @@ use aien_platform::PlatformError;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock, RwLockReadGuard};
 use std::time::{Duration, Instant, SystemTime};
 
 /// Bytes of one pool block: 2 layers x 2 planes x 4 tokens x 512-byte rows.
@@ -53,6 +68,21 @@ pub fn geometry() -> NamespaceFields<'static> {
         element_bytes: 2,
     };
     f
+}
+
+// ---- child processes -----------------------------------------------------
+
+/// Tests run on parallel threads of one process. While a test spawns a child
+/// process, the child holds a copy of every descriptor open in this process
+/// until its exec closes them (they are close-on-exec), and `flock` belongs to
+/// the open file, not the descriptor: a store another test drops in that
+/// window stays locked, and that test's reopen is refused (`LOCK` is held).
+/// A spawning test takes this for writing and every other test that opens a
+/// store for reading, so no store opens or drops while a child is spawned.
+pub static SPAWN: RwLock<()> = RwLock::new(());
+
+pub fn no_spawn() -> RwLockReadGuard<'static, ()> {
+    SPAWN.read().unwrap_or_else(|e| e.into_inner())
 }
 
 // ---- temporary directories -----------------------------------------------
@@ -447,8 +477,54 @@ pub fn plain_object_bytes(header: &ChunkHeader, payload: &[u8], seg: usize) -> V
 /// sealed with `test_key`); segment digests over `seg`-byte pieces.
 pub fn write_object_file(path: &Path, header: &ChunkHeader, payload: &[u8], seg: usize) {
     let mut bytes = plain_object_bytes(header, payload, seg);
-    test_key().seal_file(&mut bytes).unwrap();
+    // Seal before the `.kvc` is on disk. A store that already holds a sealed
+    // object and has no counter fails closed, so the plant has to record the
+    // use in that store's `seal-usage/` first. A path that is not under
+    // `objects/` is counted in a directory this function removes.
+    let _throwaway;
+    let usage = match store_usage_for_object(path) {
+        Some(usage) => {
+            if !usage.is_dir() {
+                let mut builder = std::fs::DirBuilder::new();
+                std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+                builder.create(&usage).expect("seal-usage");
+            }
+            _throwaway = None;
+            usage
+        }
+        None => {
+            static N: AtomicU64 = AtomicU64::new(0);
+            let usage = std::env::temp_dir().join(format!(
+                "aien-kv-plant-{}-{}",
+                std::process::id(),
+                N.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir(&usage).expect("plant usage dir");
+            _throwaway = Some(RemoveOnDrop(usage.clone()));
+            usage
+        }
+    };
+    test_key()
+        .seal_file(&usage, &mut bytes)
+        .expect("seal planted object");
     std::fs::write(path, bytes).unwrap();
+}
+
+/// `<root>/seal-usage` when `path` is `<root>/objects/<shard>/<file>`.
+fn store_usage_for_object(path: &Path) -> Option<PathBuf> {
+    let objects = path.parent()?.parent()?;
+    if objects.file_name() != Some(std::ffi::OsStr::new("objects")) {
+        return None;
+    }
+    Some(objects.parent()?.join(aien_kv_store::seal::USAGE_DIR_NAME))
+}
+
+struct RemoveOnDrop(PathBuf);
+
+impl Drop for RemoveOnDrop {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 /// Write only the sealed-format marker (magic and version) into a region, for

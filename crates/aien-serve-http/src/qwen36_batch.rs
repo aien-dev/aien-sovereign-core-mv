@@ -36,7 +36,7 @@ use crate::engine::{
 };
 use crate::omega_engine::{GpuLock, GPU_LOCK_PATH};
 use crate::qwen38_engine::{
-    is_moe_dir, rss_bytes, CHIP_GREEDY_ENV, KEEP_FREE, LOAD_LOCK_WAIT, PREFILL_CHUNK,
+    admit_load, is_moe_dir, rss_bytes, CHIP_GREEDY_ENV, KEEP_FREE, LOAD_LOCK_WAIT, PREFILL_CHUNK,
     REQUEST_LOCK_WAIT,
 };
 use crate::sampling::SamplingObserver;
@@ -87,6 +87,22 @@ fn keep_free() -> Result<u64, String> {
 
 fn mem_available() -> u64 {
     (crate::omega_engine::mem_available_gb() * (1u64 << 30) as f64) as u64
+}
+
+/// The batch door's load admission: the GPU lock (`acquire`), then the free-memory rule (`need`
+/// plus `keep`) read under it ([`admit_load`], the single door's rule), then the upload (`open`,
+/// given the MemAvailable it was admitted on). The wait for the lock can last up to
+/// [`LOAD_LOCK_WAIT`]; a reading taken before it would admit the upload on stale memory.
+fn admit_then_open<L, M>(
+    acquire: impl FnOnce() -> Result<L, String>,
+    mem_available: impl FnOnce() -> u64,
+    need: u64,
+    keep: u64,
+    open: impl FnOnce(u64) -> Result<M, String>,
+) -> Result<(L, M), String> {
+    let (lock, avail) = admit_load(acquire, mem_available, need, keep)?;
+    let model = open(avail)?;
+    Ok((lock, model))
 }
 
 /// What the scheduler needs from the model: rows of conversation state and one step over a set
@@ -171,6 +187,9 @@ struct Job {
     tag: usize,
     /// Set by the request thread when `on_token` says stop (client gone, stop string).
     cancel: Arc<AtomicBool>,
+    /// Set by the scheduler when this job's reader fell behind and an event was dropped: the
+    /// reply is incomplete whatever the job's last event says.
+    fell_behind: Arc<AtomicBool>,
     t_queued: Instant,
     /// The merge train's switches for this request (empty on the served path).
     test: TestSwitches,
@@ -189,10 +208,105 @@ fn row_test(t: &TestSwitches) -> RowTest {
     }
 }
 
+/// Events a request may leave unread before the scheduler drops it (per job of a group).
+const EVENTS_PER_JOB: usize = 256;
+
 impl Job {
+    /// Never blocks: the scheduler is the only thread stepping every row and it holds the chip
+    /// lock for the whole spell. A request thread that stops taking events (a streaming client
+    /// that does not read blocks its `blocking_send`) fills the channel; the job is then cancelled,
+    /// so its row leaves at the next sample and the others go on. `Err` = not delivered.
     fn send(&self, ev: Ev) -> Result<(), ()> {
-        self.out.send((self.tag, ev)).map_err(|_| ())
+        match self.out.try_send((self.tag, ev)) {
+            Ok(()) => Ok(()),
+            Err(mpsc::TrySendError::Full(_)) => {
+                self.cancel.store(true, Ordering::SeqCst);
+                if !self.fell_behind.swap(true, Ordering::SeqCst) {
+                    eprintln!(
+                        "aien-serve-http: qwen36-batch: a reply's reader fell behind ({EVENTS_PER_JOB} events unread, job {} of its group, prompt {} tok): dropping it and freeing its row",
+                        self.tag,
+                        self.prompt.len()
+                    );
+                }
+                Err(())
+            }
+            Err(mpsc::TrySendError::Disconnected(_)) => Err(()),
+        }
     }
+}
+
+/// What a request whose reader fell behind ends with.
+fn fell_behind_error() -> EngineError {
+    EngineError::Failed(format!(
+        "qwen36-batch: the reply's reader fell behind ({EVENTS_PER_JOB} events unread); its row was dropped"
+    ))
+}
+
+/// The request side of [`Qwen36BatchDoor::run_jobs`]: relays every job's tokens to `on_token`
+/// until each job has its outcome (or the scheduler let go of them all).
+fn relay(
+    orx: &mpsc::Receiver<(usize, Ev)>,
+    cancel: &[Arc<AtomicBool>],
+    fell_behind: &[Arc<AtomicBool>],
+    on_token: &mut dyn FnMut(usize, u32) -> bool,
+) -> Vec<Result<GenerateOutcome, EngineError>> {
+    let n = cancel.len();
+    let mut res: Vec<Option<Result<GenerateOutcome, EngineError>>> = vec![None; n];
+    let mut delivered = vec![0usize; n];
+    let mut cancelled = vec![false; n];
+    let mut left = n;
+    while left > 0 {
+        let Ok((i, ev)) = orx.recv() else {
+            break;
+        };
+        let r = match ev {
+            Ev::Token(t) => {
+                if !cancelled[i] {
+                    delivered[i] += 1;
+                    if !on_token(i, t) {
+                        cancelled[i] = true;
+                        cancel[i].store(true, Ordering::SeqCst);
+                    }
+                }
+                continue;
+            }
+            // The scheduler dropped an event of this job: whatever its last event says (it can
+            // fit once the reader resumed), the reply the caller got is incomplete.
+            Ev::Done(_) if fell_behind[i].load(Ordering::SeqCst) => Err(fell_behind_error()),
+            Ev::Done(mut o) => {
+                if cancelled[i] {
+                    o.finish = FinishReason::Cancelled;
+                    o.emitted_tokens = delivered[i];
+                }
+                Ok(o)
+            }
+            Ev::Busy(m) => Err(EngineError::Busy(m)),
+            Ev::Failed(m) => {
+                // A group fails whole: the others stop rather than read on for nothing.
+                for c in cancel {
+                    c.store(true, Ordering::SeqCst);
+                }
+                Err(EngineError::Failed(m))
+            }
+        };
+        if res[i].is_none() {
+            left -= 1;
+        }
+        res[i] = Some(r);
+    }
+    res.into_iter()
+        .enumerate()
+        .map(|(i, r)| {
+            r.unwrap_or_else(|| {
+                // A job whose reader fell behind may have lost its last event too.
+                Err(if fell_behind[i].load(Ordering::SeqCst) {
+                    fell_behind_error()
+                } else {
+                    EngineError::Failed("qwen36-batch scheduler gone".into())
+                })
+            })
+        })
+        .collect()
 }
 
 enum Ev {
@@ -283,24 +397,23 @@ impl Qwen36BatchDoor {
         // The main graph is never stepped here: its own state is one 256-position pass.
         let need = need_bytes(&c, 256, PREFILL_CHUNK);
         let keep = keep_free()?;
-        let avail = mem_available();
-        if avail < need + keep {
-            return Err(format!(
-                "needs {} MiB plus {} MiB kept free, MemAvailable {} MiB (another model may be loaded); refusing",
-                need >> 20,
-                keep >> 20,
-                avail >> 20
-            ));
-        }
-        let lock = GpuLock::acquire_queued_at(&serve_lock_path(), LOAD_LOCK_WAIT)?;
-        let t0 = Instant::now();
-        eprintln!(
-            "aien-serve-http: qwen36-batch: uploading {} layers, {slots} rows of {max_pos} positions (model needs {} MiB, MemAvailable {} MiB)",
-            c.layers,
-            need >> 20,
-            avail >> 20
-        );
-        let mut model = Qwen38Omega::open(dir, None, 256)?;
+        let mut t0 = Instant::now();
+        let (lock, mut model) = admit_then_open(
+            || GpuLock::acquire_queued_at(Path::new(GPU_LOCK_PATH), LOAD_LOCK_WAIT),
+            mem_available,
+            need,
+            keep,
+            |avail| {
+                t0 = Instant::now();
+                eprintln!(
+                    "aien-serve-http: qwen36-batch: uploading {} layers, {slots} rows of {max_pos} positions (model needs {} MiB, MemAvailable {} MiB)",
+                    c.layers,
+                    need >> 20,
+                    avail >> 20
+                );
+                Qwen38Omega::open(dir, None, 256)
+            },
+        )?;
         let on_paper = model.row_bytes(max_pos);
         let rows_need = on_paper as u64 * slots as u64;
         let before = mem_available();
@@ -329,7 +442,7 @@ impl Qwen36BatchDoor {
         let mut door = Self::with_stepper(
             model,
             max_context,
-            serve_lock_path(),
+            PathBuf::from(GPU_LOCK_PATH),
             REQUEST_LOCK_WAIT,
             per_beat,
             std::env::var(CHIP_GREEDY_ENV).as_deref() != Ok("0"),
@@ -510,7 +623,7 @@ impl Qwen36BatchDoor {
                 })
                 .collect();
         }
-        let (otx, orx) = mpsc::sync_channel::<(usize, Ev)>(256 * n.max(1));
+        let (otx, orx) = mpsc::sync_channel::<(usize, Ev)>(EVENTS_PER_JOB * n.max(1));
         let cancel: Vec<Arc<AtomicBool>> = jobs
             .iter()
             .map(|j| {
@@ -519,6 +632,8 @@ impl Qwen36BatchDoor {
                     .unwrap_or_else(|| Arc::new(AtomicBool::new(false)))
             })
             .collect();
+        let fell_behind: Vec<Arc<AtomicBool>> =
+            (0..n).map(|_| Arc::new(AtomicBool::new(false))).collect();
         let t_queued = Instant::now();
         let group: Vec<Job> = jobs
             .iter()
@@ -529,6 +644,7 @@ impl Qwen36BatchDoor {
                 out: otx.clone(),
                 tag: i,
                 cancel: Arc::clone(&cancel[i]),
+                fell_behind: Arc::clone(&fell_behind[i]),
                 test: j.test.clone(),
                 t_queued,
             })
@@ -544,50 +660,7 @@ impl Qwen36BatchDoor {
         if let Err(m) = sent {
             return vec![Err(EngineError::Failed(m.into())); n];
         }
-        let mut delivered = vec![0usize; n];
-        let mut cancelled = vec![false; n];
-        let mut left = n;
-        while left > 0 {
-            let Ok((i, ev)) = orx.recv() else {
-                break;
-            };
-            let r = match ev {
-                Ev::Token(t) => {
-                    if !cancelled[i] {
-                        delivered[i] += 1;
-                        if !on_token(i, t) {
-                            cancelled[i] = true;
-                            cancel[i].store(true, Ordering::SeqCst);
-                        }
-                    }
-                    continue;
-                }
-                Ev::Done(mut o) => {
-                    if cancelled[i] {
-                        o.finish = FinishReason::Cancelled;
-                        o.emitted_tokens = delivered[i];
-                    }
-                    Ok(o)
-                }
-                Ev::Busy(m) => Err(EngineError::Busy(m)),
-                Ev::Failed(m) => {
-                    // A group fails whole: the others stop rather than read on for nothing.
-                    for c in &cancel {
-                        c.store(true, Ordering::SeqCst);
-                    }
-                    Err(EngineError::Failed(m))
-                }
-            };
-            if res[i].is_none() {
-                left -= 1;
-            }
-            res[i] = Some(r);
-        }
-        res.into_iter()
-            .map(|r| {
-                r.unwrap_or_else(|| Err(EngineError::Failed("qwen36-batch scheduler gone".into())))
-            })
-            .collect()
+        relay(&orx, &cancel, &fell_behind, on_token)
     }
 }
 
@@ -1009,10 +1082,12 @@ impl<S: RowStep> Scheduler<S> {
         if p.stop_token_ids.contains(&tok) {
             return Some(FinishReason::Stop);
         }
-        a.emitted += 1;
+        // Counted only once delivered: a token dropped for a reader that fell behind never
+        // reached the caller.
         if a.job.send(Ev::Token(tok)).is_err() {
             return Some(FinishReason::Cancelled);
         }
+        a.emitted += 1;
         // The last allowed token is not fed: nothing would read its logits.
         if a.emitted >= p.max_new_tokens || plen + a.emitted >= max_context {
             return Some(FinishReason::Length);
@@ -1044,7 +1119,10 @@ impl<S: RowStep> Scheduler<S> {
         row.last_used = self.beat;
         // The state is unknown after a failed step, and deliberately wrong after a negative
         // control (a mutant, or a traded row): no later request may reuse it, live or copied.
-        if err.is_some() || a.job.test.mutant.is_some_and(|m| m != 0) || a.job.test.row_swap.is_some() {
+        if err.is_some()
+            || a.job.test.mutant.is_some_and(|m| m != 0)
+            || a.job.test.row_swap.is_some()
+        {
             row.history.clear();
             row.snap_tokens.clear();
         }
@@ -1065,12 +1143,3 @@ impl<S: RowStep> Scheduler<S> {
 
 #[cfg(test)]
 mod tests;
-
-/// The chip lock the live server takes per busy spell. `AIEN_SERVE_GPU_LOCK` points it at a private
-/// file so a live server never waits behind test jobs on `/tmp/aien-gb10.lock` (coordinator
-/// 2026-10-21: Drake tests the motor live from Hermes; serving has priority over chip tests).
-fn serve_lock_path() -> PathBuf {
-    std::env::var_os("AIEN_SERVE_GPU_LOCK")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(GPU_LOCK_PATH))
-}

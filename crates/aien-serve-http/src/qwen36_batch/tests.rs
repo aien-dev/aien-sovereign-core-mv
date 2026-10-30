@@ -682,3 +682,208 @@ fn a_group_job_stops_on_the_callers_flag_while_prefilling() {
         assert_eq!(o.emitted_tokens, 0);
     }
 }
+
+/// Records the lock's release, for the load admission order.
+struct Release<'a>(&'a std::cell::RefCell<Vec<&'static str>>);
+
+impl Drop for Release<'_> {
+    fn drop(&mut self) {
+        self.0.borrow_mut().push("release");
+    }
+}
+
+const LOAD_NEED: u64 = 30 << 30;
+const LOAD_KEEP: u64 = 8 << 30;
+
+/// The load reads free memory only once the chip lock is ours (the wait can last up to
+/// `LOAD_LOCK_WAIT`, and free memory on a shared box swings by tens of GiB meanwhile), and
+/// uploads only after that reading admitted it.
+#[test]
+fn load_reads_memory_after_the_lock_and_before_the_upload() {
+    let log = std::cell::RefCell::new(Vec::new());
+    let (lock, avail) = admit_then_open(
+        || {
+            log.borrow_mut().push("lock");
+            Ok(Release(&log))
+        },
+        || {
+            log.borrow_mut().push("memory");
+            LOAD_NEED + LOAD_KEEP
+        },
+        LOAD_NEED,
+        LOAD_KEEP,
+        |avail| {
+            log.borrow_mut().push("open");
+            Ok(avail)
+        },
+    )
+    .expect("exactly need plus keep-free is enough");
+    assert_eq!(avail, LOAD_NEED + LOAD_KEEP);
+    drop(lock);
+    assert_eq!(*log.borrow(), ["lock", "memory", "open", "release"]);
+}
+
+/// 59 GiB free before the wait, 6 GiB after it: the reading after the lock refuses, the lock is
+/// let go and nothing is uploaded.
+#[test]
+fn load_refused_after_the_wait_releases_the_lock_and_uploads_nothing() {
+    let log = std::cell::RefCell::new(Vec::new());
+    let e = admit_then_open(
+        || {
+            log.borrow_mut().push("lock");
+            Ok(Release(&log))
+        },
+        || {
+            log.borrow_mut().push("memory");
+            6 << 30
+        },
+        LOAD_NEED,
+        LOAD_KEEP,
+        |_| -> Result<(), String> {
+            log.borrow_mut().push("open");
+            Ok(())
+        },
+    )
+    .err()
+    .expect("6 GiB is refused");
+    assert!(
+        e.contains("MemAvailable 6144 MiB after taking the GPU lock"),
+        "{e}"
+    );
+    assert_eq!(*log.borrow(), ["lock", "memory", "release"]);
+}
+
+#[test]
+fn load_without_the_lock_reads_no_memory_and_uploads_nothing() {
+    let r: Result<((), ()), String> = admit_then_open(
+        || Err("lock wait timed out".into()),
+        || panic!("memory must not be read without the lock"),
+        LOAD_NEED,
+        LOAD_KEEP,
+        |_| panic!("nothing is uploaded without the lock"),
+    );
+    assert_eq!(r.unwrap_err(), "lock wait timed out");
+}
+
+/// A reader that stops taking its events (its request thread blocked, as a streaming reply's
+/// `blocking_send` blocks when the client stops reading) must not stall the scheduler, which
+/// holds the chip lock: once the reader's event channel is full its row is dropped, the other
+/// conversation finishes exactly as alone, the lock is let go when the spell ends, and the
+/// stalled request ends with an error that says why.
+#[test]
+fn a_reader_that_stops_reading_is_dropped_and_the_others_finish() {
+    use std::os::fd::AsRawFd;
+    let (f, _) = Fake::new(2, None);
+    let lock = lock_file();
+    let d = Arc::new(
+        Qwen36BatchDoor::with_stepper(f, 4096, lock.clone(), Duration::from_secs(5), 1, true)
+            .unwrap(),
+    );
+    let (release, hold) = mpsc::channel::<()>();
+    let stalled = {
+        let d = Arc::clone(&d);
+        std::thread::spawn(move || {
+            let mut first = true;
+            d.generate(&[1, 2, 3], &greedy(2000), &mut |_| {
+                if std::mem::take(&mut first) {
+                    // Stops reading after its first token, until the test lets go.
+                    let _ = hold.recv();
+                }
+                true
+            })
+        })
+    };
+    // The other conversation joins before the stalled reader's channel fills (256 events, some
+    // 80 ms of fake steps) and is long enough to be mid-reply when it does.
+    std::thread::sleep(Duration::from_millis(10));
+    let other: Vec<u32> = (0..6).collect();
+    let (done_tx, done_rx) = mpsc::channel();
+    {
+        let d = Arc::clone(&d);
+        let other = other.clone();
+        std::thread::spawn(move || {
+            let _ = done_tx.send(run(&d, &other, &greedy(1000)).0);
+        });
+    }
+    let got = done_rx
+        .recv_timeout(Duration::from_secs(30))
+        .expect("the other conversation must finish while a reader is stalled");
+    assert_eq!(got, alone(&other, 1000));
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&lock)
+        .unwrap();
+    let t = Instant::now();
+    // SAFETY: flock on a valid descriptor of the test's private lock file.
+    while unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        assert!(
+            t.elapsed() < Duration::from_secs(30),
+            "the scheduler still holds the chip lock"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    drop(file);
+    release.send(()).unwrap();
+    match stalled.join().unwrap() {
+        Err(EngineError::Failed(m)) => assert!(m.contains("fell behind"), "{m}"),
+        r => panic!("the stalled reader's request: {r:?}"),
+    }
+}
+
+/// The interleaving the stall test cannot force: the reader falls behind (an event is dropped and
+/// the scheduler cancels the job), then resumes and drains before the scheduler sends the job's
+/// last event, so `Done` fits. The request must still fail as fallen behind, not report a normal
+/// completion of a truncated reply, and only the delivered tokens reach the caller.
+#[test]
+fn a_reader_that_fell_behind_fails_even_when_its_done_fits() {
+    let (otx, orx) = mpsc::sync_channel::<(usize, Ev)>(2);
+    let cancel = Arc::new(AtomicBool::new(false));
+    let fell = Arc::new(AtomicBool::new(false));
+    let job = Job {
+        prompt: vec![1, 2, 3],
+        params: greedy(10),
+        out: otx,
+        tag: 0,
+        cancel: Arc::clone(&cancel),
+        fell_behind: Arc::clone(&fell),
+        t_queued: Instant::now(),
+        test: TestSwitches::default(),
+    };
+    assert!(job.send(Ev::Token(11)).is_ok());
+    assert!(job.send(Ev::Token(12)).is_ok());
+    assert!(job.send(Ev::Token(13)).is_err(), "the channel is full");
+    assert!(
+        cancel.load(Ordering::SeqCst),
+        "the scheduler cancels the job"
+    );
+    let (drained_tx, drained_rx) = mpsc::channel();
+    let consumer = std::thread::spawn(move || {
+        let mut got = Vec::new();
+        let r = relay(&orx, &[cancel], &[fell], &mut |_, t| {
+            got.push(t);
+            if got.len() == 2 {
+                let _ = drained_tx.send(());
+            }
+            true
+        });
+        (r, got)
+    });
+    // The reader has taken both queued tokens: the job's last event fits now.
+    drained_rx.recv().unwrap();
+    job.send(Ev::Done(GenerateOutcome {
+        emitted_tokens: 3,
+        finish: FinishReason::Cancelled,
+        prefill_ms: 0,
+        decode_ms: 0,
+        sampling: None,
+    }))
+    .expect("Done fits after the drain");
+    drop(job);
+    let (mut r, got) = consumer.join().unwrap();
+    assert_eq!(got, [11, 12]);
+    match r.pop().expect("one outcome") {
+        Err(EngineError::Failed(m)) => assert!(m.contains("fell behind"), "{m}"),
+        other => panic!("a truncated reply reported as {other:?}"),
+    }
+}
