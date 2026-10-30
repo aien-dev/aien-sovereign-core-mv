@@ -40,3 +40,8 @@ dev-fallback = []
 # a real `OmegaEngine` over a host bf16 pool, so other crates can test the persistent KV path
 # without a chip. Dev-dependencies only; never in a server build.
 host-test-engine = []
+
+[dev-dependencies]
+# sc#629: the expert store's random-access reads are checked byte for byte
+# against this crate's resident-loader shard reader (tests only).
+aien-expert-store = { path = "../aien-expert-store" }
