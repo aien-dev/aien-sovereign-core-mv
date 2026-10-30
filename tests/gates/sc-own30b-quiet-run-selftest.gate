@@ -1,0 +1,20 @@
+# tests/gates/sc-own30b-quiet-run-selftest.gate
+# Self-test of the OWN-30B quiet-window runner (#625): fakes only, no GPU, no real quiet flag.
+gate: SC-OWN30B-QUIET-RUN-SELFTEST
+manifest_version: 2
+owner: aien-sovereign-core
+requires:
+  - host
+inputs:
+  - scripts/bench/own30b-quiet-run.sh
+  - scripts/bench/own30b-quiet-run-selftest.sh
+  - tests/gates/
+run:
+  exec: tests/gates/run.sh
+  args: ["own30b-quiet-run-selftest"]
+expects:
+  exit: 0
+  verdict: PASS
+timeout: 5m
+exactness: EXACT
+cache_scope: machine

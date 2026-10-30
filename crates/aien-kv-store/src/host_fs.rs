@@ -2122,8 +2122,10 @@ fn execute_store_job(shared: &Shared, job_id: u64) {
         )
     };
 
-    // SEAL SEAM (#506): encrypt the payload in place and fill the seal slot,
-    // off the lock. Nothing reaches the filesystem unsealed.
+    // SEAL SEAM (#506, #708): encrypt the payload in place and fill the seal
+    // slot, off the lock. `SealError::Random` leaves `file_bytes` plaintext,
+    // so the error return below is what keeps that buffer off disk. There is
+    // no fallback nonce.
     if shared.seal_key.seal_file(&mut file_bytes).is_err() {
         let garbage = {
             let mut g = shared.inner.lock().unwrap_or_else(|e| e.into_inner());
