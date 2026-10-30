@@ -352,11 +352,15 @@ fn mkdir_at(dirfd: libc::c_int, name: &OsStr) -> std::io::Result<()> {
 /// Stop a single file from being pulled into the grep pipe without a bound.
 const READ_LIMIT: u64 = 8 * 1024 * 1024;
 
+/// Read at most `READ_LIMIT + 1` bytes. One byte past the limit refuses the
+/// file; the rest is not read.
 fn read_all(file: &mut File) -> Result<Vec<u8>, BindError> {
     file.seek(SeekFrom::Start(0))
         .map_err(|e| BindError::Failed(e.to_string()))?;
     let mut buf = Vec::new();
-    file.read_to_end(&mut buf)
+    Read::by_ref(file)
+        .take(READ_LIMIT + 1)
+        .read_to_end(&mut buf)
         .map_err(|e| BindError::Failed(e.to_string()))?;
     if buf.len() as u64 > READ_LIMIT {
         return Err(BindError::Denied(
@@ -1182,6 +1186,31 @@ mod tests {
     use std::os::unix::fs::symlink;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn read_all_accepts_the_limit_and_stops_one_past_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let exact_path = dir.path().join("exact");
+        let over_path = dir.path().join("over");
+        let extra = 8192u64;
+        std::fs::write(&exact_path, vec![b'a'; READ_LIMIT as usize]).unwrap();
+        std::fs::write(&over_path, vec![b'b'; (READ_LIMIT + extra) as usize]).unwrap();
+
+        let mut exact = File::open(&exact_path).unwrap();
+        let got = read_all(&mut exact).unwrap();
+        assert_eq!(got.len() as u64, READ_LIMIT);
+        assert!(got.iter().all(|b| *b == b'a'));
+        assert_eq!(exact.stream_position().unwrap(), READ_LIMIT);
+
+        let mut over = File::open(&over_path).unwrap();
+        match read_all(&mut over) {
+            Err(BindError::Denied(msg)) => {
+                assert!(msg.contains("read limit"), "{msg}");
+            }
+            other => panic!("expected a read-limit denial, got {other:?}"),
+        }
+        assert_eq!(over.stream_position().unwrap(), READ_LIMIT + 1);
+    }
 
     const INSIDE: &str = "INSIDE_MARKER";
     const OTHER: &str = "OTHER_MARKER";

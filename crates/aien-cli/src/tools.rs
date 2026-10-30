@@ -523,7 +523,7 @@ fn exec_view_file(path: &str, start_line: usize, end_line: usize) -> (Value, boo
         Err(err) => return bind_err(err),
     };
     let p = authorized.as_path();
-    // Sniff directory breadcrumbs on the authorized file, after the read.
+    // Pathname crumb I/O after the bind. Out of scope (issue 819): see `exec_crumb_tool`.
     let crumb_notice = sniff_dir_crumb(p, "AIEN");
 
     // Record view in directory crumb
@@ -687,6 +687,7 @@ fn exec_write_file(
         Err(err) => return bind_err(err),
     };
     let p = held.authorized();
+    // Pathname crumb I/O after the bind. Out of scope (issue 819): see `exec_crumb_tool`.
     if created_parent {
         if let Some(parent) = p.parent() {
             let file_name = p
@@ -745,6 +746,7 @@ fn exec_replace_file(
         Err(err) => return (json!({"error": err}), false),
     };
     let p = held.authorized();
+    // Pathname crumb I/O after the bind. Out of scope (issue 819): see `exec_crumb_tool`.
     let crumb_notice = sniff_dir_crumb(p, "AIEN");
     if !content.contains(target) {
         return (json!({"error": "target string not found in file"}), false);
@@ -777,6 +779,7 @@ fn exec_list_dir(path: &str) -> (Value, bool) {
         Ok(v) => v,
         Err(err) => return bind_err(err),
     };
+    // Pathname crumb I/O after the bind. Out of scope (issue 819): see `exec_crumb_tool`.
     let crumb_overview = format_dir_crumb_tui(&authorized);
     let list: Vec<Value> = entries
         .into_iter()
@@ -815,6 +818,18 @@ fn exec_grep_search(query: &str, path: &str) -> (Value, bool) {
     }
 }
 
+/// Directory crumb actions.
+///
+/// `init` calls `create_dir_all` on the caller path with no allow-list check.
+/// Survey, whisper, and record then read and write `.crumb` and
+/// `.crumb.local` by pathname. View, write, replace, list, and create_dir
+/// do the same crumb I/O after the target bind.
+///
+/// Out of scope (issue 819). Those names need their own opens from the held
+/// workspace directory, and `fs_bind` is not extended here while its path
+/// handling is under review. `make_dir` already exists, but crumb init would
+/// still write `.crumb` by pathname afterwards, so replacing only
+/// `create_dir_all` would leave the gap.
 fn exec_crumb_tool(args: &Value) -> (Value, bool) {
     let action = args
         .get("action")
@@ -856,6 +871,7 @@ fn exec_crumb_tool(args: &Value) -> (Value, bool) {
             } else {
                 p.parent().unwrap_or(p)
             };
+            // Pathname create, no allow-list. Out of scope with this tool (issue 819).
             let _ = fs::create_dir_all(p_dir);
             let purpose_obj = CrumbPurpose {
                 statement: purpose_str.to_string(),
@@ -904,6 +920,7 @@ fn exec_create_dir(path: &str, purpose: &str, lifecycle: Option<&str>) -> (Value
     };
     let p = authorized.as_path();
 
+    // Pathname crumb I/O after the bind. Out of scope (issue 819): see `exec_crumb_tool`.
     let purpose_obj = CrumbPurpose {
         statement: purpose.to_string(),
         created_by: "AIEN".to_string(),
