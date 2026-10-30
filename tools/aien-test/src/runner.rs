@@ -1058,6 +1058,10 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
             "bound_ms": opts.gpu.wait.bound_ms(),
             "waited_ms": attempt.waited.as_millis() as u64,
             "acquired": attempt.result.is_ok(),
+            // The memory check (gpu_mem): what the gate needed and what was free
+            // once it held the locks (null when not checked or refused first).
+            "mem_need_mb": attempt.mem_need_mb,
+            "mem_free_mb": attempt.mem_free_mb,
         });
         match attempt.result {
             Ok(g) => Some(g),
@@ -2149,6 +2153,8 @@ mod tests {
         opts.gpu.proof_lock_path = None;
         opts.gpu.quiet_flag = scratch.quiet_flag;
         opts.gpu.proc_dir = scratch.proc_dir;
+        // The memory check has its own tests below; this one is about the lock wait.
+        opts.gpu.mem_need_mb = 0;
         let held = acquire_gpu(&GpuConfig::rooted_at(fx.scratch.path())).unwrap();
         let holder = std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(1500));
@@ -2216,6 +2222,87 @@ mod tests {
         opts.gpu.wait = GpuWait::Bounded(Duration::from_secs(20));
         let o = run(&fx, &opts);
         assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
+    }
+
+    /// A gb10 gate whose memory reading is short is NOT_RUN `gpu_mem` with the
+    /// numbers in the receipt, and its job never starts (retryable, nothing judged).
+    #[test]
+    fn gb10_gate_short_of_memory_is_not_run_gpu_mem_and_does_not_start() {
+        let fx = gb10_fixture(TOUCH_MARKER, "20s");
+        let mut opts = gb10_opts(&fx);
+        write_file(
+            fx.scratch.path(),
+            "meminfo",
+            "MemAvailable:   40960 kB\n",
+            false,
+        );
+        opts.gpu.meminfo = fx.scratch.path().join("meminfo");
+        opts.gpu.mem_need_mb = 100;
+        opts.gpu.mem_wait = Duration::from_millis(300);
+        let o = run(&fx, &opts);
+        assert_eq!(
+            (o.verdict, o.reason.as_str()),
+            (Verdict::NotRun, "gpu_mem"),
+            "{}",
+            o.reason
+        );
+        assert!(!fx.marker().exists(), "a memory-short job must not run");
+        let r = read_json(&o.receipt_path.unwrap());
+        assert_eq!(r["core"]["reason"], "gpu_mem");
+        let w = &r["volatile"]["gpu_wait"];
+        assert_eq!(w["acquired"], false);
+        assert_eq!(w["mem_free_mb"], 40);
+        assert_eq!(w["mem_need_mb"], 100);
+        // The locks went back: the same gate with enough memory runs.
+        write_file(
+            fx.scratch.path(),
+            "meminfo",
+            "MemAvailable:   204800 kB\n",
+            false,
+        );
+        let o = run(&fx, &opts);
+        assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
+        assert!(fx.marker().exists());
+    }
+
+    #[test]
+    fn gb10_gate_with_enough_memory_runs_and_records_the_reading() {
+        let fx = gb10_fixture(TOUCH_MARKER, "20s");
+        let mut opts = gb10_opts(&fx);
+        write_file(
+            fx.scratch.path(),
+            "meminfo",
+            "MemAvailable:   204800 kB\n",
+            false,
+        );
+        opts.gpu.meminfo = fx.scratch.path().join("meminfo");
+        opts.gpu.mem_need_mb = 100;
+        let o = run(&fx, &opts);
+        assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
+        assert!(fx.marker().exists());
+        let r = read_json(&o.receipt_path.unwrap());
+        let w = &r["volatile"]["gpu_wait"];
+        assert_eq!(w["acquired"], true);
+        assert_eq!(w["mem_free_mb"], 200);
+    }
+
+    /// A gate that starts with enough memory and then fails is a real FAIL,
+    /// never NOT_RUN: the memory check only decides whether the job starts.
+    #[test]
+    fn gb10_gate_that_fails_after_it_starts_stays_fail() {
+        let fx = gb10_fixture("#!/bin/sh\nexit 1\n", "20s");
+        let mut opts = gb10_opts(&fx);
+        write_file(
+            fx.scratch.path(),
+            "meminfo",
+            "MemAvailable:   204800 kB\n",
+            false,
+        );
+        opts.gpu.meminfo = fx.scratch.path().join("meminfo");
+        opts.gpu.mem_need_mb = 100;
+        let o = run(&fx, &opts);
+        assert_eq!(o.verdict, Verdict::Fail, "reason {}", o.reason);
+        assert_ne!(o.reason, "gpu_mem");
     }
 
     #[test]
