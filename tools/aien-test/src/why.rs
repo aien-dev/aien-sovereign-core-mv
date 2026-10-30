@@ -149,6 +149,10 @@ fn receipt_facts(r: &Stored) -> Vec<String> {
                 }
             }
             "timeout" => facts.push("the run hit its time limit and was stopped".to_string()),
+            "prepare_failed" => facts.push(
+                "the prepare step (the build before the run) failed, so the gate never ran"
+                    .to_string(),
+            ),
             _ => {}
         }
         if let Some(f) = failing_rule_fact(r) {
