@@ -1,0 +1,33 @@
+omc d6290c7663c2b4bafb59eb3fdf812476e977f4c144def71095c6248ef9b96b84
+src f47d8c6374f5e8a49068cc5372e97582e3eb81e87c5e53a661ea62ebb4279713 om/tur-ledger/tur-ledger.om
+sha 4f88dad60464eacd1655ba980f66b74000c6966ec0becbb80346ac1898e87a76 om/vendor/sha256.om
+ec 909f37c797e187bd0663bde9f57c75d6ce41eb2c9726a6b50d6fc714e424c060 omega-mv@6999fa9e6dae4847c155ef4eacaece74f491d3ca
+gate 74afc74427421f13da849ee9983748ea2ec0c95ab6a03e131eb4f29929e82f4f
+OpenSSL 3.0.13 30 Jan 2024 (Library: OpenSSL 3.0.13 30 Jan 2024)
+PASS capacity.prefund
+PASS capacity.reserve-settle
+PASS capacity.reserve-refund
+PASS capacity.fill-p2
+FAIL capacity.fill-p3: exit 14 out '' err 'refused 14 capacity', wanted exit 0 out 'prefunded p3 req 1'
+FAIL capacity.fill-p4: exit 14 out '' err 'refused 14 capacity', wanted exit 0 out 'prefunded p4 req 1'
+FAIL capacity.fill-p5: exit 14 out '' err 'refused 14 capacity', wanted exit 0 out 'prefunded p5 req 1'
+PASS capacity.new-prefund-refused (exit 14, unchanged journal)
+PASS capacity.new-reserve-refused (exit 14, unchanged journal)
+FAIL capacity.settle: exit 14 out '' err 'refused 14 capacity', wanted exit 0 out 'settled 7777777777777777777777777777777777777777777777777777777777777777 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 27 3 10'
+FAIL capacity.refund: exit 14 out '' err 'refused 14 capacity', wanted exit 0 out 'refunded 8888888888888888888888888888888888888888888888888888888888888888'
+FAIL capacity.settle-repeat: exit 14 expected 0, before '581bde5f2d0024ead1602da9559498467bf9e8574b321e1d436ce43dd0d720e1  /tmp/tmp.wFm1CtSkxJ/capacity/journal' after '581bde5f2d0024ead1602da9559498467bf9e8574b321e1d436ce43dd0d720e1  /tmp/tmp.wFm1CtSkxJ/capacity/journal'
+FAIL capacity.refund-repeat: exit 14 expected 0, before '581bde5f2d0024ead1602da9559498467bf9e8574b321e1d436ce43dd0d720e1  /tmp/tmp.wFm1CtSkxJ/capacity/journal' after '581bde5f2d0024ead1602da9559498467bf9e8574b321e1d436ce43dd0d720e1  /tmp/tmp.wFm1CtSkxJ/capacity/journal'
+FAIL capacity.provider: exit 0 out 'balance prov 0' err '', wanted exit 0 out 'balance prov 27'
+FAIL capacity.verifier: exit 0 out 'balance ver 0' err '', wanted exit 0 out 'balance ver 3'
+FAIL capacity.audit-closed: exit 0 out 'audit ok records 5 head 3594a618908392b408a08a7257294f25712fc1f5191f1e357b7cc8cb6b989cd2 accounts 3 jobs 2 open 2 settled 0 refunded 0 prefunded 101 balances 21 escrow 80'
+PASS capacity.partial-prefund
+PASS capacity.partial-fill-p2
+PASS capacity.partial-fill-p3
+PASS capacity.partial-fill-p4
+PASS capacity.partial-fill-p5
+PASS capacity.partial-fill-p6
+FAIL capacity.partial-fill-p7: exit 14 out '' err 'refused 14 capacity', wanted exit 0 out 'prefunded p7 req 1'
+FAIL capacity.partial-fill-p8: exit 14 out '' err 'refused 14 capacity', wanted exit 0 out 'prefunded p8 req 1'
+PASS capacity.partial-reserve-refused (exit 14, unchanged journal)
+FAIL capacity.last-slot-prefund: exit 14 out '' err 'refused 14 capacity', wanted exit 0 out 'prefunded p9 req 1'
+PASS capacity.partial-full-prefund-refused (exit 14, unchanged journal)
