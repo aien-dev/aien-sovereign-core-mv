@@ -23,6 +23,7 @@ members = [
     "crates/aien-inference-abi",
     "crates/aien-kv-cache",
     "crates/aien-kv-store",
+    "crates/aien-expert-store",
     "crates/aien-scheduler",
     "crates/aien-security",
     "crates/aien-platform",
