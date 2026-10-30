@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Encryption at rest of host record files (ADR 0003 section 20, #506).
 //!
 //! A sealed object is the same `header region (4096 B) || payload` file as
@@ -25,6 +40,43 @@
 //! on drop, and never printed: `Debug` is redacted and refusals carry no key
 //! text. Key rotation: objects sealed under an old key fail to open and are
 //! discarded like any other refused object.
+//!
+//! # Nonce source (#708)
+//!
+//! Production [`SealKey::seal_file`] fills the 96-bit nonce from
+//! [`ring::rand::SystemRandom`] and from no other source. A failed fill
+//! returns [`SealError::Random`] and leaves the caller's buffer unchanged.
+//! There is no environment variable, no config field, and no fallback nonce.
+//!
+//! Crate unit tests may attach a source with `with_nonce_source`. That method
+//! exists only when the crate is built for its own unit tests (`cfg(test)`).
+//! Integration tests and production builds do not compile it.
+//!
+//! # Usage budget (documented, not enforced)
+//!
+//! Nonces are independent uniform 96-bit draws. For `q` draws under one key
+//! the probability of a collision is at most `q(q-1)/2^97` (NIST SP 800-38D,
+//! section 8.3). The count is every seal that used the key: all processes,
+//! restarts and hosts. A finite sample of distinct nonces is not a uniqueness
+//! proof.
+//!
+//! [`RECOMMENDED_SEALS_PER_KEY`] is `2^20`. The bound at that count is
+//! `2^-57`. [`NIST_SP800_38D_RANDOM_NONCE_LIMIT`] is `2^32` (bound about
+//! `2^-33`). `seal_file` has no seal counter and still returns `Ok` past both
+//! numbers. Rotation discards objects sealed under the previous key. This
+//! crate does not migrate them.
+//!
+//! `Nonce::assume_unique_for_key` is the caller's obligation. It does not
+//! search for an earlier nonce, and neither does this module. A repeat under
+//! one key makes the CTR keystream reusable: the XOR of the two ciphertexts
+//! equals the XOR of the two plaintexts. Each tag still authenticates its own
+//! file.
+//!
+//! The nonce that was used is stored in the seal slot. Process exit does not
+//! rewind the kernel CSPRNG, and copying the store directory back into place
+//! does not rewind it either. A restored file opens because its nonce is in
+//! the file. A snapshot of a running VM can include kernel entropy; this
+//! crate does not detect that case and does not reseed.
 
 use crate::record::{HEADER_REGION_LEN, SEAL_SLOT_OFFSET};
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -40,6 +92,13 @@ pub const SEAL_MAGIC: [u8; 3] = *b"AKS";
 pub const SEALED_FORMAT_VERSION: u8 = 2;
 pub const NONCE_LEN: usize = 12;
 pub const TAG_LEN: usize = 16;
+/// Operator rekey budget: seals under one key before rotating
+/// `AIEN_KV_STORE_KEY`. [`SealKey::seal_file`] does not enforce this.
+/// At this count the NIST SP 800-38D collision bound is `2^-57`.
+pub const RECOMMENDED_SEALS_PER_KEY: u64 = 1 << 20;
+/// NIST SP 800-38D guidance for random 96-bit nonces: stay below this many
+/// invocations per key. [`SealKey::seal_file`] does not enforce this.
+pub const NIST_SP800_38D_RANDOM_NONCE_LIMIT: u64 = 1 << 32;
 const O_MAGIC: usize = SEAL_SLOT_OFFSET;
 const O_VERSION: usize = SEAL_SLOT_OFFSET + 3;
 const O_NONCE: usize = SEAL_SLOT_OFFSET + 4;
@@ -47,6 +106,27 @@ const O_TAG: usize = O_NONCE + NONCE_LEN;
 /// Region bytes bound as associated data: everything before the nonce.
 pub const AAD_LEN: usize = O_NONCE;
 const _: () = assert!(O_TAG + TAG_LEN == HEADER_REGION_LEN);
+
+/// Fills the 96-bit nonce for one seal.
+///
+/// [`OsNonceSource`] is the production implementation. A failed fill is
+/// [`SealError::Random`]. Callers must not replace a failure with a fixed
+/// nonce.
+pub(crate) trait NonceSource {
+    fn fill_nonce(&self, out: &mut [u8; NONCE_LEN]) -> Result<(), SealError>;
+}
+
+struct OsNonceSource;
+
+impl NonceSource for OsNonceSource {
+    fn fill_nonce(&self, out: &mut [u8; NONCE_LEN]) -> Result<(), SealError> {
+        SystemRandom::new()
+            .fill(&mut out[..])
+            .map_err(|_| SealError::Random)
+    }
+}
+
+static OS_NONCE: OsNonceSource = OsNonceSource;
 
 /// Why no key could be loaded. Carries no key text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,6 +177,10 @@ pub enum SealError {
 /// The store key. Zeroed on drop; never printed.
 pub struct SealKey {
     bytes: Zeroizing<[u8; KEY_LEN]>,
+    /// Unit-test override. Absent from non-test builds. `None` selects
+    /// [`OsNonceSource`].
+    #[cfg(test)]
+    nonce_source: Option<std::sync::Arc<dyn NonceSource + Send + Sync>>,
 }
 
 fn hex_val(c: u8) -> Option<u8> {
@@ -109,23 +193,41 @@ fn hex_val(c: u8) -> Option<u8> {
 }
 
 impl SealKey {
+    fn from_parts(bytes: Zeroizing<[u8; KEY_LEN]>) -> Self {
+        Self {
+            bytes,
+            #[cfg(test)]
+            nonce_source: None,
+        }
+    }
+
     pub fn from_bytes(bytes: [u8; KEY_LEN]) -> Self {
         let mut b = bytes;
-        let key = Self {
-            bytes: Zeroizing::new(b),
-        };
+        let key = Self::from_parts(Zeroizing::new(b));
         b.zeroize();
         key
     }
 
-    /// A fresh random key (tests, benchmarks).
+    /// Attach a nonce source. Compiled only for this crate's unit tests.
+    /// Production `seal_file` has no equivalent and reads no nonce setting.
+    #[cfg(test)]
+    pub(crate) fn with_nonce_source(
+        mut self,
+        source: std::sync::Arc<dyn NonceSource + Send + Sync>,
+    ) -> Self {
+        self.nonce_source = Some(source);
+        self
+    }
+
+    /// A fresh random key (tests, benchmarks). The key bytes come from the OS
+    /// source. This is separate from the per-file nonce.
     pub fn generate() -> Result<Self, SealError> {
-        let mut key = Self {
-            bytes: Zeroizing::new([0u8; KEY_LEN]),
-        };
+        let mut raw = [0u8; KEY_LEN];
         SystemRandom::new()
-            .fill(&mut key.bytes[..])
+            .fill(&mut raw)
             .map_err(|_| SealError::Random)?;
+        let key = Self::from_bytes(raw);
+        raw.zeroize();
         Ok(key)
     }
 
@@ -136,15 +238,18 @@ impl SealKey {
         if h.len() != 2 * KEY_LEN {
             return Err(KeyRefusal::Malformed);
         }
-        let mut key = Self {
-            bytes: Zeroizing::new([0u8; KEY_LEN]),
-        };
+        let mut raw = [0u8; KEY_LEN];
         for (i, [hi, lo]) in h.as_chunks::<2>().0.iter().enumerate() {
             match (hex_val(*hi), hex_val(*lo)) {
-                (Some(a), Some(b)) => key.bytes[i] = (a << 4) | b,
-                _ => return Err(KeyRefusal::Malformed),
+                (Some(a), Some(b)) => raw[i] = (a << 4) | b,
+                _ => {
+                    raw.zeroize();
+                    return Err(KeyRefusal::Malformed);
+                }
             }
         }
+        let key = Self::from_bytes(raw);
+        raw.zeroize();
         Ok(key)
     }
 
@@ -177,10 +282,11 @@ impl SealKey {
 
     /// Seal `file` = `region || payload` in place: writes the seal slot (magic,
     /// version, fresh nonce, tag) and encrypts the payload. The file length is
-    /// unchanged.
+    /// unchanged. On [`SealError::Random`] the buffer is left as the caller
+    /// passed it.
     pub fn seal_file(&self, file: &mut [u8]) -> Result<(), SealError> {
         let t0 = std::time::Instant::now();
-        let got = self.seal_inner(file);
+        let got = self.seal_inner(self.active_source(), file);
         note_timing(
             &SEAL_TIMING,
             file.len().saturating_sub(HEADER_REGION_LEN),
@@ -189,17 +295,26 @@ impl SealKey {
         got
     }
 
-    fn seal_inner(&self, file: &mut [u8]) -> Result<(), SealError> {
+    fn active_source(&self) -> &dyn NonceSource {
+        #[cfg(test)]
+        if let Some(source) = self.nonce_source.as_deref() {
+            return source;
+        }
+        &OS_NONCE
+    }
+
+    fn seal_inner(&self, source: &dyn NonceSource, file: &mut [u8]) -> Result<(), SealError> {
         if file.len() < HEADER_REGION_LEN {
             return Err(SealError::Short);
         }
+        // Draw before any write. A failed source must not mark the buffer as
+        // sealed and must not encrypt, or a caller that ignored the error
+        // could publish plaintext under the seal magic.
+        let mut nonce = [0u8; NONCE_LEN];
+        source.fill_nonce(&mut nonce)?;
         let (region, payload) = file.split_at_mut(HEADER_REGION_LEN);
         region[O_MAGIC..O_MAGIC + 3].copy_from_slice(&SEAL_MAGIC);
         region[O_VERSION] = SEALED_FORMAT_VERSION;
-        let mut nonce = [0u8; NONCE_LEN];
-        SystemRandom::new()
-            .fill(&mut nonce)
-            .map_err(|_| SealError::Random)?;
         region[O_NONCE..O_TAG].copy_from_slice(&nonce);
         let tag = self
             .aead()

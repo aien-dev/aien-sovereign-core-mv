@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # ALLEN end-to-end demo driver (docs/campaigns/allen-e2e/DEMO-v1.md and DEMO-v2.md, arch#162).
 # DEMO_VERSION=v1 (default), v2, v3 or v4-gb10 selects the predeclared spec; v2 differs only by its three named changes,
 # v3 is v2 unchanged; v4-gb10 is v2 with M-A = Qwen3-4B on the GB10 (sealed sc#277 candidate binary) and M-B = SmolLM2 on CPU

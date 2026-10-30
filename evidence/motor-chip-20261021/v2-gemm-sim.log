@@ -1,0 +1,42 @@
+# gpu_fp8gemm_test --host-only --sim, omega motor/serve after step 1 (lib 471be95e), 2026-10-21T04:40:37Z
+host-only: emulation, permutation, budgets
+emulation vs oracle: worst relative error 2.00e-08 of the term scale
+codegen k 2048 lane 16 mt  8 warps 16: 801 instructions, 107 registers (declared 112, register file 57344 of 65536), shared 16384 B
+codegen k 4096 lane 16 mt  8 warps 16: 801 instructions, 107 registers (declared 112, register file 57344 of 65536), shared 16384 B
+codegen k 1024 lane 16 mt  8 warps 16: 792 instructions, 104 registers (declared 112, register file 57344 of 65536), shared 16384 B
+codegen k  768 lane  8 mt  8 warps 16: 687 instructions, 103 registers (declared 104, register file 53248 of 65536), shared 8192 B
+codegen k  768 lane  8 mt  8 warps  8: 735 instructions, 103 registers (declared 104, register file 26624 of 65536), shared 8192 B
+codegen k 2048 lane  8 mt  8 warps 16: 545 instructions, 103 registers (declared 104, register file 53248 of 65536), shared 8192 B
+codegen k 2048 lane 16 mt  4 warps 16: 513 instructions, 99 registers (declared 104, register file 53248 of 65536), shared 8192 B
+codegen k 2048 lane 16 mt  8 warps 32: 769 instructions, 107 registers (declared 112, register file 114688 of 65536) DOES NOT FIT, shared 16384 B
+codegen k 2048 lane 16 mt  8 warps  8: 865 instructions, 107 registers (declared 112, register file 28672 of 65536), shared 16384 B
+codegen k 2048 lane 16 mt  4 warps  8: 545 instructions, 99 registers (declared 104, register file 26624 of 65536), shared 8192 B
+codegen k 4096 lane 16 mt  4 warps  8: 545 instructions, 99 registers (declared 104, register file 26624 of 65536), shared 8192 B
+codegen k 2048 lane 16 mt  4 warps 16 rowmap: 553 instructions, 113 registers (declared 120, register file 61440 of 65536)
+codegen k 4096 lane 16 mt  4 warps 16 rowmap: 553 instructions, 113 registers (declared 120, register file 61440 of 65536)
+codegen k  512 lane 16 mt  4 warps 16 rowmap: 369 instructions, 96 registers (declared 104, register file 53248 of 65536)
+codegen k  768 lane  8 mt  4 warps 16 rowmap: 467 instructions, 101 registers (declared 104, register file 53248 of 65536)
+gpu_fp8gemm_test: 59 checks, 0 failed: PASS
+sim k 2048 n 40 lane 16 mt 8 warps 16 grid 2: ok 0 of 600 outputs differ from the emulation (bit-identical)
+sim k 4096 n 20 lane 16 mt 8 warps 16 grid 1: ok 0 of 220 outputs differ from the emulation (bit-identical)
+sim k 1024 n 33 lane 16 mt 8 warps 16 grid 2: ok 0 of 99 outputs differ from the emulation (bit-identical)
+sim k 768 n 130 lane 8 mt 8 warps 16 grid 2: ok 0 of 2730 outputs differ from the emulation (bit-identical)
+sim k 768 n 24 lane 8 mt 8 warps 8 grid 1: ok 0 of 264 outputs differ from the emulation (bit-identical)
+sim k 2048 n 16 lane 16 mt 4 warps 16 grid 1: ok 0 of 160 outputs differ from the emulation (bit-identical)
+sim mutant 1: caught 600 of 600 outputs differ from the emulation
+sim mutant 2: caught 600 of 600 outputs differ from the emulation
+sim mutant 3: caught 600 of 600 outputs differ from the emulation
+sim empty segment, mutant 4 (guard dropped): caught order 0: MEM at pc 68: global access outside the declared buffers (pc 68)
+sim k 2048 empty segment at index 0: ok 0 of 600 outputs differ from the emulation (bit-identical)
+sim k 2048 empty segment at index 1: ok 0 of 600 outputs differ from the emulation (bit-identical)
+sim k 2048 empty segment at index 3: ok 0 of 600 outputs differ from the emulation (bit-identical)
+sim rowmap k 2048 n 40 mt 4 warps 16: ok 0 of 600 outputs differ from the emulation (bit-identical), rows moved by YMAP
+sim rowmap k 4096 n 20 mt 4 warps 16 + empty segment: ok 0 of 220 outputs differ from the emulation (bit-identical), rows moved by YMAP
+sim rowmap k 512 n 40 mt 4 warps 16: ok 0 of 600 outputs differ from the emulation (bit-identical), rows moved by YMAP
+sim rowmap k 768 n 24 mt 4 warps 8: ok 0 of 264 outputs differ from the emulation (bit-identical), rows moved by YMAP
+sim rowmap k 2048 n 16 mt 4 warps 16: ok 0 of 160 outputs differ from the emulation (bit-identical), rows moved by YMAP
+sim rowmap mutant 1: caught 600 of 600 outputs differ from the emulation, rows moved by YMAP
+sim rowmap mutant 2: caught 600 of 600 outputs differ from the emulation, rows moved by YMAP
+sim rowmap mutant 3: caught 600 of 600 outputs differ from the emulation, rows moved by YMAP
+sim: 7687894 warp issues in total
+gpu_fp8gemm_test: 21 checks, 0 failed: PASS

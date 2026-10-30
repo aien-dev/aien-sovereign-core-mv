@@ -1,4 +1,5 @@
 # tests/gates/sc-zero-disk-plaintext.gate (file name avoids "secret": scripts/agent-preflight.sh flags any *secret* file within depth 3)
+# target_lock: none because aien-audit-inputs traced no cargo or rustc in this gate (L335, 2026-10-21).
 # Mirrors hosted: ci.yml verify 'Enforce Zero Disk Secrets Invariant' (always-run)
 gate: SC-ZERO-DISK-SECRETS
 manifest_version: 2
@@ -17,3 +18,4 @@ expects:
 timeout: 2m
 exactness: EXACT
 cache_scope: portable
+target_lock: none

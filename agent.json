@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "High-performance native agent runtime, ultra-low-latency Axum web gateway, and the AIEN native inference runtime for NVIDIA DGX Spark GB10",
   "repository": "https://github.com/aien-dev/aien-sovereign-core",
-  "license": "Sovereign-Defense-Covenant-1.0.0",
+  "license": "Apache-2.0",
   "architecture": [
     "x86_64",
     "aarch64-grace-blackwell"
@@ -19,7 +19,7 @@
     "preflight": "bash scripts/agent-preflight.sh"
   },
   "forge": {
-    "hub_url": "http://192.168.1.108:18095",
+    "hub_url_env": "AIEN_HUB_URL",
     "tasks_endpoint": "/api/hive/forge/tasks",
     "claim_endpoint": "/api/hive/forge/claim",
     "submit_endpoint": "/api/hive/forge/submit",

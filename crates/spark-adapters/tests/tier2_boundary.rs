@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use std::path::PathBuf;
 
 fn workspace_root() -> PathBuf {
@@ -80,17 +95,17 @@ fn test_t2_f06_sanitizer_empty_prompt() {
 
 #[test]
 fn test_t2_f07_sanitizer_prompt_only_paths() {
-    let input = "/home/drakestapleton/dir/file.rs";
+    let input = "/home/alice/dir/file.rs";
     let output = sanitize_outbound_prompt(input);
     assert_eq!(output, "<WORKSPACE_PATH>");
 }
 
 #[test]
 fn test_t2_f08_sanitizer_prompt_only_ips() {
-    let input = "127.0.0.1 192.168.1.1 10.0.0.1";
+    let input = "127.0.0.1 192.168.0.1 10.0.0.1";
     let output = sanitize_outbound_prompt(input);
     assert!(!output.contains("127.0.0.1"));
-    assert!(!output.contains("192.168.1.1"));
+    assert!(!output.contains("192.168.0.1"));
     assert!(!output.contains("10.0.0.1"));
     assert!(output.contains("<LOCAL_HOST>"));
 }
@@ -106,9 +121,9 @@ fn test_t2_f09_sanitizer_multiple_mixed_secrets() {
 
 #[test]
 fn test_t2_f10_sanitizer_system_prompt_scrubbing() {
-    let sys = "You are running on /home/drakestapleton for aien@aienos.com";
+    let sys = "You are running on /home/alice for aien@aienos.com";
     let cleaned = sanitize_outbound_prompt(sys);
-    assert!(!cleaned.contains("/home/drakestapleton"));
+    assert!(!cleaned.contains("/home/alice"));
     assert!(!cleaned.contains("aien@aienos.com"));
 }
 
@@ -890,11 +905,11 @@ fn test_t2_f63_git_covenant_is_nonbinding_values_statement() {
 }
 
 #[test]
-fn test_t2_f64_git_readme_contains_agpl_badge() {
+fn test_t2_f64_git_readme_contains_apache_badge() {
     let readme_path = workspace_root().join("README.md");
     let content = fs::read_to_string(readme_path).expect("read README");
-    assert!(content.contains("AGPL--3.0") || content.contains("AGPL-3.0"));
-    assert!(!content.contains("Apache--2.0"));
+    assert!(content.contains("License-Apache--2.0"));
+    assert!(!content.contains("AGPL--3.0") && !content.contains("AGPL-3.0"));
 }
 
 #[test]

@@ -23,6 +23,8 @@ members = [
     "crates/aien-inference-abi",
     "crates/aien-kv-cache",
     "crates/aien-kv-store",
+    "crates/aien-expert-residency",
+    "crates/aien-expert-store",
     "crates/aien-scheduler",
     "crates/aien-security",
     "crates/aien-platform",
@@ -37,6 +39,7 @@ members = [
     "crates/aien-omega-moe",
     "crates/aien-omega-fp8",
     "crates/aien-omega-dattn",
+    "crates/aien-omega-q38",
     "crates/aien-omega-router",
     "crates/aien-omega-bf16",
     "crates/aien-omega-dgraph",
@@ -58,12 +61,13 @@ members = [
     "crates/aien-kv-bench",
     "crates/aien-omegese-constraint",
     "crates/aien-localhttp",
+    "crates/aien-heartbeat",
 ]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-license = "AGPL-3.0-or-later"
+license = "Apache-2.0"
 authors = ["Drake Stapleton <aien@aienos.com>"]
 repository = "https://github.com/aien-spark/aien-sovereign-core"
 

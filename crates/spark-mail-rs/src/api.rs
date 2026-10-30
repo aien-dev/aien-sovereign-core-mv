@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use crate::cortex_sync::CortexSync;
 use crate::models::{EmailMessage, MailboxStatus, SendEmailRequest};
 use crate::relay::MailRelay;
@@ -206,19 +221,19 @@ async fn handle_ingest_test(
         to: vec![state.operator_email.clone()],
         subject: "Sovereign Mail Node Online".to_string(),
         body: "Your sovereign mail server is running directly on Spark hardware. Messages are stored on local NVMe disk with zero cloud telemetry and synced to Atlas Cortex memory.".to_string(),
-        from: Some("atlas@sovereign.spark".to_string()),
+        from: Some("aien@aienos.com".to_string()),
     };
 
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().to_rfc3339();
     let mut headers = std::collections::HashMap::new();
-    headers.insert("From".to_string(), "atlas@sovereign.spark".to_string());
+    headers.insert("From".to_string(), "aien@aienos.com".to_string());
     headers.insert("To".to_string(), state.operator_email.clone());
     headers.insert("Subject".to_string(), test_req.subject.clone());
 
     let mut msg = EmailMessage {
         id: id.clone(),
-        from: "atlas@sovereign.spark".to_string(),
+        from: "aien@aienos.com".to_string(),
         to: test_req.to,
         subject: test_req.subject,
         body: test_req.body,

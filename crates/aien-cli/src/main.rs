@@ -1,5 +1,22 @@
 #![allow(clippy::type_complexity, clippy::needless_range_loop)]
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 mod allen;
+mod approval;
+mod checkpoint;
 mod client;
 mod commands;
 pub mod compaction;
@@ -280,6 +297,10 @@ async fn main() {
             }
         }
     };
+    // sc#667: open the checkpoint store once the session id is known, before
+    // nesting, resume settlement, or any tool. A store that cannot open is
+    // reported inside start_checkpoints; the session still runs.
+    start_checkpoints(&platform.home_dir, &session_id);
 
     let client = ChatClient::new(None, None);
     let mut messages: Vec<Value> = Vec::new();
@@ -437,6 +458,9 @@ async fn main() {
                 let hook_registry = crate::hooks::HookRegistry::default_sovereign_registry();
                 let _ = hook_registry.run_pre_turn(&mut user_turn).await;
 
+                // sc#667: a turn boundary before the message is recorded, so later
+                // agent writes belong to this turn and `/rollback` can undo them.
+                crate::checkpoint::begin_turn();
                 if let Err(stop) =
                     journal.push(&mut messages, json!({"role": "user", "content": user_turn}))
                 {
@@ -505,6 +529,8 @@ async fn run_single_prompt(prompt: &str) {
     let platform = crate::platform::PlatformContext::detect();
     let sessions_dir = platform.home_dir.join("basecamp/sessions");
     let _ = fs::create_dir_all(&sessions_dir);
+    start_checkpoints(&platform.home_dir, &session_id);
+    crate::checkpoint::begin_turn();
 
     // Mandatory Nesting Ritual: Required at startup across all modes
     let nesting = perform_nesting_ritual(&session_id, true).await;
@@ -914,6 +940,19 @@ fn report_compaction(report: &crate::compaction::CompactionReport) {
             .yellow()
             .dimmed()
         ),
+    }
+}
+
+/// sc#667: record the agent's file writes so `/rollback` can undo them
+/// without touching the operator's own edits. A store that cannot open is
+/// reported; the session still runs, with writes refused only if a later
+/// snapshot fails.
+fn start_checkpoints(home: &std::path::Path, session_id: &str) {
+    if let Err(err) = crate::checkpoint::start_session(home, session_id) {
+        eprintln!(
+            "{}",
+            format!("Checkpoints off for this session: {}", err).yellow()
+        );
     }
 }
 
