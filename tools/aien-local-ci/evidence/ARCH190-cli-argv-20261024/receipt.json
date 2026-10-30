@@ -1,0 +1,73 @@
+{
+  "schema": "aien-core.merge-desk.cli-argv.v1",
+  "recorded_at": "2026-10-24T06:44:38.711432+00:00",
+  "tracking_issue": "https://github.com/aien-dev/aien-architecture-mv/issues/190",
+  "qualification": "DRAFT_UNQUALIFIED",
+  "base": "2f28ee89a26be1d326e29a85982bbc1c5714e437",
+  "source_files": [
+    {
+      "path": "tools/aien-local-ci/aien-local-ci",
+      "sha256": "89efcb3f0caf87612a55573bfeb7ab8f7e6e28f4c811584c623e7b42f635e239"
+    },
+    {
+      "path": "tools/aien-local-ci/tests/cli_args_test.sh",
+      "sha256": "f19c88c7c1926b809efd0f4f99158c7e01c76f6cd3b154275b035fc58e13403b"
+    }
+  ],
+  "overlap_review": {
+    "recorded_open_core_prs": 52,
+    "launcher_changed_by_existing_prs": [],
+    "source": "core-merge-work/review/core-pr-local-merges.json plus core-open-pr-source.json"
+  },
+  "checks": [
+    {
+      "name": "baseline stub controls",
+      "exit": 1,
+      "passed": 23,
+      "failed": 12,
+      "log": "before.log"
+    },
+    {
+      "name": "repaired stub controls",
+      "exit": 0,
+      "passed": 35,
+      "failed": 0,
+      "log": "after.log"
+    },
+    {
+      "name": "bash syntax",
+      "exit": 0,
+      "command": "bash -n tools/aien-local-ci/aien-local-ci tools/aien-local-ci/tests/cli_args_test.sh"
+    },
+    {
+      "name": "whitespace",
+      "exit": 0,
+      "command": "git diff --check"
+    },
+    {
+      "name": "required preflight",
+      "exit": 1,
+      "result": "FAIL",
+      "reason": "cargo unavailable; cargo-audit also unavailable",
+      "log": "preflight.log.gz",
+      "log_encoding": "gzip",
+      "uncompressed_log_sha256": "1fd14eb3137a2662e1240ec898b2d46bee3fa4fdb8152366e55fa0a953009978"
+    }
+  ],
+  "crumb_tool": {
+    "source": "94fffbcf88492c5a1c54211b5126c8a6c370a98d",
+    "sha256": "d010857bfbd176f8fc1701fdafe9a6bd3d5bf512ad09f208876b0fcc8fa09c57",
+    "qualification_step": "Compile and verify after source commit; final metadata recorded by following commit"
+  },
+  "effects": {
+    "git": "stub",
+    "test_binary": "stub",
+    "process_discovery": "stub",
+    "detached_start": "record_only_stub",
+    "signal_check_and_delivery": "exported_Bash_stub",
+    "real_worker": "NOT_RUN",
+    "remote_commands": "NOT_RUN",
+    "device_access": "NOT_RUN",
+    "installation": "NOT_RUN"
+  }
+}

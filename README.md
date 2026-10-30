@@ -7,7 +7,7 @@ The Rust workspace of the AIEN host runtime and its verification tooling, runnin
 What lives here:
 
 - **Host runtime.** The `aien` command line and the single-process runtime daemon (`crates/aien-cli`, `crates/aien-runtime`): model loading, the inference ABI (`crates/aien-inference-abi`), a unified-memory paged KV cache with copy-on-write branching (`crates/aien-kv-cache`, persistent form in `crates/aien-kv-store`), a continuous-batching scheduler with chunked prefill (`crates/aien-scheduler`), and an OpenAI-compatible HTTP door (`crates/aien-serve-http`).
-- **GPU through our own kernels.** The `crates/aien-omega-*` crates bind the Omega GPU engine from the [omega](https://github.com/aien-spark/omega) repository, pinned by `omega.lock`: matmul, bf16 and FP8 GEMV, MoE routing, prefill and decode attention, and the one-command-list decode step for Qwen3-30B-A3B. No CUDA toolkit anywhere.
+- **GPU through our own kernels.** The `crates/aien-omega-*` crates bind the Omega GPU engine from the [omega](https://github.com/aien-spark/omega) repository, pinned by `omega.lock`: matmul, bf16 and FP8 GEMV, MoE routing, prefill and decode attention, and the one-command-list decode step for Qwen3-30B-A3B. No CUDA toolkit anywhere. That engine is C code (driver client, sm_121 encoder, kernels) kept in the Omega repository; the seeded Omega language's GPU lowering (omega-mv#885) is not merged and nothing here binds it (Omega bar C1, BUILDING).
 - **The judge.** `tools/aien-test` and `tools/aien-local-ci` are the AIEN verification pipeline ([ADR 0033](https://github.com/aien-spark/aien-architecture/blob/main/docs/adr/0033-aien-verification-pipeline.md)): gate manifests, verdicts, immutable evidence receipts and signed bundles. Every pull request in every AIEN repository is judged on the Spark by this code before it merges; GitHub-hosted runners only check the signed bundle.
 - **Releases.** `install.sh`, the release scripts and `docs/release/` build, sign, verify and install AIEN; `crates/aien-verify` and `crates/aien-campaign-verifier` check runs and evidence campaigns without linking the code under test.
 - **Identity and agents.** ALLEN, the persistent cognitive entity boundary ([ADR 0035](https://github.com/aien-spark/aien-architecture/blob/main/docs/adr/0035-persistent-cognitive-entity-boundary-allen.md)) in `crates/aien-allen*`; the agent harness, MCP, capability and switchboard crates.
@@ -31,6 +31,8 @@ Every headline performance number must resolve to a reproducible command and an 
 
 - Expert Heartbeat H1 ring streamer (aienix#4): verified expert rotation from NVMe at 10.36 GB/s payload, 2.80 s per full 6,144-expert beat; method, receipts and limits in [crates/aien-heartbeat](crates/aien-heartbeat/README.md). Measured with aien-calc receipts; not yet packaged as the artifact bundle this section requires.
 
+The one deliberate exception is bar P0 of the GPU-stack plan: a predeclared, same-Spark, end-to-end head-to-head of this repo's `aien-serve-http` against vLLM and llama.cpp on the same Qwen3.6-35B-A3B checkpoint. It lives in its own repo, [aien-dev/gpu-head-to-head](https://github.com/aien-dev/gpu-head-to-head), which pins the measured binary's source commit `f0230a59` and publishes the result even where this stack loses.
+
 ## Standing rules
 
 Rust is scaffolding, Omega is the destination, C or assembly only where hardware, boot, ABI or measurement justify them ([ADR 0024](https://github.com/aien-spark/aien-architecture/blob/main/docs/adr/0024-rust-scaffolding-omega-destination.md)). No Python anywhere in repos, build, CI or tooling (`scripts/check-no-python.sh` fails the build if a Python file is added). No CUDA toolkit and no new CUDA dependence. No systemd in AIENOS. No outside dependencies in the trusted base. No Modular MAX or Mojo anywhere in the tree. No comparison with other people's systems. Kernels are Omega or Rust: closest to the metal, fastest wins, build what is missing.
@@ -48,7 +50,7 @@ scripts/repro-build.sh -p aien-cli   # release build with machine-local paths re
 
 ### Model server on a DGX Spark (Qwen3.8-27B, source build)
 
-Only on an NVIDIA DGX Spark (aarch64 Linux, GB10, NVIDIA open driver 580.173.02 tested). No CUDA toolkit is needed: Omega talks to the driver directly. The installer checks the machine first and stops with a plain message when something is missing; it never installs a server that has only the CPU stub.
+Only on an NVIDIA DGX Spark (aarch64 Linux, GB10, NVIDIA open driver 580.173.02 tested). No CUDA toolkit is needed: the engine's own C driver client (from the Omega repository) talks to NVIDIA's open kernel module directly. The installer checks the machine first and stops with a plain message when something is missing; it never installs a server that has only the CPU stub.
 
 ```bash
 git clone https://github.com/aien-dev/aien-sovereign-core-mv && cd aien-sovereign-core-mv
@@ -67,9 +69,13 @@ does **not** update the existing Spark service on port 18091, which runs a binar
 from the separate `ship/motor-l387` line. A future, separately authorized
 cutover must provision the server credential and update all known clients in
 the same window: omp's spark provider, `allen-courier` (installed under
-`~/.local/state/aienos/allen/bin/allen-courier-*`), aien-translate, and
-drake-voice. Check those clients before replacing the live binary; otherwise
-they will receive 401 responses. No client credentials are stored in this repo.
+`~/.local/state/aienos/allen/bin/allen-courier-*`), aien-translate,
+drake-voice, and `allen-chat`, the public www.aienos.com/allen/ gateway (system
+unit `allen-chat.service`, user `allen-chat`; it reads the bearer from
+`ALLEN_UPSTREAM_TOKEN` in `/etc/allen-chat/env`, empty until the cutover, and
+sends it on chat and `/health` requests). Check those clients before replacing
+the live binary; otherwise they will receive 401 responses. No client
+credentials are stored in this repo.
 
 Step by step for a Spark with nothing of AIEN on it (requirements, install, model download and checksum, start, first request, the checks, known limits, how to report): [docs/qwen38/TRY_IT_ON_YOUR_SPARK.md](docs/qwen38/TRY_IT_ON_YOUR_SPARK.md). What "alpha" covers and what stays pre-alpha: [docs/qwen38/ALPHA_STATUS.md](docs/qwen38/ALPHA_STATUS.md).
 
