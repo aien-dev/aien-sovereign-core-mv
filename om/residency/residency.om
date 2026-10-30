@@ -4,20 +4,24 @@ note Replays a recorded MoE router trace against a per-layer expert cache of cap
 note hits and misses for two eviction policies: LRU (online) and OPT (Belady, offline bound).
 note Input on stdin, ASCII decimal numbers separated by spaces, tabs or newlines:
 note   E L K T, then T*L*K expert ids in step-major order (step t, layer l, slot k), each below E.
-note Limits: 1 <= E <= 1024, 1 <= K <= 16, 1 <= L, 2 <= T, T*K <= 1048576, T*L*K <= 8388608,
+note Limits: 1 <= E <= 1024, 1 <= K <= 16, 1 <= L, 2 <= T, T*L <= 1000000, T*L*K <= 8388608,
 note input at most 16 MiB. Ids inside one step and layer must be distinct.
 note Output: one header line, then one line per policy and capacity percent in pc:
 note   POLICY cap=C pct=P hits=H miss=M warm_miss=W warm_acc=A
-note warm counts only steps t >= T/2, so compulsory first-touch misses mostly fall outside them.
+note lru and opt give every layer its own cache of C = E*P/100 experts. When L*E <= 65536, glru and
+note gopt follow: one cache of C = L*E*P/100 shared by all layers, replaying (t,l) as step t*L+l on
+note virtual expert l*E+e, the order a serving loop needs the experts in.
+note warm counts only steps t >= T/2 (glru/gopt: t*L+l >= T*L/2), so compulsory first-touch misses
+note mostly fall outside them.
 note Eviction never removes an expert already used in the current step (all K are needed at once).
 note Exit: 0 ok, 2 read error, 3 input over 16 MiB, 4 header out of range, 5 bad or missing number,
 note 6 trailing bytes, 7 id out of range, 8 repeated id in one step, 9 write error.
 global inb uchar 16777216
 global ids ushort 8388608
-global nxt ulong 1048576
-global stp ulong 1024
-global nu ulong 1024
-global lst ulong 1024
+global nxt uint 8388608
+global stp ulong 65536
+global nu ulong 65536
+global lst ulong 65536
 note hd: 0 E, 1 L, 2 K, 3 T, 4 parse position, 5 input length.
 global hd ulong 8
 note ac: 0 hits, 1 misses, 2 warm misses, 3 resident count.
@@ -25,7 +29,7 @@ global ac ulong 8
 global pc ulong 8
 global ob uchar 8192
 global ow ulong 1
-text lit "trace E=~ L=~ K=~ T=~\n~lru ~opt ~cap=~ pct=~ hits=~ miss=~ warm_miss=~ warm_acc=~ "
+text lit "trace E=~ L=~ K=~ T=~\n~lru ~opt ~cap=~ pct=~ hits=~ miss=~ warm_miss=~ warm_acc=~glru ~gopt "
 
 note slurp: read all of stdin into inb. Each inner pass adds at least one byte or ends, so
 note 64 outer passes of 999999 cover the 16777216-byte buffer.
@@ -156,22 +160,27 @@ fn slot t ulong l ulong k ulong to ulong
 ret add mul add mul t get hd 1 l get hd 2 k
 end
 
-note prep: nxt[t*K+k] = next step after t whose layer-l ids contain the id at (t,l,k), else T.
-fn prep l ulong to void
-t0 = get hd 3
+note prepst: for the K ids at (t,l), nxt[t*K+k] = lst[id], the next step that uses the id;
+note then record step t as the id's next use for earlier steps.
+fn prepst t ulong l ulong to void
 k0 = get hd 2
-for e ulong get hd 0
-put lst e t0
-end
-for j ulong t0
-t = sub sub t0 1 j
 for k ulong k0
 id = ulong get ids slot t l k
-put nxt add mul t k0 k get lst id
+put nxt add mul t k0 k uint get lst id
 end
 for k ulong k0
 put lst ulong get ids slot t l k t
 end
+end
+
+note prep: nxt[t*K+k] = next step after t whose layer-l ids contain the id at (t,l,k), else T.
+fn prep l ulong to void
+t0 = get hd 3
+for e ulong get hd 0
+put lst e t0
+end
+for j ulong t0
+prepst sub sub t0 1 j l
 end
 end
 
@@ -227,7 +236,7 @@ put ac 3 add get ac 3 1
 end
 end
 put stp id add t 1
-put nu id get nxt add mul t get hd 2 k
+put nu id ulong get nxt add mul t get hd 2 k
 end
 
 note simlayer: replay layer l from an empty cache of capacity c.
@@ -244,8 +253,9 @@ end
 end
 end
 
-note run: every layer at capacity c under policy pol; append the result line.
-fn run c ulong p ulong pol ulong to void
+note run: every layer at capacity c under policy pol; append the result line tagged with
+note fragment tg+pol.
+fn run c ulong p ulong pol ulong tg ulong to void
 put ac 0 0
 put ac 1 0
 put ac 2 0
@@ -253,7 +263,7 @@ for l ulong get hd 1
 prep l
 simlayer l c pol
 end
-frag add 5 pol
+frag add tg pol
 kv 7 c
 kv 8 p
 kv 9 get ac 0
@@ -264,7 +274,44 @@ kv 12 mul mul get hd 1 get hd 2 sub t div t 2
 badd 10
 end
 
-note load: parse the header and the ids; return 0 or an exit code.
+note globst: add o to the K ids of step s of the one-layer view. glob calls it with o = l*E for
+note s = t*L+l, so (t,l,k) keeps its slot (t*L+l)*K+k and its id e becomes virtual expert l*E+e.
+fn globst s ulong o ulong to void
+k0 = get hd 2
+for k ulong k0
+i = add mul s k0 k
+put ids i ushort add ulong get ids i o
+end
+end
+
+note glob: rewrite the trace in place as one layer of L*E virtual experts and T*L steps.
+note Needs L*E <= 65536 (ids are ushort).
+fn glob to void
+e0 = get hd 0
+l0 = get hd 1
+for s ulong mul get hd 3 l0
+globst s mul rem s l0 e0
+end
+put hd 0 mul e0 l0
+put hd 3 mul get hd 3 l0
+put hd 1 1
+end
+
+note ldstep: parse the K ids of step-major row s (s = t*L+l) into ids; return 0 or exit code 7.
+fn ldstep s ulong to int
+k0 = get hd 2
+for k ulong k0
+v = num
+if ge v get hd 0
+ret 7
+end
+put ids add mul s k0 k ushort v
+end
+ret 0
+end
+
+note load: parse the header and the ids; return 0 or an exit code. T*L <= 1000000 keeps every
+note loop over steps, rows and flattened steps within the 1000000 passes a for loop may make.
 fn load to int
 e = num
 l = num
@@ -276,7 +323,7 @@ end
 if or lt l 1 lt t 2
 ret 4
 end
-if or gt t 1048576 gt mul t k 1048576
+if or gt t 1000000 gt l div 1000000 t
 ret 4
 end
 if gt l div 8388608 mul t k
@@ -286,12 +333,11 @@ put hd 0 e
 put hd 1 l
 put hd 2 k
 put hd 3 t
-for i ulong mul mul t l k
-v = num
-if ge v e
-ret 7
+for s ulong mul t l
+r = ldstep s
+if ne r 0
+ret r
 end
-put ids i ushort v
 end
 if lt skip get hd 5
 ret 6
@@ -325,7 +371,18 @@ for pol ulong 2
 for j ulong 8
 c = div mul get hd 0 get pc j 100
 if ge c get hd 2
-run c get pc j pol
+run c get pc j pol 5
+end
+end
+end
+if le mul get hd 0 get hd 1 65536
+glob
+for pol ulong 2
+for j ulong 8
+c = div mul get hd 0 get pc j 100
+if ge c get hd 2
+run c get pc j pol 13
+end
 end
 end
 end
