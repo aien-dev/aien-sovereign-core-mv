@@ -1,0 +1,1776 @@
+note flint-manifest: bounded reader for the pinned Flint BF16 checkpoint (aien-architecture-mv#353,
+note Core #802 P0). Usage: flint-manifest CONFIG INDEX SHARD_DIR. It admits config.json,
+note model.safetensors.index.json and every safetensors header named by the index, and refuses
+note anything outside the pinned layout. On success stdout is the tensor inventory TSV (one row per
+note tensor: name, shard, dtype, shape, begin, end; shards in name order, rows in header order) and
+note stderr carries one summary line. On refusal nothing is written to stdout, stderr carries
+note "refused N reason" and the exit status is N (table in om/flint/README.md).
+note Compose: { printf 'om2\n'; cat om/vendor/json.om om/flint/manifest.om; } | omc
+note Canonical tensor id (slot): 0 embed, 1 final norm, 2 lm_head, then 3 + layer * 784 + kind.
+note Kinds 0..8 every layer, 9..11 dense MLP (layers 0 and 1), 12..15 router and shared expert,
+note 16 + 3 * expert + j routed expert projections (j 0 gate, 1 up, 2 down), MoE layers 2..48.
+
+const FMX ulong 99999
+const FMNS ulong 38419
+global ga uchar 16384
+global gas ulong 8
+global gal ulong 8
+global gpth uchar 4352
+global gx uchar 4194304
+global gsn uchar 8192
+global gsl ulong 64
+global gord ulong 64
+global gix uchar 38419
+global gsee uchar 38419
+global gbg ulong 4096
+global gen ulong 4096
+global gst ulong 32
+global gstb uchar 128
+global gh8 uchar 8
+global geb uchar 512
+global gdg uchar 24
+global gob uchar 8388608
+
+note gst: 0 index tensors, 1 total_size, 2 params, 3 routed params, 4 tensor bytes, 5 stdout fill,
+note 6 header tensors, 7 index cursor, 8 index length, 9 last fstat size, 10 shard index,
+note 11 shard data length, 12 shard entries, 13 shard count, 14 stderr fill, 15 string start,
+note 16 string length, 17 number end, 18 mantissa, 19 biased exponent, 20 mantissa end.
+
+text tr2 "usage: flint-manifest CONFIG INDEX SHARD_DIR"
+text tr3 "io"
+text tr4 "not-regular-file"
+text tr10 "config-json"
+text tr11 "config-field"
+text tr20 "index-size"
+text tr21 "index-syntax"
+text tr22 "shard-name"
+text tr23 "unknown-tensor"
+text tr24 "index-duplicate"
+text tr25 "total-size"
+text tr26 "index-missing-tensor"
+text tr30 "shard-short"
+text tr31 "header-length"
+text tr32 "header-json"
+text tr33 "header-entry"
+text tr34 "header-metadata"
+text tr35 "dtype"
+text tr36 "shape"
+text tr37 "data-offsets"
+text tr38 "data-tiling"
+text tr39 "header-duplicate"
+text tr40 "shard-mismatch"
+text tr41 "header-missing-tensor"
+text tr42 "shard-capacity"
+text tr43 "output-capacity"
+text tref "refused "
+text tsok "flint-manifest ok tensors "
+text tspar " params "
+text tsrt " routed "
+text tssh " shards "
+text tsby " bytes "
+text thname "name"
+text thshard "shard"
+text thdtype "dtype"
+text thbegin "begin"
+text thend "end"
+text tembed "model.embed_tokens.weight"
+text tnorm "model.norm.weight"
+text tlmh "lm_head.weight"
+text tlayers "model.layers."
+text tk0 "input_layernorm.weight"
+text tk1 "post_attention_layernorm.weight"
+text tk2 "self_attn.q_proj.weight"
+text tk3 "self_attn.k_proj.weight"
+text tk4 "self_attn.v_proj.weight"
+text tk5 "self_attn.o_proj.weight"
+text tk6 "self_attn.q_norm.weight"
+text tk7 "self_attn.k_norm.weight"
+text tk8 "self_attn.softmax_offset"
+text tk9 "mlp.gate_proj.weight"
+text tk10 "mlp.up_proj.weight"
+text tk11 "mlp.down_proj.weight"
+text tk12 "mlp.gate.weight"
+text tk13 "mlp.shared_expert.gate_proj.weight"
+text tk14 "mlp.shared_expert.up_proj.weight"
+text tk15 "mlp.shared_expert.down_proj.weight"
+text texp "mlp.experts."
+text tgate "gate_proj.weight"
+text tup "up_proj.weight"
+text tdown "down_proj.weight"
+text tmeta "__metadata__"
+text tkmeta "metadata"
+text tkwmap "weight_map"
+text tktot "total_size"
+text tsuf ".safetensors"
+text tdtype "dtype"
+text tshape "shape"
+text tdoff "data_offsets"
+text tbf16u "BF16"
+text tbf16 "bfloat16"
+text tflint "flint"
+text tsilu "silu"
+text tsigm "sigmoid"
+text tlearn "learnable"
+text tarch "FlintForCausalLM"
+text tfull "full_attention"
+text tslide "sliding_attention"
+text ck0 "architectures"
+text ck1 "model_type"
+text ck2 "attention_bias"
+text ck3 "attention_dropout"
+text ck4 "bos_token_id"
+text ck5 "decoder_sparse_step"
+text ck6 "eos_token_id"
+text ck7 "head_dim"
+text ck8 "hidden_act"
+text ck9 "hidden_size"
+text ck10 "initializer_range"
+text ck11 "intermediate_size"
+text ck12 "layer_types"
+text ck13 "max_position_embeddings"
+text ck14 "mlp_only_layers"
+text ck15 "moe_intermediate_size"
+text ck16 "norm_topk_prob"
+text ck17 "num_attention_heads"
+text ck18 "num_experts"
+text ck19 "num_experts_per_tok"
+text ck20 "num_hidden_layers"
+text ck21 "num_key_value_heads"
+text ck22 "no_rope_layer_indices"
+text ck23 "output_router_logits"
+text ck24 "pad_token_id"
+text ck25 "rms_norm_eps"
+text ck26 "rope_theta"
+text ck27 "router_aux_loss_coef"
+text ck28 "router_score_function"
+text ck29 "shared_expert_intermediate_size"
+text ck30 "sliding_window"
+text ck31 "softmax_type"
+text ck32 "tie_word_embeddings"
+text ck33 "torch_dtype"
+text ck34 "use_cache"
+text ck35 "use_sliding_window"
+text ck36 "vocab_size"
+text ck37 "transformers_version"
+text ck38 "rope_scaling"
+
+note ======== output buffers ========
+
+fn fm_eput c uchar to void
+p = get gst 14
+if lt p 512
+put geb p c
+put gst 14 add p 1
+end
+end
+
+fn fm_etx t view uchar * to void
+for i ulong len t
+fm_eput get t i
+end
+end
+
+note fm_dec: decimal digits of v into gdg, least significant first; returns the digit count
+fn fm_dec v ulong to ulong
+n = ulong 0
+x = v
+while true bound 25
+put gdg n add 48 uchar rem x 10
+n = add n 1
+x = div x 10
+if eq x 0
+break
+end
+end
+ret n
+end
+
+fn fm_eu v ulong to void
+n = fm_dec v
+for i ulong n
+fm_eput get gdg sub sub n i 1
+end
+end
+
+fn fm_eflush to void
+o = ulong 0
+m = get gst 14
+while lt o m bound 1024
+w = write 2 geb o sub m o
+if le w 0
+exit 3
+end
+o = add o ulong w
+end
+put gst 14 0
+end
+
+fn fm_die c ulong t view uchar * to void
+put gst 14 0
+fm_etx tref
+fm_eu c
+fm_eput 32
+fm_etx t
+fm_eput 10
+fm_eflush
+exit int c
+end
+
+fn fm_ob c uchar to void
+p = get gst 5
+if ge p len gob
+fm_die 43 tr43
+end
+put gob p c
+put gst 5 add p 1
+end
+
+fn fm_otx t view uchar * to void
+for i ulong len t
+fm_ob get t i
+end
+end
+
+fn fm_ou v ulong to void
+n = fm_dec v
+for i ulong n
+fm_ob get gdg sub sub n i 1
+end
+end
+
+note fm_ohdr: the TSV column header line name, shard, dtype, shape, begin, end
+fn fm_ohdr to void
+fm_otx thname
+fm_ob 9
+fm_otx thshard
+fm_ob 9
+fm_otx thdtype
+fm_ob 9
+fm_otx tshape
+fm_ob 9
+fm_otx thbegin
+fm_ob 9
+fm_otx thend
+fm_ob 10
+end
+
+fn fm_oflush to void
+o = ulong 0
+m = get gst 5
+while lt o m bound 999999
+w = write 1 gob o sub m o
+if le w 0
+fm_die 3 tr3
+end
+o = add o ulong w
+end
+end
+
+note ======== tensor names and the canonical slot space ========
+
+note fm_pre: nm[p ..] starts with t (within n bytes); fm_rest: nm[p .. n) equals t exactly
+fn fm_pre nm view uchar * n ulong p ulong t view uchar * to bool
+if gt p n
+ret false
+end
+if gt len t sub n p
+ret false
+end
+for i ulong len t
+if ne get nm add p i get t i
+ret false
+end
+end
+ret true
+end
+
+fn fm_rest nm view uchar * n ulong p ulong t view uchar * to bool
+if not fm_pre nm n p t
+ret false
+end
+ret eq add p len t n
+end
+
+note fm_num: a decimal of 1..3 digits at nm[p] without a leading zero, followed by '.';
+note returns the value (FMX when malformed) and leaves the position after the '.' in gst 17
+fn fm_num nm view uchar * n ulong p ulong to ulong
+v = ulong 0
+q = p
+for i ulong 4
+if ge q n
+ret FMX
+end
+c = get nm q
+if eq c 46
+if eq i 0
+ret FMX
+end
+put gst 17 add q 1
+ret v
+end
+if or lt c 48 gt c 57
+ret FMX
+end
+if and gt i 0 eq v 0
+ret FMX
+end
+v = add mul v 10 ulong sub c 48
+q = add q 1
+end
+ret FMX
+end
+
+note fm_kind: the per-layer kind of the name suffix at nm[p ..], FMX when unknown
+fn fm_kind nm view uchar * n ulong p ulong to ulong
+if fm_rest nm n p tk0
+ret 0
+end
+if fm_rest nm n p tk1
+ret 1
+end
+if fm_rest nm n p tk2
+ret 2
+end
+if fm_rest nm n p tk3
+ret 3
+end
+if fm_rest nm n p tk4
+ret 4
+end
+if fm_rest nm n p tk5
+ret 5
+end
+if fm_rest nm n p tk6
+ret 6
+end
+if fm_rest nm n p tk7
+ret 7
+end
+if fm_rest nm n p tk8
+ret 8
+end
+if fm_rest nm n p tk9
+ret 9
+end
+if fm_rest nm n p tk10
+ret 10
+end
+if fm_rest nm n p tk11
+ret 11
+end
+if fm_rest nm n p tk12
+ret 12
+end
+if fm_rest nm n p tk13
+ret 13
+end
+if fm_rest nm n p tk14
+ret 14
+end
+if fm_rest nm n p tk15
+ret 15
+end
+if not fm_pre nm n p texp
+ret FMX
+end
+e = fm_num nm n add p len texp
+if ge e 256
+ret FMX
+end
+q = get gst 17
+if fm_rest nm n q tgate
+ret add 16 mul e 3
+end
+if fm_rest nm n q tup
+ret add 17 mul e 3
+end
+if fm_rest nm n q tdown
+ret add 18 mul e 3
+end
+ret FMX
+end
+
+note fm_slot: canonical id of a checkpoint tensor name, FMX for any name outside the layout
+fn fm_slot nm view uchar * n ulong to ulong
+if fm_rest nm n 0 tembed
+ret 0
+end
+if fm_rest nm n 0 tnorm
+ret 1
+end
+if fm_rest nm n 0 tlmh
+ret 2
+end
+if not fm_pre nm n 0 tlayers
+ret FMX
+end
+ly = fm_num nm n len tlayers
+if ge ly 49
+ret FMX
+end
+k = fm_kind nm n get gst 17
+if eq k FMX
+ret FMX
+end
+if and ge k 9 le k 11
+if ge ly 2
+ret FMX
+end
+end
+if ge k 12
+if lt ly 2
+ret FMX
+end
+end
+ret add add 3 mul ly 784 k
+end
+
+fn fm_kd s ulong to ulong
+if lt s 3
+ret add 1000 s
+end
+ret rem sub s 3 784
+end
+
+note fm_ok: whether slot s names a tensor of the pinned layout
+fn fm_ok s ulong to bool
+if ge s FMNS
+ret false
+end
+if lt s 3
+ret true
+end
+k = fm_kd s
+ly = div sub s 3 784
+if le k 8
+ret true
+end
+if le k 11
+ret lt ly 2
+end
+ret ge ly 2
+end
+
+note fm_d0 / fm_d1: expected shape of slot s from the pinned config (fm_d1 0 means rank 1)
+fn fm_d0 s ulong to ulong
+k = fm_kd s
+if or eq k 1000 eq k 1002
+ret 150144
+end
+if eq k 1001
+ret 2048
+end
+if le k 1
+ret 2048
+end
+if eq k 2
+ret 4096
+end
+if le k 4
+ret 512
+end
+if eq k 5
+ret 2048
+end
+if le k 7
+ret 128
+end
+if eq k 8
+ret 32
+end
+if le k 10
+ret 6144
+end
+if eq k 11
+ret 2048
+end
+if eq k 12
+ret 256
+end
+if le k 14
+ret 1024
+end
+if eq k 15
+ret 2048
+end
+if lt rem sub k 16 3 2
+ret 512
+end
+ret 2048
+end
+
+fn fm_d1 s ulong to ulong
+k = fm_kd s
+if or eq k 1000 eq k 1002
+ret 2048
+end
+if eq k 1001
+ret 0
+end
+if le k 1
+ret 0
+end
+if le k 4
+ret 2048
+end
+if eq k 5
+ret 4096
+end
+if le k 8
+ret 0
+end
+if le k 10
+ret 2048
+end
+if eq k 11
+ret 6144
+end
+if le k 14
+ret 2048
+end
+if eq k 15
+ret 1024
+end
+if lt rem sub k 16 3 2
+ret 2048
+end
+ret 512
+end
+
+fn fm_rk s ulong to ulong
+if eq fm_d1 s 0
+ret 1
+end
+ret 2
+end
+
+fn fm_np s ulong to ulong
+d1 = fm_d1 s
+if eq d1 0
+ret fm_d0 s
+end
+ret mul fm_d0 s d1
+end
+
+note ======== files ========
+
+fn fm_le64 o ulong to ulong
+v = ulong 0
+for i ulong 8
+v = or v shl ulong get gstb add o i mul 8 i
+end
+ret v
+end
+
+fn fm_h64 to ulong
+v = ulong 0
+for i ulong 8
+v = or v shl ulong get gh8 i mul 8 i
+end
+ret v
+end
+
+note fm_open: open gpth[0 .. n) with O_RDONLY | O_CLOEXEC | O_NOFOLLOW (arm64 557056), require a
+note regular file (st_mode & S_IFMT 61440 == S_IFREG 32768), leave st_size in gst 9
+fn fm_open n ulong to long
+fd = fopen gpth 0 n 557056 0
+if lt fd 0
+if eq fd -40
+fm_die 4 tr4
+end
+fm_die 3 tr3
+end
+r = fstat int fd gstb 0 128
+if ne r 0
+fm_die 3 tr3
+end
+note S_IFMT sits in the low 16 bits of st_mode
+md = or ulong get gstb 16 shl ulong get gstb 17 8
+if ne and md 61440 32768
+fm_die 4 tr4
+end
+put gst 9 fm_le64 48
+ret fd
+end
+
+fn fm_argp a ulong to ulong
+n = get gal a
+if or eq n 0 gt n 4095
+fm_die 2 tr2
+end
+o = get gas a
+for i ulong n
+put gpth i get ga add o i
+end
+ret n
+end
+
+fn fm_pfull fd long b edit uchar * n ulong pos ulong to void
+o = ulong 0
+while lt o n bound 999999
+r = pread int fd b o sub n o long add pos o
+if le r 0
+fm_die 3 tr3
+end
+o = add o ulong r
+end
+end
+
+fn fm_close fd long to void
+r = fclose int fd
+if ne r 0
+fm_die 3 tr3
+end
+end
+
+fn fm_rcfg src edit uchar * to ulong
+fd = fm_open fm_argp 1
+n = get gst 9
+if or eq n 0 gt n 65536
+fm_die 10 tr10
+end
+fm_pfull fd src n 0
+fm_close fd
+ret n
+end
+
+fn fm_ridx to void
+fd = fm_open fm_argp 2
+n = get gst 9
+if gt n len gx
+fm_die 20 tr20
+end
+o = ulong 0
+while lt o n bound 999999
+r = pread int fd gx o sub n o long o
+if le r 0
+fm_die 3 tr3
+end
+o = add o ulong r
+end
+fm_close fd
+put gst 7 0
+put gst 8 n
+end
+
+note ======== config admission (every key pinned or explicitly ignored) ========
+
+fn fm_ckey src view uchar * o ulong to ulong
+if js_streq src o ck0
+ret 0
+end
+if js_streq src o ck1
+ret 1
+end
+if js_streq src o ck2
+ret 2
+end
+if js_streq src o ck3
+ret 3
+end
+if js_streq src o ck4
+ret 4
+end
+if js_streq src o ck5
+ret 5
+end
+if js_streq src o ck6
+ret 6
+end
+if js_streq src o ck7
+ret 7
+end
+if js_streq src o ck8
+ret 8
+end
+if js_streq src o ck9
+ret 9
+end
+if js_streq src o ck10
+ret 10
+end
+if js_streq src o ck11
+ret 11
+end
+if js_streq src o ck12
+ret 12
+end
+if js_streq src o ck13
+ret 13
+end
+if js_streq src o ck14
+ret 14
+end
+if js_streq src o ck15
+ret 15
+end
+if js_streq src o ck16
+ret 16
+end
+if js_streq src o ck17
+ret 17
+end
+if js_streq src o ck18
+ret 18
+end
+if js_streq src o ck19
+ret 19
+end
+if js_streq src o ck20
+ret 20
+end
+if js_streq src o ck21
+ret 21
+end
+if js_streq src o ck22
+ret 22
+end
+if js_streq src o ck23
+ret 23
+end
+if js_streq src o ck24
+ret 24
+end
+if js_streq src o ck25
+ret 25
+end
+if js_streq src o ck26
+ret 26
+end
+if js_streq src o ck27
+ret 27
+end
+if js_streq src o ck28
+ret 28
+end
+if js_streq src o ck29
+ret 29
+end
+if js_streq src o ck30
+ret 30
+end
+if js_streq src o ck31
+ret 31
+end
+if js_streq src o ck32
+ret 32
+end
+if js_streq src o ck33
+ret 33
+end
+if js_streq src o ck34
+ret 34
+end
+if js_streq src o ck35
+ret 35
+end
+if js_streq src o ck36
+ret 36
+end
+if js_streq src o ck37
+ret 37
+end
+if js_streq src o ck38
+ret 38
+end
+ret FMX
+end
+
+note fm_copt: keys that may be absent (ignored for inference, or rope_scaling which must be null)
+fn fm_copt id ulong to bool
+ret or or or eq id 3 eq id 10 or eq id 23 eq id 27 or or eq id 34 eq id 37 eq id 38
+end
+
+fn fm_cu src view uchar 983040 tape view uint 262160 v ulong want ulong to bool
+if ne js_type tape v jsnum
+ret false
+end
+o = js_off tape v
+if not js_isu src o
+ret false
+end
+ret eq js_tou src o want
+end
+
+fn fm_cstr src view uchar 983040 tape view uint 262160 v ulong t view uchar * to bool
+if ne js_type tape v jsstr
+ret false
+end
+ret js_streq src js_off tape v t
+end
+
+note fm_full: layers with full attention and no RoPE (0, 1, 5, 9, ..., 45, 48)
+fn fm_full ly ulong to bool
+if le ly 1
+ret true
+end
+if eq ly 48
+ret true
+end
+ret and ge ly 5 eq rem ly 4 1
+end
+
+note fm_cstra: which 0 architectures ["FlintForCausalLM"], which 1 layer_types by fm_full
+fn fm_cstra src view uchar 983040 tape view uint 262160 v ulong which ulong to bool
+if ne js_type tape v jsarr
+ret false
+end
+cnt = ulong 49
+if eq which 0
+cnt = 1
+end
+if ne js_nkids tape v cnt
+ret false
+end
+e = js_first tape v
+for i ulong cnt
+if eq which 0
+if not fm_cstr src tape e tarch
+ret false
+end
+else
+if fm_full i
+if not fm_cstr src tape e tfull
+ret false
+end
+else
+if not fm_cstr src tape e tslide
+ret false
+end
+end
+end
+e = js_enext tape e
+end
+ret true
+end
+
+fn fm_alen w ulong to ulong
+if eq w 0
+ret 4
+end
+if eq w 1
+ret 2
+end
+ret 14
+end
+
+note fm_aval: which 0 eos_token_id, 1 mlp_only_layers, 2 no_rope_layer_indices (= the fm_full set)
+fn fm_aval w ulong i ulong to ulong
+if eq w 0
+if eq i 0
+ret 150001
+end
+if eq i 1
+ret 150003
+end
+if eq i 2
+ret 150005
+end
+ret 150018
+end
+if le i 1
+ret i
+end
+if eq i 13
+ret 48
+end
+ret sub mul i 4 3
+end
+
+fn fm_carr src view uchar 983040 tape view uint 262160 v ulong w ulong to bool
+if ne js_type tape v jsarr
+ret false
+end
+n = fm_alen w
+if ne js_nkids tape v n
+ret false
+end
+e = js_first tape v
+for i ulong n
+if not fm_cu src tape e fm_aval w i
+ret false
+end
+e = js_enext tape e
+end
+ret true
+end
+
+note fm_mant: mantissa of the number lexeme src[p .. n): digits m and exponent bias 100000 minus
+note the fraction digit count into gst 18 / 19, the end of the mantissa into gst 20
+fn fm_mant src view uchar * p ulong n ulong to bool
+if gt sub n p 64
+ret false
+end
+if eq get src p 45
+ret false
+end
+m = ulong 0
+eb = ulong 100000
+sig = ulong 0
+fr = false
+for i ulong sub n p
+c = get src p
+if eq c 46
+fr = true
+else
+if or lt c 48 gt c 57
+break
+end
+d = ulong sub c 48
+if ne or m d 0
+if ge sig 19
+ret false
+end
+m = add mul m 10 d
+sig = add sig 1
+end
+if fr
+eb = sub eb 1
+end
+end
+p = add p 1
+end
+put gst 18 m
+put gst 19 eb
+put gst 20 p
+ret true
+end
+
+note fm_cexp: apply the exponent part src[q .. n) (q at e/E, or q == n) to the biased exponent in
+note gst 19; 0 when the exponent has more than 4 digits (a real biased exponent is above 90000)
+fn fm_cexp src view uchar 983040 q ulong n ulong to ulong
+eb = get gst 19
+if ge q n
+ret eb
+end
+q = add q 1
+ng = false
+if eq get src q 45
+ng = true
+q = add q 1
+else
+if eq get src q 43
+q = add q 1
+end
+end
+if gt sub n q 4
+ret 0
+end
+x = ulong 0
+for i ulong sub n q
+x = add mul x 10 ulong sub get src q 48
+q = add q 1
+end
+if ng
+ret sub eb x
+end
+ret add eb x
+end
+
+note fm_cdec: whether number token v equals wm * 10^(we - 100000) exactly (decimal normal form)
+fn fm_cdec src view uchar 983040 tape view uint 262160 v ulong wm ulong we ulong to bool
+if ne js_type tape v jsnum
+ret false
+end
+p = js_off tape v
+n = add p js_span tape v
+if not fm_mant src p n
+ret false
+end
+eb = fm_cexp src get gst 20 n
+if eq eb 0
+ret false
+end
+m = get gst 18
+if eq m 0
+ret eq wm 0
+end
+for i ulong 20
+if ne rem m 10 0
+break
+end
+m = div m 10
+eb = add eb 1
+end
+ret and eq m wm eq eb we
+end
+
+fn fm_cval src view uchar 983040 tape view uint 262160 id ulong v ulong to bool
+ty = js_type tape v
+if eq id 0
+ret fm_cstra src tape v 0
+end
+if eq id 1
+ret fm_cstr src tape v tflint
+end
+if or eq id 2 eq id 32
+ret eq ty jsfalse
+end
+if eq id 3
+ret fm_cdec src tape v 0 0
+end
+if eq id 4
+ret fm_cu src tape v 150000
+end
+if eq id 5
+ret fm_cu src tape v 1
+end
+if eq id 6
+ret fm_carr src tape v 0
+end
+if eq id 7
+ret fm_cu src tape v 128
+end
+if eq id 8
+ret fm_cstr src tape v tsilu
+end
+if eq id 9
+ret fm_cu src tape v 2048
+end
+if or eq id 10 eq id 27
+ret eq ty jsnum
+end
+if eq id 11
+ret fm_cu src tape v 6144
+end
+if eq id 12
+ret fm_cstra src tape v 1
+end
+if eq id 13
+ret fm_cu src tape v 262144
+end
+if eq id 14
+ret fm_carr src tape v 1
+end
+if eq id 15
+ret fm_cu src tape v 512
+end
+if or eq id 16 eq id 35
+ret eq ty jstrue
+end
+if eq id 17
+ret fm_cu src tape v 32
+end
+if eq id 18
+ret fm_cu src tape v 256
+end
+if eq id 19
+ret fm_cu src tape v 6
+end
+if eq id 20
+ret fm_cu src tape v 49
+end
+if eq id 21
+ret fm_cu src tape v 4
+end
+if eq id 22
+ret fm_carr src tape v 2
+end
+if or eq id 23 eq id 34
+ret or eq ty jstrue eq ty jsfalse
+end
+if eq id 24
+ret fm_cu src tape v 150001
+end
+if eq id 25
+ret fm_cdec src tape v 1 99994
+end
+if eq id 26
+ret fm_cdec src tape v 1 100004
+end
+if eq id 28
+ret fm_cstr src tape v tsigm
+end
+if eq id 29
+ret fm_cu src tape v 1024
+end
+if eq id 30
+ret fm_cu src tape v 513
+end
+if eq id 31
+ret fm_cstr src tape v tlearn
+end
+if eq id 33
+ret fm_cstr src tape v tbf16
+end
+if eq id 36
+ret fm_cu src tape v 150144
+end
+if eq id 37
+ret eq ty jsstr
+end
+if eq id 38
+ret eq ty jsnull
+end
+ret false
+end
+
+fn fm_cfg src view uchar 983040 tape edit uint 262160 n ulong to void
+r = js_init tape n 64
+if lt r 0
+fm_die 10 tr10
+end
+r = js_parse src tape n
+if lt r 0
+fm_die 10 tr10
+end
+if ne js_type tape 0 jsobj
+fm_die 10 tr10
+end
+sn = new uchar 64 0
+k = js_first tape 0
+while ne k jsnone bound 65536
+id = fm_ckey src js_off tape k
+if eq id FMX
+fm_die 11 tr11
+end
+if ne get sn id 0
+fm_die 11 tr11
+end
+put sn id 1
+if not fm_cval src tape id add k 1
+fm_die 11 tr11
+end
+k = js_mnext tape k
+end
+for i ulong 39
+if eq get sn i 0
+if not fm_copt i
+fm_die 11 tr11
+end
+end
+end
+end
+
+note ======== index scanner: a strict subset of JSON over gx (printable ASCII, no escapes) ========
+
+fn fm_xws to void
+p = get gst 7
+n = get gst 8
+for i ulong sub n p
+c = get gx p
+if not or or eq c 32 eq c 10 or eq c 13 eq c 9
+break
+end
+p = add p 1
+end
+put gst 7 p
+end
+
+fn fm_xpk to ulong
+fm_xws
+p = get gst 7
+if ge p get gst 8
+ret 256
+end
+ret ulong get gx p
+end
+
+fn fm_xlit c ulong to void
+if ne fm_xpk c
+fm_die 21 tr21
+end
+put gst 7 add get gst 7 1
+end
+
+note fm_xstr: a string of 0..256 bytes in 32..126 without backslash; start in gst 15, length gst 16
+fn fm_xstr to void
+fm_xlit 34
+p = get gst 7
+n = get gst 8
+s = p
+for i ulong 257
+if ge p n
+fm_die 21 tr21
+end
+c = get gx p
+if eq c 34
+put gst 15 s
+put gst 16 sub p s
+put gst 7 add p 1
+ret
+end
+if or or lt c 32 gt c 126 eq c 92
+fm_die 21 tr21
+end
+p = add p 1
+end
+fm_die 21 tr21
+end
+
+fn fm_xeq t view uchar * to bool
+o = get gst 15
+if ne get gst 16 len t
+ret false
+end
+for i ulong len t
+if ne get gx add o i get t i
+ret false
+end
+end
+ret true
+end
+
+note fm_xuint: an unsigned JSON integer without leading zero, fraction, exponent or overflow
+fn fm_xuint to ulong
+fm_xws
+p = get gst 7
+n = get gst 8
+s = p
+m = ulong 0
+for i ulong 21
+if ge p n
+break
+end
+c = get gx p
+if or lt c 48 gt c 57
+break
+end
+d = ulong sub c 48
+if js_ovf10 m d
+fm_die 21 tr21
+end
+m = add mul m 10 d
+p = add p 1
+end
+if eq p s
+fm_die 21 tr21
+end
+if and gt sub p s 1 eq get gx s 48
+fm_die 21 tr21
+end
+if lt p n
+c = get gx p
+if or or eq c 46 eq c 101 or eq c 69 and ge c 48 le c 57
+fm_die 21 tr21
+end
+end
+put gst 7 p
+ret m
+end
+
+fn fm_shc c uchar to bool
+if and ge c 48 le c 57
+ret true
+end
+if and ge c 65 le c 90
+ret true
+end
+if and ge c 97 le c 122
+ret true
+end
+ret or or eq c 46 eq c 95 eq c 45
+end
+
+fn fm_sheq j ulong o ulong n ulong to bool
+for i ulong n
+if ne get gsn add mul j 128 i get gx add o i
+ret false
+end
+end
+ret true
+end
+
+note fm_shid: shard file name of the last string: [A-Za-z0-9._-], 13..127 bytes, no leading '.',
+note ending ".safetensors"; at most 64 shards; returns its shard index
+fn fm_shid to ulong
+o = get gst 15
+n = get gst 16
+if or lt n 13 gt n 127
+fm_die 22 tr22
+end
+if eq get gx o 46
+fm_die 22 tr22
+end
+for i ulong n
+if not fm_shc get gx add o i
+fm_die 22 tr22
+end
+end
+b = sub add o n len tsuf
+for i2 ulong len tsuf
+if ne get gx add b i2 get tsuf i2
+fm_die 22 tr22
+end
+end
+k = get gst 13
+for j ulong k
+if eq get gsl j n
+if fm_sheq j o n
+ret j
+end
+end
+end
+if ge k 64
+fm_die 22 tr22
+end
+for i3 ulong n
+put gsn add mul k 128 i3 get gx add o i3
+end
+put gsl k n
+put gst 13 add k 1
+ret k
+end
+
+fn fm_xmeta to void
+fm_xlit 123
+fm_xstr
+if not fm_xeq tktot
+fm_die 21 tr21
+end
+fm_xlit 58
+put gst 1 fm_xuint
+fm_xlit 125
+end
+
+fn fm_xwmap nb edit uchar * to void
+fm_xlit 123
+if eq fm_xpk 125
+put gst 7 add get gst 7 1
+ret
+end
+while true bound 999999
+fm_xstr
+n = get gst 16
+o = get gst 15
+for i ulong n
+put nb i get gx add o i
+end
+s = fm_slot nb n
+if eq s FMX
+fm_die 23 tr23
+end
+fm_xlit 58
+fm_xstr
+si = fm_shid
+if ne get gix s 0
+fm_die 24 tr24
+end
+put gix s uchar add si 1
+put gst 0 add get gst 0 1
+if eq fm_xpk 125
+put gst 7 add get gst 7 1
+ret
+end
+fm_xlit 44
+end
+fm_die 21 tr21
+end
+
+fn fm_index nb edit uchar * to void
+fm_xlit 123
+md = false
+wm = false
+while true bound 3
+fm_xstr
+if fm_xeq tkmeta
+if md
+fm_die 21 tr21
+end
+md = true
+fm_xlit 58
+fm_xmeta
+else
+if not fm_xeq tkwmap
+fm_die 21 tr21
+end
+if wm
+fm_die 21 tr21
+end
+wm = true
+fm_xlit 58
+fm_xwmap nb
+end
+if eq fm_xpk 125
+break
+end
+fm_xlit 44
+end
+fm_xlit 125
+fm_xws
+if ne get gst 7 get gst 8
+fm_die 21 tr21
+end
+if not and md wm
+fm_die 21 tr21
+end
+end
+
+fn fm_imiss to void
+for s ulong FMNS
+if fm_ok s
+if eq get gix s 0
+fm_die 26 tr26
+end
+end
+end
+end
+
+fn fm_hmiss to void
+for s ulong FMNS
+if fm_ok s
+if eq get gsee s 0
+fm_die 41 tr41
+end
+end
+end
+end
+
+note fm_snlt: shard name a sorts before shard name b (bytewise, shorter prefix first)
+fn fm_snlt a ulong b ulong to bool
+na = get gsl a
+nb = get gsl b
+for i ulong 128
+if or ge i na ge i nb
+ret lt na nb
+end
+ca = get gsn add mul a 128 i
+cb = get gsn add mul b 128 i
+if ne ca cb
+ret lt ca cb
+end
+end
+ret false
+end
+
+fn fm_sort to void
+n = get gst 13
+for i ulong n
+put gord i i
+end
+for i2 ulong n
+x = get gord i2
+j = i2
+while gt j 0 bound 65
+if not fm_snlt x get gord sub j 1
+break
+end
+put gord j get gord sub j 1
+j = sub j 1
+end
+put gord j x
+end
+end
+
+note ======== safetensors headers ========
+
+fn fm_spath si ulong to ulong
+dn = get gal 3
+if or eq dn 0 gt dn 3900
+fm_die 2 tr2
+end
+o = get gas 3
+for i ulong dn
+put gpth i get ga add o i
+end
+put gpth dn 47
+n = get gsl si
+for j ulong n
+put gpth add add dn 1 j get gsn add mul si 128 j
+end
+ret add add dn 1 n
+end
+
+fn fm_eshp src view uchar * tape view uint * x ulong s ulong to void
+if ne js_type tape x jsarr
+fm_die 36 tr36
+end
+rk = fm_rk s
+if ne js_nkids tape x rk
+fm_die 36 tr36
+end
+e = js_first tape x
+for i ulong rk
+if ne js_type tape e jsnum
+fm_die 36 tr36
+end
+o = js_off tape e
+if not js_isu src o
+fm_die 36 tr36
+end
+w = fm_d0 s
+if eq i 1
+w = fm_d1 s
+end
+if ne js_tou src o w
+fm_die 36 tr36
+end
+e = js_enext tape e
+end
+end
+
+fn fm_eoff src view uchar * tape view uint * x ulong s ulong to void
+if ne js_type tape x jsarr
+fm_die 37 tr37
+end
+if ne js_nkids tape x 2
+fm_die 37 tr37
+end
+e = js_first tape x
+f = js_enext tape e
+if or ne js_type tape e jsnum ne js_type tape f jsnum
+fm_die 37 tr37
+end
+if not and js_isu src js_off tape e js_isu src js_off tape f
+fm_die 37 tr37
+end
+b = js_tou src js_off tape e
+en = js_tou src js_off tape f
+if gt b en
+fm_die 37 tr37
+end
+if gt en get gst 11
+fm_die 37 tr37
+end
+if ne sub en b mul 2 fm_np s
+fm_die 37 tr37
+end
+c = get gst 12
+put gbg c b
+put gen c en
+end
+
+note fm_eval: entry v must be exactly {"dtype","shape","data_offsets"}, each once
+fn fm_eval src view uchar * tape view uint * v ulong s ulong to void
+if ne js_type tape v jsobj
+fm_die 33 tr33
+end
+if ne js_nkids tape v 3
+fm_die 33 tr33
+end
+f = ulong 0
+k = js_first tape v
+for i ulong 3
+o = js_off tape k
+x = add k 1
+if js_streq src o tdtype
+if ne and f 1 0
+fm_die 33 tr33
+end
+f = or f 1
+if ne js_type tape x jsstr
+fm_die 35 tr35
+end
+if not js_streq src js_off tape x tbf16u
+fm_die 35 tr35
+end
+else
+if js_streq src o tshape
+if ne and f 2 0
+fm_die 33 tr33
+end
+f = or f 2
+fm_eshp src tape x s
+else
+if not js_streq src o tdoff
+fm_die 33 tr33
+end
+if ne and f 4 0
+fm_die 33 tr33
+end
+f = or f 4
+fm_eoff src tape x s
+end
+end
+k = js_mnext tape k
+end
+end
+
+fn fm_orow nb view uchar * n ulong s ulong c ulong to void
+for i ulong n
+fm_ob get nb i
+end
+fm_ob 9
+si = get gst 10
+for j ulong get gsl si
+fm_ob get gsn add mul si 128 j
+end
+fm_ob 9
+fm_otx tbf16u
+fm_ob 9
+fm_ou fm_d0 s
+d1 = fm_d1 s
+if ne d1 0
+fm_ob 120
+fm_ou d1
+end
+fm_ob 9
+fm_ou get gbg c
+fm_ob 9
+fm_ou get gen c
+fm_ob 10
+end
+
+note fm_acct: count slot s (extent c) into the tensor, parameter, routed and byte totals
+fn fm_acct s ulong c ulong to void
+put gst 12 add c 1
+put gst 6 add get gst 6 1
+np = fm_np s
+put gst 2 add get gst 2 np
+if ge s 3
+if ge fm_kd s 16
+put gst 3 add get gst 3 np
+end
+end
+put gst 4 add get gst 4 sub get gen c get gbg c
+end
+
+fn fm_entry src view uchar 983040 tape view uint 262160 nb edit uchar 256 k ulong to void
+r = js_sget src js_off tape k nb
+if lt r 0
+fm_die 23 tr23
+end
+n = ulong r
+if fm_rest nb n 0 tmeta
+fm_die 34 tr34
+end
+s = fm_slot nb n
+if eq s FMX
+fm_die 23 tr23
+end
+if ne get gsee s 0
+fm_die 39 tr39
+end
+if ne get gix s uchar add get gst 10 1
+fm_die 40 tr40
+end
+c = get gst 12
+if ge c len gbg
+fm_die 42 tr42
+end
+fm_eval src tape add k 1 s
+put gsee s uchar add get gst 10 1
+fm_acct s c
+fm_orow nb n s c
+end
+
+note fm_tile: sort extents by begin; they must tile [0, data length) exactly
+fn fm_tile to void
+c = get gst 12
+if eq c 0
+fm_die 38 tr38
+end
+for i ulong c
+b = get gbg i
+en = get gen i
+j = i
+while gt j 0 bound 4097
+if le get gbg sub j 1 b
+break
+end
+put gbg j get gbg sub j 1
+put gen j get gen sub j 1
+j = sub j 1
+end
+put gbg j b
+put gen j en
+end
+if ne get gbg 0 0
+fm_die 38 tr38
+end
+for i2 ulong sub c 1
+if ne get gbg add i2 1 get gen i2
+fm_die 38 tr38
+end
+end
+if ne get gen sub c 1 get gst 11
+fm_die 38 tr38
+end
+end
+
+fn fm_shard src edit uchar 983040 tape edit uint 262160 nb edit uchar 256 si ulong to void
+fd = fm_open fm_spath si
+sz = get gst 9
+if lt sz 8
+fm_die 30 tr30
+end
+r8 = pread int fd gh8 0 8 long 0
+if ne r8 8
+fm_die 3 tr3
+end
+hl = fm_h64
+if or lt hl 2 gt hl len src
+fm_die 31 tr31
+end
+if gt hl sub sz 8
+fm_die 31 tr31
+end
+fm_pfull fd src hl 8
+fm_close fd
+put gst 10 si
+put gst 11 sub sub sz 8 hl
+put gst 12 0
+r = js_init tape hl 64
+if lt r 0
+fm_die 32 tr32
+end
+r = js_parse src tape hl
+if eq r neg long jsetok
+fm_die 42 tr42
+end
+if lt r 0
+fm_die 32 tr32
+end
+if ne js_type tape 0 jsobj
+fm_die 33 tr33
+end
+k = js_first tape 0
+while ne k jsnone bound 65536
+fm_entry src tape nb k
+k = js_mnext tape k
+end
+fm_tile
+end
+
+fn fm_summary to void
+put gst 14 0
+fm_etx tsok
+fm_eu get gst 6
+fm_etx tspar
+fm_eu get gst 2
+fm_etx tsrt
+fm_eu get gst 3
+fm_etx tssh
+fm_eu get gst 13
+fm_etx tsby
+fm_eu get gst 4
+fm_eput 10
+fm_eflush
+end
+
+fn main to int
+c = argcnt
+if ne c 4
+fm_die 2 tr2
+end
+o = ulong 0
+for i ulong 4
+r = argread i ga o sub len ga o
+if lt r 0
+fm_die 2 tr2
+end
+put gas i o
+put gal i ulong r
+o = add o ulong r
+end
+src = new uchar 983040 0
+tape = new uint 262160 0
+nb = new uchar 256 0
+n = fm_rcfg src
+fm_cfg src tape n
+fm_ridx
+fm_ohdr
+fm_index nb
+fm_imiss
+fm_sort
+for j ulong get gst 13
+fm_shard src tape nb get gord j
+end
+fm_hmiss
+if ne get gst 4 get gst 1
+fm_die 25 tr25
+end
+fm_oflush
+fm_summary
+ret 0
+end
