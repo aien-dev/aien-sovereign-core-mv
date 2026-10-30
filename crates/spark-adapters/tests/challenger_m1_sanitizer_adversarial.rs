@@ -124,7 +124,7 @@ fn test_challenge2_hostname_and_url_variations() {
             "Access grpc endpoint at <LOCAL_HOST>:18080",
         ),
         (
-            "Target machine is spark-b87b:18095",
+            "Target machine is spark-1a2b:18095",
             "Target machine is <LOCAL_HOST>:18095",
         ),
         (
@@ -136,7 +136,7 @@ fn test_challenge2_hostname_and_url_variations() {
             "Remote execution via ssh <OPERATOR>@<LOCAL_HOST>",
         ),
         (
-            "Connecting to spark-b87b.local now",
+            "Connecting to spark-1a2b.local now",
             "Connecting to <LOCAL_HOST> now",
         ),
     ];
@@ -175,13 +175,13 @@ fn test_challenge2_preserve_compound_identifiers() {
 
 #[test]
 fn test_challenge2_private_ip_and_path_scrubbing() {
-    let input = "Download model from 10.0.1.20 and 192.168.0.50 to /home/drakestapleton/models/weights.bin on 127.0.0.1";
+    let input = "Download model from 10.0.1.20 and 192.168.0.50 to /home/alice/models/weights.bin on 127.0.0.1";
     let cleaned = sanitize_outbound_prompt(input);
 
     assert!(!cleaned.contains("10.0.1.20"));
     assert!(!cleaned.contains("192.168.0.50"));
     assert!(!cleaned.contains("127.0.0.1"));
-    assert!(!cleaned.contains("/home/drakestapleton"));
+    assert!(!cleaned.contains("/home/alice"));
     assert!(cleaned.contains("<LOCAL_HOST>"));
     assert!(cleaned.contains("<WORKSPACE_PATH>"));
 }
@@ -229,11 +229,11 @@ fn test_challenge3_multiline_pem_and_signature_patterns() {
 
 #[test]
 fn test_challenge4_system_prompt_sanitization_in_distill_messages() {
-    let sys = "System instructions for host spark-b87b running under /home/drakestapleton/workspace for Drake Stapleton";
+    let sys = "System instructions for host spark-1a2b running under /home/alice/workspace for Drake Stapleton";
     let cleaned = sanitize_outbound_prompt(sys);
 
-    assert!(!cleaned.contains("spark-b87b"));
-    assert!(!cleaned.contains("/home/drakestapleton"));
+    assert!(!cleaned.contains("spark-1a2b"));
+    assert!(!cleaned.contains("/home/alice"));
     assert!(!cleaned.contains("Drake Stapleton"));
     assert!(cleaned.contains("<LOCAL_HOST>"));
     assert!(cleaned.contains("<WORKSPACE_PATH>"));
@@ -245,7 +245,7 @@ fn test_challenge4_distill_task_struct_scrubbing_simulation() {
     let task = DistillTask {
         id: "m1-challenger-task-01".to_string(),
         task_type: TaskType::CodeSynthesis,
-        prompt: "Run benchmark on 192.168.1.5 for drakestapleton".to_string(),
+        prompt: "Run benchmark on 192.168.0.5 for drakestapleton".to_string(),
         system_prompt: Some("You are an assistant located on spark:18080".to_string()),
         teacher_model: "mock-teacher".to_string(),
         student_model: None,
@@ -259,7 +259,7 @@ fn test_challenge4_distill_task_struct_scrubbing_simulation() {
         .as_ref()
         .map(|s| sanitize_outbound_prompt(s));
 
-    assert!(!scrubbed_user.contains("192.168.1.5"));
+    assert!(!scrubbed_user.contains("192.168.0.5"));
     assert!(!scrubbed_user.contains("drakestapleton"));
     assert!(scrubbed_user.contains("<LOCAL_HOST>"));
     assert!(scrubbed_user.contains("<OPERATOR>"));

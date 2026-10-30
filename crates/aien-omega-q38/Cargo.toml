@@ -1,0 +1,11 @@
+[package]
+name = "aien-omega-q38"
+version = "0.1.0"
+edition = "2021"
+authors = ["Drake Stapleton <aien@aienos.com>"]
+description = "FFI to omega's Qwen3.8-27B decode pieces: Gated DeltaNet state, head_dim-256 KV cache and the one-command-list decode token (omega_gpu_q38_graph, sc #642)"
+license.workspace = true
+build = "build.rs"
+
+[dependencies]
+aien-omega-gpu = { path = "../aien-omega-gpu" }

@@ -233,6 +233,19 @@ impl SamplingObserver {
         }
     }
 
+    /// True when every draw is the argmax (temperature 0, or the force-greedy mutant): the
+    /// decode graph's own greedy token (ARGMAX on the chip, strict >, first index, as
+    /// `sample_argmax`) is then the draw, and the logits need not be read (L356).
+    pub fn is_greedy(&self) -> bool {
+        self.temperature() <= 0.001
+    }
+
+    /// Counts one greedy draw taken from the chip, as [`Self::sample`] would at temperature 0.
+    pub fn note_greedy(&mut self) {
+        self.obs.greedy_tokens += 1;
+        self.greedy += 1;
+    }
+
     /// Picks the token for decode step `step` (0-based count of tokens already
     /// generated in this request).
     pub fn sample(&mut self, logits: &[f32], step: usize) -> u32 {
@@ -379,6 +392,26 @@ mod tests {
             seed: 42,
             stop_token_ids: vec![],
         }
+    }
+
+    #[test]
+    fn chip_greedy_draw_records_as_a_host_greedy_draw() {
+        // L356: a greedy reply that takes the chip's token must leave the same record as one
+        // that took the host argmax; a sampled reply is never greedy.
+        let (mut host, mut chip) = (
+            SamplingObserver::new(&p(0.0, 20)),
+            SamplingObserver::new(&p(0.0, 20)),
+        );
+        assert!(chip.is_greedy());
+        assert!(!SamplingObserver::new(&p(0.7, 20)).is_greedy());
+        for step in 0..3 {
+            host.sample(&[0.1, 5.0, 2.0], step);
+            chip.note_greedy();
+        }
+        assert_eq!(
+            format!("{:?}", host.record()),
+            format!("{:?}", chip.record())
+        );
     }
 
     #[test]

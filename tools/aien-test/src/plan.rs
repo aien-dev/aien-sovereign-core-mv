@@ -55,10 +55,18 @@
 //! (UNVERIFIED_DEPENDENCY), a FAIL propagates (DEPENDENCY_FAILED), and
 //! nothing promotes NOT_RUN to PASS. ADVISORY gates never count.
 //!
+//! Full scope (`--full`, an Alpha qualification of a commit already on
+//! main): every gate at HEAD is selected, exactly what `test ./...` runs, so
+//! every non-advisory gate is required, gb10 and Spark gates included. What
+//! changed still labels the entries but selects nothing, and UNMAPPED_PATH
+//! and GATE_REMOVED do not apply. PIPELINE_CONFIG_CHANGED and operator gates
+//! keep their rules. The bundle signs the scope as `plan.scope`.
+//!
 //! Hardware identity: `cache_scope: hardware` gates need one and the ADR does
 //! not define its content. When none is given the machine digest stands in,
 //! and the plan says so.
 
+use crate::bundle::{SCOPE_CHANGED, SCOPE_FULL};
 use crate::evidence::{canonical_digest, sha256_hex};
 use crate::graph::{self, Graph};
 use crate::identity::{self, Binding};
@@ -71,12 +79,14 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Paths whose change blocks a commit unless the operator says otherwise.
-pub const PIPELINE_CONFIG: [&str; 5] = [
+pub const PIPELINE_CONFIG: [&str; 7] = [
     ".aien/",
     "tests/gates/",
     ".github/workflows/",
     ".forgejo/",
     "tools/aien-test/",
+    "crumb.lock",
+    "tools/crumb/",
 ];
 pub const ALWAYS_FILE: &str = ".aien/always";
 pub const UNMAPPED_OK_FILE: &str = ".aien/unmapped-ok";
@@ -93,6 +103,10 @@ pub struct Request {
     pub dirty: Vec<String>,
     /// `--operator`: a pipeline configuration change is allowed.
     pub operator: bool,
+    /// `--full`: full scope (an Alpha qualification). Every gate at HEAD is
+    /// selected whatever changed, and the diff-only refusals (UNMAPPED_PATH,
+    /// GATE_REMOVED) do not apply.
+    pub full: bool,
     pub compiler_identity: String,
     pub flags: Vec<String>,
     /// Empty: the machine digest stands in (recorded in the plan).
@@ -108,6 +122,7 @@ impl Request {
             head: head.to_string(),
             dirty: Vec::new(),
             operator: false,
+            full: false,
             compiler_identity: String::new(),
             flags: Vec::new(),
             hardware_identity: String::new(),
@@ -190,6 +205,20 @@ pub struct Plan {
     pub notes: Vec<String>,
     /// The graph at HEAD (every gate, not only the selected ones).
     pub graph: Graph,
+    /// Full scope (`Request::full`): signed into the bundle as
+    /// `plan.scope: "full"`, else `"changed"`.
+    pub full: bool,
+}
+
+impl Plan {
+    /// The bundle's `plan.scope` for this plan.
+    pub fn scope(&self) -> &'static str {
+        if self.full {
+            SCOPE_FULL
+        } else {
+            SCOPE_CHANGED
+        }
+    }
 }
 
 // ---------------------------------------------------------------- git
@@ -655,7 +684,7 @@ pub fn compute(root: &Path, req: &Request) -> Result<Plan, String> {
         }
     }
 
-    let unmapped: Vec<String> = changed
+    let mut unmapped: Vec<String> = changed
         .iter()
         .filter(|p| {
             let mapped = p.ends_with(".gate")
@@ -692,7 +721,20 @@ pub fn compute(root: &Path, req: &Request) -> Result<Plan, String> {
         with_dependents.extend(graph.transitive_dependents(s));
     }
     let targets: Vec<usize> = with_dependents.iter().copied().collect();
-    let selected = graph.with_dependencies(&targets);
+    // Full scope (an Alpha qualification) selects exactly what `test ./...`
+    // runs; what changed still says why a gate is listed, but decides
+    // nothing, so the diff-only refusals do not apply.
+    let selected = if req.full {
+        unmapped.clear();
+        removed.clear();
+        notes.push(
+            "full scope: every gate at HEAD is selected; UNMAPPED_PATH and GATE_REMOVED do not apply"
+                .to_string(),
+        );
+        graph.all()
+    } else {
+        graph.with_dependencies(&targets)
+    };
 
     // Check ids for every gate at HEAD, dependencies first.
     let mut binding = identity::local_binding(&req.hardware_identity)?;
@@ -761,6 +803,8 @@ pub fn compute(root: &Path, req: &Request) -> Result<Plan, String> {
             .any(|s| graph.transitive_dependents(*s).contains(&i))
         {
             "dependent".to_string()
+        } else if req.full {
+            "full".to_string()
         } else {
             "dependency".to_string()
         };
@@ -793,6 +837,7 @@ pub fn compute(root: &Path, req: &Request) -> Result<Plan, String> {
         graph_digest,
         notes,
         graph,
+        full: req.full,
     })
 }
 
@@ -1125,7 +1170,8 @@ fn short(s: &str) -> String {
 }
 
 /// The plan as the operator sees it: exactly the sections Required, Cached,
-/// Needs Spark, Needs GB10, Advisory, Blocked, then UNMAPPED.
+/// Needs Spark, Needs GB10, Advisory, Blocked, then UNMAPPED. A full-scope
+/// plan says so under `Head:`.
 pub fn render(repository: &str, plan: &Plan) -> Vec<String> {
     let mut out = vec![
         "AIEN PLAN".to_string(),
@@ -1134,6 +1180,9 @@ pub fn render(repository: &str, plan: &Plan) -> Vec<String> {
         format!("Head: {}", plan.head),
         format!("Changed files: {}", plan.changed.len()),
     ];
+    if plan.full {
+        out.insert(4, "Scope: full (every gate at HEAD)".to_string());
+    }
     for p in &plan.changed {
         out.push(format!("  {p}"));
     }
@@ -1651,6 +1700,136 @@ mod tests {
         ] {
             assert!(text.contains(&format!("\n{title}\n")), "{title}");
         }
+    }
+
+    fn full(t: &TempDir) -> Plan {
+        compute(
+            t.path(),
+            &Request {
+                full: true,
+                ..Request::new("HEAD~1", "HEAD")
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn full_scope_selects_every_gate_whatever_the_diff_touches() {
+        let t = repo();
+        commit(&t, &[("b/b.txt", "b2\n")]);
+        // Changed scope: C watches nothing that changed.
+        let p = plan_of(&t);
+        assert_eq!(all_gates(&p), ["A", "B", "S"]);
+        assert!(!p.full);
+        assert_eq!(p.scope(), "changed");
+        // Full scope: C is selected and required although c/ is untouched.
+        let p = full(&t);
+        assert!(p.full);
+        assert_eq!(p.scope(), "full");
+        assert_eq!(all_gates(&p), ["A", "B", "C", "S"]);
+        assert_eq!(gates(&p, Section::Required), ["A", "B", "C", "S"]);
+        let c = p.entries.iter().find(|e| e.gate == "C").unwrap();
+        assert!(c.required);
+        assert_eq!(c.because, "full");
+        // What changed still labels the entries.
+        let b = p.entries.iter().find(|e| e.gate == "B").unwrap();
+        assert_eq!(b.because, "b/b.txt");
+        assert_eq!(p.changed, ["b/b.txt"]);
+        let text = render("r", &p).join("\n");
+        assert!(
+            text.contains("\nScope: full (every gate at HEAD)\n"),
+            "{text}"
+        );
+        assert!(!render("r", &plan_of(&t)).join("\n").contains("Scope:"));
+    }
+
+    #[test]
+    fn full_scope_ignores_the_diff_only_refusals() {
+        let t = repo();
+        std::fs::remove_file(t.path().join("gates/c.gate")).unwrap();
+        commit(&t, &[("stray/file.txt", "x\n")]);
+        let p = plan_of(&t);
+        assert_eq!(p.unmapped, ["stray/file.txt"]);
+        assert_eq!(p.removed, ["C"]);
+        let p = full(&t);
+        assert!(p.unmapped.is_empty(), "{:?}", p.unmapped);
+        assert!(p.removed.is_empty(), "{:?}", p.removed);
+        assert_eq!(exit_code(&p), 0);
+        assert_eq!(all_gates(&p), ["A", "B", "S"]);
+        let pass = |g: &str| {
+            (
+                g.to_string(),
+                Known {
+                    verdict: Verdict::Pass,
+                    reason: String::new(),
+                    receipt: Some(format!("r-{g}")),
+                },
+            )
+        };
+        let known: BTreeMap<String, Known> = ["A", "B", "S"].into_iter().map(pass).collect();
+        assert_eq!(judge(&p, &known).verdict, Verdict::Pass);
+        // A pipeline configuration change still blocks without --operator.
+        commit(&t, &[(".aien/always", "S\nA\n")]);
+        assert_eq!(full(&t).blocked.as_deref(), Some("PIPELINE_CONFIG_CHANGED"));
+    }
+
+    #[test]
+    fn full_scope_requires_the_gb10_and_spark_gates() {
+        let h = gate("H", &["h/"], "");
+        let gpu = gate("GPU", &["gpu/"], "").replace("  - host\n", "  - gb10\n");
+        let q = gate("Q", &["q/"], "").replace("  - host\n", "  - qemu\n");
+        let adv = gate("ADV", &["adv/"], "exactness: ADVISORY\n");
+        let t = init_repo(
+            "plan-full-gb10",
+            &[
+                ("gates/h.gate", h.as_str(), false),
+                ("gates/gpu.gate", gpu.as_str(), false),
+                ("gates/q.gate", q.as_str(), false),
+                ("gates/adv.gate", adv.as_str(), false),
+                ("run.sh", "#!/bin/sh\n", true),
+                ("h/x", "1\n", false),
+                ("gpu/x", "1\n", false),
+                ("q/x", "1\n", false),
+                ("adv/x", "1\n", false),
+            ],
+        );
+        commit(&t, &[("h/x", "2\n")]);
+        assert_eq!(all_gates(&plan_of(&t)), ["H"]);
+        let p = full(&t);
+        assert_eq!(all_gates(&p), ["ADV", "GPU", "H", "Q"]);
+        // The gb10 gate is in the required set and runnable (the worker runs
+        // every section but Blocked); its section still says it needs the chip.
+        let g = p.entries.iter().find(|e| e.gate == "GPU").unwrap();
+        assert!(g.required);
+        assert_eq!((g.section, g.pool.as_str()), (Section::NeedsGb10, "gb10"));
+        assert_eq!(gates(&p, Section::NeedsSpark), ["Q"]);
+        assert!(!p.entries.iter().find(|e| e.gate == "ADV").unwrap().required);
+        let required: Vec<&str> = p
+            .entries
+            .iter()
+            .filter(|e| e.required && e.section != Section::Blocked)
+            .map(|e| e.gate.as_str())
+            .collect();
+        assert_eq!(required, ["GPU", "H", "Q"]);
+        // Without a GPU receipt the commit is not qualified.
+        let pass = |g: &str| {
+            (
+                g.to_string(),
+                Known {
+                    verdict: Verdict::Pass,
+                    reason: String::new(),
+                    receipt: Some(format!("r-{g}")),
+                },
+            )
+        };
+        let mut known: BTreeMap<String, Known> = ["H", "Q"].into_iter().map(pass).collect();
+        let j = judge(&p, &known);
+        assert_eq!(
+            (j.verdict, j.reason.as_str()),
+            (Verdict::NotRun, "GPU:NO_RECEIPT")
+        );
+        known.extend([pass("GPU")]);
+        assert_eq!(judge(&p, &known).verdict, Verdict::Pass);
     }
 
     #[test]

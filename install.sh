@@ -32,15 +32,38 @@ RELEASE_TAG="${AIEN_RELEASE_TAG:-}"
 
 ACTION="install"
 ALLOW_DOWNGRADE=0
+# Opt-in model server (DGX Spark only): --with-server or AIEN_INSTALL_SERVER=1.
+WITH_SERVER="${AIEN_INSTALL_SERVER:-0}"
+# Opt-in model download: --with-model or AIEN_INSTALL_MODEL=1; folder: --model-dir=DIR or AIEN_MODEL_DIR.
+WITH_MODEL="${AIEN_INSTALL_MODEL:-0}"
+MODEL_DIR="${AIEN_MODEL_DIR:-$HOME/models/qwen3.8-27b-fp8-017b9c7a}"
+MODEL_OK=0   # set to 1 only when model_download's sha256 check passed
 for arg in "$@"; do
     case "$arg" in
         --rollback) ACTION="rollback" ;;
         --allow-downgrade) ALLOW_DOWNGRADE=1 ;;
+        --with-server) WITH_SERVER=1 ;;
+        --with-model) WITH_MODEL=1 ;;
+        --model-dir=*) MODEL_DIR="${arg#--model-dir=}"; WITH_MODEL=1 ;;
         -h|--help)
-            echo "usage: install.sh [--rollback] [--allow-downgrade]"
+            echo "usage: install.sh [--rollback] [--allow-downgrade] [--with-server] [--with-model] [--model-dir=DIR]"
             echo "  (none)             source build, or with AIEN_RELEASE_TAG=vX.Y.Z a signed release install"
             echo "  --rollback         switch back to the one previous release kept by the last upgrade"
             echo "  --allow-downgrade  accept a release whose candidate is older than the installed one"
+            echo "  --with-server      also build the Qwen3.8-27B model server (aien-serve-http) on AIEN's own"
+            echo "                     Omega GPU engine and install it with its start script aien-serve-27b."
+            echo "                     DGX Spark (aarch64 Linux, NVIDIA GB10) only, source build only."
+            echo "                     Same as AIEN_INSTALL_SERVER=1. AIEN_PINS_DIR sets where the pinned"
+            echo "                     omega, physics and aienos sources are fetched (default target/pins)."
+            echo "  --with-model       also download the model weights the server reads: Hugging Face"
+            echo "                     Qwen/Qwen3.8-27B-FP8 at revision 017b9c7af6b5689d5dd426a76e0bc077eb5ca20a,"
+            echo "                     the 81 files of docs/qwen38/qwen3.8-27b-fp8-017b9c7a.sha256 (about 30.9 GB)."
+            echo "                     Checks free disk first, resumes partial files when rerun, then runs"
+            echo "                     sha256sum -c and refuses the folder if any file does not match."
+            echo "                     Same as AIEN_INSTALL_MODEL=1. Source build only."
+            echo "  --model-dir=DIR    where the model goes (implies --with-model; default"
+            echo "                     ~/models/qwen3.8-27b-fp8-017b9c7a, the folder aien-serve-27b reads)."
+            echo "                     Same as AIEN_MODEL_DIR=DIR."
             exit 0 ;;
         *) echo "Error: unknown argument: $arg" >&2; exit 2 ;;
     esac
@@ -265,6 +288,214 @@ if [[ "$ACTION" == "rollback" ]]; then
     exit 0
 fi
 
+# ------------------------------------------------------------------------------
+# Model server (--with-server): checks first, so nothing is changed on a machine
+# that cannot run it. Every failure says what is wrong in plain words and stops.
+# ------------------------------------------------------------------------------
+# The NVIDIA open kernel module version whose headers physics vendors (the only one tested).
+AIEN_EXPECTED_NVIDIA_DRIVER="580.173.02"
+server_die() {
+    echo "" >&2
+    echo "Error (model server): $*" >&2
+    echo "Nothing was built or installed for the model server." >&2
+    exit 1
+}
+server_warn() { echo "[!] Warning (model server): $*" >&2; }
+
+server_preflight() {
+    echo "[*] Model server: checking this machine"
+    [[ -z "$RELEASE_TAG" ]] || server_die "--with-server builds from source and cannot be combined with AIEN_RELEASE_TAG (no signed release contains the server). Unset AIEN_RELEASE_TAG."
+    local os arch
+    os="$(uname -s)"; arch="$(uname -m)"
+    [[ "$os" == Linux && "$arch" == aarch64 ]] \
+        || server_die "the model server only runs on an NVIDIA DGX Spark (aarch64 Linux with the GB10 chip). This machine is $os $arch."
+    local t missing=""
+    for t in git curl cc make ar nm; do
+        command -v "$t" >/dev/null 2>&1 || missing="$missing $t"
+    done
+    [[ -z "$missing" ]] || server_die "these programs are needed and were not found:$missing. On DGX OS / Ubuntu: sudo apt install git curl build-essential binutils"
+    # Test hook (scripts/test-install.sh only): skip the driver, device and memory checks, which a
+    # test machine cannot fake. Never set this for a real install.
+    if [[ "${AIEN_TEST_SERVER_SKIP_HW_CHECKS:-}" == 1 ]]; then
+        echo "[test] model server: driver, device and memory checks SKIPPED (AIEN_TEST_SERVER_SKIP_HW_CHECKS=1)" >&2
+        return 0
+    fi
+    # The Omega engine talks to the NVIDIA kernel driver directly (no CUDA toolkit, no nvcc).
+    local drv=""
+    if [[ -r /proc/driver/nvidia/version ]]; then
+        drv="$(grep -o '[0-9]\{3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}' /proc/driver/nvidia/version | head -n 1 || true)"
+    fi
+    if [[ -z "$drv" ]] && command -v nvidia-smi >/dev/null 2>&1; then
+        drv="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n 1 | tr -d '[:space:]' || true)"
+    fi
+    [[ -n "$drv" ]] || server_die "no NVIDIA driver found (no /proc/driver/nvidia/version and no nvidia-smi). Install the NVIDIA open kernel driver $AIEN_EXPECTED_NVIDIA_DRIVER and reboot."
+    if [[ "$drv" != "$AIEN_EXPECTED_NVIDIA_DRIVER" ]]; then
+        server_warn "NVIDIA driver is $drv; the engine is only tested with $AIEN_EXPECTED_NVIDIA_DRIVER. It may fail to start or give wrong results."
+    else
+        echo "    NVIDIA driver $drv (tested version)"
+    fi
+    local dev ok=0
+    for dev in /dev/nvidiactl /dev/nvidia0 /dev/nvidia-uvm; do
+        [[ -e "$dev" ]] || server_die "$dev does not exist: the NVIDIA driver is not fully loaded (try: sudo modprobe nvidia-uvm, or reboot)."
+        [[ -r "$dev" && -w "$dev" ]] || server_die "$dev is not readable and writable by $(id -un). Add yourself to the group that owns it ($(stat -c %G "$dev" 2>/dev/null || echo unknown)) or fix its permissions."
+        ok=$((ok + 1))
+    done
+    echo "    GPU device files: $ok readable and writable"
+    local avail_kib
+    avail_kib="$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+    # The loader needs 41,305 MiB + 8,192 MiB kept free = 49,497 MiB (48.3 GiB) of MemAvailable at
+    # load (crates/aien-serve-http/src/qwen38_engine.rs). It re-checks after it gets the GPU lock.
+    # A running server on the current build peaked at about 36.7 GiB (evidence/qwen38-serve-memory-20261019).
+    if [[ "${avail_kib:-0}" -lt $((49497 * 1024)) ]]; then
+        server_warn "only $((avail_kib / 1024)) MiB of memory is free now; the 27B server's loader needs 49,497 MiB (48.3 GiB) free when it starts, and checks again when it gets the GPU lock."
+    else
+        echo "    free memory: $((avail_kib / 1024 / 1024)) GiB"
+    fi
+    echo "[+] Model server: machine checks passed"
+}
+
+# server_build: fetch the pinned Omega sources, build aien-serve-http against the real GPU engine,
+# refuse a CPU stub, install it and its start script. Runs from the source checkout.
+server_build() {
+    local pins="${AIEN_PINS_DIR:-$SOURCE_ROOT/target/pins}"
+    local out="${CARGO_TARGET_DIR:-$SOURCE_ROOT/target}/release/aien-serve-http"
+    echo "[*] Model server: fetching the pinned omega, physics and aienos sources into $pins"
+    bash "$SOURCE_ROOT/scripts/pins.sh" --gpu "$pins" \
+        || server_die "scripts/pins.sh --gpu failed (see the lines above). Check the network and that git can reach github.com."
+    [[ -f "$pins/env.sh" ]] || server_die "scripts/pins.sh did not write $pins/env.sh."
+    # shellcheck disable=SC1091
+    . "$pins/env.sh"
+    [[ "${AIEN_REQUIRE_NATIVE_LIBS:-}" == 1 && -n "${AIEN_OMEGA_DIR:-}" ]] \
+        || server_die "$pins/env.sh does not select the GPU engine (AIEN_OMEGA_DIR unset)."
+    echo "[*] Model server: building aien-serve-http (release, links AIEN's Omega GPU library; this takes a while)"
+    cargo build --locked --release -p aien-serve-http \
+        || server_die "cargo build of aien-serve-http failed (see the lines above)."
+    [[ -x "$out" ]] || server_die "the build finished but $out is missing."
+    local info
+    info="$("$out" --version 2>&1)" || server_die "$out --version failed: $info"
+    if ! grep -q '^omega gpu engine: native' <<<"$info" || ! grep -q '^qwen38 engine: native' <<<"$info"; then
+        echo "$info" >&2
+        server_die "the built server has only the CPU stub, not the Omega GPU engine. It was NOT installed."
+    fi
+    mkdir -p "$BIN_DIR"
+    cp "$out" "$BIN_DIR/.aien-serve-http.new.$$"
+    chmod 755 "$BIN_DIR/.aien-serve-http.new.$$"
+    mv -f "$BIN_DIR/.aien-serve-http.new.$$" "$BIN_DIR/aien-serve-http"
+    cp "$SOURCE_ROOT/tools/serve-27b.sh" "$BIN_DIR/.aien-serve-27b.new.$$"
+    chmod 755 "$BIN_DIR/.aien-serve-27b.new.$$"
+    mv -f "$BIN_DIR/.aien-serve-27b.new.$$" "$BIN_DIR/aien-serve-27b"
+    echo "[+] Model server installed:"
+    echo "    - aien-serve-http -> $BIN_DIR/aien-serve-http"
+    echo "    - aien-serve-27b  -> $BIN_DIR/aien-serve-27b (start script)"
+    sed 's/^/      /' <<<"$info"
+}
+
+# ------------------------------------------------------------------------------
+# Model download (--with-model): Qwen3.8-27B-FP8 at one fixed revision, file by file
+# from the list of 81 files and sha256 values shipped in docs/qwen38/. Free disk is
+# checked before anything is cloned or built; the download resumes partial files
+# (<file>.part) when rerun; at the end sha256sum -c must pass for every file.
+# ------------------------------------------------------------------------------
+AIEN_MODEL_REPO="Qwen/Qwen3.8-27B-FP8"
+AIEN_MODEL_REV="017b9c7af6b5689d5dd426a76e0bc077eb5ca20a"
+AIEN_MODEL_LIST="docs/qwen38/qwen3.8-27b-fp8-017b9c7a.sha256"
+# Sum of the 81 file sizes (docs/qwen38/README.md) plus 2 GB of room.
+AIEN_MODEL_BYTES=30890049597
+AIEN_MODEL_MARGIN_BYTES=2000000000
+model_die() {
+    echo "" >&2
+    echo "Error (model download): $*" >&2
+    exit 1
+}
+
+sha256_check() {
+    if command -v sha256sum >/dev/null 2>&1; then sha256sum -c --quiet "$1"
+    else shasum -a 256 -c --quiet "$1"; fi
+}
+
+# Bytes free on the file system that will hold $1 (the nearest folder of $1 that exists).
+free_bytes_for() {
+    local d="$1"
+    while [[ ! -d "$d" ]]; do d="$(dirname "$d")"; done
+    df -Pk "$d" | awk 'NR == 2 { printf "%.0f\n", $4 * 1024 }'
+}
+
+model_preflight() {
+    echo "[*] Model download: checking curl, sha256 and free disk for $MODEL_DIR"
+    [[ -z "$RELEASE_TAG" ]] || model_die "--with-model needs the source checkout (it reads the checksum list from it) and cannot be combined with AIEN_RELEASE_TAG. Unset AIEN_RELEASE_TAG."
+    command -v curl >/dev/null 2>&1 || model_die "curl is needed and was not found. On DGX OS / Ubuntu: sudo apt install curl"
+    command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1 \
+        || model_die "sha256sum is needed and was not found. On DGX OS / Ubuntu: sudo apt install coreutils"
+    local need have free
+    if [[ -n "${AIEN_TEST_MODEL_NEED_BYTES:-}" ]]; then
+        # Test hook (scripts/test-install.sh only): a fixed need instead of the model's size.
+        echo "[test] model download: need set to $AIEN_TEST_MODEL_NEED_BYTES bytes (AIEN_TEST_MODEL_NEED_BYTES)" >&2
+        need="$AIEN_TEST_MODEL_NEED_BYTES"
+    else
+        # What is already in the folder from an earlier run does not need room again.
+        have=0
+        [[ ! -d "$MODEL_DIR" ]] || have=$(( $(du -sk "$MODEL_DIR" | cut -f1) * 1024 ))
+        need=$((AIEN_MODEL_BYTES + AIEN_MODEL_MARGIN_BYTES - have))
+        [[ "$need" -ge "$AIEN_MODEL_MARGIN_BYTES" ]] || need="$AIEN_MODEL_MARGIN_BYTES"
+    fi
+    free="$(free_bytes_for "$MODEL_DIR")"
+    [[ "$free" -ge "$need" ]] \
+        || model_die "not enough free disk for the model: $((free / 1000000000)) GB free where $MODEL_DIR goes, $((need / 1000000000 + 1)) GB needed (30.9 GB of weights plus 2 GB of room, less what is already there). Free some space or choose another folder with --model-dir=DIR. Nothing was downloaded."
+    echo "    free disk: $((free / 1000000000)) GB, needed: $((need / 1000000000 + 1)) GB"
+    echo "[+] Model download: checks passed"
+}
+
+# model_download: fetch every listed file into $MODEL_DIR, then sha256sum -c all of them.
+model_download() {
+    local list="$SOURCE_ROOT/$AIEN_MODEL_LIST"
+    local base="${AIEN_MODEL_BASE_URL:-https://huggingface.co/$AIEN_MODEL_REPO/resolve/$AIEN_MODEL_REV}"
+    [[ -f "$list" ]] || model_die "the checksum list $AIEN_MODEL_LIST is missing from the checkout."
+    mkdir -p "$MODEL_DIR"
+    echo "[*] Model download: $AIEN_MODEL_REPO at revision $AIEN_MODEL_REV into $MODEL_DIR"
+    local sha f n=0 fetched=0
+    while read -r sha f; do
+        [[ "$sha" =~ ^[0-9a-f]{64}$ && -n "$f" ]] || model_die "bad line in $AIEN_MODEL_LIST: $sha $f"
+        case "$f" in /*|*..*) model_die "unsafe file name in $AIEN_MODEL_LIST: $f" ;; esac
+        n=$((n + 1))
+        # A complete file from an earlier run is kept (the sha256 check below judges it);
+        # <file>.part is an interrupted download and is resumed where it stopped.
+        if [[ -f "$MODEL_DIR/$f" && ! -e "$MODEL_DIR/$f.part" ]]; then continue; fi
+        mkdir -p "$(dirname "$MODEL_DIR/$f")"
+        if [[ -s "$MODEL_DIR/$f.part" ]]; then
+            echo "    resuming $f ($(du -k "$MODEL_DIR/$f.part" | cut -f1) KiB already here)"
+        else
+            echo "    fetching $f"
+        fi
+        if ! curl --proto '=https,file' --fail --location --silent --show-error \
+                --retry 5 --retry-delay 5 -C - -o "$MODEL_DIR/$f.part" "$base/$f"; then
+            # curl refuses to resume a .part that is already complete; accept it if it matches.
+            [[ -f "$MODEL_DIR/$f.part" && "$(sha256_of "$MODEL_DIR/$f.part")" == "$sha" ]] \
+                || model_die "download of $f failed (see the curl line above). What arrived is kept in $MODEL_DIR/$f.part; rerun the installer to resume."
+        fi
+        mv -f "$MODEL_DIR/$f.part" "$MODEL_DIR/$f"
+        fetched=$((fetched + 1))
+    done < "$list"
+    [[ "$n" -gt 0 ]] || model_die "$AIEN_MODEL_LIST lists no files."
+    echo "[*] Model download: $fetched of $n files fetched now; checking all $n with sha256sum -c"
+    local out bad
+    if ! out="$(cd "$MODEL_DIR" && sha256_check "$list" 2>&1)"; then
+        echo "$out" >&2
+        # Set mismatched files aside so a rerun fetches them fresh.
+        bad=0
+        while IFS= read -r f; do
+            [[ -n "$f" && -f "$MODEL_DIR/$f" ]] || continue
+            mv -f "$MODEL_DIR/$f" "$MODEL_DIR/$f.mismatch"
+            bad=$((bad + 1))
+        done < <(sed -n 's/: FAILED.*$//p' <<<"$out")
+        model_die "the model folder does not match the shipped checksums ($bad file(s) set aside as <file>.mismatch, listed above). Do not start the server on it. Rerun the installer to fetch those files again."
+    fi
+    echo "[+] Model download: all $n files match $AIEN_MODEL_LIST"
+    MODEL_OK=1
+}
+
+[[ "$WITH_SERVER" != 1 ]] || server_preflight
+[[ "$WITH_MODEL" != 1 ]] || model_preflight
+
 # Release signing keys, pinned here so a release can be verified with nothing but this file and the assets
 # (offline). scripts/test-install-release.sh checks both lines against their files in docs/release/.
 # AIEN_RELEASE_SIGNER is the dedicated offline public-release key (Drake ruling 1, sc#385). It equals the key line of
@@ -286,7 +517,7 @@ elif [[ -f "${BASH_SOURCE[0]:-}" && -f "$(dirname "${BASH_SOURCE[0]}")/Cargo.tom
 elif [[ -z "$RELEASE_TAG" ]]; then
     INSTALL_WORKSPACE="$(mktemp -d "${TMPDIR:-/tmp}/aien-install.XXXXXX")"
     trap 'rm -rf "$INSTALL_WORKSPACE"' EXIT
-    git clone --quiet https://github.com/aien-dev/aien-sovereign-core.git "$INSTALL_WORKSPACE/core"
+    git clone --quiet https://github.com/aien-dev/aien-sovereign-core-mv.git "$INSTALL_WORKSPACE/core"
     git -C "$INSTALL_WORKSPACE/core" checkout --quiet "${AIEN_REV:-main}"
     SOURCE_ROOT="$INSTALL_WORKSPACE/core"
 fi
@@ -370,7 +601,7 @@ install_release() {
     [[ "$tag" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "Error: release tag '$tag' has characters other than letters, digits, dot, dash, underscore" >&2; exit 1; }
     command -v ssh-keygen >/dev/null 2>&1 || { echo "Error: ssh-keygen is required to verify the release signature" >&2; exit 1; }
     command -v curl >/dev/null 2>&1 || { echo "Error: curl is required to download the release" >&2; exit 1; }
-    local base="${AIEN_RELEASE_BASE_URL:-https://github.com/aien-dev/aien-sovereign-core/releases/download/$tag}"
+    local base="${AIEN_RELEASE_BASE_URL:-https://github.com/aien-dev/aien-sovereign-core-mv/releases/download/$tag}"
     local asset="sovereign-${TARGET_OS}-${RELEASE_ARCH}.tar.gz"
     DL_DIR=""
     DL_DIR="$(mktemp -d "${TMPDIR:-/tmp}/aien-release.XXXXXX")"
@@ -470,7 +701,9 @@ echo "    - spark-harness (5-Layer Verification Engine)"
 echo "    - spark-crumbs (Blake3 Scent & Action Vector Tracker)"
 echo "    - spark-aegis (Defensive Boundary & Containment Engine)"
 
-cargo build --locked --release -p aien-cli -p spark-cockpit-rs -p cortex-rs -p spark-supervisor -p spark-debugger -p spark-harness -p spark-crumbs -p spark-aegis
+# The workspace holds both crates/spark-crumbs and the git-pinned copy its dependents use (the release candidate
+# pins that revision in Cargo.lock), so a bare `-p spark-crumbs` is ambiguous (L055). Name the in-repo crate by path.
+cargo build --locked --release -p aien-cli -p spark-cockpit-rs -p cortex-rs -p spark-supervisor -p spark-debugger -p spark-harness -p "path+file://$PWD/crates/spark-crumbs" -p spark-aegis
 
 echo "[*] Installing Binaries to $BIN_DIR..."
 cp target/release/aien-cli "$BIN_DIR/aien"
@@ -492,6 +725,14 @@ echo "    - spark-debugger -> $BIN_DIR/spark-debugger"
 echo "    - spark-harness -> $BIN_DIR/spark-harness"
 echo "    - spark-crumbs -> $BIN_DIR/spark-crumbs"
 echo "    - spark-aegis -> $BIN_DIR/spark-aegis"
+fi
+
+if [[ "$WITH_SERVER" == 1 ]]; then
+    server_build
+fi
+
+if [[ "$WITH_MODEL" == 1 ]]; then
+    model_download
 fi
 
 echo "[*] Initializing Sovereign Operator Profile..."
@@ -527,8 +768,13 @@ if [[ -n "$IMPRINT_SRC" && -d "$IMPRINT_SRC" ]]; then
 fi
 
 echo "=================================================================="
+if [[ "$MODEL_OK" == 1 ]]; then
+echo "  ⚡ Portable binaries installed. Access-token provisioning remains."
+echo "  Model: Qwen3.8-27B-FP8 downloaded and checked in $MODEL_DIR; see docs/FIRST_RUN.md for the rest."
+else
 echo "  ⚡ Portable binaries installed. Model and access-token provisioning remain."
-echo "  The installer does not provision a model; see docs/FIRST_RUN.md."
+echo "  The installer does not provision a model unless run with --with-model; see docs/FIRST_RUN.md."
+fi
 echo "=================================================================="
 echo "  Primary Command: aien"
 echo ""
@@ -541,3 +787,18 @@ echo "    aien chat       # Interactive sovereign terminal pairing"
 echo "    aien aegis      # Run defensive boundary security audit"
 echo "    aien doctor     # System diagnostic and TPM key vault audit"
 echo "=================================================================="
+if [[ "$WITH_SERVER" == 1 ]]; then
+echo "  Model server (Qwen3.8-27B on the Omega engine):"
+if [[ "$WITH_MODEL" == 1 ]]; then
+echo "    1. Weights downloaded and checked in $MODEL_DIR"
+else
+echo "    1. Download and check the weights (about 31 GB): rerun with --with-model, or by hand:"
+echo "       Hugging Face Qwen/Qwen3.8-27B-FP8, revision 017b9c7af6b5689d5dd426a76e0bc077eb5ca20a"
+echo "       into ~/models/qwen3.8-27b-fp8-017b9c7a"
+fi
+echo "    2. aien-serve-27b        # starts it on http://127.0.0.1:18091/v1 and prints how to stop it"
+echo "       (MODEL_DIR, PORT and BIN override the defaults; aien-serve-27b --help)"
+[[ "$WITH_MODEL" != 1 || "$MODEL_DIR" == "$HOME/models/qwen3.8-27b-fp8-017b9c7a" ]] \
+    || echo "       Your model folder is not the default: start it with MODEL_DIR=$MODEL_DIR aien-serve-27b"
+echo "=================================================================="
+fi

@@ -221,19 +221,19 @@ async fn handle_ingest_test(
         to: vec![state.operator_email.clone()],
         subject: "Sovereign Mail Node Online".to_string(),
         body: "Your sovereign mail server is running directly on Spark hardware. Messages are stored on local NVMe disk with zero cloud telemetry and synced to Atlas Cortex memory.".to_string(),
-        from: Some("atlas@sovereign.spark".to_string()),
+        from: Some("aien@aienos.com".to_string()),
     };
 
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().to_rfc3339();
     let mut headers = std::collections::HashMap::new();
-    headers.insert("From".to_string(), "atlas@sovereign.spark".to_string());
+    headers.insert("From".to_string(), "aien@aienos.com".to_string());
     headers.insert("To".to_string(), state.operator_email.clone());
     headers.insert("Subject".to_string(), test_req.subject.clone());
 
     let mut msg = EmailMessage {
         id: id.clone(),
-        from: "atlas@sovereign.spark".to_string(),
+        from: "aien@aienos.com".to_string(),
         to: test_req.to,
         subject: test_req.subject,
         body: test_req.body,

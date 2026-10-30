@@ -683,6 +683,31 @@ fn state_from(
     (st, now)
 }
 
+/// The text of one reconcile record, exactly as it is journalled (`append` writes
+/// `to_string()` of it). `st` is the decided state, `world` what the world check saw,
+/// `disk` the digest it read or its error, `who` who decided. The seeded .om world
+/// check (om/effects/world.om) is compared byte for byte against this function.
+pub fn reconcile_text(
+    row: &IntentRow,
+    st: EffectState,
+    world: EffectState,
+    disk: &Result<Option<String>, String>,
+    who: &str,
+    objective: Option<&ObjectiveBinding>,
+) -> Value {
+    let mut text = json!({
+        "phase": PHASE_RECONCILE, "intent": row.id, "authorization": row.authorization,
+        "state": st.name(), "world": world.name(),
+        "disk_sha256": disk.as_ref().ok().cloned().flatten(),
+        "disk_error": disk.as_ref().err(), "by": who,
+    });
+    if let Some(o) = objective {
+        text["objective_id"] = json!(o.objective_id);
+        text["objective_record"] = json!(o.record);
+    }
+    text
+}
+
 /// The world check, confined (476ca4 c28): the target is read only while it
 /// still resolves inside its grant's workspace (`confine_target` again, at
 /// ack and reconcile time, so a directory swapped for a symlink after the
@@ -2048,15 +2073,7 @@ pub fn reconcile(
                 });
                 continue;
             }
-            let mut text = json!({
-                "phase": PHASE_RECONCILE, "intent": row.id, "authorization": row.authorization,
-                "state": st.name(), "world": world.name(), "disk_sha256": disk_hex,
-                "disk_error": disk.as_ref().err(), "by": who,
-            });
-            if let Some(o) = &objective {
-                text["objective_id"] = json!(o.objective_id);
-                text["objective_record"] = json!(o.record);
-            }
+            let text = reconcile_text(&row, st, world, &disk, &who, objective.as_ref());
             let n = append(home, NoteKind::Effect, &[row.id, row.authorization], &text)?;
             out.push(ReconcileOutcome {
                 intent: row.id,
