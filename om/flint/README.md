@@ -260,6 +260,37 @@ Each is NOT_RUN when unset. NOT_RUN for this unit: the name map and shape cross-
 the safetensors inventory, the totals reconciliation, NVFP4 block dequantization against the
 BF16 shards, and any serving or GPU evidence.
 
+### NVFP4 dequantization tolerance (derived from the format before any full comparison)
+
+ggml b11804 (`dequantize_row_nvfp4` in `ggml/src/ggml-quants.c`, `ggml_ue4m3_to_fp32` in
+`ggml-impl.h`) decodes one 36-byte block of 64 elements as four 16-element sub-blocks:
+`y[16s + j] = E2M1(qs[8s + j] & 15) · ue(d[s])` and `y[16s + j + 8] = E2M1(qs[8s + j] >> 4) · ue(d[s])`
+for j < 8. Here E2M1 is the value set ±{0, 0.5, 1, 1.5, 2, 3, 4, 6}. ue(x) is 0 for x = 0 or 127. Otherwise, with
+e = (x >> 3) & 15 and m = x & 7, it is m · 2^-9 when e = 0 and (1 + m/8) · 2^(e-7) when e > 0. The
+llama.cpp graph multiplies by the tensor's F32 `.scale` (one value, or one per expert for `_exps`).
+So the dequantized weight is ŵ = q · D with D = ue(d[s]) · scale.
+
+The bound for a reference BF16 weight w is
+
+    |w - ŵ| <= 1 · D + max(0, |w| - 6 · D) + 2^-8 · |w|
+
+It has three terms:
+
+- **1 · D:** a nearest-value quantizer's worst error on the E2M1 grid is half the largest grid gap.
+  The largest gap is the top binade, 4 to 6.
+  Wolfram: `g={0,1/2,1,3/2,2,3,4,6}; {Max[Differences[g]]/2, Position[Differences[g], Max[Differences[g]]]}` → `{1, {{7}}}`.
+- **max(0, |w| - 6 · D):** clipping. When the E4M3 sub-scale was rounded down, the block's largest
+  value lies beyond 6 · D.
+- **2^-8 · |w|:** the rounding of the reference to BF16 (8-bit significand, unit roundoff 2^-8).
+  Wolfram: `2^(1-8)/2` → `1/256`.
+
+The comparison is in f64. q · ue · scale is exact there (significand bits: 2 + 4 + 24 = 30, at most 53).
+
+The pass rule is zero violations over the sampled blocks. The bound was fixed and committed before
+the full comparison. An earlier 30-block probe (max 1.031 · D, without the 2^-8 term) was
+exploratory, and the bound does not use it. If real tensors exceed the bound, the gate reports
+FAIL with the numbers; the bound is not loosened.
+
 ## Complete bounded host forward
 
 `FLINT_FORWARD=1` adds a full 49-layer chained computation to the same check command.
