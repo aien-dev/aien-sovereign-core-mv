@@ -1,0 +1,222 @@
+global checks ulong 2
+global extra long 128
+fn ck ok bool to void
+put checks 0 add get checks 0 1
+if not ok
+put checks 1 add get checks 1 1
+end
+end
+fn printnum value ulong to void
+if ge value 10
+printnum div value 10
+end
+put pio 0 uchar add rem value 10 48
+n = write 1 pio 0 1
+end
+fn pattern offset ulong salt ulong to uchar
+ret uchar rem add mul offset 13 salt 251
+end
+fn fill id long size ulong salt ulong to void
+off = ulong 0
+while lt off size
+amount = sub size off
+if gt amount 8192
+amount = 8192
+end
+for j ulong amount
+put pio j pattern add off j salt
+end
+ck eq pwrite id off amount id
+off = add off amount
+end
+end
+fn verify id long size ulong salt ulong changed ulong to void
+off = ulong 0
+while lt off size
+amount = sub size off
+if gt amount 8192
+amount = 8192
+end
+ck eq pread id off amount 0
+for j ulong amount
+want = pattern add off j salt
+if eq add off j changed
+want = 255
+end
+ck eq get pio j want
+end
+off = add off amount
+end
+end
+fn chunk size ulong to void
+ck eq pinit size 3 add 17984 mul size 3 0
+a = pnew
+ck gt a 0
+fill a size 17
+ck eq phold a 0
+ck eq phold a 0
+put pio 0 255
+b = pwrite a sub size 1 1
+ck gt b 0
+ck ne a b
+ck eq get pconfig 5 3
+ck eq get pconfig 4 2
+ck eq pbytes add 17984 mul size 2
+put pio 0 255
+c = pwrite a 8191 1
+if lt size 8192
+ck eq c neg long 65
+ck eq get pconfig 5 3
+ck eq pfree a 0
+else
+ck gt c 0
+ck ne a c
+ck ne b c
+ck eq get pconfig 5 3
+ck eq get pconfig 4 3
+verify c size 17 8191
+ck eq pfree c 0
+end
+verify a size 17 18446744073709551615
+verify b size 17 sub size 1
+ck eq pfree a 0
+ck eq pfree b 0
+ck eq pbytes 17984
+ck eq get pconfig 5 0
+ck eq pinit 4096 1 22080 0
+d = pnew
+ck gt d 0
+ck eq phold a 73
+ck eq pread b 0 1 73
+ck eq pfree d 0
+end
+fn exhaust to void
+ck eq pinit 4096 3 30272 0
+for i ulong 128
+h = mapnew neg int 1 0 4096 3 34
+ck gt h 0
+put extra i h
+end
+ck eq pnew neg long 75
+ck eq get pconfig 4 0
+ck eq get pconfig 5 0
+ck eq pbytes 17984
+ck eq mapdrop get extra 0 0
+a = pnew
+ck gt a 0
+put pio 0 42
+ck eq pwrite a 0 1 a
+ck eq phold a 0
+put pio 0 43
+ck eq pwrite a 0 1 neg long 75
+ck eq get pconfig 5 2
+ck eq get pconfig 4 1
+ck eq pread a 0 1 0
+ck eq get pio 0 42
+ck eq mapdrop get extra 1 0
+put pio 0 43
+b = pwrite a 0 1
+ck gt b 0
+ck ne b a
+ck eq get pconfig 5 2
+ck eq get pconfig 4 2
+ck eq pread a 0 1 0
+ck eq get pio 0 42
+ck eq pread b 0 1 0
+ck eq get pio 0 43
+ck eq pfree a 0
+ck eq pfree b 0
+for i ulong 126
+ck eq mapdrop get extra add i 2 0
+end
+ck eq pbytes 17984
+end
+fn quota to void
+ck eq pinit 4096 3 26176 0
+a = pnew
+b = pnew
+ck gt a 0
+ck gt b 0
+ck eq pnew neg long 75
+ck eq phold a 0
+put pio 0 77
+ck eq pwrite a 0 1 neg long 75
+ck eq get pconfig 5 3
+ck eq get pconfig 4 2
+ck eq pbytes 26176
+ck eq pread a 0 1 0
+ck eq get pio 0 0
+ck eq pfree b 0
+put pio 0 77
+c = pwrite a 0 1
+ck gt c 0
+ck ne a c
+ck eq get pconfig 5 2
+ck eq get pconfig 4 2
+ck eq pfree a 0
+ck eq pfree c 0
+ck eq pbytes 17984
+ck eq pinit 4096 1 22079 0
+ck eq pnew neg long 75
+ck eq get pconfig 4 0
+ck eq pbytes 17984
+end
+fn refcap to void
+ck eq pinit 4096 2 26176 0
+a = pnew
+ck gt a 0
+for i ulong 1048575
+ck eq phold a 0
+end
+ck eq get pconfig 5 1048576
+ck eq phold a 75
+ck eq pnew neg long 75
+put pio 0 99
+ck eq pwrite a 0 1 neg long 75
+ck eq pread a 0 1 0
+ck eq get pio 0 0
+for i ulong 1048576
+ck eq pfree a 0
+end
+ck eq get pconfig 5 0
+ck eq pbytes 17984
+end
+fn lastgen to void
+ck eq pinit 4096 1 22080 0
+put pgens 0 72057594037927934
+a = pnew
+ck eq a long 9223372036854775681
+ck eq phold a 0
+ck eq pfree a 0
+ck eq pfree a 0
+ck eq pnew neg long 75
+ck eq pinit 8192 1 26176 0
+ck eq pnew neg long 75
+ck eq pfree a 73
+ck eq pinit 4096 2 26176 0
+b = pnew
+ck gt b 0
+ck eq and ulong b 127 2
+ck eq pfree b 0
+end
+fn main to int
+chunk 4096
+chunk 8192
+chunk 12288
+chunk 24576
+chunk 65536
+exhaust
+refcap
+quota
+lastgen
+printnum get checks 0
+put pio 0 10
+n = write 1 pio 0 1
+printnum get checks 1
+put pio 0 10
+n = write 1 pio 0 1
+if ne get checks 1 0
+ret 1
+end
+ret 0
+end

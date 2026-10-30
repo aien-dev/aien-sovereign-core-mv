@@ -1,0 +1,294 @@
+note SPDX-License-Identifier: AGPL-3.0-only
+note Core718: bounded cost selection only. No allocation, restore or model execution.
+note Caller must authenticate complete snapshots and retain them through commit.
+global rcontrol ulong 10
+global rexpect ulong 32
+global rident ulong 512
+global rrows ulong 352
+global rreason ulong 16
+global rresult ulong 5
+global robs ulong 7
+
+fn rfield row ulong field ulong to ulong
+ret get rrows add mul row 22 field
+end
+
+fn rcost row ulong to ulong
+v = ulong 0
+for p ulong 7
+v = add v rfield row add p 8
+end
+ret v
+end
+
+fn rmemory row ulong to int
+total = get rcontrol 6
+for p ulong 5
+v = rfield row add p 15
+if gt v 1125899906842624
+ret 75
+end
+total = add total v
+end
+if gt total get rcontrol 5
+ret 75
+end
+ret 0
+end
+
+fn rprofile row ulong to int
+for d ulong 8
+n = ulong 0
+for j ulong 4
+i = add mul d 4 j
+v = get rexpect i
+n = or n v
+if ne v get rident add mul row 32 i
+ret 69
+end
+end
+if eq n 0
+ret 69
+end
+end
+if lt rfield row 6 get rcontrol 4
+ret 74
+end
+if gt rfield row 6 1000000
+ret 65
+end
+stamp = rfield row 7
+now = get rcontrol 2
+if gt stamp now
+ret 74
+end
+if gt sub now stamp get rcontrol 3
+ret 74
+end
+for p ulong 7
+if gt rfield row add p 8 1000000000000
+ret 65
+end
+end
+if eq rcost row 0
+ret 74
+end
+ret 0
+end
+
+fn rvalid row ulong to int
+if ne rfield row 0 1
+ret 77
+end
+kind = rfield row 1
+if eq row 0
+if ne kind 0
+ret 65
+end
+if ne rfield row 2 0
+ret 65
+end
+if ne rfield row 3 0
+ret 65
+end
+if ne rfield row 4 0
+ret 65
+end
+else
+if lt kind 1
+ret 65
+end
+if gt kind 2
+ret 65
+end
+if eq rfield row 2 0
+ret 65
+end
+if ne rfield row 5 31
+ret 76
+end
+if ne rfield row 20 1
+ret 76
+end
+if ne rfield row 21 1
+ret 76
+end
+if eq rfield row 3 0
+ret 76
+end
+if gt rfield row 4 1
+ret 76
+end
+end
+if gt rfield row 3 get rcontrol 9
+ret 76
+end
+if gt add rfield row 3 rfield row 4 get rcontrol 9
+ret 76
+end
+status = rmemory row
+if ne status 0
+ret status
+end
+ret rprofile row
+end
+
+fn rconfig to int
+count = get rcontrol 0
+if lt count 1
+ret 65
+end
+if gt count 16
+ret 65
+end
+if gt get rcontrol 5 1125899906842624
+ret 65
+end
+if gt get rcontrol 6 get rcontrol 5
+ret 75
+end
+if lt get rcontrol 4 1
+ret 65
+end
+if gt get rcontrol 4 1000000
+ret 65
+end
+if gt get rcontrol 7 1000000000000
+ret 65
+end
+if gt get rcontrol 8 1000000
+ret 65
+end
+if gt get rcontrol 9 131072
+ret 65
+end
+note Duplicate enabled snapshot identities make the hysteresis anchor ambiguous.
+for i ulong count
+if eq rfield i 0 1
+for j ulong i
+if eq rfield j 0 1
+if eq rfield i 2 rfield j 2
+ret 65
+end
+end
+end
+end
+end
+ret 0
+end
+
+fn rselect to int
+note Clear all output on every attempt, including failures.
+for i ulong 5
+put rresult i 0
+end
+for i ulong 16
+put rreason i 77
+end
+base = rconfig
+if ne base 0
+ret base
+end
+count = get rcontrol 0
+base = rvalid 0
+put rreason 0 ulong base
+if ne base 0
+note Unknown/stale estimates fall back to fresh work, with no claimed prediction.
+if eq base 74
+put rresult 4 1
+ret 0
+end
+ret base
+end
+anchor = ulong 0
+for i ulong count
+status = rvalid i
+put rreason i ulong status
+if eq status 0
+if eq rfield i 2 get rcontrol 1
+if lt rcost i rcost 0
+anchor = i
+end
+end
+end
+end
+best = anchor
+for i ulong count
+if eq get rreason i 0
+if lt rcost i rcost best
+best = i
+else
+if eq rcost i rcost best
+note Equal-cost alternatives never displace the current anchor.
+if ne best anchor
+if lt rfield i 1 rfield best 1
+best = i
+else
+if eq rfield i 1 rfield best 1
+if lt rfield i 2 rfield best 2
+best = i
+end
+end
+end
+end
+end
+end
+end
+end
+saved = sub rcost anchor rcost best
+note Sum of seven bounded phases times one million fits unsigned 64 bits.
+margin = add get rcontrol 7 div mul rcost anchor get rcontrol 8 1000000
+if le saved margin
+best = anchor
+end
+put rresult 0 best
+put rresult 1 rcost best
+put rresult 2 sub rcost 0 rcost best
+put rresult 3 1
+ret 0
+end
+
+fn rcalib row ulong stamp ulong to int
+note Update only an already admitted identity. Caller supplies real elapsed phases.
+base = rconfig
+if ne base 0
+ret base
+end
+if ge row get rcontrol 0
+ret 65
+end
+if ge row 16
+ret 65
+end
+status = rvalid row
+if ne status 0
+ret status
+end
+if lt stamp rfield row 7
+ret 74
+end
+if gt stamp get rcontrol 2
+ret 74
+end
+total = ulong 0
+for p ulong 7
+v = get robs p
+if gt v 1000000000000
+ret 65
+end
+total = add total v
+end
+if eq total 0
+ret 74
+end
+for p ulong 7
+v = div add add mul rfield row add p 8 7 get robs p 7 8
+put rrows add mul row 22 add p 8 v
+end
+n = rfield row 6
+if lt n 1000000
+put rrows add mul row 22 6 add n 1
+end
+put rrows add mul row 22 7 stamp
+ret 0
+end

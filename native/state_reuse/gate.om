@@ -1,0 +1,431 @@
+note SPDX-License-Identifier: AGPL-3.0-only
+note State reuse host qualification. Process helpers adapted from Omega gate669 at1dffceae.
+note No GPU. Exact exits and output bytes; child deadlines30s; scratch exclusive.
+text scratch "build/reuse-native-gate"
+text prefix "build/reuse-native-gate/"
+text names "unused\n/dev/null\nnative/state_reuse/policy.om\nnative/state_reuse/tests.om\nnative/state_reuse/independent.om\nnative/state_reuse/pages.om\nnative/state_reuse/pages-test.om\nnative/state_reuse/pages-independent.om\nnative/state_reuse/page-policy.om\nnative/state_reuse/page-policy-test.om\nnative/state_reuse/pages-budget-test.om\nnative/state_reuse/pages-quota.om\nnative/state_reuse/gate-child.om\n"
+text input " < "
+text output " > "
+text errors " 2> "
+text nl "\n"
+text statusm "exit="
+text expect " expected="
+text signalm "INVALID child wait low-byte="
+text timeoutm "INVALID child deadline exceeded; sent SIGKILL; wait low-byte="
+text passed "AIEN-OBS reuse_groups 7\nSTATE_REUSE_NATIVE_GATE: PASS\n"
+text failed "STATE_REUSE_NATIVE_GATE: FAIL; retain all scratch files and command output\n"
+global pathbuf uchar 4096
+global plen ulong 1
+global serial ulong 1
+global argv uchar 4096
+global argc ulong 1
+global apos ulong 1
+global statbuf uchar 4
+global buf uchar 4096
+global other uchar 4096
+global digits uchar 32
+global cases ulong 1
+text wauthor "16210\n0\n"
+text wreview "24588\n0\n"
+text wresid "37905\n0\n"
+text windep "2437621\n0\n"
+text wjoined "40\n0\n"
+fn stop to void
+r = write 2 failed 0 len failed
+exit 99
+end
+fn decimal v ulong to ulong
+x = v
+n = ulong 0
+while ge x 10
+put digits n uchar add 48 rem x 10
+x = div x 10
+n = add n 1
+end
+put digits n uchar add 48 x
+ret add n 1
+end
+fn num v ulong to void
+n = decimal v
+for i ulong n
+r = write 1 digits sub sub n i 1 1
+if ne r 1
+stop
+end
+end
+end
+fn setpath id ulong to void
+if eq id 1
+n = argread 1 pathbuf 0 len pathbuf
+if le n 0
+stop
+end
+put plen 0 ulong n
+ret
+end
+if and ge id 100 lt id 356
+put pathbuf 0 uchar sub id 100
+put plen 0 1
+ret
+end
+if ge id 1000
+for i ulong len prefix
+put pathbuf i get prefix i
+end
+n = decimal id
+for i ulong n
+put pathbuf add len prefix i get digits sub sub n i 1
+end
+put plen 0 add len prefix n
+ret
+end
+index = ulong 1
+p = ulong 0
+for i ulong len names
+b = get names i
+if eq b 10
+if eq index id
+put plen 0 p
+ret
+end
+index = add index 1
+else
+if eq index id
+put pathbuf p b
+p = add p 1
+end
+end
+end
+stop
+end
+fn showpath id ulong to void
+setpath id
+r = write 1 pathbuf 0 get plen 0
+if ne r long get plen 0
+stop
+end
+end
+fn openfile id ulong flags int to int
+setpath id
+r = fopen pathbuf 0 get plen 0 flags 384
+if lt r 0
+stop
+end
+ret int r
+end
+fn fresh to ulong
+n = add get serial 0 1
+if ge n 400000
+stop
+end
+put serial 0 n
+ret add 1000 n
+end
+fn arg id ulong to void
+setpath id
+p = get apos 0
+n = get plen 0
+if gt add add p n 2 len argv
+stop
+end
+put argv p uchar and n 255
+put argv add p 1 uchar shr n 8
+p = add p 2
+for i ulong n
+put argv add p i get pathbuf i
+end
+put apos 0 add p n
+put argc 0 add get argc 0 1
+end
+fn command exe ulong to void
+put argc 0 0
+put apos 0 2
+arg exe
+showpath exe
+end
+fn argument id ulong to void
+put digits 0 32
+r = write 1 digits 0 1
+showpath id
+arg id
+end
+fn close fd int to void
+if ne fclose fd 0
+stop
+end
+end
+fn redirect source int dest int to void
+if ne source dest
+if ne dupfd source dest 0 long dest
+stop
+end
+end
+end
+fn reap pid int to ulong
+start = monons
+if lt start 0
+stop
+end
+while true
+r = waitpid pid statbuf 0 len statbuf 1
+if eq r long pid
+if ne get statbuf 0 0
+r = write 1 signalm 0 len signalm
+num ulong get statbuf 0
+r = write 1 nl 0 1
+stop
+end
+ret ulong get statbuf 1
+end
+if lt r 0
+stop
+end
+now = monons
+if or lt now start gt sub now start 30000000000
+r = killpid pid 9
+r = waitpid pid statbuf 0 len statbuf 0
+r = write 1 timeoutm 0 len timeoutm
+num ulong get statbuf 0
+r = write 1 nl 0 1
+stop
+end
+if ne sleepns 1000000 0
+stop
+end
+end
+exit 99
+end
+fn run source ulong wanted ulong to ulong
+outid = fresh
+errid = add outid 500000
+r = write 1 input 0 len input
+showpath source
+r = write 1 output 0 len output
+showpath outid
+r = write 1 errors 0 len errors
+showpath errid
+r = write 1 nl 0 1
+rd = openfile source 524288
+wr = openfile outid 524481
+er = openfile errid 524481
+put argv 0 uchar get argc 0
+put argv 1 uchar shr get argc 0 8
+pid = fork
+if lt pid 0
+stop
+end
+if eq pid 0
+redirect rd 0
+redirect wr 1
+redirect er 2
+r = execprog argv 0 get apos 0
+exit 98
+end
+close rd
+close wr
+close er
+actual = reap int pid
+r = write 1 statusm 0 len statusm
+num actual
+r = write 1 expect 0 len expect
+num wanted
+r = write 1 nl 0 1
+if ne actual wanted
+stop
+end
+ret outid
+end
+fn enable id ulong to void
+fd = openfile id 524288
+r = read fd buf 0 4
+if ne r 4
+stop
+end
+if or ne get buf 0 127 ne get buf 1 69
+stop
+end
+if or ne get buf 2 76 ne get buf 3 70
+stop
+end
+if ne fchmod fd 448 0
+stop
+end
+close fd
+end
+fn empty id ulong to void
+fd = openfile id 524288
+r = read fd buf 0 1
+close fd
+if ne r 0
+stop
+end
+end
+fn compile cc ulong src ulong wanted ulong to ulong
+command cc
+outid = run src wanted
+if eq wanted 0
+enable outid
+else
+empty outid
+end
+ret outid
+end
+fn append source ulong dest int to void
+fd = openfile source 524288
+while true
+n = read fd buf 0 len buf
+if lt n 0
+stop
+end
+if eq n 0
+close fd
+ret
+end
+if ne write dest buf 0 ulong n n
+stop
+end
+end
+end
+fn combine first ulong second ulong to ulong
+id = fresh
+fd = openfile id 524481
+append first fd
+put buf 0 10
+if ne write fd buf 0 1 1
+stop
+end
+append second fd
+close fd
+ret compile 1 id 0
+end
+fn exact id ulong want ulong to void
+if eq want 5
+empty id
+ret
+end
+fd = openfile id 524288
+n = read fd buf 0 len buf
+extra = read fd other 0 1
+close fd
+size = len wauthor
+if eq want 1
+size = len wreview
+end
+if eq want 2
+size = len wresid
+end
+if eq want 3
+size = len windep
+end
+if eq want 4
+size = len wjoined
+end
+if or ne n long size ne extra 0
+stop
+end
+for i ulong size
+b = uchar 0
+if eq want 0
+b = get wauthor i
+end
+if eq want 1
+b = get wreview i
+end
+if eq want 2
+b = get wresid i
+end
+if eq want 3
+b = get windep i
+end
+if eq want 4
+b = get wjoined i
+end
+if ne get buf i b
+stop
+end
+end
+end
+fn execute exe ulong want ulong to void
+command exe
+outid = run 2 0
+exact outid want
+put cases 0 add get cases 0 1
+end
+fn suite first ulong second ulong want ulong to void
+exe = combine first second
+execute exe want
+end
+fn joined to void
+id = fresh
+fd = openfile id 524481
+append 3 fd
+put buf 0 10
+if ne write fd buf 0 1 1
+stop
+end
+append 6 fd
+put buf 0 10
+if ne write fd buf 0 1 1
+stop
+end
+append 9 fd
+put buf 0 10
+if ne write fd buf 0 1 1
+stop
+end
+append 10 fd
+close fd
+exe = compile 1 id 0
+execute exe 4
+end
+fn modefile value uchar to ulong
+id = fresh
+fd = openfile id 524481
+put buf 0 value
+if ne write fd buf 0 1 1
+stop
+end
+close fd
+ret id
+end
+fn control to void
+if ne argread 2 buf 0 1 1
+stop
+end
+m = get buf 0
+if or lt m 48 gt m 50
+stop
+end
+id = modefile uchar sub m 48
+child = compile 1 13 0
+command child
+result = run id 0
+stop
+end
+fn main to int
+if or lt argcnt 2 gt argcnt 3
+ret 90
+end
+if ne makedir scratch 0 len scratch 448 0
+ret 91
+end
+if eq argcnt 3
+control
+ret 99
+end
+suite 3 4 0
+suite 3 5 1
+suite 6 7 2
+suite 6 8 3
+joined
+suite 6 11 5
+suite 6 12 5
+if ne get cases 0 7
+stop
+end
+r = write 1 passed 0 len passed
+if ne r long len passed
+ret 99
+end
+ret 0
+end

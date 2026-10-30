@@ -1,0 +1,23 @@
+fn main to int
+if ne pinit 4096 2 22080 0
+ret 2
+end
+page = pnew
+note Exact-fit allocation is the named assertion under test.
+if le page 0
+ret 1
+end
+if ne pbytes 22080
+ret 1
+end
+if ne pnew neg long 75
+ret 1
+end
+if ne pfree page 0
+ret 1
+end
+if ne pbytes 17984
+ret 1
+end
+ret 0
+end

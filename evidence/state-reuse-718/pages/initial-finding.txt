@@ -1,0 +1,27 @@
+Core718 page allocator independent review, initial source
+SHA256 82d468a14507209cf763570be9f857da4ab45f05de692148036c4f8f5bea99c5
+
+BLOCKING: fixed allocation accounting undercounts eight bytes.
+Compiler d80b428c seed/omc/omc.om s_global rounds each global array to a
+16-byte allocation. pconfig[7] occupies64 bytes, not56. Other module globals
+already have lengths divisible by16. Correct module pool allocation=17984.
+Current pbytes uses17976, admitting budgets eight bytes below the requirement.
+
+Independent artifact confirmation: existing pages+main smoke.elf RW MemSiz is
+8410688 bytes. Subtract8388608 stack and4096 runtime mapping table yields17984.
+
+Independent tests against original logical assumptions:2437621 checks,0 failures.
+Includes multi-chunk real data/COW,128-handle runtime exhaustion and recovery,
+1048576 actual balanced refs, quota rollback, stale handles across reinit, final
+positive page generation and permanent slot retirement.
+
+Controls: removing shared-page copy compiled and produced224370 named failures,
+exit1. Changing exact-fit comparison to greater-or-equal compiled; focused
+unchanged quota-test exited1 versus positive0. Full broad suite on that mutant
+trapped103, so only focused named assertion is accepted as control evidence.
+
+Corrected-budget focused test on original source reproduces padding error as
+exit1 at actual pbytes assertion. Broad corrected-budget suite on old source
+trapped105 downstream, not accepted as the regression proof.
+
+No product edits. Product padding correction and final replay pending.

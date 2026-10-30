@@ -1,0 +1,61 @@
+{
+  "schema": "state-reuse-host-policy-v1",
+  "issue": "https://github.com/aien-dev/aien-sovereign-core-mv/issues/718",
+  "source_commit": "46f6b43a845c91ae6ffaed9a15d7e52a29d9cebd",
+  "base": "d691a4dc",
+  "compiler_sha256": "191b776ef98821597c3e30655da6d680a9b66edbc9ceaca3c39c61ea6df098e9",
+  "evidence_class": "synthetic-native-host",
+  "files": {
+    "native/state_reuse/policy.om": "1fd8ca82867f8c1327129ec615aff09b47391552d52b80327c337ddd0f9d09d1",
+    "native/state_reuse/tests.om": "edf653c092fafb3e9226921142d392e242f224263fef55a29f1388b5aa780912",
+    "native/state_reuse/independent.om": "0a42d3bf6be797ba659849f4333f4604f6a95d132281986089cd9917dd6d1e15",
+    "native/state_reuse/README.md": "7f760fb16ce467a396aa74098567acadcf90d313c4b6cf71aea298916d409364"
+  },
+  "executables": {
+    "tests": "8edf3704664d32028cbb6c55a92e18c3a4d3b809405518c7bd5ce6cbae3c68ab",
+    "independent": "6d722b0bc5930d6a2d262cdebeba467b36aeb52776ad592aa1d308010aaed522"
+  },
+  "tests": {
+    "author": {
+      "checks": 16210,
+      "failures": 0,
+      "exit": 0
+    },
+    "independent": {
+      "checks": 24588,
+      "failures": 0,
+      "exit": 0
+    },
+    "compiled_mutants": {
+      "author": 4,
+      "independent": 2,
+      "all_compile_exit": 0,
+      "all_test_exit": 1
+    }
+  },
+  "repository_preflight": {
+    "exit": 1,
+    "command": "quiet-build timeout 180 bash scripts/agent-preflight.sh",
+    "crates": 57,
+    "fresh": 2,
+    "stamped": 55,
+    "failed": [
+      "aien-cli browser_mirror::tests::stub_page_screenshot_and_eval"
+    ],
+    "advisories": 8,
+    "raw_log_sha256": "86235e4f72bc93a6b8a99341f07381c217cbe0fb9a7b04c021a3337cc52fed8e",
+    "raw_log_location": "retained locally; not published"
+  },
+  "not_run": [
+    "native serving integration",
+    "complete snapshot implementation",
+    "actual allocation/restore",
+    "27B hardware measurements",
+    "issue acceptance"
+  ],
+  "development_notes": [
+    "Identifier length error13 and local-register pressure error12 corrected before qualification.",
+    "Initial identity mutant with untyped literals did not compile and is not counted."
+  ],
+  "review": "review.txt"
+}
