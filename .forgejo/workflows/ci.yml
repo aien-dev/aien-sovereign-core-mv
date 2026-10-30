@@ -13,6 +13,10 @@ jobs:
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
+        with:
+          # Full history so a pull request can resolve AIEN_COMMIT_LINT_BASE.
+          # A shallow checkout that cannot resolve the base makes that lint skip.
+          fetch-depth: 0
 
       - name: Verify Code Formatting
         run: cargo fmt --all -- --check
@@ -21,7 +25,16 @@ jobs:
         run: cargo check --workspace --all-targets
 
       - name: Run Workspace Unit and Integration Tests
-        run: cargo test --workspace --verbose
+        env:
+          # Empty on a push to main: the commit lint skips instead of scanning all history.
+          AIEN_COMMIT_LINT_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -n "$AIEN_COMMIT_LINT_BASE" ]; then
+            git cat-file -e "$AIEN_COMMIT_LINT_BASE^{commit}" 2>/dev/null \
+              || git fetch --no-tags origin "$AIEN_COMMIT_LINT_BASE" \
+              || true
+          fi
+          cargo test --workspace --verbose
 
       - name: Enforce Zero Disk Secrets Invariant
         run: |
