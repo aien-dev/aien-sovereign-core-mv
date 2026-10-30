@@ -1,0 +1,104 @@
+== usage and configuration
+ok   unknown command exits 2
+ok   bad --repos exits 2
+ok   missing receipts clone exits 2
+== publish
+ok   one commit for the round
+ok   PASS bundle published
+ok   FAIL bundle published
+ok   multi-key verify.pub: bundle under the older key published
+ok   PASS copy is byte-exact
+ok   REJECTED (3) not published
+ok   NOT_RUN (2) not published
+ok   plan.blocked bundle not published
+ok   commit taken from the path, not the body (REJECTED)
+ok   unenrolled repository not published
+ok   journal: REJECTED refusal
+ok   journal: NOT_RUN refusal
+ok   journal: blocked skip
+ok   journal: not enrolled
+ok   journal: published lines carry digest
+ok   commit message lists the shas
+ok   verify-bundle got --repo from the path
+ok   publish never passes --require
+ok   publish made no GitHub call
+ok   identical bundles are not re-committed
+== publish: replacement by digest, with a racing push
+ok   race happened (someone else pushed first)
+ok   replaced bundle pushed after pull --rebase
+ok   the other publisher's commit kept (no force push)
+ok   two new commits: theirs and ours
+ok   commit message names the replaced digest
+== merge: no Spark gate
+ok   clean, no bundle: merged with --match-head-commit on the canonical slug
+ok   behind the base: merged (no up-to-date rule)
+ok   unstable with a failed hosted check: refused, naming the check
+ok   unstable with a check still running: wait, not merged
+ok   unstable with every check completed and none failed (skipped/neutral ok): merged
+ok   unstable with unaccepted completed conclusion (53): refused
+ok   unstable with unaccepted completed conclusion (53): never merged
+ok   unstable with unaccepted completed conclusion (54): refused
+ok   unstable with unaccepted completed conclusion (54): never merged
+ok   unstable with unaccepted completed conclusion (55): refused
+ok   unstable with unaccepted completed conclusion (55): never merged
+ok   unstable with unaccepted completed conclusion (56): refused
+ok   unstable with unaccepted completed conclusion (56): never merged
+ok   every mergeable PR merges in the same round
+ok   merge never calls aien-test
+ok   merge reads check runs only for unstable heads, never statuses, protection or workflow runs
+ok   never --admin
+ok   label missing: skipped, no journal line
+ok   label not exact (ready-to-merge-later): skipped, no journal line
+ok   draft: refused
+ok   conflicts: refused
+ok   head moved: refused
+ok   mergeability unknown: wait, not merged
+ok   blocked by branch rules: refused
+== alpha
+ok   newest full-scope PASS on main is tagged alpha/20261026.1
+ok   exactly one alpha tag
+ok   the tag is annotated
+ok   tag message names the bundle digest
+ok   alpha verifies with --require-full and the base .aien/always
+ok   full FAIL is skipped with its verdict
+ok   changed-scope bundle is never a candidate
+ok   a head not on main is never tagged
+ok   alpha never moves main
+ok   journal: tagged line carries tag and digest
+ok   second round: no second tag for the same Alpha
+ok   a newer full PASS becomes alpha/20261026.2
+ok   the older full PASS (x1) is never tagged
+== single instance
+ok   second instance exits 0
+ok   second instance did nothing
+ok   after the lock is released the bundle publishes
+== slug cache
+ok   resolved slug cached on disk
+ok   a refresh is journaled
+ok   fresh cache used without an API call
+ok   cache use is journaled
+ok   old cache tried a refresh
+ok   refresh failed: old cache used, journaled stale-cache
+ok   no slug refusal while a cached name exists
+ok   no cache and no API: refused as before
+== GitHub guard (exit 98)
+ok   guard refusal: round still exits 0
+ok   guard refusal: one GitHub call, then none (no retry loop)
+ok   guard refusal: later journal lines say try next round
+ok   guard refusal: nothing merged
+== merge pause
+ok   MERGE-PAUSE: merge step journals paused
+ok   MERGE-PAUSE: no gh pr merge
+ok   MERGE-PAUSE: the file is left in place
+ok   rebase-train.sh never adds ready-to-merge or enables auto-merge
+== host-only Alpha classification (issue #767)
+FAIL nvrm gate cannot receive a host-only Alpha
+FAIL deleting GPU gates later cannot waive a GPU candidate
+ok   genuine host-only candidate still qualifies
+FAIL manifest read error cannot grant the GPU waiver
+FAIL escaped GPU name cannot grant the GPU waiver
+ok   explicit gb10 still requires a GPU receipt
+== secrets
+ok   pipeline.sh never names the signing key file
+
+pipeline_test: 87 passed, 4 failed
