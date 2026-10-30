@@ -1,0 +1,1247 @@
+note seed/json/json.om: strict RFC 8259 JSON reader for seeded Omega (omega-mv #788). Contract: README.md.
+note Composition: an OM-2 unit built by the caller, `{ printf 'om2\n'; cat seed/json/json.om [seed/json/jsonw.om
+note [seed/json/jsonf.om]] app.om; }`. The unit has no globals, no texts and no host words: the caller owns
+note every array. Names: functions js_*, constants js*; locals are short.
+note Tape: a caller `uint` array. Cells 0..15 are the header (jsh* below); token t occupies the four cells from
+note 16 + 4t: [0] type | number flags << 4 | child count << 8, [1] first byte offset, [2] byte span,
+note [3] match index for a container begin or end, decoded byte length for a key or string, 0 otherwise.
+note Every value is checked; nothing is rounded: a number token is its source lexeme.
+
+const jsnone ulong 4294967295
+const jsbads ulong 4294967294
+const jsth ulong 16
+const jsts ulong 4
+const jstmax ulong 16777215
+const jsmaxn ulong 983040
+const jsdcap ulong 65535
+const jsmagic ulong 788
+
+note token types
+const jsobj ulong 1
+const jsobje ulong 2
+const jsarr ulong 3
+const jsarre ulong 4
+const jskey ulong 5
+const jsstr ulong 6
+const jsnum ulong 7
+const jstrue ulong 8
+const jsfalse ulong 9
+const jsnull ulong 10
+
+note number flags (token cell 0, bits 4..6)
+const jsfneg ulong 1
+const jsffrac ulong 2
+const jsfexp ulong 4
+
+note reader refusal codes; js_parse returns minus the code
+const jseeof ulong 1
+const jsesyn ulong 2
+const jsetrl ulong 3
+const jsedep ulong 4
+const jsesiz ulong 5
+const jseutf ulong 6
+const jsesur ulong 7
+const jsectl ulong 8
+const jseesc ulong 9
+const jsenum ulong 10
+const jsetok ulong 11
+const jselit ulong 12
+const jsearg ulong 13
+
+note header cells
+const jshok ulong 0
+const jshn ulong 1
+const jshpos ulong 2
+const jshnt ulong 3
+const jshcur ulong 4
+const jshdep ulong 5
+const jsherr ulong 6
+const jshepos ulong 7
+const jshdlim ulong 8
+const jshmaxd ulong 9
+const jshdtot ulong 10
+const jshdmax ulong 11
+const jshcap ulong 12
+const jshsl ulong 13
+const jshslim ulong 14
+const jshmagc ulong 15
+
+note ======== header and token cells ========
+
+fn js_hg tape edit uint * i ulong to ulong
+ret ulong get tape i
+end
+
+fn js_hs tape edit uint * i ulong v ulong to void
+put tape i uint v
+end
+
+fn js_fail tape edit uint * code ulong q ulong to void
+if eq get tape jsherr 0
+put tape jsherr uint code
+put tape jshepos uint q
+end
+end
+
+fn js_okst tape edit uint * st ulong to ulong
+if ne get tape jsherr 0
+ret 3
+end
+ret st
+end
+
+note js_cntinc: a key counts as an object member, any value directly inside an array as an element
+fn js_cntinc tape edit uint * ty ulong to void
+cur = js_hg tape jshcur
+if eq cur 0
+ret
+end
+if or eq ty jsobje eq ty jsarre
+ret
+end
+b = add jsth mul sub cur 1 jsts
+ct = and ulong get tape b 15
+if or eq ty jskey eq ct jsarr
+put tape b add get tape b 256
+end
+end
+
+fn js_tok tape edit uint * ty ulong q ulong w ulong to ulong
+t = js_hg tape jshnt
+if ge t js_hg tape jshcap
+js_fail tape jsetok q
+ret jsnone
+end
+b = add jsth mul t jsts
+put tape b uint ty
+put tape add b 1 uint q
+put tape add b 2 uint w
+put tape add b 3 0
+js_hs tape jshnt add t 1
+js_cntinc tape ty
+ret t
+end
+
+note ======== limits and entry ========
+
+note js_init: size limit 1..983040 bytes, depth limit 1..65535; the tape must hold the header and one token.
+fn js_init tape edit uint * slim ulong dlim ulong to long
+if lt len tape add jsth jsts
+ret neg long jsearg
+end
+if or eq slim 0 gt slim jsmaxn
+ret neg long jsearg
+end
+if or eq dlim 0 gt dlim jsdcap
+ret neg long jsearg
+end
+for i ulong jsth
+put tape i 0
+end
+c = div sub len tape jsth jsts
+if gt c jstmax
+c = jstmax
+end
+js_hs tape jshslim slim
+js_hs tape jshdlim dlim
+js_hs tape jshcap c
+js_hs tape jshmagc jsmagic
+ret 0
+end
+
+fn js_reset tape edit uint * n ulong to void
+js_hs tape jshok 0
+js_hs tape jshn n
+js_hs tape jshpos 0
+js_hs tape jshnt 0
+js_hs tape jshcur 0
+js_hs tape jshdep 0
+js_hs tape jsherr 0
+js_hs tape jshepos 0
+js_hs tape jshmaxd 0
+js_hs tape jshdtot 0
+js_hs tape jshdmax 0
+js_hs tape jshsl 0
+end
+
+fn js_result tape edit uint * to long
+e = js_hg tape jsherr
+if ne e 0
+js_hs tape jshnt 0
+js_hs tape jshok 0
+ret neg long e
+end
+js_hs tape jshok 1
+ret long js_hg tape jshnt
+end
+
+note js_parse: n bytes of src. Returns the token count, or minus a refusal code (tape then holds no tokens).
+note Loop bound: every step consumes at least one distinct input byte (a token's first byte, a closing byte
+note or a comma) or ends the parse, so steps <= n + 1 <= 983041 < 999999.
+fn js_parse src view uchar * tape edit uint * n ulong to long
+if lt len tape add jsth jsts
+ret neg long jsearg
+end
+if ne js_hg tape jshmagc jsmagic
+ret neg long jsearg
+end
+if gt n len src
+ret neg long jsearg
+end
+js_reset tape n
+if gt n js_hg tape jshslim
+js_fail tape jsesiz js_hg tape jshslim
+ret js_result tape
+end
+st = ulong 0
+while lt st 3 bound 999999
+st = js_step src tape st
+end
+ret js_result tape
+end
+
+note states: 0 value expected, 1 after a value, 2 member key expected, 3 finished or refused
+fn js_step src view uchar * tape edit uint * st ulong to ulong
+js_ws src tape
+if eq st 1
+ret js_after src tape
+end
+p = js_hg tape jshpos
+if ge p js_hg tape jshn
+js_fail tape jseeof p
+ret 3
+end
+if eq st 2
+ret js_keyst src tape
+end
+ret js_value src tape
+end
+
+fn js_ws src view uchar * tape edit uint * to void
+p = js_hg tape jshpos
+n = js_hg tape jshn
+while lt p n bound 999999
+c = get src p
+if and ne c 32 and ne c 9 and ne c 10 ne c 13
+break
+end
+p = add p 1
+end
+js_hs tape jshpos p
+end
+
+fn js_at src view uchar * tape edit uint * q ulong c uchar to bool
+if ge q js_hg tape jshn
+ret false
+end
+ret eq get src q c
+end
+
+fn js_value src view uchar * tape edit uint * to ulong
+p = js_hg tape jshpos
+c = get src p
+if eq c 123
+ret js_open src tape jsobj
+end
+if eq c 91
+ret js_open src tape jsarr
+end
+if eq c 34
+js_string src tape jsstr
+ret js_okst tape 1
+end
+if or eq c 45 and ge c 48 le c 57
+js_number src tape
+ret js_okst tape 1
+end
+if eq c 116
+js_lit src tape 0
+ret js_okst tape 1
+end
+if eq c 102
+js_lit src tape 1
+ret js_okst tape 1
+end
+if eq c 110
+js_lit src tape 2
+ret js_okst tape 1
+end
+js_fail tape jsesyn p
+ret 3
+end
+
+fn js_after src view uchar * tape edit uint * to ulong
+d = js_hg tape jshdep
+p = js_hg tape jshpos
+n = js_hg tape jshn
+if eq d 0
+if lt p n
+js_fail tape jsetrl p
+end
+ret 3
+end
+if ge p n
+js_fail tape jseeof p
+ret 3
+end
+c = get src p
+b = add jsth mul sub js_hg tape jshcur 1 jsts
+bt = and ulong get tape b 15
+if eq c 44
+js_hs tape jshpos add p 1
+if eq bt jsobj
+ret 2
+end
+ret 0
+end
+if and eq bt jsobj eq c 125
+js_close tape jsobje
+ret js_okst tape 1
+end
+if and eq bt jsarr eq c 93
+js_close tape jsarre
+ret js_okst tape 1
+end
+js_fail tape jsesyn p
+ret 3
+end
+
+fn js_keyst src view uchar * tape edit uint * to ulong
+p = js_hg tape jshpos
+if ne get src p 34
+js_fail tape jsesyn p
+ret 3
+end
+js_string src tape jskey
+if ne get tape jsherr 0
+ret 3
+end
+js_ws src tape
+q = js_hg tape jshpos
+if ge q js_hg tape jshn
+js_fail tape jseeof q
+ret 3
+end
+if ne get src q 58
+js_fail tape jsesyn q
+ret 3
+end
+js_hs tape jshpos add q 1
+ret 0
+end
+
+note ======== containers ========
+
+note js_open: cell 3 of an open container keeps the enclosing open container (+1) until it closes.
+fn js_open src view uchar * tape edit uint * ty ulong to ulong
+p = js_hg tape jshpos
+d = js_hg tape jshdep
+if ge d js_hg tape jshdlim
+js_fail tape jsedep p
+ret 3
+end
+t = js_tok tape ty p 1
+if eq t jsnone
+ret 3
+end
+put tape add add jsth mul t jsts 3 uint js_hg tape jshcur
+js_hs tape jshcur add t 1
+d = add d 1
+js_hs tape jshdep d
+if gt d js_hg tape jshmaxd
+js_hs tape jshmaxd d
+end
+js_hs tape jshpos add p 1
+js_ws src tape
+e = uchar 93
+if eq ty jsobj
+e = uchar 125
+end
+q = js_hg tape jshpos
+if js_at src tape q e
+js_close tape add ty 1
+ret js_okst tape 1
+end
+if eq ty jsobj
+ret 2
+end
+ret 0
+end
+
+fn js_close tape edit uint * ety ulong to void
+p = js_hg tape jshpos
+cur = js_hg tape jshcur
+b = add jsth mul sub cur 1 jsts
+js_hs tape jshcur ulong get tape add b 3
+js_hs tape jshdep sub js_hg tape jshdep 1
+e = js_tok tape ety p 1
+if eq e jsnone
+ret
+end
+put tape add b 3 uint e
+put tape add add jsth mul e jsts 3 uint sub cur 1
+put tape add b 2 uint add sub p ulong get tape add b 1 1
+js_hs tape jshpos add p 1
+end
+
+note ======== literals and numbers ========
+
+note js_litb: byte i of literal k (0 true, 1 false, 2 null)
+fn js_litb k ulong i ulong to uchar
+if eq k 0
+if eq i 0
+ret 116
+end
+if eq i 1
+ret 114
+end
+if eq i 2
+ret 117
+end
+ret 101
+end
+if eq k 1
+if eq i 0
+ret 102
+end
+if eq i 1
+ret 97
+end
+if eq i 2
+ret 108
+end
+if eq i 3
+ret 115
+end
+ret 101
+end
+if eq i 0
+ret 110
+end
+if eq i 1
+ret 117
+end
+ret 108
+end
+
+fn js_litn k ulong to ulong
+if eq k 1
+ret 5
+end
+ret 4
+end
+
+fn js_lit src view uchar * tape edit uint * k ulong to void
+p = js_hg tape jshpos
+n = js_hg tape jshn
+m = js_litn k
+for i ulong m
+q = add p i
+if ge q n
+js_fail tape jseeof n
+ret
+end
+if ne get src q js_litb k i
+js_fail tape jselit q
+ret
+end
+end
+t = js_tok tape add k 8 p m
+js_hs tape jshpos add p m
+end
+
+fn js_isdig src view uchar * tape edit uint * q ulong to bool
+if ge q js_hg tape jshn
+ret false
+end
+c = get src q
+ret and ge c 48 le c 57
+end
+
+fn js_digits src view uchar * tape edit uint * q ulong to ulong
+p = q
+while js_isdig src tape p bound 999999
+p = add p 1
+end
+ret p
+end
+
+note js_number: RFC 8259 section 6 grammar; a leading zero followed by a digit is refused as a number
+fn js_number src view uchar * tape edit uint * to void
+s = js_hg tape jshpos
+p = s
+f = ulong 0
+if js_at src tape p 45
+f = jsfneg
+p = add p 1
+end
+if not js_isdig src tape p
+js_fail tape jsenum p
+ret
+end
+if js_at src tape p 48
+p = add p 1
+if js_isdig src tape p
+js_fail tape jsenum p
+ret
+end
+else
+p = js_digits src tape p
+end
+if js_at src tape p 46
+p = add p 1
+if not js_isdig src tape p
+js_fail tape jsenum p
+ret
+end
+p = js_digits src tape p
+f = or f jsffrac
+end
+if or js_at src tape p 101 js_at src tape p 69
+p = add p 1
+if or js_at src tape p 43 js_at src tape p 45
+p = add p 1
+end
+if not js_isdig src tape p
+js_fail tape jsenum p
+ret
+end
+p = js_digits src tape p
+f = or f jsfexp
+end
+t = js_tok tape jsnum s sub p s
+if ne t jsnone
+put tape add jsth mul t jsts uint or jsnum shl f 4
+end
+js_hs tape jshpos p
+end
+
+note ======== strings ========
+
+note js_u8st: RFC 3629 section 4 well-formed UTF-8 as a state machine. State 0 expects a lead byte;
+note 1, 2, 3 expect that many continuation bytes 80..BF; 4 after E0 expects A0..BF; 5 after ED expects
+note 80..9F; 6 after F0 expects 90..BF; 7 after F4 expects 80..8F. 9 is refusal (overlong, surrogate,
+note above U+10FFFF, stray continuation, C0, C1, F5..FF).
+fn js_u8st s ulong c uchar to ulong
+if eq s 0
+if lt c 128
+ret 0
+end
+if lt c 194
+ret 9
+end
+if lt c 224
+ret 1
+end
+if eq c 224
+ret 4
+end
+if eq c 237
+ret 5
+end
+if lt c 240
+ret 2
+end
+if eq c 240
+ret 6
+end
+if lt c 244
+ret 3
+end
+if eq c 244
+ret 7
+end
+ret 9
+end
+lo = uchar 128
+hi = uchar 191
+if eq s 4
+lo = uchar 160
+end
+if eq s 5
+hi = uchar 159
+end
+if eq s 6
+lo = uchar 144
+end
+if eq s 7
+hi = uchar 143
+end
+if or lt c lo gt c hi
+ret 9
+end
+if eq s 1
+ret 0
+end
+if or eq s 2 or eq s 4 eq s 5
+ret 1
+end
+ret 2
+end
+
+fn js_hexv c uchar to ulong
+if and ge c 48 le c 57
+ret ulong sub c 48
+end
+if and ge c 97 le c 102
+ret ulong sub c 87
+end
+if and ge c 65 le c 70
+ret ulong sub c 55
+end
+ret 16
+end
+
+fn js_cplen v ulong to ulong
+if lt v 128
+ret 1
+end
+if lt v 2048
+ret 2
+end
+if lt v 65536
+ret 3
+end
+ret 4
+end
+
+fn js_esc1 c uchar to bool
+if or eq c 34 eq c 92
+ret true
+end
+if or eq c 47 eq c 98
+ret true
+end
+if or eq c 102 eq c 110
+ret true
+end
+ret or eq c 114 eq c 116
+end
+
+fn js_dadd tape edit uint * k ulong to void
+js_hs tape jshsl add js_hg tape jshsl k
+end
+
+fn js_hex4 src view uchar * tape edit uint * q ulong to ulong
+n = js_hg tape jshn
+v = ulong 0
+for i ulong 4
+r = add q i
+if ge r n
+js_fail tape jseeof n
+ret jsnone
+end
+h = js_hexv get src r
+if eq h 16
+js_fail tape jseesc r
+ret jsnone
+end
+v = or shl v 4 h
+end
+ret v
+end
+
+note js_uesc: p is the backslash of \uXXXX. A high surrogate must be followed at once by \u and a low
+note surrogate; a lone low surrogate, or a high one without its low half, is refused (RFC 8259 section 8.2).
+fn js_uesc src view uchar * tape edit uint * p ulong to ulong
+h = js_hex4 src tape add p 2
+if eq h jsnone
+ret jsnone
+end
+q = add p 6
+if and ge h 56320 le h 57343
+js_fail tape jsesur p
+ret jsnone
+end
+if or lt h 55296 gt h 56319
+js_dadd tape js_cplen h
+ret q
+end
+if not and js_at src tape q 92 js_at src tape add q 1 117
+if ge q js_hg tape jshn
+js_fail tape jseeof q
+ret jsnone
+end
+js_fail tape jsesur p
+ret jsnone
+end
+l = js_hex4 src tape add q 2
+if eq l jsnone
+ret jsnone
+end
+if or lt l 56320 gt l 57343
+js_fail tape jsesur q
+ret jsnone
+end
+js_dadd tape 4
+ret add q 6
+end
+
+fn js_escape src view uchar * tape edit uint * p ulong to ulong
+q = add p 1
+if ge q js_hg tape jshn
+js_fail tape jseeof q
+ret jsnone
+end
+c = get src q
+if eq c 117
+ret js_uesc src tape p
+end
+if not js_esc1 c
+js_fail tape jseesc q
+ret jsnone
+end
+js_dadd tape 1
+ret add q 1
+end
+
+fn js_strtok tape edit uint * ty ulong s ulong e ulong to void
+t = js_tok tape ty s sub e s
+js_hs tape jshpos e
+if eq t jsnone
+ret
+end
+l = js_hg tape jshsl
+put tape add add jsth mul t jsts 3 uint l
+js_hs tape jshdtot add js_hg tape jshdtot l
+if gt l js_hg tape jshdmax
+js_hs tape jshdmax l
+end
+end
+
+note js_string: validates one string and records its decoded length; bytes are decoded later by js_sget.
+note Each pass advances p by at least one byte, so passes <= n <= 983040.
+fn js_string src view uchar * tape edit uint * ty ulong to void
+s = js_hg tape jshpos
+n = js_hg tape jshn
+js_hs tape jshsl 0
+p = add s 1
+st = ulong 0
+while lt p n bound 999999
+c = get src p
+if or ne st 0 ge c 128
+st = js_u8st st c
+if eq st 9
+js_fail tape jseutf p
+ret
+end
+js_dadd tape 1
+p = add p 1
+continue
+end
+if eq c 34
+js_strtok tape ty s add p 1
+ret
+end
+if lt c 32
+js_fail tape jsectl p
+ret
+end
+if eq c 92
+p = js_escape src tape p
+if eq p jsnone
+ret
+end
+continue
+end
+js_dadd tape 1
+p = add p 1
+end
+js_fail tape jseeof n
+end
+
+note ======== public tape accessors (read only) ========
+
+fn js_ok tape view uint * to bool
+if lt len tape add jsth jsts
+ret false
+end
+ret eq get tape jshok 1
+end
+
+fn js_ntok tape view uint * to ulong
+if not js_ok tape
+ret 0
+end
+ret ulong get tape jshnt
+end
+
+fn js_err tape view uint * to ulong
+if lt len tape jsth
+ret jsearg
+end
+ret ulong get tape jsherr
+end
+
+fn js_epos tape view uint * to ulong
+if lt len tape jsth
+ret 0
+end
+ret ulong get tape jshepos
+end
+
+fn js_maxdep tape view uint * to ulong
+if not js_ok tape
+ret 0
+end
+ret ulong get tape jshmaxd
+end
+
+note js_dtotal: decoded bytes of every key and string; js_dmax: the longest one (sizes for js_sget buffers)
+fn js_dtotal tape view uint * to ulong
+if not js_ok tape
+ret 0
+end
+ret ulong get tape jshdtot
+end
+
+fn js_dmax tape view uint * to ulong
+if not js_ok tape
+ret 0
+end
+ret ulong get tape jshdmax
+end
+
+fn js_cell tape view uint * t ulong i ulong to ulong
+if not js_ok tape
+ret 0
+end
+if ge t ulong get tape jshnt
+ret 0
+end
+ret ulong get tape add add jsth mul t jsts i
+end
+
+fn js_type tape view uint * t ulong to ulong
+ret and js_cell tape t 0 15
+end
+
+fn js_nflags tape view uint * t ulong to ulong
+ret and shr js_cell tape t 0 4 7
+end
+
+note js_nkids: members of an object, elements of an array
+fn js_nkids tape view uint * t ulong to ulong
+ty = js_type tape t
+if or eq ty jsobj eq ty jsarr
+ret shr js_cell tape t 0 8
+end
+ret 0
+end
+
+fn js_off tape view uint * t ulong to ulong
+ret js_cell tape t 1
+end
+
+fn js_span tape view uint * t ulong to ulong
+ret js_cell tape t 2
+end
+
+fn js_match tape view uint * t ulong to ulong
+ty = js_type tape t
+if and ge ty jsobj le ty jsarre
+ret js_cell tape t 3
+end
+ret jsnone
+end
+
+fn js_slen tape view uint * t ulong to ulong
+ty = js_type tape t
+if or eq ty jskey eq ty jsstr
+ret js_cell tape t 3
+end
+ret 0
+end
+
+note js_last: the last token of the value starting at t (its end token for a container)
+fn js_last tape view uint * t ulong to ulong
+ty = js_type tape t
+if or eq ty jsobj eq ty jsarr
+ret js_cell tape t 3
+end
+ret t
+end
+
+note js_first: first member key of an object or first element of an array, jsnone when empty or not one
+fn js_first tape view uint * t ulong to ulong
+if eq js_nkids tape t 0
+ret jsnone
+end
+ret add t 1
+end
+
+note js_enext: the element after array element e; js_mnext: the key after member key k; jsnone at the end
+fn js_enext tape view uint * e ulong to ulong
+n = add js_last tape e 1
+ty = js_type tape n
+if or eq ty 0 or eq ty jsobje eq ty jsarre
+ret jsnone
+end
+ret n
+end
+
+fn js_mnext tape view uint * k ulong to ulong
+if ne js_type tape k jskey
+ret jsnone
+end
+n = add js_last tape add k 1 1
+if ne js_type tape n jskey
+ret jsnone
+end
+ret n
+end
+
+note ======== strings from the source (off is a key or string token's offset) ========
+
+fn js_slim src view uchar * off ulong to ulong
+n = len src
+m = add off add jsmaxn 2
+if gt n m
+ret m
+end
+ret n
+end
+
+fn js_atv src view uchar * q ulong c uchar to bool
+if ge q len src
+ret false
+end
+ret eq get src q c
+end
+
+fn js_hex4s src view uchar * q ulong to ulong
+if gt add q 4 len src
+ret jsnone
+end
+v = ulong 0
+for i ulong 4
+h = js_hexv get src add q i
+if eq h 16
+ret jsnone
+end
+v = or shl v 4 h
+end
+ret v
+end
+
+fn js_esv c uchar to ulong
+if or eq c 34 or eq c 92 eq c 47
+ret ulong c
+end
+if eq c 98
+ret 8
+end
+if eq c 102
+ret 12
+end
+if eq c 110
+ret 10
+end
+if eq c 114
+ret 13
+end
+if eq c 116
+ret 9
+end
+ret jsnone
+end
+
+note js_ecp: the code point of the escape whose backslash is at p; jsnone for a malformed escape,
+note jsbads for a surrogate that is not one well-formed pair
+fn js_ecp src view uchar * p ulong to ulong
+q = add p 1
+if ge q len src
+ret jsnone
+end
+c = get src q
+if ne c 117
+ret js_esv c
+end
+h = js_hex4s src add p 2
+if eq h jsnone
+ret jsnone
+end
+if and ge h 56320 le h 57343
+ret jsbads
+end
+if or lt h 55296 gt h 56319
+ret h
+end
+r = add p 6
+if not js_atv src r 92
+ret jsbads
+end
+if not js_atv src add r 1 117
+ret jsbads
+end
+l = js_hex4s src add r 2
+if eq l jsnone
+ret jsnone
+end
+if or lt l 56320 gt l 57343
+ret jsbads
+end
+ret add 65536 add shl sub h 55296 10 sub l 56320
+end
+
+note js_elen: source bytes of the escape at p whose code point is cp
+fn js_elen src view uchar * p ulong cp ulong to ulong
+if ne get src add p 1 117
+ret 2
+end
+if ge cp 65536
+ret 12
+end
+ret 6
+end
+
+note js_putcp: UTF-8 encoding of cp at w; returns the next w, or jsnone when it does not fit
+fn js_putcp ob edit uchar * w ulong cp ulong to ulong
+k = js_cplen cp
+if gt add w k len ob
+ret jsnone
+end
+if eq k 1
+put ob w uchar cp
+ret add w 1
+end
+if eq k 2
+put ob w uchar or 192 shr cp 6
+put ob add w 1 uchar or 128 and cp 63
+ret add w 2
+end
+if eq k 3
+put ob w uchar or 224 shr cp 12
+put ob add w 1 uchar or 128 and shr cp 6 63
+put ob add w 2 uchar or 128 and cp 63
+ret add w 3
+end
+put ob w uchar or 240 shr cp 18
+put ob add w 1 uchar or 128 and shr cp 12 63
+put ob add w 2 uchar or 128 and shr cp 6 63
+put ob add w 3 uchar or 128 and cp 63
+ret add w 4
+end
+
+note js_sgesc: decode the escape at src[p] into ob at w; the next w, or minus a code
+fn js_sgesc src view uchar * p ulong ob edit uchar * w ulong to long
+cp = js_ecp src p
+if eq cp jsnone
+ret neg long jseesc
+end
+if eq cp jsbads
+ret neg long jsesur
+end
+r = js_putcp ob w cp
+if eq r jsnone
+ret neg long jsearg
+end
+ret long r
+end
+
+note js_sget: decode the string whose opening quote is src[off] into ob[0..); returns the byte count or minus
+note a code (jsearg: ob too small or off not a quote). It re-checks UTF-8, controls, escapes and surrogates.
+fn js_sget src view uchar * off ulong ob edit uchar * to long
+if ge off js_slim src off
+ret neg long jsearg
+end
+if ne get src off 34
+ret neg long jsearg
+end
+p = add off 1
+w = ulong 0
+st = ulong 0
+while lt p js_slim src off bound 999999
+c = get src p
+if and eq st 0 eq c 34
+ret long w
+end
+if and eq st 0 eq c 92
+r = js_sgesc src p ob w
+if lt r 0
+ret r
+end
+w = ulong r
+p = add p js_elen src p js_ecp src p
+continue
+end
+if and eq st 0 lt c 32
+ret neg long jsectl
+end
+st = js_u8st st c
+if eq st 9
+ret neg long jseutf
+end
+if ge w len ob
+ret neg long jsearg
+end
+put ob w c
+w = add w 1
+p = add p 1
+end
+ret neg long jseeof
+end
+
+note js_cpeq: whether key[k ..] starts with the UTF-8 encoding of cp; the next k, or jsnone
+fn js_cpeq key view uchar * k ulong cp ulong to ulong
+tmp = new uchar 4 0
+m = js_putcp tmp 0 cp
+if gt m sub len key k
+ret jsnone
+end
+for i ulong m
+if ne get key add k i get tmp i
+ret jsnone
+end
+end
+ret add k m
+end
+
+note js_streq: whether the decoded string at src[off] equals the bytes of key exactly
+fn js_streq src view uchar * off ulong key view uchar * to bool
+if ge off js_slim src off
+ret false
+end
+if ne get src off 34
+ret false
+end
+p = add off 1
+k = ulong 0
+while lt p js_slim src off bound 999999
+c = get src p
+if eq c 34
+ret eq k len key
+end
+if ne c 92
+if ge k len key
+ret false
+end
+if ne get key k c
+ret false
+end
+k = add k 1
+p = add p 1
+continue
+end
+cp = js_ecp src p
+if ge cp jsbads
+ret false
+end
+k = js_cpeq key k cp
+if eq k jsnone
+ret false
+end
+p = add p js_elen src p cp
+end
+ret false
+end
+
+note ======== integers from a number lexeme at src[off] (exact; no rounding) ========
+
+note js_ovf10: whether m * 10 + d exceeds 18446744073709551615
+fn js_ovf10 m ulong d ulong to bool
+if gt m 1844674407370955161
+ret true
+end
+if lt m 1844674407370955161
+ret false
+end
+ret gt d 5
+end
+
+note js_ilex: 0 not an integer lexeme (fraction or exponent present, or no digit), 1 integer whose
+note magnitude fits ulong, 2 integer whose magnitude exceeds 18446744073709551615
+fn js_ilex src view uchar * off ulong to ulong
+n = js_slim src off
+p = off
+if js_atv src p 45
+p = add p 1
+end
+m = ulong 0
+ovf = false
+k = ulong 0
+while lt p n bound 999999
+c = get src p
+if or lt c 48 gt c 57
+break
+end
+d = ulong sub c 48
+if js_ovf10 m d
+ovf = true
+else
+m = add mul m 10 d
+end
+k = add k 1
+p = add p 1
+end
+if eq k 0
+ret 0
+end
+if lt p n
+c = get src p
+if or eq c 46 or eq c 101 eq c 69
+ret 0
+end
+end
+if ovf
+ret 2
+end
+ret 1
+end
+
+fn js_imag src view uchar * off ulong to ulong
+n = js_slim src off
+p = off
+if js_atv src p 45
+p = add p 1
+end
+m = ulong 0
+while lt p n bound 25
+c = get src p
+if or lt c 48 gt c 57
+break
+end
+m = add mul m 10 ulong sub c 48
+p = add p 1
+end
+ret m
+end
+
+fn js_isu src view uchar * off ulong to bool
+if ne js_ilex src off 1
+ret false
+end
+ret not js_atv src off 45
+end
+
+fn js_tou src view uchar * off ulong to ulong
+if not js_isu src off
+ret 0
+end
+ret js_imag src off
+end
+
+fn js_isl src view uchar * off ulong to bool
+if ne js_ilex src off 1
+ret false
+end
+m = js_imag src off
+if js_atv src off 45
+ret le m 9223372036854775808
+end
+ret le m 9223372036854775807
+end
+
+fn js_tol src view uchar * off ulong to long
+if not js_isl src off
+ret 0
+end
+m = js_imag src off
+if not js_atv src off 45
+ret long m
+end
+if eq m 9223372036854775808
+ret long -9223372036854775808
+end
+ret neg long m
+end
