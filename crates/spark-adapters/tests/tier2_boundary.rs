@@ -881,9 +881,23 @@ fn test_t2_f61_git_no_uncommitted_env_secrets() {
 /// Scan of commit messages a branch introduces over a base revision.
 #[derive(Debug)]
 enum CommitMessageScan {
-    Skipped(String),
+    /// `AIEN_COMMIT_LINT_BASE` is unset or empty. This is the only skip.
+    NoBase,
     Clean,
-    Forbidden { em: bool, en: bool },
+    Forbidden {
+        em: bool,
+        en: bool,
+    },
+    /// The base was set, but it cannot be resolved or `git log` failed.
+    Failed(String),
+}
+
+/// What the workspace test does with a scan. `Fail` panics.
+#[derive(Debug)]
+enum CommitLintAction {
+    Skip(String),
+    Pass,
+    Fail(String),
 }
 
 fn git_in(repo: &Path, args: &[&str]) -> std::process::Output {
@@ -915,32 +929,29 @@ fn git_ok(repo: &Path, args: &[&str]) -> std::process::Output {
 
 /// `git log <base>..HEAD` in `repo`.
 ///
-/// `base` is `AIEN_COMMIT_LINT_BASE` (the PR base). No base, or a base this
-/// checkout cannot resolve, skips. This does not fall back to `git log -n`
-/// or any other scan of history already on the base.
+/// `base` is `AIEN_COMMIT_LINT_BASE` (the PR base, or the previous push SHA).
+/// Unset or empty is the only skip. A set base that cannot be resolved, or a
+/// failed `git log`, is `Failed`. This does not fall back to `git log -n` or
+/// any other scan of history already on the base.
 fn scan_commits_introduced_over_base(repo: &Path, base: Option<&str>) -> CommitMessageScan {
     let Some(base) = base.map(str::trim).filter(|b| !b.is_empty()) else {
-        return CommitMessageScan::Skipped(
-            "AIEN_COMMIT_LINT_BASE is unset; not scanning commit history".to_string(),
-        );
+        return CommitMessageScan::NoBase;
     };
     if base.starts_with('-') || base.chars().any(|c| c.is_whitespace()) {
-        return CommitMessageScan::Skipped(format!(
-            "AIEN_COMMIT_LINT_BASE {base:?} is not a usable revision; not scanning commit history"
-        ));
+        return CommitMessageScan::Failed(format!("base {base:?} is not a usable revision"));
     }
     let peeled = format!("{base}^{{commit}}");
     let resolved = git_in(repo, &["rev-parse", "--verify", "--quiet", &peeled]);
     if !resolved.status.success() {
-        return CommitMessageScan::Skipped(format!(
-            "base {base} cannot be resolved (shallow checkout or missing ref); not scanning commit history"
+        return CommitMessageScan::Failed(format!(
+            "base {base} cannot be resolved (shallow checkout or missing ref)"
         ));
     }
     let range = format!("{base}..HEAD");
     let output = git_in(repo, &["log", &range, "--format=%B"]);
     if !output.status.success() {
-        return CommitMessageScan::Skipped(format!(
-            "git log {range} failed (shallow checkout cannot walk the range); not scanning other history: {}",
+        return CommitMessageScan::Failed(format!(
+            "git log {range} failed: {}",
             String::from_utf8_lossy(&output.stderr).trim()
         ));
     }
@@ -952,6 +963,54 @@ fn scan_commits_introduced_over_base(repo: &Path, base: Option<&str>) -> CommitM
     } else {
         CommitMessageScan::Clean
     }
+}
+
+fn commit_lint_action(scan: CommitMessageScan, ci: bool) -> CommitLintAction {
+    match scan {
+        CommitMessageScan::NoBase => CommitLintAction::Skip(
+            "AIEN_SKIP test_t2_f62: AIEN_COMMIT_LINT_BASE is unset or empty".to_string(),
+        ),
+        CommitMessageScan::Clean => CommitLintAction::Pass,
+        CommitMessageScan::Forbidden { em, en } => CommitLintAction::Fail(format!(
+            "commits introduced over AIEN_COMMIT_LINT_BASE contain em dash ({em}) or en dash ({en})"
+        )),
+        CommitMessageScan::Failed(reason) => CommitLintAction::Fail(format!(
+            "commit lint failed{}: {reason}",
+            if ci { " in CI" } else { "" }
+        )),
+    }
+}
+
+fn apply_commit_lint(action: CommitLintAction) {
+    match action {
+        CommitLintAction::Skip(line) => eprintln!("{line}"),
+        CommitLintAction::Pass => {}
+        CommitLintAction::Fail(msg) => panic!("{msg}"),
+    }
+}
+
+fn assert_ci_hard_failure(scan: CommitMessageScan) {
+    let reason = match &scan {
+        CommitMessageScan::Failed(reason) => reason.clone(),
+        other => panic!("a set base that cannot be used must not skip, got {other:?}"),
+    };
+    let action = commit_lint_action(scan, true);
+    let msg = match action {
+        CommitLintAction::Fail(msg) => msg,
+        other => panic!("CI must fail the commit lint, got {other:?}"),
+    };
+    assert!(
+        msg.contains("in CI"),
+        "CI failure must be marked as CI: {msg}"
+    );
+    assert!(
+        msg.contains(&reason),
+        "CI failure must keep the scan reason: {msg}"
+    );
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        apply_commit_lint(CommitLintAction::Fail(msg));
+    }));
+    assert!(panicked.is_err(), "the test must panic when the lint fails");
 }
 
 fn commit_in(repo: &Path, file: &str, message: &str) {
@@ -990,22 +1049,9 @@ fn temp_repo(label: &str) -> (PathBuf, RemoveOnDrop) {
 #[test]
 fn test_t2_f62_git_log_zero_em_or_en_dashes() {
     let base = std::env::var("AIEN_COMMIT_LINT_BASE").ok();
-    match scan_commits_introduced_over_base(&workspace_root(), base.as_deref()) {
-        CommitMessageScan::Skipped(msg) => {
-            eprintln!("skipping test_t2_f62_git_log_zero_em_or_en_dashes: {msg}");
-        }
-        CommitMessageScan::Clean => {}
-        CommitMessageScan::Forbidden { em, en } => {
-            assert!(
-                !em,
-                "commits introduced over AIEN_COMMIT_LINT_BASE must not contain an em dash (U+2014)"
-            );
-            assert!(
-                !en,
-                "commits introduced over AIEN_COMMIT_LINT_BASE must not contain an en dash (U+2013)"
-            );
-        }
-    }
+    let ci = std::env::var("CI").is_ok();
+    let scan = scan_commits_introduced_over_base(&workspace_root(), base.as_deref());
+    apply_commit_lint(commit_lint_action(scan, ci));
 }
 
 #[test]
@@ -1047,35 +1093,48 @@ fn test_t2_f62_new_commit_with_em_or_en_dash_fails() {
 fn test_t2_f62_missing_base_skips_instead_of_scanning_history() {
     let (repo, _guard) = temp_repo("skip");
     commit_in(&repo, "bad.txt", "whole history \u{2014} and \u{2013}");
-    match scan_commits_introduced_over_base(&repo, None) {
-        CommitMessageScan::Skipped(msg) => {
-            eprintln!("skipping with no base: {msg}");
-            assert!(
-                msg.contains("unset"),
-                "skip message should say the base is unset: {msg}"
-            );
+    for base in [None, Some("   "), Some("")] {
+        let scan = scan_commits_introduced_over_base(&repo, base);
+        match &scan {
+            CommitMessageScan::NoBase => {}
+            other => panic!(
+                "unset or empty base must skip even when history contains dashes, got {other:?}"
+            ),
         }
-        other => panic!("unset base must skip, not scan history, got {other:?}"),
-    }
-    match scan_commits_introduced_over_base(&repo, Some("   ")) {
-        CommitMessageScan::Skipped(_) => {}
-        other => panic!("blank base must skip, got {other:?}"),
-    }
-    match scan_commits_introduced_over_base(&repo, Some("0123456789abcdef0123456789abcdef01234567"))
-    {
-        CommitMessageScan::Skipped(msg) => {
-            eprintln!("skipping unresolved base: {msg}");
-            assert!(
-                msg.contains("cannot be resolved"),
-                "skip message should say the base cannot be resolved: {msg}"
-            );
+        // CI being set does not turn an empty base into a failure.
+        match commit_lint_action(scan, true) {
+            CommitLintAction::Skip(line) => {
+                assert_eq!(
+                    line,
+                    "AIEN_SKIP test_t2_f62: AIEN_COMMIT_LINT_BASE is unset or empty"
+                );
+                eprintln!("{line}");
+            }
+            other => panic!("unset or empty base must skip under CI, got {other:?}"),
         }
-        other => panic!("unresolved base must skip, not scan history, got {other:?}"),
     }
 }
 
 #[test]
-fn test_t2_f62_shallow_checkout_unresolved_base_skips() {
+fn test_t2_f62_unresolved_base_fails_when_ci_set() {
+    let (repo, _guard) = temp_repo("missing");
+    commit_in(&repo, "bad.txt", "whole history \u{2014} and \u{2013}");
+    let scan =
+        scan_commits_introduced_over_base(&repo, Some("0123456789abcdef0123456789abcdef01234567"));
+    match &scan {
+        CommitMessageScan::Failed(reason) => {
+            assert!(
+                reason.contains("cannot be resolved"),
+                "failure must name the unresolved base, not the history: {reason}"
+            );
+        }
+        other => panic!("unresolved base must fail, got {other:?}"),
+    }
+    assert_ci_hard_failure(scan);
+}
+
+#[test]
+fn test_t2_f62_shallow_checkout_unresolved_base_fails_when_ci_set() {
     let (full, _full_guard) = temp_repo("full");
     commit_in(&full, "a.txt", "base");
     let base = head_commit(&full);
@@ -1098,16 +1157,40 @@ fn test_t2_f62_shallow_checkout_unresolved_base_skips() {
         ],
     );
     let shallow = parent.join("shallow");
-    match scan_commits_introduced_over_base(&shallow, Some(&base)) {
-        CommitMessageScan::Skipped(msg) => {
-            eprintln!("skipping shallow checkout: {msg}");
-            assert!(
-                msg.contains("cannot be resolved"),
-                "shallow checkout that cannot resolve the base must skip: {msg}"
-            );
-        }
-        other => panic!("shallow unresolved base must skip, got {other:?}"),
+    let scan = scan_commits_introduced_over_base(&shallow, Some(&base));
+    match &scan {
+        CommitMessageScan::Failed(reason) => assert!(
+            reason.contains("cannot be resolved"),
+            "shallow checkout must fail because the base is missing, not because of a dash: {reason}"
+        ),
+        other => panic!("shallow unresolved base must fail, got {other:?}"),
     }
+    assert_ci_hard_failure(scan);
+}
+
+#[test]
+fn test_t2_f62_git_log_failure_fails_when_ci_set() {
+    let (repo, _guard) = temp_repo("walk");
+    commit_in(&repo, "a.txt", "base");
+    let base = head_commit(&repo);
+    commit_in(&repo, "b.txt", "middle");
+    let middle = head_commit(&repo);
+    commit_in(&repo, "c.txt", "tip");
+    let object = repo
+        .join(".git")
+        .join("objects")
+        .join(&middle[..2])
+        .join(&middle[2..]);
+    fs::remove_file(&object).unwrap_or_else(|err| panic!("remove {object:?}: {err}"));
+    let scan = scan_commits_introduced_over_base(&repo, Some(&base));
+    match &scan {
+        CommitMessageScan::Failed(reason) => assert!(
+            reason.contains("git log"),
+            "a failed git log must fail the lint: {reason}"
+        ),
+        other => panic!("git log failure must fail the lint, got {other:?}"),
+    }
+    assert_ci_hard_failure(scan);
 }
 
 #[test]
