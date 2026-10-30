@@ -74,18 +74,28 @@
 //!    count file is not touched. The nonce is not drawn.
 //! 2. The nonce is drawn into a stack buffer. [`SealError::Random`] returns
 //!    here. The count file and the caller's buffer stay as they were.
-//! 3. The count file is read. A missing file is zero only when this directory
-//!    is not named [`USAGE_DIR_NAME`], or when the store beside it has no
-//!    sealed object. A missing file next to a sealed object is
-//!    [`SealError::UsageStore`] and the file is not created. A short, long, or
-//!    unrecognized file is [`SealError::UsageStore`]. At `2^20` the call
-//!    returns [`SealError::Budget`].
+//! 3. The count file is read. Whether a missing file may start at zero depends
+//!    on which key the store is sealing under, not on whether any object
+//!    exists. The AKS v2 seal slot is magic, version, nonce and tag (32 bytes)
+//!    and has no key id, so the store records the SHA-256 of the key in
+//!    [`KEY_MARKER_NAME`] beside the counters. The key bytes are not written.
+//!    A missing file is zero when this directory is not named
+//!    [`USAGE_DIR_NAME`], when the store has no sealed object and no marker,
+//!    or when the marker names a different key (a known rotation). On a known
+//!    rotation the new fingerprint and a zero counter are made durable before
+//!    the incremented count. A missing file is [`SealError::UsageStore`] when
+//!    the marker names this key, and when there is no marker but a sealed
+//!    object exists. That second refusal writes the fingerprint and does not
+//!    write a counter: the same key stays refused, and a different key is then
+//!    a known rotation. A short, long, or unrecognized file is
+//!    [`SealError::UsageStore`]. At `2^20` the call returns [`SealError::Budget`].
 //! 4. `count + 1` is written to `<fingerprint>.part`. A leftover part file
 //!    this uid owns is truncated and replaced. A part file this uid does not
 //!    own, or that is not a regular file, is [`SealError::UsageStore`] and is
 //!    left in place: remove it as the store owner, then seal again. The part
 //!    file is `fsync`ed, renamed onto the count file, and the directory is
-//!    `fsync`ed. Any failure is [`SealError::UsageStore`].
+//!    `fsync`ed. The marker, when it changes, uses that same sequence. Any
+//!    failure is [`SealError::UsageStore`].
 //! 5. Only then is the seal slot written and the payload encrypted.
 //!
 //! A crash before the directory `fsync` keeps the previous count when the
@@ -93,17 +103,19 @@
 //! sealed object is published has counted a seal that is not on disk. The
 //! count is never decremented: the budget is a ceiling. A failed directory
 //! `fsync` after a rename that did reach disk is the same direction (the
-//! seal does not run, and a later open may observe the higher count).
+//! seal does not run, and a later open may observe the higher count). The
+//! zero counter of a rotation is written before the marker moves to the new
+//! key, so a crash cannot leave this key named in the marker with no counter.
 //!
 //! The file is per store directory and per key fingerprint. Restarting that
 //! directory sees it. Sealers that share the directory serialize on the lock.
 //! The host adapter already refuses a second open of the same directory.
 //! Another directory, including a copy on another host, has its own file and
-//! is not included. A missing count is not filled in from the objects on
-//! disk: a listing misses seals that were later deleted, and the seal magic
-//! does not say which key produced the file. `2^32` is not a second refusal;
-//! the `2^20` check comes first. Rotation still discards objects sealed under the
-//! previous key. This crate does not migrate them.
+//! is not included. A missing count is not filled in by counting objects: a
+//! listing misses seals that were later deleted. `2^32` is not a second
+//! refusal; the `2^20` check comes first. Rotation leaves objects sealed under
+//! the previous key on disk until a read fails to open one. This crate does
+//! not delete them at open and does not migrate them.
 //!
 //! `Nonce::assume_unique_for_key` does not search for an earlier nonce, and
 //! neither does this module. A repeat under one key makes the CTR keystream
@@ -148,9 +160,16 @@ pub const RECOMMENDED_SEALS_PER_KEY: u64 = 1 << 20;
 pub const NIST_SP800_38D_RANDOM_NONCE_LIMIT: u64 = 1 << 32;
 /// Directory under the store root that holds one count file per key fingerprint.
 pub const USAGE_DIR_NAME: &str = "seal-usage";
+/// Marker beside the counters: SHA-256 of the key the store is sealing under.
+/// Not a count file (those names are 64 hex digits). The key itself is not
+/// stored.
+pub(crate) const KEY_MARKER_NAME: &str = "key-fingerprint";
 const USAGE_MAGIC: [u8; 4] = *b"AKSU";
 const USAGE_VERSION: u8 = 1;
 const USAGE_LEN: usize = 16;
+const KEY_MARKER_MAGIC: [u8; 4] = *b"AKSF";
+const KEY_MARKER_VERSION: u8 = 1;
+const KEY_MARKER_LEN: usize = 40;
 const O_MAGIC: usize = SEAL_SLOT_OFFSET;
 const O_VERSION: usize = SEAL_SLOT_OFFSET + 3;
 const O_NONCE: usize = SEAL_SLOT_OFFSET + 4;
@@ -158,6 +177,8 @@ const O_TAG: usize = O_NONCE + NONCE_LEN;
 /// Region bytes bound as associated data: everything before the nonce.
 pub const AAD_LEN: usize = O_NONCE;
 const _: () = assert!(O_TAG + TAG_LEN == HEADER_REGION_LEN);
+/// AKS v2 fills the seal slot: magic, version, nonce, tag. No key id remains.
+const _: () = assert!(3 + 1 + NONCE_LEN + TAG_LEN == 32);
 
 /// Fills the 96-bit nonce for one seal.
 ///
@@ -414,15 +435,11 @@ impl SealKey {
     fn commit_usage(&self, usage_dir: &Path) -> Result<(), SealError> {
         require_usage_dir(usage_dir)?;
         let _lock = lock_usage_dir(usage_dir)?;
-        let name = fingerprint_name(&self.bytes);
+        let fp = key_fingerprint(&self.bytes);
+        let name = fingerprint_hex(&fp);
         let count = match read_count_file(&usage_dir.join(&name))? {
             Some(count) => count,
-            None => {
-                if store_already_holds_sealed_object(usage_dir)? {
-                    return Err(SealError::UsageStore);
-                }
-                0
-            }
+            None => missing_count(usage_dir, &fp)?,
         };
         if count >= RECOMMENDED_SEALS_PER_KEY {
             return Err(SealError::Budget);
@@ -434,7 +451,17 @@ impl SealKey {
         {
             return Err(SealError::UsageStore);
         }
-        write_count_file(usage_dir, &name, count + 1)
+        // The incremented count is durable before the marker moves to this
+        // key. A crash between them leaves the previous marker and this key's
+        // counter. The next seal still has the counter and writes the marker.
+        write_count_file(usage_dir, &name, count + 1)?;
+        if tracks_store_objects(usage_dir) {
+            match read_key_marker(usage_dir)? {
+                Some(existing) if existing == fp => {}
+                _ => write_key_marker(usage_dir, &fp)?,
+            }
+        }
+        Ok(())
     }
 
     /// Authenticate and decrypt `payload` (the bytes after `region` in a
@@ -497,6 +524,14 @@ pub(crate) fn testing_read_usage_count(usage_dir: &Path, key: &SealKey) -> Resul
     Ok(read_count_file(&usage_dir.join(fingerprint_name(&key.bytes)))?.unwrap_or(0))
 }
 
+/// The fingerprint recorded in [`KEY_MARKER_NAME`], if the file is present.
+#[cfg(test)]
+pub(crate) fn testing_read_key_marker(usage_dir: &Path) -> Result<Option<[u8; 32]>, SealError> {
+    require_usage_dir(usage_dir)?;
+    let _lock = lock_usage_dir(usage_dir)?;
+    read_key_marker(usage_dir)
+}
+
 /// Path of the count file. Tests check the fingerprint name independently
 /// by hashing the key with SHA-256 themselves.
 #[cfg(test)]
@@ -504,15 +539,59 @@ pub(crate) fn testing_usage_path(usage_dir: &Path, key: &SealKey) -> PathBuf {
     usage_dir.join(fingerprint_name(&key.bytes))
 }
 
-fn fingerprint_name(key: &[u8; KEY_LEN]) -> String {
-    let dig: [u8; 32] = Sha256::digest(key).into();
+fn key_fingerprint(key: &[u8; KEY_LEN]) -> [u8; 32] {
+    Sha256::digest(key).into()
+}
+
+fn fingerprint_hex(fp: &[u8; 32]) -> String {
     let mut hex = String::with_capacity(64);
     const NIBBLE: &[u8; 16] = b"0123456789abcdef";
-    for byte in dig {
+    for byte in fp {
         hex.push(NIBBLE[(byte >> 4) as usize] as char);
         hex.push(NIBBLE[(byte & 0x0f) as usize] as char);
     }
     hex
+}
+
+#[cfg(test)]
+fn fingerprint_name(key: &[u8; KEY_LEN]) -> String {
+    fingerprint_hex(&key_fingerprint(key))
+}
+
+/// Decide a missing counter. The AKS v2 header carries no key id (the seal
+/// slot assert above), so the marker is the record of which key sealed here.
+///
+/// A zero return means this seal may start at zero. [`SealError::UsageStore`]
+/// writes nothing except the legacy marker described below.
+fn missing_count(usage_dir: &Path, fp: &[u8; 32]) -> Result<u64, SealError> {
+    if !tracks_store_objects(usage_dir) {
+        return Ok(0);
+    }
+    match read_key_marker(usage_dir)? {
+        Some(existing) if existing == *fp => Err(SealError::UsageStore),
+        Some(_) => {
+            // Known rotation. The zero counter lands before the marker moves,
+            // so a crash cannot name this key and then find no counter.
+            write_count_file(usage_dir, &fingerprint_hex(fp), 0)?;
+            write_key_marker(usage_dir, fp)?;
+            Ok(0)
+        }
+        None => {
+            if store_already_holds_sealed_object(usage_dir)? {
+                // Legacy store, or the marker was deleted. Record this key
+                // and refuse. Do not write a counter. A different key then
+                // sees a known rotation.
+                write_key_marker(usage_dir, fp)?;
+                Err(SealError::UsageStore)
+            } else {
+                Ok(0)
+            }
+        }
+    }
+}
+
+fn tracks_store_objects(usage_dir: &Path) -> bool {
+    usage_dir.file_name() == Some(std::ffi::OsStr::new(USAGE_DIR_NAME))
 }
 
 fn require_usage_dir(dir: &Path) -> Result<(), SealError> {
@@ -605,15 +684,38 @@ fn read_count_file(path: &Path) -> Result<Option<u64>, SealError> {
     Ok(Some(u64::from_le_bytes(le)))
 }
 
-/// A missing count under a real store must not restart at zero once any
-/// sealed object is on disk. Directories that are not named
-/// [`USAGE_DIR_NAME`] are the unit-test usage dirs: they have no `objects/`
-/// tree, and a missing file there is zero.
-///
-/// There is no seeder. Counting `.kvc` files would miss seals that were
-/// deleted, and the magic does not identify the key.
+/// `Ok(None)` is a missing marker. A present file that is not the marker
+/// encoding is [`SealError::UsageStore`], not a fresh store.
+fn read_key_marker(dir: &Path) -> Result<Option<[u8; 32]>, SealError> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut f = match OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(dir.join(KEY_MARKER_NAME))
+    {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err(SealError::UsageStore),
+    };
+    let meta = f.metadata().map_err(|_| SealError::UsageStore)?;
+    if !meta.is_file() || meta.uid() != euid() || meta.len() != KEY_MARKER_LEN as u64 {
+        return Err(SealError::UsageStore);
+    }
+    let mut buf = [0u8; KEY_MARKER_LEN];
+    f.read_exact(&mut buf).map_err(|_| SealError::UsageStore)?;
+    if buf[0..4] != KEY_MARKER_MAGIC || buf[4] != KEY_MARKER_VERSION || buf[5..8] != [0, 0, 0] {
+        return Err(SealError::UsageStore);
+    }
+    let mut fp = [0u8; 32];
+    fp.copy_from_slice(&buf[8..40]);
+    Ok(Some(fp))
+}
+
+/// Whether `objects/<shard>/*.kvc` holds an AKS v2 object. There is no
+/// seeder: this does not count files, and it does not read a key id. The
+/// v2 seal slot has none.
 fn store_already_holds_sealed_object(usage_dir: &Path) -> Result<bool, SealError> {
-    if usage_dir.file_name() != Some(std::ffi::OsStr::new(USAGE_DIR_NAME)) {
+    if !tracks_store_objects(usage_dir) {
         return Ok(false);
     }
     let Some(root) = usage_dir.parent() else {
@@ -691,12 +793,19 @@ fn region_is_sealed(path: &Path) -> Result<bool, SealError> {
 }
 
 fn write_count_file(dir: &Path, name: &str, count: u64) -> Result<(), SealError> {
+    write_durable(dir, name, &encode_count(count))
+}
+
+fn write_key_marker(dir: &Path, fp: &[u8; 32]) -> Result<(), SealError> {
+    write_durable(dir, KEY_MARKER_NAME, &encode_key_marker(fp))
+}
+
+fn write_durable(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), SealError> {
     let final_path = dir.join(name);
     let part_path = dir.join(format!("{name}.part"));
     {
         let mut f = create_usage_file(&part_path)?;
-        f.write_all(&encode_count(count))
-            .map_err(|_| SealError::UsageStore)?;
+        f.write_all(bytes).map_err(|_| SealError::UsageStore)?;
         f.sync_all().map_err(|_| SealError::UsageStore)?;
     }
     std::fs::rename(&part_path, &final_path).map_err(|_| SealError::UsageStore)?;
@@ -708,6 +817,14 @@ fn encode_count(count: u64) -> [u8; USAGE_LEN] {
     buf[0..4].copy_from_slice(&USAGE_MAGIC);
     buf[4] = USAGE_VERSION;
     buf[8..16].copy_from_slice(&count.to_le_bytes());
+    buf
+}
+
+fn encode_key_marker(fp: &[u8; 32]) -> [u8; KEY_MARKER_LEN] {
+    let mut buf = [0u8; KEY_MARKER_LEN];
+    buf[0..4].copy_from_slice(&KEY_MARKER_MAGIC);
+    buf[4] = KEY_MARKER_VERSION;
+    buf[8..40].copy_from_slice(fp);
     buf
 }
 

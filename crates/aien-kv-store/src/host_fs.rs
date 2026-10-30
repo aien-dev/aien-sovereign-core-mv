@@ -3090,7 +3090,8 @@ impl HostFsStore {
             stats.io_ops += 1;
             // The directory name has to be durable before the first seal.
             // Losing `seal-usage/` beside sealed objects fails the next seal
-            // (`SealError::UsageStore`). An empty store still starts at zero.
+            // (`SealError::UsageStore`) until the key is rotated. An empty
+            // store still starts at zero.
             fsync_dir(&usage_dir).map_err(|e| io_to_error(&e, "fsync seal-usage"))?;
             fsync_dir(root).map_err(|e| io_to_error(&e, "fsync root for seal-usage"))?;
             stats.dir_fsyncs += 2;

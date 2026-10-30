@@ -28,8 +28,8 @@ use crate::identity::NamespaceFields;
 use crate::pin::{HolderGuard, PinnedSource};
 use crate::record::HEADER_REGION_LEN;
 use crate::seal::{
-    self, testing_install_usage_count, testing_read_usage_count, testing_usage_path, NonceSource,
-    SealError, SealKey, RECOMMENDED_SEALS_PER_KEY, USAGE_DIR_NAME,
+    self, testing_install_usage_count, testing_read_key_marker, testing_read_usage_count,
+    testing_usage_path, NonceSource, SealError, SealKey, RECOMMENDED_SEALS_PER_KEY, USAGE_DIR_NAME,
 };
 use crate::{chunk_chain, Incarnation, KvStore, Terminal};
 use aien_platform::PlatformError;
@@ -368,6 +368,129 @@ fn seal_budget_leftover_part_is_replaced_when_we_own_it_and_refused_when_linked(
             .is_symlink(),
         "a linked part is left in place"
     );
+    assert_eq!(testing_read_usage_count(&usage, &key).unwrap(), 4);
+}
+
+fn fp_bytes(key: &[u8; 32]) -> [u8; 32] {
+    Sha256::digest(key).into()
+}
+
+#[test]
+fn seal_budget_rotation_starts_the_new_key_at_one_and_keeps_the_old_object() {
+    let (root, usage) = store_usage("rotate");
+    let old = SealKey::from_bytes([0x41; 32]);
+    let new_key = SealKey::from_bytes([0x42; 32]);
+    let mut file = blank();
+    old.seal_file(&usage, &mut file).unwrap();
+    assert_eq!(testing_read_usage_count(&usage, &old).unwrap(), 1);
+    assert_eq!(
+        testing_read_key_marker(&usage).unwrap(),
+        Some(fp_bytes(&[0x41; 32]))
+    );
+    let sealed = file.clone();
+    let obj = root
+        .0
+        .join("objects/ab/ab00000000000000000000000000000000000000000000000000000000000000.kvc");
+    std::fs::create_dir_all(obj.parent().unwrap()).unwrap();
+    std::fs::write(&obj, &sealed).unwrap();
+
+    let mut next = blank();
+    new_key.seal_file(&usage, &mut next).unwrap();
+    assert!(seal::is_sealed_region(&next[..HEADER_REGION_LEN]));
+    assert_eq!(testing_read_usage_count(&usage, &new_key).unwrap(), 1);
+    assert_eq!(testing_read_usage_count(&usage, &old).unwrap(), 1);
+    assert_eq!(
+        testing_read_key_marker(&usage).unwrap(),
+        Some(fp_bytes(&[0x42; 32]))
+    );
+    assert_eq!(
+        std::fs::read(&obj).unwrap(),
+        sealed,
+        "an old-key object stays until a read drops it"
+    );
+}
+
+#[test]
+fn seal_budget_same_key_with_the_counter_deleted_fails() {
+    let (_root, usage) = store_usage("deleted-counter");
+    let key = SealKey::from_bytes([0x43; 32]);
+    let mut file = blank();
+    key.seal_file(&usage, &mut file).unwrap();
+    let path = testing_usage_path(&usage, &key);
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(
+        testing_read_key_marker(&usage).unwrap(),
+        Some(fp_bytes(&[0x43; 32]))
+    );
+    let mut again = blank();
+    let before = again.clone();
+    assert_eq!(
+        key.seal_file(&usage, &mut again),
+        Err(SealError::UsageStore)
+    );
+    assert_eq!(again, before);
+    assert!(!path.exists(), "the refusal does not recreate the counter");
+    assert_eq!(
+        testing_read_key_marker(&usage).unwrap(),
+        Some(fp_bytes(&[0x43; 32]))
+    );
+}
+
+#[test]
+fn seal_budget_legacy_store_refuses_then_rotation_seals() {
+    let (root, usage) = store_usage("legacy");
+    let name = "ab00000000000000000000000000000000000000000000000000000000000000.kvc";
+    plant_kvc(&root.0, "ab", name, true);
+    let obj = root.0.join("objects/ab").join(name);
+    let old_bytes = std::fs::read(&obj).unwrap();
+    assert_eq!(testing_read_key_marker(&usage).unwrap(), None);
+
+    let old = SealKey::from_bytes([0x44; 32]);
+    let mut file = blank();
+    let before = file.clone();
+    assert_eq!(old.seal_file(&usage, &mut file), Err(SealError::UsageStore));
+    assert_eq!(file, before);
+    assert!(!testing_usage_path(&usage, &old).exists());
+    assert_eq!(
+        testing_read_key_marker(&usage).unwrap(),
+        Some(fp_bytes(&[0x44; 32])),
+        "the refusal records the key and does not write a counter"
+    );
+    assert_eq!(old.seal_file(&usage, &mut file), Err(SealError::UsageStore));
+    assert!(!testing_usage_path(&usage, &old).exists());
+
+    let new_key = SealKey::from_bytes([0x45; 32]);
+    let mut next = blank();
+    new_key.seal_file(&usage, &mut next).unwrap();
+    assert!(seal::is_sealed_region(&next[..HEADER_REGION_LEN]));
+    assert_eq!(testing_read_usage_count(&usage, &new_key).unwrap(), 1);
+    assert!(!testing_usage_path(&usage, &old).exists());
+    assert_eq!(
+        testing_read_key_marker(&usage).unwrap(),
+        Some(fp_bytes(&[0x45; 32]))
+    );
+    assert_eq!(std::fs::read(&obj).unwrap(), old_bytes);
+}
+
+#[test]
+fn seal_budget_part_owned_by_another_user_is_left_in_place() {
+    let (_root, usage) = store_usage("part-other-uid");
+    let key = SealKey::from_bytes([0x46; 32]);
+    testing_install_usage_count(&usage, &key, 4).unwrap();
+    let count_path = testing_usage_path(&usage, &key);
+    let part = count_path.with_extension("part");
+    std::fs::write(&part, b"other-user").unwrap();
+    let chown = std::process::Command::new("sudo")
+        .args(["-n", "chown", "nobody:nogroup"])
+        .arg(&part)
+        .status()
+        .expect("sudo chown");
+    assert!(chown.success(), "chown nobody of the leftover part");
+    let mut file = blank();
+    let before = file.clone();
+    assert_eq!(key.seal_file(&usage, &mut file), Err(SealError::UsageStore));
+    assert_eq!(file, before);
+    assert_eq!(std::fs::read(&part).unwrap(), b"other-user");
     assert_eq!(testing_read_usage_count(&usage, &key).unwrap(), 4);
 }
 
