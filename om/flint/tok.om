@@ -1,0 +1,1657 @@
+note flint-tok: tokenizer and control-token identity for the pinned Flint tokenizer (Core #834 item 1).
+note Usage: flint-tok TOKENIZER_JSON TOKENIZER_CONFIG GENERATION_CONFIG FIXTURE. It admits tokenizer.json
+note with its own strict JSON scanner (the file is 10.9 MB, past json.om's 983040-byte limit), keeps the
+note added tokens and the BPE vocabulary as id -> UTF-8 string, reads tokenizer_config.json and
+note generation_config.json with om/vendor/json.om, then checks every record of the fixture that
+note test/tokref.py wrote with the pinned reference:
+note   size NV NA             base vocabulary and added-token counts
+note   role NAME ID...        bos/eos from tokenizer_config.json, genbos/geneos/genpad from generation_config.json
+note   ctl NAME ID SPECIAL HEX  the control token's content and special flag in tokenizer.json, the same in
+note                          tokenizer_config.json added_tokens_decoder, and that no other added token has it
+note   case NAME N IDS NB HEX the ids decode, through the vocabulary and the ByteLevel decoder, to exactly HEX
+note Stdout: one "flint-tok KIND NAME ... PASS|FAIL" line per record, then a summary line. Exit 0 when every
+note record passes, 1 when any fails. Refusal: nothing on stdout, stderr "refused N reason", exit N.
+note Compose: { printf 'om2\n'; cat om/vendor/json.om om/flint/tok.om; } | omc
+note Encode (pre-tokenizer regex split plus BPE merges) is not implemented here; see om/flint/README.md.
+
+const TMAX ulong 263168
+const NOINT ulong 18446744073709551615
+global ga uchar 16384
+global gas ulong 8
+global gal ulong 8
+global gpth uchar 4352
+global gstb uchar 128
+global gtj uchar 16777216
+global gfx uchar 1048576
+global gs ulong 64
+global gkb uchar 65536
+global gpool uchar 2097152
+global gto ulong 263168
+global gtl ulong 263168
+global gsp uchar 263168
+global gid ulong 8192
+global gxb uchar 65536
+global gdb uchar 65536
+global gob uchar 1048576
+global geb uchar 512
+global gdg uchar 24
+
+note gs: 0 tokenizer.json cursor, 1 its length, 2 depth, 3 string end, 4 string start, 5 pool fill,
+note 6 vocab entries, 7 vocab max id + 1, 8 added tokens, 9 last fstat size, 10 root keys seen,
+note 11 model keys seen, 12 decoder keys seen, 13 added id, 14 added content offset, 15 added content
+note length, 16 added special + 1, 17 added keys seen, 18 stdout fill, 19 stderr fill, 20 fixture length,
+note 21 fixture cursor, 22 records passed, 23 records failed, 24 decoded string length, 26 first added id,
+note 28 decode fill, 29 expected bytes, 30 fixture word length, 31 fixture ids.
+
+text tr2 "usage: flint-tok TOKENIZER_JSON TOKENIZER_CONFIG GENERATION_CONFIG FIXTURE"
+text tr3 "io"
+text tr4 "not-regular-file"
+text tr50 "tokenizer-json-size"
+text tr51 "tokenizer-json-syntax"
+text tr52 "tokenizer-json-schema"
+text tr53 "vocab-id"
+text tr54 "vocab-not-byte-level"
+text tr55 "added-token"
+text tr56 "tokenizer-config"
+text tr57 "generation-config"
+text tr58 "fixture-syntax"
+text tr59 "capacity"
+text tref "refused "
+text tpre "flint-tok "
+text tpass " PASS"
+text tfail " FAIL"
+text tsum "flint-tok summary vocab "
+text tsadd " added "
+text tsrec " records "
+text tspass " pass "
+text tsfail " fail "
+text ttrue "true"
+text tfalse "false"
+text tnull "null"
+text tbpe "BPE"
+text tblev "ByteLevel"
+text kver "version"
+text ktrunc "truncation"
+text kpad "padding"
+text kadded "added_tokens"
+text knorm "normalizer"
+text kpret "pre_tokenizer"
+text kpost "post_processor"
+text kdec "decoder"
+text kmodel "model"
+text ktype "type"
+text kvocab "vocab"
+text kmerges "merges"
+text kdrop "dropout"
+text kunk "unk_token"
+text kcsp "continuing_subword_prefix"
+text keow "end_of_word_suffix"
+text kfuse "fuse_unk"
+text kbfb "byte_fallback"
+text kignm "ignore_merges"
+text kaps "add_prefix_space"
+text ktrim "trim_offsets"
+text kregex "use_regex"
+text kid "id"
+text kcont "content"
+text kspec "special"
+text ksword "single_word"
+text klstrip "lstrip"
+text krstrip "rstrip"
+text knormd "normalized"
+text kbos "bos_token"
+text keos "eos_token"
+text katd "added_tokens_decoder"
+text kgbos "bos_token_id"
+text kgeos "eos_token_id"
+text kgpad "pad_token_id"
+text fsize "size"
+text frole "role"
+text fctl "ctl"
+text fcase "case"
+text rbos "bos"
+text reos "eos"
+text rgbos "genbos"
+text rgeos "geneos"
+text rgpad "genpad"
+
+note ======== output ========
+
+fn tk_eput c uchar to void
+p = get gs 19
+if lt p len geb
+put geb p c
+put gs 19 add p 1
+end
+end
+
+fn tk_etx t view uchar * to void
+for i ulong len t
+tk_eput get t i
+end
+end
+
+note tk_digs: decimal digits of v into gdg, least significant first; returns the digit count
+fn tk_digs v ulong to ulong
+n = ulong 0
+x = v
+while true bound 25
+put gdg n add 48 uchar rem x 10
+n = add n 1
+x = div x 10
+if eq x 0
+break
+end
+end
+ret n
+end
+
+fn tk_eflush to void
+o = ulong 0
+m = get gs 19
+while lt o m bound 1024
+w = write 2 geb o sub m o
+if le w 0
+exit 3
+end
+o = add o ulong w
+end
+put gs 19 0
+end
+
+fn tk_die c ulong t view uchar * to void
+put gs 19 0
+tk_etx tref
+n = tk_digs c
+for i ulong n
+tk_eput get gdg sub sub n i 1
+end
+tk_eput 32
+tk_etx t
+tk_eput 10
+tk_eflush
+exit int c
+end
+
+fn tk_ob c uchar to void
+p = get gs 18
+if ge p len gob
+tk_die 59 tr59
+end
+put gob p c
+put gs 18 add p 1
+end
+
+fn tk_otx t view uchar * to void
+for i ulong len t
+tk_ob get t i
+end
+end
+
+fn tk_ou v ulong to void
+n = tk_digs v
+for i ulong n
+tk_ob get gdg sub sub n i 1
+end
+end
+
+fn tk_oflush to void
+o = ulong 0
+m = get gs 18
+while lt o m bound 999999
+w = write 1 gob o sub m o
+if le w 0
+tk_die 3 tr3
+end
+o = add o ulong w
+end
+put gs 18 0
+end
+
+note ======== files ========
+
+fn tk_le64 o ulong to ulong
+v = ulong 0
+for i ulong 8
+v = or v shl ulong get gstb add o i mul 8 i
+end
+ret v
+end
+
+note tk_open: argument a with O_RDONLY | O_CLOEXEC | O_NOFOLLOW (arm64 557056), a regular file
+note (st_mode & S_IFMT 61440 == S_IFREG 32768); leaves st_size in gs 9
+fn tk_open a ulong to long
+n = get gal a
+if or eq n 0 gt n 4095
+tk_die 2 tr2
+end
+o = get gas a
+for i ulong n
+put gpth i get ga add o i
+end
+fd = fopen gpth 0 n 557056 0
+if lt fd 0
+if eq fd -40
+tk_die 4 tr4
+end
+tk_die 3 tr3
+end
+r = fstat int fd gstb 0 128
+if ne r 0
+tk_die 3 tr3
+end
+md = or ulong get gstb 16 shl ulong get gstb 17 8
+if ne and md 61440 32768
+tk_die 4 tr4
+end
+put gs 9 tk_le64 48
+ret fd
+end
+
+fn tk_close fd long to void
+r = fclose int fd
+if ne r 0
+tk_die 3 tr3
+end
+end
+
+note tk_rtj: tokenizer.json into gtj; at least 64 zero bytes stay after it, so every lookahead of the
+note scanner reads a 0 at the end, which no rule accepts
+fn tk_rtj to void
+fd = tk_open 1
+n = get gs 9
+if or eq n 0 gt n sub len gtj 64
+tk_die 50 tr50
+end
+o = ulong 0
+while lt o n bound 999999
+r = pread int fd gtj o sub n o long o
+if le r 0
+tk_die 3 tr3
+end
+o = add o ulong r
+end
+tk_close fd
+put gs 0 0
+put gs 1 n
+end
+
+fn tk_rfx to void
+fd = tk_open 4
+n = get gs 9
+if or eq n 0 gt n sub len gfx 64
+tk_die 58 tr58
+end
+o = ulong 0
+while lt o n bound 999999
+r = pread int fd gfx o sub n o long o
+if le r 0
+tk_die 3 tr3
+end
+o = add o ulong r
+end
+tk_close fd
+put gs 20 n
+put gs 21 0
+end
+
+note tk_rloc: argument a into the local buffer b (a json.om source); 0 when empty or bigger than b
+fn tk_rloc a ulong b edit uchar * to ulong
+fd = tk_open a
+n = get gs 9
+if or eq n 0 gt n len b
+tk_close fd
+ret 0
+end
+o = ulong 0
+while lt o n bound 999999
+r = pread int fd b o sub n o long o
+if le r 0
+tk_die 3 tr3
+end
+o = add o ulong r
+end
+tk_close fd
+ret n
+end
+
+note ======== tokenizer.json scanner (RFC 8259, strict) ========
+
+fn tk_dig c uchar to bool
+ret and ge c 48 le c 57
+end
+
+fn tj_at to uchar
+p = get gs 0
+if ge p get gs 1
+tk_die 51 tr51
+end
+ret get gtj p
+end
+
+fn tj_ws to void
+while lt get gs 0 get gs 1 bound 999999
+c = get gtj get gs 0
+if not or or eq c 32 eq c 10 or eq c 13 eq c 9
+ret
+end
+put gs 0 add get gs 0 1
+end
+end
+
+fn tj_eat c uchar to void
+tj_ws
+if ne tj_at c
+tk_die 51 tr51
+end
+put gs 0 add get gs 0 1
+end
+
+fn tj_hex4 p ulong to ulong
+v = ulong 0
+for i ulong 4
+h = js_hexv get gtj add p i
+if eq h 16
+tk_die 51 tr51
+end
+v = or shl v 4 h
+end
+ret v
+end
+
+note tj_esc: the escape whose backslash is at p is well formed (a surrogate only as one high-low pair);
+note returns the position after it
+fn tj_esc p ulong to ulong
+q = add p 1
+c = get gtj q
+if ne c 117
+if eq js_esv c jsnone
+tk_die 51 tr51
+end
+ret add q 1
+end
+h = tj_hex4 add q 1
+if and ge h 56320 le h 57343
+tk_die 51 tr51
+end
+if or lt h 55296 gt h 56319
+ret add q 5
+end
+r = add q 5
+if or ne get gtj r 92 ne get gtj add r 1 117
+tk_die 51 tr51
+end
+l = tj_hex4 add r 2
+if or lt l 56320 gt l 57343
+tk_die 51 tr51
+end
+ret add r 6
+end
+
+note tj_str: a string at the cursor (after whitespace); its content is gtj[gs 4 .. gs 3). Controls,
+note bad escapes and ill-formed UTF-8 (js_u8st) are refused.
+fn tj_str to void
+tj_ws
+if ne tj_at 34
+tk_die 51 tr51
+end
+p = add get gs 0 1
+put gs 4 p
+st = ulong 0
+n = get gs 1
+while lt p n bound 999999
+c = get gtj p
+if and eq st 0 eq c 34
+put gs 3 p
+put gs 0 add p 1
+ret
+end
+if and eq st 0 eq c 92
+p = tj_esc p
+continue
+end
+if and eq st 0 lt c 32
+tk_die 51 tr51
+end
+st = js_u8st st c
+if eq st 9
+tk_die 51 tr51
+end
+p = add p 1
+end
+tk_die 51 tr51
+end
+
+fn tj_ecp p ulong to ulong
+c = get gtj add p 1
+if ne c 117
+ret js_esv c
+end
+h = tj_hex4 add p 2
+if or lt h 55296 gt h 56319
+ret h
+end
+l = tj_hex4 add p 8
+ret add 65536 add shl sub h 55296 10 sub l 56320
+end
+
+fn tk_kput w ulong c ulong to ulong
+if ge w len gkb
+tk_die 59 tr59
+end
+put gkb w uchar and c 255
+ret add w 1
+end
+
+fn tk_putcp w ulong cp ulong to ulong
+k = js_cplen cp
+if eq k 1
+ret tk_kput w cp
+end
+if eq k 2
+x = tk_kput w or 192 shr cp 6
+ret tk_kput x or 128 and cp 63
+end
+if eq k 3
+x = tk_kput w or 224 shr cp 12
+y = tk_kput x or 128 and shr cp 6 63
+ret tk_kput y or 128 and cp 63
+end
+x = tk_kput w or 240 shr cp 18
+y = tk_kput x or 128 and shr cp 12 63
+z = tk_kput y or 128 and shr cp 6 63
+ret tk_kput z or 128 and cp 63
+end
+
+note tj_sdec: the last scanned string, unescaped, into gkb[0 .. gs 24)
+fn tj_sdec to void
+p = get gs 4
+e = get gs 3
+w = ulong 0
+while lt p e bound 999999
+c = get gtj p
+if ne c 92
+w = tk_kput w ulong c
+p = add p 1
+continue
+end
+cp = tj_ecp p
+w = tk_putcp w cp
+if ne get gtj add p 1 117
+p = add p 2
+else
+if ge cp 65536
+p = add p 12
+else
+p = add p 6
+end
+end
+end
+put gs 24 w
+end
+
+fn tj_digs p ulong to ulong
+if not tk_dig get gtj p
+tk_die 51 tr51
+end
+q = p
+while tk_dig get gtj q bound 999999
+q = add q 1
+end
+ret q
+end
+
+note tj_num: a number at the cursor; its value when it is a non-negative integer of at most 18 digits
+note without fraction or exponent, else NOINT
+fn tj_num to ulong
+tj_ws
+p = get gs 0
+ok = true
+if eq get gtj p 45
+ok = false
+p = add p 1
+end
+s = p
+if eq get gtj p 48
+p = add p 1
+if tk_dig get gtj p
+tk_die 51 tr51
+end
+else
+p = tj_digs p
+end
+v = ulong 0
+if gt sub p s 18
+ok = false
+else
+for i ulong sub p s
+v = add mul v 10 ulong sub get gtj add s i 48
+end
+end
+if eq get gtj p 46
+ok = false
+p = tj_digs add p 1
+end
+if or eq get gtj p 101 eq get gtj p 69
+ok = false
+p = add p 1
+if or eq get gtj p 43 eq get gtj p 45
+p = add p 1
+end
+p = tj_digs p
+end
+put gs 0 p
+if ok
+ret v
+end
+ret NOINT
+end
+
+fn tj_word t view uchar * to bool
+p = get gs 0
+for i ulong len t
+if ne get gtj add p i get t i
+ret false
+end
+end
+put gs 0 add p len t
+ret true
+end
+
+note tj_bool: 1 true, 0 false, 2 not a boolean (cursor unmoved)
+fn tj_bool to ulong
+tj_ws
+if tj_word ttrue
+ret 1
+end
+if tj_word tfalse
+ret 0
+end
+ret 2
+end
+
+fn tj_skip to void
+tj_ws
+c = tj_at
+if eq c 123
+tj_obj 0
+ret
+end
+if eq c 91
+tj_arr 0
+ret
+end
+if eq c 34
+tj_str
+ret
+end
+if or eq c 45 tk_dig c
+v = tj_num
+ret
+end
+if tj_word ttrue
+ret
+end
+if tj_word tfalse
+ret
+end
+if tj_word tnull
+ret
+end
+tk_die 51 tr51
+end
+
+fn tj_down to void
+d = add get gs 2 1
+if gt d 64
+tk_die 51 tr51
+end
+put gs 2 d
+end
+
+note tj_obj: an object; ctx 0 skips members, else tj_mem dispatches each decoded key
+fn tj_obj ctx ulong to void
+tj_eat 123
+tj_down
+tj_beg ctx
+tj_ws
+if eq tj_at 125
+put gs 0 add get gs 0 1
+else
+while true bound 999999
+tj_str
+if ne ctx 0
+tj_sdec
+end
+tj_eat 58
+tj_mem ctx
+tj_ws
+c = tj_at
+put gs 0 add get gs 0 1
+if eq c 125
+break
+end
+if ne c 44
+tk_die 51 tr51
+end
+end
+end
+put gs 2 sub get gs 2 1
+tj_end ctx
+end
+
+note tj_arr: an array; ctx 2 holds added-token objects, any other ctx skips its elements
+fn tj_arr ctx ulong to void
+tj_eat 91
+tj_down
+tj_ws
+if eq tj_at 93
+put gs 0 add get gs 0 1
+else
+while true bound 999999
+if eq ctx 2
+tj_ws
+if ne tj_at 123
+tk_die 55 tr55
+end
+tj_obj 3
+else
+tj_skip
+end
+tj_ws
+c = tj_at
+put gs 0 add get gs 0 1
+if eq c 93
+break
+end
+if ne c 44
+tk_die 51 tr51
+end
+end
+end
+put gs 2 sub get gs 2 1
+end
+
+note ======== tokenizer.json schema ========
+
+fn tk_kis t view uchar * to bool
+l = get gs 24
+if ne l len t
+ret false
+end
+for i ulong l
+if ne get gkb i get t i
+ret false
+end
+end
+ret true
+end
+
+note tk_once: set bit b of gs cell c, refusing code e when the key was already seen
+fn tk_once c ulong b ulong e ulong t view uchar * to void
+m = get gs c
+if ne and m b 0
+tk_die e t
+end
+put gs c or m b
+end
+
+fn tj_beg ctx ulong to void
+if eq ctx 3
+put gs 17 0
+put gs 16 0
+end
+end
+
+fn tj_mem ctx ulong to void
+if eq ctx 0
+tj_skip
+ret
+end
+if eq ctx 5
+tv_ent
+ret
+end
+if eq ctx 1
+tr_mem
+ret
+end
+if eq ctx 3
+ta_mem
+ret
+end
+if eq ctx 4
+tm_mem
+ret
+end
+if eq ctx 6
+td_mem
+ret
+end
+tk_die 52 tr52
+end
+
+fn tr_skip b ulong to void
+tk_once 10 b 52 tr52
+tj_skip
+end
+
+fn tr_mem to void
+if tk_kis kver
+tr_skip 1
+ret
+end
+if tk_kis ktrunc
+tr_skip 2
+ret
+end
+if tk_kis kpad
+tr_skip 4
+ret
+end
+if tk_kis knorm
+tr_skip 16
+ret
+end
+if tk_kis kpret
+tr_skip 32
+ret
+end
+if tk_kis kpost
+tr_skip 64
+ret
+end
+if tk_kis kadded
+tk_once 10 8 52 tr52
+tj_ws
+if ne tj_at 91
+tk_die 52 tr52
+end
+tj_arr 2
+ret
+end
+if tk_kis kdec
+tk_once 10 128 52 tr52
+tj_ws
+if ne tj_at 123
+tk_die 52 tr52
+end
+tj_obj 6
+ret
+end
+if tk_kis kmodel
+tk_once 10 256 52 tr52
+tj_ws
+if ne tj_at 123
+tk_die 52 tr52
+end
+tj_obj 4
+ret
+end
+tk_die 52 tr52
+end
+
+fn tk_sval t view uchar * to void
+tj_str
+tj_sdec
+if not tk_kis t
+tk_die 52 tr52
+end
+end
+
+fn tm_skip b ulong to void
+tk_once 11 b 52 tr52
+tj_skip
+end
+
+fn tm_mem to void
+if tk_kis ktype
+tk_once 11 1 52 tr52
+tk_sval tbpe
+ret
+end
+if tk_kis kvocab
+tk_once 11 2 52 tr52
+tj_ws
+if ne tj_at 123
+tk_die 52 tr52
+end
+tj_obj 5
+ret
+end
+if tk_kis kmerges
+tm_skip 4
+ret
+end
+if tk_kis kdrop
+tm_skip 8
+ret
+end
+if tk_kis kunk
+tm_skip 16
+ret
+end
+if tk_kis kcsp
+tm_skip 32
+ret
+end
+if tk_kis keow
+tm_skip 64
+ret
+end
+if tk_kis kfuse
+tm_skip 128
+ret
+end
+if tk_kis kbfb
+tm_skip 256
+ret
+end
+if tk_kis kignm
+tm_skip 512
+ret
+end
+tk_die 52 tr52
+end
+
+fn td_mem to void
+if tk_kis ktype
+tk_once 12 1 52 tr52
+tk_sval tblev
+ret
+end
+if tk_kis kaps
+tk_once 12 2 52 tr52
+tj_skip
+ret
+end
+if tk_kis ktrim
+tk_once 12 4 52 tr52
+tj_skip
+ret
+end
+if tk_kis kregex
+tk_once 12 8 52 tr52
+tj_skip
+ret
+end
+tk_die 52 tr52
+end
+
+note tk_pput: gkb[0 .. gs 24) appended to the string pool; returns its offset
+fn tk_pput to ulong
+l = get gs 24
+o = get gs 5
+if gt add o l len gpool
+tk_die 59 tr59
+end
+for i ulong l
+put gpool add o i get gkb i
+end
+put gs 5 add o l
+ret o
+end
+
+note tk_bind: pool bytes [o, o + l) become token id's string; false for an id out of range or bound twice
+fn tk_bind id ulong o ulong l ulong to bool
+if ge id TMAX
+ret false
+end
+if ne get gtl id 0
+ret false
+end
+put gto id o
+put gtl id l
+ret true
+end
+
+fn ta_flag b ulong to void
+tk_once 17 b 55 tr55
+f = tj_bool
+if eq f 2
+tk_die 55 tr55
+end
+if eq b 4
+put gs 16 add f 1
+end
+end
+
+fn ta_mem to void
+if tk_kis kid
+tk_once 17 1 55 tr55
+v = tj_num
+if ge v TMAX
+tk_die 55 tr55
+end
+put gs 13 v
+ret
+end
+if tk_kis kcont
+tk_once 17 2 55 tr55
+tj_str
+tj_sdec
+if eq get gs 24 0
+tk_die 55 tr55
+end
+put gs 14 tk_pput
+put gs 15 get gs 24
+ret
+end
+if tk_kis kspec
+ta_flag 4
+ret
+end
+if tk_kis ksword
+ta_flag 8
+ret
+end
+if tk_kis klstrip
+ta_flag 16
+ret
+end
+if tk_kis krstrip
+ta_flag 32
+ret
+end
+if tk_kis knormd
+ta_flag 64
+ret
+end
+tk_die 55 tr55
+end
+
+fn ta_end to void
+if ne get gs 17 127
+tk_die 55 tr55
+end
+id = get gs 13
+n = get gs 8
+if eq n 0
+put gs 26 id
+end
+if ne id add get gs 26 n
+tk_die 55 tr55
+end
+if not tk_bind id get gs 14 get gs 15
+tk_die 55 tr55
+end
+put gsp id uchar get gs 16
+put gs 8 add n 1
+end
+
+fn tj_end ctx ulong to void
+if eq ctx 3
+ta_end
+end
+end
+
+note ======== ByteLevel ========
+
+note bl_inv: the byte that GPT-2 bytes_to_unicode maps to code point cp, 256 when cp is outside its image.
+note Bytes 33..126, 161..172 and 174..255 map to themselves; the other 68 (0..32, 127..160, 173) map in
+note order to 256..323.
+fn bl_inv cp ulong to ulong
+if and ge cp 33 le cp 126
+ret cp
+end
+if and ge cp 161 le cp 172
+ret cp
+end
+if and ge cp 174 le cp 255
+ret cp
+end
+if or lt cp 256 gt cp 323
+ret 256
+end
+k = sub cp 256
+if lt k 33
+ret k
+end
+if lt k 67
+ret add k 94
+end
+ret 173
+end
+
+fn tk_u8n c uchar to ulong
+if lt c 128
+ret 1
+end
+if lt c 224
+ret 2
+end
+if lt c 240
+ret 3
+end
+ret 4
+end
+
+note tk_u8cp: the code point at pool offset p (pool strings are well-formed UTF-8, checked by tj_str)
+fn tk_u8cp p ulong to ulong
+c = get gpool p
+k = tk_u8n c
+v = ulong c
+if eq k 2
+v = and v 31
+end
+if eq k 3
+v = and v 15
+end
+if eq k 4
+v = and v 7
+end
+for i ulong sub k 1
+v = or shl v 6 and ulong get gpool add p add i 1 63
+end
+ret v
+end
+
+note tk_allmap: every character of pool bytes [o, o + l) is in the ByteLevel alphabet
+fn tk_allmap o ulong l ulong to bool
+p = o
+e = add o l
+while lt p e bound 999999
+if eq bl_inv tk_u8cp p 256
+ret false
+end
+p = add p tk_u8n get gpool p
+end
+ret true
+end
+
+note tv_ent: one vocab member (key in gkb): a fresh id below TMAX whose string is all ByteLevel characters
+fn tv_ent to void
+l = get gs 24
+if eq l 0
+tk_die 54 tr54
+end
+v = tj_num
+if ge v TMAX
+tk_die 53 tr53
+end
+o = tk_pput
+if not tk_allmap o l
+tk_die 54 tr54
+end
+if not tk_bind v o l
+tk_die 53 tr53
+end
+put gs 6 add get gs 6 1
+if ge v get gs 7
+put gs 7 add v 1
+end
+end
+
+note tk_doc: the whole document; vocab ids must be exactly 0 .. NV - 1 and added ids NV .. NV + NA - 1
+fn tk_doc to void
+tj_ws
+if ne tj_at 123
+tk_die 51 tr51
+end
+tj_obj 1
+tj_ws
+if ne get gs 0 get gs 1
+tk_die 51 tr51
+end
+if ne and get gs 10 392 392
+tk_die 52 tr52
+end
+if ne and get gs 11 3 3
+tk_die 52 tr52
+end
+if ne and get gs 12 1 1
+tk_die 52 tr52
+end
+if or eq get gs 6 0 ne get gs 6 get gs 7
+tk_die 53 tr53
+end
+if or eq get gs 8 0 ne get gs 26 get gs 6
+tk_die 55 tr55
+end
+end
+
+note ======== decode ========
+
+fn tk_dput c ulong to void
+p = get gs 28
+if ge p len gdb
+tk_die 59 tr59
+end
+put gdb p uchar and c 255
+put gs 28 add p 1
+end
+
+note tk_dtok: token id's bytes appended to gdb by the ByteLevel decoder rule (tokenizers
+note pre_tokenizers/byte_level.rs decode_chain): a string whose every character is in the alphabet
+note becomes those bytes, any other string is emitted as its own UTF-8 bytes; false for an unknown id
+fn tk_dtok id ulong to bool
+if ge id TMAX
+ret false
+end
+l = get gtl id
+if eq l 0
+ret false
+end
+o = get gto id
+if tk_allmap o l
+p = o
+while lt p add o l bound 999999
+tk_dput bl_inv tk_u8cp p
+p = add p tk_u8n get gpool p
+end
+else
+for i ulong l
+tk_dput ulong get gpool add o i
+end
+end
+ret true
+end
+
+note tk_peq: token id's string is gxb[0 .. nb)
+fn tk_peq id ulong nb ulong to bool
+if ge id TMAX
+ret false
+end
+l = get gtl id
+if ne l nb
+ret false
+end
+o = get gto id
+for i ulong l
+if ne get gpool add o i get gxb i
+ret false
+end
+end
+ret true
+end
+
+note tk_find: the one added token whose string is gxb[0 .. nb); jsnone for none, NOINT for several
+fn tk_find nb ulong to ulong
+b = get gs 26
+r = jsnone
+for i ulong get gs 8
+id = add b i
+if tk_peq id nb
+if ne r jsnone
+ret NOINT
+end
+r = id
+end
+end
+ret r
+end
+
+note ======== tokenizer_config.json and generation_config.json (om/vendor/json.om) ========
+
+note tc_parse: json.om tape of src[0 .. n); false unless it parses to one object
+fn tc_parse src view uchar 65536 tape edit uint 65536 n ulong to bool
+if eq n 0
+ret false
+end
+r = js_init tape n 64
+if lt r 0
+ret false
+end
+q = js_parse src tape n
+if lt q 0
+ret false
+end
+ret eq js_type tape 0 jsobj
+end
+
+note tc_key: the value token of member t of object token o; jsnone when o is no object or t is absent
+fn tc_key src view uchar 65536 tape view uint 65536 o ulong t view uchar * to ulong
+if ne js_type tape o jsobj
+ret jsnone
+end
+k = js_first tape o
+while ne k jsnone bound 999999
+if js_streq src js_off tape k t
+ret add k 1
+end
+k = js_mnext tape k
+end
+ret jsnone
+end
+
+note tc_tokid: the added token named by the string member t of tokenizer_config.json
+fn tc_tokid src view uchar 65536 tape view uint 65536 t view uchar * to ulong
+v = tc_key src tape 0 t
+if ne js_type tape v jsstr
+tk_die 56 tr56
+end
+ob = new uchar 4096 0
+r = js_sget src js_off tape v ob
+if lt r 0
+tk_die 56 tr56
+end
+n = ulong r
+for i ulong n
+put gxb i get ob i
+end
+ret tk_find n
+end
+
+note tc_kid: a decimal key of added_tokens_decoder as a number, NOINT when it is not one
+fn tc_kid src view uchar 65536 tape view uint 65536 k ulong to ulong
+kb = new uchar 16 0
+r = js_sget src js_off tape k kb
+if or le r 0 gt r 9
+ret NOINT
+end
+v = ulong 0
+for i ulong ulong r
+c = get kb i
+if not tk_dig c
+ret NOINT
+end
+v = add mul v 10 ulong sub c 48
+end
+ret v
+end
+
+note tc_ent: added_tokens_decoder member v has content gxb[0 .. nb) and special flag sp
+fn tc_ent src view uchar 65536 tape view uint 65536 v ulong nb ulong sp ulong to bool
+c = tc_key src tape v kcont
+if ne js_type tape c jsstr
+tk_die 56 tr56
+end
+ob = new uchar 4096 0
+r = js_sget src js_off tape c ob
+if lt r 0
+tk_die 56 tr56
+end
+same = eq ulong r nb
+if same
+for i ulong nb
+if ne get ob i get gxb i
+same = false
+end
+end
+end
+s = tc_key src tape v kspec
+ty = js_type tape s
+if and ne ty jstrue ne ty jsfalse
+tk_die 56 tr56
+end
+ret and same eq ty sub jsfalse sp
+end
+
+note tc_ctl: tokenizer_config.json added_tokens_decoder holds id once, with content gxb[0 .. nb) and flag sp
+fn tc_ctl src view uchar 65536 tape view uint 65536 id ulong nb ulong sp ulong to bool
+d = tc_key src tape 0 katd
+if ne js_type tape d jsobj
+tk_die 56 tr56
+end
+hit = jsnone
+k = js_first tape d
+while ne k jsnone bound 999999
+if eq tc_kid src tape k id
+if ne hit jsnone
+ret false
+end
+hit = add k 1
+end
+k = js_mnext tape k
+end
+if eq hit jsnone
+ret false
+end
+ret tc_ent src tape hit nb sp
+end
+
+note tg_num: number token v of generation_config.json as an id (refuses anything but an unsigned integer)
+fn tg_num src view uchar 65536 tape view uint 65536 v ulong to ulong
+if ne js_type tape v jsnum
+tk_die 57 tr57
+end
+o = js_off tape v
+if not js_isu src o
+tk_die 57 tr57
+end
+ret js_tou src o
+end
+
+note tg_list: array token v of generation_config.json holds exactly the ids gid[0 .. n) in order
+fn tg_list src view uchar 65536 tape view uint 65536 v ulong n ulong to bool
+same = eq js_nkids tape v n
+e = js_first tape v
+i = ulong 0
+while ne e jsnone bound 8192
+x = tg_num src tape e
+if lt i n
+if ne x get gid i
+same = false
+end
+end
+i = add i 1
+e = js_enext tape e
+end
+ret and same eq i n
+end
+
+note tg_ids: generation_config.json member t (one id or a list) equals gid[0 .. gs 31) in order
+fn tg_ids src view uchar 65536 tape view uint 65536 t view uchar * to bool
+v = tc_key src tape 0 t
+n = get gs 31
+if eq js_type tape v jsarr
+ret tg_list src tape v n
+end
+x = tg_num src tape v
+ret and eq n 1 eq x get gid 0
+end
+
+note ======== fixture ========
+
+fn fx_word to ulong
+s = get gs 21
+p = s
+while lt p get gs 20 bound 999999
+c = get gfx p
+if or eq c 32 eq c 10
+break
+end
+if or lt c 33 gt c 126
+tk_die 58 tr58
+end
+p = add p 1
+end
+if eq p s
+tk_die 58 tr58
+end
+put gs 30 sub p s
+if eq get gfx p 32
+p = add p 1
+end
+put gs 21 p
+ret s
+end
+
+fn fx_wis s ulong l ulong t view uchar * to bool
+if ne l len t
+ret false
+end
+for i ulong l
+if ne get gfx add s i get t i
+ret false
+end
+end
+ret true
+end
+
+fn fx_uint to ulong
+s = fx_word
+l = get gs 30
+if gt l 9
+tk_die 58 tr58
+end
+v = ulong 0
+for i ulong l
+c = get gfx add s i
+if not tk_dig c
+tk_die 58 tr58
+end
+v = add mul v 10 ulong sub c 48
+end
+ret v
+end
+
+note fx_hex: one hex word into gxb; returns the byte count
+fn fx_hex to ulong
+s = fx_word
+l = get gs 30
+nb = div l 2
+if or ne rem l 2 0 gt nb len gxb
+tk_die 58 tr58
+end
+for i ulong nb
+h = js_hexv get gfx add s mul 2 i
+o = js_hexv get gfx add add s mul 2 i 1
+if or eq h 16 eq o 16
+tk_die 58 tr58
+end
+put gxb i uchar or shl h 4 o
+end
+ret nb
+end
+
+fn fx_end to bool
+ret eq get gfx get gs 21 10
+end
+
+fn fx_eol to void
+if not fx_end
+tk_die 58 tr58
+end
+put gs 21 add get gs 21 1
+end
+
+fn fx_skip to void
+p = get gs 21
+while lt p get gs 20 bound 999999
+p = add p 1
+if eq get gfx sub p 1 10
+break
+end
+end
+put gs 21 p
+end
+
+note fx_ids: the rest of the line as ids into gid[0 .. gs 31)
+fn fx_ids to void
+n = ulong 0
+while not fx_end bound 8192
+put gid n fx_uint
+n = add n 1
+end
+put gs 31 n
+fx_eol
+end
+
+fn fx_name to void
+s = fx_word
+put gs 32 s
+put gs 33 get gs 30
+end
+
+fn fx_size to bool
+put gs 33 0
+v = fx_uint
+a = fx_uint
+fx_eol
+ret and eq v get gs 6 eq a get gs 8
+end
+
+fn fx_role cs view uchar 65536 ct view uint 65536 gsr view uchar 65536 gtp view uint 65536 to bool
+fx_name
+s = get gs 32
+l = get gs 33
+fx_ids
+n = get gs 31
+if fx_wis s l rbos
+ret and eq n 1 eq get gid 0 tc_tokid cs ct kbos
+end
+if fx_wis s l reos
+ret and eq n 1 eq get gid 0 tc_tokid cs ct keos
+end
+if fx_wis s l rgbos
+ret tg_ids gsr gtp kgbos
+end
+if fx_wis s l rgeos
+ret tg_ids gsr gtp kgeos
+end
+if fx_wis s l rgpad
+ret tg_ids gsr gtp kgpad
+end
+tk_die 58 tr58
+ret false
+end
+
+fn fx_ctl cs view uchar 65536 ct view uint 65536 to bool
+fx_name
+id = fx_uint
+sp = fx_uint
+if gt sp 1
+tk_die 58 tr58
+end
+nb = fx_hex
+fx_eol
+if ge id TMAX
+ret false
+end
+a = tk_peq id nb
+b = eq ulong get gsp id add sp 1
+c = eq tk_find nb id
+d = tc_ctl cs ct id nb sp
+ret and and a b and c d
+end
+
+fn tk_xeq nb ulong to bool
+if ne get gs 28 nb
+ret false
+end
+st = ulong 0
+for i ulong nb
+if ne get gdb i get gxb i
+ret false
+end
+st = js_u8st st get gdb i
+end
+ret eq st 0
+end
+
+fn fx_case to bool
+fx_name
+n = fx_uint
+if gt n len gid
+tk_die 58 tr58
+end
+for i ulong n
+put gid i fx_uint
+end
+w = fx_uint
+nb = fx_hex
+fx_eol
+if ne w nb
+tk_die 58 tr58
+end
+put gs 28 0
+known = true
+for j ulong n
+if not tk_dtok get gid j
+known = false
+end
+end
+ret and known tk_xeq nb
+end
+
+fn tk_ofx s ulong l ulong to void
+for i ulong l
+tk_ob get gfx add s i
+end
+end
+
+fn fx_rec cs view uchar 65536 ct view uint 65536 gsr view uchar 65536 gtp view uint 65536 to void
+k = fx_word
+kl = get gs 30
+ok = false
+if fx_wis k kl fsize
+ok = fx_size
+else
+if fx_wis k kl frole
+ok = fx_role cs ct gsr gtp
+else
+if fx_wis k kl fctl
+ok = fx_ctl cs ct
+else
+if fx_wis k kl fcase
+ok = fx_case
+else
+tk_die 58 tr58
+end
+end
+end
+end
+tk_otx tpre
+tk_ofx k kl
+if ne get gs 33 0
+tk_ob 32
+tk_ofx get gs 32 get gs 33
+end
+if ok
+tk_otx tpass
+put gs 22 add get gs 22 1
+else
+tk_otx tfail
+put gs 23 add get gs 23 1
+end
+tk_ob 10
+end
+
+fn fx_run cs view uchar 65536 ct view uint 65536 gsr view uchar 65536 gtp view uint 65536 to void
+while lt get gs 21 get gs 20 bound 999999
+if eq get gfx get gs 21 35
+fx_skip
+else
+fx_rec cs ct gsr gtp
+end
+end
+end
+
+fn tk_sum to void
+tk_otx tsum
+tk_ou get gs 6
+tk_otx tsadd
+tk_ou get gs 8
+tk_otx tsrec
+tk_ou add get gs 22 get gs 23
+tk_otx tspass
+tk_ou get gs 22
+tk_otx tsfail
+tk_ou get gs 23
+if and eq get gs 23 0 gt get gs 22 0
+tk_otx tpass
+else
+tk_otx tfail
+end
+tk_ob 10
+end
+
+fn main to int
+c = argcnt
+if ne c 5
+tk_die 2 tr2
+end
+o = ulong 0
+for i ulong 5
+r = argread i ga o sub len ga o
+if lt r 0
+tk_die 2 tr2
+end
+put gas i o
+put gal i ulong r
+o = add o ulong r
+end
+csrc = new uchar 65536 0
+ctape = new uint 65536 0
+gsrc = new uchar 65536 0
+gtape = new uint 65536 0
+tk_rtj
+tk_doc
+cn = tk_rloc 2 csrc
+if not tc_parse csrc ctape cn
+tk_die 56 tr56
+end
+gn = tk_rloc 3 gsrc
+if not tc_parse gsrc gtape gn
+tk_die 57 tr57
+end
+tk_rfx
+fx_run csrc ctape gsrc gtape
+tk_sum
+tk_oflush
+if or ne get gs 23 0 eq get gs 22 0
+ret 1
+end
+ret 0
+end

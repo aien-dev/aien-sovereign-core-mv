@@ -197,6 +197,105 @@ else
   echo "NOT_RUN FLINT_SHARDS (the 15 downloaded shards; needs FLINT_SRC too)"
 fi
 
+# 4b. tokenizer and control-token identity (#834 item 1): tok.om reads the pinned tokenizer.json,
+#     tokenizer_config.json and generation_config.json and checks every record of
+#     test/tok-fixture.txt (vocab size, BOS/EOS/pad roles, 19 control tokens by id, special flag
+#     and bytes, and the decode of 5 reference-encoded texts back to their exact bytes).
+#     test/tokref.py (FLINT_PY: tokenizers 0.23.2, transformers a672eb5f) must reproduce the
+#     committed fixture byte for byte. Every fixture, input and source mutant must turn its named
+#     record to FAIL (exit 1); every refusal must come from the guard named for it.
+TOKJ_PIN=a263cce0b7e2b03f7ee07ce809783ef4b47f160c3f268a4ea1524f638da45b68
+TOKC_PIN=159ac88217e90ffd0a4a294726048bb302829e82e1958dc85bb203aa79138fbf
+GENC_PIN=a499c71895e008abd572558a5ad5904feaed92cf2a3b6e2cb0e9cabf03b96ed3
+TPL_PIN=7940f4ffa3275c36caa4a582f845aaad79da11018b3961e8fbcad6ae29733466
+TOK_SUM='flint-tok summary vocab 150000 added 144 records 30 pass 30 fail 0 PASS'
+TOK_MUT='eos-id#x#s/^role eos 150001$/role eos 150002/#role eos
+think-id#x#s/^ctl think-open 150006 /ctl think-open 150007 /#ctl think-open
+think-special#x#s/^ctl think-close 150007 0 /ctl think-close 150007 1 /#ctl think-close
+chat-id#x#s/^case chat 41 150002 /case chat 41 150003 /#case chat
+ascii-byte#x#s/ 48656c6c6f2c2077/ 49656c6c6f2c2077/#case ascii
+vocab-size#x#s/^size 150000 144$/size 150000 143/#size
+json-think-swap#j#s/"content": "<think>"/"content": "@T@"/; s/"content": "<\/think>"/"content": "<think>"/; s/"content": "@T@"/"content": "<\/think>"/#ctl think-open
+json-vocab-swap#j#s/"Hello": 9479,/"Hello": 1571,/; s/"Ġworld": 1571,/"Ġworld": 9479,/#case ascii
+cfg-eos#c#s/"eos_token": "<|end_of_text|>"/"eos_token": "<|user|>"/#role eos
+gen-eos#g#s/150005,/150005/; /^ *150018$/d#role geneos'
+TOK_FIX='json-size#j#d#50
+json-syntax#j#$s/}$//#51
+json-decoder#j#s/"type": "ByteLevel"/"type": "Metaspace"/#52
+json-vocab-dup#j#s/"Hello": 9479,/"Hello": 11,/#53
+json-vocab-char#j#s/"Hello": 9479,/"\\u4e00": 9479,/#54
+json-added-gap#j#s/"id": 150006,/"id": 150099,/#55
+cfg-json#c#$s/}$//#56
+gen-num#g#s/"pad_token_id": 150001/"pad_token_id": -1/#57
+fixture-record#x#$a bogus x#58'
+if [ -n "${FLINT_SRC:-}" ]; then
+  tj=$FLINT_SRC/tokenizer.json tc=$FLINT_SRC/tokenizer_config.json tg=$FLINT_SRC/generation_config.json
+  tfx=$here/test/tok-fixture.txt
+  tok() { # binary tokjson tokcfg gencfg fixture; sets rc, leaves $b/tok.out and $b/tok.err
+    timeout 60 "$1" "$2" "$3" "$4" "$5" > "$b/tok.out" 2> "$b/tok.err" < /dev/null
+    rc=$?
+  }
+  tokmut() { # kind sed: writes the four inputs with one of them edited to $b/tm.{j,c,g,x}
+    cp "$tj" "$b/tm.j"; cp "$tc" "$b/tm.c"; cp "$tg" "$b/tm.g"; cp "$tfx" "$b/tm.x"
+    if [ "$2" = d ]; then : > "$b/tm.$1"; else sed -i "$2" "$b/tm.$1"; fi
+    ! cmp -s "$b/tm.$1" "$( case $1 in j) echo "$tj";; c) echo "$tc";; g) echo "$tg";; x) echo "$tfx";; esac )"
+  }
+  if [ "$(sha "$tj")" != "$TOKJ_PIN" ] || [ "$(sha "$tc")" != "$TOKC_PIN" ] || [ "$(sha "$tg")" != "$GENC_PIN" ] || [ "$(sha "$FLINT_SRC/chat_template.jinja")" != "$TPL_PIN" ]; then
+    bad "tok: tokenizer files in FLINT_SRC are not the pinned revision 2a247be0"
+  elif ! build "$b/tok" "$here/tok.om"; then bad "tok: tok.om does not compile"
+  else
+    if ${FLINT_PY:-python3} "$here/test/tokref.py" "$FLINT_SRC" "$b/tokfx.txt" > "$b/tokref.out" 2>&1 < /dev/null && cmp -s "$b/tokfx.txt" "$tfx"; then
+      ok "tok: test/tokref.py reproduces test/tok-fixture.txt"
+    else
+      bad "tok: test/tokref.py does not reproduce the fixture: $(head -c 300 "$b/tokref.out")"
+    fi
+    tok "$b/tok" "$tj" "$tc" "$tg" "$tfx"
+    if [ "$rc" = 0 ] && [ "$(tail -n 1 "$b/tok.out")" = "$TOK_SUM" ] && [ ! -s "$b/tok.err" ]; then
+      while read -r line; do ok "$line"; done < <(grep -v '^flint-tok summary ' "$b/tok.out")
+    else
+      bad "tok: rc $rc, $(tail -n 1 "$b/tok.out") $(head -c 200 "$b/tok.err")"
+    fi
+    while IFS='#' read -r m k e want; do
+      tokmut "$k" "$e" || { bad "tok mutant $m: edit changed nothing"; continue; }
+      tok "$b/tok" "$b/tm.j" "$b/tm.c" "$b/tm.g" "$b/tm.x"
+      if [ "$rc" = 1 ] && grep -qx "flint-tok $want FAIL" "$b/tok.out"; then ok "tok mutant $m: $want FAIL"
+      else bad "tok mutant $m: want $want FAIL, rc $rc, $(grep -m1 ' FAIL$' "$b/tok.out") $(head -c 120 "$b/tok.err")"; fi
+    done <<< "$TOK_MUT"
+    "$b/tok" "$tj" "$tc" "$tg" > "$b/tok.out" 2> /dev/null < /dev/null
+    r=$?
+    if [ "$r" = 2 ] && [ ! -s "$b/tok.out" ]; then ok "tok usage: 2"; else bad "tok usage: $r"; fi
+    tok "$b/tok" "$b/absent.json" "$tc" "$tg" "$tfx"
+    if [ "$rc" = 3 ] && [ ! -s "$b/tok.out" ]; then ok "tok absent tokenizer.json: 3"; else bad "tok absent tokenizer.json: $rc"; fi
+    tok "$b/tok" "$b" "$tc" "$tg" "$tfx"
+    if [ "$rc" = 4 ] && [ ! -s "$b/tok.out" ]; then ok "tok directory as tokenizer.json: 4"; else bad "tok directory as tokenizer.json: $rc"; fi
+    st=$(cat "$here/tok.om")
+    while IFS='#' read -r m k e want; do
+      tokmut "$k" "$e" || { bad "tok refusal $m: edit changed nothing"; continue; }
+      tok "$b/tok" "$b/tm.j" "$b/tm.c" "$b/tm.g" "$b/tm.x"
+      if [ "$rc" = "$want" ] && [ ! -s "$b/tok.out" ] && grep -q "^refused $want " "$b/tok.err"; then ok "tok refusal $m: $want"
+      else bad "tok refusal $m: want $want, got $rc ($(head -c 120 "$b/tok.err"))"; continue; fi
+      t=${st//"tk_die $want tr$want$nl"/"put gs 63 get gs 63$nl"}
+      if [ "$t" = "$st" ]; then bad "tok mutant die-$want: no guard text found"; continue; fi
+      printf '%s\n' "$t" > "$b/tmut.om"
+      if ! build "$b/tmut" "$b/tmut.om"; then bad "tok mutant die-$want: does not compile"; continue; fi
+      tok "$b/tmut" "$b/tm.j" "$b/tm.c" "$b/tm.g" "$b/tm.x"
+      if [ "$rc" = "$want" ]; then bad "tok mutant die-$want: still exits $want on $m"; else ok "tok mutant die-$want: $m now exits $rc, not $want"; fi
+    done <<< "$TOK_FIX"
+    TOK_SRC='byte-map|ret add k 94|ret add k 93|case utf8
+special-flag|b = eq ulong get gsp id add sp 1|b = eq ulong get gsp id 1|ctl begin-text'
+    while IFS='|' read -r m from to want; do
+      [ "$(grep -cF "$from" "$here/tok.om")" = 1 ] || { bad "tok mutant $m: site not found exactly once"; continue; }
+      printf '%s\n' "${st/"$from"/"$to"}" > "$b/tmut.om"
+      if ! build "$b/tmut" "$b/tmut.om"; then bad "tok mutant $m: does not compile"; continue; fi
+      tok "$b/tmut" "$tj" "$tc" "$tg" "$tfx"
+      if [ "$rc" = 1 ] && grep -qx "flint-tok $want FAIL" "$b/tok.out"; then ok "tok mutant $m: $want FAIL"
+      else bad "tok mutant $m: want $want FAIL, rc $rc, $(head -c 120 "$b/tok.err")"; fi
+    done <<< "$TOK_SRC"
+  fi
+else
+  echo "NOT_RUN tok (tokenizer identity; needs FLINT_SRC)"
+fi
+
 # 5. forward operators (Core #802): ops.om recomputes, from the real BF16 shard weights, the
 #    outputs that test/opref.py takes from the pinned reference modules, and must land within twice
 #    the reference's own f32 error bound; each mutant must turn its operator's verdict to FAIL
