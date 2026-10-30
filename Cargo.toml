@@ -24,6 +24,7 @@ members = [
     "crates/aien-kv-cache",
     "crates/aien-kv-store",
     "crates/aien-expert-residency",
+    "crates/aien-expert-store",
     "crates/aien-scheduler",
     "crates/aien-security",
     "crates/aien-platform",
