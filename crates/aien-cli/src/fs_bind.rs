@@ -34,8 +34,6 @@ use std::sync::Mutex;
 
 use crate::safety::validate_workspace_path;
 
-const SYS_OPENAT2: libc::c_long = 437;
-
 #[repr(C)]
 struct OpenHow {
     flags: u64,
@@ -134,6 +132,13 @@ fn map_io(path: &Path, err: std::io::Error) -> BindError {
             "refusing '{}': openat2 is unavailable, so the open cannot be bound to the authorized target",
             path.display()
         )),
+        // EPERM and EINVAL are confinement failures, not a generic I/O miss.
+        // A kernel that rejects the resolve flags must not fall through to a
+        // pathname open.
+        Some(libc::EPERM) | Some(libc::EINVAL) => BindError::Denied(format!(
+            "refusing '{}': the open cannot be bound to the authorized target",
+            path.display()
+        )),
         // A symlink opened with O_DIRECTORY and RESOLVE_NO_SYMLINKS is reported
         // as ENOTDIR (the link itself is not a directory). Do not follow it.
         Some(libc::ENOTDIR) => BindError::Denied(format!(
@@ -161,6 +166,10 @@ fn open_beneath(
     if rel.as_os_str().is_empty() {
         return dup_fd(dirfd);
     }
+    #[cfg(test)]
+    if let Some(code) = test_hooks::take_openat2_error() {
+        return Err(std::io::Error::from_raw_os_error(code));
+    }
     let c = c_string(rel.as_os_str().as_bytes())?;
     let how = OpenHow {
         flags: (flags | libc::O_CLOEXEC) as u64,
@@ -172,7 +181,7 @@ fn open_beneath(
     // layout, and a non-negative fd is owned by this function alone.
     let fd = unsafe {
         libc::syscall(
-            SYS_OPENAT2,
+            libc::SYS_openat2,
             dirfd,
             c.as_ptr(),
             &how as *const OpenHow,
@@ -898,6 +907,17 @@ pub mod test_hooks {
     thread_local! {
         static BEFORE: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
         static AFTER: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
+        static OPENAT2_ERR: std::cell::Cell<Option<i32>> = const { std::cell::Cell::new(None) };
+    }
+
+    /// Next `openat2` returns this errno instead of calling the kernel.
+    /// One shot, so a later open in the same call is real.
+    pub fn set_openat2_error(code: i32) {
+        OPENAT2_ERR.with(|c| c.set(Some(code)));
+    }
+
+    pub(super) fn take_openat2_error() -> Option<i32> {
+        OPENAT2_ERR.with(|c| c.take())
     }
 
     pub fn set_before_open(f: impl FnOnce() + 'static) {
@@ -911,6 +931,7 @@ pub mod test_hooks {
     pub fn clear() {
         BEFORE.with(|c| *c.borrow_mut() = None);
         AFTER.with(|c| *c.borrow_mut() = None);
+        OPENAT2_ERR.with(|c| c.set(None));
     }
 
     pub(super) fn run_before() {
@@ -1281,6 +1302,35 @@ mod tests {
         );
         let (_, text) = read_text(target.to_str().unwrap()).unwrap();
         assert_eq!(text, INSIDE);
+    }
+
+    fn openat2_errno_is_denied(code: i32) {
+        let _clear = ClearHooks;
+        let root = tempfile::tempdir_in("/tmp").unwrap();
+        let file = root.path().join("f");
+        std::fs::write(&file, b"kept").unwrap();
+        test_hooks::set_openat2_error(code);
+        let err = read_text(file.to_str().unwrap()).unwrap_err();
+        assert!(
+            matches!(err, BindError::Denied(_)),
+            "errno {code} must be a confinement denial, got {err:?}"
+        );
+        assert_eq!(std::fs::read(&file).unwrap(), b"kept");
+    }
+
+    #[test]
+    fn openat2_enosys_fails_closed() {
+        openat2_errno_is_denied(libc::ENOSYS);
+    }
+
+    #[test]
+    fn openat2_eperm_is_denied() {
+        openat2_errno_is_denied(libc::EPERM);
+    }
+
+    #[test]
+    fn openat2_einval_is_denied() {
+        openat2_errno_is_denied(libc::EINVAL);
     }
 
     #[test]
