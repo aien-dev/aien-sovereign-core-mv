@@ -206,9 +206,32 @@ layer, expert index permuted (255 - e), and window 514.
   chained layer/intermediate/logit parity is now covered by the optional arm below;
 - weight streaming and repacking, with peak allocation and residency measured during load;
 - per-expert layout checks before fusing;
-- tokenizer and control-token identity, and a load report.
+- a load report;
+- tokenizer encode (text to ids): the pre_tokenizer Split regexes need Unicode General
+  Category tables (\p{L}, \p{N}, \p{P}, \p{S}, \p{M} and subclasses) and the `\s+(?!\S)`
+  lookahead, none of which are in the pinned capture; decode and control-token identity are
+  covered by `tok.om` below.
 
 This unit has no GPU arm. A GGUF importer, if added, will be a separate optional unit.
+
+## Tokenizer and control-token identity: `tok.om`
+
+`tok.om` reads the pinned `tokenizer.json` (own strict JSON scanner: 150000 BPE vocab ids, 144
+added tokens, ByteLevel decoder), `tokenizer_config.json` and `generation_config.json` (both via
+`om/vendor/json.om`) and checks every record of `test/tok-fixture.txt`, which `test/tokref.py`
+writes from the pinned tokenizers 0.23.2 backend and which the gate regenerates and compares
+byte for byte. Records: vocab and added counts; BOS/EOS from tokenizer_config and BOS/EOS/pad
+ids from generation_config; 19 control tokens (text, roles, think, tools, tool-call, argument
+and response tags) by id, special flag and exact bytes, each the unique added token with that
+content and matching `added_tokens_decoder`; and the ByteLevel decode of 5 reference-encoded
+texts (ASCII, multibyte UTF-8, whitespace, a chat turn, a tool-call turn) to their exact bytes.
+Usage: `flint-tok TOKENIZER_JSON TOKENIZER_CONFIG GENERATION_CONFIG FIXTURE`; one
+`flint-tok KIND NAME PASS|FAIL` line per record, a summary, exit 0 only when all pass.
+Refusals: 2 usage, 3 io, 4 not a regular file, 50 tokenizer.json size, 51 syntax, 52 schema,
+53 vocab id, 54 vocab key outside the ByteLevel alphabet, 55 added token, 56
+tokenizer_config, 57 generation_config, 58 fixture syntax, 59 capacity. `check.sh` runs
+fixture, input and source mutants (each must turn its named record to FAIL) and removes each
+refusal guard in turn (its fixture must stop producing the code). Encode is NOT_RUN (above).
 
 ## Complete bounded host forward
 
@@ -216,7 +239,7 @@ This unit has no GPU arm. A GGUF importer, if added, will be a separate optional
 It starts from two token IDs, loads real BF16 embedding rows and all selected expert weights,
 and compares five intermediate tensors per layer, final normalization and every vocabulary logit.
 The reference tensors are comparison targets, never teacher-forced inputs.
-The full gate prints `OM-FLINT-MANIFEST PASS (92)` with real checkpoint inputs; wrong-token
+The full gate prints `OM-FLINT-MANIFEST PASS (156)` with real checkpoint inputs (92 before the 64 `tok.om` checks); wrong-token
 and skipped-final-normalization source mutants must fail the comparison.
 
 See [PROFILE.md](PROFILE.md) for the frozen weight/runtime/tokenizer/template identities
