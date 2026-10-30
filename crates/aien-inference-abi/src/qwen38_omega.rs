@@ -110,7 +110,11 @@ impl Proj {
                 gemv2,
                 mm_bytes,
                 ..
-            } => gemv.resident_bytes() + gemv2.as_ref().map_or(0, Bf16Tensor::resident_bytes) + mm_bytes,
+            } => {
+                gemv.resident_bytes()
+                    + gemv2.as_ref().map_or(0, Bf16Tensor::resident_bytes)
+                    + mm_bytes
+            }
         }
     }
 }
@@ -326,7 +330,11 @@ pub fn need_bytes(c: &Qwen38Config, max_pos: usize, chunk: usize) -> u64 {
         .sum();
     // FP8: one byte per weight plus the block scales. bf16: two bytes for the decode GEMV's
     // scaled copy plus two for the prefill matmul's transposed plain copy (see [`Proj`]).
-    let proj = if c.fp8 { layers + layers / 4096 } else { 4 * layers };
+    let proj = if c.fp8 {
+        layers + layers / 4096
+    } else {
+        4 * layers
+    };
     let weights = proj + 2 * c.vocab as u64 * h;
     let n_attn = c.full_attention.iter().filter(|&&a| a).count() as u64;
     let n_gdn = c.layers as u64 - n_attn;
@@ -433,9 +441,7 @@ fn fuse_fp8(name: &str, parts: Vec<Matrix>) -> Result<Fp8Tensor, String> {
                 w.extend_from_slice(&pw);
                 scales.extend_from_slice(&ps);
             }
-            Matrix::Bf16 { .. } => {
-                return Err(format!("{name}: FP8 and bf16 parts mixed"))
-            }
+            Matrix::Bf16 { .. } => return Err(format!("{name}: FP8 and bf16 parts mixed")),
         }
     }
     let k = k0.ok_or_else(|| format!("{name}: no parts"))?;
@@ -670,10 +676,7 @@ impl Qwen38Omega {
         let n_attn = c.full_attention.iter().filter(|&&a| a).count();
         let n_gdn = c.layers - n_attn;
         let mut gdn = if n_gdn > 0 {
-            Some(
-                Gdn::alloc_ratio(n_gdn, c.lin_v_heads / c.lin_k_heads)
-                    .map_err(gpu("gdn alloc"))?,
-            )
+            Some(Gdn::alloc_ratio(n_gdn, c.lin_v_heads / c.lin_k_heads).map_err(gpu("gdn alloc"))?)
         } else {
             None
         };
@@ -1376,7 +1379,10 @@ mod tests {
         let (lo, hi) = split_k(n, k, &w);
         assert_eq!(lo, vec![0, 1, 4, 5, 8, 9]);
         assert_eq!(hi, vec![2, 3, 6, 7, 10, 11]);
-        assert_eq!(transposed(n, k, &w), vec![0, 4, 8, 1, 5, 9, 2, 6, 10, 3, 7, 11]);
+        assert_eq!(
+            transposed(n, k, &w),
+            vec![0, 4, 8, 1, 5, 9, 2, 6, 10, 3, 7, 11]
+        );
     }
 
     #[test]

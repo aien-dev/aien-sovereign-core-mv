@@ -122,7 +122,9 @@ impl Shape {
         if ok {
             Ok(())
         } else {
-            Err(bad(format!("q38 shape {self:?}: outside what the graph takes")))
+            Err(bad(format!(
+                "q38 shape {self:?}: outside what the graph takes"
+            )))
         }
     }
 
@@ -1165,7 +1167,11 @@ impl Attn256Cache {
         }
         let qkv_w = (self.q_heads + 2 * self.kv_heads) * HEAD_DIM;
         check_len("attn256 prefill qkv", m * qkv_w, qkv.len())?;
-        check_len("attn256 prefill out", m * self.q_heads * HEAD_DIM, out.len())?;
+        check_len(
+            "attn256 prefill out",
+            m * self.q_heads * HEAD_DIM,
+            out.len(),
+        )?;
         if layer >= self.layers {
             return Err(bad(format!(
                 "attn256 prefill: layer {layer} of {}",
@@ -1738,7 +1744,14 @@ mod tests {
         );
         let d = Shape::Q38_27B;
         assert_eq!(
-            (d.gdn_qkv(), d.gdn_mix(), d.ab(), d.att_mix(), d.att_qkv(), d.mixer_out()),
+            (
+                d.gdn_qkv(),
+                d.gdn_mix(),
+                d.ab(),
+                d.att_mix(),
+                d.att_qkv(),
+                d.mixer_out()
+            ),
             (GDN_QKV, GDN_MIX, AB, ATT_MIX, ATT_QKV, MIXER_OUT)
         );
         let t = gather_table(64, Q35_9B);
@@ -1753,10 +1766,22 @@ mod tests {
             assert_eq!(gather_table_c(Q35_9B).unwrap(), t);
         }
         for bad in [
-            Shape { hidden: 4000, ..Q35_9B },
-            Shape { inter: 17664, ..Q35_9B },
-            Shape { kv_heads: 3, ..Q35_9B },
-            Shape { gdn_heads: 48, ..Q35_9B },
+            Shape {
+                hidden: 4000,
+                ..Q35_9B
+            },
+            Shape {
+                inter: 17664,
+                ..Q35_9B
+            },
+            Shape {
+                kv_heads: 3,
+                ..Q35_9B
+            },
+            Shape {
+                gdn_heads: 48,
+                ..Q35_9B
+            },
         ] {
             assert!(bad.check().is_err(), "{bad:?}");
         }
@@ -1825,11 +1850,18 @@ mod tests {
         assert!(check_config(&GraphConfig { layers: 65, ..ok }).is_err());
         let mut nine = ok;
         nine.set_shape(Q35_9B);
-        assert_eq!((nine.hidden, nine.gdn_heads, nine.shape()), (4096, 32, Q35_9B));
+        assert_eq!(
+            (nine.hidden, nine.gdn_heads, nine.shape()),
+            (4096, 32, Q35_9B)
+        );
         assert!(check_config(&nine).is_ok());
         let mut back = nine;
         back.set_shape(Shape::Q38_27B);
         assert_eq!((back.hidden, back.inter, back.q_heads), (0, 0, 0));
-        assert!(check_config(&GraphConfig { hidden: 6144, ..nine }).is_err());
+        assert!(check_config(&GraphConfig {
+            hidden: 6144,
+            ..nine
+        })
+        .is_err());
     }
 }

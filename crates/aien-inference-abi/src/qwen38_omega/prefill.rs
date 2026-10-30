@@ -54,10 +54,10 @@ use aien_omega_q38 as q;
 use rayon::prelude::*;
 
 use super::{gpu, Graph, Proj, Qwen38Omega, EPS_L2};
-use crate::qwen3_moe::bf16_to_f32;
 use crate::qwen38::silu;
-use aien_omega_gpu::ResidentTensor;
+use crate::qwen3_moe::bf16_to_f32;
 use crate::tensor::rmsnorm;
+use aien_omega_gpu::ResidentTensor;
 
 /// What one [`Qwen38Omega::prefill`] call cost. Chip times are the omega info records' launch
 /// times; call times are whole calls including omega's host copies.
@@ -471,7 +471,11 @@ impl Qwen38Omega {
             copy_in(&mut pf.xin, "xin", &xn)?;
             st.host_ns += ns(t);
             let xin_va = pf.xin.va();
-            let mix_n = if attention { sh.att_mix() } else { sh.gdn_mix() };
+            let mix_n = if attention {
+                sh.att_mix()
+            } else {
+                sh.gdn_mix()
+            };
             let mix = match &lt.mix {
                 Proj::Fp8(w) => {
                     pf.quant(h, QuantIn::F32, xin_va, m, st)
@@ -755,7 +759,12 @@ mod tests {
         let act = swiglu_rows(&gu, 2);
         assert_eq!(
             act,
-            vec![silu(1.0) * 3.0, silu(-2.0) * 4.0, silu(0.0) * 2.0, silu(0.5) * -1.0]
+            vec![
+                silu(1.0) * 3.0,
+                silu(-2.0) * 4.0,
+                silu(0.0) * 2.0,
+                silu(0.5) * -1.0
+            ]
         );
     }
 
