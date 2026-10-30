@@ -123,6 +123,22 @@ status is N.
 | 41 | header-missing-tensor | a tensor the index assigns to a shard is absent from its header |
 | 42 | shard-capacity | over 4096 tensors in one shard, or a header that fills the JSON tape |
 | 43 | output-capacity | TSV over 8388608 bytes; a defensive guard that no admitted layout reaches (the full output is 4269125 bytes) |
+| 44 | expert-layout | a MoE layer's routed expert extents are not laid out in tensor-name order inside each shard (e.g. expert e and 255 - e trade data_offsets); checked at load, before any fused expert read |
+| 45 | load-report | per-class report accounts do not reconcile with the running tensor, parameter, routed and byte totals (or bytes ≠ 2 × parameters) |
+
+## Load report
+
+`flint-manifest CONFIG INDEX SHARD_DIR TOKDIR` runs the same admission and then replaces the TSV on
+stdout with a line-oriented report: `file` lines (sha256 and bytes of config, index,
+`tokenizer.json`, `tokenizer_config.json`, `chat_template.jinja`, `generation_config.json` read
+from TOKDIR, and of the inventory TSV itself), the admitted control tokens, one `shard` line per
+shard (file bytes, header bytes, header sha256, tensors), 22 `kind` lines (tensors, parameters and
+bytes per tensor class) and the `total` line. Hashing is `om/vendor/sha256.om`, so the manifest
+builds as `json.om sha256.om manifest.om`. `test/load-report.txt` is the frozen report of revision
+2a247be0; the gate requires it byte for byte from the published headers (FLINT_SRC) and from the
+downloaded shards (FLINT_SHARDS), and requires its layout lines plus sha256sum-equal file lines on
+the synthetic checkpoint. Report mutants (one class's parameters double-counted; down projections
+folded into the gate class) must be refused (45) or change the report.
 
 Hugging Face cache snapshots are directories of symlinks, so they are refused with 4. Point
 `SHARD_DIR` at real files, for example after `huggingface-cli download --local-dir`.
@@ -205,8 +221,8 @@ layer, expert index permuted (255 - e), and window 514.
 - generation, bf16 activations and long-context serving remain NOT_RUN; complete two-token
   chained layer/intermediate/logit parity is now covered by the optional arm below;
 - weight streaming and repacking, with peak allocation and residency measured during load;
-- per-expert layout checks before fusing;
-- tokenizer and control-token identity, and a load report.
+- tokenizer execution (the report pins the tokenizer files and control-token ids, it does not run
+  the tokenizer).
 
 This unit has no GPU arm. A GGUF importer, if added, will be a separate optional unit.
 

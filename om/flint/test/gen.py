@@ -173,6 +173,21 @@ elif mut == "hdr-meta":
     extra_head = '"__metadata__":{"format":"pt"},'
 elif mut == "hdr-entry":
     extra_entry = ',"extra":1'
+elif mut == "exp-perm":
+    # the data analogue of the forward mutant 255 - e: layer 2's expert e and 255 - e trade
+    # data_offsets (same extents, so tiling and every per-tensor check still hold)
+    pre = "model.layers.2.mlp.experts."
+    loc = {r[0]: r for rows in shards for r in rows}
+    sh = {r[0]: i for i, rows in enumerate(shards) for r in rows}
+    swapped = 0
+    for e in range(128):
+        for p in ("gate_proj", "up_proj", "down_proj"):
+            a = loc["%s%d.%s.weight" % (pre, e, p)]
+            b = loc["%s%d.%s.weight" % (pre, 255 - e, p)]
+            if sh[a[0]] == sh[b[0]]:
+                a[3], a[4], b[3], b[4] = b[3], b[4], a[3], a[4]
+                swapped += 1
+    assert swapped > 0
 elif mut not in ("base", "hdr-json", "hdr-len-be", "hdr-len-big", "shard-short", "shard-absent",
                  "shard-symlink", "shard-dir", "shard-cap"):
     sys.exit("gen.py: unknown mutant " + mut)
