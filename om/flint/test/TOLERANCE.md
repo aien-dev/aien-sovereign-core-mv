@@ -219,3 +219,42 @@ returned
 The byte counts are modeled layout sizes, not measured memory usage.
 The chained fixture is pinned by SHA256 in `check.sh`; wrong-token and skipped-final-normalization
 source mutants must compile and return comparison exit 1, not a trap or setup refusal.
+
+## Greedy generation parity (Core #834 item 5), frozen before the first comparison
+
+`ops.om generate` starts from the token IDs of a chat-template-rendered prompt and generates N
+tokens greedily (argmax of its own f64 logits, lowest index on an exact tie), feeding its own
+tokens back through the KV cache, one host forward per position. `test/genref.py` is the referee:
+the pinned transformers modules in f32 on CPU, the same prompt IDs, greedy argmax with a
+`DynamicCache`, one position per step after the prompt. Per step k = 1..N the fixture records the
+reference top-1 ID and logit `l1` and the top-2 ID and logit `l2` (f32).
+
+Per-logit budget: `tau(x) = 8 gamma_2048 (1 + |x|)`, the integration budget of the chained forward
+above (`fw_cmpat`), unchanged.
+`WolframLanguageEvaluator: u = 2^-24; g[n_] := n u/(1 - n u); N[8 g[2048], 18] -> 0.000976681723843242583`.
+
+Ambiguity is a property of the reference alone, declared before the .om run: step k is
+**ambiguous** when `l1 - l2 <= tau(l1) + tau(l2)`, i.e. when an .om logit vector that meets the
+budget on both entries could rank the reference top-2 first. `genref.py` prints the ambiguous
+steps when it writes the fixture, and the gate prints them again before the .om run; the rule is
+not changed after a run.
+
+Per step, in order, while every earlier step matched (so the .om prefix equals the reference prefix):
+
+1. Logits: the .om logits at the reference top-1 and top-2 IDs must each be within `tau` of `l1`
+   and `l2`; otherwise FAIL (logit).
+2. Token, non-ambiguous step: the .om argmax must equal the reference top-1; otherwise FAIL (token).
+3. Token, ambiguous step: the .om argmax equal to the reference top-1 continues; equal to the
+   reference top-2 ends the comparison at step k without FAIL (the sequences no longer share a
+   prefix, so later fixture steps do not apply), and the receipt reports k - 1 matched steps, which
+   is then not N-token parity; any other ID is FAIL (token).
+
+The verdict line is `flint-op generate layer 49 elems S worst_ppm P ties A PASS|FAIL`, where S
+counts compared logits (two per compared step), P is the worst `|om - ref| / tau` over the compared top-1/top-2 logits in
+millionths, and A counts the declared ambiguous steps of the fixture. Every step also prints its
+.om top-1/top-2 IDs and logits next to the reference values, so a divergence comes with its logits.
+
+The KV cache holds FKVP positions per layer; a request with prompt + N - 1 > FKVP positions is
+refused (`refused 7 kv-cache-bound`) at the first position past the bound, never overrun. This is
+a host check (f64 compute, BF16 storage, f32 referee); it is not bf16-activation, GPU or serving
+evidence.
