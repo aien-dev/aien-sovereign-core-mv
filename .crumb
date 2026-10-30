@@ -89,7 +89,7 @@
         },
         {
           "digest": "3a331fee49e858953c344a75e26558ac2288bca4b335eed2f2702dfd77379e8e",
-          "last_commit": "",
+          "last_commit": "e728371b",
           "name": "crates/aien-heartbeat",
           "purpose": "Expert Heartbeat H1 (aienix#4): fixed-slot versioned ring streaming MoE expert weights from NVMe"
         },
@@ -107,7 +107,7 @@
         },
         {
           "digest": "f7850b9890e153f1a930c5c6cf4962f19f0e2b5393ef8473a172eba7a74aa3fe",
-          "last_commit": "53beb962",
+          "last_commit": "a07df7f2",
           "name": "scripts",
           "purpose": ""
         },
@@ -125,14 +125,14 @@
         }
       ],
       "children_root": "sha256:bcc626c7824d15e83a7557833e293bf267ec276892ebeabf6b687870c2a810b3",
-      "compiled_at": "2026-10-30T03:38:26Z",
+      "compiled_at": "2026-10-30T05:05:46Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:943f4fd0576af94f46944107b82f822ec69a1fd211c9a49388c90f544aa9c8e7",
+      "digest": "sha256:e47c39a2876eecf72994c89cafe363dbe171462f07b22693544f834cdcd50af1",
       "evidence_files": 3596,
       "evidence_root": "sha256:44afe55c3611fec440b2d63c9f4a2cdd1216c93c9cc989fbf793c8d7c72377cd",
       "files": 8088,
-      "generated_at_commit": "e8cc1c6137079660b268f0c68bd86d3c561bbf15",
-      "source_tree": "sha256:74aefde25b5a497e7fdfb5d2ba4f70a94263d0f8a3d15838481831ebb5374874"
+      "generated_at_commit": "ceae2590df7f4e173a32574b2d0111fe693b3d11",
+      "source_tree": "sha256:9f2b79275f8891241ad1815cbaad1078231c97ea49254d022cdd9db306310d34"
     }
   },
   "history": [],
