@@ -75,12 +75,27 @@ global gfq f64 8192
 global gfo f64 8192
 global gfs ulong 4
 note gkc/gvc: per-layer K and V cache, 49 layers x FKVP positions x 512 (4 kv heads x 128);
-note the global size 200704 = 49 x FKVP x 512 must change with FKVP. fw_kv refuses P+n > FKVP.
-const FKVP ulong 8
-global gkc f64 200704
-global gvc f64 200704
+note the global size 802816 = 49 x FKVP x 512 must change with FKVP. fw_kv refuses P+n > FKVP.
+note FKVP 32 holds the generate fixture: 9 prompt positions + 15 fed-back tokens = 24.
+const FKVP ulong 32
+global gkc f64 802816
+global gvc f64 802816
+note gtok: token ID per position (fixture prompt, then generated); ggi/ggt: generate top-1/top-2
+note IDs and logits (slots 0, 1) and the reference top-1/top-2 IDs with the om logits there (2, 3)
+global gtok ulong 1024
+global ggi ulong 4
+global ggt f64 4
 text tofwd "forward"
 text todec "decode"
+text togen "generate"
+text tgst "flint-gen step "
+text tgom " om"
+text tgat " at-ref"
+text tgrf " ref"
+text tgamb " ambiguous"
+text tgbig " nan-or-big"
+text tgmt "flint-gen matched "
+text tgof " of "
 text tembd "model.embed_tokens.weight"
 text tfnorm "model.norm.weight"
 text tlmhead "lm_head.weight"
@@ -721,7 +736,7 @@ note Avoid accumulating two unused per-product error sums there. Keep the f64 pr
 note and reduction order identical to dotr. Router dotr remains bounded for tie reporting;
 note every local operator still calls the original bounded dotr path.
 fn matdot r ulong k ulong to f64
-if ne get gst 2 8
+if lt get gst 2 8
 ret dotr r k
 end
 b = mul r k
@@ -1469,6 +1484,9 @@ note gfs slots: 0 rows n in this chunk, 1 tensor index, 2 first position P, 3 mo
 note A chunk computes rows P .. P+n only; attention reads earlier K/V from gkc/gvc.
 note forward runs one chunk of T rows; decode runs T chunks of one row (KV-cache decode).
 fn fw_cmpat o ulong n ulong to void
+if eq get gfs 3 2
+ret
+end
 for i ulong n
 r = fx_f add o i
 e = mul mul 4.0f64 gam 2048 add 1.0f64 fabs r
@@ -1485,6 +1503,9 @@ put gfs 1 add get gfs 1 1
 end
 
 fn fw_rep to int
+if eq get gfs 3 2
+ret 0
+end
 if eq get gfs 3 1
 r = report todec
 ret r
@@ -1604,15 +1625,15 @@ P = get gfs 2
 if gt add P get gfs 0 FKVP
 op_die 7 tkv
 end
-n = get gfs 0
-for j ulong n
+kvn = get gfs 0
+for j ulong kvn
 c = mul add add mul L FKVP P j 512
 for i ulong 512
 put gkc add c i get gx2 add mul j 512 i
 put gvc add c i get gx3 add mul j 512 i
 end
 end
-fw_kvr L add P n
+fw_kvr L add P get gfs 0
 end
 
 fn fw_kvr L ulong m ulong to void
@@ -1713,7 +1734,7 @@ end
 
 fn fw_embed to void
 for t ulong get gfs 0
-id = fx_w add 8 add get gfs 2 t
+id = get gtok add get gfs 2 t
 if ge id 150144
 op_die 7 tfx
 end
@@ -1772,6 +1793,9 @@ end
 v = matdot rem r 2048 FHID
 put gfa 0 v
 fw_cmpat fw_lgo t r 1
+if eq get gfs 3 2
+gn_lg r v
+end
 end
 end
 end
@@ -1784,8 +1808,10 @@ fw_embed
 for L ulong 49
 fw_layer L
 end
+if or ne get gfs 3 2 ge add P n get gst 4
 fw_final
 fw_logits
+end
 end
 
 fn op_forward to int
@@ -1795,6 +1821,9 @@ op_die 7 tfx
 end
 note words = header + IDs + embeddings + five tensors/layer + final norm + logits
 fx_need add add add 8 T mul mul T FHID 247 mul T 150144
+for i ulong T
+put gtok i fx_w add 8 i
+end
 if eq get gfs 3 1
 for P ulong T
 fw_chunk P 1
@@ -1804,6 +1833,179 @@ fw_chunk 0 T
 end
 put gst 3 49
 r = fw_rep
+ret r
+end
+
+note generate (Core #834 item 5, test/TOLERANCE.md greedy generation parity): T prompt IDs, then
+note N greedy steps; per step k the fixture holds the reference top-1 ID, logit, top-2 ID, logit at
+note word 8 + T + 4 k. tau(x) = 8 gamma_2048 (1 + |x|), the forward integration budget.
+fn gn_tau x f64 to f64
+ret mul mul 8.0f64 gam 2048 add 1.0f64 fabs x
+end
+
+fn gn_amb T ulong N ulong to void
+for k ulong N
+o = add add 8 T mul 4 k
+a = fx_f add o 1
+b = fx_f add o 3
+if le sub a b add gn_tau a gn_tau b
+put gcm 3 add get gcm 3 1.0f64
+end
+end
+end
+
+fn gn_pre k ulong to void
+o = add add 8 get gst 4 mul 4 k
+put ggi 0 0
+put ggi 1 0
+put ggi 2 fx_w o
+put ggi 3 fx_w add o 2
+for i ulong 4
+put ggt i neg 1.0e300f64
+end
+end
+
+note gn_lg: logit v of vocabulary row r; strict gt keeps the lowest index on an exact tie
+fn gn_lg r ulong v f64 to void
+if eq r get ggi 2
+put ggt 2 v
+end
+if eq r get ggi 3
+put ggt 3 v
+end
+if gt v get ggt 0
+put ggt 1 get ggt 0
+put ggi 1 get ggi 0
+put ggt 0 v
+put ggi 0 r
+else
+if gt v get ggt 1
+put ggt 1 v
+put ggi 1 r
+end
+end
+end
+
+note ob_f: signed decimal with 6 fraction digits; NaN or |v| >= 1e15 prints nan-or-big
+fn ob_f v f64 to void
+a = fabs v
+if not le a 1.0e15f64
+ob_tx tgbig
+ret
+end
+if lt v 0.0f64
+ob_c 45
+end
+ip = ulong a
+fr = ulong mul sub a f64 ip 1000000.0f64
+ob_u ip
+ob_c 46
+q = ulong 100000
+for j ulong 5
+if lt fr q
+ob_c 48
+end
+q = div q 10
+end
+ob_u fr
+end
+
+fn gn_iv i ulong v f64 to void
+ob_c 32
+ob_u i
+ob_c 32
+ob_f v
+end
+
+fn gn_line k ulong amb bool to void
+o = add add 8 get gst 4 mul 4 k
+put gst 8 0
+ob_tx tgst
+ob_u add k 1
+ob_tx tgom
+gn_iv get ggi 0 get ggt 0
+gn_iv get ggi 1 get ggt 1
+ob_tx tgat
+ob_c 32
+ob_f get ggt 2
+ob_c 32
+ob_f get ggt 3
+ob_tx tgrf
+gn_iv fx_w o fx_f add o 1
+gn_iv fx_w add o 2 fx_f add o 3
+if amb
+ob_tx tgamb
+end
+ob_c 10
+ob_flush 1
+end
+
+note gn_step: 0 matched, 1 declared ambiguous stop (om took the reference top-2), 2 FAIL
+fn gn_step k ulong to ulong
+o = add add 8 get gst 4 mul 4 k
+a = fx_f add o 1
+b = fx_f add o 3
+f = get gcm 1
+cmp get ggt 2 a mul 0.5f64 gn_tau a
+cmp get ggt 3 b mul 0.5f64 gn_tau b
+amb = le sub a b add gn_tau a gn_tau b
+gn_line k amb
+w = get ggi 0
+if gt get gcm 1 f
+ret 2
+end
+if eq w get ggi 2
+ret 0
+end
+if and amb eq w get ggi 3
+ret 1
+end
+put gcm 1 add get gcm 1 1.0f64
+ret 2
+end
+
+fn gn_end m ulong N ulong to void
+put gst 8 0
+ob_tx tgmt
+ob_u m
+ob_tx tgof
+ob_u N
+ob_c 10
+ob_flush 1
+end
+
+fn op_gen to int
+T = get gst 4
+N = get gst 5
+if or or eq T 0 eq N 0 gt add T N 1024
+op_die 7 tfx
+end
+fx_need add add 8 T mul 4 N
+for i ulong T
+put gtok i fx_w add 8 i
+end
+m = ulong 0
+for P ulong sub add T N 1
+g = ge add P 1 T
+if g
+gn_pre sub add P 1 T
+end
+fw_chunk P 1
+if g
+s = gn_step sub add P 1 T
+if ne s 0
+break
+end
+m = add m 1
+put gtok add P 1 get ggi 0
+end
+end
+gn_end m N
+note the forward overwrote gst 3 (layer) and gcm 3 (router ties); ties here = ambiguous steps
+put gst 3 49
+put gcm 3 0.0f64
+gn_amb T N
+r = report togen
 ret r
 end
 
@@ -1835,6 +2037,10 @@ end
 if op_argeq 1 todec
 put gfs 3 1
 ret 8
+end
+if op_argeq 1 togen
+put gfs 3 2
+ret 9
 end
 op_die 2 tu
 ret 0
@@ -1877,6 +2083,10 @@ put gst 5 fx_w 4
 put gst 6 fx_w 5
 if eq op 8
 s = op_forward
+ret s
+end
+if eq op 9
+s = op_gen
 ret s
 end
 if eq op 1
