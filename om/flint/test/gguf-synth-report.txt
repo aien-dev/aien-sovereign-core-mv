@@ -1,0 +1,38 @@
+gguf version 3 tensors 4 kvs 27 alignment 32 data 1248 bytes 2080
+kv general.architecture string 5 flint
+kv general.alignment u32 32
+kv general.name string 22 Synthetic GGUF fixture
+kv general.file_type u32 39
+kv general.quantization_version u32 2
+kv t.u8 u8 200
+kv t.i8 i8 -5
+kv t.u16 u16 60000
+kv t.i16 i16 -300
+kv t.u32 u32 4000000000
+kv t.i32 i32 -70000
+kv t.f32 f32 bits 1069547520
+kv t.bool bool 1
+kv t.u64 u64 1099511627779
+kv t.i64 i64 -1099511627776
+kv t.f64 f64 bits 4598175219545276416
+kv t.long string 100
+kv t.tab string 3
+kv t.au8 array u8 3 sum 6 values 1 2 3
+kv t.ai32 array i32 3 sum 150007 values 150001 -1 7
+kv t.af32 array f32 2 sum 2139095040 values 1065353216 1073741824
+kv t.abool array bool 3 sum 2 values 1 0 1
+kv t.astr array string 2 bytes 5
+kv t.ai64 array i64 10 sum -5
+kv t.aempty array u32 0 sum 0
+kv tokenizer.ggml.bos_token_id u32 1
+kv tokenizer.ggml.eos_token_id u32 2
+tensor a.weight 40 128x2 0 144
+tensor a.scale 0 1 160 4
+tensor b.weight 30 64x3 192 384
+tensor c.weight 0 16x2x2 576 256
+type 0 tensors 2 elements 65 bytes 260
+type 30 tensors 1 elements 192 bytes 384
+type 40 tensors 1 elements 256 bytes 144
+data used 788 padded 832
+quant file_type 39 quantization_version 2
+tokenizer bos 1 eos 2

@@ -290,5 +290,131 @@ else
   echo "NOT_RUN chained forward (set FLINT_FORWARD=1)"
 fi
 
+# 6. GGUF importer (Core #834): gguf.om admits the serving GGUF header the way ggml's reader at
+#    llama.cpp b11804 does and writes a report that must equal, byte for byte, the report
+#    test/ggufref.py writes with that tag's gguf-py. test/ggufgen.py builds a valid synthetic GGUF
+#    (every value type) and one fixture per refusal; each guard is removed in turn and its fixture
+#    must stop producing its code. Frozen referee reports: test/gguf-synth-report.txt (synthetic)
+#    and test/gguf-report.txt (the serving file, sha256 97cc8009...). Optional, NOT_RUN when unset:
+#    FLINT_GGUF=file      the serving GGUF (read only), its report compared with the frozen one;
+#    FLINT_GGUF_PY=cmd    an interpreter importing gguf-py b11804: the referee is rerun and its
+#                         reports must equal the frozen ones.
+GG_SYN_PIN=6a1f3670e45718338c82551237e0b1fc7a0c922a0c92ee52d4c0bb91342b6baa
+GG_REP_PIN=cbd3becec35ff580cb16db5789bf5a73cd56b775109cb193ce8ad3ffd00b3851
+GG_SUM='flint-gguf ok tensors 4 kvs 27 bytes 2080'
+GG_REAL_SUM='flint-gguf ok tensors 1264 kvs 43 bytes 22863084160'
+ggen() { python3 "$here/test/ggufgen.py" "$b/g.gguf" "$1" < /dev/null; }
+grun() { # binary [file]; sets rc, leaves g.out and g.err
+  timeout 120 "$1" report "${2:-$b/g.gguf}" > "$b/g.out" 2> "$b/g.err" < /dev/null
+  rc=$?
+}
+gmut() { # name want fixture; reads $b/gmut.om
+  build "$b/gmut" "$b/gmut.om" || { bad "gguf mutant $1: does not compile"; return; }
+  ggen "$3" || { bad "gguf mutant $1: fixture generator failed"; return; }
+  grun "$b/gmut"
+  if [ "$rc" = "$2" ]; then bad "gguf mutant $1: still exits $2 on $3, so the guard is not what refuses it"; else ok "gguf mutant $1: $3 now exits $rc, not $2"; fi
+}
+if [ "$(sha "$here/test/gguf-synth-report.txt")" != "$GG_SYN_PIN" ] || [ "$(sha "$here/test/gguf-report.txt")" != "$GG_REP_PIN" ]; then
+  bad "gguf: frozen referee reports do not match their pins"
+elif ! build "$b/gg" "$here/gguf.om"; then
+  bad "gguf: gguf.om does not compile"
+else
+  ggen base || bad "gguf: fixture generator failed"
+  grun "$b/gg"
+  if [ "$rc" = 0 ] && cmp -s "$b/g.out" "$here/test/gguf-synth-report.txt" && [ "$(cat "$b/g.err")" = "$GG_SUM" ]; then
+    ok "gguf base: report equals the gguf-py b11804 referee, summary exact"
+  else
+    bad "gguf base: rc $rc, $(head -c 200 "$b/g.err") $(cmp "$b/g.out" "$here/test/gguf-synth-report.txt" 2>&1 | head -c 200)"
+  fi
+  for args in "" "report" "report a b" "frob $b/g.gguf" "report $b/g.gguf x y z"; do
+    # shellcheck disable=SC2086
+    "$b/gg" $args > "$b/u.out" 2> /dev/null < /dev/null
+    r=$?
+    if [ "$r" = 2 ] && [ ! -s "$b/u.out" ]; then ok "gguf usage ($args): 2"; else bad "gguf usage ($args): $r"; fi
+  done
+  grun "$b/gg" "$b/absent.gguf"
+  if [ "$rc" = 3 ] && [ ! -s "$b/g.out" ]; then ok "gguf absent file: 3"; else bad "gguf absent file: $rc"; fi
+  grun "$b/gg" "$b"
+  if [ "$rc" = 4 ] && [ ! -s "$b/g.out" ]; then ok "gguf directory: 4"; else bad "gguf directory: $rc"; fi
+  ln -s "$b/g.gguf" "$b/g.link"
+  grun "$b/gg" "$b/g.link"
+  if [ "$rc" = 4 ] && [ ! -s "$b/g.out" ]; then ok "gguf symlink: 4"; else bad "gguf symlink: $rc"; fi
+  GFIX='truncated 60
+magic 61
+version 62
+kv-type 63
+kv-nested 63
+kv-empty-key 63
+kv-dup 64
+align-pow2 65
+align-type 65
+ndims 66
+row-block 66
+ggml-type 67
+ggml-removed 67
+tensor-dup 68
+misaligned 69
+past-eof 70
+short-data 70
+gap 71
+trailing 71
+cap-tensors 72'
+  while read -r m want; do
+    ggen "$m" || { bad "gguf $m: fixture generator failed"; continue; }
+    grun "$b/gg"
+    if [ "$rc" = "$want" ] && [ ! -s "$b/g.out" ] && grep -q "^refused $want " "$b/g.err"; then
+      ok "gguf $m: $want"
+    else
+      bad "gguf $m: want $want, got $rc ($(head -c 120 "$b/g.err"))"
+    fi
+  done <<< "$GFIX"
+  gs=$(cat "$here/gguf.om")
+  while read -r code fx; do
+    t=${gs//"gg_die $code tg$code$nl"/"put gst 30 get gst 30$nl"}
+    [ "$t" != "$gs" ] || { bad "gguf mutant die-$code: no guard text found"; continue; }
+    printf '%s\n' "$t" > "$b/gmut.om"
+    gmut "die-$code" "$code" "$fx"
+  done <<'GGUF_GUARDS'
+60 truncated
+61 magic
+62 version
+63 kv-type
+64 kv-dup
+65 align-pow2
+66 ndims
+67 ggml-type
+68 tensor-dup
+69 misaligned
+70 past-eof
+71 gap
+72 cap-tensors
+GGUF_GUARDS
+  t=${gs//"fopen gpth 0 n 557056 0"/"fopen gpth 0 n 524288 0"}
+  printf '%s\n' "$t" > "$b/gmut.om"
+  build "$b/gmut" "$b/gmut.om" && grun "$b/gmut" "$b/g.link"
+  if [ "$rc" != 4 ]; then ok "gguf mutant no-nofollow: symlink now exits $rc, not 4"; else bad "gguf mutant no-nofollow: symlink still refused"; fi
+  if [ -n "${FLINT_GGUF:-}" ]; then
+    grun "$b/gg" "$FLINT_GGUF"
+    if [ "$rc" = 0 ] && cmp -s "$b/g.out" "$here/test/gguf-report.txt" && [ "$(cat "$b/g.err")" = "$GG_REAL_SUM" ]; then
+      ok "FLINT_GGUF: report equals the frozen referee report (sha $GG_REP_PIN)"
+    else
+      bad "FLINT_GGUF: rc $rc, $(head -c 200 "$b/g.err") $(cmp "$b/g.out" "$here/test/gguf-report.txt" 2>&1 | head -c 200)"
+    fi
+  else
+    echo "NOT_RUN FLINT_GGUF (the serving GGUF ~/models/flint-nvfp4-gguf/flint-nvfp4.gguf, sha256 97cc8009...)"
+  fi
+  if [ -n "${FLINT_GGUF_PY:-}" ]; then
+    ggen base
+    $FLINT_GGUF_PY "$here/test/ggufref.py" report "$b/g.gguf" > "$b/gref.out" 2>&1 < /dev/null
+    if cmp -s "$b/gref.out" "$here/test/gguf-synth-report.txt"; then ok "gguf referee rerun: synthetic report reproduced"; else bad "gguf referee rerun (synthetic): $(head -c 200 "$b/gref.out")"; fi
+    if [ -n "${FLINT_GGUF:-}" ]; then
+      $FLINT_GGUF_PY "$here/test/ggufref.py" report "$FLINT_GGUF" > "$b/gref.out" 2>&1 < /dev/null
+      if cmp -s "$b/gref.out" "$here/test/gguf-report.txt"; then ok "gguf referee rerun: serving report reproduced"; else bad "gguf referee rerun (serving): $(head -c 200 "$b/gref.out")"; fi
+    fi
+  else
+    echo "NOT_RUN FLINT_GGUF_PY (interpreter with llama.cpp b11804 gguf-py; frozen reports used)"
+  fi
+fi
+
 n=$((pass + fail))
 if [ "$fail" = 0 ]; then echo "OM-FLINT-MANIFEST PASS ($n)"; else echo "OM-FLINT-MANIFEST FAIL ($fail of $n)"; exit 1; fi
