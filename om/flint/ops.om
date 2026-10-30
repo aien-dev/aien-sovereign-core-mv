@@ -12,7 +12,10 @@ note passes when |om - ref| <= 2 E. The router reports a token as a tie, not a m
 note the reference could hold the om rank-7 expert in its top-6 within those per-element bounds.
 note
 note Prints one line: flint-op OP layer L elems N worst_ppm P ties K PASS|FAIL, where P is
-note max |om - ref| / (2 E) in millionths. Exit 0 PASS, 1 FAIL, 2 and up refused.
+note max |om - ref| / (2 E) in millionths. Exit 0 PASS, 1 FAIL, 2 and up refused. fwbf16
+note scores rows by the v3 criterion of test/TOLERANCE.md (P is the largest row score in
+note millionths of its threshold) and adds md_min_ppm, md_max_ppm (M/D) and nd_max_ppm (N/D)
+note before PASS|FAIL.
 note
 note Layer kinds follow the pinned config.json (manifest CFG_PIN): no_rope_layer_indices
 note 0, 1, 5, 9, .., 45, 48 use full attention without RoPE; every other layer uses
@@ -30,6 +33,8 @@ global gas ulong 8
 global gal ulong 8
 global gpth uchar 4352
 global gfx uchar 8388608
+note gfz: the f32 reference fixture (op 8) that fwbf16 reads as its fifth argument
+global gfz uchar 8388608
 global gtsv uchar 8388608
 global gstg uchar 4194304
 global gw f32 16777216
@@ -76,6 +81,10 @@ global gfo f64 8192
 global gfs ulong 4
 note gbm 0 is 1 in the bf16-activation forward arm (op fwbf16), where bfr rounds to bfloat16
 global gbm ulong 1
+note grw: fwbf16 open row sums 0 (om-ref16)^2, 1 (om-ref32)^2, 2 (ref16-ref32)^2, 3 elements
+global grw f64 4
+note gbs: fwbf16 rows 0 min M/D, 1 max M/D, 2 max N/D, 3 rows judged
+global gbs f64 4
 text tofwd "forward"
 text tofwb "fwbf16"
 text tembd "model.embed_tokens.weight"
@@ -98,6 +107,9 @@ text tties " ties "
 text tpass " PASS"
 text tfail " FAIL"
 text tbf "BF16"
+text tmdn " md_min_ppm "
+text tmdx " md_max_ppm "
+text tndx " nd_max_ppm "
 text tpre "model.layers."
 text tln0 "input_layernorm.weight"
 text tln1 "post_attention_layernorm.weight"
@@ -267,6 +279,24 @@ op_close fd
 put gst 0 n
 end
 
+note fwbf16 fifth argument: the f32 reference arm, same size as the bf16 fixture
+fn rd_fz to void
+fd = op_open op_argp 5
+n = get gst 9
+if ne n get gst 0
+op_die 7 tfx
+end
+o = ulong 0
+while lt o n bound 999999
+r = pread int fd gfz o sub n o long o
+if le r 0
+op_die 3 tio
+end
+o = add o ulong r
+end
+op_close fd
+end
+
 fn rd_tsv to void
 fd = op_open op_argp 3
 n = get gst 9
@@ -296,6 +326,18 @@ end
 
 fn fx_f i ulong to f64
 ret f64 bitcast f32 uint fx_w i
+end
+
+fn fz_w i ulong to ulong
+b = mul i 4
+v = or ulong get gfz b shl ulong get gfz add b 1 8
+v = or v shl ulong get gfz add b 2 16
+v = or v shl ulong get gfz add b 3 24
+ret v
+end
+
+fn fz_f i ulong to f64
+ret f64 bitcast f32 uint fz_w i
 end
 
 fn fx_need w ulong to void
@@ -356,6 +398,9 @@ ob_tx tppm
 ob_u ulong mul get gcm 0 1000000.0f64
 ob_tx tties
 ob_u ulong get gcm 3
+if eq get gbm 0 1
+bf_rep
+end
 f = gt get gcm 1 0.0f64
 if f
 ob_tx tfail
@@ -1483,25 +1528,136 @@ note only token IDs are inputs; the fixture's intermediate tensors are compariso
 note forward (op 8): f64 compute, BF16 storage, against the f32 reference arm; acceptance is
 note |om-ref| <= 8 gamma_2048 (1+|ref|), fixed before execution.
 note fwbf16 (op 9): the same forward rounding to bfloat16 through bfr at the reference's bf16
-note sites (test/TOLERANCE.md), against the bf16 reference arm; acceptance is
-note |om-ref| <= 8 (gamma_2048 + 2^-7) (1+|ref|), fixed before execution, and every reference
-note word must itself be a bfloat16 (low 16 bits zero) or the fixture is refused.
+note sites (test/TOLERANCE.md), against both reference arms; every bf16 reference word must
+note itself be a bfloat16 (low 16 bits zero) or the fixture is refused. Acceptance is the
+note per-row v3 criterion of test/TOLERANCE.md, declared before the clean comparison.
 note The existing per-operator bounds remain the tighter local checks.
 fn fw_cmp n ulong to void
 o = get gfs 1
-u = 0.0f64
 if eq get gbm 0 1
-u = 0.0078125f64
-end
 for i ulong n
-if and eq get gbm 0 1 ne and fx_w add o i 65535 0
-op_die 7 tfx
+bf_el add o i get gfa i
 end
+else
+for i ulong n
 r = fx_f add o i
-e = mul mul 4.0f64 add gam 2048 u add 1.0f64 fabs r
+e = mul mul 4.0f64 gam 2048 add 1.0f64 fabs r
 cmp get gfa i r e
 end
+end
 put gfs 1 add o n
+end
+
+note bf_row: judges one complete fwbf16 row by the v3 criterion of test/TOLERANCE.md, with
+note N = |om - ref16|, M = |om - ref32|, D = |ref16 - ref32|: D = 0 needs N = M = 0; every row
+note with D > 0 needs 1/b <= M/D <= b, b = 62898; the anchor rows (layer-0 input norm, row T to
+note 2T - 1) also need N^2 <= D^2 / 2; NaN fails. gcm 0 keeps the largest score (1 = threshold)
+fn bf_row to void
+n2 = get grw 0
+m2 = get grw 1
+d2 = get grw 2
+k = ulong get gbs 3
+T = get gfs 0
+s = 0.0f64
+if gt d2 0.0f64
+s = bf_scr n2 m2 d2 and ge k T lt k mul 2 T
+else
+if or gt n2 0.0f64 gt m2 0.0f64
+s = 1000000000.0f64
+end
+end
+if or or ne s s ne d2 d2 or ne n2 n2 ne m2 m2
+s = 1000000000.0f64
+end
+if gt s get gcm 0
+put gcm 0 s
+end
+if gt s 1.0f64
+put gcm 1 add get gcm 1 1.0f64
+end
+put gcm 2 add get gcm 2 get grw 3
+put gbs 3 add get gbs 3 1.0f64
+for i ulong 4
+put grw i 0.0f64
+end
+end
+
+note bf_scr: the score of a row with D > 0, its largest ratio to a v3 threshold, capped at 10^9;
+note records the extremes of M/D and N/D in gbs
+fn bf_scr n2 f64 m2 f64 d2 f64 a bool to f64
+q = fsqrt div m2 d2
+p = fsqrt div n2 d2
+if lt q get gbs 0
+put gbs 0 q
+end
+if gt q get gbs 1
+put gbs 1 q
+end
+if gt p get gbs 2
+put gbs 2 p
+end
+b = 62898.0f64
+s = 1000000000.0f64
+if gt mul q b 1.0f64
+s = div q b
+r = div div 1.0f64 q b
+if gt r s
+s = r
+end
+end
+if a
+r = mul p 1.4142135623730951f64
+if gt r s
+s = r
+end
+end
+if gt s 1000000000.0f64
+s = 1000000000.0f64
+end
+ret s
+end
+
+note bf_rep: the fwbf16 extremes of M/D and N/D in millionths, capped at 10^15
+fn bf_rep to void
+ob_tx tmdn
+bf_ppm get gbs 0
+ob_tx tmdx
+bf_ppm get gbs 1
+ob_tx tndx
+bf_ppm get gbs 2
+end
+
+fn bf_ppm x f64 to void
+y = mul x 1000000.0f64
+if not le y 1000000000000000.0f64
+y = 1000000000000000.0f64
+end
+ob_u ulong y
+end
+
+note bf_el: one fwbf16 element w with native value v into the open row's sums; a row is 2048
+note values, or one token's 150144 logits, and is judged by bf_row when it is complete
+fn bf_el w ulong v f64 to void
+if ne and fx_w w 65535 0
+op_die 7 tfx
+end
+r = fx_f w
+z = fz_f w
+a = sub v r
+b = sub v z
+c = sub r z
+put grw 0 add get grw 0 mul a a
+put grw 1 add get grw 1 mul b b
+put grw 2 add get grw 2 mul c c
+put grw 3 add get grw 3 1.0f64
+n = ulong 2048
+T = get gfs 0
+if ge w add add 8 T mul mul T FHID 247
+n = 150144
+end
+if eq ulong get grw 3 n
+bf_row
+end
 end
 
 note bfr: in fwbf16 an activation is rounded as torch rounds a bf16 tensor, f64 to f32 (nearest
@@ -1824,9 +1980,25 @@ op_die 2 tu
 ret 0
 end
 
+note fwbf16 FX32 must be the f32 arm (op 8) of the same prompt: size, header words 2..7
+note and token IDs equal to the bf16 fixture's, or it is refused
+fn fz_chk to void
+rd_fz
+if or ne fz_w 0 1347374150 ne fz_w 1 8
+op_die 7 tfx
+end
+n = div get gst 0 4
+for i ulong 8
+w = add i 2
+if and lt w n ne fz_w w fx_w w
+op_die 7 tfx
+end
+end
+end
+
 fn main to int
 c = argcnt
-if and ne c 5 ne c 2
+if and and ne c 5 ne c 2 ne c 6
 op_die 2 tu
 end
 o = ulong 0
@@ -1849,6 +2021,9 @@ s = op_self
 ret s
 end
 op = op_code
+if or and eq c 6 ne op 9 and ne c 6 eq op 9
+op_die 2 tu
+end
 rd_fx
 rd_tsv
 if or ne fx_w 0 1347374150 ne fx_w 1 op
@@ -1861,6 +2036,8 @@ put gst 5 fx_w 4
 put gst 6 fx_w 5
 if eq op 9
 put gbm 0 1
+put gbs 0 1000000000.0f64
+fz_chk
 end
 if or eq op 8 eq op 9
 s = op_forward
