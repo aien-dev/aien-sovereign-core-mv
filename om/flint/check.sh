@@ -15,8 +15,9 @@
 #   With both set, the forward-operator arm runs ops.om against test/opref.py fixtures;
 #   FLINT_PY is the referee's interpreter (torch + transformers a672eb5f), default python3.
 #   FLINT_FORWARD=1 additionally runs the full 49-layer, two-token chained forward and mutants,
-#   twice: the f32 reference arm (ops forward) and the bf16-activation arm (ops fwbf16, budget
-#   in test/TOLERANCE.md), each with its fixture admission controls and source mutants.
+#   twice: the f32 reference arm (ops forward) and the bf16-activation arm (ops fwbf16 FX16 ...
+#   FX32, v3 row criterion in test/TOLERANCE.md), each with its fixture admission controls and
+#   source mutants.
 # Needs: python3 (fixture referees only), sha256sum, cmp, timeout. Host only; no network, no GPU.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
@@ -227,11 +228,11 @@ opr() { # binary op fixture; sets rc and line
   line=$(timeout 300 "$1" "$2" "$b/opfx/$3.bin" "$b/real.tsv" "$FLINT_SHARDS" 2>&1 < /dev/null)
   rc=$?
 }
-fwmut() { # name op fixture from to: builds ops.om ($s) with one literal swap, runs op; sets rc and line
+fwmut() { # name op fixture from to [fx32]: builds ops.om ($s) with one literal swap, runs op; sets rc and line
   [ "$(grep -cF -- "$4" "$here/ops.om")" = 1 ] || { bad "forward mutant $1 site"; return 1; }
   printf '%s\n' "${s/"$4"/"$5"}" > "$b/fwdmut.om"
   build "$b/fwdmut" "$b/fwdmut.om" || { bad "forward mutant $1 compile"; return 1; }
-  line=$(timeout 600 "$b/fwdmut" "$2" "$3" "$b/real.tsv" "$FLINT_SHARDS" 2>&1 < /dev/null)
+  line=$(timeout 600 "$b/fwdmut" "$2" "$3" "$b/real.tsv" "$FLINT_SHARDS" "${@:6}" 2>&1 < /dev/null)
   rc=$?
 }
 if [ -n "${FLINT_SHARDS:-}" ] && [ -n "${FLINT_SRC:-}" ] && [ -s "$b/real.tsv" ]; then
@@ -301,27 +302,27 @@ FORWARD_MUTANTS
     bad "bf16 forward fixture pin mismatch: $(sha "$b/fwd16.fx")"
   else
     cat "$b/fwdref16.out"
-    line=$(timeout 600 "$b/ops" fwbf16 "$b/fwd16.fx" "$b/real.tsv" "$FLINT_SHARDS" 2>&1 < /dev/null)
+    line=$(timeout 600 "$b/ops" fwbf16 "$b/fwd16.fx" "$b/real.tsv" "$FLINT_SHARDS" "$b/forward.fx" 2>&1 < /dev/null)
     rc=$?
     echo "$line"
     if [ "$rc" = 0 ] && [[ $line == *"fwbf16 layer 49 "* ]] && [[ $line == *" PASS" ]]; then ok "bf16-activation chained forward, all layers and vocabulary logits"; else bad "bf16 forward rc $rc"; fi
     cp "$b/fwd16.fx" "$b/fwd16x.fx"
     printf '\001' | dd of="$b/fwd16x.fx" bs=1 seek=40 conv=notrunc status=none
-    for c in "fwbf16 forward.fx" "forward fwd16.fx" "fwbf16 fwd16x.fx"; do
-      line=$(timeout 60 "$b/ops" ${c% *} "$b/${c#* }" "$b/real.tsv" "$FLINT_SHARDS" 2>&1 < /dev/null)
+    for c in "fwbf16 forward.fx forward.fx" "forward fwd16.fx" "fwbf16 fwd16x.fx forward.fx" "fwbf16 fwd16.fx fwd16.fx"; do
+      read -r o x f <<< "$c"
+      line=$(timeout 60 "$b/ops" "$o" "$b/$x" "$b/real.tsv" "$FLINT_SHARDS" ${f:+"$b/$f"} 2>&1 < /dev/null)
       rc=$?
       if [ "$rc" = 7 ] && [ "$line" = "refused 7 fixture" ]; then ok "REFUSED $c: $line"; else bad "$c not refused: rc $rc ${line##*$'\n'}"; fi
     done
     s=$(cat "$here/ops.om")
     while IFS='|' read -r name from to; do
-      fwmut "$name" fwbf16 "$b/fwd16.fx" "$from" "$to" || continue
+      fwmut "$name" fwbf16 "$b/fwd16.fx" "$from" "$to" "$b/forward.fx" || continue
       if [ "$rc" = 1 ] && [[ $line == *" FAIL" ]]; then ok "CAUGHT bf16 forward mutant $name: ${line##*$'\n'}"; else bad "bf16 forward mutant $name rc $rc: $line"; fi
     done <<'BF16_MUTANTS'
 bf16-truncate|r = and add u add 32767 and shr u 16 1 4294901760|r = and u 4294901760
 bf16-skip-final-norm|put gfh o get gy i|put gfh o get gv i
+bf16-off|if ne get gbm 0 1|if true
 BF16_MUTANTS
-    # Measured control, not a gate entry: the plain f64 forward (option b) against the bf16 fixture.
-    fwmut bf16-off fwbf16 "$b/fwd16.fx" "if ne get gbm 0 1" "if true" && echo "MEASURED control bf16-off rc $rc: ${line##*$'\n'}"
   fi
 else
   echo "NOT_RUN chained forward (set FLINT_FORWARD=1)"

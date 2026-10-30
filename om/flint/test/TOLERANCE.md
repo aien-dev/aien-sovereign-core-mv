@@ -474,3 +474,18 @@ checks. The v2 limitations (two keys in attention, random-shape `F.linear` probe
 - Fixture admission: v2's, including an `FX32` that is not op 8 or differs in size or token IDs.
 WolframLanguageEvaluator: `{N[16557.8/0.183,6], N[18530.9/0.287,6], N[62898.0335/(16557.8/0.183)], N[Sqrt[0.1884384183216526],6], N[Sqrt[0.008286407592029853],6]}`
 returned `{90479.78142076502, 64567.59581881534, 0.6951612007935837, 0.43409494159878503, 0.09102970719512314}`.
+
+**v3 measured (host only, EXERCISED, after declaration commit e9274902).** Full gate
+`FLINT_FORWARD=1 bash om/flint/check.sh` on 8a3caf40 plus the check.sh wiring commit:
+`OM-FLINT-MANIFEST PASS (100)`, 3m49.6s wall under the shared lock.
+- `fwbf16` clean: `layer 49 elems 1312000 worst_ppm 179 ties 6 md_min_ppm 88417 md_max_ppm
+  5041815 nd_max_ppm 5208925 PASS`; layer-0 worst_ppm 15 (anchor within tier A by far).
+  `M / D` stays in 0.088 to 5.04, inside the band by more than 4 decades.
+- `bf16-off`: FAIL at layer 0, worst_ppm 1414212 (anchor `N / D` 1.000, tier A), md 24 to 520 ppm.
+- `bf16-truncate`: FAIL at layer 0, worst_ppm 3520459 (anchor `N / D` 2.49), md_min 1.95.
+- `bf16-skip-final-norm`: FAIL at layer 49, worst_ppm 1614446 (largest `M / D` 101545, 1.61 `b`).
+- Fixture admission: `fwbf16 forward.fx forward.fx`, `forward fwd16.fx`, `fwbf16 fwd16x.fx
+  forward.fx` and `fwbf16 fwd16.fx fwd16.fx` (FX32 not op 8) each `refused 7 fixture`.
+Every predicted verdict held. The row that carries the skip-final-norm maximum (101545, above the
+predicted token-0 final-norm 90480) was not identified; the clean v3 run is the first clean
+comparison under v2 or v3, after e9274902.
