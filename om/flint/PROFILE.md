@@ -49,8 +49,9 @@ no quantization descriptor/scales in this checkpoint. No lossy repack was applie
 Generation defaults in the pinned capture: do_sample=true, temperature=1.0,
 top_p=0.95, top_k=20. The forward referee does not sample: token IDs [1001,8920]
 are fixed, not produced by a chat template. Tokenizer and control-token identity
-(ids, special flags, bytes, ByteLevel decode) are exercised on host by `tok.om`;
-encode and the chat template remain NOT_RUN.
+(ids, special flags, bytes, ByteLevel decode) and the encode of ASCII text are
+exercised on host by `tok.om`; encode of non-ASCII text (refused, 60) and the chat
+template remain NOT_RUN.
 
 ## Architecture audit
 

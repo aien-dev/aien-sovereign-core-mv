@@ -197,10 +197,11 @@ else
   echo "NOT_RUN FLINT_SHARDS (the 15 downloaded shards; needs FLINT_SRC too)"
 fi
 
-# 4b. tokenizer and control-token identity (#834 item 1): tok.om reads the pinned tokenizer.json,
+# 4b. tokenizer and control-token identity (#834): tok.om reads the pinned tokenizer.json,
 #     tokenizer_config.json and generation_config.json and checks every record of
 #     test/tok-fixture.txt (vocab size, BOS/EOS/pad roles, 19 control tokens by id, special flag
-#     and bytes, and the decode of 5 reference-encoded texts back to their exact bytes).
+#     and bytes, the decode of 5 reference-encoded texts back to their exact bytes, and the
+#     encode of 261 ASCII texts, 240 of them from the seeded corpus, to the reference's exact ids).
 #     test/tokref.py (FLINT_PY: tokenizers 0.23.2, transformers a672eb5f) must reproduce the
 #     committed fixture byte for byte. Every fixture, input and source mutant must turn its named
 #     record to FAIL (exit 1); every refusal must come from the guard named for it.
@@ -208,7 +209,7 @@ TOKJ_PIN=a263cce0b7e2b03f7ee07ce809783ef4b47f160c3f268a4ea1524f638da45b68
 TOKC_PIN=159ac88217e90ffd0a4a294726048bb302829e82e1958dc85bb203aa79138fbf
 GENC_PIN=a499c71895e008abd572558a5ad5904feaed92cf2a3b6e2cb0e9cabf03b96ed3
 TPL_PIN=7940f4ffa3275c36caa4a582f845aaad79da11018b3961e8fbcad6ae29733466
-TOK_SUM='flint-tok summary vocab 150000 added 144 records 30 pass 30 fail 0 PASS'
+TOK_SUM='flint-tok summary vocab 150000 added 144 records 291 pass 291 fail 0 PASS'
 TOK_MUT='eos-id#x#s/^role eos 150001$/role eos 150002/#role eos
 think-id#x#s/^ctl think-open 150006 /ctl think-open 150007 /#ctl think-open
 think-special#x#s/^ctl think-close 150007 0 /ctl think-close 150007 1 /#ctl think-close
@@ -218,7 +219,8 @@ vocab-size#x#s/^size 150000 144$/size 150000 143/#size
 json-think-swap#j#s/"content": "<think>"/"content": "@T@"/; s/"content": "<\/think>"/"content": "<think>"/; s/"content": "@T@"/"content": "<\/think>"/#ctl think-open
 json-vocab-swap#j#s/"Hello": 9479,/"Hello": 1571,/; s/"Ġworld": 1571,/"Ġworld": 9479,/#case ascii
 cfg-eos#c#s/"eos_token": "<|end_of_text|>"/"eos_token": "<|user|>"/#role eos
-gen-eos#g#s/150005,/150005/; /^ *150018$/d#role geneos'
+gen-eos#g#s/150005,/150005/; /^ *150018$/d#role geneos
+enc-id#x#s/^enc hello 1 9479 /enc hello 1 9480 /#enc hello'
 TOK_FIX='json-size#j#d#50
 json-syntax#j#$s/}$//#51
 json-decoder#j#s/"type": "ByteLevel"/"type": "Metaspace"/#52
@@ -227,7 +229,9 @@ json-vocab-char#j#s/"Hello": 9479,/"\\u4e00": 9479,/#54
 json-added-gap#j#s/"id": 150006,/"id": 150099,/#55
 cfg-json#c#$s/}$//#56
 gen-num#g#s/"pad_token_id": 150001/"pad_token_id": -1/#57
-fixture-record#x#$a bogus x#58'
+fixture-record#x#$a bogus x#58
+json-pretok-regex#j#s/p{N}{1,3}/p{N}{1,4}/#52
+enc-not-ascii#x#$a enc nonascii 1 0 2 c3a9#60'
 if [ -n "${FLINT_SRC:-}" ]; then
   tj=$FLINT_SRC/tokenizer.json tc=$FLINT_SRC/tokenizer_config.json tg=$FLINT_SRC/generation_config.json
   tfx=$here/test/tok-fixture.txt
@@ -288,7 +292,11 @@ if [ -n "${FLINT_SRC:-}" ]; then
     done <<< "$TOK_FIX"
     TOK_SRC='byte-map|ret add k 94|ret add k 93|case utf8|pin
 special-flag|b = eq ulong get gsp id add sp 1|b = eq ulong get gsp id 1|ctl begin-text|pin
-raw-bytes|tk_dput ulong get gpool add o i|tk_dput ulong get gpool add o 0|case raw-added|raw'
+raw-bytes|tk_dput ulong get gpool add o i|tk_dput ulong get gpool add o 0|case raw-added|raw
+digit-split|const NDIG ulong 3|const NDIG ulong 4|enc digits|pin
+no-lookahead|r = te_a5 p e w|r = p|enc ws-word|pin
+bpe-max-rank|if or eq bi NOINT lt r br|if or eq bi NOINT gt r br|enc hello|pin
+contraction-3|ret add l 3|ret l|enc contract|pin'
     while IFS='|' read -r m from to want fx; do
       [ "$(grep -cF "$from" "$here/tok.om")" = 1 ] || { bad "tok mutant $m: site not found exactly once"; continue; }
       printf '%s\n' "${st/"$from"/"$to"}" > "$b/tmut.om"

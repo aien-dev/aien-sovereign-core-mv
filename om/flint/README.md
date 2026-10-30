@@ -207,10 +207,9 @@ layer, expert index permuted (255 - e), and window 514.
 - weight streaming and repacking, with peak allocation and residency measured during load;
 - per-expert layout checks before fusing;
 - a load report;
-- tokenizer encode (text to ids): the pre_tokenizer Split regexes need Unicode General
-  Category tables (\p{L}, \p{N}, \p{P}, \p{S}, \p{M} and subclasses) and the `\s+(?!\S)`
-  lookahead, none of which are in the pinned capture; decode and control-token identity are
-  covered by `tok.om` below.
+- tokenizer encode of non-ASCII text: `tok.om` encodes ASCII only (below) and refuses any
+  other byte with 60; the Unicode General Category tables (\p{L}, \p{N}, \p{P}, \p{S}, \p{M}
+  and subclasses) and the CJK Split they need are not built; the chat template is not rendered.
 
 This unit has no GPU arm. A GGUF importer, if added, will be a separate optional unit.
 
@@ -223,15 +222,30 @@ writes from the pinned tokenizers 0.23.2 backend and which the gate regenerates 
 byte for byte. Records: vocab and added counts; BOS/EOS from tokenizer_config and BOS/EOS/pad
 ids from generation_config; 19 control tokens (text, roles, think, tools, tool-call, argument
 and response tags) by id, special flag and exact bytes, each the unique added token with that
-content and matching `added_tokens_decoder`; and the ByteLevel decode of 5 reference-encoded
-texts (ASCII, multibyte UTF-8, whitespace, a chat turn, a tool-call turn) to their exact bytes.
+content and matching `added_tokens_decoder`; the ByteLevel decode of 5 reference-encoded
+texts (ASCII, multibyte UTF-8, whitespace, a chat turn, a tool-call turn) to their exact bytes;
+and the encode of 261 ASCII texts to the reference's exact ids (18 hand cases, the 3 ASCII
+decode texts, 240 strings composed by `random.Random(834)` covering digit runs longer than 3,
+the contractions in mixed case and near misses, punctuation runs, whitespace and newline runs
+inside and at the end, control bytes and added tokens inside text). Encode follows tokenizers
+0.23.2 with `add_special_tokens=False`: added tokens cut out leftmost-longest as raw substrings,
+the `\p{N}{1,3}` Split, the main Split pattern (all six alternatives, Oniguruma backtracking and
+`\s+(?!\S)` evaluated per piece), ByteLevel, and BPE by lowest merge rank through 149744 merges
+held in a pair hash table (vocab strings in a second hash table). The pre_tokenizer JSON is
+pinned by FNV-1a 64 of its text; a null-valued normalizer, truncation, padding, dropout,
+unk_token or affixes and false fuse_unk, byte_fallback, ignore_merges and added-token
+lstrip/rstrip/single_word/normalized are required, anything else is refused (52 or 55), so the
+encoder never runs on settings it does not implement.
 Usage: `flint-tok TOKENIZER_JSON TOKENIZER_CONFIG GENERATION_CONFIG FIXTURE`; one
 `flint-tok KIND NAME PASS|FAIL` line per record, a summary, exit 0 only when all pass.
 Refusals: 2 usage, 3 io, 4 not a regular file, 50 tokenizer.json size, 51 syntax, 52 schema,
 53 vocab id, 54 vocab key outside the ByteLevel alphabet, 55 added token, 56
-tokenizer_config, 57 generation_config, 58 fixture syntax, 59 capacity. `check.sh` runs
-fixture, input and source mutants (each must turn its named record to FAIL) and removes each
-refusal guard in turn (its fixture must stop producing the code). Encode is NOT_RUN (above).
+tokenizer_config, 57 generation_config, 58 fixture syntax, 59 capacity, 60 non-ASCII byte in
+an `enc` text (50-59 were all taken). `check.sh` runs fixture, input and source mutants (each
+must turn its named record to FAIL: among them a wrong expected id, digit pieces of 4, the
+`\s+(?!\S)` branch dropped, BPE by highest rank and the 3-letter contractions dropped) and
+removes each refusal guard in turn (its fixture must stop producing the code). Capacity (59)
+has no fixture.
 No pinned token has characters outside the ByteLevel alphabet, so `check.sh` derives a
 tokenizer.json whose added token 150143 holds `<|reserved 150143\t|>` (space and tab) and checks
 the referee's `test/tok-fixture-raw.txt` decode against it; the `raw-bytes` source mutant must

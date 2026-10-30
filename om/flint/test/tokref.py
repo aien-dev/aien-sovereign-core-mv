@@ -7,7 +7,7 @@ text fixture that om/flint/tok.om checks against the tokenizer files on its own.
 script and requires its output to equal the committed test/tok-fixture.txt byte for byte, so a
 different transformers file, tokenizers build or source file shows up as a FAIL.
 
-Usage: tokref.py SRC OUT
+Usage: tokref.py SRC OUT [RAWJSON RAWOUT]
   SRC  the pinned source capture (tokenizer.json, tokenizer_config.json, chat_template.jinja,
        generation_config.json)
   OUT  the fixture file to write
@@ -19,10 +19,14 @@ Fixture: ASCII lines, fields separated by one space; lines starting with '#' are
   ctl NAME ID SPECIAL HEX     a control token: id, its added_tokens_decoder special flag, content bytes
   case NAME N ID*N NB HEX     ids the reference encodes for the NB bytes HEX (no special tokens added);
                               the reference must decode them back to the same bytes
+  enc NAME N ID*N NB HEX      ids the reference encodes for the ASCII text HEX (no special tokens
+                              added); the hand cases of ENC_HAND, the ASCII CASES, then ENC_N strings
+                              composed by random.Random(ENC_SEED) from the ENC_* fragment lists
 """
 import hashlib
 import inspect
 import os
+import random
 import sys
 
 import tokenizers
@@ -146,10 +150,84 @@ for name, text in CASES:
         sys.exit("tokref: case %s does not decode back to its text: %r" % (name, back))
     raw = text.encode()
     lines.append("case %s %d %s %d %s" % (name, len(v), " ".join(map(str, v)), len(raw), raw.hex()))
+
+# Encode corpus (ASCII only; tok.om refuses other bytes with 60). It covers digit runs longer
+# than 3, the contractions in mixed case (and near misses), punctuation runs, whitespace and
+# newline runs, inside and at the end of the text, control bytes, and added tokens inside text.
+ENC_SEED = 834
+ENC_N = 240
+ENC_HAND = [
+    ("hello", "Hello"),
+    ("digits", "12345678 1234 x99999y 0 007 3.14159 1e100"),
+    ("ws-word", "a  b   c\t\td \t e"),
+    ("trail-ws", "end   "),
+    ("trail-nl", "line\n\n"),
+    ("lead-ws", "   lead"),
+    ("contract", "it's don't they're we've I'm you'll he'd"),
+    ("contract-uc", "IT'S DON'T THEY'RE WE'VE I'M YOU'LL HE'D It'S wE'Ve"),
+    ("contract-no", "rock'n'roll o'clock 'tis x' 'S ''s she'sn't"),
+    ("punct", "Hi!!! ... ?!?! (a) [b] {c} <d> --e-- ~~f~~ a+b=c; $5 @x #y %z ^w `v` |u| \\t"),
+    ("newline", "a\nb\r\nc\r\rd\n\n\ne \n f\t\n\tg"),
+    ("punct-nl", "x.\r\n\r\ny!\n z?\n\n"),
+    ("added", "x<think>y</think> z<|user|>hi<|assistant|>"),
+    ("added-adj", "<tool_call><arg_key>k</arg_key><arg_value>v</arg_value></tool_call>"),
+    ("added-part", "<thin <think <|user| <|user|>|> <<think>>"),
+    ("ctl-bytes", "a\x00b\x01 c\x1c\x1fd\x7f e\x0bf\x0cg\x1b[0m"),
+    ("caps", "HTTPServer iPhone ABCdef aBC XMLHttpRequest A B CD"),
+    ("long", "supercalifragilisticexpialidocious " * 3 + "a" * 70 + " " * 40 + "9" * 25),
+]
+ENC_WORDS = ["the", "Hello", "WORLD", "x", "I", "a", "don", "CamelCase", "iOS", "HTTPServer",
+             "snake_case", "ab", "Zz", "qux", "OK", "tokenizer", "Flint", "naive", "ZZTop"]
+ENC_CONTR = ["'s", "'t", "'re", "'ve", "'m", "'ll", "'d", "'S", "'T", "'Re", "'rE", "'VE", "'M",
+             "'Ll", "'lL", "'D", "'x", "'", "''", "'r", "'v", "'l"]
+ENC_PUNCT = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
+ENC_WS = [" ", "  ", "   ", "\t", "\n", "\n\n", "\r\n", " \n", "\t\n ", "\x0b", "\x0c", " \r\n  ",
+          "\r", "\n ", "  \t"]
+ENC_CTRL = ["\x00", "\x01", "\x08", "\x1b", "\x1c", "\x1f", "\x7f"]
+ENC_ADDED = [dec[i].content for i in sorted(dec)]
+rng = random.Random(ENC_SEED)
+
+
+def enc_frag():
+    k = rng.randrange(8)
+    if k == 0:
+        return rng.choice(ENC_WORDS)
+    if k == 1:
+        return rng.choice(ENC_WORDS) + rng.choice(ENC_CONTR)
+    if k == 2:
+        return "".join(rng.choice("0123456789") for _ in range(rng.randrange(1, 10)))
+    if k == 3:
+        return "".join(rng.choice(ENC_PUNCT) for _ in range(rng.randrange(1, 5)))
+    if k == 4:
+        return rng.choice(ENC_WS)
+    if k == 5:
+        return rng.choice(ENC_CTRL)
+    if k == 6:
+        return rng.choice(ENC_ADDED)
+    return rng.choice(ENC_WORDS).upper()
+
+
+enc = list(ENC_HAND) + [(n, t) for n, t in CASES if t.isascii()]
+for k in range(ENC_N):
+    parts = [enc_frag() for _ in range(rng.randrange(1, 13))]
+    text = "".join(p + rng.choice(["", "", " "]) for p in parts)
+    if rng.randrange(4) == 0:
+        text += rng.choice(ENC_WS)
+    enc.append(("r%03d" % k, text))
+for name, text in enc:
+    if not text.isascii() or not text:
+        sys.exit("tokref: enc %s is not non-empty ASCII" % name)
+    v = tok.encode(text, add_special_tokens=False)
+    if v != tok.backend_tokenizer.encode(text, add_special_tokens=False).ids:
+        sys.exit("tokref: enc %s: transformers and tokenizers disagree" % name)
+    if tok.decode(v, skip_special_tokens=False, clean_up_tokenization_spaces=False) != text:
+        sys.exit("tokref: enc %s does not decode back to its text" % name)
+    raw = text.encode()
+    lines.append("enc %s %d %s %d %s" % (name, len(v), " ".join(map(str, v)), len(raw), raw.hex()))
 with open(out, "w") as f:
     f.write("\n".join(lines) + "\n")
-print("tokref: %d control tokens, %d cases, tokenizers %s" % (len(CONTROL), len(CASES),
-                                                           tokenizers.__version__))
+print("tokref: %d control tokens, %d cases, %d enc (seed %d), tokenizers %s" % (
+    len(CONTROL), len(CASES), len(enc), ENC_SEED, tokenizers.__version__))
 
 # Optional: RAWJSON RAWOUT. RAWJSON is the pinned tokenizer.json with one added token's content
 # changed by check.sh to hold characters outside the ByteLevel alphabet (space, tab), which no

@@ -9,13 +9,21 @@ note   role NAME ID...        bos/eos from tokenizer_config.json, genbos/geneos/
 note   ctl NAME ID SPECIAL HEX  the control token's content and special flag in tokenizer.json, the same in
 note                          tokenizer_config.json added_tokens_decoder, and that no other added token has it
 note   case NAME N IDS NB HEX the ids decode, through the vocabulary and the ByteLevel decoder, to exactly HEX
+note   enc NAME N IDS NB HEX  the ASCII text HEX encodes to exactly the ids: added tokens (leftmost longest),
+note                          then the pre_tokenizer Splits, ByteLevel and BPE (see ======== encode ========)
 note Stdout: one "flint-tok KIND NAME ... PASS|FAIL" line per record, then a summary line. Exit 0 when every
 note record passes, 1 when any fails. Refusal: nothing on stdout, stderr "refused N reason", exit N.
 note Compose: { printf 'om2\n'; cat om/vendor/json.om om/flint/tok.om; } | omc
-note Encode (pre-tokenizer regex split plus BPE merges) is not implemented here; see om/flint/README.md.
+note Encode covers ASCII text only: a non-ASCII byte in an enc text is refused with 60 (see om/flint/README.md).
 
 const TMAX ulong 263168
 const NOINT ulong 18446744073709551615
+const HMASK ulong 524287
+const FNVO ulong 14695981039346656037
+const FNVP ulong 1099511628211
+const FIB ulong 11400714819323198485
+const NDIG ulong 3
+const PRETOK ulong 15801867561988946408
 global ga uchar 16384
 global gas ulong 8
 global gal ulong 8
@@ -35,13 +43,21 @@ global gdb uchar 65536
 global gob uchar 1048576
 global geb uchar 512
 global gdg uchar 24
+global gvh ulong 524288
+global gmk ulong 524288
+global gmv ulong 524288
+global gbid ulong 256
+global gw ulong 65536
+global geo ulong 8192
 
 note gs: 0 tokenizer.json cursor, 1 its length, 2 depth, 3 string end, 4 string start, 5 pool fill,
 note 6 vocab entries, 7 vocab max id + 1, 8 added tokens, 9 last fstat size, 10 root keys seen,
 note 11 model keys seen, 12 decoder keys seen, 13 added id, 14 added content offset, 15 added content
 note length, 16 added special + 1, 17 added keys seen, 18 stdout fill, 19 stderr fill, 20 fixture length,
 note 21 fixture cursor, 22 records passed, 23 records failed, 24 decoded string length, 26 first added id,
-note 28 decode fill, 29 expected bytes, 30 fixture word length, 31 fixture ids.
+note 28 decode fill, 29 expected bytes, 30 fixture word length, 31 fixture ids, 32 name
+note offset, 33 name length, 34 encoded ids, 35 merges, 36 added-token match length, 37 merged id.
+note gvh: vocab string hash -> id + 1. gmk/gmv: merge pair key (A * TMAX + B) + 1 -> rank * TMAX + merged id.
 
 text tr2 "usage: flint-tok TOKENIZER_JSON TOKENIZER_CONFIG GENERATION_CONFIG FIXTURE"
 text tr3 "io"
@@ -56,6 +72,7 @@ text tr56 "tokenizer-config"
 text tr57 "generation-config"
 text tr58 "fixture-syntax"
 text tr59 "capacity"
+text tr60 "encode-not-ascii"
 text tref "refused "
 text tpre "flint-tok "
 text tpass " PASS"
@@ -109,6 +126,7 @@ text fsize "size"
 text frole "role"
 text fctl "ctl"
 text fcase "case"
+text fenc "enc"
 text rbos "bos"
 text reos "eos"
 text rgbos "genbos"
@@ -640,7 +658,7 @@ put gs 2 sub get gs 2 1
 tj_end ctx
 end
 
-note tj_arr: an array; ctx 2 holds added-token objects, any other ctx skips its elements
+note tj_arr: an array; ctx 2 holds added-token objects, ctx 7 merge pairs, any other ctx skips its elements
 fn tj_arr ctx ulong to void
 tj_eat 91
 tj_down
@@ -656,7 +674,11 @@ tk_die 55 tr55
 end
 tj_obj 3
 else
+if eq ctx 7
+tm_pair
+else
 tj_skip
+end
 end
 tj_ws
 c = tj_at
@@ -736,25 +758,50 @@ tk_once 10 b 52 tr52
 tj_skip
 end
 
+note tk_null: member bit b of gs cell c holds null (a setting that would change encode is refused)
+fn tk_null c ulong b ulong to void
+tk_once c b 52 tr52
+tj_ws
+if not tj_word tnull
+tk_die 52 tr52
+end
+end
+
+note tr_pre: the pre_tokenizer value, byte for byte the pinned one (FNV-1a 64 of its JSON text is
+note PRETOK): the three Isolated Splits and the ByteLevel step that the encode section implements
+fn tr_pre to void
+tk_once 10 32 52 tr52
+tj_ws
+s = get gs 0
+tj_skip
+h = FNVO
+for i ulong sub get gs 0 s
+h = mul xor h ulong get gtj add s i FNVP
+end
+if ne h PRETOK
+tk_die 52 tr52
+end
+end
+
 fn tr_mem to void
 if tk_kis kver
 tr_skip 1
 ret
 end
 if tk_kis ktrunc
-tr_skip 2
+tk_null 10 2
 ret
 end
 if tk_kis kpad
-tr_skip 4
+tk_null 10 4
 ret
 end
 if tk_kis knorm
-tr_skip 16
+tk_null 10 16
 ret
 end
 if tk_kis kpret
-tr_skip 32
+tr_pre
 ret
 end
 if tk_kis kpost
@@ -799,9 +846,11 @@ tk_die 52 tr52
 end
 end
 
-fn tm_skip b ulong to void
+fn tm_false b ulong to void
 tk_once 11 b 52 tr52
-tj_skip
+if ne tj_bool 0
+tk_die 52 tr52
+end
 end
 
 fn tm_mem to void
@@ -820,35 +869,40 @@ tj_obj 5
 ret
 end
 if tk_kis kmerges
-tm_skip 4
+tk_once 11 4 52 tr52
+tj_ws
+if or eq and get gs 11 2 0 ne tj_at 91
+tk_die 52 tr52
+end
+tj_arr 7
 ret
 end
 if tk_kis kdrop
-tm_skip 8
+tk_null 11 8
 ret
 end
 if tk_kis kunk
-tm_skip 16
+tk_null 11 16
 ret
 end
 if tk_kis kcsp
-tm_skip 32
+tk_null 11 32
 ret
 end
 if tk_kis keow
-tm_skip 64
+tk_null 11 64
 ret
 end
 if tk_kis kfuse
-tm_skip 128
+tm_false 128
 ret
 end
 if tk_kis kbfb
-tm_skip 256
+tm_false 256
 ret
 end
 if tk_kis kignm
-tm_skip 512
+tm_false 512
 ret
 end
 tk_die 52 tr52
@@ -905,6 +959,8 @@ put gtl id l
 ret true
 end
 
+note ta_flag: special is kept; single_word, lstrip, rstrip and normalized must be false (the encode
+note section matches added tokens as raw, unnormalized substrings)
 fn ta_flag b ulong to void
 tk_once 17 b 55 tr55
 f = tj_bool
@@ -913,6 +969,10 @@ tk_die 55 tr55
 end
 if eq b 4
 put gs 16 add f 1
+else
+if ne f 0
+tk_die 55 tr55
+end
 end
 end
 
@@ -1076,6 +1136,7 @@ end
 if not tk_bind v o l
 tk_die 53 tr53
 end
+tk_vput v o l
 put gs 6 add get gs 6 1
 if ge v get gs 7
 put gs 7 add v 1
@@ -1093,10 +1154,10 @@ tj_ws
 if ne get gs 0 get gs 1
 tk_die 51 tr51
 end
-if ne and get gs 10 392 392
+if ne and get gs 10 424 424
 tk_die 52 tr52
 end
-if ne and get gs 11 3 3
+if ne and get gs 11 7 7
 tk_die 52 tr52
 end
 if ne and get gs 12 1 1
@@ -1107,6 +1168,538 @@ tk_die 53 tr53
 end
 if or eq get gs 8 0 ne get gs 26 get gs 6
 tk_die 55 tr55
+end
+end
+
+note ======== vocab and merge tables ========
+
+note tk_hp: FNV-1a 64 of pool bytes [o, o + l), masked to a gvh slot
+fn tk_hp o ulong l ulong to ulong
+h = FNVO
+for i ulong l
+h = mul xor h ulong get gpool add o i FNVP
+end
+ret and h HMASK
+end
+
+note tk_hk: the same hash of gkb[0 .. n)
+fn tk_hk n ulong to ulong
+h = FNVO
+for i ulong n
+h = mul xor h ulong get gkb i FNVP
+end
+ret and h HMASK
+end
+
+note tk_keq: token id's string is gkb[0 .. n)
+fn tk_keq id ulong n ulong to bool
+if ne get gtl id n
+ret false
+end
+o = get gto id
+for i ulong n
+if ne get gpool add o i get gkb i
+ret false
+end
+end
+ret true
+end
+
+note tk_ppeq: token id's string is pool bytes [o, o + l)
+fn tk_ppeq id ulong o ulong l ulong to bool
+if ne get gtl id l
+ret false
+end
+q = get gto id
+for i ulong l
+if ne get gpool add q i get gpool add o i
+ret false
+end
+end
+ret true
+end
+
+note tk_vput: vocab id (string at pool [o, o + l)) into gvh; a second id with the same string is refused
+fn tk_vput id ulong o ulong l ulong to void
+h = tk_hp o l
+for k ulong 524288
+v = get gvh h
+if eq v 0
+put gvh h add id 1
+ret
+end
+if tk_ppeq sub v 1 o l
+tk_die 53 tr53
+end
+h = and add h 1 HMASK
+end
+tk_die 59 tr59
+end
+
+note tk_vget: the vocab id whose string is gkb[0 .. n), NOINT when there is none
+fn tk_vget n ulong to ulong
+h = tk_hk n
+for k ulong 524288
+v = get gvh h
+if eq v 0
+ret NOINT
+end
+if tk_keq sub v 1 n
+ret sub v 1
+end
+h = and add h 1 HMASK
+end
+ret NOINT
+end
+
+note tk_hm: the gmk slot of merge key x (Fibonacci hashing, top 19 bits)
+fn tk_hm x ulong to ulong
+ret and shr mul x FIB 45 HMASK
+end
+
+note tk_mput: merge (a, b) -> c with the next rank; a repeated pair is refused
+fn tk_mput a ulong b ulong c ulong to void
+x = add mul a TMAX b
+h = tk_hm x
+r = get gs 35
+for k ulong 524288
+v = get gmk h
+if eq v 0
+put gmk h add x 1
+put gmv h add mul r TMAX c
+put gs 35 add r 1
+ret
+end
+if eq v add x 1
+tk_die 52 tr52
+end
+h = and add h 1 HMASK
+end
+tk_die 59 tr59
+end
+
+note tk_mget: rank * TMAX + merged id of pair (a, b), NOINT when the pair does not merge
+fn tk_mget a ulong b ulong to ulong
+x = add mul a TMAX b
+h = tk_hm x
+for k ulong 524288
+v = get gmk h
+if eq v 0
+ret NOINT
+end
+if eq v add x 1
+ret get gmv h
+end
+h = and add h 1 HMASK
+end
+ret NOINT
+end
+
+note tm_tok: the next string of a merge pair as its vocab id (a string outside the vocab is refused)
+fn tm_tok to ulong
+tj_str
+tj_sdec
+v = tk_vget get gs 24
+if eq v NOINT
+tk_die 52 tr52
+end
+ret v
+end
+
+note tm_pair: one merge [A, B] (the vocab is complete by then); its rank is its index in merges and
+note its result the vocab id of A + B, which must exist (tokenizers refuses such a file too)
+fn tm_pair to void
+tj_eat 91
+a = tm_tok
+tj_eat 44
+b = tm_tok
+tj_eat 93
+la = get gtl a
+lb = get gtl b
+if gt add la lb len gkb
+tk_die 59 tr59
+end
+for i ulong la
+put gkb i get gpool add get gto a i
+end
+for i ulong lb
+put gkb add la i get gpool add get gto b i
+end
+c = tk_vget add la lb
+if eq c NOINT
+tk_die 52 tr52
+end
+tk_mput a b c
+end
+
+note bl_fwd: GPT-2 bytes_to_unicode, the code point byte b stands for (bl_inv is its inverse)
+fn bl_fwd b ulong to ulong
+if and ge b 33 le b 126
+ret b
+end
+if and ge b 161 le b 172
+ret b
+end
+if ge b 174
+ret b
+end
+if lt b 33
+ret add b 256
+end
+if lt b 161
+ret add sub b 127 289
+end
+ret 323
+end
+
+note tk_bytes: gbid[b] = the vocab id of byte b's ByteLevel character; a missing one is refused
+fn tk_bytes to void
+for b ulong 256
+n = tk_putcp 0 bl_fwd b
+v = tk_vget n
+if eq v NOINT
+tk_die 54 tr54
+end
+put gbid b v
+end
+end
+
+note ======== encode ========
+note tokenizers 0.23.2 encode with add_special_tokens false, for ASCII text gxb[0 .. nb):
+note 1. added tokens: all 144 are normalized=false without lstrip/rstrip/single_word, so they are cut
+note    out as raw substrings, leftmost first and longest at that position (aho-corasick
+note    LeftmostLongest); every other span goes on;
+note 2. Split \p{N}{1,3} Isolated: digit runs in pieces of at most NDIG;
+note 3. Split [CJK ranges]+ Isolated: no ASCII character is in it, so it leaves ASCII pieces whole;
+note 4. Split of the third pattern, Isolated, on each non-digit piece separately (so (?!\S) sees the
+note    piece end), alternatives tried in order at each position with Oniguruma backtracking:
+note    a1 [^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+C?
+note    a2 [^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*C?
+note    a3 ' ?[\p{P}\p{S}]+[\r\n]*'  a4 \s*[\r\n]+  a5 \s+(?!\S)  a6 \s+, C = (?i:'s|'t|'re|'ve|'m|'ll|'d);
+note    a digit piece matches none of them and stays whole;
+note 5. ByteLevel (use_regex false): each byte becomes its character, gbid gives its id;
+note 6. BPE, ignore_merges false: merge the adjacent pair of lowest rank, leftmost on ties, until none
+note    merges (the order tokenizers' heap of (rank, position) produces).
+note In ASCII: \p{Lu} is A-Z, \p{Ll} a-z, \p{N} 0-9, Lt/Lm/Lo/M are empty, \p{P} or \p{S} is every
+note graphic character that is not a letter or digit, \s is 9..13 and 32.
+
+note te_at: byte p of the piece ending at e, 256 past its end (in no class)
+fn te_at p ulong e ulong to ulong
+if ge p e
+ret 256
+end
+ret ulong get gxb p
+end
+
+fn te_up c ulong to bool
+ret and ge c 65 le c 90
+end
+
+fn te_lo c ulong to bool
+ret and ge c 97 le c 122
+end
+
+fn te_dg c ulong to bool
+ret and ge c 48 le c 57
+end
+
+fn te_ws c ulong to bool
+ret or and ge c 9 le c 13 eq c 32
+end
+
+fn te_nl c ulong to bool
+ret or eq c 10 eq c 13
+end
+
+fn te_ps c ulong to bool
+a = or and ge c 33 le c 47 and ge c 58 le c 64
+b = or and ge c 91 le c 96 and ge c 123 le c 126
+ret or a b
+end
+
+note te_x: [^\r\n\p{L}\p{N}] for a byte (false past the end)
+fn te_x c ulong to bool
+if ge c 128
+ret false
+end
+ret not or or te_nl c te_dg c or te_up c te_lo c
+end
+
+fn te_low c ulong to ulong
+if te_up c
+ret add c 32
+end
+ret c
+end
+
+note te_ctr: the end of the optional contraction C at l
+fn te_ctr l ulong e ulong to ulong
+if ne te_at l e 39
+ret l
+end
+a = te_low te_at add l 1 e
+if or or eq a 115 eq a 116 or eq a 109 eq a 100
+ret add l 2
+end
+b = te_low te_at add l 2 e
+if or or and eq a 114 eq b 101 and eq a 118 eq b 101 and eq a 108 eq b 108
+ret add l 3
+end
+ret l
+end
+
+note te_a12: the end of a1, else of a2, at p; p when neither matches. In ASCII the upper and lower
+note classes are disjoint, so backtracking cannot help: a1 matches when a lower-case run follows the
+note upper-case run, a2 when that upper-case run is not empty.
+fn te_a12 p ulong e ulong to ulong
+q = p
+if te_x te_at p e
+q = add p 1
+end
+u = q
+while te_up te_at u e bound 99999
+u = add u 1
+end
+l = u
+while te_lo te_at l e bound 99999
+l = add l 1
+end
+if gt l u
+ret te_ctr l e
+end
+if gt u q
+ret te_ctr u e
+end
+ret p
+end
+
+note te_a3: the end of a3 at p, p when it does not match
+fn te_a3 p ulong e ulong to ulong
+q = p
+if eq te_at p e 32
+q = add p 1
+end
+r = q
+while te_ps te_at r e bound 99999
+r = add r 1
+end
+if eq r q
+ret p
+end
+while te_nl te_at r e bound 99999
+r = add r 1
+end
+ret r
+end
+
+note te_a5: \s+(?!\S) over the whitespace run [p, w): all of it at the piece end, else all but its
+note last character when that leaves one, else no match (p)
+fn te_a5 p ulong e ulong w ulong to ulong
+if eq w e
+ret w
+end
+if ge sub w p 2
+ret sub w 1
+end
+ret p
+end
+
+note te_aws: a4, a5 or a6 at p. \s* backtracks to the last \r or \n of the run, so a4 ends just after it.
+fn te_aws p ulong e ulong to ulong
+w = p
+n = p
+while te_ws te_at w e bound 99999
+if te_nl te_at w e
+n = add w 1
+end
+w = add w 1
+end
+if eq w p
+ret p
+end
+if gt n p
+ret n
+end
+r = te_a5 p e w
+if gt r p
+ret r
+end
+ret w
+end
+
+fn te_m3 p ulong e ulong to ulong
+r = te_a12 p e
+if gt r p
+ret r
+end
+r = te_a3 p e
+if gt r p
+ret r
+end
+ret te_aws p e
+end
+
+fn te_emit id ulong to void
+n = get gs 34
+if ge n len geo
+tk_die 59 tr59
+end
+put geo n id
+put gs 34 add n 1
+end
+
+note te_best: the leftmost adjacent pair of gw[0 .. m) with the lowest merge rank; its index, NOINT
+note when no pair merges; the merged id goes to gs 37
+fn te_best m ulong to ulong
+bi = NOINT
+br = ulong 0
+for i ulong sub m 1
+v = tk_mget get gw i get gw add i 1
+if ne v NOINT
+r = div v TMAX
+if or eq bi NOINT lt r br
+bi = i
+br = r
+put gs 37 rem v TMAX
+end
+end
+end
+ret bi
+end
+
+note te_mrg: one BPE step over gw[0 .. m); the new symbol count, m when no pair merges
+fn te_mrg m ulong to ulong
+j = te_best m
+if eq j NOINT
+ret m
+end
+put gw j get gs 37
+for i ulong sub sub m j 2
+put gw add add j 1 i get gw add add j 2 i
+end
+ret sub m 1
+end
+
+note te_bpe: the ids of piece gxb[a .. b) appended to geo
+fn te_bpe a ulong b ulong to void
+n = sub b a
+for i ulong n
+put gw i get gbid ulong get gxb add a i
+end
+m = n
+while gt m 1 bound 99999
+k = te_mrg m
+if eq k m
+break
+end
+m = k
+end
+for i ulong m
+te_emit get gw i
+end
+end
+
+note te_pre: the third Split over piece [s, e); unmatched spans between matches are pieces too
+fn te_pre s ulong e ulong to void
+p = s
+g = s
+while lt p e bound 99999
+m = te_m3 p e
+if gt m p
+if gt p g
+te_bpe g p
+end
+te_bpe p m
+p = m
+g = m
+else
+p = add p 1
+end
+end
+if gt e g
+te_bpe g e
+end
+end
+
+note te_seg: the digit Split over span [s, e) between added tokens; digit pieces skip te_pre
+fn te_seg s ulong e ulong to void
+p = s
+g = s
+while lt p e bound 99999
+if te_dg te_at p e
+if gt p g
+te_pre g p
+end
+k = p
+while and te_dg te_at k e lt sub k p NDIG bound 99999
+k = add k 1
+end
+te_bpe p k
+p = k
+g = k
+else
+p = add p 1
+end
+end
+if gt e g
+te_pre g e
+end
+end
+
+note te_aeq: added token id's string is gxb[p .. p + its length)
+fn te_aeq id ulong p ulong to bool
+o = get gto id
+for i ulong get gtl id
+if ne get gpool add o i get gxb add p i
+ret false
+end
+end
+ret true
+end
+
+note te_add: the longest added token starting at p that ends by e; its id (length in gs 36), NOINT for none
+fn te_add p ulong e ulong to ulong
+b = get gs 26
+r = NOINT
+put gs 36 0
+for i ulong get gs 8
+id = add b i
+l = get gtl id
+if and gt l get gs 36 le add p l e
+if te_aeq id p
+r = id
+put gs 36 l
+end
+end
+end
+ret r
+end
+
+note te_run: encode gxb[0 .. nb) into geo[0 .. gs 34); a non-ASCII byte is refused (60)
+fn te_run nb ulong to void
+put gs 34 0
+for i ulong nb
+if ge get gxb i 128
+tk_die 60 tr60
+end
+end
+p = ulong 0
+g = ulong 0
+while lt p nb bound 99999
+id = te_add p nb
+if eq id NOINT
+p = add p 1
+else
+if gt p g
+te_seg g p
+end
+te_emit id
+p = add p get gs 36
+g = p
+end
+end
+if gt nb g
+te_seg g nb
 end
 end
 
@@ -1545,6 +2138,34 @@ end
 ret and known tk_xeq nb
 end
 
+note fx_enc: enc NAME N IDS NB HEX, the text HEX encodes to exactly the N ids
+fn fx_enc to bool
+fx_name
+n = fx_uint
+if gt n len gid
+tk_die 58 tr58
+end
+for i ulong n
+put gid i fx_uint
+end
+w = fx_uint
+nb = fx_hex
+fx_eol
+if ne w nb
+tk_die 58 tr58
+end
+te_run nb
+if ne get gs 34 n
+ret false
+end
+for j ulong n
+if ne get geo j get gid j
+ret false
+end
+end
+ret true
+end
+
 fn tk_ofx s ulong l ulong to void
 for i ulong l
 tk_ob get gfx add s i
@@ -1567,7 +2188,11 @@ else
 if fx_wis k kl fcase
 ok = fx_case
 else
+if fx_wis k kl fenc
+ok = fx_enc
+else
 tk_die 58 tr58
+end
 end
 end
 end
@@ -1638,6 +2263,7 @@ gsrc = new uchar 65536 0
 gtape = new uint 65536 0
 tk_rtj
 tk_doc
+tk_bytes
 cn = tk_rloc 2 csrc
 if not tc_parse csrc ctape cn
 tk_die 56 tr56
