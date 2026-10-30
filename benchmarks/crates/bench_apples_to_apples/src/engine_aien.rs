@@ -24,7 +24,7 @@ use aien_inference_abi::tensor::sample_argmax;
 use aien_inference_abi::tokenizer::TinyLlamaTokenizer;
 use aien_inference_abi::transformer_backend::NativeTransformerBackend;
 use aien_inference_abi::weights::{LayerKvCache, SequenceState, TransformerWeights};
-use aien_inference_abi::ModelConfig;
+use aien_inference_abi::{KvDType, ModelConfig};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -114,9 +114,13 @@ fn execute_single_request(
     max_output_tokens: usize,
 ) -> SingleRequestResult {
     let num_layers = weights.config.num_layers;
+    // new_blackwell, the constructor this bench calls, sets kv_dtype to Fp32 and
+    // attaches no pool. storage_dtype() is that value with no pool, and
+    // prefill_sequence / execute_step write it onto each new SequenceState.
     let mut seq = SequenceState {
         tokens: Vec::with_capacity(prompt_tokens.len() + max_output_tokens),
         layers: vec![LayerKvCache::default(); num_layers],
+        kv_dtype: KvDType::Fp32,
     };
 
     let req_start = Instant::now();

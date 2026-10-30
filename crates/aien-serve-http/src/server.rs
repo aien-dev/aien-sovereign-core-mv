@@ -190,6 +190,20 @@ impl ApiError {
         }
     }
 
+    /// The engine could not get the shared chip in time (another job holds the GPU lock).
+    fn gpu_busy(detail: &str) -> Self {
+        let mut e = Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            body: ErrorBody::new(
+                "server_busy",
+                format!("GPU busy with another job, retry shortly: {detail}"),
+            ),
+            retry_after: Some(5),
+        };
+        e.body.error.code = Some("gpu_busy".into());
+        e
+    }
+
     fn internal(msg: impl Into<String>) -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
@@ -866,18 +880,6 @@ fn run_readers(
     );
 }
 
-/// A busy chip: 503 with a plain body and `Retry-After: 5`.
-fn chip_busy() -> Response {
-    let mut resp = (
-        StatusCode::SERVICE_UNAVAILABLE,
-        Json(serde_json::json!({"error": "GPU busy with another job"})),
-    )
-        .into_response();
-    resp.headers_mut()
-        .insert(header::RETRY_AFTER, HeaderValue::from_static("5"));
-    resp
-}
-
 /// The response for a generation's events: the first decides the status (a busy chip is 503).
 async fn respond(
     mut rx: mpsc::Receiver<Ev>,
@@ -888,11 +890,11 @@ async fn respond(
     prompt_tokens: usize,
     tools: bool,
 ) -> Result<Response, ApiError> {
-    // The first event decides the status: a busy chip is a 503 with a plain body, before any
-    // headers go out (streaming included). Everything else is forwarded unchanged.
+    // The first event decides the status: a busy chip is a 503 in the OpenAI error envelope,
+    // before any headers go out (streaming included). Everything else is forwarded unchanged.
     let first = rx.recv().await;
-    if let Some(Ev::Busy(_)) = first {
-        return Ok(chip_busy());
+    if let Some(Ev::Busy(m)) = &first {
+        return Err(ApiError::gpu_busy(m));
     }
     let (ftx, frx) = mpsc::channel::<Ev>(64);
     tokio::spawn(async move {
@@ -1430,7 +1432,7 @@ async fn collect_response(
             Ev::Error(m) => return Err(ApiError::internal(m)),
             // Not the first event on the readers' path (`Ev::Readers` goes before the connect
             // generation); nothing has been sent yet, so it is the same 503 as a busy first event.
-            Ev::Busy(_) => return Ok(chip_busy()),
+            Ev::Busy(m) => return Err(ApiError::gpu_busy(&m)),
         }
     }
     Err(ApiError::internal("generation ended without a result"))
