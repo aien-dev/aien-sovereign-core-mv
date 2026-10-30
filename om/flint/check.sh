@@ -14,6 +14,7 @@
 #   FLINT_SHARDS=dir  the 15 downloaded shards (config and index come from FLINT_SRC).
 #   With both set, the forward-operator arm runs ops.om against test/opref.py fixtures;
 #   FLINT_PY is the referee's interpreter (torch + transformers a672eb5f), default python3.
+#   FLINT_FORWARD=1 additionally runs the full 49-layer, two-token chained forward and mutants.
 # Needs: python3 (fixture referees only), sha256sum, cmp, timeout. Host only; no network, no GPU.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
@@ -255,6 +256,38 @@ if [ -n "${FLINT_SHARDS:-}" ] && [ -n "${FLINT_SRC:-}" ] && [ -s "$b/real.tsv" ]
   fi
 else
   echo "NOT_RUN ops (forward operators; needs FLINT_SRC, FLINT_SHARDS and the FLINT_SHARDS arm's TSV)"
+fi
+
+# Full chained forward is opt-in because it streams the real checkpoint and runs all 49 layers.
+# No intermediate reference tensor is fed back into the native computation.
+if [ "${FLINT_FORWARD:-0}" = 1 ]; then
+  if [ -z "${FLINT_SRC:-}" ] || [ -z "${FLINT_SHARDS:-}" ] || [ ! -s "$b/real.tsv" ]; then
+    bad "forward requested without FLINT_SRC, FLINT_SHARDS and admitted real.tsv"
+  elif ! ${FLINT_PY:-python3} "$here/test/fwdref.py" "$FLINT_SRC" "$FLINT_SHARDS" "$b/forward.fx" > "$b/fwdref.out" 2>&1 < /dev/null; then
+    bad "forward referee: $(cat "$b/fwdref.out")"
+  elif [ "$(sha "$b/forward.fx")" != b5e4bae28af3c1fa0c8f7454c496e72da1388e17f51bb3ec9e9b0387aac97031 ]; then
+    bad "forward fixture pin mismatch: $(sha "$b/forward.fx")"
+  else
+    cat "$b/fwdref.out"
+    line=$(timeout 600 "$b/ops" forward "$b/forward.fx" "$b/real.tsv" "$FLINT_SHARDS" 2>&1 < /dev/null)
+    rc=$?
+    echo "$line"
+    if [ "$rc" = 0 ] && [[ $line == *"forward layer 49 "* ]] && [[ $line == *" PASS" ]]; then ok "chained forward, all layers and vocabulary logits"; else bad "forward rc $rc"; fi
+    s=$(cat "$here/ops.om")
+    while IFS='|' read -r name from to; do
+      [ "$(grep -cF -- "$from" "$here/ops.om")" = 1 ] || { bad "forward mutant $name site"; continue; }
+      printf '%s\n' "${s/"$from"/"$to"}" > "$b/fwdmut.om"
+      build "$b/fwdmut" "$b/fwdmut.om" || { bad "forward mutant $name compile"; continue; }
+      line=$(timeout 600 "$b/fwdmut" forward "$b/forward.fx" "$b/real.tsv" "$FLINT_SHARDS" 2>&1 < /dev/null)
+      rc=$?
+      if [ "$rc" = 1 ] && [[ $line == *" FAIL" ]]; then ok "CAUGHT forward mutant $name: ${line##*$'\n'}"; else bad "forward mutant $name rc $rc: $line"; fi
+    done <<'FORWARD_MUTANTS'
+wrong-token|id = fx_w add 8 t|id = add fx_w add 8 t 1
+skip-final-norm|put gfh o get gy i|put gfh o get gv i
+FORWARD_MUTANTS
+  fi
+else
+  echo "NOT_RUN chained forward (set FLINT_FORWARD=1)"
 fi
 
 n=$((pass + fail))

@@ -202,9 +202,27 @@ layer, expert index permuted (255 - e), and window 514.
 ## Not covered (NOT_RUN for this unit)
 
 - bf16-activation parity: the referee runs in f32;
-- parity on full layers, other layers and experts, logits and generation;
+- generation, bf16 activations and long-context serving remain NOT_RUN; complete two-token
+  chained layer/intermediate/logit parity is now covered by the optional arm below;
 - weight streaming and repacking, with peak allocation and residency measured during load;
 - per-expert layout checks before fusing;
 - tokenizer and control-token identity, and a load report.
 
 This unit has no GPU arm. A GGUF importer, if added, will be a separate optional unit.
+
+## Complete bounded host forward
+
+`FLINT_FORWARD=1` adds a full 49-layer chained computation to the same check command.
+It starts from two token IDs, loads real BF16 embedding rows and all selected expert weights,
+and compares five intermediate tensors per layer, final normalization and every vocabulary logit.
+The reference tensors are comparison targets, never teacher-forced inputs.
+The full gate prints `OM-FLINT-MANIFEST PASS (92)` with real checkpoint inputs; wrong-token
+and skipped-final-normalization source mutants must fail the comparison.
+
+See [PROFILE.md](PROFILE.md) for the frozen weight/runtime/tokenizer/template identities
+and the architecture audit. In particular, this checkpoint has **no expert bias**, unlike
+the requested selection-only bias description. [test/TOLERANCE.md](test/TOLERANCE.md)
+declares the candidate integration budget separately from the tighter per-operator bounds.
+Native f64 computation with BF16 storage is compared to reference f32 computation.
+This is host-forward evidence only: no serving API, task completion, quantized model,
+KV-cache, long-context batching or GPU/backend qualification is claimed.

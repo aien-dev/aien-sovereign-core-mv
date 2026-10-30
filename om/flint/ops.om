@@ -29,7 +29,7 @@ global ga uchar 16384
 global gas ulong 8
 global gal ulong 8
 global gpth uchar 4352
-global gfx uchar 3145728
+global gfx uchar 8388608
 global gtsv uchar 8388608
 global gstg uchar 4194304
 global gw f32 16777216
@@ -69,6 +69,16 @@ global gob uchar 4096
 global gdg uchar 24
 global gh8 uchar 8
 global gstb uchar 128
+global gfh f64 4096
+global gfa f64 4096
+global gfq f64 8192
+global gfo f64 8192
+global gfs ulong 4
+text tofwd "forward"
+text tembd "model.embed_tokens.weight"
+text tfnorm "model.norm.weight"
+text tlmhead "lm_head.weight"
+text tdense "mlp."
 
 text tu "usage: flint-ops OP FIXTURE INVENTORY SHARD_DIR | flint-ops selftest"
 text tio "io"
@@ -624,6 +634,31 @@ nb = mul k 2
 if or ne sub get gst 13 get gst 12 nb gt k len gw
 op_die 6 tdt
 end
+ld_bytes nb 0
+end
+
+note ld_rows: bounded row slice of a manifest-admitted BF16 matrix, never allocate the vocabulary.
+fn ld_rows rows ulong cols ulong first ulong count ulong to void
+tsv_find
+if or ne get gst 14 rows ne get gst 15 cols
+op_die 6 tdt
+end
+if or gt first rows gt count sub rows first
+op_die 6 tdt
+end
+n = mul count cols
+if gt n len gw
+op_die 6 tdt
+end
+size = mul mul rows cols 2
+extent = sub get gst 13 get gst 12
+if ne extent size
+op_die 6 tdt
+end
+ld_bytes mul n 2 mul mul first cols 2
+end
+
+fn ld_bytes nb ulong off ulong to void
 fd = sh_open
 r = pread int fd gh8 0 8 long 0
 if ne r 8
@@ -636,7 +671,7 @@ end
 if gt hl 100000000
 op_die 3 tio
 end
-base = add add 8 hl get gst 12
+base = add add add 8 hl get gst 12 off
 o = ulong 0
 while lt o nb bound 99999
 c = sub nb o
@@ -672,6 +707,26 @@ end
 note error bound of the last dotr: propagated input error plus gamma_K sum |w v|
 fn dote k ulong to f64
 ret add get gacc 2 mul gam k get gacc 1
+end
+
+note matdot: forward integration has its own fixed comparison budget, not dote bounds.
+note Avoid accumulating two unused per-product error sums there. Keep the f64 products
+note and reduction order identical to dotr. Router dotr remains bounded for tie reporting;
+note every local operator still calls the original bounded dotr path.
+fn matdot r ulong k ulong to f64
+if ne get gst 2 8
+ret dotr r k
+end
+b = mul r k
+s = 0.0f64
+for i ulong k
+w = f64 get gw add b i
+p = mul w get gv i
+s = add s p
+end
+put gacc 1 0.0f64
+put gacc 2 0.0f64
+ret s
 end
 
 note rmsv: RMSNorm of gv[0 .. n) with weight gw[wo ..) into gy, bound into gye:
@@ -1161,12 +1216,16 @@ end
 
 fn ld_mlp L ulong ex ulong j ulong I ulong to void
 nm_lay L
+if eq ex 998
+nm_tx tdense
+else
 if lt ex 256
 nm_tx texp
 nm_u ex
 nm_c 46
 else
 nm_tx tshp
+end
 end
 if eq j 0
 nm_tx tgp
@@ -1192,7 +1251,7 @@ put gve i get ge0 add b i
 end
 for r ulong I
 o = add mul add t0 t I r
-put gx1 o dotr r FHID
+put gx1 o matdot r FHID
 put ge1 o dote FHID
 end
 end
@@ -1207,7 +1266,7 @@ put gve i get ge0 add b i
 end
 for r ulong I
 o = add mul add t0 t I r
-put gx2 o dotr r FHID
+put gx2 o matdot r FHID
 put ge2 o dote FHID
 end
 end
@@ -1242,7 +1301,7 @@ put gve i get ge1 add b i
 end
 for r ulong FHID
 o = add mul add t0 t FHID r
-put gx3 o dotr r I
+put gx3 o matdot r I
 put ge3 o dote I
 end
 end
@@ -1394,6 +1453,288 @@ r = report tostt
 ret r
 end
 
+note Complete bounded host forward, two prompt tokens maximum. No teacher forcing:
+note only token IDs are inputs; the fixture's intermediate tensors are comparison targets.
+note This f64-compute/BF16-storage numerical profile is NOT bf16-activation qualification.
+note Integration acceptance is |om-ref| <= 8 gamma_2048 (1+|ref|), fixed before execution.
+note The existing per-operator bounds remain the tighter local checks.
+fn fw_cmp n ulong to void
+o = get gfs 1
+for i ulong n
+r = fx_f add o i
+e = mul mul 4.0f64 gam 2048 add 1.0f64 fabs r
+cmp get gfa i r e
+end
+put gfs 1 add o n
+end
+
+fn fw_hidden to void
+for i ulong mul get gfs 0 FHID
+put gfa i get gfh i
+end
+fw_cmp mul get gfs 0 FHID
+end
+
+fn fw_norm L ulong post bool to void
+nm_lay L
+if post
+nm_tx tln1
+else
+nm_tx tln0
+end
+ld_t FHID 0
+for t ulong get gfs 0
+for i ulong FHID
+put gv i get gfh add mul t FHID i
+put gve i 0.0f64
+end
+rmsv FHID 0
+for i ulong FHID
+o = add mul t FHID i
+put gx0 o get gy i
+put ge0 o 0.0f64
+put gfa o get gy i
+end
+end
+fw_cmp mul get gfs 0 FHID
+end
+
+fn fw_proj rows ulong to void
+for t ulong get gfs 0
+for i ulong FHID
+put gv i get gx0 add mul t FHID i
+put gve i 0.0f64
+end
+for r ulong rows
+put gx1 add mul t rows r matdot r FHID
+end
+end
+end
+
+fn fw_head t ulong h ulong nh ulong rp bool to void
+b = mul add mul t nh h 128
+for d ulong 128
+put gv d get gx1 add b d
+put gve d 0.0f64
+end
+rmsv 128 0
+if rp
+ropev t
+end
+for d ulong 128
+if eq nh 32
+put gfq add b d get gy d
+else
+put gx2 add b d get gy d
+end
+end
+end
+
+fn fw_qk L ulong q bool to void
+rows = ulong 512
+nh = ulong 4
+nm_lay L
+if q
+nm_tx tq
+rows = ulong 4096
+nh = ulong 32
+else
+nm_tx tk
+end
+ld_t rows FHID
+fw_proj rows
+nm_lay L
+if q
+nm_tx tqn
+else
+nm_tx tkn
+end
+ld_t 128 0
+for t ulong get gfs 0
+for h ulong nh
+fw_head t h nh fl_swa L
+end
+end
+end
+
+fn fw_atthead t ulong h ulong to void
+b = mul add mul t 32 h 128
+for d ulong 128
+put gv d get gfq add b d
+end
+g = div h 8
+n = att_sc g t 0
+att_sm n get gsk h get gfs 0
+put gacc 11 0.0f64
+for d ulong 128
+v = pv_d n add mul g 128 d
+put gfo add b d v
+end
+end
+
+fn fw_att L ulong to void
+fw_qk L true
+fw_qk L false
+nm_lay L
+nm_tx tv
+ld_t 512 FHID
+fw_proj 512
+for i ulong mul get gfs 0 512
+put gx3 i get gx1 i
+end
+nm_lay L
+nm_tx tsnk
+ld_t 32 0
+for h ulong 32
+put gsk h f64 get gw h
+end
+for t ulong get gfs 0
+for h ulong 32
+fw_atthead t h
+end
+end
+nm_lay L
+nm_tx tob
+ld_t FHID 4096
+for t ulong get gfs 0
+for i ulong 4096
+put gv i get gfo add mul t 4096 i
+put gve i 0.0f64
+end
+for r ulong FHID
+put gfa add mul t FHID r matdot r 4096
+end
+end
+fw_cmp mul get gfs 0 FHID
+for i ulong mul get gfs 0 FHID
+put gfh i add get gfh i get gfa i
+end
+end
+
+fn fw_moe L ulong to void
+T = get gfs 0
+nm_lay L
+nm_tx trt
+ld_t 256 FHID
+for t ulong T
+moe_rt t
+end
+for i ulong mul T FHID
+put gacm i 0.0f64
+put gace i 0.0f64
+put gaca i 0.0f64
+end
+for t ulong T
+moe_ex L t
+end
+mlp L 999 1024 0 T
+for i ulong mul T FHID
+put gx3 i add get gacm i get gx3 i
+end
+end
+
+fn fw_layer L ulong to void
+fw_norm L false
+fw_att L
+fw_norm L true
+if lt L 2
+mlp L 998 6144 0 get gfs 0
+else
+fw_moe L
+end
+for i ulong mul get gfs 0 FHID
+put gfa i get gx3 i
+end
+fw_cmp mul get gfs 0 FHID
+for i ulong mul get gfs 0 FHID
+put gfh i add get gfh i get gfa i
+end
+fw_hidden
+put gst 3 L
+r = report tofwd
+if ne r 0
+exit 1
+end
+end
+
+fn fw_embed to void
+for t ulong get gfs 0
+id = fx_w add 8 t
+if ge id 150144
+op_die 7 tfx
+end
+put gst 7 0
+nm_tx tembd
+ld_rows 150144 FHID id 1
+for i ulong FHID
+put gfh add mul t FHID i f64 get gw i
+end
+end
+fw_hidden
+end
+
+fn fw_final to void
+put gst 7 0
+nm_tx tfnorm
+ld_t FHID 0
+for t ulong get gfs 0
+for i ulong FHID
+put gv i get gfh add mul t FHID i
+put gve i 0.0f64
+end
+rmsv FHID 0
+for i ulong FHID
+o = add mul t FHID i
+put gfh o get gy i
+put gfa o get gy i
+end
+end
+fw_cmp mul get gfs 0 FHID
+end
+
+fn fw_logits to void
+for t ulong get gfs 0
+for r ulong 150144
+if eq rem r 2048 0
+put gst 7 0
+nm_tx tlmhead
+n = sub ulong 150144 r
+if gt n 2048
+n = ulong 2048
+end
+ld_rows 150144 FHID r n
+for i ulong FHID
+put gv i get gfh add mul t FHID i
+put gve i 0.0f64
+end
+end
+v = matdot rem r 2048 FHID
+put gfa 0 v
+fw_cmp 1
+end
+end
+end
+
+fn op_forward to int
+T = get gst 4
+if or eq T 0 gt T 2
+op_die 7 tfx
+end
+note words = header + IDs + embeddings + five tensors/layer + final norm + logits
+fx_need add add add 8 T mul mul T FHID 247 mul T 150144
+put gfs 0 T
+put gfs 1 add 8 T
+fw_embed
+for L ulong 49
+fw_layer L
+end
+fw_final
+fw_logits
+put gst 3 49
+r = report tofwd
+ret r
+end
+
 fn op_code to ulong
 if op_argeq 1 tormsn
 ret 1
@@ -1415,6 +1756,9 @@ ret 6
 end
 if op_argeq 1 tomoe
 ret 7
+end
+if op_argeq 1 tofwd
+ret 8
 end
 op_die 2 tu
 ret 0
@@ -1455,6 +1799,10 @@ put gst 3 fx_w 2
 put gst 4 fx_w 3
 put gst 5 fx_w 4
 put gst 6 fx_w 5
+if eq op 8
+s = op_forward
+ret s
+end
 if eq op 1
 s = op_rmsn
 ret s
