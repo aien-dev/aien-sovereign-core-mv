@@ -269,6 +269,108 @@ fn seal_budget_host_count_survives_reopen_and_then_refuses() {
     drop(s);
 }
 
+fn store_usage(tag: &str) -> (Tmp, std::path::PathBuf) {
+    let root = Tmp::new(tag);
+    let usage = root.0.join(USAGE_DIR_NAME);
+    std::fs::create_dir(&usage).unwrap();
+    (root, usage)
+}
+
+fn plant_kvc(root: &std::path::Path, shard: &str, name: &str, sealed: bool) {
+    let dir = root.join("objects").join(shard);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut region = vec![0u8; HEADER_REGION_LEN];
+    if sealed {
+        let at = crate::record::SEAL_SLOT_OFFSET;
+        region[at..at + 3].copy_from_slice(&seal::SEAL_MAGIC);
+        region[at + 3] = seal::SEALED_FORMAT_VERSION;
+    }
+    std::fs::write(dir.join(name), region).unwrap();
+}
+
+#[test]
+fn seal_budget_missing_count_beside_a_sealed_object_does_not_seal() {
+    let (root, usage) = store_usage("occupied");
+    plant_kvc(
+        &root.0,
+        "ab",
+        "ab00000000000000000000000000000000000000000000000000000000000000.kvc",
+        true,
+    );
+    let key = SealKey::from_bytes([0x31; 32]);
+    let mut file = blank();
+    let before = file.clone();
+    assert_eq!(
+        key.seal_file(&usage, &mut file),
+        Err(SealError::UsageStore),
+        "a missing counter next to a sealed object must not restart at zero"
+    );
+    assert_eq!(file, before);
+    assert!(!seal::is_sealed_region(&file[..HEADER_REGION_LEN]));
+    assert!(!testing_usage_path(&usage, &key).exists());
+}
+
+#[test]
+fn seal_budget_missing_count_on_an_empty_store_starts_at_zero() {
+    let (root, usage) = store_usage("empty-store");
+    std::fs::create_dir_all(root.0.join("objects/00")).unwrap();
+    // An old plaintext object is not a seal, so it does not block the zero start.
+    plant_kvc(
+        &root.0,
+        "cd",
+        "cd00000000000000000000000000000000000000000000000000000000000000.kvc",
+        false,
+    );
+    let key = SealKey::from_bytes([0x32; 32]);
+    assert_eq!(testing_read_usage_count(&usage, &key).unwrap(), 0);
+    let mut file = blank();
+    key.seal_file(&usage, &mut file).unwrap();
+    assert!(seal::is_sealed_region(&file[..HEADER_REGION_LEN]));
+    assert_eq!(testing_read_usage_count(&usage, &key).unwrap(), 1);
+}
+
+#[test]
+fn seal_budget_leftover_part_is_replaced_when_we_own_it_and_refused_when_linked() {
+    let (root, usage) = store_usage("part");
+    let key = SealKey::from_bytes([0x33; 32]);
+    testing_install_usage_count(&usage, &key, 4).unwrap();
+    let count_path = testing_usage_path(&usage, &key);
+    let part = count_path.with_extension("part");
+    std::fs::write(&part, b"not-a-count").unwrap();
+    let mut file = blank();
+    key.seal_file(&usage, &mut file).unwrap();
+    assert!(
+        !part.exists(),
+        "an owned leftover part is renamed onto the count file"
+    );
+    assert_eq!(testing_read_usage_count(&usage, &key).unwrap(), 5);
+    assert!(!std::fs::read(&count_path)
+        .unwrap()
+        .windows(11)
+        .any(|w| w == b"not-a-count"));
+    assert!(seal::is_sealed_region(&file[..HEADER_REGION_LEN]));
+    drop(root);
+
+    let (_root, usage) = store_usage("part-link");
+    let key = SealKey::from_bytes([0x34; 32]);
+    testing_install_usage_count(&usage, &key, 4).unwrap();
+    let count_path = testing_usage_path(&usage, &key);
+    let part = count_path.with_extension("part");
+    std::os::unix::fs::symlink(&count_path, &part).unwrap();
+    let mut file = blank();
+    let before = file.clone();
+    assert_eq!(key.seal_file(&usage, &mut file), Err(SealError::UsageStore));
+    assert_eq!(file, before);
+    assert!(
+        std::fs::symlink_metadata(&part)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "a linked part is left in place"
+    );
+    assert_eq!(testing_read_usage_count(&usage, &key).unwrap(), 4);
+}
+
 fn refused_store(
     s: &HostFsStore,
     fields: &NamespaceFields<'_>,

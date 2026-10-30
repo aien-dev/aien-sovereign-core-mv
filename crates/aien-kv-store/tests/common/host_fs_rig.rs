@@ -477,20 +477,54 @@ pub fn plain_object_bytes(header: &ChunkHeader, payload: &[u8], seg: usize) -> V
 /// sealed with `test_key`); segment digests over `seg`-byte pieces.
 pub fn write_object_file(path: &Path, header: &ChunkHeader, payload: &[u8], seg: usize) {
     let mut bytes = plain_object_bytes(header, payload, seg);
-    // A planted fixture is not a store publish. Count it in a directory that
-    // is thrown away with the call, so it does not spend the store's budget.
-    static N: AtomicU64 = AtomicU64::new(0);
-    let usage = std::env::temp_dir().join(format!(
-        "aien-kv-plant-{}-{}",
-        std::process::id(),
-        N.fetch_add(1, Ordering::Relaxed)
-    ));
-    std::fs::create_dir(&usage).expect("plant usage dir");
+    // Seal before the `.kvc` is on disk. A store that already holds a sealed
+    // object and has no counter fails closed, so the plant has to record the
+    // use in that store's `seal-usage/` first. A path that is not under
+    // `objects/` is counted in a directory this function removes.
+    let _throwaway;
+    let usage = match store_usage_for_object(path) {
+        Some(usage) => {
+            if !usage.is_dir() {
+                let mut builder = std::fs::DirBuilder::new();
+                std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+                builder.create(&usage).expect("seal-usage");
+            }
+            _throwaway = None;
+            usage
+        }
+        None => {
+            static N: AtomicU64 = AtomicU64::new(0);
+            let usage = std::env::temp_dir().join(format!(
+                "aien-kv-plant-{}-{}",
+                std::process::id(),
+                N.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir(&usage).expect("plant usage dir");
+            _throwaway = Some(RemoveOnDrop(usage.clone()));
+            usage
+        }
+    };
     test_key()
         .seal_file(&usage, &mut bytes)
         .expect("seal planted object");
-    let _ = std::fs::remove_dir_all(&usage);
     std::fs::write(path, bytes).unwrap();
+}
+
+/// `<root>/seal-usage` when `path` is `<root>/objects/<shard>/<file>`.
+fn store_usage_for_object(path: &Path) -> Option<PathBuf> {
+    let objects = path.parent()?.parent()?;
+    if objects.file_name() != Some(std::ffi::OsStr::new("objects")) {
+        return None;
+    }
+    Some(objects.parent()?.join(aien_kv_store::seal::USAGE_DIR_NAME))
+}
+
+struct RemoveOnDrop(PathBuf);
+
+impl Drop for RemoveOnDrop {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 /// Write only the sealed-format marker (magic and version) into a region, for

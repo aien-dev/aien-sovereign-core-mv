@@ -74,12 +74,18 @@
 //!    count file is not touched. The nonce is not drawn.
 //! 2. The nonce is drawn into a stack buffer. [`SealError::Random`] returns
 //!    here. The count file and the caller's buffer stay as they were.
-//! 3. The count file is read (a missing file is zero; a short, long, or
-//!    unrecognized file is [`SealError::UsageStore`]). At `2^20` the call
+//! 3. The count file is read. A missing file is zero only when this directory
+//!    is not named [`USAGE_DIR_NAME`], or when the store beside it has no
+//!    sealed object. A missing file next to a sealed object is
+//!    [`SealError::UsageStore`] and the file is not created. A short, long, or
+//!    unrecognized file is [`SealError::UsageStore`]. At `2^20` the call
 //!    returns [`SealError::Budget`].
-//! 4. `count + 1` is written to a temporary file in the same directory, that
-//!    file is `fsync`ed, the temporary name is renamed onto the count file,
-//!    and the directory is `fsync`ed. Any failure is [`SealError::UsageStore`].
+//! 4. `count + 1` is written to `<fingerprint>.part`. A leftover part file
+//!    this uid owns is truncated and replaced. A part file this uid does not
+//!    own, or that is not a regular file, is [`SealError::UsageStore`] and is
+//!    left in place: remove it as the store owner, then seal again. The part
+//!    file is `fsync`ed, renamed onto the count file, and the directory is
+//!    `fsync`ed. Any failure is [`SealError::UsageStore`].
 //! 5. Only then is the seal slot written and the payload encrypted.
 //!
 //! A crash before the directory `fsync` keeps the previous count when the
@@ -93,9 +99,10 @@
 //! directory sees it. Sealers that share the directory serialize on the lock.
 //! The host adapter already refuses a second open of the same directory.
 //! Another directory, including a copy on another host, has its own file and
-//! is not included. A missing file starts at zero and does not backfill
-//! objects already in the directory. `2^32` is not a second refusal; the
-//! `2^20` check comes first. Rotation still discards objects sealed under the
+//! is not included. A missing count is not filled in from the objects on
+//! disk: a listing misses seals that were later deleted, and the seal magic
+//! does not say which key produced the file. `2^32` is not a second refusal;
+//! the `2^20` check comes first. Rotation still discards objects sealed under the
 //! previous key. This crate does not migrate them.
 //!
 //! `Nonce::assume_unique_for_key` does not search for an earlier nonce, and
@@ -115,7 +122,7 @@ use ring::aead::{Aad, LessSafeKey, Nonce, Tag, UnboundKey, AES_256_GCM};
 use ring::rand::{SecureRandom, SystemRandom};
 use sha2::{Digest, Sha256};
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 #[cfg(test)]
@@ -408,7 +415,15 @@ impl SealKey {
         require_usage_dir(usage_dir)?;
         let _lock = lock_usage_dir(usage_dir)?;
         let name = fingerprint_name(&self.bytes);
-        let count = read_count_file(&usage_dir.join(&name))?;
+        let count = match read_count_file(&usage_dir.join(&name))? {
+            Some(count) => count,
+            None => {
+                if store_already_holds_sealed_object(usage_dir)? {
+                    return Err(SealError::UsageStore);
+                }
+                0
+            }
+        };
         if count >= RECOMMENDED_SEALS_PER_KEY {
             return Err(SealError::Budget);
         }
@@ -479,7 +494,7 @@ pub(crate) fn testing_install_usage_count(
 pub(crate) fn testing_read_usage_count(usage_dir: &Path, key: &SealKey) -> Result<u64, SealError> {
     require_usage_dir(usage_dir)?;
     let _lock = lock_usage_dir(usage_dir)?;
-    read_count_file(&usage_dir.join(fingerprint_name(&key.bytes)))
+    Ok(read_count_file(&usage_dir.join(fingerprint_name(&key.bytes)))?.unwrap_or(0))
 }
 
 /// Path of the count file. Tests check the fingerprint name independently
@@ -564,7 +579,8 @@ fn create_usage_file(path: &Path) -> Result<File, SealError> {
     Ok(f)
 }
 
-fn read_count_file(path: &Path) -> Result<u64, SealError> {
+/// `Ok(None)` is a missing file. The caller decides whether that is zero.
+fn read_count_file(path: &Path) -> Result<Option<u64>, SealError> {
     use std::os::unix::fs::OpenOptionsExt;
     let mut f = match OpenOptions::new()
         .read(true)
@@ -572,7 +588,7 @@ fn read_count_file(path: &Path) -> Result<u64, SealError> {
         .open(path)
     {
         Ok(f) => f,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err(SealError::UsageStore),
     };
     let meta = f.metadata().map_err(|_| SealError::UsageStore)?;
@@ -586,7 +602,92 @@ fn read_count_file(path: &Path) -> Result<u64, SealError> {
     }
     let mut le = [0u8; 8];
     le.copy_from_slice(&buf[8..16]);
-    Ok(u64::from_le_bytes(le))
+    Ok(Some(u64::from_le_bytes(le)))
+}
+
+/// A missing count under a real store must not restart at zero once any
+/// sealed object is on disk. Directories that are not named
+/// [`USAGE_DIR_NAME`] are the unit-test usage dirs: they have no `objects/`
+/// tree, and a missing file there is zero.
+///
+/// There is no seeder. Counting `.kvc` files would miss seals that were
+/// deleted, and the magic does not identify the key.
+fn store_already_holds_sealed_object(usage_dir: &Path) -> Result<bool, SealError> {
+    if usage_dir.file_name() != Some(std::ffi::OsStr::new(USAGE_DIR_NAME)) {
+        return Ok(false);
+    }
+    let Some(root) = usage_dir.parent() else {
+        return Err(SealError::UsageStore);
+    };
+    if root.as_os_str().is_empty() {
+        return Err(SealError::UsageStore);
+    }
+    let objects = root.join("objects");
+    match std::fs::symlink_metadata(&objects) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(_) => return Err(SealError::UsageStore),
+        Ok(meta) if meta.file_type().is_symlink() || !meta.is_dir() => {
+            return Err(SealError::UsageStore);
+        }
+        Ok(_) => {}
+    }
+    let shards = std::fs::read_dir(&objects).map_err(|_| SealError::UsageStore)?;
+    for shard in shards {
+        let shard = shard.map_err(|_| SealError::UsageStore)?;
+        let shard_meta =
+            std::fs::symlink_metadata(shard.path()).map_err(|_| SealError::UsageStore)?;
+        if shard_meta.file_type().is_symlink() {
+            return Err(SealError::UsageStore);
+        }
+        if !shard_meta.is_dir() {
+            continue;
+        }
+        let files = std::fs::read_dir(shard.path()).map_err(|_| SealError::UsageStore)?;
+        for file in files {
+            let file = file.map_err(|_| SealError::UsageStore)?;
+            let path = file.path();
+            let meta = std::fs::symlink_metadata(&path).map_err(|_| SealError::UsageStore)?;
+            if meta.file_type().is_symlink() {
+                return Err(SealError::UsageStore);
+            }
+            if !meta.is_file() {
+                continue;
+            }
+            let name = file.file_name();
+            let Some(name) = name.to_str() else {
+                continue;
+            };
+            if !name.ends_with(".kvc") {
+                continue;
+            }
+            if region_is_sealed(&path)? {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn region_is_sealed(path: &Path) -> Result<bool, SealError> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut f = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)
+        .map_err(|_| SealError::UsageStore)?;
+    let meta = f.metadata().map_err(|_| SealError::UsageStore)?;
+    if !meta.is_file() || meta.len() < HEADER_REGION_LEN as u64 {
+        return Ok(false);
+    }
+    f.seek(SeekFrom::Start(O_MAGIC as u64))
+        .map_err(|_| SealError::UsageStore)?;
+    let mut magic = [0u8; 3];
+    f.read_exact(&mut magic)
+        .map_err(|_| SealError::UsageStore)?;
+    let mut version = [0u8; 1];
+    f.read_exact(&mut version)
+        .map_err(|_| SealError::UsageStore)?;
+    Ok(magic == SEAL_MAGIC && version[0] == SEALED_FORMAT_VERSION)
 }
 
 fn write_count_file(dir: &Path, name: &str, count: u64) -> Result<(), SealError> {
