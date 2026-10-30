@@ -83,13 +83,13 @@
         },
         {
           "digest": "a2ac5edc339c6011aafd47acc096584165fa05af1c164d464c77d928add1ecc4",
-          "last_commit": "53beb962",
+          "last_commit": "966d09f2",
           "name": "crates/aien-cli",
           "purpose": ""
         },
         {
           "digest": "3a331fee49e858953c344a75e26558ac2288bca4b335eed2f2702dfd77379e8e",
-          "last_commit": "",
+          "last_commit": "e728371b",
           "name": "crates/aien-heartbeat",
           "purpose": "Expert Heartbeat H1 (aienix#4): fixed-slot versioned ring streaming MoE expert weights from NVMe"
         },
@@ -107,7 +107,7 @@
         },
         {
           "digest": "f84780fa891f458ab56b40432a7ca3666e01783639585cdd282b73d508c1a038",
-          "last_commit": "53beb962",
+          "last_commit": "0a4e42b1",
           "name": "scripts",
           "purpose": ""
         },
@@ -119,20 +119,20 @@
         },
         {
           "digest": "0aacc9353a76a564e51069e99c6f11fb84b293ecf9686b68fbd72755b7da564e",
-          "last_commit": "ca99c4b7",
+          "last_commit": "ffa66afd",
           "name": "tools/aien-local-ci",
           "purpose": "Local CI sandbox exec contract (C8), aien-run user/caches install, Forgejo trigger hook, health "
         }
       ],
       "children_root": "sha256:05d34c0deec7c4a6cd3aa12640dca0c20bd8b2d4a4df809b234090822f422b4f",
-      "compiled_at": "2026-10-30T22:06:47Z",
+      "compiled_at": "2026-10-30T22:09:18Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:79711162b37caf24474a8a9165dedb009d9cdc63af4a39bd9fcafd6813fe65e4",
+      "digest": "sha256:4f2d536e62df594cb39438f26f7d7599be7f2c7f2a8c1056622f3bc2349e0272",
       "evidence_files": 3615,
       "evidence_root": "sha256:94cd6ffffc69874daebfab00179e53ec9423220ee278f3eb5db24d0b16ae32ab",
       "files": 8128,
-      "generated_at_commit": "c1f5e442727ec85da55a452d0fc914aa7e9d9d13",
-      "source_tree": "sha256:bfbaea776932b86bf1dbd70a800f36590818660296f8428e537f73dafcb8929e"
+      "generated_at_commit": "493e038adbea4821437a16327f8b0185761adc51",
+      "source_tree": "sha256:d42d4e07cc789bdbe9fb9b1faf725c627a2f505a0dad39b3468bf7bc3108ecd2"
     }
   },
   "history": [],
