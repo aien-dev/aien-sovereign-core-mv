@@ -286,3 +286,75 @@ worst difference would use 1.07 percent of it.
 - Control `bf16-off` (`bfr` is the identity, the plain f64 forward against the bf16 fixture,
   i.e. option b) is measured and recorded whichever way it lands; it is not a gate entry,
   because this budget was not derived to separate it.
+
+**v1 measured: FAIL at layer 1 (2026-10-30, fixture `ac10d325...`, host CPU `taskset -c 0-4`).**
+The v1 budget above is kept unedited as declared in `9fb7d7ab`. `ops fwbf16` printed
+`flint-op fwbf16 layer 0 elems 24576 worst_ppm 111729 ties 0 PASS` and then
+`flint-op fwbf16 layer 1 elems 45056 worst_ppm 1441874 ties 0 FAIL` (rc 1). The truncation
+mutant failed earlier, `layer 0 ... worst_ppm 4758150 ... FAIL`. Diagnostic builds (throwaway,
+not in the tree) counted bit-identical elements per compared segment of 4096 (two tokens):
+layer 0 embedding 4096, input norm 4096, attention output 4091, post-attention norm 4093,
+MLP output 3410, hidden 3651; layer 1 input norm 3643, attention output 1836, post-attention
+norm 2226, MLP output 1277, hidden 1813. The largest absolute attention, MLP and post-norm
+difference in layer 0 is one bf16 ulp of its element. The three failing elements are
+layer-1 post-attention-norm outputs 1205 and 1394 (token 0) and 2325 (token 1, channel 277),
+with `|d|` 1.07 to 1.44 times the budget. Their inputs show the
+mechanism, residual-add cancellation:
+
+| element | ref x (layer-0 hidden) | om x | ref attention | om attention | ref post-norm | om post-norm |
+|---|---|---|---|---|---|---|
+| 1205 | 0.00390625 | 0.0034179688 | -0.0043945312 | -0.0042419434 | -0.15234375 | -0.2578125 |
+| 1394 | -0.0107421875 | -0.011230469 | 0.011657715 | 0.01171875 | 0.23730469 | 0.12695312 |
+| 2325 | 0.0024414062 | 0.001953125 | 0.0007362366 | 0.00078201294 | 0.9453125 | 0.8125 |
+
+The layer-0 hidden `x` is itself a residual sum `h + mlp` of operands near 0.1 whose result is
+near 0.004: a one-ulp flip of an operand (0.000488 near 0.11) lands on `x` as 32 of its own
+ulps, and the post-attention norm multiplies it by `w_i / rms`. The error of a residual-stream
+element is relative to its operands, not to `|ref_i|`, so no `(1 + |ref|)` constant bounds it,
+and propagating a one-ulp flip through chained 2048-term dots worst-case grows without a useful
+bound within one layer. No site mismatch was found: the differing-element counts grow from 5
+(layer-0 attention) to 686 (layer-0 MLP) to 2260 (layer-1 attention) of 4096, while the largest
+absolute attention and MLP differences stay one ulp of their elements.
+WolframLanguageEvaluator:
+`ulp[x_] := 2^(Floor[Log2[Abs[x]]] - 7); {N[ulp[0.0039], 6], N[(0.00390625 - 0.0034179688)/ulp[0.0039], 6], N[(-0.15234375 + 0.2578125)/(0.0634766817238432426 (1 + 0.15234375)), 6], N[1 - 3410/4096, 6], N[1 - 2226/4096, 6]}`
+returned `{0.0000152587890625, 31.999996723200013, 1.4418747364110336, 0.16748046875, 0.45654296875}`
+(the third value is the reported worst 1441874 ppm).
+
+## bf16-activation forward arm, v2 criterion (declared 2026-10-30 after v1 failed, before any v2 comparison)
+
+v2 replaces the v1 criterion; it is not a widened v1. It was chosen after seeing the layer 0 and
+1 diagnostics above and before computing any of its own quantities on either fixture.
+
+**Criterion.** For every compared row (one token at one compare point: 2048 values, or the
+150144 logits), with `ref16` the bf16 fixture, `ref32` the f32 fixture (pinned `b5e4bae2...`,
+same layout and token IDs) and `om` the native `fwbf16` value,
+`N = ||om - ref16||_2` and `D = ||ref32 - ref16||_2`. **PASS iff `N <= D` for every row and no
+value is NaN.** A row with `D = 0` (the exact embedding rows) passes only with `N = 0`.
+`worst_ppm` reports `max N / D`. The constant 1 is the only one used and needs no data: the
+native bf16 forward must be at least as close to the bf16 reference as the reference computed
+without bf16 rounding is. `ops fwbf16` reads both fixtures (`fwbf16 FX16 INVENTORY SHARDS FX32`)
+and refuses an `FX32` that is not op 8 with the same token IDs and size.
+
+**What v2 shows and does not show.** It is a discrimination criterion against the f32 referee's
+own distance from the bf16 referee, not an error theorem. It detects systematic rounding
+errors (a biased rounding mode, a skipped normalization, a routing change neither referee made)
+through the whole chain. It does not prove each rounding site: dropping one intermediate rounding
+can stay below the dense `ref32 - ref16` difference. Two tokens give attention at most two keys,
+so bf16 softmax and `P V` rounding are lightly exercised. The bf16 `F.linear` probe used random
+shapes, not the model's exact GEMM shapes (`[INFERENCE]` that dispatch does not change it).
+
+**Declared checks and predictions (v2).**
+- `fwbf16` clean: predicted PASS with `N / D < 1` on every row.
+- `bf16-truncate`: predicted FAIL at the layer-0 input norm, whose inputs are exact embedding
+  rows. There `ref32 - ref16` is the RNE rounding error, rms `1/sqrt 12` ulp, while truncation
+  differs from RNE by one ulp on about half the elements, rms `sqrt(1/2)` ulp: predicted
+  `N / D` near `sqrt 6 = 2.449`.
+- `bf16-skip-final-norm`: predicted FAIL at the final-norm rows.
+- Fixture admission as in v1, plus the `FX32` checks above.
+- Control `bf16-off` (the plain f64 forward, option b): `om` then approximates `ref32`, so
+  `N / D` is predicted near 1 at the layer-0 input norm and the control is recorded, not gated.
+- A routed top-6 change in `om` that neither referee made is a FAIL, reported with its layer.
+
+WolframLanguageEvaluator:
+`{N[1/Sqrt[12], 6], N[Sqrt[1/2], 6], N[Sqrt[1/2]/(1/Sqrt[12]), 6], Sqrt[1/2]/(1/Sqrt[12])}`
+returned `{0.288675134594812921, 0.7071067811865474617, 2.4494897427831780982, Sqrt[6]}`.
