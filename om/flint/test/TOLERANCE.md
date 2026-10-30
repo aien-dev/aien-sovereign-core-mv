@@ -358,3 +358,119 @@ shapes, not the model's exact GEMM shapes (`[INFERENCE]` that dispatch does not 
 WolframLanguageEvaluator:
 `{N[1/Sqrt[12], 6], N[Sqrt[1/2], 6], N[Sqrt[1/2]/(1/Sqrt[12]), 6], Sqrt[1/2]/(1/Sqrt[12])}`
 returned `{0.288675134594812921, 0.7071067811865474617, 2.4494897427831780982, Sqrt[6]}`.
+
+## bf16-activation forward arm, v3 criterion (declared 2026-10-30 before any clean v2 or v3 comparison)
+
+v3 replaces v2. v2 was never run on the clean arm; the v1 record and the v2 text above are kept
+unedited as history.
+
+**Why v2 is superseded (argument, no clean data).** Let `x` be the exact forward,
+`e_om = om - x`, `e16 = ref16 - x`, and take `ref32 = x` to f32 accuracy. Then
+`N^2 = M^2 + D^2 - 2 <e_om, e16>` with `M = ||om - ref32||_2`. While the native and the reference
+bf16 trajectories share their rounding outcomes, `N` is much smaller than `D`. The v1 counts above
+show that they stop sharing them from layer 1 (1277 of 4096 layer-1 MLP outputs identical). With
+correlation `rho` and `M` near `D`, `N / D` is near `sqrt(2 (1 - rho))`, which tends to `sqrt 2`
+in deep rows. The `bf16-off` control has `om` near `ref32`, so its `N / D` is near 1 in every row.
+v2 (`N <= D`) would therefore fail a correct native forward in decorrelated rows and pass
+`bf16-off` there, and the same holds for any `N <= s D` or `N / ||ref16|| <= c`: in deep rows
+they rank `bf16-off` closer than a correct bf16 forward. Rejecting `bf16-off` needs `M`.
+
+**Diagnostics seen before this declaration.** (1) Referee-only statistics of `ref16 - ref32`
+(throwaway build, not in the tree, no native value involved): at the layer-0 input norm the
+fresh-rounding energy `F = sum ulp_bf16(ref32_i)^2 / 12` is 0.97 to 1.02 of `D^2`; from layer 1
+on it is 0.02 to 0.06 of `D^2`, i.e. propagated noise dominates; from about layer 12 several
+token-0 rows carry up to 90 percent of `D^2` in one massive-activation element (participation
+ratio 1.2 to 20); at the two anchor rows below the largest single element holds 0.00338 and
+0.00325 of `sum ulp_i^2`. (2) The controls `bf16-off` and `bf16-truncate` (gated mutants below)
+were run with a statistics-only build of the v3 row sums before this commit:
+`bf16-off` anchor `N / D` 0.999997 and 1.000000, `M / D` at most 9.5e-4 in every row and below
+`1/b` in some; `bf16-truncate` anchor `N / D` 2.435 and 2.489, `M / D` 1.955 and 2.016, and
+`M / D` from 0.50 to 22.8 over all rows. (3) The clean anchor outcome is already known from v1
+(all 4096 layer-0 input-norm values bit-identical, same native code path); tier A is
+pre-registered against the mutants, not the clean arm. No threshold below uses (2) or (3):
+`s_A` comes from the flip bound and `b` from `alpha = 0.01` and one degree of freedom.
+
+**Criterion.** Rows as in v2 (one token at one compare point, 2048 values, or one token's 150144
+logits; 496 rows for two tokens); `ops fwbf16 FX16 INVENTORY SHARDS FX32`. Per row:
+- `D = 0` (the exact embedding rows): PASS iff `N = 0` and `M = 0`.
+- Tier A, anchor rows, the layer-0 input norm of each token: PASS iff `N^2 <= D^2 / 2`.
+- Tier B, every row with `D > 0`: PASS iff `1/b <= M / D <= b`, `b = 62898`.
+- A NaN anywhere fails. The arm PASSes iff every row passes.
+`worst_ppm` is the largest row score in parts per million of its threshold:
+`N / (D / sqrt 2)` for tier A, `max(M / D, D / M) / b` for tier B; more than 10^6 is a FAIL.
+The report also prints `md_min_ppm`, `md_max_ppm` (`M / D`) and `nd_max_ppm` (`N / D`).
+
+**Tier A derivation.** The anchor is the only compare point computed from exact inputs (bf16
+embedding rows) without cancellation: `w_i (x_i rsqrt(mean x^2 + eps))` computed in f32 (the
+bf16 weight promotes to f32, `modeling_flint.py` `FlintRMSNorm`) and rounded once to bf16; the
+native computes the same product in f64 and rounds once through `bfr` (f64 to f32 to bf16). A
+native value can differ from the reference only where the f32 and f64 pre-rounding values
+straddle a rounding boundary. Their relative difference is one common factor bounded by
+`delta = gamma_2048 / 2 + 5 u_f32` (2048 positive f32 squares summed, then eps, rsqrt and two
+products). An element straddles with probability at most `delta |v_i| / ulp_i <= 2^8 delta`
+and then contributes `ulp_i^2` to `N^2`, while `D^2` is the fresh RNE energy `sum ulp_i^2 / 12`
+(0.97 to 1.02 of it, measured on the referees). So `E[N^2] / D^2 <= 12 2^8 delta = 0.188`
+(`N / D` 0.434) at the worst-case `delta`, and 0.0083 (`N / D` 0.091) at the probabilistic
+`sqrt(2048) u_f32`. `bf16-off` has `N / D = 1` there and truncation `sqrt 6` (it differs from
+RNE by one ulp on half the elements). The threshold `N / D <= 1/sqrt 2` sits above the
+worst-case expectation and below both. Realization: with straddle indicators `B_i`, a FAIL
+needs `sum B_i ulp_i^2 / sum ulp_i^2 > 0.5 / (12 1.016) = 0.0410`; one straddle adds at most
+0.00338, so at least 13 straddles are needed, and Bernstein's inequality with that maximal
+weight bounds the per-row false-fail probability by 0.020 at the deterministic worst-case
+`delta` and by 4.1e-8 at the probabilistic one (equal weights at the worst case: binomial tail
+1.4e-15).
+
+**Tier B derivation.** Null model for a correct native forward: `e_om` and `e16` are identically
+distributed Gaussian vectors (sums of many independent roundings by the same mechanism), and
+independent in decorrelated rows; positive correlation, as in early rows, only pulls `M / D`
+toward 1. Among covariances `Sigma` of `a, b` independent `N(0, Sigma)`, rank 1 gives the
+heaviest tail of `|a| / |b|`: proved for isotropic rank `k`, whose moments
+`Gamma(k/2+s) Gamma(k/2-s) / Gamma(k/2)^2` decrease in `k`, and found numerically for the mixed
+spectra sampled below; the massive-activation rows above are close to rank 1. The band
+therefore uses the rank-1 tail as the conservative model: `M / D` is a ratio of two independent
+half-normals, `P(M / D > t) = (2/pi) arctan(1/t)`, and the same for `D / M`. A family-wise
+false-fail level `alpha = 0.01` over both tails of 494 rows (Bonferroni, no independence
+needed) gives `b = cot(pi alpha / (4 494)) = 62898`. Tier B is a gross-error test: it rejects a
+row more than 4.8 decades from bf16 noise parity.
+
+WolframLanguageEvaluator:
+`{Integrate[f^2,{f,0,1/2}]+Integrate[(1-f)^2,{f,1/2,1}], Integrate[f^2,{f,0,1}], Integrate[1,{f,1/2,1}], Sqrt[(Integrate[1,{f,1/2,1}])/(Integrate[f^2,{f,0,1/2}]+Integrate[(1-f)^2,{f,1/2,1}])], Sqrt[Integrate[f^2,{f,0,1}]/(Integrate[f^2,{f,0,1/2}]+Integrate[(1-f)^2,{f,1/2,1}])]}`
+returned `{1/12, 1/3, 1/2, Sqrt[6], 2}` (RNE energy, truncation energy, truncation minus RNE
+energy, in ulp^2; truncation `N / D` and `M / D` at the anchor).
+`u=2^-24; gam[n_]:=n u/(1-n u); d=gam[2048]/2+5u; {N[gam[2048]], N[d], N[12*2^8*d], N[12*2^8*Sqrt[2048]*u]}`
+returned `{0.00012208521548040532, 0.00006134063096407961, 0.1884384183216526, 0.008286407592029853}`.
+`g[a_,s_]:=Gamma[a+s]Gamma[a-s]/Gamma[a]^2; {Table[N[g[k/2,0.3]],{k,1,9,2}], Simplify[g[1/2,s]]}`
+returned `{{1.7013016167040798, 1.0888330346906112, 1.0452797133029865, 1.0302276854314234, 1.0226586657017234}, (Gamma[1/2 - s]*Gamma[1/2 + s])/Pi}`.
+`a=1/100; r=494; b=Cot[Pi a/(4 r)]; {N[b,8], N[1/b,8], N[2 r (2/Pi) ArcTan[1/b],8]}`
+returned `{62898.0335046174539468839, 0.00001589874824825148567086119987266738, 0.01}`.
+`SeedRandom[834]; n=10^6; tail[l_,t_]:=Module[{k=Length[l],a,b},a=RandomVariate[NormalDistribution[],{n,k}]^2 . l; b=RandomVariate[NormalDistribution[],{n,k}]^2 . l; N[Count[a/b,x_/;x>t^2]/n]]; specs={{1},{1,0.1},{1,0.5},{1,0.01,0.01,0.01,0.01},{1,1}}; Table[{s,tail[s,10],tail[s,100]},{s,specs}]`
+returned `{{{1}, 0.063206, 0.006297}, {{1, 0.1}, 0.016694, 0.000185}, {{1, 0.5}, 0.010691, 0.00011}, {{1, 0.01, 0.01, 0.01, 0.01}, 0.010297, 2.*^-6}, {{1, 1}, 0.00968, 0.000108}}`
+(`P(|a| / |b| > 10)` and `> 100`; rank 1 is heaviest in every case).
+`wm=0.00338; thr=0.5/(12*1.016); bern[p_]:=Module[{t=thr-p},Exp[-t^2/(2 (p wm + wm t/3))]]; {N[thr], N[1/(12 wm)], N[bern[0.0157084]], N[bern[0.008286407592029853/12]], N[1-CDF[BinomialDistribution[2048,0.0157084],85]]}`
+returned `{0.04101049868766404, 24.65483234714004, 0.01978754845307135, 4.0618080307047676*^-8, 1.4432899320127035*^-15}`.
+
+**What v3 shows and does not show.** Tier A alone carries the rounding-presence and
+rounding-mode verdict: RMSNorm output on exact inputs, both tokens. Tier B checks every row of
+the chain, including the logits, for gross divergence only. Neither tier detects any set of
+dropped or wrongly rounded sites after the anchor, up to all of them: the `bf16-off` control's
+`M / D` lies inside the tier B band in almost every row. With one native and one reference
+trajectory, decorrelated deep rows and near-rank-1 massive-activation rows, rounding parity of
+deep rows is not decidable at a useful false-fail level. "`ref32 = x` to f32 accuracy" is a
+direction, not a number, in deep rows (the f32 arm used 694277 ppm of its budget); the v2
+argument does not depend on it. The per-operator bounds of ops 1 to 7 remain the tight local
+checks. The v2 limitations (two keys in attention, random-shape `F.linear` probe) still apply.
+
+**Declared checks and predictions (v3).**
+- `fwbf16` clean: predicted PASS, anchor `N / D` below 0.434 (most likely near 0, v1 saw all
+  4096 anchor values bit-identical), every `M / D` inside the band.
+- `bf16-off` (gated mutant: `bfr` is the identity): predicted FAIL at tier A, anchor `N / D`
+  near 1 (row statistics already seen, (2) above; the gated verdict is not yet run).
+- `bf16-truncate`: predicted FAIL at tier A, anchor `N / D` near `sqrt 6`, `M / D` near 2 (row
+  statistics already seen, (2) above; the gated verdict is not yet run).
+- `bf16-skip-final-norm`: predicted FAIL at tier B on the token-0 final-norm row, `M / D` near
+  `||ref32 layer-48 hidden|| / D = 16557.8 / 0.183 = 90480` (referee norms; 1.44 times `b`).
+  The token-1 row is marginal (`18530.9 / 0.287 = 64568`, 1.03 times `b`); the logits rows are
+  not predicted numerically (their direction under the mutant depends on `lm_head`).
+- Fixture admission: v2's, including an `FX32` that is not op 8 or differs in size or token IDs.
+WolframLanguageEvaluator: `{N[16557.8/0.183,6], N[18530.9/0.287,6], N[62898.0335/(16557.8/0.183)], N[Sqrt[0.1884384183216526],6], N[Sqrt[0.008286407592029853],6]}`
+returned `{90479.78142076502, 64567.59581881534, 0.6951612007935837, 0.43409494159878503, 0.09102970719512314}`.
