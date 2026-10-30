@@ -563,60 +563,13 @@ pub async fn run_autonomous_goal(goal_id: &str) {
             }),
         ];
 
-        let mut max_tool_steps = 15;
-        let mut milestone_done = false;
-
-        while max_tool_steps > 0 {
-            max_tool_steps -= 1;
-            print!(
-                "\n{}",
-                format!("AIEN [Milestone {}]: ", m.id).magenta().bold()
-            );
-            let mut assistant_resp = match client.stream_turn(&messages, true).await {
-                Ok(text) => text,
-                Err(e) => {
-                    eprintln!("Inference error: {}", e);
-                    return;
-                }
-            };
-
-            hook_registry.run_post_turn(&mut assistant_resp).await;
-            messages.push(json!({"role": "assistant", "content": assistant_resp.clone()}));
-
-            let tool_calls = match extract_tool_calls(&assistant_resp) {
-                Ok(calls) => calls,
-                Err(error) => {
-                    eprintln!("{}", error);
-                    return;
-                }
-            };
-            if !tool_calls.is_empty() {
-                for (tool_name, tool_args) in tool_calls {
-                    if tool_name == "goal" {
-                        let action = tool_args
-                            .get("action")
-                            .and_then(Value::as_str)
-                            .unwrap_or("");
-                        if action == "milestone_done" || action == "done" {
-                            milestone_done = true;
-                        }
-                    }
-                    let tool_result = dispatch_tool(&tool_name, &tool_args);
-                    let result_str = serde_json::to_string(&tool_result).unwrap_or_default();
-                    messages.push(json!({
-                        "role": "user",
-                        "content": format!("<tool_response name=\"{}\">\n{}\n</tool_response>", tool_name, result_str)
-                    }));
-                }
-            } else {
-                break;
-            }
-            if milestone_done {
-                break;
-            }
+        if let Err(error) = execute_autonomous_milestone(
+            &client, &mut messages, &goal.id, m.id, &hook_registry, dispatch_tool,
+        ).await {
+            eprintln!("Milestone {} not completed: {}", m.id, error);
+            return;
         }
 
-        let _ = goals::complete_milestone(&goal.id, m.id);
         println!(
             "{}",
             format!("  ✓ Milestone {} accomplished: {}", m.id, m.description)
@@ -634,6 +587,122 @@ pub async fn run_autonomous_goal(goal_id: &str) {
         .green()
         .bold()
     );
+}
+
+trait MilestoneChat {
+    async fn reply(&self, messages: &[Value]) -> Result<String, String>;
+}
+
+impl MilestoneChat for ChatClient {
+    async fn reply(&self, messages: &[Value]) -> Result<String, String> {
+        self.stream_turn(messages, true).await
+    }
+}
+
+async fn execute_autonomous_milestone(
+    client: &impl MilestoneChat,
+    messages: &mut Vec<Value>,
+    goal_id: &str,
+    milestone_id: usize,
+    hook_registry: &crate::hooks::HookRegistry,
+    mut dispatch: impl FnMut(&str, &Value) -> Value,
+) -> Result<(), String> {
+    for _ in 0..15 {
+        print!("\n{}", format!("AIEN [Milestone {}]: ", milestone_id).magenta().bold());
+        let mut response = client.reply(messages).await?;
+        hook_registry.run_post_turn(&mut response).await;
+        messages.push(json!({"role":"assistant","content":response}));
+        let calls = extract_tool_calls(&response)?;
+        if calls.is_empty() {
+            return Err("reply did not request milestone completion".into());
+        }
+        for (name, args) in calls {
+            let action = args["action"].as_str();
+            let completion_request = name == "goal"
+                && matches!(action, Some("milestone_done" | "advance" | "done" | "complete"));
+            if completion_request
+                && (!matches!(action, Some("milestone_done" | "advance"))
+                    || args["id"].as_str() != Some(goal_id)
+                    || args["milestone_id"].as_u64() != Some(milestone_id as u64))
+            {
+                return Err("completion request does not identify the active goal/milestone".into());
+            }
+            let result = dispatch(&name, &args);
+            messages.push(json!({"role":"user","content":format!("<tool_response name=\"{}\">\n{}\n</tool_response>",name,result)}));
+            if completion_request {
+                if result["status"].as_str() == Some("ok") {
+                    return Ok(());
+                }
+                return Err(format!("milestone completion refused: {}", result));
+            }
+        }
+    }
+    Err("milestone exhausted its 15 tool-bearing turns without completion".into())
+}
+
+#[cfg(test)]
+mod autonomous_tests {
+    use super::*;
+    struct FakeChat(std::cell::RefCell<std::collections::VecDeque<String>>);
+    impl MilestoneChat for FakeChat {
+        async fn reply(&self, _: &[Value]) -> Result<String, String> {
+            Ok(self.0.borrow_mut().pop_front().expect("unexpected inference"))
+        }
+    }
+    fn request(args: Value) -> String {
+        format!("<tool_call>{}</tool_call>", json!({"name":"goal","arguments":args}))
+    }
+    async fn run(replies: Vec<String>, dispatch: impl FnMut(&str,&Value)->Value) -> Result<(),String> {
+        execute_autonomous_milestone(
+            &FakeChat(std::cell::RefCell::new(replies.into())), &mut Vec::new(), "active", 7,
+            &crate::hooks::HookRegistry::default_sovereign_registry(), dispatch,
+        ).await
+    }
+    #[tokio::test]
+    async fn round3_milestone_exhaustion_refuses_completion() {
+        let reply = request(json!({"action":"list"}));
+        let mut count = 0;
+        let result = run(vec![reply;15], |_,_| { count+=1;json!({"status":"ok"}) }).await;
+        assert!(result.is_err(), "exhaustion completed");
+        assert_eq!(count,15);
+    }
+    #[tokio::test]
+    async fn round3_milestone_empty_and_final_text_refuse_completion() {
+        for reply in ["", "I think the milestone is done."] {
+            assert!(run(vec![reply.into()], |_,_| panic!("no dispatch")).await.is_err());
+        }
+    }
+    #[tokio::test]
+    async fn round3_milestone_denied_request_refuses_completion() {
+        for refusal in [
+            json!({"error":"SECURITY DENIAL: policy refused"}),
+            json!({"status":"error","error":"write goals failed"}),
+        ] {
+            let result = run(vec![request(json!({"action":"milestone_done","id":"active","milestone_id":7}))],
+                |_,_| refusal.clone()).await;
+            assert!(result.is_err(), "denied/failed completion request succeeded");
+        }
+    }
+    #[tokio::test]
+    async fn round3_milestone_invalid_request_refuses_completion() {
+        for args in [
+            json!({"action":"milestone_done","id":"other","milestone_id":7}),
+            json!({"action":"milestone_done","id":"active","milestone_id":8}),
+            json!({"action":"milestone_done","id":"active"}),
+            json!({"action":"done","id":"active"}),
+        ] {
+            let mut dispatched = false;
+            assert!(run(vec![request(args)], |_,_| {dispatched=true;json!({"status":"ok"})}).await.is_err());
+            assert!(!dispatched, "invalid completion request reached its effect");
+        }
+    }
+    #[tokio::test]
+    async fn round3_milestone_valid_request_completes() {
+        let mut count = 0;
+        run(vec![request(json!({"action":"milestone_done","id":"active","milestone_id":7}))],
+            |_,_| {count+=1;json!({"status":"ok"})}).await.unwrap();
+        assert_eq!(count,1);
+    }
 }
 
 /// Prints the outcome of a compaction pass. Skips are reported too, so a

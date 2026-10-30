@@ -294,7 +294,7 @@ pub fn dispatch_tool_with(name: &str, args: &Value, ctx: &crate::approval::GateC
             let ok = res.get("status").and_then(Value::as_str) == Some("ok");
             (res, ok)
         }
-        "goal" => (crate::goals::goals_dispatch_tool(args), true),
+        "goal" => goal_tool_result(crate::goals::goals_dispatch_tool(args)),
         "cortex" => {
             let res = tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current()
@@ -425,6 +425,11 @@ pub fn dispatch_tool_with(name: &str, args: &Value, ctx: &crate::approval::GateC
     let elapsed = start.elapsed().as_millis();
     print_tool_done(name, elapsed, success);
     final_res
+}
+
+fn goal_tool_result(result: Value) -> (Value, bool) {
+    let success = result["status"].as_str() == Some("ok");
+    (result, success)
 }
 
 pub(crate) fn subagent_tool_result(res: Value) -> (Value, bool) {
@@ -1183,6 +1188,14 @@ fn exec_ask_question(question: &str, options: Option<&Vec<Value>>) -> (Value, bo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn round3_goal_tool_failure_flag_is_false() {
+        for result in [json!({"status":"error","error":"write goals failed"}), json!({"error":"denied"})] {
+            assert!(!goal_tool_result(result).1);
+        }
+        assert!(goal_tool_result(json!({"status":"ok"})).1);
+    }
 
     // Tests that install the process-wide checkpoint session must serialize.
     static CHECKPOINT_SESSION_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());

@@ -393,6 +393,17 @@ fn parse_tool_call_json(raw: &str) -> Result<(String, Value), String> {
     Ok((name.to_string(), args))
 }
 
+fn fenced_tool_call(block: &str) -> Option<&str> {
+    let block = block.trim();
+    let (explicit, raw) = if let Some(raw) = block.strip_prefix("tool_call") {
+        (true, raw)
+    } else {
+        (false, block.strip_prefix("json").unwrap_or(block))
+    };
+    (explicit || (raw.trim_start().starts_with('{') && raw.contains("\"name\"")))
+        .then_some(raw)
+}
+
 /// Parse tool requests without treating malformed markup as final synthesis.
 pub fn extract_tool_calls(text: &str) -> Result<Vec<(String, Value)>, String> {
     let mut calls = Vec::new();
@@ -422,18 +433,12 @@ pub fn extract_tool_calls(text: &str) -> Result<Vec<(String, Value)>, String> {
     remaining = text;
     while let Some((_, after)) = remaining.split_once("```") {
         let Some((block, rest)) = after.split_once("```") else {
-            if after.starts_with("tool_call") {
-                return Err("Malformed tool call: unclosed tool_call fence".into());
+            if fenced_tool_call(after).is_some() {
+                return Err("Malformed tool call: unclosed tool-call fence".into());
             }
             break;
         };
-        let block = block.trim();
-        let (explicit, raw) = if let Some(raw) = block.strip_prefix("tool_call") {
-            (true, raw)
-        } else {
-            (false, block.strip_prefix("json").unwrap_or(block))
-        };
-        if explicit || (raw.trim_start().starts_with('{') && raw.contains("\"name\"")) {
+        if let Some(raw) = fenced_tool_call(block) {
             calls.push(parse_tool_call_json(raw)?);
         }
         remaining = rest;

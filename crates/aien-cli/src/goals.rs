@@ -124,7 +124,13 @@ pub fn add_goal(title: &str, description: &str, milestones_raw: Vec<String>) -> 
 }
 
 pub fn complete_goal(target_id: &str) -> Result<String, String> {
-    let mut manifest = load_goals();
+    complete_goal_with(target_id, load_goals(), save_goals)
+}
+
+fn complete_goal_with(
+    target_id: &str, mut manifest: GoalManifest,
+    save: impl FnOnce(&GoalManifest) -> Result<PathBuf, String>,
+) -> Result<String, String> {
     let mut found = false;
     let mut title = String::new();
 
@@ -142,7 +148,7 @@ pub fn complete_goal(target_id: &str) -> Result<String, String> {
     }
 
     if found {
-        let _ = save_goals(&manifest);
+        save(&manifest)?;
         Ok(format!(
             "Goal '{}' ({}) marked as Completed.",
             title, target_id
@@ -153,7 +159,13 @@ pub fn complete_goal(target_id: &str) -> Result<String, String> {
 }
 
 pub fn complete_milestone(target_id: &str, milestone_id: usize) -> Result<String, String> {
-    let mut manifest = load_goals();
+    complete_milestone_with(target_id, milestone_id, load_goals(), save_goals)
+}
+
+fn complete_milestone_with(
+    target_id: &str, milestone_id: usize, mut manifest: GoalManifest,
+    save: impl FnOnce(&GoalManifest) -> Result<PathBuf, String>,
+) -> Result<String, String> {
     let mut found = false;
     let mut all_completed = false;
 
@@ -175,7 +187,7 @@ pub fn complete_milestone(target_id: &str, milestone_id: usize) -> Result<String
     }
 
     if found {
-        let _ = save_goals(&manifest);
+        save(&manifest)?;
         if all_completed {
             Ok(format!(
                 "Milestone {} completed. All milestones finished! Goal is now Completed.",
@@ -301,5 +313,48 @@ pub fn goals_dispatch_tool(args: &Value) -> Value {
             })
         }
         _ => json!({"error": format!("Unknown goal action '{}'", action)}),
+    }
+}
+
+#[cfg(test)]
+mod completion_tests {
+    use super::*;
+    fn manifest() -> GoalManifest {
+        GoalManifest {
+            project_name: "isolated".into(),
+            goals: vec![Goal {
+                id:"active".into(), title:"active".into(), description:"test".into(),
+                status:GoalStatus::Active, created_at:"test".into(), updated_at:"test".into(),
+                milestones:vec![Milestone{id:7, description:"test".into(), completed:false}],
+            }],
+        }
+    }
+    #[test]
+    fn round3_milestone_persistence_failure_is_error() {
+        let scratch = tempfile::tempdir().unwrap();
+        let blocked = scratch.path().join("goals.json");
+        std::fs::create_dir(&blocked).unwrap();
+        let result = complete_milestone_with("active",7,manifest(), |m| {
+            std::fs::write(&blocked, serde_json::to_vec(m).unwrap())
+                .map(|_| blocked.clone()).map_err(|e| format!("write goals: {e}"))
+        });
+        assert!(result.unwrap_err().contains("write goals"));
+    }
+    #[test]
+    fn round3_goal_persistence_failure_is_error() {
+        let result = complete_goal_with("active",manifest(), |_| Err("storage unavailable".into()));
+        assert!(result.unwrap_err().contains("storage unavailable"));
+    }
+    #[test]
+    fn round3_milestone_persistence_success() {
+        let scratch = tempfile::tempdir().unwrap();
+        let path = scratch.path().join("goals.json");
+        complete_milestone_with("active",7,manifest(), |m| {
+            std::fs::write(&path,serde_json::to_vec(m).unwrap())
+                .map(|_|path.clone()).map_err(|e|e.to_string())
+        }).unwrap();
+        let saved: GoalManifest = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert!(saved.goals[0].milestones[0].completed);
+        assert_eq!(saved.goals[0].status, GoalStatus::Completed);
     }
 }
