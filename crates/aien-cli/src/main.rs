@@ -484,10 +484,7 @@ async fn run_single_prompt(prompt: &str) {
 
 pub async fn run_autonomous_goal(goal_id: &str) {
     let manifest = goals::load_goals();
-    let goal = match manifest
-        .goals
-        .iter()
-        .find(|g| g.id == goal_id || g.title.to_lowercase().contains(&goal_id.to_lowercase()))
+    let goal = match goals::goal_index(&manifest.goals, goal_id).map(|index| &manifest.goals[index])
     {
         Some(g) => g.clone(),
         None => {
@@ -564,8 +561,15 @@ pub async fn run_autonomous_goal(goal_id: &str) {
         ];
 
         if let Err(error) = execute_autonomous_milestone(
-            &client, &mut messages, &goal.id, m.id, &hook_registry, dispatch_tool,
-        ).await {
+            &client,
+            &mut messages,
+            &goal.id,
+            m.id,
+            &hook_registry,
+            dispatch_tool,
+        )
+        .await
+        {
             eprintln!("Milestone {} not completed: {}", m.id, error);
             return;
         }
@@ -608,7 +612,12 @@ async fn execute_autonomous_milestone(
     mut dispatch: impl FnMut(&str, &Value) -> Value,
 ) -> Result<(), String> {
     for _ in 0..15 {
-        print!("\n{}", format!("AIEN [Milestone {}]: ", milestone_id).magenta().bold());
+        print!(
+            "\n{}",
+            format!("AIEN [Milestone {}]: ", milestone_id)
+                .magenta()
+                .bold()
+        );
         let mut response = client.reply(messages).await?;
         hook_registry.run_post_turn(&mut response).await;
         messages.push(json!({"role":"assistant","content":response}));
@@ -619,13 +628,18 @@ async fn execute_autonomous_milestone(
         for (name, args) in calls {
             let action = args["action"].as_str();
             let completion_request = name == "goal"
-                && matches!(action, Some("milestone_done" | "advance" | "done" | "complete"));
+                && matches!(
+                    action,
+                    Some("milestone_done" | "advance" | "done" | "complete")
+                );
             if completion_request
                 && (!matches!(action, Some("milestone_done" | "advance"))
                     || args["id"].as_str() != Some(goal_id)
                     || args["milestone_id"].as_u64() != Some(milestone_id as u64))
             {
-                return Err("completion request does not identify the active goal/milestone".into());
+                return Err(
+                    "completion request does not identify the active goal/milestone".into(),
+                );
             }
             let result = dispatch(&name, &args);
             messages.push(json!({"role":"user","content":format!("<tool_response name=\"{}\">\n{}\n</tool_response>",name,result)}));
@@ -646,30 +660,51 @@ mod autonomous_tests {
     struct FakeChat(std::cell::RefCell<std::collections::VecDeque<String>>);
     impl MilestoneChat for FakeChat {
         async fn reply(&self, _: &[Value]) -> Result<String, String> {
-            Ok(self.0.borrow_mut().pop_front().expect("unexpected inference"))
+            Ok(self
+                .0
+                .borrow_mut()
+                .pop_front()
+                .expect("unexpected inference"))
         }
     }
     fn request(args: Value) -> String {
-        format!("<tool_call>{}</tool_call>", json!({"name":"goal","arguments":args}))
+        format!(
+            "<tool_call>{}</tool_call>",
+            json!({"name":"goal","arguments":args})
+        )
     }
-    async fn run(replies: Vec<String>, dispatch: impl FnMut(&str,&Value)->Value) -> Result<(),String> {
+    async fn run(
+        replies: Vec<String>,
+        dispatch: impl FnMut(&str, &Value) -> Value,
+    ) -> Result<(), String> {
         execute_autonomous_milestone(
-            &FakeChat(std::cell::RefCell::new(replies.into())), &mut Vec::new(), "active", 7,
-            &crate::hooks::HookRegistry::default_sovereign_registry(), dispatch,
-        ).await
+            &FakeChat(std::cell::RefCell::new(replies.into())),
+            &mut Vec::new(),
+            "active",
+            7,
+            &crate::hooks::HookRegistry::default_sovereign_registry(),
+            dispatch,
+        )
+        .await
     }
     #[tokio::test]
     async fn round3_milestone_exhaustion_refuses_completion() {
         let reply = request(json!({"action":"list"}));
         let mut count = 0;
-        let result = run(vec![reply;15], |_,_| { count+=1;json!({"status":"ok"}) }).await;
+        let result = run(vec![reply; 15], |_, _| {
+            count += 1;
+            json!({"status":"ok"})
+        })
+        .await;
         assert!(result.is_err(), "exhaustion completed");
-        assert_eq!(count,15);
+        assert_eq!(count, 15);
     }
     #[tokio::test]
     async fn round3_milestone_empty_and_final_text_refuse_completion() {
         for reply in ["", "I think the milestone is done."] {
-            assert!(run(vec![reply.into()], |_,_| panic!("no dispatch")).await.is_err());
+            assert!(run(vec![reply.into()], |_, _| panic!("no dispatch"))
+                .await
+                .is_err());
         }
     }
     #[tokio::test]
@@ -678,9 +713,17 @@ mod autonomous_tests {
             json!({"error":"SECURITY DENIAL: policy refused"}),
             json!({"status":"error","error":"write goals failed"}),
         ] {
-            let result = run(vec![request(json!({"action":"milestone_done","id":"active","milestone_id":7}))],
-                |_,_| refusal.clone()).await;
-            assert!(result.is_err(), "denied/failed completion request succeeded");
+            let result = run(
+                vec![request(
+                    json!({"action":"milestone_done","id":"active","milestone_id":7}),
+                )],
+                |_, _| refusal.clone(),
+            )
+            .await;
+            assert!(
+                result.is_err(),
+                "denied/failed completion request succeeded"
+            );
         }
     }
     #[tokio::test]
@@ -692,16 +735,30 @@ mod autonomous_tests {
             json!({"action":"done","id":"active"}),
         ] {
             let mut dispatched = false;
-            assert!(run(vec![request(args)], |_,_| {dispatched=true;json!({"status":"ok"})}).await.is_err());
+            assert!(run(vec![request(args)], |_, _| {
+                dispatched = true;
+                json!({"status":"ok"})
+            })
+            .await
+            .is_err());
             assert!(!dispatched, "invalid completion request reached its effect");
         }
     }
     #[tokio::test]
     async fn round3_milestone_valid_request_completes() {
         let mut count = 0;
-        run(vec![request(json!({"action":"milestone_done","id":"active","milestone_id":7}))],
-            |_,_| {count+=1;json!({"status":"ok"})}).await.unwrap();
-        assert_eq!(count,1);
+        run(
+            vec![request(
+                json!({"action":"milestone_done","id":"active","milestone_id":7}),
+            )],
+            |_, _| {
+                count += 1;
+                json!({"status":"ok"})
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(count, 1);
     }
 }
 

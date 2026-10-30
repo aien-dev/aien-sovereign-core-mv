@@ -95,12 +95,16 @@ impl<B: AienInferenceBackend + Send> AienInferenceBackend for EosBackend<B> {
     async fn load_model(&mut self, config: &ModelConfig) -> Result<(), String> {
         self.0.load_model(config).await
     }
-    async fn execute_step(&mut self, batch: &ScheduledBatch)
-        -> Result<(Vec<DecodeOutput>, StepMetrics), String> {
+    async fn execute_step(
+        &mut self,
+        batch: &ScheduledBatch,
+    ) -> Result<(Vec<DecodeOutput>, StepMetrics), String> {
         let (mut outputs, metrics) = self.0.execute_step(batch).await?;
         for output in &mut outputs {
             if let DecodeOutput::Token { token_id, .. } = output {
-                if *token_id == 101 { *token_id = 2; }
+                if *token_id == 101 {
+                    *token_id = 2;
+                }
             }
         }
         Ok((outputs, metrics))
@@ -446,18 +450,31 @@ async fn capped_turn_is_refused_but_its_evidence_is_retained() {
     let _g = ONE_HOME.lock().await;
     let d = start(Some(identity())).await;
     let before = d.records().await;
-    let error = d.client.stream_turn_recorded(user("hello"), 1, 0.0)
-        .await.expect_err("a token cap is not completion");
+    let error = d
+        .client
+        .stream_turn_recorded(user("hello"), 1, 0.0)
+        .await
+        .expect_err("a token cap is not completion");
     assert!(error.contains("max_tokens"), "{error}");
     assert_eq!(d.records().await, before + 1);
-    let ControlResponse::ComposeRecalled(report) = d.recall(vec![]).await else { panic!("recall") };
-    let record = report.host.iter().rev().find_map(|record| {
-        let value: Value = serde_json::from_str(record.text.as_deref()?).ok()?;
-        (value["generation"] == 1).then_some((record, value))
-    }).expect("generation evidence");
+    let ControlResponse::ComposeRecalled(report) = d.recall(vec![]).await else {
+        panic!("recall")
+    };
+    let record = report
+        .host
+        .iter()
+        .rev()
+        .find_map(|record| {
+            let value: Value = serde_json::from_str(record.text.as_deref()?).ok()?;
+            (value["generation"] == 1).then_some((record, value))
+        })
+        .expect("generation evidence");
     assert!(record.0.verified);
     assert_eq!(record.1["finish_reason"], "max_tokens");
     assert_eq!(record.1["output_text_sha256"], sha(b"x100"));
-    assert_eq!(record.1["output_token_ids_sha256"], token_ids_sha256(&[100]));
+    assert_eq!(
+        record.1["output_token_ids_sha256"],
+        token_ids_sha256(&[100])
+    );
     d.stop().await;
 }

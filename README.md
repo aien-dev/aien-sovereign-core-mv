@@ -93,6 +93,12 @@ cargo test -p aien-cli --bin aien-cli subagents::tests::
 
 Autonomous goal execution marks an active milestone accomplished only after a successful `goal` tool `milestone_done`/`advance` request with the exact active goal id and milestone id. A whole-goal `done` request, mismatched identity, policy denial, storage error, empty/final-text reply without a completion request, or exhaustion of fifteen tool-bearing turns refuses completion and stops execution. Completion persistence errors propagate through the goal tool status and success flag; there is no unconditional fallback completion write.
 
+Goal selection and both completion mutations resolve an exact goal id across the entire manifest before trying the existing case-insensitive title-substring fallback. A different goal's title containing that id cannot intercept completion. The persisted-dispatch collision regressions exercise all four completion action names against an isolated `.goals.json`, using the real goal dispatcher and writer:
+
+```sh
+cargo test -p aien-cli --bin aien-cli goals::completion_tests::round4_
+```
+
 ## Contributing
 
 Read [CONSTITUTION.md](CONSTITUTION.md) and [AGENTS.md](AGENTS.md) before opening a pull request. Changes ship on a branch with verification proof: the commands you ran and their output. Prefer work that moves capability into the C repositories over new Rust here. Contact: aien@aienos.com.

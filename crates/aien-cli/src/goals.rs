@@ -123,39 +123,37 @@ pub fn add_goal(title: &str, description: &str, milestones_raw: Vec<String>) -> 
     goal
 }
 
+pub(crate) fn goal_index(goals: &[Goal], target: &str) -> Option<usize> {
+    goals.iter().position(|goal| goal.id == target).or_else(|| {
+        let title = target.to_lowercase();
+        goals
+            .iter()
+            .position(|goal| goal.title.to_lowercase().contains(&title))
+    })
+}
+
 pub fn complete_goal(target_id: &str) -> Result<String, String> {
     complete_goal_with(target_id, load_goals(), save_goals)
 }
 
 fn complete_goal_with(
-    target_id: &str, mut manifest: GoalManifest,
+    target_id: &str,
+    mut manifest: GoalManifest,
     save: impl FnOnce(&GoalManifest) -> Result<PathBuf, String>,
 ) -> Result<String, String> {
-    let mut found = false;
-    let mut title = String::new();
-
-    for g in manifest.goals.iter_mut() {
-        if g.id == target_id || g.title.to_lowercase().contains(&target_id.to_lowercase()) {
-            g.status = GoalStatus::Completed;
-            for m in g.milestones.iter_mut() {
-                m.completed = true;
-            }
-            g.updated_at = Utc::now().to_rfc3339();
-            title = g.title.clone();
-            found = true;
-            break;
-        }
+    let index = goal_index(&manifest.goals, target_id)
+        .ok_or_else(|| format!("Goal '{}' not found in manifest.", target_id))?;
+    let goal = &mut manifest.goals[index];
+    goal.status = GoalStatus::Completed;
+    for milestone in &mut goal.milestones {
+        milestone.completed = true;
     }
-
-    if found {
-        save(&manifest)?;
-        Ok(format!(
-            "Goal '{}' ({}) marked as Completed.",
-            title, target_id
-        ))
-    } else {
-        Err(format!("Goal '{}' not found in manifest.", target_id))
-    }
+    goal.updated_at = Utc::now().to_rfc3339();
+    save(&manifest)?;
+    Ok(format!(
+        "Goal '{}' ({}) marked as Completed.",
+        manifest.goals[index].title, target_id
+    ))
 }
 
 pub fn complete_milestone(target_id: &str, milestone_id: usize) -> Result<String, String> {
@@ -163,44 +161,38 @@ pub fn complete_milestone(target_id: &str, milestone_id: usize) -> Result<String
 }
 
 fn complete_milestone_with(
-    target_id: &str, milestone_id: usize, mut manifest: GoalManifest,
+    target_id: &str,
+    milestone_id: usize,
+    mut manifest: GoalManifest,
     save: impl FnOnce(&GoalManifest) -> Result<PathBuf, String>,
 ) -> Result<String, String> {
-    let mut found = false;
-    let mut all_completed = false;
-
-    for g in manifest.goals.iter_mut() {
-        if g.id == target_id || g.title.to_lowercase().contains(&target_id.to_lowercase()) {
-            for m in g.milestones.iter_mut() {
-                if m.id == milestone_id {
-                    m.completed = true;
-                    found = true;
-                }
-            }
-            g.updated_at = Utc::now().to_rfc3339();
-            if g.milestones.iter().all(|m| m.completed) {
-                g.status = GoalStatus::Completed;
-                all_completed = true;
-            }
-            break;
-        }
-    }
-
-    if found {
-        save(&manifest)?;
-        if all_completed {
-            Ok(format!(
-                "Milestone {} completed. All milestones finished! Goal is now Completed.",
-                milestone_id
-            ))
-        } else {
-            Ok(format!("Milestone {} completed.", milestone_id))
-        }
-    } else {
-        Err(format!(
+    let missing = || {
+        format!(
             "Milestone {} for goal '{}' not found.",
             milestone_id, target_id
+        )
+    };
+    let index = goal_index(&manifest.goals, target_id).ok_or_else(missing)?;
+    let goal = &mut manifest.goals[index];
+    let milestone = goal
+        .milestones
+        .iter_mut()
+        .find(|milestone| milestone.id == milestone_id)
+        .ok_or_else(missing)?;
+    milestone.completed = true;
+    goal.updated_at = Utc::now().to_rfc3339();
+    let all_completed = goal.milestones.iter().all(|milestone| milestone.completed);
+    if all_completed {
+        goal.status = GoalStatus::Completed;
+    }
+    save(&manifest)?;
+    if all_completed {
+        Ok(format!(
+            "Milestone {} completed. All milestones finished! Goal is now Completed.",
+            milestone_id
         ))
+    } else {
+        Ok(format!("Milestone {} completed.", milestone_id))
     }
 }
 
@@ -323,9 +315,17 @@ mod completion_tests {
         GoalManifest {
             project_name: "isolated".into(),
             goals: vec![Goal {
-                id:"active".into(), title:"active".into(), description:"test".into(),
-                status:GoalStatus::Active, created_at:"test".into(), updated_at:"test".into(),
-                milestones:vec![Milestone{id:7, description:"test".into(), completed:false}],
+                id: "active".into(),
+                title: "active".into(),
+                description: "test".into(),
+                status: GoalStatus::Active,
+                created_at: "test".into(),
+                updated_at: "test".into(),
+                milestones: vec![Milestone {
+                    id: 7,
+                    description: "test".into(),
+                    completed: false,
+                }],
             }],
         }
     }
@@ -334,27 +334,124 @@ mod completion_tests {
         let scratch = tempfile::tempdir().unwrap();
         let blocked = scratch.path().join("goals.json");
         std::fs::create_dir(&blocked).unwrap();
-        let result = complete_milestone_with("active",7,manifest(), |m| {
+        let result = complete_milestone_with("active", 7, manifest(), |m| {
             std::fs::write(&blocked, serde_json::to_vec(m).unwrap())
-                .map(|_| blocked.clone()).map_err(|e| format!("write goals: {e}"))
+                .map(|_| blocked.clone())
+                .map_err(|e| format!("write goals: {e}"))
         });
         assert!(result.unwrap_err().contains("write goals"));
     }
     #[test]
     fn round3_goal_persistence_failure_is_error() {
-        let result = complete_goal_with("active",manifest(), |_| Err("storage unavailable".into()));
+        let result =
+            complete_goal_with("active", manifest(), |_| Err("storage unavailable".into()));
         assert!(result.unwrap_err().contains("storage unavailable"));
     }
     #[test]
     fn round3_milestone_persistence_success() {
         let scratch = tempfile::tempdir().unwrap();
         let path = scratch.path().join("goals.json");
-        complete_milestone_with("active",7,manifest(), |m| {
-            std::fs::write(&path,serde_json::to_vec(m).unwrap())
-                .map(|_|path.clone()).map_err(|e|e.to_string())
-        }).unwrap();
+        complete_milestone_with("active", 7, manifest(), |m| {
+            std::fs::write(&path, serde_json::to_vec(m).unwrap())
+                .map(|_| path.clone())
+                .map_err(|e| e.to_string())
+        })
+        .unwrap();
         let saved: GoalManifest = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
         assert!(saved.goals[0].milestones[0].completed);
         assert_eq!(saved.goals[0].status, GoalStatus::Completed);
+    }
+
+    fn collision_manifest() -> GoalManifest {
+        let mut manifest = manifest();
+        let mut goal_a = manifest.goals.remove(0);
+        goal_a.id = "goal-A".into();
+        goal_a.title = "Support goal-B".into();
+        goal_a.milestones[0].id = 1;
+        let mut goal_b = goal_a.clone();
+        goal_b.id = "goal-B".into();
+        goal_b.title = "Actual task".into();
+        manifest.goals = vec![goal_a, goal_b];
+        manifest
+    }
+
+    #[test]
+    fn round4_exact_goal_resolution_precedes_title() {
+        let manifest = collision_manifest();
+        assert_eq!(goal_index(&manifest.goals, "goal-B"), Some(1));
+        assert_eq!(goal_index(&manifest.goals, "Actual task"), Some(1));
+        assert_eq!(goal_index(&manifest.goals, "ACTUAL"), Some(1));
+        assert_eq!(goal_index(&manifest.goals, "Support"), Some(0));
+        assert_eq!(goal_index(&manifest.goals, "missing"), None);
+    }
+
+    fn persisted_dispatch_collision(test_name: &str, actions: &[&str]) {
+        const CHILD_ACTION: &str = "AIEN_TEST_ROUND4_GOAL_DISPATCH_ACTION";
+        if let Ok(action) = std::env::var(CHILD_ACTION) {
+            assert!(actions.contains(&action.as_str()));
+            let before = load_goals();
+            // This is the same resolver used by autonomous mode. Resolving
+            // the title selects goal-B; its id must stay authoritative when
+            // the real tool dispatcher persists the completion.
+            let selected = goal_index(&before.goals, "Actual task").unwrap();
+            let id = &before.goals[selected].id;
+            assert_eq!(id, "goal-B");
+            let result = goals_dispatch_tool(&json!({
+                "action": action, "id": id, "milestone_id": 1,
+            }));
+            assert_eq!(result["status"], "ok", "{result}");
+            let saved: GoalManifest =
+                serde_json::from_slice(&fs::read(".goals.json").unwrap()).unwrap();
+            assert!(
+                saved.goals[1].milestones[0].completed,
+                "{action}: goal-B not persisted"
+            );
+            assert_eq!(saved.goals[1].status, GoalStatus::Completed);
+            assert_eq!(
+                serde_json::to_value(&saved.goals[0]).unwrap(),
+                serde_json::to_value(&before.goals[0]).unwrap(),
+                "{action}: unrelated goal-A changed",
+            );
+            return;
+        }
+        for action in actions {
+            let scratch = tempfile::tempdir().unwrap();
+            fs::write(
+                scratch.path().join(".goals.json"),
+                serde_json::to_vec(&collision_manifest()).unwrap(),
+            )
+            .unwrap();
+            // Isolate the real path resolver and writer without changing the
+            // unit-test process's cwd or using synthetic dispatch success.
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .current_dir(scratch.path())
+                .env(CHILD_ACTION, action)
+                .args(["--exact", test_name, "--nocapture"])
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{action}: child failed ({:?})\n{}\n{}",
+                output.status.code(),
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            );
+        }
+    }
+
+    #[test]
+    fn round4_milestone_dispatch_persists_exact_goal() {
+        persisted_dispatch_collision(
+            "goals::completion_tests::round4_milestone_dispatch_persists_exact_goal",
+            &["milestone_done", "advance"],
+        );
+    }
+
+    #[test]
+    fn round4_goal_dispatch_persists_exact_goal() {
+        persisted_dispatch_collision(
+            "goals::completion_tests::round4_goal_dispatch_persists_exact_goal",
+            &["done", "complete"],
+        );
     }
 }

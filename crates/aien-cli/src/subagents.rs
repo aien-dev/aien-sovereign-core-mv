@@ -701,18 +701,28 @@ mod tests {
     #[tokio::test]
     async fn round3_unclosed_named_json_fence_is_failed() {
         run_replies(
-            vec![Ok("```json\n{\"name\":\"goal\",\"arguments\":{\"action\":\"list\"}}".into())],
-            "failed", 1, "Malformed tool call",
-        ).await;
+            vec![Ok(
+                "```json\n{\"name\":\"goal\",\"arguments\":{\"action\":\"list\"}}".into(),
+            )],
+            "failed",
+            1,
+            "Malformed tool call",
+        )
+        .await;
     }
 
     #[tokio::test]
     async fn round3_unclosed_spaced_tool_fence_is_failed() {
         for prefix in [" tool_call", "\n tool_call", "\njson"] {
             run_replies(
-                vec![Ok(format!("```{prefix}\n{{\"name\":\"goal\",\"arguments\":{{}}}}"))],
-                "failed", 1, "Malformed tool call",
-            ).await;
+                vec![Ok(format!(
+                    "```{prefix}\n{{\"name\":\"goal\",\"arguments\":{{}}}}"
+                ))],
+                "failed",
+                1,
+                "Malformed tool call",
+            )
+            .await;
         }
     }
 

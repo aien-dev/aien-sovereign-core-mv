@@ -876,7 +876,11 @@ async fn forward_turn(
     rec: RecordCtx,
 ) {
     let RecordCtx {
-        compose, identity, started, request_id, operation_id,
+        compose,
+        identity,
+        started,
+        request_id,
+        operation_id,
     } = rec;
     let mut produced = Vec::new();
     let mut text = String::new();
@@ -928,9 +932,14 @@ async fn forward_turn(
                 // Retain the generation evidence even for an incomplete answer.
                 // Existing clients already fail closed on the Error response.
                 if !matches!(finish_reason, aien_inference_abi::FinishReason::StopToken) {
-                    let _ = write_response(writer, &ControlResponse::Error(format!(
-                        "native turn did not complete: {}", finish_reason_label(&finish_reason)
-                    ))).await;
+                    let _ = write_response(
+                        writer,
+                        &ControlResponse::Error(format!(
+                            "native turn did not complete: {}",
+                            finish_reason_label(&finish_reason)
+                        )),
+                    )
+                    .await;
                     return;
                 }
                 let _ = write_response(
@@ -1317,41 +1326,72 @@ mod completion_tests {
             let (socket, _) = listener.accept().await.unwrap();
             let (reader, mut writer) = socket.into_split();
             let mut request = String::new();
-            BufReader::new(reader).read_line(&mut request).await.unwrap();
+            BufReader::new(reader)
+                .read_line(&mut request)
+                .await
+                .unwrap();
             serde_json::from_str::<ControlEnvelope>(&request).unwrap();
             let tokenizer = ChatTokenizer::from_bytes(br#"{"version":"1.0","truncation":null,"padding":null,"added_tokens":[],"normalizer":null,"pre_tokenizer":{"type":"Whitespace"},"post_processor":null,"decoder":null,"model":{"type":"WordLevel","unk_token":"<unk>","vocab":{"<unk>":0,"partial":100}}}"#).unwrap();
             let (sender, events) = tokio::sync::mpsc::unbounded_channel();
-            let seq_id = aien_scheduler::SequenceId { slot: 0, generation: 1 };
-            sender.send(CompletionEvent::Token { seq_id, token: 100 }).unwrap();
-            sender.send(CompletionEvent::Finished {
-                seq_id, finish_reason: reason, total_tokens: 1, decoding: None, ops: None,
-            }).unwrap();
-            forward_turn(&mut writer, tokenizer, events, vec![0], RecordCtx {
-                compose: None, identity: None, started: DaemonStart::now(),
-                request_id: 1, operation_id: 1,
-            }).await;
+            let seq_id = aien_scheduler::SequenceId {
+                slot: 0,
+                generation: 1,
+            };
+            sender
+                .send(CompletionEvent::Token { seq_id, token: 100 })
+                .unwrap();
+            sender
+                .send(CompletionEvent::Finished {
+                    seq_id,
+                    finish_reason: reason,
+                    total_tokens: 1,
+                    decoding: None,
+                    ops: None,
+                })
+                .unwrap();
+            forward_turn(
+                &mut writer,
+                tokenizer,
+                events,
+                vec![0],
+                RecordCtx {
+                    compose: None,
+                    identity: None,
+                    started: DaemonStart::now(),
+                    request_id: 1,
+                    operation_id: 1,
+                },
+            )
+            .await;
         });
         let result = crate::client::AienRuntimeClient::new(&path)
-            .stream_turn_recorded(Vec::new(), 10, 0.0).await;
+            .stream_turn_recorded(Vec::new(), 10, 0.0)
+            .await;
         server.await.unwrap();
         result
     }
 
     #[tokio::test]
     async fn round3_length_limit_is_not_complete() {
-        let error = event_to_client(FinishReason::LengthLimit).await.expect_err("limited turn");
+        let error = event_to_client(FinishReason::LengthLimit)
+            .await
+            .expect_err("limited turn");
         assert!(error.contains("max_tokens"), "{error}");
     }
 
     #[tokio::test]
     async fn round3_aborted_is_not_complete() {
-        let error = event_to_client(FinishReason::Aborted).await.expect_err("aborted turn");
+        let error = event_to_client(FinishReason::Aborted)
+            .await
+            .expect_err("aborted turn");
         assert!(error.contains("aborted"), "{error}");
     }
 
     #[tokio::test]
     async fn round3_preempted_is_not_complete() {
-        let error = event_to_client(FinishReason::Preempted).await.expect_err("preempted turn");
+        let error = event_to_client(FinishReason::Preempted)
+            .await
+            .expect_err("preempted turn");
         assert!(error.contains("preempted"), "{error}");
     }
 

@@ -400,8 +400,7 @@ fn fenced_tool_call(block: &str) -> Option<&str> {
     } else {
         (false, block.strip_prefix("json").unwrap_or(block))
     };
-    (explicit || (raw.trim_start().starts_with('{') && raw.contains("\"name\"")))
-        .then_some(raw)
+    (explicit || (raw.trim_start().starts_with('{') && raw.contains("\"name\""))).then_some(raw)
 }
 
 /// Parse tool requests without treating malformed markup as final synthesis.

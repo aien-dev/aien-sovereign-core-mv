@@ -89,7 +89,9 @@ impl AienInferenceBackend for RecordingBackend {
         if let Ok((outputs, _)) = &mut out {
             for output in outputs {
                 if let DecodeOutput::Token { token_id, .. } = output {
-                    if *token_id == 101 { *token_id = 2; }
+                    if *token_id == 101 {
+                        *token_id = 2;
+                    }
                 }
             }
         }

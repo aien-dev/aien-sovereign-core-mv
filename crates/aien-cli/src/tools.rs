@@ -1191,7 +1191,10 @@ mod tests {
 
     #[test]
     fn round3_goal_tool_failure_flag_is_false() {
-        for result in [json!({"status":"error","error":"write goals failed"}), json!({"error":"denied"})] {
+        for result in [
+            json!({"status":"error","error":"write goals failed"}),
+            json!({"error":"denied"}),
+        ] {
             assert!(!goal_tool_result(result).1);
         }
         assert!(goal_tool_result(json!({"status":"ok"})).1);
