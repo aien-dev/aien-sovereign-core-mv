@@ -1,0 +1,36 @@
+PASS plan exits successfully
+FAIL plan preserves operator and base flags
+FAIL trigger exits successfully
+FAIL trigger resolves the requested repo and commit
+FAIL trigger records the resolved full SHA
+PASS trigger does not execute a worker
+FAIL unknown trigger commit is refused
+PASS unknown trigger commit writes no trigger
+FAIL verify exits successfully
+FAIL verify preserves repo, resolved SHA and flags
+FAIL verify uses the requested clone
+FAIL once exits successfully
+FAIL once preserves repo, resolved SHA and flags
+FAIL once uses only the expected stub git calls
+FAIL log preserves its line count
+PASS named start exits successfully
+PASS named start reaches the detached-start stub
+PASS named start preserves lane repo arguments
+PASS named start uses its lane pidfile
+PASS named start leaves the main lane alone
+PASS default start exits successfully
+PASS default start reaches the detached-start stub
+PASS default start keeps trigger-only arguments
+PASS default start uses the main pidfile
+PASS named start still requires github polling
+PASS refused start does not reach the detached-start stub
+PASS named start still requires a repo list
+PASS invalid lane names are still refused
+PASS named stop exits successfully
+PASS named stop checks and signals only its synthetic pid
+PASS named stop removes its pidfile
+PASS named stop preserves the main pidfile
+PASS default stop exits successfully
+PASS default stop checks and signals only its synthetic pid
+PASS default stop removes the main pidfile
+23 passed, 12 failed
