@@ -24,6 +24,7 @@ mod compose;
 mod context7;
 pub mod cortex;
 mod crumbs;
+mod fs_bind;
 pub mod goals;
 mod hive;
 pub mod hooks;
