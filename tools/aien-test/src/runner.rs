@@ -1046,33 +1046,93 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
         };
     let target_wait_ms = t_target.elapsed().as_millis() as u64;
 
+    // The manifest's `prepare` step (a build, say) runs before the GPU locks,
+    // under the host profile with its timeout enforced, so a gb10 gate never
+    // holds the chip while it compiles. It holds the pool slot and the target
+    // dir like the run does. A failure fails the gate and nothing else runs.
+    let mut prepare_note = Value::Null;
+    let mut prepare_out: Option<(Option<i64>, Vec<u8>, Vec<u8>)> = None;
+    if let Some(p) = m
+        .prepare
+        .as_ref()
+        .filter(|_| verdict::pre_run(m, &facts).is_none())
+    {
+        let tp = Instant::now();
+        let direct = RunSpec {
+            program: exec_path_for(root, &p.exec, opts.sandbox)
+                .unwrap_or_else(|| root.join(&p.exec)),
+            args: p.args.clone(),
+            cwd: root.to_path_buf(),
+            timeout: Duration::from_millis(m.timeout_ms),
+            kill_grace: opts.kill_grace,
+            enforce_timeout: true,
+            env: Vec::new(),
+            env_remove: vec![GPU_LOCK_HELD_MARKER.to_string()],
+        };
+        let spec = sandbox::wrap(
+            opts.sandbox,
+            direct,
+            "host",
+            &sandbox::env_pairs(opts.cargo_target_dir.as_deref()),
+        );
+        let (code, timed_out, out, err) = match process::run(&spec) {
+            Ok(o) => {
+                let code = o.exit_code.map(i64::from);
+                let code = if sandbox_refused(opts.sandbox, o.exit_code, &o.stderr) {
+                    None
+                } else {
+                    code
+                };
+                (code, o.timed_out, o.stdout, o.stderr)
+            }
+            Err(e) => (
+                None,
+                false,
+                Vec::new(),
+                format!("aien-test: cannot run prepare {}: {e}\n", p.exec).into_bytes(),
+            ),
+        };
+        facts.prepare_failed = code != Some(0) || timed_out;
+        prepare_note = json!({
+            "duration_ms": tp.elapsed().as_millis() as u64,
+            "exit_status": code,
+            "timed_out": timed_out,
+            "stdout_sha256": store.put_blob(&out).map_err(fatal)?,
+            "stderr_sha256": store.put_blob(&err).map_err(fatal)?,
+        });
+        prepare_out = Some((code, out, err));
+    }
+
     // A gb10 gate takes the GPU locks only when nothing else already stops it,
     // waiting for a held lock as `opts.gpu.wait` says. A refusal (quiet flag,
     // est_load, a lock still held at the bound) becomes the gate's reason;
     // the wait goes into the receipt (`volatile.gpu_wait`) either way.
     let mut gpu_wait = Value::Null;
-    let gpu: Option<GpuGuard> = if m.pool() == "gb10" && verdict::pre_run(m, &facts).is_none() {
-        let attempt = acquire_gpu_timed(&opts.gpu);
-        gpu_wait = json!({
-            "mode": opts.gpu.wait.mode(),
-            "bound_ms": opts.gpu.wait.bound_ms(),
-            "waited_ms": attempt.waited.as_millis() as u64,
-            "acquired": attempt.result.is_ok(),
-            // The memory check (gpu_mem): what the gate needed and what was free
-            // once it held the locks (null when not checked or refused first).
-            "mem_need_mb": attempt.mem_need_mb,
-            "mem_free_mb": attempt.mem_free_mb,
-        });
-        match attempt.result {
-            Ok(g) => Some(g),
-            Err(r) => {
-                facts.refusal = Some(r.reason().to_string());
-                None
+    let gpu: Option<GpuGuard> =
+        if m.pool() == "gb10" && !facts.prepare_failed && verdict::pre_run(m, &facts).is_none() {
+            let attempt = acquire_gpu_timed(&opts.gpu);
+            gpu_wait = json!({
+                "mode": opts.gpu.wait.mode(),
+                "bound_ms": opts.gpu.wait.bound_ms(),
+                "waited_ms": attempt.waited.as_millis() as u64,
+                "acquired": attempt.result.is_ok(),
+                // The memory check (gpu_mem): what the gate needed and what was free
+                // once it held the locks (null when not checked or refused first).
+                "mem_need_mb": attempt.mem_need_mb,
+                "mem_free_mb": attempt.mem_free_mb,
+            });
+            match attempt.result {
+                Ok(g) => Some(g),
+                Err(r) => {
+                    facts.refusal = Some(r.reason().to_string());
+                    None
+                }
             }
-        }
-    } else {
-        None
-    };
+        } else {
+            None
+        };
+    let gpu_since = Instant::now();
+    let mut gpu_held_ms: Option<u64> = None;
     let will_run = verdict::pre_run(m, &facts).is_none();
 
     let mut stdout: Vec<u8> = Vec::new();
@@ -1080,56 +1140,67 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
     let mut after = before.clone();
     let mut timeout_exceeded = false;
     if will_run {
-        let direct = RunSpec {
-            program: exec_path.clone(),
-            args: opts.args_override.clone().unwrap_or_else(|| m.args.clone()),
-            cwd: root.to_path_buf(),
-            timeout: Duration::from_millis(m.timeout_ms),
-            kill_grace: opts.kill_grace,
-            // gb10 jobs are never killed (ADR 0028 Decision 6): the timeout
-            // only marks the receipt.
-            enforce_timeout: m.pool() != "gb10",
-            // Tell the gate the GPU locks are already held for it, so a
-            // script that would take /tmp/aien-gb10.lock itself skips that.
-            // Only the runner may say so: an inherited copy (an operator's
-            // shell) is removed for every gate the guard is not held for.
-            env: if gpu.is_some() {
-                vec![(GPU_LOCK_HELD_MARKER.to_string(), "1".to_string())]
-            } else {
-                Vec::new()
-            },
-            env_remove: if gpu.is_some() {
-                Vec::new()
-            } else {
-                vec![GPU_LOCK_HELD_MARKER.to_string()]
-            },
-        };
-        // The sandbox seam (C8): `none` returns `direct` unchanged.
-        let spec = sandbox::wrap(
-            opts.sandbox,
-            direct,
-            m.pool(),
-            &sandbox::env_pairs(opts.cargo_target_dir.as_deref()),
-        );
-        match process::run(&spec) {
-            Ok(o) => {
-                facts.exit_status = o.exit_code.map(i64::from);
-                // Exit 2 with the helper's prefix is the helper refusing the
-                // call (nothing ran): never a program result, so it can never
-                // meet `expects.exit`, not even `exit: 2`.
-                if sandbox_refused(opts.sandbox, o.exit_code, &o.stderr) {
-                    facts.exit_status = None;
+        if let Some((code, out, err)) = prepare_out.take().filter(|_| facts.prepare_failed) {
+            // The prepare step failed and run never started: its output is
+            // the gate's record.
+            facts.exit_status = code;
+            stdout = out;
+            stderr = err;
+        } else {
+            let direct = RunSpec {
+                program: exec_path.clone(),
+                args: opts.args_override.clone().unwrap_or_else(|| m.args.clone()),
+                cwd: root.to_path_buf(),
+                timeout: Duration::from_millis(m.timeout_ms),
+                kill_grace: opts.kill_grace,
+                // gb10 jobs are never killed (ADR 0028 Decision 6): the timeout
+                // only marks the receipt.
+                enforce_timeout: m.pool() != "gb10",
+                // Tell the gate the GPU locks are already held for it, so a
+                // script that would take /tmp/aien-gb10.lock itself skips that.
+                // Only the runner may say so: an inherited copy (an operator's
+                // shell) is removed for every gate the guard is not held for.
+                env: if gpu.is_some() {
+                    vec![(GPU_LOCK_HELD_MARKER.to_string(), "1".to_string())]
+                } else {
+                    Vec::new()
+                },
+                env_remove: if gpu.is_some() {
+                    Vec::new()
+                } else {
+                    vec![GPU_LOCK_HELD_MARKER.to_string()]
+                },
+            };
+            // The sandbox seam (C8): `none` returns `direct` unchanged.
+            let spec = sandbox::wrap(
+                opts.sandbox,
+                direct,
+                m.pool(),
+                &sandbox::env_pairs(opts.cargo_target_dir.as_deref()),
+            );
+            match process::run(&spec) {
+                Ok(o) => {
+                    facts.exit_status = o.exit_code.map(i64::from);
+                    // Exit 2 with the helper's prefix is the helper refusing the
+                    // call (nothing ran): never a program result, so it can never
+                    // meet `expects.exit`, not even `exit: 2`.
+                    if sandbox_refused(opts.sandbox, o.exit_code, &o.stderr) {
+                        facts.exit_status = None;
+                    }
+                    facts.timed_out = o.timed_out;
+                    timeout_exceeded = o.timeout_exceeded;
+                    stdout = o.stdout;
+                    stderr = o.stderr;
                 }
-                facts.timed_out = o.timed_out;
-                timeout_exceeded = o.timeout_exceeded;
-                stdout = o.stdout;
-                stderr = o.stderr;
-            }
-            Err(e) => {
-                stderr = format!("aien-test: cannot run {}: {e}\n", m.exec).into_bytes();
+                Err(e) => {
+                    stderr = format!("aien-test: cannot run {}: {e}\n", m.exec).into_bytes();
+                }
             }
         }
         // The job is over: close the lock descriptors at once.
+        if gpu.is_some() {
+            gpu_held_ms = Some(gpu_since.elapsed().as_millis() as u64);
+        }
         drop(gpu);
         drop(target_lock);
         after = porcelain(root).map_err(RunError::Fatal)?;
@@ -1205,7 +1276,7 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
     core.insert("checks".into(), Value::Array(checks));
     core.insert("dependencies".into(), Value::Array(dependency_values));
 
-    let volatile = json!({
+    let mut volatile = json!({
         "started_utc": utc_string(started),
         "finished_utc": utc_string(now_secs()),
         "duration_ms": t0.elapsed().as_millis() as u64,
@@ -1217,7 +1288,11 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
         "cache": cache::cache_member(&cache_key, None, mode),
         "timeout_exceeded": timeout_exceeded,
         "gpu_wait": gpu_wait,
+        "gpu_held_ms": gpu_held_ms,
     });
+    if !prepare_note.is_null() {
+        volatile["prepare"] = prepare_note;
+    }
 
     let receipt = build_receipt(Value::Object(core), volatile);
     let (digest, path) = store.put_receipt(&receipt).map_err(fatal)?;
@@ -2046,6 +2121,64 @@ mod tests {
         let r = read_json(&o.receipt_path.unwrap());
         assert_eq!(r["core"]["observations"][0]["name"], "lock_held");
         assert_eq!(r["core"]["observations"][0]["value"], 1);
+    }
+
+    /// `prep <marker> <lock> <exit>` records whether the GPU lock is free and
+    /// whether the runner claims to hold it; `run <marker> <lock>` reports
+    /// whether the lock is free while the run is going.
+    const PREPARE_SCRIPT: &str = "#!/bin/sh\nfree=0\nflock -n \"$3\" true && free=1\nif [ \"$1\" = prep ]; then\n  echo \"held=${AIEN_GB10_LOCK_HELD:-0} free=$free\" > \"$2.prep\"\n  exit \"$4\"\nfi\ntouch \"$2\"\necho \"AIEN-OBS lock_free $free\"\n";
+
+    /// A v2 gb10 gate whose `prepare` exits `prep_exit`.
+    fn prepare_fixture(prep_exit: i32) -> (Fx, Options) {
+        let fx = gb10_fixture(PREPARE_SCRIPT, "20s");
+        let opts = gb10_opts(&fx);
+        let (marker, lock) = (fx.marker(), opts.gpu.lock_path.clone());
+        let (marker, lock) = (marker.to_str().unwrap(), lock.to_str().unwrap());
+        let gate = format!(
+            "gate: T-1\nmanifest_version: 2\nowner: t\nrequires:\n  - gb10\nprepare:\n  exec: tools/run.sh\n  args: {}\nrun:\n  exec: tools/run.sh\n  args: {}\nexpects:\n  exit: 0\n  observe: [\"lock_free == 0\"]\n  verdict: PASS\ntimeout: 20s\n",
+            serde_json::to_string(&["prep", marker, lock, &prep_exit.to_string()]).unwrap(),
+            serde_json::to_string(&["run", marker, lock]).unwrap(),
+        );
+        write_file(fx.repo.path(), "tests/t.gate", &gate, false);
+        git(fx.repo.path(), &["add", "-A"]);
+        git(fx.repo.path(), &["commit", "-q", "-m", "prepare"]);
+        (fx, opts)
+    }
+
+    #[test]
+    fn prepare_runs_before_the_gpu_lock_and_run_under_it() {
+        let (fx, opts) = prepare_fixture(0);
+        let o = run(&fx, &opts);
+        assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
+        // The prepare step saw a free lock and no claim that it was held.
+        let prep = fs::read_to_string(fx.marker().with_extension("prep")).unwrap();
+        assert_eq!(prep.trim(), "held=0 free=1");
+        // The run itself was under the lock (rule lock_free == 0 held).
+        let r = read_json(&o.receipt_path.unwrap());
+        assert_eq!(r["volatile"]["prepare"]["exit_status"], 0);
+        assert!(r["volatile"]["prepare"]["duration_ms"].is_u64());
+        assert!(r["volatile"]["gpu_held_ms"].is_u64());
+        assert_eq!(r["volatile"]["gpu_wait"]["acquired"], true);
+        assert!(acquire_gpu(&opts.gpu).is_ok(), "released after the job");
+    }
+
+    #[test]
+    fn a_failed_prepare_fails_the_gate_and_never_takes_the_gpu() {
+        let (fx, opts) = prepare_fixture(3);
+        let o = run(&fx, &opts);
+        assert_eq!(
+            (o.verdict, o.reason.as_str()),
+            (Verdict::Fail, "prepare_failed")
+        );
+        assert!(!fx.marker().exists(), "run must not start");
+        let r = read_json(&o.receipt_path.unwrap());
+        assert_eq!(r["core"]["exit_status"], 3);
+        assert_eq!(r["volatile"]["prepare"]["exit_status"], 3);
+        assert!(
+            r["volatile"]["gpu_wait"].is_null(),
+            "the GPU lock was never asked for"
+        );
+        assert!(r["volatile"]["gpu_held_ms"].is_null());
     }
 
     #[test]
