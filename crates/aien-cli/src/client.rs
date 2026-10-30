@@ -308,6 +308,16 @@ impl ChatClient {
                     if let Ok(val) = serde_json::from_str::<Value>(data) {
                         if let Some(choices) = val.get("choices").and_then(Value::as_array) {
                             if let Some(choice) = choices.first() {
+                                if let Some(reason) =
+                                    choice.get("finish_reason").and_then(Value::as_str)
+                                {
+                                    if !matches!(reason, "stop" | "tool_calls" | "function_call") {
+                                        return Err(format!(
+                                            "Model turn did not complete: finish_reason {}",
+                                            reason
+                                        ));
+                                    }
+                                }
                                 if let Some(delta) = choice.get("delta") {
                                     if let Some(reasoning) = delta
                                         .get("reasoning")
@@ -357,84 +367,78 @@ impl ChatClient {
         if stream_to_stdout {
             println!();
         }
+        if !is_done {
+            return Err("Model stream ended before [DONE]".into());
+        }
 
         Ok(full_text)
     }
 }
 
-fn parse_tool_call_json(raw: &str) -> Option<Value> {
-    let trimmed = raw.trim();
-    if let Ok(parsed) = serde_json::from_str::<Value>(trimmed) {
-        return Some(parsed);
+fn parse_tool_call_json(raw: &str) -> Result<(String, Value), String> {
+    let parsed: Value = serde_json::from_str(raw.trim())
+        .map_err(|error| format!("Malformed tool call: {}", error))?;
+    let name = parsed
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|name| !name.trim().is_empty() && *name != "tool_name")
+        .ok_or_else(|| "Malformed tool call: missing or invalid name".to_string())?;
+    let args = parsed
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    if !args.is_object() {
+        return Err("Malformed tool call: arguments must be an object".into());
     }
-    // Delimiter repair: trailing "]" instead of "}"
-    if let Some(stripped) = trimmed.strip_suffix("]") {
-        let mut fixed = stripped.to_string();
-        fixed.push('}');
-        if let Ok(parsed) = serde_json::from_str::<Value>(&fixed) {
-            return Some(parsed);
-        }
-    }
-    // Truncated boundary repair: unclosed curlies
-    let open_c = trimmed.chars().filter(|&c| c == '{').count();
-    let close_c = trimmed.chars().filter(|&c| c == '}').count();
-    if open_c > close_c {
-        let mut candidate = trimmed.to_string();
-        if candidate.chars().filter(|&c| c == '"').count() % 2 != 0 {
-            candidate.push('"');
-        }
-        for _ in 0..(open_c - close_c) {
-            candidate.push('}');
-        }
-        if let Ok(parsed) = serde_json::from_str::<Value>(&candidate) {
-            return Some(parsed);
-        }
-    }
-    None
+    Ok((name.to_string(), args))
 }
 
-pub fn extract_tool_calls(text: &str) -> Vec<(String, Value)> {
+/// Parse tool requests without treating malformed markup as final synthesis.
+pub fn extract_tool_calls(text: &str) -> Result<Vec<(String, Value)>, String> {
     let mut calls = Vec::new();
-    let pattern = match regex::Regex::new(r"(?s)<tool_call>\s*(.*?)\s*(?:</tool_call>|$)") {
-        Ok(p) => p,
-        Err(_) => return calls,
-    };
-    for caps in pattern.captures_iter(text) {
-        if let Some(json_match) = caps.get(1) {
-            if let Some(parsed) = parse_tool_call_json(json_match.as_str()) {
-                if let Some(name) = parsed.get("name").and_then(Value::as_str) {
-                    if name != "tool_name" {
-                        let args = parsed.get("arguments").cloned().unwrap_or(json!({}));
-                        calls.push((name.to_string(), args));
-                    }
-                }
-            }
+    let mut remaining = text;
+    while let Some((prefix, after)) = remaining.split_once("<tool_call") {
+        if prefix.contains("</tool_call") {
+            return Err("Malformed tool call: unexpected closing tag".into());
         }
+        let after = after
+            .strip_prefix('>')
+            .ok_or_else(|| "Malformed tool call: invalid opening tag".to_string())?;
+        let (raw, rest) = after
+            .split_once("</tool_call>")
+            .ok_or_else(|| "Malformed tool call: missing closing tag".to_string())?;
+        calls.push(parse_tool_call_json(raw)?);
+        remaining = rest;
     }
-    if calls.is_empty() {
-        if let Ok(json_pat) = regex::Regex::new(
-            r#"(?s)```(?:json|tool_call)?\s*(\{\s*"name"\s*:\s*"[^"]+".*?\})\s*```"#,
-        ) {
-            for caps in json_pat.captures_iter(text) {
-                if let Some(json_match) = caps.get(1) {
-                    if let Some(parsed) = parse_tool_call_json(json_match.as_str()) {
-                        if let Some(name) = parsed.get("name").and_then(Value::as_str) {
-                            if name != "tool_name" {
-                                let args = parsed.get("arguments").cloned().unwrap_or(json!({}));
-                                calls.push((name.to_string(), args));
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    if remaining.contains("</tool_call") {
+        return Err("Malformed tool call: unexpected closing tag".into());
     }
-    calls
-}
+    if !calls.is_empty() {
+        return Ok(calls);
+    }
 
-#[allow(dead_code)]
-pub fn extract_tool_call(text: &str) -> Option<(String, Value)> {
-    extract_tool_calls(text).into_iter().last()
+    // Preserve the existing fenced-call syntax, but never silently discard
+    // an explicitly labelled or named tool request that cannot be parsed.
+    remaining = text;
+    while let Some((_, after)) = remaining.split_once("```") {
+        let Some((block, rest)) = after.split_once("```") else {
+            if after.starts_with("tool_call") {
+                return Err("Malformed tool call: unclosed tool_call fence".into());
+            }
+            break;
+        };
+        let block = block.trim();
+        let (explicit, raw) = if let Some(raw) = block.strip_prefix("tool_call") {
+            (true, raw)
+        } else {
+            (false, block.strip_prefix("json").unwrap_or(block))
+        };
+        if explicit || (raw.trim_start().starts_with('{') && raw.contains("\"name\"")) {
+            calls.push(parse_tool_call_json(raw)?);
+        }
+        remaining = rest;
+    }
+    Ok(calls)
 }
 
 #[cfg(test)]
@@ -446,26 +450,21 @@ mod tests {
         let valid = r#"<tool_call>
 {"name": "run_command", "arguments": {"command": "git status"}}
 </tool_call>"#;
-        let calls = extract_tool_calls(valid);
+        let calls = extract_tool_calls(valid).unwrap();
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].0, "run_command");
         assert_eq!(calls[0].1["command"], "git status");
 
-        // Trailing bracket repair
+        // Malformed JSON is evidence of an invalid request, not repairable success.
         let bracket_glitch = r#"<tool_call>
 {"name": "invoke_subagent", "arguments": {"role": "Auditor", "prompt": "check crates"}]
 </tool_call>"#;
-        let calls2 = extract_tool_calls(bracket_glitch);
-        assert_eq!(calls2.len(), 1);
-        assert_eq!(calls2[0].0, "invoke_subagent");
-        assert_eq!(calls2[0].1["role"], "Auditor");
+        assert!(extract_tool_calls(bracket_glitch).is_err());
 
-        // Truncated tool call (no closing tag)
+        // An incomplete tag must not be executed or treated as final synthesis.
         let truncated = r#"<tool_call>
 {"name": "run_command", "arguments": {"command": "ls -la"}}"#;
-        let calls3 = extract_tool_calls(truncated);
-        assert_eq!(calls3.len(), 1);
-        assert_eq!(calls3[0].0, "run_command");
+        assert!(extract_tool_calls(truncated).is_err());
     }
 
     #[tokio::test]

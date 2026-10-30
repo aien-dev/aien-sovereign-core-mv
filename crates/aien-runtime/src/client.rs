@@ -232,11 +232,7 @@ impl AienRuntimeClient {
                 }
             }
         }
-        if finished.is_empty() {
-            Err("native runtime closed the socket before the turn finished".into())
-        } else {
-            Ok((finished, None))
-        }
+        Err("native runtime closed the socket before the turn finished".into())
     }
 
     pub async fn shutdown(&self) -> Result<(), String> {

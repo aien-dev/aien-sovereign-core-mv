@@ -223,7 +223,14 @@ async fn execute_subagent_with(
 
         messages.push(json!({"role": "assistant", "content": assistant_resp.clone()}));
 
-        let tool_calls = extract_tool_calls(&assistant_resp);
+        let tool_calls = match extract_tool_calls(&assistant_resp) {
+            Ok(calls) => calls,
+            Err(error) => {
+                final_summary = error;
+                outcome = SubagentOutcome::Failed;
+                break;
+            }
+        };
         if tool_calls.is_empty() {
             // Only a real, nonempty model reply is a final synthesis.
             if assistant_resp.trim().is_empty() {
@@ -317,6 +324,7 @@ async fn execute_subagent_with(
     let (transcript_path, transcript_error) = match persisted {
         Ok(()) => (Some(transcript_path.to_string_lossy().to_string()), None),
         Err(error) => {
+            outcome = SubagentOutcome::Failed;
             let message = format!("Subagent transcript write failed: {}", error);
             eprintln!("{}", format!("{}│ [Error] {}", indent, message).red());
             (None, Some(message))
@@ -521,8 +529,12 @@ mod tests {
         steps: usize,
         summary: &str,
     ) {
-        let scratch = tempfile::tempdir().unwrap();
         let client = FakeChat(std::sync::Mutex::new(replies.into()));
+        run_chat(&client, expected, steps, summary).await;
+    }
+
+    async fn run_chat(client: &impl SubagentChat, expected: &str, steps: usize, summary: &str) {
+        let scratch = tempfile::tempdir().unwrap();
         let emissions = std::cell::RefCell::new(Vec::new());
         let result = execute_subagent_with(
             SubagentSpec {
@@ -532,7 +544,7 @@ mod tests {
                 depth: 3,
                 parent_id: Some("test-parent".into()),
             },
-            &client,
+            client,
             scratch.path(),
             |_, summary| emissions.borrow_mut().push(summary.to_string()),
         )
@@ -618,50 +630,218 @@ mod tests {
         run_replies(replies, "completed", 10, "last permitted turn").await;
     }
 
-    #[tokio::test]
-    async fn transcript_write_failure_preserves_outcome_without_missing_path() {
-        for (reply, expected) in [
-            (Ok("Final synthesis.".into()), "completed"),
-            (Err("injected inference error".into()), "failed"),
+    async fn persistence_failure(fail_directory_creation: bool) {
+        for reply in [
+            Ok::<String, String>("Final synthesis.".into()),
+            Err("injected inference error".into()),
         ] {
-            for fail_directory_creation in [false, true] {
-                let scratch = tempfile::tempdir().unwrap();
-                let transcript_dir = scratch.path().join("transcripts");
-                if fail_directory_creation {
-                    fs::write(&transcript_dir, "not a directory").unwrap();
-                } else {
-                    fs::create_dir_all(transcript_dir.join("outcome-test.json")).unwrap();
-                }
-                let client = FakeChat(std::sync::Mutex::new(vec![reply.clone()].into()));
-                let result = execute_subagent_with(
-                    SubagentSpec {
-                        id: "outcome-test".into(),
-                        role: "Verifier".into(),
-                        prompt: "Test persistence failure".into(),
-                        depth: 3,
-                        parent_id: None,
-                    },
-                    &client,
-                    &transcript_dir,
-                    |_, _| {},
-                )
-                .await;
-                assert_eq!(result.status, expected);
-                assert!(result.transcript_path.is_none());
-                assert!(result
-                    .transcript_error
-                    .as_ref()
-                    .unwrap()
-                    .contains("transcript write failed"));
-                if expected == "failed" {
-                    assert!(result.summary.contains("injected inference error"));
-                }
-                let (value, success) =
-                    crate::tools::subagent_tool_result(serde_json::to_value(&result).unwrap());
-                assert!(value["transcript_path"].is_null());
-                assert_eq!(success, expected == "completed");
+            let scratch = tempfile::tempdir().unwrap();
+            let transcript_dir = scratch.path().join("transcripts");
+            if fail_directory_creation {
+                fs::write(&transcript_dir, "not a directory").unwrap();
+            } else {
+                fs::create_dir_all(transcript_dir.join("outcome-test.json")).unwrap();
             }
+            let summary = match &reply {
+                Ok(text) => text.clone(),
+                Err(error) => error.clone(),
+            };
+            let client = FakeChat(std::sync::Mutex::new(vec![reply].into()));
+            let emissions = std::cell::Cell::new(0);
+            let result = execute_subagent_with(
+                SubagentSpec {
+                    id: "outcome-test".into(),
+                    role: "Verifier".into(),
+                    prompt: "Test persistence failure".into(),
+                    depth: 3,
+                    parent_id: None,
+                },
+                &client,
+                &transcript_dir,
+                |_, _| emissions.set(emissions.get() + 1),
+            )
+            .await;
+            assert_eq!(result.status, "failed");
+            assert!(result.transcript_path.is_none());
+            assert!(result
+                .transcript_error
+                .as_ref()
+                .unwrap()
+                .contains("transcript write failed"));
+            assert!(result.summary.contains(&summary));
+            let (value, success) =
+                crate::tools::subagent_tool_result(serde_json::to_value(&result).unwrap());
+            assert!(value["transcript_path"].is_null());
+            assert!(!success);
+            assert_eq!(emissions.get(), 0);
         }
+    }
+
+    #[tokio::test]
+    async fn round2_persistence_directory_failure() {
+        persistence_failure(true).await;
+    }
+
+    #[tokio::test]
+    async fn round2_persistence_file_failure() {
+        persistence_failure(false).await;
+    }
+
+    #[tokio::test]
+    async fn round2_malformed_tool_call_is_failed() {
+        run_replies(
+            vec![Ok("<tool_call>{\"name\":</tool_call>".into())],
+            "failed",
+            1,
+            "Malformed tool call",
+        )
+        .await;
+    }
+
+    async fn remote_fixture(body: String) -> (ChatClient, tokio::task::JoinHandle<()>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let endpoint = format!(
+            "http://{}/v1/chat/completions",
+            listener.local_addr().unwrap()
+        );
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut bytes = [0; 1024];
+            loop {
+                let count = socket.read(&mut bytes).await.unwrap();
+                assert_ne!(count, 0);
+                request.extend_from_slice(&bytes[..count]);
+                if let Some(pos) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                    let headers = std::str::from_utf8(&request[..pos]).unwrap();
+                    let length: usize = headers
+                        .lines()
+                        .find_map(|line| {
+                            let (name, value) = line.split_once(':')?;
+                            name.eq_ignore_ascii_case("content-length")
+                                .then(|| value.trim().parse().unwrap())
+                        })
+                        .unwrap();
+                    if request.len() >= pos + 4 + length {
+                        break;
+                    }
+                }
+            }
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(), body
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+            socket.shutdown().await.unwrap();
+        });
+        (
+            ChatClient::new(Some(endpoint), Some("test-model".into())),
+            server,
+        )
+    }
+
+    fn remote_body(reason: Option<&str>, done: bool) -> String {
+        let mut body = format!(
+            "data: {}\n\n",
+            json!({"choices":[{"delta":{"content":"Partial final synthesis."}}]})
+        );
+        if let Some(reason) = reason {
+            body.push_str(&format!(
+                "data: {}\n\n",
+                json!({"choices":[{"delta":{},"finish_reason":reason}]})
+            ));
+        }
+        if done {
+            body.push_str("data: [DONE]\n\n");
+        }
+        body
+    }
+
+    #[tokio::test]
+    async fn round2_remote_eof_is_failed() {
+        let (client, server) = remote_fixture(remote_body(None, false)).await;
+        run_chat(&client, "failed", 1, "before [DONE]").await;
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn round2_remote_length_is_failed() {
+        let (client, server) = remote_fixture(remote_body(Some("length"), true)).await;
+        run_chat(&client, "failed", 1, "length").await;
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn remote_stop_is_completed() {
+        let (client, server) = remote_fixture(remote_body(Some("stop"), true)).await;
+        run_chat(&client, "completed", 1, "Partial final synthesis.").await;
+        server.await.unwrap();
+    }
+
+    struct NativeChat(aien_runtime::client::AienRuntimeClient);
+    impl SubagentChat for NativeChat {
+        async fn reply(&self, _messages: &[Value]) -> Result<String, String> {
+            self.0.stream_turn(Vec::new(), 1024, 0.2).await
+        }
+    }
+
+    async fn native_fixture(
+        finish: bool,
+    ) -> (tempfile::TempDir, NativeChat, tokio::task::JoinHandle<()>) {
+        use aien_runtime::control::ControlResponse;
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        let scratch = tempfile::tempdir().unwrap();
+        let path = scratch.path().join("runtime.sock");
+        let listener = tokio::net::UnixListener::bind(&path).unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = String::new();
+            tokio::io::BufReader::new(&mut socket)
+                .read_line(&mut request)
+                .await
+                .unwrap();
+            serde_json::from_str::<aien_runtime::control::ControlEnvelope>(&request).unwrap();
+            let delta = ControlResponse::TurnDelta {
+                text: "Partial final synthesis.".into(),
+            };
+            socket
+                .write_all(format!("{}\n", serde_json::to_string(&delta).unwrap()).as_bytes())
+                .await
+                .unwrap();
+            if finish {
+                let terminal = ControlResponse::TurnFinished {
+                    text: "Complete native synthesis.".into(),
+                    total_tokens: 4,
+                    generation_record: Some(9),
+                };
+                socket
+                    .write_all(
+                        format!("{}\n", serde_json::to_string(&terminal).unwrap()).as_bytes(),
+                    )
+                    .await
+                    .unwrap();
+            }
+            socket.shutdown().await.unwrap();
+        });
+        let client = NativeChat(aien_runtime::client::AienRuntimeClient::new(&path));
+        (scratch, client, server)
+    }
+
+    #[tokio::test]
+    async fn round2_native_eof_is_failed() {
+        let (_scratch, client, server) = native_fixture(false).await;
+        run_chat(&client, "failed", 1, "before the turn finished").await;
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn native_finished_is_completed() {
+        let (_scratch, client, server) = native_fixture(true).await;
+        run_chat(&client, "completed", 1, "Complete native synthesis.").await;
+        server.await.unwrap();
     }
 
     #[test]

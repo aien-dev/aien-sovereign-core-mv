@@ -82,8 +82,8 @@
           "purpose": "ALLEN persona profile v1: versioned, user-editable profile bound to the engaged ALLEN identity; "
         },
         {
-          "digest": "775415f1d86bf151328ec3b9102d00afa35a4cc4da84f6abf1ca75696a714398",
-          "last_commit": "53beb962",
+          "digest": "13de0bef0950793771ee36522942adf13800dc84b60d5e8c7aebd59828424083",
+          "last_commit": "daab5f89",
           "name": "crates/aien-cli",
           "purpose": ""
         },
@@ -118,15 +118,15 @@
           "purpose": "Local CI sandbox exec contract (C8), aien-run user/caches install, Forgejo trigger hook, health "
         }
       ],
-      "children_root": "sha256:7dd2de789acabf916e268be3f72fc2c2411764e8ecc0fd315c8c4c1592b8cd41",
-      "compiled_at": "2026-10-30T00:32:21Z",
+      "children_root": "sha256:be8ff2690056d6c5d4e4e17b8390dd71fc529ed33d877e757395322988407bf3",
+      "compiled_at": "2026-10-30T00:54:05Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:4821d397ba86c03061e379df385488da4e2cdb1368e36c929f894257a36e5876",
+      "digest": "sha256:528493177dd57dc8e101859372b033d6ae824d530e4a7c91ac2a57c6d0df1759",
       "evidence_files": 3586,
       "evidence_root": "sha256:ee29710af304de14c30917f3cc8eb87c5b5e9a42b75dd9d009e842279d8075d0",
       "files": 8028,
-      "generated_at_commit": "b65e00b0652a3b426dce1bf77f7fe4eccf5f7473",
-      "source_tree": "sha256:b2946e0ef95b9676bfe543b0bc3800b173e4c2de75c6e183adb71afaf8abdf2c"
+      "generated_at_commit": "daab5f897b0d0e55ef092295bfd182935758ecbf",
+      "source_tree": "sha256:5bdfacebede3fdcc0187f3b601f88acdad040b471a60f9361adbda448d4a8839"
     }
   },
   "history": [],

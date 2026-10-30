@@ -362,7 +362,13 @@ async fn main() {
 
                     report_compaction(&compactor.compact_if_needed(&mut messages));
 
-                    let tool_calls = extract_tool_calls(&assistant_resp);
+                    let tool_calls = match extract_tool_calls(&assistant_resp) {
+                        Ok(calls) => calls,
+                        Err(error) => {
+                            eprintln!("{}", error);
+                            break;
+                        }
+                    };
                     if !tool_calls.is_empty() {
                         for (tool_name, tool_args) in tool_calls {
                             let tool_result = dispatch_tool(&tool_name, &tool_args);
@@ -448,7 +454,13 @@ async fn run_single_prompt(prompt: &str) {
         hook_registry.run_post_turn(&mut assistant_resp).await;
         messages.push(json!({"role": "assistant", "content": assistant_resp.clone()}));
 
-        let tool_calls = extract_tool_calls(&assistant_resp);
+        let tool_calls = match extract_tool_calls(&assistant_resp) {
+            Ok(calls) => calls,
+            Err(error) => {
+                eprintln!("{}", error);
+                return;
+            }
+        };
         if !tool_calls.is_empty() {
             for (tool_name, tool_args) in tool_calls {
                 let tool_result = dispatch_tool(&tool_name, &tool_args);
@@ -564,14 +576,20 @@ pub async fn run_autonomous_goal(goal_id: &str) {
                 Ok(text) => text,
                 Err(e) => {
                     eprintln!("Inference error: {}", e);
-                    break;
+                    return;
                 }
             };
 
             hook_registry.run_post_turn(&mut assistant_resp).await;
             messages.push(json!({"role": "assistant", "content": assistant_resp.clone()}));
 
-            let tool_calls = extract_tool_calls(&assistant_resp);
+            let tool_calls = match extract_tool_calls(&assistant_resp) {
+                Ok(calls) => calls,
+                Err(error) => {
+                    eprintln!("{}", error);
+                    return;
+                }
+            };
             if !tool_calls.is_empty() {
                 for (tool_name, tool_args) in tool_calls {
                     if tool_name == "goal" {
