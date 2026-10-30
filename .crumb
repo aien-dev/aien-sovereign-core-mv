@@ -89,7 +89,7 @@
         },
         {
           "digest": "3a331fee49e858953c344a75e26558ac2288bca4b335eed2f2702dfd77379e8e",
-          "last_commit": "",
+          "last_commit": "e728371b",
           "name": "crates/aien-heartbeat",
           "purpose": "Expert Heartbeat H1 (aienix#4): fixed-slot versioned ring streaming MoE expert weights from NVMe"
         },
@@ -107,7 +107,7 @@
         },
         {
           "digest": "f8533049f0f1489cdf93085eb6bc69f8019047056b0f08ae3bf725268b3c5f07",
-          "last_commit": "262d46d1",
+          "last_commit": "98811447",
           "name": "scripts",
           "purpose": ""
         },
@@ -119,20 +119,20 @@
         },
         {
           "digest": "0aacc9353a76a564e51069e99c6f11fb84b293ecf9686b68fbd72755b7da564e",
-          "last_commit": "ca99c4b7",
+          "last_commit": "ffa66afd",
           "name": "tools/aien-local-ci",
           "purpose": "Local CI sandbox exec contract (C8), aien-run user/caches install, Forgejo trigger hook, health "
         }
       ],
       "children_root": "sha256:273059fdb16248c41109aa6548e8c78c35a183bd5d7050f1b30934ee368e9791",
-      "compiled_at": "2026-10-30T13:18:09Z",
+      "compiled_at": "2026-10-30T13:22:03Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:c85423d93df0e9fa36d788ba9ec4d7bcd6df38802392262352508dd519903728",
+      "digest": "sha256:be7a78613b54f7106818910c4eabc7e27480c77c6a83609cf6877d2fec7e0ada",
       "evidence_files": 3602,
       "evidence_root": "sha256:1b8069934a4cc67803874ebd2ad5de32671fae5ccce1a3ea70aeb532fe8ea86b",
       "files": 8104,
-      "generated_at_commit": "feebdab59299c4e3581280276a645c4fc9f5e3d8",
-      "source_tree": "sha256:5ca08b71b8b242045cfae0f1175be374cf2dd01afb4d45f87da93ef31238cab8"
+      "generated_at_commit": "98811447ae8f6a4144afa2c0c8c773c806cea374",
+      "source_tree": "sha256:cd2bb5f7949218536f10607f751329af8d9780ef16ed3e74bef027a59afbddf3"
     }
   },
   "history": [],
