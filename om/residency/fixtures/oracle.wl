@@ -12,7 +12,7 @@
      with the largest score that was not already used in the current step, lowest id on ties;
      LRU score: steps since last use; OPT score: step of next use (number of steps when none);
    - warm counts misses at steps s >= Floor[steps / 2]; warm_acc = accesses at those steps;
-   - hlru (with hints, after glru/gopt, only when c >= K + H): see hintReplay. *)
+   - hlru and hcold (with hints, after glru/gopt, only when c >= K + H): see hintReplay. *)
 
 replay[steps_, n_, c_, pol_] := Module[{nT = Length[steps], nK = Length[First[steps]], last, nxt,
     stamp, nextUse, hits = 0, miss = 0, warm = 0, resident = 0, id, cand, sc, best},
@@ -46,20 +46,25 @@ replay[steps_, n_, c_, pol_] := Module[{nT = Length[steps], nK = Length[First[st
 line[tag_, c_, p_, {h_, m_, w_}, acc_] := StringJoin[tag, " cap=", ToString[c], " pct=", ToString[p],
   " hits=", ToString[h], " miss=", ToString[m], " warm_miss=", ToString[w], " warm_acc=", ToString[acc]];
 
-(* hintReplay[steps, hsteps, n, c]: the shared-cache LRU replay of replay[] with prefetch hints.
-   Before the demands of step s, every hinted expert of hsteps[[s]] is made resident (a missing one
-   is fetched as a prefetch, making room exactly like a miss) and marked used in step s; then the
-   demands of steps[[s]] are served. Returns the demand counts {hits, miss, warm} and the counts of
-   prefetches issued at warm steps {issued, demanded before eviction, evicted undemanded}. *)
-hintReplay[steps_, hsteps_, n_, c_] := Module[{nT = Length[steps], half, stamp, pf, issue,
-    hits = 0, miss = 0, warm = 0, wpf = 0, wused = 0, wwaste = 0, resident = 0, makeRoom, id},
+(* hintReplay[steps, hsteps, n, c, cold]: the shared-cache LRU replay of replay[] with prefetch
+   hints. Before the demands of step s, every hinted expert of hsteps[[s]] is made resident (a
+   missing one is fetched as a prefetch, making room exactly like a miss) and protected from
+   eviction during step s; then the demands of steps[[s]] are served.
+   cold = False (hlru): a hinted expert also counts as used in step s.
+   cold = True (hcold): a hint does not count as a use; a fetched expert gets last-use step 1, the
+   oldest possible, so ties with it go to the lowest id.
+   Returns the demand counts {hits, miss, warm} and the counts of prefetches issued at warm steps
+   {issued, demanded before eviction, evicted undemanded}. *)
+hintReplay[steps_, hsteps_, n_, c_, cold_] := Module[{nT = Length[steps], half, stamp, prot, pf,
+    issue, hits = 0, miss = 0, warm = 0, wpf = 0, wused = 0, wwaste = 0, resident = 0, makeRoom, id},
   half = Floor[nT/2];
   stamp = ConstantArray[0, n];
+  prot = ConstantArray[0, n];
   pf = ConstantArray[False, n];
   issue = ConstantArray[0, n];
   makeRoom[s_] := If[resident >= c,
     Module[{cand, sc, best},
-      cand = Select[Range[n], stamp[[#]] != 0 && stamp[[#]] != s &];
+      cand = Select[Range[n], stamp[[#]] != 0 && stamp[[#]] != s && prot[[#]] != s &];
       sc = s - stamp[[cand]];
       best = cand[[First[FirstPosition[sc, Max[sc]]]]];
       If[pf[[best]], If[issue[[best]] >= half, wwaste++]; pf[[best]] = False];
@@ -72,8 +77,10 @@ hintReplay[steps_, hsteps_, n_, c_] := Module[{nT = Length[steps], half, stamp, 
         If[s - 1 >= half, wpf++];
         makeRoom[s];
         pf[[id]] = True;
-        issue[[id]] = s - 1];
-      stamp[[id]] = s,
+        issue[[id]] = s - 1;
+        stamp[[id]] = 1];
+      If[! cold, stamp[[id]] = s];
+      prot[[id]] = s,
       {j, Length[hsteps[[s]]]}];
     Do[
       id = steps[[s, j]] + 1;
@@ -88,7 +95,7 @@ hintReplay[steps_, hsteps_, n_, c_] := Module[{nT = Length[steps], half, stamp, 
     {s, nT}];
   {{hits, miss, warm}, {wpf, wused, wwaste}}];
 
-hline[c_, p_, h_, {{hh_, m_, w_}, {f_, u_, x_}}, acc_] := StringJoin["hlru cap=", ToString[c],
+hline[tag_, c_, p_, h_, {{hh_, m_, w_}, {f_, u_, x_}}, acc_] := StringJoin[tag, " cap=", ToString[c],
   " pct=", ToString[p], " hint=", ToString[h], " hits=", ToString[hh], " miss=", ToString[m],
   " warm_miss=", ToString[w], " warm_pf=", ToString[f], " warm_used=", ToString[u],
   " warm_waste=", ToString[x], " warm_acc=", ToString[acc]];
@@ -115,7 +122,7 @@ residencyOracle[e_, l_, k_, t_, ids_, h_ : None, hids_ : {}] := Module[{pcts = {
         Flatten[Table[htr[[tt, ll]] + (ll - 1) e, {tt, t}, {ll, l}], 1]];
       Do[
         With[{c = Floor[g p/100]},
-          If[c >= k + h, AppendTo[out, hline[c, p, h, hintReplay[gsteps, hsteps, g, c],
-            k (t l - Floor[t l/2])]]]],
-        {p, pcts}]]];
+          If[c >= k + h, AppendTo[out, hline[{"hlru", "hcold"}[[cold + 1]], c, p, h,
+            hintReplay[gsteps, hsteps, g, c, cold == 1], k (t l - Floor[t l/2])]]]],
+        {cold, {0, 1}}, {p, pcts}]]];
   StringJoin[Riffle[out, FromCharacterCode[10]], FromCharacterCode[10]]];

@@ -2,15 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 # Host test of the seeded .om expert residency simulator (om/residency/residency.om).
 # Expected outputs in fixtures/*.want were computed by fixtures/oracle.wl, an independent LRU,
-# Belady (OPT) and hinted-LRU implementation in the Wolfram Language, not by residency.om:
+# Belady (OPT) and hinted-LRU (hlru, hcold) implementation in the Wolfram Language, not by
+# residency.om:
 #   real-p4-L4T64: first 64 decode steps and first 4 layers of
 #     evidence/l355-w4/routes/forced-fp8-p4.json (Qwen3.6-35B-A3B FP8, top-8 of 256 experts).
 #   syn-E40L3K4T200: SeedRandom[630]; RandomSample[Range[0,39],4] per step and layer, 200 steps.
 #   syn-E40L3K4T200H3: the same trace with H=3 hints per row; SeedRandom[633] and per row r of the
 #     trace {r[[1]], RandomInteger[39], r[[2]]}, so two hints are used and one is mostly wasted.
-# Also checks every refusal exit code, the L*E <= 65536 bound of the shared-cache (glru/gopt/hlru)
-# section, two hint invariants (H=0 replays glru; hints equal to the trace prefetch every glru miss
-# and leave no demand miss), the C >= K+H gate of hlru lines, and that seven mutants are caught.
+# Also checks every refusal exit code, the L*E <= 65536 bound of the shared-cache (glru/gopt/hlru/
+# hcold) section, two hint invariants for each of hlru and hcold (H=0 replays glru; hints equal to
+# the trace prefetch every glru miss and leave no demand miss), the C >= K+H gate of hinted lines,
+# and that ten mutants are caught.
 # Usage: OMEGA_OMC=<seed omc> bash om/residency/run.sh [TRACE.txt ...]
 # Extra TRACE arguments are replayed after the checks and their output printed (not compared).
 set -u
@@ -83,18 +85,22 @@ gate() {
 gate 1 '0 1' 2
 gate 2 '0 1 2 3' 0
 
-# Hint invariants on the synthetic trace (T*L*K = 2400 demands).
+# Hint invariants on the synthetic trace (T*L*K = 2400 demands), for both hint modes.
 syn=$D/fixtures/syn-E40L3K4T200.txt
 "$O/sim" < "$syn" | grep '^glru ' > "$O/glru.out"
-{ cat "$syn"; echo 0; } | "$O/sim" | grep '^hlru ' \
-    | sed 's/^hlru \(.*\) hint=0 \(.*\) warm_pf=0 warm_used=0 warm_waste=0 /glru \1 \2 /' > "$O/h0.out"
-if [ -s "$O/glru.out" ] && cmp -s "$O/h0.out" "$O/glru.out"; then pass "H=0 hlru equals glru"
-else fail "H=0 hlru differs from glru"; diff "$O/glru.out" "$O/h0.out" | head -5; fi
-{ cat "$syn"; echo 4; tail -n +2 "$syn"; } | "$O/sim" | grep '^hlru ' > "$O/hp.out"
-sed 's/^glru \(cap=[0-9]* pct=[0-9]*\) hits=[0-9]* miss=[0-9]* warm_miss=\([0-9]*\) /hlru \1 hint=4 hits=2400 miss=0 warm_miss=0 warm_pf=\2 warm_used=\2 warm_waste=0 /' \
-    "$O/glru.out" > "$O/hpw.out"
-if [ -s "$O/hp.out" ] && cmp -s "$O/hp.out" "$O/hpw.out"; then pass "perfect hints prefetch every glru miss, no demand miss"
-else fail "perfect hints"; diff "$O/hpw.out" "$O/hp.out" | head -5; fi
+{ cat "$syn"; echo 0; } | "$O/sim" > "$O/h0all.out"
+{ cat "$syn"; echo 4; tail -n +2 "$syn"; } | "$O/sim" > "$O/hpall.out"
+for m in hlru hcold; do
+    grep "^$m " "$O/h0all.out" \
+        | sed "s/^$m \(.*\) hint=0 \(.*\) warm_pf=0 warm_used=0 warm_waste=0 /glru \1 \2 /" > "$O/h0.out"
+    if [ -s "$O/h0.out" ] && cmp -s "$O/h0.out" "$O/glru.out"; then pass "H=0 $m equals glru"
+    else fail "H=0 $m differs from glru"; diff "$O/glru.out" "$O/h0.out" | head -5; fi
+    grep "^$m " "$O/hpall.out" > "$O/hp.out"
+    sed "s/^glru \(cap=[0-9]* pct=[0-9]*\) hits=[0-9]* miss=[0-9]* warm_miss=\([0-9]*\) /$m \1 hint=4 hits=2400 miss=0 warm_miss=0 warm_pf=\2 warm_used=\2 warm_waste=0 /" \
+        "$O/glru.out" > "$O/hpw.out"
+    if [ -s "$O/hp.out" ] && cmp -s "$O/hp.out" "$O/hpw.out"; then pass "perfect $m hints prefetch every glru miss, no demand miss"
+    else fail "perfect $m hints"; diff "$O/hpw.out" "$O/hp.out" | head -5; fi
+done
 
 # Mutants: each must build, run to completion on its fixture and change its output.
 mutant() {
@@ -110,10 +116,13 @@ mutant() {
 mutant "LRU evicts most recent" 's/^ret sub add t 2 get stp e$/ret get stp e/'
 mutant "OPT evicts nearest next use" 's/^ret get nu e$/ret sub get hd 3 get nu e/'
 mutant "shared cache ignores the layer" 's/^globst s mul rem s l0 e0$/globst s 0/'
-mutant "hints ignored" 's/^pfstep t c$/put ac 7 0/' syn-E40L3K4T200H3
+mutant "hints ignored" 's/^pfstep t c cd$/put ac 7 0/' syn-E40L3K4T200H3
 mutant "hints ignore the layer" 's/^globh s mul rem s l0 e0$/globh s 0/' syn-E40L3K4T200H3
 mutant "prefetch evicts by next use" 's/^evict s 0$/evict s 1/' syn-E40L3K4T200H3
 mutant "wasted prefetch not counted" 's/^put ac 6 add get ac 6 1$/put ac 6 get ac 6/' syn-E40L3K4T200H3
+mutant "hcold prefetch inserted hot" 's/^put stp v 1$/put stp v add s 1/' syn-E40L3K4T200H3
+mutant "hcold hint marks use" 's/^if eq cd 0$/if eq cd cd/' syn-E40L3K4T200H3
+mutant "hint protection dropped" 's/^put prt v add s 1$/put prt v 0/' syn-E40L3K4T200H3
 
 echo "residency.om $(sha256sum < "$D/residency.om" | cut -d' ' -f1)"
 echo "sim binary $(sha256sum < "$O/sim" | cut -d' ' -f1)"
