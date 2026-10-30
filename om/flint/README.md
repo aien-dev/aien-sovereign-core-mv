@@ -295,7 +295,7 @@ each NVFP4 tensor needs its `.scale` sibling, and the totals are pinned: 3978528
 `map units 36734 tensors 779 scales 485 elements 39785287456 routed 37849399296`: 638 plain
 tensors plus 141 `_exps` tensors × 256 experts = 36734 units, the TSV's row count.
 
-### Deq: sampled NVFP4 blocks against the BF16 shards
+### Deq: sampled NVFP4 blocks decoded (deq-exact) and against the BF16 shards (provenance)
 
 `flint-gguf deq GGUF TSV SHARD_DIR` runs map, then compares GGUF data with the BF16 bytes of
 each unit's TSV row (the shard file `SHARD_DIR/<shard>`, offset 8 + header length + begin):
@@ -310,45 +310,89 @@ each unit's TSV row (the shard file `SHARD_DIR/<shard>`, offset 8 + header lengt
 Sample k of a unit: k = 0 is row 0 block 0, k = 1 the last row's last block, k = 2..7 come from
 the 64-bit LCG x ← x · 6364136223846793005 + 1442695040888963407 (seed 834 once, continued over
 units in GGUF tensor order, then expert order) with row = (x >> 33) mod rows and block =
-(x >> 11) mod (ne0/64). The output line is `deq units U blocks B elements N violations V
-strict S worst_ppm W exact X mismatches M PASS|FAIL`: strict counts values over the bound
+(x >> 11) mod (ne0/64). Output, after the map line:
+
+    deq units U blocks B elements N decode_digest H
+    provenance violations V strict S worst_ppm W exact X mismatches M PASS|FAIL
+
+H is a digest of every sampled NVFP4 block in sample order: its TSV row index, sample row, sample
+block, then its 64 decoded values ŵ as f64 bits (sub-block s, j < 8: value 16s+j, then 16s+j+8);
+h starts at 1469598103934665603 and each word v gives h = (h xor v) · 1099511628211 mod 2^64, then
+h = h xor (h >> 29). The shift is needed: without it a flipped top bit (a zero's sign) never
+reaches the lower bits, and two flips cancel. `test/ggufdeq.py` recomputes the line from the same
+GGUF bytes with its own name map and sampler and llama.cpp b11804's gguf-py decoder
+(`gguf.quants.dequantize`, sha256-pinned with `gguf_reader.py` and `constants.py`), times the
+`.scale` in f64; all products are exact in f64, so equal digests mean bit-equal decodes. ggml
+decodes code 8 (sign set, magnitude 0) as +0, so gguf.om does too.
+
+The provenance line compares the same values with the shards: strict counts values over the bound
 without its BF16 term, worst_ppm is the largest |w − ŵ| / bound × 10^6, exact and mismatches
 count the F32 and BF16 values compared bit for bit. A violation also prints the first one
-(tensor, expert, row, column, |w − ŵ| / D and bound / D in ppm). FAIL exits 1.
+(tensor, expert, row, column, |w − ŵ| / D and bound / D in ppm). Provenance FAIL exits 1.
 
 Gate arm 6, when `FLINT_GGUF` and the TSV are present: the map line; three TSV mutants on
 `model.layers.2.mlp.experts.0.down_proj.weight` (row dropped → 77, shape 512x2048 → 76, dtype
 F16 → 74); the synthetic GGUF → 75; source mutants expert-dup (`gg_hu or e 1` → 77) and totals
-(→ 79). With `FLINT_SHARDS` too: deq must PASS, and three source mutants must FAIL it with at
-least ten times the unmutated run's violations (and at least 1000), so a failing unmutated run
-cannot pass them by default: expert-swap (`gg_hu sub 255 e`, which still maps),
-nibble-hi-for-lo (the low nibble decoded from the high one) and scale-order (sub-scales of a
-block read in reverse). Not covered: the unsampled NVFP4 blocks (291520 of 616452096 are
-sampled; Wolfram `N[291520/(39452934144/64)*100, 4]` → 0.04729 %), serving or GPU evidence.
+(→ 79). With `FLINT_SHARDS` too, two separately labelled checks:
 
-### Observed on the serving file: deq FAILS against `flint-2a247be0`
+- `gguf deq-exact`: the decode line equals the frozen `GG_DEQ` (and the referee's line when
+  `FLINT_GGUF_PY` is set). Pre-registered: equal digests, i.e. 0 mismatching values.
+- `gguf provenance (frozen bound vs 2a247be0)`: must PASS; it FAILS on the serving file (below).
 
-Run on 2026-10-30 (host, cores 0-4, 62 s, 24 MB RSS):
+Four source mutants must change the digest: expert-swap (`gg_hu sub 255 e`, which still maps),
+nibble-hi-for-lo (the low nibble decoded from the high one) and scale-order (sub-scales of a block
+read in reverse) must also FAIL provenance with at least ten times the unmutated run's violations
+(and at least 1000), so a failing unmutated run cannot pass them by default; neg-zero (code 8
+decoded as −0) must leave the violations unchanged. Not covered: the unsampled NVFP4 blocks
+(291520 of 616452096 are sampled; Wolfram `N[291520/(39452934144/64)*100, 4]` → 0.04729 %),
+serving or GPU evidence.
 
-    deq units 36734 blocks 291520 elements 18657280 violations 7782 strict 19841 worst_ppm 1394455 exact 241440 mismatches 48 FAIL
+### Observed on the serving file: deq-exact PASSES, provenance FAILS against `flint-2a247be0`
+
+Run on 2026-10-30 (host, cores 0-4):
+
+    deq units 36734 blocks 291520 elements 18657280 decode_digest 2297050257563874686
+    provenance violations 7782 strict 19841 worst_ppm 1394455 exact 241440 mismatches 48 FAIL
     first_violation blk.0.attn_q.weight expert 0 row 2566 col 1841 err_over_d_ppm 1022222 bound_over_d_ppm 1019444
 
+The referee printed the same decode line. Before the code-8 fix gguf.om printed digest
+11480760261068712155 (−0 for code 8), which the referee did not match.
+
 7782 of 18657280 sampled NVFP4 values exceed the frozen bound (Wolfram → 0.04171 %), the worst by
-1.394 × the bound. The bound stays as committed. The cause is the reference, not the decoder:
+1.394 × the bound. The bound stays as committed. The decode is not the cause (deq-exact), and
 48 of the 241440 values that need no quantization (F32 norms and sinks, BF16 router and
-embedding chunks) differ from the shards bit for bit, which no NVFP4 decode can cause. A
-throwaway numpy probe over whole tensors (not part of the gate) found 7983313 of 307494912
-`token_embd` values different (Wolfram → 2.596 %), differing elements in `output_norm` (7 of
-2048), and in `attn_q_norm`, `attn_k_norm` and `attn_sinks` of layers 19, 20, 28, 32, 34, 35,
-38 and 48 (one to four each, e.g. 0.00098419 against 0.00086594 in layer 28's k norm); all 47
-routers equal. On `blk.0.attn_q.weight` the violators all sit at the 4/6 rounding midpoint
-(|w/D| from 4.74 to 5.19, decoded as 4 or 6); requantizing the shard weights to the nearest
-E2M1 value agrees with 98.17 % of the file's codes; the block maximum over 6 · D has median
-1.0007. So the GGUF was quantized from weights close to, but not equal to, the released
-checkpoint (`RecursiveSI/flint` has one revision, 2a247be0; the GGUF is
-`RecursiveSI/flint-nvfp4-gguf@6ec43e19`). The tie from the serving file to the checked weights
-is therefore exact for names, shapes, layout and totals, and approximate (not within the frozen
-bound) for values.
+embedding chunks) differ from the shards bit for bit, which no NVFP4 decode can cause. The file's
+layout (`.scale` siblings, `general.tensor_extra.prec_a4`) matches `_nvfp4_pack`/`_repack_nvfp4`
+in llama.cpp c7fc5094 `conversion/base.py`, which copy a ModelOpt NVFP4 checkpoint's codes and
+E4M3 scales unchanged and store `weight_scale_2` as `.scale` (the writer revision itself is not
+recorded in the file); the model card's link to that "native NVFP4 export" was removed as private
+(`6ec43e19`). Three hypotheses, tested with throwaway numpy probes (not part of the gate), H1 on
+the same sampled blocks and H2/H3 on whole tensors:
+
+- H1, rounding order. Re-deriving each sampled code as round-to-nearest E2M1 of w/d from the
+  shard weights: with the stored d = ue · scale, 18262166 of 18657280 codes agree (Wolfram →
+  97.882 %; whole 16-value sub-blocks 71.194 %); with the unrounded d = amax16 / 6, 17617910
+  (94.429 %; sub-blocks 43.713 %). The stored scale byte equals e4m3(amax16 / (6 · scale)) for
+  1134500 of 1166080 sub-blocks (97.292 %). Rejected: no rounding rule reproduces the codes. All
+  395114 differing codes are one grid step from the re-derived code; moving w to the stored
+  code's interval needs |Δw| of median 6.54e-6, 99th percentile 4.32e-5, maximum 4.81e-4.
+- H2, norm offset. The differing F32 tensors are BF16-valued; the shard medians of |w| are 0.70
+  to 4.95, f32(w + 1) − 1 = w for every element, and the differences are 1 to 89 BF16 ulps on
+  the smallest elements (|w| from 1.6e-4 to 0.065), no sign flips. Rejected: no +1 or other
+  transform; individual small values differ.
+- H3, `token_embd`. BF16 in both files. 7983313 of 307494912 values differ (Wolfram → 2.596 %),
+  none subnormal, infinite or NaN; 5320661 by one BF16 ulp; absolute difference median 1.53e-5,
+  99th percentile 1.22e-4, maximum 4.88e-4, mean −1.06e-7, correlation with w −0.045; 148820 of
+  150144 rows touched. The share of values that differ falls with magnitude: 68.49 % in
+  [2^-10, 2^-9), 0.306 % in [2^-6, 2^-5), 0.000022 % in [2^-4, 2^-3) (Wolfram).
+
+One explanation fits all three: the quantized checkpoint was made from weights that differ from
+2a247be0 by a small additive perturbation (|Δw| up to about 5e-4, visible only where it exceeds
+half a BF16 ulp), not by a scaling or a quantizer rule. The code flips need |Δw| inside the range
+the embedding shows. That is an inference; the private export is not available to check it.
+The tie from the serving file to the checked weights is therefore exact for names, shapes,
+layout, totals and decode, and approximate (not within the frozen bound) for values: provenance
+FAIL with the residual quantified above.
 
 ### NVFP4 dequantization tolerance (derived from the format before any full comparison)
 

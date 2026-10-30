@@ -304,6 +304,7 @@ GG_REP_PIN=cbd3becec35ff580cb16db5789bf5a73cd56b775109cb193ce8ad3ffd00b3851
 GG_SUM='flint-gguf ok tensors 4 kvs 27 bytes 2080'
 GG_REAL_SUM='flint-gguf ok tensors 1264 kvs 43 bytes 22863084160'
 GG_MAP='map units 36734 tensors 779 scales 485 elements 39785287456 routed 37849399296'
+GG_DEQ='deq units 36734 blocks 291520 elements 18657280 decode_digest 2297050257563874686'
 ggen() { python3 "$here/test/ggufgen.py" "$b/g.gguf" "$1" < /dev/null; }
 grun() { # binary [file]; sets rc, leaves g.out and g.err
   timeout 120 "$1" report "${2:-$b/g.gguf}" > "$b/g.out" 2> "$b/g.err" < /dev/null
@@ -418,7 +419,8 @@ GGUF_GUARDS
   # map: every non-scale GGUF tensor (each routed expert slice of an _exps tensor on its own)
   # names exactly one row of the FLINT_SHARDS arm's TSV with the transposed shape, every row is
   # named once, every NVFP4 tensor has its F32 .scale sibling, and the totals are the pinned ones.
-  # deq: the sampled NVFP4 blocks against the BF16 shards under the frozen README bound.
+  # deq: the sampled NVFP4 blocks decoded (deq-exact, against gguf-py b11804) and compared with the
+  # BF16 shards under the frozen README bound (provenance).
   if [ -n "${FLINT_GGUF:-}" ] && [ -s "$b/real.tsv" ]; then
     gmap() { # binary tsv [gguf]; sets rc, leaves m.out and m.err
       timeout 120 "$1" map "${3:-$FLINT_GGUF}" "$2" > "$b/m.out" 2> "$b/m.err" < /dev/null
@@ -450,22 +452,34 @@ GGUF_GUARDS
       if [ "$rc" = 79 ]; then ok "gguf mutant totals: 79"; else bad "gguf mutant totals: want 79, got $rc"; fi
     fi
     if [ -n "${FLINT_SHARDS:-}" ]; then
-      gdeq() { # binary; sets rc, dl (the deq line) and dv (its violation count)
+      gdeq() { # binary; sets rc, dl (the decode line), pl (the provenance line) and dv (its violations)
         timeout 1800 "$1" deq "$FLINT_GGUF" "$b/real.tsv" "$FLINT_SHARDS" > "$b/d.out" 2> "$b/d.err" < /dev/null
         rc=$?
         dl=$(sed -n 2p "$b/d.out")
-        dv=$(sed -n 's/.* violations \([0-9]*\) .*/\1/p' <<< "$dl")
+        pl=$(sed -n 3p "$b/d.out")
+        dv=$(sed -n 's/^provenance violations \([0-9]*\) .*/\1/p' <<< "$pl")
       }
       gdeq "$b/gg"
       v0=$dv
-      if [ "$rc" = 0 ] && [ "${dl%% PASS}" != "$dl" ] && [ "$(sed -n 1p "$b/d.out")" = "$GG_MAP" ]; then ok "gguf deq: $dl"; else bad "gguf deq: rc $rc, $(head -c 300 "$b/d.out") $(head -c 200 "$b/d.err")"; fi
-      # A mutant must FAIL with at least ten times the unmutated violations (and at least 1000),
-      # so a failing unmutated run cannot make the mutants pass by default.
-      for dm in "expert-swap|gg_hu e|gg_hu sub 255 e" "nibble-hi-for-lo|gg_cmp add mul s 16 j and q 15 d|gg_cmp add mul s 16 j shr q 4 d" "scale-order|d = mul gg_ue get gqb s sc|d = mul gg_ue get gqb sub 3 s sc"; do
+      rc0=$rc
+      # deq-exact: the decode digest equals the one frozen from gguf-py b11804 (rerun when FLINT_GGUF_PY is set).
+      dref=$GG_DEQ
+      if [ -n "${FLINT_GGUF_PY:-}" ]; then
+        dref=$($FLINT_GGUF_PY "$here/test/ggufdeq.py" "$FLINT_GGUF" "$b/real.tsv" 2>&1 < /dev/null)
+      fi
+      if { [ "$rc" = 0 ] || [ "$rc" = 1 ]; } && [ "$(sed -n 1p "$b/d.out")" = "$GG_MAP" ] && [ "$dl" = "$GG_DEQ" ] && [ "$dref" = "$GG_DEQ" ]; then ok "gguf deq-exact: $dl"; else bad "gguf deq-exact: rc $rc, om '$dl', referee '$dref', frozen '$GG_DEQ' $(head -c 200 "$b/d.err")"; fi
+      # provenance: the same blocks against the flint-2a247be0 shards under the frozen README bound.
+      if [ "$rc" = 0 ] && [ "${pl%% PASS}" != "$pl" ]; then ok "gguf provenance (frozen bound vs 2a247be0): $pl"; else bad "gguf provenance (frozen bound vs 2a247be0): rc $rc, $pl"; fi
+      # A mutant must change the decode digest and FAIL provenance with at least ten times the unmutated
+      # violations (and at least 1000), so a failing unmutated run cannot make the mutants pass by default.
+      # neg-zero changes only the digest: ggml decodes code 8 as +0.
+      for dm in "expert-swap|gg_hu e|gg_hu sub 255 e" "nibble-hi-for-lo|gg_cmp add mul s 16 j and q 15 d|gg_cmp add mul s 16 j shr q 4 d" "scale-order|d = mul gg_ue get gqb s sc|d = mul gg_ue get gqb sub 3 s sc" "neg-zero|if and ge n 8 gt m 0|if ge n 8"; do
         IFS='|' read -r mn mf mt <<< "$dm"
         gsite "$mn" "$mf" "$mt" || continue
         gdeq "$b/gmut"
-        if [ "$rc" = 1 ] && [ "${dl%% FAIL}" != "$dl" ] && [ -n "$dv" ] && [ "$dv" -ge $((10 * ${v0:-0})) ] && [ "$dv" -ge 1000 ]; then ok "gguf mutant $mn: $dl"; else bad "gguf mutant $mn: want FAIL with >= 10 x $v0 violations, got rc $rc: $dl"; fi
+        if [ "$mn" = neg-zero ]; then
+          if [ "$rc" = "$rc0" ] && [ -n "$dl" ] && [ "$dl" != "$GG_DEQ" ] && [ "$dv" = "$v0" ]; then ok "gguf mutant $mn: $dl"; else bad "gguf mutant $mn: want a changed digest and $v0 violations, got rc $rc: $dl $pl"; fi
+        elif [ "$rc" = 1 ] && [ -n "$dl" ] && [ "$dl" != "$GG_DEQ" ] && [ "${pl%% FAIL}" != "$pl" ] && [ -n "$dv" ] && [ "$dv" -ge $((10 * ${v0:-0})) ] && [ "$dv" -ge 1000 ]; then ok "gguf mutant $mn: $dl $pl"; else bad "gguf mutant $mn: want a changed digest and FAIL with >= 10 x $v0 violations, got rc $rc: $dl $pl"; fi
       done
     else
       echo "NOT_RUN gguf deq (needs FLINT_SHARDS)"

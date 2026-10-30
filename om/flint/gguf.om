@@ -188,7 +188,7 @@ text tme " elements "
 text tmr " routed "
 text tdu "deq units "
 text tdb " blocks "
-text tdv " violations "
+text tdv "provenance violations "
 text tdst " strict "
 text tdw " worst_ppm "
 text tdx " exact "
@@ -201,6 +201,7 @@ text tfr " row "
 text tfc " col "
 text tfd " err_over_d_ppm "
 text tfb " bound_over_d_ppm "
+text tdh " decode_digest "
 text tmok "flint-gguf map ok units "
 text tnm "name"
 
@@ -1682,18 +1683,29 @@ end
 if eq m 7
 v = 6.0f64
 end
-if ge n 8
+note ggml's kvalues_mxfp4 has 0 for code 8: a negative zero code decodes to +0
+if and ge n 8 gt m 0
 v = neg v
 end
 ret v
 end
 
+note gg_mix: digest of 64-bit words (gst 59) that the referee recomputes: h = (h xor v) * p,
+note then h xor (h >> 29), so a flip of a high bit (a zero's sign) reaches the low bits
+fn gg_mix v ulong to void
+h = mul xor get gst 59 v 1099511628211
+h = xor h shr h 29
+put gst 59 h
+end
+
 note gg_cmp: element x of the block (col c0 + x) against the frozen bound in README.md:
 note |w - q D| <= D + max(0, |w| - 6 D) + 2^-8 |w|
 fn gg_cmp x ulong n uchar d f64 to void
+y = mul gg_e2 n d
+gg_mix bitcast ulong y
 w = gg_bf x
 a = fabs w
-t = fabs sub w mul gg_e2 n d
+t = fabs sub w y
 c = sub a mul 6.0f64 d
 if lt c 0.0f64
 c = 0.0f64
@@ -1757,6 +1769,9 @@ o = get gst 42
 o = mul o get gtdm mul i 4
 o = add o mul get gst 43 64
 gg_hw r mul o 2 128
+gg_mix r
+gg_mix get gst 42
+gg_mix get gst 43
 for s ulong 4
 d = mul gg_ue get gqb s sc
 for j ulong 8
@@ -1853,6 +1868,7 @@ fn gg_deq to void
 n = gg_argp 2
 put gst 23 ulong gg_open n
 put gst 25 834
+put gst 59 1469598103934665603
 for i ulong get gst 3
 c = gg_hf i 0
 if gt c 0
@@ -1875,6 +1891,9 @@ gg_otx tdb
 gg_ou get gst 48
 gg_otx tme
 gg_ou get gst 45
+gg_otx tdh
+gg_ou get gst 59
+gg_ob 10
 gg_otx tdv
 gg_ou get gst 46
 gg_otx tdst
