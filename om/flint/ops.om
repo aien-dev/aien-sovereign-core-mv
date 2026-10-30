@@ -1,0 +1,1488 @@
+note flint-ops: forward-operator parity for the pinned Flint checkpoint
+note (aien-architecture-mv#353, aien-sovereign-core-mv#802, P0 forward lane).
+note
+note Usage: flint-ops OP FIXTURE INVENTORY SHARD_DIR
+note        flint-ops selftest
+note OP is rmsnorm, qkv, attn, router, shared, expert or moe. FIXTURE is written by
+note test/opref.py from the pinned reference modules; INVENTORY is the TSV flint-manifest
+note printed for SHARD_DIR. Each operator recomputes the reference output in f64 from the
+note real BF16 shard weights and carries a first-order bound E on the error of the
+note reference's own f32 computation (gamma_n = n u / (1 - n u), u = 2^-24). An element
+note passes when |om - ref| <= 2 E. The router reports a token as a tie, not a mismatch, when
+note the reference could hold the om rank-7 expert in its top-6 within those per-element bounds.
+note
+note Prints one line: flint-op OP layer L elems N worst_ppm P ties K PASS|FAIL, where P is
+note max |om - ref| / (2 E) in millionths. Exit 0 PASS, 1 FAIL, 2 and up refused.
+note
+note Layer kinds follow the pinned config.json (manifest CFG_PIN): no_rope_layer_indices
+note 0, 1, 5, 9, .., 45, 48 use full attention without RoPE; every other layer uses
+note RoPE and the sliding window of FWIN keys including the query itself.
+
+const FWIN ulong 513
+const FHID ulong 2048
+note FULP: libm budget in ulps for each of the reference's powf, cosf and sinf calls in RoPE.
+note glibc 2.39 lists 1 ulp for AArch64 powf/cosf/sinf, SLEEF documents 1.0 (u10) and 3.5 (u35);
+note 4 covers all of them (test/TOLERANCE.md, RoPE libm budget). test/opref.py reads this line,
+note measures the reference's calls against float64 and refuses fixtures above FULP ulps.
+const FULP ulong 4
+global ga uchar 16384
+global gas ulong 8
+global gal ulong 8
+global gpth uchar 4352
+global gfx uchar 3145728
+global gtsv uchar 8388608
+global gstg uchar 4194304
+global gw f32 16777216
+global gv f64 8192
+global gve f64 8192
+global gacc f64 16
+global gy f64 4096
+global gye f64 4096
+global gx0 f64 1048576
+global ge0 f64 1048576
+global gx1 f64 1048576
+global ge1 f64 1048576
+global gx2 f64 1048576
+global ge2 f64 1048576
+global gx3 f64 1048576
+global ge3 f64 1048576
+global gacm f64 16384
+global gace f64 16384
+global gaca f64 16384
+global gsc f64 1024
+global gse f64 1024
+global gsg f64 1024
+global gsge f64 1024
+global gsk f64 64
+global gch uchar 256
+global gtk ulong 8
+global gtw f64 8
+global gtwe f64 8
+global gmk ulong 512
+global gmw f64 512
+global gmwe f64 512
+global gtie uchar 64
+global gcm f64 8
+global gst ulong 32
+global gnm uchar 256
+global gob uchar 4096
+global gdg uchar 24
+global gh8 uchar 8
+global gstb uchar 128
+
+text tu "usage: flint-ops OP FIXTURE INVENTORY SHARD_DIR | flint-ops selftest"
+text tio "io"
+text tnreg "not-regular-file"
+text tfx "fixture"
+text tnf "tensor-not-in-inventory"
+text tdt "tensor-dtype-or-shape"
+text tref "refused "
+text tfop "flint-op "
+text tlay " layer "
+text telm " elems "
+text tppm " worst_ppm "
+text tties " ties "
+text tpass " PASS"
+text tfail " FAIL"
+text tbf "BF16"
+text tpre "model.layers."
+text tln0 "input_layernorm.weight"
+text tln1 "post_attention_layernorm.weight"
+text tq "self_attn.q_proj.weight"
+text tk "self_attn.k_proj.weight"
+text tv "self_attn.v_proj.weight"
+text tob "self_attn.o_proj.weight"
+text tqn "self_attn.q_norm.weight"
+text tkn "self_attn.k_norm.weight"
+text tsnk "self_attn.softmax_offset"
+text trt "mlp.gate.weight"
+text tshp "mlp.shared_expert."
+text texp "mlp.experts."
+text tgp "gate_proj.weight"
+text tup "up_proj.weight"
+text tdp "down_proj.weight"
+text tormsn "rmsnorm"
+text toqkv "qkv"
+text toatt "attn"
+text tortr "router"
+text toshr "shared"
+text toexp "expert"
+text tomoe "moe"
+text tostt "selftest"
+
+note gst slots: 0 fixture bytes, 1 inventory bytes, 2 op, 3 layer, 4 T, 5 S, 6 aux,
+note 7 tensor-name length, 8 output fill, 9 fstat size, 10 shard-name start in gtsv,
+note 11 shard-name length, 12 begin, 13 end, 14 rows, 15 cols.
+note gcm slots: 0 worst |om - ref| / (2 E), 1 failures, 2 elements, 3 ties.
+
+fn op_dec v ulong to ulong
+n = ulong 0
+x = v
+while true bound 25
+put gdg n add 48 uchar rem x 10
+n = add n 1
+x = div x 10
+if eq x 0
+break
+end
+end
+ret n
+end
+
+fn ob_c c uchar to void
+p = get gst 8
+if lt p 4096
+put gob p c
+put gst 8 add p 1
+end
+end
+
+fn ob_tx t view uchar * to void
+for i ulong len t
+ob_c get t i
+end
+end
+
+fn ob_u v ulong to void
+n = op_dec v
+for i ulong n
+ob_c get gdg sub sub n i 1
+end
+end
+
+fn ob_flush fd int to void
+o = ulong 0
+m = get gst 8
+while lt o m bound 4096
+w = write fd gob o sub m o
+if le w 0
+exit 3
+end
+o = add o ulong w
+end
+put gst 8 0
+end
+
+fn op_die c ulong t view uchar * to void
+put gst 8 0
+ob_tx tref
+ob_u c
+ob_c 32
+ob_tx t
+ob_c 10
+ob_flush 2
+exit int c
+end
+
+fn op_le64 o ulong to ulong
+v = ulong 0
+for i ulong 8
+v = or v shl ulong get gstb add o i mul 8 i
+end
+ret v
+end
+
+fn op_open n ulong to long
+fd = fopen gpth 0 n 557056 0
+if lt fd 0
+if eq fd -40
+op_die 4 tnreg
+end
+op_die 3 tio
+end
+r = fstat int fd gstb 0 128
+if ne r 0
+op_die 3 tio
+end
+note S_IFMT sits in the low 16 bits of st_mode
+md = or ulong get gstb 16 shl ulong get gstb 17 8
+if ne and md 61440 32768
+op_die 4 tnreg
+end
+put gst 9 op_le64 48
+ret fd
+end
+
+fn op_close fd long to void
+r = fclose int fd
+if ne r 0
+op_die 3 tio
+end
+end
+
+fn op_argp a ulong to ulong
+n = get gal a
+if or eq n 0 gt n 4095
+op_die 2 tu
+end
+o = get gas a
+for i ulong n
+put gpth i get ga add o i
+end
+ret n
+end
+
+fn op_argeq a ulong t view uchar * to bool
+n = get gal a
+if ne n len t
+ret false
+end
+o = get gas a
+for i ulong n
+if ne get ga add o i get t i
+ret false
+end
+end
+ret true
+end
+
+fn rd_fx to void
+fd = op_open op_argp 2
+n = get gst 9
+if or lt n 32 gt n len gfx
+op_die 7 tfx
+end
+o = ulong 0
+while lt o n bound 999999
+r = pread int fd gfx o sub n o long o
+if le r 0
+op_die 3 tio
+end
+o = add o ulong r
+end
+op_close fd
+put gst 0 n
+end
+
+fn rd_tsv to void
+fd = op_open op_argp 3
+n = get gst 9
+if gt n len gtsv
+op_die 5 tnf
+end
+o = ulong 0
+while lt o n bound 999999
+r = pread int fd gtsv o sub n o long o
+if le r 0
+op_die 3 tio
+end
+o = add o ulong r
+end
+op_close fd
+put gst 1 n
+end
+
+note fixture words are little-endian u32 or f32
+fn fx_w i ulong to ulong
+b = mul i 4
+v = or ulong get gfx b shl ulong get gfx add b 1 8
+v = or v shl ulong get gfx add b 2 16
+v = or v shl ulong get gfx add b 3 24
+ret v
+end
+
+fn fx_f i ulong to f64
+ret f64 bitcast f32 uint fx_w i
+end
+
+fn fx_need w ulong to void
+if ne get gst 0 mul 4 w
+op_die 7 tfx
+end
+end
+
+note load T rows of 2048 fixture words at word xo into gx0, with zero error in ge0
+fn fx_x0 xo ulong T ulong to void
+for i ulong mul T FHID
+put gx0 i fx_f add xo i
+put ge0 i 0.0f64
+end
+end
+
+fn gam n ulong to f64
+x = mul f64 n 5.9604644775390625e-8f64
+ret div x sub 1.0f64 x
+end
+
+fn fl_swa L ulong to bool
+ret not or or lt L 2 eq L 48 eq rem L 4 1
+end
+
+note cmp: one output element, om against the reference value ref, passing when
+note |om - ref| <= 2 e; a NaN anywhere fails
+fn cmp om f64 ref f64 e f64 to void
+d = fabs sub om ref
+t = mul 2.0f64 e
+put gcm 2 add get gcm 2 1.0f64
+if not le d t
+put gcm 1 add get gcm 1 1.0f64
+end
+if gt d 0.0f64
+r = div d fabs t
+if gt r get gcm 0
+put gcm 0 r
+end
+end
+end
+
+fn cm_reset to void
+for i ulong 8
+put gcm i 0.0f64
+end
+end
+
+fn report nm view uchar * to int
+put gst 8 0
+ob_tx tfop
+ob_tx nm
+ob_tx tlay
+ob_u get gst 3
+ob_tx telm
+ob_u ulong get gcm 2
+ob_tx tppm
+ob_u ulong mul get gcm 0 1000000.0f64
+ob_tx tties
+ob_u ulong get gcm 3
+f = gt get gcm 1 0.0f64
+if f
+ob_tx tfail
+else
+ob_tx tpass
+end
+ob_c 10
+ob_flush 1
+if f
+ret 1
+end
+ret 0
+end
+
+note f64 exp: k = round(x / ln 2), Cody-Waite reduction with ln2_hi (32 bits) and
+note ln2_lo, Taylor degree 13 on |r| <= ln 2 / 2, scale by 2^k through the exponent field
+fn om_exp x f64 to f64
+if lt x -708.0f64
+ret 0.0f64
+end
+if gt x 709.0f64
+ret div 1.0f64 0.0f64
+end
+kf = mul x 1.442695040888963407f64
+if lt kf 0.0f64
+kf = sub kf 0.5f64
+else
+kf = add kf 0.5f64
+end
+k = long kf
+fk = f64 k
+r = sub sub x mul fk 0.6931471803691238165f64 mul fk 1.908214929270587816e-10f64
+p = 1.0f64
+for j ulong 13
+p = add 1.0f64 mul div r f64 sub 13 j p
+end
+s = bitcast f64 shl ulong add k 1023 52
+ret mul p s
+end
+
+fn om_sig x f64 to f64
+ret div 1.0f64 add 1.0f64 om_exp neg x
+end
+
+note sin (c false) or cos (c true) of x in [0, 2^20): k = round(x 2 / pi), reduction by
+note pio2_hi (33 bits) and pio2_lo, Taylor through degree 21 on |r| <= pi / 4
+fn om_sc x f64 c bool to f64
+k = ulong add mul x 0.6366197723675813431f64 0.5f64
+fk = f64 k
+r = sub sub x mul fk 1.570796326734125614f64 mul fk 6.077100506506192601e-11f64
+z = mul r r
+s = 1.0f64
+co = 1.0f64
+for j ulong 10
+m = f64 mul 2 sub 10 j
+s = sub 1.0f64 mul div z mul m add m 1.0f64 s
+co = sub 1.0f64 mul div z mul sub m 1.0f64 m co
+end
+s = mul r s
+q = k
+if c
+q = add q 1
+end
+q = and q 3
+if eq q 0
+ret s
+end
+if eq q 1
+ret co
+end
+if eq q 2
+ret neg s
+end
+ret neg co
+end
+
+note tensor names: model.layers.L. followed by a suffix
+fn nm_c c uchar to void
+n = get gst 7
+if ge n 256
+op_die 5 tnf
+end
+put gnm n c
+put gst 7 add n 1
+end
+
+fn nm_tx t view uchar * to void
+for i ulong len t
+nm_c get t i
+end
+end
+
+fn nm_u v ulong to void
+n = op_dec v
+for i ulong n
+nm_c get gdg sub sub n i 1
+end
+end
+
+fn nm_lay L ulong to void
+put gst 7 0
+nm_tx tpre
+nm_u L
+nm_c 46
+end
+
+fn tsv_eqn p ulong n ulong to bool
+if gt add add p n 1 get gst 1
+ret false
+end
+for i ulong n
+if ne get gtsv add p i get gnm i
+ret false
+end
+end
+ret eq get gtsv add p n 9
+end
+
+fn tsv_nl p ulong to ulong
+m = get gst 1
+q = p
+while lt q m bound 99999
+if eq get gtsv q 10
+ret add q 1
+end
+q = add q 1
+end
+ret m
+end
+
+note index of the tab or newline that ends the field starting at p
+fn tsv_fld p ulong to ulong
+m = get gst 1
+q = p
+while lt q m bound 99999
+c = get gtsv q
+if or eq c 9 eq c 10
+ret q
+end
+q = add q 1
+end
+op_die 5 tnf
+ret m
+end
+
+fn tsv_num p ulong e ulong to ulong
+if or ge p e gt sub e p 19
+op_die 6 tdt
+end
+v = ulong 0
+for i ulong sub e p
+c = get gtsv add p i
+if or lt c 48 gt c 57
+op_die 6 tdt
+end
+v = add mul v 10 ulong sub c 48
+end
+ret v
+end
+
+fn tsv_bf p ulong e ulong to bool
+if ne sub e p 4
+ret false
+end
+for i ulong 4
+if ne get gtsv add p i get tbf i
+ret false
+end
+end
+ret true
+end
+
+fn tsv_x p ulong e ulong to ulong
+q = p
+while lt q e bound 99999
+if eq get gtsv q 120
+ret q
+end
+q = add q 1
+end
+ret e
+end
+
+note row fields after the name: shard, dtype, shape (R or RxC), begin, end
+fn tsv_row p ulong to void
+e = tsv_fld p
+put gst 10 p
+put gst 11 sub e p
+p2 = add e 1
+e2 = tsv_fld p2
+if not tsv_bf p2 e2
+op_die 6 tdt
+end
+p3 = add e2 1
+e3 = tsv_fld p3
+x = tsv_x p3 e3
+put gst 14 tsv_num p3 x
+put gst 15 0
+if lt x e3
+put gst 15 tsv_num add x 1 e3
+end
+p4 = add e3 1
+e4 = tsv_fld p4
+put gst 12 tsv_num p4 e4
+p5 = add e4 1
+e5 = tsv_fld p5
+put gst 13 tsv_num p5 e5
+end
+
+fn tsv_find to void
+n = get gst 7
+m = get gst 1
+p = ulong 0
+f = false
+while lt p m bound 99999
+if tsv_eqn p n
+tsv_row add p add n 1
+f = true
+break
+end
+p = tsv_nl p
+end
+if not f
+op_die 5 tnf
+end
+end
+
+fn sh_open to long
+d = get gal 4
+if or eq d 0 gt d 2048
+op_die 2 tu
+end
+n = op_argp 4
+put gpth n 47
+n = add n 1
+s = get gst 10
+k = get gst 11
+if gt k 1024
+op_die 5 tnf
+end
+for i ulong k
+put gpth add n i get gtsv add s i
+end
+ret op_open add n k
+end
+
+fn pf_stg fd long n ulong pos ulong to void
+o = ulong 0
+while lt o n bound 999999
+r = pread int fd gstg o sub n o long add pos o
+if le r 0
+op_die 3 tio
+end
+o = add o ulong r
+end
+end
+
+note a BF16 value is the high half of the f32 with the same bits, so the decode is exact
+fn dec_stg c ulong d ulong to void
+for i ulong div c 2
+lo = uint get gstg mul i 2
+hi = uint get gstg add mul i 2 1
+put gw add d i bitcast f32 or shl hi 24 shl lo 16
+end
+end
+
+note ld_t: the tensor named in gnm must be BF16 of shape rows x cols (cols 0: a vector);
+note it lands in gw[0 ..) as f32
+fn ld_t rows ulong cols ulong to void
+tsv_find
+if or ne get gst 14 rows ne get gst 15 cols
+op_die 6 tdt
+end
+k = rows
+if gt cols 0
+k = mul rows cols
+end
+nb = mul k 2
+if or ne sub get gst 13 get gst 12 nb gt k len gw
+op_die 6 tdt
+end
+fd = sh_open
+r = pread int fd gh8 0 8 long 0
+if ne r 8
+op_die 3 tio
+end
+hl = ulong 0
+for i ulong 8
+hl = or hl shl ulong get gh8 i mul 8 i
+end
+if gt hl 100000000
+op_die 3 tio
+end
+base = add add 8 hl get gst 12
+o = ulong 0
+while lt o nb bound 99999
+c = sub nb o
+if gt c 1048576
+c = ulong 1048576
+end
+pf_stg fd c add base o
+dec_stg c div o 2
+o = add o c
+end
+op_close fd
+end
+
+note dotr: row r of gw (K columns) against gv; gacc 1 gets sum |w v|, gacc 2 gets
+note sum |w| gve; returns sum w v
+fn dotr r ulong k ulong to f64
+b = mul r k
+s = 0.0f64
+a = 0.0f64
+e = 0.0f64
+for i ulong k
+w = f64 get gw add b i
+p = mul w get gv i
+s = add s p
+a = add a fabs p
+e = add e mul fabs w get gve i
+end
+put gacc 1 a
+put gacc 2 e
+ret s
+end
+
+note error bound of the last dotr: propagated input error plus gamma_K sum |w v|
+fn dote k ulong to f64
+ret add get gacc 2 mul gam k get gacc 1
+end
+
+note rmsv: RMSNorm of gv[0 .. n) with weight gw[wo ..) into gy, bound into gye:
+note E_i = |w_i| r (E_xi + |x_i| r^2 / n sum |x_j| E_xj) + gamma_(n+6) |y_i|
+fn rms_rc n ulong to void
+ss = 0.0f64
+ea = 0.0f64
+for i ulong n
+v = get gv i
+ss = add ss mul v v
+ea = add ea mul fabs v get gve i
+end
+eps = f64 f32 0.000001
+r = div 1.0f64 fsqrt add div ss f64 n eps
+put gacc 6 r
+put gacc 7 div mul mul r r ea f64 n
+end
+
+fn rmsv n ulong wo ulong to void
+rms_rc n
+r = get gacc 6
+c = get gacc 7
+g = gam add n 6
+for i ulong n
+w = f64 get gw add wo i
+v = get gv i
+y = mul mul w v r
+put gy i y
+q = add get gve i mul fabs v c
+q = mul q mul fabs w r
+put gye i add q mul g fabs y
+end
+end
+
+note rope_cs: cos and sin of pos inv_freq_i, inv_freq_i = exp(-(2 i / 128) ln 10000), into
+note gacc 3 and 4; gacc 5 gets the reference's angle and cos/sin error under FULP ulps per
+note libm call (1 ulp <= 2u relative): the angle 1 / pow(10000, 2i/128) * pos carries
+note gamma_(2 FULP + 2) relative, and cos/sin add gamma_(2 FULP) absolute
+fn rope_cs pos ulong i ulong to void
+f = om_exp neg mul f64 i div 9.210340371976182736f64 64.0f64
+th = mul f64 pos f
+put gacc 3 om_sc th true
+put gacc 4 om_sc th false
+put gacc 5 add mul th gam add mul 2 FULP 2 gam mul 2 FULP
+end
+
+note rope_one: rotate_half RoPE of the pair (i, i + 64) of gy at pos, in place;
+note E_out = |c| E_a + |s| E_b + (|a| + |b|) E_cs + gamma_2 (|a c| + |b s|)
+fn rope_one pos ulong i ulong to void
+rope_cs pos i
+g2 = gam 2
+c = get gacc 3
+s = get gacc 4
+a = get gy i
+b = get gy add i 64
+x = mul add fabs a fabs b get gacc 5
+t = add fabs mul a c fabs mul b s
+put gacc 9 add x mul g2 t
+t = add fabs mul b c fabs mul a s
+put gacc 10 add x mul g2 t
+put gy i sub mul a c mul b s
+put gy add i 64 add mul b c mul a s
+a = get gye i
+b = get gye add i 64
+t = add mul fabs c a mul fabs s b
+put gye i add get gacc 9 t
+t = add mul fabs c b mul fabs s a
+put gye add i 64 add get gacc 10 t
+end
+
+fn ropev pos ulong to void
+for i ulong 64
+rope_one pos i
+end
+end
+
+fn op_rmsn to int
+L = get gst 3
+T = get gst 4
+aux = get gst 6
+if or or eq T 0 gt T 512 gt aux 1
+op_die 7 tfx
+end
+fx_need add 8 mul T 4096
+nm_lay L
+if eq aux 0
+nm_tx tln0
+else
+nm_tx tln1
+end
+ld_t FHID 0
+yo = add 8 mul T FHID
+for t ulong T
+for i ulong FHID
+put gv i fx_f add 8 add mul t FHID i
+put gve i 0.0f64
+end
+rmsv FHID 0
+for i ulong FHID
+cmp get gy i fx_f add yo add mul t FHID i get gye i
+end
+end
+r = report tormsn
+ret r
+end
+
+note cmp_x1: gx1/ge1[o .. o + n) against fixture words fo + o ..
+fn cmp_x1 o ulong n ulong fo ulong to void
+for i ulong n
+j = add o i
+cmp get gx1 j fx_f add fo j get ge1 j
+end
+end
+
+note projfx: rows x 2048 weights in gw against the S fixture rows at word xo, into gx1/ge1
+fn projfx rows ulong xo ulong S ulong to void
+for t ulong S
+for i ulong FHID
+put gv i fx_f add xo add mul t FHID i
+put gve i 0.0f64
+end
+for r ulong rows
+o = add mul t rows r
+put gx1 o dotr r FHID
+put ge1 o dote FHID
+end
+end
+end
+
+note hnorm: head h of row t of gx1 (nh heads of 128) through q_norm/k_norm in gw, RoPE at
+note pos when rp, compared with the fixture head at word ref
+fn hnorm t ulong h ulong nh ulong rp bool ref ulong to void
+b = mul add mul t nh h 128
+for d ulong 128
+put gv d get gx1 add b d
+put gve d get ge1 add b d
+end
+rmsv 128 0
+if rp
+ropev fx_w add 8 t
+end
+for d ulong 128
+cmp get gy d fx_f add ref add b d get gye d
+end
+end
+
+fn op_qkv to int
+L = get gst 3
+S = get gst 5
+if or eq S 0 gt S 64
+op_die 7 tfx
+end
+xo = add 8 S
+qo = add xo mul S FHID
+ko = add qo mul S 4096
+vo = add ko mul S 512
+fx_need add vo mul S 512
+rp = fl_swa L
+nm_lay L
+nm_tx tq
+ld_t 4096 FHID
+projfx 4096 xo S
+nm_lay L
+nm_tx tqn
+ld_t 128 0
+for t ulong S
+for h ulong 32
+hnorm t h 32 rp qo
+end
+end
+nm_lay L
+nm_tx tk
+ld_t 512 FHID
+projfx 512 xo S
+nm_lay L
+nm_tx tkn
+ld_t 128 0
+for t ulong S
+for h ulong 4
+hnorm t h 4 rp ko
+end
+end
+nm_lay L
+nm_tx tv
+ld_t 512 FHID
+projfx 512 xo S
+cmp_x1 0 mul S 512 vo
+r = report toqkv
+ret r
+end
+
+note qk_dot: gv[0 .. 128) against gx2[kb ..); gacc 1 gets sum |q k|
+fn qk_dot kb ulong to f64
+s = 0.0f64
+a = 0.0f64
+for d ulong 128
+x = mul get gv d get gx2 add kb d
+s = add s x
+a = add a fabs x
+end
+put gacc 1 a
+ret s
+end
+
+note scores of the query head in gv against keys lo .. p of kv head g (gx2) into gsc/gse;
+note E_s = gamma_130 scale sum |q k| (the fixture q and k are exact inputs); returns count
+fn att_sc g ulong p ulong lo ulong to ulong
+sc = 0.08838834764831844055f64
+es = mul gam 130 sc
+n = add sub p lo 1
+for j ulong n
+s = qk_dot mul add mul add lo j 4 g 128
+put gsc j mul sc s
+put gse j mul es get gacc 1
+end
+ret n
+end
+
+note att_sm: softmax over the n scores and the sink sk, in place: gsc becomes p_j, gse the
+note relative bound rho_j = eps_j + eps_Z + gamma_(T+4), eps_j = E_sj + E_m + u |s_j - m| +
+note gamma_2, eps_Z = sum_k e_k eps_k / Z (sink included, weighted by its own term)
+fn sm_max n ulong sk f64 to void
+m = sk
+em = 0.0f64
+for j ulong n
+m = fmax m get gsc j
+em = fmax em get gse j
+end
+put gacc 6 m
+put gacc 7 em
+end
+
+note sm_eps: eps for a score x with bound e against the max m
+fn sm_eps x f64 e f64 to f64
+u = 5.9604644775390625e-8f64
+t = add e get gacc 7
+t = add t mul u fabs sub x get gacc 6
+ret add t gam 2
+end
+
+fn sm_exp n ulong to void
+m = get gacc 6
+z = 0.0f64
+ez = 0.0f64
+for j ulong n
+x = get gsc j
+ex = om_exp sub x m
+ej = sm_eps x get gse j
+put gsc j ex
+put gse j ej
+z = add z ex
+ez = add ez mul ex ej
+end
+put gacc 8 z
+put gacc 9 ez
+end
+
+fn att_sm n ulong sk f64 T ulong to void
+sm_max n sk
+sm_exp n
+es = om_exp sub sk get gacc 6
+z = add get gacc 8 es
+ez = add get gacc 9 mul es sm_eps sk 0.0f64
+ez = add div ez z gam add T 4
+for j ulong n
+put gsc j div get gsc j z
+put gse j add get gse j ez
+end
+end
+
+note one head h of selected row t at position p: core output into gx1/ge1 row t;
+note E_o = sum_j p_j |v_jd| (rho_j + gamma_T)
+fn att_hd t ulong h ulong p ulong lo ulong qo ulong to void
+g = div h 8
+qb = mul add mul t 32 h 128
+for d ulong 128
+put gv d fx_f add qo add qb d
+end
+n = att_sc g p lo
+att_sm n get gsk h get gst 4
+put gacc 11 gam get gst 4
+kb = mul add mul lo 4 g 128
+for d ulong 128
+put gx1 add qb d pv_d n add kb d
+put ge1 add qb d get gacc 1
+end
+end
+
+note pv_d: sum_j p_j v_jd over the n kept keys, v of key j at gx3[b + 512 j]; gacc 1 gets
+note the bound sum_j p_j |v_jd| (rho_j + gamma_T), gamma_T in gacc 11
+fn pv_d n ulong b ulong to f64
+s = 0.0f64
+e = 0.0f64
+for j ulong n
+pv = mul get gsc j get gx3 add b mul j 512
+s = add s pv
+r = add get gse j get gacc 11
+e = add e mul fabs pv r
+end
+put gacc 1 e
+ret s
+end
+
+note att_row: all 32 heads of selected row t, compared with the fixture core output at oo
+fn att_row t ulong qo ulong oo ulong to void
+p = fx_w add 8 t
+if ge p get gst 4
+op_die 7 tfx
+end
+lo = ulong 0
+if and fl_swa get gst 3 gt add p 1 FWIN
+lo = sub add p 1 FWIN
+end
+for h ulong 32
+att_hd t h p lo qo
+end
+cmp_x1 mul t 4096 4096 oo
+end
+
+note att_y: o_proj (in gw) of core row t of gx1/ge1, compared with the fixture at yo
+fn att_y t ulong yo ulong to void
+b = mul t 4096
+for i ulong 4096
+put gv i get gx1 add b i
+put gve i get ge1 add b i
+end
+for r ulong FHID
+y = dotr r 4096
+cmp y fx_f add yo add mul t FHID r dote 4096
+end
+end
+
+fn att_kv ko ulong vo ulong n ulong to void
+for i ulong n
+put gx2 i fx_f add ko i
+put gx3 i fx_f add vo i
+end
+end
+
+fn op_attn to int
+T = get gst 4
+S = get gst 5
+if or or eq S 0 gt S 64 or eq T 0 gt T 2048
+op_die 7 tfx
+end
+qo = add 8 S
+ko = add qo mul S 4096
+vo = add ko mul T 512
+oo = add vo mul T 512
+yo = add oo mul S 4096
+fx_need add yo mul S FHID
+att_kv ko vo mul T 512
+nm_lay get gst 3
+nm_tx tsnk
+ld_t 32 0
+for h ulong 32
+put gsk h f64 get gw h
+end
+for t ulong S
+att_row t qo oo
+end
+nm_lay get gst 3
+nm_tx tob
+ld_t FHID 4096
+for t ulong S
+att_y t yo
+end
+r = report toatt
+ret r
+end
+
+note rt_tie: true when some om top-6 score s_k (gtk ranks 1..6) is within 2 (E_k + E_7) of
+note the rank-7 score, the only case in which a reference whose scores sit within 2 E of the
+note om scores can rank the rank-7 expert above one of the om top-6.
+fn rt_tie to bool
+s7 = get gsg get gtk 6
+e7 = get gsge get gtk 6
+tie = false
+for k ulong 6
+c = get gtk k
+if lt sub get gsg c s7 mul 2.0f64 add get gsge c e7
+tie = true
+end
+end
+ret tie
+end
+
+note route: router logits of gv against gw (256 x 2048) into gsc/gse, sigmoid scores into
+note gsg/gsge, top-7 by score into gtk (rank 7 is the boundary competitor), renormalized
+note top-6 weights into gtw/gtwe. Returns rt_tie.
+fn route to bool
+g4 = gam 4
+for e ulong 256
+l = dotr e FHID
+el = dote FHID
+put gsc e l
+put gse e el
+sc = om_sig l
+put gsg e sc
+put gsge e add mul fabs mul sc sub 1.0f64 sc el mul g4 sc
+put gch e 0
+end
+for k ulong 7
+b = ulong 256
+bv = 0.0f64
+for e ulong 256
+if eq get gch e 0
+if or eq b 256 gt get gsg e bv
+b = e
+bv = get gsg e
+end
+end
+end
+put gtk k b
+put gch b 1
+end
+s = 0.0f64
+es = 0.0f64
+for k ulong 6
+s = add s get gsg get gtk k
+es = add es get gsge get gtk k
+end
+g7 = gam 7
+for k ulong 6
+e = get gtk k
+w = div get gsg e s
+put gtw k w
+put gtwe k add div add get gsge e mul w es s mul g7 w
+end
+t = rt_tie
+ret t
+end
+
+note rt_cmp: the reference top-6 of token t as an index -> weight map; an index missing from
+note the om top-6 is accepted only on a tie token and only as the om rank-7 competitor
+fn rt_cmp t ulong tie bool io ulong wo ulong to void
+for k ulong 6
+e = fx_w add io add mul t 6 k
+rw = fx_f add wo add mul t 6 k
+f = ulong 9
+for j ulong 6
+if eq get gtk j e
+f = j
+end
+end
+if lt f 6
+cmp get gtw f rw get gtwe f
+else
+put gcm 2 add get gcm 2 1.0f64
+if not and tie eq e get gtk 6
+put gcm 1 add get gcm 1 1.0f64
+end
+end
+end
+if tie
+put gcm 3 add get gcm 3 1.0f64
+end
+end
+
+fn op_route to int
+L = get gst 3
+T = get gst 4
+if or eq T 0 gt T 512
+op_die 7 tfx
+end
+lo = add 8 mul T FHID
+io = add lo mul T 256
+wo = add io mul T 6
+fx_need add wo mul T 6
+nm_lay L
+nm_tx trt
+ld_t 256 FHID
+for t ulong T
+for i ulong FHID
+put gv i fx_f add 8 add mul t FHID i
+put gve i 0.0f64
+end
+tie = route
+for e ulong 256
+cmp get gsc e fx_f add lo add mul t 256 e get gse e
+end
+rt_cmp t tie io wo
+end
+r = report tortr
+ret r
+end
+
+fn ld_mlp L ulong ex ulong j ulong I ulong to void
+nm_lay L
+if lt ex 256
+nm_tx texp
+nm_u ex
+nm_c 46
+else
+nm_tx tshp
+end
+if eq j 0
+nm_tx tgp
+ld_t I FHID
+end
+if eq j 1
+nm_tx tup
+ld_t I FHID
+end
+if eq j 2
+nm_tx tdp
+ld_t FHID I
+end
+end
+
+note mlp_g/mlp_u: gate and up projections of rows t0 .. t1 of gx0/ge0 into gx1 and gx2
+fn mlp_g I ulong t0 ulong t1 ulong to void
+for t ulong sub t1 t0
+b = mul add t0 t FHID
+for i ulong FHID
+put gv i get gx0 add b i
+put gve i get ge0 add b i
+end
+for r ulong I
+o = add mul add t0 t I r
+put gx1 o dotr r FHID
+put ge1 o dote FHID
+end
+end
+end
+
+fn mlp_u I ulong t0 ulong t1 ulong to void
+for t ulong sub t1 t0
+b = mul add t0 t FHID
+for i ulong FHID
+put gv i get gx0 add b i
+put gve i get ge0 add b i
+end
+for r ulong I
+o = add mul add t0 t I r
+put gx2 o dotr r FHID
+put ge2 o dote FHID
+end
+end
+end
+
+note mlp_h: h = silu(g) up into gx1/ge1; E_s = 1.1 E_g + gamma_4 |s| (1.1 bounds max |silu'|),
+note E_h = |up| E_s + |s| E_up + gamma_1 |h|
+fn mlp_h I ulong t0 ulong t1 ulong to void
+for i ulong mul sub t1 t0 I
+mlp_h1 add mul t0 I i
+end
+end
+
+fn mlp_h1 o ulong to void
+g = get gx1 o
+s = mul g om_sig g
+es = mul 1.1f64 get ge1 o
+es = add es mul gam 4 fabs s
+up = get gx2 o
+h = mul s up
+put gx1 o h
+e = add mul fabs up es mul fabs s get ge2 o
+put ge1 o add e mul gam 1 fabs h
+end
+
+fn mlp_d I ulong t0 ulong t1 ulong to void
+for t ulong sub t1 t0
+b = mul add t0 t I
+for i ulong I
+put gv i get gx1 add b i
+put gve i get ge1 add b i
+end
+for r ulong FHID
+o = add mul add t0 t FHID r
+put gx3 o dotr r I
+put ge3 o dote I
+end
+end
+end
+
+note mlp: FlintMLP of layer L (ex >= 256: shared expert) or routed expert ex, intermediate
+note size I, rows t0 .. t1 of gx0/ge0 into gx3/ge3: down(silu(gate x) up x)
+fn mlp L ulong ex ulong I ulong t0 ulong t1 ulong to void
+ld_mlp L ex 0 I
+mlp_g I t0 t1
+ld_mlp L ex 1 I
+mlp_u I t0 t1
+mlp_h I t0 t1
+ld_mlp L ex 2 I
+mlp_d I t0 t1
+end
+
+fn cmp_x3 n ulong fo ulong to void
+for i ulong n
+cmp get gx3 i fx_f add fo i get ge3 i
+end
+end
+
+fn op_mlp ex ulong I ulong nm view uchar * to int
+L = get gst 3
+T = get gst 4
+if or eq T 0 gt T 8
+op_die 7 tfx
+end
+yo = add 8 mul T FHID
+fx_need add yo mul T FHID
+fx_x0 8 T
+mlp L ex I 0 T
+cmp_x3 mul T FHID yo
+r = report nm
+ret r
+end
+
+note moe_acc: add w_k y_k of token t into gacm with bound gace and sum |w y| in gaca
+fn moe_acc t ulong w f64 ew f64 to void
+for i ulong FHID
+o = add mul t FHID i
+y = get gx3 o
+put gacm o add get gacm o mul w y
+e = add get gace o mul fabs w get ge3 o
+put gace o add e mul fabs y ew
+put gaca o add get gaca o fabs mul w y
+end
+end
+
+note op_moe: FlintSparseMoeBlock = sum_k w_k expert_k(x) + shared_expert(x); bound
+note sum_k (|w_k| E_yk + |y_k| E_wk) + E_S + gamma_8 (sum_k |w_k y_k| + |S|)
+fn moe_rt t ulong to void
+for i ulong FHID
+put gv i get gx0 add mul t FHID i
+put gve i 0.0f64
+end
+tie = route
+put gtie t 0
+if tie
+put gtie t 1
+put gcm 3 add get gcm 3 1.0f64
+end
+for k ulong 6
+j = add mul t 6 k
+put gmk j get gtk k
+put gmw j get gtw k
+put gmwe j get gtwe k
+end
+end
+
+fn moe_ex L ulong t ulong to void
+for k ulong 6
+j = add mul t 6 k
+mlp L get gmk j 512 t add t 1
+moe_acc t get gmw j get gmwe j
+end
+end
+
+fn moe_cmp t ulong yo ulong to void
+g8 = gam 8
+for i ulong FHID
+o = add mul t FHID i
+v = add get gacm o get gx3 o
+e = add get gace o get ge3 o
+a = add get gaca o fabs get gx3 o
+cmp v fx_f add yo o add e mul g8 a
+end
+end
+
+fn op_moe to int
+L = get gst 3
+T = get gst 4
+if or eq T 0 gt T 8
+op_die 7 tfx
+end
+yo = add 8 mul T FHID
+fx_need add yo mul T FHID
+fx_x0 8 T
+nm_lay L
+nm_tx trt
+ld_t 256 FHID
+for t ulong T
+moe_rt t
+end
+for i ulong mul T FHID
+put gacm i 0.0f64
+put gace i 0.0f64
+put gaca i 0.0f64
+end
+for t ulong T
+if eq get gtie t 0
+moe_ex L t
+end
+end
+mlp L 999 1024 0 T
+for t ulong T
+if eq get gtie t 0
+moe_cmp t yo
+end
+end
+r = report tomoe
+ret r
+end
+
+note selftest: om_exp, om_sig and om_sc against Wolfram Language values (20 digits)
+fn st_one om f64 ref f64 rel f64 to void
+cmp om ref mul rel fabs ref
+end
+
+fn op_self to int
+put gst 3 0
+st_one om_exp 1.0f64 2.718281828459045235f64 2.0e-15f64
+st_one om_exp -20.25f64 1.605228055185611609e-9f64 2.0e-15f64
+st_one om_exp 8.125f64 3377.867931673534884f64 2.0e-15f64
+st_one om_exp -87.5f64 9.98235093056924756e-39f64 2.0e-15f64
+st_one om_sc 1.0f64 false 0.8414709848078965067f64 2.0e-15f64
+st_one om_sc 1.0f64 true 0.5403023058681397174f64 2.0e-15f64
+st_one om_sc 518.75f64 false -0.3776084404242524912f64 2.0e-15f64
+st_one om_sc 518.75f64 true -0.925965369611825039f64 2.0e-15f64
+st_one om_sc 0.001f64 false 9.99999833333341667e-4f64 2.0e-15f64
+st_one om_sc 3.0f64 true -0.989992496600445457f64 2.0e-15f64
+st_one om_sig 1.5f64 0.8175744761936436596f64 2.0e-15f64
+rope_cs 519 1
+st_one get gacc 3 -0.982429600544478341f64 1.0e-12f64
+st_one get gacc 4 -0.1866335446108676431f64 1.0e-12f64
+st_one get gacc 5 2.683614206850094353e-4f64 1.0e-12f64
+r = report tostt
+ret r
+end
+
+fn op_code to ulong
+if op_argeq 1 tormsn
+ret 1
+end
+if op_argeq 1 toqkv
+ret 2
+end
+if op_argeq 1 toatt
+ret 3
+end
+if op_argeq 1 tortr
+ret 4
+end
+if op_argeq 1 toshr
+ret 5
+end
+if op_argeq 1 toexp
+ret 6
+end
+if op_argeq 1 tomoe
+ret 7
+end
+op_die 2 tu
+ret 0
+end
+
+fn main to int
+c = argcnt
+if and ne c 5 ne c 2
+op_die 2 tu
+end
+o = ulong 0
+n = ulong c
+for i ulong n
+r = argread i ga o sub len ga o
+if lt r 0
+op_die 2 tu
+end
+put gas i o
+put gal i ulong r
+o = add o ulong r
+end
+cm_reset
+if eq c 2
+if not op_argeq 1 tostt
+op_die 2 tu
+end
+s = op_self
+ret s
+end
+op = op_code
+rd_fx
+rd_tsv
+if or ne fx_w 0 1347374150 ne fx_w 1 op
+op_die 7 tfx
+end
+put gst 2 op
+put gst 3 fx_w 2
+put gst 4 fx_w 3
+put gst 5 fx_w 4
+put gst 6 fx_w 5
+if eq op 1
+s = op_rmsn
+ret s
+end
+if eq op 2
+s = op_qkv
+ret s
+end
+if eq op 3
+s = op_attn
+ret s
+end
+if eq op 4
+s = op_route
+ret s
+end
+if eq op 5
+s = op_mlp 999 1024 toshr
+ret s
+end
+if eq op 6
+e = get gst 6
+if ge e 256
+op_die 7 tfx
+end
+s = op_mlp e 512 toexp
+ret s
+end
+s = op_moe
+ret s
+end
