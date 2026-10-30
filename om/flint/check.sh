@@ -15,6 +15,7 @@
 #   With both set, the forward-operator arm runs ops.om against test/opref.py fixtures;
 #   FLINT_PY is the referee's interpreter (torch + transformers a672eb5f), default python3.
 #   FLINT_FORWARD=1 additionally runs the full 49-layer, two-token chained forward and mutants.
+#   FLINT_GEN=1 runs greedy 16-token generation from a chat-template prompt against test/genref.py.
 # Needs: python3 (fixture referees only), sha256sum, cmp, timeout. Host only; no network, no GPU.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
@@ -280,8 +281,8 @@ if [ "${FLINT_FORWARD:-0}" = 1 ]; then
     echo "$dlast"
     if [ "$rc" = 0 ] && [[ $dlast == "flint-op decode layer 49 "* ]] && [[ $dlast == *" PASS" ]] && [ "${de%% *}" = "${fe%% *}" ]; then ok "KV-cache decode passes the same forward reference within budget, same element count"; else bad "decode rc $rc"; fi
     # cache bound: with FKVP 1 the two-row decode must be refused (7), never overrun the next layer
-    [ "$(grep -c '^const FKVP ulong 8$' "$here/ops.om")" = 1 ] || bad "kv guard: FKVP site"
-    { s=$(cat "$here/ops.om"); printf '%s\n' "${s/const FKVP ulong 8/const FKVP ulong 1}"; } > "$b/kvg.om"
+    [ "$(grep -c '^const FKVP ulong 32$' "$here/ops.om")" = 1 ] || bad "kv guard: FKVP site"
+    { s=$(cat "$here/ops.om"); printf '%s\n' "${s/const FKVP ulong 32/const FKVP ulong 1}"; } > "$b/kvg.om"
     if build "$b/kvg" "$b/kvg.om"; then
       gline=$(timeout 900 "$b/kvg" decode "$b/forward.fx" "$b/real.tsv" "$FLINT_SHARDS" 2>&1 < /dev/null); rc=$?
       if [ "$rc" = 7 ] && [[ $gline == *"refused 7 kv-cache-bound"* ]]; then ok "KV cache bound refuses P+n > FKVP (rc 7)"; else bad "kv guard rc $rc: ${gline##*$'\n'}"; fi
@@ -295,13 +296,58 @@ if [ "${FLINT_FORWARD:-0}" = 1 ]; then
       rc=$?
       if [ "$rc" = 1 ] && [[ $line == *" FAIL" ]]; then ok "CAUGHT $op mutant $name: ${line##*$'\n'}"; else bad "$op mutant $name rc $rc: $line"; fi
     done <<'FORWARD_MUTANTS'
-wrong-token|forward|id = fx_w add 8 add get gfs 2 t|id = add fx_w add 8 add get gfs 2 t 1
+wrong-token|forward|id = get gtok add get gfs 2 t|id = add get gtok add get gfs 2 t 1
 skip-final-norm|forward|put gfh o get gy i|put gfh o get gv i
 kv-slot-overwrite|decode|c = mul add add mul L FKVP P j 512|c = mul add mul L FKVP j 512
 FORWARD_MUTANTS
   fi
 else
   echo "NOT_RUN chained forward (set FLINT_FORWARD=1)"
+fi
+
+# 6. greedy generation (Core #834 item 5), opt-in: 24 one-row host forwards and 16 vocabulary passes.
+#    test/genref.py renders "What is 2+2?" with the pinned chat template and greedy-generates 16
+#    tokens with the pinned reference in f32 (KV cache); the fixture holds the prompt IDs and each
+#    step's reference top-1/top-2 IDs and logits. ops.om generate feeds its own argmax tokens back
+#    through its KV cache and must meet test/TOLERANCE.md (greedy generation parity) on every step.
+#    Controls: the K/V append skipped for layer 0 must FAIL (rc 1, the comparison); with FKVP 8 the
+#    request must be refused at position 8 (rc 7), never overrun the cache.
+GEN_PIN=d5d3daecc777532638758402839a0bdfcdc9455ea913cd48c4941390c69c95e9
+genr() { # binary; sets rc, gline, glast
+  gline=$(timeout 3600 "$1" generate "$b/gen.fx" "$b/real.tsv" "$FLINT_SHARDS" 2>&1 < /dev/null)
+  rc=$?
+  glast=${gline##*$'\n'}
+}
+if [ "${FLINT_GEN:-0}" = 1 ]; then
+  if [ -z "${FLINT_SRC:-}" ] || [ -z "${FLINT_SHARDS:-}" ] || [ ! -s "$b/real.tsv" ] || [ ! -x "$b/ops" ]; then
+    bad "generate requested without FLINT_SRC, FLINT_SHARDS, admitted real.tsv and a compiled ops.om"
+  elif ! ${FLINT_PY:-python3} "$here/test/genref.py" "$FLINT_SRC" "$FLINT_SHARDS" "$b/gen.fx" > "$b/genref.out" 2>&1 < /dev/null; then
+    bad "generate referee: $(tail -c 300 "$b/genref.out")"
+  elif [ "$(sha "$b/gen.fx")" != "$GEN_PIN" ]; then
+    bad "generate fixture pin mismatch: $(sha "$b/gen.fx")"
+  else
+    cat "$b/genref.out"
+    genr "$b/ops"
+    echo "$gline"
+    if [ "$rc" = 0 ] && [[ $gline == *"flint-gen matched 16 of 16"* ]] && [[ $glast == "flint-op generate layer 49 "* ]] && [[ $glast == *" PASS" ]]; then ok "greedy generation, 16 of 16 tokens match the reference"; else bad "generate rc $rc: $glast"; fi
+    s=$(cat "$here/ops.om")
+    from='kvn = get gfs 0'
+    if [ "$(grep -cF -- "$from" "$here/ops.om")" != 1 ]; then bad "generate mutant skip-kv-append-L0 site"
+    else
+      printf '%s\n' "${s/"$from"/kvn = mul get gfs 0 sub 1 div 1 add L 1}" > "$b/genmut.om"
+      if build "$b/genmut" "$b/genmut.om"; then
+        genr "$b/genmut"
+        if [ "$rc" = 1 ] && [[ $glast == *" FAIL" ]]; then ok "CAUGHT generate mutant skip-kv-append-L0: $glast"; else bad "generate mutant skip-kv-append-L0 rc $rc: $glast"; fi
+      else bad "generate mutant compile"; fi
+    fi
+    printf '%s\n' "${s/const FKVP ulong 32/const FKVP ulong 8}" > "$b/genkv.om"
+    if build "$b/genkv" "$b/genkv.om"; then
+      genr "$b/genkv"
+      if [ "$rc" = 7 ] && [[ $gline == *"refused 7 kv-cache-bound"* ]]; then ok "generate with FKVP 8 refused at the cache bound (rc 7)"; else bad "generate kv guard rc $rc: $glast"; fi
+    else bad "generate kv guard compile"; fi
+  fi
+else
+  echo "NOT_RUN greedy generation (set FLINT_GEN=1)"
 fi
 
 n=$((pass + fail))

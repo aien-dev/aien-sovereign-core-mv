@@ -219,3 +219,66 @@ returned
 The byte counts are modeled layout sizes, not measured memory usage.
 The chained fixture is pinned by SHA256 in `check.sh`; wrong-token and skipped-final-normalization
 source mutants must compile and return comparison exit 1, not a trap or setup refusal.
+
+## Greedy generation parity (Core #834 item 5), frozen before the first comparison
+
+`ops.om generate` starts from the token IDs of a chat-template-rendered prompt and generates N
+tokens greedily (argmax of its own f64 logits, lowest index on an exact tie), feeding its own
+tokens back through the KV cache, one host forward per position. `test/genref.py` is the referee:
+the pinned transformers modules in f32 on CPU, the same prompt IDs, greedy argmax with a
+`DynamicCache`, one position per step after the prompt. Per step k = 1..N the fixture records the
+reference top-1 ID and logit `l1` and the top-2 ID and logit `l2` (f32).
+
+Per-logit budget: `tau(x) = 8 gamma_2048 (1 + |x|)`, the integration budget of the chained forward
+above (`fw_cmpat`), unchanged.
+`WolframLanguageEvaluator: u = 2^-24; g[n_] := n u/(1 - n u); N[8 g[2048], 18] -> 0.000976681723843242583`.
+
+Ambiguity is a property of the reference alone, declared before the .om run: step k is
+**ambiguous** when `l1 - l2 <= tau(l1) + tau(l2)`, i.e. when an .om logit vector that meets the
+budget on both entries could rank the reference top-2 first. `genref.py` prints the ambiguous
+steps when it writes the fixture, and the gate prints them again before the .om run; the rule is
+not changed after a run.
+
+Per step, in order, while every earlier step matched (so the .om prefix equals the reference prefix):
+
+1. Logits: the .om logits at the reference top-1 and top-2 IDs must each be within `tau` of `l1`
+   and `l2`; otherwise FAIL (logit).
+2. Token, non-ambiguous step: the .om argmax must equal the reference top-1; otherwise FAIL (token).
+3. Token, ambiguous step: the .om argmax equal to the reference top-1 continues; equal to the
+   reference top-2 ends the comparison at step k without FAIL (the sequences no longer share a
+   prefix, so later fixture steps do not apply), and the receipt reports k - 1 matched steps, which
+   is then not N-token parity; any other ID is FAIL (token).
+
+The verdict line is `flint-op generate layer 49 elems S worst_ppm P ties A PASS|FAIL`, where S
+counts compared logits (two per compared step), P is the worst `|om - ref| / tau` over the compared top-1/top-2 logits in
+millionths, and A counts the declared ambiguous steps of the fixture. Every step also prints its
+.om top-1/top-2 IDs and logits next to the reference values, so a divergence comes with its logits.
+
+The KV cache holds FKVP positions per layer; a request with prompt + N - 1 > FKVP positions is
+refused (`refused 7 kv-cache-bound`) at the first position past the bound, never overrun. This is
+a host check (f64 compute, BF16 storage, f32 referee); it is not bf16-activation, GPU or serving
+evidence.
+
+### Measured (host, 2026-10-30)
+
+Referee `test/genref.py` (f32, pinned torch 2.14.0+cu130 and transformers a672eb5f, cores 0-4):
+prompt `<|user|>What is 2+2?<|assistant|>` = `[150003, 2387, 332, 220, 17, 10, 17, 30, 150004]`
+(no BOS; `add_bos_token` false), 16 greedy tokens `[150006, 16, 13, 220, 937, 74091, 269, 101439,
+10117, 14679, 279, 461, 256, 450, 1464, 14313]` = `"<think>1.  **Analyze the User's Request**:\n
+*   The user asks"`, fixture sha256 `d5d3daec...c69c95e9`, 381 s wall, 25.9 GB peak RSS.
+No step is ambiguous: the smallest top-1/top-2 margin is 0.264313 (step 10), against
+`tau(-0.503171) + tau(-0.767484)` there; WolframLanguageEvaluator
+`0.264313/(8 (2048 2^-24/(1 - 2048 2^-24)) (2 + 0.503171 + 0.767484))` -> 82.7429, so the margin is
+about 83 times the summed budget.
+
+`flint-ops generate` (FKVP 32, `gkc`/`gvc` 49 x 32 x 512 = 802816 f64 each): all 16 tokens equal
+the reference, `flint-gen matched 16 of 16`, worst `|om - ref| / tau` 22984 ppm over the 32 compared
+logits (WolframLanguageEvaluator `N[22984/10^6, 6]` -> 0.022984). Wall 741.08 s for 16 tokens,
+64.8 MB peak RSS: 383 s until the first token (nine prompt positions, one vocabulary pass), then
+23.8667 s per generated token (`N[(18*3600+11*60+9 - (18*3600+5*60+11))/15, 6]` -> 23.8667, steps 2
+to 16 from the per-step line timestamps); `N[741.08/16, 6]` -> 46.3175 s per token overall.
+Fail-first control: the same request with FKVP 8 is refused at position 8, `refused 7
+kv-cache-bound`, rc 7, after 172.09 s (`N[172.09/8, 6]` -> 21.5113 s per one-row forward).
+The first .om run printed `layer 48 ... ties 131`: the forward had overwritten the layer slot and
+the router tie counter; `op_gen` now resets both before the verdict, so `ties` counts declared
+ambiguous steps only. The 16 per-step comparisons did not change.

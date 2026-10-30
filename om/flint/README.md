@@ -202,8 +202,9 @@ layer, expert index permuted (255 - e), and window 514.
 ## Not covered (NOT_RUN for this unit)
 
 - bf16-activation parity: the referee runs in f32;
-- generation, bf16 activations and long-context serving remain NOT_RUN; complete two-token
-  chained layer/intermediate/logit parity is now covered by the optional arm below;
+- bf16 activations and long-context serving remain NOT_RUN; complete two-token chained
+  layer/intermediate/logit parity and 16-token greedy generation are covered by the optional
+  arms below;
 - weight streaming and repacking, with peak allocation and residency measured during load;
 - per-expert layout checks before fusing;
 - tokenizer and control-token identity, and a load report.
@@ -220,12 +221,26 @@ The full gate prints `OM-FLINT-MANIFEST PASS (95)` with real checkpoint inputs; 
 and skipped-final-normalization source mutants must fail the comparison.
 
 `flint-ops decode` runs the same fixture as a KV-cache decode: one row per chunk, each layer
-appends that row's K/V to a per-layer cache (49 layers x 8 positions x 512) and attention reads
+appends that row's K/V to a per-layer cache (49 layers x 32 positions x 512) and attention reads
 every earlier position only from that cache. It must PASS the same reference within the same
 budget and element count as the batch forward (a tolerance check, not a bitwise decode-vs-batch
 comparison); the `kv-slot-overwrite` mutant (cache row written at slot 0) must fail. The cache
-holds `FKVP` = 8 positions per layer and `fw_kv` refuses `P+n > FKVP` (`refused 7 kv-cache-bound`);
+holds `FKVP` = 32 positions per layer and `fw_kv` refuses `P+n > FKVP` (`refused 7 kv-cache-bound`);
 the gate rebuilds with `FKVP` 1 and requires that refusal.
+
+## Greedy generation
+
+`FLINT_GEN=1` (with `FLINT_SRC`, `FLINT_SHARDS` and `FLINT_PY`) adds `flint-ops generate`.
+[test/genref.py](test/genref.py) renders `What is 2+2?` with the pinned chat template
+(`[150003, 2387, 332, 220, 17, 10, 17, 30, 150004]`, no BOS) and greedy-generates 16 tokens with
+the pinned f32 reference and its KV cache; the fixture (sha256 pinned in check.sh) holds the prompt
+IDs and each step's reference top-1/top-2 IDs and logits. The .om side runs the prompt one row at a
+time through its KV cache, takes its own argmax, feeds that token back, and applies the rule frozen
+in [test/TOLERANCE.md](test/TOLERANCE.md) (greedy generation parity) on every step; each step prints
+the .om and reference IDs and logits. The gate requires `flint-gen matched 16 of 16` and a PASS
+verdict, requires the `skip-kv-append-L0` mutant (layer 0 never appends K/V) to FAIL, and rebuilds
+with `FKVP` 8 to require `refused 7 kv-cache-bound` at position 8. Measured on host CPU (cores 0-4):
+16 of 16 tokens, about 24 s per generated token; see TOLERANCE.md for the numbers.
 
 See [PROFILE.md](PROFILE.md) for the frozen weight/runtime/tokenizer/template identities
 and the architecture audit. In particular, this checkpoint has **no expert bias**, unlike
@@ -233,4 +248,4 @@ the requested selection-only bias description. [test/TOLERANCE.md](test/TOLERANC
 declares the candidate integration budget separately from the tighter per-operator bounds.
 Native f64 computation with BF16 storage is compared to reference f32 computation.
 This is host-forward evidence only: no serving API, task completion, quantized model,
-paged/ring KV-cache beyond 8 positions, long-context batching or GPU/backend qualification is claimed.
+paged/ring KV-cache beyond 32 positions, long-context batching or GPU/backend qualification is claimed.
