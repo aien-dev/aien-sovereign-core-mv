@@ -1,0 +1,7 @@
+phase	operation	exit	stdout	stderr	journal_unchanged
+before	settle	14		refused 14 capacity	True
+before	refund	14		refused 14 capacity	True
+after	prefund	14		refused 14 capacity	True
+after	reserve	14		refused 14 capacity	True
+after	settle	0	settled 7777777777777777777777777777777777777777777777777777777777777777 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 27 3 10		False
+after	refund	0	refunded 8888888888888888888888888888888888888888888888888888888888888888		False

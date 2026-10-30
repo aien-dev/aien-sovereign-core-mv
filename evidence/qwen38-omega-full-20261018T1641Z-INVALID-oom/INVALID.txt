@@ -1,0 +1,2 @@
+INVALID: run coincided with the kernel OOM kill of the 30B server at 16:43:58Z (window 32 = 14050 MB); first chip token failed with cmdlist marker wait timed out (latched). Not a kernel verdict.
+INVALID: same mixed-physics archive (q38-graphclean build) as the 1646Z run, plus the OOM event.

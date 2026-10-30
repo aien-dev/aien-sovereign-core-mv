@@ -34,10 +34,11 @@ use aien_omega_gpu::OmegaGpuError;
 
 /// Scale group width of the quantiser and the GEMM (k blocks of 128).
 pub const BLOCK: usize = 128;
-/// Widest row the quantiser takes (`omega_pq_spec_ok`: 128 <= k <= 4096).
-pub const QUANT_MAX_K: usize = 4096;
-/// Widest `k` the QMMA GEMM takes (`omega_qg_spec_ok`).
-pub const GEMM_MAX_K: usize = 16384;
+/// Widest row the quantiser takes (`omega_pq_spec_ok`: 128 <= k <= 32768; rows wider than 32
+/// blocks are split over grid y, omega qwen38/prefill-graph 6e24f7fd).
+pub const QUANT_MAX_K: usize = 32768;
+/// Widest `k` the QMMA GEMM takes (`omega_qg_spec_ok`, omega#541).
+pub const GEMM_MAX_K: usize = 32768;
 /// Bytes of one tile-table entry (`OMEGA_QG_TILE_BYTES`).
 pub const TILE_BYTES: usize = 32;
 /// Most tiles one GEMM launch takes (grid y, `omega_gpu_pf_qgemm` refuses more with TOO_LARGE).
@@ -175,9 +176,15 @@ pub fn check_qgemm(n: usize, k: usize, layout: Layout, ntiles: usize) -> Result<
             "pf qgemm k={k} refused: multiple of {BLOCK}, {BLOCK} <= k <= {GEMM_MAX_K}"
         )));
     }
-    if n == 0 || !n.is_multiple_of(DEFAULT_SPAN) || n * 4 * DEFAULT_BM >= 1 << 23 {
+    // Row stride (n f32, or n / 2 bf16 act rows = n bytes) x the tile's rows: the store offset.
+    let row_bytes = if layout == Layout::SwigluNat {
+        n
+    } else {
+        4 * n
+    };
+    if n == 0 || !n.is_multiple_of(DEFAULT_SPAN) || row_bytes * DEFAULT_BM >= 1 << 23 {
         return Err(bad(format!(
-            "pf qgemm n={n} refused: positive multiple of {DEFAULT_SPAN}, n * 256 < 2^23"
+            "pf qgemm n={n} refused: positive multiple of {DEFAULT_SPAN}, row bytes x {DEFAULT_BM} < 2^23"
         )));
     }
     if layout == Layout::SwigluNat && !n.is_multiple_of(2 * BLOCK) {
@@ -1076,7 +1083,11 @@ impl PrefillAttention for OmegaPrefillAttention<'_> {
             if let Err(e) = self.check(layer, pos0, m) {
                 return Some(Err(e));
             }
-            if qkv_va == 0 || out_va == 0 || qkv_va % 16 != 0 || out_va % 16 != 0 {
+            if qkv_va == 0
+                || out_va == 0
+                || !qkv_va.is_multiple_of(16)
+                || !out_va.is_multiple_of(16)
+            {
                 return Some(Err(
                     "prefill attn dev: addresses must be non-zero and 16-byte aligned".into(),
                 ));
@@ -1148,7 +1159,16 @@ mod tests {
     #[test]
     fn host_checks_mirror_the_spec_rules() {
         assert!(check_quant(2048).is_ok() && check_quant(4096).is_ok() && check_quant(768).is_ok());
-        assert!(check_quant(8192).is_err() && check_quant(100).is_err());
+        // Qwen3.8-27B widths (split rows) and the 32768 bound.
+        assert!(
+            check_quant(5120).is_ok() && check_quant(6144).is_ok() && check_quant(17408).is_ok()
+        );
+        assert!(check_quant(32768).is_ok() && check_quant(32896).is_err());
+        assert!(check_quant(100).is_err());
+        assert!(check_qgemm(16384, 5120, Layout::Plain, 1).is_ok());
+        assert!(check_qgemm(5120, 17408, Layout::Plain, 1).is_ok());
+        assert!(check_qgemm(34816, 5120, Layout::SwigluNat, 1).is_ok());
+        assert!(check_qgemm(5120, 32896, Layout::Plain, 1).is_err());
         assert!(check_qgemm(5120, 2048, Layout::Plain, 57).is_ok());
         assert!(check_qgemm(2048, 4096, Layout::Plain, 1).is_ok());
         assert!(check_qgemm(1536, 2048, Layout::SwigluNat, 1).is_ok());

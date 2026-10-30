@@ -65,43 +65,49 @@
       "children": [
         {
           "digest": "e5a81587d398cafcc737337c51428c09697768967eea61386a6ab34f7f871903",
-          "last_commit": "6bbe2ec2",
+          "last_commit": "e8cc3aa0",
           "name": "crates/aien-allen",
           "purpose": "ALLEN identity gate: resolve-only subject check, host pin record, deployment record (ADR 0035). "
         },
         {
           "digest": "a6f60499665540ddd49ad3122d016232b15d9cc878cb68febb725cd711dfbb6d",
-          "last_commit": "b9b52f9c",
+          "last_commit": "e8cc3aa0",
           "name": "crates/aien-allen-memory",
           "purpose": "ALLEN scoped memory store: scopes enforced at recall, inspect/correct/export, key-destroying for"
         },
         {
           "digest": "3b65ec8698bac001b1d2aef39c1fce13a3475280186147af40a319212ed76d42",
-          "last_commit": "b9b52f9c",
+          "last_commit": "e8cc3aa0",
           "name": "crates/aien-allen-profile",
           "purpose": "ALLEN persona profile v1: versioned, user-editable profile bound to the engaged ALLEN identity; "
         },
         {
-          "digest": "73b7b51a60981ac052f28b05a50071fb6846e6c3f7331d28786d220733f204c7",
-          "last_commit": "5ae9d6a3",
+          "digest": "36e3535aec78167f5eb088201510562ec415c3ee8293278d65623f299a9f954b",
+          "last_commit": "e8cc3aa0",
           "name": "crates/aien-cli",
           "purpose": ""
         },
         {
+          "digest": "3a331fee49e858953c344a75e26558ac2288bca4b335eed2f2702dfd77379e8e",
+          "last_commit": "",
+          "name": "crates/aien-heartbeat",
+          "purpose": "Expert Heartbeat H1 (aienix#4): fixed-slot versioned ring streaming MoE expert weights from NVMe"
+        },
+        {
           "digest": "246e54412a28d811dc38af14bb943890fbafd85f55864c2468a04e6ea698062e",
-          "last_commit": "8cca8020",
+          "last_commit": "e8cc3aa0",
           "name": "crates/aien-scheduler/src/bin",
           "purpose": ""
         },
         {
-          "digest": "34d1c3a8c38c4f75d9eca8e73f6d15418f2ffc3d129f99813d7adf9e80902659",
-          "last_commit": "afbbd804",
+          "digest": "a684b3e7bb1d356b05a499af3962db5b12b37d565bf9bfdf31de6188af457131",
+          "last_commit": "e8cc3aa0",
           "name": "crates/spark-cockpit-rs",
           "purpose": ""
         },
         {
-          "digest": "20f3120e6d2067007c8e67dfd13a821a83f5a382e7e11a0eec22f2d9b6380971",
-          "last_commit": "1eab4ec8",
+          "digest": "f7850b9890e153f1a930c5c6cf4962f19f0e2b5393ef8473a172eba7a74aa3fe",
+          "last_commit": "e8cc3aa0",
           "name": "scripts",
           "purpose": ""
         },
@@ -112,21 +118,21 @@
           "purpose": ""
         },
         {
-          "digest": "e5e7271b10298838894bed570db8e039af89dc3063640b6da5d84d420534c7f6",
-          "last_commit": "96d89167",
+          "digest": "7e5a49f47b2cf3b202760e4ebda72417c314b841db70ff3b49d2c4ce03e53ec7",
+          "last_commit": "2f28ee89",
           "name": "tools/aien-local-ci",
           "purpose": "Local CI sandbox exec contract (C8), aien-run user/caches install, Forgejo trigger hook, health "
         }
       ],
-      "children_root": "sha256:42dea8f42ecd7470f90f838092ee89e7e916ddc3005223c7b4589e17361dcfa9",
-      "compiled_at": "2026-10-24T06:20:59Z",
+      "children_root": "sha256:3b54a54aa0b1c75dac59ea3656c912bbf6951ae6e657b2068ea27ceb833c32f1",
+      "compiled_at": "2026-10-30T11:53:11Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:2ea6140d5a9112a1a3ed8bc800d366091fdd89a8feb5d7df099c06b672c55397",
-      "evidence_files": 1608,
-      "evidence_root": "sha256:67a1a196acb421a5052995a63c4cfbe2f4b2ac248e67c33769ad3b5cc209f445",
-      "files": 5949,
-      "generated_at_commit": "50a4fc248058fd148385c5d3176616774f6a3e90",
-      "source_tree": "sha256:a5908d7a803eb835ac1406a0e85005832b6e5e6ef93c0ac9e19f6be54e4673c9"
+      "digest": "sha256:b609a1e622479ec7b7465b85a4bc769d5aac06b176841bae4666bf95e29d6426",
+      "evidence_files": 3631,
+      "evidence_root": "sha256:77b789183f231b4924c6405af974ee5a0508441bdff604e42f47222e7c80f2a3",
+      "files": 8145,
+      "generated_at_commit": "6e176de60d557e2f1fb8ea00f00a402d84d55150",
+      "source_tree": "sha256:95f3e2a8e68c2b1423b40843a99b4ce90aa22be6861bab4e7af32aaaf41b40c2"
     }
   },
   "history": [],

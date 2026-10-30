@@ -159,7 +159,7 @@ mod tests {
     fn non_loopback_hosts_are_refused_before_connecting() {
         for url in [
             "http://10.0.0.1:18080/v1",
-            "http://192.168.1.192/v1",
+            "http://192.168.0.192/v1",
             "http://0.0.0.0:18080/v1",
             "http://[2001:db8::1]:80/v1",
             "http://203.0.113.7/v1",

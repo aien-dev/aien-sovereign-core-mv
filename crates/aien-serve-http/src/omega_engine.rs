@@ -35,6 +35,7 @@ use crate::kv_persist::PersistState;
 use crate::sampling::SamplingObserver;
 
 pub const GPU_LOCK_PATH: &str = "/tmp/aien-gb10.lock";
+
 /// How long `generate` waits for the chip lock before answering busy.
 pub const LOCK_WAIT: Duration = Duration::from_secs(30);
 /// Host memory the load needs free (the model is 30.5 GB resident plus the KV pool and
@@ -100,17 +101,27 @@ impl PrefillMode {
     }
 }
 
-/// An exclusive hold of the hive's GPU lock (released on drop).
-pub struct GpuLock(#[allow(dead_code)] File);
+/// An exclusive hold of the hive's GPU lock (released on drop), or nothing at all when an
+/// ancestor verifiably holds it for this process's life ([`crate::chip_reservation`]).
+pub struct GpuLock(#[allow(dead_code)] Option<File>);
 
 impl GpuLock {
-    /// Takes the lock, polling until `wait` has passed. `Err` = still held by someone else.
+    /// Takes the hive's lock ([`GPU_LOCK_PATH`]), polling until `wait` has passed.
+    /// `Err` = still held by someone else.
     pub fn acquire(wait: Duration) -> Result<Self, String> {
         Self::acquire_at(Path::new(GPU_LOCK_PATH), wait)
     }
 
+    /// Under a verified inherited reservation there is nothing to take: `Some(lock)`.
+    fn inherited() -> Option<Self> {
+        crate::chip_reservation::inherited().then_some(Self(None))
+    }
+
     /// [`Self::acquire`] on the lock file at `path` (tests pass a private file).
     pub fn acquire_at(path: &Path, wait: Duration) -> Result<Self, String> {
+        if let Some(l) = Self::inherited() {
+            return Ok(l);
+        }
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -123,7 +134,7 @@ impl GpuLock {
             // SAFETY: flock on a valid open descriptor; non-blocking so the wait is bounded.
             let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
             if rc == 0 {
-                return Ok(Self(file));
+                return Ok(Self(Some(file)));
             }
             let err = std::io::Error::last_os_error();
             if err.raw_os_error() != Some(libc::EWOULDBLOCK) {
@@ -136,6 +147,63 @@ impl GpuLock {
                 ));
             }
             std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+}
+
+impl GpuLock {
+    /// Takes the lock at `path` by waiting in the kernel's queue (a blocking `flock` on a helper
+    /// thread), so jobs that wait with `flock(1)` cannot starve it the way polling can. After
+    /// `wait` without the lock: `Err`, and the helper drops the lock the moment it gets it.
+    pub fn acquire_queued_at(path: &Path, wait: Duration) -> Result<Self, String> {
+        use std::sync::atomic::AtomicBool;
+        use std::sync::{mpsc, Arc};
+        if let Some(l) = Self::inherited() {
+            return Ok(l);
+        }
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        // SAFETY: flock on a valid open descriptor; non-blocking fast path.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            return Ok(Self(Some(file)));
+        }
+        let (tx, rx) = mpsc::channel();
+        let gave_up = Arc::new(AtomicBool::new(false));
+        let gave_up_t = Arc::clone(&gave_up);
+        let name = path.display().to_string();
+        std::thread::spawn(move || {
+            // SAFETY: as above; blocks in the kernel's wait queue until the lock is ours.
+            let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+            let r = if rc == 0 {
+                Ok(file)
+            } else {
+                Err(format!("flock {name}: {}", std::io::Error::last_os_error()))
+            };
+            if gave_up_t.load(Ordering::SeqCst) {
+                return; // dropping `r` closes the file and releases the lock
+            }
+            if let Err(mpsc::SendError(Ok(f))) = tx.send(r) {
+                drop(f);
+            }
+        });
+        match rx.recv_timeout(wait) {
+            Ok(r) => r.map(|f| Self(Some(f))),
+            Err(_) => {
+                gave_up.store(true, Ordering::SeqCst);
+                // The helper may have sent just before the flag: take and drop it.
+                if let Ok(Ok(f)) = rx.try_recv() {
+                    drop(f);
+                }
+                Err(format!(
+                    "GPU lock held by other jobs for {} s",
+                    wait.as_secs()
+                ))
+            }
         }
     }
 }
@@ -265,6 +333,14 @@ impl OmegaDoor {
                 );
             }
         })?;
+        // The KV cache may hold fewer positions than asked (the fused cache caps at
+        // aien_omega_dattn::MAX_POS): refuse instead of serving a shorter context than requested.
+        let context = engine.max_context_tokens();
+        if context < max_context {
+            return Err(format!(
+                "--max-context {max_context}: the engine's KV cache holds at most {context} positions (start with --max-context {context} or less)"
+            ));
+        }
         // Prefill path (W-RC): switched on while the load still holds the chip lock. A refusal is
         // fatal: the operator asked for the path (by default), so say how to turn it off.
         let prefill = prefill.effective();
@@ -302,7 +378,7 @@ impl OmegaDoor {
                 )
             })?;
         eprintln!(
-            "aien-serve-http: omega engine ready in {:.1} s: {:?} weights, {:.2} GB resident, {:.2} GB host, peak rss {:.2} GB, window_api={} fp8_api={} dattn_api={} attention={attn_path} router={router_path} lm_head={lm_head_path} prefill={prefill_path} prefill_chunk={prefill_chunk} spin_us={:?}",
+            "aien-serve-http: omega engine ready in {:.1} s: context {context} tokens, {:?} weights, {:.2} GB resident, {:.2} GB host, peak rss {:.2} GB, window_api={} fp8_api={} dattn_api={} attention={attn_path} router={router_path} lm_head={lm_head_path} prefill={prefill_path} prefill_chunk={prefill_chunk} spin_us={:?}",
             r.seconds,
             r.format,
             r.resident_bytes as f64 / 1e9,
@@ -447,6 +523,31 @@ impl Engine for OmegaDoor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn queued_lock_waits_its_turn_and_gives_up_cleanly() {
+        let dir = std::env::temp_dir().join(format!("q38-lock-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("lock");
+        let held = GpuLock::acquire_at(&path, Duration::from_secs(1)).unwrap();
+        // Gives up while held, and leaves nothing behind once the holder lets go.
+        assert!(GpuLock::acquire_queued_at(&path, Duration::from_millis(100)).is_err());
+        drop(held);
+        std::thread::sleep(Duration::from_millis(100));
+        let again =
+            GpuLock::acquire_at(&path, Duration::from_millis(200)).expect("helper released");
+        // Waits in the queue: the holder lets go after 300 ms, inside the 3 s wait.
+        let t = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            drop(again);
+        });
+        let t0 = Instant::now();
+        let got =
+            GpuLock::acquire_queued_at(&path, Duration::from_secs(3)).expect("queued acquire");
+        assert!(t0.elapsed() >= Duration::from_millis(250));
+        t.join().unwrap();
+        drop(got);
+    }
 
     #[test]
     fn gpu_lock_is_exclusive_and_released_on_drop() {

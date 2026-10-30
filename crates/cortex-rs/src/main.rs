@@ -164,18 +164,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/cortex/v2/context", post(compile_context_handler))
         .layer(middleware::from_fn(auth_middleware));
 
+    // Loopback origins only by default. A deployment that serves the cockpit on
+    // another address lists it in CORTEX_EXTRA_ORIGINS (comma-separated).
+    let mut origins: Vec<axum::http::HeaderValue> = vec![
+        "http://127.0.0.1:18095".parse().unwrap(),
+        "http://localhost:18095".parse().unwrap(),
+    ];
+    if let Ok(extra) = std::env::var("CORTEX_EXTRA_ORIGINS") {
+        for o in extra.split(',').map(str::trim).filter(|o| !o.is_empty()) {
+            match o.parse() {
+                Ok(v) => origins.push(v),
+                Err(_) => tracing::warn!("ignoring invalid CORTEX_EXTRA_ORIGINS entry {o:?}"),
+            }
+        }
+    }
+
     let app = Router::new()
         .route("/health", get(health_handler))
         .route("/status", get(health_handler))
         .merge(protected_routes)
         .layer(
             CorsLayer::new()
-                .allow_origin([
-                    "http://127.0.0.1:18095".parse().unwrap(),
-                    "http://localhost:18095".parse().unwrap(),
-                    "http://192.168.1.108:18095".parse().unwrap(),
-                    "http://100.116.106.93:18095".parse().unwrap(),
-                ])
+                .allow_origin(origins)
                 .allow_methods(Any)
                 .allow_headers(Any),
         )

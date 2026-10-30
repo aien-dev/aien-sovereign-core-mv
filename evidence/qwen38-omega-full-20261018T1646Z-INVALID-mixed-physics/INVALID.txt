@@ -1,0 +1,1 @@
+INVALID: archive mixed physics objects (nvrm.o, m16_native.o compiled from ~/workspace/physics e95e3ed, which allocates the GPFIFO GPU-cached) into an omega b11bd1f6 build; second command list never ran. Build error, not a kernel verdict. See ~/workspace/investigations/2026-10-18-q38-graph-marker-timeout.

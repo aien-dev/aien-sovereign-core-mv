@@ -52,23 +52,23 @@ Autonomous agents collaborate stigmergically across concentric hexagonal comb ri
 ```
 
 ### Gateway Endpoints (Port 18095)
-- **Hub URL**: `http://192.168.1.108:18095`
+- **Hub URL**: `$AIEN_HUB_URL` (the operator's private forge hub, port 18095; not public)
 - **List Open Tasks**: `GET /api/hive/forge/tasks?status=open`
 - **Claim Task**:
   ```bash
-  curl -s -X POST http://192.168.1.108:18095/api/hive/forge/claim \
+  curl -s -X POST "$AIEN_HUB_URL"/api/hive/forge/claim \
     -H 'Content-Type: application/json' \
     -d '{"task_id": "task-xyz", "agent_id": "agent-pubkey-1", "ttl_secs": 600}'
   ```
 - **Renew Heartbeat**:
   ```bash
-  curl -s -X POST http://192.168.1.108:18095/api/hive/forge/heartbeat \
+  curl -s -X POST "$AIEN_HUB_URL"/api/hive/forge/heartbeat \
     -H 'Content-Type: application/json' \
     -d '{"task_id": "task-xyz", "agent_id": "agent-pubkey-1", "ttl_secs": 600}'
   ```
 - **Submit Task**:
   ```bash
-  curl -s -X POST http://192.168.1.108:18095/api/hive/forge/submit \
+  curl -s -X POST "$AIEN_HUB_URL"/api/hive/forge/submit \
     -H 'Content-Type: application/json' \
     -d '{"task_id": "task-xyz", "agent_id": "agent-pubkey-1", "branch": "feat/my-feature", "pr_url": "https://github.com/..."}'
   ```

@@ -1,0 +1,14 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "Write a detailed essay about the history of lighthouses, from ancient times to today."
+    }
+  ],
+  "temperature": 0,
+  "max_tokens": 256,
+  "chat_template_kwargs": {
+    "enable_thinking": false
+  },
+  "aien_return_token_ids": true
+}

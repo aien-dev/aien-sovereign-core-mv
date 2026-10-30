@@ -1,0 +1,28 @@
+{
+  "ids": [
+    623,
+    28868,
+    76214,
+    11,
+    2972,
+    47500,
+    332,
+    369,
+    264,
+    1528,
+    709,
+    421,
+    10633,
+    279,
+    8122,
+    314,
+    18684,
+    11
+  ],
+  "text": "In thermodynamics, **entropy** is a state function that measures the degree of disorder,",
+  "finish": "length",
+  "prompt_tokens": 22,
+  "t0": "1792591419.980433385",
+  "t1": "1792591453.791801911",
+  "busy_retries": 59
+}

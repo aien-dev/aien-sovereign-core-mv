@@ -1,0 +1,146 @@
+{
+  "checks": {
+    "cold_was_cold": true,
+    "control_other_question_differs": true,
+    "control_stale_state_caught": true,
+    "live_cosine_ok": true,
+    "live_equals_cold": true,
+    "resumed_cosine_ok": true,
+    "resumed_equals_cold": true,
+    "turn1_cold": true,
+    "turn1_repeatable": true,
+    "turn2_used_snapshot": true,
+    "turn3_used_live": true
+  },
+  "cosine": {
+    "live_vs_cold": 0.9999894159960298,
+    "resumed_vs_cold": 1.0000000000000002,
+    "stale_vs_cold": 0.9998031727554294
+  },
+  "ids": {
+    "turn1": [
+      220,
+      13,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220
+    ],
+    "turn2_cold": [
+      220,
+      13,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220
+    ],
+    "turn2_other_question": [
+      220,
+      13,
+      220,
+      220,
+      13,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220
+    ],
+    "turn2_resumed": [
+      220,
+      13,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220
+    ],
+    "turn2_stale_state": [
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220
+    ],
+    "turn3_cold": [
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220
+    ],
+    "turn3_live": [
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220
+    ]
+  },
+  "layers": 8,
+  "max_abs": {
+    "live_vs_cold": 0.08060884475708008,
+    "resumed_vs_cold": 0.0,
+    "stale_vs_cold": 0.39161109924316406
+  },
+  "new_tokens": 12,
+  "pass": true,
+  "prompt_tokens": [
+    24,
+    47,
+    74
+  ],
+  "reuse": [
+    "Cold",
+    "Snapshot(17)",
+    "Live(58)",
+    "Cold"
+  ],
+  "snapshot_tokens": 17,
+  "start_ms": {
+    "turn1_cold": 84.332153,
+    "turn2_cold": 85.63525299999999,
+    "turn2_resumed": 78.381615,
+    "turn3_live": 72.003714
+  }
+}
