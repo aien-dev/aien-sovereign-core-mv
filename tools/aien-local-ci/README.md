@@ -23,6 +23,7 @@ AIENOS.
 | `cron-tick.sh` | source of the cron entry (`*/5`): crumb drift guard, keeps the trigger-only worker alive, runs `rebase-train.sh`, then `pipeline.sh round` |
 | `desk-loop.sh` | the same train + round in a 90 s loop while `$STATE/KEEP-RUNNING` exists |
 | `aien-local-ci` | source of the operator front door `~/.local/bin/aien-local-ci` (status, start/stop named worker lanes, trigger, verify, once, plan, health, log) |
+| `tests/cli_args_test.sh` | offline launcher argument and lane parsing controls with stubbed Git, worker dispatch, process discovery and signals; run with `bash tools/aien-local-ci/tests/cli_args_test.sh` |
 | `crumb-shim.sh` | the operator's `~/.local/bin/crumb`: runs the crumb tool the repository's own CRUMB-VERIFY gate uses (crumb.lock pin, own tree for aien-architecture, else the sandbox tool), so author, readiness check and gate never disagree |
 | `crumb-doctor` | drift check, cron (via cron-tick.sh): gate, readiness and hosted crumb tools agree on every main and tool-changing PR; worker sibling maps match origin/main; `--heal` keeps this clone's work tree on origin/main |
 | `tests/crumb_shim_test.sh`, `tests/crumb_doctor_test.sh` | offline proofs of both on throwaway fixtures (17 and 7 checks) |
