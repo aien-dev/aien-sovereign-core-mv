@@ -14,6 +14,7 @@ aien-architecture-mv#300).
 | `vendor/sha256.om` | Incremental SHA-256 in Omega, vendored from benchmarks-mv. | Exercised through `world.om` and `tur-ledger.om`. |
 | `vendor/ec.om` | Native Omega ECDSA P-256/P-384 verification, byte-identical to omega-mv `6999fa9e6dae4847c155ef4eacaece74f491d3ca` `om/tls/ec.om`. | P-256/SHA-256 strict DER verification used by `tur-ledger.om`; OpenSSL is a test-only signing oracle, not a runtime dependency. |
 | `vendor/json.om` | Seeded JSON tape parser, byte-identical to omega-mv `bf54b19fa590e8ae925c0e80815516dbf41e7326` `seed/json/json.om`. | Used by `flint/manifest.om` for config and safetensors headers. |
+| `residency/residency.om` | MoE expert residency simulator (sc#630 question): replays a recorded router trace against a per-layer expert cache and counts hits and misses for LRU and Belady OPT at 25-90 % resident. | Host only. Matches an independent Wolfram LRU/OPT on a real 35B trace slice and a synthetic trace; 9 refusals and 2 policy mutants checked (`OMEGA_OMC=<seed omc> bash om/residency/run.sh`). Not wired into the pager. |
 
 Run: `OMEGA_OMC=<path to seed omc> bash om/effects/run.sh` (needs the offline cargo cache for the Rust
 reference, `crates/aien-runtime/examples/om_world_reference.rs`).
