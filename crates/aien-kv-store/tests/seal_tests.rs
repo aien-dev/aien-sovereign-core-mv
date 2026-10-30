@@ -27,6 +27,7 @@ use aien_kv_store::seal::{self, KeyRefusal, SealError, SealKey, KEY_ENV};
 use aien_kv_store::{payload_root, RecordHeader};
 use rig::*;
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// `region || payload` for object `n` of the rig geometry, unsealed.
 fn plain_file(n: u32) -> (Vec<u8>, Vec<u8>) {
@@ -43,9 +44,29 @@ fn plain_file(n: u32) -> (Vec<u8>, Vec<u8>) {
     (file, payload)
 }
 
+/// Removed when the value drops, including when a seal assertion panics.
+struct UsageDir(std::path::PathBuf);
+
+impl UsageDir {
+    fn new() -> Self {
+        static N: AtomicU64 = AtomicU64::new(0);
+        let n = N.fetch_add(1, Ordering::Relaxed);
+        let p = std::env::temp_dir().join(format!("aien-kv-seal-tests-{}-{n}", std::process::id()));
+        std::fs::create_dir_all(&p).unwrap();
+        UsageDir(p)
+    }
+}
+
+impl Drop for UsageDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 fn sealed_file(key: &SealKey, n: u32) -> (Vec<u8>, Vec<u8>) {
+    let dir = UsageDir::new();
     let (mut file, payload) = plain_file(n);
-    key.seal_file(&mut file).unwrap();
+    key.seal_file(&dir.0, &mut file).unwrap();
     (file, payload)
 }
 

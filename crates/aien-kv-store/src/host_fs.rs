@@ -23,17 +23,21 @@
 
 //! Host filesystem `KvStore` adapter (cut C4, `sovereign-core#484`).
 //!
-//! Layout under `<root>` (ADR 0003 section 2.4):
+//! Layout under `<root>` (ADR 0003 section 2.4), plus `seal-usage/` for the
+//! per-key seal budget (#811):
 //!
 //! ```text
 //! <root>/
 //!   STORE_ID
 //!   objects/00/ .. objects/ff/
 //!   tmp/
+//!   seal-usage/
 //! ```
 //!
-//! All 256 shard directories and `tmp/` are created at [`HostFsStore::open`]
-//! with a parent-directory `fsync`; the hot path never creates a directory.
+//! All 256 shard directories, `tmp/` and `seal-usage/` are created at
+//! [`HostFsStore::open`] with a parent-directory `fsync`; the hot path never
+//! creates a directory. The per-key count file inside `seal-usage/` is written
+//! when an object is sealed.
 
 use crate::identity::{BackendFormat, ChunkKey, LayoutStrides, NamespaceFields, NamespaceId};
 use crate::index::{Index, IndexEntry, FLAG_FOREIGN, FLAG_INDETERMINATE};
@@ -2122,13 +2126,22 @@ fn execute_store_job(shared: &Shared, job_id: u64) {
         )
     };
 
-    // SEAL SEAM (#506): encrypt the payload in place and fill the seal slot,
-    // off the lock. Nothing reaches the filesystem unsealed.
-    if shared.seal_key.seal_file(&mut file_bytes).is_err() {
+    // SEAL SEAM (#506, #708, #811): encrypt the payload in place and fill the
+    // seal slot, off the lock. `SealError::Random`, `Budget` and `UsageStore`
+    // leave `file_bytes` plaintext, so the error return below is what keeps
+    // that buffer off disk. The usage count is durable before this returns
+    // Ok. There is no fallback nonce.
+    let usage_dir = root.join(crate::seal::USAGE_DIR_NAME);
+    if let Err(err) = shared.seal_key.seal_file(&usage_dir, &mut file_bytes) {
+        let why = match err {
+            crate::seal::SealError::Budget => "seal budget exhausted",
+            crate::seal::SealError::UsageStore => "seal usage counter failed",
+            _ => "seal failed",
+        };
         let garbage = {
             let mut g = shared.inner.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(job) = g.jobs.remove(&job_id) {
-                g.fail_job(job, PlatformError::HardwareFault("seal failed".into()));
+                g.fail_job(job, PlatformError::HardwareFault(why.into()));
             }
             std::mem::take(&mut g.graveyard)
         };
@@ -3042,6 +3055,7 @@ impl HostFsStore {
         let root = &config.root;
         let objects_dir = root.join("objects");
         let tmp_dir = root.join("tmp");
+        let usage_dir = root.join(crate::seal::USAGE_DIR_NAME);
         let shard_dirs: Vec<PathBuf> = (0..=255u8)
             .map(|b| objects_dir.join(format!("{b:02x}")))
             .collect();
@@ -3051,6 +3065,7 @@ impl HostFsStore {
         check_trusted_parent(root)?;
         if check_private_dir(root)? {
             check_private_dir(&tmp_dir)?;
+            check_private_dir(&usage_dir)?;
             if check_private_dir(&objects_dir)? {
                 for shard in &shard_dirs {
                     check_private_dir(shard)?;
@@ -3069,6 +3084,19 @@ impl HostFsStore {
                 stats.mkdirs += 1;
                 stats.io_ops += 1;
             }
+        }
+        if make_private_dir(&usage_dir, false)? {
+            stats.mkdirs += 1;
+            stats.io_ops += 1;
+            // The directory name has to be durable before the first seal.
+            // Losing `seal-usage/` beside sealed objects fails the next seal
+            // (`SealError::UsageStore`) and records the key. A key already in
+            // `key-fingerprints` cannot start over. An empty store still
+            // starts at zero.
+            fsync_dir(&usage_dir).map_err(|e| io_to_error(&e, "fsync seal-usage"))?;
+            fsync_dir(root).map_err(|e| io_to_error(&e, "fsync root for seal-usage"))?;
+            stats.dir_fsyncs += 2;
+            stats.io_ops += 2;
         }
 
         let alloc_unit = std::fs::metadata(&objects_dir)
