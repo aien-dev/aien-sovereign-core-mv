@@ -239,7 +239,7 @@ refusal guard in turn (its fixture must stop producing the code). Encode is NOT_
 It starts from two token IDs, loads real BF16 embedding rows and all selected expert weights,
 and compares five intermediate tensors per layer, final normalization and every vocabulary logit.
 The reference tensors are comparison targets, never teacher-forced inputs.
-The full gate prints `OM-FLINT-MANIFEST PASS (92)` with real checkpoint inputs; wrong-token
+The full gate prints `OM-FLINT-MANIFEST PASS (156)` with real checkpoint inputs (92 before the 64 `tok.om` checks); wrong-token
 and skipped-final-normalization source mutants must fail the comparison.
 
 See [PROFILE.md](PROFILE.md) for the frozen weight/runtime/tokenizer/template identities
