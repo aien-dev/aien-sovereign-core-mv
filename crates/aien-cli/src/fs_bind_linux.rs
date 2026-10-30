@@ -296,21 +296,31 @@ fn open_beneath(
         resolve: (libc::RESOLVE_BENEATH | libc::RESOLVE_NO_SYMLINKS | libc::RESOLVE_NO_MAGICLINKS)
             as u64,
     };
-    // SAFETY: `c` is a valid C string, `how` matches the kernel `open_how`
-    // layout, and a non-negative fd is owned by this function alone.
-    let fd = unsafe {
-        libc::syscall(
-            libc::SYS_openat2,
-            dirfd,
-            c.as_ptr(),
-            &how as *const OpenHow,
-            std::mem::size_of::<OpenHow>(),
-        )
-    };
-    if fd >= 0 {
-        return Ok(unsafe { OwnedFd::from_raw_fd(fd as libc::c_int) });
+    // With RESOLVE_BENEATH the kernel returns EAGAIN when a rename or mount
+    // anywhere raced a `..` step, since it cannot then prove the walk stayed
+    // beneath. Retry a bounded number of times; it stays a failure after.
+    let mut attempts = 0;
+    loop {
+        // SAFETY: `c` is a valid C string, `how` matches the kernel `open_how`
+        // layout, and a non-negative fd is owned by this function alone.
+        let fd = unsafe {
+            libc::syscall(
+                libc::SYS_openat2,
+                dirfd,
+                c.as_ptr(),
+                &how as *const OpenHow,
+                std::mem::size_of::<OpenHow>(),
+            )
+        };
+        if fd >= 0 {
+            return Ok(unsafe { OwnedFd::from_raw_fd(fd as libc::c_int) });
+        }
+        let err = std::io::Error::last_os_error();
+        attempts += 1;
+        if err.raw_os_error() != Some(libc::EAGAIN) || attempts == 32 {
+            return Err(err);
+        }
     }
-    Err(std::io::Error::last_os_error())
 }
 
 fn dup_fd(fd: libc::c_int) -> std::io::Result<OwnedFd> {
@@ -1494,6 +1504,26 @@ mod tests {
         let made = make_dir(s.ws.join("d/../d/sub/leaf").to_str().unwrap()).unwrap();
         assert_eq!(made, s.ws.join("d/sub/leaf"));
         assert!(made.is_dir());
+    }
+
+    #[test]
+    fn dotdot_open_survives_concurrent_renames() {
+        let s = scratch();
+        let stop = std::sync::Arc::new(AtomicBool::new(false));
+        let (flag, other) = (stop.clone(), s.other.clone());
+        let renamer = std::thread::spawn(move || {
+            while !flag.load(Ordering::Relaxed) {
+                std::fs::rename(other.join("f"), other.join("g")).unwrap();
+                std::fs::rename(other.join("g"), other.join("f")).unwrap();
+            }
+        });
+        let probe = s.ws.join("d/../d/f");
+        let failures = (0..5000)
+            .filter(|_| read_text(probe.to_str().unwrap()).is_err())
+            .count();
+        stop.store(true, Ordering::Relaxed);
+        renamer.join().unwrap();
+        assert_eq!(failures, 0, "a rename elsewhere failed a `..` open");
     }
 
     #[test]
