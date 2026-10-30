@@ -208,7 +208,57 @@ layer, expert index permuted (255 - e), and window 514.
 - per-expert layout checks before fusing;
 - tokenizer and control-token identity, and a load report.
 
-This unit has no GPU arm. A GGUF importer, if added, will be a separate optional unit.
+This unit has no GPU arm. The GGUF header importer is the separate unit `gguf.om` below.
+
+## GGUF importer: `gguf.om` (Core #834)
+
+`flint-gguf report GGUF` admits the header of the serving artifact
+`~/models/flint-nvfp4-gguf/flint-nvfp4.gguf` (22863084160 bytes, sha256 `97cc8009…6b8bde`) the
+way ggml's reader at llama.cpp tag b11804 (commit c7fc5094) does: magic, version 3, every key and
+value of all 13 value types (arrays included, nested arrays refused), empty or duplicate keys
+refused, `general.alignment` a nonzero power-of-two u32 (default 32), at most 4 dims per tensor
+with the element count at most INT64_MAX, a known ggml type whose block divides ne0, unique
+names, and a data section where each tensor starts at the padded end of the one before it.
+It reads the file from disk only, one bounded pread of at most 16 MiB of header. Stricter than
+ggml: names and keys must be printable tokens (names at most 63 bytes, keys at most 255),
+bytes past the last padded tensor are refused, and arrays hold at most 999999 elements.
+
+On success stdout is the report and stderr `flint-gguf ok tensors T kvs K bytes F`. The report
+format is in the docstring of `test/ggufref.py`, the referee, which writes the same report with
+the b11804 `gguf-py` (0.19.0; it checks the sha256 of `gguf_reader.py` and `constants.py`).
+The referee's reports are frozen as `test/gguf-synth-report.txt` (the synthetic file from
+`test/ggufgen.py`) and `test/gguf-report.txt` (the serving file); `check.sh` pins both and
+requires `gguf.om`'s output to equal them byte for byte. The serving report shows 1264
+tensors: 485 NVFP4 (type 40, 22192275456 bytes), 48 BF16 (type 30: `token_embd` and the 47
+routers), 731 F32 (type 0: norms, sinks and the 485 NVFP4 `.scale` tensors).
+
+| code | reason | cause |
+|---|---|---|
+| 2 | usage | not `report GGUF` |
+| 3 | io | open, stat, read or close failed |
+| 4 | not-regular-file | directory, symlink (O_NOFOLLOW) or device |
+| 60 | gguf-truncated | the header ends before a field it declares |
+| 61 | gguf-magic | not `GGUF` |
+| 62 | gguf-version | version other than 3 |
+| 63 | gguf-kv | unknown value type, array of arrays, empty or non-printable key |
+| 64 | gguf-kv-duplicate | a key appears twice |
+| 65 | gguf-alignment | `general.alignment` not a u32, zero or not a power of two |
+| 66 | tensor-shape | 0 or more than 4 dims, element count over INT64_MAX, ne0 not a multiple of the block |
+| 67 | ggml-type | type id 43 or above, or a removed id (4, 5, 31..33, 36..38) |
+| 68 | tensor-name | empty, longer than 63 bytes, non-printable or duplicate name |
+| 69 | tensor-misaligned | offset not a multiple of the alignment |
+| 70 | tensor-past-eof | tensor bytes end past the end of the file |
+| 71 | tensor-tiling | offset not the padded end of the previous tensor, or bytes after the last |
+| 72 | header-capacity | header over 16 MiB, more than 4096 tensors, 1024 keys or 999999 array elements |
+| 73 | output-capacity | report over 4 MiB |
+
+Gate arm 6 of `check.sh`: the synthetic report equals the referee's; usage, absent file,
+directory and symlink refusals; 20 refusal fixtures; 13 guard mutants (each `gg_die N` removed
+must stop its fixture producing N) and an O_NOFOLLOW mutant. `FLINT_GGUF=file` compares the
+serving report with the frozen one; `FLINT_GGUF_PY=cmd` reruns the referee on both files.
+Each is NOT_RUN when unset. NOT_RUN for this unit: the name map and shape cross-check against
+the safetensors inventory, the totals reconciliation, NVFP4 block dequantization against the
+BF16 shards, and any serving or GPU evidence.
 
 ## Complete bounded host forward
 

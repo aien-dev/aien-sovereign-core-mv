@@ -1,0 +1,935 @@
+note flint-gguf: bounded reader for the Flint serving artifact (GGUF v3, Core #834).
+note Usage: flint-gguf report GGUF. It admits the GGUF header the way ggml's own reader at
+note llama.cpp b11804 does (magic, version 3, every key/value of every value type, tensor infos,
+note general.alignment, a data section tiled in order with each tensor padded to the alignment)
+note and refuses anything else. On success stdout is the report (format in om/flint/README.md,
+note referee test/ggufref.py) and stderr carries one summary line. On refusal nothing is written
+note to stdout, stderr carries "refused N reason" and the exit status is N.
+note Compose: { printf 'om2\n'; cat om/vendor/json.om om/flint/gguf.om; } | omc
+note The header is read with one bounded pread into gh; a header longer than gh is refused (72).
+
+const GMX ulong 999999
+const GHC ulong 16777216
+const GTM ulong 4096
+const GKM ulong 1024
+global ga uchar 16384
+global gas ulong 8
+global gal ulong 8
+global gpth uchar 4352
+global gh uchar 16777216
+global gst ulong 64
+global gstb uchar 128
+global geb uchar 512
+global gdg uchar 24
+global gob uchar 4194304
+global gtno ulong 4096
+global gtnl ulong 4096
+global gtnd ulong 4096
+global gtdm ulong 16384
+global gtty ulong 4096
+global gtof ulong 4096
+global gtnb ulong 4096
+global gtne ulong 4096
+global gkko ulong 1024
+global gkkl ulong 1024
+global gkty ulong 1024
+global gkvo ulong 1024
+global gbe ulong 64
+global gbb ulong 64
+global gtyc ulong 192
+
+note gst slots: 0 header cursor, 1 header bytes loaded, 2 file size, 3 tensor count, 4 kv count,
+note 5 stdout length, 6 alignment, 7 data section start, 8 version, 9 st_size from gg_open,
+note 10 tensor bytes used, 11 tensor bytes padded, 14 stderr length, 30 guard-mutant scratch
+
+text tref "refused "
+text tg2 "usage: flint-gguf report GGUF"
+text tg3 "io"
+text tg4 "not-regular-file"
+text tg60 "gguf-truncated"
+text tg61 "gguf-magic"
+text tg62 "gguf-version"
+text tg63 "gguf-kv"
+text tg64 "gguf-kv-duplicate"
+text tg65 "gguf-alignment"
+text tg66 "tensor-shape"
+text tg67 "ggml-type"
+text tg68 "tensor-name"
+text tg69 "tensor-misaligned"
+text tg70 "tensor-past-eof"
+text tg71 "tensor-tiling"
+text tg72 "header-capacity"
+text tg73 "output-capacity"
+text tmagic "GGUF"
+text trep "report"
+text talign "general.alignment"
+text tkft "general.file_type"
+text tkqv "general.quantization_version"
+text tkbos "tokenizer.ggml.bos_token_id"
+text tkeos "tokenizer.ggml.eos_token_id"
+text tn0 "u8"
+text tn1 "i8"
+text tn2 "u16"
+text tn3 "i16"
+text tn4 "u32"
+text tn5 "i32"
+text tn6 "f32"
+text tn7 "bool"
+text tn8 "string"
+text tn9 "array"
+text tn10 "u64"
+text tn11 "i64"
+text tn12 "f64"
+text tgv "gguf version "
+text ttn " tensors "
+text tkn " kvs "
+text tal " alignment "
+text tdat " data "
+text tbyt " bytes "
+text tkv "kv "
+text tbits "bits "
+text tsum " sum "
+text tvals " values"
+text tten "tensor "
+text ttyp "type "
+text tels " elements "
+text tused "data used "
+text tpad " padded "
+text tq1 "quant file_type "
+text tq2 " quantization_version "
+text tt1 "tokenizer bos "
+text tt2 " eos "
+text tnone "none"
+text tok "flint-gguf ok tensors "
+
+note ======== output buffers ========
+
+fn gg_eput c uchar to void
+p = get gst 14
+if lt p 512
+put geb p c
+put gst 14 add p 1
+end
+end
+
+fn gg_etx t view uchar * to void
+for i ulong len t
+gg_eput get t i
+end
+end
+
+note gg_dec: decimal digits of v into gdg, least significant first; returns the digit count
+fn gg_dec v ulong to ulong
+n = ulong 0
+x = v
+while true bound 25
+put gdg n add 48 uchar rem x 10
+n = add n 1
+x = div x 10
+if eq x 0
+break
+end
+end
+ret n
+end
+
+fn gg_eu v ulong to void
+n = gg_dec v
+for i ulong n
+gg_eput get gdg sub sub n i 1
+end
+end
+
+fn gg_eflush to void
+o = ulong 0
+m = get gst 14
+while lt o m bound 1024
+w = write 2 geb o sub m o
+if le w 0
+exit 3
+end
+o = add o ulong w
+end
+put gst 14 0
+end
+
+fn gg_die c ulong t view uchar * to void
+put gst 14 0
+gg_etx tref
+gg_eu c
+gg_eput 32
+gg_etx t
+gg_eput 10
+gg_eflush
+exit int c
+end
+
+fn gg_ob c uchar to void
+p = get gst 5
+if ge p len gob
+gg_die 73 tg73
+end
+put gob p c
+put gst 5 add p 1
+end
+
+fn gg_otx t view uchar * to void
+for i ulong len t
+gg_ob get t i
+end
+end
+
+fn gg_ou v ulong to void
+n = gg_dec v
+for i ulong n
+gg_ob get gdg sub sub n i 1
+end
+end
+
+note gg_os: v is a two's complement 64-bit value
+fn gg_os v ulong to void
+if ge v 9223372036854775808
+gg_ob 45
+gg_ou neg v
+else
+gg_ou v
+end
+end
+
+note gg_oh: header bytes gh[p .. p + n)
+fn gg_oh p ulong n ulong to void
+for i ulong n
+gg_ob get gh add p i
+end
+end
+
+fn gg_oflush to void
+o = ulong 0
+m = get gst 5
+while lt o m bound 999999
+w = write 1 gob o sub m o
+if le w 0
+gg_die 3 tg3
+end
+o = add o ulong w
+end
+end
+
+note ======== file access ========
+
+note gg_open: open gpth[0 .. n) with O_RDONLY | O_CLOEXEC | O_NOFOLLOW (arm64 557056), require a
+note regular file (st_mode & S_IFMT 61440 == S_IFREG 32768), leave st_size in gst 9
+fn gg_open n ulong to long
+fd = fopen gpth 0 n 557056 0
+if lt fd 0
+if eq fd -40
+gg_die 4 tg4
+end
+gg_die 3 tg3
+end
+r = fstat int fd gstb 0 128
+if ne r 0
+gg_die 3 tg3
+end
+md = or ulong get gstb 16 shl ulong get gstb 17 8
+if ne and md 61440 32768
+gg_die 4 tg4
+end
+v = ulong 0
+for i ulong 8
+v = or v shl ulong get gstb add 48 i mul 8 i
+end
+put gst 9 v
+ret fd
+end
+
+fn gg_argp a ulong to ulong
+n = get gal a
+if or eq n 0 gt n 4095
+gg_die 2 tg2
+end
+o = get gas a
+for i ulong n
+put gpth i get ga add o i
+end
+ret n
+end
+
+fn gg_isarg a ulong t view uchar * to bool
+if ne get gal a len t
+ret false
+end
+o = get gas a
+for i ulong len t
+if ne get ga add o i get t i
+ret false
+end
+end
+ret true
+end
+
+fn gg_load fd long n ulong to void
+o = ulong 0
+while lt o n bound 999999
+r = pread int fd gh o sub n o long o
+if le r 0
+gg_die 3 tg3
+end
+o = add o ulong r
+end
+end
+
+fn gg_close fd long to void
+r = fclose int fd
+if ne r 0
+gg_die 3 tg3
+end
+end
+
+note ======== header cursor ========
+
+note gg_need: claim k header bytes at the cursor; past the loaded bytes is a truncated file, or a
+note header longer than gh when the file goes on
+fn gg_need k ulong to ulong
+p = get gst 0
+m = get gst 1
+if gt k sub m p
+if lt m get gst 2
+gg_die 72 tg72
+end
+gg_die 60 tg60
+end
+put gst 0 add p k
+ret p
+end
+
+note gg_rd: little-endian unsigned value of k (at most 8) bytes at the cursor
+fn gg_rd k ulong to ulong
+p = gg_need k
+v = ulong 0
+for i ulong k
+v = or v shl ulong get gh add p i mul 8 i
+end
+ret v
+end
+
+fn gg_heq a ulong b ulong n ulong to bool
+for i ulong n
+if ne get gh add a i get gh add b i
+ret false
+end
+end
+ret true
+end
+
+fn gg_htx o ulong t view uchar * to bool
+for i ulong len t
+if ne get gh add o i get t i
+ret false
+end
+end
+ret true
+end
+
+note gg_prt: gh[p .. p + n) is 1..mx bytes, each lo..126 (lo 33: one token on a report line)
+fn gg_prt p ulong n ulong lo uchar mx ulong to bool
+if or eq n 0 gt n mx
+ret false
+end
+for i ulong n
+c = get gh add p i
+if or lt c lo gt c 126
+ret false
+end
+end
+ret true
+end
+
+note ======== value types ========
+
+note gg_vsz: bytes of one scalar of GGUF value type t; 0 for string, array and unknown types
+fn gg_vsz t ulong to ulong
+if or or eq t 0 eq t 1 eq t 7
+ret ulong 1
+end
+if or eq t 2 eq t 3
+ret ulong 2
+end
+if and ge t 4 le t 6
+ret ulong 4
+end
+if and ge t 10 le t 12
+ret ulong 8
+end
+ret ulong 0
+end
+
+fn gg_sgn t ulong to bool
+ret or or eq t 1 eq t 3 or eq t 5 eq t 11
+end
+
+note gg_sx: sign-extend an i8, i16 or i32 value to two's complement 64 bits
+fn gg_sx t ulong v ulong to ulong
+if and eq t 1 ge v 128
+ret sub v 256
+end
+if and eq t 3 ge v 32768
+ret sub v 65536
+end
+if and eq t 5 ge v 2147483648
+ret sub v 4294967296
+end
+ret v
+end
+
+note gg_one: step over one value of scalar or string type t
+fn gg_one t ulong to void
+if eq t 8
+l = gg_rd 8
+p = gg_need l
+else
+z = gg_vsz t
+if eq z 0
+gg_die 63 tg63
+end
+p = gg_need z
+end
+end
+
+note gg_val: step over the value of a key; an array of arrays is refused like ggml refuses it
+fn gg_val t ulong to void
+if eq t 9
+et = gg_rd 4
+n = gg_rd 8
+if or eq et 9 gt et 12
+gg_die 63 tg63
+end
+if gt n GMX
+gg_die 72 tg72
+end
+for i ulong n
+gg_one et
+end
+else
+gg_one t
+end
+end
+
+fn gg_kv i ulong to void
+kl = gg_rd 8
+ko = gg_need kl
+if not gg_prt ko kl 33 255
+gg_die 63 tg63
+end
+for j ulong i
+if eq get gkkl j kl
+if gg_heq get gkko j ko kl
+gg_die 64 tg64
+end
+end
+end
+t = gg_rd 4
+put gkko i ko
+put gkkl i kl
+put gkty i t
+put gkvo i get gst 0
+gg_val t
+end
+
+note gg_kfind: index + 1 of the key equal to t, 0 when absent
+fn gg_kfind t view uchar * to ulong
+for i ulong get gst 4
+if eq get gkkl i len t
+if gg_htx get gkko i t
+ret add i 1
+end
+end
+end
+ret ulong 0
+end
+
+note gg_align: general.alignment, when present, is a nonzero power-of-two u32 (default 32)
+fn gg_align to void
+c = get gst 0
+put gst 6 32
+k = gg_kfind talign
+if gt k 0
+i = sub k 1
+if ne get gkty i 4
+gg_die 65 tg65
+end
+put gst 0 get gkvo i
+a = gg_rd 4
+if or eq a 0 ne and a sub a 1 0
+gg_die 65 tg65
+end
+put gst 6 a
+end
+put gst 0 c
+end
+
+note ======== ggml types (block elements, block bytes) at llama.cpp b11804 ========
+
+fn gg_ts t ulong e ulong z ulong to void
+put gbe t e
+put gbb t z
+end
+
+note ids 4, 5, 31..33 and 36..38 are removed types; they keep block 0 and are refused
+fn gg_tinit to void
+gg_ts 0 1 4
+gg_ts 1 1 2
+gg_ts 2 32 18
+gg_ts 3 32 20
+gg_ts 6 32 22
+gg_ts 7 32 24
+gg_ts 8 32 34
+gg_ts 9 32 36
+gg_ts 10 256 84
+gg_ts 11 256 110
+gg_ts 12 256 144
+gg_ts 13 256 176
+gg_ts 14 256 210
+gg_ts 15 256 292
+gg_ts 16 256 66
+gg_ts 17 256 74
+gg_ts 18 256 98
+gg_ts 19 256 50
+gg_ts 20 32 18
+gg_ts 21 256 110
+gg_ts 22 256 82
+gg_ts 23 256 136
+gg_ts 24 1 1
+gg_ts 25 1 2
+gg_ts 26 1 4
+gg_ts 27 1 8
+gg_ts 28 1 8
+gg_ts 29 256 56
+gg_ts 30 1 2
+gg_ts 34 256 54
+gg_ts 35 256 66
+gg_ts 39 32 17
+gg_ts 40 64 36
+gg_ts 41 128 18
+gg_ts 42 64 18
+end
+
+note ======== tensor infos ========
+
+fn gg_tname i ulong to void
+nl = gg_rd 8
+if or eq nl 0 gt nl 63
+gg_die 68 tg68
+end
+no = gg_need nl
+if not gg_prt no nl 33 63
+gg_die 68 tg68
+end
+for j ulong i
+if eq get gtnl j nl
+if gg_heq get gtno j no nl
+gg_die 68 tg68
+end
+end
+end
+put gtno i no
+put gtnl i nl
+end
+
+note gg_tdim: 1..4 dims, each and their product at most INT64_MAX; returns the element count
+fn gg_tdim i ulong to ulong
+nd = gg_rd 4
+if or eq nd 0 gt nd 4
+gg_die 66 tg66
+end
+put gtnd i nd
+e = ulong 1
+for j ulong nd
+d = gg_rd 8
+if gt d 9223372036854775807
+gg_die 66 tg66
+end
+if gt d 0
+if gt e div 9223372036854775807 d
+gg_die 66 tg66
+end
+end
+e = mul e d
+put gtdm add mul i 4 j d
+end
+ret e
+end
+
+fn gg_tinf i ulong to void
+gg_tname i
+e = gg_tdim i
+t = gg_rd 4
+if ge t 43
+gg_die 67 tg67
+end
+be = get gbe t
+if eq be 0
+gg_die 67 tg67
+end
+if ne rem get gtdm mul i 4 be 0
+gg_die 66 tg66
+end
+put gtty i t
+put gtof i gg_rd 8
+put gtne i e
+put gtnb i mul div e be get gbb t
+end
+
+fn gg_pad n ulong to ulong
+a = get gst 6
+ret mul div add n sub a 1 a a
+end
+
+note gg_eof: tensor bytes [o, o + nb) of the data section lie inside the file
+fn gg_eof o ulong nb ulong to void
+s = get gst 2
+d = get gst 7
+if gt d s
+gg_die 70 tg70
+end
+r = sub s d
+if gt o r
+gg_die 70 tg70
+end
+if gt nb sub r o
+gg_die 70 tg70
+end
+end
+
+note gg_tile: every offset aligned, inside the file, and equal to the padded end of the tensor
+note before it (ggml's own layout); nothing after the last padded tensor
+fn gg_tile to void
+a = get gst 6
+x = ulong 0
+for i ulong get gst 3
+o = get gtof i
+nb = get gtnb i
+if ne rem o a 0
+gg_die 69 tg69
+end
+gg_eof o nb
+if ne o x
+gg_die 71 tg71
+end
+x = add o gg_pad nb
+put gst 10 add get gst 10 nb
+end
+put gst 11 x
+if gt get gst 2 add get gst 7 x
+gg_die 71 tg71
+end
+end
+
+fn gg_head to void
+p = gg_need 4
+if not gg_htx p tmagic
+gg_die 61 tg61
+end
+v = gg_rd 4
+if ne v 3
+gg_die 62 tg62
+end
+put gst 8 v
+nt = gg_rd 8
+nk = gg_rd 8
+if or gt nt GTM gt nk GKM
+gg_die 72 tg72
+end
+put gst 3 nt
+put gst 4 nk
+for i ulong nk
+gg_kv i
+end
+gg_align
+for i ulong nt
+gg_tinf i
+end
+put gst 7 gg_pad get gst 0
+gg_tile
+end
+
+note ======== report ========
+
+fn gg_otn t ulong to void
+if eq t 0
+gg_otx tn0
+end
+if eq t 1
+gg_otx tn1
+end
+if eq t 2
+gg_otx tn2
+end
+if eq t 3
+gg_otx tn3
+end
+if eq t 4
+gg_otx tn4
+end
+if eq t 5
+gg_otx tn5
+end
+if eq t 6
+gg_otx tn6
+end
+if eq t 7
+gg_otx tn7
+end
+if eq t 8
+gg_otx tn8
+end
+if eq t 9
+gg_otx tn9
+end
+if eq t 10
+gg_otx tn10
+end
+if eq t 11
+gg_otx tn11
+end
+if eq t 12
+gg_otx tn12
+end
+end
+
+fn gg_onum t ulong v ulong to void
+if gg_sgn t
+gg_os gg_sx t v
+else
+gg_ou v
+end
+end
+
+note gg_oval: a scalar or string value at the cursor (floats as their bits)
+fn gg_oval t ulong to void
+if eq t 8
+l = gg_rd 8
+p = gg_need l
+gg_ou l
+if gg_prt p l 32 64
+gg_ob 32
+gg_oh p l
+end
+else
+if or eq t 6 eq t 12
+gg_otx tbits
+end
+gg_onum t gg_rd gg_vsz t
+end
+end
+
+fn gg_sbyt n ulong to ulong
+s = ulong 0
+for i ulong n
+l = gg_rd 8
+p = gg_need l
+s = add s l
+end
+ret s
+end
+
+fn gg_oarr to void
+et = gg_rd 4
+n = gg_rd 8
+gg_otn et
+gg_ob 32
+gg_ou n
+if eq et 8
+gg_otx tbyt
+gg_ou gg_sbyt n
+else
+p = get gst 0
+z = gg_vsz et
+s = ulong 0
+for i ulong n
+s = add s gg_sx et gg_rd z
+end
+gg_otx tsum
+if gg_sgn et
+gg_os s
+else
+gg_ou s
+end
+if and gt n 0 le n 8
+gg_otx tvals
+put gst 0 p
+for i ulong n
+gg_ob 32
+gg_onum et gg_rd z
+end
+end
+end
+end
+
+fn gg_okv i ulong to void
+gg_otx tkv
+gg_oh get gkko i get gkkl i
+gg_ob 32
+put gst 0 get gkvo i
+t = get gkty i
+gg_otn t
+gg_ob 32
+if eq t 9
+gg_oarr
+else
+gg_oval t
+end
+gg_ob 10
+end
+
+fn gg_oten i ulong to void
+gg_otx tten
+gg_oh get gtno i get gtnl i
+gg_ob 32
+gg_ou get gtty i
+gg_ob 32
+for j ulong get gtnd i
+if gt j 0
+gg_ob 120
+end
+gg_ou get gtdm add mul i 4 j
+end
+gg_ob 32
+gg_ou get gtof i
+gg_ob 32
+gg_ou get gtnb i
+gg_ob 10
+end
+
+fn gg_otyp to void
+for i ulong get gst 3
+t = mul get gtty i 3
+put gtyc t add get gtyc t 1
+put gtyc add t 1 add get gtyc add t 1 get gtne i
+put gtyc add t 2 add get gtyc add t 2 get gtnb i
+end
+for t ulong 43
+k = mul t 3
+if gt get gtyc k 0
+gg_otx ttyp
+gg_ou t
+gg_otx ttn
+gg_ou get gtyc k
+gg_otx tels
+gg_ou get gtyc add k 1
+gg_otx tbyt
+gg_ou get gtyc add k 2
+gg_ob 10
+end
+end
+end
+
+note gg_okey: the scalar value of key t, or none when absent or a string or array
+fn gg_okey t view uchar * to void
+k = gg_kfind t
+if eq k 0
+gg_otx tnone
+else
+i = sub k 1
+y = get gkty i
+if or eq y 8 eq y 9
+gg_otx tnone
+else
+put gst 0 get gkvo i
+gg_onum y gg_rd gg_vsz y
+end
+end
+end
+
+fn gg_rep to void
+gg_otx tgv
+gg_ou get gst 8
+gg_otx ttn
+gg_ou get gst 3
+gg_otx tkn
+gg_ou get gst 4
+gg_otx tal
+gg_ou get gst 6
+gg_otx tdat
+gg_ou get gst 7
+gg_otx tbyt
+gg_ou get gst 2
+gg_ob 10
+for i ulong get gst 4
+gg_okv i
+end
+for i ulong get gst 3
+gg_oten i
+end
+gg_otyp
+gg_otx tused
+gg_ou get gst 10
+gg_otx tpad
+gg_ou get gst 11
+gg_ob 10
+gg_otx tq1
+gg_okey tkft
+gg_otx tq2
+gg_okey tkqv
+gg_ob 10
+gg_otx tt1
+gg_okey tkbos
+gg_otx tt2
+gg_okey tkeos
+gg_ob 10
+end
+
+fn gg_sum to void
+put gst 14 0
+gg_etx tok
+gg_eu get gst 3
+gg_etx tkn
+gg_eu get gst 4
+gg_etx tbyt
+gg_eu get gst 2
+gg_eput 10
+gg_eflush
+end
+
+note gg_read: open argument a, load at most GHC header bytes into gh, admit the header
+fn gg_read a ulong to void
+n = gg_argp a
+fd = gg_open n
+s = get gst 9
+put gst 2 s
+h = s
+if gt h GHC
+h = GHC
+end
+gg_load fd h
+put gst 1 h
+gg_close fd
+gg_head
+end
+
+fn main to int
+c = argcnt
+if or lt c 3 gt c 5
+gg_die 2 tg2
+end
+o = ulong 0
+for i ulong ulong c
+r = argread i ga o sub len ga o
+if lt r 0
+gg_die 2 tg2
+end
+put gas i o
+put gal i ulong r
+o = add o ulong r
+end
+gg_tinit
+if and eq c 3 gg_isarg 1 trep
+gg_read 2
+gg_rep
+gg_oflush
+gg_sum
+ret 0
+end
+gg_die 2 tg2
+ret 1
+end
