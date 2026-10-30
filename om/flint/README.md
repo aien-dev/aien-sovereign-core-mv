@@ -201,9 +201,14 @@ layer, expert index permuted (255 - e), and window 514.
 
 ## Not covered (NOT_RUN for this unit)
 
-- bf16-activation parity: the referee runs in f32;
-- generation, bf16 activations and long-context serving remain NOT_RUN; complete two-token
-  chained layer/intermediate/logit parity is now covered by the optional arm below;
+- bf16-activation parity beyond the anchor: the optional bf16 arm below (`ops fwbf16`, v3 in
+  test/TOLERANCE.md) judges rounding presence and mode only at the anchor rows (layer-0 input
+  norm of both tokens, tier A). After the anchor it applies only the tier B gross band
+  (`1/62898 <= M/D <= 62898` per row), so a dropped or wrongly rounded bf16 site deeper in the
+  chain, up to all of them, is not detected: the `bf16-off` control stays inside the band in
+  almost every row and is caught only at the anchor;
+- generation and long-context serving remain NOT_RUN; complete two-token chained
+  layer/intermediate/logit parity is covered by the optional arm below;
 - weight streaming and repacking, with peak allocation and residency measured during load;
 - per-expert layout checks before fusing;
 - tokenizer and control-token identity, and a load report.
@@ -216,8 +221,12 @@ This unit has no GPU arm. A GGUF importer, if added, will be a separate optional
 It starts from two token IDs, loads real BF16 embedding rows and all selected expert weights,
 and compares five intermediate tensors per layer, final normalization and every vocabulary logit.
 The reference tensors are comparison targets, never teacher-forced inputs.
-The full gate prints `OM-FLINT-MANIFEST PASS (92)` with real checkpoint inputs; wrong-token
-and skipped-final-normalization source mutants must fail the comparison.
+The full gate prints `OM-FLINT-MANIFEST PASS (100)` with real checkpoint inputs; wrong-token
+and skipped-final-normalization source mutants must fail the comparison. It runs the same chain
+a second time as the bf16-activation arm: `ops fwbf16 FX16 INVENTORY SHARDS FX32` rounds every
+activation to bf16 at the reference's sites and is judged per row by the v3 criterion of
+test/TOLERANCE.md, with `bf16-truncate`, `bf16-skip-final-norm` and `bf16-off` source mutants
+that must FAIL and four fixture-admission refusals.
 
 See [PROFILE.md](PROFILE.md) for the frozen weight/runtime/tokenizer/template identities
 and the architecture audit. In particular, this checkpoint has **no expert bias**, unlike

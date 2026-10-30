@@ -42,6 +42,7 @@ attention/experts on CPU with deterministic algorithms.
 | transformers source archive | 5d82e0de4bf993484299bcc1f2ef78d1d3f4ff23cee411f42f486b774f5f6615 |
 | admitted tensor inventory TSV | 60ff4dbdaa1c3632c934c6935aa60ed5b2def4e15f0ca5083ddc7dd660f083f5 |
 | chained forward fixture | b5e4bae28af3c1fa0c8f7454c496e72da1388e17f51bb3ec9e9b0387aac97031 |
+| bf16-activation forward fixture | ac10d3254083d6768b3accb9c9b6678b3de6b751a81dae2bd9bfbf5a43949f91 |
 
 Per-shard hashes are in `PROFILE-SHARDS.sha256`; all 15 downloaded shards were
 rehashed and matched the source capture before this work. Storage is BF16, with
@@ -68,8 +69,13 @@ Line numbers refer to pinned config.json and modeling_flint.py, respectively.
 Wolfram query for counts and modeled sizes is recorded in test/TOLERANCE.md.
 Reference behavior, not the inaccurate bias claim, is implemented. Native storage
 remains BF16; compute f64 vs reference f32 is an explicit numerical-profile change.
-No BF16-activation, GPU, sampled-token, long-context, batching or task-quality
-qualification follows from this candidate forward result.
+The bf16-activation arm (#834 item 6, v3 criterion in test/TOLERANCE.md, EXERCISED on the host,
+gate `OM-FLINT-MANIFEST PASS (100)` at 339a09ac) compares the native bf16-rounding forward with a
+bf16 reference run. Tier A judges bf16 rounding presence and mode only at the anchor rows
+(layer-0 input norm of both tokens); every later row has only the tier B gross band
+`1/62898 <= M/D <= 62898`, which does not detect a missing or wrongly rounded site after the
+anchor. No GPU, sampled-token, long-context, batching or task-quality qualification follows
+from either forward result.
 
 ## Existing GPU contracts
 

@@ -486,6 +486,13 @@ returned `{90479.78142076502, 64567.59581881534, 0.6951612007935837, 0.434094941
 - `bf16-skip-final-norm`: FAIL at layer 49, worst_ppm 1614446 (largest `M / D` 101545, 1.61 `b`).
 - Fixture admission: `fwbf16 forward.fx forward.fx`, `forward fwd16.fx`, `fwbf16 fwd16x.fx
   forward.fx` and `fwbf16 fwd16.fx fwd16.fx` (FX32 not op 8) each `refused 7 fixture`.
-Every predicted verdict held. The row that carries the skip-final-norm maximum (101545, above the
-predicted token-0 final-norm 90480) was not identified; the clean v3 run is the first clean
-comparison under v2 or v3, after e9274902.
+Every predicted verdict held, but the skip-final-norm prediction was wrong about where it fails.
+A diagnostic build (the gated mutant plus a per-row print, run after 339a09ac, not in the tree)
+shows the maximum `M / D = 101545` is row 494 (0-based), the token-0 logits row, and the only
+failing row: token-1 logits (row 495) has `M / D` 32549, and the final-norm rows 492 and 493
+have 1.52 and 0.56, because the mutant feeds the unnormalized hidden state to `lm_head` while
+the final-norm comparison still sees the normalized value. The mutant is therefore caught by one
+row at 1.61 `b`, not by the predicted final-norm row.
+WolframLanguageEvaluator: `{N[101545.459/62898.0335,6], N[32549.425/62898.0335,6]}` returned
+`{1.6144456885126626, 0.5174951137383333}`. The clean v3 run is the first clean comparison
+under v2 or v3, after e9274902.
