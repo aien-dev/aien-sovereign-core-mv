@@ -13,6 +13,7 @@ serde_json = "1.0"
 tokio = { version = "1.37", features = ["sync", "rt", "macros"] }
 tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
 rayon = "1.10"
+libc = "0.2"
 aien-abi-core = { path = "../aien-abi-core" }
 aien-kv-cache = { path = "../aien-kv-cache" }
 aien-platform = { path = "../aien-platform" }
@@ -24,6 +25,7 @@ aien-omega-router = { path = "../aien-omega-router" }
 aien-omega-bf16 = { path = "../aien-omega-bf16" }
 aien-omega-pf = { path = "../aien-omega-pf" }
 aien-omega-dgraph = { path = "../aien-omega-dgraph" }
+aien-omega-q38 = { path = "../aien-omega-q38" }
 parking_lot = "0.12"
 sha2 = "0.10"
 regex-syntax = "0.8"
@@ -38,3 +40,8 @@ dev-fallback = []
 # a real `OmegaEngine` over a host bf16 pool, so other crates can test the persistent KV path
 # without a chip. Dev-dependencies only; never in a server build.
 host-test-engine = []
+
+[dev-dependencies]
+# sc#629: the expert store's random-access reads are checked byte for byte
+# against this crate's resident-loader shard reader (tests only).
+aien-expert-store = { path = "../aien-expert-store" }

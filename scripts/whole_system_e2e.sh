@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # WHOLE-SYSTEM-E2E harness v1.3 (aien-architecture#190, lane L1; GB10 mode for milestone R6, sovereign-core#402).
 # Rows: docs/campaigns/whole-system-e2e/ACCEPTANCE-v1.md, -v1.1.md, -v1.2.md, -v1.3-gb10.md, -v1.3-ctrl-e5.md, -v1.3.1-e3m.md (each committed before the script
 # change that implements it; never edited by the script).
@@ -299,7 +314,7 @@ selftest() {
   ART=$sv_art; LOGS=$sv_logs; PROP_DN=(); GPU_SEEN_DN=""; GPU_SEEN_TOTAL=0; FALLBACK_SEEN=false
   # v1.5 (ACCEPTANCE-v1.5-fixed-root.md): run-root rule and the recorded prompt ids, with negative controls.
   mkdir -p "$t/root/real"; ln -s "$t/root/real" "$t/root/link"; local rt; rt=$(readlink -f -- "$t/root")
-  run_root_ok /home/drakestapleton/.aien-e2e/run && run_root_ok "$rt/real" && run_root_ok "$rt/new" || { echo "selftest: a valid run root was refused"; rc=1; }
+  run_root_ok /home/alice/.aien-e2e/run && run_root_ok "$rt/real" && run_root_ok "$rt/new" || { echo "selftest: a valid run root was refused"; rc=1; }
   for bad in relative/run /a/b/ /a//b /a/./b /a/../b /a/.. "$rt/link" "/$(printf 'x%.0s' $(seq 1 100))"; do
     ! run_root_ok "$bad" || { echo "selftest: run root '$bad' was accepted"; rc=1; }
   done

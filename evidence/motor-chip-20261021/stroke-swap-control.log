@@ -1,0 +1,172 @@
+model: 40 layers, 4 heads; positions gen-p1 36, gen-p2 46, gen-p3 42, gen-p4 39; swap CONTROL at step 18 (slots 0<->1, feeds stay)
+reference: 4 conversations in 63.0 s; greedy tokens equal the golden records
+memory: MemAvailable 57307 MiB for 33085 MiB; taking the chip lock
+graph: 4 heads uploaded in 51.8 s, weights 33045 MB, KV 10 MB per head
+gen-p1 step   0: token   2614 ref   2614 margin   1.107 cosine 0.999982 p95_rel 0.0268 max_abs 0.1023
+gen-p1 step   1: token    314 ref    314 margin   1.598 cosine 0.999999 p95_rel 0.0182 max_abs 0.0301
+gen-p1 step   2: token    279 ref    279 margin   2.381 cosine 1.000000 p95_rel 0.0045 max_abs 0.0262
+gen-p1 step   3: token    369 ref    369 margin   0.105 cosine 0.999999 p95_rel 0.0190 max_abs 0.0315
+gen-p1 step   4: token  11751 ref  11751 golden  11751 margin   1.491 cosine 0.999999 p95_rel 0.0117 max_abs 0.0240
+gen-p1 step   5: token     11 ref     11 golden     11 margin   0.114 cosine 0.999977 p95_rel 0.0666 max_abs 0.0901
+gen-p1 step   6: token    264 ref    264 golden    264 margin   1.390 cosine 0.999978 p95_rel 0.0813 max_abs 0.0792
+gen-p1 step   7: token   3177 ref   3177 golden   3177 margin   2.512 cosine 0.999997 p95_rel 0.0299 max_abs 0.0306
+gen-p1 step   8: token  34756 ref  34756 golden  34756 margin   0.939 cosine 0.999998 p95_rel 0.0247 max_abs 0.0209
+gen-p1 step   9: token    364 ref    364 golden    364 margin   2.620 cosine 0.999999 p95_rel 0.0175 max_abs 0.0186
+gen-p1 step  10: token   1141 ref   1141 golden   1141 margin   5.062 cosine 0.999998 p95_rel 0.0230 max_abs 0.0189
+gen-p1 step  11: token  25438 ref  25438 golden  25438 margin   0.214 cosine 0.999999 p95_rel 0.0163 max_abs 0.0170
+gen-p1 step  12: token  57902 ref  57902 golden  57902 margin   3.630 cosine 0.999999 p95_rel 0.0099 max_abs 0.0183
+gen-p1 step  13: token   1680 ref   1680 golden   1680 margin   0.532 cosine 0.999999 p95_rel 0.0152 max_abs 0.0173
+gen-p1 step  14: token    430 ref    430 golden    430 margin   9.471 cosine 1.000000 p95_rel 0.0080 max_abs 0.0142
+gen-p1 step  15: token    279 ref    279 golden    279 margin   6.524 cosine 1.000000 p95_rel 0.0065 max_abs 0.0121
+gen-p1 step  16: token 242476 ref 242476 golden 242476 margin   5.942 cosine 1.000000 p95_rel 0.0062 max_abs 0.0116
+gen-p1 step  17: token    300 ref    300 golden    300 margin  11.835 cosine 0.999999 p95_rel 0.0104 max_abs 0.0187
+gen-p1 step  18: token    361 ref  21262 golden  21262 margin   8.503 cosine 0.516552 p95_rel 3.1520 max_abs 22.6505  GOLDEN DIFFERS
+gen-p1 step  19: token    314 ref     11 golden     11 margin   0.558 cosine 0.565905 p95_rel 9.1688 max_abs 12.8907  GOLDEN DIFFERS
+gen-p1 step  20: token    279 ref    279 golden    279 margin   0.937 cosine 0.642523 p95_rel 9.3577 max_abs 14.9383
+gen-p1 step  21: token   1118 ref   9440 golden   9440 margin   1.795 cosine 0.724071 p95_rel 7.8878 max_abs 14.8441  GOLDEN DIFFERS
+gen-p1 step  22: token  46890 ref  46890 golden  46890 margin   9.660 cosine 0.868001 p95_rel 5.7202 max_abs 12.4763
+gen-p1 step  23: token     11 ref  15849 golden  15849 margin   1.581 cosine 0.847187 p95_rel 3.5177 max_abs 9.2013  GOLDEN DIFFERS
+gen-p1 step  24: token     11 ref     11 golden     11 margin   3.827 cosine 0.678798 p95_rel 6.5923 max_abs 10.9918
+gen-p1 step  25: token    321 ref    321 golden    321 margin   3.228 cosine 0.805643 p95_rel 6.4881 max_abs 8.8786
+gen-p1 step  26: token    279 ref    279 golden    279 margin   0.350 cosine 0.857296 p95_rel 6.7932 max_abs 8.1565
+gen-p1 step  27: token 242476 ref  42027 golden  42027 margin   1.808 cosine 0.886391 p95_rel 6.7613 max_abs 7.7399  GOLDEN DIFFERS
+gen-p1 step  28: token   9141 ref   9141 golden   9141 margin   3.172 cosine 0.973581 p95_rel 1.6663 max_abs 7.1834
+gen-p1 step  29: token    368 ref    368 golden    368 margin  11.230 cosine 0.825974 p95_rel 9.5687 max_abs 10.4837
+gen-p1 step  30: token  54832 ref  54832 golden  54832 margin   6.478 cosine 0.949125 p95_rel 2.1208 max_abs 7.2215
+gen-p1 step  31: token     13 ref     13 golden     13 margin   2.493 cosine 0.760830 p95_rel 5.4703 max_abs 9.2831
+gen-p1 step  32: token 248046 ref  11751 golden  11751 margin   0.770 cosine 0.755974 p95_rel 4.0623 max_abs 10.2925  GOLDEN DIFFERS
+gen-p1 step  33: token    369 ref    369 golden    369 margin   1.485 cosine 0.844440 p95_rel 5.7491 max_abs 8.3295
+gen-p1 step  34: token   1048 ref   1048 golden   1048 margin   0.960 cosine 0.838149 p95_rel 6.1301 max_abs 7.4773
+gen-p1 step  35: token   3750 ref  10919 golden  10919 margin   0.857 cosine 0.848641 p95_rel 5.7809 max_abs 9.7917  GOLDEN DIFFERS
+gen-p1 (slot 0 -> 0): 25/32 identical to golden (0 flips inside the written band 0.1, 7 beyond it); greedy DIFFERS FROM the reference outside the band; cosine min 0.516552 (NOT held: open precision item); shifted-by-one caught -> FAIL
+gen-p2 step   0: token   6093 ref   6093 margin   0.278 cosine 0.999939 p95_rel 0.1333 max_abs 0.1308
+gen-p2 step   1: token   1393 ref   1393 margin   2.560 cosine 0.999989 p95_rel 0.0586 max_abs 0.0560
+gen-p2 step   2: token   1590 ref   1590 margin   3.265 cosine 0.998465 p95_rel 0.7192 max_abs 0.7415
+gen-p2 step   3: token    198 ref    198 margin   3.936 cosine 0.999984 p95_rel 0.0607 max_abs 0.0824
+gen-p2 step   4: token    262 ref    262 margin   3.440 cosine 0.999042 p95_rel 0.5366 max_abs 0.7081
+gen-p2 step   5: token    413 ref    413 margin   1.294 cosine 0.999996 p95_rel 0.0365 max_abs 0.0334
+gen-p2 step   6: token    198 ref    198 margin   3.260 cosine 0.999998 p95_rel 0.0207 max_abs 0.0333
+gen-p2 step   7: token    279 ref    279 margin   2.328 cosine 0.999997 p95_rel 0.0288 max_abs 0.0537
+gen-p2 step   8: token  53277 ref  53277 margin   1.926 cosine 0.999999 p95_rel 0.0183 max_abs 0.0359
+gen-p2 step   9: token   7324 ref   7324 margin   2.307 cosine 0.999998 p95_rel 0.0224 max_abs 0.0248
+gen-p2 step  10: token  76938 ref  76938 margin   0.912 cosine 0.999999 p95_rel 0.0093 max_abs 0.0236
+gen-p2 step  11: token   1324 ref   1324 margin   4.990 cosine 0.999999 p95_rel 0.0104 max_abs 0.0225
+gen-p2 step  12: token  71483 ref  71483 margin   0.729 cosine 0.999999 p95_rel 0.0190 max_abs 0.0228
+gen-p2 step  13: token    198 ref    198 margin   3.400 cosine 0.999987 p95_rel 0.0574 max_abs 0.1050
+gen-p2 step  14: token    262 ref    262 golden    262 margin   4.268 cosine 0.999997 p95_rel 0.0268 max_abs 0.0260
+gen-p2 step  15: token    413 ref    413 golden    413 margin   1.434 cosine 0.999774 p95_rel 0.3123 max_abs 0.2972
+gen-p2 step  16: token    307 ref    307 golden    307 margin   3.439 cosine 0.999982 p95_rel 0.0680 max_abs 0.1334
+gen-p2 step  17: token   2564 ref   2564 golden   2564 margin   0.542 cosine 0.999989 p95_rel 0.0582 max_abs 0.0405
+gen-p2 step  18: token  21262 ref    220 golden    220 margin   6.534 cosine 0.734946 p95_rel 8.2746 max_abs 13.9510  GOLDEN DIFFERS
+gen-p2 step  19: token     16 ref     15 golden     15 margin   0.068 cosine 0.791631 p95_rel 5.3756 max_abs 14.4471  GOLDEN DIFFERS
+gen-p2 step  20: token     13 ref     25 golden     25 margin   5.045 cosine 0.732630 p95_rel 6.9633 max_abs 13.8014  GOLDEN DIFFERS
+gen-p2 step  21: token    198 ref    198 golden    198 margin   4.027 cosine 0.683508 p95_rel 12.1732 max_abs 10.8464
+gen-p2 step  22: token    262 ref    285 golden    285 margin   6.714 cosine 0.644146 p95_rel 10.7340 max_abs 12.1653  GOLDEN DIFFERS
+gen-p2 step  23: token    460 ref    460 golden    460 margin   1.604 cosine 0.745648 p95_rel 7.2982 max_abs 11.2339
+gen-p2 step  24: token    220 ref    220 golden    220 margin   2.404 cosine 0.718109 p95_rel 5.5837 max_abs 7.7989
+gen-p2 step  25: token     15 ref     15 golden     15 margin   6.425 cosine 0.807375 p95_rel 4.7280 max_abs 9.2513
+gen-p2 step  26: token    198 ref    198 golden    198 margin   5.449 cosine 0.684715 p95_rel 6.1280 max_abs 10.5704
+gen-p2 step  27: token    262 ref    262 golden    262 margin   8.501 cosine 0.680424 p95_rel 9.2652 max_abs 11.7568
+gen-p2 step  28: token   4265 ref   4265 golden   4265 margin   2.172 cosine 0.751038 p95_rel 11.0194 max_abs 9.6388
+gen-p2 step  29: token    307 ref    307 golden    307 margin   8.003 cosine 0.767726 p95_rel 4.3602 max_abs 9.2448
+gen-p2 step  30: token    606 ref    606 golden    606 margin   3.430 cosine 0.689739 p95_rel 6.8759 max_abs 7.5949
+gen-p2 step  31: token    220 ref    220 golden    220 margin   7.799 cosine 0.824960 p95_rel 3.7638 max_abs 7.9392
+gen-p2 step  32: token     16 ref     16 golden     16 margin   9.521 cosine 0.892069 p95_rel 2.8951 max_abs 9.5505
+gen-p2 step  33: token     25 ref     25 golden     25 margin   4.560 cosine 0.764066 p95_rel 5.0719 max_abs 8.7244
+gen-p2 step  34: token    198 ref    198 golden    198 margin   8.813 cosine 0.729595 p95_rel 4.7703 max_abs 9.1985
+gen-p2 step  35: token    285 ref    285 golden    285 margin   8.210 cosine 0.764428 p95_rel 7.2418 max_abs 8.3287
+gen-p2 step  36: token    460 ref    460 golden    460 margin  10.377 cosine 0.892699 p95_rel 3.8079 max_abs 7.6846
+gen-p2 step  37: token    220 ref    220 golden    220 margin   8.176 cosine 0.847907 p95_rel 4.1112 max_abs 7.4035
+gen-p2 step  38: token     16 ref     16 golden     16 margin   7.785 cosine 0.896228 p95_rel 2.9649 max_abs 9.0981
+gen-p2 step  39: token    198 ref    198 golden    198 margin   4.047 cosine 0.780029 p95_rel 6.6126 max_abs 9.9608
+gen-p2 step  40: token    262 ref    262 golden    262 margin  10.127 cosine 0.857697 p95_rel 6.9298 max_abs 7.7217
+gen-p2 step  41: token    745 ref    745 golden    745 margin   2.575 cosine 0.777809 p95_rel 11.7327 max_abs 6.4600
+gen-p2 step  42: token     25 ref     25 golden     25 margin   9.254 cosine 0.803306 p95_rel 6.4963 max_abs 8.5469
+gen-p2 step  43: token    198 ref    198 golden    198 margin   8.806 cosine 0.871318 p95_rel 5.7254 max_abs 7.3885
+gen-p2 step  44: token    285 ref    285 golden    285 margin   7.474 cosine 0.854827 p95_rel 7.7771 max_abs 8.2386
+gen-p2 step  45: token    460 ref    460 golden    460 margin   1.323 cosine 0.676758 p95_rel 14.5684 max_abs 8.1168
+gen-p2 (slot 1 -> 1): 28/32 identical to golden (1 flips inside the written band 0.1, 3 beyond it); greedy DIFFERS FROM the reference outside the band; cosine min 0.644146 (NOT held: open precision item); shifted-by-one caught -> FAIL
+gen-p3 step   0: token    369 ref    369 margin   0.510 cosine 0.999938 p95_rel 0.1051 max_abs 0.1793
+gen-p3 step   1: token    506 ref    506 margin   3.138 cosine 0.999996 p95_rel 0.0334 max_abs 0.0322
+gen-p3 step   2: token    220 ref    220 margin   0.897 cosine 0.999998 p95_rel 0.0171 max_abs 0.0332
+gen-p3 step   3: token   9039 ref   9039 margin   0.772 cosine 0.999999 p95_rel 0.0167 max_abs 0.0257
+gen-p3 step   4: token   9039 ref   9039 margin   7.843 cosine 0.999999 p95_rel 0.0092 max_abs 0.0183
+gen-p3 step   5: token    506 ref    506 margin   1.389 cosine 0.999999 p95_rel 0.0162 max_abs 0.0224
+gen-p3 step   6: token    264 ref    264 margin   0.216 cosine 1.000000 p95_rel 0.0083 max_abs 0.0188
+gen-p3 step   7: token  15822 ref  15822 margin   0.751 cosine 1.000000 p95_rel 0.0078 max_abs 0.0189
+gen-p3 step   8: token  15822 ref  15822 margin   3.264 cosine 1.000000 p95_rel 0.0076 max_abs 0.0181
+gen-p3 step   9: token   1056 ref   1056 margin   1.466 cosine 0.999531 p95_rel 0.2936 max_abs 0.5755
+gen-p3 step  10: token    279 ref    279 golden    279 margin   0.927 cosine 0.999995 p95_rel 0.0292 max_abs 0.0610
+gen-p3 step  11: token  42900 ref  42900 golden  42900 margin   1.690 cosine 0.999959 p95_rel 0.1031 max_abs 0.1365
+gen-p3 step  12: token   7035 ref   7035 golden   7035 margin   5.075 cosine 0.999809 p95_rel 0.1515 max_abs 0.4022
+gen-p3 step  13: token    369 ref    369 golden    369 margin   1.910 cosine 0.999978 p95_rel 0.0715 max_abs 0.1449
+gen-p3 step  14: token   4570 ref   4570 golden   4570 margin   2.337 cosine 0.999953 p95_rel 0.0953 max_abs 0.1411
+gen-p3 step  15: token     13 ref     13 golden     13 margin   0.289 cosine 0.999986 p95_rel 0.0533 max_abs 0.1027
+gen-p3 step  16: token    271 ref    271 golden    271 margin   1.208 cosine 0.999991 p95_rel 0.0386 max_abs 0.0658
+gen-p3 step  17: token 248068 ref 248068 golden 248068 margin   0.130 cosine 0.999971 p95_rel 0.0960 max_abs 0.0918
+gen-p3 step  18: token    271 ref    271 golden    271 margin   0.462 cosine 0.999999 p95_rel 0.0141 max_abs 0.0343
+gen-p3 step  19: token 248069 ref 248069 golden 248069 margin  12.821 cosine 0.999994 p95_rel 0.0412 max_abs 0.0661
+gen-p3 step  20: token    271 ref    271 golden    271 margin  13.546 cosine 0.999998 p95_rel 0.0172 max_abs 0.0368
+gen-p3 step  21: token   1919 ref   1919 golden   1919 margin   0.377 cosine 0.999993 p95_rel 0.0484 max_abs 0.0404
+gen-p3 step  22: token   4952 ref   4952 golden   4952 margin   1.531 cosine 0.999998 p95_rel 0.0272 max_abs 0.0325
+gen-p3 step  23: token    369 ref    369 golden    369 margin   8.326 cosine 0.999998 p95_rel 0.0228 max_abs 0.0245
+gen-p3 step  24: token   2972 ref   2972 golden   2972 margin   2.905 cosine 0.999934 p95_rel 0.1552 max_abs 0.1323
+gen-p3 step  25: token  19321 ref  19321 golden  19321 margin   0.475 cosine 0.999988 p95_rel 0.0707 max_abs 0.0708
+gen-p3 step  26: token 159034 ref 159034 golden 159034 margin   4.574 cosine 0.999986 p95_rel 0.0633 max_abs 0.0576
+gen-p3 step  27: token    271 ref    271 golden    271 margin   0.646 cosine 0.999993 p95_rel 0.0368 max_abs 0.0547
+gen-p3 step  28: token   8160 ref   8160 golden   8160 margin   0.464 cosine 0.999993 p95_rel 0.0466 max_abs 0.0408
+gen-p3 step  29: token    369 ref    369 golden    369 margin  11.591 cosine 0.999996 p95_rel 0.0283 max_abs 0.0418
+gen-p3 step  30: token    279 ref    279 golden    279 margin   5.401 cosine 0.999999 p95_rel 0.0157 max_abs 0.0309
+gen-p3 step  31: token   2923 ref   2923 golden   2923 margin   3.771 cosine 0.999796 p95_rel 0.2419 max_abs 0.2575
+gen-p3 step  32: token  13909 ref  13909 golden  13909 margin  12.269 cosine 0.999978 p95_rel 0.0676 max_abs 0.1124
+gen-p3 step  33: token  28253 ref  28253 golden  28253 margin  10.406 cosine 0.999968 p95_rel 0.0839 max_abs 0.2301
+gen-p3 step  34: token  19214 ref  19214 golden  19214 margin   0.701 cosine 0.999958 p95_rel 0.0935 max_abs 0.1802
+gen-p3 step  35: token  37557 ref  37557 golden  37557 margin   4.316 cosine 0.999927 p95_rel 0.1172 max_abs 0.2263
+gen-p3 step  36: token  24228 ref  24228 golden  24228 margin   2.907 cosine 0.999989 p95_rel 0.0449 max_abs 0.0836
+gen-p3 step  37: token   3069 ref   3069 golden   3069 margin   0.439 cosine 0.999993 p95_rel 0.0344 max_abs 0.0559
+gen-p3 step  38: token    411 ref    411 golden    411 margin   0.151 cosine 0.999566 p95_rel 0.3202 max_abs 0.4266
+gen-p3 step  39: token  13273 ref  13273 golden  13273 margin   0.111 cosine 0.999986 p95_rel 0.0601 max_abs 0.0693
+gen-p3 step  40: token     25 ref     25 golden     25 margin   4.058 cosine 0.999825 p95_rel 0.1813 max_abs 0.2739
+gen-p3 step  41: token    271 ref    271 golden    271 margin  10.935 cosine 0.999942 p95_rel 0.1019 max_abs 0.1537
+gen-p3 (slot 2 -> 2): 32/32 identical to golden (0 flips inside the written band 0.1, 0 beyond it); greedy agrees with the reference outside the band; cosine min 0.999531 (NOT held: open precision item); shifted-by-one caught -> PASS
+gen-p4 step   0: token    279 ref    279 margin   1.154 cosine 1.000000 p95_rel 0.0106 max_abs 0.0127
+gen-p4 step   1: token   3050 ref   3050 margin   0.007 cosine 1.000000 p95_rel 0.0103 max_abs 0.0073
+gen-p4 step   2: token   7328 ref   7328 margin   0.989 cosine 1.000000 p95_rel 0.0081 max_abs 0.0100
+gen-p4 step   3: token    321 ref    321 margin   0.875 cosine 0.999539 p95_rel 0.3477 max_abs 0.3722
+gen-p4 step   4: token    271 ref    271 margin   1.860 cosine 0.998920 p95_rel 0.3792 max_abs 0.6468
+gen-p4 step   5: token     32 ref     32 margin   2.960 cosine 0.999652 p95_rel 0.2307 max_abs 0.6214
+gen-p4 step   6: token     13 ref     13 margin   2.784 cosine 0.999627 p95_rel 0.2431 max_abs 0.4227
+gen-p4 step   7: token   3605 ref   3605 golden   3605 margin   2.296 cosine 0.999815 p95_rel 0.1559 max_abs 0.2786
+gen-p4 step   8: token    198 ref    198 golden    198 margin   4.016 cosine 0.999865 p95_rel 0.1507 max_abs 0.1970
+gen-p4 step   9: token     17 ref     17 golden     17 margin   6.559 cosine 0.999851 p95_rel 0.1743 max_abs 0.1867
+gen-p4 step  10: token     13 ref     13 golden     13 margin   9.226 cosine 0.999762 p95_rel 0.1563 max_abs 0.3184
+gen-p4 step  11: token   8432 ref   7592 golden   7592 margin   0.010 cosine 0.999771 p95_rel 0.1224 max_abs 0.4412  GOLDEN DIFFERS
+gen-p4 step  12: token    198 ref    198 golden    198 margin   3.969 cosine 0.999911 p95_rel 0.1257 max_abs 0.1395
+gen-p4 step  13: token     18 ref     18 golden     18 margin   7.763 cosine 0.999614 p95_rel 0.2436 max_abs 0.5465
+gen-p4 step  14: token     13 ref     13 golden     13 margin   8.543 cosine 0.999765 p95_rel 0.1717 max_abs 0.2786
+gen-p4 step  15: token   8432 ref   8432 golden   8432 margin   1.763 cosine 0.999573 p95_rel 0.1915 max_abs 0.6344
+gen-p4 step  16: token    271 ref    271 golden    271 margin   2.088 cosine 0.999855 p95_rel 0.1740 max_abs 0.2443
+gen-p4 step  17: token 248068 ref 248068 golden 248068 margin   0.696 cosine 0.999832 p95_rel 0.2089 max_abs 0.2221
+gen-p4 step  18: token    198 ref    198 golden    198 margin   0.267 cosine 0.999914 p95_rel 0.1062 max_abs 0.2064
+gen-p4 step  19: token   8160 ref   8160 golden   8160 margin   1.426 cosine 0.999963 p95_rel 0.1042 max_abs 0.1094
+gen-p4 step  20: token    579 ref    579 golden    579 margin  11.287 cosine 0.999991 p95_rel 0.0490 max_abs 0.0666
+gen-p4 step  21: token    264 ref    264 golden    264 margin  11.351 cosine 0.999994 p95_rel 0.0321 max_abs 0.0634
+gen-p4 step  22: token   7047 ref   7047 golden   7047 margin  14.980 cosine 0.999681 p95_rel 0.2986 max_abs 0.4071
+gen-p4 step  23: token   1817 ref   1817 golden   1817 margin  10.497 cosine 0.999117 p95_rel 0.4416 max_abs 1.0327
+gen-p4 step  24: token     25 ref     25 golden     25 margin   6.352 cosine 0.999689 p95_rel 0.2607 max_abs 0.3802
+gen-p4 step  25: token    271 ref    271 golden    271 margin  11.102 cosine 0.999983 p95_rel 0.0533 max_abs 0.1365
+gen-p4 step  26: token     16 ref     16 golden     16 margin  10.511 cosine 0.999938 p95_rel 0.1320 max_abs 0.1248
+gen-p4 step  27: token     13 ref     13 golden     13 margin  12.127 cosine 0.999998 p95_rel 0.0157 max_abs 0.0563
+gen-p4 step  28: token    220 ref    220 golden    220 margin  11.099 cosine 0.999952 p95_rel 0.0635 max_abs 0.2511
+gen-p4 step  29: token   2972 ref   2972 golden   2972 margin  12.547 cosine 0.999715 p95_rel 0.1688 max_abs 0.5737
+gen-p4 step  30: token   2014 ref   2014 golden   2014 margin  11.811 cosine 0.999987 p95_rel 0.0487 max_abs 0.1043
+gen-p4 step  31: token  53983 ref  53983 golden  53983 margin  14.986 cosine 0.999990 p95_rel 0.0556 max_abs 0.0645
+gen-p4 step  32: token   2570 ref   2570 golden   2570 margin   9.740 cosine 0.999800 p95_rel 0.1449 max_abs 0.6102
+gen-p4 step  33: token   5396 ref   5396 golden   5396 margin  13.378 cosine 0.999889 p95_rel 0.0862 max_abs 0.3797
+gen-p4 step  34: token  64700 ref  64700 golden  64700 margin   9.358 cosine 0.999295 p95_rel 0.3352 max_abs 0.6183
+gen-p4 step  35: token    198 ref    198 golden    198 margin   4.938 cosine 0.999872 p95_rel 0.1119 max_abs 0.2857
+gen-p4 step  36: token    256 ref    256 golden    256 margin  11.971 cosine 0.999873 p95_rel 0.1850 max_abs 0.2148
+gen-p4 step  37: token    471 ref    471 golden    471 margin  11.247 cosine 0.999965 p95_rel 0.0619 max_abs 0.1733
+gen-p4 step  38: token    561 ref    561 golden    561 margin   1.078 cosine 0.999868 p95_rel 0.1516 max_abs 0.2871
+gen-p4 (slot 3 -> 3): 31/32 identical to golden (1 flips inside the written band 0.1, 0 beyond it); greedy agrees with the reference outside the band; cosine min 0.998920 (NOT held: open precision item); shifted-by-one caught -> PASS
+QWEN36_STROKE_GATE heads 4 strokes 46: chip per stroke median 93.206 ms (4 tokens per stroke; shared chip, a receipt only under spark-window); swap CONTROL at step 18 (expected FAIL); FAIL

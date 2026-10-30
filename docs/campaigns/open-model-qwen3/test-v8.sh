@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # OPEN-MODEL-QWEN3 v8 harness self-test (sc#384, SPEC-v8.md). All v7 checks (ALLEN driver, gate G6) plus the v8 pieces: the wrapper differs from v7 only in names and the ALLEN-aware R1 reference call, the feature checks (v8-checks.sh) go red and green, and the launchers require them. CPU only, no model, no GPU, no network. Shell + jq.
 # Proves the two harness corrections: (a) the driver engages ALLEN before S1 and changes nothing else; (b) gate G6 checks every
 # product row and goes red on the failure v6 missed. Thresholds and rows are untouched (declaration and task files are not read here

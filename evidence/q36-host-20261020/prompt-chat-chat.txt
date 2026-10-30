@@ -1,0 +1,7 @@
+<|im_start|>user
+I have a free Saturday and want to go on a day hike with a friend who has never hiked. How should we plan it?<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+

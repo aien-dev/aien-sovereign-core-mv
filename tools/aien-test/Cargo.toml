@@ -18,6 +18,10 @@ sha2 = "0.10"
 name = "aien-test"
 path = "src/main.rs"
 
+[[bin]]
+name = "aien-audit-inputs"
+path = "src/bin/aien-audit-inputs.rs"
+
 [lib]
 name = "aien_test"
 path = "src/lib.rs"

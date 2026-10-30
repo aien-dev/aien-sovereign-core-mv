@@ -1,6 +1,7 @@
 # tests/gates/sc-crb1.gate
 # Mirrors hosted: crumb-visible-conformance.yml: crumbs visible_conformance with the aien-protocols corpus at b50c00d (hosted 26 s)
-# cache: never because the vector corpus is a pinned sibling checkout outside this repository.
+# cache: inputs_complete: the corpus is a sibling pinned by sha in tests/gates/run.sh (an input); aien-audit-inputs (L335) found every
+# other read declared (the crate, every member manifest and the target listings cargo reads to load the workspace).
 gate: SC-CRB1
 manifest_version: 2
 owner: aien-sovereign-core
@@ -10,6 +11,21 @@ inputs:
   - crates/crumbs/
   - Cargo.lock
   - tests/gates/
+  - crates/*/Cargo.toml
+  - tools/*/Cargo.toml
+listed:
+  - crates/*
+  - crates/*/src
+  - crates/*/src/bin
+  - crates/*/tests
+  - crates/*/examples
+  - crates/*/benches
+  - tools/*
+  - tools/*/src
+  - tools/*/src/bin
+  - tools/*/tests
+  - tools/*/examples
+  - tools/*/benches
 run:
   exec: tests/gates/run.sh
   args: ["crb1"]
@@ -19,4 +35,4 @@ expects:
 timeout: 15m
 exactness: EXACT
 cache_scope: machine
-cache: never
+cache: inputs_complete

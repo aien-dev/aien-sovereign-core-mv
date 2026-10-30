@@ -1,4 +1,19 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # Driver for the PREFILL-E2E-2 gates (ADR 0028, run by `aien-test run`).
 #
 # The forge lines for PREFILL-E2E-2 are shell chains with environment
@@ -17,7 +32,12 @@
 #       prefill_e2e2_mutants/mutant_ID.patch there and run the same test
 #       there (the checkout is never patched). Succeed only when the test
 #       failed and its output holds MARKER (the forge KILLED rule). A mutant
-#       that survives, or fails with another message, exits 1.
+#       that survives, or fails with another message, exits 1. The copy is
+#       built in its own target dir (see run_mutant), never the shared one.
+#   prefill_e2e2_run.sh patches
+#       Check that every prefill_e2e2_mutants/mutant_*.patch still applies to
+#       this tree (git apply --check). No model, no build; run it after changing
+#       a file a mutant patch touches (sc #452).
 #
 # Observations ("AIEN-OBS NAME JSON" lines, see tools/aien-test) tell the
 # runner what happened; the verdict is derived from the manifest, not here.
@@ -98,13 +118,22 @@ run_mutant() {
 	lg="$out/AIENTEST-DOGFOOD-$sha8-$id.log"
 	# The patch goes into a private copy of the tree, never into the checkout: aien-test runs gates in
 	# parallel in one checkout, and a patched file there fails their clean-tree checks (and the main leg's
-	# fmt check). The copy shares CARGO_TARGET_DIR so dependencies build once.
+	# fmt check).
+	#
+	# The copy never builds in the shared target dir, and its files carry the time of the copy, not
+	# the checkout's (tar -m). Cargo calls a workspace crate fresh when its library is newer than its
+	# sources; it compares file times, not contents, and the library has the same name whichever
+	# tree built it. So a library built from the patched copy was later linked as fresh by the main
+	# leg on the same target dir, which then ran the mutant (sc #452: PREFILL-E2E-2 failing with
+	# M8's RECLAIM_VIOLATION, allocated blocks 4, free 18), and a mutant whose patched file was older
+	# than a library built after it linked that one instead and survived. Fresh file times make every
+	# workspace crate of the copy rebuild; third-party crates build once in the mutant dir and stay.
 	work=$(mktemp -d) || exit 3
 	trap 'rm -rf "$work"' EXIT
 	trap 'rm -rf "$work"; exit 143' HUP INT TERM
 	git ls-files -z --cached --others --exclude-standard --deduplicate |
-		tar --null --ignore-failed-read -T - -cf - | tar -xf - -C "$work" || exit 3
-	CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$PWD/target}
+		tar --null --ignore-failed-read -T - -cf - | tar -xmf - -C "$work" || exit 3
+	CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$PWD/target}/prefill-e2e2-mutants
 	export CARGO_TARGET_DIR
 	cd "$work" || exit 3
 	git apply "$patch" || exit 3
@@ -124,14 +153,28 @@ run_mutant() {
 	exit 1
 }
 
+check_patches() {
+	rc=0
+	for p in crates/aien-runtime/tests/prefill_e2e2_mutants/mutant_m*.patch; do
+		if git apply --check "$p"; then
+			echo "applies: $p"
+		else
+			echo "STALE: $p no longer applies; regenerate it so it still plants its bug" >&2
+			rc=1
+		fi
+	done
+	exit "$rc"
+}
+
 case "${1:-}" in
 main) run_main ;;
+patches) check_patches ;;
 mutant)
 	shift
 	run_mutant "$@"
 	;;
 *)
-	echo "usage: $0 main | mutant ID MARKER" >&2
+	echo "usage: $0 main | mutant ID MARKER | patches" >&2
 	exit 2
 	;;
 esac

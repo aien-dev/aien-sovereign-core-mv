@@ -19,10 +19,10 @@ Public GitHub repositories maintain GitHub Actions workflow definitions configur
 
 The execution environment runs as a dedicated systemd user service on the DGX Spark workstation:
 
-- **Runner Binary**: `/home/drakestapleton/.local/bin/forgejo-runner`
+- **Runner Binary**: `~/.local/bin/forgejo-runner`
 - **Service Name**: `forgejo-runner.service` (`systemctl --user status forgejo-runner`)
-- **Configuration**: `/home/drakestapleton/atlas-forgejo/runner/config.yaml`
-- **Working Directory**: `/home/drakestapleton/atlas-forgejo/runner/workspace`
+- **Configuration**: `~/atlas-forgejo/runner/config.yaml`
+- **Working Directory**: `~/atlas-forgejo/runner/workspace`
 
 ### Configured Runner Labels
 
