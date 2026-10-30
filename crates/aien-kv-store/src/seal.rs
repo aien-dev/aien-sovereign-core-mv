@@ -52,25 +52,56 @@
 //! exists only when the crate is built for its own unit tests (`cfg(test)`).
 //! Integration tests and production builds do not compile it.
 //!
-//! # Usage budget (documented, not enforced)
+//! # Usage budget (#811)
 //!
 //! Nonces are independent uniform 96-bit draws. For `q` draws under one key
 //! the probability of a collision is at most `q(q-1)/2^97` (NIST SP 800-38D,
-//! section 8.3). The count is every seal that used the key: all processes,
-//! restarts and hosts. A finite sample of distinct nonces is not a uniqueness
-//! proof.
+//! section 8.3). [`RECOMMENDED_SEALS_PER_KEY`] is `2^20` (bound `2^-57`).
+//! [`NIST_SP800_38D_RANDOM_NONCE_LIMIT`] is `2^32` (bound about `2^-33`).
+//! A finite sample of distinct nonces is not a uniqueness proof.
 //!
-//! [`RECOMMENDED_SEALS_PER_KEY`] is `2^20`. The bound at that count is
-//! `2^-57`. [`NIST_SP800_38D_RANDOM_NONCE_LIMIT`] is `2^32` (bound about
-//! `2^-33`). `seal_file` has no seal counter and still returns `Ok` past both
-//! numbers. Rotation discards objects sealed under the previous key. This
-//! crate does not migrate them.
+//! [`SealKey::seal_file`] enforces the `2^20` budget for one store directory.
+//! The caller passes that directory's [`USAGE_DIR_NAME`] directory. The count
+//! is a file named by the SHA-256 of the key bytes (the key itself is not
+//! written). The file is read, and `count + 1` is made durable, before the
+//! caller's buffer is modified. A stored count that is already `2^20` returns
+//! [`SealError::Budget`] and leaves the buffer unchanged. A count that cannot
+//! be read or persisted returns [`SealError::UsageStore`] and does not seal.
 //!
-//! `Nonce::assume_unique_for_key` is the caller's obligation. It does not
-//! search for an earlier nonce, and neither does this module. A repeat under
-//! one key makes the CTR keystream reusable: the XOR of the two ciphertexts
-//! equals the XOR of the two plaintexts. Each tag still authenticates its own
-//! file.
+//! Order, under an exclusive `flock` on `seal-usage/LOCK`:
+//!
+//! 1. A buffer shorter than a header region returns [`SealError::Short`]. The
+//!    count file is not touched. The nonce is not drawn.
+//! 2. The nonce is drawn into a stack buffer. [`SealError::Random`] returns
+//!    here. The count file and the caller's buffer stay as they were.
+//! 3. The count file is read (a missing file is zero; a short, long, or
+//!    unrecognized file is [`SealError::UsageStore`]). At `2^20` the call
+//!    returns [`SealError::Budget`].
+//! 4. `count + 1` is written to a temporary file in the same directory, that
+//!    file is `fsync`ed, the temporary name is renamed onto the count file,
+//!    and the directory is `fsync`ed. Any failure is [`SealError::UsageStore`].
+//! 5. Only then is the seal slot written and the payload encrypted.
+//!
+//! A crash before the directory `fsync` keeps the previous count when the
+//! rename has not reached disk. A crash after that `fsync` and before the
+//! sealed object is published has counted a seal that is not on disk. The
+//! count is never decremented: the budget is a ceiling. A failed directory
+//! `fsync` after a rename that did reach disk is the same direction (the
+//! seal does not run, and a later open may observe the higher count).
+//!
+//! The file is per store directory and per key fingerprint. Restarting that
+//! directory sees it. Sealers that share the directory serialize on the lock.
+//! The host adapter already refuses a second open of the same directory.
+//! Another directory, including a copy on another host, has its own file and
+//! is not included. A missing file starts at zero and does not backfill
+//! objects already in the directory. `2^32` is not a second refusal; the
+//! `2^20` check comes first. Rotation still discards objects sealed under the
+//! previous key. This crate does not migrate them.
+//!
+//! `Nonce::assume_unique_for_key` does not search for an earlier nonce, and
+//! neither does this module. A repeat under one key makes the CTR keystream
+//! reusable: the XOR of the two ciphertexts equals the XOR of the two
+//! plaintexts. Each tag still authenticates its own file.
 //!
 //! The nonce that was used is stored in the seal slot. Process exit does not
 //! rewind the kernel CSPRNG, and copying the store directory back into place
@@ -82,6 +113,13 @@ use crate::record::{HEADER_REGION_LEN, SEAL_SLOT_OFFSET};
 use core::sync::atomic::{AtomicU64, Ordering};
 use ring::aead::{Aad, LessSafeKey, Nonce, Tag, UnboundKey, AES_256_GCM};
 use ring::rand::{SecureRandom, SystemRandom};
+use sha2::{Digest, Sha256};
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Write};
+use std::os::unix::fs::MetadataExt;
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
 use zeroize::{Zeroize, Zeroizing};
 
 /// The environment variable the key arrives in.
@@ -92,13 +130,20 @@ pub const SEAL_MAGIC: [u8; 3] = *b"AKS";
 pub const SEALED_FORMAT_VERSION: u8 = 2;
 pub const NONCE_LEN: usize = 12;
 pub const TAG_LEN: usize = 16;
-/// Operator rekey budget: seals under one key before rotating
-/// `AIEN_KV_STORE_KEY`. [`SealKey::seal_file`] does not enforce this.
-/// At this count the NIST SP 800-38D collision bound is `2^-57`.
+/// Operator rekey budget. [`SealKey::seal_file`] returns [`SealError::Budget`]
+/// when the persisted count for this key in the given usage directory is
+/// already this value. At this count the NIST SP 800-38D collision bound is
+/// `2^-57`.
 pub const RECOMMENDED_SEALS_PER_KEY: u64 = 1 << 20;
 /// NIST SP 800-38D guidance for random 96-bit nonces: stay below this many
-/// invocations per key. [`SealKey::seal_file`] does not enforce this.
+/// invocations per key. The enforced ceiling is [`RECOMMENDED_SEALS_PER_KEY`],
+/// which is below this value, so `seal_file` does not consult this constant.
 pub const NIST_SP800_38D_RANDOM_NONCE_LIMIT: u64 = 1 << 32;
+/// Directory under the store root that holds one count file per key fingerprint.
+pub const USAGE_DIR_NAME: &str = "seal-usage";
+const USAGE_MAGIC: [u8; 4] = *b"AKSU";
+const USAGE_VERSION: u8 = 1;
+const USAGE_LEN: usize = 16;
 const O_MAGIC: usize = SEAL_SLOT_OFFSET;
 const O_VERSION: usize = SEAL_SLOT_OFFSET + 3;
 const O_NONCE: usize = SEAL_SLOT_OFFSET + 4;
@@ -170,8 +215,14 @@ pub enum SealError {
     UnsupportedVersion,
     /// Authentication failed: wrong key, tampered bytes or swapped header.
     Rejected,
-    /// The OS random source failed (sealing only).
+    /// The OS random source failed (sealing only). The buffer is unchanged.
     Random,
+    /// The persisted seal count for this key in the usage directory is already
+    /// [`RECOMMENDED_SEALS_PER_KEY`]. The buffer is unchanged.
+    Budget,
+    /// The usage count could not be read or made durable. The buffer is unchanged
+    /// and the payload was not encrypted.
+    UsageStore,
 }
 
 /// The store key. Zeroed on drop; never printed.
@@ -181,6 +232,9 @@ pub struct SealKey {
     /// [`OsNonceSource`].
     #[cfg(test)]
     nonce_source: Option<std::sync::Arc<dyn NonceSource + Send + Sync>>,
+    /// Next `commit_usage` fails before it writes. The count file stays put.
+    #[cfg(test)]
+    fail_usage_persist: core::sync::atomic::AtomicBool,
 }
 
 fn hex_val(c: u8) -> Option<u8> {
@@ -198,6 +252,8 @@ impl SealKey {
             bytes,
             #[cfg(test)]
             nonce_source: None,
+            #[cfg(test)]
+            fail_usage_persist: core::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -280,13 +336,26 @@ impl SealKey {
         LessSafeKey::new(UnboundKey::new(&AES_256_GCM, &self.bytes[..]).expect("32-byte key"))
     }
 
+    /// The next persisted count update fails before it writes. The following
+    /// `seal_file` returns [`SealError::UsageStore`] and leaves the buffer
+    /// unchanged. Compiled only for this crate's unit tests.
+    #[cfg(test)]
+    pub(crate) fn testing_fail_next_usage_persist(&self) {
+        self.fail_usage_persist
+            .store(true, core::sync::atomic::Ordering::SeqCst);
+    }
+
     /// Seal `file` = `region || payload` in place: writes the seal slot (magic,
     /// version, fresh nonce, tag) and encrypts the payload. The file length is
-    /// unchanged. On [`SealError::Random`] the buffer is left as the caller
-    /// passed it.
-    pub fn seal_file(&self, file: &mut [u8]) -> Result<(), SealError> {
+    /// unchanged.
+    ///
+    /// `usage_dir` is the store's [`USAGE_DIR_NAME`] directory. One use of this
+    /// key is recorded there, and that record is durable, before this modifies
+    /// `file`. [`SealError::Random`], [`SealError::Budget`] and
+    /// [`SealError::UsageStore`] leave the buffer as the caller passed it.
+    pub fn seal_file(&self, usage_dir: &Path, file: &mut [u8]) -> Result<(), SealError> {
         let t0 = std::time::Instant::now();
-        let got = self.seal_inner(self.active_source(), file);
+        let got = self.seal_counted(usage_dir, file);
         note_timing(
             &SEAL_TIMING,
             file.len().saturating_sub(HEADER_REGION_LEN),
@@ -303,15 +372,22 @@ impl SealKey {
         &OS_NONCE
     }
 
-    fn seal_inner(&self, source: &dyn NonceSource, file: &mut [u8]) -> Result<(), SealError> {
+    fn seal_counted(&self, usage_dir: &Path, file: &mut [u8]) -> Result<(), SealError> {
         if file.len() < HEADER_REGION_LEN {
             return Err(SealError::Short);
         }
-        // Draw before any write. A failed source must not mark the buffer as
-        // sealed and must not encrypt, or a caller that ignored the error
-        // could publish plaintext under the seal magic.
+        // Draw before the count is committed and before any write to `file`.
+        // A failed source must not mark the buffer as sealed, must not encrypt,
+        // and must not consume a budget slot.
         let mut nonce = [0u8; NONCE_LEN];
-        source.fill_nonce(&mut nonce)?;
+        self.active_source().fill_nonce(&mut nonce)?;
+        // The count is durable before `file` changes. A persist error returns
+        // with the plaintext still in the caller's buffer.
+        self.commit_usage(usage_dir)?;
+        self.apply_seal(nonce, file)
+    }
+
+    fn apply_seal(&self, nonce: [u8; NONCE_LEN], file: &mut [u8]) -> Result<(), SealError> {
         let (region, payload) = file.split_at_mut(HEADER_REGION_LEN);
         region[O_MAGIC..O_MAGIC + 3].copy_from_slice(&SEAL_MAGIC);
         region[O_VERSION] = SEALED_FORMAT_VERSION;
@@ -326,6 +402,24 @@ impl SealKey {
             .map_err(|_| SealError::Rejected)?;
         region[O_TAG..].copy_from_slice(tag.as_ref());
         Ok(())
+    }
+
+    fn commit_usage(&self, usage_dir: &Path) -> Result<(), SealError> {
+        require_usage_dir(usage_dir)?;
+        let _lock = lock_usage_dir(usage_dir)?;
+        let name = fingerprint_name(&self.bytes);
+        let count = read_count_file(&usage_dir.join(&name))?;
+        if count >= RECOMMENDED_SEALS_PER_KEY {
+            return Err(SealError::Budget);
+        }
+        #[cfg(test)]
+        if self
+            .fail_usage_persist
+            .swap(false, core::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(SealError::UsageStore);
+        }
+        write_count_file(usage_dir, &name, count + 1)
     }
 
     /// Authenticate and decrypt `payload` (the bytes after `region` in a
@@ -364,6 +458,166 @@ impl SealKey {
             .map(|_| ())
             .map_err(|_| SealError::Rejected)
     }
+}
+
+/// Write `count` as this key's persisted usage, without the budget check.
+/// Unit tests use it to stand at `2^20` without sealing that many files.
+/// The bytes are the same encoding `commit_usage` writes.
+#[cfg(test)]
+pub(crate) fn testing_install_usage_count(
+    usage_dir: &Path,
+    key: &SealKey,
+    count: u64,
+) -> Result<(), SealError> {
+    require_usage_dir(usage_dir)?;
+    let _lock = lock_usage_dir(usage_dir)?;
+    write_count_file(usage_dir, &fingerprint_name(&key.bytes), count)
+}
+
+/// The persisted count for `key` in `usage_dir`. A missing file is zero.
+#[cfg(test)]
+pub(crate) fn testing_read_usage_count(usage_dir: &Path, key: &SealKey) -> Result<u64, SealError> {
+    require_usage_dir(usage_dir)?;
+    let _lock = lock_usage_dir(usage_dir)?;
+    read_count_file(&usage_dir.join(fingerprint_name(&key.bytes)))
+}
+
+/// Path of the count file. Tests check the fingerprint name independently
+/// by hashing the key with SHA-256 themselves.
+#[cfg(test)]
+pub(crate) fn testing_usage_path(usage_dir: &Path, key: &SealKey) -> PathBuf {
+    usage_dir.join(fingerprint_name(&key.bytes))
+}
+
+fn fingerprint_name(key: &[u8; KEY_LEN]) -> String {
+    let dig: [u8; 32] = Sha256::digest(key).into();
+    let mut hex = String::with_capacity(64);
+    const NIBBLE: &[u8; 16] = b"0123456789abcdef";
+    for byte in dig {
+        hex.push(NIBBLE[(byte >> 4) as usize] as char);
+        hex.push(NIBBLE[(byte & 0x0f) as usize] as char);
+    }
+    hex
+}
+
+fn require_usage_dir(dir: &Path) -> Result<(), SealError> {
+    match std::fs::symlink_metadata(dir) {
+        Ok(meta) if meta.file_type().is_dir() => Ok(()),
+        _ => Err(SealError::UsageStore),
+    }
+}
+
+fn euid() -> u32 {
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    unsafe { libc::geteuid() }
+}
+
+fn lock_usage_dir(dir: &Path) -> Result<File, SealError> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    use std::os::unix::io::AsRawFd;
+    let path = dir.join("LOCK");
+    let f = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(&path)
+        .map_err(|_| SealError::UsageStore)?;
+    let meta = f.metadata().map_err(|_| SealError::UsageStore)?;
+    if !meta.is_file() || meta.uid() != euid() {
+        return Err(SealError::UsageStore);
+    }
+    if meta.mode() & 0o777 != 0o600 {
+        f.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .map_err(|_| SealError::UsageStore)?;
+    }
+    // SAFETY: flock takes an advisory lock on a descriptor we own. The lock
+    // ends when `f` is dropped, which is the end of the read-modify-write.
+    if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX) } != 0 {
+        return Err(SealError::UsageStore);
+    }
+    Ok(f)
+}
+
+fn create_usage_file(path: &Path) -> Result<File, SealError> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let f = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)
+        .map_err(|_| SealError::UsageStore)?;
+    let meta = f.metadata().map_err(|_| SealError::UsageStore)?;
+    // Truncate only after the owner check, so a planted file we do not own
+    // is left as it was.
+    if !meta.is_file() || meta.uid() != euid() {
+        return Err(SealError::UsageStore);
+    }
+    f.set_len(0).map_err(|_| SealError::UsageStore)?;
+    if meta.mode() & 0o777 != 0o600 {
+        f.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .map_err(|_| SealError::UsageStore)?;
+    }
+    Ok(f)
+}
+
+fn read_count_file(path: &Path) -> Result<u64, SealError> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut f = match OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)
+    {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(_) => return Err(SealError::UsageStore),
+    };
+    let meta = f.metadata().map_err(|_| SealError::UsageStore)?;
+    if !meta.is_file() || meta.uid() != euid() || meta.len() != USAGE_LEN as u64 {
+        return Err(SealError::UsageStore);
+    }
+    let mut buf = [0u8; USAGE_LEN];
+    f.read_exact(&mut buf).map_err(|_| SealError::UsageStore)?;
+    if buf[0..4] != USAGE_MAGIC || buf[4] != USAGE_VERSION || buf[5..8] != [0, 0, 0] {
+        return Err(SealError::UsageStore);
+    }
+    let mut le = [0u8; 8];
+    le.copy_from_slice(&buf[8..16]);
+    Ok(u64::from_le_bytes(le))
+}
+
+fn write_count_file(dir: &Path, name: &str, count: u64) -> Result<(), SealError> {
+    let final_path = dir.join(name);
+    let part_path = dir.join(format!("{name}.part"));
+    {
+        let mut f = create_usage_file(&part_path)?;
+        f.write_all(&encode_count(count))
+            .map_err(|_| SealError::UsageStore)?;
+        f.sync_all().map_err(|_| SealError::UsageStore)?;
+    }
+    std::fs::rename(&part_path, &final_path).map_err(|_| SealError::UsageStore)?;
+    fsync_usage_dir(dir)
+}
+
+fn encode_count(count: u64) -> [u8; USAGE_LEN] {
+    let mut buf = [0u8; USAGE_LEN];
+    buf[0..4].copy_from_slice(&USAGE_MAGIC);
+    buf[4] = USAGE_VERSION;
+    buf[8..16].copy_from_slice(&count.to_le_bytes());
+    buf
+}
+
+fn fsync_usage_dir(dir: &Path) -> Result<(), SealError> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let f = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_DIRECTORY)
+        .open(dir)
+        .map_err(|_| SealError::UsageStore)?;
+    f.sync_all().map_err(|_| SealError::UsageStore)
 }
 
 fn check_marker(region: &[u8]) -> Result<(), SealError> {

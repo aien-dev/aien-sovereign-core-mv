@@ -27,6 +27,8 @@ use aien_kv_store::seal::{self, KeyRefusal, SealError, SealKey, KEY_ENV};
 use aien_kv_store::{payload_root, RecordHeader};
 use rig::*;
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 /// `region || payload` for object `n` of the rig geometry, unsealed.
 fn plain_file(n: u32) -> (Vec<u8>, Vec<u8>) {
@@ -43,9 +45,18 @@ fn plain_file(n: u32) -> (Vec<u8>, Vec<u8>) {
     (file, payload)
 }
 
+fn usage_dir() -> &'static Path {
+    static DIR: OnceLock<PathBuf> = OnceLock::new();
+    DIR.get_or_init(|| {
+        let p = std::env::temp_dir().join(format!("aien-kv-seal-tests-{}", std::process::id()));
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    })
+}
+
 fn sealed_file(key: &SealKey, n: u32) -> (Vec<u8>, Vec<u8>) {
     let (mut file, payload) = plain_file(n);
-    key.seal_file(&mut file).unwrap();
+    key.seal_file(usage_dir(), &mut file).unwrap();
     (file, payload)
 }
 

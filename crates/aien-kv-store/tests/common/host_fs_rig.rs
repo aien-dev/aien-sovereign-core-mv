@@ -477,7 +477,19 @@ pub fn plain_object_bytes(header: &ChunkHeader, payload: &[u8], seg: usize) -> V
 /// sealed with `test_key`); segment digests over `seg`-byte pieces.
 pub fn write_object_file(path: &Path, header: &ChunkHeader, payload: &[u8], seg: usize) {
     let mut bytes = plain_object_bytes(header, payload, seg);
-    test_key().seal_file(&mut bytes).unwrap();
+    // A planted fixture is not a store publish. Count it in a directory that
+    // is thrown away with the call, so it does not spend the store's budget.
+    static N: AtomicU64 = AtomicU64::new(0);
+    let usage = std::env::temp_dir().join(format!(
+        "aien-kv-plant-{}-{}",
+        std::process::id(),
+        N.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir(&usage).expect("plant usage dir");
+    test_key()
+        .seal_file(&usage, &mut bytes)
+        .expect("seal planted object");
+    let _ = std::fs::remove_dir_all(&usage);
     std::fs::write(path, bytes).unwrap();
 }
 
