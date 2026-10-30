@@ -303,6 +303,7 @@ GG_SYN_PIN=6a1f3670e45718338c82551237e0b1fc7a0c922a0c92ee52d4c0bb91342b6baa
 GG_REP_PIN=cbd3becec35ff580cb16db5789bf5a73cd56b775109cb193ce8ad3ffd00b3851
 GG_SUM='flint-gguf ok tensors 4 kvs 27 bytes 2080'
 GG_REAL_SUM='flint-gguf ok tensors 1264 kvs 43 bytes 22863084160'
+GG_MAP='map units 36734 tensors 779 scales 485 elements 39785287456 routed 37849399296'
 ggen() { python3 "$here/test/ggufgen.py" "$b/g.gguf" "$1" < /dev/null; }
 grun() { # binary [file]; sets rc, leaves g.out and g.err
   timeout 120 "$1" report "${2:-$b/g.gguf}" > "$b/g.out" 2> "$b/g.err" < /dev/null
@@ -326,7 +327,7 @@ else
   else
     bad "gguf base: rc $rc, $(head -c 200 "$b/g.err") $(cmp "$b/g.out" "$here/test/gguf-synth-report.txt" 2>&1 | head -c 200)"
   fi
-  for args in "" "report" "report a b" "frob $b/g.gguf" "report $b/g.gguf x y z"; do
+  for args in "" "report" "report a b" "frob $b/g.gguf" "report $b/g.gguf x y z" "map $b/g.gguf" "map $b/g.gguf a b" "deq $b/g.gguf a"; do
     # shellcheck disable=SC2086
     "$b/gg" $args > "$b/u.out" 2> /dev/null < /dev/null
     r=$?
@@ -413,6 +414,64 @@ GGUF_GUARDS
     fi
   else
     echo "NOT_RUN FLINT_GGUF_PY (interpreter with llama.cpp b11804 gguf-py; frozen reports used)"
+  fi
+  # map: every non-scale GGUF tensor (each routed expert slice of an _exps tensor on its own)
+  # names exactly one row of the FLINT_SHARDS arm's TSV with the transposed shape, every row is
+  # named once, every NVFP4 tensor has its F32 .scale sibling, and the totals are the pinned ones.
+  # deq: the sampled NVFP4 blocks against the BF16 shards under the frozen README bound.
+  if [ -n "${FLINT_GGUF:-}" ] && [ -s "$b/real.tsv" ]; then
+    gmap() { # binary tsv [gguf]; sets rc, leaves m.out and m.err
+      timeout 120 "$1" map "${3:-$FLINT_GGUF}" "$2" > "$b/m.out" 2> "$b/m.err" < /dev/null
+      rc=$?
+    }
+    gsite() { # name from to; writes $b/gmut.om when the site occurs on exactly one line
+      if [ "$(grep -cF -- "$2" "$here/gguf.om")" != 1 ]; then bad "gguf mutant $1: site must occur exactly once"; return 1; fi
+      printf '%s\n' "${gs//"$2"/"$3"}" > "$b/gmut.om"
+      build "$b/gmut" "$b/gmut.om" || { bad "gguf mutant $1: does not compile"; return 1; }
+    }
+    gmap "$b/gg" "$b/real.tsv"
+    if [ "$rc" = 0 ] && [ "$(cat "$b/m.out")" = "$GG_MAP" ]; then ok "gguf map: $GG_MAP"; else bad "gguf map: rc $rc, $(head -c 200 "$b/m.err") $(head -c 200 "$b/m.out")"; fi
+    xn='model.layers.2.mlp.experts.0.down_proj.weight'
+    for tm in "drop 77" "shape 76" "dtype 74"; do
+      read -r tk tw <<< "$tm"
+      awk -F'\t' -v OFS='\t' -v n="$xn" -v m="$tk" '$1 == n && m == "drop" { next } $1 == n && m == "shape" { $4 = "512x2048" } $1 == n && m == "dtype" { $3 = "F16" } { print }' "$b/real.tsv" > "$b/tm.tsv"
+      gmap "$b/gg" "$b/tm.tsv"
+      if [ "$rc" = "$tw" ]; then ok "gguf map TSV $tk $xn: $tw"; else bad "gguf map TSV $tk $xn: want $tw, got $rc"; fi
+    done
+    ggen base
+    gmap "$b/gg" "$b/real.tsv" "$b/g.gguf"
+    if [ "$rc" = 75 ]; then ok "gguf map synthetic names: 75"; else bad "gguf map synthetic names: want 75, got $rc"; fi
+    if gsite expert-dup "gg_hu e" "gg_hu or e 1"; then
+      gmap "$b/gmut" "$b/real.tsv"
+      if [ "$rc" = 77 ]; then ok "gguf mutant expert-dup: 77"; else bad "gguf mutant expert-dup: want 77, got $rc"; fi
+    fi
+    if gsite totals "const GFT ulong 39785287456" "const GFT ulong 39785287457"; then
+      gmap "$b/gmut" "$b/real.tsv"
+      if [ "$rc" = 79 ]; then ok "gguf mutant totals: 79"; else bad "gguf mutant totals: want 79, got $rc"; fi
+    fi
+    if [ -n "${FLINT_SHARDS:-}" ]; then
+      gdeq() { # binary; sets rc, dl (the deq line) and dv (its violation count)
+        timeout 1800 "$1" deq "$FLINT_GGUF" "$b/real.tsv" "$FLINT_SHARDS" > "$b/d.out" 2> "$b/d.err" < /dev/null
+        rc=$?
+        dl=$(sed -n 2p "$b/d.out")
+        dv=$(sed -n 's/.* violations \([0-9]*\) .*/\1/p' <<< "$dl")
+      }
+      gdeq "$b/gg"
+      v0=$dv
+      if [ "$rc" = 0 ] && [ "${dl%% PASS}" != "$dl" ] && [ "$(sed -n 1p "$b/d.out")" = "$GG_MAP" ]; then ok "gguf deq: $dl"; else bad "gguf deq: rc $rc, $(head -c 300 "$b/d.out") $(head -c 200 "$b/d.err")"; fi
+      # A mutant must FAIL with at least ten times the unmutated violations (and at least 1000),
+      # so a failing unmutated run cannot make the mutants pass by default.
+      for dm in "expert-swap|gg_hu e|gg_hu sub 255 e" "nibble-hi-for-lo|gg_cmp add mul s 16 j and q 15 d|gg_cmp add mul s 16 j shr q 4 d" "scale-order|d = mul gg_ue get gqb s sc|d = mul gg_ue get gqb sub 3 s sc"; do
+        IFS='|' read -r mn mf mt <<< "$dm"
+        gsite "$mn" "$mf" "$mt" || continue
+        gdeq "$b/gmut"
+        if [ "$rc" = 1 ] && [ "${dl%% FAIL}" != "$dl" ] && [ -n "$dv" ] && [ "$dv" -ge $((10 * ${v0:-0})) ] && [ "$dv" -ge 1000 ]; then ok "gguf mutant $mn: $dl"; else bad "gguf mutant $mn: want FAIL with >= 10 x $v0 violations, got rc $rc: $dl"; fi
+      done
+    else
+      echo "NOT_RUN gguf deq (needs FLINT_SHARDS)"
+    fi
+  else
+    echo "NOT_RUN gguf map/deq (needs FLINT_GGUF and the FLINT_SHARDS arm's TSV)"
   fi
 fi
 

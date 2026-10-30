@@ -37,13 +37,35 @@ global gkvo ulong 1024
 global gbe ulong 64
 global gbb ulong 64
 global gtyc ulong 192
+const GFT ulong 39785287456
+const GFR ulong 37849399296
+global gtv uchar 8388608
+global grno ulong 65536
+global grnl ulong 65536
+global grr ulong 65536
+global grc ulong 65536
+global grso ulong 65536
+global grsl ulong 65536
+global grbg ulong 65536
+global grmk ulong 65536
+global gtab ulong 131072
+global gtsc ulong 4096
+global ghn uchar 512
+global gshn ulong 64
+global gshl ulong 64
+global gshf ulong 64
+global gshb ulong 64
+global gqb uchar 256
+global gwb uchar 256
+global gfb uchar 8
+global gdv f64 8
 
 note gst slots: 0 header cursor, 1 header bytes loaded, 2 file size, 3 tensor count, 4 kv count,
 note 5 stdout length, 6 alignment, 7 data section start, 8 version, 9 st_size from gg_open,
 note 10 tensor bytes used, 11 tensor bytes padded, 14 stderr length, 30 guard-mutant scratch
 
 text tref "refused "
-text tg2 "usage: flint-gguf report GGUF"
+text tg2 "usage: flint-gguf report GGUF | map GGUF TSV | deq GGUF TSV SHARD_DIR"
 text tg3 "io"
 text tg4 "not-regular-file"
 text tg60 "gguf-truncated"
@@ -60,6 +82,12 @@ text tg70 "tensor-past-eof"
 text tg71 "tensor-tiling"
 text tg72 "header-capacity"
 text tg73 "output-capacity"
+text tg74 "inventory-tsv"
+text tg75 "name-map"
+text tg76 "tensor-class"
+text tg77 "coverage"
+text tg78 "scale-sibling"
+text tg79 "totals"
 text tmagic "GGUF"
 text trep "report"
 text talign "general.alignment"
@@ -101,6 +129,80 @@ text tt1 "tokenizer bos "
 text tt2 " eos "
 text tnone "none"
 text tok "flint-gguf ok tensors "
+text tmap "map"
+text tdeq "deq"
+text tbf16 "BF16"
+text tscl ".scale"
+text twt ".weight"
+text tblk "blk."
+text tmly "model.layers."
+text tmexp "mlp.experts."
+text ttok "token_embd.weight"
+text thtok "model.embed_tokens.weight"
+text tonrm "output_norm.weight"
+text thnrm "model.norm.weight"
+text tout "output.weight"
+text thout "lm_head.weight"
+text tr1 "attn_norm.weight"
+text th1 "input_layernorm.weight"
+text tr2 "ffn_norm.weight"
+text th2 "post_attention_layernorm.weight"
+text tr3 "attn_q.weight"
+text th3 "self_attn.q_proj.weight"
+text tr4 "attn_k.weight"
+text th4 "self_attn.k_proj.weight"
+text tr5 "attn_v.weight"
+text th5 "self_attn.v_proj.weight"
+text tr6 "attn_output.weight"
+text th6 "self_attn.o_proj.weight"
+text tr7 "attn_q_norm.weight"
+text th7 "self_attn.q_norm.weight"
+text tr8 "attn_k_norm.weight"
+text th8 "self_attn.k_norm.weight"
+text tr9 "attn_sinks.weight"
+text th9 "self_attn.softmax_offset"
+text tr10 "ffn_gate.weight"
+text th10 "mlp.gate_proj.weight"
+text tr11 "ffn_up.weight"
+text th11 "mlp.up_proj.weight"
+text tr12 "ffn_down.weight"
+text th12 "mlp.down_proj.weight"
+text tr13 "ffn_gate_inp.weight"
+text th13 "mlp.gate.weight"
+text tr14 "ffn_gate_shexp.weight"
+text th14 "mlp.shared_expert.gate_proj.weight"
+text tr15 "ffn_up_shexp.weight"
+text th15 "mlp.shared_expert.up_proj.weight"
+text tr16 "ffn_down_shexp.weight"
+text th16 "mlp.shared_expert.down_proj.weight"
+text tr17 "ffn_gate_exps.weight"
+text tr18 "ffn_up_exps.weight"
+text tr19 "ffn_down_exps.weight"
+text tpg "gate_proj.weight"
+text tpu "up_proj.weight"
+text tpd "down_proj.weight"
+text tmu "map units "
+text tmt " tensors "
+text tms " scales "
+text tme " elements "
+text tmr " routed "
+text tdu "deq units "
+text tdb " blocks "
+text tdv " violations "
+text tdst " strict "
+text tdw " worst_ppm "
+text tdx " exact "
+text tdm " mismatches "
+text tpass " PASS"
+text tfail " FAIL"
+text tfv "first_violation "
+text tfe " expert "
+text tfr " row "
+text tfc " col "
+text tfd " err_over_d_ppm "
+text tfb " bound_over_d_ppm "
+text tmok "flint-gguf map ok units "
+text tnm "name"
 
 note ======== output buffers ========
 
@@ -907,6 +1009,908 @@ gg_close fd
 gg_head
 end
 
+note ======== map: GGUF tensors against the safetensors inventory (manifest.om TSV) ========
+
+note gst slots for map and deq: 20 TSV length, 21 TSV rows, 22 ghn length, 23 GGUF fd,
+note 24 open shards, 25 sample generator state, 26 units, 27 GGUF elements, 28 routed elements,
+note 29 scale tensors, 31 NVFP4 tensors, 32 mapped tensors, 41 TSV elements, 42/43 sampled
+note row/block, 45 elements compared, 46 violations, 47 strict over-count, 48 blocks,
+note 49 exact values compared, 50 exact mismatches, 51 violation recorded, 52..55 first violation
+note tensor/expert/row/col, 57/58 current tensor/expert
+
+fn gg_ltv fd long n ulong to void
+o = ulong 0
+while lt o n bound 999999
+r = pread int fd gtv o sub n o long o
+if le r 0
+gg_die 3 tg3
+end
+o = add o ulong r
+end
+end
+
+fn gg_fld p ulong to ulong
+q = p
+m = get gst 20
+while lt q m bound 999999
+c = get gtv q
+if or eq c 9 eq c 10
+ret q
+end
+q = add q 1
+end
+ret m
+end
+
+note gg_tab: field end e must be a tab; returns the next field start
+fn gg_tab e ulong to ulong
+if ge e get gst 20
+gg_die 74 tg74
+end
+if ne get gtv e 9
+gg_die 74 tg74
+end
+ret add e 1
+end
+
+fn gg_num p ulong e ulong to ulong
+if or ge p e gt sub e p 19
+gg_die 74 tg74
+end
+v = ulong 0
+for i ulong sub e p
+c = get gtv add p i
+if or lt c 48 gt c 57
+gg_die 74 tg74
+end
+v = add mul v 10 ulong sub c 48
+end
+ret v
+end
+
+fn gg_tvt p ulong e ulong t view uchar * to bool
+if ne sub e p len t
+ret false
+end
+for i ulong len t
+if ne get gtv add p i get t i
+ret false
+end
+end
+ret true
+end
+
+note gg_shp: shape field R (a vector, cols 0) or RxC
+fn gg_shp k ulong p ulong e ulong to void
+x = p
+while lt x e bound 99
+if eq get gtv x 120
+break
+end
+x = add x 1
+end
+put grr k gg_num p x
+put grc k 0
+if lt x e
+put grc k gg_num add x 1 e
+end
+end
+
+fn gg_hht p ulong n ulong to ulong
+h = ulong 14695981039346656037
+for i ulong n
+h = mul xor h ulong get gtv add p i 1099511628211
+end
+ret and h 131071
+end
+
+fn gg_hhn n ulong to ulong
+h = ulong 14695981039346656037
+for i ulong n
+h = mul xor h ulong get ghn i 1099511628211
+end
+ret and h 131071
+end
+
+fn gg_tveq a ulong b ulong n ulong to bool
+for i ulong n
+if ne get gtv add a i get gtv add b i
+ret false
+end
+end
+ret true
+end
+
+fn gg_hput k ulong to void
+p = get grno k
+n = get grnl k
+h = gg_hht p n
+while true bound 131072
+v = get gtab h
+if eq v 0
+put gtab h add k 1
+ret
+end
+j = sub v 1
+if eq get grnl j n
+if gg_tveq get grno j p n
+gg_die 74 tg74
+end
+end
+h = and add h 1 131071
+end
+gg_die 74 tg74
+end
+
+note gg_row: one TSV row k at p (name, shard, BF16, shape, begin, end); returns the next row
+fn gg_row k ulong p ulong to ulong
+e = gg_fld p
+if or eq e p gt sub e p 255
+gg_die 74 tg74
+end
+put grno k p
+put grnl k sub e p
+p = gg_tab e
+e = gg_fld p
+put grso k p
+put grsl k sub e p
+p = gg_tab e
+e = gg_fld p
+if not gg_tvt p e tbf16
+gg_die 74 tg74
+end
+p = gg_tab e
+e = gg_fld p
+gg_shp k p e
+p = gg_tab e
+e = gg_fld p
+put grbg k gg_num p e
+p = gg_tab e
+e = gg_fld p
+z = gg_num p e
+if ge e get gst 20
+gg_die 74 tg74
+end
+if ne get gtv e 10
+gg_die 74 tg74
+end
+n = get grr k
+if gt get grc k 0
+n = mul n get grc k
+end
+if ne sub z get grbg k mul n 2
+gg_die 74 tg74
+end
+put gst 41 add get gst 41 n
+gg_hput k
+ret add e 1
+end
+
+fn gg_tsv a ulong to void
+n = gg_argp a
+fd = gg_open n
+s = get gst 9
+if or eq s 0 gt s len gtv
+gg_die 74 tg74
+end
+gg_ltv fd s
+gg_close fd
+put gst 20 s
+p = gg_fld 0
+if not gg_tvt 0 p tnm
+gg_die 74 tg74
+end
+while lt p s bound 999
+if eq get gtv p 10
+break
+end
+p = add p 1
+end
+p = add p 1
+while lt p s bound 999999
+k = get gst 21
+if ge k len grno
+gg_die 74 tg74
+end
+p = gg_row k p
+put gst 21 add k 1
+end
+end
+
+note ======== GGUF name to Hugging Face name ========
+
+fn gg_hc c uchar to void
+n = get gst 22
+if ge n len ghn
+gg_die 75 tg75
+end
+put ghn n c
+put gst 22 add n 1
+end
+
+fn gg_ht t view uchar * to void
+for i ulong len t
+gg_hc get t i
+end
+end
+
+fn gg_hu v ulong to void
+n = gg_dec v
+for i ulong n
+gg_hc get gdg sub sub n i 1
+end
+end
+
+fn gg_hg p ulong n ulong to void
+for i ulong n
+gg_hc get gh add p i
+end
+end
+
+fn gg_heqt p ulong n ulong t view uchar * to bool
+if ne n len t
+ret false
+end
+ret gg_htx p t
+end
+
+fn gg_hsfx p ulong n ulong t view uchar * to bool
+if lt n len t
+ret false
+end
+ret gg_htx add p sub n len t t
+end
+
+note gg_hx: routed expert e of a stacked _exps tensor
+fn gg_hx e ulong t view uchar * to ulong
+gg_ht tmexp
+gg_hu e
+gg_hc 46
+gg_ht t
+ret ulong 4
+end
+
+fn gg_hra r ulong n ulong to ulong
+if gg_heqt r n tr1
+gg_ht th1
+ret ulong 1
+end
+if gg_heqt r n tr2
+gg_ht th2
+ret ulong 1
+end
+if gg_heqt r n tr3
+gg_ht th3
+ret ulong 3
+end
+if gg_heqt r n tr4
+gg_ht th4
+ret ulong 3
+end
+if gg_heqt r n tr5
+gg_ht th5
+ret ulong 3
+end
+if gg_heqt r n tr6
+gg_ht th6
+ret ulong 3
+end
+if gg_heqt r n tr7
+gg_ht th7
+ret ulong 1
+end
+if gg_heqt r n tr8
+gg_ht th8
+ret ulong 1
+end
+if gg_heqt r n tr9
+gg_ht th9
+ret ulong 1
+end
+ret ulong 0
+end
+
+fn gg_hrb r ulong n ulong e ulong to ulong
+if gg_heqt r n tr10
+gg_ht th10
+ret ulong 3
+end
+if gg_heqt r n tr11
+gg_ht th11
+ret ulong 3
+end
+if gg_heqt r n tr12
+gg_ht th12
+ret ulong 3
+end
+if gg_heqt r n tr13
+gg_ht th13
+ret ulong 2
+end
+if gg_heqt r n tr14
+gg_ht th14
+ret ulong 3
+end
+if gg_heqt r n tr15
+gg_ht th15
+ret ulong 3
+end
+if gg_heqt r n tr16
+gg_ht th16
+ret ulong 3
+end
+if gg_heqt r n tr17
+ret gg_hx e tpg
+end
+if gg_heqt r n tr18
+ret gg_hx e tpu
+end
+if gg_heqt r n tr19
+ret gg_hx e tpd
+end
+gg_die 75 tg75
+ret ulong 0
+end
+
+note gg_hf: HF name of tensor i (expert e) into ghn; returns its class: 0 a .scale tensor,
+note 1 F32 vector, 2 BF16 matrix, 3 NVFP4 matrix, 4 NVFP4 stacked experts
+fn gg_hf i ulong e ulong to ulong
+put gst 22 0
+no = get gtno i
+nl = get gtnl i
+if gg_hsfx no nl tscl
+ret ulong 0
+end
+if gg_heqt no nl ttok
+gg_ht thtok
+ret ulong 2
+end
+if gg_heqt no nl tonrm
+gg_ht thnrm
+ret ulong 1
+end
+if gg_heqt no nl tout
+gg_ht thout
+ret ulong 3
+end
+if lt nl 7
+gg_die 75 tg75
+end
+if not gg_htx no tblk
+gg_die 75 tg75
+end
+p = add no 4
+d = ulong 0
+while lt add d 6 nl bound 4
+c = get gh add p d
+if or lt c 48 gt c 57
+break
+end
+d = add d 1
+end
+if or eq d 0 ne get gh add p d 46
+gg_die 75 tg75
+end
+gg_ht tmly
+gg_hg p d
+gg_hc 46
+r = add add p d 1
+rl = sub nl add d 5
+k = gg_hra r rl
+if gt k 0
+ret k
+end
+ret gg_hrb r rl e
+end
+
+note gg_look: TSV row of the HF name in ghn, or coverage refusal
+fn gg_look to ulong
+n = get gst 22
+h = gg_hhn n
+while true bound 131072
+v = get gtab h
+if eq v 0
+gg_die 77 tg77
+end
+j = sub v 1
+if eq get grnl j n
+o = get grno j
+f = true
+for i ulong n
+if ne get gtv add o i get ghn i
+f = false
+break
+end
+end
+if f
+ret j
+end
+end
+h = and add h 1 131071
+end
+gg_die 77 tg77
+ret ulong 0
+end
+
+note gg_chk: GGUF type and dims of tensor i against class c and the HF shape of row r
+note (GGUF ne0 is the HF column count: the HF row-major matrix is the GGUF row order)
+fn gg_chk i ulong c ulong r ulong to void
+w = ulong 40
+k = ulong 2
+if eq c 1
+w = 0
+k = 1
+end
+if eq c 2
+w = 30
+end
+if eq c 4
+k = 3
+end
+if or ne get gtty i w ne get gtnd i k
+gg_die 76 tg76
+end
+gg_chs i c r
+end
+
+fn gg_chs i ulong c ulong r ulong to void
+d0 = get gtdm mul i 4
+d1 = get gtdm add mul i 4 1
+rr = get grr r
+rc = get grc r
+if eq c 1
+d1 = d0
+d0 = 0
+end
+if or ne rr d1 ne rc d0
+gg_die 76 tg76
+end
+end
+
+note gg_sib: the F32 .scale sibling of NVFP4 tensor i: one value, or one per expert
+fn gg_sib i ulong c ulong to void
+no = get gtno i
+nl = get gtnl i
+if not gg_hsfx no nl twt
+gg_die 78 tg78
+end
+b = sub nl 7
+n = ulong 1
+if eq c 4
+n = get gtdm add mul i 4 2
+end
+for j ulong get gst 3
+if eq get gtnl j add b 6
+o = get gtno j
+if gg_heq o no b
+if gg_htx add o b tscl
+gg_sck j n
+put gtsc i j
+ret
+end
+end
+end
+end
+gg_die 78 tg78
+end
+
+fn gg_sck j ulong n ulong to void
+t = get gtty j
+d = get gtnd j
+m = get gtdm mul j 4
+if or or ne t 0 ne d 1 ne m n
+gg_die 78 tg78
+end
+end
+
+fn gg_unit i ulong c ulong to void
+put gst 32 add get gst 32 1
+put gst 27 add get gst 27 get gtne i
+n = ulong 1
+if ge c 3
+put gst 31 add get gst 31 1
+gg_sib i c
+end
+if eq c 4
+n = get gtdm add mul i 4 2
+put gst 28 add get gst 28 get gtne i
+end
+for e ulong n
+k = gg_hf i e
+r = gg_look
+gg_chk i c r
+if gt get grmk r 0
+gg_die 77 tg77
+end
+put grmk r 1
+put gst 26 add get gst 26 1
+end
+end
+
+fn gg_map to void
+for i ulong get gst 3
+c = gg_hf i 0
+if eq c 0
+put gst 29 add get gst 29 1
+else
+gg_unit i c
+end
+end
+for r ulong get gst 21
+if ne get grmk r 1
+gg_die 77 tg77
+end
+end
+if ne get gst 29 get gst 31
+gg_die 78 tg78
+end
+if or or ne get gst 41 GFT ne get gst 27 GFT ne get gst 28 GFR
+gg_die 79 tg79
+end
+end
+
+fn gg_omap to void
+gg_otx tmu
+gg_ou get gst 26
+gg_otx tmt
+gg_ou get gst 32
+gg_otx tms
+gg_ou get gst 29
+gg_otx tme
+gg_ou get gst 27
+gg_otx tmr
+gg_ou get gst 28
+gg_ob 10
+end
+
+note ======== deq: sampled GGUF blocks against the BF16 shards ========
+
+fn gg_pq fd long n ulong pos ulong to void
+o = ulong 0
+while lt o n bound 99
+r = pread int fd gqb o sub n o long add pos o
+if le r 0
+gg_die 3 tg3
+end
+o = add o ulong r
+end
+end
+
+fn gg_pw fd long n ulong pos ulong to void
+o = ulong 0
+while lt o n bound 99
+r = pread int fd gwb o sub n o long add pos o
+if le r 0
+gg_die 3 tg3
+end
+o = add o ulong r
+end
+end
+
+note gg_shd: index of the open shard of TSV row r (opened once: SHARD_DIR/shard name)
+fn gg_shd r ulong to ulong
+so = get grso r
+sl = get grsl r
+m = get gst 24
+for j ulong m
+if eq get gshl j sl
+if gg_tveq get gshn j so sl
+ret j
+end
+end
+end
+if ge m 64
+gg_die 3 tg3
+end
+n = gg_argp 4
+if gt add add n sl 1 len gpth
+gg_die 2 tg2
+end
+put gpth n 47
+for i ulong sl
+put gpth add add n 1 i get gtv add so i
+end
+fd = gg_open add add n 1 sl
+r8 = pread int fd gfb 0 8 long 0
+if ne r8 8
+gg_die 3 tg3
+end
+hl = ulong 0
+for i ulong 8
+hl = or hl shl ulong get gfb i mul 8 i
+end
+put gshn m so
+put gshl m sl
+put gshf m ulong fd
+put gshb m add 8 hl
+put gst 24 add m 1
+ret m
+end
+
+note gg_hw: n bytes of TSV row r's tensor data at byte off into gwb
+fn gg_hw r ulong off ulong n ulong to void
+j = gg_shd r
+gg_pw long get gshf j n add add get gshb j get grbg r off
+end
+
+note gg_gq: n bytes of the GGUF data section at off into gqb
+fn gg_gq off ulong n ulong to void
+gg_pq long get gst 23 n add get gst 7 off
+end
+
+fn gg_bf x ulong to f64
+lo = uint get gwb mul x 2
+hi = uint get gwb add mul x 2 1
+ret f64 bitcast f32 or shl hi 24 shl lo 16
+end
+
+note gg_ue: ggml_ue4m3_to_fp32 without its 0.5 (E2M1 values are used, not ggml's doubled ints)
+fn gg_ue x uchar to f64
+if or eq x 0 eq x 127
+ret 0.0f64
+end
+e = ulong and shr x 3 15
+m = f64 ulong and x 7
+if eq e 0
+ret mul m 0.001953125f64
+end
+p = add 1.0f64 div m 8.0f64
+if ge e 7
+for k ulong sub e 7
+p = mul p 2.0f64
+end
+else
+for k ulong sub 7 e
+p = mul p 0.5f64
+end
+end
+ret p
+end
+
+fn gg_e2 n uchar to f64
+m = and n 7
+v = mul f64 ulong m 0.5f64
+if eq m 4
+v = 2.0f64
+end
+if eq m 5
+v = 3.0f64
+end
+if eq m 6
+v = 4.0f64
+end
+if eq m 7
+v = 6.0f64
+end
+if ge n 8
+v = neg v
+end
+ret v
+end
+
+note gg_cmp: element x of the block (col c0 + x) against the frozen bound in README.md:
+note |w - q D| <= D + max(0, |w| - 6 D) + 2^-8 |w|
+fn gg_cmp x ulong n uchar d f64 to void
+w = gg_bf x
+a = fabs w
+t = fabs sub w mul gg_e2 n d
+c = sub a mul 6.0f64 d
+if lt c 0.0f64
+c = 0.0f64
+end
+s = add d c
+b = add s mul a 0.00390625f64
+put gst 45 add get gst 45 1
+if gt t s
+put gst 47 add get gst 47 1
+end
+if gt b 0.0f64
+if gt div t b get gdv 0
+put gdv 0 div t b
+end
+end
+if gt t b
+put gst 46 add get gst 46 1
+if eq get gst 51 0
+put gst 51 1
+put gst 52 get gst 57
+put gst 53 get gst 58
+put gst 54 get gst 42
+put gst 55 add mul get gst 43 64 x
+put gdv 1 div t d
+put gdv 2 div b d
+end
+end
+end
+
+note gg_smp: sample k of a unit with `rows` rows of `bpr` blocks: k 0 the first block, k 1
+note the last, k >= 2 from a 64-bit LCG seeded once with 834 (rows and blocks in gst 42/43)
+fn gg_smp k ulong rows ulong bpr ulong to void
+if eq k 0
+put gst 42 0
+put gst 43 0
+ret
+end
+if eq k 1
+put gst 42 sub rows 1
+put gst 43 sub bpr 1
+ret
+end
+x = add mul get gst 25 6364136223846793005 1442695040888963407
+put gst 25 x
+put gst 42 rem shr x 33 rows
+put gst 43 rem shr x 11 bpr
+end
+
+note gg_bof: GGUF data offset of the sampled block (row gst 42, block gst 43) of expert e
+fn gg_bof i ulong e ulong to ulong
+ne0 = get gtdm mul i 4
+sl = mul div mul ne0 get gtdm add mul i 4 1 64 36
+k = add mul get gst 42 div ne0 64 get gst 43
+ret add add get gtof i mul e sl mul k 36
+end
+
+note gg_blk: one sampled NVFP4 block of tensor i, expert e, against TSV row r; sc the .scale
+fn gg_blk i ulong e ulong r ulong sc f64 to void
+gg_gq gg_bof i e 36
+o = get gst 42
+o = mul o get gtdm mul i 4
+o = add o mul get gst 43 64
+gg_hw r mul o 2 128
+for s ulong 4
+d = mul gg_ue get gqb s sc
+for j ulong 8
+q = get gqb add 4 add mul s 8 j
+gg_cmp add mul s 16 j and q 15 d
+gg_cmp add add mul s 16 j 8 shr q 4 d
+end
+end
+put gst 48 add get gst 48 1
+end
+
+note gg_xbf: sampled 64-value chunk of a BF16 tensor, bit for bit
+fn gg_xbf i ulong r ulong to void
+ne0 = get gtdm mul i 4
+o = mul add mul get gst 42 ne0 mul get gst 43 64 2
+gg_gq add get gtof i o 128
+gg_hw r o 128
+for k ulong 128
+if ne get gqb k get gwb k
+put gst 50 add get gst 50 1
+end
+end
+put gst 49 add get gst 49 64
+end
+
+note gg_xf: an F32 vector, every value, against the BF16 value widened exactly
+fn gg_xf i ulong r ulong to void
+n = get gtdm mul i 4
+o = ulong 0
+while lt o n bound 9999
+k = sub n o
+if gt k 32
+k = ulong 32
+end
+gg_gq add get gtof i mul o 4 mul k 4
+gg_hw r mul o 2 mul k 2
+for x ulong k
+gg_xf1 x
+end
+put gst 49 add get gst 49 k
+o = add o k
+end
+end
+
+fn gg_xf1 x ulong to void
+v = ulong 0
+p = mul x 4
+for y ulong 4
+t = ulong get gqb add p y
+v = or v shl t mul 8 y
+end
+p = mul x 2
+u = shl ulong get gwb add p 1 24
+u = or u shl ulong get gwb p 16
+if ne v u
+put gst 50 add get gst 50 1
+end
+end
+
+fn gg_scl i ulong e ulong to f64
+gg_gq add get gtof get gtsc i mul e 4 4
+v = uint 0
+for y ulong 4
+v = or v shl uint get gqb y mul 8 uint y
+end
+ret f64 bitcast f32 v
+end
+
+fn gg_dqu i ulong c ulong e ulong r ulong to void
+put gst 26 add get gst 26 1
+put gst 57 i
+put gst 58 e
+if eq c 1
+gg_xf i r
+ret
+end
+rows = get gtdm add mul i 4 1
+bpr = div get gtdm mul i 4 64
+if eq c 2
+for k ulong 8
+gg_smp k rows bpr
+gg_xbf i r
+end
+ret
+end
+sc = gg_scl i e
+for k ulong 8
+gg_smp k rows bpr
+gg_blk i e r sc
+end
+end
+
+fn gg_deq to void
+n = gg_argp 2
+put gst 23 ulong gg_open n
+put gst 25 834
+for i ulong get gst 3
+c = gg_hf i 0
+if gt c 0
+m = ulong 1
+if eq c 4
+m = get gtdm add mul i 4 2
+end
+for e ulong m
+k = gg_hf i e
+gg_dqu i c e gg_look
+end
+end
+end
+end
+
+fn gg_odeq to bool
+gg_otx tdu
+gg_ou get gst 26
+gg_otx tdb
+gg_ou get gst 48
+gg_otx tme
+gg_ou get gst 45
+gg_otx tdv
+gg_ou get gst 46
+gg_otx tdst
+gg_ou get gst 47
+gg_otx tdw
+gg_ou ulong mul get gdv 0 1000000.0f64
+gg_otx tdx
+gg_ou get gst 49
+gg_otx tdm
+gg_ou get gst 50
+f = or gt get gst 46 0 gt get gst 50 0
+if f
+gg_otx tfail
+else
+gg_otx tpass
+end
+gg_ob 10
+if gt get gst 51 0
+i = get gst 52
+gg_otx tfv
+gg_oh get gtno i get gtnl i
+gg_otx tfe
+gg_ou get gst 53
+gg_otx tfr
+gg_ou get gst 54
+gg_otx tfc
+gg_ou get gst 55
+gg_otx tfd
+gg_ou ulong mul get gdv 1 1000000.0f64
+gg_otx tfb
+gg_ou ulong mul get gdv 2 1000000.0f64
+gg_ob 10
+end
+ret f
+end
+
 fn main to int
 c = argcnt
 if or lt c 3 gt c 5
@@ -928,6 +1932,33 @@ gg_read 2
 gg_rep
 gg_oflush
 gg_sum
+ret 0
+end
+if and eq c 4 gg_isarg 1 tmap
+gg_read 2
+gg_tsv 3
+gg_map
+gg_omap
+gg_oflush
+put gst 14 0
+gg_etx tmok
+gg_eu get gst 26
+gg_eput 10
+gg_eflush
+ret 0
+end
+if and eq c 5 gg_isarg 1 tdeq
+gg_read 2
+gg_tsv 3
+gg_map
+gg_omap
+put gst 26 0
+gg_deq
+f = gg_odeq
+gg_oflush
+if f
+ret 1
+end
 ret 0
 end
 gg_die 2 tg2

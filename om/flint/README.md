@@ -234,7 +234,7 @@ routers), 731 F32 (type 0: norms, sinks and the 485 NVFP4 `.scale` tensors).
 
 | code | reason | cause |
 |---|---|---|
-| 2 | usage | not `report GGUF` |
+| 2 | usage | not `report GGUF`, `map GGUF TSV` or `deq GGUF TSV SHARD_DIR` |
 | 3 | io | open, stat, read or close failed |
 | 4 | not-regular-file | directory, symlink (O_NOFOLLOW) or device |
 | 60 | gguf-truncated | the header ends before a field it declares |
@@ -251,14 +251,104 @@ routers), 731 F32 (type 0: norms, sinks and the 485 NVFP4 `.scale` tensors).
 | 71 | tensor-tiling | offset not the padded end of the previous tensor, or bytes after the last |
 | 72 | header-capacity | header over 16 MiB, more than 4096 tensors, 1024 keys or 999999 array elements |
 | 73 | output-capacity | report over 4 MiB |
+| 74 | inventory-tsv | a TSV row not `name shard BF16 R[xC] begin end`, end - begin not 2 · elements, a duplicate name, over 8 MiB or 65536 rows |
+| 75 | name-map | a GGUF tensor name with no rule below |
+| 76 | tensor-class | GGUF type or dims not those of the tensor's class, or the transposed shape differs from the TSV |
+| 77 | coverage | a mapped name absent from the TSV, a TSV row named twice, or a TSV row never named |
+| 78 | scale-sibling | an NVFP4 `X.weight` without an F32 `X.scale` of [1] (or [ne2] for `_exps`), or #scales ≠ #NVFP4 |
+| 79 | totals | TSV, GGUF or routed element totals differ from the pinned ones |
 
 Gate arm 6 of `check.sh`: the synthetic report equals the referee's; usage, absent file,
 directory and symlink refusals; 20 refusal fixtures; 13 guard mutants (each `gg_die N` removed
 must stop its fixture producing N) and an O_NOFOLLOW mutant. `FLINT_GGUF=file` compares the
 serving report with the frozen one; `FLINT_GGUF_PY=cmd` reruns the referee on both files.
-Each is NOT_RUN when unset. NOT_RUN for this unit: the name map and shape cross-check against
-the safetensors inventory, the totals reconciliation, NVFP4 block dequantization against the
-BF16 shards, and any serving or GPU evidence.
+Each is NOT_RUN when unset.
+
+### Map: GGUF tensors against the safetensors inventory
+
+`flint-gguf map GGUF TSV` reads the GGUF header and the TSV that `manifest.om` writes from the
+shard headers (the `FLINT_SHARDS` arm's `real.tsv`, sha `TSV_PIN`). Every GGUF tensor whose name
+does not end in `.scale` gets one Hugging Face name; a stacked `_exps` tensor gets one name per
+routed expert e < ne2. The rules (`blk.N.` becomes `model.layers.N.`):
+
+| GGUF | HF | class |
+|---|---|---|
+| `token_embd.weight` | `model.embed_tokens.weight` | BF16 matrix |
+| `output_norm.weight` | `model.norm.weight` | F32 vector |
+| `output.weight` | `lm_head.weight` | NVFP4 matrix |
+| `attn_norm` / `ffn_norm` | `input_layernorm` / `post_attention_layernorm` | F32 vector |
+| `attn_q` / `attn_k` / `attn_v` / `attn_output` | `self_attn.q_proj` / `k_proj` / `v_proj` / `o_proj` | NVFP4 matrix |
+| `attn_q_norm` / `attn_k_norm` | `self_attn.q_norm` / `k_norm` | F32 vector |
+| `attn_sinks.weight` | `self_attn.softmax_offset` | F32 vector |
+| `ffn_gate` / `ffn_up` / `ffn_down` | `mlp.gate_proj` / `up_proj` / `down_proj` | NVFP4 matrix |
+| `ffn_gate_inp` | `mlp.gate` | BF16 matrix |
+| `ffn_{gate,up,down}_shexp` | `mlp.shared_expert.{gate,up,down}_proj` | NVFP4 matrix |
+| `ffn_{gate,up,down}_exps`, expert e | `mlp.experts.e.{gate,up,down}_proj` | NVFP4, 3 dims |
+
+(`.weight` is kept on both sides except `softmax_offset`.) An F32 vector has 1 dim, type 0 and
+ne0 = the HF length; a matrix has 2 dims (3 for `_exps`), type 30 (BF16) or 40 (NVFP4), and
+HF shape [ne1, ne0]: GGUF ne0 is the HF column count, so the row-major HF matrix and the GGUF
+rows are in the same order. Each name must hit exactly one TSV row, every TSV row must be hit,
+each NVFP4 tensor needs its `.scale` sibling, and the totals are pinned: 39785287456 elements
+(Wolfram `216864+332136448+39452934144` → 39785287456, the F32, BF16 and NVFP4 sums) and
+37849399296 routed (Wolfram `141*256*512*2048` → 37849399296). The serving file gives
+`map units 36734 tensors 779 scales 485 elements 39785287456 routed 37849399296`: 638 plain
+tensors plus 141 `_exps` tensors × 256 experts = 36734 units, the TSV's row count.
+
+### Deq: sampled NVFP4 blocks against the BF16 shards
+
+`flint-gguf deq GGUF TSV SHARD_DIR` runs map, then compares GGUF data with the BF16 bytes of
+each unit's TSV row (the shard file `SHARD_DIR/<shard>`, offset 8 + header length + begin):
+
+- F32 vectors: every value; the GGUF f32 must equal the BF16 value widened, bit for bit.
+- BF16 matrices: 8 sampled 64-value chunks per tensor, byte for byte.
+- NVFP4 units (tensors, and each expert slice): 8 sampled 36-byte blocks per unit, each of its
+  64 values under the frozen bound below. The block of row r, block k of expert e is at
+  `offset + e · (ne0 · ne1 / 64 · 36) + (r · ne0/64 + k) · 36`; the scale is the F32 at
+  `.scale` offset + 4e.
+
+Sample k of a unit: k = 0 is row 0 block 0, k = 1 the last row's last block, k = 2..7 come from
+the 64-bit LCG x ← x · 6364136223846793005 + 1442695040888963407 (seed 834 once, continued over
+units in GGUF tensor order, then expert order) with row = (x >> 33) mod rows and block =
+(x >> 11) mod (ne0/64). The output line is `deq units U blocks B elements N violations V
+strict S worst_ppm W exact X mismatches M PASS|FAIL`: strict counts values over the bound
+without its BF16 term, worst_ppm is the largest |w − ŵ| / bound × 10^6, exact and mismatches
+count the F32 and BF16 values compared bit for bit. A violation also prints the first one
+(tensor, expert, row, column, |w − ŵ| / D and bound / D in ppm). FAIL exits 1.
+
+Gate arm 6, when `FLINT_GGUF` and the TSV are present: the map line; three TSV mutants on
+`model.layers.2.mlp.experts.0.down_proj.weight` (row dropped → 77, shape 512x2048 → 76, dtype
+F16 → 74); the synthetic GGUF → 75; source mutants expert-dup (`gg_hu or e 1` → 77) and totals
+(→ 79). With `FLINT_SHARDS` too: deq must PASS, and three source mutants must FAIL it with at
+least ten times the unmutated run's violations (and at least 1000), so a failing unmutated run
+cannot pass them by default: expert-swap (`gg_hu sub 255 e`, which still maps),
+nibble-hi-for-lo (the low nibble decoded from the high one) and scale-order (sub-scales of a
+block read in reverse). Not covered: the unsampled NVFP4 blocks (291520 of 616452096 are
+sampled; Wolfram `N[291520/(39452934144/64)*100, 4]` → 0.04729 %), serving or GPU evidence.
+
+### Observed on the serving file: deq FAILS against `flint-2a247be0`
+
+Run on 2026-10-30 (host, cores 0-4, 62 s, 24 MB RSS):
+
+    deq units 36734 blocks 291520 elements 18657280 violations 7782 strict 19841 worst_ppm 1394455 exact 241440 mismatches 48 FAIL
+    first_violation blk.0.attn_q.weight expert 0 row 2566 col 1841 err_over_d_ppm 1022222 bound_over_d_ppm 1019444
+
+7782 of 18657280 sampled NVFP4 values exceed the frozen bound (Wolfram → 0.04171 %), the worst by
+1.394 × the bound. The bound stays as committed. The cause is the reference, not the decoder:
+48 of the 241440 values that need no quantization (F32 norms and sinks, BF16 router and
+embedding chunks) differ from the shards bit for bit, which no NVFP4 decode can cause. A
+throwaway numpy probe over whole tensors (not part of the gate) found 7983313 of 307494912
+`token_embd` values different (Wolfram → 2.596 %), differing elements in `output_norm` (7 of
+2048), and in `attn_q_norm`, `attn_k_norm` and `attn_sinks` of layers 19, 20, 28, 32, 34, 35,
+38 and 48 (one to four each, e.g. 0.00098419 against 0.00086594 in layer 28's k norm); all 47
+routers equal. On `blk.0.attn_q.weight` the violators all sit at the 4/6 rounding midpoint
+(|w/D| from 4.74 to 5.19, decoded as 4 or 6); requantizing the shard weights to the nearest
+E2M1 value agrees with 98.17 % of the file's codes; the block maximum over 6 · D has median
+1.0007. So the GGUF was quantized from weights close to, but not equal to, the released
+checkpoint (`RecursiveSI/flint` has one revision, 2a247be0; the GGUF is
+`RecursiveSI/flint-nvfp4-gguf@6ec43e19`). The tie from the serving file to the checked weights
+is therefore exact for names, shapes, layout and totals, and approximate (not within the frozen
+bound) for values.
 
 ### NVFP4 dequantization tolerance (derived from the format before any full comparison)
 
