@@ -168,6 +168,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "aien-expert-residency"
+version = "0.1.0"
+
+[[package]]
 name = "aien-expert-store"
 version = "0.1.0"
 dependencies = [
