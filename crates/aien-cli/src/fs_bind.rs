@@ -83,22 +83,25 @@ pub fn permitted_workspaces() -> Vec<PathBuf> {
 
 fn authorize(user_path: &str) -> Result<Authorized, BindError> {
     let workspaces = permitted_workspaces();
-    let canonical = validate_workspace_path(user_path, &workspaces).map_err(BindError::Denied)?;
+    let canonical = validate_workspace_path(user_path, &workspaces).map_err(|_| {
+        BindError::Denied(format!(
+            "refusing {}: it is outside the workspace allow-list",
+            safe_label(Path::new(user_path))
+        ))
+    })?;
     let lexical = lexical_absolute(user_path)?;
     // Open the path the caller named. Opening `canonical` instead would
     // follow a directory symlink into another allowed directory.
     let Some((workspace, rel)) = longest_workspace(&lexical, &workspaces) else {
         return Err(BindError::Denied(format!(
-            "Path '{}' resolves to '{}' which is outside permitted workspace roots",
-            user_path,
-            canonical.display()
+            "refusing {}: it resolves outside permitted workspace roots",
+            safe_label(Path::new(user_path))
         )));
     };
     let Some((canon_workspace, canon_rel)) = longest_workspace(&canonical, &workspaces) else {
         return Err(BindError::Denied(format!(
-            "Path '{}' resolves to '{}' which is outside permitted workspace roots",
-            user_path,
-            canonical.display()
+            "refusing {}: it resolves outside permitted workspace roots",
+            safe_label(Path::new(user_path))
         )));
     };
     plain_rel(&rel, user_path)?;
@@ -116,8 +119,8 @@ fn authorize(user_path: &str) -> Result<Authorized, BindError> {
 fn plain_rel(rel: &Path, user_path: &str) -> Result<(), BindError> {
     if rel.components().any(|c| !matches!(c, Component::Normal(_))) {
         return Err(BindError::Denied(format!(
-            "refusing '{}': the authorized path is not a plain path under the workspace",
-            user_path
+            "refusing {}: the authorized path is not a plain path under the workspace",
+            safe_label(Path::new(user_path))
         )));
     }
     Ok(())
@@ -231,32 +234,40 @@ fn final_component_is_symlink(ws: &OwnedFd, rel: &Path) -> bool {
     name_is_symlink(parent_fd.as_raw_fd(), name)
 }
 
+/// Workspace-relative text, or a generic label when `path` is absolute.
+/// Error strings must not carry a host absolute path.
+fn safe_label(path: &Path) -> String {
+    if path.as_os_str().is_empty() {
+        "the workspace root".to_string()
+    } else if path.is_absolute() {
+        "the requested path".to_string()
+    } else {
+        path.display().to_string()
+    }
+}
+
 fn map_io(path: &Path, err: std::io::Error) -> BindError {
+    let label = safe_label(path);
     match err.raw_os_error() {
         Some(libc::ELOOP) => BindError::Denied(format!(
-            "refusing '{}': a symlink is on the authorized path",
-            path.display()
+            "refusing '{label}': a symlink is on the authorized path"
         )),
         Some(libc::EXDEV) => BindError::Denied(format!(
-            "refusing '{}': the path resolves outside the workspace root",
-            path.display()
+            "refusing '{label}': the path resolves outside the workspace root"
         )),
         Some(libc::ENOSYS) => BindError::Denied(format!(
-            "refusing '{}': openat2 is unavailable, so the open cannot be bound to the authorized target",
-            path.display()
+            "refusing '{label}': openat2 is unavailable, so the open cannot be bound to the authorized target"
         )),
         // EPERM and EINVAL are confinement failures, not a generic I/O miss.
         // A kernel that rejects the resolve flags must not fall through to a
         // pathname open.
         Some(libc::EPERM) | Some(libc::EINVAL) => BindError::Denied(format!(
-            "refusing '{}': the open cannot be bound to the authorized target",
-            path.display()
+            "refusing '{label}': the open cannot be bound to the authorized target"
         )),
         // A symlink opened with O_DIRECTORY and RESOLVE_NO_SYMLINKS is reported
         // as ENOTDIR (the link itself is not a directory). Do not follow it.
         Some(libc::ENOTDIR) => BindError::Denied(format!(
-            "refusing '{}': a path component is not a directory",
-            path.display()
+            "refusing '{label}': a path component is not a directory"
         )),
         Some(libc::ENOENT) => BindError::NotFound(err.to_string()),
         Some(libc::EEXIST) => BindError::Exists(err.to_string()),
@@ -387,7 +398,7 @@ fn reject_special(path: &Path, file: &File) -> Result<(), BindError> {
     }
     Err(BindError::Denied(format!(
         "refusing '{}': authorized target is not a regular file",
-        path.display()
+        safe_label(path)
     )))
 }
 
@@ -458,13 +469,13 @@ impl HeldFile {
                 if !self.writable {
                     return Err(BindError::Failed(format!(
                         "Permission denied writing {}",
-                        self.display
+                        safe_label(&self.rel)
                     )));
                 }
                 if !overwrite {
                     return Err(BindError::Failed(format!(
                         "File already exists: {}. Pass overwrite: true to replace.",
-                        self.display
+                        safe_label(&self.rel)
                     )));
                 }
                 write_all_trunc(file, content)?;
@@ -495,7 +506,7 @@ impl HeldFile {
             }
             Err(BindError::Exists(_)) => Err(BindError::Failed(format!(
                 "File already exists: {}. Pass overwrite: true to replace.",
-                self.display
+                safe_label(&self.rel)
             ))),
             Err(e) => Err(e),
         }
@@ -512,7 +523,7 @@ impl HeldFile {
         if !self.writable {
             return Err(BindError::Failed(format!(
                 "Permission denied writing {}",
-                self.display
+                safe_label(&self.rel)
             )));
         }
         write_all_trunc(file, content)
@@ -1044,7 +1055,7 @@ pub fn grep_search(path: &str, query: &str, limit: usize) -> Result<Vec<String>,
     if !meta.is_dir() {
         return Err(BindError::Denied(format!(
             "refusing '{}': authorized target is not a file or directory",
-            auth.canonical.display()
+            safe_label(&auth.rel)
         )));
     }
     let root = auth.canonical.clone();
@@ -1090,7 +1101,7 @@ pub fn find_names(path: &str, pattern: &str, limit: usize) -> Result<Vec<String>
     if !meta.is_dir() {
         return Err(BindError::Denied(format!(
             "refusing '{}': authorized target is not a file or directory",
-            auth.canonical.display()
+            safe_label(&auth.rel)
         )));
     }
     if name_matches(pattern, &root_name) {
@@ -1315,6 +1326,38 @@ mod tests {
         let err = read_text(probe.to_str().unwrap()).unwrap_err();
         assert!(matches!(err, BindError::Denied(_)), "{err:?}");
         assert!(!err.message().contains(OUTSIDE));
+    }
+
+    fn assert_no_host_path(msg: &str, hidden: &[&Path]) {
+        for prefix in ["/tmp", "/dev", "/etc", "/home", "/workspace", "/usr"] {
+            assert!(!msg.contains(prefix), "{msg}");
+        }
+        for path in hidden {
+            let text = path.display().to_string();
+            if !text.is_empty() {
+                assert!(!msg.contains(&text), "{msg} contains {text}");
+            }
+        }
+    }
+
+    #[test]
+    fn error_text_omits_host_absolute_paths() {
+        let s = scratch();
+        let outside = outside_scratch();
+        let link = s.ws.join("leak");
+        symlink(outside.path().join("secret"), &link).unwrap();
+        let err = read_text(link.to_str().unwrap()).unwrap_err();
+        assert_no_host_path(err.message(), &[outside.path(), &s.ws, &link]);
+
+        swap_dir(&s.ws.join("d"), &s.other);
+        let err = read_text(s.ws.join("d/f").to_str().unwrap()).unwrap_err();
+        assert_no_host_path(err.message(), &[&s.ws, &s.other, &s.ws.join("d/f")]);
+
+        let err = read_text("/etc/passwd").unwrap_err();
+        assert_no_host_path(
+            err.message(),
+            &[Path::new("/etc/passwd"), Path::new("/etc")],
+        );
     }
 
     #[test]
