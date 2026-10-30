@@ -1,0 +1,18 @@
+[package]
+name = "aien-heartbeat"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Expert Heartbeat H1 (aienix#4): fixed-slot ring that streams MoE expert weights from NVMe into versioned memory slots, publish only after full read + digest"
+
+[dependencies]
+blake3 = "1.8"
+libc = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[[bin]]
+name = "heartbeat_bench"
+path = "src/bin/heartbeat_bench.rs"

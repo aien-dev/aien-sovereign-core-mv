@@ -75,6 +75,16 @@ pub struct Build {
     pub tool: String,
 }
 
+/// `prepare` (v2): a step the runner runs after the pool slot and the target
+/// dir lock and before the GPU locks, under the host profile, so a gb10 gate
+/// builds its program without holding the chip. Its exit must be 0; anything
+/// else fails the gate with reason `prepare_failed` and `run` never starts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Prepare {
+    pub exec: String,
+    pub args: Vec<String>,
+}
+
 /// Epistemic requirement of a check (ADR 0033 Decision 2). v1 manifests are
 /// always `Exact`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -161,6 +171,7 @@ pub struct Manifest {
     pub depends_on: Vec<String>,
     pub inputs: Vec<String>,
     pub build: Option<Build>,
+    pub prepare: Option<Prepare>,
     pub exec: String,
     pub args: Vec<String>,
     pub expect_exit: i64,
@@ -509,13 +520,14 @@ pub const REQUIRES_V2: [&str; 9] = [
     "operator",
 ];
 
-const V2_KEYS: [&str; 6] = [
+const V2_KEYS: [&str; 7] = [
     "exactness",
     "tolerance",
     "backends",
     "fallback",
     "cache_scope",
     "oracle",
+    "prepare",
 ];
 
 fn bad<T>(msg: String) -> Result<T, ManifestError> {
@@ -724,6 +736,27 @@ fn parse_v2(entries: &[Entry], requires: &[String]) -> Result<V2, ManifestError>
     ))
 }
 
+/// `run:` or `prepare:`: a program and its one-line argument list.
+fn parse_exec(e: &Entry) -> Result<(String, Vec<String>), ManifestError> {
+    let c = map(e, &["exec", "args"])?;
+    let exec =
+        child_str(c, "exec")?.ok_or_else(|| ManifestError(format!("{}.exec missing", e.key)))?;
+    if !valid_rel_path(&exec) {
+        return Err(ManifestError(format!(
+            "{}.exec must be a bare program name or a repo-relative path",
+            e.key
+        )));
+    }
+    let args = match child(c, "args") {
+        None => Vec::new(),
+        Some((_, Val::List(l), _)) => l.clone(),
+        Some((_, Val::Str(_), n)) => {
+            return err(*n, &format!("{}.args must be a one-line list", e.key))
+        }
+    };
+    Ok((exec, args))
+}
+
 pub fn parse(bytes: &[u8]) -> Result<Manifest, ManifestError> {
     if bytes.len() > MAX_BYTES {
         return Err(ManifestError("manifest larger than 16 KiB".into()));
@@ -746,7 +779,7 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, ManifestError> {
     }
     let entries = parse_entries(text)?;
 
-    const KNOWN: [&str; 22] = [
+    const KNOWN: [&str; 23] = [
         "listed",
         "outside_inputs",
         "target_lock",
@@ -758,6 +791,7 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, ManifestError> {
         "inputs",
         "build",
         "run",
+        "prepare",
         "expects",
         "timeout",
         "mutants",
@@ -902,20 +936,13 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, ManifestError> {
         }
     };
 
-    let (exec, args) = {
-        let c = map(need("run")?, &["exec", "args"])?;
-        let exec = child_str(c, "exec")?.ok_or_else(|| ManifestError("run.exec missing".into()))?;
-        if !valid_rel_path(&exec) {
-            return Err(ManifestError(
-                "run.exec must be a bare program name or a repo-relative path".into(),
-            ));
+    let (exec, args) = parse_exec(need("run")?)?;
+    let prepare = match get("prepare") {
+        None => None,
+        Some(e) => {
+            let (exec, args) = parse_exec(e)?;
+            Some(Prepare { exec, args })
         }
-        let args = match child(c, "args") {
-            None => Vec::new(),
-            Some((_, Val::List(l), _)) => l.clone(),
-            Some((_, Val::Str(_), n)) => return err(*n, "run.args must be a one-line list"),
-        };
-        (exec, args)
     };
 
     let (expect_exit, rules) = {
@@ -993,6 +1020,7 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, ManifestError> {
         depends_on,
         inputs,
         build,
+        prepare,
         exec,
         args,
         expect_exit,
@@ -1224,6 +1252,7 @@ mod tests {
             depends_on: vec![],
             inputs: vec![],
             build: None,
+            prepare: None,
             exec: "tools/run.sh".into(),
             args: vec!["--a".into(), "b c".into()],
             expect_exit: 0,
@@ -1253,6 +1282,24 @@ mod tests {
     }
 
     #[test]
+    fn v2_prepare_parses_like_run() {
+        let m =
+            parse(v2("prepare:\n  exec: tools/build.sh\n  args: [\"chip-prepare\"]\n").as_bytes())
+                .unwrap();
+        let p = m.prepare.unwrap();
+        assert_eq!(
+            (p.exec.as_str(), p.args),
+            ("tools/build.sh", vec!["chip-prepare".to_string()])
+        );
+        assert!(parse(v2("").as_bytes()).unwrap().prepare.is_none());
+        let e = parse(v2("prepare:\n  exec: /bin/sh\n").as_bytes())
+            .unwrap_err()
+            .0;
+        assert!(e.contains("prepare.exec"), "{e}");
+        assert!(parse(v2("prepare:\n  exec: x.sh\n  shell: sh\n").as_bytes()).is_err());
+    }
+
+    #[test]
     fn v1_rejects_every_v2_key() {
         for extra in [
             "exactness: EXACT\n",
@@ -1261,6 +1308,7 @@ mod tests {
             "backends:\n  canonical: spark\n",
             "oracle:\n  golden: g.txt\n",
             "tolerance:\n  metric: m\n  abs: 1\n  rel_ppm: 1\n",
+            "prepare:\n  exec: tools/build.sh\n",
         ] {
             let e = parse(with(extra).as_bytes()).unwrap_err().0;
             assert!(e.contains("requires manifest_version 2"), "{extra}: {e}");
