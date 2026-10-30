@@ -28,7 +28,7 @@ use crate::identity::NamespaceFields;
 use crate::pin::{HolderGuard, PinnedSource};
 use crate::record::HEADER_REGION_LEN;
 use crate::seal::{
-    self, testing_install_usage_count, testing_read_key_marker, testing_read_usage_count,
+    self, testing_install_usage_count, testing_read_key_fingerprints, testing_read_usage_count,
     testing_usage_path, NonceSource, SealError, SealKey, RECOMMENDED_SEALS_PER_KEY, USAGE_DIR_NAME,
 };
 use crate::{chunk_chain, Incarnation, KvStore, Terminal};
@@ -384,8 +384,8 @@ fn seal_budget_rotation_starts_the_new_key_at_one_and_keeps_the_old_object() {
     old.seal_file(&usage, &mut file).unwrap();
     assert_eq!(testing_read_usage_count(&usage, &old).unwrap(), 1);
     assert_eq!(
-        testing_read_key_marker(&usage).unwrap(),
-        Some(fp_bytes(&[0x41; 32]))
+        testing_read_key_fingerprints(&usage).unwrap(),
+        Some(vec![fp_bytes(&[0x41; 32])])
     );
     let sealed = file.clone();
     let obj = root
@@ -400,8 +400,8 @@ fn seal_budget_rotation_starts_the_new_key_at_one_and_keeps_the_old_object() {
     assert_eq!(testing_read_usage_count(&usage, &new_key).unwrap(), 1);
     assert_eq!(testing_read_usage_count(&usage, &old).unwrap(), 1);
     assert_eq!(
-        testing_read_key_marker(&usage).unwrap(),
-        Some(fp_bytes(&[0x42; 32]))
+        testing_read_key_fingerprints(&usage).unwrap(),
+        Some(vec![fp_bytes(&[0x41; 32]), fp_bytes(&[0x42; 32])])
     );
     assert_eq!(
         std::fs::read(&obj).unwrap(),
@@ -419,8 +419,8 @@ fn seal_budget_same_key_with_the_counter_deleted_fails() {
     let path = testing_usage_path(&usage, &key);
     std::fs::remove_file(&path).unwrap();
     assert_eq!(
-        testing_read_key_marker(&usage).unwrap(),
-        Some(fp_bytes(&[0x43; 32]))
+        testing_read_key_fingerprints(&usage).unwrap(),
+        Some(vec![fp_bytes(&[0x43; 32])])
     );
     let mut again = blank();
     let before = again.clone();
@@ -431,8 +431,8 @@ fn seal_budget_same_key_with_the_counter_deleted_fails() {
     assert_eq!(again, before);
     assert!(!path.exists(), "the refusal does not recreate the counter");
     assert_eq!(
-        testing_read_key_marker(&usage).unwrap(),
-        Some(fp_bytes(&[0x43; 32]))
+        testing_read_key_fingerprints(&usage).unwrap(),
+        Some(vec![fp_bytes(&[0x43; 32])])
     );
 }
 
@@ -443,7 +443,7 @@ fn seal_budget_legacy_store_refuses_then_rotation_seals() {
     plant_kvc(&root.0, "ab", name, true);
     let obj = root.0.join("objects/ab").join(name);
     let old_bytes = std::fs::read(&obj).unwrap();
-    assert_eq!(testing_read_key_marker(&usage).unwrap(), None);
+    assert_eq!(testing_read_key_fingerprints(&usage).unwrap(), None);
 
     let old = SealKey::from_bytes([0x44; 32]);
     let mut file = blank();
@@ -452,8 +452,8 @@ fn seal_budget_legacy_store_refuses_then_rotation_seals() {
     assert_eq!(file, before);
     assert!(!testing_usage_path(&usage, &old).exists());
     assert_eq!(
-        testing_read_key_marker(&usage).unwrap(),
-        Some(fp_bytes(&[0x44; 32])),
+        testing_read_key_fingerprints(&usage).unwrap(),
+        Some(vec![fp_bytes(&[0x44; 32])]),
         "the refusal records the key and does not write a counter"
     );
     assert_eq!(old.seal_file(&usage, &mut file), Err(SealError::UsageStore));
@@ -466,14 +466,20 @@ fn seal_budget_legacy_store_refuses_then_rotation_seals() {
     assert_eq!(testing_read_usage_count(&usage, &new_key).unwrap(), 1);
     assert!(!testing_usage_path(&usage, &old).exists());
     assert_eq!(
-        testing_read_key_marker(&usage).unwrap(),
-        Some(fp_bytes(&[0x45; 32]))
+        testing_read_key_fingerprints(&usage).unwrap(),
+        Some(vec![fp_bytes(&[0x44; 32]), fp_bytes(&[0x45; 32])])
     );
     assert_eq!(std::fs::read(&obj).unwrap(), old_bytes);
 }
 
 #[test]
 fn seal_budget_part_owned_by_another_user_is_left_in_place() {
+    if !passwordless_sudo() {
+        println!(
+            "SKIP seal_budget_part_owned_by_another_user_is_left_in_place: passwordless sudo is not available"
+        );
+        return;
+    }
     let (_root, usage) = store_usage("part-other-uid");
     let key = SealKey::from_bytes([0x46; 32]);
     testing_install_usage_count(&usage, &key, 4).unwrap();
@@ -492,6 +498,108 @@ fn seal_budget_part_owned_by_another_user_is_left_in_place() {
     assert_eq!(file, before);
     assert_eq!(std::fs::read(&part).unwrap(), b"other-user");
     assert_eq!(testing_read_usage_count(&usage, &key).unwrap(), 4);
+}
+
+fn passwordless_sudo() -> bool {
+    match std::process::Command::new("sudo")
+        .args(["-n", "true"])
+        .status()
+    {
+        Ok(status) => status.success(),
+        Err(_) => false,
+    }
+}
+
+#[test]
+fn seal_budget_returning_to_a_listed_key_with_a_deleted_counter_refuses() {
+    let (_root, usage) = store_usage("return");
+    let a = SealKey::from_bytes([0x61; 32]);
+    let b = SealKey::from_bytes([0x62; 32]);
+    let mut file = blank();
+    a.seal_file(&usage, &mut file).unwrap();
+    b.seal_file(&usage, &mut file).unwrap();
+    assert_eq!(testing_read_usage_count(&usage, &a).unwrap(), 1);
+    assert_eq!(testing_read_usage_count(&usage, &b).unwrap(), 1);
+    let a_path = testing_usage_path(&usage, &a);
+    std::fs::remove_file(&a_path).unwrap();
+    let mut again = blank();
+    let before = again.clone();
+    assert_eq!(a.seal_file(&usage, &mut again), Err(SealError::UsageStore));
+    assert_eq!(again, before);
+    assert!(!a_path.exists(), "a retired key does not start over");
+    assert_eq!(testing_read_usage_count(&usage, &b).unwrap(), 1);
+    assert_eq!(
+        testing_read_key_fingerprints(&usage).unwrap(),
+        Some(vec![fp_bytes(&[0x61; 32]), fp_bytes(&[0x62; 32])])
+    );
+}
+
+#[test]
+fn seal_budget_corrupt_fingerprint_list_does_not_consume_a_slot() {
+    let (_root, usage) = store_usage("bad-list");
+    let key = SealKey::from_bytes([0x63; 32]);
+    let mut file = blank();
+    key.seal_file(&usage, &mut file).unwrap();
+    assert_eq!(testing_read_usage_count(&usage, &key).unwrap(), 1);
+    std::fs::write(usage.join(seal::KEY_FINGERPRINTS_NAME), b"not-a-list").unwrap();
+    let mut again = blank();
+    let before = again.clone();
+    assert_eq!(
+        key.seal_file(&usage, &mut again),
+        Err(SealError::UsageStore)
+    );
+    assert_eq!(again, before);
+    assert_eq!(
+        testing_read_usage_count(&usage, &key).unwrap(),
+        1,
+        "a corrupt list is refused before the count is incremented"
+    );
+}
+
+#[test]
+fn seal_budget_leftover_list_part_is_replaced_when_owned_and_refused_when_linked() {
+    let (root, usage) = store_usage("list-part");
+    let a = SealKey::from_bytes([0x64; 32]);
+    let b = SealKey::from_bytes([0x65; 32]);
+    let mut file = blank();
+    a.seal_file(&usage, &mut file).unwrap();
+    let part = usage.join(format!("{}.part", seal::KEY_FINGERPRINTS_NAME));
+    std::fs::write(&part, b"stale-list-part").unwrap();
+    b.seal_file(&usage, &mut file).unwrap();
+    assert!(
+        !part.exists(),
+        "an owned leftover list part is renamed away"
+    );
+    assert_eq!(testing_read_usage_count(&usage, &b).unwrap(), 1);
+    let stored = std::fs::read(usage.join(seal::KEY_FINGERPRINTS_NAME)).unwrap();
+    assert!(!stored.windows(15).any(|w| w == b"stale-list-part"));
+    assert_eq!(
+        testing_read_key_fingerprints(&usage).unwrap(),
+        Some(vec![fp_bytes(&[0x64; 32]), fp_bytes(&[0x65; 32])])
+    );
+    drop(root);
+
+    let (_root, usage) = store_usage("list-part-link");
+    let a = SealKey::from_bytes([0x66; 32]);
+    let b = SealKey::from_bytes([0x67; 32]);
+    let mut file = blank();
+    a.seal_file(&usage, &mut file).unwrap();
+    let list = usage.join(seal::KEY_FINGERPRINTS_NAME);
+    let part = usage.join(format!("{}.part", seal::KEY_FINGERPRINTS_NAME));
+    std::os::unix::fs::symlink(&list, &part).unwrap();
+    let mut next = blank();
+    let before = next.clone();
+    assert_eq!(b.seal_file(&usage, &mut next), Err(SealError::UsageStore));
+    assert_eq!(next, before);
+    assert!(
+        std::fs::symlink_metadata(&part)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "a linked list part is left in place"
+    );
+    assert!(!testing_usage_path(&usage, &b).exists());
+    assert_eq!(testing_read_usage_count(&usage, &a).unwrap(), 1);
 }
 
 fn refused_store(
