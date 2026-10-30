@@ -709,6 +709,26 @@ fn dote k ulong to f64
 ret add get gacc 2 mul gam k get gacc 1
 end
 
+note matdot: forward integration has its own fixed comparison budget, not dote bounds.
+note Avoid accumulating two unused per-product error sums there. Keep the f64 products
+note and reduction order identical to dotr. Router dotr remains bounded for tie reporting;
+note every local operator still calls the original bounded dotr path.
+fn matdot r ulong k ulong to f64
+if ne get gst 2 8
+ret dotr r k
+end
+b = mul r k
+s = 0.0f64
+for i ulong k
+w = f64 get gw add b i
+p = mul w get gv i
+s = add s p
+end
+put gacc 1 0.0f64
+put gacc 2 0.0f64
+ret s
+end
+
 note rmsv: RMSNorm of gv[0 .. n) with weight gw[wo ..) into gy, bound into gye:
 note E_i = |w_i| r (E_xi + |x_i| r^2 / n sum |x_j| E_xj) + gamma_(n+6) |y_i|
 fn rms_rc n ulong to void
@@ -1231,7 +1251,7 @@ put gve i get ge0 add b i
 end
 for r ulong I
 o = add mul add t0 t I r
-put gx1 o dotr r FHID
+put gx1 o matdot r FHID
 put ge1 o dote FHID
 end
 end
@@ -1246,7 +1266,7 @@ put gve i get ge0 add b i
 end
 for r ulong I
 o = add mul add t0 t I r
-put gx2 o dotr r FHID
+put gx2 o matdot r FHID
 put ge2 o dote FHID
 end
 end
@@ -1281,7 +1301,7 @@ put gve i get ge1 add b i
 end
 for r ulong FHID
 o = add mul add t0 t FHID r
-put gx3 o dotr r I
+put gx3 o matdot r I
 put ge3 o dote I
 end
 end
@@ -1486,7 +1506,7 @@ put gv i get gx0 add mul t FHID i
 put gve i 0.0f64
 end
 for r ulong rows
-put gx1 add mul t rows r dotr r FHID
+put gx1 add mul t rows r matdot r FHID
 end
 end
 end
@@ -1582,7 +1602,7 @@ put gv i get gfo add mul t 4096 i
 put gve i 0.0f64
 end
 for r ulong FHID
-put gfa add mul t FHID r dotr r 4096
+put gfa add mul t FHID r matdot r 4096
 end
 end
 fw_cmp mul get gfs 0 FHID
@@ -1688,7 +1708,7 @@ put gv i get gfh add mul t FHID i
 put gve i 0.0f64
 end
 end
-v = dotr rem r 2048 FHID
+v = matdot rem r 2048 FHID
 put gfa 0 v
 fw_cmp 1
 end

@@ -79,3 +79,31 @@ the native grouped-MoE authority; #157 composition and closed #158 cache identit
 are unchanged and not exercised by this host verifier. Their GPU integration,
 native encoded dispatch and physical receipts remain NOT_RUN, not implicitly reused
 by a claim of host tensor parity.
+
+## Host-loop profiling and numerical invariants
+
+The initial native CPU profile used `monons` wrappers in an isolated compilation
+unit stored with the operator receipts, not in the product source. Timers aggregate
+whole calls, not per-element syscalls. They include instrumentation overhead:
+
+| Loop/helper | Accumulated ns | Calls |
+|---|---:|---:|
+| bounded dot product `dotr` | 30899920888 | 3201792 |
+| tensor read/decode `ld_bytes` | 10814711443 | 2478 |
+| inventory search `tsv_find` | 8860325941 | 2478 |
+| integration comparisons `fw_cmp` | 88531129 | 300535 |
+| MLP activation `mlp_h` | 55114892 | 613 |
+| RMSNorm `rmsv` | 11444826 | 3726 |
+
+These are instrumented call totals, not disjoint percentages of uninstrumented
+wall time. The measured hottest loop was `dotr`. The forward-only `matdot` retains
+the exact f64 conversions, products and reduction order but omits the two per-product
+error sums that the forward integration comparison does not consume. Those slots
+are cleared, not left stale. The forward integration budget and every comparison
+are unchanged. Router dots retain the bounded implementation for tie reporting;
+the existing per-operator checks retain the original bound accumulation.
+
+`worst_ppm` is the maximum `|native-reference|/(2E)` expressed in millionths.
+WolframLanguageEvaluator: `N[694277/1000000*100,6] -> 69.4277`.
+Thus the observed `694277` means approximately **69.4% of the comparison budget**
+was consumed; it does not mean a 69.4% relative tensor error.
