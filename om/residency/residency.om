@@ -1,19 +1,27 @@
 note SPDX-License-Identifier: Apache-2.0
-note Expert residency simulator in seeded Omega (sc#630 residency question, host only).
-note Replays a recorded MoE router trace against a per-layer expert cache of capacity C and counts
-note hits and misses for two eviction policies: LRU (online) and OPT (Belady, offline bound).
+note Expert residency simulator in seeded Omega (sc#630 residency question, sc#633 prefetch hints;
+note host only). Replays a recorded MoE router trace against an expert cache of capacity C and
+note counts hits and misses for two eviction policies: LRU (online) and OPT (Belady, offline bound).
 note Input on stdin, ASCII decimal numbers separated by spaces, tabs or newlines:
-note   E L K T, then T*L*K expert ids in step-major order (step t, layer l, slot k), each below E.
+note   E L K T, then T*L*K expert ids in step-major order (step t, layer l, slot k), each below E;
+note   optionally H, then T*L*H prefetch hint ids in the same row order (row t*L+l holds H ids below
+note   E, repeats allowed): the experts a predictor expects layer l of step t to use.
 note Limits: 1 <= E <= 1024, 1 <= K <= 16, 1 <= L, 2 <= T, T*L <= 1000000, T*L*K <= 8388608,
-note input at most 16 MiB. Ids inside one step and layer must be distinct.
+note H <= 16, T*L*H <= 8388608, hints only when L*E <= 65536, input at most 16 MiB.
+note Ids inside one step and layer must be distinct.
 note Output: one header line, then one line per policy and capacity percent in pc:
 note   POLICY cap=C pct=P hits=H miss=M warm_miss=W warm_acc=A
 note lru and opt give every layer its own cache of C = E*P/100 experts. When L*E <= 65536, glru and
 note gopt follow: one cache of C = L*E*P/100 shared by all layers, replaying (t,l) as step t*L+l on
 note virtual expert l*E+e, the order a serving loop needs the experts in.
-note warm counts only steps t >= T/2 (glru/gopt: t*L+l >= T*L/2), so compulsory first-touch misses
-note mostly fall outside them.
-note Eviction never removes an expert already used in the current step (all K are needed at once).
+note With hints, hlru lines follow, only for C >= K+H: the shared LRU cache where each step first
+note makes its H hinted experts resident and marks them used in the step (a missing one is fetched
+note as a prefetch), then serves its K demands. hits and miss count demands only; hint=H; warm_pf
+note counts prefetches issued at warm steps, and of those warm_used were later demanded before
+note eviction and warm_waste were evicted unused (the rest are still unused at the end).
+note warm counts only steps t >= T/2 (glru/gopt/hlru: t*L+l >= T*L/2), so compulsory first-touch
+note misses mostly fall outside them.
+note Eviction never removes an expert already used or hinted in the current step.
 note Exit: 0 ok, 2 read error, 3 input over 16 MiB, 4 header out of range, 5 bad or missing number,
 note 6 trailing bytes, 7 id out of range, 8 repeated id in one step, 9 write error.
 global inb uchar 16777216
@@ -22,14 +30,18 @@ global nxt uint 8388608
 global stp ulong 65536
 global nu ulong 65536
 global lst ulong 65536
-note hd: 0 E, 1 L, 2 K, 3 T, 4 parse position, 5 input length.
+global hin ushort 8388608
+note pfl: 1 while an expert fetched by a hint is still unused; its issue step is then in nu.
+global pfl uchar 65536
+note hd: 0 E, 1 L, 2 K, 3 T, 4 parse position, 5 input length, 6 H, 7 hints present.
 global hd ulong 8
-note ac: 0 hits, 1 misses, 2 warm misses, 3 resident count.
+note ac: 0 hits, 1 misses, 2 warm misses, 3 resident count, 4 warm prefetches, 5 warm prefetches
+note used, 6 warm prefetches wasted.
 global ac ulong 8
 global pc ulong 8
 global ob uchar 8192
 global ow ulong 1
-text lit "trace E=~ L=~ K=~ T=~\n~lru ~opt ~cap=~ pct=~ hits=~ miss=~ warm_miss=~ warm_acc=~glru ~gopt "
+text lit "trace E=~ L=~ K=~ T=~\n~lru ~opt ~cap=~ pct=~ hits=~ miss=~ warm_miss=~ warm_acc=~glru ~gopt ~hlru ~ hint=~ warm_pf=~ warm_used=~ warm_waste="
 
 note slurp: read all of stdin into inb. Each inner pass adds at least one byte or ends, so
 note 64 outer passes of 999999 cover the 16777216-byte buffer.
@@ -194,7 +206,7 @@ ret get nu e
 end
 
 note evict: drop the resident expert with the largest score, lowest id on ties, never one
-note already used in step t (stamp t+1).
+note already used or hinted in step t (stamp t+1). Dropping an unused prefetch counts as waste.
 fn evict t ulong pol ulong to void
 best = ulong 0
 bv = ulong 0
@@ -213,17 +225,31 @@ end
 if not fnd
 exit 8
 end
+if ne get pfl best 0
+if ge get nu best div get hd 3 2
+put ac 6 add get ac 6 1
+end
+put pfl best 0
+end
 put stp best 0
+end
+
+note pfuse: the first demand of prefetched expert id; count it if the prefetch was warm.
+fn pfuse id ulong to void
+if ge get nu id div get hd 3 2
+put ac 5 add get ac 5 1
+end
+put pfl id 0
 end
 
 note access: one router choice (t,l,k) against cache capacity c.
 fn access t ulong l ulong k ulong c ulong pol ulong to void
 id = ulong get ids slot t l k
-if eq get stp id add t 1
-exit 8
-end
 if ne get stp id 0
 put ac 0 add get ac 0 1
+if ne get pfl id 0
+pfuse id
+end
 else
 put ac 1 add get ac 1 1
 if ge t div get hd 3 2
@@ -253,6 +279,44 @@ end
 end
 end
 
+note pfstep: before the demands of step s, make the H hinted experts resident and mark them used
+note in step s. A missing one is fetched: flagged in pfl, with its issue step s in nu.
+fn pfstep s ulong c ulong to void
+h0 = get hd 6
+for h ulong h0
+v = ulong get hin add mul s h0 h
+if eq get stp v 0
+if ge s div get hd 3 2
+put ac 4 add get ac 4 1
+end
+if ge get ac 3 c
+evict s 0
+else
+put ac 3 add get ac 3 1
+end
+put pfl v 1
+put nu v s
+end
+put stp v add s 1
+end
+end
+
+note simhint: replay the flattened (shared-cache) trace under LRU with the hints at capacity c.
+fn simhint c ulong to void
+for e ulong get hd 0
+put stp e 0
+put nu e 0
+put pfl e 0
+end
+put ac 3 0
+for t ulong get hd 3
+pfstep t c
+for k ulong get hd 2
+access t 0 k c 0
+end
+end
+end
+
 note run: every layer at capacity c under policy pol; append the result line tagged with
 note fragment tg+pol.
 fn run c ulong p ulong pol ulong tg ulong to void
@@ -274,6 +338,28 @@ kv 12 mul mul get hd 1 get hd 2 sub t div t 2
 badd 10
 end
 
+note runh: the hinted shared LRU replay at capacity c; append its hlru line.
+fn runh c ulong p ulong to void
+for i ulong 7
+put ac i 0
+end
+prep 0
+simhint c
+frag 15
+kv 7 c
+kv 8 p
+kv 16 get hd 6
+kv 9 get ac 0
+kv 10 get ac 1
+kv 11 get ac 2
+kv 17 get ac 4
+kv 18 get ac 5
+kv 19 get ac 6
+t = get hd 3
+kv 12 mul get hd 2 sub t div t 2
+badd 10
+end
+
 note globst: add o to the K ids of step s of the one-layer view. glob calls it with o = l*E for
 note s = t*L+l, so (t,l,k) keeps its slot (t*L+l)*K+k and its id e becomes virtual expert l*E+e.
 fn globst s ulong o ulong to void
@@ -284,6 +370,15 @@ put ids i ushort add ulong get ids i o
 end
 end
 
+note globh: the same rewrite for the H hint ids of step s.
+fn globh s ulong o ulong to void
+h0 = get hd 6
+for h ulong h0
+i = add mul s h0 h
+put hin i ushort add ulong get hin i o
+end
+end
+
 note glob: rewrite the trace in place as one layer of L*E virtual experts and T*L steps.
 note Needs L*E <= 65536 (ids are ushort).
 fn glob to void
@@ -291,21 +386,67 @@ e0 = get hd 0
 l0 = get hd 1
 for s ulong mul get hd 3 l0
 globst s mul rem s l0 e0
+globh s mul rem s l0 e0
 end
 put hd 0 mul e0 l0
 put hd 3 mul get hd 3 l0
 put hd 1 1
 end
 
-note ldstep: parse the K ids of step-major row s (s = t*L+l) into ids; return 0 or exit code 7.
+note ldstep: parse the K ids of step-major row s (s = t*L+l) into ids; return 0 or exit code 7
+note (id out of range) or 8 (id repeated in the row).
 fn ldstep s ulong to int
 k0 = get hd 2
+b = mul s k0
 for k ulong k0
 v = num
 if ge v get hd 0
 ret 7
 end
-put ids add mul s k0 k ushort v
+for j ulong k
+if eq ulong get ids add b j v
+ret 8
+end
+end
+put ids add b k ushort v
+end
+ret 0
+end
+
+note ldhrow: parse the H hint ids of row s into hin; return 0 or exit code 7.
+fn ldhrow s ulong to int
+h0 = get hd 6
+for h ulong h0
+v = num
+if ge v get hd 0
+ret 7
+end
+put hin add mul s h0 h ushort v
+end
+ret 0
+end
+
+note ldhint: parse H and the T*L*H hint ids that follow the trace; return 0 or an exit code.
+fn ldhint to int
+h = num
+t = get hd 3
+l = get hd 1
+if gt h 16
+ret 4
+end
+if gt mul l get hd 0 65536
+ret 4
+end
+if gt mul h l div 8388608 t
+ret 4
+end
+put hd 6 h
+put hd 7 1
+for s ulong mul t l
+r = ldhrow s
+if ne r 0
+ret r
+end
 end
 ret 0
 end
@@ -337,6 +478,12 @@ for s ulong mul t l
 r = ldstep s
 if ne r 0
 ret r
+end
+end
+if lt skip get hd 5
+q = ldhint
+if ne q 0
+ret q
 end
 end
 if lt skip get hd 5
@@ -382,6 +529,14 @@ for j ulong 8
 c = div mul get hd 0 get pc j 100
 if ge c get hd 2
 run c get pc j pol 13
+end
+end
+end
+if ne get hd 7 0
+for j ulong 8
+c = div mul get hd 0 get pc j 100
+if ge c add get hd 2 get hd 6
+runh c get pc j
 end
 end
 end

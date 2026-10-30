@@ -1,0 +1,41 @@
+trace E=40 L=3 K=4 T=200
+lru cap=10 pct=25 hits=536 miss=1864 warm_miss=924 warm_acc=1200
+lru cap=16 pct=40 hits=881 miss=1519 warm_miss=752 warm_acc=1200
+lru cap=20 pct=50 hits=1114 miss=1286 warm_miss=634 warm_acc=1200
+lru cap=24 pct=60 hits=1354 miss=1046 warm_miss=514 warm_acc=1200
+lru cap=25 pct=64 hits=1407 miss=993 warm_miss=487 warm_acc=1200
+lru cap=28 pct=70 hits=1581 miss=819 warm_miss=400 warm_acc=1200
+lru cap=32 pct=80 hits=1818 miss=582 warm_miss=273 warm_acc=1200
+lru cap=36 pct=90 hits=2063 miss=337 warm_miss=141 warm_acc=1200
+opt cap=10 pct=25 hits=1185 miss=1215 warm_miss=594 warm_acc=1200
+opt cap=16 pct=40 hits=1582 miss=818 warm_miss=391 warm_acc=1200
+opt cap=20 pct=50 hits=1768 miss=632 warm_miss=297 warm_acc=1200
+opt cap=24 pct=60 hits=1920 miss=480 warm_miss=217 warm_acc=1200
+opt cap=25 pct=64 hits=1955 miss=445 warm_miss=197 warm_acc=1200
+opt cap=28 pct=70 hits=2043 miss=357 warm_miss=146 warm_acc=1200
+opt cap=32 pct=80 hits=2139 miss=261 warm_miss=89 warm_acc=1200
+opt cap=36 pct=90 hits=2227 miss=173 warm_miss=36 warm_acc=1200
+glru cap=30 pct=25 hits=492 miss=1908 warm_miss=948 warm_acc=1200
+glru cap=48 pct=40 hits=870 miss=1530 warm_miss=760 warm_acc=1200
+glru cap=60 pct=50 hits=1112 miss=1288 warm_miss=637 warm_acc=1200
+glru cap=72 pct=60 hits=1352 miss=1048 warm_miss=513 warm_acc=1200
+glru cap=76 pct=64 hits=1427 miss=973 warm_miss=483 warm_acc=1200
+glru cap=84 pct=70 hits=1587 miss=813 warm_miss=405 warm_acc=1200
+glru cap=96 pct=80 hits=1822 miss=578 warm_miss=268 warm_acc=1200
+glru cap=108 pct=90 hits=2053 miss=347 warm_miss=147 warm_acc=1200
+gopt cap=30 pct=25 hits=1303 miss=1097 warm_miss=536 warm_acc=1200
+gopt cap=48 pct=40 hits=1644 miss=756 warm_miss=360 warm_acc=1200
+gopt cap=60 pct=50 hits=1813 miss=587 warm_miss=277 warm_acc=1200
+gopt cap=72 pct=60 hits=1951 miss=449 warm_miss=200 warm_acc=1200
+gopt cap=76 pct=64 hits=1991 miss=409 warm_miss=176 warm_acc=1200
+gopt cap=84 pct=70 hits=2064 miss=336 warm_miss=134 warm_acc=1200
+gopt cap=96 pct=80 hits=2156 miss=244 warm_miss=78 warm_acc=1200
+gopt cap=108 pct=90 hits=2233 miss=167 warm_miss=32 warm_acc=1200
+hlru cap=30 pct=25 hint=3 hits=1496 miss=904 warm_miss=457 warm_pf=688 warm_used=514 warm_waste=170 warm_acc=1200
+hlru cap=48 pct=40 hint=3 hits=1647 miss=753 warm_miss=387 warm_pf=573 warm_used=447 warm_waste=120 warm_acc=1200
+hlru cap=60 pct=50 hint=3 hits=1781 miss=619 warm_miss=309 warm_pf=484 warm_used=398 warm_waste=80 warm_acc=1200
+hlru cap=72 pct=60 hint=3 hits=1904 miss=496 warm_miss=243 warm_pf=392 warm_used=340 warm_waste=45 warm_acc=1200
+hlru cap=76 pct=64 hint=3 hits=1942 miss=458 warm_miss=223 warm_pf=355 warm_used=313 warm_waste=36 warm_acc=1200
+hlru cap=84 pct=70 hint=3 hits=2012 miss=388 warm_miss=187 warm_pf=305 warm_used=272 warm_waste=27 warm_acc=1200
+hlru cap=96 pct=80 hint=3 hits=2121 miss=279 warm_miss=136 warm_pf=192 warm_used=178 warm_waste=10 warm_acc=1200
+hlru cap=108 pct=90 hint=3 hits=2246 miss=154 warm_miss=67 warm_pf=103 warm_used=98 warm_waste=3 warm_acc=1200
