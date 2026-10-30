@@ -45,7 +45,8 @@ use std::time::{Duration, Instant};
 /// first step the backend runs.
 const FIRST_STEP_COST: Duration = Duration::from_millis(600);
 
-/// Word-level tokenizer: the mock emits ids 100 and 101, decoded as x100/x101.
+/// Word-level tokenizer: RecordingBackend maps mock id 101 to EOS (2), so
+/// served turns stop normally rather than masquerading as successful caps.
 fn toy_tokenizer() -> ChatTokenizer {
     let json = r#"{"version":"1.0","truncation":null,"padding":null,"added_tokens":[],
         "normalizer":null,"pre_tokenizer":{"type":"Whitespace"},"post_processor":null,
@@ -82,7 +83,18 @@ impl AienInferenceBackend for RecordingBackend {
         if self.log.lock().unwrap().is_empty() {
             std::thread::sleep(FIRST_STEP_COST);
         }
-        let out = self.inner.execute_step(batch).await;
+        let mut out = self.inner.execute_step(batch).await;
+        // A served success must stop normally; the original never-ending mock
+        // reached its cap and must now be refused by StreamTurn.
+        if let Ok((outputs, _)) = &mut out {
+            for output in outputs {
+                if let DecodeOutput::Token { token_id, .. } = output {
+                    if *token_id == 101 {
+                        *token_id = 2;
+                    }
+                }
+            }
+        }
         self.log.lock().unwrap().push(StepRecord {
             prefill: batch
                 .prefill_requests

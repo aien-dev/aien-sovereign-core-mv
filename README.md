@@ -85,6 +85,20 @@ Every file the agent writes in a chat session is recorded: one snapshot of the d
 
 Mechanism after Hermes Agent (Nous Research, MIT licence, commit 5480918), re-implemented from reading; no code copied.
 
+Recursive subagent results and transcripts distinguish `completed` (a nonempty final model reply without tool calls, after a terminal stream event and successful transcript persistence), `failed` (inference error, interrupted or token-limited stream, empty reply, malformed tool markup, or transcript persistence failure), and `exhausted` (ten tool-bearing turns without a final reply). Only `completed` sets the tool success flag and emits a completion comb. A persistence failure returns `failed`, preserves the inference summary, reports the storage error separately as `transcript_error`, and sets `transcript_path: null`. The remote adapter requires `[DONE]` and refuses non-completing finish reasons such as `length`. The native server reserves `TurnFinished` for `StopToken`; token limits, aborts and preemption return a reason-bearing `Error` after recording generation evidence. The native client also refuses disconnected sockets without a terminal response. Malformed tool JSON, incomplete tool tags and unclosed named-tool fences (including whitespace-prefixed fences) are rejected, not repaired into calls or treated as final synthesis. These labels describe the agent loop, not independent verification of the assigned work. Host regressions use fake chat, isolated transcript storage, and test-owned loopback/Unix sockets, without model or GPU access:
+
+```sh
+cargo test -p aien-cli --bin aien-cli subagents::tests::
+```
+
+Autonomous goal execution marks an active milestone accomplished only after a successful `goal` tool `milestone_done`/`advance` request with the exact active goal id and milestone id. A whole-goal `done` request, mismatched identity, policy denial, storage error, empty/final-text reply without a completion request, or exhaustion of fifteen tool-bearing turns refuses completion and stops execution. Completion persistence errors propagate through the goal tool status and success flag; there is no unconditional fallback completion write.
+
+Goal selection and both completion mutations resolve an exact goal id across the entire manifest before trying the existing case-insensitive title-substring fallback. A different goal's title containing that id cannot intercept completion. The persisted-dispatch collision regressions exercise all four completion action names against an isolated `.goals.json`, using the real goal dispatcher and writer:
+
+```sh
+cargo test -p aien-cli --bin aien-cli goals::completion_tests::round4_
+```
+
 ## Contributing
 
 Read [CONSTITUTION.md](CONSTITUTION.md) and [AGENTS.md](AGENTS.md) before opening a pull request. Changes ship on a branch with verification proof: the commands you ran and their output. Prefer work that moves capability into the C repositories over new Rust here. Contact: aien@aienos.com.

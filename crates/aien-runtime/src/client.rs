@@ -156,6 +156,9 @@ impl AienRuntimeClient {
 
     /// [`Self::stream_turn`] plus the compose ledger id of the daemon's
     /// generation record for the turn (`None` = the daemon wrote no record).
+    /// Only a normal StopToken finish succeeds. Updated servers return Error
+    /// for limited/aborted/preempted turns after recording generation evidence;
+    /// callers needing that evidence must use ComposeRecall, not infer success.
     pub async fn stream_turn_recorded(
         &self,
         messages: Vec<ChatTurn>,
@@ -232,11 +235,7 @@ impl AienRuntimeClient {
                 }
             }
         }
-        if finished.is_empty() {
-            Err("native runtime closed the socket before the turn finished".into())
-        } else {
-            Ok((finished, None))
-        }
+        Err("native runtime closed the socket before the turn finished".into())
     }
 
     pub async fn shutdown(&self) -> Result<(), String> {

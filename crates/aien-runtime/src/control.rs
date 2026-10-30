@@ -90,7 +90,8 @@ pub enum ControlCommand {
     GetRuntimeStatus,
     Shutdown,
     /// One operator turn on the in-process PR #68 spine. The server streams
-    /// `TurnDelta` lines and finishes with `TurnFinished`.
+    /// `TurnDelta` lines, then `TurnFinished` only for StopToken; token limits,
+    /// aborts and preemption terminate with a reason-bearing `Error`.
     StreamTurn {
         messages: Vec<ChatTurn>,
         max_tokens: usize,
@@ -379,6 +380,7 @@ pub enum ControlResponse {
     TurnDelta {
         text: String,
     },
+    /// A normally stopped answer, never a token-limited/aborted/preempted turn.
     TurnFinished {
         text: String,
         total_tokens: usize,

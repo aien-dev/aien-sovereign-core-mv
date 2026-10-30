@@ -12,10 +12,16 @@ have to take the run driver's word for "this text came from this model".
    daemon passes both to the server (`set_model_identity`). The same digests are
    in the "checkpoint loaded" log line; a sharded checkpoint also logs a
    `CHECKPOINT_SHARDS` line (below).
-2. When a `StreamTurn` finishes, and the compose ledger is open, the daemon
-   appends one record to the ledger and returns its id in
-   `TurnFinished.generation_record` (optional field; absent when there is no
-   record, so older clients keep working).
+2. On every `StreamTurn` Finished event, and when the compose ledger is open,
+   the daemon appends one record **before classifying completion**. Only
+   `StopToken` sends `TurnFinished`, whose optional `generation_record` id is
+   absent when no record was written. `LengthLimit`, `Aborted` and `Preempted`
+   send the existing `Error` response with `max_tokens`, `aborted` or `preempted`
+   in its text. Their records remain in the ledger and can be retrieved with
+   `ComposeRecall`; the Error response does not contain a structured record id.
+   No wire field was added: older clients already treat Error as failure.
+   An unchanged older daemon can still misclassify these reasons; this source
+   change is not a deployment claim.
 
 ## The record
 
@@ -29,7 +35,7 @@ An `effect`-class host note whose JSON has the marker field `generation`:
 | `tokenizer_sha256`, `tokenizer_path` | the loaded tokenizer file's digest and path |
 | `prompt_ids_sha256` | `token_ids_sha256` of the submitted prompt token ids |
 | `output_token_ids_sha256` | same hash over the generated token ids |
-| `output_text_sha256` | sha256 of the exact `text` returned in `TurnFinished` |
+| `output_text_sha256` | sha256 of the exact accumulated text (returned in `TurnFinished` for a normal stop, or emitted as deltas before an incomplete-turn Error) |
 | `total_tokens`, `output_tokens` | token count the engine reported; generated tokens |
 | `finish_reason` | `eos`, `max_tokens`, `aborted` or `preempted` |
 | `decoding` | how the backend chose the output tokens (below); ABSENT when the backend did not report it |
@@ -193,15 +199,15 @@ operation_id as the client's claims.
 
 ## Timing
 
-The record is written before `TurnFinished` is sent, and the write waits for
-the compose home lock. A running compose task holds that lock, so a turn that
-finishes meanwhile can have its `TurnFinished` delayed until the task releases
-it. There is no deadlock: the compose task's own model calls (`generate_text`)
-write no record and take no home lock.
+The record is written before either terminal response (`TurnFinished` or an
+incomplete-turn `Error`), and the write waits for the compose home lock. A
+running compose task holds that lock, so either response can be delayed until
+the task releases it. There is no deadlock: the compose task's own model calls
+(`generate_text`) write no record and take no home lock.
 
 ## No record means no claim
 
-The turn still succeeds, with `generation_record` absent, when:
+A normally stopped turn still succeeds, with `generation_record` absent, when:
 
 - there is no compose ledger;
 - the daemon has no model identity (a stub run, or the reference-weights

@@ -1083,17 +1083,43 @@ fn home_lineage(r: &Rig) -> [u8; 32] {
 /// One generation by the daemon; returns its generation record id.
 fn generate(r: &Rig) -> u64 {
     let client = AienRuntimeClient::new(r.sock());
-    let (_, rec) =
-        r.rt.block_on(client.stream_turn_recorded(
-            vec![ChatTurn {
-                role: "user".into(),
-                content: "hi".into(),
-            }],
-            4,
-            0.0,
-        ))
-        .expect("turn");
-    rec.expect("the daemon wrote a generation record")
+    let result = r.rt.block_on(client.stream_turn_recorded(
+        vec![ChatTurn {
+            role: "user".into(),
+            content: "hi".into(),
+        }],
+        4,
+        0.0,
+    ));
+    match result {
+        Ok((_, Some(id))) => id,
+        Ok((_, None)) => panic!("the daemon wrote no generation record"),
+        Err(error) => {
+            // This fixture deliberately caps its generation. Incomplete output
+            // is not a successful turn, but its daemon-owned record still exists.
+            assert!(error.contains("max_tokens"), "{error}");
+            let report =
+                r.rt.block_on(client.send_command(
+                    aien_runtime::control::ControlCommand::ComposeRecall {
+                        ids: vec![],
+                        prefix: None,
+                    },
+                ))
+                .expect("recall evidence");
+            let aien_runtime::control::ControlResponse::ComposeRecalled(report) = report else {
+                panic!("recall response")
+            };
+            report
+                .host
+                .iter()
+                .rev()
+                .find_map(|record| {
+                    let value: Value = serde_json::from_str(record.text.as_deref()?).ok()?;
+                    (record.verified && value["generation"] == 1).then_some(record.id)
+                })
+                .expect("the daemon retained generation evidence")
+        }
+    }
 }
 
 fn record_text(r: &Rig, id: u64) -> Value {

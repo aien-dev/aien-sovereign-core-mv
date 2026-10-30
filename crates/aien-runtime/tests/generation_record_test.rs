@@ -88,6 +88,32 @@ async fn start_with(identity: Option<ModelIdentity>, tokenizer: ChatTokenizer) -
     start_on(identity, tokenizer, MockInferenceBackend::new(1)).await
 }
 
+// Success-path evidence fixtures must actually stop, not merely reach a cap.
+struct EosBackend<B>(B);
+#[async_trait::async_trait]
+impl<B: AienInferenceBackend + Send> AienInferenceBackend for EosBackend<B> {
+    async fn load_model(&mut self, config: &ModelConfig) -> Result<(), String> {
+        self.0.load_model(config).await
+    }
+    async fn execute_step(
+        &mut self,
+        batch: &ScheduledBatch,
+    ) -> Result<(Vec<DecodeOutput>, StepMetrics), String> {
+        let (mut outputs, metrics) = self.0.execute_step(batch).await?;
+        for output in &mut outputs {
+            if let DecodeOutput::Token { token_id, .. } = output {
+                if *token_id == 101 {
+                    *token_id = 2;
+                }
+            }
+        }
+        Ok((outputs, metrics))
+    }
+    fn take_decode_observation(&mut self, request_id: u64) -> Option<DecodeObservation> {
+        self.0.take_decode_observation(request_id)
+    }
+}
+
 async fn start_on<B: AienInferenceBackend + Send + 'static>(
     identity: Option<ModelIdentity>,
     tokenizer: ChatTokenizer,
@@ -122,7 +148,7 @@ async fn start_on<B: AienInferenceBackend + Send + 'static>(
     if let Some(id) = identity {
         server.set_model_identity(id);
     }
-    let handle = tokio::spawn(async move { server.run(backend).await });
+    let handle = tokio::spawn(async move { server.run(EosBackend(backend)).await });
     let client = AienRuntimeClient::new(&socket);
     for _ in 0..200 {
         if client.is_alive().await {
@@ -192,13 +218,13 @@ fn sha(b: &[u8]) -> String {
     hex(&Sha256::digest(b))
 }
 
-/// The mock backend only emits tokens 100 and 101, which the toy vocabulary
-/// spells x100 and x101.
+/// The stopping mock emits ordinary x100 (100), then EOS </s> (2).
+/// This toy tokenizer does not register special added tokens, so both decode.
 fn ids_of(text: &str) -> Vec<u32> {
     text.split_whitespace()
         .map(|w| match w {
             "x100" => 100,
-            "x101" => 101,
+            "</s>" => 2,
             other => panic!("unexpected word {other:?} in {text:?}"),
         })
         .collect()
@@ -233,10 +259,7 @@ async fn record_carries_the_digests_of_the_turn() {
     assert_eq!(r["output_token_ids_sha256"], token_ids_sha256(&out));
     assert_eq!(r["output_tokens"], out.len());
     assert!(r["total_tokens"].as_u64().unwrap() > 0);
-    assert!(matches!(
-        r["finish_reason"].as_str(),
-        Some("eos" | "max_tokens")
-    ));
+    assert_eq!(r["finish_reason"], "eos");
     assert_eq!(r["daemon"]["pid"], std::process::id());
     assert!(r["daemon"]["started_unix_ms"].as_str().unwrap().len() > 8);
     // sc#294: the mock backend observes nothing, so the record makes no
@@ -416,6 +439,42 @@ async fn record_states_the_decoding_the_backend_reported() {
             "seed_request_id": 42
         }),
         "{r}"
+    );
+    d.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[cfg_attr(not(compose_linked), ignore = "needs librx_compose.a: stub build")]
+async fn capped_turn_is_refused_but_its_evidence_is_retained() {
+    let _home = home_guard::home_slot();
+    let _g = ONE_HOME.lock().await;
+    let d = start(Some(identity())).await;
+    let before = d.records().await;
+    let error = d
+        .client
+        .stream_turn_recorded(user("hello"), 1, 0.0)
+        .await
+        .expect_err("a token cap is not completion");
+    assert!(error.contains("max_tokens"), "{error}");
+    assert_eq!(d.records().await, before + 1);
+    let ControlResponse::ComposeRecalled(report) = d.recall(vec![]).await else {
+        panic!("recall")
+    };
+    let record = report
+        .host
+        .iter()
+        .rev()
+        .find_map(|record| {
+            let value: Value = serde_json::from_str(record.text.as_deref()?).ok()?;
+            (value["generation"] == 1).then_some((record, value))
+        })
+        .expect("generation evidence");
+    assert!(record.0.verified);
+    assert_eq!(record.1["finish_reason"], "max_tokens");
+    assert_eq!(record.1["output_text_sha256"], sha(b"x100"));
+    assert_eq!(
+        record.1["output_token_ids_sha256"],
+        token_ids_sha256(&[100])
     );
     d.stop().await;
 }

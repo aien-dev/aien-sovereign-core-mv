@@ -505,7 +505,12 @@ fn classify(index: usize, m: &Value) -> MessageClass {
         return MessageClass::ToolResult;
     }
     if role == "assistant" {
-        let calls = crate::client::extract_tool_calls(&text).len();
+        // Invalid requests are not executable calls. Their original assistant
+        // text remains in the transcript; the execution loop reports the error.
+        let calls = match crate::client::extract_tool_calls(&text) {
+            Ok(calls) => calls.len(),
+            Err(_) => return MessageClass::Assistant,
+        };
         if calls > 0 {
             return MessageClass::AssistantToolRequest(calls);
         }
