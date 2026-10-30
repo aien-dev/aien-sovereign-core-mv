@@ -1,0 +1,5 @@
+00400000-00416000 r-xp 00000000 103:02 3460801                           /tmp/flint834-mem-run/ops
+10000000-19cd2000 rw-p 00000000 00:00 0 
+ebccc809a000-ebccc809e000 r--p 00000000 00:00 0                          [vvar]
+ebccc809e000-ebccc80a0000 r-xp 00000000 00:00 0                          [vdso]
+ffffda4ab000-ffffda4cd000 rw-p 00000000 00:00 0                          [stack]

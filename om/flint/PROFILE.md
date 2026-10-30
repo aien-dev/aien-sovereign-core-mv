@@ -107,3 +107,63 @@ the existing per-operator checks retain the original bound accumulation.
 WolframLanguageEvaluator: `N[694277/1000000*100,6] -> 69.4277`.
 Thus the observed `694277` means approximately **69.4% of the comparison budget**
 was consumed; it does not mean a 69.4% relative tensor error.
+
+## Load memory: peak backing, mmap residency, duplicate buffers (#834 item 4)
+
+Measured 2026-10-30 on the Spark host CPU (`taskset -c 0-4 nice -n 19 ionice -c3`),
+sovereign-core base 85a18581, omc `62775d2a…712b`, ops binary sha256
+`29cc5286276f6e4cf35cf8721b05a91e4c9534586910cdc2dbd718e4ab6f5cc9`, inputs the pinned
+TSV `60ff4dbd…f5` and forward fixture `b5e4bae2…7031`. The omc-built binary and the Python
+referee were run as separate processes, each under `test/memprobe.sh` (GNU `time -v` plus
+samples of `/proc/<pid>/status`, `smaps_rollup`, `io` and `maps` every 0.1 s):
+
+```
+bash om/flint/test/memprobe.sh OUT -- ./ops forward forward.fx real.tsv SHARD_DIR
+bash om/flint/test/memprobe.sh OUT -- env PYTHONPATH=… python om/flint/test/fwdref.py SRC SHARD_DIR forward.fx
+```
+
+| Process | Wall | Max RSS (`time -v`) | Major faults |
+|---|---:|---:|---:|
+| native forward (`ops forward`, 300 samples) | 38.75 s | 60480 kB (VmHWM 60620 kB) | 0 |
+| Python referee (`fwdref.py`) | 22.49 s | 7319656 kB | 1 |
+
+Native forward, per sample: VmPeak stays 160832 kB, the static image (the RW segment is
+0x9cd1910 bytes, `N[FromDigits["9cd1910",16]/1024] -> 160582.27` kB, plus text and stack);
+there is no heap. RssFile stays 88 kB (the binary's own text), RssShmem 0, and `maps` has
+no file mapping other than the binary in any sample: shard residency through mmap is 0. The
+shards are read with `pread` (rchar 7427081605 bytes, `N[7427081605/2^30] -> 6.917` GiB
+for the two tokens; `2*150144*2048*2 -> 1229979648` of it is lm_head); that data sits in
+the shared kernel page cache, which belongs to no process and is not counted above.
+VmHWM reaches 60144 kB at 0.40 s (layer 0) and 60620 kB at 1.69 s and stays flat until
+the last sample at 38.72 s, including the lm_head stream.
+
+Duplicate buffers: `ld_bytes` preads at most 1048576 bytes of BF16 into `gstg`, widens
+them into the f32 buffer `gw`, and reuses the chunk; `ld_rows` loads the embedding and
+lm_head in 2048-row slices. So no full BF16 tensor is ever resident; the one transient
+duplicate is the 1 MiB staging chunk beside the f32 repack. The peak is accounted for by
+the largest repacked tensor, the dense MLP 6144x2048 in f32, plus the inputs
+(WolframLanguageEvaluator: `6144*2048*4/1024 -> 49152`, `N[5248040/1024] -> 5125.04`
+fixture, `N[4269125/1024] -> 4169.07` TSV; `49152+1024+5125.04+4169.07+88 -> 59558.11` kB,
+residual `60620-59558.11 -> 1061.89` kB of activations and stack). A co-resident full BF16
+copy of that tensor would add `6144*2048*2/1024 -> 24576` kB (`60620+24576 -> 85196`).
+The referee's footprint is `N[7319656/60480] -> 121.03` times the native one.
+
+Verdict: no full-BF16-plus-repack duplicate exists, so the loader was not changed. The
+gate freezes the bound: with `FLINT_FORWARD=1`, `check.sh` runs the forward under GNU
+`time -f %M` and requires max RSS <= 65536 kB (margin `65536-60480 -> 5056` kB), which a
+co-resident BF16 copy of any tensor over 5056 kB exceeds. The f32 repack itself
+(2x the BF16 bytes of the largest tensor) is the remaining cost; computing directly from
+BF16 chunks would remove it and is not done here.
+
+Negative controls, both with the same inputs:
+
+- Bound below the measured peak: the full gate with `FWD_RSS_KB=60000` (temporary copy of
+  `check.sh`) printed `FAIL forward peak resident '60160' kB over frozen bound 60000 kB` and
+  `OM-FLINT-MANIFEST FAIL (1 of 93)`; every other check passed.
+- Real duplicate (`retain-bf16`, now a gate mutant): a 16777216-element ushort global
+  (`16777216*2/1024 -> 32768` kB virtual) written beside every f32 widening keeps a full
+  BF16 copy of each loaded tensor. Standalone run: forward still PASS (worst_ppm 694277),
+  max RSS 84960 kB, `84960-60480 -> 24480` kB above the clean binary, which is the predicted
+  BF16 copy of the dense MLP tensor within `24480-24576 -> -96` kB; `84960-65536 -> 19424` kB
+  over the bound.
+

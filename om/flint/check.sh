@@ -15,7 +15,8 @@
 #   With both set, the forward-operator arm runs ops.om against test/opref.py fixtures;
 #   FLINT_PY is the referee's interpreter (torch + transformers a672eb5f), default python3.
 #   FLINT_FORWARD=1 additionally runs the full 49-layer, two-token chained forward and mutants.
-# Needs: python3 (fixture referees only), sha256sum, cmp, timeout. Host only; no network, no GPU.
+# Needs: python3 (fixture referees only), sha256sum, cmp, timeout; GNU /usr/bin/time for the
+# FLINT_FORWARD peak-memory bound. Host only; no network, no GPU.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
@@ -269,10 +270,18 @@ if [ "${FLINT_FORWARD:-0}" = 1 ]; then
     bad "forward fixture pin mismatch: $(sha "$b/forward.fx")"
   else
     cat "$b/fwdref.out"
-    line=$(timeout 600 "$b/ops" forward "$b/forward.fx" "$b/real.tsv" "$FLINT_SHARDS" 2>&1 < /dev/null)
+    line=$(timeout 600 /usr/bin/time -f %M -o "$b/fwd.maxrss" "$b/ops" forward "$b/forward.fx" "$b/real.tsv" "$FLINT_SHARDS" 2>&1 < /dev/null)
     rc=$?
     echo "$line"
     if [ "$rc" = 0 ] && [[ $line == *"forward layer 49 "* ]] && [[ $line == *" PASS" ]]; then ok "chained forward, all layers and vocabulary logits"; else bad "forward rc $rc"; fi
+    # Peak resident backing of the native forward (Core #834 item 4; receipt in PROFILE.md, probe
+    # test/memprobe.sh). The loader preads each tensor through one 1 MiB BF16 staging chunk into
+    # the f32 buffer gw and maps no shard, so the peak is the largest repacked tensor (dense MLP,
+    # 6144x2048 f32, 49152 kB) plus inputs. A co-resident full BF16 copy of that tensor
+    # (+24576 kB) or any duplicate over the margin (measured 2026-10-30: 60480 kB) fails here.
+    FWD_RSS_KB=65536
+    rss=$(tail -n 1 "$b/fwd.maxrss" 2> /dev/null)
+    if [[ $rss =~ ^[0-9]+$ ]] && [ "$rss" -le "$FWD_RSS_KB" ]; then ok "forward peak resident $rss kB <= frozen bound $FWD_RSS_KB kB"; else bad "forward peak resident '$rss' kB over frozen bound $FWD_RSS_KB kB"; fi
     s=$(cat "$here/ops.om")
     while IFS='|' read -r name from to; do
       [ "$(grep -cF -- "$from" "$here/ops.om")" = 1 ] || { bad "forward mutant $name site"; continue; }
@@ -285,6 +294,22 @@ if [ "${FLINT_FORWARD:-0}" = 1 ]; then
 wrong-token|id = fx_w add 8 t|id = add fx_w add 8 t 1
 skip-final-norm|put gfh o get gy i|put gfh o get gv i
 FORWARD_MUTANTS
+    # Memory mutant: keep a full BF16 copy of every loaded tensor (a new 32 MiB ushort global
+    # written beside each f32 widening). The numerics still PASS; the peak bound must catch it.
+    d1='global gstg uchar 4194304'
+    d2='put gw add d i bitcast f32 or shl hi 24 shl lo 16'
+    if [ "$(grep -cxF -- "$d1" "$here/ops.om")" != 1 ] || [ "$(grep -cxF -- "$d2" "$here/ops.om")" != 1 ]; then bad "memory mutant retain-bf16 site"
+    else
+      t=${s/"$d1"/"$d1${nl}global gdup ushort 16777216"}
+      printf '%s\n' "${t/"$d2"/"$d2${nl}put gdup add d i ushort or shl hi 8 lo"}" > "$b/memmut.om"
+      if ! build "$b/memmut" "$b/memmut.om"; then bad "memory mutant retain-bf16 compile"
+      else
+        line=$(timeout 600 /usr/bin/time -f %M -o "$b/mem.maxrss" "$b/memmut" forward "$b/forward.fx" "$b/real.tsv" "$FLINT_SHARDS" 2>&1 < /dev/null)
+        rc=$?
+        rss=$(tail -n 1 "$b/mem.maxrss" 2> /dev/null)
+        if [ "$rc" = 0 ] && [[ $line == *" PASS" ]] && [[ $rss =~ ^[0-9]+$ ]] && [ "$rss" -gt "$FWD_RSS_KB" ]; then ok "CAUGHT memory mutant retain-bf16: peak $rss kB > $FWD_RSS_KB kB with numerics PASS"; else bad "memory mutant retain-bf16 not caught: rc $rc peak '$rss' kB"; fi
+      fi
+    fi
   fi
 else
   echo "NOT_RUN chained forward (set FLINT_FORWARD=1)"
