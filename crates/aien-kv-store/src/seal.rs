@@ -78,26 +78,40 @@
 //!    list does not consume a slot. The AKS v2 seal slot is magic, version,
 //!    nonce and tag (32 bytes) and has no key id. The store keeps an
 //!    append-only list of every key fingerprint it has sealed under, in
-//!    [`KEY_FINGERPRINTS_NAME`]. The key bytes are not written. Each update
-//!    rewrites the whole list with the same durability as the count. A missing
-//!    count file is zero only in two cases: the store has no sealed object and
-//!    no list, or this key's fingerprint has never been in the list (a
-//!    genuinely new key). A directory that is not named [`USAGE_DIR_NAME`] is a
-//!    unit-test usage dir and has no list; a missing file there is also zero.
-//!    A missing file is [`SealError::UsageStore`] when this key is already in
-//!    the list, and when there is no list but a sealed object exists. That
-//!    second refusal appends the fingerprint and does not write a counter. Do
-//!    not put a listed key back into `AIEN_KV_STORE_KEY` after its counter is
-//!    gone: never reuse a retired key. A short, long, or unrecognized file is
-//!    [`SealError::UsageStore`]. At `2^20` the call returns [`SealError::Budget`].
+//!    `seal-usage/key-fingerprints` ([`KEY_FINGERPRINTS_NAME`]). The key bytes
+//!    are not written. Each update rewrites the whole list with the same
+//!    durability as the count. The list holds at most 256 fingerprints.
+//!    Reaching that cap means rotating to a new store directory: another key
+//!    cannot be appended in this one. A missing count file is zero only in
+//!    two cases: the store has no sealed object and no list, or this key's
+//!    fingerprint has never been in the list (a genuinely new key). When
+//!    `seal-usage/key-fingerprints` is missing and the directory holds valid
+//!    counter files, the list is rebuilt under this lock from those 64-hex
+//!    filenames plus the current key, through the same durable write. A
+//!    counter filename that is not a valid count file this uid owns refuses
+//!    the seal and writes nothing. A directory that is not named
+//!    [`USAGE_DIR_NAME`] is a unit-test usage dir and has no list; a missing
+//!    file there is also zero. A missing file is [`SealError::UsageStore`]
+//!    when this key is already in the list, and when there is no list and no
+//!    counter file but a sealed object exists. That refusal appends the
+//!    fingerprint to the list already on disk. It does not replace that list
+//!    with only this key. When no list and no counter file exist, the refusal
+//!    creates the one-key list and does not write a counter. Do not put a
+//!    listed key back into `AIEN_KV_STORE_KEY` after its counter is gone:
+//!    never reuse a retired key. A short, long, duplicate, or unrecognized
+//!    file is [`SealError::UsageStore`]. At `2^20` the call returns
+//!    [`SealError::Budget`].
 //! 4. `count + 1` is written to `<fingerprint>.part`. A leftover part file
 //!    this uid owns is truncated and replaced. A part file this uid does not
 //!    own, or that is not a regular file, is [`SealError::UsageStore`] and is
 //!    left in place: remove it as the store owner, then seal again. The part
 //!    file is `fsync`ed, renamed onto the count file, and the directory is
 //!    `fsync`ed. The fingerprint list, when it gains this key, uses that same
-//!    sequence and is written after the count. Any failure is
-//!    [`SealError::UsageStore`].
+//!    sequence and is written after the count. A rebuilt list is the
+//!    exception: it is written before the count, and every fingerprint in it
+//!    already has a counter file except the current key when that counter is
+//!    missing. That key is included and the seal then refuses without writing
+//!    a counter. Any failure is [`SealError::UsageStore`].
 //! 5. Only then is the seal slot written and the payload encrypted.
 //!
 //! A crash before the directory `fsync` keeps the previous count when the
@@ -107,9 +121,10 @@
 //! `fsync` after a rename that did reach disk is the same direction (the
 //! seal does not run, and a later open may observe the higher count). The
 //! count file for a new key is durable before that key is appended to the
-//! list, so a crash cannot list the key and then find no counter. The legacy
-//! refusal is the exception: it appends the key and writes no counter, on
-//! purpose.
+//! list, so a crash cannot list the key and then find no counter. Two
+//! refusals write the list and no counter, on purpose: the legacy refusal,
+//! and a rebuilt list that had to record the current key because its counter
+//! file was already gone.
 //!
 //! The file is per store directory and per key fingerprint. Restarting that
 //! directory sees it. Sealers that share the directory serialize on the lock.
@@ -132,12 +147,17 @@
 //! the file. A snapshot of a running VM can include kernel entropy; this
 //! crate does not detect that case and does not reseed.
 //!
-//! Restoring or rolling back an older `seal-usage/` directory, or an older
-//! copy of the whole store, can lower the persisted count. The counter is
-//! local state and has no external monotonic anchor. Sealing stays safe
-//! because each nonce is a fresh random draw, but the `2^20` bound weakens by
-//! the seals the restored count leaves out. An external or TPM-backed counter
-//! would keep the count from moving backward.
+//! Restoring or rolling back an older `seal-usage/` directory, an older
+//! `seal-usage/key-fingerprints` list, or an older copy of the whole store,
+//! can lower the persisted count. Deleting or shortening
+//! `seal-usage/key-fingerprints` drops keys from that list. A missing list is
+//! rebuilt from the counter files still in `seal-usage/`. A key whose counter
+//! file is also gone is recorded when that key seals while the list is
+//! absent, and that seal is refused. The counter is local state and has no
+//! external monotonic anchor. Sealing stays safe because each nonce is a
+//! fresh random draw, but the `2^20` bound weakens by the seals the restored
+//! count leaves out. An external or TPM-backed counter would keep the count
+//! from moving backward.
 
 use crate::record::{HEADER_REGION_LEN, SEAL_SLOT_OFFSET};
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -182,7 +202,10 @@ const USAGE_LEN: usize = 16;
 const KEY_LIST_MAGIC: [u8; 4] = *b"AKSL";
 const KEY_LIST_VERSION: u8 = 1;
 const KEY_LIST_HEADER: usize = 12;
-/// Enough rotations for one store. A longer list is [`SealError::UsageStore`].
+/// At most this many key fingerprints in one store. A longer list, or a seal
+/// that would append one more, is [`SealError::UsageStore`]. Reaching the cap
+/// means rotating to a new store directory: this directory cannot record
+/// another key.
 const MAX_KEY_FINGERPRINTS: usize = 256;
 const O_MAGIC: usize = SEAL_SLOT_OFFSET;
 const O_VERSION: usize = SEAL_SLOT_OFFSET + 3;
@@ -453,11 +476,20 @@ impl SealKey {
         let name = fingerprint_hex(&fp);
         // Validate the list before any count write. A corrupt list must not
         // consume a budget slot.
-        let listed = if tracks_store_objects(usage_dir) {
+        let mut listed = if tracks_store_objects(usage_dir) {
             read_key_fingerprints(usage_dir)?
         } else {
             None
         };
+        // A missing list must not be replaced with only this key. Rebuild it
+        // from the counter files still in the directory, plus this key, before
+        // any count write. A counter file that fails validation refuses here
+        // and leaves the directory unchanged.
+        if tracks_store_objects(usage_dir) && listed.is_none() {
+            if let Some(rebuilt) = rebuild_missing_list(usage_dir, &fp)? {
+                listed = Some(rebuilt);
+            }
+        }
         let count = match read_count_file(&usage_dir.join(&name))? {
             Some(count) => count,
             None => missing_count(usage_dir, &fp, listed.as_deref())?,
@@ -595,8 +627,9 @@ fn fingerprint_name(key: &[u8; KEY_LEN]) -> String {
 /// Decide a missing counter. `listed` was already validated.
 ///
 /// A zero return means this seal may start at zero. The legacy refusal
-/// appends `fp` and writes no counter. Any other [`SealError::UsageStore`]
-/// writes nothing.
+/// appends `fp` to the list already on disk and writes no counter. It does
+/// not replace that list with only this key. Any other
+/// [`SealError::UsageStore`] writes nothing.
 fn missing_count(
     usage_dir: &Path,
     fp: &[u8; 32],
@@ -610,15 +643,119 @@ fn missing_count(
         Some(_) => Ok(0),
         None => {
             if store_already_holds_sealed_object(usage_dir)? {
-                // Legacy store, or the list was deleted. Record this key and
-                // refuse. Do not write a counter. A key that is not in the
-                // list can still start at zero.
-                write_key_fingerprints(usage_dir, &[*fp])?;
+                // No list and no counter file, but a sealed object exists.
+                // Record this key and refuse. Do not write a counter.
+                append_listed_key(usage_dir, fp)?;
                 Err(SealError::UsageStore)
             } else {
                 Ok(0)
             }
         }
+    }
+}
+
+/// When `seal-usage/key-fingerprints` is missing and at least one valid
+/// counter file is present, write the list of those fingerprints plus `fp`.
+/// `Ok(None)` means there was no counter file to recover. A filename that
+/// looks like a counter but is not a valid count file this uid owns is
+/// [`SealError::UsageStore`], and nothing is written.
+fn rebuild_missing_list(dir: &Path, fp: &[u8; 32]) -> Result<Option<Vec<[u8; 32]>>, SealError> {
+    let recovered = counter_fingerprints(dir)?;
+    if recovered.is_empty() {
+        return Ok(None);
+    }
+    let mut fps = recovered;
+    if !fps.iter().any(|existing| existing == fp) {
+        if fps.len() >= MAX_KEY_FINGERPRINTS {
+            return Err(SealError::UsageStore);
+        }
+        fps.push(*fp);
+    }
+    part_is_writable(dir, KEY_FINGERPRINTS_NAME)?;
+    write_key_fingerprints(dir, &fps)?;
+    Ok(Some(fps))
+}
+
+/// Append `fp` to the list on disk. A missing list is filled from the counter
+/// files first, so this never replaces a recovered history with only `fp`.
+/// When there is no list and no counter file, the written list is `[fp]`.
+fn append_listed_key(dir: &Path, fp: &[u8; 32]) -> Result<(), SealError> {
+    let mut fps = match read_key_fingerprints(dir)? {
+        Some(fps) => fps,
+        None => counter_fingerprints(dir)?,
+    };
+    if fps.iter().any(|existing| existing == fp) {
+        return Ok(());
+    }
+    if fps.len() >= MAX_KEY_FINGERPRINTS {
+        return Err(SealError::UsageStore);
+    }
+    part_is_writable(dir, KEY_FINGERPRINTS_NAME)?;
+    fps.push(*fp);
+    write_key_fingerprints(dir, &fps)
+}
+
+/// Fingerprints named by valid counter files in `dir`, in ascending order.
+/// Names that are not 64 lowercase hex digits are ignored, including `LOCK`,
+/// `key-fingerprints`, `key-fingerprints.part`, and the unreleased
+/// `key-fingerprint` marker. A 64-hex name that is not a regular count file
+/// this uid owns refuses the scan.
+fn counter_fingerprints(dir: &Path) -> Result<Vec<[u8; 32]>, SealError> {
+    let entries = std::fs::read_dir(dir).map_err(|_| SealError::UsageStore)?;
+    let mut fps = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|_| SealError::UsageStore)?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            return Err(SealError::UsageStore);
+        };
+        if !is_counter_filename(name) {
+            continue;
+        }
+        let fp = decode_fingerprint_hex(name)?;
+        match read_count_file(&dir.join(name))? {
+            Some(_) => {}
+            None => return Err(SealError::UsageStore),
+        }
+        if fps.iter().any(|existing| existing == &fp) {
+            return Err(SealError::UsageStore);
+        }
+        fps.push(fp);
+    }
+    if fps.len() > MAX_KEY_FINGERPRINTS {
+        return Err(SealError::UsageStore);
+    }
+    fps.sort_unstable();
+    Ok(fps)
+}
+
+fn is_counter_filename(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    if bytes.len() != 64 {
+        return false;
+    }
+    bytes.iter().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+fn decode_fingerprint_hex(name: &str) -> Result<[u8; 32], SealError> {
+    let bytes = name.as_bytes();
+    if bytes.len() != 64 {
+        return Err(SealError::UsageStore);
+    }
+    let mut fp = [0u8; 32];
+    for i in 0..32 {
+        let hi = hex_nibble(bytes[i * 2])?;
+        let lo = hex_nibble(bytes[i * 2 + 1])?;
+        fp[i] = (hi << 4) | lo;
+    }
+    Ok(fp)
+}
+
+fn hex_nibble(b: u8) -> Result<u8, SealError> {
+    match b {
+        b'0'..=b'9' => Ok(b - b'0'),
+        b'a'..=b'f' => Ok(b - b'a' + 10),
+        _ => Err(SealError::UsageStore),
     }
 }
 

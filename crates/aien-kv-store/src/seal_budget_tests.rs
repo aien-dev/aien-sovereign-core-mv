@@ -34,7 +34,7 @@ use crate::seal::{
 use crate::{chunk_chain, Incarnation, KvStore, Terminal};
 use aien_platform::PlatformError;
 use sha2::{Digest, Sha256};
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::sync::{Arc, Barrier};
 
 const BS: usize = 8192;
@@ -473,13 +473,9 @@ fn seal_budget_legacy_store_refuses_then_rotation_seals() {
 }
 
 #[test]
+#[ignore = "needs passwordless sudo to chown a leftover part file to nobody"]
 fn seal_budget_part_owned_by_another_user_is_left_in_place() {
-    if !passwordless_sudo() {
-        println!(
-            "SKIP seal_budget_part_owned_by_another_user_is_left_in_place: passwordless sudo is not available"
-        );
-        return;
-    }
+    assert!(passwordless_sudo(), "passwordless sudo is not available");
     let (_root, usage) = store_usage("part-other-uid");
     let key = SealKey::from_bytes([0x46; 32]);
     testing_install_usage_count(&usage, &key, 4).unwrap();
@@ -600,6 +596,235 @@ fn seal_budget_leftover_list_part_is_replaced_when_owned_and_refused_when_linked
     );
     assert!(!testing_usage_path(&usage, &b).exists());
     assert_eq!(testing_read_usage_count(&usage, &a).unwrap(), 1);
+}
+
+#[test]
+fn seal_budget_deleted_list_keeps_remaining_counters_and_refuses_the_deleted_one() {
+    let (_root, usage) = store_usage("deleted-list");
+    let a = SealKey::from_bytes([0x71; 32]);
+    let b = SealKey::from_bytes([0x72; 32]);
+    let mut file = blank();
+    a.seal_file(&usage, &mut file).unwrap();
+    b.seal_file(&usage, &mut file).unwrap();
+    std::fs::remove_file(usage.join(seal::KEY_FINGERPRINTS_NAME)).unwrap();
+    let a_path = testing_usage_path(&usage, &a);
+    std::fs::remove_file(&a_path).unwrap();
+
+    let mut again = blank();
+    let before = again.clone();
+    assert_eq!(a.seal_file(&usage, &mut again), Err(SealError::UsageStore));
+    assert_eq!(again, before);
+    assert!(
+        !a_path.exists(),
+        "A does not start over after the list is deleted"
+    );
+    assert_eq!(testing_read_usage_count(&usage, &b).unwrap(), 1);
+    b.seal_file(&usage, &mut again).unwrap();
+    assert_eq!(testing_read_usage_count(&usage, &b).unwrap(), 2);
+    assert!(!a_path.exists());
+    assert_eq!(
+        testing_read_key_fingerprints(&usage).unwrap(),
+        Some(vec![fp_bytes(&[0x72; 32]), fp_bytes(&[0x71; 32])]),
+        "the rebuilt list keeps B's counter file and records A"
+    );
+}
+
+#[test]
+fn seal_budget_truncated_list_does_not_consume_a_slot() {
+    let (_root, usage) = store_usage("trunc-list");
+    let key = SealKey::from_bytes([0x73; 32]);
+    let mut file = blank();
+    key.seal_file(&usage, &mut file).unwrap();
+    let list = usage.join(seal::KEY_FINGERPRINTS_NAME);
+    let mut bytes = std::fs::read(&list).unwrap();
+    bytes.truncate(20);
+    std::fs::write(&list, &bytes).unwrap();
+    let mut again = blank();
+    let before = again.clone();
+    assert_eq!(
+        key.seal_file(&usage, &mut again),
+        Err(SealError::UsageStore)
+    );
+    assert_eq!(again, before);
+    assert_eq!(testing_read_usage_count(&usage, &key).unwrap(), 1);
+    assert_eq!(std::fs::read(&list).unwrap(), bytes);
+}
+
+#[test]
+fn seal_budget_duplicate_list_entries_do_not_consume_a_slot() {
+    let (_root, usage) = store_usage("dup-list");
+    let key = SealKey::from_bytes([0x74; 32]);
+    let mut file = blank();
+    key.seal_file(&usage, &mut file).unwrap();
+    let fp = fp_bytes(&[0x74; 32]);
+    let list = usage.join(seal::KEY_FINGERPRINTS_NAME);
+    let bytes = list_bytes(&[fp, fp]);
+    std::fs::write(&list, &bytes).unwrap();
+    let mut again = blank();
+    let before = again.clone();
+    assert_eq!(
+        key.seal_file(&usage, &mut again),
+        Err(SealError::UsageStore)
+    );
+    assert_eq!(again, before);
+    assert_eq!(testing_read_usage_count(&usage, &key).unwrap(), 1);
+    assert_eq!(std::fs::read(&list).unwrap(), bytes);
+}
+
+#[test]
+fn seal_budget_oversized_list_does_not_consume_a_slot() {
+    let (_root, usage) = store_usage("oversize-list");
+    let key = SealKey::from_bytes([0x75; 32]);
+    let mut file = blank();
+    key.seal_file(&usage, &mut file).unwrap();
+    let list = usage.join(seal::KEY_FINGERPRINTS_NAME);
+    let fps: Vec<[u8; 32]> = (0..257u16).map(filler_fp).collect();
+    let bytes = list_bytes(&fps);
+    std::fs::write(&list, &bytes).unwrap();
+    let mut again = blank();
+    let before = again.clone();
+    assert_eq!(
+        key.seal_file(&usage, &mut again),
+        Err(SealError::UsageStore)
+    );
+    assert_eq!(again, before);
+    assert_eq!(testing_read_usage_count(&usage, &key).unwrap(), 1);
+    assert_eq!(std::fs::read(&list).unwrap(), bytes);
+}
+
+#[test]
+fn seal_budget_fingerprint_list_stops_at_256_keys() {
+    let (_root, usage) = store_usage("cap");
+    let key = SealKey::from_bytes([0x76; 32]);
+    let extra = SealKey::from_bytes([0x77; 32]);
+    let key_fp = fp_bytes(&[0x76; 32]);
+    let extra_fp = fp_bytes(&[0x77; 32]);
+    let mut fps = Vec::with_capacity(256);
+    for i in 0..255u16 {
+        let fp = filler_fp(i);
+        assert_ne!(fp, key_fp);
+        assert_ne!(fp, extra_fp);
+        fps.push(fp);
+    }
+    fps.push(key_fp);
+    let list = usage.join(seal::KEY_FINGERPRINTS_NAME);
+    let full = list_bytes(&fps);
+    std::fs::write(&list, &full).unwrap();
+    testing_install_usage_count(&usage, &key, 3).unwrap();
+    let mut file = blank();
+    key.seal_file(&usage, &mut file).unwrap();
+    assert_eq!(testing_read_usage_count(&usage, &key).unwrap(), 4);
+    assert_eq!(std::fs::read(&list).unwrap(), full);
+
+    let mut next = blank();
+    let before = next.clone();
+    assert_eq!(
+        extra.seal_file(&usage, &mut next),
+        Err(SealError::UsageStore)
+    );
+    assert_eq!(next, before);
+    assert!(
+        !testing_usage_path(&usage, &extra).exists(),
+        "the 257th key does not get a counter"
+    );
+    assert_eq!(std::fs::read(&list).unwrap(), full);
+    assert_eq!(testing_read_usage_count(&usage, &key).unwrap(), 4);
+}
+
+#[test]
+fn seal_budget_legacy_key_fingerprint_file_is_ignored() {
+    let (_root, usage) = store_usage("old-marker");
+    let marker = usage.join("key-fingerprint");
+    std::fs::write(&marker, b"legacy-marker").unwrap();
+    let key = SealKey::from_bytes([0x78; 32]);
+    let mut file = blank();
+    key.seal_file(&usage, &mut file).unwrap();
+    assert!(seal::is_sealed_region(&file[..HEADER_REGION_LEN]));
+    assert_eq!(testing_read_usage_count(&usage, &key).unwrap(), 1);
+    assert_eq!(std::fs::read(&marker).unwrap(), b"legacy-marker");
+    assert_eq!(
+        testing_read_key_fingerprints(&usage).unwrap(),
+        Some(vec![fp_bytes(&[0x78; 32])])
+    );
+}
+
+#[test]
+#[ignore = "needs passwordless sudo to chown seal-usage/key-fingerprints to nobody"]
+fn seal_budget_list_owned_by_another_user_is_left_in_place() {
+    assert!(passwordless_sudo(), "passwordless sudo is not available");
+    let (_root, usage) = store_usage("list-other-uid");
+    let key = SealKey::from_bytes([0x79; 32]);
+    let mut file = blank();
+    key.seal_file(&usage, &mut file).unwrap();
+    let list = usage.join(seal::KEY_FINGERPRINTS_NAME);
+    let listed = std::fs::read(&list).unwrap();
+    let owner = std::fs::metadata(&list).unwrap().uid();
+    chown_nobody(&list);
+    assert_ne!(std::fs::metadata(&list).unwrap().uid(), owner);
+    let mut again = blank();
+    let before = again.clone();
+    assert_eq!(
+        key.seal_file(&usage, &mut again),
+        Err(SealError::UsageStore)
+    );
+    assert_eq!(again, before);
+    assert_eq!(sudo_read(&list), listed);
+    assert_eq!(testing_read_usage_count(&usage, &key).unwrap(), 1);
+
+    let (_root, usage) = store_usage("list-part-other-uid");
+    let a = SealKey::from_bytes([0x7a; 32]);
+    let b = SealKey::from_bytes([0x7b; 32]);
+    let mut file = blank();
+    a.seal_file(&usage, &mut file).unwrap();
+    let part = usage.join(format!("{}.part", seal::KEY_FINGERPRINTS_NAME));
+    std::fs::write(&part, b"foreign-list-part").unwrap();
+    chown_nobody(&part);
+    let mut next = blank();
+    let before = next.clone();
+    assert_eq!(b.seal_file(&usage, &mut next), Err(SealError::UsageStore));
+    assert_eq!(next, before);
+    assert_eq!(std::fs::read(&part).unwrap(), b"foreign-list-part");
+    assert!(!testing_usage_path(&usage, &b).exists());
+    assert_eq!(testing_read_usage_count(&usage, &a).unwrap(), 1);
+}
+
+fn chown_nobody(path: &std::path::Path) {
+    let chown = std::process::Command::new("sudo")
+        .args(["-n", "chown", "nobody:nogroup"])
+        .arg(path)
+        .status()
+        .expect("sudo chown");
+    assert!(chown.success(), "chown nobody");
+}
+
+fn sudo_read(path: &std::path::Path) -> Vec<u8> {
+    let out = std::process::Command::new("sudo")
+        .args(["-n", "cat"])
+        .arg(path)
+        .output()
+        .expect("sudo cat");
+    assert!(out.status.success(), "sudo cat");
+    out.stdout
+}
+
+fn list_bytes(fps: &[[u8; 32]]) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(12 + fps.len() * 32);
+    buf.extend_from_slice(b"AKSL");
+    buf.push(1);
+    buf.extend_from_slice(&[0, 0, 0]);
+    buf.extend_from_slice(&(fps.len() as u32).to_le_bytes());
+    for fp in fps {
+        buf.extend_from_slice(fp);
+    }
+    buf
+}
+
+fn filler_fp(i: u16) -> [u8; 32] {
+    let mut fp = [0xA5u8; 32];
+    fp[0] = 0xF0;
+    fp[30] = (i >> 8) as u8;
+    fp[31] = (i & 0xff) as u8;
+    fp
 }
 
 fn refused_store(
