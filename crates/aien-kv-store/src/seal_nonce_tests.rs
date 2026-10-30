@@ -44,7 +44,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const BS: usize = 8192;
 const NONCE_AT: usize = SEAL_SLOT_OFFSET + 4;
 /// Fixed test key. Not `AIEN_KV_STORE_KEY` and not OS output.
-const SYNTHETIC_KEY: [u8; 32] = [0xA5; 32];
+pub(crate) const SYNTHETIC_KEY: [u8; 32] = [0xA5; 32];
 const OTHER_KEY: [u8; 32] = [0x5C; 32];
 
 /// How a test result is allowed to be described.
@@ -120,6 +120,13 @@ fn key_with(source: Arc<dyn NonceSource + Send + Sync>) -> Arc<SealKey> {
     Arc::new(SealKey::from_bytes(SYNTHETIC_KEY).with_nonce_source(source))
 }
 
+/// One seal into a fresh usage directory. Nonce tests do not share a count
+/// with each other or with the budget tests.
+fn seal_direct(key: &SealKey, file: &mut [u8]) -> Result<(), SealError> {
+    let dir = Tmp::new("direct-seal");
+    key.seal_file(&dir.0, file)
+}
+
 fn pattern(n: u32, len: usize) -> Vec<u8> {
     (0..len)
         .map(|i| ((i as u32).wrapping_mul(31).wrapping_add(n.wrapping_mul(17)) % 251 + 1) as u8)
@@ -153,10 +160,10 @@ fn file_nonce(path: &Path) -> [u8; NONCE_LEN] {
     bytes[NONCE_AT..NONCE_AT + NONCE_LEN].try_into().unwrap()
 }
 
-struct Tmp(PathBuf);
+pub(crate) struct Tmp(pub(crate) PathBuf);
 
 impl Tmp {
-    fn new(tag: &str) -> Self {
+    pub(crate) fn new(tag: &str) -> Self {
         static N: AtomicU64 = AtomicU64::new(0);
         let n = N.fetch_add(1, Ordering::Relaxed);
         let nanos = SystemTime::now()
@@ -195,7 +202,7 @@ impl Drop for EnvSet {
     }
 }
 
-fn test_fields() -> NamespaceFields<'static> {
+pub(crate) fn test_fields() -> NamespaceFields<'static> {
     let compute = ComputeConfig {
         num_heads: 32,
         hidden_dim: 2048,
@@ -234,7 +241,7 @@ fn test_fields() -> NamespaceFields<'static> {
     }
 }
 
-fn open_at(root: &Path, key: Arc<SealKey>) -> HostFsStore {
+pub(crate) fn open_at(root: &Path, key: Arc<SealKey>) -> HostFsStore {
     let mut cfg = HostFsConfig::from_fields(root.to_path_buf(), &test_fields()).unwrap();
     cfg.seal_key = Some(key);
     cfg.worker = WorkerMode::Manual;
@@ -247,7 +254,7 @@ fn open_at(root: &Path, key: Arc<SealKey>) -> HostFsStore {
     s
 }
 
-fn terminal_for(s: &HostFsStore, job: JobId) -> Terminal {
+pub(crate) fn terminal_for(s: &HostFsStore, job: JobId) -> Terminal {
     let mut seen = 0;
     loop {
         let batch = s.poll(32);
@@ -263,14 +270,14 @@ fn terminal_for(s: &HostFsStore, job: JobId) -> Terminal {
     }
 }
 
-struct Published {
-    key: ChunkKey,
-    header: ChunkHeader,
-    path: PathBuf,
-    payload: Vec<u8>,
+pub(crate) struct Published {
+    pub(crate) key: ChunkKey,
+    pub(crate) header: ChunkHeader,
+    pub(crate) path: PathBuf,
+    pub(crate) payload: Vec<u8>,
 }
 
-fn publish(s: &HostFsStore, fields: &NamespaceFields<'_>, n: u32) -> Published {
+pub(crate) fn publish(s: &HostFsStore, fields: &NamespaceFields<'_>, n: u32) -> Published {
     let ns = fields.namespace_id().unwrap();
     let toks: Vec<u32> = (0..4).map(|i| n * 100 + i).collect();
     let key = chunk_chain(&ns, 8, &toks).unwrap()[0];
@@ -312,7 +319,7 @@ fn load_bytes(s: &HostFsStore, key: ChunkKey, header: &ChunkHeader) -> (Terminal
     (term, buf.to_vec())
 }
 
-fn kvc_files(root: &Path) -> Vec<PathBuf> {
+pub(crate) fn kvc_files(root: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let Ok(shards) = std::fs::read_dir(root.join("objects")) else {
         return out;
@@ -337,7 +344,7 @@ fn tmp_count(root: &Path) -> usize {
         .unwrap_or(0)
 }
 
-fn assert_pattern_absent(root: &Path, needle: &[u8]) {
+pub(crate) fn assert_pattern_absent(root: &Path, needle: &[u8]) {
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
         let Ok(rd) = std::fs::read_dir(&dir) else {
@@ -398,7 +405,7 @@ fn entropy_source_error_returns_random_and_leaves_the_buffer_unchanged() {
     let before = file.clone();
     // Expected: Err(Random), buffer byte-identical to the input.
     // A mutant that drops the `?` on `fill_nonce` seals (Ok) or writes the slot.
-    assert_eq!(key.seal_file(&mut file), Err(SealError::Random));
+    assert_eq!(seal_direct(&key, &mut file), Err(SealError::Random));
     assert_eq!(file, before);
 }
 
@@ -478,7 +485,7 @@ fn scripted_sequence_assigns_the_expected_nonce_to_each_file() {
     for i in 0..3u64 {
         let pt = vec![0x30 + i as u8; 24];
         let mut file = plain(&pt);
-        key.seal_file(&mut file).unwrap();
+        seal_direct(&key, &mut file).unwrap();
         assert_eq!(&file[NONCE_AT..NONCE_AT + NONCE_LEN], &nonce_for(i));
         let (got, body) = open_buf(&key, &file);
         assert_eq!(got, Ok(()));
@@ -574,7 +581,7 @@ fn concurrent_seal_calls_take_distinct_nonces() {
             barrier.wait();
             let pt = vec![0x10 + i; 40];
             let mut file = plain(&pt);
-            key.seal_file(&mut file).unwrap();
+            seal_direct(key.as_ref(), &mut file).unwrap();
             let mut nonce = [0u8; NONCE_LEN];
             nonce.copy_from_slice(&file[NONCE_AT..NONCE_AT + NONCE_LEN]);
             let (got, body) = open_buf(&key, &file);
@@ -622,7 +629,7 @@ fn aad_binding_rejects_identity_digest_and_padding_bytes() {
         SealKey::from_bytes(SYNTHETIC_KEY).with_nonce_source(Arc::new(RepeatNonce(nonce_for(1))));
     let pt = vec![0x11u8; 48];
     let mut file = plain(&pt);
-    key.seal_file(&mut file).unwrap();
+    seal_direct(&key, &mut file).unwrap();
     let (got, body) = open_buf(&key, &file);
     assert_eq!(got, Ok(()));
     assert_eq!(body, pt);
@@ -651,7 +658,7 @@ fn failed_open_zeroes_payload_for_wrong_key_tamper_and_plaintext() {
         SealKey::from_bytes(SYNTHETIC_KEY).with_nonce_source(Arc::new(RepeatNonce(nonce_for(4))));
     let pt = vec![0x11u8; 48];
     let mut file = plain(&pt);
-    key.seal_file(&mut file).unwrap();
+    seal_direct(&key, &mut file).unwrap();
 
     let other = SealKey::from_bytes(OTHER_KEY);
     let (got, body) = open_buf(&other, &file);
@@ -726,16 +733,17 @@ fn rewritten_identity_header_is_discarded_because_aad_binds_it() {
 }
 
 #[test]
-fn usage_budget_constants_match_the_policy_and_seal_file_does_not_enforce_them() {
+fn scripted_seals_under_one_usage_directory_keep_their_nonces() {
     assert_eq!(RECOMMENDED_SEALS_PER_KEY, 1 << 20);
     assert_eq!(NIST_SP800_38D_RANDOM_NONCE_LIMIT, 1 << 32);
+    let dir = Tmp::new("under-budget");
     let key =
         SealKey::from_bytes(SYNTHETIC_KEY).with_nonce_source(Arc::new(SeqNonce::starting_at(0)));
-    // Three successful seals. There is no counter that would refuse the third.
-    // This does not stand in for 2^20 seals. The gap is the missing counter.
+    // Three seals in one directory, still under the budget. Refusal at 2^20
+    // is covered by `seal_budget_tests`.
     for i in 0..3u8 {
         let mut file = plain(&[i; 16]);
-        assert_eq!(key.seal_file(&mut file), Ok(()));
+        assert_eq!(key.seal_file(&dir.0, &mut file), Ok(()));
         assert_eq!(&file[NONCE_AT..NONCE_AT + NONCE_LEN], &nonce_for(i as u64));
     }
 }
@@ -746,7 +754,7 @@ fn scripted_source_ignores_a_nonce_environment_variable() {
     let want = nonce_for(9);
     let key = SealKey::from_bytes(SYNTHETIC_KEY).with_nonce_source(Arc::new(RepeatNonce(want)));
     let mut file = plain(&[0x03; 24]);
-    key.seal_file(&mut file).unwrap();
+    seal_direct(&key, &mut file).unwrap();
     assert_eq!(&file[NONCE_AT..NONCE_AT + NONCE_LEN], &want);
 }
 
@@ -767,8 +775,8 @@ fn unsafe_control_repeated_nonce_is_not_detected_and_leaks_plaintext_xor() {
     let mut a = plain(&pt1);
     let mut b = plain(&pt2);
     // Expected: both Ok. `Nonce::assume_unique_for_key` does not reject a repeat.
-    assert_eq!(key.seal_file(&mut a), Ok(()));
-    assert_eq!(key.seal_file(&mut b), Ok(()));
+    assert_eq!(seal_direct(&key, &mut a), Ok(()));
+    assert_eq!(seal_direct(&key, &mut b), Ok(()));
     assert_eq!(&a[NONCE_AT..NONCE_AT + NONCE_LEN], &nonce);
     assert_eq!(&b[NONCE_AT..NONCE_AT + NONCE_LEN], &nonce);
     let ct1 = &a[HEADER_REGION_LEN..];
@@ -776,7 +784,7 @@ fn unsafe_control_repeated_nonce_is_not_detected_and_leaks_plaintext_xor() {
     assert_eq!(xor(ct1, ct2), xor(&pt1, &pt2));
 
     let mut same = plain(&pt1);
-    key.seal_file(&mut same).unwrap();
+    seal_direct(&key, &mut same).unwrap();
     assert_eq!(&same[HEADER_REGION_LEN..], ct1);
 }
 
