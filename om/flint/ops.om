@@ -3,7 +3,7 @@ note (aien-architecture-mv#353, aien-sovereign-core-mv#802, P0 forward lane).
 note
 note Usage: flint-ops OP FIXTURE INVENTORY SHARD_DIR
 note        flint-ops selftest
-note OP is rmsnorm, qkv, attn, router, shared, expert or moe. FIXTURE is written by
+note OP is rmsnorm, qkv, attn, router, shared, expert, moe, forward or decode. FIXTURE is written by
 note test/opref.py from the pinned reference modules; INVENTORY is the TSV flint-manifest
 note printed for SHARD_DIR. Each operator recomputes the reference output in f64 from the
 note real BF16 shard weights and carries a first-order bound E on the error of the
@@ -74,7 +74,13 @@ global gfa f64 4096
 global gfq f64 8192
 global gfo f64 8192
 global gfs ulong 4
+note gkc/gvc: per-layer K and V cache, 49 layers x FKVP positions x 512 (4 kv heads x 128);
+note the global size 200704 = 49 x FKVP x 512 must change with FKVP. fw_kv refuses P+n > FKVP.
+const FKVP ulong 8
+global gkc f64 200704
+global gvc f64 200704
 text tofwd "forward"
+text todec "decode"
 text tembd "model.embed_tokens.weight"
 text tfnorm "model.norm.weight"
 text tlmhead "lm_head.weight"
@@ -84,6 +90,7 @@ text tu "usage: flint-ops OP FIXTURE INVENTORY SHARD_DIR | flint-ops selftest"
 text tio "io"
 text tnreg "not-regular-file"
 text tfx "fixture"
+text tkv "kv-cache-bound"
 text tnf "tensor-not-in-inventory"
 text tdt "tensor-dtype-or-shape"
 text tref "refused "
@@ -1458,14 +1465,32 @@ note only token IDs are inputs; the fixture's intermediate tensors are compariso
 note This f64-compute/BF16-storage numerical profile is NOT bf16-activation qualification.
 note Integration acceptance is |om-ref| <= 8 gamma_2048 (1+|ref|), fixed before execution.
 note The existing per-operator bounds remain the tighter local checks.
-fn fw_cmp n ulong to void
-o = get gfs 1
+note gfs slots: 0 rows n in this chunk, 1 tensor index, 2 first position P, 3 mode (1 decode).
+note A chunk computes rows P .. P+n only; attention reads earlier K/V from gkc/gvc.
+note forward runs one chunk of T rows; decode runs T chunks of one row (KV-cache decode).
+fn fw_cmpat o ulong n ulong to void
 for i ulong n
 r = fx_f add o i
 e = mul mul 4.0f64 gam 2048 add 1.0f64 fabs r
 cmp get gfa i r e
 end
-put gfs 1 add o n
+end
+
+note fixture tensor s holds T rows of FHID after the header and IDs; rows P .. P+n are contiguous
+fn fw_cmp n ulong to void
+T = get gst 4
+o = add add 8 T mul add mul get gfs 1 T get gfs 2 FHID
+fw_cmpat o n
+put gfs 1 add get gfs 1 1
+end
+
+fn fw_rep to int
+if eq get gfs 3 1
+r = report todec
+ret r
+end
+r = report tofwd
+ret r
 end
 
 fn fw_hidden to void
@@ -1519,7 +1544,7 @@ put gve d 0.0f64
 end
 rmsv 128 0
 if rp
-ropev t
+ropev add get gfs 2 t
 end
 for d ulong 128
 if eq nh 32
@@ -1563,12 +1588,40 @@ for d ulong 128
 put gv d get gfq add b d
 end
 g = div h 8
-n = att_sc g t 0
-att_sm n get gsk h get gfs 0
+n = att_sc g add get gfs 2 t 0
+att_sm n get gsk h add get gfs 2 get gfs 0
 put gacc 11 0.0f64
 for d ulong 128
 v = pv_d n add mul g 128 d
 put gfo add b d v
+end
+end
+
+note fw_kv: append this chunk's K (gx2) and V (gx3) rows to layer L's cache at positions
+note P .. P+n, then rebuild gx2/gx3 positions 0 .. P+n from the cache for attention
+fn fw_kv L ulong to void
+P = get gfs 2
+if gt add P get gfs 0 FKVP
+op_die 7 tkv
+end
+n = get gfs 0
+for j ulong n
+c = mul add add mul L FKVP P j 512
+for i ulong 512
+put gkc add c i get gx2 add mul j 512 i
+put gvc add c i get gx3 add mul j 512 i
+end
+end
+fw_kvr L add P n
+end
+
+fn fw_kvr L ulong m ulong to void
+for p ulong m
+c = mul add mul L FKVP p 512
+for i ulong 512
+put gx2 add mul p 512 i get gkc add c i
+put gx3 add mul p 512 i get gvc add c i
+end
 end
 end
 
@@ -1582,6 +1635,7 @@ fw_proj 512
 for i ulong mul get gfs 0 512
 put gx3 i get gx1 i
 end
+fw_kv L
 nm_lay L
 nm_tx tsnk
 ld_t 32 0
@@ -1651,7 +1705,7 @@ put gfh i add get gfh i get gfa i
 end
 fw_hidden
 put gst 3 L
-r = report tofwd
+r = fw_rep
 if ne r 0
 exit 1
 end
@@ -1659,7 +1713,7 @@ end
 
 fn fw_embed to void
 for t ulong get gfs 0
-id = fx_w add 8 t
+id = fx_w add 8 add get gfs 2 t
 if ge id 150144
 op_die 7 tfx
 end
@@ -1692,6 +1746,13 @@ end
 fw_cmp mul get gfs 0 FHID
 end
 
+note fw_lgo: fixture offset of logit r of chunk row t, after the 247 hidden-size tensors
+fn fw_lgo t ulong r ulong to ulong
+T = get gst 4
+o = add add 8 T mul mul T FHID 247
+ret add o add mul add get gfs 2 t 150144 r
+end
+
 fn fw_logits to void
 for t ulong get gfs 0
 for r ulong 150144
@@ -1710,9 +1771,21 @@ end
 end
 v = matdot rem r 2048 FHID
 put gfa 0 v
-fw_cmp 1
+fw_cmpat fw_lgo t r 1
 end
 end
+end
+
+fn fw_chunk P ulong n ulong to void
+put gfs 0 n
+put gfs 1 0
+put gfs 2 P
+fw_embed
+for L ulong 49
+fw_layer L
+end
+fw_final
+fw_logits
 end
 
 fn op_forward to int
@@ -1722,16 +1795,15 @@ op_die 7 tfx
 end
 note words = header + IDs + embeddings + five tensors/layer + final norm + logits
 fx_need add add add 8 T mul mul T FHID 247 mul T 150144
-put gfs 0 T
-put gfs 1 add 8 T
-fw_embed
-for L ulong 49
-fw_layer L
+if eq get gfs 3 1
+for P ulong T
+fw_chunk P 1
 end
-fw_final
-fw_logits
+else
+fw_chunk 0 T
+end
 put gst 3 49
-r = report tofwd
+r = fw_rep
 ret r
 end
 
@@ -1758,6 +1830,10 @@ if op_argeq 1 tomoe
 ret 7
 end
 if op_argeq 1 tofwd
+ret 8
+end
+if op_argeq 1 todec
+put gfs 3 1
 ret 8
 end
 op_die 2 tu
