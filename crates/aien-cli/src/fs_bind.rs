@@ -226,12 +226,20 @@ fn mkdir_at(dirfd: libc::c_int, name: &OsStr) -> std::io::Result<()> {
     }
 }
 
+/// Stop a single file from being pulled into the grep pipe without a bound.
+const READ_LIMIT: u64 = 8 * 1024 * 1024;
+
 fn read_all(file: &mut File) -> Result<Vec<u8>, BindError> {
     file.seek(SeekFrom::Start(0))
         .map_err(|e| BindError::Failed(e.to_string()))?;
     let mut buf = Vec::new();
     file.read_to_end(&mut buf)
         .map_err(|e| BindError::Failed(e.to_string()))?;
+    if buf.len() as u64 > READ_LIMIT {
+        return Err(BindError::Denied(
+            "refusing the file: it is larger than the read limit".into(),
+        ));
+    }
     Ok(buf)
 }
 
@@ -654,20 +662,44 @@ fn grep_bytes(query: &str, bytes: &[u8]) -> Result<Vec<String>, BindError> {
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| BindError::Failed(format!("failed to run grep: {e}")))?;
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(bytes);
-    }
-    let out = child
-        .wait_with_output()
-        .map_err(|e| BindError::Failed(format!("grep failed: {e}")))?;
-    if out.status.code() == Some(2) {
-        let err = String::from_utf8_lossy(&out.stderr);
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| BindError::Failed("grep stdin is unavailable".into()))?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| BindError::Failed("grep stdout is unavailable".into()))?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| BindError::Failed("grep stderr is unavailable".into()))?;
+    // Write stdin on another thread. Reading stdout only after the write
+    // fills both pipes once the match output exceeds the kernel buffer.
+    let payload = bytes.to_vec();
+    let writer = std::thread::spawn(move || {
+        let _ = stdin.write_all(&payload);
+    });
+    let err_reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stderr.read_to_end(&mut buf);
+        buf
+    });
+    let mut out = Vec::new();
+    let read_result = stdout.read_to_end(&mut out);
+    let status = child.wait();
+    let _ = writer.join();
+    let err_buf = err_reader.join().unwrap_or_default();
+    read_result.map_err(|e| BindError::Failed(format!("grep failed: {e}")))?;
+    let status = status.map_err(|e| BindError::Failed(format!("grep failed: {e}")))?;
+    if status.code() == Some(2) {
+        let err = String::from_utf8_lossy(&err_buf);
         return Err(BindError::Failed(format!(
             "grep refused the pattern: {}",
             err.trim()
         )));
     }
-    let text = String::from_utf8_lossy(&out.stdout);
+    let text = String::from_utf8_lossy(&out);
     Ok(text.lines().map(|s| s.to_string()).collect())
 }
 
@@ -1249,5 +1281,31 @@ mod tests {
         );
         let (_, text) = read_text(target.to_str().unwrap()).unwrap();
         assert_eq!(text, INSIDE);
+    }
+
+    #[test]
+    fn grep_bytes_makes_progress_on_large_input_and_output() {
+        let line = "match-token\n";
+        let copies = (1024 * 1024) / line.len();
+        let bytes = line.repeat(copies).into_bytes();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(grep_bytes("match-token", &bytes));
+        });
+        let result = match rx.recv_timeout(Duration::from_secs(8)) {
+            Ok(result) => result,
+            Err(_) => {
+                let _ = Command::new("pkill")
+                    .args(["-P", &std::process::id().to_string(), "grep"])
+                    .status();
+                panic!("grep_bytes stalled; stdout was not read while stdin was written");
+            }
+        };
+        let lines = result.expect("grep");
+        assert!(
+            lines.len() > 1000,
+            "expected a large match set, got {}",
+            lines.len()
+        );
     }
 }
