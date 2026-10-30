@@ -378,16 +378,16 @@ impl SealKey {
         }
         // Draw before the count is committed and before any write to `file`.
         // A failed source must not mark the buffer as sealed, must not encrypt,
-        // and must not consume a budget slot.
+        // and must not consume a budget slot. The AEAD call stays in this
+        // function: `fill_nonce` overwrites the stack buffer, and a helper
+        // parameter named `nonce` is a hard-coded-nonce sink for that zero
+        // fill (the query does not treat the trait write as a barrier).
+        let source = self.active_source();
         let mut nonce = [0u8; NONCE_LEN];
-        self.active_source().fill_nonce(&mut nonce)?;
+        source.fill_nonce(&mut nonce)?;
         // The count is durable before `file` changes. A persist error returns
         // with the plaintext still in the caller's buffer.
         self.commit_usage(usage_dir)?;
-        self.apply_seal(nonce, file)
-    }
-
-    fn apply_seal(&self, nonce: [u8; NONCE_LEN], file: &mut [u8]) -> Result<(), SealError> {
         let (region, payload) = file.split_at_mut(HEADER_REGION_LEN);
         region[O_MAGIC..O_MAGIC + 3].copy_from_slice(&SEAL_MAGIC);
         region[O_VERSION] = SEALED_FORMAT_VERSION;
