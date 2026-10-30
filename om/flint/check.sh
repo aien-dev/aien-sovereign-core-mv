@@ -37,8 +37,8 @@ fail=0
 ok() { pass=$((pass + 1)); echo "ok   $*"; }
 bad() { fail=$((fail + 1)); echo "FAIL $*"; }
 
-build() { # out source
-  { printf 'om2\n'; cat "$root/om/vendor/json.om" "$2"; } | "$OMC" > "$1" 2> "$1.err" || { echo "compile: $(cat "$1.err")"; return 1; }
+build() { # out source [vendor units placed between json.om and source]
+  { printf 'om2\n'; cat "$root/om/vendor/json.om" "${@:3}" "$2"; } | "$OMC" > "$1" 2> "$1.err" || { echo "compile: $(cat "$1.err")"; return 1; }
   chmod 700 "$1"
 }
 gen() { rm -rf "$b/fx"; python3 "$here/test/gen.py" "$here/test/config.json" "$b/fx" "$1" < /dev/null; }
@@ -47,7 +47,8 @@ run() { # binary; sets rc, leaves out.tsv and err in $b/fx
   rc=$?
 }
 
-build "$b/fm" "$here/manifest.om" || exit 1
+SHA256_OM="$root/om/vendor/sha256.om"
+build "$b/fm" "$here/manifest.om" "$SHA256_OM" || exit 1
 
 # 1. synthetic checkpoint must load
 gen base || exit 1
@@ -57,7 +58,7 @@ if [ "$rc" = 0 ] && cmp -s "$b/fx/out.tsv" "$b/fx/expected.tsv" && [ "$(cat "$b/
 else
   bad "base: rc $rc, $(head -c 200 "$b/fx/err")"
 fi
-for args in "" "a" "a b" "a b c d"; do
+for args in "" "a" "a b" "a b c d e"; do
   # shellcheck disable=SC2086
   "$b/fm" $args > "$b/u.out" 2> /dev/null < /dev/null
   r=$?
@@ -102,7 +103,8 @@ hdr-dup 39
 hdr-mismatch 40
 hdr-missing 41
 hdr-unknown 23
-shard-cap 42'
+shard-cap 42
+exp-perm 44'
 while read -r m want; do
   gen "$m" || { bad "$m: fixture generator failed"; continue; }
   run "$b/fm"
@@ -116,7 +118,7 @@ done <<< "$FIX"
 # 3. guard mutants: the reader with one guard removed must stop producing that guard's code
 s=$(cat "$here/manifest.om")
 mutant() { # name want fixture; reads $b/mut.om
-  build "$b/mut" "$b/mut.om" || { bad "mutant $1: does not compile"; return; }
+  build "$b/mut" "$b/mut.om" "$SHA256_OM" || { bad "mutant $1: does not compile"; return; }
   gen "$3" || { bad "mutant $1: fixture generator failed"; return; }
   run "$b/mut"
   if [ "$rc" = "$2" ]; then bad "mutant $1: still exits $2 on $3, so the guard is not what refuses it"; else ok "mutant $1: $3 now exits $rc, not $2"; fi
@@ -144,7 +146,8 @@ GUARD='3 shard-absent
 39 hdr-dup
 40 hdr-mismatch
 41 hdr-missing
-42 shard-cap'
+42 shard-cap
+44 exp-perm'
 nl=$'\n'
 while read -r code fx; do
   t=${s//"fm_die $code tr$code$nl"/"put gst 14 get gst 14$nl"}
@@ -157,6 +160,46 @@ if [ "$t" = "$s" ]; then bad "mutant no-nofollow: open flags not found"; else
   printf '%s\n' "$t" > "$b/mut.om"
   mutant no-nofollow 4 shard-symlink
 fi
+
+# 3b. load report (issue #834): with a fourth argument TOKDIR the reader prints its own report.
+#     test/load-report.txt is frozen from the pinned checkpoint and was checked line by line against
+#     sha256sum of the source files and a Python sum over the shard headers. On the synthetic
+#     checkpoint the layout-derived lines (version, control, kind, total) must equal the frozen ones
+#     and every file line must carry sha256sum's hash; each report mutant must be caught (refusal
+#     45 from the loader's own reconciliation, or a line that differs from the frozen report).
+REP="$here/test/load-report.txt"
+repkeep() { grep -E '^(flint-load-report|control|kind|total) ' "$1"; }
+mkdir -p "$b/tok"
+for f in tokenizer.json tokenizer_config.json chat_template.jinja generation_config.json; do printf '%s\n' "$f" > "$b/tok/$f"; done
+report() { # binary; sets rc, leaves rep.txt in $b/fx
+  (cd "$b/fx" && timeout 60 "$1" config.json index.json shards "$b/tok" > rep.txt 2> rep.err < /dev/null)
+  rc=$?
+}
+gen base || exit 1
+report "$b/fm"
+want=$(printf 'file config sha256 %s bytes %s\n' "$(sha "$b/fx/config.json")" "$(stat -c %s "$b/fx/config.json")"
+  printf 'file index sha256 %s bytes %s\n' "$(sha "$b/fx/index.json")" "$(stat -c %s "$b/fx/index.json")"
+  for f in tokenizer.json tokenizer_config.json chat_template.jinja generation_config.json; do
+    printf 'file %s sha256 %s bytes %s\n' "$f" "$(sha "$b/tok/$f")" "$(stat -c %s "$b/tok/$f")"
+  done
+  printf 'file inventory sha256 %s bytes %s\n' "$(sha "$b/fx/expected.tsv")" "$(stat -c %s "$b/fx/expected.tsv")")
+if [ "$rc" = 0 ] && [ "$(repkeep "$b/fx/rep.txt")" = "$(repkeep "$REP")" ] && [ "$(grep '^file ' "$b/fx/rep.txt")" = "$want" ] && [ "$(cat "$b/fx/rep.err")" = "$SUMMARY" ]; then
+  ok "report: synthetic layout lines equal test/load-report.txt, file hashes equal sha256sum"
+else
+  bad "report: rc $rc, $(head -c 200 "$b/fx/rep.err")"
+fi
+RMUT='report-double-params|put gkp q add get gkp q np|put gkp q add get gkp q mul 2 np
+report-drop-down|ret add 19 rem sub k 16 3|ret add 19 rem sub k 16 2'
+while IFS='|' read -r name from to; do
+  t=${s//"$from"/"$to"}
+  if [ "$t" = "$s" ] || [ "$(grep -cF -- "$from" "$here/manifest.om")" != 1 ]; then bad "mutant $name: site not found exactly once"; continue; fi
+  printf '%s\n' "$t" > "$b/mut.om"
+  build "$b/mut" "$b/mut.om" "$SHA256_OM" || { bad "mutant $name: does not compile"; continue; }
+  report "$b/mut"
+  if [ "$rc" != 0 ]; then ok "mutant $name: refused, $(head -c 80 "$b/fx/rep.err")"
+  elif [ "$(repkeep "$b/fx/rep.txt")" != "$(repkeep "$REP")" ]; then ok "mutant $name: report differs from test/load-report.txt"
+  else bad "mutant $name: report unchanged"; fi
+done <<< "$RMUT"
 
 # 4. real checkpoint arms
 if [ -n "${FLINT_SRC:-}" ]; then
@@ -181,6 +224,9 @@ PY
     else
       bad "FLINT_SRC: rc $r, $(head -c 200 "$b/hdr.err")"
     fi
+    timeout 60 "$b/fm" "$FLINT_SRC/config.json" "$FLINT_SRC/model.safetensors.index.json" "$b/hdr" "$FLINT_SRC" > "$b/hdr.rep" 2> /dev/null < /dev/null
+    r=$?
+    if [ "$r" = 0 ] && cmp -s "$b/hdr.rep" "$REP"; then ok "FLINT_SRC: load report equals test/load-report.txt"; else bad "FLINT_SRC: load report rc $r or differs from test/load-report.txt"; fi
   fi
 else
   echo "NOT_RUN FLINT_SRC (pinned header capture of RecursiveSI/flint 2a247be0)"
@@ -193,6 +239,9 @@ if [ -n "${FLINT_SHARDS:-}" ] && [ -n "${FLINT_SRC:-}" ]; then
   else
     bad "FLINT_SHARDS: rc $r, $(head -c 200 "$b/real.err")"
   fi
+  timeout 600 "$b/fm" "$FLINT_SRC/config.json" "$FLINT_SRC/model.safetensors.index.json" "$FLINT_SHARDS" "$FLINT_SHARDS" > "$b/real.rep" 2> /dev/null < /dev/null
+  r=$?
+  if [ "$r" = 0 ] && cmp -s "$b/real.rep" "$REP"; then ok "FLINT_SHARDS: load report equals test/load-report.txt"; else bad "FLINT_SHARDS: load report rc $r or differs from test/load-report.txt"; fi
 else
   echo "NOT_RUN FLINT_SHARDS (the 15 downloaded shards; needs FLINT_SRC too)"
 fi

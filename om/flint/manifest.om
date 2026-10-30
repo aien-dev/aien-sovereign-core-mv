@@ -1,17 +1,21 @@
 note flint-manifest: bounded reader for the pinned Flint BF16 checkpoint (aien-architecture-mv#353,
-note Core #802 P0). Usage: flint-manifest CONFIG INDEX SHARD_DIR. It admits config.json,
+note Core #802 P0). Usage: flint-manifest CONFIG INDEX SHARD_DIR [TOKDIR]. It admits config.json,
 note model.safetensors.index.json and every safetensors header named by the index, and refuses
 note anything outside the pinned layout. On success stdout is the tensor inventory TSV (one row per
 note tensor: name, shard, dtype, shape, begin, end; shards in name order, rows in header order) and
-note stderr carries one summary line. On refusal nothing is written to stdout, stderr carries
-note "refused N reason" and the exit status is N (table in om/flint/README.md).
-note Compose: { printf 'om2\n'; cat om/vendor/json.om om/flint/manifest.om; } | omc
+note stderr carries one summary line. With TOKDIR, stdout is instead the load report (file, tokenizer
+note and inventory sha256, control tokens, per-shard header identity, per-class tensor counts,
+note parameters and bytes, reconciled totals). On refusal nothing is written to stdout, stderr
+note carries "refused N reason" and the exit status is N (table in om/flint/README.md).
+note Compose: { printf 'om2\n'; cat om/vendor/json.om om/vendor/sha256.om om/flint/manifest.om; } | omc
 note Canonical tensor id (slot): 0 embed, 1 final norm, 2 lm_head, then 3 + layer * 784 + kind.
 note Kinds 0..8 every layer, 9..11 dense MLP (layers 0 and 1), 12..15 router and shared expert,
 note 16 + 3 * expert + j routed expert projections (j 0 gate, 1 up, 2 down), MoE layers 2..48.
 
 const FMX ulong 99999
 const FMNS ulong 38419
+const FBOS ulong 150000
+const FPAD ulong 150001
 global ga uchar 16384
 global gas ulong 8
 global gal ulong 8
@@ -30,13 +34,28 @@ global gh8 uchar 8
 global geb uchar 512
 global gdg uchar 24
 global gob uchar 8388608
+global gsb ulong 38419
+global glx ulong 256
+global gxc ulong 64
+global gkc ulong 24
+global gkp ulong 24
+global gkb ulong 24
+global ghs uchar 4352
+global gsz ulong 64
+global ghl ulong 64
+global gsc ulong 64
 
 note gst: 0 index tensors, 1 total_size, 2 params, 3 routed params, 4 tensor bytes, 5 stdout fill,
 note 6 header tensors, 7 index cursor, 8 index length, 9 last fstat size, 10 shard index,
 note 11 shard data length, 12 shard entries, 13 shard count, 14 stderr fill, 15 string start,
-note 16 string length, 17 number end, 18 mantissa, 19 biased exponent, 20 mantissa end.
+note 16 string length, 17 number end, 18 mantissa, 19 biased exponent, 20 mantissa end,
+note 21 report mode (TOKDIR given), 22 config bytes.
+note gsb: slot -> data begin; glx: experts in name order; gxc: per-shard cursor of the layout walk;
+note gkc/gkp/gkb: per report class tensors, parameters, bytes; ghs: 64 hex sha256 per shard
+note header, then slot 64 config, 65 index, 66 inventory TSV, 67 last TOKDIR file;
+note gsz/ghl/gsc: per shard file bytes, header bytes, tensors.
 
-text tr2 "usage: flint-manifest CONFIG INDEX SHARD_DIR"
+text tr2 "usage: flint-manifest CONFIG INDEX SHARD_DIR [TOKDIR]"
 text tr3 "io"
 text tr4 "not-regular-file"
 text tr10 "config-json"
@@ -62,6 +81,27 @@ text tr40 "shard-mismatch"
 text tr41 "header-missing-tensor"
 text tr42 "shard-capacity"
 text tr43 "output-capacity"
+text tr44 "expert-layout"
+text tr45 "load-report"
+text trpv "flint-load-report 1"
+text trfile "file "
+text trsha " sha256 "
+text trcfg "config"
+text tridx "index"
+text trtok "tokenizer.json"
+text trtkc "tokenizer_config.json"
+text trtpl "chat_template.jinja"
+text trgen "generation_config.json"
+text trinv "inventory"
+text trctl "control bos "
+text trpad " pad "
+text treos " eos"
+text trsh "shard "
+text trhdr " header "
+text trkind "kind "
+text trstar "*."
+text trten " tensors "
+text trtot "total tensors "
 text tref "refused "
 text tsok "flint-manifest ok tensors "
 text tspar " params "
@@ -1010,7 +1050,7 @@ if eq id 3
 ret fm_cdec src tape v 0 0
 end
 if eq id 4
-ret fm_cu src tape v 150000
+ret fm_cu src tape v FBOS
 end
 if eq id 5
 ret fm_cu src tape v 1
@@ -1070,7 +1110,7 @@ if or eq id 23 eq id 34
 ret or eq ty jstrue eq ty jsfalse
 end
 if eq id 24
-ret fm_cu src tape v 150001
+ret fm_cu src tape v FPAD
 end
 if eq id 25
 ret fm_cdec src tape v 1 99994
@@ -1601,7 +1641,44 @@ fm_ou get gen c
 fm_ob 10
 end
 
-note fm_acct: count slot s (extent c) into the tensor, parameter, routed and byte totals
+note ======== load report hashing (om/vendor/sha256.om) ========
+
+note fm_hfin: finish the running sha256 into ghs slot r (64 lowercase hex bytes)
+fn fm_hfin r ulong to void
+if not hfinal
+fm_die 45 tr45
+end
+for i ulong 64
+put ghs add mul r 64 i get hd i
+end
+end
+
+note fm_hsh: sha256 of b[0 .. n) into ghs slot r
+fn fm_hsh b view uchar * n ulong r ulong to void
+hreset
+for i ulong n
+if not hpush get b i
+fm_die 45 tr45
+end
+end
+fm_hfin r
+end
+
+note fm_cls: report class of slot s: 0 embed, 1 final norm, 2 lm_head, 3 + per-layer kind 0..15,
+note 19 + j routed expert projection (j 0 gate, 1 up, 2 down)
+fn fm_cls s ulong to ulong
+if lt s 3
+ret s
+end
+k = fm_kd s
+if lt k 16
+ret add 3 k
+end
+ret add 19 rem sub k 16 3
+end
+
+note fm_acct: count slot s (extent c) into the tensor, parameter, routed and byte totals and into
+note its report class
 fn fm_acct s ulong c ulong to void
 put gst 12 add c 1
 put gst 6 add get gst 6 1
@@ -1612,7 +1689,12 @@ if ge fm_kd s 16
 put gst 3 add get gst 3 np
 end
 end
-put gst 4 add get gst 4 sub get gen c get gbg c
+nby = sub get gen c get gbg c
+put gst 4 add get gst 4 nby
+q = fm_cls s
+put gkc q add get gkc q 1
+put gkp q add get gkp q np
+put gkb q add get gkb q nby
 end
 
 fn fm_entry src view uchar 983040 tape view uint 262160 nb edit uchar 256 k ulong to void
@@ -1640,6 +1722,7 @@ fm_die 42 tr42
 end
 fm_eval src tape add k 1 s
 put gsee s uchar add get gst 10 1
+put gsb s get gbg c
 fm_acct s c
 fm_orow nb n s c
 end
@@ -1697,6 +1780,11 @@ fm_die 31 tr31
 end
 fm_pfull fd src hl 8
 fm_close fd
+if eq get gst 21 1
+fm_hsh src hl si
+put gsz si sz
+put ghl si hl
+end
 put gst 10 si
 put gst 11 sub sub sz 8 hl
 put gst 12 0
@@ -1720,6 +1808,383 @@ fm_entry src tape nb k
 k = js_mnext tape k
 end
 fm_tile
+put gsc si get gst 12
+end
+
+note ======== expert layout (checked before the routed experts are fused) ========
+
+note fm_lxe: the expert whose decimal name has the 3-place key k (digit + 1 per place, 0 past the
+note end, so key order is the byte order of the names), FMX when k spells no expert 0..255
+fn fm_lxe k ulong to ulong
+a = div k 121
+b = rem div k 11 11
+c = rem k 11
+if eq a 0
+ret FMX
+end
+if and eq b 0 ne c 0
+ret FMX
+end
+if and eq a 1 ne b 0
+ret FMX
+end
+v = sub a 1
+if ne b 0
+v = add mul v 10 sub b 1
+end
+if ne c 0
+v = add mul v 10 sub c 1
+end
+if ge v 256
+ret FMX
+end
+ret v
+end
+
+note fm_xord: glx = the 256 experts in tensor name order (0, 1, 10, 100, 101, .., 99)
+fn fm_xord to void
+n = ulong 0
+for k ulong 1331
+e = fm_lxe k
+if ne e FMX
+if ge n 256
+fm_die 44 tr44
+end
+put glx n e
+n = add n 1
+end
+end
+if ne n 256
+fm_die 44 tr44
+end
+end
+
+note fm_xone: projection j of expert e in MoE layer l must begin, inside its shard, exactly where
+note the previous expert tensor of that layer in name order ended
+fn fm_xone l ulong e ulong j ulong to void
+s = add add 3 mul l 784 add 16 add mul e 3 j
+sh = get gsee s
+if eq sh 0
+fm_die 44 tr44
+end
+x = sub ulong sh 1
+b = get gsb s
+cu = get gxc x
+if and ne cu FMX ne b cu
+fm_die 44 tr44
+end
+put gxc x add b mul 2 fm_np s
+end
+
+note fm_xlay: bind expert index to data offset before fusing. The safetensors writer lays a
+note shard's tensors out in name order, so each MoE layer's 768 expert tensors (names .. .E.down,
+note .E.gate, .E.up for E in name order) must tile every shard they occupy in that order. Names
+note and shapes are bound per tensor (23, 36, 37); this binds the index to the bytes: two experts
+note whose extents trade places, or any other permutation, refuses 44 before any forward math.
+fn fm_xlay to void
+fm_xord
+for l ulong 47
+for i ulong 64
+put gxc i FMX
+end
+for k ulong 256
+for jj ulong 3
+fm_xone add l 2 get glx k rem add jj 2 3
+end
+end
+end
+end
+
+note ======== load report ========
+
+note fm_krec: the per-class accounts must reconcile with the running totals: tensors, parameters,
+note routed parameters (classes 19..21), bytes, and bytes = 2 * parameters (BF16)
+fn fm_krec to void
+t = ulong 0
+p = ulong 0
+r = ulong 0
+by = ulong 0
+for q ulong 22
+t = add t get gkc q
+p = add p get gkp q
+by = add by get gkb q
+if ge q 19
+r = add r get gkp q
+end
+end
+if or ne t get gst 6 ne p get gst 2
+fm_die 45 tr45
+end
+if or ne r get gst 3 ne by get gst 4
+fm_die 45 tr45
+end
+if ne by mul 2 p
+fm_die 45 tr45
+end
+end
+
+fn fm_ohex r ulong to void
+for i ulong 64
+fm_ob get ghs add mul r 64 i
+end
+end
+
+note fm_ofile: "file LABEL sha256 HEX bytes N" with the hash from ghs slot r
+fn fm_ofile t view uchar * r ulong n ulong to void
+fm_otx trfile
+fm_otx t
+fm_otx trsha
+fm_ohex r
+fm_otx tsby
+fm_ou n
+fm_ob 10
+end
+
+note fm_tpath: TOKDIR/t into gpth, its length
+fn fm_tpath t view uchar * to ulong
+dn = get gal 4
+if or eq dn 0 gt dn 3900
+fm_die 2 tr2
+end
+o = get gas 4
+for i ulong dn
+put gpth i get ga add o i
+end
+put gpth dn 47
+for j ulong len t
+put gpth add add dn 1 j get t j
+end
+ret add add dn 1 len t
+end
+
+note fm_hfile: stream TOKDIR/t through b into sha256 and write its file line
+fn fm_hfile t view uchar * b edit uchar 983040 to void
+fd = fm_open fm_tpath t
+n = get gst 9
+hreset
+o = ulong 0
+while lt o n bound 999999
+m = sub n o
+if gt m len b
+m = len b
+end
+fm_pfull fd b m o
+for i ulong m
+if not hpush get b i
+fm_die 45 tr45
+end
+end
+o = add o m
+end
+fm_close fd
+fm_hfin 67
+fm_ofile t 67 n
+end
+
+note fm_hidx: sha256 of the admitted index bytes gx[0 .. gst 8) into slot 65
+fn fm_hidx to void
+hreset
+n = get gst 8
+o = ulong 0
+while lt o n bound 999999
+m = sub n o
+if gt m 65536
+m = 65536
+end
+for i ulong m
+if not hpush get gx add o i
+fm_die 45 tr45
+end
+end
+o = add o m
+end
+fm_hfin 65
+end
+
+note fm_hinv: sha256 of the inventory TSV built in gob into slot 66 (loops stay under the bound)
+fn fm_hinv to void
+hreset
+n = get gst 5
+o = ulong 0
+while lt o n bound 999999
+m = sub n o
+if gt m 65536
+m = 65536
+end
+for i ulong m
+if not hpush get gob add o i
+fm_die 45 tr45
+end
+end
+o = add o m
+end
+fm_hfin 66
+end
+
+note fm_octl: the control tokens config admission pinned (bos, pad, eos list)
+fn fm_octl to void
+fm_otx trctl
+fm_ou FBOS
+fm_otx trpad
+fm_ou FPAD
+fm_otx treos
+for i ulong fm_alen 0
+fm_ob 32
+fm_ou fm_aval 0 i
+end
+fm_ob 10
+end
+
+fn fm_oshd si ulong to void
+fm_otx trsh
+for j ulong get gsl si
+fm_ob get gsn add mul si 128 j
+end
+fm_otx tsby
+fm_ou get gsz si
+fm_otx trhdr
+fm_ou get ghl si
+fm_otx trsha
+fm_ohex si
+fm_otx trten
+fm_ou get gsc si
+fm_ob 10
+end
+
+fn fm_otk k ulong to void
+if eq k 0
+fm_otx tk0
+end
+if eq k 1
+fm_otx tk1
+end
+if eq k 2
+fm_otx tk2
+end
+if eq k 3
+fm_otx tk3
+end
+if eq k 4
+fm_otx tk4
+end
+if eq k 5
+fm_otx tk5
+end
+if eq k 6
+fm_otx tk6
+end
+if eq k 7
+fm_otx tk7
+end
+if eq k 8
+fm_otx tk8
+end
+if eq k 9
+fm_otx tk9
+end
+if eq k 10
+fm_otx tk10
+end
+if eq k 11
+fm_otx tk11
+end
+if eq k 12
+fm_otx tk12
+end
+if eq k 13
+fm_otx tk13
+end
+if eq k 14
+fm_otx tk14
+end
+if eq k 15
+fm_otx tk15
+end
+end
+
+note fm_okn: the name pattern of report class q (* for the layer and the expert index)
+fn fm_okn q ulong to void
+if eq q 0
+fm_otx tembed
+ret
+end
+if eq q 1
+fm_otx tnorm
+ret
+end
+if eq q 2
+fm_otx tlmh
+ret
+end
+fm_otx tlayers
+fm_otx trstar
+if lt q 19
+fm_otk sub q 3
+ret
+end
+fm_otx texp
+fm_otx trstar
+j = sub q 19
+if eq j 0
+fm_otx tgate
+end
+if eq j 1
+fm_otx tup
+end
+if eq j 2
+fm_otx tdown
+end
+end
+
+fn fm_okind q ulong to void
+fm_otx trkind
+fm_okn q
+fm_otx trten
+fm_ou get gkc q
+fm_otx tspar
+fm_ou get gkp q
+fm_otx tsby
+fm_ou get gkb q
+fm_ob 10
+end
+
+fn fm_otot to void
+fm_otx trtot
+fm_ou get gst 6
+fm_otx tspar
+fm_ou get gst 2
+fm_otx tsrt
+fm_ou get gst 3
+fm_otx tsby
+fm_ou get gst 4
+fm_otx tssh
+fm_ou get gst 13
+fm_ob 10
+end
+
+note fm_rep: replace the inventory TSV on stdout with the load report (its sha256 is a report line)
+fn fm_rep src edit uchar 983040 to void
+ni = get gst 5
+fm_hinv
+fm_hidx
+put gst 5 0
+fm_otx trpv
+fm_ob 10
+fm_ofile trcfg 64 get gst 22
+fm_ofile tridx 65 get gst 8
+fm_hfile trtok src
+fm_hfile trtkc src
+fm_hfile trtpl src
+fm_hfile trgen src
+fm_ofile trinv 66 ni
+fm_octl
+for j ulong get gst 13
+fm_oshd get gord j
+end
+for q ulong 22
+fm_okind q
+end
+fm_otot
 end
 
 fn fm_summary to void
@@ -1740,11 +2205,11 @@ end
 
 fn main to int
 c = argcnt
-if ne c 4
+if and ne c 4 ne c 5
 fm_die 2 tr2
 end
 o = ulong 0
-for i ulong 4
+for i ulong ulong c
 r = argread i ga o sub len ga o
 if lt r 0
 fm_die 2 tr2
@@ -1756,7 +2221,14 @@ end
 src = new uchar 983040 0
 tape = new uint 262160 0
 nb = new uchar 256 0
+if eq c 5
+put gst 21 1
+end
 n = fm_rcfg src
+if eq get gst 21 1
+fm_hsh src n 64
+put gst 22 n
+end
 fm_cfg src tape n
 fm_ridx
 fm_ohdr
@@ -1767,8 +2239,13 @@ for j ulong get gst 13
 fm_shard src tape nb get gord j
 end
 fm_hmiss
+fm_xlay
 if ne get gst 4 get gst 1
 fm_die 25 tr25
+end
+fm_krec
+if eq get gst 21 1
+fm_rep src
 end
 fm_oflush
 fm_summary

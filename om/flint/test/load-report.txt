@@ -1,0 +1,47 @@
+flint-load-report 1
+file config sha256 a57c33d11f725099105b657043c113149763066d204fd472d0b2ee399abc2ba7 bytes 2451
+file index sha256 e5e9c492685f84c8d2d8369f36c74674b03410715f23f6179313f6f1feb90311 bytes 3329405
+file tokenizer.json sha256 a263cce0b7e2b03f7ee07ce809783ef4b47f160c3f268a4ea1524f638da45b68 bytes 10879128
+file tokenizer_config.json sha256 159ac88217e90ffd0a4a294726048bb302829e82e1958dc85bb203aa79138fbf bytes 30439
+file chat_template.jinja sha256 7940f4ffa3275c36caa4a582f845aaad79da11018b3961e8fbcad6ae29733466 bytes 2328
+file generation_config.json sha256 a499c71895e008abd572558a5ad5904feaed92cf2a3b6e2cb0e9cabf03b96ed3 bytes 202
+file inventory sha256 60ff4dbdaa1c3632c934c6935aa60ed5b2def4e15f0ca5083ddc7dd660f083f5 bytes 4269125
+control bos 150000 pad 150001 eos 150001 150003 150005 150018
+shard model-00001-of-00015.safetensors bytes 5369025064 header 315936 sha256 67337967567f0eee1b8feb2396a6a6b7df1f1e8bc87f262046f8e027c76401e7 tensors 2560
+shard model-00002-of-00015.safetensors bytes 5369025168 header 316040 sha256 87c0c3a37d063335df1142b2b96d506cd49ccaed9e31ebc13791501e565b46e3 tensors 2559
+shard model-00003-of-00015.safetensors bytes 5369026736 header 317608 sha256 47b4d1a5e42839d383edf6270de06bcb3edbd84dcbed2932eaf01d9bcdf91cd7 tensors 2558
+shard model-00004-of-00015.safetensors bytes 5369027984 header 318856 sha256 07ada28647d9e13744acd17d4cc69370f80f6f6b27d7c620ac0e159248c31ec5 tensors 2560
+shard model-00005-of-00015.safetensors bytes 5369027520 header 318392 sha256 b3e73559b03293b790e9a3b6f6d18808857d3a1e16656c6e269054889cbcbfa7 tensors 2559
+shard model-00006-of-00015.safetensors bytes 5369027848 header 318720 sha256 6c03c2923011a5973eb4fd00d571e90d22ac46022b5df37d0b22bed6f3987314 tensors 2560
+shard model-00007-of-00015.safetensors bytes 5369027984 header 318856 sha256 4175697f99179fa4dc9514d5ec8ce01485e1dfcfdb52059d0f8b02d6ef6f60a6 tensors 2560
+shard model-00008-of-00015.safetensors bytes 5369027632 header 318504 sha256 c4e761259055d94db75dfbd371ad5b130a580407b1126e3a968117eec158b317 tensors 2560
+shard model-00009-of-00015.safetensors bytes 5369027848 header 318720 sha256 3212e41927f4968d026a4f3fe4ee85cc3be915cd69a2401dd4e492ed483d58fc tensors 2560
+shard model-00010-of-00015.safetensors bytes 5369027984 header 318856 sha256 0308b39bf000fc87fc030d041ca0687f8ad4e4b80723e73d98bb773ae0ebce3e tensors 2560
+shard model-00011-of-00015.safetensors bytes 5369027632 header 318504 sha256 75763778b5c0c9b6690157dd868771b565cbd6cdcfe6058da163058d87892fe3 tensors 2560
+shard model-00012-of-00015.safetensors bytes 5367976344 header 295824 sha256 53a799b7c90b3a6da3a115139412a47ec4f5e9b146cd6dbee77fa68a5312b4ad tensors 2385
+shard model-00013-of-00015.safetensors bytes 5368466032 header 279656 sha256 9ea26e01d03f4be32d916607f797d80799eabd86ce0a01b7985495390d6c57d7 tensors 2244
+shard model-00014-of-00015.safetensors bytes 5369027736 header 318608 sha256 b0fe8d2d8ae39586e7f22cee86563cb916b94d486cd8a7e74bb08cf2b36dc856 tensors 2560
+shard model-00015-of-00015.safetensors bytes 4410368544 header 169944 sha256 eb27335baaf56b56bf6de959472a3d8b7de636d2dc3782883b106fcea377be70 tensors 1389
+kind model.embed_tokens.weight tensors 1 params 307494912 bytes 614989824
+kind model.norm.weight tensors 1 params 2048 bytes 4096
+kind lm_head.weight tensors 1 params 307494912 bytes 614989824
+kind model.layers.*.input_layernorm.weight tensors 49 params 100352 bytes 200704
+kind model.layers.*.post_attention_layernorm.weight tensors 49 params 100352 bytes 200704
+kind model.layers.*.self_attn.q_proj.weight tensors 49 params 411041792 bytes 822083584
+kind model.layers.*.self_attn.k_proj.weight tensors 49 params 51380224 bytes 102760448
+kind model.layers.*.self_attn.v_proj.weight tensors 49 params 51380224 bytes 102760448
+kind model.layers.*.self_attn.o_proj.weight tensors 49 params 411041792 bytes 822083584
+kind model.layers.*.self_attn.q_norm.weight tensors 49 params 6272 bytes 12544
+kind model.layers.*.self_attn.k_norm.weight tensors 49 params 6272 bytes 12544
+kind model.layers.*.self_attn.softmax_offset tensors 49 params 1568 bytes 3136
+kind model.layers.*.mlp.gate_proj.weight tensors 2 params 25165824 bytes 50331648
+kind model.layers.*.mlp.up_proj.weight tensors 2 params 25165824 bytes 50331648
+kind model.layers.*.mlp.down_proj.weight tensors 2 params 25165824 bytes 50331648
+kind model.layers.*.mlp.gate.weight tensors 47 params 24641536 bytes 49283072
+kind model.layers.*.mlp.shared_expert.gate_proj.weight tensors 47 params 98566144 bytes 197132288
+kind model.layers.*.mlp.shared_expert.up_proj.weight tensors 47 params 98566144 bytes 197132288
+kind model.layers.*.mlp.shared_expert.down_proj.weight tensors 47 params 98566144 bytes 197132288
+kind model.layers.*.mlp.experts.*.gate_proj.weight tensors 12032 params 12616466432 bytes 25232932864
+kind model.layers.*.mlp.experts.*.up_proj.weight tensors 12032 params 12616466432 bytes 25232932864
+kind model.layers.*.mlp.experts.*.down_proj.weight tensors 12032 params 12616466432 bytes 25232932864
+total tensors 36734 params 39785287456 routed 37849399296 bytes 79570574912 shards 15
