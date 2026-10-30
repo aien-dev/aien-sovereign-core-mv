@@ -31,6 +31,8 @@ Every headline performance number must resolve to a reproducible command and an 
 
 - Expert Heartbeat H1 ring streamer (aienix#4): verified expert rotation from NVMe at 10.36 GB/s payload, 2.80 s per full 6,144-expert beat; method, receipts and limits in [crates/aien-heartbeat](crates/aien-heartbeat/README.md). Measured with aien-calc receipts; not yet packaged as the artifact bundle this section requires.
 
+The one deliberate exception is bar P0 of the GPU-stack plan: a predeclared, same-Spark, end-to-end head-to-head of this repo's `aien-serve-http` against vLLM and llama.cpp on the same Qwen3.6-35B-A3B checkpoint. It lives in its own repo, [aien-dev/gpu-head-to-head](https://github.com/aien-dev/gpu-head-to-head), which pins the measured binary's source commit `f0230a59` and publishes the result even where this stack loses.
+
 ## Standing rules
 
 Rust is scaffolding, Omega is the destination, C or assembly only where hardware, boot, ABI or measurement justify them ([ADR 0024](https://github.com/aien-dev/aien-architecture-mv/blob/main/docs/adr/0024-rust-scaffolding-omega-destination.md)). No Python anywhere in repos, build, CI or tooling (`scripts/check-no-python.sh` fails the build if a Python file is added). No CUDA toolkit and no new CUDA dependence. No systemd in AIENOS. No outside dependencies in the trusted base. No Modular MAX or Mojo anywhere in the tree. No comparison with other people's systems. Kernels are Omega or Rust: closest to the metal, fastest wins, build what is missing.
