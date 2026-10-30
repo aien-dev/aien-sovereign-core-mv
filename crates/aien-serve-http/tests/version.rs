@@ -29,7 +29,7 @@ fn version_prints_build_identity_and_exits_zero() {
     let text = String::from_utf8(out.stdout).unwrap();
     for want in [
         "aien-serve-http ",
-        "omega.lock: ",
+        "cudapp.lock: ",
         "omega gpu engine: ",
         "qwen38 engine: ",
         "default model dir: $HOME/models/qwen3.8-27b-fp8-017b9c7a",
@@ -37,10 +37,10 @@ fn version_prints_build_identity_and_exits_zero() {
         assert!(text.contains(want), "missing {want:?} in:\n{text}");
     }
     let pin =
-        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../omega.lock")).unwrap();
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../cudapp.lock")).unwrap();
     assert!(
-        text.contains(&format!("omega.lock: {}", pin.trim())),
-        "omega.lock line does not match the repository pin:\n{text}"
+        text.contains(&format!("cudapp.lock: {}", pin.trim())),
+        "cudapp.lock line does not match the repository pin:\n{text}"
     );
 }
 

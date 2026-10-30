@@ -84,10 +84,10 @@ What the installer does with `--with-server --with-model`, in order:
    free memory. Then free disk for the model (the block that starts with
    `[*] Model download: checking`). A failed check stops the installer before anything is
    cloned, built or downloaded and says what is wrong in plain words.
-2. Fetches the pinned Omega, physics and aienos sources from GitHub into `target/pins/`
-   (`scripts/pins.sh --gpu`). The exact commits are in `omega.lock` and the lock files next to
-   it.
-3. Builds the Omega GPU library from those sources and the server
+2. Fetches the pinned CUDApp (the GPU engine), Omega, physics and aienos sources from GitHub
+   into `target/pins/` (`scripts/pins.sh --gpu`). The exact commits are in `cudapp.lock`,
+   `omega.lock` and the lock files inside the Omega checkout.
+3. Builds the Omega GPU library from the CUDApp source and the server
    `aien-serve-http` against it (`cargo build --locked --release -p aien-serve-http`). This is
    the long step.
 4. Runs `aien-serve-http --version` and refuses to install a binary that has only the CPU stub

@@ -51,9 +51,9 @@ fn reference(m: usize, k: usize, n: usize, a: &[f32], b: &[f32]) -> Vec<f32> {
 
 #[test]
 fn lock_is_full_sha() {
-    assert_eq!(PINNED_OMEGA_SHA.len(), 40);
-    // The build reads omega.lock; the constant must be exactly that file's sha.
-    assert_eq!(PINNED_OMEGA_SHA, include_str!("../../../omega.lock").trim());
+    assert_eq!(PINNED_CUDAPP_SHA.len(), 40);
+    // The build reads cudapp.lock; the constant must be exactly that file's sha.
+    assert_eq!(PINNED_CUDAPP_SHA, include_str!("../../../cudapp.lock").trim());
 }
 
 #[test]
@@ -103,7 +103,7 @@ fn native_refuses_bad_args_without_chip() {
 fn chip_parity_f32_and_bf16() {
     assert!(
         is_native(),
-        "build with AIEN_OMEGA_DIR to link the chip library"
+        "build with AIEN_CUDAPP_DIR to link the chip library"
     );
     let shapes = [
         (16, 16, 16),

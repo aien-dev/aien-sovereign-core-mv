@@ -32,7 +32,7 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 	echo "sc commit $(git -C "$repo" rev-parse HEAD) branch $(git -C "$repo" rev-parse --abbrev-ref HEAD)"
 	echo "binary $bin sha256 $(sha256sum "$bin" | cut -d' ' -f1)"
 	echo "golden $golden sha256 $(sha256sum "$golden" | cut -d' ' -f1)"
-	echo "omega lib ${AIEN_OMEGA_GPU_LIB:-pinned omega.lock} ${AIEN_OMEGA_GPU_LIB_SHA256:-}"
+	echo "omega lib ${AIEN_OMEGA_GPU_LIB:-pinned cudapp.lock} ${AIEN_OMEGA_GPU_LIB_SHA256:-}"
 	echo "env AIEN_OMEGA_SPIN_US=${AIEN_OMEGA_SPIN_US:-} AIEN_OMEGA_CTA_BUDGET=${AIEN_OMEGA_CTA_BUDGET:-}"
 	echo "cmd flock /tmp/aien-gb10.lock $bin chip $ckpt $golden $ev/$name $*"
 	free -g | head -2

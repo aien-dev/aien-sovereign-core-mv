@@ -141,9 +141,9 @@ impl std::ops::Deref for MatrixWeight {
     }
 }
 
-/// What omega's `omega_gpu_tensor_upload_f32` would store for the bf16 pattern `bits` after the
-/// loader widened it to f32: its f32-to-bf16 step is `(__bf16)f` (src/omega_blackwell_matmul.c:98
-/// at omega.lock), which rounds to nearest even and sets the quiet bit of a NaN. Widening a bf16
+/// What the engine's `omega_gpu_tensor_upload_f32` would store for the bf16 pattern `bits` after the
+/// loader widened it to f32: its f32-to-bf16 step is `(__bf16)f` (src/omega_blackwell_matmul.c:103
+/// in CUDApp at cudapp.lock), which rounds to nearest even and sets the quiet bit of a NaN. Widening a bf16
 /// is exact, so every pattern comes back unchanged except the 126 signaling NaNs (exponent all
 /// ones, quiet bit clear, mantissa non-zero), which come back with the quiet bit set. Checked
 /// against the compiler's own cast for all 65536 patterns on this aarch64 host (see the test).

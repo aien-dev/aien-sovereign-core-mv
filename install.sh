@@ -354,19 +354,20 @@ server_preflight() {
     echo "[+] Model server: machine checks passed"
 }
 
-# server_build: fetch the pinned Omega sources, build aien-serve-http against the real GPU engine,
-# refuse a CPU stub, install it and its start script. Runs from the source checkout.
+# server_build: fetch the pinned CUDApp (GPU engine) and Omega (composition) sources, build
+# aien-serve-http against the real GPU engine, refuse a CPU stub, install it and its start script.
+# Runs from the source checkout.
 server_build() {
     local pins="${AIEN_PINS_DIR:-$SOURCE_ROOT/target/pins}"
     local out="${CARGO_TARGET_DIR:-$SOURCE_ROOT/target}/release/aien-serve-http"
-    echo "[*] Model server: fetching the pinned omega, physics and aienos sources into $pins"
+    echo "[*] Model server: fetching the pinned CUDApp, omega, physics and aienos sources into $pins"
     bash "$SOURCE_ROOT/scripts/pins.sh" --gpu "$pins" \
         || server_die "scripts/pins.sh --gpu failed (see the lines above). Check the network and that git can reach github.com."
     [[ -f "$pins/env.sh" ]] || server_die "scripts/pins.sh did not write $pins/env.sh."
     # shellcheck disable=SC1091
     . "$pins/env.sh"
-    [[ "${AIEN_REQUIRE_NATIVE_LIBS:-}" == 1 && -n "${AIEN_OMEGA_DIR:-}" ]] \
-        || server_die "$pins/env.sh does not select the GPU engine (AIEN_OMEGA_DIR unset)."
+    [[ "${AIEN_REQUIRE_NATIVE_LIBS:-}" == 1 && -n "${AIEN_CUDAPP_DIR:-}" ]] \
+        || server_die "$pins/env.sh does not select the GPU engine (AIEN_CUDAPP_DIR unset)."
     echo "[*] Model server: building aien-serve-http (release, links AIEN's Omega GPU library; this takes a while)"
     cargo build --locked --release -p aien-serve-http \
         || server_die "cargo build of aien-serve-http failed (see the lines above)."

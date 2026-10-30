@@ -14,40 +14,46 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# pins.sh: materialize the three pinned checkouts a native (no CUDA) build needs,
+# pins.sh: materialize the pinned checkouts a native (no CUDA) build needs,
 # exactly as CI does (ci.yml "Linked composition tests"), so a clean clone plus one
 # command yields the real omega libraries instead of the CPU stubs (sovereign-core #92).
 #
-#   omega    at omega.lock (this repository)
+#   omega    at omega.lock (this repository; the composition library)
 #   physics  at omega's physics.lock
 #   aienos   at omega's aienos.lock (authority source for the composition library)
+#   cudapp   at cudapp.lock (this repository; the GB10 engine), only with --gpu
 #
 # Usage: scripts/pins.sh [--gpu] [--check] [DIR]
 #   DIR      where the checkouts live (default target/pins). Existing clones are reused;
 #            the network is touched only when a clone is missing or not at its pin.
-#   --gpu    env.sh also sets AIEN_OMEGA_DIR, which links the GB10 engine (aien-omega-gpu).
-#            Without it only the composition library (CPU) is linked, as the CI gate does.
+#   --gpu    also place CUDApp at cudapp.lock; env.sh sets AIEN_CUDAPP_DIR, which links the
+#            GB10 engine (aien-omega-gpu). CUDApp vendors its driver client, so the engine
+#            needs no physics checkout. Without --gpu only the composition library (CPU) is
+#            linked, as the CI gate does.
 #   --check  verify only: every clone present and at its pin, no network, no writes.
 # Writes DIR/env.sh. Then:  . target/pins/env.sh && cargo build --release
 # Env: AIEN_PINS_REMOTE_BASE (default https://github.com/aien-dev; a local mirror directory
 #      works too), AIEN_PINS_REMOTE_SUFFIX (appended to each repository name; default "-mv"
 #      for the default GitHub base, where the repositories are omega-mv, physics-mv and
-#      aienos-mv, and "" when AIEN_PINS_REMOTE_BASE is set), AIEN_PINS_ROOT (repository root
-#      override, used by scripts/test-pins.sh).
+#      aienos-mv, and "" when AIEN_PINS_REMOTE_BASE is set). CUDApp is $BASE/CUDApp under
+#      the default base (no suffix) and $BASE/cudapp$SUFFIX when AIEN_PINS_REMOTE_BASE is set.
+#      AIEN_PINS_ROOT (repository root override, used by scripts/test-pins.sh).
 # Exit: 0 ok, 2 usage, 3 a checkout is not at its pin (or missing under --check), 4 git failed.
 set -euo pipefail
 ROOT="${AIEN_PINS_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 if [ -n "${AIEN_PINS_REMOTE_BASE:-}" ]; then
     BASE="$AIEN_PINS_REMOTE_BASE"; SUFFIX="${AIEN_PINS_REMOTE_SUFFIX:-}"
+    CUDAPP_URL="$BASE/cudapp$SUFFIX"
 else
     BASE="https://github.com/aien-dev"; SUFFIX="${AIEN_PINS_REMOTE_SUFFIX--mv}"
+    CUDAPP_URL="$BASE/CUDApp"
 fi
 GPU=0; CHECK=0; DIR=""
 for a in "$@"; do
     case "$a" in
         --gpu) GPU=1 ;;
         --check) CHECK=1 ;;
-        -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,41p' "$0"; exit 0 ;;
         -*) echo "pins.sh: unknown flag $a" >&2; exit 2 ;;
         *) [ -z "$DIR" ] || { echo "pins.sh: one DIR only" >&2; exit 2; }; DIR="$a" ;;
     esac
@@ -58,17 +64,18 @@ die() { echo "pins.sh: $*" >&2; exit 3; }
 sha_of() { tr -d '[:space:]' < "$1"; }
 is_sha() { [[ "$1" =~ ^[0-9a-f]{40}$ ]]; }
 head_of() { git -C "$1" rev-parse HEAD 2>/dev/null || true; }
-# place NAME SHA: make DIR/NAME a clone at SHA (detached), fetching only when needed.
+# place NAME SHA [URL]: make DIR/NAME a clone at SHA (detached), fetching only when needed.
+# URL defaults to $BASE/NAME$SUFFIX.
 place() {
-    local name="$1" sha="$2"
+    local name="$1" sha="$2" url="${3:-$BASE/$1$SUFFIX}"
     local d="$DIR/$name"
     is_sha "$sha" || die "$name pin is not a full 40-hex sha: '$sha'"
     if [ "$(head_of "$d")" = "$sha" ]; then echo "pins: $name at $sha (present)"; return 0; fi
     [ "$CHECK" -eq 0 ] || die "$name is not at $sha under --check (have '$(head_of "$d")', dir $d)"
     mkdir -p "$DIR"
     if [ ! -d "$d/.git" ]; then
-        echo "pins: cloning $name from $BASE/$name$SUFFIX"
-        git clone -q "$BASE/$name$SUFFIX" "$d" || { echo "pins.sh: clone of $name ($BASE/$name$SUFFIX) failed" >&2; exit 4; }
+        echo "pins: cloning $name from $url"
+        git clone -q "$url" "$d" || { echo "pins.sh: clone of $name ($url) failed" >&2; exit 4; }
     fi
     if ! git -C "$d" cat-file -e "$sha^{commit}" 2>/dev/null; then
         git -C "$d" fetch -q origin "$sha" || git -C "$d" fetch -q origin || { echo "pins.sh: fetch of $name failed" >&2; exit 4; }
@@ -83,14 +90,18 @@ place omega "$(sha_of "$ROOT/omega.lock")"
 [ -f "$DIR/omega/aienos.lock" ] || die "omega checkout has no aienos.lock"
 place physics "$(sha_of "$DIR/omega/physics.lock")"
 place aienos "$(sha_of "$DIR/omega/aienos.lock")"
+if [ "$GPU" -eq 1 ]; then
+    [ -f "$ROOT/cudapp.lock" ] || die "no cudapp.lock under $ROOT"
+    place cudapp "$(sha_of "$ROOT/cudapp.lock")" "$CUDAPP_URL"
+fi
 if [ "$CHECK" -eq 0 ]; then
     {
         echo "# written by scripts/pins.sh; source it before cargo build/test"
         echo "export AIEN_OMEGA_COMPOSE_DIR='$DIR/omega'"
         echo "export AIEN_PHYSICS_DIR='$DIR/physics'"
         echo "export AIEN_AIENOS_LOCK_REPO='$DIR/aienos'"
-        if [ "$GPU" -eq 1 ]; then echo "export AIEN_OMEGA_DIR='$DIR/omega'"; else echo "unset AIEN_OMEGA_DIR"; fi
-        echo "unset AIEN_OMEGA_GPU_LIB AIEN_OMEGA_COMPOSE_LIB AIEN_OMEGA_COMPOSE_SHA AIEN_FORCE_CPU_STUB AIEN_DEV_FALLBACK"
+        if [ "$GPU" -eq 1 ]; then echo "export AIEN_CUDAPP_DIR='$DIR/cudapp'"; else echo "unset AIEN_CUDAPP_DIR"; fi
+        echo "unset AIEN_OMEGA_DIR AIEN_OMEGA_GPU_LIB AIEN_OMEGA_COMPOSE_LIB AIEN_OMEGA_COMPOSE_SHA AIEN_FORCE_CPU_STUB AIEN_DEV_FALLBACK"
         echo "export AIEN_REQUIRE_NATIVE_LIBS=1"
     } > "$DIR/env.sh"
     echo "pins: wrote $DIR/env.sh ($([ "$GPU" -eq 1 ] && echo 'GPU engine + composition' || echo 'composition only, CPU'))"

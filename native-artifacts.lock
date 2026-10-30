@@ -1,6 +1,8 @@
-# Recorded digests of the omega archives sovereign-core links (aien-abi-conformance).
-# One line per archive: <archive> <omega-sha> <target> <sha256> <cc --version first line>
-# A build from the pinned omega checkout for a listed target and compiler must produce exactly
+# Recorded digests of the native archives sovereign-core links (aien-abi-conformance).
+# One line per archive: <archive> <source-sha> <target> <sha256> <cc --version first line>
+# The source sha is the omega commit for librx_compose.a. The libomega_gpu.a lines recorded so far name omega
+# commits; since the GPU engine moved to CUDApp (cudapp.lock), new libomega_gpu.a lines name the CUDApp commit.
+# A build from the pinned source checkout for a listed target and compiler must produce exactly
 # this digest, or build.rs fails. A combination not listed builds with a warning and its
 # native_identity() reports digest "unrecorded", which does not qualify.
 # Update only from a qualification run (scripts/abi-qualify.sh prints the lines to add).

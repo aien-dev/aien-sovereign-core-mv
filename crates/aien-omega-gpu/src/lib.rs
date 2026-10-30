@@ -30,8 +30,8 @@ use std::fmt;
 
 pub use ffi::OmegaGpuMatmulInfo;
 
-/// Omega commit this crate was built against (from `omega.lock`).
-pub const PINNED_OMEGA_SHA: &str = env!("AIEN_OMEGA_PINNED_SHA");
+/// CUDA++ (aien-dev/CUDApp) commit this crate was built against (from `cudapp.lock`).
+pub const PINNED_CUDAPP_SHA: &str = env!("AIEN_CUDAPP_PINNED_SHA");
 
 /// True when the real native library is linked (not the stub).
 pub const fn is_native() -> bool {

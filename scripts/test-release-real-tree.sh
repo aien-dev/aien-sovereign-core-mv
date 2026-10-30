@@ -42,7 +42,7 @@ sha() { sha256sum "$1" | cut -d' ' -f1; }
 # fixture: the real manifest and locks, the real gate and packager, throwaway binaries
 T="$W/tree"; mkdir -p "$T/scripts" "$T/release" "$W/bins"
 cp "$ROOT/scripts/check-release-candidate.sh" "$ROOT/scripts/package-release.sh" "$T/scripts/"
-cp "$ROOT/release/candidate.toml" "$T/release/"; cp "$ROOT/Cargo.lock" "$T/"
+cp "$ROOT/release/candidate.toml" "$T/release/"; cp "$ROOT/Cargo.lock" "$ROOT/cudapp.lock" "$T/"
 # The fixture tree is the candidate's tree: omega.lock is the candidate's omega-commit, not this revision's. Main may
 # move ahead of the candidate; whether THIS revision is releasable is reported (not enforced) by release-dry-run.yml,
 # and enforced at tag time by release.yml.

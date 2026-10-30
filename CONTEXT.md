@@ -22,7 +22,7 @@ _Avoid_: task, ticket
 The state folder holding the desk key and composition state (`AIEN_COMPOSE_DIR`, else under `AIEN_RUNTIME_STATE_DIR`, else XDG state, else `~/.local/state/aien-runtime/compose`).
 
 **Candidate**:
-The release candidate this tree may be released as, named in `release/candidate.toml` with its model digests and source pins. `omega.lock` pins the omega commit that is linked. Changed only with aien-architecture's candidate manifest.
+The release candidate this tree may be released as, named in `release/candidate.toml` with its model digests and source pins. `omega.lock` pins the omega commit whose composition library is linked; `cudapp.lock` pins the CUDApp commit the GPU engine is built from. Changed only with aien-architecture's candidate manifest.
 
 **Generation controller**:
 The one module that runs a generation for any model: it keeps the sequence ledger (history and position), reuses a prefix, rewinds, exports and restores the KV cache, picks each token, applies constraints, stops and streams. Written once; drives a forward pass through the `ForwardPass` trait (ADR 0004). Planned code: `aien-inference-abi`, type `GenerationController<M>`.
@@ -55,7 +55,7 @@ Runtime and inference
 - `aien-cli`: the `aien` command line and terminal agent harness.
 - `aien-inference-abi`, `aien-abi-core`, `aien-inference-runtime`, `aien-inference-service`: inference ABI, backend trait, weights loader, service protocols.
 - `aien-kv-cache`, `aien-scheduler`: paged KV cache and continuous-batching scheduler.
-- `aien-omega-gpu`, `aien-omega-compose`: bindings to the omega GPU matmul engine and omega composition (pinned by `omega.lock`).
+- `aien-omega-gpu` (and the other `aien-omega-*` GPU crates): bindings to the Omega GPU engine built from aien-dev/CUDApp (pinned by `cudapp.lock`). `aien-omega-compose`: binding to omega composition (pinned by `omega.lock`).
 - `aien-platform`, `aien-platform-linux`: platform ABI and the Linux / GB10 driver cell.
 
 Identity, memory, evidence

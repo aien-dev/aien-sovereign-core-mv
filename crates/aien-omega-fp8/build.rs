@@ -20,7 +20,8 @@
 //!   * `AIEN_FORCE_CPU_STUB=1`: stub.
 //!   * `AIEN_OMEGA_GPU_LIB=<archive>`: native when `nm` finds
 //!     `omega_gpu_fp8_gemv_grouped_f32` defined in that archive.
-//!   * `AIEN_OMEGA_DIR=<checkout>`: native when the checkout has `src/omega_gpu_fp8_api.h`.
+//!   * `AIEN_CUDAPP_DIR=<checkout>` (CUDApp at `cudapp.lock`): native when the checkout has
+//!     `src/omega_gpu_fp8_api.h`.
 //!
 //! `cfg(has_omega_fp8gemm)` (the prefill grouped GEMM) is set when the archive defines
 //! `omega_gpu_fp8gemm_f32` or the checkout has `src/omega_gpu_fp8gemm_api.h`.
@@ -41,7 +42,7 @@ fn main() {
     for v in [
         "AIEN_FORCE_CPU_STUB",
         "AIEN_OMEGA_GPU_LIB",
-        "AIEN_OMEGA_DIR",
+        "AIEN_CUDAPP_DIR",
     ] {
         println!("cargo:rerun-if-env-changed={v}");
     }
@@ -68,7 +69,7 @@ fn main() {
         }
         return;
     }
-    if let Ok(dir) = std::env::var("AIEN_OMEGA_DIR") {
+    if let Ok(dir) = std::env::var("AIEN_CUDAPP_DIR") {
         let header = Path::new(&dir).join("src/omega_gpu_fp8_api.h");
         println!("cargo:rerun-if-changed={}", header.display());
         if header.is_file() {
@@ -91,7 +92,7 @@ fn main() {
                 println!("cargo:rustc-cfg=has_omega_fp8_grouped_rule");
             }
         } else {
-            println!("cargo:warning=aien-omega-fp8: {dir} has no src/omega_gpu_fp8_api.h (omega before OWN-30B cut 5); FP8 calls are stubbed");
+            println!("cargo:warning=aien-omega-fp8: {dir} has no src/omega_gpu_fp8_api.h; FP8 calls are stubbed");
         }
     }
 }

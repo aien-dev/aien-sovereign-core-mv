@@ -21,12 +21,13 @@
 //!   * `AIEN_FORCE_CPU_STUB=1`: stub.
 //!   * `AIEN_OMEGA_GPU_LIB=<archive>`: native when `nm` finds `omega_gpu_q38_graph_create`
 //!     defined in that archive.
-//!   * `AIEN_OMEGA_DIR=<checkout>`: native when the checkout has `src/omega_gpu_q38_graph.h`.
+//!   * `AIEN_CUDAPP_DIR=<checkout>` (CUDApp at `cudapp.lock`): native when the checkout has
+//!     `src/omega_gpu_q38_graph.h`.
 //!   * otherwise: stub (every call returns `Unavailable`).
 //!
 //! `cfg(has_omega_q38_prefill)` is set when, in addition, the prefill entries are linked
 //! (`omega_gpu_gdn_prefill` and `omega_gpu_prefill_attn256`, omega#543 / #545; with
-//! `AIEN_OMEGA_DIR`, the header `src/omega_gpu_prefill_attn256_api.h`).
+//! `AIEN_CUDAPP_DIR`, the header `src/omega_gpu_prefill_attn256_api.h`).
 //!
 //! `cfg(has_omega_q38)` is set only when native. A stub never fails the build: the Qwen3.8
 //! engine reports itself unavailable, and `is_native()` says which one a binary carries.
@@ -40,7 +41,7 @@ fn main() {
     for v in [
         "AIEN_FORCE_CPU_STUB",
         "AIEN_OMEGA_GPU_LIB",
-        "AIEN_OMEGA_DIR",
+        "AIEN_CUDAPP_DIR",
     ] {
         println!("cargo:rerun-if-env-changed={v}");
     }
@@ -64,7 +65,7 @@ fn main() {
         }
         return;
     }
-    if let Ok(dir) = std::env::var("AIEN_OMEGA_DIR") {
+    if let Ok(dir) = std::env::var("AIEN_CUDAPP_DIR") {
         let header = Path::new(&dir).join("src/omega_gpu_q38_graph.h");
         println!("cargo:rerun-if-changed={}", header.display());
         if header.is_file() {
@@ -79,7 +80,7 @@ fn main() {
                 println!("cargo:rustc-cfg=has_omega_q38_prefill");
             }
         } else {
-            println!("cargo:warning=aien-omega-q38: {dir} has no src/omega_gpu_q38_graph.h (omega before sc #642); the Qwen3.8 decode is stubbed");
+            println!("cargo:warning=aien-omega-q38: {dir} has no src/omega_gpu_q38_graph.h; the Qwen3.8 decode is stubbed");
         }
     }
 }

@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Build identity of the omega door for the persistent KV engine identity (sc#505, ADR 0003
+//! Build identity of the GPU engine for the persistent KV engine identity (sc#505, ADR 0003
 //! section 1.2.2). Embedded at build time, read by `kv_persist::OmegaBuild::linked()`:
 //!
 //! - `AIEN_SERVE_HTTP_GIT_COMMIT`: the commit this crate was built from (`AIEN_BUILD_COMMIT`
@@ -21,7 +21,8 @@
 //! - `AIEN_SERVE_HTTP_GIT_DIRTY`: `1` when `git status` showed modified tracked files at build
 //!   time, `0` when clean (or `AIEN_BUILD_COMMIT` given), `unknown` without git. Re-checked
 //!   when HEAD or the index moves, not on every unstaged edit.
-//! - `AIEN_SERVE_HTTP_OMEGA_LOCK`: the omega commit `omega.lock` pins.
+//! - `AIEN_SERVE_HTTP_CUDAPP_LOCK`: the CUDApp commit `cudapp.lock` pins (the source of
+//!   `libomega_gpu.a`).
 //! - `AIEN_SERVE_HTTP_GPU_RECORDED_SHA256`: the `libomega_gpu.a` sha256 `native-artifacts.lock`
 //!   records for that commit and this target, or `unrecorded`.
 use std::path::{Path, PathBuf};
@@ -88,17 +89,17 @@ fn main() {
     println!("cargo:rustc-env=AIEN_SERVE_HTTP_GIT_COMMIT={commit}");
     println!("cargo:rustc-env=AIEN_SERVE_HTTP_GIT_DIRTY={dirty}");
 
-    let lock_path = root.join("omega.lock");
+    let lock_path = root.join("cudapp.lock");
     println!("cargo:rerun-if-changed={}", lock_path.display());
-    let omega = std::fs::read_to_string(&lock_path)
+    let cudapp = std::fs::read_to_string(&lock_path)
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
-    let omega = if omega.is_empty() {
+    let cudapp = if cudapp.is_empty() {
         "unknown".to_string()
     } else {
-        omega
+        cudapp
     };
-    println!("cargo:rustc-env=AIEN_SERVE_HTTP_OMEGA_LOCK={omega}");
+    println!("cargo:rustc-env=AIEN_SERVE_HTTP_CUDAPP_LOCK={cudapp}");
 
     let artifacts = root.join("native-artifacts.lock");
     println!("cargo:rerun-if-changed={}", artifacts.display());
@@ -109,7 +110,7 @@ fn main() {
                 .filter(|l| !l.trim_start().starts_with('#'))
                 .find_map(|l| {
                     let f: Vec<&str> = l.split_whitespace().collect();
-                    (f.len() >= 4 && f[0] == "libomega_gpu.a" && f[1] == omega && f[2] == target)
+                    (f.len() >= 4 && f[0] == "libomega_gpu.a" && f[1] == cudapp && f[2] == target)
                         .then(|| f[3].to_string())
                 })
         })

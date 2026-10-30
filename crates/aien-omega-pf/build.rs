@@ -19,7 +19,7 @@
 //! the extra symbols, so the decision mirrors its inputs:
 //!   * `AIEN_FORCE_CPU_STUB=1`: stub.
 //!   * `AIEN_OMEGA_GPU_LIB=<archive>`: `nm` decides per symbol.
-//!   * `AIEN_OMEGA_DIR=<checkout>`: the headers decide (`src/omega_gpu_prefill.h`,
+//!   * `AIEN_CUDAPP_DIR=<checkout>` (CUDApp at `cudapp.lock`): the headers decide (`src/omega_gpu_prefill.h`,
 //!     `src/omega_gpu_prefill_attn_api.h`).
 //!
 //! `cfg(has_omega_pf)`: `omega_gpu_pf_qgemm` defined (quantiser, QMMA grouped GEMM, pf buffers).
@@ -37,7 +37,7 @@ fn main() {
     for v in [
         "AIEN_FORCE_CPU_STUB",
         "AIEN_OMEGA_GPU_LIB",
-        "AIEN_OMEGA_DIR",
+        "AIEN_CUDAPP_DIR",
     ] {
         println!("cargo:rerun-if-env-changed={v}");
     }
@@ -72,7 +72,7 @@ fn main() {
         }
         return;
     }
-    if let Ok(dir) = std::env::var("AIEN_OMEGA_DIR") {
+    if let Ok(dir) = std::env::var("AIEN_CUDAPP_DIR") {
         let pf = Path::new(&dir).join("src/omega_gpu_prefill.h");
         let pa = Path::new(&dir).join("src/omega_gpu_prefill_attn_api.h");
         println!("cargo:rerun-if-changed={}", pf.display());

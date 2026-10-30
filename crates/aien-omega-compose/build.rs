@@ -21,8 +21,8 @@
 //!   2. `AIEN_OMEGA_COMPOSE_LIB=<file>`  -> link that prebuilt archive; `AIEN_OMEGA_COMPOSE_LIB_SHA256`
 //!      must name its sha256 (checked) and it must define every function in the ABI manifest.
 //!      A development override: its identity says `prebuilt` and it never qualifies.
-//!   3. `AIEN_OMEGA_COMPOSE_DIR=<checkout>`, else `AIEN_OMEGA_DIR` (the checkout
-//!      aien-omega-gpu builds from) -> its HEAD must equal omega.lock, then
+//!   3. `AIEN_OMEGA_COMPOSE_DIR=<checkout>`, else `AIEN_OMEGA_DIR` (fallback)
+//!      -> its HEAD must equal omega.lock, then
 //!      `make <OUT_DIR>/librx_compose.a` runs in it. `AIEN_OMEGA_COMPOSE_SHA=<40-hex>`
 //!      replaces the expected sha: a documented developer override for building
 //!      against an unmerged omega branch, never used for a release or a receipt. `AIEN_PHYSICS_DIR` (default `<omega>/../physics`) is passed
@@ -30,8 +30,8 @@
 //!      omega's own lock checks still run.
 //!   4. otherwise                        -> stub, with a build warning.
 //!
-//! `AIEN_OMEGA_COMPOSE_DIR` exists so a developer override never touches the
-//! checkout aien-omega-gpu checks against omega.lock.
+//! `AIEN_OMEGA_COMPOSE_DIR` is the checkout variable for this crate only; the GPU
+//! engine (aien-omega-gpu) builds from CUDApp via `AIEN_CUDAPP_DIR`, not from omega.
 //! `cfg(has_omega_compose)` is set only when the real library is linked.
 //!
 //! Before linking a checkout build, `aien_abi_conformance::build::qualify_built` checks the

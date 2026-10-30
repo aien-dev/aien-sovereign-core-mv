@@ -27,7 +27,7 @@
 #   PHYSICS_DIR  physics checkout at omega's physics.lock
 #   AIENOS_REPO  aienos clone holding omega's aienos.lock commit
 # Env: CARGO_TARGET_DIR (optional), LINKED_REPEAT (default 3: how many times the approved_attacks suite runs).
-# CPU only: never sets AIEN_OMEGA_DIR (that would link the GPU engine) and unsets the stub/fallback switches.
+# CPU only: never sets AIEN_CUDAPP_DIR (that would link the GPU engine) and unsets the stub/fallback switches.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OMW=$(cd "${1:?OMEGA_DIR}" && pwd); PHW=$(cd "${2:?PHYSICS_DIR}" && pwd); AO=$(cd "${3:?AIENOS_REPO}" && pwd)
@@ -38,7 +38,7 @@ pin=$(tr -d '[:space:]' <"$ROOT/omega.lock")
 [ "$(git -C "$AO" rev-parse HEAD)" = "$(tr -d '[:space:]' <"$OMW/aienos.lock")" ] || die "aienos HEAD != omega aienos.lock"
 REPEAT=${LINKED_REPEAT:-3}
 export AIEN_OMEGA_COMPOSE_DIR="$OMW" AIEN_PHYSICS_DIR="$PHW" AIEN_AIENOS_LOCK_REPO="$AO"
-unset AIEN_OMEGA_DIR AIEN_OMEGA_GPU_LIB AIEN_OMEGA_COMPOSE_LIB AIEN_OMEGA_COMPOSE_SHA AIEN_FORCE_CPU_STUB AIEN_DEV_FALLBACK
+unset AIEN_CUDAPP_DIR AIEN_OMEGA_DIR AIEN_OMEGA_GPU_LIB AIEN_OMEGA_COMPOSE_LIB AIEN_OMEGA_COMPOSE_SHA AIEN_FORCE_CPU_STUB AIEN_DEV_FALLBACK
 cd "$ROOT"
 LOG=$(mktemp); trap 'rm -f "$LOG"' EXIT
 run() {  # run test targets with --include-ignored; the tests are serial (one process-wide compose home)

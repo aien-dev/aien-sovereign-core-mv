@@ -80,13 +80,13 @@ tests_ran() {
         ! grep -qE '^test result:.* [1-9][0-9]* ignored' "$log"
 }
 
-# 1. Pins (omega at omega.lock, physics and aienos at omega's locks).
+# 1. Pins (CUDApp at cudapp.lock, omega at omega.lock, physics and aienos at omega's locks).
 if bash scripts/pins.sh --gpu "$PINS" >"$OUT/pins.log" 2>&1 && [ -f "$PINS/env.sh" ]; then
     record pins pass ""
     # shellcheck disable=SC1091
     . "$PINS/env.sh"
 else
-    record pins incomplete "scripts/pins.sh --gpu failed: no pinned omega, nothing native can be qualified"
+    record pins incomplete "scripts/pins.sh --gpu failed: no pinned CUDApp/omega, nothing native can be qualified"
 fi
 export AIEN_ABI_QUALIFY=1
 
@@ -155,8 +155,8 @@ dirty=false
     printf '"rustc":"%s",\n"cc":"%s",\n"nm":"%s",\n' "$(j "$(rustc -V)")" "$(j "$(${CC:-cc} --version | head -1)")" "$(j "$(nm --version | head -1)")"
     printf '"flags":{"RUSTFLAGS":"%s","CFLAGS":"%s","CC":"%s","AIEN_REQUIRE_NATIVE_LIBS":"%s"},\n' \
         "$(j "${RUSTFLAGS:-}")" "$(j "${CFLAGS:-}")" "$(j "${CC:-cc}")" "${AIEN_REQUIRE_NATIVE_LIBS:-}"
-    printf '"commits":{"sovereign_core":"%s","sovereign_core_dirty":%s,"omega_lock":"%s","omega":"%s","physics":"%s","aienos":"%s"},\n' \
-        "$(rev "$ROOT")" "$dirty" "$(tr -d '[:space:]' <omega.lock)" "$(rev "$PINS/omega")" "$(rev "$PINS/physics")" "$(rev "$PINS/aienos")"
+    printf '"commits":{"sovereign_core":"%s","sovereign_core_dirty":%s,"omega_lock":"%s","omega":"%s","physics":"%s","aienos":"%s","cudapp_lock":"%s","cudapp":"%s"},\n' \
+        "$(rev "$ROOT")" "$dirty" "$(tr -d '[:space:]' <omega.lock)" "$(rev "$PINS/omega")" "$(rev "$PINS/physics")" "$(rev "$PINS/aienos")" "$(tr -d '[:space:]' <cudapp.lock)" "$(rev "$PINS/cudapp")"
     printf '"native_artifacts_lock_sha256":"%s",\n' "$(sha256sum native-artifacts.lock | cut -d' ' -f1)"
     printf '"identities":[%s],\n' "$(printf '%s\n' "$IDS" | grep . | paste -sd, -)"
     printf '"chip":{"state":"%s","reason":"%s"},\n' "$CHIP_STATE" "$(j "$CHIP_REASON")"

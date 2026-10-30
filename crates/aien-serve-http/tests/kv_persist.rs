@@ -80,7 +80,7 @@ fn gen_key() -> String {
 
 fn test_build() -> OmegaBuild {
     OmegaBuild {
-        omega_commit: "d0889a944b02066f84fec71af7b9bbb92f5c986f".into(),
+        cudapp_commit: "d0889a944b02066f84fec71af7b9bbb92f5c986f".into(),
         gpu_link: "pinned-source".into(),
         gpu_archive_sha256: "11".repeat(32),
         gpu_digest: "unrecorded".into(),
@@ -321,8 +321,8 @@ fn each_identity_input_changed_alone_is_never_served() {
     v.weights = WeightFormat::Bf16;
     variants.push(("weights bf16", v));
     let mut v = base.clone();
-    v.build.omega_commit = "e".repeat(40);
-    variants.push(("omega commit", v));
+    v.build.cudapp_commit = "e".repeat(40);
+    variants.push(("cudapp commit", v));
     let mut v = base.clone();
     v.build.gpu_archive_sha256 = "33".repeat(32);
     variants.push(("gpu archive digest", v));

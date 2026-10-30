@@ -307,7 +307,7 @@ commit by its sha from the trusted clone's own `origin` and holds it as
 `refs/remotes/aien-pins/<sha>`, so `wt.sh sync` copies it into the mirror and
 git never prunes it. A pin that cannot be made present is a journal note; the
 gate that needs it then fails, never PASS. Pins read from lock files (omega's
-`omega.lock` and the locks inside it) follow main and are not listed.
+`omega.lock` and the locks inside it, and `cudapp.lock`) follow main and are not listed.
 
 Model gates (PREFILL-E2E-2 and its eight mutant gates, `requires: host`) read
 the TinyLlama-1.1B-Chat-v1.0 checkpoint at `$HOME/models/TinyLlama-1.1B-Chat-v1.0`

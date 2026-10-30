@@ -14,9 +14,10 @@ inputs:
   - Cargo.toml
   - Cargo.lock
   # Read outside crates/ (aien-audit-inputs, L335): the C1 acceptance file at
-  # run time and omega.lock through a build script.
+  # run time, and omega.lock and cudapp.lock through build scripts.
   - docs/campaigns/c1/
   - omega.lock
+  - cudapp.lock
   - crates/aien-abi-conformance/
   - crates/aien-abi-core/
   - crates/aien-allen/

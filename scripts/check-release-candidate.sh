@@ -19,11 +19,12 @@
 #   scripts/check-release-candidate.sh --model F               also write the [model] table to file F
 #   scripts/check-release-candidate.sh --package A.tar.gz --native
 #                                                              also check a built package (see below)
-# Tree checks: candidate is set and not "unknown"; omega.lock equals omega-commit; Cargo.lock holds exactly the
+# Tree checks: candidate is set and not "unknown"; omega.lock equals omega-commit; cudapp.lock holds a full commit hash
+# and equals cudapp-commit when the candidate names one; Cargo.lock holds exactly the
 # [pins] revisions (aien-protocols, crumb-spec, spark-crumbs); the [model] table is complete (every digest is 64 hex).
 # Package checks: release.toml names this candidate; its [model] table equals the candidate's (model id, safetensors,
 # tokenizer, config, fixture digests); aien-cli-sha256 equals the sha256 of bin/aien in the archive; every [files]
-# entry matches; --native is REQUIRED (the linux-aarch64 build that links the omega engine): aien-cli-sha256 must equal
+# entry matches; --native is REQUIRED (the linux-aarch64 build that links the CUDApp GPU engine): aien-cli-sha256 must equal
 # [executables] aien-cli-native-release and every helper binary must equal its sc-<name> entry. A package without --native
 # is refused (no candidate digest for that kind). Build recipe: docs/release/BUILD_RECIPE.md.
 # Env: AIEN_CANDIDATE_ROOT overrides the tree root (tests).
@@ -54,6 +55,13 @@ cand="$(get "" candidate "$M")"; omega="$(get "" omega-commit "$M")"
 [[ -f omega.lock ]] || die "omega.lock is missing"
 lock="$(tr -d '[:space:]' < omega.lock)"
 [[ "$lock" == "$omega" ]] || die "omega.lock is $lock but candidate $cand names omega $omega. This tree is not $cand and cannot be released as it."
+[[ -f cudapp.lock ]] || die "cudapp.lock is missing"
+lock_cu="$(tr -d '[:space:]' < cudapp.lock)"
+[[ "$lock_cu" =~ ^[0-9a-f]{40}$ ]] || die "cudapp.lock does not hold one full commit hash"
+cudapp="$(get "" cudapp-commit "$M")"
+if [[ -n "$cudapp" ]]; then
+    [[ "$lock_cu" == "$cudapp" ]] || die "cudapp.lock is $lock_cu but candidate $cand names cudapp $cudapp. This tree is not $cand and cannot be released as it."
+fi
 grep -q '^\[model\]' "$M" || die "no [model] table in $M"
 for k in model-id model-safetensors-sha256 tokenizer-json-sha256 config-json-sha256 oracle-fixture-safetensors-sha256 oracle-fixture-manifest-sha256; do
     v="$(get model "$k" "$M")"; [[ -n "$v" ]] || die "[model] $k is missing in $M"

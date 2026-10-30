@@ -44,7 +44,7 @@ DIRTY=$(git -C "$REPO" status --porcelain -- . ":!docs/campaigns/whole-system-e2
 [ "$DIRTY" -eq 0 ] || [ -n "${WSE2E_ALLOW_DIRTY:-}" ] || { echo "working tree has $DIRTY uncommitted changes; commit them first" >&2; exit 2; }
 COMMIT=$(git -C "$REPO" rev-parse HEAD)
 mkdir -p "$D"
-( cd "$REPO" && env -u AIEN_OMEGA_DIR -u AIEN_OMEGA_COMPOSE_DIR -u AIEN_OMEGA_GPU_LIB -u AIEN_FORCE_CPU_STUB \
+( cd "$REPO" && env -u AIEN_CUDAPP_DIR -u AIEN_OMEGA_DIR -u AIEN_OMEGA_COMPOSE_DIR -u AIEN_OMEGA_GPU_LIB -u AIEN_FORCE_CPU_STUB \
     AIEN_OMEGA_COMPOSE_LIB="$LIB" CARGO_TARGET_DIR="$D/target" cargo build --release -p aien-cli --features aien-cli/fault-hold ) >"$D/build.log" 2>&1 \
   || { echo "build failed, see $D/build.log" >&2; exit 2; }
 grep -q "building the stub" "$D/build.log" && { echo "stub compose build; refusing" >&2; exit 2; }
@@ -94,7 +94,7 @@ rcpt() { # step status evidence [fields json]
 R=""; WS=""; SOCK=""; ART=""; E=(); REPORT=""
 mkenv() { # row dir R already exists
   SOCK=$R/s; WS=$D/work/ws   # the proposal binds the workspace path, so every row uses the same path (re-seeded per row)
-  E=(env -u AIEN_OMEGA_DIR -u AIEN_OMEGA_COMPOSE_DIR -u AIEN_OMEGA_GPU_LIB -u AIEN_REQUIRE_BLACKWELL
+  E=(env -u AIEN_CUDAPP_DIR -u AIEN_OMEGA_DIR -u AIEN_OMEGA_COMPOSE_DIR -u AIEN_OMEGA_GPU_LIB -u AIEN_REQUIRE_BLACKWELL
      -u AIEN_GPU_BACKEND -u AIEN_MODEL_DIR -u AIEN_MODEL_PATH -u AIEN_TOKENIZER_PATH -u AIEN_FORCE_CPU_STUB
      -u AIEN_FAULT_HOLD -u AIEN_FAULT_HOLD_FILE -u AIEN_ALLEN_SUBJECT -u AIEN_ALLEN_ADOPT
      -u AIEN_COMPOSE_MAX_TOKENS -u AIEN_COMPOSE_DOC_MAX_TOKENS
