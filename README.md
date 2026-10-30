@@ -67,9 +67,13 @@ does **not** update the existing Spark service on port 18091, which runs a binar
 from the separate `ship/motor-l387` line. A future, separately authorized
 cutover must provision the server credential and update all known clients in
 the same window: omp's spark provider, `allen-courier` (installed under
-`~/.local/state/aienos/allen/bin/allen-courier-*`), aien-translate, and
-drake-voice. Check those clients before replacing the live binary; otherwise
-they will receive 401 responses. No client credentials are stored in this repo.
+`~/.local/state/aienos/allen/bin/allen-courier-*`), aien-translate,
+drake-voice, and `allen-chat`, the public www.aienos.com/allen/ gateway (system
+unit `allen-chat.service`, user `allen-chat`; it reads the bearer from
+`ALLEN_UPSTREAM_TOKEN` in `/etc/allen-chat/env`, empty until the cutover, and
+sends it on chat and `/health` requests). Check those clients before replacing
+the live binary; otherwise they will receive 401 responses. No client
+credentials are stored in this repo.
 
 Step by step for a Spark with nothing of AIEN on it (requirements, install, model download and checksum, start, first request, the checks, known limits, how to report): [docs/qwen38/TRY_IT_ON_YOUR_SPARK.md](docs/qwen38/TRY_IT_ON_YOUR_SPARK.md). What "alpha" covers and what stays pre-alpha: [docs/qwen38/ALPHA_STATUS.md](docs/qwen38/ALPHA_STATUS.md).
 
