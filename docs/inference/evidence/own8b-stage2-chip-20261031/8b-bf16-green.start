@@ -1,0 +1,15 @@
+start 2026-10-31T07:19:06Z
+sc commit bf4512fb4102f9ce017012f5923dbe7132608e75 worktree /tmp/corechip/w636
+binary /tmp/corechip/t636/release/own8b_check sha256 3e882deb82d174f755d689f5766b68cee0b81d3cf25a32f721b7f92122f674db
+omega /tmp/corechip/omega636 a647b6a9821fffcf52ba9ce813f75afa4b84be62
+admission model /home/drakestapleton/models/qwen3-8b bytes 16381516776 need_kB 52966669 MemAvailable_kB 110811512
+window flags --gb10 shared --quiet none lease 40; chip lock: flock -s /tmp/aien-gb10.lock around the command
+cmd /tmp/corechip/t636/release/own8b_check chip /home/drakestapleton/models/qwen3-8b /tmp/corechip/w636/docs/inference/evidence/own8b-stage2-chip-20261031/8b-bf16-host-golden.json /tmp/corechip/w636/docs/inference/evidence/own8b-stage2-chip-20261031/8b-bf16-green
+pid, process_name, used_gpu_memory [MiB]
+name, driver_version, utilization.gpu [%], temperature.gpu, power.draw [W], pstate, clocks.current.sm [MHz], clocks.current.memory [MHz]
+NVIDIA GB10, 580.173.02, 0 %, 53, 6.68 W, P8, 364 MHz, [N/A]
+listeners: 100.64.0.2:18110 100.64.0.2:18112 100.64.0.2:18132 127.0.0.1:18080 127.0.0.1:18092 127.0.0.1:18095 127.0.0.1:18096 127.0.0.1:18171 
+ 02:19:06 up 2 days,  7:12,  5 users,  load average: 6.46, 9.09, 10.07
+7.0.0-1019-nvidia
+window 20261031T071906Z-dd6a0f
+lock acquired 2026-10-31T07:19:08Z
