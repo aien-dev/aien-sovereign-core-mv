@@ -1,0 +1,31 @@
+### 2026-10-31T03:08:04Z head f81de1178021e7b9ce2544b69627ddbb10604bdd
+### host: Linux 7.0.0-1019-nvidia aarch64; Google Chrome 153.0.8010.36 ; /usr/bin/google-chrome
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 01s
+  Executable unittests src/lib.rs (/tmp/prfix/CoreLane-target/debug/deps/aien_cli-740e8e57e1f1e529)
+### test binary: aien_cli-740e8e57e1f1e529
+### cmd: <lib test binary> browser_mirror --test-threads=1 --nocapture
+
+running 9 tests
+test browser_mirror::tests::base64_roundtrip ... ok
+test browser_mirror::tests::cleanup_with_inherited_ignored_sigchld ... ignored, explicit isolated inherited-SIGCHLD qualification
+test browser_mirror::tests::dropping_chrome_reaps_every_helper ... ok
+test browser_mirror::tests::exact_private_profile_identifies_a_task_without_its_tag ... ok
+test browser_mirror::tests::stale_candidates_and_exited_pidfds_cannot_signal_a_stranger ... ok
+test browser_mirror::tests::stub_page_screenshot_and_eval ... ok
+test browser_mirror::tests::tag_sweep_matches_only_its_own_tag ... ok
+test browser_mirror::tests::undetected_child_does_not_extend_drop_past_cleanup_deadline ... browser cleanup timed out; retained private profile /tmp/.tmpQeS3Ht/private-profile
+ok
+test browser_mirror::tests::unknown_action_is_an_error ... ok
+
+test result: ok. 8 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 7.93s
+
+### EXIT 0
+### cmd: perl -e '$SIG{CHLD}="IGNORE"; exec @ARGV' <lib test binary> browser_mirror::tests::cleanup_with_inherited_ignored_sigchld --exact --ignored --nocapture (AIEN_CHROME=/usr/bin/google-chrome)
+
+running 1 test
+test browser_mirror::tests::cleanup_with_inherited_ignored_sigchld ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.57s
+
+### EXIT 0
+### chrome processes still carrying a mirror tag or fixture profile: 0
