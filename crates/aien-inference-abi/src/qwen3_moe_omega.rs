@@ -3386,11 +3386,10 @@ impl Qwen3MoeOmegaEngine {
         }
     }
 
-    /// Whether every layer runs attention and experts on the FP8 grouped GEMV (the only
-    /// kernels that take one activation row per group, which batched prefill needs).
     /// Turns self-draft mode on with `allowed[layer]` = the expert ids the router may pick at that
-    /// layer, or off with `None` (the exact full router again). Refuses a list per layer that is
-    /// not one per layer, has fewer than top_k ids, an id out of range or a duplicate.
+    /// layer, or off with `None` (the exact full router again). Each list is sorted and duplicate
+    /// ids are merged; refuses a mask that is not one list per layer, a layer with fewer than
+    /// top_k distinct ids, or an id out of range.
     pub fn set_draft_experts(&mut self, allowed: Option<Vec<Vec<u32>>>) -> Result<(), String> {
         let c = &self.weights.config;
         let Some(mut allowed) = allowed else {
@@ -3428,6 +3427,8 @@ impl Qwen3MoeOmegaEngine {
         self.draft_allowed.is_some()
     }
 
+    /// Whether every layer runs attention and experts on the FP8 grouped GEMV (the only
+    /// kernels that take one activation row per group, which batched prefill needs).
     pub fn batched_prefill_possible(&self) -> bool {
         self.weights.layers.iter().all(|l| {
             matches!(l.attn, AttnWeights::Fp8 { .. })
