@@ -7,14 +7,14 @@ spark-window.
 ## Binary
 
 - `/home/drakestapleton/work/dra-66/bin-head/aien-serve-http`, sha256
-  `3bd287beb5c74fc5c241307765f3a858c1a7e33e0d1d5ae2d766f2dae13e9c69`.
-- Built from sovereign-core `84a28c0923b75dde5450321307bfda8c525549dc` (the binary reports
-  `sovereign-core commit: 84a28c09… (dirty 0)`) with omega `a647b6a9` (`omega.lock`), physics
+  `23912a94b2ad96f658186f3138beffe3c45294739d00c80f7790cfe228eebdbb`.
+- Built from sovereign-core `3cd0410d33757e65fb850895c9e9de2e10a15f4c` (the binary reports
+  `sovereign-core commit: 3cd0410d… (dirty 0)`) with omega `a647b6a9` (`omega.lock`), physics
   `048e5f5e`, aienos `b84c0a67`:
   `scripts/pins.sh --gpu ~/work/dra-66/pins && . ~/work/dra-66/pins/env.sh &&
   nice -n 19 taskset -c 0-9 cargo build --release -p aien-serve-http --bin aien-serve-http
   --target-dir ~/work/dra-66/target-gpu`. Native `libomega_gpu.a` linked (no CPU stub).
-- The commits after 84a28c09 on the branch touch only evidence files and the PR text.
+- The commits after 3cd0410d on the branch touch only evidence files and the PR text.
 
 ## Server
 
