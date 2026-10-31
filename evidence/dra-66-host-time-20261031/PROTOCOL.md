@@ -1,8 +1,8 @@
 # DRA-66 host time per token: protocol
 
-Refs aien-dev/aien-sovereign-core-mv#857 (Linear DRA-66). Written before any chip run; the
-window has not run. Every chip line below is NOT_RUN until Main runs `window.sh` inside a
-spark-window.
+Refs aien-dev/aien-sovereign-core-mv#857 (Linear DRA-66). Written before any chip run. Every chip
+line below is NOT_RUN until the P-DRA-4 chip queue (`~/handoffs/pdra4-hive/chip/run-queue.sh`) has
+run the two DRA-66 slices in `chip/`.
 
 ## Binary
 
@@ -21,83 +21,48 @@ spark-window.
 The live 18091 flags on loopback port 18190: `--engine omega --model-dir
 /home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0 --port 18190 --bind 127.0.0.1
 --max-context 49152 --max-tokens-cap 16384 --thinking off --batch-slots 8`, env
-`AIEN_Q36_STROKE=1`, `AIEN_SERVE_GPU_LOCK=/tmp/aien-serve-18190.lock`.
+`AIEN_GB10_LOCK_HELD=1 AIEN_Q36_STROKE=1 AIEN_STROKE_IN_WINDOW=1 AIEN_OMEGA_FP8_GROUPED_WAVE=0`
+(the wave setting is the one 18091 actually serves; evidence in `chip/PLAN.md`).
 
-## Run
+## Run: two P-DRA-4 chip-queue slices
 
-Main stops 18091 and Flint (18300/18310) first, then:
+`chip/` holds the slices, byte-identical (`chip/SHA256SUMS`) to `~/handoffs/pdra4-hive/chip/DRA-66/`,
+listed in `chip/QUEUE.txt` under `# Main (DRA-66)`:
 
-```
-spark-window open dra66 --gb10 none --quiet exclusive --lease 20 --wait
-spark-window run bash evidence/dra-66-host-time-20261031/window.sh
-spark-window close
-```
+- `chip/s01-tokens.sh`: `mutant4-red`, `golden-identity`, `receipt-1conv`, `receipt-8conv`,
+  `seed-t07`, `check-tokens` (cap 889 s);
+- `chip/s02-stamps.sh`: `stamps-1conv`, `check-stamps` (cap 377 s; refuses until s01 has a PASS
+  VERDICT);
+- `chip/dra66-lib.sh`: the body both source; `chip/PLAN.md`: gates, caps, the Wolfram wall model,
+  the lock route and Main's steps after the window; `chip/dry-host.log`: the host dry path and its
+  negative controls.
 
-Why `--gb10 none`: with `AIEN_GB10_LOCK_HELD=1` the server accepts an inherited chip
-reservation only when the flock holder of `/tmp/aien-gb10.lock` is one of its ancestors
-(`crates/aien-serve-http/src/chip_reservation.rs`, `detect`; refusal message from `main.rs`
-"none an ancestor of this server", exit 1). spark-window's holder (`setsid spark-window _hold
-ID`) is never an ancestor of the `run` command, so in a window that holds the chip the server
-cannot start, and without the marker it would wait for the lock until the window closes.
-spark-window's own rule for a job that takes the lock itself is a window with `--gb10 none`
-(approved by Main, 2026-10-31; no new trust path). `window.sh` then takes the lock through
-`flock -w 90 /tmp/aien-gb10.lock`, which is the ancestor of both servers, and starts them with
-`AIEN_GB10_LOCK_HELD=1` after verifying that holder in `/proc/locks`. The window's quiet lock
-(`--quiet exclusive`) is what keeps the timings quiet.
+Main runs them with the rest of the queue (GO, preflight, 18091 and Flint down); the runner opens a
+`--gb10 none --quiet exclusive --lease 20` window per slice (each slice's `# pdra4-gb10: none`
+header) and caps each at 1140 s. Receipts: `~/handoffs/pdra4-hive/receipts/DRA-66/<slice>/`, one-line
+`VERDICT` each.
 
-`window.sh` prints `NOT_RUN: …` and exits 3 before any chip contact unless: `SPARK_WINDOW` and
-`SPARK_WINDOW_DIR` are set and name the open, held window (`spark-window id`); the window is
-`gb10=none` and `quiet=exclusive`; `AIEN_GB10_LOCK_HELD` is not already set; the chip lock
-comes free within 90 s and its exclusive holder (the `/proc/locks` FLOCK WRITE line whose
-device and inode both match the lock file) is an ancestor of the script; nothing answers
-on 18091 and nothing listens on 18091/18300/18310; no compute process is on the chip; the
-binary has the pinned sha256 and a native omega gpu engine. Host check: run outside a window,
-it printed `NOT_RUN: not inside a spark-window (…)`, exit 3.
+Why the slice takes the chip lock: with `AIEN_GB10_LOCK_HELD=1` the server accepts an inherited
+chip reservation only when the flock holder of `/tmp/aien-gb10.lock` is one of its ancestors
+(`crates/aien-serve-http/src/chip_reservation.rs`, `detect`; refusal "none an ancestor of this
+server", exit 1). spark-window's holder (`setsid spark-window _hold ID`) is never an ancestor, so in
+a window that holds the chip the server cannot start. The slice takes the lock through `flock -w 90
+-E 75`, which is the ancestor of every server; it verifies that holder in `/proc/locks` (device and
+inode) and in the server's own "chip reservation inherited" line. No new trust path; the window's
+quiet lock keeps the timings quiet. This replaces the manual single-window `window.sh` (removed).
 
-Receipts land in `/home/drakestapleton/handoffs/dra-66-host-time/window-<UTC stamp>/`. Each
-gate writes `gate-<name>.json` (schema `aien.dra66-window-gate/1`): `window_id`, `window_dir`,
-`bin`, `bin_sha256`, `sc_commit` (from `--version`), `gb10_lock_holder_pid`, `start`, `end`,
-`elapsed_s`, `lease_left_s`, `status` (PASS / FAIL / NOT_RUN), `detail`, and the sha256 of every
-file the gate produced. At exit `receipt.json` (`aien.dra66-window/1`) collects all gates with
-the window id, binary sha256, total elapsed time and the overall `status`; the board gets
-GPU-START / GPU-END lines.
+## Gates and budget
 
-## Gates, in order, and the 20-minute lease
-
-A gate starts only if the lease (`held` mtime + `lease` minutes of the window record) has at
-least the gate's cap left; otherwise that gate is written NOT_RUN and the script stops (exit 3).
-Each cap is enforced inside the gate: server load ≤ 150 s to health (time-bounded loop),
-requests by `curl -m`, server stop ≤ 30 s then KILL. Server loads measured 39 s, 57 s and 78 s
-in the GoldenP04 window (`~/handoffs/GoldenP04/evidence/exec-20261027T110114Z/window.log`,
-2026-10-27, same model and flags). Decode estimates use the pinned DRA-64 model
-(t(1) = 23.494 ms, t(8) = 83.7676 ms per beat).
-
-| Gate | Content | Expected | Estimate | Cap | Receipt |
-|------|---------|----------|----------|-----|---------|
-| (outer) | window checks, `flock -w 90` | lock free at once | ~0 s | 120 s | `preconditions.txt`, `gate-preconditions.json` |
-| `mutant4-red` | mutant server (`AIEN_Q36_TEST_MUTANT=4`), the gate2 request (24 greedy tokens of "Write a C function that returns the larger of two ints."), stop | `DIFFER` from `evidence/q36-host-20261020/gen-chat-max-24.json` `generated_ids`; otherwise FAIL and the window stops (exit 4) | load ≤ 78 s + 0.56 s + stop ~2 s | 240 s | `golden-mutant4.json`, `server-mutant4.log` |
-| `golden-identity` | honest server, per-token receipt on (`AIEN_Q36_DECODE_TIMELINE_KIND=token`), the gate2 request, 2 s idle; records so far = A | `IDENTICAL` | load ≤ 78 s + 0.56 s + 2 s | 210 s | `golden-honest.json` |
-| `receipt-1conv` | 3 sequential greedy replies of 256 tokens, 2 s idle; records so far = B (B > A + 1) | all 3 answer | 18.04 s + 2 s | 92 s | `solo-*.json`, `tokens.jsonl` |
-| `receipt-8conv` | 8 concurrent greedy replies of 256 tokens | all 8 answer | 21.44 s + 2 s | 62 s | `eight-*.json`, `tokens.jsonl` |
-| `seed-t07` | seed 1, seed 2, seed 1 again at T=0.7 through the HTTP door, 64 tokens | seed 1 repeats, seed 2 differs | 4.51 s | 60 s | `seed-*.json` |
-| `stamps-1conv` | stop the token server; honest server with the stamped launch timeline (`AIEN_Q36_DECODE_TIMELINE=stamps.jsonl`, default kind); 1 greedy reply of 128 tokens, 2 s idle; stop | the reply answers, ≥ 1 record | load ≤ 78 s + ≥ 3.01 s (stamps slow the chip) + 2 s + stops | 242 s | `stamped.json`, `stamps.jsonl`, `server-stamps.log` |
-| `checker` | both servers stopped. Token receipt: check (exit 0), `--slice A:B` (exit 0), `--drop 0:record:0` and `--drop n/2:record:0` (exit 1), `--bend A+1:chip` (exit 1), `--bend host:600000 --slice A:B` (exit 0, the synthetic red arm). Stamped timeline: check (exit 0), `--drop 0:record:0` (exit 1). Writes `gate.wl` = `summary-1conv.wl` + `summary-stamps.wl` and `gate-red.wl` = `summary-red-host.wl` + `summary-stamps.wl` | exits `0 0 1 1 1 0 0 1` | ~5 s | 45 s | `gate.wl`, `gate-red.wl`, `summary-*.wl`, `check*.txt`, `red-*.txt`, `spells.txt` |
-| (Main) | host time ≤ 0.5 ms per token at one conversation | see "The 0.5 ms gate" below: `gate-red.wl` must evaluate to `False` first, then `gate.wl` to `True` | — | — | both files + the two Wolfram replies quoted in the report |
+See `chip/PLAN.md` for the table. Each cap is enforced inside its gate: server load ≤ 180 s to
+health, requests by `curl -m`, server stop ≤ 30 s then KILL. A gate starts only if its cap fits
+before both the lease end and 1140 − 15 s after the slice started; otherwise it and the later gates
+are NOT_RUN. Wolfram (MCP evaluator), quoted in full in `chip/PLAN.md`: caps 889 s and 377 s; expected
+walls 222.1264576 s and 93.007232 s with 78 s loads and 5 s stops (476.1264576 s and 220.007232 s at
+the 180 s load cap and 30 s stops), from the pinned DRA-64 model t(1) = 23.494 ms, t(8) = 83.7676 ms.
 
 `receipt.json` carries an overall `status`: FAIL if any gate failed, else NOT_RUN if any gate did
-not run, else PASS; the script then exits 4 on FAIL. That status covers the receipts' mechanics
-only; the 0.5 ms verdict is Main's Wolfram evaluation.
-
-Wolfram (MCP evaluator):
-- `t1 = 23.494; t8 = 83.7676; {24 t1/1000, 3*256 t1/1000, 256 t8/1000, 3*64 t1/1000, 128 t1/1000}`
-  → `{0.563856, 18.043392, 21.4445056, 4.510848, 3.007232}` s.
-- `caps = {120, 150 + 60 + 30, 150 + 60, 3*30 + 2, 60 + 2, 3*20, 30 + 150 + 30 + 2 + 30, 45};
-  {caps, Total[caps], 20*60 - Total[caps]}` → `{{120, 240, 210, 92, 62, 60, 242, 45}, 1071, 129}`
-  s of the 1200 s lease. The outer row counts 120 s: 90 s flock plus 30 s of checks.
-- Expected run: `t1 = 23.494; t8 = 83.7676; N[3*78 + 2*24 t1/1000 + 3*256 t1/1000 + 256 t8/1000 +
-  3*64 t1/1000 + 128 t1/1000 + 4*2 + 3*2 + 5]` → `301.1336896` s (5.02 min) with the slowest
-  measured load three times; the stamped reply counts at the unstamped t(1), its cap is 30 s.
-  The run fits in one window, so the script is not split.
+not run, else PASS (exit 4 / 3 / 0). That status covers the receipts' mechanics only; the 0.5 ms
+verdict is Main's Wolfram evaluation of `s02-stamps/gate-red.wl` then `s02-stamps/gate.wl`.
 
 ## The 0.5 ms gate
 
@@ -176,3 +141,12 @@ in the receipt and excluded from the gate.
   These exercise the queries on fakes; the numbers are the fakes' sleeps, not chip numbers.
   The CLI runs used the host (CPU stub) build of 3cd0410d; 9d70dca4 differs from it only by
   rustfmt and the regenerated `host-tests-3.log`.
+- `chip/dry-host.log`: `DRY_RUN=1` runs of both slices on the host (no window, lock, GPU or
+  server): static checks, plans with caps, and the slices' own checker gates on
+  `host-token-receipt.jsonl` (slice 0..19, exits `0 1 1 1 0 0`) and `host-stamps.jsonl` (exits
+  `1 0`); the resulting `gate.wl` / `gate-red.wl` equal `host-gate.wl` / `host-gate-red.wl` from
+  line 2 on, and the Wolfram MCP gave `{0.715041, 0.02, 0.735041, False}` and
+  `{0.115041, 0.02, 0.135041, True}` for them. Negative controls: outside a window NOT_RUN exit 3
+  with no VERDICT; a fake window NOT_RUN exit 3; the inner part with no ancestor holding the chip
+  lock NOT_RUN exit 3 before any chip query; a corrupted binary sha exit 3.
+  `queue-dry-run.log`: `run-queue.sh --dry-run` listing both slices `(gb10 none)`.
