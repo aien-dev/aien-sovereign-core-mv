@@ -59,7 +59,7 @@ cat > "$T/bin/aien-test" <<'EOF'
 echo "aien-test $*" >> "$FAKE_LOG"
 [[ $1 == verify-bundle ]] || exit 9
 file=$2; shift 2
-full=""
+full="" hostonly=""
 while [[ $# -gt 0 ]]; do
   case $1 in
     --repo) repo=$2; shift 2 ;; --commit) commit=$2; shift 2 ;; --pubkey) key=$2; shift 2 ;; --require) shift 2 ;;
@@ -71,6 +71,9 @@ done
 [[ $(jq -r .repository "$file") == "$repo" && $(jq -r .commit "$file") == "$commit" ]] || exit 3
 [[ $(jq -r .fake.key "$file") == "$key" ]] || exit 3
 [[ -z $full || $(jq -r '.plan.scope // "changed"' "$file") == full ]] || exit 3
+# Selected regression fixtures model the verifier's GPU-receipt guard. Existing
+# fixtures keep their original exit-code behavior; signature checks above remain.
+if [[ -n $full && -z $hostonly && $(jq -r '.fake.no_gpu // false' "$file") == true ]]; then exit 3; fi
 exit "$(jq -r .fake.rc "$file")"
 EOF
 chmod +x "$T/bin/gh" "$T/bin/aien-test"
@@ -326,6 +329,64 @@ check "MERGE-PAUSE: the file is left in place" [ -e "$AIEN_STATE/MERGE-PAUSE" ]
 check "rebase-train.sh never adds ready-to-merge or enables auto-merge" \
   bash -c "! grep -nE 'labels\\[\\]=(\"?\\\$MERGE_LABEL|ready-to-merge)|--auto|auto-merge\"' '$HERE/../rebase-train.sh'"
 rm -f "$AIEN_STATE/MERGE-PAUSE"
+
+
+echo "== host-only Alpha classification (issue #767)"
+# Real local git history and the production alpha command; only the verifier and
+# external hosting are fakes. No real signing key, device, or network is used.
+no_gpu_bundle() {
+  bundle demo "$1" "$K2" 0 null "" full
+  local f=$AIEN_STATE/bundles/demo/$1/bundle.json
+  jq '.fake.no_gpu = true' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+  bash "$PIPE" publish > "$T/hostonly-publish" 2>&1
+}
+set_gate() {
+  printf '%s\n' "$1" > "$AIEN_CLONES/demo/probe.gate"
+  git -C "$AIEN_CLONES/demo" add probe.gate
+}
+set_gate 'requires: ["nvrm"]'
+XN=$(main_commit nvrm 2026-02-01T00:00:00Z)
+no_gpu_bundle "$XN"
+n0=$(alpha_tags)
+bash "$PIPE" alpha > "$T/hostonly-nvrm" 2>&1
+check "nvrm gate cannot receive a host-only Alpha" [ "$(alpha_tags)" = "$n0" ]
+set_gate 'requires: ["gb10"]'
+XA=$(main_commit ancestor_gpu 2026-02-01T12:00:00Z)
+no_gpu_bundle "$XA"
+git -C "$AIEN_CLONES/demo" rm -q probe.gate
+n0=$(alpha_tags)
+XD=$(main_commit deleted_gpu 2026-02-02T00:00:00Z)
+bash "$PIPE" alpha > "$T/hostonly-deleted" 2>&1
+check "deleting GPU gates later cannot waive a GPU candidate" [ "$(alpha_tags)" = "$n0" ]
+set_gate 'requires: ["host"]'
+XH=$(main_commit host 2026-02-03T00:00:00Z)
+no_gpu_bundle "$XH"
+n0=$(alpha_tags)
+bash "$PIPE" alpha > "$T/hostonly-host" 2>&1
+check "genuine host-only candidate still qualifies" [ "$(alpha_tags)" = "$((n0 + 1))" ]
+XE=$(main_commit grep_error 2026-02-04T00:00:00Z)
+no_gpu_bundle "$XE"
+cat > "$T/bin/git-grep-error" <<'EOF'
+#!/usr/bin/env bash
+if [[ $* == *" grep "* && $* == *"*.gate"* ]]; then exit 128; fi
+exec git "$@"
+EOF
+chmod +x "$T/bin/git-grep-error"
+n0=$(alpha_tags)
+GIT="$T/bin/git-grep-error" bash "$PIPE" alpha > "$T/hostonly-error" 2>&1
+check "manifest read error cannot grant the GPU waiver" [ "$(alpha_tags)" = "$n0" ]
+set_gate 'requires: ["\u0067b10"]'
+XU=$(main_commit escaped_gpu 2026-02-05T00:00:00Z)
+no_gpu_bundle "$XU"
+n0=$(alpha_tags)
+bash "$PIPE" alpha > "$T/hostonly-escaped" 2>&1
+check "escaped GPU name cannot grant the GPU waiver" [ "$(alpha_tags)" = "$n0" ]
+set_gate 'requires: ["gb10"]'
+XG=$(main_commit gpu 2026-02-06T00:00:00Z)
+no_gpu_bundle "$XG"
+n0=$(alpha_tags)
+bash "$PIPE" alpha > "$T/hostonly-gpu" 2>&1
+check "explicit gb10 still requires a GPU receipt" [ "$(alpha_tags)" = "$n0" ]
 
 echo "== secrets"
 check "pipeline.sh never names the signing key file" bash -c "! grep -q 'verify\\.key' '$PIPE'"

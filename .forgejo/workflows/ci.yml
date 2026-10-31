@@ -13,6 +13,10 @@ jobs:
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
+        with:
+          # Full history so AIEN_COMMIT_LINT_BASE can be resolved. A base that
+          # is set but missing fails the commit lint.
+          fetch-depth: 0
 
       - name: Verify Code Formatting
         run: cargo fmt --all -- --check
@@ -21,7 +25,19 @@ jobs:
         run: cargo check --workspace --all-targets
 
       - name: Run Workspace Unit and Integration Tests
-        run: cargo test --workspace --verbose
+        env:
+          # Pull requests lint commits added since the PR base. Pushes lint
+          # commits since github.event.before, except the all-zero SHA that
+          # marks a newly created ref (then the variable is empty and the
+          # lint skips). A fetch that fails is a step failure.
+          AIEN_COMMIT_LINT_BASE: ${{ github.event.pull_request.base.sha || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before) || '' }}
+        run: |
+          if [ -n "$AIEN_COMMIT_LINT_BASE" ]; then
+            if ! git cat-file -e "$AIEN_COMMIT_LINT_BASE^{commit}" 2>/dev/null; then
+              git fetch --no-tags origin "$AIEN_COMMIT_LINT_BASE"
+            fi
+          fi
+          cargo test --workspace --verbose
 
       - name: Enforce Zero Disk Secrets Invariant
         run: |
