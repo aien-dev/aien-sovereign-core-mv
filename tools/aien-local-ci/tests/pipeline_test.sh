@@ -59,11 +59,21 @@ cat > "$T/bin/aien-test" <<'EOF'
 echo "aien-test $*" >> "$FAKE_LOG"
 [[ $1 == verify-bundle ]] || exit 9
 file=$2; shift 2
+full="" hostonly=""
 while [[ $# -gt 0 ]]; do
-  case $1 in --repo) repo=$2 ;; --commit) commit=$2 ;; --pubkey) key=$2 ;; --require) ;; *) exit 2 ;; esac; shift 2
+  case $1 in
+    --repo) repo=$2; shift 2 ;; --commit) commit=$2; shift 2 ;; --pubkey) key=$2; shift 2 ;; --require) shift 2 ;;
+    --require-full) full=1; shift ;;
+    --allow-host-only) hostonly=1; shift ;;
+    *) exit 2 ;;
+  esac
 done
 [[ $(jq -r .repository "$file") == "$repo" && $(jq -r .commit "$file") == "$commit" ]] || exit 3
 [[ $(jq -r .fake.key "$file") == "$key" ]] || exit 3
+[[ -z $full || $(jq -r '.plan.scope // "changed"' "$file") == full ]] || exit 3
+# Selected regression fixtures model the verifier's GPU-receipt guard. Existing
+# fixtures keep their original exit-code behavior; signature checks above remain.
+if [[ -n $full && -z $hostonly && $(jq -r '.fake.no_gpu // false' "$file") == true ]]; then exit 3; fi
 exit "$(jq -r .fake.rc "$file")"
 EOF
 chmod +x "$T/bin/gh" "$T/bin/aien-test"
@@ -90,23 +100,20 @@ git clone -q "$T/receipts.git" "$T/seed" 2>/dev/null
 echo shelf > "$T/seed/README.md" && git -C "$T/seed" add -A && git -C "$T/seed" commit -q -m shelf && git -C "$T/seed" push -q origin main
 git clone -q "$T/receipts.git" "$AIEN_RECEIPTS"
 
-# bundle REPO SHA KEY RC [BLOCKED] [COMMIT_IN_BODY]
+# bundle REPO SHA KEY RC [BLOCKED] [COMMIT_IN_BODY] [SCOPE]   (no SCOPE: the key is absent, as in old bundles)
 bundle() {
   local d=$AIEN_STATE/bundles/$1/$2
   mkdir -p "$d"
   jq -n --arg repo "github.com/aien-dev/$1" --arg c "${6:-$2}" --arg k "$3" --argjson rc "$4" --argjson b "${5:-null}" \
-    '{repository:$repo, commit:$c, plan:{blocked:$b, verdict:"PASS"}, signature:{pubkey:$k}, fake:{key:$k, rc:$rc}}' > "$d/bundle.json"
+    --arg sc "${7:-}" \
+    '{repository:$repo, commit:$c, plan:({blocked:$b, verdict:"PASS"} + (if $sc == "" then {} else {scope:$sc} end)),
+      signature:{pubkey:$k}, fake:{key:$k, rc:$rc}}' > "$d/bundle.json"
 }
 remote_has() { git --git-dir="$T/receipts.git" cat-file -e "main:$1/$2/bundle.json" 2>/dev/null; }
 remote_commits() { git --git-dir="$T/receipts.git" rev-list --count main; }
 jl() { jq -c "select($1)" "$AIEN_STATE/pipeline.jsonl" | wc -l; }
 
 A=$(sha 1) B=$(sha 2) C=$(sha 3) D=$(sha 4) E=$(sha 5) F=$(sha 6) W=$(sha 7) P=$(sha 8)
-# Merge candidates are real commits on top of the trusted clone's origin/main: the merge guard requires
-# a head that already contains its base.
-head_on_main() { git -C "$AIEN_CLONES/demo" commit-tree -p origin/main -m "pr head $1" "origin/main^{tree}"; }
-M1=$(head_on_main 1) M2=$(head_on_main 2) M3=$(head_on_main 3) M4=$(head_on_main 4) M5=$(head_on_main 5)
-M6=$(head_on_main 6) M7=$(head_on_main 7) M8=$(head_on_main 8) M9=$(head_on_main 9)
 bundle demo "$A" "$K2" 0            # PASS, current key
 bundle demo "$B" "$K2" 1            # FAIL, still published
 bundle demo "$C" "$K3" 0            # key not in verify.pub: REJECTED (3) with both keys
@@ -115,7 +122,6 @@ bundle demo "$E" "$K2" 0 '"gpu"'    # plan.blocked set
 bundle demo "$F" "$K1" 0            # older key (first line of verify.pub)
 bundle demo "$W" "$K2" 0 null "$A"  # body names another commit: verify uses the path, so REJECTED
 bundle plain "$P" "$K2" 0           # repository not enrolled
-for m in "$M1" "$M2" "$M3" "$M4" "$M5" "$M6" "$M7" "$M8" "$M9"; do bundle demo "$m" "$K2" 0; done
 
 echo "== usage and configuration"
 rc=0; bash "$PIPE" bogus >/dev/null 2>&1 || rc=$?; check "unknown command exits 2" [ "$rc" = 2 ]
@@ -171,7 +177,7 @@ check "the other publisher's commit kept (no force push)" git --git-dir="$T/rece
 check "two new commits: theirs and ours" [ "$(remote_commits)" = $((before + 2)) ]
 check "commit message names the replaced digest" bash -c "git --git-dir='$T/receipts.git' log -1 --format=%B main | grep -q 'replaces sha256:$digA0'"
 
-echo "== rerun"
+echo "== merge: no Spark gate"
 ghset "repos/aien-dev/demo" '{"full_name":"aien-spark/demo"}'
 ghset "repos/aien-dev/plain" '{"full_name":"aien-spark/plain"}'
 ghset "repos/aien-spark/plain/pulls?state=open&per_page=100" '[]'
@@ -184,88 +190,92 @@ pulls() { # NUM:SHA:DRAFT:LABEL ...
   done
   ghset "repos/$S/pulls?state=open&per_page=100" "$out]"
 }
-runs() { ghset "repos/$S/actions/runs?head_sha=$1&per_page=20" "{\"workflow_runs\":[$2]}"; }
-run() { echo "{\"id\":$1,\"name\":\"$2\",\"status\":\"$3\",\"created_at\":\"$4\",\"run_started_at\":\"$4\"}"; }
-pulls "1:$A:false:" "2:$B:false:" "3:$F:false:" "4:$C:false:"
-runs "$A" "$(run 10 'AIEN Verification' completed 2000-01-01T00:00:00Z),$(run 11 'AIEN Verification' completed 2000-01-02T00:00:00Z),$(run 12 'Sovereign CI' completed 2000-01-03T00:00:00Z)"
-runs "$B" "$(run 20 'AIEN Verification' in_progress 2000-01-01T00:00:00Z)"
-runs "$F" "$(run 30 'AIEN Verification' completed 2099-01-01T00:00:00Z)"
-bash "$PIPE" rerun > "$T/out4" 2>&1
-posts() { grep -c "^gh api -X POST repos/$S/actions/runs/$1/rerun$" "$FAKE_LOG" || true; }
-check "latest AIEN Verification run predating publication is rerun (canonical slug)" [ "$(posts 11)" = 1 ]
-check "older run and other workflows untouched" [ "$(posts 10)$(posts 12)" = 00 ]
-check "in-progress run is not rerun" [ "$(posts 20)" = 0 ]
-check "run started after publication is not rerun" [ "$(posts 30)" = 0 ]
-check "head without a published bundle is not looked up" bash -c "! grep -q 'head_sha=$C' '$FAKE_LOG'"
-check "journal: in-progress wait" [ "$(jl ".action==\"rerun\" and .sha==\"$B\" and .result==\"wait\"")" = 1 ]
-bash "$PIPE" rerun > "$T/out5" 2>&1
-check "second round: no second rerun for the same digest" [ "$(posts 11)" = 1 ]
-jq '.extra = 2' "$AIEN_STATE/bundles/demo/$A/bundle.json" > "$T/a" && mv "$T/a" "$AIEN_STATE/bundles/demo/$A/bundle.json"
-bash "$PIPE" round > "$T/out6" 2>&1
-check "new digest for the same head: rerun once more" [ "$(posts 11)" = 2 ]
-check "round with no labeled PR merges nothing" bash -c "! grep -q '^gh pr merge' '$FAKE_LOG'"
-check "journal: unlabeled PR skipped silently" [ "$(jl ".action==\"merge\" and .pr==\"1\"")" = 0 ]
-
-echo "== merge"
-CTX1="Workspace Verification & Invariant Audit" CTX2="AIEN Verification (Spark)"
-ghset "repos/$S/branches/main/protection/required_status_checks" "{\"contexts\":[\"$CTX1\",\"$CTX2\"]}"
+pr() { ghset "repos/$S/pulls/$1" "{\"number\":$1,\"draft\":${4:-false},\"mergeable_state\":\"$3\",\"head\":{\"sha\":\"$2\"}}"; }
 L=ready-to-merge
-# 41 (all green) is listed last: one merge per round, so the refusals ahead of it are all evaluated.
-pulls "42:$M2:false:" "43:$M3:true:$L" "44:$M4:false:$L" "45:$M5:false:$L" \
-      "46:$M6:false:$L" "47:$M7:false:$L" "48:$M8:false:$L" "49:$M9:false:ready-to-merge-later" "41:$M1:false:$L"
-for i in 1 2 3 4 5 6 7 8 9; do
-  mv=M$i; m=${!mv}
-  state=clean; [[ $i == 8 ]] && state=dirty
-  draft=false; [[ $i == 3 ]] && draft=true
-  ghset "repos/$S/pulls/4$i" "{\"number\":4$i,\"draft\":$draft,\"mergeable_state\":\"$state\",\"head\":{\"sha\":\"$m\"}}"
-  ghset "repos/$S/commits/$m/check-runs?per_page=100" "{\"check_runs\":[{\"name\":\"$CTX1\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"name\":\"other\",\"status\":\"completed\",\"conclusion\":\"failure\"}]}"
-  ghset "repos/$S/commits/$m/status?per_page=100" "{\"statuses\":[{\"context\":\"$CTX2\",\"state\":\"success\"}]}"
-  runs "$m" "$(run $((100 + i)) 'AIEN Verification' completed 2099-01-01T00:00:00Z)"
-done
-ghset "repos/$S/commits/$M5/status?per_page=100" '{"statuses":[]}'
-ghset "repos/$S/commits/$M6/check-runs?per_page=100" "{\"check_runs\":[{\"name\":\"$CTX1\",\"status\":\"completed\",\"conclusion\":\"failure\"}]}"
-runs "$M7" "$(run 107 'AIEN Verification' completed 2099-01-01T00:00:00Z),$(run 117 'AIEN Verification' queued 2099-01-02T00:00:00Z)"
-jq '.tampered = true' "$AIEN_STATE/bundles/demo/$M4/bundle.json" > "$T/m" && mv "$T/m" "$AIEN_STATE/bundles/demo/$M4/bundle.json"
+for i in 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56; do printf -v "N$i" '%s' "$(sha "$i")"; done
+# None of these heads has a bundle or status; unstable check runs are supplied below.
+pulls "41:$N41:false:$L" "42:$N42:false:" "43:$N43:true:$L" "44:$N44:false:$L" "45:$N45:false:$L" \
+      "46:$N46:false:$L" "47:$N47:false:$L" "48:$N48:false:$L" "49:$N49:false:ready-to-merge-later" "50:$N50:false:$L" \
+      "51:$N51:false:$L" "52:$N52:false:$L" \
+      "53:$N53:false:$L" "54:$N54:false:$L" "55:$N55:false:$L" "56:$N56:false:$L"
+pr 41 "$N41" clean; pr 44 "$N44" dirty; pr 45 "$N45" behind; pr 46 "$N46" unstable
+pr 47 "$(sha 470)" clean; pr 48 "$N48" unknown; pr 50 "$N50" blocked; pr 51 "$N51" unstable; pr 52 "$N52" unstable
+pr 53 "$N53" unstable; pr 54 "$N54" unstable; pr 55 "$N55" unstable; pr 56 "$N56" unstable
+# "unstable" = a check failed or is running and no branch rule requires it: the head's check runs decide.
+runs() { ghset "repos/$S/commits/$1/check-runs?per_page=100" "{\"check_runs\":[$2]}"; }
+runs "$N46" '{"name":"AIEN Checks","status":"completed","conclusion":"failure"},{"name":"CodeQL","status":"completed","conclusion":"success"}'
+runs "$N51" '{"name":"AIEN Checks","status":"in_progress","conclusion":null},{"name":"CodeQL","status":"completed","conclusion":"success"}'
+runs "$N52" '{"name":"AIEN Checks","status":"completed","conclusion":"success"},{"name":"AIEN Alpha","status":"completed","conclusion":"skipped"},{"name":"CodeQL","status":"completed","conclusion":"neutral"}'
+runs "$N53" '{"name":"AIEN Checks","status":"completed","conclusion":"stale"}'
+runs "$N54" '{"name":"AIEN Checks","status":"completed","conclusion":"future_result"}'
+runs "$N55" '{"name":"AIEN Checks","status":"completed","conclusion":null}'
+runs "$N56" '{"name":"AIEN Checks","status":"completed"}'
+c0=$(wc -l < "$FAKE_LOG")
 bash "$PIPE" merge > "$T/out7" 2>&1
 merges() { grep -c "^gh pr merge $1 " "$FAKE_LOG" || true; }
 refused() { [ "$(jl ".action==\"merge\" and .pr==\"$1\" and .result==\"refused\" and (.reason|test(\"$2\"))")" = 1 ]; }
-check "all green: merged with --match-head-commit on the canonical slug" grep -qx "gh pr merge 41 -R $S --merge --match-head-commit $M1" "$FAKE_LOG"
-check "exactly one merge call" [ "$(grep -c '^gh pr merge' "$FAKE_LOG")" = 1 ]
+check "clean, no bundle: merged with --match-head-commit on the canonical slug" grep -qx "gh pr merge 41 -R $S --merge --match-head-commit $N41" "$FAKE_LOG"
+check "behind the base: merged (no up-to-date rule)" [ "$(merges 45)" = 1 ]
+check "unstable with a failed hosted check: refused, naming the check" refused 46 "hosted checks failed on this head: AIEN Checks"
+check "unstable with a check still running: wait, not merged" [ "$(jl ".action==\"merge\" and .pr==\"51\" and .result==\"wait\"")$(merges 51)" = 10 ]
+check "unstable with every check completed and none failed (skipped/neutral ok): merged" [ "$(merges 52)" = 1 ]
+for n in 53 54 55 56; do
+  check "unstable with unaccepted completed conclusion ($n): refused" refused "$n" "hosted checks failed on this head: AIEN Checks"
+  check "unstable with unaccepted completed conclusion ($n): never merged" [ "$(merges "$n")" = 0 ]
+done
+check "every mergeable PR merges in the same round" [ "$(grep -c '^gh pr merge' "$FAKE_LOG")" = 3 ]
+check "merge never calls aien-test" bash -c "! tail -n +$((c0 + 1)) '$FAKE_LOG' | grep -q '^aien-test'"
+check "merge reads check runs only for unstable heads, never statuses, protection or workflow runs" \
+  bash -c "! tail -n +$((c0 + 1)) '$FAKE_LOG' | grep -qE '/status|protection|actions/runs' && [ \"\$(tail -n +$((c0 + 1)) '$FAKE_LOG' | grep -c check-runs)\" = 7 ]"
 check "never --admin" bash -c "! grep -q -- '--admin' '$FAKE_LOG'"
 check "label missing: skipped, no journal line" [ "$(jl ".action==\"merge\" and .pr==\"42\"")" = 0 ]
 check "label not exact (ready-to-merge-later): skipped, no journal line" [ "$(jl ".action==\"merge\" and .pr==\"49\"")" = 0 ]
 check "draft: refused" refused 43 "draft"
-check "digest mismatch: refused" refused 44 "digest mismatch"
-check "required context missing: refused" refused 45 "AIEN Verification \\\\(Spark\\\\).* missing"
-check "required context failed: refused" refused 46 "Invariant Audit.* is failure"
-check "run queued: refused" refused 47 "queued or in progress"
-check "dirty: refused" refused 48 "dirty"
-check "merge verify passes --require from base .aien/always" grep -q -- "--commit $M1 --pubkey $K2 --require g1,g2" "$FAKE_LOG"
+check "conflicts: refused" refused 44 "conflicts"
+check "head moved: refused" refused 47 "head moved"
+check "mergeability unknown: wait, not merged" [ "$(jl ".action==\"merge\" and .pr==\"48\" and .result==\"wait\"")$(merges 48)" = 10 ]
+check "blocked by branch rules: refused" refused 50 "mergeable state blocked"
 
-rm "$AIEN_STATE/bundles/demo/$M1/bundle.json"
-bash "$PIPE" merge > "$T/out8" 2>&1
-check "no local bundle: refused" refused 41 "no local bundle"
-check "still exactly one merge call" [ "$(grep -c '^gh pr merge' "$FAKE_LOG")" = 1 ]
-
-echo "== merge order"
-M11=$(head_on_main 11) M12=$(head_on_main 12)
-pulls "51:$M11:false:$L" "52:$M12:false:$L"
-for n in 51 52; do
-  mv=M$((n - 40)); m=${!mv}
-  bundle demo "$m" "$K2" 0
-  ghset "repos/$S/pulls/$n" "{\"number\":$n,\"draft\":false,\"mergeable_state\":\"clean\",\"head\":{\"sha\":\"$m\"}}"
-  ghset "repos/$S/commits/$m/check-runs?per_page=100" "{\"check_runs\":[{\"name\":\"$CTX1\",\"status\":\"completed\",\"conclusion\":\"success\"}]}"
-  ghset "repos/$S/commits/$m/status?per_page=100" "{\"statuses\":[{\"context\":\"$CTX2\",\"state\":\"success\"}]}"
-  runs "$m" "$(run $((200 + n)) 'AIEN Verification' completed 2099-01-01T00:00:00Z)"
-done
-bash "$PIPE" publish > "$T/out8a" 2>&1
-bash "$PIPE" merge > "$T/out8b" 2>&1
-check "two green PRs: only the first merges this round" [ "$(merges 51)$(merges 52)" = 10 ]
-check "second PR left for the next round, no journal line" [ "$(jl ".action==\"merge\" and .pr==\"52\"")" = 0 ]
-echo moved > "$AIEN_CLONES/demo/MOVED" && git -C "$AIEN_CLONES/demo" add MOVED && git -C "$AIEN_CLONES/demo" commit -q -m moved && git -C "$AIEN_CLONES/demo" push -q origin main
-bash "$PIPE" merge > "$T/out8c" 2>&1
-check "base moved: head behind origin/main refused" refused 52 "behind origin/main"
-check "base moved: nothing merged" [ "$(merges 51)$(merges 52)" = 10 ]
+echo "== alpha"
+DAY=$(date -u +%Y%m%d)
+main_commit() { # NAME DATE: a commit on demo's main with that committer date, pushed; prints its sha
+  echo "$1" > "$AIEN_CLONES/demo/$1" && git -C "$AIEN_CLONES/demo" add "$1" \
+    && GIT_COMMITTER_DATE=$2 git -C "$AIEN_CLONES/demo" commit -q -m "$1" && git -C "$AIEN_CLONES/demo" push -q origin main \
+    && git -C "$AIEN_CLONES/demo" rev-parse HEAD
+}
+origin_tag() { git --git-dir="$T/origin-demo.git" rev-parse -q --verify "refs/tags/$1^{commit}" 2>/dev/null; }
+alpha_tags() { git --git-dir="$T/origin-demo.git" tag -l 'alpha/*' | wc -l; }
+X1=$(main_commit x1 2026-01-01T00:00:00Z) X2=$(main_commit x2 2026-01-02T00:00:00Z)
+X3=$(main_commit x3 2026-01-03T00:00:00Z) X4=$(main_commit x4 2026-01-04T00:00:00Z)
+XB=$(git -C "$AIEN_CLONES/demo" commit-tree -p "$X4" -m "branch only" "$X4^{tree}")
+bundle demo "$X1" "$K2" 0 null "" full   # full PASS, older
+bundle demo "$X2" "$K2" 0 null "" full   # full PASS: the expected Alpha
+bundle demo "$X3" "$K2" 1 null "" full   # full FAIL, newer
+bundle demo "$X4" "$K2" 0                # newest on main, but a changed-scope (merge-era) PASS
+bundle demo "$XB" "$K2" 0 null "" full   # full PASS, not on main
+bash "$PIPE" publish > "$T/out8" 2>&1
+c0=$(wc -l < "$FAKE_LOG")
+bash "$PIPE" alpha > "$T/out8a" 2>&1
+check "newest full-scope PASS on main is tagged alpha/$DAY.1" [ "$(origin_tag "alpha/$DAY.1")" = "$X2" ]
+check "exactly one alpha tag" [ "$(alpha_tags)" = 1 ]
+check "the tag is annotated" [ "$(git --git-dir="$T/origin-demo.git" cat-file -t "refs/tags/alpha/$DAY.1")" = tag ]
+check "tag message names the bundle digest" bash -c "git --git-dir='$T/origin-demo.git' cat-file -p 'refs/tags/alpha/$DAY.1' \
+  | grep -qx 'bundle: sha256:$(sha256sum "$AIEN_STATE/bundles/demo/$X2/bundle.json" | cut -d' ' -f1)'"
+check "alpha verifies with --require-full and the base .aien/always" \
+  bash -c "tail -n +$((c0 + 1)) '$FAKE_LOG' | grep -q -- '--commit $X2 --pubkey $K2 --require g1,g2 --require-full --allow-host-only'"
+check "full FAIL is skipped with its verdict" [ "$(jl ".action==\"alpha\" and .sha==\"$X3\" and (.reason|test(\"FAIL\"))")" = 1 ]
+check "changed-scope bundle is never a candidate" bash -c "! tail -n +$((c0 + 1)) '$FAKE_LOG' | grep -q -- '--commit $X4 '"
+check "a head not on main is never tagged" [ -z "$(git --git-dir="$T/origin-demo.git" tag -l 'alpha/*' --points-at "$XB")" ]
+check "alpha never moves main" [ "$(git --git-dir="$T/origin-demo.git" rev-parse main)" = "$X4" ]
+check "journal: tagged line carries tag and digest" [ "$(jl ".action==\"alpha\" and .result==\"tagged\" and .tag==\"alpha/$DAY.1\" and (.digest|length)==64")" = 1 ]
+bash "$PIPE" alpha > "$T/out8b" 2>&1
+check "second round: no second tag for the same Alpha" [ "$(alpha_tags)" = 1 ]
+X5=$(main_commit x5 2026-01-05T00:00:00Z)
+bundle demo "$X5" "$K2" 0 null "" full
+bash "$PIPE" publish > "$T/out8c" 2>&1
+bash "$PIPE" alpha > "$T/out8d" 2>&1
+check "a newer full PASS becomes alpha/$DAY.2" [ "$(origin_tag "alpha/$DAY.2")" = "$X5" ]
+check "the older full PASS (x1) is never tagged" [ "$(alpha_tags)" = 2 ]
 
 echo "== single instance"
 bundle demo "$(sha 99)" "$K2" 0
@@ -319,6 +329,64 @@ check "MERGE-PAUSE: the file is left in place" [ -e "$AIEN_STATE/MERGE-PAUSE" ]
 check "rebase-train.sh never adds ready-to-merge or enables auto-merge" \
   bash -c "! grep -nE 'labels\\[\\]=(\"?\\\$MERGE_LABEL|ready-to-merge)|--auto|auto-merge\"' '$HERE/../rebase-train.sh'"
 rm -f "$AIEN_STATE/MERGE-PAUSE"
+
+
+echo "== host-only Alpha classification (issue #767)"
+# Real local git history and the production alpha command; only the verifier and
+# external hosting are fakes. No real signing key, device, or network is used.
+no_gpu_bundle() {
+  bundle demo "$1" "$K2" 0 null "" full
+  local f=$AIEN_STATE/bundles/demo/$1/bundle.json
+  jq '.fake.no_gpu = true' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+  bash "$PIPE" publish > "$T/hostonly-publish" 2>&1
+}
+set_gate() {
+  printf '%s\n' "$1" > "$AIEN_CLONES/demo/probe.gate"
+  git -C "$AIEN_CLONES/demo" add probe.gate
+}
+set_gate 'requires: ["nvrm"]'
+XN=$(main_commit nvrm 2026-02-01T00:00:00Z)
+no_gpu_bundle "$XN"
+n0=$(alpha_tags)
+bash "$PIPE" alpha > "$T/hostonly-nvrm" 2>&1
+check "nvrm gate cannot receive a host-only Alpha" [ "$(alpha_tags)" = "$n0" ]
+set_gate 'requires: ["gb10"]'
+XA=$(main_commit ancestor_gpu 2026-02-01T12:00:00Z)
+no_gpu_bundle "$XA"
+git -C "$AIEN_CLONES/demo" rm -q probe.gate
+n0=$(alpha_tags)
+XD=$(main_commit deleted_gpu 2026-02-02T00:00:00Z)
+bash "$PIPE" alpha > "$T/hostonly-deleted" 2>&1
+check "deleting GPU gates later cannot waive a GPU candidate" [ "$(alpha_tags)" = "$n0" ]
+set_gate 'requires: ["host"]'
+XH=$(main_commit host 2026-02-03T00:00:00Z)
+no_gpu_bundle "$XH"
+n0=$(alpha_tags)
+bash "$PIPE" alpha > "$T/hostonly-host" 2>&1
+check "genuine host-only candidate still qualifies" [ "$(alpha_tags)" = "$((n0 + 1))" ]
+XE=$(main_commit grep_error 2026-02-04T00:00:00Z)
+no_gpu_bundle "$XE"
+cat > "$T/bin/git-grep-error" <<'EOF'
+#!/usr/bin/env bash
+if [[ $* == *" grep "* && $* == *"*.gate"* ]]; then exit 128; fi
+exec git "$@"
+EOF
+chmod +x "$T/bin/git-grep-error"
+n0=$(alpha_tags)
+GIT="$T/bin/git-grep-error" bash "$PIPE" alpha > "$T/hostonly-error" 2>&1
+check "manifest read error cannot grant the GPU waiver" [ "$(alpha_tags)" = "$n0" ]
+set_gate 'requires: ["\u0067b10"]'
+XU=$(main_commit escaped_gpu 2026-02-05T00:00:00Z)
+no_gpu_bundle "$XU"
+n0=$(alpha_tags)
+bash "$PIPE" alpha > "$T/hostonly-escaped" 2>&1
+check "escaped GPU name cannot grant the GPU waiver" [ "$(alpha_tags)" = "$n0" ]
+set_gate 'requires: ["gb10"]'
+XG=$(main_commit gpu 2026-02-06T00:00:00Z)
+no_gpu_bundle "$XG"
+n0=$(alpha_tags)
+bash "$PIPE" alpha > "$T/hostonly-gpu" 2>&1
+check "explicit gb10 still requires a GPU receipt" [ "$(alpha_tags)" = "$n0" ]
 
 echo "== secrets"
 check "pipeline.sh never names the signing key file" bash -c "! grep -q 'verify\\.key' '$PIPE'"

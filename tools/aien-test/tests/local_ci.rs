@@ -951,6 +951,58 @@ fn main_head_is_verified_against_its_first_parent() {
 }
 
 #[test]
+fn full_scope_worker_qualifies_every_gate_and_signs_the_scope() {
+    // An Alpha: a commit already on main, judged on every gate. H watches
+    // h/, which the commit does not touch.
+    let w = world();
+    git(&w.origin, &["merge", "-q", "--ff-only", "topic"]);
+    git(&w.clone, &["fetch", "-q", "--all"]);
+    let s = worker::run_once(&w.config(), REPO, &w.head).expect("worker");
+    assert!(s.ready, "{:?}", s.notes);
+    assert!(!s.gates.iter().any(|g| g.0 == "H"), "{:?}", s.gates);
+    assert_eq!(w.read_bundle(&w.head)["plan"]["scope"], "changed");
+
+    let mut cfg = w.config();
+    cfg.full = true;
+    let s = worker::run_once(&cfg, REPO, &w.head).expect("worker --full");
+    assert_eq!(s.verdict, Verdict::Pass, "{} {:?}", s.reason, s.notes);
+    assert!(s.ready, "{:?}", s.notes);
+    assert_eq!(gate_status(&s, "H"), ("run".to_string(), Verdict::Pass));
+    let b = w.read_bundle(&w.head);
+    assert_eq!(b["plan"]["scope"], "full", "{}", b["plan"]);
+    // `verify` plans in the signed scope and reaches the same graph.
+    let r = w.verify(&w.ask(&w.head));
+    assert_eq!(
+        line(&r, "MERGE ELIGIBILITY:"),
+        "MERGE ELIGIBILITY: READY",
+        "{:#?}",
+        r.lines
+    );
+    assert_eq!(line(&r, "Affected gates:"), "Affected gates: 2 (A H)");
+    // verify-bundle --require-full refuses it: this world's gates are all
+    // backend host, so its full-scope PASS is not an Alpha (NO_GPU_RECEIPT).
+    // The gb10 receipt itself is covered by bundle.rs's tests.
+    let vk = bundle::load_signing_key(&w.key).unwrap().verifying_key();
+    let expect = bundle::Expect {
+        repository: b["repository"].as_str().unwrap().to_string(),
+        commit: w.head.clone(),
+        pubkey_hex: bundle::hex_encode(vk.as_bytes()),
+        required: vec!["A".to_string(), "H".to_string()],
+        require_full: true,
+        allow_host_only: false,
+    };
+    let err = bundle::verify(&b, &expect).expect_err("no gb10 gate, no Alpha");
+    assert_eq!(err.code(), "NO_GPU_RECEIPT", "{err}");
+    // The caller reads the repository's gate manifests; this world declares no
+    // gb10 gate, so it passes --allow-host-only and the same full-scope PASS is
+    // an Alpha. Without the flag (above) it is not.
+    let mut host_only = expect.clone();
+    host_only.allow_host_only = true;
+    let v = bundle::verify(&b, &host_only).expect("host-only Alpha when no gate declares gb10");
+    assert_eq!(v.gate_verdict(), "PASS");
+}
+
+#[test]
 fn symlinked_exec_out_of_the_tree_never_runs() {
     let t = Tmp::new("symlink");
     let r = t.path();

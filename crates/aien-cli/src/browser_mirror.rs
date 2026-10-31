@@ -429,9 +429,9 @@ impl ChromeProcess {
             .map_err(|e| format!("profile dir: {}", e))?;
         // Chrome leads an isolated process group; Linux teardown signals only
         // pidfds, never numeric PID/PGID targets.
-        // --disable-software-rasterizer: with --disable-gpu, Chrome otherwise falls back to
-        // a SwiftShader GPU process, and on aarch64 (Chrome 153, DGX Spark) Page.captureScreenshot
-        // then gets no reply at all (sovereign-core #661).
+        // --use-gl=disabled --disable-software-rasterizer: with --disable-gpu alone, Chrome 153
+        // headless on aarch64 (DGX Spark, no display) falls back to a SwiftShader GPU process and
+        // Page.captureScreenshot then gets no reply at all (sovereign-core #661; main 92df274c).
         let spawned = Command::new(binary)
             .env(TAG_VAR, &tag)
             .process_group(0)
@@ -443,6 +443,7 @@ impl ChromeProcess {
             .arg("--no-default-browser-check")
             .arg("--disable-dev-shm-usage")
             .arg("--disable-gpu")
+            .arg("--use-gl=disabled")
             .arg("--disable-software-rasterizer")
             .arg("--no-sandbox")
             .arg("--window-size=1280,900")

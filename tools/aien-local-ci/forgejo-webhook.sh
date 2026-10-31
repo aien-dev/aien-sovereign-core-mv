@@ -17,23 +17,24 @@
 # forgejo-webhook.sh: offline push trigger for the trusted worker (A3).
 #
 # Trigger file contract (consumed by `aien-test worker`, lane ENGINE):
-#   directory  /home/drakestapleton/.local/state/aien-local-ci/trigger/
+#   directory  $OP_HOME/.local/state/aien-local-ci/trigger/   (OP_HOME = $AIEN_OPERATOR_HOME, default $HOME)
 #   file name  <repo>.<sha>            (repo = Forgejo repository name, sha = full 40-hex new commit)
 #   content    one line: "<ref> <old-sha> <new-sha> <unix-time>"  (ref = refs/heads/<branch>)
 #   semantics  the worker treats the file's presence as "please verify <repo> at <sha>"; it deletes the file when
 #              the run is recorded. A deleted branch (new-sha all zeros) writes no file. Re-pushing the same sha
 #              rewrites the same file (idempotent). No network, no HTTP receiver: Forgejo's post-receive hook
-#              runs as drakestapleton on this host and writes the file directly.
+#              runs as the operator on this host and writes the file directly.
 #
 #   forgejo-webhook.sh install <repo>   install the post-receive hook into the Forgejo bare repo
-#                                       /home/drakestapleton/atlas-forgejo/data/git/repositories/drake/<repo>.git
+#                                       $OP_HOME/atlas-forgejo/data/git/repositories/drake/<repo>.git
 #                                       (hooks/post-receive runs every hooks/post-receive.d/*, Forgejo's own layout,
 #                                       so a later "resynchronize hooks" from the admin page keeps our script)
 #   forgejo-webhook.sh hook <repo>      the hook body (reads "old new ref" lines on stdin)
 #   forgejo-webhook.sh list             show pending trigger files
 set -euo pipefail
-TRIGGER_DIR=/home/drakestapleton/.local/state/aien-local-ci/trigger
-REPOS=/home/drakestapleton/atlas-forgejo/data/git/repositories/drake
+OP_HOME=${AIEN_OPERATOR_HOME:-$HOME}
+TRIGGER_DIR=$OP_HOME/.local/state/aien-local-ci/trigger
+REPOS=$OP_HOME/atlas-forgejo/data/git/repositories/drake
 
 case "${1:-}" in
   hook)

@@ -9,12 +9,12 @@ status when it can be reached; it is never asked for permission.
 
 | Command | What it does | Exit |
 |---|---|---|
-| `aien-test plan [--base REF] [--repo NAME] [--operator] [--allow-dirty]` | Which gates BASE..HEAD needs, by section, with the graph digest. BASE defaults to `origin/main`, then `main`. | 0 runnable, 2 NOT_RUN (unmapped path or removed gate), 4 BLOCKED_OPERATOR |
+| `aien-test plan [--base REF] [--repo NAME] [--operator] [--allow-dirty] [--full]` | Which gates BASE..HEAD needs, by section, with the graph digest. BASE defaults to `origin/main`, then `main`. `--full`: every gate at HEAD (see "Full scope" below). | 0 runnable, 2 NOT_RUN (unmapped path or removed gate), 4 BLOCKED_OPERATOR |
 | `aien-test test changed [--base REF]` | Prints the plan, then runs the non-blocked selection through the normal runner. | the campaign verdict (PASS 0, FAIL 1, NOT_RUN 2, BLOCKED 3/4, MISSING 5) |
 | `aien-test test crate:NAME` | The gates covering a workspace crate (from `cargo metadata`) and every crate that depends on it. | campaign verdict |
 | `aien-test status [--state-dir DIR]` | Pools, GPU lock holder, aien-proof slots, quiet flag, worker heartbeat, pending triggers and outbox, newest bundle per repository. Read-only. | 0 |
 | `aien-test verify COMMIT [--repo NAME] [--base REF] [--state-dir DIR] [--release]` | The independent check of a bundle, printed as the fixed report block below. | 0 only on `MERGE ELIGIBILITY: READY`, else 1 |
-| `aien-test worker [--once REPO SHA] [--poll SECS] [--repos A,B] [--github] [--iterations N] [--state-dir DIR] [--key FILE] [--clones DIR] [--wt-root DIR] [--wt-tool FILE] [--base REF] [--sandbox user\|none --dev-unsandboxed]` | The trusted worker: one head with `--once`, or the loop. Runs gates in the user sandbox unless told otherwise. | `--once`: the plan verdict; loop: 0; 2 on a refused sandbox mode |
+| `aien-test worker [--once REPO SHA] [--full] [--poll SECS] [--repos A,B] [--github] [--iterations N] [--state-dir DIR] [--key FILE] [--clones DIR] [--wt-root DIR] [--wt-tool FILE] [--base REF] [--sandbox user\|none --dev-unsandboxed]` | The trusted worker: one head with `--once`, or the loop. Runs gates in the user sandbox unless told otherwise. `--full`: an Alpha qualification (see "Full scope" below). | `--once`: the plan verdict; loop: 0; 2 on a refused sandbox mode |
 | `aien-test run GATE --sandbox user`, `aien-test test ... --sandbox user` | Any run, with every gate program started through the exec helper. | as before |
 
 `--release` (run, test, verify): qualification mode. No cache reuse, the tree
@@ -161,7 +161,8 @@ the worker's, never the gate's. Without it two gates built in one target dir
 at once and one relinked a test binary the other was executing (sc fix/521:
 SC-AGENT-PREFLIGHT under SC-TEST, `current_exe: NotFound`, a false FAIL).
 Gates given different target dirs still run at the same time. The fixed lock
-order of one gate is: pool slot, target-dir lock, `/tmp/aien-gb10.lock`,
+order of one gate is: pool slot, target-dir lock, `prepare` (if any),
+`/tmp/aien-gb10.lock`,
 aien-proof `slots/gpu.lock`; the worker's target priming takes only the
 target-dir lock. Known limit: a gb10 gate is never killed on timeout, so a
 hung one holds the target dir until it exits on its own.
@@ -181,7 +182,22 @@ server's own upload wait); `--gpu-wait 0` refuses at once, `--gpu-wait 90s`
 sets another bound, `--wait-gpu` waits without one. While it waits the gate
 keeps its pool slot and target-dir lock (never the GPU idle), so other gates
 of the same target dir wait too, at most the bound. Every gb10 receipt
-records `volatile.gpu_wait`: `mode`, `bound_ms`, `waited_ms`, `acquired`.
+records `volatile.gpu_wait`: `mode`, `bound_ms`, `waited_ms`, `acquired`,
+and `volatile.gpu_held_ms`, how long the run held the GPU locks.
+
+A gb10 gate that must build before it touches the chip names the build in a
+v2 `prepare:` key (same shape as `run:`: `exec` plus a one-line `args` list).
+The runner runs it after the pool slot and target-dir lock and BEFORE
+`/tmp/aien-gb10.lock`, under the host sandbox profile with the gate's timeout
+enforced, without `AIEN_GB10_LOCK_HELD`; then it takes the GPU locks for `run`
+alone. A prepare that exits non-zero or times out fails the gate
+(`prepare_failed`), `run` never starts and the GPU lock is never asked for;
+its exit status and output are the receipt's. `volatile.prepare` records
+`duration_ms`, `exit_status`, `timed_out` and the two output blob hashes. Why
+(L154, 2026-10-20): omega's chip gates build their program inside the lock,
+so one PR run held the chip 84 minutes for three gates while the GPU sat idle
+compiling (OMEGA-COMPOSITION-GATE-GPU 846 s, OMEGA-M17 2233 s, OMEGA-M19
+1933 s, omega 47699e9d). A gate without `prepare` behaves as before.
 
 Under `--sandbox user` every checkout is made with INFRA's worktree tool
 (`--wt-tool`, default `<clones>/aien-sovereign-core/tools/aien-local-ci/wt.sh`;
@@ -445,6 +461,64 @@ pins, siblings and worktree removal are done one head at a time.
 with the gate verdict, not the raw algebra: a bundle with no required check,
 or whose signed `plan.verdict` is not PASS, is `NOT_RUN` (exit 2) with the
 reason in brackets, even though its `verdict` member says PASS.
+
+## Full scope: Alpha qualification
+
+A commit already on main becomes an Alpha when the Spark judge runs every
+gate on it, not only the gates its diff selects. `aien-test worker --once
+REPO SHA --full` plans in full scope: every gate at HEAD is selected (the
+same set as `test ./...`), so every non-advisory gate is required, gb10 and
+Spark gates included, and the worker runs them all (the sections still say
+which need the chip). What changed only labels the entries (`because`);
+UNMAPPED_PATH and GATE_REMOVED do not apply. PIPELINE_CONFIG_CHANGED and
+operator gates keep their rules (`--operator`). `aien-test plan --full`
+prints the same selection with a `Scope: full` line.
+
+The bundle's signed `plan` object carries `"scope": "full"` or
+`"scope": "changed"`; a bundle without the member is `changed`, so older
+bundles stay valid. `aien-test verify` plans in the scope the bundle signs.
+`verify-bundle ... --require-full` exits 3 (REJECTED) unless that scope is
+`full`:
+
+```
+AIEN Verification: REJECTED NOT_FULL_SCOPE: plan scope is changed, not a full-scope (Alpha) qualification
+```
+
+It also exits 3 when the full-scope bundle carries no GPU check at all:
+
+```
+AIEN Verification: REJECTED NO_GPU_RECEIPT: an Alpha needs a required check on backend gb10 that ran on the Spark's GPU, and this full-scope bundle has none (checks by backend: host=34; gb10 checks: none)
+```
+
+An Alpha is the stage tested on the Spark's GPU, so a full-scope PASS of host
+gates alone is not one (the first Alpha, `alpha/20261024.1`, was 34 checks, all
+`backend: host`). The receipt is a required check on backend `gb10` that ran,
+or was resolved from cache: a gb10 result is never reused across heads, so a
+`cached` entry is still this commit's own GPU run. A gb10 check that ran and
+FAILed is a receipt too, and the bundle is then `FAIL` (exit 1), which says
+more than "no receipt"; a gb10 check that self-not-ran (exit 77, for example
+no checkpoint or not enough free memory) is not one. The message names the
+backends the bundle does have, so a host-only plan is visible at a glance.
+sovereign-core's receipt is `SC-GB10-SERVE-CHAT`
+(`tests/gates/sc-gb10-serve-chat.gate`, `scripts/gb10-serve-chat.sh`): build
+the server on the real Omega GPU engine, start Qwen3.8-27B, one greedy chat
+request, clean SIGTERM shutdown. Full scope selects every gate, so the Alpha
+run always includes it; a pull request's changed scope does not, and its result
+is never cached (`cache: never`).
+`tests/gates/run.sh` swaps the sandbox's read-only `$HOME` for a fresh writable
+one per step and exports `AIEN_MODELS_DIR` as the read-only home's `models/`
+mount, so the gate finds the checkpoint there, not under the fresh HOME
+(`tests/gates/step-home.sh`). Before any check it records the checkpoint it
+resolved as `model_dir` and where that came from as `model_dir_source`
+(`override` when `MODEL_DIR` was set, `models-mount`, or `home`), so a receipt
+never leaves the model's provenance to the default. `SC-GB10-MODEL-DIR`
+(`scripts/test-gb10-model-dir.sh`, portable, no GPU) runs that resolution and
+the gate's NOT_RUN `model_missing` path, which ends before the memory check,
+the build and any GPU start, with a read-only HOME.
+
+The full-scope bundle is written to the head's usual bundle path. The loop
+skips any head that already has a bundle, whatever its scope, so an Alpha
+of a head the loop already judged is run with `--once --full`.
 
 ## The verify report
 

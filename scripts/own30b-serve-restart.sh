@@ -25,6 +25,7 @@ set -euo pipefail
 BIN=${1:-/tmp/own30b-f/target-router/release/aien-serve-http}
 MODEL=${OWN30B_MODEL_DIR:-$HOME/models/qwen3-30b-a3b-instruct-2507-fp8}
 PIDF=/tmp/own30b-serve.pid LOG=/tmp/own30b-serve.log
+: "${AIEN_SERVE_HTTP_BEARER_TOKEN:?AIEN_SERVE_HTTP_BEARER_TOKEN required before restart}"
 if [ -f "$PIDF" ]; then
 	old=$(cat "$PIDF")
 	if [ -n "$old" ] && [ "$(ps -o comm= -p "$old" 2>/dev/null || true)" = aien-serve-http ]; then

@@ -288,6 +288,12 @@ impl Graph {
         set.extend(targets.iter().copied());
         set
     }
+
+    /// Every gate: what `test ./...` runs and what a full-scope plan selects
+    /// (closed over dependencies by construction).
+    pub fn all(&self) -> BTreeSet<usize> {
+        (0..self.nodes.len()).collect()
+    }
 }
 
 #[cfg(test)]

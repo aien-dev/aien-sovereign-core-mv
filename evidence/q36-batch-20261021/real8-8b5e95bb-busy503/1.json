@@ -1,0 +1,16 @@
+{
+  "ids": [
+    760,
+    6511,
+    314,
+    8071,
+    369,
+    66463,
+    13
+  ],
+  "text": "The capital of Australia is Canberra.",
+  "finish": "stop",
+  "prompt_tokens": 24,
+  "t0": "1792550982.119072497",
+  "t1": "1792551063.881052470"
+}

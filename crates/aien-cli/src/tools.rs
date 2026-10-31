@@ -186,8 +186,8 @@ pub fn dispatch_tool_with(name: &str, args: &Value, ctx: &crate::approval::GateC
             } else {
                 // System paths were already put to the person by the
                 // approval gate (sc#667); one decision, never two.
-                recorded_write("write_to_file", path, || {
-                    exec_write_file(path, content, overwrite, intent, vector)
+                recorded_write("write_to_file", path, |held| {
+                    exec_write_file(held, content, overwrite, intent, vector)
                 })
             }
         }
@@ -230,8 +230,8 @@ pub fn dispatch_tool_with(name: &str, args: &Value, ctx: &crate::approval::GateC
                     false,
                 )
             } else {
-                recorded_write("replace_file_content", path, || {
-                    exec_replace_file(path, target, replacement, intent, vector)
+                recorded_write("replace_file_content", path, |held| {
+                    exec_replace_file(held, target, replacement, intent, vector)
                 })
             }
         }
@@ -467,10 +467,20 @@ pub(crate) fn record_effect_receipt(
 }
 
 fn validate_tool_path(path: &str) -> Result<std::path::PathBuf, String> {
-    let platform = crate::platform::PlatformContext::detect();
-    let mut allowed = platform.default_workspaces;
-    allowed.push(std::path::PathBuf::from("/tmp"));
-    crate::safety::validate_workspace_path(path, &allowed)
+    crate::safety::validate_workspace_path(path, &crate::fs_bind::permitted_workspaces())
+}
+
+fn bind_err(err: crate::fs_bind::BindError) -> (Value, bool) {
+    let denied = matches!(err, crate::fs_bind::BindError::Denied(_));
+    let msg = err.message().to_string();
+    if denied {
+        (
+            json!({"error": format!("CONFINEMENT DENIAL: {msg}")}),
+            false,
+        )
+    } else {
+        (json!({"error": msg}), false)
+    }
 }
 
 fn exec_command(cmd: &str, cwd: &str) -> (Value, bool) {
@@ -508,14 +518,12 @@ fn exec_command(cmd: &str, cwd: &str) -> (Value, bool) {
 }
 
 fn exec_view_file(path: &str, start_line: usize, end_line: usize) -> (Value, bool) {
-    if let Err(err) = validate_tool_path(path) {
-        return (
-            json!({"error": format!("CONFINEMENT DENIAL: {}", err)}),
-            false,
-        );
-    }
-    let p = Path::new(path);
-    // Sniff directory breadcrumbs on this file
+    let (authorized, content) = match crate::fs_bind::read_text(path) {
+        Ok(v) => v,
+        Err(err) => return bind_err(err),
+    };
+    let p = authorized.as_path();
+    // Sniff directory breadcrumbs on the authorized file, after the read.
     let crumb_notice = sniff_dir_crumb(p, "AIEN");
 
     // Record view in directory crumb
@@ -528,44 +536,42 @@ fn exec_view_file(path: &str, start_line: usize, end_line: usize) -> (Value, boo
         "",
     );
 
-    match fs::read_to_string(path) {
-        Ok(content) => {
-            let lines: Vec<&str> = content.lines().collect();
-            let total_lines = lines.len();
-            let start = if start_line > 0 { start_line - 1 } else { 0 };
-            let end = std::cmp::min(end_line, total_lines);
+    let finish = |content: String| {
+        let lines: Vec<&str> = content.lines().collect();
+        let total_lines = lines.len();
+        let start = if start_line > 0 { start_line - 1 } else { 0 };
+        let end = std::cmp::min(end_line, total_lines);
 
-            if start >= total_lines && total_lines > 0 {
-                return (
-                    json!({"error": "start_line exceeds file length", "total_lines": total_lines}),
-                    false,
-                );
-            }
-
-            let slice = &lines[start..end];
-            let numbered: Vec<String> = slice
-                .iter()
-                .enumerate()
-                .map(|(idx, line)| {
-                    let redacted = redact_secrets(line);
-                    format!("{}: {}", start + idx + 1, redacted)
-                })
-                .collect();
-
-            let mut resp = json!({
-                "path": path,
-                "lines": numbered.join("\n"),
-                "total_lines": total_lines
-            });
-
-            if let Some(notice) = crumb_notice {
-                resp["peer_breadcrumb_notice"] = json!(notice);
-            }
-
-            (resp, true)
+        if start >= total_lines && total_lines > 0 {
+            return (
+                json!({"error": "start_line exceeds file length", "total_lines": total_lines}),
+                false,
+            );
         }
-        Err(e) => (json!({"error": e.to_string()}), false),
-    }
+
+        let slice = &lines[start..end];
+        let numbered: Vec<String> = slice
+            .iter()
+            .enumerate()
+            .map(|(idx, line)| {
+                let redacted = redact_secrets(line);
+                format!("{}: {}", start + idx + 1, redacted)
+            })
+            .collect();
+
+        let mut resp = json!({
+            "path": path,
+            "lines": numbered.join("\n"),
+            "total_lines": total_lines
+        });
+
+        if let Some(notice) = crumb_notice {
+            resp["peer_breadcrumb_notice"] = json!(notice);
+        }
+
+        (resp, true)
+    };
+    finish(content)
 }
 
 /// Run the approval gate for one request. `Err` carries the tool result to
@@ -638,11 +644,27 @@ fn ask_guardian(name: &str, summary: &str, reason: &str) -> crate::approval::Gua
 /// Run a file tool's write as a recorded agent write (sc#667): prior content
 /// kept, one ledger line after. Without an active chat session this is a
 /// plain call.
-fn recorded_write(tool: &str, path: &str, write: impl FnOnce() -> (Value, bool)) -> (Value, bool) {
-    let home = crate::platform::PlatformContext::detect().home_dir;
-    let cwd = std::env::current_dir().unwrap_or_else(|_| home.clone());
-    let abs = crate::approval::lexical_abs(path, &home, &cwd);
-    match crate::checkpoint::record_agent_write(&abs, tool, write) {
+fn recorded_write(
+    tool: &str,
+    path: &str,
+    write: impl FnOnce(&crate::fs_bind::HeldFile) -> (Value, bool),
+) -> (Value, bool) {
+    // Pin the authorized file before checkpointing. A refusal here must not
+    // snapshot the directory or run the write. Checkpoint bytes are read back
+    // through the same descriptor the write uses.
+    let held = match crate::fs_bind::hold_for_write(path) {
+        Ok(held) => std::sync::Arc::new(held),
+        Err(err) => return bind_err(err),
+    };
+    let target = held.authorized().to_path_buf();
+    let reader = std::sync::Arc::clone(&held);
+    let editor = std::sync::Arc::clone(&held);
+    match crate::checkpoint::record_agent_write_with_reader(
+        &target,
+        tool,
+        move || reader.read_checkpoint(),
+        move || write(editor.as_ref()),
+    ) {
         Ok(((mut res, ok), warning)) => {
             if let (Some(w), Some(obj)) = (warning, res.as_object_mut()) {
                 obj.insert("checkpoint_warning".into(), json!(w));
@@ -654,29 +676,19 @@ fn recorded_write(tool: &str, path: &str, write: impl FnOnce() -> (Value, bool))
 }
 
 fn exec_write_file(
-    path: &str,
+    held: &crate::fs_bind::HeldFile,
     content: &str,
     overwrite: bool,
     intent: &str,
     vector: &str,
 ) -> (Value, bool) {
-    if let Err(err) = validate_tool_path(path) {
-        return (
-            json!({"error": format!("CONFINEMENT DENIAL: {}", err)}),
-            false,
-        );
-    }
-    let p = Path::new(path);
-    if p.exists() && !overwrite {
-        return (
-            json!({"error": format!("File already exists: {}. Pass overwrite: true to replace.", path)}),
-            false,
-        );
-    }
-
-    if let Some(parent) = p.parent() {
-        if !parent.exists() {
-            let _ = fs::create_dir_all(parent);
+    let created_parent = match held.write_bytes(content.as_bytes(), overwrite) {
+        Ok(created) => created,
+        Err(err) => return bind_err(err),
+    };
+    let p = held.authorized();
+    if created_parent {
+        if let Some(parent) = p.parent() {
             let file_name = p
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
@@ -694,131 +706,102 @@ fn exec_write_file(
     }
 
     let crumb_notice = sniff_dir_crumb(p, "AIEN");
+    record_directory_crumb("AIEN", "active-session", p, "write", intent, vector);
 
-    match fs::write(path, content) {
-        Ok(()) => {
-            // Drop directory breadcrumb
-            record_directory_crumb("AIEN", "active-session", p, "write", intent, vector);
-
-            let mut resp = json!({
-                "status": "ok",
-                "path": path,
-                "bytes": content.len()
-            });
-            if let Some(notice) = crumb_notice {
-                resp["peer_breadcrumb_notice"] = json!(notice);
-            }
-            (resp, true)
-        }
-        Err(e) => (json!({"error": e.to_string()}), false),
+    let mut resp = json!({
+        "status": "ok",
+        "path": held.display(),
+        "bytes": content.len()
+    });
+    if let Some(notice) = crumb_notice {
+        resp["peer_breadcrumb_notice"] = json!(notice);
     }
+    (resp, true)
 }
 
 fn exec_replace_file(
-    path: &str,
+    held: &crate::fs_bind::HeldFile,
     target: &str,
     replacement: &str,
     intent: &str,
     vector: &str,
 ) -> (Value, bool) {
-    if let Err(err) = validate_tool_path(path) {
+    let content = match held.read_checkpoint() {
+        Ok(Some(bytes)) => match String::from_utf8(bytes) {
+            Ok(text) => text,
+            Err(_) => {
+                return (
+                    json!({"error": "stream did not contain valid UTF-8"}),
+                    false,
+                )
+            }
+        },
+        Ok(None) => {
+            return (
+                json!({"error": "No such file or directory (os error 2)"}),
+                false,
+            )
+        }
+        Err(err) => return (json!({"error": err}), false),
+    };
+    let p = held.authorized();
+    let crumb_notice = sniff_dir_crumb(p, "AIEN");
+    if !content.contains(target) {
+        return (json!({"error": "target string not found in file"}), false);
+    }
+    let count = content.matches(target).count();
+    if count > 1 {
         return (
-            json!({"error": format!("CONFINEMENT DENIAL: {}", err)}),
+            json!({"error": format!("target string occurred {} times, must be unique", count)}),
             false,
         );
     }
-    let p = Path::new(path);
-    let crumb_notice = sniff_dir_crumb(p, "AIEN");
-
-    match fs::read_to_string(path) {
-        Ok(content) => {
-            if !content.contains(target) {
-                return (json!({"error": "target string not found in file"}), false);
-            }
-            let count = content.matches(target).count();
-            if count > 1 {
-                return (
-                    json!({"error": format!("target string occurred {} times, must be unique", count)}),
-                    false,
-                );
-            }
-            let updated = content.replace(target, replacement);
-            match fs::write(path, updated) {
-                Ok(()) => {
-                    // Record edit in directory crumb
-                    record_directory_crumb("AIEN", "active-session", p, "edit", intent, vector);
-
-                    let mut resp = json!({
-                        "status": "ok",
-                        "path": path,
-                        "replaced": true
-                    });
-                    if let Some(notice) = crumb_notice {
-                        resp["peer_breadcrumb_notice"] = json!(notice);
-                    }
-                    (resp, true)
-                }
-                Err(e) => (json!({"error": e.to_string()}), false),
-            }
-        }
-        Err(e) => (json!({"error": e.to_string()}), false),
+    let updated = content.replace(target, replacement);
+    if let Err(err) = held.overwrite_existing(updated.as_bytes()) {
+        return bind_err(err);
     }
+    record_directory_crumb("AIEN", "active-session", p, "edit", intent, vector);
+    let mut resp = json!({
+        "status": "ok",
+        "path": held.display(),
+        "replaced": true
+    });
+    if let Some(notice) = crumb_notice {
+        resp["peer_breadcrumb_notice"] = json!(notice);
+    }
+    (resp, true)
 }
 
 fn exec_list_dir(path: &str) -> (Value, bool) {
-    if let Err(err) = validate_tool_path(path) {
-        return (
-            json!({"error": format!("CONFINEMENT DENIAL: {}", err)}),
-            false,
-        );
-    }
-    let p = Path::new(path);
-    let crumb_overview = format_dir_crumb_tui(p);
-
-    match fs::read_dir(path) {
-        Ok(entries) => {
-            let mut list = Vec::new();
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
-                let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
-                list.push(json!({
-                    "name": name,
-                    "is_dir": is_dir,
-                    "size_bytes": size
-                }));
-            }
-            (
-                json!({
-                    "path": path,
-                    "entries": list,
-                    "directory_crumb": crumb_overview
-                }),
-                true,
-            )
-        }
-        Err(e) => (json!({"error": e.to_string()}), false),
-    }
+    let (authorized, entries) = match crate::fs_bind::list_dir(path) {
+        Ok(v) => v,
+        Err(err) => return bind_err(err),
+    };
+    let crumb_overview = format_dir_crumb_tui(&authorized);
+    let list: Vec<Value> = entries
+        .into_iter()
+        .map(|entry| {
+            json!({
+                "name": entry.name,
+                "is_dir": entry.is_dir,
+                "size_bytes": entry.size_bytes
+            })
+        })
+        .collect();
+    (
+        json!({
+            "path": path,
+            "entries": list,
+            "directory_crumb": crumb_overview
+        }),
+        true,
+    )
 }
 
 fn exec_grep_search(query: &str, path: &str) -> (Value, bool) {
-    if let Err(err) = validate_tool_path(path) {
-        return (
-            json!({"error": format!("CONFINEMENT DENIAL: {}", err)}),
-            false,
-        );
-    }
-    let out = Command::new("grep").args(["-rnI", query, path]).output();
-
-    match out {
-        Ok(output) => {
-            let raw_stdout = String::from_utf8_lossy(&output.stdout).to_string();
-            let redacted_stdout = redact_secrets(&raw_stdout);
-            let matches: Vec<String> = redacted_stdout
-                .lines()
-                .take(50)
-                .map(|s| s.to_string())
-                .collect();
+    match crate::fs_bind::grep_search(path, query, 50) {
+        Ok(raw) => {
+            let matches: Vec<String> = raw.into_iter().map(|line| redact_secrets(&line)).collect();
             (
                 json!({
                     "query": query,
@@ -828,7 +811,7 @@ fn exec_grep_search(query: &str, path: &str) -> (Value, bool) {
                 true,
             )
         }
-        Err(e) => (json!({"error": e.to_string()}), false),
+        Err(err) => bind_err(err),
     }
 }
 
@@ -912,23 +895,14 @@ fn exec_crumb_tool(args: &Value) -> (Value, bool) {
 }
 
 fn exec_create_dir(path: &str, purpose: &str, lifecycle: Option<&str>) -> (Value, bool) {
-    if let Err(err) = validate_tool_path(path) {
-        return (
-            json!({"error": format!("CONFINEMENT DENIAL: {}", err)}),
-            false,
-        );
-    }
-    let p = Path::new(path);
     if path.is_empty() {
         return (json!({"error": "Path cannot be empty"}), false);
     }
-
-    if let Err(e) = fs::create_dir_all(p) {
-        return (
-            json!({"error": format!("Failed to create directory {}: {}", path, e)}),
-            false,
-        );
-    }
+    let authorized = match crate::fs_bind::make_dir(path) {
+        Ok(p) => p,
+        Err(err) => return bind_err(err),
+    };
+    let p = authorized.as_path();
 
     let purpose_obj = CrumbPurpose {
         statement: purpose.to_string(),
@@ -1109,18 +1083,9 @@ pub fn adapter_dispatch_tool(args: &Value) -> Value {
 }
 
 fn exec_find_by_name(path: &str, pattern: &str) -> (Value, bool) {
-    if let Err(err) = validate_tool_path(path) {
-        return (
-            json!({"error": format!("CONFINEMENT DENIAL: {}", err)}),
-            false,
-        );
-    }
-    let out = Command::new("find").args([path, "-name", pattern]).output();
-    match out {
-        Ok(output) => {
-            let raw_stdout = String::from_utf8_lossy(&output.stdout).to_string();
-            let redacted = redact_secrets(&raw_stdout);
-            let matches: Vec<String> = redacted.lines().take(50).map(|s| s.to_string()).collect();
+    match crate::fs_bind::find_names(path, pattern, 50) {
+        Ok(raw) => {
+            let matches: Vec<String> = raw.into_iter().map(|line| redact_secrets(&line)).collect();
             (
                 json!({
                     "path": path,
@@ -1131,7 +1096,7 @@ fn exec_find_by_name(path: &str, pattern: &str) -> (Value, bool) {
                 true,
             )
         }
-        Err(e) => (json!({"error": e.to_string()}), false),
+        Err(err) => bind_err(err),
     }
 }
 
@@ -1167,6 +1132,87 @@ fn exec_ask_question(question: &str, options: Option<&Vec<Value>>) -> (Value, bo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Tests that install the process-wide checkpoint session must serialize.
+    static CHECKPOINT_SESSION_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    struct StopCheckpointSession;
+    impl Drop for StopCheckpointSession {
+        fn drop(&mut self) {
+            crate::checkpoint::stop_session();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn denied_recorded_write_does_not_snapshot_or_invoke_write() {
+        use std::os::unix::fs::symlink;
+        let _serial = CHECKPOINT_SESSION_TEST
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _stop = StopCheckpointSession;
+        let home = tempfile::tempdir().unwrap();
+        let work = tempfile::tempdir_in("/tmp").unwrap();
+        let work = work.path().canonicalize().unwrap();
+        std::fs::write(work.join("sentinel"), "SYNTHETIC_CHECKPOINT_SENTINEL").unwrap();
+        let denied = work.join("dangling");
+        symlink(work.join("absent-target"), &denied).unwrap();
+        crate::checkpoint::start_scoped_session(home.path(), "denied-path", work.clone()).unwrap();
+        crate::checkpoint::begin_turn();
+        let called = std::cell::Cell::new(false);
+        let (result, ok) = recorded_write("write_to_file", denied.to_str().unwrap(), |_| {
+            called.set(true);
+            (json!({"error": "synthetic later denial"}), false)
+        });
+        assert!(!ok);
+        assert!(result["error"]
+            .as_str()
+            .unwrap()
+            .contains("CONFINEMENT DENIAL"));
+        assert!(!called.get(), "write closure ran before confinement denial");
+        let store = crate::checkpoint::store_root(home.path());
+        assert!(
+            !store.join("objects").exists(),
+            "denied write copied checkpoint content"
+        );
+        assert!(
+            !store.join("snapshots").exists(),
+            "denied write created a snapshot"
+        );
+        assert!(
+            !store.join("ledger").exists(),
+            "denied write created a ledger"
+        );
+        assert!(!work.join("absent-target").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recorded_write_checkpoint_uses_validated_target_identity() {
+        use std::os::unix::fs::symlink;
+        let _serial = CHECKPOINT_SESSION_TEST
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _stop = StopCheckpointSession;
+        let home = tempfile::tempdir().unwrap();
+        let work = tempfile::tempdir_in("/tmp").unwrap();
+        let work = work.path().canonicalize().unwrap();
+        let target = work.join("target");
+        std::fs::write(&target, "before").unwrap();
+        let alias = work.join("alias");
+        symlink(&target, &alias).unwrap();
+        crate::checkpoint::start_scoped_session(home.path(), "canonical-target", work).unwrap();
+        crate::checkpoint::begin_turn();
+        let (_, ok) = recorded_write("write_to_file", alias.to_str().unwrap(), |_| {
+            std::fs::write(&alias, "after").unwrap();
+            (json!({"status": "ok"}), true)
+        });
+        assert!(ok);
+        let store =
+            crate::checkpoint::CheckpointStore::new(crate::checkpoint::store_root(home.path()));
+        let (entries, _) = store.load_ledger("canonical-target").unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, target.to_str().unwrap());
+    }
 
     #[test]
     fn effect_receipt_is_hashed_and_secret_free() {
@@ -1352,6 +1398,10 @@ mod tests {
     /// the agent's files.
     #[test]
     fn rollback_through_the_dispatcher_spares_operator_edits() {
+        let _serial = CHECKPOINT_SESSION_TEST
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _stop = StopCheckpointSession;
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()

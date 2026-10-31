@@ -201,7 +201,7 @@ fn cmd_test(cli: &Cli, selection: &Selection, cwd: &Path) -> i32 {
         Err(e) => return graph_error(&e),
     };
     let chosen: BTreeSet<usize> = match selection {
-        Selection::All => (0..graph.len()).collect(),
+        Selection::All => graph.all(),
         Selection::Gate(name) => match graph.index_of(name) {
             Some(i) => graph.with_dependencies(&[i]),
             None => {
@@ -411,6 +411,7 @@ fn plan_for(cli: &Cli, root: &Path) -> Result<plan::Plan, i32> {
     })?;
     let mut req = Request::new(&base, &head);
     req.operator = cli.operator;
+    req.full = cli.full;
     req.compiler_identity = cli.compiler_identity.clone();
     req.flags = cli.flags.clone();
     req.hardware_identity = cli.hardware_identity.clone().unwrap_or_default();
@@ -583,6 +584,7 @@ fn cmd_worker(cli: &Cli) -> i32 {
     cfg.poll = Duration::from_secs(cli.poll.unwrap_or(30));
     cfg.repos = cli.repos.clone();
     cfg.operator = cli.operator;
+    cfg.full = cli.full;
     cfg.jobs = cli.jobs;
     if let Some(w) = cli.gpu_wait {
         cfg.gpu_wait = w;

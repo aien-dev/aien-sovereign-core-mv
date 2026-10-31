@@ -3,7 +3,7 @@
 # Wraps the release aien-test binary with the machine's standard locations. Plain subcommands:
 #   aien-local-ci status                      what the worker is doing, pending triggers, newest bundles
 #   aien-local-ci start [--github] [--lane L --repos a,b]  start a worker loop detached (trigger files; --github adds
-#                                             PR polling + status posting); lane main (default) = aienos, synapse, interplane
+#                                             PR polling + status posting); lane main (default) = aienux, synapse, interplane
 #                                             other lanes: worker-L.pid, worker-L.log, need --github --repos
 #   aien-local-ci stop [--lane L]             stop one worker loop (default lane main)
 #   aien-local-ci trigger <repo> <sha>        ask the worker to verify one head
@@ -20,11 +20,11 @@ CLONES=${AIEN_CLONES:-$HOME/workspace/pipeline/clones}
 STATE=${AIEN_STATE:-$HOME/.local/state/aien-local-ci}
 # main lane repos: the ones no other lane covers (2026-10-18: overlapping lanes polled the same repos twice, about 59
 # GitHub requests a minute in all). pipeline.sh and rebase-train.sh keep their own full lists.
-REPOS=${AIEN_REPOS:-aienos,synapse,interplane}
+REPOS=${AIEN_REPOS:-aienux,synapse,interplane}
 POLL=${AIEN_POLL:-60}
 mkdir -p "$STATE/trigger"
 cmd=${1:-status}; shift || true
-# Worker lanes. One aien-test worker is one serial queue: a 45 to 60 min aienos, sc or omega job starved every other
+# Worker lanes. One aien-test worker is one serial queue: a 45 to 60 min aienux, sc or omega job starved every other
 # repo of bundles (2026-10-18). So the machine runs named lanes, each its own worker with its own repo list, pidfile and
 # log: main (worker.pid, worker.log, AIEN_REPOS) and any other NAME (worker-NAME.pid, worker-NAME.log, --repos LIST).
 # Keep the lists apart (core and big both hold sovereign-core on purpose; the per-target lock serialises a double run).
@@ -37,7 +37,9 @@ while [[ $cmd == start || $cmd == stop ]] && [[ $# -gt 0 ]]; do
     *) args+=("$1"); shift ;;
   esac
 done
-set -- ${args[@]+"${args[@]}"}
+if [[ $cmd == start || $cmd == stop ]]; then
+  set -- ${args[@]+"${args[@]}"}
+fi
 [[ $lane =~ ^[a-z][a-z0-9-]{0,30}$ ]] || { echo "bad lane name '$lane'" >&2; exit 2; }
 [[ -z $lane_repos || $lane_repos =~ ^[A-Za-z0-9._-]+(,[A-Za-z0-9._-]+)*$ ]] || { echo "bad --repos '$lane_repos'" >&2; exit 2; }
 if [[ $lane == main ]]; then PIDFILE=$STATE/worker.pid LOG=$STATE/worker.log LANE_REPOS=${lane_repos:-$REPOS}

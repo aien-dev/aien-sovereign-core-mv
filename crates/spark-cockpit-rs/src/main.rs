@@ -409,10 +409,10 @@ async fn handle_get_feed(State(state): State<AppState>) -> Json<Value> {
     let mut items = Vec::new();
 
     items.push(json!({
-        "id": "feed-muse-init",
+        "id": "feed-allen-init",
         "category": "agent",
-        "title": "Muse Agent Active on DGX Spark",
-        "summary": "Grace Blackwell GB10 unified memory bus nominal. TPM 2.0 vault online with zero disk plaintext secrets.",
+        "title": "ALLEN harness running on the Spark",
+        "summary": "The harness is reachable. The model seat state and the Spark judge's verdict are on the chat welcome, each read live.",
         "timestamp": Utc::now().to_rfc3339(),
         "action_label": "Inspect Telemetry",
         "action_target": "terminal",
@@ -586,12 +586,13 @@ async fn handle_get_models(State(state): State<AppState>) -> Json<Value> {
         }
     }
 
+    // The seat did not answer: say so instead of inventing a model name.
     if active_models.is_empty() {
         active_models.push(json!({
-            "id": "atlas-lightning-omni",
-            "active": true,
+            "id": "",
+            "active": false,
             "backend": "Local model seat (port 18006)",
-            "status": "ONLINE"
+            "status": "OFFLINE"
         }));
     }
 
@@ -603,8 +604,14 @@ async fn handle_get_models(State(state): State<AppState>) -> Json<Value> {
         json!({ "id": "meta-llama/Llama-3.2-3B-Instruct", "name": "Llama 3.2 3B", "backend": "Candle", "active": false }),
     ];
 
+    let current_model = active_models
+        .first()
+        .and_then(|m| m.get("id"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     Json(json!({
-        "current_model": "atlas-lightning-omni",
+        "current_model": current_model,
         "active_models": active_models,
         "available_candidates": candidates
     }))
@@ -973,6 +980,7 @@ async fn main() {
         )
         .route("/api/engine/status", get(handle_engine_status))
         .route("/api/status", get(handle_engine_status))
+        .route("/api/judge", get(handle_judge))
         .route("/api/imprints/install", post(handle_install_en2_imprint))
         .route("/api/mail/status", get(handle_mail_status))
         .route("/api/mail/inbox", get(handle_mail_inbox))
@@ -1253,7 +1261,9 @@ async fn handle_terminal_socket(mut socket: WebSocket) {
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("HOME", get_home_dir().to_string_lossy().as_ref());
-    cmd.env("USER", "drakestapleton");
+    if let Ok(user) = std::env::var("USER") {
+        cmd.env("USER", user);
+    }
 
     let child = match pair.slave.spawn_command(cmd) {
         Ok(c) => c,
@@ -1681,8 +1691,8 @@ async fn handle_services_action(
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
             if action == "start" || action == "restart" {
-                let bin = "/home/drakestapleton/.local/bin/spark-rsi";
-                if Path::new(bin).exists() {
+                let bin = get_home_dir().join(".local/bin/spark-rsi");
+                if bin.exists() {
                     let _ = Command::new("nohup").arg(bin).arg("daemon").spawn();
                 }
             }
@@ -1782,7 +1792,9 @@ struct RsiLedgerQuery {
 async fn handle_rsi_ledger(Query(query): Query<RsiLedgerQuery>) -> Json<Value> {
     let limit = query.limit.unwrap_or(20);
     let res = tokio::task::spawn_blocking(move || {
-        let db_path = "/home/drakestapleton/workspace/spark-rsi/.rsi/ledger.db";
+        let db_buf = get_home_dir().join("workspace/spark-rsi/.rsi/ledger.db");
+        let db_path = db_buf.to_string_lossy().into_owned();
+        let db_path = db_path.as_str();
         if !Path::new(db_path).exists() {
             return json!({
                 "status": "ok",
@@ -3045,6 +3057,83 @@ async fn handle_engine_status(State(state): State<AppState>) -> Json<Value> {
     }))
 }
 
+/// Where the Spark judge publishes its bundles for this repository. One directory per judged
+/// commit, each holding `bundle.json` with the verdict and one row per check.
+fn judge_bundles_dir() -> PathBuf {
+    match std::env::var("AIEN_JUDGE_BUNDLES") {
+        Ok(p) if !p.is_empty() => PathBuf::from(p),
+        _ => get_home_dir().join(".local/state/aien-local-ci/bundles/aien-sovereign-core"),
+    }
+}
+
+/// The Spark judge's newest verdict for the sovereign core, read from the local bundle store so
+/// the harness shows a receipt instead of copy. When no bundle can be read the answer says so.
+fn read_latest_judge_bundle(dir: &Path) -> Option<Value> {
+    let mut newest: Option<(String, Value)> = None;
+    for entry in fs::read_dir(dir).ok()?.flatten() {
+        let path = entry.path().join("bundle.json");
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(bundle) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
+        let finished = bundle
+            .get("finished_utc")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        if newest.as_ref().is_none_or(|(t, _)| finished > *t) {
+            newest = Some((finished, bundle));
+        }
+    }
+    let (finished_utc, bundle) = newest?;
+    let checks = bundle
+        .get("checks")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let count = |want: &str| {
+        checks
+            .iter()
+            .filter(|c| c.get("verdict").and_then(Value::as_str) == Some(want))
+            .count()
+    };
+    let commit = bundle
+        .get("commit")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    Some(json!({
+        "verdict": bundle.get("verdict").and_then(Value::as_str).unwrap_or("NO VERDICT"),
+        "commit": commit,
+        "repository": bundle.get("repository").and_then(Value::as_str).unwrap_or(""),
+        "finished_utc": finished_utc,
+        "checks_total": checks.len(),
+        "checks_pass": count("PASS"),
+        "checks_fail": count("FAIL"),
+        "checks_blocked": checks.len() - count("PASS") - count("FAIL"),
+    }))
+}
+
+async fn handle_judge() -> Json<Value> {
+    let dir = judge_bundles_dir();
+    match tokio::task::spawn_blocking(move || read_latest_judge_bundle(&dir)).await {
+        Ok(Some(v)) => Json(v),
+        _ => Json(json!({
+            "verdict": "NO VERDICT",
+            "commit": "",
+            "repository": "",
+            "finished_utc": "",
+            "checks_total": 0,
+            "checks_pass": 0,
+            "checks_fail": 0,
+            "checks_blocked": 0,
+            "note": "No Spark judge bundle could be read on this machine."
+        })),
+    }
+}
+
 async fn handle_install_en2_imprint(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
@@ -3261,7 +3350,7 @@ mod tests {
             &peer
         ));
         assert!(!terminal_request_allowed(
-            &origin_headers(Some("http://192.168.1.108:18095")),
+            &origin_headers(Some("http://192.0.2.10:18095")),
             &peer
         ));
         assert!(!terminal_request_allowed(
@@ -3272,7 +3361,7 @@ mod tests {
 
     #[test]
     fn terminal_rejects_non_loopback_peer() {
-        let peer: SocketAddr = "192.168.1.50:50000".parse().unwrap();
+        let peer: SocketAddr = "192.0.2.50:50000".parse().unwrap();
         assert!(!terminal_request_allowed(
             &origin_headers(Some("http://127.0.0.1:18095")),
             &peer

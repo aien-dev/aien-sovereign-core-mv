@@ -41,8 +41,10 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::fs;
-use std::io::Write;
+use std::fs::{self, File};
+use std::io::{Read, Write};
+use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd};
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
@@ -296,29 +298,37 @@ impl CheckpointStore {
     }
 
     /// Snapshot the regular files directly inside `dir`.
+    ///
+    /// The directory's final component is opened `O_NOFOLLOW`, and each child
+    /// is read with `openat(O_NOFOLLOW)`. A symlink where the directory name
+    /// should be refuses the snapshot. A symlink child is omitted, not followed.
     fn take_snapshot(&self, session: &str, turn: u64, dir: &Path) -> Result<Hash, String> {
         let mut files = BTreeMap::new();
         let mut skipped = Vec::new();
-        if let Ok(rd) = fs::read_dir(dir) {
-            let mut names: Vec<(String, PathBuf)> = rd
-                .flatten()
-                .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
-                .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path()))
-                .collect();
-            names.sort();
-            for (name, path) in names {
-                let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(u64::MAX);
-                if files.len() >= SNAPSHOT_MAX_FILES || size > SNAPSHOT_MAX_FILE_BYTES {
-                    skipped.push(name);
-                    continue;
-                }
-                match fs::read(&path) {
-                    Ok(bytes) => {
-                        files.insert(name, self.put_blob(&bytes)?);
+        match open_snapshot_dir(dir) {
+            Ok(dirfd) => {
+                let mut names = snapshot_entries(dirfd.as_raw_fd()).unwrap_or_default();
+                names.sort();
+                for (name, size) in names {
+                    if files.len() >= SNAPSHOT_MAX_FILES || size > SNAPSHOT_MAX_FILE_BYTES {
+                        skipped.push(name);
+                        continue;
                     }
-                    Err(_) => skipped.push(name),
+                    match read_snapshot_file(dirfd.as_raw_fd(), &name) {
+                        Ok(Some(bytes)) if bytes.len() as u64 <= SNAPSHOT_MAX_FILE_BYTES => {
+                            files.insert(name, self.put_blob(&bytes)?);
+                        }
+                        _ => skipped.push(name),
+                    }
                 }
             }
+            Err(e) if e.raw_os_error() == Some(libc::ELOOP) => {
+                return Err(format!(
+                    "cannot snapshot {}: directory entry is a symlink",
+                    dir.display()
+                ));
+            }
+            Err(_) => {}
         }
         let snap = Snapshot {
             session: session.to_string(),
@@ -415,6 +425,123 @@ fn current_hash(path: &Path) -> Option<Hash> {
     fs::read(path).ok().map(|b| hash_bytes(&b))
 }
 
+fn open_snapshot_dir(dir: &Path) -> std::io::Result<OwnedFd> {
+    let c = std::ffi::CString::new(dir.as_os_str().as_bytes())
+        .map_err(|_| std::io::Error::from_raw_os_error(libc::EINVAL))?;
+    // SAFETY: `c` is a valid C string. A non-negative fd is owned here.
+    // `O_NOFOLLOW` refuses a symlink in the final component.
+    let fd = unsafe {
+        libc::open(
+            c.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+        )
+    };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+}
+
+/// Regular files directly inside `dirfd`, as `(name, size)`. Symlinks are omitted.
+fn snapshot_entries(dirfd: libc::c_int) -> std::io::Result<Vec<(String, u64)>> {
+    let raw = dup_snapshot_fd(dirfd)?.into_raw_fd();
+    // SAFETY: `raw` is a live fd. fdopendir owns it on success.
+    let dir = unsafe { libc::fdopendir(raw) };
+    if dir.is_null() {
+        let err = std::io::Error::last_os_error();
+        unsafe { libc::close(raw) };
+        return Err(err);
+    }
+    let mut out = Vec::new();
+    let walked = loop {
+        unsafe { *libc::__errno_location() = 0 };
+        let ent = unsafe { libc::readdir(dir) };
+        if ent.is_null() {
+            let errno = unsafe { *libc::__errno_location() };
+            break if errno == 0 {
+                Ok(())
+            } else {
+                Err(std::io::Error::from_raw_os_error(errno))
+            };
+        }
+        let name_c = unsafe { std::ffi::CStr::from_ptr((*ent).d_name.as_ptr()) };
+        let name = String::from_utf8_lossy(name_c.to_bytes()).into_owned();
+        if name == "." || name == ".." {
+            continue;
+        }
+        let Ok(c_name) = std::ffi::CString::new(name.as_str()) else {
+            continue;
+        };
+        let mut st = std::mem::MaybeUninit::<libc::stat>::uninit();
+        // SAFETY: `dirfd` is the caller's directory. `c_name` is one component.
+        let rc = unsafe {
+            libc::fstatat(
+                dirfd,
+                c_name.as_ptr(),
+                st.as_mut_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        };
+        if rc != 0 {
+            continue;
+        }
+        let st = unsafe { st.assume_init() };
+        if st.st_mode as u32 & libc::S_IFMT != libc::S_IFREG {
+            continue;
+        }
+        let size = if st.st_size < 0 { 0 } else { st.st_size as u64 };
+        out.push((name, size));
+    };
+    unsafe { libc::closedir(dir) };
+    walked?;
+    Ok(out)
+}
+
+fn dup_snapshot_fd(fd: libc::c_int) -> std::io::Result<OwnedFd> {
+    let n = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) };
+    if n < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(unsafe { OwnedFd::from_raw_fd(n) })
+}
+
+fn read_snapshot_file(dirfd: libc::c_int, name: &str) -> std::io::Result<Option<Vec<u8>>> {
+    let c = std::ffi::CString::new(name)
+        .map_err(|_| std::io::Error::from_raw_os_error(libc::EINVAL))?;
+    // SAFETY: `dirfd` is a directory and `c` is a single component.
+    let fd = unsafe {
+        libc::openat(
+            dirfd,
+            c.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
+        )
+    };
+    if fd < 0 {
+        let err = std::io::Error::last_os_error();
+        if err.raw_os_error() == Some(libc::ELOOP) {
+            return Ok(None);
+        }
+        return Err(err);
+    }
+    let mut file = File::from(unsafe { OwnedFd::from_raw_fd(fd) });
+    if !file.metadata()?.file_type().is_file() {
+        return Ok(None);
+    }
+    let mut buf = Vec::new();
+    let mut tmp = [0u8; 8192];
+    loop {
+        let n = file.read(&mut tmp)?;
+        if n == 0 {
+            break;
+        }
+        if buf.len() as u64 + n as u64 > SNAPSHOT_MAX_FILE_BYTES {
+            return Ok(None);
+        }
+        buf.extend_from_slice(&tmp[..n]);
+    }
+    Ok(Some(buf))
+}
+
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = path.parent().unwrap_or(Path::new("."));
     fs::create_dir_all(parent).map_err(|e| format!("create {}: {e}", parent.display()))?;
@@ -477,7 +604,29 @@ impl Session {
 
     /// Call before an agent write to `path` (absolute). Snapshots the
     /// directory once this turn and keeps the file's prior content.
+    ///
+    /// Reads `path` by name. Session tests use that. Tool dispatch passes
+    /// bytes from the held descriptor (`before_write_with_bytes`).
+    #[allow(dead_code)]
     pub fn before_write(&mut self, path: &Path) -> Result<Pending, String> {
+        let bytes = match fs::read(path) {
+            Ok(bytes) => Some(bytes),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => {
+                return Err(format!(
+                    "cannot read {} before writing: {e}",
+                    path.display()
+                ))
+            }
+        };
+        self.before_write_with_bytes(path, bytes)
+    }
+
+    fn before_write_with_bytes(
+        &mut self,
+        path: &Path,
+        bytes: Option<Vec<u8>>,
+    ) -> Result<Pending, String> {
         let dir = path.parent().unwrap_or(Path::new("/")).to_path_buf();
         let key = (self.turn, dir.clone());
         if !self.snapshotted.contains(&key) {
@@ -486,15 +635,9 @@ impl Session {
             self.turn_snapshots.insert(dir.clone(), id);
         }
         let snapshot = self.turn_snapshots.get(&dir).cloned().unwrap_or_default();
-        let before = match fs::read(path) {
-            Ok(bytes) => Some(self.store.put_blob(&bytes)?),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-            Err(e) => {
-                return Err(format!(
-                    "cannot read {} before writing: {e}",
-                    path.display()
-                ))
-            }
+        let before = match bytes {
+            Some(b) => Some(self.store.put_blob(&b)?),
+            None => None,
         };
         Ok(Pending {
             path: path.to_path_buf(),
@@ -504,10 +647,27 @@ impl Session {
     }
 
     /// Call after the write; appends one ledger line.
+    ///
+    /// Reads the path by name. Tool dispatch passes bytes from the held
+    /// descriptor (`after_write_with_bytes`).
+    #[allow(dead_code)]
     pub fn after_write(&mut self, pending: Pending, tool: &str) -> Result<(), String> {
-        let after = match fs::read(&pending.path) {
-            Ok(bytes) => Some(self.store.put_blob(&bytes)?),
+        let after_bytes = match fs::read(&pending.path) {
+            Ok(bytes) => Some(bytes),
             Err(_) => None,
+        };
+        self.after_write_with_bytes(pending, tool, after_bytes)
+    }
+
+    fn after_write_with_bytes(
+        &mut self,
+        pending: Pending,
+        tool: &str,
+        bytes: Option<Vec<u8>>,
+    ) -> Result<(), String> {
+        let after = match bytes {
+            Some(b) => Some(self.store.put_blob(&b)?),
+            None => None,
         };
         if after == pending.before {
             return Ok(());
@@ -586,10 +746,45 @@ pub fn active_ledger_name() -> Option<String> {
     active().lock().ok()?.as_ref().map(|s| s.id.clone())
 }
 
+/// Like [`record_agent_write`], but the target's before and after bytes come
+/// from `read_target` (a descriptor the caller is holding) instead of a fresh
+/// pathname read.
+pub fn record_agent_write_with_reader<T>(
+    path: &Path,
+    tool: &str,
+    mut read_target: impl FnMut() -> Result<Option<Vec<u8>>, String>,
+    write: impl FnOnce() -> T,
+) -> Result<(T, Option<String>), String> {
+    let mut guard = active()
+        .lock()
+        .map_err(|_| "checkpoint lock poisoned".to_string())?;
+    let Some(session) = guard
+        .as_mut()
+        .filter(|s| s.scope.as_ref().is_none_or(|d| path.starts_with(d)))
+    else {
+        return Ok((write(), None));
+    };
+    let before_bytes = read_target().map_err(|e| format!("CHECKPOINT REFUSAL: {e}"))?;
+    let pending = session
+        .before_write_with_bytes(path, before_bytes)
+        .map_err(|e| format!("CHECKPOINT REFUSAL: {e}"))?;
+    let out = write();
+    let warn = match read_target() {
+        Ok(bytes) => session.after_write_with_bytes(pending, tool, bytes).err(),
+        Err(e) => Some(e),
+    };
+    Ok((out, warn))
+}
+
 /// Run `write` as a recorded agent write of `path`. If the prior content
 /// cannot be kept the write is refused, because it could not be rolled back.
 /// If the ledger append fails after the write, the error is returned beside
 /// the result so the caller can show it.
+///
+/// This reads the target by pathname. Tool dispatch uses
+/// [`record_agent_write_with_reader`] so the bytes are the descriptor that
+/// was authorized.
+#[allow(dead_code)]
 pub fn record_agent_write<T>(
     path: &Path,
     tool: &str,
