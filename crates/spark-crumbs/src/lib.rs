@@ -260,7 +260,11 @@ fn foreign_crumb_view(dir: &Path) -> DirCrumb {
     let statement = fs::read_to_string(dir.join(CRUMB_FILENAME))
         .ok()
         .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
-        .and_then(|v| v.get("purpose").and_then(|p| p.as_str()).map(str::to_string));
+        .and_then(|v| {
+            v.get("purpose")
+                .and_then(|p| p.as_str())
+                .map(str::to_string)
+        });
     let purpose = statement.map(|statement| CrumbPurpose {
         statement,
         created_by: "hand-written .crumb".to_string(),
@@ -912,8 +916,7 @@ mod tests {
 
     #[test]
     fn save_refuses_to_overwrite_foreign_crumb() {
-        let temp_dir =
-            std::env::temp_dir().join(format!("test-refuse-{}", uuid::Uuid::new_v4()));
+        let temp_dir = std::env::temp_dir().join(format!("test-refuse-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&temp_dir).expect("create temp dir");
         let crumb_path = temp_dir.join(CRUMB_FILENAME);
 
