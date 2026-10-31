@@ -1,6 +1,6 @@
 {
   "above": {
-    "canonical": "/home/drakestapleton/workspace/aien-sovereign-core/crates/aien-scheduler/src",
+    "canonical": "crates/aien-scheduler/src",
     "name": "src",
     "path": "..",
     "role": "Parent directory context"
@@ -14,7 +14,21 @@
   ],
   "description": "Workspace directory",
   "dir_name": "bin",
-  "dir_path": "/home/drakestapleton/workspace/aien-sovereign-core/crates/aien-scheduler/src/bin",
+  "dir_path": "crates/aien-scheduler/src/bin",
+  "extensions": {
+    "generated": {
+      "children": [],
+      "children_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "compiled_at": "2026-10-24T04:15:31Z",
+      "compiler": "crumb-compile/1",
+      "digest": "sha256:246e54412a28d811dc38af14bb943890fbafd85f55864c2468a04e6ea698062e",
+      "evidence_files": 0,
+      "evidence_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "files": 1,
+      "generated_at_commit": "208776701cc8996b0d6badce6ae5e2bd26aace74",
+      "source_tree": "sha256:a2460beadf82e772677fc7562c51c850b4061e33f256786a1bbf42184341c690"
+    }
+  },
   "history": [],
   "purpose": {
     "created_at": "2026-09-19T16:56:21.316618882+00:00",

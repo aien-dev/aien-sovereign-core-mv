@@ -15,6 +15,20 @@
   "description": "Radicle P2P synchronization skill folder.",
   "dir_name": "radicle-sync",
   "dir_path": "skills/radicle-sync",
+  "extensions": {
+    "generated": {
+      "children": [],
+      "children_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "compiled_at": "2026-10-04T15:35:46Z",
+      "compiler": "crumb-compile/1",
+      "digest": "sha256:b6f288e41c637959bf1df32b28d9b8a2088f531681f6319f6587f8b62d19b8ba",
+      "evidence_files": 0,
+      "evidence_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "files": 1,
+      "generated_at_commit": "c848c7bf9ada87072c5f1ecb2b36142de106ef66",
+      "source_tree": "sha256:e0affc9512e2d9e99f155eb6f28ff22f88d522fb6d8aa8ef90ace1730f655b69"
+    }
+  },
   "history": [
     {
       "action": "seed:knowledge",

@@ -1,0 +1,127 @@
+{
+  "checks": {
+    "cold_was_cold": true,
+    "control_other_question_differs": true,
+    "control_stale_state_caught": false,
+    "live_cosine_ok": true,
+    "live_equals_cold": true,
+    "resumed_cosine_ok": true,
+    "resumed_equals_cold": true,
+    "turn1_cold": true,
+    "turn1_repeatable": true,
+    "turn2_used_snapshot": true,
+    "turn3_used_live": true
+  },
+  "cosine": {
+    "live_vs_cold": 0.9999894159960298,
+    "resumed_vs_cold": 1.0000000000000002,
+    "stale_vs_cold": 0.9998031727554294
+  },
+  "ids": {
+    "turn1": [
+      220,
+      13,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220
+    ],
+    "turn2_cold": [
+      220,
+      13,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220
+    ],
+    "turn2_other_question": [
+      220,
+      13,
+      220,
+      220,
+      13,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220
+    ],
+    "turn2_resumed": [
+      220,
+      13,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220
+    ],
+    "turn3_cold": [
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220
+    ],
+    "turn3_live": [
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220,
+      220
+    ]
+  },
+  "layers": 8,
+  "new_tokens": 12,
+  "pass": false,
+  "prompt_tokens": [
+    24,
+    47,
+    74
+  ],
+  "reuse": [
+    "Cold",
+    "Snapshot(17)",
+    "Live(58)",
+    "Cold"
+  ],
+  "snapshot_tokens": 17,
+  "start_ms": {
+    "turn1_cold": 104.468701,
+    "turn2_cold": 101.74969899999999,
+    "turn2_resumed": 92.371017,
+    "turn3_live": 80.904954
+  }
+}

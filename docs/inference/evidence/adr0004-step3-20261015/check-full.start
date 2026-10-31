@@ -1,0 +1,15 @@
+queued 2026-10-16T02:06:53Z sc f2b9e0174c1387b094742a202c99eaf1e844e0a8 omega 4799f9eba563e9c69579b47c477e7d9c2b0f15cb
+tracked changes outside this folder: 0
+libomega_gpu.a sha256 0629ad9cec0addd4ccc461f0523c2c3964964f0bafc0b98b678e5080b0373ae5
+driver 580.173.02 kernel 7.0.0-1019-nvidia
+ 21:06:53 up 9 days, 14:35, 18 users,  load average: 1.72, 2.19, 4.56
+MemAvailable:   75102200 kB
+pid, process_name, used_gpu_memory [MiB]
+15251, /home/drakestapleton/handoffs/pin-bin-f881710a/aien-serve-http, 36424 MiB
+utilization.gpu [%], temperature.gpu, power.draw [W], pstate
+0 %, 37, 4.85 W, P8
+listeners: 127.0.0.1:18080 127.0.0.1:18091 127.0.0.1:18092 127.0.0.1:18095 
+:18091 log lines 907
+binary /home/drakestapleton/workspace/.worktrees/adr0004-step3/target/release/own30b_check sha256 ab5f909c4c8bfb558c424b7eeecae44a439371ab1d0b349fbb0a8856e5c477a3
+cmd quietlock hold --owner STEP3 --minutes 20 -- flock /tmp/aien-gb10.lock env AIEN_OMEGA_SPIN_US=2000 /home/drakestapleton/workspace/.worktrees/adr0004-step3/target/release/own30b_check chip /home/drakestapleton/models/qwen3-30b-a3b-instruct-2507-fp8 /home/drakestapleton/workspace/.worktrees/adr0004-step3/docs/inference/evidence/own30b-f-20261013T1745Z/golden.json /home/drakestapleton/workspace/.worktrees/adr0004-step3/docs/inference/evidence/adr0004-step3-20261015/check-full --prompts 1,2,3,4 --new 16 --layers 0,23,47 --weights fp8 --attn fused --router device --lm-head gemv --prefill auto --force-memory
+lock acquired 2026-10-16T02:06:53Z

@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! The generation controller and the forward-pass seam (ADR 0004 sections 2.2 to 2.5).
 //!
 //! [`GenerationController`] owns the sequence ledger (history, and so the position), prefix
@@ -22,7 +37,7 @@ use crate::tensor::sample_argmax;
 pub mod echo_chain;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 /// What the controller wants from a head.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,6 +123,11 @@ pub trait ForwardPass: Send {
     }
     /// The K/V identity entries, or `Err(reason)` when K/V from this run must never be stored.
     fn kv_identity(&self) -> Result<KvIdentityInputs, String>;
+    /// Migration only (ADR 0004 steps 3 and 4; step 5 deletes it): the controller shows the
+    /// model its ledger before every forward call, so a model that still keeps its own copy of
+    /// the history (the 30B's mirror) can take the tokens of a restore or import it did not see
+    /// (I1). Default: nothing.
+    fn mirror_ledger(&mut self, _history: &[u32]) {}
 }
 
 /// The default sparse output head: `next(head, Logits)`, then the rows gathered into
@@ -471,6 +491,7 @@ impl<M: ForwardPass> GenerationController<M> {
         f: impl FnOnce(&mut M, usize) -> Result<(), String>,
     ) -> Result<(), String> {
         let pos = self.history.len();
+        self.model.mirror_ledger(&self.history);
         match f(&mut self.model, pos) {
             Ok(()) => {
                 self.history.extend_from_slice(tokens);

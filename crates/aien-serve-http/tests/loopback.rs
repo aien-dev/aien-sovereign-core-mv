@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Loopback integration tests: a real TCP server with the stub engine and the
 //! byte codec, driven by a hand-written HTTP/1.1 client (no extra crates).
 
@@ -6,10 +21,11 @@ use std::net::{SocketAddr, TcpStream};
 use std::sync::Arc;
 use std::time::Duration;
 
-use aien_serve_http::codec::ByteCodec;
+use aien_serve_http::codec::{ByteCodec, Codec, CodecError};
 use aien_serve_http::engine::StubEngine;
 use aien_serve_http::server::{serve, ServerConfig};
 use serde_json::Value;
+const TOKEN: &str = "integration-test-private-credential";
 
 struct Server {
     addr: SocketAddr,
@@ -21,6 +37,7 @@ fn start(engine: StubEngine, cfg: ServerConfig) -> Server {
     let cfg = ServerConfig {
         port: 0,
         model_id: "test-model".into(),
+        bearer_token: TOKEN.into(),
         ..cfg
     };
     let (addr, _handle) = rt
@@ -64,7 +81,7 @@ fn request(addr: SocketAddr, method: &str, path: &str, body: Option<&str>) -> Re
     s.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
     let body = body.unwrap_or("");
     let req = format!(
-        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {TOKEN}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
         body.len()
     );
     s.write_all(req.as_bytes()).unwrap();
@@ -221,6 +238,182 @@ fn second_request_while_busy_is_rejected_then_accepted() {
     assert_eq!(json(&after)["choices"][0]["message"]["content"], reply);
 }
 
+fn raw_request(addr: SocketAddr, raw: &str) -> Reply {
+    let mut s = TcpStream::connect(addr).expect("connect");
+    s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    s.write_all(raw.as_bytes()).unwrap();
+    let mut bytes = Vec::new();
+    s.read_to_end(&mut bytes).unwrap();
+    let split = bytes.windows(4).position(|v| v == b"\r\n\r\n").unwrap();
+    let headers = String::from_utf8_lossy(&bytes[..split]).into_owned();
+    let status = headers.split_whitespace().nth(1).unwrap().parse().unwrap();
+    let body = if headers
+        .to_ascii_lowercase()
+        .contains("transfer-encoding: chunked")
+    {
+        String::from_utf8(dechunk(&bytes[split + 4..])).unwrap()
+    } else {
+        String::from_utf8_lossy(&bytes[split + 4..]).into_owned()
+    };
+    Reply {
+        status,
+        headers,
+        body,
+    }
+}
+
+fn raw_post(addr: SocketAddr, headers: &str, body: &str) -> Reply {
+    raw_request(addr, &format!(
+        "POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n{headers}Content-Length: {}\r\n\r\n{body}",
+        body.len()
+    ))
+}
+
+#[test]
+fn inference_requires_authorization_and_local_json_origin() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let no_credential = ServerConfig {
+        port: 0,
+        ..ServerConfig::default()
+    };
+    assert!(rt
+        .block_on(serve(
+            no_credential,
+            Arc::new(stub("x")),
+            Arc::new(ByteCodec)
+        ))
+        .is_err());
+    let srv = start(stub("accepted"), ServerConfig::default());
+    let missing = raw_post(srv.addr, "Content-Type: application/json\r\n", PROMPT);
+    assert_eq!(missing.status, 401);
+    assert_eq!(
+        raw_post(
+            srv.addr,
+            "Authorization: Bearer wrong\r\nContent-Type: application/json\r\n",
+            PROMPT
+        )
+        .status,
+        401
+    );
+    let auth = format!("Authorization: Bearer {TOKEN}\r\n");
+    assert_eq!(
+        raw_post(
+            srv.addr,
+            &format!("{auth}Origin: https://hostile.example\r\nContent-Type: application/json\r\n"),
+            PROMPT
+        )
+        .status,
+        403
+    );
+    assert_eq!(
+        raw_post(
+            srv.addr,
+            &format!("{auth}Content-Type: text/plain\r\n"),
+            PROMPT
+        )
+        .status,
+        415
+    );
+    let hostile_host = format!("POST /v1/chat/completions HTTP/1.1\r\nHost: attacker.example\r\n{auth}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{PROMPT}", PROMPT.len());
+    assert_eq!(raw_request(srv.addr, &hostile_host).status, 403);
+    // None of these requests sends its declared body; refusal must precede extraction.
+    for (headers, expected) in [
+        ("Content-Type: application/json\r\n".to_string(), 401),
+        (
+            format!("{auth}Origin: https://hostile.example\r\nContent-Type: application/json\r\n"),
+            403,
+        ),
+        (format!("{auth}Content-Type: text/plain\r\n"), 415),
+    ] {
+        let incomplete = format!("POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n{headers}Content-Length: 100\r\n\r\n");
+        assert_eq!(raw_request(srv.addr, &incomplete).status, expected);
+    }
+    let good = raw_post(srv.addr, &format!("{auth}Origin: http://localhost:{}\r\nContent-Type: application/json; charset=utf-8\r\n", srv.addr.port()), PROMPT);
+    assert_eq!(good.status, 200, "{}", good.body);
+    assert_eq!(json(&good)["choices"][0]["message"]["content"], "accepted");
+}
+
+/// Counts `encode` calls. The first call is the occupying request's own prompt: it reports that it
+/// has been counted and then waits for the test's release. The server takes the engine slot before
+/// reading the body and keeps it through tokenizing, so while that call waits the server is
+/// saturated and the count already includes the occupying request; any later increment comes from
+/// a request that met the busy server.
+struct CountingCodec {
+    calls: std::sync::atomic::AtomicUsize,
+    entered: std::sync::mpsc::Sender<()>,
+    release: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+}
+
+impl Codec for CountingCodec {
+    fn render_chat(&self, turns: &[(&str, &str)]) -> Result<String, CodecError> {
+        ByteCodec.render_chat(turns)
+    }
+    fn encode(&self, text: &str) -> Result<Vec<u32>, CodecError> {
+        if self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+            let _ = self.entered.send(());
+            // Ends on the test's release, or with an error once a failing test has dropped its
+            // sender, so a failed assertion never leaves this request (and the runtime) waiting.
+            let _ = self.release.lock().unwrap().recv();
+        }
+        ByteCodec.encode(text)
+    }
+    fn decode(&self, ids: &[u32]) -> Result<String, CodecError> {
+        ByteCodec.decode(ids)
+    }
+    fn stop_token_ids(&self) -> Vec<u32> {
+        ByteCodec.stop_token_ids()
+    }
+}
+
+#[test]
+fn saturated_request_does_not_read_body_or_invoke_codec() {
+    use std::sync::atomic::Ordering;
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let (entered_tx, entered) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    let codec = Arc::new(CountingCodec {
+        calls: std::sync::atomic::AtomicUsize::new(0),
+        entered: entered_tx,
+        release: std::sync::Mutex::new(release_rx),
+    });
+    let cfg = ServerConfig {
+        port: 0,
+        model_id: "test-model".into(),
+        bearer_token: TOKEN.into(),
+        ..ServerConfig::default()
+    };
+    let (addr, _h) = rt
+        .block_on(serve(cfg, Arc::new(stub(&"x".repeat(60))), codec.clone()))
+        .unwrap();
+    let first = std::thread::spawn(move || chat(addr, PROMPT));
+    // `/health` reports busy as soon as the slot is taken, before the occupying request has read
+    // its body or tokenized; wait for its own encode so that call is not charged to the requests
+    // below.
+    entered
+        .recv_timeout(Duration::from_secs(30))
+        .expect("occupying request never reached the tokenizer");
+    assert_eq!(json(&request(addr, "GET", "/health", None))["busy"], true);
+    let before = codec.calls.load(Ordering::SeqCst);
+    assert_eq!(before, 1, "only the occupying request has tokenized");
+    let full = raw_post(
+        addr,
+        &format!("Authorization: Bearer {TOKEN}\r\nContent-Type: application/json\r\n"),
+        PROMPT,
+    );
+    assert_eq!(full.status, 503);
+    assert_eq!(
+        codec.calls.load(Ordering::SeqCst),
+        before,
+        "busy request invoked tokenizer"
+    );
+    let incomplete = format!("POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {TOKEN}\r\nContent-Type: application/json\r\nContent-Length: 100\r\nConnection: close\r\n\r\n");
+    let rejected = raw_request(addr, &incomplete);
+    assert_eq!(rejected.status, 503, "{}", rejected.body);
+    assert_eq!(codec.calls.load(Ordering::SeqCst), before);
+    release.send(()).unwrap();
+    assert_eq!(first.join().unwrap().status, 200);
+}
+
 #[test]
 fn bad_requests_get_openai_error_json() {
     let srv = start(
@@ -234,22 +427,10 @@ fn bad_requests_get_openai_error_json() {
         ("not json", "{nope".into(), 400, "invalid JSON"),
         ("no messages", r#"{"messages":[]}"#.into(), 400, "non-empty"),
         (
-            "tool role",
-            r#"{"messages":[{"role":"tool","content":"x"}]}"#.into(),
-            400,
-            "role tool",
-        ),
-        (
             "temperature",
             r#"{"messages":[{"role":"user","content":"x"}],"temperature":5}"#.into(),
             400,
             "temperature",
-        ),
-        (
-            "tools",
-            r#"{"messages":[{"role":"user","content":"x"}],"tools":[{"type":"function"}]}"#.into(),
-            400,
-            "tool calling",
         ),
         (
             "image part",
@@ -276,6 +457,15 @@ fn bad_requests_get_openai_error_json() {
         let v = json(&r);
         let msg = v["error"]["message"].as_str().unwrap_or_default();
         assert!(msg.contains(needle), "{name}: {msg}");
+    }
+    // Tool calling is supported (Qwen3.6 tool format, coordinator 2026-10-21): tools, tool turns and
+    // assistant tool_calls render instead of being refused.
+    for body in [
+        r#"{"messages":[{"role":"user","content":"x"}],"tools":[{"type":"function","function":{"name":"f","parameters":{}}}]}"#,
+        r#"{"messages":[{"role":"user","content":"x"},{"role":"assistant","content":null,"tool_calls":[{"id":"c","type":"function","function":{"name":"f","arguments":"{\"a\":1}"}}]},{"role":"tool","tool_call_id":"c","content":"ok"}],"tools":[{"type":"function","function":{"name":"f","parameters":{}}}]}"#,
+    ] {
+        let r = chat(srv.addr, body);
+        assert_eq!(r.status, 200, "tools request: {}", r.body);
     }
     let r = request(srv.addr, "GET", "/nope", None);
     assert_eq!(r.status, 404);
@@ -415,6 +605,7 @@ mod sampling_gate {
         let cfg = ServerConfig {
             port: 0,
             model_id: "tiny".into(),
+            bearer_token: TOKEN.into(),
             ..ServerConfig::default()
         };
         let (addr, _h) = rt

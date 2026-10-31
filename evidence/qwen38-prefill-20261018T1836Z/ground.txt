@@ -1,0 +1,12 @@
+Sun Oct 18 06:36:03 PM UTC 2026
+092ab26279e98064e61acf14b95cecda9256f640
+0396cd9e8411315175884157d38e1d543d7ba42e872119148966e6d0dc105076  /home/drakestapleton/workspace/targets/q38-pf/release/qwen38_prefill
+373d122cef92a78e72dac21687155072382a711f185e7fcc381e3dc6fcfa8da7  /home/drakestapleton/workspace/targets/q38-exp/fresh-pg-6e24f7fd/libomega_gpu.a
+6e24f7fd3dfdc289dd1a47abf4ce4454ffbe20ec
+MemAvailable:   56603740 kB
+--- run 2 Sun Oct 18 06:37:03 PM UTC 2026
+74364bd2a90baf4a411e42b4e74808ea02b996be
+0ea8d0bc7c0e6d86b7ad4c0e8f718a257a1c82059b1a215ee6a35f3e2b95b27d  /home/drakestapleton/workspace/targets/q38-pf/release/qwen38_prefill
+--- run 3 Sun Oct 18 06:40:21 PM UTC 2026
+01c8fefbe1a068d0070426429893bbcf469fcf2e
+6231418863e18efbb6bf210edaea2849e432780346d6e0b632d408d03c2662f1  /home/drakestapleton/workspace/targets/q38-pf/release/qwen38_prefill

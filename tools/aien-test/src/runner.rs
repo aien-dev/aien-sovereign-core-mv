@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! The runner (ADR 0028, Slices A and B): one gate, or a whole graph of gates
 //! run by worker threads that honour the resource pools and the dependencies.
 //!
@@ -27,7 +42,7 @@ use crate::graph::Graph;
 use crate::manifest::{self, Manifest};
 use crate::process::{self, RunSpec};
 use crate::resources::{
-    self, acquire_gpu, lock, GpuConfig, GpuGuard, Hardware, Permit, Pool, PoolSizes, Pools,
+    self, acquire_gpu_timed, lock, GpuConfig, GpuGuard, Hardware, Permit, Pool, PoolSizes, Pools,
     GPU_LOCK_HELD_MARKER,
 };
 use crate::sandbox::{self, Sandbox};
@@ -76,6 +91,16 @@ pub struct Options {
     /// `requires: operator` gate runs instead of staying OPERATOR_STEP_PENDING
     /// (ADR 0033 Decision 2). Never set by the automatic loop.
     pub operator: bool,
+    /// The cross-head store (`cache::Shared`, `<state>/gate-cache/<repo>`).
+    /// None keeps the cache inside `evidence_dir`, as before. The worker sets
+    /// it; a lone `run` does not.
+    pub shared_cache: Option<cache::Shared>,
+    /// The budget every head of one `worker --batch` shares (host slots, one
+    /// gb10 slot). None outside a batch: only this run's own pools apply.
+    pub batch: Option<std::sync::Arc<crate::resources::BatchShare>>,
+    /// Gates other heads of the batch also select: picked before the others
+    /// and ahead of them for the batch budget (shared first, unique after).
+    pub first: BTreeSet<String>,
 }
 
 impl Options {
@@ -97,6 +122,9 @@ impl Options {
             release: false,
             pins: json!([]),
             operator: false,
+            shared_cache: None,
+            batch: None,
+            first: BTreeSet::new(),
         }
     }
 }
@@ -132,8 +160,9 @@ pub struct Outcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CacheNote {
     /// The result was reused, not rerun. Holds the digest of the fresh
-    /// receipt it was taken from.
-    Reused { from: String },
+    /// receipt it was taken from and the commit that receipt was made for
+    /// (another head when it came through the cross-head store).
+    Reused { from: String, commit: String },
     /// The cache was consulted and had nothing usable; the gate ran.
     Miss(String),
     /// The cache was not consulted; the gate ran (or was refused). Holds why.
@@ -182,6 +211,18 @@ pub fn head(root: &Path) -> Result<String, String> {
         Ok(s)
     } else {
         Err(format!("HEAD is not a 40-hex commit: {s:?}"))
+    }
+}
+
+/// The tree id of HEAD: equal for two commits whose every file is identical.
+pub fn head_tree(root: &Path) -> Result<String, String> {
+    let s = git_out(root, &["rev-parse", "HEAD^{tree}"])?
+        .trim()
+        .to_string();
+    if s.len() == 40 && s.bytes().all(|c| c.is_ascii_hexdigit()) {
+        Ok(s)
+    } else {
+        Err(format!("HEAD^{{tree}} is not a 40-hex id: {s:?}"))
     }
 }
 
@@ -318,6 +359,34 @@ pub fn locate_gate(cwd: &Path, name: &str) -> Result<PathBuf, String> {
 }
 
 fn collect_files(root: &Path, rel: &str, out: &mut BTreeSet<String>) {
+    // A component with `*` (`crates/*/Cargo.toml`) stands for every entry of
+    // its directory whose name matches; `*` matches any run of characters.
+    let parts: Vec<&str> = rel.trim_end_matches('/').split('/').collect();
+    if let Some(i) = parts.iter().position(|c| c.contains('*')) {
+        let base = parts[..i].join("/");
+        let rest = parts[i + 1..].join("/");
+        let mut names: Vec<String> = fs::read_dir(root.join(&base))
+            .map(|rd| {
+                rd.flatten()
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .filter(|n| n != ".git" && wildcard_match(parts[i], n))
+                    .collect()
+            })
+            .unwrap_or_default();
+        names.sort();
+        for n in names {
+            let mut child = if base.is_empty() {
+                n
+            } else {
+                format!("{base}/{n}")
+            };
+            if !rest.is_empty() {
+                child = format!("{child}/{rest}");
+            }
+            collect_files(root, &child, out);
+        }
+        return;
+    }
     let path = root.join(rel.trim_end_matches('/'));
     let md = match fs::symlink_metadata(&path) {
         Ok(m) => m,
@@ -340,6 +409,129 @@ fn collect_files(root: &Path, rel: &str, out: &mut BTreeSet<String>) {
     } else if md.is_file() {
         out.insert(rel.trim_end_matches('/').to_string());
     }
+}
+
+/// The existing directories a `listed` entry names (`*` per component).
+fn expand_dirs(root: &Path, pat: &str, out: &mut BTreeSet<String>) {
+    let mut cur: Vec<String> = vec![String::new()];
+    for c in pat.trim_end_matches('/').split('/') {
+        let mut next = Vec::new();
+        for base in &cur {
+            let join = |n: &str| {
+                if base.is_empty() {
+                    n.to_string()
+                } else {
+                    format!("{base}/{n}")
+                }
+            };
+            if c.contains('*') {
+                if let Ok(rd) = fs::read_dir(root.join(base)) {
+                    for e in rd.flatten() {
+                        let n = e.file_name().to_string_lossy().into_owned();
+                        if n != ".git" && wildcard_match(c, &n) && e.path().is_dir() {
+                            next.push(join(&n));
+                        }
+                    }
+                }
+            } else if root.join(join(c)).is_dir() {
+                next.push(join(c));
+            }
+        }
+        cur = next;
+    }
+    out.extend(cur.into_iter().filter(|d| !d.is_empty()));
+}
+
+/// `pat` against `name`, where `*` matches any run of characters (none too).
+pub(crate) fn wildcard_match(pat: &str, name: &str) -> bool {
+    let pieces: Vec<&str> = pat.split('*').collect();
+    if pieces.len() == 1 {
+        return pat == name;
+    }
+    let (first, last) = (pieces[0], pieces[pieces.len() - 1]);
+    if !name.starts_with(first) || name.len() < first.len() + last.len() || !name.ends_with(last) {
+        return false;
+    }
+    let mut rest = &name[first.len()..name.len() - last.len()];
+    for p in &pieces[1..pieces.len() - 1] {
+        match rest.find(p) {
+            Some(at) => rest = &rest[at + p.len()..],
+            None => return false,
+        }
+    }
+    true
+}
+
+/// `~/REST` against the judge's `HOME`; an absolute path as it is.
+pub(crate) fn outside_path(entry: &str) -> PathBuf {
+    match entry.strip_prefix("~/") {
+        Some(rest) => std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_default()
+            .join(rest),
+        None => PathBuf::from(entry),
+    }
+}
+
+/// `(name, sha256)` of every file under one `outside_inputs` entry, named by
+/// the entry as written (`~/models/X/model.safetensors`), so the key does not
+/// depend on whose home it is. A missing entry is one row with a null digest.
+/// Digests are remembered per (path, size, mtime, inode) for the life of the
+/// process: a checkpoint of gigabytes is read once per judge, not per gate.
+fn outside_rows(entry: &str) -> Vec<(String, Option<String>)> {
+    use std::os::unix::fs::MetadataExt;
+    type Memo = BTreeMap<(PathBuf, u64, i64, i64, u64), String>;
+    static MEMO: std::sync::OnceLock<Mutex<Memo>> = std::sync::OnceLock::new();
+    let shown = entry.trim_end_matches('/').to_string();
+    let base = outside_path(&shown);
+    let mut walk = vec![(base.clone(), shown.clone())];
+    let mut rows = Vec::new();
+    while let Some((p, name)) = walk.pop() {
+        match fs::metadata(&p) {
+            Ok(md) if md.is_dir() => {
+                if let Ok(rd) = fs::read_dir(&p) {
+                    for e in rd.flatten() {
+                        let n = e.file_name().to_string_lossy().into_owned();
+                        walk.push((e.path(), format!("{name}/{n}")));
+                    }
+                }
+            }
+            Ok(md) if md.is_file() => {
+                let k = (p.clone(), md.len(), md.mtime(), md.mtime_nsec(), md.ino());
+                let memo = MEMO.get_or_init(|| Mutex::new(BTreeMap::new()));
+                let hit = memo.lock().ok().and_then(|m| m.get(&k).cloned());
+                let digest = hit.or_else(|| {
+                    let d = sha256_file(&p)?;
+                    if let Ok(mut m) = memo.lock() {
+                        m.insert(k, d.clone());
+                    }
+                    Some(d)
+                });
+                rows.push((name, digest));
+            }
+            _ => rows.push((name, None)),
+        }
+    }
+    rows.sort();
+    rows
+}
+
+/// sha256 of a file, streamed (a checkpoint does not fit the 16 KiB budget
+/// of anything else here, and need not sit in memory).
+fn sha256_file(p: &Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut f = fs::File::open(p).ok()?;
+    let mut h = Sha256::new();
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = f.read(&mut buf).ok()?;
+        if n == 0 {
+            break;
+        }
+        h.update(&buf[..n]);
+    }
+    Some(format!("{:x}", h.finalize()))
 }
 
 /// Where `run.exec` is, for a run without the sandbox (the runner's PATH).
@@ -383,13 +575,19 @@ fn exec_path_in(root: &Path, exec: &str, path: Option<std::ffi::OsString>) -> Op
 }
 
 /// sha256 over the canonical list of (path, file sha256) for the explicit
-/// `inputs` plus the D3 convention-implied inputs of `tests/<dir>/<name>.gate`.
+/// `inputs`, the D3 convention-implied inputs of `tests/<dir>/<name>.gate` and
+/// the repository build files in [`IMPLIED_BUILD_FILES`] that exist.
 /// A listed path that does not exist is recorded with a null digest. Compiler
 /// identity is not included yet because nothing here builds.
 pub fn build_inputs_digest(root: &Path, manifest_rel: Option<&Path>, m: &Manifest) -> String {
     let mut paths: BTreeSet<String> = BTreeSet::new();
     for i in &m.inputs {
         collect_files(root, i, &mut paths);
+    }
+    for f in IMPLIED_BUILD_FILES {
+        if root.join(f).is_file() {
+            paths.insert(f.to_string());
+        }
     }
     if let Some(rel) = manifest_rel {
         let dir = rel.parent().unwrap_or(Path::new(""));
@@ -432,8 +630,73 @@ pub fn build_inputs_digest(root: &Path, manifest_rel: Option<&Path>, m: &Manifes
             json!({ "path": p, "sha256": digest })
         })
         .collect();
-    canonical_digest(&json!({ "inputs": entries })).unwrap_or_default()
+    // Outside inputs and listings join under their own members, so a
+    // manifest without them keeps the digest it always had.
+    let mut obj = json!({ "inputs": entries });
+    if !m.outside_inputs.is_empty() {
+        let outside: Vec<Value> = m
+            .outside_inputs
+            .iter()
+            .flat_map(|o| outside_rows(o))
+            .map(|(p, d)| json!({ "path": p, "sha256": d }))
+            .collect();
+        obj["outside_inputs"] = json!(outside);
+    }
+    if !m.listed.is_empty() {
+        let mut dirs: BTreeSet<String> = BTreeSet::new();
+        for l in &m.listed {
+            expand_dirs(root, l, &mut dirs);
+        }
+        let rows: Vec<Value> = dirs
+            .iter()
+            .map(|d| {
+                let mut names: Vec<String> = fs::read_dir(root.join(d))
+                    .map(|rd| {
+                        rd.flatten()
+                            .map(|e| e.file_name().to_string_lossy().into_owned())
+                            .filter(|n| n != ".git")
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                names.sort();
+                json!({ "dir": d, "names": names })
+            })
+            .collect();
+        obj["listed"] = json!(rows);
+    }
+    canonical_digest(&obj).unwrap_or_default()
 }
+
+/// sha256 of the running aien-test binary, read once. None when the binary
+/// cannot be read (then no result made under None matches one made under a
+/// readable binary).
+pub fn judge_sha256() -> Option<String> {
+    static SHA: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    SHA.get_or_init(|| {
+        std::env::current_exe()
+            .and_then(fs::read)
+            .ok()
+            .map(|b| sha256_hex(&b))
+    })
+    .clone()
+}
+
+/// Repository build files that change what any gate builds or runs even when
+/// its manifest does not list them (the workspace manifest and lock, the
+/// toolchain pin, cargo's config). Each one that exists joins every gate's
+/// `build_inputs_digest`: a gate like SC-INQUISITOR builds with cargo and
+/// lists no Cargo.toml. Adding a file to the key can only turn a hit into a
+/// miss, never the other way.
+pub const IMPLIED_BUILD_FILES: [&str; 8] = [
+    "Cargo.toml",
+    "Cargo.lock",
+    "rust-toolchain",
+    "rust-toolchain.toml",
+    ".cargo/config",
+    ".cargo/config.toml",
+    "native-artifacts.lock",
+    "mojoproject.toml",
+];
 
 pub(crate) fn machine(hw: &Hardware) -> Value {
     let kernel = fs::read_to_string("/proc/sys/kernel/osrelease")
@@ -521,6 +784,10 @@ pub(crate) fn identity(
         machine["sandbox_helper_sha256"] =
             json!(fs::read(sandbox::EXEC_HELPER).ok().map(|b| sha256_hex(&b)));
     }
+    // The judge that derives the verdict is part of the machine too: a result
+    // made by another build of aien-test is never reused, inside one head or
+    // across heads (a new rule in the verdict, a new receipt member).
+    machine["judge_sha256"] = json!(judge_sha256());
     let machine_digest = canonical_digest(&machine)?;
     Ok(Identity {
         binary_sha,
@@ -615,10 +882,19 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
     let dependencies: Vec<(String, String)> = dependency_rows(&facts.deps).into_iter().collect();
     // Receipts are read when a lookup may happen, and to follow a reused
     // dependency back to the receipt it stands for.
-    let index = if mode == cache::Mode::Allow || !dependencies.is_empty() {
+    let mut index = if mode == cache::Mode::Allow || !dependencies.is_empty() {
         Index::load(&store)
     } else {
         Index::default()
+    };
+    // The cross-head store, only for a gate whose result may leave this head
+    // (`cache::cross_head`); every other gate keeps its cache inside this
+    // head. The reach decides the entry name: the key, or the key and the
+    // tree id when the manifest does not promise complete inputs.
+    let reach = cache::cross_head(m).ok();
+    let shared: Option<(&cache::Shared, cache::Reach)> = match (opts.shared_cache.as_ref(), reach) {
+        (Some(sh), Some(r)) => Some((sh, r)),
+        _ => None,
     };
     let experiment = cache::Experiment {
         manifest_digest: m.digest.clone(),
@@ -640,8 +916,47 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
     // Reuse only when the gate would really have run: a refusal, a blocked
     // verdict or a dependency that is not PASS is reported as it is, never
     // hidden behind an old result.
+    // Held from the shared lookup until this head's result is published, so
+    // another judge of the same key waits for it instead of running it too.
+    let mut key_lock: Option<cache::KeyLock> = None;
+    let mut shared_note: Option<String> = None;
+    let mut shared_slot: Option<String> = None;
     if mode == cache::Mode::Allow && !evidence_inside && verdict::pre_run(m, &facts).is_none() {
-        match cache::lookup(&index, &store, &cache_key, &captured_env()) {
+        let env = captured_env();
+        let local_hit = matches!(
+            cache::lookup(&index, &store, &cache_key, &env),
+            cache::Lookup::Hit(_)
+        );
+        if let (false, Some((sh, reach))) = (local_hit, shared) {
+            // The shared store is an extra: if the tree id or the entry lock
+            // cannot be had, this head decides alone, as before.
+            let named = head_tree(root)
+                .map(|tree| cache::slot(&cache_key, reach, &tree))
+                .and_then(|name| match sh.lock(&name) {
+                    Ok(l) => Ok((name, l)),
+                    Err(e) => Err(format!("cannot lock the entry: {e}")),
+                });
+            match named {
+                Err(e) => shared_note = Some(format!("the cross-head store was not used ({e})")),
+                Ok((name, l)) => {
+                    key_lock = Some(l);
+                    match sh.import(&name, &cache_key, &store) {
+                        Ok(Some(_)) => index = Index::load(&store),
+                        Ok(None) => {
+                            shared_note = Some(match reach {
+                                cache::Reach::Inputs => "no other head has this key yet".to_string(),
+                                cache::Reach::Tree => "no other head with this exact tree has this key yet (the manifest does not say cache: inputs_complete)".to_string(),
+                            })
+                        }
+                        Err(e) => {
+                            shared_note = Some(format!("the cross-head entry could not be read ({e})"))
+                        }
+                    }
+                    shared_slot = Some(name);
+                }
+            }
+        }
+        match cache::lookup(&index, &store, &cache_key, &env) {
             cache::Lookup::Hit(src) => {
                 let reused_verdict = src
                     .verdict()
@@ -656,6 +971,10 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
                     "cache": cache::cache_member(&cache_key, Some(&src.digest), mode),
                     "timeout_exceeded": false,
                 });
+                let mut volatile = volatile;
+                // Which head the result was made for: this one, or another
+                // head whose result came through the cross-head store.
+                volatile["cache"]["reused_from_commit"] = json!(src.commit());
                 let receipt = build_receipt(cache::reused_core(src, &commit), volatile);
                 let (digest, path) = store.put_receipt(&receipt).map_err(fatal)?;
                 drop(permit);
@@ -666,13 +985,36 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
                     receipt_digest: Some(digest),
                     cache: CacheNote::Reused {
                         from: src.digest.clone(),
+                        commit: src.commit().to_string(),
                     },
                 });
             }
-            cache::Lookup::Miss(miss) => note = CacheNote::Miss(miss.text()),
+            cache::Lookup::Miss(miss) => {
+                note = CacheNote::Miss(match &shared_note {
+                    Some(s) => format!("{}; across heads: {s}", miss.text()),
+                    None => miss.text(),
+                })
+            }
         }
     }
 
+    // In a batch, a host gate that will really run takes one slot of the
+    // batch budget (shared gates ahead of the rest), and a gb10 gate takes
+    // the batch's one gb10 slot, so heads of the batch never compete for
+    // `/tmp/aien-gb10.lock` and spend their bounded wait on each other. A
+    // reused result above never got here, so it costs no slot.
+    // Both waits below are timed and go into the receipt on their own
+    // (`batch_wait_ms`, `target_wait_ms`): `duration_ms` starts at `t0`, so
+    // without them a gate queued behind another head reads as a slow gate.
+    let runs = verdict::pre_run(m, &facts).is_none();
+    let t_batch = Instant::now();
+    let _batch_slot = match (&opts.batch, m.pool(), runs) {
+        (Some(b), "host", true) => Some(b.host.acquire(opts.first.contains(&m.gate))),
+        (Some(b), "gb10", true) => Some(b.gb10.acquire(true)),
+        _ => None,
+    };
+    let batch_wait_ms = t_batch.elapsed().as_millis() as u64;
+    let t_target = Instant::now();
     // A gate that will run holds its target dir for the whole run (build and
     // run), so no other gate builds in it or relinks a binary this one is
     // executing (sc fix/521). Every gate, not only those whose manifest
@@ -685,32 +1027,112 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
     // A gb10 gate is never killed on timeout (ADR 0028 Decision 6), so one
     // that hangs holds the target dir until it exits; the receipt's
     // `timeout_exceeded` is the only sign.
-    let target_lock: Option<resources::TargetLock> = if verdict::pre_run(m, &facts).is_none() {
-        let dir = opts
-            .cargo_target_dir
-            .clone()
-            .unwrap_or_else(|| resolve(root).join("target"));
-        let path = resources::target_lock_path(&opts.target_lock_dir, &dir);
-        Some(resources::lock_target_dir(&path).map_err(|e| {
-            RunError::Fatal(format!("cannot lock target dir {}: {e}", path.display()))
-        })?)
-    } else {
-        None
-    };
+    // `target_lock: none` (a grep, a find, `crumb verify`) skips it: such a gate
+    // queued behind the head's cargo gates for up to the head's whole wall
+    // (L335, finding G3-ci-judge-2); `aien-test audit-inputs` refuses the
+    // promise when the traced run starts cargo or rustc.
+    let target_lock: Option<resources::TargetLock> =
+        if m.target_lock && verdict::pre_run(m, &facts).is_none() {
+            let dir = opts
+                .cargo_target_dir
+                .clone()
+                .unwrap_or_else(|| resolve(root).join("target"));
+            let path = resources::target_lock_path(&opts.target_lock_dir, &dir);
+            Some(resources::lock_target_dir(&path).map_err(|e| {
+                RunError::Fatal(format!("cannot lock target dir {}: {e}", path.display()))
+            })?)
+        } else {
+            None
+        };
+    let target_wait_ms = t_target.elapsed().as_millis() as u64;
 
-    // A gb10 gate takes the GPU locks only when nothing else already stops it.
-    // A refusal (quiet flag, est_load, a held lock) becomes the gate's reason.
-    let gpu: Option<GpuGuard> = if m.pool() == "gb10" && verdict::pre_run(m, &facts).is_none() {
-        match acquire_gpu(&opts.gpu) {
-            Ok(g) => Some(g),
-            Err(r) => {
-                facts.refusal = Some(r.reason().to_string());
-                None
+    // The manifest's `prepare` step (a build, say) runs before the GPU locks,
+    // under the host profile with its timeout enforced, so a gb10 gate never
+    // holds the chip while it compiles. It holds the pool slot and the target
+    // dir like the run does. A failure fails the gate and nothing else runs.
+    let mut prepare_note = Value::Null;
+    let mut prepare_out: Option<(Option<i64>, Vec<u8>, Vec<u8>)> = None;
+    if let Some(p) = m
+        .prepare
+        .as_ref()
+        .filter(|_| verdict::pre_run(m, &facts).is_none())
+    {
+        let tp = Instant::now();
+        let direct = RunSpec {
+            program: exec_path_for(root, &p.exec, opts.sandbox)
+                .unwrap_or_else(|| root.join(&p.exec)),
+            args: p.args.clone(),
+            cwd: root.to_path_buf(),
+            timeout: Duration::from_millis(m.timeout_ms),
+            kill_grace: opts.kill_grace,
+            enforce_timeout: true,
+            env: Vec::new(),
+            env_remove: vec![GPU_LOCK_HELD_MARKER.to_string()],
+        };
+        let spec = sandbox::wrap(
+            opts.sandbox,
+            direct,
+            "host",
+            &sandbox::env_pairs(opts.cargo_target_dir.as_deref()),
+        );
+        let (code, timed_out, out, err) = match process::run(&spec) {
+            Ok(o) => {
+                let code = o.exit_code.map(i64::from);
+                let code = if sandbox_refused(opts.sandbox, o.exit_code, &o.stderr) {
+                    None
+                } else {
+                    code
+                };
+                (code, o.timed_out, o.stdout, o.stderr)
             }
-        }
-    } else {
-        None
-    };
+            Err(e) => (
+                None,
+                false,
+                Vec::new(),
+                format!("aien-test: cannot run prepare {}: {e}\n", p.exec).into_bytes(),
+            ),
+        };
+        facts.prepare_failed = code != Some(0) || timed_out;
+        prepare_note = json!({
+            "duration_ms": tp.elapsed().as_millis() as u64,
+            "exit_status": code,
+            "timed_out": timed_out,
+            "stdout_sha256": store.put_blob(&out).map_err(fatal)?,
+            "stderr_sha256": store.put_blob(&err).map_err(fatal)?,
+        });
+        prepare_out = Some((code, out, err));
+    }
+
+    // A gb10 gate takes the GPU locks only when nothing else already stops it,
+    // waiting for a held lock as `opts.gpu.wait` says. A refusal (quiet flag,
+    // est_load, a lock still held at the bound) becomes the gate's reason;
+    // the wait goes into the receipt (`volatile.gpu_wait`) either way.
+    let mut gpu_wait = Value::Null;
+    let gpu: Option<GpuGuard> =
+        if m.pool() == "gb10" && !facts.prepare_failed && verdict::pre_run(m, &facts).is_none() {
+            let attempt = acquire_gpu_timed(&opts.gpu);
+            gpu_wait = json!({
+                "mode": opts.gpu.wait.mode(),
+                "bound_ms": opts.gpu.wait.bound_ms(),
+                "waited_ms": attempt.waited.as_millis() as u64,
+                "acquired": attempt.result.is_ok(),
+                // The memory check (gpu_mem): what the gate needed and what was free
+                // once it held the locks (null when not checked or refused first).
+                "mem_need_mb": attempt.mem_need_mb,
+                "mem_free_mb": attempt.mem_free_mb,
+            });
+            match attempt.result {
+                Ok(g) => Some(g),
+                Err(r) => {
+                    facts.refusal = Some(r.reason().to_string());
+                    None
+                }
+            }
+        } else {
+            None
+        };
+    let gpu_since = Instant::now();
+    let mut gpu_held_ms: Option<u64> = None;
     let will_run = verdict::pre_run(m, &facts).is_none();
 
     let mut stdout: Vec<u8> = Vec::new();
@@ -718,56 +1140,67 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
     let mut after = before.clone();
     let mut timeout_exceeded = false;
     if will_run {
-        let direct = RunSpec {
-            program: exec_path.clone(),
-            args: opts.args_override.clone().unwrap_or_else(|| m.args.clone()),
-            cwd: root.to_path_buf(),
-            timeout: Duration::from_millis(m.timeout_ms),
-            kill_grace: opts.kill_grace,
-            // gb10 jobs are never killed (ADR 0028 Decision 6): the timeout
-            // only marks the receipt.
-            enforce_timeout: m.pool() != "gb10",
-            // Tell the gate the GPU locks are already held for it, so a
-            // script that would take /tmp/aien-gb10.lock itself skips that.
-            // Only the runner may say so: an inherited copy (an operator's
-            // shell) is removed for every gate the guard is not held for.
-            env: if gpu.is_some() {
-                vec![(GPU_LOCK_HELD_MARKER.to_string(), "1".to_string())]
-            } else {
-                Vec::new()
-            },
-            env_remove: if gpu.is_some() {
-                Vec::new()
-            } else {
-                vec![GPU_LOCK_HELD_MARKER.to_string()]
-            },
-        };
-        // The sandbox seam (C8): `none` returns `direct` unchanged.
-        let spec = sandbox::wrap(
-            opts.sandbox,
-            direct,
-            m.pool(),
-            &sandbox::env_pairs(opts.cargo_target_dir.as_deref()),
-        );
-        match process::run(&spec) {
-            Ok(o) => {
-                facts.exit_status = o.exit_code.map(i64::from);
-                // Exit 2 with the helper's prefix is the helper refusing the
-                // call (nothing ran): never a program result, so it can never
-                // meet `expects.exit`, not even `exit: 2`.
-                if sandbox_refused(opts.sandbox, o.exit_code, &o.stderr) {
-                    facts.exit_status = None;
+        if let Some((code, out, err)) = prepare_out.take().filter(|_| facts.prepare_failed) {
+            // The prepare step failed and run never started: its output is
+            // the gate's record.
+            facts.exit_status = code;
+            stdout = out;
+            stderr = err;
+        } else {
+            let direct = RunSpec {
+                program: exec_path.clone(),
+                args: opts.args_override.clone().unwrap_or_else(|| m.args.clone()),
+                cwd: root.to_path_buf(),
+                timeout: Duration::from_millis(m.timeout_ms),
+                kill_grace: opts.kill_grace,
+                // gb10 jobs are never killed (ADR 0028 Decision 6): the timeout
+                // only marks the receipt.
+                enforce_timeout: m.pool() != "gb10",
+                // Tell the gate the GPU locks are already held for it, so a
+                // script that would take /tmp/aien-gb10.lock itself skips that.
+                // Only the runner may say so: an inherited copy (an operator's
+                // shell) is removed for every gate the guard is not held for.
+                env: if gpu.is_some() {
+                    vec![(GPU_LOCK_HELD_MARKER.to_string(), "1".to_string())]
+                } else {
+                    Vec::new()
+                },
+                env_remove: if gpu.is_some() {
+                    Vec::new()
+                } else {
+                    vec![GPU_LOCK_HELD_MARKER.to_string()]
+                },
+            };
+            // The sandbox seam (C8): `none` returns `direct` unchanged.
+            let spec = sandbox::wrap(
+                opts.sandbox,
+                direct,
+                m.pool(),
+                &sandbox::env_pairs(opts.cargo_target_dir.as_deref()),
+            );
+            match process::run(&spec) {
+                Ok(o) => {
+                    facts.exit_status = o.exit_code.map(i64::from);
+                    // Exit 2 with the helper's prefix is the helper refusing the
+                    // call (nothing ran): never a program result, so it can never
+                    // meet `expects.exit`, not even `exit: 2`.
+                    if sandbox_refused(opts.sandbox, o.exit_code, &o.stderr) {
+                        facts.exit_status = None;
+                    }
+                    facts.timed_out = o.timed_out;
+                    timeout_exceeded = o.timeout_exceeded;
+                    stdout = o.stdout;
+                    stderr = o.stderr;
                 }
-                facts.timed_out = o.timed_out;
-                timeout_exceeded = o.timeout_exceeded;
-                stdout = o.stdout;
-                stderr = o.stderr;
-            }
-            Err(e) => {
-                stderr = format!("aien-test: cannot run {}: {e}\n", m.exec).into_bytes();
+                Err(e) => {
+                    stderr = format!("aien-test: cannot run {}: {e}\n", m.exec).into_bytes();
+                }
             }
         }
         // The job is over: close the lock descriptors at once.
+        if gpu.is_some() {
+            gpu_held_ms = Some(gpu_since.elapsed().as_millis() as u64);
+        }
         drop(gpu);
         drop(target_lock);
         after = porcelain(root).map_err(RunError::Fatal)?;
@@ -843,19 +1276,42 @@ fn execute_gate(job: &Job<'_>, permit: Option<Permit<'_>>) -> Result<Outcome, Ru
     core.insert("checks".into(), Value::Array(checks));
     core.insert("dependencies".into(), Value::Array(dependency_values));
 
-    let volatile = json!({
+    let mut volatile = json!({
         "started_utc": utc_string(started),
         "finished_utc": utc_string(now_secs()),
         "duration_ms": t0.elapsed().as_millis() as u64,
         "pool": m.pool(),
         "pool_wait_ms": job.pool_wait_ms,
+        "batch_wait_ms": batch_wait_ms,
+        "target_wait_ms": target_wait_ms,
         "runner": { "name": "aien-test", "version": env!("CARGO_PKG_VERSION"), "impl": "rust" },
         "cache": cache::cache_member(&cache_key, None, mode),
         "timeout_exceeded": timeout_exceeded,
+        "gpu_wait": gpu_wait,
+        "gpu_held_ms": gpu_held_ms,
     });
+    if !prepare_note.is_null() {
+        volatile["prepare"] = prepare_note;
+    }
 
     let receipt = build_receipt(Value::Object(core), volatile);
     let (digest, path) = store.put_receipt(&receipt).map_err(fatal)?;
+    // Offer the result to other heads only if `lookup` would reuse it here
+    // (PASS or FAIL, clean tree, in time, key recomputes, logs present): a
+    // failed publication costs the next head a run, never a wrong verdict.
+    if let (Some((sh, _)), Some(name), Some(_held)) =
+        (shared, shared_slot.as_ref(), key_lock.as_ref())
+    {
+        let idx = Index::load(&store);
+        if let Some(r) = idx.get(&digest) {
+            if cache::usable(r, &cache_key, &idx, &store, &captured_env()).is_ok() {
+                if let Err(e) = sh.publish(name, &digest, &store) {
+                    eprintln!("aien-test: {} not shared with other heads: {e}", m.gate);
+                }
+            }
+        }
+    }
+    drop(key_lock);
     Ok(Outcome {
         verdict: derived.verdict,
         reason: derived.reason,
@@ -981,7 +1437,16 @@ impl GraphRun<'_> {
     /// work). Called with the scheduler lock held.
     fn pick(&self, st: &mut Sched) -> Option<Pick<'_>> {
         let mut chosen = None;
-        for &i in &st.ready {
+        // Gates other heads of a batch share go first (`Options::first`).
+        let shared = |i: &usize| self.opts.first.contains(&self.graph.node(*i).id);
+        let order: Vec<usize> = st
+            .ready
+            .iter()
+            .filter(|i| shared(i))
+            .chain(st.ready.iter().filter(|i| !shared(i)))
+            .copied()
+            .collect();
+        for i in order {
             let deps = self.dep_facts(&st.results, i);
             if !deps.iter().all(|d| d.verdict == Some(Verdict::Pass)) {
                 chosen = Some(Pick {
@@ -1164,6 +1629,8 @@ pub fn run_graph(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::resources::{acquire_gpu, GpuWait};
+    use crate::testutil::queued_on;
     use crate::testutil::{git, init_repo, write_file, TempDir};
     use std::os::unix::fs::PermissionsExt;
 
@@ -1656,6 +2123,64 @@ mod tests {
         assert_eq!(r["core"]["observations"][0]["value"], 1);
     }
 
+    /// `prep <marker> <lock> <exit>` records whether the GPU lock is free and
+    /// whether the runner claims to hold it; `run <marker> <lock>` reports
+    /// whether the lock is free while the run is going.
+    const PREPARE_SCRIPT: &str = "#!/bin/sh\nfree=0\nflock -n \"$3\" true && free=1\nif [ \"$1\" = prep ]; then\n  echo \"held=${AIEN_GB10_LOCK_HELD:-0} free=$free\" > \"$2.prep\"\n  exit \"$4\"\nfi\ntouch \"$2\"\necho \"AIEN-OBS lock_free $free\"\n";
+
+    /// A v2 gb10 gate whose `prepare` exits `prep_exit`.
+    fn prepare_fixture(prep_exit: i32) -> (Fx, Options) {
+        let fx = gb10_fixture(PREPARE_SCRIPT, "20s");
+        let opts = gb10_opts(&fx);
+        let (marker, lock) = (fx.marker(), opts.gpu.lock_path.clone());
+        let (marker, lock) = (marker.to_str().unwrap(), lock.to_str().unwrap());
+        let gate = format!(
+            "gate: T-1\nmanifest_version: 2\nowner: t\nrequires:\n  - gb10\nprepare:\n  exec: tools/run.sh\n  args: {}\nrun:\n  exec: tools/run.sh\n  args: {}\nexpects:\n  exit: 0\n  observe: [\"lock_free == 0\"]\n  verdict: PASS\ntimeout: 20s\n",
+            serde_json::to_string(&["prep", marker, lock, &prep_exit.to_string()]).unwrap(),
+            serde_json::to_string(&["run", marker, lock]).unwrap(),
+        );
+        write_file(fx.repo.path(), "tests/t.gate", &gate, false);
+        git(fx.repo.path(), &["add", "-A"]);
+        git(fx.repo.path(), &["commit", "-q", "-m", "prepare"]);
+        (fx, opts)
+    }
+
+    #[test]
+    fn prepare_runs_before_the_gpu_lock_and_run_under_it() {
+        let (fx, opts) = prepare_fixture(0);
+        let o = run(&fx, &opts);
+        assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
+        // The prepare step saw a free lock and no claim that it was held.
+        let prep = fs::read_to_string(fx.marker().with_extension("prep")).unwrap();
+        assert_eq!(prep.trim(), "held=0 free=1");
+        // The run itself was under the lock (rule lock_free == 0 held).
+        let r = read_json(&o.receipt_path.unwrap());
+        assert_eq!(r["volatile"]["prepare"]["exit_status"], 0);
+        assert!(r["volatile"]["prepare"]["duration_ms"].is_u64());
+        assert!(r["volatile"]["gpu_held_ms"].is_u64());
+        assert_eq!(r["volatile"]["gpu_wait"]["acquired"], true);
+        assert!(acquire_gpu(&opts.gpu).is_ok(), "released after the job");
+    }
+
+    #[test]
+    fn a_failed_prepare_fails_the_gate_and_never_takes_the_gpu() {
+        let (fx, opts) = prepare_fixture(3);
+        let o = run(&fx, &opts);
+        assert_eq!(
+            (o.verdict, o.reason.as_str()),
+            (Verdict::Fail, "prepare_failed")
+        );
+        assert!(!fx.marker().exists(), "run must not start");
+        let r = read_json(&o.receipt_path.unwrap());
+        assert_eq!(r["core"]["exit_status"], 3);
+        assert_eq!(r["volatile"]["prepare"]["exit_status"], 3);
+        assert!(
+            r["volatile"]["gpu_wait"].is_null(),
+            "the GPU lock was never asked for"
+        );
+        assert!(r["volatile"]["gpu_held_ms"].is_null());
+    }
+
     #[test]
     fn host_gate_is_not_told_the_lock_is_held() {
         let fx = fixture(LOCK_HELD_SCRIPT, 0, &[], "20s", "");
@@ -1744,6 +2269,182 @@ mod tests {
         let o = run(&fx, &opts);
         assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
         assert!(fx.marker().exists());
+    }
+
+    /// The machine's default GPU options (what `run`, `test` and the worker
+    /// start from) with the lock paths moved to scratch: a holder that keeps
+    /// the lock for a moment, as the live model server does around every
+    /// request, must not make the gate NOT_RUN. Written against fields both
+    /// the old and the new `GpuConfig` have, so it runs on either.
+    #[test]
+    fn gb10_gate_with_the_default_options_waits_out_a_brief_holder() {
+        let fx = gb10_fixture(TOUCH_MARKER, "20s");
+        let mut opts = gb10_opts(&fx);
+        let scratch = opts.gpu.clone();
+        opts.gpu = GpuConfig::detect();
+        opts.gpu.lock_path = scratch.lock_path;
+        opts.gpu.proof_lock_path = None;
+        opts.gpu.quiet_flag = scratch.quiet_flag;
+        opts.gpu.proc_dir = scratch.proc_dir;
+        // The memory check has its own tests below; this one is about the lock wait.
+        opts.gpu.mem_need_mb = 0;
+        let held = acquire_gpu(&GpuConfig::rooted_at(fx.scratch.path())).unwrap();
+        let holder = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(1500));
+            drop(held);
+        });
+        let o = run(&fx, &opts);
+        holder.join().unwrap();
+        assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
+        assert!(fx.marker().exists());
+    }
+
+    #[test]
+    fn gb10_gate_records_the_wait_and_runs_when_the_holder_lets_go() {
+        let fx = gb10_fixture(TOUCH_MARKER, "20s");
+        let mut opts = gb10_opts(&fx);
+        opts.gpu.wait = GpuWait::Bounded(Duration::from_secs(20));
+        let held = acquire_gpu(&GpuConfig::rooted_at(fx.scratch.path())).unwrap();
+        // Let go 300 ms after the kernel shows the gate queued behind us, so
+        // the wait is real however long the gate takes to reach the lock.
+        let lock = opts.gpu.lock_path.clone();
+        let holder = std::thread::spawn(move || {
+            let t0 = std::time::Instant::now();
+            while !queued_on(&lock) && t0.elapsed() < Duration::from_secs(15) {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            let seen = queued_on(&lock);
+            std::thread::sleep(Duration::from_millis(300));
+            drop(held);
+            seen
+        });
+        let o = run(&fx, &opts);
+        assert!(holder.join().unwrap(), "the gate never queued on the lock");
+        assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
+        let r = read_json(&o.receipt_path.unwrap());
+        let w = &r["volatile"]["gpu_wait"];
+        assert_eq!(w["mode"], "bounded");
+        assert_eq!(w["bound_ms"], 20_000);
+        assert_eq!(w["acquired"], true);
+        let waited = w["waited_ms"].as_u64().unwrap();
+        assert!((250..20_000).contains(&waited), "waited {waited} ms");
+    }
+
+    #[test]
+    fn gb10_gate_held_past_the_bound_is_not_run_with_the_wait_recorded() {
+        let fx = gb10_fixture(TOUCH_MARKER, "20s");
+        let mut opts = gb10_opts(&fx);
+        opts.gpu.wait = GpuWait::Bounded(Duration::from_millis(400));
+        let held = acquire_gpu(&GpuConfig::rooted_at(fx.scratch.path())).unwrap();
+        let o = run(&fx, &opts);
+        assert_eq!(
+            (o.verdict, o.reason.as_str()),
+            (Verdict::NotRun, "gpu_lock")
+        );
+        assert!(!fx.marker().exists(), "a refused job must not run");
+        let r = read_json(&o.receipt_path.unwrap());
+        assert_eq!(r["core"]["reason"], "gpu_lock");
+        let w = &r["volatile"]["gpu_wait"];
+        assert_eq!(w["mode"], "bounded");
+        assert_eq!(w["bound_ms"], 400);
+        assert_eq!(w["acquired"], false);
+        assert!(w["waited_ms"].as_u64().unwrap() >= 400, "{w}");
+        // The waiter given up on must hand the lock back once the holder
+        // lets go, so the next gate gets it.
+        drop(held);
+        opts.gpu.wait = GpuWait::Bounded(Duration::from_secs(20));
+        let o = run(&fx, &opts);
+        assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
+    }
+
+    /// A gb10 gate whose memory reading is short is NOT_RUN `gpu_mem` with the
+    /// numbers in the receipt, and its job never starts (retryable, nothing judged).
+    #[test]
+    fn gb10_gate_short_of_memory_is_not_run_gpu_mem_and_does_not_start() {
+        let fx = gb10_fixture(TOUCH_MARKER, "20s");
+        let mut opts = gb10_opts(&fx);
+        write_file(
+            fx.scratch.path(),
+            "meminfo",
+            "MemAvailable:   40960 kB\n",
+            false,
+        );
+        opts.gpu.meminfo = fx.scratch.path().join("meminfo");
+        opts.gpu.mem_need_mb = 100;
+        opts.gpu.mem_wait = Duration::from_millis(300);
+        let o = run(&fx, &opts);
+        assert_eq!(
+            (o.verdict, o.reason.as_str()),
+            (Verdict::NotRun, "gpu_mem"),
+            "{}",
+            o.reason
+        );
+        assert!(!fx.marker().exists(), "a memory-short job must not run");
+        let r = read_json(&o.receipt_path.unwrap());
+        assert_eq!(r["core"]["reason"], "gpu_mem");
+        let w = &r["volatile"]["gpu_wait"];
+        assert_eq!(w["acquired"], false);
+        assert_eq!(w["mem_free_mb"], 40);
+        assert_eq!(w["mem_need_mb"], 100);
+        // The locks went back: the same gate with enough memory runs.
+        write_file(
+            fx.scratch.path(),
+            "meminfo",
+            "MemAvailable:   204800 kB\n",
+            false,
+        );
+        let o = run(&fx, &opts);
+        assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
+        assert!(fx.marker().exists());
+    }
+
+    #[test]
+    fn gb10_gate_with_enough_memory_runs_and_records_the_reading() {
+        let fx = gb10_fixture(TOUCH_MARKER, "20s");
+        let mut opts = gb10_opts(&fx);
+        write_file(
+            fx.scratch.path(),
+            "meminfo",
+            "MemAvailable:   204800 kB\n",
+            false,
+        );
+        opts.gpu.meminfo = fx.scratch.path().join("meminfo");
+        opts.gpu.mem_need_mb = 100;
+        let o = run(&fx, &opts);
+        assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
+        assert!(fx.marker().exists());
+        let r = read_json(&o.receipt_path.unwrap());
+        let w = &r["volatile"]["gpu_wait"];
+        assert_eq!(w["acquired"], true);
+        assert_eq!(w["mem_free_mb"], 200);
+    }
+
+    /// A gate that starts with enough memory and then fails is a real FAIL,
+    /// never NOT_RUN: the memory check only decides whether the job starts.
+    #[test]
+    fn gb10_gate_that_fails_after_it_starts_stays_fail() {
+        let fx = gb10_fixture("#!/bin/sh\nexit 1\n", "20s");
+        let mut opts = gb10_opts(&fx);
+        write_file(
+            fx.scratch.path(),
+            "meminfo",
+            "MemAvailable:   204800 kB\n",
+            false,
+        );
+        opts.gpu.meminfo = fx.scratch.path().join("meminfo");
+        opts.gpu.mem_need_mb = 100;
+        let o = run(&fx, &opts);
+        assert_eq!(o.verdict, Verdict::Fail, "reason {}", o.reason);
+        assert_ne!(o.reason, "gpu_mem");
+    }
+
+    #[test]
+    fn host_gate_records_no_gpu_wait() {
+        let fx = fixture(TOUCH_MARKER, 0, &[], "20s", "");
+        let o = run(&fx, &fx.opts());
+        assert_eq!(o.verdict, Verdict::Pass, "reason {}", o.reason);
+        let r = read_json(&o.receipt_path.unwrap());
+        assert_eq!(r["volatile"]["gpu_wait"], Value::Null);
     }
 
     #[test]
@@ -1999,6 +2700,68 @@ mod tests {
             &resolve(fx.repo.path()).join("target"),
         );
         assert!(lock.exists(), "lock {} never taken", lock.display());
+    }
+
+    /// The gate that waits for the target dir the other holds says so in its
+    /// receipt (`target_wait_ms`), so the wait never reads as test time; a
+    /// run outside a batch takes no batch slot (`batch_wait_ms` 0).
+    #[test]
+    fn a_target_dir_wait_is_recorded_apart_from_the_run() {
+        let fx = gfx(&[
+            ("G-A", "", "host", slow("G-A")),
+            ("G-B", "", "host", slow("G-B")),
+        ]);
+        let mut opts = fx.opts();
+        opts.target_lock_dir = fx.scratch.path().join("locks");
+        let c = fx.campaign(&opts);
+        assert_eq!(c.exit_code(), 0);
+        let second = fx.log()[2].trim_start_matches("start-").to_string();
+        let v = |id: &str| {
+            read_json(outcome(&c, id).receipt_path.as_ref().unwrap())["volatile"].clone()
+        };
+        let (late, early) = if second == "G-A" {
+            (v("G-A"), v("G-B"))
+        } else {
+            (v("G-B"), v("G-A"))
+        };
+        let waited = late["target_wait_ms"].as_u64().unwrap();
+        assert!(
+            waited >= 150,
+            "second gate waited {waited} ms for the target dir"
+        );
+        assert!(late["duration_ms"].as_u64().unwrap() >= waited);
+        assert!(early["target_wait_ms"].as_u64().unwrap() < 150);
+        assert_eq!(late["batch_wait_ms"], json!(0));
+    }
+
+    /// `target_lock: none` (L335, G3-ci-judge-2): two such gates of one head
+    /// run side by side instead of queueing on the target dir.
+    #[test]
+    fn target_lock_none_gates_do_not_queue_on_the_target_dir() {
+        let fx = gfx_with(
+            &[
+                ("G-A", "", "host", slow("G-A")),
+                ("G-B", "", "host", slow("G-B")),
+            ],
+            "target_lock: none\n",
+            &[],
+        );
+        let mut opts = fx.opts();
+        opts.target_lock_dir = fx.scratch.path().join("locks");
+        let c = fx.campaign(&opts);
+        assert_eq!(c.exit_code(), 0);
+        let log = fx.log();
+        assert!(
+            log[0].starts_with("start-") && log[1].starts_with("start-"),
+            "both started before either ended: {log:?}"
+        );
+        for id in ["G-A", "G-B"] {
+            let v = read_json(outcome(&c, id).receipt_path.as_ref().unwrap())["volatile"].clone();
+            assert!(
+                v["target_wait_ms"].as_u64().unwrap() < 150,
+                "{id} waited: {v}"
+            );
+        }
     }
 
     /// A gate may call cargo without naming `Cargo.toml` among its inputs

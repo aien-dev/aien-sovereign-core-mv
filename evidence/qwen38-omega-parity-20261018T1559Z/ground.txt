@@ -1,0 +1,11 @@
+65925086e6bf17784dad274a2fcfd44704c20b8d
+1f39046f481e1a03586ab978858182e2100e8be1
+ M Cargo.lock
+ M Cargo.toml
+ M crates/aien-inference-abi/Cargo.toml
+ M crates/aien-inference-abi/src/lib.rs
+ M crates/aien-inference-abi/src/qwen38.rs
+?? crates/aien-inference-abi/src/bin/qwen38_omega_check.rs
+?? crates/aien-inference-abi/src/qwen38_omega.rs
+?? crates/aien-omega-q38/
+?? evidence/

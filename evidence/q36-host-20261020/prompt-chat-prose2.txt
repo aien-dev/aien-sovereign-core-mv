@@ -1,0 +1,7 @@
+<|im_start|>user
+Write one short paragraph, in plain prose, about a baker opening the shop before dawn on the first cold morning of autumn.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+

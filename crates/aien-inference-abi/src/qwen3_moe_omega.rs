@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Qwen3-MoE (Qwen3-30B-A3B family) on AIEN's own GPU engine (Omega), OWN-30B Stage A.
 //!
 //! Design: `~/handoffs/2026-10-13-own30b-design.md` (section 2, Stage A). No CUDA, no Mojo, no
@@ -28,6 +43,7 @@ use rayon::prelude::*;
 use crate::moe_plan::MoeBatchPlan;
 use crate::qwen3_moe::{bf16_to_f32, f32_to_bf16, fp8_table, shard_path, Shard, FP8_BLOCK};
 use crate::resident::transpose_bf16_for_upload;
+mod forward_pass;
 pub mod w8a8_control;
 mod whole_prompt;
 
@@ -3320,6 +3336,14 @@ pub struct Qwen3MoeOmegaEngine {
     history: Vec<u32>,
     /// Whole-prompt prefill driver (OFF = None; `set_whole_prompt`). See `whole_prompt.rs`.
     whole_prompt: Option<Box<whole_prompt::EngineWholePrompt>>,
+    /// The host head (ADR 0004 adapter): the last forward call's final hidden state, unread.
+    /// `None` once read or forgotten. Empty on the decode graph, whose head is its pending token.
+    head_hidden: Option<Vec<f32>>,
+    /// The logits `ForwardPass::next` lends out (the last head read).
+    head_logits: Vec<f32>,
+    /// The cache was lent through `ForwardPass::kv` since the last forward call: the mirror's
+    /// tokens are taken from the ledger at the next one.
+    kv_lent: bool,
 }
 
 impl Qwen3MoeOmegaEngine {
@@ -3346,6 +3370,9 @@ impl Qwen3MoeOmegaEngine {
             pos: 0,
             history: Vec::new(),
             whole_prompt: None,
+            head_hidden: None,
+            head_logits: Vec::new(),
+            kv_lent: false,
         }
     }
 

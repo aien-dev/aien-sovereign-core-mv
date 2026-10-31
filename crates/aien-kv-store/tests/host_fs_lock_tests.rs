@@ -1,4 +1,19 @@
 #![cfg(feature = "std")]
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! One open store per store directory (#521). ADR 0003 supports one runtime
 //! per store directory; the host adapter enforces it with an exclusive lock
 //! on `LOCK` in the store root, taken at open and held until the store drops.
@@ -11,7 +26,7 @@ mod rig;
 
 use aien_kv_store::host_fs::{HostFsConfig, HostFsStore};
 use aien_platform::PlatformError;
-use rig::Fx;
+use rig::{no_spawn, Fx, SPAWN};
 
 /// The child process of the cross-process test reads its store root here.
 const CHILD_ROOT_ENV: &str = "AIEN_KV_LOCK_TEST_CHILD_ROOT";
@@ -22,6 +37,7 @@ fn in_use(r: Result<HostFsStore, PlatformError>) -> bool {
 
 #[test]
 fn a_second_open_of_a_held_store_directory_is_refused() {
+    let _g = no_spawn();
     let fx = Fx::new();
     let first = fx.open();
     assert!(fx.root().join("LOCK").exists());
@@ -31,6 +47,7 @@ fn a_second_open_of_a_held_store_directory_is_refused() {
 
 #[test]
 fn a_refused_second_open_leaves_the_first_stores_temp_files_alone() {
+    let _g = no_spawn();
     let fx = Fx::new();
     let first = fx.open();
     // Stands for a park the first store has in flight.
@@ -51,6 +68,7 @@ fn a_refused_second_open_leaves_the_first_stores_temp_files_alone() {
 
 #[test]
 fn the_lock_is_released_when_the_store_drops() {
+    let _g = no_spawn();
     let fx = Fx::new();
     for _ in 0..3 {
         drop(fx.open());
@@ -59,6 +77,7 @@ fn the_lock_is_released_when_the_store_drops() {
 
 #[test]
 fn a_store_directory_held_by_another_process_is_refused() {
+    let _g = SPAWN.write().unwrap_or_else(|e| e.into_inner());
     let fx = Fx::new();
     let first = fx.open();
     let out = std::process::Command::new(std::env::current_exe().unwrap())

@@ -1,0 +1,9 @@
+2026-10-21T02:43:12Z on: start bin-e1f02b29 on 18093 (), MemAvailable 53 GB
+gate2 l314-exact-on port 18093: no answer from /v1/models -> ERROR (not a verdict)
+gate2 l314-exact-on port 18093: no answer from /v1/models -> ERROR (not a verdict)
+gate2 l314-exact-on port 18093: no answer from /v1/models -> ERROR (not a verdict)
+2026-10-21T02:51:47Z on: start bin-e1f02b29 on 18093 (), MemAvailable 45 GB
+2026-10-21T02:51:53Z on: start try 1 failed: aien-serve-http: qwen38 load failed: needs 39937 MiB plus 8192 MiB kept free, MemAvailable 46934 MiB (another model may be loaded); refusing
+2026-10-21T02:53:50Z on: start bin-e1f02b29 on 18093 (), MemAvailable 55 GB
+2026-10-21T02:55:05Z on: start try 1 failed: aien-serve-http: qwen38 load failed: gdn alloc: omega_gpu rc=-4 (gdn alloc: CHIP_FAIL: marker wait timed out (latched))
+2026-10-21T02:58:31Z on: start try 2 failed: aien-serve-http: qwen38 load failed: gdn alloc: omega_gpu rc=-4 (gdn alloc: CHIP_FAIL: marker wait timed out (latched))

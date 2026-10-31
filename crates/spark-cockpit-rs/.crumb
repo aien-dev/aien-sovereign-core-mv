@@ -30,6 +30,20 @@
   "description": "Native Axum web cockpit gateway.",
   "dir_name": "spark-cockpit-rs",
   "dir_path": "crates/spark-cockpit-rs",
+  "extensions": {
+    "generated": {
+      "children": [],
+      "children_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "compiled_at": "2026-10-26T15:46:25Z",
+      "compiler": "crumb-compile/1",
+      "digest": "sha256:a684b3e7bb1d356b05a499af3962db5b12b37d565bf9bfdf31de6188af457131",
+      "evidence_files": 0,
+      "evidence_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "files": 25,
+      "generated_at_commit": "bf15e82a44fbfa04cbffdafce433d4cd5ed66df4",
+      "source_tree": "sha256:f0dbfb5c4f941bfc05d8e63dd999ec1649eb1c5986e37e64623d231dc86ba56f"
+    }
+  },
   "history": [
     {
       "action": "seed:knowledge",

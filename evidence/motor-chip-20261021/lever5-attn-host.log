@@ -1,0 +1,11 @@
+perm rotary  64: bijection, pairs, rope-by-permutation max abs diff 8.31e-08 over 50 positions
+perm rotary 256: bijection, pairs, rope-by-permutation max abs diff 1.08e-07 over 50 positions
+perm rotary   2: bijection, pairs, rope-by-permutation max abs diff 7.09e-08 over 50 positions
+perm rotary 128: bijection, pairs, rope-by-permutation max abs diff 1.05e-07 over 50 positions
+perm rotary  32: bijection, pairs, rope-by-permutation max abs diff 1.05e-07 over 50 positions
+codegen depth 1: 873 instructions, 96 registers (declared 104, 256 threads -> 26624 of 65536)
+codegen depth 2: 881 instructions, 100 registers (declared 104, 256 threads -> 26624 of 65536)
+codegen depth 3: 889 instructions, 104 registers (declared 112, 256 threads -> 28672 of 65536)
+codegen depth 4: 897 instructions, 108 registers (declared 112, 256 threads -> 28672 of 65536)
+heads form: 904 instructions, 112 registers (plain 897, 108)
+gpu_decode_attn256_test: 70 checks, 0 failed: PASS

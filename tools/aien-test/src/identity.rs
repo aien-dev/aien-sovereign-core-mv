@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Check identity (ADR 0033 Decision 3).
 //!
 //! `check_id` is sha256 over the canonical JSON object
@@ -391,7 +406,11 @@ mod tests {
         cmd.args(["hash-object", "--stdin"])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped());
-        let mut child = cmd.spawn().unwrap();
+        // Through the spawn gate like every other spawn in this binary (sc#603):
+        // a raw spawn here left a child between fork and exec holding a copy of
+        // another test's GPU lock descriptor, and that test saw LockHeld after
+        // its own guard was dropped.
+        let mut child = crate::process::spawn_gated(&mut cmd).unwrap();
         std::io::Write::write_all(child.stdin.as_mut().unwrap(), b"one\n").unwrap();
         let out = child.wait_with_output().unwrap();
         assert_eq!(

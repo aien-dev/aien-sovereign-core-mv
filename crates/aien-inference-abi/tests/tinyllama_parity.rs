@@ -1,4 +1,19 @@
 #![allow(clippy::chunks_exact_to_as_chunks)]
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Multi-Stage Numerical Parity Test Harness for TinyLlama-1.1B-Chat-v1.0.
 //! Asserts 5 strict stages against Hugging Face FP32 reference oracle fixtures:
 //! 1. Tokenizer Parity: Formatted prompt strings and token IDs match oracle 100%.
@@ -58,17 +73,33 @@ fn find_fixtures_dir() -> PathBuf {
     manifest_dir.join("fixtures")
 }
 
+/// The default Hugging Face cache snapshot entry for the checkpoint, unresolved. It is a symlink
+/// into the cache's `blobs/` store when the model is cached.
+fn default_snapshot_entry() -> PathBuf {
+    PathBuf::from(format!("{}/.cache/huggingface/hub/models--TinyLlama--TinyLlama-1.1B-Chat-v1.0/snapshots/fe8a4ea1ffedaf415f4da2f062534de366a451e6/model.safetensors", std::env::var("HOME").unwrap_or_default()))
+}
+
+/// The checkpoint to load, resolved to a regular file. The loader refuses symlinked checkpoint
+/// files on purpose (`loader_still_refuses_a_symlinked_checkpoint` pins that refusal), so the
+/// harness resolves its own trusted paths before loading.
 fn find_model_checkpoint_path() -> Option<PathBuf> {
+    // An explicit TINYLLAMA_MODEL_PATH is resolved the same way as the default snapshot entry:
+    // pointing it at a snapshot entry (or any symlink to the checkpoint) would otherwise hit the
+    // loader's symlink refusal. canonicalize fails when the path is absent or dangling, matching
+    // the old exists() skip.
     if let Ok(p) = std::env::var("TINYLLAMA_MODEL_PATH") {
-        let path = PathBuf::from(p);
-        if path.exists() {
+        if let Ok(path) = std::fs::canonicalize(PathBuf::from(p)) {
             return Some(path);
         }
     }
 
-    let default_snap = PathBuf::from(format!("{}/.cache/huggingface/hub/models--TinyLlama--TinyLlama-1.1B-Chat-v1.0/snapshots/fe8a4ea1ffedaf415f4da2f062534de366a451e6/model.safetensors", std::env::var("HOME").unwrap_or_default()));
-    if default_snap.exists() {
-        return Some(default_snap);
+    // Hugging Face snapshot entries are symlinks into the cache's blobs/ store, and the
+    // checkpoint loader refuses symlinks by design. Resolve the snapshot entry to its blob so
+    // the loader receives the regular file it requires; the loader opens only this one path.
+    // canonicalize fails when the entry is absent or dangling, matching the old exists() skip.
+    let default_snap = default_snapshot_entry();
+    if let Ok(blob) = std::fs::canonicalize(&default_snap) {
+        return Some(blob);
     }
 
     let fixture_model = find_fixtures_dir().join("model.safetensors");
@@ -818,4 +849,39 @@ fn test_all_5_stages_parity_suite() {
     test_stage3_numerical_activation_parity();
     test_stage4_logit_and_greedy_parity();
     test_stage5_multi_step_generation_parity();
+}
+
+/// Negative control for the path resolution above: the loader itself still refuses a checkpoint
+/// reached through a symlink: a fresh one, plus the Hugging Face snapshot entry and an explicit
+/// TINYLLAMA_MODEL_PATH whenever either is a symlink.
+#[cfg(unix)]
+#[test]
+fn loader_still_refuses_a_symlinked_checkpoint() {
+    let target =
+        find_model_checkpoint_path().unwrap_or_else(|| find_fixtures_dir().join("tokenizer.json"));
+    let target = std::fs::canonicalize(&target).expect("symlink target must exist");
+    let dir = std::env::temp_dir().join(format!("tinyllama-symlink-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let link = dir.join("model.safetensors");
+    let _ = std::fs::remove_file(&link);
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    let mut links = vec![link];
+    let env_entry = std::env::var("TINYLLAMA_MODEL_PATH")
+        .ok()
+        .map(PathBuf::from);
+    for entry in env_entry.into_iter().chain([default_snapshot_entry()]) {
+        if std::fs::symlink_metadata(&entry).is_ok_and(|m| m.file_type().is_symlink()) {
+            links.push(entry);
+        }
+    }
+    for link in &links {
+        match load_safetensors_checkpoint(link) {
+            Ok(_) => panic!("loader accepted symlinked checkpoint {}", link.display()),
+            Err(e) => {
+                let e = format!("{e:?}");
+                assert!(e.contains("symlink"), "refusal names the symlink: {e}");
+            }
+        }
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
 }

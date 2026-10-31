@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # Fail closed unless this tree (or a built package) may be released as the candidate in release/candidate.toml.
 #   scripts/check-release-candidate.sh                         tree check; prints "candidate=<id>" on success
 #   scripts/check-release-candidate.sh --model F               also write the [model] table to file F
@@ -46,11 +61,18 @@ for k in model-id model-safetensors-sha256 tokenizer-json-sha256 config-json-sha
 done
 
 # Cargo.lock source pins: each repo must resolve to exactly the candidate's revision.
+# crumb-spec and spark-crumbs may use the -mv repo (issue 815). aien-protocols does not:
+# this lockfile still carries both aien-protocols and aien-protocols-mv, and folding -mv
+# into that pin would report two revisions.
 [[ -f Cargo.lock ]] || die "Cargo.lock is missing"
 for repo in aien-protocols crumb-spec spark-crumbs; do
     want="$(get pins "$repo" "$M")"
     [[ "$want" =~ ^[0-9a-f]{40}$ ]] || die "[pins] $repo in $M is missing or not a full commit hash"
-    have="$(grep -E "^source = \"git\+https://github\.com/aien-dev/$repo(\.git)?[?#]" Cargo.lock | grep -oE '#[0-9a-f]{40}"' | cut -c2-41 | sort -u || true)"
+    case "$repo" in
+        crumb-spec|spark-crumbs) repo_re="${repo}(-mv)?" ;;
+        *) repo_re="$repo" ;;
+    esac
+    have="$(grep -E "^source = \"git\+https://github\.com/aien-dev/${repo_re}(\.git)?[?#]" Cargo.lock | grep -oE '#[0-9a-f]{40}"' | cut -c2-41 | sort -u || true)"
     [[ -n "$have" ]] || die "Cargo.lock has no git source for $repo (candidate $cand pins $want)"
     [[ "$(printf '%s\n' "$have" | wc -l)" -eq 1 ]] || die "Cargo.lock has several revisions of $repo: $(echo $have)"
     [[ "$have" == "$want" ]] || die "Cargo.lock consumes $repo $have but candidate $cand pins $want"

@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # install.sh: idempotent host setup for the sovereign local pipeline sandbox (lane INFRA, contracts C3/C8/A2).
 # Run as drakestapleton; uses sudo -n inside. Safe to re-run: every step checks before it acts.
 #
@@ -20,6 +35,7 @@ RUN_HOME=/var/lib/aien-run
 OPERATOR=${AIEN_OPERATOR:-drakestapleton}
 OP_HOME=$(getent passwd "$OPERATOR" | cut -d: -f6)
 TOOLCHAIN=${AIEN_TOOLCHAIN:-1.98.1-aarch64-unknown-linux-gnu}
+MIRI_TOOLCHAIN=${AIEN_MIRI_TOOLCHAIN:-nightly-aarch64-unknown-linux-gnu}
 STATE="$OP_HOME/.local/state/aien-local-ci"
 # crumb source: aien-architecture commit (2026-10-18, RFC-0003 amendment 1 ACCEPTED, merge of aien-architecture#271),
 # file tools/crumb/crumb.c (git blob c272f293035bb3bdac416d1cfbf1212b96d49723). Built with gcc 13.3.0 the binary's sha256 is
@@ -102,13 +118,34 @@ seed_ro() { # seed_ro SRC DST
 seed_ro "$OP_HOME/.cargo/registry" "$RUN_HOME/cargo/registry"
 seed_ro "$OP_HOME/.cargo/git" "$RUN_HOME/cargo/git"
 seed_ro "$OP_HOME/.rustup/toolchains/$TOOLCHAIN" "$RUN_HOME/rustup/toolchains/$TOOLCHAIN"
+# SC-MIRI (#600): the operator's nightly (with the miri and rust-src components) is copied the same way, and
+# the miri sysroot is built once here, as root, into aien-run's default ~/.cache/miri. It has to be built against
+# the copied toolchain path (cargo-miri hashes the source path, so a sysroot built from ~/.rustup is rejected and
+# rebuilt, which fails on the read-only cache). The build fetches std's dependencies with a throwaway CARGO_HOME;
+# the sandbox then only reads the finished sysroot and `cargo +nightly miri setup` is a no-op.
+seed_ro "$OP_HOME/.rustup/toolchains/$MIRI_TOOLCHAIN" "$RUN_HOME/rustup/toolchains/$MIRI_TOOLCHAIN"
+if [[ -x $RUN_HOME/rustup/toolchains/$MIRI_TOOLCHAIN/bin/cargo-miri ]]; then
+  S install -d -o root -g root -m 0755 "$RUN_HOME/.cache"
+  if ! S test -d "$RUN_HOME/.cache/miri/lib"; then
+    S rm -rf "$RUN_HOME/.cache/miri" "$tmp/miri-cargo"
+    S env -i HOME=/root RUSTUP_HOME="$RUN_HOME/rustup" CARGO_HOME="$tmp/miri-cargo" \
+      MIRI_SYSROOT="$RUN_HOME/.cache/miri" PATH="$RUN_HOME/cargo/bin:/usr/bin:/bin" \
+      "$RUN_HOME/cargo/bin/cargo" "+$MIRI_TOOLCHAIN" miri setup
+    S rm -rf "$tmp/miri-cargo"
+    say "built miri sysroot $RUN_HOME/.cache/miri"
+  fi
+  S chown -R root:root "$RUN_HOME/.cache/miri"
+  S chmod -R a+rX,u-w,go-w "$RUN_HOME/.cache/miri"
+else
+  say "skip miri sysroot (no cargo-miri in $MIRI_TOOLCHAIN: rustup component add miri rust-src --toolchain nightly)"
+fi
 
 # 4. rustup: the operator's rustup binary acts as the proxy (cargo/rustc/... are symlinks to it), with
 #    RUSTUP_HOME=/var/lib/aien-run/rustup holding only settings.toml + the copied toolchain. No rustup-init,
 #    no downloads: rust-toolchain.toml pins resolve against the copied toolchain only.
 S install -d -o root -g root -m 0755 "$RUN_HOME/cargo/bin"
 S install -o root -g root -m 0755 "$OP_HOME/.cargo/bin/rustup" "$RUN_HOME/cargo/bin/rustup"
-for p in cargo rustc rustdoc rustfmt cargo-fmt cargo-clippy clippy-driver rust-gdb rust-lldb; do
+for p in cargo rustc rustdoc rustfmt cargo-fmt cargo-clippy clippy-driver rust-gdb rust-lldb cargo-miri miri; do
   S ln -sfn rustup "$RUN_HOME/cargo/bin/$p"
 done
 printf 'version = "12"\ndefault_toolchain = "%s"\nprofile = "minimal"\n\n[overrides]\n' "$TOOLCHAIN" > "$tmp/settings.toml"

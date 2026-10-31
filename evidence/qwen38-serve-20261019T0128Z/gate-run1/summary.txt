@@ -1,0 +1,14 @@
+golden ids want [71093,66,198,390,1866,1494,264,11,514,292,8,313,198,262,460,318,64,835,292,8,907,264,535,292]
+golden ids got  null
+FAIL golden: 24 greedy ids equal the host reference
+FAIL golden: prompt is the reference's 24 tokens
+FAIL control (smaller): ids differ from the golden (must)
+turn2 resumed null
+turn2 cold    null
+FAIL turn 2 resumed == cold
+turn3 resumed null
+turn3 cold    null
+FAIL turn 3 resumed == cold
+FAIL turn 2 differs from turn 1 (no stale reply)
+golden text: null
+GATE FAIL
