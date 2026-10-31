@@ -376,12 +376,12 @@ impl Q36Graph {
         0
     }
 
-    /// L369 prefill: sizes the chunk buffers for up to `cap` tokens (1..=[`PREFILL_MAX_ROWS`]).
+    /// L369 prefill: sizes the chunk buffers for up to `cap` tokens (1..=[`prefill_rows_max`]:
+    /// 128, or 8192 with `AIEN_OMEGA_Q36_PF_QMMA=1`; the chip library rechecks it).
     pub fn prefill_alloc(&mut self, cap: usize) -> Result<(), OmegaGpuError> {
-        if cap == 0 || cap > PREFILL_MAX_ROWS {
-            return Err(bad(format!(
-                "q36 graph: prefill cap {cap} (1..={PREFILL_MAX_ROWS})"
-            )));
+        let max = prefill_rows_max();
+        if cap == 0 || cap > max {
+            return Err(bad(format!("q36 graph: prefill cap {cap} (1..={max})")));
         }
         #[cfg(has_omega_q36)]
         {
