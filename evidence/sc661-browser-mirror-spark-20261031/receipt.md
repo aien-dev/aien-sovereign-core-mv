@@ -22,6 +22,6 @@ Review of `4965d44c` (main merged) found that Linux started Chrome in its own pr
   - At `9f745160`, the caller was gone (130) and 0 owned processes were left.
   - The replay kills only the processes it counted.
 - An earlier replay, run before this receipt, launched the caller from dash with `&`, so the caller inherited SIGINT as ignored and survived the signal. That replay did not test the "caller killed before Drop" path. Its logs were removed from this directory and are superseded by `reverify-f7c9e2bb.log`.
-- `aien-cli-tests-4965d44c.log` and `aien-cli-tests-9f745160.log`: the full `cargo test --locked -j1 -p aien-cli` under the same 3 GiB cap, on the tree of `4965d44c` and on the tree of `9f745160`. Summary lines only. Cargo exit status 0 both times: 223 passed, 0 failed, 21 ignored over 13 test binaries.
+- `aien-cli-tests-4965d44c.log` and `aien-cli-tests-9f745160.log`: the full `cargo test --locked -j1 -p aien-cli` under the same 3 GiB cap, on the tree of `4965d44c` and on the tree of `9f745160`. Summary lines only. Both times: 223 passed, 0 failed, 21 ignored over 13 test runs (12 test binaries plus doc-tests). Cargo's exit status was 0 both times; it was read in the shell and typed into each log's header line, not captured to a `.rc` file.
 
 Not covered: Chrome on other architectures, other Chrome versions, and non-Linux Unix cleanup (not compiled or run here; not qualified, as `skills/self-improvement/SKILL.md` says).
