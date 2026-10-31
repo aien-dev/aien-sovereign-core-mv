@@ -1,0 +1,4 @@
+
+thread 'main' (3816513) panicked at crates/aien-inference-abi/src/bin/own8b_check.rs:432:38:
+prefill: "layer 0 down: omega_gpu rc=-3 (CODEGEN_FAIL: bf16 codegen refused the shape)"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

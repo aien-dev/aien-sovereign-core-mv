@@ -23,6 +23,8 @@ Qwen3.8-27B (the hybrid DeltaNet + attention model, FP8) has a host reference in
 
 The OWN-30B server (`aien-serve-http --engine omega`, Qwen3-30B-A3B FP8) holds up to 128k context with `--max-context 131072` (default 32768) and refuses to start when its KV cache cannot hold what was asked. On the Spark GPU it recalled a code word from the first line of a 118,186-token prompt ([evidence](docs/inference/evidence/own30b-128k-20261018/NOTES.md)).
 
+Dense Qwen3 on Omega (OWN-8B stage 2, `crates/aien-inference-abi/src/qwen3_dense_omega_engine.rs`): `Qwen3DenseOmegaEngine` runs Qwen3-8B-FP8 (FP8 GEMV decode, FP8 GEMM prefill) and Qwen3-4B-Instruct-2507 (bf16, tied embeddings) with `step`, `step_batch`, `logits`, `rewind` and `generate_with`. Host tests pass; the chip check is `scripts/own8b-chip-run.sh` with `own8b_check` against the host-reference goldens in `docs/campaigns/open-model-qwen3/SMOKE-{4B-v1,8B-FP8-v1}.golden.json`. Chip results: not yet run.
+
 Self-draft (aienix#4, H0): `Qwen3MoeOmegaEngine::set_draft_experts` lets the 30B draft with a per-layer resident expert subset while the full router verifies; default off and bit-identical. Acceptance per resident size and block size: [docs/inference/evidence/own30b-selfdraft-h0-20261018](docs/inference/evidence/own30b-selfdraft-h0-20261018/README.md).
 
 Known limits: the GPU fallback counter covers only instrumented operations, so execution is not exclusively accelerated; Qwen full-runtime qualification is not complete; the C1 evidence campaign is in progress.

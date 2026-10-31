@@ -1,0 +1,5 @@
+p1-one-token new 32 first_divergence 0 equal_positions 6 margin0_fp8 0.1343 margin0_bf16 0.1084
+p2-short new 32 first_divergence 21 equal_positions 31 margin0_fp8 18.8328 margin0_bf16 18.6295
+p3-medium new 32 first_divergence 32 equal_positions 32 margin0_fp8 12.5568 margin0_bf16 13.2446
+p4-code new 32 first_divergence 32 equal_positions 32 margin0_fp8 14.5091 margin0_bf16 13.8822
+p5-512 new 32 first_divergence 32 equal_positions 32 margin0_fp8 24.6983 margin0_bf16 24.0308

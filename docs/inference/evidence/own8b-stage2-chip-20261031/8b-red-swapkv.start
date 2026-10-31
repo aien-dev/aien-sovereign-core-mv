@@ -1,0 +1,15 @@
+start 2026-10-31T06:18:57Z
+window 20261031T055510Z-7b9892 gb10_lock_held 1
+sc commit 3470b5a7e3e4d19b6e46fba19c927c460f0da452
+binary /tmp/corechip/t636/release/own8b_check sha256 3e882deb82d174f755d689f5766b68cee0b81d3cf25a32f721b7f92122f674db
+golden /tmp/corechip/w636/docs/campaigns/open-model-qwen3/SMOKE-8B-FP8-v1.golden.json sha256 c9b3bbc0702497da8b4da52da1c21af14ffdfda5d4d4f78b184cf1da6c1f69a6
+omega /tmp/corechip/omega636 at a647b6a9821fffcf52ba9ce813f75afa4b84be62
+admission model_bytes 9436628784 need_kB 39402435 MemAvailable_kB 53858352
+cmd /tmp/corechip/t636/release/own8b_check chip /home/drakestapleton/models/qwen3-8b-fp8 /tmp/corechip/w636/docs/campaigns/open-model-qwen3/SMOKE-8B-FP8-v1.golden.json /tmp/corechip/w636/docs/inference/evidence/own8b-stage2-chip-20261031/8b-red-swapkv --upload-mutant swap-kv
+pid, process_name, used_gpu_memory [MiB]
+2056579, /app/llama-server, 30377 MiB
+751261, /home/drakestapleton/workspace/maxinterop/venv/bin/python, 170 MiB
+name, driver_version, utilization.gpu [%], temperature.gpu, power.draw [W], pstate
+NVIDIA GB10, 580.173.02, 93 %, 70, 42.96 W, P0
+ 01:18:58 up 2 days,  6:12,  5 users,  load average: 14.62, 13.59, 14.05
+7.0.0-1019-nvidia

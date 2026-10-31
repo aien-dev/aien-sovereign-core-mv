@@ -1,0 +1,5 @@
+start 2026-10-31T08:11:57Z host only (no GPU)
+sc commit dd2ad360213603c8e031f1c957b6e841b38b9b55
+binary /tmp/corechip/t636/release/own8b_check sha256 d62698ec9f001d79634563d575e1ba16d8885926293513ddb4367828ef085914
+MemAvailable_kB 110561064
+cmd own8b_check oracle-b /home/drakestapleton/models/qwen3-8b-fp8 docs/campaigns/open-model-qwen3/SMOKE-8B-FP8-v1.golden.json docs/inference/evidence/own8b-stage2-chip-20261031/oracle-b-selfcontrol.json

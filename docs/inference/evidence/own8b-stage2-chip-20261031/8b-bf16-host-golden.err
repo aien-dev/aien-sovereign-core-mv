@@ -1,0 +1,7 @@
+host reference loaded in 26s (15.14 GB)
+p1-one-token: 1 prompt tokens, 32 new in 26s: ", I'm trying to find the derivative of the function $ f(x) = \\frac{1}{x} $. I know that the derivative of $ x"
+p2-short: 20 prompt tokens, 32 new in 38s: "<think>\nOkay, the user is asking for the capital of France. I need to make sure I get this right. Let me think... France is a country"
+p3-medium: 129 prompt tokens, 32 new in 116s: "<think>\nOkay, let's tackle this summary. The user wants three bullet points from the given text about the DGX Spark. First, I need to understand"
+p4-code: 56 prompt tokens, 32 new in 51s: "<think>\nOkay, I need to write a Rust function called is_prime that takes a u64 and returns a bool. The function should use trial division up"
+p5-512: 512 prompt tokens, 32 new in 318s: " points.\n\nThe DGX Spark is a compact workstation built around the GB10 Grace Blackwell superchip. It pairs an Arm CPU with a Blackwell GPU"
+wrote /tmp/corechip/w636/docs/inference/evidence/own8b-stage2-chip-20261031/8b-bf16-host-golden.json

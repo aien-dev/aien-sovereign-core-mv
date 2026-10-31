@@ -1,0 +1,6 @@
+ORACLE_B p1-one-token: 32 of 32 teacher-forced positions agree (1.0000), first disagreement none
+ORACLE_B p2-short: 32 of 32 teacher-forced positions agree (1.0000), first disagreement none
+ORACLE_B p3-medium: 32 of 32 teacher-forced positions agree (1.0000), first disagreement none
+ORACLE_B p4-code: 32 of 32 teacher-forced positions agree (1.0000), first disagreement none
+ORACLE_B p5-512: 32 of 32 teacher-forced positions agree (1.0000), first disagreement none
+SUMMARY oracle-b teacher-forced 160 of 160 (1.0000), worst prompt 1.0000, prior guesses >= 0.95 overall and >= 0.90 per prompt -> PASS

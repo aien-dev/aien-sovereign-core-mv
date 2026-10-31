@@ -1,0 +1,14 @@
+start 2026-10-31T06:03:52Z
+window 20261031T055510Z-7b9892 gb10_lock_held 1
+sc commit 3470b5a7e3e4d19b6e46fba19c927c460f0da452
+binary /tmp/corechip/t636/release/own8b_check sha256 3e882deb82d174f755d689f5766b68cee0b81d3cf25a32f721b7f92122f674db
+golden /tmp/corechip/w636/docs/campaigns/open-model-qwen3/SMOKE-4B-v1.golden.json sha256 329e5bd7616cede5297ead5360376d7527b497f85437a8fee7ea179249a62d1c
+omega /tmp/corechip/omega636 at a647b6a9821fffcf52ba9ce813f75afa4b84be62
+admission model_bytes 8044982000 need_kB 36684375 MemAvailable_kB 66545060
+cmd /tmp/corechip/t636/release/own8b_check chip /home/drakestapleton/models/qwen3-4b-instruct-2507-cdbee75 /tmp/corechip/w636/docs/campaigns/open-model-qwen3/SMOKE-4B-v1.golden.json /tmp/corechip/w636/docs/inference/evidence/own8b-stage2-chip-20261031/4b-green 
+pid, process_name, used_gpu_memory [MiB]
+2056579, /app/llama-server, 30377 MiB
+name, driver_version, utilization.gpu [%], temperature.gpu, power.draw [W], pstate
+NVIDIA GB10, 580.173.02, 94 %, 69, 42.55 W, P0
+ 01:03:52 up 2 days,  5:57,  5 users,  load average: 10.99, 14.41, 14.82
+7.0.0-1019-nvidia
