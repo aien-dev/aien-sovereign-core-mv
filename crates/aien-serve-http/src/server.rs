@@ -267,6 +267,9 @@ enum Ev {
         test: Option<Vec<&'static str>>,
     },
     Error(String),
+    /// Memory admission refused a prompt inside the engine: 413 `prompt_exceeds_memory_budget`
+    /// while nothing has been sent, an error event with that code once a stream is open.
+    MemoryExceeded(String),
     /// The engine could not get the shared chip: 503 before any token.
     Busy(String),
     /// Readers, streaming: the reading has started (the response goes out; nothing is sent).
@@ -799,6 +802,12 @@ fn run_readers(
                 let _ = tx.blocking_send(Ev::Busy(m));
                 return;
             }
+            Err(EngineError::MemoryExceeded(m)) => {
+                eprintln!("aien-serve-http: {id}: reader {} refused: {m}", k + 1);
+                let _ =
+                    tx.blocking_send(Ev::MemoryExceeded(format!("reader {} of {n}: {m}", k + 1)));
+                return;
+            }
             Err(e) => {
                 eprintln!("aien-serve-http: {id}: reader {} failed: {e}", k + 1);
                 let _ = tx.blocking_send(Ev::Error(format!("reader {} of {n}: {e}", k + 1)));
@@ -830,12 +839,23 @@ fn run_readers(
     drop(permit);
     let body = readers::connect_body(&raw, &plan, &notes, &state.cfg.model_id);
     let connect = match serde_json::from_value::<ChatRequest>(body)
-        .map_err(|e| e.to_string())
-        .and_then(|r| prepare(&state, r).map_err(|e| e.body.error.message))
-    {
+        .map_err(|e| (false, e.to_string()))
+        .and_then(|r| {
+            prepare(&state, r).map_err(|e| {
+                (
+                    e.body.error.code.as_deref() == Some("prompt_exceeds_memory_budget"),
+                    e.body.error.message,
+                )
+            })
+        }) {
         Ok(p) => p,
-        Err(m) => {
-            let _ = tx.blocking_send(Ev::Error(format!("readers: connect request: {m}")));
+        Err((memory, m)) => {
+            let m = format!("readers: connect request: {m}");
+            let _ = tx.blocking_send(if memory {
+                Ev::MemoryExceeded(m)
+            } else {
+                Ev::Error(m)
+            });
             return;
         }
     };
@@ -904,8 +924,10 @@ async fn respond(
     // The first event decides the status: a busy chip is a 503 in the OpenAI error envelope,
     // before any headers go out (streaming included). Everything else is forwarded unchanged.
     let first = rx.recv().await;
-    if let Some(Ev::Busy(m)) = &first {
-        return Err(ApiError::gpu_busy(m));
+    match &first {
+        Some(Ev::Busy(m)) => return Err(ApiError::gpu_busy(m)),
+        Some(Ev::MemoryExceeded(m)) => return Err(ApiError::memory_exceeded(m.clone())),
+        _ => {}
     }
     let (ftx, frx) = mpsc::channel::<Ev>(64);
     tokio::spawn(async move {
@@ -1289,6 +1311,10 @@ fn run_generation(
             eprintln!("aien-serve-http: {id}: GPU busy: {m}");
             let _ = tx.blocking_send(Ev::Busy(m));
         }
+        Err(EngineError::MemoryExceeded(m)) => {
+            eprintln!("aien-serve-http: {id}: memory admission refused: {m}");
+            let _ = tx.blocking_send(Ev::MemoryExceeded(m));
+        }
         Err(e) => {
             eprintln!("aien-serve-http: {id}: {e}");
             let _ = tx.blocking_send(Ev::Error(e.to_string()));
@@ -1415,6 +1441,7 @@ async fn collect_response(
             // Not the first event on the readers' path (`Ev::Readers` goes before the connect
             // generation); nothing has been sent yet, so it is the same 503 as a busy first event.
             Ev::Busy(m) => return Err(ApiError::gpu_busy(&m)),
+            Ev::MemoryExceeded(m) => return Err(ApiError::memory_exceeded(m)),
         }
     }
     Err(ApiError::internal("generation ended without a result"))
@@ -1562,6 +1589,16 @@ fn stream_response(
                 Ev::Error(m) | Ev::Busy(m) => {
                     let err = serde_json::to_value(ErrorBody::new("server_error", m))
                         .expect("error serializes");
+                    if etx.send(data(err)).await.is_err() {
+                        return;
+                    }
+                    let _ = etx.send(Ok(Event::default().data("[DONE]"))).await;
+                    return;
+                }
+                Ev::MemoryExceeded(m) => {
+                    let mut body = ErrorBody::new("invalid_request_error", m);
+                    body.error.code = Some("prompt_exceeds_memory_budget".into());
+                    let err = serde_json::to_value(body).expect("error serializes");
                     if etx.send(data(err)).await.is_err() {
                         return;
                     }

@@ -58,7 +58,8 @@ pub fn parse_mem_available(meminfo: &str) -> Option<u64> {
 
 /// Admission rule: the prefill's growth plus [`ADMIT_RESERVE_BYTES`] must fit `available`.
 /// `Err` names the numbers and the longest prompt that would pass right now. `None` (meminfo
-/// unreadable) admits.
+/// unreadable) admits, and so does a prefill that adds nothing (a warm chunked path, or the
+/// whole-prompt path off): refusing it would not keep a byte free.
 pub fn admit_growth(
     growth: PrefillGrowth,
     available: Option<u64>,
@@ -67,6 +68,9 @@ pub fn admit_growth(
     let Some(avail) = available else {
         return Ok(());
     };
+    if growth.total() == 0 {
+        return Ok(());
+    }
     let gb = |b: u64| b as f64 / 1e9;
     if avail >= growth.total().saturating_add(ADMIT_RESERVE_BYTES) {
         return Ok(());
@@ -512,7 +516,7 @@ impl Engine for OmegaDoor {
                 max,
             });
         }
-        self.admit(prompt).map_err(EngineError::Failed)?;
+        self.admit(prompt).map_err(EngineError::MemoryExceeded)?;
         let q = omega::GenerateParams {
             max_new_tokens: p.max_new_tokens,
             temperature: p.temperature,
@@ -760,6 +764,8 @@ mod tests {
         };
         assert_eq!(warm.growth(120_000), PrefillGrowth::default());
         assert!(admit_growth(warm.growth(120_000), Some(7 * GB), 120_000).is_ok());
+        // Below the reserve too: the prefill adds nothing, so refusing it frees nothing.
+        assert!(admit_growth(warm.growth(120_000), Some(GB), 120_000).is_ok());
     }
 
     #[test]
@@ -783,5 +789,6 @@ mod tests {
             ..cold()
         };
         assert_eq!(off.growth(66_000), PrefillGrowth::default());
+        assert!(admit_growth(off.growth(66_000), Some(GB), 66_000).is_ok());
     }
 }

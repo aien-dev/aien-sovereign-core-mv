@@ -81,6 +81,9 @@ pub enum EngineError {
     Failed(String),
     /// The shared chip is held by another job; the server answers 503 and the client retries.
     Busy(String),
+    /// Memory admission refused the prompt (it would need more host memory than is free); the
+    /// server answers 413 `prompt_exceeds_memory_budget`, the same as a refusal in `prepare`.
+    MemoryExceeded(String),
 }
 
 impl fmt::Display for EngineError {
@@ -92,6 +95,7 @@ impl fmt::Display for EngineError {
                     "prompt of {len} tokens exceeds the context window of {max}"
                 )
             }
+            Self::MemoryExceeded(m) => write!(f, "{m}"),
             Self::Failed(m) => write!(f, "engine failed: {m}"),
             Self::Busy(m) => write!(f, "GPU busy with another job: {m}"),
         }
@@ -322,6 +326,9 @@ pub struct StubEngine {
     max_context: usize,
     /// `Some(why)`: [`Engine::admit`] refuses every prompt (tests the memory-refusal answer).
     admit_refusal: Option<String>,
+    /// `Some(why)`: `generate` refuses with [`EngineError::MemoryExceeded`] after `admit` passed
+    /// (memory fell between the server's check and the engine's own, as in the omega door).
+    generate_refusal: Option<String>,
 }
 
 impl StubEngine {
@@ -331,6 +338,7 @@ impl StubEngine {
             per_token_delay: Duration::ZERO,
             max_context: 4096,
             admit_refusal: None,
+            generate_refusal: None,
         }
     }
 
@@ -346,6 +354,11 @@ impl StubEngine {
 
     pub fn with_admit_refusal(mut self, why: &str) -> Self {
         self.admit_refusal = Some(why.to_string());
+        self
+    }
+
+    pub fn with_generate_refusal(mut self, why: &str) -> Self {
+        self.generate_refusal = Some(why.to_string());
         self
     }
 }
@@ -371,6 +384,9 @@ impl Engine for StubEngine {
     ) -> Result<GenerateOutcome, EngineError> {
         if prompt.is_empty() {
             return Err(EngineError::Failed("empty prompt".into()));
+        }
+        if let Some(why) = &self.generate_refusal {
+            return Err(EngineError::MemoryExceeded(why.clone()));
         }
         if prompt.len() >= self.max_context {
             return Err(EngineError::PromptTooLong {

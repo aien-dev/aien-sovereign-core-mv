@@ -145,7 +145,8 @@ impl Qwen3MoeOmegaEngine {
         Ok(())
     }
 
-    /// The last whole-prompt call's counters (launches, chip and host time).
+    /// The last whole-prompt call's counters (launches, chip and host time), summed over all of
+    /// its chunked passes, so they describe the whole prompt for any `whole_prompt_chunk`.
     pub fn whole_prompt_stats(&self) -> Option<&crate::qwen3_moe_omega_prefill::PrefillStats> {
         self.whole_prompt.as_ref().map(|w| &w.stats)
     }
@@ -172,10 +173,15 @@ impl Qwen3MoeOmegaEngine {
         {
             return Ok(0);
         }
-        let chunk = self.whole_prompt_chunk;
+        let mut chunk = self.whole_prompt_chunk;
         let Some(wp) = self.whole_prompt.as_mut() else {
             return Ok(0);
         };
+        // The correctness recorder (`WpTrace`) is sized per pass and indexed by prompt token, so
+        // a recorded call (the W-L1G gate and TTFT agreement bins) runs as one pass.
+        if wp.trace.is_some() {
+            chunk = 0;
+        }
         let Some(fused) = self.kv.fused_kv() else {
             return Ok(0);
         };
@@ -186,6 +192,7 @@ impl Qwen3MoeOmegaEngine {
                 fused.capacity()
             ));
         }
+        let mut total = crate::qwen3_moe_omega_prefill::PrefillStats::default();
         for (from, to) in chunk_spans(m, chunk) {
             let pos0 = start + from;
             let t = Instant::now();
@@ -209,6 +216,7 @@ impl Qwen3MoeOmegaEngine {
             self.pos = start + to;
             self.history.extend_from_slice(&tokens[from..to]);
             let st = &wp.stats;
+            total.absorb(st);
             timing.add(&StepTiming {
                 total_ns: wall,
                 attention_ns: st.attn_ns,
@@ -224,6 +232,7 @@ impl Qwen3MoeOmegaEngine {
             });
             *hidden = h;
         }
+        wp.stats = total;
         Ok(m)
     }
 }
@@ -277,6 +286,32 @@ mod tests {
         );
         assert_eq!(chunk_spans(0, 8192).count(), 0);
         assert_eq!(chunk_spans(0, 0).count(), 0);
+    }
+
+    #[test]
+    fn chunked_stats_sum_to_the_whole_prompt() {
+        use crate::qwen3_moe_omega_prefill::PrefillStats;
+        let pass = |tokens, attn_dev| PrefillStats {
+            tokens,
+            layers: 48,
+            quant: 2,
+            attn: 48,
+            attn_dev,
+            chip_ns: 10,
+            router: 48,
+            ..Default::default()
+        };
+        let mut total = PrefillStats::default();
+        for (from, to) in chunk_spans(20_000, 8192) {
+            total.absorb(&pass(to - from, true));
+        }
+        assert_eq!(total.tokens, 20_000);
+        assert_eq!(total.layers, 48);
+        assert_eq!((total.quant, total.attn, total.router), (6, 144, 144));
+        assert_eq!(total.chip_ns, 30);
+        assert!(total.attn_dev);
+        total.absorb(&pass(1, false));
+        assert!(!total.attn_dev, "one host-attention pass clears attn_dev");
     }
 
     const KV_128K: u64 = 48 * 256 * 1024 * 1024 + 48 * 20 * 1024;

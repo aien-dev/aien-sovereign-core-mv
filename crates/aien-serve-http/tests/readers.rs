@@ -156,9 +156,16 @@ fn readers_cfg() -> ReadersConfig {
 }
 
 fn start_spy(slots: usize, reply: &str) -> (Server, Arc<Mutex<Vec<Vec<String>>>>) {
+    start_spy_on(
+        slots,
+        StubEngine::new(reply.bytes().map(u32::from).collect()).with_max_context(1 << 16),
+    )
+}
+
+fn start_spy_on(slots: usize, inner: StubEngine) -> (Server, Arc<Mutex<Vec<Vec<String>>>>) {
     let groups = Arc::new(Mutex::new(Vec::new()));
     let spy = Spy {
-        inner: StubEngine::new(reply.bytes().map(u32::from).collect()).with_max_context(1 << 16),
+        inner,
         slots,
         groups: Arc::clone(&groups),
     };
@@ -281,6 +288,60 @@ fn show_notes_puts_a_collapsed_preface_before_the_answer() {
     );
     assert!(c.ends_with("</details>\n\nNOTE"), "{c}");
     assert_eq!(c.matches("NOTE").count(), 9);
+}
+
+const REFUSAL: &str = "prompt of 66000 tokens needs 13.9 GB more host memory but only 9.0 GB is available; send at most about 0 tokens now";
+
+/// The engine's own memory admission (inside `generate`, after the server's `admit` passed)
+/// refusing a reader: the same 413 `prompt_exceeds_memory_budget` as a refusal in `prepare`,
+/// not a 500.
+#[test]
+fn a_reader_refused_for_memory_inside_the_engine_is_a_413() {
+    let (srv, groups) = start_spy_on(
+        8,
+        StubEngine::new(b"NOTE".iter().map(|&b| u32::from(b)).collect())
+            .with_max_context(1 << 16)
+            .with_generate_refusal(REFUSAL),
+    );
+    let r = chat(srv.addr, &body("test-model-readers", &long_doc(), ""));
+    assert_eq!(r.status, 413, "{}", r.body);
+    let j = json(&r);
+    assert_eq!(j["error"]["code"], "prompt_exceeds_memory_budget");
+    let m = j["error"]["message"].as_str().unwrap();
+    assert!(
+        m.starts_with("reader 1 of 8: ") && m.ends_with(REFUSAL),
+        "{m}"
+    );
+    assert_eq!(
+        groups.lock().unwrap().len(),
+        1,
+        "the refusal came from the group run"
+    );
+}
+
+/// Streaming readers open the response before reading, so the refusal is the stream's error
+/// event, carrying the same code.
+#[test]
+fn a_streaming_reader_refused_for_memory_ends_with_the_memory_error_event() {
+    let (srv, _) = start_spy_on(
+        8,
+        StubEngine::new(b"NOTE".iter().map(|&b| u32::from(b)).collect())
+            .with_max_context(1 << 16)
+            .with_generate_refusal(REFUSAL),
+    );
+    let r = chat(
+        srv.addr,
+        &body("test-model-readers", &long_doc(), r#","stream":true"#),
+    );
+    assert_eq!(r.status, 200);
+    let ev = sse_data(&r.body);
+    assert_eq!(ev.last().unwrap(), "[DONE]");
+    let err: Value = serde_json::from_str(&ev[ev.len() - 2]).unwrap();
+    assert_eq!(
+        err["error"]["code"], "prompt_exceeds_memory_budget",
+        "{err}"
+    );
+    assert!(err["error"]["message"].as_str().unwrap().ends_with(REFUSAL));
 }
 
 #[test]

@@ -233,6 +233,42 @@ impl PrefillStats {
     pub fn launches(&self) -> usize {
         self.quant + self.qkv + self.attn + self.o + self.gate_up + self.down
     }
+
+    /// Adds the counters of one more pass over the same prompt (chunked prefill): counts and
+    /// times sum, `layers` is the per-pass depth, `attn_dev` holds only if every pass used it.
+    pub fn absorb(&mut self, p: &PrefillStats) {
+        let first = self.tokens == 0 && self.layers == 0;
+        self.tokens += p.tokens;
+        self.layers = self.layers.max(p.layers);
+        self.quant += p.quant;
+        self.qkv += p.qkv;
+        self.attn += p.attn;
+        self.o += p.o;
+        self.gate_up += p.gate_up;
+        self.down += p.down;
+        self.attn_dev = if first {
+            p.attn_dev
+        } else {
+            self.attn_dev && p.attn_dev
+        };
+        self.chip_ns += p.chip_ns;
+        self.attn_ns += p.attn_ns;
+        self.host_ns += p.host_ns;
+        let (a, b) = (&mut self.prof, &p.prof);
+        a.embed_ns += b.embed_ns;
+        a.norm_in_ns += b.norm_in_ns;
+        a.resid_ns += b.resid_ns;
+        a.norm_post_ns += b.norm_post_ns;
+        a.router_ns += b.router_ns;
+        a.plan_ns += b.plan_ns;
+        a.tiles_ns += b.tiles_ns;
+        a.combine_ns += b.combine_ns;
+        a.final_ns += b.final_ns;
+        a.dev_ns += b.dev_ns;
+        a.wall_ns += b.wall_ns;
+        self.router += p.router;
+        self.combine += p.combine;
+    }
 }
 
 fn as_f32(b: &[u8]) -> Result<&[f32], String> {
