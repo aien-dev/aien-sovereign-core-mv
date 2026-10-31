@@ -1,0 +1,922 @@
+{
+ "template": "Qwen/Qwen3.5-9B c2022362 chat_template.jinja sha256 a4aee8af",
+ "jinja2": "3.1.2",
+ "cases": [
+  {
+   "turns": [
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {},
+   "text": "<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {
+    "enable_thinking": true
+   },
+   "text": "<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {
+    "preserve_thinking": true
+   },
+   "text": "<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {
+    "preserve_thinking": false,
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "You are terse."
+    ],
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {},
+   "text": "<|im_start|>system\nYou are terse.<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "You are terse."
+    ],
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {
+    "enable_thinking": true
+   },
+   "text": "<|im_start|>system\nYou are terse.<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "You are terse."
+    ],
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>system\nYou are terse.<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "You are terse."
+    ],
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {
+    "preserve_thinking": true
+   },
+   "text": "<|im_start|>system\nYou are terse.<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "You are terse."
+    ],
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {
+    "preserve_thinking": false,
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>system\nYou are terse.<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "You are terse."
+    ],
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>system\nYou are terse.<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     ""
+    ],
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {},
+   "text": "<|im_start|>system\n<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     ""
+    ],
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {
+    "enable_thinking": true
+   },
+   "text": "<|im_start|>system\n<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     ""
+    ],
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>system\n<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     ""
+    ],
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {
+    "preserve_thinking": true
+   },
+   "text": "<|im_start|>system\n<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     ""
+    ],
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {
+    "preserve_thinking": false,
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>system\n<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     ""
+    ],
+    [
+     "user",
+     "Hi"
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>system\n<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "Be brief."
+    ],
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "A1"
+    ],
+    [
+     "user",
+     "Q2"
+    ]
+   ],
+   "options": {},
+   "text": "<|im_start|>system\nBe brief.<|im_end|>\n<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\nA1<|im_end|>\n<|im_start|>user\nQ2<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "Be brief."
+    ],
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "A1"
+    ],
+    [
+     "user",
+     "Q2"
+    ]
+   ],
+   "options": {
+    "enable_thinking": true
+   },
+   "text": "<|im_start|>system\nBe brief.<|im_end|>\n<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\nA1<|im_end|>\n<|im_start|>user\nQ2<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "Be brief."
+    ],
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "A1"
+    ],
+    [
+     "user",
+     "Q2"
+    ]
+   ],
+   "options": {
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>system\nBe brief.<|im_end|>\n<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\nA1<|im_end|>\n<|im_start|>user\nQ2<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "Be brief."
+    ],
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "A1"
+    ],
+    [
+     "user",
+     "Q2"
+    ]
+   ],
+   "options": {
+    "preserve_thinking": true
+   },
+   "text": "<|im_start|>system\nBe brief.<|im_end|>\n<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\nA1<|im_end|>\n<|im_start|>user\nQ2<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "Be brief."
+    ],
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "A1"
+    ],
+    [
+     "user",
+     "Q2"
+    ]
+   ],
+   "options": {
+    "preserve_thinking": false,
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>system\nBe brief.<|im_end|>\n<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\nA1<|im_end|>\n<|im_start|>user\nQ2<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "system",
+     "Be brief."
+    ],
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "A1"
+    ],
+    [
+     "user",
+     "Q2"
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>system\nBe brief.<|im_end|>\n<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\nA1<|im_end|>\n<|im_start|>user\nQ2<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "<think>\nI reason\n</think>\n\nA1"
+    ],
+    [
+     "user",
+     "Q2"
+    ]
+   ],
+   "options": {},
+   "text": "<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\nA1<|im_end|>\n<|im_start|>user\nQ2<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "<think>\nI reason\n</think>\n\nA1"
+    ],
+    [
+     "user",
+     "Q2"
+    ]
+   ],
+   "options": {
+    "enable_thinking": true
+   },
+   "text": "<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\nA1<|im_end|>\n<|im_start|>user\nQ2<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "<think>\nI reason\n</think>\n\nA1"
+    ],
+    [
+     "user",
+     "Q2"
+    ]
+   ],
+   "options": {
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\nA1<|im_end|>\n<|im_start|>user\nQ2<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "<think>\nI reason\n</think>\n\nA1"
+    ],
+    [
+     "user",
+     "Q2"
+    ]
+   ],
+   "options": {
+    "preserve_thinking": true
+   },
+   "text": "<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\nA1<|im_end|>\n<|im_start|>user\nQ2<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "<think>\nI reason\n</think>\n\nA1"
+    ],
+    [
+     "user",
+     "Q2"
+    ]
+   ],
+   "options": {
+    "preserve_thinking": false,
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\nA1<|im_end|>\n<|im_start|>user\nQ2<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "<think>\nI reason\n</think>\n\nA1"
+    ],
+    [
+     "user",
+     "Q2"
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\nA1<|im_end|>\n<|im_start|>user\nQ2<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "A1"
+    ]
+   ],
+   "options": {},
+   "text": "<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nA1<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "A1"
+    ]
+   ],
+   "options": {
+    "enable_thinking": true
+   },
+   "text": "<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nA1<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "A1"
+    ]
+   ],
+   "options": {
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nA1<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "A1"
+    ]
+   ],
+   "options": {
+    "preserve_thinking": true
+   },
+   "text": "<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nA1<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "A1"
+    ]
+   ],
+   "options": {
+    "preserve_thinking": false,
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nA1<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "A1"
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nA1<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "  padded  \n"
+    ],
+    [
+     "assistant",
+     "  A  "
+    ],
+    [
+     "user",
+     "<tool_response>\nx\n</tool_response>"
+    ]
+   ],
+   "options": {},
+   "text": "<|im_start|>user\npadded<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nA<|im_end|>\n<|im_start|>user\n<tool_response>\nx\n</tool_response><|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "  padded  \n"
+    ],
+    [
+     "assistant",
+     "  A  "
+    ],
+    [
+     "user",
+     "<tool_response>\nx\n</tool_response>"
+    ]
+   ],
+   "options": {
+    "enable_thinking": true
+   },
+   "text": "<|im_start|>user\npadded<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nA<|im_end|>\n<|im_start|>user\n<tool_response>\nx\n</tool_response><|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "  padded  \n"
+    ],
+    [
+     "assistant",
+     "  A  "
+    ],
+    [
+     "user",
+     "<tool_response>\nx\n</tool_response>"
+    ]
+   ],
+   "options": {
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>user\npadded<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nA<|im_end|>\n<|im_start|>user\n<tool_response>\nx\n</tool_response><|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "  padded  \n"
+    ],
+    [
+     "assistant",
+     "  A  "
+    ],
+    [
+     "user",
+     "<tool_response>\nx\n</tool_response>"
+    ]
+   ],
+   "options": {
+    "preserve_thinking": true
+   },
+   "text": "<|im_start|>user\npadded<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nA<|im_end|>\n<|im_start|>user\n<tool_response>\nx\n</tool_response><|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "  padded  \n"
+    ],
+    [
+     "assistant",
+     "  A  "
+    ],
+    [
+     "user",
+     "<tool_response>\nx\n</tool_response>"
+    ]
+   ],
+   "options": {
+    "preserve_thinking": false,
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>user\npadded<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nA<|im_end|>\n<|im_start|>user\n<tool_response>\nx\n</tool_response><|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "  padded  \n"
+    ],
+    [
+     "assistant",
+     "  A  "
+    ],
+    [
+     "user",
+     "<tool_response>\nx\n</tool_response>"
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>user\npadded<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\nA<|im_end|>\n<|im_start|>user\n<tool_response>\nx\n</tool_response><|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "pre <think>\nr1\n</think>\nmid</think>\n\npost"
+    ],
+    [
+     "user",
+     "Q2"
+    ]
+   ],
+   "options": {},
+   "text": "<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\npost<|im_end|>\n<|im_start|>user\nQ2<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "pre <think>\nr1\n</think>\nmid</think>\n\npost"
+    ],
+    [
+     "user",
+     "Q2"
+    ]
+   ],
+   "options": {
+    "enable_thinking": true
+   },
+   "text": "<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\npost<|im_end|>\n<|im_start|>user\nQ2<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "pre <think>\nr1\n</think>\nmid</think>\n\npost"
+    ],
+    [
+     "user",
+     "Q2"
+    ]
+   ],
+   "options": {
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\npost<|im_end|>\n<|im_start|>user\nQ2<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "pre <think>\nr1\n</think>\nmid</think>\n\npost"
+    ],
+    [
+     "user",
+     "Q2"
+    ]
+   ],
+   "options": {
+    "preserve_thinking": true
+   },
+   "text": "<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\npost<|im_end|>\n<|im_start|>user\nQ2<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "pre <think>\nr1\n</think>\nmid</think>\n\npost"
+    ],
+    [
+     "user",
+     "Q2"
+    ]
+   ],
+   "options": {
+    "preserve_thinking": false,
+    "enable_thinking": false
+   },
+   "text": "<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\npost<|im_end|>\n<|im_start|>user\nQ2<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+  },
+  {
+   "turns": [
+    [
+     "user",
+     "Q1"
+    ],
+    [
+     "assistant",
+     "pre <think>\nr1\n</think>\nmid</think>\n\npost"
+    ],
+    [
+     "user",
+     "Q2"
+    ]
+   ],
+   "options": {
+    "reasoning_effort": "low"
+   },
+   "text": "<|im_start|>user\nQ1<|im_end|>\n<|im_start|>assistant\npost<|im_end|>\n<|im_start|>user\nQ2<|im_end|>\n<|im_start|>assistant\n<think>\n"
+  }
+ ],
+ "refusals": [
+  {
+   "name": "no messages",
+   "turns": [],
+   "options": {},
+   "error": "No messages provided."
+  },
+  {
+   "name": "system not first",
+   "turns": [
+    [
+     "user",
+     "a"
+    ],
+    [
+     "system",
+     "late"
+    ]
+   ],
+   "options": {},
+   "error": "System message must be at the beginning."
+  },
+  {
+   "name": "no user query",
+   "turns": [
+    [
+     "assistant",
+     "no user"
+    ]
+   ],
+   "options": {},
+   "error": "No user query found in messages."
+  },
+  {
+   "name": "only tool-response-shaped user",
+   "turns": [
+    [
+     "user",
+     "<tool_response>\nx\n</tool_response>"
+    ]
+   ],
+   "options": {},
+   "error": "No user query found in messages."
+  },
+  {
+   "name": "unknown role",
+   "turns": [
+    [
+     "user",
+     "a"
+    ],
+    [
+     "narrator",
+     "b"
+    ]
+   ],
+   "options": {},
+   "error": "Unexpected message role."
+  }
+ ]
+}

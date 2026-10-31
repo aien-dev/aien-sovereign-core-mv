@@ -205,3 +205,80 @@ fn golden_prompt_tokenizes_to_the_reference_ids() {
     let long = "word ".repeat(30_000);
     assert!(tk.encode_with_special(&long, true).unwrap().len() > 2048);
 }
+
+/// Qwen3.5-9B (Hugging Face `Qwen/Qwen3.5-9B` revision c2022362,
+/// fixtures/chat-templates/qwen3.5-9b): the 35B template minus `preserve_thinking`. Its
+/// `render_oracle.json` is the same 48 conversations x options and 5 refusals rendered by jinja2
+/// 3.1.2 from the 9B text; it differs from the 35B oracle only in the 3 cases that set
+/// `preserve_thinking: true` on a conversation with an assistant turn before the last user query.
+const DIR35: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/fixtures/chat-templates/qwen3.5-9b"
+);
+
+fn oracle35() -> serde_json::Value {
+    serde_json::from_str(&std::fs::read_to_string(format!("{DIR35}/render_oracle.json")).unwrap())
+        .unwrap()
+}
+
+#[test]
+fn qwen35_pinned_template_is_selected_and_distinct() {
+    let text = std::fs::read_to_string(format!("{DIR35}/chat_template.jinja")).unwrap();
+    assert_eq!(ChatTemplate::detect(&text).unwrap(), ChatTemplate::Qwen35);
+    assert_eq!(
+        ChatTemplate::detect(text.trim_end()).unwrap(),
+        ChatTemplate::Qwen35
+    );
+    // One byte off the pinned text is refused, not approximated.
+    let edited = text.replacen("last_query_index", "last_query_indeks", 1);
+    assert!(ChatTemplate::detect(&edited).is_err());
+}
+
+#[test]
+fn qwen35_rendering_and_refusals_match_the_jinja_reference() {
+    let q36 = oracle();
+    let oracle = oracle35();
+    let text = std::fs::read_to_string(format!("{DIR35}/chat_template.jinja")).unwrap();
+    let tpl = ChatTemplate::detect(&text).unwrap();
+    let cases = oracle["cases"].as_array().unwrap();
+    assert_eq!(cases.len(), 48);
+    let mut differ_from_35b = 0;
+    for (i, case) in cases.iter().enumerate() {
+        let turns = turns_of(case);
+        let refs: Vec<(&str, &str)> = turns
+            .iter()
+            .map(|(r, c)| (r.as_str(), c.as_str()))
+            .collect();
+        let o = opts(&case["options"]);
+        let got = tpl.try_render_with(&refs, &o).unwrap();
+        assert_eq!(
+            got,
+            case["text"].as_str().unwrap(),
+            "case {i} options {o:?}"
+        );
+        if got != q36["cases"][i]["text"].as_str().unwrap() {
+            assert_eq!(o.preserve_thinking, Some(true), "case {i}");
+            differ_from_35b += 1;
+        }
+    }
+    // The oracle exercises the one switch the 9B template lacks.
+    assert_eq!(differ_from_35b, 3);
+    let refusals = oracle["refusals"].as_array().unwrap();
+    assert_eq!(refusals.len(), 5);
+    for case in refusals {
+        let turns = turns_of(case);
+        let refs: Vec<(&str, &str)> = turns
+            .iter()
+            .map(|(r, c)| (r.as_str(), c.as_str()))
+            .collect();
+        let want = case["error"].as_str().expect("the template raised");
+        let err = tpl
+            .try_render_with(&refs, &opts(&case["options"]))
+            .expect_err(&format!("{}: must be refused", case["name"]));
+        assert!(
+            err.to_string().contains(want),
+            "{}: {err} should carry {want:?}",
+            case["name"]
+        );
+    }
+}

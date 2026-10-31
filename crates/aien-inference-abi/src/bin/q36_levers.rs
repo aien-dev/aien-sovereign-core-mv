@@ -356,6 +356,7 @@ mod tests {
             eps: 1e-6,
             eos_token_ids: vec![],
             moe: None,
+            fp8: true,
         }
     }
 

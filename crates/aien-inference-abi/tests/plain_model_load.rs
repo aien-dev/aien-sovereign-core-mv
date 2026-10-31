@@ -127,3 +127,46 @@ fn render_refusal_is_its_own_variant_not_a_load_failure() {
     assert!(text.contains("no chat template"), "{text}");
     assert!(!text.contains("Failed to load tokenizer"), "{text}");
 }
+
+/// Without `generation_config.json` the stop set is the config's `eos_token_id`, also read from
+/// `text_config` (the Qwen3.5-9B layout), preceded by the tokenizer's declared `eos_token`.
+/// With a generation config, its list is used as is and the tokenizer's token is not added.
+#[test]
+fn stop_set_without_generation_config_reads_text_config_and_tokenizer_eos() {
+    let dir = scratch("eos-fallback");
+    std::fs::remove_file(dir.join("generation_config.json")).unwrap();
+    std::fs::write(
+        dir.join("config.json"),
+        r#"{"model_type":"qwen3_5","text_config":{"eos_token_id":2,"max_position_embeddings":16}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("tokenizer_config.json"),
+        r#"{"eos_token":"<pad>"}"#,
+    )
+    .unwrap();
+    let tok = ChatTokenizer::from_model_dir(&dir, None).unwrap();
+    assert_eq!(tok.stop_token_ids(), &[0, 2]);
+    // The declared token already in the list is not repeated.
+    std::fs::write(
+        dir.join("tokenizer_config.json"),
+        r#"{"eos_token":"<eos>"}"#,
+    )
+    .unwrap();
+    let tok = ChatTokenizer::from_model_dir(&dir, None).unwrap();
+    assert_eq!(tok.stop_token_ids(), &[2]);
+    // A generation config decides alone.
+    std::fs::write(
+        dir.join("tokenizer_config.json"),
+        r#"{"eos_token":"<pad>"}"#,
+    )
+    .unwrap();
+    std::fs::write(dir.join("generation_config.json"), r#"{"eos_token_id":2}"#).unwrap();
+    let tok = ChatTokenizer::from_model_dir(&dir, None).unwrap();
+    assert_eq!(tok.stop_token_ids(), &[2]);
+    // No eos anywhere is still refused.
+    std::fs::remove_file(dir.join("generation_config.json")).unwrap();
+    std::fs::write(dir.join("config.json"), r#"{"model_type":"qwen3_5"}"#).unwrap();
+    assert!(ChatTokenizer::from_model_dir(&dir, None).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}

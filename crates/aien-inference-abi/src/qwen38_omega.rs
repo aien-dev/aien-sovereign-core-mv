@@ -31,6 +31,11 @@
 //!   stored; input / post-attention norms folded to `1 + w` (the model's zero-centred RMSNorm).
 //! - The final norm folded to `1 + w`; lm_head bf16 `[vocab][5120]` as stored. The embedding
 //!   stays on the host (one row per token is widened and written before the token).
+//! - bf16 checkpoints (no `quantization_config`, e.g. the released Qwen3.5-9B): the same stacked
+//!   rows stay bf16 ([`Proj::Bf16`]). The decode graph reads them times 2^-64 (exact, checked per
+//!   value) through `omega_gpu_q38_graph_set_layer_bf16`, the down projection split into two K
+//!   halves when k > 8192 (the bf16 GEMV's shared x stage); the prefill reads a plain transposed
+//!   copy on the resident bf16 matmul. FP8 and bf16 projections never mix.
 //!
 //! The decode graph covers one token at a time; prompts run through it token by token until the
 //! prefill path lands (sc #642 step 9).
@@ -61,11 +66,57 @@ const EPS_L2: f32 = 1e-6;
 
 /// One layer's device tensors (kept alive for the graph).
 struct LayerTensors {
-    mix: Fp8Tensor,
+    mix: Proj,
     ab: Option<Bf16Tensor>,
-    o: Fp8Tensor,
-    gate_up: Fp8Tensor,
-    down: Fp8Tensor,
+    o: Proj,
+    gate_up: Proj,
+    down: Proj,
+}
+
+/// The bf16 decode GEMV stages its f32 x row in shared memory (32 KiB per CTA): k <= 8192
+/// (omega `omega_gpu_q38_graph_set_layer_bf16`).
+const BF16_GEMV_MAX_K: usize = 8192;
+
+/// One projection `[n][k]` on the device, as the checkpoint stores it.
+enum Proj {
+    /// FP8 e4m3 with 128 x 128 block scales: the decode GEMV and the prefill GEMM read it.
+    Fp8(Fp8Tensor),
+    /// bf16 (Qwen3.5-9B as released). Decode: the bf16 GEMV on the values times 2^-64 (exact
+    /// exponent shifts, as a|b), `[n][k]`, or with k > [`BF16_GEMV_MAX_K`] two tensors of the K
+    /// halves (`gemv` columns `0..k/2`, `gemv2` `k/2..k`). Prefill: the plain values transposed
+    /// to `[k][n]` on omega's resident bf16 matmul (x rounded to bf16 there).
+    Bf16 {
+        gemv: Bf16Tensor,
+        gemv2: Option<Bf16Tensor>,
+        mm: ResidentTensor,
+        mm_bytes: usize,
+    },
+}
+
+impl Proj {
+    /// The FP8 tensor for the FP8-only graphs (the 35B's): its loader uploads nothing else.
+    fn fp8_raw(&self) -> *mut std::ffi::c_void {
+        match self {
+            Proj::Fp8(t) => t.as_raw(),
+            Proj::Bf16 { .. } => unreachable!("the 35B loader uploads FP8 projections only"),
+        }
+    }
+
+    fn resident_bytes(&self) -> usize {
+        match self {
+            Proj::Fp8(t) => t.resident_bytes(),
+            Proj::Bf16 {
+                gemv,
+                gemv2,
+                mm_bytes,
+                ..
+            } => {
+                gemv.resident_bytes()
+                    + gemv2.as_ref().map_or(0, Bf16Tensor::resident_bytes)
+                    + mm_bytes
+            }
+        }
+    }
 }
 
 /// The decode graph: the 27B's dense one or the 35B's sparse one (sc L306).
@@ -270,15 +321,26 @@ pub fn need_bytes(c: &Qwen38Config, max_pos: usize, chunk: usize) -> u64 {
             if attn {
                 (2 * c.heads * c.head_dim + 2 * c.kv_dim()) as u64 * h + o + mlp
             } else {
-                (c.conv_dim() + c.lin_value_dim()) as u64 * h + o + mlp + 4 * 2 * 2 * 48 * h
+                (c.conv_dim() + c.lin_value_dim()) as u64 * h
+                    + o
+                    + mlp
+                    + 4 * 2 * 2 * c.lin_v_heads as u64 * h
             }
         })
         .sum();
-    let weights = layers + layers / 4096 + 2 * c.vocab as u64 * h;
+    // FP8: one byte per weight plus the block scales. bf16: two bytes for the decode GEMV's
+    // scaled copy plus two for the prefill matmul's transposed plain copy (see [`Proj`]).
+    let proj = if c.fp8 {
+        layers + layers / 4096
+    } else {
+        4 * layers
+    };
+    let weights = proj + 2 * c.vocab as u64 * h;
     let n_attn = c.full_attention.iter().filter(|&&a| a).count() as u64;
     let n_gdn = c.layers as u64 - n_attn;
     let kv = n_attn * 2 * 4 * max_pos as u64 * 512 + max_pos as u64 * 1024;
-    // xin, xq, xs, mix, act, out, plus the DeltaNet prefill scratch (omega_gpu_gdn_api.h).
+    // xin, xq, xs, mix, act, out, plus the DeltaNet prefill scratch (omega_gpu_gdn_api.h), at
+    // the 27B widths (the widest the dense graph takes: an upper bound for smaller shapes).
     let m = chunk as u64;
     let bufs = m * (6144 * 4 + 17408 + 136 * 4 + 16384 * 4 + 17408 * 2 + 5120 * 4)
         + m * (40960 + 3 * 24576 + 384)
@@ -294,9 +356,70 @@ fn gpu(stage: &str) -> impl Fn(aien_omega_gpu::OmegaGpuError) -> String + '_ {
     move |e| format!("{stage}: {e}")
 }
 
+/// The dense graph's shape for a checkpoint, or why it does not fit: 256-wide attention heads,
+/// 16 DeltaNet key heads of 128, value heads of 128, conv kernel 4 (Qwen3.8-27B and Qwen3.5-9B),
+/// and widths within [`aien_omega_q38::Shape::check`].
+pub fn dense_shape(c: &Qwen38Config) -> Result<aien_omega_q38::Shape, String> {
+    use aien_omega_q38 as q;
+    let fixed = c.head_dim == q::HEAD_DIM
+        && c.lin_k_heads == 16
+        && c.lin_k_dim == q::GDN_HEAD_DIM
+        && c.lin_v_dim == q::GDN_HEAD_DIM
+        && c.conv_kernel == q::GDN_CONV_KERNEL
+        && c.kv_heads > 0;
+    let shape = q::Shape {
+        hidden: c.hidden,
+        inter: c.intermediate,
+        q_heads: c.heads,
+        kv_heads: c.kv_heads,
+        gdn_heads: c.lin_v_heads,
+    };
+    if !fixed || shape.check().is_err() {
+        return Err(format!(
+            "qwen38 omega: the checkpoint's shape ({shape:?}, head_dim {}, DeltaNet {} key heads of {} / value dim {}, conv {}) is not one the dense graph takes",
+            c.head_dim, c.lin_k_heads, c.lin_k_dim, c.lin_v_dim, c.conv_kernel
+        ));
+    }
+    Ok(shape)
+}
+
 /// `1 + w`, the zero-centred RMSNorm weight the graph's norms multiply by.
 fn fold(w: Vec<f32>) -> Vec<f32> {
     w.into_iter().map(|v| 1.0 + v).collect()
+}
+
+/// Projections stacked by rows into one tensor (every part `[n_i][k]`; FP8 parts whole 128
+/// blocks). All parts FP8 or all bf16 (the checkpoint's dtype); see [`Proj`].
+fn fuse(name: &str, parts: Vec<Matrix>) -> Result<Proj, String> {
+    if parts.iter().all(|m| matches!(m, Matrix::Fp8 { .. })) {
+        return fuse_fp8(name, parts).map(Proj::Fp8);
+    }
+    let (n, k, w) = stack_bf16(name, parts)?;
+    let scaled = scale_2m64(name, &w)?;
+    let (gemv, gemv2) = if k > BF16_GEMV_MAX_K {
+        let (lo, hi) = split_k(n, k, &scaled);
+        (
+            Bf16Tensor::upload(n, k / 2, &lo).map_err(gpu(name))?,
+            Some(Bf16Tensor::upload(n, k / 2, &hi).map_err(gpu(name))?),
+        )
+    } else {
+        (Bf16Tensor::upload(n, k, &scaled).map_err(gpu(name))?, None)
+    };
+    let mm = ResidentTensor::upload_bf16(k, n, &transposed(n, k, &w)).map_err(gpu(name))?;
+    Ok(Proj::Bf16 {
+        gemv,
+        gemv2,
+        mm,
+        mm_bytes: n * k * 2,
+    })
+}
+
+fn upload_proj(name: &str, m: Matrix) -> Result<Proj, String> {
+    fuse(name, vec![m])
+}
+
+fn upload_fp8(name: &str, m: Matrix) -> Result<Fp8Tensor, String> {
+    fuse_fp8(name, vec![m])
 }
 
 /// FP8 projections stacked by rows into one tensor (every part `[n_i][k]`, whole 128 blocks).
@@ -318,19 +441,72 @@ fn fuse_fp8(name: &str, parts: Vec<Matrix>) -> Result<Fp8Tensor, String> {
                 w.extend_from_slice(&pw);
                 scales.extend_from_slice(&ps);
             }
-            Matrix::Bf16 { .. } => {
-                return Err(format!(
-                    "{name}: a bf16 part (the graph takes FP8 projections)"
-                ))
-            }
+            Matrix::Bf16 { .. } => return Err(format!("{name}: FP8 and bf16 parts mixed")),
         }
     }
     let k = k0.ok_or_else(|| format!("{name}: no parts"))?;
     Fp8Tensor::upload(1, n, k, &w, &scales).map_err(gpu(name))
 }
 
-fn upload_fp8(name: &str, m: Matrix) -> Result<Fp8Tensor, String> {
-    fuse_fp8(name, vec![m])
+/// bf16 parts stacked by rows: `(n, k, words)`.
+fn stack_bf16(name: &str, parts: Vec<Matrix>) -> Result<(usize, usize, Vec<u16>), String> {
+    let (mut n, mut k0, mut w) = (0usize, None, Vec::new());
+    for m in parts {
+        let Matrix::Bf16 { n: pn, k, w: pw } = m else {
+            return Err(format!("{name}: FP8 and bf16 parts mixed"));
+        };
+        if *k0.get_or_insert(k) != k {
+            return Err(format!("{name}: parts with different k"));
+        }
+        n += pn;
+        w.extend_from_slice(&pw);
+    }
+    Ok((n, k0.ok_or_else(|| format!("{name}: no parts"))?, w))
+}
+
+/// Every bf16 word times 2^-64, refusing any value the shift does not carry exactly (it must
+/// come back bit for bit times 2^64: no f32 subnormal rounding, no low mantissa bits lost).
+fn scale_2m64(name: &str, w: &[u16]) -> Result<Vec<u16>, String> {
+    let scale = (2.0f32).powi(-64);
+    let mut bad = 0usize;
+    let out: Vec<u16> = w
+        .iter()
+        .map(|&v| {
+            let s = ((bf16_to_f32(v) * scale).to_bits() >> 16) as u16;
+            if (bf16_to_f32(s) * aien_omega_q38::ROW_SCALE).to_bits() != bf16_to_f32(v).to_bits() {
+                bad += 1;
+            }
+            s
+        })
+        .collect();
+    if bad > 0 {
+        return Err(format!(
+            "{name}: {bad} bf16 values are not exact times 2^-64 (the bf16 decode GEMV needs the shift)"
+        ));
+    }
+    Ok(out)
+}
+
+/// `[n][k]` words split by columns into the K halves `[n][k/2]` each.
+fn split_k(n: usize, k: usize, w: &[u16]) -> (Vec<u16>, Vec<u16>) {
+    let half = k / 2;
+    let (mut lo, mut hi) = (Vec::with_capacity(n * half), Vec::with_capacity(n * half));
+    for row in w.chunks_exact(k).take(n) {
+        lo.extend_from_slice(&row[..half]);
+        hi.extend_from_slice(&row[half..]);
+    }
+    (lo, hi)
+}
+
+/// `[n][k]` words to `[k][n]` (the resident matmul's B layout).
+fn transposed(n: usize, k: usize, w: &[u16]) -> Vec<u16> {
+    let mut t = vec![0u16; n * k];
+    for (j, row) in w.chunks_exact(k).enumerate() {
+        for (i, &v) in row.iter().enumerate() {
+            t[i * n + j] = v;
+        }
+    }
+    t
 }
 
 /// `in_proj_a` / `in_proj_b` interleaved by rows and scaled by 2^-64 (exact for every normal
@@ -466,27 +642,12 @@ impl Qwen38Omega {
         }
         if heads != 1 {
             return Err(format!(
-                "qwen38 omega: {heads} heads (the 27B dense graph strokes one conversation)"
+                "qwen38 omega: {heads} heads (the dense graph strokes one conversation)"
             ));
         }
         use aien_omega_q38 as q;
         let c = &config;
-        let shape_ok = c.hidden == q::HIDDEN
-            && c.intermediate == q::INTER
-            && c.heads * c.head_dim == q::MIXER_OUT
-            && c.head_dim == q::HEAD_DIM
-            && c.kv_heads * c.head_dim * 2 + 2 * c.heads * c.head_dim == q::ATT_MIX
-            && c.conv_dim() == q::GDN_QKV
-            && c.conv_dim() + c.lin_value_dim() == q::GDN_MIX
-            && c.lin_v_heads == q::GDN_HEADS
-            && c.lin_v_dim == q::GDN_HEAD_DIM
-            && c.conv_kernel == q::GDN_CONV_KERNEL;
-        if !shape_ok {
-            return Err(
-                "qwen38 omega: the checkpoint is not the Qwen3.8-27B shape the graph is built for"
-                    .into(),
-            );
-        }
+        let shape = dense_shape(c)?;
         if c.layers > q::MAX_LAYERS {
             return Err(format!(
                 "qwen38 omega: {} layers (at most {})",
@@ -515,14 +676,28 @@ impl Qwen38Omega {
         let n_attn = c.full_attention.iter().filter(|&&a| a).count();
         let n_gdn = c.layers - n_attn;
         let mut gdn = if n_gdn > 0 {
-            Some(Gdn::alloc(n_gdn).map_err(gpu("gdn alloc"))?)
+            Some(Gdn::alloc_ratio(n_gdn, c.lin_v_heads / c.lin_k_heads).map_err(gpu("gdn alloc"))?)
         } else {
             None
         };
+        // The 27B keeps omega's default attention shape (zeros); others name their heads.
+        let (aq, akv, agroup) = if shape == q::Shape::Q38_27B {
+            (0, 0, 0)
+        } else {
+            (c.heads, c.kv_heads, c.heads / c.kv_heads)
+        };
         let mut attn = if n_attn > 0 {
             Some(
-                Attn256Cache::alloc(n_attn, max_pos, c.rope_theta, c.rotary_dim)
-                    .map_err(gpu("attn256 alloc"))?,
+                Attn256Cache::alloc_shape(
+                    n_attn,
+                    max_pos,
+                    c.rope_theta,
+                    c.rotary_dim,
+                    aq,
+                    akv,
+                    agroup,
+                )
+                .map_err(gpu("attn256 alloc"))?,
             )
         } else {
             None
@@ -542,7 +717,7 @@ impl Qwen38Omega {
             let rm = |s: &mut dyn TensorSource, name: String, n, k| read_matrix(s, &name, n, k);
             let (mix, ab, o) = if c.full_attention[l] {
                 let a = format!("{p}.self_attn");
-                let mix = fuse_fp8(
+                let mix = fuse(
                     &format!("{a} q|k|v"),
                     vec![
                         rm(
@@ -555,7 +730,7 @@ impl Qwen38Omega {
                         rm(source, format!("{a}.v_proj.weight"), c.kv_dim(), h)?,
                     ],
                 )?;
-                let o = upload_fp8(
+                let o = upload_proj(
                     &format!("{a}.o_proj"),
                     rm(
                         source,
@@ -574,7 +749,7 @@ impl Qwen38Omega {
                 (mix, None, o)
             } else {
                 let a = format!("{p}.linear_attn");
-                let mix = fuse_fp8(
+                let mix = fuse(
                     &format!("{a} qkv|z"),
                     vec![
                         rm(source, format!("{a}.in_proj_qkv.weight"), c.conv_dim(), h)?,
@@ -594,7 +769,7 @@ impl Qwen38Omega {
                     ResidentTensor::upload_bf16(ak, an, &ab_plain_transposed(an, ak, &aw))
                         .map_err(gpu("in_proj_a|b matmul"))?,
                 );
-                let o = upload_fp8(
+                let o = upload_proj(
                     &format!("{a}.out_proj"),
                     rm(source, format!("{a}.out_proj.weight"), h, c.lin_value_dim())?,
                 )?;
@@ -617,14 +792,14 @@ impl Qwen38Omega {
                 (mix, Some(ab), o)
             };
             let m = format!("{p}.mlp");
-            let gate_up = fuse_fp8(
+            let gate_up = fuse(
                 &format!("{m} gate|up"),
                 vec![
                     rm(source, format!("{m}.gate_proj.weight"), c.intermediate, h)?,
                     rm(source, format!("{m}.up_proj.weight"), c.intermediate, h)?,
                 ],
             )?;
-            let down = upload_fp8(
+            let down = upload_proj(
                 &format!("{m}.down_proj"),
                 rm(source, format!("{m}.down_proj.weight"), h, c.intermediate)?,
             )?;
@@ -644,7 +819,7 @@ impl Qwen38Omega {
             norms.push((in_norm, post_norm));
         }
 
-        let cfg = GraphConfig {
+        let mut cfg = GraphConfig {
             layers: c.layers as u32,
             attn_mask,
             vocab: v as u32,
@@ -655,7 +830,13 @@ impl Qwen38Omega {
                 .as_ref()
                 .map_or(std::ptr::null_mut(), Attn256Cache::as_raw),
             lm_head: lm_head.as_raw(),
+            hidden: 0,
+            inter: 0,
+            q_heads: 0,
+            kv_heads: 0,
+            gdn_heads: 0,
         };
+        cfg.set_shape(shape);
         // SAFETY: gdn, attn and lm_head are live omega objects owned by the returned value, which
         // drops the graph before them (field order).
         let mut graph = unsafe { Q38Graph::create(&cfg) }.map_err(gpu("q38 graph create"))?;
@@ -665,17 +846,44 @@ impl Qwen38Omega {
                     .map_or(std::ptr::null_mut(), Bf16Tensor::as_raw);
             // SAFETY: the tensors live in `layers`, owned by the returned value and dropped after
             // the graph.
-            unsafe {
-                graph.set_layer(
-                    l,
-                    t.mix.as_raw(),
-                    ab,
-                    t.o.as_raw(),
-                    t.gate_up.as_raw(),
-                    t.down.as_raw(),
-                    in_norm,
-                    post_norm,
-                )
+            match (&t.mix, &t.o, &t.gate_up, &t.down) {
+                (Proj::Fp8(mix), Proj::Fp8(o), Proj::Fp8(gate_up), Proj::Fp8(down)) => unsafe {
+                    graph.set_layer(
+                        l,
+                        mix.as_raw(),
+                        ab,
+                        o.as_raw(),
+                        gate_up.as_raw(),
+                        down.as_raw(),
+                        in_norm,
+                        post_norm,
+                    )
+                },
+                (
+                    Proj::Bf16 { gemv: mix, .. },
+                    Proj::Bf16 { gemv: o, .. },
+                    Proj::Bf16 { gemv: gate_up, .. },
+                    Proj::Bf16 {
+                        gemv: down,
+                        gemv2: down2,
+                        ..
+                    },
+                ) => unsafe {
+                    graph.set_layer_bf16(
+                        l,
+                        mix.as_raw(),
+                        ab,
+                        o.as_raw(),
+                        gate_up.as_raw(),
+                        down.as_raw(),
+                        down2
+                            .as_ref()
+                            .map_or(std::ptr::null(), |t| t.as_raw().cast_const()),
+                        in_norm,
+                        post_norm,
+                    )
+                },
+                _ => return Err(format!("layer {l}: FP8 and bf16 projections mixed")),
             }
             .map_err(gpu("q38 graph set_layer"))?;
         }
@@ -714,14 +922,13 @@ impl Qwen38Omega {
 
     /// Bytes resident on the device for the weights (tensors as uploaded, not the KV cache).
     pub fn weight_bytes(&self) -> usize {
-        let fp8 = |t: &Fp8Tensor| t.resident_bytes();
         self.layers
             .iter()
             .map(|t| {
-                fp8(&t.mix)
-                    + fp8(&t.o)
-                    + fp8(&t.gate_up)
-                    + fp8(&t.down)
+                t.mix.resident_bytes()
+                    + t.o.resident_bytes()
+                    + t.gate_up.resident_bytes()
+                    + t.down.resident_bytes()
                     + t.ab.as_ref().map_or(0, Bf16Tensor::resident_bytes)
             })
             .sum::<usize>()
@@ -1141,4 +1348,56 @@ pub fn mem_available() -> Result<u64, String> {
         .and_then(|v| v.trim().trim_end_matches("kB").trim().parse::<u64>().ok())
         .map(|kb| kb << 10)
         .ok_or_else(|| "/proc/meminfo: no MemAvailable".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::qwen3_moe::f32_to_bf16;
+
+    #[test]
+    fn bf16_shift_is_exact_and_refuses_tiny_values() {
+        let w: Vec<u16> = [1.0f32, -0.0078125, 3.5, 0.0, -1e-3]
+            .iter()
+            .map(|&v| f32_to_bf16(v))
+            .collect();
+        let s = scale_2m64("t", &w).unwrap();
+        for (&a, &b) in w.iter().zip(&s) {
+            assert_eq!(
+                (bf16_to_f32(b) * aien_omega_q38::ROW_SCALE).to_bits(),
+                bf16_to_f32(a).to_bits()
+            );
+        }
+        // 2^-70 * 2^-64 = 2^-134 is an f32 subnormal: bf16 keeps no bits of it.
+        assert!(scale_2m64("t", &[f32_to_bf16(2f32.powi(-70))]).is_err());
+    }
+
+    #[test]
+    fn split_and_transpose_keep_every_word() {
+        let (n, k) = (3, 4);
+        let w: Vec<u16> = (0..12).collect();
+        let (lo, hi) = split_k(n, k, &w);
+        assert_eq!(lo, vec![0, 1, 4, 5, 8, 9]);
+        assert_eq!(hi, vec![2, 3, 6, 7, 10, 11]);
+        assert_eq!(
+            transposed(n, k, &w),
+            vec![0, 4, 8, 1, 5, 9, 2, 6, 10, 3, 7, 11]
+        );
+    }
+
+    #[test]
+    fn bf16_and_fp8_parts_do_not_mix() {
+        let b = Matrix::Bf16 {
+            n: 1,
+            k: 2,
+            w: vec![0, 0],
+        };
+        let f = Matrix::Fp8 {
+            n: 128,
+            k: 2,
+            w: vec![0; 256],
+            scales: vec![0],
+        };
+        assert!(stack_bf16("t", vec![b, f]).is_err());
+    }
 }

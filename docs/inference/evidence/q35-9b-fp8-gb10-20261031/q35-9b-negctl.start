@@ -1,0 +1,15 @@
+start 2026-10-31T08:15:14Z
+sc commit ab77b970ed5c132a2d62b5bedab277a8a1627ec4 worktree /tmp/corechip/w790
+binary /tmp/corechip/run790.sh sha256 25c097a2b4ea741c18e1e909e814f9a16b7296130a968b1bffddc60e18ba665c
+omega /tmp/corechip/omega636 a647b6a9821fffcf52ba9ce813f75afa4b84be62
+admission model /tmp/corechip/negctl9b bytes 12394969960 need_kB 45180445 MemAvailable_kB 100452852
+window flags --gb10 none --quiet exclusive lease 20; chip lock: flock -x /tmp/aien-gb10.lock around the command
+cmd env AIEN_GB10_LOCK_HELD=1 bash /tmp/corechip/run790.sh negctl /tmp/corechip/negctl9b
+pid, process_name, used_gpu_memory [MiB]
+name, driver_version, utilization.gpu [%], temperature.gpu, power.draw [W], pstate, clocks.current.sm [MHz], clocks.current.memory [MHz]
+NVIDIA GB10, 580.173.02, 0 %, 58, 6.50 W, P8, 208 MHz, [N/A]
+listeners: 100.64.0.2:18110 100.64.0.2:18112 100.64.0.2:18132 127.0.0.1:18080 127.0.0.1:18092 127.0.0.1:18095 127.0.0.1:18096 127.0.0.1:18171 
+ 03:15:15 up 2 days,  8:08,  5 users,  load average: 16.95, 9.17, 5.94
+7.0.0-1019-nvidia
+window 20261031T081515Z-f54001
+lock acquired 2026-10-31T08:19:53Z

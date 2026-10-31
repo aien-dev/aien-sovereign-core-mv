@@ -233,11 +233,11 @@ impl Qwen38Omega {
             unsafe {
                 graph.set_layer(
                     l,
-                    t.mix.as_raw(),
+                    t.mix.fp8_raw(),
                     ab,
-                    t.o.as_raw(),
-                    t.gate_up.as_raw(),
-                    t.down.as_raw(),
+                    t.o.fp8_raw(),
+                    t.gate_up.fp8_raw(),
+                    t.down.fp8_raw(),
                     in_norm,
                 )
             }

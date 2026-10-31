@@ -116,6 +116,11 @@ pub enum ChatTemplate {
     /// template splits out of a `</think>`-bearing content. Tool turns are refused. Selected only by
     /// the pinned text.
     Qwen36,
+    /// Qwen3.5 (the pinned template `QWEN35`, Qwen3.5-9B): the [`Self::Qwen36`] rendering without
+    /// the `preserve_thinking` switch (the template has none, so earlier assistant turns before the
+    /// last user query always render plain and the option is ignored as the template ignores it).
+    /// Selected only by the pinned text.
+    Qwen35,
     /// The model directory has no chat template at all (a base model). Plain text encode
     /// and decode work; every chat render is refused (`try_render` errors with
     /// "no chat template"). Chosen only when neither `tokenizer_config.json` `chat_template`
@@ -156,10 +161,17 @@ const QWEN38: &str = include_str!("../fixtures/chat-templates/qwen3.8-27b/chat_t
 /// earlier assistant turns render plain) and a `</think>` split of assistant content.
 const QWEN36: &str = include_str!("../fixtures/chat-templates/qwen3.6-35b-a3b/chat_template.jinja");
 
+/// The Qwen3.5-9B chat template, byte for byte (Hugging Face `Qwen/Qwen3.5-9B` revision
+/// c202236235762e1c871ad0ccb60c8ee5ba337b9a, Apache-2.0; see
+/// `fixtures/chat-templates/qwen3.5-9b/PROVENANCE.md`). Text-only, it renders as [`QWEN36`] with
+/// `preserve_thinking` always off.
+const QWEN35: &str = include_str!("../fixtures/chat-templates/qwen3.5-9b/chat_template.jinja");
+
 /// Template switches a request may set (`chat_template_kwargs`). `None` = the template's default.
-/// Only [`ChatTemplate::Qwen38`] and [`ChatTemplate::Qwen36`] read them; the other layouts ignore
-/// them. `reasoning_effort` is the 27B template's switch (the 35B template ignores it);
-/// `preserve_thinking` is the 35B template's switch (the 27B renderer here keeps every think block).
+/// Only [`ChatTemplate::Qwen38`], [`ChatTemplate::Qwen36`] and [`ChatTemplate::Qwen35`] read them;
+/// the other layouts ignore them. `reasoning_effort` is the 27B template's switch (the 35B and 9B
+/// templates ignore it); `preserve_thinking` is the 35B template's switch (the 27B renderer here
+/// keeps every think block; the 9B template has none).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChatOptions {
     pub enable_thinking: Option<bool>,
@@ -350,6 +362,9 @@ fn parse_chatml(template_text: &str) -> Result<ChatTemplate, TokenizerError> {
     if text == QWEN36.trim() {
         return Ok(ChatTemplate::Qwen36);
     }
+    if text == QWEN35.trim() {
+        return Ok(ChatTemplate::Qwen35);
+    }
     if text == CHATML_PLAIN {
         return Ok(ChatTemplate::ChatMl {
             default_system: None,
@@ -486,8 +501,8 @@ fn render_qwen3_nothink(turns: &[(&str, &str)]) -> Result<String, TokenizerError
 }
 
 impl ChatTemplate {
-    /// [`Self::try_render`] with template switches: only [`ChatTemplate::Qwen38`] and
-    /// [`ChatTemplate::Qwen36`] read `opts`.
+    /// [`Self::try_render`] with template switches: only [`ChatTemplate::Qwen38`],
+    /// [`ChatTemplate::Qwen36`] and [`ChatTemplate::Qwen35`] read `opts`.
     pub fn try_render_with(
         &self,
         turns: &[(&str, &str)],
@@ -496,6 +511,13 @@ impl ChatTemplate {
         match self {
             Self::Qwen38 => render_qwen38(turns, opts),
             Self::Qwen36 => render_qwen36(turns, opts),
+            Self::Qwen35 => render_qwen36(
+                turns,
+                &ChatOptions {
+                    preserve_thinking: None,
+                    ..opts.clone()
+                },
+            ),
             _ => self.try_render(turns),
         }
     }
@@ -531,6 +553,7 @@ impl ChatTemplate {
             Self::ChatMlQwen3NoThink => "chatml-qwen3-nothink (Qwen3-8B, thinking off)",
             Self::Qwen38 => "qwen3.8 (Qwen3.8-27B, thinking per request, template default on)",
             Self::Qwen36 => "qwen3.6 (Qwen3.6-35B-A3B, thinking per request, template default on)",
+            Self::Qwen35 => "qwen3.5 (Qwen3.5-9B, thinking per request, template default on)",
             Self::None => "none (plain text model)",
         }
     }
@@ -611,7 +634,8 @@ impl ChatTemplate {
                 | Self::ChatMlQwen3
                 | Self::ChatMlQwen3NoThink
                 | Self::Qwen38
-                | Self::Qwen36 => {
+                | Self::Qwen36
+                | Self::Qwen35 => {
                     unreachable!("ChatML returned above")
                 }
                 Self::None => unreachable!("plain model refused above"),
@@ -625,7 +649,8 @@ impl ChatTemplate {
                 | Self::ChatMlQwen3
                 | Self::ChatMlQwen3NoThink
                 | Self::Qwen38
-                | Self::Qwen36 => {
+                | Self::Qwen36
+                | Self::Qwen35 => {
                     unreachable!("ChatML returned above")
                 }
                 Self::None => unreachable!("plain model refused above"),
@@ -730,7 +755,10 @@ impl ChatTokenizer {
     /// end-of-sequence set of the model directory `dir`:
     /// - template: detected from `chat_template` in `tokenizer_config.json`, else from
     ///   `chat_template.jinja`;
-    /// - stop set: `eos_token_id` of `generation_config.json`, else of `config.json`;
+    /// - stop set: `eos_token_id` of `generation_config.json`; without one, `eos_token_id` of
+    ///   `config.json` (or of its `text_config`), preceded by the id of `tokenizer_config.json`
+    ///   `eos_token` when that is not already in it (Qwen3.5-9B ships no generation config: its
+    ///   text config names `<|endoftext|>` and its tokenizer `<|im_end|>`, the chat turn end);
     /// - context limit: `max_position_embeddings` of `config.json`, or of its `text_config`
     ///   (default 2048).
     pub fn from_model_dir(
@@ -741,7 +769,8 @@ impl ChatTokenizer {
         let mut tokenizer = Self::from_file(tokenizer_json.unwrap_or(&default_json))?;
         // A present `chat_template` key must be a string; any other form (the HF list
         // form, null, an object) is an unrecognized template and never falls back to plain.
-        let config_template = match read_json(&dir.join("tokenizer_config.json"))?
+        let tokenizer_config = read_json(&dir.join("tokenizer_config.json"))?;
+        let config_template = match tokenizer_config
             .as_ref()
             .and_then(|c| c.get("chat_template"))
         {
@@ -781,16 +810,34 @@ impl ChatTokenizer {
             None => ChatTemplate::None,
         };
         let config = read_json(&dir.join("config.json"))?;
-        let stop = read_json(&dir.join("generation_config.json"))?
+        let stop = match read_json(&dir.join("generation_config.json"))?
             .as_ref()
             .and_then(eos_token_ids_from_json)
-            .or_else(|| config.as_ref().and_then(eos_token_ids_from_json))
-            .ok_or_else(|| {
-                TokenizerError::LoadError(format!(
-                    "no eos_token_id in {}/generation_config.json or config.json",
-                    dir.display()
-                ))
-            })?;
+        {
+            Some(stop) => Some(stop),
+            None => config
+                .as_ref()
+                .and_then(|c| {
+                    eos_token_ids_from_json(c)
+                        .or_else(|| c.get("text_config").and_then(eos_token_ids_from_json))
+                })
+                .map(|mut stop| {
+                    let declared = tokenizer_config
+                        .as_ref()
+                        .and_then(|t| t.get("eos_token")?.as_str())
+                        .and_then(|tok| tokenizer.token_to_id(tok));
+                    if let Some(id) = declared.filter(|id| !stop.contains(id)) {
+                        stop.insert(0, id);
+                    }
+                    stop
+                }),
+        }
+        .ok_or_else(|| {
+            TokenizerError::LoadError(format!(
+                "no eos_token_id in {}/generation_config.json or config.json",
+                dir.display()
+            ))
+        })?;
         if stop.is_empty() {
             return Err(TokenizerError::LoadError(format!(
                 "empty eos_token_id in {}",

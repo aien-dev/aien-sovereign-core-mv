@@ -81,6 +81,9 @@ pub struct Qwen38Config {
     /// `Some` for the MoE variant (`qwen3_5_moe`, Qwen3.6-35B-A3B): every layer's MLP is a routed
     /// sparse block plus a gated shared expert, and `intermediate` is unused (0).
     pub moe: Option<MoeShape>,
+    /// `config.json` names an FP8 `quantization_config` (projections FP8 e4m3, 128 x 128 block
+    /// scales); false: the projections are stored bf16 (e.g. the official Qwen3.5-9B).
+    pub fp8: bool,
 }
 
 /// The sparse MLP of a `qwen3_5_moe` layer (transformers `Qwen3_5MoeSparseMoeBlock`): router
@@ -227,6 +230,7 @@ impl Qwen38Config {
             eps: f64_field(text, "rms_norm_eps")? as f32,
             eos_token_ids,
             moe,
+            fp8: raw.get("quantization_config").is_some(),
         };
         c.validate()?;
         Ok(c)
@@ -439,11 +443,21 @@ pub(crate) fn read_bf16_words(
     Ok(words)
 }
 
+/// Reads the `[len]` vector `name` as f32: bf16 widened, or f32 as stored (Qwen3.5-9B keeps
+/// `linear_attn.A_log` and `linear_attn.norm.weight` in F32).
 pub(crate) fn read_vec(
     source: &mut dyn TensorSource,
     name: &str,
     len: usize,
 ) -> Result<Vec<f32>, String> {
+    if source.dtype_of(name)?.as_deref() == Some("F32") {
+        let mut bytes = vec![0u8; len * 4];
+        source.read_into(name, "F32", &[len], &mut bytes)?;
+        return Ok(bytes
+            .chunks_exact(4)
+            .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            .collect());
+    }
     Ok(read_bf16_words(source, name, &[len])?
         .into_iter()
         .map(bf16_to_f32)
@@ -642,7 +656,7 @@ fn rms_norm_zc(x: &mut [f32], w: &[f32], eps: f32) {
     }
 }
 
-fn silu(x: f32) -> f32 {
+pub(crate) fn silu(x: f32) -> f32 {
     x / (1.0 + (-x).exp())
 }
 
@@ -1296,6 +1310,23 @@ mod tests {
         }
     }
 
+    #[test]
+    fn read_vec_takes_bf16_and_f32_exactly_and_refuses_other_dtypes() {
+        let mut m = Mem::default();
+        let vals = [1.0f32 / 3.0, -2.5e-7, 7.75];
+        let bytes = vals.iter().flat_map(|v| v.to_le_bytes()).collect();
+        m.tensors.insert("f".into(), ("F32".into(), vec![3], bytes));
+        assert_eq!(read_vec(&mut m, "f", 3).unwrap(), vals);
+        m.bf16("b", &[3], 0.5, 0.0);
+        let words = read_bf16_words(&mut m, "b", &[3]).unwrap();
+        let want: Vec<f32> = words.into_iter().map(bf16_to_f32).collect();
+        assert_eq!(read_vec(&mut m, "b", 3).unwrap(), want);
+        assert!(read_vec(&mut m, "f", 4).is_err());
+        m.tensors
+            .insert("h".into(), ("F16".into(), vec![3], vec![0; 6]));
+        assert!(read_vec(&mut m, "h", 3).is_err());
+    }
+
     fn tiny() -> Qwen38Config {
         Qwen38Config {
             hidden: 256,
@@ -1316,6 +1347,7 @@ mod tests {
             eps: 1e-6,
             eos_token_ids: vec![1],
             moe: None,
+            fp8: true,
         }
     }
 
@@ -1425,6 +1457,7 @@ mod tests {
         assert_eq!(c.conv_dim(), 10240);
         assert_eq!(c.full_attention, vec![false, false, false, true]);
         assert_eq!(c.eos_token_ids, vec![248046, 248044]);
+        assert!(c.fp8);
         let tied = json.replace(
             "\"tie_word_embeddings\":false",
             "\"tie_word_embeddings\":true",
@@ -1432,6 +1465,54 @@ mod tests {
         assert!(Qwen38Config::from_json(&tied, None).is_err());
         let int8 = json.replace("\"fp8\"", "\"int8\"");
         assert!(Qwen38Config::from_json(&int8, None).is_err());
+    }
+
+    #[test]
+    fn the_dense_door_takes_the_27b_and_the_9b_shape() {
+        let j27 = r#"{"model_type":"qwen3_5","tie_word_embeddings":false,
+          "quantization_config":{"quant_method":"fp8","fmt":"e4m3","weight_block_size":[128,128]},
+          "text_config":{"attn_output_gate":true,"hidden_act":"silu","hidden_size":5120,
+          "num_hidden_layers":4,"vocab_size":248320,"intermediate_size":17408,
+          "layer_types":["linear_attention","linear_attention","linear_attention","full_attention"],
+          "num_attention_heads":24,"num_key_value_heads":4,"head_dim":256,
+          "rope_parameters":{"rope_theta":10000000,"partial_rotary_factor":0.25},
+          "linear_num_key_heads":16,"linear_num_value_heads":48,"linear_key_head_dim":128,
+          "linear_value_head_dim":128,"linear_conv_kernel_dim":4,"rms_norm_eps":1e-6,
+          "eos_token_id":248044}}"#;
+        let c27 = Qwen38Config::from_json(j27, None).unwrap();
+        let s27 = crate::qwen38_omega::dense_shape(&c27).unwrap();
+        assert_eq!(s27, aien_omega_q38::Shape::Q38_27B);
+        // Qwen3.5-9B (HF Qwen/Qwen3.5-9B config.json text_config)
+        let j9 = j27
+            .replace("\"hidden_size\":5120", "\"hidden_size\":4096")
+            .replace("\"intermediate_size\":17408", "\"intermediate_size\":12288")
+            .replace("\"num_attention_heads\":24", "\"num_attention_heads\":16")
+            .replace(
+                "\"linear_num_value_heads\":48",
+                "\"linear_num_value_heads\":32",
+            );
+        let c9 = Qwen38Config::from_json(&j9, None).unwrap();
+        let s9 = crate::qwen38_omega::dense_shape(&c9).unwrap();
+        assert_eq!(
+            (s9.hidden, s9.inter, s9.q_heads, s9.kv_heads, s9.gdn_heads),
+            (4096, 12288, 16, 4, 32)
+        );
+        assert_eq!(
+            (s9.gdn_qkv(), s9.gdn_mix(), s9.att_mix(), s9.mixer_out()),
+            (8192, 12288, 10240, 4096)
+        );
+        // refused: a head_dim the kernels do not have, and a GDN head count outside {32, 48}
+        let hd = j9.replace("\"head_dim\":256", "\"head_dim\":128");
+        assert!(
+            crate::qwen38_omega::dense_shape(&Qwen38Config::from_json(&hd, None).unwrap()).is_err()
+        );
+        let gh = j9.replace(
+            "\"linear_num_value_heads\":32",
+            "\"linear_num_value_heads\":16",
+        );
+        assert!(
+            crate::qwen38_omega::dense_shape(&Qwen38Config::from_json(&gh, None).unwrap()).is_err()
+        );
     }
 
     #[test]
