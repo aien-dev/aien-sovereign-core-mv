@@ -1,9 +1,121 @@
-//! Tool calling for the Qwen3.6 (qwen3_coder XML) chat format, rendered exactly as the model's own
-//! chat template does it (model dir chat_template.jinja: the `tools` system block, assistant
-//! `tool_calls`, and `tool` messages folded into one user turn of `<tool_response>` blocks), and the
-//! reply parsed back into OpenAI `tool_calls`. Drake 2026-10-21: "make it support tool use ... build it in".
+//! Tool calling in the model's own chat format, rendered exactly as its chat template does it (the
+//! `tools` system block, assistant `tool_calls`, and `tool` messages folded into one user turn of
+//! `<tool_response>` blocks), and the reply parsed back into OpenAI `tool_calls`. Two formats:
+//! Qwen3.6/3.8 qwen3_coder XML (`<function=..><parameter=..>`) and the Hermes JSON of Qwen3-2507
+//! (`{"name": .., "arguments": ..}`); [`ToolFormat::from_model_dir`] picks one from the template.
+//! Drake 2026-10-21: "make it support tool use ... build it in".
+
+use std::path::Path;
 
 use serde_json::{Map, Value};
+
+/// The tool-calling layout of a model's chat template.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ToolFormat {
+    /// Qwen3.6-35B-A3B / Qwen3.8-27B (`qwen3_coder`): XML function and parameter tags; the
+    /// tools block comes before the system text.
+    #[default]
+    Qwen3CoderXml,
+    /// Qwen3-2507 Instruct (e.g. Qwen3-30B-A3B-Instruct-2507): Hermes JSON inside `<tool_call>`;
+    /// the system text comes before the tools block.
+    HermesJson,
+}
+
+/// The sentence only the Hermes tools block carries.
+const HERMES_MARKER: &str = "You may call one or more functions to assist with the user query.";
+const HERMES_HEAD: &str = "# Tools\n\nYou may call one or more functions to assist with the user query.\n\nYou are provided with function signatures within <tools></tools> XML tags:\n<tools>";
+const HERMES_TAIL: &str = "\n</tools>\n\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n<tool_call>\n{\"name\": <function-name>, \"arguments\": <args-json-object>}\n</tool_call>";
+
+impl ToolFormat {
+    /// Hermes JSON when the template carries the Hermes tools instruction, qwen3_coder XML otherwise.
+    pub fn detect(template_text: &str) -> Self {
+        if template_text.contains(HERMES_MARKER) {
+            Self::HermesJson
+        } else {
+            Self::Qwen3CoderXml
+        }
+    }
+
+    /// Reads the template from the sources `ChatTokenizer::from_model_dir` renders with, in its
+    /// order: `tokenizer_config.json` `chat_template`, else `chat_template.jinja`. No template:
+    /// qwen3_coder XML.
+    pub fn from_model_dir(dir: &Path) -> Result<Self, String> {
+        let read =
+            |p: &Path| std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()));
+        let config = dir.join("tokenizer_config.json");
+        if config.exists() {
+            let v: Value = serde_json::from_str(&read(&config)?)
+                .map_err(|e| format!("{}: {e}", config.display()))?;
+            if let Some(t) = v.get("chat_template").and_then(Value::as_str) {
+                return Ok(Self::detect(t));
+            }
+        }
+        let jinja = dir.join("chat_template.jinja");
+        if jinja.exists() {
+            return Ok(Self::detect(&read(&jinja)?));
+        }
+        Ok(Self::Qwen3CoderXml)
+    }
+
+    pub fn system_with_tools(self, tools: &[Value], system: Option<&str>) -> String {
+        match self {
+            Self::Qwen3CoderXml => system_with_tools(tools, system),
+            Self::HermesJson => hermes_system_with_tools(tools, system),
+        }
+    }
+
+    pub fn assistant_with_calls(self, content: &str, calls: &[Value]) -> String {
+        match self {
+            Self::Qwen3CoderXml => assistant_with_calls(content, calls),
+            Self::HermesJson => hermes_assistant_with_calls(content, calls),
+        }
+    }
+}
+
+/// The chat turns of a request in this format: `msgs` are `(role, text, tool_calls)` with roles
+/// already normalized to system/user/assistant/tool. Runs of `tool` messages fold into one user
+/// turn; with tools, the first system turn carries the tools block (one is added when absent).
+/// Both templates fold tool results the same way.
+pub fn fold_turns(
+    format: ToolFormat,
+    tool_defs: &[Value],
+    msgs: Vec<(&str, String, Option<&[Value]>)>,
+) -> Vec<(String, String)> {
+    let mut turns: Vec<(String, String)> = Vec::with_capacity(msgs.len() + 1);
+    let mut pending_tool: Vec<String> = Vec::new();
+    for (role, text, calls) in msgs {
+        if role == "tool" {
+            pending_tool.push(text);
+            continue;
+        }
+        if !pending_tool.is_empty() {
+            turns.push(("user".into(), tool_responses(&pending_tool)));
+            pending_tool.clear();
+        }
+        let text = match (role, calls) {
+            ("assistant", Some(calls)) if !calls.is_empty() => {
+                format.assistant_with_calls(&text, calls)
+            }
+            _ => text,
+        };
+        turns.push((role.to_string(), text));
+    }
+    if !pending_tool.is_empty() {
+        turns.push(("user".into(), tool_responses(&pending_tool)));
+    }
+    if !tool_defs.is_empty() {
+        match turns.first_mut() {
+            Some((r, c)) if r == "system" => {
+                *c = format.system_with_tools(tool_defs, Some(c.as_str()));
+            }
+            _ => turns.insert(
+                0,
+                ("system".into(), format.system_with_tools(tool_defs, None)),
+            ),
+        }
+    }
+    turns
+}
 
 const TOOLS_HEAD: &str = "# Tools\n\nYou have access to the following functions:\n\n<tools>";
 const TOOLS_TAIL: &str = "\n</tools>\n\nIf you choose to call a function ONLY reply in the following format with NO suffix:\n\n<tool_call>\n<function=example_function_name>\n<parameter=example_parameter_1>\nvalue_1\n</parameter>\n<parameter=example_parameter_2>\nThis is the value for the second parameter\nthat can span\nmultiple lines\n</parameter>\n</function>\n</tool_call>\n\n<IMPORTANT>\nReminder:\n- Function calls MUST follow the specified format: an inner <function=...></function> block must be nested within <tool_call></tool_call> XML tags\n- Required parameters MUST be specified\n- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after\n- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls\n</IMPORTANT>";
@@ -27,8 +139,8 @@ pub fn tojson(v: &Value) -> String {
     }
 }
 
-/// The system turn's content when tools are present: the tools block, then the request's own system
-/// text after a blank line (the template trims it and drops it when empty).
+/// qwen3_coder: the system turn's content when tools are present: the tools block, then the
+/// request's own system text after a blank line (the template trims it and drops it when empty).
 pub fn system_with_tools(tools: &[Value], system: Option<&str>) -> String {
     let mut s = String::from(TOOLS_HEAD);
     for t in tools {
@@ -43,7 +155,7 @@ pub fn system_with_tools(tools: &[Value], system: Option<&str>) -> String {
     s
 }
 
-/// An assistant turn's content with its `tool_calls` appended in the template's layout.
+/// qwen3_coder: an assistant turn's content with its `tool_calls` appended in the template's layout.
 pub fn assistant_with_calls(content: &str, calls: &[Value]) -> String {
     let mut s = content.to_string();
     for (i, call) in calls.iter().enumerate() {
@@ -79,6 +191,47 @@ pub fn assistant_with_calls(content: &str, calls: &[Value]) -> String {
             }
         }
         s.push_str("</function>\n</tool_call>");
+    }
+    s
+}
+
+/// Hermes: the system turn's content when tools are present: the request's system text verbatim
+/// and a blank line (the template neither trims nor drops it), then the tools block, one
+/// `tojson` line per tool.
+pub fn hermes_system_with_tools(tools: &[Value], system: Option<&str>) -> String {
+    let mut s = String::new();
+    if let Some(sys) = system {
+        s.push_str(sys);
+        s.push_str("\n\n");
+    }
+    s.push_str(HERMES_HEAD);
+    for t in tools {
+        s.push('\n');
+        s.push_str(&tojson(t));
+    }
+    s.push_str(HERMES_TAIL);
+    s
+}
+
+/// Hermes: an assistant turn's content with each call as `<tool_call>\n{"name": "N", "arguments":
+/// A}\n</tool_call>`, a newline before every call but a first one with empty content. String
+/// arguments (the OpenAI form) go in verbatim, others through `tojson`, as the template does.
+pub fn hermes_assistant_with_calls(content: &str, calls: &[Value]) -> String {
+    let mut s = content.to_string();
+    for (i, call) in calls.iter().enumerate() {
+        if i > 0 || !content.is_empty() {
+            s.push('\n');
+        }
+        let f = call.get("function").unwrap_or(call);
+        s.push_str("<tool_call>\n{\"name\": \"");
+        s.push_str(f.get("name").and_then(Value::as_str).unwrap_or(""));
+        s.push_str("\", \"arguments\": ");
+        match f.get("arguments") {
+            Some(Value::String(t)) => s.push_str(t),
+            Some(v) => s.push_str(&tojson(v)),
+            None => s.push_str("null"),
+        }
+        s.push_str("}\n</tool_call>");
     }
     s
 }
@@ -285,5 +438,124 @@ mod tests {
         assert_eq!(partial_open_len("hello <tool"), 5);
         assert_eq!(partial_open_len("hello"), 0);
         assert_eq!(partial_open_len("x<"), 1);
+    }
+
+    /// The Qwen3-4B-Instruct-2507 template pin; byte-identical to the `chat_template` of
+    /// Qwen3-30B-A3B-Instruct-2507-FP8's tokenizer_config.json (checked 2026-10-26).
+    const QWEN3_2507_TEMPLATE: &str = include_str!(
+        "../../aien-inference-abi/fixtures/chat-templates/qwen3-4b-instruct-2507/chat_template.jinja"
+    );
+    const QWEN36_TEMPLATE: &str = include_str!(
+        "../../aien-inference-abi/fixtures/chat-templates/qwen3.6-35b-a3b/chat_template.jinja"
+    );
+    const QWEN38_TEMPLATE: &str = include_str!(
+        "../../aien-inference-abi/fixtures/chat-templates/qwen3.8-27b/chat_template.jinja"
+    );
+    /// 2 tools, a system message, an assistant turn with text and two calls (string and object
+    /// arguments), two tool results, an assistant turn with no text and one call, one tool result.
+    const HERMES_REQUEST: &str = include_str!("tools/hermes_request.json");
+    /// `tools/hermes_request.json` rendered with add_generation_prompt=True by the real template
+    /// (python3 jinja2 3.1.2, ImmutableSandboxedEnvironment(trim_blocks=True, lstrip_blocks=True,
+    /// loopcontrols), `tojson` = transformers' `json.dumps(x, ensure_ascii=False)`):
+    ///   env.from_string(json.load(open("<30B dir>/tokenizer_config.json"))["chat_template"])
+    ///      .render(messages=req["messages"], tools=req["tools"], add_generation_prompt=True)
+    /// The request's keys are sorted at every level, so key order is the same in both renderers.
+    const HERMES_EXPECTED: &str = include_str!("tools/hermes_expected.txt");
+
+    /// The full prompt for the fixture request, through the same fold as `server::prepare` and
+    /// the engine's own ChatML renderer for the 2507 template.
+    fn render_fixture(format: ToolFormat) -> String {
+        let req: Value = serde_json::from_str(HERMES_REQUEST).unwrap();
+        let msgs = req["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| {
+                (
+                    m["role"].as_str().unwrap(),
+                    m["content"].as_str().unwrap_or("").to_string(),
+                    m.get("tool_calls")
+                        .and_then(Value::as_array)
+                        .map(Vec::as_slice),
+                )
+            })
+            .collect();
+        let turns = fold_turns(format, req["tools"].as_array().unwrap(), msgs);
+        let refs: Vec<(&str, &str)> = turns
+            .iter()
+            .map(|(r, c)| (r.as_str(), c.as_str()))
+            .collect();
+        let template =
+            aien_inference_abi::tokenizer::ChatTemplate::detect(QWEN3_2507_TEMPLATE).unwrap();
+        template.try_render(&refs).unwrap()
+    }
+
+    #[test]
+    fn hermes_render_matches_the_2507_template_byte_for_byte() {
+        assert_eq!(render_fixture(ToolFormat::HermesJson), HERMES_EXPECTED);
+    }
+
+    /// Negative control: the qwen3_coder renderer does not produce the Hermes prompt.
+    #[test]
+    fn xml_render_does_not_match_the_hermes_expected() {
+        let xml = render_fixture(ToolFormat::Qwen3CoderXml);
+        assert_ne!(xml, HERMES_EXPECTED);
+        assert!(xml.contains("<function=read_file>\n<parameter=path>\n/tmp/a.txt\n</parameter>"));
+    }
+
+    #[test]
+    fn detects_format_from_template_text() {
+        assert_eq!(
+            ToolFormat::detect(QWEN3_2507_TEMPLATE),
+            ToolFormat::HermesJson
+        );
+        assert_eq!(
+            ToolFormat::detect(QWEN36_TEMPLATE),
+            ToolFormat::Qwen3CoderXml
+        );
+        assert_eq!(
+            ToolFormat::detect(QWEN38_TEMPLATE),
+            ToolFormat::Qwen3CoderXml
+        );
+    }
+
+    #[test]
+    fn detects_format_from_model_dir() {
+        let dir = std::env::temp_dir().join(format!("aien-tools-fmt-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(
+            ToolFormat::from_model_dir(&dir).unwrap(),
+            ToolFormat::Qwen3CoderXml
+        );
+        std::fs::write(dir.join("chat_template.jinja"), QWEN3_2507_TEMPLATE).unwrap();
+        assert_eq!(
+            ToolFormat::from_model_dir(&dir).unwrap(),
+            ToolFormat::HermesJson
+        );
+        // tokenizer_config.json's template wins, as in ChatTokenizer::from_model_dir.
+        let cfg = serde_json::json!({"chat_template": QWEN36_TEMPLATE});
+        std::fs::write(dir.join("tokenizer_config.json"), cfg.to_string()).unwrap();
+        assert_eq!(
+            ToolFormat::from_model_dir(&dir).unwrap(),
+            ToolFormat::Qwen3CoderXml
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn hermes_reply_parses_back() {
+        let s = hermes_assistant_with_calls(
+            "",
+            &[serde_json::json!({"function": {"name": "f", "arguments": {"x": 1}}})],
+        );
+        assert_eq!(
+            s,
+            "<tool_call>\n{\"name\": \"f\", \"arguments\": {\"x\": 1}}\n</tool_call>"
+        );
+        let (c, calls) = parse_reply(&s, "h");
+        assert_eq!(c, "");
+        assert_eq!(calls[0]["function"]["name"], "f");
+        assert_eq!(calls[0]["function"]["arguments"], "{\"x\":1}");
     }
 }
