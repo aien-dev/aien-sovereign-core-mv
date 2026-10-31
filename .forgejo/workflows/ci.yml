@@ -1,10 +1,16 @@
 name: Sovereign CI
 
+# DRA-45: this job runs on the self-hosted `spark` runner (the DGX Spark host,
+# no container). A self-hosted runner must never run code from a pull request:
+# a PR head, including a fork's, would execute on the host with the runner's
+# access. Triggers are limited to push to the protected main branch and manual
+# dispatch. Every runner label on this Forgejo maps to the Spark host, so a
+# hosted event-guard job is not possible here; pre-merge CI for PRs runs
+# through aien-local-ci (tools/aien-local-ci), not this workflow.
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   verify:
@@ -26,11 +32,11 @@ jobs:
 
       - name: Run Workspace Unit and Integration Tests
         env:
-          # Pull requests lint commits added since the PR base. Pushes lint
-          # commits since github.event.before, except the all-zero SHA that
-          # marks a newly created ref (then the variable is empty and the
-          # lint skips). A fetch that fails is a step failure.
-          AIEN_COMMIT_LINT_BASE: ${{ github.event.pull_request.base.sha || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before) || '' }}
+          # Pushes lint commits since github.event.before, except the all-zero
+          # SHA that marks a newly created ref (then the variable is empty and
+          # the lint skips; workflow_dispatch also leaves it empty). A fetch
+          # that fails is a step failure.
+          AIEN_COMMIT_LINT_BASE: ${{ (github.event.before != '0000000000000000000000000000000000000000' && github.event.before) || '' }}
         run: |
           if [ -n "$AIEN_COMMIT_LINT_BASE" ]; then
             if ! git cat-file -e "$AIEN_COMMIT_LINT_BASE^{commit}" 2>/dev/null; then

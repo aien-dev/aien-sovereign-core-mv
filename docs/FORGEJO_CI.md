@@ -42,7 +42,7 @@ Every repository in the AIEN ecosystem adheres to the following dual-workflow la
 
 1. **Forgejo Workflows (`.forgejo/workflows/`)**:
    - Filename: `.forgejo/workflows/ci.yml`
-   - Trigger: `push` and `pull_request` on `main`
+   - Trigger: `push` on `main` and `workflow_dispatch`, never `pull_request` (DRA-45: a self-hosted runner never runs PR code; every runner label here maps to the Spark host, so there is no hosted event-guard job)
    - Runner Target: `runs-on: spark`
    - Purpose: Automatic test execution, code style verification, zero-plaintext-secret auditing, and terminology enforcement.
 
