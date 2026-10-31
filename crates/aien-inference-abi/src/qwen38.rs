@@ -56,6 +56,8 @@ use rayon::prelude::*;
 use crate::qwen3_moe::{bf16_to_f32, fp8_table, FP8_BLOCK};
 use crate::qwen3_moe_omega::{ShardSource, TensorSource};
 
+pub mod mtp;
+
 /// The text model's shape, read from `config.json` (`text_config` of a `qwen3_5` checkpoint).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Qwen38Config {
@@ -793,11 +795,17 @@ impl<S: TensorSource> Qwen38Reference<S> {
     }
 
     fn read_layer(&mut self, l: usize) -> Result<LayerWeights, String> {
-        let c = self.config.clone();
         let p = format!("{}layers.{l}", self.prefix);
+        let full = self.config.full_attention[l];
+        self.read_layer_at(&p, full)
+    }
+
+    /// One decoder layer under the tensor prefix `p` (`…layers.{l}` or the MTP's `mtp.layers.0`).
+    fn read_layer_at(&mut self, p: &str, full_attention: bool) -> Result<LayerWeights, String> {
+        let c = self.config.clone();
         let src: &mut dyn TensorSource = &mut self.source;
         let h = c.hidden;
-        let mixer = if c.full_attention[l] {
+        let mixer = if full_attention {
             let a = format!("{p}.self_attn");
             Mixer::Attention(AttentionWeights {
                 q: read_matrix(
@@ -857,7 +865,14 @@ impl<S: TensorSource> Qwen38Reference<S> {
     /// The sparse block over `t` rows of `xn` (post-attention normed): routes every row, reads
     /// each routed expert of layer `l` once and adds `weight * expert(x)` plus the gated shared
     /// expert. Records the routed ids in [`Self::routes`].
-    fn moe(&mut self, l: usize, w: &MoeWeights, xn: &[f32], t: usize) -> Result<Vec<f32>, String> {
+    fn moe(
+        &mut self,
+        l: usize,
+        experts: &str,
+        w: &MoeWeights,
+        xn: &[f32],
+        t: usize,
+    ) -> Result<Vec<f32>, String> {
         let s = self.config.moe.clone().ok_or("moe: dense config")?;
         let h = self.config.hidden;
         let (jw, rel) = self.jitter;
@@ -924,7 +939,7 @@ impl<S: TensorSource> Qwen38Reference<S> {
             gates.push(g);
         }
         self.shared_g[l] = gates;
-        let p = format!("{}layers.{l}.mlp.experts", self.prefix);
+        let p = experts;
         for (e, rows) in users.iter().enumerate() {
             if rows.is_empty() {
                 continue;
@@ -1017,7 +1032,10 @@ impl<S: TensorSource> Qwen38Reference<S> {
             rms_norm_zc(&mut xn, &w.post_norm, c.eps);
             let down = match &w.mlp {
                 Mlp::Dense(f) => f.run(&xn, t),
-                Mlp::Moe(m) => self.moe(l, m, &xn, t)?,
+                Mlp::Moe(m) => {
+                    let experts = format!("{}layers.{l}.mlp.experts", self.prefix);
+                    self.moe(l, &experts, m, &xn, t)?
+                }
             };
             x.iter_mut().zip(&down).for_each(|(a, b)| *a += b);
         }
@@ -1232,7 +1250,7 @@ mod tests {
     use std::collections::HashMap;
 
     /// Deterministic pseudo-random values in [-1, 1).
-    fn prand(seed: u64, idx: usize) -> f32 {
+    pub(super) fn prand(seed: u64, idx: usize) -> f32 {
         let mut x = seed
             .wrapping_mul(0x9E37_79B9_7F4A_7C15)
             .wrapping_add(idx as u64 + 1);
@@ -1243,9 +1261,9 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct Mem {
-        tensors: HashMap<String, (String, Vec<usize>, Vec<u8>)>,
-        seed: u64,
+    pub(super) struct Mem {
+        pub(super) tensors: HashMap<String, (String, Vec<usize>, Vec<u8>)>,
+        pub(super) seed: u64,
     }
 
     impl TensorSource for Mem {
@@ -1269,7 +1287,7 @@ mod tests {
     }
 
     impl Mem {
-        fn bf16(&mut self, name: &str, shape: &[usize], scale: f32, offset: f32) {
+        pub(super) fn bf16(&mut self, name: &str, shape: &[usize], scale: f32, offset: f32) {
             self.seed += 1;
             let n: usize = shape.iter().product();
             let bytes = (0..n)
@@ -1278,7 +1296,7 @@ mod tests {
             self.tensors
                 .insert(name.into(), ("BF16".into(), shape.to_vec(), bytes));
         }
-        fn fp8(&mut self, name: &str, n: usize, k: usize) {
+        pub(super) fn fp8(&mut self, name: &str, n: usize, k: usize) {
             self.seed += 1;
             let w = (0..n * k)
                 .map(|i| f32_to_fp8_e4m3fn(prand(self.seed, i) * 8.0))
@@ -1296,7 +1314,7 @@ mod tests {
         }
     }
 
-    fn tiny() -> Qwen38Config {
+    pub(super) fn tiny() -> Qwen38Config {
         Qwen38Config {
             hidden: 256,
             layers: 4,
@@ -1319,7 +1337,7 @@ mod tests {
         }
     }
 
-    fn tiny_moe() -> Qwen38Config {
+    pub(super) fn tiny_moe() -> Qwen38Config {
         Qwen38Config {
             intermediate: 0,
             moe: Some(MoeShape {
@@ -1332,7 +1350,7 @@ mod tests {
         }
     }
 
-    fn tiny_source(c: &Qwen38Config) -> Mem {
+    pub(super) fn tiny_source(c: &Qwen38Config) -> Mem {
         let mut m = Mem::default();
         let (h, p) = (c.hidden, "model.language_model.");
         m.bf16(&format!("{p}embed_tokens.weight"), &[c.vocab, h], 1.0, 0.0);
@@ -1618,7 +1636,9 @@ mod tests {
         let xn: Vec<f32> = (0..t * h).map(|i| prand(77, i)).collect();
         let w = r.read_layer(0).unwrap();
         let Mlp::Moe(m) = &w.mlp else { panic!() };
-        let got = r.moe(0, m, &xn, t).unwrap();
+        let got = r
+            .moe(0, "model.language_model.layers.0.mlp.experts", m, &xn, t)
+            .unwrap();
         let p = "model.language_model.layers.0.mlp";
         let lut = fp8_table();
         let wide = |src: &mut Mem, name: &str, n: usize, k: usize| -> Vec<f64> {
