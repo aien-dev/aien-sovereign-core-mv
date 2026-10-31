@@ -23,6 +23,7 @@ AIENOS.
 | `cron-tick.sh` | source of the cron entry (`*/5`): crumb drift guard, keeps the trigger-only worker alive, runs `rebase-train.sh`, then `pipeline.sh round` |
 | `desk-loop.sh` | the same train + round in a 90 s loop while `$STATE/KEEP-RUNNING` exists |
 | `aien-local-ci` | source of the operator front door `~/.local/bin/aien-local-ci` (status, start/stop named worker lanes, trigger, verify, once, plan, health, log) |
+| `tests/cli_args_test.sh` | offline launcher argument and lane parsing controls with stubbed Git, worker dispatch, process discovery and signals; run with `bash tools/aien-local-ci/tests/cli_args_test.sh` |
 | `crumb-shim.sh` | the operator's `~/.local/bin/crumb`: runs the crumb tool the repository's own CRUMB-VERIFY gate uses (crumb.lock pin, own tree for aien-architecture, else the sandbox tool), so author, readiness check and gate never disagree |
 | `crumb-doctor` | drift check, cron (via cron-tick.sh): gate, readiness and hosted crumb tools agree on every main and tool-changing PR; worker sibling maps match origin/main; `--heal` keeps this clone's work tree on origin/main |
 | `tests/crumb_shim_test.sh`, `tests/crumb_doctor_test.sh` | offline proofs of both on throwaway fixtures (17 and 7 checks) |
@@ -74,10 +75,13 @@ resolves only through it; a file of the same name inside the worktree is never u
 ## Trusted crumb on the sandbox PATH
 
 `/usr/local/bin/crumb` (root 0755) is built by `install.sh` from aien-architecture commit
-`94fffbcf88492c5a1c54211b5126c8a6c370a98d` (`tools/crumb/crumb.c`, git blob `841f5317...`, checked before building;
+`12ad0141b41ec67ef5aa51cb4e1815894c1083bb` (`tools/crumb/crumb.c`, git blob `c272f293...`, checked before building;
 source read from the git object store of `AIEN_ARCH_CLONE`, default `~/workspace/aien-architecture`) with
-`cc -O2 -Wall -std=c11`. With gcc 13.3.0 the binary's sha256 is `22015e6b156e038e...`, identical to the operator's
-`~/.local/bin/crumb` on 2026-10-11. To move the pin, change `CRUMB_COMMIT` and `CRUMB_BLOB` in `install.sh` in a PR.
+`cc -O2 -Wall -std=c11`. With gcc 13.3.0 the binary's sha256 is `2fb09401f1e09682...` (built on the Spark 2026-10-18;
+the installed `/usr/local/bin/crumb` had this sha256 on 2026-10-31). The previous pin `94fffbcf` built to `22015e6b...`,
+which matched the operator's `~/.local/bin/crumb` on 2026-10-11. This repository's `crumb.lock` names the same commit,
+so the CRUMB-VERIFY gate, the worker's readiness check and this sandbox tool agree. To move the pin, change
+`CRUMB_COMMIT` and `CRUMB_BLOB` in `install.sh` and `crumb.lock` in one PR.
 
 The worker's readiness check does not trust any PATH `crumb`: it builds the tool each repository names in `crumb.lock`
 (aien-architecture: the tool at the commit under test) and caches it under `<state>/crumb-tool/<pin>/` (sc#602,
@@ -120,6 +124,7 @@ added by this lane.
 | `/var/lib/aien-run` | root:aien-run 0750, ACL `u:drakestapleton:r-x` | HOME of aien-run; no skeleton dotfiles |
 | `cargo/` | root 0755 | CARGO_HOME (cargo works with it read-only: `--locked --offline` builds need no writes there) |
 | `cargo/registry`, `cargo/git` | root, read-only | seeded once from `~/.cargo` (1.9 GB + 1.3 GB; the git cache is needed because `Cargo.lock` has 3 git sources) |
+| `registry-refresh.sh <Cargo.lock>` | operator, sudo | adds to `cargo/registry` the crates.io packages a trusted lockfile names that the judge lacks: copied from `~/.cargo`, sha256 checked against the lockfile, unpacked into `registry/src` with cargo's `.cargo-ok` marker (the read-only judge cargo cannot unpack a `.crate` itself), index-cache entry copied, one journal line; a `.crate` the judge has without its source is unpacked after the same check; never deletes or replaces a crate or source directory (#622). `--dry-run` only lists |
 | `cargo/bin` | root | the operator's `rustup` binary + proxy symlinks; no second rustup install |
 | `rustup/` | root, read-only | `settings.toml` (default 1.98.1) + `toolchains/1.98.1-aarch64-unknown-linux-gnu` copied (631 MB), plus `toolchains/nightly-aarch64-unknown-linux-gnu` with miri for SC-MIRI |
 | `.cache/miri` | root, read-only | miri sysroot built once by `install.sh` against the copied nightly (110 MB); `cargo +nightly miri setup` in the sandbox finds it and writes nothing (#600) |

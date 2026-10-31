@@ -1,0 +1,5 @@
+{
+  "name": "aien-heartbeat",
+  "purpose": "Expert Heartbeat H1 (aienix#4): fixed-slot versioned ring streaming MoE expert weights from NVMe, publish only after full read + BLAKE3 verify, fail closed",
+  "schema_version": "1.0.0"
+}

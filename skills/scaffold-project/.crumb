@@ -15,20 +15,6 @@
   "description": "Project scaffolding protocol skill folder.",
   "dir_name": "scaffold-project",
   "dir_path": "skills/scaffold-project",
-  "extensions": {
-    "generated": {
-      "children": [],
-      "children_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "compiled_at": "2026-10-04T15:35:46Z",
-      "compiler": "crumb-compile/1",
-      "digest": "sha256:9d5a5630ff03ffc43e893350b017638d6d39fbae9e537d565df217e037bfebf7",
-      "evidence_files": 0,
-      "evidence_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "files": 1,
-      "generated_at_commit": "c848c7bf9ada87072c5f1ecb2b36142de106ef66",
-      "source_tree": "sha256:c004a00a28c373a0df50728d9de5a43c2f74dfa8a325798cbadacc3bcc6ba658"
-    }
-  },
   "history": [
     {
       "action": "seed:knowledge",

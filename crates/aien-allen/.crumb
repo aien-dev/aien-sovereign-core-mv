@@ -1,18 +1,4 @@
 {
-  "extensions": {
-    "generated": {
-      "children": [],
-      "children_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "compiled_at": "2026-10-24T04:15:31Z",
-      "compiler": "crumb-compile/1",
-      "digest": "sha256:e5a81587d398cafcc737337c51428c09697768967eea61386a6ab34f7f871903",
-      "evidence_files": 0,
-      "evidence_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "files": 13,
-      "generated_at_commit": "208776701cc8996b0d6badce6ae5e2bd26aace74",
-      "source_tree": "sha256:c766ba60f785b802017d5789398616f28bf3f559d9c1dbf085aef0703ca071a0"
-    }
-  },
   "name": "aien-allen",
   "purpose": "ALLEN identity gate: resolve-only subject check, host pin record, deployment record (ADR 0035). Never provisions.",
   "schema_version": "1.0.0"
