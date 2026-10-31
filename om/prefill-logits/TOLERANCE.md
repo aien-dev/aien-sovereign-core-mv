@@ -1,7 +1,9 @@
 # SC-PREFILL-LOGITS tolerance (P-DRA-4 Lane P G1, #877)
 
-Status: PROPOSED. It is enforced by `prefill-logits.om` but has not been measured against chip A/A or A/B
-noise. Chip runs are NOT_RUN.
+Status: PROPOSED. TAU = 1.0 is enforced by `prefill-logits.om`, but it stays PROPOSED until two things
+happen: the chip A/A arm (path A run twice: `A1`/`A2` in chip/PREFILLGATE/s01-g1-ab.sh) measures the
+noise floor, and Drake approves the value (Hive is asking him). Until then a G1 PASS reads "PASS under
+the PROPOSED tolerance". Chip runs are NOT_RUN.
 
 ## What is compared
 - Arm A is the legacy GEMV prefill (f32 activations, chunk 128).
