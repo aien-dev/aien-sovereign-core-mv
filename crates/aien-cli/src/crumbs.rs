@@ -17,8 +17,37 @@ use chrono::{DateTime, Utc};
 use colored::*;
 use serde::{Deserialize, Serialize};
 use std::fs;
-
+use std::io::{Read, Write};
 use std::path::Path;
+
+/// Open a `.crumb` or `.crumb.local` sidecar without following a symlink in
+/// its final component. A sidecar planted as a link (say by a cloned repo)
+/// must not redirect a crumb read or write outside its directory (DRA-47).
+fn open_sidecar(path: &Path, opts: &mut fs::OpenOptions) -> std::io::Result<fs::File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NOFOLLOW);
+    }
+    opts.open(path)
+}
+
+fn read_sidecar(path: &Path) -> std::io::Result<String> {
+    let mut text = String::new();
+    open_sidecar(path, fs::OpenOptions::new().read(true))?.read_to_string(&mut text)?;
+    Ok(text)
+}
+
+fn write_sidecar(path: &Path, text: &str) -> std::io::Result<()> {
+    open_sidecar(
+        path,
+        fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true),
+    )?
+    .write_all(text.as_bytes())
+}
 
 pub const CRUMB_FILENAME: &str = ".crumb";
 pub const LOCAL_CRUMB_FILENAME: &str = ".crumb.local";
@@ -34,7 +63,7 @@ pub struct LocalCrumbData {
 pub fn load_local_crumb(dir: &Path) -> LocalCrumbData {
     let local_path = dir.join(LOCAL_CRUMB_FILENAME);
     if local_path.exists() {
-        if let Ok(c) = fs::read_to_string(&local_path) {
+        if let Ok(c) = read_sidecar(&local_path) {
             if let Ok(data) = serde_json::from_str::<LocalCrumbData>(&c) {
                 return data;
             }
@@ -46,7 +75,7 @@ pub fn load_local_crumb(dir: &Path) -> LocalCrumbData {
 pub fn save_local_crumb(dir: &Path, data: &LocalCrumbData) {
     let local_path = dir.join(LOCAL_CRUMB_FILENAME);
     if let Ok(json_str) = serde_json::to_string_pretty(data) {
-        let _ = fs::write(&local_path, json_str);
+        let _ = write_sidecar(&local_path, &json_str);
     }
 }
 
@@ -213,7 +242,7 @@ impl DirCrumb {
 pub fn load_or_init_dir_crumb(dir: &Path, purpose_opt: Option<CrumbPurpose>) -> DirCrumb {
     let crumb_path = dir.join(CRUMB_FILENAME);
     if crumb_path.exists() {
-        if let Ok(content) = fs::read_to_string(&crumb_path) {
+        if let Ok(content) = read_sidecar(&crumb_path) {
             match serde_json::from_str::<DirCrumb>(&content) {
                 Err(e) => eprintln!(
                     "Failed to parse DirCrumb at {}: {}",
@@ -305,7 +334,7 @@ pub fn save_dir_crumb(crumb: &DirCrumb) {
     durable_crumb.whispers = Vec::new(); // Whispers live in .crumb.local
 
     if let Ok(json_str) = serde_json::to_string_pretty(&durable_crumb) {
-        let _ = fs::write(&crumb_path, json_str);
+        let _ = write_sidecar(&crumb_path, &json_str);
     }
 }
 
