@@ -570,6 +570,8 @@ dependencies = [
  "aien-platform",
  "aien-runtime",
  "axum 0.7.9",
+ "hyper",
+ "hyper-util",
  "libc",
  "serde",
  "serde_json",
