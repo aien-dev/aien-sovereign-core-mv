@@ -292,3 +292,44 @@ per cell). Gate binaries per lever: `sc-l4` c345faa2, `sc-l5` 712b5272, `sc-l6` 
 the four stroke runs (`stroke_chip_ns` per stroke, `conversations[].steps`), `stroke8-*` and `stroke8b-*` the eight-head sets, `stroke8v2-*` the v2 set, `stroke8l1-*` the lever 1 set, `stroke8l2-*` the lever 2 set (`*-stamps` the timelines), `lever3-*` to `lever6-*` the kernel-level receipts of levers 3 to 6 (sweep, simulator, host, chip parity), `stroke1-*`
 the runs alone, `stroke{1,2,4}-real`, `stroke{1,2,4}v2-real`, `stroke{1,2,4}l1-real`, `stroke{1,2,4}l2-real` the ladders, `*-vs-alone.txt`, `expert-union-*.json`, `scripts/` the scripts that produced them, `run.log`
 the chip log with binary and lib shas; the scripts live in `~/handoffs/motor-scripts/` (not in the repo: they carry home paths).
+
+## Erratum (2026-10-31, DRA-63, aien-dev/aien-sovereign-core-mv#855): routed experts are 512 wide, not 768
+The lines above stay as written; this section supersedes their expert byte figures.
+
+**Header facts.** The safetensors headers of `~/models/qwen3.6-35b-a3b-fp8-95a723d0` (e.g. `layers-0.safetensors`) give, for every layer 0 to 39 and expert 0 to 255:
+`model.language_model.layers.L.mlp.experts.E.gate_proj.weight` and `up_proj.weight` F8_E4M3 [512, 2048], `down_proj.weight` F8_E4M3 [2048, 512] (1,048,576 B each);
+each `*.weight_scale_inv` is BF16, [4, 16] for gate/up and [16, 4] for down (128 B each). `config.json` says `moe_intermediate_size` 512.
+The Omega GPU path agrees: omega-mv `474197e4` `src/omega_gpu_q36_graph.h` L53 `#define OMEGA_GPU_Q36_EXPERT_INTER 512u`.
+One expert is therefore 3,145,728 B FP8 weight plus 384 B BF16 scales = **3,146,112 B** (Wolfram `3*2048*512 + 3*4*16*2` -> 3146112).
+The 768-wide figure (`3*2048*768` -> 4718592 B per expert, no scales) is wrong, and so is the FP32-scale figure 3,146,496 B (768 B of scales).
+The MTP layer (`mtp.layers.0.*`, 256 experts, 805,404,672 B) is not part of the 40 decode layers and is excluded.
+
+**Host check.** `om/expert-bytes/expert-bytes.om` (seeded Omega, omc pinned in `om/expert-bytes/omega.pin`, gate SC-EXPERT-BYTES, `tests/gates/run.sh expert-bytes`) reads only the headers and requires the above for all 61,440 tensors of layers 0 to 39.
+Its two negative controls must go red in the same run: width 768 (shape_bad 61440, weight_bad 10240, exit 1) and FP32 scales (dtype_bad 30720, scale_bad 10240, exit 1). Host run: PASS, receipt `expert-bytes-check.log`.
+
+**Affected calc ids, recomputed** (all Wolfram via WolframLanguageEvaluator with `pe = 3*2048*512 + 3*4*16*2`). Shared expert counted (the originals of 40ba16a5/803d5a45 omitted it): v2 and lever 2 read union 55 routed + 1 shared = 56 experts per layer; v1 reads 72 = 8 heads x 9.
+
+| calc id (line) | original | corrected | Wolfram query -> result |
+|---|---|---|---|
+| `57a6878b` (L165) | 72 x 3 x 2048 x 768 x 40 = 13.59 GB | 9.061 GB | `N[72*40*pe/10^9]` -> 9.06080256 |
+| `7153d616` (L165) | 13.59 GB / 54.361 ms = 250 GB/s | 166.7 GB/s | `N[72*40*pe/54.361/10^6]` -> 166.678 |
+| `40ba16a5` (L165) | 55 x 3 x 2048 x 768 x 40 = 10.38 GB | 7.047 GB | `N[56*40*pe/10^9]` -> 7.04729088 |
+| `803d5a45` (L165, L177) | 10.38 GB / 40.792 ms = 254.5 GB/s, "93% of 273" | 172.8 GB/s = 63.3% of 273, 72.8% of 237.2 | `N[56*40*pe/40.792/10^6]` -> 172.762; `N[100*%/273]` -> 63.283; `N[100*%/237.2]` -> 72.834 |
+| lever 1 "93% of" (L215; expert span 40.709 ms) | 93% | 173.1 GB/s = 63.4% of 273, 73.0% of 237.2 | `x = N[56*40*3146112/40.709/10^6]; {x, N[100*x/273], N[100*x/237.2]}` -> {173.114, 63.412, 72.982} |
+| lever 2 "93% of" (L263, L272; stroke8l2-stamps.log 22.840 + 15.858 ms) | 93% | 182.1 GB/s = 66.7% of 273, 76.8% of 237.2 | `N[56*40*pe/38.698/10^6]` -> 182.110; -> 66.707; -> 76.775 |
+| floor prose (L177-178) and "The expert union is the floor" (L225, L272) | 10.4 + 1.3 + 0.5 = about 12 GB = 45 ms, 178 tok/s for eight | 37.3 ms, 214 tok/s at 237.2 GB/s; 32.4 ms, 246.9 tok/s at 273 GB/s (expert term corrected; dense 1.3 GB and head 0.5 GB kept as written) | `N[(56*40*pe + 1.3*10^9 + 0.5*10^9)/(237.2*10^9)*1000]` -> 37.299; `N[8000/%]` -> 214.48; same over `273*10^9` -> 32.408, 246.86 |
+| `48eb2528` (L155) | 11.51 GB (no receipt) / 127.75329 ms = 90.1 GB/s | 9.637 GB, 75.4 GB/s | component sum below; `N[dw/127.75329/10^6]` -> 75.437 |
+| `90fc99cf` (L207) | 11.5 GB / 95.60784 ms = 120.28 GB/s | 100.8 GB/s | `N[dw/95.60784/10^6]` -> 100.800 |
+| `9e950a60` (L255) | 11.5 GB / 85.428 ms = 135 GB/s | 112.8 GB/s | `N[dw/85.428/10^6]` -> 112.812 |
+
+The 11.5 GB "distinct weights" figure has no receipt (ledger argv `11.51 GB / 127.75329 ms -> GB/s`). [INFERENCE: origin of 11.51 GB not found; the 768-wide expert term with the components below gives 13.29 GB (`N[(58*40*3*2048*768 + 0.9437*10^9 + 40*4096*2048 + 248320*2048*2 + 40*256*2048*2)/10^9]` -> 13.285), not 11.51.] The replacement is a component sum, not a measurement:
+`dw = 58*40*pe + 0.9437*10^9 + 40*4096*2048 + 248320*2048*2 + 40*256*2048*2` (union 57 routed + 1 shared, mix `a04c7dfc`, o_proj, BF16 lm_head, BF16 router) -> 9.63728592 GB.
+No figure 4.72 MB or 3.22 MB per expert appears in this README or the repo; the expert byte terms of 57a6878b and 40ba16a5 use the 768-wide width (their ledger exprs), and the 11.5 GB figure's origin is unknown (above).
+Header total for the 40 layers: 10,240 experts x 3,146,112 B = 32,216,186,880 B (`N[32216186880/10^9]` -> 32.216 GB).
+Withdrawn: "93% of" the 273 GB/s ceiling (L177, L215, L263, L272), the 45 ms / 178 tok/s floor (L177-178), and "the expert union is the floor" (L225, L272): at 512 wide the expert union is 7.05 GB of a 8.85 GB or 9.64 GB beat, not the whole floor. The stamp timings themselves are unchanged.
+
+**Reconciliation with the project model floor.** The 237.2 GB/s practical bandwidth and the "8-head floor ~41 ms at 237 GB/s ~195 tok/s" come from the Linear issue DRA-63 / the P-DRA-4 project model, not from a file in this repo.
+That floor matches the distinct-weight component sum `dw` above, not the 37.3 ms row: `N[dw/(237.2*10^9)*1000]` -> 40.629 ms, `N[8000/%]` -> 196.90 tok/s; at 273 GB/s -> 35.301 ms, 226.62 tok/s.
+The two differ by `N[(dw - (56*40*pe + 1.8*10^9))/10^9]` -> 0.790 GB: 2 more experts per layer (union 57 + shared vs 55 + shared, `N[2*40*pe/10^9]` -> 0.252 GB) and the non-expert terms (mix 0.9437 GB + o_proj + BF16 lm_head + router vs the notes' 1.3 + 0.5 GB, `N[(0.9437*10^9 + 40*4096*2048 + 248320*2048*2 + 40*256*2048*2 - 1.8*10^9)/10^9]` -> 0.538 GB).
+
+**experts_ok** counts only experts whose six tensors all pass dtype, shape, extent and duplicate checks and whose byte sums match (fixed after review; verdict logic unchanged). The gate adds an input-side control: a header-only sparse copy of the checkpoint with layer 5 expert 7 `down_proj.weight` shape [2048,768] must FAIL with shape_bad 1 and experts_ok 10239.

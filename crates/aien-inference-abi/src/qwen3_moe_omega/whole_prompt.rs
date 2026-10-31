@@ -135,7 +135,11 @@ impl Qwen3MoeOmegaEngine {
         hidden: &mut Vec<f32>,
         timing: &mut StepTiming,
     ) -> Result<usize, String> {
-        if tokens.is_empty() || !self.trace_layers.is_empty() || self.routing_mutant {
+        if tokens.is_empty()
+            || !self.trace_layers.is_empty()
+            || self.routing_mutant
+            || self.draft_on()
+        {
             return Ok(0);
         }
         let Some(wp) = self.whole_prompt.as_mut() else {

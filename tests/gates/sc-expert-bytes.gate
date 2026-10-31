@@ -1,0 +1,28 @@
+# tests/gates/sc-expert-bytes.gate
+# No hosted mirror: the checkpoint lives on the host. DRA-63 (aien-dev/aien-sovereign-core-mv#855):
+# om/expert-bytes/expert-bytes.om, built with the omc pinned in om/expert-bytes/omega.pin, reads only
+# the safetensors headers of Qwen3.6-35B-A3B-FP8 and requires, for layers 0-39 (MTP excluded), every
+# routed expert to be 3 FP8 E4M3 weights of 2048 x 512 (3,145,728 B) plus 3 BF16 block-128 scales of
+# 4 x 16 or 16 x 4 (384 B), 3,146,112 B in total. Negative controls in the same run must go red:
+# width 768, and FP32 scales (the old 768 B scale figure). AIEN_OMC unset or not the pinned omc, or the
+# checkpoint absent, is NOT_RUN (exit 77), never PASS.
+gate: SC-EXPERT-BYTES
+manifest_version: 2
+owner: aien-sovereign-core
+requires:
+  - host
+inputs:
+  - om/expert-bytes/
+  - om/vendor/json.om
+  - tests/gates/
+run:
+  exec: tests/gates/run.sh
+  args: ["expert-bytes"]
+expects:
+  exit: 0
+  verdict: PASS
+timeout: 5m
+exactness: EXACT
+cache_scope: machine
+outside_inputs:
+  - ~/models/qwen3.6-35b-a3b-fp8-95a723d0/
