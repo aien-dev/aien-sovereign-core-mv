@@ -1,0 +1,8 @@
+{
+  "invariants": [
+    "Telemetry is a forbidden network purpose (TelemetryForbidden). Check: cargo test -p aien-security --lib -- --exact tests::test_rejected_forbidden_network_purpose"
+  ],
+  "name": "aien-security",
+  "purpose": "Normative security abstractions, SecretProvider traits, and network purpose governance for AIEN",
+  "schema_version": "1.0.0"
+}

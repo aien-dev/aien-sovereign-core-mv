@@ -73,6 +73,8 @@ pub struct ServerConfig {
     pub readers: Option<crate::readers::ReadersConfig>,
     /// Secret supplied out of band; an absent or empty credential refuses startup.
     pub bearer_token: String,
+    /// Tool-calling layout of the model's chat template ([`crate::tools::ToolFormat::from_model_dir`]).
+    pub tool_format: crate::tools::ToolFormat,
 }
 
 impl Default for ServerConfig {
@@ -93,6 +95,7 @@ impl Default for ServerConfig {
             default_enable_thinking: None,
             readers: None,
             bearer_token: String::new(),
+            tool_format: crate::tools::ToolFormat::default(),
         }
     }
 }
@@ -974,8 +977,8 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
     if matches!(req.n, Some(n) if n != 1) {
         return Err(ApiError::bad_request("n must be 1"));
     }
-    // Tool calling (Qwen3.6 qwen3_coder XML, as the model's own template renders it): legacy
-    // `functions` are accepted as tools.
+    // Tool calling in the model's own format (`cfg.tool_format`, read from its chat template at
+    // load): legacy `functions` are accepted as tools.
     let tool_defs: Vec<Value> = match (&req.tools, &req.functions) {
         (Some(t), _) if !t.is_empty() => t.clone(),
         (_, Some(f)) if !f.is_empty() => f
@@ -984,7 +987,6 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
             .collect(),
         _ => Vec::new(),
     };
-    let has_tools = !tool_defs.is_empty();
     if req.messages.is_empty() {
         return Err(ApiError::bad_request("messages must be a non-empty array"));
     }
@@ -995,8 +997,7 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
             cfg.max_messages
         )));
     }
-    let mut turns: Vec<(String, String)> = Vec::with_capacity(req.messages.len() + 1);
-    let mut pending_tool: Vec<String> = Vec::new();
+    let mut msgs: Vec<(&str, String, Option<&[Value]>)> = Vec::with_capacity(req.messages.len());
     for m in &req.messages {
         let role = match m.role.trim().to_ascii_lowercase().as_str() {
             "system" | "developer" => "system",
@@ -1009,40 +1010,9 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
                 )))
             }
         };
-        let text = text_of_content(&m.content)?;
-        if role == "tool" {
-            pending_tool.push(text);
-            continue;
-        }
-        if !pending_tool.is_empty() {
-            turns.push(("user".into(), crate::tools::tool_responses(&pending_tool)));
-            pending_tool.clear();
-        }
-        let text = match (role, &m.tool_calls) {
-            ("assistant", Some(calls)) if !calls.is_empty() => {
-                crate::tools::assistant_with_calls(&text, calls)
-            }
-            _ => text,
-        };
-        turns.push((role.to_string(), text));
+        msgs.push((role, text_of_content(&m.content)?, m.tool_calls.as_deref()));
     }
-    if !pending_tool.is_empty() {
-        turns.push(("user".into(), crate::tools::tool_responses(&pending_tool)));
-    }
-    if has_tools {
-        match turns.first_mut() {
-            Some((r, c)) if r == "system" => {
-                *c = crate::tools::system_with_tools(&tool_defs, Some(c.as_str()));
-            }
-            _ => turns.insert(
-                0,
-                (
-                    "system".into(),
-                    crate::tools::system_with_tools(&tool_defs, None),
-                ),
-            ),
-        }
-    }
+    let turns = crate::tools::fold_turns(cfg.tool_format, &tool_defs, msgs);
     let turn_refs: Vec<(&str, &str)> = turns
         .iter()
         .map(|(r, c)| (r.as_str(), c.as_str()))
@@ -1154,7 +1124,7 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
             None
         },
         return_ids: req.aien_return_token_ids,
-        tools: has_tools,
+        tools: !tool_defs.is_empty(),
         test: test_switches(state, req.aien_test.as_ref())?,
     })
 }

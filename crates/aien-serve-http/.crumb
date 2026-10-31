@@ -1,0 +1,11 @@
+{
+  "invariants": [
+    "The door refuses to bind a non-loopback address. Check: cargo test -p aien-serve-http --test loopback -- --exact non_loopback_bind_is_refused",
+    "Inference needs the bearer token, a local Origin and Host, and a JSON body (401, 403, 415 otherwise). Check: cargo test -p aien-serve-http --test loopback -- --exact inference_requires_authorization_and_local_json_origin",
+    "A second request while busy gets 503 server_busy with Retry-After, then is accepted. Check: cargo test -p aien-serve-http --test loopback -- --exact second_request_while_busy_is_rejected_then_accepted",
+    "The same seed gives the same sampled token. Check: cargo test -p aien-serve-http --lib -- --exact sampling::tests::same_seed_same_token"
+  ],
+  "name": "aien-serve-http",
+  "purpose": "OpenAI-compatible HTTP door for AIEN's own-kernel model serving (OWN-30B cut 4)",
+  "schema_version": "1.0.0"
+}

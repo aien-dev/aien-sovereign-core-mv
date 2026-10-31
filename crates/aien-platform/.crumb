@@ -1,0 +1,8 @@
+{
+  "invariants": [
+    "Queue priority orders Realtime, Interactive, Normal, Background. Check: cargo test -p aien-platform --lib -- --exact tests::test_queue_priority_ordering"
+  ],
+  "name": "aien-platform",
+  "purpose": "Pure no_std capability and compute platform ABI for the AIEN and SparkOS runtime",
+  "schema_version": "1.0.0"
+}

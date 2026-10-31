@@ -1,0 +1,767 @@
+note om/crumb-coverage/crumb-coverage.om: .crumb coverage of a git tree (DRA-95).
+note Usage, from the repository root: git ls-files -z > list; crumb-coverage < list
+note Reads the NUL-separated tracked paths (git index order, checked strictly increasing) and counts:
+note   tracked_dirs   the root plus every directory that is an ancestor of a tracked path;
+note   crumb_dirs     tracked paths named .crumb (one per directory);
+note   enforced_dirs  crumb directories with at least one invariant whose check resolves.
+note Each .crumb is parsed as strict JSON (om/vendor/json.om). Every string of its top-level "invariants"
+note array is one invariant; its check is the text after "Check: ". A check resolves when it is
+note   cargo test -p CRATE --test T -- --exact NAME   and crates/CRATE/tests/T.rs contains "fn LEAF(", or
+note   cargo test -p CRATE --lib -- --exact M::tests::LEAF   and crates/CRATE/src/M.rs (lib.rs when no M)
+note                                                          contains "fn LEAF(", or
+note   [sh|bash] PATH ...   and PATH is a repository-relative regular file.
+note LEAF is the last :: segment of NAME; "tests" segments are dropped from M. Unresolved invariants are
+note printed. Exit 0 all resolve, 1 some do not, 2 usage, 3 io, 4 input or crumb JSON refused.
+note Build: { printf 'om2\n'; cat om/vendor/json.om om/crumb-coverage/crumb-coverage.om; } | "$AIEN_OMC" > cc
+
+const ccx ulong 999999999
+
+note gst slots
+const kop ulong 0
+const kn ulong 1
+const kdirs ulong 2
+const kcr ulong 3
+const kenf ulong 4
+const kinv ulong 5
+const kres ulong 6
+const kunr ulong 7
+const kfsz ulong 8
+const kpn ulong 9
+const kndl ulong 10
+const kci ulong 11
+const kcrr ulong 12
+
+global gin uchar 8388608
+global gco ulong 8192
+global gcl ulong 8192
+global gpth uchar 4096
+global gst ulong 16
+global gob uchar 65536
+global gstb uchar 128
+global gdg uchar 24
+global ginv uchar 8192
+global gnd uchar 512
+global gfil uchar 983040
+
+text tusage "usage: git ls-files -z | crumb-coverage (no arguments; run from the repository root)"
+text tio "io"
+text tbig "input-too-large"
+text tpath "bad-path"
+text tunsort "paths-not-in-git-order"
+text tmany "too-many-crumbs"
+text tjson "crumb-json"
+text tinvarr "invariants-not-array-of-strings"
+text tlong "name-too-long"
+text tref "crumb-coverage refused "
+text tcrumb ".crumb"
+text tinv "invariants"
+text tchk "Check: "
+text tcargo "cargo test -p "
+text ttest "--test "
+text tlib "--lib"
+text tex " -- --exact "
+text tcc "::"
+text tsh "sh"
+text tbash "bash"
+text tcrates "crates/"
+text ttests "tests/"
+text ttestw "tests"
+text tsrcd "src/"
+text tlibw "lib"
+text trs ".rs"
+text tfn "fn "
+text thead "crumb-coverage "
+text o1 "tracked_dirs"
+text o2 "crumb_dirs"
+text o3 "enforced_dirs"
+text o4 "invariants"
+text o5 "resolved"
+text o6 "unresolved"
+text tcrl "crumb "
+text tunr "unresolved "
+
+note ======== output ========
+
+fn cc_dec v ulong to ulong
+n = ulong 0
+x = v
+while true bound 25
+put gdg n add 48 uchar rem x 10
+n = add n 1
+x = div x 10
+if eq x 0
+break
+end
+end
+ret n
+end
+
+note cc_oflush: a pass writes at least one byte of at most 65536, so 65536 passes suffice
+fn cc_oflush fd int to void
+o = ulong 0
+m = get gst kop
+while lt o m bound 65536
+w = write fd gob o sub m o
+if le w 0
+exit 3
+end
+o = add o ulong w
+end
+put gst kop 0
+end
+
+fn cc_ob c uchar to void
+p = get gst kop
+if ge p len gob
+cc_oflush 1
+p = ulong 0
+end
+put gob p c
+put gst kop add p 1
+end
+
+fn cc_otx t view uchar * to void
+for i ulong len t
+cc_ob get t i
+end
+end
+
+fn cc_ou v ulong to void
+n = cc_dec v
+for i ulong n
+cc_ob get gdg sub sub n i 1
+end
+end
+
+fn cc_kv t view uchar * v ulong to void
+cc_otx t
+cc_ob 32
+cc_ou v
+end
+
+fn cc_die c ulong t view uchar * to void
+put gst kop 0
+cc_otx tref
+cc_ou c
+cc_ob 32
+cc_otx t
+cc_ob 10
+cc_oflush 2
+exit int c
+end
+
+fn cc_ogin o ulong n ulong to void
+for i ulong n
+cc_ob get gin add o i
+end
+end
+
+fn cc_oinv n ulong to void
+for i ulong n
+cc_ob get ginv i
+end
+end
+
+note ======== input: the NUL-separated path list ========
+
+note cc_input: every pass adds at least one byte to gin (8388608 bytes), and a full gin is refused
+fn cc_input to void
+o = ulong 0
+for it ulong 8388609
+if ge o len gin
+cc_die 4 tbig
+end
+r = read 0 gin o sub len gin o
+if lt r 0
+cc_die 3 tio
+end
+if eq r 0
+break
+end
+o = add o ulong r
+end
+put gst kn o
+end
+
+note cc_nul: the NUL ending the path that starts at s (paths are at most 4096 bytes)
+fn cc_nul s ulong n ulong to ulong
+for k ulong 4097
+p = add s k
+if ge p n
+cc_die 4 tpath
+end
+if eq get gin p 0
+ret p
+end
+end
+cc_die 4 tpath
+ret 0
+end
+
+fn cc_common s ulong l ulong ps ulong pl ulong to ulong
+m = l
+if lt pl m
+m = pl
+end
+for i ulong m
+if ne get gin add s i get gin add ps i
+ret i
+end
+end
+ret m
+end
+
+note cc_order: the path at s must sort strictly after the previous one (git index order, unsigned bytes)
+fn cc_order s ulong l ulong ps ulong pl ulong c ulong to void
+if eq c l
+cc_die 4 tunsort
+end
+if lt c pl
+if lt get gin add s c get gin add ps c
+cc_die 4 tunsort
+end
+end
+end
+
+fn cc_iscrumb s ulong l ulong to void
+t = len tcrumb
+if lt l t
+ret
+end
+b = sub add s l t
+for i ulong t
+if ne get gin add b i get tcrumb i
+ret
+end
+end
+if gt l t
+if ne get gin sub b 1 47
+ret
+end
+end
+k = get gst kcr
+if ge k len gco
+cc_die 4 tmany
+end
+put gco k s
+put gcl k l
+put gst kcr add k 1
+end
+
+note cc_path: a directory ending at a '/' at index i is new unless the previous path shares bytes 0..i;
+note the subtree of a directory is contiguous in sorted order, so each directory is counted once.
+fn cc_path s ulong l ulong ps ulong pl ulong hp bool to void
+if eq l 0
+cc_die 4 tpath
+end
+if eq get gin s 47
+cc_die 4 tpath
+end
+c = ulong 0
+if hp
+c = cc_common s l ps pl
+cc_order s l ps pl c
+end
+for i ulong l
+if ge i c
+if eq get gin add s i 47
+put gst kdirs add get gst kdirs 1
+end
+end
+end
+cc_iscrumb s l
+end
+
+note cc_scan: every path is at least one byte plus its NUL, so at most 4194304 paths
+fn cc_scan to void
+n = get gst kn
+if gt n 0
+put gst kdirs 1
+end
+s = ulong 0
+ps = ulong 0
+pl = ulong 0
+hp = false
+for it ulong 4194305
+if ge s n
+break
+end
+e = cc_nul s n
+l = sub e s
+cc_path s l ps pl hp
+ps = s
+pl = l
+hp = true
+s = add e 1
+end
+end
+
+note ======== files ========
+
+fn cc_le64 o ulong to ulong
+v = ulong 0
+for i ulong 8
+v = or shl v 8 ulong get gstb add o sub 7 i
+end
+ret v
+end
+
+fn cc_close fd long to void
+r = fclose int fd
+if ne r 0
+cc_die 3 tio
+end
+end
+
+note cc_try: open gpth[0 .. kpn) read-only without following a final symlink; a descriptor of a regular file
+note (size in kfsz) or -1 when the path is missing or not a regular file
+fn cc_try to long
+fd = fopen gpth 0 get gst kpn 557056 0
+if lt fd 0
+ret long -1
+end
+r = fstat int fd gstb 0 128
+if ne r 0
+cc_die 3 tio
+end
+md = or ulong get gstb 16 shl ulong get gstb 17 8
+if ne and md 61440 32768
+cc_close fd
+ret long -1
+end
+put gst kfsz cc_le64 48
+ret fd
+end
+
+fn cc_rdfil fd long to ulong
+sz = get gst kfsz
+if gt sz len gfil
+cc_die 3 tbig
+end
+o = ulong 0
+while lt o sz bound 983040
+r = pread int fd gfil o sub sz o long o
+if le r 0
+cc_die 3 tio
+end
+o = add o ulong r
+end
+cc_close fd
+ret sz
+end
+
+fn cc_rdsrc fd long b edit uchar * sz ulong to void
+o = ulong 0
+while lt o sz bound 983040
+r = pread int fd b o sub sz o long o
+if le r 0
+cc_die 3 tio
+end
+o = add o ulong r
+end
+cc_close fd
+end
+
+note ======== gpth and the needle ========
+
+fn cc_preset to void
+put gst kpn 0
+end
+
+fn cc_pb c uchar to void
+p = get gst kpn
+if ge p sub len gpth 1
+cc_die 4 tlong
+end
+put gpth p c
+put gst kpn add p 1
+end
+
+fn cc_pt t view uchar * to void
+for i ulong len t
+cc_pb get t i
+end
+end
+
+fn cc_pi a ulong b ulong to void
+if gt a b
+cc_die 4 tpath
+end
+for i ulong sub b a
+cc_pb get ginv add a i
+end
+end
+
+fn cc_pset s ulong l ulong to void
+cc_preset
+for i ulong l
+cc_pb get gin add s i
+end
+end
+
+fn cc_nb c uchar to void
+p = get gst kndl
+if ge p len gnd
+cc_die 4 tlong
+end
+put gnd p c
+put gst kndl add p 1
+end
+
+note ======== the invariant text in ginv ========
+
+note cc_at: ginv[p ..] starts with t, all within ginv[0 .. n)
+fn cc_at p ulong n ulong t view uchar * to bool
+m = len t
+if gt p n
+ret false
+end
+if gt m sub n p
+ret false
+end
+for i ulong m
+if ne get ginv add p i get t i
+ret false
+end
+end
+ret true
+end
+
+fn cc_find n ulong from ulong t view uchar * to ulong
+m = len t
+if gt m n
+ret ccx
+end
+if gt from sub n m
+ret ccx
+end
+for i ulong add sub sub n m from 1
+if cc_at add from i n t
+ret add from i
+end
+end
+ret ccx
+end
+
+note cc_word: the end of the space-delimited word starting at p
+fn cc_word n ulong p ulong to ulong
+if ge p n
+ret n
+end
+for i ulong sub n p
+if eq get ginv add p i 32
+ret add p i
+end
+end
+ret n
+end
+
+fn cc_weq p ulong w ulong t view uchar * to bool
+if ne sub w p len t
+ret false
+end
+ret cc_at p w t
+end
+
+note cc_leaf: the index after the last "::" in ginv[a .. b), or a
+fn cc_leaf a ulong b ulong to ulong
+r = a
+for i ulong sub b a
+if cc_at add a i b tcc
+r = add add a i 2
+end
+end
+ret r
+end
+
+note cc_mods: append src/M.rs for the module path ginv[a .. ls - 2), "tests" segments dropped; src/lib.rs if none
+fn cc_mods a ulong ls ulong to void
+cc_pt tsrcd
+nseg = ulong 0
+if gt ls a
+e = sub ls 2
+s = a
+while le s e bound 4096
+x = cc_find e s tcc
+if eq x ccx
+x = e
+end
+if not cc_weq s x ttestw
+if gt nseg 0
+cc_pb 47
+end
+cc_pi s x
+nseg = add nseg 1
+end
+s = add x 2
+end
+end
+if eq nseg 0
+cc_pt tlibw
+end
+cc_pt trs
+end
+
+fn cc_fat p ulong m ulong to bool
+for k ulong m
+if ne get gfil add p k get gnd k
+ret false
+end
+end
+ret true
+end
+
+note cc_hasfn: the file at gpth contains the needle gnd[0 .. kndl)
+fn cc_hasfn to bool
+fd = cc_try
+if lt fd 0
+ret false
+end
+sz = cc_rdfil fd
+m = get gst kndl
+if gt m sz
+ret false
+end
+for i ulong add sub sz m 1
+if cc_fat i m
+ret true
+end
+end
+ret false
+end
+
+note cc_name: q is past the target selector; finds " -- --exact NAME", builds the source path for lib tests
+note and the needle "fn LEAF(", then searches the file
+fn cc_name n ulong q ulong lib bool to bool
+x = cc_find n q tex
+if eq x ccx
+ret false
+end
+a = add x len tex
+b = cc_word n a
+if eq b a
+ret false
+end
+ls = cc_leaf a b
+if eq ls b
+ret false
+end
+if lib
+cc_mods a ls
+end
+put gst kndl 0
+for i ulong len tfn
+cc_nb get tfn i
+end
+for i ulong sub b ls
+cc_nb get ginv add ls i
+end
+cc_nb 40
+ret cc_hasfn
+end
+
+fn cc_cargo n ulong p ulong to bool
+w = cc_word n p
+if or eq w p ge w n
+ret false
+end
+cc_preset
+cc_pt tcrates
+cc_pi p w
+cc_pb 47
+q = add w 1
+if cc_at q n ttest
+a = add q len ttest
+b = cc_word n a
+if eq b a
+ret false
+end
+cc_pt ttests
+cc_pi a b
+cc_pt trs
+ret cc_name n b false
+end
+if cc_at q n tlib
+ret cc_name n add q len tlib true
+end
+ret false
+end
+
+fn cc_file n ulong p ulong to bool
+q = p
+w = cc_word n q
+if or cc_weq q w tsh cc_weq q w tbash
+q = add w 1
+w = cc_word n q
+end
+if ge q w
+ret false
+end
+if eq get ginv q 47
+ret false
+end
+cc_preset
+cc_pi q w
+fd = cc_try
+if lt fd 0
+ret false
+end
+cc_close fd
+ret true
+end
+
+fn cc_resolve n ulong to bool
+p = cc_find n 0 tchk
+if eq p ccx
+ret false
+end
+p = add p len tchk
+if cc_at p n tcargo
+ret cc_cargo n add p len tcargo
+end
+ret cc_file n p
+end
+
+note ======== one .crumb ========
+
+fn cc_odir j ulong to void
+l = get gcl j
+if eq l len tcrumb
+cc_ob 46
+ret
+end
+cc_ogin get gco j sub sub l len tcrumb 1
+end
+
+fn cc_unres j ulong n ulong to void
+cc_otx tunr
+cc_odir j
+cc_ob 58
+cc_ob 32
+cc_oinv n
+cc_ob 10
+end
+
+fn cc_list src view uchar 983040 tape view uint 262160 nb edit uchar 8192 v ulong j ulong to void
+if ne js_type tape v jsarr
+cc_die 4 tinvarr
+end
+e = js_first tape v
+while ne e jsnone bound 999999
+if ne js_type tape e jsstr
+cc_die 4 tinvarr
+end
+r = js_sget src js_off tape e nb
+if lt r 0
+cc_die 4 tjson
+end
+n = ulong r
+if gt n len ginv
+cc_die 4 tlong
+end
+for i ulong n
+put ginv i get nb i
+end
+put gst kci add get gst kci 1
+if cc_resolve n
+put gst kcrr add get gst kcrr 1
+else
+cc_unres j n
+end
+e = js_enext tape e
+end
+end
+
+fn cc_line j ulong to void
+i = get gst kci
+r = get gst kcrr
+put gst kinv add get gst kinv i
+put gst kres add get gst kres r
+put gst kunr add get gst kunr sub i r
+if gt r 0
+put gst kenf add get gst kenf 1
+end
+cc_otx tcrl
+cc_odir j
+cc_ob 32
+cc_kv o4 i
+cc_ob 32
+cc_kv o5 r
+cc_ob 10
+end
+
+fn cc_crumb src edit uchar 983040 tape edit uint 262160 nb edit uchar 8192 j ulong to void
+cc_pset get gco j get gcl j
+fd = cc_try
+if lt fd 0
+cc_die 3 tio
+end
+sz = get gst kfsz
+if or eq sz 0 gt sz len src
+cc_close fd
+cc_die 4 tjson
+end
+cc_rdsrc fd src sz
+r = js_init tape sz 64
+if lt r 0
+cc_die 4 tjson
+end
+r = js_parse src tape sz
+if lt r 0
+cc_die 4 tjson
+end
+if ne js_type tape 0 jsobj
+cc_die 4 tjson
+end
+put gst kci 0
+put gst kcrr 0
+k = js_first tape 0
+while ne k jsnone bound 999999
+if js_streq src js_off tape k tinv
+cc_list src tape nb add k 1 j
+end
+k = js_mnext tape k
+end
+cc_line j
+end
+
+note ======== report ========
+
+fn cc_report to void
+cc_otx thead
+cc_kv o1 get gst kdirs
+cc_ob 10
+cc_otx thead
+cc_kv o2 get gst kcr
+cc_ob 10
+cc_otx thead
+cc_kv o3 get gst kenf
+cc_ob 10
+cc_otx thead
+cc_kv o4 get gst kinv
+cc_ob 32
+cc_kv o5 get gst kres
+cc_ob 32
+cc_kv o6 get gst kunr
+cc_ob 10
+cc_oflush 1
+end
+
+fn main to int
+if ne argcnt 1
+cc_die 2 tusage
+end
+cc_input
+cc_scan
+src = new uchar 983040 0
+tape = new uint 262160 0
+nb = new uchar 8192 0
+for j ulong get gst kcr
+cc_crumb src tape nb j
+end
+cc_report
+if gt get gst kunr 0
+ret 1
+end
+ret 0
+end

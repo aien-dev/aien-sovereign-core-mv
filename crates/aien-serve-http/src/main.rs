@@ -323,6 +323,18 @@ fn main() -> ExitCode {
         );
         return ExitCode::from(1);
     };
+    // Tools are rendered in the template's own format (Hermes JSON for Qwen3-2507, qwen3_coder
+    // XML for Qwen3.6/3.8), read from the same template sources as the tokenizer.
+    match aien_serve_http::tools::ToolFormat::from_model_dir(&args.model_dir) {
+        Ok(f) => {
+            eprintln!("aien-serve-http: tool format {f:?}");
+            args.cfg.tool_format = f;
+        }
+        Err(e) => {
+            eprintln!("aien-serve-http: chat template unreadable: {e}");
+            return ExitCode::from(1);
+        }
+    }
 
     // Who holds the chip: this server, or (verified, not merely claimed) an ancestor such as
     // an aien-test gb10 gate. A claim that does not verify never reaches the chip.

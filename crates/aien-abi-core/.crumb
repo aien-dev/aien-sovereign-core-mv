@@ -1,0 +1,9 @@
+{
+  "invariants": [
+    "Attention geometry with heads not divisible by KV heads is refused. Check: cargo test -p aien-abi-core --test attention_geometry -- --exact non_divisible_heads_are_refused",
+    "Geometry products that overflow are refused, never wrapped. Check: cargo test -p aien-abi-core --test attention_geometry -- --exact overflow_is_refused_not_wrapped"
+  ],
+  "name": "aien-abi-core",
+  "purpose": "Tiny sovereign inference ABI (handles, config, backend trait) with no heavy dependencies",
+  "schema_version": "1.0.0"
+}

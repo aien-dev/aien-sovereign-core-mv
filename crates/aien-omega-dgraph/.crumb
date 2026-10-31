@@ -1,0 +1,9 @@
+{
+  "invariants": [
+    "Layer count, vocabulary size and null handles are checked on the host before any C call. Check: cargo test -p aien-omega-dgraph --lib -- --exact tests::config_is_checked_on_the_host",
+    "The Rust struct layouts match the C structs of the pinned omega header. Check: cargo test -p aien-omega-dgraph --lib -- --exact tests::layouts_match_the_c_structs"
+  ],
+  "name": "aien-omega-dgraph",
+  "purpose": "FFI to omega's one-command-list decode token for Qwen3-30B-A3B (omega_gpu_decode_graph, OWN-30B L2 cut 2)",
+  "schema_version": "1.0.0"
+}
