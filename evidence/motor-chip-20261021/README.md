@@ -315,14 +315,21 @@ Its two negative controls must go red in the same run: width 768 (shape_bad 6144
 | `7153d616` (L165) | 13.59 GB / 54.361 ms = 250 GB/s | 166.7 GB/s | `N[72*40*pe/54.361/10^6]` -> 166.678 |
 | `40ba16a5` (L165) | 55 x 3 x 2048 x 768 x 40 = 10.38 GB | 7.047 GB | `N[56*40*pe/10^9]` -> 7.04729088 |
 | `803d5a45` (L165, L177) | 10.38 GB / 40.792 ms = 254.5 GB/s, "93% of 273" | 172.8 GB/s = 63.3% of 273, 72.8% of 237.2 | `N[56*40*pe/40.792/10^6]` -> 172.762; `N[100*%/273]` -> 63.283; `N[100*%/237.2]` -> 72.834 |
-| lever 2 "93% of the ceiling" (L216, L267, L276; stroke8l2-stamps.log 22.840 + 15.858 ms) | 93% | 182.1 GB/s = 66.7% of 273, 76.8% of 237.2 | `N[56*40*pe/38.698/10^6]` -> 182.110; -> 66.707; -> 76.775 |
-| floor prose (L177-178) | 10.4 + 1.3 + 0.5 = about 12 GB = 45 ms, 178 tok/s for eight | 37.3 ms, 214 tok/s at 237.2 GB/s (dense 1.3 GB and head 0.5 GB kept as written) | `N[(56*40*pe + 1.3*10^9 + 0.5*10^9)/(237.2*10^9)*1000]` -> 37.299; `N[8000/%]` -> 214.48 |
+| lever 1 "93% of" (L215; expert span 40.709 ms) | 93% | 173.1 GB/s = 63.4% of 273, 73.0% of 237.2 | `x = N[56*40*3146112/40.709/10^6]; {x, N[100*x/273], N[100*x/237.2]}` -> {173.114, 63.412, 72.982} |
+| lever 2 "93% of" (L263, L272; stroke8l2-stamps.log 22.840 + 15.858 ms) | 93% | 182.1 GB/s = 66.7% of 273, 76.8% of 237.2 | `N[56*40*pe/38.698/10^6]` -> 182.110; -> 66.707; -> 76.775 |
+| floor prose (L177-178) and "The expert union is the floor" (L225, L272) | 10.4 + 1.3 + 0.5 = about 12 GB = 45 ms, 178 tok/s for eight | 37.3 ms, 214 tok/s at 237.2 GB/s; 32.4 ms, 246.9 tok/s at 273 GB/s (expert term corrected; dense 1.3 GB and head 0.5 GB kept as written) | `N[(56*40*pe + 1.3*10^9 + 0.5*10^9)/(237.2*10^9)*1000]` -> 37.299; `N[8000/%]` -> 214.48; same over `273*10^9` -> 32.408, 246.86 |
 | `48eb2528` (L155) | 11.51 GB (no receipt) / 127.75329 ms = 90.1 GB/s | 9.637 GB, 75.4 GB/s | component sum below; `N[dw/127.75329/10^6]` -> 75.437 |
 | `90fc99cf` (L207) | 11.5 GB / 95.60784 ms = 120.28 GB/s | 100.8 GB/s | `N[dw/95.60784/10^6]` -> 100.800 |
 | `9e950a60` (L255) | 11.5 GB / 85.428 ms = 135 GB/s | 112.8 GB/s | `N[dw/85.428/10^6]` -> 112.812 |
 
-The 11.5 GB "distinct weights" figure has no receipt (ledger argv `11.51 GB / 127.75329 ms -> GB/s`); only a 768-wide expert term reaches it. The replacement is a component sum, not a measurement:
+The 11.5 GB "distinct weights" figure has no receipt (ledger argv `11.51 GB / 127.75329 ms -> GB/s`). [INFERENCE: origin of 11.51 GB not found; the 768-wide expert term with the components below gives 13.29 GB (`N[(58*40*3*2048*768 + 0.9437*10^9 + 40*4096*2048 + 248320*2048*2 + 40*256*2048*2)/10^9]` -> 13.285), not 11.51.] The replacement is a component sum, not a measurement:
 `dw = 58*40*pe + 0.9437*10^9 + 40*4096*2048 + 248320*2048*2 + 40*256*2048*2` (union 57 routed + 1 shared, mix `a04c7dfc`, o_proj, BF16 lm_head, BF16 router) -> 9.63728592 GB.
-No figure 4.72 MB or 3.22 MB per expert appears in this README or the repo; every expert byte figure above traces to the 768-wide term.
+No figure 4.72 MB or 3.22 MB per expert appears in this README or the repo; the expert byte terms of 57a6878b and 40ba16a5 use the 768-wide width (their ledger exprs), and the 11.5 GB figure's origin is unknown (above).
 Header total for the 40 layers: 10,240 experts x 3,146,112 B = 32,216,186,880 B (`N[32216186880/10^9]` -> 32.216 GB).
-Withdrawn: "expert GEMMs at 93% of the 273 GB/s ceiling" (L177, L216, L267, L276) and the 45 ms / 178 tok/s floor. The stamp timings themselves are unchanged.
+Withdrawn: "93% of" the 273 GB/s ceiling (L177, L215, L263, L272), the 45 ms / 178 tok/s floor (L177-178), and "the expert union is the floor" (L225, L272): at 512 wide the expert union is 7.05 GB of a 8.85 GB or 9.64 GB beat, not the whole floor. The stamp timings themselves are unchanged.
+
+**Reconciliation with the project model floor.** The 237.2 GB/s practical bandwidth and the "8-head floor ~41 ms at 237 GB/s ~195 tok/s" come from the Linear issue DRA-63 / the P-DRA-4 project model, not from a file in this repo.
+That floor matches the distinct-weight component sum `dw` above, not the 37.3 ms row: `N[dw/(237.2*10^9)*1000]` -> 40.629 ms, `N[8000/%]` -> 196.90 tok/s; at 273 GB/s -> 35.301 ms, 226.62 tok/s.
+The two differ by `N[(dw - (56*40*pe + 1.8*10^9))/10^9]` -> 0.790 GB: 2 more experts per layer (union 57 + shared vs 55 + shared, `N[2*40*pe/10^9]` -> 0.252 GB) and the non-expert terms (mix 0.9437 GB + o_proj + BF16 lm_head + router vs the notes' 1.3 + 0.5 GB, `N[(0.9437*10^9 + 40*4096*2048 + 248320*2048*2 + 40*256*2048*2 - 1.8*10^9)/10^9]` -> 0.538 GB).
+
+**experts_ok** counts only experts whose six tensors all pass dtype, shape, extent and duplicate checks and whose byte sums match (fixed after review; verdict logic unchanged). The gate adds an input-side control: a header-only sparse copy of the checkpoint with layer 5 expert 7 `down_proj.weight` shape [2048,768] must FAIL with shape_bad 1 and experts_ok 10239.

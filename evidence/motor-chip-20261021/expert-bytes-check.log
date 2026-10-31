@@ -1,6 +1,6 @@
-# SC-EXPERT-BYTES host run, 2026-10-31, DRA-63 (#855). Command: AIEN_OMC=<omega-mv 474197e4 seed/out/omc> nice -n 19 taskset -c 0-9 bash tests/gates/run.sh expert-bytes; then AIEN_OMC=/bin/true bash om/expert-bytes/gate.sh (NOT_RUN control). Source om/expert-bytes/expert-bytes.om sha256 e4d0622f3d779c8be5d1173fc47d945566ad78d8ff6adac5c2f313624d893bb3
+# SC-EXPERT-BYTES host run, 2026-10-31, DRA-63 (#855), rerun after review (experts_ok fix, input-side control). Command: AIEN_OMC=<omega-mv 474197e4 seed/out/omc> nice -n 19 taskset -c 0-9 bash tests/gates/run.sh expert-bytes; then AIEN_OMC=/bin/true bash om/expert-bytes/gate.sh (NOT_RUN control). Source om/expert-bytes/expert-bytes.om sha256 567fd22b2d4e580cce57a4f74db4e0a11d8dfbc1c61aae2f6ead191baa529fe6
 AIEN-OBS omc_sha256 "be8c51301307555254fc59e351d281aae1aa096d91521777e33a41c8b446448a"
-AIEN-OBS check_sha256 "33879b53dbf456e571db5290fa1ccf6a7bd2c167ab6c087971944442bc2a054e"
+AIEN-OBS check_sha256 "abf81cda731410616f6678de340251c416296e15f8fa85f19a66eb2f53b2d810"
 AIEN-OBS model_dir "/home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0"
 expert-bytes verdict PASS width 512 scale_bytes 2 layers 40 experts 256 tensors 61440 expect_expert 3146112 expect_weight 3145728 expect_scale 384 seen_expert_min 3146112 seen_expert_max 3146112 seen_weight_0_0 3145728 seen_scale_0_0 384 experts_ok 10240 weight_bad 0 scale_bad 0 missing 0 dtype_bad 0 shape_bad 0 extent_bad 0 duplicate 0 out_of_range 0 mtp_excluded_tensors 1536 mtp_excluded_bytes 805404672 total_bytes 32216186880 files 42
 ok   real: exit 0, verdict PASS
@@ -8,6 +8,8 @@ expert-bytes verdict FAIL width 768 scale_bytes 2 layers 40 experts 256 tensors 
 ok   control-width-768: exit 1, verdict FAIL
 expert-bytes verdict FAIL width 512 scale_bytes 4 layers 40 experts 256 tensors 61440 expect_expert 3146496 expect_weight 3145728 expect_scale 768 seen_expert_min 3146112 seen_expert_max 3146112 seen_weight_0_0 3145728 seen_scale_0_0 384 experts_ok 0 weight_bad 0 scale_bad 10240 missing 0 dtype_bad 30720 shape_bad 0 extent_bad 0 duplicate 0 out_of_range 0 mtp_excluded_tensors 1536 mtp_excluded_bytes 805404672 total_bytes 32216186880 files 42
 ok   control-fp32-scales: exit 1, verdict FAIL
+expert-bytes verdict FAIL width 512 scale_bytes 2 layers 40 experts 256 tensors 61440 expect_expert 3146112 expect_weight 3145728 expect_scale 384 seen_expert_min 3146112 seen_expert_max 3146112 seen_weight_0_0 3145728 seen_scale_0_0 384 experts_ok 10239 weight_bad 0 scale_bad 0 missing 0 dtype_bad 0 shape_bad 1 extent_bad 1 duplicate 0 out_of_range 0 mtp_excluded_tensors 1536 mtp_excluded_bytes 805404672 total_bytes 32216186880 files 42
+ok   control-input-shape: exit 1, verdict FAIL
 AIEN-OBS verdict "PASS"
 SC-EXPERT-BYTES PASS
 rc=0

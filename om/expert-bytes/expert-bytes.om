@@ -64,6 +64,7 @@ global gh8 uchar 8
 global gwb ulong 10240
 global gsb ulong 10240
 global gmk uchar 10240
+global gbx uchar 10240
 global gst ulong 48
 global gob uchar 2048
 global geb uchar 512
@@ -602,38 +603,48 @@ fn eb_inc s ulong to void
 put gst s add get gst s 1
 end
 
-note eb_chk: count dtype, shape and extent mismatches for part pt
-fn eb_chk pt ulong to void
+note eb_chk: count dtype, shape and extent mismatches for part pt; true when there are none
+fn eb_chk pt ulong to bool
+g = true
 if eq get gst kdok 0
 eb_inc kdt
+g = false
 end
 d0 = get gst kd0
 d1 = get gst kd1
 rk = get gst krk
 if or ne rk 2 or ne d0 eb_edim pt 0 ne d1 eb_edim pt 1
 eb_inc ksh
+g = false
 end
 b = get gst kb
 e = get gst ke
 if or gt b e gt e get gst kdl
 eb_inc kext
-ret
+ret false
 end
 if or ne rk 2 eq get gst kdsz 0
 eb_inc kext
-ret
+ret false
 end
 if ne sub e b mul mul d0 d1 get gst kdsz
 eb_inc kext
+g = false
 end
+ret g
 end
 
-fn eb_acct ly ulong ex ulong pt ulong to void
+note eb_acct: a part that failed eb_chk (g false) marks its expert bad in gbx
+fn eb_acct ly ulong ex ulong pt ulong g bool to void
 i = add mul ly ebne ex
+if not g
+put gbx i 1
+end
 bit = shl ulong 1 pt
 m = ulong get gmk i
 if ne and m bit 0
 eb_inc kdup
+put gbx i 1
 ret
 end
 put gmk i uchar or m bit
@@ -692,8 +703,8 @@ eb_inc koor
 ret
 end
 eb_val src tape add k 1 pt
-eb_chk pt
-eb_acct ly ex pt
+g = eb_chk pt
+eb_acct ly ex pt g
 end
 
 fn eb_file src edit uchar 983040 tape edit uint 262160 nb edit uchar 1024 j ulong to void
@@ -754,6 +765,9 @@ ok = false
 end
 if ne s eb_esc
 eb_inc ksbad
+ok = false
+end
+if ne get gbx i 0
 ok = false
 end
 if ok

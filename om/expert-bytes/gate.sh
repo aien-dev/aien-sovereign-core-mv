@@ -5,7 +5,10 @@
 #   1. width 512, BF16 scales: must exit 0 with the contract figures 3146112 B per expert
 #      (3145728 B FP8 weight + 384 B BF16 scales);
 #   2. negative control, width 768: must exit 1 with verdict FAIL;
-#   3. negative control, FP32 scales (the old 768 B scale figure): must exit 1 with verdict FAIL.
+#   3. negative control, FP32 scales (the old 768 B scale figure): must exit 1 with verdict FAIL;
+#   4. input-side control: a header-only sparse copy of the checkpoint (same file sizes, no tensor
+#      data) whose layer 5 expert 7 down_proj shape reads [2048,768] must exit 1 with verdict FAIL,
+#      shape_bad 1 and experts_ok 10239 (only fully correct experts count).
 # The shell only sequences; every judgment about the header is made by the .om program.
 # Compiler: AIEN_OMC (OMC and OMEGA_OMC are accepted too) must hash to omega.pin, else NOT_RUN.
 # Model: MODEL_DIR, else $AIEN_MODELS_DIR/qwen3.6-35b-a3b-fp8-95a723d0, else
@@ -59,6 +62,26 @@ if arm real 512 2 0 PASS; then
 fi
 arm control-width-768 768 2 1 FAIL
 arm control-fp32-scales 512 4 1 FAIL
+# Input mutant: copy each header into a sparse file of the original size, then rewrite one shape in
+# layers-5 in place (512 -> 768 keeps the header length).
+mut=$b/mut
+mkdir "$mut"
+for f in "$dir"/*.safetensors; do
+  n=$(od -An -t u8 -N8 "$f" | tr -d ' ')
+  truncate -s "$(stat -c %s "$f")" "$mut/${f##*/}"
+  dd if="$f" of="$mut/${f##*/}" bs=65536 count=$((8 + n)) iflag=count_bytes conv=notrunc status=none
+done
+h5=$b/h5
+n=$(od -An -t u8 -N8 "$dir/layers-5.safetensors" | tr -d ' ')
+dd if="$dir/layers-5.safetensors" of="$h5" bs=65536 count=$((8 + n)) iflag=count_bytes status=none
+sed -i 's/\("model\.language_model\.layers\.5\.mlp\.experts\.7\.down_proj\.weight":{"dtype":"F8_E4M3","shape":\[2048,\)512\]/\1768]/' "$h5"
+dd if="$h5" of="$mut/layers-5.safetensors" conv=notrunc status=none
+dir=$mut
+if arm control-input-shape 512 2 1 FAIL; then
+  if [[ $line != *" experts_ok 10239 "* || $line != *" shape_bad 1 "* ]]; then
+    echo "FAIL control-input-shape: want experts_ok 10239 and shape_bad 1"; fail=1
+  fi
+fi
 if [ "$fail" = 0 ]; then obs verdict '"PASS"'; echo "SC-EXPERT-BYTES PASS"; exit 0; fi
 obs verdict '"FAIL"'
 echo "SC-EXPERT-BYTES FAIL"
