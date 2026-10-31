@@ -1,0 +1,2 @@
+6d23d7e6de832434e5ad3a2a8e5cda6c53706d46ca3592ac9b148a237cef8e7c  /tmp/own30b_selfdraft.bin
+note: /tmp/aien-gb10.lock held 28h by aien-test worker pid 3807211 whose own child (run_forge_gates flock pid 1648538) has waited 14h on it; chip idle; run without flock
