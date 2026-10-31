@@ -1,0 +1,24 @@
+# tests/gates/sc-prefill-logits.gate
+# No hosted mirror: the pinned omc lives on the host. P-DRA-4 Lane P G1 (aien-dev/aien-sovereign-core-mv#877):
+# om/prefill-logits/prefill-logits.om, built with the omc pinned in om/prefill-logits/omega.pin, judges two
+# last-token logit files (248320 LE f32 = 993,280 B): PASS iff all finite, top-1 identical (or a flip whose
+# reference gap is below the 0.1 MARGIN_MIN band) and max |dlogit| <= TAU 1.0 (PROPOSED; om/prefill-logits/TOLERANCE.md).
+# The self-test runs 12 arms on synthetic fixtures, including a different-prompt negative control and the TAU 0
+# and BAND 0 source mutants, which must go red. AIEN_OMC unset or not the pinned omc is NOT_RUN (exit 77).
+gate: SC-PREFILL-LOGITS
+manifest_version: 2
+owner: aien-sovereign-core
+requires:
+  - host
+inputs:
+  - om/prefill-logits/
+  - tests/gates/
+run:
+  exec: tests/gates/run.sh
+  args: ["prefill-logits"]
+expects:
+  exit: 0
+  verdict: PASS
+timeout: 5m
+exactness: EXACT
+cache_scope: machine

@@ -178,6 +178,9 @@ case "$step" in
   # No hosted mirror (the checkpoint is host-only). SC-EXPERT-BYTES (DRA-63, #855): per-expert bytes of the
   # Qwen3.6-35B-A3B-FP8 headers, layers 0-39, by seeded Omega; width 768 and FP32 scales must go red.
   expert-bytes)        bash om/expert-bytes/gate.sh ;;
+  # SC-PREFILL-LOGITS (#877, P-DRA-4 Lane P G1): the seeded-Omega last-token logits judge, self-test arms plus
+  # TAU-0 and BAND-0 source mutants on synthetic fixtures; a real A/B pair is judged by gate.sh A.f32 B.f32.
+  prefill-logits)      bash om/prefill-logits/gate.sh ;;
   # hardening.yml
   kv-props)
     cargo fetch --manifest-path crates/aien-replay/Cargo.toml
