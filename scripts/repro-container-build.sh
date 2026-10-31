@@ -33,6 +33,7 @@
 #   PACKAGE      cargo package [aien-serve-http]
 #   CORE_URL OMEGA_URL PHYSICS_URL   git remotes [github.com/aien-dev/{aien-sovereign-core,omega,physics}-mv]
 #   REPRO_CPUS   docker --cpuset-cpus [2-4]   REPRO_JOBS  build jobs [3]
+#   REPRO_MEMORY docker --memory and --memory-swap, e.g. 16g [no limit]
 #
 # The SI alpha-20261029.1 engine (sovereign-intelligence installer/build.sh):
 #   CORE_REV=59b05a71a33e4a2f1324db2f2b6407ee82b8c2c3 OMEGA_REV=6de999da86efc6edd9c2554a87ee31f7fa9215ac \
@@ -77,7 +78,9 @@ if ! docker image inspect "$image" >/dev/null 2>&1; then
 	docker build -q -t "$image" "$here/release/repro" >/dev/null
 fi
 
-docker run --rm --cpuset-cpus "${REPRO_CPUS:-2-4}" --user "$(id -u):$(id -g)" \
+mem=()
+[ -n "${REPRO_MEMORY:-}" ] && mem=(--memory "$REPRO_MEMORY" --memory-swap "$REPRO_MEMORY")
+docker run --rm --cpuset-cpus "${REPRO_CPUS:-2-4}" "${mem[@]}" --user "$(id -u):$(id -g)" \
 	-e CARGO_BUILD_JOBS="${REPRO_JOBS:-3}" \
 	-v "$work:$work" -v "$here/release/repro/inside.sh:/repro/inside.sh:ro" \
 	"$image" nice -n 19 ionice -c3 bash /repro/inside.sh "$work" "$mode" "$pkg"

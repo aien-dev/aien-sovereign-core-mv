@@ -49,6 +49,10 @@ For SI alpha-20261029.1 (core `59b05a71`, omega `6de999da`, physics `6d7cf0d4`),
 gave `9555c030...` and `7781ae77...`. The remapped engine is not the shipped `19173f9e...`: that binary carries
 241 `/home/.../.cargo/registry/src` paths, which the remap replaces with `/cargo/registry/src`.
 
+`REPRO_MEMORY` (for example `3g`) caps the container's memory and swap. [release/repro/RECHECK.md](../../release/repro/RECHECK.md)
+is the outsider recheck kit for the engine SI pins (core `d3dec0eb`, `aien-serve-http` `6fb04197...`): every receipt
+field the Crumb Doctrine requires, and the exact commands, with public URLs only.
+
 ## Package and check
 
 - `scripts/package-release.sh <out.tar.gz>` runs the release gate itself and writes the candidate id and `[model]`
