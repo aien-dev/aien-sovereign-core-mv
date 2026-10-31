@@ -1,0 +1,4 @@
+{"schema":"aien-golden-record/1","label":"SYNTHETIC","engine_sha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","model_repo":"synthetic/not-a-model","model_rev":"0000000000000000000000000000000000000000","sampling":{"temperature":0,"top_p":1,"seed":0,"enable_thinking":false},"max_tokens":8,"prompts_sha256":"0000000000000000000000000000000000000000000000000000000000000000","host_id":"synthetic-host-b","utc":"2000-01-02T00:00:00Z","prompts":[
+{"id":"p0","ids":[1,2,3,4,5]},
+{"id":"p1","ids":[10,20,30]}
+]}

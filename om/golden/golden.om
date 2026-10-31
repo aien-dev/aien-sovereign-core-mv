@@ -1,0 +1,1460 @@
+note SPDX-License-Identifier: Apache-2.0
+note om/golden/golden.om: golden-token recorder and comparator (Core #853, DRA-52). Every judgment is
+note made here; record.sh only sequences and curl only moves bytes. Build (build.sh does this):
+note   { printf 'om2\n'; cat om/vendor/json.om om/vendor/sha256.om om/golden/golden.om; } | omc
+note Modes:
+note   golden req PROMPTS MODEL_REPO MAX_TOKENS OUTDIR
+note     validates the prompt set, writes one greedy request body per prompt to OUTDIR/<i>.json
+note     (temperature 0, aien_return_token_ids true) and prints the prompt count.
+note   golden rec PROMPTS MODEL_REPO MODEL_REV MAX_TOKENS ENGINE_SHA256 HOST_ID LABEL RESPDIR
+note     reads the engine reply RESPDIR/<i>.json for every prompt, takes usage.aien_token_ids, refuses a
+note     reply whose usage.aien_sampling.mode is not greedy, and prints one aien-golden-record/1.
+note   golden cmp REF CAND
+note     prints MATCH or DIVERGE id index=K ref=X cand=Y per prompt (K is the first differing position;
+note     a list that ends early shows end).
+note Exit: 0 written or all match, 1 token mismatch, 2 usage or bad argument, 3 not comparable
+note (label, engine_sha256, model_repo, model_rev, sampling, max_tokens, prompts_sha256 or prompt ids
+note differ), 4 file, json or schema refusal, 5 engine reply refused. Schema: om/golden/SCHEMA.md.
+
+const SRCCAP ulong 524288
+const TAPECAP ulong 786432
+const OUTCAP ulong 524288
+const PMAX ulong 1024
+const TKMAX ulong 262144
+const NFLD ulong 12
+const FCAP ulong 128
+const MAXTOK ulong 1000000
+
+global ga uchar 16384
+global gas ulong 16
+global gal ulong 16
+global gna ulong 1
+global gpth uchar 4352
+global gout uchar 524288
+global gon ulong 1
+global gst ulong 4
+global gsd ulong 1
+global gseen uchar 32
+global gpid uchar 131072
+global gpidl ulong 2048
+global gpco ulong 1024
+global gpcs ulong 1024
+global gtk uint 524288
+global gtko ulong 2048
+global gtkn ulong 2048
+global gtkt ulong 2
+global gnp ulong 2
+global ghv uchar 3072
+global ghl ulong 24
+global gstb uchar 128
+global gutc uchar 20
+
+text tpre "golden: refused "
+text tuse "usage: golden req PROMPTS MODEL_REPO MAX_TOKENS OUTDIR | golden rec PROMPTS MODEL_REPO MODEL_REV MAX_TOKENS ENGINE_SHA256 HOST_ID LABEL RESPDIR | golden cmp REF CAND"
+text tmreq "req"
+text tmrec "rec"
+text tmcmp "cmp"
+text tio "io"
+text tnreg "not-a-regular-file"
+text tbig "too-large"
+text tjson "json"
+text tpsch "prompts-schema"
+text trsch "record-schema"
+text tclock "clock"
+text tbrepo "bad-model-repo"
+text tbrev "bad-model-rev"
+text tbmax "bad-max-tokens"
+text tbeng "bad-engine-sha256"
+text tbhost "bad-host-id"
+text tblabel "bad-label"
+text tengerr "engine-error-reply"
+text tnoids "no-usage-aien_token_ids"
+text tsamp "aien_sampling-not-object"
+text tsampled "not-greedy"
+text tbadtok "bad-token-id"
+text tjsuf ".json"
+
+text tq1 "{\"model\":\""
+text tq2 "\",\"messages\":[{\"role\":\"user\",\"content\":"
+text tq3 "}],\"temperature\":0,\"top_p\":1,\"seed\":0,\"max_tokens\":"
+text tq4 ",\"stream\":false,\"chat_template_kwargs\":{\"enable_thinking\":"
+text tq5 "},\"aien_return_token_ids\":true}\n"
+text ttrue "true"
+text tfalse "false"
+
+text tr1 "{\"schema\":\"aien-golden-record/1\",\"label\":\""
+text tr2 "\",\"engine_sha256\":\""
+text tr3 "\",\"model_repo\":\""
+text tr4 "\",\"model_rev\":\""
+text tr5 "\",\"sampling\":{\"temperature\":0,\"top_p\":1,\"seed\":0,\"enable_thinking\":"
+text tr6 "},\"max_tokens\":"
+text tr7 ",\"prompts_sha256\":\""
+text tr8 "\",\"host_id\":\""
+text tr9 "\",\"utc\":\""
+text tr10 "\",\"prompts\":["
+text tp1 "{\"id\":\""
+text tp2 "\",\"ids\":["
+text tp3 "]}"
+text tend "\n]}\n"
+
+text kschema "schema"
+text kthink "enable_thinking"
+text kprom "prompts"
+text kid "id"
+text kcont "content"
+text klabel "label"
+text keng "engine_sha256"
+text krepo "model_repo"
+text krev "model_rev"
+text ksamp "sampling"
+text kmaxt "max_tokens"
+text kpsha "prompts_sha256"
+text khost "host_id"
+text kutc "utc"
+text kids "ids"
+text ktemp "temperature"
+text ktopp "top_p"
+text kseed "seed"
+text kerror "error"
+text kusage "usage"
+text ktids "aien_token_ids"
+text kasamp "aien_sampling"
+text kmode "mode"
+text vpsch "aien-golden-prompts/1"
+text vrsch "aien-golden-record/1"
+text vgreedy "greedy"
+text vreal "REAL"
+text vfake "FAKE"
+text vsynth "SYNTHETIC"
+
+text cinfo1 "golden-cmp ref_host="
+text cinfo2 " ref_utc="
+text cinfo3 " cand_host="
+text cinfo4 " cand_utc="
+text cmatch "MATCH "
+text cdivg "DIVERGE "
+text cidx " index="
+text cref " ref="
+text ccand " cand="
+text cn " n="
+text cend "end"
+text cnot "NOTCOMPARABLE "
+text cpcnt "prompt_count"
+text cpidx "prompt_id index="
+text csum "golden-cmp prompts="
+text csm " match="
+text csd " diverge="
+
+note ======== failure and output ========
+
+fn die code int msg view uchar * to void
+d = new uchar 2 0
+w = write 2 tpre 0 len tpre
+put d 0 uchar add 48 code
+put d 1 32
+w = write 2 d 0 2
+w = write 2 msg 0 len msg
+put d 0 10
+w = write 2 d 0 1
+exit code
+end
+
+fn obyte c uchar to void
+n = get gon 0
+if ge n OUTCAP
+die 4 tbig
+end
+put gout n c
+put gon 0 add n 1
+end
+
+fn ot t view uchar * to void
+for i ulong len t
+obyte get t i
+end
+end
+
+fn osp src view uchar * off ulong n ulong to void
+for i ulong n
+obyte get src add off i
+end
+end
+
+fn ou v ulong to void
+d = new uchar 24 0
+x = v
+k = ulong 0
+put d k uchar add 48 rem x 10
+x = div x 10
+k = add k 1
+while gt x 0 bound 20
+put d k uchar add 48 rem x 10
+x = div x 10
+k = add k 1
+end
+while gt k 0 bound 21
+k = sub k 1
+obyte get d k
+end
+end
+
+fn oflush fd int to void
+n = get gon 0
+o = ulong 0
+while lt o n bound 999999
+r = write fd gout o sub n o
+if le r 0
+die 4 tio
+end
+o = add o ulong r
+end
+put gon 0 0
+end
+
+note ======== arguments and paths ========
+
+fn argeq a ulong t view uchar * to bool
+n = get gal a
+if ne n len t
+ret false
+end
+o = get gas a
+for i ulong n
+if ne get ga add o i get t i
+ret false
+end
+end
+ret true
+end
+
+fn argp a ulong to ulong
+n = get gal a
+if or eq n 0 gt n 4000
+die 2 tuse
+end
+o = get gas a
+for i ulong n
+put gpth i get ga add o i
+end
+ret n
+end
+
+fn oarg a ulong to void
+o = get gas a
+for i ulong get gal a
+obyte get ga add o i
+end
+end
+
+fn namec c uchar sl bool to bool
+if and ge c 48 le c 57
+ret true
+end
+if and ge c 65 le c 90
+ret true
+end
+if and ge c 97 le c 122
+ret true
+end
+if or eq c 46 or eq c 95 eq c 45
+ret true
+end
+ret and sl eq c 47
+end
+
+fn hexc c uchar to bool
+if and ge c 48 le c 57
+ret true
+end
+ret and ge c 97 le c 102
+end
+
+fn aname a ulong mx ulong sl bool to bool
+n = get gal a
+if or eq n 0 gt n mx
+ret false
+end
+o = get gas a
+for i ulong n
+if not namec get ga add o i sl
+ret false
+end
+end
+ret true
+end
+
+fn ahex a ulong n ulong to bool
+if ne get gal a n
+ret false
+end
+o = get gas a
+for i ulong n
+if not hexc get ga add o i
+ret false
+end
+end
+ret true
+end
+
+note argu: a decimal argument 1 .. MAXTOK without a leading zero, or 0 when it is anything else
+fn argu a ulong to ulong
+n = get gal a
+if or eq n 0 gt n 7
+ret 0
+end
+o = get gas a
+if eq get ga o 48
+ret 0
+end
+v = ulong 0
+for i ulong n
+c = get ga add o i
+if or lt c 48 gt c 57
+ret 0
+end
+v = add mul v 10 ulong sub c 48
+end
+if gt v MAXTOK
+ret 0
+end
+ret v
+end
+
+fn pdec n ulong v ulong to ulong
+d = new uchar 24 0
+x = v
+k = ulong 0
+put d k uchar add 48 rem x 10
+x = div x 10
+k = add k 1
+while gt x 0 bound 20
+put d k uchar add 48 rem x 10
+x = div x 10
+k = add k 1
+end
+m = n
+while gt k 0 bound 21
+k = sub k 1
+put gpth m get d k
+m = add m 1
+end
+ret m
+end
+
+note pthidx: gpth = argument a, a slash, decimal i, .json
+fn pthidx a ulong i ulong to ulong
+n = argp a
+put gpth n 47
+n = pdec add n 1 i
+for j ulong len tjsuf
+put gpth add n j get tjsuf j
+end
+ret add n len tjsuf
+end
+
+note ======== files ========
+
+fn le64 o ulong to ulong
+v = ulong 0
+for i ulong 8
+v = or v shl ulong get gstb add o i mul 8 i
+end
+ret v
+end
+
+note rdfile: read the regular file named by gpth[0..n) (O_RDONLY|O_CLOEXEC|O_NOFOLLOW) into src
+fn rdfile n ulong src edit uchar * to ulong
+fd = fopen gpth 0 n 557056 0
+if lt fd 0
+die 4 tio
+end
+r = fstat int fd gstb 0 128
+if ne r 0
+die 4 tio
+end
+md = or ulong get gstb 16 shl ulong get gstb 17 8
+if ne and md 61440 32768
+die 4 tnreg
+end
+sz = le64 48
+if gt sz len src
+die 4 tbig
+end
+o = ulong 0
+while lt o sz bound 999999
+q = pread int fd src o sub sz o long o
+if le q 0
+die 4 tio
+end
+o = add o ulong q
+end
+r = fclose int fd
+if ne r 0
+die 4 tio
+end
+ret sz
+end
+
+note wrfile: create gpth[0..n) (O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC, 0600) from gout
+fn wrfile n ulong to void
+fd = fopen gpth 0 n 557249 384
+if lt fd 0
+die 4 tio
+end
+oflush int fd
+r = fclose int fd
+if ne r 0
+die 4 tio
+end
+end
+
+fn jparse src view uchar * tape edit uint * n ulong to void
+r = js_init tape n 64
+if lt r 0
+die 4 tjson
+end
+r = js_parse src tape n
+if lt r 0
+die 4 tjson
+end
+if ne js_type tape 0 jsobj
+die 4 tjson
+end
+end
+
+note ======== token checks ========
+
+fn keyis src view uchar * off ulong key view uchar * to bool
+ret js_streq src off key
+end
+
+note vname: kind 0 is an id (1..64 of [A-Za-z0-9._-]), kind 1 a model repo (1..96, slash allowed)
+fn vname src view uchar * tape view uint * t ulong kind ulong to bool
+mx = ulong 64
+sl = false
+if eq kind 1
+mx = ulong 96
+sl = true
+end
+if ne js_type tape t jsstr
+ret false
+end
+off = js_off tape t
+sp = js_span tape t
+if or lt sp 3 gt sp add mx 2
+ret false
+end
+for i ulong sub sp 2
+if not namec get src add off add i 1 sl
+ret false
+end
+end
+ret true
+end
+
+fn vhex src view uchar * tape view uint * t ulong n ulong to bool
+if ne js_type tape t jsstr
+ret false
+end
+if ne js_span tape t add n 2
+ret false
+end
+off = js_off tape t
+for i ulong n
+if not hexc get src add off add i 1
+ret false
+end
+end
+ret true
+end
+
+fn utcc i ulong c uchar to bool
+if or eq i 4 eq i 7
+ret eq c 45
+end
+if eq i 10
+ret eq c 84
+end
+if or eq i 13 eq i 16
+ret eq c 58
+end
+if eq i 19
+ret eq c 90
+end
+ret and ge c 48 le c 57
+end
+
+fn vutc src view uchar * tape view uint * t ulong to bool
+if ne js_type tape t jsstr
+ret false
+end
+if ne js_span tape t 22
+ret false
+end
+off = add js_off tape t 1
+for i ulong 20
+if not utcc i get src add off i
+ret false
+end
+end
+ret true
+end
+
+fn vuint src view uchar * tape view uint * t ulong to bool
+if ne js_type tape t jsnum
+ret false
+end
+ret js_isu src js_off tape t
+end
+
+fn tokv src view uchar * tape view uint * e ulong code int to ulong
+if not vuint src tape e
+die code tbadtok
+end
+v = js_tou src js_off tape e
+if gt v 4294967295
+die code tbadtok
+end
+ret v
+end
+
+fn seenclr to void
+for i ulong 32
+put gseen i 0
+end
+end
+
+fn seen i ulong msg view uchar * to void
+if ne get gseen i 0
+die 4 msg
+end
+put gseen i 1
+end
+
+fn seenall a ulong n ulong msg view uchar * to void
+for i ulong n
+if eq get gseen add a i 0
+die 4 msg
+end
+end
+end
+
+note ======== prompt ids (side 0 = prompt set or reference, side 1 = candidate) ========
+
+fn cpcopy src view uchar * off ulong n ulong s ulong to void
+b = mul s 64
+for j ulong n
+put gpid add b j get src add off j
+end
+put gpidl s n
+end
+
+fn cpid src view uchar * tape view uint * t ulong i ulong to void
+s = add mul get gsd 0 PMAX i
+cpcopy src add js_off tape t 1 sub js_span tape t 2 s
+end
+
+fn pideq x ulong y ulong n ulong to bool
+p = mul x 64
+q = mul y 64
+for j ulong n
+if ne get gpid add p j get gpid add q j
+ret false
+end
+end
+ret true
+end
+
+fn ideq sa ulong a ulong sb ulong b ulong to bool
+x = add mul sa PMAX a
+y = add mul sb PMAX b
+if ne get gpidl x get gpidl y
+ret false
+end
+ret pideq x y get gpidl x
+end
+
+fn dupid sd ulong i ulong to bool
+for j ulong i
+if ideq sd j sd i
+ret true
+end
+end
+ret false
+end
+
+fn oid sd ulong i ulong to void
+s = add mul sd PMAX i
+for j ulong get gpidl s
+obyte get gpid add mul s 64 j
+end
+end
+
+note ======== prompt set (aien-golden-prompts/1) ========
+
+fn pr_key src view uchar * tape view uint * k ulong to ulong
+if keyis src js_off tape k kschema
+ret 0
+end
+if keyis src js_off tape k kthink
+ret 1
+end
+if keyis src js_off tape k kprom
+ret 2
+end
+die 4 tpsch
+ret 9
+end
+
+fn pr_think tape view uint * v ulong to void
+ty = js_type tape v
+if eq ty jstrue
+put gst 1 1
+ret
+end
+if eq ty jsfalse
+put gst 1 0
+ret
+end
+die 4 tpsch
+end
+
+fn pr_mem src view uchar * tape view uint * k ulong i ulong to ulong
+v = add k 1
+if keyis src js_off tape k kid
+if not vname src tape v 0
+die 4 tpsch
+end
+cpid src tape v i
+if dupid 0 i
+die 4 tpsch
+end
+ret 0
+end
+if keyis src js_off tape k kcont
+if ne js_type tape v jsstr
+die 4 tpsch
+end
+if eq js_slen tape v 0
+die 4 tpsch
+end
+put gpco i js_off tape v
+put gpcs i js_span tape v
+ret 1
+end
+die 4 tpsch
+ret 9
+end
+
+fn pr_one src view uchar * tape view uint * o ulong i ulong to void
+if ne js_type tape o jsobj
+die 4 tpsch
+end
+if ne js_nkids tape o 2
+die 4 tpsch
+end
+k = js_first tape o
+a = pr_mem src tape k i
+b = pr_mem src tape js_mnext tape k i
+if eq a b
+die 4 tpsch
+end
+end
+
+fn pr_list src view uchar * tape view uint * a ulong to void
+if ne js_type tape a jsarr
+die 4 tpsch
+end
+np = js_nkids tape a
+if or eq np 0 gt np PMAX
+die 4 tpsch
+end
+put gnp 0 np
+e = js_first tape a
+for i ulong np
+pr_one src tape e i
+e = js_enext tape e
+end
+end
+
+note pr_load: read argument 2, hash its exact bytes into hd, validate it, keep ids and contents
+fn pr_load src edit uchar * tape edit uint * to void
+put gsd 0 0
+n = rdfile argp 2 src
+hreset
+for i ulong n
+b = hpush get src i
+end
+ok = hfinal
+if not ok
+die 4 tio
+end
+jparse src tape n
+seenclr
+k = js_first tape 0
+while ne k jsnone bound 999999
+id = pr_key src tape k
+seen id tpsch
+v = add k 1
+if eq id 0
+if not js_streq src js_off tape v vpsch
+die 4 tpsch
+end
+end
+if eq id 1
+pr_think tape v
+end
+if eq id 2
+pr_list src tape v
+end
+k = js_mnext tape k
+end
+seenall 0 3 tpsch
+end
+
+note ======== req ========
+
+fn othink to void
+if eq get gst 1 1
+ot ttrue
+else
+ot tfalse
+end
+end
+
+fn req_one src view uchar * i ulong mt ulong to void
+ot tq1
+oarg 3
+ot tq2
+osp src get gpco i get gpcs i
+ot tq3
+ou mt
+ot tq4
+othink
+ot tq5
+end
+
+fn m_req src edit uchar * tape edit uint * to int
+if ne get gna 0 6
+die 2 tuse
+end
+if not aname 3 96 true
+die 2 tbrepo
+end
+mt = argu 4
+if eq mt 0
+die 2 tbmax
+end
+pr_load src tape
+np = get gnp 0
+for i ulong np
+req_one src i mt
+wrfile pthidx 5 i
+end
+ou np
+obyte 10
+oflush 1
+ret 0
+end
+
+note ======== rec ========
+
+fn put2 p ulong v ulong to void
+put gutc p uchar add 48 div v 10
+put gutc add p 1 uchar add 48 rem v 10
+end
+
+fn civyoe doe ulong to ulong
+a = sub doe div doe 1460
+a = add a div doe 36524
+a = sub a div doe 146096
+ret div a 365
+end
+
+fn civput y ulong m ulong d ulong to void
+put gutc 0 uchar add 48 div y 1000
+put gutc 1 uchar add 48 rem div y 100 10
+put gutc 2 uchar add 48 rem div y 10 10
+put gutc 3 uchar add 48 rem y 10
+put gutc 4 45
+put2 5 m
+put gutc 7 45
+put2 8 d
+end
+
+note civil: proleptic Gregorian date of a day count since 1970-01-01 (days-to-civil, era of 146097 days)
+fn civil days ulong to void
+z = add days 719468
+era = div z 146097
+doe = sub z mul era 146097
+yoe = civyoe doe
+doy = sub doe sub add mul 365 yoe div yoe 4 div yoe 100
+mp = div add mul 5 doy 2 153
+m = add mp 3
+if ge mp 10
+m = sub mp 9
+end
+y = add yoe mul era 400
+if le m 2
+y = add y 1
+end
+civput y m add sub doy div add mul 153 mp 2 5 1
+end
+
+fn utcfmt to void
+t = realns
+if lt t 0
+die 4 tclock
+end
+s = div ulong t 1000000000
+civil div s 86400
+sod = rem s 86400
+put gutc 10 84
+put2 11 div sod 3600
+put gutc 13 58
+put2 14 div rem sod 3600 60
+put gutc 16 58
+put2 17 rem sod 60
+put gutc 19 90
+end
+
+fn rs_greedy src view uchar * tape view uint * s ulong to void
+if ne js_type tape s jsobj
+die 5 tsamp
+end
+k = js_first tape s
+while ne k jsnone bound 999999
+if keyis src js_off tape k kmode
+if js_streq src js_off tape add k 1 vgreedy
+ret
+end
+end
+k = js_mnext tape k
+end
+die 5 tsampled
+end
+
+fn rs_usage src view uchar * tape view uint * u ulong to ulong
+a = jsnone
+k = js_first tape u
+while ne k jsnone bound 999999
+v = add k 1
+if keyis src js_off tape k ktids
+if or ne a jsnone ne js_type tape v jsarr
+die 5 tnoids
+end
+a = v
+end
+if keyis src js_off tape k kasamp
+rs_greedy src tape v
+end
+k = js_mnext tape k
+end
+if eq a jsnone
+die 5 tnoids
+end
+ret a
+end
+
+fn rs_one src view uchar * tape view uint * i ulong to void
+u = jsnone
+k = js_first tape 0
+while ne k jsnone bound 999999
+if keyis src js_off tape k kerror
+die 5 tengerr
+end
+if keyis src js_off tape k kusage
+if ne u jsnone
+die 5 tnoids
+end
+u = add k 1
+end
+k = js_mnext tape k
+end
+if eq u jsnone
+die 5 tnoids
+end
+if ne js_type tape u jsobj
+die 5 tnoids
+end
+a = rs_usage src tape u
+ot tp1
+oid 0 i
+ot tp2
+e = js_first tape a
+c = ulong 0
+while ne e jsnone bound 999999
+if gt c 0
+obyte 44
+end
+ou tokv src tape e 5
+c = add c 1
+e = js_enext tape e
+end
+ot tp3
+end
+
+fn rec_head mt ulong to void
+ot tr1
+oarg 8
+ot tr2
+oarg 6
+ot tr3
+oarg 3
+ot tr4
+oarg 4
+ot tr5
+othink
+ot tr6
+ou mt
+ot tr7
+for i ulong 64
+obyte get hd i
+end
+ot tr8
+oarg 7
+ot tr9
+for j ulong 20
+obyte get gutc j
+end
+ot tr10
+end
+
+fn m_rec src edit uchar * tape edit uint * to int
+if ne get gna 0 10
+die 2 tuse
+end
+if not aname 3 96 true
+die 2 tbrepo
+end
+if not ahex 4 40
+die 2 tbrev
+end
+mt = argu 5
+if eq mt 0
+die 2 tbmax
+end
+if not ahex 6 64
+die 2 tbeng
+end
+if not aname 7 64 false
+die 2 tbhost
+end
+if not or argeq 8 vreal argeq 8 vfake
+die 2 tblabel
+end
+pr_load src tape
+utcfmt
+rec_head mt
+np = get gnp 0
+for i ulong np
+if gt i 0
+obyte 44
+end
+obyte 10
+n = rdfile pthidx 9 i src
+jparse src tape n
+rs_one src tape i
+end
+ot tend
+oflush 1
+ret 0
+end
+
+note ======== cmp: record loading (aien-golden-record/1) ========
+note header fields kept per side: 0 label, 1 engine_sha256, 2 model_repo, 3 model_rev, 4 temperature,
+note 5 top_p, 6 seed, 7 enable_thinking, 8 max_tokens, 9 prompts_sha256 (all compared), 10 host_id, 11 utc
+note (printed, never compared). Values are kept as their exact JSON lexeme.
+
+fn rc_need ok bool to void
+if not ok
+die 4 trsch
+end
+end
+
+fn fcopy src view uchar * off ulong n ulong s ulong to void
+b = mul s FCAP
+for j ulong n
+put ghv add b j get src add off j
+end
+put ghl s n
+end
+
+fn fstore src view uchar * tape view uint * v ulong f ulong to void
+if gt js_span tape v FCAP
+die 4 trsch
+end
+fcopy src js_off tape v js_span tape v add mul get gsd 0 NFLD f
+end
+
+fn rc_key src view uchar * tape view uint * k ulong to ulong
+if keyis src js_off tape k kschema
+ret 0
+end
+if keyis src js_off tape k klabel
+ret 1
+end
+if keyis src js_off tape k keng
+ret 2
+end
+if keyis src js_off tape k krepo
+ret 3
+end
+if keyis src js_off tape k krev
+ret 4
+end
+if keyis src js_off tape k ksamp
+ret 5
+end
+if keyis src js_off tape k kmaxt
+ret 6
+end
+if keyis src js_off tape k kpsha
+ret 7
+end
+if keyis src js_off tape k khost
+ret 8
+end
+if keyis src js_off tape k kutc
+ret 9
+end
+if keyis src js_off tape k kprom
+ret 10
+end
+die 4 trsch
+ret 99
+end
+
+fn rc_skey src view uchar * tape view uint * k ulong to ulong
+if keyis src js_off tape k ktemp
+ret 4
+end
+if keyis src js_off tape k ktopp
+ret 5
+end
+if keyis src js_off tape k kseed
+ret 6
+end
+if keyis src js_off tape k kthink
+ret 7
+end
+die 4 trsch
+ret 99
+end
+
+note rc_sval: greedy records only: temperature is the integer 0
+fn rc_sval src view uchar * tape view uint * v ulong f ulong to void
+ty = js_type tape v
+if eq f 4
+rc_need vuint src tape v
+rc_need eq js_tou src js_off tape v 0
+ret
+end
+if eq f 5
+rc_need eq ty jsnum
+ret
+end
+if eq f 6
+rc_need vuint src tape v
+ret
+end
+rc_need or eq ty jstrue eq ty jsfalse
+end
+
+fn rc_samp src view uchar * tape view uint * o ulong to void
+rc_need eq js_type tape o jsobj
+rc_need eq js_nkids tape o 4
+k = js_first tape o
+while ne k jsnone bound 8
+f = rc_skey src tape k
+seen add 16 f trsch
+v = add k 1
+rc_sval src tape v f
+fstore src tape v f
+k = js_mnext tape k
+end
+seenall 20 4 trsch
+end
+
+fn rc_label src view uchar * tape view uint * v ulong to void
+off = js_off tape v
+if js_streq src off vreal
+ret
+end
+if js_streq src off vfake
+ret
+end
+if js_streq src off vsynth
+ret
+end
+die 4 trsch
+end
+
+fn rc_fill src view uchar * tape view uint * a ulong d ulong to void
+e = js_first tape a
+j = ulong 0
+while ne e jsnone bound 999999
+put gtk add d j uint tokv src tape e 4
+j = add j 1
+e = js_enext tape e
+end
+end
+
+fn rc_ids src view uchar * tape view uint * a ulong i ulong to void
+rc_need eq js_type tape a jsarr
+sd = get gsd 0
+s = add mul sd PMAX i
+t = get gtkt sd
+n = js_nkids tape a
+if gt add t n TKMAX
+die 4 tbig
+end
+put gtko s t
+put gtkn s n
+put gtkt sd add t n
+rc_fill src tape a add mul sd TKMAX t
+end
+
+fn rc_pmem src view uchar * tape view uint * k ulong i ulong to ulong
+v = add k 1
+if keyis src js_off tape k kid
+rc_need vname src tape v 0
+cpid src tape v i
+if dupid get gsd 0 i
+die 4 trsch
+end
+ret 0
+end
+if keyis src js_off tape k kids
+rc_ids src tape v i
+ret 1
+end
+die 4 trsch
+ret 9
+end
+
+fn rc_prompt src view uchar * tape view uint * o ulong i ulong to void
+rc_need eq js_type tape o jsobj
+rc_need eq js_nkids tape o 2
+k = js_first tape o
+a = rc_pmem src tape k i
+b = rc_pmem src tape js_mnext tape k i
+if eq a b
+die 4 trsch
+end
+end
+
+fn rc_prompts src view uchar * tape view uint * a ulong to void
+rc_need eq js_type tape a jsarr
+np = js_nkids tape a
+if or eq np 0 gt np PMAX
+die 4 trsch
+end
+put gnp get gsd 0 np
+e = js_first tape a
+for i ulong np
+rc_prompt src tape e i
+e = js_enext tape e
+end
+end
+
+fn rc_val src view uchar * tape view uint * v ulong id ulong to void
+if eq id 0
+rc_need js_streq src js_off tape v vrsch
+ret
+end
+if eq id 1
+rc_label src tape v
+fstore src tape v 0
+ret
+end
+if eq id 2
+rc_need vhex src tape v 64
+fstore src tape v 1
+ret
+end
+if eq id 3
+rc_need vname src tape v 1
+fstore src tape v 2
+ret
+end
+if eq id 4
+rc_need vhex src tape v 40
+fstore src tape v 3
+ret
+end
+if eq id 5
+rc_samp src tape v
+ret
+end
+rc_val2 src tape v id
+end
+
+fn rc_val2 src view uchar * tape view uint * v ulong id ulong to void
+if eq id 6
+rc_need vuint src tape v
+mt = js_tou src js_off tape v
+rc_need and ge mt 1 le mt MAXTOK
+fstore src tape v 8
+ret
+end
+if eq id 7
+rc_need vhex src tape v 64
+fstore src tape v 9
+ret
+end
+if eq id 8
+rc_need vname src tape v 0
+fstore src tape v 10
+ret
+end
+if eq id 9
+rc_need vutc src tape v
+fstore src tape v 11
+ret
+end
+rc_prompts src tape v
+end
+
+fn rc_load src edit uchar * tape edit uint * sd ulong to void
+put gsd 0 sd
+n = rdfile argp add 2 sd src
+jparse src tape n
+seenclr
+put gtkt sd 0
+k = js_first tape 0
+while ne k jsnone bound 999999
+id = rc_key src tape k
+seen id trsch
+rc_val src tape add k 1 id
+k = js_mnext tape k
+end
+seenall 0 11 trsch
+end
+
+note ======== cmp: comparison ========
+
+fn feq f ulong to bool
+a = f
+b = add NFLD f
+n = get ghl a
+if ne n get ghl b
+ret false
+end
+for j ulong n
+if ne get ghv add mul a FCAP j get ghv add mul b FCAP j
+ret false
+end
+end
+ret true
+end
+
+fn ofld sd ulong f ulong to void
+s = add mul sd NFLD f
+for j ulong get ghl s
+obyte get ghv add mul s FCAP j
+end
+end
+
+fn ofname f ulong to void
+if eq f 0
+ot klabel
+end
+if eq f 1
+ot keng
+end
+if eq f 2
+ot krepo
+end
+if eq f 3
+ot krev
+end
+if eq f 4
+ot ktemp
+end
+if eq f 5
+ot ktopp
+end
+if eq f 6
+ot kseed
+end
+if eq f 7
+ot kthink
+end
+if eq f 8
+ot kmaxt
+end
+if eq f 9
+ot kpsha
+end
+end
+
+fn c_info to void
+ot cinfo1
+ofld 0 10
+ot cinfo2
+ofld 0 11
+ot cinfo3
+ofld 1 10
+ot cinfo4
+ofld 1 11
+obyte 10
+end
+
+fn c_ids to ulong
+bad = ulong 0
+for i ulong get gnp 0
+if not ideq 0 i 1 i
+ot cnot
+ot cpidx
+ou i
+ot cref
+oid 0 i
+ot ccand
+oid 1 i
+obyte 10
+bad = add bad 1
+end
+end
+ret bad
+end
+
+fn c_head to ulong
+bad = ulong 0
+for f ulong 10
+if not feq f
+ot cnot
+ofname f
+ot cref
+ofld 0 f
+ot ccand
+ofld 1 f
+obyte 10
+bad = add bad 1
+end
+end
+if ne get gnp 0 get gnp 1
+ot cnot
+ot cpcnt
+ot cref
+ou get gnp 0
+ot ccand
+ou get gnp 1
+obyte 10
+ret add bad 1
+end
+ret add bad c_ids
+end
+
+fn cdiv ao ulong an ulong bo ulong bn ulong to ulong
+m = an
+if lt bn m
+m = bn
+end
+k = ulong 0
+while lt k m bound 999999
+if ne get gtk add ao k get gtk add bo k
+ret k
+end
+k = add k 1
+end
+ret m
+end
+
+fn otokat o ulong n ulong k ulong to void
+if lt k n
+ou ulong get gtk add o k
+else
+ot cend
+end
+end
+
+fn c_one i ulong to bool
+ao = get gtko i
+an = get gtkn i
+bo = add TKMAX get gtko add PMAX i
+bn = get gtkn add PMAX i
+k = cdiv ao an bo bn
+if and eq k an eq k bn
+ot cmatch
+oid 0 i
+ot cn
+ou an
+obyte 10
+ret true
+end
+ot cdivg
+oid 0 i
+ot cidx
+ou k
+ot cref
+otokat ao an k
+ot ccand
+otokat bo bn k
+obyte 10
+ret false
+end
+
+fn m_cmp src edit uchar * tape edit uint * to int
+if ne get gna 0 4
+die 2 tuse
+end
+rc_load src tape 0
+rc_load src tape 1
+c_info
+bad = c_head
+if gt bad 0
+oflush 1
+ret 3
+end
+mm = ulong 0
+np = get gnp 0
+for i ulong np
+if not c_one i
+mm = add mm 1
+end
+end
+ot csum
+ou np
+ot csm
+ou sub np mm
+ot csd
+ou mm
+obyte 10
+oflush 1
+if gt mm 0
+ret 1
+end
+ret 0
+end
+
+fn main to int
+c = argcnt
+if or lt c 2 gt c 10
+die 2 tuse
+end
+o = ulong 0
+for i ulong ulong c
+r = argread i ga o sub len ga o
+if lt r 0
+die 2 tuse
+end
+put gas i o
+put gal i ulong r
+o = add o ulong r
+end
+put gna 0 ulong c
+src = new uchar SRCCAP 0
+tape = new uint TAPECAP 0
+if argeq 1 tmreq
+ret m_req src tape
+end
+if argeq 1 tmrec
+ret m_rec src tape
+end
+if argeq 1 tmcmp
+ret m_cmp src tape
+end
+die 2 tuse
+ret 2
+end
