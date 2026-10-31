@@ -36,3 +36,4 @@ aien-test-switches = []
 
 [dev-dependencies]
 aien-inference-abi = { path = "../aien-inference-abi", features = ["host-test-engine"] }
+tempfile = "3.10"

@@ -17,8 +17,45 @@ use chrono::{DateTime, Utc};
 use colored::*;
 use serde::{Deserialize, Serialize};
 use std::fs;
-
+use std::io::{Read, Write};
 use std::path::Path;
+
+/// Open a `.crumb` or `.crumb.local` sidecar without following a symlink in
+/// its final component. A sidecar planted as a link (say by a cloned repo)
+/// must not redirect a crumb read or write outside its directory (DRA-47).
+fn open_sidecar(path: &Path, opts: &mut fs::OpenOptions) -> std::io::Result<fs::File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NOFOLLOW);
+    }
+    opts.open(path)
+}
+
+fn read_sidecar(path: &Path) -> std::io::Result<String> {
+    let mut text = String::new();
+    open_sidecar(path, fs::OpenOptions::new().read(true))?.read_to_string(&mut text)?;
+    Ok(text)
+}
+
+fn write_sidecar(path: &Path, text: &str) -> std::io::Result<()> {
+    open_sidecar(
+        path,
+        fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true),
+    )?
+    .write_all(text.as_bytes())
+}
+
+/// Create a `.crumb` that does not exist yet. An existing entry, including a
+/// dangling symlink that `Path::exists` reports as absent, is left alone
+/// rather than written through (DRA-47).
+pub(crate) fn write_new_crumb(path: &Path, text: &str) -> std::io::Result<()> {
+    open_sidecar(path, fs::OpenOptions::new().write(true).create_new(true))?
+        .write_all(text.as_bytes())
+}
 
 pub const CRUMB_FILENAME: &str = ".crumb";
 pub const LOCAL_CRUMB_FILENAME: &str = ".crumb.local";
@@ -34,7 +71,7 @@ pub struct LocalCrumbData {
 pub fn load_local_crumb(dir: &Path) -> LocalCrumbData {
     let local_path = dir.join(LOCAL_CRUMB_FILENAME);
     if local_path.exists() {
-        if let Ok(c) = fs::read_to_string(&local_path) {
+        if let Ok(c) = read_sidecar(&local_path) {
             if let Ok(data) = serde_json::from_str::<LocalCrumbData>(&c) {
                 return data;
             }
@@ -46,7 +83,7 @@ pub fn load_local_crumb(dir: &Path) -> LocalCrumbData {
 pub fn save_local_crumb(dir: &Path, data: &LocalCrumbData) {
     let local_path = dir.join(LOCAL_CRUMB_FILENAME);
     if let Ok(json_str) = serde_json::to_string_pretty(data) {
-        let _ = fs::write(&local_path, json_str);
+        let _ = write_sidecar(&local_path, &json_str);
     }
 }
 
@@ -213,7 +250,7 @@ impl DirCrumb {
 pub fn load_or_init_dir_crumb(dir: &Path, purpose_opt: Option<CrumbPurpose>) -> DirCrumb {
     let crumb_path = dir.join(CRUMB_FILENAME);
     if crumb_path.exists() {
-        if let Ok(content) = fs::read_to_string(&crumb_path) {
+        if let Ok(content) = read_sidecar(&crumb_path) {
             match serde_json::from_str::<DirCrumb>(&content) {
                 Err(e) => eprintln!(
                     "Failed to parse DirCrumb at {}: {}",
@@ -305,7 +342,7 @@ pub fn save_dir_crumb(crumb: &DirCrumb) {
     durable_crumb.whispers = Vec::new(); // Whispers live in .crumb.local
 
     if let Ok(json_str) = serde_json::to_string_pretty(&durable_crumb) {
-        let _ = fs::write(&crumb_path, json_str);
+        let _ = write_sidecar(&crumb_path, &json_str);
     }
 }
 
@@ -352,30 +389,49 @@ pub fn record_directory_crumb(
     }
     save_local_crumb(&dir, &local_data);
 
-    // If dir has a parent within project workspace, bubble awareness to parent .crumb.local
-    if let Some(parent) = dir.parent() {
-        let platform = crate::platform::PlatformContext::detect();
-        if parent.starts_with(&platform.home_dir) && parent != dir {
-            let mut parent_local = load_local_crumb(parent);
-            let bubble_item = CrumbHistoryItem {
-                crumb_id: format!("bubble-{}", Utc::now().timestamp_nanos_opt().unwrap_or(0)),
-                timestamp: Utc::now().to_rfc3339(),
-                agent_id: agent_id.to_string(),
-                session_id: session_id.to_string(),
-                action: format!("sub:{}", action),
-                target: format!("{}/{}", dir_name, target_name),
-                intent: intent.to_string(),
-                vector: vector.to_string(),
-            };
-            parent_local.history.push(bubble_item);
-            if parent_local.history.len() > 50 {
-                parent_local
-                    .history
-                    .drain(0..parent_local.history.len() - 50);
-            }
-            save_local_crumb(parent, &parent_local);
+    // Bubble awareness to the parent's .crumb.local only when that parent is
+    // itself inside a permitted workspace.
+    let platform = crate::platform::PlatformContext::detect();
+    if let Some(parent) = bubble_parent(
+        &dir,
+        &platform.home_dir,
+        &crate::fs_bind::permitted_workspaces(),
+    ) {
+        let mut parent_local = load_local_crumb(parent);
+        let bubble_item = CrumbHistoryItem {
+            crumb_id: format!("bubble-{}", Utc::now().timestamp_nanos_opt().unwrap_or(0)),
+            timestamp: Utc::now().to_rfc3339(),
+            agent_id: agent_id.to_string(),
+            session_id: session_id.to_string(),
+            action: format!("sub:{}", action),
+            target: format!("{}/{}", dir_name, target_name),
+            intent: intent.to_string(),
+            vector: vector.to_string(),
+        };
+        parent_local.history.push(bubble_item);
+        if parent_local.history.len() > 50 {
+            parent_local
+                .history
+                .drain(0..parent_local.history.len() - 50);
         }
+        save_local_crumb(parent, &parent_local);
     }
+}
+
+/// The parent directory a crumb record bubbles into. It must sit under the
+/// home directory and inside a permitted workspace: the parent of a workspace
+/// root (`~` for `~/workspace`) is outside the allow list (DRA-47).
+fn bubble_parent<'a>(
+    dir: &'a Path,
+    home: &Path,
+    workspaces: &[std::path::PathBuf],
+) -> Option<&'a Path> {
+    let parent = dir.parent().filter(|p| *p != dir)?;
+    if !parent.starts_with(home) {
+        return None;
+    }
+    crate::safety::validate_workspace_path(parent, workspaces).ok()?;
+    Some(parent)
 }
 
 /// Leaves a whisper message in a directory .crumb.local file.
@@ -651,4 +707,65 @@ fn auto_sense_directory_purpose(dir: &Path) -> String {
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "workspace".to_string());
     format!("Workspace subsystem directory for {}", dir_name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// DRA-47: recording in a workspace root must not bubble into the root's
+    /// parent, which is under `$HOME` but outside the allow list. One level
+    /// down, the parent is the workspace and the bubble stays.
+    #[test]
+    fn bubble_stays_inside_a_permitted_workspace() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().canonicalize().unwrap();
+        let ws = home.join("workspace");
+        std::fs::create_dir_all(ws.join("sub")).unwrap();
+        let workspaces = vec![ws.clone()];
+        assert_eq!(bubble_parent(&ws, &home, &workspaces), None);
+        assert_eq!(
+            bubble_parent(&ws.join("sub"), &home, &workspaces),
+            Some(ws.as_path())
+        );
+        let elsewhere = tempfile::tempdir().unwrap();
+        let elsewhere = elsewhere.path().canonicalize().unwrap().join("sub");
+        assert_eq!(bubble_parent(&elsewhere, &home, &workspaces), None);
+    }
+
+    /// DRA-47: `init_sandbox` writes a fresh worktree's `.crumb` only when
+    /// `exists()` is false, which a dangling symlink committed by the repo
+    /// also reports. The write must not follow either kind of link.
+    #[cfg(unix)]
+    #[test]
+    fn new_crumb_is_not_written_through_a_symlink() {
+        use std::os::unix::fs::symlink;
+        let outside = tempfile::tempdir_in("/dev/shm").unwrap();
+        let out = outside.path().canonicalize().unwrap();
+        let existing = out.join("existing");
+        std::fs::write(&existing, "VICTIM").unwrap();
+        let missing = out.join("missing");
+        let sandbox = tempfile::tempdir().unwrap();
+        let dangling = sandbox.path().join("dangling.crumb");
+        let linked = sandbox.path().join("linked.crumb");
+        symlink(&missing, &dangling).unwrap();
+        symlink(&existing, &linked).unwrap();
+        assert!(!dangling.exists(), "a dangling link reads as absent");
+
+        let _ = write_new_crumb(&dangling, "SANDBOX_CRUMB");
+        let _ = write_new_crumb(&linked, "SANDBOX_CRUMB");
+        let mut escaped = Vec::new();
+        if missing.symlink_metadata().is_ok() {
+            escaped.push(format!("created {}", missing.display()));
+        }
+        if std::fs::read_to_string(&existing).unwrap() != "VICTIM" {
+            escaped.push(format!("rewrote {}", existing.display()));
+        }
+        assert!(escaped.is_empty(), "{}", escaped.join("; "));
+
+        // Control: a plain absent path is created with the content.
+        let fresh = sandbox.path().join(".crumb");
+        write_new_crumb(&fresh, "SANDBOX_CRUMB").unwrap();
+        assert_eq!(std::fs::read_to_string(&fresh).unwrap(), "SANDBOX_CRUMB");
+    }
 }

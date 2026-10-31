@@ -53,7 +53,7 @@ pub const Q36_OVERLAP_AB_ENV: &str = "AIEN_OMEGA_Q36_OVERLAP_AB";
 pub const CHIP_GREEDY_ENV: &str = "AIEN_SERVE_CHIP_GREEDY";
 
 fn model_type(dir: &Path) -> Option<String> {
-    std::fs::read_to_string(dir.join("config.json"))
+    crate::read_model_text(&dir.join("config.json"))
         .ok()
         .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
         .and_then(|v| v["model_type"].as_str().map(str::to_owned))

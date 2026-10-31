@@ -16,7 +16,6 @@
 use colored::*;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::fs;
 use std::io::Write;
 use std::path::Path;
 use std::process::Command;
@@ -821,22 +820,43 @@ fn exec_crumb_tool(args: &Value) -> (Value, bool) {
         .and_then(Value::as_str)
         .unwrap_or("survey");
     let path_str = args.get("path").and_then(Value::as_str).unwrap_or(".");
-    let p = Path::new(path_str);
+    let target = Path::new(path_str);
+    // A file names its directory. The binder authorizes that directory before
+    // any crumb read or write, the same way the other file tools bind their
+    // path; only `init` may create it, beneath the workspace (DRA-47).
+    let named_dir = if target.is_dir() {
+        target
+    } else {
+        match target.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent,
+            _ => Path::new("."),
+        }
+    };
+    let named_dir = named_dir.to_string_lossy();
+    let bound = match action {
+        "init" => crate::fs_bind::make_dir(&named_dir),
+        "survey" | "whisper" | "record" => crate::fs_bind::list_dir(&named_dir).map(|(d, _)| d),
+        other => {
+            return (
+                json!({"error": format!("Unknown crumb action: {}", other)}),
+                false,
+            )
+        }
+    };
+    let dir = match bound {
+        Ok(dir) => dir,
+        Err(err) => return bind_err(err),
+    };
 
     match action {
         "survey" => {
-            let view = format_dir_crumb_tui(p);
+            let view = format_dir_crumb_tui(&dir);
             (json!({"status": "ok", "crumb_view": view}), true)
         }
         "whisper" => {
             let msg = args.get("message").and_then(Value::as_str).unwrap_or("");
             let target_file = args.get("target_file").and_then(Value::as_str);
-            let dir = if p.is_dir() {
-                p
-            } else {
-                p.parent().unwrap_or(p)
-            };
-            leave_dir_whisper("AIEN", dir, target_file, msg);
+            leave_dir_whisper("AIEN", &dir, target_file, msg);
             (
                 json!({"status": "ok", "message": "Whisper recorded to directory .crumb"}),
                 true,
@@ -851,12 +871,6 @@ fn exec_crumb_tool(args: &Value) -> (Value, bool) {
                 .get("lifecycle")
                 .and_then(Value::as_str)
                 .unwrap_or("permanent");
-            let p_dir = if p.is_dir() {
-                p
-            } else {
-                p.parent().unwrap_or(p)
-            };
-            let _ = fs::create_dir_all(p_dir);
             let purpose_obj = CrumbPurpose {
                 statement: purpose_str.to_string(),
                 created_by: "AIEN".to_string(),
@@ -864,15 +878,15 @@ fn exec_crumb_tool(args: &Value) -> (Value, bool) {
                 created_at: Utc::now().to_rfc3339(),
                 lifecycle: lifecycle.to_string(),
             };
-            let mut crumb = load_or_init_dir_crumb(p_dir, Some(purpose_obj));
+            let mut crumb = load_or_init_dir_crumb(&dir, Some(purpose_obj));
             crumb.description = purpose_str.to_string();
             save_dir_crumb(&crumb);
             (
-                json!({"status": "ok", "message": format!("Initialized .crumb with purpose for {}", p_dir.display())}),
+                json!({"status": "ok", "message": format!("Initialized .crumb with purpose for {named_dir}")}),
                 true,
             )
         }
-        "record" => {
+        _ => {
             let intent = args
                 .get("intent")
                 .and_then(Value::as_str)
@@ -881,16 +895,18 @@ fn exec_crumb_tool(args: &Value) -> (Value, bool) {
                 .get("vector")
                 .and_then(Value::as_str)
                 .unwrap_or("Next milestone");
-            record_directory_crumb("AIEN", "tool-call", p, "record", intent, vector);
+            // Record against the named file when there is one, inside the
+            // authorized directory.
+            let recorded = match target.file_name() {
+                Some(name) if !target.is_dir() => dir.join(name),
+                _ => dir,
+            };
+            record_directory_crumb("AIEN", "tool-call", &recorded, "record", intent, vector);
             (
                 json!({"status": "ok", "message": "Directory crumb recorded"}),
                 true,
             )
         }
-        other => (
-            json!({"error": format!("Unknown crumb action: {}", other)}),
-            false,
-        ),
     }
 }
 
@@ -1318,6 +1334,161 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("CONFINEMENT DENIAL"));
+    }
+
+    /// Every entry under `root`, symlinks not followed.
+    #[cfg(unix)]
+    fn tree(root: &Path) -> Vec<std::path::PathBuf> {
+        let mut out = Vec::new();
+        let mut stack = vec![root.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+                let path = entry.path();
+                if entry.file_type().unwrap().is_dir() {
+                    stack.push(path.clone());
+                }
+                out.push(path);
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// DRA-47: the `crumb` tool creates directories and `.crumb` /
+    /// `.crumb.local` files. Every action must go through the workspace
+    /// binder: an absolute path, a `..` escape and a symlink escape out of a
+    /// workspace are refused and leave the outside directory untouched. An
+    /// in-workspace init and record still write (negative control).
+    #[cfg(unix)]
+    #[test]
+    fn crumb_tool_writes_nothing_outside_the_workspace() {
+        use std::os::unix::fs::symlink;
+        let shm = std::path::PathBuf::from("/dev/shm");
+        assert!(shm.is_dir(), "/dev/shm is required for an unpermitted dir");
+        let outside = tempfile::tempdir_in(&shm).unwrap();
+        let out = outside.path().canonicalize().unwrap();
+        assert!(
+            crate::safety::validate_workspace_path(
+                out.to_str().unwrap(),
+                &crate::fs_bind::permitted_workspaces()
+            )
+            .is_err(),
+            "outside dir is permitted; the test would not prove confinement"
+        );
+        std::fs::create_dir(out.join("plain")).unwrap();
+        let ws_tmp = tempfile::tempdir_in("/tmp").unwrap();
+        let ws = ws_tmp.path().canonicalize().unwrap();
+        symlink(&out, ws.join("link")).unwrap();
+        let up = "../".repeat(ws.components().count() - 1);
+        let dotdot = format!(
+            "{}/{}{}/dotdot/leaf",
+            ws.display(),
+            up,
+            out.strip_prefix("/").unwrap().display()
+        );
+        let plain = out.join("plain").display().to_string();
+        let made = out.join("made/leaf").display().to_string();
+        let via_link = ws.join("link/viasym/leaf").display().to_string();
+        let link_dir = ws.join("link").display().to_string();
+        let escapes = [
+            json!({"action": "init", "path": made}),
+            json!({"action": "init", "path": dotdot}),
+            json!({"action": "init", "path": via_link}),
+            json!({"action": "record", "path": plain}),
+            json!({"action": "record", "path": link_dir}),
+            json!({"action": "whisper", "path": plain, "message": "m"}),
+            json!({"action": "whisper", "path": link_dir, "message": "m"}),
+            json!({"action": "survey", "path": plain}),
+            json!({"action": "survey", "path": link_dir}),
+        ];
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let before = tree(&out);
+            let mut escaped = Vec::new();
+            for args in &escapes {
+                let res = dispatch_tool("crumb", args);
+                let after = tree(&out);
+                let err = res.get("error").and_then(Value::as_str).unwrap_or("");
+                if after != before || !err.contains("CONFINEMENT DENIAL") {
+                    let new: Vec<_> = after.iter().filter(|p| !before.contains(p)).collect();
+                    escaped.push(format!("{args} -> {res}; created outside: {new:?}"));
+                    for p in new.iter().rev() {
+                        let _ = std::fs::remove_file(p).or_else(|_| std::fs::remove_dir(p));
+                    }
+                }
+            }
+            assert!(
+                escaped.is_empty(),
+                "{} of {} crumb calls escaped:\n{}",
+                escaped.len(),
+                escapes.len(),
+                escaped.join("\n")
+            );
+
+            let inside = ws.join("ok/leaf").display().to_string();
+            let res = dispatch_tool("crumb", &json!({"action": "init", "path": inside}));
+            assert!(res.get("error").is_none(), "in-workspace init: {res}");
+            assert!(ws.join("ok/.crumb").is_file(), "in-workspace init: {res}");
+            let ok_dir = ws.join("ok").display().to_string();
+            let res = dispatch_tool("crumb", &json!({"action": "record", "path": ok_dir}));
+            assert!(res.get("error").is_none(), "in-workspace record: {res}");
+            assert!(ws.join("ok/.crumb.local").is_file(), "in-workspace record");
+        });
+    }
+
+    /// DRA-47: a `.crumb` or `.crumb.local` symlink planted in a workspace
+    /// directory (say by a cloned repository) must not redirect a crumb read
+    /// or write to its target outside the workspace.
+    #[cfg(unix)]
+    #[test]
+    fn crumb_sidecar_symlink_is_not_followed() {
+        use std::os::unix::fs::symlink;
+        let outside = tempfile::tempdir_in("/dev/shm").unwrap();
+        let out = outside.path().canonicalize().unwrap();
+        let victim_crumb = out.join("victim-crumb");
+        let victim_local = out.join("victim-local");
+        std::fs::write(&victim_crumb, "VICTIM_CRUMB").unwrap();
+        std::fs::write(&victim_local, "VICTIM_LOCAL").unwrap();
+        let ws_tmp = tempfile::tempdir_in("/tmp").unwrap();
+        let ws = ws_tmp.path().canonicalize().unwrap();
+        let planted = ws.join("planted");
+        std::fs::create_dir(&planted).unwrap();
+        symlink(&victim_crumb, planted.join(".crumb")).unwrap();
+        symlink(&victim_local, planted.join(".crumb.local")).unwrap();
+        let dir = planted.display().to_string();
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let mut escaped = Vec::new();
+            for args in [
+                json!({"action": "init", "path": dir}),
+                json!({"action": "record", "path": dir}),
+                json!({"action": "whisper", "path": dir, "message": "m"}),
+                json!({"action": "survey", "path": dir}),
+            ] {
+                let _ = dispatch_tool("crumb", &args);
+                for (victim, marker) in [
+                    (&victim_crumb, "VICTIM_CRUMB"),
+                    (&victim_local, "VICTIM_LOCAL"),
+                ] {
+                    let now = std::fs::read_to_string(victim).unwrap();
+                    if now != marker {
+                        escaped.push(format!("{args} rewrote {}", victim.display()));
+                        std::fs::write(victim, marker).unwrap();
+                    }
+                }
+            }
+            assert!(
+                escaped.is_empty(),
+                "crumb wrote through a planted sidecar symlink:\n{}",
+                escaped.join("\n")
+            );
+        });
     }
 
     #[test]

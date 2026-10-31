@@ -240,8 +240,16 @@ fn parse_args() -> Result<Args, String> {
 /// Sampling defaults from the checkpoint's `generation_config.json`, when present.
 fn apply_generation_defaults(cfg: &mut ServerConfig, model_dir: &std::path::Path) {
     let path = model_dir.join("generation_config.json");
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return;
+    let text = match aien_serve_http::read_model_text(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+        Err(e) => {
+            eprintln!(
+                "aien-serve-http: {}: {e}; keeping built-in sampling defaults",
+                path.display()
+            );
+            return;
+        }
     };
     let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
         eprintln!(
